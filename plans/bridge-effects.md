@@ -84,6 +84,30 @@ COMPLETE): `bridge_agrees` — its ladder discipline and landing checklist apply
    - 2a. `Cmd` ctors + `Cmd_rect'` binder case + option-valued `go`/`run_defers` +
      re-green cmd.v and every proof that unfolds them (cmd_unified's Local machinery,
      GoSemSafe's runs-ret lemmas).  `cbind` recurses under the read binder.
+     ★FOUR FORCED RESHAPES (worked 2026-07-03, before any code):
+     (i) the monad laws `cbind_ret_r`/`cbind_assoc` are unprovable as `eq` under the read
+     BINDER without funext — restate over a pointwise extensional `CmdEq` (inductive
+     congruence, binder case `forall x, CmdEq (f x) (g x)`); zero external consumers
+     today, so the restatement is contained to cmd.v (no semantic-respect lemma until a
+     consumer needs it — no premature weight).
+     (ii) BOOLEAN structural predicates cannot scan under a binder: `no_defer` and
+     `cmd_no_panic` map BOTH heap ctors to `false` (conservative fail-closed — heap ops
+     leave the decidable panic-free gate and the no_defer fragment this slice; every
+     existing GoSemSafe/cmd_unified statement over them stays TRUE as stated, proofs gain
+     trivial arms).
+     (iii) `run_cmd_terminates` as stated becomes FALSE (an unallocated access is `None`
+     at EVERY fuel — absence conflates with fuel-exhaustion by design): it survives on a
+     new decidable `no_heap` fragment (`no_heap c = true -> exists fuel oc, ...`), whose
+     measure lemmas thread the premise (a read-free tree never hits the binder arm; the
+     syntactic size `cmd_sz` is undefinable under a binder — `CRead := 1` placeholder,
+     lemmas guarded).  Consumers of the ∃-fuel form (GoSem's run layer, GoSemSafe) get
+     `no_heap` from `cmd_no_panic ⊆ no_heap` (by (ii)) or a `denote_program`-emits-no-heap
+     lemma when denotation grows heap ops.
+     (iv) `bridge_agrees` goes CONDITIONAL — `run_cmd fuel c w = Some oc -> ...` (the
+     completion premise IS the well-formedness gate, per the boundary resolution above);
+     the unconditional ∃-form is re-derived for the `no_heap` fragment via (iii).  The
+     heap-bridging agreement itself: `ustart` generalizes over an initial heap that
+     `heap_agrees` the start `World`; conclusion adds final-heap agreement.
    - 2b. `cmd_to_ucmd` heap arms (`CWrite → UWrite`, `CRead → URead` — cell ≅ any, the
      pair-swap isos `any_of_cell`/`cell_of_any`); `UFrag` GROWS write/read cases (its
      role is unchanged: the image still contains no rule consulting `vz` — no
