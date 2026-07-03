@@ -73,8 +73,9 @@ AND marking their used flags in the SAME traversal (a read-only checker cannot m
 would force the second pass rule 4 forbids).  `ptype`'s `EId` case is ALREADY the scope hook
 (landed: the `special_ident` match, `nil`-or-reject); closed `ptype` is then to be recovered as
 the empty-scope PROJECTION — the PROVEN bridge `GoSafe.type_expr_nil_ptype`
-(`option_map fst (type_expr scope_empty e) = ptype e`): at `scope_empty` no identifier resolves
-and no flag can flip, so the traversals agree exactly, and any drift between the two spellings fails the
+(`option_map fst (type_expr scope_empty e) = ptype e`): at `scope_empty` no LOCAL binding
+resolves and no used flag can flip, while the `special_ident` fall-through branch mirrors closed
+`ptype` exactly ([nil] included) — so the traversals agree, and any drift between the two spellings fails the
 build at this theorem.  Every existing `ptype` theorem survives untouched.  The same shape lands
 for the evaluator's ident resolution in `GoSemDenote` (rung 5).
 
@@ -86,7 +87,7 @@ for the evaluator's ident resolution in `GoSemDenote` (rung 5).
 3. `x := nil` → reject (Go: "use of untyped nil").
 4. DECLARED-BUT-UNUSED → reject.  Go's "declared and not used" is a COMPILE ERROR; without this rule
    the gate could certify Go that does not build (fail-open — forbidden).  STRUCTURAL: the used flag
-   lives IN `Γ` (see above) and uses are marked RECURSIVELY through subexpressions by the same
+   lives IN the checker's `ScopeS` state (see above) and uses are marked RECURSIVELY through subexpressions by the same
    traversal that types them; the no-unused rejection is the fold's final step, not a second pass.
    `_ = x` counts as a use (Go's own idiom for it).
 5. declaring a CHECKER-RECOGNIZED name → reject.  The single source is LANDED (rung 2): **GoAst's
