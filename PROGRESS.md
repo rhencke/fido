@@ -81,9 +81,9 @@ field selectors, runtime numeric conversions, fixed-width bridging binops — th
   rungs 1–5 LANDED, ★ rung 5 CLOSED — ADD + SUB at binary64 (`sf_render_{add,sub}_agrees_f64`:
   the live render of the fold IS the model op of the renders, all shapes); ★ rung 6 CLOSED —
   MUL + exact DIV (`sf_render_{mul,div}_agrees_f64`, CONST-layer endpoints — raw `-0` is
-  runtime-only); rung 7 (f32) groundwork landed (the assembly kit
-  precision-generic + binary32 instances). Next: the f32 op endpoints + conversions, then
-  checker completeness (8). (T1–T5 + R8 COMPLETE — `LESSONS.md`.)
+  runtime-only); rung 7: ADD at binary32 CLOSED
+  (`sf_render_add_agrees_f32`, the checker's own composite; the ADD stack precision-generic).
+  Next: SUB/MUL/DIV at binary32 + cross-width conversions, then checker completeness (8). (T1–T5 + R8 COMPLETE — `LESSONS.md`.)
 - CONSOLIDATION (boss, 2026-07-02): shrink bytes, no new features; surfaces stay
   endpoint-only. The §3a GoSem split is DONE (Core/Denote/composition — revised 3-file form).
 - Extend the cmd↔unified bridge to chan/heap/spawn.

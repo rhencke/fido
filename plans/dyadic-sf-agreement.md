@@ -79,11 +79,12 @@ value quotient is `dy_norm` (the odd-mantissa normal form), never ℝ.
    ★ ADD at binary64 CLOSED (gated `sf_render_add_agrees_f64`): on the gate's windows —
    operands AND result — the LIVE render of `dy_add`'s exact fold IS the model's `f64_add` of
    the operands' renders, every shape (zero rows, cancellation, the raw-wide carry class).
-   The assembly: `sf_render_signed_value_f64` (signed difference-form operand
-   characterization) + `cond_Zopp_mul` value algebra identify `SFadd`'s raw aligned sum with
-   the fold (`f64_add_finite_agrees`), the zero rows collapse via `dy_norm_value_unique`
-   (`f64_add_zero_{left,right}_f64`), and `normalize_result_agrees_f64` (idempotence + wide
-   determinism under the result's window) is the uniform endgame.
+   The assembly (PRECISION-GENERIC since rung 7): `render_signed_value_gen` (signed
+   difference-form operand characterization) + `cond_Zopp_mul` value algebra identify
+   `SFadd`'s raw aligned sum with the fold (`SFadd_finite_gen`), the zero rows collapse via
+   `dy_norm_value_unique` (`SFadd_zero_{left,right}_gen`), and `normalize_result_agrees_gen`
+   (idempotence + wide determinism under the result's window) is the uniform endgame —
+   `SFadd_normalize_agrees_gen` composes them; the f64 endpoint is its 53/1024 instance.
    SUB CLOSED too (gated `sf_render_sub_agrees_f64`): `SFsub_as_add_opp` (row-by-row, the
    finite arm by `Z.sub`-is-`add∘opp` conversion) + `bn_opp_f64` (rung 1 at the normalizer)
    transport the ADD closure through `dy_sub = dy_add ∘ dy_neg`; a zero subtrahend's `-0` is

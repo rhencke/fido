@@ -1914,9 +1914,8 @@ Proof.
         rewrite Hbnr. reflexivity.
 Qed.
 
-(** ---- rung 7 groundwork — the f32 row's assembly kit: the deep bridges were already
-    precision-generic, and the render/normalize assembly is now generic too; these are the
-    binary32 instances. *)
+(** ---- rung 7 — the f32 row: the deep bridges and the render/normalize assembly are
+    precision-generic; these are the binary32 instances and the LIVE binary32 endpoints. *)
 Lemma repr_window_split_f32 : forall m e,
   float_dyadic_repr GTFloat32 m e = true ->
   m = Z0 \/ exists q, Z.abs m = Zpos q
