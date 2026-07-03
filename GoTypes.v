@@ -716,10 +716,20 @@ Definition map_key_vals : list (GExpr * GExpr) -> list Z := map_key_vals_with pt
     — so the value must FIT in [int].  We require it fit the CONSERVATIVE 32-bit range (sound on every Go target),
     so [_ = <a 40-bit const>] is REJECTED while [_ = 1] is admitted.  (A TYPED constant [PtTIntConst] was already
     range-checked at its conversion.) *)
+(** The VALUE-position discipline as a CATEGORY predicate (shared by the closed [svalue] and the
+    scope-aware statement checks — one per-category authority, no twin spelling): a bare untyped
+    int constant must fit the conservative default [int]; a bare [nil] is "use of untyped nil";
+    every other assigned category is a value. *)
+Definition svalue_cat (c : PTy) : bool :=
+  match c with
+  | PtIntConst z => int_const_repr z GTInt   (* default-[int] boundary: bare untyped const must fit int *)
+  | PtNil => false   (* a bare [nil] value is "use of untyped nil" — invalid; [nil] is a value only inside a conversion *)
+  | PtTIntConst _ _ | PtFloatConst _ _ | PtRunInt _ | PtRunFloat _
+  | PtBool | PtStr | PtAgg | PtMap => true
+  end.
 Definition svalue (e : GExpr) : bool :=
   match ptype e with
-  | Some (PtIntConst z) => int_const_repr z GTInt   (* default-[int] boundary: bare untyped const must fit int *)
-  | Some PtNil => false   (* a bare [nil] value is "use of untyped nil" — invalid; [nil] is a value only inside a conversion *)
-  | Some _ => true
+  | Some c => svalue_cat c
   | None => false
   end.
+Arguments svalue_cat !c /.

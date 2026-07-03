@@ -642,12 +642,18 @@ Definition stmt_call_ok (f : string) (args : list GExpr) : bool :=
     a constant / a [len] of an aggregate has a KNOWN scalar category.)  ★The default-[int] boundary applies: a
     bare UNTYPED int constant arg gets default type [int], so it must FIT in (conservative 32-bit) [int] —
     [println(1)] ✓, [println(<huge>)] REJECT (a TYPED constant was already range-checked at its conversion). *)
+Definition printable_cat (c : PTy) : bool :=
+  match c with
+  | PtIntConst z => int_const_repr z GTInt   (* default-[int] boundary: a bare untyped const must fit int *)
+  | PtTIntConst _ _ | PtFloatConst _ _
+  | PtRunInt _ | PtRunFloat _ | PtBool | PtStr => true
+  | PtAgg | PtMap | PtNil => false
+  end.
+Arguments printable_cat !c /.
 Definition printable_arg_ok (e : GExpr) : bool :=
   match ptype e with
-  | Some (PtIntConst z) => int_const_repr z GTInt   (* default-[int] boundary: a bare untyped const must fit int *)
-  | Some (PtTIntConst _ _) | Some (PtFloatConst _ _)
-  | Some (PtRunInt _) | Some (PtRunFloat _) | Some PtBool | Some PtStr => true
-  | _ => false
+  | Some c => printable_cat c
+  | None => false
   end.
 
 (** A [GExpr] legal as an EXPRESSION STATEMENT in Go.  Per the Go spec a bare expression statement must be a
