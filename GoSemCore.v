@@ -1915,9 +1915,10 @@ Proof.
 Qed.
 
 (** ---- rung 7 — the f32 row: the deep bridges and the render/normalize assembly are
-    precision-generic; below are the binary32 helper instances and the ONE live binary32
-    endpoint so far, ADD ([sf_render_add_agrees_f32]); SUB/MUL/DIV and the cross-width
-    conversions remain OPEN until their endpoint theorems land and are surfaced. *)
+    precision-generic; below are the binary32 helper instances and the TWO live binary32
+    endpoints so far, ADD + SUB ([sf_render_{add,sub}_agrees_f32]); MUL/DIV and the
+    cross-width conversions remain OPEN until their endpoint theorems land and are
+    surfaced. *)
 Lemma repr_window_split_f32 : forall m e,
   float_dyadic_repr GTFloat32 m e = true ->
   m = Z0 \/ exists q, Z.abs m = Zpos q
@@ -2028,4 +2029,98 @@ Proof.
   - destruct (render_signed_value_f32 (Zneg pr) er pr eq_refl Hr)
       as [sr [mcr [Tr [Hbnr _]]]].
     rewrite Hbnr. reflexivity.
+Qed.
+
+(** ★ SUB at binary32 (gated, over the checker's composite [f32val] ∘ [f32_sub] ∘ [f32_lit]):
+    [SFsub_as_add_opp] + the generic sign-flip authority transport the generic ADD closure,
+    exactly as at binary64; the operand/result re-rounds are erased by
+    [f32_round_render_id]. *)
+Theorem sf_render_sub_agrees_f32 : forall m1 e1 m2 e2 mr er,
+  float_dyadic_repr GTFloat32 m1 e1 = true ->
+  float_dyadic_repr GTFloat32 m2 e2 = true ->
+  dy_sub (m1, e1) (m2, e2) = (mr, er) ->
+  float_dyadic_repr GTFloat32 mr er = true ->
+  exists v1 v2,
+    sf_render GTFloat32 m1 e1 = Some v1
+    /\ sf_render GTFloat32 m2 e2 = Some v2
+    /\ sf_render GTFloat32 mr er
+       = Some (sf_pos_zero (f32val (f32_sub (f32_lit v1) (f32_lit v2)))).
+Proof.
+  intros m1 e1 m2 e2 mr er H1 H2 Hsub Hr.
+  unfold dy_sub in Hsub. cbn [dy_neg] in Hsub.
+  rewrite !sf_render_f32_eq.
+  do 2 eexists. split; [reflexivity|]. split; [reflexivity|].
+  f_equal.
+  cbn [f32_sub f32_lit f32_of_f64 f32val].
+  rewrite (f32_round_render_id m1 e1 H1), (f32_round_render_id m2 e2 H2).
+  rewrite SFsub_as_add_opp.
+  destruct m2 as [|q2|q2].
+  - (* zero subtrahend: SFopp (+0) = -0, absorbed by the sign-blind rows *)
+    cbn [Z.opp] in Hsub.
+    change (binary_normalize 24 128 0 e2 false) with (S754_zero false).
+    cbn [SFopp].
+    destruct m1 as [|q1|q1].
+    + change (binary_normalize 24 128 0 e1 false) with (S754_zero false).
+      cbn [dy_add] in Hsub.
+      destruct (Z.leb e1 e2) in Hsub;
+        rewrite Z.shiftl_0_l in Hsub; cbn [Z.add dy_norm] in Hsub;
+        injection Hsub as <- <-; reflexivity.
+    + destruct (render_signed_value_f32 (Zpos q1) e1 q1 eq_refl H1)
+        as [s1 [mc1 [T1 [Hbn1 _]]]].
+      rewrite Hbn1. cbn [SFadd].
+      rewrite <- Hbn1.
+      rewrite (f32_round_render_id (Zpos q1) e1 H1).
+      assert (Hsum : dy_norm (Zpos q1) e1 = (mr, er)).
+      { cbn [dy_add] in Hsub.
+        destruct (Z.leb e1 e2) eqn:Eb in Hsub.
+        - rewrite Z.shiftl_0_l, Z.add_0_r in Hsub. exact Hsub.
+        - apply Z.leb_gt in Eb.
+          rewrite Z.add_0_r, Z.shiftl_mul_pow2 in Hsub by lia.
+          rewrite <- Hsub. symmetry.
+          apply (dy_norm_value_unique (Zpos q1 * 2 ^ (e1 - e2)) e2 (Zpos q1) e1);
+            [lia | reflexivity]. }
+      rewrite <- (normalize_result_agrees_f32 (Zpos q1) e1 mr er Hsum Hr).
+      rewrite Hbn1. reflexivity.
+    + destruct (render_signed_value_f32 (Zneg q1) e1 q1 eq_refl H1)
+        as [s1 [mc1 [T1 [Hbn1 _]]]].
+      rewrite Hbn1. cbn [SFadd].
+      rewrite <- Hbn1.
+      rewrite (f32_round_render_id (Zneg q1) e1 H1).
+      assert (Hsum : dy_norm (Zneg q1) e1 = (mr, er)).
+      { cbn [dy_add] in Hsub.
+        destruct (Z.leb e1 e2) eqn:Eb in Hsub.
+        - rewrite Z.shiftl_0_l, Z.add_0_r in Hsub. exact Hsub.
+        - apply Z.leb_gt in Eb.
+          rewrite Z.add_0_r, Z.shiftl_mul_pow2 in Hsub by lia.
+          rewrite <- Hsub. symmetry.
+          apply (dy_norm_value_unique (Zneg q1 * 2 ^ (e1 - e2)) e2 (Zneg q1) e1);
+            [lia | reflexivity]. }
+      rewrite <- (normalize_result_agrees_f32 (Zneg q1) e1 mr er Hsum Hr).
+      rewrite Hbn1. reflexivity.
+  - rewrite <- (binary_normalize_opp 24 128 (Zpos q2) e2 ltac:(discriminate)).
+    rewrite (SFadd_normalize_agrees_gen 24 128 m1 e1 (- Zpos q2)%Z e2 mr er
+               (repr_window_split_f32 m1 e1 H1)
+               (repr_window_split_f32 (- Zpos q2)%Z e2 (float_dyadic_repr_opp _ _ _ H2))
+               Hsub (repr_window_split_f32 mr er Hr) ltac:(lia)).
+    rewrite (f32_round_render_id mr er Hr).
+    destruct mr as [|pr|pr]; [reflexivity| |].
+    + destruct (render_signed_value_f32 (Zpos pr) er pr eq_refl Hr)
+        as [sr [mcr [Tr [Hbnr _]]]].
+      rewrite Hbnr. reflexivity.
+    + destruct (render_signed_value_f32 (Zneg pr) er pr eq_refl Hr)
+        as [sr [mcr [Tr [Hbnr _]]]].
+      rewrite Hbnr. reflexivity.
+  - rewrite <- (binary_normalize_opp 24 128 (Zneg q2) e2 ltac:(discriminate)).
+    rewrite (SFadd_normalize_agrees_gen 24 128 m1 e1 (- Zneg q2)%Z e2 mr er
+               (repr_window_split_f32 m1 e1 H1)
+               (repr_window_split_f32 (- Zneg q2)%Z e2 (float_dyadic_repr_opp _ _ _ H2))
+               Hsub (repr_window_split_f32 mr er Hr) ltac:(lia)).
+    rewrite (f32_round_render_id mr er Hr).
+    destruct mr as [|pr|pr]; [reflexivity| |].
+    + destruct (render_signed_value_f32 (Zpos pr) er pr eq_refl Hr)
+        as [sr [mcr [Tr [Hbnr _]]]].
+      rewrite Hbnr. reflexivity.
+    + destruct (render_signed_value_f32 (Zneg pr) er pr eq_refl Hr)
+        as [sr [mcr [Tr [Hbnr _]]]].
+      rewrite Hbnr. reflexivity.
 Qed.

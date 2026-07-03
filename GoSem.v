@@ -1366,7 +1366,7 @@ Definition gosem_float_surface :=
    binary_normalize_wide_determined, add_carry_raw_wide_accepted, binary_round_of_norm_wide,
    dy_norm_value_unique, sf_render_signed_value_f64, sf_render_add_agrees_f64,
    sf_render_sub_agrees_f64, sf_render_mul_agrees_f64, sf_render_div_agrees_f64,
-   sf_render_add_agrees_f32,
+   sf_render_add_agrees_f32, sf_render_sub_agrees_f32,
    sf_render_neg_general_f64, sf_render_fold_neg_general_f64,
    fsf_checked_render, fsf_checked_neg_zero_total, negzero_const_runs,
    sf_const_binop_zero_erased, sf_const_neg_zero_erased,
