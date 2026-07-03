@@ -2758,3 +2758,115 @@ Proof.
     rewrite <- Hc, sf_eqb_struct_refl.
     reflexivity.
 Qed.
+
+(** INTERNAL induction STEP (scalar float CONVERSION) for the rung-8 class theorem — same
+    contract as the unary step: the operand-completeness premise is the IH, discharged only
+    by the master theorem. *)
+Lemma fsf_checked_complete_conv_step : forall i a t d,
+  ptype (ECall (EId i) (a :: nil)) = Some (PtFloatConst t d) ->
+  (forall t' d', ptype a = Some (PtFloatConst t' d') ->
+     fsf_checked a = sf_render t' (dy_m d') (dy_e d')) ->
+  fsf_checked (ECall (EId i) (a :: nil)) = sf_render t (dy_m d) (dy_e d).
+Proof.
+  intros i a t d H IH.
+  pose proof H as Hkeep.
+  cbn [ptype] in H.
+  destruct (ptype a) as [ca|] eqn:Hpa; [|discriminate H].
+  destruct (String.eqb (proj1_sig i) "len") eqn:Hlen.
+  { destruct a; destruct ca; try discriminate H. }
+  destruct (String.eqb (proj1_sig i) "cap") eqn:Hcap.
+  { destruct ca; discriminate H. }
+  destruct (classify (proj1_sig i)) as [tt|] eqn:Hcls; [|discriminate H].
+  cbn [fsf_checked]. rewrite Hkeep. rewrite Hpa.
+  destruct tt;
+    try (destruct ca; cbn [conv_to_scalar] in H;
+         repeat first
+           [ discriminate H
+           | progress (cbv beta zeta in H)
+           | match type of H with (if ?b then _ else _) = _ =>
+               let E := fresh "E" in
+               destruct b eqn:E; try rewrite E in H; cbv beta iota in H; try clear E
+             end ];
+         fail).
+  - (* target GTFloat64 *)
+    destruct ca as [z|tz z|ta d0|rt|rt| | | | |]; try discriminate H;
+      cbn [conv_to_scalar] in H.
+    + (* PtIntConst leaf *)
+      repeat first
+        [ discriminate H
+        | progress (cbv beta zeta in H)
+        | match type of H with (if ?b then _ else _) = _ =>
+            let E := fresh "E" in
+            destruct b eqn:E; try rewrite E in H; cbv beta iota in H; try clear E
+          end ].
+      injection H as <- <-.
+      cbn [sf_render]. reflexivity.
+    + (* PtTIntConst leaf *)
+      repeat first
+        [ discriminate H
+        | progress (cbv beta zeta in H)
+        | match type of H with (if ?b then _ else _) = _ =>
+            let E := fresh "E" in
+            destruct b eqn:E; try rewrite E in H; cbv beta iota in H; try clear E
+          end ].
+      injection H as <- <-.
+      cbn [sf_render]. reflexivity.
+    + (* PtFloatConst ta d0 source *)
+      match type of H with (if ?b then _ else _) = _ =>
+        destruct b eqn:Hg; try rewrite Hg in H; cbv beta iota in H
+      end; [|discriminate H].
+      injection H as <- <-.
+      pose proof (ptype_float_const_repr a ta d0 Hpa) as Hsrc.
+      rewrite (IH _ _ eq_refl).
+      destruct ta; try discriminate Hsrc.
+      * (* 64 -> 64: identity *)
+        cbn [sf_render numty_eqb]. cbv beta iota.
+        rewrite sf_eqb_struct_refl. reflexivity.
+      * (* 32 -> 64: widen *)
+        destruct (sf_render_widen_agrees_f32 (dy_m d0) (dy_e d0) Hsrc)
+          as [v32 [Hv32 Hw]].
+        cbn [sf_render f32val f32_lit f32_of_f64 f64_of_f32] in Hv32, Hw |- *.
+        injection Hv32 as Hv32. injection Hw as Hw.
+        cbn [numty_eqb]. cbv beta iota.
+        cbn [f32val f32_lit f32_of_f64 f64_of_f32].
+        rewrite Hv32, <- Hw, sf_eqb_struct_refl. reflexivity.
+  - (* target GTFloat32 *)
+    destruct ca as [z|tz z|ta d0|rt|rt| | | | |]; try discriminate H;
+      cbn [conv_to_scalar] in H.
+    + repeat first
+        [ discriminate H
+        | progress (cbv beta zeta in H)
+        | match type of H with (if ?b then _ else _) = _ =>
+            let E := fresh "E" in
+            destruct b eqn:E; try rewrite E in H; cbv beta iota in H; try clear E
+          end ].
+      injection H as <- <-.
+      cbn [sf_render]. reflexivity.
+    + repeat first
+        [ discriminate H
+        | progress (cbv beta zeta in H)
+        | match type of H with (if ?b then _ else _) = _ =>
+            let E := fresh "E" in
+            destruct b eqn:E; try rewrite E in H; cbv beta iota in H; try clear E
+          end ].
+      injection H as <- <-.
+      cbn [sf_render]. reflexivity.
+    + match type of H with (if ?b then _ else _) = _ =>
+        destruct b eqn:Hg; try rewrite Hg in H; cbv beta iota in H
+      end; [|discriminate H].
+      injection H as <- <-.
+      pose proof (ptype_float_const_repr a ta d0 Hpa) as Hsrc.
+      rewrite (IH _ _ eq_refl).
+      destruct ta; try discriminate Hsrc.
+      * (* 64 -> 32: narrow — the TARGET window is the conv guard Hg *)
+        destruct (sf_render_narrow_agrees_f32 (dy_m d0) (dy_e d0) Hg)
+          as [v64 [Hv64 Hn]].
+        cbn [sf_render f32val f32_lit f32_of_f64 f64_of_f32] in Hv64, Hn |- *.
+        injection Hv64 as Hv64. injection Hn as Hn.
+        cbn [numty_eqb]. cbv beta iota.
+        cbn [f32val f32_lit f32_of_f64 f64_of_f32].
+        rewrite Hv64, <- Hn, sf_eqb_struct_refl. reflexivity.
+      * (* 32 -> 32: identity *)
+        cbn [sf_render numty_eqb]. cbv beta iota.
+        rewrite sf_eqb_struct_refl. reflexivity.
+Qed.

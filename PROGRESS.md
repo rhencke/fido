@@ -84,7 +84,7 @@ field selectors, runtime numeric conversions, fixed-width bridging binops — th
   runtime-only); ★ rung 7 CLOSED: all four
   binary32 op endpoints + the cross-width pair (`sf_render_{add,sub,mul,div,narrow,widen}_agrees_f32`;
   the ADD/MUL/DIV cores precision-generic). rung 8 (checker completeness) IN PROGRESS — groundwork +
-  the internal unary step landed; the surfaced endpoint is the master induction (pending). (T1–T5 + R8 COMPLETE — `LESSONS.md`.)
+  the internal unary/conversion steps landed; the surfaced endpoint is the master induction (pending). (T1–T5 + R8 COMPLETE — `LESSONS.md`.)
 - CONSOLIDATION (boss, 2026-07-02): shrink bytes, no new features; surfaces stay
   endpoint-only. The §3a GoSem split is DONE (Core/Denote/composition — revised 3-file form).
 - Extend the cmd↔unified bridge to chan/heap/spawn.
