@@ -31,12 +31,19 @@ Import ListNotations.
 Fixpoint cmd_out_world (c : Cmd unit) (w : World) : World :=
   match c with
   | COut b xs c' => cmd_out_world c' (w_log b xs w)
-  | _ => w
+  | CRet _ => w
+  | CPan _ => w
+  | CDfr _ _ => w      (* dead under the [no_defer] premise of every consumer *)
   end.
 
 (** The panic value a defer-free command ends in ([None] if it never panics). *)
 Fixpoint cmd_panic_val (c : Cmd unit) : option GoAny :=
-  match c with COut _ _ c' => cmd_panic_val c' | CPan v => Some v | _ => None end.
+  match c with
+  | COut _ _ c' => cmd_panic_val c'
+  | CPan v => Some v
+  | CRet _ => None
+  | CDfr _ _ => None   (* dead under the [no_defer] premise of every consumer *)
+  end.
 
 (** A defer-free command that DOES panic ([cmd_panic_val = Some v]) runs (via [go]) to [OPanic v] with the
     EXACT pre-panic output [cmd_out_world c w] — faithful: the outputs BEFORE the panic still happen, then the
