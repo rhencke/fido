@@ -1915,7 +1915,9 @@ Proof.
 Qed.
 
 (** ---- rung 7 — the f32 row: the deep bridges and the render/normalize assembly are
-    precision-generic; these are the binary32 instances and the LIVE binary32 endpoints. *)
+    precision-generic; below are the binary32 helper instances and the ONE live binary32
+    endpoint so far, ADD ([sf_render_add_agrees_f32]); SUB/MUL/DIV and the cross-width
+    conversions remain OPEN until their endpoint theorems land and are surfaced. *)
 Lemma repr_window_split_f32 : forall m e,
   float_dyadic_repr GTFloat32 m e = true ->
   m = Z0 \/ exists q, Z.abs m = Zpos q
