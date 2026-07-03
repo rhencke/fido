@@ -36,9 +36,9 @@ Open Scope string_scope.
     DECLARATION path: it binds from the RHS [PTy] through [bind_category] internally and DECIDES
     the whole-scope invariant at construction.  BOUNDARY OF THE CLAIM: construction PROVENANCE
     (that a scope arose from declarations, entries unmarked at birth) is NOT type-sealed — a
-    well-formed [ScopeS] is directly constructible; that provenance is the gate fold's property
-    ([body_okS] declares exclusively through [scope_declare], and [supported_program] runs the
-    fold from [scope_empty]).  (Full module-opacity would
+    well-formed [ScopeS] is directly constructible; that provenance is the scoped fold's property
+    ([body_okS] declares exclusively through [scope_declare]; the program gate
+    [supported_program] runs the fold from [scope_empty]).  (Full module-opacity would
     seal provenance too but blocks the [vm_compute] fixture discipline this repo's gates rest on —
     precise claims over opacity.)  [type_expr] takes [ScopeS] only. *)
 Definition bound_cat_ok (c : PTy) : bool :=
@@ -611,8 +611,9 @@ Proof.
 Qed.
 
 (** ===================================================================================================
-    ===== STRUCTURAL: statement-shape / supported-syntax — the CLOSED fragment [stmt_ok] + the
-    ===== scope-threaded gate [body_okS] / [supported_program] (locals rung 4) =====
+    ===== STRUCTURAL: statement-shape / supported-syntax — the CLOSED fragment [stmt_ok], the
+    ===== internal scope-threaded checkers [stmt_okS]/[body_okS], and the program gate
+    ===== [supported_program] (locals rung 4) =====
     =================================================================================================== *)
 
 (** Is a builtin [f] valid as a standalone EXPRESSION-STATEMENT call, by NAME and ARITY only?  [println]/
@@ -702,7 +703,8 @@ Definition stmt_ok (s : GoStmt) : bool :=
   | GsShortDecl _ _ => false  (* [x := e] needs SCOPE STATE, so it is never CLOSED-supported; [stmt_okS] below is where it is admitted (locals rung 4) *)
   end.
 
-(** ===== The SCOPE-THREADED gate (locals rung 4) — ONE fold over the sealed [ScopeS] =====
+(** ===== The SCOPE-THREADED checkers (locals rung 4) — ONE fold over the sealed [ScopeS],
+    ===== run by the program gate [supported_program] below =====
     The scope-aware twins of [expr_stmt_ok]/[stmt_ok]: the SAME per-builtin discipline through the SAME
     category predicates ([printable_cat]/[svalue_cat]) and name table, but every argument/operand goes
     through [type_expr], so identifier USES resolve against the scope and are MARKED in the same traversal.
@@ -884,7 +886,7 @@ Proof.
 Qed.
 
 (** The consumer-facing corollary ([gosem_sound]'s repair): a main-package body in the CLOSED
-    fragment is supported by the scope-threaded gate. *)
+    fragment is accepted by [supported_program]. *)
 Lemma supported_program_of_stmt_ok : forall p,
   String.eqb (proj1_sig (prog_pkg p)) "main" = true ->
   forallb stmt_ok (prog_body p) = true ->

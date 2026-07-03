@@ -20,8 +20,8 @@ compile-time rejections.  The correct shape:
 - checker scope state: `ScopeS` — WELL-FORMEDNESS sealed by sig (names valid/unrecognized/
   non-blank/distinct; entry categories `BoundCat` = `bind_category`'s image); `scope_declare` is
   the declaration path (binds from the RHS `PTy` internally); construction PROVENANCE is the
-  gate fold's property (`body_okS` declares only via `scope_declare`; `supported_program` runs it
-  from `scope_empty`) —
+  scoped fold's property (`body_okS` declares only via `scope_declare`; the program gate
+  `supported_program` runs it from `scope_empty` and adds `scope_all_used`) —
   category AND a USED flag, ONE state through ONE
   fold (rule 4's "declared and not used" is decided INSIDE the same fold that decides everything
   else — never a post-hoc validator bolted on after supportedness).  `x := e` binds `x` through the

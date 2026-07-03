@@ -260,7 +260,7 @@ Inductive GoStmt : Type :=
   | GsReturnVal   : GExpr -> GoStmt   (* a value return [return e] — valid only in a NON-void function (not main) *)
   | GsBlankAssign : GExpr -> GoStmt   (* a blank assignment [_ = e] — discards a VALUE (valid anywhere [e] is a value) *)
   | GsDefer       : GExpr -> GoStmt   (* [defer <e>] — SYNTAX takes any [GExpr]; [stmt_ok] gates it to a CALL, which runs at function-scope return (LIFO) *)
-  | GsShortDecl   : Ident -> GExpr -> GoStmt.  (* [x := e] — short variable declaration (the locals arc, plans/gosem-locals.md).  ADMITTED by GoSafe's scope-threaded gate ([stmt_okS], rung 4; the CLOSED [stmt_ok] fragment still rejects it); [denote_stmt] leaves it ABSENT until the env-threaded evaluator (rung 5) *)
+  | GsShortDecl   : Ident -> GExpr -> GoStmt.  (* [x := e] — short variable declaration (the locals arc, plans/gosem-locals.md).  ADMITTED by GoSafe's program gate [supported_program] (through the scope-threaded checker [stmt_okS], rung 4; the CLOSED [stmt_ok] fragment still rejects it); [denote_stmt] leaves it ABSENT until the env-threaded evaluator (rung 5) *)
 
 (** ---- A GO PROGRAM ---- the top-level unit GoEmit emits: a package name + the body of [func main()] (a
     list of [GoStmt]s).  No raw strings — the package is a validated [Ident] and the body is structured

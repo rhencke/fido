@@ -4288,7 +4288,7 @@ Proof.
   exact (supported_program_of_stmt_ok p Epkg (denote_body_sound _ H)).
 Qed.
 
-(** The rung-4/5 SEAM, pinned: the scope-threaded gate ADMITS a used local while the slice-1
+(** The rung-4/5 SEAM, pinned: [supported_program] ADMITS a used local while the slice-1
     evaluator still has no environment — SUPPORTED yet NOT denotable (absent via the [GsShortDecl]
     arm).  FLIPS at rung 5 when the evaluator takes ρ (swap per the frontier-pin discipline). *)
 Example shortdecl_supported_undenoted :
