@@ -655,10 +655,10 @@ End BridgeVal.
     exactly: the audit covers what the four bundled theorems consume — the [go]-grounded
     [run_defers] plumbing feeds the [run_cmd_*] properties, and the semantic Phase A +
     seed-linearity + unwind machinery ([body_runs_sem] / [run_defers_seed_linear] / [unwind_heap]
-    / [pop_defer_step]) is CONSUMED by [bridge_heap_agrees].  A Local proof artifact NOTHING
-    consumes would sit outside every printed cone (compiled but axiom-unaudited), so such
-    artifacts are FORBIDDEN — the [Local Example] gate in plugin/smart-ctor-gate.sh: an Example
-    is public and bundled into a surface, or it does not exist. *)
+    / [pop_defer_step]) is CONSUMED by [bridge_heap_agrees].  The one always-dead-by-convention
+    artifact shape, [Local Example] (an Example nothing consumes — compiled but outside every
+    printed cone), is mechanically rejected repo-wide by plugin/smart-ctor-gate.sh check 6; a
+    general Local lemma's audit is membership in a consumer's cone. *)
 Definition cmd_unified_surface :=
   (cmd_to_ucmd_fragment, bridge_heap_agrees, run_cmd_out_monotone, run_cmd_no_panic_ret).
 Print Assumptions cmd_unified_surface.

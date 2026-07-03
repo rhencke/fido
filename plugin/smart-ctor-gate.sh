@@ -1,6 +1,6 @@
 #!/bin/sh
-# Structural code-discipline gate — five CODE-LEVEL checks (smart-ctor ban / dead-name / emission-discipline /
-# bridge-recognizer / selector-bridge; each documents itself at its numbered site below).  These are grep
+# Structural code-discipline gate — CODE-LEVEL checks (smart-ctor ban / dead-name / emission-discipline /
+# bridge-recognizer / selector-bridge / local-example; each documents itself at its numbered site below).  These are grep
 # tripwires, NOT type-level seals: they catch the accidental/obvious bypass, not an aliased side door; the real
 # guarantees are the Rocq proofs + the AST admitting no raw-syntax constructor + GoEmit exporting no
 # `emit : Program -> string`.
@@ -106,10 +106,20 @@ echo "fido: selector-bridge gate OK — the ESel arm keeps its not-embedded + ML
 # does not exist.  (Consumed [Local Lemma]s are fine — they live in their consumers' cones;
 # deadness of a Lemma needs reference analysis a shell gate cannot do, so the gate pins the one
 # always-dead-by-convention form.)
-localex=$(grep -n '^Local Example' *.v 2>/dev/null || true)
+# Detector: EVERY .v in the tree (subdirs included — emitdemo/ and negtests/ are compiled too),
+# Rocq-token whitespace tolerated; only build output and .git are excluded.
+lx_detect() { find "$1" -name '*.v' -not -path '*/_build/*' -not -path '*/.git/*' -print0 2>/dev/null \
+              | xargs -0 -r grep -nE '^[[:space:]]*Local[[:space:]]+Example\b' 2>/dev/null || true; }
+# self-test: root + subdir, indented + multi-space forms — the detector must flag ALL of them.
+lx_t=$(mktemp -d); mkdir -p "$lx_t/sub"
+printf '  Local Example st_a : True.\n' > "$lx_t/a.v"
+printf 'Local  Example st_b : True.\n' > "$lx_t/sub/b.v"
+[ "$(lx_detect "$lx_t" | grep -c .)" = "2" ] || { echo "fido: LOCAL-EXAMPLE GATE self-test broke (detector missed a root/subdir or whitespace form)"; rm -rf "$lx_t"; exit 1; }
+rm -rf "$lx_t"
+localex=$(lx_detect .)
 if [ -n "$localex" ]; then
   echo "fido: LOCAL-EXAMPLE GATE — un-audited Local proof artifact(s) outside every Print Assumptions cone (make the Example public + bundle it into a surface, or delete it):"
   printf '%s\n' "$localex"
   exit 1
 fi
-echo "fido: local-example gate OK — no Local Example outside the printed surface cones ✓"
+echo "fido: local-example gate OK — no Local Example (any spelling, every .v in the tree) ✓"
