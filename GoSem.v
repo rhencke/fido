@@ -1359,7 +1359,8 @@ Definition gosem_core_surface :=
   (gosem_sound, denote_program_dec, denotable_supported, out_main_denotes, println_main_denotes,
    denotable_stmts_main_denotes, denotable_body_terminator_free_iff,
    eval_value_good_ok, eval_value_good_runs, eval_value_failclosed, eval_absent_none,
-   denote_expr_pure, arg_panic_shortcircuit_runs, gosem_category_coverage).
+   denote_expr_pure, arg_panic_shortcircuit_runs, gosem_category_coverage,
+   denote_expr_env_nil, GoSafe.tcat_mark_insensitive).
 Definition gosem_float_surface :=
   (fsf_checked_binop_agrees, fsf_checked_neg_agrees,
    fsf_checked_conv_same_agrees, fsf_checked_conv_narrow_agrees, fsf_checked_conv_widen_agrees,

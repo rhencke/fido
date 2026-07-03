@@ -821,7 +821,8 @@ Qed.
 (** The rung-3 bridge in [tcat] vocabulary: at the empty scope the projection IS closed [ptype]. *)
 Corollary tcat_nil_ptype : forall e, tcat scope_empty e = ptype e.
 Proof. exact type_expr_nil_ptype. Qed.
-Print Assumptions tcat_mark_insensitive.
+(* zero-axiom gating for the tcat suite rides its consumers' surface registration
+   ([gosem_core_surface], GoSem.v — [denote_expr_env_nil] + [tcat_mark_insensitive]). *)
 
 (** The SEAL pins — every forged shape is UNREPRESENTABLE (its witness cannot be built):
     constant/aggregate/nil local categories; recognized-name, blank, duplicate, and

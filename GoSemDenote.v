@@ -1352,8 +1352,42 @@ Proof.
   exact (K _ eq_refl).
 Qed.
 
-Local Definition rexit_tc (tc : GExpr -> option PTy) (rec : GExpr -> option RRes) (rv : GExpr -> option RAny) (e : GExpr) : option RAny :=
+(** The CLOSED leaf: no name resolves (the closed engine has no environment). *)
+Local Definition leaf_closed : string -> option GoAny := fun _ => None.
+
+(** EId-arm tag defense for the EXIT categories (the GTInt case lives in [reval_int_tc] via
+    [unbox_int]): a resolved value is admitted ONLY when its tag matches the authority's bound
+    category — a forged environment is ABSENT, never mis-operated on. *)
+Local Definition eid_exit_tag_ok (c : PTy) (g : GoAny) : bool :=
+  match c with
+  | PtRunInt t => andb (negb (numty_eqb t GTInt)) (tag_matches t g)
+  | PtRunFloat t =>
+      match g with
+      | existT _ _ (pair _ tag) =>
+          match t, tag with
+          | GTFloat64, TFloat64 | GTFloat32, TFloat32 => true
+          | _, _ => false
+          end
+      end
+  | PtBool => match g with existT _ _ (pair _ tag) => match tag with TBool => true | _ => false end end
+  | PtStr  => match g with existT _ _ (pair _ tag) => match tag with TString => true | _ => false end end
+  | PtIntConst _ | PtTIntConst _ _ | PtFloatConst _ _ | PtAgg | PtMap | PtNil => false
+  end.
+
+Local Definition rexit_tc (tc : GExpr -> option PTy) (leaf : string -> option GoAny) (rec : GExpr -> option RRes) (rv : GExpr -> option RAny) (e : GExpr) : option RAny :=
   match e with
+  | EId x =>
+      (* the EXIT EId leaf (locals rung 5b): a bound name at a NON-GTInt scalar category resolves
+         to its environment value, tag-checked against the authority ([eid_exit_tag_ok]); the
+         closed leaf resolves nothing, so the closed engine is unchanged. *)
+      match leaf (proj1_sig x) with
+      | None => None
+      | Some g =>
+          match tc e with
+          | Some c => if eid_exit_tag_ok c g then Some (RAVal g) else None
+          | None => None
+          end
+      end
   | ECall (EId f) (a :: nil) =>
       (* tiers R3+T2, the EXIT half — a width conversion to a non-[GTInt] integer target: the
          AUTHORITY'S [PtRunInt t] on a one-arg call must be a CONVERSION shape — an instance
@@ -1482,9 +1516,9 @@ Local Definition rexit_tc (tc : GExpr -> option PTy) (rec : GExpr -> option RRes
   | _ => None
   end.
 Definition rexit_with : (GExpr -> option RRes) -> (GExpr -> option RAny) -> GExpr -> option RAny :=
-  rexit_tc ptype.
+  rexit_tc ptype leaf_closed.
 
-Local Definition reval_val_tc (tc : GExpr -> option PTy) (rec : GExpr -> option RRes) : GExpr -> option RAny :=
+Local Definition reval_val_tc (tc : GExpr -> option PTy) (leaf : string -> option GoAny) (rec : GExpr -> option RRes) : GExpr -> option RAny :=
   fix rv (e : GExpr) : option RAny :=
     match eval_value e with
     | Some v => Some (RAVal v)
@@ -1492,11 +1526,11 @@ Local Definition reval_val_tc (tc : GExpr -> option PTy) (rec : GExpr -> option 
         match rec e with
         | Some (RVal x)   => Some (RAVal (anyt TInt64 x))
         | Some (RPanic p) => Some (RAPanic p)
-        | None => rexit_tc tc rec rv e
+        | None => rexit_tc tc leaf rec rv e
         end
     end.
 Definition reval_val_with : (GExpr -> option RRes) -> GExpr -> option RAny :=
-  reval_val_tc ptype.
+  reval_val_tc ptype leaf_closed.
 (* One-step unfolding equation (the fix reduces only on constructors; [destruct e] closes each case). *)
 Lemma reval_val_with_eq : forall rec e,
   reval_val_with rec e
@@ -1615,7 +1649,7 @@ Proof.
     + reflexivity.
 Qed.
 
-Local Definition reval_int_tc (tc : GExpr -> option PTy) : GExpr -> option RRes :=
+Local Definition reval_int_tc (tc : GExpr -> option PTy) (leaf : string -> option GoAny) : GExpr -> option RRes :=
   fix ri (e : GExpr) : option RRes :=
   match eval_value e with
   | Some v => match unbox_int v with Some x => Some (RVal x) | None => None end
@@ -1624,6 +1658,14 @@ Local Definition reval_int_tc (tc : GExpr -> option PTy) : GExpr -> option RRes 
       | Some (PtRunInt t) =>
           if negb (numty_eqb t GTInt) then None else
           match e with
+          | EId x =>
+              (* the GTInt EId leaf (locals rung 5b): a bound [int] name resolves to its
+                 environment value through [unbox_int] (the TInt64 tag check); the closed leaf
+                 resolves nothing. *)
+              match leaf (proj1_sig x) with
+              | Some g => match unbox_int g with Some v => Some (RVal v) | None => None end
+              | None => None
+              end
           | ECall (EId f) (ESliceLit et es :: nil) =>
               if String.eqb (proj1_sig f) "len" && is_int_goty et
               then match reval_elems_with ri es with
@@ -1641,14 +1683,14 @@ Local Definition reval_int_tc (tc : GExpr -> option PTy) : GExpr -> option RRes 
                  key EXACTNESS is an instance obligation, so the count IS Go's [len], never a
                  duplicate-key miscount; the closed instance's map arm rejects runtime keys —
                  the fold's defense-in-depth mirrored) — then evaluates EVERY VALUE through the FULL shared evaluator
-                 ([rconstr_vals_with (reval_val_tc tc ri)] — R3-converted and R4-compared values
+                 ([rconstr_vals_with (reval_val_tc tc leaf ri)] — R3-converted and R4-compared values
                  construct exactly as they denote standalone): all values → the entry count via the
                  checked [rval_len]; a SINGLE panicking value → that panic; TWO panicking values / an
                  absent value → absent (Go leaves map-literal order unspecified — sealed by the
                  walker's class theorems, [rconstr_vals_two_panics_absent] et al.). *)
               if String.eqb (proj1_sig f) "len" && is_int_goty kt && goty_supported vt
                  && nodup_z (map_key_vals_with tc kvs)
-              then match rconstr_vals_with (reval_val_tc tc ri) kvs with
+              then match rconstr_vals_with (reval_val_tc tc leaf ri) kvs with
                    | Some RCOk        => rval_len (length kvs)
                    | Some (RCPanic p) => Some (RPanic p)
                    | None => None
@@ -1663,7 +1705,7 @@ Local Definition reval_int_tc (tc : GExpr -> option PTy) : GExpr -> option RRes 
                  ([runint_raw]; CLASS-absent, [reval_val_runfloat_none]).  Non-[GTInt] targets EXIT
                  the fragment in [rexit_with]. *)
               if String.eqb (proj1_sig f) "int"
-              then match reval_val_tc tc ri a with
+              then match reval_val_tc tc leaf ri a with
                    | Some (RAVal g) =>
                        match runint_raw g with
                        | Some z => Some (RVal (intwrap z))
@@ -1707,7 +1749,7 @@ Local Definition reval_int_tc (tc : GExpr -> option PTy) : GExpr -> option RRes 
                    [rt_shift_neg], counts >= 64 saturate). *)
                 match ri a with
                 | Some (RVal va) =>
-                    match shift_count_tc tc (reval_val_tc tc ri) b with
+                    match shift_count_tc tc (reval_val_tc tc leaf ri) b with
                     | Some (inl z) =>
                         match int_shift_op o with
                         | Some f => int_shift_checked f va z
@@ -1777,7 +1819,7 @@ Local Definition reval_int_tc (tc : GExpr -> option PTy) : GExpr -> option RRes 
       end
   end.
 
-Definition reval_int : GExpr -> option RRes := reval_int_tc ptype.
+Definition reval_int : GExpr -> option RRes := reval_int_tc ptype leaf_closed.
 
 (** Post-[cbn] normalizer (rung 5a): [cbn] refolds the engines' inner fixes to the CLOSED names
     but leaves the [_tc]-of-[ptype] wrapper applications; these [change]s put a goal/hypothesis
@@ -1785,19 +1827,154 @@ Definition reval_int : GExpr -> option RRes := reval_int_tc ptype.
     instantiation by definition). *)
 Local Ltac fold_tc :=
   repeat first
-    [ progress change (reval_val_tc ptype reval_int) with (reval_val_with reval_int)
+    [ progress change (reval_val_tc ptype leaf_closed reval_int) with (reval_val_with reval_int)
     | progress change (map_key_vals_with ptype) with map_key_vals
     | progress change (shift_count_tc ptype) with shift_count
     | progress change (typed_operand_tc ptype) with typed_operand
-    | progress change (rexit_tc ptype) with rexit_with ].
+    | progress change (rexit_tc ptype leaf_closed) with rexit_with ].
 Local Ltac fold_tc_in H :=
   repeat first
-    [ progress change (reval_val_tc ptype reval_int) with (reval_val_with reval_int) in H
+    [ progress change (reval_val_tc ptype leaf_closed reval_int) with (reval_val_with reval_int) in H
     | progress change (map_key_vals_with ptype) with map_key_vals in H
     | progress change (shift_count_tc ptype) with shift_count in H
     | progress change (typed_operand_tc ptype) with typed_operand in H
-    | progress change (rexit_tc ptype) with rexit_with in H ].
+    | progress change (rexit_tc ptype leaf_closed) with rexit_with in H ].
 
+(** ===== The ENV instance (locals rung 5b): the scope-aware authority, LIVE =====
+    The category authority is [GoSafe.tcat G] (the [type_expr] projection) and the leaf is the
+    VALUE ENVIRONMENT [env_get ρ] — constructed HERE, behind the [_tc] seal.  [denote_expr_env]
+    is the env spelling of [denote_expr]; at the EMPTY scope and env it IS the closed evaluator
+    ([denote_expr_env_nil] below — via the engines' extensionality and the [tcat_nil_ptype]
+    bridge), so the two spellings cannot drift.  The statement layer that BUILDS ρ is rung 5c. *)
+Definition Env : Type := list (string * GoAny).
+Fixpoint env_get (ρ : Env) (x : string) : option GoAny :=
+  match ρ with
+  | nil => None
+  | (n, g) :: ρ' => if String.eqb n x then Some g else env_get ρ' x
+  end.
+Local Definition reval_int_env (G : ScopeS) (ρ : Env) : GExpr -> option RRes :=
+  reval_int_tc (tcat G) (env_get ρ).
+Local Definition reval_val_env (G : ScopeS) (ρ : Env) : GExpr -> option RAny :=
+  reval_val_tc (tcat G) (env_get ρ) (reval_int_env G ρ).
+Definition denote_expr_env (G : ScopeS) (ρ : Env) (e : GExpr) : option (Cmd GoAny * bool) :=
+  if negb (floats_checked e) then None else
+  match reval_val_env G ρ e with
+  | Some (RAVal v)   => Some (CRet v, false)
+  | Some (RAPanic p) => Some (CPan p, true)
+  | None => None
+  end.
+
+(** ENGINE EXTENSIONALITY — the engines only APPLY their authority and leaf, so pointwise-equal
+    parameters give EQUAL engines (both tiers at once; the mutual statement is what the guard
+    accepts, mirroring the engines' own nesting).  This is what connects the env instance to the
+    closed engine WITHOUT function extensionality. *)
+Local Lemma reval_engines_ext :
+  forall (tc1 tc2 : GExpr -> option PTy) (l1 l2 : string -> option GoAny),
+  (forall e, tc1 e = tc2 e) ->
+  (forall x, l1 x = l2 x) ->
+  forall e,
+    reval_int_tc tc1 l1 e = reval_int_tc tc2 l2 e
+    /\ reval_val_tc tc1 l1 (reval_int_tc tc1 l1) e
+       = reval_val_tc tc2 l2 (reval_int_tc tc2 l2) e.
+Proof.
+  intros tc1 tc2 l1 l2 Htc Hl.
+  fix IH 1. intro e.
+  assert (Hval_of_int : reval_int_tc tc1 l1 e = reval_int_tc tc2 l2 e ->
+            (rexit_tc tc1 l1 (reval_int_tc tc1 l1) (reval_val_tc tc1 l1 (reval_int_tc tc1 l1)) e
+             = rexit_tc tc2 l2 (reval_int_tc tc2 l2) (reval_val_tc tc2 l2 (reval_int_tc tc2 l2)) e) ->
+            reval_val_tc tc1 l1 (reval_int_tc tc1 l1) e
+            = reval_val_tc tc2 l2 (reval_int_tc tc2 l2) e).
+  { intros Hint Hexit. destruct e; cbn [reval_val_tc];
+      (destruct (eval_value _) as [?|]; [reflexivity|]);
+      rewrite Hint; destruct (reval_int_tc tc2 l2 _) as [[?|?]|]; try reflexivity; exact Hexit. }
+  destruct e as [i|z|o e0|o l r|e0 f|e0 idx|e0 lo hi|e0 args|e0 T|c e0|t es|kt vt kvs|str|zc];
+    try (split;
+          [ cbn [reval_int_tc]; rewrite ?Htc, ?Hl; reflexivity
+          | apply Hval_of_int;
+            [ cbn [reval_int_tc]; rewrite ?Htc, ?Hl; reflexivity
+            | cbn [rexit_tc]; rewrite ?Htc, ?Hl; reflexivity ] ]).
+  - (* EUn *)
+    split;
+      [ cbn [reval_int_tc]; rewrite ?Htc, ?Hl, ?(proj1 (IH e0)); reflexivity
+      | apply Hval_of_int;
+        [ cbn [reval_int_tc]; rewrite ?Htc, ?Hl, ?(proj1 (IH e0)); reflexivity
+        | cbn [rexit_tc]; rewrite ?Htc, ?Hl, ?(proj2 (IH e0)); reflexivity ] ].
+  - (* EBn *)
+    split;
+      [ cbn [reval_int_tc]; unfold shift_count_tc;
+        rewrite ?Htc, ?Hl, ?(proj1 (IH l)), ?(proj1 (IH r)), ?(proj2 (IH r)); reflexivity
+      | apply Hval_of_int;
+        [ cbn [reval_int_tc]; unfold shift_count_tc;
+          rewrite ?Htc, ?Hl, ?(proj1 (IH l)), ?(proj1 (IH r)), ?(proj2 (IH r)); reflexivity
+        | cbn [rexit_tc]; unfold typed_operand_tc, shift_count_tc;
+          rewrite ?Htc, ?Hl, ?(proj1 (IH l)), ?(proj1 (IH r)),
+                  ?(proj2 (IH l)), ?(proj2 (IH r)); reflexivity ] ].
+  - (* EIndex *)
+    destruct e0 as [ | | | | | | | | | |et l| | | ];
+      try (split;
+            [ cbn [reval_int_tc]; rewrite ?Htc, ?Hl; reflexivity
+            | apply Hval_of_int;
+              [ cbn [reval_int_tc]; rewrite ?Htc, ?Hl; reflexivity
+              | cbn [rexit_tc]; rewrite ?Htc, ?Hl; reflexivity ] ]).
+    assert (Hels : reval_elems_with (reval_int_tc tc1 l1) l
+                   = reval_elems_with (reval_int_tc tc2 l2) l).
+    { clear Hval_of_int. induction l as [|el l' IHl']; cbn [reval_elems_with]; [reflexivity|].
+      rewrite (proj1 (IH el)), IHl'.
+      destruct (reval_int_tc tc2 l2 el) as [[?|?]|]; reflexivity. }
+    split;
+      [ cbn [reval_int_tc]; rewrite ?Htc, ?Hl, ?Hels, ?(proj1 (IH idx)); reflexivity
+      | apply Hval_of_int;
+        [ cbn [reval_int_tc]; rewrite ?Htc, ?Hl, ?Hels, ?(proj1 (IH idx)); reflexivity
+        | cbn [rexit_tc]; rewrite ?Htc, ?Hl; reflexivity ] ].
+  - (* ECall *)
+    destruct e0 as [i| | | | | | | | | | | | | ];
+      try (destruct args as [|a0 [|b0 args']];
+            (split;
+             [ cbn [reval_int_tc]; rewrite ?Htc, ?Hl; reflexivity
+             | apply Hval_of_int;
+               [ cbn [reval_int_tc]; rewrite ?Htc, ?Hl; reflexivity
+               | cbn [rexit_tc]; rewrite ?Htc, ?Hl; reflexivity ] ])).
+    destruct args as [|a [|b0 args']];
+      try (split;
+            [ cbn [reval_int_tc]; rewrite ?Htc, ?Hl; reflexivity
+            | apply Hval_of_int;
+              [ cbn [reval_int_tc]; rewrite ?Htc, ?Hl; reflexivity
+              | cbn [rexit_tc]; rewrite ?Htc, ?Hl; reflexivity ] ]).
+    pose proof (proj2 (IH a)) as Hva.
+    destruct a as [ | | | | | | | | | |et l|mkt mvt kvl| | ];
+      try (split;
+            [ cbn [reval_int_tc]; rewrite ?Htc, ?Hl, ?Hva; reflexivity
+            | apply Hval_of_int;
+              [ cbn [reval_int_tc]; rewrite ?Htc, ?Hl, ?Hva; reflexivity
+              | cbn [rexit_tc]; rewrite ?Htc, ?Hl, ?Hva; reflexivity ] ]).
+    + (* a = ESliceLit *)
+      assert (Hels : reval_elems_with (reval_int_tc tc1 l1) l
+                     = reval_elems_with (reval_int_tc tc2 l2) l).
+      { clear Hval_of_int Hva. induction l as [|el l' IHl']; cbn [reval_elems_with]; [reflexivity|].
+        rewrite (proj1 (IH el)), IHl'.
+        destruct (reval_int_tc tc2 l2 el) as [[?|?]|]; reflexivity. }
+      split;
+        [ cbn [reval_int_tc]; rewrite ?Htc, ?Hl, ?Hels, ?Hva; reflexivity
+        | apply Hval_of_int;
+          [ cbn [reval_int_tc]; rewrite ?Htc, ?Hl, ?Hels, ?Hva; reflexivity
+          | cbn [rexit_tc]; rewrite ?Htc, ?Hl, ?Hva; reflexivity ] ].
+    + (* a = EMapLit *)
+      assert (Hmk : map_key_vals_with tc1 kvl = map_key_vals_with tc2 kvl).
+      { clear Hval_of_int Hva. unfold map_key_vals_with.
+        induction kvl as [|[k v] kvl' IHkv]; cbn; [reflexivity|].
+        rewrite ?Htc, ?IHkv. reflexivity. }
+      assert (Hcv : rconstr_vals_with (reval_val_tc tc1 l1 (reval_int_tc tc1 l1)) kvl
+                    = rconstr_vals_with (reval_val_tc tc2 l2 (reval_int_tc tc2 l2)) kvl).
+      { clear Hval_of_int Hva Hmk. induction kvl as [|[k v] kvl' IHkv]; cbn [rconstr_vals_with]; [reflexivity|].
+        rewrite (proj2 (IH v)).
+        destruct (reval_val_tc tc2 l2 (reval_int_tc tc2 l2) v) as [[?|?]|];
+          first [ reflexivity | exact IHkv | rewrite IHkv; reflexivity ]. }
+      split;
+        [ cbn [reval_int_tc]; rewrite ?Htc, ?Hl, ?Hmk, ?Hcv, ?Hva; reflexivity
+        | apply Hval_of_int;
+          [ cbn [reval_int_tc]; rewrite ?Htc, ?Hl, ?Hmk, ?Hcv, ?Hva; reflexivity
+          | cbn [rexit_tc]; rewrite ?Htc, ?Hl, ?Hva; reflexivity ] ].
+Qed.
 Definition reval_elems : list GExpr -> option RElems := reval_elems_with reval_int.
 Definition reval_val : GExpr -> option RAny := reval_val_with reval_int.
 Definition rconstr_vals : list (GExpr * GExpr) -> option RConstr := rconstr_vals_with (reval_val_with reval_int).
@@ -1812,6 +1989,38 @@ Definition denote_expr (e : GExpr) : option (Cmd GoAny * bool) :=
   | Some (RAPanic p) => Some (CPan p, true)
   | None => None
   end.
+
+(** THE CLOSED COINCIDENCE — the env spelling at the EMPTY scope and env IS the closed evaluator
+    (pointwise; no function extensionality): [tcat scope_empty] is [ptype] by the rung-3 bridge
+    and the empty env resolves nothing.  Registered in [gosem_core_surface] (GoSem.v). *)
+Theorem denote_expr_env_nil : forall e, denote_expr_env scope_empty nil e = denote_expr e.
+Proof.
+  intro e. unfold denote_expr_env, denote_expr.
+  destruct (negb (floats_checked e)); [reflexivity|].
+  unfold reval_val_env, reval_int_env, reval_val_with, reval_int.
+  rewrite (proj2 (reval_engines_ext (tcat scope_empty) ptype (env_get nil) leaf_closed
+                    tcat_nil_ptype (fun x => eq_refl) e)).
+  reflexivity.
+Qed.
+
+(** First ENV pins (vm_compute): a bound [int] name resolves and computes through the runtime
+    tier; a TAG-FORGED environment and a FREE name are ABSENT (fail-closed). *)
+Example env_eid_pins :
+  match scope_declare scope_empty (mkIdent "x" eq_refl) (PtRunInt GTInt) with
+  | Some G =>
+      denote_expr_env G (("x"%string, anyt TInt64 (intwrap 5)) :: nil)
+        (EId (mkIdent "x" eq_refl))
+        = Some (CRet (anyt TInt64 (intwrap 5)), false)
+      /\ denote_expr_env G (("x"%string, anyt TInt64 (intwrap 5)) :: nil)
+           (EBn BAdd (EId (mkIdent "x" eq_refl)) (EInt 1))
+           = Some (CRet (anyt TInt64 (intwrap 6)), false)
+      /\ denote_expr_env G (("x"%string, anyt TBool true) :: nil)
+           (EId (mkIdent "x" eq_refl)) = None
+      /\ denote_expr_env G (("x"%string, anyt TInt64 (intwrap 5)) :: nil)
+           (EId (mkIdent "y" eq_refl)) = None
+  | None => False
+  end.
+Proof. vm_compute. repeat split; reflexivity. Qed.
 
 (** The pure inclusion: an expression the fold gives a value to denotes to exactly [CRet] of that value
     (fall-through — a pure expression cannot terminate control flow). *)
