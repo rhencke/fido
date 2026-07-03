@@ -692,10 +692,17 @@ Qed.
     constant as an [int64] operand; cross-width is [None], pinned
     [typed_operand_cross_width_none]).  Anything else is absent fail-closed; a constant never
     panics ([typed_operand_panic_runtime]). *)
-(** [_tc] layer (locals rung 5a): the CATEGORY AUTHORITY is a parameter [tc] — the closed engine
-    instantiates [ptype] (the wrappers keep the closed names/arities, so it is the SAME function
-    definitionally); the scope-aware instance (rung 5b) instantiates [type_expr]'s projection. *)
-Definition typed_operand_tc (tc : GExpr -> option PTy) (rv : GExpr -> option RAny) (t : GoTy) (e : GExpr) : option RAny :=
+(** [_tc] layer (locals rung 5a): the CATEGORY AUTHORITY is a parameter [tc] — SEALED, not free.
+    Every arm consumes SHAPE OBLIGATIONS of its authority (a [PtRunInt t] one-arg call is a
+    conversion shape; a constant category carries THE constant's value; the map key list is
+    exact), so a forged classifier could smuggle behavior.  The whole family is therefore
+    [Local] — an importer CANNOT instantiate it (negtests [neg_tc_authority_escape]/
+    [neg_tc_count_escape] pin the seal); the only instances live in THIS file, each with its
+    obligations discharged: [ptype] today (the closed wrappers below keep the closed names, so
+    the closed engine is the SAME function definitionally — obligations are the existing seal
+    set), and rung 5b's [type_expr] projection, which must discharge the same set before it may
+    instantiate. *)
+Local Definition typed_operand_tc (tc : GExpr -> option PTy) (rv : GExpr -> option RAny) (t : GoTy) (e : GExpr) : option RAny :=
   match tc e with
   | Some (PtRunInt s) => if numty_eqb s t then rv e else None
   | Some (PtIntConst z) =>
@@ -1187,7 +1194,7 @@ Definition typed_shift (o : BinOp) (t : GoTy) (ga : GoAny) (z : Z) : option RAny
     end
   else None.
 (** The COUNT layer — full evaluation, then the raw reading off ANY int carrier. *)
-Definition shift_count_tc (tc : GExpr -> option PTy) (rv : GExpr -> option RAny) (e : GExpr) : option (Z + GoAny) :=
+Local Definition shift_count_tc (tc : GExpr -> option PTy) (rv : GExpr -> option RAny) (e : GExpr) : option (Z + GoAny) :=
   (* A CONSTANT count is read off the category authority's OWN value directly — TOTAL on the gate's
      admitted class ([shift_count_const_total] needs no evaluation premise).  The boxed path would be a
      side-condition leak: [box_int]'s conservative default-[int] window is a VALUE range, not a
@@ -1344,13 +1351,13 @@ Proof.
   exact (K _ eq_refl).
 Qed.
 
-Definition rexit_tc (tc : GExpr -> option PTy) (rec : GExpr -> option RRes) (rv : GExpr -> option RAny) (e : GExpr) : option RAny :=
+Local Definition rexit_tc (tc : GExpr -> option PTy) (rec : GExpr -> option RRes) (rv : GExpr -> option RAny) (e : GExpr) : option RAny :=
   match e with
   | ECall (EId f) (a :: nil) =>
-      (* tiers R3+T2, the EXIT half — a width conversion to a non-[GTInt] integer target: [ptype]'s
-         [PtRunInt t] on a one-arg call can ONLY be [conv_to_scalar] (or [len]/[cap], which are
-         [GTInt] — excluded here) — PROVED, not asserted: [ptype_call_runint_conv] seals [t] to an
-         integer keyword target, on which [wrap_runint] is total ([wrap_runint_total]).  T2: the ARG
+      (* tiers R3+T2, the EXIT half — a width conversion to a non-[GTInt] integer target: the
+         AUTHORITY'S [PtRunInt t] on a one-arg call must be a CONVERSION shape — an instance
+         OBLIGATION (closed instance: PROVED, [ptype_call_runint_conv] seals [t] to an integer
+         keyword target, on which [wrap_runint] is total, [wrap_runint_total]).  T2: the ARG
          evaluates at FULL power ([rv]), so a chain through a non-[GTInt] intermediate
          ([int64(uint8(len ..))]) converts exactly like Go — read the carrier's value ([runint_raw]),
          wrap into the target.  A non-integer-tagged source (a runtime FLOAT — CLASS-absent,
@@ -1375,7 +1382,7 @@ Definition rexit_tc (tc : GExpr -> option PTy) (rec : GExpr -> option RRes) (rv 
       end
   | EUn o a =>
       (* tier T1 — typed unary on a non-GTInt runtime carrier ([^int64(len ..)] etc.): the outer
-         [ptype] pins the width [t] (the GTInt case lives in [reval_int]); the ARG evaluates at FULL
+         authority ([tc]) pins the width [t] (the GTInt case lives in [reval_int]); the ARG evaluates at FULL
          power ([rv] — so an R3-converted operand works), then [typed_unop] applies the width's model
          op on the boxed carrier.  A hole in the op table ([GTUint], narrow [-]) is absent. *)
       match tc e with
@@ -1392,7 +1399,7 @@ Definition rexit_tc (tc : GExpr -> option PTy) (rec : GExpr -> option RRes) (rv 
       | _ => None
       end
   | EBn o a b =>
-      (* tiers R4+T4 — the runtime bool COMPARISON exit: [ptype e = PtBool] on a binop is a
+      (* tiers R4+T4 — the runtime bool COMPARISON exit: [tc e = PtBool] on a binop is a
          comparison (or [&&]/[||] — dispatched away by [cmp_verdict]/[cmp_binop]); [cmp_width] picks the
          operand width (the runtime operand pins it; two int constants default to [GTInt] — Go's
          untyped rule).  At [GTInt] the R4 engine path runs unchanged; at a FIXED width the T4 typed
@@ -1455,9 +1462,10 @@ Definition rexit_tc (tc : GExpr -> option PTy) (rec : GExpr -> option RRes) (rv 
                 | None => None
                 end
               else if shift_op o then
-                (* tier T5 — the COUNT is read by the sealed count layer ([shift_count]): a
-                   CONSTANT count directly off the gate's own value (total on the admitted class),
-                   a RUNTIME count at FULL power at ITS OWN width; the width-sealed left operand
+                (* tier T5 — the COUNT is read by the sealed count layer ([shift_count_tc]): a
+                   CONSTANT count directly off the AUTHORITY'S own value (count exactness is an
+                   instance obligation; total on the closed instance's admitted class), a RUNTIME
+                   count at FULL power at ITS OWN width; the width-sealed left operand
                    feeds [typed_shift]. *)
                 match shift_count_tc tc rv b with
                 | Some (inl z) => typed_shift o t ga z
@@ -1475,7 +1483,7 @@ Definition rexit_tc (tc : GExpr -> option PTy) (rec : GExpr -> option RRes) (rv 
 Definition rexit_with : (GExpr -> option RRes) -> (GExpr -> option RAny) -> GExpr -> option RAny :=
   rexit_tc ptype.
 
-Definition reval_val_tc (tc : GExpr -> option PTy) (rec : GExpr -> option RRes) : GExpr -> option RAny :=
+Local Definition reval_val_tc (tc : GExpr -> option PTy) (rec : GExpr -> option RRes) : GExpr -> option RAny :=
   fix rv (e : GExpr) : option RAny :=
     match eval_value e with
     | Some v => Some (RAVal v)
@@ -1606,7 +1614,7 @@ Proof.
     + reflexivity.
 Qed.
 
-Definition reval_int_tc (tc : GExpr -> option PTy) : GExpr -> option RRes :=
+Local Definition reval_int_tc (tc : GExpr -> option PTy) : GExpr -> option RRes :=
   fix ri (e : GExpr) : option RRes :=
   match eval_value e with
   | Some v => match unbox_int v with Some x => Some (RVal x) | None => None end
@@ -1628,10 +1636,10 @@ Definition reval_int_tc (tc : GExpr -> option PTy) : GExpr -> option RRes :=
                  (every entry evaluated, in an UNSPECIFIED order) before [len]; the count is the number of
                  DISTINCT keys.  The arm carries the FOLD arm's own side conditions — [is_int_goty kt],
                  [goty_supported vt] (an invalid nested value type must never receive behavior), and
-                 [nodup_z] over [ptype]'s own constant-key list (the count IS Go's [len], never a
-                 duplicate-key miscount; the outer [PtRunInt] guard already forces all-constant keys —
-                 [ptype]'s map arm rejects runtime keys — so this is the fold's defense-in-depth
-                 mirrored) — then evaluates EVERY VALUE through the FULL shared evaluator
+                 [nodup_z] over the AUTHORITY'S own constant-key list ([map_key_vals_with tc] —
+                 key EXACTNESS is an instance obligation, so the count IS Go's [len], never a
+                 duplicate-key miscount; the closed instance's map arm rejects runtime keys —
+                 the fold's defense-in-depth mirrored) — then evaluates EVERY VALUE through the FULL shared evaluator
                  ([rconstr_vals_with (reval_val_tc tc ri)] — R3-converted and R4-compared values
                  construct exactly as they denote standalone): all values → the entry count via the
                  checked [rval_len]; a SINGLE panicking value → that panic; TWO panicking values / an
@@ -1648,7 +1656,7 @@ Definition reval_int_tc (tc : GExpr -> option PTy) : GExpr -> option RRes :=
           | ECall (EId f) (a :: nil) =>
               (* tiers R3+T2, the IN-fragment half — [int(x)]: Go's conversion INTO [int], via the
                  model's own [intwrap] on the source carrier's raw value.  T2: the ARG evaluates at
-                 FULL power ([reval_val_with] over THIS engine — the map arm's precedent), so a chain
+                 FULL power ([reval_val_tc] over THIS engine — the map arm's precedent), so a chain
                  through a non-[GTInt] intermediate ([int(uint8(len ..))]) converts exactly like Go.
                  A non-integer-tagged source ([int(<runtime float>)]) is absent fail-closed
                  ([runint_raw]; CLASS-absent, [reval_val_runfloat_none]).  Non-[GTInt] targets EXIT
@@ -1691,8 +1699,8 @@ Definition reval_int_tc (tc : GExpr -> option PTy) : GExpr -> option RRes :=
               if shift_op o then
                 (* tier R8 — the GTInt SHIFT: the LEFT operand is the engine's own fragment
                    (evaluated FIRST — a panicking left fires before the count, Go's order); the
-                   COUNT is read by T5's sealed count layer ([shift_count] over the shared
-                   evaluator — a CONSTANT count directly off the gate's value, a RUNTIME count at
+                   COUNT is read by T5's sealed count layer ([shift_count_tc] over the shared
+                   evaluator — a CONSTANT count directly off the authority's value, a RUNTIME count at
                    its own width, so a [uint8]-counted GTInt shift works), then the checked convoy
                    applies the dispatched model op ([int_shift_checked]: a NEGATIVE count panics
                    [rt_shift_neg], counts >= 64 saturate). *)
@@ -1774,14 +1782,14 @@ Definition reval_int : GExpr -> option RRes := reval_int_tc ptype.
     but leaves the [_tc]-of-[ptype] wrapper applications; these [change]s put a goal/hypothesis
     back in the closed vocabulary (pure conversions — each closed name IS its [_tc ptype]
     instantiation by definition). *)
-Ltac fold_tc :=
+Local Ltac fold_tc :=
   repeat first
     [ progress change (reval_val_tc ptype reval_int) with (reval_val_with reval_int)
     | progress change (map_key_vals_with ptype) with map_key_vals
     | progress change (shift_count_tc ptype) with shift_count
     | progress change (typed_operand_tc ptype) with typed_operand
     | progress change (rexit_tc ptype) with rexit_with ].
-Ltac fold_tc_in H :=
+Local Ltac fold_tc_in H :=
   repeat first
     [ progress change (reval_val_tc ptype reval_int) with (reval_val_with reval_int) in H
     | progress change (map_key_vals_with ptype) with map_key_vals in H
