@@ -84,15 +84,14 @@ in `GoSemDenote`.
    lives IN `Γ` (see above) and uses are marked RECURSIVELY through subexpressions by the same
    traversal that types them; the no-unused rejection is the fold's final step, not a second pass.
    `_ = x` counts as a use (Go's own idiom for it).
-5. declaring a CHECKER-RECOGNIZED name → reject.  The recognized names are scattered today —
-   `nil` in ptype's EId case (GoTypes.v:544), `len`/`cap`/conversion heads (GoTypes.v:590), the
-   14-name `classify` domain (GoAst.v:108), the callee set `println`/`print`/`panic` in GoSafe's
-   `stmt_call_ok` — and the import order (GoTypes sees only GoAst; GoSafe sees GoTypes) means a
-   gate in EITHER file would duplicate the other's list.  So the single source moves to the layer
-   BOTH import: **GoAst grows `SpecialName` (an inductive: `SnType t` / `SnNil` / `SnLen` / `SnCap`
-   / `SnPrintln` / `SnPrint` / `SnPanic`) + the ONE table `special_ident : string -> option
-   SpecialName`** (beside `classify`/`go_keyword`, which it subsumes — `classify` becomes the
-   `SnType` projection).  GoTypes' recognizers, GoSafe's `stmt_call_ok`, and the declaration gate
+5. declaring a CHECKER-RECOGNIZED name → reject.  The single source is LANDED (rung 2): **GoAst's
+   `SpecialName` inductive (`SnType t` / `SnNil` / `SnLen` / `SnCap` / `SnPrintln` / `SnPrint` /
+   `SnPanic`) + the ONE table `special_ident : string -> option SpecialName`**, living in the layer
+   both consumers import (the import order — GoTypes sees only GoAst; GoSafe sees GoTypes — is why
+   a gate in either file would have duplicated the other's list).  `classify` is its `SnType`
+   projection (`go_keyword`, Go's RESERVED words, is a separate concern and stays separate — a
+   recognized name need not be a keyword).  GoTypes' recognizers (ptype's EId scope hook and the
+   one-arg call head), GoSafe's `stmt_call_ok`/`expr_stmt_ok`, and the declaration gate
    `decl_ident_ok s := match special_ident s with None => true | Some _ => false end` all consume
    the ONE table.  The SEMANTIC consumers (recognizers that choose behavior PER NAME) match
    wildcard-free exhaustively, so a new `SpecialName` constructor forces each of them mechanically;

@@ -1913,7 +1913,8 @@ Qed.
     reval-evaluable fragment (T2: the source is ANY full-evaluator value — chains through non-[GTInt]
     intermediates included) and SEALED to [ptype]'s own boundary: any one-arg call classified
     [PtRunInt t] with [t ≠ GTInt] is NECESSARILY a [conv_to_scalar] conversion to an INTEGER keyword
-    target ([ptype_call_runint_conv] — [len]/[cap] classify [GTInt]), whose OPERAND is runtime-int- or
+    target ([ptype_call_runint_conv] — the [SnLen]/[SnCap] table rows yield only [GTInt], so a
+    non-[GTInt] width excludes them; [classify] covers scalar conversion keywords only), whose OPERAND is runtime-int- or
     runtime-float-classified ([ptype_call_runint_conv_arg] — the split is PROVED exhaustive), and on
     which the exit boxing is TOTAL ([wrap_runint_total]).  A panicking arg panics first (Go's operand
     order).  [denote_expr_conv_runs] below is the INTERNAL raw-premise form — a proof step for the
@@ -2072,7 +2073,7 @@ Proof.
   discriminate H.
 Qed.
 (** A [PtRunInt GTInt]-classified one-arg call with a RUNTIME-INT operand IS the [int(x)] conversion
-    (the [len]/[cap] rows contradict the operand's class; [classify] pins the name) — so the sealed
+    (the [SnLen]/[SnCap] table rows contradict the operand's class; [classify_gtint_name] pins the name) — so the sealed
     [int]-target theorem below needs NO name premise. *)
 Lemma ptype_call_runint_int_name : forall f a s,
   ptype (ECall (EId f) (a :: nil)) = Some (PtRunInt GTInt) ->
