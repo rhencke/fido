@@ -68,13 +68,13 @@ compile-time rejections.  The correct shape:
   a value for a checker-admitted binding the evaluator left absent.
 
 RUNG 3 (LANDED): the expression checker's scope-aware twin is
-state-threading — `type_expr : Γ -> GExpr -> option (PTy * Γ)` — resolving identifiers AND marking
-their used flags in the SAME traversal (a read-only `ptype_env Γ e : option PTy` cannot mark uses;
-it would force the second pass rule 4 forbids).  `ptype`'s `EId` case is ALREADY the scope hook
+state-threading — `type_expr : ScopeS -> GExpr -> option (PTy * ScopeS)` — resolving identifiers
+AND marking their used flags in the SAME traversal (a read-only checker cannot mark uses; it
+would force the second pass rule 4 forbids).  `ptype`'s `EId` case is ALREADY the scope hook
 (landed: the `special_ident` match, `nil`-or-reject); closed `ptype` is then to be recovered as
-the empty-env PROJECTION — the PROVEN bridge `GoSafe.type_expr_nil_ptype`
-(`option_map fst (type_expr nil e) = ptype e`): at the empty scope no identifier resolves and no
-flag can flip, so the traversals agree exactly, and any drift between the two spellings fails the
+the empty-scope PROJECTION — the PROVEN bridge `GoSafe.type_expr_nil_ptype`
+(`option_map fst (type_expr scope_empty e) = ptype e`): at `scope_empty` no identifier resolves
+and no flag can flip, so the traversals agree exactly, and any drift between the two spellings fails the
 build at this theorem.  Every existing `ptype` theorem survives untouched.  The same shape lands
 for the evaluator's ident resolution in `GoSemDenote` (rung 5).
 

@@ -903,7 +903,7 @@ Proof. vm_compute. reflexivity. Qed.
     exact-or-reject dyadic fold refuses them today (keeping the const-ZERO-divisor [bad_programs] member
     rejected); the SHORT-DECLARATION member (`x := 1; _ = x; return` — locals rung 1 keeps every
     [GsShortDecl] out of core, [shortdecl_stmt_ok_false]) graduates ONLY via the scope-threaded
-    gate of plans/gosem-locals.md (Γ-fold: bind_category / decl_ident_ok / recursive use-marking /
+    gate of plans/gosem-locals.md (the ScopeS fold through scope_declare: bind_category / decl_ident_ok / recursive use-marking /
     no-unused rejection — never a casual [stmt_ok] widening), keeping the unused `x := 1`
     [bad_programs] companion rejected.  The two contracts must not be confused — a
     [bad_programs] regression means an UNSOUND
