@@ -87,7 +87,8 @@ COMPLETE): its ladder discipline and landing checklist apply verbatim (its capst
    Then 2d `CAlloc` — DESIGN v2 (allocator-EXACT; the v1 trace-freshness sketch was
    REJECTED in review as an observable nondeterministic allocator — the binder
    continuation can branch on the chosen location, and a trace-fresh choice could clobber
-   a mirrored-but-untraced allocated cell.  Structural freshness beats churn avoidance):
+   a mirrored-but-untraced allocated cell.  Deterministic allocation + explicit
+   freshness invariants beat churn avoidance):
    - cmd side: `CAlloc : GoAny -> (nat -> Cmd A) -> Cmd A`; `go`'s arm allocates at
      `w_next w` and bumps it — BUT freshness there is a THEOREM only under
      `builtins.ValidWorld` (`ref_new`'s own invariant), so every public allocation bridge
