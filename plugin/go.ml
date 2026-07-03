@@ -4600,8 +4600,9 @@ let pp_function state name body typ =
      type-parameter list [T1 any, …] after the name (constraint [any] — Coq parametric
      polymorphism imposes no operations on the type).  Call sites rely on Go's type
      inference, so they need no change.  NOT emitted for a method: Go forbids a method
-     from introducing its own type parameters (a generic method's params come from a
-     generic receiver type — the generic-struct feature, not modeled). *)
+     from introducing its own type parameters — a generic method's params are carried by
+     the RECEIVER type instead ([func (b Box[T1]) Box_get() T1], the live generic-struct
+     form; the receiver's params are printed with the receiver, never here). *)
   let tvars =
     let fp = List.fold_left (fun acc (_, t) -> collect_tvars acc t) [] param_pairs in
     collect_tvars fp ret_type in
