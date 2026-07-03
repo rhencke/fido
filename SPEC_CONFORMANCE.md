@@ -17,7 +17,7 @@ under the global context* — the trust base is EMPTY (the old `PrimInt63`/`Prim
 kernel substrate was eliminated: integers `Z`, locations `nat`, floats `spec_float`).
 The IO monad/effect ALGEBRA (the monad laws, and every
 read-after-write / commutation lemma) is now **funext-free**: stated over OBSERVATIONAL
-equality `io_eq m m' := forall w, run_io m w = run_io m' w` and proved pointwise (review
+equality `io_eq m m' := forall w, run_io m w = run_io m' w` and proved pointwise (
 #6 P2 #20) — `Print Assumptions bind_assoc` reports no `functional_extensionality`.  The
 stdlib `functional_extensionality` survives at exactly ONE site, `run_io_inj` (`io_eq → =`),
 used only by the concurrency `Denotes` Keystone bridge (`ptr_set_is_ref`), which must rewrite
@@ -48,7 +48,7 @@ the committed code).  The status now:
   (prec 24, emax 128): arithmetic, comparisons, and ALL conversions (`float32↔float64`,
   `float32↔int64`, narrow↔`int64`) lower to native Go `float32`.  Supersedes the `float32 ✗`
   notes in *Numeric types*, *Floating-point operators*, *Conversions*.
-  **Soundness fix (2026-06-20, code review):** `GoFloat32` was a *transparent alias* `:= float`,
+  **Soundness fix (code review):** `GoFloat32` was a *transparent alias* `:= float`,
   so a non-binary32-representable literal could be injected raw (`16777217%float : GoFloat32`) and
   widened with no rounding — making Rocq disagree with Go (`f64_of_f32 16777217 = 16777217` vs
   Go's `float32(16777217) = 16777216`) and licensing UNSOUND proofs.  Now `GoFloat32` is an
@@ -109,7 +109,7 @@ in-range literal.  So an out-of-range constant is **unrepresentable** — a comp
 error, exactly Go's "constant overflows uint8", NOT a silent wrap — build-checked
 by `u8_const_oob`/`i8_const_oob`/`u16_const_oob`/`i16_const_oob` (`Fail` tests).
 The Go output is unchanged (the proof erases; in-range mask is a no-op).  ✓
-**RAW CONSTRUCTOR now SEALED (2026-06-20, code review) — GoU8 done, others tracked.**
+**RAW CONSTRUCTOR now SEALED (code review) — GoU8 done, others tracked.**
 A prior hole: the wrapper constructor `MkU8` was public and unconstrained, so
 `MkU8 300` forged an impossible uint8 (the type erased to int64, the constructor to
 identity → printed `300`).  Same class as the float32 injection hole.  Fix: `GoU8`
@@ -200,7 +200,7 @@ PARSE (out-of-range → parse error = Go's untyped-constant overflow; `i64_lit_o
 make them map-key types; end-to-end `i64_pipeline_demo`/`u64_pipeline_demo` flow int64
 and a `≥2^63` uint64 through a typed channel AND map (golden-locked).  The concurrency.v
 bridge value carrier was migrated to `GoI64` (axiom-free preserved).  The primitive
-**✓ Platform `int` (`GoInt`) — DEVIATION CLOSED (review #6 #13):** Go's platform `int` is now a DISTINCT
+**✓ Platform `int` (`GoInt`) — DEVIATION CLOSED:** Go's platform `int` is now a DISTINCT
 `Z`-carried record (the exact `GoI64` shape, rendered Go `int`, the carrier for loop counters / slice indices /
 `len`/`cap` / small-value demos), FAITHFUL across the whole int64 range `[−2⁶³, 2⁶³)` and wrapping at the true
 `2⁶³` — **no longer the bounded 63-bit `Sint63` carrier** (faithful only in `[−2⁶², 2⁶²)`, the old Tier-2 #4 /
@@ -212,7 +212,7 @@ review-R6 deviation).  Arithmetic is `int_add`/`int_sub`/`int_mul` (wrap-`2⁶³
 The ONLY residual platform assumption is the 64-bit *width* choice (Go's `int` is 32-or-64 by spec; we model
 64), NOT a carrier deviation.  **Golden BYTE-IDENTICAL** (the emitted Go is unchanged — `func Add(n int, m int) int`,
 `xs[5]`, `i := int(0)`).
-**✓ Platform `uint` (`GoUint`) — DEVIATION CLOSED (review #6 #13):** the companion platform-UINT is likewise a
+**✓ Platform `uint` (`GoUint`) — DEVIATION CLOSED:** the companion platform-UINT is likewise a
 DISTINCT `Z`-carried record (the `GoU64` shape, rendered Go `uint`), FAITHFUL across `[0, 2⁶⁴)`, literals the
 proof-carrying `uint_lit z (pf : in_u64 z)` folded to `uint(<decimal>)`.
 ⚠ **UNIFORMITY RESIDUAL (not a deviation — faithful, follow-up):** the sub-64 narrows (`GoU8`…`GoI32`) and the
@@ -601,7 +601,7 @@ signed-zero corners machine-checked across negation/min/max (NaN propagates; `mi
 **Conversions.**  `float32↔float64` and `int(float32)` (`f64_of_f32` widen exact; `i64_of_f64∘
 f64_of_f32` truncate-toward-zero) ✓.  Range corners witnessed: overflow → `+Inf` (`f32_overflow`),
 underflow → `0` (`f32_underflow`).
-**⚠ CORRECTION (2026-06-20, code review) — an earlier "single-rounding-equivalent" claim here was
+**⚠ CORRECTION (code review) — an earlier "single-rounding-equivalent" claim here was
 FALSE.**  Routing int/constant → `float32` through binary64 is NOT double-rounding-innocuous in
 general: the `q ≥ 2p+2` theorem assumes the intermediate holds the *exact* value, but for `|x| >
 2^53` the int→binary64 step ITSELF rounds, and a second round to binary32 can disagree.
@@ -610,7 +610,7 @@ Reproduced (Go 1.23.2): `x = 2305843146652647425 = 2^61+2^37+1` gives `float32(x
 ties-to-even down).  So `f32_of_f64 (f64_of_int x)` faithfully models Go's `float32(float64(x))`,
 NOT direct `float32(x)`.  *Fix:* DIRECT conversions `f32_of_i64`/`f32_of_u64`/`f32_of_int` round the
 exact integer ONCE to binary32 (`binary_normalize 24 128 x 0`), lowered to Go's `float32(x)`.
-Machine-checked on the reviewer's witness: `f32_of_i64_differs` (direct ≠ via-float64),
+Machine-checked on the distinguishing witness: `f32_of_i64_differs` (direct ≠ via-float64),
 `f32_of_i64_direct` (= `2^61+2^38`), `f32_of_i64_viaf64` (= `2^61`); `f32_of_int_demo` → `false`.
 *Constant path — ✓ DONE:* `f32_of_fconst` rounds the EXACT rational once to binary32 via `SFdiv 24
 128` of the exact-integer spec_floats (`sf_of_Z` — no intermediate binary64, so correctly-rounded for
@@ -618,7 +618,7 @@ ALL num/den, not just `< 2^53`).  Lowered to Go's `float32(num.0 / den.0)` (unty
 arbitrary precision, single round).  Witnessed: `f32_of_fconst_direct` (`2305843146652647425/1 →
 2^61+2^38`), `f32_of_fconst_differs` (≠ the via-float64 double round), `f32_of_fconst_small`
 (`float32(0.1+0.2) = float32(0.3)`); `f32_fconst_demo` → `0.3`.
-**Constant-vs-runtime soundness fix (2026-06-20, code review) — applies to float32 AND float64.**
+**Constant-vs-runtime soundness fix (code review) — applies to float32 AND float64.**
 Fido's model is runtime IEEE (−0, ±Inf, NaN); the extractor formerly emitted float ops on
 CONSTANT operands as Go *constant expressions*, where IEEE does not hold — Go constants cannot
 denote −0/±Inf/NaN, and a constant `/0` or a `float32` overflow are COMPILE ERRORS (reproduced:
@@ -662,7 +662,7 @@ Spec: "When converting between integer types, ... it is then truncated to fit in
 the result type's size."
 **Integer conversions among `{int, uint8, int8, uint16, int16, uint32, int32}` — ✓.**  Routed
 through the `int` carrier: `int_of_FW` WIDENS (value preserved in the model; EMITTED as a real
-cast `int(x)`, NOT identity — a narrow Go value at an `int` boundary needs it, review #4 P1 #4)
+cast `int(x)`, NOT identity — a narrow Go value at an `int` boundary needs it)
 and `FW_of_int` NARROWS (truncate — `land` for `uintN`, mask+sign-extend for `intN`
 — exactly Go's `uint8(x)`/`int8(x)`, no representability proof since a conversion
 truncates rather than rejects).  Cross-width by composition (`uint8(int16val)` =
@@ -684,12 +684,12 @@ applies to the parameter VARIABLE — Go rejects `uint64(-1)` on an untyped CONS
 accepts it on an int64-typed value.  Machine-checked `conv_u64_of_neg1` (`-1 → 2⁶⁴-1`),
 `conv_i64_of_max` (`2⁶⁴-1 → -1`), `conv_roundtrip`; `conv64_demo` prints
 `18446744073709551615 -1 255`.
-**Narrow → `int64` widening — ✓ DONE (review #4 P1 #4 slice 1, commit a4e715d).**
+**Narrow → `int64` widening — ✓ DONE (slice 1, commit a4e715d).**
 `i64_of_u8`…`i64_of_i32` are value-preserving widens (machine-checked
 `widen_u8`/`widen_i8`/`widen_u16`/`widen_u32`/`widen_i32`), now LOWERED by
 NAME-RECOGNITION to Go's `int64(x)` — NOT identity: a narrow operand at a typed
 boundary is a real `uint8`/`int8`, so `int64(x)` is required to land it in the `int64`
-destination (a bare `return x` was the review #4 P1 #4 invalid-Go case).  The faithful
+destination (a bare `return x` was the narrow-boundary invalid-Go case).  The faithful
 `Sint63.to_Z` body (which would pull the deliberately-REJECTED unsigned `Uint63.ltb`,
 Tier 3 #9) is suppressed by the recognizer, sidestepping the carrier wall.  Extracted
 via `widen_param_demo` (`func Widen_u8_to_i64(x uint8) int64 { return int64(x) }`,
@@ -701,7 +701,7 @@ types).  **`int`/`int64` → `float64` DONE (2026-06-19):** `f64_of_int` (Sint63
 `f64_of_i64_pos`/`_neg`), recognized → cast with the body suppressed.  Both return `float`
 (a primitive, not a single-field record), so they stay NAMED calls — this was the EARLY
 lowering technique; the narrow→int64 widening (record result) now lowers the same way, by
-name-recognition with its carrier body suppressed (review #4 P1 #4).  `f64_of_i64`'s `Z` carrier drags the
+name-recognition with its carrier body suppressed.  `f64_of_i64`'s `Z` carrier drags the
 Z↔int63 helpers `of_Z`/`of_pos`/`of_pos_rec`, suppressed alongside the `Z`/`positive`
 arithmetic.  Trust base gains the Rocq PRIMITIVE `PrimFloat.of_uint63` — a kernel `float` op
 (like `PrimFloat.add`), NOT a Fido axiom (`of_Z`/`of_pos` are `Definition`s, not in the
@@ -817,7 +817,7 @@ keep them separate:
   `defer_loop_demo` (a `defer` in a loop prints 2,1,0 — golden RUNTIME output faithful).
 - **(R2) cmd.v `CDfr` / `run_defers` — the FAITHFUL model:** `cmd.v` models `defer` as `CDfr d k`;
   `run_defers` (via `run_cmd`, the SOLE `Cmd` interpreter) runs the LIFO stack at func-scope return — a
-  panicking defer REPLACES the active panic (last-raised-wins) but the older defers STILL run (review #12),
+  panicking defer REPLACES the active panic (last-raised-wins) but the older defers STILL run,
   every defer's effects happen.  `bridge_heap_agrees` proves the `ustep` run AGREES with this for ANY completing command (heap ops and defers included, final heaps agreeing; `no_heap` completion is a theorem).
 - **(R3) GoAst `GsDefer` — STRUCTURED syntax (✓ emittable, ✓ DENOTED):** `defer <call>` is a real AST
   statement, print-injective (`print_stmt_inj`), syntactically SUPPORTED + certificate-emittable (gated to a
@@ -828,7 +828,7 @@ keep them separate:
   emitting `defer println(..)` (`GoSemSafe.panic_free_gate_defer`).
 - **(B) shallow `IO` (`World -> Outcome`) — NO defer meaning, FAILS LOUD (✓ rule 2):** a sequential shallow
   reading cannot reify a func-scoped defer, so `builtins.defer_call (_ : IO unit) := fun w => OPanic … w`
-  PANICS rather than silently dropping the effect (review #6/#12, which replaced the old `ORet tt w` no-op).
+  PANICS rather than silently dropping the effect (which replaced the old `ORet tt w` no-op).
   There is NO shallow `Cmd -> IO` interpreter — `run_cmd` (R2) is the only `Cmd` semantics.
 
 ### [Send statements](https://go.dev/ref/spec#Send_statements) — ✓ open/closed; ⚠ nil/blocking

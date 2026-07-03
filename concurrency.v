@@ -18,7 +18,7 @@
 From Fido Require Import preamble.
 From Stdlib Require Import List Lia Arith.
 (* No [PrimInt63]: the value carriers ([GoI64]/…) are [Z]-records and locations are [nat]
-   (review #6 #13→zero-axioms); this proof layer names no kernel primitive. *)
+  ; this proof layer names no kernel primitive. *)
 Import ListNotations.
 
 Inductive EvKind :=
@@ -318,7 +318,7 @@ Inductive PAct :=
                             step_select_closed.  Closed-state is read off the trace (the KClose
                             event), so no config field is needed. *)
   (* [select] over RECEIVE cases [cs]: receive on ANY ONE channel in [cs] that is ready.
-     This is the AUTHORITATIVE select model (the sequential [run_io] [select_recv2] is a
+     This is the AUTHORITATIVE select model (sequential [run_io] [select_recv2] is a
      non-authoritative ch1-priority interpreter — see the select code review).  Its
      [step_select] rule below fires for EVERY ready channel, so a config with two ready
      cases has TWO successors: select is genuinely NONDETERMINISTIC here (Go's
@@ -1116,13 +1116,13 @@ Proof.
   - intros Hdone. specialize (Hdone 0 eq_refl). discriminate Hdone.
 Qed.
 
-(** ── SELECT, the AUTHORITATIVE relational semantics: the two code-review findings, proven ──
+(** ── SELECT, the AUTHORITATIVE relational semantics: readiness + fairness, proven ──
 
     These two witnesses are the FIX for the select code review (the sequential [run_io]
     [select_recv2] is a deterministic, blocking-idealised UNDER-APPROXIMATION; here select is
     a first-class operational action whose [step_select] rule is the authoritative truth). *)
 
-(** FINDING 1 — CHOICE IS NONDETERMINISTIC.  A config with TWO ready cases has TWO distinct
+(** FACT 1 — CHOICE IS NONDETERMINISTIC.  A config with TWO ready cases has TWO distinct
     successors (receive ch0 vs receive ch1, distinguishable in the trace).  Go picks
     pseudo-randomly; the sequential ch1-priority interpreter realises only the first — so a
     safety property must hold for BOTH, never just the deterministic one.  ([sel_ready_cfg] is
@@ -1145,7 +1145,7 @@ Proof.
   - cbn. intro H. inversion H.
 Qed.
 
-(** FINDING 2 — EMPTY SELECT IS DEADLOCK, NOT A VALUE.  A goroutine selecting on channels with
+(** FACT 2 — EMPTY SELECT IS DEADLOCK, NOT A VALUE.  A goroutine selecting on channels with
     no ready case (and no other goroutine to make one ready) is [Stuck] — exactly like
     [block_cfg], NOT the fabricated [(0, zero)] the sequential interpreter returns.  Blocking
     lives in the GLOBAL transition relation (no enabled step), per the review. *)
@@ -1165,7 +1165,7 @@ Proof.
   - intros Hdone. specialize (Hdone 0 eq_refl). discriminate Hdone.
 Qed.
 
-(** CLOSED-CHANNEL READINESS, OPERATIONAL (closes the select review's relational gap end-to-end).
+(** CLOSED-CHANNEL READINESS, OPERATIONAL (closes the select relational gap end-to-end).
     A recv/select on a CLOSED, drained channel is READY — it STEPS, yielding the zero value — whereas
     on an OPEN empty channel it is stuck ([block_stuck]/[sel_block_stuck] above).  [closed_chan_cfg]
     has channel 5 already closed (a [KClose 5] at trace position 0) and an empty buffer. *)
@@ -1256,7 +1256,7 @@ Inductive Cmd : Type :=
                                                     rstep_select_closed — the rich-calculus port of
                                                     the simple-calculus closed-channel slice. *)
   (* [select] over recv cases, each a (channel, value-binding continuation) PAIR — the
-     AUTHORITATIVE select in the rich value-carrying calculus (the typed [run_io] [select_recv2]
+     AUTHORITATIVE select in the rich value-carrying calculus (typed [run_io] [select_recv2]
      is a non-authoritative ch1-priority interpreter — see the select code reviews).  Unlike the
      simple-calculus [PSelect] (which shared ONE continuation across cases), each case carries its
      OWN continuation, so [select { case <-ch: A() | case <-ch: B() }] — same channel, distinct
@@ -4199,7 +4199,7 @@ Section Keystone.
      channel-separation/frame law, tracked.) *)
   Definition WMatch1 (c : nat) (w : World) (cfg : RConfig) : Prop :=
     chan_buf TI64 (chenv c) w = map inj (rchan cfg c)
-    /\ chan_cap (chenv c) w = None.   (* the bridge's channel is UNBOUNDED (matches the unbounded [rstep] buffer); so a capacity-aware [send] always has room here — review #8 P0-4 *)
+    /\ chan_cap (chenv c) w = None.   (* the bridge's channel is UNBOUNDED (matches the unbounded [rstep] buffer); so a capacity-aware [send] always has room here *)
 
   (** A SEND step: the deep [CSend] run-reduces to its continuation at the world after
       [chan_send_upd], and the buffer match is preserved — mirroring [rstep_send]. *)
@@ -4595,7 +4595,7 @@ Section KeystonePtr.
      accesses the Keystone reasons about — so a calculus location is a real (non-nil) Go pointer. *)
   (* These bridge lemmas state STRUCTURAL (Leibniz) equality of two distinct IO functions — needed
      because the [Denotes] Keystone below inducts on the IO term's shape and so cannot use the
-     observational [io_eq].  This is the one surviving funext use (review #6 P2 #20), via run_io_inj. *)
+     observational [io_eq].  This is the one surviving funext use, via run_io_inj. *)
   Lemma ptr_set_is_ref : forall l v, ptr_set TI64 (ptrenv l) v = ref_set (plocenv l) v.
   Proof.
     intros l v. apply run_io_inj. intro w. rewrite run_ptr_set, run_ref_set, ptrenv_live. reflexivity.
@@ -5556,7 +5556,7 @@ End KeystoneHeap.
     [chan_buf_ref_upd_frame] in builtins.v), so the untouched component stays matched in the SAME
     advanced world.  [reachable_refines_state]: every reachable state of a concurrent program — its
     channels AND its memory — is realized by ONE [run_io] world, across all interleavings.  Open/closed
-    channel STATUS is matched too ([reachable_refines_closed], review #6 #14); CAPACITY is now a proven
+    channel STATUS is matched too ([reachable_refines_closed]); CAPACITY is now a proven
     invariant of every bounded-reachable state ([reachableC_bounded] / [reachableC_refines_bounded] at
     the file end, #14) — it lives in the bounded calculus [rstepC] (the idealized [run_io] world cannot
     express a bound), but the refinement now carries it.  Nilness stays a frontier.
@@ -5682,7 +5682,7 @@ Section KeystoneState.
 
   (** Capstone: that single world realizes the reachable BUFFER+HEAP state AND (under ownership) the
       execution is race-free with a strict-partial-order happens-before.  (Open/closed channel STATUS is
-      also realized — [reachable_refines_closed] below, review #6 #14; CAPACITY is a proven invariant of
+      also realized — [reachable_refines_closed] below; CAPACITY is a proven invariant of
       every bounded-reachable state — [reachableC_bounded] / [reachableC_refines_bounded], file end;
       nilness stays a frontier.) *)
   Theorem reachable_refines_state_and_safe : forall p cfg w0,
@@ -5699,7 +5699,7 @@ Section KeystoneState.
     exact (reachable_owned_safe_r p cfg Hsteps HO).
   Qed.
 
-  (** ---- review #6 #14: the refinement that ALSO tracks open/closed channel status ----
+  (** ---- the refinement that ALSO tracks open/closed channel status ----
       [WState] above matches buffers + heap but NOT closedness — a closed-channel config would refine an
       OPEN world (the old [wstate_step] close case left the world unchanged).  [WClosedMatch] adds the
       missing conjunct — the world's [chan_closed] flag matches the trace's [closedb] — and [wstate_stepC]
@@ -5848,7 +5848,7 @@ Section KeystoneState.
     - intros c. unfold rinit_cfg; cbn [rc_trace]. rewrite (Hclosed c). reflexivity.
   Qed.
 
-  (** THE FULL COMBINED REFINEMENT (review #6 #14): every reachable state of a concurrent program — its
+  (** THE FULL COMBINED REFINEMENT: every reachable state of a concurrent program — its
       channels, its memory, AND its open/closed channel status — is realized by ONE [run_io] world. *)
   Theorem reachable_refines_closed : forall p cfg w0,
     (forall c, chan_buf TI64 (chenv c) w0 = []) ->
@@ -5890,7 +5890,7 @@ Theorem mp_end_to_end :
     (forall l, Nat.eqb (p_loc (ptrenv l)) 0 = false) ->
     (forall c, chan_buf TI64 (chenv c) w0 = []) ->
     chan_closed (chenv 0) w0 = false ->
-    chan_cap (chenv 0) w0 = None ->          (* the handoff channel is UNBOUNDED (review #8 P0-4) *)
+    chan_cap (chenv 0) w0 = None ->          (* the handoff channel is UNBOUNDED *)
     (forall l, ref_sel (plocenv ptrenv l) w0 = inj 0) ->
     exists cfg,
       (* (a) the typed program EXECUTES, generating the canonical handoff trace *)
@@ -5946,7 +5946,7 @@ Qed.
     goroutine is finished or blocked on such a receive ("all waiting to receive, no one
     sending").  [rstuck_blocked] proves exactly that characterization.
 
-    ⚠ This "[CSend] always enabled" enabledness is the UNBOUNDED model, and is exactly review #6 #2: it
+    ⚠ This "[CSend] always enabled" enabledness is the UNBOUNDED model, and is exactly the unbounded-send deviation: it
     cannot represent a send that BLOCKS on a full / unbuffered channel, so this characterization (and any
     deadlock-freedom resting on it) is only about the unbounded abstraction.  The AUTHORITATIVE BOUNDED
     account is [rstepC] / [rstuckC_blocked] at the END of this file (capacity-guarded sends + a cap-0
@@ -6360,9 +6360,9 @@ Proof.
 Qed.
 
 (** ── CSELECT, the authoritative select in the RICH (value-carrying) calculus: the two select
-    code-review findings #3 proven here end-to-end. ── *)
+    proven here end-to-end. ── *)
 
-(** PER-CASE CONTINUATIONS (review #3): [select { case <-ch: A() | case <-ch: B() }] — the SAME
+(** PER-CASE CONTINUATIONS: [select { case <-ch: A() | case <-ch: B() }] — the SAME
     channel with DISTINCT bodies — is representable (impossible with the shared-continuation
     [PSelect]), and BOTH cases are eligible (Go may choose either), yielding two successors that run
     DIFFERENT continuations.  ([rsel_cfg] is a post-send state: position 0 is the earlier send, so
@@ -6389,7 +6389,7 @@ Proof.
   - unfold rsel_A, rsel_B. intro H. inversion H.
 Qed.
 
-(** EMPTY SELECT IS DEADLOCK, NOT A VALUE (review #3, rich-calculus version): a select with no
+(** EMPTY SELECT IS DEADLOCK, NOT A VALUE (rich-calculus version): a select with no
     ready case (and no other goroutine to make one ready) is [RStuck] — a LOCAL non-step, never a
     fabricated zero. *)
 Definition rsel_block_cfg : RConfig :=
@@ -6494,7 +6494,7 @@ Qed.
     ranges over a SINGLE candidate, hence the deterministic model forbids NOTHING Go permits.  This is
     the "sound-but-narrow interim" the builtins.v select note only promises — now a THEOREM.
 
-    SCOPE (honest, per the select review's TOCTOU caveat): the uniqueness hypothesis is over BUFFERED
+    SCOPE (honest — the TOCTOU caveat): the uniqueness hypothesis is over BUFFERED
     readiness ([b c' <> []]).  A CLOSED-and-drained case is an ORTHOGONAL readiness source (it fires
     [rstep_select_closed], a different successor), so full Go-completeness additionally needs the
     open-channel side condition — no case closed-drained — which the all-open configs of (1)/(2)
@@ -7455,7 +7455,7 @@ End BoundedChannels.
     [builtins.v]'s extracted session type WAS a one-field RECORD [Sess i j A :=
     MkSess { run_sess : IO A }], so the public [MkSess] wrapped an ARBITRARY [IO A]
     regardless of the protocol indices: [MkSess (ret tt) : Sess (PSend A P) P unit]
-    type-checked yet COMMUNICATED NOTHING — the indices were phantom (review #3 R9).
+    type-checked yet COMMUNICATED NOTHING — the indices were phantom (R9).
     Rocq 9.2 cannot make a record constructor private without opaque module
     ascription (which needs a Module-Type [Parameter]); the chosen fix is the
     DEEPER one — tie the run to the protocol so the index simply CANNOT lie.  [Sess]
@@ -7853,7 +7853,7 @@ Qed.
 
 
 (** ============================================================================
-    BOUNDED-CAPACITY CALCULUS [rstepC cap] — review #6 #2.
+    BOUNDED-CAPACITY CALCULUS [rstepC cap].
 
     The rich [rstep] above has UNBOUNDED asynchronous channels: [rstep_send] fires
     UNCONDITIONALLY (the deadlock section notes "[CSend] always enabled"), so a send to
@@ -7989,7 +7989,7 @@ Proof.
 Qed.
 
 (** ============================================================================
-    BOUNDED DEADLOCK CHARACTERIZATION — review #6 #2, the heart of the fix.
+    BOUNDED DEADLOCK CHARACTERIZATION — the heart of the capacity model.
 
     The unbounded [rstuck_blocked] characterizes a stuck config as "every live goroutine is finished,
     blocked on an empty-open RECV, or panicking" — it CANNOT see a blocked SEND because [rstep_send]
@@ -8626,9 +8626,9 @@ Proof.
 Qed.
 
 (** ============================================================================
-    THE VISIBLE WRITE [W(r)] — review #6 #19: which write does a read observe?
+    THE VISIBLE WRITE [W(r)]: which write does a read observe?
 
-    The reviewer flagged that the memory model gave no [W(r)] / visible-write condition.  Operationally
+    Without it the memory model gives no [W(r)] / visible-write condition.  Operationally
     this model is SEQUENTIALLY CONSISTENT: a [CRead l] returns [rc_heap l], the value of the LAST write
     to [l] in the linearised (trace) order — so the observed writer is, BY CONSTRUCTION, the trace-last
     write to [l] strictly before the read [r] ([last_write_before]).  The CONTENT of #19 is then a

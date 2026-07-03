@@ -150,7 +150,7 @@ Definition unsupported_value_stmt : Program :=
 (** REJECTED — every entry is INVALID Go the gate must refuse ([supported_program = false]): statement-shape
     errors (bare value / call-of-non-callable / assertion- or conversion- or aggregate-as-statement / value
     return in void [main] / [len] in statement context / [panic] arity), value-position errors (void call,
-    conversion arity), the [ptype] CLOSED type-errors ([len]/[bool]/[&&]/[!]/int-of-slice; the FINDING 1-4
+    conversion arity), the [ptype] CLOSED type-errors ([len]/[bool]/[&&]/[!]/int-of-slice; the four REJECTION-CLASS
     numeric category / overflow / zero-divisor / shift / comparison / [cap]-of-string / aggregate-conversion
     cases; the transitive NUMERIC typed-constant rules — INCL. the [int8(len(<non-literal string const>)+200)] overflow
     companions that LOCK the [valid_unsupported_programs] [len] witnesses' soundness boundary; float-rounding +
@@ -197,7 +197,7 @@ Definition bad_programs : list Program :=
   ; pl_arg (EBn BLAnd (EInt 1) (EInt 2))
   ; pl_arg (EUn UNot (EInt 1))
   ; pl_arg (gs_int (ESliceLit GTInt [EInt 1]))
-    (* FINDING 1 — numeric category / overflow / zero-divisor / shift *)
+    (* REJECTION CLASS 1 — numeric category / overflow / zero-divisor / shift *)
   ; pl_arg (EBn BRem (gs_f64 (EInt 1)) (gs_f64 (EInt 2)))
   ; pl_arg (EBn BShl (gs_f64 (EInt 1)) (EInt 2))
   ; pl_arg (EBn BAnd (gs_f64 (EInt 1)) (gs_f64 (EInt 2)))
@@ -211,15 +211,15 @@ Definition bad_programs : list Program :=
   ; pl_arg (EBn BDiv (EInt 1) (EBn BSub (EInt 1) (EInt 1)))
   ; pl_arg (EBn BRem (EInt 1) (EInt 0))
   ; pl_arg (EBn BShl (EInt 1) (EInt (-1)))
-    (* FINDING 2 — comparison split (== needs comparable, < needs ordered) *)
+    (* REJECTION CLASS 2 — comparison split (== needs comparable, < needs ordered) *)
   ; pl_arg (EBn BEq (ESliceLit GTInt [EInt 1]) (ESliceLit GTInt [EInt 1]))
   ; pl_arg (EBn BLt (ESliceLit GTInt [EInt 1]) (ESliceLit GTInt [EInt 1]))
   ; pl_arg (EBn BLt (EBn BEq (EInt 1) (EInt 1)) (EBn BEq (EInt 2) (EInt 2)))
   ; pl_arg (EBn BEq (EInt 1) (EBn BEq (EInt 2) (EInt 2)))
-    (* FINDING 3 — cap of a string *)
+    (* REJECTION CLASS 3 — cap of a string *)
   ; gs_blank (ECall (EId (mkIdent "cap" eq_refl)) [gs_str (EInt 65)])
   ; gs_blank (ECall (EId (mkIdent "cap" eq_refl)) [EStr "hi"])
-    (* FINDING 4 — aggregate conversion soundness *)
+    (* REJECTION CLASS 4 — aggregate conversion soundness *)
   ; gs_blank (EConv (CTChan GTInt) (ESliceLit GTInt [EInt 1]))
   ; gs_blank (EConv (CTSlice GTInt) (ESliceLit GTString []))
     (* transitive NUMERIC typed-constant rules (a numeric const's value survives conversions/binops) *)

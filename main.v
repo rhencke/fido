@@ -29,12 +29,12 @@ Definition spine_emit : string := GoEmit.emit_supported spine_cert.
 
 (* Float literals parse in [go64_scope] (decimal → the binary64 [spec_float]); integer literals are
    type-directed (nat field indices / GoInt via [int_lit] / [%i64] / [%u64]).  No int63 scope — the
-   [PrimInt63]/[Sint63]/[PrimFloat] substrate is gone (review #6 #13→zero-axioms). *)
+   [PrimInt63]/[Sint63]/[PrimFloat] substrate is gone. *)
 Open Scope go64_scope.
 
 (** [add]/[sub] on the platform [GoInt] (Go's [int]) — index/value arithmetic (loop
     counters, computed slice indices like [sub 0 1]).  [GoInt] is now the FAITHFUL
-    [Z]-carried record (review #6 #13), so these wrap at the true [2^63] (via [int_add]/
+    [Z]-carried record, so these wrap at the true [2^63] (via [int_add]/
     [int_sub]) — no longer the bounded [Sint63] carrier.  Full-width int64 VALUE arithmetic
     has its own [GoI64] versions below. *)
 Definition add (n m : GoInt) : GoInt := int_add n m.
@@ -203,7 +203,7 @@ Definition cmp_ops_demo : IO unit :=
     only then extract to Go's unguarded [n / d] / [n % d] — the proof has already
     ruled out the panic.  Underneath they are [int_div]/[int_mod] on the [Z]-carried
     [GoInt] ([Z.quot]/[Z.rem], truncating toward zero exactly like Go's int64, wrapping
-    at the true [2^63] — review #6 #13).  (Raw division remains the escape hatch — Go
+    at the true [2^63]).  (Raw division remains the escape hatch — Go
     panics on a zero divisor.) *)
 Definition div_nz (n d : GoInt) (pf : Z.eqb (intraw d) 0%Z = false) : GoInt := int_div n d pf.
 Definition mod_nz (n d : GoInt) (pf : Z.eqb (intraw d) 0%Z = false) : GoInt := int_mod n d pf.
@@ -228,7 +228,7 @@ Example spec_mod_n5_n3  : intraw (mod_nz (int_lit (-5) eq_refl) (int_lit (-3) eq
 (** Spec, the ONE exception: "if the dividend x is the most negative value for the
     int type of x, the quotient q = x / -1 is equal to x (and r = 0) due to
     two's-complement integer overflow".  [GoInt] is now the FAITHFUL [Z]-carried int64
-    (review #6 #13), so the most-negative value is the TRUE [int64] minimum [-2^63]
+   , so the most-negative value is the TRUE [int64] minimum [-2^63]
     ([-9223372036854775808]) — no longer the bounded [Sint63] [-2^62].  We honor the
     rule — no panic, [int_div] wraps it to itself (via [wrap64]). *)
 Example spec_div_minint_neg1 :
@@ -243,7 +243,7 @@ Proof. now vm_compute. Qed.
 Definition div_demo : IO unit :=
   println [any (div_nz (int_lit 17 eq_refl) (int_lit 5 eq_refl) eq_refl); any (mod_nz (int_lit 17 eq_refl) (int_lit 5 eq_refl) eq_refl)].   (* prints: 3 2 *)
 
-(** float64 is the AXIOM-FREE [SpecFloat.spec_float] (IEEE 754 double over [Z]; review #6
+(** float64 is the AXIOM-FREE [SpecFloat.spec_float] (IEEE 754 double over [Z]
     #13→zero-axioms), the same binary64 as Go's float64, so arithmetic agrees bit-for-bit
     ([f64_add]/[f64_div]/… are [SF*] definitions; literals like [1.5] are parsed to the
     correctly-rounded [spec_float] and emitted as the exact Go hex-float).  (Go's [println]
@@ -330,7 +330,7 @@ Definition fcmp_demo : IO unit :=
 (** int64 -> float64 conversion ([f64_of_i64], Go [float64(i)]) -- MODELED + machine-checked:
     [7 -> 7.0] and the SIGNED case [-3 -> -3.0].  The [Z]-carried [GoI64] is rounded ONCE to
     binary64 via [SpecFloat.binary_normalize] (axiom-free; >= 2^53 rounds exactly like Go, and
-    [MININT = -2^63] is handled directly — no [of_uint63] sign-split, review #6 #13->zero-axioms).
+    [MININT = -2^63] is handled directly — no [of_uint63] sign-split->zero-axioms).
     Recognized by name -> native Go [float64(i)]; the body is suppressed.  The reverse,
     float64 -> int64 TRUNCATION ([i64_of_f64]), also lowers now -- [spec_float] decomposes
     DIRECTLY (no float-primitive needed). *)
@@ -340,7 +340,7 @@ Example f64_of_i64_neg : f64_eqb (f64_of_i64 (-3)%i64) (f64_opp 3%go64) = true.
 Proof. now vm_compute. Qed.
 
 (** int → float64 (Go [float64(i)]): recognized by name → native [float64(i)]; the
-    [binary_normalize] body (over the [Z]-carried [GoInt], review #6 #13) suppressed.
+    [binary_normalize] body (over the [Z]-carried [GoInt]) suppressed.
     Machine-checked across the sign. *)
 Example f64_of_int_pos : f64_eqb (f64_of_int (int_lit 5 eq_refl)) 5%go64 = true.
 Proof. now vm_compute. Qed.
@@ -376,9 +376,9 @@ Definition i64_of_narrow_demo : IO unit :=
   println [ any (i64_of_u8  (u8_lit 200 eq_refl))         (* 200 *)
           ; any (i64_of_i8  (i8_of_int (int_lit (-5) eq_refl)))      (* -5  (signed widen keeps sign) *)
           ; any (i64_of_u16 (u16_lit 60000 eq_refl)) ].   (* 60000 *)
-(** review #4 P1 #4 — the narrow→wide widening through a narrow PARAM (the case the constant-operand
+(** THE NARROW-BOUNDARY CLASS — the narrow→wide widening through a narrow PARAM (the case the constant-operand
     demos above could NOT see).  The param is a REAL Go [uint8]/[int8], so the widen is NOT identity:
-    [i64_of_u8 x] MUST emit [int64(x)] (the reviewer's exact counterexample [func Widen(x uint8) int64
+    [i64_of_u8 x] MUST emit [int64(x)] (the distinguishing counterexample [func Widen(x uint8) int64
     { return x }] was invalid Go).  These extract to [func …(x uint8) int64 { return int64(x) }] etc.;
     a regression to identity-lowering FAILS [go build] (caught now, not silently shipped). *)
 Definition widen_u8_to_i64 (x : GoU8) : GoI64 := i64_of_u8 x.   (* uint8 → int64 (zero-extend) *)
@@ -511,12 +511,12 @@ Definition narrow_cluster_lock_demo : IO unit :=
     println [any a; any b; any c; any d; any e]))))).
   (* true true true true true *)
 
-(** review #4 P0 #1 — Go's platform [uint] is now a GENUINELY DISTINCT Rocq type ([GoUint], a
+(** THE DISTINCT-RECORD CLASS — Go's platform [uint] is a GENUINELY DISTINCT Rocq type ([GoUint], a
     record), NOT a transparent [int] alias.  TWO defects, both machine-checked closed here:
 
     (1) TYPE CONFUSION — assigning a [GoInt] where a [GoUint] is expected (or the reverse) no
         longer type-checks, so the plugin can NEVER emit the invalid Go [func(x int) uint { return x }]
-        (review #4's exact counterexample).  These [Fail]s are checked at COMPILE time: *)
+        ('s exact counterexample).  These [Fail]s are checked at COMPILE time: *)
 Fail Definition int_to_uint_confusion (x : GoInt)  : GoUint := x.
 Fail Definition uint_to_int_confusion (x : GoUint) : GoInt  := x.
 (*  and the retired bare-[int] placeholders no longer exist as types at all (one Rocq type per Go type): *)
@@ -559,10 +559,10 @@ Definition narrow_ret_demo : IO unit :=
           ; any (inc8       (u8_lit 200 eq_refl))      (* uint8(200)+1       = 201 *)
           ; any (consume_i8 (i64_lit 200 eq_refl)) ].  (* int8(int8(200)+1)  = -55 *)
 
-(** review #4 P1 #4 (slice 2) — the CONVERSE of the widening: a wide int64-carried value flowing INTO
+(** Narrow-boundary slice 2 — the CONVERSE of the widening: a wide int64-carried value flowing INTO
     a NARROW struct field.  [bb_val : GoU8] renders as Go [uint8], but the constructor value
     [u8_of_i64 …] is computed in the int64 carrier (a masked expr), so a bare [ByteBox{Bb_val: x & 0xff}]
-    is INVALID Go (the reviewer's [Box{V: x & 0xff}] with V uint8).  The plugin now casts the value to
+    is INVALID Go ([Box{V: x & 0xff}] with V uint8).  The plugin now casts the value to
     the field's destination type: [ByteBox{Bb_val: uint8(((int64(300)) & 0xff)), …}].  A RUNTIME value
     (not a bare constant) exercises the cast: [u8_of_i64 (i64_lit 300)] truncates to uint8(300)=44, then
     the field read [bb_val b] (a real [uint8]) widens back via [i64_of_u8] (slice 1) to 44. *)
@@ -573,7 +573,7 @@ Definition narrow_field_demo : IO unit :=
           ; any (bb_tag b) ].            (* 7 (the int64 field is untouched) *)
   (* 44 7 *)
 
-(** review #4 P1 #4 (slice 3) — narrow COLLECTION ELEMENTS: a wide int64-carried value flowing into a
+(** Narrow-boundary slice 3 — narrow COLLECTION ELEMENTS: a wide int64-carried value flowing into a
     narrow slice/array element.  [[]uint8] / [[N]uint8] literals built from runtime values were emitted
     bare ([[]uint8{x & 0xff}] = invalid Go); the plugin now casts each element to the element type from
     the [GoTypeTag] ([[]uint8{uint8(((int64(300)) & 0xff)), uint8((5 & 0xff))}]).  Exercises the SLICE
@@ -588,7 +588,7 @@ Definition narrow_elem_demo : IO unit :=
             ; any (i64_of_u8 av) ])).    (* 6  *)
   (* 44 6 *)
 
-(** review #4 P1 #4 (slice 4) — narrow PAYLOADS at the tag-carrying POINTER & CHANNEL boundaries: a
+(** Narrow-boundary slice 4 — narrow PAYLOADS at the tag-carrying POINTER & CHANNEL boundaries: a
     wide int64-carried value written into a [*uint8] cell or sent on a [chan uint8].  Both were emitted
     bare (the [ptr_new] IIFE arg / [*p = v] / [ch <- v]) → invalid Go; the plugin now casts the payload
     to the destination narrow type from the op's [GoTypeTag] ([uint8(…)]).  Runtime values exercise it. *)
@@ -601,7 +601,7 @@ Definition ptr_chan_narrow_demo : IO unit :=
   bind (recv TU8 ch) (fun cv =>                                     (* cv := <-ch (uint8 45) *)
   println [ any (i64_of_u8 pv) ; any (i64_of_u8 cv) ])))))).        (* 7 45 *)
 
-(** review #4 P1 #4 (slice 5) — narrow map VALUES: a [map[int64]uint8] written with a wide int64-carried
+(** Narrow-boundary slice 5 — narrow map VALUES: a [map[int64]uint8] written with a wide int64-carried
     value (the map_set RHS) and read with a narrow default (map_get_or's default).  Both were emitted bare
     ([m[k] = x & 0xff] invalid Go; the default boxed as int64 ⇒ [hit] inferred int64, then [hit = _v] from
     the uint8 map = invalid).  The plugin now casts both to the value type from the [GoTypeTag].  (Narrow
@@ -613,7 +613,7 @@ Definition map_narrow_demo : IO unit :=
   bind (@map_get_or GoI64 GoU8 TI64 TU8 (9)%i64 (u8_of_i64 (i64_lit 9 eq_refl)) m) (fun miss => (* miss → dflt uint8(9) *)
   println [ any (i64_of_u8 hit) ; any (i64_of_u8 miss) ])))).      (* 44 9 *)
 
-(** review #4 P1 #4 (slice 6) — narrow map KEYS: a [map[uint8]int64] keyed by a wide int64-carried value.
+(** Narrow-boundary slice 6 — narrow map KEYS: a [map[uint8]int64] keyed by a wide int64-carried value.
     Every key site emitted the key bare ([m[x & 0xff]] = invalid Go: an int64 index into a [map[uint8]]),
     so a narrow-key map was all-or-nothing.  The plugin now casts the key to the key type from the
     [GoTypeTag] at ALL sites: map_set, map_delete, map_get_or, map_get_opt.  This demo exercises set +
@@ -631,7 +631,7 @@ Definition map_key_narrow_demo : IO unit :=
   | None => println [ any (0)%i64 ]
   end)))).
 
-(** review #4 P1 #4 (slice 7) — narrow function ARGS: a wide int64-carried value passed to a NARROW
+(** Narrow-boundary slice 7 — narrow function ARGS: a wide int64-carried value passed to a NARROW
     PARAM of a user function.  The arg [u8_of_i64 …] is the int64-masked carrier, so a bare
     [Takes_u8(x & 0xff)] is invalid Go (int64 into a [uint8] param).  The plugin now casts the arg to
     the callee's param type ([Takes_u8(uint8(…))]) when the params align 1:1 with the visible args
@@ -766,7 +766,7 @@ Definition f32_of_int_demo : IO unit :=
      the shared ~6 sig-figs, so print the INEQUALITY (false = they differ) — the observable proof. *)
   println [ any (f32_eqb (f32_of_i64 (i64_lit 2305843146652647425 eq_refl))
                          (f32_of_f64 (f64_of_i64 (i64_lit 2305843146652647425 eq_refl)))) ].  (* false *)
-(** EXACT float CONSTANT → float32 (code review's remaining item): [f32_of_fconst] rounds the exact
+(** EXACT float CONSTANT → float32 (the exact-or-reject rounding item): [f32_of_fconst] rounds the exact
     rational ONCE to binary32 (correctly-rounded for ALL num/den).  Disproves single-rounding via
     float64 for a large rational, and computes the ordinary small constant exactly. *)
 Example f32_of_fconst_direct :   (* exact 2305843146652647425/1 → 2^61+2^38 (Go float32(x) = 0x5e000001) *)
@@ -792,7 +792,7 @@ Example f64_of_fconst_no_double_round :   (* new (single round) ≠ old (double 
 Proof. vm_compute. reflexivity. Qed.
 Definition f64_fconst_big_demo : IO unit :=
   println [ any (f64_of_fconst (mkFC 9007199254740993 10)) ].   (* (2^53+1)/10 = 900719925474099.25, single round (was fail-loud) *)
-(** SOUNDNESS REGRESSION (closes a code-review hole).  Pre-fix, [GoFloat32 := float] was a
+(** SOUNDNESS REGRESSION (closes a soundness hole).  Pre-fix, [GoFloat32 := float] was a
     transparent alias, so a NON-binary32-representable literal could be injected raw and
     [f64_of_f32 16777217 = 16777217] — DISAGREEING with Go (which rounds [float32(16777217)]
     to [16777216]) and licensing unsound proofs.  Now [16777217] cannot enter [GoFloat32]
@@ -892,7 +892,7 @@ Example i64_of_f64_zero  : i64_of_f64 0%go64         = (0)%i64.       Proof. vm_
 Example i64_of_f64_big   : i64_of_f64 1000000.9%go64 = (1000000)%i64. Proof. vm_compute. reflexivity. Qed.
 (** LOWERED to native Go [int64(f)]: [i64_of_f64] is recognized by name; its [f64_trunc_Z]
     body — which decomposes the [spec_float] [S754_finite s m e] DIRECTLY (no [Prim2SF] /
-    [normfr_mantissa] primitive, review #6 #13→zero-axioms) — is suppressed.  The MODEL is
+    [normfr_mantissa] primitive→zero-axioms) — is suppressed.  The MODEL is
     faithful and machine-checked above. *)
 
 
@@ -1020,12 +1020,12 @@ Definition convert_demo : IO unit :=
     int64), so the byte/short value lands unchanged in the canonical [GoI64].
     Unsigned narrows stay non-negative; a signed narrow keeps its sign
     ([int64(int8 -5) = -5]).  MODELED + machine-checked across signed/unsigned and
-    small/large widths.  Lowering = Go's [int64(x)] widening (review #4 P1 #4; NOT identity — a
+    small/large widths.  Lowering = Go's [int64(x)] widening (the narrow-boundary rule; NOT identity — a
     narrow PARAM is a real [uint8]/[int8]/…, so [int64(x)] lands it in the [int64] destination,
     e.g. [func Widen(x uint8) int64 { return int64(x) }]).  The body is now a pure [Z] re-wrap
     ([i64wrap (uNraw a)] — [uNraw]/[iNraw] : narrow → [Z], no [Sint63.to_Z], no match): the
     **narrow-stored-in-Z** refactor that an earlier deep-dive deferred (the single-field records
-    used to η-reduce a [to_Z] body into value position) is DONE (review #6 #13→zero-axioms), so
+    used to η-reduce a [to_Z] body into value position) is DONE, so
     it extracts cleanly with no banned-decl drag. *)
 Example widen_u8  : i64_of_u8  (u8_lit 200 eq_refl)         = (200)%i64.        Proof. vm_compute. reflexivity. Qed.
 Example widen_i8  : i64_of_i8  (i8_of_int (int_lit (-5) eq_refl))      = (-5)%i64.         Proof. vm_compute. reflexivity. Qed.
@@ -1429,7 +1429,7 @@ Definition select_default_demo : IO unit :=
 
 (** Differential test — select over a CLOSED channel.  A closed-and-DRAINED channel's recv is READY in
     Go (it yields the zero value immediately), so the recv case fires and [default] is NOT taken — the
-    select_recv_default code-review fix (2026-06-20; examining only the buffer mispredicted default for a
+    select_recv_default fix (examining only the buffer mispredicted default for a
     closed channel).  Here [ch] is closed+empty: the recv case runs with the zero value (0), printing 0,
     NOT 99.  A regression to the pre-fix behaviour would print 99. *)
 Definition select_closed_demo : IO unit :=
@@ -1510,7 +1510,7 @@ Fail Definition bad_double_send : Sess PingPong PEnd unit :=
 Fail Definition bad_server_sends : Sess (dual PingPong) PEnd unit :=
   sbind (ssend (1)%i64) (fun _ => sret tt).
 
-(* R9 (review #3): the OLD record's PUBLIC [MkSess] could FORGE any protocol with a
+(* R9: the OLD record's PUBLIC [MkSess] could FORGE any protocol with a
    no-op body — [MkSess (ret tt) : Sess PingPong PEnd unit] claims a send-then-recv
    yet communicates nothing.  [Sess] is now a forge-proof INDUCTIVE: [MkSess] no
    longer exists, so the forgery is UNTYPABLE (the index cannot be detached from the
@@ -2396,7 +2396,7 @@ Definition count_demo : IO unit :=
     ret Done                                       (* block 1 *)
   ]).
 
-(** review #4 P1 3: a run_blocks with a NONZERO entry (block 1) now emits its own `block1:`
+(** A run_blocks with a NONZERO entry (block 1) now emits its own `block1:`
     label — the raw fallback used to emit `goto block1` with NO such label (undefined Go).  Entry
     block 1 prints 5 then jumps to block 0 (so block 0 is reachable, not dead); block 0 prints 7. *)
 Definition cfg_nonzero_entry_demo : IO unit :=
@@ -2647,7 +2647,7 @@ Definition labeled_demo : IO unit :=
 Definition sum_coords (p : Point) : GoI64 := i64_add (px p) (py p).
 Definition shifted (p : Point) (dx : GoI64) : Point :=
   MkPoint (i64_add (px p) dx) (i64_add (py p) dx).
-(** review #4 P1 #4 — a method with a NARROW param: `func (p Point) Px_plus(b uint8) int64`.  The
+(** Narrow-boundary at METHODS — a NARROW param: `func (p Point) Px_plus(b uint8) int64`.  The
     receiver is param 0, so the cast machinery uses the param-type TAIL aligned with the non-receiver
     args; a wide value at the narrow `b` is cast (`p.Px_plus(uint8(…))`) — the method residual the
     function-arg slice left open, now closed (else `p.Px_plus(int64-expr)` = invalid Go). *)
@@ -2801,13 +2801,13 @@ Definition nested_struct_demo : IO unit :=
   println [any (iv (w_inner o)); any (wz o)].   (* 5 9 (chained: o.W_inner.Iv, o.Wz) *)
 
 (** Struct POINTER (Phase Bs.2): a heap-backed [*Cell] with mutation THROUGH the pointer, via the
-    arity-free generic [StructRep] (review #8/#9).  [gsptr_new] → [&Cell{…}]; [gsptr_set_field p MHere
+    arity-free generic [StructRep].  [gsptr_new] → [&Cell{…}]; [gsptr_set_field p MHere
     cx _ 7] → [p.Cx = 7] (mutate); [gsptr_get_field p MHere cx _] → [p.Cx].  The [StructRepOf Cell]
     instance is proof-only (the iso decomposes/reconstructs the struct across field cells — it gives
     the read-after-write/aliasing THEOREMS [gsptr_field_get_set]/[gsptr_alias]); the field is the typed
     index [MHere]/[MNext], the projection ([cx]) is the coherence-pinned NAME; native Go, never the rep. *)
 Record Cell := MkCell { cx : GoI64 ; cy : GoI64 }.
-(* The CANONICAL rep for [Cell] (review #6 #10(b)): bound once to the type, so every [*Cell] handle
+(* The CANONICAL rep for [Cell] (ONE canonical rep per type): bound once to the type, so every [*Cell] handle
    reconstructs the same way.  [cell_f0]/[cell_f1] are the field-COHERENCE evidence (#10(c)) — they
    tie [cx]↔cell 0 and [cy]↔cell 1 to that rep, so a field access cannot name the wrong cell. *)
 #[local] Instance StructRepOf_Cell : StructRepOf Cell := {|
@@ -2824,7 +2824,7 @@ Definition sptr_demo : IO unit :=
   bind (gsptr_get_field p (MNext MHere) cy cell_c1) (fun b =>    (* b := p.Cy → 4 *)
   println [any a; any b])))).                                   (* prints: 7 4 *)
 
-(** GENERIC struct rep (review #8/#9): the ARITY-FREE [StructRep R ts] / typed de Bruijn index [Mem]
+(** GENERIC struct rep: the ARITY-FREE [StructRep R ts] / typed de Bruijn index [Mem]
     machinery, replacing [StructRep2]/[StructRep3]/[StructRep2H].  Same heap-backed [*GCell], but a
     field is the SINGLE typed index ([MHere]/[MNext]); the named projection ([gca]/[gcb]) is PINNED to
     it by [gfield_coh] ([= eq_refl]: the index denotes exactly that projection), so a slot can never
@@ -2964,9 +2964,9 @@ Definition het_ptr_demo : IO unit :=
   bind (gsptr_get_field p (MNext MHere) p_b pair_c1) (fun b =>         (* b := p.P_b → true *)
   println [any n; any b])))).                                  (* prints: 11 true *)
 
-(** review #6 #10(c) — the field COHERENCE is ENFORCED, not decorative: a [gfield_coh] witness for a
+(** The field COHERENCE is ENFORCED, not decorative: a [gfield_coh] witness for a
     MISMATCHED (idx, proj) or (proj, tag) pairing does NOT typecheck, so a struct-pointer access can
-    never name one field while addressing another cell (the exact defect the review flagged). *)
+    never name one field while addressing another cell (exact defect the review flagged). *)
 Fail Definition cell_bad_coh   (* cy is field 1 (MNext MHere), not field 0 (MHere) — coh unprovable *)
   : gfield_coh (R:=Cell) MHere cy := eq_refl.
 Fail Definition pair_bad_type  (* field 0 is p_n:int64, not p_b:bool — the typed index rejects the mismatch *)
@@ -3209,7 +3209,7 @@ Definition deftype_iface_demo : IO unit :=
     record, so it stays a function, not a method) wrapped by [mk_handler]. *)
 Record Handler := MkHandler { h_fn : GoFunc GoI64 GoI64 ; h_tag : GoTypeTag (GoFunc GoI64 GoI64) }.
 Definition mk_handler (f : GoI64 -> GoI64) : Handler := MkHandler (gofunc_of f) (TArrow TI64 TI64).
-(* [h_fn h] is a NULLABLE func value (review #8); CALLING it is the effectful [gofunc_call] — a real
+(* [h_fn h] is a NULLABLE func value; CALLING it is the effectful [gofunc_call] — a real
    handler runs, a nil one panics (Go's nil-func call).  The plugin erases the [Some]/[gofunc_call]
    down to the bare Go call [(func(int64) int64)(h)(x)]. *)
 Definition handler_run (h : Handler) (x : GoI64) : IO GoI64 := gofunc_call (h_fn h) x.
@@ -3218,7 +3218,7 @@ Definition hinc (n : GoI64) : GoI64 := i64_add n (1)%i64.
 Example handler_run_spec : forall f x w,
   run_io (handler_run (mk_handler f) x) w = ORet (f x) w.
 Proof. reflexivity. Qed.
-(* review #8 — the ZERO func is a genuine nil ([NilFunc]), and CALLING it PANICS (Go's nil-func
+(* The ZERO func is a genuine nil ([NilFunc]), and CALLING it PANICS (Go's nil-func
    call = nil-pointer dereference); it is NOT a silently-callable codomain-zero placeholder. *)
 Example zero_func_is_nil : zero_val (TArrow TI64 TI64) = NilFunc.
 Proof. reflexivity. Qed.
@@ -3660,20 +3660,20 @@ Definition main_effect : IO unit :=
   mutual_rec_demo               >>'   (* prints: true / false (mutual recursion is_even/is_odd) *)
   f32_demo                      >>'   (* prints: 7.5 (native float32 arithmetic) *)
   i64_of_narrow_demo            >>'   (* prints: 200 -5 60000 (narrow→int64 widening) *)
-  widen_param_demo              >>'   (* prints: 200 -5 100 (narrow PARAM widen: int64(uint8)/int64(int8)/int(uint8) — review #4 P1 #4) *)
+  widen_param_demo              >>'   (* prints: 200 -5 100 (narrow PARAM widen: int64(uint8)/int64(int8)/int(uint8)) *)
   conv_operand_demo             >>'   (* prints: 205 true 13 22 210 true true (conversions int64(x)/float32(x)/int64(f)/uint64(f)/int(x)/float64(i)/float32(i) as binop operands) *)
   i64_to_narrow_demo            >>'   (* prints: 52 -56 4464 705032704 (int64→narrow truncation) *)
   narrow_let_assert_demo        >>'   (* prints: 200 true (let-bound GoU8 boxes+asserts as uint8) *)
   type_identity_lock_demo       >>'   (* prints: true false true false true false false (uint8≠int64, GoI64=int64≠Go-int, R10 differential) *)
   narrow_cluster_lock_demo      >>'   (* prints: true true true true true (full #7 narrow cluster boxes as own Go type) *)
-  uint_lock_demo                >>'   (* prints: true false (platform uint boxes as Go uint, distinct from int — review #4 P0 #1) *)
+  uint_lock_demo                >>'   (* prints: true false (platform uint boxes as Go uint, distinct from int) *)
   narrow_ret_demo               >>'   (* prints: 52 -56 (narrow RETURN boundary: func returns uint8/int8) *)
-  narrow_field_demo             >>'   (* prints: 44 7 (narrow struct FIELD boundary: ByteBox{uint8(…)} — review #4 P1 #4 slice 2) *)
-  narrow_elem_demo              >>'   (* prints: 44 6 (narrow slice/array ELEMENT boundary: []uint8{uint8(…)} — review #4 P1 #4 slice 3) *)
-  ptr_chan_narrow_demo          >>'   (* prints: 7 45 (narrow POINTER/CHANNEL payload: *uint8 / chan uint8 — review #4 P1 #4 slice 4) *)
-  map_narrow_demo               >>'   (* prints: 44 9 (narrow map VALUE: map[int64]uint8 value+default — review #4 P1 #4 slice 5) *)
-  map_key_narrow_demo           >>'   (* prints: 5 5 0 (narrow map KEY: map[uint8]int64 set/get/del — review #4 P1 #4 slice 6) *)
-  arg_narrow_demo               >>'   (* prints: 44 (narrow function ARG: takes_u8(uint8(…)) — review #4 P1 #4 slice 7) *)
+  narrow_field_demo             >>'   (* prints: 44 7 (narrow struct FIELD boundary: ByteBox{uint8(…)}) *)
+  narrow_elem_demo              >>'   (* prints: 44 6 (narrow slice/array ELEMENT boundary: []uint8{uint8(…)}) *)
+  ptr_chan_narrow_demo          >>'   (* prints: 7 45 (narrow POINTER/CHANNEL payload: *uint8 / chan uint8) *)
+  map_narrow_demo               >>'   (* prints: 44 9 (narrow map VALUE: map[int64]uint8 value+default) *)
+  map_key_narrow_demo           >>'   (* prints: 5 5 0 (narrow map KEY: map[uint8]int64 set/get/del) *)
+  arg_narrow_demo               >>'   (* prints: 44 (narrow function ARG: takes_u8(uint8(…))) *)
   vlet_demo                     >>'   (* prints: 21 (value-position let in int64 arithmetic) *)
   narrow_u64_demo               >>'   (* prints: 200 18446744073709551615 255 -1 (narrow↔uint64 via hub) *)
   floatconv_demo                >>'   (* prints: 16777216 / 7.5 (float32↔float64 convert) *)

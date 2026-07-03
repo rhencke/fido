@@ -1,11 +1,11 @@
 #!/bin/sh
-# Fail-closed regression harness (review #4 R10 — the negative-fixture gate the reviews wanted).
+# Fail-closed regression harness — the negative-fixture gate.
 #
 # Each negtests/*.v is a program that hits a fail-CLOSED backend site; its FIRST line declares
 # `(* EXPECT: <substring> *)`, the message extraction MUST abort with.  We compile each one and
 # assert it ABORTS with that message.  A negtest that SUCCEEDS (emits Go) means a fail-closed
 # site REOPENED — emitting plausible-but-wrong Go where rule 2 demands a loud `unsupported`.
-# That is exactly the defect class the happy-path golden CANNOT see (review #4 meta-lesson).
+# That is exactly the defect class the happy-path golden CANNOT see.
 #
 # Run from the repo root AFTER `dune build` (needs the built Fido theory + plugin in _build).
 # Requires a host `rocq` on PATH (like `make run-local` needs a host Go); the canonical Docker

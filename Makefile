@@ -19,7 +19,7 @@ print-goimage:
 
 # Run the extracted program (Go's println writes to stderr → capture 2>&1).
 GORUN := docker run --rm -v "$(PWD)":/w -w /w $(GOIMAGE) go run .
-# `go vet` gate (review #4 R10): `go run` already BUILDS the emitted Go (so a type error
+# `go vet` gate (R10): `go run` already BUILDS the emitted Go (so a type error
 # anywhere fails), but vet catches suspicious-but-COMPILING constructs (bad printf verbs,
 # unreachable code, lost cancels, self-assignment, …) that a plugin bug could emit silently.
 # The no-import `package main` vets offline.  Wired into [check] and [golden] below.
@@ -166,7 +166,7 @@ check: toolchain-gate toolchain-selftest go-verify-selftest extract emit-demo
 	  echo "fido: GO VET FAILED — the emitted Go has a vet diagnostic (a real defect even though it compiles); fix the plugin/.v, not the Go."; \
 	  exit 1; \
 	fi
-	@# SELECTOR-BRIDGE fixture (Codex regression gate): EXTRACT the generated Embed_arith function and require it
+	@# SELECTOR-BRIDGE fixture (regression gate): EXTRACT the generated Embed_arith function and require it
 	@# EXACTLY (byte-for-byte, fixture-scoped — NOT a substring grep).  A bridge re-broadening (d.Animal.Legs), a
 	@# pp_expr peel_embedded regression ((d.Animal).Legs), or any other body edit changes this block — a
 	@# SOURCE-byte regression the runtime golden can't see (same value either way).

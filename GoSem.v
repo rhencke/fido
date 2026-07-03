@@ -720,7 +720,7 @@ Example gtint_bitwise_runs : forall w,
     ; Some (ORet tt (w_log true (anyt TInt64 (intwrap 2) :: nil) w))
     ; Some (ORet tt (w_log true (anyt TInt64 (intwrap 1) :: nil) w)) ].
 Proof. intro w. vm_compute. reflexivity. Qed.
-(** The BIG-CONST count regressions (the review-R8 leak class): an untyped [2^31] count is
+(** The BIG-CONST count regressions (R8 leak class): an untyped [2^31] count is
     outside [box_int]'s conservative default-[int] VALUE window yet a VALID Go count — read
     DIRECTLY off the gate it DENOTES saturated (go-run-verified: 0 at [int] and [uint8] left,
     0 for [>>]), and a TYPED [uint64] count past [2^32] stays live (valid Go on EVERY platform;
@@ -1243,7 +1243,7 @@ Example negzero_const_runs : forall w,
       | Some c => run_cmd 5 c w | None => None end)
      = Some (ORet tt (w_log true (anyt TFloat64 (S754_zero false) :: nil) w)).
 Proof. intro w. repeat split; vm_compute; reflexivity. Qed.
-(** the BINOP zero rows pinned end-to-end, BOTH widths (review round 3): multiplication and
+(** the BINOP zero rows pinned end-to-end, BOTH widths: multiplication and
     division of a zero constant BY A NEGATIVE, and negation of such a product — the runtime rows
     carry [xorb] zero-sign leaks ([SFmul +0 -1 = -0]), the constant layer erases them
     ([sf_const_binop]).  Each folds, DENOTES, and prints the model's [+0]: the value pinned BY

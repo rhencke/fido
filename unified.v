@@ -4,7 +4,7 @@
     it before behavioral safety enters certified emission (see ARCHITECTURE.md).  "Authoritative" below means authoritative AMONG the
     proof-only model fragments (it unifies them), never Fido's certified-path semantics.
 
-    The external review's DECISIVE finding: there were several semantic systems (the [IO]/[World]
+    THE UNIFICATION INVARIANT: there were several semantic systems (the [IO]/[World]
     monad, the [cmd.v] effect evaluator, the rich [rstep] concurrency calculus, the bounded [rstepC],
     the session reductions) but NO single authoritative operational configuration covering an ORDINARY
     program that combines goroutines + channels + heap mutation + panic + defer + output.
@@ -79,7 +79,7 @@ Record UConfig := mkUCfg {
 (** THE single small-step relation.  Concurrency/heap/channel rules mirror [rstep] (so the embedding in
     the next slice is rule-for-rule); the genuinely NEW rules are output, panic, defer-register, and the
     defer-running RETURN/PANIC rules that make defer + panic operational and faithful. *)
-(** Channel CAPACITY (review #8 P0-7): [ucap c] is channel [c]'s capacity — [None] = unbounded, [Some n] =
+(** Channel CAPACITY: [ucap c] is channel [c]'s capacity — [None] = unbounded, [Some n] =
     a buffer holding at most [n].  [uroom ucap b c] is "[c] has room for one more send": always for unbounded,
     else iff the FIFO is shorter than the capacity.  A send STEPS only with room; a full-buffer send BLOCKS
     (it is a [ublocked] shape), exactly Go's buffered-channel semantics — so [ustep_send] is no longer the
@@ -145,7 +145,7 @@ Inductive ustep : UConfig -> UConfig -> Prop :=
       lv tid = true -> p tid = URet -> df tid = [] ->
       ustep (mkUCfg p b h lv tr o df pa)
             (mkUCfg p b h (upd lv tid false) tr o df pa)
-  (* ---- PANIC: record the active panic; the remaining defers STILL run (review P0).  Only when the
+  (* ---- PANIC: record the active panic; the remaining defers STILL run.  Only when the
          defer stack is empty does the goroutine actually die — panicking. ---- *)
   | ustep_pan_defer : forall p b h lv tr o df pa tid v d ds,
       lv tid = true -> p tid = UPan v -> df tid = d :: ds ->
@@ -225,7 +225,7 @@ Proof. reflexivity. Qed.
 (** ============================================================================
     SLICE 2 — PORTING RACE-FREEDOM ONTO THE UNIFIED SEMANTICS.
 
-    The reviewer's ask: "port the ownership, session, race, and liveness results onto that single
+    The port obligation: "port the ownership, session, race, and liveness results onto that single
     semantics."  Here is race-freedom, ported with NO re-proving of the trace theory: concurrency.v's
     [TraceOwned_app] / [LocPrivate] / [locprivate_race_free] are trace-based and reused verbatim; only
     the [UPrivateDisc]-preservation across [ustep] is new (the U-analogues of [MemFree]/[OnlyAcc] and the
@@ -547,7 +547,7 @@ Definition ublocked (cfg : UConfig) (tid : nat) : Prop :=
                /\ uc_bufs cfg c = [] /\ closedb (uc_trace cfg) c = false)
   \/ (exists cases, uc_prog cfg tid = USelect cases
                     /\ usel_ready_cl (uc_bufs cfg) (uc_trace cfg) cases = None)
-  \/ (exists c v k, uc_prog cfg tid = USend c v k        (* blocked on a FULL buffer (review #8 P0-4/P0-7) *)
+  \/ (exists c v k, uc_prog cfg tid = USend c v k        (* blocked on a FULL buffer *)
                     /\ closedb (uc_trace cfg) c = false /\ uroom ucap (uc_bufs cfg) c = false).
 
 (** PROGRESS: a live goroutine that is NOT blocked-on-empty-open-recv means the whole config can step. *)
@@ -643,7 +643,7 @@ End UStepCap.
 
     A structural faithfulness property the shallow [run_io] could not have (it erased output): every
     step EXTENDS the output log and the event trace by a suffix — nothing already emitted is ever lost,
-    overwritten, or reordered.  (Reinforces review #6 #12 on the authoritative semantics.) *)
+    overwritten, or reordered.  (Reinforces the ONE-authoritative-semantics discipline.) *)
 Lemma ustep_out_grows : forall {ucap} cfg cfg', ustep ucap cfg cfg' -> exists s, uc_out cfg' = uc_out cfg ++ s.
 Proof.
   intros ucap cfg cfg' H. destruct H; cbn [uc_out];
@@ -768,7 +768,7 @@ Proof.
   - cbn. reflexivity.
 Qed.
 
-(** OUTPUT is recorded IN PROGRAM ORDER — closing review #6 #12's "[run_io] erases output" on the
+(** OUTPUT is recorded IN PROGRAM ORDER — closing the "[run_io] erases output" on the
     AUTHORITATIVE semantics: [print x; print y] yields the log [(0,[x]); (0,[y])], faithfully and ordered
     (the shallow [run_io] made differently-printing programs provably equal; [ustep]'s [uc_out] does not). *)
 Lemma unified_output_ordered : forall (x y : GoAny),
@@ -789,7 +789,7 @@ Proof.
 Qed.
 
 (** ============================================================================
-    SLICE 6 — the review's exact ask, machine-checked: ONE ordinary program combining the effects.
+    SLICE 6 — machine-checked: ONE ordinary program combining the effects.
 
     A single goroutine that MUTATES the heap, SENDS on a channel and RECEIVES it back, DEFERS a print,
     then PANICS — exercising heap + channel + defer + panic + output TOGETHER in the ONE semantics.  The
@@ -1039,7 +1039,7 @@ Proof. intros cap cfg cfg' H. apply rsteps_embeds. exact (rstepsC_embed _ _ _ H)
 (** ============================================================================
     SLICE 10 — SESSIONS, OPERATIONALLY: a protocol is REALIZED by a [ustep] run.
 
-    The 2026-06-24 review's finding #10: the session theory (concurrency.v [PSess]/[PEmits]/
+    THE SYNTAX-ONLY GAP this slice closes: the session theory (concurrency.v [PSess]/[PEmits]/
     [psess_emits_proto]) is "primarily about protocol SYNTAX" — it reads the send/recv sequence off a
     session TERM's structure ([PEmits]) but never ties it to an EXECUTION.  Here we give a protocol an
     OPERATIONAL meaning on the one authoritative semantics.  [proto_ucmd] compiles a [Proto] to a

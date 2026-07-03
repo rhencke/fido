@@ -80,7 +80,7 @@ COPY --chown=opam:opam negtests/ negtests/
 #      regenerated.  So force every current driver's .vo out, making it recompile and
 #      re-extract afresh.  (Drivers auto-detected; the heavy proof libraries stay cached.)
 # Then a `test -n` guard fails LOUD rather than shipping nothing.
-#  (3) AXIOM-MANIFEST GATE (review #4 R10): the MANIFEST flow of the trust-boundary ledger (the full split
+#  (3) AXIOM-MANIFEST GATE (R10): the MANIFEST flow of the trust-boundary ledger (the full split
 #      is single-sourced in PROGRESS.md "Current gates"; the spine GoAst..GoEmit is gated by the separate
 #      printer/emit greps in steps (5)+below).  `dune build` runs the manifest surfaces' `Print Assumptions`
 #      (the surfaces are enumerated ONLY in PROGRESS.md "Current gates" — not duplicated here; each bundling
@@ -94,7 +94,7 @@ COPY --chown=opam:opam negtests/ negtests/
 #      each whole cone, this is the complete AUTHORITY for these printed surfaces (NOT a module-wide claim —
 #      a theorem outside its module's surface tuple is not certified); the pre-commit source scan is only a coarse
 #      declaration tripwire.  Step (0) below self-tests that this authority catches every tabled form.
-#  (4) NEGTEST HARNESS (review #4 R10): `negtests/run.sh` compiles each negative fixture and
+#  (4) NEGTEST HARNESS (R10): `negtests/run.sh` compiles each negative fixture and
 #      asserts extraction ABORTS with its declared message.  A fixture that EXTRACTS instead =
 #      a reopened fail-closed site (plausible-but-wrong Go where rule 2 demands `unsupported`),
 #      the defect class the happy-path golden cannot see.  Now NON-bypassable (runs every build).

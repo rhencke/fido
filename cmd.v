@@ -1,4 +1,4 @@
-(** Deep-embedded command tree [Cmd] — the operational FOUNDATION for review #6 #22 (one
+(** Deep-embedded command tree [Cmd] — the operational FOUNDATION (one
     authoritative semantics) and #12 (defer as a REAL construct).
 
     Why a deep embedding.  The shallow [IO := World -> Outcome] cannot REIFY control: a deferred
@@ -17,7 +17,7 @@
     AUTHORITATIVE operational interpreter [run_cmd] — which runs the body THEN its [defer] stack (LIFO,
     func-scope return, on panic too; the #12 fix).  There is NO shallow [Cmd -> IO] reading: a sequential
     [World -> Outcome] cannot run a func-scoped defer at return, so [run_cmd] is the ONLY semantics for a
-    [Cmd] (a shallow drop/no-op would silently erase a deferred effect — review #6/#12).  Channel ops and
+    [Cmd] (a shallow drop/no-op would silently erase a deferred effect).  Channel ops and
     [catch] are future slices (plans/bridge-effects.md). *)
 From Fido Require Import preamble.
 From Stdlib Require Import List Lia.
@@ -30,7 +30,7 @@ Inductive Cmd (A : Type) : Type :=
   | CRet : A -> Cmd A
   | COut : bool -> list GoAny -> Cmd A -> Cmd A
   | CPan : GoAny -> Cmd A
-  | CDfr : Cmd unit -> Cmd A -> Cmd A    (* [defer d]; [d] runs at function-scope return (review #12) *)
+  | CDfr : Cmd unit -> Cmd A -> Cmd A    (* [defer d]; [d] runs at function-scope return *)
   (* the HEAP pair (bridge-effects slice 2; appended LAST so existing destruct/induction
      bullet lists keep their order).  [CRead] is the syntax's first value-BINDING
      constructor — its continuation is a function, which shapes everything below:
@@ -123,7 +123,7 @@ Proof.
   - constructor; intro x; exact (IH x).
 Qed.
 
-(** ---- The AUTHORITATIVE (and ONLY) operational interpreter — [defer] is no longer a no-op (review #12) ----
+(** ---- The AUTHORITATIVE (and ONLY) operational interpreter — [defer] is no longer a no-op ----
 
     [run_cmd] runs the body THEN its defers at function-scope return (LIFO, on panic too).  There is no
     shallow [Cmd -> IO] reading of a [Cmd]: a sequential [World -> Outcome] cannot run a func-scoped defer,
@@ -230,7 +230,7 @@ Fixpoint run_defers (fuel : nat) (ds : list (Cmd unit)) (acc : Outcome unit) : o
   end.
 
 (** Full func-scope run: the body, THEN its defers (LIFO), keeping the body's value or propagating a
-    deferred panic.  [defer] is now FAITHFUL — the review #12 no-op is gone. *)
+    deferred panic.  [defer] is FAITHFUL — a no-op defer would erase the deferred effect. *)
 Definition run_cmd (fuel : nat) {A} (c : Cmd A) (w : World) : option (Outcome A) :=
   match go c w with
   | None => None

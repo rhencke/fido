@@ -316,7 +316,7 @@ Qed.
     [esc_byte]'s final branch covers (bytes [< 32] except 9/10/13, and [>= 127]); the [\x] arm of the decoder
     [unescape_opt] requires it so a [\xHH] is accepted ONLY when [esc_byte] would actually have EMITTED that
     [\xHH] — e.g. a hex escape of printable 'A' (65), or of the named dquote (34), is REJECTED, since [esc_string]
-    prints those raw / as a named escape, never as hex (the Codex 2026-06-29 superset fix). *)
+    prints those raw / as a named escape, never as hex (the printable-byte SUPERSET rule). *)
 Definition hex_escaped_byte (b : nat) : bool :=
   negb (orb (orb (Nat.eqb b 34) (orb (Nat.eqb b 92) (orb (Nat.eqb b 10) (orb (Nat.eqb b 9) (Nat.eqb b 13)))))
             (andb (Nat.leb 32 b) (Nat.ltb b 127))).
@@ -443,7 +443,7 @@ Qed.
     EXACTLY the canonical [esc_string] escaping of its decode, so the accepted language is precisely the printer
     IMAGE: accepted == emitted, PROVEN (not asserted).  With [esc_string_roundtrip_opt] (emitted ⊆ accepted)
     this is a two-way exactness: [unescape_opt body = Some s  ↔  body = esc_string s].  It is the property that
-    kills the Codex 2026-06-29 superset hole — without the [hex_escaped_byte] guard a hex escape of a printable
+    kills the printable-byte superset hole — without the [hex_escaped_byte] guard a hex escape of a printable
     or named byte (a hex 'A' decoding to the one-byte string A, which [esc_string] prints RAW) would be accepted
     though never emitted.  Helper lemmas first, then the theorem by strong induction on the body length. *)
 Lemma option_map_Some_inv : forall (A B : Type) (f : A -> B) (x : option A) (y : B),
@@ -1166,7 +1166,7 @@ Proof. reflexivity. Qed.
 
 (** ---- STRING-LEXER FAIL-CLOSED REGRESSION ---- a spelling NOT in the printer image (a malformed escape, or a
     raw byte [esc_byte] would have escaped) must be REJECTED at tokenization ([lex = None]), NOT lossily normalized
-    into a [TStr] (the Codex review fail-open).  Representative case: an UNKNOWN escape "\q" makes [lex] (hence
+    into a [TStr] (a fail-open).  Representative case: an UNKNOWN escape "\q" makes [lex] (hence
     [parse_str]) return [None] (the bytes are built explicitly with [ch]: [ch 34] = the dquote, [ch 92] = the backslash). *)
 Example lex_bad_escape : lex (String (ch 34) (String (ch 92) (String (ch 113) (String (ch 34) "")))) = None.
 Proof. vm_compute; reflexivity. Qed.                              (* "\q"  — 'q' = 113, not an accepted escape *)
