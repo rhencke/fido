@@ -2697,3 +2697,62 @@ Proof.
   unfold fsf_operand, fsf_operand_with. rewrite Hp, Hint.
   unfold dy_make. cbn [dy_m dy_e]. reflexivity.
 Qed.
+
+(** ★ NODE completeness, UNARY: a [ptype]-accepted float negation is ACCEPTED by the
+    checker with the render as its verdict — the cneg endpoints close the comparison. *)
+Lemma fsf_checked_complete_un : forall o a t d,
+  ptype (EUn o a) = Some (PtFloatConst t d) ->
+  (forall t' d', ptype a = Some (PtFloatConst t' d') ->
+     fsf_checked a = sf_render t' (dy_m d') (dy_e d')) ->
+  fsf_checked (EUn o a) = sf_render t (dy_m d) (dy_e d).
+Proof.
+  intros o a t d H IH.
+  pose proof H as Hkeep.
+  cbn [ptype] in H.
+  destruct (ptype a) as [c|] eqn:Hpa; [|destruct o; discriminate H].
+  destruct o; try (destruct c; try discriminate H;
+    try (match type of H with (if ?b then _ else _) = _ => destruct b end;
+         discriminate H);
+    try (match type of H with
+         | (match ?x with _ => _ end) = _ => destruct x; try discriminate H
+         end);
+    try (match type of H with (if ?b then _ else _) = _ => destruct b end;
+         discriminate H);
+    fail).
+  (* o = UNeg *)
+  destruct c; try discriminate H;
+    try (match type of H with (if ?b then _ else _) = _ => destruct b end;
+         discriminate H).
+  (* c = PtFloatConst t0 d0 (auto names: rename via the pattern) *)
+  match type of Hpa with
+  | ptype a = Some (PtFloatConst ?tt ?dd) =>
+      rename tt into t0; rename dd into d0
+  end.
+  pose proof (ptype_float_const_repr a t0 d0 Hpa) as Hrepr0.
+  match type of H with (if ?b then _ else _) = _ => destruct b eqn:Hg end;
+    [|discriminate H].
+  injection H as H1 H2. subst t d.
+  cbn [fsf_checked]. rewrite Hkeep.
+  destruct t0; try discriminate Hrepr0.
+  - (* GTFloat64 *)
+    pose proof (sf_render_cneg_agrees_f64 d0 Hrepr0) as Hc.
+    pose proof (fsf_operand_complete_float a GTFloat64 d0 Hpa (IH _ _ eq_refl)) as Hop.
+    unfold fsf_operand in Hop.
+    cbn [sf_render option_map] in Hc, Hop |- *.
+    injection Hc as Hc.
+    rewrite Hop.
+    cbn [sf_const_neg]. cbv beta iota.
+    rewrite <- Hc, sf_eqb_struct_refl.
+    reflexivity.
+  - (* GTFloat32 *)
+    pose proof (sf_render_cneg_agrees_f32 d0 Hrepr0) as Hc.
+    pose proof (fsf_operand_complete_float a GTFloat32 d0 Hpa (IH _ _ eq_refl)) as Hop.
+    unfold fsf_operand in Hop.
+    cbn [sf_render option_map f32val f32_lit f32_of_f64 f32_neg] in Hc, Hop |- *.
+    injection Hc as Hc.
+    rewrite Hop.
+    cbn [sf_const_neg]. cbv beta iota.
+    cbn [f32val f32_lit f32_of_f64 f32_neg].
+    rewrite <- Hc, sf_eqb_struct_refl.
+    reflexivity.
+Qed.
