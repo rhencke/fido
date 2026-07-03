@@ -95,6 +95,7 @@ Definition stmt_ok (s : GoStmt) : bool :=
   | GsReturnVal _   => false   (* value return is invalid in the void [main] — the only function emitted today *)
   | GsBlankAssign e => svalue e  (* [_ = e] is valid iff [e] PRODUCES a value — so [_ = println(1)] (void) is rejected *)
   | GsDefer e       => expr_stmt_ok e  (* [defer <call>]: Go requires the deferred expr be a function CALL — same gate as an expr statement *)
+  | GsShortDecl _ _ => false  (* [x := e] — locals rung 1: REPRESENTATION before admission; the scope-threaded gate admits it at rung 4 (plans/gosem-locals.md) *)
   end.
 
 (** PHASE-1 supportedness — DECIDABLE (bool-reflected): the program is a runnable `package main` whose body is
@@ -177,6 +178,7 @@ Definition bad_programs : list Program :=
   ; mkProgram (mkIdent "main" eq_refl) [GsExprStmt (ECall (EId (mkIdent "panic" eq_refl)) [EId (mkIdent "x" eq_refl)])]
   ; mkProgram (mkIdent "main" eq_refl) [GsExprStmt (EStr "x")]
   ; mkProgram (mkIdent "main" eq_refl) [GsReturnVal (EInt 1)]
+  ; mkProgram (mkIdent "main" eq_refl) [GsShortDecl (mkIdent "x" eq_refl) (EInt 1)]  (* [x := 1] alone — INVALID Go (declared and not used) AND locals rung 1 rejects ALL short decls (representation before admission; non-denotation is ENTAILED via [gosem_sound]'s contrapositive) *)
     (* [defer <call>] reuses [expr_stmt_ok], so it rejects the SAME non-call / value-builtin / arity / arg shapes *)
   ; gs_defer (EInt 1)                                                    (* defer of a NON-call value *)
   ; gs_defer (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]])  (* defer of [len] — a value builtin, not a statement call *)

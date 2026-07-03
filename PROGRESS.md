@@ -33,8 +33,9 @@ field selectors, runtime numeric conversions, fixed-width bridging binops — th
 - **Spine ZERO-AXIOM** (`make emit-verify`): GoAst / GoPrint / GoTypes / GoSafe / GoEmit.
 - **GoPrint round-trip + injectivity** over the binop/unary/atom core, all postfix forms, `EConv`,
   slice/map composite literals, exact-lexer string literals.
-- **Statement layer:** `GoStmt` (expr-stmt / return / return e / `_ = e` / defer-call);
-  `print_stmt_inj` + `print_program_inj`. `GsDefer` supported, emittable, and denoted.
+- **Statement layer:** `GoStmt` (expr-stmt / return / return e / `_ = e` / defer-call / `x := e`);
+  `print_stmt_inj` + `print_program_inj`. `GsDefer` supported, emittable, denoted; `GsShortDecl`
+  REPRESENTATION-ONLY (gate rejects, denotation absent — locals rung 1).
 - **GoSafe `SupportedProgram`** — decidable supported-subset gate (closed type-errors rejected via
   `ptype`; slice + integer-key map literals admitted structurally; invalid nested map keys rejected
   even in empty literals; quarantines ledger-pinned).
@@ -49,9 +50,8 @@ field selectors, runtime numeric conversions, fixed-width bridging binops — th
     proved, boundary/hole rows pinned absent (frontier surface).
   - float constants exact-or-reject behind `floats_checked`; fold verification is the
     CONSTANT-op layer (`sf_const_binop`/`sf_const_neg` — no signed zero); the dyadic↔SF
-    agreement arc COMPLETE, rungs 1–8: all four ops at both widths + cross-width, checker
-    completeness `fsf_checked_complete`, and the boundary-guard unreachability pair
-    `floats_checked_total` (guard KEPT, fail-closed open-world boundary).
+    agreement arc COMPLETE, rungs 1–8: checker completeness `fsf_checked_complete` + the
+    boundary-guard unreachability pair `floats_checked_total` (guard KEPT, fail-closed).
   - denotation ⊆ `SupportedProgram` (`gosem_sound`) + compositional converses.
   - public surfaces (topic-split, manifest-gated): `gosem_trust_surface`
     (core/float/slice-index/runtime-int/map/frontier) + `gosem_string_authority_surface`.
@@ -86,10 +86,9 @@ field selectors, runtime numeric conversions, fixed-width bridging binops — th
   endpoint-only. The §3a GoSem split is DONE (Core/Denote/composition — revised 3-file form).
 - Resume the cmd↔unified bridge (`plans/bridge-effects.md`, PAUSED at the heap milestone):
   `CAlloc` (design v2 in the plan), then channels (gated on a structural typed zero), then spawn.
-- Grow behavioral safety toward `BehaviorSafe` → `SafeProgram` → `emit_safe` — OPEN: locals
-  (`plans/gosem-locals.md`: `x := e`, ONE env through checker+evaluator, gate reach to runtime
-  panics through variables); wire the certified path to the main output; widen the live GoPrint
-  bridge — gate-honestly.
+- Grow behavioral safety toward `BehaviorSafe` → `SafeProgram` → `emit_safe` — locals arc OPEN,
+  rung 1 landed (`plans/gosem-locals.md`; next: the SpecialName single-source refactor); wire the
+  certified path to the main output; widen the live GoPrint bridge — gate-honestly.
 
 ## Known trust base (TCB)
 

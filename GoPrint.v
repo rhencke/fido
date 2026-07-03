@@ -4956,6 +4956,7 @@ Definition print_stmt (s : GoStmt) : string :=
   | GsReturnVal e   => ("return " ++ gprint 0 e)%string
   | GsBlankAssign e => ("_ = " ++ gprint 0 e)%string
   | GsDefer e       => ("defer " ++ gprint 0 e)%string
+  | GsShortDecl x e => (proj1_sig x ++ " := " ++ gprint 0 e)%string
   end.
 Fixpoint print_stmts (ss : list GoStmt) : string :=
   match ss with
@@ -5048,46 +5049,163 @@ Proof.
   rewrite parse_str_defer_gprint in R. discriminate R.
 Qed.
 
+(** A printed [x := e] (the [GsShortDecl] text) does NOT parse back as an expression: the ident LEXES
+    ([lex_ident_go]) and ':' lexes ([TColon], the map/slice separator), but the following LONE '='
+    fails [lex_op] (which accepts only "=="), so the whole lex is [None] — the [GsExprStmt] /
+    [GsShortDecl] disjointness, by the same round-trip-contradiction pattern as [gprint_neq_blank]. *)
+Lemma lex_aux_defassign_tail : forall f X, lex_aux (S (S (S f))) (" := " ++ X)%string = None.
+Proof. reflexivity. Qed.
+Lemma lex_aux_defassign_any : forall f X, 3 <= f -> lex_aux f (" := " ++ X)%string = None.
+Proof. intros f X Hf. destruct f as [|[|[|f']]]; try lia. apply lex_aux_defassign_tail. Qed.
+(** An ident head lexes and RECURSES, so a failing rest fails the whole lex — the [None] mirror of
+    [lex_gprint_id]'s success case (same [scan_id_app]/[lex_ident_go] spine). *)
+Lemma lex_aux_ident_None : forall f s rest,
+  go_ident s = true -> clean_start rest = true -> lex_aux f rest = None ->
+  lex_aux (S f) (s ++ rest)%string = None.
+Proof.
+  intros f s rest Hs Hclean Hrest.
+  destruct s as [ | c0 s0 ]; [ vm_compute in Hs; discriminate Hs | ].
+  pose proof Hs as Hgo. unfold go_ident in Hgo. apply andb_prop in Hgo. destruct Hgo as [Hia _].
+  apply andb_prop in Hia. destruct Hia as [Hidstart Hallidc].
+  cbn [lex_aux String.append].
+  rewrite (is_idstart_not_space _ Hidstart), Hidstart.
+  replace (scan_id (String c0 (s0 ++ rest))) with (String c0 s0, rest)
+    by (symmetry; apply (scan_id_app (String c0 s0) rest Hallidc Hclean)).
+  rewrite (lex_ident_go (String c0 s0) Hs).
+  rewrite Hrest. reflexivity.
+Qed.
+Lemma lex_shortdecl_None : forall x X,
+  go_ident x = true -> lex (x ++ (" := " ++ X))%string = None.
+Proof.
+  intros x X Hx. unfold lex. rewrite length_app.
+  apply (lex_aux_ident_None _ _ _ Hx); [ reflexivity | ].
+  apply lex_aux_defassign_any. rewrite length_app. cbn [String.length]. lia.
+Qed.
+Lemma parse_str_shortdecl_None : forall x X,
+  go_ident x = true -> parse_str (x ++ (" := " ++ X))%string = None.
+Proof. intros x X Hx. unfold parse_str. rewrite (lex_shortdecl_None x X Hx). reflexivity. Qed.
+Lemma gprint_neq_shortdecl : forall x e1 e2, go_ident x = true ->
+  gprint 0 e2 <> (x ++ " := " ++ gprint 0 e1)%string.
+Proof.
+  intros x e1 e2 Hx H. pose proof (parse_print_roundtrip e2) as R. rewrite H in R.
+  rewrite (parse_str_shortdecl_None x (gprint 0 e1) Hx) in R. discriminate R.
+Qed.
+
+(** Ident equality from its underlying string (the [go_ident] bool proof is unique — UIP on bool). *)
+Lemma ident_eq : forall i j : Ident, proj1_sig i = proj1_sig j -> i = j.
+Proof.
+  intros [s p] [t q] H. simpl in H. subst t.
+  assert (E : p = q) by apply (UIP_dec Bool.bool_dec). rewrite E. reflexivity.
+Qed.
+(** A valid ident is an all-idchar run (a projection of [go_ident]'s conjunction). *)
+Lemma ident_all_idc : forall i : Ident, all_idc (proj1_sig i) = true.
+Proof.
+  intros [s Hs]. simpl. destruct s as [ | c0 s0 ]; [ vm_compute in Hs; discriminate Hs | ].
+  unfold go_ident in Hs. apply andb_prop in Hs. destruct Hs as [Hia _].
+  apply andb_prop in Hia. exact (proj2 Hia).
+Qed.
+(** The ident/rest SPLIT is unique — no new scanner: applying [scan_id] to both sides of an
+    equality of all-idchar-head ++ clean-start-rest concatenations recovers the components via the
+    existing [scan_id_app]. *)
+Lemma idc_split : forall a1 a2 r1 r2,
+  all_idc a1 = true -> all_idc a2 = true -> clean_start r1 = true -> clean_start r2 = true ->
+  (a1 ++ r1)%string = (a2 ++ r2)%string -> a1 = a2 /\ r1 = r2.
+Proof.
+  intros a1 a2 r1 r2 H1 H2 C1 C2 H.
+  pose proof (scan_id_app a1 r1 H1 C1) as E1. rewrite H in E1.
+  rewrite (scan_id_app a2 r2 H2 C2) in E1. injection E1 as -> ->. split; reflexivity.
+Qed.
+(** The [GsShortDecl] cross-case helper: a printed short decl is ident ++ " := " ++ expr, so any
+    equal all-idchar-head/clean-rest concatenation must agree componentwise. *)
+Lemma shortdecl_split : forall (x : Ident) g a r,
+  all_idc a = true -> clean_start r = true ->
+  (a ++ r)%string = (proj1_sig x ++ (" := " ++ g))%string ->
+  a = proj1_sig x /\ r = (" := " ++ g)%string.
+Proof.
+  intros x g a r Ha Cr H.
+  exact (idc_split a (proj1_sig x) r (" := " ++ g)%string Ha (ident_all_idc x) Cr eq_refl H).
+Qed.
+
 (** Statement-printer INJECTIVITY — the honest statement-level analogue of [gprint_inj]: distinct statements
-    print to distinct text.  A 5-constructor (25-case) proof: expression statements lift from [gprint_inj];
+    print to distinct text.  A case-per-constructor-pair proof: expression statements lift from [gprint_inj];
     the [GsExprStmt] cross cases close by [gprint_neq_return] / [gprint_neq_return_val] / [gprint_neq_blank] /
-    [gprint_neq_defer]; the keyword/prefix-vs-keyword/prefix cases by string [discriminate] (distinct leading
-    bytes) or [sapp_inv_head] (a shared "return " / "_ = " / "defer " prefix is injective).  (The list-level /
-    whole-[print_program] lift — via a "gprint emits no newline" delimiter argument — is proved just below as
-    [print_program_inj].) *)
+    [gprint_neq_defer] / [gprint_neq_shortdecl]; the keyword/prefix-vs-keyword/prefix cases by string
+    [discriminate] (distinct leading bytes) or [sapp_inv_head] (a shared "return " / "_ = " / "defer " prefix
+    is injective); the [GsShortDecl] cross cases by [shortdecl_split] (the unique ident/rest split) — the
+    matching head is then a KEYWORD ("return"/"defer", contradicting the ident's [go_ident] proof), "_" with a
+    " = "-vs-" := " tail mismatch, or the diagonal's componentwise agreement ([ident_eq] + [gprint_inj]).
+    (The list-level / whole-[print_program] lift — via a "gprint emits no newline" delimiter argument — is
+    proved just below as [print_program_inj].) *)
 Lemma print_stmt_inj : forall s1 s2, print_stmt s1 = print_stmt s2 -> s1 = s2.
 Proof.
-  intros [e1| |r1|b1|d1] [e2| |r2|b2|d2] H; simpl in H.
+  intros [e1| |r1|b1|d1|x1 v1] [e2| |r2|b2|d2|x2 v2] H; simpl in H.
   (* s1 = GsExprStmt e1 *)
   - f_equal. exact (gprint_inj e1 e2 H).
   - exfalso. exact (gprint_neq_return e1 H).
   - exfalso. exact (gprint_neq_return_val r2 e1 H).
   - exfalso. exact (gprint_neq_blank b2 e1 H).
   - exfalso. exact (gprint_neq_defer d2 e1 H).
+  - exfalso. exact (gprint_neq_shortdecl (proj1_sig x2) v2 e1 (proj2_sig x2) H).
   (* s1 = GsReturn *)
   - exfalso. symmetry in H. exact (gprint_neq_return e2 H).
   - reflexivity.
   - exfalso. cbn in H. discriminate H.
   - exfalso. cbn in H. discriminate H.
   - exfalso. cbn in H. discriminate H.
+  - exfalso.
+    destruct (shortdecl_split x2 (gprint 0 v2) "return" "" eq_refl eq_refl H) as [_ Hr].
+    cbn [append] in Hr. discriminate Hr.
   (* s1 = GsReturnVal r1 *)
   - exfalso. symmetry in H. exact (gprint_neq_return_val r1 e2 H).
   - exfalso. symmetry in H. cbn in H. discriminate H.
   - f_equal. apply (sapp_inv_head "return ") in H. exact (gprint_inj r1 r2 H).
   - exfalso. cbn in H. discriminate H.
   - exfalso. cbn in H. discriminate H.
+  - exfalso.
+    destruct (shortdecl_split x2 (gprint 0 v2) "return" (" " ++ gprint 0 r1)%string
+                eq_refl eq_refl H) as [Hk _].
+    pose proof (proj2_sig x2) as Hgx. rewrite <- Hk in Hgx. vm_compute in Hgx. discriminate Hgx.
   (* s1 = GsBlankAssign b1 *)
   - exfalso. symmetry in H. exact (gprint_neq_blank b1 e2 H).
   - exfalso. symmetry in H. cbn in H. discriminate H.
   - exfalso. symmetry in H. cbn in H. discriminate H.
   - f_equal. apply (sapp_inv_head "_ = ") in H. exact (gprint_inj b1 b2 H).
   - exfalso. cbn in H. discriminate H.
+  - exfalso.
+    destruct (shortdecl_split x2 (gprint 0 v2) "_" (" = " ++ gprint 0 b1)%string
+                eq_refl eq_refl H) as [_ Hr].
+    cbn [append] in Hr. discriminate Hr.
   (* s1 = GsDefer d1 *)
   - exfalso. symmetry in H. exact (gprint_neq_defer d1 e2 H).
   - exfalso. cbn in H. discriminate H.
   - exfalso. cbn in H. discriminate H.
   - exfalso. cbn in H. discriminate H.
   - f_equal. apply (sapp_inv_head "defer ") in H. exact (gprint_inj d1 d2 H).
+  - exfalso.
+    destruct (shortdecl_split x2 (gprint 0 v2) "defer" (" " ++ gprint 0 d1)%string
+                eq_refl eq_refl H) as [Hk _].
+    pose proof (proj2_sig x2) as Hgx. rewrite <- Hk in Hgx. vm_compute in Hgx. discriminate Hgx.
+  (* s1 = GsShortDecl x1 v1 — the five symmetric cross cases, then the diagonal *)
+  - exfalso. symmetry in H. exact (gprint_neq_shortdecl (proj1_sig x1) v1 e2 (proj2_sig x1) H).
+  - exfalso. symmetry in H.
+    destruct (shortdecl_split x1 (gprint 0 v1) "return" "" eq_refl eq_refl H) as [_ Hr].
+    cbn [append] in Hr. discriminate Hr.
+  - exfalso. symmetry in H.
+    destruct (shortdecl_split x1 (gprint 0 v1) "return" (" " ++ gprint 0 r2)%string
+                eq_refl eq_refl H) as [Hk _].
+    pose proof (proj2_sig x1) as Hgx. rewrite <- Hk in Hgx. vm_compute in Hgx. discriminate Hgx.
+  - exfalso. symmetry in H.
+    destruct (shortdecl_split x1 (gprint 0 v1) "_" (" = " ++ gprint 0 b2)%string
+                eq_refl eq_refl H) as [_ Hr].
+    cbn [append] in Hr. discriminate Hr.
+  - exfalso. symmetry in H.
+    destruct (shortdecl_split x1 (gprint 0 v1) "defer" (" " ++ gprint 0 d2)%string
+                eq_refl eq_refl H) as [Hk _].
+    pose proof (proj2_sig x1) as Hgx. rewrite <- Hk in Hgx. vm_compute in Hgx. discriminate Hgx.
+  - destruct (shortdecl_split x2 (gprint 0 v2) (proj1_sig x1) (" := " ++ gprint 0 v1)%string
+                (ident_all_idc x1) eq_refl H) as [Hx Hr].
+    apply ident_eq in Hx. apply (sapp_inv_head " := ") in Hr. apply gprint_inj in Hr.
+    subst. reflexivity.
 Qed.
 
 (** ============================================================================
@@ -5332,12 +5450,13 @@ Proof.
 Qed.
 Lemma no_nl_print_stmt : forall s, no_nl (print_stmt s).
 Proof.
-  intros [e| |r|b|d]; cbn [print_stmt].
+  intros [e| |r|b|d|x v]; cbn [print_stmt].
   - apply no_nl_gprint.
   - no_nl_lit.
   - apply no_nl_app; [ no_nl_lit | apply no_nl_gprint ].
   - apply no_nl_app; [ no_nl_lit | apply no_nl_gprint ].
   - apply no_nl_app; [ no_nl_lit | apply no_nl_gprint ].
+  - apply no_nl_app; [ apply no_nl_ident | apply no_nl_app; [ no_nl_lit | apply no_nl_gprint ] ].
 Qed.
 
 (** delimiter-split + append-cancel infrastructure (mirrors [split_p_app]).  [sapp_inv_head] is hoisted
@@ -5355,11 +5474,6 @@ Proof.
       exfalso. unfold is_nl in Hc1. rewrite Hc, Ascii.eqb_refl in Hc1. discriminate Hc1.
     + injection H as Hc Ht. cbn [no_nl] in H1, H2. destruct H1 as [_ H1]. destruct H2 as [_ H2].
       destruct (IH a2 t1 t2 H1 H2 Ht) as [Ha Ht']. subst. split; reflexivity.
-Qed.
-Lemma ident_eq : forall i j : Ident, proj1_sig i = proj1_sig j -> i = j.
-Proof.
-  intros [s p] [t q] H. simpl in H. subst t.
-  assert (E : p = q) by apply (UIP_dec Bool.bool_dec). rewrite E. reflexivity.
 Qed.
 
 (** statement-LIST injectivity: the body's tab-led, newline-terminated lines are recoverable as long as the

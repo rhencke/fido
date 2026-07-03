@@ -114,7 +114,7 @@ in `GoSemDenote`.
 ## The ladder (each rung an independently green `make check` commit)
 
 0. **This plan** + the PROGRESS `NEXT` pointer.
-1. **GoAst + GoPrint**: `GsShortDecl : Ident -> GExpr -> GoStmt`, printed `x := e` (gofmt-clean);
+1. **GoAst + GoPrint — LANDED**: `GsShortDecl : Ident -> GExpr -> GoStmt`, printed `x := e` (gofmt-clean);
    `print_stmt_inj`/`print_program_inj` extended (discriminator care: an expr-statement call
    `x(1)` also starts with an identifier — the split is at `" := "` vs `"("` after the ident).
    Every GoStmt match repo-wide gains the arm WILDCARD-FREE: `stmt_ok` arm `false`, `denote_stmt`

@@ -4186,6 +4186,7 @@ Definition denote_stmt (s : GoStmt) : option (Cmd unit * bool) :=
          body; ITS panic fires at return — [rc_defer_panic]); PANICKING args TERMINATE at the [defer]
          statement itself ([rc_defer_arg_panic]). *)
       denote_call CallDeferred e
+  | GsShortDecl _ _ => None  (* [x := e] — locals rung 1: ABSENT until the env-threaded evaluator lands (rung 5, plans/gosem-locals.md); fail-closed with [stmt_ok]'s rejection *)
   end.
 
 Fixpoint denote_body (b : list GoStmt) : option (Cmd unit) :=
@@ -4223,12 +4224,13 @@ Proof. intros m e H. unfold denote_call in H. destruct (expr_stmt_ok e); [reflex
 
 Lemma denote_stmt_sound : forall s, denote_stmt s <> None -> stmt_ok s = true.
 Proof.
-  intros s H. destruct s as [e| |e0|e|e]; simpl in *.
+  intros s H. destruct s as [e| |e0|e|e|x v]; simpl in *.
   - exact (denote_call_ok CallNow e H).                      (* GsExprStmt: gated on [expr_stmt_ok] *)
   - reflexivity.                                             (* GsReturn *)
   - congruence.                                              (* GsReturnVal: None *)
   - destruct (svalue e); [reflexivity | congruence].         (* GsBlankAssign: gated on [svalue] = stmt_ok *)
   - exact (denote_call_ok CallDeferred e H).                 (* GsDefer: the SAME [expr_stmt_ok] gate *)
+  - congruence.                                              (* GsShortDecl: None (locals rung 1 — absent with the gate's rejection) *)
 Qed.
 
 Lemma denote_body_sound : forall b, denote_body b <> None -> forallb stmt_ok b = true.
