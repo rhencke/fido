@@ -315,8 +315,8 @@ Proof. vm_compute. reflexivity. Qed.
     [bad_programs] companion rejected.  The two contracts must not be confused — a
     [bad_programs] regression means an UNSOUND
     emission reopened; admitting one of THESE (with its companion preserved) is the subset legitimately GROWING.
-    (NO separate member inventory here: [valid_unsupported_programs] below IS the member authority —
-    a prose copy of the list drifts, as review history proves — with each member's detail at its row.) *)
+    (NO separate member inventory here: [valid_unsupported_programs] below IS the member authority,
+    each member's detail at its row — a prose copy of an executable list drifts.) *)
 (** The valid-but-out-of-core ptr/chan MAP-KEY class, pinned STRUCTURALLY: generated as the full CARTESIAN
     product (out-of-core key type × rejecting surface), so a new key type or surface added here extends
     every pin at once — "quarantined" stays an executable per-surface claim, never a hand-picked sample.
