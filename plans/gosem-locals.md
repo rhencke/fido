@@ -17,8 +17,10 @@ while `_ = 1 / 0` is a COMPILE error.  A substitution pass (replace `x` by its l
 is therefore semantically WRONG: it re-constantizes the use sites and flips runtime panics into
 compile-time rejections.  The correct shape:
 
-- checker scope state: the SEALED `ScopeS` (names valid/unrecognized/distinct by sig; entry
-  categories `BoundCat` = `bind_category`'s image by sig; insertion only via `scope_declare`) —
+- checker scope state: `ScopeS` — WELL-FORMEDNESS sealed by sig (names valid/unrecognized/
+  non-blank/distinct; entry categories `BoundCat` = `bind_category`'s image); `scope_declare` is
+  the declaration path (binds from the RHS `PTy` internally); construction PROVENANCE is the
+  rung-4 fold's property (pinned where `supported_program` is the only scope constructor) —
   category AND a USED flag, ONE state through ONE
   fold (rule 4's "declared and not used" is decided INSIDE the same fold that decides everything
   else — never a post-hoc validator bolted on after supportedness).  `x := e` binds `x` through the
@@ -96,9 +98,9 @@ for the evaluator's ident resolution in `GoSemDenote` (rung 5).
    recognized name need not be a keyword).  LANDED consumers: GoTypes' recognizers (ptype's EId
    scope hook and the one-arg call head), GoSafe's `stmt_call_ok`/`expr_stmt_ok`, and — landed
    with rung 3's sealed scope boundary — the declaration gate `decl_ident_ok` (uniform rejection
-   of every recognized name, plus the blank identifier), enforced INSIDE `scope_bind` (the one
+   of every recognized name, plus the blank identifier), enforced INSIDE `scope_declare` (the one
    insertion path) rather than by caller discipline.  The rung-4 fold declares exclusively
-   through `scope_bind`.  The SEMANTIC consumers (recognizers that choose behavior PER NAME) match
+   through `scope_declare`.  The SEMANTIC consumers (recognizers that choose behavior PER NAME) match
    wildcard-free exhaustively, so a new `SpecialName` constructor forces each of them mechanically;
    the declaration gate alone uses `Some _ => false` DELIBERATELY — it rejects every recognized
    name uniformly, a total rejection with no per-name decision that could drift by omission.  Where Go PERMITS the shadowing
@@ -129,16 +131,15 @@ for the evaluator's ident resolution in `GoSemDenote` (rung 5).
    recognizers and GoSafe's `stmt_call_ok` AND `expr_stmt_ok` rewire onto WILDCARD-FREE matches over it.  Every
    existing theorem re-checked; the checker's observable behavior (and the golden) is UNCHANGED —
    this rung only makes the name set single-sourced so the later gate cannot drift.
-3. **GoTypes — LANDED**: the state-threading `type_expr : Scope -> GExpr -> option (PTy * Scope)`
-   (resolve + mark in one traversal; ptype untouched — the two spellings are tied by the PROVEN
-   bridge `GoSafe.type_expr_nil_ptype`, the anti-drift gate, placed in GoSafe because GoTypes is
-   Definitions-only by charter) + `Scope`/`scope_get`/`scope_mark` + the `bind_category` authority
-   (the `int_const_repr` defaulting premise, runtime categories binding as themselves, and the
-   WRITTEN `None` arms: `PtNil`, `PtAgg`, `PtMap`).
-4. **GoSafe**: scope-threaded supportedness — `supported_program`'s `forallb` becomes ONE fold over
-   `Γ : Ident ⇀ (PTy × bool)` (bind via `bind_category`, declare-gate via `decl_ident_ok` from the
-   `special_ident` table, uses marked BY `type_expr` itself, final no-unused rejection in the same
-   fold); rules 1–5b land with NAMED fixtures.
+3. **LANDED (in GoSafe — the seal needs lemmas; GoTypes stays Definitions-only)**: the
+   state-threading `type_expr : ScopeS -> GExpr -> option (PTy * ScopeS)`, the sealed
+   `ScopeS`/`BoundCat`/`scope_declare`/`scope_markS` layer, and the proven bridge
+   `type_expr_nil_ptype` — the exact shape and claim boundary live in the crux section above
+   (single authority; not re-stated here).
+4. **GoSafe**: scope-threaded supportedness — `supported_program`'s `forallb` becomes ONE fold
+   over the sealed `ScopeS` (declarations exclusively through `scope_declare`; uses marked BY
+   `type_expr` itself; final no-unused rejection in the same fold — this fold IS the provenance
+   boundary the crux notes); rules 1–5b land with NAMED fixtures.
    Good: `x := 1; _ = x; return`; the RUNTIME bindings `x := len([]int{1}); _ = x`,
    `x := 1; y := x; _ = y`, `x := int64(len([]int{1})); _ = x`; the NESTED uses `x := 1; _ = x + 1`
    and `x := 1; println(x)` (uses marked inside subexpressions, not just top-level).

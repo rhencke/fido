@@ -27,14 +27,19 @@ Open Scope string_scope.
     ===== The SEALED SCOPE + the scope-threading checker [type_expr] + the [ptype] BRIDGE (locals rung 3) =====
     ===================================================================================================
     This layer lives in GoSafe (GoTypes is Definitions-only by charter; the seal needs lemmas).
-    THE SEAL, in three types: a local's CATEGORY is a [BoundCat] ([bind_category]'s image, by sig);
-    a SCOPE is a [ScopeS] — a sig over the raw association list whose decidable well-formedness
-    [scope_wf] demands every name be a valid NON-recognized, NON-blank Go identifier and all
-    names pairwise distinct — so a forged scope (a constant-category local, a [len]/[int]/[_]
-    binding, a duplicate, a non-identifier string) is UNREPRESENTABLE, not merely unconstructed
-    (the [Fail] pins below lock each shape); and INSERTION happens only through [scope_declare],
-    which binds from the RHS [PTy] through [bind_category] internally.  [type_expr] takes [ScopeS]
-    only — there is no raw-scope entry point. *)
+    THE SEAL — exactly what the types enforce: a local's CATEGORY is a [BoundCat]
+    ([bind_category]'s image, by sig); a SCOPE is a [ScopeS] — a sig over the raw association
+    list whose decidable well-formedness [scope_wf] demands every name be a valid NON-recognized,
+    NON-blank Go identifier and all names pairwise distinct — so a scope carrying a
+    constant-category local, a [len]/[int]/[_] binding, a duplicate, or a non-identifier string
+    is UNREPRESENTABLE (the [Fail] pins below lock each shape).  [scope_declare] is the
+    DECLARATION path: it binds from the RHS [PTy] through [bind_category] internally and DECIDES
+    the whole-scope invariant at construction.  BOUNDARY OF THE CLAIM: construction PROVENANCE
+    (that a scope arose from declarations, entries unmarked at birth) is NOT type-sealed — a
+    well-formed [ScopeS] is directly constructible; that provenance is the rung-4 fold's property,
+    pinned where [supported_program] is the only scope constructor.  (Full module-opacity would
+    seal provenance too but blocks the [vm_compute] fixture discipline this repo's gates rest on —
+    precise claims over opacity.)  [type_expr] takes [ScopeS] only. *)
 Definition bound_cat_ok (c : PTy) : bool :=
   match c with
   | PtRunInt _ | PtRunFloat _ | PtBool | PtStr => true
