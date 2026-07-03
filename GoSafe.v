@@ -24,15 +24,302 @@ Import ListNotations.
 Open Scope string_scope.
 
 (** ===================================================================================================
-    ===== The [type_expr]↔[ptype] BRIDGE (locals rung 3) =====
+    ===== The SEALED SCOPE + the scope-threading checker [type_expr] + the [ptype] BRIDGE (locals rung 3) =====
     ===================================================================================================
-    [GoTypes.type_expr] spells [ptype]'s category logic a second time (scope-threaded); THIS theorem
-    is the anti-drift gate between the two spellings: at the EMPTY scope the traversals agree
-    exactly and no marks occur, so any divergence in either spelling fails the build here.  (It
-    lives in GoSafe because GoTypes is Definitions-only by charter.)  Proof: raw structural [fix]
-    over the expression — the nested [EIndex (ESliceLit ..)] pattern needs per-element facts a
-    generic induction principle does not provide. *)
-(** the one option-pair shape every non-fold case reduces to: both traversals compute the SAME
+    This layer lives in GoSafe (GoTypes is Definitions-only by charter; the seal needs lemmas).
+    THE SEAL, in three types: a local's CATEGORY is a [BoundCat] ([bind_category]'s image, by sig);
+    a SCOPE is a [ScopeS] — a sig over the raw association list whose decidable well-formedness
+    [scope_wf] demands every name be a valid NON-recognized, NON-blank Go identifier and all
+    names pairwise distinct — so a forged scope (a constant-category local, a [len]/[int]/[_]
+    binding, a duplicate, a non-identifier string) is UNREPRESENTABLE, not merely unconstructed
+    (the [Fail] pins below lock each shape); and INSERTION happens only through [scope_declare],
+    which binds from the RHS [PTy] through [bind_category] internally.  [type_expr] takes [ScopeS]
+    only — there is no raw-scope entry point. *)
+Definition bound_cat_ok (c : PTy) : bool :=
+  match c with
+  | PtRunInt _ | PtRunFloat _ | PtBool | PtStr => true
+  | PtIntConst _ | PtTIntConst _ _ | PtFloatConst _ _ | PtAgg | PtMap | PtNil => false
+  end.
+Record BoundCat : Type := mkBoundCat { bc_cat : PTy ; bc_ok : bound_cat_ok bc_cat = true }.
+
+(** The BINDING authority: the category a short declaration [x := e] binds from its RHS category —
+    TOTAL over [PTy], every rejection a WRITTEN arm, the accepted arms constructing the sealed
+    [BoundCat] with its witness.  A short decl is a DEFAULTING value context (the untyped-const row
+    carries the same default-[int] representability boundary as [svalue]/[printable_arg_ok]);
+    typed constants were range-checked where their category was built; RUNTIME categories bind as
+    themselves; [PtAgg]/[PtMap] are REJECTED (the evaluator has no aggregate/map VALUES — a
+    structural hole, not a frontier; a conformance NARROWING, Go permits slice/map locals);
+    [PtNil] is Go's "use of untyped nil" compile error. *)
+Definition bind_category (c : PTy) : option BoundCat :=
+  match c with
+  | PtIntConst z     => if int_const_repr z GTInt
+                        then Some (mkBoundCat (PtRunInt GTInt) eq_refl) else None
+  | PtTIntConst t _  => Some (mkBoundCat (PtRunInt t) eq_refl)
+  | PtFloatConst t _ => Some (mkBoundCat (PtRunFloat t) eq_refl)
+  | PtRunInt t       => Some (mkBoundCat (PtRunInt t) eq_refl)
+  | PtRunFloat t     => Some (mkBoundCat (PtRunFloat t) eq_refl)
+  | PtBool           => Some (mkBoundCat PtBool eq_refl)
+  | PtStr            => Some (mkBoundCat PtStr eq_refl)
+  | PtAgg            => None
+  | PtMap            => None
+  | PtNil            => None
+  end.
+
+(** The DECLARATION-NAME gate: a declarable local name is UNRECOGNIZED (the [special_ident] table
+    rejects every checker-recognized string uniformly) and not the blank identifier ([_ := e] is
+    Go's "no new variables"). *)
+Definition decl_ident_ok (s : string) : bool :=
+  match special_ident s with
+  | None => negb (String.eqb s "_")
+  | Some _ => false
+  end.
+
+(** The raw association list is INTERNAL plumbing; its decidable well-formedness is the sig's
+    membership condition. *)
+Definition scope_list : Type := list (string * (BoundCat * bool)).
+Fixpoint scope_get (l : scope_list) (s : string) : option (BoundCat * bool) :=
+  match l with
+  | nil => None
+  | (n, ent) :: l' => if String.eqb n s then Some ent else scope_get l' s
+  end.
+Fixpoint scope_mark (l : scope_list) (s : string) : scope_list :=
+  match l with
+  | nil => nil
+  | (n, (c, u)) :: l' => if String.eqb n s then (n, (c, true)) :: l'
+                         else (n, (c, u)) :: scope_mark l' s
+  end.
+Fixpoint scope_wf (l : scope_list) : bool :=
+  match l with
+  | nil => true
+  | (n, _) :: l' =>
+      go_ident n && decl_ident_ok n
+      && negb (existsb (fun p => String.eqb n (fst p)) l')
+      && scope_wf l'
+  end.
+Record ScopeS : Type := mkScope { sc_list : scope_list ; sc_ok : scope_wf sc_list = true }.
+Definition scope_empty : ScopeS := mkScope nil eq_refl.
+
+(** MARKING preserves well-formedness (it flips only a [bool]; names untouched) — so the sealed
+    marker is TOTAL. *)
+Lemma scope_mark_fst : forall l s p,
+  existsb (fun q => String.eqb p (fst q)) (scope_mark l s)
+  = existsb (fun q => String.eqb p (fst q)) l.
+Proof.
+  induction l as [|[n [c u]] l' IHl]; intros s p; cbn; [reflexivity|].
+  destruct (String.eqb n s); cbn; [reflexivity|].
+  rewrite IHl. reflexivity.
+Qed.
+Lemma scope_mark_ok : forall l s, scope_wf l = true -> scope_wf (scope_mark l s) = true.
+Proof.
+  induction l as [|[n [c u]] l' IHl]; intros s H; cbn in *; [reflexivity|].
+  destruct (String.eqb n s); cbn.
+  - exact H.
+  - apply andb_true_iff in H. destruct H as [H1 H2].
+    apply andb_true_iff in H1. destruct H1 as [H1 H3].
+    rewrite scope_mark_fst, H3, (IHl s H2).
+    rewrite H1. reflexivity.
+Qed.
+Definition scope_markS (G : ScopeS) (s : string) : ScopeS :=
+  mkScope (scope_mark (sc_list G) s) (scope_mark_ok (sc_list G) s (sc_ok G)).
+
+(** SCOPE INSERTION — the ONE boundary: takes a validated [Ident] (a non-identifier string cannot
+    even be spelled), binds the RHS category through [bind_category] INTERNALLY (no caller-chosen
+    [BoundCat]), and DECIDES the whole-scope invariant at construction ([bool_dec] — the
+    recognized-name/blank/freshness rejections are exactly [scope_wf]'s head conjuncts;
+    a drift anywhere fail-closes to [None]). *)
+Definition scope_declare (G : ScopeS) (x : Ident) (rhs : PTy) : option ScopeS :=
+  match bind_category rhs with
+  | Some bc =>
+      match Bool.bool_dec (scope_wf ((proj1_sig x, (bc, false)) :: sc_list G)) true with
+      | left H => Some (mkScope ((proj1_sig x, (bc, false)) :: sc_list G) H)
+      | right _ => None
+      end
+  | None => None
+  end.
+
+Fixpoint type_expr (G : ScopeS) (e : GExpr) : option (PTy * ScopeS) :=
+  match e with
+  | EId i =>
+      let s := proj1_sig i in
+      match scope_get (sc_list G) s with
+      | Some (bc, _) => Some (bc_cat bc, scope_markS G s)   (* a LOCAL: resolve + MARK USED *)
+      | None =>
+          match special_ident s with
+          | Some SnNil => Some (PtNil, G)
+          | Some (SnType _) | Some SnLen | Some SnCap
+          | Some SnPrintln | Some SnPrint | Some SnPanic => None
+          | None => None
+          end
+      end
+  | EInt z => Some (PtIntConst z, G)
+  | EHex zc => Some (PtIntConst (proj1_sig zc), G)
+  | EStr _ => Some (PtStr, G)
+  | EBn o l r =>
+      match type_expr G l with
+      | Some (cl, G1) =>
+          match type_expr G1 r with
+          | Some (cr, G2) =>
+              match (match o with
+                     | BAdd => match cl, cr with
+                               | PtStr, PtStr => Some PtStr
+                               | _, _ => num_binop o cl cr
+                               end
+                     | BMul|BDiv|BRem|BShl|BShr|BAnd|BAndNot|BSub|BOr|BXor => num_binop o cl cr
+                     | BEq|BNe => if eq_comparable cl cr then Some PtBool else None
+                     | BLt|BLe|BGt|BGe => if ord_comparable cl cr then Some PtBool else None
+                     | BLAnd|BLOr => if andb (is_bool_cat cl) (is_bool_cat cr) then Some PtBool else None
+                     end) with
+              | Some c => Some (c, G2)
+              | None => None
+              end
+          | None => None
+          end
+      | None => None
+      end
+  | EUn o e0 =>
+      match type_expr G e0 with
+      | Some (c0, G1) =>
+          match (match o with
+                 | UNeg => match c0 with
+                           | PtIntConst z => Some (PtIntConst (Z.opp z))
+                           | PtTIntConst t z =>
+                               let r := Z.opp z in if int_const_repr r t then Some (PtTIntConst t r) else None
+                           | PtFloatConst t d =>
+                               let d' := dy_make (Z.opp (dy_m d)) (dy_e d) in
+                               if float_dyadic_repr t (dy_m d') (dy_e d') then Some (PtFloatConst t d') else None
+                           | PtRunInt t => Some (PtRunInt t) | PtRunFloat t => Some (PtRunFloat t)
+                           | _ => None end
+                 | UXor => match c0 with
+                           | PtIntConst z => Some (PtIntConst (Z.lnot z))
+                           | PtTIntConst t z =>
+                               match complement_const t z with
+                               | Some r => if int_const_repr r t then Some (PtTIntConst t r) else None
+                               | None => None
+                               end
+                           | PtRunInt t => Some (PtRunInt t)
+                           | _ => None end
+                 | UNot => match c0 with PtBool => Some PtBool | _ => None end
+                 | UDeref | UAddr => None
+                 end) with
+          | Some c => Some (c, G1)
+          | None => None
+          end
+      | None => None
+      end
+  | ECall (EId i) (a :: nil) =>
+      match scope_get (sc_list G) (proj1_sig i) with
+      | Some _ => None   (* a LOCAL callee: no local is a function in this fragment — REJECT (local-first, so a scoped name can never silently become a builtin/conversion) *)
+      | None =>
+      match type_expr G a with
+      | Some (ca, G1) =>
+          match (match special_ident (proj1_sig i) with
+                 | Some SnLen =>
+                     match a, ca with
+                     | EStr str, _ => Some (PtIntConst (Z.of_nat (String.length str)))
+                     | _, (PtAgg | PtMap) => Some (PtRunInt GTInt)
+                     | _, _ => None
+                     end
+                 | Some SnCap =>
+                     match ca with PtAgg => Some (PtRunInt GTInt) | _ => None end
+                 | Some (SnType t) => conv_to_scalar ca t
+                 | Some SnNil | Some SnPrintln | Some SnPrint | Some SnPanic => None
+                 | None => None
+                 end) with
+          | Some c => Some (c, G1)
+          | None => None
+          end
+      | None => None
+      end
+      end
+  | ECall _ _ => None
+  | EConv c e0 =>
+      match c with
+      | CTMap _ _ => None
+      | CTSlice _ | CTChan _ =>
+          if goty_supported (convty_ty c)
+          then match type_expr G e0 with
+               | Some (c0, G1) =>
+                   match (match c0 with PtNil => Some PtAgg | _ => None end) with
+                   | Some cc => Some (cc, G1)
+                   | None => None
+                   end
+               | None => None
+               end
+          else None
+      end
+  | EIndex (ESliceLit t es) idx =>
+      if is_int_goty t
+      then match (fix go_els (G0 : ScopeS) (l : list GExpr) {struct l} : option ScopeS :=
+                    match l with
+                    | nil => Some G0
+                    | el :: l' =>
+                        match type_expr G0 el with
+                        | Some (ce, G1) => if assignable_to_ty ce t then go_els G1 l' else None
+                        | None => None
+                        end
+                    end) G es with
+           | Some Ges =>
+               match type_expr Ges idx with
+               | Some (ci, Gi) =>
+                   match (if is_int_cat ci then
+                            match int_const_val ci with
+                            | Some k => if (0 <=? k)%Z && int_const_repr k GTInt then Some (PtRunInt t) else None
+                            | None   => Some (PtRunInt t)
+                            end
+                          else None) with
+                   | Some c => Some (c, Gi)
+                   | None => None
+                   end
+               | None => None
+               end
+           | None => None
+           end
+      else None
+  | ESliceLit t es =>
+      if goty_supported t
+      then match (fix go_els (G0 : ScopeS) (l : list GExpr) {struct l} : option ScopeS :=
+                    match l with
+                    | nil => Some G0
+                    | el :: l' =>
+                        match type_expr G0 el with
+                        | Some (ce, G1) => if assignable_to_ty ce t then go_els G1 l' else None
+                        | None => None
+                        end
+                    end) G es with
+           | Some Ges => Some (PtAgg, Ges)
+           | None => None
+           end
+      else None
+  | EMapLit kt vt kvs =>
+      if andb (is_int_goty kt) (goty_supported vt)
+      then match (fix go_kvs (G0 : ScopeS) (acc : list Z) (l : list (GExpr * GExpr)) {struct l}
+                    : option (list Z * ScopeS) :=
+                    match l with
+                    | nil => Some (rev acc, G0)
+                    | (k, v) :: l' =>
+                        match type_expr G0 k with
+                        | Some (ck, G1) =>
+                            match type_expr G1 v with
+                            | Some (cv, G2) =>
+                                match int_const_val ck with
+                                | Some z =>
+                                    if andb (assignable_to_ty ck kt) (assignable_to_ty cv vt)
+                                    then go_kvs G2 (z :: acc) l' else None
+                                | None => None
+                                end
+                            | None => None
+                            end
+                        | None => None
+                        end
+                    end) G nil kvs with
+           | Some (zs, Gk) => if nodup_z zs then Some (PtMap, Gk) else None
+           | None => None
+           end
+      else None
+  | ESel _ _ | EIndex _ _ | ESlice _ _ _ | EAssert _ _ => None
+  end.
+
+(** the one option-pair shape every dispatch case reduces to: both traversals compute the SAME
     dispatch term [d]; the scope result is the unchanged [g]. *)
 Lemma opt_pair_agree : forall (A B : Type) (d : option A) (g : B),
   match (match d with Some c => Some (c, g) | None => None end) with
@@ -41,30 +328,34 @@ Lemma opt_pair_agree : forall (A B : Type) (d : option A) (g : B),
   end.
 Proof. intros A B [c|] g; cbn; auto. Qed.
 
+(** The BRIDGE: at the EMPTY scope the two spellings of the category logic agree exactly and no
+    marks occur — any divergence in either spelling fails the build here.  (Scope of the claim:
+    EMPTY-scope agreement; the nonempty-scope behavior is [type_expr]'s own, exercised by the
+    rung-4 gate fixtures.) *)
 Lemma type_expr_nil_agrees : forall e,
-  match type_expr nil e with
-  | Some cg => ptype e = Some (fst cg) /\ snd cg = nil
+  match type_expr scope_empty e with
+  | Some cg => ptype e = Some (fst cg) /\ snd cg = scope_empty
   | None => ptype e = None
   end.
 Proof.
   fix IH 1. intro e.
   destruct e as [i|z|o e0|o l r|e0 f|e0 idx|e0 lo hi|e0 args|e0 T|c e0|t es|kt vt kvs|str|zc].
   - (* EId *)
-    cbn [type_expr ptype scope_get].
+    cbn [type_expr ptype scope_get sc_list scope_empty].
     destruct (special_ident (proj1_sig i)) as [[?| | | | | |]|]; cbn; auto.
   - (* EInt *) cbn; auto.
   - (* EUn *)
     pose proof (IH e0) as H0. cbn [type_expr ptype].
-    destruct (type_expr nil e0) as [[c0 G1]|].
+    destruct (type_expr scope_empty e0) as [[c0 G1]|].
     + cbn [fst snd] in H0. destruct H0 as [Hp ->]. rewrite Hp.
       apply opt_pair_agree.
     + rewrite H0. reflexivity.
   - (* EBn *)
     pose proof (IH l) as Hl. cbn [type_expr ptype].
-    destruct (type_expr nil l) as [[cl G1]|].
+    destruct (type_expr scope_empty l) as [[cl G1]|].
     + cbn [fst snd] in Hl. destruct Hl as [Hpl ->]. rewrite Hpl.
       pose proof (IH r) as Hr.
-      destruct (type_expr nil r) as [[cr G2]|].
+      destruct (type_expr scope_empty r) as [[cr G2]|].
       * cbn [fst snd] in Hr. destruct Hr as [Hpr ->]. rewrite Hpr.
         apply opt_pair_agree.
       * rewrite Hr. reflexivity.
@@ -72,10 +363,9 @@ Proof.
   - (* ESel *) cbn; reflexivity.
   - (* EIndex *)
     destruct e0 as [ | | | | | | | | | |t es| | | ]; try (cbn; reflexivity).
-    (* e0 = ESliceLit t es *)
     cbn [type_expr ptype].
     destruct (is_int_goty t) eqn:Hit; cbn [andb]; [|reflexivity].
-    set (F := (fix go_els (G0 : Scope) (l : list GExpr) {struct l} : option Scope :=
+    set (F := (fix go_els (G0 : ScopeS) (l : list GExpr) {struct l} : option ScopeS :=
                     match l with
                     | nil => Some G0
                     | el :: l' =>
@@ -85,8 +375,8 @@ Proof.
                         end
                     end)).
     assert (Hels :
-      match F nil es with
-      | Some Ges => Ges = nil /\
+      match F scope_empty es with
+      | Some Ges => Ges = scope_empty /\
           forallb (fun el => match ptype el with Some ce => assignable_to_ty ce t | None => false end) es = true
       | None =>
           forallb (fun el => match ptype el with Some ce => assignable_to_ty ce t | None => false end) es = false
@@ -94,16 +384,16 @@ Proof.
     { subst F. induction es as [|el es' IHes]; cbn.
       - auto.
       - pose proof (IH el) as Hel.
-        destruct (type_expr nil el) as [[ce G1]|].
+        destruct (type_expr scope_empty el) as [[ce G1]|].
         + cbn [fst snd] in Hel. destruct Hel as [Hpe ->]. rewrite Hpe.
           destruct (assignable_to_ty ce t); cbn.
           * exact IHes.
           * reflexivity.
         + rewrite Hel. reflexivity. }
-    destruct (F nil es) as [Ges|].
+    destruct (F scope_empty es) as [Ges|].
     + destruct Hels as [-> Hfb]. rewrite Hfb. cbn [andb].
       pose proof (IH idx) as Hi.
-      destruct (type_expr nil idx) as [[ci Gi]|].
+      destruct (type_expr scope_empty idx) as [[ci Gi]|].
       * cbn [fst snd] in Hi. destruct Hi as [Hpi ->]. rewrite Hpi.
         apply opt_pair_agree.
       * rewrite Hi. reflexivity.
@@ -112,9 +402,8 @@ Proof.
   - (* ECall *)
     destruct e0 as [i| | | | | | | | | | | | | ]; try (destruct args as [|a0 [|b0 args']]; cbn; reflexivity).
     destruct args as [|a [|b0 args']]; try (cbn; reflexivity).
-    (* ECall (EId i) (a :: nil) *)
-    pose proof (IH a) as Ha. cbn [type_expr ptype].
-    destruct (type_expr nil a) as [[ca G1]|].
+    pose proof (IH a) as Ha. cbn [type_expr ptype scope_get sc_list scope_empty].
+    destruct (type_expr scope_empty a) as [[ca G1]|].
     + cbn [fst snd] in Ha. destruct Ha as [Hpa ->]. rewrite Hpa.
       apply opt_pair_agree.
     + rewrite Ha. reflexivity.
@@ -123,13 +412,13 @@ Proof.
     destruct c as [ty|ty|mkt mvt]; cbn [type_expr ptype convty_ty].
     + destruct (goty_supported (GTSlice ty)); [|cbn; reflexivity].
       pose proof (IH e0) as H0.
-      destruct (type_expr nil e0) as [[c0 G1]|].
+      destruct (type_expr scope_empty e0) as [[c0 G1]|].
       * cbn [fst snd] in H0. destruct H0 as [Hp ->]. rewrite Hp.
         apply opt_pair_agree.
       * rewrite H0. reflexivity.
     + destruct (goty_supported (GTChan ty)); [|cbn; reflexivity].
       pose proof (IH e0) as H0.
-      destruct (type_expr nil e0) as [[c0 G1]|].
+      destruct (type_expr scope_empty e0) as [[c0 G1]|].
       * cbn [fst snd] in H0. destruct H0 as [Hp ->]. rewrite Hp.
         apply opt_pair_agree.
       * rewrite H0. reflexivity.
@@ -137,7 +426,7 @@ Proof.
   - (* ESliceLit *)
     cbn [type_expr ptype].
     destruct (goty_supported t) eqn:Hgs; cbn [andb]; [|reflexivity].
-    set (F := (fix go_els (G0 : Scope) (l : list GExpr) {struct l} : option Scope :=
+    set (F := (fix go_els (G0 : ScopeS) (l : list GExpr) {struct l} : option ScopeS :=
                     match l with
                     | nil => Some G0
                     | el :: l' =>
@@ -147,8 +436,8 @@ Proof.
                         end
                     end)).
     assert (Hels :
-      match F nil es with
-      | Some Ges => Ges = nil /\
+      match F scope_empty es with
+      | Some Ges => Ges = scope_empty /\
           forallb (fun el => match ptype el with Some ce => assignable_to_ty ce t | None => false end) es = true
       | None =>
           forallb (fun el => match ptype el with Some ce => assignable_to_ty ce t | None => false end) es = false
@@ -156,21 +445,21 @@ Proof.
     { subst F. induction es as [|el es' IHes]; cbn.
       - auto.
       - pose proof (IH el) as Hel.
-        destruct (type_expr nil el) as [[ce G1]|].
+        destruct (type_expr scope_empty el) as [[ce G1]|].
         + cbn [fst snd] in Hel. destruct Hel as [Hpe ->]. rewrite Hpe.
           destruct (assignable_to_ty ce t); cbn.
           * exact IHes.
           * reflexivity.
         + rewrite Hel. reflexivity. }
-    destruct (F nil es) as [Ges|].
+    destruct (F scope_empty es) as [Ges|].
     + destruct Hels as [-> Hfb]. rewrite Hfb. cbn; auto.
     + rewrite Hels. cbn. reflexivity.
   - (* EMapLit *)
     cbn [type_expr ptype].
     destruct (is_int_goty kt) eqn:Hik; cbn [andb]; [|reflexivity].
     destruct (goty_supported vt) eqn:Hgv; cbn [andb]; [|reflexivity].
-    set (F := (fix go_kvs (G0 : Scope) (acc : list Z) (l : list (GExpr * GExpr)) {struct l}
-                    : option (list Z * Scope) :=
+    set (F := (fix go_kvs (G0 : ScopeS) (acc : list Z) (l : list (GExpr * GExpr)) {struct l}
+                    : option (list Z * ScopeS) :=
                     match l with
                     | nil => Some (rev acc, G0)
                     | (k, v) :: l' =>
@@ -190,8 +479,8 @@ Proof.
                         end
                     end)).
     assert (Hfold : forall acc,
-      match F nil acc kvs with
-      | Some zsG => snd zsG = nil
+      match F scope_empty acc kvs with
+      | Some zsG => snd zsG = scope_empty
           /\ fst zsG = (rev acc ++ map_key_vals_with ptype kvs)%list
           /\ forallb (fun kv => match kv with
                                 | (k, v) =>
@@ -220,34 +509,34 @@ Proof.
     { subst F. induction kvs as [|[k v] kvs' IHkvs]; intro acc; cbn.
       - rewrite app_nil_r. auto.
       - pose proof (IH k) as Hk.
-        destruct (type_expr nil k) as [[ck G1]|].
+        destruct (type_expr scope_empty k) as [[ck G1]|].
         + cbn [fst snd] in Hk. destruct Hk as [Hpk ->]. rewrite Hpk.
           pose proof (IH v) as Hv.
-          destruct (type_expr nil v) as [[cv G2]|].
+          destruct (type_expr scope_empty v) as [[cv G2]|].
           * cbn [fst snd] in Hv. destruct Hv as [Hpv ->]. rewrite Hpv.
             destruct (int_const_val ck) as [z|]; cbn.
             -- destruct (andb (assignable_to_ty ck kt) (assignable_to_ty cv vt)); cbn.
                ++ specialize (IHkvs (z :: acc)%list).
-                  destruct ((fix go_kvs (G0 : Scope) (acc0 : list Z) (l0 : list (GExpr * GExpr)) {struct l0}
-                    : option (list Z * Scope) :=
-                    match l0 with
-                    | nil => Some (rev acc0, G0)
-                    | (k0, v0) :: l' =>
-                        match type_expr G0 k0 with
-                        | Some (ck0, G3) =>
-                            match type_expr G3 v0 with
-                            | Some (cv0, G4) =>
-                                match int_const_val ck0 with
-                                | Some z0 =>
-                                    if andb (assignable_to_ty ck0 kt) (assignable_to_ty cv0 vt)
-                                    then go_kvs G4 (z0 :: acc0) l' else None
+                  destruct ((fix go_kvs (G0 : ScopeS) (acc : list Z) (l : list (GExpr * GExpr)) {struct l}
+                    : option (list Z * ScopeS) :=
+                    match l with
+                    | nil => Some (rev acc, G0)
+                    | (k, v) :: l' =>
+                        match type_expr G0 k with
+                        | Some (ck, G1) =>
+                            match type_expr G1 v with
+                            | Some (cv, G2) =>
+                                match int_const_val ck with
+                                | Some z =>
+                                    if andb (assignable_to_ty ck kt) (assignable_to_ty cv vt)
+                                    then go_kvs G2 (z :: acc) l' else None
                                 | None => None
                                 end
                             | None => None
                             end
                         | None => None
                         end
-                    end) nil (z :: acc)%list kvs') as [[zs Gk]|].
+                    end) scope_empty (z :: acc)%list kvs') as [[zs Gk]|].
                   ** cbn [fst snd] in IHkvs. destruct IHkvs as [-> [Hzs Hfb]].
                      cbn [fst snd]. split; [reflexivity|]. split; [|exact Hfb].
                      rewrite Hzs. cbn [rev]. rewrite <- app_assoc. reflexivity.
@@ -257,7 +546,7 @@ Proof.
           * rewrite Hv. reflexivity.
         + rewrite Hk. reflexivity. }
     specialize (Hfold nil).
-    destruct (F nil nil kvs) as [[zs Gk]|].
+    destruct (F scope_empty nil kvs) as [[zs Gk]|].
     + cbn [fst snd] in Hfold. destruct Hfold as [-> [Hzs Hfb]].
       rewrite Hfb. cbn [andb]. cbn [rev app] in Hzs. subst zs.
       destruct (nodup_z (map_key_vals_with ptype kvs)); cbn; auto.
@@ -268,36 +557,51 @@ Qed.
 
 (** The rung-3 ENDPOINT: closed [ptype] IS the empty-scope projection of [type_expr]. *)
 Theorem type_expr_nil_ptype : forall e,
-  option_map fst (type_expr nil e) = ptype e.
+  option_map fst (type_expr scope_empty e) = ptype e.
 Proof.
   intro e. pose proof (type_expr_nil_agrees e) as H.
-  destruct (type_expr nil e) as [[c G']|]; cbn.
+  destruct (type_expr scope_empty e) as [[c G']|]; cbn.
   - cbn [fst snd] in H. destruct H as [-> _]. reflexivity.
   - rewrite H. reflexivity.
 Qed.
 Print Assumptions type_expr_nil_ptype.
 
-(** The SEALED-SCOPE pins: a scope entry's category is in [bind_category]'s image BY TYPE — the
-    forged constant/aggregate/nil entries are UNREPRESENTABLE (their [bound_cat_ok] witness cannot
-    be built), so [x := 0; _ = 1 / x] can never be re-constantized through a scope. *)
+(** The SEAL pins — every forged shape is UNREPRESENTABLE (its witness cannot be built):
+    constant/aggregate/nil local categories; recognized-name, blank, duplicate, and
+    non-identifier scopes. *)
 Example scope_entry_bindable : forall bc : BoundCat, bound_cat_ok (bc_cat bc) = true.
 Proof. intro bc. exact (bc_ok bc). Qed.
 Fail Definition forged_const_local : BoundCat := mkBoundCat (PtIntConst 0) eq_refl.
 Fail Definition forged_agg_local : BoundCat := mkBoundCat PtAgg eq_refl.
 Fail Definition forged_nil_local : BoundCat := mkBoundCat PtNil eq_refl.
-(** The INSERTION boundary decides: a recognized name, the blank identifier, and a redeclaration
-    are all rejected AT [scope_bind]; a fresh unrecognized name binds. *)
-Example scope_bind_decides :
-  (exists G', scope_bind nil "x" (mkBoundCat PtBool eq_refl) = Some G')
-  /\ scope_bind nil "len" (mkBoundCat PtBool eq_refl) = None
-  /\ scope_bind nil "int" (mkBoundCat PtBool eq_refl) = None
-  /\ scope_bind nil "_" (mkBoundCat PtBool eq_refl) = None
-  /\ (forall G', scope_bind nil "x" (mkBoundCat PtBool eq_refl) = Some G' ->
-        scope_bind G' "x" (mkBoundCat PtStr eq_refl) = None).
+Fail Definition forged_scope_len : ScopeS :=
+  mkScope (("len", (mkBoundCat PtBool eq_refl, false)) :: nil) eq_refl.
+Fail Definition forged_scope_int : ScopeS :=
+  mkScope (("int", (mkBoundCat PtBool eq_refl, false)) :: nil) eq_refl.
+Fail Definition forged_scope_blank : ScopeS :=
+  mkScope (("_", (mkBoundCat PtBool eq_refl, false)) :: nil) eq_refl.
+Fail Definition forged_scope_dup : ScopeS :=
+  mkScope (("x", (mkBoundCat PtBool eq_refl, false))
+             :: ("x", (mkBoundCat PtStr eq_refl, false)) :: nil) eq_refl.
+Fail Definition forged_scope_badstr : ScopeS :=
+  mkScope (("1x", (mkBoundCat PtBool eq_refl, false)) :: nil) eq_refl.
+(** The INSERTION boundary decides, from the RHS category: a fresh unrecognized name with a
+    bindable RHS binds; recognized/blank names, redeclarations, and unbindable RHS categories
+    ([nil], aggregates) reject. *)
+Example scope_declare_decides :
+  (exists G', scope_declare scope_empty (mkIdent "x" eq_refl) PtBool = Some G')
+  /\ scope_declare scope_empty (mkIdent "len" eq_refl) PtBool = None
+  /\ scope_declare scope_empty (mkIdent "int" eq_refl) PtBool = None
+  /\ scope_declare scope_empty (mkIdent "_" eq_refl) PtBool = None
+  /\ scope_declare scope_empty (mkIdent "x" eq_refl) PtNil = None
+  /\ scope_declare scope_empty (mkIdent "x" eq_refl) PtAgg = None
+  /\ (forall G', scope_declare scope_empty (mkIdent "x" eq_refl) PtBool = Some G' ->
+        scope_declare G' (mkIdent "x" eq_refl) PtStr = None).
 Proof.
   split; [eexists; reflexivity|].
   split; [reflexivity|]. split; [reflexivity|]. split; [reflexivity|].
-  intros G' H. injection H as <-. reflexivity.
+  split; [reflexivity|]. split; [reflexivity|].
+  intros G' H. vm_compute in H. injection H as <-. vm_compute. reflexivity.
 Qed.
 
 (** ===================================================================================================
