@@ -302,6 +302,7 @@ Proof.
   destruct (fexp prec emax (Zpos (digits2_pos q) + e) - e)%Z eqn:E;
     [reflexivity | reflexivity | exfalso; lia].
 Qed.
+
 Lemma digits2_pos_le_of_lt_pow : forall p k,
   (0 <= k)%Z -> (Zpos p < 2 ^ k)%Z -> (Zpos (digits2_pos p) <= k)%Z.
 Proof.
@@ -320,6 +321,71 @@ Proof.
   eapply Z.le_lt_trans; [exact Hlo|].
   replace (2 ^ k * 2)%Z with (2 * 2 ^ k)%Z by apply Z.mul_comm.
   exact Hp2.
+Qed.
+
+(** ---- rung 6 (exact DIV) groundwork.  [SFdiv]'s finite arm scales the dividend mantissa
+    left ([SFdiv_core_binary]'s [s]-shift), divides by the divisor mantissa with
+    [Z.div_eucl], and records the remainder as a LOCATION — on the fold-accepted class the
+    remainder is ZERO ([m2 | m1] transports through the canonical-render shifts), the
+    location is [loc_Exact], and the aux arm reduces to [binary_round] again. *)
+Lemma digits2_pos_mul_upper : forall p q,
+  (Zpos (digits2_pos (Pos.mul p q)) <= Zpos (digits2_pos p) + Zpos (digits2_pos q))%Z.
+Proof.
+  intros p q.
+  apply digits2_pos_le_of_lt_pow; [lia|].
+  pose proof (digits2_pos_upper p) as Hp.
+  pose proof (digits2_pos_upper q) as Hq.
+  rewrite Pos2Z.inj_mul, Z.pow_add_r by lia.
+  apply Z.mul_lt_mono_nonneg; lia.
+Qed.
+Lemma digits2_pos_ge_of_pow_le : forall p k,
+  (0 <= k)%Z -> (2 ^ k <= Zpos p)%Z -> (k + 1 <= Zpos (digits2_pos p))%Z.
+Proof.
+  intros p k Hk Hle.
+  destruct (Z.le_gt_cases (k + 1) (Zpos (digits2_pos p))) as [H|H]; [exact H|exfalso].
+  pose proof (digits2_pos_upper p) as Hu.
+  assert (Hm : (2 ^ Zpos (digits2_pos p) <= 2 ^ k)%Z) by (apply Z.pow_le_mono_r; lia).
+  lia.
+Qed.
+(** an exact power-of-two shift adds its exponent to the digit count, on the nose *)
+Lemma digits2_pos_shift : forall p k q,
+  (0 <= k)%Z -> Zpos q = (Zpos p * 2 ^ k)%Z ->
+  Zpos (digits2_pos q) = (Zpos (digits2_pos p) + k)%Z.
+Proof.
+  intros p k q Hk Hq.
+  pose proof (digits2_pos_lower p) as Hlp.
+  pose proof (digits2_pos_upper p) as Hup.
+  assert (Hpk : (0 < 2 ^ k)%Z) by (apply Z.pow_pos_nonneg; lia).
+  assert (Hge : (Zpos (digits2_pos p) + k - 1 + 1 <= Zpos (digits2_pos q))%Z).
+  { apply digits2_pos_ge_of_pow_le; [lia|].
+    rewrite Hq.
+    replace (Zpos (digits2_pos p) + k - 1)%Z
+      with ((Zpos (digits2_pos p) - 1) + k)%Z by lia.
+    rewrite Z.pow_add_r by lia.
+    apply Z.mul_le_mono_nonneg_r; [lia|].
+    assert (E : (2 ^ Zpos (digits2_pos p) = 2 * 2 ^ (Zpos (digits2_pos p) - 1))%Z).
+    { replace (Zpos (digits2_pos p)) with (Z.succ (Zpos (digits2_pos p) - 1)) at 1 by lia.
+      rewrite Z.pow_succ_r by lia. reflexivity. }
+    lia. }
+  assert (Hlt : (Zpos (digits2_pos q) <= Zpos (digits2_pos p) + k)%Z).
+  { apply digits2_pos_le_of_lt_pow; [lia|].
+    rewrite Hq, Z.pow_add_r by lia. nia. }
+  lia.
+Qed.
+Lemma div_eucl_exact : forall a b,
+  (0 < b)%Z -> (b | a)%Z -> Z.div_eucl a b = ((a / b)%Z, 0%Z).
+Proof.
+  intros a b Hb Hdiv.
+  rewrite (surjective_pairing (Z.div_eucl a b)).
+  f_equal.
+  destruct (Z.mod_divide a b ltac:(lia)) as [_ Hmd].
+  exact (Hmd Hdiv).
+Qed.
+Lemma new_location_exact : forall nb,
+  new_location nb 0%Z = loc_Exact.
+Proof.
+  intros nb. unfold new_location, new_location_even, new_location_odd.
+  destruct (Z.even nb); reflexivity.
 Qed.
 (** [renorm] IDEMPOTENCE on the in-window class: [binary_round]'s output is already canonical —
     re-normalizing it is the identity (its digits+exponent equals the input's, so the [fexp]
