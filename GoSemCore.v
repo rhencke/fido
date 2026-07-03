@@ -2599,3 +2599,101 @@ Proof.
       as [E0 | [q [Habs [Hd [He Hde]]]]]; [lia|].
     exact (sf_pos_zero_render_gen 24 128 (- dy_m d) (dy_e d) q Habs Hd He Hde ltac:(lia)).
 Qed.
+
+(** the odd CORE of a split is odd (never [xO]): its own split is trivial, and a nontrivial
+    [xO] head would shift *)
+Lemma pos_odd_split_shape : forall p q k,
+  pos_odd_split p = (q, k) -> q = xH \/ exists q', q = xI q'.
+Proof.
+  intros p q k H.
+  pose proof (pos_odd_split_odd p q k H) as Hq.
+  destruct q as [q'|q'|]; [right; eexists; reflexivity| |left; reflexivity].
+  exfalso. cbn [pos_odd_split] in Hq.
+  destruct (pos_odd_split q') as [a b] eqn:E.
+  injection Hq as H1 H2.
+  destruct (pos_odd_split_val q' a b E) as [Hb _]. lia.
+Qed.
+(** an integer within [2^B] in magnitude normalizes INSIDE the [B]-bit window: the odd core
+    is strictly below [2^B] (parity kills the boundary case) and the stripped exponent fits
+    in [[0, B]] — the operand-window fact the fold's INT rows rely on (they guard only the
+    exact interval; the checker's operand render needs the window). *)
+Lemma dy_norm_int_window : forall z B mr er,
+  (1 <= B)%Z -> (Z.abs z <= 2 ^ B)%Z ->
+  dy_norm z 0 = (mr, er) ->
+  (Z.abs mr < 2 ^ B)%Z /\ (0 <= er <= B)%Z.
+Proof.
+  intros z B mr er HB Hz Hn.
+  assert (H1 : (0 < 2 ^ B)%Z) by (apply Z.pow_pos_nonneg; lia).
+  assert (E2 : (2 ^ B = 2 * 2 ^ (B - 1))%Z).
+  { replace B with (Z.succ (B - 1)) at 1 by lia.
+    rewrite Z.pow_succ_r by lia. reflexivity. }
+  destruct z as [|p|p]; cbn [dy_norm] in Hn;
+    [ injection Hn as <- <-; cbn [Z.abs]; lia | | ];
+    destruct (pos_odd_split p) as [q k] eqn:E;
+    destruct (pos_odd_split_val p q k E) as [Hk Hv];
+    injection Hn as <- <-;
+    cbn [Z.abs] in *;
+    (assert (Hq2 : (0 < 2 ^ k)%Z) by (apply Z.pow_pos_nonneg; lia));
+    (assert (HkB : (k <= B)%Z)
+      by (destruct (Z.le_gt_cases k B) as [|Hgt]; [assumption|exfalso];
+          assert (Hm : (2 ^ B < 2 ^ k)%Z) by (apply Z.pow_lt_mono_r; lia);
+          nia));
+    (split; [|lia]);
+    (assert (Hle : (Zpos q <= 2 ^ B)%Z) by nia);
+    (destruct (Z.eq_dec (Zpos q) (2 ^ B)) as [Eq|Ne]; [|lia]);
+    exfalso;
+    (destruct (pos_odd_split_shape p q k E) as [-> | [q' ->]];
+      [ assert (Hm : (2 ^ 1 <= 2 ^ B)%Z) by (apply Z.pow_le_mono_r; lia);
+        cbn [Z.pow Z.pow_pos Pos.iter] in Hm; lia
+      | rewrite Pos2Z.inj_xI in Eq; lia ]).
+Qed.
+(** the fold's exact-interval guard implies the WINDOW of the normalized int operand — at
+    both widths (the missing operand-repr premise for the op endpoints on mixed rows) *)
+Lemma int_interval_norm_repr : forall t z,
+  int_in_float_exact_interval t z = true ->
+  float_dyadic_repr t (fst (dy_norm z 0)) (snd (dy_norm z 0)) = true.
+Proof.
+  intros t z H.
+  destruct t; try discriminate H;
+    unfold int_in_float_exact_interval, float_contig_exact_max in H;
+    apply andb_true_iff in H; destruct H as [H1 H2];
+    apply Z.leb_le in H1; apply Z.leb_le in H2;
+    destruct (dy_norm z 0) as [mr er] eqn:Hn; cbn [fst snd].
+  - assert (Hz : (Z.abs z <= 2 ^ 53)%Z)
+      by (change (2 ^ 53)%Z with 9007199254740992%Z; lia).
+    destruct (dy_norm_int_window z 53 mr er ltac:(lia) Hz Hn) as [Hm He].
+    unfold float_dyadic_repr.
+    change 9007199254740992%Z with (2 ^ 53)%Z.
+    apply andb_true_iff; split;
+      [apply Z.ltb_lt; exact Hm
+      |apply andb_true_iff; split; apply Z.leb_le; lia].
+  - assert (Hz : (Z.abs z <= 2 ^ 24)%Z)
+      by (change (2 ^ 24)%Z with 16777216%Z; lia).
+    destruct (dy_norm_int_window z 24 mr er ltac:(lia) Hz Hn) as [Hm He].
+    unfold float_dyadic_repr.
+    change 16777216%Z with (2 ^ 24)%Z.
+    apply andb_true_iff; split;
+      [apply Z.ltb_lt; exact Hm
+      |apply andb_true_iff; split; apply Z.leb_le; lia].
+Qed.
+(** the checker's OPERAND wrapper is complete on both admitted operand kinds ([ptype]'s
+    repr invariant pins the type to a float width, so the same-type test computes) *)
+Lemma fsf_operand_complete_float : forall a t d,
+  ptype a = Some (PtFloatConst t d) ->
+  fsf_checked a = sf_render t (dy_m d) (dy_e d) ->
+  fsf_operand t a = sf_render t (dy_m d) (dy_e d).
+Proof.
+  intros a t d Hp IH.
+  pose proof (ptype_float_const_repr a t d Hp) as Hr.
+  unfold fsf_operand, fsf_operand_with. rewrite Hp.
+  destruct t; try discriminate Hr; cbn [numty_eqb]; exact IH.
+Qed.
+Lemma fsf_operand_complete_int : forall a t z,
+  ptype a = Some (PtIntConst z) ->
+  int_in_float_exact_interval t z = true ->
+  fsf_operand t a = sf_render t (fst (dy_norm z 0)) (snd (dy_norm z 0)).
+Proof.
+  intros a t z Hp Hint.
+  unfold fsf_operand, fsf_operand_with. rewrite Hp, Hint.
+  unfold dy_make. cbn [dy_m dy_e]. reflexivity.
+Qed.
