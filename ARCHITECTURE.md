@@ -81,11 +81,13 @@ wrapper `svalue`. Factored below `GoSafe` so the layers consult ONE authority. N
 rejects a real CLOSED bad program currently accepted, or (b) admits a needed supported demo.
 
 **`GoSafe.v` — supportedness now, behavioral safety later (imports `GoAst` + `GoTypes`).** Adds the
-statement-shape / supported-syntax layer on top of `GoTypes`: the LIVE gate is the scope-threaded fold
-(`ScopeS`/`body_okS` — `supported_program`/`SupportedProgram`; locals bind only via `scope_declare`), while
-`stmt_ok` remains the CLOSED scope-free fragment GoSem slice 1 is gated on (decl-free agreement is the proven
-bridge `body_okS_nil_declfree`). **Phase 1 is SYNTACTIC supportedness and must be NAMED as such** — calling
-it `SafeProgram` would repeat the exact overclaim this refactor kills (Rule 5).
+statement-shape / supported-syntax layer on top of `GoTypes`. The program gate is
+`supported_program`/`SupportedProgram`: package-main + the scope-threaded body fold `body_okS` (over the
+sealed `ScopeS`; locals bind only via `scope_declare`) + the final `scope_all_used`. `body_okS` alone is the
+internal body checker (it can succeed with unused locals); `stmt_ok` is the CLOSED scope-free fragment GoSem
+slice 1 is gated on (decl-free agreement: `body_okS_nil_declfree`). **Phase 1 is SYNTACTIC supportedness and
+must be NAMED as such** — calling it `SafeProgram` would repeat the exact overclaim this refactor kills
+(Rule 5).
 
 ```text
 SupportedProgram  -- syntactic: in the supported subset; no unmodeled constructs; no raw escape hatches.

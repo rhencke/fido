@@ -942,7 +942,8 @@ Definition gosem_defer_arg_panic_prog : Program :=
      GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [EStr "hi"]); GsReturn].
 
 (** STRUCTURAL short-circuit regressions: after a KNOWN-panic argument, later ARGUMENTS and later STATEMENTS
-    are unreachable — they must be SUPPORTED (the gate) but are NOT required to DENOTE.  The undenoted piece
+    are unreachable — later args are gated by the caller's [expr_stmt_ok], successor statements by
+    [forallb stmt_ok] (the closed fragment, NOT [supported_program]); neither is required to DENOTE.  The undenoted piece
     in each is the multi-byte rune ([runeconv_mb], supported-printable yet undenoted —
     [out_boundary_runtime_undenoted]): as a LATER ARG of
     the panicking call, as the SUCCESSOR statement, and as the successor of a DEFERRED panicking-arg call.

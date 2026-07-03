@@ -690,8 +690,8 @@ Definition expr_stmt_ok (e : GExpr) : bool :=
     the only function we emit is [main], which is VOID, so `return <value>` is invalid Go ("too many return
     values").  (It becomes supported, conditional on the enclosing function's result type, once NON-void
     functions enter the AST — a clean demonstration that GoAst represents more than the gate admits.)
-    This fragment is what GoSemDenote's slice-1 evaluator is gated on; the LIVE program gate is the
-    scope-threaded fold below, and the [.._nil] bridge lemmas prove the two agree on decl-free bodies. *)
+    This fragment is what GoSemDenote's slice-1 evaluator is gated on; the program gate is
+    [supported_program] below, and the [.._nil] bridge lemmas prove the spellings agree on decl-free bodies. *)
 Definition stmt_ok (s : GoStmt) : bool :=
   match s with
   | GsExprStmt e    => expr_stmt_ok e
@@ -1102,7 +1102,7 @@ Proof. vm_compute. reflexivity. Qed.
     the cross-width [float32(<inexact-at-32>)]) graduate only with a correctly-ROUNDING const model — the
     exact-or-reject dyadic fold refuses them today (keeping the const-ZERO-divisor [bad_programs] member
     rejected); ★the SHORT-DECLARATION member GRADUATED at locals rung 4 exactly per this contract —
-    `x := 1; _ = x; return` moved to [good_programs] via the [body_okS] scope fold while its
+    `x := 1; _ = x; return` moved to [good_programs] (admitted by [supported_program]'s scope fold) while its
     unused / redeclared / blank / untyped-nil / overflowing / use-before-declare companions all sit in
     [bad_programs]; the decl members still HERE (the 2^40 decl, the shadowed special names, the
     aggregate/map locals) each name their narrowing at their row.  The two contracts must not be confused — a
@@ -1158,11 +1158,24 @@ Proof. vm_compute. reflexivity. Qed.
 (** [stmt_ok] — the CLOSED (scope-free) fragment — never admits a short declaration, pinned at the
     CONSTRUCTOR for every ident/expression.  This is what makes the decl-free bridge's premise free
     on closed-supported bodies ([stmt_ok_declfree]) and — via [gosem_sound] — why slice-1 denotable
-    bodies are decl-free.  The LIVE program gate ([body_okS]) DOES admit declarations, exclusively
-    through [scope_declare] (the [good_programs] locals rows).  (The denotation-side absence pin,
+    bodies are decl-free.  [supported_program] DOES admit declarations — its [body_okS] fold binds
+    exclusively through [scope_declare], with [scope_all_used] still required at the end (the
+    [good_programs] locals rows).  (The denotation-side absence pin,
     [denote_stmt (GsShortDecl _ _) = None], lives with [denote_stmt] in GoSemDenote.v.) *)
 Example shortdecl_stmt_ok_false : forall x e, stmt_ok (GsShortDecl x e) = false.
 Proof. reflexivity. Qed.
+
+(** [body_okS] is the INTERNAL body checker, NOT the program gate: on an unused-local body the fold
+    SUCCEEDS (binding and threading are fine) while [supported_program] REJECTS via the final
+    [scope_all_used] — the all-used side condition lives in the GATE, so naming [body_okS] as the
+    gate would leak it.  ([supported_program] also adds the package-main check.) *)
+Example body_okS_not_the_gate :
+  match body_okS scope_empty [GsShortDecl id_x (EInt 1); GsReturn] with
+  | Some G => scope_all_used G = false
+  | None => False
+  end
+  /\ supported_program (gs_main [GsShortDecl id_x (EInt 1); GsReturn]) = false.
+Proof. split; vm_compute; reflexivity. Qed.
 
 (** ★ THE CTMAP TARGET CLASS GATE — universal, NOT sample rows: for EVERY target type [map[k]v] the
     supported-type authority rejects ([goty_supported (GTMap k v) = false]), the nil map CONVERSION to it

@@ -772,14 +772,14 @@ expression, so we never rely on a later `go build` error).  WITNESS: `addr_of_de
 `x := int64(10); Write_thru(&x); …` — writing through `&x` mutates `x` (10→99), the canonical reason `&`
 exists; golden-locked.)
 
-### [Short variable declarations](https://go.dev/ref/spec#Short_variable_declarations) — AST gate (GoSafe `body_okS`, locals rung 4): ✓ core rules; ⚠ named narrowings
+### [Short variable declarations](https://go.dev/ref/spec#Short_variable_declarations) — AST gate (GoSafe `supported_program`, locals rung 4): ✓ core rules; ⚠ named narrowings
 Spec: `x := e` declares and initializes; redeclaring in the same block / a lone blank LHS
 is "no new variables on left side of :="; `x := nil` is "use of untyped nil"; an unused
 local is "declared and not used" (a COMPILE error); predeclared identifiers are shadowable.
-Ours — the certified-emission GATE, distinct from the model-layer `ref_new` row above:
-the scope-threaded fold (`stmt_okS`/`body_okS` over the sealed `ScopeS`; declarations only
-via `scope_declare`, uses marked by `type_expr` in the same traversal, unused rejected on
-the fold's final scope).  ✓ redeclare / blank LHS / untyped nil / unused / use-before-declare
+Ours — the program gate `supported_program`, distinct from the model-layer `ref_new` row
+above: the scope-threaded fold `stmt_okS`/`body_okS` over the sealed `ScopeS` (declarations
+only via `scope_declare`, uses marked by `type_expr` in the same traversal) plus the final
+`scope_all_used` unused-local rejection.  ✓ redeclare / blank LHS / untyped nil / unused / use-before-declare
 all rejected (`bad_programs` rows, each error verified against gc).  ⚠ NAMED NARROWINGS —
 valid Go the gate refuses (`valid_unsupported_programs` rows, each verified gc):
 aggregate/map locals (`x := []int{1}`, `m := map[int]int{1:2}` — the evaluator has no

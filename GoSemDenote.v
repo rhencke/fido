@@ -4264,8 +4264,8 @@ Proof.
 Qed.
 
 (** The [GsShortDecl] ABSENCE pinned at the CONSTRUCTOR, for every ident/expression (the
-    CLOSED-fragment rejection pin [GoSafe.shortdecl_stmt_ok_false] is its twin — the LIVE gate
-    [body_okS] ADMITS used decls; this pair is about slice 1's scope-free fragment). *)
+    CLOSED-fragment rejection pin [GoSafe.shortdecl_stmt_ok_false] is its twin —
+    [supported_program] ADMITS used decls; this pair is about slice 1's scope-free fragment). *)
 Example shortdecl_denote_absent : forall x e, denote_stmt (GsShortDecl x e) = None.
 Proof. reflexivity. Qed.
 
@@ -4300,10 +4300,10 @@ Example shortdecl_supported_undenoted :
         GsBlankAssign (EId (mkIdent "x" eq_refl)); GsReturn]) = None.
 Proof. split; vm_compute; reflexivity. Qed.
 
-(** The TERMINATOR dead-tail face of the same seam: a used-decl TAIL after [return] is
-    LIVE-supported ([body_okS] admits it) yet [denote_body]'s dead-tail check is the CLOSED
-    fragment ([forallb stmt_ok] — [stmt_ok] rejects decls), so the body does NOT denote.  Pins
-    that terminator tails are gated on [stmt_ok], NOT on live [supported_program]. *)
+(** The TERMINATOR dead-tail face of the same seam: a used-decl TAIL after [return] passes
+    [supported_program] (the first conjunct) yet [denote_body]'s dead-tail check is
+    [forallb stmt_ok] — and [stmt_ok] rejects decls — so the body does NOT denote.  Pins that
+    terminator tails are gated on [stmt_ok], NOT on [supported_program]. *)
 Example shortdecl_deadtail_supported_undenoted :
   supported_program (mkProgram (mkIdent "main" eq_refl)
     [GsReturn; GsShortDecl (mkIdent "x" eq_refl) (EInt 1);
