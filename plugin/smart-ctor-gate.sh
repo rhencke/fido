@@ -84,24 +84,31 @@ echo "fido: selector-bridge gate OK — the ESel arm keeps its not-embedded + ML
 # 6. UN-AUDITED-LOCAL-REGRESSION gate: nothing consumes an [Example], so a LOCAL Example sits
 # outside every Print Assumptions cone (unaudited).  Discipline: an Example is PUBLIC and
 # surfaced, or it does not exist.  Detector: plugin/local-example-lint.awk (Rocq-lexical).
-# Scope: every .v (only _build/.git excluded).  Minimal representative self-test corpus below.
+# Scope: every .v (only _build/.git excluded).  The self-test corpus covers EVERY lexical
+# mechanism the detector claims (15 positives incl. subdir + CRLF; negatives must stay clean).
 lx_detect() { find "$1" -name '*.v' -not -path '*/_build/*' -not -path '*/.git/*' -print0 2>/dev/null \
               | xargs -0 -r awk -f plugin/local-example-lint.awk 2>/dev/null || true; }
 lx_t=$(mktemp -d); mkdir -p "$lx_t/sub"
 cat > "$lx_t/pos1.v" <<'LXEOF'
-Local Example st_a : True.
+  Local Example st_a : True.
+Local  Example st_b : True.
 Local
-Example st_b : True.
-Local (* between *) Example st_c : True.
+Example st_c : True.
+Local (* between *) Example st_d : True.
 Definition st_t := "x\".
-Local Example st_d : True.
+Local Example st_j : True.
 LXEOF
 cat > "$lx_t/sub/pos2.v" <<'LXEOF'
 #[local] Example st_e : True.
-#[deprecated(note="x")] #[local] Example st_f : True.
-#[deprecated(note="]"), local] Example st_g : True.
+#[local]
+Example st_f : True.
+#[local] (* between *) Example st_g : True.
+#[local] #[deprecated(note="x")] Example st_h : True.
+#[deprecated(note="x")] #[local] Example st_i : True.
+#[deprecated(note="]"), local] Example st_k : True.
+#[deprecated(note="]")] #[local] Example st_l : True.
 LXEOF
-printf 'Local\r\nExample st_h : True.\r\n' > "$lx_t/sub/pos3.v"
+printf 'Local\r\nExample st_m : True.\r\n#[local]\r\nExample st_n : True.\r\n#[local]\r\n#[deprecated(note="x")]\r\nExample st_o : True.\r\n' > "$lx_t/sub/pos3.v"
 cat > "$lx_t/neg.v" <<'LXEOF'
 Example st_ok : True.
 Local Lemma st_ok2 : True.
@@ -113,7 +120,7 @@ Definition st_u := "a""b". Example st_ok5 : True.
 LXEOF
 hits=$(lx_detect "$lx_t" | grep -c .) || true
 neg=$(awk -f plugin/local-example-lint.awk "$lx_t/neg.v" | grep -c .) || true
-[ "$hits" = "8" ] && [ "$neg" = "0" ] || { echo "fido: LOCAL-EXAMPLE GATE self-test broke (expected 8 positives / 0 negatives, got $hits/$neg)"; rm -rf "$lx_t"; exit 1; }
+[ "$hits" = "15" ] && [ "$neg" = "0" ] || { echo "fido: LOCAL-EXAMPLE GATE self-test broke (expected 15 positives / 0 negatives, got $hits/$neg)"; rm -rf "$lx_t"; exit 1; }
 rm -rf "$lx_t"
 localex=$(lx_detect .)
 if [ -n "$localex" ]; then

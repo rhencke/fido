@@ -4,8 +4,8 @@
     claim — never call a syntactic gate "Safe").  [BehaviorSafe] lands once GoSem denotes enough;
     until then GoEmit emits only the SUPPORTED subset and must not be described as safe.
     GoSafe is a CONSERVATIVE supported-subset checker, not Go's typechecker.  [ScopeS] seals
-    declared local names/categories/used flags; [supported_program] runs one left-to-right body
-    fold from [scope_empty] and rejects unused locals.
+    valid distinct names and bound categories; used flags are threaded STATE whose provenance is
+    owned by the fold from [scope_empty] ([supported_program], which rejects unused locals).
     ============================================================================ *)
 From Fido Require Import GoAst.   (* syntax + [classify]; deliberately NOT GoPrint — safety must not depend on the printer *)
 From Fido Require Import GoTypes. (* the shared type-category checker ([ptype]/[svalue]) — one authority for GoSafe AND GoSem *)
