@@ -688,6 +688,228 @@ Fixpoint ptype (e : GExpr) : option PTy :=
     key values everywhere outside [ptype]'s own arm (GoSem's evaluator and its inclusion proofs). *)
 Definition map_key_vals : list (GExpr * GExpr) -> list Z := map_key_vals_with ptype.
 
+(** ===================================================================================================
+    ===== SCOPE + the scope-threading checker [type_expr] (locals rung 3) =====
+    ===================================================================================================
+    [type_expr] is [ptype]'s scope-aware twin: the CATEGORY logic is spelled arm-for-arm identically
+    (the bridge theorem [GoSafe.type_expr_nil_ptype] PROVES the agreement at the empty scope, so the
+    two spellings cannot drift — any divergence fails the build), plus identifier RESOLUTION against
+    a [Scope] and USE-marking threaded through the traversal in Go's left-to-right order.  A LOCAL
+    hit resolves BEFORE the [special_ident] table — sound because the rung-4 declaration gate
+    refuses to declare any recognized name. *)
+Definition Scope : Type := list (string * (PTy * bool)).
+Fixpoint scope_get (G : Scope) (s : string) : option (PTy * bool) :=
+  match G with
+  | nil => None
+  | (n, ent) :: G' => if String.eqb n s then Some ent else scope_get G' s
+  end.
+Fixpoint scope_mark (G : Scope) (s : string) : Scope :=
+  match G with
+  | nil => nil
+  | (n, (c, u)) :: G' => if String.eqb n s then (n, (c, true)) :: G'
+                         else (n, (c, u)) :: scope_mark G' s
+  end.
+
+(** The BINDING authority (the rung-4 scope fold consumes it): the category a short declaration
+    [x := e] binds from its RHS category — TOTAL over [PTy], every rejection a WRITTEN arm.  A
+    short decl is a DEFAULTING value context, so the untyped-const row carries the SAME
+    default-[int] representability boundary as [svalue]/[printable_arg_ok]; typed constants were
+    range-checked where their category was built; RUNTIME categories bind as themselves;
+    [PtAgg]/[PtMap] are REJECTED (the evaluator has no aggregate/map VALUES — a structural hole,
+    not a frontier; a conformance NARROWING, Go permits slice/map locals); [PtNil] is Go's
+    "use of untyped nil" compile error. *)
+Definition bind_category (c : PTy) : option PTy :=
+  match c with
+  | PtIntConst z     => if int_const_repr z GTInt then Some (PtRunInt GTInt) else None
+  | PtTIntConst t _  => Some (PtRunInt t)
+  | PtFloatConst t _ => Some (PtRunFloat t)
+  | PtRunInt t       => Some (PtRunInt t)
+  | PtRunFloat t     => Some (PtRunFloat t)
+  | PtBool           => Some PtBool
+  | PtStr            => Some PtStr
+  | PtAgg            => None
+  | PtMap            => None
+  | PtNil            => None
+  end.
+
+Fixpoint type_expr (G : Scope) (e : GExpr) : option (PTy * Scope) :=
+  match e with
+  | EId i =>
+      let s := proj1_sig i in
+      match scope_get G s with
+      | Some (c, _) => Some (c, scope_mark G s)   (* a LOCAL: resolve + MARK USED *)
+      | None =>
+          match special_ident s with
+          | Some SnNil => Some (PtNil, G)
+          | Some (SnType _) | Some SnLen | Some SnCap
+          | Some SnPrintln | Some SnPrint | Some SnPanic => None
+          | None => None
+          end
+      end
+  | EInt z => Some (PtIntConst z, G)
+  | EHex zc => Some (PtIntConst (proj1_sig zc), G)
+  | EStr _ => Some (PtStr, G)
+  | EBn o l r =>
+      match type_expr G l with
+      | Some (cl, G1) =>
+          match type_expr G1 r with
+          | Some (cr, G2) =>
+              match (match o with
+                     | BAdd => match cl, cr with
+                               | PtStr, PtStr => Some PtStr
+                               | _, _ => num_binop o cl cr
+                               end
+                     | BMul|BDiv|BRem|BShl|BShr|BAnd|BAndNot|BSub|BOr|BXor => num_binop o cl cr
+                     | BEq|BNe => if eq_comparable cl cr then Some PtBool else None
+                     | BLt|BLe|BGt|BGe => if ord_comparable cl cr then Some PtBool else None
+                     | BLAnd|BLOr => if andb (is_bool_cat cl) (is_bool_cat cr) then Some PtBool else None
+                     end) with
+              | Some c => Some (c, G2)
+              | None => None
+              end
+          | None => None
+          end
+      | None => None
+      end
+  | EUn o e0 =>
+      match type_expr G e0 with
+      | Some (c0, G1) =>
+          match (match o with
+                 | UNeg => match c0 with
+                           | PtIntConst z => Some (PtIntConst (Z.opp z))
+                           | PtTIntConst t z =>
+                               let r := Z.opp z in if int_const_repr r t then Some (PtTIntConst t r) else None
+                           | PtFloatConst t d =>
+                               let d' := dy_make (Z.opp (dy_m d)) (dy_e d) in
+                               if float_dyadic_repr t (dy_m d') (dy_e d') then Some (PtFloatConst t d') else None
+                           | PtRunInt t => Some (PtRunInt t) | PtRunFloat t => Some (PtRunFloat t)
+                           | _ => None end
+                 | UXor => match c0 with
+                           | PtIntConst z => Some (PtIntConst (Z.lnot z))
+                           | PtTIntConst t z =>
+                               match complement_const t z with
+                               | Some r => if int_const_repr r t then Some (PtTIntConst t r) else None
+                               | None => None
+                               end
+                           | PtRunInt t => Some (PtRunInt t)
+                           | _ => None end
+                 | UNot => match c0 with PtBool => Some PtBool | _ => None end
+                 | UDeref | UAddr => None
+                 end) with
+          | Some c => Some (c, G1)
+          | None => None
+          end
+      | None => None
+      end
+  | ECall (EId i) (a :: nil) =>
+      match type_expr G a with
+      | Some (ca, G1) =>
+          match (match special_ident (proj1_sig i) with
+                 | Some SnLen =>
+                     match a, ca with
+                     | EStr str, _ => Some (PtIntConst (Z.of_nat (String.length str)))
+                     | _, (PtAgg | PtMap) => Some (PtRunInt GTInt)
+                     | _, _ => None
+                     end
+                 | Some SnCap =>
+                     match ca with PtAgg => Some (PtRunInt GTInt) | _ => None end
+                 | Some (SnType t) => conv_to_scalar ca t
+                 | Some SnNil | Some SnPrintln | Some SnPrint | Some SnPanic => None
+                 | None => None
+                 end) with
+          | Some c => Some (c, G1)
+          | None => None
+          end
+      | None => None
+      end
+  | ECall _ _ => None
+  | EConv c e0 =>
+      match c with
+      | CTMap _ _ => None
+      | CTSlice _ | CTChan _ =>
+          if goty_supported (convty_ty c)
+          then match type_expr G e0 with
+               | Some (c0, G1) =>
+                   match (match c0 with PtNil => Some PtAgg | _ => None end) with
+                   | Some cc => Some (cc, G1)
+                   | None => None
+                   end
+               | None => None
+               end
+          else None
+      end
+  | EIndex (ESliceLit t es) idx =>
+      if is_int_goty t
+      then match (fix go_els (G0 : Scope) (l : list GExpr) {struct l} : option Scope :=
+                    match l with
+                    | nil => Some G0
+                    | el :: l' =>
+                        match type_expr G0 el with
+                        | Some (ce, G1) => if assignable_to_ty ce t then go_els G1 l' else None
+                        | None => None
+                        end
+                    end) G es with
+           | Some Ges =>
+               match type_expr Ges idx with
+               | Some (ci, Gi) =>
+                   match (if is_int_cat ci then
+                            match int_const_val ci with
+                            | Some k => if (0 <=? k)%Z && int_const_repr k GTInt then Some (PtRunInt t) else None
+                            | None   => Some (PtRunInt t)
+                            end
+                          else None) with
+                   | Some c => Some (c, Gi)
+                   | None => None
+                   end
+               | None => None
+               end
+           | None => None
+           end
+      else None
+  | ESliceLit t es =>
+      if goty_supported t
+      then match (fix go_els (G0 : Scope) (l : list GExpr) {struct l} : option Scope :=
+                    match l with
+                    | nil => Some G0
+                    | el :: l' =>
+                        match type_expr G0 el with
+                        | Some (ce, G1) => if assignable_to_ty ce t then go_els G1 l' else None
+                        | None => None
+                        end
+                    end) G es with
+           | Some Ges => Some (PtAgg, Ges)
+           | None => None
+           end
+      else None
+  | EMapLit kt vt kvs =>
+      if andb (is_int_goty kt) (goty_supported vt)
+      then match (fix go_kvs (G0 : Scope) (acc : list Z) (l : list (GExpr * GExpr)) {struct l}
+                    : option (list Z * Scope) :=
+                    match l with
+                    | nil => Some (rev acc, G0)
+                    | (k, v) :: l' =>
+                        match type_expr G0 k with
+                        | Some (ck, G1) =>
+                            match type_expr G1 v with
+                            | Some (cv, G2) =>
+                                match int_const_val ck with
+                                | Some z =>
+                                    if andb (assignable_to_ty ck kt) (assignable_to_ty cv vt)
+                                    then go_kvs G2 (z :: acc) l' else None
+                                | None => None
+                                end
+                            | None => None
+                            end
+                        | None => None
+                        end
+                    end) G nil kvs with
+           | Some (zs, Gk) => if nodup_z zs then Some (PtMap, Gk) else None
+           | None => None
+           end
+      else None
+  | ESel _ _ | EIndex _ _ | ESlice _ _ _ | EAssert _ _ => None
+  end.
+
 (** STRUCTURALLY-supported VALUE expression — [ptype] accepts it (well-typed by REFINED category).  So a closed
     type-error is REJECTED — not just the shape errors ([len(1)] / [1 && 2] / [int([]int{1})] / a map literal
     with a non-comparable key [map[[]int]int{..}], a non-representable element [map[int]uint8{1:300}], or

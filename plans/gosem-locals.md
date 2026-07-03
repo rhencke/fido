@@ -63,15 +63,16 @@ compile-time rejections.  The correct shape:
   `gosem_sound` re-proves — quantified over DENOTED runs (where `ρ` exists at all), never claiming
   a value for a checker-admitted binding the evaluator left absent.
 
-RUNG-3 OBLIGATION (unlanded — no `type_expr` exists yet): the expression checker BECOMES
+RUNG 3 (LANDED): the expression checker's scope-aware twin is
 state-threading — `type_expr : Γ -> GExpr -> option (PTy * Γ)` — resolving identifiers AND marking
 their used flags in the SAME traversal (a read-only `ptype_env Γ e : option PTy` cannot mark uses;
 it would force the second pass rule 4 forbids).  `ptype`'s `EId` case is ALREADY the scope hook
 (landed: the `special_ident` match, `nil`-or-reject); closed `ptype` is then to be recovered as
-the empty-env PROJECTION (`ptype e = option_map fst (type_expr Γ₀ e)` — at `Γ₀` no identifier
-resolves and no flag can flip, so the equation is exact), with the bridge equation TO BE PROVEN
-so every existing `ptype` theorem survives.  ONE authority; no parallel checker.  The same shape
-lands for the evaluator's ident resolution in `GoSemDenote` (rung 5).
+the empty-env PROJECTION — the PROVEN bridge `GoSafe.type_expr_nil_ptype`
+(`option_map fst (type_expr nil e) = ptype e`): at the empty scope no identifier resolves and no
+flag can flip, so the traversals agree exactly, and any drift between the two spellings fails the
+build at this theorem.  Every existing `ptype` theorem survives untouched.  The same shape lands
+for the evaluator's ident resolution in `GoSemDenote` (rung 5).
 
 ## Go-faithfulness rules (each lands with a fixture; narrowings NAMED as narrowings)
 
@@ -125,11 +126,12 @@ lands for the evaluator's ident resolution in `GoSemDenote` (rung 5).
    recognizers and GoSafe's `stmt_call_ok` AND `expr_stmt_ok` rewire onto WILDCARD-FREE matches over it.  Every
    existing theorem re-checked; the checker's observable behavior (and the golden) is UNCHANGED —
    this rung only makes the name set single-sourced so the later gate cannot drift.
-3. **GoTypes**: the state-threading `type_expr : Γ -> GExpr -> option (PTy * Γ)` (resolve + mark
-   in one traversal) + the closed-`ptype` projection equation (existing theorems survive through
-   it) + the `bind_category` authority (beside the categories it consumes — the `int_const_repr`
-   defaulting premise, runtime categories binding as themselves, and the WRITTEN `None` arms:
-   `PtNil`, `PtAgg`, `PtMap`).
+3. **GoTypes — LANDED**: the state-threading `type_expr : Scope -> GExpr -> option (PTy * Scope)`
+   (resolve + mark in one traversal; ptype untouched — the two spellings are tied by the PROVEN
+   bridge `GoSafe.type_expr_nil_ptype`, the anti-drift gate, placed in GoSafe because GoTypes is
+   Definitions-only by charter) + `Scope`/`scope_get`/`scope_mark` + the `bind_category` authority
+   (the `int_const_repr` defaulting premise, runtime categories binding as themselves, and the
+   WRITTEN `None` arms: `PtNil`, `PtAgg`, `PtMap`).
 4. **GoSafe**: scope-threaded supportedness — `supported_program`'s `forallb` becomes ONE fold over
    `Γ : Ident ⇀ (PTy × bool)` (bind via `bind_category`, declare-gate via `decl_ident_ok` from the
    `special_ident` table, uses marked BY `type_expr` itself, final no-unused rejection in the same

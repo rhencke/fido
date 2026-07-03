@@ -24,6 +24,260 @@ Import ListNotations.
 Open Scope string_scope.
 
 (** ===================================================================================================
+    ===== The [type_expr]↔[ptype] BRIDGE (locals rung 3) =====
+    ===================================================================================================
+    [GoTypes.type_expr] spells [ptype]'s category logic a second time (scope-threaded); THIS theorem
+    is the anti-drift gate between the two spellings: at the EMPTY scope the traversals agree
+    exactly and no marks occur, so any divergence in either spelling fails the build here.  (It
+    lives in GoSafe because GoTypes is Definitions-only by charter.)  Proof: raw structural [fix]
+    over the expression — the nested [EIndex (ESliceLit ..)] pattern needs per-element facts a
+    generic induction principle does not provide. *)
+(** the one option-pair shape every non-fold case reduces to: both traversals compute the SAME
+    dispatch term [d]; the scope result is the unchanged [g]. *)
+Lemma opt_pair_agree : forall (A B : Type) (d : option A) (g : B),
+  match (match d with Some c => Some (c, g) | None => None end) with
+  | Some cg => d = Some (fst cg) /\ snd cg = g
+  | None => d = None
+  end.
+Proof. intros A B [c|] g; cbn; auto. Qed.
+
+Lemma type_expr_nil_agrees : forall e,
+  match type_expr nil e with
+  | Some cg => ptype e = Some (fst cg) /\ snd cg = nil
+  | None => ptype e = None
+  end.
+Proof.
+  fix IH 1. intro e.
+  destruct e as [i|z|o e0|o l r|e0 f|e0 idx|e0 lo hi|e0 args|e0 T|c e0|t es|kt vt kvs|str|zc].
+  - (* EId *)
+    cbn [type_expr ptype scope_get].
+    destruct (special_ident (proj1_sig i)) as [[?| | | | | |]|]; cbn; auto.
+  - (* EInt *) cbn; auto.
+  - (* EUn *)
+    pose proof (IH e0) as H0. cbn [type_expr ptype].
+    destruct (type_expr nil e0) as [[c0 G1]|].
+    + cbn [fst snd] in H0. destruct H0 as [Hp ->]. rewrite Hp.
+      apply opt_pair_agree.
+    + rewrite H0. reflexivity.
+  - (* EBn *)
+    pose proof (IH l) as Hl. cbn [type_expr ptype].
+    destruct (type_expr nil l) as [[cl G1]|].
+    + cbn [fst snd] in Hl. destruct Hl as [Hpl ->]. rewrite Hpl.
+      pose proof (IH r) as Hr.
+      destruct (type_expr nil r) as [[cr G2]|].
+      * cbn [fst snd] in Hr. destruct Hr as [Hpr ->]. rewrite Hpr.
+        apply opt_pair_agree.
+      * rewrite Hr. reflexivity.
+    + rewrite Hl. reflexivity.
+  - (* ESel *) cbn; reflexivity.
+  - (* EIndex *)
+    destruct e0 as [ | | | | | | | | | |t es| | | ]; try (cbn; reflexivity).
+    (* e0 = ESliceLit t es *)
+    cbn [type_expr ptype].
+    destruct (is_int_goty t) eqn:Hit; cbn [andb]; [|reflexivity].
+    set (F := (fix go_els (G0 : Scope) (l : list GExpr) {struct l} : option Scope :=
+                    match l with
+                    | nil => Some G0
+                    | el :: l' =>
+                        match type_expr G0 el with
+                        | Some (ce, G1) => if assignable_to_ty ce t then go_els G1 l' else None
+                        | None => None
+                        end
+                    end)).
+    assert (Hels :
+      match F nil es with
+      | Some Ges => Ges = nil /\
+          forallb (fun el => match ptype el with Some ce => assignable_to_ty ce t | None => false end) es = true
+      | None =>
+          forallb (fun el => match ptype el with Some ce => assignable_to_ty ce t | None => false end) es = false
+      end).
+    { subst F. induction es as [|el es' IHes]; cbn.
+      - auto.
+      - pose proof (IH el) as Hel.
+        destruct (type_expr nil el) as [[ce G1]|].
+        + cbn [fst snd] in Hel. destruct Hel as [Hpe ->]. rewrite Hpe.
+          destruct (assignable_to_ty ce t); cbn.
+          * exact IHes.
+          * reflexivity.
+        + rewrite Hel. reflexivity. }
+    destruct (F nil es) as [Ges|].
+    + destruct Hels as [-> Hfb]. rewrite Hfb. cbn [andb].
+      pose proof (IH idx) as Hi.
+      destruct (type_expr nil idx) as [[ci Gi]|].
+      * cbn [fst snd] in Hi. destruct Hi as [Hpi ->]. rewrite Hpi.
+        apply opt_pair_agree.
+      * rewrite Hi. reflexivity.
+    + rewrite Hels. cbn. reflexivity.
+  - (* ESlice *) cbn; reflexivity.
+  - (* ECall *)
+    destruct e0 as [i| | | | | | | | | | | | | ]; try (destruct args as [|a0 [|b0 args']]; cbn; reflexivity).
+    destruct args as [|a [|b0 args']]; try (cbn; reflexivity).
+    (* ECall (EId i) (a :: nil) *)
+    pose proof (IH a) as Ha. cbn [type_expr ptype].
+    destruct (type_expr nil a) as [[ca G1]|].
+    + cbn [fst snd] in Ha. destruct Ha as [Hpa ->]. rewrite Hpa.
+      apply opt_pair_agree.
+    + rewrite Ha. reflexivity.
+  - (* EAssert *) cbn; reflexivity.
+  - (* EConv *)
+    destruct c as [ty|ty|mkt mvt]; cbn [type_expr ptype convty_ty].
+    + destruct (goty_supported (GTSlice ty)); [|cbn; reflexivity].
+      pose proof (IH e0) as H0.
+      destruct (type_expr nil e0) as [[c0 G1]|].
+      * cbn [fst snd] in H0. destruct H0 as [Hp ->]. rewrite Hp.
+        apply opt_pair_agree.
+      * rewrite H0. reflexivity.
+    + destruct (goty_supported (GTChan ty)); [|cbn; reflexivity].
+      pose proof (IH e0) as H0.
+      destruct (type_expr nil e0) as [[c0 G1]|].
+      * cbn [fst snd] in H0. destruct H0 as [Hp ->]. rewrite Hp.
+        apply opt_pair_agree.
+      * rewrite H0. reflexivity.
+    + reflexivity.
+  - (* ESliceLit *)
+    cbn [type_expr ptype].
+    destruct (goty_supported t) eqn:Hgs; cbn [andb]; [|reflexivity].
+    set (F := (fix go_els (G0 : Scope) (l : list GExpr) {struct l} : option Scope :=
+                    match l with
+                    | nil => Some G0
+                    | el :: l' =>
+                        match type_expr G0 el with
+                        | Some (ce, G1) => if assignable_to_ty ce t then go_els G1 l' else None
+                        | None => None
+                        end
+                    end)).
+    assert (Hels :
+      match F nil es with
+      | Some Ges => Ges = nil /\
+          forallb (fun el => match ptype el with Some ce => assignable_to_ty ce t | None => false end) es = true
+      | None =>
+          forallb (fun el => match ptype el with Some ce => assignable_to_ty ce t | None => false end) es = false
+      end).
+    { subst F. induction es as [|el es' IHes]; cbn.
+      - auto.
+      - pose proof (IH el) as Hel.
+        destruct (type_expr nil el) as [[ce G1]|].
+        + cbn [fst snd] in Hel. destruct Hel as [Hpe ->]. rewrite Hpe.
+          destruct (assignable_to_ty ce t); cbn.
+          * exact IHes.
+          * reflexivity.
+        + rewrite Hel. reflexivity. }
+    destruct (F nil es) as [Ges|].
+    + destruct Hels as [-> Hfb]. rewrite Hfb. cbn; auto.
+    + rewrite Hels. cbn. reflexivity.
+  - (* EMapLit *)
+    cbn [type_expr ptype].
+    destruct (is_int_goty kt) eqn:Hik; cbn [andb]; [|reflexivity].
+    destruct (goty_supported vt) eqn:Hgv; cbn [andb]; [|reflexivity].
+    set (F := (fix go_kvs (G0 : Scope) (acc : list Z) (l : list (GExpr * GExpr)) {struct l}
+                    : option (list Z * Scope) :=
+                    match l with
+                    | nil => Some (rev acc, G0)
+                    | (k, v) :: l' =>
+                        match type_expr G0 k with
+                        | Some (ck, G1) =>
+                            match type_expr G1 v with
+                            | Some (cv, G2) =>
+                                match int_const_val ck with
+                                | Some z =>
+                                    if andb (assignable_to_ty ck kt) (assignable_to_ty cv vt)
+                                    then go_kvs G2 (z :: acc) l' else None
+                                | None => None
+                                end
+                            | None => None
+                            end
+                        | None => None
+                        end
+                    end)).
+    assert (Hfold : forall acc,
+      match F nil acc kvs with
+      | Some zsG => snd zsG = nil
+          /\ fst zsG = (rev acc ++ map_key_vals_with ptype kvs)%list
+          /\ forallb (fun kv => match kv with
+                                | (k, v) =>
+                                    match ptype k, ptype v with
+                                    | Some ck, Some cv =>
+                                        match int_const_val ck with
+                                        | Some _ => andb (assignable_to_ty ck kt) (assignable_to_ty cv vt)
+                                        | None => false
+                                        end
+                                    | _, _ => false
+                                    end
+                                end) kvs = true
+      | None =>
+          forallb (fun kv => match kv with
+                             | (k, v) =>
+                                 match ptype k, ptype v with
+                                 | Some ck, Some cv =>
+                                     match int_const_val ck with
+                                     | Some _ => andb (assignable_to_ty ck kt) (assignable_to_ty cv vt)
+                                     | None => false
+                                     end
+                                 | _, _ => false
+                                 end
+                             end) kvs = false
+      end).
+    { subst F. induction kvs as [|[k v] kvs' IHkvs]; intro acc; cbn.
+      - rewrite app_nil_r. auto.
+      - pose proof (IH k) as Hk.
+        destruct (type_expr nil k) as [[ck G1]|].
+        + cbn [fst snd] in Hk. destruct Hk as [Hpk ->]. rewrite Hpk.
+          pose proof (IH v) as Hv.
+          destruct (type_expr nil v) as [[cv G2]|].
+          * cbn [fst snd] in Hv. destruct Hv as [Hpv ->]. rewrite Hpv.
+            destruct (int_const_val ck) as [z|]; cbn.
+            -- destruct (andb (assignable_to_ty ck kt) (assignable_to_ty cv vt)); cbn.
+               ++ specialize (IHkvs (z :: acc)%list).
+                  destruct ((fix go_kvs (G0 : Scope) (acc0 : list Z) (l0 : list (GExpr * GExpr)) {struct l0}
+                    : option (list Z * Scope) :=
+                    match l0 with
+                    | nil => Some (rev acc0, G0)
+                    | (k0, v0) :: l' =>
+                        match type_expr G0 k0 with
+                        | Some (ck0, G3) =>
+                            match type_expr G3 v0 with
+                            | Some (cv0, G4) =>
+                                match int_const_val ck0 with
+                                | Some z0 =>
+                                    if andb (assignable_to_ty ck0 kt) (assignable_to_ty cv0 vt)
+                                    then go_kvs G4 (z0 :: acc0) l' else None
+                                | None => None
+                                end
+                            | None => None
+                            end
+                        | None => None
+                        end
+                    end) nil (z :: acc)%list kvs') as [[zs Gk]|].
+                  ** cbn [fst snd] in IHkvs. destruct IHkvs as [-> [Hzs Hfb]].
+                     cbn [fst snd]. split; [reflexivity|]. split; [|exact Hfb].
+                     rewrite Hzs. cbn [rev]. rewrite <- app_assoc. reflexivity.
+                  ** exact IHkvs.
+               ++ reflexivity.
+            -- reflexivity.
+          * rewrite Hv. reflexivity.
+        + rewrite Hk. reflexivity. }
+    specialize (Hfold nil).
+    destruct (F nil nil kvs) as [[zs Gk]|].
+    + cbn [fst snd] in Hfold. destruct Hfold as [-> [Hzs Hfb]].
+      rewrite Hfb. cbn [andb]. cbn [rev app] in Hzs. subst zs.
+      destruct (nodup_z (map_key_vals_with ptype kvs)); cbn; auto.
+    + rewrite Hfold. cbn. reflexivity.
+  - (* EStr *) cbn; auto.
+  - (* EHex *) cbn; auto.
+Qed.
+
+(** The rung-3 ENDPOINT: closed [ptype] IS the empty-scope projection of [type_expr]. *)
+Theorem type_expr_nil_ptype : forall e,
+  option_map fst (type_expr nil e) = ptype e.
+Proof.
+  intro e. pose proof (type_expr_nil_agrees e) as H.
+  destruct (type_expr nil e) as [[c G']|]; cbn.
+  - cbn [fst snd] in H. destruct H as [-> _]. reflexivity.
+  - rewrite H. reflexivity.
+Qed.
+Print Assumptions type_expr_nil_ptype.
+
+(** ===================================================================================================
     ===== STRUCTURAL: statement-shape / supported-syntax (the [stmt_ok] / [supported_program] gate) =====
     =================================================================================================== *)
 

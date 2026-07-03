@@ -87,8 +87,8 @@ field selectors, runtime numeric conversions, fixed-width bridging binops — th
 - Resume the cmd↔unified bridge (`plans/bridge-effects.md`, PAUSED at the heap milestone):
   `CAlloc` (design v2 in the plan), then channels (gated on a structural typed zero), then spawn.
 - Grow behavioral safety toward `BehaviorSafe` → `SafeProgram` → `emit_safe` — locals arc OPEN,
-  rungs 1–2 landed (`plans/gosem-locals.md`; next: rung 3, the state-threading `type_expr` +
-  `bind_category`); wire the certified path to the main output; widen the live GoPrint bridge —
+  rungs 1–3 landed (`plans/gosem-locals.md`; next: rung 4, the GoSafe scope fold +
+  `decl_ident_ok`); wire the certified path to the main output; widen the live GoPrint bridge —
   gate-honestly.
 
 ## Known trust base (TCB)
