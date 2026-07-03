@@ -104,14 +104,16 @@ echo "fido: selector-bridge gate OK — the ESel arm keeps its not-embedded + ML
 # Discipline: an Example is PUBLIC and bundled into a surface, or it does not exist.  (Consumed
 # [Local Lemma]s are fine — they live in their consumers' cones; deadness of a Lemma needs
 # reference analysis a shell gate cannot do, so the gate pins the one always-dead-by-convention
-# form.)  The detector is TOKEN-AWARE (plugin/local-example-lint.awk — a tiny Rocq lexer: nested
-# comments, multi-line strings, #[...] attributes), covering `Local Example` and `#[local] Example`
-# across newlines/comments; its exact boundary is documented in the awk.  Scope: EVERY .v in the
-# tree (emitdemo/ and negtests/ are compiled too); only _build/.git excluded.
+# form.)  The detector (plugin/local-example-lint.awk) models the RELEVANT Rocq lexical rules —
+# nested comments, doubled-quote string escapes (backslash literal), attribute blocks with
+# embedded strings/comments, and locality ACCUMULATED across adjacent attributes/vernaculars —
+# with the exact detection boundary documented at the detector.  Scope: EVERY .v in the tree
+# (emitdemo/ and negtests/ are compiled too); only _build/.git excluded.
 lx_detect() { find "$1" -name '*.v' -not -path '*/_build/*' -not -path '*/.git/*' -print0 2>/dev/null \
               | xargs -0 -r awk -f plugin/local-example-lint.awk 2>/dev/null || true; }
-# self-test corpus: every spelling the gate claims to reject (7 positives, root + subdir) and a
-# negatives file (public Example / Local Lemma / comment / string / #[global]) that must stay clean.
+# self-test corpus: every spelling the gate claims to reject (12 positives, root + subdir) and a
+# negatives file (public Example / Local Lemma / comment / string / #[global] / word-local inside
+# an attribute STRING / doubled-quote string) that must stay clean.
 lx_t=$(mktemp -d); mkdir -p "$lx_t/sub"
 cat > "$lx_t/pos1.v" <<'LXEOF'
   Local Example st_a : True.
@@ -119,12 +121,18 @@ Local  Example st_b : True.
 Local
 Example st_c : True.
 Local (* between *) Example st_d : True.
+Definition st_t := "x\".
+Local Example st_j : True.
 LXEOF
 cat > "$lx_t/sub/pos2.v" <<'LXEOF'
 #[local] Example st_e : True.
 #[local]
 Example st_f : True.
 #[local] (* between *) Example st_g : True.
+#[local] #[deprecated(note="x")] Example st_h : True.
+#[deprecated(note="x")] #[local] Example st_i : True.
+#[deprecated(note="]"), local] Example st_k : True.
+#[deprecated(note="]")] #[local] Example st_l : True.
 LXEOF
 cat > "$lx_t/neg.v" <<'LXEOF'
 Example st_ok : True.
@@ -132,10 +140,12 @@ Local Lemma st_ok2 : True.
 (* Local Example commented_out : True. *)
 Definition st_s := "Local Example in a string".
 #[global] Example st_ok3 : True.
+#[deprecated(note="local")] Example st_ok4 : True.
+Definition st_u := "a""b". Example st_ok5 : True.
 LXEOF
 hits=$(lx_detect "$lx_t" | grep -c .) || true
 neg=$(awk -f plugin/local-example-lint.awk "$lx_t/neg.v" | grep -c .) || true
-[ "$hits" = "7" ] && [ "$neg" = "0" ] || { echo "fido: LOCAL-EXAMPLE GATE self-test broke (expected 7 positives / 0 negatives, got $hits/$neg)"; rm -rf "$lx_t"; exit 1; }
+[ "$hits" = "12" ] && [ "$neg" = "0" ] || { echo "fido: LOCAL-EXAMPLE GATE self-test broke (expected 12 positives / 0 negatives, got $hits/$neg)"; rm -rf "$lx_t"; exit 1; }
 rm -rf "$lx_t"
 localex=$(lx_detect .)
 if [ -n "$localex" ]; then
@@ -143,4 +153,4 @@ if [ -n "$localex" ]; then
   printf '%s\n' "$localex"
   exit 1
 fi
-echo "fido: local-example gate OK — token-aware sweep of every .v (Local/#[local] Example across newlines+comments) found none ✓"
+echo "fido: local-example gate OK — Rocq-lexical sweep of every .v (Local/#[local] decoration chains, strings/comments excluded) found none ✓"
