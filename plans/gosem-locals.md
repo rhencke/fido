@@ -17,12 +17,14 @@ while `_ = 1 / 0` is a COMPILE error.  A substitution pass (replace `x` by its l
 is therefore semantically WRONG: it re-constantizes the use sites and flips runtime panics into
 compile-time rejections.  The correct shape:
 
-- checker scope state `Γ : Ident ⇀ (PTy × bool)` — category AND a USED flag, ONE state through ONE
+- checker scope state: the SEALED `ScopeS` (names valid/unrecognized/distinct by sig; entry
+  categories `BoundCat` = `bind_category`'s image by sig; insertion only via `scope_declare`) —
+  category AND a USED flag, ONE state through ONE
   fold (rule 4's "declared and not used" is decided INSIDE the same fold that decides everything
   else — never a post-hoc validator bolted on after supportedness).  `x := e` binds `x` through the
   single named authority
 
-  `bind_category : PTy -> option PTy`
+  `bind_category : PTy -> option BoundCat` (the sealed image)
   - `PtIntConst z ↦ if int_const_repr z GTInt then Some (PtRunInt GTInt) else None` — a short decl
     is a DEFAULTING value context, so it PRESERVES the existing default-`int` representability
     boundary (`svalue` / `printable_arg_ok`: the conservative 32-bit
