@@ -894,7 +894,8 @@ fires with zero; `default` only on empty+OPEN.  Witnessed
   (`rselect_per_case_continuation`).  `rstep_select` fires any ready case (nondeterministic); an
   empty select is a LOCAL non-step feeding global deadlock (`rsel_block_stuck` : `RStuck`).  The
   deadlock theory is select-aware (`blocked` includes select-with-no-ready-case via the decidable
-  `sel_first_ready`) and the multi-goroutine refinement carries the case (`wmatchc_step`).
+  CLOSED-AWARE `sel_ready_cl` — the single readiness authority for deadlock) and the
+  multi-goroutine refinement carries the case (`wmatchc_step`).
 - **The typed `select_recv2` is a SOUND, INCOMPLETE scheduler — and EXACT precisely on unique
   readiness:** `det_select_sound` (its ch1-priority choice is always a permitted `rstep_select`),
   `det_select_incomplete` (two ready cases ⇒ it realises only ch1 while `rstep_select` also permits
