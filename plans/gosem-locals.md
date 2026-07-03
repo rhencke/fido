@@ -120,8 +120,7 @@ in `GoSemDenote`.
    Every GoStmt match repo-wide gains the arm WILDCARD-FREE: `stmt_ok` arm `false`, `denote_stmt`
    arm `None` (representation before admission — fail-closed).  Zero golden risk: nothing
    constructs it yet.
-2. **`SpecialName` single-source refactor (behavior-identical — its own green commit BEFORE any
-   semantics change)**: GoAst grows the `SpecialName` inductive + the `special_ident` table
+2. **`SpecialName` single-source refactor — LANDED (behavior-identical)**: GoAst grows the `SpecialName` inductive + the `special_ident` table
    (rule 5); `classify` becomes the `SnType` projection; GoTypes' `nil`/`len`/`cap`/conversion-head
    recognizers and GoSafe's `stmt_call_ok` rewire onto WILDCARD-FREE matches over it.  Every
    existing theorem re-checked; the checker's observable behavior (and the golden) is UNCHANGED —

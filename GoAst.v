@@ -98,29 +98,50 @@ Inductive GoTy : Type :=
   | GTMap     : GoTy -> GoTy -> GoTy
   | GTNamed   : TyName -> GoTy.
 
-(** [classify] maps a builtin SCALAR type keyword to its [GoTy] (or [None] for a non-keyword / nominal name).
-    It lives HERE (in the SYNTAX layer, just below [GoTy]) — not in the printer — because it is a pure
-    keyword→[GoTy] map, independent of any printing/parsing: the SAFETY layer (GoSafe) consults it to type a
-    scalar conversion [T(a)], and the printer/parser (GoPrint) reuses it for token classification, so neither
-    layer should own it (and GoSafe must not depend on the printer to reach it).  It reuses the
-    [GoTy]-independent keyword SET ([is_type_keyword] above): if [s] is none of those keyword strings,
-    [classify s = None] (the bridge lemma [kw_false_classify] lives with the parser in GoPrint). *)
-Definition classify (s : string) : option GoTy :=
-       if String.eqb s "int64"   then Some GTInt64
-  else if String.eqb s "int32"   then Some GTI32
-  else if String.eqb s "int16"   then Some GTI16
-  else if String.eqb s "int8"    then Some GTI8
-  else if String.eqb s "int"     then Some GTInt
-  else if String.eqb s "uint64"  then Some GTU64
-  else if String.eqb s "uint32"  then Some GTU32
-  else if String.eqb s "uint16"  then Some GTU16
-  else if String.eqb s "uint8"   then Some GTU8
-  else if String.eqb s "uint"    then Some GTUint
-  else if String.eqb s "bool"    then Some GTBool
-  else if String.eqb s "string"  then Some GTString
-  else if String.eqb s "float64" then Some GTFloat64
-  else if String.eqb s "float32" then Some GTFloat32
+(** THE RECOGNIZED-NAME AUTHORITY.  [SpecialName] classifies every identifier the checker layers
+    recognize BY STRING anywhere — scalar type keywords (conversion heads), the predeclared [nil],
+    the value builtins [len]/[cap], and the statement-position callee builtins
+    [println]/[print]/[panic] — and [special_ident] is the ONE table mapping strings to them.
+    It lives HERE (the SYNTAX layer, just below [GoTy]): the SAFETY layer (GoSafe) and the
+    type-category layer (GoTypes) both consume it by exhaustive match, so a NEW recognized name
+    extends this table and every consumer is forced mechanically — no parallel string list can
+    drift.  ([classify], the scalar-keyword→[GoTy] map the printer/parser also reuse for token
+    classification, is the [SnType] PROJECTION of this table; the keyword SET [is_type_keyword]
+    stays the [GoTy]-independent side, with the bridge lemma [kw_false_classify] in GoPrint.) *)
+Inductive SpecialName : Type :=
+  | SnType    : GoTy -> SpecialName  (* a scalar type keyword — a conversion head [T(a)] *)
+  | SnNil                            (* the predeclared value identifier [nil] *)
+  | SnLen | SnCap                    (* the value builtins [len]/[cap] *)
+  | SnPrintln | SnPrint | SnPanic.   (* the statement-position callee builtins *)
+Definition special_ident (s : string) : option SpecialName :=
+       if String.eqb s "int64"   then Some (SnType GTInt64)
+  else if String.eqb s "int32"   then Some (SnType GTI32)
+  else if String.eqb s "int16"   then Some (SnType GTI16)
+  else if String.eqb s "int8"    then Some (SnType GTI8)
+  else if String.eqb s "int"     then Some (SnType GTInt)
+  else if String.eqb s "uint64"  then Some (SnType GTU64)
+  else if String.eqb s "uint32"  then Some (SnType GTU32)
+  else if String.eqb s "uint16"  then Some (SnType GTU16)
+  else if String.eqb s "uint8"   then Some (SnType GTU8)
+  else if String.eqb s "uint"    then Some (SnType GTUint)
+  else if String.eqb s "bool"    then Some (SnType GTBool)
+  else if String.eqb s "string"  then Some (SnType GTString)
+  else if String.eqb s "float64" then Some (SnType GTFloat64)
+  else if String.eqb s "float32" then Some (SnType GTFloat32)
+  else if String.eqb s "nil"     then Some SnNil
+  else if String.eqb s "len"     then Some SnLen
+  else if String.eqb s "cap"     then Some SnCap
+  else if String.eqb s "println" then Some SnPrintln
+  else if String.eqb s "print"   then Some SnPrint
+  else if String.eqb s "panic"   then Some SnPanic
   else None.
+Definition classify (s : string) : option GoTy :=
+  match special_ident s with
+  | Some (SnType t) => Some t
+  | Some SnNil | Some SnLen | Some SnCap
+  | Some SnPrintln | Some SnPrint | Some SnPanic => None
+  | None => None
+  end.
 
 Inductive BinOp : Type :=
   (* Go precedence 5: *  /  %  <<  >>  &  &^ *)

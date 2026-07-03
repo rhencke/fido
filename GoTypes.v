@@ -541,7 +541,17 @@ Definition complement_const (t : GoTy) (z : Z) : option Z :=
     TOP INVARIANT above. *)
 Fixpoint ptype (e : GExpr) : option PTy :=
   match e with
-  | EId i => if String.eqb (proj1_sig i) "nil" then Some PtNil else None   (* SCOPE: only the predeclared [nil]; every other ident is undefined -> rejected *)
+  | EId i =>
+      (* SCOPE, via the ONE recognized-name table: only the predeclared [nil] is a VALUE here; a
+         recognized type keyword / builtin name is not a value in this position, and every other
+         identifier is undefined — all rejected (exhaustive arms so a new [SpecialName] forces
+         this consumer). *)
+      match special_ident (proj1_sig i) with
+      | Some SnNil => Some PtNil
+      | Some (SnType _) | Some SnLen | Some SnCap
+      | Some SnPrintln | Some SnPrint | Some SnPanic => None
+      | None => None
+      end
   | EInt z => Some (PtIntConst z)
   | EHex zc => Some (PtIntConst (proj1_sig zc))   (* a hex literal IS an integer constant (non-negative; same category as [EInt]) *)
   | EStr _ => Some PtStr   (* a string literal is the printable SCALAR string category *)
@@ -588,21 +598,24 @@ Fixpoint ptype (e : GExpr) : option PTy :=
       | None => None
       end
   | ECall (EId i) (a :: nil) =>
-      let fn := proj1_sig i in
       match ptype a with
       | None => None
       | Some ca =>
-          if String.eqb fn "len"
-          then match a, ca with
-               | EStr s, _ => Some (PtIntConst (Z.of_nat (String.length s)))   (* [len] of a STRING LITERAL ([EStr]) is itself a CONSTANT (its byte count) — Go folds it; modelling it as a runtime int would wrongly certify e.g. [int8(len("..")+200)] (a const-202->int8 overflow Go REJECTS).  A NON-literal string const ([string(65)], ["a"+"b"]) has no [EStr] to measure, so it hits the [_, _ => None] reject below (fail-loud). *)
-               | _, (PtAgg | PtMap) => Some (PtRunInt GTInt)                   (* [len] of a slice/chan/map aggregate: a runtime int (aggregates are not constants).  [len] IS valid on a map (unlike [cap]) *)
-               | _, _ => None end                                             (* a non-literal string ([string(x)]…): cannot soundly fold its length here — reject (fail-loud) *)
-          else if String.eqb fn "cap"
-          then match ca with PtAgg => Some (PtRunInt GTInt) | _ => None end          (* cap: slice/chan aggregate ONLY — NOT string, and NOT a map ([PtMap] -> None: Go forbids [cap] of a map) *)
-          else match classify fn with
-               | Some t => conv_to_scalar ca t                                              (* a scalar conversion T(a) *)
-               | None => None                                                               (* unknown function: REJECT *)
-               end
+          (* the call HEAD, via the ONE recognized-name table (exhaustive arms so a new
+             [SpecialName] forces this consumer): *)
+          match special_ident (proj1_sig i) with
+          | Some SnLen =>
+              match a, ca with
+              | EStr s, _ => Some (PtIntConst (Z.of_nat (String.length s)))   (* [len] of a STRING LITERAL ([EStr]) is itself a CONSTANT (its byte count) — Go folds it; modelling it as a runtime int would wrongly certify e.g. [int8(len("..")+200)] (a const-202->int8 overflow Go REJECTS).  A NON-literal string const ([string(65)], ["a"+"b"]) has no [EStr] to measure, so it hits the [_, _ => None] reject below (fail-loud). *)
+              | _, (PtAgg | PtMap) => Some (PtRunInt GTInt)                   (* [len] of a slice/chan/map aggregate: a runtime int (aggregates are not constants).  [len] IS valid on a map (unlike [cap]) *)
+              | _, _ => None                                                  (* a non-literal string ([string(x)]…): cannot soundly fold its length here — reject (fail-loud) *)
+              end
+          | Some SnCap =>
+              match ca with PtAgg => Some (PtRunInt GTInt) | _ => None end    (* cap: slice/chan aggregate ONLY — NOT string, and NOT a map ([PtMap] -> None: Go forbids [cap] of a map) *)
+          | Some (SnType t) => conv_to_scalar ca t                            (* a scalar conversion T(a) *)
+          | Some SnNil | Some SnPrintln | Some SnPrint | Some SnPanic => None (* not VALUE-position call heads ([println]/[print]/[panic] are statement-position callees — GoSafe's concern; [nil] is not callable) *)
+          | None => None                                                      (* unknown function: REJECT *)
+          end
       end
   | ECall _ _ => None
   | EConv c e0 =>

@@ -36,10 +36,12 @@ Open Scope string_scope.
     not used" as a statement).  ([close]/[delete] add a channel/map arg-type constraint — deferred to GoSem.)
     Widens with user funcs / a symbol table. *)
 Definition stmt_call_ok (f : string) (args : list GExpr) : bool :=
-  if String.eqb f "println" then true                                  (* variadic in arg COUNT *)
-  else if String.eqb f "print" then true                               (* variadic in arg COUNT *)
-  else if String.eqb f "panic" then (match args with _ :: nil => true | _ => false end)  (* exactly 1 *)
-  else false.
+  match special_ident f with                                           (* the ONE recognized-name table (GoAst) *)
+  | Some SnPrintln | Some SnPrint => true                              (* variadic in arg COUNT *)
+  | Some SnPanic => match args with _ :: nil => true | _ => false end  (* exactly 1 *)
+  | Some (SnType _) | Some SnNil | Some SnLen | Some SnCap => false    (* recognized, but not statement-position callees *)
+  | None => false
+  end.
 
 (** A [print]/[println] argument GUARANTEED-printable by the Go spec.  ★Go-spec NOTE (Bootstrapping): [print]/
     [println] are bootstrapping builtins whose implementations need NOT accept arbitrary argument types — only
@@ -76,7 +78,12 @@ Definition expr_stmt_ok (e : GExpr) : bool :=
   | ECall (EId f) args =>
       let fn := proj1_sig f in
       stmt_call_ok fn args &&
-      (if String.eqb fn "panic" then forallb svalue args else forallb printable_arg_ok args)
+      (match special_ident fn with
+       | Some SnPanic => forallb svalue args                (* [panic] takes an [interface{}]: any svalue *)
+       | Some SnPrintln | Some SnPrint => forallb printable_arg_ok args   (* the printable SCALAR subset *)
+       | Some (SnType _) | Some SnNil | Some SnLen | Some SnCap
+       | None => forallb printable_arg_ok args              (* dead under [stmt_call_ok]'s false — kept for exact equivalence *)
+       end)
   | _                  => false
   end.
 

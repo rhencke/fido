@@ -1937,13 +1937,16 @@ Lemma ptype_call_runint_conv : forall f a t,
 Proof.
   intros f a t H Ht. cbn [ptype] in H.
   destruct (ptype a) as [ca|]; [|discriminate].
-  destruct (String.eqb (proj1_sig f) "len").
+  destruct (special_ident (proj1_sig f)) as [sn|]; [|discriminate].
+  destruct sn as [t'| | | | | |].
+  - exact (proj2 (conv_to_scalar_runint ca t' t H)).
+  - discriminate H.
   - destruct a; destruct ca; try discriminate H;
       inversion H; subst; discriminate Ht.
-  - destruct (String.eqb (proj1_sig f) "cap").
-    + destruct ca; try discriminate H. inversion H; subst. discriminate Ht.
-    + destruct (classify (proj1_sig f)) as [t'|]; [|discriminate].
-      exact (proj2 (conv_to_scalar_runint ca t' t H)).
+  - destruct ca; try discriminate H. inversion H; subst. discriminate Ht.
+  - discriminate H.
+  - discriminate H.
+  - discriminate H.
 Qed.
 Lemma wrap_runint_total : forall t z,
   is_int_goty t = true -> numty_eqb t GTInt = false ->
@@ -1980,14 +1983,17 @@ Lemma ptype_call_runint_conv_arg : forall f a t,
 Proof.
   intros f a t H Ht. cbn [ptype] in H.
   destruct (ptype a) as [ca|] eqn:Hpa; [|discriminate].
-  destruct (String.eqb (proj1_sig f) "len").
+  destruct (special_ident (proj1_sig f)) as [sn|]; [|discriminate].
+  destruct sn as [t'| | | | | |].
+  - destruct (conv_to_scalar_runint_src ca t' t H) as [[s ->]|[s ->]];
+      [left|right]; exists s; reflexivity.
+  - discriminate H.
   - destruct a; destruct ca; try discriminate H;
       inversion H; subst; discriminate Ht.
-  - destruct (String.eqb (proj1_sig f) "cap").
-    + destruct ca; try discriminate H. inversion H; subst. discriminate Ht.
-    + destruct (classify (proj1_sig f)) as [t'|]; [|discriminate].
-      destruct (conv_to_scalar_runint_src ca t' t H) as [[s ->]|[s ->]];
-        [left|right]; exists s; reflexivity.
+  - destruct ca; try discriminate H. inversion H; subst. discriminate Ht.
+  - discriminate H.
+  - discriminate H.
+  - discriminate H.
 Qed.
 (** Shape facts scoping the special [len]-fold arms away from the conversion class theorems: a
     slice/map LITERAL classifies [PtAgg]/[PtMap] (never runtime-numeric), an aggregate source never
@@ -2019,12 +2025,12 @@ Proof.
   match type of H with
   | context [if ?b then Some PtAgg else None] => destruct b
   end; cbv beta iota in H; [|discriminate H].
-  destruct (String.eqb (proj1_sig f) "len"); cbv beta iota in H;
-  [injection H as <-; reflexivity|].
-  destruct (String.eqb (proj1_sig f) "cap"); cbv beta iota in H;
-  [injection H as <-; reflexivity|].
-  destruct (classify (proj1_sig f)) as [t'|]; cbv beta iota in H;
-  [rewrite conv_to_scalar_agg_none in H; discriminate H | discriminate H].
+  destruct (special_ident (proj1_sig f)) as [[t'| | | | | |]|]; cbv beta iota in H;
+    [ rewrite conv_to_scalar_agg_none in H; discriminate H   (* SnType *)
+    | discriminate H                                         (* SnNil *)
+    | injection H as <-; reflexivity                         (* SnLen *)
+    | injection H as <-; reflexivity                         (* SnCap: [cap] of PtAgg *)
+    | discriminate H | discriminate H | discriminate H | discriminate H ].
 Qed.
 Lemma ptype_call_maplit_shape : forall f kt vt kvs p,
   ptype (ECall (EId f) (EMapLit kt vt kvs :: nil)) = Some p -> p = PtRunInt GTInt.
@@ -2033,24 +2039,37 @@ Proof.
   match type of H with
   | context [if ?b then Some PtMap else None] => destruct b
   end; cbv beta iota in H; [|discriminate H].
-  destruct (String.eqb (proj1_sig f) "len"); cbv beta iota in H;
-  [injection H as <-; reflexivity|].
-  destruct (String.eqb (proj1_sig f) "cap"); cbv beta iota in H;
-  [discriminate H|].
-  destruct (classify (proj1_sig f)) as [t'|]; cbv beta iota in H;
-  [rewrite conv_to_scalar_map_none in H; discriminate H | discriminate H].
+  destruct (special_ident (proj1_sig f)) as [[t'| | | | | |]|]; cbv beta iota in H;
+    [ rewrite conv_to_scalar_map_none in H; discriminate H   (* SnType *)
+    | discriminate H                                         (* SnNil *)
+    | injection H as <-; reflexivity                         (* SnLen: [len] of PtMap *)
+    | discriminate H                                         (* SnCap: [cap] of a map is rejected *)
+    | discriminate H | discriminate H | discriminate H | discriminate H ].
 Qed.
 Lemma classify_gtint_name : forall s, classify s = Some GTInt -> String.eqb s "int" = true.
 Proof.
-  intros s H. unfold classify in H.
+  intros s H. unfold classify, special_ident in H.
   destruct (String.eqb s "int64"); [discriminate H|].
   destruct (String.eqb s "int32"); [discriminate H|].
   destruct (String.eqb s "int16"); [discriminate H|].
   destruct (String.eqb s "int8");  [discriminate H|].
   destruct (String.eqb s "int") eqn:E; [reflexivity|].
-  repeat match type of H with
-         | (if ?b then _ else _) = _ => destruct b; try discriminate H
-         end.
+  destruct (String.eqb s "uint64");  [discriminate H|].
+  destruct (String.eqb s "uint32");  [discriminate H|].
+  destruct (String.eqb s "uint16");  [discriminate H|].
+  destruct (String.eqb s "uint8");   [discriminate H|].
+  destruct (String.eqb s "uint");    [discriminate H|].
+  destruct (String.eqb s "bool");    [discriminate H|].
+  destruct (String.eqb s "string");  [discriminate H|].
+  destruct (String.eqb s "float64"); [discriminate H|].
+  destruct (String.eqb s "float32"); [discriminate H|].
+  destruct (String.eqb s "nil");     [discriminate H|].
+  destruct (String.eqb s "len");     [discriminate H|].
+  destruct (String.eqb s "cap");     [discriminate H|].
+  destruct (String.eqb s "println"); [discriminate H|].
+  destruct (String.eqb s "print");   [discriminate H|].
+  destruct (String.eqb s "panic");   [discriminate H|].
+  discriminate H.
 Qed.
 (** A [PtRunInt GTInt]-classified one-arg call with a RUNTIME-INT operand IS the [int(x)] conversion
     (the [len]/[cap] rows contradict the operand's class; [classify] pins the name) — so the sealed
@@ -2061,13 +2080,18 @@ Lemma ptype_call_runint_int_name : forall f a s,
   String.eqb (proj1_sig f) "int" = true.
 Proof.
   intros f a s H Hpa. cbn [ptype] in H. rewrite Hpa in H. cbv beta iota in H.
-  destruct (String.eqb (proj1_sig f) "len") eqn:El.
-  - cbv beta iota in H. destruct a; cbv beta iota in H; discriminate H.
-  - destruct (String.eqb (proj1_sig f) "cap") eqn:Ec.
-    + cbv beta iota in H. discriminate H.
-    + destruct (classify (proj1_sig f)) as [t'|] eqn:Ecl; cbv beta iota in H; [|discriminate H].
-      destruct (conv_to_scalar_runint _ _ _ H) as [-> _].
-      exact (classify_gtint_name _ Ecl).
+  destruct (special_ident (proj1_sig f)) as [sn|] eqn:Hsn; cbv beta iota in H; [|discriminate H].
+  destruct sn as [t'| | | | | |]; cbv beta iota in H.
+  - assert (Ecl : classify (proj1_sig f) = Some t')
+      by (unfold classify; rewrite Hsn; reflexivity).
+    destruct (conv_to_scalar_runint _ _ _ H) as [-> _].
+    exact (classify_gtint_name _ Ecl).
+  - discriminate H.
+  - destruct a; cbv beta iota in H; discriminate H.
+  - discriminate H.
+  - discriminate H.
+  - discriminate H.
+  - discriminate H.
 Qed.
 (** A one-arg call whose OPERAND is a slice/map literal never classifies [PtRunFloat]: [len]/[cap]
     give [PtRunInt]; a conversion of an aggregate source is rejected. *)
@@ -2081,18 +2105,18 @@ Proof.
     match type of H with
     | context [if ?b then Some PtAgg else None] => destruct b
     end; cbv beta iota in H; [|discriminate H].
-    destruct (String.eqb (proj1_sig f) "len"); cbv beta iota in H; [discriminate H|].
-    destruct (String.eqb (proj1_sig f) "cap"); cbv beta iota in H; [discriminate H|].
-    destruct (classify (proj1_sig f)) as [t'|]; cbv beta iota in H;
-      [rewrite conv_to_scalar_agg_none in H; discriminate H | discriminate H].
+    destruct (special_ident (proj1_sig f)) as [[t'| | | | | |]|]; cbv beta iota in H;
+      [ rewrite conv_to_scalar_agg_none in H; discriminate H
+      | discriminate H | discriminate H | discriminate H
+      | discriminate H | discriminate H | discriminate H | discriminate H ].
   - (* EMapLit *)
     match type of H with
     | context [if ?b then Some PtMap else None] => destruct b
     end; cbv beta iota in H; [|discriminate H].
-    destruct (String.eqb (proj1_sig f) "len"); cbv beta iota in H; [discriminate H|].
-    destruct (String.eqb (proj1_sig f) "cap"); cbv beta iota in H; [discriminate H|].
-    destruct (classify (proj1_sig f)) as [t'|]; cbv beta iota in H;
-      [rewrite conv_to_scalar_map_none in H; discriminate H | discriminate H].
+    destruct (special_ident (proj1_sig f)) as [[t'| | | | | |]|]; cbv beta iota in H;
+      [ rewrite conv_to_scalar_map_none in H; discriminate H
+      | discriminate H | discriminate H | discriminate H
+      | discriminate H | discriminate H | discriminate H | discriminate H ].
 Qed.
 
 (** ---- The T3 BINOP shape seal: what operand shapes can sit under a [PtRunInt]-classified
@@ -2632,7 +2656,8 @@ Qed.
 Lemma ptype_int_ok : forall e pt, ptype e = Some pt -> pty_int_ok pt = true.
 Proof.
   induction e using GExpr_ind'; intros pt Hp; cbn [ptype] in Hp.
-  - (* EId *) destruct (String.eqb _ _); [injection Hp as <-; reflexivity | discriminate Hp].
+  - (* EId *) destruct (special_ident _) as [[?| | | | | |]|];
+      first [ injection Hp as <-; reflexivity | discriminate Hp ].
   - (* EInt *) injection Hp as <-. reflexivity.
   - (* EUn *)
     destruct (ptype e) as [c|]; [|discriminate Hp].
@@ -2677,12 +2702,15 @@ Proof.
     destruct e; try discriminate Hp.
     destruct args as [|a [|? ?]]; try discriminate Hp.
     destruct (ptype a) as [ca|]; [|discriminate Hp].
-    destruct (String.eqb (proj1_sig i) "len").
-    + destruct a; try destruct ca; try discriminate Hp; injection Hp as <-; reflexivity.
-    + destruct (String.eqb (proj1_sig i) "cap").
-      * destruct ca; try discriminate Hp. injection Hp as <-. reflexivity.
-      * destruct (classify (proj1_sig i)) as [t'|]; [|discriminate Hp].
-        exact (conv_to_scalar_int_ok _ _ _ Hp).
+    destruct (special_ident (proj1_sig i)) as [sn|]; [|discriminate Hp].
+    destruct sn as [t'| | | | | |].
+    + exact (conv_to_scalar_int_ok _ _ _ Hp).                     (* SnType *)
+    + discriminate Hp.                                            (* SnNil *)
+    + destruct a; try destruct ca; try discriminate Hp; injection Hp as <-; reflexivity.  (* SnLen *)
+    + destruct ca; try discriminate Hp. injection Hp as <-. reflexivity.                  (* SnCap *)
+    + discriminate Hp.
+    + discriminate Hp.
+    + discriminate Hp.
   - (* EAssert *) discriminate Hp.
   - (* EConv *)
     destruct c; try discriminate Hp;
@@ -2793,7 +2821,7 @@ Proof.
       | context [if ?b then Some PtAgg else None] =>
           destruct b; cbv beta iota in Hpt; [|discriminate Hpt]
       end.
-      rewrite El' in Hpt. cbv beta iota in Hpt.
+      apply String.eqb_eq in El'. rewrite El' in Hpt. cbn in Hpt.
       injection Hpt as <-. exact (box_int_tag _ _ _ Hv).
     + (* len of EMapLit *)
       destruct (andb _ _) eqn:Ea;
@@ -2805,7 +2833,7 @@ Proof.
       | context [if ?b then Some PtMap else None] =>
           destruct b; cbv beta iota in Hpt; [|discriminate Hpt]
       end.
-      rewrite El' in Hpt. cbv beta iota in Hpt.
+      apply String.eqb_eq in El'. rewrite El' in Hpt. cbn in Hpt.
       injection Hpt as <-. exact (box_int_tag _ _ _ Hv).
 Qed.
 
@@ -4732,7 +4760,7 @@ Proof.
   pose proof (eval_int_slice_elems_forall_assignable t es vs Hv) as Hall.
   pose proof (is_int_goty_supported t Ht) as Hvt.
   cbn [ptype]. rewrite Hvt, Hall. cbv beta iota zeta delta [andb].
-  rewrite Hf. cbv beta iota.
+  apply String.eqb_eq in Hf. rewrite Hf.
   reflexivity.
 Qed.
 
@@ -4804,6 +4832,6 @@ Proof.
   pose proof (map_entries_evaluable_forall_entry kt vt kvs Hev) as Hall.
   unfold map_key_vals in Hnd.
   cbn [ptype]. rewrite Ht, Hvt, Hall, Hnd. cbv beta iota zeta delta [andb].
-  rewrite Hf. cbv beta iota.
+  apply String.eqb_eq in Hf. rewrite Hf.
   reflexivity.
 Qed.

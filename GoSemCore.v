@@ -2778,11 +2778,12 @@ Proof.
   pose proof H as Hkeep.
   cbn [ptype] in H.
   destruct (ptype a) as [ca|] eqn:Hpa; [|discriminate H].
-  destruct (String.eqb (proj1_sig i) "len") eqn:Hlen.
-  { destruct a; destruct ca; try discriminate H. }
-  destruct (String.eqb (proj1_sig i) "cap") eqn:Hcap.
-  { destruct ca; discriminate H. }
-  destruct (classify (proj1_sig i)) as [tt|] eqn:Hcls; [|discriminate H].
+  destruct (special_ident (proj1_sig i)) as [sn|] eqn:Hsn; [|discriminate H].
+  destruct sn as [tt| | | | | |].
+  2:{ discriminate H. }                                (* SnNil: not a call head *)
+  2:{ destruct a; destruct ca; try discriminate H. }   (* SnLen: never a float-const category *)
+  2:{ destruct ca; discriminate H. }                   (* SnCap *)
+  2:{ discriminate H. } 2:{ discriminate H. } 2:{ discriminate H. }  (* SnPrintln/SnPrint/SnPanic *)
   cbn [fsf_checked]. rewrite Hkeep. rewrite Hpa.
   destruct tt;
     try (destruct ca; cbn [conv_to_scalar] in H;
@@ -3489,8 +3490,7 @@ Proof.
     | ty es Hes | kt vt kvs Hkvs | s | zc ] using GExpr_ind'; intros t d H.
   - (* EId *)
     cbn [ptype] in H.
-    destruct (String.eqb (proj1_sig i) "nil") eqn:E;
-      try rewrite E in H; cbv beta iota in H; discriminate H.
+    destruct (special_ident (proj1_sig i)) as [[t'| | | | | |]|]; discriminate H.
   - (* EInt *) cbn [ptype] in H; discriminate H.
   - (* EUn *) exact (fsf_checked_complete_un_step o e0 t d H IH).
   - (* EBn *) exact (fsf_checked_complete_bn_step o l r t d H IHl IHr).

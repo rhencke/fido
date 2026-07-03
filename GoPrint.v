@@ -101,9 +101,13 @@ Proof.
   apply orb_false_iff in H; destruct H as [ Hf32    H ].
   apply orb_false_iff in H; destruct H as [ Hchan   H ].
   apply orb_false_iff in H; destruct H as [ Hmap    _ ].
-  unfold classify.
+  unfold classify, special_ident.
   rewrite Hi64, Hi32, Hi16, Hi8, Hint, Hu64, Hu32, Hu16, Hu8, Hu, Hbool, Hstr, Hf64, Hf32.
-  split; [ reflexivity | split; [ exact Hchan | exact Hmap ] ].
+  (* the table's non-type rows (nil/len/cap/println/print/panic) all classify to [None], whichever
+     way their tests go — case-split them and every branch is definitional *)
+  destruct (String.eqb s "nil"), (String.eqb s "len"), (String.eqb s "cap"),
+           (String.eqb s "println"), (String.eqb s "print"), (String.eqb s "panic");
+    (split; [ reflexivity | split; [ exact Hchan | exact Hmap ] ]).
 Qed.
 
 
