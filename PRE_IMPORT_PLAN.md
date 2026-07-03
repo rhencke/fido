@@ -252,86 +252,22 @@ B3, which was backwards):**
     even with different field TYPES), `hstruct_alias` (two pointers to the same `base` see
     each other's field writes — the aliasing a `*T` receiver relies on).  Emits no Go
     (the storage MODEL); the idiomatic lowering is Bs.2.
-  - **Bs.2a — Coq MODEL (DONE, proof-only, 2026-06-18).**  Route B implemented:
-    `StructRep2 R` (a 2-field, int64-fielded record's projections + constructor + the
-    `sr2_eta` record law — DATA only, no `GoTypeTag` field, so NO `tag_eq` wall), `SPtr R`
-    (carries `sp_base` + the rep, so `R` survives extraction for the eventual `*R` lowering),
-    and the ops `sptr_new` (fresh base via `w_next`, write field cells), `sptr_deref` (read
-    cells + reconstruct via `sr2_mk`), `sptr_assign` (whole-struct write), plus the idiomatic
-    FIELD ops `sptr_get_field`/`sptr_set_field` (Go `p.Field` / `p.Field = v`).  THEOREMS
-    (reduced to Bs.1, axiom-free over the heap interface): `sptr_field_get_set` (field
-    read-after-write through the pointer = `hfield_get_set_same`), `sptr_field_alias` (two
-    handles to the same base see each other's writes = `hstruct_alias`), and the WHOLE-STRUCT
-    `sptr_deref_assign` (after `sptr_assign p v`, `sptr_deref p` reassembles `v` — field 0
-    survives the field-1 write by `ref_sel_upd_diff`, field 1 by `ref_sel_upd_same`, `sr2_eta`
-    rebuilds; DONE 2026-06-18 with `Local Opaque ref_sel/ref_upd/hfield_cell` so `cbn` reduces
-    only the monadic structure, leaving the heap terms for the final rewrites).
-  - **Bs.2b — lowering (DONE, 2026-06-18).**  A heap-backed struct ↔ Go `*R` with field
-    read/write, runtime-demonstrated.  `SPtr R` → `*R` (type arm); `sptr_new rep v` → `&v`
-    (composite literals are addressable in Go — no IIFE, no tag needed); `sptr_deref p` →
-    `*p`; `sptr_get_field p idx proj _` → `p.Field` / `sptr_set_field … v` → `p.Field = v`
-    (the field NAME read off the passed projection via the same `record_proj_field` map
-    that `x.Field` uses — the lowering NEVER touches the proof-only rep).  All the
-    machinery (SPtr/StructRep2 types, the `sptr_*`/`sr2_*`/`sp_*` defs, AND the Bs.1
-    `hfield_*`/`HStruct` substrate they drag in) is suppressed.  `sptr_demo` lowers to
-    `p := &Cell{3, 4}; p.Cx = 7; a := p.Cx; b := p.Cy; println(a, b)` and prints `7 4` —
-    a genuine MUTATION through the pointer, golden-locked.  *Pending niceties:* the IIFE
-    form for a non-addressable `sptr_new` arg (function-call result); the whole-struct
-    `*p` / `*p = R{…}` runtime demo (the ops + lowering exist; just no demo yet).
-    The hard part is ENTIRELY the lowering (the proof model is Bs.1); two routes, with
-    the findings that constrain them:
-
-    **Route A — whole-struct `Ref`, idiomatic field ops (per-struct tag).**  Store the
-    WHOLE struct in one `Ref R`, reusing the existing `Ptr`/`Ref` lowering (`*R`, `&R{…}`).
-    Field read `c.Field` = project the read-back struct (`proj (ptr_get p)` → `p.Field`,
-    Go auto-deref); field write `c.Field = v` = whole-struct read-modify-write in the
-    MODEL (`ptr_set p (MkR … v …)`) but lowers to the idiomatic `p.Field = v` (observably
-    identical — the other fields are unchanged either way).  *Blocker:* `Ref R` needs
-    `GoTypeTag R`, and the wall forbids it for an arbitrary struct.  A NULLARY per-struct
-    tag (`TBox : GoTypeTag Box`) DOES satisfy `tag_eq` (no function components, unlike the
-    generic record tag), but (1) it must live in `builtins.v` where `GoTypeTag` is defined,
-    so it only works for structs declared there, NOT user structs in `main.v` (cross-file
-    wall), and (2) it touches the core `GoTypeTag`/`tag_eq`/`zero_val`/`tag_coerce` matches
-    (add a case each).  ⇒ Good for a PROOF-OF-CONCEPT demo (a builtins-side struct), bounded
-    by per-struct + core-touch; not the general answer.
-
-    **Route B — field-cell bundle, generic (the real answer).**  Use Bs.1's `HStruct`
-    (each field its own scalar cell — sidesteps the struct-tag wall entirely, works for ANY
-    struct).  A typed `SPtr R` wraps the base; ops read/write field cells.  *Findings:*
-    (i) `SPtr R` must SURVIVE extraction as `Tglob(SPtr,[R])` so the plugin can read `R` and
-    emit `*R` — but a SINGLE-field record UNBOXES (`SPtr R ≡ its field`, losing `R`), so
-    `SPtr` needs ≥2 (proof-only, erased) fields, the same workaround nested structs use.
-    (ii) The field op must resolve to the Go field NAME.  Pass the PROJECTION
-    (`sptr_get p proj ftag`): the plugin already maps a projection→field name
-    (`record_proj_field`), so `sptr_get p bx _` → `p.Bx` with no new index→name table; the
-    MODEL maps the projection→cell index via a small per-record table (or an explicit index
-    arg alongside the projection).  (iii) `sptr_new (MkR a b)` → `&R{a, b}` (allocate); the
-    plugin reads the record ctor's field list (`record_ctor_ftypes`) for the literal.
-    (iv) the MODEL of `sptr_new`/deref must DECOMPOSE a struct value into its field cells
-    and RECONSTRUCT it (`sptr_deref p = MkR (hfield_get p 0 _) (hfield_get p 1 _)`), which
-    is per-record (the ctor + projections) — Coq has no generic record reflection, so this
-    needs a small `StructRep R` abstraction (a typeclass/record carrying the field tags +
-    constructor + projections, instantiated per user struct).  That instance is the one
-    bit of per-struct boilerplate Route B cannot avoid; it is DATA only (no function-typed
-    `GoTypeTag` field), so it does NOT reintroduce the `tag_eq` wall.  ⇒ Generic and
-    idiomatic; more plugin work (SPtr type arm → `*R`, the projection-in-pointer-context
-    arm, the allocation arm) + the per-struct `StructRep` instance.
-
-    **Decomposition (each independently green):** (1) Route-A POC demo on a builtins-side
-    struct — proves the field read/write LOWERING end-to-end fastest.  (2) Route-B `SPtr R`
-    type + `sptr_new`/`&R{…}` allocation + deref-read lowering (`*p` / `p.Field`).  (3)
-    Route-B field WRITE (`p.Field = v`) + a mutation-through-pointer demo (caller observes
-    it).  (4) B2 pointer-receiver methods on top.  Land 1–4 over successive iterations;
-    prefer Route B for the durable model, keep Route A only if a quick POC is wanted first.
-- **B2 — Pointer receivers** (DONE, 2026-06-18; on **Bs.2**): a method whose receiver is
-  a `SPtr Struct` (a `*T`) and MUTATES the receiver.  The plugin detects a `SPtr (record)`
-  first param → `func (recv *T) M(...)` (the SAME signature/detection path as the value
-  receiver — `is_sptr_record_tglob` added beside `is_record_tglob` in both `pp_function`
-  and `register_method` — since `pp_type (SPtr R) = *R`), and a call `m p …` → `p.M(…)`.
+  - **Bs.2 — struct pointers (DONE).**  The heap-backed struct pointer is the GENERIC
+    `GSPtr R` over the arity-free `StructRep R ts` (builtins.v): a field op carries the
+    typed de Bruijn index + the COHERENCE-PINNED projection, and the lowering emits
+    `*R` / `&R{…}` / `*p` / `*p = R{…}` / `p.Field` / `p.Field = v` via the same
+    `record_proj_field` map value structs use — it never touches the proof-only rep.
+    All rep machinery is suppressed; `gsptr_demo` prints `7 4` (a genuine mutation
+    through the pointer, golden-locked).  Theorems: `gsptr_field_get_set` /
+    `gsptr_alias` over the field-cell heap substrate (`hfield_*`).
+- **B2 — Pointer receivers** (DONE; on **Bs.2**): a method whose receiver is
+  a `GSPtr Struct` (a `*T`) and MUTATES the receiver.  The plugin lowers an eligible
+  `GSPtr (record)` first param → `func (recv *T) M(...)` (the SAME `method_eligible`
+  authority as the value receiver, shared by `pp_function` and `register_method` —
+  `pp_type (GSPtr R) = *R`), and a call `m p …` → `p.M(…)`.
   `cell_incx` → `func (p *Cell) Cell_incx() { a := p.Cx; p.Cx = a + 1 }`; `ptr_method_demo`
   mutates a `*Cell` through the method and prints `11`, observed by the caller — backed by
-  `sptr_field_get_set`.  *Pending:* a receiver struct wider than the 2-int64-field
-  `StructRep2` (generalise to N heterogeneous fields).
+  `gsptr_field_get_set`.
 - **B4 — Arrays** (PENDING; independent of B2/Bs): VALUE semantics distinct from slices —
   `[N]T` COPIES on assign/pass (mutable elements within one array, but `b := a; b[0]=9`
   leaves `a[0]` unchanged).  Not the cell-heap handle model (that is reference/aliasing);

@@ -32,7 +32,7 @@ fi
 echo "fido: smart-ctor gate OK — no direct Printer.GTNamed / Printer.EId / Printer.EHex / Printer.ESel outside the block ✓"
 
 # 2. DEAD-NAME RECURRENCE: torn-down / forbidden raw-syntax names must not reappear in active code.
-deadrefs=$(grep -nE 'SRaw|raw_ok|build_atom|build_apply|build_goexpr|GERaw|GEBin|\bEAtom\b|Printer\.print_expr|Printer\.print_prec|RawExpr|RawStmt|RawDecl|RawType|OpaqueExpr|TrustedExpr|goprint|\bFront\b' \
+deadrefs=$(grep -nE 'SRaw|raw_ok|build_atom|build_apply|build_goexpr|GERaw|GEBin|\bEAtom\b|Printer\.print_expr|Printer\.print_prec|RawExpr|RawStmt|RawDecl|RawType|OpaqueExpr|TrustedExpr|goprint|\bFront\b|\bSPtr\b|\bSPtr3\b|\bSPtrH\b|StructRep2|StructRep3|\bsptr_' \
   *.v plugin/go.ml plugin/g_go_extraction.mlg 2>/dev/null || true)
 if [ -n "$deadrefs" ]; then
   echo "fido: DEAD-NAME GATE — a torn-down-overlay or forbidden raw-syntax name is in active code:"

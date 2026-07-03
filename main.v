@@ -2636,10 +2636,12 @@ Definition labeled_demo : IO unit :=
   bind (println [any (flag r)])   (fun _ =>   (* true *)
   println [any (qty r)]).                     (* 5 *)
 
-(** Methods (value receiver).  A function whose FIRST parameter is a struct
-    lowers to a Go value-receiver method — [sum_coords] → [func (p Point)
-    Sum_coords() int64], [shifted] → [func (p Point) Shifted(dx int64) Point] —
-    and a call [m p …] to [p.M(…)].  This is faithful ([p.M(a)] denotes the same
+(** Methods (value receiver).  A METHOD-ELIGIBLE function — the plugin's ONE
+    [method_eligible] contract (full predicate in SPEC_CONFORMANCE.md) — lowers to a
+    Go value-receiver method — [sum_coords] → [func (p Point) Sum_coords() int64],
+    [shifted] → [func (p Point) Shifted(dx int64) Point] — and a call [m p …] to
+    [p.M(…)]; an INELIGIBLE struct-first function stays a plain function
+    ([box_second] below).  This is faithful ([p.M(a)] denotes the same
     as [M(p, a)]) and idiomatic; the receiver is the SAME de Bruijn binding, only
     the signature pulls it out front.  (Method↔type association is what Stage C's
     interfaces will check: the method set of [Point] is every such function.) *)
@@ -2816,7 +2818,7 @@ Record Cell := MkCell { cx : GoI64 ; cy : GoI64 }.
                 (fun v => match v with MkCell a b => eq_refl end) |}.
 Definition cell_c0 : gfield_coh (R:=Cell) MHere cx := eq_refl.
 Definition cell_c1 : gfield_coh (R:=Cell) (MNext MHere) cy := eq_refl.
-Definition sptr_demo : IO unit :=
+Definition gsptr_demo : IO unit :=
   bind (gsptr_new (MkCell (3)%i64 (4)%i64)) (fun p =>  (* p := &Cell{3,4} *)
   bind (gsptr_set_field p MHere cx cell_c0 (7)%i64) (fun _ =>     (* p.Cx = 7 (mutate through *p) *)
   bind (gsptr_get_field p MHere cx cell_c0) (fun a =>            (* a := p.Cx → 7 *)
@@ -2824,7 +2826,7 @@ Definition sptr_demo : IO unit :=
   println [any a; any b])))).                                   (* prints: 7 4 *)
 
 (** GENERIC struct rep: the ARITY-FREE [StructRep R ts] / typed de Bruijn index [Mem]
-    machinery, replacing [StructRep2]/[StructRep3]/[StructRep2H].  Same heap-backed [*GCell], but a
+    machinery.  Heap-backed [*GCell]; a
     field is the SINGLE typed index ([MHere]/[MNext]); the named projection ([gca]/[gcb]) is PINNED to
     it by [gfield_coh] ([= eq_refl]: the index denotes exactly that projection), so a slot can never
     name the wrong field.  Lowers to the same native Go: [&GCell{…}], [*p], [p.Gca = v], [p.Gca]. *)
@@ -2847,9 +2849,9 @@ Definition gcell_demo : IO unit :=
   println [any (gca v); any b]))))).                              (* prints: 99 2 *)
 
 (** ============================================================================
-    THE 64-FIELD STRESS TEST (user 2026-06-24): one [StructRep Big64 ts] over a 64-element
+    THE 64-FIELD STRESS TEST: one [StructRep Big64 ts] over a 64-element
     HETEROGENEOUS field-type list (cycling int64 / bool / float64 / string) — the arity-free
-    generic rep SCALES where [StructRep2]/[StructRep3] cannot (there is no [StructRep64]).  The
+    generic rep needs NO per-arity copies.  The
     iso ([sr_to]/[sr_from]/[sr_eta]) is INLINED into the (suppressed) instance and the typed
     indices are INLINE [MHere]/[MNext…] at the call sites; the [_coh] proofs ([Prop], erased)
     pin each name to its slot.  Init ([&Big64{…}] — a FRESH composite literal, so [p.F4=…]
@@ -2883,11 +2885,12 @@ Definition big64_demo : IO unit :=
     ))))))).
 
 
-(** POINTER-RECEIVER method (Phase B2): a method whose first param is [GSPtr Cell] (a
-    [*Cell]) and MUTATES the receiver.  The plugin detects the [GSPtr (record)] first
-    param → [func (p *Cell) Cell_incx() { … }] (and a call [cell_incx p] → [p.Cell_incx()]),
-    exactly the value-receiver path but through a pointer.  The mutation is observed by
-    the CALLER (the defining pointer-receiver behaviour), backed by [gsptr_field_get_set]. *)
+(** POINTER-RECEIVER method (Phase B2): a METHOD-ELIGIBLE function (the plugin's ONE
+    [method_eligible] contract) whose first param is [GSPtr Cell] (a [*Cell]) and MUTATES
+    the receiver → [func (p *Cell) Cell_incx() { … }] (and a call [cell_incx p] →
+    [p.Cell_incx()]), exactly the value-receiver path but through a pointer.  The mutation
+    is observed by the CALLER (the defining pointer-receiver behaviour), backed by
+    [gsptr_field_get_set]. *)
 Definition cell_incx (p : GSPtr Cell) : IO unit :=
   bind (gsptr_get_field p MHere cx cell_c0) (fun a =>          (* read p.Cx *)
         gsptr_set_field p MHere cx cell_c0 (i64_add a (1)%i64)).  (* p.Cx = p.Cx + 1 *)
@@ -3330,11 +3333,23 @@ Arguments MkBox {A}. Arguments bval {A}. Arguments btag {A}.
 Definition make_box {A : Type} (v : A) : Box A := MkBox v (1)%i64.   (* generic ctor function *)
 Definition box_get {A : Type} (b : Box A) : A := bval b.             (* generic-receiver method *)
 Definition box_tag {A : Type} (b : Box A) : GoI64 := btag b.         (* reads the non-generic field *)
+Definition box_second {A B : Type} (_ : Box A) (y : B) : B := y.     (* record-first but [B] is NOT
+  receiver-carried — a Go method adds no type params of its own, so [method_eligible] DEMOTES
+  this to a PLAIN generic function [func Box_second[T1, T2 any](…)] (nothing rejected).  The
+  demo instantiates BOTH tvars at [string] (inference-stable; a full-width int literal in a
+  tvar slot would infer Go [int]) *)
 Example box_get_spec : forall A (v : A), box_get (make_box v) = v. Proof. reflexivity. Qed.
+Module BoxNS.
+  Definition box_get (x : GoI64) : GoI64 := x.   (* a PACKAGE-level func sharing the METHOD's
+    basename — valid Go (a method name lives in its receiver's namespace): the name-injectivity
+    registry keys the generic-receiver method as [Box.Box_get] and this as [Box_get] *)
+End BoxNS.
 Definition gstruct_demo : IO unit :=
   bind (println [any (box_get (make_box "hi"%string))])  (fun _ =>   (* Box[string] → hi *)
   bind (println [any (box_get (make_box true))])         (fun _ =>   (* Box[bool] → true (same generic) *)
-  println [any (box_tag (make_box "x"%string))])).                   (* non-generic field → 1 *)
+  bind (println [any (box_tag (make_box "x"%string))])   (fun _ =>   (* non-generic field → 1 *)
+  bind (println [any (box_second (make_box "x"%string) "y"%string)]) (fun _ =>  (* demoted non-method → y *)
+  println [any (BoxNS.box_get (5)%i64)])))).                         (* package func beside the method namespace → 5 *)
 
 (** A generic struct instantiated at a NARROW type ([Box GoU8] = [Box[uint8]]).  The
     narrow-boundary struct-field / function-arg casts key off the DECLARED type, which here is a type VARIABLE
@@ -3628,7 +3643,7 @@ Definition main_effect : IO unit :=
   struct_eq_demo                >>'   (* prints: true false (struct ==, field-wise) *)
   struct_eq_native_demo         >>'   (* prints: true false (native p == q operator) *)
   nested_struct_demo            >>'   (* prints: 5 9 (nested struct fields) *)
-  sptr_demo                     >>'   (* prints: 7 4 (mutable *Cell through a pointer) *)
+  gsptr_demo                     >>'   (* prints: 7 4 (mutable *Cell through a pointer) *)
   gcell_demo                    >>'   (* prints: 99 2 (generic arity-free StructRep: *GCell, typed-index fields) *)
   big64_demo                    >>'   (* 64-FIELD heterogeneous generic struct: init/read@depths/assign/compare *)
   ptr_method_demo               >>'   (* prints: 11 (pointer-receiver method mutates *Cell) *)
@@ -3651,7 +3666,7 @@ Definition main_effect : IO unit :=
   embed_demo                    >>'   (* prints: canine / canine / 5 (struct embedding + promotion; 5 = the d.Legs+k embedded-selector source-gate fixture) *)
   generics_demo                 >>'   (* prints: go / 3 / 2 / first (Go generics, type params) *)
   comparable_demo               >>'   (* prints: true true false true true (generic [K comparable]: int64/uint64/string/struct/DEFINED-TYPE → native ==) *)
-  gstruct_demo                  >>'   (* prints: hi / true / 1 (generic struct Box[T]) *)
+  gstruct_demo                  >>'   (* prints: hi / true / 1 / y (generic struct Box[T]; y = the demoted record-first non-method) *)
   gbox_narrow_demo              >>'   (* prints: 44 true (generic struct Box[uint8] — generics×narrow type inference) *)
   gmap_deftype_demo             >>'   (* prints: 2 (defined type over a map, type Counts map[string]int64) *)
   recursion_demo                >>'   (* prints: 3 / 2 / 1 (user recursion, self-calling func) *)

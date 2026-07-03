@@ -5817,8 +5817,8 @@ Record HStruct := mkHStruct { hs_base : nat }.
 
 Definition hfield_cell {A} (h : HStruct) (k : nat) (tag : GoTypeTag A) : Ref A :=
   mkRef (hs_base h + k) tag.
-(** Read a struct field.  FAILS LOUD on a missing/retyped cell — a forged [SPtr] (e.g.
-    [mkSPtr 5] addressing an unallocated base) panics with the Go nil-pointer/invalid-address message
+(** Read a struct field.  FAILS LOUD on a missing/retyped cell — a forged [GSPtr] (e.g.
+    [mkGSPtr 5] addressing an unallocated base) panics with the Go nil-pointer/invalid-address message
     instead of fabricating a zero.  Body is plugin-lowered to [p.Field], so the loud check never reaches
     the emitted Go (a real [p] is always allocated); it only rules out the model accepting a forged read. *)
 Definition hfield_get {A} (h : HStruct) (k : nat) (tag : GoTypeTag A) : IO A :=
@@ -5960,19 +5960,18 @@ Proof.
   apply (ref_sel_upd_same (mkRef (hs_base h' + k) tag) v w).
 Qed.
 
-(** ---- Struct POINTERS (Phase Bs.2): a heap-backed struct ↔ Go [*R] ----
+(** ---- Struct POINTERS: a heap-backed struct ↔ Go [*R] ----
 
-    A [*R] is the [base] of the struct's field-cell bundle (Bs.1) PLUS a [StructRep]
+    A [*R] is the [base] of the struct's field-cell bundle PLUS a [StructRep]
     — the per-record DATA (its field projections + constructor + the record eta law)
     that lets the generic ops DECOMPOSE a struct value into field cells and RECONSTRUCT
     it.  Coq has no generic record reflection, so [StructRep] is the one bit of
     per-struct data; it is DATA-only (the function fields are plain projections, NOT
-    [GoTypeTag] — so it does NOT reintroduce the [tag_eq] wall).  [SPtr R] carries the
-    [StructRep] in a field so the type parameter [R] survives extraction (the plugin
-    needs it to emit [*R], the same trick [Ptr] uses with [p_tag]).  This is the model
-    for a 2-field, [int64]-fielded struct; wider/heterogeneous reps generalise it.
-    Lowers (Bs.2 lowering, separate): [SPtr R] → [*R], [sptr_new] → [&R{…}],
-    [sptr_deref] → [*p], [sptr_assign] → [*p = R{…}], reusing the [Ptr] arms. *)
+    [GoTypeTag] — so it does NOT reintroduce the [tag_eq] wall).  [GSPtr R] carries
+    only the heap base ([gsp_base]); the rep arrives at each op as the [StructRepOf R]
+    dictionary, and the type parameter [R] survives extraction so the plugin can emit
+    [*R].  Lowers: [GSPtr R] → [*R], [gsptr_new] → [&R{…}],
+    [gsptr_deref] → [*p], [gsptr_assign] → [*p = R{…}], reusing the [Ptr] arms. *)
 
 (** ---- STRUCT CHANNELS (a 2-field [int64 x int64] struct over a channel) ----
 
@@ -5982,12 +5981,11 @@ Qed.
     tuple, so the channel marshals it by the IDENTITY.
 
     COHERENCE — there is NO [StructRep] to choose, so a send and a receive CANNOT
-    disagree on field order.  The earlier design parameterised [struct_send2]/[struct_recv2] by a
-    [StructRep2Of] typeclass; but a Coq typeclass instance is NOT unique — an explicit dictionary
-    ([@struct_send2 R {| the_struct_rep2 := sr2_swapped |} …]) could send with one rep and receive
-    with a SWAPPED rep, corrupting the value, which a native [chan T] never does.  Marshalling by the
-    identity removes the rep entirely, so the swap is UNREPRESENTABLE (the faithful, non-overridable
-    behaviour of a Go [chan (int64,int64)]).  A named 2-field struct over a channel would need a
+    disagree on field order.  A rep-PARAMETERISED send/recv could disagree (a Coq typeclass
+    instance is NOT unique — an explicit dictionary could send with one rep and receive with a
+    SWAPPED rep, corrupting the value, which a native [chan T] never does).  Marshalling by the
+    identity removes the rep entirely, so the swap is UNREPRESENTABLE (the faithful,
+    non-overridable behaviour of a Go [chan (int64,int64)]).  A named 2-field struct over a channel would need a
     nominal struct tag (unavailable) — out of scope, not approximated.
 
     *(Extraction of the idiomatic native [chan R] / [ch <- p] / [<-ch] is a separate slice: Coq's
@@ -6028,8 +6026,7 @@ Local Transparent ref_sel ref_upd hfield_cell ref_sel_opt hfield_get run_io.
 (** ============================================================================
     GENERIC STRUCT REPRESENTATION — one [StructRep R ts] for ALL field arities.
 
-    This REPLACED the arity-monomorphised [StructRep2]/[StructRep3]/[StructRep2H] (2-, 3-, and 2-hetero-
-    field copies — not a generalisation; [StructRep47] is the reductio).  The honest generalisation is
+    The honest generalisation is
     the standard one: a struct is a HETEROGENEOUS NESTED PRODUCT [Tup ts] over its field-type list
     [ts : list Type], and a field is a TYPED de Bruijn INDEX [Mem ts t] ([MHere]/[MNext] = Peano
     [FZ]/[FS]).  ONE record [StructRep R ts] (an iso [R ≅ Tup ts]) covers every arity.
@@ -6094,7 +6091,7 @@ Arguments sr_tags {R ts} _.  Arguments sr_to {R ts} _.
 Arguments sr_from {R ts} _.  Arguments sr_eta {R ts} _ _.
 
 (** The canonical rep is bound to the TYPE — [R] determines [srep_ts] (its field-type list) and the
-    rep.  (The same per-type binding [StructRep2Of] had, now arity-generic.) *)
+    rep. *)
 Class StructRepOf (R : Type) : Type := {
   srep_ts  : list Type ;
   srep_rep : StructRep R srep_ts ;

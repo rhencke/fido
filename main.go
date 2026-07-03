@@ -46,6 +46,15 @@ const (
 	Gt
 )
 
+func Pred(n uint) uint {
+	if n == 0 {
+		return n
+	} else {
+		u := n - 1
+		return u
+	}
+}
+
 type ListNode struct {
 	Ln_val  int64
 	Ln_next *ListNode
@@ -2005,7 +2014,7 @@ type Cell struct {
 	Cy int64
 }
 
-func Sptr_demo() {
+func Gsptr_demo() {
 	p := &Cell{Cx: 3, Cy: 4}
 	p.Cx = int64(7)
 	a := p.Cx
@@ -2513,10 +2522,20 @@ func (b Box[T1]) Box_tag() int64 {
 	return b.Btag
 }
 
+func Box_second[T1 any, T2 any](x Box[T1], y T2) T2 {
+	return y
+}
+
+func Box_get(x int64) int64 {
+	return x
+}
+
 func Gstruct_demo() {
 	println((Make_box("hi")).Box_get())
 	println((Make_box(true)).Box_get())
 	println((Make_box("x")).Box_tag())
+	println(Box_second(Make_box("x"), "y"))
+	println(Box_get(5))
 }
 
 func Gbox_narrow_demo() {
@@ -2894,7 +2913,7 @@ func main() {
 	Struct_eq_demo()
 	Struct_eq_native_demo()
 	Nested_struct_demo()
-	Sptr_demo()
+	Gsptr_demo()
 	Gcell_demo()
 	Big64_demo()
 	Ptr_method_demo()

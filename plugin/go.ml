@@ -171,12 +171,14 @@ let deftype_under_of_ftypes ftypes =   (* Some <value field type> if [val_t; GoT
   | [vt; Tglob (r, _)] when String.equal (global_basename r) "GoTypeTag"
                         || String.equal (global_basename r) "unit" -> Some vt
   | _ -> None
-(* Methods: a top-level function whose first visible param is a record (struct) is
-   lowered as a Go value-receiver method.  [collect_decls] registers each such
-   function by its [global_path]; uses then become [recv.Method(rest)]. *)
+(* Methods: a [method_eligible] top-level function (the ONE eligibility contract — see
+   its definition) is lowered as a Go value-receiver method.  [collect_decls] registers
+   each such function by its [global_path]; uses then become [recv.Method(rest)].  An
+   ineligible record-first function stays a plain function. *)
 let method_paths      : (string, unit) Hashtbl.t = Hashtbl.create 16    (* method proj path -> () *)
 let method_arity      : (string, int) Hashtbl.t  = Hashtbl.create 16    (* method path -> visible param count (incl. receiver) *)
-let method_recvtype   : (string, string) Hashtbl.t = Hashtbl.create 16  (* method path -> Go receiver type name (for method expressions T.M) *)
+let method_recvname   : (string, string) Hashtbl.t = Hashtbl.create 16  (* method path -> receiver TYPE name — the declaration NAMESPACE key [RecvName.Method], generic receivers included (value and pointer receivers share it, as Go's method sets do) *)
+let method_expr_recv  : (string, string) Hashtbl.t = Hashtbl.create 16  (* CONCRETE-receiver method path -> printable receiver form ([T], or the parenthesized star-T pointer form) for a bare method EXPRESSION [T.M]; a GENERIC receiver has no closed form — ABSENT here, so a bare use fails loud *)
 let embedded_proj     : (string, unit) Hashtbl.t = Hashtbl.create 16    (* embedded-field projection path -> () (Go struct embedding) *)
 let enum_typenames    : (string, unit) Hashtbl.t = Hashtbl.create 16    (* enum type basename -> () (a nullary-ctor inductive → Go [type T int] + iota consts) *)
 let enum_ctors        : (string, unit) Hashtbl.t = Hashtbl.create 16    (* enum ctor basename -> () (emit as the const name) *)
@@ -423,17 +425,17 @@ let is_ptr_get_ok_ref = named "ptr_get_ok"   (* safe (nil-checked) deref, CPS *)
    the rep) — all of it is suppressed as decls.  Its [Tglob] carries 1 type arg ([R]), so the
    record-type extractors below take the FIRST arg ([arg :: _]). *)
 (* The GENERIC struct pointer ([GSPtr R] over the arity-generic [StructRep R ts]) — the ONE struct
-   pointer (the arity-specific SPtr/SPtr3/SPtrH are gone).  [GSPtr R] → [*R]; field access is by the
+   pointer.  [GSPtr R] → [*R]; field access is by the
    typed de Bruijn index [m] ([mem_depth m] slot), named by the COHERENCE-PINNED projection arg
    ([proj = mem_get m . sr_to] — so slot and name cannot disagree). *)
-let is_sptr_type r = from_builtins r && global_basename r = "GSPtr"
+let is_gsptr_type r = from_builtins r && global_basename r = "GSPtr"
 let is_gsptr_new_ref r       = from_builtins r && global_basename r = "gsptr_new"
 let is_gsptr_deref_ref r     = from_builtins r && global_basename r = "gsptr_deref"
 let is_gsptr_assign_ref r    = from_builtins r && global_basename r = "gsptr_assign"
 let is_gsptr_get_field_ref r = from_builtins r && global_basename r = "gsptr_get_field"
 let is_gsptr_set_field_ref r = from_builtins r && global_basename r = "gsptr_set_field"
 let is_gstruct_eqb_ref r     = from_builtins r && global_basename r = "gstruct_eqb"
-(* GENERIC arity-free struct rep (replaces SPtr/StructRep2/3/2H): every proof-side name → suppress decl.
+(* GENERIC arity-free struct rep: every proof-side name → suppress decl.
    The ops lower by name ([gsptr_*]/[gstruct_eqb]); the carrier ([Tup]/[Mem]/[TagTup]/[EqTup]/[StructRep]),
    the index ops ([mem_get]/[mem_depth]/[mem_tag], [MHere]/[MNext]), the iso/tags, the field-fold
    ([write_fields]/[read_fields]/[wr_fields]) and the eq machinery are all proof-only. *)
@@ -836,7 +838,7 @@ let is_erased_record_typename s =
   is_numint_typename s || String.equal s "Sess" || String.equal s "World"
   || String.equal s "GoComplex128"   (* complex128: rendered native, ops by name *)
   || String.equal s "Ref" || String.equal s "Ptr" || String.equal s "SliceH"
-  (* the ONE generic arity-free struct rep (the arity-specific SPtr/StructRep2/3/2H are gone):
+  (* the ONE generic arity-free struct rep:
      nested-product carrier + typed de Bruijn index + the canonical-rep typeclass, all proof-only *)
   || String.equal s "GSPtr" || String.equal s "StructRep" || String.equal s "StructRepOf"
   || String.equal s "Mem" || String.equal s "Tup" || String.equal s "TagTup" || String.equal s "EqTup"
@@ -1472,7 +1474,7 @@ let rec pp_type state = function
   | Tglob (r, [arg]) when is_ref_type r -> pp_type state arg
   (* Ptr A → *T (a first-class Go pointer; copies alias the same cell) *)
   | Tglob (r, [arg]) when is_ptr_type r -> str "*" ++ pp_type state arg
-  | Tglob (r, arg :: _) when is_sptr_type r -> str "*" ++ pp_type state arg  (* SPtr R / SPtrH R A B → *R *)
+  | Tglob (r, arg :: _) when is_gsptr_type r -> str "*" ++ pp_type state arg  (* GSPtr R (extra args erased) → *R *)
   (* GoArr<N> A → [N]T — a fixed-size array in a typed position (size N from the type name) *)
   | Tglob (r, [a]) when is_arrN_type r ->
       str (("[" ^ print_i64_dec (Int64.of_int (Option.get (arrN_size_of_type r))) ^ "]")) ++ pp_type state a
@@ -2181,8 +2183,8 @@ let rec pp_expr state env = function
           [StructRepOf R] instance (proof-side, stripped).  [gsptr_new dict v] → [&v];
           [gsptr_deref dict p] → [*p]; [gsptr_assign dict p v] → [*p = v].  Field access carries the
           typed index [_m] (model slot, stripped here) and the COHERENCE-PINNED [proj] that NAMES the
-          field ([coh] is erased); the backend emits [p.<proj field>], exactly as for the value [x.Field]
-          and the old SPtr — and [coh] guarantees that name is the slot [_m] denotes. *)
+          field ([coh] is erased); the backend emits [p.<proj field>], exactly as for the value
+          [x.Field] — and [coh] guarantees that name is the slot [_m] denotes. *)
        | MLglob r, [_dict; v] when is_gsptr_new_ref r ->
            str "&" ++ pp_atom state env v
        | MLglob r, [_dict; p] when is_gsptr_deref_ref r ->
@@ -2762,10 +2764,14 @@ let rec pp_expr state env = function
       else if is_map_make_ref r || is_map_make_typed_ref r then
         unsupported "a bare (unapplied) map constructor — `make(map[any]any)` loses the key/value types; apply `map_make_typed <keytag> <valtag>` so the typed `map[K]V` can be emitted"
       (* a method used as a BARE value (no application) is Go's method EXPRESSION [T.M]
-         (a [func(T, …) …] whose first arg is the receiver) — emit [RecvType.Method]. *)
-      else (match (if is_method r then Hashtbl.find_opt method_recvtype (global_path r) else None) with
-            | Some recvty -> str recvty ++ str "." ++ str (go_export (global_basename r))
-            | None -> str (go_export (global_basename r)))
+         (a [func(T, …) …] whose first arg is the receiver) — emit [RecvType.Method].
+         A GENERIC receiver has no closed [T.M] form (Go needs a concrete instantiation
+         [Box[int].M], and the erased MiniML type does not carry one) — fail loud. *)
+      else if is_method r then
+        (match Hashtbl.find_opt method_expr_recv (global_path r) with
+         | Some recvty -> str recvty ++ str "." ++ str (go_export (global_basename r))
+         | None -> unsupported "a GENERIC-receiver method used as a bare value — Go's method expression needs a CONCRETE instantiation (Box[int].M), which the erased type does not carry")
+      else str (go_export (global_basename r))
 
   | MLfix (i, names, _) ->
       str (go_export (go_safe (Id.to_string names.(i))))
@@ -4444,12 +4450,54 @@ let is_record_tglob = function
   | Tglob (r, _) -> is_record_typename (global_basename r)
   | _ -> false
 
-(* A POINTER receiver (Phase B2): first param is [SPtr R] with R a record.  Lowers the
-   method to [func (recv *R) M(…)] — [pp_type (SPtr R)] is already [*R] — and a call
-   [m p …] to [p.M(…)], exactly the value-receiver path but THROUGH a pointer, so the
-   method can MUTATE its receiver (observed by the caller). *)
-let is_sptr_record_tglob = function
-  | Tglob (r, arg :: _) when is_sptr_type r -> is_record_tglob arg  (* receiver record = first type arg *)
+(* A POINTER receiver: first param is [GSPtr R] with R a record — the receiver SHAPE
+   test; whether it IS a method is [method_eligible] below.  An eligible one lowers to
+   [func (recv *R) M(…)] — [pp_type (GSPtr R)] is already [*R] — and a call [m p …] to
+   [p.M(…)], exactly the value-receiver path but THROUGH a pointer, so the method can
+   MUTATE its receiver (observed by the caller). *)
+let is_gsptr_record_tglob = function
+  | Tglob (r, arg :: _) when is_gsptr_type r -> is_record_tglob arg  (* receiver record = first type arg *)
+  | _ -> false
+
+(* METHOD ELIGIBILITY — the ONE authority shared by [collect_decls] (registration → the
+   [is_method] table → call / method-expression lowering) and [pp_function] (the receiver
+   signature), so declaration and call sites cannot disagree.  A record-first function is
+   a METHOD only when its signature is expressible as a Go method — Go gives a method NO
+   type-parameter list of its own (the RECEIVER binds them all), so:
+   (a) every type arg of the receiver's record type is a type VARIABLE, pairwise DISTINCT
+       (receiver type params are fresh identifier BINDERS — a concrete arg like [Box[int]]
+       or a repeated binder is an illegal receiver);
+   (b) every type variable of the remaining visible params and the return type is
+       receiver-carried (otherwise the emitted signature would reference a FREE [Tn]);
+   (c) no [ComparableW] witness param — a receiver binder inherits the DECLARED type's
+       [any] constraint, so a comparable-constrained tvar is unprintable on a method.
+   An INELIGIBLE record-first function is NOT a method: it lowers on the plain (possibly
+   generic) function path — faithful Go, nothing rejected. *)
+let method_eligible body typ =
+  let ids, _ = collect_lam body in
+  let param_types, ret_type = collect_tarrs typ in
+  let rec visible_types ids types =
+    match ids, types with
+    | [], _ -> []
+    | id :: rest, _ when is_dummy id ->
+        visible_types rest (match types with _ :: t -> t | [] -> [])
+    | _ :: rest, t :: rest_types -> t :: visible_types rest rest_types
+    | _ :: rest, [] -> Tunknown :: visible_types rest []
+  in
+  match visible_types ids param_types with
+  | rt :: rest when is_record_tglob rt || is_gsptr_record_tglob rt ->
+      let recv_args = (match rt with
+        | Tglob (_, args) when is_record_tglob rt -> args
+        | Tglob (_, (Tglob (_, args) :: _)) -> args   (* pointer receiver: record = first type arg *)
+        | _ -> []) in
+      let arg_tvar = function Tvar i | Tvar' i -> Some i | _ -> None in
+      let recv_tvars = List.filter_map arg_tvar recv_args in
+      List.length recv_tvars = List.length recv_args
+      && List.length (List.sort_uniq compare recv_tvars) = List.length recv_tvars
+      && (let sig_tvars =
+            List.fold_left collect_tvars (collect_tvars [] ret_type) rest in
+          List.for_all (fun i -> List.mem i recv_tvars) sig_tvars)
+      && not (List.exists is_comparablew_type rest)
   | _ -> false
 
 (* Pure (non-IO) function body that RETURNS via tail-position lowering.  Go has no
@@ -4567,10 +4615,11 @@ let rec pp_pure_tail state tab env e =
 (** Emit a top-level function, collecting leading lambdas for the signature
     and using [typ] for parameter/return type annotations.
 
-    A function whose first visible parameter is a record (struct) is emitted as a
-    Go value-receiver METHOD [func (recv T) M(rest…)] — faithful (a method call
-    [recv.M(a)] denotes the same as [M(recv, a)]) and idiomatic.  Detection here
-    mirrors [collect_decls]'s, so declaration and call sites agree. *)
+    A [method_eligible] function (the ONE eligibility contract — see its definition) is
+    emitted as a Go value-receiver METHOD [func (recv T) M(rest…)] — faithful (a method
+    call [recv.M(a)] denotes the same as [M(recv, a)]) and idiomatic.  [collect_decls]
+    registers by the SAME authority, so declaration and call sites agree; an ineligible
+    record-first function stays a plain (possibly generic) function. *)
 let pp_function state name body typ =
   Hashtbl.reset narrow_var_types;   (* narrow-let-var table is per-function (names are fn-local) *)
   let ids, inner_body = collect_lam body in
@@ -4615,6 +4664,18 @@ let pp_function state name body typ =
       | Tglob (_, args) when is_comparablew_type t -> List.concat_map (collect_tvars []) args
       | _ -> []) param_pairs in
   let render_pairs = List.filter (fun (_, t) -> not (is_comparablew_type t)) param_pairs in
+  (* CALL-SITE INFERABILITY: ordinary calls never print explicit type arguments, so every
+     type variable must be inferable from the RENDERED value arguments (witness params are
+     dropped from the signature).  A tvar occurring ONLY in the return type has no
+     inference source at any call site (Go: "cannot infer") — fail loud at the ONE place
+     the whole signature is visible.  (An eligible METHOD never trips this: its tvars are
+     receiver-carried and the receiver is a rendered param.) *)
+  let rendered_tvars =
+    List.fold_left (fun acc (_, t) -> collect_tvars acc t) [] render_pairs in
+  (match List.filter (fun i -> not (List.mem i rendered_tvars)) tvars with
+   | [] -> ()
+   | i :: _ -> unsupported (Printf.sprintf
+       "a generic function whose type variable T%d appears only in the RETURN type — Go call sites carry no explicit type arguments, so T%d is never inferable" i i));
   let tparams_doc =
     if tvars = [] then mt ()
     else str "[" ++
@@ -4624,7 +4685,7 @@ let pp_function state name body typ =
          str "]" in
   let fn_sig =
     match render_pairs with
-    | (rid, rt) :: rest when is_record_tglob rt || is_sptr_record_tglob rt ->  (* value- or pointer-receiver method *)
+    | (rid, rt) :: rest when method_eligible body typ ->  (* value-/pointer-receiver METHOD (the shared eligibility authority) *)
         str "func (" ++ pp_param (rid, rt) ++ str ") " ++
         str (go_export name) ++ str "(" ++
         pp_sep_list ", " pp_param rest
@@ -4853,7 +4914,7 @@ let register_term_name r =
   let name = go_export (global_basename r) in
   let key =
     if is_method r then
-      (match Hashtbl.find_opt method_recvtype (global_path r) with
+      (match Hashtbl.find_opt method_recvname (global_path r) with
        | Some rt -> rt ^ "." ^ name | None -> name)
     else name in
   register_emitted_name key (global_path r)
@@ -4944,8 +5005,8 @@ let pp_decl state decl =
                | Tglob (r, []) ->
                    let bn = global_basename r in
                    String.equal fname (go_export bn) && is_record_typename bn
-               | Tglob (r, (Tglob (br, []) :: _)) when is_sptr_type r ->
-                   (* embedded POINTER-to-struct: an [SPtr T] field whose exported name is the
+               | Tglob (r, (Tglob (br, []) :: _)) when is_gsptr_type r ->
+                   (* embedded POINTER-to-struct: a [GSPtr T] field whose exported name is the
                       BASE record's name → Go anonymous [*T] field (promotes T's method set). *)
                    let bn = global_basename br in
                    String.equal fname (go_export bn) && is_record_typename bn
@@ -4992,11 +5053,6 @@ let pp_decl state decl =
     || String.equal (global_basename r) "Sess"
     || String.equal (global_basename r) "GoString"
     || String.equal (global_basename r) "GoSlice"
-    (* canonical-rep typeclasses (ONE canonical rep per type): a single-field class unboxes to a type ALIAS
-       [StructRep<n>Of R = StructRep<n> R]; proof-only, suppress (the rep never reaches Go) *)
-    || String.equal (global_basename r) "StructRep2Of"
-    || String.equal (global_basename r) "StructRep3Of"
-    || String.equal (global_basename r) "StructRep2HOf"
     || List.mem (global_basename r) ["RefCell"; "RefHeap"; "ChanCell"; "ChanHeap";
                                       "MapCell"; "MapHeap"; "Tagged"; "GoTypeTag"] -> mt ()
   | Dtype (_, _, Tglob (r, _)) when is_sigT_ref r    -> mt ()
@@ -5028,13 +5084,28 @@ let first_param_type body typ =
 (* Gather, BEFORE emitting any decl, two things every use site depends on:
    (1) records — projections (→ field names), constructors, and type names, so a
        projection lowers to [x.Field] and a constructor to [T{…}];
-   (2) methods — any function whose first visible param is a (already-registered)
-       record, so calls lower to [recv.M(rest)].  Records must be registered first
-       (pass 1) because the method test consults [record_typenames] (pass 2). *)
+   (2) methods — any [method_eligible] function (the ONE eligibility contract — see its
+       definition), so calls lower to [recv.M(rest)].  Records must be registered
+       first (pass 1) because the eligibility test consults [record_typenames] (pass 2). *)
+(* Coq [Module]s FLATTEN into Go's one package namespace (Go has no module system): a
+   struct-module's decls collect and emit exactly like top-level ones — basename collisions
+   abort in the name-injectivity registry.  Any other module expression (functor / apply /
+   alias) has no decl list to flatten — fail loud rather than silently DROP decls whose
+   uses are emitted (an undefined Go identifier at `go build` = too late).  Module TYPES
+   carry no runtime content — skipped.  ONE flattener for [collect_decls] AND [pp_struct],
+   so registration and emission see the same decls. *)
+let rec decls_of_elem = function
+  | SEdecl d -> [d]
+  | SEmodule m ->
+      (match m.ml_mod_expr with
+       | MEstruct (_, elems) -> List.concat_map (fun (_, e) -> decls_of_elem e) elems
+       | _ -> unsupported "a Coq Module with a functor/apply/alias body — no decl structure to lower to Go")
+  | SEmodtype _ -> []
+
 let collect_decls struc =
   let decls = ref [] in
   List.iter (fun (_, sel) ->
-    List.iter (function (_, SEdecl d) -> decls := d :: !decls | _ -> ()) sel) struc;
+    List.iter (fun (_, e) -> List.iter (fun d -> decls := d :: !decls) (decls_of_elem e)) sel) struc;
   let decls = List.rev !decls in
   (* pass 1 — records *)
   List.iter (function
@@ -5124,8 +5195,8 @@ let collect_decls struc =
                       if String.equal (go_export (global_basename g)) (go_export bn)
                          && is_record_typename bn then
                         Hashtbl.replace embedded_proj (global_path g) ()
-                  | Some g, Tglob (r, (Tglob (br, []) :: _)) when is_sptr_type r ->
-                      (* embedded [*T] (SPtr base): promote through the anonymous pointer field *)
+                  | Some g, Tglob (r, (Tglob (br, []) :: _)) when is_gsptr_type r ->
+                      (* embedded [*T] (GSPtr base): promote through the anonymous pointer field *)
                       let bn = global_basename br in
                       if String.equal (go_export (global_basename g)) (go_export bn)
                          && is_record_typename bn then
@@ -5134,10 +5205,10 @@ let collect_decls struc =
               with Invalid_argument _ -> ())
          | _ -> ())
     | _ -> ()) decls;
-  (* pass 2 — methods (first visible param is a record; projections excluded) *)
+  (* pass 2 — methods ([method_eligible]; projections excluded) *)
   let register_method r body typ =
     match first_param_type body typ with
-    | Some t when (is_record_tglob t || is_sptr_record_tglob t)
+    | Some t when method_eligible body typ
                   && not (is_record_proj r) && not (is_inlined_ref r) ->
         Hashtbl.replace method_paths (global_path r) () ;
         (* visible param count (incl. receiver) — non-dummy lambda binders — so a call
@@ -5145,16 +5216,20 @@ let collect_decls struc =
         let ids, _ = collect_lam body in
         let arity = List.length (List.filter (fun i -> not (is_dummy i)) ids) in
         Hashtbl.replace method_arity (global_path r) arity ;
-        (* receiver Go type name, for a method EXPRESSION used as a bare value: value-receiver
-           (record) -> T.M (Point.Sum_coords); pointer-receiver (SPtr R = pointer to R) -> the
-           PARENTHESIZED pointer form, Go's syntax for a pointer-receiver method expression
-           (e.g. Cell_incx -> the parenthesized-star-Cell dot form).  The receiver type is the
-           FIRST type arg of the SPtr R / SPtr3 R / SPtrH R A B glob. *)
+        (* [method_recvname]: the receiver type NAME (the declaration namespace key), every
+           method.  [method_expr_recv]: the printable bare-method-expression form, CONCRETE
+           receivers only — value-receiver -> T.M (Point.Sum_coords); pointer-receiver
+           ([GSPtr R], record = FIRST type arg) -> the PARENTHESIZED pointer form
+           (e.g. the parenthesized-star-Cell dot Cell_incx form). *)
         (match t with
-         | Tglob (rt, _) when is_record_tglob t ->
-             Hashtbl.replace method_recvtype (global_path r) (go_export (global_basename rt))
-         | Tglob (_, (Tglob (rt, _) :: _)) when is_sptr_record_tglob t ->
-             Hashtbl.replace method_recvtype (global_path r) ("(*" ^ go_export (global_basename rt) ^ ")")
+         | Tglob (rt, args) when is_record_tglob t ->
+             let rn = go_export (global_basename rt) in
+             Hashtbl.replace method_recvname (global_path r) rn;
+             if args = [] then Hashtbl.replace method_expr_recv (global_path r) rn
+         | Tglob (_, (Tglob (rt, args) :: _)) when is_gsptr_record_tglob t ->
+             let rn = go_export (global_basename rt) in
+             Hashtbl.replace method_recvname (global_path r) rn;
+             if args = [] then Hashtbl.replace method_expr_recv (global_path r) ("(*" ^ rn ^ ")")
          | _ -> ())
     | _ -> ()
   in
@@ -5189,11 +5264,7 @@ let pp_struct state struc =
   let pp_mod (mp, sel) =
     State.with_visibility state mp [] (fun state ->
       prlist
-        (fun (_, elem) ->
-           match elem with
-           | SEdecl d      -> pp_decl state d
-           | SEmodule _
-           | SEmodtype _   -> mt ())
+        (fun (_, elem) -> prlist (pp_decl state) (decls_of_elem elem))
         sel)
   in
   prlist pp_mod struc

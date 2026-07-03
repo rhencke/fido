@@ -331,9 +331,9 @@ method-dictionary) embeds the SAME way — the dict IS a struct:
 `type LoggedGreeter struct { Greeter; Lg_calls int64 }` promotes the embedded interface's method
 (emitted `lg.Greet(5)`, NOT `lg.Greeter.Greet(…)`) alongside the struct's own field, a common Go
 wrap-an-interface pattern (`embed_iface_in_struct_demo` → `105 / 7`; `promoted_greet` reflexivity).
-**POINTER embedding DONE (2026-06-22):** Go's `type Node struct { *Cell; tag int64 }` — an [SPtr T]
+**POINTER embedding DONE (2026-06-22):** Go's `type Node struct { *Cell; tag int64 }` — a [GSPtr T]
 field whose exported name is the BASE record's name is emitted as an ANONYMOUS `*T` field, so Go promotes
-the embedded `*T`'s method set THROUGH the pointer.  The embed detection now matches `SPtr <record>` (base
+the embedded `*T`'s method set THROUGH the pointer.  The embed detection matches `GSPtr <record>` (base
 name) at BOTH sites (field emission + `embedded_proj` registration); promoted access reuses the existing
 `peel_embedded` peephole — `cell_incx (cell nd)` → `nd.Cell_incx()` (the pointer-receiver method promoted,
 NOT `nd.Cell.Cell_incx()`).  Emitted `type Node struct { *Cell; Ntag int64 }`, `nd := Node{Cell: p, Ntag:
@@ -357,8 +357,12 @@ user-defined recursive structs needs a named-type registry (deferred).
 ### [Method declarations](https://go.dev/ref/spec#Method_declarations) — ✓ value + pointer receiver, method values/expressions
 Spec: a method binds a function to a receiver of a defined (here, struct) type:
 `func (r T) M(params) results { … }`; the call is `recv.M(args)`.  A Rocq top-level
-function whose FIRST visible parameter is a record (struct) type is lowered as a
-value-receiver method — type-directed, so it is automatic.  Faithful: a value
+function is lowered as a value-receiver method iff it is METHOD-ELIGIBLE (`method_eligible`,
+ONE authority for declaration + call sites): FIRST visible parameter a record (struct) type,
+the receiver's type args distinct type VARIABLES, every remaining signature type variable
+receiver-carried (Go methods add no type params of their own), and no comparable witness;
+an ineligible record-first function stays a plain (possibly generic) function (witness:
+`box_second` → `func Box_second[T1, T2 any](…)`, golden).  Faithful: a value
 receiver gets a COPY (Go's value-receiver semantics), and structs are value types
 here, so `recv.M(a)` denotes exactly `M(recv, a)`; the receiver keeps the same
 de Bruijn binding (only the printed signature pulls it out front).  Projections and
@@ -367,7 +371,7 @@ work.  Method behaviour is provable in Rocq (`shifted_px`: `px (shifted p d) =
 add (px p) d`).  Witnesses: `method_demo` (`func (p Point) Sum_coords() int64` /
 `Shifted(dx int64) Point`, calls `p.Sum_coords()` / `p.Shifted(10)` → `7/13/14/27`),
 `io_method_demo` (`func (p Point) Describe()` → `8/9`).  **POINTER receivers DONE** (on the
-struct-pointer substrate): a first param of type `SPtr R` (a `*R`) → `func (r *T) M()` that
+struct-pointer substrate): an eligible first param of type `GSPtr R` (a `*R`) → `func (r *T) M()` that
 MUTATES the receiver, observed by the caller (`cell_incx` → `func (p *Cell) Cell_incx()`;
 `cell3_inc_z` on a 3-field `*Cell3`; `pair_bump` on a HETEROGENEOUS `*Pair{ N int64; B bool }`).
 **Method VALUES** (`p.M` as a closure → `method_value_demo` passes `p.Shifted` to a HOF) and
