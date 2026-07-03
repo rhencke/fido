@@ -1359,6 +1359,7 @@ Definition gosem_core_surface :=
 Definition gosem_float_surface :=
   (fsf_checked_binop_agrees, fsf_checked_neg_agrees,
    fsf_checked_conv_same_agrees, fsf_checked_conv_narrow_agrees, fsf_checked_conv_widen_agrees,
+   fsf_checked_complete,
    eval_value_floats_checked, floats_checked_children_eqs,
    binary_normalize_opp, Fido.builtins.binary_round_exact,
    Fido.builtins.renorm_binary_round_idem,

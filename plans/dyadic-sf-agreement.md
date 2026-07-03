@@ -129,20 +129,21 @@ value quotient is `dy_norm` (the odd-mantissa normal form), never ℝ.
    at a lower-or-equal exponent + wide determinism at the TARGET precision, with the window
    transferred through `dy_norm` by `dy_norm_window_transfer`); narrowing is EXACT on the
    32-window, widening always.
-8. **The checker-completeness CLASS theorem — IN PROGRESS**: on the admitted class
-   `fsf_checked` ACCEPTS (never returns `None` by disagreement) — then decide whether the
-   runtime re-check stays as defense-in-depth or is dropped (ARCHITECTURE call; dropping
-   shrinks eval).  Groundwork LANDED: `sf_eqb_struct_refl`, `sf_pos_zero_render_gen` (a
-   windowed render is never a signed zero), and the TOTAL const-layer NEGATION endpoints
-   `sf_render_cneg_agrees_{f64,f32}` (zero included — exactly `sf_const_neg`'s composites,
-   what the checker's unary arm compares).  The UNARY and CONVERSION induction STEPS are
-   proved (`fsf_checked_complete_{un,conv}_step` — INTERNAL, premised on the operand IH;
-   they become consumed steps of the master theorem, which is the only surfaced endpoint;
-   the conversion step covers int-const leaves at both widths plus all four
-   same-width/cross-width float rows through the rung-7 endpoints).  REMAINING: the binop
-   step and the master induction over `ptype`'s `PtFloatConst` sites via `GExpr_ind'`
-   (binop rows through the op endpoints + the `sf_pos_zero` render identity; int-const
-   operand rows through `fsf_operand_with`'s interval guard, which matches `num_arith`'s).
+8. **The checker-completeness CLASS theorem — LANDED** (gated, the arc's one surfaced
+   endpoint): `fsf_checked_complete` — whatever `ptype` folds to a float constant,
+   `fsf_checked` ACCEPTS and its output IS the payload's render (never `None` by
+   disagreement; `sf_render` is total on the float widths, so the claim is an equation).
+   Proved by `GExpr_ind'` over `ptype`'s `PtFloatConst` sites, consuming the INTERNAL
+   `_step` lemmas (`fsf_checked_complete_{un,conv,bn}_step` — unary via the TOTAL cneg
+   endpoints; conversion via int-const leaves + the four same-width/cross-width rows;
+   binop via the rung-5/6/7 op endpoints x both widths x all three admitted operand rows,
+   with `dy_*_out_fix` normality glue and the `sf_pos_zero_render_fix` erasure identity
+   for the RAW-conclusion ADD/SUB binary64 endpoints); every non-float-capable node is
+   ground out.  Groundwork riding the cone: `sf_eqb_struct_refl`, `sf_pos_zero_render_gen`,
+   `sf_render_cneg_agrees_{f64,f32}`, `dy_norm_int_window`/`int_interval_norm_repr`,
+   `fsf_operand_complete_{float,int}`.  REMAINING (the rung's residual): the ARCHITECTURE
+   call on the now-provably-redundant runtime re-check — keep as defense-in-depth or drop
+   (dropping shrinks eval).
 
 ## Boundary honesty
 

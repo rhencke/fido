@@ -5,7 +5,8 @@
     [fsf_checked], and the dyadic↔SF* agreement arc (plans/dyadic-sf-agreement.md;
     rungs 1–7 landed: NEG, the window bridges, wide determinism, ADD + SUB raw at
     binary64, MUL + exact DIV at the CONSTANT-op layer, the full f32 row incl. cross-width
-    conversions; rung 8 — checker completeness — remains).
+    conversions; rung 8's class theorem [fsf_checked_complete] landed — the residual is
+    the ARCHITECTURE call on the now-redundant runtime re-check).
     NO EVALUATOR HERE: [eval_value] and its [Local] core live in GoSemDenote.v with the proofs
     that compute through them — the core must stay UNCALLABLE from importers (it would skip
     the [floats_checked] boundary; sealed by the [neg_float_boundary_bypass_*] negtests).
@@ -2700,8 +2701,7 @@ Qed.
 
 (** INTERNAL induction STEP (unary) for the rung-8 class theorem — NOT a closed result:
     the operand-completeness premise is the induction hypothesis, discharged only by the
-    master [GExpr_ind'] completeness theorem (rung 8's remaining work), which will be the
-    surfaced endpoint.  Until then this is a private step with a caller-side obligation. *)
+    master [fsf_checked_complete] below (the arc's one surfaced endpoint). *)
 Lemma fsf_checked_complete_un_step : forall o a t d,
   ptype (EUn o a) = Some (PtFloatConst t d) ->
   (forall t' d', ptype a = Some (PtFloatConst t' d') ->
@@ -3465,4 +3465,90 @@ Proof.
         eapply (fsf_checked_bn_close BSub a b GTFloat32 mr er v1 v2);
           [exact Hkeep | exact Hfix | exact Ho1 | exact Ho2
           | reflexivity | exact Hres | reflexivity].
+Qed.
+
+(** ★ the rung-8 CLASS theorem (gated): checker COMPLETENESS on the admitted float-constant
+    class — whatever [ptype] folds to a float constant, [fsf_checked] ACCEPTS, and its output
+    IS the payload's render ([sf_render] is total on the float widths, so this equation says
+    "never [None] by disagreement", not a mere [isSome]).  The [_step] lemmas above are
+    consumed here, their IH premises discharged by [GExpr_ind']; every non-float-capable
+    node is ground out.  This is the ONLY surfaced endpoint of the completeness arc. *)
+Theorem fsf_checked_complete : forall e t d,
+  ptype e = Some (PtFloatConst t d) ->
+  fsf_checked e = sf_render t (dy_m d) (dy_e d).
+Proof.
+  intros e; induction e as
+    [ i | z | o e0 IH | o l IHl r IHr | e0 IH0 f | e0 IH1 i IH2
+    | e0 IH1 lo IH2 hi IH3 | e0 IH0 args Hargs | e0 IH0 T | c e0 IH0
+    | ty es Hes | kt vt kvs Hkvs | s | zc ] using GExpr_ind'; intros t d H.
+  - (* EId *)
+    cbn [ptype] in H.
+    destruct (String.eqb (proj1_sig i) "nil") eqn:E;
+      try rewrite E in H; cbv beta iota in H; discriminate H.
+  - (* EInt *) cbn [ptype] in H; discriminate H.
+  - (* EUn *) exact (fsf_checked_complete_un_step o e0 t d H IH).
+  - (* EBn *) exact (fsf_checked_complete_bn_step o l r t d H IHl IHr).
+  - (* ESel *) cbn [ptype] in H; discriminate H.
+  - (* EIndex — the only admitted base is a slice literal, and every accepted row is a
+       RUNTIME int, never a float constant *)
+    destruct e0; cbn [ptype] in H; try discriminate H;
+      repeat first
+        [ discriminate H
+        | (cbv beta iota zeta in H;
+           match type of H with
+           | (if ?bg then _ else _) = _ =>
+               let R := fresh "R" in
+               destruct bg eqn:R; try rewrite R in H; cbv beta iota in H;
+               [ idtac | try discriminate H ]
+           | context [match ?x with _ => _ end] =>
+               let R := fresh "R" in
+               destruct x eqn:R; try rewrite R in H; cbv beta iota in H
+           end) ].
+  - (* ESlice *) cbn [ptype] in H; discriminate H.
+  - (* ECall — only the [EId]-callee singleton form types at all; the conversion step
+       takes it (its [len]/[cap] rows are int results, ground inside the step) *)
+    destruct e0 as [ci| | | | | | | | | | | | |];
+      try (cbn [ptype] in H; discriminate H).
+    destruct args as [|a [|a2 args2]];
+      try (cbn [ptype] in H; discriminate H).
+    exact (fsf_checked_complete_conv_step ci a t d H (List.Forall_inv Hargs)).
+  - (* EAssert *) cbn [ptype] in H; discriminate H.
+  - (* EConv — map conversions rejected; slice/chan admit only [nil] -> [PtAgg] *)
+    destruct c as [u|u|k v]; cbn [ptype] in H; try discriminate H;
+      repeat first
+        [ discriminate H
+        | (cbv beta iota zeta in H;
+           match type of H with
+           | (if ?bg then _ else _) = _ =>
+               let R := fresh "R" in
+               destruct bg eqn:R; try rewrite R in H; cbv beta iota in H;
+               [ idtac | try discriminate H ]
+           | context [match ?x with _ => _ end] =>
+               let R := fresh "R" in
+               destruct x eqn:R; try rewrite R in H; cbv beta iota in H
+           end) ].
+  - (* ESliceLit -> PtAgg *)
+    cbn [ptype] in H;
+      repeat first
+        [ discriminate H
+        | (cbv beta iota zeta in H;
+           match type of H with
+           | (if ?bg then _ else _) = _ =>
+               let R := fresh "R" in
+               destruct bg eqn:R; try rewrite R in H; cbv beta iota in H;
+               [ idtac | try discriminate H ]
+           end) ].
+  - (* EMapLit -> PtMap *)
+    cbn [ptype] in H;
+      repeat first
+        [ discriminate H
+        | (cbv beta iota zeta in H;
+           match type of H with
+           | (if ?bg then _ else _) = _ =>
+               let R := fresh "R" in
+               destruct bg eqn:R; try rewrite R in H; cbv beta iota in H;
+               [ idtac | try discriminate H ]
+           end) ].
+  - (* EStr *) cbn [ptype] in H; discriminate H.
+  - (* EHex *) cbn [ptype] in H; discriminate H.
 Qed.
