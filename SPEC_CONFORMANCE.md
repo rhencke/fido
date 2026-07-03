@@ -877,86 +877,48 @@ Tracked
 (`close(ch); select{case <-ch: 1; default: 2}` — Go prints 1).
 `select_recv_default`/`select_recv2`/`select_wait2` check `chan_closed`: empty+closed ⇒ that recv
 fires with zero; `default` only on empty+OPEN.  Witnessed
-(`select_default_closed`/`select_default_open_empty`); `select2_eq_recv2` proven.  *Remaining:*
-(a) **RESOLVED (2026-06-21):** the relational select now models closed channels with NO config flag —
-closed-state is read off the TRACE (`closedb`: a `KClose c` event), and a `KRecv` back-pointer may point
-at that `KClose` (the close→closed-recv happens-before edge).  `step_select_closed` / `rstep_select_closed`
-step a closed-drained select to zero (witnesses `closed_select_can_step` / `rclosed_select_can_step`; see
-the closed-channel rows below);
-(b) **DONE (2026-06-20):** the value-carrying `rstep`/`Cmd` calculus now has `CSelect : list (nat *
-(nat → Cmd))` — PER-CASE channel + continuation, so `select { case <-ch: A() | case <-ch: B() }`
-(same channel, distinct bodies) IS representable and BOTH cases eligible (`rselect_per_case_continuation`:
-two successors running A vs B).  Its `rstep_select` fires any ready case (nondeterministic), and an
-empty select is a local non-step feeding global deadlock (`rsel_block_stuck` : `RStuck`).  The
-deadlock theory was extended to be select-aware (`blocked` now includes a select-with-no-ready-case
-disjunct via the decidable `sel_first_ready`; `ready_can_step`/`rstuck_blocked` updated), and the
-`CSelect` case rides the existing `RInv`/`RBufSorted` preservation + the multi-goroutine state
-refinement (`wmatchc_step`: select's world-step = a recv on the chosen channel).  Axiom-free,
-proof-only (golden-stable).  **Scheduler bridge DONE (2026-06-20):** `sel_first_ready` IS the
-ch1-priority scheduler the typed `select_recv2` realises, so `det_select_sound` proves that choice
-is always a PERMITTED `rstep_select` (the typed select is a SOUND scheduler), and
-`det_select_incomplete` proves that when two cases are ready it realises only ch1 while
-`rstep_select` ALSO permits the ch2 successor (so it is INCOMPLETE) — making the claim
-"the deterministic interpreter is one example scheduler, non-authoritative" a theorem.
-**Completeness boundary DONE (2026-06-21):** the exact converse of `det_select_incomplete` —
-`det_select_complete_unique` proves that when the cases have a UNIQUE buffered-ready case, every buffered
-`rstep_select` firing collapses to the SAME successor `sel_first_ready` takes, and `det_select_exact_unique`
-packages sound (⊇, from `det_select_sound`) ∧ complete (⊆) into one EXACT statement.  So the cheap typed
-`select_recv2` is fully faithful to Go PRECISELY in the unique-ready regime — Go's pseudo-random pick then
-ranges over a single candidate, so the deterministic model forbids nothing Go permits; incompleteness
-arises ONLY from a genuine choice among ≥2 ready cases.  (Honest scope: the uniqueness is over BUFFERED
-readiness; full Go-completeness also needs the open-channel side condition, since a closed-drained case is
-an orthogonal ready successor.)  Proof-only, golden-stable, and `Print Assumptions det_select_exact_unique`
-= **Closed under the global context** — fully axiom-free, resting on nothing at all (pure `nat`/`list`/
-inductive reasoning over `rstep`, not even the Int63/Float substrate).
-**WORLD-level select↔recv bridge DONE (2026-06-21):** `det_select_sound` used `sel_first_ready` as a
-STAND-IN for the real `select_recv2`; now the actual `select_recv2` is tied to `run_io` directly — a
-READY first channel makes it reduce to a plain `recv` on that channel: `select_recv2_ch1_buffered` /
-`select_recv2_ch1_closed` (and the ch2 fall-through `_ch2_buffered` / `_ch2_closed`) prove
-`run_io (select_recv2 …) w = run_io (bind (recv …) k) w`.  So select INHERITS `recv`'s `run_io`/
-operational refinement (`denote_sim_recv` / `rstep_recv`); the calculus mirror `select_fire_is_recv_fire`
-shows firing a buffered select case reaches the IDENTICAL successor as `rstep_recv` on that channel.
-Both rest only on the `PrimInt63`/`PrimFloat` base (no `functional_extensionality`, no Fido axiom).
-**Closed-channel readiness (relational), trace-core slice DONE (2026-06-20):** a recv from a CLOSED,
-drained channel returns the zero value, and per the Go memory model the CLOSE happens-before that
-recv.  The trace core now expresses this — a `KClose` event-kind, and a `KRecv`'s back-pointer may
-point at a `KClose` of the channel (not only a `KSend`).  `WfTrace` carries the send-OR-close
-disjunction; all happens-before / race-freedom proofs preserved.  Witnesses `closed_recv_wf` (a
-closed-recv trace is well-formed) and `closed_recv_hb` (close happens-before the closed-recv).
-**Operational slice DONE (2026-06-20):** the simple-calculus `step` gains `PClose` + `step_close`
-(records a `KClose`), and — reading "closed" off the trace, no config field — `step_recv_closed` /
-`step_select_closed`: a recv/select on a CLOSED, drained channel STEPS (yields zero), the emitted
-`KRecv`'s producer being the close position.  `step_preserves_inv`/`step_preserves_sorted` extended
-(closed-recv keeps `Inv`; `WfTrace` discharged by the close back-pointer).  Witnesses
-`closed_recv_can_step` / `closed_select_can_step` (a closed-drained recv/select is ENABLED, where
-`block_stuck`/`sel_block_stuck` show the OPEN-empty one is stuck) and `closed_recv_preserves_inv`.
-**Rich-calculus port DONE (250a8c3):** the same closed steps in the value-carrying `rstep`/`Cmd`
-calculus (`CClose` + `rstep_close` + `rstep_recv_closed` / `rstep_select_closed`, binding the zero
-value); witnesses `rclosed_recv_can_step` / `rclosed_select_can_step` / `rclosed_recv_preserves_inv`;
-Keystone `SimInv` carries a `NoCloseTrace` invariant.  **Closed-PRECISE deadlock DONE (e11b60f):**
-`closedb` (decidable trace-closedness) + `sel_ready_cl` (closed-aware select readiness) make `blocked`
-exact — a closed-drained recv/select is READY, not blocked; `ready_can_step`/`rstuck_blocked` are now
-exact inverses (`rclosed_recv_not_blocked` / `rclosed_select_not_blocked`).  **Closed PERMANENCE DONE
-(2026-06-20):** `closedb` only grows along `rstep` (every step appends one event; `existsb` monotone)
-— `rsteps_closedb_mono`, so a channel once closed stays closed; `rclosed_chan_stays_closed` and
-`reachable_closed_recv_can_step` (a closed-drained recv can step at ANY reachable later state — no
-deadlock on a closed channel).
-**Operational double-CLOSE = PANIC DONE (2026-06-21):** `rstep_close` is now GUARDED by
-`closedb tr c = false` — a close of an already-closed channel has NO step (Go panics), classified
-`rpanicking` (decidable, `rpanicking_dec`), NOT a silent re-close.  The deadlock theory is now
-PANIC-AWARE: `rstuck_blocked` reads *stuck ⇒ done ∨ blocked ∨ panicking* (the three ways a live
-goroutine fails to step — Go distinguishes deadlock from panic, and so do we); `ready_can_step` gains
-`~ rpanicking`; `recvfree_progress` / `reachable_recvfree_progress` read *progress ∨ panic* (a
-receive-free program never DEADLOCKS — its only non-step is a double-close panic).  Witnessed:
-`rdouble_close_panicking` (a poised double-close IS panicking) and `rdouble_close_cant_step` (it
-genuinely cannot step — the guard works; the operational image of `double_close_panics`).
-**Operational SEND-on-closed = PANIC DONE too (2026-06-21):** `rstep_send` is now GUARDED by the same
-`closedb tr c = false`; `rpanicking` gains a CSend disjunct (still decidable); a `closedb (rc_trace)
-0 = false` invariant added to `SRShape` (the `sr` deadlock-free witness SENDS on 0 — its send never
-panics, preserved because `sr` never closes 0).  Witnessed `rsend_closed_panicking` /
-`rsend_closed_cant_step`.  So BOTH operational close- and send-on-closed are now faithful panics,
-matching the IO model.  All zero-axiom.  *Remaining:* the full WORLD-level `select_recv2`↔`CSelect`
-bridge (extend the Keystone `WMatchC` refinement to a select operation in the `World`).
+(`select_default_closed`/`select_default_open_empty`); `select2_eq_recv2` proven.
+
+**The relational/operational select layer — current state (all axiom-free, proof-only, golden-stable):**
+- **Closed channels are modeled off the TRACE, no config flag:** `closedb` (decidable
+  trace-closedness) reads a `KClose c` event; a `KRecv` back-pointer may point at that `KClose`
+  (the close→closed-recv happens-before edge; `WfTrace` carries the send-OR-close disjunction).
+  `step_recv_closed`/`step_select_closed` and the rich-calculus `rstep_recv_closed`/
+  `rstep_select_closed` step a closed-drained recv/select to the zero value (witnesses
+  `closed_recv_wf`, `closed_recv_hb`, `closed_select_can_step`, `rclosed_select_can_step`,
+  `closed_recv_preserves_inv`, `rclosed_recv_preserves_inv`; Keystone `SimInv` carries
+  `NoCloseTrace`).
+- **`CSelect` is first-class in the value-carrying calculus:** `CSelect : list (nat * (nat → Cmd))`
+  — PER-CASE channel + continuation, so `select { case <-ch: A() | case <-ch: B() }` (same channel,
+  distinct bodies) is representable with BOTH successors eligible
+  (`rselect_per_case_continuation`).  `rstep_select` fires any ready case (nondeterministic); an
+  empty select is a LOCAL non-step feeding global deadlock (`rsel_block_stuck` : `RStuck`).  The
+  deadlock theory is select-aware (`blocked` includes select-with-no-ready-case via the decidable
+  `sel_first_ready`) and the multi-goroutine refinement carries the case (`wmatchc_step`).
+- **The typed `select_recv2` is a SOUND, INCOMPLETE scheduler — and EXACT precisely on unique
+  readiness:** `det_select_sound` (its ch1-priority choice is always a permitted `rstep_select`),
+  `det_select_incomplete` (two ready cases ⇒ it realises only ch1 while `rstep_select` also permits
+  ch2 — "one example scheduler, non-authoritative" is a THEOREM), and
+  `det_select_complete_unique`/`det_select_exact_unique` (a UNIQUE buffered-ready case collapses
+  every firing to the same successor — sound ∧ complete; `Print Assumptions` closed under the
+  global context).  Honest scope: uniqueness is over BUFFERED readiness; full Go-completeness also
+  needs the open-channel side condition (a closed-drained case is an orthogonal ready successor).
+- **`select_recv2` ties to `run_io` directly:** a READY first channel reduces it to a plain `recv`
+  (`select_recv2_ch1_buffered`/`_ch1_closed`, fall-throughs `_ch2_buffered`/`_ch2_closed` —
+  `run_io (select_recv2 …) w = run_io (bind (recv …) k) w`), so select INHERITS `recv`'s
+  operational refinement; `select_fire_is_recv_fire` mirrors it in the calculus.
+- **Closed-precise, panic-aware deadlock:** `closedb` + `sel_ready_cl` make `blocked` EXACT (a
+  closed-drained recv/select is READY, not blocked; `ready_can_step`/`rstuck_blocked` are exact
+  inverses).  Closedness is PERMANENT along `rstep` (`rsteps_closedb_mono`,
+  `rclosed_chan_stays_closed`, `reachable_closed_recv_can_step`).  `rstep_close` and `rstep_send`
+  are GUARDED by `closedb tr c = false`, so double-close and send-on-closed have NO step and are
+  classified `rpanicking` (decidable) — `rstuck_blocked` reads *stuck ⇒ done ∨ blocked ∨
+  panicking*, matching the IO model's faithful panics (witnesses `rdouble_close_panicking`/
+  `rdouble_close_cant_step`, `rsend_closed_panicking`/`rsend_closed_cant_step`;
+  `recvfree_progress` reads progress ∨ panic).
+
+*Remaining:* the full WORLD-level `select_recv2`↔`CSelect` bridge (extend the Keystone `WMatchC`
+refinement to a select operation in the `World`).
 
 ### [Close](https://go.dev/ref/spec#Close) — ✓ panics; ⚠ nil
 Spec: "Sending to or closing a **closed** channel causes a run-time panic.

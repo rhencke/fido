@@ -19,7 +19,7 @@ print-goimage:
 
 # Run the extracted program (Go's println writes to stderr → capture 2>&1).
 GORUN := docker run --rm -v "$(PWD)":/w -w /w $(GOIMAGE) go run .
-# `go vet` gate (R10): `go run` already BUILDS the emitted Go (so a type error
+# `go vet` gate: `go run` already BUILDS the emitted Go (so a type error
 # anywhere fails), but vet catches suspicious-but-COMPILING constructs (bad printf verbs,
 # unreachable code, lost cancels, self-assignment, …) that a plugin bug could emit silently.
 # The no-import `package main` vets offline.  Wired into [check] and [golden] below.

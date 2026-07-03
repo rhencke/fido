@@ -24,7 +24,7 @@
       - DEFER       [UDfr]             -> [uc_defers] (per-goroutine LIFO stack, run at return)
       - PANIC       [UPan]             -> [uc_panic] (per-goroutine status; defers STILL run)
 
-    The defer/panic interaction is the faithful one (the cmd.v P0 fix, now operational + concurrent): a
+    The defer/panic interaction is the faithful one (cmd.v's defer-unwind completion, now operational + concurrent): a
     deferred action runs at function-scope RETURN in LIFO order, AND a panic does NOT cancel the
     remaining defers — it records the active panic and unwinding CONTINUES.  See [ustep_ret_defer] /
     [ustep_pan_defer]. *)
@@ -206,7 +206,7 @@ Proof. intros. apply ustep_out; assumption. Qed.
 
 (** DEFER + PANIC, operational and faithful: a panicking goroutine with a pending defer does NOT skip
     it — it records the panic and steps INTO the deferred action (which then runs to its own return).
-    This is the cmd.v P0 fix, now in the concurrent operational semantics. *)
+    This is cmd.v's defer-unwind completion, now in the concurrent operational semantics. *)
 Lemma ustep_panic_runs_deferred : forall p b h lv tr o df pa tid v d ds,
   lv tid = true -> p tid = UPan v -> df tid = d :: ds ->
   ustep (mkUCfg p b h lv tr o df pa)
@@ -701,10 +701,10 @@ Notation UCmdN := (@UCmd nat).
 
     These are the "ordinary program combining the effects", machine-checked:
     concrete [usteps] runs exercising panic + defer + output (and heap), proving the unified semantics
-    behaves faithfully — in particular the defer/panic interaction that was the cmd.v P0 bug, now
+    behaves faithfully — in particular the defer/panic interaction (defer-unwind completion), now
     operational AND in the concurrent step relation. *)
 
-(** THE P0 FIX, OPERATIONAL + CONCURRENT: goroutine 0 PANICS with a deferred [print xv] pending.  The
+(** DEFER-UNWIND COMPLETION, OPERATIONAL + CONCURRENT: goroutine 0 PANICS with a deferred [print xv] pending.  The
     deferred print STILL happens (it appears in [uc_out]), THEN the goroutine dies with the panic [pv]
     recorded.  Pre-fix, the deferred print was provably dropped. *)
 Lemma unified_panic_runs_defer : forall (xv pv : GoAny),
@@ -794,7 +794,7 @@ Qed.
     A single goroutine that MUTATES the heap, SENDS on a channel and RECEIVES it back, DEFERS a print,
     then PANICS — exercising heap + channel + defer + panic + output TOGETHER in the ONE semantics.  The
     no single authoritative semantics used to cover such a program; here is one, run end to end: the
-    deferred print STILL happens at the panic (the P0 fix), the heap holds its write, the channel
+    deferred print STILL happens at the panic (unwind completion), the heap holds its write, the channel
     round-trips, and the goroutine dies with the panic recorded. *)
 Lemma unified_all_effects : forall (msg boom : GoAny),
   exists cfg',

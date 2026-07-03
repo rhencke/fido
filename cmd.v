@@ -440,7 +440,7 @@ Example defer_runs_on_panic : forall (a v : GoAny) (w : World),
     = Some (OPanic v (w_log true (a :: nil) w)).
 Proof. reflexivity. Qed.
 
-(** THE P0 FIX, LOCKED: a NEWER defer panics (runs FIRST in LIFO) — the OLDER deferred [println(a)] STILL
+(** DEFER-UNWIND COMPLETION, LOCKED: a NEWER defer panics (runs FIRST in LIFO) — the OLDER deferred [println(a)] STILL
     RUNS (its output [w_log a] appears) and the panic propagates.  The pre-fix interpreter STOPPED at the
     panicking defer and returned [OPanic v w] with NO [w_log a] — a provably-dropped deferred effect. *)
 Example defer_older_runs_after_newer_panics : forall (a v : GoAny) (w : World),

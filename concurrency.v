@@ -7456,7 +7456,7 @@ End BoundedChannels.
     [builtins.v]'s extracted session type WAS a one-field RECORD [Sess i j A :=
     MkSess { run_sess : IO A }], so the public [MkSess] wrapped an ARBITRARY [IO A]
     regardless of the protocol indices: [MkSess (ret tt) : Sess (PSend A P) P unit]
-    type-checked yet COMMUNICATED NOTHING — the indices were phantom (R9).
+    type-checked yet COMMUNICATED NOTHING — the indices were phantom.
     Rocq 9.2 cannot make a record constructor private without opaque module
     ascription (which needs a Module-Type [Parameter]); the chosen fix is the
     DEEPER one — tie the run to the protocol so the index simply CANNOT lie.  [Sess]
@@ -7471,7 +7471,7 @@ End BoundedChannels.
     index is structurally honest.  We read off the COMMUNICATION TRACE a [PSess]
     performs ([PEmits]) and prove it is EXACTLY the sequence the protocol
     prescribes ([proto_steps]) — making the indices a genuine behavioural
-    specification.  This is brick 1 of the R9 deeper fix; later bricks denote
+    specification.  This is brick 1 of the session-semantics arc; later bricks denote
     [PSess] into the [builtins.v] channel IO and migrate the extracted [Sess]. *)
 
 (** A protocol step's observable shape: send or receive of a value of a type.
@@ -7543,7 +7543,7 @@ Qed.
 (** Headline corollary: a COMPLETE session ([j = PEnd]) performs PRECISELY the
     protocol's whole communication sequence.  The forged [MkSess (ret tt) : Sess
     (PSend A P) P unit] — which would emit [[]] ≠ [[PKSend A; …]] — has NO [PSess]
-    counterpart, so the leak that motivated R9 is closed by construction here. *)
+    counterpart, so the phantom-index leak is closed by construction here. *)
 Corollary psess_full_emits_proto :
   forall (i : Proto) (A : Type) (s : PSess i PEnd A) (steps : list StepKind),
     PEmits s steps -> steps = proto_steps i.
@@ -7591,7 +7591,7 @@ Qed.
     plain [induction], NEVER the Eqdep-introducing dependent variant that would
     breach rule 3) — and no project-declared assumption and no unfinished proof of
     any kind.  So the soundness of the protocol-indexed session rests on the same
-    trust base as the rest of Fido, and the seal-vs-deeper-fix tension of R9 is
+    trust base as the rest of Fido, and the seal-vs-deeper-fix tension is
     sidestepped entirely. *)
 
 (** ** Session DUALITY — the client and server agree (communication safety).
@@ -7603,7 +7603,7 @@ Qed.
     server realising [dual P] perform traces that are exact mirror images — every
     message the client sends is exactly the one the server receives, with no type
     mismatch and no orphaned message.  This is the deadlock/agreement core of
-    session typing, now proved for the forge-proof [PSess].  Brick 2 of the R9
+    session typing, now proved for the forge-proof [PSess].  Brick 2 of the session-semantics
     deeper fix (still pure-protocol; the channel-IO denotation is brick 3). *)
 
 (** A single step's complement: a send of [A] is matched by a receive of [A]. *)
@@ -7661,7 +7661,7 @@ Qed.
     SAME type, so a step is always available.  Together with the trace mirroring of
     brick 2 this is the classical session-types safety pair (PRESERVATION + PROGRESS).
     Protocol-level (a complete [PSess] realises its protocol by brick 1, so its
-    available steps ARE these); brick 3 of the R9 deeper fix, still pure-protocol. *)
+    available steps ARE these); brick 3 of the session-semantics arc, still pure-protocol. *)
 
 (** One synchronized step: the sender's head [PSend A] and the receiver's matching
     head [PRecv A] cancel, both endpoints advancing to their continuations. *)
@@ -7716,7 +7716,7 @@ Qed.
     channel needs [GoChan GoAny] but [GoTypeTag GoAny] is universe-inconsistent
     (builtins.v), the same idealisation that forces [run_sess = ret tt]; the
     remaining extraction-soundness step is therefore the plugin MIGRATION, not a
-    Rocq denotation.  Brick 4 of the R9 deeper fix, still pure-protocol. *)
+    Rocq denotation.  Brick 4 of the session-semantics arc, still pure-protocol. *)
 
 (** Reflexive-transitive closure of [pair_step]: a whole synchronized run. *)
 Inductive pair_steps : Proto * Proto -> Proto * Proto -> Prop :=
@@ -7787,7 +7787,7 @@ Proof. apply dual_pair_terminates. Qed.
     run is not merely live, it carries precisely the protocol's message sequence.
     This UNIFIES the three trace notions: the protocol SPEC ([proto_steps]), the
     session TERM's trace ([PEmits], brick 1), and now the synchronized RUN's trace
-    all coincide.  Brick 5 of the R9 deeper fix, still pure-protocol. *)
+    all coincide.  Brick 5 of the session-semantics arc, still pure-protocol. *)
 
 (** A step that records the communicated kind (from the sender's view). *)
 Inductive pair_step_tr : Proto * Proto -> StepKind -> Proto * Proto -> Prop :=
@@ -7829,7 +7829,7 @@ Qed.
     [pair_step_tr]): [dual_pair_run_trace] / the forget lemmas are Closed under the
     global context, FULLY axiom-free.  No funext, no Eqdep/UIP.  Verified by
     [Print Assumptions].  Together bricks 1–5 are the model-layer session theory;
-    the remaining R9 step is the plugin MIGRATION (extracted [Sess] RECORD → an
+    the remaining session-semantics step is the plugin MIGRATION (extracted [Sess] RECORD → an
     INDUCTIVE, so the EXTRACTED type is forge-proof too).  RESEARCHED this tick: the
     plugin lowers session ops by COMBINATOR name ([ssend]…) via [emit_sess_action],
     so migration must keep those names (NoInline wrappers) OR retarget the plugin to

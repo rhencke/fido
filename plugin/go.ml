@@ -2547,8 +2547,8 @@ let rec pp_expr state env = function
           [ECall (EId "uint64") [f]] in the binop-operand case. *)
        | MLglob r, [x] when is_f64_to_u64_ref r ->
            str "uint64(" ++ pp_expr state env x ++ str ")"
-       (* narrow → int64 widening → [int64(x)] (Go's widening conversion).  NOT identity: the class
-          #4 P1 #4 — a narrow operand at a typed boundary (a [uint8]/[int8]/… PARAM, or a value cast
+       (* narrow → int64 widening → [int64(x)] (Go's widening conversion).  NOT identity: the narrow-boundary
+          class — a narrow operand at a typed boundary (a [uint8]/[int8]/… PARAM, or a value cast
           to its narrow Go type) is a REAL narrow Go type, so a bare [x] against an [int64]
           destination is invalid Go (e.g. [func Widen(x uint8) int64 { return x }]).  [int64(x)]
           widens it (sign/zero-extending per the narrow type) and is harmlessly idempotent when [x]
