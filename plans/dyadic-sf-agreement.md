@@ -109,11 +109,14 @@ value quotient is `dy_norm` (the odd-mantissa normal form), never ℝ.
 7. **The f32 row + cross-width conversions — IN PROGRESS.**  The assembly kit is now
    PRECISION-GENERIC (`render_signed_value_gen`/`render_canonical_gen`/
    `normalize_result_agrees_gen`, the f64 lemmas thin wrappers) with the binary32 instances
-   + `repr_window_split_f32` + the generic `binary_normalize_opp` landed.  REMAINING: the
-   op cores at 24/128 (the f32 ops are SF-ops at 24/128 under an IDEMPOTENT `f32_round` —
-   rung 3's idempotence peels the wrapper), the four const-layer endpoints over the
-   checker's own composite (`f32val ∘ f32_op ∘ f32_lit`), and the `f32_of_f64`/`f64_of_f32`
-   cross-width agreement.
+   + `repr_window_split_f32` + the generic `binary_normalize_opp` landed.  ★ ADD at binary32 CLOSED (gated
+   `sf_render_add_agrees_f32`, over the checker's OWN composite `f32val ∘ f32_add ∘ f32_lit`):
+   the whole ADD stack went PRECISION-GENERIC (`SFadd_normalize_agrees_gen` + zero/finite
+   sublemmas over split windows; the f64 endpoint is now an instance), the f32 render is the
+   binary32 normalizer (`sf_render_f32_eq`), and `f32_round` is the IDENTITY on windowed
+   renders (`f32_round_render_id` — rung 3c's idempotence peels the ops' outer re-round).
+   REMAINING: SUB/MUL/DIV at binary32 (same recipe: genericize or instantiate the cores),
+   and the `f32_of_f64`/`f64_of_f32` cross-width agreement.
 8. **The checker-completeness CLASS theorem**: on the admitted class `fsf_checked` ACCEPTS
    (never returns `None` by disagreement) — then decide whether the runtime re-check stays as
    defense-in-depth or is dropped (ARCHITECTURE call; dropping shrinks eval).

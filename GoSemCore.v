@@ -1109,18 +1109,25 @@ Lemma cond_Zopp_mul : forall s a b, cond_Zopp s (a * b)%Z = (cond_Zopp s a * b)%
 Proof. intros [|] a b; cbn [cond_Zopp]; ring. Qed.
 (** the zero rows: [SFadd] returns the OTHER operand; the fold side collapses to the other
     dyadic via [dy_norm_value_unique] *)
-Lemma f64_add_zero_left_f64 : forall e1 m2 e2 mr er p2,
+Lemma SFadd_zero_left_gen : forall prec emax e1 m2 e2 mr er p2,
   Z.abs m2 = Zpos p2 ->
-  float_dyadic_repr GTFloat64 m2 e2 = true ->
+  (Zpos (digits2_pos p2) <= prec)%Z ->
+  (emin prec emax <= e2)%Z ->
+  (Zpos (digits2_pos p2) + e2 <= emax)%Z ->
+  (2 <= emax)%Z ->
   dy_add (Z0, e1) (m2, e2) = (mr, er) ->
-  float_dyadic_repr GTFloat64 mr er = true ->
-  f64_add (binary_normalize 53 1024 Z0 e1 false) (binary_normalize 53 1024 m2 e2 false)
-  = binary_normalize 53 1024 mr er false.
+  (mr = Z0 \/ exists q, Z.abs mr = Zpos q
+     /\ (Zpos (digits2_pos q) <= prec)%Z /\ (emin prec emax <= er)%Z
+     /\ (Zpos (digits2_pos q) + er <= emax)%Z) ->
+  SFadd prec emax (binary_normalize prec emax Z0 e1 false)
+                  (binary_normalize prec emax m2 e2 false)
+  = binary_normalize prec emax mr er false.
 Proof.
-  intros e1 m2 e2 mr er p2 Ha H2 Hadd Hr.
-  destruct (render_signed_value_f64 m2 e2 p2 Ha H2) as [s2 [mc2 [T2 [Hbn2 _]]]].
+  intros prec emax e1 m2 e2 mr er p2 Ha Hd He Hde Hemax Hadd Hwr.
+  destruct (render_signed_value_gen prec emax m2 e2 p2 Ha Hd He Hde Hemax)
+    as [s2 [mc2 [T2 [Hbn2 _]]]].
   rewrite Hbn2. cbn [binary_normalize].
-  unfold f64_add, SFadd. cbv beta iota.
+  unfold SFadd. cbv beta iota.
   assert (Hsum : dy_norm m2 e2 = (mr, er)).
   { cbn [dy_add] in Hadd.
     destruct (Z.leb e1 e2) eqn:Eb in Hadd.
@@ -1131,20 +1138,27 @@ Proof.
       apply (dy_norm_value_unique (m2 * 2 ^ (e2 - e1)) e1 m2 e2 Eb eq_refl).
     - rewrite Z.shiftl_0_l, Z.add_0_l in Hadd. exact Hadd. }
   rewrite <- Hbn2.
-  exact (normalize_result_agrees_f64 m2 e2 mr er Hsum Hr).
+  exact (normalize_result_agrees_gen prec emax m2 e2 mr er Hsum Hwr Hemax).
 Qed.
-Lemma f64_add_zero_right_f64 : forall m1 e1 e2 mr er p1,
+Lemma SFadd_zero_right_gen : forall prec emax m1 e1 e2 mr er p1,
   Z.abs m1 = Zpos p1 ->
-  float_dyadic_repr GTFloat64 m1 e1 = true ->
+  (Zpos (digits2_pos p1) <= prec)%Z ->
+  (emin prec emax <= e1)%Z ->
+  (Zpos (digits2_pos p1) + e1 <= emax)%Z ->
+  (2 <= emax)%Z ->
   dy_add (m1, e1) (Z0, e2) = (mr, er) ->
-  float_dyadic_repr GTFloat64 mr er = true ->
-  f64_add (binary_normalize 53 1024 m1 e1 false) (binary_normalize 53 1024 Z0 e2 false)
-  = binary_normalize 53 1024 mr er false.
+  (mr = Z0 \/ exists q, Z.abs mr = Zpos q
+     /\ (Zpos (digits2_pos q) <= prec)%Z /\ (emin prec emax <= er)%Z
+     /\ (Zpos (digits2_pos q) + er <= emax)%Z) ->
+  SFadd prec emax (binary_normalize prec emax m1 e1 false)
+                  (binary_normalize prec emax Z0 e2 false)
+  = binary_normalize prec emax mr er false.
 Proof.
-  intros m1 e1 e2 mr er p1 Ha H1 Hadd Hr.
-  destruct (render_signed_value_f64 m1 e1 p1 Ha H1) as [s1 [mc1 [T1 [Hbn1 _]]]].
+  intros prec emax m1 e1 e2 mr er p1 Ha Hd He Hde Hemax Hadd Hwr.
+  destruct (render_signed_value_gen prec emax m1 e1 p1 Ha Hd He Hde Hemax)
+    as [s1 [mc1 [T1 [Hbn1 _]]]].
   rewrite Hbn1. cbn [binary_normalize].
-  unfold f64_add, SFadd. cbv beta iota.
+  unfold SFadd. cbv beta iota.
   assert (Hsum : dy_norm m1 e1 = (mr, er)).
   { cbn [dy_add] in Hadd.
     destruct (Z.leb e1 e2) eqn:Eb in Hadd.
@@ -1155,26 +1169,34 @@ Proof.
       symmetry.
       apply (dy_norm_value_unique (m1 * 2 ^ (e1 - e2)) e2 m1 e1); [lia | reflexivity]. }
   rewrite <- Hbn1.
-  exact (normalize_result_agrees_f64 m1 e1 mr er Hsum Hr).
+  exact (normalize_result_agrees_gen prec emax m1 e1 mr er Hsum Hwr Hemax).
 Qed.
 (** the finite×finite core: SIGNED difference-form value algebra identifies [SFadd]'s raw
     aligned sum with [dy_add]'s exact fold *)
-Lemma f64_add_finite_agrees : forall m1 e1 m2 e2 mr er p1 p2,
+Lemma SFadd_finite_gen : forall prec emax m1 e1 m2 e2 mr er p1 p2,
   Z.abs m1 = Zpos p1 -> Z.abs m2 = Zpos p2 ->
-  float_dyadic_repr GTFloat64 m1 e1 = true ->
-  float_dyadic_repr GTFloat64 m2 e2 = true ->
+  (Zpos (digits2_pos p1) <= prec)%Z ->
+  (emin prec emax <= e1)%Z ->
+  (Zpos (digits2_pos p1) + e1 <= emax)%Z ->
+  (Zpos (digits2_pos p2) <= prec)%Z ->
+  (emin prec emax <= e2)%Z ->
+  (Zpos (digits2_pos p2) + e2 <= emax)%Z ->
+  (2 <= emax)%Z ->
   dy_add (m1, e1) (m2, e2) = (mr, er) ->
-  float_dyadic_repr GTFloat64 mr er = true ->
-  f64_add (binary_normalize 53 1024 m1 e1 false) (binary_normalize 53 1024 m2 e2 false)
-  = binary_normalize 53 1024 mr er false.
+  (mr = Z0 \/ exists q, Z.abs mr = Zpos q
+     /\ (Zpos (digits2_pos q) <= prec)%Z /\ (emin prec emax <= er)%Z
+     /\ (Zpos (digits2_pos q) + er <= emax)%Z) ->
+  SFadd prec emax (binary_normalize prec emax m1 e1 false)
+                  (binary_normalize prec emax m2 e2 false)
+  = binary_normalize prec emax mr er false.
 Proof.
-  intros m1 e1 m2 e2 mr er p1 p2 Ha1 Ha2 H1 H2 Hadd Hr.
-  destruct (render_signed_value_f64 m1 e1 p1 Ha1 H1)
+  intros prec emax m1 e1 m2 e2 mr er p1 p2 Ha1 Ha2 Hd1 He1 Hde1 Hd2 He2 Hde2 Hemax Hadd Hwr.
+  destruct (render_signed_value_gen prec emax m1 e1 p1 Ha1 Hd1 He1 Hde1 Hemax)
     as [s1 [mc1 [T1 [Hbn1 [Hv1 [HmT1 HTe1]]]]]].
-  destruct (render_signed_value_f64 m2 e2 p2 Ha2 H2)
+  destruct (render_signed_value_gen prec emax m2 e2 p2 Ha2 Hd2 He2 Hde2 Hemax)
     as [s2 [mc2 [T2 [Hbn2 [Hv2 [HmT2 HTe2]]]]]].
   rewrite Hbn1, Hbn2.
-  unfold f64_add, SFadd. cbv beta iota zeta.
+  unfold SFadd. cbv beta iota zeta.
   assert (Hz1 : (Z.min T1 T2 <= T1)%Z) by lia.
   assert (Hz2 : (Z.min T1 T2 <= T2)%Z) by lia.
   assert (HA : cond_Zopp s1 (Zpos (fst (shl_align mc1 T1 (Z.min T1 T2))))
@@ -1209,9 +1231,62 @@ Proof.
       rewrite <- Z.mul_assoc, <- Z.pow_add_r by lia.
       replace ((e1 - e2) + (e2 - Z.min T1 T2))%Z with (e1 - Z.min T1 T2)%Z by lia.
       reflexivity. }
-  exact (normalize_result_agrees_f64 _ _ mr er Hsum Hr).
+  exact (normalize_result_agrees_gen prec emax _ _ mr er Hsum Hwr Hemax).
 Qed.
-(** the ADD agreement core over all shapes (SUB transports through it — [sf_render_sub_agrees_f64]) *)
+(** the ADD agreement core over all shapes, PRECISION-GENERIC (SUB transports through it;
+    both widths' endpoints are instances) *)
+Lemma SFadd_normalize_agrees_gen : forall prec emax m1 e1 m2 e2 mr er,
+  (m1 = Z0 \/ exists q, Z.abs m1 = Zpos q
+     /\ (Zpos (digits2_pos q) <= prec)%Z /\ (emin prec emax <= e1)%Z
+     /\ (Zpos (digits2_pos q) + e1 <= emax)%Z) ->
+  (m2 = Z0 \/ exists q, Z.abs m2 = Zpos q
+     /\ (Zpos (digits2_pos q) <= prec)%Z /\ (emin prec emax <= e2)%Z
+     /\ (Zpos (digits2_pos q) + e2 <= emax)%Z) ->
+  dy_add (m1, e1) (m2, e2) = (mr, er) ->
+  (mr = Z0 \/ exists q, Z.abs mr = Zpos q
+     /\ (Zpos (digits2_pos q) <= prec)%Z /\ (emin prec emax <= er)%Z
+     /\ (Zpos (digits2_pos q) + er <= emax)%Z) ->
+  (2 <= emax)%Z ->
+  SFadd prec emax (binary_normalize prec emax m1 e1 false)
+                  (binary_normalize prec emax m2 e2 false)
+  = binary_normalize prec emax mr er false.
+Proof.
+  intros prec emax m1 e1 m2 e2 mr er H1 H2 Hadd Hr Hemax.
+  destruct m1 as [|p1|p1].
+  - destruct m2 as [|p2|p2].
+    + cbn [binary_normalize]. unfold SFadd. cbv beta iota.
+      cbn [dy_add] in Hadd.
+      destruct (Z.leb e1 e2) in Hadd;
+        rewrite Z.shiftl_0_l in Hadd; cbn [Z.add dy_norm] in Hadd;
+        injection Hadd as <- <-; reflexivity.
+    + destruct H2 as [H0|[q2 [Ha2 [Hd2 [He2 Hde2]]]]]; [discriminate H0|].
+      exact (SFadd_zero_left_gen prec emax e1 (Zpos p2) e2 mr er q2
+               Ha2 Hd2 He2 Hde2 Hemax Hadd Hr).
+    + destruct H2 as [H0|[q2 [Ha2 [Hd2 [He2 Hde2]]]]]; [discriminate H0|].
+      exact (SFadd_zero_left_gen prec emax e1 (Zneg p2) e2 mr er q2
+               Ha2 Hd2 He2 Hde2 Hemax Hadd Hr).
+  - destruct H1 as [H0|[q1 [Ha1 [Hd1 [He1 Hde1]]]]]; [discriminate H0|].
+    destruct m2 as [|p2|p2].
+    + exact (SFadd_zero_right_gen prec emax (Zpos p1) e1 e2 mr er q1
+               Ha1 Hd1 He1 Hde1 Hemax Hadd Hr).
+    + destruct H2 as [H0|[q2 [Ha2 [Hd2 [He2 Hde2]]]]]; [discriminate H0|].
+      exact (SFadd_finite_gen prec emax (Zpos p1) e1 (Zpos p2) e2 mr er q1 q2
+               Ha1 Ha2 Hd1 He1 Hde1 Hd2 He2 Hde2 Hemax Hadd Hr).
+    + destruct H2 as [H0|[q2 [Ha2 [Hd2 [He2 Hde2]]]]]; [discriminate H0|].
+      exact (SFadd_finite_gen prec emax (Zpos p1) e1 (Zneg p2) e2 mr er q1 q2
+               Ha1 Ha2 Hd1 He1 Hde1 Hd2 He2 Hde2 Hemax Hadd Hr).
+  - destruct H1 as [H0|[q1 [Ha1 [Hd1 [He1 Hde1]]]]]; [discriminate H0|].
+    destruct m2 as [|p2|p2].
+    + exact (SFadd_zero_right_gen prec emax (Zneg p1) e1 e2 mr er q1
+               Ha1 Hd1 He1 Hde1 Hemax Hadd Hr).
+    + destruct H2 as [H0|[q2 [Ha2 [Hd2 [He2 Hde2]]]]]; [discriminate H0|].
+      exact (SFadd_finite_gen prec emax (Zneg p1) e1 (Zpos p2) e2 mr er q1 q2
+               Ha1 Ha2 Hd1 He1 Hde1 Hd2 He2 Hde2 Hemax Hadd Hr).
+    + destruct H2 as [H0|[q2 [Ha2 [Hd2 [He2 Hde2]]]]]; [discriminate H0|].
+      exact (SFadd_finite_gen prec emax (Zneg p1) e1 (Zneg p2) e2 mr er q1 q2
+               Ha1 Ha2 Hd1 He1 Hde1 Hd2 He2 Hde2 Hemax Hadd Hr).
+Qed.
+(** the binary64 instance (SUB transports through it — [sf_render_sub_agrees_f64]) *)
 Lemma f64_add_normalize_agrees : forall m1 e1 m2 e2 mr er,
   float_dyadic_repr GTFloat64 m1 e1 = true ->
   float_dyadic_repr GTFloat64 m2 e2 = true ->
@@ -1221,28 +1296,9 @@ Lemma f64_add_normalize_agrees : forall m1 e1 m2 e2 mr er,
   = binary_normalize 53 1024 mr er false.
 Proof.
   intros m1 e1 m2 e2 mr er H1 H2 Hadd Hr.
-  destruct m1 as [|p1|p1].
-  - destruct m2 as [|p2|p2].
-    + (* both zero *)
-      cbn [binary_normalize]. unfold f64_add, SFadd. cbv beta iota.
-      cbn [dy_add] in Hadd.
-      destruct (Z.leb e1 e2) in Hadd;
-        rewrite Z.shiftl_0_l in Hadd; cbn [Z.add dy_norm] in Hadd;
-        injection Hadd as <- <-; reflexivity.
-    + exact (f64_add_zero_left_f64 e1 (Zpos p2) e2 mr er p2 eq_refl H2 Hadd Hr).
-    + exact (f64_add_zero_left_f64 e1 (Zneg p2) e2 mr er p2 eq_refl H2 Hadd Hr).
-  - destruct m2 as [|p2|p2].
-    + exact (f64_add_zero_right_f64 (Zpos p1) e1 e2 mr er p1 eq_refl H1 Hadd Hr).
-    + exact (f64_add_finite_agrees (Zpos p1) e1 (Zpos p2) e2 mr er p1 p2
-               eq_refl eq_refl H1 H2 Hadd Hr).
-    + exact (f64_add_finite_agrees (Zpos p1) e1 (Zneg p2) e2 mr er p1 p2
-               eq_refl eq_refl H1 H2 Hadd Hr).
-  - destruct m2 as [|p2|p2].
-    + exact (f64_add_zero_right_f64 (Zneg p1) e1 e2 mr er p1 eq_refl H1 Hadd Hr).
-    + exact (f64_add_finite_agrees (Zneg p1) e1 (Zpos p2) e2 mr er p1 p2
-               eq_refl eq_refl H1 H2 Hadd Hr).
-    + exact (f64_add_finite_agrees (Zneg p1) e1 (Zneg p2) e2 mr er p1 p2
-               eq_refl eq_refl H1 H2 Hadd Hr).
+  exact (SFadd_normalize_agrees_gen 53 1024 m1 e1 m2 e2 mr er
+           (repr_window_split_f64 m1 e1 H1) (repr_window_split_f64 m2 e2 H2)
+           Hadd (repr_window_split_f64 mr er Hr) ltac:(lia)).
 Qed.
 (** ★ ADD at binary64 (gated): on the gate's windows — operands AND result — the LIVE render
     of [dy_add]'s exact fold IS the model's [f64_add] of the operands' renders, every case
@@ -1905,4 +1961,70 @@ Proof.
   intros raw ez mr er Hn Hrep.
   exact (normalize_result_agrees_gen 24 128 raw ez mr er Hn
            (repr_window_split_f32 mr er Hrep) ltac:(lia)).
+Qed.
+
+(** the f32 RENDER is the binary32 normalizer (peel [f32val]/[f32_lit]; the wrapper's
+    provenance field erases) *)
+Lemma sf_render_f32_eq : forall m e,
+  sf_render GTFloat32 m e = Some (binary_normalize 24 128 m e false).
+Proof.
+  intros m e. unfold sf_render.
+  cbn [f32_lit f32_of_f64 f32val].
+  unfold f32_round. rewrite renorm_sf_of_dyadic. reflexivity.
+Qed.
+(** [f32_round] is the IDENTITY on windowed renders (rung 3c's idempotence at 24/128) —
+    this is what peels the f32 ops' outer re-round *)
+Lemma f32_round_render_id : forall m e,
+  float_dyadic_repr GTFloat32 m e = true ->
+  f32_round (binary_normalize 24 128 m e false) = binary_normalize 24 128 m e false.
+Proof.
+  intros m e H.
+  destruct m as [|p|p]; [reflexivity| |];
+    destruct (float_dyadic_repr_f32_premises _ e p H eq_refl) as [Hd [He Hde]];
+    cbn [binary_normalize]; unfold f32_round;
+    exact (renorm_binary_round_idem 24 128 _ p e Hd He Hde ltac:(lia)).
+Qed.
+Lemma SFadd32_normalize_agrees : forall m1 e1 m2 e2 mr er,
+  float_dyadic_repr GTFloat32 m1 e1 = true ->
+  float_dyadic_repr GTFloat32 m2 e2 = true ->
+  dy_add (m1, e1) (m2, e2) = (mr, er) ->
+  float_dyadic_repr GTFloat32 mr er = true ->
+  SFadd 24 128 (binary_normalize 24 128 m1 e1 false) (binary_normalize 24 128 m2 e2 false)
+  = binary_normalize 24 128 mr er false.
+Proof.
+  intros m1 e1 m2 e2 mr er H1 H2 Hadd Hr.
+  exact (SFadd_normalize_agrees_gen 24 128 m1 e1 m2 e2 mr er
+           (repr_window_split_f32 m1 e1 H1) (repr_window_split_f32 m2 e2 H2)
+           Hadd (repr_window_split_f32 mr er Hr) ltac:(lia)).
+Qed.
+(** ★ ADD at binary32 (gated, CONST-layer over the checker's OWN composite —
+    [f32val] ∘ [f32_add] ∘ [f32_lit], [sf_model_binop]'s f32 row): the operands' renders
+    re-round to THEMSELVES ([f32_round_render_id]), the 24/128 core is the generic ADD
+    closure, and the result's outer re-round is the identity again. *)
+Theorem sf_render_add_agrees_f32 : forall m1 e1 m2 e2 mr er,
+  float_dyadic_repr GTFloat32 m1 e1 = true ->
+  float_dyadic_repr GTFloat32 m2 e2 = true ->
+  dy_add (m1, e1) (m2, e2) = (mr, er) ->
+  float_dyadic_repr GTFloat32 mr er = true ->
+  exists v1 v2,
+    sf_render GTFloat32 m1 e1 = Some v1
+    /\ sf_render GTFloat32 m2 e2 = Some v2
+    /\ sf_render GTFloat32 mr er
+       = Some (sf_pos_zero (f32val (f32_add (f32_lit v1) (f32_lit v2)))).
+Proof.
+  intros m1 e1 m2 e2 mr er H1 H2 Hadd Hr.
+  rewrite !sf_render_f32_eq.
+  do 2 eexists. split; [reflexivity|]. split; [reflexivity|].
+  f_equal.
+  cbn [f32_add f32_lit f32_of_f64 f32val].
+  rewrite (f32_round_render_id m1 e1 H1), (f32_round_render_id m2 e2 H2).
+  rewrite (SFadd32_normalize_agrees m1 e1 m2 e2 mr er H1 H2 Hadd Hr).
+  rewrite (f32_round_render_id mr er Hr).
+  destruct mr as [|pr|pr]; [reflexivity| |].
+  - destruct (render_signed_value_f32 (Zpos pr) er pr eq_refl Hr)
+      as [sr [mcr [Tr [Hbnr _]]]].
+    rewrite Hbnr. reflexivity.
+  - destruct (render_signed_value_f32 (Zneg pr) er pr eq_refl Hr)
+      as [sr [mcr [Tr [Hbnr _]]]].
+    rewrite Hbnr. reflexivity.
 Qed.
