@@ -43,9 +43,10 @@ Import ListNotations.
     payload at EVERY instantiation since output is observed, not raced.  [vzero] is ONLY a
     calculus parameter — what a closed, drained recv binds ([0] at [nat]); at [V := GoAny] it
     does NOT represent Go's closed-recv semantics (Go's zero is PER ELEMENT TYPE, and no
-    single [GoAny] is it): the bridge is quarantined to commands whose image binds nothing
-    from [vzero] or the [vz]-defaulted heap ([cmd_unified.cmd_to_ucmd_novz]) until
-    [URecv]/[USelect] carry typed element-zero structure. *)
+    single [GoAny] is it): each bridge statement quantifies [vzero] universally under its own
+    license — the [no_heap] bridge via [cmd_unified.cmd_to_ucmd_novz], the defer-free heap
+    bridge via its mirrored-allocated start + completion premise — until [URecv]/[USelect]
+    carry typed element-zero structure. *)
 Section UnifiedVal.
 Context {V : Type}.
 Variable vzero : V.

@@ -12,20 +12,15 @@
     print/println flag on [COut] is PRESERVED ([unified.v]'s [UOut]/[uc_out] carry it, exactly the model's
     [w_output : list (bool * list GoAny)]).
 
-    The module exposes the single-goroutine [usteps] AGREEMENT bridge [bridge_agrees]: for every [no_heap] [c]
-    (arbitrary defer nesting, any panics) the [usteps] run AGREES with cmd.v's AUTHORITATIVE [run_cmd] — the
-    unified output events EQUAL [run_cmd]'s appended [w_output], and [uc_panic 0] EQUALS the Outcome's panic.  It
-    unwinds the LIFO defer forest under the (prog, pa) 2-mode, threading the panic to the flattened last-raised
-    value (grounded on [run_cmd_panic_char]), with [run_cmd] completion discharged internally by cmd.v's
-    [run_cmd_terminates] (termination lives in cmd.v — a pure [run_cmd] property).  Plus cmd.v-side properties
-    for a COMPLETING [run_cmd] on ANY [c] (heap ops included): its output only APPENDS (never retracts) and a
-    panic-free such run returns [ORet].
-    ⚠ The heap split: [bridge_agrees] stays the general defer bridge on [no_heap];
-    [bridge_heap_body_agrees] is the DEFER-FREE heap bridge (final-heap agreement included, from
-    the [ustart_w] mirrored-heap start); DEFERRED heap commands are translated but not yet under
-    an agreement (an unallocated access is ABSENT on the cmd side but default-binds in the
-    total-heap calculus — [cread_unallocated_absent]); the deferred-heap unwind and then the
-    general conditional heap bridge remain (plans/bridge-effects.md).
+    The module exposes TWO single-goroutine [usteps] AGREEMENT bridges: [bridge_agrees] — every
+    [no_heap] [c] (arbitrary defer nesting, any panics) agrees with cmd.v's AUTHORITATIVE
+    [run_cmd] (output appended, [uc_panic 0] = the Outcome's panic; the LIFO defer forest
+    unwinds under the (prog, pa) 2-mode; completion discharged by [run_cmd_terminates]) — and
+    [bridge_heap_body_agrees] — DEFER-FREE heap commands agree end to end INCLUDING final heaps,
+    from the [ustart_w] mirrored-heap start.  DEFERRED heap commands are translated but not yet
+    under an agreement (the unwind, then the general conditional heap bridge, remain —
+    plans/bridge-effects.md).  Plus cmd.v-side properties for a COMPLETING [run_cmd] on ANY [c]
+    (heap ops included): output only APPENDS, and a panic-free completing run returns [ORet].
     The EXACT gated public-surface set is the [Print Assumptions] block at the end of this file (the single in-file
     authority); this header does not re-enumerate it.
     There is NO public projection-observer theorem: the [cmd_out_events]/[cmd_panic]/[cmd_defers] projections,
@@ -83,10 +78,11 @@ Qed.
     [bridge_agrees] lives), [cmd_to_ucmd]'s image contains NOTHING that can bind the
     calculus' [vzero] parameter or the [vz]-defaulted start heap: no [URead] (the start
     heap defaults to [vz]), no [URecv]/[USelect] (the closed-recv rules bind [vzero]), no
-    channel/spawn forms.  THIS is what licenses universally quantifying [vz] in every
-    public bridge statement; the CHANNEL slice must replace the parameter with a
-    STRUCTURAL per-element-type zero (the element tag at the [URecv] boundary) — Go's
-    closed-recv zero is typed, and no single [GoAny] can stand for all of them
+    channel/spawn forms.  THIS licenses the quantified [vz] for the [no_heap] statements
+    ([bridge_agrees] and its consumers; the heap bridge [bridge_heap_body_agrees] carries
+    its OWN license — see the [vz] banner); the CHANNEL slice must replace the parameter
+    with a STRUCTURAL per-element-type zero (the element tag at the [URecv] boundary) —
+    Go's closed-recv zero is typed, and no single [GoAny] can stand for all of them
     (plans/bridge-effects.md). *)
 Inductive UNoVz {V : Type} : @UCmd V -> Prop :=
   | UV_ret : UNoVz URet
@@ -106,11 +102,13 @@ Proof.
   - discriminate H.
 Qed.
 
-(** [vz] — the calculus' closed-recv parameter and the start config's initial-heap default at
+(** [vz] — the calculus' closed-recv parameter and the start configs' initial-heap default at
     this instance.  It is an ARBITRARY [GoAny], NOT a Go zero value, and every public statement
-    below UNIVERSALLY QUANTIFIES it (section generalization): the agreement is quarantined to
-    [no_heap] commands, whose image is the no-[vz] fragment ([cmd_to_ucmd_novz]) — no bridged
-    run consults it, so nothing may depend on the choice. *)
+    below UNIVERSALLY QUANTIFIES it (section generalization), each with its OWN license:
+    [bridge_agrees] (and the other [no_heap] statements) never reach a [vz]-consulting rule
+    ([cmd_to_ucmd_novz]); [bridge_heap_body_agrees] starts from the [ustart_w] heap that MIRRORS
+    the World's allocated cells and its [go]-completion premise keeps the run inside them, so the
+    [vz] defaults on unallocated locations are never consulted. *)
 Section BridgeVal.
 Variable vz : GoAny.
 
