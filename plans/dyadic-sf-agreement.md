@@ -87,7 +87,7 @@ value quotient is `dy_norm` (the odd-mantissa normal form), never ℝ.
    finite arm by `Z.sub`-is-`add∘opp` conversion) + `bn_opp_f64` (rung 1 at the normalizer)
    transport the ADD closure through `dy_sub = dy_add ∘ dy_neg`; a zero subtrahend's `-0` is
    absorbed by `SFadd`'s sign-blind zero rows.
-6. **MUL (f64) — CLOSED; exact DIV remains.**
+6. **MUL + exact DIV (f64) — CLOSED.**
    MUL CLOSED (gated `sf_render_mul_agrees_f64`, ⚠ a CONST-LAYER endpoint — `sf_pos_zero` of
    `f64_mul`, exactly `sf_const_binop`'s `BMul` row): IEEE `(+0)*(negative) = -0` is a
    runtime-only zero sign, so the ADD/SUB raw-op statement is FALSE on MUL's zero rows.
@@ -97,7 +97,14 @@ value quotient is `dy_norm` (the odd-mantissa normal form), never ℝ.
    window bounds) rewrite it to `binary_round`, `render_canonical_f64` (the render's
    digits+exponent IS the fexp fixpoint, via `shl_align_digits`) + `cond_Zopp_xorb_mul`
    align the product value to the fold, and `normalize_result_agrees_f64` closes.
-   REMAINING: exact DIV (`SFdiv`'s exact-quotient case via `dy_div`'s divisibility guard).
+   exact DIV CLOSED too (gated `sf_render_div_agrees_f64`, const-layer): `SFdiv_core_binary`
+   scales the dividend to `s = (T1-T2) - e'` and divides; on `dy_div`-accepted folds the
+   division is EXACT — the divisibility transports through the canonical shifts with the
+   2-power margin `e' <= er` (NOT `e' <= e1-e2`, which can fail; the margin comes from the
+   fexp arm of the min via the quotient digit bookkeeping `digits2_pos_shift`/`mul_upper`),
+   the remainder is 0 (`div_eucl_exact`), the location `loc_Exact`, and the raw quotient IS
+   the result mantissa shifted by `er - e'` — the signed value recovered by CANCELLATION
+   (no sign case analysis), then the same aux→round→wide endgame as MUL.
 7. **The f32 row + cross-width conversions** (needs rung 3's idempotence for the `f32_round`
    wrappers; `f32_of_f64`/`f64_of_f32` agreement).
 8. **The checker-completeness CLASS theorem**: on the admitted class `fsf_checked` ACCEPTS

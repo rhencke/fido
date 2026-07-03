@@ -1524,3 +1524,290 @@ Proof.
           as [sr [mcr [Tr [Hbnr _]]]].
         rewrite Hbnr. reflexivity.
 Qed.
+
+(** ---- rung 6 — exact DIV at binary64.  [SFdiv_core_binary] left-shifts the dividend's
+    canonical mantissa to [s = (T1-T2) - e'] (with [e'] the min of the quotient's [fexp]
+    target and [T1-T2]) and divides with [Z.div_eucl], recording the remainder as the
+    rounding LOCATION.  On the fold-accepted class ([Z.rem m1 m2 = 0]) the division is
+    EXACT: the divisibility transports through the canonical shifts (the 2-power margin is
+    [e' <= er], from the fexp arm of the min), the location is [loc_Exact], and the raw
+    quotient — which is exactly the RESULT's mantissa shifted up by [er - e'] — reduces
+    through [binary_round_aux_of_round] to the same wide endgame as ADD/MUL.  The endpoint
+    is CONST-layer, like MUL: a zero dividend against a negative divisor is IEEE [-0]. *)
+Lemma abs_cond_Zopp : forall s x, Z.abs (cond_Zopp s x) = Z.abs x.
+Proof. intros [|] x; cbn [cond_Zopp]; [apply Z.abs_opp | reflexivity]. Qed.
+Lemma xorb_xorb_cancel : forall s1 s2, xorb (xorb s1 s2) s2 = s1.
+Proof. intros [|] [|]; reflexivity. Qed.
+(** [dy_norm]'s VALUE decomposition (nonzero side): the normal form carries the value at a
+    higher-or-equal exponent. *)
+Lemma dy_norm_value : forall m e mr er,
+  m <> Z0 ->
+  dy_norm m e = (mr, er) ->
+  (e <= er)%Z /\ m = (mr * 2 ^ (er - e))%Z.
+Proof.
+  intros m e mr er Hm H.
+  destruct m as [|p|p]; [congruence| |]; cbn [dy_norm] in H;
+    destruct (pos_odd_split p) as [q k] eqn:E;
+    destruct (pos_odd_split_val p q k E) as [Hk Hv];
+    injection H as <- <-;
+    (split; [lia|]);
+    replace (e + k - e)%Z with k by lia.
+  - exact Hv.
+  - change (Zneg p) with (- Zpos p)%Z. change (Zneg q) with (- Zpos q)%Z.
+    rewrite Hv. ring.
+Qed.
+(** the finite×finite DIV core, over the fold's SPLIT pieces (the endpoint destructures
+    [dy_div] once and feeds the divisibility + normalized quotient here). *)
+Lemma f64_div_normalize_agrees : forall m1 e1 m2 e2 mr er p1 p2 pr,
+  Z.abs m1 = Zpos p1 -> Z.abs m2 = Zpos p2 -> Z.abs mr = Zpos pr ->
+  float_dyadic_repr GTFloat64 m1 e1 = true ->
+  float_dyadic_repr GTFloat64 m2 e2 = true ->
+  Z.rem m1 m2 = 0%Z ->
+  dy_norm (Z.quot m1 m2) (e1 - e2) = (mr, er) ->
+  float_dyadic_repr GTFloat64 mr er = true ->
+  f64_div (binary_normalize 53 1024 m1 e1 false) (binary_normalize 53 1024 m2 e2 false)
+  = binary_normalize 53 1024 mr er false.
+Proof.
+  intros m1 e1 m2 e2 mr er p1 p2 pr Ha1 Ha2 Hamr H1 H2 Hrem Hnorm Hr.
+  destruct (float_dyadic_repr_f64_premises m1 e1 p1 H1 Ha1) as [Hd1 [He1 Hde1]].
+  destruct (float_dyadic_repr_f64_premises m2 e2 p2 H2 Ha2) as [Hd2 [He2 Hde2]].
+  destruct (float_dyadic_repr_f64_premises mr er pr Hr Hamr) as [Hdr [Herm Hder]].
+  destruct (render_canonical_f64 m1 e1 p1 Ha1 H1)
+    as [s1 [mc1 [T1 [Hbn1 [Hv1 [Hdig1 [Hfx1 HT1e]]]]]]].
+  destruct (render_canonical_f64 m2 e2 p2 Ha2 H2)
+    as [s2 [mc2 [T2 [Hbn2 [Hv2 [Hdig2 [Hfx2 HT2e]]]]]]].
+  assert (Hm2nz : m2 <> Z0) by lia.
+  assert (Hm1q : m1 = (m2 * Z.quot m1 m2)%Z).
+  { pose proof (Z.quot_rem m1 m2 Hm2nz) as Hqr. lia. }
+  set (q0 := Z.quot m1 m2) in *.
+  assert (Hq0nz : q0 <> Z0) by (intro E0; rewrite E0, Z.mul_0_r in Hm1q; lia).
+  destruct (dy_norm_value q0 (e1 - e2) mr er Hq0nz Hnorm) as [Her Hq0].
+  (* the renders' ABS value forms *)
+  assert (Habs1 : Zpos mc1 = (Z.abs m1 * 2 ^ (e1 - T1))%Z).
+  { pose proof (f_equal Z.abs Hv1) as HA.
+    rewrite abs_cond_Zopp, Z.abs_mul,
+      (Z.abs_eq (2 ^ (e1 - T1))) in HA by (apply Z.pow_nonneg; lia).
+    cbn [Z.abs] in HA. exact HA. }
+  assert (Habs2 : Zpos mc2 = (Z.abs m2 * 2 ^ (e2 - T2))%Z).
+  { pose proof (f_equal Z.abs Hv2) as HA.
+    rewrite abs_cond_Zopp, Z.abs_mul,
+      (Z.abs_eq (2 ^ (e2 - T2))) in HA by (apply Z.pow_nonneg; lia).
+    cbn [Z.abs] in HA. exact HA. }
+  (* |m1| = |m2·mr|·2^(er-(e1-e2)) — digit bookkeeping through the fold *)
+  assert (Hp1eq : Zpos p1 = (Zpos (Pos.mul p2 pr) * 2 ^ (er - (e1 - e2)))%Z).
+  { rewrite <- Ha1, Hm1q, Hq0, !Z.abs_mul, Ha2, Hamr.
+    rewrite (Z.abs_eq (2 ^ (er - (e1 - e2)))) by (apply Z.pow_nonneg; lia).
+    rewrite Pos2Z.inj_mul. ring. }
+  assert (Hdp1 : Zpos (digits2_pos p1)
+                 = (Zpos (digits2_pos (Pos.mul p2 pr)) + (er - (e1 - e2)))%Z)
+    by (apply digits2_pos_shift; [lia | exact Hp1eq]).
+  pose proof (digits2_pos_mul_upper p2 pr) as Hmu.
+  set (E' := Z.min
+        (fexp 53 1024
+           (Zpos (digits2_pos mc1) + T1 - (Zpos (digits2_pos mc2) + T2)))
+        (T1 - T2)).
+  assert (Hfa : (Zpos (digits2_pos mc1) + T1 - (Zpos (digits2_pos mc2) + T2))%Z
+                = ((Zpos (digits2_pos p1) + e1) - (Zpos (digits2_pos p2) + e2))%Z) by lia.
+  assert (HNle : ((Zpos (digits2_pos p1) + e1) - (Zpos (digits2_pos p2) + e2)
+                  <= Zpos (digits2_pos pr) + er)%Z) by lia.
+  assert (HE'fx : (E' <= fexp 53 1024 (Zpos (digits2_pos pr) + er))%Z).
+  { unfold E'. rewrite Hfa. unfold fexp, emin in *. lia. }
+  assert (HE'er : (E' <= er)%Z) by (unfold fexp, emin in HE'fx, Herm; lia).
+  assert (HsE : (0 <= T1 - T2 - E')%Z) by (unfold E'; lia).
+  (* the exact scaled division *)
+  assert (Hm' : (Zpos mc1 * 2 ^ (T1 - T2 - E'))%Z
+              = (Zpos mc2 * (Zpos pr * 2 ^ (er - E')))%Z).
+  { rewrite Habs1, Habs2, Ha1, Ha2, Hp1eq, Pos2Z.inj_mul.
+    assert (Hpw : (2 ^ (er - (e1 - e2)) * 2 ^ (e1 - T1) * 2 ^ (T1 - T2 - E')
+                   = 2 ^ (e2 - T2) * 2 ^ (er - E'))%Z).
+    { rewrite <- !Z.pow_add_r by lia. f_equal. lia. }
+    transitivity ((Zpos p2 * Zpos pr)
+                  * (2 ^ (er - (e1 - e2)) * 2 ^ (e1 - T1) * 2 ^ (T1 - T2 - E')))%Z;
+      [ring|].
+    rewrite Hpw. ring. }
+  assert (Hdvd : (Zpos mc2 | Zpos mc1 * 2 ^ (T1 - T2 - E'))%Z)
+    by (exists (Zpos pr * 2 ^ (er - E'))%Z; rewrite Hm'; ring).
+  (* compute the core triple *)
+  assert (Hcore : SFdiv_core_binary 53 1024 (Zpos mc1) T1 (Zpos mc2) T2
+                = ((Zpos pr * 2 ^ (er - E'))%Z, E', loc_Exact)).
+  { unfold SFdiv_core_binary. cbn [Zdigits2]. cbv zeta.
+    fold E'.
+    destruct (T1 - T2 - E')%Z as [|sp|sp] eqn:Es.
+    - (* no shift: 2^0 *)
+      rewrite Z.pow_0_r, Z.mul_1_r in Hm' , Hdvd.
+      rewrite (div_eucl_exact (Zpos mc1) (Zpos mc2) ltac:(lia) Hdvd).
+      cbv beta iota.
+      rewrite new_location_exact.
+      rewrite Hm', (Z.mul_comm (Zpos mc2)), Z.div_mul by lia.
+      reflexivity.
+    - rewrite (Z.shiftl_mul_pow2 (Zpos mc1) (Zpos sp)) by lia.
+      rewrite <- Es in *.
+      rewrite (div_eucl_exact _ (Zpos mc2) ltac:(lia) Hdvd).
+      cbv beta iota.
+      rewrite new_location_exact.
+      rewrite Hm', (Z.mul_comm (Zpos mc2)), Z.div_mul by lia.
+      reflexivity.
+    - exfalso. lia.
+  }
+  (* the model arm *)
+  rewrite Hbn1, Hbn2.
+  unfold f64_div. cbn [SFdiv].
+  rewrite Hcore. cbv beta iota.
+  (* the raw quotient is positive: name its mantissa *)
+  assert (HQpos : (0 < Zpos pr * 2 ^ (er - E'))%Z).
+  { assert (0 < 2 ^ (er - E'))%Z by (apply Z.pow_pos_nonneg; lia). nia. }
+  destruct (Zpos pr * 2 ^ (er - E'))%Z as [|qp|qp] eqn:HQ; [lia| |lia].
+  assert (Hdq : Zpos (digits2_pos qp) = (Zpos (digits2_pos pr) + (er - E'))%Z)
+    by (apply digits2_pos_shift; [lia | symmetry; exact HQ]).
+  rewrite binary_round_aux_of_round
+    by (rewrite Hdq;
+        replace (Zpos (digits2_pos pr) + (er - E') + E')%Z
+          with (Zpos (digits2_pos pr) + er)%Z by lia;
+        exact HE'fx).
+  rewrite binary_normalize_of_round.
+  apply normalize_result_agrees_f64; [| exact Hr].
+  (* the SIGNED quotient value, by cancelation — no sign case analysis *)
+  assert (Hxx : xorb (xorb s1 s2) s2 = s1) by (destruct s1, s2; reflexivity).
+  assert (HXmul : (cond_Zopp (xorb s1 s2) (Zpos qp) * (m2 * 2 ^ (e2 - T2)))%Z
+                = ((mr * 2 ^ (er - E')) * (m2 * 2 ^ (e2 - T2)))%Z).
+  { rewrite <- Hv2.
+    rewrite <- cond_Zopp_xorb_mul, Hxx.
+    assert (HQmc : (Zpos qp * Zpos mc2)%Z = (Zpos mc1 * 2 ^ (T1 - T2 - E'))%Z)
+      by (rewrite <- HQ, Hm'; first [apply Z.mul_comm | ring | lia | nia]).
+    rewrite HQmc.
+    rewrite cond_Zopp_mul, Hv1, Hv2.
+    rewrite Hm1q, Hq0.
+    assert (Hpw : (2 ^ (er - (e1 - e2)) * 2 ^ (e1 - T1) * 2 ^ (T1 - T2 - E')
+                   = 2 ^ (er - E') * 2 ^ (e2 - T2))%Z).
+    { rewrite <- !Z.pow_add_r by lia. f_equal. lia. }
+    transitivity ((m2 * mr)
+                  * (2 ^ (er - (e1 - e2)) * 2 ^ (e1 - T1) * 2 ^ (T1 - T2 - E')))%Z;
+      [ring|].
+    rewrite Hpw. ring. }
+  assert (Hnzf : (m2 * 2 ^ (e2 - T2))%Z <> 0%Z).
+  { assert (0 < 2 ^ (e2 - T2))%Z by (apply Z.pow_pos_nonneg; lia).
+    intro F. apply Z.mul_eq_0 in F. destruct F; lia. }
+  pose proof (proj1 (Z.mul_cancel_r _ _ _ Hnzf) HXmul) as HX.
+  rewrite HX.
+  rewrite (dy_norm_value_unique (mr * 2 ^ (er - E'))%Z E' mr er HE'er eq_refl).
+  pose proof (dy_norm_idem q0 (e1 - e2)) as Hidem.
+  rewrite Hnorm in Hidem. cbn [fst snd] in Hidem.
+  exact Hidem.
+Qed.
+(** ★ exact DIV at binary64 (gated, CONST-layer) — rung 6 CLOSED (MUL + exact DIV): on the
+    gate's windows, whenever [dy_div] ACCEPTS (the divisor divides exactly; a zero divisor
+    is [None]), the LIVE render of the exact quotient IS the CONSTANT-op layer's division
+    ([sf_pos_zero] of [f64_div] — [sf_const_binop]'s [BDiv] row) of the operands' renders. *)
+Theorem sf_render_div_agrees_f64 : forall m1 e1 m2 e2 mr er,
+  float_dyadic_repr GTFloat64 m1 e1 = true ->
+  float_dyadic_repr GTFloat64 m2 e2 = true ->
+  dy_div (m1, e1) (m2, e2) = Some (mr, er) ->
+  float_dyadic_repr GTFloat64 mr er = true ->
+  exists v1 v2,
+    sf_render GTFloat64 m1 e1 = Some v1
+    /\ sf_render GTFloat64 m2 e2 = Some v2
+    /\ sf_render GTFloat64 mr er = Some (sf_pos_zero (f64_div v1 v2)).
+Proof.
+  intros m1 e1 m2 e2 mr er H1 H2 Hdiv Hr.
+  unfold sf_render. rewrite !renorm_sf_of_dyadic.
+  do 2 eexists. split; [reflexivity|]. split; [reflexivity|].
+  f_equal.
+  destruct m2 as [|q2|q2].
+  - (* zero divisor: dy_div is None *)
+    cbn [dy_div Z.eqb] in Hdiv. discriminate Hdiv.
+  - destruct m1 as [|q1|q1].
+    + (* 0 / pos *)
+      cbn [dy_div Z.eqb Z.rem Z.quotrem Z.quot dy_norm] in Hdiv.
+      injection Hdiv as <- <-.
+      change (binary_normalize 53 1024 0 e1 false) with (S754_zero false).
+      change (binary_normalize 53 1024 0 0 false) with (S754_zero false).
+      destruct (render_signed_value_f64 (Zpos q2) e2 q2 eq_refl H2)
+        as [s2 [mc2 [T2 [Hbn2 _]]]].
+      rewrite Hbn2. reflexivity.
+    + (* pos / pos *)
+      cbn [dy_div Z.eqb] in Hdiv.
+      destruct (Z.eqb (Z.rem (Zpos q1) (Zpos q2)) 0) eqn:Hrem; [|discriminate Hdiv].
+      apply Z.eqb_eq in Hrem. injection Hdiv as Hnorm.
+      assert (Hqnz : Z.quot (Zpos q1) (Zpos q2) <> Z0).
+      { pose proof (Z.quot_rem (Zpos q1) (Zpos q2) ltac:(discriminate)) as Hqr.
+        intro F. rewrite F, Z.mul_0_r in Hqr. lia. }
+      destruct mr as [|pr|pr];
+        [exact (False_ind _ (dy_norm_nonzero _ _ _ _ Hqnz Hnorm eq_refl))| |].
+      * rewrite (f64_div_normalize_agrees (Zpos q1) e1 (Zpos q2) e2 (Zpos pr) er q1 q2 pr
+                   eq_refl eq_refl eq_refl H1 H2 Hrem Hnorm Hr).
+        destruct (render_signed_value_f64 (Zpos pr) er pr eq_refl Hr)
+          as [sr [mcr [Tr [Hbnr _]]]].
+        rewrite Hbnr. reflexivity.
+      * rewrite (f64_div_normalize_agrees (Zpos q1) e1 (Zpos q2) e2 (Zneg pr) er q1 q2 pr
+                   eq_refl eq_refl eq_refl H1 H2 Hrem Hnorm Hr).
+        destruct (render_signed_value_f64 (Zneg pr) er pr eq_refl Hr)
+          as [sr [mcr [Tr [Hbnr _]]]].
+        rewrite Hbnr. reflexivity.
+    + (* neg / pos *)
+      cbn [dy_div Z.eqb] in Hdiv.
+      destruct (Z.eqb (Z.rem (Zneg q1) (Zpos q2)) 0) eqn:Hrem; [|discriminate Hdiv].
+      apply Z.eqb_eq in Hrem. injection Hdiv as Hnorm.
+      assert (Hqnz : Z.quot (Zneg q1) (Zpos q2) <> Z0).
+      { pose proof (Z.quot_rem (Zneg q1) (Zpos q2) ltac:(discriminate)) as Hqr.
+        intro F. rewrite F, Z.mul_0_r in Hqr. lia. }
+      destruct mr as [|pr|pr];
+        [exact (False_ind _ (dy_norm_nonzero _ _ _ _ Hqnz Hnorm eq_refl))| |].
+      * rewrite (f64_div_normalize_agrees (Zneg q1) e1 (Zpos q2) e2 (Zpos pr) er q1 q2 pr
+                   eq_refl eq_refl eq_refl H1 H2 Hrem Hnorm Hr).
+        destruct (render_signed_value_f64 (Zpos pr) er pr eq_refl Hr)
+          as [sr [mcr [Tr [Hbnr _]]]].
+        rewrite Hbnr. reflexivity.
+      * rewrite (f64_div_normalize_agrees (Zneg q1) e1 (Zpos q2) e2 (Zneg pr) er q1 q2 pr
+                   eq_refl eq_refl eq_refl H1 H2 Hrem Hnorm Hr).
+        destruct (render_signed_value_f64 (Zneg pr) er pr eq_refl Hr)
+          as [sr [mcr [Tr [Hbnr _]]]].
+        rewrite Hbnr. reflexivity.
+  - destruct m1 as [|q1|q1].
+    + (* 0 / neg *)
+      cbn [dy_div Z.eqb Z.rem Z.quotrem Z.quot dy_norm] in Hdiv.
+      injection Hdiv as <- <-.
+      change (binary_normalize 53 1024 0 e1 false) with (S754_zero false).
+      change (binary_normalize 53 1024 0 0 false) with (S754_zero false).
+      destruct (render_signed_value_f64 (Zneg q2) e2 q2 eq_refl H2)
+        as [s2 [mc2 [T2 [Hbn2 _]]]].
+      rewrite Hbn2. reflexivity.
+    + (* pos / neg *)
+      cbn [dy_div Z.eqb] in Hdiv.
+      destruct (Z.eqb (Z.rem (Zpos q1) (Zneg q2)) 0) eqn:Hrem; [|discriminate Hdiv].
+      apply Z.eqb_eq in Hrem. injection Hdiv as Hnorm.
+      assert (Hqnz : Z.quot (Zpos q1) (Zneg q2) <> Z0).
+      { pose proof (Z.quot_rem (Zpos q1) (Zneg q2) ltac:(discriminate)) as Hqr.
+        intro F. rewrite F, Z.mul_0_r in Hqr. lia. }
+      destruct mr as [|pr|pr];
+        [exact (False_ind _ (dy_norm_nonzero _ _ _ _ Hqnz Hnorm eq_refl))| |].
+      * rewrite (f64_div_normalize_agrees (Zpos q1) e1 (Zneg q2) e2 (Zpos pr) er q1 q2 pr
+                   eq_refl eq_refl eq_refl H1 H2 Hrem Hnorm Hr).
+        destruct (render_signed_value_f64 (Zpos pr) er pr eq_refl Hr)
+          as [sr [mcr [Tr [Hbnr _]]]].
+        rewrite Hbnr. reflexivity.
+      * rewrite (f64_div_normalize_agrees (Zpos q1) e1 (Zneg q2) e2 (Zneg pr) er q1 q2 pr
+                   eq_refl eq_refl eq_refl H1 H2 Hrem Hnorm Hr).
+        destruct (render_signed_value_f64 (Zneg pr) er pr eq_refl Hr)
+          as [sr [mcr [Tr [Hbnr _]]]].
+        rewrite Hbnr. reflexivity.
+    + (* neg / neg *)
+      cbn [dy_div Z.eqb] in Hdiv.
+      destruct (Z.eqb (Z.rem (Zneg q1) (Zneg q2)) 0) eqn:Hrem; [|discriminate Hdiv].
+      apply Z.eqb_eq in Hrem. injection Hdiv as Hnorm.
+      assert (Hqnz : Z.quot (Zneg q1) (Zneg q2) <> Z0).
+      { pose proof (Z.quot_rem (Zneg q1) (Zneg q2) ltac:(discriminate)) as Hqr.
+        intro F. rewrite F, Z.mul_0_r in Hqr. lia. }
+      destruct mr as [|pr|pr];
+        [exact (False_ind _ (dy_norm_nonzero _ _ _ _ Hqnz Hnorm eq_refl))| |].
+      * rewrite (f64_div_normalize_agrees (Zneg q1) e1 (Zneg q2) e2 (Zpos pr) er q1 q2 pr
+                   eq_refl eq_refl eq_refl H1 H2 Hrem Hnorm Hr).
+        destruct (render_signed_value_f64 (Zpos pr) er pr eq_refl Hr)
+          as [sr [mcr [Tr [Hbnr _]]]].
+        rewrite Hbnr. reflexivity.
+      * rewrite (f64_div_normalize_agrees (Zneg q1) e1 (Zneg q2) e2 (Zneg pr) er q1 q2 pr
+                   eq_refl eq_refl eq_refl H1 H2 Hrem Hnorm Hr).
+        destruct (render_signed_value_f64 (Zneg pr) er pr eq_refl Hr)
+          as [sr [mcr [Tr [Hbnr _]]]].
+        rewrite Hbnr. reflexivity.
+Qed.
+
