@@ -71,6 +71,11 @@ COMPLETE): `bridge_agrees` — its ladder discipline and landing checklist apply
    COMPLETION PREMISE — the same discipline as the channel slice's would-block-is-`None`;
    no side predicate, and the cmd/ustep divergence on unallocated reads (typed absence vs
    total default-bind) is unreachable inside the agreement.
+   ⚠ 2a–2c are PHASES of ONE landing, not independent green commits: adding constructors
+   forces total coverage of every `match` over `Cmd` in the same commit (Coq
+   exhaustiveness), and Phase A's statement itself generalizes (the config heap is no
+   longer fixed across a body run once writes exist) — the invariant IS the landing.
+   Work the phases in order locally; commit when the whole slice is green.
    - 2a. `Cmd` ctors + `Cmd_rect'` binder case + option-valued `go`/`run_defers` +
      re-green cmd.v and every proof that unfolds them (cmd_unified's Local machinery,
      GoSemSafe's runs-ret lemmas).  `cbind` recurses under the read binder.
