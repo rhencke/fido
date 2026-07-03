@@ -692,8 +692,11 @@ Qed.
     constant as an [int64] operand; cross-width is [None], pinned
     [typed_operand_cross_width_none]).  Anything else is absent fail-closed; a constant never
     panics ([typed_operand_panic_runtime]). *)
-Definition typed_operand (rv : GExpr -> option RAny) (t : GoTy) (e : GExpr) : option RAny :=
-  match ptype e with
+(** [_tc] layer (locals rung 5a): the CATEGORY AUTHORITY is a parameter [tc] — the closed engine
+    instantiates [ptype] (the wrappers keep the closed names/arities, so it is the SAME function
+    definitionally); the scope-aware instance (rung 5b) instantiates [type_expr]'s projection. *)
+Definition typed_operand_tc (tc : GExpr -> option PTy) (rv : GExpr -> option RAny) (t : GoTy) (e : GExpr) : option RAny :=
+  match tc e with
   | Some (PtRunInt s) => if numty_eqb s t then rv e else None
   | Some (PtIntConst z) =>
       match box_int t z with
@@ -709,6 +712,8 @@ Definition typed_operand (rv : GExpr -> option RAny) (t : GoTy) (e : GExpr) : op
       else None
   | _ => None
   end.
+Definition typed_operand : (GExpr -> option RAny) -> GoTy -> GExpr -> option RAny :=
+  typed_operand_tc ptype.
 Lemma numty_eqb_refl_int : forall t, is_int_goty t = true -> numty_eqb t t = true.
 Proof. intros t H; destruct t; try discriminate H; reflexivity. Qed.
 Lemma box_int_repr_total : forall t z,
@@ -1182,14 +1187,14 @@ Definition typed_shift (o : BinOp) (t : GoTy) (ga : GoAny) (z : Z) : option RAny
     end
   else None.
 (** The COUNT layer — full evaluation, then the raw reading off ANY int carrier. *)
-Definition shift_count (rv : GExpr -> option RAny) (e : GExpr) : option (Z + GoAny) :=
-  (* A CONSTANT count is read off [ptype]'s OWN value directly — TOTAL on the gate's admitted
-     class ([shift_count_const_total] needs no evaluation premise).  The boxed path would be a
+Definition shift_count_tc (tc : GExpr -> option PTy) (rv : GExpr -> option RAny) (e : GExpr) : option (Z + GoAny) :=
+  (* A CONSTANT count is read off the category authority's OWN value directly — TOTAL on the gate's
+     admitted class ([shift_count_const_total] needs no evaluation premise).  The boxed path would be a
      side-condition leak: [box_int]'s conservative default-[int] window is a VALUE range, not a
      COUNT range, and would drop a VALID untyped count like [2^31]; the gate's shift row is the
      one count authority ([is_neg_const] + [untyped_count_overflow]).  Only a RUNTIME count
      evaluates ([rv], at its own width — panics propagate). *)
-  match ptype e with
+  match tc e with
   | Some (PtIntConst z)    => Some (inl z)
   | Some (PtTIntConst _ z) => Some (inl z)
   | _ =>
@@ -1199,6 +1204,8 @@ Definition shift_count (rv : GExpr -> option RAny) (e : GExpr) : option (Z + GoA
       | None => None
       end
   end.
+Definition shift_count : (GExpr -> option RAny) -> GExpr -> option (Z + GoAny) :=
+  shift_count_tc ptype.
 (** The typed-shift seal set. *)
 Lemma typed_shift_tag_exact : forall o t ga z g,
   typed_shift o t ga z = Some (RAVal g) ->
@@ -1337,7 +1344,7 @@ Proof.
   exact (K _ eq_refl).
 Qed.
 
-Definition rexit_with (rec : GExpr -> option RRes) (rv : GExpr -> option RAny) (e : GExpr) : option RAny :=
+Definition rexit_tc (tc : GExpr -> option PTy) (rec : GExpr -> option RRes) (rv : GExpr -> option RAny) (e : GExpr) : option RAny :=
   match e with
   | ECall (EId f) (a :: nil) =>
       (* tiers R3+T2, the EXIT half — a width conversion to a non-[GTInt] integer target: [ptype]'s
@@ -1348,7 +1355,7 @@ Definition rexit_with (rec : GExpr -> option RRes) (rv : GExpr -> option RAny) (
          ([int64(uint8(len ..))]) converts exactly like Go — read the carrier's value ([runint_raw]),
          wrap into the target.  A non-integer-tagged source (a runtime FLOAT — CLASS-absent,
          [reval_val_runfloat_none]) is absent fail-closed.  A panicking arg panics (Go's order). *)
-      match ptype e with
+      match tc e with
       | Some (PtRunInt t) =>
           if numty_eqb t GTInt then None else
           match rv a with
@@ -1371,7 +1378,7 @@ Definition rexit_with (rec : GExpr -> option RRes) (rv : GExpr -> option RAny) (
          [ptype] pins the width [t] (the GTInt case lives in [reval_int]); the ARG evaluates at FULL
          power ([rv] — so an R3-converted operand works), then [typed_unop] applies the width's model
          op on the boxed carrier.  A hole in the op table ([GTUint], narrow [-]) is absent. *)
-      match ptype e with
+      match tc e with
       | Some (PtRunInt t) =>
           if numty_eqb t GTInt then None else
           match rv a with
@@ -1397,9 +1404,9 @@ Definition rexit_with (rec : GExpr -> option RRes) (rv : GExpr -> option RAny) (
          already BE the width — Go's rules), then [typed_binop] applies the width's model op (a
          value, or the division-by-zero panic — [div_checked]).  A hole row ([GTUint], shifts) is
          absent. *)
-      match ptype e with
+      match tc e with
       | Some PtBool =>
-          match cmp_width (ptype a) (ptype b) with
+          match cmp_width (tc a) (tc b) with
           | Some t =>
               if numty_eqb t GTInt then
                 (* the R4 [GTInt] engine path — unchanged *)
@@ -1421,9 +1428,9 @@ Definition rexit_with (rec : GExpr -> option RRes) (rv : GExpr -> option RAny) (
                 (* tier T4 — SAME-WIDTH typed comparison: operands through the width-sealed
                    [typed_operand], the verdict from the width's own model op ([typed_cmp]).
                    Panics propagate left-to-right; holes ([GTUint]) are absent. *)
-                match typed_operand rv t a with
+                match typed_operand_tc tc rv t a with
                 | Some (RAVal ga) =>
-                    match typed_operand rv t b with
+                    match typed_operand_tc tc rv t b with
                     | Some (RAVal gb) =>
                         match typed_cmp o t ga gb with
                         | Some v => Some (RAVal (anyt TBool v))
@@ -1439,10 +1446,10 @@ Definition rexit_with (rec : GExpr -> option RRes) (rv : GExpr -> option RAny) (
           end
       | Some (PtRunInt t) =>
           if numty_eqb t GTInt then None else
-          match typed_operand rv t a with
+          match typed_operand_tc tc rv t a with
           | Some (RAVal ga) =>
               if typed_arith_op o then
-                match typed_operand rv t b with
+                match typed_operand_tc tc rv t b with
                 | Some (RAVal gb) => typed_binop o t ga gb
                 | Some (RAPanic p) => Some (RAPanic p)
                 | None => None
@@ -1452,7 +1459,7 @@ Definition rexit_with (rec : GExpr -> option RRes) (rv : GExpr -> option RAny) (
                    CONSTANT count directly off the gate's own value (total on the admitted class),
                    a RUNTIME count at FULL power at ITS OWN width; the width-sealed left operand
                    feeds [typed_shift]. *)
-                match shift_count rv b with
+                match shift_count_tc tc rv b with
                 | Some (inl z) => typed_shift o t ga z
                 | Some (inr p) => Some (RAPanic p)
                 | None => None
@@ -1465,7 +1472,10 @@ Definition rexit_with (rec : GExpr -> option RRes) (rv : GExpr -> option RAny) (
       end
   | _ => None
   end.
-Definition reval_val_with (rec : GExpr -> option RRes) : GExpr -> option RAny :=
+Definition rexit_with : (GExpr -> option RRes) -> (GExpr -> option RAny) -> GExpr -> option RAny :=
+  rexit_tc ptype.
+
+Definition reval_val_tc (tc : GExpr -> option PTy) (rec : GExpr -> option RRes) : GExpr -> option RAny :=
   fix rv (e : GExpr) : option RAny :=
     match eval_value e with
     | Some v => Some (RAVal v)
@@ -1473,9 +1483,11 @@ Definition reval_val_with (rec : GExpr -> option RRes) : GExpr -> option RAny :=
         match rec e with
         | Some (RVal x)   => Some (RAVal (anyt TInt64 x))
         | Some (RPanic p) => Some (RAPanic p)
-        | None => rexit_with rec rv e
+        | None => rexit_tc tc rec rv e
         end
     end.
+Definition reval_val_with : (GExpr -> option RRes) -> GExpr -> option RAny :=
+  reval_val_tc ptype.
 (* One-step unfolding equation (the fix reduces only on constructors; [destruct e] closes each case). *)
 Lemma reval_val_with_eq : forall rec e,
   reval_val_with rec e
@@ -1594,17 +1606,18 @@ Proof.
     + reflexivity.
 Qed.
 
-Fixpoint reval_int (e : GExpr) : option RRes :=
+Definition reval_int_tc (tc : GExpr -> option PTy) : GExpr -> option RRes :=
+  fix ri (e : GExpr) : option RRes :=
   match eval_value e with
   | Some v => match unbox_int v with Some x => Some (RVal x) | None => None end
   | None =>
-      match ptype e with
+      match tc e with
       | Some (PtRunInt t) =>
           if negb (numty_eqb t GTInt) then None else
           match e with
           | ECall (EId f) (ESliceLit et es :: nil) =>
               if String.eqb (proj1_sig f) "len" && is_int_goty et
-              then match reval_elems_with reval_int es with
+              then match reval_elems_with ri es with
                    | Some (REVals vs)  => rval_len (length vs)
                    | Some (REPanic p)  => Some (RPanic p)   (* a panicking element ABORTS construction *)
                    | None => None
@@ -1619,14 +1632,14 @@ Fixpoint reval_int (e : GExpr) : option RRes :=
                  duplicate-key miscount; the outer [PtRunInt] guard already forces all-constant keys —
                  [ptype]'s map arm rejects runtime keys — so this is the fold's defense-in-depth
                  mirrored) — then evaluates EVERY VALUE through the FULL shared evaluator
-                 ([rconstr_vals_with (reval_val_with reval_int)] — R3-converted and R4-compared values
+                 ([rconstr_vals_with (reval_val_tc tc ri)] — R3-converted and R4-compared values
                  construct exactly as they denote standalone): all values → the entry count via the
                  checked [rval_len]; a SINGLE panicking value → that panic; TWO panicking values / an
                  absent value → absent (Go leaves map-literal order unspecified — sealed by the
                  walker's class theorems, [rconstr_vals_two_panics_absent] et al.). *)
               if String.eqb (proj1_sig f) "len" && is_int_goty kt && goty_supported vt
-                 && nodup_z (map_key_vals kvs)
-              then match rconstr_vals_with (reval_val_with reval_int) kvs with
+                 && nodup_z (map_key_vals_with tc kvs)
+              then match rconstr_vals_with (reval_val_tc tc ri) kvs with
                    | Some RCOk        => rval_len (length kvs)
                    | Some (RCPanic p) => Some (RPanic p)
                    | None => None
@@ -1641,7 +1654,7 @@ Fixpoint reval_int (e : GExpr) : option RRes :=
                  ([runint_raw]; CLASS-absent, [reval_val_runfloat_none]).  Non-[GTInt] targets EXIT
                  the fragment in [rexit_with]. *)
               if String.eqb (proj1_sig f) "int"
-              then match reval_val_with reval_int a with
+              then match reval_val_tc tc ri a with
                    | Some (RAVal g) =>
                        match runint_raw g with
                        | Some z => Some (RVal (intwrap z))
@@ -1658,9 +1671,9 @@ Fixpoint reval_int (e : GExpr) : option RRes :=
                  (index and length rendered; a negative index omits the length part — verified against
                  gc via go run; [slice_idx_get]'s payload, shared).  The outer [PtRunInt GTInt] guard
                  pins the element type to [GTInt]. *)
-              match reval_elems_with reval_int es with
+              match reval_elems_with ri es with
               | Some (REVals vs) =>
-                  match reval_int idx with
+                  match ri idx with
                   | Some (RVal vi) =>
                       if andb (Z.leb 0 (intraw vi)) (Z.ltb (intraw vi) (Z.of_nat (length vs)))
                       then match nth_error vs (Z.to_nat (intraw vi)) with
@@ -1683,9 +1696,9 @@ Fixpoint reval_int (e : GExpr) : option RRes :=
                    its own width, so a [uint8]-counted GTInt shift works), then the checked convoy
                    applies the dispatched model op ([int_shift_checked]: a NEGATIVE count panics
                    [rt_shift_neg], counts >= 64 saturate). *)
-                match reval_int a with
+                match ri a with
                 | Some (RVal va) =>
-                    match shift_count (reval_val_with reval_int) b with
+                    match shift_count_tc tc (reval_val_tc tc ri) b with
                     | Some (inl z) =>
                         match int_shift_op o with
                         | Some f => int_shift_checked f va z
@@ -1698,7 +1711,7 @@ Fixpoint reval_int (e : GExpr) : option RRes :=
                 | None => None
                 end
               else
-              match reval_int a, reval_int b with
+              match ri a, ri b with
               | Some (RPanic p), _ => Some (RPanic p)            (* left-to-right: a panicking LEFT operand fires first *)
               | Some (RVal _), Some (RPanic p) => Some (RPanic p)
               | Some (RVal va), Some (RVal vb) =>
@@ -1738,12 +1751,12 @@ Fixpoint reval_int (e : GExpr) : option RRes :=
                  verified `go run`).  [!] operates on BOOLS, never the int fragment — absent. *)
               match o with
               | UNeg =>
-                  match reval_int a with
+                  match ri a with
                   | Some (RVal v) => Some (RVal (int_neg v))
                   | other => other
                   end
               | UXor =>
-                  match reval_int a with
+                  match ri a with
                   | Some (RVal v) => Some (RVal (int_not v))
                   | other => other
                   end
@@ -1754,6 +1767,27 @@ Fixpoint reval_int (e : GExpr) : option RRes :=
       | _ => None
       end
   end.
+
+Definition reval_int : GExpr -> option RRes := reval_int_tc ptype.
+
+(** Post-[cbn] normalizer (rung 5a): [cbn] refolds the engines' inner fixes to the CLOSED names
+    but leaves the [_tc]-of-[ptype] wrapper applications; these [change]s put a goal/hypothesis
+    back in the closed vocabulary (pure conversions — each closed name IS its [_tc ptype]
+    instantiation by definition). *)
+Ltac fold_tc :=
+  repeat first
+    [ progress change (reval_val_tc ptype reval_int) with (reval_val_with reval_int)
+    | progress change (map_key_vals_with ptype) with map_key_vals
+    | progress change (shift_count_tc ptype) with shift_count
+    | progress change (typed_operand_tc ptype) with typed_operand
+    | progress change (rexit_tc ptype) with rexit_with ].
+Ltac fold_tc_in H :=
+  repeat first
+    [ progress change (reval_val_tc ptype reval_int) with (reval_val_with reval_int) in H
+    | progress change (map_key_vals_with ptype) with map_key_vals in H
+    | progress change (shift_count_tc ptype) with shift_count in H
+    | progress change (typed_operand_tc ptype) with typed_operand in H
+    | progress change (rexit_tc ptype) with rexit_with in H ].
 
 Definition reval_elems : list GExpr -> option RElems := reval_elems_with reval_int.
 Definition reval_val : GExpr -> option RAny := reval_val_with reval_int.
@@ -1798,8 +1832,8 @@ Proof.
     unfold eval_value_ptype_core. rewrite Hpt. reflexivity. }
   assert (Hgoal : reval_int (EBn o a b) = Some (RPanic rt_div_zero));
     [| unfold denote_expr; rewrite Hfc; cbn [negb];
-       unfold reval_val_with; rewrite Hev, Hgoal; reflexivity ].
-  cbn [reval_int]. rewrite Hev, Hpt. cbn [numty_eqb negb].
+       unfold reval_val_with, reval_val_tc; rewrite Hev, Hgoal; reflexivity ].
+  cbn [reval_int reval_int_tc]; fold_tc. rewrite Hev, Hpt. cbn [numty_eqb negb].
   rewrite Ha, Hb.
   destruct Ho as [-> | ->].
   - (* BDiv: eliminate the dependent convoy by generalizing the scrutinee AND its proof together *)
@@ -1850,10 +1884,10 @@ Proof.
     [| exfalso; apply Hne; reflexivity].
   exists v. split; [reflexivity|].
   assert (Hr : reval_int (EIndex (ESliceLit et es) idx) = Some (RVal v)).
-  { cbn [reval_int]. rewrite Hev, Hpt. cbn [numty_eqb negb].
+  { cbn [reval_int reval_int_tc]; fold_tc. rewrite Hev, Hpt. cbn [numty_eqb negb].
     unfold reval_elems in Hes. rewrite Hes, Hidx, Hb, Hnth. reflexivity. }
   unfold denote_expr. rewrite Hfc. cbn [negb].
-  cbv beta iota delta [reval_val_with]. rewrite Hev, Hr. reflexivity.
+  cbv beta iota delta [reval_val_with reval_val_tc]. rewrite Hev, Hr. reflexivity.
 Qed.
 (** Out-of-bounds (negative or >= length): the denotation PANICS with the model's exact
     [rt_index_oob i n] — index raw and STRUCTURAL constructed length, the Go payload. *)
@@ -1870,10 +1904,10 @@ Proof.
   intros et es idx vs vi Hfc Hpt Hev Hes Hidx Hb.
   assert (Hr : reval_int (EIndex (ESliceLit et es) idx)
                = Some (RPanic (rt_index_oob (intraw vi) (length vs)))).
-  { cbn [reval_int]. rewrite Hev, Hpt. cbn [numty_eqb negb].
+  { cbn [reval_int reval_int_tc]; fold_tc. rewrite Hev, Hpt. cbn [numty_eqb negb].
     unfold reval_elems in Hes. rewrite Hes, Hidx, Hb. reflexivity. }
   unfold denote_expr. rewrite Hfc. cbn [negb].
-  cbv beta iota delta [reval_val_with]. rewrite Hev, Hr. reflexivity.
+  cbv beta iota delta [reval_val_with reval_val_tc]. rewrite Hev, Hr. reflexivity.
 Qed.
 (** A panicking ELEMENT aborts construction (the verified go-run order): ITS panic is the denotation —
     the index is never consulted. *)
@@ -1886,10 +1920,10 @@ Lemma denote_expr_index_elem_panic : forall et es idx p,
 Proof.
   intros et es idx p Hfc Hpt Hev Hes.
   assert (Hr : reval_int (EIndex (ESliceLit et es) idx) = Some (RPanic p)).
-  { cbn [reval_int]. rewrite Hev, Hpt. cbn [numty_eqb negb].
+  { cbn [reval_int reval_int_tc]; fold_tc. rewrite Hev, Hpt. cbn [numty_eqb negb].
     unfold reval_elems in Hes. rewrite Hes. reflexivity. }
   unfold denote_expr. rewrite Hfc. cbn [negb].
-  cbv beta iota delta [reval_val_with]. rewrite Hev, Hr. reflexivity.
+  cbv beta iota delta [reval_val_with reval_val_tc]. rewrite Hev, Hr. reflexivity.
 Qed.
 (** A panicking INDEX (after successful construction) panics with ITS payload — Go's evaluation order
     (literal first, then index). *)
@@ -1903,10 +1937,10 @@ Lemma denote_expr_index_idx_panic : forall et es idx vs p,
 Proof.
   intros et es idx vs p Hfc Hpt Hev Hes Hidx.
   assert (Hr : reval_int (EIndex (ESliceLit et es) idx) = Some (RPanic p)).
-  { cbn [reval_int]. rewrite Hev, Hpt. cbn [numty_eqb negb].
+  { cbn [reval_int reval_int_tc]; fold_tc. rewrite Hev, Hpt. cbn [numty_eqb negb].
     unfold reval_elems in Hes. rewrite Hes, Hidx. reflexivity. }
   unfold denote_expr. rewrite Hfc. cbn [negb].
-  cbv beta iota delta [reval_val_with]. rewrite Hev, Hr. reflexivity.
+  cbv beta iota delta [reval_val_with reval_val_tc]. rewrite Hev, Hr. reflexivity.
 Qed.
 
 (** ★ CLASS (tiers R3+T2) — the WIDTH-CONVERSION denotation theorems, quantified over the whole
@@ -2353,7 +2387,7 @@ Lemma rexit_nonexit_class_none : forall e c,
 Proof.
   intros e c Hpt Hc.
   destruct e as [i|z|o a0|o l r|e0 fld|e1 e2|e1 e2 e3|fn args|e0 ty|c0 e0|et es|kt vt kvs|str|hx];
-    cbn [rexit_with]; try reflexivity.
+    cbn [rexit_with rexit_tc]; fold_tc; try reflexivity.
   - rewrite Hpt. destruct c; try discriminate Hc; reflexivity.
   - rewrite Hpt. destruct c; try discriminate Hc; reflexivity.
   - destruct fn; try reflexivity.
@@ -2451,13 +2485,13 @@ Proof.
               (ptype_call_runint_conv f a t Hpt Ht) Ht) as [g' Hw].
   exists g'. split; [exact Hw|].
   assert (He : reval_int (ECall (EId f) (a :: nil)) = None).
-  { cbn [reval_int]. rewrite Hev. cbv beta iota.
+  { cbn [reval_int reval_int_tc]; fold_tc. rewrite Hev. cbv beta iota.
     rewrite Hpt. cbv beta iota. rewrite Ht.
     cbv beta iota delta [negb]. reflexivity. }
   unfold reval_val in Ha.
   assert (Hrx : rexit_with reval_int (reval_val_with reval_int) (ECall (EId f) (a :: nil))
                 = Some (RAVal g')).
-  { unfold rexit_with. cbv beta iota.
+  { unfold rexit_with, rexit_tc. cbv beta iota. fold_tc.
     rewrite Hpt. cbv beta iota. rewrite Ht. cbv beta iota.
     rewrite Ha. cbv beta iota. rewrite Hz. cbv beta iota. rewrite Hw. reflexivity. }
   unfold denote_expr. rewrite Hfc. cbn [negb].
@@ -2473,13 +2507,13 @@ Lemma denote_expr_conv_panic : forall f a t p,
 Proof.
   intros f a t p Hfc Hpt Ht Hev Ha.
   assert (He : reval_int (ECall (EId f) (a :: nil)) = None).
-  { cbn [reval_int]. rewrite Hev. cbv beta iota.
+  { cbn [reval_int reval_int_tc]; fold_tc. rewrite Hev. cbv beta iota.
     rewrite Hpt. cbv beta iota. rewrite Ht.
     cbv beta iota delta [negb]. reflexivity. }
   unfold reval_val in Ha.
   assert (Hrx : rexit_with reval_int (reval_val_with reval_int) (ECall (EId f) (a :: nil))
                 = Some (RAPanic p)).
-  { unfold rexit_with. cbv beta iota.
+  { unfold rexit_with, rexit_tc. cbv beta iota. fold_tc.
     rewrite Hpt. cbv beta iota. rewrite Ht. cbv beta iota.
     rewrite Ha. reflexivity. }
   unfold denote_expr. rewrite Hfc. cbn [negb].
@@ -2503,11 +2537,11 @@ Lemma denote_expr_cmp_runs : forall o a b va vb cmp,
 Proof.
   intros o a b va vb cmp Hfc Hpt Hw Hev Hc Ha Hb.
   assert (He : reval_int (EBn o a b) = None).
-  { cbn [reval_int]. rewrite Hev. cbv beta iota.
+  { cbn [reval_int reval_int_tc]; fold_tc. rewrite Hev. cbv beta iota.
     rewrite Hpt. cbv beta iota. reflexivity. }
   unfold denote_expr. rewrite Hfc. cbn [negb].
-  cbv beta iota delta [reval_val_with]. rewrite Hev, He. cbv beta iota.
-  unfold rexit_with. cbv beta iota.
+  cbv beta iota delta [reval_val_with reval_val_tc]. rewrite Hev, He. cbv beta iota.
+  unfold rexit_with, rexit_tc. cbv beta iota. fold_tc.
   rewrite Hpt. cbv beta iota. rewrite Hw. cbv beta iota.
   cbn [numty_eqb]. cbv beta iota.
   rewrite Hc. cbv beta iota.
@@ -2524,11 +2558,11 @@ Lemma denote_expr_cmp_left_panic : forall o a b p cmp,
 Proof.
   intros o a b p cmp Hfc Hpt Hw Hev Hc Ha.
   assert (He : reval_int (EBn o a b) = None).
-  { cbn [reval_int]. rewrite Hev. cbv beta iota.
+  { cbn [reval_int reval_int_tc]; fold_tc. rewrite Hev. cbv beta iota.
     rewrite Hpt. cbv beta iota. reflexivity. }
   unfold denote_expr. rewrite Hfc. cbn [negb].
-  cbv beta iota delta [reval_val_with]. rewrite Hev, He. cbv beta iota.
-  unfold rexit_with. cbv beta iota.
+  cbv beta iota delta [reval_val_with reval_val_tc]. rewrite Hev, He. cbv beta iota.
+  unfold rexit_with, rexit_tc. cbv beta iota. fold_tc.
   rewrite Hpt. cbv beta iota. rewrite Hw. cbv beta iota.
   cbn [numty_eqb]. cbv beta iota.
   rewrite Hc. cbv beta iota.
@@ -2546,11 +2580,11 @@ Lemma denote_expr_cmp_right_panic : forall o a b va p cmp,
 Proof.
   intros o a b va p cmp Hfc Hpt Hw Hev Hc Ha Hb.
   assert (He : reval_int (EBn o a b) = None).
-  { cbn [reval_int]. rewrite Hev. cbv beta iota.
+  { cbn [reval_int reval_int_tc]; fold_tc. rewrite Hev. cbv beta iota.
     rewrite Hpt. cbv beta iota. reflexivity. }
   unfold denote_expr. rewrite Hfc. cbn [negb].
-  cbv beta iota delta [reval_val_with]. rewrite Hev, He. cbv beta iota.
-  unfold rexit_with. cbv beta iota.
+  cbv beta iota delta [reval_val_with reval_val_tc]. rewrite Hev, He. cbv beta iota.
+  unfold rexit_with, rexit_tc. cbv beta iota. fold_tc.
   rewrite Hpt. cbv beta iota. rewrite Hw. cbv beta iota.
   cbn [numty_eqb]. cbv beta iota.
   rewrite Hc. cbv beta iota.
@@ -2580,13 +2614,13 @@ Proof.
   intros f kt vt kvs Hfc Hpt Hev Hcond Hvals Hrepr.
   assert (Hr : reval_int (ECall (EId f) (EMapLit kt vt kvs :: nil))
                = Some (RVal (intwrap (Z.of_nat (length kvs))))).
-  { cbn [reval_int]. rewrite Hev. cbv beta iota.
+  { cbn [reval_int reval_int_tc]; fold_tc. rewrite Hev. cbv beta iota.
     rewrite Hpt. cbn [numty_eqb negb].
     rewrite Hcond. cbv beta iota.
     unfold rconstr_vals in Hvals. rewrite Hvals. cbv beta iota.
     exact (rval_len_repr (length kvs) Hrepr). }
   unfold denote_expr. rewrite Hfc. cbn [negb].
-  cbv beta iota delta [reval_val_with]. rewrite Hev, Hr. reflexivity.
+  cbv beta iota delta [reval_val_with reval_val_tc]. rewrite Hev, Hr. reflexivity.
 Qed.
 Lemma denote_expr_maplen_panic : forall f kt vt kvs p,
   floats_checked (ECall (EId f) (EMapLit kt vt kvs :: nil)) = true ->
@@ -2599,12 +2633,12 @@ Lemma denote_expr_maplen_panic : forall f kt vt kvs p,
 Proof.
   intros f kt vt kvs p Hfc Hpt Hev Hcond Hvals.
   assert (Hr : reval_int (ECall (EId f) (EMapLit kt vt kvs :: nil)) = Some (RPanic p)).
-  { cbn [reval_int]. rewrite Hev. cbv beta iota.
+  { cbn [reval_int reval_int_tc]; fold_tc. rewrite Hev. cbv beta iota.
     rewrite Hpt. cbn [numty_eqb negb].
     rewrite Hcond. cbv beta iota.
     unfold rconstr_vals in Hvals. rewrite Hvals. reflexivity. }
   unfold denote_expr. rewrite Hfc. cbn [negb].
-  cbv beta iota delta [reval_val_with]. rewrite Hev, Hr. reflexivity.
+  cbv beta iota delta [reval_val_with reval_val_tc]. rewrite Hev, Hr. reflexivity.
 Qed.
 
 (** ---- THE WELL-TAGGEDNESS SEAL (T1's open obligation, closed) ----
@@ -2763,7 +2797,7 @@ Qed.
 Lemma reval_int_runint : forall a r,
   eval_value a = None -> reval_int a = Some r -> ptype a = Some (PtRunInt GTInt).
 Proof.
-  intros a r Hev Hr; destruct a; cbn [reval_int] in Hr; rewrite Hev in Hr; cbv beta iota in Hr;
+  intros a r Hev Hr; destruct a; cbn [reval_int reval_int_tc] in Hr; fold_tc_in Hr; rewrite Hev in Hr; cbv beta iota in Hr;
     destruct (ptype _) as [pt|] eqn:Ept; try discriminate Hr;
     destruct pt; try discriminate Hr;
     match type of Hr with
@@ -2930,7 +2964,7 @@ Proof.
     rewrite Hpt in Hgi. injection Hgi as ->. reflexivity. }
   { discriminate Hg. }
   destruct a as [i|z|o a0|o l r|e0 fld|e1 e2|e1 e2 e3|fn args|e0 ty|c e0|et es|kt vt kvs|str|hx];
-    cbn [rexit_with] in Hg; try discriminate Hg.
+    cbn [rexit_with rexit_tc] in Hg; fold_tc_in Hg; try discriminate Hg.
   - (* EUn: the T1 arm *)
     rewrite Hpt in Hg. cbv beta iota in Hg.
     destruct (numty_eqb t GTInt); cbv beta iota in Hg; [discriminate Hg|].
@@ -2972,12 +3006,12 @@ Proof.
   intros a s Hpt. unfold reval_val. rewrite reval_val_with_eq.
   rewrite (eval_value_runfloat_none a s Hpt).
   assert (Hri : reval_int a = None).
-  { destruct a; cbn [reval_int];
+  { destruct a; cbn [reval_int reval_int_tc]; fold_tc;
       rewrite (eval_value_runfloat_none _ _ Hpt); cbv beta iota;
       rewrite Hpt; reflexivity. }
   rewrite Hri. cbv beta iota.
   destruct a as [i|z|o a0|o l r|e0 fld|e1 e2|e1 e2 e3|fn args|e0 ty|c e0|et es|kt vt kvs|str|hx];
-    cbn [rexit_with]; try reflexivity.
+    cbn [rexit_with rexit_tc]; fold_tc; try reflexivity.
   - (* EUn *) rewrite Hpt. reflexivity.
   - (* EBn *) rewrite Hpt. reflexivity.
   - (* ECall *)
@@ -2991,7 +3025,7 @@ Qed.
 Lemma typed_operand_runint : forall rv t s e,
   ptype e = Some (PtRunInt s) -> numty_eqb s t = true -> typed_operand rv t e = rv e.
 Proof.
-  intros rv t s e Hpt Hn. unfold typed_operand. rewrite Hpt, Hn. reflexivity.
+  intros rv t s e Hpt Hn. unfold typed_operand, typed_operand_tc. rewrite Hpt, Hn. reflexivity.
 Qed.
 Lemma typed_operand_typed : forall t e g,
   is_int_goty t = true ->
@@ -3000,7 +3034,7 @@ Lemma typed_operand_typed : forall t e g,
   typed_operand reval_val t e = Some (RAVal g) ->
   tag_matches t g = true.
 Proof.
-  intros t e g Hi Hc H; unfold typed_operand in H.
+  intros t e g Hi Hc H; unfold typed_operand, typed_operand_tc in H.
   destruct Hc as [Hpt | [z [Hpt | Hpt]]]; rewrite Hpt in H; cbv beta iota in H.
   - rewrite (numty_eqb_refl_int t Hi) in H. cbv beta iota in H.
     exact (reval_val_typed e t g Hpt H).
@@ -3016,7 +3050,7 @@ Lemma typed_operand_const_total : forall t e z,
    \/ ptype e = Some (PtTIntConst t z)) ->
   exists g, typed_operand reval_val t e = Some (RAVal g).
 Proof.
-  intros t e z Hi Hu Hc. unfold typed_operand.
+  intros t e z Hi Hu Hc. unfold typed_operand, typed_operand_tc.
   destruct Hc as [[Hpt Hr] | Hpt]; rewrite Hpt; cbv beta iota.
   - destruct (box_int_repr_total t z Hi Hu Hr) as [g B]. rewrite B. eexists; reflexivity.
   - rewrite (numty_eqb_refl_int t Hi). cbv beta iota.
@@ -3028,7 +3062,7 @@ Lemma typed_operand_panic_runtime : forall rv t e p,
   exists s, ptype e = Some (PtRunInt s) /\ numty_eqb s t = true
             /\ rv e = Some (RAPanic p).
 Proof.
-  intros rv t e p H. unfold typed_operand in H.
+  intros rv t e p H. unfold typed_operand, typed_operand_tc in H.
   destruct (ptype e) as [c|]; [|discriminate H].
   destruct c; cbv beta iota in H;
   try discriminate H;
@@ -3055,7 +3089,7 @@ Proof.
   pose proof (reval_val_typed b s gb Hpt Hb) as Htag.
   pose proof (ptype_int_ok _ _ Hpt) as Hi. cbn in Hi.
   destruct (runint_raw_total s gb Hi Htag) as [z Hz].
-  exists z. unfold shift_count. rewrite Hpt, Hb, Hz. reflexivity.
+  exists z. unfold shift_count, shift_count_tc. rewrite Hpt, Hb, Hz. reflexivity.
 Qed.
 (** ★ CONST-count TOTALITY from the GATE ALONE — no evaluation premise, for ANY evaluator, and
     the count is EXACTLY [ptype]'s own value: the direct read makes it impossible for the count
@@ -3065,7 +3099,7 @@ Lemma shift_count_const_total : forall rv b c z,
   ptype b = Some c -> int_const_val c = Some z ->
   shift_count rv b = Some (inl z).
 Proof.
-  intros rv b c z Hpt Hic. unfold shift_count. rewrite Hpt.
+  intros rv b c z Hpt Hic. unfold shift_count, shift_count_tc. rewrite Hpt.
   destruct c; cbn [int_const_val] in Hic; try discriminate Hic;
     injection Hic as ->; reflexivity.
 Qed.
@@ -3128,12 +3162,12 @@ Lemma denote_expr_typed_unop_runs : forall o a t g g',
 Proof.
   intros o a t g g' Hfc Hpt Ht Hev Ha Hu.
   assert (He : reval_int (EUn o a) = None).
-  { cbn [reval_int]. rewrite Hev. cbv beta iota.
+  { cbn [reval_int reval_int_tc]; fold_tc. rewrite Hev. cbv beta iota.
     rewrite Hpt. cbv beta iota. rewrite Ht.
     cbv beta iota delta [negb]. reflexivity. }
   unfold reval_val in Ha.
   assert (Hrx : rexit_with reval_int (reval_val_with reval_int) (EUn o a) = Some (RAVal g')).
-  { unfold rexit_with. cbv beta iota.
+  { unfold rexit_with, rexit_tc. cbv beta iota. fold_tc.
     rewrite Hpt. cbv beta iota. rewrite Ht. cbv beta iota.
     rewrite Ha. cbv beta iota. rewrite Hu. reflexivity. }
   unfold denote_expr. rewrite Hfc. cbn [negb].
@@ -3149,12 +3183,12 @@ Lemma denote_expr_typed_unop_panic : forall o a t p,
 Proof.
   intros o a t p Hfc Hpt Ht Hev Ha.
   assert (He : reval_int (EUn o a) = None).
-  { cbn [reval_int]. rewrite Hev. cbv beta iota.
+  { cbn [reval_int reval_int_tc]; fold_tc. rewrite Hev. cbv beta iota.
     rewrite Hpt. cbv beta iota. rewrite Ht.
     cbv beta iota delta [negb]. reflexivity. }
   unfold reval_val in Ha.
   assert (Hrx : rexit_with reval_int (reval_val_with reval_int) (EUn o a) = Some (RAPanic p)).
-  { unfold rexit_with. cbv beta iota.
+  { unfold rexit_with, rexit_tc. cbv beta iota. fold_tc.
     rewrite Hpt. cbv beta iota. rewrite Ht. cbv beta iota.
     rewrite Ha. reflexivity. }
   unfold denote_expr. rewrite Hfc. cbn [negb].
@@ -3238,7 +3272,7 @@ Proof.
   exists z. split; [exact Hz|].
   unfold reval_val in Ha.
   assert (He : reval_int (ECall (EId f) (a :: nil)) = Some (RVal (intwrap z))).
-  { cbn [reval_int]. rewrite Hev. cbv beta iota. rewrite Hpt. cbv beta iota.
+  { cbn [reval_int reval_int_tc]; fold_tc. rewrite Hev. cbv beta iota. rewrite Hpt. cbv beta iota.
     cbn [numty_eqb negb]. cbv beta iota.
     destruct a as [i|z0|o a0|o l r|e0 fld|e1 e2|e1 e2 e3|fn args|e0 ty|c e0|et es|kt vt kvs|str|hx];
       cbv beta iota;
@@ -3275,7 +3309,7 @@ Proof.
     - pose proof (ptype_slicelit_shape _ _ _ Hpa) as E; discriminate E.
     - pose proof (ptype_maplit_shape _ _ _ _ Hpa) as E; discriminate E. }
   assert (Hri : reval_int (ECall (EId f) (a :: nil)) = None).
-  { cbn [reval_int]. rewrite Hev. cbv beta iota. rewrite Hpt. cbv beta iota.
+  { cbn [reval_int reval_int_tc]; fold_tc. rewrite Hev. cbv beta iota. rewrite Hpt. cbv beta iota.
     destruct (numty_eqb t GTInt); cbn [negb]; cbv beta iota; [|reflexivity].
     destruct a as [i|z|o a0|o l r|e0 fld|e1 e2|e1 e2 e3|fn args|e0 ty|c e0|et es|kt vt kvs|str|hx];
       cbv beta iota;
@@ -3284,7 +3318,7 @@ Proof.
     - pose proof (ptype_slicelit_shape _ _ _ Hpa) as E; discriminate E.
     - pose proof (ptype_maplit_shape _ _ _ _ Hpa) as E; discriminate E. }
   rewrite reval_val_with_eq, Hev, Hri. cbv beta iota.
-  cbn [rexit_with]. rewrite Hpt. cbv beta iota.
+  cbn [rexit_with rexit_tc]; fold_tc. rewrite Hpt. cbv beta iota.
   destruct (numty_eqb t GTInt); cbv beta iota; [reflexivity|].
   rewrite Hrv. reflexivity.
 Qed.
@@ -3309,7 +3343,7 @@ Proof.
     - pose proof (ptype_slicelit_shape _ _ _ Hpa) as E; discriminate E.
     - pose proof (ptype_maplit_shape _ _ _ _ Hpa) as E; discriminate E. }
   assert (Hri : reval_int (ECall (EId f) (a :: nil)) = None).
-  { cbn [reval_int]. rewrite Hev. cbv beta iota. rewrite Hpt. cbv beta iota.
+  { cbn [reval_int reval_int_tc]; fold_tc. rewrite Hev. cbv beta iota. rewrite Hpt. cbv beta iota.
     destruct (numty_eqb t GTInt); cbn [negb]; cbv beta iota; [|reflexivity].
     destruct a as [i|z|o a0|o l r|e0 fld|e1 e2|e1 e2 e3|fn args|e0 ty|c e0|et es|kt vt kvs|str|hx];
       cbv beta iota;
@@ -3318,7 +3352,7 @@ Proof.
     - pose proof (ptype_slicelit_shape _ _ _ Hpa) as E; discriminate E.
     - pose proof (ptype_maplit_shape _ _ _ _ Hpa) as E; discriminate E. }
   rewrite reval_val_with_eq, Hev, Hri. cbv beta iota.
-  cbn [rexit_with]. rewrite Hpt. cbv beta iota.
+  cbn [rexit_with rexit_tc]; fold_tc. rewrite Hpt. cbv beta iota.
   destruct (numty_eqb t GTInt); cbv beta iota; [reflexivity|].
   rewrite Hrv. reflexivity.
 Qed.
@@ -3337,7 +3371,7 @@ Proof.
   pose proof (ptype_call_runint_int_name f a s Hpt Hpa) as Hfeq.
   unfold reval_val in Ha.
   assert (He : reval_int (ECall (EId f) (a :: nil)) = Some (RPanic p)).
-  { cbn [reval_int]. rewrite Hev. cbv beta iota. rewrite Hpt. cbv beta iota.
+  { cbn [reval_int reval_int_tc]; fold_tc. rewrite Hev. cbv beta iota. rewrite Hpt. cbv beta iota.
     cbn [numty_eqb negb]. cbv beta iota.
     destruct a as [i|z0|o a0|o l r|e0 fld|e1 e2|e1 e2 e3|fn args|e0 ty|c e0|et es|kt vt kvs|str|hx];
       cbv beta iota;
@@ -3391,12 +3425,12 @@ Proof.
   destruct (typed_binop_live_total o t ga gb Ho Hta Htb Ht Hu Hi) as [r Hr].
   exists r.
   assert (He : reval_int (EBn o a b) = None).
-  { cbn [reval_int]. rewrite Hev. cbv beta iota.
+  { cbn [reval_int reval_int_tc]; fold_tc. rewrite Hev. cbv beta iota.
     rewrite Hpt. cbv beta iota. rewrite Ht.
     cbv beta iota delta [negb]. reflexivity. }
   unfold reval_val in Ha, Hb.
   assert (Hrx : rexit_with reval_int (reval_val_with reval_int) (EBn o a b) = Some r).
-  { unfold rexit_with. cbv beta iota.
+  { unfold rexit_with, rexit_tc. cbv beta iota. fold_tc.
     rewrite Hpt. cbv beta iota. rewrite Ht. cbv beta iota.
     rewrite Ha. cbv beta iota. rewrite Ho. cbv beta iota.
     rewrite Hb. cbv beta iota. exact Hr. }
@@ -3416,12 +3450,12 @@ Lemma denote_expr_typed_binop_left_panic : forall o a b t p,
 Proof.
   intros o a b t p Hfc Hpt Ht Hev Ha.
   assert (He : reval_int (EBn o a b) = None).
-  { cbn [reval_int]. rewrite Hev. cbv beta iota.
+  { cbn [reval_int reval_int_tc]; fold_tc. rewrite Hev. cbv beta iota.
     rewrite Hpt. cbv beta iota. rewrite Ht.
     cbv beta iota delta [negb]. reflexivity. }
   unfold reval_val in Ha.
   assert (Hrx : rexit_with reval_int (reval_val_with reval_int) (EBn o a b) = Some (RAPanic p)).
-  { unfold rexit_with. cbv beta iota.
+  { unfold rexit_with, rexit_tc. cbv beta iota. fold_tc.
     rewrite Hpt. cbv beta iota. rewrite Ht. cbv beta iota.
     rewrite Ha. reflexivity. }
   unfold denote_expr. rewrite Hfc. cbn [negb].
@@ -3439,12 +3473,12 @@ Lemma denote_expr_typed_binop_right_panic : forall o a b t ga p,
 Proof.
   intros o a b t ga p Hfc Hpt Ht Ho Hev Ha Hb.
   assert (He : reval_int (EBn o a b) = None).
-  { cbn [reval_int]. rewrite Hev. cbv beta iota.
+  { cbn [reval_int reval_int_tc]; fold_tc. rewrite Hev. cbv beta iota.
     rewrite Hpt. cbv beta iota. rewrite Ht.
     cbv beta iota delta [negb]. reflexivity. }
   unfold reval_val in Ha, Hb.
   assert (Hrx : rexit_with reval_int (reval_val_with reval_int) (EBn o a b) = Some (RAPanic p)).
-  { unfold rexit_with. cbv beta iota.
+  { unfold rexit_with, rexit_tc. cbv beta iota. fold_tc.
     rewrite Hpt. cbv beta iota. rewrite Ht. cbv beta iota.
     rewrite Ha. cbv beta iota. rewrite Ho. cbv beta iota.
     rewrite Hb. reflexivity. }
@@ -3470,11 +3504,11 @@ Proof.
   { unfold eval_value. rewrite Hfc. cbn [eval_value_core].
     unfold eval_value_ptype_core. rewrite Hpt. reflexivity. }
   assert (He : reval_int (EBn o a b) = None).
-  { cbn [reval_int]. rewrite Hev. cbv beta iota.
+  { cbn [reval_int reval_int_tc]; fold_tc. rewrite Hev. cbv beta iota.
     rewrite Hpt. cbv beta iota. rewrite Ht.
     cbv beta iota delta [negb]. reflexivity. }
   rewrite reval_val_with_eq, Hev, He. cbv beta iota.
-  cbn [rexit_with]. rewrite Hpt. cbv beta iota. rewrite Ht. cbv beta iota.
+  cbn [rexit_with rexit_tc]; fold_tc. rewrite Hpt. cbv beta iota. rewrite Ht. cbv beta iota.
   destruct Habs as [Hna | [ga [Ha Hnb]]].
   - unfold reval_val in Hna. rewrite Hna. reflexivity.
   - unfold reval_val in Ha, Hnb. rewrite Ha. cbv beta iota. rewrite Ho. cbv beta iota.
@@ -3544,12 +3578,12 @@ Proof.
   destruct (typed_cmp_live_total o t ga gb Ho Hta Htb Ht Hu Hi) as [v Hv].
   exists v.
   assert (He : reval_int (EBn o a b) = None).
-  { cbn [reval_int]. rewrite Hev. cbv beta iota.
+  { cbn [reval_int reval_int_tc]; fold_tc. rewrite Hev. cbv beta iota.
     rewrite Hpt. cbv beta iota. reflexivity. }
   unfold reval_val in Ha, Hb.
   assert (Hrx : rexit_with reval_int (reval_val_with reval_int) (EBn o a b)
                 = Some (RAVal (anyt TBool v))).
-  { unfold rexit_with. cbv beta iota.
+  { unfold rexit_with, rexit_tc. cbv beta iota. fold_tc.
     rewrite Hpt. cbv beta iota. rewrite Hw. cbv beta iota. rewrite Ht. cbv beta iota.
     rewrite Ha. cbv beta iota. rewrite Hb. cbv beta iota. rewrite Hv. reflexivity. }
   split; [exact Hv|].
@@ -3567,12 +3601,12 @@ Lemma denote_expr_typed_cmp_left_panic : forall o a b t p,
 Proof.
   intros o a b t p Hfc Hpt Hw Ht Hev Ha.
   assert (He : reval_int (EBn o a b) = None).
-  { cbn [reval_int]. rewrite Hev. cbv beta iota.
+  { cbn [reval_int reval_int_tc]; fold_tc. rewrite Hev. cbv beta iota.
     rewrite Hpt. cbv beta iota. reflexivity. }
   unfold reval_val in Ha.
   assert (Hrx : rexit_with reval_int (reval_val_with reval_int) (EBn o a b)
                 = Some (RAPanic p)).
-  { unfold rexit_with. cbv beta iota.
+  { unfold rexit_with, rexit_tc. cbv beta iota. fold_tc.
     rewrite Hpt. cbv beta iota. rewrite Hw. cbv beta iota. rewrite Ht. cbv beta iota.
     rewrite Ha. reflexivity. }
   unfold denote_expr. rewrite Hfc. cbn [negb].
@@ -3590,12 +3624,12 @@ Lemma denote_expr_typed_cmp_right_panic : forall o a b t ga p,
 Proof.
   intros o a b t ga p Hfc Hpt Hw Ht Hev Ha Hb.
   assert (He : reval_int (EBn o a b) = None).
-  { cbn [reval_int]. rewrite Hev. cbv beta iota.
+  { cbn [reval_int reval_int_tc]; fold_tc. rewrite Hev. cbv beta iota.
     rewrite Hpt. cbv beta iota. reflexivity. }
   unfold reval_val in Ha, Hb.
   assert (Hrx : rexit_with reval_int (reval_val_with reval_int) (EBn o a b)
                 = Some (RAPanic p)).
-  { unfold rexit_with. cbv beta iota.
+  { unfold rexit_with, rexit_tc. cbv beta iota. fold_tc.
     rewrite Hpt. cbv beta iota. rewrite Hw. cbv beta iota. rewrite Ht. cbv beta iota.
     rewrite Ha. cbv beta iota. rewrite Hb. reflexivity. }
   unfold denote_expr. rewrite Hfc. cbn [negb].
@@ -3616,11 +3650,11 @@ Theorem denote_expr_typed_cmp_src_absent : forall o a b t,
 Proof.
   intros o a b t Hfc Hpt Hw Ht Hev Habs.
   assert (He : reval_int (EBn o a b) = None).
-  { cbn [reval_int]. rewrite Hev. cbv beta iota.
+  { cbn [reval_int reval_int_tc]; fold_tc. rewrite Hev. cbv beta iota.
     rewrite Hpt. cbv beta iota. reflexivity. }
   unfold denote_expr. rewrite Hfc. cbn [negb].
   rewrite reval_val_with_eq, Hev, He. cbv beta iota.
-  cbn [rexit_with]. rewrite Hpt. cbv beta iota. rewrite Hw. cbv beta iota.
+  cbn [rexit_with rexit_tc]; fold_tc. rewrite Hpt. cbv beta iota. rewrite Hw. cbv beta iota.
   rewrite Ht. cbv beta iota.
   destruct Habs as [Hna | [ga [Ha Hnb]]].
   - unfold reval_val in Hna. rewrite Hna. reflexivity.
@@ -3663,12 +3697,12 @@ Proof.
   destruct (typed_shift_live_total o t ga z Ho Hta Ht Hu Hi) as [r Hr].
   exists r.
   assert (He : reval_int (EBn o a b) = None).
-  { cbn [reval_int]. rewrite Hev. cbv beta iota.
+  { cbn [reval_int reval_int_tc]; fold_tc. rewrite Hev. cbv beta iota.
     rewrite Hpt. cbv beta iota. rewrite Ht.
     cbv beta iota delta [negb]. reflexivity. }
   unfold reval_val in Ha, Hcnt.
   assert (Hrx : rexit_with reval_int (reval_val_with reval_int) (EBn o a b) = Some r).
-  { unfold rexit_with. cbv beta iota.
+  { unfold rexit_with, rexit_tc. cbv beta iota. fold_tc.
     rewrite Hpt. cbv beta iota. rewrite Ht. cbv beta iota.
     rewrite Ha. cbv beta iota. rewrite Hna. cbv beta iota.
     rewrite Ho. cbv beta iota. rewrite Hcnt. cbv beta iota. exact Hr. }
@@ -3712,13 +3746,13 @@ Proof.
   assert (Hna : typed_arith_op o = false)
     by (destruct o; try discriminate Ho; reflexivity).
   assert (He : reval_int (EBn o a b) = None).
-  { cbn [reval_int]. rewrite Hev. cbv beta iota.
+  { cbn [reval_int reval_int_tc]; fold_tc. rewrite Hev. cbv beta iota.
     rewrite Hpt. cbv beta iota. rewrite Ht.
     cbv beta iota delta [negb]. reflexivity. }
   unfold reval_val in Ha, Hcnt.
   assert (Hrx : rexit_with reval_int (reval_val_with reval_int) (EBn o a b)
                 = Some (RAPanic p)).
-  { unfold rexit_with. cbv beta iota.
+  { unfold rexit_with, rexit_tc. cbv beta iota. fold_tc.
     rewrite Hpt. cbv beta iota. rewrite Ht. cbv beta iota.
     rewrite Ha. cbv beta iota. rewrite Hna. cbv beta iota.
     rewrite Ho. cbv beta iota. rewrite Hcnt. reflexivity. }
@@ -3745,11 +3779,11 @@ Proof.
   { unfold eval_value. rewrite Hfc. cbn [eval_value_core].
     unfold eval_value_ptype_core. rewrite Hpt. reflexivity. }
   assert (He : reval_int (EBn o a b) = None).
-  { cbn [reval_int]. rewrite Hev. cbv beta iota.
+  { cbn [reval_int reval_int_tc]; fold_tc. rewrite Hev. cbv beta iota.
     rewrite Hpt. cbv beta iota. rewrite Ht.
     cbv beta iota delta [negb]. reflexivity. }
   rewrite reval_val_with_eq, Hev, He. cbv beta iota.
-  cbn [rexit_with]. rewrite Hpt. cbv beta iota. rewrite Ht. cbv beta iota.
+  cbn [rexit_with rexit_tc]; fold_tc. rewrite Hpt. cbv beta iota. rewrite Ht. cbv beta iota.
   destruct Habs as [Hna2 | [ga [Ha Hcnt]]].
   - unfold reval_val in Hna2. rewrite Hna2. reflexivity.
   - unfold reval_val in Ha, Hcnt.
@@ -3801,7 +3835,7 @@ Proof.
   { unfold eval_value. rewrite Hfc. cbn [eval_value_core].
     unfold eval_value_ptype_core. rewrite Hpt. reflexivity. }
   assert (Hr : reval_int (EBn BDiv a b) = Some (RVal (int_div va vb pf))).
-  { cbn [reval_int]. rewrite Hev, Hpt. cbn [numty_eqb negb]. rewrite Ha, Hb.
+  { cbn [reval_int reval_int_tc]; fold_tc. rewrite Hev, Hpt. cbn [numty_eqb negb]. rewrite Ha, Hb.
     assert (K : forall (z : bool) (pf0 : Z.eqb (intraw vb) 0 = z), z = false ->
               (match z as z0 return Z.eqb (intraw vb) 0 = z0 -> option RRes with
                | true  => fun _   => Some (RPanic rt_div_zero)
@@ -3811,7 +3845,7 @@ Proof.
       unfold int_div. reflexivity. }
     exact (K _ eq_refl pf). }
   unfold denote_expr. rewrite Hfc. cbn [negb].
-  cbv beta iota delta [reval_val_with]. rewrite Hev, Hr. reflexivity.
+  cbv beta iota delta [reval_val_with reval_val_tc]. rewrite Hev, Hr. reflexivity.
 Qed.
 Lemma denote_expr_rem_runs : forall a b va vb (pf : Z.eqb (intraw vb) 0 = false),
   floats_checked (EBn BRem a b) = true ->
@@ -3825,7 +3859,7 @@ Proof.
   { unfold eval_value. rewrite Hfc. cbn [eval_value_core].
     unfold eval_value_ptype_core. rewrite Hpt. reflexivity. }
   assert (Hr : reval_int (EBn BRem a b) = Some (RVal (int_mod va vb pf))).
-  { cbn [reval_int]. rewrite Hev, Hpt. cbn [numty_eqb negb]. rewrite Ha, Hb.
+  { cbn [reval_int reval_int_tc]; fold_tc. rewrite Hev, Hpt. cbn [numty_eqb negb]. rewrite Ha, Hb.
     assert (K : forall (z : bool) (pf0 : Z.eqb (intraw vb) 0 = z), z = false ->
               (match z as z0 return Z.eqb (intraw vb) 0 = z0 -> option RRes with
                | true  => fun _   => Some (RPanic rt_div_zero)
@@ -3835,7 +3869,7 @@ Proof.
       unfold int_mod. reflexivity. }
     exact (K _ eq_refl pf). }
   unfold denote_expr. rewrite Hfc. cbn [negb].
-  cbv beta iota delta [reval_val_with]. rewrite Hev, Hr. reflexivity.
+  cbv beta iota delta [reval_val_with reval_val_tc]. rewrite Hev, Hr. reflexivity.
 Qed.
 (** ---- Tier R8 sealed — the GTInt BITWISE + SHIFT rows ----
     DISPATCH AUTHORITY (gated): each live row IS, by reflexivity, the FULLY QUALIFIED model op —
@@ -3885,12 +3919,12 @@ Proof.
   assert (Hs : shift_op o = false)
     by (destruct o; try discriminate Hop; reflexivity).
   assert (Hr : reval_int (EBn o a b) = Some (RVal (f va vb))).
-  { cbn [reval_int]. rewrite Hev, Hpt. cbn [numty_eqb negb]. rewrite Hs.
+  { cbn [reval_int reval_int_tc]; fold_tc. rewrite Hev, Hpt. cbn [numty_eqb negb]. rewrite Hs.
     cbv beta iota. rewrite Ha, Hb.
     destruct o; try discriminate Hop;
       cbn [int_bitop] in Hop; injection Hop as <-; reflexivity. }
   unfold denote_expr. rewrite Hfc. cbn [negb].
-  cbv beta iota delta [reval_val_with]. rewrite Hev, Hr. reflexivity.
+  cbv beta iota delta [reval_val_with reval_val_tc]. rewrite Hev, Hr. reflexivity.
 Qed.
 (** the panic sides, Go's left-to-right order — a panicking LEFT fires before the right operand,
     a panicking RIGHT fires after an evaluated left *)
@@ -3908,10 +3942,10 @@ Proof.
   assert (Hs : shift_op o = false)
     by (destruct o; try discriminate Hop; reflexivity).
   assert (Hr : reval_int (EBn o a b) = Some (RPanic p)).
-  { cbn [reval_int]. rewrite Hev, Hpt. cbn [numty_eqb negb]. rewrite Hs.
+  { cbn [reval_int reval_int_tc]; fold_tc. rewrite Hev, Hpt. cbn [numty_eqb negb]. rewrite Hs.
     cbv beta iota. rewrite Ha. reflexivity. }
   unfold denote_expr. rewrite Hfc. cbn [negb].
-  cbv beta iota delta [reval_val_with]. rewrite Hev, Hr. reflexivity.
+  cbv beta iota delta [reval_val_with reval_val_tc]. rewrite Hev, Hr. reflexivity.
 Qed.
 Lemma denote_expr_bitwise_right_panic : forall o f a b va p,
   int_bitop o = Some f ->
@@ -3928,10 +3962,10 @@ Proof.
   assert (Hs : shift_op o = false)
     by (destruct o; try discriminate Hop; reflexivity).
   assert (Hr : reval_int (EBn o a b) = Some (RPanic p)).
-  { cbn [reval_int]. rewrite Hev, Hpt. cbn [numty_eqb negb]. rewrite Hs.
+  { cbn [reval_int reval_int_tc]; fold_tc. rewrite Hev, Hpt. cbn [numty_eqb negb]. rewrite Hs.
     cbv beta iota. rewrite Ha, Hb. reflexivity. }
   unfold denote_expr. rewrite Hfc. cbn [negb].
-  cbv beta iota delta [reval_val_with]. rewrite Hev, Hr. reflexivity.
+  cbv beta iota delta [reval_val_with reval_val_tc]. rewrite Hev, Hr. reflexivity.
 Qed.
 (** ★ CLASS — the GTInt SHIFT decided per OUTCOME (T5's discipline at the engine's own width):
     the dispatched model op's value on a NONNEGATIVE count (>= 64 saturating — exact for the
@@ -3956,11 +3990,11 @@ Proof.
   destruct (int_shift_checked_cases f va z) as [[Ez _] | [_ [pf Ev]]]; [congruence|].
   exists pf.
   assert (Hr : reval_int (EBn o a b) = Some (RVal (f va (Z.min z 64) pf))).
-  { cbn [reval_int]. rewrite Hev, Hpt. cbn [numty_eqb negb]. rewrite Hs.
+  { cbn [reval_int reval_int_tc]; fold_tc. rewrite Hev, Hpt. cbn [numty_eqb negb]. rewrite Hs.
     cbv beta iota. rewrite Ha. cbv beta iota. rewrite Hcnt.
     cbv beta iota. rewrite Hop. cbv beta iota. exact Ev. }
   unfold denote_expr. rewrite Hfc. cbn [negb].
-  cbv beta iota delta [reval_val_with]. rewrite Hev, Hr. reflexivity.
+  cbv beta iota delta [reval_val_with reval_val_tc]. rewrite Hev, Hr. reflexivity.
 Qed.
 (** ★ the CONST-count class sealed to the GATE: NO count-evaluation premise at all — totality
     ([shift_count_const_total]) and nonnegativity ([ptype_shift_count_const_nonneg]) both come
@@ -4001,11 +4035,11 @@ Proof.
   destruct Hf as [f Hop].
   destruct (int_shift_checked_cases f va z) as [[_ Ep] | [Ez _]]; [|congruence].
   assert (Hr : reval_int (EBn o a b) = Some (RPanic rt_shift_neg)).
-  { cbn [reval_int]. rewrite Hev, Hpt. cbn [numty_eqb negb]. rewrite Hs.
+  { cbn [reval_int reval_int_tc]; fold_tc. rewrite Hev, Hpt. cbn [numty_eqb negb]. rewrite Hs.
     cbv beta iota. rewrite Ha. cbv beta iota. rewrite Hcnt.
     cbv beta iota. rewrite Hop. cbv beta iota. exact Ep. }
   unfold denote_expr. rewrite Hfc. cbn [negb].
-  cbv beta iota delta [reval_val_with]. rewrite Hev, Hr. reflexivity.
+  cbv beta iota delta [reval_val_with reval_val_tc]. rewrite Hev, Hr. reflexivity.
 Qed.
 Lemma denote_expr_int_shift_left_panic : forall o a b p,
   shift_op o = true ->
@@ -4019,10 +4053,10 @@ Proof.
   { unfold eval_value. rewrite Hfc. cbn [eval_value_core].
     unfold eval_value_ptype_core. rewrite Hpt. reflexivity. }
   assert (Hr : reval_int (EBn o a b) = Some (RPanic p)).
-  { cbn [reval_int]. rewrite Hev, Hpt. cbn [numty_eqb negb]. rewrite Hs.
+  { cbn [reval_int reval_int_tc]; fold_tc. rewrite Hev, Hpt. cbn [numty_eqb negb]. rewrite Hs.
     cbv beta iota. rewrite Ha. reflexivity. }
   unfold denote_expr. rewrite Hfc. cbn [negb].
-  cbv beta iota delta [reval_val_with]. rewrite Hev, Hr. reflexivity.
+  cbv beta iota delta [reval_val_with reval_val_tc]. rewrite Hev, Hr. reflexivity.
 Qed.
 Lemma denote_expr_int_shift_count_panic : forall o a b va p,
   shift_op o = true ->
@@ -4037,10 +4071,10 @@ Proof.
   { unfold eval_value. rewrite Hfc. cbn [eval_value_core].
     unfold eval_value_ptype_core. rewrite Hpt. reflexivity. }
   assert (Hr : reval_int (EBn o a b) = Some (RPanic p)).
-  { cbn [reval_int]. rewrite Hev, Hpt. cbn [numty_eqb negb]. rewrite Hs.
+  { cbn [reval_int reval_int_tc]; fold_tc. rewrite Hev, Hpt. cbn [numty_eqb negb]. rewrite Hs.
     cbv beta iota. rewrite Ha. cbv beta iota. rewrite Hcnt. reflexivity. }
   unfold denote_expr. rewrite Hfc. cbn [negb].
-  cbv beta iota delta [reval_val_with]. rewrite Hev, Hr. reflexivity.
+  cbv beta iota delta [reval_val_with reval_val_tc]. rewrite Hev, Hr. reflexivity.
 Qed.
 Lemma denote_expr_neg_runs : forall a va,
   floats_checked (EUn UNeg a) = true ->
@@ -4051,9 +4085,9 @@ Lemma denote_expr_neg_runs : forall a va,
 Proof.
   intros a va Hfc Hpt Hev Ha.
   assert (Hr : reval_int (EUn UNeg a) = Some (RVal (int_neg va))).
-  { cbn [reval_int]. rewrite Hev, Hpt. cbn [numty_eqb negb]. rewrite Ha. reflexivity. }
+  { cbn [reval_int reval_int_tc]; fold_tc. rewrite Hev, Hpt. cbn [numty_eqb negb]. rewrite Ha. reflexivity. }
   unfold denote_expr. rewrite Hfc. cbn [negb].
-  cbv beta iota delta [reval_val_with]. rewrite Hev, Hr. reflexivity.
+  cbv beta iota delta [reval_val_with reval_val_tc]. rewrite Hev, Hr. reflexivity.
 Qed.
 Lemma denote_expr_neg_panic : forall a p,
   floats_checked (EUn UNeg a) = true ->
@@ -4064,9 +4098,9 @@ Lemma denote_expr_neg_panic : forall a p,
 Proof.
   intros a p Hfc Hpt Hev Ha.
   assert (Hr : reval_int (EUn UNeg a) = Some (RPanic p)).
-  { cbn [reval_int]. rewrite Hev, Hpt. cbn [numty_eqb negb]. rewrite Ha. reflexivity. }
+  { cbn [reval_int reval_int_tc]; fold_tc. rewrite Hev, Hpt. cbn [numty_eqb negb]. rewrite Ha. reflexivity. }
   unfold denote_expr. rewrite Hfc. cbn [negb].
-  cbv beta iota delta [reval_val_with]. rewrite Hev, Hr. reflexivity.
+  cbv beta iota delta [reval_val_with reval_val_tc]. rewrite Hev, Hr. reflexivity.
 Qed.
 Lemma denote_expr_not_runs : forall a va,
   floats_checked (EUn UXor a) = true ->
@@ -4077,9 +4111,9 @@ Lemma denote_expr_not_runs : forall a va,
 Proof.
   intros a va Hfc Hpt Hev Ha.
   assert (Hr : reval_int (EUn UXor a) = Some (RVal (int_not va))).
-  { cbn [reval_int]. rewrite Hev, Hpt. cbn [numty_eqb negb]. rewrite Ha. reflexivity. }
+  { cbn [reval_int reval_int_tc]; fold_tc. rewrite Hev, Hpt. cbn [numty_eqb negb]. rewrite Ha. reflexivity. }
   unfold denote_expr. rewrite Hfc. cbn [negb].
-  cbv beta iota delta [reval_val_with]. rewrite Hev, Hr. reflexivity.
+  cbv beta iota delta [reval_val_with reval_val_tc]. rewrite Hev, Hr. reflexivity.
 Qed.
 Lemma denote_expr_not_panic : forall a p,
   floats_checked (EUn UXor a) = true ->
@@ -4090,9 +4124,9 @@ Lemma denote_expr_not_panic : forall a p,
 Proof.
   intros a p Hfc Hpt Hev Ha.
   assert (Hr : reval_int (EUn UXor a) = Some (RPanic p)).
-  { cbn [reval_int]. rewrite Hev, Hpt. cbn [numty_eqb negb]. rewrite Ha. reflexivity. }
+  { cbn [reval_int reval_int_tc]; fold_tc. rewrite Hev, Hpt. cbn [numty_eqb negb]. rewrite Ha. reflexivity. }
   unfold denote_expr. rewrite Hfc. cbn [negb].
-  cbv beta iota delta [reval_val_with]. rewrite Hev, Hr. reflexivity.
+  cbv beta iota delta [reval_val_with reval_val_tc]. rewrite Hev, Hr. reflexivity.
 Qed.
 
 Fixpoint eval_args (args : list GExpr) : option (list GoAny) :=
