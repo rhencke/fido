@@ -1398,7 +1398,7 @@ Local Definition rexit_tc (tc : GExpr -> option PTy) (leaf : string -> option Go
          wrap into the target.  A non-integer-tagged source is absent fail-closed at [runint_raw]
          (in the CLOSED instance a runtime-float source cannot even evaluate,
          [reval_val_runfloat_none]; an ENV float LOCAL evaluates via the EId arm yet its
-         conversion stays absent HERE — the class pin, [env_float_conv_class]).  A panicking arg panics (Go's order). *)
+         conversion stays absent HERE for EVERY payload — [env_float_conv_class]).  A panicking arg panics (Go's order). *)
       match tc e with
       | Some (PtRunInt t) =>
           if numty_eqb t GTInt then None else
@@ -1705,7 +1705,7 @@ Local Definition reval_int_tc (tc : GExpr -> option PTy) (leaf : string -> optio
                  through a non-[GTInt] intermediate ([int(uint8(len ..))]) converts exactly like Go.
                  A non-integer-tagged source ([int(<runtime float>)]) is absent fail-closed at
                  [runint_raw] (CLOSED instance: even classifier-absent, [reval_val_runfloat_none];
-                 ENV float locals: the class pin [env_float_conv_class]).  Non-[GTInt] targets EXIT
+                 ENV float locals: payload-general, [env_float_conv_class]).  Non-[GTInt] targets EXIT
                  the fragment in [rexit_with]. *)
               if String.eqb (proj1_sig f) "int"
               then match reval_val_tc tc leaf ri a with
@@ -2029,8 +2029,8 @@ Proof. vm_compute. repeat split; reflexivity. Qed.
     EVALUATES directly (the [rexit_tc] EId arm — the closed runtime-float absence theorems are
     about the CLOSED instance only), and a TAG-FORGED environment (float32 or int under a
     float64-bound name; float64 or int under a float32-bound name) is ABSENT
-    ([eid_exit_tag_ok]).  The INTEGER-TARGET CONVERSION class is pinned separately and in FULL by
-    [env_float_conv_class] below (quantified over [special_ident]'s image, strings pinned by
+    ([eid_exit_tag_ok]).  The INTEGER-TARGET CONVERSION face is [env_float_conv_class] below —
+    quantified over [special_ident]'s image, both widths, and every payload (strings pinned by
     [special_ident_name]). *)
 Example env_float_pins :
   match scope_declare scope_empty (mkIdent "f" eq_refl) (PtRunFloat GTFloat64),
@@ -2057,25 +2057,27 @@ Proof. vm_compute. repeat split; reflexivity. Qed.
 (** ★ THE ENV FLOAT CONVERSION CLASS — QUANTIFIED over the LIVE conversion-head authority
     ([special_ident]'s image: every identifier the ONE table classifies as an INTEGER type
     keyword — both engine paths, the [GTInt] arm in [reval_int_tc] and the non-[GTInt] exit in
-    [rexit_tc]) and BOTH float widths: an integer-keyword conversion of a float-bound local is
-    ABSENT — the resolved carrier is float-tagged, so [runint_raw] rejects it.  Exact-or-absent
-    for the WHOLE class; [special_ident_name] (GoAst) pins each head's string, so NO parallel
-    keyword list exists to drift. *)
+    [rexit_tc]), BOTH float widths, and EVERY payload of the bound width: an integer-keyword
+    conversion of a float-bound local is ABSENT — the rejection is TAG-driven ([runint_raw]
+    never reads the payload), and the theorem quantifies the payloads to say exactly that.
+    [special_ident_name] (GoAst) pins each head's string, so NO parallel keyword list exists to
+    drift.  (The env SHAPE is the single well-tagged binding — the Γ ≈ ρ case; forged tags are
+    [env_float_pins]' matrix.) *)
 Example env_float_conv_class :
-  forall (i : Ident) (t : GoTy),
+  forall (i : Ident) (t : GoTy) (v64 : GoFloat64) (v32 : GoFloat32),
   special_ident (proj1_sig i) = Some (SnType t) ->
   is_int_goty t = true ->
   match scope_declare scope_empty (mkIdent "f" eq_refl) (PtRunFloat GTFloat64),
         scope_declare scope_empty (mkIdent "g" eq_refl) (PtRunFloat GTFloat32) with
   | Some G64, Some G32 =>
-      denote_expr_env G64 (("f"%string, anyt TFloat64 (S754_zero false)) :: nil)
+      denote_expr_env G64 (("f"%string, anyt TFloat64 v64) :: nil)
         (ECall (EId i) (EId (mkIdent "f" eq_refl) :: nil)) = None
-      /\ denote_expr_env G32 (("g"%string, anyt TFloat32 (f32_lit (S754_zero false))) :: nil)
+      /\ denote_expr_env G32 (("g"%string, anyt TFloat32 v32) :: nil)
            (ECall (EId i) (EId (mkIdent "g" eq_refl) :: nil)) = None
   | _, _ => False
   end.
 Proof.
-  intros [s Hi] t Hsi Hit.
+  intros [s Hi] t v64 v32 Hsi Hit.
   cbn [proj1_sig] in Hsi.
   pose proof (special_ident_name _ _ Hsi) as Hs.
   destruct t; try discriminate Hit; cbn [special_name_string] in Hs; subst s;
@@ -3509,8 +3511,8 @@ Qed.
     payload's tag, on which the raw reading is total ([runint_raw_total]) and the target wrap is total
     ([wrap_runint_total]).  The [PtRunFloat] complement is CLASS-absent in the CLOSED instance
     ([denote_expr_conv_float_src_absent] below, on [reval_val_runfloat_none]; supported-side witness
-    [runtime_float_source_conv_absent]; the ENV conversion-absence face is [env_float_conv_class]) — the
-    float arc, not this one. *)
+    [runtime_float_source_conv_absent]; the ENV conversion-absence face, payload-general, is
+    [env_float_conv_class]) — the float arc, not this one. *)
 Theorem denote_expr_conv_runs_sealed : forall f a t s g,
   floats_checked (ECall (EId f) (a :: nil)) = true ->
   ptype (ECall (EId f) (a :: nil)) = Some (PtRunInt t) ->
