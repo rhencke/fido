@@ -350,8 +350,9 @@ Example typed_runtime_convchain_runs : forall w,
     ; Some (ORet tt (w_log true (anyt TInt64 (intwrap 3) :: nil) w))
     ; Some (ORet tt (w_log true (anyt TI8 (i8wrap 252) :: nil) w)) ].
 Proof. intro w. vm_compute. reflexivity. Qed.
-(** The RUNTIME-FLOAT SOURCE boundary: the ABSENCE is the gated CLASS pair
-    ([reval_val_runfloat_none] — no [PtRunFloat]-classified expression evaluates at all;
+(** The RUNTIME-FLOAT SOURCE boundary: the ABSENCE is the gated CLASS pair, CLOSED-instance only
+    ([reval_val_runfloat_none] — no [PtRunFloat]-classified expression evaluates in the CLOSED
+    evaluator; an ENV float LOCAL evaluates, [env_float_pins];
     [denote_expr_conv_float_src_absent] — every integer-target conversion over such a source is
     absent, [GTInt] included).  This fixture pins what the class theorems cannot: the form is
     gate-SUPPORTED (supported-but-absent, the honest frontier membership) — flips with the float

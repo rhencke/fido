@@ -33,7 +33,7 @@ Definition emit_supported (p : EmittableProgram) : string := print_program (ep_p
     [GsShortDecl] ([x := e]) is ADMITTED by [supported_program] since locals rung 4 (a certificate
     EXISTS for a declared-and-used local — GoSafe's [good_programs] locals rows), but it joins this demo
     at the arc's gate-reach rung (plans/gosem-locals.md rung 6, a deliberate golden bless) once its
-    denotation lands (rung 5).  The supported forms — [println(1)], [println(int64(3))] (a value-position scalar CONVERSION),
+    denotation lands (the env STATEMENT layer, rung 5c).  The supported forms — [println(1)], [println(int64(3))] (a value-position scalar CONVERSION),
     [println(1 + 2)] (a binary-operator [EBn], exercising operator printing + gofmt spacing through the path),
     [println("hi")] (a STRING-literal [EStr], exercising [print_string_lit] through the path),
     [println(0xff)] (a HEX-literal [EHex], exercising [print_hex] through the path),

@@ -2025,21 +2025,34 @@ Example env_eid_pins :
   end.
 Proof. vm_compute. repeat split; reflexivity. Qed.
 
-(** ENV FLOAT pins: a bound FLOAT local EVALUATES directly (the [rexit_tc] EId arm — the closed
-    runtime-float absence theorems are about the CLOSED instance only), while its integer-target
-    CONVERSIONS stay ABSENT through the real tag boundary ([runint_raw] rejects a float-tagged
-    carrier) — exact-or-absent, per category. *)
+(** ENV FLOAT pins, BOTH widths: a bound FLOAT local EVALUATES directly (the [rexit_tc] EId arm —
+    the closed runtime-float absence theorems are about the CLOSED instance only); its
+    integer-target CONVERSIONS stay ABSENT through the real tag boundary ([runint_raw] rejects a
+    float-tagged carrier); and a TAG-FORGED environment (a float32 or int value under a
+    float64-bound name) is ABSENT ([eid_exit_tag_ok]) — exact-or-absent, per category and width. *)
 Example env_float_pins :
-  match scope_declare scope_empty (mkIdent "f" eq_refl) (PtRunFloat GTFloat64) with
-  | Some G =>
-      denote_expr_env G (("f"%string, anyt TFloat64 (S754_zero false)) :: nil)
+  match scope_declare scope_empty (mkIdent "f" eq_refl) (PtRunFloat GTFloat64),
+        scope_declare scope_empty (mkIdent "g" eq_refl) (PtRunFloat GTFloat32) with
+  | Some G64, Some G32 =>
+      denote_expr_env G64 (("f"%string, anyt TFloat64 (S754_zero false)) :: nil)
         (EId (mkIdent "f" eq_refl))
         = Some (CRet (anyt TFloat64 (S754_zero false)), false)
-      /\ denote_expr_env G (("f"%string, anyt TFloat64 (S754_zero false)) :: nil)
+      /\ denote_expr_env G32 (("g"%string, anyt TFloat32 (f32_lit (S754_zero false))) :: nil)
+           (EId (mkIdent "g" eq_refl))
+           = Some (CRet (anyt TFloat32 (f32_lit (S754_zero false))), false)
+      /\ denote_expr_env G64 (("f"%string, anyt TFloat64 (S754_zero false)) :: nil)
            (ECall (EId (mkIdent "int" eq_refl)) (EId (mkIdent "f" eq_refl) :: nil)) = None
-      /\ denote_expr_env G (("f"%string, anyt TFloat64 (S754_zero false)) :: nil)
+      /\ denote_expr_env G64 (("f"%string, anyt TFloat64 (S754_zero false)) :: nil)
            (ECall (EId (mkIdent "int64" eq_refl)) (EId (mkIdent "f" eq_refl) :: nil)) = None
-  | None => False
+      /\ denote_expr_env G32 (("g"%string, anyt TFloat32 (f32_lit (S754_zero false))) :: nil)
+           (ECall (EId (mkIdent "int" eq_refl)) (EId (mkIdent "g" eq_refl) :: nil)) = None
+      /\ denote_expr_env G64 (("f"%string, anyt TFloat32 (f32_lit (S754_zero false))) :: nil)
+           (EId (mkIdent "f" eq_refl)) = None
+      /\ denote_expr_env G64 (("f"%string, anyt TInt64 (intwrap 5)) :: nil)
+           (EId (mkIdent "f" eq_refl)) = None
+      /\ denote_expr_env G32 (("g"%string, anyt TFloat64 (S754_zero false)) :: nil)
+           (EId (mkIdent "g" eq_refl)) = None
+  | _, _ => False
   end.
 Proof. vm_compute. repeat split; reflexivity. Qed.
 

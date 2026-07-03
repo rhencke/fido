@@ -78,7 +78,7 @@ the empty-scope PROJECTION — the PROVEN bridge `GoSafe.type_expr_nil_ptype`
 resolves and no used flag can flip, while the `special_ident` fall-through branch mirrors closed
 `ptype` exactly ([nil] included) — so the traversals agree, and any drift between the two spellings fails the
 build at this theorem.  Every existing `ptype` theorem survives untouched.  The same shape lands
-for the evaluator's ident resolution in `GoSemDenote` (rung 5).
+for the evaluator's ident resolution in `GoSemDenote` (LANDED at rung 5b: the `EId` arms).
 
 ## Go-faithfulness rules (each lands with a fixture; narrowings NAMED as narrowings)
 
@@ -147,7 +147,7 @@ for the evaluator's ident resolution in `GoSemDenote` (rung 5).
    them).  `stmt_ok` stays as the CLOSED scope-free fragment (GoSemDenote's slice-1 gate); the
    decl-free bridge `body_okS_nil_declfree` (+ `supported_program_of_stmt_ok`) pins agreement and
    repairs `gosem_sound`.  The rung-4/5 seam is pinned: `shortdecl_supported_undenoted`
-   (supported ∧ not denotable — flips at rung 5).
+   (supported ∧ not denotable — flips at rung 5c).
    Good: `x := 1; _ = x; return`; the RUNTIME bindings `x := len([]int{1}); _ = x`,
    `x := 1; y := x; _ = y`, `x := int64(len([]int{1})); _ = x`; the NESTED uses `x := 1; _ = x + 1`
    and `x := 1; println(x)` (uses marked inside subexpressions, not just top-level).
