@@ -12,18 +12,20 @@
     its CONTINUATION, so [cbind] (append the continuation) and the interpreters are genuine structural
     [Fixpoint]s.
 
-    SLICE 1 (this file, to grow): the syntax for output/panic/defer, [cbind] + the monad laws, and the
+    THIS FILE: the syntax for output/panic/defer + the typed HEAP pair ([CWrite]/[CRead] — tag-preserving
+    writes, ABSENT on unallocated access), [cbind] + the monad laws (over [CmdEq]), and the
     AUTHORITATIVE operational interpreter [run_cmd] — which runs the body THEN its [defer] stack (LIFO,
     func-scope return, on panic too; the #12 fix).  There is NO shallow [Cmd -> IO] reading: a sequential
     [World -> Outcome] cannot run a func-scoped defer at return, so [run_cmd] is the ONLY semantics for a
-    [Cmd] (a shallow drop/no-op would silently erase a deferred effect — review #6/#12).  Subsequent slices
-    add [catch], heap/channel ops, and the small-step interleaving semantics (the #22 unification). *)
+    [Cmd] (a shallow drop/no-op would silently erase a deferred effect — review #6/#12).  Channel ops and
+    [catch] are future slices (plans/bridge-effects.md). *)
 From Fido Require Import preamble.
 From Stdlib Require Import List Lia.
 Import ListNotations.
 
 (** The program syntax.  [COut] = a [print]/[println] of [xs] THEN the continuation; [CPan] = panic
-    (no continuation — it short-circuits).  More effect nodes (refs, channels, catch, defer) follow. *)
+    (no continuation — it short-circuits); [CDfr] = defer; [CWrite]/[CRead] = the typed heap pair.
+    Channel effect nodes and [catch] follow in later slices. *)
 Inductive Cmd (A : Type) : Type :=
   | CRet : A -> Cmd A
   | COut : bool -> list GoAny -> Cmd A -> Cmd A

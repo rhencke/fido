@@ -84,7 +84,7 @@ field selectors, runtime numeric conversions, fixed-width bridging binops — th
 
 - CONSOLIDATION (boss, 2026-07-02): shrink bytes, no new features; surfaces stay
   endpoint-only. The §3a GoSem split is DONE (Core/Denote/composition — revised 3-file form).
-- Extend the cmd↔unified bridge to chan/heap/spawn (`plans/bridge-effects.md`; slice 1 LANDED — value-parametric calculus, embedding at `nat`, bridge at `GoAny` with the closed-recv parameter quantified away; channels gated on a structural typed zero).
+- Extend the cmd↔unified bridge to chan/heap/spawn (`plans/bridge-effects.md`; slices 1 + 2-i LANDED — value-parametric calculus, heap semantics + translation, bridge quarantined to `no_heap` with the closed-recv parameter quantified away under the `cmd_to_ucmd_novz` seal; the heap AGREEMENT is next; channels gated on a structural typed zero).
 - Grow behavioral safety toward `BehaviorSafe` → `SafeProgram` → `emit_safe`; wire the certified path
   to the main output. Widen the live GoPrint bridge + `GoStmt` forms — gate-honestly.
 
@@ -99,7 +99,7 @@ assumption. The MODEL's logical trust base is empty (zero axioms); the plugin is
 Zero-axiom is gated by `Print Assumptions` in THREE flows (single-sourced here): **manifest**
 (`manifest-axioms.sh` vs empty `EXPECTED_ASSUMPTIONS.txt`) covers `main_effect` /
 `gosem_trust_surface` / `gosem_string_authority_surface` / `cmd.run_cmd_terminates` / the bridge
-surfaces (`cmd_to_ucmd_fragment` / `cmd_to_ucmd_run_agrees` / `bridge_agrees` / `run_cmd_out_monotone` /
+surfaces (`cmd_to_ucmd_fragment` / `cmd_to_ucmd_novz` / `cmd_to_ucmd_run_agrees` / `bridge_agrees` / `run_cmd_out_monotone` /
 `run_cmd_no_panic_ret`) / `gosem_panic_free_surface` / `builtins.slice_get_bounds_surface`;
 **printer** + **emit** (compiled STANDALONE, grep `^Axioms:`) cover the spine. A `Print Assumptions`
 under none of the three is not gated.

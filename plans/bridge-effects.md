@@ -36,8 +36,8 @@ COMPLETE): `bridge_agrees` — its ladder discipline and landing checklist apply
   TYPE, and no single `GoAny` can stand for all of them.  The bridge therefore QUANTIFIES
   the calculus' `vzero` parameter universally (`cmd_unified`'s `Section BridgeVal`
   variable `vz` — every public bridge statement holds for an ARBITRARY value), licensed
-  by the gated image seal `cmd_to_ucmd_fragment` (the image is the output/panic/defer
-  fragment — no `URecv`/`USelect`, so no rule consulting `vz` can fire).  ⛔ PRECONDITION
+  by the gated no-`vz` seal `cmd_to_ucmd_novz` (on the `no_heap` fragment the image binds
+  nothing from `vzero` or the `vz`-defaulted heap).  ⛔ PRECONDITION
   FOR SLICE 3 (channels): the closed-recv zero must be represented STRUCTURALLY first —
   the channel element tag at the `URecv`/`USelect` boundary with `zero_val`-style typed
   zeros; a global `GoAny` fallback (any tag) is FORBIDDEN, and the slice must land
@@ -50,8 +50,8 @@ COMPLETE): `bridge_agrees` — its ladder discipline and landing checklist apply
    the constructors/step-composition lemmas carry both implicitly via `Arguments`, the
    relations keep them explicit for statements); demos/embedding/sessions instantiate
    `nat` (relation sites gain the literal `0`), `cmd_unified.v`/`GoSemSafe.v` instantiate
-   `GoAny` with the vzero parameter UNIVERSALLY QUANTIFIED (`vz`, sealed unreachable by
-   the gated `cmd_to_ucmd_fragment`); the slice-9 embedding compiled UNCHANGED at
+   `GoAny` with the vzero parameter UNIVERSALLY QUANTIFIED (`vz`, sealed unreachable on
+   the bridged fragment by the gated `cmd_to_ucmd_novz`); the slice-9 embedding compiled UNCHANGED at
    `V := nat`.  All gates green, golden byte-identical, zero-axiom manifest unchanged.
    Payload faithfulness claims stop at the landed fragment (output/panic/defer) — heap
    and channel VALUE faithfulness arrive only with slices 2–3's typed state agreement.

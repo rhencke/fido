@@ -37,8 +37,8 @@ From Fido Require Import preamble concurrency cmd unified.
 From Stdlib Require Import List Lia.
 Import ListNotations.
 
-(** PUBLIC.  The total structural translation: cmd.v command tree -> the output/panic/return/defer fragment of
-    UCmd, [COut]'s println flag PRESERVED into [UOut]'s flag. *)
+(** PUBLIC.  The total structural translation: cmd.v command tree -> [UCmd]'s
+    output/panic/return/defer + heap fragment, [COut]'s println flag PRESERVED into [UOut]'s flag. *)
 (** The bridge instantiates the value-parametric calculus at [V := GoAny]: the fragment's
     payloads ([UOut]/[UPan] values) are the model's own [GoAny], no erasure. *)
 Notation UCmdG := (@UCmd GoAny).
@@ -54,14 +54,11 @@ Fixpoint cmd_to_ucmd (c : Cmd unit) : UCmdG :=
   end.
 
 (** PUBLIC + GATED: the IMAGE seal — [cmd_to_ucmd] lands in the TRANSLATED fragment BY
-    CONSTRUCTION: output/panic/defer plus the heap pair ([UWrite]/[URead] — [URead] binds
-    from the HEAP; translated but NOT yet covered by the agreement, which is [no_heap]-
-    quarantined — see [bridge_agrees]), and NOTHING that consults the calculus' closed-recv value: no [URecv],
-    no [USelect], and no channel/spawn forms ([USend]/[UClose]/[USpawn] excluded too).
-    This is what licenses quantifying that value away below; the CHANNEL slice must
-    replace it with a STRUCTURAL per-element-type zero (the element tag at the [URecv]
-    boundary) — Go's closed-recv zero is typed, and no single [GoAny] can stand for all of
-    them (plans/bridge-effects.md). *)
+    CONSTRUCTION: output/panic/defer plus the heap pair, and NO channel/spawn form ever
+    ([USend]/[URecv]/[USelect]/[UClose]/[USpawn] all excluded).  ⚠ This image ALONE no
+    longer bounds the calculus' closed-recv value: [URead] binds from the heap, whose
+    START default is [vz] — the no-[vz] license is the SEPARATE, STRONGER seal
+    [cmd_to_ucmd_novz] below, on the [no_heap] fragment the bridge is quarantined to. *)
 Inductive UFrag {V : Type} : @UCmd V -> Prop :=
   | UF_ret : UFrag URet
   | UF_out : forall pb xs k, UFrag k -> UFrag (UOut pb xs k)
@@ -80,10 +77,38 @@ Proof.
   - constructor. intro x. exact (IH (f x)).
 Qed.
 
+(** PUBLIC + GATED: the NO-[vz] seal — on the [no_heap] fragment (exactly where
+    [bridge_agrees] lives), [cmd_to_ucmd]'s image contains NOTHING that can bind the
+    calculus' [vzero] parameter or the [vz]-defaulted start heap: no [URead] (the start
+    heap defaults to [vz]), no [URecv]/[USelect] (the closed-recv rules bind [vzero]), no
+    channel/spawn forms.  THIS is what licenses universally quantifying [vz] in every
+    public bridge statement; the CHANNEL slice must replace the parameter with a
+    STRUCTURAL per-element-type zero (the element tag at the [URecv] boundary) — Go's
+    closed-recv zero is typed, and no single [GoAny] can stand for all of them
+    (plans/bridge-effects.md). *)
+Inductive UNoVz {V : Type} : @UCmd V -> Prop :=
+  | UV_ret : UNoVz URet
+  | UV_out : forall pb xs k, UNoVz k -> UNoVz (UOut pb xs k)
+  | UV_pan : forall v, UNoVz (UPan v)
+  | UV_dfr : forall d k, UNoVz d -> UNoVz k -> UNoVz (UDfr d k).
+Theorem cmd_to_ucmd_novz : forall c : Cmd unit,
+  no_heap c = true -> UNoVz (cmd_to_ucmd c).
+Proof.
+  fix IH 1. intros [a | pb xs c' | v | d c' | l v c' | l f]; cbn [cmd_to_ucmd no_heap]; intro H.
+  - constructor.
+  - constructor. exact (IH c' H).
+  - constructor.
+  - destruct (no_heap d) eqn:Hd; [ | discriminate H ]. cbn in H.
+    constructor; [ exact (IH d Hd) | exact (IH c' H) ].
+  - discriminate H.
+  - discriminate H.
+Qed.
+
 (** [vz] — the calculus' closed-recv parameter and the start config's initial-heap default at
     this instance.  It is an ARBITRARY [GoAny], NOT a Go zero value, and every public statement
-    below UNIVERSALLY QUANTIFIES it (section generalization): by the image seal
-    [cmd_to_ucmd_fragment], no bridged run consults it, so nothing may depend on the choice. *)
+    below UNIVERSALLY QUANTIFIES it (section generalization): the agreement is quarantined to
+    [no_heap] commands, whose image is the no-[vz] fragment ([cmd_to_ucmd_novz]) — no bridged
+    run consults it, so nothing may depend on the choice. *)
 Section BridgeVal.
 Variable vz : GoAny.
 
@@ -805,6 +830,7 @@ End BridgeVal.
     [nested_defers_panic_seed] / [run_defers_panic_eq] / [run_cmd_panic_char] / [unwind_prefix_panic] /
     [pop_defer_step]) is CONSUMED by the general bridge [bridge_agrees]. *)
 Print Assumptions cmd_to_ucmd_fragment.
+Print Assumptions cmd_to_ucmd_novz.
 Print Assumptions cmd_to_ucmd_run_agrees.
 Print Assumptions bridge_agrees.
 Print Assumptions run_cmd_out_monotone.

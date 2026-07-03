@@ -73,8 +73,8 @@ Qed.
 
 (** The DENOTATIONAL behavioral-safety result: a program whose denotation is [CPan]-free runs to [ORet] —
     never [OPanic] — for enough fuel (defers included: a deferred [println] runs at return and cannot panic).
-    Composes cmd.v's universal [run_cmd_terminates] with [run_cmd_no_panic_ret] (a completing panic-free run
-    returns [ORet]). *)
+    Composes cmd.v's [run_cmd_terminates] — which holds on the [no_heap] fragment, entailed here by
+    [cmd_no_panic_no_heap] — with [run_cmd_no_panic_ret] (a completing panic-free run returns [ORet]). *)
 Theorem panic_free_runs_ret : forall (c : Cmd unit) w,
   cmd_no_panic c = true ->
   exists fuel w', run_cmd fuel c w = Some (ORet tt w').
