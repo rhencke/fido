@@ -21,16 +21,28 @@ COMPLETE): `bridge_agrees` — its ladder discipline and landing checklist apply
   `Section UnifiedVal / Context {V} / Variable vzero` covering `UCmd`/`UConfig`/`ustep`
   and every generic theorem, with TWO instantiations: the `rstep` embedding at `V := nat`
   (values IDENTITY — the existing simulation survives verbatim, no injection at all) and
-  the cmd bridge at `V := GoAny` (`cmd_unified.uzero = anyt TUnit tt` for the closed-recv
-  zero — unreachable today, `cmd_to_ucmd`'s image has no `URecv`).  WHY THIS IS SAFE: the
-  TRACE (the race-freedom substrate) carries NO values — `KWrite l` / `KRecv c s` /
-  `KSend c` are location/position-only — so `concurrency.v`'s trace theory and
-  `unified.v`'s race/liveness theorems are value-agnostic; `UOut` carries `list GoAny` at
-  every instantiation.  (The originally-sketched `nat → GoAny` CONCRETIZATION with an
-  embedding injection was superseded during implementation: Go's tags are bounded/sealed,
-  so no TOTAL `nat → GoAny` injection exists — parametricity dissolves the problem instead
-  of encoding around it.)  `vzero` at `nat` is `0`, exactly the old rule; TYPED zero-value
-  faithfulness stays on the `run_cmd`/`World` side.
+  the cmd bridge at `V := GoAny`.  WHY THIS IS SAFE: the TRACE (the race-freedom
+  substrate) carries NO values — `KWrite l` / `KRecv c s` / `KSend c` are
+  location/position-only — so `concurrency.v`'s trace theory and `unified.v`'s
+  race/liveness theorems are value-agnostic; `UOut` carries `list GoAny` at every
+  instantiation.  (The originally-sketched `nat → GoAny` concretization with an embedding
+  injection was superseded during implementation: an injection through an unbounded
+  carrier exists (e.g. string-encoded naturals under `TString`), but it is not
+  SEMANTICS-PRESERVING as a model — calculus naturals masquerading as Go strings, with a
+  projection bolted onto every value-consuming rule; parametricity keeps each side's
+  values exactly what that side says they are.)  `vzero` at `nat` is `0`, exactly the old
+  rule.
+  ⚠ THE GoAny INSTANCE CARRIES NO ZERO SEMANTICS: Go's closed-recv zero is PER ELEMENT
+  TYPE, and no single `GoAny` can stand for all of them.  The bridge therefore QUANTIFIES
+  the calculus' `vzero` parameter universally (`cmd_unified`'s `Section BridgeVal`
+  variable `vz` — every public bridge statement holds for an ARBITRARY value), licensed
+  by the gated image seal `cmd_to_ucmd_fragment` (the image is the output/panic/defer
+  fragment — no `URecv`/`USelect`, so no rule consulting `vz` can fire).  ⛔ PRECONDITION
+  FOR SLICE 3 (channels): the closed-recv zero must be represented STRUCTURALLY first —
+  the channel element tag at the `URecv`/`USelect` boundary with `zero_val`-style typed
+  zeros; a global `GoAny` fallback (any tag) is FORBIDDEN, and the slice must land
+  closed-recv proofs for at least TWO distinct element types, each binding that type's
+  own zero.
 
 ## The ladder (each slice an independently green commit)
 
@@ -38,8 +50,11 @@ COMPLETE): `bridge_agrees` — its ladder discipline and landing checklist apply
    the constructors/step-composition lemmas carry both implicitly via `Arguments`, the
    relations keep them explicit for statements); demos/embedding/sessions instantiate
    `nat` (relation sites gain the literal `0`), `cmd_unified.v`/`GoSemSafe.v` instantiate
-   `GoAny` via `uzero`; the slice-9 embedding compiled UNCHANGED at `V := nat`.  All
-   gates green, golden byte-identical, zero-axiom manifest unchanged.
+   `GoAny` with the vzero parameter UNIVERSALLY QUANTIFIED (`vz`, sealed unreachable by
+   the gated `cmd_to_ucmd_fragment`); the slice-9 embedding compiled UNCHANGED at
+   `V := nat`.  All gates green, golden byte-identical, zero-axiom manifest unchanged.
+   Payload faithfulness claims stop at the landed fragment (output/panic/defer) — heap
+   and channel VALUE faithfulness arrive only with slices 2–3's typed state agreement.
 2. **HEAP**: `Cmd` += `CWrite : nat → GoAny → Cmd A → Cmd A` and
    `CRead : nat → (GoAny → Cmd A) → Cmd A` (the cmd side stays CONCRETE at `GoAny` —
    it is the typed model, not a calculus) (⚠ first BINDER constructor — `Cmd_rect'`
@@ -54,7 +69,8 @@ COMPLETE): `bridge_agrees` — its ladder discipline and landing checklist apply
    sub-slice with the unified.v rule addition, or scope slice 2 to pre-allocated
    configurations.
 3. **CHANNELS** (single-goroutine deterministic fragment): `CSend`/`CRecv`/`CClose`
-   against `w_chans`.  The ustep side BLOCKS (a full-buffer send / empty-buffer recv has
+   against `w_chans` — BLOCKED on the ⛔ precondition above (structural typed closed-recv
+   zero; two-element-type proofs).  The ustep side BLOCKS (a full-buffer send / empty-buffer recv has
    no rule); model would-block in `run_cmd` as `None` (absent — the ∃-fuel discipline),
    so run_cmd COMPLETION is itself the deterministic-fragment gate, no side predicate.
    Send-on-closed is the modeled panic (both sides have it: `ustep_send_closed`).

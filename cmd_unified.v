@@ -33,11 +33,8 @@ Import ListNotations.
 
 (** PUBLIC.  The total structural translation: cmd.v command tree -> the output/panic/return/defer fragment of
     UCmd, [COut]'s println flag PRESERVED into [UOut]'s flag. *)
-(** The bridge instantiates the value-parametric calculus at [V := GoAny] — exact typed
-    payloads, no erasure.  [uzero] is the closed-recv zero value at this instance;
-    [cmd_to_ucmd]'s image contains no [URecv], so no bridged run binds it today (it becomes
-    load-bearing with the channel slice — plans/bridge-effects.md). *)
-Definition uzero : GoAny := anyt TUnit tt.
+(** The bridge instantiates the value-parametric calculus at [V := GoAny]: the fragment's
+    payloads ([UOut]/[UPan] values) are the model's own [GoAny], no erasure. *)
 Notation UCmdG := (@UCmd GoAny).
 
 Fixpoint cmd_to_ucmd (c : Cmd unit) : UCmdG :=
@@ -48,11 +45,39 @@ Fixpoint cmd_to_ucmd (c : Cmd unit) : UCmdG :=
   | CDfr d c'   => UDfr (cmd_to_ucmd d) (cmd_to_ucmd c')
   end.
 
+(** PUBLIC + GATED: the IMAGE seal — [cmd_to_ucmd] lands in the output/panic/defer fragment
+    BY CONSTRUCTION (no [URecv]/[USelect]/[USend]/[URead]/[UWrite]/[USpawn]/[UClose]), so no
+    bridged run can reach a rule that binds the calculus' closed-recv value.  This is what
+    licenses quantifying that value away below; the CHANNEL slice must replace it with a
+    STRUCTURAL per-element-type zero (the element tag at the [URecv] boundary) — Go's
+    closed-recv zero is typed, and no single [GoAny] can stand for all of them
+    (plans/bridge-effects.md). *)
+Inductive UFrag {V : Type} : @UCmd V -> Prop :=
+  | UF_ret : UFrag URet
+  | UF_out : forall pb xs k, UFrag k -> UFrag (UOut pb xs k)
+  | UF_pan : forall v, UFrag (UPan v)
+  | UF_dfr : forall d k, UFrag d -> UFrag k -> UFrag (UDfr d k).
+Theorem cmd_to_ucmd_fragment : forall c : Cmd unit, UFrag (cmd_to_ucmd c).
+Proof.
+  fix IH 1. intros [u | pb xs c' | v | d c']; cbn [cmd_to_ucmd].
+  - constructor.
+  - constructor. exact (IH c').
+  - constructor.
+  - constructor; [exact (IH d) | exact (IH c')].
+Qed.
+
+(** [vz] — the calculus' closed-recv parameter and the start config's initial-heap default at
+    this instance.  It is an ARBITRARY [GoAny], NOT a Go zero value, and every public statement
+    below UNIVERSALLY QUANTIFIES it (section generalization): by the image seal
+    [cmd_to_ucmd_fragment], no bridged run consults it, so nothing may depend on the choice. *)
+Section BridgeVal.
+Variable vz : GoAny.
+
 (** PUBLIC.  The single-goroutine start config running [u] on goroutine 0 (live, empty defers, no panic, no
     output), and the panic an [Outcome] carries — the cmd.v-side observation [uc_panic] agrees with. *)
 Definition ustart (u : UCmdG) : UConfig :=
   mkUCfg (fun t => if Nat.eqb t 0 then u else URet)
-         (fun _ => nil) (fun _ => uzero) (fun t => Nat.eqb t 0) nil nil (fun _ => nil) (fun _ => None).
+         (fun _ => nil) (fun _ => vz) (fun t => Nat.eqb t 0) nil nil (fun _ => nil) (fun _ => None).
 Definition ocpanic (oc : Outcome unit) : option GoAny :=
   match oc with OPanic v _ => Some v | ORet _ _ => None end.
 
@@ -135,7 +160,7 @@ Qed.
 Local Lemma cmd_to_ucmd_body_runs : forall c ucap p b h lv tr o df pa,
   lv 0 = true -> p 0 = cmd_to_ucmd c ->
   exists (p' : nat -> UCmdG) (df' : nat -> list UCmdG),
-    usteps uzero ucap (mkUCfg p b h lv tr o df pa)
+    usteps vz ucap (mkUCfg p b h lv tr o df pa)
                 (mkUCfg p' b h lv tr (o ++ map (fun e => (0, e)) (cmd_out_events c)) df' pa)
     /\ p' 0 = (match cmd_panic c with None => URet | Some v => UPan v end)
     /\ df' 0 = map cmd_to_ucmd (cmd_defers c) ++ df 0.
@@ -171,7 +196,7 @@ Local Lemma cmd_to_ucmd_runs : forall c,
   forall (ucap : nat -> option nat) p b h lv tr o df pa,
     lv 0 = true -> p 0 = cmd_to_ucmd c -> df 0 = [] -> pa 0 = None ->
     exists (p' : nat -> UCmdG) (lv' : nat -> bool) (pa' : nat -> option GoAny) (df' : nat -> list UCmdG),
-      usteps uzero ucap (mkUCfg p b h lv tr o df pa)
+      usteps vz ucap (mkUCfg p b h lv tr o df pa)
                   (mkUCfg p' b h lv' tr (o ++ map (fun e => (0, e)) (cmd_out_events c)) df' pa')
       /\ lv' 0 = false
       /\ pa' 0 = cmd_panic c.
@@ -201,7 +226,7 @@ Proof. induction l as [|a l IH]; simpl; [reflexivity | rewrite IH; reflexivity].
 Theorem cmd_to_ucmd_run_agrees : forall c ucap w,
   no_defer c = true ->
   exists (uc : UConfig) (oc : Outcome unit),
-    usteps uzero ucap (ustart (cmd_to_ucmd c)) uc
+    usteps vz ucap (ustart (cmd_to_ucmd c)) uc
     /\ run_cmd 1 c w = Some oc
     /\ uc_live uc 0 = false
     /\ w_output (oc_world oc) = w_output w ++ map snd (uc_out uc)
@@ -210,10 +235,10 @@ Proof.
   intros c ucap w Hnd.
   destruct (cmd_to_ucmd_runs c Hnd ucap
               (fun t => if Nat.eqb t 0 then cmd_to_ucmd c else URet)
-              (fun _ => nil) (fun _ => uzero) (fun t => Nat.eqb t 0) nil nil (fun _ => nil) (fun _ => None)
+              (fun _ => nil) (fun _ => vz) (fun t => Nat.eqb t 0) nil nil (fun _ => nil) (fun _ => None)
               eq_refl eq_refl eq_refl eq_refl) as [p' [lv' [pa' [df' [Hus [Hdone Hpan]]]]]].
   destruct (run_cmd_seals_events c w Hnd) as [w' [Hrun Hout]].
-  exists (mkUCfg p' (fun _ => nil) (fun _ => uzero) lv' nil
+  exists (mkUCfg p' (fun _ => nil) (fun _ => vz) lv' nil
                  (nil ++ map (fun e => (0, e)) (cmd_out_events c)) df' pa'),
          (match cmd_panic c with None => ORet tt w' | Some v => OPanic v w' end).
   unfold ustart.
@@ -398,7 +423,7 @@ Local Lemma pop_defer_step : forall ucap p b h lv tr o df pa d rest q0,
   (match p 0 with UPan v => Some v | _ => pa 0 end) = q0 ->
   df 0 = cmd_to_ucmd d :: rest ->
   exists paP, paP 0 = q0 /\
-    usteps uzero ucap (mkUCfg p b h lv tr o df pa)
+    usteps vz ucap (mkUCfg p b h lv tr o df pa)
                 (mkUCfg (upd p 0 (cmd_to_ucmd d)) b h lv tr o (upd df 0 rest) paP).
 Proof.
   intros ucap p b h lv tr o df pa d rest q0 Hlv Hp Hq0 Hdf.
@@ -426,7 +451,7 @@ Local Lemma unwind_prefix_panic : forall fuel ds acc result q0 val,
     (match p 0 with UPan v => Some v | _ => pa 0 end) = q0 ->
     df 0 = map cmd_to_ucmd ds ++ map cmd_to_ucmd ds_tail ->
     exists (p' : nat -> UCmdG) (df' : nat -> list UCmdG) (pa' : nat -> option GoAny) evs,
-      usteps uzero ucap (mkUCfg p b h lv tr o df pa)
+      usteps vz ucap (mkUCfg p b h lv tr o df pa)
                   (mkUCfg p' b h lv tr (o ++ map (fun e => (0, e)) evs) df' pa')
       /\ (p' 0 = URet \/ exists v, p' 0 = UPan v)
       /\ (match p' 0 with UPan v => Some v | _ => pa' 0 end) = val
@@ -595,7 +620,7 @@ Qed.
 Local Lemma bridge_agrees_complete : forall fuel (c : Cmd unit) ucap w oc,
   run_cmd fuel c w = Some oc ->
   exists uc : UConfig,
-    usteps uzero ucap (ustart (cmd_to_ucmd c)) uc
+    usteps vz ucap (ustart (cmd_to_ucmd c)) uc
     /\ uc_live uc 0 = false
     /\ uc_panic uc 0 = ocpanic oc
     /\ w_output (oc_world oc) = w_output w ++ map snd (uc_out uc).
@@ -609,7 +634,7 @@ Proof.
     [ | discriminate H ].
   destruct (cmd_to_ucmd_body_runs c ucap
               (fun t => if Nat.eqb t 0 then cmd_to_ucmd c else URet)
-              (fun _ => nil) (fun _ => uzero) (fun t => Nat.eqb t 0) nil nil (fun _ => nil) (fun _ => None)
+              (fun _ => nil) (fun _ => vz) (fun t => Nat.eqb t 0) nil nil (fun _ => nil) (fun _ => None)
               eq_refl eq_refl) as [p' [df' [Hus1 [Hprog1 Hdf1]]]].
   cbn in Hdf1. rewrite app_nil_r in Hdf1.
   assert (Hdf1' : df' 0 = map cmd_to_ucmd (cmd_defers c) ++ map cmd_to_ucmd nil)
@@ -621,7 +646,7 @@ Proof.
   destruct (unwind_prefix_panic fuel (cmd_defers c)
               (oc_unit (match cmd_panic c with None => ORet tt w_body | Some v => OPanic v w_body end)) result
               (cmd_panic c) (ocpanic oc) Erd Hchar
-              ucap p' (fun _ => nil) (fun _ => uzero) (fun t => Nat.eqb t 0) nil
+              ucap p' (fun _ => nil) (fun _ => vz) (fun t => Nat.eqb t 0) nil
               (nil ++ map (fun e => (0, e)) (cmd_out_events c)) df' (fun _ => None) nil
               eq_refl Hdisj1 Hq0 Hdf1')
     as [p'' [df'' [pa'' [evs [Hus2 [Hdisj2 [Hval2 [Hdf2 Hw]]]]]]]].
@@ -631,9 +656,9 @@ Proof.
   { destruct result as [[] w_r | v_r w_r]; cbn in H; injection H as <-; cbn [oc_world]; [ rewrite oc_world_set_world | ]; reflexivity. }
   (* final done — [ret_done] if [p'' 0 = URet], else [pan_done] *)
   assert (Hfin : exists (lvF : nat -> bool) (paF : nat -> option GoAny),
-             usteps uzero ucap (mkUCfg p'' (fun _ => nil) (fun _ => uzero) (fun t => Nat.eqb t 0) nil
+             usteps vz ucap (mkUCfg p'' (fun _ => nil) (fun _ => vz) (fun t => Nat.eqb t 0) nil
                             ((nil ++ map (fun e => (0, e)) (cmd_out_events c)) ++ map (fun e => (0, e)) evs) df'' pa'')
-                         (mkUCfg p'' (fun _ => nil) (fun _ => uzero) lvF nil
+                         (mkUCfg p'' (fun _ => nil) (fun _ => vz) lvF nil
                             ((nil ++ map (fun e => (0, e)) (cmd_out_events c)) ++ map (fun e => (0, e)) evs) df'' paF)
              /\ lvF 0 = false /\ paF 0 = ocpanic oc).
   { destruct Hdisj2 as [Hr | [v Hp]].
@@ -665,7 +690,7 @@ Qed.
     [run_cmd_panic_char]). *)
 Theorem bridge_agrees : forall (c : Cmd unit) ucap w,
   exists (uc : UConfig) (oc : Outcome unit) (fuel : nat),
-    usteps uzero ucap (ustart (cmd_to_ucmd c)) uc
+    usteps vz ucap (ustart (cmd_to_ucmd c)) uc
     /\ run_cmd fuel c w = Some oc
     /\ uc_live uc 0 = false
     /\ uc_panic uc 0 = ocpanic oc
@@ -678,6 +703,8 @@ Proof.
   split; [ exact Hus | split; [ exact Hrun | split; [ exact Hlv | split; [ exact Hpan | exact Hout ] ] ] ].
 Qed.
 
+End BridgeVal.
+
 (** The EXACT gated public-surface set for this module is the [Print Assumptions] lines below — the SINGLE
     zero-axiom authority (the Docker manifest gate scrapes their [Axioms:] report, which must be empty).  A
     [Print Assumptions] audits its whole dependency CONE, so EVERY Local definition here is covered TRANSITIVELY
@@ -686,6 +713,7 @@ Qed.
     properties, and the panic-characterization + nested-unwind machinery ([nested_defers_panic] /
     [nested_defers_panic_seed] / [run_defers_panic_eq] / [run_cmd_panic_char] / [unwind_prefix_panic] /
     [pop_defer_step]) is CONSUMED by the general bridge [bridge_agrees]. *)
+Print Assumptions cmd_to_ucmd_fragment.
 Print Assumptions cmd_to_ucmd_run_agrees.
 Print Assumptions bridge_agrees.
 Print Assumptions run_cmd_out_monotone.

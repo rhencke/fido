@@ -123,17 +123,17 @@ Qed.
     panic ([uc_panic 0 = None]), its output equal to the [run_cmd] [ORet] run's.  cmd.v's [run_cmd] STAYS the
     authority: the conclusion CARRIES [run_cmd fuel c w = Some (ORet tt w')] and ties [uc_out] to that [w']
     (not a free observer). *)
-Theorem panic_free_runs_ret_ustep : forall (c : Cmd unit) ucap w,
+Theorem panic_free_runs_ret_ustep : forall (vz : GoAny) (c : Cmd unit) ucap w,
   cmd_no_panic c = true ->
   exists (uc : UConfig) (w' : World) (fuel : nat),
     run_cmd fuel c w = Some (ORet tt w')                    (* cmd.v's AUTHORITATIVE panic-free [ORet] run — grounds [w'] *)
-    /\ usteps cmd_unified.uzero ucap (ustart (cmd_to_ucmd c)) uc
+    /\ usteps vz ucap (ustart vz (cmd_to_ucmd c)) uc
     /\ uc_live uc 0 = false
     /\ uc_panic uc 0 = None
     /\ w_output w' = w_output w ++ map snd (uc_out uc).
 Proof.
-  intros c ucap w Hnp.
-  destruct (bridge_agrees c ucap w) as [uc [oc [fuel [Hus [Hrun [Hlive [Hpan Hout]]]]]]].
+  intros vz c ucap w Hnp.
+  destruct (bridge_agrees vz c ucap w) as [uc [oc [fuel [Hus [Hrun [Hlive [Hpan Hout]]]]]]].
   destruct (run_cmd_no_panic_ret fuel c w oc Hrun Hnp) as [w' ->].
   exists uc, w', fuel. split; [ exact Hrun | split; [ exact Hus | split; [ exact Hlive | split ] ] ].
   - rewrite Hpan. reflexivity.
@@ -164,19 +164,19 @@ Proof.
 Qed.
 
 (** The same decidable-predicate guarantee at the OPERATIONAL level (via [panic_free_runs_ret_ustep]). *)
-Theorem panic_free_denotable_runs_ret_ustep : forall p ucap w,
+Theorem panic_free_denotable_runs_ret_ustep : forall (vz : GoAny) p ucap w,
   panic_free_denotable p = true ->
   exists c uc w' fuel,
     denote_program p = Some c
     /\ run_cmd fuel c w = Some (ORet tt w')
-    /\ usteps cmd_unified.uzero ucap (ustart (cmd_to_ucmd c)) uc
+    /\ usteps vz ucap (ustart vz (cmd_to_ucmd c)) uc
     /\ uc_live uc 0 = false
     /\ uc_panic uc 0 = None
     /\ w_output w' = w_output w ++ map snd (uc_out uc).
 Proof.
-  intros p ucap w H. unfold panic_free_denotable in H.
+  intros vz p ucap w H. unfold panic_free_denotable in H.
   destruct (denote_program p) as [c|] eqn:Ec; [|discriminate H].
-  destruct (panic_free_runs_ret_ustep c ucap w H)
+  destruct (panic_free_runs_ret_ustep vz c ucap w H)
     as [uc [w' [fuel [Hrun [Hus [Hlive [Hpan Hout]]]]]]].
   exists c, uc, w', fuel.
   split; [reflexivity | split; [exact Hrun | split; [exact Hus | split; [exact Hlive | split; [exact Hpan | exact Hout]]]]].
