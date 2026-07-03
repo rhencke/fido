@@ -97,3 +97,19 @@ echo "fido: selector-bridge gate OK — the ESel arm keeps its not-embedded + ML
 # NOTE (enforced in ROCQ, not here): string-order — GoSem.v pins each [str_cmp_op] branch to the qualified
 # [Fido.builtins.str_*] by reflexivity ([str_cmp_*_model], bundled into [gosem_string_authority_surface]).
 # Axiom-freedom — the manifest gate captures GoSem's [Print Assumptions] surfaces + axiom-authority-selftest.sh.
+
+# 6. UN-AUDITED-LOCAL-REGRESSION gate.  An [Example] is a regression/demo BY CONVENTION — nothing
+# consumes it — so a [Local Example] in a module whose zero-axiom claim runs through Print
+# Assumptions SURFACES sits outside every printed cone: it compiles, but its axiom-dependence is
+# never audited (the manifest extractor parses only [Axioms:] blocks, and the standalone spine
+# flows grep the same shape).  Discipline: an Example is PUBLIC and bundled into a surface, or it
+# does not exist.  (Consumed [Local Lemma]s are fine — they live in their consumers' cones;
+# deadness of a Lemma needs reference analysis a shell gate cannot do, so the gate pins the one
+# always-dead-by-convention form.)
+localex=$(grep -n '^Local Example' *.v 2>/dev/null || true)
+if [ -n "$localex" ]; then
+  echo "fido: LOCAL-EXAMPLE GATE — un-audited Local proof artifact(s) outside every Print Assumptions cone (make the Example public + bundle it into a surface, or delete it):"
+  printf '%s\n' "$localex"
+  exit 1
+fi
+echo "fido: local-example gate OK — no Local Example outside the printed surface cones ✓"

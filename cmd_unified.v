@@ -211,11 +211,6 @@ Proof. reflexivity. Qed.
 Local Lemma map_snd_pair0 : forall (l : list (bool * list GoAny)), map snd (map (fun e => (0, e)) l) = l.
 Proof. induction l as [|a l IH]; simpl; [reflexivity | rewrite IH; reflexivity]. Qed.
 
-(** LOCAL regressions (file-private): print and println stay DISTINGUISHABLE through the translation. *)
-Local Example bridge_print_println_distinct : forall (a : GoAny),
-  cmd_to_ucmd (COut true (a :: nil) (CRet tt)) <> cmd_to_ucmd (COut false (a :: nil) (CRet tt)).
-Proof. intros a H. cbn in H. discriminate H. Qed.
-
 (** [oc_set_world] only advances the world — it preserves the [Outcome]'s panic status (and sets its world). *)
 Local Lemma ocpanic_set_world : forall (acc : Outcome unit) w, ocpanic (oc_set_world acc w) = ocpanic acc.
 Proof. intros [[] w0 | v w0] w; reflexivity. Qed.
@@ -656,11 +651,14 @@ End BridgeVal.
 
 (** PUBLIC SURFACE — this module's gated results bundled into ONE constant (the module-standard
     surface shape), so a SINGLE [Print Assumptions] covers all their transitive cones (the Docker
-    manifest gate scrapes the [Axioms:] report, which must be empty).  EVERY Local definition here
-    is covered TRANSITIVELY through some bundled theorem's cone: the [go]-grounded [run_defers]
-    plumbing feeds the [run_cmd_*] properties, and the semantic Phase A + seed-linearity + unwind
-    machinery ([body_runs_sem] / [run_defers_seed_linear] / [unwind_heap] / [pop_defer_step]) is
-    CONSUMED by the bridge [bridge_heap_agrees]. *)
+    manifest gate scrapes the [Axioms:] report, which must be empty).  THE CLAIM IS THE CONES,
+    exactly: the audit covers what the four bundled theorems consume — the [go]-grounded
+    [run_defers] plumbing feeds the [run_cmd_*] properties, and the semantic Phase A +
+    seed-linearity + unwind machinery ([body_runs_sem] / [run_defers_seed_linear] / [unwind_heap]
+    / [pop_defer_step]) is CONSUMED by [bridge_heap_agrees].  A Local proof artifact NOTHING
+    consumes would sit outside every printed cone (compiled but axiom-unaudited), so such
+    artifacts are FORBIDDEN — the [Local Example] gate in plugin/smart-ctor-gate.sh: an Example
+    is public and bundled into a surface, or it does not exist. *)
 Definition cmd_unified_surface :=
   (cmd_to_ucmd_fragment, bridge_heap_agrees, run_cmd_out_monotone, run_cmd_no_panic_ret).
 Print Assumptions cmd_unified_surface.
