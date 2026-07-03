@@ -1810,4 +1810,3 @@ Proof.
           as [sr [mcr [Tr [Hbnr _]]]].
         rewrite Hbnr. reflexivity.
 Qed.
-
