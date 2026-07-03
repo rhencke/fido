@@ -5,8 +5,9 @@
     [fsf_checked], and the dyadic↔SF* agreement arc (plans/dyadic-sf-agreement.md;
     rungs 1–7 landed: NEG, the window bridges, wide determinism, ADD + SUB raw at
     binary64, MUL + exact DIV at the CONSTANT-op layer, the full f32 row incl. cross-width
-    conversions; rung 8's class theorem [fsf_checked_complete] landed — the residual is
-    the ARCHITECTURE call on the now-redundant runtime re-check).
+    conversions; rung 8 CLOSED — the class theorem [fsf_checked_complete] plus the
+    boundary-guard unreachability pair [floats_checked_total], the guard KEPT as the
+    fail-closed open-world boundary).
     NO EVALUATOR HERE: [eval_value] and its [Local] core live in GoSemDenote.v with the proofs
     that compute through them — the core must stay UNCALLABLE from importers (it would skip
     the [floats_checked] boundary; sealed by the [neg_float_boundary_bypass_*] negtests).
@@ -93,8 +94,9 @@ Definition box_float (t : GoTy) (m e : Z) : option GoAny :=
     representable result is returned exactly; ZERO results are verified under the constant rule.
     Acceptance IS total on the admitted class — the gated [fsf_checked_complete] below
     (plans/dyadic-sf-agreement.md rung 8) — so this runtime re-verification is provably
-    redundant; whether the live [fc_node]/[floats_checked] check is dropped or kept as
-    defense-in-depth is the arc's residual ARCHITECTURE decision.) *)
+    redundant ([floats_checked_total]: the guard never fires in the closed world); it is
+    KEPT as the fail-closed boundary for the future open world — the taken ARCHITECTURE
+    decision, rationale at [fc_node_total].) *)
 Definition sf_eqb_struct (x y : spec_float) : bool :=
   match x, y with
   | S754_zero s1, S754_zero s2 => Bool.eqb s1 s2
@@ -3555,4 +3557,50 @@ Proof.
            end) ].
   - (* EStr *) cbn [ptype] in H; discriminate H.
   - (* EHex *) cbn [ptype] in H; discriminate H.
+Qed.
+
+(** ★ the BOUNDARY-GUARD unreachability pair (gated): [fc_node] is IDENTICALLY true — on a
+    float-constant node by [fsf_checked_complete] (the render is total on the float widths,
+    pinned by the repr invariant), on every other node trivially — so [floats_checked], the
+    eval-top float boundary, provably NEVER rejects: the guard cannot fire in the closed
+    world.  ARCHITECTURE DECISION (rung 8's residual, taken): the live guard STAYS —
+    unreachability proofs pair with KEEPING the guard as the fail-closed boundary for the
+    future open world (a ptype/checker extension ships rejected-by-default until its class
+    theorem lands); dropping it would shrink eval but was declined as the cheaper
+    half-measure. *)
+Lemma fc_node_total : forall e, fc_node e = true.
+Proof.
+  intros e. unfold fc_node.
+  destruct (ptype e) as [c|] eqn:Hp; [|reflexivity].
+  destruct c as [z|tz z|t d|rt|rt| | | | |]; try reflexivity.
+  rewrite (fsf_checked_complete e t d Hp).
+  pose proof (ptype_float_const_repr e t d Hp) as Hr.
+  destruct t; try discriminate Hr; cbn [sf_render]; reflexivity.
+Qed.
+Theorem floats_checked_total : forall e, floats_checked e = true.
+Proof.
+  intros e; induction e as
+    [ i | z | o e0 IH | o l IHl r IHr | e0 IH0 f | e0 IH1 i IH2
+    | e0 IH1 lo IH2 hi IH3 | e0 IH0 args Hargs | e0 IH0 T | c e0 IH0
+    | ty es Hes | kt vt kvs Hkvs | s | zc ] using GExpr_ind';
+    cbn [floats_checked]; rewrite fc_node_total; cbn [andb].
+  - reflexivity.
+  - reflexivity.
+  - exact IH.
+  - rewrite IHl, IHr. reflexivity.
+  - exact IH0.
+  - rewrite IH1, IH2. reflexivity.
+  - rewrite IH1, IH2, IH3. reflexivity.
+  - rewrite IH0. cbn [andb].
+    apply forallb_forall. intros x Hx.
+    exact (proj1 (Forall_forall _ _) Hargs x Hx).
+  - exact IH0.
+  - exact IH0.
+  - apply forallb_forall. intros x Hx.
+    exact (proj1 (Forall_forall _ _) Hes x Hx).
+  - apply forallb_forall. intros kv Hin.
+    destruct (proj1 (Forall_forall _ _) Hkvs kv Hin) as [H1 H2].
+    rewrite H1, H2. reflexivity.
+  - reflexivity.
+  - reflexivity.
 Qed.

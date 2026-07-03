@@ -49,7 +49,10 @@ field selectors, runtime numeric conversions, fixed-width bridging binops — th
     proved, boundary/hole rows pinned absent (frontier surface).
   - float constants exact-or-reject behind `floats_checked`; fold verification is the
     CONSTANT-op layer (`sf_const_binop`/`sf_const_neg` — no signed zero); the dyadic↔SF
-    agreement arc is live (`plans/dyadic-sf-agreement.md`).
+    agreement arc COMPLETE, rungs 1–8 (`plans/dyadic-sf-agreement.md`): all four ops at both
+    widths + cross-width, checker completeness `fsf_checked_complete`, and the
+    boundary-guard unreachability pair `floats_checked_total` (guard KEPT, fail-closed
+    open-world boundary).
   - denotation ⊆ `SupportedProgram` (`gosem_sound`) + compositional converses.
   - public surfaces (topic-split, manifest-gated): `gosem_trust_surface`
     (core/float/slice-index/runtime-int/map/frontier) + `gosem_string_authority_surface`.
@@ -77,15 +80,6 @@ field selectors, runtime numeric conversions, fixed-width bridging binops — th
 
 ## NEXT
 
-- The dyadic↔`SF*` agreement arc (`plans/dyadic-sf-agreement.md`, the per-rung ledger):
-  rungs 1–5 LANDED, ★ rung 5 CLOSED — ADD + SUB at binary64 (`sf_render_{add,sub}_agrees_f64`:
-  the live render of the fold IS the model op of the renders, all shapes); ★ rung 6 CLOSED —
-  MUL + exact DIV (`sf_render_{mul,div}_agrees_f64`, CONST-layer endpoints — raw `-0` is
-  runtime-only); ★ rung 7 CLOSED: all four
-  binary32 op endpoints + the cross-width pair (`sf_render_{add,sub,mul,div,narrow,widen}_agrees_f32`;
-  the ADD/MUL/DIV cores precision-generic). ★ rung 8 (checker completeness) class
-  theorem LANDED (`fsf_checked_complete`, gated: `ptype`'s float folds are always accepted, the
-  checker's output IS the render); residual = the ARCHITECTURE call on the redundant runtime re-check. (T1–T5 + R8 COMPLETE — `LESSONS.md`.)
 - CONSOLIDATION (boss, 2026-07-02): shrink bytes, no new features; surfaces stay
   endpoint-only. The §3a GoSem split is DONE (Core/Denote/composition — revised 3-file form).
 - Extend the cmd↔unified bridge to chan/heap/spawn.

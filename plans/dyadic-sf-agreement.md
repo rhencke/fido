@@ -5,8 +5,8 @@ exact dyadic folds agree with the CONSTANT-op layer — `sf_const_binop`/`sf_con
 checker's own verification ops (`sf_pos_zero` zero-sign erasure over the raw `SF*` model ops;
 Go constants are exact rationals with no `-0`) — on the admitted class, so `fsf_checked`'s
 per-node runtime re-verification (`sf_eqb_struct (f va vb) vr`) is provably total there — a
-CLASS theorem making the per-expression check provably REDUNDANT (the live check still runs;
-removing or keeping it is the rung-8 residual ARCHITECTURE call, rung 8 below).  Where the raw op cannot sign a zero on
+CLASS theorem making the per-expression check provably REDUNDANT (the live check still runs,
+KEPT by the taken rung-8 ARCHITECTURE decision — rung 8 below).  Where the raw op cannot sign a zero on
 rendered operands the endpoint is stated RAW (`f64_add`/`f64_sub`, rung 5); where it can
 (MUL's zero rows) the endpoint IS the erased layer (rung 6).  Everything is Z/positive
 arithmetic on `SpecFloat`'s own
@@ -142,9 +142,12 @@ value quotient is `dy_norm` (the odd-mantissa normal form), never ℝ.
    for the RAW-conclusion ADD/SUB binary64 endpoints); every non-float-capable node is
    ground out.  Groundwork riding the cone: `sf_eqb_struct_refl`, `sf_pos_zero_render_gen`,
    `sf_render_cneg_agrees_{f64,f32}`, `dy_norm_int_window`/`int_interval_norm_repr`,
-   `fsf_operand_complete_{float,int}`.  REMAINING (the rung's residual): the ARCHITECTURE
-   call on the now-provably-redundant runtime re-check — keep as defense-in-depth or drop
-   (dropping shrinks eval).
+   `fsf_operand_complete_{float,int}`.  ★RESIDUAL RESOLVED — rung CLOSED: the gated
+   unreachability pair `fc_node_total`/`floats_checked_total` (the eval-top guard NEVER
+   fires in the closed world), and the guard is KEPT — unreachability proofs pair with
+   keeping the boundary guard for the future open world (an extension ships
+   rejected-by-default until its class theorem lands); dropping (which would shrink eval)
+   was declined as the cheaper half-measure.  THE ARC IS COMPLETE (rungs 1–8).
 
 ## Boundary honesty
 
