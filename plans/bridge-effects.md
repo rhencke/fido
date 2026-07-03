@@ -64,8 +64,8 @@ COMPLETE): its ladder discipline and landing checklist apply verbatim (its capst
      carries `run_cmd_terminates`;
      `run_cmd_out_monotone` stays premise-free for ANY `c` (grounded in `go` via
      `go_out_monotone`).
-   - Seals: `UFrag`/`cmd_to_ucmd_fragment` = translated image (no channel/spawn form
-     ever); `UNoVz`/`cmd_to_ucmd_novz` = the no-`vz` license for the `no_heap` bridge.
+   - Seal: `UFrag`/`cmd_to_ucmd_fragment` = translated image (no channel/spawn form
+     ever — so no closed-recv rule is reachable from a bridged run).
    - The heap agreement (part ii-a): `heap_agrees` (allocated locations only) +
      `heap_of_world`/`ustart_w` (canonical mirrored start heap — premise-free public
      statements) + `body_runs_sem` (Phase A grounded in `go`'s RESULT; trace existential,

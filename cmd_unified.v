@@ -51,10 +51,9 @@ Fixpoint cmd_to_ucmd (c : Cmd unit) : UCmdG :=
 
 (** PUBLIC + GATED: the IMAGE seal — [cmd_to_ucmd] lands in the TRANSLATED fragment BY
     CONSTRUCTION: output/panic/defer plus the heap pair, and NO channel/spawn form ever
-    ([USend]/[URecv]/[USelect]/[UClose]/[USpawn] all excluded).  ⚠ This image ALONE no
-    longer bounds the calculus' closed-recv value: [URead] binds from the heap, whose
-    START default is [vz] — the no-[vz] license is the SEPARATE, STRONGER seal
-    [cmd_to_ucmd_novz] below, on the [no_heap] fragment the bridge is quarantined to. *)
+    ([USend]/[URecv]/[USelect]/[UClose]/[USpawn] all excluded) — so no bridged run can reach
+    a closed-recv rule; the CHANNEL slice must land its own structural seal before that
+    changes (plans/bridge-effects.md). *)
 Inductive UFrag {V : Type} : @UCmd V -> Prop :=
   | UF_ret : UFrag URet
   | UF_out : forall pb xs k, UFrag k -> UFrag (UOut pb xs k)
@@ -73,43 +72,16 @@ Proof.
   - constructor. intro x. exact (IH (f x)).
 Qed.
 
-(** PUBLIC + GATED: the NO-[vz] seal — on the [no_heap] fragment (exactly where
-    completion is a theorem), [cmd_to_ucmd]'s image contains NOTHING that can bind the
-    calculus' [vzero] parameter or the [vz]-defaulted start heap: no [URead] (the start
-    heap defaults to [vz]), no [URecv]/[USelect] (the closed-recv rules bind [vzero]), no
-    channel/spawn forms.  THIS licenses the quantified [vz] for the [no_heap] statements
-    (historically the no-heap lane; the bridge [bridge_heap_agrees] carries
-    its OWN license — see the [vz] banner); the CHANNEL slice must replace the parameter
-    with a STRUCTURAL per-element-type zero (the element tag at the [URecv] boundary) —
-    Go's closed-recv zero is typed, and no single [GoAny] can stand for all of them
-    (plans/bridge-effects.md). *)
-Inductive UNoVz {V : Type} : @UCmd V -> Prop :=
-  | UV_ret : UNoVz URet
-  | UV_out : forall pb xs k, UNoVz k -> UNoVz (UOut pb xs k)
-  | UV_pan : forall v, UNoVz (UPan v)
-  | UV_dfr : forall d k, UNoVz d -> UNoVz k -> UNoVz (UDfr d k).
-Theorem cmd_to_ucmd_novz : forall c : Cmd unit,
-  no_heap c = true -> UNoVz (cmd_to_ucmd c).
-Proof.
-  fix IH 1. intros [a | pb xs c' | v | d c' | l v c' | l f]; cbn [cmd_to_ucmd no_heap]; intro H.
-  - constructor.
-  - constructor. exact (IH c' H).
-  - constructor.
-  - destruct (no_heap d) eqn:Hd; [ | discriminate H ]. cbn in H.
-    constructor; [ exact (IH d Hd) | exact (IH c' H) ].
-  - discriminate H.
-  - discriminate H.
-Qed.
 
 (** [vz] — the calculus' closed-recv parameter and the start configs' initial-heap default at
     this instance.  It is an ARBITRARY [GoAny], NOT a Go zero value, and every public statement
-    below that MENTIONS the unified [GoAny] configuration ([usteps]/[ustart]/[ustart_w])
-    UNIVERSALLY QUANTIFIES it (section generalization; the pure [run_cmd]-side theorems in
-    this section never involve it), each with its OWN license:
-    a [no_heap] image never reaches a [vz]-consulting rule ([cmd_to_ucmd_novz] — the seal the
-    CHANNEL slice extends); [bridge_heap_agrees] starts from the [ustart_w] heap that MIRRORS
-    the World's allocated cells and its [go]-completion premise keeps the run inside them, so the
-    [vz] defaults on unallocated locations are never consulted. *)
+    below that MENTIONS the unified [GoAny] configuration ([usteps]/[ustart_w]) UNIVERSALLY
+    QUANTIFIES it (section generalization; the pure [run_cmd]-side theorems in this section
+    never involve it).  The license: [bridge_heap_agrees] starts from the [ustart_w] heap that
+    MIRRORS the World's allocated cells, the image contains no closed-recv form
+    ([cmd_to_ucmd_fragment]), and the [go]-completion premise keeps the run inside allocated
+    memory — so neither the closed-recv parameter nor the [vz] heap defaults are ever
+    consulted. *)
 Section BridgeVal.
 Variable vz : GoAny.
 
@@ -690,7 +662,6 @@ End BridgeVal.
     [run_defers_seed_linear] / [unwind_heap] / [pop_defer_step]) is CONSUMED by the bridge
     [bridge_heap_agrees]. *)
 Print Assumptions cmd_to_ucmd_fragment.
-Print Assumptions cmd_to_ucmd_novz.
 Print Assumptions bridge_heap_agrees.
 Print Assumptions run_cmd_out_monotone.
 Print Assumptions run_cmd_no_panic_ret.
