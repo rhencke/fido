@@ -696,12 +696,13 @@ Qed.
     Every arm consumes SHAPE OBLIGATIONS of its authority (a [PtRunInt t] one-arg call is a
     conversion shape; a constant category carries THE constant's value; the map key list is
     exact), so a forged classifier could smuggle behavior.  The whole family is therefore
-    [Local] — an importer CANNOT instantiate it (negtests [neg_tc_authority_escape]/
-    [neg_tc_count_escape] pin the seal); the only instances live in THIS file, each with its
-    obligations discharged: [ptype] today (the closed wrappers below keep the closed names, so
-    the closed engine is the SAME function definitionally — obligations are the existing seal
-    set), and rung 5b's [type_expr] projection, which must discharge the same set before it may
-    instantiate. *)
+    [Local] — an importer cannot instantiate it, and each of the FIVE names is pinned uncallable
+    by its own negtest ([neg_tc_authority_escape] / [neg_tc_count_escape] /
+    [neg_tc_operand_escape] / [neg_tc_exit_escape] / [neg_tc_val_escape], all through the
+    composed [GoSem] export).  The ONLY live instantiation is [ptype] — the closed wrappers
+    below keep the closed names, so the closed engine is the SAME function definitionally and
+    its obligations are the existing seal set.  Any other instance can only be constructed in
+    THIS file, behind this boundary. *)
 Local Definition typed_operand_tc (tc : GExpr -> option PTy) (rv : GExpr -> option RAny) (t : GoTy) (e : GExpr) : option RAny :=
   match tc e with
   | Some (PtRunInt s) => if numty_eqb s t then rv e else None
