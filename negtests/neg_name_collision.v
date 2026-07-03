@@ -2,7 +2,7 @@
 (* Two DISTINCT package-level declarations whose Go identifiers collide: Coq `foo'` and `foo_`
    both export to the Go function `Foo_` (apostrophe -> underscore + export-capitalisation).
    Emitting both is a Go `redeclared` error, which `go build` would catch only AFTER extraction —
-   TOO LATE (R7 / the go-build-error-is-too-late tenet).  `register_emitted_name` MUST abort
+   TOO LATE (the go-build-error-is-too-late tenet).  `register_emitted_name` MUST abort
    at extraction.  This is the PACKAGE-LEVEL half of the identifier-collision class (the per-struct
    FIELD half is neg_field_collision.v).  The two are functions-of-a-param so they emit as named
    Go funcs (not inlined as bare expressions). *)

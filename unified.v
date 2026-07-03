@@ -22,7 +22,7 @@
       - goroutines  [USpawn]           -> [uc_live] + [KSpawn]/[KStart] (the go-before-start hb edge)
       - OUTPUT      [UOut]             -> [uc_out] (an append-only log; output is not a memory race)
       - DEFER       [UDfr]             -> [uc_defers] (per-goroutine LIFO stack, run at return)
-      - PANIC       [UPan]             -> [uc_panic] (per-goroutine status; defers STILL run — review P0)
+      - PANIC       [UPan]             -> [uc_panic] (per-goroutine status; defers STILL run)
 
     The defer/panic interaction is the faithful one (the cmd.v P0 fix, now operational + concurrent): a
     deferred action runs at function-scope RETURN in LIFO order, AND a panic does NOT cancel the
@@ -793,7 +793,7 @@ Qed.
 
     A single goroutine that MUTATES the heap, SENDS on a channel and RECEIVES it back, DEFERS a print,
     then PANICS — exercising heap + channel + defer + panic + output TOGETHER in the ONE semantics.  The
-    review said no authoritative semantics covered such a program; here is one, run end to end: the
+    no single authoritative semantics used to cover such a program; here is one, run end to end: the
     deferred print STILL happens at the panic (the P0 fix), the heap holds its write, the channel
     round-trips, and the goroutine dies with the panic recorded. *)
 Lemma unified_all_effects : forall (msg boom : GoAny),
@@ -1181,7 +1181,7 @@ Proof.
 Qed.
 
 (** ============================================================================
-    REVIEW #8 P0-7 REGRESSION — [ustep_send] is no longer the UNBOUNDED append.
+    REGRESSION — [ustep_send] is no longer the UNBOUNDED append.
     A send onto a FULL bounded channel ([Some n], buffer already length n) has NO room, so it does NOT
     step — instead the goroutine is [ublocked] on a full buffer (Go's buffered-send-blocks).  Contrast: an
     [None] (unbounded) channel always has room.  These witness that [ustep_send]'s new [uroom] premise

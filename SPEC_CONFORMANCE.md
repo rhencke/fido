@@ -203,7 +203,7 @@ bridge value carrier was migrated to `GoI64` (axiom-free preserved).  The primit
 `Z`-carried record (the exact `GoI64` shape, rendered Go `int`, the carrier for loop counters / slice indices /
 `len`/`cap` / small-value demos), FAITHFUL across the whole int64 range `[−2⁶³, 2⁶³)` and wrapping at the true
 `2⁶³` — **no longer the bounded 63-bit `Sint63` carrier** (faithful only in `[−2⁶², 2⁶²)`, the old Tier-2 #4 /
-review-R6 deviation).  Arithmetic is `int_add`/`int_sub`/`int_mul` (wrap-`2⁶³`), `int_div`/`int_mod` (truncating
+deviation now closed).  Arithmetic is `int_add`/`int_sub`/`int_mul` (wrap-`2⁶³`), `int_div`/`int_mod` (truncating
 `Z.quot`/`Z.rem`, evidence-gated nonzero divisor); the `MININT/−1` overflow corner now wraps the TRUE int64
 `−9223372036854775808` to itself (faithful — was the `Sint63` `−2⁶²`).  Literals are the proof-carrying
 `int_lit z (pf : in_i64 z)`, NoInline'd and plugin-folded — a BARE decimal in expression/index position
@@ -856,11 +856,12 @@ under-approximation** ("idealised away" understates it).  Two distinct unsoundne
     exhibits "take ch2", which the function forbids); that function is at best ONE
     example scheduler / a test interpreter — **non-authoritative**.  The authoritative
     spec is relational, and a safety property must hold for EVERY permitted choice.
-  - **BLOCKING.** None ready, no `default` ⇒ the model returns the fabricated `(0, zero)`;
-    Go BLOCKS.  But blocking is **not divergence**: the goroutine simply has no transition
+  - **BLOCKING.** None ready, no `default` ⇒ the sequential model FAIL-LOUDS
+    (`OPanic rt_select_block` — the IO model has no Blocked outcome and NEVER fabricates a
+    value); Go BLOCKS.  Blocking is **not divergence**: the goroutine simply has no transition
     *right now* while others may still step — it is DEADLOCK only when the WHOLE program
-    can't step.  `concurrency.v` already models this (`Stuck := ~ can_step /\ ~ done`,
-    `block_cfg`); empty-select is a LOCAL non-step, never a fabricated value.
+    can't step.  `concurrency.v` models exactly this (`Stuck := ~ can_step /\ ~ done`,
+    `block_cfg`); empty-select is a LOCAL non-step.
 The desugar work (`select_wait2`/`select2`, `select2_eq_recv2`) proves the
 sentinel+goto factoring equals *this idealised model* — NOT Go.  **Robust fix** (in the
 `rstep` calculus, not the sequential `IO` model): a nondeterministic/relational
@@ -871,12 +872,12 @@ interim:** evidence-carrying subset requiring a proof that EXACTLY ONE case is r
 that keeps readiness STABLE until selection (else a TOCTOU gap between proof and select).
 Tracked
 (Tier 5 #14, scheduler / non-terminating model).  *Also pending:* send cases, N-ary.
-**Third review (2026-06-20) — CLOSED-channel fix + remaining items.**  *Fixed:* a closed, drained
-channel's recv is READY in Go (zero value immediately), but the model examined only the buffer and
-mispredicted `default` / fabricated the other case (`close(ch); select{case <-ch: 1; default: 2}` —
-Go prints 1, model said 2).  `select_recv_default`/`select_recv2`/`select_wait2` now check
-`chan_closed`: empty+closed ⇒ that recv fires with zero; `default` only empty+OPEN.  Witnessed
-(`select_default_closed`/`select_default_open_empty`); `select2_eq_recv2` re-proven.  *Remaining:*
+**CLOSED-channel READINESS (current state).**  A closed, drained channel's recv is READY in Go
+(zero value immediately) — examining only the buffer would mispredict `default`
+(`close(ch); select{case <-ch: 1; default: 2}` — Go prints 1).
+`select_recv_default`/`select_recv2`/`select_wait2` check `chan_closed`: empty+closed ⇒ that recv
+fires with zero; `default` only on empty+OPEN.  Witnessed
+(`select_default_closed`/`select_default_open_empty`); `select2_eq_recv2` proven.  *Remaining:*
 (a) **RESOLVED (2026-06-21):** the relational select now models closed channels with NO config flag —
 closed-state is read off the TRACE (`closedb`: a `KClose c` event), and a `KRecv` back-pointer may point
 at that `KClose` (the close→closed-recv happens-before edge).  `step_select_closed` / `rstep_select_closed`

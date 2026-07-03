@@ -201,7 +201,7 @@ Definition oc_unit {A} (oc : Outcome A) : Outcome unit :=
     regardless, accumulating their effects.  So the final panic is the LAST one raised during unwinding,
     and EVERY defer's effects happen.
 
-    REVIEW P0 (the bug this replaces): the earlier version STOPPED at the first panicking defer and
+    THE DEFECT THIS SHAPE PREVENTS: a runner that STOPPED at the first panicking defer
     returned its panic WITHOUT running the older defers [ds'] — Go continues the whole LIFO stack, a newer
     panic merely replacing the active one.  Skipping older defers permitted FALSE heap / output /
     resource-release proofs (a deferred [Close]/unlock/log after a panicking defer was provably dropped).

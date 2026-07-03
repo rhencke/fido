@@ -423,7 +423,7 @@ Definition conv_int_to_f32_in_cmp (a : GoFloat32) (i : GoInt) : bool := f32_gtb 
     [EBn (BAnd, EBn (BAdd, int(a), int(b)), EHex 0xff)] — the mask is the verified [EHex] leaf (its first LIVE
     consumer).  [gprint] re-derives the parens by precedence, so the redundant OUTER pair the trusted [fw_wrap]
     always adds is DROPPED — a blessed golden delta (NOT byte-identical).  The change FOR THIS FIXTURE was
-    REVIEWED as parens-only with unchanged runtime output ([go vet] clean) — NOT a theorem of class-wide
+    CHECKED as parens-only with unchanged runtime output ([go vet] clean) — NOT a theorem of class-wide
     parens-only / value-preserving equivalence. *)
 Definition fw_u8_add_in_binop (y : GoI64) (a b : GoU8) : GoI64 := i64_add y (i64_of_u8 (u8_add a b)).
 (** ★ And the SIGNED fixed-width arithmetic [y + int64(i8_add a b)], where [i8_add a b] lowers to the masked +
@@ -432,7 +432,7 @@ Definition fw_u8_add_in_binop (y : GoI64) (a b : GoU8) : GoI64 := i64_add y (i64
     [mk_goexpr_hex]); [gprint] re-derives ALL the parens by precedence (Go's `&`>`^`, and `^`/`-` same-prec
     left-assoc), so the trusted [fw_wrap]'s defensive pairs are dropped — a blessed golden delta. The trusted
     bridge CONSTRUCTS this tree; the verified [gprint] only PRINTS it.  The generated delta FOR THIS FIXTURE was
-    REVIEWED as parens-only and this demo's runtime output is unchanged (go build + output diff, [go vet] clean)
+    CHECKED as parens-only and this demo's runtime output is unchanged (go build + output diff, [go vet] clean)
     — NOT a theorem that the transform is parens-only / value-preserving for the construct class. *)
 Definition fw_i8_add_in_binop (y : GoI64) (a b : GoI8) : GoI64 := i64_add y (i64_of_i8 (i8_add a b)).
 Definition conv_operand_demo : IO unit :=
@@ -476,7 +476,7 @@ Definition narrow_let_assert_demo : IO unit :=
   type_assert_safe TU8 (any xu8) (fun v8 ok1 =>
     println [any v8; any ok1]).   (* 200 true *)
 
-(** DIFFERENTIAL TYPE-IDENTITY LOCK (R10 — golden-output ALONE cannot tell
+(** DIFFERENTIAL TYPE-IDENTITY LOCK (golden-output ALONE cannot tell
     [uint8]/[int64] apart, which is exactly how the #1/#2/#7 type-identity bugs HID).
     At RUNTIME, assert each scalar against its OWN Go type (→ [true]) AND against a
     sibling it must NOT alias (→ [false]): a uint8 is NOT an int64, an int64 is NOT a
@@ -497,7 +497,7 @@ Definition type_identity_lock_demo : IO unit :=
     println [any a; any b; any c; any d; any e; any f; any g]))))))).
   (* true false true false true false false *)
 
-(** Extends the differential lock (R10) to the FULL #7 narrow cluster: each narrow
+(** Extends the differential lock to the FULL narrow cluster: each narrow
     type boxes as its OWN distinct Go type (de-collided from int64 by break #7b).
     Each asserts its own type → [true]; a regression that re-collides any back to
     int64 flips it.  (uint8 is already locked in [type_identity_lock_demo].) *)
@@ -533,7 +533,7 @@ Definition uint_lock_demo : IO unit :=
   type_assert_safe TInt64 (any uv) (fun _ b =>    (* uint .(int)  → FALSE (platform uint <> platform int) *)
     println [any a; any b])).
   (* true false *)
-(** P0 #2 — a sub-64 narrow [GoIntN] value now flows correctly through EVERY position: a function RETURN
+(** A sub-64 narrow [GoIntN] value flows correctly through EVERY position: a function RETURN
     (the result is cast to its declared Go type — [func lowbyte(x int64) uint8 { return uint8((x & 0xff)) }]),
     a narrow PARAM ([inc8] below — the param is the declared [uint8], widened to the int carrier inside the
     masked arithmetic), and a narrow result CONSUMED by further (signed) narrow arithmetic ([consume_i8] —
@@ -640,7 +640,7 @@ Definition takes_u8 (x : GoU8) : GoI64 := i64_of_u8 x.   (* uint8 param, widened
 Definition arg_narrow_demo : IO unit :=
   println [ any (takes_u8 (u8_of_i64 (i64_lit 300 eq_refl))) ].   (* Takes_u8(uint8(44)) = 44 *)
 
-(** P0 R3 — a VALUE-position [let] (nested in an expression, the bound var used twice so extraction keeps
+(** A VALUE-position [let] (nested in an expression, the bound var used twice so extraction keeps
     it) inside int64 arithmetic.  The old backend emitted [(func() any {…})()], i.e. [int64(any)+…], which
     does not compile; now the pure let is inlined so the surrounding [int64] context types it. *)
 Definition vlet (x z : GoI64) : GoI64 := i64_add (let y := i64_add x x in i64_add y y) z.
@@ -749,7 +749,7 @@ Definition f32_const_runtime_demo : IO unit :=
 (** DIRECT int → float32: [f32_of_i64]/[f32_of_int]/[f32_of_u64] round the integer
     ONCE to binary32, faithfully modelling Go's [float32(x)].  For |x| > 2^53 this DIFFERS from the
     double-rounding [f32_of_f64 (f64_of_int x)] = [float32(float64(x))], DISPROVING the earlier
-    "single-rounding-equivalent" claim.  Reviewer's witness, x = 2^61+2^37+1 = 2305843146652647425: *)
+    "single-rounding-equivalent" claim.  The distinguishing witness, x = 2^61+2^37+1 = 2305843146652647425: *)
 Example f32_of_i64_differs :         (* direct ≠ via-float64 — double rounding is REAL *)
   f32_eqb (f32_of_i64 (i64_lit 2305843146652647425 eq_refl))
           (f32_of_f64 (f64_of_i64 (i64_lit 2305843146652647425 eq_refl))) = false.
@@ -816,7 +816,7 @@ Example fconst_mul     : f64_eqb (f64_of_fconst (fc_mul (mkFC 3 2) (mkFC 1 4))) 
 Proof. vm_compute. reflexivity. Qed.
 Example fconst_div     : f64_eqb (f64_of_fconst (fc_div (mkFC 1 1) (mkFC 4 1) ltac:(discriminate))) 0.25 = true.   (* 1.0/4.0 = 0.25 *)
 Proof. vm_compute. reflexivity. Qed.
-(** Review #6 P2 #16 / minimum-suite #12: a constant division by a ZERO constant is
+(** A constant division by a ZERO constant is
     UNCONSTRUCTABLE.  [fc_div] demands evidence [fc_num b <> 0]; for a zero divisor that
     obligation is [0 <> 0], which is refutable — so no such [fc_div] term can be written.
     (Go rejects constant division by zero at compile time; here it is a TYPE error.) *)
@@ -1509,11 +1509,11 @@ Fail Definition bad_double_send : Sess PingPong PEnd unit :=
 Fail Definition bad_server_sends : Sess (dual PingPong) PEnd unit :=
   sbind (ssend (1)%i64) (fun _ => sret tt).
 
-(* R9: the OLD record's PUBLIC [MkSess] could FORGE any protocol with a
+(* SESS FORGE-PROOFING: the OLD record's PUBLIC [MkSess] could FORGE any protocol with a
    no-op body — [MkSess (ret tt) : Sess PingPong PEnd unit] claims a send-then-recv
    yet communicates nothing.  [Sess] is now a forge-proof INDUCTIVE: [MkSess] no
    longer exists, so the forgery is UNTYPABLE (the index cannot be detached from the
-   operations).  This is the regression lock for the R9 deeper-fix migration. *)
+   operations).  This is the regression lock for the forge-proof migration. *)
 Fail Definition bad_forge : Sess PingPong PEnd unit := MkSess (ret tt).
 
 (** A longer protocol: the client sends two numbers, the server replies with
@@ -1734,7 +1734,7 @@ Example arr_set_copy :
   arr_data (arr_set 3 TI64 (arr_lit TI64 [(10)%i64;(20)%i64;(30)%i64]) (int_lit 0 eq_refl) (99)%i64 eq_refl)
   = [(99)%i64;(20)%i64;(30)%i64].
 Proof. reflexivity. Qed.
-(** Review #6 P1 #11 / minimum-suite #7: [mkArr3 []] is UNCONSTRUCTABLE (its length proof
+(** [mkArr3 []] is UNCONSTRUCTABLE (its length proof
     [length [] = 3] is unprovable) — every GoArr3 genuinely has length 3; and an out-of-range
     [arr_set] is rejected (its bounds proof [0 <= 5 < 3] is unprovable). *)
 Example arr3_has_length_3 : forall {A} (a : GoArr3 A), List.length (arr3_data a) = 3%nat.
@@ -1968,7 +1968,7 @@ Example str_range_offsets :
       (str_to_runes_w (runes_to_str (i32wrap 65 :: i32wrap 20013 :: i32wrap 66 :: nil))))
   = (0%Z, i32wrap 65) :: (1%Z, i32wrap 20013) :: (4%Z, i32wrap 66) :: nil.
 Proof. vm_compute. reflexivity. Qed.
-(** Review #6 P1 #9 / minimum-suite #3: INVALID UTF-8 byte offsets.  Source bytes [0x80 'A'] —
+(** INVALID UTF-8 byte offsets.  Source bytes [0x80 'A'] —
     a lone continuation, then 'A'.  Go's range yields [(0,U+FFFD) (1,'A')]: the bad byte consumed
     exactly ONE source byte, so 'A' is at offset 1 — NOT 3, which re-encoding U+FFFD (3 bytes)
     would have wrongly given.  This is the offset bug the consumed-width decoder fixes. *)
@@ -2311,7 +2311,7 @@ Definition slice_alias_demo : IO unit :=
   bind (slice_idx_get TI64 s (int_lit 1 eq_refl)) (fun v =>                               (* v := s[1] — sees 99 (aliasing) *)
   println [any v])))))).                                                       (* prints 99 *)
 
-(** Review #6 P0 #4 / minimum-suite #6: an out-of-range subslice PANICS rather than producing
+(** An out-of-range subslice PANICS rather than producing
     a bogus descriptor.  s has cap 2; [s[0:3]] requests b=3 > cap, which Go rejects — so the
     wrapped-descriptor path that would defeat the index bounds check is unconstructable. *)
 Example subslice_past_cap_panics : forall (w : World),
@@ -2342,7 +2342,7 @@ Definition slice_makecap_demo : IO unit :=
   bind (slice_idx_get TI64 s (int_lit 0 eq_refl)) (fun v =>           (* v := s[0] — sees 77 (shared backing!) *)
   println [any v]))))).                                    (* prints 77 *)
 
-(** Review #6 P0 #4 / minimum-suite #5: a slice with len=1, cap=2 — writing index 1 (in the
+(** A slice with len=1, cap=2 — writing index 1 (in the
     spare CAPACITY but past LENGTH) PANICS, exactly as Go bounds-checks against LEN not cap.
     Pre-fix the model silently wrote the spare backing cell and returned normally. *)
 Example slice_write_past_len_panics : forall (v : GoI64) (w : World),
@@ -3610,7 +3610,7 @@ Definition main_effect : IO unit :=
   slice_clear_demo              >>'   (* prints: 0 (clear zeros the slice) *)
   slice_copy_demo               >>'   (* prints: 7 (copy src→dst) *)
   count_demo                    >>'   (* prints: 0 / 1 / 2 *)
-  cfg_nonzero_entry_demo        >>'   (* prints: 5 / 7 (nonzero run_blocks entry now labelled, R#4 P1 3) *)
+  cfg_nonzero_entry_demo        >>'   (* prints: 5 / 7 (nonzero run_blocks entry labelled) *)
   defer_demo                    >>'   (* prints: 3 / 2 / 1 *)
   defer_loop_demo               >>'   (* prints: 2 / 1 / 0 *)
   point_demo                    >>'   (* prints: 3 / 4 / 7 *)
@@ -3663,7 +3663,7 @@ Definition main_effect : IO unit :=
   conv_operand_demo             >>'   (* prints: 205 true 13 22 210 true true (conversions int64(x)/float32(x)/int64(f)/uint64(f)/int(x)/float64(i)/float32(i) as binop operands) *)
   i64_to_narrow_demo            >>'   (* prints: 52 -56 4464 705032704 (int64→narrow truncation) *)
   narrow_let_assert_demo        >>'   (* prints: 200 true (let-bound GoU8 boxes+asserts as uint8) *)
-  type_identity_lock_demo       >>'   (* prints: true false true false true false false (uint8≠int64, GoI64=int64≠Go-int, R10 differential) *)
+  type_identity_lock_demo       >>'   (* prints: true false true false true false false (uint8≠int64, GoI64=int64≠Go-int — the differential lock) *)
   narrow_cluster_lock_demo      >>'   (* prints: true true true true true (full #7 narrow cluster boxes as own Go type) *)
   uint_lock_demo                >>'   (* prints: true false (platform uint boxes as Go uint, distinct from int) *)
   narrow_ret_demo               >>'   (* prints: 52 -56 (narrow RETURN boundary: func returns uint8/int8) *)

@@ -1403,7 +1403,7 @@ Lemma catch_panic : forall {A} (v : GoAny) (h : GoAny -> IO A),
   catch (panic v) h =io= h v.
 Proof. intros A v h w. rewrite run_catch, run_panic. reflexivity. Qed.
 
-(** ---- Hoare logic (PANIC-SENSITIVE — review: the partial triple's vacuous panic) ----
+(** ---- Hoare logic (PANIC-SENSITIVE — a partial triple is VACUOUS on panic, so panics need their own judgment) ----
     [{{ P }} m {{ Q }}] is a PANIC-SENSITIVE correctness triple: from any [P]-world, [m]
     runs WITHOUT PANICKING and ends in a [Q]-world.  A panic maps to [False], NOT [True]
     — so a panicking program does NOT satisfy a (satisfiable-precondition) triple.
@@ -2663,7 +2663,7 @@ Proof.
 Qed.
 
 (** Companion lemma for the NORMAL path, and the regression that pins the truncation boundary
-    P0 #1: when the body returns [x], cleanup runs and [x] propagates.  Crucially
+    When the body returns [x], cleanup runs and [x] propagates.  Crucially
     this holds UNCONDITIONALLY in [cleanup] — even a [cleanup] that panics is run
     exactly once (the RHS mentions [cleanup] once).  Under the earlier definition
     this equation was FALSE for a panicking cleanup (it ran twice), so this lemma
@@ -3261,7 +3261,7 @@ Qed.
 (** The channel cell now carries a CAPACITY ([option nat]: [None] = unbounded, [Some n] = a buffer that
     holds at most [n]).  [make_chan] is UNBUFFERED, [Some 0] — an IO send to it finds no room and FAILS LOUD
     (Go BLOCKS pending a receiver; the sequential IO model has no rendezvous).  [make_chan_buf n] is [Some n].
-    Review #8 P0-4: capacity is no longer ignored ([make_chan_buf] is no longer [= make_chan]), and [send]
+    CAPACITY IS REAL: it is no longer ignored ([make_chan_buf] is no longer [= make_chan]), and [send]
     (below) is capacity-aware. *)
 Definition make_chan_cap {A : Type} (tag : GoTypeTag A) (cap : option nat) : IO (GoChan A) :=
   fun w => let l := w_next w in
@@ -3513,8 +3513,7 @@ Proof. intros A C ta ch k1 d w He Hc. unfold select_recv_default. rewrite He, Hc
     control-flow substrate; [select2] is the only producer of the sentinel, so the lifted shape is
     a valid select by construction — strictness in Rocq, not the trusted relooper.*
 
-    ⚠ SCOPE OF THE THEOREM (corrects an earlier overclaim, sharpened
-    by a follow-up review).  This [select_wait2] inherits the [select_recv2] model's behaviour, a
+    ⚠ SCOPE OF THE THEOREM (corrects an earlier overclaim).  This [select_wait2] inherits the [select_recv2] model's behaviour, a
     DETERMINISTIC UNDER-APPROXIMATION of Go's select, so [select2_eq_recv2] proves the desugar equals
     that *idealised model*, NOT equivalence to Go.  Two distinct unsoundnesses:
       (1) CHOICE: both channels ready ⇒ it deterministically takes ch1; Go picks pseudo-randomly among
@@ -3543,19 +3542,19 @@ Proof. intros A C ta ch k1 d w He Hc. unfold select_recv_default. rewrite He, Hc
     goroutine can change readiness between the proof and the native select (a TOCTOU gap).  Tracked in
     Known gaps / SPEC_CONFORMANCE.
 
-    THIRD REVIEW (2026-06-20) — one FIX (below) + two items SINCE RESOLVED in [concurrency.v]:
-    • FIXED here: a CLOSED, DRAINED channel's recv is READY in Go (yields zero immediately), but the
-      sequential model examined only the buffer and mispredicted [default] / fabricated the other case.
-      [select_recv_default]/[select_recv2]/[select_wait2] now check [chan_closed]: empty+closed ⇒ that
+    CLOSED-CHANNEL READINESS — the current state, here and in [concurrency.v]:
+    • Here: a CLOSED, DRAINED channel's recv is READY in Go (yields zero immediately) — examining
+      only the buffer would mispredict [default] / fabricate the other case.
+      [select_recv_default]/[select_recv2]/[select_wait2] check [chan_closed]: empty+closed ⇒ that
       recv case fires with the zero value; [default] only on empty+OPEN.  Witnessed by
-      [select_default_closed] / [select_default_open_empty]; [select2_eq_recv2] re-proven.
-    • RESOLVED (relational closed): the relational select now MODELS closed channels — closed-state is
+      [select_default_closed] / [select_default_open_empty]; [select2_eq_recv2] proven.
+    • Relational: the relational select MODELS closed channels — closed-state is
       read off the TRACE ([closedb]: some [KClose c] event), so there is no config flag and no
       backpointer gap (the [KClose] position itself IS the closed-recv's happens-before producer).
       [rstep_recv_closed] / [rstep_select_closed] step a closed-drained recv/select to the zero value;
       [closed_select_can_step] / [rclosed_select_can_step] witness it; [closed_recv_preserves_inv]
       keeps the resulting trace well-formed.
-    • RESOLVED (rich calculus + typed connection): the value-carrying [rstep]/[Cmd] calculus now has a
+    • Rich calculus + typed connection: the value-carrying [rstep]/[Cmd] calculus has a
       first-class [CSelect] with PER-CASE channel + continuation — [select { case <-ch: A() | case <-ch:
       B() }] (same channel, distinct bodies) is representable and the two successors run DIFFERENT bodies
       ([rselect_per_case_continuation]).  The typed↔relational bridge is proven: [det_select_sound] (the
@@ -3647,7 +3646,7 @@ Theorem select_recv2_ch2_closed :
   run_io (select_recv2 ta ch1 k1 tb ch2 k2) w = run_io (bind (recv tb ch2) k2) w.
 Proof. intros A B C ta ch1 k1 tb ch2 k2 w He1 Hc1 He2 Hc2. unfold select_recv2, recv, bind, run_io. rewrite He1, Hc1, He2, Hc2. reflexivity. Qed.
 
-(** REVIEW #8 P0-5 REGRESSION — both channels EMPTY and OPEN (no case can proceed, no default): [select_recv2]
+(** REGRESSION — both channels EMPTY and OPEN (no case can proceed, no default): [select_recv2]
     / [select_wait2] now FAIL LOUD ([OPanic rt_select_block]) instead of FABRICATING [k1 (zero_val ta)] /
     [(0, zero_val ta)].  The old plausible-but-wrong value (which let proofs continue past a select Go would
     BLOCK on) is gone; a proof that reaches this state now hits an [OPanic] it must discharge, never a forged
@@ -3762,7 +3761,7 @@ Proof.
   rewrite chan_buf_send, Hempty. reflexivity.
 Qed.
 
-(** REVIEW #8 P0-4 REGRESSION — capacity is no longer ignored.  [make_chan_buf n] STORES the capacity
+(** REGRESSION — capacity is not ignored.  [make_chan_buf n] STORES the capacity
     [Some n] (it was [:= make_chan], dropping [n]); [make_chan] is UNBUFFERED [Some 0], so an IO send to a
     freshly-made unbuffered channel FAILS LOUD ([rt_chan_send_block]) — Go blocks pending a receiver — rather
     than silently over-appending.  (The buffered [send]-then-[recv] path stays sound: [send_recv] now carries
@@ -4682,7 +4681,7 @@ Proof. vm_compute. reflexivity. Qed.
 Definition rune_to_str (r : GoI32) : GoString := rune_bytes r.
 Example rune_to_str_ascii : rune_to_str (i32wrap 65) = "A"%string.
 Proof. vm_compute. reflexivity. Qed.
-(** Review #6 P1 #9 / minimum-suite #4: an out-of-range or surrogate rune encodes to U+FFFD,
+(** An out-of-range or surrogate rune encodes to U+FFFD,
     exactly Go's [string(rune)].  Witnessed against the explicit FFFD encoding [EF BF BD]: a
     UTF-16 surrogate (0xD800), a code point past MaxRune (0x110000), and a NEGATIVE rune (-1,
     built by [i32_sub] so it is a genuine negative int32) all collapse to U+FFFD. *)
@@ -4970,7 +4969,7 @@ Example complex_div_branch_overflow_fixed :
      f64_leb (f64_mul mi mi) (f64_mul mr mr) = true    (* old (squared): WRONG branch *)
   /\ f64_leb (f64_abs mi)    (f64_abs mr)    = false.  (* new (abs):     RIGHT branch *)
 Proof. vm_compute. split; reflexivity. Qed.
-(** Review #6 P2 #17: DEGENERATE divisors now recover per Annex G (not the bare-Smith NaN).  Finite
+(** DEGENERATE divisors recover per Annex G (not the bare-Smith NaN).  Finite
     nonzero / ZERO yields infinities; finite / Inf yields zero — matching gc's runtime.complex128div. *)
 Example complex_div_by_zero_is_inf :   (* (1+2i)/(0+0i) = (+Inf, +Inf) *)
   f64_eqb (c_re (complex_div (go_complex (1%go64) (2%go64)) (go_complex (0%go64) (0%go64)))) (S754_infinity false) = true
@@ -5054,7 +5053,7 @@ Definition ValidWorld (w : World) : Prop :=
 (** The initial world: empty heaps, allocator at 1 — so location 0 is reserved for [nil]. *)
 Definition w_init : World := mkWorld (fun _ => None) (fun _ => None) (fun _ => None) 1 nil.
 
-(** Review #6 P1 #12: [run_io] now RESPECTS output — a program that prints TWICE is no longer
+(** [run_io] RESPECTS output — a program that prints TWICE is not
     provably equal to one that prints ONCE (the old no-op [println] erased output, collapsing
     them).  The result worlds differ in their [w_output] trace length. *)
 Example output_distinguishes_programs :
@@ -5189,7 +5188,7 @@ Qed.
 
 (* [ref_get] carries a [GoTypeTag] so that, when a read is bound inside a loop
    block, the lowering knows the Go type to hoist its declaration. *)
-(** Review #6 #7: a CHECKED read.  [ref_sel] (above) is TOTAL — it returns the type's zero value when the
+(** A CHECKED read.  [ref_sel] (above) is TOTAL — it returns the type's zero value when the
     cell is absent or carries the WRONG tag, which silently accepts a FORGED / dangling / retyped handle.
     [ref_sel_opt] instead returns [None] in those cases, so a reader can FAIL LOUD rather than fabricate a
     zero (the tenet: "mismatched/missing cells should be impossible in safe APIs, not silently
@@ -5509,7 +5508,7 @@ Qed.
     [v = *p, ok = true]; nil ⇒ [v = zero, ok = false].  Because the caller must handle
     [ok = false], the nil-deref panic is UNREACHABLE.  (A [Ptr] is nil iff its location
     is the 0 sentinel — [ptr_nil].  The value is in the world heap, so [ptr_get_ok]
-    threads [w]; a read leaves [w] unchanged.)  Review #6 #7: the non-nil branch reads via the
+    threads [w]; a read leaves [w] unchanged.)  The non-nil branch reads via the
     CHECKED [ref_sel_opt], so a FORGED / retyped non-nil handle (cell absent or wrong-tagged) FAILS
     LOUD rather than fabricating a zero with [ok = true] — the same hole [ref_get] closed, here in the
     safe comma-ok default.  That loud branch is unreachable for any [Ptr] from [ptr_new]/[ref_as_ptr]
@@ -5588,7 +5587,7 @@ Definition slice_make_h {A} (tag : GoTypeTag A) (n : GoInt) : IO (SliceH A) :=
    this check, so the lowering is unchanged (body suppressed). *)
 Definition slice_in_len {A} (s : SliceH A) (i : GoInt) : bool :=
   (Z.leb 0 (intraw i) && Nat.ltb (Z.to_nat (intraw i)) (sh_len s))%bool.
-(** Review #6 #7: the in-bounds read goes through the CHECKED [ref_sel_opt], so a FORGED slice header
+(** The in-bounds read goes through the CHECKED [ref_sel_opt], so a FORGED slice header
     ([mkSliceH] at a [base]/[off] whose backing cell is unallocated or wrong-tagged) FAILS LOUD instead
     of fabricating a zero — the same [ref_sel]-zero-fill hole [ref_get]/[ptr_get_ok] closed, here for the
     safe slice element read.  The loud branch is UNREACHABLE for any slice from [slice_make_h]/[subslice]/
@@ -6538,7 +6537,7 @@ Qed.
     double-use, wrong order/direction/payload, AND incomplete protocols are all
     Rocq TYPE ERRORS (see the [Fail] tests in main.v). *)
 
-(** [Sess i j A] is the FORGE-PROOF session type (R9 — migration of the
+(** [Sess i j A] is the FORGE-PROOF session type (the migration of the
     user-chosen deeper fix into the extracted layer, 2026-06-22): an INDUCTIVE
     whose only builders are the disciplined ops below.  There is NO [MkSess]-style
     constructor wrapping an arbitrary [IO A] at any index, so the protocol index

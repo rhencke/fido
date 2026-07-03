@@ -1147,8 +1147,9 @@ Qed.
 
 (** FACT 2 — EMPTY SELECT IS DEADLOCK, NOT A VALUE.  A goroutine selecting on channels with
     no ready case (and no other goroutine to make one ready) is [Stuck] — exactly like
-    [block_cfg], NOT the fabricated [(0, zero)] the sequential interpreter returns.  Blocking
-    lives in the GLOBAL transition relation (no enabled step). *)
+    [block_cfg].  (The sequential interpreter FAIL-LOUDS there — [rt_select_block] — since a
+    sequential run has no Blocked outcome.)  Blocking lives in the GLOBAL transition relation
+    (no enabled step). *)
 Definition sel_block_cfg : Config :=
   mkCfg (fun t => if Nat.eqb t 0 then [PSelect [0; 1]] else [])
         (fun _ => []) (fun t => Nat.eqb t 0) [].

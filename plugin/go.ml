@@ -98,7 +98,7 @@ let go_safe s = String.map (function '\'' -> '_' | c -> c) s
 
 let pp_goid id = str (go_safe (Id.to_string id))
 
-(** Capitalise the first character (export in Go).  Also [go_safe] (R7): a Coq identifier may
+(** Capitalise the first character (export in Go).  Also [go_safe] (name-injectivity): a Coq identifier may
     contain [']  (and [go_safe] maps it to [_]), which is illegal in a Go identifier — applying it HERE
     means every emitted identifier (decl AND call site, since both go through [go_export]) is a valid Go
     name, consistently.  [go_safe] is idempotent, so a site that already [go_safe]'d (e.g. [pp_goid]) is
@@ -1122,7 +1122,7 @@ let any_narrow_conv e =
    are function-locally unique) and RESET per function.  Preserves the int64-carrier model: x stays int-typed,
    only the box adds the cast (`uint8(int)` truncates to the right narrow value). *)
 let narrow_var_types : (string, string) Hashtbl.t = Hashtbl.create 16
-(* P0 #2 (narrow RETURN boundary): the current function's narrow Go return type, if its return type
+(* Narrow RETURN boundary: the current function's narrow Go return type, if its return type
    is a sub-64 narrow wrapper.  The body computes an int-CARRIER value, so a bare `return <expr>`
    would emit `return <int-expr>` against a declared `uint8`/`int8`/… signature — a Go type error.
    When [Some gt], [pp_pure_tail]'s return wraps the value in [gt(…)] (e.g. `return uint8(x & 0xff)`),
@@ -2012,7 +2012,7 @@ let rec goexpr_bridge env e =
           extended (signed) form.  Mirrors the trusted [fw_wrap] lowering (operands WIDENED to the [int] carrier
           first — a narrow-typed operand would overflow the mask), but built as the VERIFIED [EBn] tree so
           [gprint] re-derives the parens by precedence (dropping the redundant pairs [fw_wrap] always adds — a
-          golden delta REVIEWED parens-only on the demo fixtures, NOT a class-wide equivalence theorem):
+          golden delta CHECKED parens-only on the demo fixtures, NOT a class-wide equivalence theorem):
             UNSIGNED [uN]: [EBn (BAnd, EBn (OP, int(a), int(b)), EHex MASK)]              (mask to w bits)
             SIGNED   [iN]: [EBn (BSub, EBn (BXor, <masked>, EHex SBIT), EHex SBIT)]       (sign-extend [<masked>])
           Both [EHex] constants ([MASK]=[(1 lsl w)-1], [SBIT]=[1 lsl (w-1)]) are built via the [mk_goexpr_hex]
@@ -2169,14 +2169,14 @@ let rec pp_expr state env = function
        | MLglob r, [tag; v] when is_ptr_new_ref r ->
            let t = go_type_of_tag (strip_magic tag) in
            str "func(_v " ++ str t ++ str ") *" ++ str t ++ str " { return &_v }(" ++
-           pp_payload_at_tag state env tag v ++ str ")"   (* narrow pointee ← int64 carrier needs [uint8(…)] (P1 #4) *)
+           pp_payload_at_tag state env tag v ++ str ")"   (* narrow pointee ← int64 carrier needs [uint8(…)] *)
        (* go_new tag → new(T): a fresh *T pointing to the zero value *)
        | MLglob r, [tag] when is_go_new_ref r ->
            str "new(" ++ str (go_type_of_tag (strip_magic tag)) ++ str ")"
        | MLglob r, [_tag; p] when is_ptr_get_ref r ->
            str "*" ++ pp_atom state env p
        | MLglob r, [tag; p; v] when is_ptr_set_ref r ->
-           str "*" ++ pp_atom state env p ++ str " = " ++ pp_payload_at_tag state env tag v   (* narrow *p ← int64 carrier (P1 #4) *)
+           str "*" ++ pp_atom state env p ++ str " = " ++ pp_payload_at_tag state env tag v   (* narrow *p ← int64 carrier *)
        (* GENERIC struct pointer (arity-generic [StructRep R ts]).  The leading [_dict] is the
           [StructRepOf R] instance (proof-side, stripped).  [gsptr_new dict v] → [&v];
           [gsptr_deref dict p] → [*p]; [gsptr_assign dict p v] → [*p = v].  Field access carries the
@@ -2228,7 +2228,7 @@ let rec pp_expr state env = function
        | MLglob r, [s; a; b] when is_subslice_ref r ->
            pp_atom state env s ++ str "[" ++ pp_expr state env a ++ str ":"
            ++ pp_expr state env b ++ str "]"
-       (* slice_append tag s v (R5 follow-up): the model REALLOCATES to cap = len+1 (no spare) when
+       (* slice_append tag s v: the model REALLOCATES to cap = len+1 (no spare) when
           [len = cap], in place (aliasing the backing) when [len < cap].  Go's NATIVE `append` makes the
           in-place vs realloc choice the same way, BUT on realloc it picks an IMPLEMENTATION-DEFINED capacity
           (it may over-allocate), so a SUBSEQUENT append could go in-place into Go's spare where the model
@@ -2397,7 +2397,7 @@ let rec pp_expr state env = function
           builds exactly that (same as the [lit]/[add] forms). *)
        | MLglob r, [x] when fw_is r "not" ->
            let (s, w, _) = Option.get (fixed_width_op r) in
-           (* P0 #2: widen the operand to the int carrier (a narrow-typed int8 would overflow `& 0xff`). *)
+           (* Widen the operand to the int carrier (a narrow-typed int8 would overflow `& 0xff`). *)
            fw_wrap s w (str "^int(" ++ pp_expr state env x ++ str ")")
        (* full-width int64 unary complement [i64_not x] → [^x].  Go's [^] on an
           int64 IS the full 64-bit complement (= -x-1), exactly the model — no mask.  ★When [^x] of a runtime
@@ -2547,7 +2547,7 @@ let rec pp_expr state env = function
           [ECall (EId "uint64") [f]] in the binop-operand case. *)
        | MLglob r, [x] when is_f64_to_u64_ref r ->
            str "uint64(" ++ pp_expr state env x ++ str ")"
-       (* narrow → int64 widening → [int64(x)] (Go's widening conversion).  NOT identity: review
+       (* narrow → int64 widening → [int64(x)] (Go's widening conversion).  NOT identity: the class
           #4 P1 #4 — a narrow operand at a typed boundary (a [uint8]/[int8]/… PARAM, or a value cast
           to its narrow Go type) is a REAL narrow Go type, so a bare [x] against an [int64]
           destination is invalid Go (e.g. [func Widen(x uint8) int64 { return x }]).  [int64(x)]
@@ -2572,7 +2572,7 @@ let rec pp_expr state env = function
              unsupported (string_of_int w ^ "-bit multiply: a >=63-bit-wide product exceeds the 63-bit carrier; needs the Z-based wide-int model")
            else
              let opstr = (match op with "add" -> " + " | "sub" -> " - " | _ -> " * ") in
-             (* P0 #2: widen each operand to the int CARRIER before the masked op.  An operand may be a
+             (* Widen each operand to the int CARRIER before the masked op.  An operand may be a
                 NARROW-typed value (a uint8/int8 param, field, or call-result), and `int8 & 0xff` overflows
                 int8 — computing in int (then masking) is correct for any operand (a constant/int carrier is
                 unchanged by [int(…)], a narrow-typed one is widened).  This is what lets a narrow value flow
@@ -2588,7 +2588,7 @@ let rec pp_expr state env = function
           give 0 / sign-fill, matching Go (no upper limit). *)
        | MLglob r, [x; k] when fw_is r "shl" ->
            let (s, w, _) = Option.get (fixed_width_op r) in
-           (* P0 #2: widen the shifted value to the int carrier (a narrow-typed operand would overflow the
+           (* Widen the shifted value to the int carrier (a narrow-typed operand would overflow the
               mask); the shift COUNT [k] is a plain int already. *)
            fw_wrap s w
              (str "(int(" ++ pp_expr state env x ++ str ") << " ++ pp_expr state env k ++ str ")")
@@ -2627,7 +2627,7 @@ let rec pp_expr state env = function
            (match z_eval z with
             (* TYPE the literal [int64(N)] not bare [N]: a bare decimal makes Go infer
                [int] for a binding ([x := 9]) or box ([any 9]) — diverging from the
-               [TI64] tag (int64) and breaking [.(int64)] (R10 differential). *)
+               [TI64] tag (int64) and breaking [.(int64)] (the differential lock). *)
             | Some v -> str ("int64(" ^ print_i64_dec v ^ ")")
             | None   -> unsupported "i64_lit of a non-constant Z (only statically-known int64 constant expressions are modeled)")
        (* [u64_lit z] — a full-width uint64 constant: fold its [Z] literal to the
@@ -4213,7 +4213,7 @@ let pp_io_body ?(ret_val=false) state tab env body =
       pp_stmts (tab ^ "\t") fenv (mk_body fn fbody) ++
       str tab ++ str "}" ++ fnl ()
     in
-    (* (Historical note: a stale [is_string_list] guard excluded a [list GoInt32] from the list/slice
+    (* (A stale [is_string_list] guard once excluded a [list GoInt32] from the list/slice
        match — from the OBSOLETE [GoString := list GoRune] model.  [GoString] is now Coq [string] (a
        byte sequence, matched by its own arm) and the [GoInt32] placeholder is RETIRED; rune slices are the FAITHFUL [list GoI32] and are LEGITIMATE slices that DO take the
        list lowering.  The guard tested a now-nonexistent type ⇒ structurally always-false ⇒ removed.) *)
@@ -4458,7 +4458,7 @@ let is_sptr_record_tglob = function
    an [if] (e.g. [i64_abs]) extract instead of aborting. *)
 let rec pp_pure_tail state tab env e =
   let return_fallback () =
-    (* P0 #2: a sub-64 narrow return wraps the int-carrier value in its declared Go type. *)
+    (* A sub-64 narrow return wraps the int-carrier value in its declared Go type. *)
     match !narrow_ret_type with
     | Some gt -> str tab ++ str "return " ++ str (gt ^ "(") ++ pp_expr state env e ++ str ")" ++ fnl ()
     | None    -> str tab ++ str "return " ++ pp_expr state env e ++ fnl () in
@@ -4547,7 +4547,7 @@ let rec pp_pure_tail state tab env e =
       let a, b = (match args with [a; b] -> a, b | [_; _; a; b] -> a, b | _ -> assert false) in
       let vals = flatten_pair_value a @ [b] in   (* N-ary: [pair (pair a b) c] -> [a;b;c] -> [return a, b, c] *)
       (* a NARROW component (int64-carrier) into its narrow return slot needs the cast — e.g. a
-         `func() (uint8, uint8)` whose `return (x & 0xff), …` would otherwise be int64-into-uint8 (P1 #4). *)
+         `func() (uint8, uint8)` whose `return (x & 0xff), …` would otherwise be int64-into-uint8 (the narrow-boundary class). *)
       let pp_val v =
         match value_narrow_conv env v with
         | Some gt -> str (gt ^ "(") ++ pp_expr state env v ++ str ")"
@@ -4563,10 +4563,10 @@ let rec pp_pure_tail state tab env e =
     [recv.M(a)] denotes the same as [M(recv, a)]) and idiomatic.  Detection here
     mirrors [collect_decls]'s, so declaration and call sites agree. *)
 let pp_function state name body typ =
-  Hashtbl.reset narrow_var_types;   (* P0 #2: narrow-let-var table is per-function (names are fn-local) *)
+  Hashtbl.reset narrow_var_types;   (* narrow-let-var table is per-function (names are fn-local) *)
   let ids, inner_body = collect_lam body in
   let param_types, ret_type = collect_tarrs typ in
-  (* P0 #2: a sub-64 narrow return type makes the pure-tail [return]s wrap the int-carrier value
+  (* A sub-64 narrow return type makes the pure-tail [return]s wrap the int-carrier value
      in its declared Go type ([narrow_ret_type]); [None] for full-width / IO / non-narrow returns. *)
   narrow_ret_type := (match ret_type with Tglob (r, []) -> narrow_prim_type r | _ -> None);
   (* Pair visible ids with their corresponding types, skipping erased args. *)
@@ -4829,8 +4829,8 @@ let pp_main_call fn_name =
 (** Emit the body of any IO-returning function as flat sequential statements.
     Used by both [pp_main_body] and [pp_function] for IO-typed functions. *)
 let pp_main_body state body =
-  Hashtbl.reset narrow_var_types;   (* P0 #2: reset the narrow-let-var table for main *)
-  narrow_ret_type := None;          (* P0 #2: main returns IO unit, never a narrow value *)
+  Hashtbl.reset narrow_var_types;   (* reset the narrow-let-var table for main *)
+  narrow_ret_type := None;          (* main returns IO unit, never a narrow value *)
   str "func main() {" ++ fnl () ++
   pp_io_body state "\t" [] body ++
   str "}" ++ fnl ()

@@ -65,7 +65,7 @@ fi
 echo "fido: emission-discipline gate OK — no direct print_program call outside GoEmit.v / GoPrint.v ✓"
 
 # 4. BRIDGE-RECOGNIZER scoping.  Each conversion recognizer the live bridge routes through is the scoped alias
-# `let is_X = named_in [...]`, the [from_builtins] guard living ONCE in [named_in].  Flags the is_int_of_fw-P0
+# `let is_X = named_in [...]`, the [from_builtins] guard living ONCE in [named_in].  Flags the is_int_of_fw
 # break: a raw [global_basename] match (lowering a same-named user global), or [named_in] losing [from_builtins].
 # [cov_preds] = GATE DATA (bare NAME set); the human-facing bridge description lives once, in PROGRESS.md.
 cov_preds='[is_i64_of_narrow_ref] / [is_f64_to_f32_ref]+[operand_is_runtime] / [is_f64_to_i64_ref] / [is_f64_to_u64_ref] / [is_int_of_fw] / [is_num_to_f64_ref] / [is_int_to_f32_ref]'
