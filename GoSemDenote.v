@@ -4436,7 +4436,7 @@ Qed.
 (** ONE statement to its command + TERMINATES flag (the single control-flow authority —
     [denote_body] never re-decides; the flag is not derivable: [return] and a constant
     blank-assign both give [CRet tt] but differ stop/fall-through).  Effect arms go through
-    [denote_call]; the inclusion ladder is [denote_call_ok] → [denote_stmt_sound] ([stmt_ok]) →
+    [denote_call]; the inclusion chain is [denote_call_ok] → [denote_stmt_sound] ([stmt_ok]) →
     [denote_body_sound] ([forallb stmt_ok]) → [gosem_sound] ([supported_program]). *)
 Definition denote_stmt (s : GoStmt) : option (Cmd unit * bool) :=
   match s with

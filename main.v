@@ -93,7 +93,7 @@ Definition overflow_safe_demo : IO unit :=
           ; any (i64_mul_nz (1000)%i64 (1000)%i64 eq_refl) ].
   (* prints: 3000000000000 1000000 — full-width GoI64, proven no wrap *)
 
-(** PURE-FUNCTION TAIL-MATCH LOWERING (ladder 7b — value-position [if], tail case).
+(** PURE-FUNCTION TAIL-MATCH LOWERING (value-position [if], tail case).
     Go has no conditional EXPRESSION, so an [if] in value position cannot be inlined
     as one.  But when the [if]/[match] is the whole function BODY (tail position),
     it lowers to a Go [if]/[else] whose arms each [return] — the idiomatic form.
