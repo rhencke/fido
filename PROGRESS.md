@@ -62,8 +62,10 @@ field selectors, runtime numeric conversions, fixed-width bridging binops — th
 - **cmd↔unified bridge** (`cmd_unified.v`): `bridge_agrees` — for every `no_heap` command the `ustep`
   run agrees with `run_cmd` (panic, output, completion); termination via `cmd.run_cmd_terminates`
   (same fragment). Heap commands (`CWrite`/`CRead`, typed cells, absence on unallocated access) are
-  MODELED + TRANSLATED but not yet bridged (the heap-agreement sub-slice; `cread_unallocated_absent`
-  pins why no unconditional bridge exists). ⚠ chan/spawn later. Zero axioms.
+  MODELED + TRANSLATED; the DEFER-FREE heap fragment is BRIDGED (`bridge_heap_body_agrees` —
+  end-to-end agreement incl. final heaps, from the `ustart_w` mirrored-heap start); the deferred-heap
+  unwind is the remaining part-ii work (`cread_unallocated_absent` pins why no unconditional bridge
+  exists). ⚠ chan/spawn later. Zero axioms.
 - **GoSemSafe** — panic-freedom properties + the narrow gate: `panic_free_runs_ret`(+`_ustep`),
   decidable `panic_free_denotable`, `PanicFreeEmittable` refining `EmittableProgram`,
   `panic_free_gate` (sound+complete) + `emit_panic_free_gated`. Both rejection mechanisms pinned
@@ -99,7 +101,7 @@ assumption. The MODEL's logical trust base is empty (zero axioms); the plugin is
 Zero-axiom is gated by `Print Assumptions` in THREE flows (single-sourced here): **manifest**
 (`manifest-axioms.sh` vs empty `EXPECTED_ASSUMPTIONS.txt`) covers `main_effect` /
 `gosem_trust_surface` / `gosem_string_authority_surface` / `cmd.run_cmd_terminates` / the bridge
-surfaces (`cmd_to_ucmd_fragment` / `cmd_to_ucmd_novz` / `cmd_to_ucmd_run_agrees` / `bridge_agrees` / `run_cmd_out_monotone` /
+surfaces (`cmd_to_ucmd_fragment` / `cmd_to_ucmd_novz` / `bridge_heap_body_agrees` / `cmd_to_ucmd_run_agrees` / `bridge_agrees` / `run_cmd_out_monotone` /
 `run_cmd_no_panic_ret`) / `gosem_panic_free_surface` / `builtins.slice_get_bounds_surface`;
 **printer** + **emit** (compiled STANDALONE, grep `^Axioms:`) cover the spine. A `Print Assumptions`
 under none of the three is not gated.

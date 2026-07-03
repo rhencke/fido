@@ -120,14 +120,16 @@ COMPLETE): `bridge_agrees` — its ladder discipline and landing checklist apply
    - 2b — LANDED as described in part i above.  ONE authority each: `UFrag` = the
      translated-IMAGE seal (no channel/spawn form ever); `UNoVz` + `no_heap`
      (`cmd_to_ucmd_novz`, gated) = the no-`vz` seal licensing the quantified parameter.
-   - 2c — the REMAINING work (part ii): the heap agreement.  `heap_agrees h rh :=
-     forall l cell, rh l = Some cell -> h l = any_of_cell cell` (allocated locations
-     only — the initial-heap default elsewhere is unobservable since a completing run
-     never touches unallocated memory); `ustart` generalizes over the initial heap (or
-     the theorem states a general start config with a `heap_agrees` premise against the
-     start `World`); the conclusion adds FINAL-heap agreement (writes landed identically).
-     Phase A / the unwind / the assembly thread the invariant; the ustep side takes
-     `ustep_write`/`ustep_read` steps mirroring `heap_write`/`w_refs` reads.
+   - 2c — part ii, IN PROGRESS.  LANDED: the kit (`heap_agrees` — allocated locations
+     only; `heap_of_world`/`ustart_w` — the canonical mirrored start heap, premise-free
+     statements; `heap_write_agrees`); Phase A SEMANTIC (`body_runs_sem` — grounded in
+     `go`'s RESULT, heap ops included, trace existential since heap steps emit
+     `KWrite`/`KRead`); and the FIRST heap-bridging agreement `bridge_heap_body_agrees`
+     (gated): the DEFER-FREE heap fragment (`go c w = Some (oc, nil)`) agrees end-to-end
+     INCLUDING final heaps.  REMAINING: the deferred-heap unwind (the 2-mode unwind
+     threading `heap_agrees` through the defer forest — each popped defer's body runs
+     via `body_runs_sem`), then the general conditional heap bridge subsuming
+     `bridge_heap_body_agrees` and re-deriving `bridge_agrees` (no_heap) through it.
    Allocation (`CAlloc` off `w_next`) still has NO ustep counterpart rule — its own
    sub-slice (2d) adding the unified.v rule + trace event, AFTER 2a–2c.
 3. **CHANNELS** (single-goroutine deterministic fragment): `CSend`/`CRecv`/`CClose`
