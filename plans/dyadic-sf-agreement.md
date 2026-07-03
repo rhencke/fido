@@ -135,7 +135,10 @@ value quotient is `dy_norm` (the odd-mantissa normal form), never ℝ.
    shrinks eval).  Groundwork LANDED: `sf_eqb_struct_refl`, `sf_pos_zero_render_gen` (a
    windowed render is never a signed zero), and the TOTAL const-layer NEGATION endpoints
    `sf_render_cneg_agrees_{f64,f32}` (zero included — exactly `sf_const_neg`'s composites,
-   what the checker's unary arm compares).  REMAINING: the induction over `ptype`'s
+   what the checker's unary arm compares).  The UNARY induction STEP is proved
+   (`fsf_checked_complete_un_step` — INTERNAL, premised on the operand IH; it becomes a
+   consumed step of the master theorem, which is the only surfaced endpoint).  REMAINING:
+   the binop + conversion steps and the master induction over `ptype`'s
    `PtFloatConst` sites via `GExpr_ind'` (binop rows through the op endpoints + the
    `sf_pos_zero` render identity; conversion rows through the same-width/cross-width
    endpoints; int-const operand rows through `fsf_operand_with`'s interval guard, which

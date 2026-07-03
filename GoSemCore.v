@@ -2698,9 +2698,11 @@ Proof.
   unfold dy_make. cbn [dy_m dy_e]. reflexivity.
 Qed.
 
-(** ★ NODE completeness, UNARY: a [ptype]-accepted float negation is ACCEPTED by the
-    checker with the render as its verdict — the cneg endpoints close the comparison. *)
-Lemma fsf_checked_complete_un : forall o a t d,
+(** INTERNAL induction STEP (unary) for the rung-8 class theorem — NOT a closed result:
+    the operand-completeness premise is the induction hypothesis, discharged only by the
+    master [GExpr_ind'] completeness theorem (rung 8's remaining work), which will be the
+    surfaced endpoint.  Until then this is a private step with a caller-side obligation. *)
+Lemma fsf_checked_complete_un_step : forall o a t d,
   ptype (EUn o a) = Some (PtFloatConst t d) ->
   (forall t' d', ptype a = Some (PtFloatConst t' d') ->
      fsf_checked a = sf_render t' (dy_m d') (dy_e d')) ->
