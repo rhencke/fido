@@ -169,4 +169,3 @@ review BLOCK) or demands per-shape sealed-equation kits (proof rewrites, not mov
 Transferable: `Local` users must share a file; sweep cross-file navigation prose in the SAME
 commit as a move; a split is a reviewability win, not a weight-loss win — byte mass moves,
 it does not shrink.
-

@@ -2252,7 +2252,7 @@ Definition chanbox_demo : IO unit :=
   ( v <-' recv TChanBox c ;;                             (* v : ChanBox = {42, c} (its [Ch] field is c again)  *)
     println [any (cb_id v)] ).                           (* prints: 42  (parens: [>>'] is level 50, the [<-'] tail level 80) *)
 
-(** THE NORTH-STAR "CURSED" DEMO (v2) — assorted Go horror in ONE struct, every failure mode FAIL-LOUD,
+(** THE "CURSED" STRESS DEMO (v2) — assorted Go horror in ONE struct, every failure mode FAIL-LOUD,
     its concurrency shape MACHINE-CHECKED race-free ([cursed_spawn_reachable_race_free]; see the HONEST SCOPE
     note at the end — only the typed↔calculus bridge is the limit-#2 frontier).  A struct
     [Cursed] holds a SLICE of channels that SEND THEMSELVES ([]chan ChanBox) AND a pointer into a
@@ -3603,7 +3603,7 @@ Definition main_effect : IO unit :=
   chanbox_slice_demo            >>'   (* prints: 2 (a SLICE of struct VALUES that each hold a channel, []ChanBox) *)
   map_struct_demo               >>'   (* prints: 99 (a MAP with struct VALUES map[int64]ListNode — struct values nest in every container) *)
   chanbox_demo                  >>'   (* prints: 42 (a channel that SENDS ITSELF: type ChanBox struct { Id int64; Ch chan ChanBox }) *)
-  cursed_demo                   >>'   (* prints: 99 1 2 3 (NORTH-STAR v2: a SLICE of 2 self-sending channels + a 3-node recursive list traversed, in one struct; concurrency shape machine-checked race-free [cursed_spawn_reachable_race_free], only the typed bridge is the limit-#2 frontier) *)
+  cursed_demo                   >>'   (* prints: 99 1 2 3 (cursed demo v2: a SLICE of 2 self-sending channels + a 3-node recursive list traversed, in one struct; concurrency shape machine-checked race-free [cursed_spawn_reachable_race_free], only the typed bridge is the limit-#2 frontier) *)
   slice_alias_demo              >>'   (* prints: 99 (sub-slice write seen through parent) *)
   slice_append_demo             >>'   (* prints: 9 (append reallocates a full slice) *)
   slice_makecap_demo            >>'   (* prints: 77 (make-with-cap: in-place append shares backing) *)

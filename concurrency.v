@@ -3652,7 +3652,7 @@ Proof.
   exact (proj2 (private_disc_reachable_race_free (fun _ => 0) spawn_init cfg spawn_init_disc Hsteps)).
 Qed.
 
-(* NORTH-STAR (FRONTIER 2 at the calculus level): the CURSED DEMO's concurrency SHAPE proven race-free.
+(* THE CURSED-DEMO CONCURRENCY SHAPE (frontier 2 at the calculus level), proven race-free.
    The cursed demo is [type Cursed struct { Cu_chans []chan ChanBox ; Cu_list *ListNode }] — the MAIN
    goroutine owns the HEAP (the [*ListNode], here location 0) and SPAWNS channel-relay goroutines (the
    self-sending-channel goroutines — they only touch channels, [MemFree]); main then recvs the relayed
