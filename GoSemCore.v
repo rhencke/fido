@@ -3,8 +3,9 @@
     file 1): box/render ([box_int]/[box_float]/[sf_render]), the CONSTANT-fold op layer
     ([sf_const_binop]/[sf_const_neg]), the [floats_checked] boundary machinery +
     [fsf_checked], and the dyadic↔SF* agreement arc (plans/dyadic-sf-agreement.md;
-    rungs 1–6 landed: NEG, the window bridges, wide determinism, ADD + SUB raw at
-    binary64, MUL + exact DIV at the CONSTANT-op layer; rung 7 (f32) in progress).
+    rungs 1–7 landed: NEG, the window bridges, wide determinism, ADD + SUB raw at
+    binary64, MUL + exact DIV at the CONSTANT-op layer, the full f32 row incl. cross-width
+    conversions; rung 8 — checker completeness — remains).
     NO EVALUATOR HERE: [eval_value] and its [Local] core live in GoSemDenote.v with the proofs
     that compute through them — the core must stay UNCALLABLE from importers (it would skip
     the [floats_checked] boundary; sealed by the [neg_float_boundary_bypass_*] negtests).
