@@ -167,7 +167,36 @@ for the evaluator's ident resolution in `GoSemDenote` (rung 5).
    `denote_stmt_sound`/`gosem_sound`/`denote_program_dec` re-proved over the invariant.  SCOPE:
    locals widen NAME reach, not operation reach — a resolved variable feeds the EXISTING runtime
    value paths only; any op those paths don't cover stays absent (fail-closed, no new value
-   semantics in this rung).  The LOCAL-FRONTIER suite is a MECHANICAL MAP over the EXISTING
+   semantics in this rung).
+   ARCHITECTURE (worked 2026-07-03; the survey facts that force it): the engines dispatch on
+   CLOSED `ptype` INTERNALLY (`reval_int`'s guard + `rexit_with`'s three guards), and `ptype` is
+   `None` on any expression containing a bound `EId` — so threading `ρ` alone cannot work, and
+   `GExpr`-substitution stays WRONG at the evaluator exactly as at the checker (substituting
+   `EInt 0` into `1/x` makes `ptype` REJECT: absence instead of the true `CPan rt_div_zero`).
+   Chosen shape — the file's own `_with` idiom, NO twin, NO bridge obligation, definitional
+   closed recovery: re-parameterize `reval_int` as `reval_int_with (tc : GExpr -> option PTy)
+   (leaf : string -> option GoAny)` (and give `rexit_with` the same two); the CLOSED functions
+   keep their names as instantiations (`reval_int := reval_int_with ptype (fun _ => None)` —
+   `ptype` reduction preserved after one unfold; the ~64 unfold/cbn proof sites repair
+   mechanically; equation lemmas restated once).  `eval_value`/`floats_checked` stay FULLY
+   CLOSED (constants fold; locals never fold).  The env instance: `tc := fun e => option_map fst
+   (type_expr Gs e)`, `leaf := env_get ρ`; `EId` is a new SHAPE ARM under each guard (the guard
+   resolves the binding's category via `tc`, the arm reads `leaf`).  Needs: `tc` is
+   MARK-INSENSITIVE (`scope_markS` flips only flags — categories stable).  `ρ : list
+   (string * GoAny)` suffices: value tags are width-precise (`box_int`: `GTInt ↦ TInt64`,
+   `GTInt64 ↦ TI64`, per-width tags), so `tag_of_cat` is injective on the bindable categories
+   and `Γ ≈ ρ` states per-binding tag agreement.  Statement layer: `denote_stmt`/`denote_body`
+   take `(Gs : ScopeS, ρ)`; the `GsShortDecl` arm has the three outcomes (above), extending BOTH
+   `Gs` (via `scope_declare`, mirroring `stmt_okS`) and `ρ` (on `CRet` only); a TERMINATOR's
+   dead-tail check becomes the SUFFIX FOLD (`body_okS Gs rest` + `scope_all_used` on its result
+   — marks accumulate in `Gs`, so the suffix fold ends at `supported_program`'s own final scope,
+   keeping denote ⊆ `supported_program` exactly); `denote_program` runs from
+   `(scope_empty, nil)`.  Sub-ladder, each an independently green commit: **5a** the `_with`
+   re-parameterization (behavior-identical, golden-identical); **5b** the `EId` shape arms +
+   `tc`/mark-insensitivity (closed instance still identical); **5c** the env statement layer +
+   `Γ ≈ ρ` + the re-proofs + the SEAM-PIN FLIPS (`shortdecl_supported_undenoted` and
+   `shortdecl_deadtail_supported_undenoted` swap in the SAME commit they flip) + the
+   panicking-RHS and runtime-binding fixtures; **5d** the frontier suite below.  The LOCAL-FRONTIER suite is a MECHANICAL MAP over the EXISTING
    `undenoted_frontier` member list (`GoSem.v` — the REPRESENTATIVE witness list of the
    supported-but-undenoted gap; its own header says NON-EXHAUSTIVE and no coverage theorem bounds
    the gap — that warning STAYS): for EVERY member `m` in value position, pin `x := m; _ = x` as
