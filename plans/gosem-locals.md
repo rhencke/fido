@@ -33,21 +33,31 @@ compile-time rejections.  The correct shape:
   - `PtRunInt t ↦ Some (PtRunInt t)`, `PtRunFloat t ↦ Some (PtRunFloat t)` — RUNTIME categories
     bind AS THEMSELVES.  This is the arc's core, not an edge: `x := len([]int{1})`, `y := x`,
     `x := int64(len([]int{1}))` all bind runtime values.
-  - `PtBool`/`PtStr`/`PtAgg`/`PtMap ↦ Some` (themselves); `PtNil ↦ None` (`x := nil` is Go's
-    "use of untyped nil" compile error).
+  - `PtBool`/`PtStr ↦ Some` (themselves — scalar categories; some members are value-less and are
+    handled by the frontier discipline below, e.g. `string(200)` / a comparison over an
+    eval-partial operand).
+  - `PtAgg`/`PtMap ↦ None` — NAMED NARROWING: the evaluator has NO aggregate/map VALUES (the eval
+    core yields scalar constants, "everything else is None" — `GoSemDenote.v:24`; the runtime
+    tiers yield scalars), so admitting these categories would create checker-supported locals
+    that can NEVER value — a structural hole, not a frontier.  Rejected by a written arm; Go
+    permits slice/map locals, so this is a conformance-ledger narrowing, revisited only when
+    aggregate values land in the evaluator.
+  - `PtNil ↦ None` (`x := nil` is Go's "use of untyped nil" compile error).
   The match is over EVERY `PTy` constructor explicitly — a category is rejected by a written
   `None` arm, never by omission (wildcard-free, same discipline as every `Cmd` match).
-- evaluator env `ρ : Ident ⇀ GoAny` — a binding enters `ρ` ONLY from a DENOTED RHS: the short-decl
-  denotation arm evaluates `e` through the LIVE evaluator FIRST, and if `e` is in a
-  supported-but-undenoted class (runtime floats never evaluate — `GoSemDenote.v:2935`; the pinned
-  runtime holes / conversion-over-absent classes in `GoSem.v`'s frontier), the option-threading
-  leaves the WHOLE program ABSENT — faithful-or-absent, mechanically, no new machinery.  So
-  CHECKER ADMISSION ≠ DENOTABILITY: `bind_category` is a SUPPORTEDNESS authority (conservative,
-  syntactic — it admits every category the checker can type, keeping the two layers independent so
-  evaluator growth never forces checker edits); which admitted bindings actually VALUE is decided
-  by the evaluator, exactly as for every other supported-but-undenoted expression today.  `EId x`
-  resolves to `ρ x`; ops on the resolved value take the ALREADY-LANDED runtime tiers
-  (GTInt R1–R8 / typed-runtime T1–T5).
+- evaluator env `ρ : Ident ⇀ GoAny` — the short-decl denotation arm has EXACTLY the three
+  `denote_expr` outcomes (`GoSemDenote.v:1762`: an expression denotes to `CRet v` or `CPan p`, or
+  is absent), each with its own structural consequence:
+  - `None` → the WHOLE program is ABSENT (option-threading; faithful-or-absent, no new machinery);
+  - `Some (CPan p, _)` → the statement denotes the PANIC command and `ρ` does NOT extend — the RHS
+    denoted, to a panic, not to a value (`x := 1 / len([]int{})` is the class: supported, denotes
+    `CPan rt_div_zero`, rejected by `cmd_no_panic` ON the denotation);
+  - `Some (CRet v, _)` → the ONLY case that extends `ρ` (with `v`), continuing the body.
+  So CHECKER ADMISSION ≠ DENOTABILITY: `bind_category` is a SUPPORTEDNESS authority (conservative,
+  syntactic; the two layers stay independent so evaluator growth never forces checker edits);
+  which admitted bindings actually VALUE is decided by the evaluator, exactly as for every other
+  supported expression today.  `EId x` resolves to `ρ x`; ops on the resolved value take the
+  ALREADY-LANDED runtime tiers (GTInt R1–R8 / typed-runtime T1–T5).
 - the agreement invariant `Γ ≈ ρ` (each binding's value tag matches its checker CATEGORY component;
   the used flag is supportedness-only, invisible to `ρ`) is the lemma spine along which
   `gosem_sound` re-proves — quantified over DENOTED runs (where `ρ` exists at all), never claiming
@@ -139,13 +149,21 @@ in `GoSemDenote`.
    `denote_stmt_sound`/`gosem_sound`/`denote_program_dec` re-proved over the invariant.  SCOPE:
    locals widen NAME reach, not operation reach — a resolved variable feeds the EXISTING runtime
    value paths only; any op those paths don't cover stays absent (fail-closed, no new value
-   semantics in this rung).  LOCAL-FRONTIER fixtures pin the checker-admitted-but-undenoted decl
-   classes at their true status — supported ∧ NOT denotable ∧ gate-rejected by NON-denotation
-   (the `panic_free_gate_absent` mechanism):
-   `x := float64(len([]int{1})); _ = x` (runtime-float source — no `PtRunFloat` expression
-   evaluates today), a decl over a pinned runtime-int op hole (e.g. the `GTUint` class), and a
-   conversion-over-absent-source decl.  When an arc lands that makes one denote, its pin BREAKS —
-   swap in the next frontier member in the same commit (the standing frontier-pin discipline).
+   semantics in this rung).  The LOCAL-FRONTIER suite is a MECHANICAL MAP over the EXISTING
+   `undenoted_frontier` ledger (`GoSem.v` — the repo's ONE authority for supported-but-undenoted,
+   already pinned by a `forallb`): for EVERY member `m` in value position, pin
+   `x := m; _ = x` as supported ∧ NOT denotable ∧ gate-`None` (the `panic_free_gate_absent`
+   mechanism) — a `forallb` over the ledger itself, so NO second hand-curated list exists and a
+   frontier change updates the decl suite or fails the build.  COVERAGE OBLIGATION at this rung:
+   for every scalar category `bind_category` admits, `undenoted_frontier` must contain a
+   value-less member of that category if one is expressible — it has `PtStr` (`runeconv_mb`) and
+   the runtime-int/float holes today; ADD a value-less `PtBool` member (e.g. a comparison over an
+   eval-partial operand) TO THE LEDGER in this rung, extending the one authority, never a side
+   list.  DISTINCT from non-denotation: the PANICKING-RHS fixture `x := 1 / len([]int{}); _ = x`
+   — supported ∧ DENOTES to `CPan rt_div_zero` ∧ rejected by `cmd_no_panic` on the denotation
+   (`ρ` not extended; the three-outcome arm above is what these fixtures pin).  When an arc lands
+   that makes a member denote, its pin BREAKS — swap in the next frontier member in the same
+   commit (the standing frontier-pin discipline).
 6. **Gate reach (GoSemSafe + ledgers)**: flagship demos — a local-using panic-free program
    ACCEPTED + EMITTED (and go-built, proving rule 4 keeps emission valid); `x := 0; _ = 1 / x`
    SUPPORTED + DENOTABLE + REJECTED by `cmd_no_panic` on its `rt_div_zero` `CPan` (extending
