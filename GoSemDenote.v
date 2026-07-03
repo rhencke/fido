@@ -4115,7 +4115,7 @@ Fixpoint eval_args (args : list GExpr) : option (list GoAny) :=
     values, WITH an explicit terminal flag.  A PANICKING argument STRUCTURALLY short-circuits: its [CPan] is
     the whole argument command, the flag is [true], and the REMAINING arguments — which Go NEVER evaluates —
     are NOT required to denote (they are already syntactically/type-gated by the caller's [expr_stmt_ok], the
-    same gate/denotability split as a terminator's dead tail in [denote_body]).  All-pure arguments reduce
+    same closed-fragment/denotability split as a terminator's dead tail in [denote_body]).  All-pure arguments reduce
     DEFINITIONALLY to [(CRet [v1..vn], false)]. *)
 Fixpoint denote_args (args : list GExpr) : option (Cmd (list GoAny) * bool) :=
   match args with
@@ -4263,8 +4263,9 @@ Proof.
   - congruence.                                              (* GsShortDecl: None (absent; the CLOSED fragment rejects it too) *)
 Qed.
 
-(** The [GsShortDecl] ABSENCE pinned at the CONSTRUCTOR, for every ident/expression (the gate-side
-    rejection pin [GoSafe.shortdecl_stmt_ok_false] is its twin). *)
+(** The [GsShortDecl] ABSENCE pinned at the CONSTRUCTOR, for every ident/expression (the
+    CLOSED-fragment rejection pin [GoSafe.shortdecl_stmt_ok_false] is its twin — the LIVE gate
+    [body_okS] ADMITS used decls; this pair is about slice 1's scope-free fragment). *)
 Example shortdecl_denote_absent : forall x e, denote_stmt (GsShortDecl x e) = None.
 Proof. reflexivity. Qed.
 
@@ -4275,7 +4276,7 @@ Proof.
   - destruct (denote_stmt s) as [[c term]|] eqn:Es; [|congruence].   (* denote_stmt s = None => denote_body = None *)
     apply andb_true_intro; split.
     + apply denote_stmt_sound. congruence.             (* stmt_ok s, uniform via [Es] *)
-    + destruct term.                                   (* the [denote_stmt] flag: terminator gates rest on supportedness; else on denotability *)
+    + destruct term.                                   (* the [denote_stmt] flag: terminator gates rest on the CLOSED fragment; else on denotability *)
       * destruct (forallb stmt_ok rest) eqn:Ef; [reflexivity | congruence].
       * destruct (denote_body rest) eqn:Er; [|congruence]. apply IH. congruence.
 Qed.
@@ -4299,9 +4300,24 @@ Example shortdecl_supported_undenoted :
         GsBlankAssign (EId (mkIdent "x" eq_refl)); GsReturn]) = None.
 Proof. split; vm_compute; reflexivity. Qed.
 
+(** The TERMINATOR dead-tail face of the same seam: a used-decl TAIL after [return] is
+    LIVE-supported ([body_okS] admits it) yet [denote_body]'s dead-tail check is the CLOSED
+    fragment ([forallb stmt_ok] — [stmt_ok] rejects decls), so the body does NOT denote.  Pins
+    that terminator tails are gated on [stmt_ok], NOT on live [supported_program]. *)
+Example shortdecl_deadtail_supported_undenoted :
+  supported_program (mkProgram (mkIdent "main" eq_refl)
+    [GsReturn; GsShortDecl (mkIdent "x" eq_refl) (EInt 1);
+     GsBlankAssign (EId (mkIdent "x" eq_refl))]) = true
+  /\ denote_program (mkProgram (mkIdent "main" eq_refl)
+       [GsReturn; GsShortDecl (mkIdent "x" eq_refl) (EInt 1);
+        GsBlankAssign (EId (mkIdent "x" eq_refl))]) = None.
+Proof. split; vm_compute; reflexivity. Qed.
+
 (** ---- DENOTABILITY IS DECIDABLE, characterized STRUCTURALLY (converse-direction companion of [gosem_sound]).
     [denotable_body] mirrors [denote_body]: a body denotes iff its head denotes AND — at a TERMINATOR — the
-    unreachable rest is merely SUPPORTED, else the rest is itself denotable; [denote_body_dec] proves they
+    unreachable rest is merely CLOSED-supported ([forallb stmt_ok], NOT live [supported_program]: a
+    live-supported decl tail still blocks denotation — [shortdecl_deadtail_supported_undenoted]), else the
+    rest is itself denotable; [denote_body_dec] proves they
     AGREE.  A CHARACTERIZATION result, NOT [supported ⟹ denotes]: the [denotable_*] ⊊ [supported_*] gap
     is REPRESENTATIVELY witnessed by [undenoted_frontier] (downstream in GoSem.v; see its own comment for what it does and
     does NOT cover) — a
@@ -4312,7 +4328,7 @@ Fixpoint denotable_body (b : list GoStmt) : bool :=
   | s :: rest =>
       match denote_stmt s with
       | None            => false
-      | Some (_, true)  => forallb stmt_ok rest      (* terminator: the UNREACHABLE rest need only be SUPPORTED *)
+      | Some (_, true)  => forallb stmt_ok rest      (* terminator: the UNREACHABLE rest need only be CLOSED-supported ([stmt_ok]) *)
       | Some (_, false) => denotable_body rest        (* continuer: the rest must itself be DENOTABLE *)
       end
   end.
@@ -4323,7 +4339,7 @@ Proof.
   - split; intro H; congruence.                                       (* [] : Some (CRet tt) <> None and true = true *)
   - destruct (denote_stmt s) as [[c term]|] eqn:Es.
     + destruct term.
-      * destruct (forallb stmt_ok rest); split; intro H; congruence.   (* terminator: gates rest on supportedness *)
+      * destruct (forallb stmt_ok rest); split; intro H; congruence.   (* terminator: gates rest on the closed fragment *)
       * destruct (denote_body rest) eqn:Er; split; intro H.            (* continuer: gates rest on denotability (IH + Er) *)
         -- apply (proj1 IH); congruence.
         -- congruence.
@@ -4566,8 +4582,8 @@ Proof. repeat split; vm_compute; reflexivity. Qed.
 
 (** ---- GENERAL statement-compositional CONVERSE: a body whose EVERY statement INDIVIDUALLY denotes is
     denotable, so its `main` DENOTES — generalizing [out_main_denotes] to ALL denoting statement forms
-    interleaved, including a terminator followed by (supported) DEAD code.  SUFFICIENT, not necessary: a
-    terminator's unreachable rest need only be SUPPORTED.  STILL CONDITIONAL on [stmt_denotable], NOT full
+    interleaved, including a terminator followed by (closed-supported) DEAD code.  SUFFICIENT, not necessary: a
+    terminator's unreachable rest need only be CLOSED-supported ([stmt_ok]).  STILL CONDITIONAL on [stmt_denotable], NOT full
     [supported_program] — the gap is representatively witnessed by [undenoted_frontier] (downstream in GoSem.v; see its comment). *)
 Definition stmt_denotable (s : GoStmt) : bool :=
   match denote_stmt s with Some _ => true | None => false end.
@@ -4593,7 +4609,7 @@ Proof.
   apply andb_true_iff in H as [Hs Hrest]. unfold stmt_denotable in Hs.
   destruct (denote_stmt s) as [[c term]|] eqn:Es; [|discriminate Hs].
   destruct term.
-  - exact (forallb_stmt_denotable_ok rest Hrest).   (* terminator: unreachable rest need only be SUPPORTED *)
+  - exact (forallb_stmt_denotable_ok rest Hrest).   (* terminator: unreachable rest need only be CLOSED-supported *)
   - exact (IH Hrest).                                (* continuer: rest must itself be DENOTABLE *)
 Qed.
 
@@ -4607,7 +4623,7 @@ Qed.
 
 (** Coverage — a MIXED body [out_main_denotes] CANNOT express: [println("a"); _ = int64(3); panic("boom");
     println("dead")] interleaves a continuer output call, a blank constant-assignment, a [panic] TERMINATOR,
-    and a SUPPORTED dead tail — and DENOTES by APPLYING the general converse (not a black-box compute). *)
+    and a CLOSED-supported dead tail — and DENOTES by APPLYING the general converse (not a black-box compute). *)
 Example denotable_stmts_mixed_denotes :
   denote_program (mkProgram (mkIdent "main" eq_refl)
     [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [EStr "a"]);

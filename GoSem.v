@@ -835,8 +835,9 @@ Proof. repeat split; vm_compute; reflexivity. Qed.
 (** TIGHTNESS — WHERE the general converse's "sufficient, not necessary" comes from.  [stmt_terminates] just
     READS [denote_stmt]'s terminator flag (NOT a second authority).  On a TERMINATOR-FREE body the compositional
     converse is EXACT (an iff): the body denotes iff EVERY statement individually denotes.  The ONLY slack is the
-    terminator escape — a terminator's UNREACHABLE rest need only be SUPPORTED, so a denotable body may carry an
-    undenotable-but-supported DEAD tail (pinned by [denotable_body_escapes_stmt_denotable] below). *)
+    terminator escape — a terminator's UNREACHABLE rest need only be CLOSED-supported ([stmt_ok]), so a denotable
+    body may carry an undenotable-but-closed-supported DEAD tail (pinned by
+    [denotable_body_escapes_stmt_denotable] below). *)
 Definition stmt_terminates (s : GoStmt) : bool :=
   match denote_stmt s with Some (_, true) => true | _ => false end.
 
@@ -862,7 +863,7 @@ Proof.
 Qed.
 
 (** The escape is REAL (the converse is genuinely sufficient-not-necessary): [return; println(string(200))]
-    is a DENOTABLE body ([return] terminates; the multi-byte-rune-arg [println] is a SUPPORTED dead tail)
+    is a DENOTABLE body ([return] terminates; the multi-byte-rune-arg [println] is a CLOSED-supported dead tail)
     whose tail does NOT denote, so [denotable_body = true] while [forallb stmt_denotable = false].  This body
     HAS a terminator — exactly why the iff (upstream in GoSemDenote.v) does not apply to it. *)
 Example denotable_body_escapes_stmt_denotable :
@@ -894,12 +895,14 @@ Definition gosem_return_stops_prog : Program :=
 
 (** UNIVERSAL TERMINATOR PROPERTY:
     a TERMINATOR ([return] / a denoted [panic]) must NOT depend on its UNREACHABLE successors DENOTING — only on
-    their SUPPORTEDNESS.  Stated for ALL [s]/[c]/[rest]: whenever [denote_stmt] marks [s] terminating
+    their CLOSED-supportedness ([stmt_ok], NOT live [supported_program]: a used-decl successor is
+    live-supported yet gated out here — [shortdecl_deadtail_supported_undenoted], GoSemDenote.v).
+    Stated for ALL [s]/[c]/[rest]: whenever [denote_stmt] marks [s] terminating
     ([Some (c, true)]), [denote_body] emits [c] and gates the rest ONLY on [forallb stmt_ok rest], NEVER on
     [denote_body rest].  A UNIVERSAL lemma (over ALL [rest]), NOT a fixture keyed to one specific
-    supported-but-undenotable successor — so it never erodes.  Such successors PERSIST, not vanish: a
-    runtime-arg statement is supported yet eval-partial; the lemma holds for EVERY [rest] regardless of how
-    [eval_value] grows. *)
+    closed-supported-but-undenotable successor — so it never erodes.  Such successors PERSIST, not vanish: a
+    runtime-arg statement is closed-supported yet eval-partial; the lemma holds for EVERY [rest] regardless of
+    how [eval_value] grows. *)
 Lemma denote_body_terminator_ignores_succ : forall s c rest,
   denote_stmt s = Some (c, true) ->
   denote_body (s :: rest) = (if forallb stmt_ok rest then Some c else None).
