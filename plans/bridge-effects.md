@@ -55,7 +55,7 @@ COMPLETE): `bridge_agrees` — its ladder discipline and landing checklist apply
    `nat` (relation sites gain the literal `0`), `cmd_unified.v`/`GoSemSafe.v` instantiate
    `GoAny` with the vzero parameter UNIVERSALLY QUANTIFIED (`vz`; licenses per theorem —
    see the fork note above); the slice-9 embedding compiled UNCHANGED at `V := nat`.
-2. **HEAP** — parts i + ii-a LANDED; the deferred-heap unwind remains.
+2. **HEAP** — COMPLETE (parts i + ii; the general conditional heap bridge is landed).
    CURRENT STATE (one authority; the theorem names carry the detail):
    - `Cmd` has the typed heap pair (`CWrite` tag-preserving via `tag_eq`; `CRead` binds
      the boxed cell — the syntax's first BINDER constructor); an UNALLOCATED access is
@@ -81,11 +81,10 @@ COMPLETE): `bridge_agrees` — its ladder discipline and landing checklist apply
    layer is undefinable under a binder, so semantic grounding in `go` replaces it where
    heap ops must be covered; every `Cmd` match stays WILDCARD-FREE (a wildcard arm is
    fail-open in proof form).
-   REMAINING: the deferred-heap unwind (the 2-mode unwind threading `heap_agrees`
-   through the defer forest — each popped defer's body runs via `body_runs_sem`), then
-   restating `bridge_agrees` over the `ustart_w` start (which would let the general
-   heap theorem subsume it and retire the syntactic projection lane) — a surface change,
-   taken deliberately; then 2d `CAlloc` (needs a NEW unified.v rule + trace event).
+   REMAINING (post-slice decisions): restating `bridge_agrees` over the `ustart_w`
+   start (which would let the general heap theorem subsume it and retire the syntactic
+   projection lane) — a surface change, taken deliberately; then 2d `CAlloc` (needs a
+   NEW unified.v rule + trace event).
 3. **CHANNELS** (single-goroutine deterministic fragment): `CSend`/`CRecv`/`CClose`
    against `w_chans` — BLOCKED on the ⛔ precondition above (structural typed closed-recv
    zero; two-element-type proofs).  The ustep side BLOCKS (a full-buffer send / empty-buffer recv has
