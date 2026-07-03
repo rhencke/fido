@@ -135,6 +135,43 @@ Definition special_ident (s : string) : option SpecialName :=
   else if String.eqb s "print"   then Some SnPrint
   else if String.eqb s "panic"   then Some SnPanic
   else None.
+(** The table's NAME INVERSE (for class quantifications over recognized names): every [Some]
+    output of [special_ident] pins its input STRING — proved by walking the one table above, so a
+    class theorem quantified over [special_ident]'s image needs NO parallel keyword list.  The
+    non-keyword [SnType] payloads (compound/nominal types) are outside the table's image, so
+    [special_ident_name] never reaches their rows. *)
+Definition special_name_string (n : SpecialName) : string :=
+  match n with
+  | SnType GTInt64   => "int64"
+  | SnType GTI32     => "int32"
+  | SnType GTI16     => "int16"
+  | SnType GTI8      => "int8"
+  | SnType GTInt     => "int"
+  | SnType GTU64     => "uint64"
+  | SnType GTU32     => "uint32"
+  | SnType GTU16     => "uint16"
+  | SnType GTU8      => "uint8"
+  | SnType GTUint    => "uint"
+  | SnType GTBool    => "bool"
+  | SnType GTString  => "string"
+  | SnType GTFloat64 => "float64"
+  | SnType GTFloat32 => "float32"
+  | SnType (GTPtr _) | SnType (GTSlice _) | SnType (GTChan _)
+  | SnType (GTMap _ _) | SnType (GTNamed _) => ""
+  | SnNil => "nil" | SnLen => "len" | SnCap => "cap"
+  | SnPrintln => "println" | SnPrint => "print" | SnPanic => "panic"
+  end.
+Lemma special_ident_name : forall s n, special_ident s = Some n -> s = special_name_string n.
+Proof.
+  intros s n H. unfold special_ident in H.
+  repeat match type of H with
+         | context [String.eqb s ?k] =>
+             let E := fresh "E" in
+             destruct (String.eqb s k) eqn:E;
+             [ apply String.eqb_eq in E; subst; injection H as <-; reflexivity | clear E ]
+         end.
+  discriminate H.
+Qed.
 Definition classify (s : string) : option GoTy :=
   match special_ident s with
   | Some (SnType t) => Some t
