@@ -254,7 +254,7 @@ Proof.
     + rewrite Pos2Z.inj_xO. lia.
   - cbn. lia.
 Qed.
-(** ---- rung 6 (MUL) groundwork: the digit LOWER bound of a product, and [SFmul]'s
+(** ---- MUL groundwork: the digit LOWER bound of a product, and [SFmul]'s
     [binary_round_aux]-on-the-raw-product arm rewritten as [binary_round] when the [fexp]
     target is at or above the raw exponent (then the inlined [shl_align] is the identity) — for
     canonical operand renders the target premise is derivable, so the wide bridge applies. *)
@@ -323,7 +323,7 @@ Proof.
   exact Hp2.
 Qed.
 
-(** ---- rung 6 (exact DIV) groundwork.  [SFdiv]'s finite arm scales the dividend mantissa
+(** ---- exact-DIV groundwork.  [SFdiv]'s finite arm scales the dividend mantissa
     left ([SFdiv_core_binary]'s [s]-shift), divides by the divisor mantissa with
     [Z.div_eucl], and records the remainder as a LOCATION — on the fold-accepted class the
     remainder is ZERO ([m2 | m1] transports through the canonical-render shifts), the
@@ -389,8 +389,8 @@ Proof.
 Qed.
 (** [renorm] IDEMPOTENCE on the in-window class: [binary_round]'s output is already canonical —
     re-normalizing it is the identity (its digits+exponent equals the input's, so the [fexp]
-    target reproduces itself and the re-alignment is [shl_align_id]).  Closes rung 3's
-    idempotence obligation (the f32 wrappers re-round through [f32_of_f64]). *)
+    target reproduces itself and the re-alignment is [shl_align_id]) — the idempotence the
+    f32 wrappers consume (they re-round through [f32_of_f64]). *)
 Lemma renorm_binary_round_idem : forall prec emax s m e,
   (Zpos (digits2_pos m) <= prec)%Z ->
   (emin prec emax <= e)%Z ->
@@ -416,7 +416,7 @@ Proof.
     rewrite (binary_round_exact prec emax _ mz _ Hd2 He2 Hde2 Hemax);
     rewrite Hdig, shl_align_id; reflexivity.
 Qed.
-(** ---- Rung 5a — RIGHT-SHIFT-THROUGH-ZEROS exactness (dyadic↔SF arc rung 5a): shifting
+(** ---- RIGHT-SHIFT-THROUGH-ZEROS exactness (dyadic↔SF arc): shifting
     a mantissa right through its own appended zero bits keeps the round/sticky bits FALSE, so
     the location stays exact.  [iter_pos] (SpecFloat's binary-structural iterator) and
     [Pos.iter] are both bridged to [Nat.iter], where the zeros walk is a plain induction. *)

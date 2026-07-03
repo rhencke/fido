@@ -2,12 +2,11 @@
     GoSemCore.v — GoSem's pure FOLD/FLOAT layer (the ARCHITECTURE.md §3a physical split,
     file 1): box/render ([box_int]/[box_float]/[sf_render]), the CONSTANT-fold op layer
     ([sf_const_binop]/[sf_const_neg]), the [floats_checked] boundary machinery +
-    [fsf_checked], and the dyadic↔SF* agreement arc (COMPLETE, rungs 1–8;
-    rungs 1–7 landed: NEG, the window bridges, wide determinism, ADD + SUB raw at
-    binary64, MUL + exact DIV at the CONSTANT-op layer, the full f32 row incl. cross-width
-    conversions; rung 8 CLOSED — the class theorem [fsf_checked_complete] plus the
-    boundary-guard unreachability pair [floats_checked_total], the guard KEPT as the
-    fail-closed open-world boundary).
+    [fsf_checked], and the COMPLETE dyadic↔SF* agreement arc: NEG, the window bridges,
+    wide determinism, ADD + SUB raw at binary64, MUL + exact DIV at the CONSTANT-op layer,
+    the full f32 row incl. cross-width conversions, the class theorem
+    [fsf_checked_complete], and the boundary-guard unreachability pair
+    [floats_checked_total] (the guard KEPT as the fail-closed open-world boundary).
     NO EVALUATOR HERE: [eval_value] and its [Local] core live in GoSemDenote.v with the proofs
     that compute through them — the core must stay UNCALLABLE from importers (it would skip
     the [floats_checked] boundary; sealed by the [neg_float_boundary_bypass_*] negtests).
@@ -92,8 +91,8 @@ Definition box_float (t : GoTy) (m e : Z) : option GoAny :=
     [f32_of_f64]/[f64_of_f32]); a disagreeing node is ABSENT ([None]), never wrong.  (For NONZERO
     results no disagreement should exist — IEEE ops are correctly rounded, so an exactly
     representable result is returned exactly; ZERO results are verified under the constant rule.
-    Acceptance IS total on the admitted class — the gated [fsf_checked_complete] below
-    (dyadic↔SF arc rung 8) — so this runtime re-verification is provably
+    Acceptance IS total on the admitted class — the gated [fsf_checked_complete]
+    below — so this runtime re-verification is provably
     redundant ([floats_checked_total]: the guard never fires in the closed world); it is
     KEPT as the fail-closed boundary for the future open world — the taken ARCHITECTURE
     decision, rationale at [fc_node_total].) *)
@@ -262,7 +261,7 @@ Fixpoint floats_checked (e : GExpr) : bool :=
     constructor, ALL 14 (child-carrying: binop/comparison operands, the unary operand, call args incl.
     scalar/string conversion sources, slice elements, map KEYS and VALUES, index/slice children, [ESel]/
     [EAssert]/[EConv] sources; plus the four leaves).  Deleting any recursive child branch of
-    [floats_checked] FALSIFIES its equation — Coq breaks, not just a review.  Gated in
+    [floats_checked] FALSIFIES its equation — the build breaks.  Gated in
     [gosem_trust_surface]. *)
 Lemma floats_checked_children_eqs :
   (forall o a b, floats_checked (EBn o a b) = fc_node (EBn o a b) && (floats_checked a && floats_checked b))
@@ -567,7 +566,7 @@ Proof.
     cbv beta iota. cbv. reflexivity.
 Qed.
 
-(** rung 3's LIVE-BOUNDARY BRIDGE.  The float acceptance boundary is [ptype]'s CONSTRUCTION
+(** the LIVE-BOUNDARY BRIDGE.  The float acceptance boundary is [ptype]'s CONSTRUCTION
     sites (every one repr-GUARDED — the invariant [ptype_float_const_repr] below) and
     [box_float] ([box_float_gate]); [sf_render] is RAW (it renders any dyadic; its exactness on
     ACCEPTED payloads comes from the invariant, never from [sf_render] itself).  The endpoint
@@ -717,7 +716,7 @@ Proof.
   destruct (float_dyadic_repr t m e); [reflexivity | discriminate H].
 Qed.
 
-(** ---- rung 4 — VALUE-DETERMINISM of [binary_normalize] on the windowed class
+(** ---- VALUE-DETERMINISM of [binary_normalize] on the windowed class
     (dyadic↔SF arc).  No doubling induction needed: with [binary_round_exact]
     both representations reduce to closed canonical forms, and DIGITS+EXPONENT is invariant
     under the odd-core split ([pos_odd_split_digits]), so the [fexp] targets coincide and the
@@ -772,12 +771,12 @@ Proof.
   rewrite <- Z.mul_assoc, <- Z.pow_add_r by lia.
   f_equal. f_equal. lia.
 Qed.
-(** ---- rung 5b — the WIDE bridge: [binary_round] on a RAW mantissa whose odd core is
+(** ---- the WIDE bridge: [binary_round] on a RAW mantissa whose odd core is
     in-window agrees with [binary_round] of the core at the adjusted exponent — the raw digit
     count may EXCEED [prec] (the carry class).  Two regimes: if the [fexp] target stays at or
     below the raw exponent, the raw side is secretly in-window too (the target formula forces
-    [digits <= prec]) and rung 4's [binary_round_of_norm] applies; otherwise the raw mantissa
-    IS the core-canonical mantissa with [T-e] appended zero bits, and the 5a zeros walk
+    [digits <= prec]) and [binary_round_of_norm] applies; otherwise the raw mantissa
+    IS the core-canonical mantissa with [T-e] appended zero bits, and the zeros walk
     ([iter_pos_shr1_zeros]) consumes them with the location staying exact. *)
 Lemma binary_round_of_norm_wide : forall prec emax s p e q a,
   pos_odd_split p = (q, a) ->
@@ -961,7 +960,7 @@ Proof.
   unfold sf_render. rewrite renorm_sf_of_dyadic, Hbn. reflexivity.
 Qed.
 
-(** ---- rung 5c's VALUE-UNIQUENESS kit: [dy_norm] is determined by the VALUE — aligned
+(** ---- the VALUE-UNIQUENESS kit: [dy_norm] is determined by the VALUE — aligned
     value-equal pairs normalize identically (the assembly needs this to identify [SFadd]'s raw
     sum over CANONICAL operand mantissas with [dy_add]'s sum over the DYADIC pairs). *)
 Lemma pos_odd_split_iter : forall j m,
@@ -1010,7 +1009,7 @@ Qed.
 
 
 
-(** THE one sign-flip authority at the normalizer (rung 1's identity, both widths): the sign
+(** THE one sign-flip authority at the normalizer (both widths): the sign
     threads inertly through canonicalization ([binary_round_opp]); every sign-flip fact below
     consumes THIS lemma. *)
 Lemma binary_normalize_opp : forall prec emax m e,
@@ -1025,7 +1024,7 @@ Proof.
   - change (- Zneg p)%Z with (Zpos p). cbn [binary_normalize].
     exact (binary_round_opp prec emax true p e).
 Qed.
-(** ---- THE GENERAL dyadic↔SF AGREEMENT ARC — rung 1: NEGATION at
+(** ---- THE GENERAL dyadic↔SF AGREEMENT ARC — NEGATION at
     binary64.  Unlike the [fsf_checked_*_agrees] theorems above (which state what acceptance of the
     per-node CONST-LAYER check means), this is checker-free: the dyadic fold's render IS the sign flip
     of the operand's render, proved once over the class through the ONE normalizer sign-flip
@@ -1041,7 +1040,7 @@ Proof.
   f_equal.
   exact (binary_normalize_opp 53 1024 m e Hm).
 Qed.
-(** the [dy_norm] VALUE lemmas (the quotient every later rung states agreement through —
+(** the [dy_norm] VALUE lemmas (the quotient the agreement endpoints are stated through —
     GoTypes is Definitions-only, so they live here): the odd-split is sign-blind and already-split
     mantissas are fixed points *)
 Lemma pos_odd_split_odd : forall p q k,
@@ -1075,7 +1074,7 @@ Proof.
   exact Hi.
 Qed.
 
-(** ---- rung 5c FINAL — the [SFadd] finite-arm ASSEMBLY.  The uniform endgame: once the raw
+(** ---- the [SFadd] finite-arm ASSEMBLY.  The uniform endgame: once the raw
     quantity's [dy_norm] equals the result pair, the wide determinism endpoint closes the
     normalization equality under the RESULT's gate window. *)
 Lemma repr_window_split_f64 : forall m e,
@@ -1339,7 +1338,7 @@ Lemma bn_opp_f64 : forall m e, m <> Z0 ->
   binary_normalize 53 1024 (- m)%Z e false
   = SFopp (binary_normalize 53 1024 m e false).
 Proof. intros m e Hm. exact (binary_normalize_opp 53 1024 m e Hm). Qed.
-(** ★ SUB at binary64 (gated) — rung 5 CLOSED (ADD + SUB): [dy_sub] is [dy_add] of the
+(** ★ SUB at binary64 (gated): [dy_sub] is [dy_add] of the
     negation and [SFsub] is [SFadd] of the sign-flip ([SFsub_as_add_opp]), so the ADD closure
     transports; the [-0] second operand of a zero subtrahend is absorbed by [SFadd]'s
     sign-blind zero rows. *)
@@ -1424,7 +1423,7 @@ Proof.
   exact (sf_render_neg_general_f64 _ _ Hm).
 Qed.
 
-(** ---- rung 6 — MUL (the core is PRECISION-GENERIC; the widths are instances).
+(** ---- MUL (the core is PRECISION-GENERIC; the widths are instances).
     [SFmul]'s finite arm is [binary_round_aux] on the RAW product of the CANONICAL mantissas
     at the SUM exponent; for canonical operand renders the [fexp] target never sits below
     that exponent ([digits2_pos_mul_lower] + the window bounds), so the arm IS
@@ -1659,7 +1658,7 @@ Proof.
         rewrite Hbnr. reflexivity.
 Qed.
 
-(** ---- rung 6 — exact DIV at binary64.  [SFdiv_core_binary] left-shifts the dividend's
+(** ---- exact DIV at binary64.  [SFdiv_core_binary] left-shifts the dividend's
     canonical mantissa to [s = (T1-T2) - e'] (with [e'] the min of the quotient's [fexp]
     target and [T1-T2]) and divides with [Z.div_eucl], recording the remainder as the
     rounding LOCATION.  On the fold-accepted class ([Z.rem m1 m2 = 0]) the division is
@@ -1852,7 +1851,7 @@ Proof.
   exact (SFdiv_normalize_agrees_gen 53 1024 m1 e1 m2 e2 mr er p1 p2 pr Ha1 Ha2 Hamr
            Hd1 He1 Hde1 Hd2 He2 Hde2 Hdr Herm Hder ltac:(lia) Hrem Hnorm).
 Qed.
-(** ★ exact DIV at binary64 (gated, CONST-layer) — rung 6 CLOSED (MUL + exact DIV): on the
+(** ★ exact DIV at binary64 (gated, CONST-layer): on the
     gate's windows, whenever [dy_div] ACCEPTS (the divisor divides exactly; a zero divisor
     is [None]), the LIVE render of the exact quotient IS the CONSTANT-op layer's division
     ([sf_pos_zero] of [f64_div] — [sf_const_binop]'s [BDiv] row) of the operands' renders. *)
@@ -1969,7 +1968,7 @@ Proof.
         rewrite Hbnr. reflexivity.
 Qed.
 
-(** ---- rung 7 — the f32 row, CLOSED: the deep bridges and the render/normalize assembly
+(** ---- the f32 row: the deep bridges and the render/normalize assembly
     are precision-generic; below are the binary32 helper instances, the FOUR binary32 op
     endpoints ([sf_render_{add,sub,mul,div}_agrees_f32]), and (further below) the two
     CROSS-WIDTH endpoints ([sf_render_{narrow,widen}_agrees_f32]). *)
@@ -2028,7 +2027,7 @@ Proof.
   cbn [f32_lit f32_of_f64 f32val].
   unfold f32_round. rewrite renorm_sf_of_dyadic. reflexivity.
 Qed.
-(** [f32_round] is the IDENTITY on windowed renders (rung 3c's idempotence at 24/128) —
+(** [f32_round] is the IDENTITY on windowed renders (the re-round idempotence at 24/128) —
     this is what peels the f32 ops' outer re-round *)
 Lemma f32_round_render_id : forall m e,
   float_dyadic_repr GTFloat32 m e = true ->
@@ -2288,7 +2287,7 @@ Proof.
 Qed.
 
 (** ★ exact DIV at binary32 (gated, over the checker's composite [f32val] ∘ [f32_div] ∘
-    [f32_lit]) — rung 7's LAST op endpoint: the generic DIV core at 24/128; a zero divisor
+    [f32_lit]): the generic DIV core at 24/128; a zero divisor
     is [dy_div]'s own [None]; the zero-dividend rows' signed zeros erase as usual. *)
 Lemma SFdiv32_normalize_agrees : forall m1 e1 m2 e2 mr er p1 p2 pr,
   Z.abs m1 = Zpos p1 -> Z.abs m2 = Zpos p2 -> Z.abs mr = Zpos pr ->
@@ -2424,7 +2423,7 @@ Proof.
         rewrite Hbnr. reflexivity.
 Qed.
 
-(** ---- rung 7's LAST piece — the CROSS-WIDTH conversions.  Re-normalizing a canonical
+(** ---- the CROSS-WIDTH conversions.  Re-normalizing a canonical
     render at another precision IS the other precision's render of the SAME dyadic, on the
     intersected window: the canonical mantissa carries the value at a lower-or-equal
     exponent, so wide determinism at the TARGET precision closes it.  [f32_of_f64] and
@@ -2527,7 +2526,7 @@ Proof.
       unfold emin in *; lia.
 Qed.
 
-(** ---- rung 8 groundwork — checker completeness needs three glue facts: structural
+(** ---- checker-completeness groundwork — three glue facts: structural
     equality is reflexive; a windowed render is never a signed zero (the CONST layer's
     erasure is the identity there); and the checker's UNARY arm ([sf_const_neg]'s
     composite) agrees with the render of [ptype]'s negation fold TOTALLY (zero included),
@@ -2705,7 +2704,7 @@ Proof.
   unfold dy_make. cbn [dy_m dy_e]. reflexivity.
 Qed.
 
-(** INTERNAL induction STEP (unary) for the rung-8 class theorem — NOT a closed result:
+(** INTERNAL induction STEP (unary) for the completeness class theorem — NOT a closed result:
     the operand-completeness premise is the induction hypothesis, discharged only by the
     master [fsf_checked_complete] below (the arc's one surfaced endpoint). *)
 Lemma fsf_checked_complete_un_step : forall o a t d,
@@ -2765,7 +2764,7 @@ Proof.
     reflexivity.
 Qed.
 
-(** INTERNAL induction STEP (scalar float CONVERSION) for the rung-8 class theorem — same
+(** INTERNAL induction STEP (scalar float CONVERSION) for the completeness class theorem — same
     contract as the unary step: the operand-completeness premise is the IH, discharged only
     by the master theorem. *)
 Lemma fsf_checked_complete_conv_step : forall i a t d,
@@ -2878,7 +2877,7 @@ Proof.
         rewrite sf_eqb_struct_refl. reflexivity.
 Qed.
 
-(** ---- rung-8 binop-step kit (INTERNAL): the fold ops emit [dy_norm]-images, so the
+(** ---- binop-step kit (INTERNAL): the fold ops emit [dy_norm]-images, so the
     [dy_make] reseal at the fold site is projection-identity on their output pair. *)
 Lemma dy_norm_out_fix : forall m e mr er,
   dy_norm m e = (mr, er) -> dy_norm mr er = (mr, er).
@@ -2954,10 +2953,10 @@ Proof.
   rewrite Hv, sf_eqb_struct_refl. reflexivity.
 Qed.
 
-(** INTERNAL induction STEP (binop) for the rung-8 class theorem — same contract as the
+(** INTERNAL induction STEP (binop) for the completeness class theorem — same contract as the
     unary/conversion steps: the operand-completeness premises are the IHs, discharged only
-    by the master theorem.  The four dyadic-fold operators route through the rung-5/6/7 op
-    endpoints (both widths, all three admitted operand rows); every other operator/operand
+    by the master theorem.  The four dyadic-fold operators route through the per-op
+    agreement endpoints (both widths, all three admitted operand rows); every other operator/operand
     row is ground out — no other row constructs a float constant. *)
 Lemma fsf_checked_complete_bn_step : forall o a b t d,
   ptype (EBn o a b) = Some (PtFloatConst t d) ->
@@ -3474,7 +3473,7 @@ Proof.
           | reflexivity | exact Hres | reflexivity].
 Qed.
 
-(** ★ the rung-8 CLASS theorem (gated): checker COMPLETENESS on the admitted float-constant
+(** ★ the completeness CLASS theorem (gated): checker COMPLETENESS on the admitted float-constant
     class — whatever [ptype] folds to a float constant, [fsf_checked] ACCEPTS, and its output
     IS the payload's render ([sf_render] is total on the float widths, so this equation says
     "never [None] by disagreement", not a mere [isSome]).  The [_step] lemmas above are
@@ -3563,7 +3562,7 @@ Qed.
     float-constant node by [fsf_checked_complete] (the render is total on the float widths,
     pinned by the repr invariant), on every other node trivially — so [floats_checked], the
     eval-top float boundary, provably NEVER rejects: the guard cannot fire in the closed
-    world.  ARCHITECTURE DECISION (rung 8's residual, taken): the live guard STAYS —
+    world.  ARCHITECTURE DECISION (taken): the live guard STAYS —
     unreachability proofs pair with KEEPING the guard as the fail-closed boundary for the
     future open world (a ptype/checker extension ships rejected-by-default until its class
     theorem lands); dropping it would shrink eval but was declined as the cheaper
