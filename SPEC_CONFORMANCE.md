@@ -17,8 +17,7 @@ under the global context* — the trust base is EMPTY (the old `PrimInt63`/`Prim
 kernel substrate was eliminated: integers `Z`, locations `nat`, floats `spec_float`).
 The IO monad/effect ALGEBRA (the monad laws, and every
 read-after-write / commutation lemma) is now **funext-free**: stated over OBSERVATIONAL
-equality `io_eq m m' := forall w, run_io m w = run_io m' w` and proved pointwise (
-#6 P2 #20) — `Print Assumptions bind_assoc` reports no `functional_extensionality`.  The
+equality `io_eq m m' := forall w, run_io m w = run_io m' w` and proved pointwise — `Print Assumptions bind_assoc` reports no `functional_extensionality`.  The
 stdlib `functional_extensionality` survives at exactly ONE site, `run_io_inj` (`io_eq → =`),
 used only by the concurrency `Denotes` Keystone bridge (`ptr_set_is_ref`), which must rewrite
 the IO term STRUCTURALLY and so cannot use `io_eq`; removing it there needs an observational
@@ -48,7 +47,7 @@ the committed code).  The status now:
   (prec 24, emax 128): arithmetic, comparisons, and ALL conversions (`float32↔float64`,
   `float32↔int64`, narrow↔`int64`) lower to native Go `float32`.  Supersedes the `float32 ✗`
   notes in *Numeric types*, *Floating-point operators*, *Conversions*.
-  **Soundness fix (code review):** `GoFloat32` was a *transparent alias* `:= float`,
+  **Soundness fix:** `GoFloat32` was a *transparent alias* `:= float`,
   so a non-binary32-representable literal could be injected raw (`16777217%float : GoFloat32`) and
   widened with no rounding — making Rocq disagree with Go (`f64_of_f32 16777217 = 16777217` vs
   Go's `float32(16777217) = 16777216`) and licensing UNSOUND proofs.  Now `GoFloat32` is an
@@ -109,8 +108,8 @@ in-range literal.  So an out-of-range constant is **unrepresentable** — a comp
 error, exactly Go's "constant overflows uint8", NOT a silent wrap — build-checked
 by `u8_const_oob`/`i8_const_oob`/`u16_const_oob`/`i16_const_oob` (`Fail` tests).
 The Go output is unchanged (the proof erases; in-range mask is a no-op).  ✓
-**RAW CONSTRUCTOR now SEALED (code review) — GoU8 done, others tracked.**
-A prior hole: the wrapper constructor `MkU8` was public and unconstrained, so
+**RAW CONSTRUCTOR SEALED — GoU8 done, others tracked.**
+THE FORGE HOLE this seals: the wrapper constructor `MkU8` was public and unconstrained, so
 `MkU8 300` forged an impossible uint8 (the type erased to int64, the constructor to
 identity → printed `300`).  Same class as the float32 injection hole.  Fix: `GoU8`
 now carries an **SProp range invariant** — `MkU8 { u8raw ; u8ok : Squash (u8raw <? 256
@@ -422,14 +421,14 @@ placeholder, so every index still resolves.  `triple_demo` (`triple3 : GoI64 * G
 A non-left-nested `A * (B * C)` (not a valid Go flat tuple) stays fail-closed (the prod TYPE render
 rejects it; a non-spine pair VALUE aborts at its `pp_expr`).  The DESTRUCTURE lowers in BOTH positions:
 IO/statement (`pp_stmts`/`emit_block`) AND pure-value-returning (`pp_pure_tail`) — a non-IO `func f()
-int64 { x, y := g(); return x + y }` was a fail-closed gap (found by self-review 2026-06-23, pre-dating
+int64 { x, y := g(); return x + y }` was a fail-closed gap (pre-dating
 the N-ary work); now handled (`pure_destr_demo` → `7 6 5`: `sum_pair` 2-ary + `sum3` N-ary, golden-locked).
 A WILDCARD binder `let '(_, y) := …` (Coq extracts the `_` as an unused gensym, which left as a real
 `:=` binder is invalid Go — `declared and not used`) is blanked to Go `_` via `pp_destr_binder`/`dbn_free`
 (`snd_of`, `stmt_blank_demo`) — both positions; this fixed a fail-OPEN the pure-position fix had exposed.
 A NARROW component — `func(…) (uint8, uint8)` — is cast to its return slot (`return uint8(…), uint8(…)`)
 via `value_narrow_conv`; without it the int64-carrier values were returned into uint8 slots = invalid Go
-(another fail-OPEN, found by the same self-review; `narrow_pair_demo` → `44 7`, go-vet-clean, golden-locked).
+(another fail-OPEN of the same class; `narrow_pair_demo` → `44 7`, go-vet-clean, golden-locked).
 
 ### [Interface types](https://go.dev/ref/spec#Interface_types) — ⚠ method-dictionary (1 / nullary / N-method + EMBEDDING, all extracted + golden-locked); ✗ `interface` keyword
 Spec: an interface is a method set; a value of interface type holds a concrete value
@@ -601,7 +600,7 @@ signed-zero corners machine-checked across negation/min/max (NaN propagates; `mi
 **Conversions.**  `float32↔float64` and `int(float32)` (`f64_of_f32` widen exact; `i64_of_f64∘
 f64_of_f32` truncate-toward-zero) ✓.  Range corners witnessed: overflow → `+Inf` (`f32_overflow`),
 underflow → `0` (`f32_underflow`).
-**⚠ CORRECTION (code review) — an earlier "single-rounding-equivalent" claim here was
+**⚠ CORRECTION — an earlier "single-rounding-equivalent" claim here was
 FALSE.**  Routing int/constant → `float32` through binary64 is NOT double-rounding-innocuous in
 general: the `q ≥ 2p+2` theorem assumes the intermediate holds the *exact* value, but for `|x| >
 2^53` the int→binary64 step ITSELF rounds, and a second round to binary32 can disagree.
@@ -618,7 +617,7 @@ ALL num/den, not just `< 2^53`).  Lowered to Go's `float32(num.0 / den.0)` (unty
 arbitrary precision, single round).  Witnessed: `f32_of_fconst_direct` (`2305843146652647425/1 →
 2^61+2^38`), `f32_of_fconst_differs` (≠ the via-float64 double round), `f32_of_fconst_small`
 (`float32(0.1+0.2) = float32(0.3)`); `f32_fconst_demo` → `0.3`.
-**Constant-vs-runtime soundness fix (code review) — applies to float32 AND float64.**
+**Constant-vs-runtime soundness fix — applies to float32 AND float64.**
 Fido's model is runtime IEEE (−0, ±Inf, NaN); the extractor formerly emitted float ops on
 CONSTANT operands as Go *constant expressions*, where IEEE does not hold — Go constants cannot
 denote −0/±Inf/NaN, and a constant `/0` or a `float32` overflow are COMPILE ERRORS (reproduced:
@@ -850,8 +849,7 @@ the non-blocking form) lower to a faithful, idiomatic Go `select { case x := <-c
 … }` — CPS like `recv_ok`.  `select_demo` (ch1 buffered/ready, ch2 empty → picks
 ch1, prints 42) and `select_default_demo` (empty ch → default, prints 99) golden-
 locked.  **⚠ the LOWERING is faithful Go; the MODEL is an UNSOUND deterministic
-under-approximation** (code review 2026-06-20, sharpening "idealised away" — which
-undersold it).  Two distinct unsoundnesses:
+under-approximation** ("idealised away" understates it).  Two distinct unsoundnesses:
   - **CHOICE.** Both channels ready ⇒ the model deterministically takes ch1; Go picks
     pseudo-randomly.  Counterexample: both ready, `k1 ↦ 1`, `k2 ↦ 2` — Rocq always 1,
     Go may return 2.  So native Go does NOT *refine* the deterministic function (Go
@@ -897,7 +895,7 @@ proof-only (golden-stable).  **Scheduler bridge DONE (2026-06-20):** `sel_first_
 ch1-priority scheduler the typed `select_recv2` realises, so `det_select_sound` proves that choice
 is always a PERMITTED `rstep_select` (the typed select is a SOUND scheduler), and
 `det_select_incomplete` proves that when two cases are ready it realises only ch1 while
-`rstep_select` ALSO permits the ch2 successor (so it is INCOMPLETE) — making the review verdict
+`rstep_select` ALSO permits the ch2 successor (so it is INCOMPLETE) — making the claim
 "the deterministic interpreter is one example scheduler, non-authoritative" a theorem.
 **Completeness boundary DONE (2026-06-21):** the exact converse of `det_select_incomplete` —
 `det_select_complete_unique` proves that when the cases have a UNIQUE buffered-ready case, every buffered

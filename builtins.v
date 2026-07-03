@@ -741,8 +741,7 @@ Inductive GoTypeTag : Type -> Type :=
      bare-int aliases ([GoInt8]/…/[GoUint64]) had their own tags here too, but they DUPLICATEd
      the canonical Squash-sealed fixed-width family ([TI8]/[TU8]/…/[TI64]/[TU64]) — same Go type,
      two tags — break #7's soundness hole (a non-injective tag→runtime-Go-type makes [tag_eq]
-     disagree with Go's [v.(T)]).  Those aliases are now RETIRED as TYPES entirely (
-     P0 #1), so one canonical tag AND one Rocq type per fixed-width Go type. *)
+     disagree with Go's [v.(T)]).  Those aliases are now RETIRED as TYPES entirely, so one canonical tag AND one Rocq type per fixed-width Go type. *)
   (* [TInt64] IS Go's platform [int] now (break #7 slice 7c: PrimInt63 = Go int, the
      Z-carried [GoI64]/[TI64] is int64).  The old [TInt]:GoTypeTag GoInt was a SECOND tag
      for the same Go [int] (GoInt := int), with no [Tagged] instance and never boxed
@@ -990,7 +989,7 @@ Notation any x := (anyt (the_tag _) x).
     from a user [panic] (which carries the user's own value).  This replaces the old [any tt],
     which collapsed EVERY runtime cause to one indistinguishable unit, letting a modeled handler
     take a branch the Go handler would not.  The string IS the abstraction relation to Go's panic
-    value the review asked for.  Model-only: a runtime panic lowers to the NATIVE Go operation
+    value.  Model-only: a runtime panic lowers to the NATIVE Go operation
     (whose own panic fires), so these values live solely in the suppressed op bodies and are never
     extracted — they are listed in the plugin's [is_inlined_ref]. *)
 Definition rt_nil_deref    : GoAny := anyt TString "runtime error: invalid memory address or nil pointer dereference"%string.
@@ -1324,7 +1323,7 @@ Proof. reflexivity. Qed.
     raw function equality [m = m'], which for [IO := World -> Outcome] required [functional_extensionality]
     (a Coq-STDLIB AXIOM).  Every law below is now genuinely AXIOM-FREE: proved POINTWISE, with no
     [run_io_inj]/funext.  Since [run_io m = m], [io_eq] IS Go-observable equality of the modeled effects
-    (heap / channel / map / panic / output) — exactly the relation the review asked us to use. *)
+    (heap / channel / map / panic / output) — the observational relation the algebra needs. *)
 Definition io_eq {A} (m m' : IO A) : Prop := forall w, run_io m w = run_io m' w.
 Infix "=io=" := io_eq (at level 70, no associativity).
 
@@ -1761,7 +1760,7 @@ Fail Definition u8_of_i16_direct (y : GoI16) : GoU8 := u8_of_int y.
     range and lands unchanged in [GoI64].  Distinct from the narrow [int_of_FW]
     (which targets the index-[int]); these target the value-[int64].
     MODELED + machine-checked (witnesses in main.v).  The body is now a PURE [Z] re-wrap
-    ([i64wrap] of the narrow's [Z] reading — no int63 detour→zero-axioms): the
+    ([i64wrap] of the narrow's [Z] reading — no int63 detour): the
     MODEL value is preserved (the narrow's [Z] lands unchanged in [GoI64]), but the EMITTED Go is
     a real widening cast [int64(x)], NOT identity — a narrow Go value at an int64 boundary needs the
     cast. *)
@@ -2452,8 +2451,7 @@ Definition f64_of_int (i : GoInt) : GoFloat64 := binary_normalize 53 1024 (intra
 
 (** float64 → int64 (Go [int64(f)]): TRUNCATE toward zero.  [GoFloat64] is now [spec_float], so
     the decomposition is DIRECT — a finite [f = S754_finite s m e] is [(-1)^s * m * 2^e] ([m]
-    positive, [e : Z]), no [Prim2SF]/[normfr_mantissa] primitive (
-    old "needs a float-decomposition primitive" boundary DISSOLVED).  The truncated MAGNITUDE is
+    positive, [e : Z]), no [Prim2SF]/[normfr_mantissa] primitive (the old "needs a float-decomposition primitive" boundary DISSOLVED).  The truncated MAGNITUDE is
     [m * 2^e] when [e >= 0] (an exact integer) or [m / 2^(-e)] when [e < 0] (the FLOOR of the
     positive magnitude = truncation toward zero); the sign is applied AFTER, so it rounds toward
     zero — exactly Go's rule.  [i64_of_f64] is recognised BY NAME → native [int64(f)] (the
@@ -2479,8 +2477,7 @@ Definition u64_of_f64 (f : GoFloat64) : GoU64 := u64wrap (wrapU64 (f64_trunc_Z f
 (** uint64 → float64 (Go [float64(v)]): the CORRECTLY-ROUNDED double.  Rounds the EXACT [Z] mantissa
     (in [[0, 2^64)]) ONCE via [binary_normalize] at (53, 1024) — the SAME Z→float path as the int64/
     int conversions, spanning the WHOLE uint64 range in one shot (no 63-bit split / round-to-odd trick
-    needed), and crucially NO [PrimFloat.of_uint63] / [Uint63.of_Z] int63 detour (
-    PrimInt63-elimination).  Lowered to native [float64(v)]; the body suppressed. *)
+    needed), and crucially NO [PrimFloat.of_uint63] / [Uint63.of_Z] int63 detour (PrimInt63-elimination).  Lowered to native [float64(v)]; the body suppressed. *)
 Definition f64_of_u64 (a : GoU64) : GoFloat64 := binary_normalize 53 1024 (u64raw a) 0 false.
 
 (** UNTYPED FLOAT CONSTANTS — exact rationals, rounded ONCE at the typed boundary.  Go folds
@@ -2687,7 +2684,7 @@ Qed.
     FAILS LOUD in the sequential [run_io] semantics.  The prior body [fun w => ORet tt w]
     DROPPED the deferred action — a deferred [println] never reached the [w_output] trace, so [run_io]
     "erased an observable effect" and two programs differing only in a defer compared EQUAL under [=io=]:
-    exactly the non-observational-equality the review flags.  Shallow [World -> Outcome] cannot run a
+    exactly the non-observational-equality defect.  Shallow [World -> Outcome] cannot run a
     func-scoped defer (it cannot reify the deferred command to run it at return — the very reason the deep
     command model exists), so per rule 2 the sequential meaning is a LOUD panic rather than a silent drop.
     The FAITHFUL defer is [run_cmd] over a [CDfr] node (cmd.v), which runs defers LIFO at func-scope
@@ -3516,7 +3513,7 @@ Proof. intros A C ta ch k1 d w He Hc. unfold select_recv_default. rewrite He, Hc
     control-flow substrate; [select2] is the only producer of the sentinel, so the lifted shape is
     a valid select by construction — strictness in Rocq, not the trusted relooper.*
 
-    ⚠ SCOPE OF THE THEOREM (code reviews, 2026-06-19/20 — corrects an earlier overclaim, sharpened
+    ⚠ SCOPE OF THE THEOREM (corrects an earlier overclaim, sharpened
     by a follow-up review).  This [select_wait2] inherits the [select_recv2] model's behaviour, a
     DETERMINISTIC UNDER-APPROXIMATION of Go's select, so [select2_eq_recv2] proves the desugar equals
     that *idealised model*, NOT equivalence to Go.  Two distinct unsoundnesses:
@@ -3669,8 +3666,7 @@ Lemma select_wait2_both_empty_open_panics :
   select_wait2 ta ch1 ch2 w = OPanic rt_select_block w.
 Proof. intros A ta ch1 ch2 w He1 Hc1 He2 Hc2. unfold select_wait2. rewrite He1, Hc1, He2, Hc2. reflexivity. Qed.
 
-(** [go_spawn m] (Go spec "Go statements") — FAILS LOUD in the sequential [run_io] semantics (
-    #5).  A goroutine is CONCURRENT, not a synchronous call: the prior "run [m] to completion, import its
+(** [go_spawn m] (Go spec "Go statements") — FAILS LOUD in the sequential [run_io] semantics.  A goroutine is CONCURRENT, not a synchronous call: the prior "run [m] to completion, import its
     world, return [ORet tt]" approximation was plausible-but-wrong three ways — it (1) sequentialised the
     child, (2) imported ALL its effects into the parent world unconditionally (Go gives NO such visibility
     without synchronisation), and (3) ERASED a child panic ([OPanic _ w' => ... ORet tt]) when an
@@ -3723,8 +3719,7 @@ Lemma run_close : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (w : World),
   chan_closed ch w = false ->
   run_io (close_chan tag ch) w = ORet tt (chan_close_upd tag ch w).
 Proof. intros A tag ch w Hnn H. unfold close_chan, run_io. rewrite Hnn, H. reflexivity. Qed.
-(** Closing a non-nil CLOSED channel panics with "close of closed channel" (
-    distinguishes this from "close of nil channel" — a nil channel hits the prior guard).  The
+(** Closing a non-nil CLOSED channel panics with "close of closed channel" (the CAUSE distinguishes this from "close of nil channel" — a nil channel hits the prior guard).  The
     non-nil hypothesis selects the [rt_close_closed] cause; [close_chan_nil] covers the nil one. *)
 Lemma run_close_closed : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (w : World),
   Nat.eqb (ch_loc ch) 0 = false ->

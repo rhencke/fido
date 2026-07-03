@@ -56,7 +56,7 @@ let unsupported what =
           ": unmodeled Go construct.  Implement its lowering or suppress the \
            definition (is_inlined_ref) — refusing to emit wrong Go."))
 
-(* review R7: package-level Go identifiers must be INJECTIVE.  Two distinct source declarations that
+(* NAME-INJECTIVITY: package-level Go identifiers must be INJECTIVE.  Two distinct source declarations that
    mangle to the SAME Go name (`foo'`/`foo_` → `Foo_`; `foo`/`Foo` → `Foo` after export-capitalization;
    the same basename in two flattened modules) would emit the identifier twice — a Go `redeclared` error.
    Relying on `go build` to catch that is TOO LATE: the plugin must emit correct Go or fail loud AT
@@ -209,13 +209,13 @@ let record_ctor_tyname r =
 (* [from_builtins r]: the ref is DEFINED in Fido's [builtins.v] module (dirpath component
    ["builtins"]), NOT in a user theory like [main.v] (module ["main"]).  Coq references point at
    the DEFINING module regardless of where they are used, so this holds for a builtin no matter
-   which theory references it.  Closes the basename-shadowing hole (code review): a user
+   which theory references it.  Closes the basename-shadowing hole: a user
    [Definition u8_add] in [main.v] no longer gets mis-recognized as the builtin. *)
 let from_builtins r =
   (* EXACT dirpath-component match, not a substring scan: a [DirPath.repr] component must equal
      "builtins" verbatim.  The old substring scan accepted ANY path CONTAINING the text — so a user
      module [mybuiltins] / [builtins_helpers] would be mis-recognized as Fido's [builtins.v] and a
-     same-basename user definition mis-lowered to an intrinsic (code review P0 #6).  Comparing the
+     same-basename user definition mis-lowered to an intrinsic.  Comparing the
      actual path components closes that: [mybuiltins] is the single component "mybuiltins" <> "builtins". *)
   match (try Some (Nametab.dirpath_of_global r.glob) with Not_found -> None) with
   | None -> false
@@ -425,7 +425,7 @@ let is_ptr_get_ok_ref = named "ptr_get_ok"   (* safe (nil-checked) deref, CPS *)
 (* The GENERIC struct pointer ([GSPtr R] over the arity-generic [StructRep R ts]) — the ONE struct
    pointer (the arity-specific SPtr/SPtr3/SPtrH are gone).  [GSPtr R] → [*R]; field access is by the
    typed de Bruijn index [m] ([mem_depth m] slot), named by the COHERENCE-PINNED projection arg
-   ([proj = mem_get m . sr_to] — so slot and name cannot disagree/#9). *)
+   ([proj = mem_get m . sr_to] — so slot and name cannot disagree). *)
 let is_sptr_type r = from_builtins r && global_basename r = "GSPtr"
 let is_gsptr_new_ref r       = from_builtins r && global_basename r = "gsptr_new"
 let is_gsptr_deref_ref r     = from_builtins r && global_basename r = "gsptr_deref"
@@ -744,7 +744,7 @@ let zero_of_tag tag =
   | MLcons (_, r, [_; _]) when String.equal (global_basename r) "TMap"   -> "nil"
   | t -> go_type_of_tag t ^ "(0)"
 
-(* review R4(b): a GoTypeTag is usable as a Go MAP KEY only if it renders to a COMPARABLE Go type.
+(* MAP-KEY COMPARABILITY: a GoTypeTag is usable as a Go MAP KEY only if it renders to a COMPARABLE Go type.
    Slices ([]T) and maps (map[K]V) are NOT comparable — Go rejects them as map keys ("invalid map
    key type").  Scalars / string / chan / ptr ARE comparable, and TArrow/TProd/TUnit already fail
    in [go_type_of_tag].  (A struct key's comparability depends on its FIELDS — a struct with a
@@ -861,7 +861,7 @@ let is_numint_proj r =                      (* u8raw / i16raw / i64raw : (u|i) d
   len >= 5 && (n.[0] = 'u' || n.[0] = 'i') && str_suffix "raw" n
   && all_digits (String.sub n 1 (len - 4)))
 
-(* P0 #2 / review R4(d): the Go type name of a SUB-64 narrow numeric wrapper (GoU8/GoI8/GoU16/GoI16/
+(* NARROW-WRAPPER NAMING: the Go type name of a SUB-64 narrow numeric wrapper (GoU8/GoI8/GoU16/GoI16/
    GoU32/GoI32 — the short [is_numint_type] wrapper names), else None.  EXCLUDES the full-width
    GoI64/GoU64 (width 64, already int64/uint64-carried) and native GoInt/GoUint.  Parses the short form
    "Go" + (U|I) + digits → "uint"/"int" + digits.  These narrow types are int-CARRIED for arithmetic
@@ -885,7 +885,7 @@ let narrow_prim_type r =
    invalid Go ([Box{V: x & 0xff}] with V uint8).  Returns the Go type name to cast to,
    else None — None covers everything ALREADY at its destination type: int64/uint64 (carrier IS the
    type), [GoUint] (self-casts to [uint(…)] at its ctor), structs/slices/strings/bools/etc.  This is
-   the [pp_value_at_type] coercion the review prescribes; applied at the struct-field boundary first. *)
+   the [pp_value_at_type] coercion; applied at the struct-field boundary first. *)
 let narrow_dest_conv t = match t with
   | Tglob (r, []) -> narrow_prim_type r
   | _ -> None
@@ -1113,7 +1113,7 @@ let rec payload_head t =
 let any_narrow_conv e =
   Option.bind (payload_head (any_payload e)) fw_value_type
 
-(* ---- P0 #2 (code review): narrow-typed LET-bound variables ----
+(* ---- Narrow-typed LET-bound variables ----
    A sub-64 narrow value (GoU8…GoI32) is int64-CARRIED, so `let x := <narrow op>` binds x to a masked int64
    expression and Go infers `x : int` — LOSING the narrow type.  A later `any x` then sees only the variable
    (not the producing op), so [any_narrow_conv] returns None and the value boxes as Go `int`; `.(uint8)` then
@@ -1191,7 +1191,7 @@ let classify_f32_op r =
   let bn = global_basename r in
   List.find_map (fun (name, op) -> if String.equal bn name then Some op else None) f32_op_table
 
-(* ---- Float CONSTANT-FOLDING soundness (code review) ----
+(* ---- Float CONSTANT-FOLDING soundness ----
    A float op whose operands are all Go CONSTANTS is emitted as a Go *constant* expression,
    where IEEE semantics do NOT hold: Go constants cannot denote -0 / ±Inf / NaN, and a constant
    [/0] or a [float32] overflow are COMPILE ERRORS.  Fido's model is runtime IEEE, so such an op
@@ -2140,7 +2140,7 @@ let rec pp_expr state env = function
           int/float literals are typed so the inferred Go var is int64/float64.
           [ref_new] now carries a leading [GoTypeTag] (the cell's element type, for
           the typed-heap model); it is proof-only, dropped at the call site. *)
-       | MLglob r, [tag; v] when is_ref_new_ref r -> pp_payload_at_tag state env tag v  (* narrow cell ← int64 carrier needs uint8(…) so the inferred Go var is the model's type, not int64 (P1 #4 narrow-Ref) *)
+       | MLglob r, [tag; v] when is_ref_new_ref r -> pp_payload_at_tag state env tag v  (* narrow cell ← int64 carrier needs uint8(…) so the inferred Go var is the model's type, not int64 (the narrow-Ref rule) *)
        | MLglob r, [_tag; rf] when is_ref_get_ref r -> pp_expr state env rf
        | MLglob r, [rf; v] when is_ref_set_ref r ->
            (* a narrow value (int64-carrier) into a narrow Go ref var needs a cast; the value's OWN
@@ -2274,7 +2274,7 @@ let rec pp_expr state env = function
        | MLglob r, [_tag; ch] when is_close_chan_ref r ->
            str "close(" ++ pp_expr state env ch ++ str ")"
 
-       (* review R2: recv_ok is normally lowered in STATEMENT position (pp_stmts), where its
+       (* DROPPED-CONTINUATION guard: recv_ok is normally lowered in STATEMENT position (pp_stmts), where its
           continuation becomes `x, ok := <-ch; body`.  In EXPRESSION position the continuation
           [_kont] has nowhere to go — emitting `<-ch` alone would silently DISCARD it.  Fail loud. *)
        | MLglob r, [_tag; _ch; _kont] when is_recv_ok_ref r ->
@@ -2285,7 +2285,7 @@ let rec pp_expr state env = function
            str (zero_of_tag tag)
 
        (* map_make_typed kt vt → make(map[K]V) with concrete types from tags.
-          review R4(b): reject a NON-COMPARABLE key tag (slice/map) — Go forbids it as a map key. *)
+          MAP-KEY COMPARABILITY: reject a NON-COMPARABLE key tag (slice/map) — Go forbids it as a map key. *)
        | MLglob r, [kt; vt] when is_map_make_typed_ref r ->
            if not (tag_comparable_key kt) then
              unsupported "map_make_typed with a NON-COMPARABLE key type (a slice or map) — Go forbids slice/map/func map keys (`invalid map key type`); use a comparable key (bool / int / string / pointer / channel / comparable struct)"
@@ -2306,7 +2306,7 @@ let rec pp_expr state env = function
            str "clear(" ++ pp_expr state env m ++ str ")"
        | MLglob r, [m]       when is_map_len_ref r ->
            str "len(" ++ pp_expr state env m ++ str ")"
-       (* review R4(a): untyped map_make → `make(map[any]any)` loses K/V — the resulting map[any]any
+       (* TYPED-MAP RULE: untyped map_make → `make(map[any]any)` loses K/V — the resulting map[any]any
           is NOT the typed map[K]V the model means (reads return `any`, not the typed value; it is also
           not assignable to a typed map var).  Fail loud; use map_make_typed which carries the tags. *)
        | MLglob r, []        when is_map_make_ref r ->
@@ -2333,7 +2333,7 @@ let rec pp_expr state env = function
        (* len(slice) → len(s) (faithful: list length = Go len) *)
        | MLglob r, [s] when is_len_ref r ->
            str "len(" ++ pp_expr state env s ++ str ")"
-       (* review R5: cap of a functional (value) GoSlice CANNOT be faithfully modeled.  Go's capacity
+       (* cap of a functional (value) GoSlice CANNOT be faithfully modeled.  Go's capacity
           after `append` is IMPLEMENTATION-DEFINED (append may over-allocate), so the model's `cap = len`
           would disagree with the generated `cap(s)`.  Emitting `cap(s)` and relying on the model's
           `cap = len` ships a value that `go build` accepts but that is WRONG at runtime — fail loud at
@@ -2757,7 +2757,7 @@ let rec pp_expr state env = function
   | MLglob r ->
       if is_bool_true r     then str "true"
       else if is_bool_false r then str "false"
-      (* review R4(a): a BARE (unapplied) map constructor has no key/value tags to render a typed
+      (* TYPED-MAP RULE: a BARE (unapplied) map constructor has no key/value tags to render a typed
          map, and `make(map[any]any)` is the wrong Go type (not the model's typed map[K]V) — fail loud. *)
       else if is_map_make_ref r || is_map_make_typed_ref r then
         unsupported "a bare (unapplied) map constructor — `make(map[any]any)` loses the key/value types; apply `map_make_typed <keytag> <valtag>` so the typed `map[K]V` can be emitted"
@@ -2771,7 +2771,7 @@ let rec pp_expr state env = function
       str (go_export (go_safe (Id.to_string names.(i))))
 
   | MLletin (_id, e1, e2) ->
-      (* review R3: a value-position let must NOT become `(func() any { x := e1; return e2 })()` — the
+      (* VALUE-POSITION-LET RULE: a value-position let must NOT become `(func() any { x := e1; return e2 })()` — the
          `any` return is a non-compiling type in a typed context (e.g. inside int64 arithmetic, where the
          old form gave `int64(any)`).  An expression-position let is PURE (referentially transparent), so
          INLINE it via [ast_subst] (`e2[Rel 1 := e1]`); the surrounding context then types the result
@@ -2917,7 +2917,7 @@ let rec pp_expr state env = function
                                || String.equal (global_basename r) "S754_nan" ->
                unsupported "a spec_float ±Inf / NaN LITERAL (no Go Inf/NaN constant without math.Inf/math.NaN — produce it at runtime, e.g. 1.0/0.0 or 0.0/0.0)"
            | MLcons (_, r, _) as lst ->
-               (* review R4: a non-empty list literal in VALUE position.  The old `append(nil, v1, …)`
+               (* A non-empty list literal in VALUE position.  The old `append(nil, v1, …)`
                   is INVALID Go — `append`'s first argument must be a TYPED slice, and `nil` here is
                   untyped, so `go build` rejects it ("first argument to append must be a slice; have
                   untyped nil").  The element type is also erased by extraction, so we cannot synthesize
@@ -3214,13 +3214,13 @@ and emit_block terminating state hoists term tab env b =
                      str tab ++ str "} else {" ++ fnl () ++
                      emit_block terminating state hoists term (tab ^ "\t") env eb ++
                      str tab ++ str "}" ++ fnl ()
-                 (* review R1: a 2-branch match that is NOT bool true/false would silently become a
+                 (* MATCH-SHAPE guard: a 2-branch match that is NOT bool true/false would silently become a
                     bare `return`, DROPPING both arms — fail loud (was the raw emitter's silent hole). *)
                  | _ -> unsupported "a raw-CFG/closure block whose 2-branch match is not on a bool (true/false) — the raw emitter only lowers boolean if/else; a non-bool match would silently become a bare `return`, truncating the block's control flow")
-            (* review R1: a match with neither 1 (pair destructure) nor 2 (bool if/else) branches would
+            (* MATCH-SHAPE guard: a match with neither 1 (pair destructure) nor 2 (bool if/else) branches would
                silently become a bare `return`, dropping the other arms — fail loud. *)
             | _ -> unsupported "a raw-CFG/closure block match with neither 1 (pair destructure) nor 2 (bool if/else) branches — would silently become a bare `return`, dropping the other arms")
-       (* review R1: a non-bind/ret/case block.  TERMINATING context (a run_blocks block — must end in a
+       (* MATCH-SHAPE guard: a non-bind/ret/case block.  TERMINATING context (a run_blocks block — must end in a
           goto/return): a bare expression drops the control terminator → fail loud.  NON-terminating
           context (a defer/go closure body): a single void action with no terminator is valid Go, so emit it. *)
        | _ -> if terminating
@@ -3837,7 +3837,7 @@ let pp_io_body ?(ret_val=false) state tab env body =
                    else str tab ++ x ++ str ", " ++ ok ++ str " := <-"
                           ++ pp_expr state env ch ++ fnl ())
                   ++ pp_stmts tab new_env k_body
-              (* review R2: the continuation is not an inline 2-arg lambda (a named /
+              (* DROPPED-CONTINUATION guard: the continuation is not an inline 2-arg lambda (a named /
                  separately-extracted / eta-reduced handler), so [collect_lam] did not
                  expose its [x ok] binders.  Emitting `_, _ = <-ch` DISCARDS the
                  continuation body — fail loud instead of silently dropping it. *)
@@ -4215,8 +4215,7 @@ let pp_io_body ?(ret_val=false) state tab env body =
     in
     (* (Historical note: a stale [is_string_list] guard excluded a [list GoInt32] from the list/slice
        match — from the OBSOLETE [GoString := list GoRune] model.  [GoString] is now Coq [string] (a
-       byte sequence, matched by its own arm) and the [GoInt32] placeholder is RETIRED (
-       P0 #1); rune slices are the FAITHFUL [list GoI32] and are LEGITIMATE slices that DO take the
+       byte sequence, matched by its own arm) and the [GoInt32] placeholder is RETIRED; rune slices are the FAITHFUL [list GoI32] and are LEGITIMATE slices that DO take the
        list lowering.  The guard tested a now-nonexistent type ⇒ structurally always-false ⇒ removed.) *)
     (* ENUM match (all arms are nullary enum constructors, any arity ≥ 2) → Go [switch].
        Checked before the 2-arm shapes so a 2-value enum also switches.  A source `_`
@@ -4838,7 +4837,7 @@ let pp_main_body state body =
 
 (*s Declaration printer. *)
 
-(* review R7: claim a TERM declaration's Go identifier (method → its `RecvType.Method` namespace, which
+(* NAME-INJECTIVITY: claim a TERM declaration's Go identifier (method → its `RecvType.Method` namespace, which
    is distinct from a package-level function/type of the same bare name).  Aborts on a colliding claim. *)
 let register_term_name r =
   let name = go_export (global_basename r) in
@@ -4871,7 +4870,7 @@ let pp_decl state decl =
       mt ()
 
   | Dterm (r, body, typ) ->
-      register_term_name r;   (* review R7: claim this decl's Go identifier, aborting on a collision *)
+      register_term_name r;   (* NAME-INJECTIVITY: claim this decl's Go identifier, aborting on a collision *)
       let name = global_basename r in
       (match body with
        | MLlam _ ->
@@ -4898,7 +4897,7 @@ let pp_decl state decl =
   | Dfix (refs, bodies, types) ->
       if Array.exists is_inlined_ref refs then mt ()
       else begin
-        Array.iter register_term_name refs;   (* review R7: claim each fixpoint's Go identifier *)
+        Array.iter register_term_name refs;   (* NAME-INJECTIVITY: claim each fixpoint's Go identifier *)
         prvecti
           (fun i _ -> pp_function state (global_basename refs.(i)) bodies.(i) types.(i))
           refs
@@ -4965,7 +4964,7 @@ let pp_decl state decl =
            let pkt = mi.ind_packets.(0) in
            let tn = go_export (Id.to_string pkt.ip_typename) in
            let ctors = Array.to_list pkt.ip_consnames in
-           register_emitted_name tn (Id.to_string pkt.ip_typename);   (* review R7: enum type name *)
+           register_emitted_name tn (Id.to_string pkt.ip_typename);   (* NAME-INJECTIVITY: enum type name *)
            List.iter (fun c -> register_emitted_name (go_export (Id.to_string c)) (Id.to_string c)) ctors;  (* + iota consts *)
            str "type " ++ str tn ++ str " int" ++ fnl () ++ fnl () ++
            str "const (" ++ fnl () ++
@@ -5034,7 +5033,7 @@ let collect_decls struc =
          | Record projs when Array.length mi.ind_packets > 0
              && not (is_erased_record_typename (Id.to_string mi.ind_packets.(0).ip_typename)) ->
              let pkt = mi.ind_packets.(0) in
-             (* review R7: two records sharing a typename would silently OVERWRITE each other's
+             (* NAME-INJECTIVITY: two records sharing a typename would silently OVERWRITE each other's
                 metadata (and emit a duplicate `type Name struct`) — catch it at extraction. *)
              if Hashtbl.mem record_typenames (Id.to_string pkt.ip_typename) then
                unsupported (Printf.sprintf "two record types both named `%s` — their `type %s struct` decls and field/ctor metadata would collide; rename one in the source"
@@ -5175,7 +5174,7 @@ let collect_decls struc =
     | _ -> ()) decls
 
 let pp_struct state struc =
-  Hashtbl.reset emitted_names;   (* review R7: per-extraction identifier-collision registry *)
+  Hashtbl.reset emitted_names;   (* NAME-INJECTIVITY: per-extraction identifier-collision registry *)
   collect_decls struc;
   let pp_mod (mp, sel) =
     State.with_visibility state mp [] (fun state ->

@@ -319,14 +319,14 @@ Inductive PAct :=
                             event), so no config field is needed. *)
   (* [select] over RECEIVE cases [cs]: receive on ANY ONE channel in [cs] that is ready.
      This is the AUTHORITATIVE select model (sequential [run_io] [select_recv2] is a
-     non-authoritative ch1-priority interpreter — see the select code review).  Its
+     non-authoritative ch1-priority interpreter).  Its
      [step_select] rule below fires for EVERY ready channel, so a config with two ready
      cases has TWO successors: select is genuinely NONDETERMINISTIC here (Go's
      pseudo-random choice), and a safety property must hold for ALL of them.  When NO case
      is ready it has no [step] at all — so empty-select is a LOCAL non-step that contributes
      to global deadlock [Stuck], NEVER a fabricated value.  (Scope: every case shares the
      post-select continuation [rest]; per-case branch BODIES are the orthogonal goto-dispatch
-     dimension — [select2] in builtins.v — not what the choice/blocking review flagged.) *)
+     dimension — [select2] in builtins.v — not the choice/blocking deviation above.) *)
 
 Definition upd {A} (f : nat -> A) (k : nat) (v : A) : nat -> A :=
   fun x => if Nat.eqb x k then v else f x.
@@ -1118,7 +1118,7 @@ Qed.
 
 (** ── SELECT, the AUTHORITATIVE relational semantics: readiness + fairness, proven ──
 
-    These two witnesses are the FIX for the select code review (the sequential [run_io]
+    These two witnesses pin the select nondeterminism boundary (the sequential [run_io]
     [select_recv2] is a deterministic, blocking-idealised UNDER-APPROXIMATION; here select is
     a first-class operational action whose [step_select] rule is the authoritative truth). *)
 
@@ -1148,7 +1148,7 @@ Qed.
 (** FACT 2 — EMPTY SELECT IS DEADLOCK, NOT A VALUE.  A goroutine selecting on channels with
     no ready case (and no other goroutine to make one ready) is [Stuck] — exactly like
     [block_cfg], NOT the fabricated [(0, zero)] the sequential interpreter returns.  Blocking
-    lives in the GLOBAL transition relation (no enabled step), per the review. *)
+    lives in the GLOBAL transition relation (no enabled step). *)
 Definition sel_block_cfg : Config :=
   mkCfg (fun t => if Nat.eqb t 0 then [PSelect [0; 1]] else [])
         (fun _ => []) (fun t => Nat.eqb t 0) [].
@@ -1257,7 +1257,7 @@ Inductive Cmd : Type :=
                                                     the simple-calculus closed-channel slice. *)
   (* [select] over recv cases, each a (channel, value-binding continuation) PAIR — the
      AUTHORITATIVE select in the rich value-carrying calculus (typed [run_io] [select_recv2]
-     is a non-authoritative ch1-priority interpreter — see the select code reviews).  Unlike the
+     is a non-authoritative ch1-priority interpreter).  Unlike the
      simple-calculus [PSelect] (which shared ONE continuation across cases), each case carries its
      OWN continuation, so [select { case <-ch: A() | case <-ch: B() }] — same channel, distinct
      bodies — is representable and BOTH cases are eligible (Go may pick either).  [rstep_select]
@@ -6416,8 +6416,8 @@ Qed.
 
     [select_recv2 ta ch1 k1 ta ch2 k2] takes ch1 if ready, else ch2 (ch1-PRIORITY) — exactly the
     deterministic "first ready case" of the cases list [[(ch1,·); (ch2,·)]], which is precisely
-    [sel_first_ready].  These two theorems make the select-review verdict ("the deterministic
-    interpreter is ONE example scheduler, non-authoritative") a PROOF:
+    [sel_first_ready].  These two theorems make the claim "the deterministic
+    interpreter is ONE example scheduler, non-authoritative" a PROOF:
     (1) SOUND — the deterministic first-ready choice is always a PERMITTED [rstep_select];
     (2) INCOMPLETE — when two cases are ready it realises only ch1, yet [rstep_select] ALSO permits
         the ch2 transition the typed model never takes; and
@@ -8636,7 +8636,7 @@ Qed.
     execution of a disciplined program satisfies — e.g. [mp]) this operational [W(r)] is the UNIQUE
     hb-maximal write that happens-before the read, and NO write to [l] is concurrent with the read.  So
     the value a read observes is happens-before-determined, not interleaving-dependent — the DRF
-    visible-write condition the review asked for, proved CONSTRUCTIVELY ([hbt] is undecidable, so this
+    visible-write condition, proved CONSTRUCTIVELY ([hbt] is undecidable, so this
     rests on [owned_orders_same_loc]'s POSITIVE ordering, never classical reasoning). *)
 
 (* A position's access location, read straight off its [tr_acc] label. *)

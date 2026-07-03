@@ -3030,7 +3030,7 @@ Proof.
 Qed.
 (** ★ CONST-count TOTALITY from the GATE ALONE — no evaluation premise, for ANY evaluator, and
     the count is EXACTLY [ptype]'s own value: the direct read makes it impossible for the count
-    layer to leak a gate-admitted constant (the review-R8 side-condition-leak class killed
+    layer to leak a gate-admitted constant (the side-condition-leak class killed
     structurally, not per-witness). *)
 Lemma shift_count_const_total : forall rv b c z,
   ptype b = Some c -> int_const_val c = Some z ->

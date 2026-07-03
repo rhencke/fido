@@ -91,7 +91,7 @@ Example demo_emit_bytes :
                go_tab ++ "return" ++ go_nl ++ "}" ++ go_nl)%string.
 Proof. vm_compute; reflexivity. Qed.
 
-(** REGRESSION (P0, external review 2026-06-28): the certificate is UNFORGEABLE for an unsupported program —
+(** REGRESSION: the certificate is UNFORGEABLE for an unsupported program —
     [mkEmittable] DEMANDS a [SupportedProgram] proof, and none exists for the bare-value body
     [unsupported_value_stmt] (`func main(){ 1 }`), so [eq_refl] cannot inhabit [SupportedProgram _].  [Fail]
     locks the type-level guarantee that [emit_supported] can never print that invalid Go. *)

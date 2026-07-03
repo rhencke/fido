@@ -243,8 +243,7 @@ Proof. now vm_compute. Qed.
 Definition div_demo : IO unit :=
   println [any (div_nz (int_lit 17 eq_refl) (int_lit 5 eq_refl) eq_refl); any (mod_nz (int_lit 17 eq_refl) (int_lit 5 eq_refl) eq_refl)].   (* prints: 3 2 *)
 
-(** float64 is the AXIOM-FREE [SpecFloat.spec_float] (IEEE 754 double over [Z]
-    #13→zero-axioms), the same binary64 as Go's float64, so arithmetic agrees bit-for-bit
+(** float64 is the AXIOM-FREE [SpecFloat.spec_float] (IEEE 754 double over [Z]), the same binary64 as Go's float64, so arithmetic agrees bit-for-bit
     ([f64_add]/[f64_div]/… are [SF*] definitions; literals like [1.5] are parsed to the
     correctly-rounded [spec_float] and emitted as the exact Go hex-float).  (Go's [println]
     formats float64 in scientific notation — Go's builtin behaviour, captured by the golden.) *)
@@ -330,7 +329,7 @@ Definition fcmp_demo : IO unit :=
 (** int64 -> float64 conversion ([f64_of_i64], Go [float64(i)]) -- MODELED + machine-checked:
     [7 -> 7.0] and the SIGNED case [-3 -> -3.0].  The [Z]-carried [GoI64] is rounded ONCE to
     binary64 via [SpecFloat.binary_normalize] (axiom-free; >= 2^53 rounds exactly like Go, and
-    [MININT = -2^63] is handled directly — no [of_uint63] sign-split->zero-axioms).
+    [MININT = -2^63] is handled directly — no [of_uint63] sign-split).
     Recognized by name -> native Go [float64(i)]; the body is suppressed.  The reverse,
     float64 -> int64 TRUNCATION ([i64_of_f64]), also lowers now -- [spec_float] decomposes
     DIRECTLY (no float-primitive needed). *)
@@ -465,7 +464,7 @@ Definition i64_to_narrow_demo : IO unit :=
           ; any (i8_of_i64  (i64_lit 200 eq_refl))          (* int8(200)     = -56  *)
           ; any (u16_of_i64 (i64_lit 70000 eq_refl))        (* uint16(70000) = 4464 *)
           ; any (i32_of_i64 (i64_lit 5000000000 eq_refl)) ]. (* int32(5e9)    = 705032704 *)
-(** P0 #2 LOCK (code review): a narrow value through a [let] must box as its REAL Go type, not its
+(** NARROW-LET LOCK: a narrow value through a [let] must box as its REAL Go type, not its
     int64 carrier.  [xu8 : GoU8] is bound via a [let]; [type_assert_safe TU8 (any xu8)] must SUCCEED
     (ok1=true) and [TI64] must FAIL (ok2=false) — the boxed dynamic type is [uint8], DISTINCT from
     [int64], exactly as Go's [v.(uint8)] / [v.(int64)] decide and as the model's [tag_eq] says.
@@ -733,7 +732,7 @@ Definition f32_conv_demo : IO unit :=
     Round-tripped through float32 and printed as an int to keep the witness format-free. *)
 Definition narrow_f32_demo : IO unit :=
   println [ any (i64_of_f64 (f64_of_f32 (f32_of_i64 (i64_of_u8 (u8_lit 200 eq_refl))))) ].   (* uint8 200 → float32 → int64: 200 *)
-(** REGRESSION (code review): a float op on CONSTANTS must extract as a RUNTIME IEEE operation,
+(** REGRESSION: a float op on CONSTANTS must extract as a RUNTIME IEEE operation,
     NOT a Go constant expression — Go constants cannot denote -0/±Inf/NaN, and a constant [/0] or
     [float32] overflow are COMPILE ERRORS.  The extractor now forces runtime (typed IIFE) for any
     float op whose operands are not runtime variables.  Model values (machine-checked) and the
@@ -747,7 +746,7 @@ Definition f32_const_runtime_demo : IO unit :=
           ; any (f32_div (f32_lit 1) (f32_neg (f32_lit 0)))   (* -Inf  (proves -0 preserved; pre-fix +0 → +Inf) *)
           ; any (f32_lit 1e40)                                 (* +Inf  (pre-fix: Go compile error, const overflow) *)
           ; any (f64_div 1 0)%go64 ].                   (* float64 +Inf (same class) *)
-(** DIRECT int → float32 (code review): [f32_of_i64]/[f32_of_int]/[f32_of_u64] round the integer
+(** DIRECT int → float32: [f32_of_i64]/[f32_of_int]/[f32_of_u64] round the integer
     ONCE to binary32, faithfully modelling Go's [float32(x)].  For |x| > 2^53 this DIFFERS from the
     double-rounding [f32_of_f64 (f64_of_int x)] = [float32(float64(x))], DISPROVING the earlier
     "single-rounding-equivalent" claim.  Reviewer's witness, x = 2^61+2^37+1 = 2305843146652647425: *)
@@ -892,7 +891,7 @@ Example i64_of_f64_zero  : i64_of_f64 0%go64         = (0)%i64.       Proof. vm_
 Example i64_of_f64_big   : i64_of_f64 1000000.9%go64 = (1000000)%i64. Proof. vm_compute. reflexivity. Qed.
 (** LOWERED to native Go [int64(f)]: [i64_of_f64] is recognized by name; its [f64_trunc_Z]
     body — which decomposes the [spec_float] [S754_finite s m e] DIRECTLY (no [Prim2SF] /
-    [normfr_mantissa] primitive→zero-axioms) — is suppressed.  The MODEL is
+    [normfr_mantissa] primitive) — is suppressed.  The MODEL is
     faithful and machine-checked above. *)
 
 
@@ -1891,7 +1890,7 @@ Definition complex_neg_demo : IO unit :=
   let c := go_complex (3.0)%go64 (4.0)%go64 in
   let n := complex_neg c in
   println [any (go_real n); any (go_imag n)].   (* -3 -4 *)
-(** REGRESSION (code review): complex ops on CONSTANTS must extract as RUNTIME IEEE — Go constants
+(** REGRESSION: complex ops on CONSTANTS must extract as RUNTIME IEEE — Go constants
     cannot denote a complex -0/±Inf/NaN, and constant /0 fails to compile (the complex parallel of the
     float constant-vs-runtime fix).  [complex_neg] / [complex_add/sub/mul/div] are now forced to
     runtime via typed IIFEs unless an operand is a runtime variable. *)
@@ -2021,7 +2020,7 @@ Definition mut_demo : IO unit :=
   bind (ref_get TInt64 r)          (fun b =>  (* b := r  (= 15) *)
   println [any b])))).                         (* prints 15 *)
 
-(** Narrow [Ref] type-IDENTITY (P1 #4 narrow-Ref residual): a [Ref GoU8] now lowers to a Go [uint8]
+(** Narrow [Ref] type-IDENTITY (the narrow-Ref residual): a [Ref GoU8] now lowers to a Go [uint8]
     cell, not the [int64] carrier — so a value read back, boxed, and asserted resolves to [uint8] (true)
     NOT [int64] (false), agreeing with the model's [TU8] tag.  [ref_new TU8] casts the init via its tag;
     [ref_set] casts via the value's own narrow type.  Without the fix the cell was [int64] (`false true`).
@@ -2351,7 +2350,7 @@ Example slice_write_past_len_panics : forall (v : GoI64) (w : World),
     = OPanic (rt_index_oob 1 1) w.
 Proof. intros v w. apply run_slice_idx_set_oob. now vm_compute. Qed.
 
-(** review R5 follow-up: the model REALLOCATES to cap = len+1 (NO spare), so a SECOND append after a
+(** The model REALLOCATES to cap = len+1 (NO spare), so a SECOND append after a
     realloc reallocates again → disjoint backing.  The plugin now FORCES Go's realloc capacity to len+1
     (a manual `make([]T, len+1, len+1)` copy) to match — if it left Go's native `append` to over-allocate,
     the 2nd append would go IN PLACE into Go's spare and ALIAS where the model says disjoint.  Here:
@@ -2966,7 +2965,7 @@ Definition het_ptr_demo : IO unit :=
 
 (** The field COHERENCE is ENFORCED, not decorative: a [gfield_coh] witness for a
     MISMATCHED (idx, proj) or (proj, tag) pairing does NOT typecheck, so a struct-pointer access can
-    never name one field while addressing another cell (exact defect the review flagged). *)
+    never name one field while addressing another cell (the field/cell-mismatch defect). *)
 Fail Definition cell_bad_coh   (* cy is field 1 (MNext MHere), not field 0 (MHere) — coh unprovable *)
   : gfield_coh (R:=Cell) MHere cy := eq_refl.
 Fail Definition pair_bad_type  (* field 0 is p_n:int64, not p_b:bool — the typed index rejects the mismatch *)
@@ -3337,8 +3336,8 @@ Definition gstruct_demo : IO unit :=
   bind (println [any (box_get (make_box true))])         (fun _ =>   (* Box[bool] → true (same generic) *)
   println [any (box_tag (make_box "x"%string))])).                   (* non-generic field → 1 *)
 
-(** review-driven: a generic struct instantiated at a NARROW type ([Box GoU8] = [Box[uint8]]).  The
-    P1 #4 struct-field / function-arg casts key off the DECLARED type, which here is a type VARIABLE
+(** A generic struct instantiated at a NARROW type ([Box GoU8] = [Box[uint8]]).  The
+    narrow-boundary struct-field / function-arg casts key off the DECLARED type, which here is a type VARIABLE
     [A] ⇒ [narrow_dest_conv] is None ⇒ no cast.  The value [u8_of_i64 …] is an int64-masked carrier, so
     `Make_box[uint8](x & 0xff)` would pass an int64 to a [uint8] type-param = invalid Go (the generics×
     narrow fail-open).  Reading back widens via [i64_of_u8]. *)

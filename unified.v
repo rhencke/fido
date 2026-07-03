@@ -83,7 +83,7 @@ Record UConfig := mkUCfg {
     a buffer holding at most [n].  [uroom ucap b c] is "[c] has room for one more send": always for unbounded,
     else iff the FIFO is shorter than the capacity.  A send STEPS only with room; a full-buffer send BLOCKS
     (it is a [ublocked] shape), exactly Go's buffered-channel semantics — so [ustep_send] is no longer the
-    UNBOUNDED append the review flagged.  The relation is parametrised by [ucap]; the [rstep] embedding
+    UNBOUNDED-append deviation.  The relation is parametrised by [ucap]; the [rstep] embedding
     instantiates it to [fun _ => None] (unbounded), matching the unbounded [rstep] buffer. *)
 Definition uroom (ucap : nat -> option nat) (b : nat -> list (V * nat)) (c : nat) : bool :=
   match ucap c with
@@ -196,7 +196,7 @@ Qed.
 
 (** ---- SANITY: the new effects are operational and faithful ---- *)
 
-(** OUTPUT is recorded (no longer erased — the old [run_io] no-op the review flagged): printing [xs] with
+(** OUTPUT is recorded (no longer erased — the old [run_io] no-op dropped it): printing [xs] with
     println-flag [pr] appends [(tid, (pr, xs))] to the log (the print/println distinction is preserved). *)
 Lemma ustep_out_records : forall p b h lv tr o df pa tid pr xs k,
   lv tid = true -> p tid = UOut pr xs k ->
@@ -699,7 +699,7 @@ Notation UCmdN := (@UCmd nat).
 (** ============================================================================
     SLICE 4 — the unified semantics, DEMONSTRATED on concrete all-effects executions.
 
-    These are the "ordinary program combining the effects, machine-checked" the review asked for:
+    These are the "ordinary program combining the effects", machine-checked:
     concrete [usteps] runs exercising panic + defer + output (and heap), proving the unified semantics
     behaves faithfully — in particular the defer/panic interaction that was the cmd.v P0 bug, now
     operational AND in the concurrent step relation. *)

@@ -679,7 +679,7 @@ Proof.
        end) ].
 Qed.
 (** ★ the LIVE endpoints (gated): every ACCEPTED float payload is ZERO or satisfies
-    [binary_round_exact]'s premises — the review-demanded zero/nonzero split over [ptype]
+    [binary_round_exact]'s premises — the zero/nonzero split over [ptype]
     itself, no caller-side window obligation left. *)
 Theorem ptype_float_payload_f64 : forall e d,
   ptype e = Some (PtFloatConst GTFloat64 d) ->
