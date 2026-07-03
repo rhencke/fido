@@ -594,11 +594,11 @@ let classify_go_type_tag r =
 (** Recursive tag → Go type string.  Handles composite tags (TChan, TSlice, TMap)
     by recursing into their argument tags. *)
 (* ── Bridge to the VERIFIED, Rocq-extracted printer (GoAst.v + GoPrint.v → printer.ml, module [Printer]) ──
-   The hand-written renderer below is being REPLACED, one fragment at a time, by [Printer.print_ty]
-   (a Rocq function with [print_ty_inj] proved).  [coq_string_to_ocaml] crosses the Coq-string ↔
-   OCaml-string boundary; [coq_goty_of_tag] builds the [Printer.goTy] for the fragment the verified
-   AST currently covers (base scalars + pointer/slice of them); [None] ⇒ fall back to the raw renderer
-   (uint subtypes / maps / chans / nominal structs — not yet in the Rocq AST). *)
+   [coq_string_to_ocaml] crosses the Coq-string ↔ OCaml-string boundary; [coq_goty_of_tag] builds
+   the [Printer.goTy] for every renderable tag (scalars incl. the fixed widths, nominal struct tags
+   via [mk_named_ty], ptr/slice/chan/map compositions) and [Printer.print_ty] ([print_ty_inj]
+   proved) renders it; [None] is the fail-loud boundary ([go_type_of_tag] refuses TUnit/TArrow/
+   TProd and unhandled composites rather than emit `any`). *)
 let char_of_coq_ascii = function
   | Printer.Ascii (a0,a1,a2,a3,a4,a5,a6,a7) ->
       let b v i = (match v with Printer.True -> 1 lsl i | Printer.False -> 0) in
@@ -2930,7 +2930,7 @@ let rec pp_expr state env = function
                     unsupported "a list with a non-literal spine (cons whose tail is not statically known)"
                 | None ->
                     unsupported ("constructor " ^ global_basename r ^
-                                 " (only nat/bool/list/option constructors are modeled)"))
+                                 " in value position (modeled: unit/bool/enum/nil, numeric/float/string literal encodings, vararg, defined-type casts, record struct literals; matches lower in statement position)"))
            | _ -> unsupported "a non-constructor value in constructor position")
 
   | MLmagic e -> pp_expr state env e
@@ -4189,9 +4189,14 @@ let pp_io_body ?(ret_val=false) state tab env body =
 
   (* Emit an [MLcase] as Go statements.  [mk_body] transforms each arm's body
      before it is printed: the identity in tail position, or "wrap in [bind …
-     k]" when a continuation must be threaded into every arm.  Only [bool]
-     matches (i.e. [if]/[else]) are lowered for now; richer inductives and
-     type switches follow. *)
+     k]" when a continuation must be threaded into every arm.  Live shapes, in
+     match order: ENUM match (all-nullary constructors, any arity ≥ 2) → a Go
+     [switch], checked first so a 2-value enum also switches; then the 2-arm
+     shapes — BOOL → [if]/[else]; OPTION fused with its [map_get_opt] producer
+     → comma-ok map lookup (a FREE option value is not representable); NAT
+     zero/succ → [if n == 0] / [k := n - 1]; LIST nil/cons → len test +
+     head/tail reslice.  Any other shape ABORTS extraction ([unhandled] →
+     [unsupported]). *)
   and emit_case tab env typ scrut branches mk_body =
     (* Branch binders are stored in constructor order [arg0; …; argN]; the body
        env is [List.rev ids @ env] (innermost binder = last arg = MLrel 1),
@@ -4202,7 +4207,7 @@ let pp_io_body ?(ret_val=false) state tab env body =
       | Pwild | Prel _ | Ptuple _ -> (None, ids, body)
     in
     let unhandled () =
-      unsupported "a match of this shape in statement position (only if/bool, option comma-ok, and list nil/cons are modeled)"
+      unsupported "a match of this shape in statement position (modeled: enum switch, if/bool, map-lookup option comma-ok, nat zero/succ, list nil/cons)"
     in
     (* Emit a two-arm if/else; [pre] (e.g. an "x, ok :=" init clause) precedes
        the condition, and [tenv]/[fenv] are the branch environments. *)
@@ -4248,7 +4253,7 @@ let pp_io_body ?(ret_val=false) state tab env body =
                (then_b, 0, env) (else_b, 0, env)
          (* option: match on [map_get_opt k m] → comma-ok lookup.  The Some arm
             binds the value; the None arm is the absent case.  Only the
-            map-lookup producer is fused; a free [option] value is not yet
+            map-lookup producer is fused; a free [option] value is not
             representable. *)
          | Some c1, Some c2
            when (is_some_ctor c1 && is_none_ctor c2)
@@ -4596,7 +4601,7 @@ let pp_function state name body typ =
      polymorphism imposes no operations on the type).  Call sites rely on Go's type
      inference, so they need no change.  NOT emitted for a method: Go forbids a method
      from introducing its own type parameters (a generic method's params come from a
-     generic receiver type — the generic-struct feature, not yet modeled). *)
+     generic receiver type — the generic-struct feature, not modeled). *)
   let tvars =
     let fp = List.fold_left (fun acc (_, t) -> collect_tvars acc t) [] param_pairs in
     collect_tvars fp ret_type in
