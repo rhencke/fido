@@ -2025,11 +2025,12 @@ Example env_eid_pins :
   end.
 Proof. vm_compute. repeat split; reflexivity. Qed.
 
-(** ENV FLOAT pins, BOTH widths: a bound FLOAT local EVALUATES directly (the [rexit_tc] EId arm —
-    the closed runtime-float absence theorems are about the CLOSED instance only); its
-    integer-target CONVERSIONS stay ABSENT through the real tag boundary ([runint_raw] rejects a
-    float-tagged carrier); and a TAG-FORGED environment (a float32 or int value under a
-    float64-bound name) is ABSENT ([eid_exit_tag_ok]) — exact-or-absent, per category and width. *)
+(** ENV FLOAT pins — direct evaluation + the forged-tag matrix, both widths: a bound FLOAT local
+    EVALUATES directly (the [rexit_tc] EId arm — the closed runtime-float absence theorems are
+    about the CLOSED instance only), and a TAG-FORGED environment (float32 or int under a
+    float64-bound name; float64 or int under a float32-bound name) is ABSENT
+    ([eid_exit_tag_ok]).  The INTEGER-TARGET CONVERSION class is pinned separately and in FULL by
+    [env_float_conv_class]/[int_conv_kw_complete] below. *)
 Example env_float_pins :
   match scope_declare scope_empty (mkIdent "f" eq_refl) (PtRunFloat GTFloat64),
         scope_declare scope_empty (mkIdent "g" eq_refl) (PtRunFloat GTFloat32) with
@@ -2040,21 +2041,60 @@ Example env_float_pins :
       /\ denote_expr_env G32 (("g"%string, anyt TFloat32 (f32_lit (S754_zero false))) :: nil)
            (EId (mkIdent "g" eq_refl))
            = Some (CRet (anyt TFloat32 (f32_lit (S754_zero false))), false)
-      /\ denote_expr_env G64 (("f"%string, anyt TFloat64 (S754_zero false)) :: nil)
-           (ECall (EId (mkIdent "int" eq_refl)) (EId (mkIdent "f" eq_refl) :: nil)) = None
-      /\ denote_expr_env G64 (("f"%string, anyt TFloat64 (S754_zero false)) :: nil)
-           (ECall (EId (mkIdent "int64" eq_refl)) (EId (mkIdent "f" eq_refl) :: nil)) = None
-      /\ denote_expr_env G32 (("g"%string, anyt TFloat32 (f32_lit (S754_zero false))) :: nil)
-           (ECall (EId (mkIdent "int" eq_refl)) (EId (mkIdent "g" eq_refl) :: nil)) = None
       /\ denote_expr_env G64 (("f"%string, anyt TFloat32 (f32_lit (S754_zero false))) :: nil)
            (EId (mkIdent "f" eq_refl)) = None
       /\ denote_expr_env G64 (("f"%string, anyt TInt64 (intwrap 5)) :: nil)
            (EId (mkIdent "f" eq_refl)) = None
       /\ denote_expr_env G32 (("g"%string, anyt TFloat64 (S754_zero false)) :: nil)
            (EId (mkIdent "g" eq_refl)) = None
+      /\ denote_expr_env G32 (("g"%string, anyt TInt64 (intwrap 5)) :: nil)
+           (EId (mkIdent "g" eq_refl)) = None
   | _, _ => False
   end.
 Proof. vm_compute. repeat split; reflexivity. Qed.
+
+(** The integer-conversion KEYWORD table for the class pin below: every integer [GoTy] to its
+    conversion-head identifier.  [int_conv_kw_complete] seals the table against [is_int_goty]
+    (the classifier's own integer authority), so a new integer type cannot silently escape the
+    class pin. *)
+Local Definition int_conv_kw (t : GoTy) : option Ident :=
+  match t with
+  | GTInt   => Some (mkIdent "int" eq_refl)
+  | GTInt64 => Some (mkIdent "int64" eq_refl)
+  | GTUint  => Some (mkIdent "uint" eq_refl)
+  | GTU8    => Some (mkIdent "uint8" eq_refl)
+  | GTI8    => Some (mkIdent "int8" eq_refl)
+  | GTU16   => Some (mkIdent "uint16" eq_refl)
+  | GTI16   => Some (mkIdent "int16" eq_refl)
+  | GTU32   => Some (mkIdent "uint32" eq_refl)
+  | GTI32   => Some (mkIdent "int32" eq_refl)
+  | GTU64   => Some (mkIdent "uint64" eq_refl)
+  | GTBool | GTString | GTFloat64 | GTFloat32
+  | GTPtr _ | GTSlice _ | GTChan _ | GTMap _ _ | GTNamed _ => None
+  end.
+Lemma int_conv_kw_complete : forall t, is_int_goty t = true -> exists i, int_conv_kw t = Some i.
+Proof. intros t H; destruct t; try discriminate H; eexists; reflexivity. Qed.
+
+(** ★ THE ENV FLOAT CONVERSION CLASS — QUANTIFIED over EVERY integer target (both engine paths:
+    the [GTInt] arm in [reval_int_tc] and the non-[GTInt] exit in [rexit_tc]) and BOTH float
+    widths: an integer-keyword conversion of a float-bound local is ABSENT — the resolved carrier
+    is float-tagged, so [runint_raw] rejects it.  Exact-or-absent for the WHOLE class, not a
+    sample ([int_conv_kw_complete] seals target coverage). *)
+Example env_float_conv_class :
+  forall t i, int_conv_kw t = Some i ->
+  match scope_declare scope_empty (mkIdent "f" eq_refl) (PtRunFloat GTFloat64),
+        scope_declare scope_empty (mkIdent "g" eq_refl) (PtRunFloat GTFloat32) with
+  | Some G64, Some G32 =>
+      denote_expr_env G64 (("f"%string, anyt TFloat64 (S754_zero false)) :: nil)
+        (ECall (EId i) (EId (mkIdent "f" eq_refl) :: nil)) = None
+      /\ denote_expr_env G32 (("g"%string, anyt TFloat32 (f32_lit (S754_zero false))) :: nil)
+           (ECall (EId i) (EId (mkIdent "g" eq_refl) :: nil)) = None
+  | _, _ => False
+  end.
+Proof.
+  intros t i H; destruct t; try discriminate H; injection H as <-;
+    vm_compute; split; reflexivity.
+Qed.
 
 (** The pure inclusion: an expression the fold gives a value to denotes to exactly [CRet] of that value
     (fall-through — a pure expression cannot terminate control flow). *)
