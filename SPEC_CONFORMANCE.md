@@ -818,7 +818,7 @@ keep them separate:
 - **(R2) cmd.v `CDfr` / `run_defers` — the FAITHFUL model:** `cmd.v` models `defer` as `CDfr d k`;
   `run_defers` (via `run_cmd`, the SOLE `Cmd` interpreter) runs the LIFO stack at func-scope return — a
   panicking defer REPLACES the active panic (last-raised-wins) but the older defers STILL run (review #12),
-  every defer's effects happen.  `bridge_agrees` proves the `ustep` run AGREES with this for ANY command.
+  every defer's effects happen.  `bridge_agrees` proves the `ustep` run AGREES with this for every `no_heap` command (heap commands are modeled + translated; their agreement is the next sub-slice).
 - **(R3) GoAst `GsDefer` — STRUCTURED syntax (✓ emittable, ✓ DENOTED):** `defer <call>` is a real AST
   statement, print-injective (`print_stmt_inj`), syntactically SUPPORTED + certificate-emittable (gated to a
   call via `expr_stmt_ok`), and GoSem DENOTES it into R2's faithful model (`denote_stmt GsDefer = CDfr d (CRet

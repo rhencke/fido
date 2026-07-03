@@ -71,7 +71,16 @@ COMPLETE): `bridge_agrees` — its ladder discipline and landing checklist apply
    COMPLETION PREMISE — the same discipline as the channel slice's would-block-is-`None`;
    no side predicate, and the cmd/ustep divergence on unallocated reads (typed absence vs
    total default-bind) is unreachable inside the agreement.
-   ⚠ 2a–2c are PHASES of ONE landing, not independent green commits: every `match` over
+   ★LANDED (part i — semantics + quarantined bridge): the `Cmd` heap pair with typed
+   cells and absence-on-unallocated; option-valued `go`; `CmdEq` laws; the `no_heap`
+   fragment (`cmd_no_panic ⊆ no_heap`); `run_cmd_terminates` on it; `cmd_to_ucmd`
+   translates heap 1-for-1 (`UFrag` grown); `bridge_agrees` QUARANTINED to `no_heap`
+   (`cread_unallocated_absent` pins why no unconditional heap bridge exists);
+   `run_cmd_out_monotone` stays premise-free (re-grounded in `go` directly via
+   `go_out_monotone` — true with heap ops).  Part ii (the heap AGREEMENT: initial
+   `heap_agrees` premise, generalized start heap, completion premise, final-heap
+   agreement) is the next sub-slice.
+   ⚠ 2a–2c phases of the original ladder note, kept for the record: every `match` over
    `Cmd` must be revisited in the same commit, and Phase A's statement itself generalizes
    (the config heap is no longer fixed across a body run once writes exist) — the
    invariant IS the landing.  Coq's exhaustiveness check bites ONLY because the repo's

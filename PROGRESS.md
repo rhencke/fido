@@ -59,9 +59,11 @@ field selectors, runtime numeric conversions, fixed-width bridging binops — th
   - NO BehaviorSafe; main output still legacy. Zero axioms.
 - **Model layer** (proof-only): `builtins.v`, `cmd.v`, `unified.v` (race-freedom/liveness proved on
   `ustep`), `concurrency.v`.
-- **cmd↔unified bridge** (`cmd_unified.v`): the general `bridge_agrees` — for ANY command the `ustep`
-  run agrees with `run_cmd` (panic, output, completion); termination via `cmd.run_cmd_terminates`.
-  ⚠ chan/heap/spawn later. Zero axioms.
+- **cmd↔unified bridge** (`cmd_unified.v`): `bridge_agrees` — for every `no_heap` command the `ustep`
+  run agrees with `run_cmd` (panic, output, completion); termination via `cmd.run_cmd_terminates`
+  (same fragment). Heap commands (`CWrite`/`CRead`, typed cells, absence on unallocated access) are
+  MODELED + TRANSLATED but not yet bridged (the heap-agreement sub-slice; `cread_unallocated_absent`
+  pins why no unconditional bridge exists). ⚠ chan/spawn later. Zero axioms.
 - **GoSemSafe** — panic-freedom properties + the narrow gate: `panic_free_runs_ret`(+`_ustep`),
   decidable `panic_free_denotable`, `PanicFreeEmittable` refining `EmittableProgram`,
   `panic_free_gate` (sound+complete) + `emit_panic_free_gated`. Both rejection mechanisms pinned

@@ -33,7 +33,9 @@ Fixpoint cmd_out_world (c : Cmd unit) (w : World) : World :=
   | COut b xs c' => cmd_out_world c' (w_log b xs w)
   | CRet _ => w
   | CPan _ => w
-  | CDfr _ _ => w      (* dead under the [no_defer] premise of every consumer *)
+  | CDfr _ _ => w        (* dead under the [no_defer] premise of every consumer *)
+  | CWrite _ _ _ => w    (* dead: heap ops are outside the [no_defer] fragment *)
+  | CRead _ _ => w       (* dead: heap ops are outside the [no_defer] fragment *)
   end.
 
 (** The panic value a defer-free command ends in ([None] if it never panics). *)
@@ -42,20 +44,24 @@ Fixpoint cmd_panic_val (c : Cmd unit) : option GoAny :=
   | COut _ _ c' => cmd_panic_val c'
   | CPan v => Some v
   | CRet _ => None
-  | CDfr _ _ => None   (* dead under the [no_defer] premise of every consumer *)
+  | CDfr _ _ => None     (* dead under the [no_defer] premise of every consumer *)
+  | CWrite _ _ _ => None (* dead: heap ops are outside the [no_defer] fragment *)
+  | CRead _ _ => None    (* dead: heap ops are outside the [no_defer] fragment *)
   end.
 
 (** A defer-free command that DOES panic ([cmd_panic_val = Some v]) runs (via [go]) to [OPanic v] with the
     EXACT pre-panic output [cmd_out_world c w] — faithful: the outputs BEFORE the panic still happen, then the
     panic carries [v]. *)
 Lemma go_panics_world : forall c w v,
-  no_defer c = true -> cmd_panic_val c = Some v -> go c w = (OPanic v (cmd_out_world c w), nil).
+  no_defer c = true -> cmd_panic_val c = Some v -> go c w = Some (OPanic v (cmd_out_world c w), nil).
 Proof.
-  intro c; induction c as [a | b xs c' IH | v0 | d c' IH] using Cmd_rect';
+  intro c; induction c as [a | b xs c' IH | v0 | d c' IH | l v0 c' IH | l f IH] using Cmd_rect';
     intros w v Hnd Hpv; cbn [go no_defer cmd_panic_val cmd_out_world] in *.
   - discriminate Hpv.
   - exact (IH (w_log b xs w) v Hnd Hpv).
   - injection Hpv as ->. reflexivity.
+  - discriminate Hnd.
+  - discriminate Hnd.
   - discriminate Hnd.
 Qed.
 
@@ -74,7 +80,7 @@ Theorem panic_free_runs_ret : forall (c : Cmd unit) w,
   exists fuel w', run_cmd fuel c w = Some (ORet tt w').
 Proof.
   intros c w Hnp.
-  destruct (run_cmd_terminates c w) as [fuel [oc Hrun]].
+  destruct (run_cmd_terminates c w (cmd_no_panic_no_heap c Hnp)) as [fuel [oc Hrun]].
   destruct (run_cmd_no_panic_ret fuel c w oc Hrun Hnp) as [w' ->].
   exists fuel, w'. exact Hrun.
 Qed.
@@ -124,7 +130,7 @@ Proof.
 Qed.
 
 (** ★ The panic-freedom guarantee reaches the OPERATIONAL semantics.  Composing the GENERAL cmd↔unified bridge
-    [cmd_unified.bridge_agrees] (for ANY command — defers included — the [ustep] run AGREES with the
+    [cmd_unified.bridge_agrees] (for every [no_heap] command — defers included; [cmd_no_panic] entails it — the [ustep] run AGREES with the
     deterministic [run_cmd]) with [run_cmd_no_panic_ret]: a [CPan]-free command runs under [ustep] — the
     calculus [unified.v]'s race-freedom / liveness are proved on — to COMPLETION ([uc_live 0 = false]) with NO
     panic ([uc_panic 0 = None]), its output equal to the [run_cmd] [ORet] run's.  cmd.v's [run_cmd] STAYS the
@@ -140,7 +146,8 @@ Theorem panic_free_runs_ret_ustep : forall (vz : GoAny) (c : Cmd unit) ucap w,
     /\ w_output w' = w_output w ++ map snd (uc_out uc).
 Proof.
   intros vz c ucap w Hnp.
-  destruct (bridge_agrees vz c ucap w) as [uc [oc [fuel [Hus [Hrun [Hlive [Hpan Hout]]]]]]].
+  destruct (bridge_agrees vz c ucap w (cmd_no_panic_no_heap c Hnp))
+    as [uc [oc [fuel [Hus [Hrun [Hlive [Hpan Hout]]]]]]].
   destruct (run_cmd_no_panic_ret fuel c w oc Hrun Hnp) as [w' ->].
   exists uc, w', fuel. split; [ exact Hrun | split; [ exact Hus | split; [ exact Hlive | split ] ] ].
   - rewrite Hpan. reflexivity.
