@@ -1,9 +1,14 @@
 # The general dyadic↔SF* agreement arc
 
-GOAL (the frontier stated at `GoSem.v` `fsf_checked`'s header): prove ONCE that the gate's exact
-dyadic folds agree with the model's `SF*` ops on the admitted class, so `fsf_checked`'s per-node
-runtime re-verification (`sf_eqb_struct (f va vb) vr`) is provably total there — a CLASS theorem
-replacing a per-expression check.  Everything is Z/positive arithmetic on `SpecFloat`'s own
+GOAL (the frontier stated at `GoSemCore.v` `fsf_checked`'s header): prove ONCE that the gate's
+exact dyadic folds agree with the CONSTANT-op layer — `sf_const_binop`/`sf_const_neg`, the
+checker's own verification ops (`sf_pos_zero` zero-sign erasure over the raw `SF*` model ops;
+Go constants are exact rationals with no `-0`) — on the admitted class, so `fsf_checked`'s
+per-node runtime re-verification (`sf_eqb_struct (f va vb) vr`) is provably total there — a
+CLASS theorem replacing a per-expression check.  Where the raw op cannot sign a zero on
+rendered operands the endpoint is stated RAW (`f64_add`/`f64_sub`, rung 5); where it can
+(MUL's zero rows) the endpoint IS the erased layer (rung 6).  Everything is Z/positive
+arithmetic on `SpecFloat`'s own
 definitions (`binary_round`/`shl_align`/`shr_fexp`) — NO Flocq, NO real-number semantics; the
 value quotient is `dy_norm` (the odd-mantissa normal form), never ℝ.
 
