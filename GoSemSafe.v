@@ -130,7 +130,7 @@ Proof.
 Qed.
 
 (** ★ The panic-freedom guarantee reaches the OPERATIONAL semantics.  Composing the GENERAL cmd↔unified bridge
-    [cmd_unified.bridge_agrees] (for every [no_heap] command — defers included; [cmd_no_panic] entails it — the [ustep] run AGREES with the
+    [cmd_unified.bridge_heap_agrees] (any COMPLETING command — [cmd_no_panic] entails [no_heap], whose completion is [run_cmd_terminates] — the [ustep] run AGREES with the
     deterministic [run_cmd]) with [run_cmd_no_panic_ret]: a [CPan]-free command runs under [ustep] — the
     calculus [unified.v]'s race-freedom / liveness are proved on — to COMPLETION ([uc_live 0 = false]) with NO
     panic ([uc_panic 0 = None]), its output equal to the [run_cmd] [ORet] run's.  cmd.v's [run_cmd] STAYS the
@@ -140,15 +140,16 @@ Theorem panic_free_runs_ret_ustep : forall (vz : GoAny) (c : Cmd unit) ucap w,
   cmd_no_panic c = true ->
   exists (uc : UConfig) (w' : World) (fuel : nat),
     run_cmd fuel c w = Some (ORet tt w')                    (* cmd.v's AUTHORITATIVE panic-free [ORet] run — grounds [w'] *)
-    /\ usteps vz ucap (ustart vz (cmd_to_ucmd c)) uc
+    /\ usteps vz ucap (ustart_w vz w (cmd_to_ucmd c)) uc
     /\ uc_live uc 0 = false
     /\ uc_panic uc 0 = None
     /\ w_output w' = w_output w ++ map snd (uc_out uc).
 Proof.
   intros vz c ucap w Hnp.
-  destruct (bridge_agrees vz c ucap w (cmd_no_panic_no_heap c Hnp))
-    as [uc [oc [fuel [Hus [Hrun [Hlive [Hpan Hout]]]]]]].
+  destruct (run_cmd_terminates c w (cmd_no_panic_no_heap c Hnp)) as [fuel [oc Hrun]].
   destruct (run_cmd_no_panic_ret fuel c w oc Hrun Hnp) as [w' ->].
+  destruct (bridge_heap_agrees vz c ucap w fuel (ORet tt w') Hrun)
+    as [uc [Hus [Hlive [Hpan [Hout _]]]]].
   exists uc, w', fuel. split; [ exact Hrun | split; [ exact Hus | split; [ exact Hlive | split ] ] ].
   - rewrite Hpan. reflexivity.
   - cbn [oc_world] in Hout. exact Hout.
@@ -183,7 +184,7 @@ Theorem panic_free_denotable_runs_ret_ustep : forall (vz : GoAny) p ucap w,
   exists c uc w' fuel,
     denote_program p = Some c
     /\ run_cmd fuel c w = Some (ORet tt w')
-    /\ usteps vz ucap (ustart vz (cmd_to_ucmd c)) uc
+    /\ usteps vz ucap (ustart_w vz w (cmd_to_ucmd c)) uc
     /\ uc_live uc 0 = false
     /\ uc_panic uc 0 = None
     /\ w_output w' = w_output w ++ map snd (uc_out uc).

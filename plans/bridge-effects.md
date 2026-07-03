@@ -4,7 +4,7 @@ GOAL: extend the bridge's common fragment past output/panic/return/defer — `Cm
 heap/channel/spawn effects, `run_cmd` stays THE sequential authority (interpreting them
 against `World`'s typed `w_refs`/`w_chans`), and the public agreement theorems grow to
 cover the new constructors.  Proof-only (no golden/plugin risk).  Predecessor arc (defer,
-COMPLETE): `bridge_agrees` — its ladder discipline and landing checklist apply verbatim.
+COMPLETE): its ladder discipline and landing checklist apply verbatim (its capstone theorem has since been subsumed by the heap bridge).
 
 ## The value-universe fork (decided up front — the design crux)
 
@@ -35,10 +35,8 @@ COMPLETE): `bridge_agrees` — its ladder discipline and landing checklist apply
   ⚠ THE GoAny INSTANCE CARRIES NO ZERO SEMANTICS: Go's closed-recv zero is PER ELEMENT
   TYPE, and no single `GoAny` can stand for all of them.  Every public bridge statement
   therefore QUANTIFIES the calculus' `vzero` parameter universally (`cmd_unified`'s
-  `Section BridgeVal` variable `vz`), with TWO distinct licenses: `bridge_agrees` (and the
-  other `no_heap`-fragment statements) by the gated no-`vz` seal `cmd_to_ucmd_novz` (that
-  image binds nothing from `vzero` or the `vz`-defaulted heap); `bridge_heap_agrees`
-  by its OWN side conditions — the `ustart_w` start heap mirrors the World's ALLOCATED
+  `Section BridgeVal` variable `vz`): `bridge_heap_agrees`'s license is its side
+  conditions — the `ustart_w` start heap mirrors the World's ALLOCATED
   cells (`heap_of_world_agrees`) and the `go`-completion premise keeps the run inside
   them, so the `vz` defaults on unallocated locations are never consulted.  ⛔ PRECONDITION
   FOR SLICE 3 (channels): the closed-recv zero must be represented STRUCTURALLY first —
@@ -63,7 +61,7 @@ COMPLETE): `bridge_agrees` — its ladder discipline and landing checklist apply
      premise `run_cmd = Some` is the well-formedness gate; `cread_unallocated_absent`
      pins why no unconditional heap bridge exists).
    - Fragments: `no_heap` (decidable; `cmd_no_panic ⊆ no_heap`, `no_defer ⊆ no_heap`)
-     carries `run_cmd_terminates` and the general defer bridge `bridge_agrees`;
+     carries `run_cmd_terminates`;
      `run_cmd_out_monotone` stays premise-free for ANY `c` (grounded in `go` via
      `go_out_monotone`).
    - Seals: `UFrag`/`cmd_to_ucmd_fragment` = translated image (no channel/spawn form
@@ -81,19 +79,11 @@ COMPLETE): `bridge_agrees` — its ladder discipline and landing checklist apply
    layer is undefinable under a binder, so semantic grounding in `go` replaces it where
    heap ops must be covered; every `Cmd` match stays WILDCARD-FREE (a wildcard arm is
    fail-open in proof form).
-   REMAINING — the SUBSUMPTION LANDING (decision TAKEN 2026-07-03, hypothesis-strength
-   rule): `bridge_agrees` is now literally `run_cmd_terminates ∘ bridge_heap_agrees`, so
-   it is DELETED, not restated — along with the syntactic panic lane that existed only to
-   prove it (`bridge_agrees_complete`, `unwind_prefix_panic`, the `nested_defers_panic`
-   family + `run_defers_panic_eq` + `run_cmd_panic_char`, and `ustart` — every consumer
-   moves to `ustart_w`).  GoSemSafe's two ustep theorems recompose as
-   `run_cmd_terminates` (via `cmd_no_panic_no_heap`) + `bridge_heap_agrees`.  KEEP: the
-   projections + `go_chars` + `run_defers_no_panic`/`cmd_no_panic_defers`/
-   `cmd_no_panic_cmd_panic` ONLY IF `run_cmd_no_panic_ret`'s proof still needs them
-   (checked at the landing; a semantic `go_no_panic` tree induction can retire them too);
-   `pop_defer_step`/`body_runs_sem`/`unwind_heap`/seed-linearity/`map_snd_pair0`/
-   `oc*_set_world` stay (the semantic lane).  Sweep: gate lines + PROGRESS gates/bullets +
-   cmd.v/unified.v/GoSemSafe/SPEC_CONFORMANCE/plan mentions; boundary-word grep LAST.
+   ONE bridge, ONE lane: `bridge_heap_agrees` over the semantic machinery
+   (`body_runs_sem` / seed-linearity / `unwind_heap` / `pop_defer_step`); the no-panic
+   laws are `go`-grounded (`go_no_panic` → `run_defers_no_panic` →
+   `run_cmd_no_panic_ret`); GoSemSafe's operational theorems compose
+   `run_cmd_terminates` + the bridge over the `ustart_w` mirrored-heap start.
    Then 2d `CAlloc` (needs a NEW unified.v rule + trace event).
 3. **CHANNELS** (single-goroutine deterministic fragment): `CSend`/`CRecv`/`CClose`
    against `w_chans` — BLOCKED on the ⛔ precondition above (structural typed closed-recv

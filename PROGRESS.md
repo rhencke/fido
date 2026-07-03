@@ -59,13 +59,12 @@ field selectors, runtime numeric conversions, fixed-width bridging binops — th
   - NO BehaviorSafe; main output still legacy. Zero axioms.
 - **Model layer** (proof-only): `builtins.v`, `cmd.v`, `unified.v` (race-freedom/liveness proved on
   `ustep`), `concurrency.v`.
-- **cmd↔unified bridge** (`cmd_unified.v`): `bridge_agrees` — for every `no_heap` command the `ustep`
-  run agrees with `run_cmd` (panic, output, completion); termination via `cmd.run_cmd_terminates`
-  (same fragment). Heap commands (`CWrite`/`CRead`, typed cells, absence on unallocated access) are
-  MODELED + TRANSLATED + BRIDGED (`bridge_heap_agrees` — ANY completing command, heap ops and
-  defers included, end-to-end agreement incl. final heaps from the `ustart_w` mirrored-heap
-  start; `cread_unallocated_absent` pins why the completion premise is necessary).
-  ⚠ chan/spawn later. Zero axioms.
+- **cmd↔unified bridge** (`cmd_unified.v`): ONE bridge, `bridge_heap_agrees` — ANY completing
+  command (heap reads/writes with typed cells and absence on unallocated access, arbitrary defer
+  nesting, any panics) agrees with `run_cmd` end to end incl. final heaps, from the `ustart_w`
+  mirrored-heap start; for `no_heap` commands completion is the theorem `cmd.run_cmd_terminates`,
+  so the unconditional form is a two-line composition (`cread_unallocated_absent` pins why the
+  completion premise is necessary in general). ⚠ chan/spawn later. Zero axioms.
 - **GoSemSafe** — panic-freedom properties + the narrow gate: `panic_free_runs_ret`(+`_ustep`),
   decidable `panic_free_denotable`, `PanicFreeEmittable` refining `EmittableProgram`,
   `panic_free_gate` (sound+complete) + `emit_panic_free_gated`. Both rejection mechanisms pinned
@@ -101,7 +100,7 @@ assumption. The MODEL's logical trust base is empty (zero axioms); the plugin is
 Zero-axiom is gated by `Print Assumptions` in THREE flows (single-sourced here): **manifest**
 (`manifest-axioms.sh` vs empty `EXPECTED_ASSUMPTIONS.txt`) covers `main_effect` /
 `gosem_trust_surface` / `gosem_string_authority_surface` / `cmd.run_cmd_terminates` / the bridge
-surfaces (`cmd_to_ucmd_fragment` / `cmd_to_ucmd_novz` / `bridge_heap_agrees` / `bridge_agrees` / `run_cmd_out_monotone` /
+surfaces (`cmd_to_ucmd_fragment` / `cmd_to_ucmd_novz` / `bridge_heap_agrees` / `run_cmd_out_monotone` /
 `run_cmd_no_panic_ret`) / `gosem_panic_free_surface` / `builtins.slice_get_bounds_surface`;
 **printer** + **emit** (compiled STANDALONE, grep `^Axioms:`) cover the spine. A `Print Assumptions`
 under none of the three is not gated.

@@ -244,8 +244,8 @@ Definition run_cmd (fuel : nat) {A} (c : Cmd A) (w : World) : option (Outcome A)
 
 (** [no_defer c] — [c] registers no [CDfr]: a straight-line output/panic/return command.  A pure [Cmd]
     predicate, so it lives here (cmd.v); consumed by GoSemSafe's defer-free exact-output panic lemmas
-    ([go_panics_world]/[run_cmd_panics_world]).  The ustep bridge is SEPARATE: [cmd_unified.bridge_agrees]
-    covers every [no_heap] [c], defers and panics included. *)
+    ([go_panics_world]/[run_cmd_panics_world]).  The ustep bridge is SEPARATE:
+    [cmd_unified.bridge_heap_agrees] covers every COMPLETING [c] (heap, defers, panics). *)
 Fixpoint no_defer (c : Cmd unit) : bool :=
   match c with
   | CRet _ => true | COut _ _ c' => no_defer c' | CPan _ => true | CDfr _ _ => false
