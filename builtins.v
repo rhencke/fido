@@ -254,6 +254,54 @@ Proof.
     + rewrite Pos2Z.inj_xO. lia.
   - cbn. lia.
 Qed.
+(** ---- rung 6 (MUL) groundwork: the digit LOWER bound of a product, and [SFmul]'s
+    [binary_round_aux]-on-the-raw-product arm rewritten as [binary_round] when the [fexp]
+    target is at or above the raw exponent (then the inlined [shl_align] is the identity) — for
+    canonical operand renders the target premise is derivable, so the wide bridge applies. *)
+Lemma digits2_pos_upper : forall p, (Zpos p < 2 ^ Zpos (digits2_pos p))%Z.
+Proof.
+  induction p as [q IH|q IH|]; cbn [digits2_pos].
+  - rewrite Pos2Z.inj_succ, Z.pow_succ_r by lia.
+    rewrite Pos2Z.inj_xI. lia.
+  - rewrite Pos2Z.inj_succ, Z.pow_succ_r by lia.
+    rewrite Pos2Z.inj_xO. lia.
+  - cbn. lia.
+Qed.
+Lemma digits2_pos_mul_lower : forall p q,
+  (Zpos (digits2_pos p) + Zpos (digits2_pos q) - 1
+   <= Zpos (digits2_pos (Pos.mul p q)))%Z.
+Proof.
+  intros p q.
+  pose proof (digits2_pos_lower p) as Hp.
+  pose proof (digits2_pos_lower q) as Hq.
+  pose proof (digits2_pos_upper (Pos.mul p q)) as Hu.
+  rewrite Pos2Z.inj_mul in Hu.
+  set (dp := Zpos (digits2_pos p)) in *.
+  set (dq := Zpos (digits2_pos q)) in *.
+  set (dpq := Zpos (digits2_pos (Pos.mul p q))) in *.
+  destruct (Z.le_gt_cases (dp + dq - 1) dpq) as [Hle|Hgt]; [exact Hle|exfalso].
+  assert (Hpow : (2 ^ dpq <= 2 ^ (dp + dq - 2))%Z)
+    by (apply Z.pow_le_mono_r; lia).
+  assert (Hsplit : (2 ^ (dp + dq - 2) * 4 = 2 ^ dp * 2 ^ dq)%Z).
+  { change 4%Z with (2 ^ 2)%Z. rewrite <- !Z.pow_add_r by lia.
+    f_equal. lia. }
+  assert (Hp0 : (0 < 2 ^ dp)%Z) by (apply Z.pow_pos_nonneg; lia).
+  assert (Hq0 : (0 < 2 ^ dq)%Z) by (apply Z.pow_pos_nonneg; lia).
+  assert (HAB : (2 ^ dp * 2 ^ dq <= (2 * Zpos p) * (2 * Zpos q))%Z)
+    by (apply Z.mul_le_mono_nonneg; lia).
+  assert (E : ((2 * Zpos p) * (2 * Zpos q) = 4 * (Zpos p * Zpos q))%Z) by ring.
+  lia.
+Qed.
+Lemma binary_round_aux_of_round : forall prec emax s q e,
+  (e <= fexp prec emax (Zpos (digits2_pos q) + e))%Z ->
+  binary_round_aux prec emax s (Zpos q) e loc_Exact
+  = binary_round prec emax s q e.
+Proof.
+  intros prec emax s q e He.
+  unfold binary_round, shl_align.
+  destruct (fexp prec emax (Zpos (digits2_pos q) + e) - e)%Z eqn:E;
+    [reflexivity | reflexivity | exfalso; lia].
+Qed.
 Lemma digits2_pos_le_of_lt_pow : forall p k,
   (0 <= k)%Z -> (Zpos p < 2 ^ k)%Z -> (Zpos (digits2_pos p) <= k)%Z.
 Proof.
