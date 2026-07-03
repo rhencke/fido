@@ -84,23 +84,31 @@ COMPLETE): its ladder discipline and landing checklist apply verbatim (its capst
    laws are `go`-grounded (`go_no_panic` → `run_defers_no_panic` →
    `run_cmd_no_panic_ret`); GoSemSafe's operational theorems compose
    `run_cmd_terminates` + the bridge over the `ustart_w` mirrored-heap start.
-   Then 2d `CAlloc` — DESIGN WORKED (2026-07-03, paper-first):
-   - cmd side: `CAlloc : GoAny -> (nat -> Cmd A) -> Cmd A` (a second binder constructor);
-     `go`'s arm allocates at `w_next w` exactly like builtins' `ref_new` (cell := the boxed
-     value, `w_next` bumped) and recurses on `f (w_next w)` — deterministic, total.
-   - unified side, NO new state field: `UAlloc : V -> (nat -> UCmd) -> UCmd` with
-     `ustep_alloc` choosing ANY trace-FRESH `l` (no `KWrite`/`KRead` event at `l` in the
-     trace) — freshness is judged by the trace, not an allocator counter, so `UConfig` is
-     unchanged (no churn through the config literals or the rstep embedding).  The rule
-     emits `KWrite l` — allocation IS a write, so the race theory needs NO new event kind
-     and `concurrency.v` is untouched.  The bridge (a relation) INSTANTIATES the rule's
-     `l` with the cmd side's `w_next` choice; the agreement invariant extends
-     `heap_agrees` with a trace-domain bound (every traced location is allocated), making
-     the cmd's fresh location trace-fresh.
-   - `no_heap`/`cmd_no_panic` map `CAlloc` to `false` (binder; same conservative story);
-     `UFrag` grows an alloc case; `Cmd_rect'`/`cbind`/`CmdEq`/`go_no_panic`/
-     `body_runs_sem`/`unwind_heap`/`bridge_heap_agrees` each gain the arm (the invariant
-     addition is the real work).  2d is UNSTARTED — the design above is its ladder.
+   Then 2d `CAlloc` — DESIGN v2 (allocator-EXACT; the v1 trace-freshness sketch was
+   REJECTED in review as an observable nondeterministic allocator — the binder
+   continuation can branch on the chosen location, and a trace-fresh choice could clobber
+   a mirrored-but-untraced allocated cell.  Structural freshness beats churn avoidance):
+   - cmd side: `CAlloc : GoAny -> (nat -> Cmd A) -> Cmd A`; `go`'s arm allocates at
+     `w_next w` and bumps it — BUT freshness there is a THEOREM only under
+     `builtins.ValidWorld` (`ref_new`'s own invariant), so every public allocation bridge
+     surface carries a `ValidWorld w` premise, with PRESERVATION obligations through the
+     body run and the defer unwind (the `valid_alloc_*` analogs for `go`/`run_defers`).
+   - unified side: allocation gets a STRUCTURAL authority — `uc_next : nat` on `UConfig`
+     (mirrored from `World.w_next`); `ustep_alloc` allocates EXACTLY at `uc_next` and
+     bumps it (deterministic — no location choice exists to leak).  The config churn
+     (every `mkUCfg` literal, the rstep embedding at `V := nat`) is the accepted cost of
+     making bad allocation states UNREPRESENTABLE.  The rule emits `KWrite l` (allocation
+     IS a write — no new event kind).
+   - the bridge invariant: `uc_next = w_next w` (allocator agreement) alongside
+     `heap_agrees`, both threaded through `body_runs_sem`/`unwind_heap`/the assembly.
+   - regression obligations AT LANDING: (i) a continuation branching on `Nat.eqb l 0`
+     cannot reach the `l = 0` branch from a `ValidWorld`-mirrored start (location 0 is
+     reserved nil); (ii) allocation never lands on an existing allocated cell; (iii) no
+     unified allocation behavior exists beyond the cmd side's (the rule is deterministic
+     by construction).
+   - `no_heap`/`cmd_no_panic` map `CAlloc` to `false` (binder); `UFrag` grows the alloc
+     case; `Cmd_rect'`/`cbind`/`CmdEq`/`go_no_panic` gain the arm.
+   2d is UNSTARTED — the design above is its ladder.
 3. **CHANNELS** (single-goroutine deterministic fragment): `CSend`/`CRecv`/`CClose`
    against `w_chans` — BLOCKED on the ⛔ precondition above (structural typed closed-recv
    zero; two-element-type proofs).  The ustep side BLOCKS (a full-buffer send / empty-buffer recv has
