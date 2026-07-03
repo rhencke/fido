@@ -129,9 +129,17 @@ value quotient is `dy_norm` (the odd-mantissa normal form), never ℝ.
    at a lower-or-equal exponent + wide determinism at the TARGET precision, with the window
    transferred through `dy_norm` by `dy_norm_window_transfer`); narrowing is EXACT on the
    32-window, widening always.
-8. **The checker-completeness CLASS theorem**: on the admitted class `fsf_checked` ACCEPTS
-   (never returns `None` by disagreement) — then decide whether the runtime re-check stays as
-   defense-in-depth or is dropped (ARCHITECTURE call; dropping shrinks eval).
+8. **The checker-completeness CLASS theorem — IN PROGRESS**: on the admitted class
+   `fsf_checked` ACCEPTS (never returns `None` by disagreement) — then decide whether the
+   runtime re-check stays as defense-in-depth or is dropped (ARCHITECTURE call; dropping
+   shrinks eval).  Groundwork LANDED: `sf_eqb_struct_refl`, `sf_pos_zero_render_gen` (a
+   windowed render is never a signed zero), and the TOTAL const-layer NEGATION endpoints
+   `sf_render_cneg_agrees_{f64,f32}` (zero included — exactly `sf_const_neg`'s composites,
+   what the checker's unary arm compares).  REMAINING: the induction over `ptype`'s
+   `PtFloatConst` sites via `GExpr_ind'` (binop rows through the op endpoints + the
+   `sf_pos_zero` render identity; conversion rows through the same-width/cross-width
+   endpoints; int-const operand rows through `fsf_operand_with`'s interval guard, which
+   matches `num_arith`'s).
 
 ## Boundary honesty
 

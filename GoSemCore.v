@@ -2519,3 +2519,83 @@ Proof.
     apply (renorm_render_cross 24 128 53 1024 (Zneg p) e p eq_refl Hd He Hde ltac:(lia));
       unfold emin in *; lia.
 Qed.
+
+(** ---- rung 8 groundwork — checker completeness needs three glue facts: structural
+    equality is reflexive; a windowed render is never a signed zero (the CONST layer's
+    erasure is the identity there); and the checker's UNARY arm ([sf_const_neg]'s
+    composite) agrees with the render of [ptype]'s negation fold TOTALLY (zero included),
+    at each width. *)
+Lemma sf_eqb_struct_refl : forall v, sf_eqb_struct v v = true.
+Proof.
+  intros [s|s| |s m e]; cbn [sf_eqb_struct];
+    rewrite ?Bool.eqb_reflx, ?Pos.eqb_refl, ?Z.eqb_refl; reflexivity.
+Qed.
+Lemma sf_pos_zero_render_gen : forall prec emax m e p,
+  Z.abs m = Zpos p ->
+  (Zpos (digits2_pos p) <= prec)%Z ->
+  (emin prec emax <= e)%Z ->
+  (Zpos (digits2_pos p) + e <= emax)%Z ->
+  (2 <= emax)%Z ->
+  sf_pos_zero (binary_normalize prec emax m e false)
+  = binary_normalize prec emax m e false.
+Proof.
+  intros prec emax m e p Habs Hd He Hde Hemax.
+  destruct (render_signed_value_gen prec emax m e p Habs Hd He Hde Hemax)
+    as [s [mc [T [Hbn _]]]].
+  rewrite Hbn. reflexivity.
+Qed.
+(** a SEALED payload's negated pair re-normalizes to itself (zero included — a sealed zero
+    is [(0,0)], and negation fixes it) *)
+Lemma dy_norm_opp_fix : forall d : DyConst,
+  dy_norm (- dy_m d) (dy_e d) = ((- dy_m d)%Z, dy_e d).
+Proof.
+  intros d. rewrite dy_norm_opp, (dyconst_norm_fix d). reflexivity.
+Qed.
+(** ★ CONST-layer NEGATION at binary64 (gated, TOTAL): the render of [ptype]'s negation
+    fold ([dy_make (- m) e], the UNeg reseal) IS [sf_const_neg]'s composite of the operand's
+    render. *)
+Theorem sf_render_cneg_agrees_f64 : forall d : DyConst,
+  float_dyadic_repr GTFloat64 (dy_m d) (dy_e d) = true ->
+  sf_render GTFloat64 (dy_m (dy_make (- dy_m d) (dy_e d)))
+                      (dy_e (dy_make (- dy_m d) (dy_e d)))
+  = option_map (fun v => sf_pos_zero (SFopp v))
+               (sf_render GTFloat64 (dy_m d) (dy_e d)).
+Proof.
+  intros d H.
+  unfold dy_make. cbn [dy_m dy_e]. rewrite (dy_norm_opp_fix d). cbn [fst snd].
+  unfold sf_render. rewrite !renorm_sf_of_dyadic. cbn [option_map]. f_equal.
+  destruct (Z.eq_dec (dy_m d) 0) as [Ez|Enz].
+  - rewrite Ez. reflexivity.
+  - rewrite <- (binary_normalize_opp 53 1024 (dy_m d) (dy_e d) Enz).
+    symmetry.
+    assert (Hopp : float_dyadic_repr GTFloat64 (- dy_m d) (dy_e d) = true)
+      by (exact (float_dyadic_repr_opp _ _ _ H)).
+    destruct (repr_window_split_f64 (- dy_m d) (dy_e d) Hopp)
+      as [E0 | [q [Habs [Hd [He Hde]]]]]; [lia|].
+    exact (sf_pos_zero_render_gen 53 1024 (- dy_m d) (dy_e d) q Habs Hd He Hde ltac:(lia)).
+Qed.
+(** ★ CONST-layer NEGATION at binary32 (gated, TOTAL): same, over the checker's composite
+    [f32val] ∘ [f32_neg] ∘ [f32_lit]. *)
+Theorem sf_render_cneg_agrees_f32 : forall d : DyConst,
+  float_dyadic_repr GTFloat32 (dy_m d) (dy_e d) = true ->
+  sf_render GTFloat32 (dy_m (dy_make (- dy_m d) (dy_e d)))
+                      (dy_e (dy_make (- dy_m d) (dy_e d)))
+  = option_map (fun v => sf_pos_zero (f32val (f32_neg (f32_lit v))))
+               (sf_render GTFloat32 (dy_m d) (dy_e d)).
+Proof.
+  intros d H.
+  unfold dy_make. cbn [dy_m dy_e]. rewrite (dy_norm_opp_fix d). cbn [fst snd].
+  rewrite !sf_render_f32_eq. cbn [option_map]. f_equal.
+  cbn [f32_neg f32_lit f32_of_f64 f32val].
+  rewrite (f32_round_render_id (dy_m d) (dy_e d) H).
+  destruct (Z.eq_dec (dy_m d) 0) as [Ez|Enz].
+  - rewrite Ez. reflexivity.
+  - rewrite <- (binary_normalize_opp 24 128 (dy_m d) (dy_e d) Enz).
+    assert (Hopp : float_dyadic_repr GTFloat32 (- dy_m d) (dy_e d) = true)
+      by (exact (float_dyadic_repr_opp _ _ _ H)).
+    rewrite (f32_round_render_id (- dy_m d)%Z (dy_e d) Hopp).
+    symmetry.
+    destruct (repr_window_split_f32 (- dy_m d) (dy_e d) Hopp)
+      as [E0 | [q [Habs [Hd [He Hde]]]]]; [lia|].
+    exact (sf_pos_zero_render_gen 24 128 (- dy_m d) (dy_e d) q Habs Hd He Hde ltac:(lia)).
+Qed.
