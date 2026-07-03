@@ -2,7 +2,7 @@
     GoSemCore.v — GoSem's pure FOLD/FLOAT layer (the ARCHITECTURE.md §3a physical split,
     file 1): box/render ([box_int]/[box_float]/[sf_render]), the CONSTANT-fold op layer
     ([sf_const_binop]/[sf_const_neg]), the [floats_checked] boundary machinery +
-    [fsf_checked], and the dyadic↔SF* agreement arc (plans/dyadic-sf-agreement.md;
+    [fsf_checked], and the dyadic↔SF* agreement arc (COMPLETE, rungs 1–8;
     rungs 1–7 landed: NEG, the window bridges, wide determinism, ADD + SUB raw at
     binary64, MUL + exact DIV at the CONSTANT-op layer, the full f32 row incl. cross-width
     conversions; rung 8 CLOSED — the class theorem [fsf_checked_complete] plus the
@@ -93,7 +93,7 @@ Definition box_float (t : GoTy) (m e : Z) : option GoAny :=
     results no disagreement should exist — IEEE ops are correctly rounded, so an exactly
     representable result is returned exactly; ZERO results are verified under the constant rule.
     Acceptance IS total on the admitted class — the gated [fsf_checked_complete] below
-    (plans/dyadic-sf-agreement.md rung 8) — so this runtime re-verification is provably
+    (dyadic↔SF arc rung 8) — so this runtime re-verification is provably
     redundant ([floats_checked_total]: the guard never fires in the closed world); it is
     KEPT as the fail-closed boundary for the future open world — the taken ARCHITECTURE
     decision, rationale at [fc_node_total].) *)
@@ -718,7 +718,7 @@ Proof.
 Qed.
 
 (** ---- rung 4 — VALUE-DETERMINISM of [binary_normalize] on the windowed class
-    (plans/dyadic-sf-agreement.md).  No doubling induction needed: with [binary_round_exact]
+    (dyadic↔SF arc).  No doubling induction needed: with [binary_round_exact]
     both representations reduce to closed canonical forms, and DIGITS+EXPONENT is invariant
     under the odd-core split ([pos_odd_split_digits]), so the [fexp] targets coincide and the
     aligned mantissas are value-equal positives. *)
@@ -1025,7 +1025,7 @@ Proof.
   - change (- Zneg p)%Z with (Zpos p). cbn [binary_normalize].
     exact (binary_round_opp prec emax true p e).
 Qed.
-(** ---- THE GENERAL dyadic↔SF AGREEMENT ARC (plans/dyadic-sf-agreement.md) — rung 1: NEGATION at
+(** ---- THE GENERAL dyadic↔SF AGREEMENT ARC — rung 1: NEGATION at
     binary64.  Unlike the [fsf_checked_*_agrees] theorems above (which state what acceptance of the
     per-node CONST-LAYER check means), this is checker-free: the dyadic fold's render IS the sign flip
     of the operand's render, proved once over the class through the ONE normalizer sign-flip

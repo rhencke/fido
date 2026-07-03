@@ -654,14 +654,13 @@ Proof. intros fuel w H. unfold run_cmd. cbn [go]. rewrite H. reflexivity. Qed.
 
 End BridgeVal.
 
-(** The EXACT gated public-surface set for this module is the [Print Assumptions] lines below — the SINGLE
-    zero-axiom authority (the Docker manifest gate scrapes their [Axioms:] report, which must be empty).  A
-    [Print Assumptions] audits its whole dependency CONE, so EVERY Local definition here is covered TRANSITIVELY
-    through some public theorem's cone, not separately printed: the [go]-grounded [run_defers] plumbing feeds
-    the [run_cmd_*] properties, and the semantic Phase A + seed-linearity + unwind machinery ([body_runs_sem] /
-    [run_defers_seed_linear] / [unwind_heap] / [pop_defer_step]) is CONSUMED by the bridge
-    [bridge_heap_agrees]. *)
-Print Assumptions cmd_to_ucmd_fragment.
-Print Assumptions bridge_heap_agrees.
-Print Assumptions run_cmd_out_monotone.
-Print Assumptions run_cmd_no_panic_ret.
+(** PUBLIC SURFACE — this module's gated results bundled into ONE constant (the module-standard
+    surface shape), so a SINGLE [Print Assumptions] covers all their transitive cones (the Docker
+    manifest gate scrapes the [Axioms:] report, which must be empty).  EVERY Local definition here
+    is covered TRANSITIVELY through some bundled theorem's cone: the [go]-grounded [run_defers]
+    plumbing feeds the [run_cmd_*] properties, and the semantic Phase A + seed-linearity + unwind
+    machinery ([body_runs_sem] / [run_defers_seed_linear] / [unwind_heap] / [pop_defer_step]) is
+    CONSUMED by the bridge [bridge_heap_agrees]. *)
+Definition cmd_unified_surface :=
+  (cmd_to_ucmd_fragment, bridge_heap_agrees, run_cmd_out_monotone, run_cmd_no_panic_ret).
+Print Assumptions cmd_unified_surface.

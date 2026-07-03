@@ -49,10 +49,9 @@ field selectors, runtime numeric conversions, fixed-width bridging binops — th
     proved, boundary/hole rows pinned absent (frontier surface).
   - float constants exact-or-reject behind `floats_checked`; fold verification is the
     CONSTANT-op layer (`sf_const_binop`/`sf_const_neg` — no signed zero); the dyadic↔SF
-    agreement arc COMPLETE, rungs 1–8 (`plans/dyadic-sf-agreement.md`): all four ops at both
-    widths + cross-width, checker completeness `fsf_checked_complete`, and the
-    boundary-guard unreachability pair `floats_checked_total` (guard KEPT, fail-closed
-    open-world boundary).
+    agreement arc COMPLETE, rungs 1–8: all four ops at both widths + cross-width, checker
+    completeness `fsf_checked_complete`, and the boundary-guard unreachability pair
+    `floats_checked_total` (guard KEPT, fail-closed open-world boundary).
   - denotation ⊆ `SupportedProgram` (`gosem_sound`) + compositional converses.
   - public surfaces (topic-split, manifest-gated): `gosem_trust_surface`
     (core/float/slice-index/runtime-int/map/frontier) + `gosem_string_authority_surface`.
@@ -102,9 +101,8 @@ assumption. The MODEL's logical trust base is empty (zero axioms); the plugin is
 
 Zero-axiom is gated by `Print Assumptions` in THREE flows (single-sourced here): **manifest**
 (`manifest-axioms.sh` vs empty `EXPECTED_ASSUMPTIONS.txt`) covers `main_effect` /
-`gosem_trust_surface` / `gosem_string_authority_surface` / `cmd.run_cmd_terminates` / the bridge
-surfaces (`cmd_to_ucmd_fragment` / `bridge_heap_agrees` / `run_cmd_out_monotone` /
-`run_cmd_no_panic_ret`) / `gosem_panic_free_surface` / `builtins.slice_get_bounds_surface`;
+`gosem_trust_surface` / `gosem_string_authority_surface` / `cmd.run_cmd_terminates` /
+`cmd_unified_surface` / `gosem_panic_free_surface` / `builtins.slice_get_bounds_surface`;
 **printer** + **emit** (compiled STANDALONE, grep `^Axioms:`) cover the spine. A `Print Assumptions`
 under none of the three is not gated.
 

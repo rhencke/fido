@@ -132,7 +132,7 @@ Definition renorm (prec emax : Z) (v : spec_float) : spec_float :=
 (** The SIGN argument threads INERTLY through [binary_round] — it only reaches the result
     constructors ([shl_align]/[shr_fexp]/rounding are sign-blind), so NEGATION commutes with
     canonicalization.  Rung 1 of the general dyadic↔SF agreement arc
-    (plans/dyadic-sf-agreement.md); NO window premise — underflow-to-zero, overflow-to-infinity
+    (dyadic↔SF arc); NO window premise — underflow-to-zero, overflow-to-infinity
     and the nan guard all carry the flipped sign consistently. *)
 Lemma binary_round_opp : forall prec emax s m e,
   binary_round prec emax (negb s) m e = SFopp (binary_round prec emax s m e).
@@ -148,7 +148,7 @@ Proof.
   destruct (shr_m mrs'') as [|p'|p']; [reflexivity| |reflexivity].
   destruct (Z.leb e'' (Z.sub emax prec)); reflexivity.
 Qed.
-(** ---- Rungs 2–3 of the dyadic↔SF agreement arc (plans/dyadic-sf-agreement.md): [binary_round]
+(** ---- Rungs 2–3 of the dyadic↔SF agreement arc: [binary_round]
     is EXACT on the in-window class — an in-window mantissa/exponent comes back as the CANONICAL
     finite of the SAME value, NO rounding.  All positive/Z arithmetic on SpecFloat's own
     definitions: an exact left shift adds digits one-for-one ([digits2_pos_iter_xO]), so
@@ -416,7 +416,7 @@ Proof.
     rewrite (binary_round_exact prec emax _ mz _ Hd2 He2 Hde2 Hemax);
     rewrite Hdig, shl_align_id; reflexivity.
 Qed.
-(** ---- Rung 5a — RIGHT-SHIFT-THROUGH-ZEROS exactness (plans/dyadic-sf-agreement.md): shifting
+(** ---- Rung 5a — RIGHT-SHIFT-THROUGH-ZEROS exactness (dyadic↔SF arc rung 5a): shifting
     a mantissa right through its own appended zero bits keeps the round/sticky bits FALSE, so
     the location stays exact.  [iter_pos] (SpecFloat's binary-structural iterator) and
     [Pos.iter] are both bridged to [Nat.iter], where the zeros walk is a plain induction. *)

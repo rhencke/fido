@@ -1023,11 +1023,15 @@ Proof.
   - apply embed_cfg_trace.
 Qed.
 
-(** The BOUNDED-CAPACITY calculus is a fragment too: [rstepC]'s [rstepsC_embed] already shows every
-    bounded run is an unbounded [rsteps] run (a guarded send is a plain send; a cap-0 rendezvous is
-    send-then-recv), so composing with [rsteps_embeds] subsumes the capacity-aware calculus into
-    [ustep] as well — closing the 2026-06-24 review's #2/#3 ("capacity rendezvous in a detached
-    calculus").  BOTH prior operational systems are now provably fragments of the one semantics. *)
+(** CLAIM BOUNDARY (kept exact).  [rstepsC_embeds] shows every BOUNDED-capacity [rstepC] run is
+    REPRESENTED by the UNBOUNDED U semantics used for the legacy [rstep] embedding
+    ([usteps 0 (fun _ => None)] — [rstepC]'s guarded send maps to a plain send, its cap-0
+    rendezvous to send-then-recv, via [rstepsC_embed] + [rsteps_embeds]).  That TRANSFERS the
+    trace/race invariants stated over those runs.  It does NOT make [UCmd]'s
+    capacity-PARAMETERIZED semantics a faithful model of unbuffered rendezvous: under
+    [ucap c = Some 0], [uroom] is [false], [ustep_send] cannot fire, and NO [ustep] rule pairs a
+    [USend] with a ready [URecv] — a native [ustep] rendezvous rule remains FUTURE WORK if
+    channels become certified-path semantics. *)
 Corollary rstepsC_embeds : forall cap cfg cfg', rstepsC cap cfg cfg' ->
   usteps 0 (fun _ => None) (embed_cfg cfg) (embed_cfg cfg').
 Proof. intros cap cfg cfg' H. apply rsteps_embeds. exact (rstepsC_embed _ _ _ H). Qed.
