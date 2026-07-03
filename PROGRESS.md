@@ -35,8 +35,8 @@ field selectors, runtime numeric conversions, fixed-width bridging binops — th
   slice/map composite literals, exact-lexer string literals.
 - **Statement layer:** `GoStmt` (expr-stmt / return / return e / `_ = e` / defer-call / `x := e`);
   `print_stmt_inj` + `print_program_inj`. `GsDefer` supported, emittable, denoted; `GsShortDecl`
-  gate-admitted (rung 4); expression-level env evaluator landed (5b); statement-level env
-  denotation is NEXT (5c) — short-decl programs are currently supported-but-undenoted.
+  gate-admitted; the expression-level env evaluator exists; statement-level env denotation
+  is NEXT — short-decl programs are currently supported-but-undenoted.
 - **GoSafe `SupportedProgram`** — decidable supported-subset gate (closed type-errors rejected via
   `ptype`; slice + integer-key map literals admitted structurally; invalid nested map keys rejected
   even in empty literals; quarantines ledger-pinned); locals `x := e` via the sealed `ScopeS` fold
@@ -48,7 +48,7 @@ field selectors, runtime numeric conversions, fixed-width bridging binops — th
   authority — no theorem inventory):
   - partial AST → `Cmd` denotation for print/println / panic / return / blank-assign / defer /
     call args, over the exact-or-absent constant fold — faithful-or-absent, all fail-closed.
-  - the runtime GTInt tier R1–R8 and the typed-runtime tier T1–T5 LANDED + SEALED: the model's
+  - the runtime GTInt tier R1–R8 and the typed-runtime tier T1–T5, SEALED: the model's
     own ops through ONE shared evaluator, dispatch authorities pinned, outcome trichotomies
     proved, boundary/hole rows pinned absent (frontier surface).
   - float constants exact-or-reject behind `floats_checked`; fold verification is the
@@ -88,8 +88,8 @@ field selectors, runtime numeric conversions, fixed-width bridging binops — th
 - CONSOLIDATION (boss, 2026-07-02): shrink bytes, no new features; surfaces stay endpoint-only.
 - Resume the cmd↔unified bridge (`plans/bridge-effects.md`): `CAlloc` (design v2 in the plan),
   then channels (gated on a structural typed zero), then spawn.
-- Grow behavioral safety toward `BehaviorSafe` → `SafeProgram` → `emit_safe` — locals arc OPEN,
-  rungs 1–4 + 5a/5b landed (`plans/gosem-locals.md`; next: 5c, the env statement layer); wire the
+- Grow behavioral safety toward `BehaviorSafe` → `SafeProgram` → `emit_safe` — locals arc OPEN
+  (`plans/gosem-locals.md`; next: the env statement layer); wire the
   certified path to the main output; widen the live GoPrint bridge — gate-honestly.
 
 ## Known trust base (TCB)

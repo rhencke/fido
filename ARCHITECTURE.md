@@ -193,10 +193,10 @@ Phase 2  Create GoSafe (SupportedProgram) + GoEmit (EmittableProgram; no raw emi
 Phase 3  main.v builds GoAst.Program and emits ONLY through the certificate.                 DONE
 Phase 4  Grow the AST/printer form-by-form (each: represented, printed, round-tripped/       ONGOING
          injective, gate-honest). GoStmt forms (incl. `defer <call>`) + EConv + slice/map    (post-consolidation)
-         literals + EStr landed; each new form is print-injective + gate-honest.
+         literals + EStr covered; each new form is print-injective + gate-honest.
 Phase 5  Grow safety via GoSem: BRIDGE unified.v/concurrency.v/cmd.v in (no second universe),  IN PROGRESS
          widen toward BehaviorSafe → SafeProgram → emit_safe, wire the certified path to main.
-         ↳ SLICE 1 + completeness converse landed; FIRST behavioral emission cert + DECIDABLE gate
+         ↳ SLICE 1 + completeness converse DONE; FIRST behavioral emission cert + DECIDABLE gate
            (`PanicFreeEmittable`/`emit_panic_free`, `panic_free_gate`/`emit_panic_free_gated` — end-to-end
            sound: emit ⟹ proven panic-free run + blessed bytes; accepted iff the program denotes to c with
            cmd_no_panic c — denotable panics rejected there, an absent (undenoted) program by non-denotation;

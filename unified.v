@@ -806,7 +806,7 @@ Lemma unified_all_effects : forall (msg boom : GoAny),
               (fun _ => nil) (fun _ => 0) (fun t => Nat.eqb t 0) nil
               nil (fun _ => nil) (fun _ => None))
            cfg'
-    /\ uc_heap cfg' 0 = 9               (* the heap write landed *)
+    /\ uc_heap cfg' 0 = 9               (* the heap write is in the final heap *)
     /\ uc_out cfg' = (0, (true, msg :: nil)) :: nil   (* the deferred print happened, despite the panic *)
     /\ uc_panic cfg' 0 = Some boom      (* the panic was recorded *)
     /\ uc_live cfg' 0 = false.          (* the goroutine died *)

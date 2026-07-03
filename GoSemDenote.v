@@ -154,7 +154,7 @@ Qed.
     [2^54-2] (54 digits, OUTSIDE [binary_round_exact]'s direct window) while the normalized
     result [(2^53-1, 1)] passes the gate AND the checker accepts the expression (the live path
     already exercises the raw-wide case, computed by [SFadd] on the raw mantissa).  So [ptype]
-    does NOT reject this class — it is EXACTLY the landed wide bridge's domain
+    does NOT reject this class — it is EXACTLY the wide bridge's domain
     ([binary_round_of_norm_wide] above): the agreement assembly must route through that
     bridge, never the narrow window alone. *)
 Definition add_carry_e : GExpr :=
@@ -1803,8 +1803,8 @@ Local Ltac fold_tc_in H :=
 (** ===== The ENV instance: [GoSafe.tcat G] + the value environment [env_get ρ], constructed
     behind the [_tc] seal.  At the EMPTY scope and env it IS the closed evaluator
     ([denote_expr_env_nil] — engines' extensionality + the [tcat_nil_ptype] bridge), so the
-    spellings cannot drift.  The statement layer that BUILDS ρ has not landed;
-    [denote_stmt (GsShortDecl _ _)] is still [None]. *)
+    spellings cannot drift.  The statement layer that BUILDS ρ is ABSENT;
+    [denote_stmt (GsShortDecl _ _)] is [None]. *)
 Definition Env : Type := list (string * GoAny).
 Fixpoint env_get (ρ : Env) (x : string) : option GoAny :=
   match ρ with
