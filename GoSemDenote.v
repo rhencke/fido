@@ -149,14 +149,14 @@ Proof.
   destruct (floats_checked e); [reflexivity | discriminate H].
 Qed.
 
-(** the rung-5 OBLIGATION pinned mechanically (the CARRY shape): an ACCEPTED normalized ADD
+(** the CARRY-shape obligation pinned mechanically: an ACCEPTED normalized ADD
     result whose RAW aligned sum exceeds [prec] digits — [(2^53-1) + (2^53-1)] has raw sum
     [2^54-2] (54 digits, OUTSIDE [binary_round_exact]'s direct window) while the normalized
     result [(2^53-1, 1)] passes the gate AND the checker accepts the expression (the live path
     already exercises the raw-wide case, computed by [SFadd] on the raw mantissa).  So [ptype]
     does NOT reject this class — it is EXACTLY the landed wide bridge's domain
-    ([binary_round_of_norm_wide] above): rung 5c's assembly must route through that bridge,
-    never through rungs 3+4 alone. *)
+    ([binary_round_of_norm_wide] above): the agreement assembly must route through that
+    bridge, never the narrow window alone. *)
 Definition add_carry_e : GExpr :=
   EBn BAdd (ECall (EId (mkIdent "float64" eq_refl)) [EInt 9007199254740991])
            (ECall (EId (mkIdent "float64" eq_refl)) [EInt 9007199254740991]).
@@ -692,17 +692,11 @@ Qed.
     constant as an [int64] operand; cross-width is [None], pinned
     [typed_operand_cross_width_none]).  Anything else is absent fail-closed; a constant never
     panics ([typed_operand_panic_runtime]). *)
-(** [_tc] layer (locals rung 5a): the CATEGORY AUTHORITY is a parameter [tc] — SEALED, not free.
-    Every arm consumes SHAPE OBLIGATIONS of its authority (a [PtRunInt t] one-arg call is a
-    conversion shape; a constant category carries THE constant's value; the map key list is
-    exact), so a forged classifier could smuggle behavior.  The whole family is therefore
-    [Local] — an importer cannot instantiate it, and each of the FIVE names is pinned uncallable
-    by its own negtest ([neg_tc_authority_escape] / [neg_tc_count_escape] /
-    [neg_tc_operand_escape] / [neg_tc_exit_escape] / [neg_tc_val_escape], all through the
-    composed [GoSem] export).  The ONLY live instantiation is [ptype] — the closed wrappers
-    below keep the closed names, so the closed engine is the SAME function definitionally and
-    its obligations are the existing seal set.  Any other instance can only be constructed in
-    THIS file, behind this boundary. *)
+(** [_tc] layer: the CATEGORY AUTHORITY is a parameter [tc] — SEALED, not free.  Every arm
+    consumes SHAPE OBLIGATIONS of its authority, so a forged classifier could smuggle behavior;
+    the whole family is [Local], each of the five names pinned uncallable by its own negtest
+    ([neg_tc_*_escape]).  The closed wrappers below instantiate [ptype] (the SAME function
+    definitionally); any other instance can only be constructed in THIS file. *)
 Local Definition typed_operand_tc (tc : GExpr -> option PTy) (rv : GExpr -> option RAny) (t : GoTy) (e : GExpr) : option RAny :=
   match tc e with
   | Some (PtRunInt s) => if numty_eqb s t then rv e else None
@@ -1352,12 +1346,11 @@ Proof.
   exact (K _ eq_refl).
 Qed.
 
-(** The CLOSED leaf: no name resolves (the closed engine has no environment). *)
+(** The CLOSED leaf: no name resolves. *)
 Local Definition leaf_closed : string -> option GoAny := fun _ => None.
 
-(** EId-arm tag defense for the EXIT categories (the GTInt case lives in [reval_int_tc] via
-    [unbox_int]): a resolved value is admitted ONLY when its tag matches the authority's bound
-    category — a forged environment is ABSENT, never mis-operated on. *)
+(** EId-arm tag defense (the GTInt case is [unbox_int] in [reval_int_tc]): a resolved value is
+    admitted only when its tag matches the bound category — a forged env is ABSENT. *)
 Local Definition eid_exit_tag_ok (c : PTy) (g : GoAny) : bool :=
   match c with
   | PtRunInt t => andb (negb (numty_eqb t GTInt)) (tag_matches t g)
@@ -1377,7 +1370,7 @@ Local Definition eid_exit_tag_ok (c : PTy) (g : GoAny) : bool :=
 Local Definition rexit_tc (tc : GExpr -> option PTy) (leaf : string -> option GoAny) (rec : GExpr -> option RRes) (rv : GExpr -> option RAny) (e : GExpr) : option RAny :=
   match e with
   | EId x =>
-      (* the EXIT EId leaf (locals rung 5b): a bound name at a NON-GTInt scalar category resolves
+      (* the EXIT EId leaf: a bound name at a NON-GTInt scalar category resolves
          to its environment value, tag-checked against the authority ([eid_exit_tag_ok]); the
          closed leaf resolves nothing, so the closed engine is unchanged. *)
       match leaf (proj1_sig x) with
@@ -1389,16 +1382,11 @@ Local Definition rexit_tc (tc : GExpr -> option PTy) (leaf : string -> option Go
           end
       end
   | ECall (EId f) (a :: nil) =>
-      (* tiers R3+T2, the EXIT half — a width conversion to a non-[GTInt] integer target: the
-         AUTHORITY'S [PtRunInt t] on a one-arg call must be a CONVERSION shape — an instance
-         OBLIGATION (closed instance: PROVED, [ptype_call_runint_conv] seals [t] to an integer
-         keyword target, on which [wrap_runint] is total, [wrap_runint_total]).  T2: the ARG
-         evaluates at FULL power ([rv]), so a chain through a non-[GTInt] intermediate
-         ([int64(uint8(len ..))]) converts exactly like Go — read the carrier's value ([runint_raw]),
-         wrap into the target.  A non-integer-tagged source is absent fail-closed at [runint_raw]
-         (in the CLOSED instance a runtime-float source cannot even evaluate,
-         [reval_val_runfloat_none]; an ENV float LOCAL evaluates via the EId arm yet its
-         conversion stays absent HERE for EVERY payload — [env_float_conv_class]).  A panicking arg panics (Go's order). *)
+      (* the EXIT conversion (non-[GTInt] integer target): the authority's [PtRunInt t] on a
+         one-arg call must be a CONVERSION shape (closed instance: [ptype_call_runint_conv];
+         [wrap_runint_total]).  The arg evaluates at full power; a non-integer-tagged source is
+         absent at [runint_raw] (closed: [reval_val_runfloat_none]; env float locals:
+         [env_float_conv_class]).  A panicking arg panics. *)
       match tc e with
       | Some (PtRunInt t) =>
           if numty_eqb t GTInt then None else
@@ -1418,10 +1406,8 @@ Local Definition rexit_tc (tc : GExpr -> option PTy) (leaf : string -> option Go
       | _ => None
       end
   | EUn o a =>
-      (* tier T1 — typed unary on a non-GTInt runtime carrier ([^int64(len ..)] etc.): the outer
-         authority ([tc]) pins the width [t] (the GTInt case lives in [reval_int]); the ARG evaluates at FULL
-         power ([rv] — so an R3-converted operand works), then [typed_unop] applies the width's model
-         op on the boxed carrier.  A hole in the op table ([GTUint], narrow [-]) is absent. *)
+      (* typed unary on a non-GTInt runtime carrier: [tc] pins the width, the arg evaluates at
+         full power, [typed_unop] applies the width's model op; op-table holes are absent. *)
       match tc e with
       | Some (PtRunInt t) =>
           if numty_eqb t GTInt then None else
@@ -1436,18 +1422,10 @@ Local Definition rexit_tc (tc : GExpr -> option PTy) (leaf : string -> option Go
       | _ => None
       end
   | EBn o a b =>
-      (* tiers R4+T4 — the runtime bool COMPARISON exit: [tc e = PtBool] on a binop is a
-         comparison (or [&&]/[||] — dispatched away by [cmp_verdict]/[cmp_binop]); [cmp_width] picks the
-         operand width (the runtime operand pins it; two int constants default to [GTInt] — Go's
-         untyped rule).  At [GTInt] the R4 engine path runs unchanged; at a FIXED width the T4 typed
-         path runs (operands through the width-sealed [typed_operand], the verdict the width's own
-         model op).  A panicking operand panics LEFT-to-right (Go's order), before any comparison.
-         tier T3 — the [PtRunInt t] case is SAME-WIDTH typed arithmetic/bitwise: each operand goes
-         through [typed_operand] (WIDTH-SEALED: a runtime operand classified AT the width runs at
-         FULL power via [rv]; an UNTYPED int constant CONVERTS to the width; a TYPED constant must
-         already BE the width — Go's rules), then [typed_binop] applies the width's model op (a
-         value, or the division-by-zero panic — [div_checked]).  A hole row ([GTUint], shifts) is
-         absent. *)
+      (* the bool COMPARISON exit ([cmp_width] picks the operand width; GTInt runs the engine
+         path, a fixed width the typed path via the width-sealed [typed_operand]) and the
+         SAME-WIDTH typed arithmetic/bitwise case ([typed_binop]; [div_checked] panics).
+         Panics propagate left-to-right; hole rows are absent. *)
       match tc e with
       | Some PtBool =>
           match cmp_width (tc a) (tc b) with
@@ -1661,7 +1639,7 @@ Local Definition reval_int_tc (tc : GExpr -> option PTy) (leaf : string -> optio
           if negb (numty_eqb t GTInt) then None else
           match e with
           | EId x =>
-              (* the GTInt EId leaf (locals rung 5b): a bound [int] name resolves to its
+              (* the GTInt EId leaf: a bound [int] name resolves to its
                  environment value through [unbox_int] (the TInt64 tag check); the closed leaf
                  resolves nothing. *)
               match leaf (proj1_sig x) with
@@ -1677,19 +1655,11 @@ Local Definition reval_int_tc (tc : GExpr -> option PTy) (leaf : string -> optio
                    end
               else None
           | ECall (EId f) (EMapLit kt vt kvs :: nil) =>
-              (* tier R5 — [len] of a map literal whose VALUES are runtime: Go CONSTRUCTS the literal
-                 (every entry evaluated, in an UNSPECIFIED order) before [len]; the count is the number of
-                 DISTINCT keys.  The arm carries the FOLD arm's own side conditions — [is_int_goty kt],
-                 [goty_supported vt] (an invalid nested value type must never receive behavior), and
-                 [nodup_z] over the AUTHORITY'S own constant-key list ([map_key_vals_with tc] —
-                 key EXACTNESS is an instance obligation, so the count IS Go's [len], never a
-                 duplicate-key miscount; the closed instance's map arm rejects runtime keys —
-                 the fold's defense-in-depth mirrored) — then evaluates EVERY VALUE through the FULL shared evaluator
-                 ([rconstr_vals_with (reval_val_tc tc leaf ri)] — R3-converted and R4-compared values
-                 construct exactly as they denote standalone): all values → the entry count via the
-                 checked [rval_len]; a SINGLE panicking value → that panic; TWO panicking values / an
-                 absent value → absent (Go leaves map-literal order unspecified — sealed by the
-                 walker's class theorems, [rconstr_vals_two_panics_absent] et al.). *)
+              (* [len] of a map literal with runtime VALUES: construct (every entry, unspecified
+                 order) then count DISTINCT keys ([nodup_z] over the authority's key list — key
+                 exactness is an instance obligation).  Values evaluate through the FULL shared
+                 evaluator; one panicking value panics, two-plus/absent -> absent (order
+                 unspecified — the walker's class theorems). *)
               if String.eqb (proj1_sig f) "len" && is_int_goty kt && goty_supported vt
                  && nodup_z (map_key_vals_with tc kvs)
               then match rconstr_vals_with (reval_val_tc tc leaf ri) kvs with
@@ -1699,14 +1669,10 @@ Local Definition reval_int_tc (tc : GExpr -> option PTy) (leaf : string -> optio
                    end
               else None
           | ECall (EId f) (a :: nil) =>
-              (* tiers R3+T2, the IN-fragment half — [int(x)]: Go's conversion INTO [int], via the
-                 model's own [intwrap] on the source carrier's raw value.  T2: the ARG evaluates at
-                 FULL power ([reval_val_tc] over THIS engine — the map arm's precedent), so a chain
-                 through a non-[GTInt] intermediate ([int(uint8(len ..))]) converts exactly like Go.
-                 A non-integer-tagged source ([int(<runtime float>)]) is absent fail-closed at
-                 [runint_raw] (CLOSED instance: even classifier-absent, [reval_val_runfloat_none];
-                 ENV float locals: payload-general, [env_float_conv_class]).  Non-[GTInt] targets EXIT
-                 the fragment in [rexit_with]. *)
+              (* [int(x)] — conversion INTO [int] via [intwrap] on the carrier's raw value; the
+                 arg evaluates at full power.  A non-integer-tagged source is absent at
+                 [runint_raw] (closed: [reval_val_runfloat_none]; env floats:
+                 [env_float_conv_class]).  Non-[GTInt] targets exit in [rexit_with]. *)
               if String.eqb (proj1_sig f) "int"
               then match reval_val_tc tc leaf ri a with
                    | Some (RAVal g) =>
@@ -1719,12 +1685,8 @@ Local Definition reval_int_tc (tc : GExpr -> option PTy) (leaf : string -> optio
                    end
               else None
           | EIndex (ESliceLit et es) idx =>
-              (* tier R2 — the RUNTIME slice INDEX: Go evaluates the literal (construction, abort on a
-                 panicking element) THEN the index; in-bounds yields the element, out-of-bounds (negative
-                 or >= length) PANICS with the MODEL's own [rt_index_oob i n] — the EXACT Go payload
-                 (index and length rendered; a negative index omits the length part — verified against
-                 gc via go run; [slice_idx_get]'s payload, shared).  The outer [PtRunInt GTInt] guard
-                 pins the element type to [GTInt]. *)
+              (* the RUNTIME slice INDEX: literal construction (abort on a panicking element),
+                 then the index; OOB panics with the model's exact [rt_index_oob] payload. *)
               match reval_elems_with ri es with
               | Some (REVals vs) =>
                   match ri idx with
@@ -1743,13 +1705,9 @@ Local Definition reval_int_tc (tc : GExpr -> option PTy) (leaf : string -> optio
               end
           | EBn o a b =>
               if shift_op o then
-                (* tier R8 — the GTInt SHIFT: the LEFT operand is the engine's own fragment
-                   (evaluated FIRST — a panicking left fires before the count, Go's order); the
-                   COUNT is read by T5's sealed count layer ([shift_count_tc] over the shared
-                   evaluator — a CONSTANT count directly off the authority's value, a RUNTIME count at
-                   its own width, so a [uint8]-counted GTInt shift works), then the checked convoy
-                   applies the dispatched model op ([int_shift_checked]: a NEGATIVE count panics
-                   [rt_shift_neg], counts >= 64 saturate). *)
+                (* the GTInt SHIFT: LEFT first (Go's order), the COUNT via the sealed count
+                   layer ([shift_count_tc]), then the checked convoy ([int_shift_checked]:
+                   negative count panics, >= 64 saturates). *)
                 match ri a with
                 | Some (RVal va) =>
                     match shift_count_tc tc (reval_val_tc tc leaf ri) b with
@@ -1800,9 +1758,8 @@ Local Definition reval_int_tc (tc : GExpr -> option PTy) (leaf : string -> optio
               | _, _ => None
               end
           | EUn o a =>
-              (* tiers R6/R7 — runtime unary MINUS via the model's own [int_neg] (two's-complement,
-                 wraps at 2^63 like Go) and runtime [^] COMPLEMENT via [int_not] ([-x-1] = [Z.lnot],
-                 verified `go run`).  [!] operates on BOOLS, never the int fragment — absent. *)
+              (* runtime unary minus ([int_neg], wraps like Go) and complement ([int_not]);
+                 [!] is bools-only — absent here. *)
               match o with
               | UNeg =>
                   match ri a with
@@ -1824,7 +1781,7 @@ Local Definition reval_int_tc (tc : GExpr -> option PTy) (leaf : string -> optio
 
 Definition reval_int : GExpr -> option RRes := reval_int_tc ptype leaf_closed.
 
-(** Post-[cbn] normalizer (rung 5a): [cbn] refolds the engines' inner fixes to the CLOSED names
+(** Post-[cbn] normalizer: [cbn] refolds the engines' inner fixes to the CLOSED names
     but leaves the [_tc]-of-[ptype] wrapper applications; these [change]s put a goal/hypothesis
     back in the closed vocabulary (pure conversions — each closed name IS its [_tc ptype]
     instantiation by definition). *)
@@ -1843,12 +1800,11 @@ Local Ltac fold_tc_in H :=
     | progress change (typed_operand_tc ptype) with typed_operand in H
     | progress change (rexit_tc ptype leaf_closed) with rexit_with in H ].
 
-(** ===== The ENV instance (locals rung 5b): the scope-aware authority, LIVE =====
-    The category authority is [GoSafe.tcat G] (the [type_expr] projection) and the leaf is the
-    VALUE ENVIRONMENT [env_get ρ] — constructed HERE, behind the [_tc] seal.  [denote_expr_env]
-    is the env spelling of [denote_expr]; at the EMPTY scope and env it IS the closed evaluator
-    ([denote_expr_env_nil] below — via the engines' extensionality and the [tcat_nil_ptype]
-    bridge), so the two spellings cannot drift.  The statement layer that BUILDS ρ is rung 5c. *)
+(** ===== The ENV instance: [GoSafe.tcat G] + the value environment [env_get ρ], constructed
+    behind the [_tc] seal.  At the EMPTY scope and env it IS the closed evaluator
+    ([denote_expr_env_nil] — engines' extensionality + the [tcat_nil_ptype] bridge), so the
+    spellings cannot drift.  The statement layer that BUILDS ρ has not landed;
+    [denote_stmt (GsShortDecl _ _)] is still [None]. *)
 Definition Env : Type := list (string * GoAny).
 Fixpoint env_get (ρ : Env) (x : string) : option GoAny :=
   match ρ with
@@ -1867,10 +1823,9 @@ Definition denote_expr_env (G : ScopeS) (ρ : Env) (e : GExpr) : option (Cmd GoA
   | None => None
   end.
 
-(** ENGINE EXTENSIONALITY — the engines only APPLY their authority and leaf, so pointwise-equal
-    parameters give EQUAL engines (both tiers at once; the mutual statement is what the guard
-    accepts, mirroring the engines' own nesting).  This is what connects the env instance to the
-    closed engine WITHOUT function extensionality. *)
+(** ENGINE EXTENSIONALITY — the engines only APPLY their authority/leaf, so pointwise-equal
+    parameters give EQUAL engines (mutual statement = what the guard accepts).  Connects the env
+    instance to the closed engine WITHOUT funext. *)
 Local Lemma reval_engines_ext :
   forall (tc1 tc2 : GExpr -> option PTy) (l1 l2 : string -> option GoAny),
   (forall e, tc1 e = tc2 e) ->
@@ -1993,9 +1948,8 @@ Definition denote_expr (e : GExpr) : option (Cmd GoAny * bool) :=
   | None => None
   end.
 
-(** THE CLOSED COINCIDENCE — the env spelling at the EMPTY scope and env IS the closed evaluator
-    (pointwise; no function extensionality): [tcat scope_empty] is [ptype] by the rung-3 bridge
-    and the empty env resolves nothing.  Registered in [gosem_core_surface] (GoSem.v). *)
+(** THE CLOSED COINCIDENCE — the env spelling at the EMPTY scope/env IS the closed evaluator
+    (pointwise, funext-free).  Registered in [gosem_core_surface]. *)
 Theorem denote_expr_env_nil : forall e, denote_expr_env scope_empty nil e = denote_expr e.
 Proof.
   intro e. unfold denote_expr_env, denote_expr.
@@ -2006,8 +1960,8 @@ Proof.
   reflexivity.
 Qed.
 
-(** First ENV pins (vm_compute): a bound [int] name resolves and computes through the runtime
-    tier; a TAG-FORGED environment and a FREE name are ABSENT (fail-closed). *)
+(** ENV pins: a bound [int] name resolves and computes; a TAG-FORGED environment and a FREE
+    name are ABSENT. *)
 Example env_eid_pins :
   match scope_declare scope_empty (mkIdent "x" eq_refl) (PtRunInt GTInt) with
   | Some G =>
@@ -2025,13 +1979,9 @@ Example env_eid_pins :
   end.
 Proof. vm_compute. repeat split; reflexivity. Qed.
 
-(** ENV FLOAT pins — direct evaluation + the forged-tag matrix, both widths: a bound FLOAT local
-    EVALUATES directly (the [rexit_tc] EId arm — the closed runtime-float absence theorems are
-    about the CLOSED instance only), and a TAG-FORGED environment (float32 or int under a
-    float64-bound name; float64 or int under a float32-bound name) is ABSENT
-    ([eid_exit_tag_ok]).  The INTEGER-TARGET CONVERSION face is [env_float_conv_class] below —
-    quantified over [special_ident]'s image, both widths, and every payload (strings pinned by
-    [special_ident_name]). *)
+(** ENV FLOAT pins — direct evaluation + the forged-tag matrix, both widths (the closed
+    runtime-float absence theorems are about the CLOSED instance only); the conversion face is
+    [env_float_conv_class] below. *)
 Example env_float_pins :
   match scope_declare scope_empty (mkIdent "f" eq_refl) (PtRunFloat GTFloat64),
         scope_declare scope_empty (mkIdent "g" eq_refl) (PtRunFloat GTFloat32) with
@@ -2054,15 +2004,11 @@ Example env_float_pins :
   end.
 Proof. vm_compute. repeat split; reflexivity. Qed.
 
-(** ★ THE ENV FLOAT CONVERSION CLASS — QUANTIFIED over the LIVE conversion-head authority
-    ([special_ident]'s image: every identifier the ONE table classifies as an INTEGER type
-    keyword — both engine paths, the [GTInt] arm in [reval_int_tc] and the non-[GTInt] exit in
-    [rexit_tc]), BOTH float widths, and EVERY payload of the bound width: an integer-keyword
-    conversion of a float-bound local is ABSENT — the rejection is TAG-driven ([runint_raw]
-    never reads the payload), and the theorem quantifies the payloads to say exactly that.
-    [special_ident_name] (GoAst) pins each head's string, so NO parallel keyword list exists to
-    drift.  (The env SHAPE is the single well-tagged binding — the Γ ≈ ρ case; forged tags are
-    [env_float_pins]' matrix.) *)
+(** ★ THE ENV FLOAT CONVERSION CLASS — quantified over the LIVE conversion-head authority
+    ([special_ident]'s image), BOTH widths, and EVERY payload: an integer-keyword conversion of
+    a float-bound local is ABSENT (TAG-driven — [runint_raw] never reads the payload).
+    [special_ident_name] pins each head's string; no parallel keyword list exists.  Env shape =
+    the single well-tagged binding; forged tags are [env_float_pins]' matrix. *)
 Example env_float_conv_class :
   forall (i : Ident) (t : GoTy) (v64 : GoFloat64) (v32 : GoFloat32),
   special_ident (proj1_sig i) = Some (SnType t) ->
@@ -4422,18 +4368,10 @@ Fixpoint eval_args (args : list GExpr) : option (list GoAny) :=
       end
   end.
 
-(** The SINGLE effect-call authority — denote a supported CALL expression ([println]/[print]/[panic]) to its
-    command PAIRED WITH the TERMINATES flag.  Gated on [expr_stmt_ok] (exactly [stmt_ok]'s gate for BOTH
-    [GsExprStmt] and [GsDefer]), so every consumer keeps [denote] ⊆ [supported_program] ([gosem_sound]).  Consumed by the
-    expression-statement arm (the call runs NOW) and the [GsDefer] arm (the SAME call, deferred to run at
-    function-scope return via [CDfr]) — one authority, so the deferred call can never denote differently from
-    the immediate one. *)
-(** Effectful ARGUMENT sequencing: evaluate each argument left-to-right through [denote_expr], collecting the
-    values, WITH an explicit terminal flag.  A PANICKING argument STRUCTURALLY short-circuits: its [CPan] is
-    the whole argument command, the flag is [true], and the REMAINING arguments — which Go NEVER evaluates —
-    are NOT required to denote (they are already syntactically/type-gated by the caller's [expr_stmt_ok], the
-    same closed-fragment/denotability split as a terminator's dead tail in [denote_body]).  All-pure arguments reduce
-    DEFINITIONALLY to [(CRet [v1..vn], false)]. *)
+(** Effectful ARGUMENT sequencing, left-to-right through [denote_expr], with a terminal flag: a
+    PANICKING argument short-circuits (its [CPan] is the whole command; the remaining arguments —
+    which Go never evaluates — are gated by the caller's [expr_stmt_ok], not required to denote).
+    All-pure arguments reduce definitionally to [(CRet vs, false)]. *)
 Fixpoint denote_args (args : list GExpr) : option (Cmd (list GoAny) * bool) :=
   match args with
   | [] => Some (CRet [], false)
@@ -4449,20 +4387,16 @@ Fixpoint denote_args (args : list GExpr) : option (Cmd (list GoAny) * bool) :=
       end
   end.
 
-(** How a gated call is SCHEDULED — a SEALED two-constructor mode (not an arbitrary [Cmd unit -> Cmd unit],
-    which could erase a panic): [CallNow] runs the call immediately; [CallDeferred] registers it via [CDfr]
-    to run at function-scope return.  [sched] builds the only two valid shapes. *)
+(** Call SCHEDULING — a sealed two-constructor mode (an arbitrary [Cmd unit -> Cmd unit] could
+    erase a panic): [CallNow] runs now; [CallDeferred] registers via [CDfr]. *)
 Inductive CallMode : Type := CallNow | CallDeferred.
 Definition sched (m : CallMode) (c : Cmd unit) : Cmd unit :=
   match m with CallNow => c | CallDeferred => CDfr c (CRet tt) end.
 
-(** The ONE call-shape authority.  The ARGUMENTS are sequenced OUTSIDE [sched] in both modes — Go evaluates a
-    deferred call's arguments AT DEFER TIME (a panicking argument panics at the [defer] statement, not at
-    return) — so the two modes' argument semantics cannot drift.  The TERMINATES flag is COMPUTED from the
-    argument evaluation and the scheduling: an immediate [panic] terminates always (its own panic, or an
-    argument's even earlier); an immediate print terminates iff its arguments panic; a DEFERRED call
-    terminates iff its arguments panic (the deferred call itself falls through, running at return).
-    Gated on [expr_stmt_ok] (exactly [stmt_ok]'s gate for both consumers). *)
+(** The ONE call-shape authority, gated on [expr_stmt_ok] for BOTH consumers ([GsExprStmt] and
+    [GsDefer]) — the deferred call can never denote differently from the immediate one.
+    Arguments sequence OUTSIDE [sched] (Go evaluates deferred args AT DEFER TIME); the TERMINATES
+    flag is computed from argument evaluation and scheduling. *)
 Definition denote_call (m : CallMode) (e : GExpr) : option (Cmd unit * bool) :=
   if expr_stmt_ok e then
     match e with
@@ -4499,25 +4433,18 @@ Proof.
     rewrite (denote_expr_pure a v Ea), (IH vs' eq_refl). reflexivity.
 Qed.
 
-(** Translate ONE statement to its command PAIRED WITH a TERMINATES flag (successors unreachable), or [None] if
-    unmodeled.  The flag makes [denote_stmt] the SINGLE control-flow authority ([denote_body] never re-decides);
-    it is ESSENTIAL, not derivable (a [return] and a CONSTANT blank-assign both give [CRet tt] but differ
-    stop/fall-through).  The effect arms go through [denote_call], gated on [expr_stmt_ok] — the base of the
-    inclusion ladder [denote_call_ok] → [denote_stmt_sound] ([stmt_ok]) → [denote_body_sound]
-    ([forallb stmt_ok]) → [gosem_sound] ([supported_program]) — and the flag is COMPUTED from the effects:
-    [println]/[print] fall through UNLESS an
-    argument panics; [panic] terminates; [return] terminates; a blank-assign terminates iff its expression
-    panics; [defer <call>] falls through unless its (defer-time) arguments panic. *)
+(** ONE statement to its command + TERMINATES flag (the single control-flow authority —
+    [denote_body] never re-decides; the flag is not derivable: [return] and a constant
+    blank-assign both give [CRet tt] but differ stop/fall-through).  Effect arms go through
+    [denote_call]; the inclusion ladder is [denote_call_ok] → [denote_stmt_sound] ([stmt_ok]) →
+    [denote_body_sound] ([forallb stmt_ok]) → [gosem_sound] ([supported_program]). *)
 Definition denote_stmt (s : GoStmt) : option (Cmd unit * bool) :=
   match s with
   | GsReturn        => Some (CRet tt, true)    (* TERMINATES the body *)
   | GsBlankAssign e =>
-      (* [_ = e] discards [e]'s VALUE but NOT its runtime EFFECTS — denoted through the EFFECTFUL
-         [denote_expr]: a pure constant gives the fall-through [CRet tt] ([cbind] of its [CRet v] — the same
-         command as before), and a determined runtime panic ([1 / len([]int{})]) gives its TRUE [CPan] (Go
-         evaluates [e] and panics) — with [denote_expr]'s OWN terminal flag (a panicking blank-assign
-         TERMINATES the body).  Runtime forms [denote_expr] does not cover stay honestly [None].
-         [svalue e] is still required so [denote] ⊆ the closed fragment ([stmt_ok]'s blank arm IS [svalue]). *)
+      (* [_ = e] discards the VALUE, not the EFFECTS: a determined runtime panic gives its TRUE
+         [CPan] with [denote_expr]'s own terminal flag; [svalue e] keeps [denote] ⊆ the closed
+         fragment. *)
       if svalue e then
         match denote_expr e with
         | Some (ce, eterm) => Some (cbind ce (fun _ => CRet tt), eterm)
@@ -4527,14 +4454,11 @@ Definition denote_stmt (s : GoStmt) : option (Cmd unit * bool) :=
   | GsReturnVal _   => None                                        (* a value return is invalid in void [main] *)
   | GsExprStmt e    => denote_call CallNow e
   | GsDefer e =>
-      (* [defer <call>] — FAITHFUL via [cmd.v]'s [CDfr], with Go's ARGUMENT TIMING modeled exactly: the
-         arguments are evaluated NOW (a panicking argument panics AT the [defer] statement), and only the
-         CALL-ON-VALUES is deferred to function-scope RETURN ([CallDeferred]; [run_defers], LIFO).  The flag
-         is [denote_call]'s own accurate one: pure args FALL THROUGH (a [defer panic(v)] does not stop the
-         body; ITS panic fires at return — [rc_defer_panic]); PANICKING args TERMINATE at the [defer]
-         statement itself ([rc_defer_arg_panic]). *)
+      (* [defer <call>] via [CDfr], Go's argument timing exact: args evaluate NOW (a panicking
+         arg panics AT the defer statement); only the call-on-values is deferred ([run_defers],
+         LIFO). *)
       denote_call CallDeferred e
-  | GsShortDecl _ _ => None  (* [x := e] — the EXPRESSION-level env instance landed (rung 5b, [denote_expr_env]); THIS statement arm stays ABSENT until the env statement layer (rung 5c, plans/gosem-locals.md).  [supported_program] ADMITS used locals since rung 4, so decl programs sit in the supported-but-undenoted gap ([shortdecl_supported_undenoted]) *)
+  | GsShortDecl _ _ => None  (* the expression-level env instance exists ([denote_expr_env]); THIS statement arm is ABSENT — [supported_program] admits used locals, so decl programs are supported-but-undenoted ([shortdecl_supported_undenoted]) *)
   end.
 
 Fixpoint denote_body (b : list GoStmt) : option (Cmd unit) :=
@@ -4607,10 +4531,9 @@ Proof.
   exact (supported_program_of_stmt_ok p Epkg (denote_body_sound _ H)).
 Qed.
 
-(** The rung-4/5c SEAM, pinned: [supported_program] ADMITS a used local while the STATEMENT layer
-    does not yet thread the env instance (expression-level env landed at rung 5b) — SUPPORTED yet
-    NOT denotable (absent via the [GsShortDecl] arm).  FLIPS at rung 5c when the statement layer
-    takes (G, ρ) (swap per the frontier-pin discipline). *)
+(** SEAM pin: [supported_program] ADMITS a used local while the statement layer does not yet
+    thread the env instance — SUPPORTED yet NOT denotable.  FLIPS when the env statement layer
+    lands (swap per the frontier-pin discipline). *)
 Example shortdecl_supported_undenoted :
   supported_program (mkProgram (mkIdent "main" eq_refl)
     [GsShortDecl (mkIdent "x" eq_refl) (EInt 1);
@@ -4620,10 +4543,9 @@ Example shortdecl_supported_undenoted :
         GsBlankAssign (EId (mkIdent "x" eq_refl)); GsReturn]) = None.
 Proof. split; vm_compute; reflexivity. Qed.
 
-(** The TERMINATOR dead-tail face of the same seam: a used-decl TAIL after [return] passes
-    [supported_program] (the first conjunct) yet [denote_body]'s dead-tail check is
-    [forallb stmt_ok] — and [stmt_ok] rejects decls — so the body does NOT denote.  Pins that
-    terminator tails are gated on [stmt_ok], NOT on [supported_program]. *)
+(** The TERMINATOR dead-tail face of the seam: a used-decl tail after [return] passes
+    [supported_program] yet the dead-tail check is [forallb stmt_ok], so the body does NOT
+    denote — terminator tails are gated on [stmt_ok], not [supported_program]. *)
 Example shortdecl_deadtail_supported_undenoted :
   supported_program (mkProgram (mkIdent "main" eq_refl)
     [GsReturn; GsShortDecl (mkIdent "x" eq_refl) (EInt 1);

@@ -30,10 +30,9 @@ Definition emit_supported (p : EmittableProgram) : string := print_program (ep_p
 (** ---- THE FIRST CERTIFIED EMISSION (the AST-first seed) ----  a runnable `package main` whose `func main`
     body exercises every SUPPORTED/EMITTABLE statement/expression form (the exact list is [demo_prog] /
     [demo_emit_bytes] below, the single authorities — this prose does not re-count them).
-    [GsShortDecl] ([x := e]) is ADMITTED by [supported_program] since locals rung 4 (a certificate
-    EXISTS for a declared-and-used local — GoSafe's [good_programs] locals rows), but it joins this demo
-    at the arc's gate-reach rung (plans/gosem-locals.md rung 6, a deliberate golden bless) once its
-    denotation lands (the env STATEMENT layer, rung 5c).  The supported forms — [println(1)], [println(int64(3))] (a value-position scalar CONVERSION),
+    [GsShortDecl] ([x := e]) is ADMITTED by [supported_program] (a certificate EXISTS for a
+    declared-and-used local), but joins this demo only once its denotation lands (a deliberate
+    golden bless).  The supported forms — [println(1)], [println(int64(3))] (a value-position scalar CONVERSION),
     [println(1 + 2)] (a binary-operator [EBn], exercising operator printing + gofmt spacing through the path),
     [println("hi")] (a STRING-literal [EStr], exercising [print_string_lit] through the path),
     [println(0xff)] (a HEX-literal [EHex], exercising [print_hex] through the path),

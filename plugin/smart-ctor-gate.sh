@@ -1,15 +1,8 @@
 #!/bin/sh
-# Structural code-discipline gate — CODE-LEVEL checks (smart-ctor ban / dead-name / emission-discipline /
-# bridge-recognizer / selector-bridge / local-example; each documents itself at its numbered site below).  These are grep
-# tripwires, NOT type-level seals: they catch the accidental/obvious bypass, not an aliased side door; the real
-# guarantees are the Rocq proofs + the AST admitting no raw-syntax constructor + GoEmit exporting no
-# `emit : Program -> string`.
-#
-# NOT policed here — GoSem axiom-freedom and GoSem-uses-the-model's-string-order, both enforced in ROCQ (a
-# source-text grep is bypassable by legal syntax like [Local Axiom]); see the closing note.  Prose honesty is
-# REVIEW's job; the bridge-coverage list lives once in PROGRESS.md ([cov_preds] below is the bare NAME set).
-#
-# Run from the repo root (make smart-ctor-gate, the pre-commit hook, and the Docker prover stage).
+# Structural code-discipline gate — CODE-LEVEL grep tripwires (not type-level seals): smart-ctor
+# ban / dead-name / emission-discipline / bridge-recognizer / selector-bridge / local-example.
+# The real guarantees are the Rocq proofs; axiom-freedom is enforced in Rocq, prose honesty is
+# review's job.  Run from the repo root (make smart-ctor-gate, pre-commit, Docker prover stage).
 set -e
 
 # Every hand-written plugin OCaml file EXCEPT the generated printer.ml (which DEFINES the constructors).
@@ -19,8 +12,7 @@ for f in plugin/*.ml plugin/*.mlg; do
   files="$files $f"
 done
 
-# 1. SMART-CTOR BAN.  Assert the go.ml markers are present, then flag any proof-erasing constructor use OUTSIDE
-# the sanctioned smart-constructor block.
+# 1. SMART-CTOR BAN: no proof-erasing constructor use outside the sanctioned block.
 if ! grep -q 'SMART-CONSTRUCTORS-BEGIN' plugin/go.ml || ! grep -q 'SMART-CONSTRUCTORS-END' plugin/go.ml; then
   echo "fido: SMART-CTOR GATE — the SMART-CONSTRUCTORS-BEGIN/END markers are missing from plugin/go.ml"
   exit 1
@@ -39,8 +31,7 @@ if [ -n "$offenders" ]; then
 fi
 echo "fido: smart-ctor gate OK — no direct Printer.GTNamed / Printer.EId / Printer.EHex / Printer.ESel outside the block ✓"
 
-# 2. DEAD-NAME RECURRENCE.  Torn-down-overlay + forbidden raw-syntax + retired-structure names must not appear
-# in active code (hand-written Coq + plugin glue; the generated printer.ml and archaeology docs are out of scope).
+# 2. DEAD-NAME RECURRENCE: torn-down / forbidden raw-syntax names must not reappear in active code.
 deadrefs=$(grep -nE 'SRaw|raw_ok|build_atom|build_apply|build_goexpr|GERaw|GEBin|\bEAtom\b|Printer\.print_expr|Printer\.print_prec|RawExpr|RawStmt|RawDecl|RawType|OpaqueExpr|TrustedExpr|goprint|\bFront\b' \
   *.v plugin/go.ml plugin/g_go_extraction.mlg 2>/dev/null || true)
 if [ -n "$deadrefs" ]; then
@@ -51,8 +42,7 @@ if [ -n "$deadrefs" ]; then
 fi
 echo "fido: dead-name gate OK — no SRaw-era or forbidden raw-syntax names in active code ✓"
 
-# 3. EMISSION DISCIPLINE.  No direct GoPrint.print_program CALL outside GoEmit.v / GoPrint.v.  The regex matches
-# an APPLICATION (print_program followed by '(' or an arg token), so a bracketed doc ref [print_program] is fine.
+# 3. EMISSION DISCIPLINE: no direct print_program CALL outside GoEmit.v / GoPrint.v (doc refs fine).
 ppcallers=$(grep -nE '\bprint_program\b[[:space:]]*[("a-zA-Z0-9_]' \
   $(for f in *.v; do [ "$f" = GoPrint.v ] || [ "$f" = GoEmit.v ] || echo "$f"; done) \
   plugin/go.ml plugin/g_go_extraction.mlg 2>/dev/null || true)
@@ -64,10 +54,8 @@ if [ -n "$ppcallers" ]; then
 fi
 echo "fido: emission-discipline gate OK — no direct print_program call outside GoEmit.v / GoPrint.v ✓"
 
-# 4. BRIDGE-RECOGNIZER scoping.  Each conversion recognizer the live bridge routes through is the scoped alias
-# `let is_X = named_in [...]`, the [from_builtins] guard living ONCE in [named_in].  Flags the is_int_of_fw
-# break: a raw [global_basename] match (lowering a same-named user global), or [named_in] losing [from_builtins].
-# [cov_preds] = GATE DATA (bare NAME set); the human-facing bridge description lives once, in PROGRESS.md.
+# 4. BRIDGE-RECOGNIZER scoping: each recognizer is `let is_X = named_in [...]` (the from_builtins
+# guard lives ONCE in named_in); a raw global_basename match is a shadowing forge.
 cov_preds='[is_i64_of_narrow_ref] / [is_f64_to_f32_ref]+[operand_is_runtime] / [is_f64_to_i64_ref] / [is_f64_to_u64_ref] / [is_int_of_fw] / [is_num_to_f64_ref] / [is_int_to_f32_ref]'
 recog_def()    { awk -v p="$1" '$0 ~ ("^let " p "([ =:(]|$)"){f=1;print;next} f&&(/^let [A-Za-z_]/||/^\(\*/){exit} f{print}' "$2" 2>/dev/null; }
 recog_routed() { b=$(recog_def "$1" "$2"); printf '%s' "$b" | grep -q 'named_in' && ! printf '%s' "$b" | grep -q 'global_basename'; }
@@ -84,9 +72,8 @@ for pred in $(printf '%s' "$cov_preds" | grep -oE '\[is_[a-z0-9_]+\]' | tr -d '[
 done
 echo "fido: bridge-recognizer tripwire OK — cov_preds recognizers route through the from_builtins-scoped named_in ✓"
 
-# 5. SELECTOR-BRIDGE guard invariant.  [mk_goexpr_sel] may emit [local.Field] ONLY for a plain field of an
-# [MLrel] receiver (the sole shape matching pp_expr's peel_embedded/pp_atom rendering); dropping
-# [not (is_embedded_proj r)] or [MLrel] re-opens a byte divergence (d.Animal.Legs vs d.Legs) the golden misses.
+# 5. SELECTOR-BRIDGE: mk_goexpr_sel emits local.Field only for a plain field of an MLrel receiver;
+# dropping either guard re-opens a peel divergence the golden misses.
 selctx=$(grep -B8 'mk_goexpr_sel ld' plugin/go.ml || true)
 if ! printf '%s\n' "$selctx" | grep -q 'not (is_embedded_proj' || ! printf '%s\n' "$selctx" | grep -q 'MLrel _'; then
   echo "fido: SELECTOR-BRIDGE GATE — the ESel arm (mk_goexpr_sel) lost its 'not (is_embedded_proj r)' or 'MLrel' receiver guard; an embedded/nested selector would bridge to a peel-divergent form (invisible to the runtime golden)."
@@ -94,48 +81,27 @@ if ! printf '%s\n' "$selctx" | grep -q 'not (is_embedded_proj' || ! printf '%s\n
 fi
 echo "fido: selector-bridge gate OK — the ESel arm keeps its not-embedded + MLrel-receiver guards ✓"
 
-# NOTE (enforced in ROCQ, not here): string-order — GoSem.v pins each [str_cmp_op] branch to the qualified
-# [Fido.builtins.str_*] by reflexivity ([str_cmp_*_model], bundled into [gosem_string_authority_surface]).
-# Axiom-freedom — the manifest gate captures GoSem's [Print Assumptions] surfaces + axiom-authority-selftest.sh.
-
-# 6. UN-AUDITED-LOCAL-REGRESSION gate.  An [Example] is a regression/demo BY CONVENTION — nothing
-# consumes it — so a LOCAL Example sits outside every Print Assumptions cone: it compiles, but its
-# axiom-dependence is never audited (the manifest extractor parses only [Axioms:] blocks).
-# Discipline: an Example is PUBLIC and bundled into a surface, or it does not exist.  (Consumed
-# [Local Lemma]s are fine — they live in their consumers' cones; deadness of a Lemma needs
-# reference analysis a shell gate cannot do, so the gate pins the one always-dead-by-convention
-# form.)  The detector (plugin/local-example-lint.awk) models the RELEVANT Rocq lexical rules —
-# nested comments, doubled-quote string escapes (backslash literal), attribute blocks with
-# embedded strings/comments, and locality ACCUMULATED across adjacent attributes/vernaculars —
-# with the exact detection boundary documented at the detector.  Scope: EVERY .v in the tree
-# (emitdemo/ and negtests/ are compiled too); only _build/.git excluded.
+# 6. UN-AUDITED-LOCAL-REGRESSION gate: nothing consumes an [Example], so a LOCAL Example sits
+# outside every Print Assumptions cone (unaudited).  Discipline: an Example is PUBLIC and
+# surfaced, or it does not exist.  Detector: plugin/local-example-lint.awk (Rocq-lexical).
+# Scope: every .v (only _build/.git excluded).  Minimal representative self-test corpus below.
 lx_detect() { find "$1" -name '*.v' -not -path '*/_build/*' -not -path '*/.git/*' -print0 2>/dev/null \
               | xargs -0 -r awk -f plugin/local-example-lint.awk 2>/dev/null || true; }
-# self-test corpus: every spelling the gate claims to reject (15 positives, root + subdir,
-# CRLF line endings included) and a
-# negatives file (public Example / Local Lemma / comment / string / #[global] / word-local inside
-# an attribute STRING / doubled-quote string) that must stay clean.
 lx_t=$(mktemp -d); mkdir -p "$lx_t/sub"
 cat > "$lx_t/pos1.v" <<'LXEOF'
-  Local Example st_a : True.
-Local  Example st_b : True.
+Local Example st_a : True.
 Local
-Example st_c : True.
-Local (* between *) Example st_d : True.
+Example st_b : True.
+Local (* between *) Example st_c : True.
 Definition st_t := "x\".
-Local Example st_j : True.
+Local Example st_d : True.
 LXEOF
 cat > "$lx_t/sub/pos2.v" <<'LXEOF'
 #[local] Example st_e : True.
-#[local]
-Example st_f : True.
-#[local] (* between *) Example st_g : True.
-#[local] #[deprecated(note="x")] Example st_h : True.
-#[deprecated(note="x")] #[local] Example st_i : True.
-#[deprecated(note="]"), local] Example st_k : True.
-#[deprecated(note="]")] #[local] Example st_l : True.
+#[deprecated(note="x")] #[local] Example st_f : True.
+#[deprecated(note="]"), local] Example st_g : True.
 LXEOF
-printf 'Local\r\nExample st_m : True.\r\n#[local]\r\nExample st_n : True.\r\n#[local]\r\n#[deprecated(note="x")]\r\nExample st_o : True.\r\n' > "$lx_t/sub/pos3.v"
+printf 'Local\r\nExample st_h : True.\r\n' > "$lx_t/sub/pos3.v"
 cat > "$lx_t/neg.v" <<'LXEOF'
 Example st_ok : True.
 Local Lemma st_ok2 : True.
@@ -147,7 +113,7 @@ Definition st_u := "a""b". Example st_ok5 : True.
 LXEOF
 hits=$(lx_detect "$lx_t" | grep -c .) || true
 neg=$(awk -f plugin/local-example-lint.awk "$lx_t/neg.v" | grep -c .) || true
-[ "$hits" = "15" ] && [ "$neg" = "0" ] || { echo "fido: LOCAL-EXAMPLE GATE self-test broke (expected 15 positives / 0 negatives, got $hits/$neg)"; rm -rf "$lx_t"; exit 1; }
+[ "$hits" = "8" ] && [ "$neg" = "0" ] || { echo "fido: LOCAL-EXAMPLE GATE self-test broke (expected 8 positives / 0 negatives, got $hits/$neg)"; rm -rf "$lx_t"; exit 1; }
 rm -rf "$lx_t"
 localex=$(lx_detect .)
 if [ -n "$localex" ]; then

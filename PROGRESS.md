@@ -1,7 +1,7 @@
 # Fido — status
 
-Short live ledger — the size discipline is BYTES, not lines (keep this file under ~8 KB; long lines
-are not a loophole; details live in the `.v` files, theorem names, and plans). Design: `ARCHITECTURE.md`; rules: `CLAUDE.md`; mistakes: `LESSONS.md`; Go-spec:
+Short live ledger — the size discipline is BYTES (under ~8 KB; details live in the `.v` files
+and plans). Design: `ARCHITECTURE.md`; rules: `CLAUDE.md`; mistakes: `LESSONS.md`; Go-spec:
 `SPEC_CONFORMANCE.md`. History is in git — **current** state only.
 
 ## The goal
@@ -35,7 +35,8 @@ field selectors, runtime numeric conversions, fixed-width bridging binops — th
   slice/map composite literals, exact-lexer string literals.
 - **Statement layer:** `GoStmt` (expr-stmt / return / return e / `_ = e` / defer-call / `x := e`);
   `print_stmt_inj` + `print_program_inj`. `GsDefer` supported, emittable, denoted; `GsShortDecl`
-  gate-admitted (rung 4); expression-level env evaluator landed (5b); statement denotation at 5c.
+  gate-admitted (rung 4); expression-level env evaluator landed (5b); statement-level env
+  denotation is NEXT (5c) — short-decl programs are currently supported-but-undenoted.
 - **GoSafe `SupportedProgram`** — decidable supported-subset gate (closed type-errors rejected via
   `ptype`; slice + integer-key map literals admitted structurally; invalid nested map keys rejected
   even in empty literals; quarantines ledger-pinned); locals `x := e` via the sealed `ScopeS` fold

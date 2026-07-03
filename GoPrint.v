@@ -4890,7 +4890,7 @@ Qed.
     bracket/keyword-led composite heads ([ []T / chan T / map[K]V ]).  A dedicated 3-constructor inductive
     (NOT a [{T | conv_ok T}] subset) makes the restriction STRUCTURAL — illegal states unrepresentable, ZERO
     proof obligations — and [convty_ty] embeds it into [GoTy] so the M5 type printer/lexer/parser are reused
-    VERBATIM.  This is the M5-analog conversion-type layer BEHIND the [EConv] expression form (LANDED — its
+    VERBATIM.  This is the conversion-type layer BEHIND the [EConv] expression form (its
     round-trip is gated as [parse_convty_roundtrip] / [parse_conv_print]), exactly as [parse_gty] backs the
     [EAssert] type assertion (M6).  (Pointer [*T] is excluded: a bare [*T(x)] is
     ambiguous with a deref and would need parentheses around the pointer type; primitives and named types are

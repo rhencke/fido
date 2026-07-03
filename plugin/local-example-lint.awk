@@ -1,33 +1,25 @@
-# Token-aware Local-Example detector — the ENGINE of smart-ctor-gate.sh check 6 (see there for WHY).
-# A char-level scanner with cross-line state per file, modeling the RELEVANT Rocq lexical rules:
-#   - nested (* *) comments (anywhere, including inside attributes);
-#   - string literals with Rocq's ACTUAL escape rule — a doubled "" is an escaped quote, backslash
-#     is a LITERAL character (multi-line strings supported);
-#   - #[ ... ] attribute blocks (multi-line, bracket-nested), whose own embedded strings/comments
-#     neither close the block nor contribute to the locality test;
-#   - LOCALITY ACCUMULATION: `Local` / `Global` vernaculars and ANY NUMBER of adjacent attribute
-#     blocks decorate the next command token; a #[...local...] block (word `local` OUTSIDE its
-#     embedded strings) sets pending locality, a non-local attribute PRESERVES it, `Global` clears
-#     it, and any ordinary token flushes it.  If the flushing token is `Example` with locality
-#     pending, that is a hit.
-# DETECTION BOUNDARY (exact): a locality marker whose decoration chain (attributes, whitespace,
-# newlines, comments) reaches `Example` with no other intervening token.  Exits 1 iff any hit.
+# Rocq-lexical Local-Example detector (engine of smart-ctor-gate.sh check 6).  Char-level scanner
+# with cross-line state: nested (* *) comments; strings with Rocq's doubled-"" escape (backslash
+# literal); multi-line #[ ... ] attribute blocks whose embedded strings/comments are inert.
+# LOCALITY ACCUMULATES: `Local` or a #[...local...] attribute decorates the next command token
+# (non-local attributes preserve it; `Global`/any ordinary token clears it); a decorated
+# `Example` is a hit.  Exits 1 iff any hit.
 function isword(c) { return c ~ /[A-Za-z0-9_']/ }
 FNR == 1 { cdepth = 0; instr = 0; inattr = 0; inastr = 0; adepth = 0; attrtxt = ""; loc = 0 }
 {
   line = $0; n = length(line); i = 1
   while (i <= n) {
     c = substr(line, i, 1); c2 = substr(line, i, 2)
-    if (cdepth > 0) {                       # comment (top-level or inside an attribute)
+    if (cdepth > 0) {
       if (c2 == "(*") { cdepth++; i += 2; continue }
       if (c2 == "*)") { cdepth--; i += 2; continue }
       i++; continue
     }
-    if (inastr) {                           # string inside an attribute: "" escapes, ] is literal
+    if (inastr) {
       if (c == "\"") { if (c2 == "\"\"") { i += 2; continue } inastr = 0 }
       i++; continue
     }
-    if (instr) {                            # top-level string: "" escapes, backslash is LITERAL
+    if (instr) {
       if (c == "\"") { if (c2 == "\"\"") { i += 2; continue } instr = 0 }
       i++; continue
     }
@@ -40,7 +32,6 @@ FNR == 1 { cdepth = 0; instr = 0; inattr = 0; inastr = 0; adepth = 0; attrtxt = 
         if (adepth == 0) {
           inattr = 0
           if (attrtxt ~ /(^|[^A-Za-z0-9_])local([^A-Za-z0-9_]|$)/) loc = 1
-          # a non-local attribute PRESERVES pending locality (accumulation)
         } else attrtxt = attrtxt c
         i++; continue
       }
@@ -48,7 +39,7 @@ FNR == 1 { cdepth = 0; instr = 0; inattr = 0; inastr = 0; adepth = 0; attrtxt = 
     }
     if (c2 == "(*") { cdepth++; i += 2; continue }
     if (c == "\"") { instr = 1; i++; continue }
-    if (c == "#") {                         # attribute opener: '#' [spaces] '['
+    if (c == "#") {
       j = i + 1
       while (j <= n && substr(line, j, 1) ~ /[ \t\r]/) j++
       if (j <= n && substr(line, j, 1) == "[") { inattr = 1; adepth = 1; attrtxt = ""; i = j + 1; continue }
@@ -64,7 +55,7 @@ FNR == 1 { cdepth = 0; instr = 0; inattr = 0; inastr = 0; adepth = 0; attrtxt = 
       else                      { loc = 0 }
       i = j; continue
     }
-    if (c != " " && c != "\t" && c != "\r") loc = 0   # any other punctuation flushes the chain (\r is line whitespace — CRLF/CR files)
+    if (c != " " && c != "\t" && c != "\r") loc = 0   # punctuation flushes the chain
     i++
   }
 }
