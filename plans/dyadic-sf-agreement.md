@@ -95,10 +95,11 @@ value quotient is `dy_norm` (the odd-mantissa normal form), never ℝ.
    runtime-only zero sign, so the ADD/SUB raw-op statement is FALSE on MUL's zero rows.
    `SFmul`'s finite arm is `binary_round_aux` on the RAW product of the canonical mantissas;
    `binary_round_aux_of_round` + `digits2_pos_mul_lower` (the fexp target never sits below
-   the sum exponent for canonical renders — normal case ≥105 digits, emin cases by the
-   window bounds) rewrite it to `binary_round`, `render_canonical_f64` (the render's
+   the sum exponent for canonical renders — normal case ≥2·prec−1 digits, emin cases by the
+   window bounds) rewrite it to `binary_round`, `render_canonical_gen` (the render's
    digits+exponent IS the fexp fixpoint, via `shl_align_digits`) + `cond_Zopp_xorb_mul`
-   align the product value to the fold, and `normalize_result_agrees_f64` closes.
+   align the product value to the fold, and `normalize_result_agrees_gen` closes — ONE
+   generic core `SFmul_normalize_agrees_gen`; the widths are instances (rung 7).
    exact DIV CLOSED too (gated `sf_render_div_agrees_f64`, const-layer): `SFdiv_core_binary`
    scales the dividend to `s = (T1-T2) - e'` and divides; on `dy_div`-accepted folds the
    division is EXACT — the divisibility transports through the canonical shifts with the

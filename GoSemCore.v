@@ -1416,14 +1416,16 @@ Proof.
   exact (sf_render_neg_general_f64 _ _ Hm).
 Qed.
 
-(** ---- rung 6 — MUL at binary64.  [SFmul]'s finite arm is [binary_round_aux] on the RAW
-    product of the CANONICAL mantissas at the SUM exponent; for canonical operand renders
-    the [fexp] target never sits below that exponent ([digits2_pos_mul_lower] + the window
-    bounds), so the arm IS [binary_round] ([binary_round_aux_of_round]) and the wide-bridge
-    endgame ([normalize_result_agrees_f64]) applies.  ⚠ the ENDPOINT is stated over the
-    CONSTANT-op layer ([sf_pos_zero] of [f64_mul]): IEEE gives [(+0) * (negative) = -0], a
-    RUNTIME zero sign Go's exact-rational constant fold never produces — the raw-op form of
-    the ADD/SUB endpoints is FALSE on MUL's zero rows. *)
+(** ---- rung 6 — MUL (the core is PRECISION-GENERIC; the widths are instances).
+    [SFmul]'s finite arm is [binary_round_aux] on the RAW product of the CANONICAL mantissas
+    at the SUM exponent; for canonical operand renders the [fexp] target never sits below
+    that exponent ([digits2_pos_mul_lower] + the window bounds), so the arm IS
+    [binary_round] ([binary_round_aux_of_round]) and the wide-bridge endgame
+    ([normalize_result_agrees_gen]) applies — [SFmul_normalize_agrees_gen], with
+    [f64_mul_normalize_agrees]/[SFmul32_normalize_agrees] the width instances.  ⚠ the
+    ENDPOINTS are stated over the CONSTANT-op layer ([sf_pos_zero] of the width's op): IEEE
+    gives [(+0) * (negative) = -0], a RUNTIME zero sign Go's exact-rational constant fold
+    never produces — the raw-op form of the ADD/SUB endpoints is FALSE on MUL's zero rows. *)
 Lemma cond_Zopp_xorb_mul : forall s1 s2 a b,
   cond_Zopp (xorb s1 s2) (a * b)%Z = (cond_Zopp s1 a * cond_Zopp s2 b)%Z.
 Proof. intros [|] [|] a b; cbn [xorb cond_Zopp]; ring. Qed.
@@ -1439,7 +1441,7 @@ Lemma binary_normalize_of_round : forall prec emax s q e,
   binary_round prec emax s q e
   = binary_normalize prec emax (cond_Zopp s (Zpos q)) e false.
 Proof. intros prec emax [|] q e; reflexivity. Qed.
-(** the render, CANONICALLY: [render_signed_value_f64]'s witness plus the two
+(** the render, CANONICALLY: [render_signed_value_gen]'s witness plus the two
     digit/exponent facts the MUL target premise needs — digits+exponent is shift-invariant
     ([shl_align_digits]) and the exponent IS the [fexp] target. *)
 Lemma render_canonical_gen : forall prec emax m e p,
