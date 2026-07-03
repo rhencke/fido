@@ -37,7 +37,7 @@ COMPLETE): `bridge_agrees` — its ladder discipline and landing checklist apply
   therefore QUANTIFIES the calculus' `vzero` parameter universally (`cmd_unified`'s
   `Section BridgeVal` variable `vz`), with TWO distinct licenses: `bridge_agrees` (and the
   other `no_heap`-fragment statements) by the gated no-`vz` seal `cmd_to_ucmd_novz` (that
-  image binds nothing from `vzero` or the `vz`-defaulted heap); `bridge_heap_body_agrees`
+  image binds nothing from `vzero` or the `vz`-defaulted heap); `bridge_heap_agrees`
   by its OWN side conditions — the `ustart_w` start heap mirrors the World's ALLOCATED
   cells (`heap_of_world_agrees`) and the `go`-completion premise keeps the run inside
   them, so the `vz` defaults on unallocated locations are never consulted.  ⛔ PRECONDITION
@@ -71,8 +71,10 @@ COMPLETE): `bridge_agrees` — its ladder discipline and landing checklist apply
    - The heap agreement (part ii-a): `heap_agrees` (allocated locations only) +
      `heap_of_world`/`ustart_w` (canonical mirrored start heap — premise-free public
      statements) + `body_runs_sem` (Phase A grounded in `go`'s RESULT; trace existential,
-     heap steps emit `KWrite`/`KRead`) + `bridge_heap_body_agrees` (gated): DEFER-FREE
-     heap commands (`go c w = Some (oc, nil)`) agree end-to-end INCLUDING final heaps.
+     heap steps emit `KWrite`/`KRead`) + the seed-linearity pair
+     (`run_defers_panic_stays`/`run_defers_seed_linear`) + `unwind_heap` (the semantic
+     2-mode deferred-heap unwind) + `bridge_heap_agrees` (gated): ANY completing command
+     (heap ops and defers included) agrees end-to-end INCLUDING final heaps.
    DESIGN FACTS that shaped it (details in git history): monad laws restated over the
    pointwise `CmdEq` (eq unprovable under a binder without funext); boolean predicates
    map heap ctors to `false` (cannot scan under a binder); the syntactic size/projection
@@ -81,9 +83,9 @@ COMPLETE): `bridge_agrees` — its ladder discipline and landing checklist apply
    fail-open in proof form).
    REMAINING: the deferred-heap unwind (the 2-mode unwind threading `heap_agrees`
    through the defer forest — each popped defer's body runs via `body_runs_sem`), then
-   the general conditional heap bridge subsuming `bridge_heap_body_agrees` and
-   re-deriving `bridge_agrees` (`no_heap`) through it; then 2d `CAlloc` (needs a NEW
-   unified.v rule + trace event).
+   restating `bridge_agrees` over the `ustart_w` start (which would let the general
+   heap theorem subsume it and retire the syntactic projection lane) — a surface change,
+   taken deliberately; then 2d `CAlloc` (needs a NEW unified.v rule + trace event).
 3. **CHANNELS** (single-goroutine deterministic fragment): `CSend`/`CRecv`/`CClose`
    against `w_chans` — BLOCKED on the ⛔ precondition above (structural typed closed-recv
    zero; two-element-type proofs).  The ustep side BLOCKS (a full-buffer send / empty-buffer recv has

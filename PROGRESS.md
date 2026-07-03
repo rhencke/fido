@@ -62,9 +62,9 @@ field selectors, runtime numeric conversions, fixed-width bridging binops — th
 - **cmd↔unified bridge** (`cmd_unified.v`): `bridge_agrees` — for every `no_heap` command the `ustep`
   run agrees with `run_cmd` (panic, output, completion); termination via `cmd.run_cmd_terminates`
   (same fragment). Heap commands (`CWrite`/`CRead`, typed cells, absence on unallocated access) are
-  MODELED + TRANSLATED; the DEFER-FREE heap fragment is BRIDGED (`bridge_heap_body_agrees` —
-  end-to-end agreement incl. final heaps, from the `ustart_w` mirrored-heap start); deferred-heap
-  awaits the unwind (`cread_unallocated_absent` pins why no unconditional bridge exists).
+  MODELED + TRANSLATED + BRIDGED (`bridge_heap_agrees` — ANY completing command, heap ops and
+  defers included, end-to-end agreement incl. final heaps from the `ustart_w` mirrored-heap
+  start; `cread_unallocated_absent` pins why the completion premise is necessary).
   ⚠ chan/spawn later. Zero axioms.
 - **GoSemSafe** — panic-freedom properties + the narrow gate: `panic_free_runs_ret`(+`_ustep`),
   decidable `panic_free_denotable`, `PanicFreeEmittable` refining `EmittableProgram`,
@@ -86,7 +86,7 @@ field selectors, runtime numeric conversions, fixed-width bridging binops — th
 
 - CONSOLIDATION (boss, 2026-07-02): shrink bytes, no new features; surfaces stay
   endpoint-only. The §3a GoSem split is DONE (Core/Denote/composition — revised 3-file form).
-- Extend the cmd↔unified bridge to chan/heap/spawn (`plans/bridge-effects.md`; landed: value-parametric calculus, heap semantics + translation, `no_heap`-quarantined general bridge under the `cmd_to_ucmd_novz` seal, and the defer-free heap bridge `bridge_heap_body_agrees`; remaining: the deferred-heap unwind → general conditional heap bridge; channels gated on a structural typed zero).
+- Extend the cmd↔unified bridge to chan/heap/spawn (`plans/bridge-effects.md`; landed: value-parametric calculus, heap semantics + translation, the `no_heap` bridge under the `cmd_to_ucmd_novz` seal, and the GENERAL conditional heap bridge `bridge_heap_agrees` (defers + heap, final-heap agreement); remaining: `CAlloc` (2d), then channels — gated on a structural typed zero).
 - Grow behavioral safety toward `BehaviorSafe` → `SafeProgram` → `emit_safe`; wire the certified path
   to the main output. Widen the live GoPrint bridge + `GoStmt` forms — gate-honestly.
 
@@ -101,7 +101,7 @@ assumption. The MODEL's logical trust base is empty (zero axioms); the plugin is
 Zero-axiom is gated by `Print Assumptions` in THREE flows (single-sourced here): **manifest**
 (`manifest-axioms.sh` vs empty `EXPECTED_ASSUMPTIONS.txt`) covers `main_effect` /
 `gosem_trust_surface` / `gosem_string_authority_surface` / `cmd.run_cmd_terminates` / the bridge
-surfaces (`cmd_to_ucmd_fragment` / `cmd_to_ucmd_novz` / `bridge_heap_body_agrees` / `bridge_agrees` / `run_cmd_out_monotone` /
+surfaces (`cmd_to_ucmd_fragment` / `cmd_to_ucmd_novz` / `bridge_heap_agrees` / `bridge_agrees` / `run_cmd_out_monotone` /
 `run_cmd_no_panic_ret`) / `gosem_panic_free_surface` / `builtins.slice_get_bounds_surface`;
 **printer** + **emit** (compiled STANDALONE, grep `^Axioms:`) cover the spine. A `Print Assumptions`
 under none of the three is not gated.
