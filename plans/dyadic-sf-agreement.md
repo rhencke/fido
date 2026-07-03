@@ -105,8 +105,14 @@ value quotient is `dy_norm` (the odd-mantissa normal form), never ℝ.
    the remainder is 0 (`div_eucl_exact`), the location `loc_Exact`, and the raw quotient IS
    the result mantissa shifted by `er - e'` — the signed value recovered by CANCELLATION
    (no sign case analysis), then the same aux→round→wide endgame as MUL.
-7. **The f32 row + cross-width conversions** (needs rung 3's idempotence for the `f32_round`
-   wrappers; `f32_of_f64`/`f64_of_f32` agreement).
+7. **The f32 row + cross-width conversions — IN PROGRESS.**  The assembly kit is now
+   PRECISION-GENERIC (`render_signed_value_gen`/`render_canonical_gen`/
+   `normalize_result_agrees_gen`, the f64 lemmas thin wrappers) with the binary32 instances
+   + `repr_window_split_f32` + the generic `binary_normalize_opp` landed.  REMAINING: the
+   op cores at 24/128 (the f32 ops are SF-ops at 24/128 under an IDEMPOTENT `f32_round` —
+   rung 3's idempotence peels the wrapper), the four const-layer endpoints over the
+   checker's own composite (`f32val ∘ f32_op ∘ f32_lit`), and the `f32_of_f64`/`f64_of_f32`
+   cross-width agreement.
 8. **The checker-completeness CLASS theorem**: on the admitted class `fsf_checked` ACCEPTS
    (never returns `None` by disagreement) — then decide whether the runtime re-check stays as
    defense-in-depth or is dropped (ARCHITECTURE call; dropping shrinks eval).

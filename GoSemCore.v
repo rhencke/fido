@@ -875,6 +875,44 @@ Qed.
     canonical finite whose SIGNED mantissa carries the value in DIFFERENCE form
     ([cond_Zopp s mc = m * 2^(e-T)], all exponents nonneg differences — [Z.pow] is zero on
     negatives, so absolute "m*2^e" values are never stated). *)
+Lemma render_signed_value_gen : forall prec emax m e p,
+  Z.abs m = Zpos p ->
+  (Zpos (digits2_pos p) <= prec)%Z ->
+  (emin prec emax <= e)%Z ->
+  (Zpos (digits2_pos p) + e <= emax)%Z ->
+  (2 <= emax)%Z ->
+  exists s mc T,
+    binary_normalize prec emax m e false = S754_finite s mc T
+    /\ cond_Zopp s (Zpos mc) = (m * 2 ^ (e - T))%Z
+    /\ (emin prec emax <= T)%Z /\ (T <= e)%Z.
+Proof.
+  intros prec emax m e p Habs Hd He Hde Hemax.
+  assert (HT : (fexp prec emax (Zpos (digits2_pos p) + e) <= e)%Z)
+    by (unfold fexp, emin in *; lia).
+  assert (HTe : (emin prec emax <= fexp prec emax (Zpos (digits2_pos p) + e))%Z)
+    by (unfold fexp, emin in *; lia).
+  pose proof (shl_align_fst_val p e _ HT) as Hval.
+  destruct m as [|p'|p']; cbn [Z.abs] in Habs; try discriminate Habs;
+    injection Habs as ->.
+  - exists false, (fst (shl_align p e (fexp prec emax (Zpos (digits2_pos p) + e)))),
+           (fexp prec emax (Zpos (digits2_pos p) + e)).
+    split; [|split; [|split]].
+    + cbn [binary_normalize].
+      exact (binary_round_exact prec emax false p e Hd He Hde Hemax).
+    + cbn [cond_Zopp]. exact Hval.
+    + exact HTe.
+    + exact HT.
+  - exists true, (fst (shl_align p e (fexp prec emax (Zpos (digits2_pos p) + e)))),
+           (fexp prec emax (Zpos (digits2_pos p) + e)).
+    split; [|split; [|split]].
+    + cbn [binary_normalize].
+      exact (binary_round_exact prec emax true p e Hd He Hde Hemax).
+    + cbn [cond_Zopp].
+      change (Zneg p) with (- Zpos p)%Z.
+      rewrite Hval. ring.
+    + exact HTe.
+    + exact HT.
+Qed.
 Lemma render_signed_value_f64 : forall m e p,
   Z.abs m = Zpos p ->
   float_dyadic_repr GTFloat64 m e = true ->
@@ -885,33 +923,7 @@ Lemma render_signed_value_f64 : forall m e p,
 Proof.
   intros m e p Habs Hrep.
   destruct (float_dyadic_repr_f64_premises m e p Hrep Habs) as [Hd [He Hde]].
-  assert (HT : (fexp 53 1024 (Zpos (digits2_pos p) + e) <= e)%Z)
-    by (unfold fexp, emin in *; lia).
-  assert (HTe : (emin 53 1024 <= fexp 53 1024 (Zpos (digits2_pos p) + e))%Z)
-    by (unfold fexp, emin in *; lia).
-  pose proof (shl_align_fst_val p e _ HT) as Hval.
-  destruct m as [|p'|p']; cbn [Z.abs] in Habs; try discriminate Habs;
-    injection Habs as ->.
-  - (* positive *)
-    exists false, (fst (shl_align p e (fexp 53 1024 (Zpos (digits2_pos p) + e)))),
-           (fexp 53 1024 (Zpos (digits2_pos p) + e)).
-    split; [|split; [|split]].
-    + cbn [binary_normalize].
-      exact (binary_round_exact 53 1024 false p e Hd He Hde ltac:(lia)).
-    + cbn [cond_Zopp]. exact Hval.
-    + exact HTe.
-    + exact HT.
-  - (* negative *)
-    exists true, (fst (shl_align p e (fexp 53 1024 (Zpos (digits2_pos p) + e)))),
-           (fexp 53 1024 (Zpos (digits2_pos p) + e)).
-    split; [|split; [|split]].
-    + cbn [binary_normalize].
-      exact (binary_round_exact 53 1024 true p e Hd He Hde ltac:(lia)).
-    + cbn [cond_Zopp].
-      change (Zneg p) with (- Zpos p)%Z.
-      rewrite Hval. ring.
-    + exact HTe.
-    + exact HT.
+  exact (render_signed_value_gen 53 1024 m e p Habs Hd He Hde ltac:(lia)).
 Qed.
 
 (** the [sf_render]↔[binary_normalize] identity — the LIVE render is uniformly the
@@ -1056,18 +1068,30 @@ Proof.
     right; exists q; (split; [reflexivity|]);
     exact (float_dyadic_repr_f64_premises _ _ q H eq_refl).
 Qed.
+Lemma normalize_result_agrees_gen : forall prec emax raw ez mr er,
+  dy_norm raw ez = (mr, er) ->
+  (mr = Z0 \/ exists q, Z.abs mr = Zpos q
+     /\ (Zpos (digits2_pos q) <= prec)%Z /\ (emin prec emax <= er)%Z
+     /\ (Zpos (digits2_pos q) + er <= emax)%Z) ->
+  (2 <= emax)%Z ->
+  binary_normalize prec emax raw ez false = binary_normalize prec emax mr er false.
+Proof.
+  intros prec emax raw ez mr er Hn Hwin Hemax.
+  apply (binary_normalize_wide_determined prec emax raw ez mr er false mr er).
+  - exact Hn.
+  - pose proof (dy_norm_idem raw ez) as Hi. rewrite Hn in Hi. cbn [fst snd] in Hi.
+    exact Hi.
+  - exact Hwin.
+  - exact Hemax.
+Qed.
 Lemma normalize_result_agrees_f64 : forall raw ez mr er,
   dy_norm raw ez = (mr, er) ->
   float_dyadic_repr GTFloat64 mr er = true ->
   binary_normalize 53 1024 raw ez false = binary_normalize 53 1024 mr er false.
 Proof.
   intros raw ez mr er Hn Hrep.
-  apply (binary_normalize_wide_determined 53 1024 raw ez mr er false mr er).
-  - exact Hn.
-  - pose proof (dy_norm_idem raw ez) as Hi. rewrite Hn in Hi. cbn [fst snd] in Hi.
-    exact Hi.
-  - exact (repr_window_split_f64 mr er Hrep).
-  - lia.
+  exact (normalize_result_agrees_gen 53 1024 raw ez mr er Hn
+           (repr_window_split_f64 mr er Hrep) ltac:(lia)).
 Qed.
 Lemma cond_Zopp_mul : forall s a b, cond_Zopp s (a * b)%Z = (cond_Zopp s a * b)%Z.
 Proof. intros [|] a b; cbn [cond_Zopp]; ring. Qed.
@@ -1355,6 +1379,48 @@ Proof. intros prec emax [|] q e; reflexivity. Qed.
 (** the render, CANONICALLY: [render_signed_value_f64]'s witness plus the two
     digit/exponent facts the MUL target premise needs — digits+exponent is shift-invariant
     ([shl_align_digits]) and the exponent IS the [fexp] target. *)
+Lemma render_canonical_gen : forall prec emax m e p,
+  Z.abs m = Zpos p ->
+  (Zpos (digits2_pos p) <= prec)%Z ->
+  (emin prec emax <= e)%Z ->
+  (Zpos (digits2_pos p) + e <= emax)%Z ->
+  (2 <= emax)%Z ->
+  exists s mc T,
+    binary_normalize prec emax m e false = S754_finite s mc T
+    /\ cond_Zopp s (Zpos mc) = (m * 2 ^ (e - T))%Z
+    /\ (Zpos (digits2_pos mc) + T = Zpos (digits2_pos p) + e)%Z
+    /\ T = fexp prec emax (Zpos (digits2_pos p) + e)
+    /\ (T <= e)%Z.
+Proof.
+  intros prec emax m e p Habs Hd He Hde Hemax.
+  assert (HT : (fexp prec emax (Zpos (digits2_pos p) + e) <= e)%Z)
+    by (unfold fexp, emin in *; lia).
+  pose proof (shl_align_fst_val p e _ HT) as Hval.
+  pose proof (shl_align_digits p e _ HT) as Hdig.
+  pose proof (shl_align_snd p e _ HT) as Hsnd.
+  destruct m as [|p'|p']; cbn [Z.abs] in Habs; try discriminate Habs;
+    injection Habs as ->.
+  - exists false, (fst (shl_align p e (fexp prec emax (Zpos (digits2_pos p) + e)))),
+           (fexp prec emax (Zpos (digits2_pos p) + e)).
+    split; [|split; [|split; [|split]]].
+    + cbn [binary_normalize].
+      exact (binary_round_exact prec emax false p e Hd He Hde Hemax).
+    + cbn [cond_Zopp]. exact Hval.
+    + lia.
+    + reflexivity.
+    + exact HT.
+  - exists true, (fst (shl_align p e (fexp prec emax (Zpos (digits2_pos p) + e)))),
+           (fexp prec emax (Zpos (digits2_pos p) + e)).
+    split; [|split; [|split; [|split]]].
+    + cbn [binary_normalize].
+      exact (binary_round_exact prec emax true p e Hd He Hde Hemax).
+    + cbn [cond_Zopp].
+      change (Zneg p) with (- Zpos p)%Z.
+      rewrite Hval. ring.
+    + lia.
+    + reflexivity.
+    + exact HT.
+Qed.
 Lemma render_canonical_f64 : forall m e p,
   Z.abs m = Zpos p ->
   float_dyadic_repr GTFloat64 m e = true ->
@@ -1367,33 +1433,7 @@ Lemma render_canonical_f64 : forall m e p,
 Proof.
   intros m e p Habs Hrep.
   destruct (float_dyadic_repr_f64_premises m e p Hrep Habs) as [Hd [He Hde]].
-  assert (HT : (fexp 53 1024 (Zpos (digits2_pos p) + e) <= e)%Z)
-    by (unfold fexp, emin in *; lia).
-  pose proof (shl_align_fst_val p e _ HT) as Hval.
-  pose proof (shl_align_digits p e _ HT) as Hdig.
-  pose proof (shl_align_snd p e _ HT) as Hsnd.
-  destruct m as [|p'|p']; cbn [Z.abs] in Habs; try discriminate Habs;
-    injection Habs as ->.
-  - exists false, (fst (shl_align p e (fexp 53 1024 (Zpos (digits2_pos p) + e)))),
-           (fexp 53 1024 (Zpos (digits2_pos p) + e)).
-    split; [|split; [|split; [|split]]].
-    + cbn [binary_normalize].
-      exact (binary_round_exact 53 1024 false p e Hd He Hde ltac:(lia)).
-    + cbn [cond_Zopp]. exact Hval.
-    + lia.
-    + reflexivity.
-    + exact HT.
-  - exists true, (fst (shl_align p e (fexp 53 1024 (Zpos (digits2_pos p) + e)))),
-           (fexp 53 1024 (Zpos (digits2_pos p) + e)).
-    split; [|split; [|split; [|split]]].
-    + cbn [binary_normalize].
-      exact (binary_round_exact 53 1024 true p e Hd He Hde ltac:(lia)).
-    + cbn [cond_Zopp].
-      change (Zneg p) with (- Zpos p)%Z.
-      rewrite Hval. ring.
-    + lia.
-    + reflexivity.
-    + exact HT.
+  exact (render_canonical_gen 53 1024 m e p Habs Hd He Hde ltac:(lia)).
 Qed.
 (** the finite×finite MUL core: both renders characterized canonically, the raw-product arm
     rewritten to [binary_round], the product value algebra aligned to the fold via
@@ -1809,4 +1849,66 @@ Proof.
         destruct (render_signed_value_f64 (Zneg pr) er pr eq_refl Hr)
           as [sr [mcr [Tr [Hbnr _]]]].
         rewrite Hbnr. reflexivity.
+Qed.
+
+(** ---- rung 7 groundwork — the f32 row's assembly kit: the deep bridges were already
+    precision-generic, and the render/normalize assembly is now generic too; these are the
+    binary32 instances, plus the generic sign-flip at the normalizer (rung 1's identity,
+    directly from [binary_round_opp] — both widths for free). *)
+Lemma repr_window_split_f32 : forall m e,
+  float_dyadic_repr GTFloat32 m e = true ->
+  m = Z0 \/ exists q, Z.abs m = Zpos q
+     /\ (Zpos (digits2_pos q) <= 24)%Z /\ (emin 24 128 <= e)%Z
+     /\ (Zpos (digits2_pos q) + e <= 128)%Z.
+Proof.
+  intros m e H. destruct m as [|q|q]; [left; reflexivity| |];
+    right; exists q; (split; [reflexivity|]);
+    exact (float_dyadic_repr_f32_premises _ _ q H eq_refl).
+Qed.
+Lemma render_signed_value_f32 : forall m e p,
+  Z.abs m = Zpos p ->
+  float_dyadic_repr GTFloat32 m e = true ->
+  exists s mc T,
+    binary_normalize 24 128 m e false = S754_finite s mc T
+    /\ cond_Zopp s (Zpos mc) = (m * 2 ^ (e - T))%Z
+    /\ (emin 24 128 <= T)%Z /\ (T <= e)%Z.
+Proof.
+  intros m e p Habs Hrep.
+  destruct (float_dyadic_repr_f32_premises m e p Hrep Habs) as [Hd [He Hde]].
+  exact (render_signed_value_gen 24 128 m e p Habs Hd He Hde ltac:(lia)).
+Qed.
+Lemma render_canonical_f32 : forall m e p,
+  Z.abs m = Zpos p ->
+  float_dyadic_repr GTFloat32 m e = true ->
+  exists s mc T,
+    binary_normalize 24 128 m e false = S754_finite s mc T
+    /\ cond_Zopp s (Zpos mc) = (m * 2 ^ (e - T))%Z
+    /\ (Zpos (digits2_pos mc) + T = Zpos (digits2_pos p) + e)%Z
+    /\ T = fexp 24 128 (Zpos (digits2_pos p) + e)
+    /\ (T <= e)%Z.
+Proof.
+  intros m e p Habs Hrep.
+  destruct (float_dyadic_repr_f32_premises m e p Hrep Habs) as [Hd [He Hde]].
+  exact (render_canonical_gen 24 128 m e p Habs Hd He Hde ltac:(lia)).
+Qed.
+Lemma normalize_result_agrees_f32 : forall raw ez mr er,
+  dy_norm raw ez = (mr, er) ->
+  float_dyadic_repr GTFloat32 mr er = true ->
+  binary_normalize 24 128 raw ez false = binary_normalize 24 128 mr er false.
+Proof.
+  intros raw ez mr er Hn Hrep.
+  exact (normalize_result_agrees_gen 24 128 raw ez mr er Hn
+           (repr_window_split_f32 mr er Hrep) ltac:(lia)).
+Qed.
+Lemma binary_normalize_opp : forall prec emax m e,
+  m <> Z0 ->
+  binary_normalize prec emax (- m)%Z e false
+  = SFopp (binary_normalize prec emax m e false).
+Proof.
+  intros prec emax m e Hm.
+  destruct m as [|p|p]; [congruence| |].
+  - change (- Zpos p)%Z with (Zneg p). cbn [binary_normalize].
+    exact (binary_round_opp prec emax false p e).
+  - change (- Zneg p)%Z with (Zpos p). cbn [binary_normalize].
+    exact (binary_round_opp prec emax true p e).
 Qed.
