@@ -36,8 +36,9 @@ Open Scope string_scope.
     DECLARATION path: it binds from the RHS [PTy] through [bind_category] internally and DECIDES
     the whole-scope invariant at construction.  BOUNDARY OF THE CLAIM: construction PROVENANCE
     (that a scope arose from declarations, entries unmarked at birth) is NOT type-sealed — a
-    well-formed [ScopeS] is directly constructible; that provenance is the rung-4 fold's property,
-    pinned where [supported_program] is the only scope constructor.  (Full module-opacity would
+    well-formed [ScopeS] is directly constructible; that provenance is the gate fold's property
+    ([body_okS] declares exclusively through [scope_declare], and [supported_program] runs the
+    fold from [scope_empty]).  (Full module-opacity would
     seal provenance too but blocks the [vm_compute] fixture discipline this repo's gates rest on —
     precise claims over opacity.)  [type_expr] takes [ScopeS] only. *)
 Definition bound_cat_ok (c : PTy) : bool :=
@@ -610,7 +611,8 @@ Proof.
 Qed.
 
 (** ===================================================================================================
-    ===== STRUCTURAL: statement-shape / supported-syntax (the [stmt_ok] / [supported_program] gate) =====
+    ===== STRUCTURAL: statement-shape / supported-syntax — the CLOSED fragment [stmt_ok] + the
+    ===== scope-threaded gate [body_okS] / [supported_program] (locals rung 4) =====
     =================================================================================================== *)
 
 (** Is a builtin [f] valid as a standalone EXPRESSION-STATEMENT call, by NAME and ARITY only?  [println]/
@@ -679,14 +681,17 @@ Definition expr_stmt_ok (e : GExpr) : bool :=
   | _                  => false
   end.
 
-(** A statement in the SUPPORTED subset: an expression statement must be [expr_stmt_ok]; a bare [return] is
+(** A statement in the CLOSED (scope-free) supported fragment: an expression statement must be [expr_stmt_ok];
+    a bare [return] is
     always fine (a valid tail of a void func like [main]); a blank assign [_ = e] needs [svalue e]; a deferred
     call [defer <e>] ([GsDefer]) reuses [expr_stmt_ok] (Go requires the deferred expr be a CALL — so
     [defer 1] / [defer len(..)] / [defer panic()] / [defer println(<slice>)] are rejected exactly as the
     matching expr statements, pinned in [bad_programs]); a VALUE return [return e] ([GsReturnVal]) is REJECTED —
     the only function we emit is [main], which is VOID, so `return <value>` is invalid Go ("too many return
     values").  (It becomes supported, conditional on the enclosing function's result type, once NON-void
-    functions enter the AST — a clean demonstration that GoAst represents more than the gate admits.) *)
+    functions enter the AST — a clean demonstration that GoAst represents more than the gate admits.)
+    This fragment is what GoSemDenote's slice-1 evaluator is gated on; the LIVE program gate is the
+    scope-threaded fold below, and the [.._nil] bridge lemmas prove the two agree on decl-free bodies. *)
 Definition stmt_ok (s : GoStmt) : bool :=
   match s with
   | GsExprStmt e    => expr_stmt_ok e
@@ -694,24 +699,200 @@ Definition stmt_ok (s : GoStmt) : bool :=
   | GsReturnVal _   => false   (* value return is invalid in the void [main] — the only function emitted today *)
   | GsBlankAssign e => svalue e  (* [_ = e] is valid iff [e] PRODUCES a value — so [_ = println(1)] (void) is rejected *)
   | GsDefer e       => expr_stmt_ok e  (* [defer <call>]: Go requires the deferred expr be a function CALL — same gate as an expr statement *)
-  | GsShortDecl _ _ => false  (* [x := e] — locals rung 1: REPRESENTATION before admission; the scope-threaded gate admits it at rung 4 (plans/gosem-locals.md) *)
+  | GsShortDecl _ _ => false  (* [x := e] needs SCOPE STATE, so it is never CLOSED-supported; [stmt_okS] below is where it is admitted (locals rung 4) *)
   end.
 
+(** ===== The SCOPE-THREADED gate (locals rung 4) — ONE fold over the sealed [ScopeS] =====
+    The scope-aware twins of [expr_stmt_ok]/[stmt_ok]: the SAME per-builtin discipline through the SAME
+    category predicates ([printable_cat]/[svalue_cat]) and name table, but every argument/operand goes
+    through [type_expr], so identifier USES resolve against the scope and are MARKED in the same traversal.
+    Statements THREAD the scope left to right; [GsShortDecl] is admitted HERE — the RHS is typed first
+    (Go's order, marking its uses), then [scope_declare] binds (the ONE insertion path: [bind_category] +
+    [decl_ident_ok] + freshness — so overflow / recognized-name / blank / redeclare all reject there). *)
+Fixpoint args_okS (catp : PTy -> bool) (G : ScopeS) (args : list GExpr) : option ScopeS :=
+  match args with
+  | nil => Some G
+  | a :: args' =>
+      match type_expr G a with
+      | Some (c, G1) => if catp c then args_okS catp G1 args' else None
+      | None => None
+      end
+  end.
+
+Definition expr_stmt_okS (G : ScopeS) (e : GExpr) : option ScopeS :=
+  match e with
+  | ECall (EId f) args =>
+      let fn := proj1_sig f in
+      match scope_get (sc_list G) fn with
+      | Some _ => None   (* a LOCAL callee: no local is a function in this fragment (local-first, mirroring [type_expr]) *)
+      | None =>
+          if stmt_call_ok fn args then
+            match special_ident fn with
+            | Some SnPanic => args_okS svalue_cat G args
+            | Some SnPrintln | Some SnPrint => args_okS printable_cat G args
+            | Some (SnType _) | Some SnNil | Some SnLen | Some SnCap
+            | None => args_okS printable_cat G args   (* dead under [stmt_call_ok]'s false — kept for exact equivalence *)
+            end
+          else None
+      end
+  | _ => None
+  end.
+
+Definition stmt_okS (G : ScopeS) (s : GoStmt) : option ScopeS :=
+  match s with
+  | GsExprStmt e    => expr_stmt_okS G e
+  | GsReturn        => Some G
+  | GsReturnVal _   => None
+  | GsBlankAssign e =>
+      match type_expr G e with
+      | Some (c, G1) => if svalue_cat c then Some G1 else None
+      | None => None
+      end
+  | GsDefer e       => expr_stmt_okS G e
+  | GsShortDecl x e =>
+      match type_expr G e with
+      | Some (c, G1) => scope_declare G1 x c
+      | None => None
+      end
+  end.
+
+Fixpoint body_okS (G : ScopeS) (b : list GoStmt) : option ScopeS :=
+  match b with
+  | nil => Some G
+  | s :: rest =>
+      match stmt_okS G s with
+      | Some G1 => body_okS G1 rest
+      | None => None
+      end
+  end.
+
+(** Go's "declared and not used" (a COMPILE error — certifying an unused local would be fail-open),
+    decided on the fold's FINAL scope: an O(locals) check over the state the one traversal built,
+    not a second pass over the program. *)
+Definition scope_all_used (G : ScopeS) : bool :=
+  forallb (fun ent => snd (snd ent)) (sc_list G).
+
 (** PHASE-1 supportedness — DECIDABLE (bool-reflected): the program is a runnable `package main` whose body is
-    entirely in the printer/emitter's STRUCTURALLY-supported statement subset (each statement is a [return], a
-    structurally-well-formed call expression statement, a blank assign of a value, or a [defer] of such a call).
+    entirely in the printer/emitter's STRUCTURALLY-supported statement subset, judged by the ONE scope-threaded
+    fold [body_okS] from the empty scope: each statement is a [return], a structurally-well-formed call
+    expression statement, a blank assign of a value, a [defer] of such a call, or a short declaration
+    ([x := e], bound through [scope_declare]) — with every declared local USED ([scope_all_used]).
     It rejects the structural absurdities Go's grammar/
     statement rules forbid: a bare-value statement `func main(){ 1 }` ("evaluated but not used") and a call of a
     non-callable `func main(){ 1() }` are both [false], so no certificate exists and [emit_supported] can never
     print them.  SCOPE OF THE CLAIM (kept honest): this is CONSERVATIVE STRUCTURAL scope + type-category
-    supportedness — it REJECTS a free (undefined) identifier (the current Program has NO declarations, so a free
-    [x] could never compile) and a structurally-evident type/constant error, but it is NOT full Go type-checking
+    supportedness — it REJECTS a free (undefined) identifier, a use before its declaration, a redeclaration,
+    an unused local, and a structurally-evident type/constant error, but it is NOT full Go type-checking
     or behavioral safety (the [BehaviorSafe]/GoSem layer, later).  So it is SUPPORTEDNESS, not "guaranteed-
-    compiling" and not behavioral safety.  (The package-name-ONLY check was too weak — it certified invalid Go
-    — now fixed.) *)
+    compiling" and not behavioral safety. *)
 Definition supported_program (p : Program) : bool :=
-  String.eqb (proj1_sig (prog_pkg p)) "main" && forallb stmt_ok (prog_body p).
+  String.eqb (proj1_sig (prog_pkg p)) "main"
+  && match body_okS scope_empty (prog_body p) with
+     | Some Gfin => scope_all_used Gfin
+     | None => false
+     end.
 Definition SupportedProgram (p : Program) : Prop := supported_program p = true.
+
+(** ===== The DECL-FREE bridge: the scope fold at [scope_empty] IS the closed gate =====
+    [type_expr_nil_ptype] one level up: on a body with no short declaration the fold can neither bind
+    nor mark, so it agrees EXACTLY with [forallb stmt_ok] — drift between the two statement spellings
+    fails the build here.  ([gosem_sound] rides this: slice-1 denotable bodies are decl-free since
+    [denote_stmt (GsShortDecl _ _) = None].) *)
+Lemma printable_arg_ok_cat : forall e c, ptype e = Some c -> printable_arg_ok e = printable_cat c.
+Proof. intros e c H. unfold printable_arg_ok. rewrite H. reflexivity. Qed.
+Lemma printable_arg_ok_absent : forall e, ptype e = None -> printable_arg_ok e = false.
+Proof. intros e H. unfold printable_arg_ok. rewrite H. reflexivity. Qed.
+Lemma svalue_cat_of : forall e c, ptype e = Some c -> svalue e = svalue_cat c.
+Proof. intros e c H. unfold svalue. rewrite H. reflexivity. Qed.
+Lemma svalue_absent : forall e, ptype e = None -> svalue e = false.
+Proof. intros e H. unfold svalue. rewrite H. reflexivity. Qed.
+
+Lemma args_okS_nil : forall (catp : PTy -> bool) (argf : GExpr -> bool),
+  (forall a c, ptype a = Some c -> argf a = catp c) ->
+  (forall a, ptype a = None -> argf a = false) ->
+  forall args,
+    args_okS catp scope_empty args = if forallb argf args then Some scope_empty else None.
+Proof.
+  intros catp argf Hsome Hnone.
+  induction args as [|a args' IH]; cbn [args_okS forallb]; [reflexivity|].
+  pose proof (type_expr_nil_agrees a) as Ha.
+  destruct (type_expr scope_empty a) as [[c G']|]; cbn in Ha.
+  - destruct Ha as [Hp HG]; subst G'.
+    rewrite (Hsome a c Hp). destruct (catp c); [exact IH | reflexivity].
+  - rewrite (Hnone a Ha). reflexivity.
+Qed.
+
+Lemma expr_stmt_okS_nil : forall e,
+  expr_stmt_okS scope_empty e = if expr_stmt_ok e then Some scope_empty else None.
+Proof.
+  intro e.
+  destruct e as [i|z|u a|o l r|a f|a i|a lo hi|h args|a t|ct a|t es|kt vt kvs|s|zc]; try reflexivity.
+  destruct h as [f|z|u a2|o l r|a2 f2|a2 i2|a2 lo hi|h2 args2|a2 t|ct a2|t es|kt vt kvs|s|zc];
+    try reflexivity.
+  cbn [expr_stmt_okS expr_stmt_ok sc_list scope_empty scope_get].
+  destruct (stmt_call_ok (proj1_sig f) args); [|reflexivity].
+  destruct (special_ident (proj1_sig f)) as [[t| | | | | |]|];
+    first [ rewrite (args_okS_nil _ _ svalue_cat_of svalue_absent args); reflexivity
+          | rewrite (args_okS_nil _ _ printable_arg_ok_cat printable_arg_ok_absent args); reflexivity ].
+Qed.
+
+Definition is_shortdecl (s : GoStmt) : bool :=
+  match s with
+  | GsShortDecl _ _ => true
+  | GsExprStmt _ | GsReturn | GsReturnVal _ | GsBlankAssign _ | GsDefer _ => false
+  end.
+
+Lemma stmt_okS_nil : forall s, is_shortdecl s = false ->
+  stmt_okS scope_empty s = if stmt_ok s then Some scope_empty else None.
+Proof.
+  intros s Hd. destruct s as [e| |e|e|e|x e]; cbn [stmt_okS stmt_ok].
+  - apply expr_stmt_okS_nil.
+  - reflexivity.
+  - reflexivity.
+  - pose proof (type_expr_nil_agrees e) as He.
+    destruct (type_expr scope_empty e) as [[c G']|]; cbn in He.
+    + destruct He as [Hp HG]; subst G'. rewrite (svalue_cat_of e c Hp). reflexivity.
+    + rewrite (svalue_absent e He). reflexivity.
+  - apply expr_stmt_okS_nil.
+  - discriminate Hd.
+Qed.
+
+Lemma body_okS_nil_declfree : forall b,
+  forallb (fun s => negb (is_shortdecl s)) b = true ->
+  body_okS scope_empty b = if forallb stmt_ok b then Some scope_empty else None.
+Proof.
+  induction b as [|s rest IH]; cbn [body_okS forallb]; intro Hd; [reflexivity|].
+  apply andb_true_iff in Hd as [Hs Hr]. apply negb_true_iff in Hs.
+  rewrite (stmt_okS_nil s Hs).
+  destruct (stmt_ok s); [exact (IH Hr)|reflexivity].
+Qed.
+
+(** The decl-free premise is FREE on closed-supported bodies ([stmt_ok] never admits a decl). *)
+Lemma stmt_ok_declfree : forall s, stmt_ok s = true -> negb (is_shortdecl s) = true.
+Proof.
+  intros s H.
+  destruct s; [reflexivity|reflexivity|reflexivity|reflexivity|reflexivity|discriminate H].
+Qed.
+
+Lemma body_okS_of_stmt_ok : forall b,
+  forallb stmt_ok b = true -> body_okS scope_empty b = Some scope_empty.
+Proof.
+  intros b Hb. rewrite (body_okS_nil_declfree b); [rewrite Hb; reflexivity|].
+  revert Hb. induction b as [|s rest IH]; cbn [forallb]; intro Hb; [reflexivity|].
+  apply andb_true_iff in Hb as [Hs Hr].
+  rewrite (stmt_ok_declfree s Hs). cbn [andb]. exact (IH Hr).
+Qed.
+
+(** The consumer-facing corollary ([gosem_sound]'s repair): a main-package body in the CLOSED
+    fragment is supported by the scope-threaded gate. *)
+Lemma supported_program_of_stmt_ok : forall p,
+  String.eqb (proj1_sig (prog_pkg p)) "main" = true ->
+  forallb stmt_ok (prog_body p) = true ->
+  supported_program p = true.
+Proof.
+  intros p Hpkg Hb. unfold supported_program.
+  rewrite Hpkg, (body_okS_of_stmt_ok _ Hb). reflexivity.
+Qed.
 
 (** ============================================================================================
     REGRESSIONS — grouped boolean fixtures.  INVARIANT: [ptype]/[svalue] is a CONSERVATIVE supported-subset
@@ -739,6 +920,12 @@ Definition gs_str (a : GExpr) : GExpr := ECall (EId (mkIdent "string" eq_refl)) 
 Definition gs_int (a : GExpr) : GExpr := ECall (EId (mkIdent "int" eq_refl)) [a].
 Definition gs_u8  (a : GExpr) : GExpr := ECall (EId (mkIdent "uint8" eq_refl)) [a].
 Definition gs_i8  (a : GExpr) : GExpr := ECall (EId (mkIdent "int8" eq_refl)) [a].
+(** Locals-fixture shorthands: [gs_main b] is `func main(){ <b> }`; [gs_use i] is the `_ = <i>` use idiom. *)
+Definition gs_main (b : list GoStmt) : Program := mkProgram (mkIdent "main" eq_refl) b.
+Definition id_x : Ident := mkIdent "x" eq_refl.
+Definition id_y : Ident := mkIdent "y" eq_refl.
+Definition id_m : Ident := mkIdent "m" eq_refl.
+Definition gs_use (i : Ident) : GoStmt := GsBlankAssign (EId i).
 
 (** The bare-value statement `func main(){ 1 }` — NAMED because GoEmit's certificate-forge test references it
     ([Fail Definition … := mkEmittable unsupported_value_stmt eq_refl], proving no [EmittableProgram] exists
@@ -777,7 +964,16 @@ Definition bad_programs : list Program :=
   ; mkProgram (mkIdent "main" eq_refl) [GsExprStmt (ECall (EId (mkIdent "panic" eq_refl)) [EId (mkIdent "x" eq_refl)])]
   ; mkProgram (mkIdent "main" eq_refl) [GsExprStmt (EStr "x")]
   ; mkProgram (mkIdent "main" eq_refl) [GsReturnVal (EInt 1)]
-  ; mkProgram (mkIdent "main" eq_refl) [GsShortDecl (mkIdent "x" eq_refl) (EInt 1)]  (* [x := 1] alone — INVALID Go (declared and not used) AND locals rung 1 rejects ALL short decls (representation before admission; non-denotation is ENTAILED via [gosem_sound]'s contrapositive) *)
+    (* short declarations (locals rung 4) — each row ISOLATES one rule; every placement verified gc *)
+  ; gs_main [GsShortDecl id_x (EInt 1)]                                  (* x := 1 alone: "declared and not used" — rejected by [scope_all_used] (the decl itself is admitted by [scope_declare]) *)
+  ; gs_main [GsShortDecl id_x (EInt 1); GsReturn]                        (* x := 1; return: "declared and not used" — the SAME fold's final step, no second pass *)
+  ; gs_main [GsShortDecl id_x (EInt 9223372036854775808); gs_use id_x]      (* x := 2^63; _ = x: "overflows" on EVERY target — [bind_category]'s untyped-const arm repr-checks the bound *)
+  ; gs_main [GsShortDecl id_x (EInt 1); GsShortDecl id_x (EInt 2); gs_use id_x]  (* x := 1; x := 2: "no new variables on left side of :=" — [scope_declare]'s freshness conjunct *)
+  ; gs_main [GsShortDecl (mkIdent "_" eq_refl) (EInt 1)]                 (* _ := 1: "no new variables" — [decl_ident_ok] rejects the blank identifier mechanically ([go_ident "_"] is true, so this needs a rule, not hope) *)
+  ; gs_main [GsShortDecl id_x (EId (mkIdent "nil" eq_refl)); gs_use id_x]   (* x := nil: "use of untyped nil in assignment" — [bind_category]'s [PtNil] arm *)
+  ; gs_main [gs_use id_x; GsShortDecl id_x (EInt 1); gs_use id_x]              (* _ = x; x := 1; _ = x: "undefined: x" at the FIRST use — SEQUENTIAL visibility (the trailing use keeps the decl used, isolating the rule) *)
+  ; gs_main [GsShortDecl id_m (EMapLit (GTSlice GTInt) GTInt [(ESliceLit GTInt [EInt 1], EInt 2)]);
+             GsBlankAssign (ECall (EId (mkIdent "len" eq_refl)) [EId id_m])]  (* m := map[[]int]int{..}: "invalid map key type" — the invalid-RHS companion of the VALID agg/map locals in [valid_unsupported_programs] *)
     (* [defer <call>] reuses [expr_stmt_ok], so it rejects the SAME non-call / value-builtin / arity / arg shapes *)
   ; gs_defer (EInt 1)                                                    (* defer of a NON-call value *)
   ; gs_defer (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]])  (* defer of [len] — a value builtin, not a statement call *)
@@ -834,8 +1030,6 @@ Definition bad_programs : list Program :=
   ; pl_arg (gs_i8 (EBn BAdd (ECall (EId (mkIdent "len" eq_refl)) [gs_str (EInt 65)]) (EInt 200)))  (* int8(len(string(65))+200): the NON-LITERAL companion to the [valid_unsupported_programs] witness `len(string(65))`.  string(65)="A", len folds to 1 EXACTLY, 1+200=201 overflows int8 — INVALID Go, REJECTED.  EXACT byte-length folding (the legitimate way to admit the witness) keeps THIS rejected; a sloppy [PtStr -> PtRunInt] runtime-int shortcut would make int8(runtime+200) SUPPORTED and FLIP [bad_programs_rejected] *)
   ; pl_arg (gs_i8 (EBn BAdd (ECall (EId (mkIdent "len" eq_refl)) [EBn BAdd (EStr "a") (EStr "b")]) (EInt 200)))  (* int8(len("a"+"b")+200): the companion to the other witness `len("a"+"b")`.  "a"+"b"="ab", len folds to 2 EXACTLY, 2+200=202 overflows int8 — same soundness lock on the concat witness *)
   ; pl_arg (EBn BAdd (EStr "a") (EInt 1))                                (* "a" + 1: string + number is INVALID Go — REJECTED ([num_binop] gives None on the non-numeric [PtStr] operand) *)
-  ; pl_arg (EInt 1099511627776)                                          (* 2^40 default-int overflow *)
-  ; gs_blank (EInt 1099511627776)
   ; gs_blank (ESliceLit GTU8 [gs_int (EInt 300)])
   ; pl_arg (EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (EStr "x"))      (* []int{10,20}["x"]: a STRING index is INVALID Go — a slice index must be an integer; [ptype idx] = [PtStr] so [is_int_cat] fails -> UNSUPPORTED *)
   ; pl_arg (EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (EUn UNeg (EInt 1)))  (* []int{10,20}[-1]: a NEGATIVE constant index is INVALID Go (verified gc: "index -1 must not be negative") — REJECTED by the [0 <=? k] guard.  (An OOB *positive* constant is NOT here — it is valid Go, in good_programs.) *)
@@ -907,11 +1101,11 @@ Proof. vm_compute. reflexivity. Qed.
     slice/map-key members of [bad_programs] rejected); the float ROUNDING members ([float64(1)/float64(3)],
     the cross-width [float32(<inexact-at-32>)]) graduate only with a correctly-ROUNDING const model — the
     exact-or-reject dyadic fold refuses them today (keeping the const-ZERO-divisor [bad_programs] member
-    rejected); the SHORT-DECLARATION member (`x := 1; _ = x; return` — locals rung 1 keeps every
-    [GsShortDecl] out of core, [shortdecl_stmt_ok_false]) graduates ONLY via the scope-threaded
-    gate of plans/gosem-locals.md (the ScopeS fold through scope_declare: bind_category / decl_ident_ok / recursive use-marking /
-    no-unused rejection — never a casual [stmt_ok] widening), keeping the unused `x := 1`
-    [bad_programs] companion rejected.  The two contracts must not be confused — a
+    rejected); ★the SHORT-DECLARATION member GRADUATED at locals rung 4 exactly per this contract —
+    `x := 1; _ = x; return` moved to [good_programs] via the [body_okS] scope fold while its
+    unused / redeclared / blank / untyped-nil / overflowing / use-before-declare companions all sit in
+    [bad_programs]; the decl members still HERE (the 2^40 decl, the shadowed special names, the
+    aggregate/map locals) each name their narrowing at their row.  The two contracts must not be confused — a
     [bad_programs] regression means an UNSOUND
     emission reopened; admitting one of THESE (with its companion preserved) is the subset legitimately GROWING.
     (NO separate member inventory here: [valid_unsupported_programs] below IS the member authority,
@@ -939,17 +1133,33 @@ Definition valid_unsupported_programs : list Program :=
   ; gs_blank (EConv (CTMap GTInt GTInt) (EId (mkIdent "nil" eq_refl)))    (* _ = map[int]int(nil): VALID Go (nil converts to a map type) — the blanket CTMap quarantine pinned on a VALID operand (the [bad_programs] free-ident row is an invalid-operand rejection, NOT this witness) *)
   ; gs_blank (EBn BDiv (gs_f64 (EInt 1)) (gs_f64 (EInt 3)))               (* _ = float64(1)/float64(3): VALID Go (rounds to ~0.333); the exact-or-reject dyadic fold REFUSES a non-representable quotient ([dy_div] inexact) — quarantined, never a rounded lie *)
   ; pl_arg (ECall (EId (mkIdent "float32" eq_refl)) [gs_f64 (EInt 16777217)])  (* println(float32(float64(16777217))): VALID Go (rounds to 16777216 — 2^24+1 is inexact at binary32); the cross-width const conversion is EXACT-only ([float_dyadic_repr]) — quarantined *)
-  ; mkProgram (mkIdent "main" eq_refl)
-      [GsShortDecl (mkIdent "x" eq_refl) (EInt 1);
-       GsBlankAssign (EId (mkIdent "x" eq_refl)); GsReturn]  (* x := 1; _ = x; return — VALID Go (declared AND used); locals rung 1 keeps ALL short decls out of core (the constructor pins below isolate the rejection; the [bad_programs] `x := 1` row is the INVALID unused twin, a different contract) *)
+    (* the CONSERVATIVE default-[int] boundary: 2^40 fits 64-bit gc's [int] (verified — compiles and prints)
+       but not the 32-bit [int] the checker assumes to stay sound on EVERY target ([int_const_repr .. GTInt]) *)
+  ; pl_arg (EInt 1099511627776)                                          (* println(2^40) *)
+  ; gs_blank (EInt 1099511627776)                                        (* _ = 2^40 *)
+  ; gs_main [GsShortDecl id_x (EInt 1099511627776); gs_use id_x]            (* x := 2^40; _ = x — the same boundary through [bind_category]'s untyped-const arm *)
+    (* checker-recognized names as locals: LEGAL Go (predeclared identifiers are shadowable; each verified gc)
+       — [decl_ident_ok] rejects EVERY recognized name uniformly, a NAMED NARROWING (plans/gosem-locals.md rule 5) *)
+  ; gs_main [GsShortDecl (mkIdent "len" eq_refl) (EInt 1); GsBlankAssign (EId (mkIdent "len" eq_refl))]   (* len := 1; _ = len *)
+  ; gs_main [GsShortDecl (mkIdent "int" eq_refl) (EInt 1); GsBlankAssign (EId (mkIdent "int" eq_refl))]   (* int := 1; _ = int *)
+  ; gs_main [GsShortDecl (mkIdent "nil" eq_refl) (EInt 1); GsBlankAssign (EId (mkIdent "nil" eq_refl))]   (* nil := 1; _ = nil *)
+    (* aggregate/map LOCALS: VALID Go (verified gc) — [bind_category]'s [PtAgg]/[PtMap] arms are a NAMED
+       NARROWING (the evaluator has no aggregate/map VALUES, so admitting the binding would create locals
+       that can never value); the [len] uses isolate that rejection from unused/undeclared noise *)
+  ; gs_main [GsShortDecl id_x (ESliceLit GTInt [EInt 1]);
+             GsBlankAssign (ECall (EId (mkIdent "len" eq_refl)) [EId id_x])]   (* x := []int{1}; _ = len(x) *)
+  ; gs_main [GsShortDecl id_m (EMapLit GTInt GTInt [(EInt 1, EInt 2)]);
+             GsBlankAssign (ECall (EId (mkIdent "len" eq_refl)) [EId id_m])]   (* m := map[int]int{1:2}; _ = len(m) *)
   ] ++ ptrchan_key_quarantine.
 Example valid_unsupported_rejected :
   forallb (fun p => negb (supported_program p)) valid_unsupported_programs = true.
 Proof. vm_compute. reflexivity. Qed.
 
-(** The [GsShortDecl] rejection pinned at the CONSTRUCTOR, for EVERY ident/expression (not a sample
-    row): the rung-1 arm is the constant [false], so the valid-unsupported witness above rejects for
-    exactly this reason regardless of its other statements.  (The denotation-side absence pin,
+(** [stmt_ok] — the CLOSED (scope-free) fragment — never admits a short declaration, pinned at the
+    CONSTRUCTOR for every ident/expression.  This is what makes the decl-free bridge's premise free
+    on closed-supported bodies ([stmt_ok_declfree]) and — via [gosem_sound] — why slice-1 denotable
+    bodies are decl-free.  The LIVE program gate ([body_okS]) DOES admit declarations, exclusively
+    through [scope_declare] (the [good_programs] locals rows).  (The denotation-side absence pin,
     [denote_stmt (GsShortDecl _ _) = None], lives with [denote_stmt] in GoSemDenote.v.) *)
 Example shortdecl_stmt_ok_false : forall x e, stmt_ok (GsShortDecl x e) = false.
 Proof. reflexivity. Qed.
@@ -1018,6 +1228,13 @@ Definition good_programs : list Program :=
   ; pl_arg (EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]]))  (* []int{10,20}[len([]int{1})]: a RUNTIME (non-constant) integer index — VALID Go, bounds are a run-time property; supported.  Locks that the rule is NOT [EInt]-only *)
   ; mkProgram (mkIdent "main" eq_refl)                                   (* defer println("bye"); return — a deferred CALL is supported (same gate as an expr statement) *)
       [GsDefer (ECall (EId (mkIdent "println" eq_refl)) [EStr "bye"]); GsReturn]
+    (* short declarations (locals rung 4 — declared AND used, through the [body_okS] scope fold) *)
+  ; gs_main [GsShortDecl id_x (EInt 1); gs_use id_x; GsReturn]              (* x := 1; _ = x; return — GRADUATED from [valid_unsupported_programs] *)
+  ; gs_main [GsShortDecl id_x (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]]); gs_use id_x]  (* x := len([]int{1}); _ = x — a RUNTIME binding *)
+  ; gs_main [GsShortDecl id_x (EInt 1); GsShortDecl id_y (EId id_x); gs_use id_y]  (* x := 1; y := x; _ = y — a runtime category binds AS ITSELF; the RHS use marks x *)
+  ; gs_main [GsShortDecl id_x (gs_i64 (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]])); gs_use id_x]  (* x := int64(len([]int{1})); _ = x — a TYPED-runtime binding *)
+  ; gs_main [GsShortDecl id_x (EInt 1); GsBlankAssign (EBn BAdd (EId id_x) (EInt 1))]  (* x := 1; _ = x + 1 — the use is marked INSIDE a subexpression *)
+  ; gs_main [GsShortDecl id_x (EInt 1); GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [EId id_x])]  (* x := 1; println(x) — the use is marked through a CALL ARGUMENT *)
   ].
 Example good_programs_supported : forallb supported_program good_programs = true.
 Proof. vm_compute. reflexivity. Qed.
@@ -1044,6 +1261,8 @@ Fail Example forge_free_blank :
   SupportedProgram (gs_blank (EId (mkIdent "x" eq_refl))) := eq_refl.
 Fail Example forge_uint8_overflow :
   SupportedProgram (pl_arg (gs_u8 (EInt 300))) := eq_refl.
+Fail Example forge_unused_local :
+  SupportedProgram (gs_main [GsShortDecl id_x (EInt 1); GsReturn]) := eq_refl.
 
 (** ===================================================================================================
     ===== SEMANTIC: BehaviorSafe over GoSem (future) =====
@@ -1065,3 +1284,4 @@ Fail Example forge_uint8_overflow :
 Print Assumptions SupportedProgram.
 Print Assumptions bad_programs_rejected.
 Print Assumptions ctmap_conv_unsupported_target_rejected.
+Print Assumptions body_okS_nil_declfree.

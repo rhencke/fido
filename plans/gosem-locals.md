@@ -20,7 +20,8 @@ compile-time rejections.  The correct shape:
 - checker scope state: `ScopeS` — WELL-FORMEDNESS sealed by sig (names valid/unrecognized/
   non-blank/distinct; entry categories `BoundCat` = `bind_category`'s image); `scope_declare` is
   the declaration path (binds from the RHS `PTy` internally); construction PROVENANCE is the
-  rung-4 fold's property (pinned where `supported_program` is the only scope constructor) —
+  gate fold's property (`body_okS` declares only via `scope_declare`; `supported_program` runs it
+  from `scope_empty`) —
   category AND a USED flag, ONE state through ONE
   fold (rule 4's "declared and not used" is decided INSIDE the same fold that decides everything
   else — never a post-hoc validator bolted on after supportedness).  `x := e` binds `x` through the
@@ -137,10 +138,16 @@ for the evaluator's ident resolution in `GoSemDenote` (rung 5).
    `ScopeS`/`BoundCat`/`scope_declare`/`scope_markS` layer, and the proven bridge
    `type_expr_nil_ptype` — the exact shape and claim boundary live in the crux section above
    (single authority; not re-stated here).
-4. **GoSafe**: scope-threaded supportedness — `supported_program`'s `forallb` becomes ONE fold
-   over the sealed `ScopeS` (declarations exclusively through `scope_declare`; uses marked BY
-   `type_expr` itself; final no-unused rejection in the same fold — this fold IS the provenance
-   boundary the crux notes); rules 1–5b land with NAMED fixtures.
+4. **GoSafe — LANDED**: scope-threaded supportedness — `supported_program` runs ONE fold
+   (`stmt_okS`/`body_okS`) over the sealed `ScopeS` (declarations exclusively through
+   `scope_declare`; uses marked BY `type_expr` itself; final no-unused rejection `scope_all_used`
+   in the same fold — this fold IS the provenance boundary the crux notes); rules 1–5b landed with
+   NAMED fixtures, every ledger placement ground-truthed via `make go-verify` (which also moved
+   the misplaced `println(2^40)` / `_ = 2^40` rows to valid-unsupported — 64-bit gc compiles
+   them).  `stmt_ok` stays as the CLOSED scope-free fragment (GoSemDenote's slice-1 gate); the
+   decl-free bridge `body_okS_nil_declfree` (+ `supported_program_of_stmt_ok`) pins agreement and
+   repairs `gosem_sound`.  The rung-4/5 seam is pinned: `shortdecl_supported_undenoted`
+   (supported ∧ not denotable — flips at rung 5).
    Good: `x := 1; _ = x; return`; the RUNTIME bindings `x := len([]int{1}); _ = x`,
    `x := 1; y := x; _ = y`, `x := int64(len([]int{1})); _ = x`; the NESTED uses `x := 1; _ = x + 1`
    and `x := 1; println(x)` (uses marked inside subexpressions, not just top-level).

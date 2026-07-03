@@ -35,14 +35,16 @@ field selectors, runtime numeric conversions, fixed-width bridging binops — th
   slice/map composite literals, exact-lexer string literals.
 - **Statement layer:** `GoStmt` (expr-stmt / return / return e / `_ = e` / defer-call / `x := e`);
   `print_stmt_inj` + `print_program_inj`. `GsDefer` supported, emittable, denoted; `GsShortDecl`
-  REPRESENTATION-ONLY (gate rejects, denotation absent — locals rung 1).
+  gate-admitted (rung 4), denotation absent until rung 5.
 - **GoSafe `SupportedProgram`** — decidable supported-subset gate (closed type-errors rejected via
   `ptype`; slice + integer-key map literals admitted structurally; invalid nested map keys rejected
-  even in empty literals; quarantines ledger-pinned).
+  even in empty literals; quarantines ledger-pinned); locals `x := e` via the sealed `ScopeS` fold
+  — `scope_declare`-only binding, `type_expr`-marked uses, unused rejected; the decl-free bridge
+  `body_okS_nil_declfree` pins agreement with the closed spelling.
 - **GoEmit** — certificate-only (`EmittableProgram`); `make emit-demo` builds a certified program with
   the real Go toolchain.
-- **GoSem slice 1** (detail lives in `GoSemCore.v`/`GoSemDenote.v`/`GoSem.v`; the SURFACES are the authority — this ledger
-  deliberately lists no theorem inventory):
+- **GoSem slice 1** (detail lives in `GoSemCore.v`/`GoSemDenote.v`/`GoSem.v`; the SURFACES are the
+  authority — no theorem inventory here):
   - partial AST → `Cmd` denotation for print/println / panic / return / blank-assign / defer /
     call args, over the exact-or-absent constant fold — faithful-or-absent, all fail-closed.
   - the runtime GTInt tier R1–R8 and the typed-runtime tier T1–T5 LANDED + SEALED: the model's
@@ -50,7 +52,7 @@ field selectors, runtime numeric conversions, fixed-width bridging binops — th
     proved, boundary/hole rows pinned absent (frontier surface).
   - float constants exact-or-reject behind `floats_checked`; fold verification is the
     CONSTANT-op layer (`sf_const_binop`/`sf_const_neg` — no signed zero); the dyadic↔SF
-    agreement arc COMPLETE, rungs 1–8: checker completeness `fsf_checked_complete` + the
+    agreement arc COMPLETE: checker completeness `fsf_checked_complete` + the
     boundary-guard unreachability pair `floats_checked_total` (guard KEPT, fail-closed).
   - denotation ⊆ `SupportedProgram` (`gosem_sound`) + compositional converses.
   - public surfaces (topic-split, manifest-gated): `gosem_trust_surface`
@@ -62,8 +64,8 @@ field selectors, runtime numeric conversions, fixed-width bridging binops — th
   command (heap reads/writes with typed cells and absence on unallocated access, arbitrary defer
   nesting, any panics) agrees with `run_cmd` end to end incl. final heaps, from the `ustart_w`
   mirrored-heap start; for `no_heap` commands completion is the theorem `cmd.run_cmd_terminates`,
-  so the unconditional form is a two-line composition (`cread_unallocated_absent` pins why the
-  completion premise is necessary in general). ⚠ chan/spawn later. Zero axioms.
+  so the unconditional form follows (`cread_unallocated_absent` pins the completion premise's
+  necessity). ⚠ chan/spawn later. Zero axioms.
 - **GoSemSafe** — panic-freedom properties + the narrow gate: `panic_free_runs_ret`(+`_ustep`),
   decidable `panic_free_denotable`, `PanicFreeEmittable` refining `EmittableProgram`,
   `panic_free_gate` (sound+complete) + `emit_panic_free_gated`. Both rejection mechanisms pinned
@@ -82,14 +84,12 @@ field selectors, runtime numeric conversions, fixed-width bridging binops — th
 
 ## NEXT
 
-- CONSOLIDATION (boss, 2026-07-02): shrink bytes, no new features; surfaces stay
-  endpoint-only. The §3a GoSem split is DONE (Core/Denote/composition — revised 3-file form).
-- Resume the cmd↔unified bridge (`plans/bridge-effects.md`, PAUSED at the heap milestone):
-  `CAlloc` (design v2 in the plan), then channels (gated on a structural typed zero), then spawn.
+- CONSOLIDATION (boss, 2026-07-02): shrink bytes, no new features; surfaces stay endpoint-only.
+- Resume the cmd↔unified bridge (`plans/bridge-effects.md`): `CAlloc` (design v2 in the plan),
+  then channels (gated on a structural typed zero), then spawn.
 - Grow behavioral safety toward `BehaviorSafe` → `SafeProgram` → `emit_safe` — locals arc OPEN,
-  rungs 1–3 landed (`plans/gosem-locals.md`; next: rung 4, the GoSafe scope fold over
-  `scope_declare`); wire the certified path to the main output; widen the live GoPrint bridge —
-  gate-honestly.
+  rungs 1–4 landed (`plans/gosem-locals.md`; next: rung 5, the ρ-threaded evaluator); wire the
+  certified path to the main output; widen the live GoPrint bridge — gate-honestly.
 
 ## Known trust base (TCB)
 

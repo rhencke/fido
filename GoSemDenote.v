@@ -4215,7 +4215,7 @@ Definition denote_stmt (s : GoStmt) : option (Cmd unit * bool) :=
          body; ITS panic fires at return — [rc_defer_panic]); PANICKING args TERMINATE at the [defer]
          statement itself ([rc_defer_arg_panic]). *)
       denote_call CallDeferred e
-  | GsShortDecl _ _ => None  (* [x := e] — locals rung 1: ABSENT until the env-threaded evaluator lands (rung 5, plans/gosem-locals.md); fail-closed with [stmt_ok]'s rejection *)
+  | GsShortDecl _ _ => None  (* [x := e] — ABSENT until the env-threaded evaluator lands (rung 5, plans/gosem-locals.md); the scope gate ADMITS used locals since rung 4, so decl programs sit in the supported-but-undenoted gap ([shortdecl_supported_undenoted]) *)
   end.
 
 Fixpoint denote_body (b : list GoStmt) : option (Cmd unit) :=
@@ -4228,7 +4228,8 @@ Fixpoint denote_body (b : list GoStmt) : option (Cmd unit) :=
           if term then
             (* [s] TERMINATES (return / panic, per [denote_stmt]'s flag): emit its command [c] (which stops —
                [CRet]/[CPan]); the REST is UNREACHABLE, so its DENOTABILITY is irrelevant — require only that it
-               be SUPPORTED ([forallb stmt_ok rest], the gate).  Keeps [denote_body] ⊆ the gate while NOT making
+               be in the CLOSED supported fragment ([forallb stmt_ok rest]; on decl-free bodies that IS the
+               scope gate, [GoSafe.body_okS_nil_declfree]).  Keeps [denote_body] ⊆ the gate while NOT making
                a terminator depend on a successor slice 1 cannot yet evaluate. *)
             (if forallb stmt_ok rest then Some c else None)
           else
@@ -4259,7 +4260,7 @@ Proof.
   - congruence.                                              (* GsReturnVal: None *)
   - destruct (svalue e); [reflexivity | congruence].         (* GsBlankAssign: gated on [svalue] = stmt_ok *)
   - exact (denote_call_ok CallDeferred e H).                 (* GsDefer: the SAME [expr_stmt_ok] gate *)
-  - congruence.                                              (* GsShortDecl: None (locals rung 1 — absent with the gate's rejection) *)
+  - congruence.                                              (* GsShortDecl: None (absent; the CLOSED fragment rejects it too) *)
 Qed.
 
 (** The [GsShortDecl] ABSENCE pinned at the CONSTRUCTOR, for every ident/expression (the gate-side
@@ -4281,11 +4282,22 @@ Qed.
 
 Theorem gosem_sound : forall p, denote_program p <> None -> supported_program p = true.
 Proof.
-  intros p H. unfold denote_program in H. unfold supported_program.
-  destruct (String.eqb (proj1_sig (prog_pkg p)) "main") eqn:Epkg; simpl in *.
-  - apply denote_body_sound. exact H.
-  - congruence.
+  intros p H. unfold denote_program in H.
+  destruct (String.eqb (proj1_sig (prog_pkg p)) "main") eqn:Epkg; [|congruence].
+  exact (supported_program_of_stmt_ok p Epkg (denote_body_sound _ H)).
 Qed.
+
+(** The rung-4/5 SEAM, pinned: the scope-threaded gate ADMITS a used local while the slice-1
+    evaluator still has no environment — SUPPORTED yet NOT denotable (absent via the [GsShortDecl]
+    arm).  FLIPS at rung 5 when the evaluator takes ρ (swap per the frontier-pin discipline). *)
+Example shortdecl_supported_undenoted :
+  supported_program (mkProgram (mkIdent "main" eq_refl)
+    [GsShortDecl (mkIdent "x" eq_refl) (EInt 1);
+     GsBlankAssign (EId (mkIdent "x" eq_refl)); GsReturn]) = true
+  /\ denote_program (mkProgram (mkIdent "main" eq_refl)
+       [GsShortDecl (mkIdent "x" eq_refl) (EInt 1);
+        GsBlankAssign (EId (mkIdent "x" eq_refl)); GsReturn]) = None.
+Proof. split; vm_compute; reflexivity. Qed.
 
 (** ---- DENOTABILITY IS DECIDABLE, characterized STRUCTURALLY (converse-direction companion of [gosem_sound]).
     [denotable_body] mirrors [denote_body]: a body denotes iff its head denotes AND — at a TERMINATOR — the

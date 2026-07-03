@@ -772,6 +772,23 @@ expression, so we never rely on a later `go build` error).  WITNESS: `addr_of_de
 `x := int64(10); Write_thru(&x); …` — writing through `&x` mutates `x` (10→99), the canonical reason `&`
 exists; golden-locked.)
 
+### [Short variable declarations](https://go.dev/ref/spec#Short_variable_declarations) — AST gate (GoSafe `body_okS`, locals rung 4): ✓ core rules; ⚠ named narrowings
+Spec: `x := e` declares and initializes; redeclaring in the same block / a lone blank LHS
+is "no new variables on left side of :="; `x := nil` is "use of untyped nil"; an unused
+local is "declared and not used" (a COMPILE error); predeclared identifiers are shadowable.
+Ours — the certified-emission GATE, distinct from the model-layer `ref_new` row above:
+the scope-threaded fold (`stmt_okS`/`body_okS` over the sealed `ScopeS`; declarations only
+via `scope_declare`, uses marked by `type_expr` in the same traversal, unused rejected on
+the fold's final scope).  ✓ redeclare / blank LHS / untyped nil / unused / use-before-declare
+all rejected (`bad_programs` rows, each error verified against gc).  ⚠ NAMED NARROWINGS —
+valid Go the gate refuses (`valid_unsupported_programs` rows, each verified gc):
+aggregate/map locals (`x := []int{1}`, `m := map[int]int{1:2}` — the evaluator has no
+aggregate values, so `bind_category` rejects the binding); shadowing a checker-recognized
+name (`len := 1` / `int := 1` / `nil := 1` — `decl_ident_ok` rejects uniformly); the
+conservative 32-bit default-`int` bound on the RHS (`x := 2^40` — sound on every target).
+Denotation is ABSENT until the env-threaded evaluator (rung 5): decl programs are
+supported-but-undenoted (`shortdecl_supported_undenoted`).
+
 ### [If](https://go.dev/ref/spec#If_statements) / [For](https://go.dev/ref/spec#For_statements) / [Switch](https://go.dev/ref/spec#Switch_statements) / [Goto](https://go.dev/ref/spec#Goto_statements) / [Return](https://go.dev/ref/spec#Return_statements) — ✓ via the goto-CFG relooper; ⚠ native `switch`
 Spec: structured control flow (`if`/`else`, `for` with optional range, `switch`,
 `break`/`continue`/labeled, `goto`, `return`).  Ours: ALL control flow is one complete
