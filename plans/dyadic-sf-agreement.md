@@ -23,8 +23,9 @@ value quotient is `dy_norm` (the odd-mantissa normal form), never ℝ.
 
 ## The ladder (each rung an independently green commit)
 
-1. **NEG (f64) — LANDED with this plan**: `binary_round_opp` (the sign argument threads inertly
-   through `binary_round_aux`) ⇒ `sf_render_neg_general_f64`: for `m ≠ 0`,
+1. **NEG (f64) — LANDED with this plan**: `binary_normalize_opp` (THE one normalizer sign-flip
+   authority, both widths; the sign threads inertly through `binary_round_aux` — the builtins
+   ingredient `binary_round_opp` is consumed only inside it) ⇒ `sf_render_neg_general_f64`: for `m ≠ 0`,
    `sf_render GTFloat64 (-m) e = option_map SFopp (sf_render GTFloat64 m e)` — NO window premise.
    Plus **signed zero made EXACT at the checker for ALL const ops** (review rounds 2–3): Go
    constants are exact rationals (NO `-0`); the checker's verification ops are the CONSTANT-fold

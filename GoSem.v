@@ -1360,7 +1360,7 @@ Definition gosem_float_surface :=
   (fsf_checked_binop_agrees, fsf_checked_neg_agrees,
    fsf_checked_conv_same_agrees, fsf_checked_conv_narrow_agrees, fsf_checked_conv_widen_agrees,
    eval_value_floats_checked, floats_checked_children_eqs,
-   Fido.builtins.binary_round_opp, Fido.builtins.binary_round_exact,
+   binary_normalize_opp, Fido.builtins.binary_round_exact,
    Fido.builtins.renorm_binary_round_idem,
    ptype_float_const_repr, ptype_float_payload_f64, ptype_float_payload_f32, box_float_gate,
    binary_normalize_wide_determined, add_carry_raw_wide_accepted, binary_round_of_norm_wide,
