@@ -159,3 +159,14 @@ absent pin sweeps its dependent witnesses and docs in the SAME commit; (6) heter
 (shifts) need their own dispatch — a same-width table cannot host them; (7) read constants off
 the GATE's own values — re-reading gate-admitted data through a differently-bounded
 representation (a value-range window used as a count-range window) is a side-condition leak.
+
+## The GoSem split fused RuntimeInt+Agg (2026-07-03)
+
+The §3a sketch planned four files; the real topology is three.  The tier SEALS are
+denote-level and the slice/map class proofs compute through the same `Local` evaluator core,
+so any finer cut either re-opens the float-boundary bypass (un-`Local`-ing the core — a
+review BLOCK) or demands per-shape sealed-equation kits (proof rewrites, not moves).
+Transferable: `Local` users must share a file; sweep cross-file navigation prose in the SAME
+commit as a move; a split is a reviewability win, not a weight-loss win — byte mass moves,
+it does not shrink.
+

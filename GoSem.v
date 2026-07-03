@@ -92,11 +92,6 @@ Example runtime_index_runs : forall w,
     ; Some (ORet tt (w_log true (anyt TInt64 (intwrap 1) :: nil) w))
     ; Some (OPanic (rt_index_oob (-1) 2) w) ].
 Proof. intro w. vm_compute. reflexivity. Qed.
-Example runtime_index_supported :
-  forallb supported_program
-    [ println_prog runidx_e
-    ; println_prog (EIndex (ESliceLit GTInt [ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]]]) (EInt 0)) ] = true.
-Proof. vm_compute. reflexivity. Qed.
 
 (** ★ RUNTIME-CONVERSION pins (tier R3, grouped): [int64(len([]int{1}))] EXITS the fragment at width
     int64 (prints 1 as the model's [GoI64]); [uint8(len([]int{1})*300)] TRUNCATES (Go's runtime wrap:
@@ -125,12 +120,6 @@ Example runtime_conv_runs : forall w,
     ; Some (ORet tt (w_log true (anyt TUint (uintwrap (-1)) :: nil) w))   (* uint(-1 runtime) = 2^64-1: the [uintwrap] branch exercised at a WRAPPING value *)
     ; Some (OPanic rt_div_zero w) ].
 Proof. intro w. vm_compute. reflexivity. Qed.
-Example runtime_conv_supported :
-  forallb supported_program
-    [ println_prog runconv_e ; println_prog runconv_trunc_e
-    ; println_prog runconv_int_e ; println_prog runconv_uint_e
-    ; println_prog runconv_panic_e ] = true.
-Proof. vm_compute. reflexivity. Qed.
 
 (** ★ RUNTIME-BOOL pins (tier R4, grouped) — ALL SIX comparison operators on ASYMMETRIC operand pairs,
     each chosen so a drifted mapping (a swap in the wrong direction, a dropped negation, [<] confused
@@ -160,12 +149,6 @@ Example runtime_bool_runs : forall w,
     ; Some (ORet tt (w_log true (anyt TBool false :: nil) w))   (* 1 >= 2 *)
     ; Some (OPanic rt_div_zero w) ].
 Proof. intro w. vm_compute. reflexivity. Qed.
-Example runtime_bool_supported :
-  forallb supported_program
-    (map println_prog
-      [ runbool_e ; runbool_ne_e ; runbool_lt_e ; runbool_le_e ; runbool_gt_e ; runbool_ge_e
-      ; runbool_panic_e ]) = true.
-Proof. vm_compute. reflexivity. Qed.
 
 (** STRICT-SUBSET pin (GATED, map-[len]), at the EVAL level: a map literal whose VALUE is a same-typed
     RUNTIME int ([map[int]int{1: len([]int{2})}]) is [ptype]-SUPPORTED (valid Go) yet the CONSTANT fold
@@ -220,11 +203,6 @@ Example runtime_maplen_runs : forall w,
     ; Some (OPanic rt_div_zero w)
     ; Some (OPanic rt_div_zero w) ].
 Proof. intro w. vm_compute. reflexivity. Qed.
-Example runtime_maplen_supported :
-  forallb supported_program
-    (map println_prog [ maplen_runval_e ; maplen_run2_e ; maplen_i64_e ; maplen_bool_e
-                      ; maplen_panic_e ; maplen_convpanic_e ; maplen_ambig_e ]) = true.
-Proof. vm_compute. reflexivity. Qed.
 Example runtime_maplen_ambiguous_absent :
   denotable_program (println_prog maplen_ambig_e) = false
   /\ denote_program (println_prog maplen_ambig_e) = None.
@@ -259,10 +237,6 @@ Example runtime_tier_runs : forall w,
      Some (ORet tt (w_log true (anyt TInt64 (intwrap 3) :: nil) w));
      Some (OPanic rt_div_zero w)].
 Proof. intro w. vm_compute. reflexivity. Qed.
-Example runtime_tier_supported :
-  forallb supported_program
-    [println_prog runlen_e; println_prog runtime_div_vals_e; println_prog panicking_elem_len_e] = true.
-Proof. vm_compute. reflexivity. Qed.
 
 (** ★ R6 pins (grouped): runtime unary MINUS ([-len([]int{1,2,3})] prints -3, the model's [int_neg]);
     nonzero runtime [%] ([7 % len([]int{1,2,3})] prints 1, the model's evidence-carrying [int_mod]);
@@ -281,10 +255,6 @@ Example runtime_negrem_runs : forall w,
     ; Some (ORet tt (w_log true (anyt TInt64 (intwrap (-1)) :: nil) w))
     ; Some (OPanic rt_div_zero w) ].
 Proof. intro w. vm_compute. reflexivity. Qed.
-Example runtime_negrem_supported :
-  forallb supported_program
-    (map println_prog [ runneg_e ; runrem_e ; runrem_neg_e ; runneg_panic_e ]) = true.
-Proof. vm_compute. reflexivity. Qed.
 
 (** ★ R7 pins (grouped): runtime [^] COMPLEMENT via the model's [int_not] ([^len([]int{1,2,3})]
     prints -4 — the go-run-verified [-x-1]); a PANICKING operand propagates. *)
@@ -296,9 +266,6 @@ Example runtime_not_runs : forall w,
   = [ Some (ORet tt (w_log true (anyt TInt64 (intwrap (-4)) :: nil) w))
     ; Some (OPanic rt_div_zero w) ].
 Proof. intro w. vm_compute. reflexivity. Qed.
-Example runtime_not_supported :
-  forallb supported_program (map println_prog [ runnot_e ; runnot_panic_e ]) = true.
-Proof. vm_compute. reflexivity. Qed.
 
 (** ★ T1 pins (typed unary, grouped): [^int64(len3)] and [^uint8(len3)] DENOTE at their widths via
     the model's [i64_not]/[u8_not] (the R3-converted operand evaluated at full power); [-int64(len3)]
@@ -328,10 +295,6 @@ Example runtime_typed_unop_runs : forall w,
     ; Some (ORet tt (w_log true (anyt TI64 (i64_neg (i64wrap 3)) :: nil) w))
     ; Some (OPanic rt_div_zero w) ].
 Proof. intro w. vm_compute. reflexivity. Qed.
-Example runtime_typed_unop_supported :
-  forallb supported_program
-    (map println_prog [ runnot_i64_e ; runnot_u8_e ; runneg_i64_e ; runnot_panic_i64_e ]) = true.
-Proof. vm_compute. reflexivity. Qed.
 Example typed_unary_holes_absent :
   forallb (fun e => supported_program (println_prog e)
                     && negb (denotable_program (println_prog e))
@@ -342,26 +305,18 @@ Example typed_unary_holes_absent :
 Proof. vm_compute. reflexivity. Qed.
 (** DISPATCH AUTHORITY (gated): each live [typed_unop] branch IS the fully qualified model op; the
     holes are sealed by the COMPLETE quantified theorem [typed_unop_holes_none] below. *)
-Example typed_unop_u8_model  : forall v, typed_unop UXor GTU8  (anyt TU8  v) = Some (anyt TU8  (Fido.builtins.u8_not v)).
-Proof. reflexivity. Qed.
-Example typed_unop_i8_model  : forall v, typed_unop UXor GTI8  (anyt TI8  v) = Some (anyt TI8  (Fido.builtins.i8_not v)).
-Proof. reflexivity. Qed.
-Example typed_unop_u16_model : forall v, typed_unop UXor GTU16 (anyt TU16 v) = Some (anyt TU16 (Fido.builtins.u16_not v)).
-Proof. reflexivity. Qed.
-Example typed_unop_i16_model : forall v, typed_unop UXor GTI16 (anyt TI16 v) = Some (anyt TI16 (Fido.builtins.i16_not v)).
-Proof. reflexivity. Qed.
-Example typed_unop_u32_model : forall v, typed_unop UXor GTU32 (anyt TU32 v) = Some (anyt TU32 (Fido.builtins.u32_not v)).
-Proof. reflexivity. Qed.
-Example typed_unop_i32_model : forall v, typed_unop UXor GTI32 (anyt TI32 v) = Some (anyt TI32 (Fido.builtins.i32_not v)).
-Proof. reflexivity. Qed.
-Example typed_unop_i64_model : forall v, typed_unop UXor GTInt64 (anyt TI64 v) = Some (anyt TI64 (Fido.builtins.i64_not v)).
-Proof. reflexivity. Qed.
-Example typed_unop_u64_model : forall v, typed_unop UXor GTU64 (anyt TU64 v) = Some (anyt TU64 (Fido.builtins.u64_not v)).
-Proof. reflexivity. Qed.
-Example typed_unop_neg_i64_model : forall v, typed_unop UNeg GTInt64 (anyt TI64 v) = Some (anyt TI64 (Fido.builtins.i64_neg v)).
-Proof. reflexivity. Qed.
-Example typed_unop_neg_u64_model : forall v, typed_unop UNeg GTU64 (anyt TU64 v) = Some (anyt TU64 (Fido.builtins.u64_neg v)).
-Proof. reflexivity. Qed.
+Example typed_unop_model_rows :
+  (forall v, typed_unop UXor GTU8  (anyt TU8  v) = Some (anyt TU8  (Fido.builtins.u8_not v)))
+  /\ (forall v, typed_unop UXor GTI8  (anyt TI8  v) = Some (anyt TI8  (Fido.builtins.i8_not v)))
+  /\ (forall v, typed_unop UXor GTU16 (anyt TU16 v) = Some (anyt TU16 (Fido.builtins.u16_not v)))
+  /\ (forall v, typed_unop UXor GTI16 (anyt TI16 v) = Some (anyt TI16 (Fido.builtins.i16_not v)))
+  /\ (forall v, typed_unop UXor GTU32 (anyt TU32 v) = Some (anyt TU32 (Fido.builtins.u32_not v)))
+  /\ (forall v, typed_unop UXor GTI32 (anyt TI32 v) = Some (anyt TI32 (Fido.builtins.i32_not v)))
+  /\ (forall v, typed_unop UXor GTInt64 (anyt TI64 v) = Some (anyt TI64 (Fido.builtins.i64_not v)))
+  /\ (forall v, typed_unop UXor GTU64 (anyt TU64 v) = Some (anyt TU64 (Fido.builtins.u64_not v)))
+  /\ (forall v, typed_unop UNeg GTInt64 (anyt TI64 v) = Some (anyt TI64 (Fido.builtins.i64_neg v)))
+  /\ (forall v, typed_unop UNeg GTU64 (anyt TU64 v) = Some (anyt TU64 (Fido.builtins.u64_neg v))).
+Proof. repeat split; intros; repeat split; reflexivity. Qed.
 (** THE COMPLETE HOLE THEOREM — every ptype-reachable absent cell is [None] for EVERY payload
     (quantified over [GoAny], not fixtures): [^] at [GTUint], and [-] at every width below [i64]. *)
 Theorem typed_unop_holes_none : forall g : GoAny,
@@ -395,10 +350,6 @@ Example typed_runtime_convchain_runs : forall w,
     ; Some (ORet tt (w_log true (anyt TInt64 (intwrap 3) :: nil) w))
     ; Some (ORet tt (w_log true (anyt TI8 (i8wrap 252) :: nil) w)) ].
 Proof. intro w. vm_compute. reflexivity. Qed.
-Example typed_runtime_convchain_supported :
-  forallb supported_program
-    (map println_prog [ runconv_chain_e ; runconv_chain_int_e ; runconv_chain_trunc_e ]) = true.
-Proof. vm_compute. reflexivity. Qed.
 (** The RUNTIME-FLOAT SOURCE boundary: the ABSENCE is the gated CLASS pair
     ([reval_val_runfloat_none] — no [PtRunFloat]-classified expression evaluates at all;
     [denote_expr_conv_float_src_absent] — every integer-target conversion over such a source is
@@ -451,9 +402,6 @@ Example runtime_typed_binop_runs : forall w,
     ; Some (ORet tt (w_log true (anyt TI64 (i64wrap (-1)) :: nil) w))
     ; Some (OPanic rt_div_zero w) ].
 Proof. intro w. vm_compute. reflexivity. Qed.
-Example runtime_typed_binop_supported :
-  forallb supported_program (map println_prog typed_binop_cases) = true.
-Proof. vm_compute. reflexivity. Qed.
 (** The MIXED-CONST operand shapes ([ptype_binop_runint_args]'s const rows — one runtime + one
     int-constant operand, untyped OR typed, either order) DENOTE: an untyped constant CONVERTS to
     the binop's width, a typed one is already AT it ([typed_operand], width-sealed).  go-run-verified against gc: 4, 4, 4, 254 (the typed-const-left
@@ -476,9 +424,6 @@ Example typed_mixed_const_runs : forall w,
     ; Some (ORet tt (w_log true (anyt TU8 (u8wrap (-2)) :: nil) w))
     ; Some (OPanic rt_div_zero w) ].
 Proof. intro w. vm_compute. reflexivity. Qed.
-Example typed_mixed_const_supported :
-  forallb supported_program (map println_prog typed_mixed_cases) = true.
-Proof. vm_compute. reflexivity. Qed.
 (** The WIDTH seal at the operand boundary ITSELF (not caller discipline): a typed [uint8] constant
     never cross-materializes at [int64], and the outer mixed-width binop is [ptype]-REJECTED. *)
 Example typed_operand_cross_width_none :
@@ -512,104 +457,84 @@ Example runtime_typed_cmp_runs : forall w,
     ; Some (ORet tt (w_log true (anyt TBool true  :: nil) w))
     ; Some (ORet tt (w_log true (anyt TBool true  :: nil) w)) ].
 Proof. intro w. vm_compute. reflexivity. Qed.
-Example runtime_typed_cmp_supported :
-  forallb supported_program (map println_prog typed_cmp_cases) = true.
-Proof. vm_compute. reflexivity. Qed.
 (** The [GTUint] comparison hole at program level + the cross-width comparison [ptype]-REJECTED. *)
 Definition runuint_cmp_e : GExpr :=
   EBn BEq (ECall (EId (mkIdent "uint" eq_refl)) [runlen3_e])
           (ECall (EId (mkIdent "uint" eq_refl)) [runlen3_e]).
-Example typed_cmp_uint_program_absent :
-  ptype runuint_cmp_e = Some PtBool
-  /\ supported_program (println_prog runuint_cmp_e) = true
-  /\ denotable_program (println_prog runuint_cmp_e) = false
-  /\ denote_program (println_prog runuint_cmp_e) = None.
-Proof. repeat split; vm_compute; reflexivity. Qed.
 Example typed_cmp_cross_width_rejected :
   ptype (EBn BEq runb_u8one runb_i64) = None
   /\ supported_program (println_prog (EBn BEq runb_u8one runb_i64)) = false.
 Proof. split; vm_compute; reflexivity. Qed.
 (** DISPATCH AUTHORITY (gated): each live [typed_cmp] row IS the fully qualified model op — one
     6-conjunct pin per width (the derived [neqb]/[gtb]/[geb] are model Definitions, pinned as such). *)
-Example typed_cmp_u8_model : forall a b,
+Example typed_cmp_model_rows :
+  (forall a b,
   typed_cmp BEq GTU8 (anyt TU8 a) (anyt TU8 b) = Some (Fido.builtins.u8_eqb a b)
   /\ typed_cmp BNe GTU8 (anyt TU8 a) (anyt TU8 b) = Some (Fido.builtins.u8_neqb a b)
   /\ typed_cmp BLt GTU8 (anyt TU8 a) (anyt TU8 b) = Some (Fido.builtins.u8_ltb a b)
   /\ typed_cmp BLe GTU8 (anyt TU8 a) (anyt TU8 b) = Some (Fido.builtins.u8_leb a b)
   /\ typed_cmp BGt GTU8 (anyt TU8 a) (anyt TU8 b) = Some (Fido.builtins.u8_gtb a b)
-  /\ typed_cmp BGe GTU8 (anyt TU8 a) (anyt TU8 b) = Some (Fido.builtins.u8_geb a b).
-Proof. intros; repeat split; reflexivity. Qed.
-Example typed_cmp_i8_model : forall a b,
+  /\ typed_cmp BGe GTU8 (anyt TU8 a) (anyt TU8 b) = Some (Fido.builtins.u8_geb a b))
+  /\ (forall a b,
   typed_cmp BEq GTI8 (anyt TI8 a) (anyt TI8 b) = Some (Fido.builtins.i8_eqb a b)
   /\ typed_cmp BNe GTI8 (anyt TI8 a) (anyt TI8 b) = Some (Fido.builtins.i8_neqb a b)
   /\ typed_cmp BLt GTI8 (anyt TI8 a) (anyt TI8 b) = Some (Fido.builtins.i8_ltb a b)
   /\ typed_cmp BLe GTI8 (anyt TI8 a) (anyt TI8 b) = Some (Fido.builtins.i8_leb a b)
   /\ typed_cmp BGt GTI8 (anyt TI8 a) (anyt TI8 b) = Some (Fido.builtins.i8_gtb a b)
-  /\ typed_cmp BGe GTI8 (anyt TI8 a) (anyt TI8 b) = Some (Fido.builtins.i8_geb a b).
-Proof. intros; repeat split; reflexivity. Qed.
-Example typed_cmp_u16_model : forall a b,
+  /\ typed_cmp BGe GTI8 (anyt TI8 a) (anyt TI8 b) = Some (Fido.builtins.i8_geb a b))
+  /\ (forall a b,
   typed_cmp BEq GTU16 (anyt TU16 a) (anyt TU16 b) = Some (Fido.builtins.u16_eqb a b)
   /\ typed_cmp BNe GTU16 (anyt TU16 a) (anyt TU16 b) = Some (Fido.builtins.u16_neqb a b)
   /\ typed_cmp BLt GTU16 (anyt TU16 a) (anyt TU16 b) = Some (Fido.builtins.u16_ltb a b)
   /\ typed_cmp BLe GTU16 (anyt TU16 a) (anyt TU16 b) = Some (Fido.builtins.u16_leb a b)
   /\ typed_cmp BGt GTU16 (anyt TU16 a) (anyt TU16 b) = Some (Fido.builtins.u16_gtb a b)
-  /\ typed_cmp BGe GTU16 (anyt TU16 a) (anyt TU16 b) = Some (Fido.builtins.u16_geb a b).
-Proof. intros; repeat split; reflexivity. Qed.
-Example typed_cmp_i16_model : forall a b,
+  /\ typed_cmp BGe GTU16 (anyt TU16 a) (anyt TU16 b) = Some (Fido.builtins.u16_geb a b))
+  /\ (forall a b,
   typed_cmp BEq GTI16 (anyt TI16 a) (anyt TI16 b) = Some (Fido.builtins.i16_eqb a b)
   /\ typed_cmp BNe GTI16 (anyt TI16 a) (anyt TI16 b) = Some (Fido.builtins.i16_neqb a b)
   /\ typed_cmp BLt GTI16 (anyt TI16 a) (anyt TI16 b) = Some (Fido.builtins.i16_ltb a b)
   /\ typed_cmp BLe GTI16 (anyt TI16 a) (anyt TI16 b) = Some (Fido.builtins.i16_leb a b)
   /\ typed_cmp BGt GTI16 (anyt TI16 a) (anyt TI16 b) = Some (Fido.builtins.i16_gtb a b)
-  /\ typed_cmp BGe GTI16 (anyt TI16 a) (anyt TI16 b) = Some (Fido.builtins.i16_geb a b).
-Proof. intros; repeat split; reflexivity. Qed.
-Example typed_cmp_u32_model : forall a b,
+  /\ typed_cmp BGe GTI16 (anyt TI16 a) (anyt TI16 b) = Some (Fido.builtins.i16_geb a b))
+  /\ (forall a b,
   typed_cmp BEq GTU32 (anyt TU32 a) (anyt TU32 b) = Some (Fido.builtins.u32_eqb a b)
   /\ typed_cmp BNe GTU32 (anyt TU32 a) (anyt TU32 b) = Some (Fido.builtins.u32_neqb a b)
   /\ typed_cmp BLt GTU32 (anyt TU32 a) (anyt TU32 b) = Some (Fido.builtins.u32_ltb a b)
   /\ typed_cmp BLe GTU32 (anyt TU32 a) (anyt TU32 b) = Some (Fido.builtins.u32_leb a b)
   /\ typed_cmp BGt GTU32 (anyt TU32 a) (anyt TU32 b) = Some (Fido.builtins.u32_gtb a b)
-  /\ typed_cmp BGe GTU32 (anyt TU32 a) (anyt TU32 b) = Some (Fido.builtins.u32_geb a b).
-Proof. intros; repeat split; reflexivity. Qed.
-Example typed_cmp_i32_model : forall a b,
+  /\ typed_cmp BGe GTU32 (anyt TU32 a) (anyt TU32 b) = Some (Fido.builtins.u32_geb a b))
+  /\ (forall a b,
   typed_cmp BEq GTI32 (anyt TI32 a) (anyt TI32 b) = Some (Fido.builtins.i32_eqb a b)
   /\ typed_cmp BNe GTI32 (anyt TI32 a) (anyt TI32 b) = Some (Fido.builtins.i32_neqb a b)
   /\ typed_cmp BLt GTI32 (anyt TI32 a) (anyt TI32 b) = Some (Fido.builtins.i32_ltb a b)
   /\ typed_cmp BLe GTI32 (anyt TI32 a) (anyt TI32 b) = Some (Fido.builtins.i32_leb a b)
   /\ typed_cmp BGt GTI32 (anyt TI32 a) (anyt TI32 b) = Some (Fido.builtins.i32_gtb a b)
-  /\ typed_cmp BGe GTI32 (anyt TI32 a) (anyt TI32 b) = Some (Fido.builtins.i32_geb a b).
-Proof. intros; repeat split; reflexivity. Qed.
-Example typed_cmp_i64_model : forall a b,
+  /\ typed_cmp BGe GTI32 (anyt TI32 a) (anyt TI32 b) = Some (Fido.builtins.i32_geb a b))
+  /\ (forall a b,
   typed_cmp BEq GTInt64 (anyt TI64 a) (anyt TI64 b) = Some (Fido.builtins.i64_eqb a b)
   /\ typed_cmp BNe GTInt64 (anyt TI64 a) (anyt TI64 b) = Some (Fido.builtins.i64_neqb a b)
   /\ typed_cmp BLt GTInt64 (anyt TI64 a) (anyt TI64 b) = Some (Fido.builtins.i64_ltb a b)
   /\ typed_cmp BLe GTInt64 (anyt TI64 a) (anyt TI64 b) = Some (Fido.builtins.i64_leb a b)
   /\ typed_cmp BGt GTInt64 (anyt TI64 a) (anyt TI64 b) = Some (Fido.builtins.i64_gtb a b)
-  /\ typed_cmp BGe GTInt64 (anyt TI64 a) (anyt TI64 b) = Some (Fido.builtins.i64_geb a b).
-Proof. intros; repeat split; reflexivity. Qed.
-Example typed_cmp_u64_model : forall a b,
+  /\ typed_cmp BGe GTInt64 (anyt TI64 a) (anyt TI64 b) = Some (Fido.builtins.i64_geb a b))
+  /\ (forall a b,
   typed_cmp BEq GTU64 (anyt TU64 a) (anyt TU64 b) = Some (Fido.builtins.u64_eqb a b)
   /\ typed_cmp BNe GTU64 (anyt TU64 a) (anyt TU64 b) = Some (Fido.builtins.u64_neqb a b)
   /\ typed_cmp BLt GTU64 (anyt TU64 a) (anyt TU64 b) = Some (Fido.builtins.u64_ltb a b)
   /\ typed_cmp BLe GTU64 (anyt TU64 a) (anyt TU64 b) = Some (Fido.builtins.u64_leb a b)
   /\ typed_cmp BGt GTU64 (anyt TU64 a) (anyt TU64 b) = Some (Fido.builtins.u64_gtb a b)
-  /\ typed_cmp BGe GTU64 (anyt TU64 a) (anyt TU64 b) = Some (Fido.builtins.u64_geb a b).
-Proof. intros; repeat split; reflexivity. Qed.
+  /\ typed_cmp BGe GTU64 (anyt TU64 a) (anyt TU64 b) = Some (Fido.builtins.u64_geb a b)).
+Proof. repeat split; intros; repeat split; reflexivity. Qed.
 
 (** The [GTUint] hole ROW at program level (the platform-uint carrier has NO model ops). *)
 Definition runuint_binop_e : GExpr :=
   EBn BAdd (ECall (EId (mkIdent "uint" eq_refl)) [runlen3_e])
            (ECall (EId (mkIdent "uint" eq_refl)) [runlen3_e]).
-Example typed_binop_uint_program_absent :
-  ptype runuint_binop_e = Some (PtRunInt GTUint)
-  /\ supported_program (println_prog runuint_binop_e) = true
-  /\ denotable_program (println_prog runuint_binop_e) = false
-  /\ denote_program (println_prog runuint_binop_e) = None.
-Proof. repeat split; vm_compute; reflexivity. Qed.
 (** DISPATCH AUTHORITY (gated): each live [typed_binop] row IS the fully qualified model op — one
     9-conjunct pin per width; [/] and [%] pin to the [div_checked] convoy over the width's
     evidence-carrying model op. *)
-Example typed_binop_u8_model : forall a b,
+Example typed_binop_model_rows :
+  (forall a b,
   typed_binop BAdd GTU8 (anyt TU8 a) (anyt TU8 b) = Some (RAVal (anyt TU8 (Fido.builtins.u8_add a b)))
   /\ typed_binop BSub GTU8 (anyt TU8 a) (anyt TU8 b) = Some (RAVal (anyt TU8 (Fido.builtins.u8_sub a b)))
   /\ typed_binop BMul GTU8 (anyt TU8 a) (anyt TU8 b) = Some (RAVal (anyt TU8 (Fido.builtins.u8_mul a b)))
@@ -618,9 +543,8 @@ Example typed_binop_u8_model : forall a b,
   /\ typed_binop BAnd GTU8 (anyt TU8 a) (anyt TU8 b) = Some (RAVal (anyt TU8 (Fido.builtins.u8_and a b)))
   /\ typed_binop BOr  GTU8 (anyt TU8 a) (anyt TU8 b) = Some (RAVal (anyt TU8 (Fido.builtins.u8_or  a b)))
   /\ typed_binop BXor GTU8 (anyt TU8 a) (anyt TU8 b) = Some (RAVal (anyt TU8 (Fido.builtins.u8_xor a b)))
-  /\ typed_binop BAndNot GTU8 (anyt TU8 a) (anyt TU8 b) = Some (RAVal (anyt TU8 (Fido.builtins.u8_andnot a b))).
-Proof. intros; repeat split; reflexivity. Qed.
-Example typed_binop_i8_model : forall a b,
+  /\ typed_binop BAndNot GTU8 (anyt TU8 a) (anyt TU8 b) = Some (RAVal (anyt TU8 (Fido.builtins.u8_andnot a b))))
+  /\ (forall a b,
   typed_binop BAdd GTI8 (anyt TI8 a) (anyt TI8 b) = Some (RAVal (anyt TI8 (Fido.builtins.i8_add a b)))
   /\ typed_binop BSub GTI8 (anyt TI8 a) (anyt TI8 b) = Some (RAVal (anyt TI8 (Fido.builtins.i8_sub a b)))
   /\ typed_binop BMul GTI8 (anyt TI8 a) (anyt TI8 b) = Some (RAVal (anyt TI8 (Fido.builtins.i8_mul a b)))
@@ -629,9 +553,8 @@ Example typed_binop_i8_model : forall a b,
   /\ typed_binop BAnd GTI8 (anyt TI8 a) (anyt TI8 b) = Some (RAVal (anyt TI8 (Fido.builtins.i8_and a b)))
   /\ typed_binop BOr  GTI8 (anyt TI8 a) (anyt TI8 b) = Some (RAVal (anyt TI8 (Fido.builtins.i8_or  a b)))
   /\ typed_binop BXor GTI8 (anyt TI8 a) (anyt TI8 b) = Some (RAVal (anyt TI8 (Fido.builtins.i8_xor a b)))
-  /\ typed_binop BAndNot GTI8 (anyt TI8 a) (anyt TI8 b) = Some (RAVal (anyt TI8 (Fido.builtins.i8_andnot a b))).
-Proof. intros; repeat split; reflexivity. Qed.
-Example typed_binop_u16_model : forall a b,
+  /\ typed_binop BAndNot GTI8 (anyt TI8 a) (anyt TI8 b) = Some (RAVal (anyt TI8 (Fido.builtins.i8_andnot a b))))
+  /\ (forall a b,
   typed_binop BAdd GTU16 (anyt TU16 a) (anyt TU16 b) = Some (RAVal (anyt TU16 (Fido.builtins.u16_add a b)))
   /\ typed_binop BSub GTU16 (anyt TU16 a) (anyt TU16 b) = Some (RAVal (anyt TU16 (Fido.builtins.u16_sub a b)))
   /\ typed_binop BMul GTU16 (anyt TU16 a) (anyt TU16 b) = Some (RAVal (anyt TU16 (Fido.builtins.u16_mul a b)))
@@ -640,9 +563,8 @@ Example typed_binop_u16_model : forall a b,
   /\ typed_binop BAnd GTU16 (anyt TU16 a) (anyt TU16 b) = Some (RAVal (anyt TU16 (Fido.builtins.u16_and a b)))
   /\ typed_binop BOr  GTU16 (anyt TU16 a) (anyt TU16 b) = Some (RAVal (anyt TU16 (Fido.builtins.u16_or  a b)))
   /\ typed_binop BXor GTU16 (anyt TU16 a) (anyt TU16 b) = Some (RAVal (anyt TU16 (Fido.builtins.u16_xor a b)))
-  /\ typed_binop BAndNot GTU16 (anyt TU16 a) (anyt TU16 b) = Some (RAVal (anyt TU16 (Fido.builtins.u16_andnot a b))).
-Proof. intros; repeat split; reflexivity. Qed.
-Example typed_binop_i16_model : forall a b,
+  /\ typed_binop BAndNot GTU16 (anyt TU16 a) (anyt TU16 b) = Some (RAVal (anyt TU16 (Fido.builtins.u16_andnot a b))))
+  /\ (forall a b,
   typed_binop BAdd GTI16 (anyt TI16 a) (anyt TI16 b) = Some (RAVal (anyt TI16 (Fido.builtins.i16_add a b)))
   /\ typed_binop BSub GTI16 (anyt TI16 a) (anyt TI16 b) = Some (RAVal (anyt TI16 (Fido.builtins.i16_sub a b)))
   /\ typed_binop BMul GTI16 (anyt TI16 a) (anyt TI16 b) = Some (RAVal (anyt TI16 (Fido.builtins.i16_mul a b)))
@@ -651,9 +573,8 @@ Example typed_binop_i16_model : forall a b,
   /\ typed_binop BAnd GTI16 (anyt TI16 a) (anyt TI16 b) = Some (RAVal (anyt TI16 (Fido.builtins.i16_and a b)))
   /\ typed_binop BOr  GTI16 (anyt TI16 a) (anyt TI16 b) = Some (RAVal (anyt TI16 (Fido.builtins.i16_or  a b)))
   /\ typed_binop BXor GTI16 (anyt TI16 a) (anyt TI16 b) = Some (RAVal (anyt TI16 (Fido.builtins.i16_xor a b)))
-  /\ typed_binop BAndNot GTI16 (anyt TI16 a) (anyt TI16 b) = Some (RAVal (anyt TI16 (Fido.builtins.i16_andnot a b))).
-Proof. intros; repeat split; reflexivity. Qed.
-Example typed_binop_u32_model : forall a b,
+  /\ typed_binop BAndNot GTI16 (anyt TI16 a) (anyt TI16 b) = Some (RAVal (anyt TI16 (Fido.builtins.i16_andnot a b))))
+  /\ (forall a b,
   typed_binop BAdd GTU32 (anyt TU32 a) (anyt TU32 b) = Some (RAVal (anyt TU32 (Fido.builtins.u32_add a b)))
   /\ typed_binop BSub GTU32 (anyt TU32 a) (anyt TU32 b) = Some (RAVal (anyt TU32 (Fido.builtins.u32_sub a b)))
   /\ typed_binop BMul GTU32 (anyt TU32 a) (anyt TU32 b) = Some (RAVal (anyt TU32 (Fido.builtins.u32_mul a b)))
@@ -662,9 +583,8 @@ Example typed_binop_u32_model : forall a b,
   /\ typed_binop BAnd GTU32 (anyt TU32 a) (anyt TU32 b) = Some (RAVal (anyt TU32 (Fido.builtins.u32_and a b)))
   /\ typed_binop BOr  GTU32 (anyt TU32 a) (anyt TU32 b) = Some (RAVal (anyt TU32 (Fido.builtins.u32_or  a b)))
   /\ typed_binop BXor GTU32 (anyt TU32 a) (anyt TU32 b) = Some (RAVal (anyt TU32 (Fido.builtins.u32_xor a b)))
-  /\ typed_binop BAndNot GTU32 (anyt TU32 a) (anyt TU32 b) = Some (RAVal (anyt TU32 (Fido.builtins.u32_andnot a b))).
-Proof. intros; repeat split; reflexivity. Qed.
-Example typed_binop_i32_model : forall a b,
+  /\ typed_binop BAndNot GTU32 (anyt TU32 a) (anyt TU32 b) = Some (RAVal (anyt TU32 (Fido.builtins.u32_andnot a b))))
+  /\ (forall a b,
   typed_binop BAdd GTI32 (anyt TI32 a) (anyt TI32 b) = Some (RAVal (anyt TI32 (Fido.builtins.i32_add a b)))
   /\ typed_binop BSub GTI32 (anyt TI32 a) (anyt TI32 b) = Some (RAVal (anyt TI32 (Fido.builtins.i32_sub a b)))
   /\ typed_binop BMul GTI32 (anyt TI32 a) (anyt TI32 b) = Some (RAVal (anyt TI32 (Fido.builtins.i32_mul a b)))
@@ -673,9 +593,8 @@ Example typed_binop_i32_model : forall a b,
   /\ typed_binop BAnd GTI32 (anyt TI32 a) (anyt TI32 b) = Some (RAVal (anyt TI32 (Fido.builtins.i32_and a b)))
   /\ typed_binop BOr  GTI32 (anyt TI32 a) (anyt TI32 b) = Some (RAVal (anyt TI32 (Fido.builtins.i32_or  a b)))
   /\ typed_binop BXor GTI32 (anyt TI32 a) (anyt TI32 b) = Some (RAVal (anyt TI32 (Fido.builtins.i32_xor a b)))
-  /\ typed_binop BAndNot GTI32 (anyt TI32 a) (anyt TI32 b) = Some (RAVal (anyt TI32 (Fido.builtins.i32_andnot a b))).
-Proof. intros; repeat split; reflexivity. Qed.
-Example typed_binop_i64_model : forall a b,
+  /\ typed_binop BAndNot GTI32 (anyt TI32 a) (anyt TI32 b) = Some (RAVal (anyt TI32 (Fido.builtins.i32_andnot a b))))
+  /\ (forall a b,
   typed_binop BAdd GTInt64 (anyt TI64 a) (anyt TI64 b) = Some (RAVal (anyt TI64 (Fido.builtins.i64_add a b)))
   /\ typed_binop BSub GTInt64 (anyt TI64 a) (anyt TI64 b) = Some (RAVal (anyt TI64 (Fido.builtins.i64_sub a b)))
   /\ typed_binop BMul GTInt64 (anyt TI64 a) (anyt TI64 b) = Some (RAVal (anyt TI64 (Fido.builtins.i64_mul a b)))
@@ -684,9 +603,8 @@ Example typed_binop_i64_model : forall a b,
   /\ typed_binop BAnd GTInt64 (anyt TI64 a) (anyt TI64 b) = Some (RAVal (anyt TI64 (Fido.builtins.i64_and a b)))
   /\ typed_binop BOr  GTInt64 (anyt TI64 a) (anyt TI64 b) = Some (RAVal (anyt TI64 (Fido.builtins.i64_or  a b)))
   /\ typed_binop BXor GTInt64 (anyt TI64 a) (anyt TI64 b) = Some (RAVal (anyt TI64 (Fido.builtins.i64_xor a b)))
-  /\ typed_binop BAndNot GTInt64 (anyt TI64 a) (anyt TI64 b) = Some (RAVal (anyt TI64 (Fido.builtins.i64_andnot a b))).
-Proof. intros; repeat split; reflexivity. Qed.
-Example typed_binop_u64_model : forall a b,
+  /\ typed_binop BAndNot GTInt64 (anyt TI64 a) (anyt TI64 b) = Some (RAVal (anyt TI64 (Fido.builtins.i64_andnot a b))))
+  /\ (forall a b,
   typed_binop BAdd GTU64 (anyt TU64 a) (anyt TU64 b) = Some (RAVal (anyt TU64 (Fido.builtins.u64_add a b)))
   /\ typed_binop BSub GTU64 (anyt TU64 a) (anyt TU64 b) = Some (RAVal (anyt TU64 (Fido.builtins.u64_sub a b)))
   /\ typed_binop BMul GTU64 (anyt TU64 a) (anyt TU64 b) = Some (RAVal (anyt TU64 (Fido.builtins.u64_mul a b)))
@@ -695,8 +613,8 @@ Example typed_binop_u64_model : forall a b,
   /\ typed_binop BAnd GTU64 (anyt TU64 a) (anyt TU64 b) = Some (RAVal (anyt TU64 (Fido.builtins.u64_and a b)))
   /\ typed_binop BOr  GTU64 (anyt TU64 a) (anyt TU64 b) = Some (RAVal (anyt TU64 (Fido.builtins.u64_or  a b)))
   /\ typed_binop BXor GTU64 (anyt TU64 a) (anyt TU64 b) = Some (RAVal (anyt TU64 (Fido.builtins.u64_xor a b)))
-  /\ typed_binop BAndNot GTU64 (anyt TU64 a) (anyt TU64 b) = Some (RAVal (anyt TU64 (Fido.builtins.u64_andnot a b))).
-Proof. intros; repeat split; reflexivity. Qed.
+  /\ typed_binop BAndNot GTU64 (anyt TU64 a) (anyt TU64 b) = Some (RAVal (anyt TU64 (Fido.builtins.u64_andnot a b)))).
+Proof. repeat split; intros; repeat split; reflexivity. Qed.
 
 (** T5 — the SHIFT case table DENOTES (flipped in the landing commit, as pinned): both ops, a
     NON-GTInt count, [i64]/[u64] LEFT operands — each case's [ptype] RESULT WIDTH pinned by the
@@ -763,10 +681,6 @@ Example typed_shift_edge_runs : forall w,
     ; Some (ORet tt (w_log true (anyt TU8 (u8wrap 55340232221128654848) :: nil) w))
     ; Some (OPanic rt_shift_neg w) ].
 Proof. intro w. vm_compute. reflexivity. Qed.
-Example typed_shift_edge_supported :
-  forallb supported_program (map println_prog
-    [ runshift_constcnt_e ; runshift_typedcnt_e ; runshift_hugecnt_e ; runshift_negcnt_e ]) = true.
-Proof. vm_compute. reflexivity. Qed.
 (** The GTInt LEFT rows now RUN through the engine (tier R8) — the former
     [typed_shift_gtint_left_absent] pin FLIPPED: an untyped-const left ([2 << len] — classifies
     [GTInt]), a runtime left with a WRAPPING const count ([len << 62] — negative like gc), a
@@ -806,11 +720,6 @@ Example gtint_bitwise_runs : forall w,
     ; Some (ORet tt (w_log true (anyt TInt64 (intwrap 2) :: nil) w))
     ; Some (ORet tt (w_log true (anyt TInt64 (intwrap 1) :: nil) w)) ].
 Proof. intro w. vm_compute. reflexivity. Qed.
-Example gtint_shift_supported :
-  forallb supported_program (map println_prog
-    [ runshift_intleft_e ; gtint_shift_wrap_e ; gtint_shift_typedcnt_e
-    ; gtint_shift_huge_e ; gtint_shift_signfill_e ; gtint_shift_negcnt_e ]) = true.
-Proof. vm_compute. reflexivity. Qed.
 (** The BIG-CONST count regressions (the review-R8 leak class): an untyped [2^31] count is
     outside [box_int]'s conservative default-[int] VALUE window yet a VALID Go count — read
     DIRECTLY off the gate it DENOTES saturated (go-run-verified: 0 at [int] and [uint8] left,
@@ -831,63 +740,59 @@ Example shift_bigconst_runs : forall w,
     ; Some (ORet tt (w_log true (anyt TU8 (u8wrap 55340232221128654848) :: nil) w))
     ; Some (ORet tt (w_log true (anyt TInt64 (intwrap 55340232221128654848) :: nil) w)) ].
 Proof. intro w. vm_compute. reflexivity. Qed.
-Example shift_bigconst_supported :
-  forallb supported_program (map println_prog
-    [ gtint_shift_bigconst_e ; gtint_shr_bigconst_e ; u8_shift_bigconst_e
-    ; gtint_shift_typedbig_e ]) = true.
-Proof. vm_compute. reflexivity. Qed.
 Example shift_bigconst_gate :
   ptype (EBn BShl runlen3_e (EInt 4294967296)) = None
   /\ ptype (EBn BShl runb_u8 (EInt 4294967296)) = None
   /\ supported_program (println_prog (EBn BShl runlen3_e (EInt 4294967296))) = false
   /\ supported_program (println_prog (EBn BShl runb_u8 (EInt 4294967296))) = false.
 Proof. repeat split; vm_compute; reflexivity. Qed.
-Example gtint_bitwise_supported :
-  forallb supported_program (map println_prog
-    [ gtint_and_e ; gtint_or_e ; gtint_xor_e ; gtint_andnot_e ]) = true.
-Proof. vm_compute. reflexivity. Qed.
 Definition runshift_uintleft_e : GExpr :=
   EBn BShl (ECall (EId (mkIdent "uint" eq_refl)) [runlen3_e]) (EInt 1).
-Example typed_shift_uint_program_absent :
-  ptype runshift_uintleft_e = Some (PtRunInt GTUint)
+(** the [GTUint] HOLE at program level, all three dispatch families (cmp / binop / shift):
+    classified, SUPPORTED, yet undenoted and undecidable — the platform-uint carrier has NO
+    model ops.  ONE grouped pin. *)
+Example typed_uint_hole_programs_absent :
+  (ptype runuint_cmp_e = Some PtBool
+  /\ supported_program (println_prog runuint_cmp_e) = true
+  /\ denotable_program (println_prog runuint_cmp_e) = false
+  /\ denote_program (println_prog runuint_cmp_e) = None)
+  /\ (ptype runuint_binop_e = Some (PtRunInt GTUint)
+  /\ supported_program (println_prog runuint_binop_e) = true
+  /\ denotable_program (println_prog runuint_binop_e) = false
+  /\ denote_program (println_prog runuint_binop_e) = None)
+  /\ (ptype runshift_uintleft_e = Some (PtRunInt GTUint)
   /\ supported_program (println_prog runshift_uintleft_e) = true
   /\ denotable_program (println_prog runshift_uintleft_e) = false
-  /\ denote_program (println_prog runshift_uintleft_e) = None.
+  /\ denote_program (println_prog runshift_uintleft_e) = None).
 Proof. repeat split; vm_compute; reflexivity. Qed.
 (** DISPATCH AUTHORITY (gated): each live [typed_shift] row IS the width's convoy over the fully
     qualified model op — one 2-conjunct pin per width. *)
-Example typed_shift_u8_model : forall a z,
+Example typed_shift_model_rows :
+  (forall a z,
   typed_shift BShl GTU8 (anyt TU8 a) z = shift_checked_small TU8 Fido.builtins.u8_shl a z
-  /\ typed_shift BShr GTU8 (anyt TU8 a) z = shift_checked_small TU8 Fido.builtins.u8_shr a z.
-Proof. intros; split; reflexivity. Qed.
-Example typed_shift_i8_model : forall a z,
+  /\ typed_shift BShr GTU8 (anyt TU8 a) z = shift_checked_small TU8 Fido.builtins.u8_shr a z)
+  /\ (forall a z,
   typed_shift BShl GTI8 (anyt TI8 a) z = shift_checked_small TI8 Fido.builtins.i8_shl a z
-  /\ typed_shift BShr GTI8 (anyt TI8 a) z = shift_checked_small TI8 Fido.builtins.i8_shr a z.
-Proof. intros; split; reflexivity. Qed.
-Example typed_shift_u16_model : forall a z,
+  /\ typed_shift BShr GTI8 (anyt TI8 a) z = shift_checked_small TI8 Fido.builtins.i8_shr a z)
+  /\ (forall a z,
   typed_shift BShl GTU16 (anyt TU16 a) z = shift_checked_small TU16 Fido.builtins.u16_shl a z
-  /\ typed_shift BShr GTU16 (anyt TU16 a) z = shift_checked_small TU16 Fido.builtins.u16_shr a z.
-Proof. intros; split; reflexivity. Qed.
-Example typed_shift_i16_model : forall a z,
+  /\ typed_shift BShr GTU16 (anyt TU16 a) z = shift_checked_small TU16 Fido.builtins.u16_shr a z)
+  /\ (forall a z,
   typed_shift BShl GTI16 (anyt TI16 a) z = shift_checked_small TI16 Fido.builtins.i16_shl a z
-  /\ typed_shift BShr GTI16 (anyt TI16 a) z = shift_checked_small TI16 Fido.builtins.i16_shr a z.
-Proof. intros; split; reflexivity. Qed.
-Example typed_shift_u32_model : forall a z,
+  /\ typed_shift BShr GTI16 (anyt TI16 a) z = shift_checked_small TI16 Fido.builtins.i16_shr a z)
+  /\ (forall a z,
   typed_shift BShl GTU32 (anyt TU32 a) z = shift_checked_small TU32 Fido.builtins.u32_shl a z
-  /\ typed_shift BShr GTU32 (anyt TU32 a) z = shift_checked_small TU32 Fido.builtins.u32_shr a z.
-Proof. intros; split; reflexivity. Qed.
-Example typed_shift_i32_model : forall a z,
+  /\ typed_shift BShr GTU32 (anyt TU32 a) z = shift_checked_small TU32 Fido.builtins.u32_shr a z)
+  /\ (forall a z,
   typed_shift BShl GTI32 (anyt TI32 a) z = shift_checked_small TI32 Fido.builtins.i32_shl a z
-  /\ typed_shift BShr GTI32 (anyt TI32 a) z = shift_checked_small TI32 Fido.builtins.i32_shr a z.
-Proof. intros; split; reflexivity. Qed.
-Example typed_shift_i64_model : forall a z,
+  /\ typed_shift BShr GTI32 (anyt TI32 a) z = shift_checked_small TI32 Fido.builtins.i32_shr a z)
+  /\ (forall a z,
   typed_shift BShl GTInt64 (anyt TI64 a) z = shift_checked_wide TI64 Fido.builtins.i64_shl a z
-  /\ typed_shift BShr GTInt64 (anyt TI64 a) z = shift_checked_wide TI64 Fido.builtins.i64_shr a z.
-Proof. intros; split; reflexivity. Qed.
-Example typed_shift_u64_model : forall a z,
+  /\ typed_shift BShr GTInt64 (anyt TI64 a) z = shift_checked_wide TI64 Fido.builtins.i64_shr a z)
+  /\ (forall a z,
   typed_shift BShl GTU64 (anyt TU64 a) z = shift_checked_wide TU64 Fido.builtins.u64_shl a z
-  /\ typed_shift BShr GTU64 (anyt TU64 a) z = shift_checked_wide TU64 Fido.builtins.u64_shr a z.
-Proof. intros; split; reflexivity. Qed.
+  /\ typed_shift BShr GTU64 (anyt TU64 a) z = shift_checked_wide TU64 Fido.builtins.u64_shr a z).
+Proof. repeat split; intros; repeat split; reflexivity. Qed.
 (** The ABSENT-SOURCE conversion witness — [PtRunInt] classification alone NEVER implies denotation:
     a conversion over a supported-but-undenoted runtime-int source (a [GTUint]-carrier binop —
     the op-less hole row) is itself supported-but-undenoted, exactly
@@ -1057,9 +962,6 @@ Example arg_panic_shortcircuit_runs : forall w,
       arg_panic_shortcircuit_progs
   = map (fun _ => Some (OPanic rt_div_zero w)) arg_panic_shortcircuit_progs.
 Proof. intro w. vm_compute. reflexivity. Qed.
-Example arg_panic_shortcircuit_supported :
-  forallb supported_program arg_panic_shortcircuit_progs = true.
-Proof. vm_compute. reflexivity. Qed.
 
 (** Defer fixture: `func main(){ defer println("bye"); return }` — DENOTES to a [CDfr] (the deferred
     [println] runs at function-scope return); pinned denotable in [gosem_denotability_decisions] and accepted
@@ -1400,6 +1302,42 @@ Example reciprocal_sign_decisive :
   /\ f32val (f32_div (f32_lit (sf_of_dyadic 1 0)) (f32_lit (S754_zero true))) = S754_infinity true.
 Proof. repeat split; vm_compute; reflexivity. Qed.
 
+(** every runtime/typed-tier FIXTURE program is SUPPORTED (emittable Go) — ONE grouped
+    gate pin over all the per-tier fixture lists (R1–R8, T1–T5, the shift edges, the
+    arg-panic short-circuits). *)
+Example runtime_fixture_progs_supported :
+  forallb supported_program
+    (   ([ println_prog runidx_e
+    ; println_prog (EIndex (ESliceLit GTInt [ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]]]) (EInt 0)) ])
+     ++ ([ println_prog runconv_e ; println_prog runconv_trunc_e
+    ; println_prog runconv_int_e ; println_prog runconv_uint_e
+    ; println_prog runconv_panic_e ])
+     ++ ((map println_prog
+      [ runbool_e ; runbool_ne_e ; runbool_lt_e ; runbool_le_e ; runbool_gt_e ; runbool_ge_e
+      ; runbool_panic_e ]))
+     ++ ((map println_prog [ maplen_runval_e ; maplen_run2_e ; maplen_i64_e ; maplen_bool_e
+                      ; maplen_panic_e ; maplen_convpanic_e ; maplen_ambig_e ]))
+     ++ ([println_prog runlen_e; println_prog runtime_div_vals_e; println_prog panicking_elem_len_e])
+     ++ ((map println_prog [ runneg_e ; runrem_e ; runrem_neg_e ; runneg_panic_e ]))
+     ++ ((map println_prog [ runnot_e ; runnot_panic_e ]))
+     ++ ((map println_prog [ runnot_i64_e ; runnot_u8_e ; runneg_i64_e ; runnot_panic_i64_e ]))
+     ++ ((map println_prog [ runconv_chain_e ; runconv_chain_int_e ; runconv_chain_trunc_e ]))
+     ++ ((map println_prog typed_binop_cases))
+     ++ ((map println_prog typed_mixed_cases))
+     ++ ((map println_prog typed_cmp_cases))
+     ++ ((map println_prog
+    [ runshift_constcnt_e ; runshift_typedcnt_e ; runshift_hugecnt_e ; runshift_negcnt_e ]))
+     ++ ((map println_prog
+    [ runshift_intleft_e ; gtint_shift_wrap_e ; gtint_shift_typedcnt_e
+    ; gtint_shift_huge_e ; gtint_shift_signfill_e ; gtint_shift_negcnt_e ]))
+     ++ ((map println_prog
+    [ gtint_shift_bigconst_e ; gtint_shr_bigconst_e ; u8_shift_bigconst_e
+    ; gtint_shift_typedbig_e ]))
+     ++ ((map println_prog
+    [ gtint_and_e ; gtint_or_e ; gtint_xor_e ; gtint_andnot_e ]))
+     ++ (arg_panic_shortcircuit_progs)) = true.
+Proof. vm_compute. reflexivity. Qed.
+
 (** All the demo programs above are SUPPORTED (each is emittable Go); grouped so the gate is pinned once. *)
 Example demo_progs_supported :
   forallb supported_program
@@ -1438,76 +1376,52 @@ Definition gosem_slice_index_surface :=
    slice_index_supported_but_undenoted,
    denote_expr_index_in_bounds, denote_expr_index_oob,
    denote_expr_index_elem_panic, denote_expr_index_idx_panic,
-   runtime_index_runs, runtime_index_supported, slice_index_panics_denote).
+   runtime_index_runs, slice_index_panics_denote).
 (** SURFACE POLICY (2026-07-02 consolidation): a surface lists PUBLIC guarantees — sealed
     endpoint theorems, program-level runs/supported/absent pins, dispatch AUTHORITY pins, and
     demanded totality/boundary seals.  Internal helpers (shape splits, tag/totality/cases
     lemmas) are NOT listed: `Print Assumptions` on the endpoints pulls their whole cone, so
     they stay inside the gated trust base without noising the public contract. *)
 Definition gosem_runtime_int_surface :=
-  (denote_expr_div_zero, runtime_tier_runs, runtime_tier_supported,
+  (denote_expr_div_zero, runtime_tier_runs, runtime_fixture_progs_supported,
    denote_expr_div_runs, denote_expr_rem_runs, denote_expr_neg_runs, denote_expr_neg_panic,
-   denote_expr_not_runs, denote_expr_not_panic,
-   runtime_negrem_runs, runtime_negrem_supported, runtime_not_runs, runtime_not_supported,
-   denote_expr_conv_panic, denote_expr_conv_int_panic,
-   denote_expr_conv_runs_sealed, denote_expr_conv_int_runs_sealed, denote_expr_conv_src_absent,
-   typed_runtime_convchain_runs, typed_runtime_convchain_supported,
+   denote_expr_not_runs, denote_expr_not_panic, runtime_negrem_runs, runtime_not_runs,
+   denote_expr_conv_panic, denote_expr_conv_int_panic, denote_expr_conv_runs_sealed,
+   denote_expr_conv_int_runs_sealed, denote_expr_conv_src_absent, typed_runtime_convchain_runs,
    denote_expr_cmp_runs, denote_expr_cmp_left_panic, denote_expr_cmp_right_panic,
-   cmp_verdict_eq_model, cmp_verdict_ne_model, cmp_verdict_lt_model, cmp_verdict_le_model,
-   cmp_verdict_gt_model, cmp_verdict_ge_model, cmp_verdict_complete,
-   runtime_conv_runs, runtime_conv_supported, runtime_bool_runs, runtime_bool_supported,
-   denote_expr_typed_unop_runs_sealed, denote_expr_typed_unop_panic,
-   reval_val_typed,
-   runtime_typed_unop_runs, runtime_typed_unop_supported,
-   typed_unop_u8_model, typed_unop_i8_model, typed_unop_u16_model, typed_unop_i16_model,
-   typed_unop_u32_model, typed_unop_i32_model, typed_unop_i64_model, typed_unop_u64_model,
-   typed_unop_neg_i64_model, typed_unop_neg_u64_model,
-   typed_unop_holes_none,
+   cmp_verdict_model_rows, cmp_verdict_complete, runtime_conv_runs, runtime_bool_runs,
+   denote_expr_typed_unop_runs_sealed, denote_expr_typed_unop_panic, reval_val_typed,
+   runtime_typed_unop_runs, typed_unop_model_rows, typed_unop_holes_none,
    denote_expr_typed_binop_runs_sealed, denote_expr_typed_binop_left_panic,
    denote_expr_typed_binop_right_panic, denote_expr_typed_binop_src_absent,
    typed_binop_nonarith_none, typed_binop_gtint_none, typed_binop_uint_none,
-   typed_binop_nonint_none,
-   typed_operand_cross_width_none, typed_binop_cross_width_rejected,
+   typed_binop_nonint_none, typed_operand_cross_width_none, typed_binop_cross_width_rejected,
    denote_expr_typed_cmp_runs_sealed, denote_expr_typed_cmp_left_panic,
-   denote_expr_typed_cmp_right_panic, denote_expr_typed_cmp_src_absent,
-   typed_cmp_noncmp_none,
-   typed_cmp_gtint_none, typed_cmp_uint_none, typed_cmp_nonint_none,
-   runtime_typed_cmp_runs, runtime_typed_cmp_supported,
-   typed_cmp_uint_program_absent, typed_cmp_cross_width_rejected,
-   typed_cmp_u8_model, typed_cmp_i8_model, typed_cmp_u16_model, typed_cmp_i16_model,
-   typed_cmp_u32_model, typed_cmp_i32_model, typed_cmp_i64_model, typed_cmp_u64_model,
+   denote_expr_typed_cmp_right_panic, denote_expr_typed_cmp_src_absent, typed_cmp_noncmp_none,
+   typed_cmp_gtint_none, typed_cmp_uint_none, typed_cmp_nonint_none, runtime_typed_cmp_runs,
+   typed_uint_hole_programs_absent, typed_cmp_cross_width_rejected, typed_cmp_model_rows,
    denote_expr_typed_shift_runs_sealed, denote_expr_typed_shift_count_panic,
-   denote_expr_typed_shift_src_absent,
-   typed_shift_nonshift_none, typed_shift_gtint_none, typed_shift_uint_none,
-   typed_shift_nonint_none,
-   shift_count_const_total,
-   typed_runtime_shift_runs, typed_shift_edge_runs, typed_shift_edge_supported,
-   typed_shift_u8_model, typed_shift_i8_model, typed_shift_u16_model, typed_shift_i16_model,
-   typed_shift_u32_model, typed_shift_i32_model, typed_shift_i64_model, typed_shift_u64_model,
-   int_bitop_and_model, int_bitop_or_model, int_bitop_xor_model, int_bitop_andnot_model,
-   int_shift_op_shl_model, int_shift_op_shr_model, int_bitop_complete, int_shift_op_complete,
+   denote_expr_typed_shift_src_absent, typed_shift_nonshift_none, typed_shift_gtint_none,
+   typed_shift_uint_none, typed_shift_nonint_none, shift_count_const_total,
+   typed_runtime_shift_runs, typed_shift_edge_runs, typed_shift_model_rows,
+   int_bitop_model_rows, int_shift_op_model_rows, int_bitop_complete, int_shift_op_complete,
    denote_expr_bitwise_runs, denote_expr_bitwise_left_panic, denote_expr_bitwise_right_panic,
    denote_expr_int_shift_runs, denote_expr_int_shift_neg_panic,
    denote_expr_int_shift_left_panic, denote_expr_int_shift_count_panic,
    denote_expr_int_shift_const_count_runs, denote_expr_typed_shift_const_count_runs,
-   shift_bigconst_runs, shift_bigconst_supported, shift_bigconst_gate,
-   gtint_bitwise_runs, gtint_bitwise_supported, gtint_shift_runs, gtint_shift_supported,
-   runtime_typed_binop_runs, runtime_typed_binop_supported,
-   typed_mixed_const_runs, typed_mixed_const_supported,
-   typed_binop_u8_model, typed_binop_i8_model, typed_binop_u16_model, typed_binop_i16_model,
-   typed_binop_u32_model, typed_binop_i32_model, typed_binop_i64_model, typed_binop_u64_model).
+   shift_bigconst_runs, shift_bigconst_gate, gtint_bitwise_runs, gtint_shift_runs,
+   runtime_typed_binop_runs, typed_mixed_const_runs, typed_binop_model_rows).
 Definition gosem_map_surface :=
   (eval_map_len_reduces, eval_map_len_supported, map_len_eval_absent, maplen_divzero_runs,
    map_len_invalid_type_rejected,
    denote_expr_maplen_runs, denote_expr_maplen_panic,
-   runtime_maplen_runs, runtime_maplen_supported, runtime_maplen_ambiguous_absent,
+   runtime_maplen_runs, runtime_maplen_ambiguous_absent,
    rconstr_vals_ok_iff, rconstr_vals_panic_sound, rconstr_vals_two_panics_absent).
 Definition gosem_frontier_surface :=
   (undenoted_frontier_pinned,
    typed_unary_holes_absent, reval_val_runfloat_none, denote_expr_conv_float_src_absent,
    runtime_float_source_conv_absent, runtime_conv_absent_src_pinned,
-   typed_binop_uint_program_absent,
-   typed_shift_uint_program_absent).
+   typed_uint_hole_programs_absent).
 (** The ONE composed public gate: [gosem_trust_surface] composes the topic surfaces above, and
     the topic surfaces DEFINE the current public contract (per the surface policy — endpoints
     and intentional pins; internal helpers ride the endpoints' assumption cones). *)
@@ -1521,12 +1435,14 @@ Print Assumptions gosem_trust_surface.
     build ([<=] = the model's [str_geb] with operands swapped).  Bundled into [gosem_string_authority_surface]
     so its [Print Assumptions] certifies the whole cone zero-axiom (the honest place for the "authority
     guarantee" claim); a fork that DIDN'T reroute a live branch would be dead code. *)
-Example str_cmp_eq_model : str_cmp_op BEq = Some Fido.builtins.str_eqb.                     Proof. reflexivity. Qed.
-Example str_cmp_ne_model : str_cmp_op BNe = Some Fido.builtins.str_neqb.                    Proof. reflexivity. Qed.
-Example str_cmp_lt_model : str_cmp_op BLt = Some Fido.builtins.str_ltb.                     Proof. reflexivity. Qed.
-Example str_cmp_le_model : str_cmp_op BLe = Some (fun s t => Fido.builtins.str_geb t s).    Proof. reflexivity. Qed.
-Example str_cmp_gt_model : str_cmp_op BGt = Some Fido.builtins.str_gtb.                     Proof. reflexivity. Qed.
-Example str_cmp_ge_model : str_cmp_op BGe = Some Fido.builtins.str_geb.                     Proof. reflexivity. Qed.
+Example str_cmp_model_rows :
+  (str_cmp_op BEq = Some Fido.builtins.str_eqb)
+  /\ (str_cmp_op BNe = Some Fido.builtins.str_neqb)
+  /\ (str_cmp_op BLt = Some Fido.builtins.str_ltb)
+  /\ (str_cmp_op BLe = Some (fun s t => Fido.builtins.str_geb t s))
+  /\ (str_cmp_op BGt = Some Fido.builtins.str_gtb)
+  /\ (str_cmp_op BGe = Some Fido.builtins.str_geb).
+Proof. repeat split; reflexivity. Qed.
 Definition gosem_string_authority_surface :=
-  (str_cmp_eq_model, str_cmp_ne_model, str_cmp_lt_model, str_cmp_le_model, str_cmp_gt_model, str_cmp_ge_model).
+  (str_cmp_model_rows).
 Print Assumptions gosem_string_authority_surface.

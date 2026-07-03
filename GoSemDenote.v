@@ -3327,7 +3327,7 @@ Qed.
     model op's VALUE (tagged at the width) or the division-by-zero PANIC; operand panics propagate
     left-to-right (only the runtime row can panic, [typed_operand_panic_runtime]) and ABSENT
     operands stay absent (the companion lemmas below) — never decided by classification alone.
-    [GTUint] is the hole row ([typed_binop_uint_none], pinned [typed_binop_uint_program_absent]);
+    [GTUint] is the hole row ([typed_binop_uint_none], pinned in [typed_uint_hole_programs_absent]);
     shifts are the T5 exit (their own sealed theorem below). *)
 Theorem denote_expr_typed_binop_runs_sealed : forall o a b t ga gb,
   floats_checked (EBn o a b) = true ->
@@ -3486,7 +3486,7 @@ Qed.
     ([typed_cmp_live_total]), the verdict the width's own model op, boxed [TBool].  Comparisons
     never panic themselves; operand panics propagate left-to-right and ABSENT operands stay absent
     (companions below).  [GTUint] is the hole row ([typed_cmp_uint_none], pinned
-    [typed_cmp_uint_program_absent]); the [GTInt] width is the R4 engine path. *)
+    [typed_uint_hole_programs_absent]); the [GTInt] width is the R4 engine path. *)
 Theorem denote_expr_typed_cmp_runs_sealed : forall o a b t ga gb,
   floats_checked (EBn o a b) = true ->
   ptype (EBn o a b) = Some PtBool ->
@@ -3606,7 +3606,7 @@ Qed.
     ([shift_count_runint_total])).  The result is decided per OUTCOME: the width's model op's VALUE, or
     the NEGATIVE-COUNT panic ([typed_shift_panic_neg] — gc's exact payload); operand/count panics
     propagate left-to-right; ABSENT sides stay absent.  [GTUint] left is the hole row
-    ([typed_shift_uint_none], pinned [typed_shift_uint_program_absent]); an untyped-const LEFT
+    ([typed_shift_uint_none], pinned in [typed_uint_hole_programs_absent]); an untyped-const LEFT
     classifies [GTInt] — the ENGINE's own R8 row runs it ([gtint_shift_runs]; [typed_shift]
     itself stays op-less there, [typed_shift_gtint_none]). *)
 Theorem denote_expr_typed_shift_runs_sealed : forall o a b t ga z,
@@ -3736,12 +3736,14 @@ Qed.
     [cmp_verdict_complete] then seals EVERY [BinOp] constructor by case analysis — the six comparisons
     to those verdicts and every other constructor to [None] — so no future explicit arithmetic/shift/
     logical mapping can drift in while the surface stays green. *)
-Example cmp_verdict_eq_model : cmp_verdict BEq = Some Fido.builtins.int_eqb.                          Proof. reflexivity. Qed.
-Example cmp_verdict_ne_model : cmp_verdict BNe = Some (fun x y => negb (Fido.builtins.int_eqb x y)).  Proof. reflexivity. Qed.
-Example cmp_verdict_lt_model : cmp_verdict BLt = Some Fido.builtins.int_ltb.                          Proof. reflexivity. Qed.
-Example cmp_verdict_le_model : cmp_verdict BLe = Some Fido.builtins.int_leb.                          Proof. reflexivity. Qed.
-Example cmp_verdict_gt_model : cmp_verdict BGt = Some (fun x y => Fido.builtins.int_ltb y x).         Proof. reflexivity. Qed.
-Example cmp_verdict_ge_model : cmp_verdict BGe = Some (fun x y => Fido.builtins.int_leb y x).         Proof. reflexivity. Qed.
+Example cmp_verdict_model_rows :
+  (cmp_verdict BEq = Some Fido.builtins.int_eqb)
+  /\ (cmp_verdict BNe = Some (fun x y => negb (Fido.builtins.int_eqb x y)))
+  /\ (cmp_verdict BLt = Some Fido.builtins.int_ltb)
+  /\ (cmp_verdict BLe = Some Fido.builtins.int_leb)
+  /\ (cmp_verdict BGt = Some (fun x y => Fido.builtins.int_ltb y x))
+  /\ (cmp_verdict BGe = Some (fun x y => Fido.builtins.int_leb y x)).
+Proof. repeat split; reflexivity. Qed.
 Example cmp_verdict_complete : forall o,
   cmp_verdict o = match o with
                   | BEq => Some Fido.builtins.int_eqb
@@ -3809,12 +3811,16 @@ Qed.
 (** ---- Tier R8 sealed — the GTInt BITWISE + SHIFT rows ----
     DISPATCH AUTHORITY (gated): each live row IS, by reflexivity, the FULLY QUALIFIED model op —
     a rerouted row breaks a pin and fails the build. *)
-Example int_bitop_and_model    : int_bitop BAnd    = Some Fido.builtins.int_and.    Proof. reflexivity. Qed.
-Example int_bitop_or_model     : int_bitop BOr     = Some Fido.builtins.int_or.     Proof. reflexivity. Qed.
-Example int_bitop_xor_model    : int_bitop BXor    = Some Fido.builtins.int_xor.    Proof. reflexivity. Qed.
-Example int_bitop_andnot_model : int_bitop BAndNot = Some Fido.builtins.int_andnot. Proof. reflexivity. Qed.
-Example int_shift_op_shl_model : int_shift_op BShl = Some Fido.builtins.int_shl.    Proof. reflexivity. Qed.
-Example int_shift_op_shr_model : int_shift_op BShr = Some Fido.builtins.int_shr.    Proof. reflexivity. Qed.
+Example int_bitop_model_rows :
+  (int_bitop BAnd    = Some Fido.builtins.int_and)
+  /\ (int_bitop BOr     = Some Fido.builtins.int_or)
+  /\ (int_bitop BXor    = Some Fido.builtins.int_xor)
+  /\ (int_bitop BAndNot = Some Fido.builtins.int_andnot).
+Proof. repeat split; reflexivity. Qed.
+Example int_shift_op_model_rows :
+  (int_shift_op BShl = Some Fido.builtins.int_shl)
+  /\ (int_shift_op BShr = Some Fido.builtins.int_shr).
+Proof. split; reflexivity. Qed.
 (* completeness: the dispatches are live on EXACTLY their ops — no silent hole, no silent widening *)
 Lemma int_bitop_complete : forall o,
   (exists f, int_bitop o = Some f) <-> (o = BAnd \/ o = BOr \/ o = BXor \/ o = BAndNot).

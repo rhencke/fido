@@ -2106,7 +2106,7 @@ Definition ptr_chan_demo : IO unit :=
 (** A CHANNEL nested in a STRUCT (Go's worker/inbox pattern: [type Inbox struct { ch chan int64;
     name string }]).  The struct holds the channel HANDLE — a reference type, so copying the struct
     SHARES the channel — and send/recv flow through the field [box.Ib_ch].  A first step toward the
-    north-star nesting (channels inside structs / slices). *)
+    container-nesting stress (channels inside structs / slices). *)
 Record Inbox := MkInbox { ib_ch : GoChan GoI64 ; ib_name : GoString }.
 Definition inbox_demo : IO unit :=
   bind (make_chan_buf TI64 (int_lit 1 eq_refl))            (fun ch =>   (* ch := make(chan int64, 1) *)
@@ -2115,7 +2115,7 @@ Definition inbox_demo : IO unit :=
   recv_ok TI64 (ib_ch box) (fun v _ =>                (* v := <-box.Ib_ch *)
   println [any (ib_name box); any v]))).               (* prints: fido 42 *)
 
-(** Deeper north-star nesting: a SLICE of CHANNELS inside a STRUCT (Go's [type Hub struct {
+(** Deeper container nesting: a SLICE of CHANNELS inside a STRUCT (Go's [type Hub struct {
     chans []chan int64; id int64 }]) — channels in a slice in a struct.  Build the slice with the
     channel element tag [TChan TI64], index it to a channel ([hub.Hub_chans[1]], bounds-checked),
     then send/recv on that channel.  (A slice of STRUCT VALUES works the same way once the element has a
@@ -2142,7 +2142,7 @@ Definition hub_worker_demo : IO unit :=
   bind (recv TI64 (ib_ch box)) (fun v =>                        (* v := <-box.Ib_ch (rendezvous) *)
   println [any (ib_name box); any v]))).                        (* prints: worker 123 *)
 
-(** "Channels that send themselves" (the user's north-star phrasing): a CHANNEL OF CHANNELS
+(** "Channels that send themselves": a CHANNEL OF CHANNELS
     ([chan chan int64]) — the request/reply pattern.  The main sends a [reply] channel OVER the
     [reqs] channel; a worker goroutine receives that reply-channel and sends a result back through
     it — a channel VALUE flows over a channel.  Buffered + the data dependency ⇒ deterministic. *)
@@ -2172,7 +2172,7 @@ Definition pool_demo : IO unit :=
   v1 <-' recv TI64 ch1 ;;                                     (* v1 := <-ch1 (= 7) *)
   println [any (i64_add (pool_base pool) (i64_add v0 v1))].   (* 10 + (5+7) = 22 *)
 
-(** RECURSIVE / self-referential type — the north-star FRONTIER, now OPERATED on, not just declared.
+(** RECURSIVE / self-referential type — the recursive-type frontier demo, now OPERATED on, not just declared.
     [ListNode] (builtins.v) is [type ListNode struct { Val int64 ; Next *ListNode }] — a struct that
     points to ITSELF.  The previous tick DECLARED the type (a single nil-[next] node, no tag); this tick
     CRACKS the recursive type TAG: [TListNode] is a NULLARY nominal tag — FINITE, not the feared cyclic
@@ -2234,7 +2234,7 @@ Definition map_struct_demo : IO unit :=
   bind (@map_get_or GoI64 ListNode TI64 TListNode (5)%i64 (MkListNode (0)%i64 (ptr_nil_tf tt)) m) (fun n =>  (* m[5] *)
   println [any (ln_val n)]))).                                                            (* prints: 99 *)
 
-(** "A CHANNEL THAT SENDS ITSELF" — the north-star horror, realized.  [ChanBox] (builtins.v) is
+(** "A CHANNEL THAT SENDS ITSELF" — the recursive channel demo.  [ChanBox] (builtins.v) is
     [type ChanBox struct { Id int64 ; Ch chan ChanBox }]; a [chan ChanBox] carries a [ChanBox] whose
     [Ch] field IS that very channel, so the channel transmits a value containing ITSELF.  (Stronger than
     [chan_of_chan_demo]'s [chan chan int64], where the element is a DIFFERENT type — here the element type
