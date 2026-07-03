@@ -93,14 +93,21 @@ COMPLETE): its ladder discipline and landing checklist apply verbatim (its capst
      `builtins.ValidWorld` (`ref_new`'s own invariant), so every public allocation bridge
      surface carries a `ValidWorld w` premise, with PRESERVATION obligations through the
      body run and the defer unwind (the `valid_alloc_*` analogs for `go`/`run_defers`).
-   - unified side: allocation gets a STRUCTURAL authority — `uc_next : nat` on `UConfig`
-     (mirrored from `World.w_next`); `ustep_alloc` allocates EXACTLY at `uc_next` and
-     bumps it (deterministic — no location choice exists to leak).  The config churn
-     (every `mkUCfg` literal, the rstep embedding at `V := nat`) is the accepted cost of
-     making bad allocation states UNREPRESENTABLE.  The rule emits `KWrite l` (allocation
-     IS a write — no new event kind).
-   - the bridge invariant: `uc_next = w_next w` (allocator agreement) alongside
-     `heap_agrees`, both threaded through `body_runs_sem`/`unwind_heap`/the assembly.
+   - unified side: `uc_next : nat` on `UConfig` (mirrored from `World.w_next`);
+     `ustep_alloc` allocates EXACTLY at `uc_next` and bumps it.  PRECISION: this makes
+     the allocation choice DETERMINISTIC (no location nondeterminism exists to leak) —
+     it does NOT by itself make bad allocator states unrepresentable, since `UConfig` is
+     a freely constructible record; freshness/consistency remain EXPLICIT theorem
+     premises and invariants (next bullet), carried and preserved by every public
+     allocation surface.  The config churn (every `mkUCfg` literal, the rstep embedding
+     at `V := nat`) is the accepted cost of determinism.  The rule emits `KWrite l`
+     (allocation IS a write — no new event kind).
+   - the EXACT future proof gates, all explicit at the landing: `ValidWorld w` on every
+     public allocation surface; `ValidWorld` preservation through `go` and `run_defers`
+     (the `valid_alloc_*` analogs); the allocator agreement `uc_next = w_next w`
+     threaded beside `heap_agrees` through `body_runs_sem`/`unwind_heap`/the assembly;
+     no clobber of an allocated cell; no nil (location-0) allocation from a valid start;
+     no unified allocation behavior beyond the cmd side's.
    - regression obligations AT LANDING: (i) a continuation branching on `Nat.eqb l 0`
      cannot reach the `l = 0` branch from a `ValidWorld`-mirrored start (location 0 is
      reserved nil); (ii) allocation never lands on an existing allocated cell; (iii) no
