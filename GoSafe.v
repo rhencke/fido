@@ -277,6 +277,29 @@ Proof.
 Qed.
 Print Assumptions type_expr_nil_ptype.
 
+(** The SEALED-SCOPE pins: a scope entry's category is in [bind_category]'s image BY TYPE — the
+    forged constant/aggregate/nil entries are UNREPRESENTABLE (their [bound_cat_ok] witness cannot
+    be built), so [x := 0; _ = 1 / x] can never be re-constantized through a scope. *)
+Example scope_entry_bindable : forall bc : BoundCat, bound_cat_ok (bc_cat bc) = true.
+Proof. intro bc. exact (bc_ok bc). Qed.
+Fail Definition forged_const_local : BoundCat := mkBoundCat (PtIntConst 0) eq_refl.
+Fail Definition forged_agg_local : BoundCat := mkBoundCat PtAgg eq_refl.
+Fail Definition forged_nil_local : BoundCat := mkBoundCat PtNil eq_refl.
+(** The INSERTION boundary decides: a recognized name, the blank identifier, and a redeclaration
+    are all rejected AT [scope_bind]; a fresh unrecognized name binds. *)
+Example scope_bind_decides :
+  (exists G', scope_bind nil "x" (mkBoundCat PtBool eq_refl) = Some G')
+  /\ scope_bind nil "len" (mkBoundCat PtBool eq_refl) = None
+  /\ scope_bind nil "int" (mkBoundCat PtBool eq_refl) = None
+  /\ scope_bind nil "_" (mkBoundCat PtBool eq_refl) = None
+  /\ (forall G', scope_bind nil "x" (mkBoundCat PtBool eq_refl) = Some G' ->
+        scope_bind G' "x" (mkBoundCat PtStr eq_refl) = None).
+Proof.
+  split; [eexists; reflexivity|].
+  split; [reflexivity|]. split; [reflexivity|]. split; [reflexivity|].
+  intros G' H. injection H as <-. reflexivity.
+Qed.
+
 (** ===================================================================================================
     ===== STRUCTURAL: statement-shape / supported-syntax (the [stmt_ok] / [supported_program] gate) =====
     =================================================================================================== *)

@@ -697,8 +697,20 @@ Definition map_key_vals : list (GExpr * GExpr) -> list Z := map_key_vals_with pt
     a [Scope] and USE-marking threaded through the traversal in Go's left-to-right order.  A LOCAL
     hit resolves BEFORE the [special_ident] table — sound because the rung-4 declaration gate
     refuses to declare any recognized name. *)
-Definition Scope : Type := list (string * (PTy * bool)).
-Fixpoint scope_get (G : Scope) (s : string) : option (PTy * bool) :=
+(** A category a LOCAL may carry: exactly [bind_category]'s image — runtime numerics and the
+    value-carrying scalars.  The sig SEALS it (the [Ident]/[HexZ]/[DyConst] pattern): a scope
+    entry carrying a CONSTANT category ([x ↦ PtIntConst 0] would flip [x := 0; _ = 1 / x] back
+    into constant division — the exact wrong semantics this arc exists to prevent), an
+    aggregate/map, or [PtNil] is UNREPRESENTABLE, not merely unconstructed. *)
+Definition bound_cat_ok (c : PTy) : bool :=
+  match c with
+  | PtRunInt _ | PtRunFloat _ | PtBool | PtStr => true
+  | PtIntConst _ | PtTIntConst _ _ | PtFloatConst _ _ | PtAgg | PtMap | PtNil => false
+  end.
+Record BoundCat : Type := mkBoundCat { bc_cat : PTy ; bc_ok : bound_cat_ok bc_cat = true }.
+
+Definition Scope : Type := list (string * (BoundCat * bool)).
+Fixpoint scope_get (G : Scope) (s : string) : option (BoundCat * bool) :=
   match G with
   | nil => None
   | (n, ent) :: G' => if String.eqb n s then Some ent else scope_get G' s
@@ -710,34 +722,57 @@ Fixpoint scope_mark (G : Scope) (s : string) : Scope :=
                          else (n, (c, u)) :: scope_mark G' s
   end.
 
-(** The BINDING authority (the rung-4 scope fold consumes it): the category a short declaration
-    [x := e] binds from its RHS category — TOTAL over [PTy], every rejection a WRITTEN arm.  A
-    short decl is a DEFAULTING value context, so the untyped-const row carries the SAME
-    default-[int] representability boundary as [svalue]/[printable_arg_ok]; typed constants were
-    range-checked where their category was built; RUNTIME categories bind as themselves;
-    [PtAgg]/[PtMap] are REJECTED (the evaluator has no aggregate/map VALUES — a structural hole,
-    not a frontier; a conformance NARROWING, Go permits slice/map locals); [PtNil] is Go's
-    "use of untyped nil" compile error. *)
-Definition bind_category (c : PTy) : option PTy :=
+(** The BINDING authority: the category a short declaration [x := e] binds from its RHS category —
+    TOTAL over [PTy], every rejection a WRITTEN arm, and the accepted arms construct the SEALED
+    [BoundCat] (each carries its [bound_cat_ok] witness definitionally), so [bind_category] is the
+    ONLY way a category enters a scope.  A short decl is a DEFAULTING value context, so the
+    untyped-const row carries the SAME default-[int] representability boundary as
+    [svalue]/[printable_arg_ok]; typed constants were range-checked where their category was
+    built; RUNTIME categories bind as themselves; [PtAgg]/[PtMap] are REJECTED (the evaluator has
+    no aggregate/map VALUES — a structural hole, not a frontier; a conformance NARROWING, Go
+    permits slice/map locals); [PtNil] is Go's "use of untyped nil" compile error. *)
+Definition bind_category (c : PTy) : option BoundCat :=
   match c with
-  | PtIntConst z     => if int_const_repr z GTInt then Some (PtRunInt GTInt) else None
-  | PtTIntConst t _  => Some (PtRunInt t)
-  | PtFloatConst t _ => Some (PtRunFloat t)
-  | PtRunInt t       => Some (PtRunInt t)
-  | PtRunFloat t     => Some (PtRunFloat t)
-  | PtBool           => Some PtBool
-  | PtStr            => Some PtStr
+  | PtIntConst z     => if int_const_repr z GTInt
+                        then Some (mkBoundCat (PtRunInt GTInt) eq_refl) else None
+  | PtTIntConst t _  => Some (mkBoundCat (PtRunInt t) eq_refl)
+  | PtFloatConst t _ => Some (mkBoundCat (PtRunFloat t) eq_refl)
+  | PtRunInt t       => Some (mkBoundCat (PtRunInt t) eq_refl)
+  | PtRunFloat t     => Some (mkBoundCat (PtRunFloat t) eq_refl)
+  | PtBool           => Some (mkBoundCat PtBool eq_refl)
+  | PtStr            => Some (mkBoundCat PtStr eq_refl)
   | PtAgg            => None
   | PtMap            => None
   | PtNil            => None
   end.
+
+(** The DECLARATION-NAME gate: a declarable local name is UNRECOGNIZED (the [special_ident] table
+    rejects every checker-recognized string uniformly — a total rejection with no per-name
+    decision to drift) and not the blank identifier ([_ := e] is Go's "no new variables"). *)
+Definition decl_ident_ok (s : string) : bool :=
+  match special_ident s with
+  | None => negb (String.eqb s "_")
+  | Some _ => false
+  end.
+
+(** SCOPE INSERTION — the one boundary through which a binding enters a scope: the name must pass
+    the declaration gate and be FRESH (Go: "no new variables on left side of :="), and the
+    category arrives only as a sealed [BoundCat].  (The rung-4 fold declares exclusively through
+    this; the name/freshness invariants live HERE, not in caller discipline.) *)
+Definition scope_bind (G : Scope) (s : string) (bc : BoundCat) : option Scope :=
+  if decl_ident_ok s
+  then match scope_get G s with
+       | Some _ => None                       (* redeclaration in the flat block *)
+       | None => Some ((s, (bc, false)) :: G)
+       end
+  else None.
 
 Fixpoint type_expr (G : Scope) (e : GExpr) : option (PTy * Scope) :=
   match e with
   | EId i =>
       let s := proj1_sig i in
       match scope_get G s with
-      | Some (c, _) => Some (c, scope_mark G s)   (* a LOCAL: resolve + MARK USED *)
+      | Some (bc, _) => Some (bc_cat bc, scope_mark G s)   (* a LOCAL: resolve + MARK USED *)
       | None =>
           match special_ident s with
           | Some SnNil => Some (PtNil, G)
@@ -802,6 +837,9 @@ Fixpoint type_expr (G : Scope) (e : GExpr) : option (PTy * Scope) :=
       | None => None
       end
   | ECall (EId i) (a :: nil) =>
+      match scope_get G (proj1_sig i) with
+      | Some _ => None   (* a LOCAL callee: no local is a function in this fragment — REJECT (local-first, so a scoped name can never silently become a builtin/conversion) *)
+      | None =>
       match type_expr G a with
       | Some (ca, G1) =>
           match (match special_ident (proj1_sig i) with
@@ -821,6 +859,7 @@ Fixpoint type_expr (G : Scope) (e : GExpr) : option (PTy * Scope) :=
           | None => None
           end
       | None => None
+      end
       end
   | ECall _ _ => None
   | EConv c e0 =>

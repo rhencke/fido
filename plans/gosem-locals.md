@@ -25,7 +25,7 @@ compile-time rejections.  The correct shape:
   `bind_category : PTy -> option PTy`
   - `PtIntConst z ↦ if int_const_repr z GTInt then Some (PtRunInt GTInt) else None` — a short decl
     is a DEFAULTING value context, so it PRESERVES the existing default-`int` representability
-    boundary (`svalue` GoTypes.v:700 / `printable_arg_ok` GoSafe.v:54: the conservative 32-bit
+    boundary (`svalue` / `printable_arg_ok`: the conservative 32-bit
     range, sound on every Go target); dropping the value WITHOUT this check would certify
     `x := 9223372036854775808` (invalid Go: "constant overflows int").
   - `PtTIntConst t _ ↦ Some (PtRunInt t)`, `PtFloatConst t _ ↦ Some (PtRunFloat t)` — typed
@@ -92,10 +92,11 @@ for the evaluator's ident resolution in `GoSemDenote` (rung 5).
    a gate in either file would have duplicated the other's list).  `classify` is its `SnType`
    projection (`go_keyword`, Go's RESERVED words, is a separate concern and stays separate — a
    recognized name need not be a keyword).  LANDED consumers: GoTypes' recognizers (ptype's EId
-   scope hook and the one-arg call head) and GoSafe's `stmt_call_ok`/`expr_stmt_ok`.  FUTURE
-   consumer (rung 4, with the scope fold): the declaration gate
-   `decl_ident_ok s := match special_ident s with None => true | Some _ => false end` — it does
-   not exist yet and nothing routes through it today.  The SEMANTIC consumers (recognizers that choose behavior PER NAME) match
+   scope hook and the one-arg call head), GoSafe's `stmt_call_ok`/`expr_stmt_ok`, and — landed
+   with rung 3's sealed scope boundary — the declaration gate `decl_ident_ok` (uniform rejection
+   of every recognized name, plus the blank identifier), enforced INSIDE `scope_bind` (the one
+   insertion path) rather than by caller discipline.  The rung-4 fold declares exclusively
+   through `scope_bind`.  The SEMANTIC consumers (recognizers that choose behavior PER NAME) match
    wildcard-free exhaustively, so a new `SpecialName` constructor forces each of them mechanically;
    the declaration gate alone uses `Some _ => false` DELIBERATELY — it rejects every recognized
    name uniformly, a total rejection with no per-name decision that could drift by omission.  Where Go PERMITS the shadowing
