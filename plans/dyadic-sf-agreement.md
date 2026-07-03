@@ -121,7 +121,10 @@ value quotient is `dy_norm` (the odd-mantissa normal form), never ℝ.
    binary64 through the generic ADD closure and the sign-flip authority, with the re-rounds
    erased).  MUL at binary32 CLOSED too (gated `sf_render_mul_agrees_f32`; the MUL core went
    precision-generic, `SFmul_normalize_agrees_gen`, with the f64 endpoint its instance).
-   REMAINING: DIV at binary32, and the `f32_of_f64`/`f64_of_f32` cross-width agreement.
+   exact DIV at binary32 CLOSED too (gated `sf_render_div_agrees_f32`; the DIV core went
+   precision-generic, `SFdiv_normalize_agrees_gen`, the widths instances) — ALL FOUR op
+   endpoints live at both widths.  REMAINING: the `f32_of_f64`/`f64_of_f32` cross-width
+   agreement.
 8. **The checker-completeness CLASS theorem**: on the admitted class `fsf_checked` ACCEPTS
    (never returns `None` by disagreement) — then decide whether the runtime re-check stays as
    defense-in-depth or is dropped (ARCHITECTURE call; dropping shrinks eval).
