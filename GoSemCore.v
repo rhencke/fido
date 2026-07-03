@@ -1002,11 +1002,26 @@ Qed.
 
 
 
+(** THE one sign-flip authority at the normalizer (rung 1's identity, both widths): the sign
+    threads inertly through canonicalization ([binary_round_opp]); every sign-flip fact below
+    consumes THIS lemma. *)
+Lemma binary_normalize_opp : forall prec emax m e,
+  m <> Z0 ->
+  binary_normalize prec emax (- m)%Z e false
+  = SFopp (binary_normalize prec emax m e false).
+Proof.
+  intros prec emax m e Hm.
+  destruct m as [|p|p]; [congruence| |].
+  - change (- Zpos p)%Z with (Zneg p). cbn [binary_normalize].
+    exact (binary_round_opp prec emax false p e).
+  - change (- Zneg p)%Z with (Zpos p). cbn [binary_normalize].
+    exact (binary_round_opp prec emax true p e).
+Qed.
 (** ---- THE GENERAL dyadic↔SF AGREEMENT ARC (plans/dyadic-sf-agreement.md) — rung 1: NEGATION at
     binary64.  Unlike the [fsf_checked_*_agrees] theorems above (which state what acceptance of the
     per-node CONST-LAYER check means), this is checker-free: the dyadic fold's render IS the sign flip
-    of the operand's render, proved once over the class ([binary_round_opp] — the sign threads
-    inertly through canonicalization).  NO window premise; the [m <> 0] boundary is where CONSTANT
+    of the operand's render, proved once over the class through the ONE normalizer sign-flip
+    authority ([binary_normalize_opp] above).  NO window premise; the [m <> 0] boundary is where CONSTANT
     and RUNTIME semantics split (constants have no signed zero) — the ZERO side is sealed at the
     CHECKER as [sf_const_neg]'s own case, ACCEPTED and denoting [+0]
     ([fsf_checked_neg_zero_total] + [negzero_const_runs]), never a caller obligation. *)
@@ -1014,12 +1029,9 @@ Theorem sf_render_neg_general_f64 : forall m e, m <> Z0 ->
   sf_render GTFloat64 (Z.opp m) e = option_map SFopp (sf_render GTFloat64 m e).
 Proof.
   intros m e Hm.
-  destruct m as [|p|p]; [contradiction (Hm eq_refl)| |];
-    cbn [sf_render Z.opp sf_of_dyadic renorm option_map];
-    unfold renorm, binary_normalize; cbn [cond_Zopp];
-    f_equal.
-  - exact (binary_round_opp 53 1024 false p e).
-  - exact (binary_round_opp 53 1024 true p e).
+  unfold sf_render. rewrite !renorm_sf_of_dyadic. cbn [option_map].
+  f_equal.
+  exact (binary_normalize_opp 53 1024 m e Hm).
 Qed.
 (** the [dy_norm] VALUE lemmas (the quotient every later rung states agreement through —
     GoTypes is Definitions-only, so they live here): the odd-split is sign-blind and already-split
@@ -1258,18 +1270,6 @@ Lemma float_dyadic_repr_opp : forall t m e,
 Proof.
   intros t m e H. unfold float_dyadic_repr in *.
   destruct t; try discriminate H; rewrite Z.abs_opp; exact H.
-Qed.
-Lemma binary_normalize_opp : forall prec emax m e,
-  m <> Z0 ->
-  binary_normalize prec emax (- m)%Z e false
-  = SFopp (binary_normalize prec emax m e false).
-Proof.
-  intros prec emax m e Hm.
-  destruct m as [|p|p]; [congruence| |].
-  - change (- Zpos p)%Z with (Zneg p). cbn [binary_normalize].
-    exact (binary_round_opp prec emax false p e).
-  - change (- Zneg p)%Z with (Zpos p). cbn [binary_normalize].
-    exact (binary_round_opp prec emax true p e).
 Qed.
 Lemma bn_opp_f64 : forall m e, m <> Z0 ->
   binary_normalize 53 1024 (- m)%Z e false
@@ -1860,8 +1860,7 @@ Qed.
 
 (** ---- rung 7 groundwork — the f32 row's assembly kit: the deep bridges were already
     precision-generic, and the render/normalize assembly is now generic too; these are the
-    binary32 instances, plus the generic sign-flip at the normalizer (rung 1's identity,
-    directly from [binary_round_opp] — both widths for free). *)
+    binary32 instances. *)
 Lemma repr_window_split_f32 : forall m e,
   float_dyadic_repr GTFloat32 m e = true ->
   m = Z0 \/ exists q, Z.abs m = Zpos q
