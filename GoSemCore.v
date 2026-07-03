@@ -83,14 +83,18 @@ Definition box_float (t : GoTy) (m e : Z) : option GoAny :=
     signs belong to RUNTIME paths only).  CLAIM HYGIENE: for the
     ACCEPTED exact-dyadic subset the model value agrees with the printed Go constant expression's
     observable value (Go may CONSTANT-fold these at compile time — no "same runtime op" claim);
-    non-exact/rounding cases are REJECTED until the general dyadic↔SF agreement theorem lands.
+    non-exact/rounding cases are REJECTED — a standing structural boundary
+    ([fsf_checked_complete] proves totality ONLY on this accepted exact-dyadic class; a
+    rounding/non-exact semantics would be a separate structural admission, not a theorem).
     [fsf_checked] verifies ONE float-constant node against the const op on the verified operand carriers
     (recursing through float operands and float-to-float conversions; cross-width via
     [f32_of_f64]/[f64_of_f32]); a disagreeing node is ABSENT ([None]), never wrong.  (For NONZERO
     results no disagreement should exist — IEEE ops are correctly rounded, so an exactly
     representable result is returned exactly; ZERO results are verified under the constant rule.
-    PROVING acceptance total on the admitted class — the general dyadic↔[SF*] class theorem,
-    plans/dyadic-sf-agreement.md — would let this runtime re-verification be dropped.) *)
+    Acceptance IS total on the admitted class — the gated [fsf_checked_complete] below
+    (plans/dyadic-sf-agreement.md rung 8) — so this runtime re-verification is provably
+    redundant; whether the live [fc_node]/[floats_checked] check is dropped or kept as
+    defense-in-depth is the arc's residual ARCHITECTURE decision.) *)
 Definition sf_eqb_struct (x y : spec_float) : bool :=
   match x, y with
   | S754_zero s1, S754_zero s2 => Bool.eqb s1 s2
@@ -533,11 +537,11 @@ Proof.
          | context [match ?x with _ => _ end] => destruct x
          end) ].
 Qed.
-(** ★ the negation ARM's zero row: negating an ACCEPTED zero-valued float constant is ACCEPTED
-    and folds to [+0] — Go's constant rule ([sf_const_neg] via [sf_pos_zero]), for BOTH widths.
-    (Operand acceptance is a PREMISE — checker-level totality over the whole admitted class is
-    rung 8, after rung 3's finite-render lemma; the binop zero rows are pinned end-to-end by
-    [signed_zero_folds_run].) *)
+(** ★ the negation ARM's zero row PIN: negating an ACCEPTED zero-valued float constant is
+    ACCEPTED and folds to [+0] — Go's constant rule ([sf_const_neg] via [sf_pos_zero]), for BOTH
+    widths.  (Operand acceptance is a PREMISE here; checker-level totality over the whole
+    admitted class is the gated [fsf_checked_complete] below — this pin fixes the ZERO-SIGN
+    row shape; the binop zero rows are pinned end-to-end by [signed_zero_folds_run].) *)
 Theorem fsf_checked_neg_zero_total : forall a t da v,
   ptype a = Some (PtFloatConst t da) -> dy_m da = Z0 ->
   fsf_checked a = Some v ->

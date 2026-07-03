@@ -5,7 +5,8 @@ exact dyadic folds agree with the CONSTANT-op layer — `sf_const_binop`/`sf_con
 checker's own verification ops (`sf_pos_zero` zero-sign erasure over the raw `SF*` model ops;
 Go constants are exact rationals with no `-0`) — on the admitted class, so `fsf_checked`'s
 per-node runtime re-verification (`sf_eqb_struct (f va vb) vr`) is provably total there — a
-CLASS theorem replacing a per-expression check.  Where the raw op cannot sign a zero on
+CLASS theorem making the per-expression check provably REDUNDANT (the live check still runs;
+removing or keeping it is the rung-8 residual ARCHITECTURE call, rung 8 below).  Where the raw op cannot sign a zero on
 rendered operands the endpoint is stated RAW (`f64_add`/`f64_sub`, rung 5); where it can
 (MUL's zero rows) the endpoint IS the erased layer (rung 6).  Everything is Z/positive
 arithmetic on `SpecFloat`'s own
@@ -37,8 +38,8 @@ value quotient is `dy_norm` (the odd-mantissa normal form), never ℝ.
    reciprocal probe decisive (`reciprocal_sign_decisive`: model `1/+0 = +Inf`, `1/-0 = -Inf`,
    both widths); layer laws `sf_const_{binop,neg}_zero_erased`; ground-truthed against gc via
    go run during development (`1/x = +Inf` ×6, runtime contrast `-Inf`).  The neg ARM's
-   zero row is `fsf_checked_neg_zero_total` (operand-acceptance premised — FULL class totality is
-   rung 8, after rung 3's finite-render lemma; `fsf_checked_render` anchors it).
+   zero row is `fsf_checked_neg_zero_total` (operand-acceptance premised — a zero-sign row
+   PIN; full class totality is the landed `fsf_checked_complete`, rung 8 below).
 2. **`shl_align` spec — LANDED** (builtins): `digits2_pos_iter_xO`/`iter_xO_val` (exact left
    shifts add digits one-for-one and multiply by `2^d`), `shl_align_snd`/`shl_align_digits`
    (digits+exponent is SHIFT-INVARIANT)/`shl_align_fst_val` (value preserved).
