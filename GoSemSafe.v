@@ -127,7 +127,7 @@ Theorem panic_free_runs_ret_ustep : forall (c : Cmd unit) ucap w,
   cmd_no_panic c = true ->
   exists (uc : UConfig) (w' : World) (fuel : nat),
     run_cmd fuel c w = Some (ORet tt w')                    (* cmd.v's AUTHORITATIVE panic-free [ORet] run — grounds [w'] *)
-    /\ usteps ucap (ustart (cmd_to_ucmd c)) uc
+    /\ usteps cmd_unified.uzero ucap (ustart (cmd_to_ucmd c)) uc
     /\ uc_live uc 0 = false
     /\ uc_panic uc 0 = None
     /\ w_output w' = w_output w ++ map snd (uc_out uc).
@@ -169,7 +169,7 @@ Theorem panic_free_denotable_runs_ret_ustep : forall p ucap w,
   exists c uc w' fuel,
     denote_program p = Some c
     /\ run_cmd fuel c w = Some (ORet tt w')
-    /\ usteps ucap (ustart (cmd_to_ucmd c)) uc
+    /\ usteps cmd_unified.uzero ucap (ustart (cmd_to_ucmd c)) uc
     /\ uc_live uc 0 = false
     /\ uc_panic uc 0 = None
     /\ w_output w' = w_output w ++ map snd (uc_out uc).

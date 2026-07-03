@@ -17,27 +17,32 @@ COMPLETE): `bridge_agrees` — its ladder discipline and landing checklist apply
 - (B) typed `Cmd` + a partial `GoAny → option nat` ERASURE at the bridge — REJECTED as
   the half-measure: the agreement theorem gets gated on an encodability predicate, and
   it leaves `UOut`'s already-exact `GoAny` payload asymmetric with the other effects.
-- (C) ★CHOSEN: generalize `unified.v`'s value type `nat → GoAny` (`uc_heap : nat → GoAny`,
-  buffer entries `GoAny × nat`, `USend`/`URecv`/`UWrite`/`URead`/`USelect` over `GoAny`).
-  WHY THIS IS SAFE: the TRACE (the race-freedom substrate) carries NO values —
-  `KWrite l` / `KRecv c s` / `KSend c` are location/position-only — so `concurrency.v`'s
-  trace theory and `unified.v`'s race/liveness theorems are value-agnostic; `UOut`
-  already carries `list GoAny` (in-file precedent).  The slice-9 `rstep` embedding flips
-  from identity-on-values to an INJECTION `nat → GoAny` (the easy direction; simulation
-  invariant: every value in an embedded config is an injected nat).  `recv`-from-closed
-  binds a canonical `GoAny` zero instead of `0` — no less faithful than the nat `0`
-  (the calculus is untyped either way; TYPED zero-value faithfulness lives on the
-  `run_cmd`/`World` side).
+- (C) ★CHOSEN + LANDED (slice 1): the calculus is VALUE-PARAMETRIC — ONE definition
+  `Section UnifiedVal / Context {V} / Variable vzero` covering `UCmd`/`UConfig`/`ustep`
+  and every generic theorem, with TWO instantiations: the `rstep` embedding at `V := nat`
+  (values IDENTITY — the existing simulation survives verbatim, no injection at all) and
+  the cmd bridge at `V := GoAny` (`cmd_unified.uzero = anyt TUnit tt` for the closed-recv
+  zero — unreachable today, `cmd_to_ucmd`'s image has no `URecv`).  WHY THIS IS SAFE: the
+  TRACE (the race-freedom substrate) carries NO values — `KWrite l` / `KRecv c s` /
+  `KSend c` are location/position-only — so `concurrency.v`'s trace theory and
+  `unified.v`'s race/liveness theorems are value-agnostic; `UOut` carries `list GoAny` at
+  every instantiation.  (The originally-sketched `nat → GoAny` CONCRETIZATION with an
+  embedding injection was superseded during implementation: Go's tags are bounded/sealed,
+  so no TOTAL `nat → GoAny` injection exists — parametricity dissolves the problem instead
+  of encoding around it.)  `vzero` at `nat` is `0`, exactly the old rule; TYPED zero-value
+  faithfulness stays on the `run_cmd`/`World` side.
 
 ## The ladder (each slice an independently green commit)
 
-1. **Value generalization** (`unified.v` only): `UCmd`/`UConfig`/`ustep` values
-   `nat → GoAny`; re-green the in-file theorems (trace-level — expected low churn);
-   re-prove the slice-9 embedding via the injection.  `cmd_unified.v` untouched (its
-   fragment's payloads are already `GoAny`).  Pre-check: inventory theorem STATEMENTS
-   mentioning `uc_heap`/`uc_bufs` values.
+1. **Value generalization — LANDED**: `unified.v` value-parametric (`{V}` + `vzero`,
+   the constructors/step-composition lemmas carry both implicitly via `Arguments`, the
+   relations keep them explicit for statements); demos/embedding/sessions instantiate
+   `nat` (relation sites gain the literal `0`), `cmd_unified.v`/`GoSemSafe.v` instantiate
+   `GoAny` via `uzero`; the slice-9 embedding compiled UNCHANGED at `V := nat`.  All
+   gates green, golden byte-identical, zero-axiom manifest unchanged.
 2. **HEAP**: `Cmd` += `CWrite : nat → GoAny → Cmd A → Cmd A` and
-   `CRead : nat → (GoAny → Cmd A) → Cmd A` (⚠ first BINDER constructor — `Cmd_rect'`
+   `CRead : nat → (GoAny → Cmd A) → Cmd A` (the cmd side stays CONCRETE at `GoAny` —
+   it is the typed model, not a calculus) (⚠ first BINDER constructor — `Cmd_rect'`
    and every structural induction gain a under-the-binder case); `run_cmd` interprets
    against `w_refs` (cell ≅ any); `cmd_to_ucmd` maps 1-for-1; `bridge_agrees` extends
    with a heap-state component in the invariant.  ⚠ OPEN DESIGN (work on paper first):
