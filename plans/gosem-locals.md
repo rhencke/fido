@@ -30,8 +30,13 @@ compile-time rejections.  The correct shape:
     `x := 9223372036854775808` (invalid Go: "constant overflows int").
   - `PtTIntConst t _ ↦ Some (PtRunInt t)`, `PtFloatConst t _ ↦ Some (PtRunFloat t)` — typed
     constants were already range-checked where their category was BUILT (conversion).
+  - `PtRunInt t ↦ Some (PtRunInt t)`, `PtRunFloat t ↦ Some (PtRunFloat t)` — RUNTIME categories
+    bind AS THEMSELVES.  This is the arc's core, not an edge: `x := len([]int{1})`, `y := x`,
+    `x := int64(len([]int{1}))` all bind runtime values.
   - `PtBool`/`PtStr`/`PtAgg`/`PtMap ↦ Some` (themselves); `PtNil ↦ None` (`x := nil` is Go's
     "use of untyped nil" compile error).
+  The match is over EVERY `PTy` constructor explicitly — a category is rejected by a written
+  `None` arm, never by omission (wildcard-free, same discipline as every `Cmd` match).
 - evaluator env `ρ : Ident ⇀ GoAny` — the world is closed, so the exact value IS known and carried;
   `EId x` resolves to `ρ x`; ops on the resolved value take the ALREADY-LANDED runtime tiers
   (GTInt R1–R8 / typed-runtime T1–T5).
@@ -39,10 +44,15 @@ compile-time rejections.  The correct shape:
   the used flag is supportedness-only, invisible to `ρ`) is the
   lemma spine along which `gosem_sound` re-proves.
 
-`ptype` becomes the Γ-parameterized fixpoint with `ptype := ptype_env []` — its `EId` case is
-ALREADY the scope hook ("SCOPE is realized in the [EId] case"; today: `nil`-or-reject).  ONE
-authority generalized then specialized at the empty env; no parallel checker.  Same shape for the
-evaluator's ident resolution in `GoSemDenote`.
+The live expression checker is STATE-THREADING — `type_expr : Γ -> GExpr -> option (PTy * Γ)` —
+resolving identifiers AND marking their used flags in the SAME traversal (a read-only
+`ptype_env Γ e : option PTy` cannot mark uses; it would force the second pass rule 4 forbids).
+`ptype`'s `EId` case is ALREADY the scope hook ("SCOPE is realized in the [EId] case"; today:
+`nil`-or-reject); closed `ptype` is recovered as the empty-env PROJECTION
+(`ptype e = option_map fst (type_expr Γ₀ e)` — at `Γ₀` no identifier resolves and no flag can
+flip, so the equation is exact), PROVEN as the bridge equation so every existing `ptype` theorem
+survives.  ONE authority; no parallel checker.  Same shape for the evaluator's ident resolution
+in `GoSemDenote`.
 
 ## Go-faithfulness rules (each lands with a fixture; narrowings NAMED as narrowings)
 
@@ -55,16 +65,22 @@ evaluator's ident resolution in `GoSemDenote`.
    lives IN `Γ` (see above) and uses are marked RECURSIVELY through subexpressions by the same
    traversal that types them; the no-unused rejection is the fold's final step, not a second pass.
    `_ = x` counts as a use (Go's own idiom for it).
-5. declaring a CHECKER-RECOGNIZED name → reject through ONE shared authority
-   `decl_ident_ok : string -> bool`, whose domain is EVERY string the checker recognizes by name —
-   `nil` (ptype's EId case, GoTypes.v:544), `len`/`cap` and the conversion heads (GoTypes.v:590),
-   the FULL `classify` scalar-keyword domain (14 names, GoAst.v:108: int/int8/…/uint64/bool/string/
-   float64/float32), and the callee set `println`/`print`/`panic` — single-sourced NEXT TO the
-   recognizers so a new recognized name cannot be added without extending the gate.  Never a second
-   ad-hoc list.  Where Go PERMITS the shadowing (e.g. `len := 1`, `int := 1` are legal Go) this is
-   a conservative NARROWING, named as such; each fixture's LEDGER placement (bad_programs vs
-   valid_unsupported_programs — their contracts differ) is ground-truthed against the real
-   toolchain via `make go-verify` at landing, never guessed.
+5. declaring a CHECKER-RECOGNIZED name → reject.  The recognized names are scattered today —
+   `nil` in ptype's EId case (GoTypes.v:544), `len`/`cap`/conversion heads (GoTypes.v:590), the
+   14-name `classify` domain (GoAst.v:108), the callee set `println`/`print`/`panic` in GoSafe's
+   `stmt_call_ok` — and the import order (GoTypes sees only GoAst; GoSafe sees GoTypes) means a
+   gate in EITHER file would duplicate the other's list.  So the single source moves to the layer
+   BOTH import: **GoAst grows `SpecialName` (an inductive: `SnType t` / `SnNil` / `SnLen` / `SnCap`
+   / `SnPrintln` / `SnPrint` / `SnPanic`) + the ONE table `special_ident : string -> option
+   SpecialName`** (beside `classify`/`go_keyword`, which it subsumes — `classify` becomes the
+   `SnType` projection).  GoTypes' recognizers, GoSafe's `stmt_call_ok`, and the declaration gate
+   `decl_ident_ok s := match special_ident s with None => true | Some _ => false end` all consume
+   the table by WILDCARD-FREE exhaustive match — so adding a recognized name forces every consumer
+   mechanically (the structural gate; no parallel list can drift).  Where Go PERMITS the shadowing
+   (e.g. `len := 1`, `int := 1` are legal Go) this is a conservative NARROWING, named as such;
+   each fixture's LEDGER placement (bad_programs vs valid_unsupported_programs — their contracts
+   differ) is ground-truthed against the real toolchain via `make go-verify` at landing, never
+   guessed.
 5b. `_` on the LHS (`_ := 1`) → reject: Go's "no new variables on left side of :=" (a `:=` must
    declare at least one NEW variable; `_` never counts) — `go_ident "_" = true`, so this needs a
    mechanical rule, not hope.
@@ -83,26 +99,37 @@ evaluator's ident resolution in `GoSemDenote`.
    Every GoStmt match repo-wide gains the arm WILDCARD-FREE: `stmt_ok` arm `false`, `denote_stmt`
    arm `None` (representation before admission — fail-closed).  Zero golden risk: nothing
    constructs it yet.
-2. **GoTypes**: `ptype_env`/`svalue` Γ-parameterization + the `bind_category` authority (defined
-   here, beside the categories it consumes — carrying the `int_const_repr` defaulting premise and
-   the `PtNil` rejection) + `decl_ident_ok` (beside the recognizers it must cover); existing
-   theorems lift at `[]`.
-3. **GoSafe**: scope-threaded supportedness — `supported_program`'s `forallb` becomes ONE fold over
-   `Γ : Ident ⇀ (PTy × bool)` (bind via `bind_category`, declare-gate via `decl_ident_ok`, uses
-   marked recursively, final no-unused rejection in the same fold); rules 1–5b land with NAMED
-   fixtures: `x := 9223372036854775808; _ = x` (bad — overflows every Go int) and a ~40-bit-const
-   decl (valid-unsupported — fits 64-bit gc, outside the conservative range); `x := 1; _ = x;
-   return` (good); `x := 1; return` (bad — declared and not used); `x := 1; x := 2; _ = x` (bad —
-   no new variables); `_ := 1` (bad); `x := nil; _ = x` (bad — untyped nil); `len := 1` /
-   `int := 1` / `nil := 1` (each with a `_ = <name>` use; rejected via `decl_ident_ok`; ledger per
-   `make go-verify` ground truth).  Each rejection fixture ISOLATES its rule — append the `_ = x`
-   use everywhere the unused rule is not the one under test, so exactly ONE rule rejects.
-4. **GoSemDenote**: the evaluator takes `ρ`; `denote_stmt`/`denote_body` thread `Γ ≈ ρ`;
+2. **`SpecialName` single-source refactor (behavior-identical — its own green commit BEFORE any
+   semantics change)**: GoAst grows the `SpecialName` inductive + the `special_ident` table
+   (rule 5); `classify` becomes the `SnType` projection; GoTypes' `nil`/`len`/`cap`/conversion-head
+   recognizers and GoSafe's `stmt_call_ok` rewire onto WILDCARD-FREE matches over it.  Every
+   existing theorem re-checked; the checker's observable behavior (and the golden) is UNCHANGED —
+   this rung only makes the name set single-sourced so the later gate cannot drift.
+3. **GoTypes**: the state-threading `type_expr : Γ -> GExpr -> option (PTy * Γ)` (resolve + mark
+   in one traversal) + the closed-`ptype` projection equation (existing theorems survive through
+   it) + the `bind_category` authority (beside the categories it consumes — the `int_const_repr`
+   defaulting premise, runtime categories binding as themselves, `PtNil ↦ None`).
+4. **GoSafe**: scope-threaded supportedness — `supported_program`'s `forallb` becomes ONE fold over
+   `Γ : Ident ⇀ (PTy × bool)` (bind via `bind_category`, declare-gate via `decl_ident_ok` from the
+   `special_ident` table, uses marked BY `type_expr` itself, final no-unused rejection in the same
+   fold); rules 1–5b land with NAMED fixtures.
+   Good: `x := 1; _ = x; return`; the RUNTIME bindings `x := len([]int{1}); _ = x`,
+   `x := 1; y := x; _ = y`, `x := int64(len([]int{1})); _ = x`; the NESTED uses `x := 1; _ = x + 1`
+   and `x := 1; println(x)` (uses marked inside subexpressions, not just top-level).
+   Bad: `x := 9223372036854775808; _ = x` (overflows every Go int); `x := 1; return` (declared and
+   not used — rejected by the SAME fold, no second pass); `x := 1; x := 2; _ = x` (no new
+   variables); `_ := 1`; `x := nil; _ = x` (untyped nil).
+   Valid-unsupported: a ~40-bit-const decl (fits 64-bit gc, outside the conservative range);
+   `len := 1` / `int := 1` / `nil := 1` (each with a `_ = <name>` use; rejected via
+   `decl_ident_ok`; ledger per `make go-verify` ground truth).
+   Each rejection fixture ISOLATES its rule — append the `_ = x` use everywhere the unused rule is
+   not the one under test, so exactly ONE rule rejects.
+5. **GoSemDenote**: the evaluator takes `ρ`; `denote_stmt`/`denote_body` thread `Γ ≈ ρ`;
    `denote_stmt_sound`/`gosem_sound`/`denote_program_dec` re-proved over the invariant.  SCOPE:
    locals widen NAME reach, not operation reach — a resolved variable feeds the EXISTING runtime
    value paths only; any op those paths don't cover stays absent (fail-closed, no new value
    semantics in this rung).
-5. **Gate reach (GoSemSafe + ledgers)**: flagship demos — a local-using panic-free program
+6. **Gate reach (GoSemSafe + ledgers)**: flagship demos — a local-using panic-free program
    ACCEPTED + EMITTED (and go-built, proving rule 4 keeps emission valid); `x := 0; _ = 1 / x`
    SUPPORTED + DENOTABLE + REJECTED by `cmd_no_panic` on its `rt_div_zero` `CPan` (extending
    `panic_free_gate_div`'s denoted-panic class to name-carried values); a typed-width wrap demo
