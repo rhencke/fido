@@ -308,17 +308,15 @@ Proof. vm_compute. reflexivity. Qed.
     slice/map-key members of [bad_programs] rejected); the float ROUNDING members ([float64(1)/float64(3)],
     the cross-width [float32(<inexact-at-32>)]) graduate only with a correctly-ROUNDING const model — the
     exact-or-reject dyadic fold refuses them today (keeping the const-ZERO-divisor [bad_programs] member
-    rejected).  The two contracts must not be confused — a
+    rejected); the SHORT-DECLARATION member (`x := 1; _ = x; return` — locals rung 1 keeps every
+    [GsShortDecl] out of core, [shortdecl_stmt_ok_false]) graduates ONLY via the scope-threaded
+    gate of plans/gosem-locals.md (Γ-fold: bind_category / decl_ident_ok / recursive use-marking /
+    no-unused rejection — never a casual [stmt_ok] widening), keeping the unused `x := 1`
+    [bad_programs] companion rejected.  The two contracts must not be confused — a
     [bad_programs] regression means an UNSOUND
     emission reopened; admitting one of THESE (with its companion preserved) is the subset legitimately GROWING.
-    Current members: [len] of a non-literal string CONST (byte length not folded); the valid
-    [map[int]int(nil)] CONVERSION (the blanket CTMap quarantine, pinned on a VALID operand); the float
-    ROUNDING cases ([float64(1)/float64(3)] and the cross-width [float32] conversion of an inexact-at-32
-    const — the dyadic fold is EXACT-or-reject); and the
-    CARTESIAN ptr/chan map-key block [ptrchan_key_quarantine] — each out-of-core key type × each rejecting
-    surface ([goty_supported]/[is_int_goty] admit only integer keys in core; string/bool root keys are the
-    same conservative int-only restriction — Go also allows string/bool/ptr/chan/comparable-struct/interface
-    keys). *)
+    (NO separate member inventory here: [valid_unsupported_programs] below IS the member authority —
+    a prose copy of the list drifts, as review history proves — with each member's detail at its row.) *)
 (** The valid-but-out-of-core ptr/chan MAP-KEY class, pinned STRUCTURALLY: generated as the full CARTESIAN
     product (out-of-core key type × rejecting surface), so a new key type or surface added here extends
     every pin at once — "quarantined" stays an executable per-surface claim, never a hand-picked sample.
