@@ -55,19 +55,38 @@ COMPLETE): `bridge_agrees` — its ladder discipline and landing checklist apply
    `V := nat`.  All gates green, golden byte-identical, zero-axiom manifest unchanged.
    Payload faithfulness claims stop at the landed fragment (output/panic/defer) — heap
    and channel VALUE faithfulness arrive only with slices 2–3's typed state agreement.
-2. **HEAP**: `Cmd` += `CWrite : nat → GoAny → Cmd A → Cmd A` and
+2. **HEAP** — design WORKED (the boundary crux is resolved; sub-slices below):
+   `Cmd` += `CWrite : nat → GoAny → Cmd A → Cmd A` and
    `CRead : nat → (GoAny → Cmd A) → Cmd A` (the cmd side stays CONCRETE at `GoAny` —
-   it is the typed model, not a calculus) (⚠ first BINDER constructor — `Cmd_rect'`
-   and every structural induction gain a under-the-binder case); `run_cmd` interprets
-   against `w_refs` (cell ≅ any); `cmd_to_ucmd` maps 1-for-1; `bridge_agrees` extends
-   with a heap-state component in the invariant.  ⚠ OPEN DESIGN (work on paper first):
-   `uc_heap` is TOTAL (default zero) while `w_refs` is PARTIAL — reading unallocated is
-   a modeled nil-deref panic on the cmd side (the `rt_div_zero` precedent) but a
-   default-bind on the ustep side; the agreement must relate heaps on ALLOCATED
-   locations and scope reads accordingly.  Allocation (`CAlloc` binding a fresh
-   location off `w_next`) has NO ustep counterpart rule — defer alloc to its own
-   sub-slice with the unified.v rule addition, or scope slice 2 to pre-allocated
-   configurations.
+   it is the typed model, not a calculus; ⚠ first BINDER constructor — `Cmd_rect'` and
+   every structural induction gain an under-the-binder case).
+   ★THE BOUNDARY RESOLUTION: unallocated access is ABSENCE, not a panic — in Go's safe
+   fragment a location-valued read/write cannot hit unallocated memory (nil is caught at
+   the POINTER level before a location exists; there are no dangling locations), so the
+   model gives it NO behavior: `go` becomes OPTION-VALUED and an access with
+   `w_refs l = None` makes the whole run `None`.  `run_cmd` is ALREADY option-valued, so
+   its signature (and every `run_cmd` consumer) is UNCHANGED — the ripple is contained to
+   `go`/`run_defers`/`go_chars` and the proofs that unfold them.  The agreement theorems
+   carry `run_cmd fuel c w = Some oc`, so malformed runs are excluded BY THE EXISTING
+   COMPLETION PREMISE — the same discipline as the channel slice's would-block-is-`None`;
+   no side predicate, and the cmd/ustep divergence on unallocated reads (typed absence vs
+   total default-bind) is unreachable inside the agreement.
+   - 2a. `Cmd` ctors + `Cmd_rect'` binder case + option-valued `go`/`run_defers` +
+     re-green cmd.v and every proof that unfolds them (cmd_unified's Local machinery,
+     GoSemSafe's runs-ret lemmas).  `cbind` recurses under the read binder.
+   - 2b. `cmd_to_ucmd` heap arms (`CWrite → UWrite`, `CRead → URead` — cell ≅ any, the
+     pair-swap isos `any_of_cell`/`cell_of_any`); `UFrag` GROWS write/read cases (its
+     role is unchanged: the image still contains no rule consulting `vz` — no
+     `URecv`/`USelect` — and no channel/spawn forms; re-word its banner to the BRIDGED
+     fragment, not "output/panic/defer").
+   - 2c. the agreement: `heap_agrees h rh := forall l cell, rh l = Some cell ->
+     h l = any_of_cell cell` (allocated locations only — `vz` elsewhere is fine since a
+     completing run never touches them); `ustart` generalizes over the initial heap (or
+     the theorem states a general start config with a `heap_agrees` premise against the
+     start `World`); the conclusion adds FINAL-heap agreement (writes landed identically).
+     Phase A / the unwind / the assembly thread the invariant.
+   Allocation (`CAlloc` off `w_next`) still has NO ustep counterpart rule — its own
+   sub-slice (2d) adding the unified.v rule + trace event, AFTER 2a–2c.
 3. **CHANNELS** (single-goroutine deterministic fragment): `CSend`/`CRecv`/`CClose`
    against `w_chans` — BLOCKED on the ⛔ precondition above (structural typed closed-recv
    zero; two-element-type proofs).  The ustep side BLOCKS (a full-buffer send / empty-buffer recv has
