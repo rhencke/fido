@@ -63,15 +63,15 @@ compile-time rejections.  The correct shape:
   `gosem_sound` re-proves — quantified over DENOTED runs (where `ρ` exists at all), never claiming
   a value for a checker-admitted binding the evaluator left absent.
 
-The live expression checker is STATE-THREADING — `type_expr : Γ -> GExpr -> option (PTy * Γ)` —
-resolving identifiers AND marking their used flags in the SAME traversal (a read-only
-`ptype_env Γ e : option PTy` cannot mark uses; it would force the second pass rule 4 forbids).
-`ptype`'s `EId` case is ALREADY the scope hook ("SCOPE is realized in the [EId] case"; today:
-`nil`-or-reject); closed `ptype` is recovered as the empty-env PROJECTION
-(`ptype e = option_map fst (type_expr Γ₀ e)` — at `Γ₀` no identifier resolves and no flag can
-flip, so the equation is exact), PROVEN as the bridge equation so every existing `ptype` theorem
-survives.  ONE authority; no parallel checker.  Same shape for the evaluator's ident resolution
-in `GoSemDenote`.
+RUNG-3 OBLIGATION (unlanded — no `type_expr` exists yet): the expression checker BECOMES
+state-threading — `type_expr : Γ -> GExpr -> option (PTy * Γ)` — resolving identifiers AND marking
+their used flags in the SAME traversal (a read-only `ptype_env Γ e : option PTy` cannot mark uses;
+it would force the second pass rule 4 forbids).  `ptype`'s `EId` case is ALREADY the scope hook
+(landed: the `special_ident` match, `nil`-or-reject); closed `ptype` is then to be recovered as
+the empty-env PROJECTION (`ptype e = option_map fst (type_expr Γ₀ e)` — at `Γ₀` no identifier
+resolves and no flag can flip, so the equation is exact), with the bridge equation TO BE PROVEN
+so every existing `ptype` theorem survives.  ONE authority; no parallel checker.  The same shape
+lands for the evaluator's ident resolution in `GoSemDenote` (rung 5).
 
 ## Go-faithfulness rules (each lands with a fixture; narrowings NAMED as narrowings)
 
@@ -90,10 +90,11 @@ in `GoSemDenote`.
    both consumers import (the import order — GoTypes sees only GoAst; GoSafe sees GoTypes — is why
    a gate in either file would have duplicated the other's list).  `classify` is its `SnType`
    projection (`go_keyword`, Go's RESERVED words, is a separate concern and stays separate — a
-   recognized name need not be a keyword).  GoTypes' recognizers (ptype's EId scope hook and the
-   one-arg call head), GoSafe's `stmt_call_ok`/`expr_stmt_ok`, and the declaration gate
-   `decl_ident_ok s := match special_ident s with None => true | Some _ => false end` all consume
-   the ONE table.  The SEMANTIC consumers (recognizers that choose behavior PER NAME) match
+   recognized name need not be a keyword).  LANDED consumers: GoTypes' recognizers (ptype's EId
+   scope hook and the one-arg call head) and GoSafe's `stmt_call_ok`/`expr_stmt_ok`.  FUTURE
+   consumer (rung 4, with the scope fold): the declaration gate
+   `decl_ident_ok s := match special_ident s with None => true | Some _ => false end` — it does
+   not exist yet and nothing routes through it today.  The SEMANTIC consumers (recognizers that choose behavior PER NAME) match
    wildcard-free exhaustively, so a new `SpecialName` constructor forces each of them mechanically;
    the declaration gate alone uses `Some _ => false` DELIBERATELY — it rejects every recognized
    name uniformly, a total rejection with no per-name decision that could drift by omission.  Where Go PERMITS the shadowing
@@ -121,7 +122,7 @@ in `GoSemDenote`.
    constructs it yet.
 2. **`SpecialName` single-source refactor — LANDED (behavior-identical)**: GoAst grows the `SpecialName` inductive + the `special_ident` table
    (rule 5); `classify` becomes the `SnType` projection; GoTypes' `nil`/`len`/`cap`/conversion-head
-   recognizers and GoSafe's `stmt_call_ok` rewire onto WILDCARD-FREE matches over it.  Every
+   recognizers and GoSafe's `stmt_call_ok` AND `expr_stmt_ok` rewire onto WILDCARD-FREE matches over it.  Every
    existing theorem re-checked; the checker's observable behavior (and the golden) is UNCHANGED —
    this rung only makes the name set single-sourced so the later gate cannot drift.
 3. **GoTypes**: the state-threading `type_expr : Γ -> GExpr -> option (PTy * Γ)` (resolve + mark
