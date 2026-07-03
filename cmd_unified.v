@@ -656,9 +656,10 @@ End BridgeVal.
     [run_defers] plumbing feeds the [run_cmd_*] properties, and the semantic Phase A +
     seed-linearity + unwind machinery ([body_runs_sem] / [run_defers_seed_linear] / [unwind_heap]
     / [pop_defer_step]) is CONSUMED by [bridge_heap_agrees].  The one always-dead-by-convention
-    artifact shape, [Local Example] (an Example nothing consumes — compiled but outside every
-    printed cone), is mechanically rejected repo-wide by plugin/smart-ctor-gate.sh check 6; a
-    general Local lemma's audit is membership in a consumer's cone. *)
+    artifact shape — a LOCAL [Example], vernacular or #[local] attribute spelling (an Example
+    nothing consumes — compiled but outside every printed cone) — is mechanically rejected
+    repo-wide by smart-ctor-gate.sh check 6 (token-aware; exact boundary documented at the
+    detector); a general Local lemma's audit is membership in a consumer's cone. *)
 Definition cmd_unified_surface :=
   (cmd_to_ucmd_fragment, bridge_heap_agrees, run_cmd_out_monotone, run_cmd_no_panic_ret).
 Print Assumptions cmd_unified_surface.

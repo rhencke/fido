@@ -99,22 +99,43 @@ echo "fido: selector-bridge gate OK — the ESel arm keeps its not-embedded + ML
 # Axiom-freedom — the manifest gate captures GoSem's [Print Assumptions] surfaces + axiom-authority-selftest.sh.
 
 # 6. UN-AUDITED-LOCAL-REGRESSION gate.  An [Example] is a regression/demo BY CONVENTION — nothing
-# consumes it — so a [Local Example] in a module whose zero-axiom claim runs through Print
-# Assumptions SURFACES sits outside every printed cone: it compiles, but its axiom-dependence is
-# never audited (the manifest extractor parses only [Axioms:] blocks, and the standalone spine
-# flows grep the same shape).  Discipline: an Example is PUBLIC and bundled into a surface, or it
-# does not exist.  (Consumed [Local Lemma]s are fine — they live in their consumers' cones;
-# deadness of a Lemma needs reference analysis a shell gate cannot do, so the gate pins the one
-# always-dead-by-convention form.)
-# Detector: EVERY .v in the tree (subdirs included — emitdemo/ and negtests/ are compiled too),
-# Rocq-token whitespace tolerated; only build output and .git are excluded.
+# consumes it — so a LOCAL Example sits outside every Print Assumptions cone: it compiles, but its
+# axiom-dependence is never audited (the manifest extractor parses only [Axioms:] blocks).
+# Discipline: an Example is PUBLIC and bundled into a surface, or it does not exist.  (Consumed
+# [Local Lemma]s are fine — they live in their consumers' cones; deadness of a Lemma needs
+# reference analysis a shell gate cannot do, so the gate pins the one always-dead-by-convention
+# form.)  The detector is TOKEN-AWARE (plugin/local-example-lint.awk — a tiny Rocq lexer: nested
+# comments, multi-line strings, #[...] attributes), covering `Local Example` and `#[local] Example`
+# across newlines/comments; its exact boundary is documented in the awk.  Scope: EVERY .v in the
+# tree (emitdemo/ and negtests/ are compiled too); only _build/.git excluded.
 lx_detect() { find "$1" -name '*.v' -not -path '*/_build/*' -not -path '*/.git/*' -print0 2>/dev/null \
-              | xargs -0 -r grep -nE '^[[:space:]]*Local[[:space:]]+Example\b' 2>/dev/null || true; }
-# self-test: root + subdir, indented + multi-space forms — the detector must flag ALL of them.
+              | xargs -0 -r awk -f plugin/local-example-lint.awk 2>/dev/null || true; }
+# self-test corpus: every spelling the gate claims to reject (7 positives, root + subdir) and a
+# negatives file (public Example / Local Lemma / comment / string / #[global]) that must stay clean.
 lx_t=$(mktemp -d); mkdir -p "$lx_t/sub"
-printf '  Local Example st_a : True.\n' > "$lx_t/a.v"
-printf 'Local  Example st_b : True.\n' > "$lx_t/sub/b.v"
-[ "$(lx_detect "$lx_t" | grep -c .)" = "2" ] || { echo "fido: LOCAL-EXAMPLE GATE self-test broke (detector missed a root/subdir or whitespace form)"; rm -rf "$lx_t"; exit 1; }
+cat > "$lx_t/pos1.v" <<'LXEOF'
+  Local Example st_a : True.
+Local  Example st_b : True.
+Local
+Example st_c : True.
+Local (* between *) Example st_d : True.
+LXEOF
+cat > "$lx_t/sub/pos2.v" <<'LXEOF'
+#[local] Example st_e : True.
+#[local]
+Example st_f : True.
+#[local] (* between *) Example st_g : True.
+LXEOF
+cat > "$lx_t/neg.v" <<'LXEOF'
+Example st_ok : True.
+Local Lemma st_ok2 : True.
+(* Local Example commented_out : True. *)
+Definition st_s := "Local Example in a string".
+#[global] Example st_ok3 : True.
+LXEOF
+hits=$(lx_detect "$lx_t" | grep -c .) || true
+neg=$(awk -f plugin/local-example-lint.awk "$lx_t/neg.v" | grep -c .) || true
+[ "$hits" = "7" ] && [ "$neg" = "0" ] || { echo "fido: LOCAL-EXAMPLE GATE self-test broke (expected 7 positives / 0 negatives, got $hits/$neg)"; rm -rf "$lx_t"; exit 1; }
 rm -rf "$lx_t"
 localex=$(lx_detect .)
 if [ -n "$localex" ]; then
@@ -122,4 +143,4 @@ if [ -n "$localex" ]; then
   printf '%s\n' "$localex"
   exit 1
 fi
-echo "fido: local-example gate OK — no Local Example (any spelling, every .v in the tree) ✓"
+echo "fido: local-example gate OK — token-aware sweep of every .v (Local/#[local] Example across newlines+comments) found none ✓"
