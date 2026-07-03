@@ -342,10 +342,20 @@ Definition valid_unsupported_programs : list Program :=
   ; gs_blank (EConv (CTMap GTInt GTInt) (EId (mkIdent "nil" eq_refl)))    (* _ = map[int]int(nil): VALID Go (nil converts to a map type) — the blanket CTMap quarantine pinned on a VALID operand (the [bad_programs] free-ident row is an invalid-operand rejection, NOT this witness) *)
   ; gs_blank (EBn BDiv (gs_f64 (EInt 1)) (gs_f64 (EInt 3)))               (* _ = float64(1)/float64(3): VALID Go (rounds to ~0.333); the exact-or-reject dyadic fold REFUSES a non-representable quotient ([dy_div] inexact) — quarantined, never a rounded lie *)
   ; pl_arg (ECall (EId (mkIdent "float32" eq_refl)) [gs_f64 (EInt 16777217)])  (* println(float32(float64(16777217))): VALID Go (rounds to 16777216 — 2^24+1 is inexact at binary32); the cross-width const conversion is EXACT-only ([float_dyadic_repr]) — quarantined *)
+  ; mkProgram (mkIdent "main" eq_refl)
+      [GsShortDecl (mkIdent "x" eq_refl) (EInt 1);
+       GsBlankAssign (EId (mkIdent "x" eq_refl)); GsReturn]  (* x := 1; _ = x; return — VALID Go (declared AND used); locals rung 1 keeps ALL short decls out of core (the constructor pins below isolate the rejection; the [bad_programs] `x := 1` row is the INVALID unused twin, a different contract) *)
   ] ++ ptrchan_key_quarantine.
 Example valid_unsupported_rejected :
   forallb (fun p => negb (supported_program p)) valid_unsupported_programs = true.
 Proof. vm_compute. reflexivity. Qed.
+
+(** The [GsShortDecl] rejection pinned at the CONSTRUCTOR, for EVERY ident/expression (not a sample
+    row): the rung-1 arm is the constant [false], so the valid-unsupported witness above rejects for
+    exactly this reason regardless of its other statements.  (The denotation-side absence pin,
+    [denote_stmt (GsShortDecl _ _) = None], lives with [denote_stmt] in GoSemDenote.v.) *)
+Example shortdecl_stmt_ok_false : forall x e, stmt_ok (GsShortDecl x e) = false.
+Proof. reflexivity. Qed.
 
 (** ★ THE CTMAP TARGET CLASS GATE — universal, NOT sample rows: for EVERY target type [map[k]v] the
     supported-type authority rejects ([goty_supported (GTMap k v) = false]), the nil map CONVERSION to it

@@ -4233,6 +4233,11 @@ Proof.
   - congruence.                                              (* GsShortDecl: None (locals rung 1 — absent with the gate's rejection) *)
 Qed.
 
+(** The [GsShortDecl] ABSENCE pinned at the CONSTRUCTOR, for every ident/expression (the gate-side
+    rejection pin [GoSafe.shortdecl_stmt_ok_false] is its twin). *)
+Example shortdecl_denote_absent : forall x e, denote_stmt (GsShortDecl x e) = None.
+Proof. reflexivity. Qed.
+
 Lemma denote_body_sound : forall b, denote_body b <> None -> forallb stmt_ok b = true.
 Proof.
   induction b as [|s rest IH]; simpl; intro H.

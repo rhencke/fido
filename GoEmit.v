@@ -28,8 +28,12 @@ Record EmittableProgram : Type := mkEmittable {
 Definition emit_supported (p : EmittableProgram) : string := print_program (ep_program p).
 
 (** ---- THE FIRST CERTIFIED EMISSION (the AST-first seed) ----  a runnable `package main` whose `func main`
-    body exercises every landed statement/expression form (the exact list is [demo_prog] / [demo_emit_bytes]
-    below, the single authorities — this prose does not re-count them) — [println(1)], [println(int64(3))] (a value-position scalar CONVERSION),
+    body exercises every SUPPORTED/EMITTABLE statement/expression form (the exact list is [demo_prog] /
+    [demo_emit_bytes] below, the single authorities — this prose does not re-count them).
+    REPRESENTATION-ONLY forms are EXCLUDED by construction: [GsShortDecl] ([x := e], locals rung 1) is
+    landed SYNTAX that [stmt_ok] REJECTS, so no certificate can exist for a program containing it and the
+    blessed emitter cannot print it — it joins this demo only when the scope-threaded gate admits locals
+    (plans/gosem-locals.md).  The supported forms — [println(1)], [println(int64(3))] (a value-position scalar CONVERSION),
     [println(1 + 2)] (a binary-operator [EBn], exercising operator printing + gofmt spacing through the path),
     [println("hi")] (a STRING-literal [EStr], exercising [print_string_lit] through the path),
     [println(0xff)] (a HEX-literal [EHex], exercising [print_hex] through the path),
@@ -40,7 +44,7 @@ Definition emit_supported (p : EmittableProgram) : string := print_program (ep_p
     composite literal [EMapLit] — the newly-un-quarantined form), a [GsDefer] (`defer println("bye")`), then a
     bare [return] — all Go builtins / no import (rule 5), built as structured [GExpr]/[GoStmt]s and printed by the
     machine-checked [gprint] (`make emit-demo` then confirms the Go compiler BUILDS it).  This exercises the
-    landed [EBn], [EStr] (`"hi"`), [EHex] (`0xff`), [EUn] (`^5`), [len]/[cap] [ECall]s, [EConv] (`[]int(nil)`),
+    SUPPORTED [EBn], [EStr] (`"hi"`), [EHex] (`0xff`), [EUn] (`^5`), [len]/[cap] [ECall]s, [EConv] (`[]int(nil)`),
     [ESliceLit] (`[]int{1}`), [EMapLit] (`map[int]int{1: 2}`), [GsBlankAssign] (`_ = e`) and [GsDefer]
     (`defer <call>`) forms END-TO-END through the BLESSED emitter to compilable Go —
     not just in isolated round-trip proofs.  Emitted ONLY through the
