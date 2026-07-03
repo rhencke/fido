@@ -20,17 +20,19 @@
     [run_cmd_terminates] (termination lives in cmd.v — a pure [run_cmd] property).  Plus cmd.v-side properties
     for a COMPLETING [run_cmd] on ANY [c] (heap ops included): its output only APPENDS (never retracts) and a
     panic-free such run returns [ORet].
-    ⚠ Heap commands are TRANSLATED but NOT bridged: the agreement is [no_heap]-quarantined (an unallocated
-    access is ABSENT on the cmd side but default-binds in the total-heap calculus —
-    [cread_unallocated_absent]); the heap-AGREEMENT extension is the arc's next sub-slice
-    (plans/bridge-effects.md).
+    ⚠ The heap split: [bridge_agrees] stays the general defer bridge on [no_heap];
+    [bridge_heap_body_agrees] is the DEFER-FREE heap bridge (final-heap agreement included, from
+    the [ustart_w] mirrored-heap start); DEFERRED heap commands are translated but not yet under
+    an agreement (an unallocated access is ABSENT on the cmd side but default-binds in the
+    total-heap calculus — [cread_unallocated_absent]); the deferred-heap unwind and then the
+    general conditional heap bridge remain (plans/bridge-effects.md).
     The EXACT gated public-surface set is the [Print Assumptions] block at the end of this file (the single in-file
     authority); this header does not re-enumerate it.
     There is NO public projection-observer theorem: the [cmd_out_events]/[cmd_panic]/[cmd_defers] projections,
     their [run_cmd] seal ([go_chars]), and the unified-side run/unwind lemmas are LOCAL (file-private) proof
     plumbing — no exported theorem concludes with them, so a consumer cannot prove bridge facts against a free
     observer instead of [run_cmd].  (No concurrency ops in this fragment, so [uc_bufs]/[uc_trace] are
-    untouched; [uc_heap] is touched only by the translated-but-unbridged heap commands.)
+    untouched; [uc_heap] carries the heap commands' effects, bridged on the defer-free fragment.)
     Proof-only: emits no Go, adds no axiom. *)
 
 From Fido Require Import preamble concurrency cmd unified.
@@ -900,13 +902,12 @@ Qed.
     SINGLE public defer bridge.  Composes cmd.v's [run_cmd_terminates] (some [fuel] completes) with
     [bridge_agrees_complete] (which threads the panic through [unwind_prefix_panic], grounded on
     [run_cmd_panic_char]).
-    ⚠ THE [no_heap] QUARANTINE: heap commands are TRANSLATED ([cmd_to_ucmd] maps them to
-    [UWrite]/[URead]) but NOT YET BRIDGED — no agreement theorem covers them, and none can
-    UNCONDITIONALLY: cmd.v gives an unallocated access NO behavior ([run_cmd] is [None] at every
+    ⚠ THE [no_heap] QUARANTINE of THIS theorem: heap commands are covered by the DEFER-FREE
+    heap bridge [bridge_heap_body_agrees] below, not by this one — and no heap agreement can be
+    UNCONDITIONAL: cmd.v gives an unallocated access NO behavior ([run_cmd] is [None] at every
     fuel — [cread_unallocated_absent] below) while the calculus' total [uc_heap] default-binds, so
-    the two sides genuinely diverge outside allocated memory.  The heap-AGREEMENT extension
-    (initial [heap_agrees] premise, generalized start heap, completion premise, final-heap
-    agreement) is the arc's next sub-slice — plans/bridge-effects.md. *)
+    the two sides genuinely diverge outside allocated memory.  The DEFERRED-heap unwind and the
+    general conditional heap bridge remain — plans/bridge-effects.md. *)
 Theorem bridge_agrees : forall (c : Cmd unit) ucap w,
   no_heap c = true ->
   exists (uc : UConfig) (oc : Outcome unit) (fuel : nat),
@@ -929,8 +930,8 @@ Qed.
     allocated cells, boxed) AGREES with [run_cmd] end to end, INCLUDING the final heaps
     ([heap_agrees] against the result world's allocated cells).  Consumes [body_runs_sem]
     (Phase A, semantic — grounded in [go]'s result, not syntactic projections, which cannot
-    exist under [CRead]'s binder).  The DEFERRED-heap agreement (the unwind threading the heap
-    invariant) is the remaining part-ii work — plans/bridge-effects.md. *)
+    exist under [CRead]'s binder).  DEFERRED-heap commands await the unwind threading the heap
+    invariant — plans/bridge-effects.md. *)
 Theorem bridge_heap_body_agrees : forall (c : Cmd unit) ucap w oc,
   go c w = Some (oc, nil) ->
   exists (uc : UConfig) (fuel : nat),
@@ -974,8 +975,8 @@ Qed.
 
 (** The NEGATIVE witness for the quarantine: an unallocated read has NO completing run at ANY
     fuel — so no unconditional (premise-free) bridge over heap commands can exist; the agreement
-    for heap programs must carry allocation/completion premises (the deferred-heap unwind is the
-    remaining part-ii work). *)
+    for heap programs must carry allocation/completion premises, as [bridge_heap_body_agrees]'s
+    [go]-completion premise does. *)
 Example cread_unallocated_absent : forall fuel w,
   w_refs w 0 = None ->
   run_cmd fuel (CRead 0 (fun _ => CRet tt)) w = None.

@@ -63,9 +63,9 @@ field selectors, runtime numeric conversions, fixed-width bridging binops — th
   run agrees with `run_cmd` (panic, output, completion); termination via `cmd.run_cmd_terminates`
   (same fragment). Heap commands (`CWrite`/`CRead`, typed cells, absence on unallocated access) are
   MODELED + TRANSLATED; the DEFER-FREE heap fragment is BRIDGED (`bridge_heap_body_agrees` —
-  end-to-end agreement incl. final heaps, from the `ustart_w` mirrored-heap start); the deferred-heap
-  unwind is the remaining part-ii work (`cread_unallocated_absent` pins why no unconditional bridge
-  exists). ⚠ chan/spawn later. Zero axioms.
+  end-to-end agreement incl. final heaps, from the `ustart_w` mirrored-heap start); deferred-heap
+  awaits the unwind (`cread_unallocated_absent` pins why no unconditional bridge exists).
+  ⚠ chan/spawn later. Zero axioms.
 - **GoSemSafe** — panic-freedom properties + the narrow gate: `panic_free_runs_ret`(+`_ustep`),
   decidable `panic_free_denotable`, `PanicFreeEmittable` refining `EmittableProgram`,
   `panic_free_gate` (sound+complete) + `emit_panic_free_gated`. Both rejection mechanisms pinned
@@ -86,7 +86,7 @@ field selectors, runtime numeric conversions, fixed-width bridging binops — th
 
 - CONSOLIDATION (boss, 2026-07-02): shrink bytes, no new features; surfaces stay
   endpoint-only. The §3a GoSem split is DONE (Core/Denote/composition — revised 3-file form).
-- Extend the cmd↔unified bridge to chan/heap/spawn (`plans/bridge-effects.md`; slices 1 + 2-i LANDED — value-parametric calculus, heap semantics + translation, bridge quarantined to `no_heap` with the closed-recv parameter quantified away under the `cmd_to_ucmd_novz` seal; the heap AGREEMENT is next; channels gated on a structural typed zero).
+- Extend the cmd↔unified bridge to chan/heap/spawn (`plans/bridge-effects.md`; landed: value-parametric calculus, heap semantics + translation, `no_heap`-quarantined general bridge under the `cmd_to_ucmd_novz` seal, and the defer-free heap bridge `bridge_heap_body_agrees`; remaining: the deferred-heap unwind → general conditional heap bridge; channels gated on a structural typed zero).
 - Grow behavioral safety toward `BehaviorSafe` → `SafeProgram` → `emit_safe`; wire the certified path
   to the main output. Widen the live GoPrint bridge + `GoStmt` forms — gate-honestly.
 
