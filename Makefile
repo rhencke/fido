@@ -83,24 +83,16 @@ smart-ctor-gate:
 axiom-authority-selftest:
 	@sh plugin/axiom-authority-selftest.sh
 
-# Shared gate for the VERIFIED printer: compile the digits -> GoAst -> GoPrint source set STANDALONE (Stdlib only, no plugin
-# — sidesteps the build circularity, since the plugin links printer.ml extracted FROM GoPrint.v) and assert
-# ZERO axioms. Leaves the freshly-extracted printer.ml in the CWD for the caller. Recursively-expanded (=) so
-# each user inlines it into a single recipe line.
-GOPRINT_GATE = { rocq c -Q . Fido digits.v > /tmp/printer.log 2>&1 && rocq c -Q . Fido GoAst.v >> /tmp/printer.log 2>&1 && rocq c -Q . Fido GoPrint.v >> /tmp/printer.log 2>&1; } || { echo "fido: digits.v/GoAst.v/GoPrint.v failed to compile:"; cat /tmp/printer.log; exit 1; }; \
-	if grep -q '^Axioms:' /tmp/printer.log; then \
-	  echo "fido: VERIFIED-PRINTER AXIOM/ADMITTED — a GoAst/GoPrint theorem depends on an axiom (Print Assumptions):"; \
-	  cat /tmp/printer.log; rm -f digits.vo digits.glob .digits.aux GoAst.vo GoAst.glob .GoAst.aux GoPrint.vo GoPrint.glob .GoPrint.aux printer.ml; exit 1; \
-	fi
+# Shared gate for the VERIFIED printer (plugin/spine-gate.sh — THE one definition, also run by the
+# Docker prover stage): compile digits -> GoAst -> GoPrint STANDALONE (Stdlib only, no plugin — sidesteps
+# the build circularity, since the plugin links printer.ml extracted FROM GoPrint.v), one scanned log,
+# ZERO axioms. Leaves the freshly-extracted printer.ml in the CWD for the caller.
+GOPRINT_GATE = sh plugin/spine-gate.sh printer /tmp/printer.log
 GOPRINT_CLEAN = rm -f digits.vo digits.glob .digits.aux GoAst.vo GoAst.glob .GoAst.aux GoPrint.vo GoPrint.glob .GoPrint.aux printer.ml
 
-# Gate for the BLESSED-EMISSION spine: compile GoAst/GoPrint/GoTypes/GoSafe/GoEmit standalone (dependency
-# order) and assert ZERO axioms across the whole trust base. Separate from GOPRINT_GATE (printer.ml-only).
-GOEMIT_GATE = { rocq c -Q . Fido digits.v > /tmp/emit.log 2>&1 && rocq c -Q . Fido GoAst.v >> /tmp/emit.log 2>&1 && rocq c -Q . Fido GoPrint.v >> /tmp/emit.log 2>&1 && rocq c -Q . Fido GoTypes.v >> /tmp/emit.log 2>&1 && rocq c -Q . Fido GoSafe.v >> /tmp/emit.log 2>&1 && rocq c -Q . Fido GoEmit.v >> /tmp/emit.log 2>&1; } || { echo "fido: digits/GoAst/GoPrint/GoTypes/GoSafe/GoEmit failed to compile:"; cat /tmp/emit.log; exit 1; }; \
-	if grep -q '^Axioms:' /tmp/emit.log; then \
-	  echo "fido: SPINE AXIOM/ADMITTED — a GoAst/GoPrint/GoTypes/GoSafe/GoEmit theorem depends on an axiom (Print Assumptions):"; \
-	  cat /tmp/emit.log; exit 1; \
-	fi
+# Gate for the BLESSED-EMISSION spine: the printer source set + GoTypes/GoSafe/GoEmit, standalone
+# (dependency order), ZERO axioms across the whole trust base — the SAME script as the Docker stage.
+GOEMIT_GATE = sh plugin/spine-gate.sh emit /tmp/emit.log
 GOEMIT_CLEAN = rm -f digits.vo digits.glob .digits.aux GoAst.vo GoAst.glob .GoAst.aux GoPrint.vo GoPrint.glob .GoPrint.aux GoTypes.vo GoTypes.glob .GoTypes.aux GoSafe.vo GoSafe.glob .GoSafe.aux GoEmit.vo GoEmit.glob .GoEmit.aux printer.ml
 
 # Regenerate the VERIFIED printer's OCaml (plugin/printer.ml) from the digits/GoAst/GoPrint source set.  A PROPER file

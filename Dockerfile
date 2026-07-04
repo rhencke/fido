@@ -117,21 +117,13 @@ COPY --chown=opam:opam negtests/ negtests/
 RUN --mount=type=cache,id=fido-dune,uid=1000,gid=1000,target=/workspace/_build \
     sh plugin/smart-ctor-gate.sh \
     && sh plugin/axiom-authority-selftest.sh \
-    && (rocq c -Q . Fido digits.v > /tmp/printer.log 2>&1 && rocq c -Q . Fido GoAst.v >> /tmp/printer.log 2>&1 && rocq c -Q . Fido GoPrint.v >> /tmp/printer.log 2>&1 || (echo "fido: digits.v/GoAst.v/GoPrint.v failed to compile:"; cat /tmp/printer.log; exit 1)) \
-    && if grep -q '^Axioms:' /tmp/printer.log; then \
-         echo "fido: VERIFIED-PRINTER AXIOM/ADMITTED — a GoAst/GoPrint theorem depends on an axiom (Print Assumptions):"; \
-         cat /tmp/printer.log; exit 1; \
-       fi \
+    && sh plugin/spine-gate.sh printer /tmp/printer.log \
     && if ! diff plugin/printer.ml printer.ml; then \
          echo "fido: PRINTER DRIFT — committed plugin/printer.ml != GoPrint.v's extraction; run 'make printer' and commit it."; \
          exit 1; \
        fi \
     && cp printer.ml plugin/printer.ml \
-    && (rocq c -Q . Fido GoTypes.v > /tmp/emit.log 2>&1 && rocq c -Q . Fido GoSafe.v >> /tmp/emit.log 2>&1 && rocq c -Q . Fido GoEmit.v >> /tmp/emit.log 2>&1 || (echo "fido: GoTypes.v/GoSafe.v/GoEmit.v failed to compile:"; cat /tmp/emit.log; exit 1)) \
-    && if grep -q '^Axioms:' /tmp/emit.log; then \
-         echo "fido: BLESSED-EMISSION AXIOM/ADMITTED — a GoTypes/GoSafe/GoEmit theorem depends on an axiom (Print Assumptions):"; \
-         cat /tmp/emit.log; exit 1; \
-       fi \
+    && sh plugin/spine-gate.sh emit /tmp/emit.log \
     && rm -f digits.vo digits.glob .digits.aux GoAst.vo GoAst.glob .GoAst.aux GoPrint.vo GoPrint.glob .GoPrint.aux GoTypes.vo GoTypes.glob .GoTypes.aux GoSafe.vo GoSafe.glob .GoSafe.aux GoEmit.vo GoEmit.glob .GoEmit.aux printer.ml \
     && rm -f _build/default/*.go \
     && for v in $(grep -l 'Go Main Extraction' *.v); do rm -f "_build/default/${v%.v}.vo"; done \
