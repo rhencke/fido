@@ -922,6 +922,17 @@ Proof. split; vm_compute; reflexivity. Qed.
 Definition gosem_panic_demo_prog : Program :=
   mkProgram (mkIdent "main" eq_refl) [GsExprStmt (ECall (EId (mkIdent "panic" eq_refl)) [EStr "x"])].
 
+(** [print] vs [println] is OBSERVABLE in the model ([w_log]'s flag) — pinned as [rc_print]. *)
+Definition gosem_print_prog : Program :=
+  mkProgram (mkIdent "main" eq_refl) [GsExprStmt (ECall (EId (mkIdent "print" eq_refl)) [EInt 1])].
+
+(** A NON-panicking [_ = e] falls through — no output of its own, the successor runs — pinned
+    as [rc_blank_pure]. *)
+Definition gosem_blank_pure_prog : Program :=
+  mkProgram (mkIdent "main" eq_refl)
+            [GsBlankAssign (EInt 1);
+             GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [EStr "ok"])].
+
 (** The determined-DIVIDE-BY-ZERO fixture: `_ = 1 / len([]int{})` is SUPPORTED (a runtime integer division —
     a CONSTANT zero divisor would be a compile error), and now DENOTES to its TRUE behavior via [denote_expr]:
     the run PANICS with Go's exact runtime value [rt_div_zero] — pinned end-to-end as the typed field
@@ -1104,7 +1115,8 @@ Proof. intro w. vm_compute. reflexivity. Qed.
     in its FIELD TYPES (one per required behavior category), the EXACT end-to-end behaviors the model must
     exhibit — string-literal PRINTLN, int CONVERSION, exact FLOAT, numeric-compare BOOL, string CONCAT,
     string-compare-of-concat BOOL, a constant in-bounds int-slice-literal INDEX, [len] of a fully-evaluable
-    literal (slice AND integer-keyed map), a non-tail RETURN that stops the body with NO output, a denoted PANIC ending in [OPanic], defer
+    literal (slice AND integer-keyed map), a non-tail RETURN that stops the body with NO output, a denoted PANIC ending in [OPanic],
+    [print]'s observable flag, a pure blank-assign falling through, defer
     LIFO ordering at return, a DEFERRED panic firing at return, the determined DIVIDE-BY-ZERO panicking with
     Go's exact runtime value, a panicking ARGUMENT pre-empting its call, and a deferred call's argument
     panicking AT DEFER TIME.  [gosem_category_coverage] inhabits that type, so it can be built ONLY by
@@ -1132,6 +1144,12 @@ Record GoSemRequiredCategoryCoverage : Prop := {
   rc_panic : forall w,                                        (* a denoted [panic("x")] ends in [OPanic] with the model's exact value *)
     match denote_program gosem_panic_demo_prog with Some c => run_cmd 5 c w | None => None end
     = Some (OPanic (anyt TString "x") w);
+  rc_print : forall w,                                        (* [print] logs with the PRINT flag — the print/println distinction is observable *)
+    match denote_program gosem_print_prog with Some c => run_cmd 5 c w | None => None end
+    = Some (ORet tt (w_log false (anyt TInt64 (intwrap 1) :: nil) w));
+  rc_blank_pure : forall w,                                   (* a non-panicking [_ = e] falls through: no output of its own; the successor runs *)
+    match denote_program gosem_blank_pure_prog with Some c => run_cmd 5 c w | None => None end
+    = Some (ORet tt (w_log true (anyt TString "ok" :: nil) w));
   rc_defer_lifo : forall w,                                   (* defers run at RETURN, LIFO: body "hi", then "b" (deferred LAST, runs FIRST), then "a" *)
     match denote_program gosem_defer_lifo_prog with Some c => run_cmd 5 c w | None => None end
     = Some (ORet tt (w_log true (anyt TString "a" :: nil)
