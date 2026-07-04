@@ -58,13 +58,11 @@ Fixpoint print_ty (t : GoTy) : string :=
 
 
 
-(** [scan_id] consumes the maximal run of identifier characters (so it stops at "]", a space, or
-    end-of-string — exactly the boundaries [print_ty] places after a type); [classify] (the keyword→[GoTy]
-    map, now in GoAst — the SYNTAX layer, so GoSafe reaches it WITHOUT depending on the printer) maps a
-    complete token to its scalar type (or [None] for a nominal name).  Token-FIRST parsing (scan the run,
-    then classify) gives maximal munch for free: "int8x" scans whole and classifies as nominal, never as
-    [int8] + "x".  ([is_idc]/[is_idstart]/[all_idc]/[is_type_keyword]/[valid_ident]/[Ident]/[classify] are
-    all defined in GoAst above/with [GoTy], since [GTNamed] carries an [Ident].) *)
+(** [scan_id] consumes the maximal run of identifier characters — stopping exactly at the boundaries
+    [print_ty] places after a type ("]", a space, end-of-string); [classify] (the keyword→[GoTy] map, in
+    GoAst with the other char/ident predicates) maps a complete token to its scalar type ([None] for a
+    nominal name).  Token-FIRST parsing (scan, then classify) gives maximal munch: "int8x" scans whole and
+    classifies as nominal, never as [int8] + "x". *)
 Fixpoint scan_id (s : string) : string * string :=
   match s with
   | EmptyString => (EmptyString, EmptyString)
@@ -112,10 +110,9 @@ Qed.
 
 
 
-(** ---- INTEGER LITERALS ---- the decimal rendering of a [Z] value (replacing go.ml's raw
-    [Printf.sprintf "%Ld"/"%Lu"]).  Magnitude is carried by [Z], so this is faithful for the FULL
-    int64 AND uint64 ranges (the unsigned [2^63,2^64) values that wrap as a negative [Int64.t] are
-    just large [Zpos] here — no special-casing). *)
+(** ---- INTEGER LITERALS ---- the decimal rendering of a [Z] value.  Magnitude is carried by [Z], so
+    this is faithful for the FULL int64 AND uint64 ranges (unsigned [2^63,2^64) values are just large
+    [Zpos] — no special-casing). *)
 Definition dec_digit (n : nat) : ascii := ascii_of_nat (48 + n).
 Fixpoint z_digits (fuel : nat) (z : Z) (acc : string) : string :=
   match fuel with
@@ -124,11 +121,9 @@ Fixpoint z_digits (fuel : nat) (z : Z) (acc : string) : string :=
             if (z / 10 =? 0)%Z then String d acc
             else z_digits f (z / 10)%Z (String d acc)
   end.
-(** Adaptive fuel — at least as many steps as [z] has decimal digits, so [z_digits] NEVER truncates a
-    large input (the old fixed [64] silently dropped digits for |z| >= 10^64 — accepted arbitrary [Z] but
-    was correct only under a bound).  [Z.log2 z + 1] is the BIT width, which exceeds the decimal-digit
-    count (since 10 > 2), so it is always enough; and it is cheap (no astronomically large [nat]).  Only
-    ever applied to [z > 0] ([print_Z] special-cases 0 and negates negatives). *)
+(** Adaptive fuel — at least as many steps as [z] has decimal digits, so [z_digits] NEVER truncates.
+    [Z.log2 z + 1] is the BIT width, which exceeds the decimal-digit count (10 > 2) and is cheap.  Only
+    applied to [z > 0] ([print_Z] special-cases 0 and negates negatives). *)
 Definition digit_fuel (z : Z) : nat := S (Z.to_nat (Z.log2 z)).
 Definition print_Z (z : Z) : string :=
   if (z =? 0)%Z then "0"
@@ -137,9 +132,7 @@ Definition print_Z (z : Z) : string :=
 
 
 (** ---- INTEGER FAITHFULNESS (round-trip) ---- a decimal PARSER recovers the [Z] from [print_Z]'s
-    output, so the emitted integer literal denotes EXACTLY the source value over the whole modelled
-    range (|z| < 10^64 — far beyond the int64/uint64 values [print_Z] is ever called with).  The
-    analog of [parse_print_ty] / [esc_string_roundtrip_opt] for integer literals — the most-emitted leaf. *)
+    output, so the emitted integer literal denotes EXACTLY the source value. *)
 Definition dval (c : ascii) : Z := Z.of_nat (nat_of_ascii c - 48).
 Fixpoint parseZ_pos (acc : Z) (s : string) : Z :=
   match s with EmptyString => acc | String c s' => parseZ_pos (acc * 10 + dval c)%Z s' end.
@@ -223,8 +216,7 @@ Proof.
   - apply Z.pow_le_mono_l; lia.
 Qed.
 
-(** FAITHFULNESS, now UNCONDITIONAL — with the adaptive fuel [print_Z] never truncates, so the round-trip
-    holds for EVERY [z] (no |z| < 10^64 side condition). *)
+(** FAITHFULNESS, UNCONDITIONAL: the round-trip holds for EVERY [z] (the adaptive fuel never truncates). *)
 Theorem print_parse_Z : forall z, parse_Z (print_Z z) = z.
 Proof.
   intro z. unfold print_Z.
@@ -243,10 +235,10 @@ Proof.
     cbn [parseZ_pos]. reflexivity.
 Qed.
 
-(** ---- STRING LITERALS ---- escape a Go double-quoted string literal (replacing go.ml's raw
-    [go_string_lit]): wrap in dquotes, escape dquote/backslash/newline/tab/CR, pass printable ASCII
-    through, and emit a hex escape (backslash-x, lowercase, 2 digits) for everything else.  ASCII
-    codes: 34 dquote, 92 backslash, 10 newline, 9 tab, 13 CR, 110 n, 116 t, 114 r, 120 x. *)
+(** ---- STRING LITERALS ---- escape a Go double-quoted string literal: wrap in dquotes, escape
+    dquote/backslash/newline/tab/CR, pass printable ASCII through, and emit a hex escape (backslash-x,
+    lowercase, 2 digits) for everything else.  ASCII codes: 34 dquote, 92 backslash, 10 newline, 9 tab,
+    13 CR, 110 n, 116 t, 114 r, 120 x. *)
 Definition ch (n : nat) : ascii := ascii_of_nat n.
 Definition hexdig (n : nat) : ascii := ascii_of_nat (if Nat.ltb n 10 then 48 + n else 87 + n).
 Definition esc_byte (b : nat) (acc : string) : string :=
@@ -267,12 +259,10 @@ Definition print_string_lit (s : string) : string :=
   String (ch 34) (esc_string s ++ String (ch 34) EmptyString).
 
 
-(** ---- STRING-LITERAL FAITHFULNESS (round-trip) ---- the escaping is LOSSLESS: a VALIDATING decoder
+(** ---- STRING-LITERAL FAITHFULNESS (round-trip) ---- the escaping is LOSSLESS: the VALIDATING decoder
     [unescape_opt] recovers the exact original bytes from [esc_string] (as [Some s]), so [print_string_lit]
-    denotes precisely its argument — no byte dropped, merged, or corrupted by an escape.  This is the
-    data-faithfulness property for string literals (the analog of [parse_print_ty] for the type sub-language).
-    [unescape_opt] is also FAIL-CLOSED: it returns [None] on any malformed escape, so the lexer rejects
-    ill-formed string syntax instead of normalizing it (see the [lex_bad_*] negative examples below). *)
+    denotes precisely its argument.  [unescape_opt] is also FAIL-CLOSED: [None] on any malformed escape, so
+    the lexer rejects ill-formed string syntax instead of normalizing it (see the [lex_bad_*] examples). *)
 Lemma nat_of_ascii_lt_256 : forall c, nat_of_ascii c < 256.
 Proof. intro c. destruct c. repeat match goal with b : bool |- _ => destruct b end; cbn; lia. Qed.
 Lemma nat_of_ch : forall n, n < 256 -> nat_of_ascii (ch n) = n.
@@ -297,9 +287,8 @@ Proof.
 Qed.
 
 (** A hex digit: [0-9] / [a-f] — LOWER-CASE only, since [esc_string] emits only lower-case [\x] escapes.
-    Used by the VALIDATING decoder [unescape_opt] to REJECT a [\x] escape whose two characters are not both
-    hex (a non-hex — or upper-case — [\x] is not part of the printer image and must fail to lex, not decode to
-    a byte the printer would never have emitted).  [unhex] above inverts every byte this accepts. *)
+    [unescape_opt] REJECTS a [\x] whose two chars are not both [is_hex] (a non-hex or upper-case [\x] is
+    outside the printer image and must fail to lex).  [unhex] above inverts every byte this accepts. *)
 Definition is_hex (c : ascii) : bool :=
   let v := nat_of_ascii c in
   orb (andb (Nat.leb 48 v) (Nat.leb v 57))            (* '0'-'9' *)
@@ -316,11 +305,10 @@ Proof.
 Qed.
 
 (** The bytes whose CANONICAL [esc_byte] form is the [\xHH] hex fallback: NOT a named-escape byte
-    (34 dquote / 92 backslash / 10 nl / 9 tab / 13 cr) and NOT printable [32,126].  This is EXACTLY the set
-    [esc_byte]'s final branch covers (bytes [< 32] except 9/10/13, and [>= 127]); the [\x] arm of the decoder
-    [unescape_opt] requires it so a [\xHH] is accepted ONLY when [esc_byte] would actually have EMITTED that
-    [\xHH] — e.g. a hex escape of printable 'A' (65), or of the named dquote (34), is REJECTED, since [esc_string]
-    prints those raw / as a named escape, never as hex (the printable-byte SUPERSET rule). *)
+    (34 dquote / 92 backslash / 10 nl / 9 tab / 13 cr) and NOT printable [32,126] — exactly the set
+    [esc_byte]'s final branch covers.  The decoder's [\x] arm requires it, so a [\xHH] is accepted ONLY
+    when [esc_byte] would actually have EMITTED it (a hex escape of printable 'A' or of the dquote is
+    REJECTED — [esc_string] prints those raw / named, never as hex). *)
 Definition hex_escaped_byte (b : nat) : bool :=
   negb (orb (orb (Nat.eqb b 34) (orb (Nat.eqb b 92) (orb (Nat.eqb b 10) (orb (Nat.eqb b 9) (Nat.eqb b 13)))))
             (andb (Nat.leb 32 b) (Nat.ltb b 127))).
@@ -337,21 +325,15 @@ Proof.
   rewrite H34, H92, H10, H9, H13, Hr. reflexivity.
 Qed.
 
-(** The VALIDATING decoder: reverse [esc_byte], FAIL-CLOSED.  Returns [option string] and accepts EXACTLY the
-    PRINTER IMAGE — the byte set [esc_string] can emit — and nothing else (accepted == emitted, now PROVEN by
-    [unescape_opt_image] below: every accepted [body] is the canonical [esc_string] of its decode); it is [None]
-    on every other spelling, so the lexer (which threads this [option]) REJECTS non-printer-image string syntax
-    at tokenization instead of normalizing it into a value.  The accepted alphabet is precisely: the five named
-    escapes (the escaped dquote, the escaped backslash, [\n] [\t] [\r]), a [\xHH] escape whose two digits are
-    both [is_hex] (LOWER-CASE hex) AND whose decoded byte [hex_escaped_byte]s (so [esc_byte] really takes its
-    hex fallback on it), and a RAW body byte in [32,126] minus the dquote (34) and the backslash (92).
-    Everything else is [None]: a TRUNCATED escape (a backslash at end of body), an UNKNOWN escape (any other byte
-    after a backslash), a [\x] with fewer than two following chars or whose two chars are not both [is_hex] (so an
-    UPPER-CASE [\xAF] is rejected — [esc_string] emits only lower-case), a [\xHH] whose byte is a named-escape /
-    printable one (a hex escape of 'A' or of the dquote — NOT [esc_byte]'s image), and a RAW byte outside [32,126]
-    minus {34,92} (a raw tab/CR/control/high byte/newline — each of which [esc_byte] would have ESCAPED, so a raw
-    one is not in the image).  Structural on sub-terms of [s] (so no fuel needed); ONE decode authority (the old
-    total [unescape] is gone). *)
+(** The VALIDATING decoder: reverse [esc_byte], FAIL-CLOSED.  Accepts EXACTLY the PRINTER IMAGE — the byte
+    set [esc_string] can emit — and nothing else (accepted == emitted, PROVEN by [unescape_opt_image] below);
+    [None] on every other spelling, so the lexer REJECTS non-printer-image string syntax at tokenization
+    instead of normalizing it.  Accepted: the five named escapes (escaped dquote, escaped backslash,
+    [\n] [\t] [\r]), a [\xHH] whose two digits are both [is_hex] (LOWER-CASE) AND whose decoded byte
+    [hex_escaped_byte]s (so [esc_byte] really takes its hex fallback), and a RAW body byte in [32,126]
+    minus {34,92}.  Rejected: truncated or unknown escapes, a [\x] whose two chars are not both lower-case
+    hex, a [\xHH] of a named-escape/printable byte, and any raw byte [esc_byte] would have escaped.
+    Structural on sub-terms of [s] (no fuel needed); the ONE decode authority. *)
 Fixpoint unescape_opt (s : string) : option string :=
   match s with
   | EmptyString => Some EmptyString
@@ -432,24 +414,19 @@ Proof.
 Qed.
 Local Transparent ch nat_of_ascii unhex hexdig is_hex hex_escaped_byte option_map Nat.div Nat.modulo Nat.mul.
 
-(** ★ THE STRING-LITERAL ROUND-TRIP — the (now VALIDATING) decoder recovers EXACTLY what [esc_string] emits, so
-    [print_string_lit] denotes precisely its argument and the lexer's [TStr] is faithful.  Crucially the option
-    decoder ACCEPTS every byte [esc_string] can produce (the proof of [unescape_opt_esc_byte] discharges the
-    [is_hex]/printable-range guards on those bytes), so tightening the decoder to accept EXACTLY the printer image
-    (accepted == emitted) cost the round-trip nothing. *)
+(** ★ THE STRING-LITERAL ROUND-TRIP — the VALIDATING decoder recovers EXACTLY what [esc_string] emits, so
+    [print_string_lit] denotes precisely its argument and the lexer's [TStr] is faithful
+    (emitted ⊆ accepted). *)
 Theorem esc_string_roundtrip_opt : forall s, unescape_opt (esc_string s) = Some s.
 Proof.
   induction s as [ | c rest IH ]; [ reflexivity | ].
   cbn [esc_string]. rewrite unescape_opt_esc_byte, IH. reflexivity.
 Qed.
 
-(** ★ THE STRING-LITERAL REVERSE-IMAGE THEOREM (the EXACTNESS deliverable) — every body the decoder ACCEPTS is
-    EXACTLY the canonical [esc_string] escaping of its decode, so the accepted language is precisely the printer
-    IMAGE: accepted == emitted, PROVEN (not asserted).  With [esc_string_roundtrip_opt] (emitted ⊆ accepted)
-    this is a two-way exactness: [unescape_opt body = Some s  ↔  body = esc_string s].  It is the property that
-    kills the printable-byte superset hole — without the [hex_escaped_byte] guard a hex escape of a printable
-    or named byte (a hex 'A' decoding to the one-byte string A, which [esc_string] prints RAW) would be accepted
-    though never emitted.  Helper lemmas first, then the theorem by strong induction on the body length. *)
+(** ★ THE STRING-LITERAL REVERSE-IMAGE THEOREM — every body the decoder ACCEPTS is EXACTLY the canonical
+    [esc_string] escaping of its decode; with [esc_string_roundtrip_opt] (emitted ⊆ accepted) this is a
+    two-way exactness: [unescape_opt body = Some s  ↔  body = esc_string s].  Helper lemmas first, then
+    the theorem by strong induction on the body length. *)
 Lemma option_map_Some_inv : forall (A B : Type) (f : A -> B) (x : option A) (y : B),
   option_map f x = Some y -> exists z, x = Some z /\ y = f z.
 Proof.
@@ -605,7 +582,7 @@ Qed.
     returning the (still-ESCAPED) body and the REST after the quote.  A backslash (92) escapes the NEXT byte
     (so an escaped dquote, backslash-then-34, is consumed, never mistaken for the terminator); a bare dquote
     (34) closes; any other byte is body.  This only SPLITS at the terminator — DECODING reuses [unescape_opt]
-    (via [esc_string_roundtrip_opt]), so there is exactly ONE un-escaper (no second, possibly-divergent decoder).
+    (via [esc_string_roundtrip_opt]), so there is exactly ONE un-escaper.
     Structural on [s] (each recursive call is on a sub-term), so no fuel is needed (like [unescape_opt]). *)
 Fixpoint scan_quote (s : string) : option (string * string) :=
   match s with
@@ -710,15 +687,10 @@ Proof.
   - cbn [esc_string]. rewrite esc_byte_app, scan_quote_esc_byte, IH. reflexivity.
 Qed.
 
-(** ---- HEX LITERALS ---- [0x]-prefixed lowercase hex.  [print_hex] is ALREADY LIVE in the plugin (it
-    replaced go.ml's raw hex [Printf]): go.ml's [print_hex_int] renders the fixed-width bit-mask / sign-bit
-    CONSTANTS ([0xff]/[0x80]/… in [fw_wrap]) and [Printer.print_float_hex] uses it for the [spec_float]
-    hex-literal mantissa — these are the many [0x…] bytes in the golden [main.go].  What THIS section ADDS, now
-    LIVE, is the structured [EHex] GExpr LEAF: the fixed-width ARITHMETIC bridge ([goexpr_bridge], via the
-    [mk_goexpr_hex] smart constructor) builds [EBn (BAnd, EBn (op, int(a), int(b)), EHex MASK)] (unsigned) or its
-    SIGN-EXTENSION [EBn (BSub, EBn (BXor, masked, EHex SBIT), EHex SBIT)] (signed), so the WHOLE masked /
-    sign-extended expr (not just the mask digits) is emitted by the verified [gprint] when a [(u|i)N] op is a
-    bridging-binop operand.  STILL on the trusted [fw_wrap]: the fixed-width CONVERSIONS [uint8(x)], shifts,
+(** ---- HEX LITERALS ---- [0x]-prefixed lowercase hex.  LIVE in the plugin: [print_hex] renders the
+    fixed-width mask / sign-bit constants and the [spec_float] hex-literal mantissa, and the [EHex] GExpr
+    LEAF lets the fixed-width arithmetic bridge build the WHOLE masked / sign-extended expression for the
+    verified [gprint].  STILL on the trusted [fw_wrap]: the fixed-width CONVERSIONS [uint8(x)], shifts,
     div/mod, and standalone fw ops. *)
 Fixpoint hex_digits (fuel : nat) (z : Z) (acc : string) : string :=
   match fuel with
@@ -729,11 +701,8 @@ Fixpoint hex_digits (fuel : nat) (z : Z) (acc : string) : string :=
 Definition print_hex (z : Z) : string :=
   ("0x" ++ (if (z =? 0)%Z then "0" else hex_digits (digit_fuel z) z ""))%string.
 
-(** ---- HEX FAITHFULNESS (round-trip) ---- the analog of [print_parse_Z] for the [0x]-hex printer
-    ([hex_digits] is structurally [z_digits] in base 16; [unhex]/[unhex_hexdig] from the string section
-    already invert [hexdig]).  [print_hex] round-trips only for NON-NEGATIVE [z] — the domain of BOTH the live
-    callers (mask / sign-bit / mantissa, all >= 0) and the [EHex]/[HexZ] node — so the statement is for
-    [0 <= z < 16^64], far beyond any fixed-width mask. *)
+(** ---- HEX FAITHFULNESS (round-trip) ---- [print_hex] round-trips for NON-NEGATIVE [z] — the domain of
+    both the live callers (mask / sign-bit / mantissa) and the [EHex]/[HexZ] node. *)
 Fixpoint parseHex_pos (acc : Z) (s : string) : Z :=
   match s with EmptyString => acc | String c s' => parseHex_pos (acc * 16 + Z.of_nat (unhex c))%Z s' end.
 Definition parse_hex (s : string) : Z :=
@@ -895,17 +864,11 @@ Qed.
 Local Transparent print_hex print_Z parse_hex parse_Z.
 
 (** ============================================================================
-    ---- EXPRESSIONS: OPERATOR PRECEDENCE ---- the structural (recursive) printer renders a
-    binary-operator tree, inserting parentheses ONLY where an operand's operator binds LOOSER than its
-    context — get this wrong and [(a+b)*c] misprints as [a+b*c], silently changing the program's meaning.
-    This is the hardest correctness property of the structural printer.
-
-    [BinOp] is the operator enum; [binop_prec] / [binop_text] DERIVE its precedence and surface text from
-    the constructor — the single source of truth, so no caller can mis-pair an operator with the wrong
-    precedence.  Consumed by [gprint] below, which parenthesises a sub-expression exactly when its
+    ---- EXPRESSIONS: OPERATOR PRECEDENCE ---- the printer inserts parentheses ONLY where an operand's
+    operator binds LOOSER than its context — get this wrong and [(a+b)*c] misprints as [a+b*c], silently
+    changing the program's meaning.  [binop_prec] / [binop_text] DERIVE precedence and surface text from
+    the constructor — the single source of truth; [gprint] parenthesises a sub-expression exactly when its
     [binop_prec] is looser than the context. *)
-
-(** Operator precedence and surface text DERIVED from the constructor — the single source of truth. *)
 Definition binop_prec (o : BinOp) : nat :=
   match o with
   | BMul | BDiv | BRem | BShl | BShr | BAnd | BAndNot => 5
@@ -1074,8 +1037,8 @@ Fixpoint lex_aux (fuel : nat) (s : string) : option (list Token) :=
   end.
 Definition lex (s : string) : option (list Token) := lex_aux (S (String.length s)) s.
 
-(** ---- M5 TYPE-PARSER DEFINITIONS (placed before the expression parser so [parse_postfix] can call
-    [parse_gty] for type assertions / conversions; the round-trip PROOFS are below, after the seams). ---- *)
+(** ---- TYPE-PARSER DEFINITIONS (before the expression parser so [parse_postfix] can call [parse_gty]
+    for type assertions / conversions; the round-trip PROOFS are below, after the seams). ---- *)
 Definition tyname_to_ident (n : TyName) : Ident :=
   mkIdent (proj1_sig n) (proj1 (andb_prop _ _ (proj2_sig n))).
 Fixpoint gttokens_ty (t : GoTy) : list Token :=
@@ -1234,35 +1197,30 @@ Proof. vm_compute; reflexivity. Qed.
       Type     = "int" | "int64" | "bool" | "string" | "float64" | "float32"           -- primitive
                | "uint" | "uint8" | "int8" | "uint16" | "int16" | "uint32" | "int32" | "uint64"
                | "*" Type | "[]" Type | "chan" Type | "map" "[" Type "]" Type           -- composite
-               | ident .                          -> GTNamed  nominal type (the [GoTy] of M5)
+               | ident .                          -> GTNamed  nominal type
       ident    = idstart { idstart | digit } ,  idstart = "_" | "A".."Z" | "a".."z" .   -- a [go_ident]
       int      = [ "-" ] digit { digit } .       -- decimal; the lexer reads a leading "-"<digit> as one [TInt]
       hexlit   = "0" "x" hex { hex } .           -- lowercase hex int literal (>= 0); [hex] = digit | a..f (as in
                                                     Escape); the lexer's [0x] branch scans it to one [THex]
 
-    NOT yet in the grammar (the next growth steps): STRUCT / ARRAY composite literals ([N]T{..} / T{..}) and
-    func-literals.  A NAMED conversion [T(x)] is currently the call [ECall (EId T) [x]] -- byte-identical, and
-    the call/conversion distinction needs a type environment the parser does not have. *)
+    NOT yet in the grammar: STRUCT / ARRAY composite literals ([N]T{..} / T{..}) and func-literals.  A
+    NAMED conversion [T(x)] is the call [ECall (EId T) [x]] -- byte-identical, and the call/conversion
+    distinction needs a type environment the parser does not have. *)
 
 
-(** A bare prefix operator applied DIRECTLY to another would be a LEXICAL hazard: [&] then [&] prints "&&"
-    which the lexer maximal-munches to [TLand], and [&] then [^] prints "&^" -> [TAndNot] — a token MERGE on
-    the LEFT of the seam (the seam is two-sided: a clean right-hand start does not suffice).  So a unary
-    operand that could re-lex or re-parse wrongly is PARENTHESISED — [op(x)] — making the prefix followed by a
-    single-char ['('] that cannot munch into the operator before it.  (UNeg ALWAYS self-parenthesises as
-    [-(x)] for the same reason, plus to avoid colliding with the [-5] negative-literal lexing.)
+(** A bare prefix operator applied DIRECTLY to another is a LEXICAL hazard: [&][&] prints "&&" (maximal-
+    munched to [TLand]), [&][^] prints "&^" ([TAndNot]) — a token MERGE on the LEFT of the seam (the seam
+    is two-sided).  So a unary operand that could re-lex or re-parse wrongly is PARENTHESISED — [op(x)].
+    (UNeg ALWAYS self-parenthesises as [-(x)], also to avoid the [-5] negative-literal lexing.)
 
-    BUT a LEAF-atom operand ([EId]/[EInt]/[EStr]/[EHex]) prints BARE — the minimal canonical [^x] / [!b] / [*p] /
-    [&x] (matching gofmt), because (a) its first char is always an identifier-start / digit (incl. the [0] of a
-    [0x]-hex) / a ['-'] / a dquote, none of which can merge with a prefix into a 2-char token (so the lexer peels the prefix cleanly — see
-    [gprint_head_clean] / [lex_unop_app]); and (b) a leaf is fully consumed by [parse_atom], leaving nothing
-    for the outer postfix loop to mis-capture.  A POSTFIX operand ([ESel]/[EIndex]/[ESlice]/[ECall]/[EAssert])
-    must STILL be parenthesised: this grammar binds a prefix unary to an *Atom* (the "( ! | ^ | * | & ) Atom"
-    rule above), with the postfix chain folded OUTSIDE the unary — so a bare [^a.b] would re-parse as [(^a).b]
-    ([ESel (EUn UXor a) b]), NOT [EUn UXor (ESel a b)], breaking the round-trip.  Type-led atoms
-    ([EConv]/[ESliceLit]/[EMapLit]) are parenthesised too (sound to bare, but their parse cost exceeds the
-    leaf fuel budget — out of scope here).  So the BARE set is exactly the leaf atoms; everything else gets
-    parens. *)
+    A LEAF-atom operand ([EId]/[EInt]/[EStr]/[EHex]) prints BARE — the minimal gofmt-canonical [^x]:
+    (a) its first char (idstart / digit / '-' / dquote) can never merge with a prefix into a 2-char token
+    ([gprint_head_clean] / [lex_unop_app]); (b) a leaf is fully consumed by [parse_atom], leaving nothing
+    for the postfix loop to mis-capture.  A POSTFIX operand ([ESel]/[EIndex]/[ESlice]/[ECall]/[EAssert])
+    must STILL be parenthesised: the grammar binds a prefix unary to an *Atom*, with the postfix chain
+    folded OUTSIDE the unary — a bare [^a.b] would re-parse as [(^a).b], breaking the round-trip.  Type-led
+    atoms ([EConv]/[ESliceLit]/[EMapLit]) are parenthesised too (sound to bare, but beyond the leaf fuel
+    budget).  The BARE set is exactly the leaf atoms; everything else gets parens. *)
 
 (** [unop_needs_paren e0] — does a PREFIX-UNARY operand [e0] need parentheses?  FALSE only for the four LEAF
     atoms ([EId]/[EInt]/[EStr]/[EHex], printed BARE — the minimal [^x]); TRUE for every other form.  This is a
@@ -1285,14 +1243,11 @@ Definition unop_paren (o : UnaryOp) (e0 : GExpr) : bool :=
   match o with UNeg => true | _ => unop_needs_paren e0 end.
 
 (** [op_needs_paren e0] — does a POSTFIX operand [e0] need parentheses?  TRUE for the LOOSE nodes
-    ([EUn]/[EBn], which bind looser than a postfix operator); FALSE for every atom / postfix form (they bind
-    at least as tightly).  The SINGLE source of truth for operand parenthesisation, used uniformly by
-    [gprint]/[gparen]/[gtokens]/[gtparen].  EXHAUSTIVE on purpose — NO [_] catch-all: a default would silently
-    classify a future constructor, and the only UNSAFE direction is bare-by-default (a new LOOSE form printed
-    without parens = wrong precedence, exactly the "plausible-but-wrong" rule-2 forbids).  So every constructor
-    is listed; adding one makes this match non-exhaustive and FAILS THE BUILD until its precedence is declared
-    here — fail-loud at the definition, never a silent wrong default.  Inspects only the head constructor (no
-    recursion), so it is defined before [gprint]. *)
+    ([EUn]/[EBn], which bind looser than a postfix operator); FALSE for every atom / postfix form.  The
+    SINGLE source of truth for postfix-operand parenthesisation ([gprint]/[gparen]/[gtokens]/[gtparen]).
+    EXHAUSTIVE on purpose — NO [_] catch-all: the only UNSAFE direction is bare-by-default, so a new
+    constructor makes this non-exhaustive and FAILS THE BUILD until its precedence is declared here.
+    Inspects only the head constructor, so it is defined before [gprint]. *)
 Definition op_needs_paren (e0 : GExpr) : bool :=
   match e0 with
   | EUn _ _ | EBn _ _ _ => true
@@ -1308,9 +1263,8 @@ Fixpoint gprint (ctx : nat) (e : GExpr) {struct e} : string :=
   | EStr s => print_string_lit s   (* STRING literal: the verified escaping printer (its round-trip is [esc_string_roundtrip_opt]) *)
   | EHex zc => print_hex (proj1_sig zc)   (* HEX literal: the verified [0x]-hex printer (round-trip [print_parse_hex], non-negative by [HexZ]) *)
   | EUn o e =>
-      (* [unop_text o] then the operand, wrapped iff [unop_paren o e] (UNeg always; the other four iff the
-         operand is NOT a leaf atom).  A leaf operand prints BARE — the minimal [^x]; everything else is
-         parenthesised (lexer-merge + parse-reassociation safe).  See [unop_needs_paren]/[unop_paren]. *)
+      (* [unop_text o] then the operand, wrapped iff [unop_paren o e]; a leaf operand prints BARE.
+         See [unop_needs_paren]/[unop_paren]. *)
       (unop_text o ++ (if unop_paren o e then ("(" ++ gprint 0 e ++ ")")%string else gprint 0 e))%string
   | EBn o l r =>
       let p := binop_prec o in
@@ -1387,8 +1341,7 @@ Definition gprint_pairs (kvs : list (GExpr * GExpr)) : string :=
     [gprint_ESel]/[gprint_EIndex] re-fold the inlined [gprint] cases onto it. *)
 Definition gparen (e0 : GExpr) : string :=
   if op_needs_paren e0 then ("(" ++ gprint 0 e0 ++ ")")%string else gprint 0 e0.
-(** [gprint]'s EUn case as a rewrite: [op] then the operand, wrapped iff [unop_paren o e0].  (Replaces the
-    old uniformly-parenthesised [gprint_EUn_pre]; the printer is now MINIMAL for leaf operands.) *)
+(** [gprint]'s EUn case as a rewrite: [op] then the operand, wrapped iff [unop_paren o e0]. *)
 Lemma gprint_EUn : forall ctx o e0,
   gprint ctx (EUn o e0) = (unop_text o ++ (if unop_paren o e0 then ("(" ++ gprint 0 e0 ++ ")")%string else gprint 0 e0))%string.
 Proof. reflexivity. Qed.
@@ -1656,10 +1609,8 @@ Definition parse (toks : list Token) : option (GExpr * list Token) := parse_expr
 Definition parse_str (s : string) : option (GExpr * list Token) :=
   match lex s with Some toks => parse toks | None => None end.
 
-(** END-TO-END round-trip by example: [parse_str (gprint 0 e) = Some (e, [])] — the printed AST lexes and
-    parses back to itself.  (The GENERAL theorem [parse_print_roundtrip : forall e, parse_str (gprint 0 e) =
-    Some (e, nil)] is PROVEN below — via [gtokens_lex] (lexer side) + [gtokens_parse] (parser side); these
-    examples just illustrate specific shapes.) *)
+(** END-TO-END round-trip examples: [parse_str (gprint 0 e) = Some (e, [])] — the printed AST lexes and
+    parses back to itself.  (The GENERAL theorem [parse_print_roundtrip] is PROVEN below.) *)
 Notation EX a := (EId (exist (fun s : string => go_ident s = true) a eq_refl)) (only parsing).
 (* parse_str inherits the fail-closed rejection (lex feeds parse): a malformed escape never reaches the
    parser — [parse_str] returns [None] (cf. the [lex_bad_*] negative examples). *)
@@ -1707,9 +1658,8 @@ Fixpoint gtokens (ctx : nat) (e : GExpr) : list Token :=
   | EInt z => TInt z :: nil
   | EStr s => TStr s :: nil   (* mirrors [gprint]'s EStr: a string literal lexes to its single [TStr] token *)
   | EHex zc => THex zc :: nil   (* mirrors [gprint]'s EHex: a hex literal lexes to its single [THex] token *)
-  | EUn o e =>    (* MIRRORS [gprint]'s EUn (lock-step): [prefix_token o] then the operand tokens, wrapped in
-                     [TLP … TRP] iff [unop_paren o e] (UNeg always; the four others iff the operand is not a
-                     leaf atom).  A leaf operand is BARE — just [prefix_token o :: gtokens 0 e]. *)
+  | EUn o e =>    (* MIRRORS [gprint]'s EUn (lock-step): [prefix_token o] then the operand tokens,
+                     wrapped in [TLP … TRP] iff [unop_paren o e]. *)
       prefix_token o :: (if unop_paren o e then TLP :: (gtokens 0 e ++ TRP :: nil) else gtokens 0 e)
   | EBn o l r =>
       let p := binop_prec o in
@@ -1843,10 +1793,8 @@ Lemma infix_op_token : forall o, infix_op (op_token o) = Some o.
 Proof. destruct o; reflexivity. Qed.
 
 
-(** ---- M3b GROUNDWORK: lexer fuel MONOTONICITY ---- adding fuel never changes a [Some] answer.  Needed to
-    bridge the fuel when composing [lex] over a concatenation (the per-token decrement makes [S (length s)]
-    exact, so a sub-lex with more-than-enough fuel still agrees).  Induction on [f]; each char-step recurses
-    with the same discriminants, so the [Some] result is preserved by the IH on the tail. *)
+(** ---- LEXER FUEL MONOTONICITY ---- adding fuel never changes a [Some] answer; bridges the fuel when
+    composing [lex] over a concatenation. *)
 Lemma lex_aux_mono : forall f s ts f',
   lex_aux f s = Some ts -> f <= f' -> lex_aux f' s = Some ts.
 Proof.
@@ -1896,7 +1844,7 @@ Proof.
     rewrite (IH _ _ _ E Hle'); exact H. }
 Qed.
 
-(** ---- M3b: the LEXER ROUND-TRIP groundwork ---- the seam predicate + the scanner-splitting lemmas.
+(** ---- LEXER ROUND-TRIP groundwork ---- the seam predicate + the scanner-splitting lemmas.
     [clean_start rest] = the next char cannot EXTEND an identifier/number token (it is not an id-char), so
     a token ending just before [rest] is complete — exactly the boundary [gprint] emits between subtrees
     (a space, a ')', or end-of-string).  This is the two-sided seam condition the round-trip needs. *)
@@ -2096,8 +2044,7 @@ Proof.
 Qed.
 
 (** The lexer's DECIMAL path: a decimal head [c] whose FOLLOWING char is not 'x' ([ch 120]) takes the
-    [scan_digits] branch exactly as before the [0x]-hex branch was added.  Isolates the new hex-guard
-    reduction so the decimal seam lemmas need only supply "the 2nd char is not 'x'". *)
+    [scan_digits] branch; the decimal seam lemmas need only supply "the 2nd char is not 'x'". *)
 Lemma lex_dec_branch : forall c s' f,
   is_dec_char c = true ->
   match s' with String c1 _ => Ascii.eqb c1 (ch 120) = false | EmptyString => True end ->
@@ -2280,11 +2227,9 @@ Proof.
   cbn. rewrite (lex_aux_mono _ _ _ _ HX) by (cbn in Hfuel; lia). reflexivity.
 Qed.
 
-(** KEYWORD SEAM: the printed prefix "return " lexes to the reserved [TReturn] token (scan_id reads the
-    maximal idc run "return", [lex_ident] classifies it as the keyword, then the trailing space is skipped) —
-    so the rest [X] lexes unchanged after it.  This is the [GsReturnVal] analogue of [lex_binop_app]; it is
-    what makes a [return e] statement DISJOINT from any expression statement at the lexer level (the leading
-    [TReturn] is rejected by the expression parser). *)
+(** KEYWORD SEAM: the printed prefix "return " lexes to the reserved [TReturn] token, so the rest [X]
+    lexes unchanged after it.  This makes a [return e] statement DISJOINT from any expression statement at
+    the lexer level (a leading [TReturn] is rejected by the expression parser). *)
 Lemma lex_return_app : forall X fuel tX,
   lex_aux (S (String.length X)) X = Some tX ->
   S (String.length ("return " ++ X)) <= fuel ->
@@ -3155,12 +3100,12 @@ Proof.
 Qed.
 
 (** ==================================================================================================
-    ---- THE PARSER ROUND-TRIP (M3c) ----  [parse_expr] inverts [gtokens]: the canonical token list of
+    ---- THE PARSER ROUND-TRIP ----  [parse_expr] inverts [gtokens]: the canonical token list of
     [e] (printed at any context [ctx >= k]) parses back to [e], leaving any clean tail [rest] untouched.
     Proved by the classic PRECEDENCE-CLIMBING decomposition — peel [e]'s left spine into a [base] primary
     and a list of [(op, right)] pairs ([lspine]); [parse_primary] reads the base, [parse_climb] folds the
     spine ([parse_climb_pairs]).  Composed with [gtokens_lex] this gives the end-to-end
-    [parse_str (gprint 0 e) = Some (e, [])].  (The clean-AST analog of the deleted string round-trip.)
+    [parse_str (gprint 0 e) = Some (e, [])].
     ================================================================================================== *)
 
 (** node count — the parse fuel budget ([3*esize e] partitions exactly across the spine; see [lspine_fuel3]). *)
@@ -3178,7 +3123,7 @@ Fixpoint esize (e : GExpr) : nat :=
   | ECall e args => S (esize e + (fix esa (l : list GExpr) : nat :=
                                     match l with nil => 0 | a :: r => S (esize a + esa r) end) args)
       (* args contribute [sum (esize a) + length args] — one unit per arg covers its printed comma, keeping
-         esize <= token length while [3*esize] still covers the MAX-based parse_args fuel (see ECall plan). *)
+         esize <= token length while [3*esize] still covers the MAX-based parse_args fuel. *)
   | EAssert e T => S (S (esize e + tsize T))   (* +2: the TDot + TLP/TRP around the type (the GoTy child) *)
   | EConv c e => S (S (esize e + tsize (convty_ty c)))   (* +2: the TLP/TRP around the operand; type via tsize *)
   | ESliceLit t es => S (S (tsize t + (fix esa (l : list GExpr) : nat :=
@@ -3525,8 +3470,7 @@ Proof.
   destruct t; cbn [is_postfix_start] in H; solve [ reflexivity | discriminate H ].
 Qed.
 
-(** The per-tree round-trip property, carried as a hypothesis for sub-operands inside the spine fold.
-    Budget [3*esize e + 2 < F]: the [+2] is the slack a wrapped (parenthesised) [e] needs. *)
+(** The per-tree round-trip property, carried as a hypothesis for sub-operands inside the spine fold. *)
 Definition Pexpr (e : GExpr) : Prop :=
   forall k ctx rest F, k <= ctx -> tail_ok k rest -> 3 * esize e + 3 < F ->
     parse_expr F k (gtokens ctx e ++ rest)%list = Some (e, rest).
@@ -3806,10 +3750,6 @@ Proof.
   - (* EHex hz *) cbn in H. inversion H; subst. cbn [esize pairs_fuel]. lia.
 Qed.
 
-(** [parse_primary] reads a unary node: each prints [op] then its operand, WRAPPED ([op(x)]) iff
-    [unop_paren o e] — a non-leaf operand or [UNeg] — else BARE (the minimal [^x] for a leaf atom).  The four
-    non-neg ops dispatch on their prefix token; [UNeg] on the two-token [TMinus :: TLP] prefix.  Operand via
-    [Pexpr] (the outer strong IH). *)
 (** a PRIMARY is its atom when the postfix loop consumes nothing (or folds a chain via [parse_postfix_pairs]). *)
 Lemma parse_primary_of_atom : forall f toks a r,
   parse_atom (S f) toks = Some (a, r) ->
@@ -3818,11 +3758,10 @@ Lemma parse_primary_of_atom : forall f toks a r,
 Proof. intros f toks a r H Hr. rewrite parse_primary_S, H. apply parse_postfix_stop; exact Hr. Qed.
 
 (** [parse_atom] reads a unary node.  PAREN shape ([op]([gprint e0]), for UNeg or a non-leaf operand): the
-    operand is parsed inside the parens via [Pexpr] (the strong IH), as before.  BARE shape ([op][gprint e0],
-    for a LEAF operand): [op] dispatches to [parse_atom] on the operand, which (being a leaf) is read by one
-    [parse_atom_S] step.  Fuel keyed on [esize (EUn o e0)] (the [if]-defined node size), so the budget
-    auto-scales between the two shapes; the [+2] slack lets [parse_primary_unary] supply it after its
-    [parse_primary_of_atom] step. *)
+    operand is parsed inside the parens via [Pexpr] (the strong IH).  BARE shape ([op][gprint e0], for a
+    LEAF operand): [op] dispatches to [parse_atom] on the operand, read by one [parse_atom_S] step.  Fuel
+    keyed on [esize (EUn o e0)], so the budget auto-scales between the two shapes; the [+2] slack lets
+    [parse_primary_unary] supply it after its [parse_primary_of_atom] step. *)
 Lemma parse_atom_unary : forall o e0 ctx TAIL F,
   Pexpr e0 -> 3 * esize (EUn o e0) < F + 2 ->
   parse_atom F (gtokens ctx (EUn o e0) ++ TAIL)%list = Some (EUn o e0, TAIL).
@@ -3989,8 +3928,8 @@ Proof.
 Qed.
 
 (** [parse_args] consumes fuel MAX-wise (each arg parses at a fresh fuel, NOT a running sum), so the arg-list
-    fuel is a [Nat.max] recurrence — this is what keeps it within the [3*esize] budget (a sum measure would
-    exceed it; see the ECall plan).  [af_le] bounds it by [3*esa + 2]. *)
+    fuel is a [Nat.max] recurrence — this keeps it within the [3*esize] budget.  [af_le] bounds it by
+    [3*esa + 2]. *)
 Fixpoint af (args : list GExpr) : nat :=
   match args with nil => 1 | a :: r => S (Nat.max (3 * esize a + 4) (af r)) end.
 Lemma af_le : forall args, af args <= 3 * esa args + 2.
@@ -4855,13 +4794,12 @@ Proof.
 Qed.
 
 (** ==================================================================================================
-    ---- M5: TOKEN-LEVEL TYPE LAYER ----  a Go type as a TOKEN list ([gttokens_ty], mirroring [print_ty]'s
-    surface) + a recursive-descent token parser ([parse_gty]) + the round-trip [parse_gty_roundtrip].  The
-    gateway for type-form conversions / composite literals / type assertions.  Scalars and the [chan]/[map]
-    heads lex as [TId] (the lexer keys only [func]/[return]); [*]→[TStar], [[]]→[TLB;TRB], map's brackets →
-    [TLB]/[TRB].  Self-contained: additive over [GoTy], no [GExpr] dependency.  [GoTy] has no list child, so
-    ordinary induction suffices and a SUM-based [tsize] fuel works (a map's two children parse at the same
-    fuel, sum >= max).  ================================================================================== *)
+    ---- TOKEN-LEVEL TYPE LAYER ----  a Go type as a TOKEN list ([gttokens_ty], mirroring [print_ty]'s
+    surface) + a recursive-descent token parser ([parse_gty]) + the round-trip [parse_gty_roundtrip] —
+    the gateway for type-form conversions / composite literals / type assertions.  Self-contained:
+    additive over [GoTy], no [GExpr] dependency.  [GoTy] has no list child, so ordinary induction
+    suffices and a SUM-based [tsize] fuel works (a map's two children parse at the same fuel,
+    sum >= max).  ================================================================================== *)
 
 
 (** composed: the printed type lexes to its token list. *)
@@ -4883,18 +4821,16 @@ Proof.
 Qed.
 
 
-(** ---- M7 GROUNDWORK: the CONVERSION type-form layer ----  A type-form conversion [convform(x)] (e.g.
-    [[]byte(s)], [chan int(c)], [map[string]int(m)]) needs a conversion target that is SYNTACTICALLY
-    unambiguous at expression-atom position — its printed form must NOT begin with an identifier, or [T(x)]
-    would be the call [ECall (EId T) [x]] instead.  [ConvTy] is exactly that subset of [GoTy]: the three
-    bracket/keyword-led composite heads ([ []T / chan T / map[K]V ]).  A dedicated 3-constructor inductive
-    (NOT a [{T | conv_ok T}] subset) makes the restriction STRUCTURAL — illegal states unrepresentable, ZERO
-    proof obligations — and [convty_ty] embeds it into [GoTy] so the M5 type printer/lexer/parser are reused
-    VERBATIM.  This is the conversion-type layer BEHIND the [EConv] expression form (its
-    round-trip is gated as [parse_convty_roundtrip] / [parse_conv_print]), exactly as [parse_gty] backs the
-    [EAssert] type assertion (M6).  (Pointer [*T] is excluded: a bare [*T(x)] is
-    ambiguous with a deref and would need parentheses around the pointer type; primitives and named types are
-    identifier-led, so they ARE the call form [ECall (EId T) [x]] already.) *)
+(** ---- The CONVERSION type-form layer ----  A type-form conversion [convform(x)] needs a target that is
+    SYNTACTICALLY unambiguous at expression-atom position — its printed form must NOT begin with an
+    identifier, or [T(x)] would be the call [ECall (EId T) [x]] instead.  [ConvTy] is exactly that subset
+    of [GoTy]: the three bracket/keyword-led composite heads ([]T / chan T / map[K]V).  A dedicated
+    3-constructor inductive makes the restriction STRUCTURAL — illegal states unrepresentable, ZERO proof
+    obligations — and [convty_ty] embeds it into [GoTy] so the type printer/lexer/parser are reused
+    VERBATIM.  This is the conversion-type layer BEHIND the [EConv] expression form (round-trip:
+    [parse_convty_roundtrip] / [parse_conv_print]).  (Pointer [*T] is excluded: a bare [*T(x)] is
+    ambiguous with a deref; primitives and named types are identifier-led, so they ARE the call form
+    already.) *)
 Definition conv_print  (c : ConvTy) : string     := print_ty (convty_ty c).
 Definition conv_tokens (c : ConvTy) : list Token := gttokens_ty (convty_ty c).
 Definition conv_size   (c : ConvTy) : nat        := tsize (convty_ty c).
@@ -4931,12 +4867,9 @@ Proof.
   unfold conv_size, conv_tokens. pose proof (tsize_le_len (convty_ty c)). rewrite app_nil_r. lia.
 Qed.
 
-(** FAITHFULNESS — the type printer is INJECTIVE, derived from the SINGLE (token-level) type round-trip
-    [parse_gty_print_ty]: distinct [GoTy]s print to distinct strings (no [int64]/[bool],
-    [*int64]/[[]int64], [map[int]int]/[map[int8]int], or two distinct named types ever conflated; a keyword-
-    prefixed name [int8x] never confused with the keyword [int8]; a keyword [int] never a nominal name).  The
-    old string-level prefix parser [parse_ty]/[parse_print_ty] is GONE — its only consumer was this corollary,
-    and [GoPrint]'s token parser proves the same round-trip, so keeping both was a duplicate authority. *)
+(** FAITHFULNESS — the type printer is INJECTIVE, derived from the token-level round-trip
+    [parse_gty_print_ty]: distinct [GoTy]s print to distinct strings (a keyword-prefixed name [int8x] is
+    never confused with the keyword [int8]; a keyword [int] is never a nominal name). *)
 Theorem print_ty_inj : forall t1 t2, print_ty t1 = print_ty t2 -> t1 = t2.
 Proof.
   intros t1 t2 H.
@@ -4945,12 +4878,11 @@ Proof.
   rewrite <- H in Q2. rewrite Q1 in Q2. congruence.
 Qed.
 
-(** ---- PROGRAM PRINTER ---- prints a [GoAst.Program] to Go source: `package <pkg>` then `func main()` whose
-    body is the program's [GoStmt] list, ONE tab-indented statement per line (gofmt's layout).  An expression
-    statement reuses the machine-checked [gprint]; the package name is a validated [Ident] (no raw text).  An
-    EMPTY body prints the same `func main() {\n}` as the pre-Phase-3 stub (so the empty-program bytes are
-    unchanged).  GoEmit's blessed [emit_supported] is exactly [print_program], gated by a [SupportedProgram]
-    certificate. *)
+(** ---- PROGRAM PRINTER ---- prints a [GoAst.Program] to Go source: `package <pkg>` then `func main()`
+    whose body is the program's [GoStmt] list, ONE tab-indented statement per line (gofmt's layout).  An
+    expression statement reuses the machine-checked [gprint]; the package name is a validated [Ident] (no
+    raw text).  GoEmit's blessed [emit_supported] is exactly [print_program], gated by a
+    [SupportedProgram] certificate. *)
 Definition go_nl : string := String (Ascii.ascii_of_nat 10) EmptyString.
 Definition go_tab : string := String (Ascii.ascii_of_nat 9) EmptyString.
 Definition print_stmt (s : GoStmt) : string :=
@@ -5003,8 +4935,7 @@ Qed.
 
 (** A printed [return e] (the [GsReturnVal] text "return " ++ gprint 0 e) does NOT parse back: it LEXES to a
     leading [TReturn] ([lex_return_app] over [gtokens_lex]), which [parse] rejects.  So no [gprint] output can
-    equal "return " ++ gprint 0 e (it would make the round-trip [Some] equal this [None]) — the [GsExprStmt] /
-    [GsReturnVal] disjointness, the [GsReturnVal] analogue of [gprint_neq_return]. *)
+    equal "return " ++ gprint 0 e — the [GsExprStmt] / [GsReturnVal] disjointness. *)
 Lemma parse_str_return_gprint : forall e, parse_str ("return " ++ gprint 0 e)%string = None.
 Proof.
   intro e. unfold parse_str, lex.
@@ -5020,11 +4951,10 @@ Proof.
 Qed.
 
 (** A printed [_ = e] (the [GsBlankAssign] text "_ = " ++ X) does NOT parse back: a LONE '=' fails to lex
-    ([lex_op] yields [None] unless the next char is '=', GoPrint.v:692), so [lex ("_ = " ++ X) = None] and
-    thus [parse_str ("_ = " ++ X) = None] outright (cleaner than the [TReturn] case, which lexes then the
-    PARSER rejects).  Hence no [gprint] output equals "_ = " ++ gprint 0 e — the [GsExprStmt] / [GsBlankAssign]
-    disjointness.  (The whole reject is decided by the fixed "_ = " prefix, so [vm_compute] closes it for any
-    tail [X].) *)
+    ([lex_op] yields [None] unless the next char is '='), so [lex ("_ = " ++ X) = None] and thus
+    [parse_str ("_ = " ++ X) = None].  Hence no [gprint] output equals "_ = " ++ gprint 0 e — the
+    [GsExprStmt] / [GsBlankAssign] disjointness.  (The reject is decided by the fixed "_ = " prefix, so
+    [vm_compute] closes it for any tail [X].) *)
 Lemma parse_str_blank_None : forall X, parse_str ("_ = " ++ X)%string = None.
 Proof. intro X. vm_compute. reflexivity. Qed.
 Lemma gprint_neq_blank : forall e1 e2, gprint 0 e2 <> ("_ = " ++ gprint 0 e1)%string.
@@ -5033,12 +4963,10 @@ Proof.
   rewrite parse_str_blank_None in R. discriminate R.
 Qed.
 
-(** A printed [defer <call>] (the [GsDefer] text "defer " ++ X) does NOT parse back: "defer" is a Go RESERVED
-    WORD ([go_keyword]), so the lexer's identifier finalizer [lex_ident "defer" = None] (it is not [func]/
-    [return]/[chan]/[map] and [go_ident "defer" = false]) FAILS the whole lex — [lex ("defer " ++ X) = None]
-    regardless of the suffix [X], as the identifier is finalized at the following space.  Hence no [gprint]
-    output equals "defer " ++ gprint 0 e — the [GsExprStmt] / [GsDefer] disjointness (the [GsDefer] analogue of
-    [gprint_neq_return_val]). *)
+(** A printed [defer <call>] (the [GsDefer] text "defer " ++ X) does NOT parse back: "defer" is a Go
+    RESERVED WORD, so [lex_ident "defer" = None] FAILS the whole lex — [lex ("defer " ++ X) = None] for
+    any suffix [X].  Hence no [gprint] output equals "defer " ++ gprint 0 e — the [GsExprStmt] / [GsDefer]
+    disjointness. *)
 Lemma scan_id_defer : forall X, scan_id ("defer " ++ X)%string = ("defer"%string, (" " ++ X)%string).
 Proof. intro X. reflexivity. Qed.
 Lemma lex_ident_defer : lex_ident "defer" = None.
@@ -5054,9 +4982,8 @@ Proof.
 Qed.
 
 (** A printed [x := e] (the [GsShortDecl] text) does NOT parse back as an expression: the ident LEXES
-    ([lex_ident_go]) and ':' lexes ([TColon], the map/slice separator), but the following LONE '='
-    fails [lex_op] (which accepts only "=="), so the whole lex is [None] — the [GsExprStmt] /
-    [GsShortDecl] disjointness, by the same round-trip-contradiction pattern as [gprint_neq_blank]. *)
+    ([lex_ident_go]) and ':' lexes ([TColon]), but the following LONE '=' fails [lex_op] (which accepts
+    only "=="), so the whole lex is [None] — the [GsExprStmt] / [GsShortDecl] disjointness. *)
 Lemma lex_aux_defassign_tail : forall f X, lex_aux (S (S (S f))) (" := " ++ X)%string = None.
 Proof. reflexivity. Qed.
 Lemma lex_aux_defassign_any : forall f X, 3 <= f -> lex_aux f (" := " ++ X)%string = None.
@@ -5130,16 +5057,10 @@ Proof.
   exact (idc_split a (proj1_sig x) r (" := " ++ g)%string Ha (ident_all_idc x) Cr eq_refl H).
 Qed.
 
-(** Statement-printer INJECTIVITY — the honest statement-level analogue of [gprint_inj]: distinct statements
-    print to distinct text.  A case-per-constructor-pair proof: expression statements lift from [gprint_inj];
-    the [GsExprStmt] cross cases close by [gprint_neq_return] / [gprint_neq_return_val] / [gprint_neq_blank] /
-    [gprint_neq_defer] / [gprint_neq_shortdecl]; the keyword/prefix-vs-keyword/prefix cases by string
-    [discriminate] (distinct leading bytes) or [sapp_inv_head] (a shared "return " / "_ = " / "defer " prefix
-    is injective); the [GsShortDecl] cross cases by [shortdecl_split] (the unique ident/rest split) — the
-    matching head is then a KEYWORD ("return"/"defer", contradicting the ident's [go_ident] proof), "_" with a
-    " = "-vs-" := " tail mismatch, or the diagonal's componentwise agreement ([ident_eq] + [gprint_inj]).
-    (The list-level / whole-[print_program] lift — via a "gprint emits no newline" delimiter argument — is
-    proved just below as [print_program_inj].) *)
+(** Statement-printer INJECTIVITY — distinct statements print to distinct text.  Case-per-constructor-
+    pair: the diagonal lifts from [gprint_inj]; cross cases close by the [gprint_neq_*] disjointness
+    lemmas, string [discriminate], [sapp_inv_head] on a shared prefix, or [shortdecl_split].  The
+    program-level lift is [print_program_inj] below. *)
 Lemma print_stmt_inj : forall s1 s2, print_stmt s1 = print_stmt s2 -> s1 = s2.
 Proof.
   intros [e1| |r1|b1|d1|x1 v1] [e2| |r2|b2|d2|x2 v2] H; simpl in H.
@@ -5213,13 +5134,11 @@ Proof.
 Qed.
 
 (** ============================================================================
-    PROGRAM-PRINTER INJECTIVITY — [print_program] is INJECTIVE: distinct programs emit distinct Go source
-    (the program-level analogue of [gprint_inj]).  The crux: every expression the body prints is
-    NEWLINE-FREE ([no_nl_gprint]), so the body's '\n'-delimited statement lines (and the package name's
-    terminating '\n') are recoverable — the SAME delimiter-split technique [split_p] uses for the float-hex
-    'p'.  SCOPE (kept narrow on purpose): this is print INJECTIVITY only — NOT a parse round-trip and NOT a
-    proof that the emitted text is accepted by a Go grammar.  Statement re-parsing (ASI/semicolons) and Go
-    syntax acceptance are separate, deferred. *)
+    PROGRAM-PRINTER INJECTIVITY — [print_program] is INJECTIVE: distinct programs emit distinct Go source.
+    Crux: every printed expression is NEWLINE-FREE ([no_nl_gprint]), so the body's '\n'-delimited statement
+    lines (and the package name's terminating '\n') are recoverable.  SCOPE: print INJECTIVITY only — NOT a
+    parse round-trip and NOT a proof that the emitted text is accepted by a Go grammar; statement
+    re-parsing (ASI/semicolons) and Go syntax acceptance are separate, deferred. *)
 Definition nlc : ascii := ascii_of_nat 10.
 Definition is_nl (c : ascii) : bool := Ascii.eqb c nlc.
 Fixpoint no_nl (s : string) : Prop :=

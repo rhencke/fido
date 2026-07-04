@@ -1,6 +1,4 @@
-(** Fido entry point.  (Sibling proof theory [concurrency.v] ties happens-before
-    to actual execution traces — [hbt_irrefl], and [reachable_wf]/[reachable_hb_strict]
-    which earn it from a concurrent operational semantics; it emits no Go.) *)
+(** Fido entry point.  ([concurrency.v] is proof-only trace/happens-before theory; it emits no Go.) *)
 
 From Fido Require Import preamble.
 From Fido Require Import GoAst GoSafe GoEmit.  (* AST-first certified-emission spine (ARCHITECTURE.md) *)
@@ -11,13 +9,9 @@ From Stdlib Require Import StrictProp.        (* [squash]: seal the [ComparableW
 Require Import Coq.Lists.List.
 Import ListNotations.
 
-(** ★AST-FIRST SPINE (charter Phase-3, ARCHITECTURE.md §7): build a Go program as a STRUCTURED
-    [GoAst.Program] — now with a REAL [func main] body (an expression statement [println(1)], built as a
-    verified [GExpr]/[GoStmt] and printed by the machine-checked [gprint]) — and emit it ONLY through the
-    proof-gated [GoEmit] path, never a raw [print_program].  The [GoSafe.SupportedProgram] certificate is
-    REQUIRED to build an [EmittableProgram], so an unsupported (e.g. non-`main`) package could not be emitted.
-    This does NOT feed the legacy plugin extraction (`main_effect` / main.go) — that path stays
-    trusted/transitional until GoEmit subsumes it. *)
+(** ★AST-FIRST SPINE (ARCHITECTURE.md §7): a structured [GoAst.Program] emitted ONLY through the
+    proof-gated [GoEmit] path — a [GoSafe.SupportedProgram] certificate is REQUIRED to build an
+    [EmittableProgram].  Does NOT feed the legacy plugin extraction ([main_effect] / main.go). *)
 Definition spine_prog : GoAst.Program :=
   GoAst.mkProgram (GoAst.mkIdent "main"%string eq_refl)
                   [GoAst.GsExprStmt (GoAst.ECall (GoAst.EId (GoAst.mkIdent "println"%string eq_refl))
@@ -28,33 +22,25 @@ Definition spine_cert : GoEmit.EmittableProgram := GoEmit.mkEmittable spine_prog
 Definition spine_emit : string := GoEmit.emit_supported spine_cert.
 
 (* Float literals parse in [go64_scope] (decimal → the binary64 [spec_float]); integer literals are
-   type-directed (nat field indices / GoInt via [int_lit] / [%i64] / [%u64]).  No int63 scope — the
-   [PrimInt63]/[Sint63]/[PrimFloat] substrate is gone. *)
+   type-directed (nat field indices / GoInt via [int_lit] / [%i64] / [%u64]). *)
 Open Scope go64_scope.
 
-(** [add]/[sub] on the platform [GoInt] (Go's [int]) — index/value arithmetic (loop
-    counters, computed slice indices like [sub 0 1]).  [GoInt] is now the FAITHFUL
-    [Z]-carried record, so these wrap at the true [2^63] (via [int_add]/
-    [int_sub]) — no longer the bounded [Sint63] carrier.  Full-width int64 VALUE arithmetic
-    has its own [GoI64] versions below. *)
+(** [add]/[sub] on the platform [GoInt] (Go's [int]): [Z]-carried, wrapping at the true
+    [2^63] via [int_add]/[int_sub].  Full-width int64 VALUE arithmetic has its own [GoI64]
+    versions below. *)
 Definition add (n m : GoInt) : GoInt := int_add n m.
 Definition sub (n m : GoInt) : GoInt := int_sub n m.
 
-(** WHY the plugin REJECTS [Nat.sub] (Coq nat → Go uint): nat subtraction is
-    TRUNCATED monus, so [3 - 5 = 0] — lowering it to Go uint's WRAPPING [-]
-    ([3 - 5 = 2^64-2]) would be silently wrong.  Machine-checked, so the rejection
-    rests on a fact, not a hunch. *)
+(** Invariant: the plugin REJECTS [Nat.sub] (Coq nat → Go uint) — nat subtraction is
+    truncated monus ([3 - 5 = 0]); Go uint's wrapping [-] would be silently wrong. *)
 Example nat_sub_is_truncated : Nat.sub 3 5 = 0%nat.
 Proof. reflexivity. Qed.
 
-(** OVERFLOW-SAFE ARITHMETIC AT THE FULL WIDTH (A4.3: the int model migrated off the
-    bounded [Sint63] onto the faithful [GoI64]).  Fido's signature property — "this
-    arithmetic does not overflow" as a Rocq THEOREM — now holds on the TRUE int64, not
-    just [±2^62].  Each guarded op DEMANDS a proof the exact result is representable
-    ([in_i64 (exact) = true], dischargeable by [eq_refl] for concrete operands — the
-    same shape as [div_nz], and Go's untyped-constant-overflow analog), then the
-    wrapping machine op is EXACT (no wrap), by the [*_no_overflow_exact] theorems.  Raw
-    [i64_add]/[i64_sub]/[i64_mul] stay the opt-in WRAPPING forms. *)
+(** OVERFLOW-SAFE ARITHMETIC AT FULL int64 WIDTH.  Each guarded op DEMANDS a proof the
+    exact result is representable ([in_i64 (exact) = true], dischargeable by [eq_refl]
+    for concrete operands), then the wrapping machine op is EXACT (no wrap), by the
+    [*_no_overflow_exact] theorems.  Raw [i64_add]/[i64_sub]/[i64_mul] stay the opt-in
+    WRAPPING forms. *)
 Theorem i64_sub_no_overflow_exact : forall a b : GoI64,
   in_i64 (i64raw a - i64raw b)%Z = true -> i64raw (i64_sub a b) = (i64raw a - i64raw b)%Z.
 Proof.
@@ -93,14 +79,10 @@ Definition overflow_safe_demo : IO unit :=
           ; any (i64_mul_nz (1000)%i64 (1000)%i64 eq_refl) ].
   (* prints: 3000000000000 1000000 — full-width GoI64, proven no wrap *)
 
-(** PURE-FUNCTION TAIL-MATCH LOWERING (value-position [if], tail case).
-    Go has no conditional EXPRESSION, so an [if] in value position cannot be inlined
-    as one.  But when the [if]/[match] is the whole function BODY (tail position),
-    it lowers to a Go [if]/[else] whose arms each [return] — the idiomatic form.
-    [i64_abs] is the canonical demo: Go has no integer [abs] builtin, so it is
-    written by hand with exactly such an [if].  Faithful across the FULL int64
-    range, INCLUDING the [MININT] corner ([|MININT| = MININT], the [0 - a]
-    two's-complement overflow Go also exhibits) — machine-checked below. *)
+(** PURE-FUNCTION TAIL-MATCH LOWERING: an [if]/[match] that is the whole function body
+    lowers to a Go [if]/[else] whose arms each [return].  [i64_abs] is faithful across
+    the FULL int64 range, INCLUDING [|MININT| = MININT] (two's-complement wrap, as in Go)
+    — machine-checked below. *)
 Example i64_abs_pos    : i64_abs (7)%i64 = (7)%i64.   Proof. reflexivity. Qed.
 Example i64_abs_neg    : i64_abs (-7)%i64 = (7)%i64.  Proof. reflexivity. Qed.
 Example i64_abs_minint :
@@ -123,50 +105,40 @@ Definition neg_op_demo : IO unit :=
   println [ any (i64_neg (5)%i64)                       (* -5 *)
           ; any (i64_neg (i64_sub (0)%i64 (7)%i64)) ].  (* -(0 - 7) = 7 *)
 
-(** A RUNTIME negation in binary-operator operand position.  [i64_add] is a [binop_of] op, so the plugin
-    prints it through [pp_prec]; the operand [i64_neg a] — a runtime PARAMETER, not a constant — prints as the
-    PARENTHESISED prefix [-(a)].  A CONSTANT operand instead takes the folding IIFE (see [neg_op_demo]); only
-    a runtime operand (here the parameter [a]) is the bare prefix [-(a)]. *)
+(** Runtime negation in binop-operand position prints as the parenthesised prefix [-(a)];
+    a CONSTANT operand instead takes the folding IIFE (see [neg_op_demo]). *)
 Definition uneg_binop_demo (a b : GoI64) : IO unit :=
   println [ any (i64_add (i64_neg a) b)            (* -(a) + b *)
           ; any (i64_add b (i64_neg a)) ].         (* b + -(a) *)
 
-(** A binary operator over two RUNTIME LOCALS [a OP b], printed through the VERIFIED [GoPrint] printer
-    ([Printer.gprint], machine-checked by [parse_print_roundtrip] / [gprint_inj]) rather than the trusted
-    OCaml [pp_prec].  Both operands are [MLrel], so the typed-arith force-wrapper cannot fire — the bytes are
-    byte-identical to [pp_prec] but come from the verified node printer (go.ml [goexpr_bridge]). *)
+(** A binop over two RUNTIME LOCALS [a OP b]: printed by the VERIFIED [Printer.gprint]
+    (via go.ml [goexpr_bridge]), byte-identical to the trusted [pp_prec]. *)
 Definition front_binop_demo (a b : GoI64) : IO unit :=
   println [ any (i64_add a b)          (* a + b  *)
           ; any (i64_mul a b) ].       (* a * b  *)
 
-(** A binop TREE over runtime locals ([a*b + c], [(a+b)*c]) — [Printer.gprint] bridges nested binops in full
-    (parentheses and all), not just one operator.  All leaves are [MLrel]; byte-identical to [pp_prec]. *)
+(** A binop TREE over runtime locals ([a*b + c], [(a+b)*c]) — [Printer.gprint] bridges
+    nested binops in full (parentheses and all); byte-identical to [pp_prec]. *)
 Definition front_nested_demo (a b c : GoI64) : IO unit :=
   println [ any (i64_add (i64_mul a b) c)          (* a*b + c   *)
           ; any (i64_mul (i64_add a b) c) ].       (* (a+b) * c *)
 
-(** A platform-int ([GoInt]) LITERAL operand: [int_lit] prints BARE (its renderer IS [Printer.print_Z]), so
-    [Printer.gprint] bridges integer-literal leaves via [EBn]/[EId]/[EInt] — [a + 5], [a + 5 + a]
-    byte-identical by construction. *)
+(** A platform-int ([GoInt]) LITERAL operand: [int_lit] prints BARE, so [Printer.gprint]
+    bridges integer-literal leaves — [a + 5], [a + 5 + a] byte-identical by construction. *)
 Definition front_lit_demo (a : GoInt) : IO unit :=
   println [ any (int_add a (int_lit 5 eq_refl))                (* a + 5     *)
           ; any (int_add (int_add a (int_lit 5 eq_refl)) a) ]. (* a + 5 + a *)
 
-(** An [i64] literal operand prints as the CONVERSION [int64(N)] — Go call syntax over a type name, so
-    [Printer.gprint] emits it as [ECall (EId "int64") [EInt N]] (identifier-led conversions ARE application
-    syntax — no special node).  [a + int64(5)] / [a * int64(3)] printed entirely by gprint, byte-identical. *)
+(** An [i64] literal operand prints as the CONVERSION [int64(N)]: [Printer.gprint] emits
+    [ECall (EId "int64") [EInt N]] (identifier-led conversions ARE application syntax). *)
 Definition front_conv_demo (a : GoI64) : IO unit :=
   println [ any (i64_add a (5)%i64)          (* a + int64(5) *)
           ; any (i64_mul a (3)%i64) ].       (* a * int64(3) *)
 
-(** Full-width int64 <-> uint64 CONVERSION (Go [uint64(x)] / [int64(x)]): a
-    two's-complement REINTERPRET of the 64-bit pattern, EXACT (no rounding) --
-    [-1 <-> 2^64-1], in-range values unchanged, round-trip = identity.  All
-    machine-checked below; faithful by [wrap64_wrapU64] (the two normalisers agree
-    mod 2^64).  Lowers to a small NAMED function
-    [func U64_of_i64(a int64) uint64 { return uint64(a) }] so the cast applies to the
-    parameter VARIABLE -- Go rejects [uint64(-1)] on an untyped CONSTANT but accepts it
-    on an int64-typed value, so the demo's literals work directly. *)
+(** int64 <-> uint64 CONVERSION: a two's-complement REINTERPRET of the 64-bit pattern,
+    exact ([-1 <-> 2^64-1], round-trip = identity); faithful by [wrap64_wrapU64].
+    Lowers to a small NAMED function so the cast applies to a typed VARIABLE — Go
+    rejects [uint64(-1)] on an untyped constant. *)
 Example conv_u64_of_neg1 : u64_of_i64 (-1)%i64 = (18446744073709551615)%u64.
 Proof. vm_compute. reflexivity. Qed.
 Example conv_i64_of_max  : i64_of_u64 (18446744073709551615)%u64 = (-1)%i64.
@@ -179,9 +151,8 @@ Definition conv64_demo : IO unit :=
           ; any (i64_of_u64 (18446744073709551615)%u64)     (* int64(2^64-1) = -1 *)
           ; any (u64_of_i64 (255)%i64) ].                   (* uint64(255)   = 255 *)
 
-(** Direct [>] / [>=] / [!=] (completing Go's six comparison operators for
-    int64/uint64) — each lowers to the DIRECT Go operator, not a swapped encoding.
-    [u64_gtb] uses the UNSIGNED order ([2^64-1 > 1] is true). *)
+(** Direct [>] / [>=] / [!=] for int64/uint64 — each lowers to the DIRECT Go operator,
+    not a swapped encoding.  [u64_gtb] uses the UNSIGNED order. *)
 Example i64_gtb_t     : i64_gtb  (5)%i64 (3)%i64 = true.   Proof. reflexivity. Qed.
 Example i64_geb_t     : i64_geb  (5)%i64 (5)%i64 = true.   Proof. reflexivity. Qed.
 Example i64_neqb_t    : i64_neqb (5)%i64 (3)%i64 = true.   Proof. reflexivity. Qed.
@@ -195,27 +166,18 @@ Definition cmp_ops_demo : IO unit :=
           ; any (i64_neqb (5)%i64 (3)%i64)                       (* true *)
           ; any (u64_gtb (18446744073709551615)%u64 (1)%u64) ].  (* true (unsigned) *)
 
-(** SAFE-BY-CONSTRUCTION DIVISION (closes the div-by-zero gap).  Go panics on
-    [n / 0]; Rocq's division is total ([_ / 0 = 0]).  Emitting a raw [/] would be
-    silently unsound, so the plugin emits no bare integer [/]/[%].  Instead
-    [div_nz]/[mod_nz] are evidence-carrying: they DEMAND a proof that the divisor
-    is non-zero ([(d =? 0) = false], discharged by [eq_refl] for a literal), and
-    only then extract to Go's unguarded [n / d] / [n % d] — the proof has already
-    ruled out the panic.  Underneath they are [int_div]/[int_mod] on the [Z]-carried
-    [GoInt] ([Z.quot]/[Z.rem], truncating toward zero exactly like Go's int64, wrapping
-    at the true [2^63]).  (Raw division remains the escape hatch — Go
-    panics on a zero divisor.) *)
+(** SAFE-BY-CONSTRUCTION DIVISION.  Go panics on [n / 0]; Rocq's is total ([_ / 0 = 0]);
+    the plugin therefore emits no bare integer [/]/[%].  [div_nz]/[mod_nz] DEMAND a proof
+    the divisor is non-zero ([(d =? 0) = false], [eq_refl] for a literal) and only then
+    extract to Go's unguarded [n / d] / [n % d].  Underneath: [int_div]/[int_mod] on the
+    [Z]-carried [GoInt] ([Z.quot]/[Z.rem], truncating toward zero like Go, wrapping at [2^63]). *)
 Definition div_nz (n d : GoInt) (pf : Z.eqb (intraw d) 0%Z = false) : GoInt := int_div n d pf.
 Definition mod_nz (n d : GoInt) (pf : Z.eqb (intraw d) 0%Z = false) : GoInt := int_mod n d pf.
 
-(** ===== Go spec conformance: "Integer operators" (go.dev/ref/spec#Integer_operators)
-    plus "Integer overflow" (#Integer_overflow) — the SOURCE of div_nz/mod_nz's
-    behavior. =====
-
-    Spec: "the integer quotient q = x / y and remainder r = x % y satisfy
-    x = q*y + r  and  |r| < |y|, with x / y truncated towards zero".  The spec's
-    own example table is reproduced below and machine-checked against our model
-    (so this is conformance, not assertion). *)
+(** ===== Go spec conformance: "Integer operators" + "Integer overflow"
+    (go.dev/ref/spec#Integer_operators). =====
+    Spec: q = x / y truncated towards zero, x = q*y + r, |r| < |y|.  The spec's own
+    example table is machine-checked against the model below. *)
 Example spec_div_5_3    : intraw (div_nz (int_lit 5 eq_refl) (int_lit 3 eq_refl) eq_refl)            = 1%Z.    Proof. now vm_compute. Qed.
 Example spec_mod_5_3    : intraw (mod_nz (int_lit 5 eq_refl) (int_lit 3 eq_refl) eq_refl)            = 2%Z.    Proof. now vm_compute. Qed.
 Example spec_div_n5_3   : intraw (div_nz (int_lit (-5) eq_refl) (int_lit 3 eq_refl) eq_refl)  = (-1)%Z. Proof. now vm_compute. Qed.
@@ -225,12 +187,8 @@ Example spec_mod_5_n3   : intraw (mod_nz (int_lit 5 eq_refl) (int_lit (-3) eq_re
 Example spec_div_n5_n3  : intraw (div_nz (int_lit (-5) eq_refl) (int_lit (-3) eq_refl) eq_refl) = 1%Z.    Proof. now vm_compute. Qed.
 Example spec_mod_n5_n3  : intraw (mod_nz (int_lit (-5) eq_refl) (int_lit (-3) eq_refl) eq_refl) = (-2)%Z. Proof. now vm_compute. Qed.
 
-(** Spec, the ONE exception: "if the dividend x is the most negative value for the
-    int type of x, the quotient q = x / -1 is equal to x (and r = 0) due to
-    two's-complement integer overflow".  [GoInt] is now the FAITHFUL [Z]-carried int64
-   , so the most-negative value is the TRUE [int64] minimum [-2^63]
-    ([-9223372036854775808]) — no longer the bounded [Sint63] [-2^62].  We honor the
-    rule — no panic, [int_div] wraps it to itself (via [wrap64]). *)
+(** Spec, the ONE exception: [MININT / -1 = MININT] (and r = 0) by two's-complement
+    overflow — no panic; [int_div] wraps it to itself (via [wrap64]). *)
 Example spec_div_minint_neg1 :
   intraw (div_nz (int_lit (-9223372036854775808) eq_refl) (int_lit (-1) eq_refl) eq_refl) = (-9223372036854775808)%Z.
 Proof. now vm_compute. Qed.
@@ -238,69 +196,58 @@ Example spec_mod_minint_neg1 :
   intraw (mod_nz (int_lit (-9223372036854775808) eq_refl) (int_lit (-1) eq_refl) eq_refl) = 0%Z.
 Proof. now vm_compute. Qed.
 
-(** Division you can only call with a proven-nonzero divisor.  Prints 17/5 = 3
-    and 17%5 = 2.  The [eq_refl] discharges [(5 =? 0) = false] at compile time. *)
+(** Division callable only with a proven-nonzero divisor ([eq_refl] discharges
+    [(5 =? 0) = false] at compile time). *)
 Definition div_demo : IO unit :=
   println [any (div_nz (int_lit 17 eq_refl) (int_lit 5 eq_refl) eq_refl); any (mod_nz (int_lit 17 eq_refl) (int_lit 5 eq_refl) eq_refl)].   (* prints: 3 2 *)
 
-(** float64 is the AXIOM-FREE [SpecFloat.spec_float] (IEEE 754 double over [Z]), the same binary64 as Go's float64, so arithmetic agrees bit-for-bit
-    ([f64_add]/[f64_div]/… are [SF*] definitions; literals like [1.5] are parsed to the
-    correctly-rounded [spec_float] and emitted as the exact Go hex-float).  (Go's [println]
-    formats float64 in scientific notation — Go's builtin behaviour, captured by the golden.) *)
+(** float64 is the AXIOM-FREE [SpecFloat.spec_float] (IEEE 754 binary64 over [Z]), so
+    arithmetic agrees with Go bit-for-bit; literals are parsed to the correctly-rounded
+    [spec_float] and emitted as exact Go hex-floats.  (Go's [println] prints float64 in
+    scientific notation — captured by the golden.) *)
 Definition float_demo : IO unit :=
   println [ any (f64_add 1.5 2.25)%go64     (* 3.75 *)
           ; any (f64_div 1.0 4.0)%go64 ].   (* 0.25 (exact in binary) *)
 
-(** Float COMPARISON lowers to Go's [<]/[<=]/[==] on [float64].  Both [spec_float]'s
-    [SFcompare] and Go follow IEEE 754, so the semantics match exactly — including
-    NaN (every comparison with NaN is false) and signed zero ([0.0 == -0.0]).
-    Comparisons bind looser than arithmetic, so [a + b < c] needs no parens. *)
+(** Float COMPARISON lowers to Go's [<]/[<=]/[==]; [SFcompare] and Go both follow IEEE
+    754, matching exactly incl. NaN (all comparisons false) and signed zero ([0.0 == -0.0]). *)
 Definition float_cmp_demo : IO unit :=
   bind (println [any (f64_ltb 1.5 2.5)%go64]) (fun _ =>   (* 1.5 < 2.5  → true  *)
   bind (println [any (f64_leb 2.5 2.5)%go64]) (fun _ =>   (* 2.5 <= 2.5 → true  *)
   bind (println [any (f64_eqb 1.5 1.5)%go64]) (fun _ =>   (* 1.5 == 1.5 → true  *)
   println [any (f64_ltb 3.0 2.0)%go64]))).               (* 3.0 < 2.0  → false *)
 
-(** IEEE NaN faithfulness, MACHINE-CHECKED (Coq side): a NaN ([0.0/0.0]) is
-    unordered — [NaN == NaN] and [NaN < x] are both [false].  This is exactly Go's
-    float64 behaviour, so lowering [eqb]/[ltb] to [==]/[<] is faithful on the
-    corner cases, not merely on ordinary values.  ([float_nan_demo] below shows
-    Go agreeing at runtime.) *)
+(** IEEE NaN faithfulness, machine-checked: NaN is unordered — [NaN == NaN] and
+    [NaN < x] are both [false], exactly Go's behaviour ([float_nan_demo] is the runtime
+    witness). *)
 Example nan_eqb_false : f64_eqb (f64_div 0 0) (f64_div 0 0) = false.
 Proof. now vm_compute. Qed.
 Example nan_ltb_false : f64_ltb (f64_div 0 0) 1 = false.
 Proof. now vm_compute. Qed.
 
-(** Runtime witness (Go side) of the same NaN corner cases.  [z] is an opaque
-    [float64] parameter (call site passes [0.0]) so [z/z] is a *runtime* NaN —
-    a literal [0.0/0.0] would be a Go *compile-time* division-by-zero error. *)
+(** Runtime witness of the NaN corners.  [z] is an opaque [float64] parameter so [z/z]
+    is a *runtime* NaN — a literal [0.0/0.0] is a Go compile-time error. *)
 Definition float_nan_demo (z : GoFloat64) : IO unit :=
   bind (println [any (f64_eqb (f64_div z z) (f64_div z z))%go64]) (fun _ =>
   println [any (f64_ltb (f64_div z z) 1)%go64]).   (* NaN==NaN → false ; NaN<1 → false *)
 
-(** Float unary negation [f64_opp] → Go [-x], IEEE-exact (flips the sign
-    bit), needing no package import.  Ordinary values: [opp 1.5 = -1.5] and
-    [opp (opp 2.0) = 2.0]. *)
+(** Float unary negation [f64_opp] → Go [-x], IEEE-exact (flips the sign bit); no import. *)
 Definition float_opp_demo : IO unit :=
   bind (println [any (f64_opp 1.5)%go64]) (fun _ =>               (* -1.5 *)
   println [any (f64_opp (f64_opp 2.0))%go64]).             (* 2.0 *)
 
-(** The IEEE corner case: [opp] yields NEGATIVE zero, distinct in sign from [+0.0]
-    (even though [-0.0 == +0.0]).  Witnessed by [1 / -0 = -inf < 0] (whereas
-    [1 / +0 = +inf], not [< 0]).  MACHINE-CHECKED on the Coq side; the runtime
-    [float_opp_sign_demo] — with an opaque [z := 0.0], so no untyped-constant
-    folding of [-0.0] to [+0.0] — shows Go agrees. *)
+(** IEEE corner: [opp] yields NEGATIVE zero, witnessed by [1 / -0 = -inf < 0].
+    Machine-checked; [float_opp_sign_demo] (opaque [z], no constant folding) shows Go
+    agrees at runtime. *)
 Example opp_zero_is_neg :
   f64_ltb (f64_div 1 (f64_opp 0)) 0 = true.
 Proof. now vm_compute. Qed.
 Definition float_opp_sign_demo (z : GoFloat64) : IO unit :=
   println [any (f64_ltb (f64_div 1 (f64_opp z)) 0)%go64].  (* true *)
 
-(** Float [min]/[max] (Go 1.21 builtins, float rules) → Go [min(a,b)]/[max(a,b)].
-    Faithful on the two IEEE corners Go's builtin handles: NaN PROPAGATION (a NaN arg
-    gives a NaN result — witnessed via [eqb r r = false]) and SIGNED ZERO
-    ([min(-0,+0) = -0], [max(-0,+0) = +0] — witnessed via [1/r], which is [-inf < 0]
-    iff [r] is [-0]).  Plus the ordinary smaller/larger. *)
+(** Float [min]/[max] (Go 1.21 builtins) → Go [min(a,b)]/[max(a,b)].  Faithful on the
+    IEEE corners: NaN propagation and signed zero ([min(-0,+0) = -0], [max(-0,+0) = +0]),
+    witnessed below. *)
 Example f64_min_ord     : f64_min 3 5 = 3%go64. Proof. now vm_compute. Qed.
 Example f64_max_ord     : f64_max 3 5 = 5%go64. Proof. now vm_compute. Qed.
 Example f64_min_nan     : f64_eqb (f64_min (f64_div 0 0) 1) (f64_min (f64_div 0 0) 1) = false.
@@ -315,9 +262,8 @@ Proof. now vm_compute. Qed.
 Definition fminmax_demo : IO unit :=
   println [ any (f64_min 3 5)%go64 ; any (f64_max 3 5)%go64 ].   (* min/max of two floats *)
 
-(** Direct float [>] / [>=] / [!=] (completing the operator set).  Ordinary values
-    plus the NaN corners: [NaN >= 1] is FALSE (the reason [f64_geb] is [leb b a], not
-    [¬(<)], which would be true), and [NaN != 1] is TRUE. *)
+(** Direct float [>] / [>=] / [!=].  NaN corners: [NaN >= 1] is FALSE — the reason
+    [f64_geb] is [leb b a], not [¬(<)] — and [NaN != 1] is TRUE. *)
 Example f64_gtb_t   : f64_gtb 5 3 = true.   Proof. now vm_compute. Qed.
 Example f64_geb_eq  : f64_geb 3 3 = true.   Proof. now vm_compute. Qed.
 Example f64_geb_nan : f64_geb (f64_div 0 0) 1 = false. Proof. now vm_compute. Qed.
@@ -326,31 +272,25 @@ Example f64_neqb_nan: f64_neqb (f64_div 0 0) 1 = true. Proof. now vm_compute. Qe
 Definition fcmp_demo : IO unit :=
   println [ any (f64_gtb 5 3) ; any (f64_geb 3 3) ; any (f64_neqb 5 3) ]%go64.  (* true true true *)
 
-(** int64 -> float64 conversion ([f64_of_i64], Go [float64(i)]) -- MODELED + machine-checked:
-    [7 -> 7.0] and the SIGNED case [-3 -> -3.0].  The [Z]-carried [GoI64] is rounded ONCE to
-    binary64 via [SpecFloat.binary_normalize] (axiom-free; >= 2^53 rounds exactly like Go, and
-    [MININT = -2^63] is handled directly — no [of_uint63] sign-split).
-    Recognized by name -> native Go [float64(i)]; the body is suppressed.  The reverse,
-    float64 -> int64 TRUNCATION ([i64_of_f64]), also lowers now -- [spec_float] decomposes
-    DIRECTLY (no float-primitive needed). *)
+(** int64 -> float64 ([f64_of_i64], Go [float64(i)]): the [Z]-carried value is rounded
+    ONCE to binary64 via [SpecFloat.binary_normalize] (>= 2^53 rounds exactly like Go).
+    Recognized by name -> native Go [float64(i)]; body suppressed.  The reverse
+    truncation [i64_of_f64] lowers likewise. *)
 Example f64_of_i64_pos : f64_eqb (f64_of_i64 (7)%i64) 7%go64 = true.
 Proof. now vm_compute. Qed.
 Example f64_of_i64_neg : f64_eqb (f64_of_i64 (-3)%i64) (f64_opp 3%go64) = true.
 Proof. now vm_compute. Qed.
 
-(** int → float64 (Go [float64(i)]): recognized by name → native [float64(i)]; the
-    [binary_normalize] body (over the [Z]-carried [GoInt]) suppressed.
+(** int → float64 (Go [float64(i)]): recognized by name → native cast; body suppressed.
     Machine-checked across the sign. *)
 Example f64_of_int_pos : f64_eqb (f64_of_int (int_lit 5 eq_refl)) 5%go64 = true.
 Proof. now vm_compute. Qed.
 Example f64_of_int_neg : f64_eqb (f64_of_int (int_lit (-3) eq_refl)) (f64_opp 3%go64) = true.
 Proof. now vm_compute. Qed.
 
-(** FLOAT32 faithfulness witnesses (the SpecFloat-based binary32 model).  The decisive one:
-    [2^24 + 1] is NOT representable in binary32 (24-bit significand), so [f32_add] rounds it
-    back to [2^24] — whereas float64 keeps [16777217].  This proves the model really rounds at
-    binary32, not binary64.  Exact cases ([1.5+2.25], [1.5*2.0]) confirm the SpecFloat path
-    computes the ordinary results. *)
+(** FLOAT32 faithfulness witnesses.  Decisive: [2^24 + 1] is not representable in
+    binary32, so [f32_add] rounds it back to [2^24] (float64 keeps [16777217]) — the
+    model really rounds at binary32. *)
 Example f32_add_rounds : f32_eqb (f32_add (f32_lit 16777216) (f32_lit 1)) (f32_lit 16777216) = true.
 Proof. vm_compute. reflexivity. Qed.
 Example f32_f64_differ : f64_eqb (16777216 + 1)%go64 16777217 = true.  (* float64 KEEPS the bit *)
@@ -360,26 +300,21 @@ Proof. vm_compute. reflexivity. Qed.
 Example f32_mul_exact  : f32_eqb (f32_mul (f32_lit 1.5) (f32_lit 2)) (f32_lit 3) = true.
 Proof. vm_compute. reflexivity. Qed.
 
-(** float32 LOWERED to native Go [float32].  The SpecFloat model body lowers to nothing — the
-    binary32 rounding machinery ([renorm]/[SF*]/[binary_normalize]) is suppressed (proof-only /
-    by module), so the plugin emits [f32_add]/… → Go [+]/[-]/[*]/[/] on real [float32] values.
-    Demoed through a typed-param function so the call-site constants pin to [float32]. *)
+(** float32 lowers to native Go [float32]: the binary32 rounding machinery is suppressed;
+    [f32_add]/… → Go [+]/[-]/[*]/[/].  Typed-param function pins call-site constants to
+    [float32]. *)
 Definition f32_combine (a b c : GoFloat32) : GoFloat32 := f32_mul (f32_add a b) c.
 Definition f32_demo : IO unit :=
   println [ any (f32_combine (f32_lit 1.5) (f32_lit 2.25) (f32_lit 2)) ].   (* (1.5+2.25)*2 = 7.5 *)
-(** narrow → int64 WIDENING: [i64_of_u8]…[i64_of_i32] preserve the VALUE (the narrow's [Z]
-    lands unchanged in the int64 carrier), but the EMITTED Go is a real widening cast [int64(x)],
-    NOT identity (see the param case below + the [is_i64_of_narrow_ref] emission arm).  The faithful
-    [to_Z]-crossing body is suppressed; the op is recognised at call sites and cast. *)
+(** narrow → int64 WIDENING: [i64_of_u8]…[i64_of_i32] preserve the VALUE; the emitted Go
+    is a real widening cast [int64(x)], NOT identity ([is_i64_of_narrow_ref] arm). *)
 Definition i64_of_narrow_demo : IO unit :=
   println [ any (i64_of_u8  (u8_lit 200 eq_refl))         (* 200 *)
           ; any (i64_of_i8  (i8_of_int (int_lit (-5) eq_refl)))      (* -5  (signed widen keeps sign) *)
           ; any (i64_of_u16 (u16_lit 60000 eq_refl)) ].   (* 60000 *)
-(** THE NARROW-BOUNDARY CLASS — the narrow→wide widening through a narrow PARAM (the case the constant-operand
-    demos above could NOT see).  The param is a REAL Go [uint8]/[int8], so the widen is NOT identity:
-    [i64_of_u8 x] MUST emit [int64(x)] (the distinguishing counterexample [func Widen(x uint8) int64
-    { return x }] was invalid Go).  These extract to [func …(x uint8) int64 { return int64(x) }] etc.;
-    a regression to identity-lowering FAILS [go build] (caught now, not silently shipped). *)
+(** Narrow→wide widening through a narrow PARAM: the param is a real Go [uint8]/[int8],
+    so [i64_of_u8 x] MUST emit [int64(x)] — identity-lowering is invalid Go and fails
+    [go build]. *)
 Definition widen_u8_to_i64 (x : GoU8) : GoI64 := i64_of_u8 x.   (* uint8 → int64 (zero-extend) *)
 Definition widen_i8_to_i64 (x : GoI8) : GoI64 := i64_of_i8 x.   (* int8  → int64 (sign-extend) *)
 Definition widen_u8_to_int (x : GoU8) : GoInt := int_of_u8 x.   (* uint8 → platform int (sibling op) *)
@@ -387,53 +322,35 @@ Definition widen_param_demo : IO unit :=
   println [ any (widen_u8_to_i64 (u8_lit 200 eq_refl))     (* int64(uint8 200) = 200 *)
           ; any (widen_i8_to_i64 (i8_of_int (int_lit (-5) eq_refl)))  (* int64(int8 -5)   = -5  (sign kept) *)
           ; any (widen_u8_to_int (u8_lit 100 eq_refl)) ].  (* int(uint8 100)   = 100 *)
-(** A type conversion used as a BINOP OPERAND: [y + int64(x)].  With [y] a runtime [int64] PARAM the
-    [i64_add] takes the plain operator path (not the constant-IIFE force-wrapper), so its operand
-    [i64_of_u8 x] prints as the conversion [int64(x)] (identifier-led conversion = call syntax).  [x] is a
-    real [uint8] PARAM, so [int64(x)] is a genuine widening, not identity.  [Printer.gprint] now BRIDGES
-    this: the whole binop, including [int64(x)] as an [ECall (EId "int64") [x]], is emitted by the VERIFIED
-    printer, byte-identical to the trusted [pp_prec] (go.ml [goexpr_bridge]). *)
+(** A type conversion as a BINOP OPERAND: [y + int64(x)] with runtime params, so the
+    operand prints as a genuine widening conversion.  [Printer.gprint] bridges the whole
+    binop ([int64(x)] as [ECall (EId "int64") [x]]), byte-identical to [pp_prec]. *)
 Definition conv_in_binop (y : GoI64) (x : GoU8) : GoI64 := i64_add y (i64_of_u8 x).
-(** And the float64→float32 NARROWING as a comparison operand [a < float32(x)] — the sibling
-    [is_f64_to_f32_ref] arm, same [float32(x)] conversion (runtime narrowing cast; the constant case is a
-    func-lit IIFE).  [x] is a runtime [float64] PARAM, so [goexpr_bridge] builds [ECall (EId "float32") [x]]
-    (the [operand_is_runtime] inline case — the force-wrapper IIFE branch is NOT bridged); [gprint] emits it
-    byte-identically to [pp_prec]. *)
+(** float64→float32 NARROWING as a comparison operand [a < float32(x)] ([is_f64_to_f32_ref]
+    arm; runtime param ⇒ inline conversion, the constant case is a func-lit IIFE);
+    byte-identical to [pp_prec]. *)
 Definition conv_f32_in_cmp (a : GoFloat32) (x : GoFloat64) : bool := f32_ltb a (f32_of_f64 x).
-(** And the float64->int64 / float64->uint64 TRUNCATION-toward-zero conversions as binop operands
-    [y + int64(f)] / [y + uint64(f)] — the [is_f64_to_i64_ref] / [is_f64_to_u64_ref] arms.  [f] is a runtime
-    [float64] PARAM, so [goexpr_bridge] builds [ECall (EId "int64"/"uint64") [f]] (rendered inline
-    unconditionally — no force-wrapper, hence no runtime guard); [gprint] emits it byte-identically to [pp_prec]. *)
+(** float64->int64 / float64->uint64 truncation-toward-zero as binop operands
+    ([is_f64_to_i64_ref] / [is_f64_to_u64_ref] arms; rendered inline, no runtime guard);
+    byte-identical to [pp_prec]. *)
 Definition conv_f64_to_i64_in_binop (y : GoI64) (f : GoFloat64) : GoI64 := i64_add y (i64_of_f64 f).
 Definition conv_f64_to_u64_in_binop (y : GoU64) (f : GoFloat64) : GoU64 := u64_add y (u64_of_f64 f).
-(** And the narrow->platform-[int] widening [y + int(x)] ([is_int_of_fw], like [int64(x)] but to [int]) and a
-    numeric->float64 conversion [a > float64(i)] (the [is_num_to_f64_ref] arm, domain int/int64/float32/uint64;
-    this demo exercises the int source [f64_of_int]).  [x]/[i] are runtime PARAMs, so [goexpr_bridge] builds
-    [ECall (EId "int"/"float64") [..]] (both rendered inline unconditionally, no runtime guard); [gprint] emits
-    them byte-identically to [pp_prec]. *)
+(** narrow->platform-[int] widening [y + int(x)] ([is_int_of_fw]) and numeric->float64
+    [a > float64(i)] ([is_num_to_f64_ref]); runtime params ⇒ inline conversions,
+    byte-identical to [pp_prec]. *)
 Definition conv_int_widen_in_binop (y : GoInt) (x : GoU8) : GoInt := int_add y (int_of_u8 x).
 Definition conv_int_to_f64_in_cmp (a : GoFloat64) (i : GoInt) : bool := f64_gtb a (f64_of_int i).
-(** And the int->float32 DIRECT cast [a > float32(i)] ([is_int_to_f32_ref], domain int/int64/uint64; this demo
-    exercises the int source [f32_of_int]) — the last inline scalar conversion, completing that class.
-    [goexpr_bridge] builds [ECall (EId "float32") [i]] (inline, no runtime guard); byte-identical to [pp_prec]. *)
+(** int->float32 DIRECT cast [a > float32(i)] ([is_int_to_f32_ref]); inline, no runtime
+    guard; byte-identical to [pp_prec]. *)
 Definition conv_int_to_f32_in_cmp (a : GoFloat32) (i : GoInt) : bool := f32_gtb a (f32_of_int i).
-(** ★ And a fixed-width UNSIGNED ARITHMETIC op as a (widened) binop operand: [y + int64(u8_add a b)], where
-    [u8_add a b] lowers to the masked [(int(a) + int(b)) & 0xff].  This is the FIRST time the VERIFIED
-    [Printer.gprint] emits a fixed-width MASK: [goexpr_bridge] recurses into the [u8_add] operand and builds
-    [EBn (BAnd, EBn (BAdd, int(a), int(b)), EHex 0xff)] — the mask is the verified [EHex] leaf (its first LIVE
-    consumer).  [gprint] re-derives the parens by precedence, so the redundant OUTER pair the trusted [fw_wrap]
-    always adds is DROPPED — a blessed golden delta (NOT byte-identical).  The change FOR THIS FIXTURE was
-    CHECKED as parens-only with unchanged runtime output ([go vet] clean) — NOT a theorem of class-wide
-    parens-only / value-preserving equivalence. *)
+(** ★ Fixed-width UNSIGNED arithmetic as a (widened) binop operand: [u8_add a b] lowers to
+    the masked [(int(a) + int(b)) & 0xff]; [goexpr_bridge] builds the [EBn]/[EHex] tree and
+    [gprint] re-derives parens by precedence.  Trust scope: NOT byte-identical to [fw_wrap];
+    checked parens-only for THIS fixture — no class-wide equivalence theorem. *)
 Definition fw_u8_add_in_binop (y : GoI64) (a b : GoU8) : GoI64 := i64_add y (i64_of_u8 (u8_add a b)).
-(** ★ And the SIGNED fixed-width arithmetic [y + int64(i8_add a b)], where [i8_add a b] lowers to the masked +
-    SIGN-EXTENDED [((int(a) + int(b)) & 0xff ^ 0x80) - 0x80].  [goexpr_bridge] builds it as
-    [EBn (BSub, EBn (BXor, <masked>, EHex 0x80), EHex 0x80)] (TWO verified [EHex] sign-bit constants via
-    [mk_goexpr_hex]); [gprint] re-derives ALL the parens by precedence (Go's `&`>`^`, and `^`/`-` same-prec
-    left-assoc), so the trusted [fw_wrap]'s defensive pairs are dropped — a blessed golden delta. The trusted
-    bridge CONSTRUCTS this tree; the verified [gprint] only PRINTS it.  The generated delta FOR THIS FIXTURE was
-    CHECKED as parens-only and this demo's runtime output is unchanged (go build + output diff, [go vet] clean)
-    — NOT a theorem that the transform is parens-only / value-preserving for the construct class. *)
+(** ★ SIGNED fixed-width arithmetic: [i8_add a b] lowers to the masked + sign-extended
+    [((int(a) + int(b)) & 0xff ^ 0x80) - 0x80].  The trusted bridge CONSTRUCTS the tree; the
+    verified [gprint] only PRINTS it.  Same trust scope as [fw_u8_add_in_binop]. *)
 Definition fw_i8_add_in_binop (y : GoI64) (a b : GoI8) : GoI64 := i64_add y (i64_of_i8 (i8_add a b)).
 Definition conv_operand_demo : IO unit :=
   println [ any (conv_in_binop (5)%i64 (u8_lit 200 eq_refl))       (* 5 + int64(uint8 200) = 205 *)
@@ -445,11 +362,9 @@ Definition conv_operand_demo : IO unit :=
           ; any (conv_int_to_f32_in_cmp (f32_lit 2) (int_lit 1 eq_refl))           (* 2.0 > float32(1) = true *)
           ; any (fw_u8_add_in_binop (5)%i64 (u8_lit 200 eq_refl) (u8_lit 100 eq_refl))      (* 5 + int64((200+100)&0xff) = 5 + 44 = 49 *)
           ; any (fw_i8_add_in_binop (10)%i64 (i8_lit 100 eq_refl) (i8_lit 100 eq_refl)) ]. (* 10 + int64(int8(200)) = 10 + (-56) = -46 *)
-(** int64 → narrow TRUNCATION LOWERED: [u8_of_i64]…[i32_of_i64] → the SAME native mask /
-    sign-extend as [uN_of_int] ([(x & 0xFF)] for [uN]; [((x & 0xFF) ^ 0x80) - 0x80] for [iN]),
-    since [GoI64] and the narrow types share the int64 carrier.  Machine-checked faithful
-    (widened back via [i64_of_uN]/[i64_of_iN] so the [Z] is inspectable): unsigned drops the
-    high bits, signed sign-extends the low byte, and a NEGATIVE input truncates by its
+(** int64 → narrow TRUNCATION: [u8_of_i64]…[i32_of_i64] → native mask / sign-extend
+    ([(x & 0xFF)] for [uN]; [((x & 0xFF) ^ 0x80) - 0x80] for [iN]).  Machine-checked:
+    unsigned drops high bits, signed sign-extends, negative input truncates by its
     two's-complement low byte ([uint8(-1) = 255]). *)
 Example i64_to_u8_trunc  : i64raw (i64_of_u8  (u8_of_i64  (i64_lit 4660 eq_refl)))       = 52%Z.        (* uint8(4660) *)
 Proof. vm_compute. reflexivity. Qed.
@@ -465,24 +380,18 @@ Definition i64_to_narrow_demo : IO unit :=
           ; any (u16_of_i64 (i64_lit 70000 eq_refl))        (* uint16(70000) = 4464 *)
           ; any (i32_of_i64 (i64_lit 5000000000 eq_refl)) ]. (* int32(5e9)    = 705032704 *)
 (** NARROW-LET LOCK: a narrow value through a [let] must box as its REAL Go type, not its
-    int64 carrier.  [xu8 : GoU8] is bound via a [let]; [type_assert_safe TU8 (any xu8)] must SUCCEED
-    (ok1=true) and [TI64] must FAIL (ok2=false) — the boxed dynamic type is [uint8], DISTINCT from
-    [int64], exactly as Go's [v.(uint8)] / [v.(int64)] decide and as the model's [tag_eq] says.
-    Regression guard for the let-boundary narrow-box fix (the pre-fix int64-carrier bug boxed [xu8]
-    as Go [int], giving [false false]).  Also exercises type_assert_safe on a FRESH box — the backend
-    now materialises [any(uint8(xu8))] rather than asserting on the raw (non-interface) payload. *)
+    int64 carrier — [type_assert_safe TU8] succeeds, [TI64] fails, agreeing with Go's
+    [v.(uint8)]/[v.(int64)] and the model's [tag_eq].  The backend materialises
+    [any(uint8(xu8))] for the fresh box. *)
 Definition narrow_let_assert_demo : IO unit :=
   let xu8 := u8_of_i64 (i64_lit 200 eq_refl) in
   type_assert_safe TU8 (any xu8) (fun v8 ok1 =>
     println [any v8; any ok1]).   (* 200 true *)
 
-(** DIFFERENTIAL TYPE-IDENTITY LOCK (golden-output ALONE cannot tell
-    [uint8]/[int64] apart, which is exactly how the #1/#2/#7 type-identity bugs HID).
-    At RUNTIME, assert each scalar against its OWN Go type (→ [true]) AND against a
-    sibling it must NOT alias (→ [false]): a uint8 is NOT an int64, an int64 is NOT a
-    uint8.  A regression that re-collides them (e.g. boxing [uint8] as [int64] again,
-    the #7 cluster bug) FLIPS the assertions, changing the golden ⇒ caught.  This is
-    the runtime companion to the model-side [tag_runtime_agrees] lock (break #7d). *)
+(** DIFFERENTIAL TYPE-IDENTITY LOCK: assert each scalar against its OWN Go type (→ true)
+    AND a sibling it must NOT alias (→ false).  A regression that re-collides the boxed
+    types flips the assertions and moves the golden.  Runtime companion to the model-side
+    [tag_runtime_agrees] lock. *)
 Definition type_identity_lock_demo : IO unit :=
   let u8v  := u8_of_i64 (i64_lit 7 eq_refl) in
   let i64v := i64_lit 9 eq_refl in
@@ -493,14 +402,12 @@ Definition type_identity_lock_demo : IO unit :=
   type_assert_safe TU8  (any i64v) (fun _ d =>     (* int64  .(uint8)  → FALSE *)
   type_assert_safe TU64 (any u64v) (fun _ e =>     (* uint64 .(uint64) → true  (locks u64_lit typed uint64) *)
   type_assert_safe TI64 (any u64v) (fun _ f =>     (* uint64 .(int64)  → FALSE *)
-  type_assert_safe TInt64 (any i64v) (fun _ g =>   (* int64  .(int)    → FALSE (break #7c: GoI64 is int64, NOT Go's platform int) *)
+  type_assert_safe TInt64 (any i64v) (fun _ g =>   (* int64  .(int)    → FALSE (GoI64 is int64, NOT Go's platform int) *)
     println [any a; any b; any c; any d; any e; any f; any g]))))))).
   (* true false true false true false false *)
 
-(** Extends the differential lock to the FULL narrow cluster: each narrow
-    type boxes as its OWN distinct Go type (de-collided from int64 by break #7b).
-    Each asserts its own type → [true]; a regression that re-collides any back to
-    int64 flips it.  (uint8 is already locked in [type_identity_lock_demo].) *)
+(** Differential lock over the FULL narrow cluster: each narrow type boxes as its OWN
+    distinct Go type; a regression that re-collides any back to int64 flips it. *)
 Definition narrow_cluster_lock_demo : IO unit :=
   type_assert_safe TI8  (any (i8_of_i64  (i64_lit 5 eq_refl))) (fun _ a =>   (* int8   .(int8)   → true *)
   type_assert_safe TU16 (any (u16_of_i64 (i64_lit 5 eq_refl))) (fun _ b =>   (* uint16 .(uint16) → true *)
@@ -510,36 +417,29 @@ Definition narrow_cluster_lock_demo : IO unit :=
     println [any a; any b; any c; any d; any e]))))).
   (* true true true true true *)
 
-(** THE DISTINCT-RECORD CLASS — Go's platform [uint] is a GENUINELY DISTINCT Rocq type ([GoUint], a
-    record), NOT a transparent [int] alias.  TWO defects, both machine-checked closed here:
-
-    (1) TYPE CONFUSION — assigning a [GoInt] where a [GoUint] is expected (or the reverse) no
-        longer type-checks, so the plugin can NEVER emit the invalid Go [func(x int) uint { return x }]
-        ('s exact counterexample).  These [Fail]s are checked at COMPILE time: *)
+(** DISTINCT-RECORD invariant — Go's platform [uint] is a GENUINELY DISTINCT Rocq type
+    ([GoUint], a record), NOT a transparent [int] alias.
+    (1) TYPE CONFUSION: [GoInt]↔[GoUint] assignment does not type-check, so the plugin can
+        never emit [func(x int) uint { return x }].  Compile-time [Fail]s: *)
 Fail Definition int_to_uint_confusion (x : GoInt)  : GoUint := x.
 Fail Definition uint_to_int_confusion (x : GoUint) : GoInt  := x.
-(*  and the retired bare-[int] placeholders no longer exist as types at all (one Rocq type per Go type): *)
+(*  one Rocq type per Go type — no bare-[int] placeholder types exist: *)
 Fail Check (GoUint8 : Type).
 Fail Check (GoInt32 : Type).
 
-(** (2) TAG INVERSION — a [GoUint] value boxes as Go [uint] (via the now-UNIQUE [Tagged_GoUint = TUint];
-    [Tagged_int] no longer applies since [GoUint <> int]), so [.(uint)] SUCCEEDS and [.(int)] FAILS:
-    the model ([tag_eq]) and the runtime ([v.(T)]) AGREE.  A regression that re-collapses [GoUint] to
-    [int] flips these and moves the golden ⇒ caught.  Runtime companion to the model-side
-    [tag_runtime_agrees] lock, now covering the platform-uint tag. *)
+(** (2) TAG INVERSION: a [GoUint] value boxes as Go [uint] ([Tagged_GoUint = TUint]), so
+    [.(uint)] succeeds and [.(int)] fails — model ([tag_eq]) and runtime agree.  A
+    regression re-collapsing [GoUint] to [int] moves the golden. *)
 Definition uint_lock_demo : IO unit :=
   let uv := uint_lit 5 eq_refl in
   type_assert_safe TUint  (any uv) (fun _ a =>    (* uint .(uint) → true  *)
   type_assert_safe TInt64 (any uv) (fun _ b =>    (* uint .(int)  → FALSE (platform uint <> platform int) *)
     println [any a; any b])).
   (* true false *)
-(** A sub-64 narrow [GoIntN] value flows correctly through EVERY position: a function RETURN
-    (the result is cast to its declared Go type — [func lowbyte(x int64) uint8 { return uint8((x & 0xff)) }]),
-    a narrow PARAM ([inc8] below — the param is the declared [uint8], widened to the int carrier inside the
-    masked arithmetic), and a narrow result CONSUMED by further (signed) narrow arithmetic ([consume_i8] —
-    [i8_add (lowbyte_i8 x) …], where the [int8] result is widened before the `& 0xff` mask).  Each narrow op
-    widens its operands to the int carrier, so a narrow-typed operand never overflows the mask; the result is
-    re-cast to the narrow Go type only at a boundary (return) or box.  All COMPILE and compute correctly. *)
+(** A sub-64 narrow value flows through every position: function RETURN (cast to the
+    declared Go type), narrow PARAM, and narrow result CONSUMED by narrow arithmetic.
+    Invariant: each narrow op widens operands to the int carrier (no mask overflow); the
+    result is re-cast to the narrow Go type only at a boundary (return) or box. *)
 Definition lowbyte    (x : GoI64) : GoU8 := u8_of_i64 x.
 Definition lowbyte_i8 (x : GoI64) : GoI8 := i8_of_i64 x.
 Definition inc8       (x : GoU8)  : GoU8 := u8_add x (u8_lit 1 eq_refl).            (* narrow PARAM in arith *)
@@ -558,13 +458,9 @@ Definition narrow_ret_demo : IO unit :=
           ; any (inc8       (u8_lit 200 eq_refl))      (* uint8(200)+1       = 201 *)
           ; any (consume_i8 (i64_lit 200 eq_refl)) ].  (* int8(int8(200)+1)  = -55 *)
 
-(** Narrow-boundary slice 2 — the CONVERSE of the widening: a wide int64-carried value flowing INTO
-    a NARROW struct field.  [bb_val : GoU8] renders as Go [uint8], but the constructor value
-    [u8_of_i64 …] is computed in the int64 carrier (a masked expr), so a bare [ByteBox{Bb_val: x & 0xff}]
-    is INVALID Go ([Box{V: x & 0xff}] with V uint8).  The plugin now casts the value to
-    the field's destination type: [ByteBox{Bb_val: uint8(((int64(300)) & 0xff)), …}].  A RUNTIME value
-    (not a bare constant) exercises the cast: [u8_of_i64 (i64_lit 300)] truncates to uint8(300)=44, then
-    the field read [bb_val b] (a real [uint8]) widens back via [i64_of_u8] (slice 1) to 44. *)
+(** A wide int64-carried value flowing INTO a NARROW struct field: the plugin casts the
+    constructor value to the field's destination type ([ByteBox{Bb_val: uint8(…)}]) — a
+    bare masked expr would be invalid Go.  Runtime value exercises the cast. *)
 Record ByteBox := MkByteBox { bb_val : GoU8 ; bb_tag : GoI64 }.   (* 2 fields: avoid single-field unboxing *)
 Definition narrow_field_demo : IO unit :=
   let b := MkByteBox (u8_of_i64 (i64_lit 300 eq_refl)) (i64_lit 7 eq_refl) in
@@ -572,12 +468,9 @@ Definition narrow_field_demo : IO unit :=
           ; any (bb_tag b) ].            (* 7 (the int64 field is untouched) *)
   (* 44 7 *)
 
-(** Narrow-boundary slice 3 — narrow COLLECTION ELEMENTS: a wide int64-carried value flowing into a
-    narrow slice/array element.  [[]uint8] / [[N]uint8] literals built from runtime values were emitted
-    bare ([[]uint8{x & 0xff}] = invalid Go); the plugin now casts each element to the element type from
-    the [GoTypeTag] ([[]uint8{uint8(((int64(300)) & 0xff)), uint8((5 & 0xff))}]).  Exercises the SLICE
-    emitter [slice_of_list] ([]T) and the ARRAY emitter [arr_lit] ([N]T); [arr3_lit] ([3]T) shares
-    [arr_lit]'s identical element-cast code path ([narrow_go_name go_elem]). *)
+(** Narrow COLLECTION ELEMENTS: the plugin casts each slice/array literal element to the
+    element type from the [GoTypeTag] ([[]uint8{uint8(…), …}]).  Exercises [slice_of_list]
+    and [arr_lit]; [arr3_lit] shares the same element-cast path. *)
 Definition narrow_elem_demo : IO unit :=
   let s := slice_of_list TU8 [u8_of_i64 (i64_lit 300 eq_refl); u8_lit 5 eq_refl] in   (* []uint8{44,5} *)
   let a := arr_lit       TU8 [u8_of_i64 (i64_lit 301 eq_refl); u8_lit 6 eq_refl] in   (* [2]uint8{45,6} *)
@@ -587,10 +480,9 @@ Definition narrow_elem_demo : IO unit :=
             ; any (i64_of_u8 av) ])).    (* 6  *)
   (* 44 6 *)
 
-(** Narrow-boundary slice 4 — narrow PAYLOADS at the tag-carrying POINTER & CHANNEL boundaries: a
-    wide int64-carried value written into a [*uint8] cell or sent on a [chan uint8].  Both were emitted
-    bare (the [ptr_new] IIFE arg / [*p = v] / [ch <- v]) → invalid Go; the plugin now casts the payload
-    to the destination narrow type from the op's [GoTypeTag] ([uint8(…)]).  Runtime values exercise it. *)
+(** Narrow PAYLOADS at the POINTER & CHANNEL boundaries: the plugin casts the payload to
+    the destination narrow type from the op's [GoTypeTag] ([uint8(…)]) at [ptr_new] /
+    [*p = v] / [ch <- v].  Runtime values exercise it. *)
 Definition ptr_chan_narrow_demo : IO unit :=
   bind (ptr_new TU8 (u8_of_i64 (i64_lit 300 eq_refl))) (fun p =>   (* *uint8 ← uint8(44) *)
   bind (ptr_set TU8 p (u8_of_i64 (i64_lit 7 eq_refl)))   (fun _ => (* *p = uint8(7) *)
@@ -600,11 +492,8 @@ Definition ptr_chan_narrow_demo : IO unit :=
   bind (recv TU8 ch) (fun cv =>                                     (* cv := <-ch (uint8 45) *)
   println [ any (i64_of_u8 pv) ; any (i64_of_u8 cv) ])))))).        (* 7 45 *)
 
-(** Narrow-boundary slice 5 — narrow map VALUES: a [map[int64]uint8] written with a wide int64-carried
-    value (the map_set RHS) and read with a narrow default (map_get_or's default).  Both were emitted bare
-    ([m[k] = x & 0xff] invalid Go; the default boxed as int64 ⇒ [hit] inferred int64, then [hit = _v] from
-    the uint8 map = invalid).  The plugin now casts both to the value type from the [GoTypeTag].  (Narrow
-    map KEYS are the next slice.) *)
+(** Narrow map VALUES: the plugin casts both the map_set RHS and map_get_or's default to
+    the value type from the [GoTypeTag]. *)
 Definition map_narrow_demo : IO unit :=
   bind (map_make_typed TI64 TU8) (fun m =>
   bind (map_set TI64 TU8 (5)%i64 (u8_of_i64 (i64_lit 300 eq_refl)) m) (fun _ =>      (* m[5] = uint8(44) *)
@@ -612,11 +501,9 @@ Definition map_narrow_demo : IO unit :=
   bind (@map_get_or GoI64 GoU8 TI64 TU8 (9)%i64 (u8_of_i64 (i64_lit 9 eq_refl)) m) (fun miss => (* miss → dflt uint8(9) *)
   println [ any (i64_of_u8 hit) ; any (i64_of_u8 miss) ])))).      (* 44 9 *)
 
-(** Narrow-boundary slice 6 — narrow map KEYS: a [map[uint8]int64] keyed by a wide int64-carried value.
-    Every key site emitted the key bare ([m[x & 0xff]] = invalid Go: an int64 index into a [map[uint8]]),
-    so a narrow-key map was all-or-nothing.  The plugin now casts the key to the key type from the
-    [GoTypeTag] at ALL sites: map_set, map_delete, map_get_or, map_get_opt.  This demo exercises set +
-    get_or + get_opt(bind/match) + delete + len with a [uint8] key. *)
+(** Narrow map KEYS: the plugin casts the key to the key type from the [GoTypeTag] at ALL
+    sites — map_set, map_delete, map_get_or, map_get_opt.  Demo: set + get_or +
+    get_opt(bind/match) + delete + len with a [uint8] key. *)
 Definition map_key_narrow_demo : IO unit :=
   bind (map_make_typed TU8 TI64) (fun m =>
   bind (map_set TU8 TI64 (u8_of_i64 (i64_lit 300 eq_refl)) (5)%i64 m) (fun _ =>            (* m[uint8 44] = 5 *)
@@ -630,31 +517,22 @@ Definition map_key_narrow_demo : IO unit :=
   | None => println [ any (0)%i64 ]
   end)))).
 
-(** Narrow-boundary slice 7 — narrow function ARGS: a wide int64-carried value passed to a NARROW
-    PARAM of a user function.  The arg [u8_of_i64 …] is the int64-masked carrier, so a bare
-    [Takes_u8(x & 0xff)] is invalid Go (int64 into a [uint8] param).  The plugin now casts the arg to
-    the callee's param type ([Takes_u8(uint8(…))]) when the params align 1:1 with the visible args
-    (monomorphic — no erased tag/witness args).  The existing many-arg int64 calls are unaffected
-    (int64 param ⇒ no cast); generic tag-carrying calls (slice_get …) decline (length mismatch). *)
+(** Narrow function ARGS: the plugin casts an arg to the callee's param type
+    ([Takes_u8(uint8(…))]) when params align 1:1 with visible args (monomorphic); generic
+    tag-carrying calls decline (length mismatch). *)
 Definition takes_u8 (x : GoU8) : GoI64 := i64_of_u8 x.   (* uint8 param, widened to int64 *)
 Definition arg_narrow_demo : IO unit :=
   println [ any (takes_u8 (u8_of_i64 (i64_lit 300 eq_refl))) ].   (* Takes_u8(uint8(44)) = 44 *)
 
-(** A VALUE-position [let] (nested in an expression, the bound var used twice so extraction keeps
-    it) inside int64 arithmetic.  The old backend emitted [(func() any {…})()], i.e. [int64(any)+…], which
-    does not compile; now the pure let is inlined so the surrounding [int64] context types it. *)
+(** A VALUE-position [let] inside int64 arithmetic (bound var used twice so extraction
+    keeps it).  Invariant: the pure let is inlined so the surrounding [int64] context types it. *)
 Definition vlet (x z : GoI64) : GoI64 := i64_add (let y := i64_add x x in i64_add y y) z.
 Example vlet_val : i64raw (vlet (5)%i64 (1)%i64) = 21%Z.   Proof. vm_compute. reflexivity. Qed.
 Definition vlet_demo : IO unit := println [ any (vlet (5)%i64 (1)%i64) ].   (* (5+5)+(5+5) + 1 = 21 *)
-(** narrow ↔ uint64 — CLOSED via the int64 HUB, no new ops.  Every integer conversion factors
-    through [GoI64]: narrow→uint64 is [u64_of_i64 ∘ i64_of_narrow] (the widen emits [int64(x)], then the
-    [uint64(x)] reinterpret); uint64→narrow is [<narrow>_of_i64 ∘ i64_of_u64] ([int64(x)]
-    reinterpret, then mask/sign-extend).  Each leg already lowers, and the NAMED hub functions
-    [U64_of_i64]/[I64_of_u64] apply the cast to a VARIABLE — so even the signed corners a bare
-    cast would reject (Go forbids [uint64(-1)] on a constant) emit valid Go.  Machine-checked:
-    unsigned widen preserves the value; signed widen reinterprets ([uint64(int8 -1) = 2^64-1]);
-    truncation drops the high bits ([uint8(uint64 511) = 255]); and a uint64 whose low byte has
-    bit 7 set narrows to a NEGATIVE signed ([int8(uint64 255) = -1]). *)
+(** narrow ↔ uint64 factors through the int64 HUB: narrow→uint64 is
+    [u64_of_i64 ∘ i64_of_narrow]; uint64→narrow is [<narrow>_of_i64 ∘ i64_of_u64].  The
+    NAMED hub functions apply the cast to a VARIABLE, so signed corners (Go forbids
+    [uint64(-1)] on a constant) emit valid Go.  Machine-checked across the corners below. *)
 Example u64_of_u8_widen    : u64raw (u64_of_i64 (i64_of_u8 (u8_lit 200 eq_refl)))             = 200%Z.
 Proof. vm_compute. reflexivity. Qed.
 Example u64_of_i8_reinterp : u64raw (u64_of_i64 (i64_of_i8 (i8_of_int (int_lit (-1) eq_refl))))          = 18446744073709551615%Z.
@@ -676,9 +554,8 @@ Example f32_of_f64_rounds : f64_eqb (f64_of_f32 (f32_of_f64 16777217)) 16777216 
 Proof. vm_compute. reflexivity. Qed.
 Definition narrow32 (x : GoFloat64) : GoFloat32 := f32_of_f64 x.
 Definition widen64  (x : GoFloat32) : GoFloat64 := f64_of_f32 x.
-(** float32 NEGATION + MIN/MAX (completing float32 to float64 parity, sans abs/sqrt which need
-    [math]).  Machine-checked on the IEEE corners: NaN propagation and signed zero.  [f32_neg] →
-    Go [-x]; [f32_min]/[f32_max] → Go [min]/[max] on float32. *)
+(** float32 NEGATION + MIN/MAX ([f32_neg] → Go [-x]; [f32_min]/[f32_max] → Go [min]/[max]).
+    Machine-checked on the IEEE corners: NaN propagation and signed zero. *)
 Example f32_neg_ex   : f32_eqb (f32_neg (f32_lit 1.5)) (f32_lit (-1.5)) = true.
 Proof. vm_compute. reflexivity. Qed.
 Example f32_neg_zero : f64_ltb (f64_div 1 (widen64 (f32_neg (f32_lit 0)))) 0 = true.  (* -0 *)
@@ -698,20 +575,17 @@ Definition f32_extra_demo : IO unit :=
   println [ any (f32_neg (f32_lit 1.5))             (* -1.5 *)
           ; any (f32_min (f32_lit 3) (f32_lit 5))   (* 3 *)
           ; any (f32_max (f32_lit 3) (f32_lit 5)) ]. (* 5 *)
-(** Differential test — float32 vs float64 DISTINCTNESS under boxing (untested: the f32 demos box+print,
-    which can't reveal the boxed Go type).  A boxed [GoFloat32] asserts TO [float32] (true) but NOT TO
-    [float64] (false), and a boxed [float64] the reverse — so the model's [tag_eq] agrees with Go's
-    runtime [v.(float32)] vs [v.(float64)] (they are genuinely distinct Go types). *)
+(** float32 vs float64 DISTINCTNESS under boxing: a boxed [GoFloat32] asserts to
+    [float32] (true) but not [float64] (false), and vice versa — [tag_eq] agrees with Go's
+    runtime assertion. *)
 Definition f32_box_demo : IO unit :=
   type_assert_safe TFloat32 (any (f32_lit 1.5)) (fun _ a =>     (* float32 to float32 → true  *)
   type_assert_safe TFloat64 (any (f32_lit 1.5)) (fun _ b =>     (* float32 to float64 → FALSE *)
   type_assert_safe TFloat64 (any (1.5)%go64)   (fun _ c =>     (* float64 to float64 → true  *)
     println [any a; any b; any c]))).   (* true false true *)
-(** float32 RANGE + CONVERSION faithfulness (the float32 trap list).  Every float32↔(int/float64/
-    constant) path goes through binary64, which is PROVABLY single-rounding-equivalent: binary64's
-    53 bits exceed [2·24 + 2 = 50], so decimal/int → binary64 → binary32 equals a DIRECT round to
-    binary32 (the double-rounding-innocuous theorem — no extra error from the intermediate).
-    Machine-checked across the corners: *)
+(** float32 RANGE + CONVERSION faithfulness.  Every float32↔(int/float64/constant) path
+    goes through binary64, which is single-rounding-equivalent (53 bits > 2·24+2 = 50, the
+    double-rounding-innocuous theorem).  Machine-checked corners: *)
 Example f32_overflow  : f64_eqb (widen64 (f32_lit 1e40)) (f64_div 1 0) = true.   (* |x|>max → +Inf *)
 Proof. vm_compute. reflexivity. Qed.
 Example f32_underflow : f64_eqb (widen64 (f32_lit 1e-50)) 0 = true.                     (* below min subnormal → 0 *)
@@ -726,30 +600,25 @@ Proof. vm_compute. reflexivity. Qed.
 Definition f32_conv_demo : IO unit :=
   println [ any (f32_of_f64 (f64_of_int (int_lit 16777217 eq_refl)))                       (* float32(2^24+1) = 1.6777216e7 *)
           ; any (f32_of_f64 (f64_of_fconst (fc_add (mkFC 1 10) (mkFC 2 10)))) ]. (* float32(0.1+0.2) = 0.3 *)
-(** narrow ↔ float32 is COMPOSABLE — no DIRECT [f32_of_u8]/[u8_of_f32] op is required: a uint8 reaches
-    float32 via [f32_of_i64 ∘ i64_of_u8], and back via [i64_of_f64 ∘ f64_of_f32] — exactly Go's
-    [float32(uint8(x))] / [int64(float32(x))], value-correct (a narrow is small, exactly representable).
-    Round-tripped through float32 and printed as an int to keep the witness format-free. *)
+(** narrow ↔ float32 is COMPOSABLE (no direct op needed): [f32_of_i64 ∘ i64_of_u8] and
+    back via [i64_of_f64 ∘ f64_of_f32] — value-correct (a narrow is exactly representable). *)
 Definition narrow_f32_demo : IO unit :=
   println [ any (i64_of_f64 (f64_of_f32 (f32_of_i64 (i64_of_u8 (u8_lit 200 eq_refl))))) ].   (* uint8 200 → float32 → int64: 200 *)
-(** REGRESSION: a float op on CONSTANTS must extract as a RUNTIME IEEE operation,
-    NOT a Go constant expression — Go constants cannot denote -0/±Inf/NaN, and a constant [/0] or
-    [float32] overflow are COMPILE ERRORS.  The extractor now forces runtime (typed IIFE) for any
-    float op whose operands are not runtime variables.  Model values (machine-checked) and the
-    runtime Go now agree on the IEEE results: *)
+(** Invariant: a float op on CONSTANTS extracts as a RUNTIME IEEE operation (typed IIFE),
+    never a Go constant expression — Go constants cannot denote -0/±Inf/NaN and a constant
+    [/0] or float32 overflow is a compile error. *)
 Example f32_div0_inf  : f64_eqb (widen64 (f32_div (f32_lit 1) (f32_lit 0))) (f64_div 1 0) = true. (* +Inf *)
 Proof. vm_compute. reflexivity. Qed.
 Example f32_div_negzero : f64_eqb (widen64 (f32_div (f32_lit 1) (f32_neg (f32_lit 0)))) (f64_div 1 (f64_opp 0)) = true. (* -Inf (proves -0) *)
 Proof. vm_compute. reflexivity. Qed.
 Definition f32_const_runtime_demo : IO unit :=
-  println [ any (f32_div (f32_lit 1) (f32_lit 0))             (* +Inf  (pre-fix: Go compile error, constant /0) *)
-          ; any (f32_div (f32_lit 1) (f32_neg (f32_lit 0)))   (* -Inf  (proves -0 preserved; pre-fix +0 → +Inf) *)
-          ; any (f32_lit 1e40)                                 (* +Inf  (pre-fix: Go compile error, const overflow) *)
+  println [ any (f32_div (f32_lit 1) (f32_lit 0))             (* +Inf *)
+          ; any (f32_div (f32_lit 1) (f32_neg (f32_lit 0)))   (* -Inf  (proves -0 preserved) *)
+          ; any (f32_lit 1e40)                                 (* +Inf  (overflow forced to runtime) *)
           ; any (f64_div 1 0)%go64 ].                   (* float64 +Inf (same class) *)
-(** DIRECT int → float32: [f32_of_i64]/[f32_of_int]/[f32_of_u64] round the integer
-    ONCE to binary32, faithfully modelling Go's [float32(x)].  For |x| > 2^53 this DIFFERS from the
-    double-rounding [f32_of_f64 (f64_of_int x)] = [float32(float64(x))], DISPROVING the earlier
-    "single-rounding-equivalent" claim.  The distinguishing witness, x = 2^61+2^37+1 = 2305843146652647425: *)
+(** DIRECT int → float32: [f32_of_i64]/[f32_of_int]/[f32_of_u64] round the integer ONCE
+    to binary32 (Go's [float32(x)]).  For |x| > 2^53 this DIFFERS from the double-rounding
+    [float32(float64(x))]; witness x = 2^61+2^37+1: *)
 Example f32_of_i64_differs :         (* direct ≠ via-float64 — double rounding is REAL *)
   f32_eqb (f32_of_i64 (i64_lit 2305843146652647425 eq_refl))
           (f32_of_f64 (f64_of_i64 (i64_lit 2305843146652647425 eq_refl))) = false.
@@ -765,9 +634,8 @@ Definition f32_of_int_demo : IO unit :=
      the shared ~6 sig-figs, so print the INEQUALITY (false = they differ) — the observable proof. *)
   println [ any (f32_eqb (f32_of_i64 (i64_lit 2305843146652647425 eq_refl))
                          (f32_of_f64 (f64_of_i64 (i64_lit 2305843146652647425 eq_refl)))) ].  (* false *)
-(** EXACT float CONSTANT → float32 (the exact-or-reject rounding item): [f32_of_fconst] rounds the exact
-    rational ONCE to binary32 (correctly-rounded for ALL num/den).  Disproves single-rounding via
-    float64 for a large rational, and computes the ordinary small constant exactly. *)
+(** EXACT float CONSTANT → float32: [f32_of_fconst] rounds the exact rational ONCE to
+    binary32 (correctly-rounded for ALL num/den). *)
 Example f32_of_fconst_direct :   (* exact 2305843146652647425/1 → 2^61+2^38 (Go float32(x) = 0x5e000001) *)
   f64_eqb (f64_of_f32 (f32_of_fconst (mkFC 2305843146652647425 1))) 2305843284091600896 = true.
 Proof. vm_compute. reflexivity. Qed.
@@ -780,34 +648,27 @@ Example f32_of_fconst_small :    (* 0.1 + 0.2 as an EXACT rational 30/100 → fl
 Proof. vm_compute. reflexivity. Qed.
 Definition f32_fconst_demo : IO unit :=
   println [ any (f32_of_fconst (fc_add (mkFC 1 10) (mkFC 2 10))) ].   (* float32(0.1+0.2) = float32(0.3), single round *)
-(** f64 exact constant — now correctly-rounded for ALL num/den (the float64 parallel of int→float32):
-    [f64_of_fconst] rounds the exact rational ONCE via [SFdiv 53 1024] of the exact spec_floats,
-    fixing the latent double-rounding of the old [div (f64_of_i64 num) (f64_of_i64 den)] when BOTH
-    endpoints exceed 2^53 (and removing the extraction's 2^53 fail-loud guard — large constants now
-    lower as [float64(num.0/den.0)]). *)
-Example f64_of_fconst_no_double_round :   (* new (single round) ≠ old (double round) for a both-large rational *)
+(** f64 exact constant: [f64_of_fconst] rounds the exact rational ONCE via
+    [SFdiv 53 1024] of the exact spec_floats — correctly-rounded for ALL num/den, no
+    double rounding when both endpoints exceed 2^53. *)
+Example f64_of_fconst_no_double_round :   (* single round ≠ double round (via float64) for a both-large rational *)
   f64_eqb (f64_of_fconst (mkFC 9007199254740993 9007199254740995))
                 (f64_div (f64_of_i64 (i64_lit 9007199254740993 eq_refl)) (f64_of_i64 (i64_lit 9007199254740995 eq_refl))) = false.
 Proof. vm_compute. reflexivity. Qed.
 Definition f64_fconst_big_demo : IO unit :=
-  println [ any (f64_of_fconst (mkFC 9007199254740993 10)) ].   (* (2^53+1)/10 = 900719925474099.25, single round (was fail-loud) *)
-(** SOUNDNESS REGRESSION (closes a soundness hole).  Pre-fix, [GoFloat32 := float] was a
-    transparent alias, so a NON-binary32-representable literal could be injected raw and
-    [f64_of_f32 16777217 = 16777217] — DISAGREEING with Go (which rounds [float32(16777217)]
-    to [16777216]) and licensing unsound proofs.  Now [16777217] cannot enter [GoFloat32]
-    except through the rounding boundary [f32_lit], which rounds it to [2^24]; widening that
-    yields [16777216], MATCHING Go.  (The raw injection [f64_of_f32 16777217] no longer even
-    typechecks — [GoFloat32] is abstract.) *)
+  println [ any (f64_of_fconst (mkFC 9007199254740993 10)) ].   (* (2^53+1)/10 = 900719925474099.25, single round *)
+(** Invariant: [GoFloat32] is abstract — a value enters only through the rounding boundary
+    [f32_lit], so a non-binary32-representable literal is rounded exactly as Go rounds
+    [float32(16777217)] to [16777216]. *)
 Example f32_widen_sound : f64_eqb (widen64 (f32_lit 16777217)) 16777216 = true.
 Proof. vm_compute. reflexivity. Qed.
 Definition floatconv_demo : IO unit :=
   bind (println [ any (narrow32 16777217) ])        (fun _ =>   (* float64→float32: rounds to 16777216 *)
   println [ any (widen64 (narrow32 7.5)) ]).                    (* round-trip 7.5 (exact) *)
-(** UNTYPED FLOAT CONSTANTS (model): a constant float expression is EXACT (rational) until typed,
-    then rounded ONCE.  [0.1 + 0.2] as a CONSTANT is [float64(3/10) = 0.3] exactly; the RUNTIME
-    add ([f64_add 0.1 0.2]) rounds each operand first → [0.30000000000000004].  Both
-    machine-checked, proving the model captures the constant-vs-runtime distinction Go makes.
-    (Proof-only: lowering of [f64_of_fconst] to Go is the deferred follow-on.) *)
+(** UNTYPED FLOAT CONSTANTS: a constant float expression is EXACT (rational) until typed,
+    then rounded ONCE — [0.1 + 0.2] as a CONSTANT is exactly [0.3]; the RUNTIME add rounds
+    each operand first → [0.30000000000000004].  Machine-checked; matches Go's
+    constant-vs-runtime distinction. *)
 Example fconst_exact   : f64_eqb (f64_of_fconst (fc_add (mkFC 1 10) (mkFC 2 10))) 0.3 = true.
 Proof. vm_compute. reflexivity. Qed.
 Example fconst_runtime : f64_eqb (f64_add 0.1 0.2) 0.3 = false.   (* runtime ≠ the constant 0.3 *)
@@ -816,10 +677,8 @@ Example fconst_mul     : f64_eqb (f64_of_fconst (fc_mul (mkFC 3 2) (mkFC 1 4))) 
 Proof. vm_compute. reflexivity. Qed.
 Example fconst_div     : f64_eqb (f64_of_fconst (fc_div (mkFC 1 1) (mkFC 4 1) ltac:(discriminate))) 0.25 = true.   (* 1.0/4.0 = 0.25 *)
 Proof. vm_compute. reflexivity. Qed.
-(** A constant division by a ZERO constant is
-    UNCONSTRUCTABLE.  [fc_div] demands evidence [fc_num b <> 0]; for a zero divisor that
-    obligation is [0 <> 0], which is refutable — so no such [fc_div] term can be written.
-    (Go rejects constant division by zero at compile time; here it is a TYPE error.) *)
+(** Constant division by a ZERO constant is UNCONSTRUCTABLE: [fc_div] demands
+    [fc_num b <> 0], refutable for a zero divisor.  (Go: compile error; here: type error.) *)
 Example fc_div_zero_evidence_absurd : ~ (fc_num (mkFC 0 1) <> 0%Z).
 Proof. intro H. exact (H eq_refl). Qed.
 (** LOWERED: [f64_of_fconst] folds the exact rational and emits [(float64(num) / float64(den))],
@@ -828,9 +687,8 @@ Definition fconst_demo : IO unit :=
   println [ any (f64_of_fconst (fc_add (mkFC 1 10) (mkFC 2 10)))    (* (1/10)+(2/10) = 0.3 *)
           ; any (f64_of_fconst (fc_mul (mkFC 3 2) (mkFC 1 4)))      (* (3/2)·(1/4) = 0.375 *)
           ; any (f64_of_fconst (fc_div (mkFC 1 1) (mkFC 4 1) ltac:(discriminate))) ].   (* 1.0/4.0 = 0.25 *)
-(** float32 COMPARISON LOWERED to native Go [float32] [<]/[>=]/[!=] (operands are [float32]).
-    Machine-checked faithful, NaN corner included: [f32_geb] is the swapped [leb], so [x >= NaN]
-    is FALSE (matching Go) — [¬(x < NaN)] would wrongly be true. *)
+(** float32 COMPARISON → native Go [<]/[>=]/[!=].  NaN corner: [f32_geb] is the swapped
+    [leb], so [x >= NaN] is FALSE (matching Go). *)
 Notation f32c a b c := (f32_combine (f32_lit a) (f32_lit b) (f32_lit c)) (only parsing).
 Example f32_lt_ex   : f32_ltb  (f32c 1.5 0.0 2) (f32c 5.0 0.0 2) = true.   (* 3 < 10  *)
 Proof. vm_compute. reflexivity. Qed.
@@ -844,20 +702,15 @@ Definition f32_cmp_demo : IO unit :=
   println [ any (f32_ltb  (f32c 1.5 0.0 2) (f32c 5.0 0.0 2))    (* 3 < 10  → true *)
           ; any (f32_geb  (f32c 5.0 0.0 2) (f32c 1.5 0.0 2))    (* 10 >= 3 → true *)
           ; any (f32_neqb (f32c 1.5 0.0 2) (f32c 5.0 0.0 2)) ]. (* 3 != 10 → true *)
-(** float64 → int64 TRUNCATION LOWERED: [i64_of_f64] → native Go [int64(f)] (truncates toward
-    zero).  The model's [f64_trunc_Z] body (a direct [spec_float] decomposition) is suppressed; demoed through a
-    typed-param wrapper so the cast applies to a VARIABLE ([int64(3.7)] on a constant is a Go
-    compile error). *)
+(** float64 → int64 TRUNCATION: [i64_of_f64] → native Go [int64(f)] (toward zero); demoed
+    through a typed-param wrapper so the cast applies to a VARIABLE ([int64(3.7)] on a
+    constant is a Go compile error). *)
 Definition trunc64 (x : GoFloat64) : GoI64 := i64_of_f64 x.
 Definition i64_of_f64_demo : IO unit := println [ any (trunc64 3.7) ; any (trunc64 (f64_opp 2.9)) ].   (* 3 / -2 *)
 
-(** float ↔ uint64 LOWERED — the UNSIGNED counterparts.  [u64_of_f64] → native [uint64(f)]
-    (truncate toward zero, parallel to [i64_of_f64]); [f64_of_u64] → native [float64(v)]
-    (correctly rounded — the model's single [binary_normalize] over the whole uint64 range is suppressed).
-    These cover what [i64↔f64] cannot: a uint64 ABOVE [2^63] is a large POSITIVE double, not the
-    negative an int64 reinterpret would give.  Machine-checked: low range exact ([255]); the
-    uint64 MAX rounds to [2^64] ([binary_normalize] over the full range rounds correctly); and
-    [float64 2^63 → uint64] succeeds where [int64] would overflow. *)
+(** float ↔ uint64: [u64_of_f64] → native [uint64(f)] (truncate toward zero); [f64_of_u64]
+    → native [float64(v)] (correctly rounded).  A uint64 ABOVE [2^63] is a large POSITIVE
+    double, not an int64-reinterpret negative.  Machine-checked incl. uint64 MAX → [2^64]. *)
 Example f64_of_u64_lo  : f64_eqb (f64_of_u64 (u64_lit 255 eq_refl)) 255 = true.
 Proof. vm_compute. reflexivity. Qed.
 Example f64_of_u64_max : f64_eqb (f64_of_u64 (u64_lit 18446744073709551615 eq_refl)) 18446744073709551616 = true.  (* → 2^64 *)
@@ -874,10 +727,8 @@ Definition f64_of_int_demo : IO unit :=
   println [ any (f64_of_int (int_lit 5 eq_refl)) ; any (f64_of_int (int_lit (-3) eq_refl)) ].
   (* prints: +5.000000e+000 -3.000000e+000 (int → float64 cast) *)
 
-(** GoI64 → float64 (Go [float64(i64)]) — NOW lowers too: same recognize-and-suppress as
-    [f64_of_int], plus suppressing the [Z]→int63 helpers [of_Z]/[of_pos] its [Z] carrier
-    drags (the [Z]/[positive] arithmetic was already suppressed by module).  It returns
-    [float], so it stays a NAMED call — the lowering [f64_of_i64] left deferred is closed. *)
+(** GoI64 → float64 (Go [float64(i64)]): recognize-and-suppress like [f64_of_int];
+    returns [float], so it stays a NAMED call. *)
 Definition f64_of_i64_demo : IO unit :=
   println [ any (f64_of_i64 (7)%i64) ; any (f64_of_i64 (-3)%i64) ].
   (* prints: +7.000000e+000 -3.000000e+000 (int64 → float64 cast) *)
@@ -889,18 +740,12 @@ Example i64_of_f64_neg   : i64_of_f64 (-3.7)%go64    = (-3)%i64.      Proof. vm_
 Example i64_of_f64_exact : i64_of_f64 100%go64       = (100)%i64.     Proof. vm_compute. reflexivity. Qed.
 Example i64_of_f64_zero  : i64_of_f64 0%go64         = (0)%i64.       Proof. vm_compute. reflexivity. Qed.
 Example i64_of_f64_big   : i64_of_f64 1000000.9%go64 = (1000000)%i64. Proof. vm_compute. reflexivity. Qed.
-(** LOWERED to native Go [int64(f)]: [i64_of_f64] is recognized by name; its [f64_trunc_Z]
-    body — which decomposes the [spec_float] [S754_finite s m e] DIRECTLY (no [Prim2SF] /
-    [normfr_mantissa] primitive) — is suppressed.  The MODEL is
-    faithful and machine-checked above. *)
+(** [i64_of_f64] is recognized by name → native Go [int64(f)]; its [f64_trunc_Z] body
+    (direct [spec_float] decomposition) is suppressed.  Model machine-checked above. *)
 
 
-(** uint8 (byte): a precise, COMPUTABLE model of Go's 8-bit unsigned arithmetic.
-    Each op masks the result back to [0,256), so it wraps mod 256 exactly like Go.
-    The wrap is MACHINE-CHECKED (the model is just [Z.land]/[Z.add] on the [Z] carrier, which
-    [vm_compute] reduces) — not asserted.  Note the contrast with [Nat.sub]: uint8
-    subtraction genuinely WRAPS ([0 - 1 = 255]), which we model faithfully, whereas
-    Coq's [Nat.sub] truncates ([0 - 1 = 0]) and is therefore rejected. *)
+(** uint8 (byte): each op masks the result back to [0,256), wrapping mod 256 exactly like
+    Go — machine-checked, incl. genuine wrap on subtraction ([0 - 1 = 255]). *)
 Example u8_add_wraps : u8_add (u8_lit 200 eq_refl) (u8_lit 100 eq_refl) = u8_lit 44 eq_refl.
 Proof. reflexivity. Qed.                                      (* 300 mod 256 = 44 (reflexivity: GoU8's range proof is SProp — the VM can't decide proof-irrelevance, the kernel can) *)
 Example u8_mul_wraps : u8_mul (u8_lit 255 eq_refl) (u8_lit 255 eq_refl) = u8_lit 1 eq_refl.
@@ -913,9 +758,8 @@ Definition u8_demo : IO unit :=
   bind (println [any (u8_sub (u8_lit 0 eq_refl)   (u8_lit 1 eq_refl))])   (fun _ =>   (* 255 *)
   println [any (u8_ltb (u8_lit 10 eq_refl) (u8_lit 20 eq_refl))]))).                  (* true *)
 
-(** int8 (signed): the SAME template extended to two's-complement.  [int8(150)] is
-    [-106] (150 sign-extended from 8 bits), and the wrap is machine-checked.  The
-    sign-extension is the harder case the model must get right. *)
+(** int8 (signed): two's-complement — [int8(150) = -106] (sign-extended from 8 bits);
+    wrap machine-checked. *)
 Example i8_add_wraps : i8_add (i8_lit 100 eq_refl) (i8_lit 50 eq_refl) = i8_lit (-106) eq_refl.
 Proof. reflexivity. Qed.                             (* 100+50=150 → -106 (reflexivity: GoI8 carries an SProp provenance proof) *)
 Example i8_sub_wraps : i8_sub (i8_lit (-128) eq_refl) (i8_lit 1 eq_refl) = i8_lit 127 eq_refl.
@@ -939,10 +783,8 @@ Definition fw_cmp_demo : IO unit :=
           ; any (i8_neqb (i8_lit 5 eq_refl) (i8_lit (-5) eq_refl))   (* 5 != -5 → true *)
           ; any (u32_gtb (u32_lit 4000000000 eq_refl) (u32_lit 1 eq_refl)) ].  (* big > 1 → true *)
 
-(** uint16 / int16: the SAME template at width 16, fully faithful on the carrier
-    (16-bit products are [< 2^32], far below [2^62], so [mul] is exact).  The
-    plugin recognises every [uN_*]/[iN_*] width with one parser — these needed
-    only the Rocq definitions, no new plugin code. *)
+(** uint16 / int16: same template at width 16 (16-bit products fit the carrier, so [mul]
+    is exact).  The plugin recognises every [uN_*]/[iN_*] width with one parser. *)
 Example u16_mul_wraps : u16_mul (u16_lit 1000 eq_refl) (u16_lit 1000 eq_refl) = u16_lit 16960 eq_refl.
 Proof. reflexivity. Qed.                        (* 1000000 mod 65536 = 16960 (reflexivity: GoU16 range proof is SProp) *)
 Example i16_add_wraps : i16_add (i16_lit 30000 eq_refl) (i16_lit 10000 eq_refl) = i16_lit (-25536) eq_refl.
@@ -952,10 +794,8 @@ Definition u16_demo : IO unit :=
   bind (println [any (u16_mul (u16_lit 1000 eq_refl)  (u16_lit 1000 eq_refl))])  (fun _ =>   (* 16960 *)
   println [any (i16_add (i16_lit 30000 eq_refl) (i16_lit 10000 eq_refl))])).                 (* -25536 *)
 
-(** Bitwise operators (Go spec "Arithmetic operators": [& | ^ &^] and unary [^]).
-    240 = 0b11110000, 60 = 0b00111100: AND=48, OR=252, XOR=204, AND-NOT=192,
-    complement(240)=15.  Signed: [^int8(5) = -6], [int8(-1) &^ 5 = -6].  The
-    MACHINE-CHECKED proofs below pin the values; this shows Go agreeing at run. *)
+(** Bitwise operators (Go spec: [& | ^ &^], unary [^]).  Machine-checked proofs pin the
+    values; the demo shows Go agreeing at run. *)
 Example spec_u8_and    : u8_and    (u8_lit 240 eq_refl) (u8_lit 60 eq_refl) = u8_lit 48  eq_refl. Proof. reflexivity. Qed.
 Example spec_u8_or     : u8_or     (u8_lit 240 eq_refl) (u8_lit 60 eq_refl) = u8_lit 252 eq_refl. Proof. reflexivity. Qed.
 Example spec_u8_xor    : u8_xor    (u8_lit 240 eq_refl) (u8_lit 60 eq_refl) = u8_lit 204 eq_refl. Proof. reflexivity. Qed.
@@ -994,13 +834,9 @@ Definition shift_demo : IO unit :=
   println [ any (i8_shl (i8_lit 64  eq_refl) (int_lit 1 eq_refl) eq_refl)           (* -128 (wrap) *)
           ; any (i8_shr (i8_lit (-3) eq_refl) (int_lit 1 eq_refl) eq_refl) ]).      (* -2 (arithmetic) *)
 
-(** Numeric conversions (Go spec "Conversions").  Widen ([int_of_*]) preserves the
-    value; narrow ([*_of_int]) TRUNCATES to the width — Go's [uint8(x)]/[int8(x)].
-    Distinct types mix ONLY through an explicit conversion (the type checker
-    rejects implicit mixing — `*_no_implicit`, `u8_of_i16_direct` `Fail`s), so the
-    conversions are what make the distinct numeric types usable together.
-    MACHINE-CHECKED: [uint8(1000)=232] (mod 256), [uint8(-1)=255], [int8(200)=-56]
-    (two's-complement), widen [int(uint8 200)=200], cross-width [int16(uint8 200)]. *)
+(** Numeric conversions (Go spec "Conversions").  Widen ([int_of_*]) preserves the value;
+    narrow ([*_of_int]) TRUNCATES to the width.  Invariant: distinct types mix ONLY through
+    an explicit conversion (implicit mixing is a type error — `Fail`s in builtins.v). *)
 Example spec_u8_of_int_trunc : u8_of_int (int_lit 1000 eq_refl)  = u8_lit 232 eq_refl. Proof. reflexivity. Qed.
 Example spec_u8_of_int_neg   : u8_of_int (int_lit (-1) eq_refl) = u8_lit 255 eq_refl. Proof. reflexivity. Qed.
 Example spec_i8_of_int_wrap  : i8_of_int (int_lit 200 eq_refl)  = i8_lit (-56) eq_refl. Proof. reflexivity. Qed.
@@ -1015,17 +851,10 @@ Definition convert_demo : IO unit :=
   (* mix distinct types: widen the uint8 into int16 arithmetic via explicit conv *)
   println [ any (i16_add b (i16_of_int (int_of_u8 a))) ]).  (* 1000 + 200 = 1200 *)
 
-(** Narrow -> int64 WIDENING (Go [int64(x)]): value-PRESERVING (a byte/short fits
-    int64), so the byte/short value lands unchanged in the canonical [GoI64].
-    Unsigned narrows stay non-negative; a signed narrow keeps its sign
-    ([int64(int8 -5) = -5]).  MODELED + machine-checked across signed/unsigned and
-    small/large widths.  Lowering = Go's [int64(x)] widening (the narrow-boundary rule; NOT identity — a
-    narrow PARAM is a real [uint8]/[int8]/…, so [int64(x)] lands it in the [int64] destination,
-    e.g. [func Widen(x uint8) int64 { return int64(x) }]).  The body is now a pure [Z] re-wrap
-    ([i64wrap (uNraw a)] — [uNraw]/[iNraw] : narrow → [Z], no [Sint63.to_Z], no match): the
-    **narrow-stored-in-Z** refactor that an earlier deep-dive deferred (the single-field records
-    used to η-reduce a [to_Z] body into value position) is DONE, so
-    it extracts cleanly with no banned-decl drag. *)
+(** Narrow -> int64 WIDENING (Go [int64(x)]): value-preserving; unsigned stays
+    non-negative, signed keeps its sign ([int64(int8 -5) = -5]).  Lowering is Go's
+    [int64(x)] widening, NOT identity (a narrow PARAM is a real [uint8]/[int8]/…).
+    The body is a pure [Z] re-wrap ([i64wrap (uNraw a)]), extracting cleanly. *)
 Example widen_u8  : i64_of_u8  (u8_lit 200 eq_refl)         = (200)%i64.        Proof. vm_compute. reflexivity. Qed.
 Example widen_i8  : i64_of_i8  (i8_of_int (int_lit (-5) eq_refl))      = (-5)%i64.         Proof. vm_compute. reflexivity. Qed.
 Example widen_u16 : i64_of_u16 (u16_lit 60000 eq_refl)      = (60000)%i64.      Proof. vm_compute. reflexivity. Qed.
@@ -1045,11 +874,8 @@ Definition divmod_demo : IO unit :=
           ; any (u8_mod (u8_lit 200 eq_refl) (u8_lit 7 eq_refl) eq_refl)            (* 4  *)
           ; any (i8_div (i8_lit (-128) eq_refl) (i8_lit (-1) eq_refl) eq_refl) ].   (* -128 (overflow) *)
 
-(** uint32 / int32: the same template at width 32.  `4e9 + 1e9` wraps mod 2^32 →
-    705032704; `2e9 + 2e9` wraps int32 → -294967296.  MULTIPLY is exact too: a
-    32-bit product can exceed the 63-bit carrier, but the masked LOW 32 bits survive
-    ([2^32 | 2^63]), so no Z model is needed — `100000*100000 = 1e10` wraps mod 2^32
-    → 1410065408; `46341^2 = 2147488281 > 2^31` wraps int32 → -2147479015. *)
+(** uint32 / int32: same template at width 32.  MULTIPLY is exact: the masked LOW 32
+    bits survive even when the product exceeds the carrier ([2^32 | 2^63]). *)
 Example spec_u32_add_wrap : u32_add (u32_lit 4000000000 eq_refl) (u32_lit 1000000000 eq_refl) = u32_lit 705032704 eq_refl. Proof. reflexivity. Qed.
 Example spec_i32_add_wrap : i32_add (i32_lit 2000000000 eq_refl) (i32_lit 2000000000 eq_refl) = i32_lit (-294967296) eq_refl. Proof. reflexivity. Qed.
 Example spec_u32_mul_wrap : u32_mul (u32_lit 100000 eq_refl) (u32_lit 100000 eq_refl) = u32_lit 1410065408 eq_refl. Proof. reflexivity. Qed.
@@ -1064,17 +890,13 @@ Definition u32_demo : IO unit :=
   println [ any (u32_mul (u32_lit 100000 eq_refl) (u32_lit 100000 eq_refl))   (* 1410065408 *)
           ; any (i32_mul (i32_lit 46341 eq_refl) (i32_lit 46341 eq_refl)) ])).  (* -2147479015 *)
 
-(** int64 — FULL-WIDTH signed 64-bit (Go spec "Numeric types"), the genuine
-    Z-carried model.  Faithful across the WHOLE int64 range and wrapping at the TRUE
-    2^63 — unlike the [Sint63] [int], which is faithful only within [-2^62, 2^62).
-    [2^63-1 + 1] wraps to [-2^63]; [-2^63 - 1] wraps to [2^63-1]; [2^32 * 2^32 = 2^64]
-    wraps to 0.  And a sum the OLD 2^62 model could not even represent is now exact. *)
+(** int64 — FULL-WIDTH signed 64-bit, [Z]-carried, faithful across the whole range and
+    wrapping at the true 2^63: [MAX + 1 = MIN]; [MIN - 1 = MAX]; [2^32 * 2^32] wraps to 0. *)
 Example spec_i64_add_wrap : i64_add (i64_lit 9223372036854775807 eq_refl) (i64_lit 1 eq_refl) = i64_lit (-9223372036854775808) eq_refl. Proof. reflexivity. Qed.
 Example spec_i64_sub_wrap : i64_sub (i64_lit (-9223372036854775808) eq_refl) (i64_lit 1 eq_refl) = i64_lit 9223372036854775807 eq_refl. Proof. reflexivity. Qed.
 Example spec_i64_mul_wrap : i64_mul (i64_lit 4294967296 eq_refl) (i64_lit 4294967296 eq_refl) = i64_lit 0 eq_refl. Proof. reflexivity. Qed.
 Example spec_i64_beyond62 : i64_add (i64_lit 4611686018427387904 eq_refl) (i64_lit 4611686018427387903 eq_refl) = i64_lit 9223372036854775807 eq_refl. Proof. reflexivity. Qed.
-(* No-overflow ⇒ EXACT, at the TRUE int64 width (the canonical overflow theorem;
-   the bounded Sint63 version was removed when the int model migrated to GoI64). *)
+(* No-overflow ⇒ EXACT, at the true int64 width (the canonical overflow theorem). *)
 Theorem i64_add_no_overflow_exact : forall a b : GoI64,
   in_i64 (i64raw a + i64raw b)%Z = true -> i64raw (i64_add a b) = (i64raw a + i64raw b)%Z.
 Proof.
@@ -1083,17 +905,11 @@ Proof.
   apply Z.leb_le in H1. apply Z.ltb_lt in H2.
   rewrite Z.mod_small by lia. lia.
 Qed.
-(* The demo shows full-width arithmetic on values that EXCEED the old [Sint63] [int]
-   range ([2^62 ≈ 4.6e18]) yet fit int64 — impossible to even represent before.  The
-   2^63 WRAP itself is proven by the witnesses above (machine-checked [vm_compute]),
-   NOT re-shown at runtime: an extracted [MAX + 1] is a Go *untyped-constant*
-   expression, so Go applies its COMPILE-TIME overflow check (a compile error) rather
-   than the runtime int64 wrap [i64_add] models — exactly the untyped-constant gap
-   (PRE_IMPORT_PLAN A5 / Known gaps #5).  [i64_add] models RUNTIME int64 addition,
-   faithful for non-constant operands; the demo keeps its constant results in range. *)
+(* The 2^63 WRAP is proven by the witnesses above, NOT re-shown at runtime: an extracted
+   [MAX + 1] is a Go untyped-constant expression ⇒ compile-time overflow error, whereas
+   [i64_add] models RUNTIME int64 addition.  The demo keeps its constant results in range. *)
 
-(* Ergonomic full-width int64: range-checked [%i64] literals + scoped arithmetic
-   (A4.2).  Reads like ordinary integer code, but is the faithful [Z]-carried int64. *)
+(* Ergonomic full-width int64: range-checked [%i64] literals + scoped arithmetic. *)
 Definition i64_demo : IO unit :=
   println [ any (9000000000000000000 + 200000000000000000)%i64  (* 9200000000000000000 (> 2^62) *)
           ; any (3000000000 * 3000000000)%i64 ].  (* 9000000000000000000 (> 2^62) *)
@@ -1116,16 +932,11 @@ Definition i64_ops_demo : IO unit :=
   println [ any (i64_and (i64_lit (-1) eq_refl) (i64_lit 4294967295 eq_refl))   (* 4294967295 *)
           ; any (i64_not (i64_lit 5 eq_refl)) ]).  (* -6 *)
 
-(** UNTYPED CONSTANTS (Go: a literal/constant EXPRESSION is ARBITRARY-PRECISION and untyped until
-    it lands in a typed context, where it must be REPRESENTABLE there — else a COMPILE ERROR).
-    Fido models this: a constant's argument is an exact [Z] expression and the constructor's
-    FIT-PROOF *is* Go's representability check.  (1) CONSTANT EXPRESSIONS fold — [(1<<40)+5],
-    [(1<<20)-1], [10^6 * 10^6] extract to their values (plugin [z_eval], checked-int64 with
-    OVERFLOW = fail-loud, so an intermediate exceeding int64 never silently wraps — matching Go's
-    arbitrary-precision constant fold); (2) ONE constant, MANY types — [100] at [int64] AND
-    [uint8]; (3) overflow REJECTED at "compile time" — [2^63] has no [in_i64] proof, [300] no
-    [<256] proof, so the literal can't be built and unsafe Go never extracts.  *(Scope: untyped
-    INTEGER constants; default types and untyped float/rune constants remain.)* *)
+(** UNTYPED CONSTANTS: a constant's argument is an exact [Z] expression and the
+    constructor's FIT-PROOF *is* Go's representability check.  (1) Constant expressions
+    fold (plugin [z_eval], overflow = fail-loud, so an intermediate exceeding int64 never
+    silently wraps); (2) one constant, many types; (3) overflow is rejected at "compile
+    time" — no fit proof, no literal.  (Scope: untyped INTEGER constants only.) *)
 Definition uc_bignum  : GoI64 := i64_lit (Z.shiftl 1 40 + 5) eq_refl.   (* (1<<40)+5 = 1099511627781 *)
 Definition uc_mask    : GoI64 := i64_lit (Z.shiftl 1 20 - 1) eq_refl.   (* (1<<20)-1 = 1048575 (0xFFFFF) *)
 Definition uc_product : GoI64 := i64_lit (1000000 * 1000000) eq_refl.   (* 10^12 = 1000000000000 *)
@@ -1142,12 +953,7 @@ Definition uconst_demo : IO unit :=
   (* 1099511627781 1048575 1000000000000 100 100 9223372036854775808 4294967295 *)
 
 (** ===== GoU64: FULL-WIDTH unsigned 64-bit integer =====
-    Machine-checked witnesses:
-    - [spec_u64_add_wrap]: 2^63 + 2^63 = 0 (mod 2^64) — the true unsigned wrap boundary.
-    - [spec_u64_sub_wrap]: 0 - 1 = 2^64-1 — unsigned underflow wraps to max.
-    - [spec_u64_not]:      ~0 = 2^64-1 (all 64 bits set).
-    - [spec_u64_shr]:      8 >> 1 = 4 (logical right shift, not arithmetic).
-    - [spec_u64_beyond63]: value > 2^62 unrepresentable in the old Sint63 model.
+    Machine-checked: wrap at 2^64, underflow to max, [~0 = 2^64-1], LOGICAL right shift.
     All axiom-free (Print Assumptions = Closed under the global context). *)
 Example spec_u64_add_wrap : u64_add (u64_lit 9223372036854775808%Z eq_refl) (u64_lit 9223372036854775808%Z eq_refl)
                             = u64_lit 0%Z eq_refl. Proof. reflexivity. Qed.
@@ -1159,22 +965,16 @@ Example spec_u64_beyond63 : u64raw (u64_add (u64_lit 5000000000000000000%Z eq_re
                                             (u64_lit 5000000000000000000%Z eq_refl))
                             = 10000000000000000000%Z. Proof. now vm_compute. Qed.
 
-(** Runtime demo: two values > 2^62 (unrepresentable in the old Sint63 carrier);
-    their sum and product both fit in Go's int64, so no untyped-constant issue
-    (PRE_IMPORT_PLAN A5 / Known gaps #5).  The wrapping corner cases above are
-    proof witnesses only (proof-only path never emitted). *)
+(** Runtime demo: sums/products fit Go's int64, so no untyped-constant issue.  The
+    wrapping corners above are proof witnesses only (never emitted). *)
 Definition u64_demo : IO unit :=
   println [ any (5000000000000000000 + 3000000000000000000)%u64  (* 8000000000000000000 (> 2^62) *)
           ; any (3000000000 * 3000000000)%u64 ].               (* 9000000000000000000 *)
 
-(** A4.2b: int64 flows through the FULL pipeline — a buffered CHANNEL and a MAP —
-    proving [GoI64] is first-class in every position [int] occupies (not just
-    arithmetic).  A [> 2^62] value is sent on a [chan int64], received, then stored
-    under an int64 key in a [map[int64]int64] and read back.  [comparable_TI64]
-    justifies the int64 map key. *)
-(** Regression: [recv_ok] with the value USED but the ok-flag UNUSED ([fun x _ =>])
-    must lower to [x, _ := <-ch], not the uncompilable [x, x := <-ch] (an unused
-    binder the extractor left named).  Detected by de Bruijn freeness in the plugin. *)
+(** int64 through the FULL pipeline — buffered CHANNEL and MAP — [GoI64] is first-class
+    in every position [int] occupies; [comparable_TI64] justifies the int64 map key. *)
+(** Invariant: [recv_ok] with the ok-flag UNUSED ([fun x _ =>]) lowers to
+    [x, _ := <-ch] (de Bruijn freeness detected in the plugin), never [x, x := <-ch]. *)
 Definition recv_unused_ok_demo : IO unit :=
   ch <-' make_chan_buf TI64 (int_lit 1 eq_refl) ;;
   send TI64 ch (77)%i64 >>'
@@ -1189,11 +989,9 @@ Definition i64_pipeline_demo : IO unit :=
   bind (@map_get_or GoI64 GoI64 TI64 TI64 (42)%i64 (0)%i64 m) (fun hit =>
   println [ any hit ])))).                                      (* prints: 9000000000000000001 *)
 
-(** A4.2b: a uint64 in the UPPER HALF ([>= 2^63], unrepresentable as signed int64)
-    flows through a typed pipeline — proving the full uint64 range is faithful end to
-    end, not just in arithmetic.  [18000000000000000000 > 2^63]; it is rendered
-    UNSIGNED ([%Lu]) and pinned to [uint64] by the channel / map element types
-    (the map default [(0)%u64] pins [uint64(0)] via the value tag). *)
+(** A uint64 in the UPPER HALF ([>= 2^63]) through a typed pipeline — the full uint64
+    range is faithful end to end; rendered UNSIGNED and pinned to [uint64] by the
+    channel / map element types. *)
 Definition u64_pipeline_demo : IO unit :=
   ch <-' make_chan_buf TU64 (int_lit 1 eq_refl) ;;
   send TU64 ch (18000000000000000000)%u64 >>'
@@ -1203,16 +1001,11 @@ Definition u64_pipeline_demo : IO unit :=
   bind (@map_get_or GoU64 GoU64 TU64 TU64 (7)%u64 (0)%u64 m) (fun hit =>
   println [ any hit ])))).                                      (* prints: 18000000000000000000 *)
 
-(** ===== A5: untyped INTEGER constants (Go spec "Constants") =====
-    [i64c]/[u64c] take a closed [Z] constant EXPRESSION, evaluate it at arbitrary
-    precision ([vm_compute]) and acquire the fixed-width type at use, demanding
-    representability.  Witnesses:
-    - constant arithmetic is EXACT and an INTERMEDIATE may exceed the target as long
-      as the final value fits: [(1<<70) >> 8 = 2^62] — the [1<<70] intermediate is far
-      past int64, yet the result is a valid int64 ([const_intermediate_exceeds]).
-    - the type is acquired at USE: [2^63] fits uint64 but NOT int64 ([const_u64_upper]).
-    - an out-of-range constant FAILS to elaborate = Go's untyped-constant overflow
-      compile error ([const_oob_i64]/[const_oob_u64] `Fail`). *)
+(** ===== Untyped INTEGER constants (Go spec "Constants") =====
+    [i64c]/[u64c] evaluate a closed [Z] constant EXPRESSION at arbitrary precision and
+    acquire the fixed-width type at use, demanding representability: intermediates may
+    exceed the target if the final value fits; an out-of-range constant FAILS to
+    elaborate (Go's untyped-constant overflow compile error). *)
 Example const_intermediate_exceeds :
   i64c (Z.shiftr (Z.shiftl 1 70) 8) = i64_lit 4611686018427387904 eq_refl.
 Proof. reflexivity. Qed.
@@ -1227,10 +1020,8 @@ Proof. reflexivity. Qed.
 Fail Definition const_oob_i64 : GoI64 := i64c (Z.shiftl 1 70).   (* 2^70 > int64 max *)
 Fail Definition const_oob_u64 : GoU64 := u64c (Z.shiftl 1 64).   (* 2^64 > uint64 max *)
 
-(** Runtime demo: two int64 constants built by arbitrary-precision constant
-    arithmetic.  10^12 is exact; [(1<<70)>>8 = 2^62] has an intermediate ([1<<70])
-    that overflows int64, yet the result is in range.  Both < 2^63, so they also fit
-    Go's untyped-constant default [int] in [println]. *)
+(** Runtime demo: int64 constants from arbitrary-precision constant arithmetic
+    (intermediate [1<<70] overflows int64; result in range). *)
 Definition const_demo : IO unit :=
   println [ any (i64c (1000 * 1000 * 1000 * 1000)%Z)      (* 1000000000000 *)
           ; any (i64c (Z.shiftr (Z.shiftl 1 70) 8)) ].    (* 4611686018427387904 = 2^62 *)
@@ -1242,10 +1033,8 @@ Definition const_demo : IO unit :=
 Example spec_go_min       : intraw (go_min (int_lit 3 eq_refl) (int_lit 5 eq_refl)) = 3%Z. Proof. now vm_compute. Qed.
 Example spec_go_max       : intraw (go_max (int_lit 3 eq_refl) (int_lit 5 eq_refl)) = 5%Z. Proof. now vm_compute. Qed.
 Example spec_go_min_neg   : intraw (go_min (int_lit (-2) eq_refl) (int_lit 1 eq_refl)) = (-2)%Z. Proof. now vm_compute. Qed.
-(** [min]/[max] on the canonical full-width types: int64 (SIGNED — so a negative is
-    the min) and uint64 (UNSIGNED — so a value >= 2^63 is LARGER than a small one,
-    NOT negative).  [u64_max] of [2^64-1] and [1] is [2^64-1] (unsigned), the case
-    that distinguishes the uint64 order from a signed one.  All theorems. *)
+(** [min]/[max] on int64 (SIGNED) and uint64 (UNSIGNED — [max(2^64-1, 1) = 2^64-1]
+    distinguishes the unsigned order from a signed one).  All theorems. *)
 Example spec_i64_min      : i64_min (-2)%i64 (1)%i64 = (-2)%i64. Proof. vm_compute. reflexivity. Qed.
 Example spec_i64_max      : i64_max (-2)%i64 (1)%i64 = (1)%i64.  Proof. vm_compute. reflexivity. Qed.
 Example spec_u64_max_high : u64_max (18446744073709551615)%u64 (1)%u64 = (18446744073709551615)%u64.
@@ -1254,10 +1043,8 @@ Example spec_u64_min_high : u64_min (18446744073709551615)%u64 (1)%u64 = (1)%u64
 Proof. vm_compute. reflexivity. Qed.
 
 (** [min]/[max] on int64/uint64 → Go's builtins.  The uint64 [max] uses a RUNTIME
-    [2^64-1] ([u64_of_i64 (-1)], a function call, NOT a constant) — both so it prints
-    as a typed uint64 (a constant [>= 2^63] would overflow [println]'s default [int])
-    AND so it isn't constant-folded under the SIGNED reading: the genuine unsigned
-    [max(2^64-1, 1) = 2^64-1] is the case a signed order would get wrong. *)
+    [2^64-1] ([u64_of_i64 (-1)], a call, not a constant) so it prints as a typed uint64
+    and isn't constant-folded under a signed reading. *)
 Definition minmax64_demo : IO unit :=
   println [ any (i64_min (-2)%i64 (1)%i64)                        (* -2 *)
           ; any (i64_max (-2)%i64 (1)%i64)                        (* 1 *)
@@ -1272,13 +1059,10 @@ Definition builtins_demo : IO unit :=
   bind (map_len m) (fun n =>
   println [ any n ])))))).                                                                         (* 0 (cleared) *)
 
-(** ===== Go spec conformance: "String types" (go.dev/ref/spec#String_types):
-    "a string value is a (possibly empty) sequence of bytes ... strings are
-    immutable.  The length ... can be discovered using len.  A string's bytes can
-    be accessed by integer indices 0 <= i < len(s)."  We model [string] as Coq's
-    byte-sequence [string], so these are THEOREMS (computable), not assertions:
-    [str_len] is the BYTE count, [str_concat] is byte append, and a string is its
-    OWN type (no implicit conversion from [int], per "Numeric/string distinct"). *)
+(** ===== Go spec conformance: "String types" =====
+    [string] is Coq's byte-sequence [string], so these are THEOREMS: [str_len] is the
+    BYTE count, [str_concat] is byte append, and a string is its own type (no implicit
+    conversion from [int]). *)
 Example spec_str_len_Go    : intraw (str_len "Go"%string)  = 2%Z. Proof. reflexivity. Qed.
 Example spec_str_len_empty : intraw (str_len ""%string)    = 0%Z. Proof. reflexivity. Qed.
 Example spec_str_concat    : str_concat "Go"%string "!"%string = "Go!"%string.
@@ -1296,9 +1080,7 @@ Definition str_slice_demo : IO unit :=
   println [ any (str_slice "Hello, world"%string 7 12 eq_refl) ].   (* prints: world *)
 
 (** String COMPARISON (Go [==] / [<]): byte-sequence equality and LEXICOGRAPHIC
-    byte-order — both THEOREMS.  Equality decides same/different bytes; ordering
-    compares byte-by-byte with a proper prefix ordered before the longer string
-    (["ab" < "abc"]) and by byte value at the first difference (["abc" < "abd"]). *)
+    byte-order (proper prefix < longer string) — both THEOREMS. *)
 Example spec_str_eq_same  : str_eqb "Go"%string "Go"%string = true.   Proof. reflexivity. Qed.
 Example spec_str_eq_diff  : str_eqb "Go"%string "No"%string = false.  Proof. reflexivity. Qed.
 Example spec_str_lt_byte  : str_ltb "abc"%string "abd"%string = true. Proof. reflexivity. Qed.
@@ -1337,9 +1119,8 @@ Definition panic_and_recover (n : GoI64) : IO unit :=
      bind (type_assert TI64 v) (fun recovered =>
      println [any recovered; any (i64_add recovered (1)%i64)])).
 
-(** Map reads are now in [IO] (they observe the map's current contents), so [sz]/
-    [hit]/[mis] are [bind]-sequenced after the writes — and the old box/assert
-    roundtrip is gone ([map_get_or] returns the value directly). *)
+(** Map reads are in [IO] (they observe the map's current contents); [map_get_or]
+    returns the value directly. *)
 Definition map_demo : IO unit :=
   bind (map_make_typed TI64 TI64) (fun m =>            (* make(map[int64]int64) *)
   bind (map_set TI64 TI64 (1)%i64 (100)%i64 m) (fun _ =>            (* m[1] = 100 *)
@@ -1351,12 +1132,9 @@ Definition map_demo : IO unit :=
   bind (@map_get_or GoI64 GoI64 TI64 TI64 (9)%i64 (0)%i64 m) (fun mis =>  (* key absent  → 0   *)
   println [any sz; any hit; any mis])))))))).             (* prints: 3 999 0 *)
 
-(** MAP REFERENCE SEMANTICS (aliasing): a [GoMap] passed to a function and mutated THERE is
-    observed by the caller — Go maps are reference types (the heap model threads the write
-    through the [World], so a callee's [map_set] persists).  [map_put] writes [m[7]=77]; the
-    caller then reads [77].  A struct param would instead copy.  This exhibits at the FUNCTION
-    BOUNDARY what [map_get_set_same] (builtins.v) proves about the heap; parallels
-    [slice_alias_demo] / [ptr_alias_demo]. *)
+(** MAP REFERENCE SEMANTICS (aliasing): a [GoMap] mutated in a callee is observed by the
+    caller — maps are reference types (the heap model threads the write through the
+    [World]).  Function-boundary companion to [map_get_set_same] (builtins.v). *)
 Definition map_put (m : GoMap GoI64 GoI64) : IO unit := map_set TI64 TI64 (7)%i64 (77)%i64 m.
 Definition map_alias_demo : IO unit :=
   bind (map_make_typed TI64 TI64) (fun m =>
@@ -1374,10 +1152,9 @@ Definition slice_demo : IO unit :=
      ret tt))
     (fun _ => println [any false])).              (* caught: prints false *)
 
-(** Differential test — a SLICE boxed as [any] (via explicit [anyt], since [GoSlice] has no [Tagged]
-    instance) then type-asserted.  Exercises the RECURSIVE [go_type_of_tag] for [TSlice TI64] → Go
-    [ []int64 ] (previously UNEXERCISED): a []int64 interface value asserted TO []int64 SUCCEEDS and TO
-    int64 FAILS — the composite tag rendering AGREES with Go's runtime type identity. *)
+(** A SLICE boxed as [any] (explicit [anyt]; [GoSlice] has no [Tagged] instance) then
+    type-asserted — the recursive [go_type_of_tag] for [TSlice TI64] agrees with Go's
+    runtime type identity. *)
 Definition slice_box_demo : IO unit :=
   let s := slice_of_list TI64 [(7)%i64; (8)%i64] in
   type_assert_safe (TSlice TI64) (anyt (TSlice TI64) s) (fun _ a =>   (* []int64 to []int64 → true  *)
@@ -1396,22 +1173,17 @@ Definition chan_demo : IO unit :=
   recv_ok TI64 ch (fun x2 ok2 =>
   println [any x2; any ok2])).
 
-(** Differential test — channel-close PANICS at RUNTIME (the closed-world tenet's DEFENSE, for the
-    open-world boundary).  Go panics on send-to-closed and on double-close; the model OPanics
-    ([run_send_closed] / [run_close_closed]), and [catch] (Go defer/recover) catches BOTH — so the
-    modeled panic and Go's runtime panic AGREE, and the defense is catchable.  (recv-from-closed is
-    [chan_demo] above; this covers the two PANICKING close interactions.) *)
+(** Channel-close PANICS at runtime: Go panics on send-to-closed and double-close; the
+    model OPanics ([run_send_closed]/[run_close_closed]) and [catch] catches both — the
+    modeled panic and Go's runtime panic AGREE. *)
 Definition closed_panic_demo : IO unit :=
   ch <-' make_chan_buf TI64 (int_lit 1 eq_refl) ;;
   close_chan TI64 ch >>'
   catch (send TI64 ch (5)%i64 >>' ret tt) (fun _ => println [any (1)%i64]) >>'  (* send-on-closed → panic → 1 *)
   catch (close_chan TI64 ch) (fun _ => println [any (2)%i64]).                   (* double-close → panic → 2 *)
 
-(** select (Go spec "Select statements"): choose among ready channel ops.  [ch1]
-    is buffered with 42 (ready), [ch2] is empty — so select picks [ch1].  (The
-    choice is Go's at runtime; the demo makes exactly ONE case ready so the golden
-    is stable.)  The lowering is a faithful Go [select { case … }]; the choice /
-    blocking semantics is the tracked frontier (like [recv]'s blocking). *)
+(** select (Go spec "Select statements"): the demo makes exactly ONE case ready so the
+    golden is stable.  Lowers to a faithful Go [select { case … }]. *)
 Definition select_demo : IO unit :=
   ch1 <-' make_chan_buf TI64 (int_lit 1 eq_refl) ;;
   ch2 <-' make_chan_buf TI64 (int_lit 1 eq_refl) ;;
@@ -1426,48 +1198,39 @@ Definition select_default_demo : IO unit :=
   select_recv_default TI64 ch (fun x => println [any x])   (* ch empty → default *)
                       (println [any (99)%i64]).            (* prints: 99 *)
 
-(** Differential test — select over a CLOSED channel.  A closed-and-DRAINED channel's recv is READY in
-    Go (it yields the zero value immediately), so the recv case fires and [default] is NOT taken — the
-    select_recv_default fix (examining only the buffer mispredicted default for a
-    closed channel).  Here [ch] is closed+empty: the recv case runs with the zero value (0), printing 0,
-    NOT 99.  A regression to the pre-fix behaviour would print 99. *)
+(** select over a CLOSED channel: a closed-and-drained channel's recv is READY in Go
+    (yields the zero value immediately), so the recv case fires and [default] is NOT
+    taken — prints 0, not 99. *)
 Definition select_closed_demo : IO unit :=
   ch <-' make_chan_buf TI64 (int_lit 1 eq_refl) ;;
   close_chan TI64 ch >>'                                   (* ch closed + empty *)
   select_recv_default TI64 ch (fun x => println [any x])   (* closed+drained ⇒ recv READY ⇒ 0 (not default) *)
                       (println [any (99)%i64]).
 
-(** select as a NON-FINAL statement — `select … >>' rest`.  Same routing class as the type-switch
-    fix: select is a pp_stmts-only form, so without a bind-action case it would fall to value position
-    and the tag constructors fail.  Here a ready channel takes the recv case (3), then execution
-    CONTINUES after the select (5). *)
+(** select as a NON-FINAL statement — `select … >>' rest`.  Invariant: select is a
+    pp_stmts-only form and must route through the bind-action case, never value position. *)
 Definition select_nonfinal_demo : IO unit :=
   ch <-' make_chan_buf TI64 (int_lit 1 eq_refl) ;;
   send TI64 ch (3)%i64 >>'
   select_recv_default TI64 ch (fun x => println [any x]) (println [any (99)%i64]) >>'  (* ch ready → 3 *)
   println [any (5)%i64].                                                                (* continues → 5 *)
 
-(** Unbuffered channel + goroutine: the goroutine sends while main recvs.
-    The pattern that required goroutines — unbuffered send deadlocks solo. *)
+(** Unbuffered channel + goroutine: the goroutine sends while main recvs
+    (an unbuffered send deadlocks without a peer). *)
 Definition goroutine_demo : IO unit :=
   bind (make_chan TI64)              (fun ch =>
   bind (go_spawn (send TI64 ch (42)%i64)) (fun _ =>
   bind (recv TI64 ch)               (fun x =>
   println [any x]))).                  (* prints: 42 *)
 
-(** Session-typed ping-pong, with LINEAR sessions (the indexed monad [Sess]).
-    Protocol (client view): send int → recv int → end.  The server realises the
-    dual: recv int → send int → end.  The protocol state lives in the TYPE
-    INDEX, so wrong order/direction/payload AND non-linear misuse (double-send,
-    incomplete protocol) are all Rocq compile-time errors — there is no endpoint
-    value to reuse. *)
+(** Session-typed ping-pong, LINEAR sessions (indexed monad [Sess]).  Invariant: the
+    protocol state lives in the TYPE INDEX, so wrong order/direction/payload and
+    non-linear misuse are Rocq compile-time errors. *)
 
 Definition PingPong : Proto := PSend GoI64 (PRecv GoI64 PEnd).
 
-(* Client and server are inlined into [run_session] so the plugin lowers each
-   role's body directly against the shared channel.  Their *types* (below) still
-   pin them to [PingPong] / [dual PingPong] ending at [PEnd], so the linearity
-   guarantee holds; the [Fail] tests cover the rejections. *)
+(* Client/server are inlined into [run_session]; their types pin them to [PingPong] /
+   [dual PingPong] ending at [PEnd], so the linearity guarantee holds. *)
 Definition session_demo : IO unit :=
   run_session
     (* client : Sess PingPong PEnd unit — send 21, recv, print *)
@@ -1478,12 +1241,8 @@ Definition session_demo : IO unit :=
     (n <<- srecv TI64 ;;;
      ssend (i64_add n n)).
 
-(** ---- Protocol compliance is enforced at compile time ----
-
-    Each [Fail] below asserts that the enclosed definition does NOT type-check.
-    The build runs these: if any violation ever started compiling, [Fail] would
-    error and break the build.  They are machine-checked proofs that the session
-    discipline rejects misuse, at zero runtime cost. *)
+(** ---- Protocol compliance enforced at compile time: each [Fail] asserts the
+    enclosed violation does NOT type-check (build-checked, zero runtime cost). ---- *)
 
 (* Receiving first violates the protocol head (PSend ≠ PRecv) — type error. *)
 Fail Definition bad_recv_first : Sess PingPong PEnd unit :=
@@ -1498,9 +1257,8 @@ Fail Definition bad_send_type : Sess PingPong PEnd unit :=
 Fail Definition bad_incomplete : Sess PingPong PEnd unit :=
   ssend (21)%i64.
 
-(* NON-LINEAR double send — the violation the old CPS API silently ACCEPTED.
-   After one [ssend] the state is [PRecv int PEnd]; a second [ssend] needs
-   [PSend] at the head, so it no longer type-checks. *)
+(* NON-LINEAR double send: after one [ssend] the state is [PRecv int PEnd]; a second
+   [ssend] needs [PSend] at the head, so it does not type-check. *)
 Fail Definition bad_double_send : Sess PingPong PEnd unit :=
   sbind (ssend (21)%i64) (fun _ =>
   sbind (ssend (99)%i64) (fun _ => sret tt)).
@@ -1509,16 +1267,12 @@ Fail Definition bad_double_send : Sess PingPong PEnd unit :=
 Fail Definition bad_server_sends : Sess (dual PingPong) PEnd unit :=
   sbind (ssend (1)%i64) (fun _ => sret tt).
 
-(* SESS FORGE-PROOFING: the OLD record's PUBLIC [MkSess] could FORGE any protocol with a
-   no-op body — [MkSess (ret tt) : Sess PingPong PEnd unit] claims a send-then-recv
-   yet communicates nothing.  [Sess] is now a forge-proof INDUCTIVE: [MkSess] no
-   longer exists, so the forgery is UNTYPABLE (the index cannot be detached from the
-   operations).  This is the regression lock for the forge-proof migration. *)
+(* SESS FORGE-PROOFING invariant: [Sess] is a forge-proof INDUCTIVE — no public
+   constructor can claim a protocol without performing its operations. *)
 Fail Definition bad_forge : Sess PingPong PEnd unit := MkSess (ret tt).
 
-(** A longer protocol: the client sends two numbers, the server replies with
-    their sum.  Exercises consecutive same-direction steps — two sends in a row
-    (client), two receives in a row (server) — which ping-pong does not. *)
+(** A longer protocol: exercises consecutive same-direction steps (two sends in a row /
+    two receives in a row). *)
 
 Definition Adder : Proto := PSend GoI64 (PSend GoI64 (PRecv GoI64 PEnd)).
 
@@ -1534,14 +1288,9 @@ Definition adder_demo : IO unit :=
      b <<- srecv TI64 ;;;
      ssend (i64_add a b)).
 
-(** ---- Control flow: if/else (step 7a) ----
-
-    [if c then _ else _] is Rocq sugar for [match c with true | false]; the
-    plugin lowers it to a Go [if]/[else] statement.  Two positions:
-
-    [sign_demo] uses the branch in tail position (each arm is a statement).
-    [pick_demo] uses it as an IO value feeding a continuation — the plugin
-    threads the continuation into both arms (bind distributes over case). *)
+(** ---- Control flow: if/else ----
+    [if c then _ else _] lowers to a Go [if]/[else] statement.  [sign_demo]: tail
+    position; [pick_demo]: IO value feeding a continuation (bind distributes over case). *)
 
 Definition sign_demo (n : GoI64) : IO unit :=
   if (n <? 10)%i64                    (* SIGNED comparison, faithful to Go int64 *)
@@ -1562,35 +1311,25 @@ Definition control_flow_demo : IO unit :=
   bind (pick_demo true)       (fun _ =>   (* prints: 1 *)
   neg_demo))).                            (* prints: -3 *)
 
-(** Go spec conformance: "Logical operators" (go.dev/ref/spec#Logical_operators)
-    — the SOURCE of &&/||/!.  Spec: [p && q] is "if p then q else false", [p || q]
-    is "if p then true else q", [!p] is "not p".  Coq's [andb]/[orb]/[negb] ARE
-    those definitions — machine-checked by [reflexivity], so the lowering is
-    faithful to the spec phrasing (short-circuit is unobservable: the operands are
-    pure total bools). *)
+(** Go spec conformance: "Logical operators".  Coq's [andb]/[orb]/[negb] ARE the spec's
+    definitions (machine-checked by [reflexivity]); short-circuit is unobservable on
+    pure total bools. *)
 Example spec_andb : forall p q, andb p q = if p then q else false. Proof. reflexivity. Qed.
 Example spec_orb  : forall p q, orb  p q = if p then true else q.  Proof. reflexivity. Qed.
 Example spec_negb : forall p,   negb p   = if p then false else true. Proof. reflexivity. Qed.
 
-(** Boolean operators [andb]/[orb]/[negb] lower to Go's [&&]/[||]/[!].  The
-    operands are pure, total [bool] values, so Go's short-circuit evaluation is
-    observationally identical (no effects, no divergence to skip).  Parameters
-    are opaque [bool]s (typed [bool] in Go), so the operators survive extraction
-    rather than constant-folding, and precedence is exercised: the last line is
-    [(a || b) && c], so the looser [||] is parenthesised inside [&&]. *)
+(** [andb]/[orb]/[negb] lower to Go's [&&]/[||]/[!] (short-circuit observationally
+    identical on pure bools).  Opaque [bool] params keep the operators from folding;
+    the last line exercises precedence ([(a || b) && c]). *)
 Definition bool_op_demo (a b c : bool) : IO unit :=
   bind (println [any (andb a b)]) (fun _ =>          (* a && b *)
   bind (println [any (orb  a b)]) (fun _ =>          (* a || b *)
   bind (println [any (negb b)])   (fun _ =>          (* !b *)
   println [any (andb (orb a b) c)]))).               (* (a || b) && c *)
 
-(** The primary use of the boolean operators: COMPOUND CONDITIONS in [if].  Each
-    [if] is a match on [bool] whose scrutinee is a compound expression, so the
-    condition lowers to Go's [a && b] / [a || b] / [!a] directly inside the
-    [if (...)].  One conditional per function (mirroring [sign_demo]) so the
-    [bind] continuation follows the call as a single statement — chaining several
-    inline [if]s in one [bind] instead would duplicate the continuation into both
-    arms (see the "inline-if continuation duplication" note in CLAUDE.md). *)
+(** COMPOUND CONDITIONS in [if]: the condition lowers to Go's [a && b] / [a || b] /
+    [!a] directly inside the [if (...)].  One conditional per function — chaining inline
+    [if]s in one [bind] would duplicate the continuation into both arms. *)
 Definition and_cond (a b : GoI64) : IO unit :=
   if andb (a <? 10)%i64 (b <? 10)%i64                 (* a<10 && b<10 *)
   then println [any (1)%i64] else println [any (0)%i64].
@@ -1605,24 +1344,18 @@ Definition cond_op_demo : IO unit :=
   bind (or_cond (30)%i64 (4)%i64)  (fun _ =>   (* F || T → 1 *)
   not_cond (30)%i64)).                   (* !F      → 1 *)
 
-(** A unary [^] as a binary-operator OPERAND: [i64_not x] (the full-width int64 complement) inside
-    [i64_and]/[i64_or] — [^x & y], [^x | y].  Operands are RUNTIME params (not literals), so the op survives
-    extraction instead of constant-folding, and [Printer.gprint] BRIDGES it: the whole binop tree, including
-    the [^x] leaf, is emitted by the VERIFIED printer ([EBn] / [EUn UXor]), byte-identical to the trusted
-    [pp_prec].  [^x] prints MINIMALLY ([^x], not [^(x)] — [GoPrint]'s [unop_needs_paren (EId _) = false]); Go's
-    unary [^] binds tighter than [&]/[|], so the operand needs no defensive parens.  ONLY the bare-prefix
-    runtime-local case is bridged — a typed-CONSTANT [^] keeps its force-wrapper IIFE on the trusted [pp_prec].
-    (NB: Coq's stdlib [andb]/[orb]/[negb] are NOT Fido builtins, so they extract as the helper functions
-    [Andb]/[Orb]/[Negb] — the [!]/[&&] lowering fires only for a builtin bool op, none of which exists yet.) *)
+(** Unary [^] as a binop OPERAND ([^x & y], [^x | y]): runtime params keep the op live;
+    [Printer.gprint] bridges the whole tree ([EBn] / [EUn UXor]), byte-identical to
+    [pp_prec], printing [^x] minimally ([unop_needs_paren (EId _) = false]).  Only the
+    bare-prefix runtime-local case is bridged — a typed-CONSTANT [^] keeps its
+    force-wrapper IIFE on the trusted [pp_prec]. *)
 Definition unop_in_binop_demo (x y : GoI64) : IO unit :=
   println [ any (i64_and (i64_not x) y)         (* ^x & y *)
           ; any (i64_or  (i64_not x) y) ].       (* ^x | y *)
 
-(** Regression for inline-[if] continuation de-duplication: three INLINE [if]s
-    chained in one [bind], each discarding its [unit] result.  Because the result
-    is discarded, the continuation is emitted ONCE after each [if] (both arms fall
-    through) instead of being duplicated into both arms — so this lowers to three
-    flat sequential [if/else]s, not a 2^2-copy tree.  Prints 1 / 0 / 1. *)
+(** Inline-[if] continuation de-duplication invariant: with the [unit] result discarded,
+    the continuation is emitted ONCE after each [if] — three flat sequential [if/else]s,
+    not a 2^2-copy tree.  Prints 1 / 0 / 1. *)
 Definition inline_if_demo : IO unit :=
   bind (if int_ltb (int_lit 3 eq_refl) (int_lit 10 eq_refl)  then println [any (int_lit 1 eq_refl)] else println [any (int_lit 0 eq_refl)]) (fun _ =>
   bind (if int_ltb (int_lit 30 eq_refl) (int_lit 10 eq_refl) then println [any (int_lit 1 eq_refl)] else println [any (int_lit 0 eq_refl)]) (fun _ =>
@@ -1647,9 +1380,8 @@ Definition lookup_demo : IO unit :=
    end).
 
 (** List/slice match: [match xs with [] | x :: rest] lowers to
-    [if len(xs) == 0 { … } else { x := xs[0]; rest := xs[1:]; … }].
-    The [cons] arm binds two variables (head and tail) — a two-binder case the
-    earlier matches did not exercise. *)
+    [if len(xs) == 0 { … } else { x := xs[0]; rest := xs[1:]; … }];
+    the [cons] arm binds two variables (head and tail). *)
 Definition list_demo : IO unit :=
   let xs := slice_of_list TI64 [(10)%i64; (20)%i64; (30)%i64] in
   match xs with
@@ -1668,15 +1400,13 @@ Definition slice_safe_demo : IO unit :=
   println [any v2; any ok2] >>'
   (* runtime-NEGATIVE index (sub 0 1 = -1) — a *constant* negative index is a Go
      compile error, so use a computed one; the lower-bound check must reject it.
-     The index is a Go [int], so [sub] (Sint63) is kept for index arithmetic. *)
+     The index is a Go [int], so [sub] is kept for index arithmetic. *)
   slice_at_ok TI64 xs (sub (int_lit 0 eq_refl) (int_lit 1 eq_refl)) (fun v3 ok3 =>    (* negative (signed) → 0 false *)
   println [any v3; any ok3]))).
 
-(** Array (Go spec "Array types"): a FIXED-SIZE [3]int64 VALUE.  [arr_lit] lowers to
-    the [[3]int64{…}] literal (the size from the list length, not the Coq type), bound
-    to a local whose Go type is INFERRED.  [arr_get_ok] is the bounds-checked read (Go
-    arrays panic on OOB), identical lowering to [slice_at_ok].  Distinct from a slice:
-    a fixed-size [N]T value (value-copy + comparability are later B4 pieces). *)
+(** Array (Go spec "Array types"): [arr_lit] lowers to the [[3]int64{…}] literal (size
+    from the list length); [arr_get_ok] is the bounds-checked read, identical lowering to
+    [slice_at_ok]. *)
 Definition arr_demo : IO unit :=
   let a := arr_lit TI64 [(10)%i64; (20)%i64; (30)%i64] in   (* [3]int64{10,20,30} *)
   arr_get_ok TI64 a (int_lit 1 eq_refl) (fun v ok =>        (* a[1] in bounds → 20 true *)
@@ -1687,11 +1417,9 @@ Definition arr_demo : IO unit :=
   arr_get_ok TI64 a (sub (int_lit 10 eq_refl) (int_lit 5 eq_refl)) (fun v2 ok2 =>     (* a[5] out of range → 0 false *)
   println [any v2; any ok2])).
 
-(** Array in a TYPED POSITION (the previously fail-loud case): [GoArr3 GoI64] = Go [[3]int64], the
-    size carried in the TYPE.  [vecN_a]/[vecN_b] emit [var … [3]int64 = [3]int64{…}]; [vec3_eqb]'s
-    PARAMETERS are [[3]int64] — a typed position that previously ABORTED extraction — and the
-    comparison lowers to field-wise [==].  The constructor takes exactly 3 elements, so length 3
-    is guaranteed (no wrong-length literal). *)
+(** Array in a TYPED POSITION: [GoArr3 GoI64] = Go [[3]int64], the size carried in the
+    TYPE; comparison lowers to field-wise [==].  The constructor takes exactly 3
+    elements, so a wrong-length literal is unrepresentable. *)
 Definition vecN_a : GoArr3 GoI64 := arr3_lit TI64 (10)%i64 (20)%i64 (30)%i64.
 Definition vecN_b : GoArr3 GoI64 := arr3_lit TI64 (10)%i64 (20)%i64 (99)%i64.
 Definition vec3_eqb (a b : GoArr3 GoI64) : bool := arr3_eqb a b.  (* params lower to [3]int64 *)
@@ -1700,10 +1428,8 @@ Definition vec2_eqb (a b : GoArr2 GoI64) : bool := arr2_eqb a b.
 Definition arrN_demo : IO unit :=
   println [ any (vec3_eqb vecN_a vecN_a) ; any (vec3_eqb vecN_a vecN_b) ; any (vec2_eqb pairN pairN) ].   (* true false true *)
 
-(** Array RETURN + array FIELD positions — completing the typed-position coverage beyond [arrN_demo]'s
-    typed-VAR + PARAM.  [vec3_id]'s RETURN type is [[3]int64]; [Triple] has an array FIELD
-    [t_vec : [3]int64] (emitted [type Triple struct { T_vec [3]int64; T_label int64 }]).  Both ride the
-    same [GoArr<N>]→[[N]T] [pp_type] rendering — no new plugin support, any concrete N. *)
+(** Array RETURN + array FIELD positions: both ride the same [GoArr<N>]→[[N]T]
+    [pp_type] rendering (any concrete N). *)
 Definition vec3_id (a : GoArr3 GoI64) : GoArr3 GoI64 := a.
 Record Triple := MkTriple { t_vec : GoArr3 GoI64 ; t_label : GoI64 }.
 Definition arr_field_ret_demo : IO unit :=
@@ -1726,10 +1452,8 @@ Definition arr_eq_demo : IO unit :=
   let c := arr_lit TI64 [(1)%i64; (2)%i64; (9)%i64] in
   println [any (arr_eqb a b); any (arr_eqb a c)].   (* true false *)
 
-(** Array VALUE-COPY (the defining array-vs-slice distinction): [arr_set a i v] is a
-    FUNCTIONAL update (a copy-mutate-return IIFE), so [a] is UNCHANGED — a slice would
-    share the backing.  The size [3] is passed explicitly (it is erased from the Coq
-    type).  Machine-checked that the update lands and the original is untouched. *)
+(** Array VALUE-COPY: [arr_set a i v] is a FUNCTIONAL update (copy-mutate-return IIFE),
+    so [a] is UNCHANGED — a slice would share the backing.  Machine-checked. *)
 Example arr_set_copy :
   arr_data (arr_set 3 TI64 (arr_lit TI64 [(10)%i64;(20)%i64;(30)%i64]) (int_lit 0 eq_refl) (99)%i64 eq_refl)
   = [(99)%i64;(20)%i64;(30)%i64].
@@ -1748,10 +1472,9 @@ Definition arr_copy_demo : IO unit :=
   println [ any (arr_eqb a (arr_lit TI64 [(10)%i64;(20)%i64;(30)%i64]))    (* a STILL [10,20,30] → true *)
           ; any (arr_eqb b (arr_lit TI64 [(99)%i64;(20)%i64;(30)%i64])) ]. (* b IS [99,20,30] → true *)
 
-(** Safe type assertion: [type_assert_safe] is Go's [v, ok := x.(T)] — no panic
-    on a type mismatch, the caller handles [ok = false].  Safe-by-construction
-    default versus the [type_assert] escape hatch.  We assert on a recovered
-    panic value [r : GoAny] (a genuine [any], like [panic_and_recover]). *)
+(** Safe type assertion: [type_assert_safe] is Go's [v, ok := x.(T)] — the
+    safe-by-construction default vs the [type_assert] escape hatch.  Asserts on a
+    recovered panic value [r : GoAny]. *)
 Definition assert_safe_demo (n : GoI64) : IO unit :=
   catch (@panic unit (any n))
     (fun r =>
@@ -1781,32 +1504,24 @@ Definition str_cmp_demo : IO unit :=
           ; any (str_ltb "abc"%string "abd"%string)  (* true  *)
           ; any (str_ltb "b"%string "a"%string) ].   (* false *)
 
-(** Differential test — string comparison is UNSIGNED byte-wise (the classic signed/unsigned trap).
-    A string whose first byte is 200 (0xC8, ≥ 128): Go compares bytes as uint8, so "z" (0x7A=122) <
-    that string.  A naive SIGNED byte compare would read 200 as -56 and FLIP it.  [str_ltb] uses
-    [PrimInt63.ltb] on the 0–255 byte (unsigned), agreeing with Go's native [<].  (Bytes ≥ 128 were
-    only covered for ASCII by [spec_str_lt_*].) *)
+(** String comparison is UNSIGNED byte-wise: Go compares bytes as uint8, so
+    "z" (0x7A) < a 0xC8-first-byte string; a signed byte compare would flip it. *)
 Definition str_highbyte_demo : IO unit :=
   let hi := str_from_bytes (slice_of_list TU8 [u8_lit 200 eq_refl]) in   (* 1-byte string, byte 0xC8 *)
   println [ any (str_ltb "z"%string hi)        (* 0x7A < 0xC8 → true  (unsigned) *)
           ; any (str_ltb hi "z"%string) ].     (* 0xC8 < 0x7A → false *)
 
-(** Type switch (Go spec "Type switches"): [switch v := a.(type) { case bool: …;
-    case string: …; default: … }] dispatches on the RUNTIME type of the [any] value
-    [a].  Built on [type_switch2] (axiom-free, the same [tag_coerce] basis as
-    [type_assert_safe]); lowers to Go's native type switch.  The matching arm binds the
-    correctly-typed value; the default fires for any type matching neither arm (here an
-    int64-valued [any]). *)
+(** Type switch: dispatches on the RUNTIME type of an [any] value.  [type_switch2] is
+    axiom-free (same [tag_coerce] basis as [type_assert_safe]); lowers to Go's native
+    type switch. *)
 Definition tsw_demo (a : GoAny) : IO unit :=
   type_switch2 a
     TBool   (fun b => println [any b; any (1)%i64])      (* case bool   → b, 1 *)
     TString (fun s => println [any s; any (2)%i64])       (* case string → s, 2 *)
     (println [any (9)%i64]).                              (* default     → 9   *)
 
-(** Differential test — type SWITCH respects the break-#7 DISTINCTNESS (uint8 vs int64 are different
-    Go cases).  A boxed uint8 hits `case uint8:` (not `case int64:`), and a boxed int64 hits
-    `case int64:`.  This is a DIFFERENT dispatch from type-assert (a multi-case switch), so it checks
-    the same distinctness through the switch path. *)
+(** Type SWITCH respects narrow distinctness: a boxed uint8 hits `case uint8:` (not
+    `case int64:`) — the same type identity through the switch dispatch path. *)
 Definition tsw_narrow (a : GoAny) : IO unit :=
   type_switch2 a
     TU8  (fun u => println [any (i64_of_u8 u)])     (* case uint8 → widen → print *)
@@ -1816,10 +1531,9 @@ Definition tsw_distinct_demo : IO unit :=
   bind (tsw_narrow (any (u8_of_i64 (i64_lit 200 eq_refl)))) (fun _ =>   (* uint8 → 200 *)
         tsw_narrow (any (i64_lit 7 eq_refl))).                          (* int64 → 7  *)
 
-(** The fail-closed gap from the previous tick — a type-switch on an INLINE boxed scrutinee, and as a
-    NON-FINAL statement — now lowers correctly (two coordinated go.ml fixes): the inline `any x` is
-    RE-BOXED so `.(type)` is on an interface, and a `type_switch … >>' rest` action is routed to
-    statement position (it previously fell to value position and the tag constructors failed). *)
+(** Type-switch on an INLINE boxed scrutinee, as a NON-FINAL statement.  Invariant: the
+    inline `any x` is RE-BOXED so `.(type)` is on an interface, and
+    `type_switch … >>' rest` routes to statement position. *)
 Definition tsw_inline_demo : IO unit :=
   type_switch2 (any (u8_of_i64 (i64_lit 200 eq_refl)))   (* INLINE boxed scrutinee, NON-FINAL switch *)
     TU8  (fun u => println [any (i64_of_u8 u)])          (* uint8 → 200 *)
@@ -1827,9 +1541,8 @@ Definition tsw_inline_demo : IO unit :=
     (println [any (9)%i64]) >>'
   println [any (5)%i64].                                  (* continues AFTER the switch → 5 *)
 
-(** N-ary type switch (3 cases): same combinator, one more arm.  The int64 case is
-    driven by a value of Go type [int64] (a function RETURN, [i64_abs]) so it boxes as
-    [int64] and matches — a bare int literal would box as Go [int] and miss it. *)
+(** N-ary type switch (3 cases).  The int64 case is driven by a value of Go type [int64]
+    (a function RETURN) — a bare int literal would box as Go [int] and miss it. *)
 Definition tsw3_demo (a : GoAny) : IO unit :=
   type_switch3 a
     TBool   (fun b => println [any b; any (1)%i64])      (* case bool   → b, 1 *)
@@ -1890,11 +1603,9 @@ Definition complex_neg_demo : IO unit :=
   let c := go_complex (3.0)%go64 (4.0)%go64 in
   let n := complex_neg c in
   println [any (go_real n); any (go_imag n)].   (* -3 -4 *)
-(** REGRESSION: complex ops on CONSTANTS must extract as RUNTIME IEEE — Go constants
-    cannot denote a complex -0/±Inf/NaN, and constant /0 fails to compile (the complex parallel of the
-    float constant-vs-runtime fix).  [complex_neg] / [complex_add/sub/mul/div] are now forced to
-    runtime via typed IIFEs unless an operand is a runtime variable. *)
-Example complex_neg_negzero :   (* real(-complex(0,0)) = -0, so 1/that = -Inf (was +Inf: const -0 → +0) *)
+(** Invariant: complex ops on CONSTANTS extract as RUNTIME IEEE (typed IIFEs) — Go
+    constants cannot denote a complex -0/±Inf/NaN and constant /0 fails to compile. *)
+Example complex_neg_negzero :   (* real(-complex(0,0)) = -0, so 1/that = -Inf *)
   f64_eqb (f64_div 1 (go_real (complex_neg (go_complex 0 0))))
                 (f64_div 1 (f64_opp 0)) = true.
 Proof. vm_compute. reflexivity. Qed.
@@ -1939,17 +1650,14 @@ Definition str_sw3_demo (x : GoString) : IO unit :=
     "c"%string (println [any (3)%i64])   (* case "c" → 3 *)
     (println [any (9)%i64]).             (* default  → 9 *)
 
-(** [[]byte] / [string] conversions (Go's byte-slice interop): [[]byte("Hi")] is the
-    byte sequence, [string(b)] reconstructs the string.  Round-trips "Hi" → bytes → "Hi"
-    (value round-trip golden-checked; byte-count preservation is the theorem
-    [str_to_bytes_length]). *)
+(** [[]byte] / [string] conversions: round-trips "Hi" → bytes → "Hi" (byte-count
+    preservation is the theorem [str_to_bytes_length]). *)
 Definition bytes_demo : IO unit :=
   let b := str_to_bytes "Hi"%string in   (* []byte("Hi") *)
   println [any (str_from_bytes b)].        (* string(b) → "Hi" *)
 
-(** Rune view ([[]rune] / [string([]rune)], UTF-8): decode a string to code points and
-    encode back.  Round-trips "Go" → runes → "Go" (the codec is verified for ASCII and a
-    3-byte CJK point by [rune_roundtrip_ascii]/[_cjk]; runtime is native UTF-8). *)
+(** Rune view ([[]rune] / [string([]rune)], UTF-8): round-trips "Go" → runes → "Go"
+    (codec verified by [rune_roundtrip_ascii]/[_cjk]; runtime is native UTF-8). *)
 Definition rune_demo : IO unit :=
   let rs := str_to_runes "Go"%string in   (* []rune("Go") *)
   println [any (runes_to_str rs)].          (* string(rs) → "Go" *)
@@ -1958,20 +1666,18 @@ Definition rune_demo : IO unit :=
 Definition rune_to_str_demo : IO unit :=
   println [any (rune_to_str (i32wrap 65))].   (* string(rune(65)) → "A" *)
 
-(** Go [for i, r := range s]: [i] the BYTE offset of each code point, [r] the rune.
-    Byte offsets are faithful to UTF-8 widths — for [A 中 B] (1/3/1 bytes) the offsets are
-    [0 1 4], machine-checked here on the model; [str_range] lowers to the native two-variable
-    range loop.  The decode round-trips ([str_to_runes ∘ runes_to_str = id], [rune_roundtrip_*]). *)
+(** Go [for i, r := range s]: [i] is the BYTE offset of each code point.  Offsets are
+    faithful to UTF-8 widths ([A 中 B] → [0 1 4], machine-checked); [str_range] lowers to
+    the native two-variable range loop. *)
 Example str_range_offsets :
   List.map (fun p => (intraw (fst p), snd p))
     (runes_with_offsets (int_lit 0 eq_refl)
       (str_to_runes_w (runes_to_str (i32wrap 65 :: i32wrap 20013 :: i32wrap 66 :: nil))))
   = (0%Z, i32wrap 65) :: (1%Z, i32wrap 20013) :: (4%Z, i32wrap 66) :: nil.
 Proof. vm_compute. reflexivity. Qed.
-(** INVALID UTF-8 byte offsets.  Source bytes [0x80 'A'] —
-    a lone continuation, then 'A'.  Go's range yields [(0,U+FFFD) (1,'A')]: the bad byte consumed
-    exactly ONE source byte, so 'A' is at offset 1 — NOT 3, which re-encoding U+FFFD (3 bytes)
-    would have wrongly given.  This is the offset bug the consumed-width decoder fixes. *)
+(** INVALID UTF-8 byte offsets: a bad byte consumes exactly ONE source byte, so
+    [0x80 'A'] yields [(0,U+FFFD) (1,'A')] — offset 1, not the 3 that re-encoding
+    U+FFFD would give. *)
 Example str_range_invalid_offsets :
   List.map (fun p => (intraw (fst p), snd p))
     (runes_with_offsets (int_lit 0 eq_refl)
@@ -1984,12 +1690,10 @@ Definition str_range_demo : IO unit :=
                         (rune_to_str (i32wrap 33))))   (* "H€!" — H(1 byte) €(3) !(1) *)
     (fun i r => println [any i; any r]).   (* 0 72 / 1 8364 / 4 33 (byte offset, rune) *)
 
-(** Capture in a goto loop: each iteration defers [println iv].  The loop-temp
-    [iv] is captured BY VALUE per iteration, so the deferred calls (LIFO at
-    return) print 2, 1, 0 — not 2, 2, 2 (which a shared cell would give).
-    ⚠ This is the EMITTED-Go RUNTIME (native `defer func(){…}()`); the shallow
-    `run_io` model of [defer_call] FAILS LOUD (it cannot reify a func-scoped
-    defer — the faithful model is [run_cmd] over [CDfr], cmd.v). *)
+(** Capture in a goto loop: the loop-temp [iv] is captured BY VALUE per iteration, so
+    the deferred calls (LIFO at return) print 2, 1, 0 — not 2, 2, 2.
+    ⚠ Trust boundary: this is the EMITTED-Go RUNTIME; the shallow `run_io` model of
+    [defer_call] FAILS LOUD (the faithful model is [run_cmd] over [CDfr], cmd.v). *)
 Definition defer_loop_demo : IO unit :=
   bind (ref_new TInt64 (int_lit 0 eq_refl)) (fun i =>
   run_blocks 0%nat [
@@ -2002,17 +1706,15 @@ Definition defer_loop_demo : IO unit :=
     ret Done
   ]).
 
-(** Function-scoped defer: [defer_call] runs at function return, LIFO across all
-    defers — distinct from block-scoped [with_defer].  Prints 3, then 2, then 1
-    as EMITTED Go (native `defer`); the shallow `run_io` model of [defer_call]
-    fail-louds (faithful model = [run_cmd]/[CDfr], cmd.v). *)
+(** Function-scoped defer: [defer_call] runs at function return, LIFO.  Prints 3, 2, 1
+    as EMITTED Go; the shallow `run_io` model fail-louds (faithful model =
+    [run_cmd]/[CDfr], cmd.v). *)
 Definition defer_demo : IO unit :=
   bind (defer_call (println [any (int_lit 1 eq_refl)])) (fun _ =>   (* runs 3rd (LIFO) *)
   bind (defer_call (println [any (int_lit 2 eq_refl)])) (fun _ =>   (* runs 2nd *)
   println [any (int_lit 3 eq_refl)])).                               (* runs now *)
 
-(** Mutable local variable: declare, read, reassign, read again — straight-line
-    (no control flow, so trivially scope-correct). *)
+(** Mutable local variable: declare, read, reassign, read again — straight-line. *)
 Definition mut_demo : IO unit :=
   bind (ref_new TInt64 (int_lit 10 eq_refl))        (fun r =>  (* r := 10        *)
   bind (ref_get TInt64 r)          (fun a =>  (* a := r  (= 10) *)
@@ -2020,11 +1722,9 @@ Definition mut_demo : IO unit :=
   bind (ref_get TInt64 r)          (fun b =>  (* b := r  (= 15) *)
   println [any b])))).                         (* prints 15 *)
 
-(** Narrow [Ref] type-IDENTITY (the narrow-Ref residual): a [Ref GoU8] now lowers to a Go [uint8]
-    cell, not the [int64] carrier — so a value read back, boxed, and asserted resolves to [uint8] (true)
-    NOT [int64] (false), agreeing with the model's [TU8] tag.  [ref_new TU8] casts the init via its tag;
-    [ref_set] casts via the value's own narrow type.  Without the fix the cell was [int64] (`false true`).
-    The numeric value (7) was always right — this locks the previously-latent type identity. *)
+(** Narrow [Ref] type-IDENTITY: a [Ref GoU8] lowers to a Go [uint8] cell, not the int64
+    carrier — a read-back value boxes and asserts as [uint8], agreeing with the [TU8] tag.
+    [ref_new TU8] casts the init via its tag; [ref_set] via the value's narrow type. *)
 Definition narrow_ref_demo : IO unit :=
   bind (ref_new TU8 (u8_of_i64 (i64_lit 200 eq_refl))) (fun r =>   (* r := uint8(200) *)
   bind (ref_set r (u8_of_i64 (i64_lit 7 eq_refl)))      (fun _ =>   (* r = uint8(7) *)
@@ -2033,11 +1733,9 @@ Definition narrow_ref_demo : IO unit :=
   type_assert_safe TI64 (any v) (fun _ okI =>                        (* assert int64 → false *)
   println [any okU; any okI]))))).                                   (* true false *)
 
-(** Phase B1: POINTERS (Go spec "Pointer types").  [ptr_new] allocates a fresh
-    [*int64] holding 10; [*p] reads it; [*p = v] writes through it.  Distinct from a
-    [Ref] (a local var): a [Ptr] lowers to Go [*T], so a COPY of the pointer aliases
-    the SAME cell — the [ptr_alias] THEOREM (builtins.v) proves a write through one
-    handle is seen through another.  Read-after-write is [ptr_get_set_same]. *)
+(** POINTERS (Go spec "Pointer types"): a [Ptr] lowers to Go [*T]; a COPY of the pointer
+    aliases the SAME cell ([ptr_alias] THEOREM, builtins.v); read-after-write is
+    [ptr_get_set_same]. *)
 Definition ptr_demo : IO unit :=
   bind (ptr_new TI64 (10)%i64) (fun p =>      (* p := new(int64) ← 10 *)
   bind (ptr_get TI64 p)        (fun a =>      (* a := *p  (= 10) *)
@@ -2046,12 +1744,10 @@ Definition ptr_demo : IO unit :=
   bind (ptr_get TI64 p)        (fun b =>      (* b := *p  (= 99) *)
   println [any b]))))).                        (* prints 99 *)
 
-(** Phase B1d: [&x] — the ADDRESS-OF operator (Go's `&`).  [&x] takes the address of a LOCAL
-    variable [x] (a [Ref], which lowers to an addressable Go var), yielding a [*int64] that ALIASES
-    x's cell.  Passing [&x] to a mutator ([write_thru]) and writing THROUGH the pointer changes [x]
-    itself — the defining reason `&` exists in Go (a callee mutating a caller's variable).  [&x] is
-    provably NEVER nil ([ref_as_ptr_not_nil], builtins.v), so the deref is safe; that the write is
-    visible at [x] is [ptr_set_ref_as_ptr_aliases].  Lowers to Go [write_thru(&x)]. *)
+(** [&x] — ADDRESS-OF: takes the address of a LOCAL [Ref], yielding a pointer ALIASING
+    x's cell, so a callee writing through it mutates the caller's variable.  [&x] is
+    provably never nil ([ref_as_ptr_not_nil]); write visibility is
+    [ptr_set_ref_as_ptr_aliases].  Lowers to Go [write_thru(&x)]. *)
 Definition write_thru (p : Ptr GoI64) : IO unit :=
   ptr_set TI64 p (99)%i64.                     (* *p = int64(99) *)
 Definition addr_of_demo : IO unit :=
@@ -2062,27 +1758,22 @@ Definition addr_of_demo : IO unit :=
   bind (ref_get TI64 x)        (fun b =>       (* b := x  (= 99, aliased through &x!) *)
   println [any b]))))).                         (* prints 99 *)
 
-(** Differential test — a POINTER boxed as [any] then type-asserted.  Exercises the RECURSIVE
-    [go_type_of_tag] ([TPtr TI64] → Go [*int64], the pointer-as-interface case, previously
-    UNEXERCISED): a [*int64] interface value asserted TO [*int64] SUCCEEDS and TO [int64] FAILS, so the
-    composite tag rendering AGREES with Go's runtime type identity (model [tag_eq] vs runtime assert). *)
+(** A POINTER boxed as [any] then type-asserted: the recursive [go_type_of_tag]
+    ([TPtr TI64] → [*int64]) agrees with Go's runtime type identity. *)
 Definition ptr_box_demo : IO unit :=
   bind (ptr_new TI64 (10)%i64) (fun p =>
   type_assert_safe (TPtr TI64) (any p) (fun _ a =>    (* assert *int64 to *int64 → true  *)
   type_assert_safe TI64 (any p) (fun _ b =>           (* assert *int64 to int64  → FALSE *)
     println [any a; any b]))).   (* true false *)
 
-(** [new(T)] (Go's predeclared builtin): a fresh [*int64] pointing to the ZERO value;
-    dereferencing it reads 0.  Now unblocked by the pointer model (B1). *)
+(** [new(T)] (Go's predeclared builtin): a fresh [*int64] pointing to the ZERO value. *)
 Definition new_demo : IO unit :=
   bind (go_new TI64) (fun p =>          (* p := new(int64) *)
   bind (ptr_get TI64 p) (fun v =>       (* v := *p  (= 0, the zero value) *)
   println [any v])).                     (* prints 0 *)
 
-(** Phase B1b: SAFE (nil-checked) deref.  [ptr_get_ok] is the safe-by-construction
-    default — it BRANCHES on [p != nil], forcing the nil case, so the nil-deref panic
-    is unreachable ([ptr_get_ok_nil] THEOREM).  A live pointer reads through ([ok=true]);
-    a nil pointer yields the zero value with [ok=false] — never a panic. *)
+(** SAFE (nil-checked) deref: [ptr_get_ok] branches on [p != nil], forcing the nil case,
+    so the nil-deref panic is unreachable ([ptr_get_ok_nil] THEOREM). *)
 Definition ptr_safe_demo : IO unit :=
   bind (ptr_new TI64 (42)%i64) (fun p =>           (* live pointer to 42 *)
   ptr_get_ok TI64 p (fun v ok =>                    (* p != nil → v=42, ok=true *)
@@ -2090,10 +1781,9 @@ Definition ptr_safe_demo : IO unit :=
   ptr_get_ok TI64 (ptr_nil TI64) (fun v2 ok2 =>     (* nil → v2=0, ok2=false, NO panic *)
   println [any v2; any ok2])))).                     (* prints 0 false *)
 
-(** Phase B1c: a POINTER over a CHANNEL ([chan *int64]) — unlocked by [TPtr] (the pointer
-    [GoTypeTag], 2026-06-21).  [p := new(int64) ← 7]; send [p] over [ch]; receive [q] (an ALIAS of
-    [p], same cell); [*q = 7].  A [*T] is now a first-class channel payload / [any] box / map element
-    (it rides the same tag machinery as scalars — [Tagged_ptr] infers [TPtr (the_tag T)]). *)
+(** A POINTER over a CHANNEL ([chan *int64]): the received pointer ALIASES the sent one.
+    A [*T] is a first-class channel payload / [any] box / map element ([Tagged_ptr]
+    infers [TPtr (the_tag T)]). *)
 Definition ptr_chan_demo : IO unit :=
   bind (ptr_new TI64 (7)%i64)        (fun p =>      (* p := new(int64) ← 7 *)
   bind (make_chan_buf (TPtr TI64) (int_lit 1 eq_refl)) (fun ch =>     (* ch := make(chan *int64, 1) *)
@@ -2102,10 +1792,8 @@ Definition ptr_chan_demo : IO unit :=
   bind (ptr_get TI64 q)              (fun v =>      (* v := *q  (= 7) *)
   println [any v]))))).                              (* prints 7 *)
 
-(** A CHANNEL nested in a STRUCT (Go's worker/inbox pattern: [type Inbox struct { ch chan int64;
-    name string }]).  The struct holds the channel HANDLE — a reference type, so copying the struct
-    SHARES the channel — and send/recv flow through the field [box.Ib_ch].  A first step toward the
-    container-nesting stress (channels inside structs / slices). *)
+(** A CHANNEL nested in a STRUCT: the struct holds the channel HANDLE (a reference type,
+    so copying the struct SHARES the channel); send/recv flow through the field. *)
 Record Inbox := MkInbox { ib_ch : GoChan GoI64 ; ib_name : GoString }.
 Definition inbox_demo : IO unit :=
   bind (make_chan_buf TI64 (int_lit 1 eq_refl))            (fun ch =>   (* ch := make(chan int64, 1) *)
@@ -2114,12 +1802,8 @@ Definition inbox_demo : IO unit :=
   recv_ok TI64 (ib_ch box) (fun v _ =>                (* v := <-box.Ib_ch *)
   println [any (ib_name box); any v]))).               (* prints: fido 42 *)
 
-(** Deeper container nesting: a SLICE of CHANNELS inside a STRUCT (Go's [type Hub struct {
-    chans []chan int64; id int64 }]) — channels in a slice in a struct.  Build the slice with the
-    channel element tag [TChan TI64], index it to a channel ([hub.Hub_chans[1]], bounds-checked),
-    then send/recv on that channel.  (A slice of STRUCT VALUES works the same way once the element has a
-    nominal tag — see [struct_slice_demo] below, [[]ListNode] via [TListNode]; a slice of CHANNELS works
-    because [TChan TI64] is a real tag.) *)
+(** A SLICE of CHANNELS inside a STRUCT: build with the element tag [TChan TI64], index
+    (bounds-checked), then send/recv on the recovered channel. *)
 Record Hub := MkHub { hub_chans : GoSlice (GoChan GoI64) ; hub_id : GoI64 }.
 Definition hub_demo : IO unit :=
   bind (make_chan_buf TI64 (int_lit 1 eq_refl)) (fun ch0 =>
@@ -2130,10 +1814,8 @@ Definition hub_demo : IO unit :=
   recv_ok TI64 c (fun v _ =>                                             (* v := <-c *)
   println [any (hub_id hub); any v]))))).                                (* prints: 7 99 *)
 
-(** Concurrency OVER the nesting: a GOROUTINE sends through a channel that lives in a STRUCT field
-    ([go func(){ box.Ib_ch <- 123 }(); v := <-box.Ib_ch]) — the worker pattern (a goroutine feeding a
-    struct's channel), combining [go_spawn] with the channel-in-struct nesting.  Unbuffered, so the
-    send/recv RENDEZVOUS makes the result deterministic. *)
+(** A GOROUTINE sends through a channel in a STRUCT field (the worker pattern).
+    Unbuffered, so the send/recv RENDEZVOUS makes the result deterministic. *)
 Definition hub_worker_demo : IO unit :=
   bind (make_chan TI64) (fun ch =>
   let box := MkInbox ch "worker"%string in
@@ -2141,10 +1823,8 @@ Definition hub_worker_demo : IO unit :=
   bind (recv TI64 (ib_ch box)) (fun v =>                        (* v := <-box.Ib_ch (rendezvous) *)
   println [any (ib_name box); any v]))).                        (* prints: worker 123 *)
 
-(** "Channels that send themselves": a CHANNEL OF CHANNELS
-    ([chan chan int64]) — the request/reply pattern.  The main sends a [reply] channel OVER the
-    [reqs] channel; a worker goroutine receives that reply-channel and sends a result back through
-    it — a channel VALUE flows over a channel.  Buffered + the data dependency ⇒ deterministic. *)
+(** A CHANNEL OF CHANNELS ([chan chan int64]) — request/reply: a reply channel flows
+    OVER the request channel.  Buffered + the data dependency ⇒ deterministic. *)
 Definition chan_of_chan_demo : IO unit :=
   bind (make_chan_buf (TChan TI64) (int_lit 1 eq_refl)) (fun reqs =>            (* reqs : chan chan int64 *)
   bind (make_chan_buf TI64 (int_lit 1 eq_refl))         (fun reply =>           (* reply : chan int64 *)
@@ -2153,11 +1833,9 @@ Definition chan_of_chan_demo : IO unit :=
   recv_ok TI64 reply (fun v _ =>                             (* v := <-reply *)
   println [any v]))))).                                       (* prints: 77 *)
 
-(** CAPSTONE — ONE program nesting the lot: a STRUCT [Pool] holding a SLICE of CHANNELS, a GOROUTINE
-    per channel feeding it, the struct's slice INDEXED to recover each channel, the results collected
-    concurrently and summed.  Buffered + the data dependency ⇒ deterministic.  "Horrifying-but-correct":
-    [struct { []chan int64 ; int64 }] + 2 goroutines + slice-index + recv + arithmetic, all from the
-    shipped features composing as Go nests them — and the whole thing is a single extracted Go func. *)
+(** CAPSTONE: a STRUCT holding a SLICE of CHANNELS, a GOROUTINE per channel, the slice
+    indexed to recover each channel, results summed.  Buffered + data dependency ⇒
+    deterministic; a single extracted Go func. *)
 Record Pool := MkPool { pool_chans : GoSlice (GoChan GoI64) ; pool_base : GoI64 }.
 Definition pool_demo : IO unit :=
   c0 <-' make_chan_buf TI64 (int_lit 1 eq_refl) ;;
@@ -2171,14 +1849,10 @@ Definition pool_demo : IO unit :=
   v1 <-' recv TI64 ch1 ;;                                     (* v1 := <-ch1 (= 7) *)
   println [any (i64_add (pool_base pool) (i64_add v0 v1))].   (* 10 + (5+7) = 22 *)
 
-(** RECURSIVE / self-referential type — the recursive-type frontier demo, now OPERATED on, not just declared.
-    [ListNode] (builtins.v) is [type ListNode struct { Val int64 ; Next *ListNode }] — a struct that
-    points to ITSELF.  The previous tick DECLARED the type (a single nil-[next] node, no tag); this tick
-    CRACKS the recursive type TAG: [TListNode] is a NULLARY nominal tag — FINITE, not the feared cyclic
-    [tag = TPtr tag] (the field's tag is the finite [TPtr TListNode]).  With the tag, a [*ListNode] cell
-    lives in the typed heap, so a genuine 3-node singly-linked list is heap-ALLOCATED ([ptr_new TListNode],
-    tail-first), pointer-CHAINED, then TRAVERSED head→tail via [ptr_get]/[ln_next] — a real linked list,
-    allocated + linked + walked, axiom-free, extracted to ordinary Go. *)
+(** RECURSIVE / self-referential type: [ListNode] points to ITSELF.  [TListNode] is a
+    NULLARY nominal tag — FINITE, not a cyclic [tag = TPtr tag] (the field's tag is the
+    finite [TPtr TListNode]).  A 3-node list is heap-allocated, pointer-chained, and
+    traversed head→tail; axiom-free, extracted to ordinary Go. *)
 Definition linked_list_demo : IO unit :=
   p3 <-' ptr_new TListNode (MkListNode (3)%i64 (ptr_nil_tf tt)) ;;   (* tail: ListNode{3, nil}       *)
   p2 <-' ptr_new TListNode (MkListNode (2)%i64 p3) ;;                (* mid : ListNode{2, &tail}     *)
@@ -2188,20 +1862,17 @@ Definition linked_list_demo : IO unit :=
   n3 <-' ptr_get TListNode (ln_next n2) ;;                          (* *(p2.Next) — follow again    *)
   println [any (ln_val n1) ; any (ln_val n2) ; any (ln_val n3)].    (* prints: 1 2 3 *)
 
-(** A SLICE of STRUCT VALUES ([[]ListNode]) — the line-2015 "a slice of STRUCTS would need a named-type
-    tag — deferred" gap, now CLOSED.  The nominal [TListNode] tag makes [TSlice TListNode] render
-    [[]ListNode] (via [coq_goty_of_tag]'s nominal-tag -> [GTNamed] map), so a slice can hold struct
-    VALUES (copied by value), not only channel/scalar/pointer elements.  Build [[]ListNode{{10,nil},
-    {20,nil}}], index [s[1]] (bounds-checked), read its [Val] field — struct values living in a slice. *)
+(** A SLICE of STRUCT VALUES ([[]ListNode]): the nominal [TListNode] tag makes
+    [TSlice TListNode] render [[]ListNode], so a slice holds struct VALUES (copied by
+    value). *)
 Definition struct_slice_demo : IO unit :=
   let s := slice_of_list TListNode
              [ MkListNode (10)%i64 (ptr_nil_tf tt) ; MkListNode (20)%i64 (ptr_nil_tf tt) ] in
   bind (slice_get TListNode s (int_lit 1 eq_refl)) (fun n =>   (* n := s[1] = ListNode{20, nil} *)
   println [any (ln_val n)]).                                   (* prints: 20 *)
 
-(** A SLICE OF SLICES ([[][]int64]) — nested [TSlice] composes ([TSlice (TSlice TI64)] renders [[][]int64]),
-    so a 2-D grid is a first-class value: build [[][]int64{{1,2},{3,4}}], index [grid[1]] to a row, then
-    [row[0]] to a scalar — both bounds-checked.  The element TAG of the outer slice is itself a slice tag. *)
+(** A SLICE OF SLICES ([[][]int64]): nested [TSlice] composes — [TSlice (TSlice TI64)]
+    renders [[][]int64]; both index steps bounds-checked. *)
 Definition slice2d_demo : IO unit :=
   let row0 := slice_of_list TI64 [ (1)%i64 ; (2)%i64 ] in
   let row1 := slice_of_list TI64 [ (3)%i64 ; (4)%i64 ] in
@@ -2210,11 +1881,8 @@ Definition slice2d_demo : IO unit :=
   bind (slice_get TI64 r (int_lit 0 eq_refl)) (fun v =>             (* v := r[0] = 3 *)
   println [any v])).                                                 (* prints: 3 *)
 
-(** A SLICE of STRUCT VALUES that EACH HOLD A CHANNEL ([[]ChanBox], where [ChanBox = { Id int64 ;
-    Ch chan ChanBox }]) — struct values carrying a channel HANDLE, living in a slice by value (the copy
-    SHARES the channel).  Deeper than [[]ListNode] (a channel field) and than the cursed demo's
-    [[]chan ChanBox] (the struct VALUES, not bare channels, are the elements).  Build two boxes over real
-    channels, slice them, index [s[1]], read its [Id]. *)
+(** A SLICE of STRUCT VALUES that EACH HOLD A CHANNEL ([[]ChanBox]): struct values
+    carrying a channel HANDLE, living in a slice by value (the copy SHARES the channel). *)
 Definition chanbox_slice_demo : IO unit :=
   bind (make_chan_buf TChanBox (int_lit 1 eq_refl)) (fun ch0 =>
   bind (make_chan_buf TChanBox (int_lit 1 eq_refl)) (fun ch1 =>
@@ -2222,59 +1890,37 @@ Definition chanbox_slice_demo : IO unit :=
   bind (slice_get TChanBox s (int_lit 1 eq_refl)) (fun b =>   (* b := s[1] = ChanBox{2, ch1} *)
   println [any (cb_id b)]))).                                  (* prints: 2 *)
 
-(** A MAP with STRUCT VALUES ([map[int64]ListNode]) — the last container after slices/channels: struct
-    values keyed in a map ([TMap TI64 TListNode] renders [map[int64]ListNode]).  Set [m[5] =
-    ListNode{99,nil}], read it back (comma-ok via [map_get_or]'s default), read its [Val] field.  Together
-    with [struct_slice_demo] ([[]ListNode]) and [chanbox_slice_demo] this shows struct values nest in EVERY
-    container — slice, channel field, and map value. *)
+(** A MAP with STRUCT VALUES ([map[int64]ListNode]; [TMap TI64 TListNode] renders it) —
+    with the slice demos, struct values nest in EVERY container. *)
 Definition map_struct_demo : IO unit :=
   bind (map_make_typed TI64 TListNode) (fun m =>                                          (* map[int64]ListNode *)
   bind (map_set TI64 TListNode (5)%i64 (MkListNode (99)%i64 (ptr_nil_tf tt)) m) (fun _ => (* m[5] = ListNode{99, nil} *)
   bind (@map_get_or GoI64 ListNode TI64 TListNode (5)%i64 (MkListNode (0)%i64 (ptr_nil_tf tt)) m) (fun n =>  (* m[5] *)
   println [any (ln_val n)]))).                                                            (* prints: 99 *)
 
-(** "A CHANNEL THAT SENDS ITSELF" — the recursive channel demo.  [ChanBox] (builtins.v) is
-    [type ChanBox struct { Id int64 ; Ch chan ChanBox }]; a [chan ChanBox] carries a [ChanBox] whose
-    [Ch] field IS that very channel, so the channel transmits a value containing ITSELF.  (Stronger than
-    [chan_of_chan_demo]'s [chan chan int64], where the element is a DIFFERENT type — here the element type
-    contains the channel's own type.)  Recursion through the tag-free phantom [GoChan] + the NULLARY
-    nominal tag [TChanBox] (finite; the channel-of-itself tag is the finite [TChan TChanBox]).  A goroutine
-    sends the self-box; main receives it and reads the id — built from safe channel APIs (the program
-    contains no [close], so send-on-closed cannot occur in it) and MACHINE-CHECKED race-free in shape: a self-sending-channel relay
-    is [MemFree], so this fits the memory-free/ownership discipline ([memfree_prog_race_free] /
-    [cursed_spawn_reachable_race_free], concurrency.v) — race-free for every interleaving, yet
-    self-sending.  (As with [cursed_demo], only the typed↔operational bridge to this exact program is the
-    limit-#2 frontier; feature safety AND the shape's race-freedom are machine-checked.) *)
+(** "A CHANNEL THAT SENDS ITSELF": a [chan ChanBox] carries a [ChanBox] whose [Ch] field
+    IS that very channel.  Recursion via the tag-free phantom [GoChan] + the finite
+    nominal tag [TChanBox].  No [close] in the program, so send-on-closed cannot occur;
+    the shape is MACHINE-CHECKED race-free ([memfree_prog_race_free] /
+    [cursed_spawn_reachable_race_free], concurrency.v).  Trust boundary: only the
+    typed↔operational bridge to this exact program remains unproven. *)
 Definition chanbox_demo : IO unit :=
   c <-' make_chan TChanBox ;;                            (* c : chan ChanBox                                    *)
   go_spawn (send TChanBox c (MkChanBox (42)%i64 c)) >>' (* goroutine: c <- ChanBox{42, c} — the channel sends ITSELF *)
   ( v <-' recv TChanBox c ;;                             (* v : ChanBox = {42, c} (its [Ch] field is c again)  *)
     println [any (cb_id v)] ).                           (* prints: 42  (parens: [>>'] is level 50, the [<-'] tail level 80) *)
 
-(** THE "CURSED" STRESS DEMO (v2) — assorted Go horror in ONE struct, every failure mode FAIL-LOUD,
-    its concurrency shape MACHINE-CHECKED race-free ([cursed_spawn_reachable_race_free]; see the HONEST SCOPE
-    note at the end — only the typed↔calculus bridge is the limit-#2 frontier).  A struct
-    [Cursed] holds a SLICE of channels that SEND THEMSELVES ([]chan ChanBox) AND a pointer into a
-    RECURSIVE linked list (a *ListNode).  TWO goroutines each pull their channel OUT of the slice-in-the-
-    struct and make it transmit a [ChanBox] whose [Ch] field IS that very channel — channels-in-a-slice-
-    in-a-struct sending THEMSELVES, concurrently — while main receives BOTH and TRAVERSES the 3-node
-    recursive list head→tail.  It looks unsafe to a Go expert (a slice of self-sending channels nested in
-    a struct, concurrent goroutines, a recursive heap type), yet every failure mode is FAIL-LOUD, never
-    silent: [slice_get] is the raw ESCAPE-HATCH index — it PANICS on OOB with Go's exact [rt_index_oob]
-    payload (this demo's constant indexes 0/1 into the 2-slice are in bounds; the comma-ok [slice_at_ok]
-    is the safe-by-construction alternative), every deref is the fail-loud [ptr_get], every channel op a
-    safe form, and the program contains no [close] — so OOB / nil-deref / send-on-closed cannot SILENTLY
-    occur.  Its concurrency SHAPE is
-    MACHINE-CHECKED race-free: [cursed_spawn_reachable_race_free] (concurrency.v) proves that EXACT shape
-    — a main goroutine that owns the heap and dynamically spawns memory-free ([MemFree]) self-sending-
-    channel relays, then recvs and reads/writes its list — race-free for EVERY reachable interleaving, via
-    the [PrivateDisc]/[OA_spawn] ownership discipline ([own := fun _ => 0]).  Assembled entirely from the
-    shipped features (ChanBox self-send + ListNode recursion + channels-in-slices-in-structs +
-    goroutines).  Prints: 99 1 2 3.  (HONEST SCOPE: feature-level safety AND the concurrency shape's
-    race-freedom are machine-checked; the only gap is the typed↔operational BRIDGE — Denoting THIS exact
-    extracted program into [cursed_spawn_prog] — which is the limit-#2 frontier.  Per CLAUDE.md this is
-    still not "verified race-free Go", but the race-freedom is proven on the calculus model, not merely
-    argued.) *)
+(** THE "CURSED" STRESS DEMO: a struct holding a SLICE of self-sending channels
+    ([]chan ChanBox) AND a pointer into a RECURSIVE linked list; two goroutines send
+    self-boxes while main receives both and traverses the list.  Every failure mode is
+    FAIL-LOUD, never silent: [slice_get] panics on OOB with Go's exact [rt_index_oob]
+    payload, every deref is the fail-loud [ptr_get], every channel op a safe form, no
+    [close] in the program.  The concurrency SHAPE is MACHINE-CHECKED race-free for every
+    reachable interleaving ([cursed_spawn_reachable_race_free], concurrency.v, via the
+    [PrivateDisc]/[OA_spawn] ownership discipline).  Prints: 99 1 2 3.
+    HONEST SCOPE (trust boundary): the typed↔operational BRIDGE — Denoting THIS exact
+    extracted program into [cursed_spawn_prog] — is unproven; NOT "verified race-free Go",
+    but the race-freedom is proven on the calculus model. *)
 Record Cursed := MkCursed {
   cu_chans : GoSlice (GoChan ChanBox) ;   (* []chan ChanBox — self-sending channels, IN A SLICE *)
   cu_list  : Ptr ListNode                 (* *ListNode      — a RECURSIVE linked list             *)
@@ -2298,10 +1944,9 @@ Definition cursed_demo : IO unit :=
     println [any (i64_add (cb_id v0) (cb_id v1)) ; any (ln_val n1) ; any (ln_val n2) ; any (ln_val n3)] ).
     (* prints: 99 1 2 3  (90+9, then the 3-node list) *)
 
-(** Phase B3a: SLICE ALIASING.  A [SliceH] is an aliasing handle into a backing array;
-    a SUB-SLICE [s[1:3]] SHARES that backing, so a write through the sub-slice is seen
-    through the parent — the [subslice_alias] THEOREM.  Here [s[1:3][0] = 99] writes
-    [s[1]], read back as 99 — impossible for the value (list-based) slice model. *)
+(** SLICE ALIASING: a [SliceH] is an aliasing handle into a backing array; a SUB-SLICE
+    SHARES that backing, so a write through it is seen through the parent
+    ([subslice_alias] THEOREM). *)
 Definition slice_alias_demo : IO unit :=
   bind (slice_make_h TI64 (int_lit 3 eq_refl)) (fun s =>                                  (* s := make([]int64, 3) *)
   bind (slice_idx_set s (int_lit 0 eq_refl) (10)%i64) (fun _ =>                           (* s[0] = 10 *)
@@ -2311,18 +1956,16 @@ Definition slice_alias_demo : IO unit :=
   bind (slice_idx_get TI64 s (int_lit 1 eq_refl)) (fun v =>                               (* v := s[1] — sees 99 (aliasing) *)
   println [any v])))))).                                                       (* prints 99 *)
 
-(** An out-of-range subslice PANICS rather than producing
-    a bogus descriptor.  s has cap 2; [s[0:3]] requests b=3 > cap, which Go rejects — so the
-    wrapped-descriptor path that would defeat the index bounds check is unconstructable. *)
+(** An out-of-range subslice PANICS rather than producing a bogus descriptor —
+    a wrapped descriptor defeating the index bounds check is unconstructable. *)
 Example subslice_past_cap_panics : forall (w : World),
   run_io (subslice (mkSliceH 100 0 2 2 TI64) (int_lit 0 eq_refl) (int_lit 3 eq_refl)) w
     = OPanic rt_slice_bounds w.
 Proof. intros w. unfold subslice, run_io. now vm_compute. Qed.
 
-(** Phase B3b: APPEND.  Go's [append] extends in place when [len < cap] (aliasing the
-    backing — the [slice_append_incap_aliases] THEOREM) and REALLOCATES a fresh backing
-    when [len = cap] (no aliasing).  Here [s] is full ([len = cap = 2]), so [append]
-    reallocates; [s2 = [5, 0, 9]] (len 3) and the appended element [s2[2] = 9]. *)
+(** APPEND: extends in place when [len < cap] (aliasing — [slice_append_incap_aliases]
+    THEOREM) and REALLOCATES when [len = cap] (no aliasing).  Here [s] is full, so
+    [append] reallocates. *)
 Definition slice_append_demo : IO unit :=
   bind (slice_make_h TI64 (int_lit 2 eq_refl)) (fun s =>             (* make([]int64, 2), len=cap=2 *)
   bind (slice_idx_set s (int_lit 0 eq_refl) (5)%i64) (fun _ =>       (* s[0] = 5 *)
@@ -2330,10 +1973,8 @@ Definition slice_append_demo : IO unit :=
   bind (slice_idx_get TI64 s2 (int_lit 2 eq_refl)) (fun v =>         (* v := s2[2] = 9 (the appended element) *)
   println [any v])))).                                    (* prints 9 *)
 
-(** Phase B3c: [make([]T, len, cap)] gives a slice SPARE capacity, so [append] is
-    IN PLACE and KEEPS the backing shared — the in-place-append aliasing of B3b, shown
-    at runtime.  [s] has len 1, cap 3; [append] writes index 1 in place (no realloc), so
-    [s2] shares [s]'s backing — writing [s2[0]] is seen through [s[0]]. *)
+(** [make([]T, len, cap)] gives SPARE capacity, so [append] is IN PLACE and keeps the
+    backing shared — writing [s2[0]] is seen through [s[0]]. *)
 Definition slice_makecap_demo : IO unit :=
   bind (slice_make_lc TI64 (int_lit 1 eq_refl) (int_lit 3 eq_refl)) (fun s =>    (* make([]int64, 1, 3): len=1, cap=3 *)
   bind (slice_idx_set s (int_lit 0 eq_refl) (5)%i64) (fun _ =>        (* s[0] = 5 *)
@@ -2342,20 +1983,17 @@ Definition slice_makecap_demo : IO unit :=
   bind (slice_idx_get TI64 s (int_lit 0 eq_refl)) (fun v =>           (* v := s[0] — sees 77 (shared backing!) *)
   println [any v]))))).                                    (* prints 77 *)
 
-(** A slice with len=1, cap=2 — writing index 1 (in the
-    spare CAPACITY but past LENGTH) PANICS, exactly as Go bounds-checks against LEN not cap.
-    Pre-fix the model silently wrote the spare backing cell and returned normally. *)
+(** Writing past LENGTH (even within spare capacity) PANICS — Go bounds-checks against
+    LEN, not cap. *)
 Example slice_write_past_len_panics : forall (v : GoI64) (w : World),
   run_io (slice_idx_set (mkSliceH 100 0 1 2 TI64) (int_lit 1 eq_refl) v) w
     = OPanic (rt_index_oob 1 1) w.
 Proof. intros v w. apply run_slice_idx_set_oob. now vm_compute. Qed.
 
-(** The model REALLOCATES to cap = len+1 (NO spare), so a SECOND append after a
-    realloc reallocates again → disjoint backing.  The plugin now FORCES Go's realloc capacity to len+1
-    (a manual `make([]T, len+1, len+1)` copy) to match — if it left Go's native `append` to over-allocate,
-    the 2nd append would go IN PLACE into Go's spare and ALIAS where the model says disjoint.  Here:
-    s=[0,0] (full) → s2=[0,0,1] (len=cap=3) → s3=[0,0,1,2] (2nd realloc, DISJOINT from s2); writing s3[0]
-    must NOT be seen through s2[0] (prints 0, the model's disjoint value; pre-fix Go would print 99). *)
+(** Invariant: the model reallocates to cap = len+1 (NO spare), and the plugin FORCES
+    Go's realloc capacity to len+1 (manual `make([]T, len+1, len+1)` copy) to match —
+    Go's native over-allocating `append` would alias where the model says disjoint.
+    A second append is thus a second realloc: writing s3[0] must NOT show through s2[0]. *)
 Definition slice_realloc_alias_demo : IO unit :=
   bind (slice_make_h TI64 (int_lit 2 eq_refl)) (fun s =>             (* len=cap=2, [0,0] *)
   bind (slice_append TI64 s (1)%i64) (fun s2 =>          (* realloc → s2=[0,0,1], len=cap=3 (forced) *)
@@ -2364,7 +2002,7 @@ Definition slice_realloc_alias_demo : IO unit :=
   bind (slice_idx_get TI64 s2 (int_lit 0 eq_refl)) (fun v =>         (* v := s2[0] — disjoint, unaffected → 0 *)
   println [any v]))))).                                   (* prints 0 *)
 
-(** Phase B3c: [clear] zeros a slice's elements; [copy] copies elements src→dst. *)
+(** [clear] zeros a slice's elements; [copy] copies elements src→dst. *)
 Definition slice_clear_demo : IO unit :=
   bind (slice_make_h TI64 (int_lit 2 eq_refl)) (fun s =>
   bind (slice_idx_set s (int_lit 0 eq_refl) (5)%i64) (fun _ =>        (* s[0] = 5 *)
@@ -2379,10 +2017,8 @@ Definition slice_copy_demo : IO unit :=
   bind (slice_idx_get TI64 dst (int_lit 0 eq_refl)) (fun v =>          (* v := dst[0] = 7 *)
   println [any v]))))).                                    (* prints 7 *)
 
-(** Backward-goto counting loop: a [Ref] counter + [goto] back to the header.
-    The read [iv := ref_get i] cannot use [:=] (it re-runs each iteration), so
-    its declaration is hoisted to [var iv int64] (dominating the loop) and
-    assigned with [=].  [ref_set] also assigns with [=].  Prints 0,1,2. *)
+(** Backward-goto counting loop: the per-iteration read's declaration is hoisted to
+    [var iv int64] (dominating the loop) and assigned with [=].  Prints 0,1,2. *)
 Definition count_demo : IO unit :=
   bind (ref_new TInt64 (int_lit 0 eq_refl)) (fun i =>
   run_blocks 0%nat [
@@ -2395,19 +2031,16 @@ Definition count_demo : IO unit :=
     ret Done                                       (* block 1 *)
   ]).
 
-(** A run_blocks with a NONZERO entry (block 1) now emits its own `block1:`
-    label — the raw fallback used to emit `goto block1` with NO such label (undefined Go).  Entry
-    block 1 prints 5 then jumps to block 0 (so block 0 is reachable, not dead); block 0 prints 7. *)
+(** Invariant: a run_blocks with a NONZERO entry emits its own `block1:` label (the
+    entry `goto` must have a target).  Entry block 1 prints 5 then jumps to block 0. *)
 Definition cfg_nonzero_entry_demo : IO unit :=
   run_blocks 1%nat [
     bind (println [any (int_lit 7 eq_refl)]) (fun _ => ret Done) ;           (* block 0 — reached via block 1's jump *)
     bind (println [any (int_lit 5 eq_refl)]) (fun _ => ret (Jump 0%nat))     (* block 1 — the ENTRY, then → block 0 *)
   ].
 
-(** Control flow as a goto-CFG.  Three blocks; block 0 conditionally jumps to
-    the merge (block 2), skipping block 1.  The structurer lifts this to a clean
-    one-armed [if !early { println(2) }] — block 1 runs only when not early.
-    early ⇒ 1,3 ; else ⇒ 1,2,3. *)
+(** Goto-CFG: block 0 conditionally skips block 1; the structurer lifts this to a
+    one-armed [if !early { println(2) }].  early ⇒ 1,3 ; else ⇒ 1,2,3. *)
 Definition cond_goto_demo (early : bool) : IO unit :=
   run_blocks 0%nat [
     bind (println [any (int_lit 1 eq_refl)]) (fun _ =>
@@ -2416,10 +2049,8 @@ Definition cond_goto_demo (early : bool) : IO unit :=
     bind (println [any (int_lit 3 eq_refl)]) (fun _ => ret Done)
   ].
 
-(** Diamond: block 0 branches to two non-empty arms (blocks 1 and 2) that
-    reconverge at the merge (block 3).  The structurer finds the merge (the
-    immediate post-dominator) and lifts this to [if b { 10 } else { 20 }; 99],
-    emitting the merge once.  b ⇒ 1,10,99 ; else ⇒ 1,20,99. *)
+(** Diamond: two arms reconverging at a merge; the structurer (immediate post-dominator)
+    lifts to [if b { 10 } else { 20 }; 99], emitting the merge once. *)
 Definition diamond_demo (b : bool) : IO unit :=
   run_blocks 0%nat [
     bind (println [any (int_lit 1 eq_refl)]) (fun _ =>
@@ -2429,12 +2060,9 @@ Definition diamond_demo (b : bool) : IO unit :=
     bind (println [any (int_lit 99 eq_refl)]) (fun _ => ret Done)
   ].
 
-(** Loop containing a branch: a counting loop (block 0 header, block 3 the
-    increment/loop tail) whose body has an in-loop one-armed [if] (block 1 → 2).
-    Exercises the relooper nesting a conditional inside a [for]: the header
-    becomes [for { … if iv < 3 { … } else { break } }], and block 1's branch a
-    nested [if … < 1 { println(100) }].  Counter is a [Ref], re-read per block
-    (separate goto-blocks don't share Rocq scope).  Prints 100, 0, 1, 2. *)
+(** Loop containing a branch: the relooper nests a conditional inside a [for].  Counter
+    is a [Ref], re-read per block (separate goto-blocks don't share Rocq scope).
+    Prints 100, 0, 1, 2. *)
 Definition loopif_demo : IO unit :=
   bind (ref_new TInt64 (int_lit 0 eq_refl)) (fun i =>
   run_blocks 0%nat [
@@ -2449,12 +2077,9 @@ Definition loopif_demo : IO unit :=
     ret Done                                                        (* block 4: exit *)
   ]).
 
-(** Nested loops: an outer counter [i] (header block 0, tail block 4) wrapping an
-    inner counter [j] (header block 2, tail block 3).  Exercises the relooper
-    nesting one [for] inside another — [loopctx] stacks, so the inner [jv >= 2]
-    exit becomes the inner [break] (to block 4) and the outer [iv >= 2] exit the
-    outer [break] (to block 5).  Two [Ref]s; [j] is reset each outer pass.
-    Prints 0,1 (inner, i=0) then 0,1 (inner, i=1). *)
+(** Nested loops: the relooper nests one [for] inside another ([loopctx] stacks; each
+    loop's exit becomes its own [break]).  [j] is reset each outer pass.
+    Prints 0,1 then 0,1. *)
 Definition nested_loop_demo : IO unit :=
   bind (ref_new TInt64 (int_lit 0 eq_refl)) (fun i =>
   bind (ref_new TInt64 (int_lit 0 eq_refl)) (fun j =>
@@ -2472,11 +2097,9 @@ Definition nested_loop_demo : IO unit :=
     ret Done                                                        (* block 5: exit *)
   ])).
 
-(** Early return from inside a loop: block 1 returns ([Done]) when [iv] reaches 2,
-    mid-loop — distinct from the loop's normal [break] (block 0 → block 3) and the
-    post-loop code.  The relooper emits [return] for the in-loop [Done], [break]
-    for the exit edge, and the block-3 tail after the [for].  Prints 0, 1, then
-    returns (so block 3's 999 is never reached). *)
+(** Early return from inside a loop: the relooper emits [return] for the in-loop [Done],
+    [break] for the exit edge, and the tail after the [for].  Prints 0, 1, then returns
+    (999 never reached). *)
 Definition early_return_demo : IO unit :=
   bind (ref_new TInt64 (int_lit 0 eq_refl)) (fun i =>
   run_blocks 0%nat [
@@ -2490,12 +2113,9 @@ Definition early_return_demo : IO unit :=
     bind (println [any (int_lit 999 eq_refl)]) (fun _ => ret Done)           (* block 3: normal exit *)
   ]).
 
-(** Labeled break: from inside the inner loop, block 3 jumps to the *outer*
-    loop's exit (block 6) when [jv] reaches 2 — escaping both loops at once.
-    That is more than the innermost loop can [break], so the relooper labels the
-    outer [for] [L0:] and emits [break L0].  The inner loop is multi-exit (its
-    normal exit is block 5, plus the labeled escape to block 6), which the
-    primary-exit analysis accepts.  Prints 0, 1, 2 then stops entirely. *)
+(** Labeled break: an inner-loop jump to the OUTER loop's exit escapes both loops, so
+    the relooper labels the outer [for] [L0:] and emits [break L0] (multi-exit inner
+    loop accepted by the primary-exit analysis).  Prints 0, 1, 2 then stops. *)
 Definition labeled_break_demo : IO unit :=
   bind (ref_new TInt64 (int_lit 0 eq_refl)) (fun i =>
   bind (ref_new TInt64 (int_lit 0 eq_refl)) (fun j =>
@@ -2515,11 +2135,8 @@ Definition labeled_break_demo : IO unit :=
     ret Done                                                        (* block 6: exit *)
   ])).
 
-(** Labeled continue: from inside the inner loop, block 3 jumps to the *outer*
-    header (block 0) once [jv] reaches 1 — abandoning the inner loop to restart
-    the outer one.  That escapes the innermost loop, so it lowers to
-    [continue L0] (the outer [for] is labeled).  The outer header increments [i]
-    so it still terminates.  Prints 0, 1 (inner, i=0) then 0, 1 (i=1). *)
+(** Labeled continue: an inner-loop jump to the OUTER header lowers to [continue L0]
+    (the outer [for] labeled).  Prints 0, 1 then 0, 1. *)
 Definition labeled_continue_demo : IO unit :=
   bind (ref_new TInt64 (int_lit 0 eq_refl)) (fun i =>
   bind (ref_new TInt64 (int_lit 0 eq_refl)) (fun j =>
@@ -2538,12 +2155,9 @@ Definition labeled_continue_demo : IO unit :=
     ret Done                                                        (* block 5: exit *)
   ])).
 
-(** Irreducible CFG (a two-entry loop): block 0 jumps into the {1,2} cycle at
-    *either* block 1 or block 2, so neither dominates the other and there is no
-    back-edge to make a loop header.  No structured [for] can express this, so it
-    takes the raw labels+goto fallback — the completeness guarantee that *any*
-    control flow lowers, structured or not.  enter_high ⇒ 2,1,2,1,2 ; else ⇒
-    1,2,1,2. *)
+(** Irreducible CFG (two-entry loop): no structured [for] can express it, so it takes
+    the raw labels+goto fallback — the completeness guarantee that ANY control flow
+    lowers.  enter_high ⇒ 2,1,2,1,2 ; else ⇒ 1,2,1,2. *)
 Definition irreducible_demo (enter_high : bool) : IO unit :=
   bind (ref_new TInt64 (int_lit 0 eq_refl)) (fun n =>
   run_blocks 0%nat [
@@ -2604,15 +2218,9 @@ Definition sum_demo : IO unit :=
   println [any total].   (* 1+2+3+4 = 10 *)
 
 (** ── Structs (Go value-structs from Rocq Records) ───────────────────────────
-    A Rocq [Record] is a Go value-struct: both have copy/value semantics, so no
-    aliasing model is needed.  The type → a Go [struct], the single constructor →
-    a struct literal [T{…}], each projection → field access [x.Field].  [Point]'s
-    fields are plain [int], so they lower to [int64].  This is the Stage-A gateway
-    to methods, interfaces, typestate, and representation invariants (the
-    closed-world wishlist).
-
-    Because a record is an ordinary Rocq type, struct INVARIANTS are already
-    provable by hand here: [px] of a [MkPoint a b] is definitionally [a]. *)
+    A Rocq [Record] is a Go value-struct (both copy/value semantics — no aliasing
+    model): type → Go [struct], constructor → literal [T{…}], projection → [x.Field].
+    Struct invariants are provable directly ([px (MkPoint a b) = a] definitionally). *)
 Record Point := MkPoint { px : GoI64 ; py : GoI64 }.
 
 Example point_proj_px : forall a b, px (MkPoint a b) = a.
@@ -2626,9 +2234,8 @@ Definition point_demo : IO unit :=
   bind (println [any (py p)])           (fun _ =>   (* 4 *)
   println [any (i64_add (px p) (py p))])).  (* 7 *)
 
-(** Heterogeneous fields prove the struct field-type printer is general, not
-    hardcoded to [int64]: [flag : bool] lowers to a Go [bool] field, [qty : int]
-    to [int64].  (Mixing field types in one struct is the common case.) *)
+(** Heterogeneous fields: the struct field-type printer is general — [flag : bool]
+    lowers to a Go [bool] field, [qty] to [int64]. *)
 Record Labeled := MkLabeled { flag : bool ; qty : GoI64 }.
 
 Definition labeled_demo : IO unit :=
@@ -2636,26 +2243,19 @@ Definition labeled_demo : IO unit :=
   bind (println [any (flag r)])   (fun _ =>   (* true *)
   println [any (qty r)]).                     (* 5 *)
 
-(** Methods (value receiver).  A METHOD-ELIGIBLE function — the plugin's ONE
-    [method_eligible] contract (full predicate in SPEC_CONFORMANCE.md) — lowers to a
-    Go value-receiver method — [sum_coords] → [func (p Point) Sum_coords() int64],
-    [shifted] → [func (p Point) Shifted(dx int64) Point] — and a call [m p …] to
-    [p.M(…)]; an INELIGIBLE struct-first function stays a plain function
-    ([box_second] below).  This is faithful ([p.M(a)] denotes the same
-    as [M(p, a)]) and idiomatic; the receiver is the SAME de Bruijn binding, only
-    the signature pulls it out front.  (Method↔type association is what Stage C's
-    interfaces will check: the method set of [Point] is every such function.) *)
+(** Methods (value receiver): a METHOD-ELIGIBLE function (the plugin's ONE
+    [method_eligible] contract; predicate in SPEC_CONFORMANCE.md) lowers to a Go
+    value-receiver method and a call [m p …] to [p.M(…)]; an ineligible struct-first
+    function stays a plain function.  Faithful: [p.M(a)] denotes the same as [M(p, a)]. *)
 Definition sum_coords (p : Point) : GoI64 := i64_add (px p) (py p).
 Definition shifted (p : Point) (dx : GoI64) : Point :=
   MkPoint (i64_add (px p) dx) (i64_add (py p) dx).
-(** Narrow-boundary at METHODS — a NARROW param: `func (p Point) Px_plus(b uint8) int64`.  The
-    receiver is param 0, so the cast machinery uses the param-type TAIL aligned with the non-receiver
-    args; a wide value at the narrow `b` is cast (`p.Px_plus(uint8(…))`) — the method residual the
-    function-arg slice left open, now closed (else `p.Px_plus(int64-expr)` = invalid Go). *)
+(** Methods with a NARROW param: the receiver is param 0, so the cast machinery uses the
+    param-type TAIL aligned with the non-receiver args — a wide value at narrow `b` is
+    cast (`p.Px_plus(uint8(…))`). *)
 Definition px_plus (p : Point) (b : GoU8) : GoI64 := i64_add (px p) (i64_of_u8 b).
 
-(** Method behaviour is provable in Rocq: shifting moves each coordinate by [d].
-    Both hold by computation (the method unfolds to a constructor + projection). *)
+(** Method behaviour is provable: shifting moves each coordinate by [d] (by computation). *)
 Example shifted_px : forall p d, px (shifted p d) = i64_add (px p) d.
 Proof. reflexivity. Qed.
 Example shifted_py : forall p d, py (shifted p d) = i64_add (py p) d.
@@ -2670,30 +2270,23 @@ Definition method_demo : IO unit :=
   bind (println [any (sum_coords q)])   (fun _ =>   (* 27 *)
   println [any (px_plus p (u8_of_i64 (i64_lit 300 eq_refl)))])))).   (* 3 + uint8(44) = 47 (narrow method arg) *)
 
-(** METHOD VALUE (Go's [p.M] as a first-class closure): [shifted p] is the method
-    [Shifted] with its receiver [p] already bound — a [func(int64) Point] passed to a
-    higher-order function.  The plugin detects the under-application (only the receiver,
-    not the full args) and emits the bare [p.Shifted] (a method value), not a call.
-    [call_shift10] then invokes it with [10]. *)
+(** METHOD VALUE (Go's [p.M]): the plugin detects receiver-only under-application and
+    emits the bare [p.Shifted] (a method value), not a call. *)
 Definition call_shift10 (f : GoI64 -> Point) : Point := f (10)%i64.
 Definition method_value_demo : IO unit :=
   let p := MkPoint (1)%i64 (2)%i64 in
   let q := call_shift10 (shifted p) in   (* call_shift10(p.Shifted) = p.Shifted(10) = (11,12) *)
   println [any (px q); any (py q)].       (* 11 12 *)
 
-(** METHOD EXPRESSION (Go's [T.M]): the method [Sum_coords] referenced UNBOUND — a
-    [func(Point) GoI64] whose first argument is the receiver.  In Coq it is the method
-    used bare (no application at all); the plugin emits [Point.Sum_coords].  [apply_pt]
-    applies it to [p]. *)
+(** METHOD EXPRESSION (Go's [T.M]): the method referenced UNBOUND (no application);
+    the plugin emits [Point.Sum_coords]. *)
 Definition apply_pt (f : Point -> GoI64) (p : Point) : GoI64 := f p.
 Definition method_expr_demo : IO unit :=
   let p := MkPoint (5)%i64 (6)%i64 in
   println [any (apply_pt sum_coords p)].   (* Point.Sum_coords(p) = 5+6 = 11 *)
 
-(** MULTIPLE RETURN VALUES (Go's [func f() (A, B)] + [x, y := f()]): a function returning
-    a PAIR lowers to a Go multi-value return [(int64, int64)] / [return b, a]; the caller's
-    destructuring [let '(x,y) := …] lowers to [x, y := Swap2(…)].  [swap2_spec] proves the
-    swap. *)
+(** MULTIPLE RETURN VALUES: a PAIR lowers to a Go multi-value return; the caller's
+    [let '(x,y) := …] lowers to [x, y := Swap2(…)].  [swap2_spec] proves the swap. *)
 Definition swap2 (a b : GoI64) : GoI64 * GoI64 := (b, a).
 Lemma swap2_spec : forall a b, swap2 a b = (b, a).
 Proof. reflexivity. Qed.
@@ -2701,42 +2294,37 @@ Definition multiret_demo : IO unit :=
   let '(x, y) := swap2 (3)%i64 (4)%i64 in   (* (4, 3) *)
   println [any x; any y].                    (* 4 3 *)
 
-(** N-ARY (3+) multiple return (Go `func(…) (A, B, C)`).  Coq's `A * B * C` is the LEFT-NESTED
-    `(A * B) * C` with value `(a, b, c)` = `((a, b), c)`; the plugin flattens the left spine to a
-    FLAT Go `func(…) (int64, int64, int64)` / `return a, b, c`, and the nested destructure
-    `let '(x, y, z) := …` to a single `x, y, z := Triple3(…)`. *)
+(** N-ARY (3+) multiple return: Coq's left-nested `(A * B) * C` flattens to a FLAT Go
+    `func(…) (int64, int64, int64)` / `return a, b, c`; the nested destructure to a
+    single `x, y, z := Triple3(…)`. *)
 Definition triple3 (a b c : GoI64) : GoI64 * GoI64 * GoI64 := (a, b, c).
 Definition triple_demo : IO unit :=
   let '(x, y, z) := triple3 (1)%i64 (2)%i64 (3)%i64 in   (* (1, 2, 3) *)
   println [any x; any y; any z].                          (* 1 2 3 *)
 
-(** PURE-value-position multiple-return destructure — a value-returning (NON-IO) function that
-    destructures a multi-return and uses the components, e.g. Go `func f() int64 { x, y := g();
-    return x + y }`.  Covers 2-ary (`sum_pair` over `swap2`) and N-ary (`sum3` over `triple3`).  Was
-    a fail-closed gap: the destructure only lowered in IO/statement position; now `pp_pure_tail`
-    handles it too (`x, y[, z] := f(); return …`). *)
+(** PURE-value-position multiple-return destructure (`func f() int64 { x, y := g();
+    return x + y }`): `pp_pure_tail` handles the destructure outside IO/statement
+    position; 2-ary and N-ary covered. *)
 Definition sum_pair (a b : GoI64) : GoI64 := let '(x, y) := swap2 a b in i64_add x y.
 Definition sum3 (a b c : GoI64) : GoI64 :=
   let '(x, y, z) := triple3 a b c in i64_add (i64_add x y) z.
-(* A BLANK binder [_] in a destructure → Go [_], NOT the unused gensym Coq extracts it as (which,
-   left as a real `:=` binder, is `declared and not used` — invalid Go). *)
+(* Invariant: a BLANK binder [_] in a destructure → Go [_], never a real unused `:=`
+   binder (`declared and not used` — invalid Go). *)
 Definition snd_of (a b : GoI64) : GoI64 := let '(_, y) := swap2 a b in y.
 Definition pure_destr_demo : IO unit :=
   println [any (sum_pair (3)%i64 (4)%i64); any (sum3 (1)%i64 (2)%i64 (3)%i64); any (snd_of (5)%i64 (6)%i64)].   (* 7 6 5 *)
 (* same, but the blank-binder destructure is in IO/STATEMENT position. *)
 Definition stmt_blank_demo : IO unit :=
   let '(_, y) := swap2 (7)%i64 (8)%i64 in println [any y].   (* 7 *)
-(* NARROW multiple-return `func(…) (uint8, uint8)`: each component is an int64-carrier op result that
-   must be CAST to its narrow return slot — `return uint8(…), uint8(…)`.  Was a fail-OPEN (int64 into a
-   uint8 return slot fails `go build`). *)
+(* NARROW multiple-return: each int64-carrier component is CAST to its narrow return
+   slot — `return uint8(…), uint8(…)`. *)
 Definition narrow_pair (x y : GoI64) : GoU8 * GoU8 := (u8_of_i64 x, u8_of_i64 y).
 Definition narrow_pair_demo : IO unit :=
   let '(p, q) := narrow_pair (300)%i64 (7)%i64 in   (* u8_of_i64 300 = 44, u8_of_i64 7 = 7 *)
   println [any p; any q].                            (* 44 7 *)
 
-(** An IO-returning method (a method with effects) — the receiver threads through
-    the [pp_io_body] path just like a pure one: [func (p Point) Describe() { … }],
-    and the statement-position call [describe p] lowers to [p.Describe()]. *)
+(** An IO-returning method: the receiver threads through the [pp_io_body] path;
+    the statement-position call [describe p] lowers to [p.Describe()]. *)
 Definition describe (p : Point) : IO unit :=
   bind (println [any (px p)]) (fun _ => println [any (py p)]).
 
@@ -2744,21 +2332,17 @@ Definition io_method_demo : IO unit :=
   let p := MkPoint (8)%i64 (9)%i64 in
   describe p.   (* prints: 8 / 9 *)
 
-(** A VALUE-returning IO method whose body is a BIND-CHAIN (an effect, then [ret v]) — not just
-    a single-expression tail.  [func (p Point) Px_then_sum() int64 { println(p.Px); return p.Px+p.Py }]:
-    the leading [println] becomes a STATEMENT, the [ret] tail becomes [return …]. *)
+(** A VALUE-returning IO method with a BIND-CHAIN body: the leading effect becomes a
+    STATEMENT, the [ret] tail becomes [return …]. *)
 Definition px_then_sum (p : Point) : IO GoI64 :=
   bind (println [any (px p)]) (fun _ => ret (i64_add (px p) (py p))).
 Definition io_val_method_demo : IO unit :=
   let p := MkPoint (8)%i64 (9)%i64 in
   bind (px_then_sum p) (fun s => println [any s]).   (* px_then_sum prints 8, returns 17; then prints 17 *)
 
-(** Struct COMPARABILITY (Go spec "Comparison operators": struct values are comparable
-    if all fields are; [a == b] is FIELD-WISE).  [point_eqb] is exactly that field-wise
-    comparison — it lowers via the existing [&&]/[==]/projection ops (no value-position
-    [if], no new lowering), so it is faithful to Go's [p == q].  [point_eqb_spec] proves
-    it DECIDES Point equality (the comparability guarantee).  *(The idiomatic direct
-    [p == q] is now also modeled — see [struct_eqb] / [struct_eq_native_demo] below.)* *)
+(** Struct COMPARABILITY (Go: [a == b] is FIELD-WISE): [point_eqb] is that field-wise
+    comparison, faithful to Go's [p == q]; [point_eqb_spec] proves it DECIDES Point
+    equality.  (The direct operator is [struct_eqb] / [struct_eq_native_demo] below.) *)
 Definition point_eqb (a b : Point) : bool :=
   andb (i64_eqb (px a) (px b)) (i64_eqb (py a) (py b)).
 Lemma point_eqb_spec : forall a b, point_eqb a b = true <-> a = b.
@@ -2776,12 +2360,9 @@ Definition struct_eq_demo : IO unit :=
   let r := MkPoint (3)%i64 (5)%i64 in
   println [any (point_eqb p q); any (point_eqb p r)].   (* true false *)
 
-(** NATIVE struct equality — Go's [a == b] OPERATOR (not the field-wise emulation).
-    [struct_eqb] is evidence-carrying: it demands the SEALED comparability witness
-    [squash point_eqb_spec] (a proof that [point_eqb] DECIDES Point equality, which Go's
-    comparability requires) and lowers to the bare Go [p == q].  [struct_eqb_native_spec]
-    proves the native form STILL decides Point equality — same guarantee as [point_eqb],
-    now via the actual operator. *)
+(** NATIVE struct equality — Go's [a == b] OPERATOR.  [struct_eqb] is evidence-carrying:
+    it demands the SEALED comparability witness [squash point_eqb_spec] and lowers to the
+    bare Go [p == q]; [struct_eqb_native_spec] proves the native form decides equality. *)
 Lemma struct_eqb_native_spec :
   forall a b, struct_eqb point_eqb (squash point_eqb_spec) a b = true <-> a = b.
 Proof. intros. unfold struct_eqb. apply point_eqb_spec. Qed.
@@ -2792,25 +2373,23 @@ Definition struct_eq_native_demo : IO unit :=
   println [any (struct_eqb point_eqb (squash point_eqb_spec) p q);
            any (struct_eqb point_eqb (squash point_eqb_spec) p r)].   (* true false *)
 
-(** NESTED struct fields (Go struct composition): a struct with a field whose type is
-    another struct.  Tests that the field-type printer handles a struct-typed field and
-    that chained projections lower to chained Go field access [o.W_inner.Iv]. *)
+(** NESTED struct fields: a struct-typed field prints correctly and chained projections
+    lower to chained Go field access [o.W_inner.Iv]. *)
 Record Inner := MkInner { iv : GoI64 ; ikind : GoI64 }.   (* 2 fields: avoid Coq's single-field unboxing *)
 Record Wrap  := MkWrap { w_inner : Inner ; wz : GoI64 }.
 Definition nested_struct_demo : IO unit :=
   let o := MkWrap (MkInner (5)%i64 (1)%i64) (9)%i64 in
   println [any (iv (w_inner o)); any (wz o)].   (* 5 9 (chained: o.W_inner.Iv, o.Wz) *)
 
-(** Struct POINTER (Phase Bs.2): a heap-backed [*Cell] with mutation THROUGH the pointer, via the
-    arity-free generic [StructRep].  [gsptr_new] → [&Cell{…}]; [gsptr_set_field p MHere
-    cx _ 7] → [p.Cx = 7] (mutate); [gsptr_get_field p MHere cx _] → [p.Cx].  The [StructRepOf Cell]
-    instance is proof-only (the iso decomposes/reconstructs the struct across field cells — it gives
-    the read-after-write/aliasing THEOREMS [gsptr_field_get_set]/[gsptr_alias]); the field is the typed
-    index [MHere]/[MNext], the projection ([cx]) is the coherence-pinned NAME; native Go, never the rep. *)
+(** Struct POINTER: a heap-backed [*Cell] mutated THROUGH the pointer via the arity-free
+    generic [StructRep].  The [StructRepOf Cell] instance is proof-only (it yields the
+    read-after-write/aliasing THEOREMS [gsptr_field_get_set]/[gsptr_alias]); the field is
+    the typed index [MHere]/[MNext], the projection the coherence-pinned NAME; the
+    emitted Go is native, never the rep. *)
 Record Cell := MkCell { cx : GoI64 ; cy : GoI64 }.
-(* The CANONICAL rep for [Cell] (ONE canonical rep per type): bound once to the type, so every [*Cell] handle
-   reconstructs the same way.  [cell_f0]/[cell_f1] are the field-COHERENCE evidence (#10(c)) — they
-   tie [cx]↔cell 0 and [cy]↔cell 1 to that rep, so a field access cannot name the wrong cell. *)
+(* ONE canonical rep per type: every [*Cell] handle reconstructs the same way; the
+   [_coh] proofs tie [cx]↔cell 0 and [cy]↔cell 1, so a field access cannot name the
+   wrong cell. *)
 #[local] Instance StructRepOf_Cell : StructRepOf Cell := {|
   srep_ts := (GoI64 : Type) :: (GoI64 : Type) :: nil ;
   srep_rep := @mkSR Cell ((GoI64 : Type) :: (GoI64 : Type) :: nil) (TI64, (TI64, tt))
@@ -2825,11 +2404,9 @@ Definition gsptr_demo : IO unit :=
   bind (gsptr_get_field p (MNext MHere) cy cell_c1) (fun b =>    (* b := p.Cy → 4 *)
   println [any a; any b])))).                                   (* prints: 7 4 *)
 
-(** GENERIC struct rep: the ARITY-FREE [StructRep R ts] / typed de Bruijn index [Mem]
-    machinery.  Heap-backed [*GCell]; a
-    field is the SINGLE typed index ([MHere]/[MNext]); the named projection ([gca]/[gcb]) is PINNED to
-    it by [gfield_coh] ([= eq_refl]: the index denotes exactly that projection), so a slot can never
-    name the wrong field.  Lowers to the same native Go: [&GCell{…}], [*p], [p.Gca = v], [p.Gca]. *)
+(** GENERIC struct rep ([StructRep R ts] / typed de Bruijn [Mem]): the named projection
+    is PINNED to its index by [gfield_coh] ([= eq_refl]), so a slot can never name the
+    wrong field.  Lowers to native Go: [&GCell{…}], [*p], [p.Gca = v], [p.Gca]. *)
 Record GCell := MkGCell { gca : GoI64 ; gcb : GoI64 }.
 #[local] Instance StructRepOf_GCell : StructRepOf GCell := {|
   srep_ts := (GoI64 : Type) :: (GoI64 : Type) :: nil ;
@@ -2848,15 +2425,10 @@ Definition gcell_demo : IO unit :=
   bind (gsptr_get_field p (MNext MHere) gcb gcb_coh) (fun b =>     (* b := p.Gcb → 2 *)
   println [any (gca v); any b]))))).                              (* prints: 99 2 *)
 
-(** ============================================================================
-    THE 64-FIELD STRESS TEST: one [StructRep Big64 ts] over a 64-element
-    HETEROGENEOUS field-type list (cycling int64 / bool / float64 / string) — the arity-free
-    generic rep needs NO per-arity copies.  The
-    iso ([sr_to]/[sr_from]/[sr_eta]) is INLINED into the (suppressed) instance and the typed
-    indices are INLINE [MHere]/[MNext…] at the call sites; the [_coh] proofs ([Prop], erased)
-    pin each name to its slot.  Init ([&Big64{…}] — a FRESH composite literal, so [p.F4=…]
-    mutates the heap copy, not the source), per-field read at depths 0/1/3/4/63 (DISTINCT
-    types), mutate-through-pointer, and structural [==] (true / false). *)
+(** THE 64-FIELD STRESS TEST: one [StructRep Big64 ts] over a 64-element HETEROGENEOUS
+    field-type list — the arity-free rep needs NO per-arity copies; the [_coh] proofs
+    ([Prop], erased) pin each name to its slot.  Exercises init, reads at depths
+    0/1/3/4/63, mutate-through-pointer, and structural [==]. *)
 Record Big64 := MkBig64 { f0 : GoI64 ; f1 : bool ; f2 : GoFloat64 ; f3 : GoString ; f4 : GoI64 ; f5 : bool ; f6 : GoFloat64 ; f7 : GoString ; f8 : GoI64 ; f9 : bool ; f10 : GoFloat64 ; f11 : GoString ; f12 : GoI64 ; f13 : bool ; f14 : GoFloat64 ; f15 : GoString ; f16 : GoI64 ; f17 : bool ; f18 : GoFloat64 ; f19 : GoString ; f20 : GoI64 ; f21 : bool ; f22 : GoFloat64 ; f23 : GoString ; f24 : GoI64 ; f25 : bool ; f26 : GoFloat64 ; f27 : GoString ; f28 : GoI64 ; f29 : bool ; f30 : GoFloat64 ; f31 : GoString ; f32 : GoI64 ; f33 : bool ; f34 : GoFloat64 ; f35 : GoString ; f36 : GoI64 ; f37 : bool ; f38 : GoFloat64 ; f39 : GoString ; f40 : GoI64 ; f41 : bool ; f42 : GoFloat64 ; f43 : GoString ; f44 : GoI64 ; f45 : bool ; f46 : GoFloat64 ; f47 : GoString ; f48 : GoI64 ; f49 : bool ; f50 : GoFloat64 ; f51 : GoString ; f52 : GoI64 ; f53 : bool ; f54 : GoFloat64 ; f55 : GoString ; f56 : GoI64 ; f57 : bool ; f58 : GoFloat64 ; f59 : GoString ; f60 : GoI64 ; f61 : bool ; f62 : GoFloat64 ; f63 : GoString }.
 #[local] Instance StructRepOf_Big64 : StructRepOf Big64 := {|
   srep_ts := (GoI64 : Type) :: (bool : Type) :: (GoFloat64 : Type) :: (GoString : Type) :: (GoI64 : Type) :: (bool : Type) :: (GoFloat64 : Type) :: (GoString : Type) :: (GoI64 : Type) :: (bool : Type) :: (GoFloat64 : Type) :: (GoString : Type) :: (GoI64 : Type) :: (bool : Type) :: (GoFloat64 : Type) :: (GoString : Type) :: (GoI64 : Type) :: (bool : Type) :: (GoFloat64 : Type) :: (GoString : Type) :: (GoI64 : Type) :: (bool : Type) :: (GoFloat64 : Type) :: (GoString : Type) :: (GoI64 : Type) :: (bool : Type) :: (GoFloat64 : Type) :: (GoString : Type) :: (GoI64 : Type) :: (bool : Type) :: (GoFloat64 : Type) :: (GoString : Type) :: (GoI64 : Type) :: (bool : Type) :: (GoFloat64 : Type) :: (GoString : Type) :: (GoI64 : Type) :: (bool : Type) :: (GoFloat64 : Type) :: (GoString : Type) :: (GoI64 : Type) :: (bool : Type) :: (GoFloat64 : Type) :: (GoString : Type) :: (GoI64 : Type) :: (bool : Type) :: (GoFloat64 : Type) :: (GoString : Type) :: (GoI64 : Type) :: (bool : Type) :: (GoFloat64 : Type) :: (GoString : Type) :: (GoI64 : Type) :: (bool : Type) :: (GoFloat64 : Type) :: (GoString : Type) :: (GoI64 : Type) :: (bool : Type) :: (GoFloat64 : Type) :: (GoString : Type) :: (GoI64 : Type) :: (bool : Type) :: (GoFloat64 : Type) :: (GoString : Type) :: nil ;
@@ -2885,12 +2457,8 @@ Definition big64_demo : IO unit :=
     ))))))).
 
 
-(** POINTER-RECEIVER method (Phase B2): a METHOD-ELIGIBLE function (the plugin's ONE
-    [method_eligible] contract) whose first param is [GSPtr Cell] (a [*Cell]) and MUTATES
-    the receiver → [func (p *Cell) Cell_incx() { … }] (and a call [cell_incx p] →
-    [p.Cell_incx()]), exactly the value-receiver path but through a pointer.  The mutation
-    is observed by the CALLER (the defining pointer-receiver behaviour), backed by
-    [gsptr_field_get_set]. *)
+(** POINTER-RECEIVER method: first param [GSPtr Cell] → [func (p *Cell) Cell_incx()];
+    the mutation is observed by the CALLER, backed by [gsptr_field_get_set]. *)
 Definition cell_incx (p : GSPtr Cell) : IO unit :=
   bind (gsptr_get_field p MHere cx cell_c0) (fun a =>          (* read p.Cx *)
         gsptr_set_field p MHere cx cell_c0 (i64_add a (1)%i64)).  (* p.Cx = p.Cx + 1 *)
@@ -2901,10 +2469,8 @@ Definition ptr_method_demo : IO unit :=
   bind (gsptr_get_field p MHere cx cell_c0) (fun a =>          (* a := p.Cx → 11 *)
   println [any a]))).                                          (* prints: 11 *)
 
-(** POINTER-receiver method EXPRESSION (the parenthesized-star-Cell dot Cell_incx form) — the
-    pointer-receiver method referenced UNBOUND is Go's [func] taking a [*Cell] receiver.
-    Passed to a HOF [apply_cell] taking that func; the plugin records the receiver type as the
-    PARENTHESIZED pointer form (vs the value-receiver [Point.Sum_coords]). *)
+(** POINTER-receiver method EXPRESSION: referenced UNBOUND, the plugin records the
+    receiver type as the PARENTHESIZED pointer form (vs the value-receiver form). *)
 Definition apply_cell (f : GSPtr Cell -> IO unit) (p : GSPtr Cell) : IO unit := f p.
 Definition ptr_method_expr_demo : IO unit :=
   bind (gsptr_new (MkCell (5)%i64 (6)%i64)) (fun p =>
@@ -2912,11 +2478,9 @@ Definition ptr_method_expr_demo : IO unit :=
   bind (gsptr_get_field p MHere cx cell_c0) (fun a =>          (* a := p.Cx → 6 *)
   println [any a]))).                                          (* prints: 6 *)
 
-(** EMBEDDING a POINTER-to-struct ([*Cell]) in a struct (Go's [type Node struct { *Cell; tag int64 }]):
-    Go promotes the embedded [*T]'s method set THROUGH the pointer.  Detected by the SAME "field name =
-    base type name" rule, now for an [GSPtr Cell] field → an anonymous [*Cell] field.  The pointer-receiver
-    method [cell_incx] is PROMOTED: [cell_incx (cell nd)] → [nd.Cell_incx()] (peeling the embedded
-    projection, exactly like struct-in-struct, but through the pointer); the struct's own [ntag] coexists. *)
+(** EMBEDDING a POINTER-to-struct ([*Cell]) in a struct: Go promotes the embedded [*T]'s
+    method set THROUGH the pointer.  Detected by the "field name = base type name" rule;
+    [cell_incx (cell nd)] → [nd.Cell_incx()] (embedded projection peeled). *)
 Record Node := MkNode { cell : GSPtr Cell ; ntag : GoI64 }.
 Definition node_embed_demo : IO unit :=
   bind (gsptr_new (MkCell (10)%i64 (20)%i64)) (fun p =>
@@ -2925,9 +2489,8 @@ Definition node_embed_demo : IO unit :=
   bind (gsptr_get_field (cell nd) MHere cx cell_c0) (fun a =>   (* read through the embed: nd.Cell.Cx → 11 *)
   println [any a; any (ntag nd)]))).                           (* prints: 11 99 *)
 
-(** N-FIELD struct pointer: a 3-field [*Cell3] with a pointer-receiver method that mutates
-    a field.  Same generic field-cell substrate as the 2-field case ([gsptr_field_get_set]
-    backs the mutation); shows the pointer story is not limited to 2 fields. *)
+(** N-FIELD struct pointer: 3-field [*Cell3], same generic field-cell substrate
+    ([gsptr_field_get_set] backs the mutation). *)
 Record Cell3 := MkCell3 { c3x : GoI64 ; c3y : GoI64 ; c3z : GoI64 }.
 #[local] Instance StructRepOf_Cell3 : StructRepOf Cell3 := {|
   srep_ts := (GoI64 : Type) :: (GoI64 : Type) :: (GoI64 : Type) :: nil ;
@@ -2944,10 +2507,8 @@ Definition nfield_ptr_demo : IO unit :=
   bind (gsptr_get_field p (MNext (MNext MHere)) c3z cell3_c2) (fun z =>          (* z := p.C3z → 31 *)
   println [any z]))).                                           (* prints: 31 *)
 
-(** HETEROGENEOUS struct pointer: a [*Pair] whose two fields have DIFFERENT types
-    ([N int64], [B bool]) — the common real-Go case.  Same generic field-cell substrate
-    ([gsptr_field_get_set] backs the mutation); the rep just carries the per-field types
-    and tags.  The pointer-receiver method bumps the int64 field, leaving the bool. *)
+(** HETEROGENEOUS struct pointer: fields of different types ride the same substrate —
+    the rep carries per-field types and tags. *)
 Record Pair := MkPair { p_n : GoI64 ; p_b : bool }.
 #[local] Instance StructRepOf_Pair : StructRepOf Pair := {|
   srep_ts := (GoI64 : Type) :: (bool : Type) :: nil ;
@@ -2966,36 +2527,25 @@ Definition het_ptr_demo : IO unit :=
   bind (gsptr_get_field p (MNext MHere) p_b pair_c1) (fun b =>         (* b := p.P_b → true *)
   println [any n; any b])))).                                  (* prints: 11 true *)
 
-(** The field COHERENCE is ENFORCED, not decorative: a [gfield_coh] witness for a
-    MISMATCHED (idx, proj) or (proj, tag) pairing does NOT typecheck, so a struct-pointer access can
-    never name one field while addressing another cell (the field/cell-mismatch defect). *)
+(** Field COHERENCE is ENFORCED: a [gfield_coh] witness for a mismatched (idx, proj) or
+    (proj, tag) pairing does NOT typecheck — an access can never name one field while
+    addressing another cell. *)
 Fail Definition cell_bad_coh   (* cy is field 1 (MNext MHere), not field 0 (MHere) — coh unprovable *)
   : gfield_coh (R:=Cell) MHere cy := eq_refl.
 Fail Definition pair_bad_type  (* field 0 is p_n:int64, not p_b:bool — the typed index rejects the mismatch *)
   : gfield_coh (R:=Pair) MHere p_b := eq_refl.
 
 (** ── Interfaces (the method-dictionary model) ───────────────────────────────
-    A Go interface is a method DICTIONARY that is EXISTENTIAL at runtime: it holds
-    the methods (a vtable) with the concrete type ERASED.  We model that directly —
-    an interface is a Rocq [Record] whose fields are the methods, already CLOSED
-    OVER the underlying value, so the concrete type is hidden inside the closures.
-    It lowers to a Go struct of function fields (the vtable); building it from a
-    concrete value ERASES that value into the closures (existential — a [Shape]
-    cannot be turned back into the rectangle it came from); a method call
-    [area sh x] is dynamic dispatch [sh.Area(x)].  Satisfaction is checked in Rocq:
-    to build a [Shape] you MUST supply real [int -> int] methods, so a value lacking
-    a method cannot be packaged.
-
-    (Two methods, not one: Coq UNBOXES a single-field record — [{m}] ≡ [m] — so a
-    one-method interface would erase to a bare function and need curried-return
-    handling in the lowering; that is a tracked follow-up.  A ≥2-method interface
-    stays a boxed record, i.e. a genuine vtable struct, which is the common case.) *)
+    An interface is a Rocq [Record] of methods CLOSED OVER the underlying value
+    (existential — the concrete type is erased into the closures); it lowers to a Go
+    struct of function fields (the vtable), and a method call is dynamic dispatch
+    [sh.Area(x)].  Satisfaction is checked in Rocq: a value lacking a method cannot be
+    packaged.  (≥2 methods keeps the record boxed; single-method interfaces carry an
+    explicit second field — see [Greeter].) *)
 Record Shape := MkShape { area : GoI64 -> GoI64 ; perim : GoI64 -> GoI64 }.
 
-(* Two DIFFERENT concrete carriers behind one [Shape] — the existential payoff:
-   [show_shape] dispatches uniformly, never seeing which one it holds.  The methods
-   take a scale [s] (so the dictionary entries are real closures, not bare data);
-   [mk_rect] closes over [w]/[h], [mk_square] over just [side]. *)
+(* Two concrete carriers behind one [Shape]: [show_shape] dispatches uniformly.  The
+   scale param [s] keeps the dictionary entries real closures. *)
 Definition mk_rect (w h : GoI64) : Shape :=
   MkShape (fun s => i64_add (i64_add (i64_add w h) (i64_add w h)) s)   (* perimeter-ish + scale *)
           (fun s => i64_add (i64_add w h) s).
@@ -3007,8 +2557,7 @@ Definition show_shape (sh : Shape) : IO unit :=
   bind (println [any (area sh 0)])    (fun _ =>   (* the first method, scale 0 *)
   println [any (perim sh 1000)]).                 (* the second method, scale 1000 *)
 
-(** Dispatch is provable in Rocq — a dictionary entry IS the supplied method, so
-    [area (mk_rect w h) s] computes to the closure [mk_rect] put there. *)
+(** Dispatch is provable — a dictionary entry IS the supplied method. *)
 Example dispatch_area  : forall w h s, area  (mk_rect w h) s = i64_add (i64_add (i64_add w h) (i64_add w h)) s.
 Proof. reflexivity. Qed.
 Example dispatch_perim : forall side s, perim (mk_square side) s = i64_add (i64_add side side) s.
@@ -3018,13 +2567,9 @@ Definition iface_demo : IO unit :=
   bind (show_shape (mk_rect (3)%i64 (4)%i64))   (fun _ =>   (* area: 2*(3+4)+0=14 ; perim: 7+1000=1007 *)
   show_shape (mk_square (5)%i64)).                     (* area: 2*(5+5)+0=20 ; perim: 10+1000=1010 *)
 
-(** SINGLE-METHOD interface (Go's [interface { Greet(int64) int64 }]).  A 1-method
-    dictionary record would be UNBOXED by Coq ([{m} ≡ m]), erasing the struct; we keep it
-    a real dictionary by carrying the underlying value as an explicit SECOND field
-    [gr_self : GoAny].  This both sidesteps the unboxing AND is more faithful — a Go
-    interface value IS a (method-table, value) pair.  [mk_adder base] builds a [Greeter]
-    whose method adds [base] (and stashes [base] as the hidden value); dispatch
-    [greet g x] → [g.Greet(x)], never seeing the concrete carrier. *)
+(** SINGLE-METHOD interface: a 1-method record would be UNBOXED by Coq, so the underlying
+    value is an explicit SECOND field [gr_self : GoAny] — also faithful (a Go interface
+    value IS a (method-table, value) pair).  Dispatch [greet g x] → [g.Greet(x)]. *)
 Record Greeter := MkGreeter { greet : GoI64 -> GoI64 ; gr_self : GoAny }.
 Definition mk_adder (base : GoI64) : Greeter :=
   MkGreeter (fun x => i64_add base x) (any base).
@@ -3033,10 +2578,8 @@ Proof. reflexivity. Qed.
 Definition single_iface_demo : IO unit :=
   println [any (greet (mk_adder (5)%i64) (10)%i64)].   (* 5 + 10 = 15 *)
 
-(** NULLARY method (Go's [interface { String() string }] — no args beyond the receiver).
-    In the dictionary model the method is a [unit -> R] thunk (the unit triggers it, the
-    value is captured); it should lower to an idiomatic Go [func() string] with the call
-    [d.Sg_str()] — i.e. the [unit] param/arg erased. *)
+(** NULLARY method: modelled as a [unit -> R] thunk; lowers to Go [func() string] with
+    the [unit] param/arg erased. *)
 Record Stringer := MkStringer { sg_str : unit -> GoString ; sg_self : GoAny }.
 Definition mk_namer (nm : GoString) : Stringer :=
   MkStringer (fun _ => nm) (any nm).
@@ -3045,14 +2588,10 @@ Proof. reflexivity. Qed.
 Definition nullary_iface_demo : IO unit :=
   println [any (sg_str (mk_namer "fido"%string) tt)].   (* "fido" *)
 
-(** INTERFACE EMBEDDING (Go's [type ReadWriter interface { Reader; Writer }]).  An interface
-    that EMBEDS others has the UNION of their method sets, and a value of it may be used wherever
-    any embedded interface is wanted.  In the dictionary model the embedding interface is the FLAT
-    UNION dictionary (all methods + the captured value), and the "is-a" relation is an explicit
-    UPCAST that PROJECTS the embedded interface's methods (and the same hidden value) into its
-    smaller dictionary — Go's implicit embedded-interface assignment, made explicit (consistent
-    with our explicit-dictionary deviation).  [mk_file] is ONE concrete carrier satisfying both
-    [Reader] and [Writer]; the upcasts never see it (existential), exactly like a flat interface. *)
+(** INTERFACE EMBEDDING: the embedding interface is the FLAT UNION dictionary; the
+    "is-a" relation is an explicit UPCAST projecting the embedded interface's methods
+    (and the same hidden value) — Go's implicit embedded-interface assignment, made
+    explicit. *)
 Record Reader     := MkReader     { rd_read  : GoI64 -> GoI64 ; rd_self : GoAny }.
 Record Writer     := MkWriter     { wr_write : GoI64 -> GoI64 ; wr_self : GoAny }.
 Record ReadWriter := MkReadWriter { rw_read  : GoI64 -> GoI64 ; rw_write : GoI64 -> GoI64 ; rw_self : GoAny }.
@@ -3061,8 +2600,7 @@ Definition mk_file (base : GoI64) : ReadWriter :=
 (* The embedding upcasts: a [ReadWriter] IS-A [Reader] and IS-A [Writer]. *)
 Definition rw_as_reader (rw : ReadWriter) : Reader := MkReader  (rw_read rw)  (rw_self rw).
 Definition rw_as_writer (rw : ReadWriter) : Writer := MkWriter  (rw_write rw) (rw_self rw).
-(* Dispatch through an upcast is exactly the method the concrete carrier supplied — provable,
-   and the method-set union means [rw_read]/[rw_write] both dispatch directly too. *)
+(* Dispatch through an upcast is exactly the method the concrete carrier supplied. *)
 Example embed_read  : forall base x, rd_read  (rw_as_reader (mk_file base)) x = i64_add x base.
 Proof. reflexivity. Qed.
 Example embed_write : forall base x, wr_write (rw_as_writer (mk_file base)) x = i64_sub x base.
@@ -3073,12 +2611,9 @@ Definition embed_iface_demo : IO unit :=
   bind (println [any (rd_read (rw_as_reader f) (5)%i64)]) (fun _ =>   (* via Reader upcast: 5+10 = 15 *)
   println [any (wr_write (rw_as_writer f) (40)%i64)])).               (* via Writer upcast: 40-10 = 30 *)
 
-(** Embedding an INTERFACE in a STRUCT (Go's [type LoggedGreeter struct { Greeter; calls int64 }]):
-    the embedded interface's method set is PROMOTED to the outer struct.  In the dictionary model
-    an interface IS a struct (its vtable), so this rides the SAME anonymous-field embedding as
-    struct-in-struct — the embedded [Greeter]'s [greet] is promoted (emitted [lg.Greet(x)], not
-    [lg.Greeter.Greet(x)]), coexisting with the struct's own [lg_calls] field.  A common Go pattern:
-    wrap an interface value with extra state while still satisfying its method set. *)
+(** Embedding an INTERFACE in a STRUCT: an interface IS a struct (its vtable), so this
+    rides the same anonymous-field embedding — [greet] is promoted (emitted [lg.Greet(x)],
+    not [lg.Greeter.Greet(x)]). *)
 Record LoggedGreeter := MkLoggedGreeter { greeter : Greeter ; lg_calls : GoI64 }.
 Definition mk_logged (base calls : GoI64) : LoggedGreeter := MkLoggedGreeter (mk_adder base) calls.
 Example promoted_greet : forall base calls x, greet (greeter (mk_logged base calls)) x = i64_add base x.
@@ -3088,21 +2623,13 @@ Definition embed_iface_in_struct_demo : IO unit :=
   bind (println [any (greet (greeter lg) (5)%i64)])  (fun _ =>   (* PROMOTED Greet: 100+5 = 105 *)
   println [any (lg_calls lg)]).                                  (* the struct's own field: 7 *)
 
-(** ── Typestate (a state machine that CANNOT compile to a broken transition) ──
-    The payoff of structs+methods.  A value carries its FSM state in a PHANTOM type
-    index ([Light c]); each transition's type names the legal from/to states, so an
-    illegal transition is a Rocq TYPE ERROR — checked at compile time, never emitted
-    as Go.  The index is erased at runtime (it is compile-time only), so [Light c]
-    lowers to a plain struct and transitions to ordinary methods; what Go runs is
-    ALWAYS a legal trace.
-
-    The index lives in [Prop] so extraction ERASES it (a phantom): [CRed]/[CGreen]
-    carry no runtime data, yet [Light CRed] and [Light CGreen] stay DISTINCT types
-    (constructors are definitionally distinct even in [Prop]), which is exactly what
-    makes the bad transition a type error while both erase to the same Go struct. *)
+(** ── Typestate ──
+    A value carries its FSM state in a PHANTOM type index ([Light c]); an illegal
+    transition is a Rocq TYPE ERROR, never emitted as Go.  The index lives in [Prop]
+    so extraction ERASES it — [Light CRed]/[Light CGreen] stay DISTINCT types yet both
+    erase to the same Go struct. *)
 Inductive LightColor : Prop := CRed | CGreen.
-(* Two fields keep the record BOXED (Coq unboxes a single-field record), i.e. a
-   genuine Go struct; [serial] is just a second datum so the struct stays a struct. *)
+(* Two fields keep the record BOXED (Coq unboxes a single-field record). *)
 Record Light (c : LightColor) := MkLight { ticks : GoI64 ; serial : GoI64 }.
 
 Definition fresh_light : Light CRed := MkLight CRed (0)%i64 (7)%i64.
@@ -3118,23 +2645,15 @@ Definition typestate_demo : IO unit :=
   bind (println [any (ticks CRed l2)])    (fun _ =>   (* 1 — one Red→Green→Red cycle *)
   println [any (serial CRed l2)]).                    (* 7 — carried through unchanged *)
 
-(** The negative tests: a broken FSM does NOT type-check (the build gate proves the
-    bad transitions are unrepresentable).  [go_green] expects [Light CRed], so feeding
-    it a [Light CGreen] — two greens in a row — is a type error; likewise [go_red] on
-    a fresh ([CRed]) light.  These are genuine STATE mismatches: the positive trace
-    [go_red (go_green fresh_light)] type-checks (it is used in [typestate_demo]), so
-    the only reason these fail is the index. *)
+(** Negative tests: a broken FSM does NOT type-check — genuine STATE mismatches (the
+    positive trace type-checks, so the only reason these fail is the index). *)
 Fail Definition bad_double_green : Light CGreen := go_green (go_green fresh_light).
 Fail Definition bad_red_on_fresh : Light CRed   := go_red fresh_light.
 
-(** ── Representation invariants (a struct invariant every method preserves) ───
-    Another closed-world payoff.  A struct can carry a PROOF of its invariant as an
-    ERASED ([Prop]) field, so the SMART CONSTRUCTOR demands the invariant hold and an
-    out-of-invariant value is unrepresentable.  Here [Sorted2] bundles two ints with
-    a proof [s_a <= s_b]; the proof field erases, so it lowers to a plain
-    [struct { S_a, S_b int64 }] — zero runtime cost — yet the invariant is available
-    to reason with.  [max_of] returns [s_b] directly as the maximum with NO runtime
-    comparison, JUSTIFIED by the carried proof. *)
+(** ── Representation invariants ──
+    A struct carries a PROOF of its invariant as an ERASED ([Prop]) field: an
+    out-of-invariant value is unrepresentable, zero runtime cost.  [max_of] returns
+    [s_b] with NO runtime comparison, justified by the carried proof. *)
 Record Sorted2 := MkSorted2 { s_a : GoI64 ; s_b : GoI64 ; s_ok : i64_leb s_a s_b = true }.
 
 Definition min_of (p : Sorted2) : GoI64 := s_a p.
@@ -3150,8 +2669,7 @@ Definition repinv_demo : IO unit :=
   bind (println [any (min_of demo_pair)])   (fun _ =>   (* 3 *)
   println [any (max_of demo_pair)]).                    (* 7 — the max, no compare *)
 
-(** The negative test: a value VIOLATING the invariant cannot be built — [s_a <= s_b]
-    fails for [7, 3], so [eq_refl] does not type-check and the struct is unconstructible. *)
+(** Negative test: a value VIOLATING the invariant cannot be built. *)
 Fail Definition bad_unsorted : Sorted2 := MkSorted2 (7)%i64 (3)%i64 eq_refl.
 
 (** A DEFINED TYPE over a primitive (Go [type MyI64 int64]) with a method.  The
@@ -3163,10 +2681,8 @@ Definition myi64_double (m : MyI64) : MyI64 := mk_myi64 (i64_add (my_val m) (my_
 Definition deftype_demo : IO unit :=
   println [any (my_val (myi64_double (mk_myi64 (21)%i64)))].   (* 42 *)
 
-(** The defined-type underlying is GENERIC (computed via [pp_type] of the value field),
-    so a defined type over a STRING works the same: [type Greeting string], ctor cast
-    [Greeting(s)], projection cast [string(x)].  [greeting_with] is a value-receiver
-    method whose body concatenates ([str_concat] → Go [+]). *)
+(** The defined-type underlying is GENERIC ([pp_type] of the value field): [type
+    Greeting string], ctor cast [Greeting(s)], projection cast [string(x)]. *)
 Record Greeting := MkGreeting { gr_text : GoString ; gr_tag : GoTypeTag GoString }.
 Definition mk_greeting (s : GoString) : Greeting := MkGreeting s TString.
 Definition greeting_with (g : Greeting) (who : GoString) : GoString :=
@@ -3174,20 +2690,14 @@ Definition greeting_with (g : Greeting) (who : GoString) : GoString :=
 Definition deftype_str_demo : IO unit :=
   println [any (greeting_with (mk_greeting "Hi, "%string) "fido"%string)].   (* "Hi, fido" *)
 
-(** A DEFINED TYPE satisfying an INTERFACE — behavioral satisfaction for a defined type
-    (the closed-world wishlist's gateway, now reachable here).  [type Celsius int64] carries
-    a value-receiver method [reading]; [celsius_measurable] wires that method into a
-    [Measurable] dictionary, so the defined type's method IS what satisfies the contract.
-    Dispatch [measure d tt] → [d.Measure()] runs the captured [c.Reading()]. *)
-(* [Celsius]'s unboxing-blocker phantom is [unit] (not the [GoTypeTag GoI64] the other deftypes use):
-   a 2-field record is still not unboxed (so [Celsius] stays a distinct method-receiver and extracts
-   [type Celsius int64], the phantom dropped), AND [unit] is AXIOM-FREE COMPARABLE ([tt = tt] is
-   trivial) — so [Celsius] can be compared / be a map KEY, which a [GoTypeTag GoI64] phantom blocks
-   (its uniqueness is unprovable without an axiom — a Type-indexed family).  See PROGRESS.md. *)
+(** A DEFINED TYPE satisfying an INTERFACE: [celsius_measurable] wires the defined type's
+    method into a [Measurable] dictionary; dispatch [measure d tt] → [d.Measure()]. *)
+(* Invariant: [Celsius]'s unboxing-blocker phantom is [unit], which is AXIOM-FREE
+   COMPARABLE ([tt = tt] trivial) — so [Celsius] can be compared / be a map KEY; a
+   [GoTypeTag GoI64] phantom would block that (uniqueness unprovable without an axiom). *)
 Record Celsius := MkCelsius { c_val : GoI64 ; c_tag : unit }.
 Definition mk_celsius (v : GoI64) : Celsius := MkCelsius v tt.
-(* The payoff: [Celsius] IS comparable AXIOM-FREE (two are equal iff their [c_val] carriers are; the
-   [unit] phantom is trivially equal) — the comparability a defined-type map key needs. *)
+(* [Celsius] is comparable axiom-free: two are equal iff their [c_val] carriers are. *)
 Lemma comparable_celsius : forall a b : Celsius, i64_eqb (c_val a) (c_val b) = true <-> a = b.
 Proof.
   intros [av []] [bv []]. cbn. split.
@@ -3202,18 +2712,13 @@ Definition celsius_measurable (c : Celsius) : Measurable :=
 Definition deftype_iface_demo : IO unit :=
   println [any (measure (celsius_measurable (mk_celsius (20)%i64)) tt)].   (* 120 *)
 
-(** A NAMED FUNCTION TYPE (Go's [type Handler func(int64) int64] — the [http.HandlerFunc]
-    idiom): a defined type whose UNDERLYING is a func.  The [GoTypeTag] phantom needs an
-    arrow tag ([TArrow]), and the underlying renders via [pp_type] of the arrow → the
-    func type.  A value-receiver method [handler_run] CALLS the wrapped func: projecting it
-    is the cast [(func(int64) int64)(h)], and applying an arg calls THROUGH that cast —
-    [(func(int64) int64)(h)(x)].  [hinc] is a plain function (its first param is not a
-    record, so it stays a function, not a method) wrapped by [mk_handler]. *)
+(** A NAMED FUNCTION TYPE ([type Handler func(int64) int64]): the phantom carries the
+    arrow tag [TArrow]; projecting the func is the cast [(func(int64) int64)(h)] and
+    applying calls THROUGH that cast. *)
 Record Handler := MkHandler { h_fn : GoFunc GoI64 GoI64 ; h_tag : GoTypeTag (GoFunc GoI64 GoI64) }.
 Definition mk_handler (f : GoI64 -> GoI64) : Handler := MkHandler (gofunc_of f) (TArrow TI64 TI64).
-(* [h_fn h] is a NULLABLE func value; CALLING it is the effectful [gofunc_call] — a real
-   handler runs, a nil one panics (Go's nil-func call).  The plugin erases the [Some]/[gofunc_call]
-   down to the bare Go call [(func(int64) int64)(h)(x)]. *)
+(* [h_fn h] is NULLABLE; calling it is the effectful [gofunc_call] (nil panics, as Go).
+   The plugin erases [Some]/[gofunc_call] to the bare Go call. *)
 Definition handler_run (h : Handler) (x : GoI64) : IO GoI64 := gofunc_call (h_fn h) x.
 Definition hinc (n : GoI64) : GoI64 := i64_add n (1)%i64.
 (* dispatch is provable: the wrapped (non-nil) func IS what [handler_run] calls *)
@@ -3230,25 +2735,18 @@ Proof. reflexivity. Qed.
 Definition named_func_demo : IO unit :=
   r <-' handler_run (mk_handler hinc) (41)%i64 ;; println [any r].   (* 42 *)
 
-(** A DEFINED TYPE over a SLICE underlying (Go's [type IntList []int64] — the
-    [sort.Interface] [type ByLen []T] idiom).  No new plugin work: the underlying
-    [GoTypeTag] is the existing [TSlice], and a slice conversion [[]int64(l)] is valid Go
-    WITHOUT parens (only [*]/[<-]/[func] types need them — cf. the canonical [[]byte(s)]),
-    so the projection cast emits fine and there is no call-through.  [il_len] is a
-    value-receiver method projecting the slice and taking its [len]. *)
+(** A DEFINED TYPE over a SLICE underlying ([type IntList []int64]): the slice
+    conversion [[]int64(l)] is valid Go WITHOUT parens (only [*]/[<-]/[func] types need
+    them). *)
 Record IntList := MkIntList { il_val : GoSlice GoI64 ; il_tag : GoTypeTag (GoSlice GoI64) }.
 Definition mk_intlist (s : GoSlice GoI64) : IntList := MkIntList s (TSlice TI64).
 Definition il_len (l : IntList) : GoInt := len (il_val l).
 Definition deftype_slice_demo : IO unit :=
   println [any (il_len (mk_intlist (slice_make TI64 3)))].   (* 3 *)
 
-(** STRUCT EMBEDDING (Go's [type Dog struct { Animal; Breed string }]) — composition with
-    field/method PROMOTION.  Modeled as a record field whose name EQUALS its (record) type's
-    name ([animal : Animal]); the plugin emits it as an ANONYMOUS embedded field, so the Go
-    struct genuinely embeds [Animal] and Go promotes its method set.  [Animal] needs >= 2
-    fields (a 1-field record is unboxed by Coq).  Accessing the embedded type's field/method
-    emits the PROMOTED SHORTHAND (the plugin's [peel_embedded] peels the [.Animal] hop) —
-    [species (animal d)] → [d.Species], and the promoted method [speak (animal d)] → [d.Speak()]. *)
+(** STRUCT EMBEDDING: a record field whose name EQUALS its record type's name emits as
+    an ANONYMOUS embedded field; access emits the PROMOTED SHORTHAND ([peel_embedded]
+    peels the [.Animal] hop) — [species (animal d)] → [d.Species]. *)
 Record Animal := MkAnimal { species : GoString ; legs : GoI64 }.
 Definition speak (a : Animal) : GoString := species a.   (* a value-receiver method on Animal *)
 Record Dog := MkDog { animal : Animal ; breed : GoString }.   (* field name = type name → embedded *)
@@ -3256,54 +2754,42 @@ Definition mk_dog (sp br : GoString) : Dog := MkDog (MkAnimal sp (4)%i64) br.
 (* the embedded type's method is reachable on the composite (its method set is promoted) *)
 Example embed_speak : forall sp br, speak (animal (mk_dog sp br)) = sp.
 Proof. reflexivity. Qed.
-(* SELECTOR-BRIDGE regression fixture: an embedded field [legs] as a RUNTIME-operand binop operand
-   ([legs (animal d) + k]) — its EMBEDDED receiver makes the ESel bridge decline, emitting the peeled
-   [d.Legs + k].  The Makefile pins that exact line; the invariant + reason live at the bridge arm in go.ml. *)
+(* SELECTOR-BRIDGE fixture: an embedded-receiver field access makes the ESel bridge
+   decline, emitting the peeled [d.Legs + k].  The Makefile pins that exact line. *)
 Definition embed_arith (d : Dog) (k : GoI64) : GoI64 := i64_add (legs (animal d)) k.
 Definition embed_demo : IO unit :=
   bind (println [any (species (animal (mk_dog "canine"%string "lab"%string)))])  (fun _ =>   (* canine *)
   bind (println [any (speak (animal (mk_dog "canine"%string "lab"%string)))]) (fun _ =>       (* canine *)
   println [any (embed_arith (mk_dog "canine"%string "lab"%string) (1)%i64)])).                (* 5 = legs 4 + 1 *)
 
-(** GO GENERICS (type parameters, Go 1.18+).  Rocq's parametric polymorphism maps directly
-    to a Go generic: a function's type VARIABLES become a [func F[T1 any, …]] type-parameter
-    list (constraint [any] — parametric polymorphism imposes no operations on the type), and
-    call sites rely on Go's type inference (no explicit type args).  [gid] is the identity;
-    [glen] is generic OVER A SLICE (the canonical use — Go's [len] works for any [[]T]),
-    instantiated at BOTH [[]int64] and [[]string] (one generic reused at two types); [gfirst]
-    shows TWO type parameters.  Dispatch is provable in Rocq directly (parametricity). *)
+(** GO GENERICS: Rocq type VARIABLES become a [func F[T1 any, …]] type-parameter list;
+    call sites rely on Go's inference.  [glen] is instantiated at two types; [gfirst]
+    shows two type parameters. *)
 Definition gid {A : Type} (x : A) : A := x.
 Definition glen {A : Type} (xs : GoSlice A) : GoInt := len xs.
 Definition gfirst {A B : Type} (x : A) (y : B) : A := x.
 Example gid_spec    : forall A (x : A), gid x = x.            Proof. reflexivity. Qed.
 Example gfirst_spec : forall A B (x : A) (y : B), gfirst x y = x. Proof. reflexivity. Qed.
-(* Faithful instantiation: string literals / typed slices pin the Go type arg.  (A BARE
-   untyped-int literal like [gid 7] would have Go infer [int], not our [int64] model — the
-   untyped-constant gap (Tier 2 #6); typed operands avoid it.) *)
+(* String literals / typed slices pin the Go type arg (a bare untyped-int literal would
+   have Go infer [int], not [int64]). *)
 Definition generics_demo : IO unit :=
   bind (println [any (gid "go"%string)])             (fun _ =>   (* gid @ string → go *)
   bind (println [any (glen (slice_make TI64 3))])    (fun _ =>   (* glen @ []int64 → 3 *)
   bind (println [any (glen (slice_make TString 2))]) (fun _ =>   (* glen @ []string → 2 (same generic) *)
   println [any (gfirst "first"%string true)]))).                 (* gfirst @ (string,bool) → first *)
 
-(** GENERIC [comparable] CONSTRAINT (Go's [func F[K comparable](…)]).  Beyond [any]: [ceqb] is
-    generic over a comparable [K], dispatching to native [==].  Its [ComparableW K] witness is
-    computational in Rocq (so the witnesses below reduce) but ERASED by the plugin — [ceqb] lowers
-    to [func Ceqb[K comparable](a, b K) bool { return a == b }], and each call drops the witness.
-    Instantiated at [int64] AND [string] (one generic, two comparable types). *)
-(** ONE generic [ceqb] over EVERY Go-comparable type kind — scalar ([int64], [uint64]), [string],
-    and STRUCT (field-wise [==]).  Each carries its own [ComparableW] witness (computational in
-    Rocq, erased by the plugin); all lower to the same [func Ceqb[K comparable]] with native [==].
-    The witness instances ([cw_i64]/[cw_u64]/[cw_str]/[cw_point]) are auto-suppressed (any
-    [ComparableW]-typed def). *)
+(** GENERIC [comparable] CONSTRAINT: ONE generic [ceqb] over every Go-comparable kind —
+    scalar, [string], STRUCT (field-wise [==]).  Each carries a [ComparableW] witness
+    (computational in Rocq, ERASED by the plugin); all lower to
+    [func Ceqb[K comparable](a, b K) bool { return a == b }].  Witness instances are
+    auto-suppressed. *)
 Definition ceq_i64   (a b : GoI64)   : bool := ceqb cw_i64   a b.
 Definition ceq_u64   (a b : GoU64)   : bool := ceqb cw_u64   a b.
 Definition ceq_str   (a b : GoString): bool := ceqb cw_str   a b.
 Definition cw_point  : ComparableW Point := MkComparableW point_eqb (squash point_eqb_spec).  (* struct comparable via field-wise [==], with sealed evidence *)
 Definition ceq_point (a b : Point)   : bool := ceqb cw_point a b.
-(* A DEFINED TYPE is comparable too: [cw_celsius] is the SEALED witness over [Celsius]'s axiom-free
-   comparability ([comparable_celsius]), made possible by the unit-phantom rep; [ceqb] over it lowers
-   to [Ceqb[Celsius comparable]] / native [Celsius == Celsius]. *)
+(* A DEFINED TYPE is comparable too: [cw_celsius] seals [comparable_celsius] (unit-phantom
+   rep); [ceqb] over it lowers to native [Celsius == Celsius]. *)
 Definition cw_celsius : ComparableW Celsius := MkComparableW (fun a b => i64_eqb (c_val a) (c_val b)) (squash comparable_celsius).
 Definition ceq_celsius (a b : Celsius) : bool := ceqb cw_celsius a b.
 Example ceq_i64_t   : ceq_i64 (5)%i64 (5)%i64         = true.  Proof. now vm_compute. Qed.
@@ -3321,13 +2807,10 @@ Definition comparable_demo : IO unit :=
           ; any (ceq_point (MkPoint (1)%i64 (2)%i64) (MkPoint (1)%i64 (2)%i64))       (* struct → true  *)
           ; any (ceq_celsius (mk_celsius (20)%i64) (mk_celsius (20)%i64)) ].           (* DEFINED TYPE → true *)
 
-(** GENERIC STRUCTS / TYPES (Go's [type Box[T any] struct {…}]).  A PARAMETERIZED Rocq
-    [Record] maps to a Go generic struct: the type variables in the field types become the
-    struct's type-parameter list, and — because Go does NOT infer type args for a composite
-    literal — the constructor emits them explicitly ([Box[T1]{…}] inside a generic function,
-    [Box[int64]{…}] at a concrete use), taken from the constructed type.  A method's receiver
-    carries the params ([func (b Box[T1]) Box_get() T1]); call sites infer.  [Box] needs >= 2
-    fields ([btag]) — a 1-field record is unboxed.  One [Box] is reused at [string] AND [bool]. *)
+(** GENERIC STRUCTS: a parameterized [Record] maps to a Go generic struct.  Invariant: Go
+    does NOT infer type args for a composite literal, so the constructor emits them
+    explicitly ([Box[T1]{…}] / [Box[int64]{…}]); a method's receiver carries the params.
+    [Box] needs >= 2 fields — a 1-field record is unboxed. *)
 Record Box (A : Type) := MkBox { bval : A ; btag : GoI64 }.
 Arguments MkBox {A}. Arguments bval {A}. Arguments btag {A}.
 Definition make_box {A : Type} (v : A) : Box A := MkBox v (1)%i64.   (* generic ctor function *)
@@ -3335,9 +2818,8 @@ Definition box_get {A : Type} (b : Box A) : A := bval b.             (* generic-
 Definition box_tag {A : Type} (b : Box A) : GoI64 := btag b.         (* reads the non-generic field *)
 Definition box_second {A B : Type} (_ : Box A) (y : B) : B := y.     (* record-first but [B] is NOT
   receiver-carried — a Go method adds no type params of its own, so [method_eligible] DEMOTES
-  this to a PLAIN generic function [func Box_second[T1, T2 any](…)] (nothing rejected).  The
-  demo instantiates BOTH tvars at [string] (inference-stable; a full-width int literal in a
-  tvar slot would infer Go [int]) *)
+  this to a PLAIN generic function [func Box_second[T1, T2 any](…)].  Both tvars instantiate
+  at [string] (a full-width int literal in a tvar slot would infer Go [int]) *)
 Example box_get_spec : forall A (v : A), box_get (make_box v) = v. Proof. reflexivity. Qed.
 Module BoxNS.
   Definition box_get (x : GoI64) : GoI64 := x.   (* a PACKAGE-level func sharing the METHOD's
@@ -3351,27 +2833,21 @@ Definition gstruct_demo : IO unit :=
   bind (println [any (box_second (make_box "x"%string) "y"%string)]) (fun _ =>  (* demoted non-method → y *)
   println [any (BoxNS.box_get (5)%i64)])))).                         (* package func beside the method namespace → 5 *)
 
-(** A generic struct instantiated at a NARROW type ([Box GoU8] = [Box[uint8]]).  The
-    narrow-boundary struct-field / function-arg casts key off the DECLARED type, which here is a type VARIABLE
-    [A] ⇒ [narrow_dest_conv] is None ⇒ no cast.  The value [u8_of_i64 …] is an int64-masked carrier, so
-    `Make_box[uint8](x & 0xff)` would pass an int64 to a [uint8] type-param = invalid Go (the generics×
-    narrow fail-open).  Reading back widens via [i64_of_u8]. *)
+(** A generic struct at a NARROW type ([Box[uint8]]): the narrow casts key off the
+    DECLARED type — a type VARIABLE ⇒ [narrow_dest_conv] is None ⇒ no cast; the
+    instantiation must still be [Box[uint8]], not [Box[int64]]. *)
 Definition gbox_narrow_demo : IO unit :=
   let b := make_box (u8_of_i64 (i64_lit 300 eq_refl)) in   (* Box[uint8] in the model, bval = uint8(44) *)
   type_assert_safe TU8 (any (box_get b)) (fun _ ok =>       (* model: box_get : GoU8 ⇒ .(uint8) is TRUE *)
     println [ any (i64_of_u8 (box_get b)) ; any ok ]).      (* 44 true — runtime must AGREE (Box[uint8], not Box[int64]) *)
 
-(** A DEFINED TYPE over a MAP underlying (Go's [type Counts map[string]int64]) — completing
-    the composite-underlying axis (primitive/string/func/slice/MAP).  [GoMap] is already
-    recognised by name in [pp_type] (unlike [GoSlice]), so no plugin change: the underlying
-    renders [map[string]int64], the ctor is the cast [Counts(m)], and the projection cast
-    [map[string]int64(c)] (valid Go without parens, like a slice).  [co_size] is an IO-VALUE-
-    returning METHOD ([func (c Counts) Co_size() int]); it lowers now that pp_io_body [return]s
-    a value-returning IO tail (here the single read [map_len (co_val c)] → [return len(…)]). *)
+(** A DEFINED TYPE over a MAP underlying ([type Counts map[string]int64]): the underlying
+    renders [map[string]int64], ctor cast [Counts(m)], projection cast
+    [map[string]int64(c)].  [co_size] is an IO-VALUE-returning METHOD ([return len(…)]). *)
 Record Counts := MkCounts { co_val : GoMap GoString GoI64 ; co_tag : GoTypeTag (GoMap GoString GoI64) }.
 Definition mk_counts (m : GoMap GoString GoI64) : Counts := MkCounts m (TMap TString TI64).
 Definition co_size (c : Counts) : IO GoInt := map_len (co_val c).   (* IO-value method, single tail → return len(…) *)
-(* IO-value method whose tail is a BIND-CHAIN ending in [ret] — exercises the smarter ret case *)
+(* IO-value method whose tail is a BIND-CHAIN ending in [ret] *)
 Definition co_sum (c : Counts) : IO GoI64 :=
   bind (map_get_or TString TI64 "a"%string (0)%i64 (co_val c)) (fun a =>
   bind (map_get_or TString TI64 "b"%string (0)%i64 (co_val c)) (fun b =>
@@ -3385,11 +2861,9 @@ Definition gmap_deftype_demo : IO unit :=
   bind (co_sum (mk_counts m))                     (fun s =>   (* bind-chain IO-value method *)
   println [any s])))))).   (* 3 (a+b) *)
 
-(** USER RECURSION (a Coq [Fixpoint] → a self-calling Go func).  Structural recursion needs a
-    [nat] match ([O] / [S k]) — modeled in STATEMENT position as [if n == 0 { … } else { k :=
-    n - 1; … }] (mirroring the list nil/cons case), so the [O] base case and [S k] recursive
-    step lower, and the self-call [countdown k …] emits as [Countdown(k, …)].  [n : nat] is the
-    decreasing fuel (→ Go [uint]); a [GoI64] accumulator [v] carries the printed value. *)
+(** USER RECURSION ([Fixpoint] → self-calling Go func): the [nat] match lowers in
+    STATEMENT position as [if n == 0 { … } else { k := n - 1; … }]; [n : nat] is the
+    decreasing fuel (→ Go [uint]). *)
 Fixpoint countdown (n : nat) (v : GoI64) {struct n} : IO unit :=
   match n with
   | O => ret tt
@@ -3397,9 +2871,8 @@ Fixpoint countdown (n : nat) (v : GoI64) {struct n} : IO unit :=
   end.
 Definition recursion_demo : IO unit := countdown 3 (3)%i64.   (* 3 / 2 / 1 *)
 
-(** PURE (value-returning) recursion — the nat match in VALUE/tail position.  [pow2] returns
-    a [GoI64], so its body's nat match lowers through [pp_pure_tail] (now nat-aware): each arm
-    [return]s, and the recursive call [pow2 k] is the self-call [Pow2(k)] in an expression. *)
+(** PURE recursion — the nat match in VALUE/tail position lowers through [pp_pure_tail]:
+    each arm [return]s; the recursive call is a self-call expression. *)
 Fixpoint pow2 (n : nat) : GoI64 :=
   match n with
   | O => (1)%i64
@@ -3407,17 +2880,14 @@ Fixpoint pow2 (n : nat) : GoI64 :=
   end.
 Definition pure_rec_demo : IO unit := println [any (pow2 4)].   (* 2^4 = 16 *)
 
-(** LIVE-USE stdlib liveness: [Nat.pred] used directly stays a LIVE stdlib decl, so its
-    definition ([func Pred(n uint) uint]) EMITS with the use — liveness (reachability from
-    emitting code), not a name list, governs stdlib decls; a dead dependency of a
-    suppressed proof-only body DROPS instead. *)
+(** Invariant: LIVENESS (reachability from emitting code), not a name list, governs
+    stdlib decls — a live [Nat.pred] EMITS; a dead dependency of a suppressed proof-only
+    body DROPS. *)
 Definition natpred_demo : IO unit :=
   println [any (pow2 (Nat.pred 5)); any (pow2 (Nat.pred 0))].   (* 2^4 / 2^0 -> 16 1 *)
 
-(** OWNERSHIP-checked suppression: a USER definition whose basename collides with a
-    Fido/stdlib-suppressed name ([tl] = List.tl's basename) EMITS normally ([func Tl])
-    and its call resolves — proof-only suppression matches by [from_builtins] ownership,
-    never by bare basename. *)
+(** Invariant: proof-only suppression matches by [from_builtins] OWNERSHIP, never by bare
+    basename — a user def colliding with a suppressed name EMITS normally. *)
 Module OwnNames.
   Definition tl (x : GoI64) : GoI64 := x.                (* exact-basename collision (List.tl) *)
   Definition StructRepOfDemo (x : GoI64) : GoI64 := x.   (* PREFIX collision (StructRepOf…) — not
@@ -3429,42 +2899,36 @@ Definition ownname_demo : IO unit :=
   println [any (OwnNames.tl (9)%i64); any (OwnNames.StructRepOfDemo (8)%i64);
            any (OwnNames.go_min (7)%i64); any (OwnNames.repeat (6)%i64)].   (* 9 8 7 6 *)
 
-(** OWNERSHIP is module IDENTITY, not a path component: a user module NAMED [builtins]
-    (path [Fido.main.builtins] — contains a "builtins" component but IS NOT
-    [Fido.builtins]) defining a RECOGNIZER basename ([i64_add]) is NOT owned — it emits
-    as a plain function returning its FIRST argument.  A component-scan regression would
-    mis-lower the call to native [+] and print 42 instead of 30. *)
+(** Invariant: OWNERSHIP is module IDENTITY, not a path component — a user module named
+    [builtins] defining [i64_add] is NOT owned; a component-scan regression would
+    mis-lower the call to native [+] (42 instead of 30). *)
 Module builtins.
   Definition i64_add (x : GoI64) (_ : GoI64) : GoI64 := x.
 End builtins.
 Definition ownpath_demo : IO unit :=
   println [any (builtins.i64_add (30)%i64 (12)%i64)].   (* 30 — NOT 42 *)
 
-(** RENDERED-name binder uniqueness: [x'] and [x_] both mangle to Go [x_] ([go_safe]) —
-    the canonical binder renderer renames the SECOND to a fresh name, so the emitted
-    signature never has duplicate Go parameters (returns the FIRST param: 21, not 5). *)
+(** Invariant: rendered-name binder uniqueness — [x'] and [x_] both mangle to Go [x_];
+    the renderer renames the SECOND, so a signature never has duplicate Go params. *)
 Definition mangle_pair (x' : GoI64) (x_ : GoI64) : GoI64 := x'.
 Definition mangle_demo : IO unit := println [any (mangle_pair (21)%i64 (5)%i64)].   (* 21 *)
 
-(** SCOPE-AWARE binder allocation: the OUTER [x'] and the loop binder [x_] both mangle to
-    Go [x_] — without renaming against the LIVE scope, the loop binder would SHADOW the
-    outer variable and the body would print the loop element (1), not the captured 77. *)
+(** Invariant: binder allocation is SCOPE-AWARE — renaming against the LIVE scope stops a
+    loop binder from shadowing an outer variable that mangles to the same Go name. *)
 Definition capture_body (x' : GoI64) : IO unit :=
   for_each (slice_of_list TInt64 [int_lit 1 eq_refl]) (fun x_ => println [any x'; any x_]).
 Definition capture_demo : IO unit := capture_body (77)%i64.   (* 77 1 *)
 
-(** MUTUAL RECURSION — two `Fixpoint`s calling each other (a mutual `Dfix`).  No plugin work:
-    the `Dfix` arm already emits each function via `pp_function`, and a cross-call is an
-    ordinary call; with value-position nat matches now lowering, the bodies emit too. *)
+(** MUTUAL RECURSION (a mutual `Dfix`): each function emits via `pp_function`; a
+    cross-call is an ordinary call. *)
 Fixpoint is_even (n : nat) : bool := match n with O => true  | S k => is_odd  k end
 with     is_odd  (n : nat) : bool := match n with O => false | S k => is_even k end.
 Definition mutual_rec_demo : IO unit :=
   bind (println [any (is_even 4)]) (fun _ => println [any (is_odd 4)]).   (* true / false *)
 
-(** CUSTOM ENUM (a nullary-constructor `Inductive`) → Go's iota-enum idiom: `type Direction
-    int` + a `const ( North Direction = iota; … )` block, each constructor a const, and an
-    N-arm match → a real Go `switch` (the first `switch` emission).  `bool` is excluded (a
-    builtin); nat/list/option are excluded automatically (non-nullary constructors). *)
+(** CUSTOM ENUM (nullary-constructor `Inductive`) → Go's iota-enum idiom: `type Direction
+    int` + a `const (… = iota)` block; an N-arm match → a real Go `switch`.  `bool` is
+    excluded (builtin); nat/list/option auto-excluded (non-nullary constructors). *)
 Inductive Direction := North | South | East | West.
 Definition dir_io (d : Direction) : IO unit :=
   match d with
@@ -3483,9 +2947,8 @@ Definition dir_name (d : Direction) : GoString :=
   end.
 Definition enum_value_demo : IO unit := println [any (dir_name West)].   (* W *)
 
-(* ENUM match with a `_` WILDCARD arm: Coq EXPANDS the `_` into the missing constructors
-   (South/East/West all get the `0` body), so it lowers to the all-cases switch with no
-   plugin change — the wildcard never reaches the plugin as a [Pwild] for a finite enum. *)
+(* ENUM `_` WILDCARD arm: Coq EXPANDS it into the missing constructors, so it lowers to
+   the all-cases switch — a [Pwild] never reaches the plugin for a finite enum. *)
 Definition dir_sign (d : Direction) : IO unit :=
   match d with
   | North => println [any (1)%i64]
@@ -3494,10 +2957,8 @@ Definition dir_sign (d : Direction) : IO unit :=
 Definition enum_default_demo : IO unit :=
   bind (dir_sign North) (fun _ => dir_sign South).   (* 1 (North) / 0 (the expanded South) *)
 
-(** ENUM EQUALITY ([d1 == d2]) — an iota-enum is a Go-COMPARABLE type ([type Direction int]), so it gets a
-    [ComparableW Direction] witness ([Direction_eqb] + its sealed correctness proof) exactly like the scalar/
-    string/struct witnesses, and [ceqb] over it lowers to native Go [==] (the witness ERASED).  This closes
-    the construct-layer "enum ==" item: comparing enum VALUES directly ([East == West]), not via a [switch]. *)
+(** ENUM EQUALITY: an iota-enum is Go-COMPARABLE, so it gets a [ComparableW] witness
+    ([Direction_eqb] + sealed correctness) and [ceqb] lowers to native Go [==]. *)
 Definition Direction_eqb (a b : Direction) : bool :=
   match a, b with
   | North, North | South, South | East, East | West, West => true
@@ -3510,11 +2971,8 @@ Definition ceq_dir (a b : Direction) : bool := ceqb cw_Direction a b.
 Definition enum_eq_demo : IO unit :=
   println [ any (ceq_dir East East) ; any (ceq_dir East West) ].   (* East == East / East == West → true false *)
 
-(** Sequenced with the [>>'] notation ([m >>' k := bind m (fun _ => k)]) — each
-    demo's [unit] result is discarded, so this is a flat sequence, not a 45-deep
-    nest of [bind … (fun _ => …)] closed by a wall of parens.  ([>>'] is
-    left-associative; monad associativity makes the grouping irrelevant, and the
-    plugin flattens it to the same straight-line Go.) *)
+(** Sequenced with [>>'] ([m >>' k := bind m (fun _ => k)]); the plugin flattens it to
+    straight-line Go. *)
 Definition main_effect : IO unit :=
   println [any (i64_add (1)%i64 (2)%i64)]       >>'   (* prints: 3 *)
   panic_and_recover (i64_add (40)%i64 (2)%i64)  >>'   (* prints: 42 43 *)
@@ -3596,7 +3054,7 @@ Definition main_effect : IO unit :=
   str_range_demo                >>'   (* prints: 0 72 / 1 8364 / 4 33 (for i, r := range s) *)
   tsw_demo (any true)           >>'   (* prints: true 1 (bool case) *)
   tsw_distinct_demo             >>'   (* prints: 200 / 7 (type switch respects uint8 vs int64 distinctness) *)
-  tsw_inline_demo               >>'   (* prints: 200 / 5 (inline boxed scrutinee + non-final type-switch — gap closed) *)
+  tsw_inline_demo               >>'   (* prints: 200 / 5 (inline boxed scrutinee + non-final type-switch) *)
   tsw_demo (any "go"%string)    >>'   (* prints: go 2 (string case) *)
   tsw_demo (any (5)%i64)        >>'   (* prints: 9 (default; int64 matches neither) *)
   tsw3_demo (any true)              >>'   (* prints: true 1 (bool case, 3-case switch) *)
@@ -3658,12 +3116,12 @@ Definition main_effect : IO unit :=
   chan_of_chan_demo             >>'   (* prints: 77 (a CHANNEL OF CHANNELS: a reply-chan sent over a chan, request/reply) *)
   pool_demo                     >>'   (* prints: 22 (CAPSTONE: struct + []chan + 2 goroutines + index + concurrent sum) *)
   linked_list_demo              >>'   (* prints: 1 2 3 (a RECURSIVE struct heap-traversed: type ListNode struct { Val int64; Next *ListNode }) *)
-  struct_slice_demo             >>'   (* prints: 20 (a SLICE of struct VALUES []ListNode — the line-2015 slice-of-structs gap closed via the TListNode tag) *)
+  struct_slice_demo             >>'   (* prints: 20 (a SLICE of struct VALUES []ListNode via the TListNode tag) *)
   slice2d_demo                  >>'   (* prints: 3 (a SLICE OF SLICES [][]int64 — nested TSlice; grid[1][0]) *)
   chanbox_slice_demo            >>'   (* prints: 2 (a SLICE of struct VALUES that each hold a channel, []ChanBox) *)
   map_struct_demo               >>'   (* prints: 99 (a MAP with struct VALUES map[int64]ListNode — struct values nest in every container) *)
   chanbox_demo                  >>'   (* prints: 42 (a channel that SENDS ITSELF: type ChanBox struct { Id int64; Ch chan ChanBox }) *)
-  cursed_demo                   >>'   (* prints: 99 1 2 3 (cursed demo v2: a SLICE of 2 self-sending channels + a 3-node recursive list traversed, in one struct; concurrency shape machine-checked race-free [cursed_spawn_reachable_race_free], only the typed bridge is the limit-#2 frontier) *)
+  cursed_demo                   >>'   (* prints: 99 1 2 3 (a SLICE of 2 self-sending channels + a 3-node recursive list in one struct; shape machine-checked race-free [cursed_spawn_reachable_race_free]; the typed↔operational bridge is unproven) *)
   slice_alias_demo              >>'   (* prints: 99 (sub-slice write seen through parent) *)
   slice_append_demo             >>'   (* prints: 9 (append reallocates a full slice) *)
   slice_makecap_demo            >>'   (* prints: 77 (make-with-cap: in-place append shares backing) *)
@@ -3730,7 +3188,7 @@ Definition main_effect : IO unit :=
   i64_to_narrow_demo            >>'   (* prints: 52 -56 4464 705032704 (int64→narrow truncation) *)
   narrow_let_assert_demo        >>'   (* prints: 200 true (let-bound GoU8 boxes+asserts as uint8) *)
   type_identity_lock_demo       >>'   (* prints: true false true false true false false (uint8≠int64, GoI64=int64≠Go-int — the differential lock) *)
-  narrow_cluster_lock_demo      >>'   (* prints: true true true true true (full #7 narrow cluster boxes as own Go type) *)
+  narrow_cluster_lock_demo      >>'   (* prints: true true true true true (full narrow cluster boxes as own Go type) *)
   uint_lock_demo                >>'   (* prints: true false (platform uint boxes as Go uint, distinct from int) *)
   narrow_ret_demo               >>'   (* prints: 52 -56 (narrow RETURN boundary: func returns uint8/int8) *)
   narrow_field_demo             >>'   (* prints: 44 7 (narrow struct FIELD boundary: ByteBox{uint8(…)}) *)
@@ -3760,10 +3218,9 @@ Definition main_effect : IO unit :=
   enum_eq_demo                  >>'   (* prints: true false (enum == via ComparableW: East==East / East==West) *)
   ret tt.
 
-(** The IO ops are now DEFINITIONS (zero-axioms refactor); [Extraction NoInline]
-    stops Coq from inlining their proof-only world-threading bodies, so the plugin
-    still lowers each BY NAME to its Go primitive (and the abstract state — [ref_sel],
-    [chan_buf], … — never reaches the emitted Go).  See ZERO_AXIOMS_PLAN.md. *)
+(** Invariant: the IO ops are DEFINITIONS (zero axioms); [Extraction NoInline] stops
+    Coq inlining their proof-only world-threading bodies, so the plugin lowers each BY
+    NAME to its Go primitive and the abstract state never reaches the emitted Go. *)
 Extraction NoInline
   call_shift10 apply_pt apply_cell swap2 sum_print log_prefixed vararg
   ret bind panic catch run_io

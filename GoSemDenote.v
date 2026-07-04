@@ -1,23 +1,20 @@
 (** ============================================================================
-    GoSemDenote.v — the DENOTATION layer (the ARCHITECTURE.md §3a physical split, file 2):
-    [eval_value] + its [Local] core (the float boundary's sealed evaluator — public access
-    would bypass [floats_checked]; negtest-sealed), the runtime GTInt tier R1–R8 and the
-    typed tiers T1–T5 over ONE shared evaluator, [denote_expr]/[denote_program] + the
-    statement layer, [gosem_sound] (denotation ⊆ supportedness) + the compositional
-    converses, and EVERY class theorem (tier seals, dispatch authorities, slice-index/map
-    reductions).  ONE file by necessity, not the sketched RuntimeInt/Agg pair: these proofs
-    compute through the [Local] evaluator core and the tier seals are denote-level, so no
-    smaller Local-sealed cut exists without proof rewrites.
-    Grounding/coverage examples stay ADJACENT to the theorems they pin; the program-level
-    fixture GROUPS, demos, the frontier + the gated surfaces live downstream in GoSem.v
-    (the composition point, which re-exports GoSemCore + this file).
+    GoSemDenote.v — the DENOTATION layer: [eval_value] + its [Local] core (the float
+    boundary's sealed evaluator — public access would bypass [floats_checked];
+    negtest-sealed), the runtime GTInt tier R1–R8 and the typed tiers T1–T5 over ONE
+    shared evaluator, [denote_expr]/[denote_program] + the statement layer,
+    [gosem_sound] (denotation ⊆ supportedness) + the compositional converses, and the
+    class theorems (tier seals, dispatch authorities, slice-index/map reductions).
+    ONE file: the proofs compute through the [Local] evaluator core, so no smaller
+    Local-sealed split exists.  Program-level fixtures, demos, and the gated surfaces
+    live downstream in GoSem.v (re-exports GoSemCore + this file).
     ============================================================================ *)
 From Fido Require Import GoAst GoTypes GoSafe cmd preamble.   (* [preamble] re-exports [builtins]: [GoAny]/[anyt]/[intwrap]/[World]/[w_log]/[Outcome]/[ORet] *)
 From Fido Require Import GoSemCore.
 From Stdlib Require Import String List Bool ZArith Lia.
 Import ListNotations.
 (** INTERNAL (core-only) ptype-driven scalar fold — NOT a float boundary and NOT directly consumable as a
-    trusted denotation path: its [PtFloatConst] arm runs only the PER-NODE [fsf_checked]; the child-position
+    trusted denotation path: its [PtFloatConst] arm runs only the PER-NODE [fsf_checked]; child-position
     coverage lives in [eval_value]'s [floats_checked] boundary (and [map_entries_evaluable] carries the
     boundary itself).  A numeric / string / bool CONSTANT evaluates to the model value its [ptype] category
     carries ([box_int]/[box_float] attach it, FAILING CLOSED out of range); everything else is [None]. *)
@@ -35,17 +32,14 @@ Local Definition eval_value_ptype_core (e : GExpr) : option GoAny :=
   | _                       => None
   end.
 
-(** EVALUABILITY of every entry of an integer-keyed MAP literal, ALL-or-nothing — the whole-literal
-    discipline of [eval_int_slice_elems]: Go constructs the ENTIRE literal before [len], so a runtime /
-    wrong-typed key or value — even one irrelevant to the queried length — declines the check, never a wrong
-    verdict.  Each entry is gated by [ptype]'s OWN map-arm checks ([assignable_to_ty] on BOTH sides + an
-    integer-CONSTANT key; proved ⊆ [ptype]: [eval_map_len_supported]) and must fully EVALUATE (key boxable
-    to [kt]; value folded by the CONSTANT default [eval_value_ptype_core] — a supported RUNTIME value like
-    [len([]int{2})] declines: absent, not wrong, [map_len_eval_absent]).  Deliberately a [bool],
-    NOT a list of boxed pairs: [len] needs only "construction completes, panic-free" + the count, and a pair
-    list boxed by the DEFAULT fold would carry default-typed values (a [map[int]uint8] value boxed as [int])
-    — semantically misleading entries nothing may consume.  A target-typed map VALUE evaluator is future
-    work (with map indexing), not smuggled in through [len]. *)
+(** EVALUABILITY of every entry of an integer-keyed MAP literal, ALL-or-nothing: Go constructs the
+    ENTIRE literal before [len], so a runtime / wrong-typed key or value — even one irrelevant to the
+    queried length — declines the check, never a wrong verdict.  Each entry is gated by [ptype]'s OWN
+    map-arm checks ([assignable_to_ty] on BOTH sides + an integer-CONSTANT key; proved ⊆ [ptype]:
+    [eval_map_len_supported]) and must fully EVALUATE (key boxable to [kt]; value folded by the CONSTANT
+    default [eval_value_ptype_core] — a supported RUNTIME value declines: absent, not wrong,
+    [map_len_eval_absent]).  A [bool], NOT a list of boxed pairs: [len] needs only "construction
+    completes, panic-free" + the count, and default-fold-boxed pairs would carry wrongly-typed values. *)
 Fixpoint map_entries_evaluable (kt vt : GoTy) (kvs : list (GExpr * GExpr)) : bool :=
   match kvs with
   | [] => true
@@ -64,29 +58,23 @@ Fixpoint map_entries_evaluable (kt vt : GoTy) (kvs : list (GExpr * GExpr)) : boo
       end
   end.
 
-(** Evaluate a value expr to the model's [GoAny], else [None].  FAITHFUL: the ptype-driven arm folds a numeric /
-    string / bool constant ([ptype] → VALUE+TYPE, [box_int]/[box_float] attach the model value, FAILING CLOSED
-    out of range); a separate [EIndex (ESliceLit..)] arm folds a CONSTANT in-bounds int-slice index by
-    evaluating the WHOLE literal ([eval_int_slice_elems] — ALL elements, so a runtime/panicking/out-of-range
-    element rejects it) and indexing.  Its accept-boundary is [ptype]'s OWN — elements gated by
-    [assignable_to_ty] and the constant index by [(0<=?k) && int_const_repr k GTInt], the SAME checks [ptype]'s
-    slice arm uses — so the arm accepts NO expression [ptype] rejects (proved: [eval_slice_index_supported]); it
-    is a SUBSET, not a second, looser classifier.  Scalar coverage exercised — the [eval_value_good] table (downstream in GoSem.v, gated by [eval_value_good_ok]) folds:
-    integer constants (conversions / in-range [uint] via [mk_uint] / arithmetic / complement, EXCLUDING
-    platform-[uint] complement), exact-DYADIC FLOAT constants (fractional arithmetic included), string constants ([eval_str]), and constant
-    bools ([eval_bool]); slice-index folds pinned by the [slice_index_*] fixtures (downstream in GoSem.v); [len] of a fully-evaluable int-slice
-    literal folds to its length ([eval_len_reduces]) and [len] of a fully-evaluable integer-keyed MAP literal to
-    its entry count ([eval_map_len_reduces] — under the gate's OWN conditions, [goty_supported] value type +
-    [nodup_z]-distinct constant keys, so the count IS Go's [len]).  ABSENT ([None], honestly): [len] of a literal with runtime ELEMENTS or of a map literal with a
-    runtime VALUE, runtime operands ([int(x)] of a runtime [x], runtime comparisons), OOB / runtime slice INDEX,
-    out-of-range or COMPLEMENTED [uint], a rounding (non-exact) float op, multi-byte-rune — never wrong. *)
+(** Evaluate a value expr to the model's [GoAny], else [None].  FAITHFUL: the ptype-driven arm folds a
+    numeric / string / bool constant ([ptype] → VALUE+TYPE, [box_int]/[box_float] attach the model value,
+    FAILING CLOSED out of range); a separate [EIndex (ESliceLit..)] arm folds a CONSTANT in-bounds
+    int-slice index by evaluating the WHOLE literal ([eval_int_slice_elems] — ALL elements, so a
+    runtime/panicking/out-of-range element rejects it) and indexing.  Its accept-boundary is [ptype]'s
+    OWN checks, so the arm accepts NO expression [ptype] rejects ([eval_slice_index_supported]) — a
+    SUBSET, not a second, looser classifier.  [len] of a fully-evaluable int-slice literal folds to its
+    length ([eval_len_reduces]); [len] of a fully-evaluable integer-keyed MAP literal to its entry count
+    ([eval_map_len_reduces]).  ABSENT ([None], honestly): runtime elements/values/operands, OOB or
+    runtime slice index, out-of-range or complemented [uint], a rounding (non-exact) float op,
+    multi-byte-rune — never wrong. *)
 Local Definition eval_value_core (e : GExpr) : option GoAny :=
   match e with
   | EIndex (ESliceLit t es) idx =>
-      (* CONSTANT in-bounds index into an INT-slice literal -> the k-th element.  The WHOLE literal is evaluated
-         first ([eval_int_slice_elems] — Go builds the literal before indexing, so a runtime/panicking/malformed
-         element, even unselected, declines the fold), then the boxed value list is indexed ([nth_error]: OOB ->
-         [None]; a runtime index has [int_const_val = None]).  [ptype] still classifies the whole [PtRunInt]. *)
+      (* CONSTANT in-bounds index into an INT-slice literal -> the k-th element.  The WHOLE literal is
+         evaluated first (a runtime/panicking/malformed element, even unselected, declines the fold), then
+         indexed ([nth_error]: OOB -> [None]).  [ptype] still classifies the whole [PtRunInt]. *)
       if is_int_goty t
       then match ptype idx with
            | Some ci =>
@@ -103,13 +91,11 @@ Local Definition eval_value_core (e : GExpr) : option GoAny :=
            end
       else None
   | ECall (EId f) (ESliceLit t es :: nil) =>
-      (* [len] of a FULLY-EVALUABLE int-slice LITERAL folds to its length, boxed as Go's [int] ([box_int GTInt]
-         — range-checked, fail-closed).  Go evaluates the literal (ALL elements) before [len], so a
-         runtime/panicking element declines the fold ([eval_int_slice_elems] — same whole-literal discipline as
-         the index arm; [ptype] still classifies the call [PtRunInt GTInt], like the index).  [len] of a STRING
-         literal already folds via [ptype] ([PtIntConst]); [len] of a non-int-element slice stays honestly
-         absent ([len] of a fully-evaluable MAP literal folds in its OWN arm below).  Any OTHER call with a
-         slice-literal argument falls through to the ptype-driven default unchanged. *)
+      (* [len] of a FULLY-EVALUABLE int-slice LITERAL folds to its length, boxed as Go's [int]
+         (range-checked, fail-closed).  Go evaluates ALL elements before [len], so a runtime/panicking
+         element declines the fold; [ptype] still classifies the call [PtRunInt GTInt].  [len] of a
+         STRING literal already folds via [ptype]; a non-int-element slice stays honestly absent.  Any
+         OTHER call with a slice-literal argument falls through to the ptype-driven default unchanged. *)
       if String.eqb (proj1_sig f) "len" && is_int_goty t
       then match eval_int_slice_elems t es with
            | Some vs => box_int GTInt (Z.of_nat (length vs))
@@ -117,15 +103,13 @@ Local Definition eval_value_core (e : GExpr) : option GoAny :=
            end
       else eval_value_ptype_core e
   | ECall (EId f) (EMapLit kt vt kvs :: nil) =>
-      (* [len] of a FULLY-EVALUABLE integer-keyed MAP literal folds to its entry count, boxed as Go's [int].
-         Go constructs the literal (ALL keys and values) before [len], so a runtime / wrong-typed key or value
-         declines the fold ([map_entries_evaluable] — the whole-literal discipline).  The arm carries the
-         GATE's OWN side conditions — [goty_supported vt] (an invalid nested map-key type like
-         [map[int]map[[]int]int{}] must NEVER receive behavior, even empty) and the [nodup_z] distinctness
-         check ([map_key_vals], [ptype]'s own key list) without which a duplicate-key literal (invalid Go)
-         would fold [length kvs], which is NOT the map's [len].  [ptype] still classifies the call
-         [PtRunInt GTInt] (a map is not a constant).  Any OTHER call with a map-literal argument falls
-         through to the ptype-driven default unchanged. *)
+      (* [len] of a FULLY-EVALUABLE integer-keyed MAP literal folds to its entry count, boxed as Go's
+         [int].  Go constructs ALL keys and values before [len], so a runtime / wrong-typed key or value
+         declines the fold ([map_entries_evaluable]).  Side conditions: [goty_supported vt] (an invalid
+         nested map-key type must NEVER receive behavior, even empty) and [nodup_z] key distinctness
+         (a duplicate-key literal would fold [length kvs], which is NOT the map's [len]).  [ptype] still
+         classifies the call [PtRunInt GTInt].  Any OTHER call with a map-literal argument falls through
+         to the ptype-driven default unchanged. *)
       if String.eqb (proj1_sig f) "len" && is_int_goty kt && goty_supported vt
          && nodup_z (map_key_vals kvs) && map_entries_evaluable kt vt kvs
       then box_int GTInt (Z.of_nat (length kvs))
@@ -149,14 +133,11 @@ Proof.
   destruct (floats_checked e); [reflexivity | discriminate H].
 Qed.
 
-(** the CARRY-shape obligation pinned mechanically: an ACCEPTED normalized ADD
-    result whose RAW aligned sum exceeds [prec] digits — [(2^53-1) + (2^53-1)] has raw sum
-    [2^54-2] (54 digits, OUTSIDE [binary_round_exact]'s direct window) while the normalized
-    result [(2^53-1, 1)] passes the gate AND the checker accepts the expression (the live path
-    already exercises the raw-wide case, computed by [SFadd] on the raw mantissa).  So [ptype]
-    does NOT reject this class — it is EXACTLY the wide bridge's domain
-    ([binary_round_of_norm_wide] above): the agreement assembly must route through that
-    bridge, never the narrow window alone. *)
+(** Pins the CARRY shape: an ACCEPTED normalized ADD whose RAW aligned sum exceeds [prec]
+    digits — [(2^53-1) + (2^53-1)] has raw sum [2^54-2] (54 digits, outside
+    [binary_round_exact]'s direct window) while the normalized result [(2^53-1, 1)] passes the
+    gate.  [ptype] does NOT reject this class; the agreement assembly must route through the
+    wide bridge ([binary_round_of_norm_wide]), never the narrow window alone. *)
 Definition add_carry_e : GExpr :=
   EBn BAdd (ECall (EId (mkIdent "float64" eq_refl)) [EInt 9007199254740991])
            (ECall (EId (mkIdent "float64" eq_refl)) [EInt 9007199254740991]).
@@ -173,13 +154,12 @@ Example add_carry_raw_wide_accepted :
      = Some (anyt TFloat64 (S754_finite false 9007199254740991%positive 1)).
 Proof. repeat split; vm_compute; reflexivity. Qed.
 
-(** ---- EFFECTFUL expression denotation + the RUNTIME-value tier (R1–R8; this section is the live
-    authority — the surfaces bundle its theorems).  Supported programs are CLOSED, so runtime integer
-    values are DETERMINED.  [reval_int] evaluates the [GTInt] fragment with the MODEL'S OWN ops on the
-    model's own carrier; constants enter through [eval_value] (the single fold authority) via the
-    checked [unbox_int]; [/]/[%] are the evidence-carrying [int_div]/[int_mod] (nonzero proof from the
-    guarding test; a determined zero divisor panics [rt_div_zero]).  [RPanic] = a determined runtime
-    panic; [None] = absent (never wrong).  Per-arm semantics are documented at each arm. *)
+(** ---- EFFECTFUL expression denotation + the RUNTIME-value tier (R1–R8).  Supported programs are
+    CLOSED, so runtime integer values are DETERMINED.  [reval_int] evaluates the [GTInt] fragment with
+    the MODEL'S OWN ops on the model's own carrier; constants enter through [eval_value] (the single
+    fold authority) via the checked [unbox_int]; [/]/[%] are the evidence-carrying [int_div]/[int_mod]
+    (nonzero proof from the guarding test; a determined zero divisor panics [rt_div_zero]).
+    [RPanic] = a determined runtime panic; [None] = absent (never wrong). *)
 Definition unbox_int (v : GoAny) : option GoInt :=
   match v with
   | existT _ _ (pair x tag) =>
@@ -205,9 +185,8 @@ Lemma rval_len_repr : forall n,
 Proof. intros n H. unfold rval_len, box_int. rewrite H. reflexivity. Qed.
 (** Element CONSTRUCTION for the runtime tier — evaluate every element of an int-slice literal
     left-to-right through [rec] (instantiated with [reval_int]): all values, or the FIRST panicking
-    element (aborting construction — the verified go-run order), or [None] (absent).  Parametrized (the
-    [fsf_operand_with] pattern) so the Fixpoint below can use it mid-definition and theorems can name the
-    instance [reval_elems]. *)
+    element (aborting construction — the verified go-run order), or [None] (absent).  Parametrized so
+    the Fixpoint below can use it mid-definition and theorems can name the instance [reval_elems]. *)
 Inductive RElems : Type := REVals (vs : list GoInt) | REPanic (p : GoAny).
 Definition reval_elems_with (rec : GExpr -> option RRes) : list GExpr -> option RElems :=
   fix go (l : list GExpr) : option RElems :=
@@ -281,9 +260,9 @@ Definition cmp_verdict (o : BinOp) : option (GoInt -> GoInt -> bool) :=
 (** ---- THE SHARED VALUE EVALUATOR (one authority — no per-consumer drift) ----
     [RAny] is the full-typed runtime result ([GoAny] value or panic).  [rexit_with] is THE one spelling
     of the fragment EXITS — the R3 width conversion and the R4 bool comparison — parametrized over the
-    int-fragment engine (the [fsf_operand_with] pattern) so [reval_int]'s map arm and [denote_expr]
-    consume literally the same code.  [reval_val_with] is the whole value pipeline: the constant fold,
-    then the [GTInt] fragment (boxed [TInt64]), then the exits. *)
+    int-fragment engine so [reval_int]'s map arm and [denote_expr] consume literally the same code.
+    [reval_val_with] is the whole value pipeline: the constant fold, then the [GTInt] fragment (boxed
+    [TInt64]), then the exits. *)
 Inductive RAny : Type := RAVal (g : GoAny) | RAPanic (p : GoAny).
 (** Tier T1 typed-unary dispatch — the per-width MODEL op for a unary op at a non-GTInt integer
     width, on the boxed carrier (the [unbox_int] tag-convoy pattern per width).  [^] covers all eight

@@ -1,20 +1,14 @@
 (** Trace-based happens-before for ARBITRARY executions.
 
-    The Phase 1..4 model in [builtins.v] proves the go-mem ordering RULES are a
-    consistent strict partial order and defeat data races — but on HAND-BUILT event
-    sets ([ChEvent], [mp_hb], [fork_hb], …).  This module ties happens-before to an
-    ACTUAL EXECUTION TRACE: a list of events produced by interleaving goroutines,
-    where synchronisation is recorded by BACK-POINTERS — a receive carries the trace
-    position of the send that produced its value; a goroutine's first step carries
-    the position of the [go] that spawned it.  These back-pointers are exactly what a
-    real run records.
+    A trace is a list of events produced by interleaving goroutines; synchronisation
+    is recorded by BACK-POINTERS — a receive carries the trace position of the send
+    that produced its value; a goroutine's first step carries the position of the
+    [go] that spawned it.
 
     CENTRAL THEOREM ([hbt_irrefl]): for ANY well-formed trace, happens-before
-    (program order ∪ synchronisation) is a STRICT PARTIAL ORDER — because the TRACE
-    POSITION (the interleaving order) is a LINEAR EXTENSION of it: you cannot
-    synchronise with the future.  This GENERALISES the bespoke [ev_ts] timestamp to
-    arbitrary executions and arbitrary goroutine/channel topologies — the missing
-    bridge between the abstract rules and real operations.  Axiom-free. *)
+    (program order ∪ synchronisation) is a STRICT PARTIAL ORDER — the trace position
+    (interleaving order) is a LINEAR EXTENSION of it: you cannot synchronise with
+    the future.  Axiom-free. *)
 From Fido Require Import preamble.
 From Stdlib Require Import List Lia Arith.
 (* No [PrimInt63]: the value carriers ([GoI64]/…) are [Z]-records and locations are [nat]
@@ -42,10 +36,8 @@ Definition tid_at (t : Trace) (i : nat) : nat :=
 (** A trace is WELL-FORMED when every back-pointer points to an EARLIER event of the
     right kind: a receive's [from] is an earlier send on the same channel; a start's
     [parent] is an earlier spawn OF THAT SAME GOROUTINE (the spawn's [child] = this
-    start's own [e_tid]).  A real execution always satisfies this — you receive a value
-    already sent, and a goroutine runs after the [go] that spawned IT.  (Break #8 fix:
-    the child-identity clause was missing, so a [KStart] could point at a [KSpawn] of a
-    DIFFERENT child — forging a spawn happens-before edge to an unrelated goroutine.) *)
+    start's own [e_tid]; without the child-identity clause a [KStart] could forge a
+    spawn edge to an unrelated goroutine).  A real execution always satisfies this. *)
 Definition WfTrace (t : Trace) : Prop :=
   forall i e, nth_error t i = Some e ->
     match e_kind e with
@@ -172,11 +164,8 @@ Qed.
 Theorem trace_ordered_no_race : forall t i j, hbt t i j -> ~ TraceRace t i j.
 Proof. intros t i j Hhb [_ [_ [Hno _]]]. exact (Hno Hhb). Qed.
 
-(** A trace with AT MOST ONE memory access (all accessing positions coincide) is race-free: a data
-    race needs TWO distinct-goroutine conflicting accesses, so a single access can never form a racing
-    pair.  This dispatches the PRE-HANDOFF phases of a single-writer handoff program (before the reader
-    reads, only the writer has touched memory) — a brick of the Keller-style inductive-invariant proof
-    that EVERY interleaving of the typed pointer handoff is race-free (limit #2, slice 2-A). *)
+(** A trace with AT MOST ONE memory access (all accessing positions coincide) is race-free:
+    a data race needs TWO distinct-goroutine conflicting accesses. *)
 Lemma le1_mem_access_race_free : forall t,
   (forall i j, tr_acc t i <> None -> tr_acc t j <> None -> i = j) ->
   TraceRaceFree t.
@@ -203,17 +192,11 @@ Proof.
 Qed.
 
 (** ── DYNAMIC-SPAWN OWNERSHIP TRANSFER (trace core) ───────────────────────────
-    [mp_trace]'s handoff has BOTH goroutines pre-live.  Here the reader is SPAWNED by the writer and
-    the location is handed to that freshly-created child — the genuinely harder shape that
-    [mp_all_interleavings_race_free]'s preamble flags as the dynamic-tid frontier.  Thread 0 writes x
-    (loc 0), SPAWNS child [cid], then sends on chan 0; the child STARTS (its [KStart] back-points at
-    the spawn — the child-identity edge [WfTrace] demands), receives c0 (matched send at pos 3), then
-    reads x.  The only conflicting cross-goroutine pair (g0's write / the child's read of x) is ordered
-    by the channel handoff carried ACROSS the spawn boundary: write →po→ send →sync→ recv →po→ read.
-    These three witnesses certify the dynamic-spawn handoff trace is well-formed (back-pointers valid,
-    incl. KStart→KSpawn) and race-free regardless of which fresh tid the runtime hands the child.  The
-    all-interleavings invariant over the spawning PROGRAM (a [MpReach]-style inductive reachability with
-    the child tid existentially quantified) is the follow-on slice. ── *)
+    Thread 0 writes x (loc 0), SPAWNS child [cid], then sends on chan 0; the child
+    STARTS (its [KStart] back-points at the spawn), receives c0, then reads x.  The
+    only conflicting cross-goroutine pair (g0's write / the child's read) is ordered
+    across the spawn boundary: write →po→ send →sync→ recv →po→ read — well-formed
+    and race-free for ANY fresh child tid. ── *)
 Definition dst_trace (cid : nat) : Trace :=
   [ mkEv 0 (KWrite 0)       (* pos 0: thread 0 writes x         *)
   ; mkEv 0 (KSpawn cid)     (* pos 1: thread 0 spawns child cid *)
@@ -264,15 +247,11 @@ Proof.
   - apply Hnji. exact (dst_trace_hb_0_5 cid).   (* i=5 (read),  j=0 (write) *)
 Qed.
 
-(** ── CLOSED-CHANNEL RECEIVE (trace-core foundation) ──────────────────────────
-    A recv from a CLOSED, drained channel returns the zero value immediately (Go).  Per the Go
-    memory model, "the closing of a channel happens before a receive that returns a zero value
-    because the channel is closed" — so such a recv's producer is the CLOSE, not a send.  The
-    trace core now expresses this: a [KClose] event, and a [KRecv]'s back-pointer may point at a
-    [KClose] of that channel (not only a [KSend]).  WfTrace/hb/race-freedom are all preserved
-    (proven above); these witnesses show the model represents the closed recv FAITHFULLY.
-    (The operational [step]/[rstep] rule that GENERATES such a trace — a config closed-flag + a
-    recv-on-closed-drained step — is the follow-on slice.) ── *)
+(** ── CLOSED-CHANNEL RECEIVE (trace core) ──────────────────────────
+    A recv from a CLOSED, drained channel returns the zero value immediately (Go).
+    Per the Go memory model, "the closing of a channel happens before a receive that
+    returns a zero value because the channel is closed" — so such a recv's producer
+    back-pointer is the CLOSE ([KClose]), not a send. ── *)
 Definition closed_recv_trace : Trace :=
   [ mkEv 0 (KClose 5)       (* pos 0: thread 0 closes channel 5            *)
   ; mkEv 1 (KRecv 5 0) ].   (* pos 1: thread 1 recvs zero from CLOSED ch 5; from = pos 0 (the close) *)
@@ -296,18 +275,16 @@ Qed.
 (** ============================================================================
     OPERATIONAL SEMANTICS: well-formed traces are GENERATED, not assumed.
 
-    A fixed pool of goroutines (each a list of channel/memory actions) interleaves;
-    every step APPENDS an event to the trace.  A send records its own trace position
-    in the channel's FIFO buffer; a receive pulls the front position as its
-    back-pointer.  The invariant [BufOk] (every buffered position is an EARLIER send
-    of that channel) is preserved by every step, so EVERY reachable trace is
-    well-formed — turning [WfTrace] from a hypothesis into a THEOREM about execution
-    ([reachable_wf]).  Composed with [hbt_irrefl] ([reachable_hb_strict]): the
-    happens-before of ANY real execution is a strict partial order.  Goroutine SPAWN
-    is modelled — [PSpawn]/[step_spawn] grow a DYNAMIC pool tracked by [cfg_live]
-    (only spawned goroutines run; initially just [main]).  (The fork EDGE / [KStart]
-    is a deliberate follow-up — already proven abstractly by [fork_hb] in builtins.v
-    — so cross-goroutine ordering here still flows through channel synchronisation.)
+    Goroutines (lists of channel/memory actions) interleave; every step APPENDS an
+    event to the trace.  A send records its own trace position in the channel's FIFO
+    buffer; a receive pulls the front position as its back-pointer.  Invariant
+    [BufOk] (every buffered position is an EARLIER send of that channel) is preserved
+    by every step, so EVERY reachable trace is well-formed ([reachable_wf]); with
+    [hbt_irrefl], the happens-before of ANY real execution is a strict partial order
+    ([reachable_hb_strict]).  [PSpawn]/[step_spawn] grow a DYNAMIC pool tracked by
+    [cfg_live] (only spawned goroutines run; initially just [main]).  This semantics
+    emits no [KStart] fork edge — cross-goroutine ordering flows through channel
+    synchronisation.
     ============================================================================ *)
 Inductive PAct :=
   | PSend (c:nat) | PRecv (c:nat) | PWrite (l:nat) | PRead (l:nat)
@@ -318,15 +295,13 @@ Inductive PAct :=
                             step_select_closed.  Closed-state is read off the trace (the KClose
                             event), so no config field is needed. *)
   (* [select] over RECEIVE cases [cs]: receive on ANY ONE channel in [cs] that is ready.
-     This is the AUTHORITATIVE select model (sequential [run_io] [select_recv2] is a
-     non-authoritative ch1-priority interpreter).  Its
-     [step_select] rule below fires for EVERY ready channel, so a config with two ready
-     cases has TWO successors: select is genuinely NONDETERMINISTIC here (Go's
-     pseudo-random choice), and a safety property must hold for ALL of them.  When NO case
-     is ready it has no [step] at all — so empty-select is a LOCAL non-step that contributes
-     to global deadlock [Stuck], NEVER a fabricated value.  (Scope: every case shares the
-     post-select continuation [rest]; per-case branch BODIES are the orthogonal goto-dispatch
-     dimension — [select2] in builtins.v — not the choice/blocking deviation above.) *)
+     This is the AUTHORITATIVE select model (the sequential [run_io] [select_recv2] is a
+     non-authoritative ch1-priority interpreter).  [step_select] fires for EVERY ready
+     channel, so select is genuinely NONDETERMINISTIC and a safety property must hold for
+     ALL successors.  When NO case is ready there is no [step] at all — empty-select is a
+     LOCAL non-step contributing to global deadlock [Stuck], NEVER a fabricated value.
+     Scope: every case shares the post-select continuation [rest]; per-case branch BODIES
+     are the orthogonal goto-dispatch dimension ([select2] in builtins.v). *)
 
 Definition upd {A} (f : nat -> A) (k : nat) (v : A) : nat -> A :=
   fun x => if Nat.eqb x k then v else f x.
@@ -452,10 +427,8 @@ Proof.
       exists e'. rewrite nth_error_app_old by exact Hf. split; [exact He'|exact Hk'].
 Qed.
 
-(** Break #8 witness (machine-checked): a [KStart] whose own goroutine ([e_tid = 99]) points back at a
-    [KSpawn] of a DIFFERENT child ([KSpawn 1]) is now REJECTED by [WfTrace] — the forged spawn happens-before
-    edge to an unrelated goroutine cannot be built.  (Under the old definition this trace was well-formed,
-    because the back-pointer only had to hit SOME [KSpawn].) *)
+(** Witness: a [KStart] whose own goroutine ([e_tid = 99]) points back at a [KSpawn] of a
+    DIFFERENT child ([KSpawn 1]) is REJECTED by [WfTrace] — no forged spawn edge. *)
 Example forged_start_rejected :
   ~ WfTrace [ mkEv 0 (KSpawn 1); mkEv 99 (KStart 0) ].
 Proof.
@@ -608,8 +581,7 @@ Proof.
 Qed.
 
 (** ...hence the happens-before of ANY real execution (any program, any reachable
-    configuration) is a STRICT PARTIAL ORDER — the abstract guarantee, now earned by
-    actual execution rather than assumed on a hand-built trace. *)
+    configuration) is a STRICT PARTIAL ORDER. *)
 Corollary reachable_hb_strict : forall p cfg i,
   steps (init_cfg p) cfg -> ~ hbt (cfg_trace cfg) i i.
 Proof.
@@ -617,16 +589,14 @@ Proof.
 Qed.
 
 (** ============================================================================
-    STEP 2 — general race-freedom under an OWNERSHIP discipline.
+    RACE-FREEDOM UNDER AN OWNERSHIP DISCIPLINE.
 
-    Until now race freedom was proven for hand-built traces (mp_trace_race_free).
-    Here it becomes a THEOREM from a structural discipline: if the accesses to each
-    memory location form a happens-before CHAIN — any two same-location accesses
-    are either directly hb-ordered or separated by an intermediate same-location
-    access — then NO conflicting pair is unordered, so the trace is race-free.
-    This is the trace-level shadow of OWNERSHIP: a location is touched only by its
-    current owner, and ownership transfers only through synchronisation (an
-    hb-edge), so accesses to it are serialised by happens-before.
+    If the accesses to each memory location form a happens-before CHAIN — any two
+    same-location accesses are either directly hb-ordered or separated by an
+    intermediate same-location access — then NO conflicting pair is unordered, so
+    the trace is race-free.  This is the trace-level shadow of OWNERSHIP: a location
+    is touched only by its current owner, and ownership transfers only through
+    synchronisation (an hb-edge).
     ============================================================================ *)
 
 (** The memory location accessed at position [i] (None for non-memory events). *)
@@ -692,14 +662,11 @@ Qed.
 (** ============================================================================
     RACE-FREEDOM BY A CHECKABLE DISCIPLINE — location PRIVACY discharges [Owned].
 
-    [owned_race_free] takes [Owned] (accesses to each location form an hb-chain) as a HYPOTHESIS.
-    Here is a SYNTACTIC, decidable discipline that IMPLIES it — so the ownership premise is
-    ESTABLISHED, not assumed (research-plan step 2 "Remaining").  [LocPrivate]: every memory
-    location is touched by a SINGLE goroutine (any two same-location accesses share a tid).  Then
-    same-location accesses lie in ONE goroutine's PROGRAM ORDER, and [po] ⊆ [hbt], so they are
-    hb-ordered — [Owned] holds outright.  This is the no-sharing BASE of the ownership story (a
-    location whose owner never changes); ownership TRANSFER across a channel synchronisation is the
-    general case (deferred — dynamic [CSpawn] makes a static owner assignment subtle).
+    [LocPrivate]: every memory location is touched by a SINGLE goroutine (any two
+    same-location accesses share a tid).  Then same-location accesses lie in ONE
+    goroutine's PROGRAM ORDER, and [po] ⊆ [hbt], so they are hb-ordered — [Owned]
+    holds outright.  This is the no-sharing BASE; ownership TRANSFER across a
+    synchronisation is the general case below.
     ============================================================================ *)
 Definition LocPrivate (t : Trace) : Prop :=
   forall i j, same_loc t i j -> tid_at t i = tid_at t j.
@@ -714,8 +681,8 @@ Proof.
   - exact (HLP i j Hsl).
 Qed.
 
-(** Hence a location-private trace is RACE-FREE — with [Owned] no longer assumed but EARNED from the
-    checkable structural discipline. *)
+(** Hence a location-private trace is RACE-FREE — [Owned] EARNED from the checkable structural
+    discipline, not assumed. *)
 Theorem locprivate_race_free : forall t, LocPrivate t -> TraceRaceFree t.
 Proof. intros t HLP. exact (owned_race_free t (locprivate_owned t HLP)). Qed.
 
@@ -816,11 +783,8 @@ Proof. exact (owned_race_free _ handoff_owned). Qed.
     access program-before a SEND/SPAWN whose matching RECV/START is program-before the other access.
     A trace is [HandoffDisciplined] when EVERY conflicting (same-location) pair [i<j] is a [Handoff].
     This single condition IMPLIES [Owned] (hence race-freedom), via [transfer_orders] for the handoff
-    case and program order for the same-goroutine case.  It SUBSUMES both existing bases:
-    [locprivate_handoff_disciplined] (no sharing ⇒ same-goroutine disjunct) and the bespoke
-    [handoff_owned]/[fork_handoff_owned]/[chan_pub_owned] witnesses (the handoff disjunct).  This is
-    the "closed-form transfer discipline as a checkable condition" the per-trace witnesses gestured at:
-    future programs earn race-freedom by exhibiting the STRUCTURE, not a hand-built [Owned] proof. *)
+    case and program order for the same-goroutine case; it subsumes [LocPrivate]
+    ([locprivate_handoff_disciplined]) and the per-trace [Owned] witnesses. *)
 Definition Handoff (t : Trace) (i j : nat) : Prop :=
   tid_at t i = tid_at t j \/ exists s r, po t i s /\ sync t s r /\ po t r j.
 
@@ -984,14 +948,12 @@ Example mp_trace_race_free_via_owned : TraceRaceFree mp_trace :=
   owned_race_free mp_trace mp_trace_owned.
 
 (** ============================================================================
-    STEP 3a — exact FIFO ordering of channel buffers.
+    EXACT FIFO ORDERING OF CHANNEL BUFFERS.
 
-    [WfTrace] only says a receive's back-pointer is SOME earlier send; the [step]
-    semantics actually enforces FIFO (a receive pulls the buffer FRONT — the oldest
-    unreceived send).  Here that is made a THEOREM: in every reachable config the
-    channel buffer is STRICTLY INCREASING in send position ([reachable_sorted]).
-    Since a receive pulls the front (the minimum), receives therefore consume sends
-    in send order — the exact kth-recv ↔ kth-send pairing, at the buffer level.
+    [WfTrace] only says a receive's back-pointer is SOME earlier send; here FIFO is
+    a THEOREM: in every reachable config the channel buffer is STRICTLY INCREASING
+    in send position ([reachable_sorted]), and a receive pulls the front (the
+    minimum) — receives consume sends in send order.
     ============================================================================ *)
 
 (** Strictly increasing: each head is below everything after it. *)
@@ -1069,12 +1031,12 @@ Proof.
 Qed.
 
 (** ============================================================================
-    Steps 1+2 combined — the safety capstone, and deadlock representability.
+    Safety capstone, and deadlock representability.
     ============================================================================ *)
 
 (** A REACHABLE execution (any program, any reachable state) that respects the
     ownership discipline has a strict-partial-order happens-before AND is race-free
-    — step 1 (reachable_wf) and step 2 (owned_race_free), composed. *)
+    ([reachable_wf] + [owned_race_free], composed). *)
 Corollary reachable_owned_safe : forall p cfg,
   steps (init_cfg p) cfg -> Owned (cfg_trace cfg) ->
   TraceRaceFree (cfg_trace cfg) /\ (forall i, ~ hbt (cfg_trace cfg) i i).
@@ -1086,14 +1048,11 @@ Qed.
 
 (** Unlike the (sequential, total) [run_io] model, this operational semantics
     REPRESENTS deadlock: a config that cannot step yet has a live goroutine with
-    work left.  PROGRESS — "a ready goroutine means the config can step" — is now a
-    THEOREM in the rich calculus ([ready_can_step], and for the bounded calculus the
-    general [ready_can_stepC_general] packaged with [rstuckC_blocked] as the IFF
-    [rstuckC_iff_blocked]).  Per-program deadlock-FREEDOM — showing a GIVEN program never
-    reaches a [Stuck]/[RStuckC] state — is necessarily proved per program (a deadlocking
-    program is not deadlock-free); [dlf_deadlock_free] (file end) discharges it for a concrete
-    spawn+rendezvous program via a reachability invariant, the first program PROVED deadlock-free
-    in the bounded calculus.  Representing deadlock at all is the honest foundation all rest on. *)
+    work left.  PROGRESS — "a ready goroutine means the config can step" — is a
+    THEOREM ([ready_can_step]; bounded calculus: [ready_can_stepC_general] +
+    [rstuckC_blocked] = [rstuckC_iff_blocked]).  Per-program deadlock-FREEDOM is
+    necessarily proved per program; [dlf_deadlock_free] (file end) discharges it for
+    a concrete spawn+rendezvous program via a reachability invariant. *)
 Definition can_step (cfg : Config) : Prop := exists cfg', step cfg cfg'.
 Definition done (cfg : Config) : Prop :=
   forall tid, cfg_live cfg tid = true -> cfg_prog cfg tid = [].
@@ -1116,17 +1075,14 @@ Proof.
   - intros Hdone. specialize (Hdone 0 eq_refl). discriminate Hdone.
 Qed.
 
-(** ── SELECT, the AUTHORITATIVE relational semantics: readiness + fairness, proven ──
-
-    These two witnesses pin the select nondeterminism boundary (the sequential [run_io]
-    [select_recv2] is a deterministic, blocking-idealised UNDER-APPROXIMATION; here select is
-    a first-class operational action whose [step_select] rule is the authoritative truth). *)
+(** ── SELECT, the AUTHORITATIVE relational semantics ──
+    The sequential [run_io] [select_recv2] is a deterministic, blocking-idealised
+    UNDER-APPROXIMATION; [step_select] here is the authoritative truth. *)
 
 (** FACT 1 — CHOICE IS NONDETERMINISTIC.  A config with TWO ready cases has TWO distinct
-    successors (receive ch0 vs receive ch1, distinguishable in the trace).  Go picks
-    pseudo-randomly; the sequential ch1-priority interpreter realises only the first — so a
-    safety property must hold for BOTH, never just the deterministic one.  ([sel_ready_cfg] is
-    a post-send state: positions 0 and 1 are the two earlier sends, so it is [Inv]-valid.) *)
+    successors, so a safety property must hold for BOTH, never just the deterministic one.
+    ([sel_ready_cfg] is a post-send state: positions 0 and 1 are the two earlier sends,
+    so it is [Inv]-valid.) *)
 Definition sel_ready_cfg : Config :=
   mkCfg (fun t => if Nat.eqb t 0 then [PSelect [0; 1]] else [])
         (fun c => if Nat.eqb c 0 then [0] else if Nat.eqb c 1 then [1] else [])
@@ -1146,10 +1102,9 @@ Proof.
 Qed.
 
 (** FACT 2 — EMPTY SELECT IS DEADLOCK, NOT A VALUE.  A goroutine selecting on channels with
-    no ready case (and no other goroutine to make one ready) is [Stuck] — exactly like
-    [block_cfg].  (The sequential interpreter FAIL-LOUDS there — [rt_select_block] — since a
-    sequential run has no Blocked outcome.)  Blocking lives in the GLOBAL transition relation
-    (no enabled step). *)
+    no ready case (and no other goroutine to make one ready) is [Stuck].  Blocking lives in
+    the GLOBAL transition relation (no enabled step); the sequential interpreter fail-louds
+    there ([rt_select_block]). *)
 Definition sel_block_cfg : Config :=
   mkCfg (fun t => if Nat.eqb t 0 then [PSelect [0; 1]] else [])
         (fun _ => []) (fun t => Nat.eqb t 0) [].
@@ -1166,7 +1121,7 @@ Proof.
   - intros Hdone. specialize (Hdone 0 eq_refl). discriminate Hdone.
 Qed.
 
-(** CLOSED-CHANNEL READINESS, OPERATIONAL (closes the select relational gap end-to-end).
+(** CLOSED-CHANNEL READINESS, OPERATIONAL.
     A recv/select on a CLOSED, drained channel is READY — it STEPS, yielding the zero value — whereas
     on an OPEN empty channel it is stuck ([block_stuck]/[sel_block_stuck] above).  [closed_chan_cfg]
     has channel 5 already closed (a [KClose 5] at trace position 0) and an empty buffer. *)
@@ -1183,8 +1138,7 @@ Proof.
     [ reflexivity | reflexivity | reflexivity | reflexivity | reflexivity ].
 Qed.
 
-(** A SELECT whose only case channel is closed+drained is likewise READY (the case fires with zero)
-    — the relational fix for the exact bug the sequential model had (it took [default] / fabricated). *)
+(** A SELECT whose only case channel is closed+drained is likewise READY (the case fires with zero). *)
 Theorem closed_select_can_step : exists cfg', step closed_chan_cfg cfg'.
 Proof.
   eexists. eapply step_select_closed with (tid := 1) (cs := [5]) (c := 5) (pos := 0) (e := mkEv 2 (KClose 5));
@@ -1198,17 +1152,16 @@ Theorem closed_recv_preserves_inv :
 Proof. intros cfg' Hstep Hinv. exact (step_preserves_inv _ _ Hstep Hinv). Qed.
 
 (** ============================================================================
-    STEP 1.2 + 1.3 + real memory — a RICH calculus: VALUES, a HEAP, value-dependent
-    control (a command TREE with bind), dynamic spawn, AND a refinement showing the
-    channel operations implement the [run_io] channel-buffer laws.
+    THE RICH CALCULUS: VALUES, a HEAP, value-dependent control (a command TREE with
+    bind), dynamic spawn, and a refinement showing the channel operations implement
+    the [run_io] channel-buffer laws.
 
-    The keystone's substance: a faithful concurrent model of actual Fido programs —
-    channels carry VALUES, reads return them, the continuation functions are [bind]
-    (control branches on received/read values), the HEAP is real — yet it INHERITS
-    the same axiom-free safety theorems (well-formed traces ⇒ hb a strict partial
-    order; ownership ⇒ race-free), reusing [WfTrace]/[hbt]/[Owned]/[owned_race_free].
-    And [rchan] (its channel value-FIFO) evolves EXACTLY as the [run_io] [chan_buf]
-    laws specify, so it is a sound model of Fido's IO channels.
+    Channels carry VALUES, reads return them, continuations are [bind] (control
+    branches on received/read values), the HEAP is real — and it INHERITS the same
+    axiom-free safety theorems (well-formed traces ⇒ hb a strict partial order;
+    ownership ⇒ race-free), reusing [WfTrace]/[hbt]/[Owned]/[owned_race_free].
+    [rchan] (the channel value-FIFO) evolves EXACTLY as the [run_io] [chan_buf]
+    laws specify.
     ============================================================================ *)
 
 (* DECIDABLE "channel [c] is closed": some [KClose c] event sits in the trace (closed-state is read
@@ -1254,16 +1207,14 @@ Inductive Cmd : Type :=
   | CClose : nat -> Cmd -> Cmd.                  (* close(c), then continue.  A recv/select on a
                                                     CLOSED, drained channel becomes READY (binds the
                                                     zero value): rstep_close / rstep_recv_closed /
-                                                    rstep_select_closed — the rich-calculus port of
-                                                    the simple-calculus closed-channel slice. *)
+                                                    rstep_select_closed. *)
   (* [select] over recv cases, each a (channel, value-binding continuation) PAIR — the
-     AUTHORITATIVE select in the rich value-carrying calculus (typed [run_io] [select_recv2]
-     is a non-authoritative ch1-priority interpreter).  Unlike the
-     simple-calculus [PSelect] (which shared ONE continuation across cases), each case carries its
-     OWN continuation, so [select { case <-ch: A() | case <-ch: B() }] — same channel, distinct
-     bodies — is representable and BOTH cases are eligible (Go may pick either).  [rstep_select]
-     below fires for EVERY ready case, so select is genuinely NONDETERMINISTIC; when no case is
-     ready it has no step, so empty-select is a LOCAL non-step feeding global deadlock [RStuck]. *)
+     AUTHORITATIVE select in the rich calculus (typed [run_io] [select_recv2] is a
+     non-authoritative ch1-priority interpreter).  Each case carries its OWN continuation, so
+     [select { case <-ch: A() | case <-ch: B() }] — same channel, distinct bodies — is
+     representable and BOTH cases are eligible.  [rstep_select] fires for EVERY ready case
+     (genuinely NONDETERMINISTIC); with no ready case there is no step — empty-select is a
+     LOCAL non-step feeding global deadlock [RStuck]. *)
 
 Record RConfig := mkRCfg {
   rc_prog  : nat -> Cmd;
@@ -1294,14 +1245,12 @@ Inductive rstep : RConfig -> RConfig -> Prop :=
       rstep (mkRCfg p b h lv tr)
             (mkRCfg (upd p tid (f (h l))) b h lv
                     (tr ++ [mkEv tid (KRead l)]))
-  (* spawn emits BOTH the parent's [KSpawn cid] AND the child's [KStart (length tr)] —
-     atomically GROUNDING Go's "the [go] statement happens-before the start of the goroutine's
-     execution" (go.dev/ref/mem) in the operational semantics: the [KStart]'s back-pointer is the
-     position of the [KSpawn] just emitted ([length tr]), so the fork synchronisation edge ([sync]
-     [KStart]->[KSpawn]) is now PRODUCED BY EXECUTION rather than hand-built in a witness trace.
-     ([KStart] carries the child [tid], so it joins the child's program order; pinning it right
-     after [KSpawn] is one valid linearisation and introduces NO spurious happens-before edge — [hbt]
-     is [po] (same-tid) U [sync] only, never global trace order — see [fork_exec_trace] below.) *)
+  (* spawn emits BOTH the parent's [KSpawn cid] AND the child's [KStart (length tr)] — Go's
+     "the [go] statement happens-before the start of the goroutine's execution" (go.dev/ref/mem):
+     the [KStart]'s back-pointer is the [KSpawn] just emitted, so the fork sync edge is produced
+     by execution.  Pinning [KStart] right after [KSpawn] is one valid linearisation and adds NO
+     spurious happens-before edge — [hbt] is [po] (same-tid) ∪ [sync] only, never global trace
+     order. *)
   | rstep_spawn : forall p b h lv tr tid child k cid,
       lv tid = true -> p tid = CSpawn child k -> lv cid = false ->
       rstep (mkRCfg p b h lv tr)
@@ -1472,31 +1421,20 @@ Proof.
 Qed.
 
 (** ============================================================================
-    LIMIT #2 — PART 2, brick 1: PRIVATE-MEMORY DISCIPLINE ⇒ reachable race-freedom
-    (the ABSTRACT-OWNERSHIP base case — arbitrary N, an INDUCTIVE INVARIANT, no
-    per-program state-enumeration).
-
-    The trace disciplines (LocPrivate / HandoffDisciplined / SyncDisciplined) say a
-    GIVEN trace is [Owned]; [reachable_owned_safe_r] still needs [Owned] as a HYPOTHESIS.
-    This brick EARNS race-freedom from a STRUCTURAL PROGRAM property, for an arbitrary
-    number of goroutines, the way the general N-goroutine theorem must — a Keller-style
-    invariant preserved by EVERY [rstep], NOT a per-program phase enumeration (which
-    explodes).  It is the CSL ownership base case: OWNERSHIP WITHOUT TRANSFER.
+    PRIVATE-MEMORY DISCIPLINE ⇒ reachable race-freedom (ownership WITHOUT transfer;
+    arbitrary N, an INDUCTIVE INVARIANT preserved by every [rstep] — no per-program
+    state enumeration).
 
     Discipline: a static owner map [own : loc -> tid] gives each location ONE owner, and
     every goroutine's program only ever reads/writes locations IT owns ([OnlyAcc]).  Then
     no two goroutines ever touch one location, so every reachable trace is [LocPrivate] —
     hence [Owned], hence race-free — for ANY number of goroutines.  Spawn is admitted for a
-    MEMORY-FREE child ([OA_spawn] + [MemFree] below): a channel-only goroutine touches no heap,
-    so it owns nothing and cannot race — DYNAMIC [CSpawn] of such a child preserves the discipline
-    (the bounded first step past the spawn-free base).  Ownership-SPLIT (a child that inherits SOME
-    of the parent's locations) and ownership-TRANSFER on send→recv remain the next bricks.
-    Proof-only (concurrency.v emits no Go). *)
+    MEMORY-FREE child ([OA_spawn] + [MemFree] below): a channel-only goroutine touches no
+    heap, so it owns nothing and cannot race.  Proof-only (concurrency.v emits no Go). *)
 
 (* A [MemFree] command touches NO shared memory — only channels (send/recv/select/close), spawn of
    further memory-free children, and return.  A memory-free goroutine is vacuously [OnlyAcc P] for ANY
-   owner [P] ([memfree_onlyacc]), so the private-memory discipline can admit its DYNAMIC spawn without a
-   dynamic owner map (the channel-relay goroutines of the cursed demo are exactly this shape). *)
+   owner [P] ([memfree_onlyacc]), so the discipline admits its DYNAMIC spawn without a dynamic owner map. *)
 Inductive MemFree : Cmd -> Prop :=
   | MF_ret    : MemFree CRet
   | MF_send   : forall c v k, MemFree k -> MemFree (CSend c v k)
@@ -1569,22 +1507,17 @@ Lemma acc_loc_at_app_new : forall (t : Trace) e,
 Proof. intros t e. unfold acc_loc_at. rewrite nth_error_app_new. reflexivity. Qed.
 
 (** ============================================================================
-    INCREMENTAL [Owned] — the reusable core for the GENERAL dynamic-ownership invariant.
+    INCREMENTAL [Owned] — [Owned] preserved one appended access at a time, so an
+    [rstep]-indexed induction can carry it.
 
-    The per-program transfer witnesses ([mp]/[fork]/[xfer]/[dst]) all establish [Owned] by
-    WHOLE-TRACE phase enumeration (a [...Reach] disjunction over the finitely-many reachable
-    states), which does NOT generalise to arbitrary programs (phase explosion).  The abstract
-    invariant instead needs [Owned] preserved ONE APPENDED ACCESS AT A TIME, so that an
-    [rstep]-indexed induction can carry it.  [owned_snoc] is that step: appending a memory
-    access to location [L] preserves [Owned] PROVIDED the new access is happens-before-after
-    EVERY prior access to [L] (its only new conflicting partners).  [owned_step_snoc] then
-    reduces that to a SINGLE per-step obligation — happens-before from the location's PREVIOUS
-    access ([lp L], the last-position map) to the new one — by carrying the auxiliary
-    [AccBeforeLast] invariant (every past access hb-before its location's latest).  This is
-    exactly the obligation a dynamic OWNER argument discharges (same owner ⇒ program order;
-    transferred owner ⇒ the send/recv or spawn/start synchronisation edge), so it is the clean
-    interface between the trace-level race theory and the forthcoming ownership-transfer
-    reachability proof.  All [hbt]-based and append-monotone — no [WfTrace] needed.
+    [owned_snoc]: appending a memory access to location [L] preserves [Owned]
+    PROVIDED the new access is hb-after EVERY prior access to [L].  [owned_step_snoc]
+    reduces that to ONE per-step obligation — happens-before from the location's
+    PREVIOUS access ([lp L], the last-position map) to the new one — by carrying
+    [AccBeforeLast] (every past access hb-before its location's latest).  A dynamic
+    OWNER argument discharges that obligation (same owner ⇒ program order;
+    transferred owner ⇒ the send/recv or spawn/start sync edge).  All [hbt]-based
+    and append-monotone — no [WfTrace] needed.
     ============================================================================ *)
 
 (* The newly-appended event's accessed location, when it IS a memory access. *)
@@ -1753,24 +1686,18 @@ Proof.
 Qed.
 
 (** ============================================================================
-    OWNERSHIP-TRANSFER DISCHARGE — turning [owned_step_snoc]'s per-step obligation into the
-    OWNER argument.  [owned_step_snoc] reduced preserving [Owned] across a new access to a single
-    obligation: [hbt (t ++ [e]) (lp L) (length t)] (the new access is hb-after L's PREVIOUS access).
-    [AcqConn] is the per-location witness a dynamic OWNER carries to discharge it: location [L] is
-    held by goroutine [g], and L's last access [lp L] is hb-connected to a position [acq L] that is
-    [g]'s own — program-ordered before whatever [g] does next.  Three transitions, proved standalone
-    (no [WfTrace], axiom-free), are the trace-level moves the forthcoming config invariant
-    [region_inv_step] threads over [rstep]:
-      - [acqconn_hbt_new]   : any new [g]-event after [acq L] is hb-after [lp L] — discharges an
-                              ACCESS's obligation AND supplies a SEND's buffer hb-support (one lemma);
-      - [owned_step_by_owner]: composing it INTO [owned_step_snoc] — an OWNER's access preserves
-                              [Owned] (the core safety step of the transfer reachability proof);
-      - [acqconn_after_access]: after [g] accesses [L], the connection re-establishes at the new pos;
-      - [recv_establishes_acqconn]: a RECV acquires [L] — the buffer carried the sender's support
-                              [hbt t (lp L) s], the recv's back-pointer is [s], so the new owner is
-                              connected through the send→recv [sync] edge.
-    [WT] (below) is the matching PROGRAM discipline: a LINEAR region-threading typing — send RELEASES
-    the sent location, recv ACQUIRES it ([OnlyAcc] is non-linear, so cannot express transfer).
+    OWNERSHIP-TRANSFER DISCHARGE of [owned_step_snoc]'s per-step obligation.
+    [AcqConn] is the per-location witness a dynamic OWNER carries: location [L] is
+    held by goroutine [g], and L's last access [lp L] is hb-connected to a position
+    [acq L] in [g]'s own program order.  Standalone (no [WfTrace], axiom-free):
+      - [acqconn_hbt_new]    : any new [g]-event after [acq L] is hb-after [lp L] —
+                               discharges an ACCESS's obligation AND a SEND's buffer hb-support;
+      - [owned_step_by_owner]: an OWNER's access preserves [Owned];
+      - [acqconn_after_access]: after [g] accesses [L], the connection re-establishes there;
+      - [recv_establishes_acqconn]: a RECV acquires [L] — the buffer carried the sender's
+                               support [hbt t (lp L) s], the recv's back-pointer is [s].
+    [WT] (below) is the matching PROGRAM discipline: a LINEAR region-threading typing — send
+    RELEASES the sent location, recv ACQUIRES it ([OnlyAcc] is non-linear, cannot express transfer).
     ============================================================================ *)
 
 Definition AcqConn (t : Trace) (lp acq : nat -> nat) (L g : nat) : Prop :=
@@ -1887,15 +1814,16 @@ Lemma wt_receiver : WT (fun _ => false) (CRecv 0 (fun x => CWrite x 0 CRet)).
 Proof. apply WT_recv. intro v. apply WT_write; [apply radd_same | apply WT_ret]. Qed.
 
 (** ============================================================================
-    THE CONFIG INVARIANT [RegionInv] — assembling bricks 1+2 into a GENERAL transfer race-freedom
-    result for arbitrary pointer-handoff programs (no per-program phase enumeration).  A single-valued
-    ghost [own : nat -> Owner] (Held g | Transit) gives DISJOINTNESS for free (a location has one
-    owner); each live goroutine's program is [WT]-typed under its held region [heldby own g]; the
-    channel buffer holds the in-transit locations with the sender's hb-support; and per held+accessed
-    location an [AcqConn] witness pins the owner to the trace, carrying [Owned] forward by
-    [owned_step_snoc].  [region_inv_step] proves EVERY [rstep] preserves it (write/read = owner access,
-    send = release, recv = acquire; spawn/select/close vacuous by [WT]-inversion, closed-recv by
-    [NoClose]); hence every reachable trace is [Owned] — race-free, ALL interleavings.
+    THE CONFIG INVARIANT [RegionInv] — general transfer race-freedom for arbitrary
+    pointer-handoff programs (no per-program phase enumeration).  A single-valued
+    ghost [own : nat -> Owner] (Held g | Transit) gives DISJOINTNESS for free; each
+    live goroutine's program is [WT]-typed under its held region [heldby own g]; the
+    channel buffer holds the in-transit locations with the sender's hb-support; per
+    held+accessed location an [AcqConn] witness pins the owner to the trace, carrying
+    [Owned] forward by [owned_step_snoc].  [region_inv_step] proves EVERY [rstep]
+    preserves it (write/read = owner access, send = release, recv = acquire;
+    spawn/select/close vacuous by [WT]-inversion, closed-recv by [NoClose]); hence
+    every reachable trace is [Owned] — race-free, ALL interleavings.
     ============================================================================ *)
 
 Inductive Owner := Held (g : nat) | Transit.
@@ -2793,8 +2721,7 @@ Qed.
    (split); the child SENDS the pointer on channel 0 (channel handoff); g1 receives the pointer and
    writes through it.  Loc 7 thus travels g0 →(fork)→ child →(channel)→ g1 — two DIFFERENT transfer
    mechanisms in sequence — yet the cross-goroutine write/WRITE on cell 7 (g0's vs g1's) is race-free
-   for EVERY interleaving, straight from [region_inv_race_free].  This is the general theorem subsuming
-   the bespoke spawn+channel ([dst]) phase-enumeration witness. *)
+   for EVERY interleaving, straight from [region_inv_race_free]. *)
 Definition combo_prog : nat -> Cmd :=
   fun t => if Nat.eqb t 0 then CWrite 7 1 (CSpawn (CSend 0 7 CRet) CRet)
            else if Nat.eqb t 1 then CRecv 0 (fun x => CWrite x 2 CRet)
@@ -3625,8 +3552,7 @@ Qed.
    ([CSend 0 0 CRet] — touches no heap) then writes its OWN location 0.  With [own := fun _ => 0]
    (goroutine 0 owns everything; the child owns nothing and touches nothing) the discipline holds at
    init, so EVERY interleaving — INCLUDING after the runtime spawn of the second goroutine — is
-   race-free, for a program that is NOT spawn-free.  The old [OnlyAcc]-has-no-spawn base could not even
-   state this. *)
+   race-free, for a program that is NOT spawn-free. *)
 Definition spawn_prog : nat -> Cmd :=
   fun t => if Nat.eqb t 0
            then CSpawn (CSend 0 0 CRet) (CWrite 0 0 CRet)
@@ -3653,12 +3579,9 @@ Proof.
   exact (proj2 (private_disc_reachable_race_free (fun _ => 0) spawn_init cfg spawn_init_disc Hsteps)).
 Qed.
 
-(* THE CURSED-DEMO CONCURRENCY SHAPE (frontier 2 at the calculus level), proven race-free.
-   The cursed demo is [type Cursed struct { Cu_chans []chan ChanBox ; Cu_list *ListNode }] — the MAIN
-   goroutine owns the HEAP (the [*ListNode], here location 0) and SPAWNS channel-relay goroutines (the
-   self-sending-channel goroutines — they only touch channels, [MemFree]); main then recvs the relayed
-   values and reads/writes its own list.  This is EXACTLY [OA_spawn]'s shape: memory owned by one
-   goroutine, dynamic spawns of memory-free children — so it is race-free, for EVERY interleaving, by
+(* THE CURSED-DEMO CONCURRENCY SHAPE, proven race-free.  The main goroutine owns the HEAP (loc 0)
+   and SPAWNS channel-relay goroutines (channels only, [MemFree]); main then recvs the relayed values
+   and reads/writes its own list — exactly [OA_spawn]'s shape, so race-free for EVERY interleaving by
    the discipline alone.  (Modulo the typed↔operational bridge from the extracted Go to this calculus.) *)
 Definition cursed_spawn_prog : nat -> Cmd :=
   fun t => if Nat.eqb t 0
@@ -3712,14 +3635,10 @@ Proof.
   exact (proj2 (private_disc_reachable_race_free (fun _ => 0) cfg0 cfg HPD Hsteps)).
 Qed.
 
-(** ---- Grounding Go's "go-before-start" in EXECUTION (concurrency research-plan 1.1) ----
-    [fork_handoff_trace] / [fork_handoff_race_free] (defined way above) were HAND-BUILT traces:
-    we asserted the events and proved the fork edge made the write/read non-racy.  Now that
-    [rstep_spawn] EMITS the child's [KStart], that very trace is PRODUCED BY RUNNING a program:
-    [main] writes loc 7, spawns a child, the child reads loc 7.  Executing it yields EXACTLY
-    [fork_handoff_trace] ([fork_exec_trace]) — so the fork synchronisation is no longer an
-    assertion about a literal but a CONSEQUENCE of the operational semantics, and race-freedom
-    then drops out of [reachable_owned_safe_r] ([fork_exec_race_free]).  This is the operational
+(** ---- Go's "go-before-start", grounded in EXECUTION ----
+    [rstep_spawn] EMITS the child's [KStart], so RUNNING [fork_prog] ([main] writes loc 7, spawns
+    a child, the child reads loc 7) yields EXACTLY [fork_handoff_trace] ([fork_exec_trace]);
+    race-freedom drops out of [reachable_owned_safe_r] ([fork_exec_race_free]) — the operational
     analogue of "the [go] statement happens-before the start of the goroutine's execution". *)
 Definition fork_child : Cmd := CRead 7 (fun _ => CRet).
 Definition fork_prog : nat -> Cmd :=
@@ -3753,14 +3672,11 @@ Proof.
   rewrite Htr. exact fork_handoff_owned.
 Qed.
 
-(** ---- FORK handoff, PARAMETRIC over the spawned child's tid (the dynamic-CSpawn subtlety). ----
-    [fork_handoff_trace] hardcoded the child tid [1], but [rinit_cfg fork_prog] starts only goroutine 0
-    live, so [rstep_spawn] picks ANY fresh [cid <> 0].  Here the fork handoff is [Owned] — hence
-    race-free — for EVERY such [cid]: the write/read conflict (positions 0/3) is ordered by the SAME
-    spawn synchronisation ([transfer_orders] over the [KSpawn cid]→[KStart] edge) regardless of which
-    fresh tid the scheduler chose.  This is the foundation the all-interleavings result needs (phase E's
-    [Owned] for an arbitrary spawned child); the [ForkReach] reachability invariant pinning every
-    reachable state to a prefix of [fork_trace_cid cid] is the next brick. *)
+(** ---- FORK handoff, PARAMETRIC over the spawned child's tid. ----
+    [rstep_spawn] picks ANY fresh [cid <> 0], so the fork handoff must be [Owned] — hence
+    race-free — for EVERY such [cid]: the write/read conflict (positions 0/3) is ordered by the
+    SAME spawn synchronisation ([transfer_orders] over the [KSpawn cid]→[KStart] edge) regardless
+    of which fresh tid the scheduler chose. *)
 Definition fork_trace_cid (cid : nat) : Trace :=
   [ mkEv 0 (KWrite 7); mkEv 0 (KSpawn cid); mkEv cid (KStart 1); mkEv cid (KRead 7) ].
 Lemma fork_loc_pos_cid : forall cid i l, acc_loc_at (fork_trace_cid cid) i = Some l -> i = 0 \/ i = 3.
@@ -3783,11 +3699,11 @@ Qed.
 Theorem fork_race_free_cid : forall cid, TraceRaceFree (fork_trace_cid cid).
 Proof. intro cid. exact (owned_race_free _ (fork_owned_cid cid)). Qed.
 
-(** EVERY interleaving of the fork-handoff program is race-free — the spawn analogue of
-    [mp_all_interleavings_race_free], and HARDER (the goroutine set is DYNAMIC: the child tid is freshly
-    spawned).  [ForkReach] is the 4-phase reachability invariant over [rinit_cfg fork_prog]; the child tid
-    [cid] is EXISTENTIAL in the post-spawn phases, and the live set there is the [upd]-form the operational
-    [rstep_spawn] produces (so no funext).  [fork_live_cases] bounds the stepping goroutine to {0, cid}. *)
+(** EVERY interleaving of the fork-handoff program is race-free — with a DYNAMIC goroutine set (the
+    child tid is freshly spawned).  [ForkReach] is the 4-phase reachability invariant over
+    [rinit_cfg fork_prog]; the child tid [cid] is EXISTENTIAL in the post-spawn phases, and the live
+    set is the [upd]-form [rstep_spawn] produces (so no funext).  [fork_live_cases] bounds the
+    stepping goroutine to {0, cid}. *)
 Lemma fork_live_cases : forall cid tid,
   upd (fun t => Nat.eqb t 0) cid true tid = true -> tid = 0 \/ tid = cid.
 Proof.
@@ -4132,41 +4048,34 @@ Proof.
 Qed.
 
 (** ============================================================================
-    STEP 1 KEYSTONE — the TERM-LEVEL bridge: a rich-calculus channel step
-    SIMULATES [run_io] of the program's DENOTATION.
+    THE TERM-LEVEL BRIDGE: a rich-calculus channel step SIMULATES [run_io] of the
+    program's DENOTATION.
 
     [Cmd] is the DEEP embedding of an IO program.  [Denotes c m] is the deep↔shallow
-    correspondence — built as a RELATION because [CRecv]'s continuation is a Coq
-    function [nat -> Cmd], so a denotation FUNCTION cannot structurally recurse, but
-    the relation pairs each [Cmd] with the [IO] term it stands for.  Then
-    [denote_sim_send] / [denote_sim_recv] show that ONE [rstep] channel action
-    run-reduces the [IO] denotation EXACTLY as the [run_io] laws specify, while the
-    channel buffer stays matched ([WMatch1]).  This is the missing link: it ties the
-    abstract [rstep] (where race-freedom is PROVEN) to the actual [run_io]/[World]
-    model we EXTRACT from — grounded in the real IO laws [run_bind]/[run_send]/
-    [run_recv]/[chan_buf_send]/[chan_buf_recv] (no NEW axioms; [Print Assumptions]
-    below shows exactly that base).
+    correspondence — a RELATION because [CRecv]'s continuation is a Coq function
+    [nat -> Cmd], so a denotation FUNCTION cannot structurally recurse.
+    [denote_sim_send] / [denote_sim_recv]: ONE [rstep] channel action run-reduces the
+    [IO] denotation EXACTLY as the [run_io] laws specify, with the channel buffer
+    matched ([WMatch1]) — tying [rstep] (where race-freedom is PROVEN) to the
+    [run_io]/[World] model we EXTRACT from, grounded in [run_bind]/[run_send]/
+    [run_recv]/[chan_buf_send]/[chan_buf_recv] (no NEW axioms; see [Print Assumptions]
+    below).
 
-    Value carrier = [GoI64] (the FULL-WIDTH Go int64, tag [TI64], [Z]-carried — NOT
-    the bounded [Sint63] [int]); [recv] needs a [GoTypeTag] and [GoTypeTag nat] is
-    provably EMPTY, so calculus [nat] values are coded into IO [GoI64] by [inj]/[prj].
-    [Hret] (the round-trip [prj (inj n) = n]) is the faithful-coding condition.  HONEST SCOPE (break #1):
-    the UNBOUNDED form [forall n : nat, prj (inj n) = n] is IMPOSSIBLE — an injection [nat ↪ GoI64] with a
-    left inverse cannot exist ([GoI64] is FINITE).  It holds only over the REPRESENTABLE range; the concrete
-    coding [keystone_inj]/[keystone_prj] below round-trips exactly when [Z.of_nat n < 2^63]
-    ([keystone_roundtrip], machine-checked) — a value outside that range is not a real Go int64 anyway.  The
-    section still carries the abstract unbounded [Hret] as a Hypothesis (so it is currently INSTANTIABLE only
-    vacuously); re-founding the bridge on the bounded round-trip (threading a representability predicate
-    through [OnChan]/[SimInv]/[denote_sim_*]/[denote_adequate] + the heap analogues) is the remaining work —
-    see PROGRESS.md.  The realizable coding + its bounded round-trip are PROVED here as that foundation.
+    Value carrier = [GoI64] (full-width Go int64, tag [TI64], [Z]-carried); [recv]
+    needs a [GoTypeTag] and [GoTypeTag nat] is provably EMPTY, so calculus [nat]
+    values are coded into IO [GoI64] by [inj]/[prj].  HONEST SCOPE: the UNBOUNDED
+    round-trip [forall n : nat, prj (inj n) = n] is IMPOSSIBLE ([GoI64] is FINITE);
+    it holds only over the REPRESENTABLE range — [keystone_inj]/[keystone_prj]
+    round-trip exactly when [Z.of_nat n < 2^63] ([keystone_roundtrip]).  The section
+    carries the abstract [Hret] as a Hypothesis, restricted by [Vrep]; re-founding
+    the remaining unbounded uses on the bounded round-trip is tracked in PROGRESS.md.
 
     SPAWN is deliberately ABSENT from this bridge: [go_spawn] has NO [run_io] law,
-    because [run_io] is SEQUENTIAL and cannot express interleaving.  That is exactly
-    why the calculus is the model for concurrency and why the race-freedom guarantee
-    lives on [rstep], not on [run_io].
+    because [run_io] is SEQUENTIAL and cannot express interleaving — the race-freedom
+    guarantee lives on [rstep], not on [run_io].
     ============================================================================ *)
 (** The CONCRETE realizable coding [keystone_inj]/[keystone_prj] and its bounded round-trip
-    [keystone_roundtrip] are defined in [builtins.v] (where [Z]/[i64wrap] live) — the break-#1 foundation. *)
+    [keystone_roundtrip] are defined in [builtins.v] (where [Z]/[i64wrap] live). *)
 
 Section Keystone.
   Variable chenv : nat -> GoChan GoI64.    (* calculus channel id -> the IO channel *)
@@ -4174,8 +4083,8 @@ Section Keystone.
   Variable inj : nat -> GoI64.             (* calculus value -> IO value (a coding) *)
   Variable prj : GoI64 -> nat.             (* IO value -> calculus value *)
   Variable Vrep : nat -> Prop.             (* "representable": a value the coding handles faithfully (fits int64) *)
-  (* Break #1 fix: the round-trip is REALIZABLE — it holds only on REPRESENTABLE values, not all of [nat]
-     (an unbounded [forall n, prj (inj n) = n] is impossible, [GoI64] finite).  Instantiate with
+  (* The round-trip holds only on REPRESENTABLE values, not all of [nat] (an unbounded
+     [forall n, prj (inj n) = n] is impossible, [GoI64] finite).  Instantiate with
      [Vrep n := Z.of_nat n < 2^63], [inj := keystone_inj], [prj := keystone_prj], [Hret := keystone_roundtrip]. *)
   Hypothesis Hret  : forall n, Vrep n -> prj (inj n) = n.
   Hypothesis Vrep0 : Vrep 0.               (* the zero value is representable (the initial heap holds it) *)
@@ -4444,11 +4353,9 @@ Section Keystone.
   Qed.
 
   (** ── The MEMORY analogue of [denote_adequate]: single-goroutine adequacy for a HEAP program. ──
-      [OnChan]/[denote_adequate] above cover send/recv on a channel; this covers WRITE/READ on a
-      single location [l], reusing the per-step [denote_sim_write]/[denote_sim_read].  It is the heap
-      half of the eventual combined (channel + memory) multi-goroutine adequacy (limit #2 slice 2c);
-      stated single-goroutine, single-location here.  [OnLoc] is the syntactic restriction
-      (write/read on [l] only); the World heap cell at [l] stays matched to the calculus heap. *)
+      Covers WRITE/READ on a single location [l], reusing [denote_sim_write]/[denote_sim_read].
+      [OnLoc] is the syntactic restriction (write/read on [l] only); the World heap cell at [l]
+      stays matched to the calculus heap. *)
   Inductive OnLoc (l : nat) : Cmd -> Prop :=
     | OL_ret   : OnLoc l CRet
     | OL_write : forall v k, Vrep v -> OnLoc l k -> OnLoc l (CWrite l v k)   (* written values are representable *)
@@ -4549,36 +4456,27 @@ Section Keystone.
 
 End Keystone.
 
-(** NON-VACUITY of the refounded bridge (break #1, slice 2c): instantiate the abstract value-coding with
-    the CONCRETE [keystone_inj]/[keystone_prj] and representability [Vrep64 n := Z.of_nat n < 2^63].  The
-    section hypotheses are then DISCHARGED — [keystone_roundtrip] is exactly [Hret], [Vrep64_0] is [Vrep0].
-    So [denote_adequate] / [denote_adequate_mem] hold for a REAL coding: the typed↔operational bridge
-    genuinely connects the calculus to the emitted Go (for representable = real int64 values), no longer a
-    vacuous implication parameterised by an impossible round-trip. *)
+(** NON-VACUITY: instantiating the abstract value-coding with the CONCRETE [keystone_inj]/[keystone_prj]
+    and representability [Vrep64 n := Z.of_nat n < 2^63] DISCHARGES the section hypotheses
+    ([keystone_roundtrip] is [Hret], [Vrep64_0] is [Vrep0]) — so [denote_adequate] /
+    [denote_adequate_mem] hold for a REAL coding (representable = real int64 values). *)
 Definition denote_adequate_keystone (chenv : nat -> GoChan GoI64) (locenv : nat -> Ref GoI64) :=
   denote_adequate chenv locenv keystone_inj keystone_prj Vrep64 keystone_roundtrip.
 Definition denote_adequate_mem_keystone (chenv : nat -> GoChan GoI64) (locenv : nat -> Ref GoI64) :=
   denote_adequate_mem chenv locenv keystone_inj keystone_prj Vrep64 keystone_roundtrip Vrep64_0.
 
 (** ════════════════════════════════════════════════════════════════════════════
-    LIMIT #2, slice 1 — TYPED POINTERS ARE THE OPERATIONAL CALCULUS'S LOCATIONS.
+    TYPED POINTERS ARE THE OPERATIONAL CALCULUS'S LOCATIONS.
 
-    The Keystone refines the operational calculus to the [run_io] World, but its memory
-    cells are abstract [Ref]s reached through a [locenv], and the race/deadlock theory
-    ([mp_trace], [Owned], [TraceRaceFree]) reasons over UNTYPED [nat] locations.  This
-    section closes the typed-location half of limit #2 for POINTERS: the operational
-    memory steps [rstep_write]/[rstep_read] are simulated by the EXTRACTABLE Go-pointer
-    derefs [ptr_set]/[ptr_get] — exactly what the plugin emits as [*p = v] / [*p].  So a
-    calculus location [l] is not an abstract [nat] but a genuine, runnable *T cell: the
-    pointer [ptrenv l].
-
-    The deref ops are DEFINITIONALLY the Keystone's ref-accesses at [ptr_as_ref]
-    ([ptr_set_is_ref]/[ptr_get_is_ref]), so the bridge inherits read-after-write +
-    aliasing with no new heap and no new axiom.  SCOPE (honest): this is the per-cell
-    memory bridge — it identifies the calculus location with the extractable *T.  The
-    multi-goroutine execution that GENERATES [mp_trace] from a typed pointer-handoff
-    program — tying [mp_trace_race_free] to the typed *T end-to-end — is slice 2 (it
-    needs a multi-goroutine [Denotes]); deliberately NOT claimed here. *)
+    The operational memory steps [rstep_write]/[rstep_read] are simulated by the
+    EXTRACTABLE Go-pointer derefs [ptr_set]/[ptr_get] — exactly what the plugin emits
+    as [*p = v] / [*p] — so a calculus location [l] is a genuine, runnable *T cell:
+    the pointer [ptrenv l].  The deref ops are DEFINITIONALLY the Keystone's
+    ref-accesses at [ptr_as_ref] ([ptr_set_is_ref]/[ptr_get_is_ref]), so the bridge
+    inherits read-after-write + aliasing with no new heap and no new axiom.
+    SCOPE (honest): this is the per-cell memory bridge only; tying
+    [mp_trace_race_free] to the typed *T end-to-end needs a multi-goroutine
+    [Denotes] and is deliberately NOT claimed here. *)
 Section KeystonePtr.
   Variable ptrenv : nat -> Ptr GoI64.   (* calculus location -> the extractable Go pointer *)
   Variable inj : nat -> GoI64.          (* calculus value    -> coded IO value *)
@@ -4587,9 +4485,9 @@ Section KeystonePtr.
   Definition plocenv (l : nat) : Ref GoI64 := ptr_as_ref TI64 (ptrenv l).
 
   (* The bridge's pointers are LIVE (non-nil): a calculus location maps to an ALLOCATED *T cell, whose
-     handle is nonzero (break #5: [valid_fresh_nonzero] — allocators never return location 0).  This is
-     the standing modeling assumption that lets the raw [ptr_set]/[ptr_get] (which now PANIC on nil,
-     break #6) coincide with the bridge ref-accesses. *)
+     handle is nonzero ([valid_fresh_nonzero] — allocators never return location 0).  This standing
+     modeling assumption lets the raw [ptr_set]/[ptr_get] (which PANIC on nil) coincide with the
+     bridge ref-accesses. *)
   Hypothesis ptrenv_live : forall l, Nat.eqb (p_loc (ptrenv l)) 0 = false.
 
   (* EXTRACTABLE deref = bridge ref-access: on a live pointer the *T ops the plugin emits ARE the ref
@@ -4645,29 +4543,19 @@ Section KeystonePtr.
   Qed.
 End KeystonePtr.
 
-(** PAYOFF (honest, prose — NOT a fabricated theorem).  Combine this section with the operational
-    race theory.  [mp_trace] (write loc 0 → send ⤳ recv → read loc 0) is [TraceRaceFree]
-    ([mp_trace_race_free]); its conflicting cross-goroutine pair — the write at pos 0 and the read
-    at pos 3 of location 0 — is happens-before ordered through the channel handoff ([mp_trace_hb_0_3]),
-    hence not a [TraceRace].  By [KeystonePtr], that location 0 is a genuine EXTRACTABLE pointer
-    [ptrenv 0] (an *int64), and its write/read ARE [ptr_set]/[ptr_get] on it ([ptr_write_sim] /
-    [ptr_read_sim]).  So the operational race guarantee is now known to concern a real *T cell, not an
-    abstract [nat].  EXECUTION direction — slice 2a (below, [mp_exec_trace]) now GROUNDS [mp_trace] in
-    a real run; what remains (slice 2b) is the TYPED tie: a multi-goroutine [Denotes] proving a typed
-    pointer-handoff IO program denotes that very execution — only then is the typed program's
-    race-freedom a single closed theorem rather than an identification.  Stated, not overstated. *)
+(** SCOPE (honest, prose — NOT a fabricated theorem).  By [KeystonePtr], [mp_trace]'s location 0 is a
+    genuine EXTRACTABLE pointer [ptrenv 0] (an *int64) whose write/read ARE [ptr_set]/[ptr_get]
+    ([ptr_write_sim]/[ptr_read_sim]) — so the race guarantee concerns a real *T cell.  What is NOT
+    claimed: a multi-goroutine [Denotes] proving a typed pointer-handoff IO program denotes that very
+    execution — only that would make the typed program's race-freedom one closed theorem rather than
+    an identification. *)
 
-(** ── LIMIT #2, slice 2a — [mp_trace] is GENERATED by a real execution (not hand-built). ──
-    Slice 1 identified [mp_trace]'s shared location with the extractable pointer [ptrenv 0], but
-    [mp_trace] was a HAND-WRITTEN trace — we asserted its events.  Here the SAME trace is PRODUCED BY
-    RUNNING a two-goroutine pointer-handoff program: g0 writes loc 0 then sends ch 0; g1 recvs ch 0
-    then reads loc 0.  Executing the canonical interleaving (write, send, recv, read) yields EXACTLY
-    [mp_trace] — the send records its own trace position 1 in the buffer, so g1's recv emits [KRecv 0 1]
-    — so its race-freedom ([mp_trace_race_free]) is no longer about a literal but about a REACHABLE
-    state of an actual program ([mp_exec_race_free]).  This is the operational analogue of
-    [fork_exec_trace], now for the message-passing/handoff shape the typed pointer bridge targets.  Both
-    goroutines are pre-live (no spawn — [mp_trace] records none; the with-spawn variant is
-    [fork_exec_trace]). *)
+(** ── [mp_trace] is GENERATED by a real execution (not hand-built). ──
+    Running the two-goroutine pointer-handoff program (g0 writes loc 0 then sends ch 0; g1 recvs ch 0
+    then reads loc 0) through the canonical interleaving yields EXACTLY [mp_trace] — the send records
+    its trace position 1 in the buffer, so g1's recv emits [KRecv 0 1] — so [mp_trace_race_free] is
+    about a REACHABLE state of an actual program ([mp_exec_race_free]).  Both goroutines are pre-live
+    (no spawn — [mp_trace] records none; the with-spawn variant is [fork_exec_trace]). *)
 Definition mp_prog (v0 v1 : nat) : nat -> Cmd :=
   fun t => if Nat.eqb t 0 then CWrite 0 v0 (CSend 0 v1 CRet)
            else if Nat.eqb t 1 then CRecv 0 (fun _ => CRead 0 (fun _ => CRet))
@@ -4693,9 +4581,8 @@ Proof.
 Qed.
 
 (** Hence the handoff program's EXECUTION is race-free: the trace it generates is [mp_trace], whose
-    only conflicting cross-goroutine pair (the write/read of loc 0 — the extractable [ptrenv 0] by
-    slice 1) is ordered by the channel handoff.  Race-freedom is now a property of a RUN, not a
-    hand-built literal. *)
+    only conflicting cross-goroutine pair (the write/read of loc 0 — the extractable [ptrenv 0]) is
+    ordered by the channel handoff.  Race-freedom is a property of a RUN, not a hand-built literal. *)
 Theorem mp_exec_race_free : forall v0 v1,
   exists cfg, rsteps (mp_init v0 v1) cfg /\ TraceRaceFree (rc_trace cfg).
 Proof.
@@ -4705,12 +4592,9 @@ Qed.
 
 (** The handoff's OUTCOME, operationally: after the full run, the cell g0 wrote (loc 0) still holds
     [v0] — the value SURVIVED the channel handoff and was the one g1 read — and the channel has
-    DRAINED (buffer empty).  This is the operational mirror of the typed [mp_handoff_delivers] (which
-    delivers [inj v0] through the pointer + drains the channel): BOTH models compute the SAME handoff
-    outcome [v0]/[inj v0], a concrete cross-model agreement.  (The general N-goroutine ADEQUACY — a
-    PROVEN simulation between the interleaved execution and the typed [run_io], generalising the
-    single-goroutine [denote_adequate]/[SimInv] — stays the deferred capstone; it is a multi-tick
-    refactor, not asserted here.) *)
+    DRAINED (buffer empty).  The operational mirror of the typed [mp_handoff_delivers]: BOTH models
+    compute the SAME handoff outcome [v0]/[inj v0].  (The general N-goroutine ADEQUACY — a proven
+    simulation between the interleaved execution and the typed [run_io] — is NOT asserted here.) *)
 Theorem mp_exec_state : forall v0 v1,
   exists cfg, rsteps (mp_init v0 v1) cfg
     /\ rc_trace cfg = mp_trace
@@ -4729,15 +4613,10 @@ Proof.
 Qed.
 
 (** ── OWNERSHIP-TRANSFER handoff is GENERATED by a real execution (write/WRITE). ──
-    [handoff_trace] (the write-WRITE ownership transfer — g0 writes loc 7, hands it off over channel
-    0, then g1 WRITES the same loc 7) was HAND-WRITTEN; [handoff_race_free] proved it race-free at the
-    trace level (the two conflicting writes are ordered by the send→recv, [transfer_orders]).  Here the
-    SAME trace is PRODUCED BY RUNNING a transfer program: g0 = [CWrite 7; CSend 0], g1 = [CRecv 0;
-    CWrite 7].  Executing the canonical interleaving yields EXACTLY [handoff_trace], so its
-    race-freedom is now a property of an actual RUN — the operational analogue of [mp_exec_trace], but
-    for a WRITE/WRITE conflict (mp's is write/READ).  This is the program-level grounding the
-    ownership-TRANSFER principle needed (the prior exec witnesses — mp/fork/dst — are all write/READ
-    handoffs; none had the receiver WRITE the handed-off cell).  Both goroutines pre-live (no spawn). *)
+    Running the transfer program (g0 = [CWrite 7; CSend 0], g1 = [CRecv 0; CWrite 7]) through the
+    canonical interleaving yields EXACTLY [handoff_trace], so its race-freedom is a property of an
+    actual RUN — like [mp_exec_trace], but for a WRITE/WRITE conflict (mp's is write/READ): the
+    receiver WRITES the handed-off cell.  Both goroutines pre-live (no spawn). *)
 Definition xfer_prog (v0 v1 v2 : nat) : nat -> Cmd :=
   fun t => if Nat.eqb t 0 then CWrite 7 v0 (CSend 0 v1 CRet)
            else if Nat.eqb t 1 then CRecv 0 (fun _ => CWrite 7 v2 CRet)
@@ -4746,14 +4625,12 @@ Definition xfer_init (v0 v1 v2 : nat) : RConfig :=
   mkRCfg (xfer_prog v0 v1 v2) (fun _ => []) (fun _ => 0)
          (fun t => orb (Nat.eqb t 0) (Nat.eqb t 1)) [].
 
-(** ── SUBSUMPTION: the flagship bespoke witnesses [mp] (message-passing) and [xfer] (write/WRITE
-    handoff) — whose race-freedom was originally HAND-BUILT phase enumeration ([mp_all_interleavings_
-    race_free] via [MpReach]; [xfer_all_interleavings_race_free] via [XferReach]) — are race-free as
+(** ── SUBSUMPTION: [mp] (message-passing) and [xfer] (write/WRITE handoff) are race-free as
     INSTANCES of the GENERAL unified theorem [region_inv_f_race_free], for ALL values, with the
-    appropriate signal footprint ([sigflp]: channel 0 transfers cell 0; [xferflp]: cell 7).  So the
-    abstract ownership invariant SUBSUMES the per-program proofs.  And since [mp]'s goroutines DENOTE
-    extractable typed pointer/channel IO ([mp_g0_denotes]/[mp_g1_denotes], [mp_end_to_end]), this is the
-    general theorem reaching extractable Go for the message-passing fragment. ── *)
+    appropriate signal footprint ([sigflp]: channel 0 transfers cell 0; [xferflp]: cell 7) — the
+    abstract ownership invariant SUBSUMES the per-program phase-enumeration proofs.  Since [mp]'s
+    goroutines DENOTE extractable typed pointer/channel IO ([mp_g0_denotes]/[mp_g1_denotes],
+    [mp_end_to_end]), the general theorem reaches extractable Go for the message-passing fragment. ── *)
 Lemma mp_regioninvf : forall v0 v1,
   RegionInvF sigflp (fun _ => Held 0) (fun _ => 0) (fun _ => 0) (mp_init v0 v1).
 Proof.
@@ -4860,16 +4737,10 @@ Proof.
 Qed.
 
 (** ── DYNAMIC-SPAWN+CHANNEL HANDOFF is GENERATED by a real execution. ──
-    [dst_trace] (the trace-core brick above [mp_trace_race_free]) was HAND-WRITTEN.  Here the SAME trace
-    is PRODUCED BY RUNNING a program that COMBINES dynamic spawn with channel handoff — the third handoff
-    composition, distinct from both [mp_exec_trace] (channel, both pre-live) and [fork_exec_trace] (spawn,
-    fork edge only).  g0 writes loc 0, SPAWNS the child (initially only g0 is live, so [rstep_spawn]
-    allocates a fresh tid — here cid 1), then SENDS on chan 0; the child RECVS chan 0 (matched send at
-    trace position 3 — recorded in the buffer entry) then READS loc 0.  Executing this canonical
-    interleaving yields EXACTLY [dst_trace 1], so its race-freedom ([dst_trace_race_free]) is now about a
-    REACHABLE state of an actual spawn+channel program, not a literal.  The all-interleavings invariant
-    ([DSTReach], a [MpReach]/[ForkReach]-style reachability with the child tid existential) is the
-    follow-on slice (this mirrors how [mp]/[fork] each went trace-core → exec → all-interleavings). *)
+    g0 writes loc 0, SPAWNS the child (only g0 is live, so [rstep_spawn] allocates a fresh tid —
+    here cid 1), then SENDS on chan 0; the child RECVS chan 0 (matched send at trace position 3)
+    then READS loc 0.  The canonical interleaving yields EXACTLY [dst_trace 1], so
+    [dst_trace_race_free] is about a REACHABLE state of an actual spawn+channel program. *)
 Definition dst_child : Cmd := CRecv 0 (fun _ => CRead 0 (fun _ => CRet)).
 Definition dst_prog (v0 v1 : nat) : nat -> Cmd :=
   fun t => if Nat.eqb t 0
@@ -4920,17 +4791,13 @@ Proof.
   - cbn [rc_bufs]. upd_proj. reflexivity.
 Qed.
 
-(** ── LIMIT #2, slice 2-A — EVERY interleaving of the typed pointer handoff is race-free (Keller-style). ──
-    [mp_exec_race_free] showed ONE execution race-free; the goal is ALL of them.  Following Keller 1976's
-    inductive-invariant method ("Formal Verification of Parallel Programs"): the channel SERIALIZES
-    [mp_prog] — g1's recv waits for g0's send, which follows g0's write — so every reachable state falls
-    into one of FIVE phases whose traces are prefixes of [mp_trace].  [MpReach] is that STRENGTHENED
-    reachability invariant: the buffer/prog facts (Keller's semaphore-W analogue) pin the phase, which
-    the bare "trace is a prefix" could not (it would not be inductive).  This brick = the invariant + its
-    BASE case ([mpreach_init]) + the SAFETY direction ([mpreach_race_free]: pre-handoff phases A–D have
-    ≤1 memory access — only g0 has written — race-free by [le1_mem_access_race_free]; phase E = [mp_trace],
-    race-free by [mp_trace_race_free]).  The rstep-PRESERVATION (the keystone closing the all-interleavings
-    theorem) is the next brick. *)
+(** ── EVERY interleaving of the typed pointer handoff is race-free (Keller-style invariant). ──
+    The channel SERIALIZES [mp_prog] — g1's recv waits for g0's send, which follows g0's write — so
+    every reachable state falls into one of FIVE phases whose traces are prefixes of [mp_trace].
+    [MpReach] is that STRENGTHENED reachability invariant: the buffer/prog facts pin the phase (a
+    bare "trace is a prefix" would not be inductive).  Safety: pre-handoff phases A–D have ≤1 memory
+    access — race-free by [le1_mem_access_race_free]; phase E = [mp_trace], race-free by
+    [mp_trace_race_free]. *)
 Definition MpReach (v0 v1 : nat) (cfg : RConfig) : Prop :=
   rc_live cfg = (fun t => orb (Nat.eqb t 0) (Nat.eqb t 1))
   /\ ( (rc_trace cfg = [] /\ rc_prog cfg 0 = CWrite 0 v0 (CSend 0 v1 CRet)
@@ -5030,10 +4897,9 @@ Proof.
   apply IHrsteps. exact (mpreach_step _ _ _ _ H HM).
 Qed.
 
-(** THE ALL-INTERLEAVINGS THEOREM (slice 2-A closed): EVERY reachable state of the typed pointer
-    handoff has a race-free trace — not just the one canonical execution [mp_exec_race_free] witnessed.
-    The channel's serialization makes [MpReach] an inductive invariant ([mpreach_init] ∘
-    [mpreach_steps]) implying [TraceRaceFree] ([mpreach_race_free]).  Race-freedom over ALL schedules. *)
+(** THE ALL-INTERLEAVINGS THEOREM: EVERY reachable state of the typed pointer handoff has a
+    race-free trace — [MpReach] is an inductive invariant ([mpreach_init] ∘ [mpreach_steps])
+    implying [TraceRaceFree] ([mpreach_race_free]).  Race-freedom over ALL schedules. *)
 Theorem mp_all_interleavings_race_free : forall v0 v1 cfg,
   rsteps (mp_init v0 v1) cfg -> TraceRaceFree (rc_trace cfg).
 Proof.
@@ -5043,13 +4909,11 @@ Proof.
 Qed.
 
 (** ── ALL-INTERLEAVINGS for the ownership-TRANSFER program (write/WRITE). ──
-    [xfer_exec_race_free] above witnessed ONE execution of the transfer program race-free.  Here, as
-    [mp_all_interleavings_race_free] does for the write/READ handoff, EVERY interleaving is race-free:
-    [XferReach] is the 5-phase reachability invariant (init → g0 write 7 → g0 send → g1 recv → g1 WRITE
-    7), rstep-PRESERVED, implying [TraceRaceFree].  Phases A–D have ≤1 memory access (only g0's write 7,
-    at position 0); phase E is [handoff_trace], whose conflicting write/write pair is sync-ordered
+    [XferReach] is the 5-phase reachability invariant (init → g0 write 7 → g0 send → g1 recv →
+    g1 WRITE 7), rstep-PRESERVED, implying [TraceRaceFree].  Phases A–D have ≤1 memory access;
+    phase E is [handoff_trace], whose conflicting write/write pair is sync-ordered
     ([handoff_race_free]).  So the receiver's write to the handed-off cell is race-free under ANY
-    schedule — the all-interleavings strengthening of the transfer witness. *)
+    schedule. *)
 Definition XferReach (v0 v1 v2 : nat) (cfg : RConfig) : Prop :=
   rc_live cfg = (fun t => orb (Nat.eqb t 0) (Nat.eqb t 1))
   /\ ( (rc_trace cfg = [] /\ rc_prog cfg 0 = CWrite 7 v0 (CSend 0 v1 CRet)
@@ -5141,11 +5005,10 @@ Proof.
   exact (xferreach_steps _ _ _ _ _ Hsteps (xferreach_init v0 v1 v2)).
 Qed.
 
-(** ── Connecting slice 2-A to the GENERAL ownership framework (a step toward slice 2-B). ──
-    [mpreach_race_free] took the ad-hoc ≤1-mem-access route; here mp's reachable traces are shown
-    [Owned] (Keller/CSL's discipline: same-location accesses form an hb-chain), so race-freedom ALSO
-    flows through the general [owned_race_free].  [mp_reachable_owned] is a concrete instance of the
-    slice-2B theorem SHAPE — "a disciplined program's reachable traces are Owned" — for the handoff. *)
+(** ── mp under the GENERAL ownership framework. ──
+    mp's reachable traces are [Owned] (same-location accesses form an hb-chain), so race-freedom ALSO
+    flows through the general [owned_race_free] — [mp_reachable_owned] instantiates "a disciplined
+    program's reachable traces are Owned" for the handoff. *)
 Lemma acc_loc_mp : forall i l, acc_loc_at mp_trace i = Some l -> i = 0 \/ i = 3.
 Proof.
   intros i l H. pose proof (acc_loc_at_lt _ _ _ H) as L.
@@ -5177,8 +5040,7 @@ Proof.
   exact owned_mp_trace.
 Qed.
 
-(** mp's reachable traces are Owned — the slice-2B theorem SHAPE for the concrete handoff (a disciplined
-    program's reachable traces satisfy the ownership discipline); race-freedom now flows the GENERAL way. *)
+(** mp's reachable traces are Owned — race-freedom flows the GENERAL way ([owned_race_free]). *)
 Theorem mp_reachable_owned : forall v0 v1 cfg,
   rsteps (mp_init v0 v1) cfg -> Owned (rc_trace cfg).
 Proof.
@@ -5187,16 +5049,14 @@ Proof.
   exact (mpreach_steps _ _ _ _ Hsteps (mpreach_init v0 v1)).
 Qed.
 
-(** ── LIMIT #2, slice 2b — mp_prog's goroutines DENOTE a TYPED pointer-handoff IO program. ──
-    Slice 2a grounded [mp_trace] in a real OPERATIONAL run ([mp_prog], nat-valued [Cmd]).  Here each
-    goroutine of THAT program is shown to be the Keystone-DENOTATION of an EXTRACTABLE typed
-    pointer-handoff IO program — g0 = [*p = v0; ch <- v1], g1 = [<-ch; _ := *p] — where the memory ops
-    are the genuine *T derefs [ptr_set]/[ptr_get] the plugin emits ([Denotes]'s [ref_set]/[ref_get]
-    are DEFINITIONALLY those, via the pointer-backed [locenv := plocenv ptrenv] of slice 1).  So the
-    race-free execution of slice 2a is the operational image of real typed pointer-over-channel code.
-    REMAINING (slice 2c): a MULTI-goroutine ADEQUACY composing these per-goroutine denotations with the
-    INTERLEAVED [rstep] execution + the World refinement (the single-goroutine [denote_adequate]
-    generalised to N) — the one closed end-to-end theorem.  Stated per-goroutine here, not overstated. *)
+(** ── mp_prog's goroutines DENOTE a TYPED pointer-handoff IO program. ──
+    Each goroutine of [mp_prog] is the Keystone-DENOTATION of an EXTRACTABLE typed pointer-handoff
+    IO program — g0 = [*p = v0; ch <- v1], g1 = [<-ch; _ := *p] — where the memory ops are the
+    genuine *T derefs [ptr_set]/[ptr_get] the plugin emits ([Denotes]'s [ref_set]/[ref_get] are
+    DEFINITIONALLY those, via the pointer-backed [locenv := plocenv ptrenv]).  So the race-free
+    execution is the operational image of real typed pointer-over-channel code.  NOT claimed: a
+    MULTI-goroutine ADEQUACY composing these per-goroutine denotations with the INTERLEAVED [rstep]
+    execution.  Stated per-goroutine, not overstated. *)
 Lemma mp_prog_goroutines : forall v0 v1,
   mp_prog v0 v1 0 = CWrite 0 v0 (CSend 0 v1 CRet)
   /\ mp_prog v0 v1 1 = CRecv 0 (fun _ => CRead 0 (fun _ => CRet)).
@@ -5207,8 +5067,8 @@ Section MpTyped.
   Variable ptrenv : nat -> Ptr GoI64.
   Variable inj : nat -> GoI64.
   Variable prj : GoI64 -> nat.
-  (* the handoff pointer is LIVE (non-nil) — an allocated *T cell, nonzero by break #5; lets the raw
-     [ptr_set]/[ptr_get] (which now PANIC on nil, break #6) coincide with the bridge ref-accesses. *)
+  (* the handoff pointer is LIVE (non-nil) — an allocated *T cell has a nonzero handle; lets the raw
+     [ptr_set]/[ptr_get] (which PANIC on nil) coincide with the bridge ref-accesses. *)
   Hypothesis ptrenv_live : forall l, Nat.eqb (p_loc (ptrenv l)) 0 = false.
 
   (* g0 = [*p = v0; ch <- v1] ; g1 = [<-ch; _ := *p] — built from the EXTRACTABLE ptr/chan ops. *)
@@ -5220,7 +5080,7 @@ Section MpTyped.
          (fun _ => bind (ptr_get TI64 (ptrenv 0)) (fun _ => ret tt)).
 
   (* Each goroutine of mp_prog is the Keystone-denotation of its typed program, the memory ops being
-     the genuine *T derefs (pointer-backed locenv = [plocenv ptrenv], slice 1). *)
+     the genuine *T derefs (pointer-backed locenv = [plocenv ptrenv]). *)
   Lemma mp_g0_denotes : forall v0 v1,
     Denotes chenv (plocenv ptrenv) inj prj (CWrite 0 v0 (CSend 0 v1 CRet)) (mp_g0_io v0 v1).
   Proof.
@@ -5269,46 +5129,30 @@ Section MpTyped.
   Qed.
 End MpTyped.
 
-(** Trust-base audit (verified via [Print Assumptions], 2026-06-15): each step lemma
+(** Trust-base audit (verified via [Print Assumptions]): each step lemma
     rests on EXACTLY the [run_io] law for its operation, and nothing degenerate:
       - [denote_sim_send]  : [run_bind], [run_send],     [chan_buf_send]
       - [denote_sim_recv]  : [run_bind], [run_recv],     [chan_buf_recv]
       - [denote_sim_write] : [run_bind], [run_ref_set],  [ref_sel_upd_same]
       - [denote_sim_read]  : [run_bind], [run_ref_get]
-    (+ the carrier/IO types).  [Hret] is a DISCHARGED HYPOTHESIS, not an axiom.  So the
-    bridge rests precisely on the [run_io] channel AND heap laws it connects to — the
-    honest statement that the rich calculus (where race-freedom is proven) refines the
-    [run_io]/[World] model we extract from, for the sequential channel + memory
-    fragment.  (Spawn stays out: [go_spawn] has no [run_io] law — see the section
-    header.)
-
-    The WHOLE-PROGRAM theorem [denote_adequate] composes the per-step lemmas: for a
-    single-channel, single-goroutine program, running it in the calculus to [CRet]
-    means [run_io] of its denotation ALSO completes ([ORet tt]) at a world whose
-    channel buffer matches — so calculus execution and [run_io] meaning AGREE on the
-    whole run.  Its trust base ([Print Assumptions]) adds only [run_ret] and the
-    [chan_closed_send]/[chan_closed_recv] frame laws (used to keep the channel open
-    along the run) to the per-step bases — still nothing degenerate. *)
+    (+ the carrier/IO types).  [Hret] is a DISCHARGED HYPOTHESIS, not an axiom.
+    (Spawn stays out: [go_spawn] has no [run_io] law — see the section header.)
+    The whole-program [denote_adequate] adds only [run_ret] and the
+    [chan_closed_send]/[chan_closed_recv] frame laws (keeping the channel open along
+    the run) — still nothing degenerate. *)
 
 (** ============================================================================
     MULTI-GOROUTINE STATE REFINEMENT — the frame law at work.
 
-    [run_io] is SEQUENTIAL: it cannot sequence several goroutines, so there is no
-    whole-program [run_io] meaning of a CONCURRENT program (that is the calculus's
-    job).  The honest multi-goroutine connection is therefore a STATE refinement: the
-    calculus's full channel state stays matched to the [run_io] [World] model under
-    ARBITRARY interleaving.  [WMatchC] is the MULTI-channel match (no single-channel
-    restriction); [wmatchc_step] shows EVERY [rstep] — by ANY goroutine, on ANY
-    channel — preserves it, the CHANNEL SEPARATION (frame) law handling the untouched
-    channels.  Crucially this needs NO [Denotes]/[prj]/[Hret]: write/read/spawn do not
-    touch buffers (so the world is unchanged there), leaving only send/recv, whose
-    buffer evolution is the [chan_buf_send]/[chan_buf_recv] laws + the frame law.
-
-    So [reachable_refines]: every reachable state of a MULTI-goroutine, MULTI-channel
-    execution is realized by a [run_io] world — the calculus's state refines the model
-    Fido extracts from, across all interleavings.  Combined with the already-proven
-    race-freedom on the calculus ([reachable_owned_safe_r]), the guarantee now applies
-    to genuinely concurrent programs at the state level.
+    [run_io] is SEQUENTIAL: there is no whole-program [run_io] meaning of a
+    CONCURRENT program, so the honest multi-goroutine connection is a STATE
+    refinement.  [WMatchC] is the MULTI-channel match; [wmatchc_step]: EVERY [rstep]
+    — any goroutine, any channel — preserves it, the CHANNEL SEPARATION (frame) law
+    handling the untouched channels.  Needs NO [Denotes]/[prj]/[Hret]:
+    write/read/spawn do not touch buffers; send/recv evolve by
+    [chan_buf_send]/[chan_buf_recv] + the frame law.  [reachable_refines]: every
+    reachable state of a MULTI-goroutine, MULTI-channel execution is realized by a
+    [run_io] world, across all interleavings.
     ============================================================================ *)
 Section KeystoneMulti.
   Variable chenv : nat -> GoChan GoI64.
@@ -5441,15 +5285,13 @@ End KeystoneMulti.
 (** ============================================================================
     MULTI-GOROUTINE STATE REFINEMENT — the HEAP analogue (ref separation).
 
-    [WMatchC] (above) refined the calculus's CHANNEL state to [run_io].  Races are about
-    MEMORY, so here is the parallel for the HEAP: [WHMatchC] matches every location's
-    [run_io] ref value to the operational [rc_heap]; [whmatchc_step] shows EVERY [rstep]
-    preserves it, the ref SEPARATION (frame) law [ref_sel_upd_diff] handling the untouched
-    locations.  Only [rstep_write] advances the heap world (by [ref_upd]); every other step
-    leaves [rc_heap] unchanged, so the same world still matches.  [reachable_refines_heap]:
-    every reachable state's MEMORY is realized by a [run_io] world, across all interleavings —
-    and [reachable_refines_heap_and_safe] bundles that with the proven race-freedom, so the
-    guarantee now covers the memory state that races are actually about.
+    [WHMatchC] matches every location's [run_io] ref value to the operational
+    [rc_heap]; [whmatchc_step] shows EVERY [rstep] preserves it, the ref SEPARATION
+    (frame) law [ref_sel_upd_diff] handling the untouched locations.  Only
+    [rstep_write] advances the heap world (by [ref_upd]); every other step leaves
+    [rc_heap] unchanged.  [reachable_refines_heap]: every reachable state's MEMORY is
+    realized by a [run_io] world, across all interleavings;
+    [reachable_refines_heap_and_safe] bundles that with the proven race-freedom.
     ============================================================================ *)
 Section KeystoneHeap.
   Variable locenv : nat -> Ref GoI64.
@@ -5557,13 +5399,12 @@ End KeystoneHeap.
     [chan_buf_ref_upd_frame] in builtins.v), so the untouched component stays matched in the SAME
     advanced world.  [reachable_refines_state]: every reachable state of a concurrent program — its
     channels AND its memory — is realized by ONE [run_io] world, across all interleavings.  Open/closed
-    channel STATUS is matched too ([reachable_refines_closed]); CAPACITY is now a proven
-    invariant of every bounded-reachable state ([reachableC_bounded] / [reachableC_refines_bounded] at
-    the file end, #14) — it lives in the bounded calculus [rstepC] (the idealized [run_io] world cannot
-    express a bound), but the refinement now carries it.  Nilness stays a frontier.
+    channel STATUS is matched too ([reachable_refines_closed]); CAPACITY is a proven invariant of
+    every bounded-reachable state ([reachableC_bounded] / [reachableC_refines_bounded] at the file
+    end) — it lives in the bounded calculus [rstepC] (the idealized [run_io] world cannot express a
+    bound), but the refinement carries it.  Nilness stays a frontier.
     ============================================================================ *)
-(** [closedb] distributes over trace concatenation — moved up (was below) because [wstate_stepC]'s
-    closedness-preservation in [KeystoneState] needs it. *)
+(** [closedb] distributes over trace concatenation ([wstate_stepC]'s closedness-preservation needs it). *)
 Lemma closedb_app : forall t1 t2 c, closedb (t1 ++ t2) c = orb (closedb t1 c) (closedb t2 c).
 Proof. intros t1 t2 c. unfold closedb. apply existsb_app. Qed.
 
@@ -5701,14 +5542,12 @@ Section KeystoneState.
   Qed.
 
   (** ---- the refinement that ALSO tracks open/closed channel status ----
-      [WState] above matches buffers + heap but NOT closedness — a closed-channel config would refine an
-      OPEN world (the old [wstate_step] close case left the world unchanged).  [WClosedMatch] adds the
-      missing conjunct — the world's [chan_closed] flag matches the trace's [closedb] — and [wstate_stepC]
-      maps a [close] to [chan_close_upd] (advancing the world) so the FULL state, buffers AND heap AND
-      closedness, is realized by one [run_io] world.  This is the CLOSEDNESS half of #14; the CAPACITY
-      half is now done too — capacity lives in the bounded calculus [rstepC] (the idealized [run_io]
-      world cannot bound a buffer), and [reachableC_bounded] / [reachableC_refines_bounded] (file end)
-      prove it a refinement invariant of every bounded-reachable state.  Nilness stays a frontier. *)
+      [WState] matches buffers + heap but NOT closedness.  [WClosedMatch] adds that conjunct —
+      the world's [chan_closed] flag matches the trace's [closedb] — and [wstate_stepC] maps a
+      [close] to [chan_close_upd] (advancing the world), so the FULL state, buffers AND heap AND
+      closedness, is realized by one [run_io] world.  CAPACITY lives in the bounded calculus
+      [rstepC] ([reachableC_bounded] / [reachableC_refines_bounded], file end).  Nilness stays a
+      frontier. *)
   Definition WClosedMatch (w : World) (cfg : RConfig) : Prop :=
     forall c, chan_closed (chenv c) w = closedb (rc_trace cfg) c.
   Definition WStateC (w : World) (cfg : RConfig) : Prop :=
@@ -5865,23 +5704,17 @@ Section KeystoneState.
 End KeystoneState.
 
 (** ============================================================================
-    LIMIT #2 — slice 2c: THE ONE CLOSED END-TO-END THEOREM (concrete handoff).
+    THE ONE CLOSED END-TO-END THEOREM (concrete handoff).
 
-    The pieces existed SEPARATELY — 2a ([mp_exec_trace]: operational execution → [mp_trace],
-    race-free over ALL interleavings via [mp_all_interleavings_race_free]); 2b ([mp_g0_denotes]/
-    [mp_g1_denotes]: each goroutine DENOTES extractable typed *T-over-channel IO); the World
-    refinement ([wstate_steps]: channels AND heap matched in ONE [run_io] world); and value
-    correctness ([mp_handoff_delivers]).  [mp_end_to_end] COMPOSES them for the concrete typed
-    pointer-handoff [mp_prog] under ONE coherent environment ([chenv]/[ptrenv]/[inj]/[prj]):
-    a single theorem witnessing that the extractable typed concurrent program (a) executes to
-    [mp_trace], (b) race-free on THIS run AND on every interleaving, (c) with each goroutine the
-    Keystone-denotation of real typed IO, (d) its full state (channels + memory) realized by a
-    [run_io] world, and (e) the equivalent single-threaded handoff IO delivering exactly
-    [(inj v1, inj v0)].  This is the closed end-to-end tie the [MpTyped] header deferred — "stated
-    per-goroutine here, not overstated" — now stated WHOLE, for one real program.  (N-goroutine
-    GENERALITY stays a frontier: [go_spawn] has no [run_io] law by design, so the cross-goroutine
-    glue is the STATE refinement (d), not a whole-program [run_io] denotation.)  Proof-only
-    (concurrency.v emits no Go) — composes the established lemmas, adds no axiom.
+    [mp_end_to_end] composes, for the concrete typed pointer-handoff [mp_prog] under
+    ONE coherent environment ([chenv]/[ptrenv]/[inj]/[prj]): (a) it executes to
+    [mp_trace], (b) race-free on THIS run AND on every interleaving, (c) each
+    goroutine is the Keystone-denotation of real typed IO, (d) its full state
+    (channels + memory) is realized by a [run_io] world, and (e) the equivalent
+    single-threaded handoff IO delivers exactly [(inj v1, inj v0)].
+    (N-goroutine GENERALITY stays a frontier: [go_spawn] has no [run_io] law by
+    design, so the cross-goroutine glue is the STATE refinement (d), not a
+    whole-program [run_io] denotation.)  Proof-only; adds no axiom.
     ============================================================================ *)
 Theorem mp_end_to_end :
   forall (chenv : nat -> GoChan GoI64) (ptrenv : nat -> Ptr GoI64)
@@ -5935,26 +5768,21 @@ Qed.
 (** ============================================================================
     DEADLOCK FREEDOM (progress) for the RICH calculus.
 
-    The operational semantics REPRESENTS deadlock; here we (a) characterize EXACTLY
-    what a deadlock is in this model, and (b) prove a genuine deadlock-FREEDOM theorem
-    for a real class of programs.
+    Enabledness: [CSend]/[CWrite]/[CRead] are always enabled; [CSpawn] is enabled
+    given a fresh goroutine id (true for reachable configs); [CRecv c] is enabled IFF
+    channel [c]'s buffer is non-empty; [CRet] is finished.  So the ONLY way to block
+    is a receive on an empty channel — a deadlock is: someone unfinished, yet every
+    live goroutine finished or blocked on such a receive.  [rstuck_blocked] proves
+    exactly that characterization.
 
-    Enabledness in this model: [CSend]/[CWrite]/[CRead] are always enabled; [CSpawn]
-    is enabled given a fresh goroutine id (true for reachable configs — finitely many
-    are live); [CRecv c] is enabled IFF channel [c]'s buffer is non-empty; [CRet] is
-    not enabled (that goroutine is finished).  So the ONLY way to block is a receive on
-    an empty channel — and a deadlock is: someone is unfinished, yet every live
-    goroutine is finished or blocked on such a receive ("all waiting to receive, no one
-    sending").  [rstuck_blocked] proves exactly that characterization.
-
-    ⚠ This "[CSend] always enabled" enabledness is the UNBOUNDED model, and is exactly the unbounded-send deviation: it
-    cannot represent a send that BLOCKS on a full / unbuffered channel, so this characterization (and any
-    deadlock-freedom resting on it) is only about the unbounded abstraction.  The AUTHORITATIVE BOUNDED
-    account is [rstepC] / [rstuckC_blocked] at the END of this file (capacity-guarded sends + a cap-0
-    rendezvous; [blockedC] adds the send-block case this notion lacks), and [send_block_rstuckC] exhibits
-    a concrete deadlock the unbounded model here MASKS.  Race-freedom/ownership are capacity-INDEPENDENT
-    and transfer from [rstep] to [rstepC] for free via [rstepC_embed]; liveness/deadlock claims belong on
-    the bounded [rstepC].
+    ⚠ "[CSend] always enabled" is the UNBOUNDED model: it cannot represent a send
+    that BLOCKS on a full / unbuffered channel, so this characterization (and any
+    deadlock-freedom resting on it) is only about the unbounded abstraction.  The
+    AUTHORITATIVE BOUNDED account is [rstepC] / [rstuckC_blocked] at the END of this
+    file ([blockedC] adds the send-block case this notion lacks; [send_block_rstuckC]
+    exhibits a deadlock the unbounded model MASKS).  Race-freedom/ownership are
+    capacity-INDEPENDENT and transfer to [rstepC] via [rstepC_embed];
+    liveness/deadlock claims belong on the bounded [rstepC].
     ============================================================================ *)
 
 Definition rcan_step (cfg : RConfig) : Prop := exists cfg', rstep cfg cfg'.
@@ -6028,14 +5856,13 @@ Proof.
   - discriminate.
 Qed.
 
-(* A live goroutine BLOCKED — now CLOSED-PRECISE: a CRecv is blocked iff its channel is empty AND
+(* A live goroutine BLOCKED — CLOSED-PRECISE: a CRecv is blocked iff its channel is empty AND
    OPEN ([closedb (rc_trace cfg) c = false]); a CSelect is blocked iff NO case is ready, where a case
    is ready when its channel is buffered OR closed-and-drained ([sel_ready_cl] = [None]).  A recv/
    select on a CLOSED, drained channel is READY ([rstep_recv_closed] / [rstep_select_closed], binds
-   the zero value), so it is correctly NOT blocked — the precision the open-only notion lacked
-   ([rclosed_recv_not_blocked] / [rclosed_select_not_blocked] witness the difference).  [ready_can_step]
-   (¬blocked ⇒ can step) and [rstuck_blocked] (stuck ⇒ done ∨ blocked) are now EXACT inverses:
-   ¬blocked is now NECESSARY as well as sufficient for progress. *)
+   the zero value), so it is correctly NOT blocked ([rclosed_recv_not_blocked] /
+   [rclosed_select_not_blocked]).  [ready_can_step] (¬blocked ⇒ can step) and [rstuck_blocked]
+   (stuck ⇒ done ∨ blocked) are EXACT inverses: ¬blocked is necessary AND sufficient for progress. *)
 Definition blocked (cfg : RConfig) (tid : nat) : Prop :=
   (exists c f, rc_prog cfg tid = CRecv c f
                /\ rc_bufs cfg c = []
@@ -6247,11 +6074,10 @@ Proof.
   - intros Hdone. specialize (Hdone 0 eq_refl). cbn in Hdone. discriminate.
 Qed.
 
-(** CLOSED-CHANNEL READINESS in the RICH calculus — the operational closed-recv slice ported from
-    the simple calculus ([closed_recv_can_step] etc.).  A [CRecv]/[CSelect] on a CLOSED, drained
-    channel STEPS, binding the zero value [0] — whereas on an OPEN empty channel it is [RStuck]
-    ([rblock_stuck] / [rsel_block_stuck]).  Channel 5 is closed (a [KClose 5] at trace position 0)
-    and its buffer is empty. *)
+(** CLOSED-CHANNEL READINESS in the RICH calculus (cf. [closed_recv_can_step] in the simple one).
+    A [CRecv]/[CSelect] on a CLOSED, drained channel STEPS, binding the zero value [0] — whereas on
+    an OPEN empty channel it is [RStuck] ([rblock_stuck] / [rsel_block_stuck]).  Channel 5 is closed
+    (a [KClose 5] at trace position 0) and its buffer is empty. *)
 Definition rclosed_chan_cfg : RConfig :=
   mkRCfg (fun t => if Nat.eqb t 0 then CRecv 5 (fun _ => CRet)
                    else if Nat.eqb t 1 then CSelect [(5, fun _ => CRet)] else CRet)
@@ -6266,9 +6092,7 @@ Proof.
     [ reflexivity | reflexivity | reflexivity | reflexivity | reflexivity ].
 Qed.
 
-(** A SELECT whose only case channel is closed+drained is likewise READY (the case fires with zero)
-    — the relational fix for the exact bug the sequential [select_recv2] had (it fabricated / fell
-    through), now in the value-carrying calculus. *)
+(** A SELECT whose only case channel is closed+drained is likewise READY (the case fires with zero). *)
 Theorem rclosed_select_can_step : exists cfg', rstep rclosed_chan_cfg cfg'.
 Proof.
   eexists. eapply rstep_select_closed with (tid := 1) (cases := [(5, fun _ => CRet)]) (c := 5)
@@ -6282,11 +6106,9 @@ Theorem rclosed_recv_preserves_inv :
   forall cfg', rstep rclosed_chan_cfg cfg' -> RInv rclosed_chan_cfg -> RInv cfg'.
 Proof. intros cfg' Hstep Hinv. exact (rstep_preserves_inv _ _ Hstep Hinv). Qed.
 
-(** PRECISION PAYOFF of the closed-aware [blocked]: the closed-drained recv (goroutine 0) and
+(** PRECISION of the closed-aware [blocked]: the closed-drained recv (goroutine 0) and
     closed-drained select (goroutine 1) of [rclosed_chan_cfg] are NOT [blocked] — correctly
-    classified as READY (they step, [rclosed_recv_can_step] / [rclosed_select_can_step]).  Under the
-    earlier open-only [blocked] both WOULD have been (wrongly) called blocked: this is exactly the
-    over-approximation the [closedb] / [sel_ready_cl] refinement removes. *)
+    classified as READY (they step, [rclosed_recv_can_step] / [rclosed_select_can_step]). *)
 Theorem rclosed_recv_not_blocked : ~ blocked rclosed_chan_cfg 0.
 Proof.
   intros [[c [f [Hp [Hb Hcl]]]] | [cases [Hp _]]].
@@ -6303,19 +6125,10 @@ Qed.
 
 (** ── CLOSED IS PERMANENT (Go: a channel, once closed, stays closed — never reopens; recvs keep
     returning the zero value for the rest of the run). ──
-
     [closedb] only GROWS along execution: every [rstep] appends events to the trace (one, or two for
     [rstep_spawn]) and never removes any, and [closedb] (an [existsb] over the trace) is monotone
-    under append.  This is the trace-core
-    FOUNDATION for making the operational close/send faithful to Go's double-close / send-on-closed
-    PANIC — the genuinely-open sub-item.  (The IO/[World] model ALREADY panics on those:
-    [close_chan]/[send] [OPanic] when closed, witnessed by [double_close_panics]/[send_closed_panics];
-    the remaining gap is the rich calculus's UNGUARDED [rstep_close]/[rstep_send], which silently
-    re-close.  A guard [closedb tr c = false] makes them faithful — and permanence is what makes the
-    guard meaningful: a closed channel can never be validly re-closed.  That guard + a panic-aware
-    deadlock characterization is the next slice.) *)
-
-(* [closedb_app] moved up to before [Section KeystoneState] (needed there by [wstate_stepC]). *)
+    under append.  Permanence is what makes the [rstep_close]/[rstep_send] guards
+    ([closedb tr c = false]) meaningful: a closed channel can never be validly re-closed. *)
 
 (* Every [rstep] APPENDS a non-empty suffix — one event for all rules EXCEPT [rstep_spawn], which
    appends TWO (the parent's [KSpawn] and the child's [KStart]).  Buffers/heap/liveness may change;
@@ -6466,8 +6279,8 @@ Proof.
   - reflexivity.
 Qed.
 
-(** (3) WORLD-level connection (closes the gap that [det_select_sound] used [sel_first_ready] as a
-    STAND-IN for the real [select_recv2]).  Operationally, firing a BUFFERED select case [(c,f)]
+(** (3) WORLD-level connection ([det_select_sound] uses [sel_first_ready] as a stand-in for the
+    real [select_recv2]; this ties them).  Operationally, firing a BUFFERED select case [(c,f)]
     reaches the IDENTICAL successor config as a plain [rstep_recv] on [c] would — select-taking-a-
     ready-channel IS a recv on that channel.  This mirrors, in the calculus, the [run_io] theorem
     [select_recv2_ch1_buffered] (builtins.v): [select_recv2] on a ready ch1 = [bind (recv ta ch1) k1].
@@ -6492,8 +6305,7 @@ Qed.
     — and every buffered [rstep_select] firing of that goroutine collapses to ONE successor, exactly
     the one the deterministic ch1-priority interpreter ([sel_first_ready]) takes.  So in that regime
     the cheap typed [select_recv2] is not merely SOUND (1) but COMPLETE: Go's pseudo-random pick
-    ranges over a SINGLE candidate, hence the deterministic model forbids NOTHING Go permits.  This is
-    the "sound-but-narrow interim" the builtins.v select note only promises — now a THEOREM.
+    ranges over a SINGLE candidate, hence the deterministic model forbids NOTHING Go permits.
 
     SCOPE (honest — the TOCTOU caveat): the uniqueness hypothesis is over BUFFERED
     readiness ([b c' <> []]).  A CLOSED-and-drained case is an ORTHOGONAL readiness source (it fires
@@ -6714,17 +6526,17 @@ Proof.
 Qed.
 
 (** ============================================================================
-    PRIVATE-MEMORY brick, SCALED: an ARBITRARY-N private parallel program is BOTH
+    PRIVATE MEMORY, SCALED: an ARBITRARY-N private parallel program is BOTH
     race-free AND deadlock-free — full safety + liveness, for EVERY N.
 
-    The brick-1 theorem [private_disc_reachable_race_free] holds for arbitrary N; here
-    is a PARAMETRIC witness ([priv_prog_N]: for any N, goroutines 0..N-1 each write their
-    OWN location, pre-live, no channels/spawn) that instantiates it for UNBOUNDED N, and
-    ADDS liveness via the [PureLocal] fragment — programs of only [CWrite]/[CRead]/[CRet]
-    (pure shared-memory computation): never blocked (no [CRecv]/[CSelect] head) and never
-    panicking (no [CSend]/[CClose] head), so a live unfinished goroutine ALWAYS lets the
-    config step.  So unbounded-N private parallel programs run race-free to completion.
-    Proof-only.  ============================================================================ *)
+    [priv_prog_N] (goroutines 0..N-1 each write their OWN location, pre-live, no
+    channels/spawn) instantiates [private_disc_reachable_race_free] for UNBOUNDED N,
+    and ADDS liveness via the [PureLocal] fragment — programs of only
+    [CWrite]/[CRead]/[CRet]: never blocked (no [CRecv]/[CSelect] head) and never
+    panicking (no [CSend]/[CClose] head), so a live unfinished goroutine ALWAYS lets
+    the config step.  Unbounded-N private parallel programs run race-free to
+    completion.  Proof-only.
+    ============================================================================ *)
 Inductive PureLocal : Cmd -> Prop :=
   | PL_ret   : PureLocal CRet
   | PL_write : forall l v k, PureLocal k -> PureLocal (CWrite l v k)
@@ -6967,13 +6779,11 @@ Qed.
 (** ════════════════════════════════════════════════════════════════════════════════════════════════
     BIDIRECTIONAL exchange — deadlock-free under GENUINE interleaving.
     ════════════════════════════════════════════════════════════════════════════════════════════════
-    [sr_never_stuck] was ONE goroutine self-communicating — a LINEAR run.  Here TWO distinct goroutines
-    each BOTH send and receive across two channels, and BOTH opening sends are concurrently enabled, so
-    the reachable-state space BRANCHES (a 7-shape lattice, not a line — the diamond is shapes 4→{5,6}).
-    It is the canonical "concurrent message passing", deadlock-free precisely because each goroutine
-    SENDS before it blocks on a receive (the classic deadlock is the OTHER order — both receive first;
-    that one genuinely gets stuck, [ex_recvfirst_stuck] below).  The test: does the manual
-    reachable-shape method survive real interleaving? *)
+    TWO distinct goroutines each BOTH send and receive across two channels, and BOTH opening sends
+    are concurrently enabled, so the reachable-state space BRANCHES (a 7-shape lattice, not a line —
+    the diamond is shapes 4→{5,6}).  Deadlock-free precisely because each goroutine SENDS before it
+    blocks on a receive (the classic deadlock is the OTHER order — both receive first; that one
+    genuinely gets stuck, [ex_recvfirst_stuck] below). *)
 Definition ex0  : Cmd := CSend 0 42 (CRecv 1 (fun _ => CRet)).   (* g0: send c0(42), then recv c1 *)
 Definition ex0b : Cmd := CRecv 1 (fun _ => CRet).                (* g0 after its send *)
 Definition ex1  : Cmd := CSend 1 43 (CRecv 0 (fun _ => CRet)).   (* g1: send c1(43), then recv c0 *)
@@ -7289,9 +7099,8 @@ Qed.
     handshake — and an unbuffered send with no waiting receiver is STUCK (the blocking behaviour).
 
     Scope is honest and bounded: this models the channel fragment ([CSend]/[CRecv]) only — enough to
-    state and prove the forcing.  Integrating [cap] into the full [rstep] (heap/spawn/select) is a
-    separate cascade (it adds an [rc_cap] field to [RConfig], touched at ~42 [mkRCfg] sites) and is
-    deferred; the SEMANTICS that was missing — unbuffered = synchronous-only + blocking — is HERE. *)
+    state and prove the forcing.  Integrating [cap] into the full [rstep] (heap/spawn/select) is
+    deferred; the unbuffered = synchronous-only + blocking SEMANTICS is HERE. *)
 Section BoundedChannels.
 
 (** [cap c] = capacity of channel [c]; [cap c = 0] is an UNBUFFERED channel. *)
@@ -7453,26 +7262,14 @@ End BoundedChannels.
 (* ====================================================================== *)
 (** * Forge-proof session typing — the protocol indices are OPERATIONAL.
 
-    [builtins.v]'s extracted session type WAS a one-field RECORD [Sess i j A :=
-    MkSess { run_sess : IO A }], so the public [MkSess] wrapped an ARBITRARY [IO A]
-    regardless of the protocol indices: [MkSess (ret tt) : Sess (PSend A P) P unit]
-    type-checked yet COMMUNICATED NOTHING — the indices were phantom.
-    Rocq 9.2 cannot make a record constructor private without opaque module
-    ascription (which needs a Module-Type [Parameter]); the chosen fix is the
-    DEEPER one — tie the run to the protocol so the index simply CANNOT lie.  [Sess]
-    in builtins.v has since been MIGRATED onto this inductive shape (so the extracted
-    type is forge-proof too) AND UNIFIED with this theory: [PSess]/[PS…] below are now
-    plain aliases for the extracted [builtins.Sess]/[S…], so every theorem here is
-    LITERALLY about the forge-proof type Fido emits.
-
-    A session becomes an INDUCTIVE [PSess] indexed by the protocol, whose only
-    builders are the disciplined combinators (send / recv / ret / lift / bind).
-    There is no "wrap arbitrary [IO] at the wrong protocol" constructor, so the
-    index is structurally honest.  We read off the COMMUNICATION TRACE a [PSess]
-    performs ([PEmits]) and prove it is EXACTLY the sequence the protocol
-    prescribes ([proto_steps]) — making the indices a genuine behavioural
-    specification.  This is brick 1 of the session-semantics arc; later bricks denote
-    [PSess] into the [builtins.v] channel IO and migrate the extracted [Sess]. *)
+    A session is an INDUCTIVE [PSess] indexed by the protocol, whose only builders
+    are the disciplined combinators (send / recv / ret / lift / bind).  There is no
+    "wrap arbitrary [IO] at the wrong protocol" constructor, so the index is
+    structurally honest — [MkSess (ret tt) : Sess (PSend A P) P unit] (a session
+    typed as a send that communicates nothing) is unrepresentable.  [PEmits] reads
+    off the COMMUNICATION TRACE a [PSess] performs and it is EXACTLY the sequence
+    the protocol prescribes ([proto_steps]) — the indices are a genuine behavioural
+    specification. *)
 
 (** A protocol step's observable shape: send or receive of a value of a type.
     ([PK…] avoids [EvKind]'s [KSend]/[KRecv], which instead carry a channel id.) *)
@@ -7488,14 +7285,13 @@ Fixpoint proto_steps (p : Proto) : list StepKind :=
   | PEnd                 => []
   end.
 
-(** The forge-proof session type is the EXTRACTED [builtins.Sess] (post-migration
-    UNIFICATION, 2026-06-22) — an inductive whose constructors are the disciplined
-    ops [SRet]/[SSend]/[SRecv]/[SLift]/[SBind].  Each step that advances the protocol
-    performs the matching communication; [SLift] (local IO, no message) keeps the
-    state FIXED ([P ↦ P]) so it cannot forge a send/recv step; there is no
-    [MkSess]-style "arbitrary [IO] at any index" builder.  [PSess]/[PS…] below are
-    readable ALIASES for [Sess]/[S…], so this whole theory is LITERALLY about the
-    forge-proof type Fido emits. *)
+(** The forge-proof session type IS the EXTRACTED [builtins.Sess] — an inductive
+    whose constructors are the disciplined ops [SRet]/[SSend]/[SRecv]/[SLift]/[SBind].
+    Each step that advances the protocol performs the matching communication;
+    [SLift] (local IO, no message) keeps the state FIXED ([P ↦ P]) so it cannot
+    forge a send/recv step; there is no "arbitrary [IO] at any index" builder.
+    [PSess]/[PS…] below are readable ALIASES for [Sess]/[S…], so this whole theory
+    is LITERALLY about the forge-proof type Fido emits. *)
 Notation PSess := Sess.
 Notation PSRet := SRet.
 Notation PSSend := SSend.
@@ -7584,15 +7380,12 @@ Proof.
 Qed.
 
 (** Trust base — verified via [Print Assumptions psess_full_emits_proto] /
-    [psess_send_nonempty] (2026-06-22): EXACTLY Rocq's primitive substrate,
+    [psess_send_nonempty]: EXACTLY Rocq's primitive substrate,
     [PrimInt63.*] / [PrimFloat.*] with their spec axioms ([Uint63Axioms.*]),
     pulled in only because [PSess] mentions [IO]/[GoTypeTag].  No funext, no
-    Eqdep / UIP / JMeq — the dependent [induction] on [PEmits] stays clean (it is
-    plain [induction], NEVER the Eqdep-introducing dependent variant that would
-    breach rule 3) — and no project-declared assumption and no unfinished proof of
-    any kind.  So the soundness of the protocol-indexed session rests on the same
-    trust base as the rest of Fido, and the seal-vs-deeper-fix tension is
-    sidestepped entirely. *)
+    Eqdep / UIP / JMeq — the [induction] on [PEmits] is plain [induction], NEVER
+    the Eqdep-introducing dependent variant — no project-declared assumption, no
+    unfinished proof. *)
 
 (** ** Session DUALITY — the client and server agree (communication safety).
 
@@ -7603,8 +7396,8 @@ Qed.
     server realising [dual P] perform traces that are exact mirror images — every
     message the client sends is exactly the one the server receives, with no type
     mismatch and no orphaned message.  This is the deadlock/agreement core of
-    session typing, now proved for the forge-proof [PSess].  Brick 2 of the session-semantics
-    deeper fix (still pure-protocol; the channel-IO denotation is brick 3). *)
+    session typing, proved for the forge-proof [PSess].  Pure-protocol (no channel-IO
+    denotation). *)
 
 (** A single step's complement: a send of [A] is matched by a receive of [A]. *)
 Definition flip_step (s : StepKind) : StepKind :=
@@ -7644,24 +7437,22 @@ Proof.
   subst cs ss. apply proto_steps_dual.
 Qed.
 
-(** Trust base — verified by [Print Assumptions] (2026-06-22): [proto_steps_dual]
+(** Trust base — verified by [Print Assumptions]: [proto_steps_dual]
     is "Closed under the global context" (FULLY axiom-free — pure protocol algebra
     over [Proto]/[list], touches no primitive); [psess_pair_complementary] inherits
-    brick 1's substrate (PrimInt63.*/PrimFloat.* only, via [psess_full_emits_proto]).
+    the PrimInt63.*/PrimFloat.* substrate via [psess_full_emits_proto].
     No funext, no Eqdep/UIP/JMeq anywhere, no project-declared assumption. *)
 
 (** ** Session PROGRESS / deadlock-freedom — a dual pair never gets stuck.
 
-    Brick 2 showed the FULL traces of a client/server pair mirror each other.  This
-    brick shows the STEP-BY-STEP execution never deadlocks.  Model a synchronized
-    communication as a [pair_step] on the two endpoints' REMAINING protocols (the
-    matched head [PSend A] / [PRecv A] cancel, both advancing); then prove that a
+    A synchronized communication is a [pair_step] on the two endpoints' REMAINING
+    protocols (the matched head [PSend A] / [PRecv A] cancel, both advancing); a
     dual pair [(P, dual P)] is stuck ONLY at [(PEnd, PEnd)] — at every other state
     exactly one endpoint is ready to send while the other is ready to receive the
-    SAME type, so a step is always available.  Together with the trace mirroring of
-    brick 2 this is the classical session-types safety pair (PRESERVATION + PROGRESS).
-    Protocol-level (a complete [PSess] realises its protocol by brick 1, so its
-    available steps ARE these); brick 3 of the session-semantics arc, still pure-protocol. *)
+    SAME type, so a step is always available.  With the trace mirroring above this
+    is the classical session-types safety pair (PRESERVATION + PROGRESS).
+    Protocol-level: a complete [PSess] realises its protocol ([psess_full_emits_proto]),
+    so its available steps ARE these. *)
 
 (** One synchronized step: the sender's head [PSend A] and the receiver's matching
     head [PRecv A] cancel, both endpoints advancing to their continuations. *)
@@ -7704,19 +7495,15 @@ Qed.
 
 (** ** Session LIVENESS — a dual pair runs deterministically to completion.
 
-    Brick 3 gave single-step progress (a dual pair can always step until done).
-    This brick gives the WHOLE-RUN story: the synchronized reduction is
-    DETERMINISTIC (no divergent choice) and TERMINATES at [(PEnd, PEnd)] — every
-    well-typed session pair runs to completion in finitely many matched steps and
-    halts at the unique stuck state (brick 3).  Together bricks 1–4 are the full
-    session-types safety+liveness theory for the forge-proof [PSess]: SOUNDNESS (1),
-    COMMUNICATION SAFETY (2), PROGRESS / deadlock-freedom (3), TERMINATION +
-    DETERMINISM (4).  A real foundation note: a FAITHFUL real-channel denotation
+    The synchronized reduction is DETERMINISTIC (no divergent choice) and TERMINATES
+    at [(PEnd, PEnd)] — every well-typed session pair runs to completion in finitely
+    many matched steps and halts at the unique stuck state.  Together with the
+    theorems above this is the full session-types theory for the forge-proof
+    [PSess]: SOUNDNESS, COMMUNICATION SAFETY, PROGRESS / deadlock-freedom,
+    TERMINATION + DETERMINISM.  Scope: a FAITHFUL real-channel denotation
     ([PSess] → [builtins] [IO] over a [GoChan]) is blocked — a heterogeneous session
     channel needs [GoChan GoAny] but [GoTypeTag GoAny] is universe-inconsistent
-    (builtins.v), the same idealisation that forces [run_sess = ret tt]; the
-    remaining extraction-soundness step is therefore the plugin MIGRATION, not a
-    Rocq denotation.  Brick 4 of the session-semantics arc, still pure-protocol. *)
+    (builtins.v); still pure-protocol. *)
 
 (** Reflexive-transitive closure of [pair_step]: a whole synchronized run. *)
 Inductive pair_steps : Proto * Proto -> Proto * Proto -> Prop :=
@@ -7747,8 +7534,8 @@ Proof.
   - inversion H1.
 Qed.
 
-(** Concrete bidirectional witness (exercises [PSRecv], unlike brick 1's send-only
-    example): a ping-pong protocol — send an [int64], receive one back. *)
+(** Concrete bidirectional witness (exercises [PSRecv]): a ping-pong protocol —
+    send an [int64], receive one back. *)
 Definition pingpong : Proto := builtins.PSend GoI64 (builtins.PRecv GoI64 PEnd).
 
 Definition pingpong_client : PSess pingpong PEnd unit :=
@@ -7780,14 +7567,10 @@ Proof. apply dual_pair_terminates. Qed.
 
 (** ** Run–trace coherence — the synchronized run communicates EXACTLY the protocol.
 
-    Brick 4 proved the dual-pair reduction terminates and is deterministic, but the
-    bare [pair_step] carried no message.  This brick records each step's
-    communicated [StepKind] and proves the whole run from [(P, dual P)] to
-    [(PEnd, PEnd)] emits EXACTLY [proto_steps P] — so the terminating, deterministic
-    run is not merely live, it carries precisely the protocol's message sequence.
-    This UNIFIES the three trace notions: the protocol SPEC ([proto_steps]), the
-    session TERM's trace ([PEmits], brick 1), and now the synchronized RUN's trace
-    all coincide.  Brick 5 of the session-semantics arc, still pure-protocol. *)
+    [pair_step_tr] records each step's communicated [StepKind]; the whole run from
+    [(P, dual P)] to [(PEnd, PEnd)] emits EXACTLY [proto_steps P].  The three trace
+    notions COINCIDE: the protocol SPEC ([proto_steps]), the session TERM's trace
+    ([PEmits]), and the synchronized RUN's trace. *)
 
 (** A step that records the communicated kind (from the sender's view). *)
 Inductive pair_step_tr : Proto * Proto -> StepKind -> Proto * Proto -> Prop :=
@@ -7807,7 +7590,7 @@ Inductive pair_steps_tr : Proto * Proto -> list StepKind -> Proto * Proto -> Pro
 Lemma pair_step_tr_untr : forall st1 k st2, pair_step_tr st1 k st2 -> pair_step st1 st2.
 Proof. intros st1 k st2 H. inversion H; subst; [ apply ps_send | apply ps_recv ]. Qed.
 
-(** … so a traced run IS a [pair_step] run (brick 4 — termination applies). *)
+(** … so a traced run IS a [pair_step] run (termination applies). *)
 Lemma pair_steps_tr_forget : forall st tr st', pair_steps_tr st tr st' -> pair_steps st st'.
 Proof.
   intros st tr st' H. induction H as [ | st1 k st2 tr st3 Hstep _ IH ].
@@ -7828,14 +7611,7 @@ Qed.
 (** Trust base — pure [Proto] algebra (induction + [inversion] on the first-order
     [pair_step_tr]): [dual_pair_run_trace] / the forget lemmas are Closed under the
     global context, FULLY axiom-free.  No funext, no Eqdep/UIP.  Verified by
-    [Print Assumptions].  Together bricks 1–5 are the model-layer session theory;
-    the remaining session-semantics step is the plugin MIGRATION (extracted [Sess] RECORD → an
-    INDUCTIVE, so the EXTRACTED type is forge-proof too).  RESEARCHED this tick: the
-    plugin lowers session ops by COMBINATOR name ([ssend]…) via [emit_sess_action],
-    so migration must keep those names (NoInline wrappers) OR retarget the plugin to
-    the inductive's constructors; [Sess] erases by name ([is_erased_record_typename])
-    so the inductive erases too.  Intricate + golden-affecting ⇒ a focused fresh
-    tick, NOT skipped. *)
+    [Print Assumptions]. *)
 
 
 
@@ -7857,9 +7633,8 @@ Qed.
     BOUNDED-CAPACITY CALCULUS [rstepC cap].
 
     The rich [rstep] above has UNBOUNDED asynchronous channels: [rstep_send] fires
-    UNCONDITIONALLY (the deadlock section notes "[CSend] always enabled"), so a send to
-    a FULL buffer never blocks and the deadlock theory cannot see "blocked on a full
-    send" — exactly the #2 overclaim.
+    UNCONDITIONALLY, so a send to a FULL buffer never blocks and that deadlock
+    theory cannot see "blocked on a full send".
 
     [rstepC cap] is the bounded calculus.  Capacity is a STATIC parameter
     [cap : nat -> nat] (a channel's capacity is fixed at [make], not mutable state — so
@@ -8066,13 +7841,13 @@ Proof.
     + exfalso. apply Hnstep. eexists. eapply rstepC_close; [exact Hlive | exact Hp | exact Hcl].
 Qed.
 
-(** ---- #2 CAPSTONE: the bounded calculus CATCHES a deadlock the unbounded one MASKS ----
+(** ---- CAPSTONE: the bounded calculus CATCHES a deadlock the unbounded one MASKS ----
     [send_block_cfg]: one live goroutine wants to send on an unbuffered channel with no receiver — a
     textbook Go deadlock ("fatal error: all goroutines are asleep - deadlock").  Under the UNBOUNDED
     [rstep] the send fires straight into the (unbounded) buffer, so the config CAN step and the deadlock
     is invisible.  Under [rstepC zerocap] (every channel unbuffered) it is genuinely [RStuckC]: neither
-    [rstepC_send] (no room, cap 0) nor [rstepC_sync] (no partner) fires, yet no goroutine is done.  This
-    is exactly the class of deadlock #2 says the unbounded calculus cannot represent. *)
+    [rstepC_send] (no room, cap 0) nor [rstepC_sync] (no partner) fires, yet no goroutine is done —
+    exactly the class of deadlock the unbounded calculus cannot represent. *)
 Definition send_block_cfg : RConfig :=
   mkRCfg (fun t => if Nat.eqb t 0 then CSend 0 7 CRet else CRet)
          (fun _ => []) (fun _ => 0) (fun t => Nat.eqb t 0) [].
@@ -8091,7 +7866,7 @@ Proof.
   - intros Hdone. specialize (Hdone 0 eq_refl). discriminate.
 Qed.
 
-(** ---- #2 LIVENESS DUAL: the bounded calculus CONFIRMS a deadlock-FREE program COMPLETES ----
+(** ---- LIVENESS DUAL: the bounded calculus CONFIRMS a deadlock-FREE program COMPLETES ----
     [send_block_rstuckC] shows [rstepC] CATCHES a deadlock the unbounded model masks.  The DUAL
     matters just as much: the bounded calculus must not block EVERYTHING — a well-matched program
     has to make progress.  Here goroutine 0 sends and goroutine 1 receives on the SAME unbuffered
@@ -8137,12 +7912,10 @@ Proof. intros cap N cfg H. exact (priv_prog_N_race_free N cfg (rstepsC_embed _ _
     CONSTRUCTIVE WITHOUT ANY SEARCH: every enabling condition (buffer room, a buffered value, a ready
     select case, an open channel) is DECIDABLE locally, with NO non-local "is a receiver available"
     question (which the general cap-0 case DOES face, and which [¬blockedC] only yields double-negated).
-    This buffered lemma is the easy fragment; the GENERAL-cap converse [ready_can_stepC_general] below
-    discharges the cap-0 rendezvous too, by deciding the receiver question with a bounded
-    [find_partner] search — so the frontier this comment once named is CLOSED, and the deadlock
-    characterization is now the single IFF [rstuckC_iff_blocked] over ALL bounded programs (buffered and
-    unbuffered).  (Unbuffered rendezvous progress is additionally witnessed operationally by
-    [handoff_completes].) *)
+    The GENERAL-cap converse [ready_can_stepC_general] below discharges the cap-0 rendezvous too, by
+    deciding the receiver question with a bounded [find_partner] search — the deadlock characterization
+    is the single IFF [rstuckC_iff_blocked] over ALL bounded programs (buffered and unbuffered).
+    (Unbuffered rendezvous progress is additionally witnessed operationally by [handoff_completes].) *)
 Lemma ready_can_stepC_buffered : forall cap cfg tid,
   (forall c, 0 < cap c) ->
   FreshAvail cfg ->
@@ -8222,8 +7995,7 @@ Qed.
     does NOT hold and the bounded calculus is the genuinely finer one). *)
 
 (** ============================================================================
-    GENERAL-CAP PROGRESS — the cap-0 rendezvous converse, closing the frontier
-    that [ready_can_stepC_buffered] left open.
+    GENERAL-CAP PROGRESS — the cap-0 rendezvous converse.
 
     [ready_can_stepC_buffered] proved progress only for the buffered fragment ([cap c > 0]
     everywhere): there it could DODGE the one non-local question — "is a rendezvous receiver
@@ -8286,7 +8058,7 @@ Proof.
     split; [exact Hne | split; [exact Hlv | exists f; exact Hpf]].
 Qed.
 
-(** PROGRESS for EVERY capacity (the converse [ready_can_stepC_buffered] left as a frontier): a live,
+(** PROGRESS for EVERY capacity: a live,
     not-finished, not-blocked, not-panicking goroutine means the config CAN step — buffered OR
     unbuffered.  Every case is identical to the buffered proof EXCEPT the no-room [CSend], where a
     [cap c = 0] channel may still step by RENDEZVOUS: the decidable [find_partner] either exhibits a
@@ -8374,8 +8146,8 @@ Qed.
     bounded step is taken by some goroutine that is live, not finished, NOT blocked, and not panicking
     (for a [rstepC_sync] rendezvous it is the SENDER — whose [blockedC] send-condition is refuted by the
     very receiver it synchronises with).  So if every live goroutine is done/blocked/panicking, NO step
-    is possible — the config is [RStuckC].  This upgrades the characterization from the buffered-only
-    IFF to one covering unbuffered rendezvous, closing the last frontier. *)
+    is possible — the config is [RStuckC].  The characterization covers buffered AND unbuffered
+    rendezvous. *)
 
 (* [None] from the select-readiness scan is conclusive: every case channel is empty AND open. *)
 Lemma sel_ready_cl_none : forall b tr cases,
@@ -8542,17 +8314,15 @@ Proof.
 Qed.
 
 (** ============================================================================
-    CAPACITY IN THE REFINEMENT — closing the "[capacity stays a frontier]" note (#14).
+    CAPACITY IN THE REFINEMENT.
 
-    The [run_io] world deliberately idealizes blocking away (its channel buffer is UNBOUNDED — see the
-    [run_io] design note), so the channel CAPACITY cannot live in the world; it lives in the bounded
-    calculus [rstepC], exactly as the [reachable_refines] frontier comment says.  We close the frontier
-    AT THE LEVEL IT EXISTS: capacity is now a PROVEN INVARIANT [BoundedC] of every bounded-reachable
-    config — [rstepC_send]'s [length < cap] guard, [rstepC_sync]'s drain-to-empty, and the
-    length-non-increasing recv/select keep [length (buf c) <= cap c] at every step — and the refined
-    world realizes EXACTLY that capacity-respecting buffer state.  So [reachableC_refines_bounded] is the
-    capacity-AWARE refinement: every bounded-reachable state is realized by a [run_io] world AND provably
-    honors the capacity bound. *)
+    The [run_io] world deliberately idealizes blocking away (its channel buffer is UNBOUNDED), so the
+    channel CAPACITY cannot live in the world; it lives in the bounded calculus [rstepC].  Capacity is
+    a PROVEN INVARIANT [BoundedC] of every bounded-reachable config — [rstepC_send]'s [length < cap]
+    guard, [rstepC_sync]'s drain-to-empty, and the length-non-increasing recv/select keep
+    [length (buf c) <= cap c] at every step — and the refined world realizes EXACTLY that
+    capacity-respecting buffer state.  [reachableC_refines_bounded] is the capacity-AWARE refinement:
+    every bounded-reachable state is realized by a [run_io] world AND provably honors the bound. *)
 Definition BoundedC (cap : nat -> nat) (cfg : RConfig) : Prop :=
   forall c, length (rc_bufs cfg c) <= cap c.
 
@@ -8611,7 +8381,7 @@ Proof. intros cap p cfg H. exact (rstepsC_bounded _ _ _ H (boundedC_init cap p))
     (matching its channel buffers — [reachable_refines] lifted onto [rstepC] for free via
     [rstepsC_embed]) AND provably honors the capacity bound ([reachableC_bounded]).  The world supplies
     the (capacity-agnostic, idealized) buffer contents; [BoundedC] supplies the capacity the world cannot
-    express — together, the capacity-respecting refinement the frontier note asked for. *)
+    express — together, the capacity-respecting refinement. *)
 Corollary reachableC_refines_bounded :
   forall (chenv : nat -> GoChan GoI64) (inj : nat -> GoI64),
     (forall i j, chenv i = chenv j -> i = j) ->
@@ -8629,16 +8399,15 @@ Qed.
 (** ============================================================================
     THE VISIBLE WRITE [W(r)]: which write does a read observe?
 
-    Without it the memory model gives no [W(r)] / visible-write condition.  Operationally
-    this model is SEQUENTIALLY CONSISTENT: a [CRead l] returns [rc_heap l], the value of the LAST write
-    to [l] in the linearised (trace) order — so the observed writer is, BY CONSTRUCTION, the trace-last
-    write to [l] strictly before the read [r] ([last_write_before]).  The CONTENT of #19 is then a
-    HAPPENS-BEFORE theorem: under the ownership discipline ([Owned], which every reachable race-free
-    execution of a disciplined program satisfies — e.g. [mp]) this operational [W(r)] is the UNIQUE
-    hb-maximal write that happens-before the read, and NO write to [l] is concurrent with the read.  So
-    the value a read observes is happens-before-determined, not interleaving-dependent — the DRF
-    visible-write condition, proved CONSTRUCTIVELY ([hbt] is undecidable, so this
-    rests on [owned_orders_same_loc]'s POSITIVE ordering, never classical reasoning). *)
+    Operationally this model is SEQUENTIALLY CONSISTENT: a [CRead l] returns [rc_heap l], the value
+    of the LAST write to [l] in the linearised (trace) order — so the observed writer is, BY
+    CONSTRUCTION, the trace-last write to [l] strictly before the read [r] ([last_write_before]).
+    The HAPPENS-BEFORE theorem: under the ownership discipline ([Owned]) this operational [W(r)] is
+    the UNIQUE hb-maximal write that happens-before the read, and NO write to [l] is concurrent with
+    the read.  So the value a read observes is happens-before-determined, not
+    interleaving-dependent — the DRF visible-write condition, proved CONSTRUCTIVELY ([hbt] is
+    undecidable, so this rests on [owned_orders_same_loc]'s POSITIVE ordering, never classical
+    reasoning). *)
 
 (* A position's access location, read straight off its [tr_acc] label. *)
 Lemma tr_acc_acc_loc : forall t i a,
@@ -8751,17 +8520,14 @@ Proof.
 Qed.
 
 (** ============================================================================
-    PER-PROGRAM DEADLOCK-FREEDOM — the capstone the bounded liveness theory was for.
+    PER-PROGRAM DEADLOCK-FREEDOM in the bounded calculus.
 
-    [rstuckC_iff_blocked] / [ready_can_stepC_general] characterise WHEN a config is stuck; here we
-    discharge that characterisation for a CONCRETE program to conclude it NEVER deadlocks: every config
-    reachable under [rstepC cap0] (every channel unbuffered, [cap0 = fun _ => 0]) either CAN step or is
-    DONE — it never reaches [RStuckC].  The program is the minimal non-trivial deadlock-free concurrent
-    program: thread 0 SPAWNS a receiver child, then they RENDEZVOUS on the unbuffered channel 0.  The
-    proof is a 3-phase reachability invariant (pre-spawn / post-spawn-pre-sync / done), each phase
-    proved to step or be done, and preserved by every [rstepC] step (9 of the 10 rules ruled out by the
-    live-set + program shape at each phase).  This is the first program PROVED deadlock-free in the
-    bounded calculus — the liveness frontier [concurrency.v:1087] named. *)
+    Every config reachable under [rstepC cap0] (every channel unbuffered) either CAN step or is
+    DONE — it never reaches [RStuckC].  The program is the minimal non-trivial deadlock-free
+    concurrent program: thread 0 SPAWNS a receiver child, then they RENDEZVOUS on the unbuffered
+    channel 0.  The proof is a 3-phase reachability invariant (pre-spawn / post-spawn-pre-sync /
+    done), each phase proved to step or be done, and preserved by every [rstepC] step (9 of the 10
+    rules ruled out by the live-set + program shape at each phase). *)
 Definition cap0 : nat -> nat := fun _ => 0.
 Definition dlf_child : Cmd := CRecv 0 (fun _ => CRet).
 Definition dlf_prog : nat -> Cmd :=

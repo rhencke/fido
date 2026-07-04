@@ -4,168 +4,77 @@ Hard-won, expensive mistakes. Read before repeating the pattern.
 
 ## SRaw — never bolt a raw/opaque escape hatch onto a "verified" structured AST (2026-06-28)
 
-**What happened.** The Go expression printer was lifted into Rocq as a structured AST
-(`SAtom` / `GoAtom` / `GoExpr`) with print/parse round-trip theorems — a "verified printer."
-But the AST carried one escape-hatch constructor, `SRaw : { s | raw_ok s = true } -> SAtom`:
-an arbitrary *validated string*. Any construct the structured AST could not represent was
-smuggled through `SRaw` as text — *validated* by `raw_ok`, not *constructed*.
+The "verified printer" AST carried `SRaw : { s | raw_ok s } -> SAtom` — an arbitrary
+validated string. Anything the AST couldn't represent was smuggled through as text, so the
+round-trip theorem was vacuous for most of the surface: the old string printer plus a
+validator, wearing a "verified" label. Five review iterations NARROWED the hatch (one more
+structured node each time) instead of deleting it — net growth, parallel foundations, hatch
+still live. The wholesale teardown proved the whole overlay removable byte-identically: the
+trusted `pp_expr` had been doing the real work all along.
 
-**Why it was wrong.** A printer AST with a raw-string hatch is not a verified printer — it is
-the old string printer plus a validator. The round-trip theorem `parse(print s) = s` is real
-but **vacuous for the hatch**: it proves the printer reproduces text it never structured. `SRaw`
-let plausible-but-wrong Go (anything `raw_ok` happened to accept) flow through the "verified"
-path. The verification value was illusory for everything the hatch carried — which, because the
-AST was incomplete, was most of the surface.
+**Rules.** (1) Never add a raw/opaque/string-rescue constructor to a structured AST — the
+AST must be *unable* to represent unstructured syntax. (2) Build structured-or-fail-loud:
+an unrepresentable construct is REJECTED, never preserved as text. (3) "Verified printer"
+is honest only with NO text hatch — otherwise call it a trusted string printer. (4) When
+you catch yourself narrowing a hatch across iterations, stop and DELETE it. The
+replacement (lexer + recursive-descent parser + hatch-free `GExpr`, machine-checked
+round-trip) became the `GoAst`/`GoPrint` spine.
 
-**The failure mode that cost five iterations.** Every review demanded `SRaw` die. Each iteration
-*narrowed* it instead — added one more structured constructor (`SApply` for calls, `SHexLit` for
-hex ints, `EUnary` for prefix ops, `SConvert` / `SForceCall`) so `raw_ok` could reject one more
-shape. This felt like progress but:
+## Removing a concept: sweep code + docs + gate + your own words in ONE pass (2026-06-29)
 
-- It **added** code (new AST nodes + printers + parser arms + round-trip proofs) while the hatch
-  stayed live — net file size *grew*.
-- It built **parallel foundations** (a second token parser, a statement AST) next to the live bad
-  structure — duplication, not simplification.
-- The hatch never actually died: there was always one more shape (func-lit bodies, hex floats)
-  that "legitimately" needed it, dressed up as a "documented bounded hatch."
+Removing `ptype`'s free-identifier "deferral" model from the CODE took one commit; purging
+the CONCEPT took ~7 more review rounds — stale comments, doc lists, my own "the deferred
+hatch was removed" narrative (a "removed X" sentence still teaches X), a case-sensitive
+recurrence gate, a cross-line phrase split, an orphaned helper.
 
-Narrowing an escape hatch is not deleting it. "Documented bounded hatch" is a euphemism for
-"still there."
+**Rules.** (1) Active docs/comments state ONLY the live invariant; never narrate a removed
+model — history goes here. (2) A stale-spelling gate must be case-insensitive,
+whitespace-normalized, proximity-based for multi-token phrases, self-tested on
+must-catch/must-spare fixtures, and its own comments minimal data. (3) Sweep everything in
+the FIRST pass: code, every doc, replacement wording, gate prose, orphaned helpers.
 
-**The teardown.** When finally deleted wholesale, the entire verified-expression-printer (the AST,
-`SRaw`, `raw_ok`, the ~370-reference `scan_*` machinery, `build_atom` / `build_apply`, the
-round-trip proofs, and every feature built to narrow the hatch) came out as **pure removable
-overlay** — proven byte-identical. The plugin's original *trusted OCaml string printer* (`pp_expr`)
-had been doing the real work the whole time; the verified AST only intercepted binop-operand
-parenthesization. The teardown cut the verified-printer file 7144 → 1527 lines and `printer.ml`
-4053 → 1475 at that moment, with the golden output **unchanged at every step** (teardown-instant figures).
-The experiment added complexity and a false "verified" claim, and contributed zero verification value.
+## A verified LEXER's "exact" means a PROVEN reverse-image theorem (2026-06-29)
 
-**The rule.**
-
-1. **Never add a raw / opaque / string-rescue constructor to a structured AST.** The AST must be
-   *unable to represent* unstructured syntax. If it can hold a raw string, it is not verified.
-2. **Build structured-or-fail-loud.** If a construct cannot be represented structurally yet,
-   REJECT it mechanically (rule 2 `unsupported` / abort) — never preserve it as text.
-3. **A "verified printer" claim is honest only** if the AST is total over the supported surface
-   with NO text hatch. Until then, call it what it is: a *trusted string printer*.
-4. **When you catch yourself NARROWING a hatch across iterations, stop and DELETE it.** One
-   structural deletion beats ten foundation slices. Adding a parallel foundation while the bad
-   one stays live is net negative.
-
-**The replacement.** A from-scratch Wirth-style frontend — `lex : string -> tokens`, recursive-descent
-`parse : tokens -> GExpr`, a clean `GExpr` AST with **no raw constructor**, and a machine-checked
-`parse (lex (gprint e)) = e` round-trip — was built and then split into the AST-first spine `GoAst`
-(syntax) + `GoPrint` (printer / parser / proofs). It has no hatch to delete later, because the AST
-cannot represent one.
-
-## Removing a concept: sweep code + docs + gate + your own words, in ONE pass (2026-06-29)
-
-**What happened.** The `GoSafe.ptype` gate's free-identifier "deferral" model (the `PtUnk`
-category) was removed from the CODE in one commit — free identifiers became `ptype (EId _) = None`,
-only the predeclared `nil` (`PtNil`) admitted. But purging the *concept* then took **~7 more
-stop-review rounds**, each a real residual the previous fix missed:
-active comments still said "scope deferred to GoSem" / "bool/deferred"; `ARCHITECTURE.md`/`PROGRESS.md`
-still listed `PtUnk` / "DEFERRED operand"; my own purge-fix wrote "the deferred-identifier escape
-hatch **was removed**" (a "removed X" narrative still teaches X); the recurrence-gate I added was
-case-sensitive ("Deferred identifier" bypassed it), then missed a cross-LINE split ("DEFERRED\noperand"),
-then missed "deferred **left** operand" (word between the tokens); the gate's OWN comments narrated the
-dead model; and the regression edit orphaned a now-dead helper (`gs_x`).
-
-**Why it cost so much.** Each round fixed the one instance the reviewer pointed at, instead of
-exhaustively sweeping the whole surface at once. Every fix was correct; the *process* was the waste.
-
-**The rules.**
-
-1. **Active docs/comments state ONLY the live invariant.** Never narrate a removed model — even
-   "X was removed" actively *teaches* X and is a "duplicate authority" that can justify re-opening
-   the hole. A false or stale semantic claim in active guidance BLOCKS review even when the code is
-   sound. History goes to `LESSONS.md` (this file), not active `.v`/`ARCHITECTURE`/`PROGRESS`.
-2. **A recurrence (stale-spelling) gate must be robust on every axis at once:** case-INSENSITIVE;
-   whitespace/newline-NORMALIZED (a line-local grep misses a phrase wrapped across lines); SENTENCE-
-   PROXIMITY for multi-token concepts (`deferred[^.]{1,40}operand` — not adjacent-only, which misses
-   "deferred LEFT operand"; not unbounded `.*`, which false-positives on normalized text); SELF-TESTED
-   in-script on must-catch and must-spare fixtures; and its OWN comments are minimal denylist DATA, not
-   a narration of the dead concept.
-3. **When you remove a concept, sweep it ALL in the first pass:** the code, EVERY doc, your own
-   replacement wording, the gate's own prose, case-folding, line-wrapping, and any helper/scaffolding
-   the edit orphaned. A piecemeal purge cascades.
-
-## A verified LEXER's "exact" means a PROVEN reverse-image theorem, not a documented superset (2026-06-29)
-
-**What happened.** Adding the `EStr` string-literal node, the lexer's `unescape` was a TOTAL function
-that decoded malformed escapes (`"\q"`, `"\xZZ"`, raw newline) into a valid `EStr` instead of rejecting
-them (fail-OPEN — rule 2 violation). Fixed to option-valued `unescape_opt` (fail-closed). But then it
-accepted a *superset* of the printer image (uppercase `\xAF`, raw control bytes, `\x41`=`'A'` which the
-printer emits raw) while the docs claimed it accepted "exactly what `esc_string` emits."
-
-**The rule.** For a round-trip lexer, the forward round-trip `parse (print x) = x` is necessary but NOT
-sufficient for an "exact"/accepted==emitted claim — it only says the printer's image is *accepted*, not
-that *nothing else* is. Make accepted == emitted a **proven bijection**: keep the forward
-`unescape_opt (esc_string s) = Some s` AND prove the **reverse-image** theorem
-`unescape_opt body = Some s -> body = esc_string s`. Tighten the decoder until that theorem holds
-(here: restrict raw bytes and `\xHH` to exactly `esc_byte`'s output), and have the gate DEFER its
-exactness claim to the live theorem, not to phrase-grep. "Exact" asserted in prose ≠ "exact" proven.
+`unescape` totally decoded malformed escapes (fail-open); the option-valued fix then
+accepted a SUPERSET of the printer image while docs said "exactly". The forward round-trip
+`parse (print x) = x` proves the image is accepted, not that nothing else is. Make
+accepted == emitted a proven bijection: forward `unescape_opt (esc_string s) = Some s` AND
+reverse-image `unescape_opt body = Some s -> body = esc_string s`. "Exact" asserted in
+prose ≠ proven.
 
 ## Never guess a target-language semantics — test it before encoding it (2026-07-01)
 
-**What happened.** The slice-index supportedness rule was written from a *guessed* gc behavior
-("constant OOB index = compile error"). Three review bounces later, a two-minute `go build` of a
-five-line program settled it: for a SLICE, gc compile-checks a constant index only for
-non-negative + int-representable; a constant OOB-positive index is VALID Go that panics at run
-time. A fourth bounce found the denotation folding only the *selected* literal element — but
-`go run` shows Go constructs the WHOLE literal first, so an unselected panicking element panics.
+A gate rule written from *guessed* gc behavior (constant OOB slice index) bounced three
+reviews; a five-line `go build` settled it in two minutes (gc allows a constant
+OOB-positive slice index; it panics at run time; Go constructs a WHOLE literal before
+selecting). Write the smallest concrete program and run the pinned toolchain (`make
+go-verify`) before encoding any boundary. Corollary: an evaluator helper's accept-set must
+be sealed to the gate's own checks with the inclusion proved.
 
-**The rule.** Before encoding any target-language boundary (what compiles, what panics, when
-operands evaluate), write the smallest concrete program and run the real toolchain (`go build` /
-`go run` in the pinned container). One observation beats any number of plausible recollections;
-the verified-against artifact is the toolchain, not memory. Corollary: an evaluator helper's
-accept-set must be sealed to the SUPPORTEDNESS gate's own checks and the inclusion proved —
-a looser private boundary certifies invalid programs (`eval_slice_index_supported`).
+## The runtime-tier arc: five compact lessons (2026-07-02)
 
-## The runtime-tier arc (R1–R7): five compact lessons (2026-07-02)
+(1) The spec's per-construct order/typing shape comes FIRST — map-literal assignment order
+is unspecified (denote a panic only when order-independent); shifts are heterogeneous
+(never a one-carrier dispatcher). (2) ONE evaluation authority, rec-parametrized up front
+(`reval_val_with`) — a second value world drifts. (3) Dispatch tables and boxing functions
+get their OWN seals, same commit: fully qualified + a total per-op case-table theorem.
+(4) An arc is complete only against what the GATE ADMITS (node kind × width), not the
+witness list; absence claims are pinned, never prose. (5) Witness succession is one
+commit: flip every dependent pin + a repo-wide stale-claim sweep.
 
-The plan files (`plans/float-dyadic.md`, `plans/runtime-value-tier.md`) are deleted — git is the
-archive. What must survive them:
+## The typed-runtime tier (2026-07-02)
 
-1. **The spec's per-construct order/typing shape comes FIRST.** Go leaves MAP-LITERAL assignment
-   order unspecified — a "first panicking value in source order" semantics was plausible-but-wrong;
-   the exact model denotes a panic only when it is ORDER-INDEPENDENT (one panicking value, the rest
-   valued). Go SHIFTS are heterogeneous (left operand fixes the width; the count is an independent
-   integer) — never design a one-carrier dispatcher for them. Check the spec before encoding.
-2. **One evaluation authority, rec-parametrized UP FRONT.** When an arm needs "evaluate a
-   subexpression at full power", the full-power evaluator must be a `rec`-parametrized Definition the
-   Fixpoint instantiates with itself (`reval_val_with`); wiring the narrow engine directly created a
-   second drifting value world (map values missed R3/R4 forms) and cost a refactor.
-3. **Dispatch tables and boxing functions need their OWN seals, same commit:** fully QUALIFIED
-   (`Fido.builtins.*` — shadow-immune) and TOTAL (a `forall o, dispatch o = <case table>` theorem by
-   destruct). Class theorems parameterized over the dispatched op let a drifted mapping stay green.
-4. **An arc is complete only against what the GATE ADMITS** (node kind × width), not the witness
-   list — `^uint8(len ..)` was supported-but-absent while docs said "integer arc complete." Absence
-   claims are pinned (frontier members + case-table examples with a SHAPE extractor), never prose.
-5. **Witness succession is one commit:** a landing flips its pins across every site that used the
-   retired witness, plus a repo-wide stale-claim sweep; deleting a file requires a grep for its name
-   AND any shorthand it defined.
-
-## The typed-runtime tier (T1–T5 + R8, 2026-07-01…02) — landing a tier one review round at a time
-
-The full plan lived in `plans/typed-runtime-tier.md` (deleted at completion; git has it). The
-transferable rules it produced: (1) outcome TRICHOTOMY per slice — value / panic / absent each
-PROVED before a case is called "decided"; (2) shape splits derived from `ptype`'s own
-classification, never asserted; (3) an exported helper carries its own invariant (the mixed-const
-WIDTH SEAL lives inside `typed_operand`, not in caller proofs); (4) gc is ground-truthed via
-`make go-verify` BEFORE modelling (wrap values, panic payloads, count semantics); (5) flipping an
-absent pin sweeps its dependent witnesses and docs in the SAME commit; (6) heterogeneous ops
-(shifts) need their own dispatch — a same-width table cannot host them; (7) read constants off
-the GATE's own values — re-reading gate-admitted data through a differently-bounded
-representation (a value-range window used as a count-range window) is a side-condition leak.
+(1) Outcome TRICHOTOMY per slice — value/panic/absent each proved before a case is
+"decided". (2) Shape splits derived from `ptype`'s own classification. (3) An exported
+helper carries its own invariant (the width seal lives inside `typed_operand`). (4) gc is
+ground-truthed via `make go-verify` BEFORE modelling. (5) Flipping an absent pin sweeps
+its dependents in the same commit. (6) Heterogeneous ops need their own dispatch. (7) Read
+constants off the GATE's own values — a differently-bounded re-read is a side-condition
+leak.
 
 ## The GoSem split fused RuntimeInt+Agg (2026-07-03)
 
-The §3a sketch planned four files; the real topology is three.  The tier SEALS are
-denote-level and the slice/map class proofs compute through the same `Local` evaluator core,
-so any finer cut either re-opens the float-boundary bypass (un-`Local`-ing the core — a
-review BLOCK) or demands per-shape sealed-equation kits (proof rewrites, not moves).
-Transferable: `Local` users must share a file; sweep cross-file navigation prose in the SAME
-commit as a move; a split is a reviewability win, not a weight-loss win — byte mass moves,
-it does not shrink.
+Planned four files; the real topology is three — the tier seals and slice/map class proofs
+compute through the same `Local` evaluator core, so a finer cut either re-opens the
+float-boundary bypass or demands sealed-equation kits. `Local` users must share a file; a
+split is a reviewability win, not a weight-loss win.
