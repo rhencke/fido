@@ -61,7 +61,7 @@ Proof. vm_compute. reflexivity. Qed.
     [cmd_no_panic] — [GoSemSafe.panic_free_gate_slice]'s facts are unchanged). *)
 Example slice_index_panics_denote : forall w,
   map (fun e => (eval_value e,
-                 match denote_program (println_prog e) with Some c => run_cmd 5 c w | None => None end))
+                 match denote_program (println_prog e) with Some c => run_cmd c w | None => None end))
       [ EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (EInt 5)
       ; EIndex (ESliceLit GTInt [EInt 20; EBn BDiv (EInt 1) (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt []])]) (EInt 0) ]
   = [ (None, Some (OPanic (rt_index_oob 5 2) w)) ; (None, Some (OPanic rt_div_zero w)) ].
@@ -82,7 +82,7 @@ Proof. repeat split; vm_compute; reflexivity. Qed.
     indexes ([]int{len([]int{1})}[0] prints 1); a runtime NEGATIVE index panics [rt_index_oob (-1) 2]
     (len([]int{1}) - len([]int{1,2}) = -1).  All supported (the gate unchanged). *)
 Example runtime_index_runs : forall w,
-  map (fun e => match denote_program (println_prog e) with Some c => run_cmd 5 c w | None => None end)
+  map (fun e => match denote_program (println_prog e) with Some c => run_cmd c w | None => None end)
       [ runidx_e
       ; EIndex (ESliceLit GTInt [ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]]]) (EInt 0)
       ; EIndex (ESliceLit GTInt [EInt 10; EInt 20])
@@ -112,7 +112,7 @@ Definition runconv_uint_e : GExpr :=
         [EBn BSub (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]])
                   (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1; EInt 2]])].
 Example runtime_conv_runs : forall w,
-  map (fun e => match denote_program (println_prog e) with Some c => run_cmd 5 c w | None => None end)
+  map (fun e => match denote_program (println_prog e) with Some c => run_cmd c w | None => None end)
       [ runconv_e ; runconv_trunc_e ; runconv_int_e ; runconv_uint_e ; runconv_panic_e ]
   = [ Some (ORet tt (w_log true (anyt TI64 (i64wrap 1) :: nil) w))
     ; Some (ORet tt (w_log true (anyt TU8 (u8wrap 300) :: nil) w))
@@ -138,7 +138,7 @@ Definition runbool_gt_e : GExpr := EBn BGt runlen2_e runlen1_e.
 Definition runbool_ge_e : GExpr := EBn BGe runlen1_e runlen2_e.
 Definition runbool_panic_e : GExpr := EBn BEq divzero_e (EInt 1).
 Example runtime_bool_runs : forall w,
-  map (fun e => match denote_program (println_prog e) with Some c => run_cmd 5 c w | None => None end)
+  map (fun e => match denote_program (println_prog e) with Some c => run_cmd c w | None => None end)
       [ runbool_e ; runbool_ne_e ; runbool_lt_e ; runbool_le_e ; runbool_gt_e ; runbool_ge_e
       ; runbool_panic_e ]
   = [ Some (ORet tt (w_log true (anyt TBool false :: nil) w))   (* 1 == 0 *)
@@ -193,7 +193,7 @@ Definition maplen_ambig_e : GExpr :=
           [(EInt 1, divzero_e);
            (EInt 2, EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (EInt 5))]].
 Example runtime_maplen_runs : forall w,
-  map (fun e => match denote_program (println_prog e) with Some c => run_cmd 5 c w | None => None end)
+  map (fun e => match denote_program (println_prog e) with Some c => run_cmd c w | None => None end)
       [ maplen_runval_e ; maplen_run2_e ; maplen_i64_e ; maplen_bool_e
       ; maplen_panic_e ; maplen_convpanic_e ]
   = [ Some (ORet tt (w_log true (anyt TInt64 (intwrap 1) :: nil) w))
@@ -217,7 +217,7 @@ Definition gosem_maplen_divzero_prog : Program :=
 Example maplen_divzero_runs : forall w,
   supported_program gosem_maplen_divzero_prog = true
   /\ match denote_program gosem_maplen_divzero_prog with
-     | Some c => run_cmd 5 c w | None => None end = Some (OPanic rt_div_zero w).
+     | Some c => run_cmd c w | None => None end = Some (OPanic rt_div_zero w).
 Proof. intro w; split; vm_compute; reflexivity. Qed.
 
 (** ★ RUNTIME-TIER pins (R1, grouped): the closed world DETERMINES runtime integer values, and the tier
@@ -231,7 +231,7 @@ Definition runtime_div_vals_e : GExpr :=
 Definition panicking_elem_len_e : GExpr :=
   ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 20; divzero_e]].
 Example runtime_tier_runs : forall w,
-  map (fun p => match denote_program p with Some c => run_cmd 5 c w | None => None end)
+  map (fun p => match denote_program p with Some c => run_cmd c w | None => None end)
       [println_prog runlen_e; println_prog runtime_div_vals_e; println_prog panicking_elem_len_e]
   = [Some (ORet tt (w_log true (anyt TInt64 (intwrap 1) :: nil) w));
      Some (ORet tt (w_log true (anyt TInt64 (intwrap 3) :: nil) w));
@@ -248,7 +248,7 @@ Definition runrem_e : GExpr := EBn BRem (EInt 7) runlen3_e.
 Definition runrem_neg_e : GExpr := EBn BRem (EUn UNeg (EInt 7)) runlen3_e.
 Definition runneg_panic_e : GExpr := EUn UNeg divzero_e.
 Example runtime_negrem_runs : forall w,
-  map (fun e => match denote_program (println_prog e) with Some c => run_cmd 5 c w | None => None end)
+  map (fun e => match denote_program (println_prog e) with Some c => run_cmd c w | None => None end)
       [ runneg_e ; runrem_e ; runrem_neg_e ; runneg_panic_e ]
   = [ Some (ORet tt (w_log true (anyt TInt64 (intwrap (-3)) :: nil) w))
     ; Some (ORet tt (w_log true (anyt TInt64 (intwrap 1) :: nil) w))
@@ -261,7 +261,7 @@ Proof. intro w. vm_compute. reflexivity. Qed.
 Definition runnot_e : GExpr := EUn UXor runlen3_e.
 Definition runnot_panic_e : GExpr := EUn UXor divzero_e.
 Example runtime_not_runs : forall w,
-  map (fun e => match denote_program (println_prog e) with Some c => run_cmd 5 c w | None => None end)
+  map (fun e => match denote_program (println_prog e) with Some c => run_cmd c w | None => None end)
       [ runnot_e ; runnot_panic_e ]
   = [ Some (ORet tt (w_log true (anyt TInt64 (intwrap (-4)) :: nil) w))
     ; Some (OPanic rt_div_zero w) ].
@@ -288,7 +288,7 @@ Definition runneg_uint_e : GExpr := EUn UNeg (ECall (EId (mkIdent "uint" eq_refl
 Definition runnot_panic_i64_e : GExpr :=
   EUn UXor (ECall (EId (mkIdent "int64" eq_refl)) [divzero_e]).
 Example runtime_typed_unop_runs : forall w,
-  map (fun e => match denote_program (println_prog e) with Some c => run_cmd 5 c w | None => None end)
+  map (fun e => match denote_program (println_prog e) with Some c => run_cmd c w | None => None end)
       [ runnot_i64_e ; runnot_u8_e ; runneg_i64_e ; runnot_panic_i64_e ]
   = [ Some (ORet tt (w_log true (anyt TI64 (i64_not (i64wrap 3)) :: nil) w))
     ; Some (ORet tt (w_log true (anyt TU8  (u8_not  (u8wrap  3)) :: nil) w))
@@ -344,7 +344,7 @@ Definition runconv_chain_trunc_e : GExpr :=
   ECall (EId (mkIdent "int8" eq_refl))
         [EUn UXor (ECall (EId (mkIdent "uint8" eq_refl)) [runlen3_e])].
 Example typed_runtime_convchain_runs : forall w,
-  map (fun e => match denote_program (println_prog e) with Some c => run_cmd 5 c w | None => None end)
+  map (fun e => match denote_program (println_prog e) with Some c => run_cmd c w | None => None end)
       [ runconv_chain_e ; runconv_chain_int_e ; runconv_chain_trunc_e ]
   = [ Some (ORet tt (w_log true (anyt TI64 (i64wrap 3) :: nil) w))
     ; Some (ORet tt (w_log true (anyt TInt64 (intwrap 3) :: nil) w))
@@ -389,7 +389,7 @@ Definition typed_binop_cases : list GExpr :=
   ; EBn BSub runb_i64 runb_i64n ; EBn BRem runb_i64n runb_i64
   ; EBn BDiv runb_u8 runb_u8x0 ].
 Example runtime_typed_binop_runs : forall w,
-  map (fun e => match denote_program (println_prog e) with Some c => run_cmd 5 c w | None => None end)
+  map (fun e => match denote_program (println_prog e) with Some c => run_cmd c w | None => None end)
       typed_binop_cases
   = [ Some (ORet tt (w_log true (anyt TU8 (u8wrap 504) :: nil) w))   (* 252+252 — the wrap *)
     ; Some (ORet tt (w_log true (anyt TU8 (u8wrap 9)   :: nil) w))
@@ -417,7 +417,7 @@ Definition typed_mixed_cases : list GExpr :=
   ; EBn BSub runb_u8one runb_u8      (* typed const LEFT — the wrap witness *)
   ; EBn BRem (EInt 1) runb_u8x0 ].   (* const dividend, runtime ZERO divisor — panics *)
 Example typed_mixed_const_runs : forall w,
-  map (fun e => match denote_program (println_prog e) with Some c => run_cmd 5 c w | None => None end)
+  map (fun e => match denote_program (println_prog e) with Some c => run_cmd c w | None => None end)
       typed_mixed_cases
   = [ Some (ORet tt (w_log true (anyt TU8 (u8wrap 4) :: nil) w))
     ; Some (ORet tt (w_log true (anyt TU8 (u8wrap 4) :: nil) w))
@@ -445,7 +445,7 @@ Definition typed_cmp_cases : list GExpr :=
   ; EBn BEq runb_u8 (ECall (EId (mkIdent "uint8" eq_refl)) [EInt 3]) (* mixed TYPED *)
   ; EBn BLt runb_i64n runb_i64 ].                                   (* signed i64 *)
 Example runtime_typed_cmp_runs : forall w,
-  map (fun e => match denote_program (println_prog e) with Some c => run_cmd 5 c w | None => None end)
+  map (fun e => match denote_program (println_prog e) with Some c => run_cmd c w | None => None end)
       typed_cmp_cases
   = [ Some (ORet tt (w_log true (anyt TBool true  :: nil) w))
     ; Some (ORet tt (w_log true (anyt TBool false :: nil) w))
@@ -658,7 +658,7 @@ Example typed_runtime_shift_runs : forall w,
   /\ map ptype typed_shift_cases
     = [ Some (PtRunInt GTU8) ; Some (PtRunInt GTU8) ; Some (PtRunInt GTU8)
       ; Some (PtRunInt GTInt64) ; Some (PtRunInt GTU64) ]
-  /\ map (fun e => match denote_program (println_prog e) with Some c => run_cmd 5 c w | None => None end)
+  /\ map (fun e => match denote_program (println_prog e) with Some c => run_cmd c w | None => None end)
         typed_shift_cases
      = [ Some (ORet tt (w_log true (anyt TU8 (u8wrap 6) :: nil) w))
        ; Some (ORet tt (w_log true (anyt TU8 (u8wrap 1) :: nil) w))
@@ -675,7 +675,7 @@ Definition runshift_hugecnt_e  : GExpr :=
   EBn BShl runb_u8 (EUn UXor (ECall (EId (mkIdent "uint64" eq_refl)) [runlen3_e])).
 Definition runshift_negcnt_e   : GExpr := EBn BShl runb_u8 runb_i64n.
 Example typed_shift_edge_runs : forall w,
-  map (fun e => match denote_program (println_prog e) with Some c => run_cmd 5 c w | None => None end)
+  map (fun e => match denote_program (println_prog e) with Some c => run_cmd c w | None => None end)
       [ runshift_constcnt_e ; runshift_typedcnt_e ; runshift_hugecnt_e ; runshift_negcnt_e ]
   = [ Some (ORet tt (w_log true (anyt TU8 (u8wrap 12) :: nil) w))
     ; Some (ORet tt (w_log true (anyt TU8 (u8wrap 24) :: nil) w))
@@ -703,7 +703,7 @@ Definition gtint_or_e     : GExpr := EBn BOr     runlen3_e (EInt 4).
 Definition gtint_xor_e    : GExpr := EBn BXor    runlen3_e (EInt 1).
 Definition gtint_andnot_e : GExpr := EBn BAndNot runlen3_e (EInt 2).
 Example gtint_shift_runs : forall w,
-  map (fun e => match denote_program (println_prog e) with Some c => run_cmd 5 c w | None => None end)
+  map (fun e => match denote_program (println_prog e) with Some c => run_cmd c w | None => None end)
       [ runshift_intleft_e ; gtint_shift_wrap_e ; gtint_shift_typedcnt_e
       ; gtint_shift_huge_e ; gtint_shift_signfill_e ; gtint_shift_negcnt_e ]
   = [ Some (ORet tt (w_log true (anyt TInt64 (intwrap 16) :: nil) w))
@@ -714,7 +714,7 @@ Example gtint_shift_runs : forall w,
     ; Some (OPanic rt_shift_neg w) ].
 Proof. intro w. vm_compute. reflexivity. Qed.
 Example gtint_bitwise_runs : forall w,
-  map (fun e => match denote_program (println_prog e) with Some c => run_cmd 5 c w | None => None end)
+  map (fun e => match denote_program (println_prog e) with Some c => run_cmd c w | None => None end)
       [ gtint_and_e ; gtint_or_e ; gtint_xor_e ; gtint_andnot_e ]
   = [ Some (ORet tt (w_log true (anyt TInt64 (intwrap 1) :: nil) w))
     ; Some (ORet tt (w_log true (anyt TInt64 (intwrap 7) :: nil) w))
@@ -734,7 +734,7 @@ Definition u8_shift_bigconst_e    : GExpr := EBn BShl runb_u8   (EInt 2147483648
 Definition gtint_shift_typedbig_e : GExpr :=
   EBn BShl runlen3_e (ECall (EId (mkIdent "uint64" eq_refl)) [EInt 5000000000]).
 Example shift_bigconst_runs : forall w,
-  map (fun e => match denote_program (println_prog e) with Some c => run_cmd 5 c w | None => None end)
+  map (fun e => match denote_program (println_prog e) with Some c => run_cmd c w | None => None end)
       [ gtint_shift_bigconst_e ; gtint_shr_bigconst_e ; u8_shift_bigconst_e ; gtint_shift_typedbig_e ]
   = [ Some (ORet tt (w_log true (anyt TInt64 (intwrap 55340232221128654848) :: nil) w))
     ; Some (ORet tt (w_log true (anyt TInt64 (intwrap 0) :: nil) w))
@@ -874,8 +874,8 @@ Example denotable_body_escapes_stmt_denotable :
        GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [runeconv_mb])] = false.
 Proof. split; vm_compute; reflexivity. Qed.
 
-(** ---- EXECUTABLE TOTALITY on the [no_heap] fragment (every denoted command today): cmd.v's gated [run_cmd_terminates] proves each such
-    [Cmd unit] — defers included — runs to [Some] Outcome for enough fuel, so a denoted program always RUNS;
+(** ---- EXECUTABLE TOTALITY on the [no_heap] fragment (every denoted command today): cmd.v's gated [run_cmd_terminates] (structural totality, no bound) proves each such
+    [Cmd unit] — defers included — runs to [Some] Outcome, so a denoted program always RUNS;
     GoSem needs no denotation-side totality layer.  Concrete end-to-end runs (with their EXACT output worlds,
     incl. the defer LIFO order and a deferred panic) are pinned by the typed [GoSemRequiredCategoryCoverage]
     fields below. *)
@@ -974,7 +974,7 @@ Definition gosem_defer_arg_panic_succ_prog : Program :=
 Definition arg_panic_shortcircuit_progs : list Program :=
   [gosem_arg_panic_tail_prog; gosem_arg_panic_succ_prog; gosem_defer_arg_panic_succ_prog].
 Example arg_panic_shortcircuit_runs : forall w,
-  map (fun p => match denote_program p with Some c => run_cmd 5 c w | None => None end)
+  map (fun p => match denote_program p with Some c => run_cmd c w | None => None end)
       arg_panic_shortcircuit_progs
   = map (fun _ => Some (OPanic rt_div_zero w)) arg_panic_shortcircuit_progs.
 Proof. intro w. vm_compute. reflexivity. Qed.
@@ -1106,7 +1106,7 @@ Proof. vm_compute. reflexivity. Qed.
     below. *)
 Example eval_value_good_runs : forall w,
   map (fun p => match denote_program (println_prog (fst p)) with
-                | Some c => run_cmd 5 c w | None => None end) eval_value_good
+                | Some c => run_cmd c w | None => None end) eval_value_good
   = map (fun p => Some (ORet tt (w_log true (snd p :: nil) w))) eval_value_good.
 Proof. intro w. vm_compute. reflexivity. Qed.
 
@@ -1125,7 +1125,7 @@ Proof. intro w. vm_compute. reflexivity. Qed.
     [eval_value_good]). *)
 Definition runs_to (e : GExpr) (v : GoAny) : Prop :=
   forall w, match denote_program (println_prog e) with
-            | Some c => run_cmd 5 c w | None => None end = Some (ORet tt (w_log true (v :: nil) w)).
+            | Some c => run_cmd c w | None => None end = Some (ORet tt (w_log true (v :: nil) w)).
 Record GoSemRequiredCategoryCoverage : Prop := {
   rc_println_str : runs_to (EStr "hi") (anyt TString "hi");   (* covers [gosem_demo_prog], which IS [println_prog (EStr "hi")] by definition: observable output, the model's own [w_log] *)
   rc_conv      : runs_to (ECall (EId (mkIdent "int64"   eq_refl)) [EInt 3]) (anyt TI64 (i64wrap 3));
@@ -1139,33 +1139,33 @@ Record GoSemRequiredCategoryCoverage : Prop := {
   rc_len       : runs_to (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 10; EInt 20]]) (anyt TInt64 (intwrap 2));  (* len of a fully-evaluable literal folds+runs to its length *)
   rc_maplen    : runs_to maplen_e (anyt TInt64 (intwrap 1));  (* len of a fully-evaluable integer-keyed MAP literal folds+runs to its entry count *)
   rc_return_stops : forall w,                                 (* [return] STOPS the body: the successor println NEVER runs, world UNCHANGED *)
-    match denote_program gosem_return_stops_prog with Some c => run_cmd 5 c w | None => None end
+    match denote_program gosem_return_stops_prog with Some c => run_cmd c w | None => None end
     = Some (ORet tt w);
   rc_panic : forall w,                                        (* a denoted [panic("x")] ends in [OPanic] with the model's exact value *)
-    match denote_program gosem_panic_demo_prog with Some c => run_cmd 5 c w | None => None end
+    match denote_program gosem_panic_demo_prog with Some c => run_cmd c w | None => None end
     = Some (OPanic (anyt TString "x") w);
   rc_print : forall w,                                        (* [print] logs with the PRINT flag — the print/println distinction is observable *)
-    match denote_program gosem_print_prog with Some c => run_cmd 5 c w | None => None end
+    match denote_program gosem_print_prog with Some c => run_cmd c w | None => None end
     = Some (ORet tt (w_log false (anyt TInt64 (intwrap 1) :: nil) w));
   rc_blank_pure : forall w,                                   (* a non-panicking [_ = e] falls through: no output of its own; the successor runs *)
-    match denote_program gosem_blank_pure_prog with Some c => run_cmd 5 c w | None => None end
+    match denote_program gosem_blank_pure_prog with Some c => run_cmd c w | None => None end
     = Some (ORet tt (w_log true (anyt TString "ok" :: nil) w));
   rc_defer_lifo : forall w,                                   (* defers run at RETURN, LIFO: body "hi", then "b" (deferred LAST, runs FIRST), then "a" *)
-    match denote_program gosem_defer_lifo_prog with Some c => run_cmd 5 c w | None => None end
+    match denote_program gosem_defer_lifo_prog with Some c => run_cmd c w | None => None end
     = Some (ORet tt (w_log true (anyt TString "a" :: nil)
                       (w_log true (anyt TString "b" :: nil)
                         (w_log true (anyt TString "hi" :: nil) w))));
   rc_defer_panic : forall w,                                  (* a DEFERRED panic does NOT stop the body ("hi" prints) and fires at return *)
-    match denote_program gosem_defer_panic_prog with Some c => run_cmd 5 c w | None => None end
+    match denote_program gosem_defer_panic_prog with Some c => run_cmd c w | None => None end
     = Some (OPanic (anyt TString "boom") (w_log true (anyt TString "hi" :: nil) w));
   rc_div_zero : forall w,                                     (* the determined divide-by-zero PANICS with Go's exact runtime value *)
-    match denote_program gosem_runtime_blank_prog with Some c => run_cmd 5 c w | None => None end
+    match denote_program gosem_runtime_blank_prog with Some c => run_cmd c w | None => None end
     = Some (OPanic rt_div_zero w);
   rc_arg_panic : forall w,                                    (* a PANICKING argument panics BEFORE the call — println prints NOTHING *)
-    match denote_program gosem_arg_panic_prog with Some c => run_cmd 5 c w | None => None end
+    match denote_program gosem_arg_panic_prog with Some c => run_cmd c w | None => None end
     = Some (OPanic rt_div_zero w);
   rc_defer_arg_panic : forall w,                              (* a deferred call's ARGS evaluate AT DEFER TIME: the panic fires at the defer statement — the later "hi" NEVER prints *)
-    match denote_program gosem_defer_arg_panic_prog with Some c => run_cmd 5 c w | None => None end
+    match denote_program gosem_defer_arg_panic_prog with Some c => run_cmd c w | None => None end
     = Some (OPanic rt_div_zero w);
 }.
 Definition gosem_category_coverage : GoSemRequiredCategoryCoverage.
@@ -1268,7 +1268,7 @@ Example negzero_const_runs : forall w,
   /\ supported_program (println_prog negzero_const_e) = true
   /\ denotable_program (println_prog negzero_const_e) = true
   /\ (match denote_program (println_prog negzero_const_e) with
-      | Some c => run_cmd 5 c w | None => None end)
+      | Some c => run_cmd c w | None => None end)
      = Some (ORet tt (w_log true (anyt TFloat64 (S754_zero false) :: nil) w)).
 Proof. intro w. repeat split; vm_compute; reflexivity. Qed.
 (** the BINOP zero rows pinned end-to-end, BOTH widths: multiplication and
@@ -1308,7 +1308,7 @@ Example signed_zero_folds_eval :
        ; zeromul32_const_e ; zerodiv32_const_e ; negzeromul32_const_e ]) = true.
 Proof. repeat split; vm_compute; reflexivity. Qed.
 Example signed_zero_folds_run : forall w,
-  map (fun e => match denote_program (println_prog e) with Some c => run_cmd 5 c w | None => None end)
+  map (fun e => match denote_program (println_prog e) with Some c => run_cmd c w | None => None end)
       [ zeromul_const_e ; zerodiv_const_e ; negzeromul_const_e
       ; zeromul32_const_e ; zerodiv32_const_e ; negzeromul32_const_e ]
   = [ Some (ORet tt (w_log true (anyt TFloat64 (S754_zero false) :: nil) w))

@@ -168,7 +168,7 @@ Qed.
 (** [go c w] runs [c]'s body, ACCUMULATING the deferred actions (without running them yet).  Structural
     on [c] — the CPS continuations are subterms (a [CRead] continuation's application included), so no
     fuel needed here.  OPTION-VALUED: an unallocated or tag-mismatched heap access has no behavior, so
-    the run is ABSENT — [None] here makes [run_cmd] [None] at EVERY fuel. *)
+    the run is ABSENT — [None] here makes [run_cmd] [None]. *)
 Fixpoint go {A} (c : Cmd A) (w : World) : option (Outcome A * list (Cmd unit)) :=
   match c with
   | CRet a => Some (ORet a w, nil)
@@ -193,54 +193,154 @@ Fixpoint go {A} (c : Cmd A) (w : World) : option (Outcome A * list (Cmd unit)) :
 Definition oc_unit {A} (oc : Outcome A) : Outcome unit :=
   match oc with ORet _ w => ORet tt w | OPanic v w => OPanic v w end.
 
-(** [run_defers fuel ds acc] runs EVERY deferred action in [ds] — [go] APPENDS each, so the head is the
-    LAST-deferred = runs FIRST (LIFO, as Go) — threading the "active panic" in [acc : Outcome unit]
-    ([ORet] = none in flight, [OPanic v] = panic [v] in flight).  Go semantics, faithfully: each deferred
-    action runs as its OWN func scope (its nested defers run, SEEDED by its body's outcome [oc_d]); if its
-    net outcome PANICS, that panic REPLACES the active one — but the REMAINING (older) defers STILL RUN
-    regardless, accumulating their effects.  So the final panic is the LAST one raised during unwinding,
-    and EVERY defer's effects happen.
-
-    THE DEFECT THIS SHAPE PREVENTS: a runner that STOPPED at the first panicking defer
-    returned its panic WITHOUT running the older defers [ds'] — Go continues the whole LIFO stack, a newer
-    panic merely replacing the active one.  Skipping older defers permitted FALSE heap / output /
-    resource-release proofs (a deferred [Close]/unlock/log after a panicking defer was provably dropped).
-    Fuel bounds the deferred-of-deferred nesting (the accumulation is not structural). *)
-Fixpoint run_defers (fuel : nat) (ds : list (Cmd unit)) (acc : Outcome unit) : option (Outcome unit) :=
-  match fuel with
-  | O => None
-  | S n =>
-    match ds with
-    | nil => Some acc
-    | d :: ds' =>
-        match go d (oc_world acc) with
-        | None => None                                (* an absent deferred body makes the whole run absent *)
-        | Some (oc_d, ds_d) =>
-            match run_defers n ds_d oc_d with         (* d's net outcome: its body THEN its own nested defers *)
-            | None => None
-            | Some net_d =>
-                let acc' := match net_d with
-                            | OPanic v' w' => OPanic v' w'        (* d panicked: REPLACE the active panic *)
-                            | ORet _ w'    => oc_set_world acc w' (* d returned: KEEP the active panic, advance world *)
-                            end in
-                run_defers n ds' acc'                 (* ...then ALWAYS run the older defers *)
-            end
-        end
-    end
-  end.
-
-(** Full func-scope run: the body, THEN its defers (LIFO), keeping the body's value or propagating a
-    deferred panic.  [defer] is FAITHFUL — a no-op defer would erase the deferred effect. *)
-Definition run_cmd (fuel : nat) {A} (c : Cmd A) (w : World) : option (Outcome A) :=
-  match go c w with
-  | None => None
-  | Some (oc, ds) =>
-      match run_defers fuel ds (oc_unit oc) with    (* seed the active panic with the body's own outcome *)
-      | Some (ORet _ w') => Some (oc_set_world oc w')
-      | Some (OPanic v w') => Some (OPanic v w')
+(** The TOTAL-per-structure interpreter — NO fuel.  [CDfr d c'] is DEFER-COMPOSITIONAL: run the
+    continuation [c'] (whose own later defers unwind inside it), then run [d] as its OWN func scope
+    from the resulting world, then COMBINE — a returning defer KEEPS the active outcome (value or
+    panic in flight) and advances the world; a panicking defer REPLACES the active panic.  Later
+    defers sit deeper in the continuation, so they unwind FIRST — LIFO, as Go — and EVERY defer's
+    effects happen (a newer panic merely replaces the active one; older defers still run: a runner
+    that stopped at the first panicking defer would permit FALSE heap/output/resource-release
+    proofs).  Structural: [d] and [c'] are subterms and [CRead]'s continuation application is
+    guard-accepted, so divergence is UNREPRESENTABLE ([Cmd] is a well-founded tree) — the option is
+    heap-ABSENCE only (an unallocated or tag-mismatched access has no behavior), never exhaustion. *)
+Fixpoint run_cmd {A} (c : Cmd A) (w : World) : option (Outcome A) :=
+  match c with
+  | CRet a => Some (ORet a w)
+  | COut b xs c' => run_cmd c' (w_log b xs w)
+  | CPan v => Some (OPanic v w)
+  | CDfr d c' =>
+      match run_cmd c' w with
+      | None => None
+      | Some oc =>
+          match run_cmd d (oc_world oc) with
+          | None => None
+          | Some (ORet _ w') => Some (oc_set_world oc w')   (* d returned: keep the active outcome *)
+          | Some (OPanic v w') => Some (OPanic v w')        (* d panicked: replace the active panic *)
+          end
+      end
+  | CWrite l v c' =>
+      match heap_write l v w with
+      | Some w' => run_cmd c' w'
+      | None => None
+      end
+  | CRead l f =>
+      match w_refs w l with
+      | Some cell => run_cmd (f (any_of_cell cell)) w
       | None => None
       end
   end.
+
+(** ---- The RELATIONAL face of the semantics: [unwind_defers] + [eval_cmd] ----
+    [go] is the body relation (as a total function: [go c w = Some (oc, ds)] — the body's outcome
+    plus its collected defer forest); [unwind_defers ds acc r] is the LIFO unwind as an INDUCTIVE
+    derivation — [UwCons] runs one deferred scope (its body via [go], its own nested forest via a
+    SUB-DERIVATION) and threads the active outcome exactly as [run_cmd]'s combine.  Derivations give
+    consumers (the ustep bridge) an induction principle whose nested-forest case is a strict
+    sub-derivation — the induction the deleted fuel used to fake.  [eval_cmd] packages both; it is
+    EQUIVALENT to the structural [run_cmd] ([run_cmd_eval]/[eval_run_cmd] below), so either spelling
+    is the same semantic fact and there is ONE authority. *)
+Inductive unwind_defers : list (Cmd unit) -> Outcome unit -> Outcome unit -> Prop :=
+  | UwNil  : forall acc, unwind_defers nil acc acc
+  | UwCons : forall d ds acc oc_d ds_d net r,
+      go d (oc_world acc) = Some (oc_d, ds_d) ->
+      unwind_defers ds_d (oc_unit oc_d) net ->
+      unwind_defers ds (match net with
+                        | OPanic v' w' => OPanic v' w'
+                        | ORet _ w'    => oc_set_world acc w' end) r ->
+      unwind_defers (d :: ds) acc r.
+
+Definition eval_cmd {A} (c : Cmd A) (w : World) (oc : Outcome A) : Prop :=
+  exists oc0 ds r,
+    go c w = Some (oc0, ds)
+    /\ unwind_defers ds (oc_unit oc0) r
+    /\ oc = match r with
+            | ORet _ w'   => oc_set_world oc0 w'
+            | OPanic v w' => OPanic v w'
+            end.
+
+(** Unwind derivations COMPOSE and SPLIT over append — the accumulator threads uniformly. *)
+Lemma unwind_app : forall ds1 acc mid, unwind_defers ds1 acc mid ->
+  forall ds2 r, unwind_defers ds2 mid r -> unwind_defers (ds1 ++ ds2) acc r.
+Proof.
+  intros ds1 acc mid H1; induction H1 as [acc | d ds acc oc_d ds_d net r' Hgo Hnest IHn Hrest IHr];
+    intros ds2 r H2; cbn [app].
+  - exact H2.
+  - exact (UwCons d (ds ++ ds2) acc oc_d ds_d net r Hgo Hnest (IHr ds2 r H2)).
+Qed.
+Lemma unwind_split : forall ds1 ds2 acc r, unwind_defers (ds1 ++ ds2) acc r ->
+  exists mid, unwind_defers ds1 acc mid /\ unwind_defers ds2 mid r.
+Proof.
+  induction ds1 as [| d ds1 IH]; intros ds2 acc r H; cbn [app] in H.
+  - exists acc. split; [ exact (UwNil acc) | exact H ].
+  - inversion H as [| d0 ds0 acc0 oc_d ds_d net r0 Hgo Hnest Hrest Heqd Heqacc Heqr ]; subst.
+    destruct (IH ds2 _ r Hrest) as [mid [Hm1 Hm2]].
+    exists mid. split; [ exact (UwCons d ds1 acc oc_d ds_d net mid Hgo Hnest Hm1) | exact Hm2 ].
+Qed.
+
+(** A panic in flight is NEVER lost: an unwind seeded by a panic ends in a panic (a returning
+    defer keeps the seed via [oc_set_world]; a panicking one replaces it with another panic). *)
+Lemma unwind_panic_stays : forall ds acc r, unwind_defers ds acc r ->
+  forall v w, acc = OPanic v w -> exists v' w', r = OPanic v' w'.
+Proof.
+  intros ds acc r H; induction H as [acc | d ds acc oc_d ds_d net r Hgo Hnest IHn Hrest IHr];
+    intros v w ->.
+  - exists v, w. reflexivity.
+  - destruct net as [[] wn | vn wn]; cbn [oc_set_world] in IHr.
+    + exact (IHr v wn eq_refl).
+    + exact (IHr vn wn eq_refl).
+Qed.
+
+(** run_cmd ⊆ eval_cmd: the structural interpreter's every completing run has a derivation.
+    Structural on [c]; the [CDfr] case splices the continuation's derivation with the deferred
+    scope's via [unwind_app]. *)
+Theorem run_cmd_eval : forall (c : Cmd unit) w oc,
+  run_cmd c w = Some oc -> eval_cmd c w oc.
+Proof.
+  fix IH 1. intros [a | b xs c' | v | d c' | l v c' | l f] w oc H; cbn [run_cmd] in H.
+  - injection H as <-. exists (ORet a w), nil, (ORet tt w).
+    split; [ reflexivity | split; [ exact (UwNil _) | reflexivity ] ].
+  - destruct (IH c' (w_log b xs w) oc H) as [oc0 [ds [r [Hgo [Hun Hoc]]]]].
+    exists oc0, ds, r. split; [ cbn [go]; exact Hgo | split; [ exact Hun | exact Hoc ] ].
+  - injection H as <-. exists (OPanic v w), nil, (OPanic v w).
+    split; [ reflexivity | split; [ exact (UwNil _) | reflexivity ] ].
+  - destruct (run_cmd c' w) as [ocm|] eqn:Em; [ | discriminate H ].
+    destruct (run_cmd d (oc_world ocm)) as [ocd|] eqn:Ed; [ | discriminate H ].
+    destruct (IH c' w ocm Em) as [oc0 [ds0 [r0 [Hgo0 [Hun0 Hocm]]]]].
+    destruct (IH d (oc_world ocm) ocd Ed) as [ocd0 [dsd [rd [Hgod [Hund Hocd]]]]].
+    (* d's scope as ONE [UwCons] over the tail [nil]; its net [ocd] = the seeded unwind result
+       (at unit the seed [oc_unit ocd0] carries the status, so the combine collapses —
+       the impossible panic-seed/return-result corner is closed by [unwind_panic_stays]) *)
+    assert (Hworld : oc_world ocm = oc_world r0)
+      by (subst ocm; destruct r0 as [[] w0 | v0 w0];
+          [ destruct oc0; reflexivity | reflexivity ]).
+    assert (Hnet : ocd = rd).
+    { subst ocd. destruct ocd0 as [[] wd | vd wd]; cbn [oc_unit] in Hund.
+      - destruct rd as [[] wr | vr wr]; cbn [oc_set_world]; reflexivity.
+      - destruct (unwind_panic_stays dsd (OPanic vd wd) rd Hund vd wd eq_refl) as [v' [w' ->]].
+        reflexivity. }
+    exists oc0, (ds0 ++ (d :: nil)),
+      (match ocd with OPanic v' w' => OPanic v' w' | ORet _ w' => oc_set_world r0 w' end).
+    split; [ cbn [go]; rewrite Hgo0; reflexivity | ].
+    split.
+    + eapply unwind_app; [ exact Hun0 | ].
+      eapply (UwCons d nil r0 ocd0 dsd rd).
+      * rewrite <- Hworld. exact Hgod.
+      * exact Hund.
+      * rewrite <- Hnet.
+        destruct ocd as [[] wD | vD wD]; cbn [oc_set_world]; exact (UwNil _).
+    + subst ocm.
+      destruct ocd as [[] wD | vD wD]; cbn.
+      * destruct r0 as [[] w0 | v0 w0]; cbn [oc_set_world] in H |- *;
+          destruct oc0 as [[] wA | vA wA]; cbn [oc_set_world] in H |- *;
+          injection H as <-; reflexivity.
+      * injection H as <-. reflexivity.
+  - destruct (heap_write l v w) as [w'|] eqn:E; [ | discriminate H ].
+    destruct (IH c' w' oc H) as [oc0 [ds [r [Hgo [Hun Hoc]]]]].
+    exists oc0, ds, r. split; [ cbn [go]; rewrite E; exact Hgo | split; [ exact Hun | exact Hoc ] ].
+  - destruct (w_refs w l) as [cell|] eqn:E; [ | discriminate H ].
+    destruct (IH (f (any_of_cell cell)) w oc H) as [oc0 [ds [r [Hgo [Hun Hoc]]]]].
+    exists oc0, ds, r. split; [ cbn [go]; rewrite E; exact Hgo | split; [ exact Hun | exact Hoc ] ].
+Qed.
 
 (** [no_defer c] — [c] registers no [CDfr]: a straight-line output/panic/return command.  A pure [Cmd]
     predicate, so it lives here (cmd.v); consumed by GoSemSafe's defer-free exact-output panic lemmas
@@ -262,14 +362,14 @@ Fixpoint cmd_no_panic (c : Cmd unit) : bool :=
   match c with
   | CRet _ => true | COut _ _ c' => cmd_no_panic c' | CPan _ => false | CDfr d c' => cmd_no_panic d && cmd_no_panic c'
   | CWrite _ _ _ => false | CRead _ _ => false   (* CONSERVATIVE: the decidable panic-free gate also
-       promises COMPLETION (the ∃-fuel [ORet] run), which a heap op cannot guarantee (an unallocated or
-       tag-mismatched access is ABSENT at every fuel) and a boolean cannot scan under [CRead]'s binder —
+       promises COMPLETION (the [ORet] run), which a heap op cannot guarantee (an unallocated or
+       tag-mismatched access is ABSENT) and a boolean cannot scan under [CRead]'s binder —
        heap programs leave this gate until a finer, allocation-aware analysis exists *)
   end.
 
 (** [no_heap c] — [c] contains NO heap node ([CWrite]/[CRead]) anywhere, body or deferred.  The decidable
-    fragment on which the ∃-fuel termination theorem below holds: a heap access can be ABSENT ([go] = [None])
-    at EVERY fuel, so unconditional termination is FALSE outside this fragment — completion there is a
+    fragment on which the totality theorem below holds: a heap access can be ABSENT ([run_cmd] = [None]),
+    so unconditional completion is FALSE outside this fragment — completion there is a
     per-program premise, never a theorem.  [cmd_no_panic] is a strict subset (its heap arms are [false] too),
     so panic-free consumers inherit [no_heap] for free ([cmd_no_panic_no_heap] below). *)
 Fixpoint no_heap (c : Cmd unit) : bool :=
@@ -292,136 +392,25 @@ Proof.
   - discriminate H.
 Qed.
 
-(** ---- TERMINATION on the [no_heap] fragment: [run_cmd] never diverges there — enough fuel returns [Some].
-    Pure [run_cmd]/[run_defers] properties over cmd.v's own [go], so they live HERE; the measure is a
-    structural node-count ([go d] spends [d]'s body nodes, so its accumulated defer forest is strictly
-    smaller).  The node-count is a PLACEHOLDER [1] at [CRead] (no syntactic size exists under a binder —
-    the continuation branches over every [GoAny]), which is sound because every measure lemma carries the
-    [no_heap] premise and a [no_heap] tree never reaches that arm.  [run_cmd_terminates] is a gated public
-    surface ([Print Assumptions] below); consumed by cmd_unified.v and GoSem's run layer, whose commands are
-    [no_heap] via [cmd_no_panic_no_heap] or by construction. *)
-Local Fixpoint cmd_sz (c : Cmd unit) : nat :=
-  match c with
-  | CRet _ => 1 | COut _ _ c' => S (cmd_sz c') | CPan _ => 1 | CDfr d c' => S (cmd_sz d + cmd_sz c')
-  | CWrite _ _ c' => S (cmd_sz c') | CRead _ _ => 1
-  end.
-Local Fixpoint defers_sz (ds : list (Cmd unit)) : nat :=
-  match ds with nil => 0 | d :: ds' => cmd_sz d + defers_sz ds' end.
-Local Lemma defers_sz_app : forall ds1 ds2, defers_sz (ds1 ++ ds2) = defers_sz ds1 + defers_sz ds2.
-Proof. induction ds1 as [|d ds1 IH]; intro ds2; cbn; [reflexivity | rewrite IH; lia]. Qed.
-
-Fixpoint no_heap_all (ds : list (Cmd unit)) : bool :=
-  match ds with nil => true | d :: ds' => no_heap d && no_heap_all ds' end.
-Lemma no_heap_all_app : forall ds1 ds2,
-  no_heap_all (ds1 ++ ds2) = (no_heap_all ds1 && no_heap_all ds2)%bool.
-Proof.
-  induction ds1 as [|d ds1 IH]; intro ds2; cbn; [reflexivity | rewrite IH, Bool.andb_assoc; reflexivity].
-Qed.
-
-(** On the [no_heap] fragment [go] always SUCCEEDS, its defer forest is [no_heap] too, and that forest is
-    strictly SMALLER than [d] (its body nodes are spent) — the three facts the bounded-fuel induction
-    threads together. *)
-Lemma go_no_heap : forall (d : Cmd unit) w, no_heap d = true ->
-  exists oc ds, go d w = Some (oc, ds) /\ no_heap_all ds = true /\ defers_sz ds < cmd_sz d.
-Proof.
-  intro d; induction d as [a | b xs c' IH | v | d0 c' IH | l v c' IH | l f IH] using Cmd_rect';
-    intros w Hnh; cbn [no_heap] in Hnh; cbn [go cmd_sz].
-  - exists (ORet a w), nil.
-    repeat split; try reflexivity; cbn; lia.
-  - destruct (IH (w_log b xs w) Hnh) as [oc [ds [Hgo [Hall Hsz]]]].
-    exists oc, ds. repeat split; try exact Hgo; try exact Hall; lia.
-  - exists (OPanic v w), nil.
-    repeat split; try reflexivity; cbn; lia.
-  - destruct (no_heap d0) eqn:Hd0; [ | discriminate Hnh ]. cbn in Hnh.
-    destruct (IH w Hnh) as [oc [ds [Hgo [Hall Hsz]]]].
-    rewrite Hgo. exists oc, (ds ++ (d0 :: nil)).
-    repeat split.
-    + rewrite no_heap_all_app. cbn. rewrite Hall, Hd0. reflexivity.
-    + rewrite defers_sz_app. cbn [defers_sz]. lia.
-  - discriminate Hnh.
-  - discriminate Hnh.
-Qed.
-
-(** One definitional unfolding of [run_defers] over a [cons] with fuel to spare — a controlled rewrite so
-    consumers need not fight [cbn]'s aggressiveness on the (variable-list) tail recursion.  PUBLIC: shared with
-    cmd_unified.v's unwind/characterization lemmas. *)
-Lemma run_defers_unfold : forall n d ds acc,
-  run_defers (S n) (d :: ds) acc
-    = match go d (oc_world acc) with
-      | None => None
-      | Some (oc_d, ds_d) =>
-          match run_defers n ds_d oc_d with
-          | None => None
-          | Some net_d =>
-              run_defers n ds (match net_d with
-                               | OPanic v' w' => OPanic v' w'
-                               | ORet _ w' => oc_set_world acc w' end)
-          end
-      end.
-Proof. reflexivity. Qed.
-
-(** [run_defers] is MONOTONE in fuel: extra fuel never changes a successful result (it only guards against
-    exhaustion).  Induction on the fuel [f]. *)
-Local Lemma run_defers_mono : forall f ds acc r,
-  run_defers f ds acc = Some r -> forall f', f <= f' -> run_defers f' ds acc = Some r.
-Proof.
-  induction f as [| n IH]; intros ds acc r H f' Hle; [ discriminate H | ].
-  destruct f' as [| n']; [ inversion Hle | ]. apply le_S_n in Hle.
-  destruct ds as [| d ds']; [ cbn in H |- *; exact H | ].
-  rewrite run_defers_unfold in H. rewrite run_defers_unfold.
-  destruct (go d (oc_world acc)) as [[oc_d ds_d]|]; [ | discriminate H ].
-  destruct (run_defers n ds_d oc_d) as [net_d|] eqn:Enet; [ | discriminate H ].
-  rewrite (IH ds_d oc_d net_d Enet n' Hle). exact (IH ds' _ r H n' Hle).
-Qed.
-
-(** [run_defers] TERMINATES for enough fuel, over ARBITRARY nesting: bounded strong induction on the defer
-    forest's node-count [defers_sz] (each [go d] peels [d] into a strictly-smaller sub-forest — [go_no_heap]),
-    lifting the two sub-results to a common fuel via [run_defers_mono].  No well-founded machinery — plain [nat]
-    induction on the [defers_sz] bound.  The tail [ds']'s seed depends on the nested run's RESULT, so the two
-    sub-runs are resolved to concrete [net_d]/[r] before choosing the common fuel. *)
-Local Lemma run_defers_terminates : forall ds acc,
-  no_heap_all ds = true -> exists f, run_defers f ds acc <> None.
-Proof.
-  assert (aux : forall n ds acc, no_heap_all ds = true -> defers_sz ds <= n ->
-                exists f, run_defers f ds acc <> None).
-  { induction n as [| n IH]; intros ds acc Hnh Hle.
-    - destruct ds as [| d ds']; [ exists 1; cbn; discriminate | ].
-      cbn [defers_sz] in Hle. cbn in Hnh.
-      destruct (no_heap d) eqn:Hd; [ | discriminate Hnh ].
-      destruct (go_no_heap d (oc_world acc) Hd) as [oc_d [ds_d [_ [_ Hsz]]]]. lia.
-    - destruct ds as [| d ds']; [ exists 1; cbn; discriminate | ].
-      cbn [defers_sz] in Hle. cbn in Hnh.
-      destruct (no_heap d) eqn:Hd; [ | discriminate Hnh ]. cbn in Hnh.
-      destruct (go_no_heap d (oc_world acc) Hd) as [oc_d [ds_d [Hgo [Hall Hsz]]]].
-      destruct (IH ds_d oc_d Hall) as [f1 H1]; [ lia | ].
-      destruct (run_defers f1 ds_d oc_d) as [net_d|] eqn:Enet; [ | exfalso; apply H1; reflexivity ].
-      destruct (IH ds' (match net_d with OPanic v' w' => OPanic v' w' | ORet _ w' => oc_set_world acc w' end) Hnh)
-        as [f2 H2]; [ lia | ].
-      destruct (run_defers f2 ds' (match net_d with OPanic v' w' => OPanic v' w' | ORet _ w' => oc_set_world acc w' end))
-        as [r|] eqn:Erest; [ | exfalso; apply H2; reflexivity ].
-      exists (S (Nat.max f1 f2)).
-      assert (Hfull : run_defers (S (Nat.max f1 f2)) (d :: ds') acc = Some r).
-      { rewrite run_defers_unfold, Hgo.
-        rewrite (run_defers_mono _ _ _ _ Enet (Nat.max f1 f2) ltac:(lia)). cbn match.
-        exact (run_defers_mono _ _ _ _ Erest (Nat.max f1 f2) ltac:(lia)). }
-      rewrite Hfull. discriminate. }
-  intros ds acc Hnh. exact (aux (defers_sz ds) ds acc Hnh (le_n _)).
-Qed.
-
-(** [run_cmd] TERMINATES for enough fuel on the [no_heap] fragment (nested defers included): the body
-    ([go], always [Some] there) plus the defer forest ([run_defers_terminates]).  OUTSIDE the fragment the
-    ∃-fuel claim is FALSE by design — an absent heap access is [None] at every fuel — so completion is a
-    per-program premise there, never a theorem. *)
+(** ---- TOTALITY on the [no_heap] fragment: [run_cmd] COMPLETES there, unconditionally — no bound,
+    no fuel.  The option is heap-absence only, and a [no_heap] tree never reaches a heap arm, so a
+    structural induction produces the outcome directly.  [run_cmd_terminates] is a gated public
+    surface ([Print Assumptions] below); consumed by cmd_unified.v and GoSem's run layer, whose
+    commands are [no_heap] via [cmd_no_panic_no_heap] or by construction. *)
 Theorem run_cmd_terminates : forall (c : Cmd unit) w,
-  no_heap c = true -> exists fuel oc, run_cmd fuel c w = Some oc.
+  no_heap c = true -> exists oc, run_cmd c w = Some oc.
 Proof.
-  intros c w Hnh.
-  destruct (go_no_heap c w Hnh) as [oc0 [ds [Hgo [Hall _]]]].
-  destruct (run_defers_terminates ds (oc_unit oc0) Hall) as [fuel Hrd].
-  destruct (run_defers fuel ds (oc_unit oc0)) as [result|] eqn:Erd;
-    [ | exfalso; apply Hrd; reflexivity ].
-  exists fuel. unfold run_cmd. rewrite Hgo, Erd.
-  destruct result as [[] w' | v w']; eexists; reflexivity.
+  fix IH 1. intros [a | b xs c' | v | d c' | l v c' | l f] w Hnh; cbn [no_heap] in Hnh;
+    cbn [run_cmd].
+  - exists (ORet a w). reflexivity.
+  - exact (IH c' (w_log b xs w) Hnh).
+  - exists (OPanic v w). reflexivity.
+  - destruct (no_heap d) eqn:Hd; [ | discriminate Hnh ]. cbn in Hnh.
+    destruct (IH c' w Hnh) as [oc Hoc]. rewrite Hoc.
+    destruct (IH d (oc_world oc) Hd) as [ocd Hocd]. rewrite Hocd.
+    destruct ocd as [[] w' | vd w']; eexists; reflexivity.
+  - discriminate Hnh.
+  - discriminate Hnh.
 Qed.
 Print Assumptions run_cmd_terminates.
 
@@ -429,14 +418,14 @@ Print Assumptions run_cmd_terminates.
 
 (** [defer println(a); defer println(b); return] prints b THEN a (LIFO at return), exactly as Go. *)
 Example defer_runs_lifo : forall (a b : GoAny) (w : World),
-  run_cmd 5 (CDfr (COut true (a :: nil) (CRet tt)) (CDfr (COut true (b :: nil) (CRet tt)) (CRet tt))) w
+  run_cmd (CDfr (COut true (a :: nil) (CRet tt)) (CDfr (COut true (b :: nil) (CRet tt)) (CRet tt))) w
     = Some (ORet tt (w_log true (a :: nil) (w_log true (b :: nil) w))).
 Proof. reflexivity. Qed.
 
 (** Defers run even when the body PANICS (Go semantics): the deferred [println(a)] still happens, then the
     panic propagates. *)
 Example defer_runs_on_panic : forall (a v : GoAny) (w : World),
-  run_cmd 5 (CDfr (COut true (a :: nil) (CRet tt)) (CPan v) : Cmd unit) w
+  run_cmd (CDfr (COut true (a :: nil) (CRet tt)) (CPan v) : Cmd unit) w
     = Some (OPanic v (w_log true (a :: nil) w)).
 Proof. reflexivity. Qed.
 
@@ -444,13 +433,13 @@ Proof. reflexivity. Qed.
     RUNS (its output [w_log a] appears) and the panic propagates.  The pre-fix interpreter STOPPED at the
     panicking defer and returned [OPanic v w] with NO [w_log a] — a provably-dropped deferred effect. *)
 Example defer_older_runs_after_newer_panics : forall (a v : GoAny) (w : World),
-  run_cmd 5 (CDfr (COut true (a :: nil) (CRet tt)) (CDfr (CPan v) (CRet tt)) : Cmd unit) w
+  run_cmd (CDfr (COut true (a :: nil) (CRet tt)) (CDfr (CPan v) (CRet tt)) : Cmd unit) w
     = Some (OPanic v (w_log true (a :: nil) w)).
 Proof. reflexivity. Qed.
 
 (** Two panicking defers: the LAST to run (the EARLIER-registered [v1], deepest in LIFO) wins, replacing
     the newer [v2] — exactly Go's "a later panic during unwinding replaces the active one". *)
 Example defer_last_panic_wins : forall (v1 v2 : GoAny) (w : World),
-  run_cmd 5 (CDfr (CPan v1) (CDfr (CPan v2) (CRet tt)) : Cmd unit) w
+  run_cmd (CDfr (CPan v1) (CDfr (CPan v2) (CRet tt)) : Cmd unit) w
     = Some (OPanic v1 w).
 Proof. reflexivity. Qed.
