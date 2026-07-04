@@ -3429,6 +3429,17 @@ Definition ownname_demo : IO unit :=
   println [any (OwnNames.tl (9)%i64); any (OwnNames.StructRepOfDemo (8)%i64);
            any (OwnNames.go_min (7)%i64); any (OwnNames.repeat (6)%i64)].   (* 9 8 7 6 *)
 
+(** OWNERSHIP is module IDENTITY, not a path component: a user module NAMED [builtins]
+    (path [Fido.main.builtins] — contains a "builtins" component but IS NOT
+    [Fido.builtins]) defining a RECOGNIZER basename ([i64_add]) is NOT owned — it emits
+    as a plain function returning its FIRST argument.  A component-scan regression would
+    mis-lower the call to native [+] and print 42 instead of 30. *)
+Module builtins.
+  Definition i64_add (x : GoI64) (_ : GoI64) : GoI64 := x.
+End builtins.
+Definition ownpath_demo : IO unit :=
+  println [any (builtins.i64_add (30)%i64 (12)%i64)].   (* 30 — NOT 42 *)
+
 (** MUTUAL RECURSION — two `Fixpoint`s calling each other (a mutual `Dfix`).  No plugin work:
     the `Dfix` arm already emits each function via `pp_function`, and a cross-call is an
     ordinary call; with value-position nat matches now lowering, the bodies emit too. *)
@@ -3695,6 +3706,7 @@ Definition main_effect : IO unit :=
   pure_rec_demo                 >>'   (* prints: 16 (pure value-returning recursion, pow2 4) *)
   natpred_demo                  >>'   (* prints: 16 1 (Nat.pred live use -> func Pred emitted; stdlib liveness) *)
   ownname_demo                  >>'   (* prints: 9 8 7 6 (user defs colliding with suppressed basenames/prefixes EMIT - ownership/type-checked suppression) *)
+  ownpath_demo                  >>'   (* prints: 30 (module IDENTITY ownership: user builtins.i64_add is NOT the intrinsic) *)
   mutual_rec_demo               >>'   (* prints: true / false (mutual recursion is_even/is_odd) *)
   f32_demo                      >>'   (* prints: 7.5 (native float32 arithmetic) *)
   i64_of_narrow_demo            >>'   (* prints: 200 -5 60000 (narrow→int64 widening) *)

@@ -2612,6 +2612,14 @@ func Ownname_demo() {
 	println(Tl(9), StructRepOfDemo(8), Go_min(7), Repeat(6))
 }
 
+func I64_add(x int64, x_0 int64) int64 {
+	return x
+}
+
+func Ownpath_demo() {
+	println(I64_add(30, 12))
+}
+
 func Is_even(n uint) bool {
 	if n == 0 {
 		return true
@@ -2955,6 +2963,7 @@ func main() {
 	Pure_rec_demo()
 	Natpred_demo()
 	Ownname_demo()
+	Ownpath_demo()
 	Mutual_rec_demo()
 	F32_demo()
 	I64_of_narrow_demo()

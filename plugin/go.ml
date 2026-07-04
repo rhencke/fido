@@ -228,20 +228,21 @@ let record_ctor_tyname r =
       go_export (globref_basename (Names.GlobRef.IndRef ind))
   | _ -> ""
 
-(* [from_builtins r]: the ref is DEFINED in Fido's [builtins.v] module (dirpath component
-   ["builtins"]), NOT in a user theory like [main.v] (module ["main"]).  Coq references point at
-   the DEFINING module regardless of where they are used, so this holds for a builtin no matter
-   which theory references it.  Closes the basename-shadowing hole: a user
-   [Definition u8_add] in [main.v] no longer gets mis-recognized as the builtin. *)
+(* [from_builtins r]: the ref's DEFINING module is exactly [Fido.builtins] — full-dirpath
+   IDENTITY, the ownership check behind every by-name recognizer/suppression.  Coq
+   references point at the defining module regardless of where they are used, so this
+   holds for a builtin no matter which theory references it, and a same-basename USER
+   definition (any other module, including one with a "builtins" path component) is never
+   mis-recognized. *)
 let from_builtins r =
-  (* EXACT dirpath-component match, not a substring scan: a [DirPath.repr] component must equal
-     "builtins" verbatim.  The old substring scan accepted ANY path CONTAINING the text — so a user
-     module [mybuiltins] / [builtins_helpers] would be mis-recognized as Fido's [builtins.v] and a
-     same-basename user definition mis-lowered to an intrinsic.  Comparing the
-     actual path components closes that: [mybuiltins] is the single component "mybuiltins" <> "builtins". *)
+  (* EXACT full-dirpath identity, not a component scan: the WHOLE dirpath must be Fido's
+     canonical [Fido.builtins].  A component scan accepted any theory with a "builtins"
+     component anywhere in its path (e.g. a user module [builtins] nested in a fixture),
+     which would be mis-recognized as Fido-owned and its same-basename definitions
+     swallowed/mis-lowered.  Identity of the defining module is the ownership check. *)
   match (try Some (Nametab.dirpath_of_global r.glob) with Not_found -> None) with
   | None -> false
-  | Some dp -> List.exists (fun c -> String.equal (Id.to_string c) "builtins") (DirPath.repr dp)
+  | Some dp -> String.equal (DirPath.to_string dp) "Fido.builtins"
 
 (* A Fido builtin/combinator is matched by its basename AND a check that it lives in [builtins.v]
    — so a user theory CANNOT shadow a builtin name (the basename match alone used to trust that).
@@ -515,11 +516,6 @@ let is_comparable_witness_inst r = Hashtbl.mem comparable_inst (global_path r)
    [collect_decls] pass 2, suppressed by MEMBERSHIP — never by the instance's name. *)
 let class_inst : (string, unit) Hashtbl.t = Hashtbl.create 16
 let is_slice_make_ref = named "slice_make"
-(* [List.repeat] backs [slice_make]'s model body; it is DEAD in the emitted Go
-   (slice_make calls lower to [make([]T,n)]), so its decl is suppressed — emitting
-   it would leak an undefined element-type variable. *)
-let is_repeat_ref r =
-  ref_has_suffix r ".Lists.List.repeat"
 (* option Some/None — used to lower [match map_get_opt … with Some v | None]. *)
 let is_some_ctor r = ref_has_suffix r ".Init.Datatypes.Some"
 let is_none_ctor r = ref_has_suffix r ".Init.Datatypes.None"
@@ -2806,7 +2802,11 @@ let rec pp_expr state env = function
       else str (go_export (global_basename r))
 
   | MLfix (i, names, _) ->
-      str (go_export (go_safe (Id.to_string names.(i))))
+      (* a LOCAL fixpoint VALUE in expression position: printing its internal binder name
+         assumes a same-named, fully-applied top-level decl — an under-applied or locally
+         eta-collapsed fix (e.g. a live stdlib [List.repeat]) would print a wrong-arity or
+         undefined identifier.  Go has no partial application — fail loud. *)
+      unsupported ("a local fixpoint value (" ^ go_safe (Id.to_string names.(i)) ^ ") in expression position — no faithful Go form for an under-applied/local recursion")
 
   | MLletin (_id, e1, e2) ->
       (* VALUE-POSITION-LET RULE: a value-position let must NOT become `(func() any { x := e1; return e2 })()` — the
@@ -4655,6 +4655,25 @@ let rec pp_pure_tail state tab env e =
 let pp_function state name body typ =
   Hashtbl.reset narrow_var_types;   (* narrow-let-var table is per-function (names are fn-local) *)
   let ids, inner_body = collect_lam body in
+  (* UNIQUE rendered binders: extraction can freshen two visible params to the same
+     printed name (e.g. a user [_] binder next to an [x]) — Go rejects duplicate
+     parameters.  Rename later duplicates; the SAME renamed ids feed the signature AND
+     the body env, so de Bruijn references stay consistent. *)
+  let ids =
+    let seen = Hashtbl.create 8 in
+    let uniq mk v =
+      let base = Id.to_string v in
+      if not (Hashtbl.mem seen base) then (Hashtbl.replace seen base (); mk v)
+      else
+        let rec fresh i =
+          let cand = base ^ "_" ^ string_of_int i in
+          if Hashtbl.mem seen cand then fresh (i + 1) else cand in
+        let name = fresh 0 in
+        (Hashtbl.replace seen name (); mk (Id.of_string name)) in
+    List.map (function
+      | Dummy -> Dummy
+      | Id v  -> uniq (fun v -> Id v) v
+      | Tmp v -> uniq (fun v -> Tmp v) v) ids in
   let param_types, ret_type = collect_tarrs typ in
   (* A sub-64 narrow return type makes the pure-tail [return]s wrap the int-carrier value
      in its declared Go type ([narrow_ret_type]); [None] for full-width / IO / non-narrow returns. *)
@@ -4872,7 +4891,7 @@ let is_suppressed_ref r =
   is_go_map_type r || is_map_make_ref r || is_map_make_typed_ref r ||
   is_map_set_ref r || is_map_del_ref r || is_map_len_ref r || is_map_get_or_ref r ||
   is_map_get_opt_ref r || is_map_clear_ref r ||
-  is_min_ref r || is_max_ref r || is_slice_make_ref r || is_repeat_ref r ||
+  is_min_ref r || is_max_ref r || is_slice_make_ref r ||
   is_gofunc_type r || is_gofunc_of_ref r || is_gofunc_call_ref r ||  (* nullable func values *)
   is_go_chan_type r || is_make_chan_ref r || is_make_chan_buf_ref r || is_make_chan_cap_ref r ||
   is_send_ref r || is_recv_ref r || is_close_chan_ref r || is_recv_ok_ref r ||
