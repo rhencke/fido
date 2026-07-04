@@ -245,7 +245,7 @@ let from_builtins r =
   | Some dp -> String.equal (DirPath.to_string dp) "Fido.builtins"
 
 (* A Fido builtin/combinator is matched by its basename AND a check that it lives in [builtins.v]
-   — so a user theory CANNOT shadow a builtin name (the basename match alone used to trust that).
+   — so a user theory CANNOT shadow a builtin name.
    Stdlib refs are package-qualified and use [ref_has_suffix]. *)
 let named n r = String.equal (global_basename r) n && from_builtins r
 
@@ -371,10 +371,9 @@ let go_prim_type_table = [
   "GoUint",    "uint";   (* platform uint — the DISTINCT record [GoUint] (builtins.v), erased to its [uint] carrier (ctor/proj below) *)
   "GoFloat32", "float32";
   (* NOTE: the fixed-width [int8]…[uint64] are NOT here — they are the distinct records
-     [GoI8]/[GoU8]/…/[GoI64]/[GoU64] (rendered via [is_numint_type]/[narrow_prim_type]).  The old
-     transparent bare-[int] aliases [GoInt8]/…/[GoUint64] were the distinct-record defect (alias cross-assignable
-     in Rocq but rendered a distinct Go type ⇒ invalid Go) and are RETIRED in builtins.v; their dead
-     table entries are dropped here so no future re-added alias is silently mis-rendered. *)
+     [GoI8]/[GoU8]/…/[GoI64]/[GoU64] (rendered via [is_numint_type]/[narrow_prim_type]).  A transparent
+     bare-[int] alias entry here would be cross-assignable in Rocq yet render a distinct Go type
+     ⇒ invalid Go — never re-add one. *)
 ]
 
 let is_float64_type r =
@@ -589,12 +588,11 @@ let is_slift_ref = named "slift"
 (* GoTypeTag constructors → Go type names *)
 let go_type_tag_map = [
   "TBool",    "bool";
-  "TInt64",   "int";      (* PrimInt63 = Go's platform int (break #7; TInt retired — TInt64 is the sole int tag) *)
+  "TInt64",   "int";      (* PrimInt63 = Go's platform int (TInt64 is the sole int tag) *)
   "TFloat64", "float64";
   "TString",  "string";
   "TUint",    "uint";
-  (* canonical Squash-sealed fixed-width family — one tag per Go type (7a retired the
-     bare-int duplicates TInt8/…/TUint64; their dead map entries are dropped here). *)
+  (* canonical Squash-sealed fixed-width family — one tag per Go type (no bare-int duplicates). *)
   "TU8",   "uint8";  "TI8",  "int8";
   "TU16",  "uint16"; "TI16", "int16";
   "TU32",  "uint32"; "TI32", "int32";
@@ -960,9 +958,8 @@ let is_any_i64_op r =
 (* Platform-int [GoInt] ops: the EXACT [GoI64] shape but rendered Go [int].
    [GoInt]/[MkGoInt]/[intraw] erase to the [Z] carrier (rendered [int] via [go_prim_type_table]);
    arithmetic/comparison lower to BARE Go operators via [binop_of].  [int_lit] folds its [Z] literal
-   — BARE decimal in expression position (the Go [int] default; e.g. an index [xs[5]]), [int(N)] when a
-   Go type must be pinned (a [:=] binding / box), matching the OLD [PrimInt63] literal's position-
-   dependent rendering ([MLuint] in [pp_expr] vs [pp_typed_lit]). *)
+   — BARE decimal in expression position (the Go [int] default; e.g. an index [xs[5]]; [pp_expr]),
+   [int(N)] when a Go type must be pinned (a [:=] binding / box; [pp_typed_lit]). *)
 let is_int_op r name = from_builtins r && String.equal (global_basename r) ("int_" ^ name)
 let is_int_lit r = is_int_op r "lit"
 let is_any_int_op r =
@@ -1105,7 +1102,7 @@ let parse_fixed_width n =
 let fixed_width_op r = if from_builtins r then parse_fixed_width (global_basename r) else None
 let fw_is r op = match fixed_width_op r with Some (_, _, o) -> String.equal o op | None -> false
 
-(* Break #7 — faithful narrow interface identity.  The sub-64-bit numeric narrows
+(* Faithful narrow interface identity.  The sub-64-bit numeric narrows
    (GoU8…GoI32) are int64-CARRIED for arithmetic so the masked ops constant-FOLD cleanly
    (native [uint8(200)+uint8(100)] would be a Go constant-overflow error — Go does not wrap
    constant arithmetic).  But a boxed value's FAITHFUL Go dynamic type is its real narrow
@@ -1305,8 +1302,7 @@ let classify_sint63_op r =
 (* The Go operator SURFACE and PRECEDENCE are owned by the VERIFIED [GoPrint] definitions
    ([binop_text] / [binop_prec], extracted to printer.ml).  go.ml only RECOGNISES which GoPrint [binOp] a
    builtin denotes ([binop_of] below + these two maps); surface and precedence are then DERIVED from GoPrint
-   — one operator authority, no parallel precedence/surface tables (the old [go_infix]/[op_prec]/[float_prec]
-   are gone). *)
+   — one operator authority, no parallel precedence/surface tables. *)
 let go_binop_prec o = int_of_coq_nat (Printer.binop_prec o)
 let go_binop_text o = coq_string_to_ocaml (Printer.binop_text o)
 (* a classifier's [nat_op] -> its GoPrint [binOp]. *)
@@ -1482,7 +1478,7 @@ let rec pp_type state = function
       str "func(" ++ pp_type state t1 ++ str ") " ++ pp_type state t2
   | Tglob (r, _)  when is_sigT_ref r -> str "any"
   (* Each numeric wrapper renders as its REAL Go type — GoU8→uint8 … GoI32→int32,
-     GoI64→int64, GoU64→uint64 (break #7: a value's static / interface type is faithful;
+     GoI64→int64, GoU64→uint64 (a value's static / interface type is faithful;
      the arithmetic stays int64+mask, converted to the narrow type at boundaries / the [any]
      box).  Name shape ["Go"(U|I)<width>] → [(u)int<width>]. *)
   | Tglob (r, _)  when is_numint_type r ->
@@ -1532,8 +1528,8 @@ let rec pp_type state = function
   | Tglob (r, []) when is_go_prim_type r -> str (Option.get (classify_go_prim_type r))
   | Tglob (r, []) when is_unit_type r   -> str "struct{}"
   | Tglob (r, []) when is_uint63_type r -> str "int"   (* PrimInt63 = Go's platform [int]
-       (break #7: DISTINCT from the Z-carried [GoI64]=int64, so a boxed int ≠ a boxed int64
-       and [tag_eq TInt64 TI64 = None] now AGREES with Go's [v.(int)] vs [v.(int64)]). *)
+       (DISTINCT from the Z-carried [GoI64]=int64, so a boxed int ≠ a boxed int64
+       and [tag_eq TInt64 TI64 = None] AGREES with Go's [v.(int)] vs [v.(int64)]). *)
   | Tglob (r, []) when is_nat_type r    -> str "uint"
   | Tglob (r, []) when is_bool_type r   -> str "bool"
   | Tglob (r, args) ->
@@ -1563,11 +1559,10 @@ let rec pp_type state = function
    wrong, needs [(func(int64) int64)(x)] — whereas a bare identifier ([int64], [string])
    must NOT be (Go rejects [(int64)(x)]… actually accepts it, but keep it clean). *)
 (* A CONVERSION's type must be PARENTHESISED when it starts with [func], [*] or [<-] (Go spec,
-   "Conversions": otherwise [func(A) B(x)] / [*T(x)] / [<-chan T(x)] are AMBIGUOUS).  Previously only [Tarr]
-   was wrapped, so a defined type whose underlying is the [GoFunc] tag ([type Handler func(A) B], a [Tglob])
-   emitted [func(A) B(h)] — INVALID/ambiguous Go that only gofmt silently repaired (caught by the extract
-   step's whitespace-only gofmt guard).  Faithful fix: implement the spec rule directly on the
-   rendered type's leading token, so the plugin emits CORRECT Go itself, never leaning on gofmt. *)
+   "Conversions": otherwise [func(A) B(x)] / [*T(x)] / [<-chan T(x)] are AMBIGUOUS).  The rule is applied
+   to the RENDERED type's leading token — not the ml_type constructor — so it also covers a defined type
+   whose underlying is the [GoFunc] tag ([type Handler func(A) B], a [Tglob]); the plugin emits CORRECT
+   Go itself, never leaning on gofmt's silent repair. *)
 let pp_cast_type state t =
   let d = pp_type state t in
   let s = Pp.string_of_ppcmds d in
@@ -1978,10 +1973,9 @@ let z_is_nonneg = function
     [dbn_free n e] is "index [n] does NOT occur free in [e]"; the index SHIFTS at
     every binder (lambda / let / match arm / fix), so an inner binder's own
     index-1 variable (e.g. the [ok] of a [recv_ok]/[type_assert_safe] CPS
-    continuation [fun v ok => …]) is not mistaken for the outer index.  The old
-    version went under [MLlam] WITHOUT shifting, a false-negative that defeated
-    discard-detection on left-nested [>>'] chains (the action was wrongly kept as
-    a value [x := Bind(…)]).  [db1_free] = "the bind result (index 1) is unused". *)
+    continuation [fun v ok => …]) is not mistaken for the outer index — an unshifted
+    descent would false-negative and defeat discard-detection on left-nested [>>']
+    chains.  [db1_free] = "the bind result (index 1) is unused". *)
 
 let rec dbn_free n = function
   | MLrel k             -> k <> n
@@ -2028,14 +2022,14 @@ let raw_term tab next =
   | MLcons (_, c, []) when is_done_ctor c -> str tab ++ str "return" ++ fnl ()
   | _ -> unsupported "a run_blocks block terminator that is neither Jump nor Done — an unrecognized Next value would silently become `return`, truncating the block's control flow"
 
-(* ---- Stage B: the verified [GoPrint] expression printer, wired LIVE ----
+(* ---- The verified [GoPrint] expression printer, wired LIVE ----
    [goexpr_bridge] CONSTRUCTS a structured [coq_GExpr] directly (never by parsing a string) for the migrated
    expression class — a binary-operator TREE over runtime-local ([MLrel] -> [EId]) and integer-literal leaves,
    the bare int64/uint64 complement [^x] ([EUn UXor]), the runtime numeric CONVERSIONS (the [inline_conv_table]
    arms below + the [operand_is_runtime]-guarded [is_f64_to_f32_ref] arm), and the fixed-width ARITHMETIC
    [(u|i)N_add]/[sub]/[mul] (masked; signed additionally sign-extended; the mask/sign-bit a verified [EHex]
    leaf) — each as a bridging-binop operand.  EACH bridged case is documented at its own arm below; the
-   human-facing summary of the live bridge lives ONCE in PROGRESS.md (do not re-enumerate it here).
+   human-facing summary lives ONCE in PROGRESS.md (do not re-enumerate it here).
    It is NOT every producer of those surface bytes — the fixed-width CONVERSIONS [uint8(x)], fw shifts/div/mod,
    and standalone fw ops stay on [pp_prec] (their [(x & 0xff)] wrapper is trusted-assembled by [fw_wrap]; only
    the mask constant is itself the verified [print_hex]).
@@ -2043,8 +2037,7 @@ let raw_term tab next =
    the trusted [pp_prec] string concatenation — the CONSTRUCTION (choice of AST) is TRUSTED; only the PRINTING
    is verified.  Any other shape
    (string/other literals, calls, selectors, func-lits, …) returns [None] and the whole expression falls back
-   to [pp_prec] (Stage B is incremental;
-   [pp_prec] retires only once [GoPrint] covers a shape).  At each binop node the bridge proceeds ONLY when
+   to [pp_prec] (incremental; [pp_prec] retires only once [GoPrint] covers a shape).  At each binop node the bridge proceeds ONLY when
    [pp_prec] would take its plain branch — i.e. the typed-arith force-wrapper IIFE does NOT fire:
    [arith_force_go_type r = None] OR an operand is already runtime.  (A runtime-local leaf makes this hold;
    the guard also covers a magic-wrapped [MLrel], where [operand_is_runtime] sees [false] and the IIFE would
@@ -2403,8 +2396,8 @@ let rec pp_expr state env = function
            str ("make(chan " ^ go_type_of_tag tag ^ ", ") ++ pp_expr state env n ++ str ")"
 
        (* send tag ch v → ch <- v.  A narrow channel element ([chan uint8] <- int64-carried value)
-          needs the [uint8(…)] cast; the tag (previously dropped) is the element
-          type.  Non-narrow sends keep the bare [pp_expr] (byte-identical). *)
+          needs the [uint8(…)] cast; the tag is the element type.  Non-narrow sends keep
+          the bare [pp_expr]. *)
        | MLglob r, [tag; ch; v] when is_send_ref r ->
            pp_expr state env ch ++ str " <- " ++
            pp_narrow_or state env tag v (fun () -> pp_expr state env v)
@@ -2485,7 +2478,7 @@ let rec pp_expr state env = function
        | MLglob r, [_s] when is_cap_ref r ->
            unsupported "cap of a functional GoSlice — Go's capacity after `append` is implementation-defined (append may over-allocate), so it cannot be faithfully modeled on the value slice (`cap = len` would disagree with the generated Go at runtime); use the heap-backed slice (SliceH), whose capacity is explicit"
        (* str_len s → len(s): Go's [len] already gives the BYTE count as a Go [int],
-          which is exactly the [int] (PrimInt63) model now (break #7) — no cast. *)
+          which is exactly the [int] (PrimInt63) model — no cast. *)
        | MLglob r, [s] when is_str_len_ref r ->
            str "len(" ++ pp_expr state env s ++ str ")"
        (* str_slice s a b (proof erased) → Go's slice expression s[a:b] (the proof
@@ -2595,7 +2588,7 @@ let rec pp_expr state env = function
        | MLglob r, [g] when is_uint_proj r ->
            str "int(" ++ pp_expr state env g ++ str ")"
        (* platform-uint smart constructor [uint_lit z _] → [uint(<unsigned decimal>)] (Go's typed
-          uint conversion).  EXACTLY [u64_lit]'s shape: [GoUint] is now [Z]-carried and
+          uint conversion).  EXACTLY [u64_lit]'s shape: [GoUint] is [Z]-carried and
           unboxes to its carrier, so this op MUST supply the [uint(…)] cast — a bare folded decimal
           would be inferred [int].  Fold the [Z] literal unsigned ([%Lu] handles [[2^63,2^64)]); the
           erased proof arg guaranteed [in_u64 z]. *)
@@ -2786,7 +2779,7 @@ let rec pp_expr state env = function
        (* [int_lit z] — a platform-int (GoInt) constant: fold its [Z] literal to a BARE signed
           decimal.  Go's untyped-constant default IS [int], so a bare [N] is correctly [int]-typed in
           an EXPRESSION/index position ([xs[5]], [a + 5]); a TYPED position pins it via [pp_typed_lit]
-          -> [int(N)] (OLD [PrimInt63]-literal position-dependence). *)
+          -> [int(N)]. *)
        | MLglob r, [z] when is_int_lit r ->
            (match z_eval z with
             | Some v -> str (print_i64_dec v)
@@ -2932,8 +2925,8 @@ let rec pp_expr state env = function
 
   | MLletin (_id, e1, e2) ->
       (* VALUE-POSITION-LET RULE: a value-position let must NOT become `(func() any { x := e1; return e2 })()` — the
-         `any` return is a non-compiling type in a typed context (e.g. inside int64 arithmetic, where the
-         old form gave `int64(any)`).  An expression-position let is PURE (referentially transparent), so
+         `any` return is a non-compiling type in a typed context (e.g. `int64(any)` inside int64
+         arithmetic).  An expression-position let is PURE (referentially transparent), so
          INLINE it via [ast_subst] (`e2[Rel 1 := e1]`); the surrounding context then types the result
          correctly.  No IIFE, no `any`.  (Duplicates e1 if x is used >1×, but it is pure, so sound.) *)
       pp_expr state env (ast_subst e1 e2)
@@ -3028,7 +3021,7 @@ let rec pp_expr state env = function
            (* [any v] (existT) in value position → its payload [v], which Go boxes to
               [any] from the surrounding context (a func arg / slot of interface type).
               [any_payload] strips the existT (and any nested pair) to the value; a sub-64
-              narrow payload is converted to its real Go type at this boundary (break #7). *)
+              narrow payload is converted to its real Go type at this boundary. *)
            | MLcons (_, r, _) when is_existT_ref r ->
                let v = pp_expr state env (any_payload e) in
                (match narrow_conv_of env e with
@@ -3077,7 +3070,7 @@ let rec pp_expr state env = function
                                || String.equal (global_basename r) "S754_nan" ->
                unsupported "a spec_float ±Inf / NaN LITERAL (no Go Inf/NaN constant without math.Inf/math.NaN — produce it at runtime, e.g. 1.0/0.0 or 0.0/0.0)"
            | MLcons (_, r, _) as lst ->
-               (* A non-empty list literal in VALUE position.  The old `append(nil, v1, …)`
+               (* A non-empty list literal in VALUE position.  `append(nil, v1, …)`
                   is INVALID Go — `append`'s first argument must be a TYPED slice, and `nil` here is
                   untyped, so `go build` rejects it ("first argument to append must be a slice; have
                   untyped nil").  The element type is also erased by extraction, so we cannot synthesize
@@ -3132,7 +3125,7 @@ and pp_atom state env e =
    Trusted OCaml: an inlined binary operator of precedence [p = binop_prec] is wrapped exactly when
    [p < ctx]; operands recurse at [p] (left) / [p+1] (right, for left-associativity); atoms / calls /
    the typed-IIFE force-wrapper bind tighter than any operator and never wrap (they fall through to
-   [pp_expr]).  Stage B: the gprint-representable sub-class (the live bridge — see [goexpr_bridge]) is delegated
+   [pp_expr]).  The gprint-representable sub-class (the live bridge — see [goexpr_bridge]) delegates
    to the VERIFIED [Printer.gprint]; everything else is still this trusted printer. *)
 and pp_prec state env ctx e =
   match strip_magic e with
@@ -3166,7 +3159,7 @@ and pp_typed_lit state env e =
   match strip_magic e with
   | MLuint _  -> str "int("     ++ pp_expr state env e ++ str ")"
   (* platform-int [GoInt] literal [int_lit z] — bare in [pp_expr], so pin [int(N)] in a typed
-     position (a [:=] binding / box), exactly as the old [MLuint] arm did. *)
+     position (a [:=] binding / box). *)
   | MLapp (MLglob r, [_]) when is_int_lit r -> str "int(" ++ pp_expr state env e ++ str ")"
   | MLfloat _ -> str "float64(" ++ pp_expr state env e ++ str ")"
   (* A full-width [GoI64]/[GoU64] LITERAL erases (single-field record) to a bare [Z]
@@ -3398,7 +3391,7 @@ and emit_block terminating state hoists term tab env b =
                      emit_block terminating state hoists term (tab ^ "\t") env eb ++
                      str tab ++ str "}" ++ fnl ()
                  (* MATCH-SHAPE guard: a 2-branch match that is NOT bool true/false would silently become a
-                    bare `return`, DROPPING both arms — fail loud (was the raw emitter's silent hole). *)
+                    bare `return`, DROPPING both arms — fail loud. *)
                  | _ -> unsupported "a raw-CFG/closure block whose 2-branch match is not on a bool (true/false) — the raw emitter only lowers boolean if/else; a non-bool match would silently become a bare `return`, truncating the block's control flow")
             (* MATCH-SHAPE guard: a match with neither 1 (pair destructure) nor 2 (bool if/else) branches would
                silently become a bare `return`, dropping the other arms — fail loud. *)
@@ -4442,10 +4435,6 @@ let pp_io_body ?(ret_val=false) state tab env body =
       pp_stmts (tab ^ "\t") fenv (mk_body fn fbody) ++
       str tab ++ str "}" ++ fnl ()
     in
-    (* (A stale [is_string_list] guard once excluded a [list GoInt32] from the list/slice
-       match — from the OBSOLETE [GoString := list GoRune] model.  [GoString] is now Coq [string] (a
-       byte sequence, matched by its own arm) and the [GoInt32] placeholder is RETIRED; rune slices are the FAITHFUL [list GoI32] and are LEGITIMATE slices that DO take the
-       list lowering.  The guard tested a now-nonexistent type ⇒ structurally always-false ⇒ removed.) *)
     (* ENUM match (all arms are nullary enum constructors, any arity ≥ 2) → Go [switch].
        Checked before the 2-arm shapes so a 2-value enum also switches.  A source `_`
        wildcard needs no special handling: Coq EXPANDS it into the missing constructors

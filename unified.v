@@ -4,12 +4,11 @@
     it before behavioral safety enters certified emission (see ARCHITECTURE.md).  "Authoritative" below means authoritative AMONG the
     proof-only model fragments (it unifies them), never Fido's certified-path semantics.
 
-    THE UNIFICATION INVARIANT: there were several semantic systems (the [IO]/[World]
-    monad, the [cmd.v] effect evaluator, the rich [rstep] concurrency calculus, the bounded [rstepC],
-    the session reductions) but NO single authoritative operational configuration covering an ORDINARY
-    program that combines goroutines + channels + heap mutation + panic + defer + output.
-
-    This file builds exactly that: a SINGLE command language [UCmd] carrying ALL the admitted effects,
+    THE UNIFICATION INVARIANT: the other semantic systems (the [IO]/[World] monad, the [cmd.v]
+    effect evaluator, the rich [rstep] concurrency calculus, the bounded [rstepC], the session
+    reductions) each cover a FRAGMENT; this file is the single authoritative operational
+    configuration covering an ORDINARY program that combines goroutines + channels + heap
+    mutation + panic + defer + output: a SINGLE command language [UCmd] carrying ALL the admitted effects,
     a SINGLE configuration [UConfig], and a SINGLE small-step relation [ustep].  It REUSES concurrency.v's
     trace / happens-before / race-freedom machinery — that theory is TRACE-based (it reasons about the
     [KWrite]/[KRead] events and [hbt], not about [Cmd]/[rstep]), so it is calculus-agnostic and the
@@ -82,8 +81,7 @@ Record UConfig := mkUCfg {
 (** Channel CAPACITY: [ucap c] is channel [c]'s capacity — [None] = unbounded, [Some n] =
     a buffer holding at most [n].  [uroom ucap b c] is "[c] has room for one more send": always for unbounded,
     else iff the FIFO is shorter than the capacity.  A send STEPS only with room; a full-buffer send BLOCKS
-    (it is a [ublocked] shape), exactly Go's buffered-channel semantics — so [ustep_send] is no longer the
-    UNBOUNDED-append deviation.  The relation is parametrised by [ucap]; the [rstep] embedding
+    (it is a [ublocked] shape), exactly Go's buffered-channel semantics.  The relation is parametrised by [ucap]; the [rstep] embedding
     instantiates it to [fun _ => None] (unbounded), matching the unbounded [rstep] buffer. *)
 Definition uroom (ucap : nat -> option nat) (b : nat -> list (V * nat)) (c : nat) : bool :=
   match ucap c with
@@ -196,7 +194,7 @@ Qed.
 
 (** ---- SANITY: the new effects are operational and faithful ---- *)
 
-(** OUTPUT is recorded (no longer erased — the old [run_io] no-op dropped it): printing [xs] with
+(** OUTPUT is recorded, never erased: printing [xs] with
     println-flag [pr] appends [(tid, (pr, xs))] to the log (the print/println distinction is preserved). *)
 Lemma ustep_out_records : forall p b h lv tr o df pa tid pr xs k,
   lv tid = true -> p tid = UOut pr xs k ->
@@ -792,8 +790,8 @@ Qed.
     SLICE 6 — machine-checked: ONE ordinary program combining the effects.
 
     A single goroutine that MUTATES the heap, SENDS on a channel and RECEIVES it back, DEFERS a print,
-    then PANICS — exercising heap + channel + defer + panic + output TOGETHER in the ONE semantics.  The
-    no single authoritative semantics used to cover such a program; here is one, run end to end: the
+    then PANICS — exercising heap + channel + defer + panic + output TOGETHER in the ONE semantics,
+    run end to end: the
     deferred print STILL happens at the panic (unwind completion), the heap holds its write, the channel
     round-trips, and the goroutine dies with the panic recorded. *)
 Lemma unified_all_effects : forall (msg boom : GoAny),
@@ -876,7 +874,7 @@ Fixpoint embed_cmd (c : Cmd) : UCmdN :=
   | CClose ch k  => UClose ch (embed_cmd k)
   end.
 
-(* A STANDALONE companion (no longer mutual — [embed_cmd] is already a closed constant here, so its
+(* A STANDALONE companion (not mutual — [embed_cmd] is already a closed constant here, so its
    call inside is not a recursive call and needs no guard).  It is CONVERTIBLE to the [CSelect]
    branch's inlined fix, so [embed_cmd (CSelect cs)] reduces to [USelect (embed_cases cs)] — letting
    the select rules reason about [In] over this named form. *)
@@ -1024,7 +1022,7 @@ Proof.
 Qed.
 
 (** CLAIM BOUNDARY (kept exact).  [rstepsC_embeds] shows every BOUNDED-capacity [rstepC] run is
-    REPRESENTED by the UNBOUNDED U semantics used for the legacy [rstep] embedding
+    REPRESENTED by the UNBOUNDED U semantics used for the [rstep] embedding
     ([usteps 0 (fun _ => None)] — [rstepC]'s guarded send maps to a plain send, its cap-0
     rendezvous to send-then-recv, via [rstepsC_embed] + [rsteps_embeds]).  That TRANSFERS the
     trace/race invariants stated over those runs.  It does NOT make [UCmd]'s
@@ -1155,7 +1153,7 @@ Proof. induction p as [ A p' IH | A p' IH | ]; cbn; [ rewrite IH | rewrite IH | 
     has its syntactic communication spec ([PEmits s steps], hence [steps = proto_steps i]) REALIZED by
     a concrete [ustep] execution: running [proto_ucmd] for protocol [i] terminates having emitted a
     trace whose send/recv polarity sequence is precisely [map step_polarity steps].  The session
-    indices are no longer "just syntax" — they are a behavioural spec the unified semantics enacts. *)
+    indices are a behavioural spec the unified semantics enacts, not just syntax. *)
 Corollary psess_realized_operationally :
   forall (i : Proto) (A : Type) (s : PSess i PEnd A) (steps : list StepKind)
          (cs cr val tid pos : nat) (prg : nat -> UCmdN)
@@ -1181,11 +1179,11 @@ Proof.
 Qed.
 
 (** ============================================================================
-    REGRESSION — [ustep_send] is no longer the UNBOUNDED append.
+    REGRESSION — [ustep_send]'s capacity guard bites.
     A send onto a FULL bounded channel ([Some n], buffer already length n) has NO room, so it does NOT
     step — instead the goroutine is [ublocked] on a full buffer (Go's buffered-send-blocks).  Contrast: an
-    [None] (unbounded) channel always has room.  These witness that [ustep_send]'s new [uroom] premise
-    actually bites (the capacity is enforced, not vacuous). *)
+    [None] (unbounded) channel always has room.  These witness that [ustep_send]'s [uroom] premise
+    is enforced, not vacuous. *)
 Example uroom_full_no_room  : uroom (fun _ => Some 1) (fun _ => [(7, 0)]) 0 = false.
 Proof. reflexivity. Qed.
 Example uroom_unbounded_ok  : uroom (fun _ => None) (fun _ => [(7, 0)]) 0 = true.

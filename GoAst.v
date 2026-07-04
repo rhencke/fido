@@ -30,7 +30,7 @@ Fixpoint all_idc (s : string) : bool :=
 (** Two [GoTy]-independent STRING keyword sets (so they gate the identifier predicates ahead of [GoTy]):
     [is_type_keyword] is the 14 builtin scalar type names + [chan]/[map] (used for parser invertibility);
     [go_keyword] is Go's 25 RESERVED WORDS — so an identifier is never a keyword ([func]/[return]/[var]/
-    [type]/[struct]/[interface]/[select]/… are rejected, which the old [valid_ident] wrongly accepted). *)
+    [type]/[struct]/[interface]/[select]/… are rejected). *)
 Definition is_type_keyword (s : string) : bool :=
   existsb (String.eqb s)
     ["int64"; "int32"; "int16"; "int8"; "int"; "uint64"; "uint32"; "uint16"; "uint8"; "uint";
@@ -301,7 +301,6 @@ Inductive GoStmt : Type :=
 
 (** ---- A GO PROGRAM ---- the top-level unit GoEmit emits: a package name + the body of [func main()] (a
     list of [GoStmt]s).  No raw strings — the package is a validated [Ident] and the body is structured
-    statements.  Still small (no imports / top-level decls yet) but no longer an empty shell: it carries a
-    real func body, the printer renders it via [gprint], and GoEmit certifies+prints it.  Grows as the AST
-    does. *)
+    statements.  Still small (no imports / top-level decls yet): it carries a real func body, the printer
+    renders it via [gprint], and GoEmit certifies+prints it.  Grows as the AST does. *)
 Record Program : Type := mkProgram { prog_pkg : Ident ; prog_body : list GoStmt }.

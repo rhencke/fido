@@ -355,8 +355,8 @@ Proof. intro w. vm_compute. reflexivity. Qed.
     evaluator; an ENV float LOCAL evaluates, [env_float_pins];
     [denote_expr_conv_float_src_absent] — every integer-target conversion over such a source is
     absent, [GTInt] included).  This fixture pins what the class theorems cannot: the form is
-    gate-SUPPORTED (supported-but-absent, the honest frontier membership) — flips with the float
-    arc, not this one. *)
+    gate-SUPPORTED (supported-but-absent, the honest frontier membership) — flips when runtime
+    floats land, not here. *)
 Definition runconv_float_src_e : GExpr :=
   ECall (EId (mkIdent "int64" eq_refl))
         [ECall (EId (mkIdent "float64" eq_refl)) [runlen3_e]].
@@ -1388,7 +1388,7 @@ Definition gosem_slice_index_surface :=
    denote_expr_index_in_bounds, denote_expr_index_oob,
    denote_expr_index_elem_panic, denote_expr_index_idx_panic,
    runtime_index_runs, slice_index_panics_denote).
-(** SURFACE POLICY (2026-07-02 consolidation): a surface lists PUBLIC guarantees — sealed
+(** SURFACE POLICY: a surface lists PUBLIC guarantees — sealed
     endpoint theorems, program-level runs/supported/absent pins, dispatch AUTHORITY pins, and
     demanded totality/boundary seals.  Internal helpers (shape splits, tag/totality/cases
     lemmas) are NOT listed: `Print Assumptions` on the endpoints pulls their whole cone, so

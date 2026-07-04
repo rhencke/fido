@@ -2,7 +2,7 @@
     GoSemCore.v — GoSem's pure FOLD/FLOAT layer (the ARCHITECTURE.md §3a physical split,
     file 1): box/render ([box_int]/[box_float]/[sf_render]), the CONSTANT-fold op layer
     ([sf_const_binop]/[sf_const_neg]), the [floats_checked] boundary machinery +
-    [fsf_checked], and the COMPLETE dyadic↔SF* agreement arc: NEG, the window bridges,
+    [fsf_checked], and the dyadic↔SF* agreement layer: NEG, the window bridges,
     wide determinism, ADD + SUB raw at binary64, MUL + exact DIV at the CONSTANT-op layer,
     the full f32 row incl. cross-width conversions, the class theorem
     [fsf_checked_complete], and the boundary-guard unreachability pair
@@ -56,8 +56,8 @@ Definition box_int (t : GoTy) (z : Z) : option GoAny :=
     MODEL's runtime [GoAny], or [None].  The dyadic IS the model's shape ([spec_float]'s [S754_finite s p e]
     = ±p·2^e), so [sf_of_dyadic] is a direct constructor and [renorm 53 1024] / [f32_lit] canonicalize it —
     EXACT inside [float_dyadic_repr]'s window (the SAME guard [ptype]'s folds use, re-checked HERE so an
-    out-of-window value fails closed — no rounded-lie value).  An INTEGER dyadic [(z, 0)] boxes to exactly
-    the old integer form ([sf_of_dyadic z 0 = sf_of_Z z] definitionally per sign case). *)
+    out-of-window value fails closed — no rounded-lie value).  An INTEGER dyadic [(z, 0)] boxes to
+    [sf_of_Z z] ([sf_of_dyadic z 0 = sf_of_Z z] definitionally per sign case). *)
 Definition sf_of_dyadic (m e : Z) : spec_float :=
   match m with
   | Z0 => S754_zero false
@@ -716,8 +716,7 @@ Proof.
   destruct (float_dyadic_repr t m e); [reflexivity | discriminate H].
 Qed.
 
-(** ---- VALUE-DETERMINISM of [binary_normalize] on the windowed class
-    (dyadic↔SF arc).  No doubling induction needed: with [binary_round_exact]
+(** ---- VALUE-DETERMINISM of [binary_normalize] on the windowed class.  No doubling induction needed: with [binary_round_exact]
     both representations reduce to closed canonical forms, and DIGITS+EXPONENT is invariant
     under the odd-core split ([pos_odd_split_digits]), so the [fexp] targets coincide and the
     aligned mantissas are value-equal positives. *)
@@ -1024,7 +1023,7 @@ Proof.
   - change (- Zneg p)%Z with (Zpos p). cbn [binary_normalize].
     exact (binary_round_opp prec emax true p e).
 Qed.
-(** ---- THE GENERAL dyadic↔SF AGREEMENT ARC — NEGATION at
+(** ---- THE GENERAL dyadic↔SF AGREEMENT — NEGATION at
     binary64.  Unlike the [fsf_checked_*_agrees] theorems above (which state what acceptance of the
     per-node CONST-LAYER check means), this is checker-free: the dyadic fold's render IS the sign flip
     of the operand's render, proved once over the class through the ONE normalizer sign-flip
@@ -2706,7 +2705,7 @@ Qed.
 
 (** INTERNAL induction STEP (unary) for the completeness class theorem — NOT a closed result:
     the operand-completeness premise is the induction hypothesis, discharged only by the
-    master [fsf_checked_complete] below (the arc's one surfaced endpoint). *)
+    master [fsf_checked_complete] below (the one surfaced endpoint). *)
 Lemma fsf_checked_complete_un_step : forall o a t d,
   ptype (EUn o a) = Some (PtFloatConst t d) ->
   (forall t' d', ptype a = Some (PtFloatConst t' d') ->
@@ -3478,7 +3477,7 @@ Qed.
     IS the payload's render ([sf_render] is total on the float widths, so this equation says
     "never [None] by disagreement", not a mere [isSome]).  The [_step] lemmas above are
     consumed here, their IH premises discharged by [GExpr_ind']; every non-float-capable
-    node is ground out.  This is the ONLY surfaced endpoint of the completeness arc. *)
+    node is ground out.  This is the ONLY surfaced completeness endpoint. *)
 Theorem fsf_checked_complete : forall e t d,
   ptype e = Some (PtFloatConst t d) ->
   fsf_checked e = sf_render t (dy_m d) (dy_e d).

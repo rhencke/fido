@@ -662,7 +662,7 @@ Fixpoint ptype (e : GExpr) : option PTy :=
          PAIRWISE DISTINCT (Go forbids duplicate constant keys).  Restricting keys to integer CONSTANTS is
          what makes distinctness decidable here — their VALUE is carried ([int_const_val]); a non-integer
          comparable key (string/bool) or a runtime/non-constant key is conservatively REJECTED (fail-loud), its
-         value not foldable in [PTy].  This LIFTS the old blanket quarantine to a structural check; the GoSafe
+         value not foldable in [PTy].  The GoSafe
          companions [map[int]uint8{1:300}] / [map[uint8]int{300:1}] (representability), [map[int]int{1:2,1:3}]
          (distinctness), and [map[int]map[[]int]int{}] (nested validity) lock it. *)
       if andb (andb (andb (is_int_goty kt) (goty_supported vt))

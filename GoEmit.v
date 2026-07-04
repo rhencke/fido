@@ -12,7 +12,7 @@
     A raw printer (GoPrint.print_program) still exists for proofs/tests, but it is NOT this blessed emitter.
     ============================================================================ *)
 From Fido Require Import GoAst GoPrint GoSafe.
-From Stdlib Require Import String List ZArith.  (* List/ListNotations: body list; ZArith: [EInt]'s Z (Eqdep_dec/UIP no longer needed — emit_supported_program_inj is UIP-free) *)
+From Stdlib Require Import String List ZArith.  (* List/ListNotations: body list; ZArith: [EInt]'s Z ([emit_supported_program_inj] is UIP-free — no Eqdep_dec) *)
 Import ListNotations.
 Open Scope string_scope.
 

@@ -3206,7 +3206,7 @@ Qed.
     ([eval_value_runfloat_none]), not the [GTInt] engine (its [PtRunInt]
     guard), not an exit (each arm's [ptype]/[PtBool] guard).  QUANTIFIED over the class, so no
     consumer — a conversion source, a map value, a typed-unary operand — can receive a runtime-float
-    value before the float arc models one. *)
+    value until runtime floats are modeled. *)
 Theorem reval_val_runfloat_none : forall a s,
   ptype a = Some (PtRunFloat s) -> reval_val a = None.
 Proof.
@@ -3437,7 +3437,7 @@ Qed.
     ([wrap_runint_total]).  The [PtRunFloat] complement is CLASS-absent in the CLOSED instance
     ([denote_expr_conv_float_src_absent] below, on [reval_val_runfloat_none]; supported-side witness
     [runtime_float_source_conv_absent]; the ENV conversion-absence face, payload-general, is
-    [env_float_conv_class]) — the float arc, not this one. *)
+    [env_float_conv_class]) — flips when runtime floats land, not here. *)
 Theorem denote_expr_conv_runs_sealed : forall f a t s g,
   floats_checked (ECall (EId f) (a :: nil)) = true ->
   ptype (ECall (EId f) (a :: nil)) = Some (PtRunInt t) ->

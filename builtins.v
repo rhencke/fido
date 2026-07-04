@@ -110,7 +110,7 @@ Proof.
   destruct (shr_m mrs'') as [|p'|p']; [reflexivity| |reflexivity].
   destruct (Z.leb e'' (Z.sub emax prec)); reflexivity.
 Qed.
-(** ---- [binary_round] EXACTNESS on the in-window class (dyadic↔SF arc) — an in-window
+(** ---- [binary_round] EXACTNESS on the in-window class — an in-window
     mantissa/exponent comes back as the CANONICAL
     finite of the SAME value, NO rounding.  All positive/Z arithmetic on SpecFloat's own
     definitions: an exact left shift adds digits one-for-one ([digits2_pos_iter_xO]), so
@@ -378,7 +378,7 @@ Proof.
     rewrite (binary_round_exact prec emax _ mz _ Hd2 He2 Hde2 Hemax);
     rewrite Hdig, shl_align_id; reflexivity.
 Qed.
-(** ---- RIGHT-SHIFT-THROUGH-ZEROS exactness (dyadic↔SF arc): shifting
+(** ---- RIGHT-SHIFT-THROUGH-ZEROS exactness: shifting
     a mantissa right through its own appended zero bits keeps the round/sticky bits FALSE, so
     the location stays exact.  [iter_pos] (SpecFloat's binary-structural iterator) and
     [Pos.iter] are both bridged to [Nat.iter], where the zeros walk is a plain induction. *)

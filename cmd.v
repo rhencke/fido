@@ -1,5 +1,5 @@
 (** Deep-embedded command tree [Cmd] — the operational FOUNDATION (one
-    authoritative semantics) and #12 (defer as a REAL construct).
+    authoritative semantics; defer as a REAL construct).
 
     Why a deep embedding.  The shallow [IO := World -> Outcome] cannot REIFY control: a deferred
     [IO unit] cannot be stored in [World] (it would put [World] left of an arrow in its OWN
@@ -31,7 +31,7 @@ Inductive Cmd (A : Type) : Type :=
   | COut : bool -> list GoAny -> Cmd A -> Cmd A
   | CPan : GoAny -> Cmd A
   | CDfr : Cmd unit -> Cmd A -> Cmd A    (* [defer d]; [d] runs at function-scope return *)
-  (* the HEAP pair (bridge-effects slice 2; appended LAST so existing destruct/induction
+  (* the HEAP pair (appended LAST so existing destruct/induction
      bullet lists keep their order).  [CRead] is the syntax's first value-BINDING
      constructor — its continuation is a function, which shapes everything below:
      structural booleans cannot scan under it, and extensional facts about it need
@@ -123,11 +123,11 @@ Proof.
   - constructor; intro x; exact (IH x).
 Qed.
 
-(** ---- The AUTHORITATIVE (and ONLY) operational interpreter — [defer] is no longer a no-op ----
+(** ---- The AUTHORITATIVE (and ONLY) operational interpreter ----
 
     [run_cmd] runs the body THEN its defers at function-scope return (LIFO, on panic too).  There is no
     shallow [Cmd -> IO] reading of a [Cmd]: a sequential [World -> Outcome] cannot run a func-scoped defer,
-    so a "shallow" reading would DROP the deferred effect — precisely the #12 bug — which is why [run_cmd]
+    so a "shallow" reading would DROP the deferred effect — which is why [run_cmd]
     is the sole semantics (and why [builtins.defer_call] FAILS LOUD instead of silently dropping). *)
 Definition oc_world {A} (oc : Outcome A) : World := match oc with ORet _ w => w | OPanic _ w => w end.
 Definition oc_set_world {A} (oc : Outcome A) (w : World) : Outcome A :=
