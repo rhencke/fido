@@ -114,22 +114,84 @@ Qed.
     this is faithful for the FULL int64 AND uint64 ranges (unsigned [2^63,2^64) values are just large
     [Zpos] — no special-casing). *)
 Definition dec_digit (n : nat) : ascii := ascii_of_nat (48 + n).
-Fixpoint z_digits (fuel : nat) (z : Z) (acc : string) : string :=
-  match fuel with
-  | O    => acc
-  | S f  => let d := dec_digit (Z.to_nat (z mod 10)) in
-            if (z / 10 =? 0)%Z then String d acc
-            else z_digits f (z / 10)%Z (String d acc)
-  end.
-(** Adaptive fuel — at least as many steps as [z] has decimal digits, so [z_digits] NEVER truncates.
-    [Z.log2 z + 1] is the BIT width, which exceeds the decimal-digit count (10 > 2) and is cheap.  Only
-    applied to [z > 0] ([print_Z] special-cases 0 and negates negatives). *)
-Definition digit_fuel (z : Z) : nat := S (Z.to_nat (Z.log2 z)).
-Definition print_Z (z : Z) : string :=
-  if (z =? 0)%Z then "0"
-  else if (z <? 0)%Z then ("-" ++ z_digits (digit_fuel (- z)) (- z) "")%string
-  else z_digits (digit_fuel z) z "".
 
+(** LSB-first base-[B] digits of a [positive], by STRUCTURAL recursion on its BITS:
+    digits(2p) = double(digits p), digits(2p+1) = double + carry — the recursion is the
+    positive's own structure, so rendering is total with no step budget of any kind.
+    [dds_double] doubles a digit list with an incoming carry (the carry stays <= 1 when
+    every digit is < B and B >= 2 — [dds_double_bound]). *)
+Fixpoint dds_double (B : nat) (ds : list nat) (carry : nat) : list nat :=
+  match ds with
+  | nil => match carry with O => nil | _ => carry :: nil end
+  | d :: tl => (2 * d + carry) mod B :: dds_double B tl ((2 * d + carry) / B)
+  end.
+Fixpoint pos_digits (B : nat) (p : positive) : list nat :=
+  match p with
+  | xH => 1 :: nil
+  | xO p' => dds_double B (pos_digits B p') 0
+  | xI p' => dds_double B (pos_digits B p') 1
+  end.
+(** The digit list's VALUE (LSB-first, base [B]) — the semantic anchor of every render proof. *)
+Fixpoint dlist_val (B : nat) (ds : list nat) : Z :=
+  match ds with
+  | nil => 0%Z
+  | d :: tl => (Z.of_nat d + Z.of_nat B * dlist_val B tl)%Z
+  end.
+Lemma dds_double_val : forall B ds carry, (B <> 0)%nat ->
+  dlist_val B (dds_double B ds carry) = (2 * dlist_val B ds + Z.of_nat carry)%Z.
+Proof.
+  intros B ds; induction ds as [| d tl IH]; intros carry HB; cbn [dds_double dlist_val].
+  - destruct carry; cbn [dlist_val]; lia.
+  - rewrite IH by exact HB.
+    pose proof (Nat.div_mod_eq (2 * d + carry) B) as Hdm.
+    apply (f_equal Z.of_nat) in Hdm.
+    rewrite Nat2Z.inj_add, !Nat2Z.inj_mul in Hdm. nia.
+Qed.
+Lemma pos_digits_val : forall B p, (B <> 0)%nat -> dlist_val B (pos_digits B p) = Zpos p.
+Proof.
+  intros B p HB; induction p as [p IH | p IH | ]; cbn [pos_digits].
+  - rewrite dds_double_val by exact HB. rewrite IH, Pos2Z.inj_xI. lia.
+  - rewrite dds_double_val by exact HB. rewrite IH, Pos2Z.inj_xO. lia.
+  - cbn [dlist_val]. lia.
+Qed.
+Lemma dds_double_bound : forall B ds carry, (2 <= B)%nat -> (carry <= 1)%nat ->
+  Forall (fun d => (d < B)%nat) ds -> Forall (fun d => (d < B)%nat) (dds_double B ds carry).
+Proof.
+  intros B ds; induction ds as [| d tl IH]; intros carry HB Hc Hall; cbn [dds_double].
+  - destruct carry as [| c']; [ constructor | constructor; [ lia | constructor ] ].
+  - inversion Hall; subst. constructor.
+    + apply Nat.mod_upper_bound; lia.
+    + apply IH; [ lia | | assumption ].
+      assert ((2 * d + carry) / B < 2)%nat by (apply Nat.Div0.div_lt_upper_bound; lia). lia.
+Qed.
+Lemma pos_digits_bound : forall B p, (2 <= B)%nat ->
+  Forall (fun d => (d < B)%nat) (pos_digits B p).
+Proof.
+  intros B p HB; induction p as [p IH | p IH | ]; cbn [pos_digits];
+    [ apply dds_double_bound; [ lia | lia | exact IH ]
+    | apply dds_double_bound; [ lia | lia | exact IH ]
+    | constructor; [ lia | constructor ] ].
+Qed.
+Lemma dds_double_nonnil : forall B ds carry, ds <> nil -> dds_double B ds carry <> nil.
+Proof. intros B [| d tl] carry H; [ contradiction | cbn; discriminate ]. Qed.
+Lemma pos_digits_nonnil : forall B p, pos_digits B p <> nil.
+Proof.
+  intros B p; induction p as [p IH | p IH | ]; cbn [pos_digits];
+    [ exact (dds_double_nonnil B _ 1 IH) | exact (dds_double_nonnil B _ 0 IH) | discriminate ].
+Qed.
+
+(** Render an LSB-first digit list onto a suffix: the fold prepends, so the MOST significant
+    digit ends up first — the printed order. *)
+Definition render_digits (dig : nat -> ascii) (ds : list nat) (s : string) : string :=
+  fold_left (fun acc d => String (dig d) acc) ds s.
+Definition print_Z_pos (p : positive) : string :=
+  render_digits dec_digit (pos_digits 10 p) "".
+Definition print_Z (z : Z) : string :=
+  match z with
+  | Z0     => "0"
+  | Zpos p => print_Z_pos p
+  | Zneg p => ("-" ++ print_Z_pos p)%string
+  end.
 
 (** ---- INTEGER FAITHFULNESS (round-trip) ---- a decimal PARSER recovers the [Z] from [print_Z]'s
     output, so the emitted integer literal denotes EXACTLY the source value. *)
@@ -148,47 +210,34 @@ Proof.
   intros n H. unfold dval, dec_digit. rewrite Ascii.nat_ascii_embedding by lia. f_equal. lia.
 Qed.
 
-(** KEY LEMMA — parsing [z_digits]' output from accumulator 0 recovers [z] into the running fold: the
-    digit-count shift would be [a * 10^k] but [a = 0] kills it, so NO power arithmetic is needed. *)
-Lemma parseZ_pos_z_digits : forall fuel z acc,
-  (0 <= z)%Z -> (z < 10 ^ Z.of_nat fuel)%Z -> parseZ_pos 0 (z_digits fuel z acc) = parseZ_pos z acc.
+(** KEY LEMMA — parsing a rendered digit list from accumulator [a] consumes the digits
+    MSB-first into the running fold, then continues with the suffix. *)
+Lemma parseZ_pos_render : forall ds a s, Forall (fun d => (d < 10)%nat) ds ->
+  parseZ_pos a (render_digits dec_digit ds s)
+  = parseZ_pos (a * 10 ^ Z.of_nat (List.length ds) + dlist_val 10 ds)%Z s.
 Proof.
-  induction fuel as [ | f IH ]; intros z acc Hz Hb.
-  - cbn [z_digits]. assert (z = 0%Z) by (cbn in Hb; lia). subst z. reflexivity.
-  - cbn [z_digits].
-    pose proof (Z.mod_pos_bound z 10 ltac:(lia)) as Hmod.
-    assert (Hk : (Z.to_nat (z mod 10) < 10)%nat) by lia.
-    destruct (Z.eqb (z / 10) 0) eqn:E.
-    + apply Z.eqb_eq in E.
-      cbn [parseZ_pos]. rewrite dval_dec_digit by exact Hk. rewrite Z2Nat.id by lia.
-      replace (0 * 10 + z mod 10)%Z with z by (pose proof (Z.div_mod z 10 ltac:(lia)); lia).
-      reflexivity.
-    + apply Z.eqb_neq in E.
-      assert (Hdpos : (0 <= z / 10)%Z) by (apply Z.div_pos; lia).
-      assert (Hdlt : (z / 10 < 10 ^ Z.of_nat f)%Z).
-      { apply Z.div_lt_upper_bound; [ lia | ].
-        rewrite Nat2Z.inj_succ, Z.pow_succ_r in Hb by lia. lia. }
-      rewrite (IH (z / 10)%Z (String (dec_digit (Z.to_nat (z mod 10))) acc) Hdpos Hdlt).
-      cbn [parseZ_pos]. rewrite dval_dec_digit by exact Hk. rewrite Z2Nat.id by lia.
-      replace (z / 10 * 10 + z mod 10)%Z with z by (pose proof (Z.div_mod z 10 ltac:(lia)); lia).
-      reflexivity.
+  induction ds as [| d tl IH]; intros a s Hall.
+  - cbn [render_digits fold_left List.length dlist_val]. f_equal. cbn. lia.
+  - inversion Hall; subst.
+    change (render_digits dec_digit (d :: tl) s)
+      with (render_digits dec_digit tl (String (dec_digit d) s)).
+    rewrite (IH a (String (dec_digit d) s)) by assumption.
+    cbn [parseZ_pos]. rewrite dval_dec_digit by assumption.
+    f_equal. cbn [List.length dlist_val].
+    rewrite Nat2Z.inj_succ, Z.pow_succ_r by lia. ring.
 Qed.
 
-(** The first character [z_digits] emits is a decimal digit (so, for a POSITIVE [z], it is never the
-    leading "-" — which lets [parse_Z] take the unsigned branch). *)
-Lemma z_digits_head : forall f z acc, (0 < f)%nat ->
-  exists k r, (k < 10)%nat /\ z_digits f z acc = String (dec_digit k) r.
+(** The first character a non-empty all-digit render emits is a decimal digit (so, for a
+    POSITIVE [z], it is never the leading "-" — [parse_Z] takes the unsigned branch). *)
+Lemma render_digits_head : forall ds s, ds <> nil -> Forall (fun d => (d < 10)%nat) ds ->
+  exists k r, (k < 10)%nat /\ render_digits dec_digit ds s = String (dec_digit k) r.
 Proof.
-  induction f as [ | f IH ]; intros z acc Hf; [ lia | ].
-  cbn [z_digits]. pose proof (Z.mod_pos_bound z 10 ltac:(lia)) as Hmod.
-  assert (Hk : (Z.to_nat (z mod 10) < 10)%nat) by lia.
-  destruct (Z.eqb (z / 10) 0) eqn:E.
-  - exists (Z.to_nat (z mod 10)), acc; split; [ exact Hk | reflexivity ].
-  - destruct f as [ | f' ].
-    + exists (Z.to_nat (z mod 10)), acc; split; [ exact Hk | reflexivity ].
-    + destruct (IH (z / 10)%Z (String (dec_digit (Z.to_nat (z mod 10))) acc) ltac:(lia))
-        as [k [r [Hk2 Hr]]].
-      exists k, r; split; [ exact Hk2 | exact Hr ].
+  induction ds as [| d tl IH]; intros s Hne Hall; [ contradiction | ].
+  inversion Hall; subst. destruct tl as [| d2 tl'].
+  - exists d, s. split; [ assumption | reflexivity ].
+  - change (render_digits dec_digit (d :: d2 :: tl') s)
+      with (render_digits dec_digit (d2 :: tl') (String (dec_digit d) s)).
+    apply IH; [ discriminate | assumption ].
 Qed.
 
 Lemma dec_digit_ne_minus : forall k, (k < 10)%nat -> Ascii.eqb (dec_digit k) (ascii_of_nat 45) = false.
@@ -204,35 +253,27 @@ Lemma parse_Z_nonminus : forall c X, Ascii.eqb c (ascii_of_nat 45) = false ->
   parse_Z (String c X) = parseZ_pos 0 (String c X).
 Proof. intros c X H. cbn [parse_Z]. rewrite H. reflexivity. Qed.
 
-(** The adaptive fuel is always enough for ANY base [b >= 2]: [z < b ^ digit_fuel z] for [z > 0].
-    [digit_fuel z] is the bit width [Z.log2 z + 1]; [z < 2^(log2 z + 1)] and [2^k <= b^k], so
-    [z < b^(log2 z + 1)].  (Instantiated at b=10 for [print_Z], b=16 for [print_hex].) *)
-Lemma z_lt_pow_digit_fuel : forall b z, (2 <= b)%Z -> (0 < z)%Z -> (z < b ^ Z.of_nat (digit_fuel z))%Z.
+(** [parseZ_pos 0] of a rendered positive recovers it exactly. *)
+Lemma parseZ_pos_print_Z_pos : forall p, parseZ_pos 0 (print_Z_pos p) = Zpos p.
 Proof.
-  intros b z Hb Hz. unfold digit_fuel.
-  rewrite Nat2Z.inj_succ, Z2Nat.id by apply Z.log2_nonneg.
-  apply Z.lt_le_trans with (2 ^ Z.succ (Z.log2 z))%Z.
-  - apply (proj2 (Z.log2_spec z Hz)).
-  - apply Z.pow_le_mono_l; lia.
+  intro p. unfold print_Z_pos.
+  rewrite parseZ_pos_render by (apply pos_digits_bound; lia).
+  rewrite pos_digits_val by lia. cbn [parseZ_pos]. lia.
 Qed.
 
-(** FAITHFULNESS, UNCONDITIONAL: the round-trip holds for EVERY [z] (the adaptive fuel never truncates). *)
+(** FAITHFULNESS, UNCONDITIONAL: the round-trip holds for EVERY [z]. *)
 Theorem print_parse_Z : forall z, parse_Z (print_Z z) = z.
 Proof.
-  intro z. unfold print_Z.
-  destruct (Z.eqb z 0) eqn:E0; [ apply Z.eqb_eq in E0; subst z; reflexivity | ].
-  apply Z.eqb_neq in E0. destruct (Z.ltb z 0) eqn:Eneg.
-  - (* z < 0 *) apply Z.ltb_lt in Eneg.
-    replace (("-" ++ z_digits (digit_fuel (- z)) (- z) "")%string)
-       with (String (ascii_of_nat 45) (z_digits (digit_fuel (- z)) (- z) "")) by reflexivity.
-    rewrite parse_Z_neg.
-    rewrite parseZ_pos_z_digits by (try (apply (z_lt_pow_digit_fuel 10)); lia).
-    cbn [parseZ_pos]. lia.
-  - (* z > 0 *) apply Z.ltb_ge in Eneg. assert (Hz : (0 < z)%Z) by lia.
-    destruct (z_digits_head (digit_fuel z) z "" ltac:(unfold digit_fuel; lia)) as [k [r [Hk Hr]]].
+  intro z. destruct z as [| p | p]; cbn [print_Z].
+  - reflexivity.
+  - unfold print_Z_pos.
+    destruct (render_digits_head (pos_digits 10 p) "" (pos_digits_nonnil 10 p)
+                (pos_digits_bound 10 p ltac:(lia))) as [k [r [Hk Hr]]].
+    unfold print_Z_pos in *.
     rewrite Hr, (parse_Z_nonminus _ _ (dec_digit_ne_minus k Hk)), <- Hr.
-    rewrite parseZ_pos_z_digits by (try (apply (z_lt_pow_digit_fuel 10)); lia).
-    cbn [parseZ_pos]. reflexivity.
+    apply parseZ_pos_print_Z_pos.
+  - change (("-" ++ print_Z_pos p)%string) with (String (ascii_of_nat 45) (print_Z_pos p)).
+    rewrite parse_Z_neg, parseZ_pos_print_Z_pos. reflexivity.
 Qed.
 
 (** ---- STRING LITERALS ---- escape a Go double-quoted string literal: wrap in dquotes, escape
@@ -692,14 +733,13 @@ Qed.
     LEAF lets the fixed-width arithmetic bridge build the WHOLE masked / sign-extended expression for the
     verified [gprint].  STILL on the trusted [fw_wrap]: the fixed-width CONVERSIONS [uint8(x)], shifts,
     div/mod, and standalone fw ops. *)
-Fixpoint hex_digits (fuel : nat) (z : Z) (acc : string) : string :=
-  match fuel with
-  | O   => acc
-  | S f => let d := hexdig (Z.to_nat (z mod 16)) in
-           if (z / 16 =? 0)%Z then String d acc else hex_digits f (z / 16)%Z (String d acc)
+Definition print_hex_body (z : Z) : string :=
+  match z with
+  | Z0 => "0"
+  | Zpos p => render_digits hexdig (pos_digits 16 p) ""
+  | Zneg p => render_digits hexdig (pos_digits 16 p) ""   (* magnitude; no live caller is negative *)
   end.
-Definition print_hex (z : Z) : string :=
-  ("0x" ++ (if (z =? 0)%Z then "0" else hex_digits (digit_fuel z) z ""))%string.
+Definition print_hex (z : Z) : string := ("0x" ++ print_hex_body z)%string.
 
 (** ---- HEX FAITHFULNESS (round-trip) ---- [print_hex] round-trips for NON-NEGATIVE [z] — the domain of
     both the live callers (mask / sign-bit / mantissa) and the [EHex]/[HexZ] node. *)
@@ -710,41 +750,30 @@ Definition parse_hex (s : string) : Z :=
 
 Lemma parse_hex_0x : forall X, parse_hex ("0x" ++ X)%string = parseHex_pos 0 X.
 Proof. intro X. reflexivity. Qed.
-Lemma print_hex_pos : forall z, (z <> 0)%Z -> print_hex z = ("0x" ++ hex_digits (digit_fuel z) z "")%string.
-Proof. intros z H. apply Z.eqb_neq in H. unfold print_hex. rewrite H. reflexivity. Qed.
 
-Lemma parseHex_pos_hex_digits : forall fuel z acc,
-  (0 <= z)%Z -> (z < 16 ^ Z.of_nat fuel)%Z -> parseHex_pos 0 (hex_digits fuel z acc) = parseHex_pos z acc.
+Lemma parseHex_pos_render : forall ds a s, Forall (fun d => (d < 16)%nat) ds ->
+  parseHex_pos a (render_digits hexdig ds s)
+  = parseHex_pos (a * 16 ^ Z.of_nat (List.length ds) + dlist_val 16 ds)%Z s.
 Proof.
-  induction fuel as [ | f IH ]; intros z acc Hz Hb.
-  - cbn [hex_digits]. assert (z = 0%Z) by (cbn in Hb; lia). subst z. reflexivity.
-  - cbn [hex_digits].
-    pose proof (Z.mod_pos_bound z 16 ltac:(lia)) as Hmod.
-    assert (Hk : (Z.to_nat (z mod 16) < 16)%nat) by lia.
-    destruct (Z.eqb (z / 16) 0) eqn:E.
-    + apply Z.eqb_eq in E.
-      cbn [parseHex_pos]. rewrite unhex_hexdig by exact Hk. rewrite Z2Nat.id by lia.
-      replace (0 * 16 + z mod 16)%Z with z by (pose proof (Z.div_mod z 16 ltac:(lia)); lia).
-      reflexivity.
-    + apply Z.eqb_neq in E.
-      assert (Hdpos : (0 <= z / 16)%Z) by (apply Z.div_pos; lia).
-      assert (Hdlt : (z / 16 < 16 ^ Z.of_nat f)%Z).
-      { apply Z.div_lt_upper_bound; [ lia | ].
-        rewrite Nat2Z.inj_succ, Z.pow_succ_r in Hb by lia. lia. }
-      rewrite (IH (z / 16)%Z (String (hexdig (Z.to_nat (z mod 16))) acc) Hdpos Hdlt).
-      cbn [parseHex_pos]. rewrite unhex_hexdig by exact Hk. rewrite Z2Nat.id by lia.
-      replace (z / 16 * 16 + z mod 16)%Z with z by (pose proof (Z.div_mod z 16 ltac:(lia)); lia).
-      reflexivity.
+  induction ds as [| d tl IH]; intros a s Hall.
+  - cbn [render_digits fold_left List.length dlist_val]. f_equal. cbn. lia.
+  - inversion Hall; subst.
+    change (render_digits hexdig (d :: tl) s)
+      with (render_digits hexdig tl (String (hexdig d) s)).
+    rewrite (IH a (String (hexdig d) s)) by assumption.
+    cbn [parseHex_pos]. rewrite unhex_hexdig by assumption.
+    f_equal. cbn [List.length dlist_val].
+    rewrite Nat2Z.inj_succ, Z.pow_succ_r by lia. ring.
 Qed.
 
-(** UNCONDITIONAL for every non-negative [z] (the adaptive fuel never truncates). *)
+(** UNCONDITIONAL for every non-negative [z]. *)
 Theorem print_parse_hex : forall z, (0 <= z)%Z -> parse_hex (print_hex z) = z.
 Proof.
-  intros z Hlo. destruct (Z.eqb z 0) eqn:E0.
-  - apply Z.eqb_eq in E0; subst z. reflexivity.
-  - apply Z.eqb_neq in E0. rewrite print_hex_pos by exact E0. rewrite parse_hex_0x.
-    rewrite parseHex_pos_hex_digits by (try (apply (z_lt_pow_digit_fuel 16)); lia).
-    cbn [parseHex_pos]. reflexivity.
+  intros z Hlo. unfold print_hex. rewrite parse_hex_0x.
+  destruct z as [| p | p]; [ reflexivity | | lia ].
+  cbn [print_hex_body].
+  rewrite parseHex_pos_render by (apply pos_digits_bound; lia).
+  rewrite pos_digits_val by lia. cbn [parseHex_pos]. lia.
 Qed.
 
 (** ---- FLOAT-HEX LITERAL ---- the IEEE [spec_float] finite value ±m·2^e emits as Go's hex float
@@ -775,22 +804,24 @@ Proof.
     apply (f_equal nat_of_ascii) in H; rewrite !Ascii.nat_ascii_embedding in H by lia; lia.
 Qed.
 
-Lemma hex_digits_no_p : forall fuel z acc, no_p acc -> no_p (hex_digits fuel z acc).
+Lemma render_hex_no_p : forall ds acc, Forall (fun d => (d < 16)%nat) ds -> no_p acc ->
+  no_p (render_digits hexdig ds acc).
 Proof.
-  induction fuel as [ | f IH ]; intros z acc Hacc; [ exact Hacc | ].
-  cbn [hex_digits]. pose proof (Z.mod_pos_bound z 16 ltac:(lia)) as Hmod.
-  assert (Hk : (Z.to_nat (z mod 16) < 16)%nat) by lia.
-  destruct (Z.eqb (z / 16) 0).
-  - cbn [no_p]. split; [ apply is_p_hexdig; exact Hk | exact Hacc ].
-  - apply IH. cbn [no_p]. split; [ apply is_p_hexdig; exact Hk | exact Hacc ].
+  induction ds as [| d tl IH]; intros acc Hall Hacc; [ exact Hacc | ].
+  inversion Hall; subst.
+  change (render_digits hexdig (d :: tl) acc)
+    with (render_digits hexdig tl (String (hexdig d) acc)).
+  apply IH; [ assumption | cbn [no_p]; split; [ apply is_p_hexdig; assumption | exact Hacc ] ].
 Qed.
 
 Lemma no_p_print_hex : forall z, no_p (print_hex z).
 Proof.
   intro z. unfold print_hex. apply no_p_app.
   - cbn [no_p]. repeat split; (reflexivity || exact I).
-  - destruct (Z.eqb z 0); [ cbn [no_p]; repeat split; (reflexivity || exact I)
-                          | apply hex_digits_no_p; exact I ].
+  - destruct z as [| p | p]; cbn [print_hex_body];
+      [ cbn [no_p]; repeat split; (reflexivity || exact I)
+      | apply render_hex_no_p; [ apply pos_digits_bound; lia | exact I ]
+      | apply render_hex_no_p; [ apply pos_digits_bound; lia | exact I ] ].
 Qed.
 
 Fixpoint split_p (s : string) : string * string :=
@@ -899,7 +930,7 @@ Definition is_dec_char (c : ascii) : bool :=
   andb (Nat.leb 48 (nat_of_ascii c)) (Nat.leb (nat_of_ascii c) 57).
 Fixpoint all_dec (s : string) : bool :=
   match s with EmptyString => true | String c s' => andb (is_dec_char c) (all_dec s') end.
-(** every char a LOWER-CASE hex digit ([is_hex], 0-9a-f) — the [hex_digits] alphabet, for the hex-literal scan. *)
+(** every char a LOWER-CASE hex digit ([is_hex], 0-9a-f) — the rendered-hex alphabet, for the hex-literal scan. *)
 Fixpoint all_hex (s : string) : bool :=
   match s with EmptyString => true | String c s' => andb (is_hex c) (all_hex s') end.
 Fixpoint print_sep (sep : string) (xs : list string) : string :=
@@ -1913,26 +1944,23 @@ Proof.
   - cbn [all_hex] in Ha. apply andb_prop in Ha. destruct Ha as [Hc Ha'].
     cbn [String.append scan_hex]. rewrite Hc. rewrite (IH b Ha' Hb). reflexivity.
 Qed.
-(** the [hex_digits] render is all-hex (each emitted nibble is [is_hex], the acc stays all-hex). *)
-Lemma all_hex_hex_digits : forall fuel z acc, all_hex acc = true -> all_hex (hex_digits fuel z acc) = true.
+(** the rendered hex body is all-hex (each emitted nibble is [is_hex]). *)
+Lemma all_hex_render : forall ds acc, Forall (fun d => (d < 16)%nat) ds ->
+  all_hex acc = true -> all_hex (render_digits hexdig ds acc) = true.
 Proof.
-  induction fuel as [ | f IH ]; intros z acc Hacc; [ exact Hacc | ].
-  cbn [hex_digits]. pose proof (Z.mod_pos_bound z 16 ltac:(lia)) as Hmod.
-  assert (Hk : (Z.to_nat (z mod 16) < 16)%nat) by lia.
-  destruct (Z.eqb (z / 16) 0).
-  - cbn [all_hex]. rewrite (is_hex_hexdig _ Hk), Hacc. reflexivity.
-  - apply IH. cbn [all_hex]. rewrite (is_hex_hexdig _ Hk), Hacc. reflexivity.
+  induction ds as [| d tl IH]; intros acc Hall Hacc; [ exact Hacc | ].
+  inversion Hall; subst.
+  change (render_digits hexdig (d :: tl) acc)
+    with (render_digits hexdig tl (String (hexdig d) acc)).
+  apply IH; [ assumption | cbn [all_hex]; rewrite is_hex_hexdig by assumption; exact Hacc ].
 Qed.
-(** [hex_digits] off a non-empty acc / [S]-fuel is non-empty — the analog of [z_digits_acc_ne]/[z_digits_S_ne]
-    (every printed [print_hex] body has a leading hex digit, so the lexer's hex scan finds >= 1 char). *)
-Lemma hex_digits_acc_ne : forall f z acc, acc <> ""%string -> hex_digits f z acc <> ""%string.
+(** a render of a non-empty digit list is non-empty (every printed digit body has a
+    leading digit, so the lexer's first-char dispatch sees one). *)
+Lemma render_digits_ne : forall dig ds acc, ds <> nil -> render_digits dig ds acc <> ""%string.
 Proof.
-  induction f as [ | f IH ]; intros z acc Hacc; [ exact Hacc | ].
-  cbn [hex_digits]. destruct (z / 16 =? 0)%Z; [ discriminate | apply IH; discriminate ].
-Qed.
-Lemma hex_digits_S_ne : forall f z, hex_digits (S f) z ""%string <> ""%string.
-Proof.
-  intros f z. cbn [hex_digits]. destruct (z / 16 =? 0)%Z; [ discriminate | apply hex_digits_acc_ne; discriminate ].
+  intros dig ds; induction ds as [| d tl IH]; intros acc Hne; [ contradiction | ].
+  change (render_digits dig (d :: tl) acc) with (render_digits dig tl (String (dig d) acc)).
+  destruct tl as [| d2 tl']; [ cbn; discriminate | apply IH; discriminate ].
 Qed.
 (** [HexZ] proof-irrelevance (the [0 <=? z = true] proof is UNIQUE by UIP-on-bool) — equal values are equal
     sigs.  Mirrors [ident_eq]; lets [lex]/[gtokens] agree on the carried proof. *)
@@ -1998,17 +2026,14 @@ Proof.
   apply andb_true_intro. split; apply Nat.leb_le; lia.
 Qed.
 
-Lemma all_dec_z_digits : forall fuel z acc, (0 <= z)%Z -> all_dec acc = true ->
-  all_dec (z_digits fuel z acc) = true.
+Lemma all_dec_render : forall ds acc, Forall (fun d => (d < 10)%nat) ds ->
+  all_dec acc = true -> all_dec (render_digits dec_digit ds acc) = true.
 Proof.
-  induction fuel as [ | f IH ]; intros z acc Hz Hacc; [ exact Hacc | ].
-  cbn [z_digits].
-  assert (Hd : is_dec_char (dec_digit (Z.to_nat (z mod 10))) = true).
-  { apply is_dec_char_dec_digit.
-    assert (0 <= z mod 10 < 10)%Z by (apply Z.mod_pos_bound; lia). lia. }
-  destruct (z / 10 =? 0)%Z.
-  - cbn [all_dec]. rewrite Hd. exact Hacc.
-  - apply IH; [ apply Z.div_pos; lia | cbn [all_dec]; rewrite Hd; exact Hacc ].
+  induction ds as [| d tl IH]; intros acc Hall Hacc; [ exact Hacc | ].
+  inversion Hall; subst.
+  change (render_digits dec_digit (d :: tl) acc)
+    with (render_digits dec_digit tl (String (dec_digit d) acc)).
+  apply IH; [ assumption | cbn [all_dec]; rewrite is_dec_char_dec_digit by assumption; exact Hacc ].
 Qed.
 
 Lemma is_dec_char_not_idstart : forall c, is_dec_char c = true -> is_idstart c = false.
@@ -2028,19 +2053,6 @@ Proof.
   destruct (Ascii.eqb c (ascii_of_nat 32)) eqn:E; [ | reflexivity ].
   exfalso. apply Ascii.eqb_eq in E. subst c.
   rewrite Ascii.nat_ascii_embedding in H1 by lia. lia.
-Qed.
-
-(** [z_digits] (with [S]-fuel from an empty accumulator) is non-empty — every print_Z digit run has a
-    leading digit, so the lexer's first-char dispatch sees a [is_dec_char]. *)
-Lemma z_digits_acc_ne : forall f z acc, acc <> EmptyString -> z_digits f z acc <> EmptyString.
-Proof.
-  induction f as [ | f IH ]; intros z acc Hacc; [ exact Hacc | ].
-  cbn [z_digits]. destruct (z / 10 =? 0)%Z; [ discriminate | apply IH; discriminate ].
-Qed.
-
-Lemma z_digits_S_ne : forall f z, z_digits (S f) z EmptyString <> EmptyString.
-Proof.
-  intros f z. cbn [z_digits]. destruct (z / 10 =? 0)%Z; [ discriminate | apply z_digits_acc_ne; discriminate ].
 Qed.
 
 (** The lexer's DECIMAL path: a decimal head [c] whose FOLLOWING char is not 'x' ([ch 120]) takes the
@@ -2129,18 +2141,17 @@ Lemma lex_gprint_int : forall z rest fuel tr,
 Proof.
   intros z rest fuel tr Hclean Hrest Hfuel.
   replace (TInt z) with (TInt (parse_Z (print_Z z))) by (rewrite print_parse_Z; reflexivity).
-  unfold print_Z in *.
-  destruct (Z.eqb_spec z 0) as [Heq | Hne].
+  destruct z as [| p | p]; cbn [print_Z] in *.
   - apply lex_pos_dec; [ reflexivity | discriminate | exact Hclean | exact Hrest | exact Hfuel ].
-  - destruct (Z.ltb_spec z 0) as [Hlt | Hge].
-    + change (("-" ++ z_digits (digit_fuel (- z)) (- z) "")%string)
-        with (String (ch 45) (z_digits (digit_fuel (- z)) (- z) "")) in *.
-      apply lex_neg_dec;
-        [ apply all_dec_z_digits; [ lia | reflexivity ]
-        | unfold digit_fuel; apply z_digits_S_ne | exact Hclean | exact Hrest | exact Hfuel ].
-    + apply lex_pos_dec;
-        [ apply all_dec_z_digits; [ lia | reflexivity ]
-        | unfold digit_fuel; apply z_digits_S_ne | exact Hclean | exact Hrest | exact Hfuel ].
+  - unfold print_Z_pos in *.
+    apply lex_pos_dec;
+      [ apply all_dec_render; [ apply pos_digits_bound; lia | reflexivity ]
+      | apply render_digits_ne, pos_digits_nonnil | exact Hclean | exact Hrest | exact Hfuel ].
+  - change (("-" ++ print_Z_pos p)%string) with (String (ch 45) (print_Z_pos p)) in *.
+    unfold print_Z_pos in *.
+    apply lex_neg_dec;
+      [ apply all_dec_render; [ apply pos_digits_bound; lia | reflexivity ]
+      | apply render_digits_ne, pos_digits_nonnil | exact Hclean | exact Hrest | exact Hfuel ].
 Qed.
 
 (** LEAF (hex): lexing [gprint (EHex zc) ++ rest = print_hex z ++ rest] (z = [proj1_sig zc] >= 0) yields
@@ -2155,12 +2166,16 @@ Lemma lex_gprint_hex : forall (zc : HexZ) rest fuel tr,
 Proof.
   intros [z Hz] rest fuel tr Hclean Hrest Hfuel. cbn [proj1_sig] in *.
   assert (Hznn : (0 <= z)%Z) by (apply Z.leb_le; exact Hz).
-  pose (HD := if (z =? 0)%Z then "0"%string else hex_digits (digit_fuel z) z ""%string).
+  pose (HD := print_hex_body z).
   assert (EprintHD : print_hex z = ("0x" ++ HD)%string) by (unfold print_hex, HD; reflexivity).
   assert (HhexHD : all_hex HD = true)
-    by (unfold HD; destruct (z =? 0)%Z; [ reflexivity | apply all_hex_hex_digits; reflexivity ]).
+    by (unfold HD; destruct z as [| p | p]; cbn [print_hex_body];
+        [ reflexivity | apply all_hex_render; [ apply pos_digits_bound; lia | reflexivity ]
+        | apply all_hex_render; [ apply pos_digits_bound; lia | reflexivity ] ]).
   assert (HneHD : HD <> ""%string)
-    by (unfold HD; destruct (Z.eqb_spec z 0); [ discriminate | unfold digit_fuel; apply hex_digits_S_ne ]).
+    by (unfold HD; destruct z as [| p | p]; cbn [print_hex_body];
+        [ discriminate | apply render_digits_ne, pos_digits_nonnil
+        | apply render_digits_ne, pos_digits_nonnil ]).
   assert (HparseHD : parseHex_pos 0 HD = z)
     by (pose proof (print_parse_hex z Hznn) as Hpp; rewrite EprintHD, parse_hex_0x in Hpp; exact Hpp).
   rewrite EprintHD in Hfuel |- *. clearbody HD. clear EprintHD.
@@ -2305,12 +2320,13 @@ Qed.
 (** [print_Z z] is unop-clean: its head is ['0'] / a digit / a leading ['-'(45)] — all clean. *)
 Lemma unop_head_clean_print_Z : forall z rest, unop_head_clean (print_Z z ++ rest) = true.
 Proof.
-  intros z rest. unfold print_Z.
-  destruct (z =? 0)%Z; [ cbn [append]; apply is_dec_char_unop_clean; reflexivity | ].
-  destruct (z <? 0)%Z.
+  intros z rest. destruct z as [| p | p]; cbn [print_Z].
+  - cbn [append]. apply is_dec_char_unop_clean; reflexivity.
+  - destruct (render_digits_head (pos_digits 10 p) "" (pos_digits_nonnil 10 p)
+                (pos_digits_bound 10 p ltac:(lia))) as [k [r [Hk Hr]]].
+    unfold print_Z_pos. rewrite Hr. cbn [append]. apply is_dec_char_unop_clean.
+    apply is_dec_char_dec_digit; exact Hk.
   - cbn [append]. apply unop_head_clean_cons; reflexivity.
-  - destruct (z_digits_head (digit_fuel z) z "" ltac:(unfold digit_fuel; lia)) as [k [r [Hk Hr]]].
-    rewrite Hr. cbn [append]. apply is_dec_char_unop_clean. apply is_dec_char_dec_digit; exact Hk.
 Qed.
 
 (** ★ Every BARE unary operand ([unop_needs_paren e0 = false], i.e. a LEAF atom) prints with a unop-clean
@@ -5190,36 +5206,42 @@ Proof.
   apply Ascii.eqb_eq in H. apply (f_equal nat_of_ascii) in H.
   rewrite !Ascii.nat_ascii_embedding in H by lia. lia.
 Qed.
-Lemma no_nl_z_digits : forall fuel z acc, no_nl acc -> no_nl (z_digits fuel z acc).
+Lemma no_nl_render_dec : forall ds acc, Forall (fun d => (d < 10)%nat) ds -> no_nl acc ->
+  no_nl (render_digits dec_digit ds acc).
 Proof.
-  induction fuel as [ | f IH ]; intros z acc Hacc; [ exact Hacc | ].
-  cbn [z_digits].
-  assert (Hk : (Z.to_nat (z mod 10) < 10)%nat)
-    by (pose proof (Z.mod_pos_bound z 10 ltac:(lia)) as Hb; lia).
-  destruct (Z.eqb (z / 10) 0).
-  - cbn [no_nl]. split; [ apply is_nl_dec_digit; exact Hk | exact Hacc ].
-  - apply IH. cbn [no_nl]. split; [ apply is_nl_dec_digit; exact Hk | exact Hacc ].
+  induction ds as [| d tl IH]; intros acc Hall Hacc; [ exact Hacc | ].
+  inversion Hall; subst.
+  change (render_digits dec_digit (d :: tl) acc)
+    with (render_digits dec_digit tl (String (dec_digit d) acc)).
+  apply IH; [ assumption | cbn [no_nl]; split; [ apply is_nl_dec_digit; assumption | exact Hacc ] ].
 Qed.
 Lemma no_nl_print_Z : forall z, no_nl (print_Z z).
 Proof.
-  intro z. unfold print_Z. destruct (z =? 0)%Z; [ no_nl_lit | ].
-  destruct (z <? 0)%Z.
-  - apply no_nl_app; [ no_nl_lit | apply no_nl_z_digits; exact I ].
-  - apply no_nl_z_digits; exact I.
+  intro z. destruct z as [| p | p]; cbn [print_Z].
+  - no_nl_lit.
+  - unfold print_Z_pos. apply no_nl_render_dec; [ apply pos_digits_bound; lia | exact I ].
+  - apply no_nl_app;
+      [ no_nl_lit
+      | unfold print_Z_pos; apply no_nl_render_dec; [ apply pos_digits_bound; lia | exact I ] ].
 Qed.
-Lemma no_nl_hex_digits : forall fuel z acc, no_nl acc -> no_nl (hex_digits fuel z acc).
+Lemma no_nl_render_hex : forall ds acc, Forall (fun d => (d < 16)%nat) ds -> no_nl acc ->
+  no_nl (render_digits hexdig ds acc).
 Proof.
-  induction fuel as [ | f IH ]; intros z acc Hacc; [ exact Hacc | ].
-  cbn [hex_digits]. pose proof (Z.mod_pos_bound z 16 ltac:(lia)) as Hb.
-  assert (Hk : (Z.to_nat (z mod 16) < 16)%nat) by lia.
-  destruct (Z.eqb (z / 16) 0).
-  - cbn [no_nl]. split; [ apply is_nl_idc, is_hex_is_idc, is_hex_hexdig; exact Hk | exact Hacc ].
-  - apply IH. cbn [no_nl]. split; [ apply is_nl_idc, is_hex_is_idc, is_hex_hexdig; exact Hk | exact Hacc ].
+  induction ds as [| d tl IH]; intros acc Hall Hacc; [ exact Hacc | ].
+  inversion Hall; subst.
+  change (render_digits hexdig (d :: tl) acc)
+    with (render_digits hexdig tl (String (hexdig d) acc)).
+  apply IH;
+    [ assumption
+    | cbn [no_nl]; split; [ apply is_nl_idc, is_hex_is_idc, is_hex_hexdig; assumption | exact Hacc ] ].
 Qed.
 Lemma no_nl_print_hex : forall z, no_nl (print_hex z).
 Proof.
   intro z. unfold print_hex. apply no_nl_app; [ no_nl_lit | ].
-  destruct (z =? 0)%Z; [ no_nl_lit | apply no_nl_hex_digits; exact I ].
+  destruct z as [| p | p]; cbn [print_hex_body];
+    [ no_nl_lit
+    | apply no_nl_render_hex; [ apply pos_digits_bound; lia | exact I ]
+    | apply no_nl_render_hex; [ apply pos_digits_bound; lia | exact I ] ].
 Qed.
 Lemma no_nl_binop_text : forall o, no_nl (binop_text o).
 Proof. intro o; destruct o; no_nl_lit. Qed.
