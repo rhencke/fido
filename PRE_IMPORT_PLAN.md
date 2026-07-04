@@ -318,9 +318,10 @@ B3, which was backwards):**
 
 ### C — Structs / methods / interfaces completion
 
-Core works (embedded fields + promotion DONE — `peel_embedded`).  Remaining: struct tags · field-wise
-`==` (struct comparability) · **pointer receivers** (needs B) · method
-values/expressions (`recv.M` as a closure, `T.M`) · single-method interface
+Core works (embedded fields + promotion DONE — `peel_embedded`; pointer receivers DONE (B2);
+method values + CONCRETE-receiver method expressions DONE — a generic-receiver `T.M` is
+rejected at extraction).  Remaining: struct tags · field-wise
+`==` (struct comparability) · single-method interface
 curried-return form · nullary (unit-thunk) methods · native `interface{…}`
 keyword + structural satisfaction · **type switch** (`switch v := x.(type)`).
 

@@ -136,6 +136,21 @@ let is_stdlib_ref r =
               && String.equal (String.sub p 0 (String.length s)) s in
   pre "Stdlib." || pre "Corelib." || pre "Coq."
 
+(* LIVENESS for stdlib decls: a Stdlib/Corelib/Coq declaration in the structure is emitted
+   IFF it is reachable from code that itself emits — a non-suppressed non-stdlib decl's
+   body, a live stdlib decl's body (Dfix groups mark whole, since they emit whole), or the
+   extraction ENTRY's body.  STRUCTURE, not a name list, governs the boundary: a dep of a
+   SUPPRESSED proof-only body is dead and DROPS, while a real use KEEPS its definition.
+   The residual (a stdlib identifier about to print with NO emitted definition — e.g. a
+   live ref whose decl is absent from the structure and that no by-name lowering claimed)
+   ABORTS at the [MLglob] print fallback.  [live_stdlib]/[stdlib_decl_present] are filled
+   by [collect_decls] before any emission/registration decision; [entry_live_body] is set
+   by the Go-Main driver (the entry Dterm is FILTERED from the structure, but its refs are
+   live). *)
+let live_stdlib : (string, unit) Hashtbl.t = Hashtbl.create 16
+let stdlib_decl_present : (string, unit) Hashtbl.t = Hashtbl.create 16
+let entry_live_body : Miniml.ml_ast option ref = ref None
+
 (* ---- Record (Go struct) support ----
    A Rocq Record is a Go value-struct (both have value/copy semantics, so no
    aliasing model is needed).  A record's [ind_kind] carries its projection refs;
@@ -2771,6 +2786,13 @@ let rec pp_expr state env = function
         (match Hashtbl.find_opt method_expr_recv (global_path r) with
          | Some recvty -> str recvty ++ str "." ++ str (go_export (global_basename r))
          | None -> unsupported "a GENERIC-receiver method used as a bare value — Go's method expression needs a CONCRETE instantiation (Box[int].M), which the erased type does not carry")
+      (* the SEAL on stdlib liveness: an identifier about to print must have an emitted
+         definition — a stdlib ref that is not (live && present-in-structure) here would
+         be an undefined Go name (every by-name lowering was tried above/at callers). *)
+      else if is_stdlib_ref r
+           && not (Hashtbl.mem live_stdlib (global_path r)
+                   && Hashtbl.mem stdlib_decl_present (global_path r)) then
+        unsupported ("stdlib reference " ^ global_basename r ^ " with no emitted Go definition (not lowered by name, and its declaration is dead or absent)")
       else str (go_export (global_basename r))
 
   | MLfix (i, names, _) ->
@@ -4760,19 +4782,13 @@ let is_proof_only_state r = List.mem (global_basename r) proof_only_names
 
 let is_inlined_ref r =
   is_proof_only_state r ||
-  (* the [Z_dec_string] digit chain (STDLIB deps of [Ascii.ascii_of_nat] / [N]/[Pos] div-mod /
-     [String.append]) — used only inside the suppressed panic-payload builder, never emitted.
-     MODULE-QUALIFIED: applies to Stdlib refs ONLY, so a same-basename USER definition still
-     emits (or fail-louds) normally.
-     ⚠ INVARIANT (guarded by the pipeline, not by trust): every name below must stay UNREACHABLE
-     from emitted user code — suppression removes the DEFINITION, so any future path that emits a
-     CALL to one of these leaves an undefined Go identifier and [go build]/[go vet] in [make check]
-     FAILS LOUDLY (exactly how the earlier basename-"sub" leak surfaced as "undefined: Sub").
-     If that ever fires, isolate the payload builder instead of widening this list. *)
-  (is_stdlib_ref r && List.mem (global_basename r)
-     ["zero"; "one"; "shift"; "ascii_of_pos"; "ascii_of_N"; "ascii_of_nat";
-      "append"; "div"; "modulo"; "to_nat"; "size_nat"; "succ_double"; "double"; "compare"; "compare_cont";
-      "pos_div_eucl"; "div_eucl"; "sub_mask"; "pred_N"; "of_succ_nat"; "iter_op"]) ||
+  (* STDLIB decls are governed by LIVENESS, not a name list ([live_stdlib], filled by
+     [collect_decls] before any emission/registration decision): a dead private dependency
+     of a suppressed proof-only body DROPS; a real use KEEPS its definition, which then
+     lowers exactly or fails loud at emission.  A use implies its definition, so the
+     undefined-Go-identifier leak class (the old basename-"sub" "undefined: Sub") is
+     unrepresentable. *)
+  (is_stdlib_ref r && not (Hashtbl.mem live_stdlib (global_path r))) ||
   (* Z-carried signed-narrow sign-extend helpers: internal, only inside by-name-
      lowered narrow op bodies (the masked Go is emitted by [fixed_width_op]); never emitted. *)
   List.mem (global_basename r) ["i8_norm_z"; "i16_norm_z"; "i32_norm_z"] ||
@@ -5107,6 +5123,54 @@ let collect_decls struc =
   List.iter (fun (_, sel) ->
     List.iter (fun (_, e) -> List.iter (fun d -> decls := d :: !decls) (decls_of_elem e)) sel) struc;
   let decls = List.rev !decls in
+  (* pass 0 — stdlib LIVENESS (see [live_stdlib]): seed from every decl that will EMIT
+     (non-stdlib, non-suppressed) + the entry body; close transitively through live
+     stdlib decls' own bodies (a live Dfix marks its WHOLE group — groups emit whole).
+     MUST run before pass 2 / emission — both consult [is_inlined_ref], which reads the
+     table for stdlib refs. *)
+  let entry_seed = !entry_live_body in
+  entry_live_body := None;   (* take-and-clear FIRST, so an abort below cannot leak the
+                                seed into a later extraction in the same session *)
+  Hashtbl.reset live_stdlib;
+  Hashtbl.reset stdlib_decl_present;
+  let stdlib_decls : (string, Miniml.ml_decl) Hashtbl.t = Hashtbl.create 16 in
+  List.iter (function
+    | Dterm (r, _, _) as d when is_stdlib_ref r ->
+        Hashtbl.replace stdlib_decls (global_path r) d;
+        Hashtbl.replace stdlib_decl_present (global_path r) ()
+    | Dfix (refs, _, _) as d ->
+        Array.iter (fun r -> if is_stdlib_ref r then begin
+          Hashtbl.replace stdlib_decls (global_path r) d;
+          Hashtbl.replace stdlib_decl_present (global_path r) () end) refs
+    | _ -> ()) decls;
+  let no_ref (_ : Miniml.global) = () in
+  let rec mark r =
+    if is_stdlib_ref r then begin
+      let key = global_path r in
+      if not (Hashtbl.mem live_stdlib key) then begin
+        Hashtbl.replace live_stdlib key ();
+        (match Hashtbl.find_opt stdlib_decls key with
+         | Some (Dfix (refs, _, _) as d) ->
+             (* the group emits WHOLE — mark every member before walking bodies *)
+             Array.iter (fun r' -> if is_stdlib_ref r' then
+               Hashtbl.replace live_stdlib (global_path r') ()) refs;
+             Modutil.decl_iter_references mark no_ref no_ref d
+         | Some d -> Modutil.decl_iter_references mark no_ref no_ref d
+         | None -> ())   (* no decl to walk: emission's [MLglob] fallback aborts if this
+                            ref ever prints as an identifier (by-name lowerings never
+                            reach that fallback) *)
+      end
+    end in
+  List.iter (function
+    | Dterm (r, _, _) as d when not (is_stdlib_ref r) && not (is_inlined_ref r) ->
+        Modutil.decl_iter_references mark no_ref no_ref d
+    | Dfix (refs, _, _) as d when not (Array.exists is_stdlib_ref refs)
+                               && not (Array.exists is_inlined_ref refs) ->
+        Modutil.decl_iter_references mark no_ref no_ref d
+    | _ -> ()) decls;
+  (match entry_seed with
+   | Some body -> Modutil.ast_iter_references mark no_ref no_ref body
+   | None -> ());
   (* pass 1 — records *)
   List.iter (function
     | Dind mi ->

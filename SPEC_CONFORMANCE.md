@@ -354,7 +354,7 @@ pointer-chains them, and TRAVERSES head→tail (`ptr_get`/`ln_next`) → `1 2 3`
 recursive type needs its own nullary tag ctor in builtins.v (Rocq inductives are closed); auto-tagging
 user-defined recursive structs needs a named-type registry (deferred).
 
-### [Method declarations](https://go.dev/ref/spec#Method_declarations) — ✓ value + pointer receiver, method values/expressions
+### [Method declarations](https://go.dev/ref/spec#Method_declarations) — ✓ value + pointer receiver, method values; method expressions CONCRETE receivers only
 Spec: a method binds a function to a receiver of a defined (here, struct) type:
 `func (r T) M(params) results { … }`; the call is `recv.M(args)`.  A Rocq top-level
 function is lowered as a value-receiver method iff it is METHOD-ELIGIBLE (`method_eligible`,
@@ -375,8 +375,10 @@ struct-pointer substrate): an eligible first param of type `GSPtr R` (a `*R`) �
 MUTATES the receiver, observed by the caller (`cell_incx` → `func (p *Cell) Cell_incx()`;
 `cell3_inc_z` on a 3-field `*Cell3`; `pair_bump` on a HETEROGENEOUS `*Pair{ N int64; B bool }`).
 **Method VALUES** (`p.M` as a closure → `method_value_demo` passes `p.Shifted` to a HOF) and
-**method EXPRESSIONS** (`T.M` unbound → `method_expr_demo` passes `Point.Sum_coords`) are DONE
-too — INCLUDING the **pointer-receiver method expression `(*T).M`** (`ptr_method_expr_demo`
+**method EXPRESSIONS** (`T.M` unbound → `method_expr_demo` passes `Point.Sum_coords`) work for
+CONCRETE receivers only — a GENERIC-receiver method used bare is REJECTED at extraction (Go's
+`T.M` needs a concrete instantiation the erased type does not carry; `neg_method_expr_generic`)
+— INCLUDING the **pointer-receiver method expression `(*T).M`** (`ptr_method_expr_demo`
 passes `(*Cell).Cell_incx` — a `func(*Cell)` — to a HOF; the receiver type is recorded
 parenthesized, and a func returning `IO unit` now renders VOID so it type-checks against the
 method's void signature).  **DEFINED TYPES over a primitive with methods DONE (2026-06-19):**

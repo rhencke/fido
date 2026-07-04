@@ -75,6 +75,8 @@ let go_extract_main ~opaque_access file_id entry_qid =
      [pp_struct]'s [collect_decls] must fill the method/record tables BEFORE the entry
      body prints (else a method call in the root lowers as a plain function while its
      decl emits method syntax — invalid Go). *)
+  Go.entry_live_body := !entry_body;   (* the entry's refs seed stdlib LIVENESS (its Dterm
+                                          is filtered out of the structure) *)
   let pp_pre   = Go.preamble_for_pkg "main" state name None DirPath.Set.empty safe in
   let pp_decls = Go.go_descr.pp_struct state filtered_struc in
   let pp_main  =

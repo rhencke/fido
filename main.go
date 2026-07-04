@@ -18,18 +18,6 @@ func Orb(b1 bool, b2 bool) bool {
 	}
 }
 
-func Xorb(b1 bool, b2 bool) bool {
-	if b1 {
-		if b2 {
-			return false
-		} else {
-			return true
-		}
-	} else {
-		return b2
-	}
-}
-
 func Negb(b bool) bool {
 	if b {
 		return false
@@ -2600,6 +2588,10 @@ func Pure_rec_demo() {
 	println(Pow2(4))
 }
 
+func Natpred_demo() {
+	println(Pow2(Pred(5)), Pow2(Pred(0)))
+}
+
 func Is_even(n uint) bool {
 	if n == 0 {
 		return true
@@ -2941,6 +2933,7 @@ func main() {
 	Gmap_deftype_demo()
 	Recursion_demo()
 	Pure_rec_demo()
+	Natpred_demo()
 	Mutual_rec_demo()
 	F32_demo()
 	I64_of_narrow_demo()

@@ -3407,6 +3407,13 @@ Fixpoint pow2 (n : nat) : GoI64 :=
   end.
 Definition pure_rec_demo : IO unit := println [any (pow2 4)].   (* 2^4 = 16 *)
 
+(** LIVE-USE stdlib liveness: [Nat.pred] used directly stays a LIVE stdlib decl, so its
+    definition ([func Pred(n uint) uint]) EMITS with the use — liveness (reachability from
+    emitting code), not a name list, governs stdlib decls; a dead dependency of a
+    suppressed proof-only body DROPS instead. *)
+Definition natpred_demo : IO unit :=
+  println [any (pow2 (Nat.pred 5)); any (pow2 (Nat.pred 0))].   (* 2^4 / 2^0 -> 16 1 *)
+
 (** MUTUAL RECURSION — two `Fixpoint`s calling each other (a mutual `Dfix`).  No plugin work:
     the `Dfix` arm already emits each function via `pp_function`, and a cross-call is an
     ordinary call; with value-position nat matches now lowering, the bodies emit too. *)
@@ -3666,11 +3673,12 @@ Definition main_effect : IO unit :=
   embed_demo                    >>'   (* prints: canine / canine / 5 (struct embedding + promotion; 5 = the d.Legs+k embedded-selector source-gate fixture) *)
   generics_demo                 >>'   (* prints: go / 3 / 2 / first (Go generics, type params) *)
   comparable_demo               >>'   (* prints: true true false true true (generic [K comparable]: int64/uint64/string/struct/DEFINED-TYPE → native ==) *)
-  gstruct_demo                  >>'   (* prints: hi / true / 1 / y (generic struct Box[T]; y = the demoted record-first non-method) *)
+  gstruct_demo                  >>'   (* prints: hi / true / 1 / y / 5 (generic struct Box[T]; y = the demoted record-first non-method; 5 = the BoxNS package func beside the method namespace) *)
   gbox_narrow_demo              >>'   (* prints: 44 true (generic struct Box[uint8] — generics×narrow type inference) *)
   gmap_deftype_demo             >>'   (* prints: 2 (defined type over a map, type Counts map[string]int64) *)
   recursion_demo                >>'   (* prints: 3 / 2 / 1 (user recursion, self-calling func) *)
   pure_rec_demo                 >>'   (* prints: 16 (pure value-returning recursion, pow2 4) *)
+  natpred_demo                  >>'   (* prints: 16 1 (Nat.pred live use -> func Pred emitted; stdlib liveness) *)
   mutual_rec_demo               >>'   (* prints: true / false (mutual recursion is_even/is_odd) *)
   f32_demo                      >>'   (* prints: 7.5 (native float32 arithmetic) *)
   i64_of_narrow_demo            >>'   (* prints: 200 -5 60000 (narrow→int64 widening) *)
