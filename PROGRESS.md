@@ -29,7 +29,8 @@ plugin CONSTRUCTS the `GExpr`; only `gprint` is verified. NOT "verified Go."
 
 ## GREEN (proved / working)
 
-- **Spine ZERO-AXIOM** (`make emit-verify`): GoAst / GoPrint / GoTypes / GoSafe / GoEmit.
+- **Spine ZERO-AXIOM** (`make emit-verify`): digits / GoAst / GoPrint / GoTypes / GoSafe / GoEmit
+  (digits.v = the shared decimal authority, compiled in both gated flows).
 - **GoPrint round-trip + injectivity** over the expression core (all postfix forms, `EConv`,
   slice/map composite literals, exact-lexer strings) + the statement layer
   (`print_stmt_inj`/`print_program_inj`). `GsDefer` supported+emittable+denoted; `GsShortDecl`
@@ -96,7 +97,7 @@ Zero-axiom is gated by `Print Assumptions` in THREE flows (single-sourced here):
 (`manifest-axioms.sh` vs empty `EXPECTED_ASSUMPTIONS.txt`) covers `main_effect` /
 `gosem_trust_surface` / `gosem_string_authority_surface` / `cmd.cmd_semantics_surface` /
 `cmd_unified_surface` / `gosem_panic_free_surface` / `builtins.slice_get_bounds_surface`;
-**printer** + **emit** (compiled STANDALONE, grep `^Axioms:`) cover the spine. A
+**printer** + **emit** (compiled STANDALONE incl. `digits.v`, grep `^Axioms:`) cover the spine. A
 `Print Assumptions` under none of the three is not gated.
 
 - `make check` — Docker: re-extract, run, golden diff; the three zero-axiom flows, the

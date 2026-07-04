@@ -1379,7 +1379,7 @@ Fail Example forge_unused_local :
     gate.)  When GoSem suffices: [BehaviorSafe] + [SafeProgram]/[emit_safe]. *)
 
 (** GATE — GoSafe is on the blessed emission path; keep it axiom-free (checked by the GOEMIT_GATE, mirroring
-    the GoAst/GoPrint printer gate). *)
+    the digits/GoAst/GoPrint printer gate). *)
 Print Assumptions SupportedProgram.
 Print Assumptions bad_programs_rejected.
 Print Assumptions ctmap_conv_unsupported_target_rejected.
