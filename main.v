@@ -2864,7 +2864,7 @@ Definition gmap_deftype_demo : IO unit :=
 
 (** USER RECURSION ([Fixpoint] → self-calling Go func): the [nat] match lowers in
     STATEMENT position as [if n == 0 { … } else { k := n - 1; … }]; [n : nat] is the
-    decreasing fuel (→ Go [uint]). *)
+    structurally decreasing argument (→ Go [uint]). *)
 Fixpoint countdown (n : nat) (v : GoI64) {struct n} : IO unit :=
   match n with
   | O => ret tt

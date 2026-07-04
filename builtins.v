@@ -920,22 +920,32 @@ Notation any x := (anyt (the_tag _) x).
 Definition rt_nil_deref    : GoAny := anyt TString "runtime error: invalid memory address or nil pointer dereference"%string.
 Definition rt_div_zero     : GoAny := anyt TString "runtime error: integer divide by zero"%string.   (* integer / and % by zero — consumed by GoSem's effectful denotation (not extracted) *)
 Definition rt_shift_neg    : GoAny := anyt TString "runtime error: negative shift amount"%string.    (* a NEGATIVE runtime shift count — consumed by GoSem's T5 typed-shift denotation (not extracted); payload verified against gc via go run *)
-(** Decimal rendering of a [Z] (for the EXACT runtime panic payloads below): digits accumulated
-    least-significant-first into the string, fuel = the positive's bit-size (>= its digit count). *)
-Fixpoint n_dec_aux (fuel : nat) (n : N) (acc : string) : string :=
-  match fuel with
-  | O => acc
-  | S f => match n with
-           | N0 => acc
-           | _ => n_dec_aux f (N.div n 10)
-                    (String (Ascii.ascii_of_nat (48 + N.to_nat (N.modulo n 10))) acc)
-           end
+(** Decimal rendering of a [Z] (for the EXACT runtime panic payloads below), by STRUCTURAL
+    recursion on the positive's BITS — digits(2p) = double(digits p) with carry (LSB-first),
+    rendered MSB-first by the fold.  Totality is the number's own structure; no step budget. *)
+Fixpoint dec_double (ds : list N) (carry : N) : list N :=
+  match ds with
+  | nil => match carry with N0 => nil | _ => carry :: nil end
+  | d :: tl => N.modulo (N.add (N.mul 2 d) carry) 10
+               :: dec_double tl (N.div (N.add (N.mul 2 d) carry) 10)
   end.
+Fixpoint pos_dec_digits (p : positive) : list N :=
+  match p with
+  | xH => 1%N :: nil
+  | xO p' => dec_double (pos_dec_digits p') 0%N
+  | xI p' => dec_double (pos_dec_digits p') 1%N
+  end.
+Fixpoint dec_render (ds : list N) (acc : string) : string :=
+  match ds with
+  | nil => acc
+  | d :: tl => dec_render tl (String (Ascii.ascii_of_nat (48 + N.to_nat d)) acc)
+  end.
+Definition pos_dec_string (p : positive) : string := dec_render (pos_dec_digits p) EmptyString.
 Definition Z_dec_string (z : Z) : string :=
   match z with
   | Z0 => "0"%string
-  | Zpos p => n_dec_aux (Pos.size_nat p) (Npos p) EmptyString
-  | Zneg p => String (Ascii.ascii_of_nat 45) (n_dec_aux (Pos.size_nat p) (Npos p) EmptyString)
+  | Zpos p => pos_dec_string p
+  | Zneg p => String (Ascii.ascii_of_nat 45) (pos_dec_string p)
   end.
 (** The EXACT Go bounds-panic payload (verified against gc 1.23 via `go run`): a non-negative
     out-of-range index reads "index out of range [i] with length n"; a NEGATIVE index reads
@@ -6142,8 +6152,8 @@ Definition for_each_idx {A : Type} (xs : GoSlice A) (body : GoInt -> A -> IO uni
 
 (** ---- Integer [range] (Go 1.22, spec "For statements: For range" over an integer): [for i := range n] ----
     Produces [i = 0, 1, …, n-1] (and runs zero times when [n = 0], exactly Go's rule).
-    The bound [n] is the iteration COUNT (a [nat] — non-negative, and the structural-recursion
-    fuel, so termination is by construction with no carrier conversion); the produced index
+    The bound [n] is the iteration COUNT (a [nat] — non-negative, and the structurally
+    DECREASING argument, so termination is by construction with no carrier conversion); the produced index
     [i] is the Go [int] index type (the [Z]-carried [GoInt]).  Recognized by name + decl suppressed, so the
     lowering is the native [for i := range n] (the [nat] count renders as the bound). *)
 Fixpoint int_range_aux (i : GoInt) (n : nat) (body : GoInt -> IO unit) : IO unit :=

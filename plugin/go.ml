@@ -5055,7 +5055,7 @@ let is_suppressed_ref r =
      "for_each_idx"; "for_each_idx_from"; "int_range"; "int_range_aux";
      (* runtime-panic VALUES — used only inside suppressed panic-op bodies,
         never emitted (the native Go op panics on its own) *)
-     "rt_nil_deref"; "rt_index_oob"; "Z_dec_string"; "n_dec_aux";
+     "rt_nil_deref"; "rt_index_oob"; "Z_dec_string"; "dec_double"; "pos_dec_digits"; "dec_render"; "pos_dec_string";
      "rt_slice_bounds"; "rt_neg_make"; "rt_nil_map";
      "rt_send_closed"; "rt_close_closed"; "rt_close_nil"; "rt_assert_fail"; "rt_select_block";
      "rt_chan_send_block"]) ||
