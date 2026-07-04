@@ -1790,6 +1790,25 @@ let z_value = function
       (match pos_value p with Some v -> Some (Int64.neg v) | None -> None)
   | _ -> None
 
+(* STRUCTURAL MiniML -> Printer converters: bit-for-bit translation of the [positive]/[Z]
+   SYNTAX into the extracted printer's own inductives — NO numeric intermediate, so ANY
+   magnitude converts exactly (the verified printers are total on their domains).  The
+   ONLY sanctioned feed for [Printer.print_float_hex]. *)
+let rec coq_pos_of_ml = function
+  | MLcons (_, r, [])  when String.equal (global_basename r) "xH" -> Some Printer.XH
+  | MLcons (_, r, [p]) when String.equal (global_basename r) "xO" ->
+      (match coq_pos_of_ml p with Some q -> Some (Printer.XO q) | None -> None)
+  | MLcons (_, r, [p]) when String.equal (global_basename r) "xI" ->
+      (match coq_pos_of_ml p with Some q -> Some (Printer.XI q) | None -> None)
+  | _ -> None
+let coq_z_of_ml = function
+  | MLcons (_, r, [])  when String.equal (global_basename r) "Z0"   -> Some Printer.Z0
+  | MLcons (_, r, [p]) when String.equal (global_basename r) "Zpos" ->
+      (match coq_pos_of_ml p with Some q -> Some (Printer.Zpos q) | None -> None)
+  | MLcons (_, r, [p]) when String.equal (global_basename r) "Zneg" ->
+      (match coq_pos_of_ml p with Some q -> Some (Printer.Zneg q) | None -> None)
+  | _ -> None
+
 (* CHECKED literal parse — for folds whose [Z] fields carry NO upstream range proof (the
    FConst fold: [mkFC]'s fields are arbitrary-precision [Z]).  A magnitude beyond the
    signed-int64 range returns [None] (the fold declines -> fail-loud), never a silent
@@ -3057,13 +3076,14 @@ let rec pp_expr state env = function
                  | MLcons (_, rs, []) when is_bool_true  rs -> Some true
                  | MLcons (_, rs, []) when is_bool_false rs -> Some false
                  | _ -> None) in
-               (match sign_opt, pos_value m, z_eval e with
-                | Some sign, Some mv, Some ev ->
-                    (* the WHOLE hex-float assembly is now the verified Printer.print_float_hex
-                       (sign + "0x"<mantissa> + "p" + <exponent>); pieces unchanged (print_hex / print_Z) *)
+               (match sign_opt, coq_pos_of_ml m, coq_z_of_ml e with
+                | Some sign, Some mp, Some ez ->
+                    (* the WHOLE hex-float assembly is the verified Printer.print_float_hex;
+                       the mantissa/exponent are converted STRUCTURALLY (never through an
+                       int64), so ANY finite spec_float emits its exact hex — no wrap *)
                     str (coq_string_to_ocaml
                       (Printer.print_float_hex (if sign then Printer.True else Printer.False)
-                         (coq_n_of_uint64 mv) (coq_z_of_int64 ev)))
+                         (Printer.Npos mp) ez))
                 | _ -> unsupported "a spec_float S754_finite literal with a non-constant sign/mantissa/exponent")
            | MLcons (_, r, [s]) when String.equal (global_basename r) "S754_zero" ->
                (match s with
