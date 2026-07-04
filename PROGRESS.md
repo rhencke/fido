@@ -76,7 +76,8 @@ plugin CONSTRUCTS the `GExpr`; only `gprint` is verified. NOT "verified Go."
 
 ## NEXT
 
-- CONSOLIDATION (boss, 2026-07-04): aggressive byte reduction, no new features.
+- CONSOLIDATION (boss, 2026-07-04) COMPLETE: −207 KB source/prose. `relooper.v` (140 KB, zero
+  dependents, demoted) is the one remaining legacy mass — deletion awaits an explicit go-ahead.
 - Resume the cmd↔unified bridge (`plans/bridge-effects.md`): `CAlloc`, channels (structural
   typed zero), spawn.
 - Grow behavioral safety toward `BehaviorSafe` → `SafeProgram` → `emit_safe` — locals arc OPEN
