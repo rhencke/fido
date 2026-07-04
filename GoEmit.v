@@ -76,6 +76,31 @@ Example demo_emit_bytes :
                go_tab ++ "return" ++ go_nl ++ "}" ++ go_nl)%string.
 Proof. vm_compute; reflexivity. Qed.
 
+(** Certified-emission witnesses for the two statement forms [demo_prog] does not carry
+    ([print], [panic]) — MIGRATION.md's covered row cites these; each pins the exact bytes
+    emitted through the certificate path. *)
+Definition print_prog : Program :=
+  mkProgram (mkIdent "main" eq_refl)
+            [GsExprStmt (ECall (EId (mkIdent "print" eq_refl)) [EInt 1]); GsReturn].
+Lemma print_supported : SupportedProgram print_prog.
+Proof. reflexivity. Qed.
+Example print_emit_bytes :
+  emit_supported (mkEmittable print_prog print_supported) =
+  ("package main" ++ go_nl ++ go_nl ++ "func main() {" ++ go_nl ++
+   go_tab ++ "print(1)" ++ go_nl ++ go_tab ++ "return" ++ go_nl ++ "}" ++ go_nl)%string.
+Proof. vm_compute; reflexivity. Qed.
+
+Definition panic_prog : Program :=
+  mkProgram (mkIdent "main" eq_refl)
+            [GsExprStmt (ECall (EId (mkIdent "panic" eq_refl)) [EInt 1])].
+Lemma panic_supported : SupportedProgram panic_prog.
+Proof. reflexivity. Qed.
+Example panic_emit_bytes :
+  emit_supported (mkEmittable panic_prog panic_supported) =
+  ("package main" ++ go_nl ++ go_nl ++ "func main() {" ++ go_nl ++
+   go_tab ++ "panic(1)" ++ go_nl ++ "}" ++ go_nl)%string.
+Proof. vm_compute; reflexivity. Qed.
+
 (** REGRESSION: the certificate is UNFORGEABLE for an unsupported program —
     [mkEmittable] DEMANDS a [SupportedProgram] proof, and none exists for the bare-value body
     [unsupported_value_stmt] (`func main(){ 1 }`), so [eq_refl] cannot inhabit [SupportedProgram _].  [Fail]
@@ -96,4 +121,6 @@ Proof. intros c1 c2 H. unfold emit_supported in H. exact (print_program_inj _ _ 
 (** GATE — GoSafe/GoEmit are part of the trust base (the blessed path); keep them axiom-free. *)
 Print Assumptions emit_supported.
 Print Assumptions demo_emit_bytes.
+Print Assumptions print_emit_bytes.
+Print Assumptions panic_emit_bytes.
 Print Assumptions emit_supported_program_inj.

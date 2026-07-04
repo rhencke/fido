@@ -1216,15 +1216,20 @@ Proof. repeat split; vm_compute; reflexivity. Qed.
     by [typed_unary_holes_absent], the cells sealed by [typed_unop_holes_none]), and the
     RUNTIME-FLOAT-source conversion [runconv_float_src_e] (CLASS-sealed —
     [reval_val_runfloat_none] / [denote_expr_conv_float_src_absent]; supported-side pin
-    [runtime_float_source_conv_absent]).  Each member is pinned supported AND undenoted AND
+    [runtime_float_source_conv_absent]), and [cap] of a slice literal [cap_slicelit_e]
+    (supported + certified-emitted — GoEmit's demo prints it — yet NO denotation arm; the
+    MIGRATION.md cap row cites this member).  Each member is pinned supported AND undenoted AND
     eval-level absent.  (SIGNED-ZERO constant folds are NOT members: the checker's authority is
     the CONSTANT-fold layer ([sf_const_binop]/[sf_const_neg] — zero-sign erasure), so
     [-(float64(0))] and the zero-binop shapes fold to [+0] and DENOTE — [negzero_const_runs] +
     [signed_zero_folds_run] below.) *)
+Definition cap_slicelit_e : GExpr :=
+  ECall (EId (mkIdent "cap" eq_refl)) [ESliceLit GTInt [EInt 1]].
 Definition undenoted_frontier : list GExpr :=
   [ runeconv_mb
   ; runnot_uint_e
-  ; runconv_float_src_e ].
+  ; runconv_float_src_e
+  ; cap_slicelit_e ].
 Example undenoted_frontier_pinned :
   forallb (fun e => supported_program (println_prog e)
                     && negb (denotable_program (println_prog e))
