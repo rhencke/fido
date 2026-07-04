@@ -72,6 +72,14 @@ its dependents in the same commit. (6) Heterogeneous ops need their own dispatch
 constants off the GATE's own values — a differently-bounded re-read is a side-condition
 leak.
 
+## relooper.v removed (2026-07-04)
+
+relooper.v was removed when the project pivoted from CFG-to-Go recovery to direct
+GoAst-certified emission as the TARGET architecture; recover from git if a future CFG
+frontend needs it. It was proof-only with zero live dependents. The trusted plugin's own
+CFG structurer (`run_blocks` in plugin/go.ml, gap #10) is a separate thing — still live,
+still feeding `main.go` until AST-first certified emission replaces it.
+
 ## The GoSem split fused RuntimeInt+Agg (2026-07-03)
 
 Planned four files; the real topology is three — the tier seals and slice/map class proofs

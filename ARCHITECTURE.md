@@ -159,14 +159,6 @@ are pure, golden byte-identical.
 
 ---
 
-## 4. Relooper — demoted
-
-`relooper.v` is proven and should not be deleted casually, but it is **not** part of the
-AST-certified-emission path. Optional future lowering component; do not spend time on it
-until the AST-first path is established.
-
----
-
 ## 5. Phases
 
 ```text

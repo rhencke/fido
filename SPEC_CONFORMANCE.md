@@ -552,11 +552,11 @@ The EXPRESSION-level env evaluator exists (`denote_expr_env` — a bound local e
 tag-checked); STATEMENT denotation of `x := e` is ABSENT until the env statement layer:
 decl programs are supported-but-undenoted (`shortdecl_supported_undenoted`).
 
-### [If](https://go.dev/ref/spec#If_statements) / [For](https://go.dev/ref/spec#For_statements) / [Switch](https://go.dev/ref/spec#Switch_statements) / [Goto](https://go.dev/ref/spec#Goto_statements) / [Return](https://go.dev/ref/spec#Return_statements) — ✓ via the goto-CFG relooper; ⚠ native `switch`
+### [If](https://go.dev/ref/spec#If_statements) / [For](https://go.dev/ref/spec#For_statements) / [Switch](https://go.dev/ref/spec#Switch_statements) / [Goto](https://go.dev/ref/spec#Goto_statements) / [Return](https://go.dev/ref/spec#Return_statements) — ✓ via the plugin's goto-CFG structurer (TRUSTED); ⚠ native `switch`
 Spec: structured control flow (`if`/`else`, `for` with optional range, `switch`,
 `break`/`continue`/labeled, `goto`, `return`).  Ours: ALL control flow is one complete
 primitive — a goto-CFG (`run_blocks`/`Jump`/`Done`, each function body a set of labelled
-basic blocks) — lifted back to idiomatic Go by a STRUCTURING relooper (computes
+basic blocks) — lifted back to idiomatic Go by the trusted plugin's STRUCTURING relooper (computes
 dominators / post-dominators as iterative fixpoints, finds natural loops by back-edges,
 recurses to emit `if`/`for`/`break`/`continue`/labeled-break, falling back to raw labels
 + `goto` only where the graph is irreducible).  Completeness lives in the CFG model;

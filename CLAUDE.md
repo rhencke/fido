@@ -20,7 +20,7 @@ injectivity; SYNTAX only) → **`GoSem`** (behavior; slice 1 — the `cmd.v` bri
 `unified.v`/`concurrency.v`, never fork a second universe; NO completeness / NO BehaviorSafe) → **`GoSafe`**
 (`SupportedProgram` syntactic gate now; `BehaviorSafe` later) → **`GoEmit`** (the ONLY blessed emit; requires a
 certificate — `EmittableProgram` now; NO official `emit : Program -> string`). `plugin/go.ml` is
-trusted/transitional and is NOT grown; `relooper.v` is demoted. **Naming is a correctness claim** — never call
+trusted/transitional and is NOT grown. **Naming is a correctness claim** — never call
 a syntactic gate `SafeProgram`.
 
 ## Rules that shape every change
@@ -83,7 +83,7 @@ The demos in `main.v` are the test suite; `expected_output.txt` is the golden ru
   source but is not run).
 - `unified.v` — proof-only: the `ustep` operational semantics (race-freedom + liveness/deadlock proved on it),
   NOT the certified-emission path. `concurrency.v` — proof-only: calculus-agnostic trace / happens-before /
-  race / bounded-deadlock theory. `relooper.v` — demoted.
+  race / bounded-deadlock theory.
 - `SPEC_CONFORMANCE.md` — the Go-spec conformance ledger. `EXPECTED_ASSUMPTIONS.txt` — the asserted axiom set
   (EMPTY; the manifest gate fails the build on drift; regenerate via `manifest-axioms.sh` if intentionally
   changed).

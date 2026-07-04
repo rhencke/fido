@@ -2061,7 +2061,7 @@ Definition diamond_demo (b : bool) : IO unit :=
     bind (println [any (int_lit 99 eq_refl)]) (fun _ => ret Done)
   ].
 
-(** Loop containing a branch: the relooper nests a conditional inside a [for].  Counter
+(** Loop containing a branch: the plugin's structurer nests a conditional inside a [for].  Counter
     is a [Ref], re-read per block (separate goto-blocks don't share Rocq scope).
     Prints 100, 0, 1, 2. *)
 Definition loopif_demo : IO unit :=
@@ -2078,7 +2078,7 @@ Definition loopif_demo : IO unit :=
     ret Done                                                        (* block 4: exit *)
   ]).
 
-(** Nested loops: the relooper nests one [for] inside another ([loopctx] stacks; each
+(** Nested loops: the plugin's structurer nests one [for] inside another ([loopctx] stacks; each
     loop's exit becomes its own [break]).  [j] is reset each outer pass.
     Prints 0,1 then 0,1. *)
 Definition nested_loop_demo : IO unit :=
@@ -2098,7 +2098,7 @@ Definition nested_loop_demo : IO unit :=
     ret Done                                                        (* block 5: exit *)
   ])).
 
-(** Early return from inside a loop: the relooper emits [return] for the in-loop [Done],
+(** Early return from inside a loop: the plugin's structurer emits [return] for the in-loop [Done],
     [break] for the exit edge, and the tail after the [for].  Prints 0, 1, then returns
     (999 never reached). *)
 Definition early_return_demo : IO unit :=
@@ -2115,7 +2115,7 @@ Definition early_return_demo : IO unit :=
   ]).
 
 (** Labeled break: an inner-loop jump to the OUTER loop's exit escapes both loops, so
-    the relooper labels the outer [for] [L0:] and emits [break L0] (multi-exit inner
+    the plugin's structurer labels the outer [for] [L0:] and emits [break L0] (multi-exit inner
     loop accepted by the primary-exit analysis).  Prints 0, 1, 2 then stops. *)
 Definition labeled_break_demo : IO unit :=
   bind (ref_new TInt64 (int_lit 0 eq_refl)) (fun i =>
