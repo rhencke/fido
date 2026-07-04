@@ -166,8 +166,8 @@ Proof.
 Qed.
 
 (** [go c w] runs [c]'s body, ACCUMULATING the deferred actions (without running them yet).  Structural
-    on [c] — the CPS continuations are subterms (a [CRead] continuation's application included), so no
-    fuel needed here.  OPTION-VALUED: an unallocated or tag-mismatched heap access has no behavior, so
+    on [c] — the CPS continuations are subterms (a [CRead] continuation's application included).
+    OPTION-VALUED: an unallocated or tag-mismatched heap access has no behavior, so
     the run is ABSENT — [None] here makes [run_cmd] [None]. *)
 Fixpoint go {A} (c : Cmd A) (w : World) : option (Outcome A * list (Cmd unit)) :=
   match c with
@@ -236,7 +236,7 @@ Fixpoint run_cmd {A} (c : Cmd A) (w : World) : option (Outcome A) :=
     derivation — [UwCons] runs one deferred scope (its body via [go], its own nested forest via a
     SUB-DERIVATION) and threads the active outcome exactly as [run_cmd]'s combine.  Derivations give
     consumers (the ustep bridge) an induction principle whose nested-forest case is a strict
-    sub-derivation — the induction the deleted fuel used to fake.  [eval_cmd] packages both; it is
+    sub-derivation.  [eval_cmd] packages both; it is
     EQUIVALENT to the structural [run_cmd] ([run_cmd_eval]/[eval_run_cmd] below), so either spelling
     is the same semantic fact and there is ONE authority. *)
 Inductive unwind_defers : list (Cmd unit) -> Outcome unit -> Outcome unit -> Prop :=
@@ -386,8 +386,7 @@ Proof.
   - destruct (w_refs w l) as [cell|] eqn:E; [ | discriminate Hgo ].
     apply IH. exists oc0, ds, r. split; [ exact Hgo | split; [ exact Hun | exact Hoc ] ].
 Qed.
-Print Assumptions run_cmd_eval.
-Print Assumptions eval_run_cmd.
+
 
 (** [no_defer c] — [c] registers no [CDfr]: a straight-line output/panic/return command.  A pure [Cmd]
     predicate, so it lives here (cmd.v); consumed by GoSemSafe's defer-free exact-output panic lemmas
@@ -459,7 +458,10 @@ Proof.
   - discriminate Hnh.
   - discriminate Hnh.
 Qed.
-Print Assumptions run_cmd_terminates.
+(** The ONE manifest surface for the command semantics: totality on the decidable fragment +
+    the run/derivation equivalence, both directions.  Named in PROGRESS.md "Current gates". *)
+Definition cmd_semantics_surface := (run_cmd_terminates, run_cmd_eval, eval_run_cmd).
+Print Assumptions cmd_semantics_surface.
 
 (** ---- The #12 fix, demonstrated ---- *)
 

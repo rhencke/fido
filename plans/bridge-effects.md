@@ -30,8 +30,8 @@ land closed-recv proofs for at least TWO distinct element types.
    obligations: no clobber of an allocated cell; no nil (location-0) allocation from a
    valid start; no unified allocation behavior beyond the cmd side's; a continuation
    branching on `Nat.eqb l 0` cannot reach the `l = 0` branch from a mirrored start.
-   `no_heap`/`cmd_no_panic` map `CAlloc` to `false`; `UFrag`/`Cmd_rect'`/`cbind`/`CmdEq`/
-   `go_no_panic` gain the arm.
+   `no_heap`/`cmd_no_panic` map `CAlloc` to `false`; `UFrag`/`Cmd_rect'`/`cbind`/`CmdEq`
+   gain the arm (and the `unwind_defers`/`eval_cmd` cases follow the interpreter's).
 
 3. **CHANNELS** (single-goroutine deterministic fragment): `CSend`/`CRecv`/`CClose`
    against `w_chans` — BLOCKED on the ⛔ precondition. The ustep side BLOCKS on
@@ -47,8 +47,9 @@ land closed-recv proofs for at least TWO distinct element types.
 ## Standing rules for this arc
 
 - Ground every new projection in the existing authority via a proven equality and USE it
-  the same tick. Public statements use PUBLIC vocabulary (fuel existential). A real
-  result is `Theorem` + `Print Assumptions` + PROGRESS "Current gates", never `Local`.
+  the same tick. Public statements use PUBLIC vocabulary — completion is `run_cmd c w =
+  Some oc`, never a bound. A real result is `Theorem` + `Print Assumptions` + PROGRESS
+  "Current gates", never `Local`.
 - At every landing: delete newly-subsumed demos/theorems, sweep status prose repo-wide,
   verify every "consumes/via X" against the actual proof.
 - Work invariants + reductions on paper BEFORE coding (look for the one reconciliation

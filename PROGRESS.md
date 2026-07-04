@@ -94,7 +94,7 @@ the whole trusted plugin `plugin/go.ml` (gap #10) · and (once GoSem backs emiss
 
 Zero-axiom is gated by `Print Assumptions` in THREE flows (single-sourced here): **manifest**
 (`manifest-axioms.sh` vs empty `EXPECTED_ASSUMPTIONS.txt`) covers `main_effect` /
-`gosem_trust_surface` / `gosem_string_authority_surface` / `cmd.run_cmd_terminates` /
+`gosem_trust_surface` / `gosem_string_authority_surface` / `cmd.cmd_semantics_surface` /
 `cmd_unified_surface` / `gosem_panic_free_surface` / `builtins.slice_get_bounds_surface`;
 **printer** + **emit** (compiled STANDALONE, grep `^Axioms:`) cover the spine. A
 `Print Assumptions` under none of the three is not gated.
