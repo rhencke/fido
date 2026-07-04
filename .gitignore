@@ -37,5 +37,6 @@ vendor/
 *.aux
 .*.aux
 .lia.cache
+.nia.cache
 .coq-native/
 _build/

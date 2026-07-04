@@ -8,13 +8,13 @@ eval_cmd, equivalence both directions, gated; real no_heap totality), cmd_unifie
 
 ## Remaining
 
-1. **GoPrint.v**: `z_digits fuel`/`digit_fuel`, `hex_digits fuel`, `lex_aux fuel`,
+1. **GoPrint.v** (digit printers LANDED 10238ec — structural double-and-add; the
+   hex printer's domain seal to `N`/`positive` follows): `lex_aux fuel`,
    `parse_gty fuel`, the mutual expression-parser fuel, `parse toks := parse_expr
    (3 * length toks + 4) ...`, the esize budget machinery — replace with structural /
-   well-founded recursion (digit printers: WF on the numeric value, Acc erases in
-   extraction; lexer: length-decreasing scan; parser: WF on (tokens, phase)).  The
-   round-trip theorem keeps its statement; the budget premises disappear.
-   printer.ml regenerates; golden byte-identical.
+   well-founded recursion (lexer: length-decreasing scan; parser: WF on
+   (tokens, phase)).  The round-trip theorems keep their statements; the budget
+   premises disappear.  printer.ml regenerates; golden byte-identical.
 2. **builtins.v**: `n_dec_aux fuel` (same WF treatment); `run_blocks_fuel`/`block_fuel`
    (the goto-CFG runner — genuine partiality): replace with a step relation +
    termination-certificate execution (Acc-based); each CFG demo supplies its concrete

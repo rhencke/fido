@@ -435,6 +435,12 @@ module Z =
     match compare x y with
     | Gt -> False
     | _ -> True
+
+  (** val to_N : z -> n **)
+
+  let to_N = function
+  | Zpos p -> Npos p
+  | _ -> N0
  end
 
 (** val is_idc : ascii -> bool **)
@@ -1259,31 +1265,26 @@ let print_string_lit s =
          O))))))))))))))))))))))))))))))))))),
       EmptyString))))
 
-(** val print_hex_body : z -> string **)
+(** val print_hex_body : n -> string **)
 
 let print_hex_body = function
-| Z0 ->
+| N0 ->
   String ((Ascii (False, False, False, False, True, True, False, False)),
     EmptyString)
-| Zpos p ->
-  render_digits hexdig
-    (pos_digits (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-      O)))))))))))))))) p)
-    EmptyString
-| Zneg p ->
+| Npos p ->
   render_digits hexdig
     (pos_digits (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
       O)))))))))))))))) p)
     EmptyString
 
-(** val print_hex : z -> string **)
+(** val print_hex : n -> string **)
 
-let print_hex z0 =
+let print_hex n0 =
   append (String ((Ascii (False, False, False, False, True, True, False,
     False)), (String ((Ascii (False, False, False, True, True, True, True,
-    False)), EmptyString)))) (print_hex_body z0)
+    False)), EmptyString)))) (print_hex_body n0)
 
-(** val print_float_hex : bool -> z -> z -> string **)
+(** val print_float_hex : bool -> n -> z -> string **)
 
 let print_float_hex sign mant exp =
   append
@@ -1633,4 +1634,4 @@ let rec gprint ctx = function
         (String ((Ascii (True, False, True, True, True, True, True, False)),
         EmptyString))))
 | EStr s -> print_string_lit s
-| EHex zc -> print_hex zc
+| EHex zc -> print_hex (Z.to_N zc)

@@ -733,16 +733,16 @@ Qed.
     LEAF lets the fixed-width arithmetic bridge build the WHOLE masked / sign-extended expression for the
     verified [gprint].  STILL on the trusted [fw_wrap]: the fixed-width CONVERSIONS [uint8(x)], shifts,
     div/mod, and standalone fw ops. *)
-Definition print_hex_body (z : Z) : string :=
-  match z with
-  | Z0 => "0"
-  | Zpos p => render_digits hexdig (pos_digits 16 p) ""
-  | Zneg p => render_digits hexdig (pos_digits 16 p) ""   (* magnitude; no live caller is negative *)
+Definition print_hex_body (n : N) : string :=
+  match n with
+  | N0 => "0"
+  | Npos p => render_digits hexdig (pos_digits 16 p) ""
   end.
-Definition print_hex (z : Z) : string := ("0x" ++ print_hex_body z)%string.
+Definition print_hex (n : N) : string := ("0x" ++ print_hex_body n)%string.
 
-(** ---- HEX FAITHFULNESS (round-trip) ---- [print_hex] round-trips for NON-NEGATIVE [z] — the domain of
-    both the live callers (mask / sign-bit / mantissa) and the [EHex]/[HexZ] node. *)
+(** ---- HEX FAITHFULNESS (round-trip) ---- [print_hex]'s DOMAIN is [N]: Go hex literals are
+    unsigned ([-0xff] is unary minus over [0xff]), so a negative input is UNREPRESENTABLE at the
+    type — the round-trip is unconditional over the whole domain. *)
 Fixpoint parseHex_pos (acc : Z) (s : string) : Z :=
   match s with EmptyString => acc | String c s' => parseHex_pos (acc * 16 + Z.of_nat (unhex c))%Z s' end.
 Definition parse_hex (s : string) : Z :=
@@ -766,11 +766,11 @@ Proof.
     rewrite Nat2Z.inj_succ, Z.pow_succ_r by lia. ring.
 Qed.
 
-(** UNCONDITIONAL for every non-negative [z]. *)
-Theorem print_parse_hex : forall z, (0 <= z)%Z -> parse_hex (print_hex z) = z.
+(** UNCONDITIONAL over the whole domain. *)
+Theorem print_parse_hex : forall n, parse_hex (print_hex n) = Z.of_N n.
 Proof.
-  intros z Hlo. unfold print_hex. rewrite parse_hex_0x.
-  destruct z as [| p | p]; [ reflexivity | | lia ].
+  intro n. unfold print_hex. rewrite parse_hex_0x.
+  destruct n as [| p]; [ reflexivity | ].
   cbn [print_hex_body].
   rewrite parseHex_pos_render by (apply pos_digits_bound; lia).
   rewrite pos_digits_val by lia. cbn [parseHex_pos]. lia.
@@ -779,7 +779,7 @@ Qed.
 (** ---- FLOAT-HEX LITERAL ---- the IEEE [spec_float] finite value ±m·2^e emits as Go's hex float
     [±0x<m>p<e>], assembling the verified mantissa/exponent printers ([print_hex] / [print_Z]).
     [sign] = sign, [mant] = mantissa (rendered hex), [exp] = exponent (signed decimal). *)
-Definition print_float_hex (sign : bool) (mant exp : Z) : string :=
+Definition print_float_hex (sign : bool) (mant : N) (exp : Z) : string :=
   ((if sign then "-" else "") ++ print_hex mant ++ "p" ++ print_Z exp)%string.
 
 
@@ -814,13 +814,12 @@ Proof.
   apply IH; [ assumption | cbn [no_p]; split; [ apply is_p_hexdig; assumption | exact Hacc ] ].
 Qed.
 
-Lemma no_p_print_hex : forall z, no_p (print_hex z).
+Lemma no_p_print_hex : forall n, no_p (print_hex n).
 Proof.
-  intro z. unfold print_hex. apply no_p_app.
+  intro n. unfold print_hex. apply no_p_app.
   - cbn [no_p]. repeat split; (reflexivity || exact I).
-  - destruct z as [| p | p]; cbn [print_hex_body];
+  - destruct n as [| p]; cbn [print_hex_body];
       [ cbn [no_p]; repeat split; (reflexivity || exact I)
-      | apply render_hex_no_p; [ apply pos_digits_bound; lia | exact I ]
       | apply render_hex_no_p; [ apply pos_digits_bound; lia | exact I ] ].
 Qed.
 
@@ -874,13 +873,12 @@ Lemma parse_float_hex_eq : forall s mpart epart, split_p s = (mpart, epart) ->
 Proof. intros s mpart epart H. unfold parse_float_hex. rewrite H. reflexivity. Qed.
 
 Local Opaque print_hex print_Z parse_hex parse_Z.
-(** UNCONDITIONAL but for the mantissa's non-negativity (hex is unsigned); [exp] is any [Z]. *)
+(** UNCONDITIONAL — the mantissa's domain [N] makes a negative literal unrepresentable. *)
 Theorem print_parse_float_hex : forall sign mant exp,
-  (0 <= mant)%Z ->
-  parse_float_hex (print_float_hex sign mant exp) = (sign, mant, exp).
+  parse_float_hex (print_float_hex sign mant exp) = (sign, Z.of_N mant, exp).
 Proof.
-  intros sign mant exp Hm.
-  assert (Hmrt : parse_hex (print_hex mant) = mant) by (apply print_parse_hex; lia).
+  intros sign mant exp.
+  assert (Hmrt : parse_hex (print_hex mant) = Z.of_N mant) by (apply print_parse_hex).
   assert (Hert : parse_Z (print_Z exp) = exp) by (apply print_parse_Z).
   unfold print_float_hex. destruct sign; cbv iota.
   - (* sign = true: prefix "-" *)
@@ -1292,7 +1290,7 @@ Fixpoint gprint (ctx : nat) (e : GExpr) {struct e} : string :=
   | EId i  => proj1_sig i
   | EInt z => print_Z z
   | EStr s => print_string_lit s   (* STRING literal: the verified escaping printer (its round-trip is [esc_string_roundtrip_opt]) *)
-  | EHex zc => print_hex (proj1_sig zc)   (* HEX literal: the verified [0x]-hex printer (round-trip [print_parse_hex], non-negative by [HexZ]) *)
+  | EHex zc => print_hex (Z.to_N (proj1_sig zc))   (* HEX literal: the verified [0x]-hex printer over its [N] domain ([HexZ]'s non-negativity makes [Z.to_N] lossless; round-trip [print_parse_hex]) *)
   | EUn o e =>
       (* [unop_text o] then the operand, wrapped iff [unop_paren o e]; a leaf operand prints BARE.
          See [unop_needs_paren]/[unop_paren]. *)
@@ -2161,23 +2159,22 @@ Qed.
 Lemma lex_gprint_hex : forall (zc : HexZ) rest fuel tr,
   clean_start rest = true ->
   lex_aux (S (String.length rest)) rest = Some tr ->
-  S (String.length (print_hex (proj1_sig zc)) + String.length rest) <= fuel ->
-  lex_aux fuel (print_hex (proj1_sig zc) ++ rest) = Some (THex zc :: tr).
+  S (String.length (print_hex (Z.to_N (proj1_sig zc))) + String.length rest) <= fuel ->
+  lex_aux fuel (print_hex (Z.to_N (proj1_sig zc)) ++ rest) = Some (THex zc :: tr).
 Proof.
   intros [z Hz] rest fuel tr Hclean Hrest Hfuel. cbn [proj1_sig] in *.
   assert (Hznn : (0 <= z)%Z) by (apply Z.leb_le; exact Hz).
-  pose (HD := print_hex_body z).
-  assert (EprintHD : print_hex z = ("0x" ++ HD)%string) by (unfold print_hex, HD; reflexivity).
+  pose (HD := print_hex_body (Z.to_N z)).
+  assert (EprintHD : print_hex (Z.to_N z) = ("0x" ++ HD)%string) by (unfold print_hex, HD; reflexivity).
   assert (HhexHD : all_hex HD = true)
-    by (unfold HD; destruct z as [| p | p]; cbn [print_hex_body];
-        [ reflexivity | apply all_hex_render; [ apply pos_digits_bound; lia | reflexivity ]
-        | apply all_hex_render; [ apply pos_digits_bound; lia | reflexivity ] ]).
+    by (unfold HD; destruct (Z.to_N z) as [| p]; cbn [print_hex_body];
+        [ reflexivity | apply all_hex_render; [ apply pos_digits_bound; lia | reflexivity ] ]).
   assert (HneHD : HD <> ""%string)
-    by (unfold HD; destruct z as [| p | p]; cbn [print_hex_body];
-        [ discriminate | apply render_digits_ne, pos_digits_nonnil
-        | apply render_digits_ne, pos_digits_nonnil ]).
-  assert (HparseHD : parseHex_pos 0 HD = z)
-    by (pose proof (print_parse_hex z Hznn) as Hpp; rewrite EprintHD, parse_hex_0x in Hpp; exact Hpp).
+    by (unfold HD; destruct (Z.to_N z) as [| p]; cbn [print_hex_body];
+        [ discriminate | apply render_digits_ne, pos_digits_nonnil ]).
+  assert (HparseHD : parseHex_pos 0 HD = z).
+  { pose proof (print_parse_hex (Z.to_N z)) as Hpp.
+    rewrite EprintHD, parse_hex_0x, Z2N.id in Hpp by exact Hznn. exact Hpp. }
   rewrite EprintHD in Hfuel |- *. clearbody HD. clear EprintHD.
   destruct HD as [ | hc hd' ]; [ exfalso; apply HneHD; reflexivity | ].
   destruct fuel as [ | f ]; [ cbn [String.length append] in Hfuel; lia | ].
@@ -2344,7 +2341,7 @@ Proof.
   - (* EInt z *) cbn [gprint]. apply unop_head_clean_print_Z.
   - (* EStr s *) cbn [gprint]. unfold print_string_lit. cbn [append]. apply unop_head_clean_cons; reflexivity.
   - (* EHex zc *) cbn [gprint].
-    match goal with |- context[print_hex (proj1_sig ?z)] => destruct (print_hex_head (proj1_sig z)) as [r Hr]; rewrite Hr end.
+    match goal with |- context[print_hex ?n] => destruct (print_hex_head n) as [r Hr]; rewrite Hr end.
     cbn [append]. apply is_dec_char_unop_clean. reflexivity.
 Qed.
 
@@ -5235,12 +5232,11 @@ Proof.
     [ assumption
     | cbn [no_nl]; split; [ apply is_nl_idc, is_hex_is_idc, is_hex_hexdig; assumption | exact Hacc ] ].
 Qed.
-Lemma no_nl_print_hex : forall z, no_nl (print_hex z).
+Lemma no_nl_print_hex : forall n, no_nl (print_hex n).
 Proof.
-  intro z. unfold print_hex. apply no_nl_app; [ no_nl_lit | ].
-  destruct z as [| p | p]; cbn [print_hex_body];
+  intro n. unfold print_hex. apply no_nl_app; [ no_nl_lit | ].
+  destruct n as [| p]; cbn [print_hex_body];
     [ no_nl_lit
-    | apply no_nl_render_hex; [ apply pos_digits_bound; lia | exact I ]
     | apply no_nl_render_hex; [ apply pos_digits_bound; lia | exact I ] ].
 Qed.
 Lemma no_nl_binop_text : forall o, no_nl (binop_text o).

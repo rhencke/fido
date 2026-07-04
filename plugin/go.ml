@@ -704,10 +704,14 @@ let coq_z_of_int64 v =            (* signed int64 value -> Coq Z (neg uses the m
   else Printer.Zneg (coq_pos_of_bits (Int64.neg v))
 let coq_z_of_uint64 v =           (* unsigned interpretation of the bit pattern -> Coq Z (always >= 0) *)
   if v = 0L then Printer.Z0 else Printer.Zpos (coq_pos_of_bits v)
+let coq_n_of_uint64 v =           (* unsigned interpretation -> Coq N (print_hex's domain) *)
+  if v = 0L then Printer.N0 else Printer.Npos (coq_pos_of_bits v)
 (* the VERIFIED decimal renderings (replacing Int64.to_string / Printf "%Lu") *)
 let print_i64_dec v = coq_string_to_ocaml (Printer.print_Z (coq_z_of_int64 v))
 let print_u64_dec v = coq_string_to_ocaml (Printer.print_Z (coq_z_of_uint64 v))
-let print_hex_int n = coq_string_to_ocaml (Printer.print_hex (coq_z_of_int64 (Int64.of_int n)))
+let print_hex_int n =             (* FAIL-CLOSED: print_hex's domain is N — a negative can never reach it *)
+  if n < 0 then unsupported "a negative hex-literal operand (Go hex literals are unsigned)"
+  else coq_string_to_ocaml (Printer.print_hex (coq_n_of_uint64 (Int64.of_int n)))
 let rec coq_goty_of_tag = function
   | MLcons (_, r, []) ->
       (match global_basename r with
@@ -3059,12 +3063,12 @@ let rec pp_expr state env = function
                        (sign + "0x"<mantissa> + "p" + <exponent>); pieces unchanged (print_hex / print_Z) *)
                     str (coq_string_to_ocaml
                       (Printer.print_float_hex (if sign then Printer.True else Printer.False)
-                         (coq_z_of_uint64 mv) (coq_z_of_int64 ev)))
+                         (coq_n_of_uint64 mv) (coq_z_of_int64 ev)))
                 | _ -> unsupported "a spec_float S754_finite literal with a non-constant sign/mantissa/exponent")
            | MLcons (_, r, [s]) when String.equal (global_basename r) "S754_zero" ->
                (match s with
                 | MLcons (_, rs, []) when is_bool_false rs ->
-                    str (coq_string_to_ocaml (Printer.print_float_hex Printer.False Printer.Z0 Printer.Z0))
+                    str (coq_string_to_ocaml (Printer.print_float_hex Printer.False Printer.N0 Printer.Z0))
                 | _ -> unsupported "a spec_float negative-zero literal (Go has no -0.0 constant; use math.Copysign at runtime)")
            | MLcons (_, r, _) when String.equal (global_basename r) "S754_infinity"
                                || String.equal (global_basename r) "S754_nan" ->
