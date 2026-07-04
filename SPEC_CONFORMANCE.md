@@ -38,48 +38,14 @@ code implements a rule, it cites the section in a comment.
 
 ---
 
-## Reconciliation (2026-06-19) — markers below that are now SUPERSEDED
+## Open-items index (details live in each section — this is only a pointer list)
 
-Several per-section ✗/⚠ markers predate later work and OVERSTATE the gaps (verified against
-the committed code).  The status now:
-
-- **`float32` — ✓ DONE & SOUND** (not "✗ no native Rocq f32").  Faithful binary32 via `SpecFloat`
-  (prec 24, emax 128): arithmetic, comparisons, and ALL conversions (`float32↔float64`,
-  `float32↔int64`, narrow↔`int64`) lower to native Go `float32`.  Supersedes the `float32 ✗`
-  notes in *Numeric types*, *Floating-point operators*, *Conversions*.
-  **Soundness fix:** `GoFloat32` was a *transparent alias* `:= float`,
-  so a non-binary32-representable literal could be injected raw (`16777217%float : GoFloat32`) and
-  widened with no rounding — making Rocq disagree with Go (`f64_of_f32 16777217 = 16777217` vs
-  Go's `float32(16777217) = 16777216`) and licensing UNSOUND proofs.  Now `GoFloat32` is an
-  ABSTRACT record carrying an unforgeable provenance proof (`exists a, carrier = f32_round a`);
-  the only way in is a rounding smart constructor (`f32_of_f64`/`f32_lit`/arith), so widening is
-  sound by construction and the raw injection no longer typechecks.  Zero new axioms (provenance
-  proofs are `eq_refl`; `Print Assumptions` = Rocq float/int primitives only).  Machine-checked
-  regression `f32_widen_sound`: `widen64 (f32_lit 16777217) = 16777216`, matching Go.  Extraction
-  unchanged (erases to native `float32`; golden-stable).
-- **Conversions — ✓ float included.**  `float64↔int64`, `float64↔uint64` (round-to-odd),
-  `float32↔float64`, the full width-typed integer matrix (narrow↔`int64`↔`uint64`) all lower
-  to native casts.  Supersedes "✗ float" + the "lowering deferred (proof-only)" notes.
-- **Interface types — ✓ single-method + nullary DONE** via the `gr_self`/`sg_self` second
-  field (a 2-field record = Go's (vtable, value) pair).  Supersedes "✗ 1-method interface".
-- **Constant expressions — ✓ INTEGER + FLOAT done.**  Integer (signed + unsigned): the plugin's
-  `z_eval`/`zu_eval` fold `Z.add/sub/mul/opp/shiftl/land/lor/lxor` with overflow = fail-loud.
-  Float (2026-06-20): `FConst` is the exact rational `num/den`, `fc_add/sub/mul/div` are exact
-  (cross-multiply), and `f64_of_fconst`/`f32_of_fconst` round ONCE to binary64/binary32 via `SFdiv`
-  of the exact-integer spec_floats — correctly-rounded for ALL num/den (no `2^53` restriction; the
-  earlier `f64_of_i64`-based form double-rounded for large endpoints).
-- **Generics — ✓ `comparable` constraint** added (witness-erasure → `[K comparable]`, `==`).
-
-Genuinely still open (per honest survey): FMA fusion
-(bounded deviation); array-TYPED positions (DONE for any fixed size — a `GoArr<N>` type renders as Go `[N]T` in a
-function param / typed var / field; the plugin parses `N` from the type NAME generically, so a new
-size needs only a Coq `GoArr<N>` type + `arr<N>_lit` constructor, no plugin edit; `GoArr3`→`[3]T`,
-`GoArr2`→`[2]T` exercised, `arrN_demo`.  Constructor takes exactly `N` elements ⇒ length-correct by
-construction.  Open only: a SINGLE generic `[N]T` abstract over `N` — Go itself forbids that, so
-n/a); struct tags / embedding non-struct types; the
-`interface` keyword surface (we emit dict-structs — a deviation, not a gap); native `switch`
-emission (cosmetic); and the concurrency GUARANTEE over real programs (research, largely proven —
-`denote_sim_*` simulation lemmas connect the calculus to real IO reductions).
+Genuinely open: FMA fusion (bounded deviation — Floating-point operators); a position
+polymorphic over a SYMBOLIC array size (Array types); struct tags / embedding bare
+primitives (Struct types); the `interface` keyword surface (we emit dict-structs — a
+deviation, not a gap; Interface types); the concurrency guarantee's remaining gaps
+(Go memory model "Still open").  **Generics:** type-parameter functions with the
+`comparable` constraint are ✓ (witness erasure → `[K comparable]`, native `==`).
 
 ---
 
@@ -94,140 +60,75 @@ modeled here — see **Constants** below.
 
 ## Constants
 
-### [Constants](https://go.dev/ref/spec#Constants) / [Constant expressions](https://go.dev/ref/spec#Constant_expressions) — ✓ representability + arbitrary-precision INTEGER; ⚠ float
-Spec: "Numeric constants represent **exact values of arbitrary precision and do
-not overflow**."  A constant acquires a type only at use, where "**it is an error
-if the constant value cannot be represented as a value of the respective type**"
-(a compile-time representability check); constant overflow is a *compile error*
-(NOT a runtime wrap), and constant float arithmetic rounds once at the typed
-boundary (`const 0.1+0.2` = `0.3`).
-Ours: **REPRESENTABILITY now airtight for the fixed-width types** — `u8_lit`/
-`i8_lit`/`u16_lit`/`i16_lit` DEMAND a proof the constant fits the type's range
-(`u8_lit : forall x, (x <? 256) = true -> GoU8`), discharged by `eq_refl` for an
-in-range literal.  So an out-of-range constant is **unrepresentable** — a compile
-error, exactly Go's "constant overflows uint8", NOT a silent wrap — build-checked
-by `u8_const_oob`/`i8_const_oob`/`u16_const_oob`/`i16_const_oob` (`Fail` tests).
-The Go output is unchanged (the proof erases; in-range mask is a no-op).  ✓
-**RAW CONSTRUCTOR SEALED — GoU8 done, others tracked.**
-THE FORGE HOLE this seals: the wrapper constructor `MkU8` was public and unconstrained, so
-`MkU8 300` forged an impossible uint8 (the type erased to int64, the constructor to
-identity → printed `300`).  Same class as the float32 injection hole.  Fix: `GoU8`
-now carries an **SProp range invariant** — `MkU8 { u8raw ; u8ok : Squash (u8raw <? 256
-= true) }` — so `MkU8 300 _` is UNCONSTRUCTABLE (the proof `300 < 256` is false;
-`u8_forged` is a `Fail` test).  Every op routes through `u8wrap` (mask + the proof
-from one lemma `land255_lt256`).  SProp gives definitional proof irrelevance (no
-axiom — `Print Assumptions` = Rocq primitives only), so two `GoU8` with equal
-carriers are defeq; value witnesses use `reflexivity` (the VM doesn't decide SProp
-irrelevance, the kernel does).  Extraction unchanged (the SProp field erases; Go is
-byte-identical, golden-stable).  **`GoU16` + `GoU32` sealed the same way (2026-06-20)** — SProp `Squash (uNraw <? 2^N = true)`,
-`uNwrap` + a `land`-bound lemma, `uN_forged` `Fail` test.  The unsigned-mask trio (U8/U16/U32) is
-done.  **`GoI8` sealed (2026-06-20) with a PROVENANCE invariant** — the sign-extend bound is
-two-sided and fiddly to prove, so (as for GoFloat32) `GoI8` carries `Squash (exists a, i8raw =
-i8_norm a)` ("the carrier is a normalized 8-bit signed value").  `i8wrap x := MkI8 (i8_norm x)
-(squash (ex_intro _ x eq_refl))` — the proof is `eq_refl`, NO bound lemma; `MkI8 200 _` is
-unconstructable (200 ∉ image of `i8_norm`; `i8_forged` `Fail` test).  **`GoI16` sealed the same way
-(2026-06-20)** — `Squash (exists a, i16raw = i16_norm a)`, `i16wrap`, `i16_forged` `Fail` test.
-**`GoI32` sealed the same way (2026-06-20)** — `Squash (exists a, i32raw = i32_norm a)`, `i32wrap`,
-`i32_forged` `Fail` test; `i32wrap` reaches the real extracted rune/UTF-8 codec, so it also erases at
-the call site (→ its argument, like the bare `MkI32`).  **`GoU64` sealed (2026-06-20)** — Z-carried, so a RANGE invariant `Squash (in_u64 u64raw = true)`
-(`in_u64 z = 0 ≤ z < 2^64`); `u64wrap z := MkU64 (z mod 2^64) (squash (in_u64_wrapU64 z))` with one
-lemma via `Z.mod_pos_bound`; `u64_forged` `Fail` test.  **`GoI64` sealed (2026-06-20)** — Z-carried signed, range invariant `Squash (in_i64 i64raw = true)`
-(`in_i64 z = -2^63 ≤ z < 2^63`); `i64wrap z := MkI64 (wrap64 z) (squash (in_i64_wrap64 z))` with one
-two-sided bound lemma via `Z.mod_pos_bound`; `i64_forged` `Fail` test.  **ALL 8 WRAPPERS SEALED** —
-the public-raw-constructor forging hole (e.g. `MkU8 300`, `MkI64 (2^63)`) is fully CLOSED.  Three
-invariant shapes across the family: range-bound (`uN` masks), provenance "in the image of norm"
-(`iN` sign-extend), and Z-range (`u64`/`i64`).  Axiom-free (SProp proof irrelevance — `Print
-Assumptions` = Rocq primitives), extraction byte-identical (the SProp fields + `*wrap` constructors
-erase; golden-stable), value witnesses use `reflexivity` (the VM can't decide SProp irrelevance).
-**Arbitrary-precision INTEGER constants — DONE (A5).**  `i64c`/`u64c` model an
-untyped int constant as `Z`: a closed `Z` constant expression is `vm_compute`-
-evaluated at ELABORATION (real bignums, exact, no width — an INTERMEDIATE may
-exceed the target, e.g. `1<<70`), then converted via `i64_lit`/`u64_lit` demanding
-`in_i64`/`in_u64`.  An out-of-range constant FAILS to elaborate — exactly "constant
-overflows", NOT a wrap.  ✓ witnesses `const_intermediate_exceeds` (`(1<<70)>>8 =
-2^62`), `const_exact_arith`, `const_u64_upper` (`2^63` fits uint64 not int64),
-`const_oob_i64`/`const_oob_u64` (`Fail`); the `Z` precision lives in `vm_compute`,
-no plugin change.  *Remaining:* the fixed-width narrow `_lit` take an `int` (not
-`Z`) argument, so a narrow constant's arbitrary-precision arithmetic still routes
-through the bounded carrier (low priority); and **float constants** need exact
-rationals (`Q`) rounding once at the typed boundary (Phase D).  ⚠ float tracked.
-
-## Types
+### [Constants](https://go.dev/ref/spec#Constants) / [Constant expressions](https://go.dev/ref/spec#Constant_expressions) — ✓ representability + arbitrary-precision INTEGER + exact-rational FLOAT (`FConst`); ⚠ the GATE's float subset is dyadic
+Spec: numeric constants are exact, arbitrary precision, never overflow; a constant
+acquires a type at use where non-representability is a COMPILE error; constant float
+arithmetic rounds once at the typed boundary.
+Ours:
+- **Representability airtight for the fixed widths:** `u8_lit`…`i16_lit` DEMAND a proof
+  the constant fits (discharged `eq_refl` in range), so an out-of-range constant is
+  UNREPRESENTABLE — exactly "constant overflows uint8", never a silent wrap
+  (`u8_const_oob`…`i16_const_oob` `Fail` tests). The proof erases; Go unchanged.
+- **ALL 8 WRAPPERS SEALED against constructor forging** (`MkU8 300`, `MkI64 (2^63)` are
+  UNCONSTRUCTABLE): each wrapper carries an SProp invariant — range-bound for the
+  unsigned masks (`Squash (uNraw <? 2^N)`), provenance "in the image of norm" for the
+  signed sign-extends, Z-range (`in_i64`/`in_u64`) for the 64-bit pair — with every op
+  routed through its `*wrap` normalizer and a `*_forged` `Fail` test per type. SProp
+  gives definitional proof irrelevance (no axiom); the fields erase, extraction
+  byte-identical; value witnesses use `reflexivity` (the kernel decides SProp
+  irrelevance, not the VM).
+- **Arbitrary-precision INTEGER constants ✓:** `i64c`/`u64c` `vm_compute`-evaluate a
+  closed `Z` constant expression at ELABORATION (an intermediate like `1<<70` may
+  exceed the target), then convert demanding `in_i64`/`in_u64` — out-of-range FAILS to
+  elaborate. Witnesses `const_intermediate_exceeds`/`const_exact_arith`/
+  `const_u64_upper` + `const_oob_*` `Fail`s; no plugin change.
+- **Float constants — TWO scoped paths, do not conflate:** the LIVE constant path is
+  `FConst` — an exact rational `num/den` with EXACT `fc_add`/`fc_sub`/`fc_mul` and
+  `f64_of_fconst`/`f32_of_fconst` rounding exactly ONCE via `SFdiv` on exact-integer
+  spec_floats (correctly rounded for ALL num/den; ±Inf/NaN unconstructable — the
+  denominator is a `positive`), plugin-folded to a Go constant division that re-folds to
+  the same value.  SEPARATELY, the GoTypes/GoSafe checker subset is DYADIC
+  exact-or-reject (`m·2^e`; a rounding case like `float64(1)/float64(3)` is valid Go
+  that the GATE rejects — quarantined incompleteness, never a wrong value).
+- *Remaining:* the narrow `_lit`s take an `int` argument (narrow constant arithmetic
+  routes through the bounded carrier; low priority).
 
 ### [Boolean types](https://go.dev/ref/spec#Boolean_types) — ✓
 Spec: `bool`; comparable; values `true`/`false`.  Ours: Coq `bool` → Go `bool`.
 (Comparison: see Comparison operators.)  ✓
 
-### [Numeric types](https://go.dev/ref/spec#Numeric_types) — ✓ ranges/two's-complement/**distinctness**; ⚠ `int` width
-Spec: `uint8…uint64`, `int8…int64` with exact ranges; "**the value of an n-bit
-integer is n bits wide and represented using two's complement arithmetic**";
-`byte`=`uint8`, `rune`=`int32`; `int`/`uint` are 32-or-64-bit.  And: "**all
-numeric types are defined types and thus distinct… Explicit conversions are
-required when different numeric types are mixed**."
-Ours: `uint8`/`int8`/`uint16`/`int16`/`uint32`/`int32` are each their OWN Rocq type
-(a record over the `int` carrier, wrapper erased in extraction) — fully modeled
-(mask + two's-complement sign-extend) across add/sub, comparison, bitwise, shift,
-div/mod, conversions.  Two's-complement: ✓ (`i8_add_wraps`, `i16_add_wraps`,
-`spec_i32_add_wrap`).  **DISTINCTNESS airtight, BY CONSTRUCTION**: Rocq rejects
-mixing types, build-checked by `u8_no_implicit`…`u32_no_implicit` and the
-cross-width `u8_u16_no_mix` — exactly the spec's "no implicit conversion; the only
-implicit path is an untyped constant" (`u8_lit : int -> GoU8`).  ✓  Distinctness now extends
-to the RUNTIME type identity (break #7): every tag lowers to a DISTINCT Go type — `int` vs
-`int64` included (slice 7c made `int`→Go `int`, `int64`→Go `int64`; before, both were `int64`,
-a hidden distinctness violation) — machine-checked by `int_vs_int64_distinct` and the general
-`tag_runtime_agrees` (`tag_eq ta tb = None → go_runtime_name ta ≠ go_runtime_name tb`, the
-injectivity LOCK).  ✓  *Remaining:*
-**`int64` (full width) ✓ — `GoI64`**, a distinct record carried by `Z` (not the
-63-bit `int`), faithful across the WHOLE int64 range and wrapping at the true 2⁶³:
-`spec_i64_add_wrap` (2⁶³−1+1→−2⁶³), `spec_i64_sub_wrap`, `spec_i64_mul_wrap`,
-`spec_i64_beyond62` (an exact sum the old ±2⁶² model could not represent), and the
-no-overflow-exact theorem `i64_add_no_overflow_exact` — all **axiom-free** (Z
-inductives + `lia`).  Full op set: `add`/`sub`/`mul`, `eqb`/`ltb`/`leb`, `div`/`mod`
-(truncate toward zero via `Z.quot`/`Z.rem` — NOT Coq's floor; `spec_i64_div_trunc`
-`-7/2=-3`, MININT/−1 wraps), bitwise `and`/`or`/`xor`/`andnot`/`not`, shifts
-`shl`/`shr` (`<<` wraps, `>>` arithmetic; `spec_i64_shr_arith` `-8>>1=-4`); div and
-shift are evidence-carrying (`i64_div_zero`/`i64_shl_neg` Fail).  The wrapper erases
-to a Go `int64` (wraps natively at 2⁶⁴, no mask).  ⚠ ONE bounded caveat: a CONSTANT `MAX+1` in extracted Go is an untyped-
-constant expression, so Go's COMPILE-TIME overflow check fires (a compile error)
-instead of the runtime wrap `i64_add` models — that is the untyped-constant gap
-(Constants section / Tier 2 #6), not an int64 defect; the wrap is faithful for
-runtime operands and is witness-proven.  **`GoI64`/`GoU64` are the CANONICAL int64/
-uint64 (A4, 2026-06-17):** `Notation int64 := GoI64` / `uint64 := GoU64`; range-checked
-`Number Notation` so `42%i64`/`42%u64` are literals whose representability is checked AT
-PARSE (out-of-range → parse error = Go's untyped-constant overflow; `i64_lit_oob`/
-`u64_lit_oob` Fail); scoped arithmetic `(a+b)%i64`; `comparable_TI64`/`comparable_TU64`
-make them map-key types; end-to-end `i64_pipeline_demo`/`u64_pipeline_demo` flow int64
-and a `≥2^63` uint64 through a typed channel AND map (golden-locked).  The concurrency.v
-bridge value carrier was migrated to `GoI64` (axiom-free preserved).  The primitive
-**✓ Platform `int` (`GoInt`) — DEVIATION CLOSED:** Go's platform `int` is now a DISTINCT
-`Z`-carried record (the exact `GoI64` shape, rendered Go `int`, the carrier for loop counters / slice indices /
-`len`/`cap` / small-value demos), FAITHFUL across the whole int64 range `[−2⁶³, 2⁶³)` and wrapping at the true
-`2⁶³` — **no longer the bounded 63-bit `Sint63` carrier** (faithful only in `[−2⁶², 2⁶²)`, the old Tier-2 #4 /
-deviation now closed).  Arithmetic is `int_add`/`int_sub`/`int_mul` (wrap-`2⁶³`), `int_div`/`int_mod` (truncating
-`Z.quot`/`Z.rem`, evidence-gated nonzero divisor); the `MININT/−1` overflow corner now wraps the TRUE int64
-`−9223372036854775808` to itself (faithful — was the `Sint63` `−2⁶²`).  Literals are the proof-carrying
-`int_lit z (pf : in_i64 z)`, NoInline'd and plugin-folded — a BARE decimal in expression/index position
-(`xs[5]`, `a + 5`), `int(N)` when a Go type must be pinned; out-of-range constants are unrepresentable.
-The ONLY residual platform assumption is the 64-bit *width* choice (Go's `int` is 32-or-64 by spec; we model
-64), NOT a carrier deviation.  **Golden BYTE-IDENTICAL** (the emitted Go is unchanged — `func Add(n int, m int) int`,
-`xs[5]`, `i := int(0)`).
-**✓ Platform `uint` (`GoUint`) — DEVIATION CLOSED:** the companion platform-UINT is likewise a
-DISTINCT `Z`-carried record (the `GoU64` shape, rendered Go `uint`), FAITHFUL across `[0, 2⁶⁴)`, literals the
-proof-carrying `uint_lit z (pf : in_u64 z)` folded to `uint(<decimal>)`.
-⚠ **UNIFORMITY RESIDUAL (not a deviation — faithful, follow-up):** the sub-64 narrows (`GoU8`…`GoI32`) and the
-heap-slice (`SliceH`) INDEX args still ride the int63 carrier; both are FAITHFUL there (sub-63 values / indices
-never reach `2⁶²`), so this is a carrier-uniformity tail of the user's "all ints → Z", not a correctness gap.
-The internal heap LOCATION handles stay `int` (they are not Go `int` *values*), so `PrimInt63` remains in the
-trust base regardless — this fix is platform-int correctness + value-int uniformity, not `PrimInt63` removal.
-**`u32_mul`/`i32_mul` ✓** (mask-after-multiply: the product may exceed the 63-bit
-carrier but the masked LOW 32 bits are exact since 2³²∣2⁶³ —
-`spec_u32_mul_wrap`/`spec_i32_mul_wrap`); **`uint64` (full width) ✓ — `GoU64`** (same Z
-template, unsigned mod-2⁶⁴ wrap; `spec_u64_add_wrap`/`sub_wrap`/`not`/`shr`/`beyond63`,
-axiom-free; emits Go `uint64`, unsigned literals via `%Lu`, sign-aware even for erased
-literals); `float32` **✗** (no native Rocq
-f32).  Note: distinctness makes explicit
-CONVERSIONS (below) load-bearing — without them you can't use a `uint8` where an
-`int` is wanted (which is correct: it fails loud, not silently).
+### [Numeric types](https://go.dev/ref/spec#Numeric_types) — ✓ ranges/two's-complement/distinctness; ⚠ `int` width
+Spec: exact ranges for `uint8…uint64`/`int8…int64`; n-bit two's complement;
+`byte`=`uint8`, `rune`=`int32`; `int`/`uint` are 32-or-64-bit; all numeric types are
+DISTINCT (explicit conversions required).
+Ours:
+- Sub-64 widths (`uint8…int32`) are each their OWN Rocq record (wrapper erased),
+  modeled mask + two's-complement sign-extend across add/sub, comparison, bitwise,
+  shift, div/mod, conversions (`i8_add_wraps`, `spec_i32_add_wrap`,
+  `spec_u32_mul_wrap` — the masked low 32 bits of a 63-bit product are exact since
+  2³²∣2⁶³).
+- **DISTINCTNESS by construction**: Rocq rejects mixing (build-checked
+  `u8_no_implicit`…`u8_u16_no_mix`); the only implicit path is an untyped constant.
+  Runtime type identity: every tag lowers to a DISTINCT Go type, `int` vs `int64`
+  included — `int_vs_int64_distinct` + the injectivity lock `tag_runtime_agrees`.
+- **`int64`/`uint64` full width ✓ — `GoI64`/`GoU64`**, `Z`-carried, faithful across the
+  whole range, wrapping at the true 2⁶³/2⁶⁴: wrap witnesses
+  (`spec_i64_add_wrap`/`sub`/`mul`/`beyond62`, `spec_u64_*`), truncating div/mod
+  (`Z.quot`/`Z.rem`; MININT/−1 wraps), bitwise, `<<` wraps / `>>` arithmetic
+  (`spec_i64_shr_arith`); div and shift are evidence-carrying
+  (`i64_div_zero`/`i64_shl_neg` Fail). Range-checked `%i64`/`%u64` literal notations
+  (out-of-range = parse error = Go's untyped-constant overflow); map-key comparability;
+  end-to-end chan+map pipeline demos golden-locked. ⚠ ONE bounded caveat: a CONSTANT
+  `MAX+1` in emitted Go trips Go's compile-time untyped-constant check instead of the
+  modeled runtime wrap (the Constants-section gap, not an int64 defect).
+- **Platform `int`/`uint` (`GoInt`/`GoUint`) — deviation CLOSED:** distinct `Z`-carried
+  records rendered Go `int`/`uint`, faithful across `[−2⁶³,2⁶³)` / `[0,2⁶⁴)` with
+  proof-carrying literals (`int_lit`/`uint_lit`); the `MININT/−1` corner wraps the true
+  int64 value. The ONLY residual platform assumption is the 64-bit WIDTH choice (spec
+  allows 32-or-64), not a carrier deviation. Golden byte-identical.
+- ⚠ UNIFORMITY RESIDUAL (faithful, follow-up): sub-64 narrows and `SliceH` INDEX args
+  still ride the int63 carrier — faithful there (sub-63 values / indices never reach
+  2⁶²); internal heap LOCATION handles are not Go `int` values.
 
 ### [String types](https://go.dev/ref/spec#String_types) — ✓ byte sequence + rune view + `range s`
 Spec: "A string value is a (possibly empty) sequence of **bytes**… The number of
@@ -303,115 +204,58 @@ constructor's fixed arity guaranteeing length-correctness.  **⚠ still:** a pos
 SYMBOLIC `N` — the size-erased `GoArray` stays LOCAL-only, and the type-level-`N` route (a phantom chain
 the plugin decodes for arbitrary `N`) is deferred.
 
-### [Struct types](https://go.dev/ref/spec#Struct_types) — ✓ value-struct (named fields) + EMBEDDING (struct-in-struct, interface-in-struct, POINTER-to-struct — field/method promotion); ⚠ tags (no-op without reflection); ✗ embedding bare primitives
-Spec: a `struct` is a sequence of named fields with types; **value** semantics
-(assign/pass copies every field).  A Rocq `Record` is exactly this — a single-
-constructor inductive with projections, value/copy semantics — so it maps directly:
-the type → `type T struct { … }`, the constructor → a KEYED struct literal `T{Field: v, …}`
-(field-order-independent and self-documenting — Go style's preference; the field names come
-from the record's projections, recursively, so nested/heterogeneous/pointer/interface-dict
-literals are all keyed, e.g. `Wrap{W_inner: Inner{Iv: 5, …}, Wz: 9}`, `Pair{P_n: 10, P_b: true}`),
-each projection → field access `x.Field`.  Field types are
-printed by the general `pp_type`, so they are not hardcoded — `point_demo`'s `int`
-fields lower to `int64`, `labeled_demo` mixes a `bool` and an `int` field
-(`Flag bool` / `Qty int64`).  The projection *definitions* are suppressed (field
-access replaces them).  Struct INVARIANTS are provable in Rocq directly:
-`point_proj_px` machine-checks `px (MkPoint a b) = a`.  Witnesses: `point_demo`
-(`Point{3,4}` → `3 / 4 / 7`), `labeled_demo` (`Labeled{true,5}` → `true / 5`).
-**Embedding DONE (2026-06-19):** `type Dog struct { Animal; Breed string }` — a record field
-whose exported name equals its record type's name is emitted as an ANONYMOUS embedded field, so
-the Go struct genuinely embeds and Go promotes the embedded method set; access is through the
-embedded field, emitted in the PROMOTED SHORTHAND `species (animal d)` → `d.Species` and promoted
-method `speak (animal d)` → `d.Speak()` (a `peel_embedded` peephole, which compiles only because Go
-promotes through the embedded field — genuinely exercising promotion; safe since Coq projection names
-are unique, so no shadowing).  The embedded type needs ≥2 fields (1-field records unbox).  `embed_demo`
-→ `canine / canine / 5` (the `5` = the embedded-selector regression fixture `embed_arith`: `legs (animal d) + k`
-emits the peeled `d.Legs + k`, pinned exactly by the Makefile selector-bridge gate).  An INTERFACE (its
-method-dictionary) embeds the SAME way — the dict IS a struct:
-`type LoggedGreeter struct { Greeter; Lg_calls int64 }` promotes the embedded interface's method
-(emitted `lg.Greet(5)`, NOT `lg.Greeter.Greet(…)`) alongside the struct's own field, a common Go
-wrap-an-interface pattern (`embed_iface_in_struct_demo` → `105 / 7`; `promoted_greet` reflexivity).
-**POINTER embedding DONE (2026-06-22):** Go's `type Node struct { *Cell; tag int64 }` — a [GSPtr T]
-field whose exported name is the BASE record's name is emitted as an ANONYMOUS `*T` field, so Go promotes
-the embedded `*T`'s method set THROUGH the pointer.  The embed detection matches `GSPtr <record>` (base
-name) at BOTH sites (field emission + `embedded_proj` registration); promoted access reuses the existing
-`peel_embedded` peephole — `cell_incx (cell nd)` → `nd.Cell_incx()` (the pointer-receiver method promoted,
-NOT `nd.Cell.Cell_incx()`).  Emitted `type Node struct { *Cell; Ntag int64 }`, `nd := Node{Cell: p, Ntag:
-99}`, `nd.Cell_incx()` then `(nd.Cell).Cx` → `11 99` (`node_embed_demo`, golden-locked).  ✗ not yet:
-embedding a bare PRIMITIVE (no methods to promote — niche), and struct tags.  Methods declared on the
-struct → next section.
-**RECURSIVE / self-referential struct DONE (2026-06-22):** Go's `type ListNode struct { Val int64; Next
-*ListNode }` — a struct that points to ITSELF.  Modelled `Inductive ListNode := MkListNode { ln_val :
-GoI64 ; ln_next : Ptr ListNode }` (`Inductive`, not the recursion-forbidding `Record` keyword; recursion
-through the TAG-FREE phantom `Ptr` ⇒ `ListNode` occurs vacuously-positively, so Rocq accepts it and
-`GoTypeTag ListNode` stays universe-consistent — same reason `GoChan` is tag-free).  The recursive TYPE
-gets a FINITE nullary nominal tag `TListNode : GoTypeTag ListNode` (it doesn't structurally contain
-itself — a base case like `TBool`; the `Next` field's tag is the finite `TPtr TListNode`), which
-round-trips through `tag_eq` (`tlistnode_tag_refl`/`tlistnode_selfptr_refl`, both `reflexivity`).  So a
-`*ListNode` cell lives in the typed heap: `linked_list_demo` heap-allocates 3 nodes (`ptr_new TListNode`),
-pointer-chains them, and TRAVERSES head→tail (`ptr_get`/`ln_next`) → `1 2 3`.  Emits `type ListNode struct
-{ Ln_val int64; Ln_next *ListNode }`, golden-locked, axiom-free (assumptions = `int : Set`).  ⚠ each named
-recursive type needs its own nullary tag ctor in builtins.v (Rocq inductives are closed); auto-tagging
-user-defined recursive structs needs a named-type registry (deferred).
+### [Struct types](https://go.dev/ref/spec#Struct_types) — ✓ value-struct + EMBEDDING (struct/interface/pointer — field/method promotion); ⚠ tags; ✗ embedding bare primitives
+Spec: a struct is a sequence of named fields; VALUE semantics (assign/pass copies).
+- A Rocq `Record` maps directly: type → `type T struct{…}`, constructor → a KEYED
+  literal `T{Field: v, …}` (field names from the projections, recursively), projection →
+  `x.Field` (projection definitions suppressed). Field types via the general `pp_type`.
+  Invariants provable in Rocq (`point_proj_px`). Witnesses `point_demo`, `labeled_demo`.
+- **Embedding ✓:** a field whose exported name equals its record type's name is emitted
+  ANONYMOUS, so Go genuinely promotes the embedded method set; access emits the PROMOTED
+  shorthand via the `peel_embedded` peephole (compiles only because Go promotes —
+  genuinely exercised; Coq projection names are unique, so no shadowing). The embedded
+  type needs ≥2 fields (1-field records unbox). `embed_demo` (incl. the `embed_arith`
+  selector-bridge regression fixture, pinned by the Makefile gate). An INTERFACE
+  (its dictionary struct) embeds the same way (`embed_iface_in_struct_demo`,
+  `promoted_greet`).
+- **POINTER embedding ✓:** a `GSPtr T` field named after the BASE record → anonymous
+  `*T` field; promotion THROUGH the pointer (`node_embed_demo` — `nd.Cell_incx()`, not
+  `nd.Cell.Cell_incx()`).
+- **RECURSIVE structs ✓:** `Inductive ListNode := … ln_next : Ptr ListNode` (recursion
+  through the tag-free phantom `Ptr` is vacuously positive); a FINITE nullary nominal
+  tag (`TListNode`) round-trips `tag_eq`; `linked_list_demo` heap-allocates and
+  traverses → `1 2 3`, golden-locked. ⚠ each named recursive type needs its own tag
+  ctor in builtins.v (auto-tagging needs a named-type registry — deferred).
+- ✗ not yet: embedding a bare PRIMITIVE (no methods to promote — niche); struct tags
+  (no-op without reflection).
 
 ### [Method declarations](https://go.dev/ref/spec#Method_declarations) — ✓ value + pointer receiver, method values; method expressions CONCRETE receivers only
-Spec: a method binds a function to a receiver of a defined (here, struct) type:
-`func (r T) M(params) results { … }`; the call is `recv.M(args)`.  A Rocq top-level
-function is lowered as a value-receiver method iff it is METHOD-ELIGIBLE (`method_eligible`,
-ONE authority for declaration + call sites): FIRST visible parameter a record (struct) type,
-the receiver's type args distinct type VARIABLES, every remaining signature type variable
-receiver-carried (Go methods add no type params of their own), and no comparable witness;
-an ineligible record-first function stays a plain (possibly generic) function (witness:
-`box_second` → `func Box_second[T1, T2 any](…)`, golden).  Faithful: a value
-receiver gets a COPY (Go's value-receiver semantics), and structs are value types
-here, so `recv.M(a)` denotes exactly `M(recv, a)`; the receiver keeps the same
-de Bruijn binding (only the printed signature pulls it out front).  Projections and
-inlined refs are excluded from method detection.  Pure and IO-returning methods both
-work.  Method behaviour is provable in Rocq (`shifted_px`: `px (shifted p d) =
-add (px p) d`).  Witnesses: `method_demo` (`func (p Point) Sum_coords() int64` /
-`Shifted(dx int64) Point`, calls `p.Sum_coords()` / `p.Shifted(10)` → `7/13/14/27`),
-`io_method_demo` (`func (p Point) Describe()` → `8/9`).  **POINTER receivers DONE** (on the
-struct-pointer substrate): an eligible first param of type `GSPtr R` (a `*R`) → `func (r *T) M()` that
-MUTATES the receiver, observed by the caller (`cell_incx` → `func (p *Cell) Cell_incx()`;
-`cell3_inc_z` on a 3-field `*Cell3`; `pair_bump` on a HETEROGENEOUS `*Pair{ N int64; B bool }`).
-**Method VALUES** (`p.M` as a closure → `method_value_demo` passes `p.Shifted` to a HOF) and
-**method EXPRESSIONS** (`T.M` unbound → `method_expr_demo` passes `Point.Sum_coords`) work for
-CONCRETE receivers only — a GENERIC-receiver method used bare is REJECTED at extraction (Go's
-`T.M` needs a concrete instantiation the erased type does not carry; `neg_method_expr_generic`)
-— INCLUDING the **pointer-receiver method expression `(*T).M`** (`ptr_method_expr_demo`
-passes `(*Cell).Cell_incx` — a `func(*Cell)` — to a HOF; the receiver type is recorded
-parenthesized, and a func returning `IO unit` now renders VOID so it type-checks against the
-method's void signature).  **DEFINED TYPES over a primitive with methods DONE (2026-06-19):**
-`type MyT <prim>` — a distinct named type with the primitive's representation, carrying methods.
-Modeled as a 2-field record whose 2nd field is a `GoTypeTag` PHANTOM, which is KEPT by extraction
-so Coq does NOT unbox the single value field — that is what keeps the type a distinct method-
-receiver (the recurring single-field-unboxing wall, beaten again because a defined type needs no
-`Comparable`).  The plugin emits `type MyI64 int64` (NOT a struct; the phantom field is never
-rendered), the ctor as the cast `MyI64(v)`, the value projection as `int64(x)`, and methods on it
-are detected as usual: `func (m MyI64) Myi64_double() MyI64 { return Mk_myi64(int64(m) + int64(m)) }`,
-`deftype_demo` → `42`, golden-locked, axiom-free.  The underlying is GENERIC (computed via `pp_type`
-of the value field), so a defined type over a **string** works identically — `type Greeting string`,
-ctor `Greeting(s)`, projection `string(x)`, method `func (g Greeting) Greeting_with(who string)
-string { return string(g) + who }` (`deftype_str_demo` → `Hi, fido`).  And a defined type **satisfies
-an INTERFACE**: `type Celsius int64` with method `Reading` is wired into a `Measurable` dictionary
-(`func (c Celsius) Celsius_measurable() Measurable { return Measurable{Measure: func() int64 { return
-c.Reading() }, …} }`) — behavioral satisfaction for a defined type, the dictionary closure dispatching
-the defined type's own method (`deftype_iface_demo` → `120`).  **NAMED FUNC TYPES** (`type Handler
-func(int64) int64`, the `http.HandlerFunc` idiom) work too: a `TArrow` `GoTypeTag` constructor carries
-the phantom for a func underlying, the projection cast is parenthesised and CALLED THROUGH when applied
-(`func (h Handler) Handler_run(x int64) int64 { return (func(int64) int64)(h)(x) }`), `named_func_demo`
-→ `42`.  **SLICE underlyings** (`type IntList []int64`, the `sort.Interface` `type ByLen []T` idiom)
-work too — underlying tag `TSlice`, cast `[]int64(l)` (valid Go without parens), `func (l IntList)
-Il_len() int { return len([]int64(l)) }`, `deftype_slice_demo` → `3`.  MAP underlyings work too —
-`type Counts map[string]int64`, ctor `Counts(m)`, projection cast `map[string]int64(c)`,
-with an IO-value method `func (c Counts) Co_size() int { return len(map[string]int64(c)) }` (lowers
-now that `pp_io_body` returns a value-returning IO tail), `gmap_deftype_demo` → `2`.  ✗ not yet:
-defined types used as map KEYS (the phantom breaks equality), `Module`-namespaced method names, and defined
-types over a STRUCT underlying (the `GoTypeTag` phantom needs a tag for the named struct — the tag-system
-limit, not "mechanical").  **IO-value methods with a BIND-CHAIN tail DONE (2026-06-22):** `pp_io_body`'s
-`ret_val` path already emits the leading effects as STATEMENTS and the `ret` tail as `return …`, not just a
-single-expression tail — `func (p Point) Px_then_sum() int64 { println(p.Px); return p.Px + p.Py }`
-(`io_val_method_demo` → `8 17`, golden-locked).
+Spec: a method binds a function to a receiver of a defined type; the call is `recv.M(args)`.
+- **Eligibility (ONE authority, `method_eligible`, shared by declaration + call sites):**
+  first visible parameter a record type; the receiver's type args distinct type
+  VARIABLES; every remaining signature tvar receiver-carried (Go methods add no type
+  params of their own); no comparable witness. An ineligible record-first function stays
+  a plain (possibly generic) function (witness `box_second`, golden). Projections and
+  inlined refs excluded.
+- **Faithful:** a value receiver gets a COPY and structs are value types, so `recv.M(a)`
+  denotes exactly `M(recv, a)` (same de Bruijn binding). Behaviour provable in Rocq
+  (`shifted_px`). Witnesses: `method_demo`, `io_method_demo`.
+- **POINTER receivers ✓:** an eligible `GSPtr R` first param → `func (r *T) M()` that
+  MUTATES the receiver, observed by the caller (`cell_incx`, `cell3_inc_z`,
+  heterogeneous `pair_bump`).
+- **Method VALUES** (`p.M` closure — `method_value_demo`) and **method EXPRESSIONS**
+  (`T.M` — `method_expr_demo`, pointer form `(*T).M` — `ptr_method_expr_demo`) work for
+  CONCRETE receivers only; a GENERIC-receiver method used bare is REJECTED at extraction
+  (`neg_method_expr_generic` — Go's `T.M` needs an instantiation the erased type does
+  not carry).
+- **DEFINED TYPES over a primitive with methods ✓:** `type MyT <prim>` modeled as a
+  2-field record with a `GoTypeTag` PHANTOM (kept by extraction, so the single value
+  field does not unbox — what keeps the type a distinct receiver); emitted `type MyI64
+  int64` with cast ctor/projection. Generic over the underlying: string
+  (`deftype_str_demo`), interface satisfaction via the dictionary
+  (`deftype_iface_demo`), NAMED FUNC types with called-through casts
+  (`named_func_demo`), slice underlyings (`deftype_slice_demo`), map underlyings with an
+  IO-value method (`gmap_deftype_demo`). All golden-locked.
 
 ### [Function types](https://go.dev/ref/spec#Function_types) — multiple return values: ✓ N-ary
 Spec: `func(…) (R1, R2, …)` returns a FLAT tuple of results.  Ours: a Coq function returning
@@ -472,53 +316,31 @@ implicit embedded-interface assignment is made EXPLICIT (consistent with the exp
 **✗ still:** the native `interface { … }` KEYWORD with structural satisfaction — we emit dict-structs, tracked.
 
 ### [Slice types](https://go.dev/ref/spec#Slice_types) / [Map types](https://go.dev/ref/spec#Map_types) / [Channel types](https://go.dev/ref/spec#Channel_types) — ✓ incl. backing-array ALIASING
-Two slice views: the functional `GoSlice = list` (value/immutable: `len`/`cap`/`append`/`slice_at_ok`)
-AND the heap-backed mutable **`SliceH`** (`{base; off; len; cap; tag}` — a real view into a shared
-backing array).  `SliceH` models the DEFINING reference-type semantics, all extracted + golden-locked
-(`slice_aliasing_demo`/`slice_append_demo`/`slice_makelc_demo`): in-place `s[i]=v` (`slice_idx_set`),
-`s[a:b]` SHARING the backing (`subslice`), and the **aliasing THEOREM** `subslice_alias` (a write
-through a sub-slice is observed through the parent), its **complement** `slice_idx_set_frame`
-(SEPARATION: distinct backing cells are independent — 2026-06-21), and `append`'s subtle
-in-cap-aliases-vs-past-cap-reallocates (`slice_append_incap_aliases`), `make([]T,len,cap)`, slice
-`clear`/`copy`.  Maps via a heap in the world (get-after-write are *theorems*); channels via state in
-the world (below).  *Still ⚠:* a CONCURRENT (cross-goroutine) aliasing/race account rides the
-concurrency calculus, not this functional layer.  **Pointer↔calculus bridge, slice 1 (2026-06-21):**
-`concurrency.v` `Section KeystonePtr` ties the EXTRACTABLE pointer derefs `ptr_set`/`ptr_get` to the
-operational shared-memory steps `rstep_write`/`rstep_read` (`ptr_write_sim`/`ptr_read_sim`, the derefs
-being DEFINITIONALLY the bridge's ref-accesses at `ptr_as_ref`) — so the calculus's `nat` locations
-ARE genuine `*T` cells, and `mp_trace_race_free`'s race guarantee now concerns a real pointer, not an
-abstract `nat`.  Substrate base only (no funext, no Fido axiom).  **Slice 2a DONE (2026-06-21):** the EXECUTION
-direction — `mp_exec_trace` proves the two-goroutine pointer-handoff program steps to exactly
-`mp_trace` (`rsteps (mp_init v0 v1) cfg /\ rc_trace cfg = mp_trace`) and `mp_exec_race_free` ⇒ that run
-is `TraceRaceFree`, so the trace is grounded in a real program run (both Closed-under-global-context).  **Slice 2b DONE (2026-06-21):**
-each goroutine of `mp_prog` is the Keystone-denotation of an EXTRACTABLE typed pointer-handoff IO program
-(`mp_g0_denotes`/`mp_g1_denotes`: `mp_g0_io = *p=v0; ch<-v1`, `mp_g1_io = <-ch; _:=*p`), the memory ops
-being the genuine `ptr_set`/`ptr_get` — so the race-free execution is the operational image of real typed
-pointer-over-channel code (substrate base; no funext, no Fido axiom).  **Value correctness (2026-06-21):**
-`mp_handoff_delivers` — the extractable typed program run in `run_io` DELIVERS exactly `(inj v1, inj v0)`
-(g1 receives v1 over the channel AND reads v0 back through the pointer; pointee survives send+recv via the
-channel/heap World frames), so it is not only race-free but COMPUTES the right values end-to-end.  **Slice
-2c DONE (2026-06-22):** `mp_end_to_end` — THE one closed end-to-end theorem — COMPOSES every slice for the
-concrete typed pointer-handoff `mp_prog` under ONE coherent environment (`chenv`/`ptrenv`/`inj`/`prj`): the
-extractable typed concurrent program (a) executes to `mp_trace`, (b) is race-free on this run AND on every
-interleaving (`mp_all_interleavings_race_free`), (c) with each goroutine the Keystone-denotation of real
-typed IO (`mp_g0_denotes`/`mp_g1_denotes`), (d) its FULL state — channels AND memory — realized by one
-`run_io` world (`wstate_steps`), and (e) the equivalent single-threaded handoff IO delivering exactly
-`(inj v1, inj v0)` (`mp_handoff_delivers`).  Assumptions = PrimInt63/PrimFloat + the documented funext
-holdout (`run_io_inj`); no Fido axiom.  (N-goroutine generality of the GUARANTEE is already
-`reachable_owned_safe_r`, over arbitrary programs + all schedules; `mp_end_to_end` is the concrete closed
-instance — `go_spawn` has no whole-program `run_io` law, so cross-goroutine glue stays the STATE refinement.)
-**SELF-REFERENTIAL channel type DONE (2026-06-22):** a channel can carry a value of a type that
-contains the channel's own type — "channels that send themselves".  `Inductive ChanBox := MkChanBox
-{ cb_id : GoI64 ; cb_chan : GoChan ChanBox }` = `type ChanBox struct { Id int64; Ch chan ChanBox }`
-(recursion through the TAG-FREE phantom `GoChan` ⇒ vacuously positive; nullary nominal tag `TChanBox`,
-the channel-of-itself tag being the finite `TChan TChanBox`).  `chanbox_demo` makes a `chan ChanBox`,
-a goroutine sends `ChanBox{42, c}` whose `Ch` field IS `c`, main receives → `42`.  Stronger than
-`chan_of_chan_demo`'s `chan chan int64` (element is a *different* type); here the element type contains
-the channel's own type.  The channel read-after-write at `chan ChanBox` is the existing `chan_buf_write_same`
-theorem (via `tag_eq_refl`), so no new proof obligation; axiom-free (`tchanbox_*_refl` rest on `int : Set`).
-
-## Expressions — operators
+Two slice views: the functional `GoSlice = list` (value/immutable) AND the heap-backed
+mutable **`SliceH`** (`{base; off; len; cap; tag}` — a real view into a shared backing
+array), all extracted + golden-locked: in-place `s[i]=v`, `s[a:b]` SHARING the backing,
+the aliasing THEOREM `subslice_alias` + its separation complement `slice_idx_set_frame`,
+`append`'s in-cap-aliases-vs-past-cap-reallocates (`slice_append_incap_aliases`),
+`make([]T,len,cap)`, `clear`/`copy`. Maps via a heap in the world (get-after-write are
+theorems); channels via world state. *Still ⚠:* cross-goroutine aliasing rides the
+concurrency calculus, not this functional layer.
+**Pointer↔calculus bridge:** `Section KeystonePtr` ties the EXTRACTABLE `ptr_set`/
+`ptr_get` to the operational `rstep_write`/`rstep_read` (`ptr_write_sim`/`ptr_read_sim`
+— the derefs ARE the bridge's ref-accesses), so calculus locations are genuine `*T`
+cells. The message-passing flagship composes end-to-end as **`mp_end_to_end`**: the
+extractable typed pointer-handoff program (a) executes to `mp_trace` (`mp_exec_trace`),
+(b) is race-free on this run and EVERY interleaving (`mp_all_interleavings_race_free`),
+(c) each goroutine the Keystone-denotation of real typed IO (`mp_g0_denotes`/
+`mp_g1_denotes`), (d) full state realized by one `run_io` world (`wstate_steps`),
+(e) delivering exactly `(inj v1, inj v0)` (`mp_handoff_delivers`). Assumptions = the
+documented funext holdout (`run_io_inj`); no Fido axiom. (N-goroutine generality is
+`reachable_owned_safe_r`; `mp_end_to_end` is the concrete closed instance — `go_spawn`
+has no whole-program `run_io` law, so cross-goroutine glue stays the STATE refinement.)
+**SELF-REFERENTIAL channel type ✓:** `ChanBox` (`{ cb_id; cb_chan : GoChan ChanBox }` —
+recursion through the tag-free phantom is vacuously positive; nominal tag `TChanBox`):
+a channel carrying values that contain the channel's own type. `chanbox_demo` → `42`;
+read-after-write at `chan ChanBox` proven. Stronger than `chan_of_chan_demo`'s
+`chan chan int64`.
 
 ### [Arithmetic operators](https://go.dev/ref/spec#Arithmetic_operators)
 `+ - * / %` integers: see Integer operators / overflow.  Unary `-x = 0-x` ✓
@@ -587,57 +409,33 @@ two's-complement — `i8_add_wraps` (-106), `i16_add_wraps` (-25536).  Full-widt
 (`spec_u32_mul_wrap`/`spec_i32_mul_wrap`, mask keeps the exact low 32 bits).
 
 ### [Floating-point operators](https://go.dev/ref/spec#Floating-point_operators) — ✓ ops; ⚠ FMA fusion
-Spec: `+x=x`, `-x`=negation; div-by-zero "not specified beyond IEEE 754…
-implementation-specific" whether it panics.  **An implementation MAY fuse** float
-ops (e.g. FMA `x*y+z` without rounding the intermediate); an explicit float
-conversion rounds to the target precision and prevents fusion.
-Ours: `float64`=`PrimFloat` (IEEE binary64); `+ - * /`, `opp`, comparisons lower
-to Go natives; float `/` unguarded (IEEE ±inf/NaN, no panic) — conforms.
-`float_demo`, `float_opp_demo`.  **⚠ deviation:** we round EACH op (no fusion);
-Go MAY FMA `a*b+c`, giving a more precise result — a fused expression can differ
-from our per-op-rounded value (Go does not GUARANTEE fusion, so this is bounded).
-`float32` — **✓ DONE & SOUND** (faithful binary32 via `SpecFloat`; arithmetic + comparisons →
-native Go `float32` `+ - * /` `< <= == > >= !=`, plus unary `-` (`f32_neg`) and `min`/`max`
-(`f32_min`/`f32_max`) — float64 parity sans `abs`/`sqrt`, which need `math`).  `GoFloat32` is an
-ABSTRACT smart-constructor type carrying an unforgeable `exists a, carrier = f32_round a` proof, so
-a non-representable literal cannot be injected (would disagree with Go on widening).  NaN and
-signed-zero corners machine-checked across negation/min/max (NaN propagates; `min(-0,+0) = -0`,
-`max(-0,+0) = +0`).
-**Conversions.**  `float32↔float64` and `int(float32)` (`f64_of_f32` widen exact; `i64_of_f64∘
-f64_of_f32` truncate-toward-zero) ✓.  Range corners witnessed: overflow → `+Inf` (`f32_overflow`),
-underflow → `0` (`f32_underflow`).
-**⚠ CORRECTION — an earlier "single-rounding-equivalent" claim here was
-FALSE.**  Routing int/constant → `float32` through binary64 is NOT double-rounding-innocuous in
-general: the `q ≥ 2p+2` theorem assumes the intermediate holds the *exact* value, but for `|x| >
-2^53` the int→binary64 step ITSELF rounds, and a second round to binary32 can disagree.
-Reproduced (Go 1.23.2): `x = 2305843146652647425 = 2^61+2^37+1` gives `float32(x) = 0x5e000001`
-(rounds up) but `float32(float64(x)) = 0x5e000000` (low bit lost onto the float32 midpoint, then
-ties-to-even down).  So `f32_of_f64 (f64_of_int x)` faithfully models Go's `float32(float64(x))`,
-NOT direct `float32(x)`.  *Fix:* DIRECT conversions `f32_of_i64`/`f32_of_u64`/`f32_of_int` round the
-exact integer ONCE to binary32 (`binary_normalize 24 128 x 0`), lowered to Go's `float32(x)`.
-Machine-checked on the distinguishing witness: `f32_of_i64_differs` (direct ≠ via-float64),
-`f32_of_i64_direct` (= `2^61+2^38`), `f32_of_i64_viaf64` (= `2^61`); `f32_of_int_demo` → `false`.
-*Constant path — ✓ DONE:* `f32_of_fconst` rounds the EXACT rational once to binary32 via `SFdiv 24
-128` of the exact-integer spec_floats (`sf_of_Z` — no intermediate binary64, so correctly-rounded for
-ALL num/den, not just `< 2^53`).  Lowered to Go's `float32(num.0 / den.0)` (untyped-constant division,
-arbitrary precision, single round).  Witnessed: `f32_of_fconst_direct` (`2305843146652647425/1 →
-2^61+2^38`), `f32_of_fconst_differs` (≠ the via-float64 double round), `f32_of_fconst_small`
-(`float32(0.1+0.2) = float32(0.3)`); `f32_fconst_demo` → `0.3`.
-**Constant-vs-runtime soundness fix — applies to float32 AND float64.**
-Fido's model is runtime IEEE (−0, ±Inf, NaN); the extractor formerly emitted float ops on
-CONSTANT operands as Go *constant expressions*, where IEEE does not hold — Go constants cannot
-denote −0/±Inf/NaN, and a constant `/0` or a `float32` overflow are COMPILE ERRORS (reproduced:
-`float32(1)/float32(0)`, `float32(1e40)`, `−(float32(0))` collapsing to +0).  Fix: a float op
-(arith / neg / narrow / min·max) whose operands are not runtime variables is now forced to RUNTIME
-via a typed IIFE (`func(x,y T) T { return x OP y }(a,b)`); ops on runtime operands stay idiomatic
-(`(a+b)*c`).  Sound (forces unless an operand is a runtime var, so no all-constant op is left
-unforced), value-preserving (golden output unchanged), and the three attacks now compile + yield
-IEEE results — `f32_const_runtime_demo` → `+Inf −Inf +Inf +Inf` (machine-checked vs the model).
-**⚠ Deferred (bounded, principled):** bit reinterpretation `math.Float32bits`/`Float32frombits`
-needs the `math` import (rule 5 — imports on hold, deferred not approximated) AND would expose
-that `SpecFloat` carries NO NaN payload (a substrate limit: `S754_nan` is payload-free), so
-bit-exact NaN-payload round-tripping is out of scope until both are addressed.
-See the Reconciliation note up top.
+Spec: IEEE semantics; div-by-zero implementation-specific whether it panics; an
+implementation MAY fuse ops (FMA); an explicit conversion rounds and prevents fusion.
+- `float64` = IEEE binary64: `+ - * /`, `opp`, comparisons lower to Go natives; float
+  `/` unguarded (±Inf/NaN, no panic) — conforms (`float_demo`, `float_opp_demo`).
+  **⚠ deviation:** we round EACH op; Go MAY fuse `a*b+c` (bounded — Go does not
+  guarantee fusion).
+- **`float32` ✓ & SOUND** (faithful binary32 via SpecFloat; arithmetic, comparisons,
+  `-`, `min`/`max` → native Go `float32` ops). `GoFloat32` is an abstract
+  smart-constructor type carrying an unforgeable `exists a, carrier = f32_round a`
+  proof — a non-representable literal cannot be injected. NaN/signed-zero corners
+  machine-checked (NaN propagates; `min(-0,+0) = -0`, `max(-0,+0) = +0`).
+- **Conversions:** `float32↔float64` widen-exact + truncations ✓; overflow → `+Inf`
+  (`f32_overflow`), underflow → `0` (`f32_underflow`). ⚠ INT→float32 through binary64 is
+  NOT double-rounding-innocuous for `|x| > 2^53` (gc-reproduced distinguishing witness),
+  so DIRECT conversions `f32_of_i64`/`f32_of_u64`/`f32_of_int` round the exact integer
+  ONCE (`binary_normalize 24 128`), lowered to Go's `float32(x)`; machine-checked
+  `f32_of_i64_differs`/`_direct`/`_viaf64`. The constant path `f32_of_fconst` rounds the
+  exact rational once via `SFdiv 24 128` (correct for ALL num/den;
+  `f32_of_fconst_differs`/`_small`; `f32_fconst_demo` → `0.3`).
+- **Constant-vs-runtime soundness (float32 AND float64):** Go constant expressions
+  cannot denote −0/±Inf/NaN (constant `/0` / overflow are COMPILE errors), so a float op
+  whose operands are not runtime variables is FORCED to runtime via a typed IIFE;
+  runtime-operand ops stay idiomatic. Value-preserving;
+  `f32_const_runtime_demo` → `+Inf −Inf +Inf +Inf` machine-checked vs the model.
+- **⚠ Deferred (bounded):** `math.Float32bits`/`frombits` needs the `math` import AND
+  SpecFloat carries no NaN payload — bit-exact NaN round-tripping out of scope until
+  both are addressed.
 
 ### [Comparison operators](https://go.dev/ref/spec#Comparison_operators) — ✓ conforms
 Spec: integers "in the usual way", floats "as defined by IEEE 754", bools equal
@@ -662,68 +460,31 @@ Spec: `p && q` = "if p then q else false", `p || q` = "if p then true else q",
 Coq's `andb` IS that definition — `spec_andb`/`spec_orb`/`spec_negb` by
 `reflexivity`.  Short-circuit unobservable (pure total bools).  ✓
 
-### [Conversions](https://go.dev/ref/spec#Conversions) — ✓ integer↔integer (fixed-width + int64↔uint64 + narrow↔int64 + narrow↔uint64), int/int64→float64, float64→int64, float64→float32, narrow↔float32 (composable via int64/float64), string↔[]byte/[]rune + string(rune); ✗ interface conversions beyond `type_assert`
-Spec: "When converting between integer types, ... it is then truncated to fit in
-the result type's size."
-**Integer conversions among `{int, uint8, int8, uint16, int16, uint32, int32}` — ✓.**  Routed
-through the `int` carrier: `int_of_FW` WIDENS (value preserved in the model; EMITTED as a real
-cast `int(x)`, NOT identity — a narrow Go value at an `int` boundary needs it)
-and `FW_of_int` NARROWS (truncate — `land` for `uintN`, mask+sign-extend for `intN`
-— exactly Go's `uint8(x)`/`int8(x)`, no representability proof since a conversion
-truncates rather than rejects).  Cross-width by composition (`uint8(int16val)` =
-`u8_of_int (int_of_i16 x)`, the low 8 bits).  These are also what make the DISTINCT
-numeric types mixable — implicit mixing is rejected (`*_no_implicit`,
-`u8_of_i16_direct` `Fail`s), so a value crosses types only through a conversion.
-Machine-checked (`spec_u8_of_int_trunc`…`spec_i16_of_u8_cross`): `uint8(1000)=232`,
-`uint8(-1)=255`, `int8(200)=-56`, widen `int(uint8 200)=200`, cross `int16(uint8 200)`.
-`convert_demo` prints `200 232 / 1200`.
-**Full-width `int64`↔`uint64` — ✓ (2026-06-18).**  `u64_of_i64`/`i64_of_u64` are Go's
-`uint64(x)`/`int64(x)`: a two's-complement REINTERPRET of the 64-bit pattern, EXACT (no
-rounding).  The Z carrier re-normalises mod 2⁶⁴ (`MkU64 (wrapU64 (i64raw a))` /
-`MkI64 (wrap64 (u64raw a))`), faithful by `wrap64_wrapU64` (the int64 and uint64
-normalisers agree mod 2⁶⁴ — axiom-free).  Distinct from the narrow widths (whose value is
-int64-carried and which widen via an INLINE cast `int64(x)`/`int(x)`, not identity) because
-`GoU64` lowers to a real Go `uint64`.  Emitted as
-a small NAMED function `func U64_of_i64(a int64) uint64 { return uint64(a) }` so the cast
-applies to the parameter VARIABLE — Go rejects `uint64(-1)` on an untyped CONSTANT but
-accepts it on an int64-typed value.  Machine-checked `conv_u64_of_neg1` (`-1 → 2⁶⁴-1`),
-`conv_i64_of_max` (`2⁶⁴-1 → -1`), `conv_roundtrip`; `conv64_demo` prints
-`18446744073709551615 -1 255`.
-**Narrow → `int64` widening — ✓ DONE (slice 1, commit a4e715d).**
-`i64_of_u8`…`i64_of_i32` are value-preserving widens (machine-checked
-`widen_u8`/`widen_i8`/`widen_u16`/`widen_u32`/`widen_i32`), now LOWERED by
-NAME-RECOGNITION to Go's `int64(x)` — NOT identity: a narrow operand at a typed
-boundary is a real `uint8`/`int8`, so `int64(x)` is required to land it in the `int64`
-destination (a bare `return x` was the narrow-boundary invalid-Go case).  The faithful
-`Sint63.to_Z` body (which would pull the deliberately-REJECTED unsigned `Uint63.ltb`,
-Tier 3 #9) is suppressed by the recognizer, sidestepping the carrier wall.  Extracted
-via `widen_param_demo` (`func Widen_u8_to_i64(x uint8) int64 { return int64(x) }`,
-golden `200 -5 100`).
-`string`↔`[]byte`/`[]rune` and `string(rune)` are DONE (the rune view — see String
-types).  **`int`/`int64` → `float64` DONE (2026-06-19):** `f64_of_int` (Sint63) and `f64_of_i64`
-(`GoI64`) → native `float64(x)` (the nearest double, exact for `|x| < 2^53`); modeled by
-`PrimFloat.of_uint63` + a sign-split (machine-checked `f64_of_int_pos`/`_neg`,
-`f64_of_i64_pos`/`_neg`), recognized → cast with the body suppressed.  Both return `float`
-(a primitive, not a single-field record), so they stay NAMED calls — this was the EARLY
-lowering technique; the narrow→int64 widening (record result) now lowers the same way, by
-name-recognition with its carrier body suppressed.  `f64_of_i64`'s `Z` carrier drags the
-Z↔int63 helpers `of_Z`/`of_pos`/`of_pos_rec`, suppressed alongside the `Z`/`positive`
-arithmetic.  Trust base gains the Rocq PRIMITIVE `PrimFloat.of_uint63` — a kernel `float` op
-(like `PrimFloat.add`), NOT a Fido axiom (`of_Z`/`of_pos` are `Definition`s, not in the
-base).  **`float64` → `int64` truncation — ✓ DONE (name-recognized, golden-locked):**
-`i64_of_f64` truncates toward zero via the stdlib's VERIFIED `Prim2SF` decomposition
-(`m * 2^e` for `e ≥ 0`, else `m / 2^(-e)` = floor of the magnitude, sign applied after —
-exactly Go's rule), machine-checked across the sign / exact / zero cases
-(`i64_of_f64_pos`/`_neg`/`_exact`/`_zero`/`_big`), and LOWERED to Go's native `int64(f)` by
-name-recognition (the `Prim2SF`/`f64_trunc_Z` body suppressed, sidestepping the case-of-case
-fusion wall the old proof-only note cited).  Extracted via `trunc64` / `i64_of_f64_demo`
-(golden `3 / -2`).  Bounded deviation at NaN/±Inf/overflow (impl-defined in Go — the native
-`int64(f)` gets Go's behaviour for free).  **Narrow ↔ `uint64` and `int64` ↔ narrow are also
-DONE:** the uint64 hub (`u64_of_i64 ∘ i64_of_narrow`, golden `200 18446744073709551615 255
--1`) and the `int64`→narrow truncations (`u8_of_i64`…, golden `52 -56 201 -55`).  **Still ✗
-(fails loud):** interface conversions beyond `type_assert` (the `interface` keyword).
-
-## Expressions — primary
+### [Conversions](https://go.dev/ref/spec#Conversions) — ✓ integer↔integer (all widths), int/int64→float64, float64→int64, float64↔float32, narrow↔float32, string↔[]byte/[]rune + string(rune); ✗ interface conversions beyond `type_assert`
+Spec: integer conversions truncate to the result type's size.
+- **Among `{int, uint8…int32}` ✓:** routed through the `int` carrier — `int_of_FW`
+  widens (emitted as a REAL cast `int(x)`, not identity: a narrow Go value at an `int`
+  boundary needs it), `FW_of_int` narrows (mask / mask+sign-extend — a conversion
+  truncates, never rejects). Cross-width by composition. Implicit mixing rejected
+  (`*_no_implicit` `Fail`s). Machine-checked `spec_u8_of_int_trunc`…
+  `spec_i16_of_u8_cross`; `convert_demo` golden.
+- **`int64`↔`uint64` ✓:** two's-complement REINTERPRET, exact; faithful by
+  `wrap64_wrapU64`. Emitted as a named `func U64_of_i64(a int64) uint64 { return
+  uint64(a) }` — the cast must apply to a VARIABLE (Go rejects `uint64(-1)` on an
+  untyped constant). `conv_u64_of_neg1`/`conv_i64_of_max`/`conv_roundtrip`;
+  `conv64_demo` golden.
+- **Narrow→`int64` widening ✓:** value-preserving (`widen_*` witnesses), lowered by
+  name-recognition to `int64(x)` — NOT identity (the narrow-boundary invalid-Go class);
+  the carrier body is suppressed. Narrow↔`uint64` and `int64`→narrow truncations ✓
+  (via the 64-bit hubs; golden-locked).
+- **`int`/`int64`→`float64` ✓:** native `float64(x)` (exact for `|x| < 2^53`),
+  machine-checked sign-split; recognized → cast, body suppressed.
+- **`float64`→`int64` ✓:** truncation toward zero via the verified `Prim2SF`
+  decomposition (`i64_of_f64_pos`/`_neg`/`_exact`/`_zero`/`_big`), lowered to native
+  `int64(f)`. Bounded deviation at NaN/±Inf/overflow (impl-defined in Go; the native
+  cast gets Go's behavior).
+- string↔[]byte/[]rune, string(rune): see String types. **Still ✗ (fails loud):**
+  interface conversions beyond `type_assert`.
 
 ### [Index expressions](https://go.dev/ref/spec#Index_expressions) — ✓ slices/strings/maps (single-goroutine)
 Spec: `a[x]` indexes; an out-of-range slice/string index PANICS; a map index `m[k]`
@@ -866,84 +627,47 @@ comma-ok; `recv_ok_closed_empty` (closed+empty ⇒ `(zero,false)`) is a **theore
 ✓  (blocking recv on empty open channel idealised away — a deadlock.)
 
 ### [Select statements](https://go.dev/ref/spec#Select_statements) — ✓ lowering; ⚠ choice/blocking idealised
-Spec: "if one or more of the communications can proceed, a single one ... is chosen
-via a uniform pseudo-random selection"; `default` runs if none ready; else BLOCKS.
-Ours: `select_recv2` (two recv cases) and `select_recv_default` (recv + `default`,
-the non-blocking form) lower to a faithful, idiomatic Go `select { case x := <-ch:
-… }` — CPS like `recv_ok`.  `select_demo` (ch1 buffered/ready, ch2 empty → picks
-ch1, prints 42) and `select_default_demo` (empty ch → default, prints 99) golden-
-locked.  **⚠ the LOWERING is faithful Go; the MODEL is an UNSOUND deterministic
-under-approximation** ("idealised away" understates it).  Two distinct unsoundnesses:
-  - **CHOICE.** Both channels ready ⇒ the model deterministically takes ch1; Go picks
-    pseudo-randomly.  Counterexample: both ready, `k1 ↦ 1`, `k2 ↦ 2` — Rocq always 1,
-    Go may return 2.  So native Go does NOT *refine* the deterministic function (Go
-    exhibits "take ch2", which the function forbids); that function is at best ONE
-    example scheduler / a test interpreter — **non-authoritative**.  The authoritative
-    spec is relational, and a safety property must hold for EVERY permitted choice.
-  - **BLOCKING.** None ready, no `default` ⇒ the sequential model FAIL-LOUDS
-    (`OPanic rt_select_block` — the IO model has no Blocked outcome and NEVER fabricates a
-    value); Go BLOCKS.  Blocking is **not divergence**: the goroutine simply has no transition
-    *right now* while others may still step — it is DEADLOCK only when the WHOLE program
-    can't step.  `concurrency.v` models exactly this (`Stuck := ~ can_step /\ ~ done`,
-    `block_cfg`); empty-select is a LOCAL non-step.
-The desugar work (`select_wait2`/`select2`, `select2_eq_recv2`) proves the
-sentinel+goto factoring equals *this idealised model* — NOT Go.  **Robust fix** (in the
-`rstep` calculus, not the sequential `IO` model): a nondeterministic/relational
-`select_wait` ranging over every ready case, proofs quantified over the chosen index
-(`rstep` is this shape); empty = a local non-step (global deadlock = `Stuck`).  **Sound
-interim:** evidence-carrying subset requiring a proof that EXACTLY ONE case is ready
-(then determinism = Go) — sound ONLY under an interference-freedom / ownership discipline
-that keeps readiness STABLE until selection (else a TOCTOU gap between proof and select).
-Tracked
-(Tier 5 #14, scheduler / non-terminating model).  *Also pending:* send cases, N-ary.
-**CLOSED-channel READINESS (current state).**  A closed, drained channel's recv is READY in Go
-(zero value immediately) — examining only the buffer would mispredict `default`
-(`close(ch); select{case <-ch: 1; default: 2}` — Go prints 1).
-`select_recv_default`/`select_recv2`/`select_wait2` check `chan_closed`: empty+closed ⇒ that recv
-fires with zero; `default` only on empty+OPEN.  Witnessed
-(`select_default_closed`/`select_default_open_empty`); `select2_eq_recv2` proven.
-
-**The relational/operational select layer — current state (all axiom-free, proof-only, golden-stable):**
-- **Closed channels are modeled off the TRACE, no config flag:** `closedb` (decidable
-  trace-closedness) reads a `KClose c` event; a `KRecv` back-pointer may point at that `KClose`
-  (the close→closed-recv happens-before edge; `WfTrace` carries the send-OR-close disjunction).
-  `step_recv_closed`/`step_select_closed` and the rich-calculus `rstep_recv_closed`/
-  `rstep_select_closed` step a closed-drained recv/select to the zero value (witnesses
-  `closed_recv_wf`, `closed_recv_hb`, `closed_select_can_step`, `rclosed_select_can_step`,
-  `closed_recv_preserves_inv`, `rclosed_recv_preserves_inv`; Keystone `SimInv` carries
-  `NoCloseTrace`).
-- **`CSelect` is first-class in the value-carrying calculus:** `CSelect : list (nat * (nat → Cmd))`
-  — PER-CASE channel + continuation, so `select { case <-ch: A() | case <-ch: B() }` (same channel,
-  distinct bodies) is representable with BOTH successors eligible
-  (`rselect_per_case_continuation`).  `rstep_select` fires any ready case (nondeterministic); an
-  empty select is a LOCAL non-step feeding global deadlock (`rsel_block_stuck` : `RStuck`).  The
-  deadlock theory is select-aware (`blocked` includes select-with-no-ready-case via the decidable
-  CLOSED-AWARE `sel_ready_cl` — the single readiness authority for deadlock) and the
-  multi-goroutine refinement carries the case (`wmatchc_step`).
-- **The typed `select_recv2` is a SOUND, INCOMPLETE scheduler — and EXACT precisely on unique
-  readiness:** `det_select_sound` (its ch1-priority choice is always a permitted `rstep_select`),
-  `det_select_incomplete` (two ready cases ⇒ it realises only ch1 while `rstep_select` also permits
-  ch2 — "one example scheduler, non-authoritative" is a THEOREM), and
-  `det_select_complete_unique`/`det_select_exact_unique` (a UNIQUE buffered-ready case collapses
-  every firing to the same successor — sound ∧ complete; `Print Assumptions` closed under the
-  global context).  Honest scope: uniqueness is over BUFFERED readiness; full Go-completeness also
-  needs the open-channel side condition (a closed-drained case is an orthogonal ready successor).
-- **`select_recv2` ties to `run_io` directly:** a READY first channel reduces it to a plain `recv`
-  (`select_recv2_ch1_buffered`/`_ch1_closed`, fall-throughs `_ch2_buffered`/`_ch2_closed` —
-  `run_io (select_recv2 …) w = run_io (bind (recv …) k) w`), so select INHERITS `recv`'s
-  operational refinement; `select_fire_is_recv_fire` mirrors it in the calculus.
-- **Closed-precise, panic-aware deadlock:** `closedb` + `sel_ready_cl` make `blocked` EXACT (a
-  closed-drained recv/select is READY, not blocked; `ready_can_step`/`rstuck_blocked` are exact
-  inverses).  Closedness is PERMANENT along `rstep` (`rsteps_closedb_mono`,
-  `rclosed_chan_stays_closed`, `reachable_closed_recv_can_step`).  `rstep_close` and `rstep_send`
-  are GUARDED by `closedb tr c = false`, so double-close and send-on-closed have NO step and are
-  classified `rpanicking` (decidable) — `rstuck_blocked` reads *stuck ⇒ done ∨ blocked ∨
-  panicking*, matching the IO model's faithful panics (witnesses `rdouble_close_panicking`/
-  `rdouble_close_cant_step`, `rsend_closed_panicking`/`rsend_closed_cant_step`;
-  `recvfree_progress` reads progress ∨ panic).
-
-*Remaining:* the full WORLD-level `select_recv2`↔`CSelect` bridge (extend the Keystone `WMatchC`
-refinement to a select operation in the `World`).
+Spec: one ready communication is chosen via uniform pseudo-random selection; `default`
+runs if none ready; else BLOCKS.
+Ours: `select_recv2` (two recv cases) and `select_recv_default` (recv + `default`) lower
+to faithful idiomatic Go `select` (CPS like `recv_ok`); `select_demo` /
+`select_default_demo` golden-locked. **⚠ the LOWERING is faithful Go; the sequential
+MODEL is an unsound deterministic under-approximation**, in two ways:
+- **CHOICE.** Both ready ⇒ the model takes ch1; Go picks pseudo-randomly — so Go does
+  NOT refine the deterministic function; it is one example scheduler, non-authoritative
+  (a THEOREM: `det_select_incomplete`). A safety property must hold for EVERY permitted
+  choice — the relational layer below is the authority.
+- **BLOCKING.** None ready, no `default` ⇒ the sequential model fail-louds
+  (`OPanic rt_select_block` — the IO model has no Blocked outcome and never fabricates a
+  value); Go BLOCKS. Blocking is a LOCAL non-step (deadlock only when the WHOLE program
+  cannot step — `concurrency.v`'s `Stuck`).
+The desugar proofs (`select_wait2`/`select2_eq_recv2`) equal *this idealised model*, not
+Go. *Pending:* send cases, N-ary.
+**CLOSED-channel READINESS:** a closed drained recv is READY in Go (zero immediately) —
+`select_recv2`/`select_recv_default`/`select_wait2` check `chan_closed`: empty+closed ⇒
+that recv fires with zero; `default` only on empty+OPEN (witnesses
+`select_default_closed`/`select_default_open_empty`).
+**The relational/operational select layer (axiom-free, proof-only):**
+- Closed channels are modeled off the TRACE (`closedb` reads a `KClose`; a `KRecv`
+  back-pointer may point at that close — `WfTrace` carries the send-OR-close
+  disjunction); `step_recv_closed`/`rstep_select_closed` step a closed-drained
+  recv/select to zero.
+- `CSelect : list (nat * (nat → Cmd))` is first-class — per-case channel +
+  continuation, same-channel distinct bodies representable
+  (`rselect_per_case_continuation`); `rstep_select` fires ANY ready case; an empty
+  select is a local non-step feeding deadlock (`rsel_block_stuck`); readiness has ONE
+  closed-aware authority (`sel_ready_cl`), shared with the deadlock theory and the
+  multi-goroutine refinement.
+- The typed `select_recv2` is SOUND (`det_select_sound`), INCOMPLETE
+  (`det_select_incomplete`), and EXACT on unique BUFFERED readiness
+  (`det_select_complete_unique`/`det_select_exact_unique`; full Go-completeness also
+  needs the open-channel side condition).
+- A ready first channel reduces `select_recv2` to plain `recv` at `run_io`
+  (`select_recv2_ch1_buffered`/`_ch1_closed` + fall-throughs), so select inherits
+  `recv`'s operational refinement (`select_fire_is_recv_fire` in the calculus).
+**Robust fix (tracked):** proofs quantified over the chosen index in the relational
+`rstep` shape; a sound deterministic subset needs an exactly-one-ready proof under an
+ownership discipline keeping readiness stable (else TOCTOU).
 
 ### [Close](https://go.dev/ref/spec#Close) — ✓ panics; ⚠ nil
 Spec: "Sending to or closing a **closed** channel causes a run-time panic.
@@ -978,171 +702,83 @@ once those orderings are settled.
 ## The memory model
 
 ### [Go memory model](https://go.dev/ref/mem) — ✓ partial order + race freedom (axiom-free)
-Spec: "sequenced before" and "synchronized before" are each a **partial order**
-(the 2022-revised text says "partial order", NOT "strict"); happens-before is the
-transitive closure of their union; a send is synchronized before the corresponding
-receive **completes**; the kth receive on a cap-C channel is synchronized before the
-(k+C)th send completes (C=0 = unbuffered rendezvous); a data race is two conflicting
-accesses unordered by happens-before.
-Ours (`Print Assumptions` = *Closed under the global context* — no axioms): `hb`
-= transitive closure of exactly those edges; `hb_irrefl`+`hb_transitive` — we prove
-the STRONGER **strict** partial order (irreflexive + transitive — the correct reading
-for an order where no event happens-before itself; the spec's looser "partial order"
-is implied by it); `hb_send_before_recv`, `hb_recv_before_send`,
-`unbuffered_rendezvous`, `buffered_sender_runs_ahead` (no over-ordering);
-`data_race`/`RaceFree`; `mp_no_race` + `mp_program_race_free`.  **All 4 channel rules
-✓** + the **goroutine fork edge ✓** — every one a theorem, axiom-free (`Print
-Assumptions` = *Closed under the global context*):
-- rules 1/3/4 (send⤳recv-completion, kth-recv⤳(k+cap)th-send, unbuffered = cap 0):
-  the open model `hb cap`.  **Operationally (2026-06-21):** the unbuffered (cap-0) HANDOFF is
-  REPRESENTABLE in the rich `rstep` calculus with NO capacity field — `rendezvous_via_buffer`: a
-  `rstep_send` immediately followed by the matching `rstep_recv` passes the value STRAIGHT from
-  sender to receiver's continuation (`k2 v`) with the buffer returning to empty (the value never
-  rests), the operational shadow of the cap-0 rendezvous edge.  Axiom-free; cascade-free (a derived
-  two-step, not a new rule).  **FORCING now modelled (2026-06-21)** in the self-contained
-  capacity-parameterised channel calculus (`Section BoundedChannels`, concurrency.v): `cstep_send` is
-  GUARDED by `length (buf c) < cap c`, so a cap-0 channel can NEVER buffer — `cstep_cap0_buf` /
-  `csteps_cap0_buf` prove its buffer is empty in every reachable state; transfer is forced through the
-  synchronous `cstep_sync` rendezvous (`urv_can_sync`), and an unbuffered send with no waiting receiver
-  is STUCK (`all_senders_stuck` / `ublock_stuck` — the blocking that the unguarded buffered model
-  cannot express).  This is the genuine unbuffered semantics ("send blocks until a receiver"), not just
-  the derived handoff.  Axiom-free.  **The capacity sub-model is now COMPLETE** — SAFETY:
-  `cstep_cap_respected` / `csteps_cap_respected` / `csteps_from_empty_cap_respected` prove the buffer
-  NEVER exceeds capacity (no overflow on any run); LIVENESS: `buffered_send_progresses` proves a send
-  with room never blocks (capacity > length ⇒ progress) — the dual of `all_senders_stuck` (capacity 0
-  ⇒ block), so both halves of Go's channel blocking are captured.  (Integrating `cap` into the full
-  `rstep` — heap/spawn/select, an `rc_cap` field at ~42 `mkRCfg` sites — is the remaining cascade; the
-  SEMANTICS is proven here.)
-- **rule 2** (Phase 4a) — *"closing a channel is synchronized before a receive that
-  returns zero because the channel is closed"*: the finite-stream model `hbc cap
-  nsent` (sender sends `nsent` then closes; `hbc_close_before_zero_recv`: close ⤳
-  `CRecvDone n` for `n ≥ nsent` ONLY).  Faithful: it does NOT order close before the
-  value-receives (`close_not_before_value_recv`), proven via the conserved credit
-  `ev_credit_c`, so no over-ordering; irreflexive via `ev_ts_c`.
-- **fork edge** (Phase 4b) — *"a go statement is synchronized before the goroutine's
-  execution starts"*: `fork_hb` + `fork_program_race_free` (parent writes `x`, spawns
-  a child that reads `x` with NO channel — race-free purely by the fork edge).
-  **Now GROUNDED IN EXECUTION** (concurrency.v, rich calculus): `rstep_spawn` emits BOTH
-  the parent's `KSpawn` and the child's `KStart` (a two-event step), so `fork_exec_trace`
-  RUNS `write 7; go (read 7)` and proves its trace EQUALS the once-hand-built
-  `fork_handoff_trace`, with `fork_exec_race_free` deriving race-freedom from
-  `reachable_owned_safe_r` — the fork synchronisation is a consequence of the operational
-  semantics, not an assertion about a literal.  Both axiom-free.  ✓
-- **channel handoff edge** (the primary go-mem mechanism) — *"a send on a channel happens-before
-  the corresponding receive completes"*: `handoff_race_free` (hand-built) **+ now GROUNDED IN
-  EXECUTION** (`chan_pub_exec_trace` / `chan_pub_exec_race_free`): a real 2-goroutine program where
-  `main` SPAWNS the child, THEN writes loc 7 and sends — so the write happens AFTER the spawn and the
-  fork edge canNOT publish it; only the channel send/recv can.  Running it emits a 6-event trace
-  proven race-free via `transfer_orders` over the `KSend`/`KRecv` pair (the canonical "publish a
-  write over a channel" idiom).  Axiom-free.  ✓  Both go-mem synchronisation edges are now grounded
-  operationally, not just witnessed on literals.
-- **closed-form race-freedom DISCIPLINE** — the per-trace witnesses are now subsumed by ONE checkable
-  structural condition (`HandoffDisciplined`): every conflicting same-location pair is EITHER same
-  goroutine (program order) OR a single `po`·`sync`·`po` handoff.  `handoff_disciplined_owned` proves
-  it ⇒ `Owned` ⇒ race-free, UNIFYING the two bases — `locprivate_handoff_disciplined` (no-sharing) and
-  `handoff_trace_disciplined` (the channel handoff, re-deriving `handoff_race_free`).  A program earns
-  race-freedom by exhibiting the structure, not a bespoke `Owned` proof.  Axiom-free.  ✓
-- **ABSTRACT OWNERSHIP-TRANSFER RACE-FREEDOM — the GENERAL theorem (2026-06-23), ✓.**  The above is
-  trace-level; the per-PROGRAM results (`mp`/`fork`/`xfer`/`dst`) were each a hand-built phase
-  enumeration (`MpReach`/…) that did not compose.  Now ONE abstract reachability invariant earns
-  `Owned` for an *arbitrary* program by an `rstep` induction: `owned_step_snoc` (incremental `Owned` —
-  appending an access preserves it given a single per-step hb obligation) ← `AcqConn`/`owned_step_by_owner`
-  (a dynamic OWNER discharges that obligation: same-owner ⇒ program order, transferred-owner ⇒ the
-  send/recv or spawn/start sync edge) ← `WTf flp`, a LINEAR region-threading typing (`WT` non-linear
-  `OnlyAcc` cannot express transfer; `flp c v` = the location a send transfers, unifying pointer-handoff
-  `flp c v = v`, signal-handoff a channel-fixed footprint, and spawn-split) ← `RegionInvF` + `BufLinF` +
-  `OwnerLive` (single-valued ghost owner ⇒ disjointness free; buffer carries each in-transit location's
-  hb-support; linearity ⇒ a recv pop leaves no duplicate) ← `region_inv_f_step` (every `rstep` preserves
-  all of it) ← `region_inv_f_race_free`.  So **ALL THREE Go ownership-transfer mechanisms — pointer-handoff,
-  spawn-split, signal-handoff — are race-free for arbitrary (no-spawn-typed-or-spawn) programs, ALL
-  interleavings, under ONE theorem.**  Witnesses: `witness`/`relay` (pointer, multi-hop), `splitw`/`fork`
-  (spawn-split), `sig` (signal/`mp_prog` idiom), `combo`/`fcombo` (cell traveling spawn→channel).
-  SUBSUMPTION: `mp_subsumed_by_general` / `xfer_subsumed_by_general` re-prove the flagship bespoke
-  witnesses as instances.  NON-VACUITY: `region_inv_rejects_race` — a genuine unsynchronised write/write
-  program CANNOT satisfy the invariant (the discipline has teeth); `wt_rejects_unowned_*` (typing rejects
-  un-owned access).  Everything **Closed under the global context — axiom-free AND funext-free**
-  (`wt_region_ext` re-types continuations under pointwise-updated regions with no axiom).  IO-LIFT status:
-  the channel fragment connects to EXTRACTABLE typed pointer/channel Go (`mp_g0_denotes`/`mp_end_to_end` +
-  the subsumption); the spawn fragment cannot be lifted via `run_io` (`go_spawn` has no `run_io` law — the
-  documented strategic fork; concurrency lives on `rstep`).  ✓ (abstract; the calculus↔emitted-Go step is
-  the trust gap #10 / plugin, as everywhere).
-**Trace model ([concurrency.v]) — happens-before for ARBITRARY executions, ✓.**  The
-above lives on hand-built event sets; `concurrency.v` ties it to an actual EXECUTION
-TRACE — a list of events from interleaving goroutines, synchronisation recorded by
-BACK-POINTERS (a receive carries its matched send's position; a goroutine's first
-step carries its spawn position — what a real run records).  Central theorem
-`hbt_irrefl` (axiom-free): for ANY well-formed trace, happens-before (program order ∪
-synchronisation) is a STRICT PARTIAL ORDER — because the TRACE POSITION is a LINEAR
-EXTENSION (`hbt_forward`: you cannot synchronise with the future).  This generalises
-the bespoke `ev_ts` to arbitrary executions and ANY goroutine/channel topology (no
-longer one-sender/one-receiver).  Race freedom: generic `trace_ordered_no_race` +
-concrete `mp_trace_race_free` (the message-passing program as a real trace).
-**Operational semantics ([concurrency.v]) — well-formed traces are GENERATED, ✓.**  A
-concurrent small-step semantics (a fixed pool of goroutines over FIFO channels;
-every step APPENDS an event, a send records its trace position in the channel
-buffer, a receive pulls the front as its back-pointer) with the invariant `BufOk`
-(buffered positions are earlier sends), preserved by every step (`step_preserves_inv`).
-So `reachable_wf`: EVERY reachable execution trace is well-formed — `WfTrace` is now a
-THEOREM about execution, not a hypothesis.  Composed with `hbt_irrefl`:
-`reachable_hb_strict` — the happens-before of ANY real execution (any program, any
-reachable state) is a strict partial order, EARNED by execution.  All axiom-free.
-**Calculus ↔ `run_io` bridge (`Section Keystone`/`KeystoneMulti`) — ✓ for the
-channel+memory fragment.**  `Cmd` is the DEEP embedding of an IO program; `Denotes`
-relates it to the `run_io` shallow term; `denote_sim_send`/`recv`/`write`/`read` show
-each `rstep` run-reduces the denotation exactly per the `run_io` laws, and
-`denote_adequate` composes them into a whole-program adequacy (single-channel,
-single-goroutine).  For MULTIPLE goroutines — where `run_io`, being sequential, cannot
-sequence the interleaving — the connection is a STATE refinement: `wmatchc_step` proves
-every `rstep` (any goroutine, any channel) keeps the calculus's channel state matched to
-the `run_io` `World`, using the two channel-SEPARATION (frame) LAWS
-(`chan_buf_send_frame`/`chan_buf_recv_frame` — now THEOREMS, derived from
-`chan_read_write_frame` over the concrete per-channel heap; once axioms, eliminated in the
-108→0 work); `reachable_refines_and_safe` bundles this with the proven race-freedom on the
-same execution.  Trust base verified by `Print Assumptions` (the authority — gated by the
-Docker axiom-manifest gate; the `grep -cE '^Axiom |^Parameter ' *.v` = 0 is only a coarse
-tripwire): the whole model is now AXIOM-FREE, so `Print Assumptions` of these keystone
-results = *Closed under the global context* — the trust base is EMPTY (`PrimInt63`/`PrimFloat`
-eliminated and the effect algebra made funext-free via observational equality); `Hret`/`chenv_inj`
-are discharged hypotheses.
-**Deadlock — characterized + freedom for a real class (axiom-free).**  The operational
-semantics represents deadlock (`rblock_stuck`) and now CHARACTERIZES it (`rstuck_blocked`:
-a stuck config has someone unfinished yet every live goroutine is finished or blocked on
-an empty-channel receive — "all waiting to receive, no one sending"); and deadlock-FREEDOM
-is PROVEN for RECEIVE-FREE programs (`reachable_recvfree_progress`: real concurrency via
-spawn/send/write/read but no receive ⇒ every reachable state lets any unfinished goroutine
-step).  Disciplined freedom for receiving programs (a session/no-circular-wait discipline)
-is the remaining liveness frontier.
-**Other "Synchronization" subsections of go.dev/ref/mem (honestly scoped):**
-- **Initialization** (`init` ⤳ `main.main`; imported package's `init` ⤳ importer's):
-  N/A — we emit a single `package main` with no imports and no user `init`, so there
-  is no init-ordering edge to model.  ✗ (not applicable under the no-imports scope).
-- **Goroutine destruction** — the spec MANDATES that a goroutine's exit is NOT
-  synchronized before any event (deliberately **no** edge — "an aggressive compiler
-  might delete the go statement").  We add only the fork edge and no exit edge, so the
-  model is faithful BY OMISSION; ✓ (the absence is deliberate, matching the non-guarantee).
-- **Locks (Mutex/RWMutex), Once, Atomic values** — need `sync`/`sync/atomic` stdlib
-  imports → out of scope (imports on hold).  ✗ deferred.
+Spec: "sequenced before" / "synchronized before" are partial orders; happens-before is
+the transitive closure of their union; a send is synchronized before the corresponding
+receive completes; the kth receive on a cap-C channel is synchronized before the (k+C)th
+send completes (C=0 = unbuffered rendezvous); a data race is two conflicting accesses
+unordered by happens-before.
+Ours: `hb` = transitive closure of exactly those edges, proven a STRICT partial order
+(`hb_irrefl` + `hb_transitive` — stronger than the spec's "partial order").  Trust base:
+the hb / trace / Owned / region families are `Print Assumptions` = *Closed* AND
+funext-free; the Keystone `run_io` bridge family carries the ONE documented
+`functional_extensionality` holdout (`run_io_inj` — see the header note).
+- **Channel rules 1/3/4** (send⤳recv-completion, kth-recv⤳(k+cap)th-send, unbuffered):
+  `hb_send_before_recv` / `hb_recv_before_send` / `unbuffered_rendezvous` /
+  `buffered_sender_runs_ahead`. Operationally: `rendezvous_via_buffer` (cap-0 handoff in
+  `rstep`); the capacity-parameterised calculus (`Section BoundedChannels`) FORCES cap-0
+  blocking (`cstep_cap0_buf`, `all_senders_stuck`/`ublock_stuck`) and proves SAFETY
+  (`csteps_cap_respected` — the buffer never exceeds capacity) + LIVENESS
+  (`buffered_send_progresses` — a send with room never blocks). (Integrating `cap` into
+  the full `rstep` config is a tracked cascade; the semantics is proven here.)
+- **Rule 2** (close ⤳ zero-receive): `hbc_close_before_zero_recv`, with
+  `close_not_before_value_recv` proving NO over-ordering (via the conserved credit).
+- **Fork edge** (go ⤳ goroutine start): `fork_hb` + `fork_program_race_free`; grounded
+  in execution — `rstep_spawn` emits `KSpawn`+`KStart`, `fork_exec_trace` runs the
+  program and `fork_exec_race_free` derives race-freedom operationally.
+- **Channel handoff edge**: `handoff_race_free` + execution-grounded
+  `chan_pub_exec_trace`/`chan_pub_exec_race_free` (the write happens after the spawn, so
+  only the send/recv edge can publish it).
+- **Closed-form discipline**: `HandoffDisciplined` (every conflicting pair is same
+  goroutine or one po·sync·po handoff) ⇒ `Owned` ⇒ race-free
+  (`handoff_disciplined_owned`), unifying `locprivate_handoff_disciplined` and
+  `handoff_trace_disciplined`.
+- **ABSTRACT OWNERSHIP-TRANSFER RACE-FREEDOM (the general theorem)**: ONE `rstep`
+  induction (`owned_step_snoc` ← `AcqConn`/`owned_step_by_owner` ← the linear
+  region-threading typing `WTf flp` ← `RegionInvF`+`BufLinF`+`OwnerLive` ←
+  `region_inv_f_step` ← `region_inv_f_race_free`) makes ALL THREE Go
+  ownership-transfer mechanisms — pointer-handoff, spawn-split, signal-handoff —
+  race-free for arbitrary programs and ALL interleavings. Witnesses: `witness`/`relay`,
+  `splitw`/`fork`, `sig`, `combo`/`fcombo`; subsumption `mp_subsumed_by_general` /
+  `xfer_subsumed_by_general`; NON-VACUITY `region_inv_rejects_race` +
+  `wt_rejects_unowned_*`. Axiom-free AND funext-free. IO-LIFT: the channel fragment
+  connects to extractable Go (`mp_g0_denotes`/`mp_end_to_end`); the spawn fragment lives
+  on `rstep` only (`go_spawn` has no `run_io` law — the documented strategic fork).
+**Trace model** — `hbt_irrefl`: for ANY well-formed trace (synchronisation recorded by
+back-pointers), happens-before is a strict partial order (trace position is a linear
+extension — `hbt_forward`). Race freedom: `trace_ordered_no_race` + `mp_trace_race_free`.
+**Operational semantics** — every step appends an event under the `BufOk` invariant
+(`step_preserves_inv`), so `reachable_wf`: EVERY reachable trace is well-formed;
+composed: `reachable_hb_strict` — the happens-before of any real execution is a strict
+partial order, earned by execution.
+**Calculus ↔ `run_io` bridge (Keystone)** — `Cmd` deep-embeds an IO program; `Denotes`
+relates it to `run_io`; `denote_sim_send`/`recv`/`write`/`read` +
+`denote_adequate` (single-goroutine adequacy). Multi-goroutine: `wmatchc_step` keeps the
+calculus channel state matched to the `World` via the channel frame THEOREMS;
+`reachable_refines_and_safe` bundles refinement with race-freedom.
+**Deadlock** — characterized (`rstuck_blocked`: someone unfinished, every live goroutine
+finished or blocked on an empty-channel receive) and freedom PROVEN for RECEIVE-FREE
+programs (`reachable_recvfree_progress`); disciplined freedom for receiving programs is
+the liveness frontier.
+**Other go.dev/ref/mem subsections:** Initialization — N/A (single `package main`, no
+imports, no user `init`). Goroutine destruction — faithful BY OMISSION (the spec mandates
+NO exit edge; we add none) ✓. Locks/Once/Atomics — need `sync` imports, ✗ deferred.
 
-**Still open (the honest formal gaps the model does NOT yet cover):**
-- **The READ-OBSERVATION rule (Requirement 3 / the write-map `W(r)`, "visible") — the
-  spec's CORE memory semantics — is ✗ unmodeled.**  We prove the race-freedom COROLLARY
-  (`hb`-ordered ⇒ no race) but not *which* write a read observes: there is no `W(r)`, no
-  "visible write" (`w` hb `r`, and `w` hb no other write to `x` that hb `r`).  So the
-  guarantee proven is "races are absent under the ownership discipline", not "a read
-  returns the latest hb-preceding write" — the spec's actual definition of memory.
-- **Implementation Restrictions (no-out-of-thin-air; word-tearing of multi-word
-  interface/slice/map/string headers) — ✗ unmodeled.**  These are bounded-race
-  guarantees for *racy* programs; we reason only about race-FREE programs, so they are
-  out of the modeled fragment (tracked).
-- **`sequenced before` is modeled as a TOTAL per-goroutine order** (same goroutine,
-  earlier trace position), STRONGER than the spec's *partial* sequenced-before (which
-  inherits the language spec's evaluation-order, leaving some intra-goroutine operations
-  unordered).  Sound for the straight-line traces we generate; a faithful partial
-  sequenced-before is a tracked refinement.
-- the heap analogue of the frame law (ref separation, to mix memory + channels under
-  interleaving); the FIFO refinement (kth recv ↔ kth send pairing); disciplined
-  deadlock-freedom for receiving programs; and the unverified plugin lowering
-  (`Cmd` ↔ extracted Go).
+**Still open (honest gaps):**
+- **The READ-OBSERVATION rule (`W(r)`) — ✓ SCOPED under `Owned`:** the model is
+  operationally sequentially consistent, so the observed writer is BY CONSTRUCTION the
+  trace-last write before the read (`last_write_before`, `last_write_before_spec`);
+  `visible_write_hb_maximal` proves that under the ownership discipline this operational
+  `W(r)` happens-before the read and is hb-MAXIMAL among prior writes — the
+  DRF visible-write condition, proved constructively.  REMAINING gap: no visible-write
+  semantics outside `Owned` (racy programs), and no per-read `W(r)` in the spec's full
+  relational generality.
+- **Implementation Restrictions (no-out-of-thin-air; word-tearing) — ✗ unmodeled**
+  (bounded-race guarantees for racy programs; we reason only about race-free ones).
+- **`sequenced before` is modeled as a TOTAL per-goroutine order** — stronger than the
+  spec's partial one; sound for the straight-line traces generated; a faithful partial
+  order is a tracked refinement.
+- The heap analogue of the frame law; the FIFO refinement (kth recv ↔ kth send);
+  disciplined deadlock-freedom for receiving programs; the unverified plugin lowering.
 
 ## Bounds-panic payload (2026-07-02)
 

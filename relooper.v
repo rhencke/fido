@@ -1,39 +1,21 @@
 (** * Verified relooping — a first slice of plugin gap #10.
 
-    Fido's extraction plugin lowers a CONTROL-FLOW GRAPH (basic blocks + conditional gotos — the
-    "goto-CFG substrate" that [select]/[defer] also factor onto) into STRUCTURED Go control flow
-    (if/for/break).  That lowering — the relooper — is the most intricate, most error-prone part of
-    the (trusted, UNVERIFIED) plugin: nothing today relates the structured Go it emits to the CFG it
-    started from (PROGRESS.md gap #10).
+    A CFG (basic blocks + conditional gotos) with a real operational semantics, a
+    structured target (if/loop/break) with its semantics, and proofs that the lowering is
+    SEMANTICS-PRESERVING.  A *reference* model — it does NOT verify the OCaml plugin's
+    relooper (nothing relates the plugin's emitted Go to its CFG; gap #10), but it is the
+    spec that lowering can eventually be checked against.
 
-    This file is the FIRST VERIFIED SLICE of that relationship, done entirely in Rocq: a CFG with a
-    real operational semantics, a structured target with its semantics, and a proof that the lowering
-    is SEMANTICS-PRESERVING.  It is a *reference* model — it does NOT verify the OCaml plugin itself
-    (that needs reflecting the OCaml into Rocq), but it establishes that the transformation CAN be
-    verified, gives the correctness method (compositional "realizes" combinators), and is a spec the
-    plugin can eventually be checked against.
-
-    SCOPE (honest):
-    (1) ACYCLIC, duplicating: the [Realizes] combinators + [diamond_realized] (join duplicated into
-        both branches — the simplest correct lowering).
-    (2) CYCLIC → LOOPS (the genuinely hard part): a relational [seval] with [LLoop]/[LBreak], and
-        [while_realized] — the canonical while-loop CFG (back-edge) lowered to [loop { … break }],
-        proved by INDUCTION ON THE [cfg_halts] DERIVATION (the loop-iteration count).
-    (3) ACYCLIC, GENERAL + NO-duplication: a run-to-a-LABEL semantics [runs_to] and the key
-        [runs_to_halts] (region-reaches-join ∘ join-reaches-HALT, UNCONDITIONAL — the trick that
-        dodges the join-revisit hazard), giving compositional combinators [realize_seq]/
-        [realizeTo_goto]/[realizeTo_if] and [diamond_general] — the diamond re-lowered with the join
-        emitted ONCE.  These are the per-step SOUNDNESS for an arbitrary acyclic relooper.
-    (4) The acyclic relooper as an ALGORITHM: [reloop fuel g l] (fuel-bounded, so total without a
-        well-founded order — returns [None] on a cycle/out-of-fuel, [Some S] otherwise) with SOUNDNESS
-        [reloop_correct] (every [Some S] realizes the CFG), exercised end-to-end by
-        [diamond_reloop_correct] (the function COMPUTES the diamond's lowering, certified correct), and
-        COMPLETENESS [reloop_complete]/[reloop_total_correct] — a [Ranked g rank] witness (a measure
-        dropping along every edge = acyclicity) gives fuel [rank l + 1] that SUCCEEDS, so on any
-        acyclic CFG [reloop] is TOTAL ∧ SOUND ∧ COMPLETE ([diamond_reloops] instantiates it).
-    All axiom-free.  STILL OPEN: folding LOOPS into the function (it currently refuses back-edges — the
-    loop CORE is proved separately, [while_realized]), and connecting to the actual emitted Go AST.
-    Proof-only: emits no Go. *)
+    SCOPE: (1) acyclic duplicating combinators ([Realizes], [diamond_realized]);
+    (2) cyclic → LOOPS ([seval] with [LLoop]/[LBreak]; [while_realized]);
+    (3) acyclic general no-duplication ([runs_to], [runs_to_halts], [realize_seq]/
+        [realizeTo_goto]/[realizeTo_if], [diamond_general] — join emitted ONCE);
+    (4) the acyclic relooper as an ALGORITHM: [reloop fuel g l] (fuel-bounded, total;
+        [None] on cycle/out-of-fuel) — SOUND ([reloop_correct]) and COMPLETE
+        ([reloop_complete]/[reloop_total_correct]: a [Ranked g rank] acyclicity witness
+        gives sufficient fuel).
+    All axiom-free.  STILL OPEN: folding LOOPS into the function; connecting to the
+    emitted Go AST.  Proof-only: emits no Go. *)
 
 From Stdlib Require Import List Lia Arith Wf_nat.
 Import ListNotations.

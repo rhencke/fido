@@ -15,26 +15,24 @@ Open Scope string_scope.
     ===== TYPE-CATEGORY: ptype classifier (PTy + numeric/conversion combinators) =====
     =================================================================================================== *)
 
-(** ★TOP INVARIANT — [ptype] is a CONSERVATIVE SUPPORTED-SUBSET classifier, NOT Go's typechecker.  It is NOT
-    proven complete or sound (no [ptype]-vs-Go theorem — that is GoSem's job); it admits a SUBSET and REJECTS
-    anything it cannot classify as clearly supported, so it OVER-REJECTS much valid Go.  It is value-aware ONLY
-    for the NUMERIC value-carrying categories ([PtIntConst]/[PtTIntConst]/[PtFloatConst]): a numeric constant
-    carries its VALUE (a [Z]; a float const an exact DYADIC [m * 2^e]) — so overflow / div-or-shift-by-zero are decided from the folded value,
-    transitively through all-constant NUMERIC conversions/binops (a numeric-const conversion folds to a typed
-    numeric const) — and a typed numeric const ALSO carries its [GoTy] (mixed-width arithmetic + out-of-range
-    typed results rejected); a runtime numeric carries only its [GoTy].  ANTI-REGRESSION (all-constant NUMERIC
-    ops): they preserve/fold the value or are REJECTED — never silently yielding a runtime category while
-    dropping it; a MIXED const/runtime numeric op becomes runtime BY CONSTRUCTION (the result is not constant,
-    so the constant operand's value is legitimately no longer tracked).  ⚠ STRING and BOOL constants are NOT
-    value-carrying ([PtStr]/[PtBool] hold no value): ["a"+"b"] and [string(65)] are a value-LESS [PtStr], so a
-    form NEEDING the folded value fail-CLOSES — [len("a"+"b")] / [len(string(65))] are VALID Go that Fido
-    REJECTS (the string value is not folded), pinned in [GoSafe.valid_unsupported_programs] (NOT [bad_programs],
-    which holds INVALID Go — e.g. their [int8(len(...)+200)] overflow companions).  A FREE identifier is
-    REJECTED (no-declaration model — a bare [x] is undefined); the sole predeclared value-ident [nil] ([PtNil])
-    is admitted only inside a slice/chan conversion.  A new [ptype] rule lands ONLY if it rejects a real
-    accepted-bad closed program or admits an intentionally supported demo; the deliberately relied-on
-    closed-invalid classes are PINNED in [GoSafe.bad_programs] (CURATED fixtures — NOT an exhaustive
-    ptype-rejection theorem; the broad catch-all arms reject far more than is pinned). *)
+(** ★TOP INVARIANT — [ptype] is a CONSERVATIVE SUPPORTED-SUBSET classifier, NOT Go's
+    typechecker: no [ptype]-vs-Go theorem (that is GoSem's job); it REJECTS anything not
+    clearly supported, over-rejecting much valid Go.  Value-aware ONLY for the NUMERIC
+    constant categories ([PtIntConst]/[PtTIntConst]/[PtFloatConst]): a numeric constant
+    carries its VALUE (a [Z]; floats an exact DYADIC [m * 2^e]) so overflow /
+    div-or-shift-by-zero are decided from the folded value, transitively through
+    all-constant numeric conversions/binops; a typed const also carries its [GoTy]
+    (mixed-width + out-of-range rejected); a runtime numeric carries only its [GoTy].
+    ANTI-REGRESSION: an all-constant numeric op preserves/folds the value or is REJECTED —
+    never silently a runtime category; a MIXED const/runtime op is runtime BY CONSTRUCTION.
+    ⚠ STRING/BOOL constants are NOT value-carrying: a form needing the folded value
+    fail-CLOSES ([len("a"+"b")] is valid Go that Fido rejects — pinned in
+    [GoSafe.valid_unsupported_programs]; [bad_programs] holds INVALID Go).  A FREE
+    identifier is REJECTED (no-declaration model); [nil] ([PtNil]) is admitted only inside
+    a slice/chan conversion.  A new [ptype] rule lands ONLY if it rejects a real
+    accepted-bad closed program or admits an intentionally supported demo; relied-on
+    closed-invalid classes are PINNED in [GoSafe.bad_programs] (curated fixtures, not an
+    exhaustive rejection theorem). *)
 (** ---- DYADIC float-constant values ---- a typed float CONSTANT carries the EXACT value [m * 2^e]
     ([m e : Z], NORMALIZED: [m = 0 -> e = 0], else [m] odd) — the same shape as the model's
     [S754_finite s m e] (spec_float IS ±m·2^e), so GoSem's [box_float] renders it without translation.
@@ -690,32 +688,24 @@ Definition map_key_vals : list (GExpr * GExpr) -> list Z := map_key_vals_with pt
 
 
 
-(** STRUCTURALLY-supported VALUE expression — [ptype] accepts it (well-typed by REFINED category).  So a closed
-    type-error is REJECTED — not just the shape errors ([len(1)] / [1 && 2] / [int([]int{1})] / a map literal
-    with a non-comparable key [map[[]int]int{..}], a non-representable element [map[int]uint8{1:300}], or
-    duplicate constant keys [map[int]int{1:2,1:3}]) but the numeric/structural ones too ([float64(1) % float64(2)],
-    [uint8(300)], [uint8(int(300))], [1/int(0)], [int64(3)+int32(2)], slice/bool comparison, [cap(string(x))],
-    [chan int([]int{1})]) — AND, now, FREE identifiers (a bare [x] is undefined in the no-declaration model —
-    [ptype (EId _) = None]).  Accepted: [EInt], well-typed binops/unops/conversions, [len] of a string LITERAL
-    (folds to the constant byte count) or of an aggregate — slice/chan [PtAgg] OR map [PtMap] — (a runtime int),
-    [cap] of a slice/chan aggregate ONLY ([PtAgg]; NOT a map — Go forbids [cap] of a map), a slice literal
-    whose element type is [goty_supported] and whose elements are ASSIGNABLE to it, an INTEGER-indexed access into an INTEGER slice literal
-    ([]int{..}[i] — a runtime int; a NEGATIVE constant index is REJECTED (gc compile error), as is one not
-    representable in Fido's CONSERVATIVE 32-bit [GTInt] (fail-CLOSED: a huge index valid only on a 64-bit gc is
-    over-rejected, NOT an exact gc boundary), but an OOB positive constant is VALID Go (a run-time panic) so
-    SUPPORTED, and a RUNTIME index's bounds are behavioral), and an INTEGER-key map LITERAL whose value TYPE is
-    [goty_supported], constant keys assignable to the key type and DISTINCT, values assignable to the value type (a map is a value and
-    [len]-able but not [cap]-able; the [map[K]V(x)] CONVERSION stays quarantined — the valid
-    [map[int]int(nil)] pinned in [GoSafe.valid_unsupported_programs]; the whole unsupported-target class
-    sealed by [GoSafe.ctmap_conv_unsupported_target_rejected]).  ([len] of a NON-literal string — e.g. [len(string(65))] — is REJECTED: its const
-    byte-length is not folded here.)  ★[PtNil] (the predeclared [nil]) is NOT a value:
-    a bare [_ = nil] is "use of untyped nil" (invalid) — [svalue (EId "nil") = false]; [nil] is a value ONLY
-    inside a slice/chan conversion ([[]int(nil)], which [ptype] gives [PtAgg]).  ★UNTYPED-CONSTANT DEFAULT-[int]
-    BOUNDARY: where a bare UNTYPED int constant is USED as a value (e.g. [_ = <untyped const>], or
-    [panic(<untyped const>)] whose [interface{}] arg fixes the default type), Go gives it the default type [int]
-    — so the value must FIT in [int].  We require it fit the CONSERVATIVE 32-bit range (sound on every Go target),
-    so [_ = <a 40-bit const>] is REJECTED while [_ = 1] is admitted.  (A TYPED constant [PtTIntConst] was already
-    range-checked at its conversion.) *)
+(** STRUCTURALLY-supported VALUE expression — [ptype] accepts it (well-typed by REFINED
+    category).  Closed type errors of the PINNED classes are rejected — shape errors,
+    numeric/structural errors, FREE identifiers ([ptype (EId _) = None]) — fixture-backed
+    in [GoSafe.bad_programs], NOT a universal rejection theorem.  Accepted: [EInt], well-typed
+    binops/unops/conversions; [len] of a string LITERAL (folds to the byte count) or of a
+    slice/chan/map aggregate; [cap] of a slice/chan aggregate ONLY (Go forbids [cap] of a
+    map); a slice literal with [goty_supported] element type and ASSIGNABLE elements; an
+    INTEGER-indexed access into an INTEGER slice literal (a NEGATIVE constant index is
+    rejected — gc compile error; one beyond the CONSERVATIVE 32-bit [GTInt] is
+    over-rejected fail-closed; an OOB POSITIVE constant is VALID Go — run-time panic — so
+    supported); an INTEGER-key map LITERAL with [goty_supported] value type, DISTINCT
+    assignable constant keys, assignable values ([map[K]V(x)] conversions stay quarantined
+    — sealed by [GoSafe.ctmap_conv_unsupported_target_rejected]).  [len] of a NON-literal
+    string is rejected (its const length is not folded here).  ★[PtNil] is NOT a value —
+    bare [_ = nil] is "use of untyped nil"; [nil] is a value only inside a slice/chan
+    conversion.  ★DEFAULT-[int] BOUNDARY: a bare untyped int constant used as a value must
+    fit the CONSERVATIVE 32-bit range (sound on every Go target); a typed constant was
+    already range-checked at its conversion. *)
 (** The VALUE-position discipline as a CATEGORY predicate (shared by the closed [svalue] and the
     scope-aware statement checks — one per-category authority, no twin spelling): a bare untyped
     int constant must fit the conservative default [int]; a bare [nil] is "use of untyped nil";
