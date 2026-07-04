@@ -45,12 +45,15 @@ let compOpp = function
 type 'a sig0 = 'a
   (* singleton inductive, whose constructor was exist *)
 
-(** val add : nat -> nat -> nat **)
+module Coq__1 = struct
+ (** val add : nat -> nat -> nat **)
 
-let rec add n0 m =
-  match n0 with
-  | O -> m
-  | S p -> S (add p m)
+ let rec add n0 m =
+   match n0 with
+   | O -> m
+   | S p -> S (add p m)
+end
+include Coq__1
 
 (** val mul : nat -> nat -> nat **)
 
@@ -165,6 +168,52 @@ module Pos =
   | XO p -> XI p
   | XH -> XO XH
 
+  (** val add : positive -> positive -> positive **)
+
+  let rec add x y =
+    match x with
+    | XI p ->
+      (match y with
+       | XI q -> XO (add_carry p q)
+       | XO q -> XI (add p q)
+       | XH -> XO (succ p))
+    | XO p ->
+      (match y with
+       | XI q -> XI (add p q)
+       | XO q -> XO (add p q)
+       | XH -> XI p)
+    | XH -> (match y with
+             | XI q -> XO (succ q)
+             | XO q -> XI q
+             | XH -> XO XH)
+
+  (** val add_carry : positive -> positive -> positive **)
+
+  and add_carry x y =
+    match x with
+    | XI p ->
+      (match y with
+       | XI q -> XI (add_carry p q)
+       | XO q -> XO (add_carry p q)
+       | XH -> XI (succ p))
+    | XO p ->
+      (match y with
+       | XI q -> XO (add_carry p q)
+       | XO q -> XI (add p q)
+       | XH -> XO (succ p))
+    | XH ->
+      (match y with
+       | XI q -> XI (succ q)
+       | XO q -> XO (succ q)
+       | XH -> XI XH)
+
+  (** val pred_double : positive -> positive **)
+
+  let rec pred_double = function
+  | XI p -> XI (XO p)
+  | XO p -> XI (pred_double p)
+  | XH -> XH
+
   (** val compare_cont : comparison -> positive -> positive -> comparison **)
 
   let rec compare_cont r x y =
@@ -188,6 +237,20 @@ module Pos =
   let compare =
     compare_cont Eq
 
+  (** val eqb : positive -> positive -> bool **)
+
+  let rec eqb p q =
+    match p with
+    | XI p0 -> (match q with
+                | XI q0 -> eqb p0 q0
+                | _ -> False)
+    | XO p0 -> (match q with
+                | XO q0 -> eqb p0 q0
+                | _ -> False)
+    | XH -> (match q with
+             | XH -> True
+             | _ -> False)
+
   (** val iter_op : ('a1 -> 'a1 -> 'a1) -> positive -> 'a1 -> 'a1 **)
 
   let rec iter_op op p a =
@@ -199,7 +262,7 @@ module Pos =
   (** val to_nat : positive -> nat **)
 
   let to_nat x =
-    iter_op add x (S O)
+    iter_op Coq__1.add x (S O)
 
   (** val of_succ_nat : nat -> positive **)
 
@@ -413,6 +476,122 @@ let rec append s1 s2 =
 
 module Z =
  struct
+  (** val double : z -> z **)
+
+  let double = function
+  | Z0 -> Z0
+  | Zpos p -> Zpos (XO p)
+  | Zneg p -> Zneg (XO p)
+
+  (** val succ_double : z -> z **)
+
+  let succ_double = function
+  | Z0 -> Zpos XH
+  | Zpos p -> Zpos (XI p)
+  | Zneg p -> Zneg (Pos.pred_double p)
+
+  (** val pred_double : z -> z **)
+
+  let pred_double = function
+  | Z0 -> Zneg XH
+  | Zpos p -> Zpos (Pos.pred_double p)
+  | Zneg p -> Zneg (XI p)
+
+  (** val pos_sub : positive -> positive -> z **)
+
+  let rec pos_sub x y =
+    match x with
+    | XI p ->
+      (match y with
+       | XI q -> double (pos_sub p q)
+       | XO q -> succ_double (pos_sub p q)
+       | XH -> Zpos (XO p))
+    | XO p ->
+      (match y with
+       | XI q -> pred_double (pos_sub p q)
+       | XO q -> double (pos_sub p q)
+       | XH -> Zpos (Pos.pred_double p))
+    | XH ->
+      (match y with
+       | XI q -> Zneg (XO q)
+       | XO q -> Zneg (Pos.pred_double q)
+       | XH -> Z0)
+
+  (** val add : z -> z -> z **)
+
+  let add x y =
+    match x with
+    | Z0 -> y
+    | Zpos x' ->
+      (match y with
+       | Z0 -> x
+       | Zpos y' -> Zpos (Pos.add x' y')
+       | Zneg y' -> pos_sub x' y')
+    | Zneg x' ->
+      (match y with
+       | Z0 -> x
+       | Zpos y' -> pos_sub y' x'
+       | Zneg y' -> Zneg (Pos.add x' y'))
+
+  (** val opp : z -> z **)
+
+  let opp = function
+  | Z0 -> Z0
+  | Zpos x0 -> Zneg x0
+  | Zneg x0 -> Zpos x0
+
+  (** val sub : z -> z -> z **)
+
+  let sub m n0 =
+    add m (opp n0)
+
+  (** val compare : z -> z -> comparison **)
+
+  let compare x y =
+    match x with
+    | Z0 -> (match y with
+             | Z0 -> Eq
+             | Zpos _ -> Lt
+             | Zneg _ -> Gt)
+    | Zpos x' -> (match y with
+                  | Zpos y' -> Pos.compare x' y'
+                  | _ -> Gt)
+    | Zneg x' ->
+      (match y with
+       | Zneg y' -> compOpp (Pos.compare x' y')
+       | _ -> Lt)
+
+  (** val leb : z -> z -> bool **)
+
+  let leb x y =
+    match compare x y with
+    | Gt -> False
+    | _ -> True
+
+  (** val eqb : z -> z -> bool **)
+
+  let eqb x y =
+    match x with
+    | Z0 -> (match y with
+             | Z0 -> True
+             | _ -> False)
+    | Zpos p -> (match y with
+                 | Zpos q -> Pos.eqb p q
+                 | _ -> False)
+    | Zneg p -> (match y with
+                 | Zneg q -> Pos.eqb p q
+                 | _ -> False)
+
+  (** val max : z -> z -> z **)
+
+  let max n0 m =
+    match compare n0 m with
+    | Lt -> m
+    | _ -> n0
+ end
+
+module Coq_Z =
+ struct
   (** val compare : z -> z -> comparison **)
 
   let compare x y =
@@ -442,6 +621,35 @@ module Z =
   | Zpos p -> Npos p
   | _ -> N0
  end
+
+(** val emin : z -> z -> z **)
+
+let emin prec emax =
+  Z.sub (Z.sub (Zpos (XI XH)) emax) prec
+
+(** val fexp : z -> z -> z -> z **)
+
+let fexp prec emax e =
+  Z.max (Z.sub e prec) (emin prec emax)
+
+(** val digits2_pos : positive -> positive **)
+
+let rec digits2_pos = function
+| XI p -> Pos.succ (digits2_pos p)
+| XO p -> Pos.succ (digits2_pos p)
+| XH -> XH
+
+(** val canonical_mantissa : z -> z -> positive -> z -> bool **)
+
+let canonical_mantissa prec emax m e =
+  Z.eqb (fexp prec emax (Z.add (Zpos (digits2_pos m)) e)) e
+
+(** val bounded : z -> z -> positive -> z -> bool **)
+
+let bounded prec emax m e =
+  match canonical_mantissa prec emax m e with
+  | True -> Z.leb e (Z.sub emax prec)
+  | False -> False
 
 (** val is_idc : ascii -> bool **)
 
@@ -824,7 +1032,7 @@ type hexZ = z
 (** val hexz_ok : z -> bool **)
 
 let hexz_ok z0 =
-  Z.leb Z0 z0
+  Coq_Z.leb Z0 z0
 
 type goTy =
 | GTInt
@@ -1284,6 +1492,12 @@ let print_hex n0 =
     False)), (String ((Ascii (False, False, False, True, True, True, True,
     False)), EmptyString)))) (print_hex_body n0)
 
+(** val f64_bounded : positive -> z -> bool **)
+
+let f64_bounded m e =
+  bounded (Zpos (XI (XO (XI (XO (XI XH)))))) (Zpos (XO (XO (XO (XO (XO (XO
+    (XO (XO (XO (XO XH))))))))))) m e
+
 (** val print_float_hex : bool -> n -> z -> string **)
 
 let print_float_hex sign mant exp =
@@ -1634,4 +1848,4 @@ let rec gprint ctx = function
         (String ((Ascii (True, False, True, True, True, True, True, False)),
         EmptyString))))
 | EStr s -> print_string_lit s
-| EHex zc -> print_hex (Z.to_N zc)
+| EHex zc -> print_hex (Coq_Z.to_N zc)

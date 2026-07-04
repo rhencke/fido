@@ -24,7 +24,7 @@
     gap #10), and the plugin → emitted-bytes path also has a trusted [gofmt] post-step (see the Makefile).
     This file proves NO behavioral safety. *)
 
-From Stdlib Require Import String List Ascii ZArith Lia Bool Eqdep_dec.
+From Stdlib Require Import String List Ascii ZArith Lia Bool Eqdep_dec Floats.SpecFloat.
 Import ListNotations.
 Open Scope string_scope.
 
@@ -779,6 +779,12 @@ Qed.
 (** ---- FLOAT-HEX LITERAL ---- the IEEE [spec_float] finite value ±m·2^e emits as Go's hex float
     [±0x<m>p<e>], assembling the verified mantissa/exponent printers ([print_hex] / [print_Z]).
     [sign] = sign, [mant] = mantissa (rendered hex), [exp] = exponent (signed decimal). *)
+(** binary64 VALIDITY of a finite (mantissa, exponent) — SpecFloat's own [bounded] (canonical
+    mantissa + exponent bound), extracted so the trusted plugin gates a raw [S754_finite]
+    literal against the MODEL's canonical-carrier invariant with the VERIFIED checker (one
+    authority — no hand-rolled approximation in OCaml). *)
+Definition f64_bounded (m : positive) (e : Z) : bool := bounded 53 1024 m e.
+
 Definition print_float_hex (sign : bool) (mant : N) (exp : Z) : string :=
   ((if sign then "-" else "") ++ print_hex mant ++ "p" ++ print_Z exp)%string.
 
@@ -5483,4 +5489,4 @@ Print Assumptions print_program_inj.
 Require Import Extraction.
 Extraction Language OCaml.
 Set Extraction Output Directory ".".
-Extraction "printer.ml" print_ty print_Z print_string_lit print_hex print_float_hex print_sep nominal_type_ident go_ident hexz_ok binop_prec binop_text gprint.
+Extraction "printer.ml" print_ty print_Z print_string_lit print_hex print_float_hex f64_bounded print_sep nominal_type_ident go_ident hexz_ok binop_prec binop_text gprint.
