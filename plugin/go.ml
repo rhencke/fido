@@ -623,7 +623,7 @@ let classify_go_type_tag r =
 
 (** Recursive tag → Go type string.  Handles composite tags (TChan, TSlice, TMap)
     by recursing into their argument tags. *)
-(* ── Bridge to the VERIFIED, Rocq-extracted printer (GoAst.v + GoPrint.v → printer.ml, module [Printer]) ──
+(* ── Bridge to the VERIFIED, Rocq-extracted printer (digits.v + GoAst.v + GoPrint.v → printer.ml, module [Printer]) ──
    [coq_string_to_ocaml] crosses the Coq-string ↔ OCaml-string boundary; [coq_goty_of_tag] builds
    the [Printer.goTy] for every renderable tag (scalars incl. the fixed widths, nominal struct tags
    via [mk_named_ty], ptr/slice/chan/map compositions) and [Printer.print_ty] ([print_ty_inj]
@@ -2939,6 +2939,11 @@ let rec pp_expr state env = function
         (match Hashtbl.find_opt method_expr_recv (global_path r) with
          | Some recvty -> str recvty ++ str "." ++ str (go_export (global_basename r))
          | None -> unsupported "a GENERIC-receiver method used as a bare value — Go's method expression needs a CONCRETE instantiation (Box[int].M), which the erased type does not carry")
+      (* the SEAL on the suppressed [Fido.digits] module: its decls are never emitted
+         (model/printer-only), so a LIVE reference here would print an UNDEFINED Go
+         identifier — fail loud instead. *)
+      else if from_digits r then
+        unsupported ("a live reference to the model/printer-only decimal authority (digits." ^ global_basename r ^ ") — its declarations are never emitted as Go")
       (* the SEAL on stdlib liveness: an identifier about to print must have an emitted
          definition — a stdlib ref that is not (live && present-in-structure) here would
          be an undefined Go name (every by-name lowering was tried above/at callers). *)

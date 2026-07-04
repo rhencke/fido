@@ -87,7 +87,7 @@ axiom-authority-selftest:
 # — sidesteps the build circularity, since the plugin links printer.ml extracted FROM GoPrint.v) and assert
 # ZERO axioms. Leaves the freshly-extracted printer.ml in the CWD for the caller. Recursively-expanded (=) so
 # each user inlines it into a single recipe line.
-GOPRINT_GATE = { rocq c -Q . Fido digits.v && rocq c -Q . Fido GoAst.v > /tmp/printer.log 2>&1 && rocq c -Q . Fido GoPrint.v >> /tmp/printer.log 2>&1; } || { echo "fido: GoAst.v/GoPrint.v failed to compile:"; cat /tmp/printer.log; exit 1; }; \
+GOPRINT_GATE = { rocq c -Q . Fido digits.v && rocq c -Q . Fido GoAst.v > /tmp/printer.log 2>&1 && rocq c -Q . Fido GoPrint.v >> /tmp/printer.log 2>&1; } || { echo "fido: digits.v/GoAst.v/GoPrint.v failed to compile:"; cat /tmp/printer.log; exit 1; }; \
 	if grep -q '^Axioms:' /tmp/printer.log; then \
 	  echo "fido: VERIFIED-PRINTER AXIOM/ADMITTED — a GoAst/GoPrint theorem depends on an axiom (Print Assumptions):"; \
 	  cat /tmp/printer.log; rm -f digits.vo digits.glob .digits.aux GoAst.vo GoAst.glob .GoAst.aux GoPrint.vo GoPrint.glob .GoPrint.aux printer.ml; exit 1; \
@@ -96,7 +96,7 @@ GOPRINT_CLEAN = rm -f digits.vo digits.glob .digits.aux GoAst.vo GoAst.glob .GoA
 
 # Gate for the BLESSED-EMISSION spine: compile GoAst/GoPrint/GoTypes/GoSafe/GoEmit standalone (dependency
 # order) and assert ZERO axioms across the whole trust base. Separate from GOPRINT_GATE (printer.ml-only).
-GOEMIT_GATE = { rocq c -Q . Fido digits.v && rocq c -Q . Fido GoAst.v > /tmp/emit.log 2>&1 && rocq c -Q . Fido GoPrint.v >> /tmp/emit.log 2>&1 && rocq c -Q . Fido GoTypes.v >> /tmp/emit.log 2>&1 && rocq c -Q . Fido GoSafe.v >> /tmp/emit.log 2>&1 && rocq c -Q . Fido GoEmit.v >> /tmp/emit.log 2>&1; } || { echo "fido: GoAst/GoPrint/GoTypes/GoSafe/GoEmit failed to compile:"; cat /tmp/emit.log; exit 1; }; \
+GOEMIT_GATE = { rocq c -Q . Fido digits.v && rocq c -Q . Fido GoAst.v > /tmp/emit.log 2>&1 && rocq c -Q . Fido GoPrint.v >> /tmp/emit.log 2>&1 && rocq c -Q . Fido GoTypes.v >> /tmp/emit.log 2>&1 && rocq c -Q . Fido GoSafe.v >> /tmp/emit.log 2>&1 && rocq c -Q . Fido GoEmit.v >> /tmp/emit.log 2>&1; } || { echo "fido: digits/GoAst/GoPrint/GoTypes/GoSafe/GoEmit failed to compile:"; cat /tmp/emit.log; exit 1; }; \
 	if grep -q '^Axioms:' /tmp/emit.log; then \
 	  echo "fido: SPINE AXIOM/ADMITTED — a GoAst/GoPrint/GoTypes/GoSafe/GoEmit theorem depends on an axiom (Print Assumptions):"; \
 	  cat /tmp/emit.log; exit 1; \
@@ -107,7 +107,7 @@ GOEMIT_CLEAN = rm -f digits.vo digits.glob .digits.aux GoAst.vo GoAst.glob .GoAs
 # dependency: remade only when GoAst.v / GoPrint.v is newer.  The recipe runs the shared gate (compile +
 # zero-axiom) then moves the fresh extraction into place.  Commit plugin/printer.ml afterwards (a GENERATED
 # file, like the *.go); `make check` (Docker) re-derives it and FAILS on drift.
-plugin/printer.ml: GoAst.v GoPrint.v
+plugin/printer.ml: digits.v GoAst.v GoPrint.v
 	@set -e; $(GOPRINT_GATE); \
 	  mv -f printer.ml plugin/printer.ml; rm -f digits.vo digits.glob .digits.aux GoAst.vo GoAst.glob .GoAst.aux GoPrint.vo GoPrint.glob .GoPrint.aux; \
 	  echo "fido: regenerated plugin/printer.ml from GoAst/GoPrint — zero axioms ✓ (commit it, like *.go)"

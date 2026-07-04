@@ -87,4 +87,3 @@ Definition print_Z (z : Z) : string :=
   | Zpos p => print_Z_pos p
   | Zneg p => ("-" ++ print_Z_pos p)%string
   end.
-

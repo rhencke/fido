@@ -117,7 +117,7 @@ COPY --chown=opam:opam negtests/ negtests/
 RUN --mount=type=cache,id=fido-dune,uid=1000,gid=1000,target=/workspace/_build \
     sh plugin/smart-ctor-gate.sh \
     && sh plugin/axiom-authority-selftest.sh \
-    && (rocq c -Q . Fido digits.v > /tmp/printer.log 2>&1 && rocq c -Q . Fido GoAst.v >> /tmp/printer.log 2>&1 && rocq c -Q . Fido GoPrint.v >> /tmp/printer.log 2>&1 || (echo "fido: GoAst.v/GoPrint.v failed to compile:"; cat /tmp/printer.log; exit 1)) \
+    && (rocq c -Q . Fido digits.v > /tmp/printer.log 2>&1 && rocq c -Q . Fido GoAst.v >> /tmp/printer.log 2>&1 && rocq c -Q . Fido GoPrint.v >> /tmp/printer.log 2>&1 || (echo "fido: digits.v/GoAst.v/GoPrint.v failed to compile:"; cat /tmp/printer.log; exit 1)) \
     && if grep -q '^Axioms:' /tmp/printer.log; then \
          echo "fido: VERIFIED-PRINTER AXIOM/ADMITTED — a GoAst/GoPrint theorem depends on an axiom (Print Assumptions):"; \
          cat /tmp/printer.log; exit 1; \
