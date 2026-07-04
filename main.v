@@ -684,7 +684,8 @@ Proof. intro H. exact (H eq_refl). Qed.
 (** LOWERED: [f64_of_fconst] folds the exact rational and emits [float64(num.0 / den.0)]
     (untyped-constant division, single round), which Go re-folds to the same constant. *)
 Definition fconst_demo : IO unit :=
-  println [ any (f64_of_fconst (fc_add (mkFC 1 10) (mkFC 2 10)))    (* (1/10)+(2/10) = 0.3 *)
+  println [ any (f64_of_fconst (mkFC (-9223372036854775808) 1))     (* min_int endpoint FOLDS (the signed subset includes -2^63) *)
+          ; any (f64_of_fconst (fc_add (mkFC 1 10) (mkFC 2 10)))    (* (1/10)+(2/10) = 0.3 *)
           ; any (f64_of_fconst (fc_mul (mkFC 3 2) (mkFC 1 4)))      (* (3/2)·(1/4) = 0.375 *)
           ; any (f64_of_fconst (fc_div (mkFC 1 1) (mkFC 4 1) ltac:(discriminate))) ].   (* 1.0/4.0 = 0.25 *)
 (** float32 COMPARISON → native Go [<]/[>=]/[!=].  NaN corner: [f32_geb] is the swapped

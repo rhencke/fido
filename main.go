@@ -437,7 +437,7 @@ func Floatconv_demo() {
 }
 
 func Fconst_demo() {
-	println(float64(30.0/100.0), float64(3.0/8.0), float64(1.0/4.0))
+	println(float64(-9223372036854775808.0/1.0), float64(30.0/100.0), float64(3.0/8.0), float64(1.0/4.0))
 }
 
 func F32_cmp_demo() {

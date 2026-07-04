@@ -1792,27 +1792,46 @@ let z_value = function
   | _ -> None
 
 (* CHECKED literal parse — for folds whose [Z] fields carry NO upstream range proof (the
-   FConst fold: [mkFC]'s fields are arbitrary-precision [Z]).  A magnitude beyond
-   [2^63 - 1] returns [None] (the fold declines -> fail-loud), never a silent wrap into a
-   wrong value.  ([z_value] above tolerates the [-2^63] wrap corner ONLY because its
-   callers hold an [in_i64]/[in_u64] proof.) *)
-let rec pos_value_chk = function
-  | MLcons (_, r, [])  when String.equal (global_basename r) "xH" -> Some 1L
+   FConst fold: [mkFC]'s fields are arbitrary-precision [Z]).  A magnitude beyond the
+   signed-int64 range returns [None] (the fold declines -> fail-loud), never a silent
+   wrap.  [PMin] is the 2^63 sentinel: rejected as a POSITIVE (does not fit signed
+   int64), accepted under [Zneg] (min_int fits).  ([z_value] above tolerates the wrap
+   corner ONLY because its callers hold an [in_i64]/[in_u64] proof.) *)
+type pmag = PSmall of int64 (* 1 .. 2^63-1 *) | PMin (* exactly 2^63 *)
+let rec pos_mag_chk = function
+  | MLcons (_, r, [])  when String.equal (global_basename r) "xH" -> Some (PSmall 1L)
   | MLcons (_, r, [p]) when String.equal (global_basename r) "xO" ->
-      (match pos_value_chk p with
-       | Some v when Int64.compare v 0x4000000000000000L < 0 -> Some (Int64.mul 2L v)
+      (match pos_mag_chk p with
+       | Some (PSmall v) when Int64.compare v 0x4000000000000000L < 0 -> Some (PSmall (Int64.mul 2L v))
+       | Some (PSmall v) when Int64.equal v 0x4000000000000000L -> Some PMin
        | _ -> None)
   | MLcons (_, r, [p]) when String.equal (global_basename r) "xI" ->
-      (match pos_value_chk p with
-       | Some v when Int64.compare v 0x4000000000000000L < 0 -> Some (Int64.add (Int64.mul 2L v) 1L)
+      (match pos_mag_chk p with
+       | Some (PSmall v) when Int64.compare v 0x4000000000000000L < 0 -> Some (PSmall (Int64.add (Int64.mul 2L v) 1L))
        | _ -> None)
   | _ -> None
+let pos_value_chk p = match pos_mag_chk p with Some (PSmall v) -> Some v | _ -> None
 let z_value_chk = function
   | MLcons (_, r, [])  when String.equal (global_basename r) "Z0"   -> Some 0L
   | MLcons (_, r, [p]) when String.equal (global_basename r) "Zpos" -> pos_value_chk p
   | MLcons (_, r, [p]) when String.equal (global_basename r) "Zneg" ->
-      (match pos_value_chk p with Some v -> Some (Int64.neg v) | None -> None)
+      (match pos_mag_chk p with
+       | Some (PSmall v) -> Some (Int64.neg v)
+       | Some PMin -> Some Int64.min_int   (* Zneg 2^63 = min_int, in range *)
+       | None -> None)
   | _ -> None
+(* a [Z]-LITERAL shape whose checked parse failed is an OUT-OF-RANGE constant, not a
+   non-constant — the reasoned folder's overflow discriminator *)
+let z_literal_shape = function
+  | MLcons (_, r, []) when String.equal (global_basename r) "Z0" -> true
+  | MLcons (_, r, [_]) when String.equal (global_basename r) "Zpos"
+                         || String.equal (global_basename r) "Zneg" -> true
+  | _ -> false
+let p_literal_shape = function
+  | MLcons (_, r, []) when String.equal (global_basename r) "xH" -> true
+  | MLcons (_, r, [_]) when String.equal (global_basename r) "xO"
+                         || String.equal (global_basename r) "xI" -> true
+  | _ -> false
 
 (* Checked signed-int64 arithmetic for CONSTANT-EXPRESSION folding: [None] on overflow, so a
    constant whose INTERMEDIATE exceeds int64 fails loud rather than silently wrapping — Go folds
@@ -1838,15 +1857,23 @@ let chk_shl a n =
    [lxor] of constants) to its int64 value — [None] if not a closed constant or an intermediate
    overflows.  Lets a Go untyped CONSTANT EXPRESSION ([i64_lit (1<<40 + 5)]) extract, not just a
    pre-folded literal.  ([Z] ops matched by basename + a [BinInt] module path.) *)
-let rec z_eval_leaf leaf e =
-  let z_eval = z_eval_leaf leaf in
+(* REASONED [Z] constant folding: [ZVal] a folded value; [ZOver] a CLOSED constant whose
+   literal or checked-arithmetic intermediate exceeds the signed-int64 subset; [ZNonConst]
+   not a closed constant.  A checked-op refusal on FOLDED operands is ALWAYS [ZOver] —
+   never collapsed into non-constant. *)
+type z_result = ZVal of int64 | ZNonConst | ZOver
+let rec z_evalr_leaf leaf e =
+  let ze = z_evalr_leaf leaf in
   match leaf e with
-  | Some v -> Some v
+  | Some v -> ZVal v
   | None ->
     let is_zop name h = match h with
       | MLglob r -> String.equal (global_basename r) name && path_contains r "BinInt"
       | _ -> false in
-    let bin f a b = match z_eval a, z_eval b with Some x, Some y -> f x y | _ -> None in
+    let bin f a b = match ze a, ze b with
+      | ZVal x, ZVal y -> (match f x y with Some v -> ZVal v | None -> ZOver)
+      | ZOver, _ | _, ZOver -> ZOver
+      | _ -> ZNonConst in
     match e with
     | MLapp (h, [a; b]) when is_zop "add"    h -> bin chk_add a b
     | MLapp (h, [a; b]) when is_zop "sub"    h -> bin chk_sub a b
@@ -1856,13 +1883,16 @@ let rec z_eval_leaf leaf e =
     | MLapp (h, [a; b]) when is_zop "lor"    h -> bin (fun x y -> Some (Int64.logor  x y)) a b
     | MLapp (h, [a; b]) when is_zop "lxor"   h -> bin (fun x y -> Some (Int64.logxor x y)) a b
     | MLapp (h, [a])    when is_zop "opp"    h ->
-        (match z_eval a with Some x when x <> Int64.min_int -> Some (Int64.neg x) | _ -> None)
-    | _ -> None
+        (match ze a with
+         | ZVal x when x <> Int64.min_int -> ZVal (Int64.neg x)
+         | ZVal _ | ZOver -> ZOver
+         | ZNonConst -> ZNonConst)
+    | _ -> if z_literal_shape e then ZOver else ZNonConst
 (* the two instantiations: proof-backed callers ([i64_lit]/[u64_lit]/... hold an in-range
-   proof, so the wrap-tolerant leaves are sound) vs the PROOF-FREE FConst fold (checked
-   leaves — out-of-range literals decline the fold). *)
-let z_eval = z_eval_leaf z_value
-let z_eval_chk = z_eval_leaf z_value_chk
+   proof, so the wrap-tolerant leaves are sound and reasons collapse to [option]) vs the
+   PROOF-FREE FConst fold (checked leaves + reasons kept). *)
+let z_eval e = match z_evalr_leaf z_value e with ZVal v -> Some v | _ -> None
+let z_evalr_chk = z_evalr_leaf z_value_chk
 
 (* UNSIGNED constant folding for [u64_lit] — same as [z_eval] but with uint64 semantics: ops
    compute on the int64 BIT PATTERN (two's-complement add/mul = unsigned mod 2^64), and overflow
@@ -1896,37 +1926,44 @@ let rec zu_eval e =
     | MLapp (h, [a; b]) when is_zop "lxor"   h -> bin (fun x y -> Some (Int64.logxor x y)) a b
     | _ -> None
 
-(* Fold a CONSTANT [FConst] expression ([mkFC num den] / [fc_add]/[fc_sub]/[fc_mul]) to its exact
-   rational as an int64 (num, den) pair — [None] if not a closed constant or an intermediate
-   overflows int64 (checked arithmetic).  Backs [f64_of_fconst]'s lowering. *)
+(* Fold a CONSTANT [FConst] expression ([mkFC num den] / [fc_add]/[fc_sub]/[fc_mul]) to its
+   exact rational as an int64 (num, den) pair — a REASONED result: [FcNonConst] (not a closed
+   constant) vs [FcOver] (a genuine CONSTANT whose endpoint/intermediate exceeds the plugin's
+   int64 fold subset — the MODEL is exact for all num/den; the fold refuses rather than wrap).
+   Backs [f64_of_fconst]/[f32_of_fconst]'s lowering. *)
+type fc_result = FcVal of int64 * int64 | FcNonConst | FcOver
 let rec fc_eval e =
+  let chk2 f a b = match fc_eval a, fc_eval b with
+    | FcVal (na, da), FcVal (nb, db) -> f (na, da) (nb, db)
+    | FcOver, _ | _, FcOver -> FcOver
+    | _ -> FcNonConst in
   match e with
   | MLcons (_, r, [num; den]) when named "mkFC" r ->   (* the record CONSTRUCTOR is an MLcons *)
-      (* [fc_den] is a [positive] (Q-style, always >= 1), so the denominator is read with
-         [pos_value], not [z_eval]; it can never fold to 0. *)
-      (match z_eval_chk num, pos_value_chk den with Some n, Some d -> Some (n, d) | _ -> None)
+      (* [fc_den] is a [positive] (Q-style, always >= 1) — read with the CHECKED magnitude
+         parser; it can never fold to 0.  A [PMin] (2^63) denominator is out of the signed
+         subset -> [FcOver]. *)
+      (match z_evalr_chk num, pos_mag_chk den with
+       | ZVal n, Some (PSmall d) -> FcVal (n, d)
+       | ZOver, _ | ZVal _, Some PMin -> FcOver
+       | ZVal _, None -> (if p_literal_shape den then FcOver else FcNonConst)
+       | ZNonConst, _ -> FcNonConst)
   | MLapp (MLglob r, [a; b]) when named "fc_mul" r ->
-      (match fc_eval a, fc_eval b with
-       | Some (na, da), Some (nb, db) ->
-           (match chk_mul na nb, chk_mul da db with Some n, Some d -> Some (n, d) | _ -> None)
-       | _ -> None)
+      chk2 (fun (na, da) (nb, db) ->
+        match chk_mul na nb, chk_mul da db with Some n, Some d -> FcVal (n, d) | _ -> FcOver) a b
   | MLapp (MLglob r, (a :: b :: _)) when named "fc_div" r ->   (* (na/da)/(nb/db) = (na·db)/(da·nb) *)
       (* [fc_div] carries a nonzero-divisor PROOF arg ([hb : fc_num b <> 0]); Coq erases it, but
          match [a :: b :: _] so a residual erased dummy never defeats recognition.  The folded
          value (na·db)/(da·nb) equals the model's sign-normalised (sgn·na·db)/(da·|nb|). *)
-      (match fc_eval a, fc_eval b with
-       | Some (na, da), Some (nb, db) ->
-           (match chk_mul na db, chk_mul da nb with Some n, Some d -> Some (n, d) | _ -> None)
-       | _ -> None)
+      chk2 (fun (na, da) (nb, db) ->
+        match chk_mul na db, chk_mul da nb with Some n, Some d -> FcVal (n, d) | _ -> FcOver) a b
   | MLapp (MLglob r, [a; b]) when named "fc_add" r || named "fc_sub" r ->
-      (match fc_eval a, fc_eval b with
-       | Some (na, da), Some (nb, db) ->
-           let cross = if named "fc_add" r then chk_add else chk_sub in
-           (match chk_mul na db, chk_mul nb da, chk_mul da db with
-            | Some x, Some y, Some d -> (match cross x y with Some n -> Some (n, d) | None -> None)
-            | _ -> None)
-       | _ -> None)
-  | _ -> None
+      let cross = if named "fc_add" r then chk_add else chk_sub in
+      chk2 (fun (na, da) (nb, db) ->
+        match chk_mul na db, chk_mul nb da, chk_mul da db with
+        | Some x, Some y, Some d ->
+            (match cross x y with Some n -> FcVal (n, d) | None -> FcOver)
+        | _ -> FcOver) a b
+  | _ -> FcNonConst
 (* Source-[Z] sign: a [Z0]/[Zpos] is non-negative.  Used to tell a [uint64] literal
    in [2^63, 2^64) (a [Zpos] whose 64-bit pattern looks negative as a signed [Int64])
    apart from a genuine [int64] negative (a [Zneg]). *)
@@ -2620,30 +2657,31 @@ let rec pp_expr state env = function
           [ECall (EId "float32") [x]] in the binop-operand case. *)
        | MLglob r, [x] when is_int_to_f32_ref r ->
            str "float32(" ++ pp_expr state env x ++ str ")"
-       (* [f64_of_fconst c] — an untyped FLOAT CONSTANT: fold the exact rational [num/den] and emit
-          [float64(num.0 / den.0)].  Go computes [num.0 / den.0] as an UNTYPED constant (arbitrary
-          precision), then [float64(…)] rounds ONCE — the correctly-rounded rational→binary64, for ALL
-          num/den (no 2^53 guard: the untyped intermediate is exact, vs the old [float64(num)/float64
-          (den)] which double-rounds when both endpoints exceed 2^53). *)
+       (* [f64_of_fconst c] — an untyped FLOAT CONSTANT: fold the exact rational [num/den] and
+          emit [float64(num.0 / den.0)] (Go's untyped-constant division is arbitrary precision;
+          [float64(…)] rounds ONCE — correctly rounded for every FOLDED constant).  The MODEL is
+          exact for all num/den; the PLUGIN FOLD is bounded to int64-checked
+          endpoints/intermediates — beyond that it fails loud, never a wrapped value. *)
        | MLglob r, [fc] when named "f64_of_fconst" r ->
            (match fc_eval fc with
-            | Some (num, den) when den <> 0L ->
+            | FcVal (num, den) when den <> 0L ->
                 str ("float64(" ^ print_i64_dec num ^ ".0 / " ^ print_i64_dec den ^ ".0)")
-            (* den=0 is now UNREACHABLE: [fc_den] is a [positive] and [fc_div] is nonzero-divisor
-               gated, so a 0 denominator cannot be constructed — this stays as
-               a defensive boundary guard (closed-world tenet), not a reachable fail-loud path. *)
-            | Some _ -> unsupported "f64_of_fconst: den = 0 (a float64 constant cannot be ±Inf)"
-            | None -> unsupported "f64_of_fconst of a non-constant FConst (only statically-known float constants are modeled)")
+            (* den=0 is UNREACHABLE ([fc_den] is a [positive]; [fc_div] nonzero-gated) — a
+               defensive boundary guard, not a reachable fail-loud path. *)
+            | FcVal _ -> unsupported "f64_of_fconst: den = 0 (a float64 constant cannot be ±Inf)"
+            | FcOver -> unsupported "an FConst constant beyond the plugin's int64 fold subset (endpoints/intermediates must fit int64; the MODEL is exact for all num/den) — refusing a wrapped, wrong constant"
+            | FcNonConst -> unsupported "f64_of_fconst of a non-constant FConst (only statically-known float constants are modeled)")
        (* [f32_of_fconst c] — exact FConst → float32: fold the rational and emit [float32(num.0 / den.0)].
           Go computes [num.0 / den.0] as an UNTYPED constant (arbitrary precision), then [float32(…)]
           rounds ONCE — the correctly-rounded rational→binary32 for every FOLDED constant
           (endpoints/intermediates are int64-CHECKED: beyond that the fold declines, fail-loud). *)
        | MLglob r, [fc] when named "f32_of_fconst" r ->
            (match fc_eval fc with
-            | Some (num, den) when den <> 0L ->
+            | FcVal (num, den) when den <> 0L ->
                 str ("float32(" ^ print_i64_dec num ^ ".0 / " ^ print_i64_dec den ^ ".0)")
-            | Some _ -> unsupported "f32_of_fconst: den = 0 (a float32 constant cannot be ±Inf)"
-            | None -> unsupported "f32_of_fconst of a non-constant FConst (only statically-known float constants are modeled)")
+            | FcVal _ -> unsupported "f32_of_fconst: den = 0 (a float32 constant cannot be ±Inf)"
+            | FcOver -> unsupported "an FConst constant beyond the plugin's int64 fold subset (endpoints/intermediates must fit int64; the MODEL is exact for all num/den) — refusing a wrapped, wrong constant"
+            | FcNonConst -> unsupported "f32_of_fconst of a non-constant FConst (only statically-known float constants are modeled)")
        (* [i64_of_f64 f] → [int64(f)] (float64 → int64 truncation toward zero).  As a binop operand and when
           [f] bridges, [goexpr_bridge] now builds [ECall (EId "int64") [f]] and the verified [gprint] emits
           these exact bytes; this arm still serves every other position. *)

@@ -1,4 +1,4 @@
-(* EXPECT: statically-known float constants *)
+(* EXPECT: beyond the plugin's int64 fold subset *)
 (* An [FConst] literal whose numerator exceeds int64 (2^63): the fields carry NO range
    proof, so the plugin's fold must DECLINE (checked literal parse) and extraction abort
    — a wrap-tolerant parse would silently fold a WRONG rational into the emitted Go. *)
