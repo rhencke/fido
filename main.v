@@ -207,11 +207,7 @@ Definition div_demo : IO unit :=
     scientific notation — captured by the golden.) *)
 Definition float_demo : IO unit :=
   println [ any (f64_add 1.5 2.25)%go64     (* 3.75 *)
-          ; any (f64_div 1.0 4.0)%go64      (* 0.25 (exact in binary) *)
-          ; any (S754_finite false 18446744073709551616%positive 0%Z : GoFloat64) ].
-          (* HUGE-mantissa literal (2^64, exactly representable): the plugin converts the
-             mantissa/exponent SYNTAX structurally into the verified printer — an int64
-             intermediate would have wrapped this to 0x0p0; the golden pins the exact value *)
+          ; any (f64_div 1.0 4.0)%go64 ].   (* 0.25 (exact in binary) *)
 
 (** Float COMPARISON lowers to Go's [<]/[<=]/[==]; [SFcompare] and Go both follow IEEE
     754, matching exactly incl. NaN (all comparisons false) and signed zero ([0.0 == -0.0]). *)

@@ -3076,7 +3076,36 @@ let rec pp_expr state env = function
                  | MLcons (_, rs, []) when is_bool_true  rs -> Some true
                  | MLcons (_, rs, []) when is_bool_false rs -> Some false
                  | _ -> None) in
+               (* CANONICITY GATE (fail-closed): GoFloat64's carrier invariant is binary64-
+                  canonical (SFeqb/SFcompare are representation-sensitive) — a mantissa wider
+                  than 53 bits or an exponent outside [-1074, 971] is a NONCANONICAL literal
+                  the model never stores; refuse it rather than bless a bad carrier state.
+                  Both checks are STRUCTURAL (constructor depth), no numeric intermediate. *)
+               let rec pos_depth = function
+                 | MLcons (_, r, []) when String.equal (global_basename r) "xH" -> Some 1
+                 | MLcons (_, r, [p]) when String.equal (global_basename r) "xO"
+                                        || String.equal (global_basename r) "xI" ->
+                     (match pos_depth p with Some d -> Some (d + 1) | None -> None)
+                 | _ -> None in
+               let exp_canonical e =
+                 (match e with
+                  | MLcons (_, r, []) when String.equal (global_basename r) "Z0" -> true
+                  | MLcons (_, r, [p]) when String.equal (global_basename r) "Zpos"
+                                         || String.equal (global_basename r) "Zneg" ->
+                      (match pos_depth p with
+                       | Some d when d <= 11 ->
+                           (match pos_value p, e with
+                            | Some v, MLcons (_, r', _) when String.equal (global_basename r') "Zneg" ->
+                                Int64.neg v >= -1074L
+                            | Some v, _ -> v <= 971L
+                            | None, _ -> false)
+                       | _ -> false)
+                  | _ -> false) in
+               let mant_canonical m =
+                 (match pos_depth m with Some d -> d <= 53 | None -> false) in
                (match sign_opt, coq_pos_of_ml m, coq_z_of_ml e with
+                | Some _, Some _, Some _ when not (mant_canonical m && exp_canonical e) ->
+                    unsupported "a NONCANONICAL spec_float literal (mantissa wider than 53 bits or exponent outside binary64's range) — GoFloat64 carries only canonical values"
                 | Some sign, Some mp, Some ez ->
                     (* the WHOLE hex-float assembly is the verified Printer.print_float_hex;
                        the mantissa/exponent are converted STRUCTURALLY (never through an
