@@ -132,7 +132,7 @@ building; it **may not define the correctness claim.**
 - The old path builds demos; the new path defines the claim; the old path gets deleted as
   the new path subsumes it.
 - No parallel universes beside the spine.
-- **Starve it** (boss policy, 2026-07-04): no new architecture, safety claim, or legacy
+- **Legacy starvation rule:** no new architecture, safety claim, or legacy
   demo touches `plugin/go.ml`; an existing legacy demo grows only to preserve current
   build coverage. A feature is **covered** only when GoAst represents it, GoPrint emits
   it, GoSafe admits it appropriately, GoEmit emits it through the certificate, and GoSem /

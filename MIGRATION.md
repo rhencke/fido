@@ -7,7 +7,7 @@ per feature group; compress when it grows.
 
 | Feature group | Legacy location (main.v) | Certified equivalent | Status | Deletion action |
 |---|---|---|---|---|
-| Constant print/println, panic, defer-call, return, blank-assign | interleaved through most demos | emission `GoEmit.demo_emit_bytes` + `print_emit_bytes` + `panic_emit_bytes`; behavior `GoSemDenote.denote_program` + `gosem_sound`; gate `GoSemSafe.panic_free_gate` | covered | no standalone legacy demo exists for this class alone; nothing deletable yet |
+| Constant print/println, panic, defer-call, return, blank-assign | interleaved through most demos | emission `GoEmit.demo_emit_bytes` + `print_emit_bytes` + `panic_emit_bytes`; behavior `GoSemDenote.denote_program` + `gosem_sound`; gate `GoSemSafe.panic_free_gate` | covered — for supported emission and modeled-or-rejected behavior, NOT BehaviorSafe: a denoted `panic` is rejected by the panic-free behavioral gate | no standalone legacy demo exists for this class alone; nothing deletable yet |
 | Short declarations `x := e` | `vlet_demo`, locals uses everywhere | GoSafe `ScopeS` gate (admitted); denotation ABSENT (`shortdecl_supported_undenoted`) | partial | hold until the env statement layer denotes (plans/gosem-locals.md) |
 | Slice/map literals, `len`/index (const class) | parts of `slice_demo`/`map_demo`/`builtins_demo` | GoEmit demo; GoSem runtime tiers (`len` and index denote, incl. the OOB panic) | partial (runtime mutation/append/copy unported) | hold |
 | `cap` | parts of `slice_makecap_demo` etc. | supported + printed (`GoEmit.demo_prog`); GoSem ABSENT — pinned: `cap_slicelit_e` ∈ `undenoted_frontier`, `undenoted_frontier_pinned` | partial | hold; flips only with a cap denotation arm |
