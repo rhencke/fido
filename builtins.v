@@ -73,8 +73,10 @@ Definition GoSlice (A : Type) : Type := list A.
     operation is a COMPUTABLE [Z]-arithmetic definition ([SFadd]/[SFmul]/[SFdiv]/[SFcompare]/…)
     with NO primitive-float axiom in the trust base.  [GoFloat32] is an ABSTRACT binary32 wrapper
     over a [spec_float].  At extraction [GoFloat64]/[GoFloat32] → Go [float64]/[float32]; the SF
-    ops lower BY NAME to the native Go float operators, and a [spec_float] LITERAL
-    [S754_finite s m e] (= ±m·2^e) lowers to the EXACT Go hex-float literal [±0x<m>p<e>]. *)
+    ops lower BY NAME to the native Go float operators, and a CANONICAL [spec_float] LITERAL
+    [S754_finite s m e] (= ±m·2^e) lowers to the EXACT Go hex-float literal [±0x<m>p<e>]
+    (a NONCANONICAL literal is REJECTED at extraction — the plugin gates on the extracted
+    [SpecFloat.bounded], because [SFeqb]/[SFcompare] are representation-sensitive). *)
 From Stdlib Require Export Floats.SpecFloat.   (* Export: [spec_float] + its [S754_*] ctors visible downstream *)
 (* [BinInt] gives [Z] for the FULL-WIDTH integer models; [Decimal] backs the float literal
    Number Notation.  No [Open Scope Z_scope] — [Z] use stays qualified ([Z.add]/…, [%Z] literals). *)
@@ -84,6 +86,8 @@ Notation GoFloat64 := spec_float.
 (** [renorm prec emax v] re-expresses [v] in the UNIQUE canonical [(prec,emax)] representation (via
     [binary_normalize]).  This matters because [SFcompare]/[SFeqb] are REPRESENTATION-sensitive (they
     assume a canonical operand), so every [GoFloat64] must be binary64-canonical and every [GoFloat32]
+    (the raw [S754_finite] constructor stays exported — the model's ops/literals produce canonical
+    forms, and the PLUGIN refuses to extract a noncanonical literal via [SpecFloat.bounded])
     binary32-canonical.  The float ops/literals already output the canonical form for their format;
     [renorm] is needed only where a value CROSSES formats (the f32 round and the f32→f64 widen). *)
 Definition cond_Zopp (b : bool) (m : Z) : Z := if b then Z.opp m else m.

@@ -3062,8 +3062,9 @@ let rec pp_expr state env = function
              .  [uint_lit n] (a Definition) renders the same via its MLglob arm above. *)
            | MLcons (_, r, [v]) when is_uint_ctor r -> str "uint(" ++ pp_expr state env v ++ str ")"
            (* spec_float LITERAL (GoFloat64 carrier→zero-axioms): the IEEE-754
-              inductive value emits as an EXACT Go float literal.  A finite [S754_finite s m e]
-              (= ±m·2^e) is the Go HEX float [±0x<m>p<e>] — Go parses it bit-for-bit and prints the
+              inductive value emits as an EXACT Go float literal.  A CANONICAL finite
+              [S754_finite s m e] (= ±m·2^e; gated by the extracted SpecFloat.bounded below)
+              is the Go HEX float [±0x<m>p<e>] — Go parses it bit-for-bit and prints the
               same as the decimal, so runtime output is preserved.  [S754_zero false] (+0.0) is emitted
               UNIFORMLY as the hex zero [0x0p0] (= +0·2^0), NOT the decimal [0.0]: every float Fido emits is
               now a hex literal, so a bare numeric atom NEVER contains a '.', and the verified postfix
@@ -3089,7 +3090,8 @@ let rec pp_expr state env = function
                 | Some sign, Some mp, Some ez ->
                     (* the WHOLE hex-float assembly is the verified Printer.print_float_hex;
                        the mantissa/exponent are converted STRUCTURALLY (never through an
-                       int64), so ANY finite spec_float emits its exact hex — no wrap *)
+                       int64), so every ACCEPTED (canonical) literal emits its exact hex —
+                       no wrap; noncanonical literals were rejected by the gate above *)
                     str (coq_string_to_ocaml
                       (Printer.print_float_hex (if sign then Printer.True else Printer.False)
                          (Printer.Npos mp) ez))
