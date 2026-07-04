@@ -27,30 +27,16 @@ Record EmittableProgram : Type := mkEmittable {
     [emit : Program -> string] — that would make the certificate decorative.) *)
 Definition emit_supported (p : EmittableProgram) : string := print_program (ep_program p).
 
-(** ---- THE FIRST CERTIFIED EMISSION (the AST-first seed) ----  a runnable `package main` whose `func main`
-    body exercises every SUPPORTED/EMITTABLE statement/expression form (the exact list is [demo_prog] /
-    [demo_emit_bytes] below, the single authorities — this prose does not re-count them).
-    [GsShortDecl] ([x := e]) is ADMITTED by [supported_program] (a certificate EXISTS for a
-    declared-and-used local), but joins this demo only once its denotation lands (a deliberate
-    golden bless).  The supported forms — [println(1)], [println(int64(3))] (a value-position scalar CONVERSION),
-    [println(1 + 2)] (a binary-operator [EBn], exercising operator printing + gofmt spacing through the path),
-    [println("hi")] (a STRING-literal [EStr], exercising [print_string_lit] through the path),
-    [println(0xff)] (a HEX-literal [EHex], exercising [print_hex] through the path),
-    [println(^5)] (a prefix-unary complement [EUn UXor], exercising [unop_text]/[unop_paren] through the path),
-    [println(len("hi"))] / [println(cap([]int{1}))] (the [len]/[cap] builtins — the supported non-conversion
-    [ECall] paths), [_ = []int(nil)] (a [GsBlankAssign] discarding a type-form [EConv] CONVERSION value),
-    [_ = []int{1}] (a slice composite literal [ESliceLit]), [_ = map[int]int{1: 2}] (an integer-key map
-    composite literal [EMapLit] — the newly-un-quarantined form), a [GsDefer] (`defer println("bye")`), then a
-    bare [return] — all Go builtins / no import (rule 5), built as structured [GExpr]/[GoStmt]s and printed by the
-    machine-checked [gprint] (`make emit-demo` then confirms the Go compiler BUILDS it).  This exercises the
-    SUPPORTED [EBn], [EStr] (`"hi"`), [EHex] (`0xff`), [EUn] (`^5`), [len]/[cap] [ECall]s, [EConv] (`[]int(nil)`),
-    [ESliceLit] (`[]int{1}`), [EMapLit] (`map[int]int{1: 2}`), [GsBlankAssign] (`_ = e`) and [GsDefer]
-    (`defer <call>`) forms END-TO-END through the BLESSED emitter to compilable Go —
-    not just in isolated round-trip proofs.  Emitted ONLY through the
-    proof-gated path: [demo_supported] discharges the certificate, [emit_supported] prints it, [demo_emit_bytes]
-    pins the exact emitted Go source.  (A non-main package — OR a body outside the supported statement subset,
-    e.g. a bare-value statement, or `_ = <void call>` — would make [SupportedProgram] FALSE, so [reflexivity]
-    would not close and it could not be certified or emitted.) *)
+(** ---- THE CERTIFIED-EMISSION DEMO ----  a runnable `package main` exercising the current
+    SUPPORTED/EMITTABLE statement+expression surface END-TO-END through the blessed path.
+    [demo_prog] is the single authority for the exercised forms (no prose re-count);
+    [demo_supported] discharges the certificate, [emit_supported] prints it via the
+    machine-checked [gprint], [demo_emit_bytes] pins the exact emitted Go, and
+    `make emit-demo` asserts the Go toolchain BUILDS it (all Go builtins, no import — rule 5).
+    [GsShortDecl] is gate-ADMITTED but joins this demo only once its denotation lands (a
+    deliberate golden bless).  (A non-main package or a body outside the supported subset
+    makes [SupportedProgram] FALSE — [reflexivity] does not close, so it cannot be certified
+    or emitted.) *)
 Definition demo_prog : Program :=
   mkProgram (mkIdent "main" eq_refl)
             [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [EInt 1]);

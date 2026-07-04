@@ -554,14 +554,14 @@ decl programs are supported-but-undenoted (`shortdecl_supported_undenoted`).
 
 ### [If](https://go.dev/ref/spec#If_statements) / [For](https://go.dev/ref/spec#For_statements) / [Switch](https://go.dev/ref/spec#Switch_statements) / [Goto](https://go.dev/ref/spec#Goto_statements) / [Return](https://go.dev/ref/spec#Return_statements) — ✓ via the plugin's goto-CFG structurer (TRUSTED); ⚠ native `switch`
 Spec: structured control flow (`if`/`else`, `for` with optional range, `switch`,
-`break`/`continue`/labeled, `goto`, `return`).  Ours: ALL control flow is one complete
-primitive — a goto-CFG (`run_blocks`/`Jump`/`Done`, each function body a set of labelled
-basic blocks) — lifted back to idiomatic Go by the trusted plugin's STRUCTURING pass (computes
-dominators / post-dominators as iterative fixpoints, finds natural loops by back-edges,
-recurses to emit `if`/`for`/`break`/`continue`/labeled-break, falling back to raw labels
-+ `goto` only where the graph is irreducible).  Any control flow is REPRESENTABLE in the
-CFG model; the lowering itself is TRUSTED plugin code (gap #10 — golden-locked, no theorem
-relates the emitted Go to the CFG).  All demos golden-locked:
+`break`/`continue`/labeled, `goto`, `return`).  Ours: the constructs in this row lower
+through ONE primitive — a goto-CFG (`run_blocks`/`Jump`/`Done`, each function body a set
+of labelled basic blocks) — lifted back to idiomatic Go by the trusted plugin's
+STRUCTURING pass (dominators / post-dominators as iterative fixpoints, natural loops by
+back-edges, emitting `if`/`for`/`break`/`continue`/labeled-break, raw labels + `goto`
+where the graph is irreducible).  The lowering is TRUSTED plugin code (gap #10): coverage
+below is DEMO-BY-DEMO and golden-locked — no theorem relates the emitted Go to the CFG,
+and no completeness claim is made beyond the pinned demos:
 - **`if`** (match on `bool`) → `if c { … } else { … }`: `sign_demo`, `pick_demo`,
   `cond_op_demo`, `inline_if_demo`, `diamond_demo` (`if b {…} else {…}`), `cond_goto_demo`
   (`if !early {…}`).  ✓

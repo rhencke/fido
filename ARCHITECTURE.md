@@ -132,6 +132,14 @@ building; it **may not define the correctness claim.**
 - The old path builds demos; the new path defines the claim; the old path gets deleted as
   the new path subsumes it.
 - No parallel universes beside the spine.
+- **Starve it** (boss policy, 2026-07-04): no new architecture, safety claim, or legacy
+  demo touches `plugin/go.ml`; an existing legacy demo grows only to preserve current
+  build coverage. A feature is **covered** only when GoAst represents it, GoPrint emits
+  it, GoSafe admits it appropriately, GoEmit emits it through the certificate, and GoSem /
+  GoSemSafe models it exactly or rejects honestly — one layer alone is not coverage. Each
+  new certified feature names the legacy demos it supersedes and deletes/shrinks them in
+  the same patch when possible; a `go.ml` branch whose only load is superseded coverage is
+  a deletion candidate. Live status: `MIGRATION.md`.
 
 Honest current status: the spine compiles zero-axiom and `main.v` builds a
 `GoAst.Program` emitted ONLY through `EmittableProgram`; but the repo's `main.go` is STILL
