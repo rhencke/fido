@@ -596,9 +596,9 @@ keep them separate:
 - **(R1) Plugin RUNTIME emission (trusted):** the trusted `plugin/go.ml` lowers `defer_call f` BY NAME to
   native Go `defer func(){ f }()` (Go provides the LIFO/return-time scoping); demos `defer_demo`,
   `defer_loop_demo` (a `defer` in a loop prints 2,1,0 — golden RUNTIME output faithful).
-- **(R2) cmd.v `CDfr` / `run_defers` — the FAITHFUL model:** `cmd.v` models `defer` as `CDfr d k`;
-  `run_defers` (via `run_cmd`, the SOLE `Cmd` interpreter) runs the LIFO stack at func-scope return — a
-  panicking defer REPLACES the active panic (last-raised-wins) but the older defers STILL run,
+- **(R2) cmd.v `CDfr` — the FAITHFUL model:** `cmd.v` models `defer` as `CDfr d k`;
+  `run_cmd` (the SOLE `Cmd` interpreter — total, structural, no step bound) unwinds the LIFO defers at
+  func-scope return — a panicking defer REPLACES the active panic (last-raised-wins) but the older defers STILL run,
   every defer's effects happen.  `bridge_heap_agrees` proves the `ustep` run AGREES with this for ANY completing command (heap ops and defers included, final heaps agreeing; `no_heap` completion is a theorem).
 - **(R3) GoAst `GsDefer` — STRUCTURED syntax (✓ emittable, ✓ DENOTED):** `defer <call>` is a real AST
   statement, print-injective (`print_stmt_inj`), syntactically SUPPORTED + certificate-emittable (gated to a

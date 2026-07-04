@@ -193,7 +193,7 @@ Fixpoint go {A} (c : Cmd A) (w : World) : option (Outcome A * list (Cmd unit)) :
 Definition oc_unit {A} (oc : Outcome A) : Outcome unit :=
   match oc with ORet _ w => ORet tt w | OPanic v w => OPanic v w end.
 
-(** The TOTAL-per-structure interpreter — NO fuel.  [CDfr d c'] is DEFER-COMPOSITIONAL: run the
+(** The TOTAL-per-structure interpreter.  [CDfr d c'] is DEFER-COMPOSITIONAL: run the
     continuation [c'] (whose own later defers unwind inside it), then run [d] as its OWN func scope
     from the resulting world, then COMBINE — a returning defer KEEPS the active outcome (value or
     panic in flight) and advances the world; a panicking defer REPLACES the active panic.  Later
@@ -342,9 +342,56 @@ Proof.
     exists oc0, ds, r. split; [ cbn [go]; rewrite E; exact Hgo | split; [ exact Hun | exact Hoc ] ].
 Qed.
 
+(** eval_cmd ⊆ run_cmd (the converse — together the two directions make [eval_cmd] and [run_cmd]
+    the SAME semantic fact, one authority in two spellings).  Structural on [c]; the [CDfr] case
+    splits the appended forest ([unwind_split]) and inverts the deferred scope's [UwCons]. *)
+Theorem eval_run_cmd : forall (c : Cmd unit) w oc,
+  eval_cmd c w oc -> run_cmd c w = Some oc.
+Proof.
+  fix IH 1. intros [a | b xs c' | v | d c' | l v c' | l f] w oc (oc0 & ds & r & Hgo & Hun & Hoc);
+    cbn [go] in Hgo; cbn [run_cmd].
+  - injection Hgo as <- <-. inversion Hun; subst. reflexivity.
+  - apply IH. exists oc0, ds, r. split; [ exact Hgo | split; [ exact Hun | exact Hoc ] ].
+  - injection Hgo as <- <-. inversion Hun; subst. reflexivity.
+  - destruct (go c' w) as [[ocb ds0]|] eqn:Hgo0; [ | discriminate Hgo ].
+    injection Hgo as -> <-.
+    destruct (unwind_split ds0 (d :: nil) (oc_unit oc0) r Hun) as [mid [Hun0 Hund]].
+    rewrite (IH c' w (match mid with ORet _ w' => oc_set_world oc0 w' | OPanic v w' => OPanic v w' end)
+               (ex_intro _ oc0 (ex_intro _ ds0 (ex_intro _ mid (conj Hgo0 (conj Hun0 eq_refl)))))).
+    cbn beta iota.
+    inversion Hund as [| d0 ds' acc0 oc_d ds_d net r' Hgod Hnest Hrest Heqd Heqacc Heqr ]; subst.
+    inversion Hrest; subst.
+    assert (Hwmid : oc_world (match mid with ORet _ w' => oc_set_world oc0 w'
+                              | OPanic v w' => OPanic v w' end) = oc_world mid)
+      by (destruct mid as [[] wm | vm wm]; [ destruct oc0; reflexivity | reflexivity ]).
+    rewrite Hwmid.
+    (* the deferred scope's own run: its eval package is (oc_d, ds_d, net) — the at-unit combine
+       collapses to [net] (a panic-seeded unwind cannot return: [unwind_panic_stays]) *)
+    assert (Hnetd : run_cmd d (oc_world mid) = Some net).
+    { rewrite (IH d (oc_world mid)
+                 (match net with ORet _ w' => oc_set_world oc_d w' | OPanic v w' => OPanic v w' end)
+                 (ex_intro _ oc_d (ex_intro _ ds_d (ex_intro _ net (conj Hgod (conj Hnest eq_refl)))))).
+      destruct oc_d as [[] wd | vd wd]; cbn [oc_unit] in Hnest.
+      - destruct net as [[] wn | vn wn]; cbn [oc_set_world]; reflexivity.
+      - destruct (unwind_panic_stays ds_d (OPanic vd wd) net Hnest vd wd eq_refl) as [v' [w' ->]].
+        reflexivity. }
+    rewrite Hnetd. cbn beta iota.
+    destruct net as [[] wn | vn wn].
+    + (* d returned: the active outcome survives with d's world *)
+      destruct mid as [[] wm | vm wm]; cbn [oc_set_world];
+        destruct oc0 as [[] wA | vA wA]; cbn [oc_set_world]; reflexivity.
+    + reflexivity.
+  - destruct (heap_write l v w) as [w'|] eqn:E; [ | discriminate Hgo ].
+    apply IH. exists oc0, ds, r. split; [ exact Hgo | split; [ exact Hun | exact Hoc ] ].
+  - destruct (w_refs w l) as [cell|] eqn:E; [ | discriminate Hgo ].
+    apply IH. exists oc0, ds, r. split; [ exact Hgo | split; [ exact Hun | exact Hoc ] ].
+Qed.
+Print Assumptions run_cmd_eval.
+Print Assumptions eval_run_cmd.
+
 (** [no_defer c] — [c] registers no [CDfr]: a straight-line output/panic/return command.  A pure [Cmd]
     predicate, so it lives here (cmd.v); consumed by GoSemSafe's defer-free exact-output panic lemmas
-    ([go_panics_world]/[run_cmd_panics_world]).  The ustep bridge is SEPARATE:
+    ([run_cmd_panics_world]).  The ustep bridge is SEPARATE:
     [cmd_unified.bridge_heap_agrees] covers every COMPLETING [c] (heap, defers, panics). *)
 Fixpoint no_defer (c : Cmd unit) : bool :=
   match c with
@@ -392,8 +439,8 @@ Proof.
   - discriminate H.
 Qed.
 
-(** ---- TOTALITY on the [no_heap] fragment: [run_cmd] COMPLETES there, unconditionally — no bound,
-    no fuel.  The option is heap-absence only, and a [no_heap] tree never reaches a heap arm, so a
+(** ---- TOTALITY on the [no_heap] fragment: [run_cmd] COMPLETES there, unconditionally — no bound.
+    The option is heap-absence only, and a [no_heap] tree never reaches a heap arm, so a
     structural induction produces the outcome directly.  [run_cmd_terminates] is a gated public
     surface ([Print Assumptions] below); consumed by cmd_unified.v and GoSem's run layer, whose
     commands are [no_heap] via [cmd_no_panic_no_heap] or by construction. *)

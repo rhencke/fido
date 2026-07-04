@@ -217,55 +217,9 @@ Proof. intros [[] w0 | v w0] w; reflexivity. Qed.
 Local Lemma oc_world_set_world : forall (acc : Outcome unit) w, oc_world (oc_set_world acc w) = w.
 Proof. intros [[] w0 | v w0] w; reflexivity. Qed.
 
-(** The unwind is OUTPUT-MONOTONE for ARBITRARY nesting: it only ever APPENDS to the
-    world's output trace (each deferred body's [go] delta and, recursively, its own nested defers'),
-    never RETRACTS.  Grounded in [go_out_monotone]; induction on FUEL, the IH
-    applied to the nested run and the tail.  Note [oc_world acc'] = [oc_world net_d]
-    (a returning defer keeps [acc]'s panic but takes the run's advanced world; a panicking one carries its
-    own), so the world only grows across both sub-runs. *)
-(** The BODY's output-append law, grounded directly in [go] — premise-FREE (heap ops included: a
-    write never touches [w_output], a read never writes), by tree induction with the binder case. *)
-Local Lemma go_out_monotone : forall (c : Cmd unit) w oc ds,
-  go c w = Some (oc, ds) ->
-  exists evs, w_output (oc_world oc) = w_output w ++ evs.
-Proof.
-  intros c; induction c as [a | b xs c' IH | v | d c' IH | l v c' IH | l f IH] using Cmd_rect';
-    intros w oc ds H; cbn [go] in H.
-  - injection H as <- <-. exists nil. cbn [oc_world]. rewrite app_nil_r. reflexivity.
-  - destruct (IH (w_log b xs w) oc ds H) as [evs Hevs].
-    exists ((b, xs) :: evs). rewrite Hevs, w_output_w_log, <- app_assoc. reflexivity.
-  - injection H as <- <-. exists nil. cbn [oc_world]. rewrite app_nil_r. reflexivity.
-  - destruct (go c' w) as [[oc0 ds0]|] eqn:E; [ | discriminate H ].
-    injection H as H1 H2. subst oc. exact (IH w oc0 ds0 E).
-  - destruct (heap_write l v w) as [w'|] eqn:E; [ | discriminate H ].
-    destruct (IH w' oc ds H) as [evs Hevs].
-    exists evs. rewrite Hevs, (heap_write_output l v w w' E). reflexivity.
-  - destruct (w_refs w l) as [cell|]; [ | discriminate H ].
-    exact (IH (any_of_cell cell) w oc ds H).
-Qed.
 
-(** SEMANTIC no-panic law for the body: a [cmd_no_panic] command's successful [go] returns
-    (never panics) and every deferred action it accumulated is itself [cmd_no_panic] —
-    grounded in [go]'s result by tree induction (the heap arms of [cmd_no_panic] are [false],
-    so those cases are vacuous). *)
-Local Lemma go_no_panic : forall (c : Cmd unit) w oc ds,
-  cmd_no_panic c = true -> go c w = Some (oc, ds) ->
-  (exists w', oc = ORet tt w') /\ Forall (fun d => cmd_no_panic d = true) ds.
-Proof.
-  intros c; induction c as [a | b xs c' IH | v | d c' IHc' | l v c' IH | l f IH] using Cmd_rect';
-    intros w oc ds Hnp Hgo; cbn [cmd_no_panic] in Hnp; cbn [go] in Hgo.
-  - destruct a. injection Hgo as <- <-. split; [ exists w; reflexivity | constructor ].
-  - exact (IH (w_log b xs w) oc ds Hnp Hgo).
-  - discriminate Hnp.
-  - apply andb_prop in Hnp. destruct Hnp as [Hd Hc'].
-    destruct (go c' w) as [[oc0 ds0]|] eqn:E; [ | discriminate Hgo ].
-    injection Hgo as H1 H2. subst oc ds.
-    destruct (IHc' w oc0 ds0 Hc' E) as [Hret Hall].
-    split; [ exact Hret | ].
-    apply Forall_app. split; [ exact Hall | constructor; [ exact Hd | constructor ] ].
-  - discriminate Hnp.
-  - discriminate Hnp.
-Qed.
+
+
 
 
 
@@ -291,7 +245,7 @@ Qed.
 (** The machine's in-flight panic MODE, relative to a base [qb]: the derivation's accumulator
     panic when one is recorded, else the base carried in from the enclosing scope.  Quantifying
     [qb] in [unwind_heap]'s motive lets the nested-scope IH instantiate it at the CARRIED mode —
-    the seed-linearity reconciliation the old fuel induction needed disappears. *)
+    no seed-linearity reconciliation is needed. *)
 Local Definition mode_or (o q : option GoAny) : option GoAny :=
   match o with Some v => Some v | None => q end.
 
@@ -299,8 +253,8 @@ Local Definition mode_or (o q : option GoAny) : option GoAny :=
     whose in-flight panic ((prog, pa) 2-mode) and heap AGREE with the accumulator (mode relative
     to any base [qb]), the ustep pops and runs the whole LIFO front [ds] down to [ds_tail],
     landing on [result]'s panic (relative to the same base), world-output delta, and ALLOCATED
-    heap.  Induction on the derivation: the nested forest is a SUB-DERIVATION (the induction the
-    deleted fuel used to fake), instantiated at base [mode_or (ocpanic acc) qb]. *)
+    heap.  Induction on the derivation: the nested forest is a SUB-DERIVATION, instantiated at
+    base [mode_or (ocpanic acc) qb]. *)
 Local Lemma unwind_heap : forall ds acc result,
   unwind_defers ds acc result ->
   forall ucap p b h lv tr o df pa ds_tail qb,
@@ -532,7 +486,7 @@ Proof.
     + cbn [uc_heap]. rewrite Hocw. exact HhaB.
 Qed.
 
-(** The NEGATIVE witness for the quarantine: an unallocated read has NO completing run at ANY
+(** The NEGATIVE witness for the quarantine: an unallocated read has NO completing run at
     all — so no unconditional (premise-free) bridge over heap commands can exist; the agreement
     for heap programs must carry allocation/completion premises, as [bridge_heap_agrees]'s
     [run_cmd]-completion premise does. *)

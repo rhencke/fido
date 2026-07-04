@@ -4434,8 +4434,8 @@ Definition denote_stmt (s : GoStmt) : option (Cmd unit * bool) :=
   | GsExprStmt e    => denote_call CallNow e
   | GsDefer e =>
       (* [defer <call>] via [CDfr], Go's argument timing exact: args evaluate NOW (a panicking
-         arg panics AT the defer statement); only the call-on-values is deferred ([run_defers],
-         LIFO). *)
+         arg panics AT the defer statement); only the call-on-values is deferred (the LIFO
+         unwind). *)
       denote_call CallDeferred e
   | GsShortDecl _ _ => None  (* the expression-level env instance exists ([denote_expr_env]); THIS statement arm is ABSENT — [supported_program] admits used locals, so decl programs are supported-but-undenoted ([shortdecl_supported_undenoted]) *)
   end.

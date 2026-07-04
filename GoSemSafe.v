@@ -25,9 +25,7 @@ Import ListNotations.
     FUTURE runtime-panic denotation (e.g. a determined divide-by-zero) is a [CPan] too — all rejected by this
     ONE check, with no per-construct syntax rule to keep in sync. *)
 
-(** The PRE-TERMINAL output world of a defer-free command: [go] threads each [COut] through [w_log], stopping
-    at the terminal ([CRet] or [CPan]).  A structural spec of [go]'s accumulated world, consumed by the
-    [go_panics_world] exact-output panic lemma below. *)
+(** The world a defer-free command's outputs build BEFORE its end (return or panic). *)
 Fixpoint cmd_out_world (c : Cmd unit) (w : World) : World :=
   match c with
   | COut b xs c' => cmd_out_world c' (w_log b xs w)
@@ -49,22 +47,9 @@ Fixpoint cmd_panic_val (c : Cmd unit) : option GoAny :=
   | CRead _ _ => None    (* dead: heap ops are outside the [no_defer] fragment *)
   end.
 
-(** A defer-free command that DOES panic ([cmd_panic_val = Some v]) runs (via [go]) to [OPanic v] with the
-    EXACT pre-panic output [cmd_out_world c w] — faithful: the outputs BEFORE the panic still happen, then the
-    panic carries [v]. *)
-Lemma go_panics_world : forall c w v,
-  no_defer c = true -> cmd_panic_val c = Some v -> go c w = Some (OPanic v (cmd_out_world c w), nil).
-Proof.
-  intro c; induction c as [a | b xs c' IH | v0 | d c' IH | l v0 c' IH | l f IH] using Cmd_rect';
-    intros w v Hnd Hpv; cbn [go no_defer cmd_panic_val cmd_out_world] in *.
-  - discriminate Hpv.
-  - exact (IH (w_log b xs w) v Hnd Hpv).
-  - injection Hpv as ->. reflexivity.
-  - discriminate Hnd.
-  - discriminate Hnd.
-  - discriminate Hnd.
-Qed.
-
+(** A defer-free command that DOES panic runs to [OPanic v] with the EXACT pre-panic output
+    [cmd_out_world c w] — faithful: the outputs BEFORE the panic still happen, then the panic
+    carries [v]. *)
 Lemma run_cmd_panics_world : forall c w v,
   no_defer c = true -> cmd_panic_val c = Some v -> run_cmd c w = Some (OPanic v (cmd_out_world c w)).
 Proof.
