@@ -1606,6 +1606,46 @@ let pp_mlident = function
   | Id v    -> str (go_safe (Id.to_string v))
   | Tmp v   -> str (go_safe (Id.to_string v))
 
+(* CANONICAL unique-binder rendering, keyed on the FINAL emitted Go name ([go_safe] of the
+   id — [x'] and [x_] both render [x_]).  A renamed id is an already-safe string, so
+   re-rendering it is the identity — the SAME renamed list must feed the printed binders
+   and the de Bruijn env.  Binder-introduction sites allocate through [alloc_binders]
+   (scope-aware) or [uniquify_binders] (empty enclosing scope, e.g. top-level params). *)
+let uniquify_binder seen id =
+  let uniq mk v =
+    let base = go_safe (Id.to_string v) in
+    if not (Hashtbl.mem seen base) then (Hashtbl.replace seen base (); mk v)
+    else
+      let rec fresh i =
+        let cand = base ^ "_" ^ string_of_int i in
+        if Hashtbl.mem seen cand then fresh (i + 1) else cand in
+      let name = fresh 0 in
+      (Hashtbl.replace seen name (); mk (Id.of_string name)) in
+  match id with
+  | Dummy -> Dummy
+  | Id v  -> uniq (fun v -> Id v) v
+  | Tmp v -> uniq (fun v -> Tmp v) v
+let uniquify_binders ids =
+  let seen = Hashtbl.create 8 in
+  List.map (uniquify_binder seen) ids
+(* SCOPE-AWARE allocation: rename [ids] so no rendered Go name collides with ANY enclosing
+   binder's rendered name (the live scope = [env]) nor within the list — a mangled pair
+   ([x'] outer / [x_] inner) would otherwise SHADOW across scopes and capture the WRONG
+   variable.  Renaming a true same-name Rocq shadow is also safe (references stay exact
+   via de Bruijn).  Thread [List.rev ids @ env] with the RENAMED ids, as usual. *)
+(* Names RESERVED in the live Go scope BEYOND the de Bruijn env — run_blocks hoisted
+   [var]s, which dominate every block.  The allocator always consults these, so no
+   block-local binder (lambda, destructure, let) can collide with or shadow a hoist.
+   Populated (save/restore, nesting-safe) around the run_blocks arm. *)
+let reserved_names : (string, unit) Hashtbl.t = Hashtbl.create 16
+let alloc_binders env ids =
+  let seen = Hashtbl.create 16 in
+  Hashtbl.iter (fun k () -> Hashtbl.replace seen k ()) reserved_names;
+  List.iter (function
+    | Dummy -> ()
+    | Id v | Tmp v -> Hashtbl.replace seen (go_safe (Id.to_string v)) ()) env;
+  List.map (uniquify_binder seen) ids
+
 let pp_rel env i =
   try pp_mlident (List.nth env (i - 1))
   with Not_found -> str ("_db" ^ string_of_int i)
@@ -1650,16 +1690,27 @@ let rec flatten_pair_value v =
    [x, y, z := f()], and return the innermost body with the env the nested matches build — which
    KEEPS the eliminated intermediate [p] as an unused placeholder so every de-Bruijn index in the
    body still resolves (no lifting).  A non-nested body is the ordinary flat 2-destructure. *)
-let rec flatten_destructure ids body env =
-  let body_env = List.rev ids @ env in
-  match strip_magic body with
-  | MLcase (_, scrut, [| (ids2, pat2, body2) |])
-    when (match strip_magic scrut with MLrel 2 -> true | _ -> false)
-         && (match pat2 with Pcons (r, _) | Pusual r -> is_pair_ref r | _ -> false)
-         && List.length ids2 = 2 ->
-      let leaves, fb, fenv = flatten_destructure ids2 body2 body_env in
-      (leaves @ [List.nth ids 1], fb, fenv)
-  | _ -> ([List.nth ids 0; List.nth ids 1], body, body_env)
+let flatten_destructure ids body env =
+  (* ONE seen-table across recursion levels: every leaf of the flattened [x, y, z := …]
+     prints in a single Go statement, so rendered-name uniqueness must hold across ALL
+     levels ([uniquify_binder]); the renamed ids feed the printed binders AND the env. *)
+  let seen = Hashtbl.create 8 in
+  Hashtbl.iter (fun k () -> Hashtbl.replace seen k ()) reserved_names;
+  List.iter (function
+    | Dummy -> ()
+    | Id v | Tmp v -> Hashtbl.replace seen (go_safe (Id.to_string v)) ()) env;
+  let rec go ids body env =
+    let ids = List.map (uniquify_binder seen) ids in
+    let body_env = List.rev ids @ env in
+    match strip_magic body with
+    | MLcase (_, scrut, [| (ids2, pat2, body2) |])
+      when (match strip_magic scrut with MLrel 2 -> true | _ -> false)
+           && (match pat2 with Pcons (r, _) | Pusual r -> is_pair_ref r | _ -> false)
+           && List.length ids2 = 2 ->
+        let leaves, fb, fenv = go ids2 body2 body_env in
+        (leaves @ [List.nth ids 1], fb, fenv)
+    | _ -> ([List.nth ids 0; List.nth ids 1], body, body_env)
+  in go ids body env
 
 (*s Unfold a Rocq list literal (MLcons-based) to an OCaml list, or None. *)
 
@@ -2768,6 +2819,7 @@ let rec pp_expr state env = function
 
   | MLlam _ as e ->
       let ids, body = collect_lam e in
+      let ids = alloc_binders env ids in
       let vis = List.filter (fun id -> not (is_dummy id)) ids in
       let new_env = List.rev ids @ env in
       str "func(" ++
@@ -3096,6 +3148,7 @@ and pp_typed_closure state env ftype lam =
   in
   let argtypes, rettype = split_arrows ftype in
   let ids, body = collect_lam lam in
+  let ids = alloc_binders env ids in
   let rec zip ids ts = match ids, ts with
     | [], _ -> []
     | id :: ids', t :: ts' -> (id, t) :: zip ids' ts'
@@ -3195,8 +3248,8 @@ and block_hoists b acc =
 and emit_action state hoists tab env ids action =
   let emit_closure kw body =
     let sep = pp_sep_list ", " (fun x -> x) in
-    let params = List.map (fun (x, t) -> pp_mlident x ++ str " " ++ str t) hoists in
-    let args   = List.map (fun (x, _) -> pp_mlident x) hoists in
+    let params = List.map (fun (_, (x, t)) -> pp_mlident x ++ str " " ++ str t) hoists in
+    let args   = List.map (fun (_, (x, _)) -> pp_mlident x) hoists in
     str tab ++ str kw ++ str " func(" ++ sep params ++ str ") {" ++ fnl () ++
     emit_block false state hoists raw_term (tab ^ "\t") env body ++
     str tab ++ str "}(" ++ sep args ++ str ")" ++ fnl ()
@@ -3217,12 +3270,34 @@ and emit_action state hoists tab env ids action =
 (* [term] handles the block's terminator (a [Next] value) — see [raw_term] /
    [loop_term].  This is what lets one emitter print raw goto or structured
    continue/break. *)
+(* SHARED hoist plan lookup: a [ref_get]-bound binder inside a run_blocks block resolves
+   to the PLAN's final id — the same identity the [var] decl, the defer/go closure params,
+   and the assignment lvalue print — never a fresh allocation (a fresh rename would split
+   the declaration from its uses).  Keyed (raw spelling | Go type): same raw name at a
+   DIFFERENT type is a DISTINCT hoisted variable. *)
+and hoisted_ref_get_final hoists action ids =
+  match List.filter (fun id -> not (is_dummy id)) ids with
+  | [x] ->
+      let ah, aargs = collect_app action [] in
+      let avis = List.filter (fun a -> not (is_erased a)) aargs in
+      (match ah, avis with
+       | MLglob rr, [tag; _rf] when is_ref_get_ref rr ->
+           let rk = (match x with Id v | Tmp v -> Id.to_string v | Dummy -> "_")
+                    ^ "|" ^ go_type_of_tag tag in
+           (match List.assoc_opt rk hoists with
+            | Some (fid, _) -> Some (List.map (fun id -> if is_dummy id then id else fid) ids)
+            | None -> None)
+       | _ -> None)
+  | _ -> None
+
 and emit_block terminating state hoists term tab env b =
   let h, args = collect_app b [] in
   let vis = List.filter (fun a -> not (is_erased a)) args in
   match h, vis with
   | MLglob r, [action; k] when is_bind_ref r ->
       let ids, kbody = collect_lam k in
+      let ids = (match hoisted_ref_get_final hoists action ids with
+                 | Some ids' -> ids' | None -> alloc_binders env ids) in
       let new_env = List.rev ids @ env in
       emit_action state hoists tab env ids action
       ++ emit_block terminating state hoists term tab new_env kbody
@@ -3307,6 +3382,7 @@ let pp_io_body ?(ret_val=false) state tab env body =
                          (fun nb b -> MLapp (head, [b; ast_lift nb f])))
               | _ ->
              let ids, body = collect_lam f in
+             let ids = alloc_binders env ids in
              let new_env = List.rev ids @ env in
              (* go_spawn: bind (go_spawn goroutine_body) f → go func(){body}(); f.
                 Strip [MLmagic] coercions so a wrapped action (e.g. a nested
@@ -3390,6 +3466,7 @@ let pp_io_body ?(ret_val=false) state tab env body =
                                  let some_ids, some_body, none_body =
                                    if is_some_ctor c1 then bids1, b1, b2
                                    else bids2, b2, b1 in
+                                 let some_ids = alloc_binders env some_ids in
                                  let v_doc = match some_ids with
                                    | [vid] when not (is_dummy vid) -> pp_mlident vid
                                    | _ -> str "_" in
@@ -3467,20 +3544,44 @@ let pp_io_body ?(ret_val=false) state tab env body =
                      (each is a closed term, so Rocq does not alpha-rename across
                      them); they become one reused Go variable, assigned before
                      each read, so collapse same-named hoists to a single [var]. *)
+                  (* THE hoist allocation plan — the ONE authority for the [var] decls,
+                     the defer/go closure params, the assignment lvalues, and the walkers'
+                     de Bruijn env ([hoisted_ref_get_final]).  Semantic key = (raw
+                     spelling | Go type): closed blocks reuse ONE hoisted var per key
+                     (same raw name at a DIFFERENT type is a DISTINCT variable); the
+                     FINAL names allocate against the enclosing scope through the one
+                     binder allocator, so hoists can never mangle-collide with each
+                     other or shadow an outer binder. *)
                   let hoists =
                     let raw = List.fold_left (fun a b -> block_hoists b a) [] bs in
-                    let key = function Id v | Tmp v -> Id.to_string v | Dummy -> "_" in
-                    let seen = ref [] in
-                    List.filter (fun (x, _) ->
-                      let k = key x in
-                      if List.mem k !seen then false else (seen := k :: !seen; true)) raw in
+                    let seen = Hashtbl.create 16 in
+                    List.iter (function
+                      | Dummy -> ()
+                      | Id v | Tmp v -> Hashtbl.replace seen (go_safe (Id.to_string v)) ()) env;
+                    let plan = ref [] in
+                    List.iter (fun (x, t) ->
+                      let rk = (match x with Id v | Tmp v -> Id.to_string v | Dummy -> "_")
+                               ^ "|" ^ t in
+                      if not (List.mem_assoc rk !plan) then
+                        plan := (rk, (uniquify_binder seen x, t)) :: !plan) raw;
+                    List.rev !plan in
+                  (* reserve the finalized hoist names for the DURATION of this arm —
+                     every allocator call inside the blocks then treats them as taken *)
+                  let reserved_added =
+                    List.filter_map (fun (_, (x, _)) ->
+                      match x with
+                      | Dummy -> None
+                      | Id v | Tmp v ->
+                          let n = go_safe (Id.to_string v) in
+                          if Hashtbl.mem reserved_names n then None
+                          else (Hashtbl.replace reserved_names n (); Some n)) hoists in
                   let start_v = match nat_value start with
                     | Some v -> v
                     | None -> unsupported "run_blocks with a non-literal start block index (the CFG entry label must be statically known; defaulting to block0 would silently run a DIFFERENT program)" in
                   (* hoisted declarations: var x T, dominating every block *)
                   let hoist_doc =
                     prlist
-                      (fun (x, t) ->
+                      (fun (_, (x, t)) ->
                          str tab ++ str "var " ++ pp_mlident x ++ str " "
                          ++ str t ++ fnl ())
                       (List.rev hoists) in
@@ -3527,7 +3628,7 @@ let pp_io_body ?(ret_val=false) state tab env body =
                           emit_all (i + 1) rest
                     in
                     hoist_doc ++ initial ++ emit_all 0 bs in
-                  if nblk = 0 then emit_raw () else begin
+                  let arm_doc = if nblk = 0 then emit_raw () else begin
                   (* Unified structurer (a relooper) — lifts the goto-CFG back to
                      Go spec "If statements" / "For statements" / "Break/Continue" /
                      "Goto statements" / "Return statements".  Build dominators and
@@ -3768,6 +3869,8 @@ let pp_io_body ?(ret_val=false) state tab env body =
                     match h, vis with
                     | MLglob r, [action; k] when is_bind_ref r ->
                         let ids, kbody = collect_lam k in
+                        let ids = (match hoisted_ref_get_final hoists action ids with
+                                   | Some ids' -> ids' | None -> alloc_binders benv ids) in
                         emit_action state hoists tab benv ids action
                         ++ walk kbody stop loopctx tail tab (List.rev ids @ benv)
                     | MLglob r, [next] when is_ret_ref r ->
@@ -3826,11 +3929,14 @@ let pp_io_body ?(ret_val=false) state tab env body =
                   if structurable
                   then hoist_doc ++ emit_region start_v exit_node [] true tab
                   else emit_raw ()
-                  end
+                  end in
+                  List.iter (Hashtbl.remove reserved_names) reserved_added;
+                  arm_doc
               | None ->
                   unsupported "run_blocks with a non-literal block list (the CFG blocks must be statically known; emitting only a comment would silently DROP all control flow)")
          | MLglob r, [m; h] when named "catch" r ->
              let ids, h_body = collect_lam h in
+             let ids = alloc_binders env ids in
              let new_env = List.rev ids @ env in
              let p_id = match List.filter (fun id -> not (is_dummy id)) ids with
                | [id] -> pp_mlident id
@@ -3863,6 +3969,7 @@ let pp_io_body ?(ret_val=false) state tab env body =
             (de Bruijn 1 in the body), [x] the next (de Bruijn 2). *)
          | MLglob r, [_tag; ch; kont] when is_recv_ok_ref r ->
              let ids, k_body = collect_lam kont in
+             let ids = alloc_binders env ids in
              let new_env = List.rev ids @ env in
              (match ids with
               | [x_id; ok_id] ->
@@ -3887,6 +3994,7 @@ let pp_io_body ?(ret_val=false) state tab env body =
          | MLglob r, [_ta; ch1; k1; _tb; ch2; k2] when is_select_recv2_ref r ->
              let recv_case ch kont =
                let ids, body = collect_lam kont in
+               let ids = alloc_binders env ids in
                (match ids with
                 | [v] ->   (* exactly one lambda peeled: an inline `fun v => …` *)
                     let new_env = List.rev ids @ env in
@@ -3903,6 +4011,7 @@ let pp_io_body ?(ret_val=false) state tab env body =
             (the non-blocking form: recv-and-k1 if ready, else run d). *)
          | MLglob r, [_ta; ch1; k1; d] when is_select_recv_default_ref r ->
              let ids, body = collect_lam k1 in
+             let ids = alloc_binders env ids in
              (match ids with
               | [v] ->   (* exactly one lambda peeled: an inline `fun v => …` *)
                   let new_env = List.rev ids @ env in
@@ -3925,6 +4034,7 @@ let pp_io_body ?(ret_val=false) state tab env body =
             when out of bounds, so no panic is possible. *)
          | MLglob r, [tag; xs; i; kont] when is_slice_at_ok_ref r ->
              let ids, k_body = collect_lam kont in
+             let ids = alloc_binders env ids in
              let new_env = List.rev ids @ env in
              (match ids with
               | [v_id; ok_id] ->
@@ -3965,6 +4075,7 @@ let pp_io_body ?(ret_val=false) state tab env body =
             unreachable (the ok=false case is forced on the caller). *)
          | MLglob r, [tag; p; kont] when is_ptr_get_ok_ref r ->
              let ids, k_body = collect_lam kont in
+             let ids = alloc_binders env ids in
              let new_env = List.rev ids @ env in
              (match ids with
               | [v_id; ok_id] ->
@@ -3997,6 +4108,7 @@ let pp_io_body ?(ret_val=false) state tab env body =
             int64.  Cannot panic out of range (the ok-branch is forced). *)
          | MLglob r, [s; i; kont] when is_str_at_ok_ref r ->
              let ids, k_body = collect_lam kont in
+             let ids = alloc_binders env ids in
              let new_env = List.rev ids @ env in
              (match ids with
               | [b_id; ok_id] ->
@@ -4035,6 +4147,7 @@ let pp_io_body ?(ret_val=false) state tab env body =
                | _ -> pp_expr state env (any_payload x)
              in
              let ids, k_body = collect_lam kont in
+             let ids = alloc_binders env ids in
              let new_env = List.rev ids @ env in
              (match ids with
               | [v_id; ok_id] ->
@@ -4086,6 +4199,7 @@ let pp_io_body ?(ret_val=false) state tab env body =
              let emit_case (tagd, kont) =
                let go_t = go_type_of_tag tagd in
                let ids, kbody = collect_lam kont in
+               let ids = alloc_binders env ids in
                (match ids with
                 | [v_id] ->
                     str tab ++ str "case " ++ str go_t ++ str ":" ++ fnl () ++
@@ -4156,6 +4270,7 @@ let pp_io_body ?(ret_val=false) state tab env body =
          | _ ->
              str tab ++ pp_expr state env e ++ fnl ())
     | MLletin (id, e1, e2) ->
+        let id = (match alloc_binders env [id] with [i] -> i | _ -> id) in
         let new_env = id :: env in
         record_narrow_binding env id e1;
         (* map_get_or k default m → two-statement pattern: no IIFE *)
@@ -4181,6 +4296,7 @@ let pp_io_body ?(ret_val=false) state tab env body =
             binders map to (acc=id, x=loop var). *)
          | MLglob r, [xs; init; step] when is_slice_fold_ref r && not (is_dummy id) ->
              let step_ids, step_body = collect_lam step in
+             let step_ids = alloc_binders (id :: env) step_ids in
              (match step_ids with
               | [_acc; x_id] ->
                   let acc = pp_mlident id in
@@ -4299,6 +4415,7 @@ let pp_io_body ?(ret_val=false) state tab env body =
              let some_ids, some_body, none_body =
                if is_some_ctor c1 then ids1, body1, body2
                else ids2, body2, body1 in
+             let some_ids = alloc_binders env some_ids in
              let sh, sargs = collect_app (strip_magic scrut) [] in
              let svis = List.filter (fun a -> not (is_erased a)) sargs in
              (match sh, svis with
@@ -4323,6 +4440,7 @@ let pp_io_body ?(ret_val=false) state tab env body =
              let zero_body, succ_ids, succ_body =
                if is_nat_zero c1 then body1, ids2, body2
                else body2, ids1, body1 in
+             let succ_ids = alloc_binders env succ_ids in
              let pred_id = match succ_ids with [k] -> k | _ -> Dummy in
              let n = pp_expr state env scrut in
              let prefix =
@@ -4343,6 +4461,7 @@ let pp_io_body ?(ret_val=false) state tab env body =
              let nil_body, cons_ids, cons_body =
                if is_list_nil c1 then body1, ids2, body2
                else body2, ids1, body1 in
+             let cons_ids = alloc_binders env cons_ids in
              let head_id, tail_id = match cons_ids with
                | [h; t] -> h, t
                | _      -> Dummy, Dummy in
@@ -4368,6 +4487,7 @@ let pp_io_body ?(ret_val=false) state tab env body =
   (* for_each xs (fun x => body) → for _, x := range xs { body } *)
   and emit_for_each tab env xs bodyfn =
     let ids, body = collect_lam bodyfn in
+    let ids = alloc_binders env ids in
     let new_env = List.rev ids @ env in
     let hdr =
       match List.filter (fun id -> not (is_dummy id)) ids with
@@ -4382,6 +4502,7 @@ let pp_io_body ?(ret_val=false) state tab env body =
      An unused binder becomes [_] (Go forbids an unused range variable). *)
   and emit_range2 tab env coll bodyfn =
     let ids, body = collect_lam bodyfn in
+    let ids = alloc_binders env ids in
     let new_env = List.rev ids @ env in
     let nm id = if is_dummy id then str "_" else pp_mlident id in
     let hdr =
@@ -4428,6 +4549,7 @@ let pp_io_body ?(ret_val=false) state tab env body =
         let n = List.length vis in
         let m = List.nth vis (n - 2) and k = List.nth vis (n - 1) in
         let ids, body = collect_lam k in
+        let ids = alloc_binders env ids in
         let new_env = List.rev ids @ env in
         emit_sess_action tab env ids m ++ pp_sess_stmts tab new_env body
     | MLglob r when is_ssend_ref r || is_srecv_ref r || is_sret_ref r ->
@@ -4442,6 +4564,7 @@ let pp_io_body ?(ret_val=false) state tab env body =
     match head, vis with
     | MLglob r, [m; h] when named "catch" r ->
         let ids, h_body = collect_lam h in
+        let ids = alloc_binders env ids in
         let new_env = List.rev ids @ env in
         let p_id = match List.filter (fun id -> not (is_dummy id)) ids with
           | [id] -> pp_mlident id
@@ -4618,6 +4741,7 @@ let rec pp_pure_tail state tab env e =
            || (is_nat_succ c1 && is_nat_zero c2) ->
            let zero_body, succ_ids, succ_body =
              if is_nat_zero c1 then body1, ids2, body2 else body2, ids1, body1 in
+           let succ_ids = alloc_binders env succ_ids in
            let pred_id = match succ_ids with [k] -> k | _ -> Dummy in
            let n = pp_expr state env scrut in
            let prefix =
@@ -4655,25 +4779,7 @@ let rec pp_pure_tail state tab env e =
 let pp_function state name body typ =
   Hashtbl.reset narrow_var_types;   (* narrow-let-var table is per-function (names are fn-local) *)
   let ids, inner_body = collect_lam body in
-  (* UNIQUE rendered binders: extraction can freshen two visible params to the same
-     printed name (e.g. a user [_] binder next to an [x]) — Go rejects duplicate
-     parameters.  Rename later duplicates; the SAME renamed ids feed the signature AND
-     the body env, so de Bruijn references stay consistent. *)
-  let ids =
-    let seen = Hashtbl.create 8 in
-    let uniq mk v =
-      let base = Id.to_string v in
-      if not (Hashtbl.mem seen base) then (Hashtbl.replace seen base (); mk v)
-      else
-        let rec fresh i =
-          let cand = base ^ "_" ^ string_of_int i in
-          if Hashtbl.mem seen cand then fresh (i + 1) else cand in
-        let name = fresh 0 in
-        (Hashtbl.replace seen name (); mk (Id.of_string name)) in
-    List.map (function
-      | Dummy -> Dummy
-      | Id v  -> uniq (fun v -> Id v) v
-      | Tmp v -> uniq (fun v -> Tmp v) v) ids in
+  let ids = uniquify_binders ids in
   let param_types, ret_type = collect_tarrs typ in
   (* A sub-64 narrow return type makes the pure-tail [return]s wrap the int-carrier value
      in its declared Go type ([narrow_ret_type]); [None] for full-width / IO / non-narrow returns. *)

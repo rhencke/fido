@@ -3440,6 +3440,19 @@ End builtins.
 Definition ownpath_demo : IO unit :=
   println [any (builtins.i64_add (30)%i64 (12)%i64)].   (* 30 — NOT 42 *)
 
+(** RENDERED-name binder uniqueness: [x'] and [x_] both mangle to Go [x_] ([go_safe]) —
+    the canonical binder renderer renames the SECOND to a fresh name, so the emitted
+    signature never has duplicate Go parameters (returns the FIRST param: 21, not 5). *)
+Definition mangle_pair (x' : GoI64) (x_ : GoI64) : GoI64 := x'.
+Definition mangle_demo : IO unit := println [any (mangle_pair (21)%i64 (5)%i64)].   (* 21 *)
+
+(** SCOPE-AWARE binder allocation: the OUTER [x'] and the loop binder [x_] both mangle to
+    Go [x_] — without renaming against the LIVE scope, the loop binder would SHADOW the
+    outer variable and the body would print the loop element (1), not the captured 77. *)
+Definition capture_body (x' : GoI64) : IO unit :=
+  for_each (slice_of_list TInt64 [int_lit 1 eq_refl]) (fun x_ => println [any x'; any x_]).
+Definition capture_demo : IO unit := capture_body (77)%i64.   (* 77 1 *)
+
 (** MUTUAL RECURSION — two `Fixpoint`s calling each other (a mutual `Dfix`).  No plugin work:
     the `Dfix` arm already emits each function via `pp_function`, and a cross-call is an
     ordinary call; with value-position nat matches now lowering, the bodies emit too. *)
@@ -3707,6 +3720,8 @@ Definition main_effect : IO unit :=
   natpred_demo                  >>'   (* prints: 16 1 (Nat.pred live use -> func Pred emitted; stdlib liveness) *)
   ownname_demo                  >>'   (* prints: 9 8 7 6 (user defs colliding with suppressed basenames/prefixes EMIT - ownership/type-checked suppression) *)
   ownpath_demo                  >>'   (* prints: 30 (module IDENTITY ownership: user builtins.i64_add is NOT the intrinsic) *)
+  mangle_demo                   >>'   (* prints: 21 (x'/x_ binders mangle-collide - the canonical renderer keeps Go params unique) *)
+  capture_demo                  >>'   (* prints: 77 1 (scope-aware allocation: a mangled loop binder cannot shadow-capture the outer variable) *)
   mutual_rec_demo               >>'   (* prints: true / false (mutual recursion is_even/is_odd) *)
   f32_demo                      >>'   (* prints: 7.5 (native float32 arithmetic) *)
   i64_of_narrow_demo            >>'   (* prints: 200 -5 60000 (narrow→int64 widening) *)

@@ -558,16 +558,16 @@ func U64_demo() {
 func Recv_unused_ok_demo() {
 	ch := make(chan int64, 1)
 	ch <- 77
-	x, _ := <-ch
-	println(x)
+	x_0, _ := <-ch
+	println(x_0)
 }
 
 func I64_pipeline_demo() {
 	ch := make(chan int64, 1)
 	ch <- 9000000000000000001
-	x := <-ch
+	x_0 := <-ch
 	m := make(map[int64]int64)
-	m[42] = x
+	m[42] = x_0
 	hit := int64(0)
 	if _v, _ok := m[42]; _ok {
 		hit = _v
@@ -578,9 +578,9 @@ func I64_pipeline_demo() {
 func U64_pipeline_demo() {
 	ch := make(chan uint64, 1)
 	ch <- 18000000000000000000
-	x := <-ch
+	x_0 := <-ch
 	m := make(map[uint64]uint64)
-	m[7] = x
+	m[7] = x_0
 	hit := uint64(0)
 	if _v, _ok := m[7]; _ok {
 		hit = _v
@@ -674,7 +674,7 @@ func Slice_demo() {
 	println(n, v)
 	func() {
 		defer func() {
-			if x := recover(); x != nil {
+			if x_0 := recover(); x_0 != nil {
 				println(false)
 			}
 		}()
@@ -693,8 +693,8 @@ func Chan_demo() {
 	ch := make(chan int64, 1)
 	ch <- 42
 	close(ch)
-	x, ok := <-ch
-	println(x, ok)
+	x_0, ok := <-ch
+	println(x_0, ok)
 	x2, ok2 := <-ch
 	println(x2, ok2)
 }
@@ -704,7 +704,7 @@ func Closed_panic_demo() {
 	close(ch)
 	func() {
 		defer func() {
-			if x := recover(); x != nil {
+			if x_0 := recover(); x_0 != nil {
 				println(1)
 			}
 		}()
@@ -712,7 +712,7 @@ func Closed_panic_demo() {
 	}()
 	func() {
 		defer func() {
-			if x := recover(); x != nil {
+			if x_0 := recover(); x_0 != nil {
 				println(2)
 			}
 		}()
@@ -725,8 +725,8 @@ func Select_demo() {
 	ch2 := make(chan int64, 1)
 	ch1 <- 42
 	select {
-	case x := <-ch1:
-		println(x)
+	case x_0 := <-ch1:
+		println(x_0)
 	case y := <-ch2:
 		println(y)
 	}
@@ -746,8 +746,8 @@ func Select_closed_demo() {
 	ch := make(chan int64, 1)
 	close(ch)
 	select {
-	case x := <-ch:
-		println(x)
+	case x_0 := <-ch:
+		println(x_0)
 	default:
 		println(99)
 	}
@@ -757,8 +757,8 @@ func Select_nonfinal_demo() {
 	ch := make(chan int64, 1)
 	ch <- 3
 	select {
-	case x := <-ch:
-		println(x)
+	case x_0 := <-ch:
+		println(x_0)
 	default:
 		println(99)
 	}
@@ -770,8 +770,8 @@ func Goroutine_demo() {
 	go func() {
 		ch <- 42
 	}()
-	x := <-ch
-	println(x)
+	x_0 := <-ch
+	println(x_0)
 }
 
 func Session_demo() {
@@ -2620,6 +2620,24 @@ func Ownpath_demo() {
 	println(I64_add(30, 12))
 }
 
+func Mangle_pair(x_ int64, x__0 int64) int64 {
+	return x_
+}
+
+func Mangle_demo() {
+	println(Mangle_pair(21, 5))
+}
+
+func Capture_body(x_ int64) {
+	for _, x__0 := range []int{1} {
+		println(x_, x__0)
+	}
+}
+
+func Capture_demo() {
+	Capture_body(77)
+}
+
 func Is_even(n uint) bool {
 	if n == 0 {
 		return true
@@ -2964,6 +2982,8 @@ func main() {
 	Natpred_demo()
 	Ownname_demo()
 	Ownpath_demo()
+	Mangle_demo()
+	Capture_demo()
 	Mutual_rec_demo()
 	F32_demo()
 	I64_of_narrow_demo()
