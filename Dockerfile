@@ -81,8 +81,8 @@ COPY --chown=opam:opam negtests/ negtests/
 #      re-extract afresh.  (Drivers auto-detected; the heavy proof libraries stay cached.)
 # Then a `test -n` guard fails LOUD rather than shipping nothing.
 #  (3) AXIOM-MANIFEST GATE: the MANIFEST flow of the trust-boundary ledger (the full split
-#      is single-sourced in PROGRESS.md "Current gates"; the spine GoAst..GoEmit is gated by the separate
-#      printer/emit greps in steps (5)+below).  `dune build` runs the manifest surfaces' `Print Assumptions`
+#      is single-sourced in PROGRESS.md "Current gates"; the spine digits..GoEmit is gated by
+#      plugin/spine-gate.sh — the ONE compile+scan authority, shared with the Makefile mirrors).  `dune build` runs the manifest surfaces' `Print Assumptions`
 #      (the surfaces are enumerated ONLY in PROGRESS.md "Current gates" — not duplicated here; each bundling
 #      constant's report is the UNION of its whole transitive cone) into the build log.  Capture each `Axioms:`
 #      report (plugin/manifest-axioms.sh
@@ -117,6 +117,7 @@ COPY --chown=opam:opam negtests/ negtests/
 RUN --mount=type=cache,id=fido-dune,uid=1000,gid=1000,target=/workspace/_build \
     sh plugin/smart-ctor-gate.sh \
     && sh plugin/axiom-authority-selftest.sh \
+    && sh plugin/spine-gate.sh selftest \
     && sh plugin/spine-gate.sh printer /tmp/printer.log \
     && if ! diff plugin/printer.ml printer.ml; then \
          echo "fido: PRINTER DRIFT — committed plugin/printer.ml != GoPrint.v's extraction; run 'make printer' and commit it."; \
