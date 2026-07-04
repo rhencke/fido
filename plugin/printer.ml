@@ -1111,6 +1111,54 @@ type gExpr =
 | EStr of string
 | EHex of hexZ
 
+(** val dec_digit : nat -> ascii **)
+
+let dec_digit n0 =
+  ascii_of_nat
+    (add (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+      (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+      (S O)))))))))))))))))))))))))))))))))))))))))))))))) n0)
+
+(** val dds_double : nat -> nat list -> nat -> nat list **)
+
+let rec dds_double b ds carry =
+  match ds with
+  | Nil -> (match carry with
+            | O -> Nil
+            | S _ -> Cons (carry, Nil))
+  | Cons (d, tl) ->
+    Cons ((Nat.modulo (add (mul (S (S O)) d) carry) b),
+      (dds_double b tl (Nat.div (add (mul (S (S O)) d) carry) b)))
+
+(** val pos_digits : nat -> positive -> nat list **)
+
+let rec pos_digits b = function
+| XI p' -> dds_double b (pos_digits b p') (S O)
+| XO p' -> dds_double b (pos_digits b p') O
+| XH -> Cons ((S O), Nil)
+
+(** val render_digits : (nat -> ascii) -> nat list -> string -> string **)
+
+let render_digits dig ds s =
+  fold_left (fun acc d -> String ((dig d), acc)) ds s
+
+(** val print_Z_pos : positive -> string **)
+
+let print_Z_pos p =
+  render_digits dec_digit
+    (pos_digits (S (S (S (S (S (S (S (S (S (S O)))))))))) p) EmptyString
+
+(** val print_Z : z -> string **)
+
+let print_Z = function
+| Z0 ->
+  String ((Ascii (False, False, False, False, True, True, False, False)),
+    EmptyString)
+| Zpos p -> print_Z_pos p
+| Zneg p ->
+  append (String ((Ascii (True, False, True, True, False, True, False,
+    False)), EmptyString)) (print_Z_pos p)
+
 (** val print_ty : goTy -> string **)
 
 let rec print_ty = function
@@ -1239,54 +1287,6 @@ let rec print_ty = function
       (append (String ((Ascii (True, False, True, True, True, False, True,
         False)), EmptyString)) (print_ty v)))
 | GTNamed n0 -> n0
-
-(** val dec_digit : nat -> ascii **)
-
-let dec_digit n0 =
-  ascii_of_nat
-    (add (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-      (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-      (S O)))))))))))))))))))))))))))))))))))))))))))))))) n0)
-
-(** val dds_double : nat -> nat list -> nat -> nat list **)
-
-let rec dds_double b ds carry =
-  match ds with
-  | Nil -> (match carry with
-            | O -> Nil
-            | S _ -> Cons (carry, Nil))
-  | Cons (d, tl) ->
-    Cons ((Nat.modulo (add (mul (S (S O)) d) carry) b),
-      (dds_double b tl (Nat.div (add (mul (S (S O)) d) carry) b)))
-
-(** val pos_digits : nat -> positive -> nat list **)
-
-let rec pos_digits b = function
-| XI p' -> dds_double b (pos_digits b p') (S O)
-| XO p' -> dds_double b (pos_digits b p') O
-| XH -> Cons ((S O), Nil)
-
-(** val render_digits : (nat -> ascii) -> nat list -> string -> string **)
-
-let render_digits dig ds s =
-  fold_left (fun acc d -> String ((dig d), acc)) ds s
-
-(** val print_Z_pos : positive -> string **)
-
-let print_Z_pos p =
-  render_digits dec_digit
-    (pos_digits (S (S (S (S (S (S (S (S (S (S O)))))))))) p) EmptyString
-
-(** val print_Z : z -> string **)
-
-let print_Z = function
-| Z0 ->
-  String ((Ascii (False, False, False, False, True, True, False, False)),
-    EmptyString)
-| Zpos p -> print_Z_pos p
-| Zneg p ->
-  append (String ((Ascii (True, False, True, True, False, True, False,
-    False)), EmptyString)) (print_Z_pos p)
 
 (** val ch : nat -> ascii **)
 

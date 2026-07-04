@@ -249,6 +249,15 @@ let from_builtins r =
    Stdlib refs are package-qualified and use [ref_has_suffix]. *)
 let named n r = String.equal (global_basename r) n && from_builtins r
 
+(* [from_digits r]: the ref's defining module is exactly [Fido.digits] — the shared decimal
+   authority (model panic payloads + the verified printer).  Its decls are NEVER emitted as
+   user Go (model-only there; the printer consumes them via OCaml extraction), so the
+   suppression below drops the whole module by the same exact-dirpath identity discipline. *)
+let from_digits r =
+  match (try Some (Nametab.dirpath_of_global r.glob) with Not_found -> None) with
+  | None -> false
+  | Some dp -> String.equal (DirPath.to_string dp) "Fido.digits"
+
 (* [named_in ns r]: the list form of [named] — TRUE iff [r] is a [builtins.v] ref whose basename is one of
    [ns].  EVERY conversion recognizer the verified-printer bridge routes through (the cov_preds set) is defined
    as exactly [let is_X = named_in […]] so the [from_builtins] guard lives here, once.  smart-ctor-gate.sh
@@ -5055,10 +5064,11 @@ let is_suppressed_ref r =
      "for_each_idx"; "for_each_idx_from"; "int_range"; "int_range_aux";
      (* runtime-panic VALUES — used only inside suppressed panic-op bodies,
         never emitted (the native Go op panics on its own) *)
-     "rt_nil_deref"; "rt_index_oob"; "Z_dec_string"; "dec_double"; "pos_dec_digits"; "dec_render"; "pos_dec_string";
+     "rt_nil_deref"; "rt_index_oob";
      "rt_slice_bounds"; "rt_neg_make"; "rt_nil_map";
      "rt_send_closed"; "rt_close_closed"; "rt_close_nil"; "rt_assert_fail"; "rt_select_block";
      "rt_chan_send_block"]) ||
+  from_digits r ||
   is_go_type_tag_ctor r || is_zero_val_ref r ||
   is_slice_of_list_ref r || is_slice_get_ref r || is_slice_at_ok_ref r ||
   is_arr_lit_ref r || is_arr_eqb_ref r || is_arr_set_ref r ||

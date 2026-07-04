@@ -15,7 +15,7 @@ eval_cmd, equivalence both directions, gated; real no_heap totality), cmd_unifie
    well-founded recursion (lexer: length-decreasing scan; parser: WF on
    (tokens, phase)).  The round-trip theorems keep their statements; the budget
    premises disappear.  printer.ml regenerates; golden byte-identical.
-2. **builtins.v**: `n_dec_aux fuel` (same WF treatment); `run_blocks_fuel`/`block_fuel`
+2. **builtins.v** (`n_dec_aux` LANDED — the shared digits.v authority): `run_blocks_fuel`/`block_fuel`
    (the goto-CFG runner — genuine partiality): replace with a step relation +
    termination-certificate execution (Acc-based); each CFG demo supplies its concrete
    derivation; the plugin erases the proof argument (arity update, fail-closed;

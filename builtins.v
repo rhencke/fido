@@ -78,6 +78,7 @@ Definition GoSlice (A : Type) : Type := list A.
     (a NONCANONICAL literal is REJECTED at extraction — the plugin gates on the extracted
     [SpecFloat.bounded], because [SFeqb]/[SFcompare] are representation-sensitive). *)
 From Stdlib Require Export Floats.SpecFloat.   (* Export: [spec_float] + its [S754_*] ctors visible downstream *)
+From Fido Require Import digits.
 (* [BinInt] gives [Z] for the FULL-WIDTH integer models; [Decimal] backs the float literal
    Number Notation.  No [Open Scope Z_scope] — [Z] use stays qualified ([Z.add]/…, [%Z] literals). *)
 From Stdlib Require Import BinInt Decimal.
@@ -920,33 +921,10 @@ Notation any x := (anyt (the_tag _) x).
 Definition rt_nil_deref    : GoAny := anyt TString "runtime error: invalid memory address or nil pointer dereference"%string.
 Definition rt_div_zero     : GoAny := anyt TString "runtime error: integer divide by zero"%string.   (* integer / and % by zero — consumed by GoSem's effectful denotation (not extracted) *)
 Definition rt_shift_neg    : GoAny := anyt TString "runtime error: negative shift amount"%string.    (* a NEGATIVE runtime shift count — consumed by GoSem's T5 typed-shift denotation (not extracted); payload verified against gc via go run *)
-(** Decimal rendering of a [Z] (for the EXACT runtime panic payloads below), by STRUCTURAL
-    recursion on the positive's BITS — digits(2p) = double(digits p) with carry (LSB-first),
-    rendered MSB-first by the fold.  Totality is the number's own structure; no step budget. *)
-Fixpoint dec_double (ds : list N) (carry : N) : list N :=
-  match ds with
-  | nil => match carry with N0 => nil | _ => carry :: nil end
-  | d :: tl => N.modulo (N.add (N.mul 2 d) carry) 10
-               :: dec_double tl (N.div (N.add (N.mul 2 d) carry) 10)
-  end.
-Fixpoint pos_dec_digits (p : positive) : list N :=
-  match p with
-  | xH => 1%N :: nil
-  | xO p' => dec_double (pos_dec_digits p') 0%N
-  | xI p' => dec_double (pos_dec_digits p') 1%N
-  end.
-Fixpoint dec_render (ds : list N) (acc : string) : string :=
-  match ds with
-  | nil => acc
-  | d :: tl => dec_render tl (String (Ascii.ascii_of_nat (48 + N.to_nat d)) acc)
-  end.
-Definition pos_dec_string (p : positive) : string := dec_render (pos_dec_digits p) EmptyString.
-Definition Z_dec_string (z : Z) : string :=
-  match z with
-  | Z0 => "0"%string
-  | Zpos p => pos_dec_string p
-  | Zneg p => String (Ascii.ascii_of_nat 45) (pos_dec_string p)
-  end.
+(** Decimal rendering of a [Z] (for the EXACT runtime panic payloads below) — DEFINITIONALLY
+    the ONE decimal authority ([digits.print_Z], shared with the verified printer, whose parse
+    round-trip [GoPrint.print_parse_Z] gates it): no second digit-builder exists. *)
+Notation Z_dec_string := digits.print_Z.
 (** The EXACT Go bounds-panic payload (verified against gc 1.23 via `go run`): a non-negative
     out-of-range index reads "index out of range [i] with length n"; a NEGATIVE index reads
     "index out of range [i]" with NO length part.  Parametrized — every panic site supplies the
