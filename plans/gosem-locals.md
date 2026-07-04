@@ -41,6 +41,24 @@ so decl programs are supported-but-undenoted (`shortdecl_supported_undenoted`,
 - The LOCAL-FRONTIER suite is a MECHANICAL `forallb` over the EXISTING `undenoted_frontier`
   ledger (add a value-less `PtBool` member at this rung); fixtures quantify over the LIST.
 
+Decided implementation shape (2026-07-04, argued from the code):
+
+- The rest-of-body's `Cmd` tree depends on the bound VALUE (the env evaluator FOLDS values:
+  `y := x + 1` denotes differently per `x`), while denotability must be STATIC — so
+  `denote_body_env : ScopeS -> list GoStmt -> option (Env -> Cmd unit)`: the outer option is
+  the static decision, the inner function the value-dependent tree; the decl arm is
+  `cbind ce (fun v => kf ((x, v) :: ρ))`.
+- The static Someness predicate evaluates on `canon_env G` (each declared var bound to a
+  canonical value of its checker tag); the SOMENESS-DETERMINISM lemma — for `Γ ≈ ρ`,
+  `denote_expr_env G ρ e`'s Someness equals the canonical one — is the heavy proof and the
+  spine of `Γ ≈ ρ` (engine None-ness is TAG-determined, never value-determined).
+- The inner function's off-spec branch (a non-`Γ ≈ ρ` env, unreachable from
+  `denote_program`'s `(scope_empty, nil)` start) is a fail-LOUD guard `CPan`, paired with
+  an unreachability theorem — the `floats_checked_total` / closed-world pattern; never a
+  silent `CRet`.
+- Non-decl arms get env instances too (`denote_call_env` for args, blank-assign via
+  `denote_expr_env`), each with a nil-coincidence lemma to the closed instance.
+
 Acceptance: `x := 1; _ = x` denotes (+ runtime bindings `x := len([]int{1})`, `y := x`);
 `x := 0; _ = 1/x` denotes the runtime div panic; `x := 1/len([]int{}); _ = x` denotes the
 RHS panic without ρ extension; GoSafe rejections unchanged.
