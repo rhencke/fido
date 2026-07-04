@@ -2353,10 +2353,10 @@ Definition f64_of_u64 (a : GoU64) : GoFloat64 := binary_normalize 53 1024 (u64ra
     [0.1+0.2 = 0.30000000000000004] (which rounds each operand THEN adds).  Fido's runtime floats
     ([spec_float] arithmetic) give the runtime answer; this models the CONSTANT one.  An [FConst] is an exact
     rational [num/den]; [fc_add]/[fc_sub]/[fc_mul] are EXACT ([Q]-style cross-multiply, no
-    rounding); [f64_of_fconst] rounds to [float64] exactly ONCE — an IEEE divide of the two
-    integer endpoints, which is correctly-rounded while [|num|, den < 2^53] (both endpoints exact,
-    so the single division carries the only rounding).  MODEL + machine-checked; LOWERED by the
-    plugin's FConst-fold → Go [float64(num)/float64(den)], which Go re-folds to the same constant. *)
+    rounding); [f64_of_fconst] rounds exactly ONCE (its own contract below is the rounding
+    authority).  MODEL + machine-checked; the plugin's FConst-fold lowers a CONSTANT
+    expression whose int64-CHECKED endpoints fold — beyond int64 the fold declines and
+    extraction fails loud. *)
 (** The denominator is a [positive] — exactly the shape of Coq's [QArith.Q] — so a Go
     float CONSTANT is an EXACT *nonzero-denominator* rational and can NEVER denote ±Inf
     or NaN.  A malformed [den = 0] constant is UNCONSTRUCTABLE by

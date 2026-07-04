@@ -58,8 +58,10 @@ plugin CONSTRUCTS the `GExpr`; only `gprint` is verified. NOT "verified Go."
 - **GoSemSafe** — panic-freedom properties + the narrow gate (`panic_free_gate` sound+complete,
   `emit_panic_free_gated`; both rejection mechanisms pinned). Off the main path; NOT
   BehaviorSafe. Zero axioms.
-- **Whole model axiom-free**: `Print Assumptions main_effect` empty; gates fail the build on
-  drift.
+- **No project axioms; gated surfaces empty**: every manifest surface's `Print
+  Assumptions` (incl. `main_effect`) is empty; gates fail the build on drift. Stdlib
+  funext survives only at two named NON-gated families (`run_io_inj`; `unified.v`'s
+  rstep-embedding lemmas).
 - **Golden end-to-end**: `make check` diffs runtime output vs `expected_output.txt`.
 
 ## RED (not done — do not overclaim)
@@ -85,8 +87,9 @@ plugin CONSTRUCTS the `GExpr`; only `gprint` is verified. NOT "verified Go."
 
 Rocq kernel · the string→`.go` extraction step · the Go toolchain · trusted foreign imports ·
 the whole trusted plugin `plugin/go.ml` (gap #10) · and (once GoSem backs emission) the
-`GoSem`≈real-Go adequacy assumption. The MODEL's logical trust base is empty (zero axioms); the
-plugin is separate.
+`GoSem`≈real-Go adequacy assumption. No project-declared axioms; every GATED surface's
+`Print Assumptions` is empty (stdlib funext survives at the two named non-gated families
+— see SPEC_CONFORMANCE's trust ledger); the plugin is separate.
 
 ## Current gates
 

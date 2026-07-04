@@ -34,7 +34,7 @@ a syntactic gate `SafeProgram`.
    correctly. ⚠️ **NEVER add a raw / opaque / string-rescue escape hatch to a structured AST** (`LESSONS.md`
    postmortem): build structured-or-fail-loud; a construct that can't be represented structurally yet is
    REJECTED mechanically, never preserved as text.
-3. **Zero axioms — the model's trust base is EMPTY; preserve it.** The whole IO/heap/channel/session and
+3. **Zero project axioms — every GATED `Print Assumptions` surface is EMPTY; preserve it.** The whole IO/heap/channel/session and
    numeric model is `Definition`s / `Record`s over concrete Rocq data (`Z`, `nat` locations,
    `SpecFloat.spec_float`); every law is a derived theorem. Model every new builtin as a `Definition` /
    `Record` — **never** an `Axiom` / `Parameter` / `Admitted`, and never a kernel PRIMITIVE

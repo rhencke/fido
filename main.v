@@ -681,8 +681,8 @@ Proof. vm_compute. reflexivity. Qed.
     [fc_num b <> 0], refutable for a zero divisor.  (Go: compile error; here: type error.) *)
 Example fc_div_zero_evidence_absurd : ~ (fc_num (mkFC 0 1) <> 0%Z).
 Proof. intro H. exact (H eq_refl). Qed.
-(** LOWERED: [f64_of_fconst] folds the exact rational and emits [(float64(num) / float64(den))],
-    which Go RE-FOLDS at compile time to the same correctly-rounded constant. *)
+(** LOWERED: [f64_of_fconst] folds the exact rational and emits [float64(num.0 / den.0)]
+    (untyped-constant division, single round), which Go re-folds to the same constant. *)
 Definition fconst_demo : IO unit :=
   println [ any (f64_of_fconst (fc_add (mkFC 1 10) (mkFC 2 10)))    (* (1/10)+(2/10) = 0.3 *)
           ; any (f64_of_fconst (fc_mul (mkFC 3 2) (mkFC 1 4)))      (* (3/2)·(1/4) = 0.375 *)

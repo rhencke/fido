@@ -367,7 +367,7 @@ let is_print_ref r   = named "print" r
    Basename matching is safe: these names are reserved by builtins.v and
    no user theory should shadow them. *)
 let go_prim_type_table = [
-  "GoInt",     "int";    (* platform int — a transparent [int] alias; the plugin renders [int] as Go [int] too, so no type-vs-rendering mismatch *)
+  "GoInt",     "int";    (* platform int — the Z-carried [GoInt] record, rendered Go [int] *)
   "GoUint",    "uint";   (* platform uint — the DISTINCT record [GoUint] (builtins.v), erased to its [uint] carrier (ctor/proj below) *)
   "GoFloat32", "float32";
   (* NOTE: the fixed-width [int8]…[uint64] are NOT here — they are the distinct records
@@ -1791,6 +1791,29 @@ let z_value = function
       (match pos_value p with Some v -> Some (Int64.neg v) | None -> None)
   | _ -> None
 
+(* CHECKED literal parse — for folds whose [Z] fields carry NO upstream range proof (the
+   FConst fold: [mkFC]'s fields are arbitrary-precision [Z]).  A magnitude beyond
+   [2^63 - 1] returns [None] (the fold declines -> fail-loud), never a silent wrap into a
+   wrong value.  ([z_value] above tolerates the [-2^63] wrap corner ONLY because its
+   callers hold an [in_i64]/[in_u64] proof.) *)
+let rec pos_value_chk = function
+  | MLcons (_, r, [])  when String.equal (global_basename r) "xH" -> Some 1L
+  | MLcons (_, r, [p]) when String.equal (global_basename r) "xO" ->
+      (match pos_value_chk p with
+       | Some v when Int64.compare v 0x4000000000000000L < 0 -> Some (Int64.mul 2L v)
+       | _ -> None)
+  | MLcons (_, r, [p]) when String.equal (global_basename r) "xI" ->
+      (match pos_value_chk p with
+       | Some v when Int64.compare v 0x4000000000000000L < 0 -> Some (Int64.add (Int64.mul 2L v) 1L)
+       | _ -> None)
+  | _ -> None
+let z_value_chk = function
+  | MLcons (_, r, [])  when String.equal (global_basename r) "Z0"   -> Some 0L
+  | MLcons (_, r, [p]) when String.equal (global_basename r) "Zpos" -> pos_value_chk p
+  | MLcons (_, r, [p]) when String.equal (global_basename r) "Zneg" ->
+      (match pos_value_chk p with Some v -> Some (Int64.neg v) | None -> None)
+  | _ -> None
+
 (* Checked signed-int64 arithmetic for CONSTANT-EXPRESSION folding: [None] on overflow, so a
    constant whose INTERMEDIATE exceeds int64 fails loud rather than silently wrapping — Go folds
    constants at arbitrary precision, so `(1<<62)+(1<<62)-(1<<62)` (= 2^62, fits) must NOT wrap at
@@ -1804,16 +1827,20 @@ let chk_mul a b =
   else if (a = Int64.min_int && b = -1L) || (b = Int64.min_int && a = -1L) then None
   else let p = Int64.mul a b in if Int64.div p a = b then Some p else None
 let chk_shl a n =
+  (* SIGNED domain: the result must stay non-negative — the logical reverse-shift check
+     alone admits [1 <<< 63 = min_int] (a sign flip: a positive Rocq value folding to a
+     NEGATIVE int64 — a wrong value, not an overflow signal). *)
   if n < 0L || n >= 64L || a < 0L then None
   else let s = Int64.shift_left a (Int64.to_int n) in
-       if Int64.shift_right_logical s (Int64.to_int n) = a then Some s else None
+       if s >= 0L && Int64.shift_right_logical s (Int64.to_int n) = a then Some s else None
 
 (* Fold a CONSTANT [Z] EXPRESSION (a literal, or [Z.add]/[sub]/[mul]/[opp]/[shiftl]/[land]/[lor]/
    [lxor] of constants) to its int64 value — [None] if not a closed constant or an intermediate
    overflows.  Lets a Go untyped CONSTANT EXPRESSION ([i64_lit (1<<40 + 5)]) extract, not just a
    pre-folded literal.  ([Z] ops matched by basename + a [BinInt] module path.) *)
-let rec z_eval e =
-  match z_value e with
+let rec z_eval_leaf leaf e =
+  let z_eval = z_eval_leaf leaf in
+  match leaf e with
   | Some v -> Some v
   | None ->
     let is_zop name h = match h with
@@ -1831,6 +1858,11 @@ let rec z_eval e =
     | MLapp (h, [a])    when is_zop "opp"    h ->
         (match z_eval a with Some x when x <> Int64.min_int -> Some (Int64.neg x) | _ -> None)
     | _ -> None
+(* the two instantiations: proof-backed callers ([i64_lit]/[u64_lit]/... hold an in-range
+   proof, so the wrap-tolerant leaves are sound) vs the PROOF-FREE FConst fold (checked
+   leaves — out-of-range literals decline the fold). *)
+let z_eval = z_eval_leaf z_value
+let z_eval_chk = z_eval_leaf z_value_chk
 
 (* UNSIGNED constant folding for [u64_lit] — same as [z_eval] but with uint64 semantics: ops
    compute on the int64 BIT PATTERN (two's-complement add/mul = unsigned mod 2^64), and overflow
@@ -1872,7 +1904,7 @@ let rec fc_eval e =
   | MLcons (_, r, [num; den]) when named "mkFC" r ->   (* the record CONSTRUCTOR is an MLcons *)
       (* [fc_den] is a [positive] (Q-style, always >= 1), so the denominator is read with
          [pos_value], not [z_eval]; it can never fold to 0. *)
-      (match z_eval num, pos_value den with Some n, Some d -> Some (n, d) | _ -> None)
+      (match z_eval_chk num, pos_value_chk den with Some n, Some d -> Some (n, d) | _ -> None)
   | MLapp (MLglob r, [a; b]) when named "fc_mul" r ->
       (match fc_eval a, fc_eval b with
        | Some (na, da), Some (nb, db) ->
@@ -2604,8 +2636,8 @@ let rec pp_expr state env = function
             | None -> unsupported "f64_of_fconst of a non-constant FConst (only statically-known float constants are modeled)")
        (* [f32_of_fconst c] — exact FConst → float32: fold the rational and emit [float32(num.0 / den.0)].
           Go computes [num.0 / den.0] as an UNTYPED constant (arbitrary precision), then [float32(…)]
-          rounds ONCE — the correctly-rounded rational→binary32, for ALL num/den (no 2^53 guard, unlike
-          [f64_of_fconst]: the binary64 intermediate is what forces that guard; the untyped one is exact). *)
+          rounds ONCE — the correctly-rounded rational→binary32 for every FOLDED constant
+          (endpoints/intermediates are int64-CHECKED: beyond that the fold declines, fail-loud). *)
        | MLglob r, [fc] when named "f32_of_fconst" r ->
            (match fc_eval fc with
             | Some (num, den) when den <> 0L ->

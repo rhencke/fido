@@ -6,23 +6,17 @@ section at a time.  Our Rocq is meant to follow this order too, so each spec
 section maps to a region of the model.  Each entry: the spec rule (the SOURCE of
 our behavior, cited), our model, status, and the machine-checked witness.
 
-**The entire model is AXIOM-FREE.**  The authority is Rocq's own `Print Assumptions`,
-gated non-bypassably in the Docker prover stage (the manifest / printer / emit flows —
-see PROGRESS.md "Current gates" — assert their surfaces' `Axioms:` reports empty); a source grep
-`grep -cE '^Axiom |^Parameter ' *.v` = 0 is only a coarse commit-time tripwire (legal
-declaration forms — `Local`/`Polymorphic Axiom`, attribute stacks — bypass it).  So every
-✓ below rests on a `Definition`/`Theorem` over a CONCRETE model (the `World` is a
-concrete record of typed heaps), and `Print Assumptions` of any result reports *Closed
-under the global context* — the trust base is EMPTY (the old `PrimInt63`/`PrimFloat`
-kernel substrate was eliminated: integers `Z`, locations `nat`, floats `spec_float`).
-The IO monad/effect ALGEBRA (the monad laws, and every
-read-after-write / commutation lemma) is now **funext-free**: stated over OBSERVATIONAL
-equality `io_eq m m' := forall w, run_io m w = run_io m' w` and proved pointwise — `Print Assumptions bind_assoc` reports no `functional_extensionality`.  The
-stdlib `functional_extensionality` survives at exactly ONE site, `run_io_inj` (`io_eq → =`),
-used only by the concurrency `Denotes` Keystone bridge (`ptr_set_is_ref`), which must rewrite
-the IO term STRUCTURALLY and so cannot use `io_eq`; removing it there needs an observational
-`Denotes`, part of the concurrency unification.  Conformance witnesses that used to rest on a
-`run_io`/channel/map *axiom interface* now rest on the proven laws of that concrete model.
+**Trust base (honest ledger).**  NO project-declared axioms; every GATED `Print
+Assumptions` surface (the manifest / printer / emit flows — PROGRESS.md "Current gates")
+is asserted EMPTY non-bypassably in the Docker prover stage; the source grep is only a
+coarse tripwire.  The model is `Definition`s/`Theorem`s over CONCRETE data (integers `Z`,
+locations `nat`, floats `spec_float` — the old `PrimInt63`/`PrimFloat` kernel substrate
+is eliminated), and the IO/effect algebra is funext-free (observational equality
+`io_eq`, proved pointwise).  Stdlib `functional_extensionality` survives at exactly TWO
+NAMED, NON-GATED families: `run_io_inj` (the Keystone `Denotes` bridge, which rewrites
+IO terms structurally) and `unified.v`'s rstep-embedding lemmas (`rstep_embeds` — see
+its header note).  A per-section "Closed under the global context" claim below means
+THAT family's own `Print Assumptions`, not a blanket statement.
 
 Status legend:
 - **✓ conforms** — verified, ideally a machine-checked witness (an `Example`/
@@ -52,11 +46,10 @@ deviation, not a gap; Interface types); the concurrency guarantee's remaining ga
 ## Lexical elements
 
 ### [Integer literals](https://go.dev/ref/spec#Integer_literals) / [Floating-point literals](https://go.dev/ref/spec#Floating-point_literals) — ⚠ (typed/fixed-width view)
-Spec: literals are *untyped constants* (see Constants).  Ours: written as Rocq
-`PrimInt63` / `PrimFloat` values — i.e. the already-*typed*, fixed-width runtime
-view.  The lexical shapes (decimal, sign) round-trip (`neglit_demo`:
-`-7 / -1 / -2147483648`), but the untyped/arbitrary-precision layer is not
-modeled here — see **Constants** below.
+Spec: literals are *untyped constants* (see Constants).  Ours: written as the typed,
+fixed-width runtime view over the `Z`-carried records (`GoInt`/`GoI64`/… — proof-carrying
+literals).  The lexical shapes (decimal, sign) round-trip (`neglit_demo`); the
+untyped/arbitrary-precision layer is modeled in **Constants**.
 
 ## Constants
 
@@ -85,9 +78,11 @@ Ours:
 - **Float constants — TWO scoped paths, do not conflate:** the LIVE constant path is
   `FConst` — an exact rational `num/den` with EXACT `fc_add`/`fc_sub`/`fc_mul` and
   `f64_of_fconst`/`f32_of_fconst` rounding exactly ONCE via `SFdiv` on exact-integer
-  spec_floats (correctly rounded for ALL num/den; ±Inf/NaN unconstructable — the
-  denominator is a `positive`), plugin-folded to a Go constant division that re-folds to
-  the same value.  SEPARATELY, the GoTypes/GoSafe checker subset is DYADIC
+  spec_floats (the MODEL is correct for all num/den; ±Inf/NaN unconstructable — the
+  denominator is a `positive`).  The PLUGIN FOLD is bounded to int64
+  endpoints/intermediates with CHECKED literal parsing — a magnitude beyond int64
+  declines the fold and extraction fails loud (`neg_fconst_overflow.v`), never a
+  silently wrong rational.  SEPARATELY, the GoTypes/GoSafe checker subset is DYADIC
   exact-or-reject (`m·2^e`; a rounding case like `float64(1)/float64(3)` is valid Go
   that the GATE rejects — quarantined incompleteness, never a wrong value).
 - *Remaining:* the narrow `_lit`s take an `int` argument (narrow constant arithmetic
@@ -359,9 +354,9 @@ Faithful by construction: `uintN` AND/OR/XOR of in-range values stay in `[0,2ⁿ
 correct; AND-NOT/complement flip within the width (`lxor _ (2ⁿ-1)`).  Go's `&^`
 and unary `^` are single operators.  **Subtlety honored:** unary `^x` on the int64
 carrier is the *64-bit* complement (`^240 = -241`), so it is wrapped back to the
-width (`(^x)&0xff → 15`).  **`int` (Sint63) bitwise: ✗** — the 63-vs-64-bit carrier
-exposes the sign bit, so bitwise on negative `int` would differ from int64; blocked
-on the full-width Z model (Tier 2 #4).  **Bitwise ALGEBRA (`GoU64`) proven (2026-06-21,
+width (`(^x)&0xff → 15`).  **`int` bitwise/shifts:** the MODEL has them over the
+Z-carried `GoInt` (`int_and`/`int_shl`/… — GoSem tier R8 denotes them); the PLUGIN does
+not emit them yet (✗ plugin-side only).  **Bitwise ALGEBRA (`GoU64`) proven (2026-06-21,
 axiom-free):** `u64_{and,or,xor}_comm` + `u64_{and,or,xor}_assoc` — the Boolean-algebra
 counterpart of the arithmetic semiring + total-order laws; associativity rests on
 `wrapU64_bit_{l,r}` (mod-2⁶⁴ depends only on the low 64 bits, one `Z.bits_inj'` each).
@@ -378,7 +373,7 @@ EVIDENCE-CARRYING like `div_nz` — the count must be proven **non-negative**
 `Fail`), so the run-time panic is unreachable.  Machine-checked (`spec_u8_shl`…
 `spec_i8_shr_neg`): `1<<3=8`, over-width `1<<8=0` (no upper limit on count),
 `255>>4=15`, signed `64<<1=-128` (two's-complement wrap), and `>>` is **arithmetic**
-for signed — `-3>>1=-2` (toward **−∞**, via `PrimInt63.asr`), DISTINCT from `-3/2=-1`
+for signed — `-3>>1=-2` (toward **−∞**, the model's arithmetic shift), DISTINCT from `-3/2=-1`
 (toward zero), and `-1>>3=-1` (not 0).  `>>` is logical for `uintN` (`lsr`, the
 non-negative carrier) and arithmetic for `intN` (`asr`, sign-extended).  Plugin emits
 Go `x<<k` / `x>>k`.  **Plugin `int` shifts: ✗** (not plugin-emitted; the MODEL's `int`
@@ -392,10 +387,10 @@ own width instead), and GoSem saturates counts ≥ 64 (exact for ≤64-bit carri
 `q=x/y`, `r=x%y`: `x=q*y+r`, `|r|<|y|`, **truncated toward zero**; the example
 table; the most-negative exception `x/-1 = x`, `x%-1 = 0` (two's-complement, no
 panic); zero divisor ⇒ run-time panic (constant zero ⇒ compile error).
-Ours: `div_nz`/`mod_nz` = `PrimInt63.divs`/`mods`, nonzero-divisor proof demanded
-(panic unreachable).  Witnesses: `spec_div_5_3 … spec_mod_n5_n3` (full table),
-`spec_div_minint_neg1`/`spec_mod_minint_neg1` (the `x/-1` exception; our
-most-negative = `Sint63.min_int` = -2⁶²).  ✓
+Ours: `int_div`/`int_mod` over the Z-carried `GoInt` — truncating `Z.quot`/`Z.rem`
+with an evidence-carried nonzero divisor (panic unreachable).  Witnesses:
+`spec_div_5_3 … spec_mod_n5_n3` (full table) + the `x/-1` exception wrapping the TRUE
+int64 most-negative (see Numeric types).  ✓
 
 ### [Integer overflow](https://go.dev/ref/spec#Integer_overflow) — ✓ unsigned; ⚠ signed boundary
 Spec: unsigned `+ - * <<` = **mod 2ⁿ**; signed `+ - * / <<` overflow is
@@ -404,8 +399,8 @@ Ours (unsigned): `uintN` mask = mod 2ⁿ — `u8_add_wraps` (300→44), `u8_mul_
 (65025→1), `u8_sub_wraps` (0-1→255), `u16_mul_wraps`.  ✓  (signed): `intN`
 two's-complement — `i8_add_wraps` (-106), `i16_add_wraps` (-25536).  Full-width
 `int64`/`uint64` wrap at the TRUE 2⁶³/2⁶⁴ via `GoI64`/`GoU64` (`spec_i64_add_wrap`,
-`spec_u64_add_wrap`) — the canonical int model (A4.3).  The legacy `Sint63` `int`
-(wraps at 2⁶², ⚠ Tier 2 #4) survives only for indices.  32-bit multiply ✓
+`spec_u64_add_wrap`) — the canonical int model; platform `int`/`uint` are the same
+Z-carried shape (deviation closed — see Numeric types).  32-bit multiply ✓
 (`spec_u32_mul_wrap`/`spec_i32_mul_wrap`, mask keeps the exact low 32 bits).
 
 ### [Floating-point operators](https://go.dev/ref/spec#Floating-point_operators) — ✓ ops; ⚠ FMA fusion
@@ -439,10 +434,10 @@ implementation MAY fuse ops (FMA); an explicit conversion rounds and prevents fu
 
 ### [Comparison operators](https://go.dev/ref/spec#Comparison_operators) — ✓ conforms
 Spec: integers "in the usual way", floats "as defined by IEEE 754", bools equal
-iff both true/both false.  Ours (int): SIGNED `ltsb`/`lesb` → Go signed `</<=`;
-unsigned `PrimInt63.ltb`/`leb` **rejected** for `int` (disagree on high bit) —
-`ltb_unsigned_neg_false`/`ltb_signed_neg_true`.  (float): `PrimFloat.ltb`/`leb`/
-`eqb`, IEEE incl. NaN unordered — `nan_eqb_false`, `nan_ltb_false`.  (string):
+iff both true/both false.  Ours (int): SIGNED Z-compare → Go signed `</<=`
+(an unsigned-order comparison on signed `int` is rejected — the historical
+high-bit disagreement class).  (float): `spec_float` comparisons, IEEE incl. NaN
+unordered — `nan_eqb_false`, `nan_ltb_false`.  (string):
 `str_eqb` → Go `==` (byte equality), `str_ltb` → Go `<` (lexicographic by byte
 value) — both theorems (see String types).  ✓
 (int64/uint64/string/float): `i64_gtb`/`i64_geb`/`i64_neqb`, `u64_*`, `str_gtb`/
@@ -764,14 +759,14 @@ imports, no user `init`). Goroutine destruction — faithful BY OMISSION (the sp
 NO exit edge; we add none) ✓. Locks/Once/Atomics — need `sync` imports, ✗ deferred.
 
 **Still open (honest gaps):**
-- **The READ-OBSERVATION rule (`W(r)`) — ✓ SCOPED under `Owned`:** the model is
-  operationally sequentially consistent, so the observed writer is BY CONSTRUCTION the
-  trace-last write before the read (`last_write_before`, `last_write_before_spec`);
-  `visible_write_hb_maximal` proves that under the ownership discipline this operational
-  `W(r)` happens-before the read and is hb-MAXIMAL among prior writes — the
-  DRF visible-write condition, proved constructively.  REMAINING gap: no visible-write
-  semantics outside `Owned` (racy programs), and no per-read `W(r)` in the spec's full
-  relational generality.
+- **The READ-OBSERVATION rule (`W(r)`) — ⚠ PRIOR-WRITE slice under `Owned` only:**
+  the model is operationally sequentially consistent, so WHEN a prior trace write to
+  the location exists, the observed writer is by construction the trace-last one
+  (`last_write_before`, `last_write_before_spec`), and `visible_write_hb_maximal`
+  proves that under `Owned` it happens-before the read and is hb-MAXIMAL among prior
+  writes.  NOT total: a read with no prior trace write (initial-heap reads) has no
+  `W(r)` — no initial-write events are modeled — and there is no visible-write
+  semantics outside `Owned` (racy programs).
 - **Implementation Restrictions (no-out-of-thin-air; word-tearing) — ✗ unmodeled**
   (bounded-race guarantees for racy programs; we reason only about race-free ones).
 - **`sequenced before` is modeled as a TOTAL per-goroutine order** — stronger than the
