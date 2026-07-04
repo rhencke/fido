@@ -666,8 +666,8 @@ let mk_goexpr_id name =
    | Printer.False -> None)
 (* [EHex] erases its [HexZ] non-negativity proof to a bare [Z], exactly like [EId]/[GTNamed].  [mk_goexpr_hex]
    re-checks [hexz_ok] (= [HexZ]'s [0 <=? z]) at the boundary and returns [None] for a negative [z] (the caller
-   then falls back to the trusted printer) — so a forged out-of-domain [Printer.EHex] (which [print_hex]'s
-   round-trip does NOT cover) can never enter the verified [gprint] path. *)
+   then falls back to the trusted printer) — load-bearing: [gprint]'s [EHex] arm feeds [Z.to_N], which
+   COLLAPSES a negative to 0 (a wrong value), so a forged negative [EHex] must be refused HERE. *)
 let mk_goexpr_hex z =
   (match Printer.hexz_ok z with
    | Printer.True  -> Some (Printer.EHex z)

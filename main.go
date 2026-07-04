@@ -146,7 +146,7 @@ func Div_demo() {
 }
 
 func Float_demo() {
-	println(func(x float64, y float64) float64 { return x + y }(0x18000000000000p-52, 0x12000000000000p-51), func(x float64, y float64) float64 { return x / y }(0x10000000000000p-52, 0x10000000000000p-50))
+	println(func(x float64, y float64) float64 { return x + y }(0x18000000000000p-52, 0x12000000000000p-51), func(x float64, y float64) float64 { return x / y }(0x10000000000000p-52, 0x10000000000000p-50), 0x10000000000000000p0)
 }
 
 func Float_cmp_demo() {

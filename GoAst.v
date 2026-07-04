@@ -60,9 +60,10 @@ Definition mkIdent (s : string) (H : go_ident s = true) : Ident := exist _ s H.
 Definition TyName : Type := { s : string | nominal_type_ident s = true }.
 Definition mkTyName (s : string) (H : nominal_type_ident s = true) : TyName := exist _ s H.
 (** A third validity-carrying sig type: [HexZ] for a HEX integer literal ([EHex] / [THex]).  Go hex literals
-    are NON-NEGATIVE ([-0xff] is unary minus applied to [0xff], not a negative literal), and [print_hex]
-    only round-trips for [0 <= z]; carrying [0 <=? z = true] IN THE TYPE makes a negative hex literal
-    UNREPRESENTABLE (rule 2: reject by construction), so the print/parse round-trip stays UNCONDITIONAL.
+    are NON-NEGATIVE ([-0xff] is unary minus applied to [0xff], not a negative literal); [print_hex]'s
+    domain is [N], and carrying [0 <=? z = true] IN THE TYPE makes a negative hex literal
+    UNREPRESENTABLE (rule 2: reject by construction) and the [Z.to_N] feed lossless — the print/parse
+    round-trip is UNCONDITIONAL over the printer's whole domain.
     [Z] (not [nat]): a [uint32]/[uint64] mask like [0xffffffff] is billions of unary successors — infeasible
     to extract — but a binary [Z] handles it.  Extracts to a bare [Z], the proof erased (like [Ident]). *)
 Definition HexZ : Type := { z : Z | (0 <=? z)%Z = true }.
