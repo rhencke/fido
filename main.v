@@ -3414,6 +3414,21 @@ Definition pure_rec_demo : IO unit := println [any (pow2 4)].   (* 2^4 = 16 *)
 Definition natpred_demo : IO unit :=
   println [any (pow2 (Nat.pred 5)); any (pow2 (Nat.pred 0))].   (* 2^4 / 2^0 -> 16 1 *)
 
+(** OWNERSHIP-checked suppression: a USER definition whose basename collides with a
+    Fido/stdlib-suppressed name ([tl] = List.tl's basename) EMITS normally ([func Tl])
+    and its call resolves — proof-only suppression matches by [from_builtins] ownership,
+    never by bare basename. *)
+Module OwnNames.
+  Definition tl (x : GoI64) : GoI64 := x.                (* exact-basename collision (List.tl) *)
+  Definition StructRepOfDemo (x : GoI64) : GoI64 := x.   (* PREFIX collision (StructRepOf…) — not
+    an instance (ret is GoI64, not the class), so the TYPE-classified registry ignores it *)
+  Definition go_min (x : GoI64) : GoI64 := x.            (* Fido-op basename collision (min/max wrapper) *)
+  Definition repeat (x : GoI64) : GoI64 := x.            (* stdlib basename collision (List.repeat) *)
+End OwnNames.
+Definition ownname_demo : IO unit :=
+  println [any (OwnNames.tl (9)%i64); any (OwnNames.StructRepOfDemo (8)%i64);
+           any (OwnNames.go_min (7)%i64); any (OwnNames.repeat (6)%i64)].   (* 9 8 7 6 *)
+
 (** MUTUAL RECURSION — two `Fixpoint`s calling each other (a mutual `Dfix`).  No plugin work:
     the `Dfix` arm already emits each function via `pp_function`, and a cross-call is an
     ordinary call; with value-position nat matches now lowering, the bodies emit too. *)
@@ -3679,6 +3694,7 @@ Definition main_effect : IO unit :=
   recursion_demo                >>'   (* prints: 3 / 2 / 1 (user recursion, self-calling func) *)
   pure_rec_demo                 >>'   (* prints: 16 (pure value-returning recursion, pow2 4) *)
   natpred_demo                  >>'   (* prints: 16 1 (Nat.pred live use -> func Pred emitted; stdlib liveness) *)
+  ownname_demo                  >>'   (* prints: 9 8 7 6 (user defs colliding with suppressed basenames/prefixes EMIT - ownership/type-checked suppression) *)
   mutual_rec_demo               >>'   (* prints: true / false (mutual recursion is_even/is_odd) *)
   f32_demo                      >>'   (* prints: 7.5 (native float32 arithmetic) *)
   i64_of_narrow_demo            >>'   (* prints: 200 -5 60000 (narrow→int64 widening) *)

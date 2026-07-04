@@ -2592,6 +2592,26 @@ func Natpred_demo() {
 	println(Pow2(Pred(5)), Pow2(Pred(0)))
 }
 
+func Tl(x int64) int64 {
+	return x
+}
+
+func StructRepOfDemo(x int64) int64 {
+	return x
+}
+
+func Go_min(x int64) int64 {
+	return x
+}
+
+func Repeat(x int64) int64 {
+	return x
+}
+
+func Ownname_demo() {
+	println(Tl(9), StructRepOfDemo(8), Go_min(7), Repeat(6))
+}
+
 func Is_even(n uint) bool {
 	if n == 0 {
 		return true
@@ -2934,6 +2954,7 @@ func main() {
 	Recursion_demo()
 	Pure_rec_demo()
 	Natpred_demo()
+	Ownname_demo()
 	Mutual_rec_demo()
 	F32_demo()
 	I64_of_narrow_demo()

@@ -42,19 +42,21 @@ let keywords =
    FAIL at extraction, never paper the gap over with a plausible-but-wrong value
    (a bare [nil], an empty call) that [go build] would happily accept.  Reaching
    this means one of two honest things: the construct is a real gap to implement,
-   or it is a dead definition to suppress in [is_inlined_ref].  It is never an
-   invitation to emit [nil].  ("It's fine to leave things unmodeled; it's not
-   fine to model them wrong.") *)
+   or the definition is proof-only and should not be reached from emitted code
+   (Fido-owned proof-only suppression; STDLIB deps are governed by LIVENESS, never
+   by adding names).  It is never an invitation to emit [nil].  ("It's fine to
+   leave things unmodeled; it's not fine to model them wrong.") *)
 (* The top-level decl currently being emitted — surfaced in [unsupported] so a fail-loud
-   abort names WHICH definition choked (decisive when an unmodeled node is dragged in from a
-   suppressible stdlib dependency: the name tells you exactly what to add to is_inlined_ref). *)
+   abort names WHICH definition choked (decisive when an unmodeled node is dragged in
+   from a dependency: the name says which definition to make unreachable or lower). *)
 let current_decl = ref ""
 let unsupported what =
   let where = if String.equal !current_decl "" then "" else " (while emitting `" ^ !current_decl ^ "`)" in
   CErrors.user_err
     (str ("fido: cannot extract " ^ what ^ where ^
-          ": unmodeled Go construct.  Implement its lowering or suppress the \
-           definition (is_inlined_ref) — refusing to emit wrong Go."))
+          ": unmodeled Go construct.  Implement its lowering, or keep the definition \
+           out of emitted code (proof-only suppression; stdlib deps drop by liveness) \
+           — refusing to emit wrong Go."))
 
 (* NAME-INJECTIVITY: package-level Go identifiers must be INJECTIVE.  Two distinct source declarations that
    mangle to the SAME Go name (`foo'`/`foo_` → `Foo_`; `foo`/`Foo` → `Foo` after export-capitalization;
@@ -124,9 +126,9 @@ let global_basename r =
   try Id.to_string (Nametab.basename_of_global r.glob)
   with Not_found -> ""
 
-(* The FULL path of a global (e.g. "Stdlib.Strings.Ascii.zero") — lets suppression lists be
-   MODULE-QUALIFIED: a stdlib-only suppression can never silently swallow a same-basename USER
-   definition (which keeps emitting, or fail-louds, normally). *)
+(* The FULL path of a global (e.g. "Stdlib.Strings.Ascii.zero") — the stdlib CLASSIFIER's
+   input ([is_stdlib_ref]): path-based classification can never swallow a same-basename
+   USER definition (which keeps emitting, or fail-louds, normally). *)
 let global_fullpath r =
   try Libnames.string_of_path (Nametab.path_of_global r.glob)
   with Not_found -> ""
@@ -143,10 +145,13 @@ let is_stdlib_ref r =
    SUPPRESSED proof-only body is dead and DROPS, while a real use KEEPS its definition.
    The residual (a stdlib identifier about to print with NO emitted definition — e.g. a
    live ref whose decl is absent from the structure and that no by-name lowering claimed)
-   ABORTS at the [MLglob] print fallback.  [live_stdlib]/[stdlib_decl_present] are filled
-   by [collect_decls] before any emission/registration decision; [entry_live_body] is set
-   by the Go-Main driver (the entry Dterm is FILTERED from the structure, but its refs are
-   live). *)
+   ABORTS at the [MLglob] print fallback.  PHASE ORDER, structural: [collect_decls] fills
+   these tables in pass 4 — after the record/comparable/method registrations (whose
+   registries the emission classification consults), before any declaration emission —
+   and the registration passes consult only the phase-stable [is_suppressed_ref], never
+   [live_stdlib] (only the post-liveness [is_inlined_ref] reads it).  [entry_live_body]
+   is set by the Go-Main driver (the entry Dterm is FILTERED from the structure, but its
+   refs are live). *)
 let live_stdlib : (string, unit) Hashtbl.t = Hashtbl.create 16
 let stdlib_decl_present : (string, unit) Hashtbl.t = Hashtbl.create 16
 let entry_live_body : Miniml.ml_ast option ref = ref None
@@ -281,7 +286,7 @@ let is_zarith_helper r =
      [Corelib.Init.Datatypes] (so not caught by module): [CompOpp] (from
      [Z.compare]), [fst]/[snd] (from [Z.quotrem], the truncating div/mod).  Only ever
      reachable from the suppressed [GoI64] bodies, so never emitted. *)
-  || List.mem (global_basename r) ["CompOpp"; "comparison"; "fst"; "snd"]
+  || (is_stdlib_ref r && List.mem (global_basename r) ["CompOpp"; "comparison"; "fst"; "snd"])
 
 (*s Standard-library type and constructor recognition. *)
 
@@ -324,9 +329,9 @@ let is_str_eqb_ref    r = named "str_eqb" r
 let is_str_ltb_ref    r = named "str_ltb" r
 (* direct >/>=/!= for strings and float64 (completing Go's six comparison operators);
    each is a Fido wrapper recognized by name and lowered to the bare Go operator. *)
-let is_str_cmp_ref    r = List.mem (global_basename r) ["str_gtb"; "str_geb"; "str_neqb"]
-let is_f64_cmp_ref    r = List.mem (global_basename r) ["f64_gtb"; "f64_geb"; "f64_neqb"]
-let is_f32_cmp_ref    r = List.mem (global_basename r)
+let is_str_cmp_ref    = named_in ["str_gtb"; "str_geb"; "str_neqb"]
+let is_f64_cmp_ref    = named_in ["f64_gtb"; "f64_geb"; "f64_neqb"]
+let is_f32_cmp_ref    = named_in
                             ["f32_ltb"; "f32_leb"; "f32_eqb"; "f32_gtb"; "f32_geb"; "f32_neqb"]
 
 (* [int_of_u8] / [int_of_i8] / [int_of_u16] / [int_of_i16] — WIDEN a fixed-width
@@ -413,7 +418,7 @@ let arrN_size_of_type r = arr_n_of_name "GoArr" "" (global_basename r)
 let arrN_lit_size   r = arr_n_of_name "arr"   "_lit" (global_basename r)
 let is_arrN_type r = arrN_size_of_type r <> None
 let is_arrN_lit_ref r = arrN_lit_size r <> None
-let is_arr_eqb_ref r = named "arr_eqb" r || arr_n_of_name "arr" "_eqb" (global_basename r) <> None   (* array == (field-wise; arrays comparable, slices not) *)
+let is_arr_eqb_ref r = named "arr_eqb" r || (from_builtins r && arr_n_of_name "arr" "_eqb" (global_basename r) <> None)   (* array == (field-wise; arrays comparable, slices not) *)
 let is_arr_set_ref = named "arr_set"   (* functional array update → copy-mutate-return IIFE *)
 let is_for_each_ref = named "for_each"
 let is_str_range_ref = named "str_range"        (* for i, r := range s (string range, byte index + rune) *)
@@ -455,6 +460,7 @@ let is_gstruct_eqb_ref r     = from_builtins r && global_basename r = "gstruct_e
    the index ops ([mem_get]/[mem_depth]/[mem_tag], [MHere]/[MNext]), the iso/tags, the field-fold
    ([write_fields]/[read_fields]/[wr_fields]) and the eq machinery are all proof-only. *)
 let is_gsptr_machinery r =
+  from_builtins r &&
   List.mem (global_basename r)
     ["gsptr_new"; "gsptr_deref"; "gsptr_assign"; "gsptr_get_field"; "gsptr_set_field";
      "gsptr_hs"; "mkGSPtr"; "gsp_base"; "gstruct_eqb"; "gfield_coh";
@@ -487,8 +493,8 @@ let is_map_clear_ref = named "map_clear"
 (* Go 1.21 [min]/[max] builtins: on [int] ([go_min]/[go_max]) and on the canonical
    full-width [int64]/[uint64] ([i64_min]/[i64_max] use the SIGNED order, [u64_min]/
    [u64_max] the UNSIGNED order — both exactly Go's [min]/[max] on that type). *)
-let is_min_ref r = List.mem (global_basename r) ["go_min"; "i64_min"; "u64_min"; "f64_min"; "f32_min"]
-let is_max_ref r = List.mem (global_basename r) ["go_max"; "i64_max"; "u64_max"; "f64_max"; "f32_max"]
+let is_min_ref = named_in ["go_min"; "i64_min"; "u64_min"; "f64_min"; "f32_min"]
+let is_max_ref = named_in ["go_max"; "i64_max"; "u64_max"; "f64_max"; "f32_max"]
 (* Generic [comparable] constraint: a [ComparableW K] parameter is an ERASED equality witness.
    A function carrying one drops that param (decl + call sites), emits its type var as
    [K comparable], and lowers the witness equality [cw_eqb w a b] → native Go [a == b]. *)
@@ -504,12 +510,16 @@ let is_cw_eqb_ref r = named "cw_eqb" r
 let comparable_witness : (string, int list) Hashtbl.t = Hashtbl.create 16
 let comparable_inst    : (string, unit)     Hashtbl.t = Hashtbl.create 16
 let is_comparable_witness_inst r = Hashtbl.mem comparable_inst (global_path r)
+(* Per-record typeclass INSTANCES living in USER files (e.g. [StructRepOf R] in main.v):
+   classified by the RET TYPE's head (the CLASS type is builtins-owned), registered in
+   [collect_decls] pass 2, suppressed by MEMBERSHIP — never by the instance's name. *)
+let class_inst : (string, unit) Hashtbl.t = Hashtbl.create 16
 let is_slice_make_ref = named "slice_make"
 (* [List.repeat] backs [slice_make]'s model body; it is DEAD in the emitted Go
    (slice_make calls lower to [make([]T,n)]), so its decl is suppressed — emitting
    it would leak an undefined element-type variable. *)
 let is_repeat_ref r =
-  ref_has_suffix r ".Lists.List.repeat" || String.equal (global_basename r) "repeat"
+  ref_has_suffix r ".Lists.List.repeat"
 (* option Some/None — used to lower [match map_get_opt … with Some v | None]. *)
 let is_some_ctor r = ref_has_suffix r ".Init.Datatypes.Some"
 let is_none_ctor r = ref_has_suffix r ".Init.Datatypes.None"
@@ -4746,25 +4756,19 @@ let pp_function state name body typ =
 (* Proof-only world-STATE accessors (abstract heap of the denotational model): they
    appear only inside the IO ops' bodies, never in real Go, so their decls are
    suppressed. *)
-(* Fido-OWNED proof-only names (reserved by builtins.v; suppressing one only ever
-   drops a top-level decl, and a real use fails LOUD at its call site — never silent-
-   wrong).  A module-level list so it is built once, not re-allocated per call. *)
+(* Fido-OWNED proof-only names — matched with OWNERSHIP ([from_builtins]), never by bare
+   basename, so a same-named USER definition emits normally.  Stdlib deps of these bodies
+   (List.tl/app, the eqb family, eq_rect/…, Datatypes.length) are NOT listed: they are
+   governed by stdlib LIVENESS (dead deps of suppressed bodies drop; live uses emit).
+   A module-level list so it is built once, not re-allocated per call. *)
 let proof_only_names =
   [ "ref_sel"; "ref_sel_opt"; "ref_upd";
     "chan_buf"; "chan_closed"; "chan_cap"; "chan_room"; "chan_send_upd"; "chan_recv_upd"; "chan_close_upd";
     "map_sel"; "map_upd"; "map_rem"; "map_size"; "map_count"; "map_clear_upd"; "run_io";
-    "map_get_fn"; "map_write"; "key_eqb"; "eqb";   (* map-cell read/write + key equality;
-      bare [eqb] suppresses the FIVE stdlib eqb decls pulled into the proof-only key_eqb
-      closure — Bool/String/Ascii/PrimFloat/PrimInt63 — all dead in emitted Go (== lowers
-      inline).  Path-qualifying was tried and rejected: it needs all five enumerated AND
-      re-emits the primitive ones as dead funcs; bare-name is cleaner while no library is
-      imported (the only case a same-named user decl could exist). *)
-    "chan_write"; "tl"; "app";                     (* chan-cell writer + List.tl/app (chan_*_upd) *)
+    "map_get_fn"; "map_write"; "key_eqb";          (* map-cell read/write + key equality *)
+    "chan_write";                                  (* chan-cell writer *)
     "tag_eq"; "tag_coerce";                        (* proof-only typed-heap helpers *)
-    "eq_rect"; "eq_rec"; "eq_ind"; "eq_sym"; "eq_trans"; "f_equal";
-    "gomap_cong"; "gochan_cong";
-      (* eq-transport / congruence proof terms used by tag_coerce/tag_eq — type casts
-         that erase to identity, never real Go; the stdlib ones leak with type vars *)
+    "gomap_cong"; "gochan_cong";                   (* congruence casts used by tag_coerce/tag_eq — erase to identity *)
     "run_sess"; "MkSess";       (* Sess record proj/ctor — sessions lower by op name *)
     "mkWorld"; "w_refs"; "w_chans"; "w_maps"; "w_next"; "w_output"; "w_log";  (* World record ctor/projs + output-trace logger *)
     "mkRef"; "r_loc"; "r_tag";   (* Ref record ctor/projs — a Ref lowers to a Go var *)
@@ -4778,24 +4782,23 @@ let proof_only_names =
     "wrapU64"; "in_u64";           (* GoU64 normaliser / range check — proof-only (Z) *)
     "i64_of_Z"; "Z_of_i64"; "u64_of_Z"; "Z_of_u64";  (* Number-Notation parsers — parse-time only *)
     "go_list_nth"; "ascii_byte"; "go_str_byte" ]   (* self-contained slice/str index helpers *)
-let is_proof_only_state r = List.mem (global_basename r) proof_only_names
+let is_proof_only_state r = from_builtins r && List.mem (global_basename r) proof_only_names
 
-let is_inlined_ref r =
+(* PHASE-STABLE suppression: never reads [live_stdlib]; its ONE registry read
+   ([comparable_inst], via [is_comparable_witness_inst]) is filled by [collect_decls]
+   pass 2, BEFORE any pass consults this predicate (the method pass is pass 3) — so from
+   every call site the answer is final.  The post-liveness EMISSION predicate is
+   [is_inlined_ref] below. *)
+let is_suppressed_ref r =
   is_proof_only_state r ||
-  (* STDLIB decls are governed by LIVENESS, not a name list ([live_stdlib], filled by
-     [collect_decls] before any emission/registration decision): a dead private dependency
-     of a suppressed proof-only body DROPS; a real use KEEPS its definition, which then
-     lowers exactly or fails loud at emission.  A use implies its definition, so the
-     undefined-Go-identifier leak class (the old basename-"sub" "undefined: Sub") is
-     unrepresentable. *)
-  (is_stdlib_ref r && not (Hashtbl.mem live_stdlib (global_path r))) ||
   (* Z-carried signed-narrow sign-extend helpers: internal, only inside by-name-
      lowered narrow op bodies (the masked Go is emitted by [fixed_width_op]); never emitted. *)
-  List.mem (global_basename r) ["i8_norm_z"; "i16_norm_z"; "i32_norm_z"] ||
+  (from_builtins r && List.mem (global_basename r) ["i8_norm_z"; "i16_norm_z"; "i32_norm_z"]) ||
   (* GoAny type-tag typeclass: the [Tagged_*] instances (bodies are GoTypeTag
      constructors) and the [the_tag] projection are proof-only — the runtime tag is
      erased from every [any] payload. *)
-  str_prefix "Tagged" (global_basename r) || String.equal (global_basename r) "the_tag" ||
+  (from_builtins r
+   && (str_prefix "Tagged" (global_basename r) || String.equal (global_basename r) "the_tag")) ||
   is_nat_zero r || is_nat_succ r ||
   is_bool_true r || is_bool_false r ||
   is_andb_ref r || is_orb_ref r || is_negb_ref r ||
@@ -4804,25 +4807,25 @@ let is_inlined_ref r =
   is_any_u64_op r ||  (* full-width uint64 ops — lowered via binop_of / u64_lit fold *)
   is_any_int_op r ||  (* platform-int [GoInt] ops — lowered via binop_of / int_lit fold *)
   is_goint_proj r || is_goint_ctor r ||  (* erased [GoInt] proj [intraw] / ctor [MkGoInt] decls *)
-  String.equal (global_basename r) "intwrap" ||  (* internal range-carrying GoInt constructor *)
+  (from_builtins r && String.equal (global_basename r) "intwrap") ||  (* internal range-carrying GoInt constructor *)
   is_zarith_helper r ||  (* Z/positive arith dragged in by GoI64/GoU64 bodies — never emitted *)
   is_numint_proj r || is_numint_ctor r ||  (* erased numeric-wrapper proj/ctor decls *)
-  String.equal (global_basename r) "u8wrap" ||  (* internal range-carrying u8 constructor; only inside by-name-lowered op bodies *)
-  String.equal (global_basename r) "u16wrap" ||  (* internal range-carrying u16 constructor *)
-  String.equal (global_basename r) "u32wrap" ||  (* internal range-carrying u32 constructor *)
-  String.equal (global_basename r) "i8wrap" ||  (* internal provenance-carrying i8 constructor *)
-  String.equal (global_basename r) "i16wrap" ||  (* internal provenance-carrying i16 constructor *)
-  String.equal (global_basename r) "i32wrap" ||  (* internal provenance-carrying i32 constructor *)
-  String.equal (global_basename r) "u64wrap" ||  (* internal range-carrying u64 constructor *)
-  String.equal (global_basename r) "i64wrap" ||  (* internal range-carrying i64 constructor *)
+  (from_builtins r && String.equal (global_basename r) "u8wrap") ||  (* internal range-carrying u8 constructor; only inside by-name-lowered op bodies *)
+  (from_builtins r && String.equal (global_basename r) "u16wrap") ||  (* internal range-carrying u16 constructor *)
+  (from_builtins r && String.equal (global_basename r) "u32wrap") ||  (* internal range-carrying u32 constructor *)
+  (from_builtins r && String.equal (global_basename r) "i8wrap") ||  (* internal provenance-carrying i8 constructor *)
+  (from_builtins r && String.equal (global_basename r) "i16wrap") ||  (* internal provenance-carrying i16 constructor *)
+  (from_builtins r && String.equal (global_basename r) "i32wrap") ||  (* internal provenance-carrying i32 constructor *)
+  (from_builtins r && String.equal (global_basename r) "u64wrap") ||  (* internal range-carrying u64 constructor *)
+  (from_builtins r && String.equal (global_basename r) "i64wrap") ||  (* internal range-carrying i64 constructor *)
   is_f32_proj r || is_f32_ctor r ||  (* erased GoFloat32 wrapper proj/ctor decls *)
   is_uint_proj r || is_uint_ctor r || is_uint_lit r ||  (* erased platform-uint [GoUint] proj/ctor/lit decls *)
-  is_vararg_ref r || is_va_slice_ref r || String.equal (global_basename r) "va_ph" ||  (* variadic wrapper machinery *)
+  is_vararg_ref r || is_va_slice_ref r || (from_builtins r && String.equal (global_basename r) "va_ph") ||  (* variadic wrapper machinery *)
   is_print_ref r || is_println_ref r ||
   is_len_ref r || is_cap_ref r || is_append_ref r || is_panic_ref r ||
   is_type_assert_ref r || is_type_assert_safe_ref r || is_type_switch_ref r ||
   is_struct_eqb_ref r || is_val_switch_ref r ||
-  List.mem (global_basename r)
+  (from_builtins r && List.mem (global_basename r)
     ["go_complex"; "go_real"; "go_imag"; "MkComplex128"; "c_re"; "c_im";
      "complex_add"; "complex_sub"; "complex_mul"; "complex_div"; "complex_neg";
      "complex_eqb"; "complex_neqb";
@@ -4835,22 +4838,23 @@ let is_inlined_ref r =
      "rt_nil_deref"; "rt_index_oob"; "Z_dec_string"; "n_dec_aux";
      "rt_slice_bounds"; "rt_neg_make"; "rt_nil_map";
      "rt_send_closed"; "rt_close_closed"; "rt_close_nil"; "rt_assert_fail"; "rt_select_block";
-     "rt_chan_send_block"] ||
+     "rt_chan_send_block"]) ||
   is_go_type_tag_ctor r || is_zero_val_ref r ||
   is_slice_of_list_ref r || is_slice_get_ref r || is_slice_at_ok_ref r ||
   is_arr_lit_ref r || is_arr_eqb_ref r || is_arr_set_ref r ||
-  is_arrN_lit_ref r || arr_n_of_name "mkArr" "" (global_basename r) <> None
-    || arr_n_of_name "arr" "_data" (global_basename r) <> None ||  (* GoArr<N> machinery (decl-suppressed; recognized by name) *)
-  List.mem (global_basename r) ["mkFC"; "fc_num"; "fc_den"; "fc_add"; "fc_sub"; "fc_mul"; "fc_div"; "f64_of_fconst"; "f32_of_fconst"; "sf_of_Z"] ||  (* FConst machinery: folded by name *)
+  is_arrN_lit_ref r ||
+  (from_builtins r && (arr_n_of_name "mkArr" "" (global_basename r) <> None
+    || arr_n_of_name "arr" "_data" (global_basename r) <> None)) ||  (* GoArr<N> machinery (builtins-owned; decl-suppressed, recognized by name) *)
+  (from_builtins r && List.mem (global_basename r) ["mkFC"; "fc_num"; "fc_den"; "fc_add"; "fc_sub"; "fc_mul"; "fc_div"; "f64_of_fconst"; "f32_of_fconst"; "sf_of_Z"]) ||  (* FConst machinery: folded by name *)
   (* spec_float float64 ops + helpers: the [f64_<op>] CALLS lower to Go
      float operators (is_float_op_ref / is_f64_cmp_ref / is_min/max_ref); the helpers are internal to
      by-name-lowered op bodies / the parse-time literal notation.  All DECLS suppressed. *)
-  List.mem (global_basename r)
+  (from_builtins r && List.mem (global_basename r)
     ["f64_add"; "f64_sub"; "f64_mul"; "f64_div"; "f64_opp"; "f64_abs";
      "f64_eqb"; "f64_ltb"; "f64_leb"; "f64_gtb"; "f64_geb"; "f64_neqb"; "f64_min"; "f64_max";
      "renorm"; "cond_Zopp"; "f64_of_frac"; "uint_to_Z"; "f64_of_decimal";
-     "parse_f64"; "print_f64"; "f32_round"] ||
-  List.mem (global_basename r) ["mkArray"; "arr_data"; "goi64_list_eqb"; "go_list_set"] ||
+     "parse_f64"; "print_f64"; "f32_round"]) ||
+  (from_builtins r && List.mem (global_basename r) ["mkArray"; "arr_data"; "goi64_list_eqb"; "go_list_set"]) ||
   is_str_len_ref r || is_str_concat_ref r || is_str_at_ok_ref r ||
   is_str_slice_ref r || ref_has_suffix r ".String.substring" ||  (* s[a:b]: recognized → slice expr; body + substring suppressed *)
   is_str_eqb_ref r || is_str_ltb_ref r || is_str_cmp_ref r || is_f64_cmp_ref r || is_f32_cmp_ref r ||
@@ -4860,10 +4864,10 @@ let is_inlined_ref r =
   is_ptr_type r || is_ptr_new_ref r || is_go_new_ref r || is_ptr_get_ref r || is_ptr_set_ref r ||
   is_ptr_nil_ref r || is_ptr_nil_tf_ref r || is_ptr_as_ref_ref r || is_ref_as_ptr_ref r || is_ptr_get_ok_ref r ||
   is_gsptr_machinery r ||  (* the ONE generic arity-free struct-rep machinery (StructRep/GSPtr/Mem/…) *)
-  String.equal (global_basename r) "length" ||  (* Coq [Datatypes.length]: dragged in ONLY by [gsptr_new]'s proof-only allocator bump (the call lowers to [&v]); no reachable caller, dead decl *)
-  str_prefix "StructRepOf" (global_basename r) ||  (* the generic canonical-rep typeclass + its per-record instances *)
+  Hashtbl.mem class_inst (global_path r) ||  (* per-record class INSTANCES (user files) — TYPE-classified in pass 2 *)
+  (from_builtins r && str_prefix "StructRepOf" (global_basename r)) ||  (* the canonical-rep class itself (builtins) *)
   is_sliceh_type r || is_slice_make_h_ref r || is_slice_idx_get_ref r ||
-  is_slice_idx_set_ref r || is_subslice_ref r || String.equal (global_basename r) "subslice_desc" || is_slice_append_h_ref r ||
+  is_slice_idx_set_ref r || is_subslice_ref r || (from_builtins r && String.equal (global_basename r) "subslice_desc") || is_slice_append_h_ref r ||
   is_slice_make_lc_ref r || is_slice_clear_h_ref r || is_slice_copy_ref r ||
   is_go_map_type r || is_map_make_ref r || is_map_make_typed_ref r ||
   is_map_set_ref r || is_map_del_ref r || is_map_len_ref r || is_map_get_or_ref r ||
@@ -4876,18 +4880,18 @@ let is_inlined_ref r =
   is_go_spawn_ref r || is_defer_call_ref r ||
   is_run_session_ref r || is_sbind_ref r || is_sret_ref r ||
   is_ssend_ref r || is_srecv_ref r || is_slift_ref r ||
-  String.equal (global_basename r) "Sess" ||
+  (from_builtins r && String.equal (global_basename r) "Sess") ||
   is_dual_ref r || is_proto_ctor r || is_proto_type r ||
   is_IO_type r || is_ret_ref r || is_bind_ref r ||
-  String.equal (global_basename r) "catch" ||
-  String.equal (global_basename r) "with_defer" ||
+  (from_builtins r && String.equal (global_basename r) "catch") ||
+  (from_builtins r && String.equal (global_basename r) "with_defer") ||
   is_unit_tt r ||
   is_go_prim_type r || is_float64_type r ||
   is_float_opp_ref r || is_f32_neg_ref r ||
   is_num_to_f64_ref r || is_of_uint63_ref r || is_int63_of_z_ref r ||  (* int/int64/float32/uint64→float64 cast: recognized → float64(x); body + of_uint63/of_Z/of_pos suppressed *)
-  is_f64_to_i64_ref r || String.equal (global_basename r) "f64_trunc_Z" ||  (* float64→int64 cast → int64(x); the Prim2SF-match body (f64_trunc_Z) suppressed *)
+  is_f64_to_i64_ref r || (from_builtins r && String.equal (global_basename r) "f64_trunc_Z") ||  (* float64→int64 cast → int64(x); the Prim2SF-match body (f64_trunc_Z) suppressed *)
   is_f64_to_u64_ref r ||  (* float64→uint64 cast → uint64(x); shares the suppressed f64_trunc_Z body *)
-  is_cw_eqb_ref r || is_comparable_witness_inst r || String.equal (global_basename r) "MkComparableW" ||  (* comparable-constraint witness machinery: cw_eqb→==, instances dropped as args *)
+  is_cw_eqb_ref r || is_comparable_witness_inst r || (from_builtins r && String.equal (global_basename r) "MkComparableW") ||  (* comparable-constraint witness machinery: cw_eqb→==, instances dropped as args *)
   is_i64_of_narrow_ref r ||  (* narrow→int64 widening — call sites cast to [int64(x)] (NOT identity); the to_Z-match body suppressed *)
   is_f64_to_f32_ref r ||  (* float64→float32 narrowing ([f32_of_f64]/[f32_lit]) → float32(x); SpecFloat round body suppressed *)
   is_int_to_f32_ref r ||  (* DIRECT int→float32 → float32(x); binary_normalize body suppressed *)
@@ -4900,6 +4904,27 @@ let is_inlined_ref r =
   List.exists (fun (name, _) -> is_int63_op_ref r name) sint63_op_names ||
   is_int63_op_ref r "land" || is_int63_op_ref r "lor" || is_int63_op_ref r "lxor" ||
   is_int63_op_ref r "lsl" || is_int63_op_ref r "lsr" || is_int63_op_ref r "asr"  (* inside suppressed uintN/intN bodies *)
+
+(* The post-liveness EMISSION predicate: phase-stable suppression PLUS the stdlib-liveness
+   drop.  STDLIB decls are governed by LIVENESS, not a name list ([live_stdlib], filled by
+   [collect_decls] pass 4): a dead private dependency of a suppressed proof-only body
+   DROPS; a real use KEEPS its definition, which then lowers exactly or fails loud at
+   emission.  Registration passes use [is_suppressed_ref] — they never read the table. *)
+let is_inlined_ref r =
+  is_suppressed_ref r ||
+  (is_stdlib_ref r && not (Hashtbl.mem live_stdlib (global_path r)))
+
+(* The declaration-emission classification: does this Dterm/Dfix EMIT Go?  Consulted by
+   [pp_decl] (suppression) AND the stdlib-liveness roots — a second copy of this predicate
+   is exactly the drift liveness exists to remove.  Valid only AFTER [collect_decls]'s
+   registration passes (pass 1 fills the projection registry, pass 2 fills
+   [comparable_inst]; both are consulted transitively here — method state is NOT).
+   [pp_decl]'s Dfix arm additionally splits [dfix_emits]=false into all-suppressed (drop)
+   vs MIXED (abort) — group-consistent with pass-3 registration. *)
+let dterm_emits r typ =
+  not (is_inlined_ref r) && not (is_record_proj r)
+  && (match typ with Tglob (rt, _) when is_proto_type rt -> false | _ -> true)
+let dfix_emits refs = not (Array.exists is_inlined_ref refs)
 
 (*s Main-package wrapper. *)
 
@@ -4944,16 +4969,7 @@ let pp_decl state decl =
    | Dtype (r, _, _) -> current_decl := global_basename r
    | _ -> ());
   match decl with
-  | Dterm (r, _, _) when is_inlined_ref r ->
-      mt ()
-
-  (* Record projections are emitted as field access at use sites, not as functions. *)
-  | Dterm (r, _, _) when is_record_proj r ->
-      mt ()
-
-  (* Suppress top-level definitions whose result type is Proto — protocol
-     descriptors are proof-only witnesses with no runtime representation. *)
-  | Dterm (_, _, Tglob (rt, _)) when is_proto_type rt ->
+  | Dterm (r, _, typ) when not (dterm_emits r typ) ->
       mt ()
 
   | Dterm (r, body, typ) ->
@@ -4982,7 +4998,16 @@ let pp_decl state decl =
                pp_expr state [] body ++ fnl () ++ fnl ())
 
   | Dfix (refs, bodies, types) ->
-      if Array.exists is_inlined_ref refs then mt ()
+      (* GROUP classification: a mutual-fixpoint group emits WHOLE or not at all.  All
+         members suppressed → drop; NONE → emit; a MIX aborts — silently dropping the
+         group while an emitted sibling is referenced would leave an undefined Go name
+         (e.g. a user member whose name collides with a proof-only basename). *)
+      let supp = Array.map is_inlined_ref refs in
+      if Array.for_all (fun b -> b) supp then mt ()
+      else if Array.exists (fun b -> b) supp then
+        unsupported ("a mutual Fixpoint group mixing suppressed and emitted members ("
+          ^ String.concat ", " (Array.to_list (Array.map global_basename refs))
+          ^ ") — the group emits WHOLE or not at all; rename the member colliding with a proof-only/by-name-lowered name")
       else begin
         Array.iter register_term_name refs;   (* NAME-INJECTIVITY: claim each fixpoint's Go identifier *)
         prvecti
@@ -5097,12 +5122,15 @@ let first_param_type body typ =
   in
   go ids param_types
 
-(* Gather, BEFORE emitting any decl, two things every use site depends on:
-   (1) records — projections (→ field names), constructors, and type names, so a
-       projection lowers to [x.Field] and a constructor to [T{…}];
-   (2) methods — any [method_eligible] function (the ONE eligibility contract — see its
-       definition), so calls lower to [recv.M(rest)].  Records must be registered
-       first (pass 1) because the eligibility test consults [record_typenames] (pass 2). *)
+(* Gather, BEFORE emitting any decl, everything use sites depend on — FOUR passes, in
+   dependency order:
+   pass 1 records — projections (→ field names), constructors, type names, so a
+     projection lowers to [x.Field] and a constructor to [T{…}];
+   pass 2 comparable — [ComparableW] witness instances/params ([comparable_inst], read by
+     [is_suppressed_ref], must be full before any pass consults that predicate);
+   pass 3 methods — [method_eligible] functions of EMITTING groups, so calls lower to
+     [recv.M(rest)];
+   pass 4 stdlib liveness — roots are the decls that emit ([dterm_emits]/[dfix_emits]). *)
 (* Coq [Module]s FLATTEN into Go's one package namespace (Go has no module system): a
    struct-module's decls collect and emit exactly like top-level ones — basename collisions
    abort in the name-injectivity registry.  Any other module expression (functor / apply /
@@ -5123,54 +5151,11 @@ let collect_decls struc =
   List.iter (fun (_, sel) ->
     List.iter (fun (_, e) -> List.iter (fun d -> decls := d :: !decls) (decls_of_elem e)) sel) struc;
   let decls = List.rev !decls in
-  (* pass 0 — stdlib LIVENESS (see [live_stdlib]): seed from every decl that will EMIT
-     (non-stdlib, non-suppressed) + the entry body; close transitively through live
-     stdlib decls' own bodies (a live Dfix marks its WHOLE group — groups emit whole).
-     MUST run before pass 2 / emission — both consult [is_inlined_ref], which reads the
-     table for stdlib refs. *)
   let entry_seed = !entry_live_body in
-  entry_live_body := None;   (* take-and-clear FIRST, so an abort below cannot leak the
-                                seed into a later extraction in the same session *)
+  entry_live_body := None;   (* take-and-clear FIRST, so an abort during any pass cannot
+                                leak the seed into a later extraction in the same session *)
   Hashtbl.reset live_stdlib;
   Hashtbl.reset stdlib_decl_present;
-  let stdlib_decls : (string, Miniml.ml_decl) Hashtbl.t = Hashtbl.create 16 in
-  List.iter (function
-    | Dterm (r, _, _) as d when is_stdlib_ref r ->
-        Hashtbl.replace stdlib_decls (global_path r) d;
-        Hashtbl.replace stdlib_decl_present (global_path r) ()
-    | Dfix (refs, _, _) as d ->
-        Array.iter (fun r -> if is_stdlib_ref r then begin
-          Hashtbl.replace stdlib_decls (global_path r) d;
-          Hashtbl.replace stdlib_decl_present (global_path r) () end) refs
-    | _ -> ()) decls;
-  let no_ref (_ : Miniml.global) = () in
-  let rec mark r =
-    if is_stdlib_ref r then begin
-      let key = global_path r in
-      if not (Hashtbl.mem live_stdlib key) then begin
-        Hashtbl.replace live_stdlib key ();
-        (match Hashtbl.find_opt stdlib_decls key with
-         | Some (Dfix (refs, _, _) as d) ->
-             (* the group emits WHOLE — mark every member before walking bodies *)
-             Array.iter (fun r' -> if is_stdlib_ref r' then
-               Hashtbl.replace live_stdlib (global_path r') ()) refs;
-             Modutil.decl_iter_references mark no_ref no_ref d
-         | Some d -> Modutil.decl_iter_references mark no_ref no_ref d
-         | None -> ())   (* no decl to walk: emission's [MLglob] fallback aborts if this
-                            ref ever prints as an identifier (by-name lowerings never
-                            reach that fallback) *)
-      end
-    end in
-  List.iter (function
-    | Dterm (r, _, _) as d when not (is_stdlib_ref r) && not (is_inlined_ref r) ->
-        Modutil.decl_iter_references mark no_ref no_ref d
-    | Dfix (refs, _, _) as d when not (Array.exists is_stdlib_ref refs)
-                               && not (Array.exists is_inlined_ref refs) ->
-        Modutil.decl_iter_references mark no_ref no_ref d
-    | _ -> ()) decls;
-  (match entry_seed with
-   | Some body -> Modutil.ast_iter_references mark no_ref no_ref body
-   | None -> ());
   (* pass 1 — records *)
   List.iter (function
     | Dind mi ->
@@ -5269,11 +5254,37 @@ let collect_decls struc =
               with Invalid_argument _ -> ())
          | _ -> ())
     | _ -> ()) decls;
-  (* pass 2 — methods ([method_eligible]; projections excluded) *)
+  (* pass 2 — comparable-constraint functions: record which visible param indices are
+     [ComparableW] equality witnesses, so they are DROPPED at the decl and at every call
+     site.  BEFORE the method pass: [is_suppressed_ref] reads [comparable_inst], so the
+     table must be full before any pass consults that predicate — phase-stability by
+     ORDER, not by caller discipline. *)
+  let register_comparable r typ =
+    let param_types, ret = collect_tarrs typ in
+    (* a value (no params) of type [ComparableW K] is a witness INSTANCE → suppress its decl *)
+    if param_types = [] && is_comparablew_type ret then
+      Hashtbl.replace comparable_inst (global_path r) () ;
+    (* per-record class INSTANCES ([StructRepOf R]): classified by the RET type's head
+       (the class TYPE is builtins-owned) — user instances register here, never by name *)
+    (match ret with
+     | Tglob (c, _) when from_builtins c && String.equal (global_basename c) "StructRepOf" ->
+         Hashtbl.replace class_inst (global_path r) ()
+     | _ -> ()) ;
+    let idxs =
+      List.mapi (fun i t -> (i, t)) param_types
+      |> List.filter (fun (_, t) -> is_comparablew_type t)
+      |> List.map fst in
+    if idxs <> [] then Hashtbl.replace comparable_witness (global_path r) idxs
+  in
+  List.iter (function
+    | Dterm (r, _, typ) -> register_comparable r typ
+    | Dfix (refs, _, types) -> Array.iteri (fun i r -> register_comparable r types.(i)) refs
+    | _ -> ()) decls ;
+  (* pass 3 — methods ([method_eligible]; projections excluded) *)
   let register_method r body typ =
     match first_param_type body typ with
     | Some t when method_eligible body typ
-                  && not (is_record_proj r) && not (is_inlined_ref r) ->
+                  && not (is_record_proj r) && not (is_suppressed_ref r) ->
         Hashtbl.replace method_paths (global_path r) () ;
         (* visible param count (incl. receiver) — non-dummy lambda binders — so a call
            site applying fewer than this many args is a method VALUE, not a full call. *)
@@ -5300,27 +5311,54 @@ let collect_decls struc =
   List.iter (function
     | Dterm (r, body, typ) -> register_method r body typ ;
         Hashtbl.replace func_param_types (global_path r) (fst (collect_tarrs typ))
-    | Dfix (refs, bodies, types) ->
+    | Dfix (refs, bodies, types) when not (Array.exists is_suppressed_ref refs) ->
+        (* GROUP-consistent with emission: a group with any suppressed member never
+           emits (drop or mixed-abort at [pp_decl]) — register no member of it *)
         Array.iteri (fun i r -> register_method r bodies.(i) types.(i) ;
           Hashtbl.replace func_param_types (global_path r) (fst (collect_tarrs types.(i)))) refs
     | _ -> ()) decls ;
-  (* pass 3 — comparable-constraint functions: record which visible param indices are
-     [ComparableW] equality witnesses, so they are DROPPED at the decl and at every call site. *)
-  let register_comparable r typ =
-    let param_types, ret = collect_tarrs typ in
-    (* a value (no params) of type [ComparableW K] is a witness INSTANCE → suppress its decl *)
-    if param_types = [] && is_comparablew_type ret then
-      Hashtbl.replace comparable_inst (global_path r) () ;
-    let idxs =
-      List.mapi (fun i t -> (i, t)) param_types
-      |> List.filter (fun (_, t) -> is_comparablew_type t)
-      |> List.map fst in
-    if idxs <> [] then Hashtbl.replace comparable_witness (global_path r) idxs
-  in
+  (* pass 4 — stdlib LIVENESS (see [live_stdlib]).  LAST, because the roots are exactly
+     the decls [pp_decl] will emit — classified by the ONE authority [dterm_emits] /
+     [dfix_emits], which consults the registries passes 1–3 just filled.  Seeds = every
+     emitting non-stdlib decl's body + the extraction entry's body; closure walks live
+     stdlib decls' bodies (a live Dfix marks its WHOLE group — groups emit whole). *)
+  let stdlib_decls : (string, Miniml.ml_decl) Hashtbl.t = Hashtbl.create 16 in
   List.iter (function
-    | Dterm (r, _, typ) -> register_comparable r typ
-    | Dfix (refs, _, types) -> Array.iteri (fun i r -> register_comparable r types.(i)) refs
-    | _ -> ()) decls
+    | Dterm (r, _, _) as d when is_stdlib_ref r ->
+        Hashtbl.replace stdlib_decls (global_path r) d;
+        Hashtbl.replace stdlib_decl_present (global_path r) ()
+    | Dfix (refs, _, _) as d ->
+        Array.iter (fun r -> if is_stdlib_ref r then begin
+          Hashtbl.replace stdlib_decls (global_path r) d;
+          Hashtbl.replace stdlib_decl_present (global_path r) () end) refs
+    | _ -> ()) decls;
+  let no_ref (_ : Miniml.global) = () in
+  let rec mark r =
+    if is_stdlib_ref r then begin
+      let key = global_path r in
+      if not (Hashtbl.mem live_stdlib key) then begin
+        Hashtbl.replace live_stdlib key ();
+        (match Hashtbl.find_opt stdlib_decls key with
+         | Some (Dfix (refs, _, _) as d) ->
+             (* the group emits WHOLE — mark every member before walking bodies *)
+             Array.iter (fun r' -> if is_stdlib_ref r' then
+               Hashtbl.replace live_stdlib (global_path r') ()) refs;
+             Modutil.decl_iter_references mark no_ref no_ref d
+         | Some d -> Modutil.decl_iter_references mark no_ref no_ref d
+         | None -> ())   (* no decl to walk: emission's [MLglob] fallback aborts if this
+                            ref ever prints as an identifier (by-name lowerings never
+                            reach that fallback) *)
+      end
+    end in
+  List.iter (function
+    | Dterm (r, _, typ) as d when not (is_stdlib_ref r) && dterm_emits r typ ->
+        Modutil.decl_iter_references mark no_ref no_ref d
+    | Dfix (refs, _, _) as d when not (Array.exists is_stdlib_ref refs) && dfix_emits refs ->
+        Modutil.decl_iter_references mark no_ref no_ref d
+    | _ -> ()) decls;
+  (match entry_seed with
+   | Some body -> Modutil.ast_iter_references mark no_ref no_ref body
+   | None -> ())
 
 let pp_struct state struc =
   Hashtbl.reset emitted_names;   (* NAME-INJECTIVITY: per-extraction identifier-collision registry *)
