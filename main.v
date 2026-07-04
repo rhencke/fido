@@ -2157,8 +2157,7 @@ Definition labeled_continue_demo : IO unit :=
   ])).
 
 (** Irreducible CFG (two-entry loop): no structured [for] can express it, so it takes
-    the raw labels+goto fallback — any control flow is representable in the goto-CFG,
-    and the lowering is TRUSTED plugin code, golden-locked here.
+    the raw labels+goto fallback (TRUSTED plugin lowering, golden-locked here).
     enter_high ⇒ 2,1,2,1,2 ; else ⇒ 1,2,1,2. *)
 Definition irreducible_demo (enter_high : bool) : IO unit :=
   bind (ref_new TInt64 (int_lit 0 eq_refl)) (fun n =>

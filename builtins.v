@@ -6169,12 +6169,12 @@ Fixpoint slice_fold {A S : Type} (xs : GoSlice A) (init : S) (step : S -> A -> S
 (** ---- Control flow as a CFG (the goto model)
     (Go spec "If statements" / "For statements" / "Goto statements" / "Return statements") ----
 
-    Every Go control construct is, underneath, a control-flow graph of basic
-    blocks joined by gotos.  We model that directly and completely: a function
-    body is a set of labelled blocks; each block runs its IO effects then
-    transfers control — [Jump n] (goto block n) or [Done] (return).  Any Go
-    control flow, structured or irreducible, is a CFG, so this is complete and
-    [goto] is the native edge.
+    The model's control flow is a control-flow graph of basic blocks joined by
+    gotos: a function body is a set of labelled blocks; each block runs its IO
+    effects then transfers control — [Jump n] (goto block n) or [Done] (return).
+    [goto] is the native edge; structured Go forms are recovered downstream by
+    the TRUSTED plugin lowering, demo-pinned (SPEC_CONFORMANCE's control-flow
+    row) — no completeness theorem is claimed.
 
     [run_blocks start body]: start at label [start]; run [body l] (which does IO
     and yields a [Next]); follow [Jump]s until [Done].  It lives in [IO] because

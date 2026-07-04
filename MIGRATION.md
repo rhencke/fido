@@ -7,9 +7,10 @@ per feature group; compress when it grows.
 
 | Feature group | Legacy location (main.v) | Certified equivalent | Status | Deletion action |
 |---|---|---|---|---|
-| Constant print/println, panic, defer-call, return, blank-assign | interleaved through most demos | `GoEmit.demo_prog` + GoSem denotation + `panic_free_gate` | covered | no standalone legacy demo exists for this class alone; nothing deletable yet |
-| Short declarations `x := e` | `vlet_demo`, locals uses everywhere | GoSafe `ScopeS` gate (admitted); denotation ABSENT | partial | hold until the env statement layer denotes (plans/gosem-locals.md) |
-| Slice/map literals, `len`/`cap`/index (const class) | parts of `slice_demo`/`map_demo`/`builtins_demo` | GoEmit demo + GoSem tiers | partial (runtime mutation/append/copy unported) | hold |
+| Constant print/println, panic, defer-call, return, blank-assign | interleaved through most demos | emission `GoEmit.demo_emit_bytes`; behavior `GoSemDenote.denote_program` + `gosem_sound`; gate `GoSemSafe.panic_free_gate` | covered | no standalone legacy demo exists for this class alone; nothing deletable yet |
+| Short declarations `x := e` | `vlet_demo`, locals uses everywhere | GoSafe `ScopeS` gate (admitted); denotation ABSENT (`shortdecl_supported_undenoted`) | partial | hold until the env statement layer denotes (plans/gosem-locals.md) |
+| Slice/map literals, `len`/index (const class) | parts of `slice_demo`/`map_demo`/`builtins_demo` | GoEmit demo; GoSem runtime tiers (`len` and index denote, incl. the OOB panic) | partial (runtime mutation/append/copy unported) | hold |
+| `cap` | parts of `slice_makecap_demo` etc. | supported + printed (`GoEmit.demo_prog`); GoSem ABSENT — undenoted | partial | hold; flips only with a cap denotation arm |
 | Control flow (if/for/goto/labels/switch forms) | ~25 demos (`sign`…`irreducible`, `tsw*`, `*_sw*`) | none (no GoAst statements for control flow) | unported | hold |
 | Numerics (int63/i64/u64/narrow/floats/FConst/complex) | ~60 demos | none beyond const folds | unported | hold |
 | Strings/bytes/runes (runtime ops, range) | ~12 demos | `EStr`/`len` const class only | unported | hold |
