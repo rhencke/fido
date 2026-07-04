@@ -2,47 +2,57 @@
 # THE ONE spine-gate authority: compile the trust-boundary SOURCE SET standalone and assert
 # ZERO axioms (grep '^Axioms:' over the one log every compile writes to).  Called by BOTH the
 # Dockerfile prover stage and the Makefile local mirrors — a single definition, no drift path.
-# EVERY failure path cleans the generated artifacts (vo/glob/aux + printer.ml), so read-only
-# callers stay read-only even on an axiom regression; on SUCCESS the artifacts are left for
-# the caller (the printer flow consumes printer.ml, then runs its own CLEAN).
-#   mode: printer  (digits GoAst GoPrint — leaves the extracted printer.ml in CWD)
-#         emit     (the printer set + GoTypes GoSafe GoEmit)
-#         custom F (one explicit file — the selftest's hook)
-#         selftest (force the axiom-failure branch; assert the cleanup contract)
+# EVERY failure path cleans the generated artifacts (vo/glob/aux of the ACTIVE file set +
+# printer.ml), so read-only callers stay read-only even on a regression; on SUCCESS the
+# artifacts are left for the caller (the printer flow consumes printer.ml, then CLEANs).
+#   modes: printer | emit | selftest (no other mode exists — the gate is not a general runner)
 set -eu
-mode="$1"
-case "$mode" in
-  printer) files="digits.v GoAst.v GoPrint.v"; log="$2" ;;
-  emit)    files="digits.v GoAst.v GoPrint.v GoTypes.v GoSafe.v GoEmit.v"; log="$2" ;;
-  custom)  files="$2"; log="$3" ;;
-  selftest)
-    tmp="spine_gate_selftest"
-    printf 'Axiom sg_selftest_ax : True.\nPrint Assumptions sg_selftest_ax.\n' > "$tmp.v"
-    if sh "$0" custom "$tmp.v" /tmp/spine-selftest.log >/dev/null 2>&1; then
-      echo "fido: spine-gate selftest FAILED — the axiom branch did not fail" >&2
-      rm -f "$tmp.v" "$tmp.vo" "$tmp.glob" ".$tmp.aux"; exit 1
+
+# run_gate <log> <file...> — the PRIVATE gate body; returns nonzero after cleaning on failure.
+run_gate() {
+  rg_log="$1"; shift
+  : > "$rg_log"
+  for rg_f in "$@"; do
+    if ! rocq c -Q . Fido "$rg_f" >> "$rg_log" 2>&1; then
+      echo "fido: spine ($*) failed to compile:"; cat "$rg_log"; clean_artifacts "$@"; return 1
     fi
-    for a in "$tmp.vo" "$tmp.glob" ".$tmp.aux"; do
-      if [ -e "$a" ]; then
-        echo "fido: spine-gate selftest FAILED — stale artifact $a survived the failure path" >&2
-        rm -f "$tmp.v" "$tmp.vo" "$tmp.glob" ".$tmp.aux"; exit 1
-      fi
-    done
-    rm -f "$tmp.v"
-    echo "fido: spine-gate cleanup-on-failure selftest OK ✓"; exit 0 ;;
-  *) echo "spine-gate: unknown mode $mode" >&2; exit 2 ;;
-esac
+  done
+  if grep -q '^Axioms:' "$rg_log"; then
+    echo "fido: SPINE AXIOM/ADMITTED — a gated spine theorem depends on an axiom (Print Assumptions over $*):"
+    cat "$rg_log"; clean_artifacts "$@"; return 1
+  fi
+}
 clean_artifacts() {
-  for f in $files; do b="${f%.v}"; rm -f "$b.vo" "$b.glob" ".$b.aux"; done
+  for ca_f in "$@"; do ca_b="${ca_f%.v}"; rm -f "$ca_b.vo" "$ca_b.glob" ".$ca_b.aux"; done
   rm -f printer.ml
 }
-: > "$log"
-for f in $files; do
-  if ! rocq c -Q . Fido "$f" >> "$log" 2>&1; then
-    echo "fido: $mode spine ($files) failed to compile:"; cat "$log"; clean_artifacts; exit 1
-  fi
-done
-if grep -q '^Axioms:' "$log"; then
-  echo "fido: SPINE AXIOM/ADMITTED — a gated $mode-spine theorem depends on an axiom (Print Assumptions over $files):"
-  cat "$log"; clean_artifacts; exit 1
-fi
+
+case "$1" in
+  printer) run_gate "$2" digits.v GoAst.v GoPrint.v ;;
+  emit)    run_gate "$2" digits.v GoAst.v GoPrint.v GoTypes.v GoSafe.v GoEmit.v ;;
+  selftest)
+    # Verify the FULL advertised cleanup contract, in an isolated dir, on BOTH failure
+    # branches, with a successfully-compiled file already in the set and a sentinel
+    # printer.ml present: nothing may survive a failure.
+    d="$(mktemp -d)"
+    printf 'Definition sg_ok : nat := 0.\n' > "$d/sg_ok.v"
+    printf 'Axiom sg_ax : True.\nPrint Assumptions sg_ax.\n' > "$d/sg_ax.v"
+    printf 'this is not gallina\n' > "$d/sg_broken.v"
+    for bad in sg_ax sg_broken; do
+      fail=0
+      ( cd "$d" || exit 5
+        printf 'sentinel\n' > printer.ml
+        if run_gate spine.log sg_ok.v "$bad.v" >/dev/null 2>&1; then exit 3; fi
+        for a in sg_ok.vo sg_ok.glob .sg_ok.aux "$bad.vo" "$bad.glob" ".$bad.aux" printer.ml; do
+          if [ -e "$a" ]; then exit 4; fi
+        done
+        exit 0 ) || fail=$?
+      if [ "$fail" -ne 0 ]; then
+        echo "fido: spine-gate selftest FAILED (branch $bad, code $fail) — the cleanup contract is broken" >&2
+        rm -rf "$d"; exit 1
+      fi
+    done
+    rm -rf "$d"
+    echo "fido: spine-gate cleanup-on-failure selftest OK (axiom + compile branches, sentinel printer.ml, isolated dir) ✓" ;;
+  *) echo "spine-gate: unknown mode $1" >&2; exit 2 ;;
+esac
