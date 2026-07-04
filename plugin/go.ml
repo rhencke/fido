@@ -3665,7 +3665,8 @@ let pp_io_body ?(ret_val=false) state tab env body =
                   let inter a b = List.filter (fun x -> List.mem x b) a in
                   let targets_of i =
                     List.sort_uniq compare (block_targets blocks.(i) []) in
-                  (* raw labels + goto: the always-correct fallback.  Only Jump-
+                  (* raw labels + goto: the fallback that needs NO structural
+                     assumptions (trusted, like this whole printer).  Only Jump-
                      target labels are emitted (Go rejects unused ones); a label
                      sits one indent left of its block, as gofmt wants. *)
                   let emit_raw () =
@@ -3692,7 +3693,7 @@ let pp_io_body ?(ret_val=false) state tab env body =
                     in
                     hoist_doc ++ initial ++ emit_all 0 bs in
                   let arm_doc = if nblk = 0 then emit_raw () else begin
-                  (* Unified structurer (a relooper) — lifts the goto-CFG back to
+                  (* Unified structurer — lifts the goto-CFG back to
                      Go spec "If statements" / "For statements" / "Break/Continue" /
                      "Goto statements" / "Return statements".  Build dominators and
                      post-dominators, identify natural loops, then recursively emit:
@@ -3703,7 +3704,7 @@ let pp_io_body ?(ret_val=false) state tab env body =
                        merge (the post-dominator), the merge emitted once after.
                      Anything that breaks the structured assumptions (non-zero
                      entry, a multi-exit loop, improperly nested loops) falls back
-                     to raw labels+goto, which is always correct. *)
+                     to raw labels+goto, which needs no structural assumptions. *)
                   let succ_exit i =
                     let ts = targets_of i in
                     if block_has_done blocks.(i) then exit_node :: ts else ts in

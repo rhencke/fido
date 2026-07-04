@@ -556,11 +556,12 @@ decl programs are supported-but-undenoted (`shortdecl_supported_undenoted`).
 Spec: structured control flow (`if`/`else`, `for` with optional range, `switch`,
 `break`/`continue`/labeled, `goto`, `return`).  Ours: ALL control flow is one complete
 primitive — a goto-CFG (`run_blocks`/`Jump`/`Done`, each function body a set of labelled
-basic blocks) — lifted back to idiomatic Go by the trusted plugin's STRUCTURING relooper (computes
+basic blocks) — lifted back to idiomatic Go by the trusted plugin's STRUCTURING pass (computes
 dominators / post-dominators as iterative fixpoints, finds natural loops by back-edges,
 recurses to emit `if`/`for`/`break`/`continue`/labeled-break, falling back to raw labels
-+ `goto` only where the graph is irreducible).  Completeness lives in the CFG model;
-niceness in the printer.  All demos golden-locked:
++ `goto` only where the graph is irreducible).  Any control flow is REPRESENTABLE in the
+CFG model; the lowering itself is TRUSTED plugin code (gap #10 — golden-locked, no theorem
+relates the emitted Go to the CFG).  All demos golden-locked:
 - **`if`** (match on `bool`) → `if c { … } else { … }`: `sign_demo`, `pick_demo`,
   `cond_op_demo`, `inline_if_demo`, `diamond_demo` (`if b {…} else {…}`), `cond_goto_demo`
   (`if !early {…}`).  ✓
@@ -572,8 +573,9 @@ niceness in the printer.  All demos golden-locked:
   offset + rune); the Go 1.22 integer range `int_range` → `for i := range n` (`int_range_demo`
   → `0 1 2 3`, zero iterations when `n = 0`).  ✓
 - **`return`** (in-loop): `early_return_demo`.  ✓
-- **`goto`** (irreducible CFG): raw Go labels + `goto`, the always-correct fallback —
-  `irreducible_demo` (a two-entry loop) golden-locks it.  ✓
+- **`goto`** (irreducible CFG): raw Go labels + `goto`, the fallback that needs no
+  structural assumptions (TRUSTED plugin lowering) — `irreducible_demo` (a two-entry
+  loop) golden-locks it.  ✓
 - **`switch`**: ⚠ an n-ary `switch`/type-switch block decomposes to chained `bool` `if`s
   in the goto model (faithful behaviour); the native Go `switch` keyword is a printer
   nicety, not yet emitted.

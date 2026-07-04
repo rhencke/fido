@@ -76,10 +76,6 @@ plugin CONSTRUCTS the `GExpr`; only `gprint` is verified. NOT "verified Go."
 
 ## NEXT
 
-- CONSOLIDATION (boss, 2026-07-04) COMPLETE: −207 KB prose, then `relooper.v` DELETED on the
-  boss's order (−140 KB; proof-only, zero live dependents; git is the archive). The live
-  `main.go` still lowers through the trusted plugin's CFG structurer (gap #10) until the
-  certified path replaces it.
 - Resume the cmd↔unified bridge (`plans/bridge-effects.md`): `CAlloc`, channels (structural
   typed zero), spawn.
 - Grow behavioral safety toward `BehaviorSafe` → `SafeProgram` → `emit_safe` — locals arc OPEN
