@@ -10,9 +10,16 @@ semantics, per-admitted-program termination certificates, NO unfueled total runn
 divergent CFGs, and label lookup that can never default to success.  The executable
 expression parser is not sacred: prefer relational/canonical-token proofs
 (`parses_expr`, `gtokens_inj`); the merged-worker WF design below is the fallback.
-REQUIRED GATES (to add, not yet present): during migration a no-growth count of
-fuel-shaped terms in certified .v files; zero-tolerance after.  Certified modules must
-never import demos or bounded runners.
+REQUIRED GATES (to add, not yet present; identifier/context-scoped, NEVER a bare
+word grep): during migration a no-growth count — zero-tolerance after — of
+BUDGET-shaped identifiers in certified .v files: `fuel`, `gas`, `budget`,
+`max_steps`, `max_depth`, `depth_limit`, `cycle_limit`, `run_for`,
+`run_blocks_fuel`, `block_fuel`, and bounded-evaluator names.  EXPLICITLY OUTSIDE
+the gate: relational small-step names (`step`, `steps`, `ustep`, trace-step
+relations — they ARE the prescribed replacement architecture), Acc/length
+well-founded measures, and non-budget uses of `depth`.  The gate ships with
+fixtures proving `Inductive step`/`ustep` pass while `run_blocks_fuel`/`max_steps`
+fail.  Certified modules must never import demos or bounded runners.
 
 GOAL (boss audit, P0): no fuel, gas, step budget, or bound under any name, anywhere.
 LANDED (8cbe20d + follow-up): cmd.v (structural run_cmd + unwind_defers derivations +
