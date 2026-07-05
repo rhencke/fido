@@ -8,12 +8,16 @@ eval_cmd, equivalence both directions, gated; real no_heap totality), cmd_unifie
 
 ## Remaining
 
-1. **GoPrint.v** (digit printers LANDED 10238ec — structural double-and-add; the
-   hex printer's domain seal to `N`/`positive` follows): `lex_aux fuel`,
+1. **GoPrint.v** — LEXER DONE (digit printers 10238ec; WF `lex` 11b8740; the fuel twin
+   `lex_aux` + `lex_aux_mono` + the bridge DELETED and the whole lemma suite restated
+   over `lex` itself via `lex_acc_pi` + the `lex_eq_*` one-step unfold equations —
+   no budget premise anywhere in the lexer).  REMAINING: the parser —
    `parse_gty fuel`, the mutual expression-parser fuel, `parse toks := parse_expr
    (3 * length toks + 4) ...`, the esize budget machinery — replace with structural /
-   well-founded recursion (lexer: length-decreasing scan; parser: WF on
-   (tokens, phase)).  The round-trip theorems keep their statements; the budget
+   well-founded recursion (WF on (tokens, phase)), same lex_acc_pi/unfold-equation
+   recipe.  If a form resists a fuel-free restatement, SHRINK the accepted subset
+   rather than keep a budget (boss 2026-07-05: expressiveness may be sacrificed;
+   fuel is not ironclad).  The round-trip theorems keep their statements; the budget
    premises disappear.  printer.ml regenerates; golden byte-identical.
 2. **builtins.v** (`n_dec_aux` LANDED — the shared digits.v authority): `run_blocks_fuel`/`block_fuel`
    (the goto-CFG runner — genuine partiality): replace with a step relation +

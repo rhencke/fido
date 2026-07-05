@@ -933,64 +933,6 @@ Definition lex_ident (tok : string) : option Token :=
   else if String.eqb tok "map" then Some TMap
   else match bool_dec (go_ident tok) true with left H => Some (TId (exist _ tok H)) | right _ => None end.
 
-(** THE LEXER.  Skip whitespace; an [is_idstart] head is an identifier/keyword; a digit (or [-]+digit, the
-    negative-literal form — binary [-] is always SPACED in the printer) is an integer; otherwise an
-    operator/delimiter.  Fuel = input length (each token consumes >= 1 char, so it terminates). *)
-Fixpoint lex_aux (fuel : nat) (s : string) : option (list Token) :=
-  match fuel with
-  | O => None
-  | S f =>
-    match s with
-    | EmptyString => Some nil
-    | String c s' =>
-        if is_space c then lex_aux f s'
-        else if is_idstart c then
-          let (tok, rest) := scan_id s in
-          match lex_ident tok with
-          | Some t => match lex_aux f rest with Some l => Some (t :: l) | None => None end
-          | None => None end
-        else if is_dec_char c then
-          (* a digit head is a DECIMAL int, UNLESS it is the [0x] prefix of a HEX literal — checked first.
-             The [0x]-disambiguation is sound because [print_Z] (decimal) never emits "0x" (0 is "0", any
-             positive starts 1-9), so it never collides; only [print_hex] produces "0x". *)
-          match s' with
-          | String c1 s2 =>
-              if andb (Ascii.eqb c (ch 48)) (Ascii.eqb c1 (ch 120)) then  (* c = '0', c1 = 'x' *)
-                let (hd, rest) := scan_hex s2 in
-                match hd with
-                | EmptyString => None  (* "0x" with NO hex digit: not a valid literal — fail-closed *)
-                | String _ _ =>
-                    match bool_dec ((0 <=? parseHex_pos 0 hd)%Z) true with
-                    | left H => match lex_aux f rest with Some l => Some (THex (exist _ (parseHex_pos 0 hd) H) :: l) | None => None end
-                    | right _ => None  (* unreachable: [parseHex_pos] of a non-negative acc is non-negative *)
-                    end
-                end
-              else let (num, rest) := scan_digits s in
-                   match lex_aux f rest with Some l => Some (TInt (parse_Z num) :: l) | None => None end
-          | EmptyString =>
-                let (num, rest) := scan_digits s in
-                match lex_aux f rest with Some l => Some (TInt (parse_Z num) :: l) | None => None end
-          end
-        else if andb (Ascii.eqb c (ch 45)) (match s' with String d _ => is_dec_char d | _ => false end) then
-          let (num, rest) := scan_digits s' in
-          match lex_aux f rest with Some l => Some (TInt (parse_Z (String c num)) :: l) | None => None end
-        else if Ascii.eqb c (ch 34) then   (* a Go interpreted STRING literal: scan to the closing dquote, then
-                                              VALIDATE+decode the body — a malformed escape ([unescape_opt = None])
-                                              FAILS the whole lex (fail-closed), never building a [TStr] *)
-          match scan_quote s' with
-          | Some (body, rest) =>
-              match unescape_opt body with
-              | Some sdec => match lex_aux f rest with Some l => Some (TStr sdec :: l) | None => None end
-              | None => None
-              end
-          | None => None
-          end
-        else
-          match lex_op c s' with
-          | Some (t, rest) => match lex_aux f rest with Some l => Some (t :: l) | None => None end
-          | None => None end
-    end
-  end.
 (** ---- LENGTH FACTS for the scanners: every rest is a (non-strict) suffix by length —
     with the consumed head char, each lexer step strictly shrinks the input, which is the
     whole termination argument (no step budget). *)
@@ -1088,6 +1030,13 @@ Lemma lex_step_op : forall c s' t rest,
 Proof. intros c s' t rest Hop. pose proof (lex_op_len c s' t rest Hop). cbn. lia. Qed.
 
 Definition cert {A : Type} (x : A) : { y : A | x = y } := exist _ x eq_refl.
+(** THE LEXER.  Skip whitespace; an [is_idstart] head is an identifier/keyword; a digit (or [-]+digit, the
+    negative-literal form — binary [-] is always SPACED in the printer) is an integer; a dquote is a string
+    literal; otherwise an operator/delimiter.  Structural recursion on the [Acc lt] certificate of the input
+    length (every token consumes >= 1 char): totality IS the well-founded order — no step budget anywhere.
+    A digit head is a DECIMAL int UNLESS it is the [0x] prefix of a HEX literal (checked first; sound
+    because [print_Z] never emits "0x").  "0x" with NO hex digit and a malformed string escape
+    ([unescape_opt = None]) FAIL the whole lex — fail-closed, never a guessed token. *)
 Fixpoint lex_acc (s : string) (a : Acc lt (String.length s)) {struct a} : option (list Token) :=
   match s return Acc lt (String.length s) -> option (list Token) with
   | EmptyString => fun _ => Some nil
@@ -1166,117 +1115,224 @@ Fixpoint lex_acc (s : string) (a : Acc lt (String.length s)) {struct a} : option
   end a.
 Definition lex (s : string) : option (list Token) := lex_acc s (lt_wf (String.length s)).
 
-(** [lex_acc] agrees with the fuel-parameterized twin at EVERY sufficient budget — the bridge the
-    not-yet-migrated lemma suite consumes ([lex s = lex_aux (S (length s)) s] as the instance).
-    Strong induction on the length; the fuel is quantified ABOVE the length, so each recursive
-    call re-instantiates without any monotonicity plumbing. *)
-Lemma lex_acc_aux : forall n s, String.length s < n ->
-  forall (a : Acc lt (String.length s)) fuel, String.length s < fuel ->
-  lex_acc s a = lex_aux fuel s.
+(** [lex_acc] is PROOF-IRRELEVANT in its termination certificate: any two [Acc] proofs give the same
+    result (strong induction on the input length; every branch steps both sides in lockstep and the
+    recursive certificates fall to the IH).  This is what lets the one-step unfold equations below be
+    stated over [lex] ITSELF — no auxiliary evaluator, no step budget, nothing fuel-shaped. *)
+Lemma lex_acc_pi : forall n s, String.length s < n ->
+  forall a1 a2 : Acc lt (String.length s), lex_acc s a1 = lex_acc s a2.
 Proof.
-  induction n as [| n IH]; intros s Hn a fuel Hf; [ lia | ].
-  destruct a as [ha]. destruct fuel as [| f]; [ lia | ].
+  induction n as [| n IH]; intros s Hn a1 a2; [ lia | ].
+  destruct a1 as [h1]. destruct a2 as [h2].
   destruct s as [| c s']; [ reflexivity | ].
+  cbn [lex_acc Acc_inv].
   destruct (is_space c) eqn:Hsp.
-  { cbn [lex_acc lex_aux]. rewrite Hsp. apply IH; cbn in Hn, Hf |- *; lia. }
+  { apply IH. cbn in Hn |- *. lia. }
   destruct (Bool.bool_dec (is_idstart c) true) as [Hid | Hnid].
-  { destruct (scan_id (String c s')) as [tok rest] eqn:Escan.
-    cbn [lex_aux]. rewrite Hsp, Hid, Escan.
-    cbn [lex_acc]. rewrite Hsp.
-    destruct (Bool.bool_dec (is_idstart c) true) as [Hid2 | C]; [ | contradiction ].
-    destruct (cert (scan_id (String c s'))) as [[tok0 rest0] Hscan].
-    pose proof (eq_trans (eq_sym Escan) Hscan) as He. injection He as <- <-.
-    destruct (lex_ident tok); [ | reflexivity ].
-    pose proof (lex_step_id c s' tok rest (is_idstart_is_idc c Hid) Escan) as Hlt.
-    rewrite (IH rest ltac:(cbn in Hn, Hlt |- *; lia) _ f ltac:(cbn in Hf, Hlt |- *; lia)). reflexivity. }
+  { destruct (cert (scan_id (String c s'))) as [[tok rest] Hscan].
+    destruct (lex_ident tok) as [t|]; [ | reflexivity ].
+    pose proof (lex_step_id c s' tok rest (is_idstart_is_idc c Hid) Hscan) as Hlt.
+    erewrite (IH rest); [ reflexivity | cbn in Hn, Hlt |- *; lia ]. }
   destruct (Bool.bool_dec (is_dec_char c) true) as [Hdec | Hndec].
-  { destruct s' as [| c1 s2].
-    { destruct (scan_digits (String c EmptyString)) as [num rest] eqn:Escan.
-      cbn [lex_aux]. rewrite Hsp, (Bool.not_true_is_false _ Hnid), Hdec, Escan.
-      cbn [lex_acc]. rewrite Hsp.
-      destruct (Bool.bool_dec (is_idstart c) true) as [C | _]; [ contradiction | ].
-      destruct (Bool.bool_dec (is_dec_char c) true) as [Hdec2 | C]; [ | contradiction ].
-      destruct (cert (scan_digits (String c EmptyString))) as [[num0 rest0] Hscan].
-      pose proof (eq_trans (eq_sym Escan) Hscan) as He. injection He as <- <-.
-      pose proof (lex_step_digits c EmptyString num rest Hdec Escan) as Hlt.
-      rewrite (IH rest ltac:(cbn in Hn, Hlt |- *; lia) _ f ltac:(cbn in Hf, Hlt |- *; lia)). reflexivity. }
+  { destruct s' as [| c1 s2]; cbn [Acc_inv].
+    { destruct (cert (scan_digits (String c EmptyString))) as [[num rest] Hscan].
+      pose proof (lex_step_digits c EmptyString num rest Hdec Hscan) as Hlt.
+      erewrite (IH rest); [ reflexivity | cbn in Hn, Hlt |- *; lia ]. }
     destruct (andb (Ascii.eqb c (ch 48)) (Ascii.eqb c1 (ch 120))) eqn:Hpre.
-    { destruct (scan_hex s2) as [hd rest] eqn:Escan.
-      cbn [lex_aux]. rewrite Hsp, (Bool.not_true_is_false _ Hnid), Hdec, Hpre, Escan.
-      cbn [lex_acc]. rewrite Hsp.
-      destruct (Bool.bool_dec (is_idstart c) true) as [C | _]; [ contradiction | ].
-      destruct (Bool.bool_dec (is_dec_char c) true) as [Hdec2 | C]; [ | contradiction ].
-      rewrite Hpre.
-      destruct (cert (scan_hex s2)) as [[hd0 rest0] Hscan].
-      pose proof (eq_trans (eq_sym Escan) Hscan) as He. injection He as <- <-.
+    { destruct (cert (scan_hex s2)) as [[hd rest] Hscan].
       destruct hd as [| h hd']; [ reflexivity | ].
       destruct (bool_dec ((0 <=? parseHex_pos 0 (String h hd'))%Z) true); [ | reflexivity ].
-      pose proof (lex_step_hex c c1 s2 (String h hd') rest Escan) as Hlt.
-      rewrite (IH rest ltac:(cbn in Hn, Hlt |- *; lia) _ f ltac:(cbn in Hf, Hlt |- *; lia)). reflexivity. }
-    { destruct (scan_digits (String c (String c1 s2))) as [num rest] eqn:Escan.
-      cbn [lex_aux]. rewrite Hsp, (Bool.not_true_is_false _ Hnid), Hdec, Hpre, Escan.
-      cbn [lex_acc]. rewrite Hsp.
-      destruct (Bool.bool_dec (is_idstart c) true) as [C | _]; [ contradiction | ].
-      destruct (Bool.bool_dec (is_dec_char c) true) as [Hdec2 | C]; [ | contradiction ].
-      rewrite Hpre.
-      destruct (cert (scan_digits (String c (String c1 s2)))) as [[num0 rest0] Hscan].
-      pose proof (eq_trans (eq_sym Escan) Hscan) as He. injection He as <- <-.
-      pose proof (lex_step_digits c (String c1 s2) num rest Hdec Escan) as Hlt.
-      rewrite (IH rest ltac:(cbn in Hn, Hlt |- *; lia) _ f ltac:(cbn in Hf, Hlt |- *; lia)). reflexivity. } }
+      pose proof (lex_step_hex c c1 s2 (String h hd') rest Hscan) as Hlt.
+      erewrite (IH rest); [ reflexivity | cbn in Hn, Hlt |- *; lia ]. }
+    { destruct (cert (scan_digits (String c (String c1 s2)))) as [[num rest] Hscan].
+      pose proof (lex_step_digits c (String c1 s2) num rest Hdec Hscan) as Hlt.
+      erewrite (IH rest); [ reflexivity | cbn in Hn, Hlt |- *; lia ]. } }
   destruct (andb (Ascii.eqb c (ch 45)) (match s' with String d _ => is_dec_char d | _ => false end)) eqn:Hneg.
-  { destruct (scan_digits s') as [num rest] eqn:Escan.
-    cbn [lex_aux]. rewrite Hsp, (Bool.not_true_is_false _ Hnid), (Bool.not_true_is_false _ Hndec), Hneg, Escan.
-    cbn [lex_acc]. rewrite Hsp.
-    destruct (Bool.bool_dec (is_idstart c) true) as [C | _]; [ contradiction | ].
-    destruct (Bool.bool_dec (is_dec_char c) true) as [C | _]; [ contradiction | ].
-    rewrite Hneg.
-    destruct (cert (scan_digits s')) as [[num0 rest0] Hscan].
-    pose proof (eq_trans (eq_sym Escan) Hscan) as He. injection He as <- <-.
-    pose proof (lex_step_negdigits c s' num rest Escan) as Hlt.
-    rewrite (IH rest ltac:(cbn in Hn, Hlt |- *; lia) _ f ltac:(cbn in Hf, Hlt |- *; lia)). reflexivity. }
+  { destruct (cert (scan_digits s')) as [[num rest] Hscan].
+    pose proof (lex_step_negdigits c s' num rest Hscan) as Hlt.
+    erewrite (IH rest); [ reflexivity | cbn in Hn, Hlt |- *; lia ]. }
   destruct (Ascii.eqb c (ch 34)) eqn:Hq.
-  { destruct (scan_quote s') as [[body rest]|] eqn:Escan.
-    { cbn [lex_aux]. rewrite Hsp, (Bool.not_true_is_false _ Hnid), (Bool.not_true_is_false _ Hndec), Hneg, Hq, Escan.
-      cbn [lex_acc]. rewrite Hsp.
-      destruct (Bool.bool_dec (is_idstart c) true) as [C | _]; [ contradiction | ].
-      destruct (Bool.bool_dec (is_dec_char c) true) as [C | _]; [ contradiction | ].
-      rewrite Hneg, Hq.
-      destruct (cert (scan_quote s')) as [[[body0 rest0]|] Hscan];
-        pose proof (eq_trans (eq_sym Escan) Hscan) as He; [ | discriminate He ].
-      injection He as <- <-.
-      destruct (unescape_opt body); [ | reflexivity ].
-      pose proof (lex_step_quote c s' body rest Escan) as Hlt.
-      rewrite (IH rest ltac:(cbn in Hn, Hlt |- *; lia) _ f ltac:(cbn in Hf, Hlt |- *; lia)). reflexivity. }
-    { cbn [lex_aux]. rewrite Hsp, (Bool.not_true_is_false _ Hnid), (Bool.not_true_is_false _ Hndec), Hneg, Hq, Escan.
-      cbn [lex_acc]. rewrite Hsp.
-      destruct (Bool.bool_dec (is_idstart c) true) as [C | _]; [ contradiction | ].
-      destruct (Bool.bool_dec (is_dec_char c) true) as [C | _]; [ contradiction | ].
-      rewrite Hneg, Hq.
-      destruct (cert (scan_quote s')) as [[[body0 rest0]|] Hscan];
-        pose proof (eq_trans (eq_sym Escan) Hscan) as He; [ discriminate He | reflexivity ]. } }
-  destruct (lex_op c s') as [[t rest]|] eqn:Eop.
-  { cbn [lex_aux]. rewrite Hsp, (Bool.not_true_is_false _ Hnid), (Bool.not_true_is_false _ Hndec), Hneg, Hq, Eop.
-    cbn [lex_acc]. rewrite Hsp.
-    destruct (Bool.bool_dec (is_idstart c) true) as [C | _]; [ contradiction | ].
-    destruct (Bool.bool_dec (is_dec_char c) true) as [C | _]; [ contradiction | ].
-    rewrite Hneg, Hq.
-    destruct (cert (lex_op c s')) as [[[t0 rest0]|] Hop];
-      pose proof (eq_trans (eq_sym Eop) Hop) as He; [ | discriminate He ].
-    injection He as <- <-.
-    pose proof (lex_step_op c s' t rest Eop) as Hlt.
-    rewrite (IH rest ltac:(cbn in Hn, Hlt |- *; lia) _ f ltac:(cbn in Hf, Hlt |- *; lia)). reflexivity. }
-  { cbn [lex_aux]. rewrite Hsp, (Bool.not_true_is_false _ Hnid), (Bool.not_true_is_false _ Hndec), Hneg, Hq, Eop.
-    cbn [lex_acc]. rewrite Hsp.
-    destruct (Bool.bool_dec (is_idstart c) true) as [C | _]; [ contradiction | ].
-    destruct (Bool.bool_dec (is_dec_char c) true) as [C | _]; [ contradiction | ].
-    rewrite Hneg, Hq.
-    destruct (cert (lex_op c s')) as [[[t0 rest0]|] Hop];
-      pose proof (eq_trans (eq_sym Eop) Hop) as He; [ discriminate He | reflexivity ]. }
+  { destruct (cert (scan_quote s')) as [[[body rest]|] Hscan]; [ | reflexivity ].
+    destruct (unescape_opt body); [ | reflexivity ].
+    pose proof (lex_step_quote c s' body rest Hscan) as Hlt.
+    erewrite (IH rest); [ reflexivity | cbn in Hn, Hlt |- *; lia ]. }
+  destruct (cert (lex_op c s')) as [[[t rest]|] Hop]; [ | reflexivity ].
+  pose proof (lex_step_op c s' t rest Hop) as Hlt.
+  erewrite (IH rest); [ reflexivity | cbn in Hn, Hlt |- *; lia ].
 Qed.
-Lemma lex_eq_aux : forall s, lex s = lex_aux (S (String.length s)) s.
+
+(** [lex] at an [Acc_intro] certificate whose sub-certificates are [lt_wf] — the shape that makes ONE
+    step of [lex_acc] reduce and every recursive certificate come back as [lt_wf], i.e. as [lex]. *)
+Lemma lex_unfold_pi : forall s,
+  lex s = lex_acc s (Acc_intro (String.length s) (fun y _ => lt_wf y)).
 Proof.
-  intro s. unfold lex.
-  exact (lex_acc_aux (S (String.length s)) s (Nat.lt_succ_diag_r _) _ _ (Nat.lt_succ_diag_r _)).
+  intro s. unfold lex. apply (lex_acc_pi (S (String.length s)) s (Nat.lt_succ_diag_r _)).
+Qed.
+Lemma lex_empty : lex ""%string = Some nil.
+Proof. rewrite lex_unfold_pi. reflexivity. Qed.
+
+(** decimal-head classification facts (needed by the decimal unfold equation just below). *)
+Lemma is_dec_char_not_idstart : forall c, is_dec_char c = true -> is_idstart c = false.
+Proof.
+  intros c H. unfold is_dec_char in H. apply andb_prop in H. destruct H as [H1 H2].
+  apply Nat.leb_le in H1, H2. unfold is_idstart; cbv zeta.
+  assert (E1 : Nat.leb 65 (nat_of_ascii c) = false) by (apply Nat.leb_gt; lia).
+  assert (E2 : Nat.leb 97 (nat_of_ascii c) = false) by (apply Nat.leb_gt; lia).
+  assert (E3 : Nat.eqb (nat_of_ascii c) 95 = false) by (apply Nat.eqb_neq; lia).
+  rewrite E1, E2, E3. reflexivity.
+Qed.
+Lemma is_dec_char_not_space : forall c, is_dec_char c = true -> is_space c = false.
+Proof.
+  intros c H. unfold is_dec_char in H. apply andb_prop in H. destruct H as [H1 H2].
+  apply Nat.leb_le in H1. unfold is_space.
+  destruct (Ascii.eqb c (ascii_of_nat 32)) eqn:E; [ | reflexivity ].
+  exfalso. apply Ascii.eqb_eq in E. subst c.
+  rewrite Ascii.nat_ascii_embedding in H1 by lia. lia.
+Qed.
+
+(** ---- ONE-STEP UNFOLD EQUATIONS for [lex] ---- each lexer branch as an equation over [lex] ITSELF.
+    The recursive occurrence on the right is [lex rest]: no auxiliary lexer, no budget premise —
+    "step once" is a proved EQUATION between total functions, never an approximation. *)
+Lemma lex_eq_space : forall c s', is_space c = true -> lex (String c s') = lex s'.
+Proof.
+  intros c s' Hsp. rewrite (lex_unfold_pi (String c s')). cbn [lex_acc Acc_inv].
+  rewrite Hsp. reflexivity.
+Qed.
+
+Lemma lex_eq_id : forall c s' tok rest,
+  is_space c = false -> is_idstart c = true ->
+  scan_id (String c s') = (tok, rest) ->
+  lex (String c s') = match lex_ident tok with
+                      | Some t => match lex rest with Some l => Some (t :: l) | None => None end
+                      | None => None
+                      end.
+Proof.
+  intros c s' tok rest Hsp Hid Hscan.
+  rewrite (lex_unfold_pi (String c s')). cbn [lex_acc Acc_inv]. rewrite Hsp.
+  destruct (Bool.bool_dec (is_idstart c) true) as [Hid2 | C]; [ | contradiction ].
+  destruct (cert (scan_id (String c s'))) as [[tok0 rest0] Hscan0].
+  pose proof (eq_trans (eq_sym Hscan) Hscan0) as He. injection He as <- <-.
+  destruct (lex_ident tok) as [t|]; reflexivity.
+Qed.
+
+Lemma lex_eq_dec : forall c s',
+  is_dec_char c = true ->
+  match s' with String c1 _ => Ascii.eqb c1 (ch 120) = false | EmptyString => True end ->
+  lex (String c s') =
+    (let (num, rest) := scan_digits (String c s') in
+     match lex rest with Some l => Some (TInt (parse_Z num) :: l) | None => None end).
+Proof.
+  intros c s' Hdec Hnotx.
+  rewrite (lex_unfold_pi (String c s')). cbn [lex_acc Acc_inv].
+  rewrite (is_dec_char_not_space _ Hdec).
+  destruct (Bool.bool_dec (is_idstart c) true) as [C | _];
+    [ exfalso; rewrite (is_dec_char_not_idstart _ Hdec) in C; discriminate C | ].
+  destruct (Bool.bool_dec (is_dec_char c) true) as [Hdec2 | C]; [ | contradiction ].
+  destruct s' as [| c1 s2]; cbn [Acc_inv].
+  - destruct (cert (scan_digits (String c EmptyString))) as [[num0 rest0] Hscan0].
+    rewrite Hscan0. reflexivity.
+  - rewrite Hnotx, Bool.andb_false_r.
+    destruct (cert (scan_digits (String c (String c1 s2)))) as [[num0 rest0] Hscan0].
+    rewrite Hscan0. reflexivity.
+Qed.
+
+Lemma lex_eq_neg : forall d D',
+  is_dec_char d = true ->
+  lex (String (ch 45) (String d D')) =
+    (let (num, rest) := scan_digits (String d D') in
+     match lex rest with Some l => Some (TInt (parse_Z (String (ch 45) num)) :: l) | None => None end).
+Proof.
+  intros d D' Hd.
+  rewrite (lex_unfold_pi (String (ch 45) (String d D'))). cbn [lex_acc Acc_inv].
+  replace (is_space (ch 45)) with false by reflexivity.
+  destruct (Bool.bool_dec (is_idstart (ch 45)) true) as [C | _]; [ exfalso; vm_compute in C; discriminate C | ].
+  destruct (Bool.bool_dec (is_dec_char (ch 45)) true) as [C | _]; [ exfalso; vm_compute in C; discriminate C | ].
+  replace (Ascii.eqb (ch 45) (ch 45)) with true by reflexivity.
+  rewrite Hd. cbn [andb].
+  destruct (cert (scan_digits (String d D'))) as [[num0 rest0] Hscan0].
+  rewrite Hscan0. reflexivity.
+Qed.
+
+Lemma lex_eq_hex : forall s2,
+  lex (String (ch 48) (String (ch 120) s2)) =
+    match scan_hex s2 with
+    | (EmptyString, _) => None
+    | (String h hd', rest) =>
+        match bool_dec ((0 <=? parseHex_pos 0 (String h hd'))%Z) true with
+        | left H => match lex rest with
+                    | Some l => Some (THex (exist _ (parseHex_pos 0 (String h hd')) H) :: l)
+                    | None => None end
+        | right _ => None
+        end
+    end.
+Proof.
+  intro s2.
+  rewrite (lex_unfold_pi (String (ch 48) (String (ch 120) s2))). cbn [lex_acc Acc_inv].
+  replace (is_space (ch 48)) with false by reflexivity.
+  destruct (Bool.bool_dec (is_idstart (ch 48)) true) as [C | _]; [ exfalso; vm_compute in C; discriminate C | ].
+  destruct (Bool.bool_dec (is_dec_char (ch 48)) true) as [Hd | C]; [ | vm_compute in C; exfalso; apply C; reflexivity ].
+  replace (andb (Ascii.eqb (ch 48) (ch 48)) (Ascii.eqb (ch 120) (ch 120))) with true by reflexivity.
+  destruct (cert (scan_hex s2)) as [[hd0 rest0] Hscan0]. rewrite Hscan0.
+  destruct hd0 as [| h hd']; [ reflexivity | ].
+  destruct (bool_dec ((0 <=? parseHex_pos 0 (String h hd'))%Z) true) as [H | H]; reflexivity.
+Qed.
+
+Lemma lex_eq_quote : forall s',
+  lex (String (ch 34) s') =
+    match scan_quote s' with
+    | Some (body, rest) =>
+        match unescape_opt body with
+        | Some sdec => match lex rest with Some l => Some (TStr sdec :: l) | None => None end
+        | None => None
+        end
+    | None => None
+    end.
+Proof.
+  intro s'.
+  rewrite (lex_unfold_pi (String (ch 34) s')). cbn [lex_acc Acc_inv].
+  replace (is_space (ch 34)) with false by reflexivity.
+  destruct (Bool.bool_dec (is_idstart (ch 34)) true) as [C | _]; [ exfalso; vm_compute in C; discriminate C | ].
+  destruct (Bool.bool_dec (is_dec_char (ch 34)) true) as [C | _]; [ exfalso; vm_compute in C; discriminate C | ].
+  replace (Ascii.eqb (ch 34) (ch 45)) with false by reflexivity. cbn [andb].
+  replace (Ascii.eqb (ch 34) (ch 34)) with true by reflexivity.
+  destruct (cert (scan_quote s')) as [[[body0 rest0]|] Hscan0]; rewrite Hscan0.
+  - destruct (unescape_opt body0) as [sdec|]; reflexivity.
+  - reflexivity.
+Qed.
+
+Lemma lex_eq_op : forall c X t rest,
+  is_space c = false -> is_idstart c = false -> is_dec_char c = false ->
+  andb (Ascii.eqb c (ch 45)) (match X with String d _ => is_dec_char d | EmptyString => false end) = false ->
+  Ascii.eqb c (ch 34) = false ->
+  lex_op c X = Some (t, rest) ->
+  lex (String c X) = match lex rest with Some l => Some (t :: l) | None => None end.
+Proof.
+  intros c X t rest Hsp Hid Hdc Hneg H34 Hop.
+  rewrite (lex_unfold_pi (String c X)). cbn [lex_acc Acc_inv].
+  rewrite Hsp.
+  destruct (Bool.bool_dec (is_idstart c) true) as [C | _]; [ exfalso; rewrite Hid in C; discriminate C | ].
+  destruct (Bool.bool_dec (is_dec_char c) true) as [C | _]; [ exfalso; rewrite Hdc in C; discriminate C | ].
+  rewrite Hneg, H34.
+  destruct (cert (lex_op c X)) as [[[t0 rest0]|] Hop0];
+    pose proof (eq_trans (eq_sym Hop) Hop0) as He; [ injection He as <- <- | discriminate He ].
+  reflexivity.
+Qed.
+
+Lemma lex_eq_op_None : forall c X,
+  is_space c = false -> is_idstart c = false -> is_dec_char c = false ->
+  andb (Ascii.eqb c (ch 45)) (match X with String d _ => is_dec_char d | EmptyString => false end) = false ->
+  Ascii.eqb c (ch 34) = false ->
+  lex_op c X = None ->
+  lex (String c X) = None.
+Proof.
+  intros c X Hsp Hid Hdc Hneg H34 Hop.
+  rewrite (lex_unfold_pi (String c X)). cbn [lex_acc Acc_inv].
+  rewrite Hsp.
+  destruct (Bool.bool_dec (is_idstart c) true) as [C | _]; [ exfalso; rewrite Hid in C; discriminate C | ].
+  destruct (Bool.bool_dec (is_dec_char c) true) as [C | _]; [ exfalso; rewrite Hdc in C; discriminate C | ].
+  rewrite Hneg, H34.
+  destruct (cert (lex_op c X)) as [[[t0 rest0]|] Hop0];
+    pose proof (eq_trans (eq_sym Hop) Hop0) as He; [ discriminate He | reflexivity ].
 Qed.
 
 (** ---- TYPE-PARSER DEFINITIONS (before the expression parser so [parse_postfix] can call [parse_gty]
@@ -2037,55 +2093,6 @@ Proof. destruct o; reflexivity. Qed.
 
 (** ---- LEXER FUEL MONOTONICITY ---- adding fuel never changes a [Some] answer; bridges the fuel when
     composing [lex] over a concatenation. *)
-Lemma lex_aux_mono : forall f s ts f',
-  lex_aux f s = Some ts -> f <= f' -> lex_aux f' s = Some ts.
-Proof.
-  induction f as [ | f IH ]; intros s ts f' H Hle; [ discriminate H | ].
-  destruct f' as [ | f' ]; [ lia | ].
-  assert (Hle' : f <= f') by lia.
-  destruct s as [ | c s' ]; [ exact H | ].
-  cbn [lex_aux] in H |- *.
-  destruct (is_space c).
-  { exact (IH _ _ _ H Hle'). }
-  destruct (is_idstart c).
-  { destruct (scan_id (String c s')) as [tok rest].
-    destruct (lex_ident tok) as [t | ]; [ | exact H ].
-    destruct (lex_aux f rest) as [l | ] eqn:E; [ | discriminate H ].
-    rewrite (IH _ _ _ E Hle'); exact H. }
-  destruct (is_dec_char c).
-  { (* decimal OR "0x" hex — split on s' to peek the 2nd char *)
-    destruct s' as [ | c1 s2 ]; cbn [lex_aux] in H |- *.
-    { (* s' = "" : decimal *)
-      destruct (scan_digits (String c "")) as [num rest].
-      destruct (lex_aux f rest) as [l | ] eqn:E; [ | discriminate H ].
-      rewrite (IH _ _ _ E Hle'); exact H. }
-    destruct (andb (Ascii.eqb c (ch 48)) (Ascii.eqb c1 (ch 120))).
-    { (* "0x" hex literal *)
-      destruct (scan_hex s2) as [hd rest].
-      destruct hd as [ | hc hd' ]; [ discriminate H | ].
-      destruct (bool_dec ((0 <=? parseHex_pos 0 (String hc hd'))%Z) true) as [H' | H']; [ | discriminate H ].
-      destruct (lex_aux f rest) as [l | ] eqn:E; [ | discriminate H ].
-      rewrite (IH _ _ _ E Hle'); exact H. }
-    { (* decimal, s' = String c1 s2 *)
-      destruct (scan_digits (String c (String c1 s2))) as [num rest].
-      destruct (lex_aux f rest) as [l | ] eqn:E; [ | discriminate H ].
-      rewrite (IH _ _ _ E Hle'); exact H. } }
-  destruct (andb (Ascii.eqb c (ch 45)) (match s' with String d _ => is_dec_char d | _ => false end)).
-  { destruct (scan_digits s') as [num rest].
-    destruct (lex_aux f rest) as [l | ] eqn:E; [ | discriminate H ].
-    rewrite (IH _ _ _ E Hle'); exact H. }
-  destruct (Ascii.eqb c (ch 34)).
-  { (* string-literal branch: the body scan + the fail-closed [unescape_opt] are fuel-independent, only the
-       tail re-lex uses the IH (a malformed body gives [None] regardless of fuel) *)
-    destruct (scan_quote s') as [[body rest] | ]; [ | exact H ].
-    destruct (unescape_opt body) as [sdec | ]; [ | exact H ].
-    destruct (lex_aux f rest) as [l | ] eqn:E; [ | discriminate H ].
-    rewrite (IH _ _ _ E Hle'); exact H. }
-  { destruct (lex_op c s') as [[t rest] | ]; [ | exact H ].
-    destruct (lex_aux f rest) as [l | ] eqn:E; [ | discriminate H ].
-    rewrite (IH _ _ _ E Hle'); exact H. }
-Qed.
-
 (** ---- LEXER ROUND-TRIP groundwork ---- the seam predicate + the scanner-splitting lemmas.
     [clean_start rest] = the next char cannot EXTEND an identifier/number token (it is not an id-char), so
     a token ending just before [rest] is complete — exactly the boundary [gprint] emits between subtrees
@@ -2208,25 +2215,22 @@ Proof.
 Qed.
 
 (** LEAF (identifier): lexing [gprint (EId i) ++ rest = proj1_sig i ++ rest] yields [TId i] then [rest]'s
-    tokens — given a clean seam and enough fuel.  ([gtokens (EId i) = [TId i]].) *)
-Lemma lex_gprint_id : forall (i : Ident) rest fuel tr,
+    tokens — given a clean seam.  ([gtokens (EId i) = [TId i]].) *)
+Lemma lex_gprint_id : forall (i : Ident) rest tr,
   clean_start rest = true ->
-  lex_aux (S (String.length rest)) rest = Some tr ->
-  S (String.length (proj1_sig i) + String.length rest) <= fuel ->
-  lex_aux fuel (proj1_sig i ++ rest) = Some (TId i :: tr).
+  lex rest = Some tr ->
+  lex (proj1_sig i ++ rest) = Some (TId i :: tr).
 Proof.
-  intros [s Hs] rest fuel tr Hclean Hrest Hfuel. simpl proj1_sig in *.
+  intros [s Hs] rest tr Hclean Hrest. simpl proj1_sig in *.
   destruct s as [ | c0 s0 ]; [ vm_compute in Hs; discriminate Hs | ].
-  destruct fuel as [ | f ]; [ cbn in Hfuel; lia | ].
   pose proof Hs as Hgo. unfold go_ident in Hgo. apply andb_prop in Hgo. destruct Hgo as [Hia _].
   apply andb_prop in Hia. destruct Hia as [Hidstart Hallidc].
-  cbn [lex_aux String.append].
-  rewrite (is_idstart_not_space _ Hidstart), Hidstart.
-  replace (scan_id (String c0 (s0 ++ rest))) with (String c0 s0, rest)
-    by (symmetry; apply (scan_id_app (String c0 s0) rest Hallidc Hclean)).
+  cbn [String.append].
+  rewrite (lex_eq_id c0 (s0 ++ rest)%string (String c0 s0) rest
+             (is_idstart_not_space _ Hidstart) Hidstart
+             (scan_id_app (String c0 s0) rest Hallidc Hclean)).
   rewrite (lex_ident_go (String c0 s0) Hs).
-  assert (Hle : S (String.length rest) <= f) by (cbn in Hfuel; lia).
-  rewrite (lex_aux_mono _ _ _ _ Hrest Hle). reflexivity.
+  rewrite Hrest. reflexivity.
 Qed.
 
 (** Digit-shape facts for the integer leaf (proved from scratch for GoPrint). *)
@@ -2247,52 +2251,15 @@ Proof.
   apply IH; [ assumption | cbn [all_dec]; rewrite is_dec_char_dec_digit by assumption; exact Hacc ].
 Qed.
 
-Lemma is_dec_char_not_idstart : forall c, is_dec_char c = true -> is_idstart c = false.
-Proof.
-  intros c H. unfold is_dec_char in H. apply andb_prop in H. destruct H as [H1 H2].
-  apply Nat.leb_le in H1, H2. unfold is_idstart; cbv zeta.
-  assert (E1 : Nat.leb 65 (nat_of_ascii c) = false) by (apply Nat.leb_gt; lia).
-  assert (E2 : Nat.leb 97 (nat_of_ascii c) = false) by (apply Nat.leb_gt; lia).
-  assert (E3 : Nat.eqb (nat_of_ascii c) 95 = false) by (apply Nat.eqb_neq; lia).
-  rewrite E1, E2, E3. reflexivity.
-Qed.
-
-Lemma is_dec_char_not_space : forall c, is_dec_char c = true -> is_space c = false.
-Proof.
-  intros c H. unfold is_dec_char in H. apply andb_prop in H. destruct H as [H1 H2].
-  apply Nat.leb_le in H1. unfold is_space.
-  destruct (Ascii.eqb c (ascii_of_nat 32)) eqn:E; [ | reflexivity ].
-  exfalso. apply Ascii.eqb_eq in E. subst c.
-  rewrite Ascii.nat_ascii_embedding in H1 by lia. lia.
-Qed.
-
-(** The lexer's DECIMAL path: a decimal head [c] whose FOLLOWING char is not 'x' ([ch 120]) takes the
-    [scan_digits] branch; the decimal seam lemmas need only supply "the 2nd char is not 'x'". *)
-Lemma lex_dec_branch : forall c s' f,
-  is_dec_char c = true ->
-  match s' with String c1 _ => Ascii.eqb c1 (ch 120) = false | EmptyString => True end ->
-  lex_aux (S f) (String c s') =
-    (let (num, rest) := scan_digits (String c s') in
-     match lex_aux f rest with Some l => Some (TInt (parse_Z num) :: l) | None => None end).
-Proof.
-  intros c s' f Hdec Hnotx.
-  cbn [lex_aux].
-  rewrite (is_dec_char_not_space _ Hdec), (is_dec_char_not_idstart _ Hdec), Hdec.
-  destruct s' as [ | c1 s2 ]; [ reflexivity | ].
-  rewrite Hnotx, Bool.andb_false_r. reflexivity.
-Qed.
-
 (** Lexing a non-empty all-decimal run [D] (no leading '-') yields [TInt (parse_Z D)] then [rest]. *)
-Lemma lex_pos_dec : forall D rest fuel tr,
+Lemma lex_pos_dec : forall D rest tr,
   all_dec D = true -> D <> EmptyString -> clean_start rest = true ->
-  lex_aux (S (String.length rest)) rest = Some tr ->
-  S (String.length D + String.length rest) <= fuel ->
-  lex_aux fuel (D ++ rest) = Some (TInt (parse_Z D) :: tr).
+  lex rest = Some tr ->
+  lex (D ++ rest) = Some (TInt (parse_Z D) :: tr).
 Proof.
-  intros D rest fuel tr Hdec Hne Hclean Hrest Hfuel.
+  intros D rest tr Hdec Hne Hclean Hrest.
   destruct D as [ | d0 D' ]; [ contradiction | ].
   cbn [all_dec] in Hdec. apply andb_prop in Hdec. destruct Hdec as [Hd0 HD'].
-  destruct fuel as [ | f ]; [ cbn in Hfuel; lia | ].
   assert (HdecD : all_dec (String d0 D') = true) by (cbn [all_dec]; rewrite Hd0; exact HD').
   (* the [0x] hex guard is FALSE: the char after [d0] is a decimal digit (D' nonempty) or a clean-start
      char (D' empty, by [Hclean]) — never 'x' *)
@@ -2306,76 +2273,66 @@ Proof.
       destruct (Ascii.eqb d1 (ch 120)) eqn:Ex; [ | reflexivity ].
       apply Ascii.eqb_eq in Ex; subst d1. vm_compute in Hd1; discriminate. }
   cbn [String.append].
-  rewrite (lex_dec_branch d0 (D' ++ rest) f Hd0 Hnotx).
+  rewrite (lex_eq_dec d0 (D' ++ rest)%string Hd0 Hnotx).
   replace (scan_digits (String d0 (D' ++ rest))) with (String d0 D', rest)
     by (symmetry; change (String d0 (D' ++ rest)) with ((String d0 D') ++ rest);
         apply (scan_digits_app (String d0 D') rest HdecD Hclean)).
-  assert (Hle : S (String.length rest) <= f) by (cbn in Hfuel; lia).
-  rewrite (lex_aux_mono _ _ _ _ Hrest Hle). reflexivity.
+  cbv beta iota. rewrite Hrest. reflexivity.
 Qed.
 
 (** Lexing a NEGATIVE literal ['-' ++ D] (D a non-empty all-decimal run) yields [TInt (parse_Z ('-'++D))]
     via the lexer's negative-literal branch (binary '-' is always SPACED in the printer, so an unspaced
     '-'+digit is unambiguously a literal). *)
-Lemma lex_neg_dec : forall D rest fuel tr,
+Lemma lex_neg_dec : forall D rest tr,
   all_dec D = true -> D <> EmptyString -> clean_start rest = true ->
-  lex_aux (S (String.length rest)) rest = Some tr ->
-  S (S (String.length D) + String.length rest) <= fuel ->
-  lex_aux fuel (String (ch 45) D ++ rest) = Some (TInt (parse_Z (String (ch 45) D)) :: tr).
+  lex rest = Some tr ->
+  lex (String (ch 45) D ++ rest) = Some (TInt (parse_Z (String (ch 45) D)) :: tr).
 Proof.
-  intros D rest fuel tr Hdec Hne Hclean Hrest Hfuel.
+  intros D rest tr Hdec Hne Hclean Hrest.
   destruct D as [ | d0 D' ]; [ contradiction | ].
   cbn [all_dec] in Hdec. apply andb_prop in Hdec. destruct Hdec as [Hd0 HD'].
-  destruct fuel as [ | f ]; [ cbn in Hfuel; lia | ].
   assert (HdecD : all_dec (String d0 D') = true) by (cbn [all_dec]; rewrite Hd0; exact HD').
-  cbn [lex_aux String.append].
-  replace (is_space (ch 45)) with false by reflexivity.
-  replace (is_idstart (ch 45)) with false by reflexivity.
-  replace (is_dec_char (ch 45)) with false by reflexivity.
-  replace (Ascii.eqb (ch 45) (ch 45)) with true by reflexivity.
-  rewrite Hd0.
+  cbn [String.append].
+  rewrite (lex_eq_neg d0 (D' ++ rest)%string Hd0).
   replace (scan_digits (String d0 (D' ++ rest))) with (String d0 D', rest)
     by (symmetry; change (String d0 (D' ++ rest)) with ((String d0 D') ++ rest);
         apply (scan_digits_app (String d0 D') rest HdecD Hclean)).
-  assert (Hle : S (String.length rest) <= f) by (cbn in Hfuel; lia).
-  rewrite (lex_aux_mono _ _ _ _ Hrest Hle). reflexivity.
+  cbv beta iota. rewrite Hrest. reflexivity.
 Qed.
 
 (** LEAF (integer): lexing [gprint (EInt z) ++ rest = print_Z z ++ rest] yields [TInt z] then [rest].
     Case on [print_Z]'s shape (0 / positive digits / '-'+digits) via the reflect views (which also reduce
     the [if]s); recover [z] from the scanned run by [print_parse_Z]. *)
-Lemma lex_gprint_int : forall z rest fuel tr,
+Lemma lex_gprint_int : forall z rest tr,
   clean_start rest = true ->
-  lex_aux (S (String.length rest)) rest = Some tr ->
-  S (String.length (print_Z z) + String.length rest) <= fuel ->
-  lex_aux fuel (print_Z z ++ rest) = Some (TInt z :: tr).
+  lex rest = Some tr ->
+  lex (print_Z z ++ rest) = Some (TInt z :: tr).
 Proof.
-  intros z rest fuel tr Hclean Hrest Hfuel.
+  intros z rest tr Hclean Hrest.
   replace (TInt z) with (TInt (parse_Z (print_Z z))) by (rewrite print_parse_Z; reflexivity).
   destruct z as [| p | p]; cbn [print_Z] in *.
-  - apply lex_pos_dec; [ reflexivity | discriminate | exact Hclean | exact Hrest | exact Hfuel ].
+  - apply lex_pos_dec; [ reflexivity | discriminate | exact Hclean | exact Hrest ].
   - unfold print_Z_pos in *.
     apply lex_pos_dec;
       [ apply all_dec_render; [ apply pos_digits_bound; lia | reflexivity ]
-      | apply render_digits_ne, pos_digits_nonnil | exact Hclean | exact Hrest | exact Hfuel ].
+      | apply render_digits_ne, pos_digits_nonnil | exact Hclean | exact Hrest ].
   - change (("-" ++ print_Z_pos p)%string) with (String (ch 45) (print_Z_pos p)) in *.
     unfold print_Z_pos in *.
     apply lex_neg_dec;
       [ apply all_dec_render; [ apply pos_digits_bound; lia | reflexivity ]
-      | apply render_digits_ne, pos_digits_nonnil | exact Hclean | exact Hrest | exact Hfuel ].
+      | apply render_digits_ne, pos_digits_nonnil | exact Hclean | exact Hrest ].
 Qed.
 
 (** LEAF (hex): lexing [gprint (EHex zc) ++ rest = print_hex z ++ rest] (z = [proj1_sig zc] >= 0) yields
     [THex zc] then [rest].  [print_hex z = "0x" ++ HD] with [HD] the all-hex, non-empty digit body; the
     lexer's [0x] branch [scan_hex]s [HD] off (clean seam), recovers [z] by [print_parse_hex], and the
     [bool_dec] proof equals the carried [HexZ] proof by UIP ([hexz_eq]). *)
-Lemma lex_gprint_hex : forall (zc : HexZ) rest fuel tr,
+Lemma lex_gprint_hex : forall (zc : HexZ) rest tr,
   clean_start rest = true ->
-  lex_aux (S (String.length rest)) rest = Some tr ->
-  S (String.length (print_hex (Z.to_N (proj1_sig zc))) + String.length rest) <= fuel ->
-  lex_aux fuel (print_hex (Z.to_N (proj1_sig zc)) ++ rest) = Some (THex zc :: tr).
+  lex rest = Some tr ->
+  lex (print_hex (Z.to_N (proj1_sig zc)) ++ rest) = Some (THex zc :: tr).
 Proof.
-  intros [z Hz] rest fuel tr Hclean Hrest Hfuel. cbn [proj1_sig] in *.
+  intros [z Hz] rest tr Hclean Hrest. cbn [proj1_sig] in *.
   assert (Hznn : (0 <= z)%Z) by (apply Z.leb_le; exact Hz).
   pose (HD := print_hex_body (Z.to_N z)).
   assert (EprintHD : print_hex (Z.to_N z) = ("0x" ++ HD)%string) by (unfold print_hex, HD; reflexivity).
@@ -2388,92 +2345,73 @@ Proof.
   assert (HparseHD : parseHex_pos 0 HD = z).
   { pose proof (print_parse_hex (Z.to_N z)) as Hpp.
     rewrite EprintHD, parse_hex_0x, Z2N.id in Hpp by exact Hznn. exact Hpp. }
-  rewrite EprintHD in Hfuel |- *. clearbody HD. clear EprintHD.
+  rewrite EprintHD. clearbody HD. clear EprintHD.
   destruct HD as [ | hc hd' ]; [ exfalso; apply HneHD; reflexivity | ].
-  destruct fuel as [ | f ]; [ cbn [String.length append] in Hfuel; lia | ].
   replace ((("0x" ++ String hc hd') ++ rest)%string)
      with (String (ch 48) (String (ch 120) (String hc hd' ++ rest)))
      by (cbn [append]; reflexivity).
-  cbn [lex_aux].
-  replace (is_space (ch 48))    with false by reflexivity.
-  replace (is_idstart (ch 48))  with false by reflexivity.
-  replace (is_dec_char (ch 48))  with true  by reflexivity.
-  replace (Ascii.eqb (ch 48) (ch 48))   with true by reflexivity.
-  replace (Ascii.eqb (ch 120) (ch 120)) with true by reflexivity.
-  cbn [andb].
-  rewrite (scan_hex_app (String hc hd') rest HhexHD Hclean).
+  rewrite lex_eq_hex.
+  rewrite (scan_hex_app (String hc hd') rest HhexHD Hclean). cbv beta iota.
   destruct (bool_dec ((0 <=? parseHex_pos 0 (String hc hd'))%Z) true) as [Hpos | Hpos];
     [ | exfalso; apply Hpos; rewrite HparseHD; exact Hz ].
-  assert (Hle : S (String.length rest) <= f)
-    by (cbn [String.length append] in Hfuel; lia).
-  rewrite (lex_aux_mono _ _ _ _ Hrest Hle).
+  rewrite Hrest.
   do 3 f_equal. apply hexz_eq. cbn [proj1_sig]. exact HparseHD.
 Qed.
 
 (** BINOP SEAM: [binop_text o] is [" op "] (spaced both sides), so lexing [binop_text o ++ X] skips the
     leading space, lexes the operator to [op_token o], skips the trailing space, and continues on [X] —
     3 lexer steps, then [X].  The trailing space isolates [X] (no constraint on its head). *)
-Lemma lex_binop_app : forall o X fuel tX,
-  lex_aux (S (String.length X)) X = Some tX ->
-  S (String.length (binop_text o) + String.length X) <= fuel ->
-  lex_aux fuel (binop_text o ++ X) = Some (op_token o :: tX).
+Lemma lex_binop_app : forall o X tX,
+  lex X = Some tX ->
+  lex (binop_text o ++ X) = Some (op_token o :: tX).
 Proof.
-  intros o X fuel tX HX Hfuel.
-  destruct o; cbn [binop_text] in Hfuel;
-    do 3 (destruct fuel as [ | fuel ]; [ cbn in Hfuel; lia | ]);
-    cbn;
-    rewrite (lex_aux_mono _ _ _ _ HX) by (cbn in Hfuel; lia);
-    reflexivity.
+  intros o X tX HX.
+  destruct o; cbn [binop_text String.append];
+    erewrite lex_eq_space by reflexivity;
+    erewrite lex_eq_op by reflexivity;
+    erewrite lex_eq_space by reflexivity;
+    rewrite HX; reflexivity.
 Qed.
 
 (** Single-char delimiter seams: '(' -> TLP, ')' -> TRP (one lexer step), and the [UNeg] prefix "-(" ->
     TMinus, TLP (two steps — '-' followed by '(' is NOT a negative literal, so it lexes as TMinus). *)
-Lemma lex_lparen_app : forall X fuel tX,
-  lex_aux (S (String.length X)) X = Some tX -> S (S (String.length X)) <= fuel ->
-  lex_aux fuel (String (ch 40) X) = Some (TLP :: tX).
+Lemma lex_lparen_app : forall X tX,
+  lex X = Some tX -> lex (String (ch 40) X) = Some (TLP :: tX).
 Proof.
-  intros X fuel tX HX Hfuel. destruct fuel as [ | fuel ]; [ cbn in Hfuel; lia | ].
-  cbn. rewrite (lex_aux_mono _ _ _ _ HX) by (cbn in Hfuel; lia). reflexivity.
+  intros X tX HX. erewrite lex_eq_op by reflexivity. rewrite HX. reflexivity.
 Qed.
 
-Lemma lex_rparen_app : forall X fuel tX,
-  lex_aux (S (String.length X)) X = Some tX -> S (S (String.length X)) <= fuel ->
-  lex_aux fuel (String (ch 41) X) = Some (TRP :: tX).
+Lemma lex_rparen_app : forall X tX,
+  lex X = Some tX -> lex (String (ch 41) X) = Some (TRP :: tX).
 Proof.
-  intros X fuel tX HX Hfuel. destruct fuel as [ | fuel ]; [ cbn in Hfuel; lia | ].
-  cbn. rewrite (lex_aux_mono _ _ _ _ HX) by (cbn in Hfuel; lia). reflexivity.
+  intros X tX HX. erewrite lex_eq_op by reflexivity. rewrite HX. reflexivity.
 Qed.
 
-Lemma lex_minuslp_app : forall X fuel tX,
-  lex_aux (S (String.length X)) X = Some tX -> S (S (S (String.length X))) <= fuel ->
-  lex_aux fuel (String (ch 45) (String (ch 40) X)) = Some (TMinus :: TLP :: tX).
+Lemma lex_minuslp_app : forall X tX,
+  lex X = Some tX -> lex (String (ch 45) (String (ch 40) X)) = Some (TMinus :: TLP :: tX).
 Proof.
-  intros X fuel tX HX Hfuel. do 2 (destruct fuel as [ | fuel ]; [ cbn in Hfuel; lia | ]).
-  cbn. rewrite (lex_aux_mono _ _ _ _ HX) by (cbn in Hfuel; lia). reflexivity.
+  intros X tX HX.
+  erewrite lex_eq_op by reflexivity.
+  erewrite lex_eq_op by reflexivity.
+  rewrite HX. reflexivity.
 Qed.
 
 (** KEYWORD SEAM: the printed prefix "return " lexes to the reserved [TReturn] token, so the rest [X]
     lexes unchanged after it.  This makes a [return e] statement DISJOINT from any expression statement at
     the lexer level (a leading [TReturn] is rejected by the expression parser). *)
-Lemma lex_return_app : forall X fuel tX,
-  lex_aux (S (String.length X)) X = Some tX ->
-  S (String.length ("return " ++ X)) <= fuel ->
-  lex_aux fuel ("return " ++ X)%string = Some (TReturn :: tX).
+Lemma lex_return_app : forall X tX,
+  lex X = Some tX ->
+  lex ("return " ++ X)%string = Some (TReturn :: tX).
 Proof.
-  intros X fuel tX HX Hfuel.
-  assert (Hr : is_idstart "r"%char = true) by (vm_compute; reflexivity).
-  assert (Hsp : is_space " "%char = true) by (vm_compute; reflexivity).
-  do 2 (destruct fuel as [ | fuel ]; [ cbn in Hfuel; lia | ]).
+  intros X tX HX.
   (* keep "return" and the trailing space as appends so [scan_id_app] applies (don't fully unfold append) *)
   change ("return " ++ X)%string with (String "r"%char ("eturn" ++ String " "%char X))%string.
-  cbn [lex_aux].
-  rewrite (is_idstart_not_space _ Hr), Hr.
-  replace (scan_id (String "r"%char ("eturn" ++ String " "%char X)))
-     with ("return"%string, String " "%char X)
-     by (symmetry; apply (scan_id_app "return"%string (String " "%char X) eq_refl eq_refl)).
-  cbn [lex_aux lex_ident String.eqb Ascii.eqb].
-  rewrite Hsp.
-  rewrite (lex_aux_mono _ _ _ _ HX) by (cbn in Hfuel; lia). reflexivity.
+  rewrite (lex_eq_id "r"%char ("eturn" ++ String " "%char X)%string "return"%string (String " "%char X)
+             eq_refl eq_refl
+             (scan_id_app "return"%string (String " "%char X) eq_refl eq_refl)).
+  cbn [lex_ident String.eqb Ascii.eqb].
+  erewrite lex_eq_space by reflexivity.
+  rewrite HX. reflexivity.
 Qed.
 
 (** PARENTHESISED-UNOP SEAM (the [unop_paren o e = true] case — a non-leaf operand, or [UNeg]): [unop_text o]
@@ -2481,16 +2419,17 @@ Qed.
     maximal-munch into a 2-char operator — so it lexes to [prefix_token o] then TLP then [X].  No
     first-char side condition is needed because the next char is fixed.  (The minimal BARE case — a leaf
     operand with NO parens — is [lex_unop_app] just below.) *)
-Lemma lex_unop_lp_app : forall o X fuel tX,
+Lemma lex_unop_lp_app : forall o X tX,
   o <> UNeg ->
-  lex_aux (S (String.length X)) X = Some tX ->
-  S (S (S (String.length X))) <= fuel ->
-  lex_aux fuel (unop_text o ++ String (ch 40) X) = Some (prefix_token o :: TLP :: tX).
+  lex X = Some tX ->
+  lex (unop_text o ++ String (ch 40) X) = Some (prefix_token o :: TLP :: tX).
 Proof.
-  intros o X fuel tX HoNeg HX Hfuel.
+  intros o X tX HoNeg HX.
   destruct o; try (exfalso; apply HoNeg; reflexivity);
-    do 2 (destruct fuel as [ | fuel ]; [ cbn in Hfuel; lia | ]);
-    cbn; rewrite (lex_aux_mono _ _ _ _ HX) by (cbn in Hfuel; lia); reflexivity.
+    cbn [unop_text String.append prefix_token];
+    erewrite lex_eq_op by reflexivity;
+    erewrite lex_eq_op by reflexivity;
+    rewrite HX; reflexivity.
 Qed.
 
 Lemma length_app : forall a b, String.length (a ++ b) = String.length a + String.length b.
@@ -2558,32 +2497,16 @@ Proof.
     cbn [append]. apply is_dec_char_unop_clean. reflexivity.
 Qed.
 
-(** One lexer step for an OPERATOR-led head: a char [c] that is not a space / idstart / digit / ['-'] / a
-    dquote dispatches to [lex_op c X]; given [lex_op c X = Some (t, rest)] the step emits [t] then continues
-    on [rest].  (Factors the [lex_aux (S f) (String c X)] unfold so [lex_unop_app] avoids fragile [cbn]s.) *)
-Lemma lex_aux_op_step : forall f c X t rest,
-  is_space c = false -> is_idstart c = false -> is_dec_char c = false ->
-  Ascii.eqb c (ch 45) = false -> Ascii.eqb c (ch 34) = false ->
-  lex_op c X = Some (t, rest) ->
-  lex_aux (S f) (String c X) = match lex_aux f rest with Some l => Some (t :: l) | None => None end.
-Proof.
-  intros f c X t rest Hsp Hid Hdc H45 H34 Hop.
-  cbn [lex_aux]. rewrite Hsp, Hid, Hdc, H45. cbn [andb]. rewrite H34, Hop. reflexivity.
-Qed.
-
 (** BARE-UNOP SEAM: [unop_text o] (o <> UNeg) is a single char ['!'/'^'/'*'/'&']; given a unop-clean [X]
     (so a ['!']/['&'] cannot munch with [X]'s head), it lexes to [prefix_token o] then [X].  The mirror of
     [lex_unop_lp_app] for the BARE operand (no intervening ['(']). *)
-Lemma lex_unop_app : forall o X fuel tX,
+Lemma lex_unop_app : forall o X tX,
   o <> UNeg ->
   unop_head_clean X = true ->
-  lex_aux (S (String.length X)) X = Some tX ->
-  S (S (String.length X)) <= fuel ->
-  lex_aux fuel (unop_text o ++ X) = Some (prefix_token o :: tX).
+  lex X = Some tX ->
+  lex (unop_text o ++ X) = Some (prefix_token o :: tX).
 Proof.
-  intros o X fuel tX HoNeg Hhd HX Hfuel.
-  destruct fuel as [ | f ]; [ cbn in Hfuel; lia | ].
-  assert (Hmono : lex_aux f X = Some tX) by (apply (lex_aux_mono _ _ _ _ HX); cbn in Hfuel; lia).
+  intros o X tX HoNeg Hhd HX.
   destruct o; try (exfalso; apply HoNeg; reflexivity); cbn [unop_text append prefix_token].
   - (* UNot, '!' *)
     assert (Hop : lex_op "!"%char X = Some (TBang, X)).
@@ -2593,17 +2516,17 @@ Proof.
       change (lex_op "!"%char (String d X'))
         with (if Ascii.eqb d (ch 61) then Some (TNe, X') else Some (TBang, String d X')).
       rewrite H61. reflexivity. }
-    rewrite (lex_aux_op_step f "!"%char X TBang X ltac:(reflexivity) ltac:(reflexivity) ltac:(reflexivity)
+    rewrite (lex_eq_op "!"%char X TBang X ltac:(reflexivity) ltac:(reflexivity) ltac:(reflexivity)
                ltac:(reflexivity) ltac:(reflexivity) Hop).
-    rewrite Hmono. reflexivity.
+    rewrite HX. reflexivity.
   - (* UXor, '^' *)
-    rewrite (lex_aux_op_step f "^"%char X TCaret X ltac:(reflexivity) ltac:(reflexivity) ltac:(reflexivity)
+    rewrite (lex_eq_op "^"%char X TCaret X ltac:(reflexivity) ltac:(reflexivity) ltac:(reflexivity)
                ltac:(reflexivity) ltac:(reflexivity) ltac:(reflexivity)).
-    rewrite Hmono. reflexivity.
+    rewrite HX. reflexivity.
   - (* UDeref, '*' *)
-    rewrite (lex_aux_op_step f "*"%char X TStar X ltac:(reflexivity) ltac:(reflexivity) ltac:(reflexivity)
+    rewrite (lex_eq_op "*"%char X TStar X ltac:(reflexivity) ltac:(reflexivity) ltac:(reflexivity)
                ltac:(reflexivity) ltac:(reflexivity) ltac:(reflexivity)).
-    rewrite Hmono. reflexivity.
+    rewrite HX. reflexivity.
   - (* UAddr, '&' *)
     assert (Hop : lex_op "&"%char X = Some (TAmp, X)).
     { destruct X as [ | d X' ]; [ reflexivity | ].
@@ -2614,9 +2537,9 @@ Proof.
         with (if Ascii.eqb d (ch 38) then Some (TLand, X')
               else if Ascii.eqb d (ch 94) then Some (TAndNot, X') else Some (TAmp, String d X')).
       rewrite H38, H94. reflexivity. }
-    rewrite (lex_aux_op_step f "&"%char X TAmp X ltac:(reflexivity) ltac:(reflexivity) ltac:(reflexivity)
+    rewrite (lex_eq_op "&"%char X TAmp X ltac:(reflexivity) ltac:(reflexivity) ltac:(reflexivity)
                ltac:(reflexivity) ltac:(reflexivity) Hop).
-    rewrite Hmono. reflexivity.
+    rewrite HX. reflexivity.
 Qed.
 
 (** Every [binop_text] starts with a space, so the seam after it is clean. *)
@@ -2634,123 +2557,90 @@ Proof. induction s as [ | c s' IH ]; [ reflexivity | cbn; rewrite IH; reflexivit
     [esc_string_roundtrip_opt] VALIDATES+decodes the body back to [Some s] (the escaped body is well-formed by
     construction, so the option decoder never rejects it).  The closing dquote self-terminates, so [clean_start
     rest] is NOT needed (it is kept only for a signature uniform with the other leaf lemmas). *)
-Lemma lex_gprint_str : forall s rest fuel tr,
+Lemma lex_gprint_str : forall s rest tr,
   clean_start rest = true ->
-  lex_aux (S (String.length rest)) rest = Some tr ->
-  S (String.length (print_string_lit s) + String.length rest) <= fuel ->
-  lex_aux fuel (print_string_lit s ++ rest) = Some (TStr s :: tr).
+  lex rest = Some tr ->
+  lex (print_string_lit s ++ rest) = Some (TStr s :: tr).
 Proof.
-  intros s rest fuel tr _ Hrest Hfuel.
-  destruct fuel as [ | f ]; [ cbn [String.length print_string_lit] in Hfuel; lia | ].
+  intros s rest tr _ Hrest.
   unfold print_string_lit.
   replace (((String (ch 34) (esc_string s ++ String (ch 34) "")) ++ rest)%string)
      with (String (ch 34) (esc_string s ++ String (ch 34) rest))
      by (cbn [append]; rewrite str_app_assoc; cbn [append]; reflexivity).
-  cbn [lex_aux].
-  replace (is_space (ch 34))   with false by reflexivity.
-  replace (is_idstart (ch 34)) with false by reflexivity.
-  replace (is_dec_char (ch 34)) with false by reflexivity.
-  replace (Ascii.eqb (ch 34) (ch 45)) with false by reflexivity.
-  replace (Ascii.eqb (ch 34) (ch 34)) with true by reflexivity.
-  cbn [andb].
+  rewrite lex_eq_quote.
   rewrite scan_quote_esc_string. cbv beta iota. rewrite esc_string_roundtrip_opt. cbv beta iota.
-  assert (Hp : 1 <= String.length (print_string_lit s))
-    by (unfold print_string_lit; cbn [String.length]; lia).
-  assert (Hle : S (String.length rest) <= f) by lia.
-  rewrite (lex_aux_mono _ _ _ _ Hrest Hle). reflexivity.
+  rewrite Hrest. reflexivity.
 Qed.
 
 (** SELECTOR-DOT SEAM: '.' (ch 46) is a single delimiter char — never id/digit/space, [lex_op] maps it
     to [TDot] — so it lexes to [TDot] then [X] (like the paren seams). *)
-Lemma lex_dot_app : forall X fuel tX,
-  lex_aux (S (String.length X)) X = Some tX -> S (S (String.length X)) <= fuel ->
-  lex_aux fuel (String (ch 46) X) = Some (TDot :: tX).
+Lemma lex_dot_app : forall X tX,
+  lex X = Some tX -> lex (String (ch 46) X) = Some (TDot :: tX).
 Proof.
-  intros X fuel tX HX Hfuel. destruct fuel as [ | fuel ]; [ cbn in Hfuel; lia | ].
-  cbn. rewrite (lex_aux_mono _ _ _ _ HX) by (cbn in Hfuel; lia). reflexivity.
+  intros X tX HX. erewrite lex_eq_op by reflexivity. rewrite HX. reflexivity.
 Qed.
 
 (** INDEX-BRACKET SEAMS: '[' (ch 91) → TLB and ']' (ch 93) → TRB are single delimiter chars (like parens). *)
-Lemma lex_lbrack_app : forall X fuel tX,
-  lex_aux (S (String.length X)) X = Some tX -> S (S (String.length X)) <= fuel ->
-  lex_aux fuel (String (ch 91) X) = Some (TLB :: tX).
+Lemma lex_lbrack_app : forall X tX,
+  lex X = Some tX -> lex (String (ch 91) X) = Some (TLB :: tX).
 Proof.
-  intros X fuel tX HX Hfuel. destruct fuel as [ | fuel ]; [ cbn in Hfuel; lia | ].
-  cbn. rewrite (lex_aux_mono _ _ _ _ HX) by (cbn in Hfuel; lia). reflexivity.
+  intros X tX HX. erewrite lex_eq_op by reflexivity. rewrite HX. reflexivity.
 Qed.
-Lemma lex_rbrack_app : forall X fuel tX,
-  lex_aux (S (String.length X)) X = Some tX -> S (S (String.length X)) <= fuel ->
-  lex_aux fuel (String (ch 93) X) = Some (TRB :: tX).
+Lemma lex_rbrack_app : forall X tX,
+  lex X = Some tX -> lex (String (ch 93) X) = Some (TRB :: tX).
 Proof.
-  intros X fuel tX HX Hfuel. destruct fuel as [ | fuel ]; [ cbn in Hfuel; lia | ].
-  cbn. rewrite (lex_aux_mono _ _ _ _ HX) by (cbn in Hfuel; lia). reflexivity.
+  intros X tX HX. erewrite lex_eq_op by reflexivity. rewrite HX. reflexivity.
 Qed.
 (** COMPOSITE-BRACE SEAMS: '{' (ch 123) → TLC and '}' (ch 125) → TRC are single delimiter chars (like the
     index brackets); used by the slice-composite-literal [[]T{..}] round-trip. *)
-Lemma lex_lbrace_app : forall X fuel tX,
-  lex_aux (S (String.length X)) X = Some tX -> S (S (String.length X)) <= fuel ->
-  lex_aux fuel (String (ch 123) X) = Some (TLC :: tX).
+Lemma lex_lbrace_app : forall X tX,
+  lex X = Some tX -> lex (String (ch 123) X) = Some (TLC :: tX).
 Proof.
-  intros X fuel tX HX Hfuel. destruct fuel as [ | fuel ]; [ cbn in Hfuel; lia | ].
-  cbn. rewrite (lex_aux_mono _ _ _ _ HX) by (cbn in Hfuel; lia). reflexivity.
+  intros X tX HX. erewrite lex_eq_op by reflexivity. rewrite HX. reflexivity.
 Qed.
-Lemma lex_rbrace_app : forall X fuel tX,
-  lex_aux (S (String.length X)) X = Some tX -> S (S (String.length X)) <= fuel ->
-  lex_aux fuel (String (ch 125) X) = Some (TRC :: tX).
+Lemma lex_rbrace_app : forall X tX,
+  lex X = Some tX -> lex (String (ch 125) X) = Some (TRC :: tX).
 Proof.
-  intros X fuel tX HX Hfuel. destruct fuel as [ | fuel ]; [ cbn in Hfuel; lia | ].
-  cbn. rewrite (lex_aux_mono _ _ _ _ HX) by (cbn in Hfuel; lia). reflexivity.
+  intros X tX HX. erewrite lex_eq_op by reflexivity. rewrite HX. reflexivity.
 Qed.
 (** SLICE-COLON SEAM: ':' (ch 58) → TColon, a single delimiter char (like the brackets). *)
-Lemma lex_colon_app : forall X fuel tX,
-  lex_aux (S (String.length X)) X = Some tX -> S (S (String.length X)) <= fuel ->
-  lex_aux fuel (String (ch 58) X) = Some (TColon :: tX).
+Lemma lex_colon_app : forall X tX,
+  lex X = Some tX -> lex (String (ch 58) X) = Some (TColon :: tX).
 Proof.
-  intros X fuel tX HX Hfuel. destruct fuel as [ | fuel ]; [ cbn in Hfuel; lia | ].
-  cbn. rewrite (lex_aux_mono _ _ _ _ HX) by (cbn in Hfuel; lia). reflexivity.
+  intros X tX HX. erewrite lex_eq_op by reflexivity. rewrite HX. reflexivity.
 Qed.
 (** CALL-COMMA SEAM: ',' (ch 44) → TComma, a single delimiter char. *)
-Lemma lex_comma_app : forall X fuel tX,
-  lex_aux (S (String.length X)) X = Some tX -> S (S (String.length X)) <= fuel ->
-  lex_aux fuel (String (ch 44) X) = Some (TComma :: tX).
+Lemma lex_comma_app : forall X tX,
+  lex X = Some tX -> lex (String (ch 44) X) = Some (TComma :: tX).
 Proof.
-  intros X fuel tX HX Hfuel. destruct fuel as [ | fuel ]; [ cbn in Hfuel; lia | ].
-  cbn. rewrite (lex_aux_mono _ _ _ _ HX) by (cbn in Hfuel; lia). reflexivity.
+  intros X tX HX. erewrite lex_eq_op by reflexivity. rewrite HX. reflexivity.
 Qed.
 (** POINTER SEAM: '*' (ch 42) → TStar (single-char op, like the brackets). *)
-Lemma lex_star_app : forall X fuel tX,
-  lex_aux (S (String.length X)) X = Some tX -> S (S (String.length X)) <= fuel ->
-  lex_aux fuel (String (ch 42) X) = Some (TStar :: tX).
+Lemma lex_star_app : forall X tX,
+  lex X = Some tX -> lex (String (ch 42) X) = Some (TStar :: tX).
 Proof.
-  intros X fuel tX HX Hfuel. destruct fuel as [ | fuel ]; [ cbn in Hfuel; lia | ].
-  cbn. rewrite (lex_aux_mono _ _ _ _ HX) by (cbn in Hfuel; lia). reflexivity.
+  intros X tX HX. erewrite lex_eq_op by reflexivity. rewrite HX. reflexivity.
 Qed.
 (** WHITESPACE SKIP: a leading space is consumed (no token), then the rest lexes. *)
-Lemma lex_space_app : forall Z fuel tZ,
-  lex_aux (S (String.length Z)) Z = Some tZ -> S (S (String.length Z)) <= fuel ->
-  lex_aux fuel (String (ch 32) Z) = Some tZ.
+Lemma lex_space_app : forall Z tZ,
+  lex Z = Some tZ -> lex (String (ch 32) Z) = Some tZ.
 Proof.
-  intros Z fuel tZ HZ Hfuel. destruct fuel as [ | fuel ]; [ cbn in Hfuel; lia | ].
-  cbn [lex_aux]. replace (is_space (ch 32)) with true by reflexivity.
-  rewrite (lex_aux_mono _ _ _ _ HZ) by (cbn [String.length] in Hfuel; lia). reflexivity.
+  intros Z tZ HZ. erewrite lex_eq_space by reflexivity. exact HZ.
 Qed.
 (** KEYWORD SEAM: an identifier RUN [kw] (here [chan]/[map]) lexing to its keyword token, then the rest.
     Mirrors [lex_gprint_id] but with an arbitrary [lex_ident kw] classification. *)
-Lemma lex_kw_app : forall c0 kw0 tok Y fuel tY,
+Lemma lex_kw_app : forall c0 kw0 tok Y tY,
   is_idstart c0 = true -> all_idc (String c0 kw0) = true ->
   lex_ident (String c0 kw0) = Some tok ->
-  clean_start Y = true -> lex_aux (S (String.length Y)) Y = Some tY ->
-  S (S (String.length Y)) <= fuel ->   (* the id-run scan is ONE [lex_aux] step regardless of [kw] length *)
-  lex_aux fuel ((String c0 kw0 ++ Y)%string) = Some (tok :: tY).
+  clean_start Y = true -> lex Y = Some tY ->
+  lex ((String c0 kw0 ++ Y)%string) = Some (tok :: tY).
 Proof.
-  intros c0 kw0 tok Y fuel tY Hidstart Hallidc Hkw Hclean HY Hfuel.
-  destruct fuel as [ | f ]; [ cbn [String.length] in Hfuel; lia | ].
-  cbn [lex_aux String.append].
-  rewrite (is_idstart_not_space _ Hidstart), Hidstart.
-  replace (scan_id (String c0 (kw0 ++ Y))) with (String c0 kw0, Y)
-    by (symmetry; apply (scan_id_app (String c0 kw0) Y Hallidc Hclean)).
-  rewrite Hkw.
-  rewrite (lex_aux_mono _ _ _ _ HY) by (cbn [String.length] in Hfuel; lia). reflexivity.
+  intros c0 kw0 tok Y tY Hidstart Hallidc Hkw Hclean HY.
+  cbn [String.append].
+  rewrite (lex_eq_id c0 (kw0 ++ Y)%string (String c0 kw0) Y
+             (is_idstart_not_space _ Hidstart) Hidstart
+             (scan_id_app (String c0 kw0) Y Hallidc Hclean)).
+  rewrite Hkw. rewrite HY. reflexivity.
 Qed.
 
 (** OPERAND SEAM for a selector: [gparen e0] (the bare-or-parenthesised operand) lexes to [gtparen e0]
@@ -2758,158 +2648,130 @@ Qed.
 (** THE TYPE LEX ROUND-TRIP: [lex (print_ty t)] yields [gttokens_ty t] — connecting the string type printer
     [print_ty] to the token layer (rest-threaded, like [lex_gprint_app]).  Scalars/named via [lex_gprint_id];
     [*]/[[]] via the bracket seams; [chan ]/[map[] via [lex_kw_app] (+ [lex_space_app] for chan's space). *)
-Lemma gttokens_ty_lex : forall t rest fuel tr,
+Lemma gttokens_ty_lex : forall t rest tr,
   clean_start rest = true ->
-  lex_aux (S (String.length rest)) rest = Some tr ->
-  S (String.length (print_ty t) + String.length rest) <= fuel ->
-  lex_aux fuel (print_ty t ++ rest)%string = Some (gttokens_ty t ++ tr)%list.
+  lex rest = Some tr ->
+  lex (print_ty t ++ rest)%string = Some (gttokens_ty t ++ tr)%list.
 Proof.
   induction t as [ | | | | | | | | | | | | | | u IHt | u IHt | u IHt | t1 IHt1 t2 IHt2 | n ];
-    intros rest fuel tr Hclean Hrest HF.
+    intros rest tr Hclean Hrest.
   1-14: cbn [print_ty gttokens_ty app];
         match goal with |- _ = Some (TId ?i :: _) => apply (lex_gprint_id i) end;
-        [ exact Hclean | exact Hrest | cbn [print_ty proj1_sig mkIdent String.length] in HF |- *; lia ].
+        [ exact Hclean | exact Hrest ].
   - (* GTPtr u: "*" ++ print_ty u *)
     cbn [print_ty gttokens_ty].
-    assert (Hu : lex_aux (S (String.length (print_ty u ++ rest))) (print_ty u ++ rest) = Some (gttokens_ty u ++ tr)%list)
-      by (apply IHt; [ exact Hclean | exact Hrest | rewrite length_app; lia ]).
+    assert (Hu : lex (print_ty u ++ rest) = Some (gttokens_ty u ++ tr)%list)
+      by (apply IHt; [ exact Hclean | exact Hrest ]).
     rewrite str_app_assoc.
     change ("*" ++ (print_ty u ++ rest))%string with (String (ch 42) (print_ty u ++ rest)).
-    rewrite (lex_star_app _ _ _ Hu)
-      by (cbn [print_ty] in HF; repeat rewrite length_app in HF; repeat rewrite length_app; cbn [String.length] in HF |- *; lia).
+    rewrite (lex_star_app _ _ Hu).
     cbn [app]; reflexivity.
   - (* GTSlice u: "[]" ++ print_ty u *)
     cbn [print_ty gttokens_ty].
-    assert (Hu : lex_aux (S (String.length (print_ty u ++ rest))) (print_ty u ++ rest) = Some (gttokens_ty u ++ tr)%list)
-      by (apply IHt; [ exact Hclean | exact Hrest | rewrite length_app; lia ]).
-    assert (Hrb : lex_aux (S (String.length (String (ch 93) (print_ty u ++ rest)))) (String (ch 93) (print_ty u ++ rest))
-                = Some (TRB :: (gttokens_ty u ++ tr))%list)
-      by (apply lex_rbrack_app; [ exact Hu | cbn [String.length]; lia ]).
-    assert (Hlb : lex_aux (S (String.length (String (ch 91) (String (ch 93) (print_ty u ++ rest))))) (String (ch 91) (String (ch 93) (print_ty u ++ rest)))
-                = Some (TLB :: TRB :: (gttokens_ty u ++ tr))%list)
-      by (apply lex_lbrack_app; [ exact Hrb | cbn [String.length]; lia ]).
+    assert (Hu : lex (print_ty u ++ rest) = Some (gttokens_ty u ++ tr)%list)
+      by (apply IHt; [ exact Hclean | exact Hrest ]).
+    assert (Hrb : lex (String (ch 93) (print_ty u ++ rest)) = Some (TRB :: (gttokens_ty u ++ tr))%list)
+      by (apply lex_rbrack_app; exact Hu).
     rewrite str_app_assoc.
     change ("[]" ++ (print_ty u ++ rest))%string with (String (ch 91) (String (ch 93) (print_ty u ++ rest))).
-    rewrite (lex_aux_mono _ _ _ _ Hlb)
-      by (cbn [print_ty] in HF; cbn [String.length] in HF |- *; repeat rewrite length_app in HF; repeat rewrite length_app; cbn [String.length] in HF |- *; lia).
+    rewrite (lex_lbrack_app _ _ Hrb).
     cbn [app]; reflexivity.
   - (* GTChan u: "chan " ++ print_ty u *)
     cbn [print_ty gttokens_ty].
-    assert (Hsp : lex_aux (S (String.length (String (ch 32) (print_ty u ++ rest)))) (String (ch 32) (print_ty u ++ rest))
-                = Some (gttokens_ty u ++ tr)%list)
-      by (apply lex_space_app; [ apply IHt; [ exact Hclean | exact Hrest | rewrite length_app; lia ] | cbn [String.length]; rewrite length_app; lia ]).
+    assert (Hsp : lex (String (ch 32) (print_ty u ++ rest)) = Some (gttokens_ty u ++ tr)%list)
+      by (apply lex_space_app; apply IHt; [ exact Hclean | exact Hrest ]).
     rewrite str_app_assoc.
     change ("chan " ++ (print_ty u ++ rest))%string
       with ((String (ch 99) "han") ++ (String (ch 32) (print_ty u ++ rest)))%string.
-    rewrite (lex_kw_app (ch 99) "han" TChan (String (ch 32) (print_ty u ++ rest)) fuel (gttokens_ty u ++ tr)
-               ltac:(reflexivity) ltac:(reflexivity) ltac:(reflexivity) ltac:(reflexivity) Hsp
-               ltac:(cbn [print_ty] in HF; cbn [String.length] in HF |- *; repeat rewrite length_app in HF; repeat rewrite length_app; cbn [String.length] in HF |- *; lia)).
+    rewrite (lex_kw_app (ch 99) "han" TChan (String (ch 32) (print_ty u ++ rest)) (gttokens_ty u ++ tr)
+               ltac:(reflexivity) ltac:(reflexivity) ltac:(reflexivity) ltac:(reflexivity) Hsp).
     cbn [app]; reflexivity.
   - (* GTMap k v: "map[" ++ print_ty k ++ "]" ++ print_ty v *)
     cbn [print_ty gttokens_ty].
-    assert (Hv : lex_aux (S (String.length (print_ty t2 ++ rest))) (print_ty t2 ++ rest) = Some (gttokens_ty t2 ++ tr)%list)
-      by (apply IHt2; [ exact Hclean | exact Hrest | rewrite length_app; lia ]).
-    assert (Hrbv : lex_aux (S (String.length (String (ch 93) (print_ty t2 ++ rest)))) (String (ch 93) (print_ty t2 ++ rest))
-                 = Some (TRB :: (gttokens_ty t2 ++ tr))%list)
-      by (apply lex_rbrack_app; [ exact Hv | cbn [String.length]; lia ]).
-    assert (Hk : lex_aux (S (String.length (print_ty t1 ++ String (ch 93) (print_ty t2 ++ rest)))) (print_ty t1 ++ String (ch 93) (print_ty t2 ++ rest))
+    assert (Hv : lex (print_ty t2 ++ rest) = Some (gttokens_ty t2 ++ tr)%list)
+      by (apply IHt2; [ exact Hclean | exact Hrest ]).
+    assert (Hrbv : lex (String (ch 93) (print_ty t2 ++ rest)) = Some (TRB :: (gttokens_ty t2 ++ tr))%list)
+      by (apply lex_rbrack_app; exact Hv).
+    assert (Hk : lex (print_ty t1 ++ String (ch 93) (print_ty t2 ++ rest))
                = Some (gttokens_ty t1 ++ (TRB :: (gttokens_ty t2 ++ tr)))%list)
-      by (apply IHt1; [ reflexivity | exact Hrbv | rewrite length_app; cbn [String.length]; rewrite length_app; lia ]).
-    assert (Hlb : lex_aux (S (String.length (String (ch 91) (print_ty t1 ++ String (ch 93) (print_ty t2 ++ rest))))) (String (ch 91) (print_ty t1 ++ String (ch 93) (print_ty t2 ++ rest)))
+      by (apply IHt1; [ reflexivity | exact Hrbv ]).
+    assert (Hlb : lex (String (ch 91) (print_ty t1 ++ String (ch 93) (print_ty t2 ++ rest)))
                 = Some (TLB :: (gttokens_ty t1 ++ (TRB :: (gttokens_ty t2 ++ tr))))%list)
-      by (apply lex_lbrack_app; [ exact Hk | cbn [String.length]; rewrite length_app; cbn [String.length]; rewrite length_app; lia ]).
+      by (apply lex_lbrack_app; exact Hk).
     rewrite !str_app_assoc.
     change ("map[" ++ (print_ty t1 ++ ("]" ++ (print_ty t2 ++ rest))))%string
       with ((String (ch 109) "ap") ++ (String (ch 91) (print_ty t1 ++ String (ch 93) (print_ty t2 ++ rest))))%string.
-    rewrite (lex_kw_app (ch 109) "ap" TMap (String (ch 91) (print_ty t1 ++ String (ch 93) (print_ty t2 ++ rest))) fuel
+    rewrite (lex_kw_app (ch 109) "ap" TMap (String (ch 91) (print_ty t1 ++ String (ch 93) (print_ty t2 ++ rest)))
                (TLB :: (gttokens_ty t1 ++ (TRB :: (gttokens_ty t2 ++ tr))))
-               ltac:(reflexivity) ltac:(reflexivity) ltac:(reflexivity) ltac:(reflexivity) Hlb
-               ltac:(cbn [print_ty] in HF;
-                     cbn [String.length] in HF |- *; repeat rewrite length_app in HF; repeat rewrite length_app;
-                     cbn [String.length] in HF |- *; repeat rewrite length_app in HF; repeat rewrite length_app;
-                     cbn [String.length] in HF |- *; repeat rewrite length_app in HF; repeat rewrite length_app;
-                     cbn [String.length] in HF |- *; lia)).
+               ltac:(reflexivity) ltac:(reflexivity) ltac:(reflexivity) ltac:(reflexivity) Hlb).
     cbn [app]; rewrite <- !app_assoc; cbn [app]; reflexivity.
   - (* GTNamed n: the nominal name (a go_ident) *)
     cbn [print_ty gttokens_ty app].
     match goal with |- _ = Some (TId ?i :: _) => apply (lex_gprint_id i) end;
-      [ exact Hclean | exact Hrest | cbn [print_ty tyname_to_ident mkIdent proj1_sig] in HF |- *; lia ].
+      [ exact Hclean | exact Hrest ].
 Qed.
 
 (** GENERIC "[(]operand[)]" lexer seam: for ANY operand [e0] (given its lex IH), the parenthesised wrap
     [(gprint 0 e0)] lexes to [TLP … TRP].  Factored so [lex_gparen]'s two LOOSE cases ([EUn]/[EBn], the only
     operands [op_needs_paren] wraps) share ONE proof instead of a copy-pasted block each. *)
-Lemma lex_paren_wrap : forall e0 X fuel tX,
-  (forall ctx rest fuel tr, clean_start rest = true ->
-     lex_aux (S (String.length rest)) rest = Some tr ->
-     S (String.length (gprint ctx e0) + String.length rest) <= fuel ->
-     lex_aux fuel (gprint ctx e0 ++ rest) = Some ((gtokens ctx e0 ++ tr)%list)) ->
-  lex_aux (S (String.length X)) X = Some tX ->
-  S (String.length ("(" ++ gprint 0 e0 ++ ")") + String.length X) <= fuel ->
-  lex_aux fuel (("(" ++ gprint 0 e0 ++ ")") ++ X) = Some ((TLP :: (gtokens 0 e0 ++ TRP :: nil)) ++ tX)%list.
+Lemma lex_paren_wrap : forall e0 X tX,
+  (forall ctx rest tr, clean_start rest = true ->
+     lex rest = Some tr ->
+     lex (gprint ctx e0 ++ rest) = Some ((gtokens ctx e0 ++ tr)%list)) ->
+  lex X = Some tX ->
+  lex (("(" ++ gprint 0 e0 ++ ")") ++ X) = Some ((TLP :: (gtokens 0 e0 ++ TRP :: nil)) ++ tX)%list.
 Proof.
-  intros e0 X fuel tX IHe0 HX Hfuel.
-  assert (Hrp : lex_aux (S (String.length (String (ch 41) X))) (String (ch 41) X) = Some (TRP :: tX))
-    by (apply lex_rparen_app; [ exact HX | cbn [String.length]; lia ]).
-  assert (Hin : lex_aux (S (String.length (gprint 0 e0 ++ String (ch 41) X)))
-                        (gprint 0 e0 ++ String (ch 41) X)
-              = Some (gtokens 0 e0 ++ TRP :: tX)%list)
-    by (apply IHe0; [ reflexivity | exact Hrp | rewrite length_app; lia ]).
+  intros e0 X tX IHe0 HX.
+  assert (Hrp : lex (String (ch 41) X) = Some (TRP :: tX))
+    by (apply lex_rparen_app; exact HX).
+  assert (Hin : lex (gprint 0 e0 ++ String (ch 41) X) = Some (gtokens 0 e0 ++ TRP :: tX)%list)
+    by (apply IHe0; [ reflexivity | exact Hrp ]).
   rewrite !str_app_assoc.
   change ("(" ++ (gprint 0 e0 ++ (")" ++ X)))%string
     with (String (ch 40) (gprint 0 e0 ++ String (ch 41) X)).
-  rewrite (lex_lparen_app _ _ _ Hin)
-    by (cbn [String.length] in Hfuel |- *; repeat rewrite length_app in Hfuel;
-        repeat rewrite length_app; cbn [String.length] in Hfuel |- *; lia).
+  rewrite (lex_lparen_app _ _ Hin).
   cbn [app]; rewrite <- !app_assoc; cbn [app]; reflexivity.
 Qed.
 
-Lemma lex_gparen : forall e0 X fuel tX,
-  (forall ctx rest fuel tr, clean_start rest = true ->
-     lex_aux (S (String.length rest)) rest = Some tr ->
-     S (String.length (gprint ctx e0) + String.length rest) <= fuel ->
-     lex_aux fuel (gprint ctx e0 ++ rest) = Some ((gtokens ctx e0 ++ tr)%list)) ->
+Lemma lex_gparen : forall e0 X tX,
+  (forall ctx rest tr, clean_start rest = true ->
+     lex rest = Some tr ->
+     lex (gprint ctx e0 ++ rest) = Some ((gtokens ctx e0 ++ tr)%list)) ->
   clean_start X = true ->
-  lex_aux (S (String.length X)) X = Some tX ->
-  S (String.length (gparen e0) + String.length X) <= fuel ->
-  lex_aux fuel (gparen e0 ++ X) = Some ((gtparen e0 ++ tX)%list).
+  lex X = Some tX ->
+  lex (gparen e0 ++ X) = Some ((gtparen e0 ++ tX)%list).
 Proof.
-  intros e0 X fuel tX IHe0 HXc HX Hfuel.
-  destruct e0 as [ i0 | z0 | u0 eu | b0 lb rb | es fs | ei ii | esl elo ehi | ecf ecargs | eaf eaT | ecc ece | eslt esles | ekt evt ekvs | sv | hz ]; cbn [gparen gtparen op_needs_paren] in Hfuel |- *.
-  1,2,5,6,7,8,9,10,11,12,13,14: apply IHe0; [ exact HXc | exact HX | exact Hfuel ].
+  intros e0 X tX IHe0 HXc HX.
+  destruct e0 as [ i0 | z0 | u0 eu | b0 lb rb | es fs | ei ii | esl elo ehi | ecf ecargs | eaf eaT | ecc ece | eslt esles | ekt evt ekvs | sv | hz ]; cbn [gparen gtparen op_needs_paren].
+  1,2,5,6,7,8,9,10,11,12,13,14: apply IHe0; [ exact HXc | exact HX ].
   (* the two LOOSE operands [EUn]/[EBn] — both parenthesised, one shared seam *)
-  all: apply lex_paren_wrap; [ exact IHe0 | exact HX | exact Hfuel ].
+  all: apply lex_paren_wrap; [ exact IHe0 | exact HX ].
 Qed.
 
 (** ---- THE LEXER ROUND-TRIP ---- [lex (gprint ctx e ++ rest) = gtokens ctx e ++ (lex rest)] for clean
-    [rest] and enough fuel; by induction on [e].  Leaves via the leaf lemmas; [EUn]/[EBn] thread the seams
+    [rest]; by induction on [e].  Leaves via the leaf lemmas; [EUn]/[EBn] thread the seams
     around the IHs, every boundary clean (a space / a ')' / [rest]).  String scope is open, so the token
     appends are written [%list]. *)
-Lemma lex_gprint_app : forall e ctx rest fuel tr,
+Lemma lex_gprint_app : forall e ctx rest tr,
   clean_start rest = true ->
-  lex_aux (S (String.length rest)) rest = Some tr ->
-  S (String.length (gprint ctx e) + String.length rest) <= fuel ->
-  lex_aux fuel (gprint ctx e ++ rest) = Some ((gtokens ctx e ++ tr)%list).
+  lex rest = Some tr ->
+  lex (gprint ctx e ++ rest) = Some ((gtokens ctx e ++ tr)%list).
 Proof.
   induction e as [ i | z | o e IHe | o l IHl r IHr | e0 IHe0 f | e0 IHe0 i IHi | e0 IHe0 lo IHlo hi IHhi | e0 IHe0 args IHargs | e0 IHe0 T | c0 ec0 IHec0 | slt sles IHsles | mkt mvt mkvs IHmkvs | sv | hz ]
     using GExpr_ind';
-    intros ctx rest fuel tr Hclean Hrest Hfuel.
+    intros ctx rest tr Hclean Hrest.
   - cbn [gprint gtokens app] in *. apply lex_gprint_id; assumption.
   - cbn [gprint gtokens app] in *. apply lex_gprint_int; assumption.
   - (* EUn: PAREN (UNeg / non-leaf operand) is [<op>( gprint 0 e )]; BARE (leaf operand) is [<op> gprint 0 e].
        [Hbody] (the operand lexed with a trailing ')') serves both paren shapes; the bare shape uses [IHe]
        directly + the unop-clean head ([gprint_head_clean]) + [lex_unop_app]. *)
     rewrite gprint_EUn, gtokens_EUn.
-    assert (Hbody : lex_aux (S (String.length (gprint 0 e ++ String (ch 41) rest)))
-                            (gprint 0 e ++ String (ch 41) rest)
+    assert (Hbody : lex (gprint 0 e ++ String (ch 41) rest)
                   = Some ((gtokens 0 e ++ TRP :: tr)%list)).
-    { apply IHe; [ reflexivity
-                 | apply lex_rparen_app; [ exact Hrest | cbn [String.length]; lia ]
-                 | rewrite length_app; cbn [String.length]; lia ]. }
-    rewrite gprint_EUn in Hfuel.
-    destruct o; cbn [unop_paren] in Hfuel |- *.
+    { apply IHe; [ reflexivity | apply lex_rparen_app; exact Hrest ]. }
+    destruct o; cbn [unop_paren].
     (* UNot / UXor / UDeref / UAddr: wrapped iff [unop_needs_paren e] *)
-    1-4: destruct (unop_needs_paren e) eqn:Eb; cbv beta iota in Hfuel |- *;
+    1-4: destruct (unop_needs_paren e) eqn:Eb; cbv beta iota;
          [ (* paren *) rewrite !str_app_assoc;
            change (")" ++ rest)%string with (String (ch 41) rest);
            change ("(" ++ (gprint 0 e ++ String (ch 41) rest))%string
@@ -2917,357 +2779,277 @@ Proof.
            erewrite lex_unop_lp_app;
              [ cbn [app]; rewrite <- app_assoc; reflexivity
              | discriminate
-             | exact Hbody
-             | repeat rewrite length_app in Hfuel; repeat rewrite length_app;
-               cbn [String.length unop_text] in Hfuel |- *; lia ]
+             | exact Hbody ]
          | (* bare: e is a leaf, prints [<op> gprint 0 e] *)
            rewrite str_app_assoc; cbn [app];
            apply lex_unop_app;
              [ discriminate
              | apply (gprint_head_clean e Eb 0 rest)
-             | apply IHe; [ exact Hclean | exact Hrest | rewrite length_app; lia ]
-             | repeat rewrite length_app in Hfuel; repeat rewrite length_app;
-               cbn [String.length unop_text] in Hfuel |- *; lia ] ].
+             | apply IHe; [ exact Hclean | exact Hrest ] ] ].
     (* UNeg: ALWAYS paren — body is [-( gprint 0 e )] *)
-    cbn [unop_text prefix_token] in Hfuel |- *.
+    cbn [unop_text prefix_token].
     rewrite !str_app_assoc.
     change (")" ++ rest)%string with (String (ch 41) rest).
     change ("-" ++ ("(" ++ (gprint 0 e ++ String (ch 41) rest)))%string
       with (String (ch 45) (String (ch 40) (gprint 0 e ++ String (ch 41) rest))).
-    rewrite (lex_minuslp_app _ _ _ Hbody)
-      by (repeat rewrite length_app in Hfuel; repeat rewrite length_app;
-          cbn [String.length] in Hfuel |- *; lia).
+    rewrite (lex_minuslp_app _ _ Hbody).
     cbn [app]; rewrite <- app_assoc; reflexivity.
   - (* EBn: inner = gprint p l ++ binop_text o ++ gprint (S p) r *)
-    cbn [gprint gtokens] in Hfuel |- *.
+    cbn [gprint gtokens].
     set (p := binop_prec o) in *.
-    assert (Hinner : forall X tX f, clean_start X = true ->
-              lex_aux (S (String.length X)) X = Some tX ->
-              S (String.length (gprint p l ++ binop_text o ++ gprint (S p) r) + String.length X) <= f ->
-              lex_aux f (gprint p l ++ binop_text o ++ gprint (S p) r ++ X)
+    assert (Hinner : forall X tX, clean_start X = true ->
+              lex X = Some tX ->
+              lex (gprint p l ++ binop_text o ++ gprint (S p) r ++ X)
                 = Some (((gtokens p l ++ op_token o :: gtokens (S p) r) ++ tX)%list)).
-    { intros X tX f HXc HX Hf.
-      assert (Hr : lex_aux (S (String.length (gprint (S p) r ++ X))) (gprint (S p) r ++ X)
-                 = Some ((gtokens (S p) r ++ tX)%list))
-        by (apply IHr; [ exact HXc | exact HX | repeat rewrite length_app; repeat rewrite length_app in Hf; lia ]).
-      assert (Hb : lex_aux (S (String.length (binop_text o ++ gprint (S p) r ++ X)))
-                           (binop_text o ++ gprint (S p) r ++ X)
+    { intros X tX HXc HX.
+      assert (Hr : lex (gprint (S p) r ++ X) = Some ((gtokens (S p) r ++ tX)%list))
+        by (apply IHr; [ exact HXc | exact HX ]).
+      assert (Hb : lex (binop_text o ++ gprint (S p) r ++ X)
                  = Some ((op_token o :: (gtokens (S p) r ++ tX))%list))
-        by (apply lex_binop_app; [ exact Hr | repeat rewrite length_app; repeat rewrite length_app in Hf; lia ]).
+        by (apply lex_binop_app; exact Hr).
       rewrite <- app_assoc. cbn [app].
-      apply IHl; [ apply clean_start_binop | exact Hb | repeat rewrite length_app; repeat rewrite length_app in Hf; lia ]. }
-    destruct (Nat.ltb p ctx); cbn [gprint gtokens] in Hfuel |- *.
+      apply IHl; [ apply clean_start_binop | exact Hb ]. }
+    destruct (Nat.ltb p ctx); cbn [gprint gtokens].
     + (* wrapped: "(" ++ inner ++ ")" *)
-      assert (Hrp : lex_aux (S (String.length (String (ch 41) rest))) (String (ch 41) rest) = Some (TRP :: tr))
-        by (apply lex_rparen_app; [ exact Hrest | cbn [String.length]; lia ]).
-      assert (Hin : lex_aux (S (String.length (gprint p l ++ binop_text o ++ gprint (S p) r ++ String (ch 41) rest)))
-                            (gprint p l ++ binop_text o ++ gprint (S p) r ++ String (ch 41) rest)
+      assert (Hrp : lex (String (ch 41) rest) = Some (TRP :: tr))
+        by (apply lex_rparen_app; exact Hrest).
+      assert (Hin : lex (gprint p l ++ binop_text o ++ gprint (S p) r ++ String (ch 41) rest)
                   = Some (((gtokens p l ++ op_token o :: gtokens (S p) r) ++ TRP :: tr)%list))
-        by (apply Hinner; [ reflexivity | exact Hrp | repeat rewrite length_app; cbn [String.length]; lia ]).
+        by (apply Hinner; [ reflexivity | exact Hrp ]).
       rewrite !str_app_assoc.
       change ("(" ++ (gprint p l ++ (binop_text o ++ (gprint (S p) r ++ (")" ++ rest)))))%string
         with (String (ch 40) (gprint p l ++ binop_text o ++ gprint (S p) r ++ String (ch 41) rest)).
-      rewrite (lex_lparen_app _ _ _ Hin)
-        by (repeat rewrite length_app in Hfuel; repeat rewrite length_app;
-            cbn [String.length] in Hfuel |- *; lia).
+      rewrite (lex_lparen_app _ _ Hin).
       cbn [app]. rewrite <- !app_assoc. cbn [app]. reflexivity.
     + (* unwrapped: inner *)
       rewrite !str_app_assoc.
-      rewrite (Hinner rest tr fuel Hclean Hrest
-                ltac:(repeat rewrite length_app in Hfuel; repeat rewrite length_app;
-                      cbn [String.length] in Hfuel |- *; lia)).
+      rewrite (Hinner rest tr Hclean Hrest).
       reflexivity.
   - (* ESel e0 f: [gparen e0] ++ "." ++ field — operand seam ([lex_gparen]) then the '.'+field seam *)
     rewrite gprint_ESel, gtokens_ESel.
-    assert (Hfield : lex_aux (S (String.length (proj1_sig f ++ rest))) (proj1_sig f ++ rest) = Some (TId f :: tr))
-      by (apply lex_gprint_id; [ exact Hclean | exact Hrest | rewrite length_app; lia ]).
-    assert (Hdot : lex_aux (S (String.length (String (ch 46) (proj1_sig f ++ rest))))
-                           (String (ch 46) (proj1_sig f ++ rest)) = Some (TDot :: TId f :: tr))
-      by (apply lex_dot_app; [ exact Hfield | cbn [String.length]; lia ]).
+    assert (Hfield : lex (proj1_sig f ++ rest) = Some (TId f :: tr))
+      by (apply lex_gprint_id; [ exact Hclean | exact Hrest ]).
+    assert (Hdot : lex (String (ch 46) (proj1_sig f ++ rest)) = Some (TDot :: TId f :: tr))
+      by (apply lex_dot_app; exact Hfield).
     rewrite !str_app_assoc.
     change ("." ++ (proj1_sig f ++ rest))%string with (String (ch 46) (proj1_sig f ++ rest)).
-    rewrite (lex_gparen e0 (String (ch 46) (proj1_sig f ++ rest)) fuel (TDot :: TId f :: tr)
-               IHe0 eq_refl Hdot
-               ltac:(rewrite gprint_ESel in Hfuel; cbn [String.length] in Hfuel |- *;
-                     repeat rewrite length_app in Hfuel; repeat rewrite length_app;
-                     cbn [String.length] in Hfuel |- *; lia)).
+    rewrite (lex_gparen e0 (String (ch 46) (proj1_sig f ++ rest)) (TDot :: TId f :: tr)
+               IHe0 eq_refl Hdot).
     cbn [app]; rewrite <- !app_assoc; cbn [app]; reflexivity.
   - (* EIndex e0 i: [gparen e0] ++ "[" ++ index ++ "]" — operand seam then '['+index+']' seam *)
     rewrite gprint_EIndex, gtokens_EIndex.
-    assert (Hrb : lex_aux (S (String.length (String (ch 93) rest))) (String (ch 93) rest) = Some (TRB :: tr))
-      by (apply lex_rbrack_app; [ exact Hrest | cbn [String.length]; lia ]).
-    assert (Hidx : lex_aux (S (String.length (gprint 0 i ++ String (ch 93) rest)))
-                           (gprint 0 i ++ String (ch 93) rest) = Some (gtokens 0 i ++ TRB :: tr)%list)
-      by (apply IHi; [ reflexivity | exact Hrb | rewrite length_app; cbn [String.length]; lia ]).
-    assert (Hlb : lex_aux (S (String.length (String (ch 91) (gprint 0 i ++ String (ch 93) rest))))
-                          (String (ch 91) (gprint 0 i ++ String (ch 93) rest))
+    assert (Hrb : lex (String (ch 93) rest) = Some (TRB :: tr))
+      by (apply lex_rbrack_app; exact Hrest).
+    assert (Hidx : lex (gprint 0 i ++ String (ch 93) rest) = Some (gtokens 0 i ++ TRB :: tr)%list)
+      by (apply IHi; [ reflexivity | exact Hrb ]).
+    assert (Hlb : lex (String (ch 91) (gprint 0 i ++ String (ch 93) rest))
                 = Some (TLB :: (gtokens 0 i ++ TRB :: tr))%list)
-      by (apply lex_lbrack_app; [ exact Hidx | cbn [String.length]; lia ]).
+      by (apply lex_lbrack_app; exact Hidx).
     rewrite !str_app_assoc.
     change ("[" ++ (gprint 0 i ++ ("]" ++ rest)))%string
       with (String (ch 91) (gprint 0 i ++ String (ch 93) rest)).
-    rewrite (lex_gparen e0 (String (ch 91) (gprint 0 i ++ String (ch 93) rest)) fuel
-               (TLB :: (gtokens 0 i ++ TRB :: tr)) IHe0 eq_refl Hlb
-               ltac:(rewrite gprint_EIndex in Hfuel; cbn [String.length] in Hfuel |- *;
-                     repeat rewrite length_app in Hfuel; repeat rewrite length_app;
-                     cbn [String.length] in Hfuel |- *; lia)).
+    rewrite (lex_gparen e0 (String (ch 91) (gprint 0 i ++ String (ch 93) rest))
+               (TLB :: (gtokens 0 i ++ TRB :: tr)) IHe0 eq_refl Hlb).
     cbn [app]; rewrite <- !app_assoc; cbn [app]; rewrite <- !app_assoc; cbn [app]; reflexivity.
   - (* ESlice e0 lo hi: [gparen e0] ++ "[" ++ lo ++ ":" ++ hi ++ "]" — operand seam then '['+lo+':'+hi+']' *)
     rewrite gprint_ESlice, gtokens_ESlice.
-    assert (Hrb : lex_aux (S (String.length (String (ch 93) rest))) (String (ch 93) rest) = Some (TRB :: tr))
-      by (apply lex_rbrack_app; [ exact Hrest | cbn [String.length]; lia ]).
-    assert (Hhi : lex_aux (S (String.length (gprint 0 hi ++ String (ch 93) rest)))
-                          (gprint 0 hi ++ String (ch 93) rest) = Some (gtokens 0 hi ++ TRB :: tr)%list)
-      by (apply IHhi; [ reflexivity | exact Hrb | rewrite length_app; cbn [String.length]; lia ]).
-    assert (Hcolon : lex_aux (S (String.length (String (ch 58) (gprint 0 hi ++ String (ch 93) rest))))
-                             (String (ch 58) (gprint 0 hi ++ String (ch 93) rest))
+    assert (Hrb : lex (String (ch 93) rest) = Some (TRB :: tr))
+      by (apply lex_rbrack_app; exact Hrest).
+    assert (Hhi : lex (gprint 0 hi ++ String (ch 93) rest) = Some (gtokens 0 hi ++ TRB :: tr)%list)
+      by (apply IHhi; [ reflexivity | exact Hrb ]).
+    assert (Hcolon : lex (String (ch 58) (gprint 0 hi ++ String (ch 93) rest))
                    = Some (TColon :: (gtokens 0 hi ++ TRB :: tr))%list)
-      by (apply lex_colon_app; [ exact Hhi | cbn [String.length]; rewrite length_app; cbn [String.length]; lia ]).
-    assert (Hlo : lex_aux (S (String.length (gprint 0 lo ++ String (ch 58) (gprint 0 hi ++ String (ch 93) rest))))
-                          (gprint 0 lo ++ String (ch 58) (gprint 0 hi ++ String (ch 93) rest))
+      by (apply lex_colon_app; exact Hhi).
+    assert (Hlo : lex (gprint 0 lo ++ String (ch 58) (gprint 0 hi ++ String (ch 93) rest))
                 = Some (gtokens 0 lo ++ (TColon :: (gtokens 0 hi ++ TRB :: tr)))%list)
-      by (apply IHlo; [ reflexivity | exact Hcolon | rewrite length_app; cbn [String.length]; rewrite length_app; cbn [String.length]; lia ]).
-    assert (Hlb : lex_aux (S (String.length (String (ch 91) (gprint 0 lo ++ String (ch 58) (gprint 0 hi ++ String (ch 93) rest)))))
-                          (String (ch 91) (gprint 0 lo ++ String (ch 58) (gprint 0 hi ++ String (ch 93) rest)))
+      by (apply IHlo; [ reflexivity | exact Hcolon ]).
+    assert (Hlb : lex (String (ch 91) (gprint 0 lo ++ String (ch 58) (gprint 0 hi ++ String (ch 93) rest)))
                 = Some (TLB :: (gtokens 0 lo ++ (TColon :: (gtokens 0 hi ++ TRB :: tr))))%list)
-      by (apply lex_lbrack_app; [ exact Hlo | cbn [String.length]; lia ]).
+      by (apply lex_lbrack_app; exact Hlo).
     rewrite !str_app_assoc.
     change ("[" ++ (gprint 0 lo ++ (":" ++ (gprint 0 hi ++ ("]" ++ rest)))))%string
       with (String (ch 91) (gprint 0 lo ++ String (ch 58) (gprint 0 hi ++ String (ch 93) rest))).
-    rewrite (lex_gparen e0 (String (ch 91) (gprint 0 lo ++ String (ch 58) (gprint 0 hi ++ String (ch 93) rest))) fuel
-               (TLB :: (gtokens 0 lo ++ (TColon :: (gtokens 0 hi ++ TRB :: tr)))) IHe0 eq_refl Hlb
-               ltac:(rewrite gprint_ESlice in Hfuel;
-                     cbn [String.length] in Hfuel |- *; repeat rewrite length_app in Hfuel; repeat rewrite length_app;
-                     cbn [String.length] in Hfuel |- *; repeat rewrite length_app in Hfuel; repeat rewrite length_app;
-                     cbn [String.length] in Hfuel |- *; repeat rewrite length_app in Hfuel; repeat rewrite length_app;
-                     cbn [String.length] in Hfuel |- *; lia)).
+    rewrite (lex_gparen e0 (String (ch 91) (gprint 0 lo ++ String (ch 58) (gprint 0 hi ++ String (ch 93) rest)))
+               (TLB :: (gtokens 0 lo ++ (TColon :: (gtokens 0 hi ++ TRB :: tr)))) IHe0 eq_refl Hlb).
     cbn [app]; rewrite <- !app_assoc; cbn [app]; rewrite <- !app_assoc; cbn [app];
       rewrite <- !app_assoc; cbn [app]; reflexivity.
   - (* ECall e0 args: [gparen e0] ++ "(" ++ gprint_args args ++ ")" — operand seam then '('+args+')' *)
     rewrite gprint_ECall, gtokens_ECall.
     (* the comma-prefixed arg-tail lexes, by induction on the list using the per-arg [Forall] IH. *)
-    assert (Htl : forall l Y tY F,
-              List.Forall (fun a => forall ctx0 rest0 fuel0 tr0, clean_start rest0 = true ->
-                  lex_aux (S (String.length rest0)) rest0 = Some tr0 ->
-                  S (String.length (gprint ctx0 a) + String.length rest0) <= fuel0 ->
-                  lex_aux fuel0 (gprint ctx0 a ++ rest0) = Some (gtokens ctx0 a ++ tr0)%list) l ->
-              clean_start Y = true -> lex_aux (S (String.length Y)) Y = Some tY ->
-              S (String.length (gprint_args_tl l) + String.length Y) <= F ->
-              lex_aux F (gprint_args_tl l ++ Y) = Some (gtokens_args_tl l ++ tY)%list).
-    { induction l as [ | b m IHm ]; intros Y tY F Hfa HYc HY HF.
-      - cbn [gprint_args_tl gtokens_args_tl Datatypes.app] in *. apply (lex_aux_mono _ _ _ _ HY).
-        cbn [gprint_args_tl String.length] in HF. lia.
+    assert (Htl : forall l Y tY,
+              List.Forall (fun a => forall ctx0 rest0 tr0, clean_start rest0 = true ->
+                  lex rest0 = Some tr0 ->
+                  lex (gprint ctx0 a ++ rest0) = Some (gtokens ctx0 a ++ tr0)%list) l ->
+              clean_start Y = true -> lex Y = Some tY ->
+              lex (gprint_args_tl l ++ Y) = Some (gtokens_args_tl l ++ tY)%list).
+    { induction l as [ | b m IHm ]; intros Y tY Hfa HYc HY.
+      - cbn [gprint_args_tl gtokens_args_tl Datatypes.app] in *. exact HY.
       - cbn [gprint_args_tl gtokens_args_tl].
         assert (Hcs : clean_start (gprint_args_tl m ++ Y) = true)
           by (destruct m as [ | b' m' ]; [ cbn [gprint_args_tl Datatypes.app]; exact HYc | reflexivity ]).
-        assert (Hm : lex_aux (S (String.length (gprint_args_tl m ++ Y))) (gprint_args_tl m ++ Y)
-                   = Some (gtokens_args_tl m ++ tY)%list)
-          by (apply IHm; [ exact (List.Forall_inv_tail Hfa) | exact HYc | exact HY | rewrite length_app; lia ]).
-        assert (Hb : lex_aux (S (String.length (gprint 0 b ++ gprint_args_tl m ++ Y)))
-                             (gprint 0 b ++ gprint_args_tl m ++ Y)
+        assert (Hm : lex (gprint_args_tl m ++ Y) = Some (gtokens_args_tl m ++ tY)%list)
+          by (apply IHm; [ exact (List.Forall_inv_tail Hfa) | exact HYc | exact HY ]).
+        assert (Hb : lex (gprint 0 b ++ gprint_args_tl m ++ Y)
                    = Some (gtokens 0 b ++ (gtokens_args_tl m ++ tY))%list)
-          by (apply (List.Forall_inv Hfa); [ exact Hcs | exact Hm | rewrite !length_app; lia ]).
+          by (apply (List.Forall_inv Hfa); [ exact Hcs | exact Hm ]).
         rewrite !str_app_assoc.
         change ("," ++ (gprint 0 b ++ (gprint_args_tl m ++ Y)))%string
           with (String (ch 44) (gprint 0 b ++ gprint_args_tl m ++ Y)).
-        rewrite (lex_comma_app _ _ _ Hb)
-          by (cbn [gprint_args_tl] in HF; rewrite !length_app in HF |- *; cbn [String.length] in HF |- *; lia).
+        rewrite (lex_comma_app _ _ Hb).
         cbn [app]; rewrite <- !app_assoc; cbn [app]; reflexivity. }
-    assert (Hrp : lex_aux (S (String.length (String (ch 41) rest))) (String (ch 41) rest) = Some (TRP :: tr))
-      by (apply lex_rparen_app; [ exact Hrest | cbn [String.length]; lia ]).
-    assert (Hargs : lex_aux (S (String.length (gprint_args args ++ String (ch 41) rest)))
-                            (gprint_args args ++ String (ch 41) rest)
+    assert (Hrp : lex (String (ch 41) rest) = Some (TRP :: tr))
+      by (apply lex_rparen_app; exact Hrest).
+    assert (Hargs : lex (gprint_args args ++ String (ch 41) rest)
                   = Some (gtokens_args args ++ TRP :: tr)%list).
     { destruct args as [ | a r ].
       - cbn [gprint_args gtokens_args String.append Datatypes.app]. exact Hrp.
       - cbn [gprint_args gtokens_args].
         assert (Hcs : clean_start (gprint_args_tl r ++ String (ch 41) rest) = true)
           by (destruct r as [ | b' r' ]; [ cbn [gprint_args_tl Datatypes.app]; reflexivity | reflexivity ]).
-        assert (Htlr : lex_aux (S (String.length (gprint_args_tl r ++ String (ch 41) rest)))
-                               (gprint_args_tl r ++ String (ch 41) rest)
+        assert (Htlr : lex (gprint_args_tl r ++ String (ch 41) rest)
                      = Some (gtokens_args_tl r ++ TRP :: tr)%list)
           by (apply (Htl r (String (ch 41) rest) (TRP :: tr));
-              [ exact (List.Forall_inv_tail IHargs) | reflexivity | exact Hrp
-              | rewrite length_app; cbn [String.length]; lia ]).
+              [ exact (List.Forall_inv_tail IHargs) | reflexivity | exact Hrp ]).
         rewrite str_app_assoc, <- app_assoc.
-        apply (List.Forall_inv IHargs); [ exact Hcs | exact Htlr | rewrite !length_app; cbn [String.length]; lia ]. }
-    assert (Hlp : lex_aux (S (String.length (String (ch 40) (gprint_args args ++ String (ch 41) rest))))
-                          (String (ch 40) (gprint_args args ++ String (ch 41) rest))
+        apply (List.Forall_inv IHargs); [ exact Hcs | exact Htlr ]. }
+    assert (Hlp : lex (String (ch 40) (gprint_args args ++ String (ch 41) rest))
                 = Some (TLP :: (gtokens_args args ++ TRP :: tr))%list)
-      by (apply lex_lparen_app; [ exact Hargs | cbn [String.length]; lia ]).
+      by (apply lex_lparen_app; exact Hargs).
     rewrite !str_app_assoc.
     change ("(" ++ (gprint_args args ++ (")" ++ rest)))%string
       with (String (ch 40) (gprint_args args ++ String (ch 41) rest)).
-    rewrite (lex_gparen e0 (String (ch 40) (gprint_args args ++ String (ch 41) rest)) fuel
-               (TLP :: (gtokens_args args ++ TRP :: tr)) IHe0 eq_refl Hlp
-               ltac:(rewrite gprint_ECall in Hfuel; cbn [String.length] in Hfuel |- *;
-                     repeat rewrite length_app in Hfuel; repeat rewrite length_app;
-                     cbn [String.length] in Hfuel |- *; lia)).
+    rewrite (lex_gparen e0 (String (ch 40) (gprint_args args ++ String (ch 41) rest))
+               (TLP :: (gtokens_args args ++ TRP :: tr)) IHe0 eq_refl Hlp).
     cbn [app]; rewrite <- !app_assoc; cbn [app]; rewrite <- !app_assoc; cbn [app]; reflexivity.
   - (* EAssert e0 T: [gparen e0] ++ ".(" ++ print_ty T ++ ")" — operand seam then '.'+'('+type+')' *)
     rewrite gprint_EAssert, gtokens_EAssert.
-    assert (Hrp : lex_aux (S (String.length (String (ch 41) rest))) (String (ch 41) rest) = Some (TRP :: tr))
-      by (apply lex_rparen_app; [ exact Hrest | cbn [String.length]; lia ]).
-    assert (Hty : lex_aux (S (String.length (print_ty T ++ String (ch 41) rest))) (print_ty T ++ String (ch 41) rest)
-                = Some (gttokens_ty T ++ TRP :: tr)%list)
-      by (apply gttokens_ty_lex; [ reflexivity | exact Hrp | rewrite length_app; cbn [String.length]; lia ]).
-    assert (Hlp : lex_aux (S (String.length (String (ch 40) (print_ty T ++ String (ch 41) rest)))) (String (ch 40) (print_ty T ++ String (ch 41) rest))
+    assert (Hrp : lex (String (ch 41) rest) = Some (TRP :: tr))
+      by (apply lex_rparen_app; exact Hrest).
+    assert (Hty : lex (print_ty T ++ String (ch 41) rest) = Some (gttokens_ty T ++ TRP :: tr)%list)
+      by (apply gttokens_ty_lex; [ reflexivity | exact Hrp ]).
+    assert (Hlp : lex (String (ch 40) (print_ty T ++ String (ch 41) rest))
                 = Some (TLP :: (gttokens_ty T ++ TRP :: tr))%list)
-      by (apply lex_lparen_app; [ exact Hty | cbn [String.length]; rewrite length_app; cbn [String.length]; lia ]).
-    assert (Hdot : lex_aux (S (String.length (String (ch 46) (String (ch 40) (print_ty T ++ String (ch 41) rest))))) (String (ch 46) (String (ch 40) (print_ty T ++ String (ch 41) rest)))
+      by (apply lex_lparen_app; exact Hty).
+    assert (Hdot : lex (String (ch 46) (String (ch 40) (print_ty T ++ String (ch 41) rest)))
                  = Some (TDot :: TLP :: (gttokens_ty T ++ TRP :: tr))%list)
-      by (apply lex_dot_app; [ exact Hlp | cbn [String.length]; lia ]).
+      by (apply lex_dot_app; exact Hlp).
     rewrite !str_app_assoc.
     change (".(" ++ (print_ty T ++ (")" ++ rest)))%string
       with (String (ch 46) (String (ch 40) (print_ty T ++ String (ch 41) rest))).
-    rewrite (lex_gparen e0 (String (ch 46) (String (ch 40) (print_ty T ++ String (ch 41) rest))) fuel
-               (TDot :: TLP :: (gttokens_ty T ++ TRP :: tr)) IHe0 eq_refl Hdot
-               ltac:(rewrite gprint_EAssert in Hfuel; cbn [String.length] in Hfuel |- *;
-                     repeat rewrite length_app in Hfuel; repeat rewrite length_app;
-                     cbn [String.length] in Hfuel |- *; lia)).
+    rewrite (lex_gparen e0 (String (ch 46) (String (ch 40) (print_ty T ++ String (ch 41) rest)))
+               (TDot :: TLP :: (gttokens_ty T ++ TRP :: tr)) IHe0 eq_refl Hdot).
     cbn [app]; rewrite <- !app_assoc; cbn [app]; rewrite <- !app_assoc; cbn [app]; reflexivity.
   - (* EConv c0 ec0: print_ty(convty_ty c0) ++ "(" ++ gprint 0 ec0 ++ ")" — TYPE prefix then '(' operand ')'.
        Mirrors EAssert's [gttokens_ty_lex] type handling but with the type at the FRONT (outermost seam). *)
     rewrite gprint_EConv, gtokens_EConv.
-    assert (Hrp : lex_aux (S (String.length (String (ch 41) rest))) (String (ch 41) rest) = Some (TRP :: tr))
-      by (apply lex_rparen_app; [ exact Hrest | cbn [String.length]; lia ]).
-    assert (Hbody : lex_aux (S (String.length (gprint 0 ec0 ++ String (ch 41) rest)))
-                            (gprint 0 ec0 ++ String (ch 41) rest)
-                  = Some (gtokens 0 ec0 ++ TRP :: tr)%list)
-      by (apply IHec0; [ reflexivity | exact Hrp | rewrite length_app; cbn [String.length]; lia ]).
-    assert (Hlp : lex_aux (S (String.length (String (ch 40) (gprint 0 ec0 ++ String (ch 41) rest))))
-                          (String (ch 40) (gprint 0 ec0 ++ String (ch 41) rest))
+    assert (Hrp : lex (String (ch 41) rest) = Some (TRP :: tr))
+      by (apply lex_rparen_app; exact Hrest).
+    assert (Hbody : lex (gprint 0 ec0 ++ String (ch 41) rest) = Some (gtokens 0 ec0 ++ TRP :: tr)%list)
+      by (apply IHec0; [ reflexivity | exact Hrp ]).
+    assert (Hlp : lex (String (ch 40) (gprint 0 ec0 ++ String (ch 41) rest))
                 = Some (TLP :: (gtokens 0 ec0 ++ TRP :: tr))%list)
-      by (apply lex_lparen_app; [ exact Hbody | cbn [String.length]; rewrite length_app; cbn [String.length]; lia ]).
+      by (apply lex_lparen_app; exact Hbody).
     rewrite !str_app_assoc.
     change ("(" ++ (gprint 0 ec0 ++ (")" ++ rest)))%string
       with (String (ch 40) (gprint 0 ec0 ++ String (ch 41) rest)).
-    rewrite (gttokens_ty_lex (convty_ty c0) (String (ch 40) (gprint 0 ec0 ++ String (ch 41) rest)) fuel
-               (TLP :: (gtokens 0 ec0 ++ TRP :: tr)) ltac:(reflexivity) Hlp
-               ltac:(rewrite gprint_EConv in Hfuel; cbn [String.length] in Hfuel |- *;
-                     repeat rewrite length_app in Hfuel; repeat rewrite length_app;
-                     cbn [String.length] in Hfuel |- *; lia)).
+    rewrite (gttokens_ty_lex (convty_ty c0) (String (ch 40) (gprint 0 ec0 ++ String (ch 41) rest))
+               (TLP :: (gtokens 0 ec0 ++ TRP :: tr)) ltac:(reflexivity) Hlp).
     cbn [app]; rewrite <- !app_assoc; cbn [app]; rewrite <- !app_assoc; cbn [app]; reflexivity.
   - (* ESliceLit slt sles: "[]" ++ print_ty slt ++ "{" ++ gprint_args sles ++ "}" — the type prefix [[]T] IS
        [print_ty (GTSlice slt)] (so [gttokens_ty_lex] handles the '['']'+type), then '{' element-list '}'.  The
        element list lexes by induction on [sles] exactly like ECall's args (the shared [Htl] helper), but closes
        with '}' (TRC) instead of ')' (TRP). *)
     rewrite gprint_ESliceLit, gtokens_ESliceLit.
-    assert (Htl : forall l Y tY F,
-              List.Forall (fun a => forall ctx0 rest0 fuel0 tr0, clean_start rest0 = true ->
-                  lex_aux (S (String.length rest0)) rest0 = Some tr0 ->
-                  S (String.length (gprint ctx0 a) + String.length rest0) <= fuel0 ->
-                  lex_aux fuel0 (gprint ctx0 a ++ rest0) = Some (gtokens ctx0 a ++ tr0)%list) l ->
-              clean_start Y = true -> lex_aux (S (String.length Y)) Y = Some tY ->
-              S (String.length (gprint_args_tl l) + String.length Y) <= F ->
-              lex_aux F (gprint_args_tl l ++ Y) = Some (gtokens_args_tl l ++ tY)%list).
-    { induction l as [ | b m IHm ]; intros Y tY F Hfa HYc HY HF.
-      - cbn [gprint_args_tl gtokens_args_tl Datatypes.app] in *. apply (lex_aux_mono _ _ _ _ HY).
-        cbn [gprint_args_tl String.length] in HF. lia.
+    assert (Htl : forall l Y tY,
+              List.Forall (fun a => forall ctx0 rest0 tr0, clean_start rest0 = true ->
+                  lex rest0 = Some tr0 ->
+                  lex (gprint ctx0 a ++ rest0) = Some (gtokens ctx0 a ++ tr0)%list) l ->
+              clean_start Y = true -> lex Y = Some tY ->
+              lex (gprint_args_tl l ++ Y) = Some (gtokens_args_tl l ++ tY)%list).
+    { induction l as [ | b m IHm ]; intros Y tY Hfa HYc HY.
+      - cbn [gprint_args_tl gtokens_args_tl Datatypes.app] in *. exact HY.
       - cbn [gprint_args_tl gtokens_args_tl].
         assert (Hcs : clean_start (gprint_args_tl m ++ Y) = true)
           by (destruct m as [ | b' m' ]; [ cbn [gprint_args_tl Datatypes.app]; exact HYc | reflexivity ]).
-        assert (Hm : lex_aux (S (String.length (gprint_args_tl m ++ Y))) (gprint_args_tl m ++ Y)
-                   = Some (gtokens_args_tl m ++ tY)%list)
-          by (apply IHm; [ exact (List.Forall_inv_tail Hfa) | exact HYc | exact HY | rewrite length_app; lia ]).
-        assert (Hb : lex_aux (S (String.length (gprint 0 b ++ gprint_args_tl m ++ Y)))
-                             (gprint 0 b ++ gprint_args_tl m ++ Y)
+        assert (Hm : lex (gprint_args_tl m ++ Y) = Some (gtokens_args_tl m ++ tY)%list)
+          by (apply IHm; [ exact (List.Forall_inv_tail Hfa) | exact HYc | exact HY ]).
+        assert (Hb : lex (gprint 0 b ++ gprint_args_tl m ++ Y)
                    = Some (gtokens 0 b ++ (gtokens_args_tl m ++ tY))%list)
-          by (apply (List.Forall_inv Hfa); [ exact Hcs | exact Hm | rewrite !length_app; lia ]).
+          by (apply (List.Forall_inv Hfa); [ exact Hcs | exact Hm ]).
         rewrite !str_app_assoc.
         change ("," ++ (gprint 0 b ++ (gprint_args_tl m ++ Y)))%string
           with (String (ch 44) (gprint 0 b ++ gprint_args_tl m ++ Y)).
-        rewrite (lex_comma_app _ _ _ Hb)
-          by (cbn [gprint_args_tl] in HF; rewrite !length_app in HF |- *; cbn [String.length] in HF |- *; lia).
+        rewrite (lex_comma_app _ _ Hb).
         cbn [app]; rewrite <- !app_assoc; cbn [app]; reflexivity. }
-    assert (Hrc : lex_aux (S (String.length (String (ch 125) rest))) (String (ch 125) rest) = Some (TRC :: tr))
-      by (apply lex_rbrace_app; [ exact Hrest | cbn [String.length]; lia ]).
-    assert (Helems : lex_aux (S (String.length (gprint_args sles ++ String (ch 125) rest)))
-                            (gprint_args sles ++ String (ch 125) rest)
+    assert (Hrc : lex (String (ch 125) rest) = Some (TRC :: tr))
+      by (apply lex_rbrace_app; exact Hrest).
+    assert (Helems : lex (gprint_args sles ++ String (ch 125) rest)
                   = Some (gtokens_args sles ++ TRC :: tr)%list).
     { destruct sles as [ | a r ].
       - cbn [gprint_args gtokens_args String.append Datatypes.app]. exact Hrc.
       - cbn [gprint_args gtokens_args].
         assert (Hcs : clean_start (gprint_args_tl r ++ String (ch 125) rest) = true)
           by (destruct r as [ | b' r' ]; [ cbn [gprint_args_tl Datatypes.app]; reflexivity | reflexivity ]).
-        assert (Htlr : lex_aux (S (String.length (gprint_args_tl r ++ String (ch 125) rest)))
-                               (gprint_args_tl r ++ String (ch 125) rest)
+        assert (Htlr : lex (gprint_args_tl r ++ String (ch 125) rest)
                      = Some (gtokens_args_tl r ++ TRC :: tr)%list)
           by (apply (Htl r (String (ch 125) rest) (TRC :: tr));
-              [ exact (List.Forall_inv_tail IHsles) | reflexivity | exact Hrc
-              | rewrite length_app; cbn [String.length]; lia ]).
+              [ exact (List.Forall_inv_tail IHsles) | reflexivity | exact Hrc ]).
         rewrite str_app_assoc, <- app_assoc.
-        apply (List.Forall_inv IHsles); [ exact Hcs | exact Htlr | rewrite !length_app; cbn [String.length]; lia ]. }
-    assert (Hlc : lex_aux (S (String.length (String (ch 123) (gprint_args sles ++ String (ch 125) rest))))
-                          (String (ch 123) (gprint_args sles ++ String (ch 125) rest))
+        apply (List.Forall_inv IHsles); [ exact Hcs | exact Htlr ]. }
+    assert (Hlc : lex (String (ch 123) (gprint_args sles ++ String (ch 125) rest))
                 = Some (TLC :: (gtokens_args sles ++ TRC :: tr))%list)
-      by (apply lex_lbrace_app; [ exact Helems | cbn [String.length]; lia ]).
+      by (apply lex_lbrace_app; exact Helems).
     rewrite !str_app_assoc.
     change ("[]" ++ (print_ty slt ++ ("{" ++ (gprint_args sles ++ ("}" ++ rest)))))%string
       with (print_ty (GTSlice slt) ++ String (ch 123) (gprint_args sles ++ String (ch 125) rest))%string.
-    rewrite (gttokens_ty_lex (GTSlice slt) (String (ch 123) (gprint_args sles ++ String (ch 125) rest)) fuel
-               (TLC :: (gtokens_args sles ++ TRC :: tr)) ltac:(reflexivity) Hlc
-               ltac:(rewrite gprint_ESliceLit in Hfuel; cbn [String.length print_ty] in Hfuel |- *;
-                     repeat rewrite length_app in Hfuel; repeat rewrite length_app;
-                     cbn [String.length] in Hfuel |- *; lia)).
+    rewrite (gttokens_ty_lex (GTSlice slt) (String (ch 123) (gprint_args sles ++ String (ch 125) rest))
+               (TLC :: (gtokens_args sles ++ TRC :: tr)) ltac:(reflexivity) Hlc).
     cbn [gttokens_ty app]; rewrite <- !app_assoc; cbn [app]; rewrite <- !app_assoc; cbn [app]; reflexivity.
   - (* EMapLit mkt mvt mkvs: print_ty(GTMap mkt mvt) ++ "{" ++ gprint_pairs mkvs ++ "}" — the type prefix is
        [print_ty (GTMap mkt mvt)] (handled by [gttokens_ty_lex]), then '{' the KEYED pair-list '}'.  Each pair
        is [k: v] with SPACE seams ([lex_colon_app]+[lex_space_app]) and ", " between pairs ([lex_comma_app]+
        [lex_space_app]); the lexer SKIPS the printed spaces so the token list carries none. *)
     rewrite gprint_EMapLit, gtokens_EMapLit.
-    assert (Htl : forall l Y tY F,
-              List.Forall (fun p => (forall ctx0 rest0 fuel0 tr0, clean_start rest0 = true ->
-                  lex_aux (S (String.length rest0)) rest0 = Some tr0 ->
-                  S (String.length (gprint ctx0 (fst p)) + String.length rest0) <= fuel0 ->
-                  lex_aux fuel0 (gprint ctx0 (fst p) ++ rest0) = Some (gtokens ctx0 (fst p) ++ tr0)%list)
-                /\ (forall ctx0 rest0 fuel0 tr0, clean_start rest0 = true ->
-                  lex_aux (S (String.length rest0)) rest0 = Some tr0 ->
-                  S (String.length (gprint ctx0 (snd p)) + String.length rest0) <= fuel0 ->
-                  lex_aux fuel0 (gprint ctx0 (snd p) ++ rest0) = Some (gtokens ctx0 (snd p) ++ tr0)%list)) l ->
-              clean_start Y = true -> lex_aux (S (String.length Y)) Y = Some tY ->
-              S (String.length (gprint_pairs_tl l) + String.length Y) <= F ->
-              lex_aux F (gprint_pairs_tl l ++ Y) = Some (gtokens_pairs_tl l ++ tY)%list).
-    { induction l as [ | [k v] m IHm ]; intros Y tY F Hfa HYc HY HF.
-      - cbn [gprint_pairs_tl gtokens_pairs_tl Datatypes.app] in *. apply (lex_aux_mono _ _ _ _ HY).
-        cbn [gprint_pairs_tl String.length] in HF. lia.
+    assert (Htl : forall l Y tY,
+              List.Forall (fun p => (forall ctx0 rest0 tr0, clean_start rest0 = true ->
+                  lex rest0 = Some tr0 ->
+                  lex (gprint ctx0 (fst p) ++ rest0) = Some (gtokens ctx0 (fst p) ++ tr0)%list)
+                /\ (forall ctx0 rest0 tr0, clean_start rest0 = true ->
+                  lex rest0 = Some tr0 ->
+                  lex (gprint ctx0 (snd p) ++ rest0) = Some (gtokens ctx0 (snd p) ++ tr0)%list)) l ->
+              clean_start Y = true -> lex Y = Some tY ->
+              lex (gprint_pairs_tl l ++ Y) = Some (gtokens_pairs_tl l ++ tY)%list).
+    { induction l as [ | [k v] m IHm ]; intros Y tY Hfa HYc HY.
+      - cbn [gprint_pairs_tl gtokens_pairs_tl Datatypes.app] in *. exact HY.
       - cbn [gprint_pairs_tl gtokens_pairs_tl].
         destruct (List.Forall_inv Hfa) as [ Hlexk Hlexv ]. cbn [fst snd] in Hlexk, Hlexv.
         assert (Hcs : clean_start (gprint_pairs_tl m ++ Y) = true)
           by (destruct m as [ | [k' v'] m' ]; [ cbn [gprint_pairs_tl Datatypes.app]; exact HYc | reflexivity ]).
-        assert (Hm : lex_aux (S (String.length (gprint_pairs_tl m ++ Y))) (gprint_pairs_tl m ++ Y)
-                   = Some (gtokens_pairs_tl m ++ tY)%list)
-          by (apply IHm; [ exact (List.Forall_inv_tail Hfa) | exact HYc | exact HY | rewrite length_app; lia ]).
-        assert (Hv : lex_aux (S (String.length (gprint 0 v ++ gprint_pairs_tl m ++ Y))) (gprint 0 v ++ gprint_pairs_tl m ++ Y)
+        assert (Hm : lex (gprint_pairs_tl m ++ Y) = Some (gtokens_pairs_tl m ++ tY)%list)
+          by (apply IHm; [ exact (List.Forall_inv_tail Hfa) | exact HYc | exact HY ]).
+        assert (Hv : lex (gprint 0 v ++ gprint_pairs_tl m ++ Y)
                    = Some (gtokens 0 v ++ (gtokens_pairs_tl m ++ tY))%list)
-          by (apply Hlexv; [ exact Hcs | exact Hm | rewrite !length_app; lia ]).
-        assert (Hspv : lex_aux (S (String.length (String (ch 32) (gprint 0 v ++ gprint_pairs_tl m ++ Y)))) (String (ch 32) (gprint 0 v ++ gprint_pairs_tl m ++ Y))
+          by (apply Hlexv; [ exact Hcs | exact Hm ]).
+        assert (Hspv : lex (String (ch 32) (gprint 0 v ++ gprint_pairs_tl m ++ Y))
                      = Some (gtokens 0 v ++ (gtokens_pairs_tl m ++ tY))%list)
-          by (apply lex_space_app; [ exact Hv | cbn [String.length]; lia ]).
-        assert (Hcolon : lex_aux (S (String.length (String (ch 58) (String (ch 32) (gprint 0 v ++ gprint_pairs_tl m ++ Y))))) (String (ch 58) (String (ch 32) (gprint 0 v ++ gprint_pairs_tl m ++ Y)))
+          by (apply lex_space_app; exact Hv).
+        assert (Hcolon : lex (String (ch 58) (String (ch 32) (gprint 0 v ++ gprint_pairs_tl m ++ Y)))
                        = Some (TColon :: (gtokens 0 v ++ (gtokens_pairs_tl m ++ tY)))%list)
-          by (apply lex_colon_app; [ exact Hspv | cbn [String.length]; lia ]).
-        assert (Hk : lex_aux (S (String.length (gprint 0 k ++ String (ch 58) (String (ch 32) (gprint 0 v ++ gprint_pairs_tl m ++ Y)))))
-                             (gprint 0 k ++ String (ch 58) (String (ch 32) (gprint 0 v ++ gprint_pairs_tl m ++ Y)))
+          by (apply lex_colon_app; exact Hspv).
+        assert (Hk : lex (gprint 0 k ++ String (ch 58) (String (ch 32) (gprint 0 v ++ gprint_pairs_tl m ++ Y)))
                    = Some (gtokens 0 k ++ (TColon :: (gtokens 0 v ++ (gtokens_pairs_tl m ++ tY))))%list)
-          by (apply Hlexk; [ reflexivity | exact Hcolon | rewrite !length_app; cbn [String.length]; lia ]).
-        assert (Hspk : lex_aux (S (String.length (String (ch 32) (gprint 0 k ++ String (ch 58) (String (ch 32) (gprint 0 v ++ gprint_pairs_tl m ++ Y))))))
-                               (String (ch 32) (gprint 0 k ++ String (ch 58) (String (ch 32) (gprint 0 v ++ gprint_pairs_tl m ++ Y))))
+          by (apply Hlexk; [ reflexivity | exact Hcolon ]).
+        assert (Hspk : lex (String (ch 32) (gprint 0 k ++ String (ch 58) (String (ch 32) (gprint 0 v ++ gprint_pairs_tl m ++ Y))))
                      = Some (gtokens 0 k ++ (TColon :: (gtokens 0 v ++ (gtokens_pairs_tl m ++ tY))))%list)
-          by (apply lex_space_app; [ exact Hk | cbn [String.length]; lia ]).
+          by (apply lex_space_app; exact Hk).
         rewrite !str_app_assoc.
         change (", " ++ (gprint 0 k ++ (": " ++ (gprint 0 v ++ (gprint_pairs_tl m ++ Y)))))%string
           with (String (ch 44) (String (ch 32) (gprint 0 k ++ String (ch 58) (String (ch 32) (gprint 0 v ++ gprint_pairs_tl m ++ Y))))).
-        rewrite (lex_comma_app _ _ _ Hspk)
-          by (cbn [gprint_pairs_tl] in HF; cbn [String.length] in HF |- *;
-              repeat rewrite length_app in HF; repeat rewrite length_app;
-              cbn [String.length] in HF |- *;
-              repeat rewrite length_app in HF; repeat rewrite length_app; lia).
+        rewrite (lex_comma_app _ _ Hspk).
         cbn [app]; rewrite <- !app_assoc; cbn [app]; rewrite <- !app_assoc; reflexivity. }
-    assert (Hrc : lex_aux (S (String.length (String (ch 125) rest))) (String (ch 125) rest) = Some (TRC :: tr))
-      by (apply lex_rbrace_app; [ exact Hrest | cbn [String.length]; lia ]).
-    assert (Hpairs : lex_aux (S (String.length (gprint_pairs mkvs ++ String (ch 125) rest)))
-                            (gprint_pairs mkvs ++ String (ch 125) rest)
+    assert (Hrc : lex (String (ch 125) rest) = Some (TRC :: tr))
+      by (apply lex_rbrace_app; exact Hrest).
+    assert (Hpairs : lex (gprint_pairs mkvs ++ String (ch 125) rest)
                   = Some (gtokens_pairs mkvs ++ TRC :: tr)%list).
     { destruct mkvs as [ | [k v] r ].
       - cbn [gprint_pairs gtokens_pairs String.append Datatypes.app]. exact Hrc.
@@ -3275,38 +3057,32 @@ Proof.
         destruct (List.Forall_inv IHmkvs) as [ Hlexk Hlexv ]. cbn [fst snd] in Hlexk, Hlexv.
         assert (Hcs : clean_start (gprint_pairs_tl r ++ String (ch 125) rest) = true)
           by (destruct r as [ | [k' v'] r' ]; [ cbn [gprint_pairs_tl Datatypes.app]; reflexivity | reflexivity ]).
-        assert (Htlr : lex_aux (S (String.length (gprint_pairs_tl r ++ String (ch 125) rest)))
-                               (gprint_pairs_tl r ++ String (ch 125) rest)
+        assert (Htlr : lex (gprint_pairs_tl r ++ String (ch 125) rest)
                      = Some (gtokens_pairs_tl r ++ TRC :: tr)%list)
           by (apply (Htl r (String (ch 125) rest) (TRC :: tr));
-              [ exact (List.Forall_inv_tail IHmkvs) | reflexivity | exact Hrc
-              | rewrite length_app; cbn [String.length]; lia ]).
-        assert (Hv : lex_aux (S (String.length (gprint 0 v ++ gprint_pairs_tl r ++ String (ch 125) rest))) (gprint 0 v ++ gprint_pairs_tl r ++ String (ch 125) rest)
+              [ exact (List.Forall_inv_tail IHmkvs) | reflexivity | exact Hrc ]).
+        assert (Hv : lex (gprint 0 v ++ gprint_pairs_tl r ++ String (ch 125) rest)
                    = Some (gtokens 0 v ++ (gtokens_pairs_tl r ++ TRC :: tr))%list)
-          by (apply Hlexv; [ exact Hcs | exact Htlr | rewrite !length_app; cbn [String.length]; lia ]).
-        assert (Hspv : lex_aux (S (String.length (String (ch 32) (gprint 0 v ++ gprint_pairs_tl r ++ String (ch 125) rest)))) (String (ch 32) (gprint 0 v ++ gprint_pairs_tl r ++ String (ch 125) rest))
+          by (apply Hlexv; [ exact Hcs | exact Htlr ]).
+        assert (Hspv : lex (String (ch 32) (gprint 0 v ++ gprint_pairs_tl r ++ String (ch 125) rest))
                      = Some (gtokens 0 v ++ (gtokens_pairs_tl r ++ TRC :: tr))%list)
-          by (apply lex_space_app; [ exact Hv | cbn [String.length]; lia ]).
-        assert (Hcolon : lex_aux (S (String.length (String (ch 58) (String (ch 32) (gprint 0 v ++ gprint_pairs_tl r ++ String (ch 125) rest))))) (String (ch 58) (String (ch 32) (gprint 0 v ++ gprint_pairs_tl r ++ String (ch 125) rest)))
+          by (apply lex_space_app; exact Hv).
+        assert (Hcolon : lex (String (ch 58) (String (ch 32) (gprint 0 v ++ gprint_pairs_tl r ++ String (ch 125) rest)))
                        = Some (TColon :: (gtokens 0 v ++ (gtokens_pairs_tl r ++ TRC :: tr)))%list)
-          by (apply lex_colon_app; [ exact Hspv | cbn [String.length]; lia ]).
+          by (apply lex_colon_app; exact Hspv).
         rewrite !str_app_assoc.
         change (": " ++ (gprint 0 v ++ (gprint_pairs_tl r ++ String (ch 125) rest)))%string
           with (String (ch 58) (String (ch 32) (gprint 0 v ++ gprint_pairs_tl r ++ String (ch 125) rest))).
         rewrite <- !app_assoc; cbn [app]; rewrite <- !app_assoc.
-        apply Hlexk; [ reflexivity | exact Hcolon | rewrite !length_app; cbn [String.length]; lia ]. }
-    assert (Hlc : lex_aux (S (String.length (String (ch 123) (gprint_pairs mkvs ++ String (ch 125) rest))))
-                          (String (ch 123) (gprint_pairs mkvs ++ String (ch 125) rest))
+        apply Hlexk; [ reflexivity | exact Hcolon ]. }
+    assert (Hlc : lex (String (ch 123) (gprint_pairs mkvs ++ String (ch 125) rest))
                 = Some (TLC :: (gtokens_pairs mkvs ++ TRC :: tr))%list)
-      by (apply lex_lbrace_app; [ exact Hpairs | cbn [String.length]; lia ]).
+      by (apply lex_lbrace_app; exact Hpairs).
     rewrite !str_app_assoc.
     change (print_ty (GTMap mkt mvt) ++ ("{" ++ (gprint_pairs mkvs ++ ("}" ++ rest))))%string
       with (print_ty (GTMap mkt mvt) ++ String (ch 123) (gprint_pairs mkvs ++ String (ch 125) rest))%string.
-    rewrite (gttokens_ty_lex (GTMap mkt mvt) (String (ch 123) (gprint_pairs mkvs ++ String (ch 125) rest)) fuel
-               (TLC :: (gtokens_pairs mkvs ++ TRC :: tr)) ltac:(reflexivity) Hlc
-               ltac:(rewrite gprint_EMapLit in Hfuel; cbn [String.length] in Hfuel |- *;
-                     repeat rewrite length_app in Hfuel; repeat rewrite length_app;
-                     cbn [String.length] in Hfuel |- *; lia)).
+    rewrite (gttokens_ty_lex (GTMap mkt mvt) (String (ch 123) (gprint_pairs mkvs ++ String (ch 125) rest))
+               (TLC :: (gtokens_pairs mkvs ++ TRC :: tr)) ltac:(reflexivity) Hlc).
     rewrite <- !app_assoc; cbn [app]; rewrite <- !app_assoc; cbn [app]; reflexivity.
   - (* EStr sv: the string-literal leaf — [print_string_lit sv] lexes to [TStr sv] (mirrors EId/EInt) *)
     cbn [gprint gtokens app] in *. apply lex_gprint_str; assumption.
@@ -3318,10 +3094,8 @@ Qed.
     canonical token list, for EVERY expression. *)
 Theorem gtokens_lex : forall e ctx, lex (gprint ctx e) = Some (gtokens ctx e).
 Proof.
-  intros e ctx. rewrite lex_eq_aux.
-  assert (Hb : S (String.length (gprint ctx e) + String.length "") <= S (String.length (gprint ctx e)))
-    by (cbn [String.length]; lia).
-  pose proof (lex_gprint_app e ctx "" (S (String.length (gprint ctx e))) nil eq_refl eq_refl Hb) as H.
+  intros e ctx.
+  pose proof (lex_gprint_app e ctx "" nil eq_refl lex_empty) as H.
   rewrite str_app_nil_r in H. rewrite app_nil_r in H. exact H.
 Qed.
 
@@ -5031,9 +4805,8 @@ Qed.
 (** composed: the printed type lexes to its token list. *)
 Lemma lex_print_ty : forall t, lex (print_ty t) = Some (gttokens_ty t).
 Proof.
-  intro t. rewrite lex_eq_aux.
-  pose proof (gttokens_ty_lex t "" (S (String.length (print_ty t))) nil eq_refl ltac:(reflexivity)
-                ltac:(cbn [String.length]; lia)) as H.
+  intro t.
+  pose proof (gttokens_ty_lex t "" nil eq_refl lex_empty) as H.
   rewrite str_app_nil_r in H. rewrite app_nil_r in H. exact H.
 Qed.
 
@@ -5164,10 +4937,8 @@ Qed.
     equal "return " ++ gprint 0 e — the [GsExprStmt] / [GsReturnVal] disjointness. *)
 Lemma parse_str_return_gprint : forall e, parse_str ("return " ++ gprint 0 e)%string = None.
 Proof.
-  intro e. unfold parse_str. rewrite lex_eq_aux.
-  pose proof (gtokens_lex e 0) as HL. rewrite lex_eq_aux in HL.
-  rewrite (lex_return_app (gprint 0 e) (S (String.length ("return " ++ gprint 0 e)%string))
-             (gtokens 0 e) HL ltac:(lia)).
+  intro e. unfold parse_str.
+  rewrite (lex_return_app (gprint 0 e) (gtokens 0 e) (gtokens_lex e 0)).
   apply parse_TReturn_None.
 Qed.
 Lemma gprint_neq_return_val : forall e1 e2, gprint 0 e2 <> ("return " ++ gprint 0 e1)%string.
@@ -5197,12 +4968,17 @@ Lemma scan_id_defer : forall X, scan_id ("defer " ++ X)%string = ("defer"%string
 Proof. intro X. reflexivity. Qed.
 Lemma lex_ident_defer : lex_ident "defer" = None.
 Proof. reflexivity. Qed.
-Lemma lex_aux_defer : forall f X, lex_aux (S f) ("defer " ++ X)%string = None.
-Proof. intros f X. cbn [lex_aux]. rewrite scan_id_defer. rewrite lex_ident_defer. reflexivity. Qed.
+Lemma lex_defer : forall X, lex ("defer " ++ X)%string = None.
+Proof.
+  intro X.
+  change ("defer " ++ X)%string with (String "d"%char ("efer " ++ X))%string.
+  rewrite (lex_eq_id "d"%char ("efer " ++ X)%string "defer"%string (String " "%char X)
+             eq_refl eq_refl (scan_id_defer X)).
+  rewrite lex_ident_defer. reflexivity.
+Qed.
 Lemma parse_str_defer_gprint : forall e, parse_str ("defer " ++ gprint 0 e)%string = None.
 Proof.
-  intro e. unfold parse_str. rewrite lex_eq_aux.
-  rewrite length_app. cbn [String.length]. rewrite lex_aux_defer. reflexivity.
+  intro e. unfold parse_str. rewrite lex_defer. reflexivity.
 Qed.
 Lemma gprint_neq_defer : forall e1 e2, gprint 0 e2 <> ("defer " ++ gprint 0 e1)%string.
 Proof.
@@ -5213,33 +4989,37 @@ Qed.
 (** A printed [x := e] (the [GsShortDecl] text) does NOT parse back as an expression: the ident LEXES
     ([lex_ident_go]) and ':' lexes ([TColon]), but the following LONE '=' fails [lex_op] (which accepts
     only "=="), so the whole lex is [None] — the [GsExprStmt] / [GsShortDecl] disjointness. *)
-Lemma lex_aux_defassign_tail : forall f X, lex_aux (S (S (S f))) (" := " ++ X)%string = None.
-Proof. reflexivity. Qed.
-Lemma lex_aux_defassign_any : forall f X, 3 <= f -> lex_aux f (" := " ++ X)%string = None.
-Proof. intros f X Hf. destruct f as [|[|[|f']]]; try lia. apply lex_aux_defassign_tail. Qed.
+Lemma lex_defassign : forall X, lex (" := " ++ X)%string = None.
+Proof.
+  intro X.
+  change (" := " ++ X)%string with (String " "%char (String ":"%char (String "="%char (String " "%char X)))).
+  erewrite lex_eq_space by reflexivity.
+  erewrite lex_eq_op by reflexivity.
+  erewrite lex_eq_op_None by reflexivity.
+  reflexivity.
+Qed.
 (** An ident head lexes and RECURSES, so a failing rest fails the whole lex — the [None] mirror of
     [lex_gprint_id]'s success case (same [scan_id_app]/[lex_ident_go] spine). *)
-Lemma lex_aux_ident_None : forall f s rest,
-  go_ident s = true -> clean_start rest = true -> lex_aux f rest = None ->
-  lex_aux (S f) (s ++ rest)%string = None.
+Lemma lex_ident_None : forall s rest,
+  go_ident s = true -> clean_start rest = true -> lex rest = None ->
+  lex (s ++ rest)%string = None.
 Proof.
-  intros f s rest Hs Hclean Hrest.
+  intros s rest Hs Hclean Hrest.
   destruct s as [ | c0 s0 ]; [ vm_compute in Hs; discriminate Hs | ].
   pose proof Hs as Hgo. unfold go_ident in Hgo. apply andb_prop in Hgo. destruct Hgo as [Hia _].
   apply andb_prop in Hia. destruct Hia as [Hidstart Hallidc].
-  cbn [lex_aux String.append].
-  rewrite (is_idstart_not_space _ Hidstart), Hidstart.
-  replace (scan_id (String c0 (s0 ++ rest))) with (String c0 s0, rest)
-    by (symmetry; apply (scan_id_app (String c0 s0) rest Hallidc Hclean)).
+  cbn [String.append].
+  rewrite (lex_eq_id c0 (s0 ++ rest)%string (String c0 s0) rest
+             (is_idstart_not_space _ Hidstart) Hidstart
+             (scan_id_app (String c0 s0) rest Hallidc Hclean)).
   rewrite (lex_ident_go (String c0 s0) Hs).
   rewrite Hrest. reflexivity.
 Qed.
 Lemma lex_shortdecl_None : forall x X,
   go_ident x = true -> lex (x ++ (" := " ++ X))%string = None.
 Proof.
-  intros x X Hx. rewrite lex_eq_aux. rewrite length_app.
-  apply (lex_aux_ident_None _ _ _ Hx); [ reflexivity | ].
-  apply lex_aux_defassign_any. rewrite length_app. cbn [String.length]. lia.
+  intros x X Hx.
+  apply (lex_ident_None _ _ Hx); [ reflexivity | apply lex_defassign ].
 Qed.
 Lemma parse_str_shortdecl_None : forall x X,
   go_ident x = true -> parse_str (x ++ (" := " ++ X))%string = None.
