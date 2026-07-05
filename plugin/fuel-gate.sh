@@ -17,8 +17,9 @@
 #     relation declarations like [Inductive steps : nat -> ...] have no bracket group and pass):
 #   CLASS C (top-level Definition/Let whose NAME contains a budget SEGMENT
 #     fuel|limit|budget, underscore-bounded so e.g. [escape] never matches; the type
-#     annotation is NOT required), plus the CAP CLASS: *_cap names default-reject with
-#     an enumerated domain-capacity allowlist (see ALLOWCAP below):
+#     annotation is NOT required), plus the CAP CLASS: cap-segment identifiers
+#     default-reject PER OCCURRENCE in both languages, behind the enumerated
+#     domain-capacity allowlist (ALLOWCAP below):
 # Small-step RELATIONS (Inductive/CoInductive step/steps/ustep) match no class.
 #
 # BASELINE = a PER-FILE occurrence MANIFEST (plugin/fuel-gate.baseline: "count<TAB>file").
@@ -36,18 +37,17 @@ ANAMES='fuel gas run_blocks_fuel block_fuel countdown allowance step_limit steps
 A="\\b($(echo $ANAMES | tr ' ' '|'))\\b"
 BSTEMS='budget|limit|need|capacity|bound|step|steps'
 CSEGS='fuel|limit|budget'
-# CAP CLASS (default-reject with a domain quarantine): any Definition/Let/let-bound
-# name containing an underscore-bounded 'cap' segment is a budget spelling UNLESS it
-# is one of the enumerated Go-capacity DOMAIN symbols below (the cap builtin, the
-# channel-capacity ops, and their plugin recognizers).  A new *_cap name fails.
-ALLOWCAP='cap|cap_slicelit_e|chan_cap|make_chan_cap|is_cap_ref|is_make_chan_cap_ref'
-CAPNAME="([A-Za-z0-9_']+_)*cap(_[A-Za-z0-9_']+)*"
-CCAPV="\\b(Definition|Let)[[:space:]]+$CAPNAME\\b"
-CCAPML="\\blet([[:space:]]+rec)?[[:space:]]+$CAPNAME\\b"
+# CAP CLASS (default-reject, PER OCCURRENCE, both languages): every identifier
+# containing an underscore-bounded 'cap' segment counts — as a declaration of ANY
+# form, a binder, or a reference — UNLESS it is one of the enumerated Go-capacity
+# DOMAIN symbols below (the cap builtin, the channel/slice capacity ops and lemmas,
+# and their plugin recognizers).  Any NEW cap-segment name fails the ratchet until
+# it is either renamed or consciously classified here as capacity-domain.
+ALLOWCAP='cap|cap_slicelit_e|cap_demo|cap_aliases|chan_cap|chan_cap_send|chan_cap_recv|chan_cap_close|chan_cap_write_same|sh_cap|make_chan_cap|make_chan_buf_cap|is_cap_ref|is_make_chan_cap_ref|cstep_cap|cstep_cap_respected|csteps_cap|csteps_cap_respected|csteps_from_empty_cap_respected|rstep_at_some_cap|subslice_past_cap_panics'
+CAPNAME="\\b([A-Za-z0-9_']+_)*cap(_[A-Za-z0-9_']+)*\\b"
 
-count_cap() {  # stdin = stripped source; $1 = the keyworded regex; count NON-allowlisted names
-  grep -oE "$1" | sed -E 's/^(Definition|Let|let([[:space:]]+rec)?)[[:space:]]+//' \
-    | grep -vxE "$ALLOWCAP" | wc -l
+count_cap() {  # stdin = stripped source; per-occurrence cap-segment names minus the allowlist
+  grep -oE "$CAPNAME" | grep -vxE "$ALLOWCAP" | wc -l
 }
 C="\\b(Definition|Let)[[:space:]]+([A-Za-z0-9']+_)*($CSEGS)(_[A-Za-z0-9']+)*\\b"
 CML="\\blet([[:space:]]+rec)?[[:space:]]+([A-Za-z0-9_']+_)*($CSEGS)(_[A-Za-z0-9_']+)*\\b"
@@ -103,13 +103,12 @@ count_file() {  # per-OCCURRENCE count; classes are LANGUAGE-AWARE by file suffi
   case "$1" in
     *.ml)
       b=0
-      c=$(printf '%s\n' "$s" | grep -oE "$CML" | wc -l)
-      k=$(printf '%s\n' "$s" | count_cap "$CCAPML") ;;
+      c=$(printf '%s\n' "$s" | grep -oE "$CML" | wc -l) ;;
     *)
       b=$(printf '%s\n' "$s" | count_b)
-      c=$(printf '%s\n' "$s" | grep -oE "$C" | wc -l)
-      k=$(printf '%s\n' "$s" | count_cap "$CCAPV") ;;
+      c=$(printf '%s\n' "$s" | grep -oE "$C" | wc -l) ;;
   esac
+  k=$(printf '%s\n' "$s" | count_cap)
   echo $((a + b + c + k))
 }
 
@@ -237,6 +236,12 @@ EOF
     [ "$(count_file "$tmp/capv.v")" = "1" ] || { echo "fido: fuel-gate SELFTEST FAILED — new .v *_cap name not counted"; exit 1; }
     printf 'let parse_cap = 1\n' > "$tmp/capml.ml"
     [ "$(count_file "$tmp/capml.ml")" = "1" ] || { echo "fido: fuel-gate SELFTEST FAILED — new .ml *_cap name not counted"; exit 1; }
+    printf 'Definition f (loop_cap : nat) : nat := loop_cap.\n' > "$tmp/capb.v"
+    [ "$(count_file "$tmp/capb.v")" = "2" ] || { echo "fido: fuel-gate SELFTEST FAILED — cap binder+reference not counted per occurrence"; exit 1; }
+    printf 'Fixpoint iteration_cap (n : nat) : nat := n.\n' > "$tmp/capf.v"
+    [ "$(count_file "$tmp/capf.v")" = "1" ] || { echo "fido: fuel-gate SELFTEST FAILED — Fixpoint cap name not counted"; exit 1; }
+    printf 'let f loop_cap = loop_cap\n' > "$tmp/capbml.ml"
+    [ "$(count_file "$tmp/capbml.ml")" = "2" ] || { echo "fido: fuel-gate SELFTEST FAILED — .ml cap binder+reference not counted"; exit 1; }
     printf 'Definition make_chan_cap := 0.\nDefinition chan_cap := 0.\nDefinition cap := 0.\n' > "$tmp/capok.v"
     [ "$(count_file "$tmp/capok.v")" = "0" ] || { echo "fido: fuel-gate SELFTEST FAILED — domain-cap allowlist counted"; exit 1; }
     printf 'let is_cap_ref r = r\n' > "$tmp/capok.ml"
