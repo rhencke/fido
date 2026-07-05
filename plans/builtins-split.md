@@ -30,7 +30,12 @@ would be circular here).
    in the SEMANTIC-module whitelist ({Fido.builtins} ∪ landed semantic modules,
    extended per wave) — preserves the anti-shadow ownership property (exact Fido-owned
    dirpaths) and keeps hooks separate (`from_hooks` stays its own check; the boss's
-   hooks-vs-semantics split remains real).  `named`/`named_in` switch to `from_model`.
+   hooks-vs-semantics split remains real).  `named`/`named_in` switch to `from_model`.  ★LANDED (2c9134e): `from_model` +
+   `model_dirpaths` whitelist are live (singleton today); each wave = whitelist bump +
+   the module move.  IMPORT SWEEP (no façade): the numeric/float names are used outside
+   builtins ONLY by `main.v`, `GoSemCore.v`, `GoSem.v`, `GoSemDenote.v`,
+   `concurrency.v` (GoAst/GoTypes/GoPrint hits are comments) — those five files plus
+   builtins.v gain `From Fido Require Import GoNumeric GoFloat.` in the cut.
 2. **GoRuntimeTypes.v** — the carrier TYPE seeds it enumerates (`GoString`, `GoSlice`,
    `GoChan`, `GoMap` type-level; `ListNode`/`ChanBox`) + `GoTypeTag` + `GoAny` + `Tagged`
    + `zero_val` + comparability + `tag_eq`.  (If a structure module later wants its type
