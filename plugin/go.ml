@@ -2086,7 +2086,7 @@ let raw_term tab next =
    the trusted [pp_prec] string concatenation — the CONSTRUCTION (choice of AST) is TRUSTED; only the PRINTING
    is verified.  Any other shape
    (string/other literals, calls, selectors, func-lits, …) returns [None] and the whole expression falls back
-   to [pp_prec] (incremental; [pp_prec] retires only once [GoPrint] covers a shape).  At each binop node the bridge proceeds ONLY when
+   to [pp_prec] (a deletion candidate per shape: certified [GoPrint] coverage makes the corresponding [pp_prec] branch deletable, DELETION.md).  At each binop node the bridge proceeds ONLY when
    [pp_prec] would take its plain branch — i.e. the typed-arith force-wrapper IIFE does NOT fire:
    [arith_force_go_type r = None] OR an operand is already runtime.  (A runtime-local leaf makes this hold;
    the guard also covers a magic-wrapped [MLrel], where [operand_is_runtime] sees [false] and the IIFE would
