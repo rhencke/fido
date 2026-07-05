@@ -22,10 +22,8 @@ future core class excluding specific block shapes needs a real
 constructor/type boundary.  Demos/golden stay sanity checks, never evidence.
 GATE AUTHORITY: `plugin/fuel-gate.sh` is the mechanical authority for the fuel gate
 (its class definitions are the spec; the selftest is a regression matrix derived from
-the same variables); this file only summarizes it.  PARSER DIRECTION (one authority,
-revised 2026-07-05): the EXECUTABLE parser boundary stays live — the merged-worker
-WF design below is THE design; a relational grammar, if ever added, is proof-only
-documentation, never a replacement.
+the same variables); this file only summarizes it.  Expression-parser work is
+tracked in Remaining item 2 below (the single normative parser decision).
 
 GOAL (boss audit, P0): no fuel, gas, step budget, or bound under any name, anywhere.
 LANDED (8cbe20d + follow-up): cmd.v (structural run_cmd + unwind_defers derivations +
