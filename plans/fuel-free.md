@@ -1,37 +1,17 @@
 # Fuel-free semantics — remaining sites
 
-★STEERING MEMO (binding; versioned at `plans/fuel-removal-steering.txt` — read it first):
-SEMANTIC fuel outranks parser cleanup — builtins' `run_blocks_fuel`/`block_fuel := 1000`
-CHANGES SEMANTICS (emitted Go may diverge while the model caps out), and `block_nth`
-maps a missing label to `ret Done` (silent success on invalid control flow).  Both are
-LIVE today and are the item-1 target below.  The REPLACEMENT must be: a relational
-`blocks_eval` (Inductive) + a coinductive `blocks_diverge` as the authoritative
-semantics, per-admitted-program termination certificates, NO unfueled total runner for
-divergent CFGs, and label lookup that can never default to success.  The executable
-expression parser is not sacred: prefer relational/canonical-token proofs
-(`parses_expr`, `gtokens_inj`); the merged-worker WF design below is the fallback.
-REQUIRED GATE — IMPLEMENTED AND WIRED: `plugin/fuel-gate.sh` (called by `make check`
-via the `fuel-gate` target; its fixture SELFTEST runs on every check).  Semantics:
-identifier-and-context scoped over the root .v files with comments stripped —
-class A unconditional budget identifiers (fuel, gas, run_blocks_fuel, block_fuel,
-countdown, allowance, step_limit, steps_left, max_steps, max_depth, depth_limit,
-cycle_limit, iteration_cap, max_iter, max_iterations, run_for, parse_bound);
-class B nat-typed budget BINDERS in parens (budget/limit/need/capacity/bound and
-step/steps USED AS an execution-cap parameter); class C top-level nat cap
-constants named *fuel*/*limit*/*budget*/*cap*.  Small-step RELATION declarations
-(`Inductive step/steps/ustep`) match no class — proven by the selftest's PASS
-fixture; the FAIL matrix detects block_fuel := 1000, Fixpoint run_blocks_fuel,
-run_blocks := run_blocks_fuel block_fuel, max_steps/countdown/allowance
-parameters, parser need/limit/capacity/bound/parse_bound counters, steps_left,
-max_iter/max_iterations, Fixpoint run (steps : nat), and loop_cap.  Ratchet: a PER-FILE occurrence MANIFEST (`plugin/fuel-gate.baseline`) — counted
-per occurrence, not per line, so a new identifier cannot hide on a matching line
-or behind a deletion in another file; bless is DOWN-ONLY (refuses on growth).
-Manifest at landing: GoPrint.v 22 (parser fuel), builtins.v 12 (run_blocks_fuel/
-block_fuel), main.v 3 (CFG demos), GoSem.v 1 — every entry dies with the purge;
-zero-tolerance = an empty manifest.  Still to add with the builtins landing: the
-Dockerfile prover-stage call (the script is the ONE authority; Makefile calls it
-today).  Certified modules
-must never import demos or bounded runners.
+★STEERING MEMO: `plans/fuel-removal-steering.txt` is the ORIGINAL directive (verbatim,
+with a fulfilled-status note); THIS file is the one current authority.
+STATUS: semantic fuel is DELETED (7e5f754) — `blocks_eval` (Inductive) +
+`blocks_diverge` (CoInductive) are the authoritative CFG semantics; the fueled
+runner, its cap, and the silent missing-block default are gone; `run_blocks` is an
+emission-only marker.  NOT YET DONE: per-demo pairing — every live `run_blocks`
+demo must either carry a `blocks_eval`/`blocks_diverge` fact built from ITS OWN
+block list (shallow-IO demos) or be explicitly classified outside shallow CFG
+semantics (deep-IO, e.g. the defer demos, whose blocks fail-loud under run_io);
+a classification gate for that pairing lands with it.  The executable expression
+parser is not sacred: prefer relational/canonical-token proofs (`parses_expr`,
+`gtokens_inj`); the merged-worker WF design below is the fallback.
 
 GOAL (boss audit, P0): no fuel, gas, step budget, or bound under any name, anywhere.
 LANDED (8cbe20d + follow-up): cmd.v (structural run_cmd + unwind_defers derivations +
@@ -41,27 +21,13 @@ eval_cmd, equivalence both directions, gated; real no_heap totality), cmd_unifie
 
 ## Remaining
 
-1. **builtins.v — LANDED 7e5f754** (relations authoritative; fueled runner deleted;
-   remaining: per-demo `blocks_eval` claims + the 2 baselined stragglers) — the shape was (2026-07-05 recon:
-   the plugin recognizes `run_blocks` BY NAME, two args, go.ml:491/3652, and suppresses
-   its body; the golden runs the EMITTED GO, so the Rocq body is never executed for
-   demos — it exists only for model-side claims):
-   a. `blocks_eval : list (IO Next) -> nat -> World -> Outcome unit -> Prop` (Inductive:
-      done/panic/jump via `nth_error`, `pc' < length blocks` premise) + CoInductive
-      `blocks_diverge` — THE authoritative semantics.  Not extracted.
-   b. `block_nth` nil arm: `ret Done` → an explicit invalid-state `OPanic` ("missing
-      block") — invalid control flow can never model as success.
-   c. `run_blocks_fuel` + `block_fuel` + the exhaustion lemma DELETED.  `run_blocks`
-      keeps its name/arity for the plugin but its body becomes an EMISSION-ONLY marker:
-      a total `fun w => OPanic "run_blocks is emission-only; semantics = blocks_eval"`
-      — no fuel, no fabricated outcome, no type-level termination lie; model-side
-      behavior of each demo is stated against `blocks_eval` (finite derivations by
-      econstructor for the terminating demos).
-   d. Ratchet: builtins.v 12 → ~1 manifest entries; the fuel-gate baseline blesses DOWN.
-   e. plugin arity untouched (still 2 args); go.ml comments naming run_blocks_fuel/
-      block_fuel updated; the Dockerfile prover-stage fuel-gate call added HERE.
-   Genuine cert-indexed EXECUTION (an admitted program running inside the model under a
-   termination certificate) is the later deep arc; it is NOT required to delete the fuel.
+1. **builtins.v — LANDED (7e5f754)**: `blocks_eval`/`blocks_diverge` authoritative;
+   `run_blocks_fuel`/`block_fuel`/`block_nth`/the exhaustion lemma DELETED (the
+   missing-block default died by deletion); `run_blocks` = emission-only marker
+   (`run_blocks_never_ret`); fuel gate wired in BOTH Makefile and the Dockerfile
+   prover stage; manifest ratcheted to GoPrint.v 22 / builtins.v 2 / main.v 3 /
+   GoSem.v 1.  REMAINING here: the per-demo pairing + classification gate (see
+   STATUS above).
 2. **GoPrint.v** — LEXER DONE: `lex` is Acc-structural on input length and the ENTIRE
    lemma suite is stated over `lex` itself (`lex_acc_pi` proof-irrelevance + the
    `lex_eq_*` one-step unfold equations; no budget premise, no auxiliary evaluator).

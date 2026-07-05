@@ -1,4 +1,9 @@
 [REPO NOTE — added when versioning this memo; body below is the boss's VERBATIM text.
+STATUS 2026-07-05: the memo's CURRENT PRIORITY sections are FULFILLED — semantic fuel
+(run_blocks_fuel/block_fuel/block_nth) is DELETED (7e5f754), blocks_eval/blocks_diverge
+are the authority, the lexer is WF, and the fuel gate is live in make check and the
+Docker prover stage.  This memo no longer steers current work: the one current
+authority is plans/fuel-free.md.
 The MECHANICAL gate derived from it is specified in plans/fuel-free.md "REQUIRED GATE":
 identifier/context-scoped over BUDGET-shaped terms only.  Relational small-step
 semantics (step/steps/ustep) are the PRESCRIBED architecture (see "Use small-step

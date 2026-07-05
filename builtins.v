@@ -6191,8 +6191,13 @@ Inductive Next : Type :=
     coinductive infinite jump chains — real divergence, not "did not halt
     within N").  [run_blocks] itself is EMISSION-ONLY: the plugin lowers it BY
     NAME to labels + [goto] and suppresses this body; the model-side body is a
-    loud marker panic, so evaluating it in Rocq never fabricates an outcome —
-    demo/model claims are stated against [blocks_eval], never evaluation. *)
+    loud marker panic, so evaluating it in Rocq never fabricates an outcome.
+    Model-side claims about CFG demos are NOT YET stated (follow-up work): when
+    they land, SHALLOW-IO demos pair with [blocks_eval]/[blocks_diverge] facts
+    sharing the demo's own block list, while deep-IO blocks (e.g. the
+    defer-based demos, whose [defer_call] intentionally fail-louds under
+    [run_io]) are OUTSIDE shallow CFG semantics — they belong to the deep
+    [run_cmd]/emitted-runtime story, never to a shallow [blocks_eval] claim. *)
 Inductive blocks_eval (blocks : list (IO Next)) : nat -> World -> Outcome unit -> Prop :=
   | be_done : forall pc w b w',
       nth_error blocks pc = Some b ->
