@@ -5,11 +5,12 @@ with a fulfilled-status note); THIS file is the one current authority.
 STATUS: semantic fuel is DELETED (7e5f754) — `blocks_eval` (Inductive) +
 `blocks_diverge` (CoInductive) are the authoritative CFG semantics; the fueled
 runner, its cap, and the silent missing-block default are gone; `run_blocks` is an
-emission-only marker.  NOT YET DONE: per-demo pairing — every live `run_blocks`
-demo must either carry a `blocks_eval`/`blocks_diverge` fact built from ITS OWN
-block list (shallow-IO demos) or be explicitly classified outside shallow CFG
-semantics (deep-IO, e.g. the defer demos, whose blocks fail-loud under run_io);
-a classification gate for that pairing lands with it.
+emission-only marker.  NOT YET DONE (re-scoped per boss 2026-07-05 "holistic
+proofs or nothing" — per-demo lemmas would themselves be example-based): ONE
+admissibility predicate (`blocks_wf`: every jump literal and in-range) with
+GENERAL theorems over the whole class — never-stuck progress for all wf CFGs,
+and the wf/deep-IO classification of the live demos falls out as instances,
+not as N hand lemmas.  Demos/golden stay sanity checks, never evidence.
 GATE AUTHORITY: `plugin/fuel-gate.sh` is the mechanical authority for the fuel gate
 (its class definitions are the spec; the selftest is a regression matrix derived from
 the same variables); this file only summarizes it.  The executable expression
