@@ -86,11 +86,15 @@ count_file() {  # per-OCCURRENCE count across the three classes
   echo $((a + b + c))
 }
 
-manifest() {  # "count<TAB>file" for every scanned file with count > 0, sorted by file
-  for f in "$SCAN_DIR"/*.v; do
+manifest() {  # "count<TAB>path" for every scanned file with count > 0, sorted by path.
+  # Scope: the certified .v files AND the trusted plugin OCaml sources (comment syntax
+  # is identical).  Shell/Make/doc surfaces are OUT of scope by design: the gate is
+  # code-level (never a prose linter) and its own name contains the word.
+  for f in "$SCAN_DIR"/*.v "$SCAN_DIR"/plugin/*.ml; do
     [ -e "$f" ] || continue
     c=$(count_file "$f")
-    [ "$c" = "0" ] || printf '%s\t%s\n' "$c" "$(basename "$f")"
+    rel=${f#"$SCAN_DIR"/}
+    [ "$c" = "0" ] || printf '%s\t%s\n' "$c" "$rel"
   done | LC_ALL=C sort -k2
 }
 
@@ -190,6 +194,11 @@ EOF
     if ( FG_SCAN_DIR="$tmp/scan3" FG_BASELINE="$tmp/base3" sh plugin/fuel-gate.sh run >/dev/null 2>&1 ); then
       echo "fido: fuel-gate SELFTEST FAILED — widened primed group passed the ratchet"; exit 1
     fi
+    # plugin OCaml sources are in scope: a budget identifier in a .ml is counted
+    mkdir -p "$tmp/scanml/plugin"
+    printf 'let block_fuel = 1000\n' > "$tmp/scanml/plugin/x.ml"
+    ( FG_SCAN_DIR="$tmp/scanml" FG_BASELINE="$tmp/baseml" sh plugin/fuel-gate.sh bless >/dev/null )
+    grep -q 'plugin/x.ml' "$tmp/baseml" || { echo "fido: fuel-gate SELFTEST FAILED — .ml budget identifier not manifested"; exit 1; }
     # widening an EXISTING group must trip the ratchet
     mkdir "$tmp/scan2"
     printf 'Definition q (need : nat) : nat := 0.\n' > "$tmp/scan2/a.v"

@@ -81,9 +81,10 @@ eval_cmd, equivalence both directions, gated; real no_heap totality), cmd_unifie
    printer.ml regenerates; golden byte-identical.
 3. **plugin/printer.ml / plugin/go.ml**: regenerate / update after 1-2 so no fuel
    remnant survives in extracted or trusted code.
-4. **Word sweep** — scoped to the ACTIVE surfaces: certified .v files, plugin/,
-   Makefile/Dockerfile, and active docs (plans/, PROGRESS.md, ARCHITECTURE.md,
-   CLAUDE.md).  Archaeology (LESSONS.md) is excluded by design — it preserves the
-   history.  The mechanical form of this target is the fuel-gate MANIFEST reaching
-   EMPTY (zero budget-identifier occurrences in every scanned file), not a bare
-   word grep.
+4. **Word sweep** — the MECHANICAL target is the fuel-gate manifest reaching EMPTY
+   over its scanned scope: the certified root .v files AND plugin/*.ml (the gate
+   scans both; archaeology is never scanned).  Non-code surfaces (Makefile,
+   Dockerfile, shell scripts, docs) are OUT of the gate by design — it is
+   code-level, never a prose linter, and its own name contains the word — their
+   cleanup is a manual closeout item with an obvious definition of done: no budget
+   identifier names anything in them except the gate's own artifacts.
