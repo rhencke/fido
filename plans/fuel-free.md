@@ -19,13 +19,29 @@ eval_cmd, equivalence both directions, gated; real no_heap totality), cmd_unifie
      `parse toks := parse_expr (3 * List.length toks + 4) 0 toks` + the `*_S` unfold
      lemmas (~3291-3342) + the `esize`/`length_gtokens_ge_esize`/`lspine_fuel3`/`all_Pexpr`
      budget layer + `parse_expr_TReturn_None`'s `S (S (S f))` arithmetic.
-   Replace with structural / well-founded recursion — WF measure lexicographic
-   (List.length toks, phase-rank) with every token-consuming call strictly shorter and
-   the same-length calls strictly phase-descending (expr → climb/primary → atom →
-   postfix/args) — then the same proof-irrelevance/unfold-equation recipe as the lexer:
-   `parse_*_pi` by strong induction on the measure, `parse_eq_*` one-step equations at an
-   `Acc_intro (fun y _ => wf y)` certificate, restate the round-trip layer budget-free
-   (the `esize` machinery DELETES — it existed only to size the budget).  If a form resists a fuel-free
+   DESIGN (settled 2026-07-05, supersedes the lexicographic sketch — no phase rank
+   is needed at all):
+   (a) A single `{struct a}` Acc fixpoint REQUIRES every recursive call on a strictly
+       smaller certificate, so the same-length dispatch chain expr -> primary -> atom
+       cannot stay three mutual functions.  MERGE it: one worker `parse_e (mode : PMode)`
+       (MAtom | MPrimary | MExpr; k for the climb) whose body inlines atom, then
+       (mode >= MPrimary) the postfix fold, then (mode = MExpr) the climb.  The mode is
+       consumed at entry — every recursive call (into MExpr/MAtom) is on STRICTLY fewer
+       tokens, so the whole mutual block (worker + postfix + climb + args/elems/map
+       lists + tails) is Acc-structural on token length ALONE.
+   (b) Sequential calls need the previous call's suffix bound, so the workers return
+       STRONG results: `{r | length r < length input}` for the consuming phases
+       (atom/primary/expr/args/elems/map_elems), `<=` for the possibly-empty folds
+       (postfix/climb/*_tl).  The body's `parse_gty` calls switch to a bound-carrying
+       `parse_gty_b := parse_gty_acc _ (lt_wf _)` (the public `parse_gty` becomes its
+       projection) — the public face already threw the bound away, and the conversion
+       arms need it for their next call.
+   Then the lexer recipe verbatim: certificate proof-irrelevance by strong induction on
+   length, one-step unfold equations at the `Acc_intro (fun y _ => lt_wf y)` certificate
+   (the sig proofs evaporate there), public `parse_atom/parse_primary/parse_expr/parse`
+   as projections, the round-trip layer restated budget-free, and the WHOLE budget layer
+   (`esize`, `length_gtokens_ge_esize`, `lspine_fuel3`, `pops_fuel`, `all_Pexpr`'s fuel
+   threading, `tsize` once nothing sizes with it) DELETES.  If a form resists a fuel-free
    restatement, SHRINK the accepted subset rather than keep a budget (boss
    2026-07-05: expressiveness may be sacrificed; fuel is not ironclad).  The
    round-trip theorems keep their statements; the budget premises disappear.
