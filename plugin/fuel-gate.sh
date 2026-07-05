@@ -45,16 +45,18 @@ CSEGS='fuel|limit|budget'
 # it is either renamed or consciously classified here as capacity-domain.
 ALLOWCAP='cap|cap_slicelit_e|cap_demo|cap_aliases|chan_cap|chan_cap_send|chan_cap_recv|chan_cap_close|chan_cap_write_same|sh_cap|make_chan_cap|make_chan_buf_cap|is_cap_ref|is_make_chan_cap_ref|cstep_cap|cstep_cap_respected|csteps_cap|csteps_cap_respected|csteps_from_empty_cap_respected|rstep_at_some_cap|subslice_past_cap_panics'
 
-count_cap() {  # stdin = stripped source.  FULL-TOKEN classification: extract complete
-  # Rocq/OCaml identifiers (primes included), NORMALIZE by deleting primes, then keep
-  # tokens whose normalized form has an underscore-bounded 'cap' segment and is not an
-  # allowlisted domain stem.  So [chan_cap'] classifies as the domain stem chan_cap,
-  # [loop_cap'] counts, and camouflage like [chan_cap'_budget] normalizes to
-  # chan_cap_budget and counts.
+count_cap() {  # stdin = stripped source.  FULL-TOKEN classification with TWO
+  # normalizations: the SEGMENT test deletes every prime (so camouflage like
+  # [chan_cap'_budget] still shows its cap segment), while the ALLOWLIST test strips
+  # TRAILING primes only (so [chan_cap'] is the derived domain stem, but an internal
+  # prime — [cha'n_cap] — can never alias onto an allowed name).
   grep -oE "[A-Za-z_][A-Za-z0-9_']*" \
-    | tr -d "'" \
-    | grep -E "^(.*_)?cap(_.*)?$" \
-    | grep -vxE "$ALLOWCAP" | wc -l
+    | awk -v allow="$ALLOWCAP" '
+        BEGIN { n = split(allow, A, "|"); for (i = 1; i <= n; i++) ok[A[i]] = 1 }
+        { all = $0; gsub(/\047/, "", all);
+          trail = $0; sub(/\047+$/, "", trail);
+          if (all ~ /^(.*_)?cap(_.*)?$/ && !(trail in ok)) c++ }
+        END { print c + 0 }'
 }
 C="\\b(Definition|Let)[[:space:]]+([A-Za-z0-9']+_)*($CSEGS)(_[A-Za-z0-9']+)*\\b"
 CML="\\blet([[:space:]]+rec)?[[:space:]]+([A-Za-z0-9_']+_)*($CSEGS)(_[A-Za-z0-9_']+)*\\b"
@@ -255,6 +257,8 @@ EOF
     [ "$(count_file "$tmp/capprimebad.v")" = "1" ] || { echo "fido: fuel-gate SELFTEST FAILED — primed BUDGET cap name not counted"; exit 1; }
     printf "Definition x := chan_cap'_budget.\n" > "$tmp/capcamo.v"
     [ "$(count_file "$tmp/capcamo.v")" = "1" ] || { echo "fido: fuel-gate SELFTEST FAILED — allowed-stem camouflage (chan_cap'_budget) not counted"; exit 1; }
+    printf "Definition x := cha'n_cap.\n" > "$tmp/capalias.v"
+    [ "$(count_file "$tmp/capalias.v")" = "1" ] || { echo "fido: fuel-gate SELFTEST FAILED — internal-prime alias (cha'n_cap) not counted"; exit 1; }
     printf 'Definition make_chan_cap := 0.\nDefinition chan_cap := 0.\nDefinition cap := 0.\n' > "$tmp/capok.v"
     [ "$(count_file "$tmp/capok.v")" = "0" ] || { echo "fido: fuel-gate SELFTEST FAILED — domain-cap allowlist counted"; exit 1; }
     printf 'let is_cap_ref r = r\n' > "$tmp/capok.ml"
