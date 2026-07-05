@@ -2,6 +2,7 @@
 
 From Fido Require Import preamble.
 From Fido Require Import GoCFG GoExtractionHooks.  (* CFG semantics + the run_blocks emission hook *)
+From Fido Require Import GoNumeric.
 From Fido Require Import GoAst GoSafe GoEmit.  (* AST-first certified-emission spine (ARCHITECTURE.md) *)
 From Stdlib Require Import ZArith.
 From Stdlib Require Import Lia.

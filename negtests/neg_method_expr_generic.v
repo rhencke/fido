@@ -6,6 +6,7 @@
    abort; a regression would emit the unbound [NBox.Nbox_get] (invalid Go at
    `go build` = too late). *)
 From Fido Require Import preamble.
+From Fido Require Import GoNumeric.
 Record NBox (A : Type) := MkNBox { nval : A ; ntag : GoI64 }.
 Arguments MkNBox {A}. Arguments nval {A}. Arguments ntag {A}.
 Definition nbox_get {A : Type} (b : NBox A) : A := nval b.

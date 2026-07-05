@@ -4,6 +4,7 @@
    width and range, rejected ONLY by the exact canonical-mantissa condition.  The
    plugin's gate is SpecFloat.bounded itself (extracted), so this must abort. *)
 From Fido Require Import preamble.
+From Fido Require Import GoNumeric.
 From Stdlib Require Import ZArith.
 Definition neg_bad : GoFloat64 := S754_finite false 1%positive 0%Z.
 Go Main Extraction neg_out "neg_bad".

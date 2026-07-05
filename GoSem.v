@@ -21,6 +21,7 @@
     authority); grounding examples stay adjacent to their theorems upstream.
     ============================================================================ *)
 From Fido Require Import GoAst GoTypes GoSafe cmd preamble.   (* [preamble] re-exports [builtins]: [GoAny]/[anyt]/[intwrap]/[World]/[w_log]/[Outcome]/[ORet] *)
+From Fido Require Import GoNumeric.
 From Fido Require Export GoSemCore.
 From Fido Require Export GoSemDenote.
 From Stdlib Require Import String List Bool ZArith Lia.
@@ -539,8 +540,8 @@ Example typed_binop_model_rows :
   typed_binop BAdd GTU8 (anyt TU8 a) (anyt TU8 b) = Some (RAVal (anyt TU8 (Fido.builtins.u8_add a b)))
   /\ typed_binop BSub GTU8 (anyt TU8 a) (anyt TU8 b) = Some (RAVal (anyt TU8 (Fido.builtins.u8_sub a b)))
   /\ typed_binop BMul GTU8 (anyt TU8 a) (anyt TU8 b) = Some (RAVal (anyt TU8 (Fido.builtins.u8_mul a b)))
-  /\ typed_binop BDiv GTU8 (anyt TU8 a) (anyt TU8 b) = Some (div_checked TU8 Fido.builtins.u8raw Fido.builtins.u8_div a b)
-  /\ typed_binop BRem GTU8 (anyt TU8 a) (anyt TU8 b) = Some (div_checked TU8 Fido.builtins.u8raw Fido.builtins.u8_mod a b)
+  /\ typed_binop BDiv GTU8 (anyt TU8 a) (anyt TU8 b) = Some (div_checked TU8 Fido.GoNumeric.u8raw Fido.builtins.u8_div a b)
+  /\ typed_binop BRem GTU8 (anyt TU8 a) (anyt TU8 b) = Some (div_checked TU8 Fido.GoNumeric.u8raw Fido.builtins.u8_mod a b)
   /\ typed_binop BAnd GTU8 (anyt TU8 a) (anyt TU8 b) = Some (RAVal (anyt TU8 (Fido.builtins.u8_and a b)))
   /\ typed_binop BOr  GTU8 (anyt TU8 a) (anyt TU8 b) = Some (RAVal (anyt TU8 (Fido.builtins.u8_or  a b)))
   /\ typed_binop BXor GTU8 (anyt TU8 a) (anyt TU8 b) = Some (RAVal (anyt TU8 (Fido.builtins.u8_xor a b)))
@@ -549,8 +550,8 @@ Example typed_binop_model_rows :
   typed_binop BAdd GTI8 (anyt TI8 a) (anyt TI8 b) = Some (RAVal (anyt TI8 (Fido.builtins.i8_add a b)))
   /\ typed_binop BSub GTI8 (anyt TI8 a) (anyt TI8 b) = Some (RAVal (anyt TI8 (Fido.builtins.i8_sub a b)))
   /\ typed_binop BMul GTI8 (anyt TI8 a) (anyt TI8 b) = Some (RAVal (anyt TI8 (Fido.builtins.i8_mul a b)))
-  /\ typed_binop BDiv GTI8 (anyt TI8 a) (anyt TI8 b) = Some (div_checked TI8 Fido.builtins.i8raw Fido.builtins.i8_div a b)
-  /\ typed_binop BRem GTI8 (anyt TI8 a) (anyt TI8 b) = Some (div_checked TI8 Fido.builtins.i8raw Fido.builtins.i8_mod a b)
+  /\ typed_binop BDiv GTI8 (anyt TI8 a) (anyt TI8 b) = Some (div_checked TI8 Fido.GoNumeric.i8raw Fido.builtins.i8_div a b)
+  /\ typed_binop BRem GTI8 (anyt TI8 a) (anyt TI8 b) = Some (div_checked TI8 Fido.GoNumeric.i8raw Fido.builtins.i8_mod a b)
   /\ typed_binop BAnd GTI8 (anyt TI8 a) (anyt TI8 b) = Some (RAVal (anyt TI8 (Fido.builtins.i8_and a b)))
   /\ typed_binop BOr  GTI8 (anyt TI8 a) (anyt TI8 b) = Some (RAVal (anyt TI8 (Fido.builtins.i8_or  a b)))
   /\ typed_binop BXor GTI8 (anyt TI8 a) (anyt TI8 b) = Some (RAVal (anyt TI8 (Fido.builtins.i8_xor a b)))
@@ -559,8 +560,8 @@ Example typed_binop_model_rows :
   typed_binop BAdd GTU16 (anyt TU16 a) (anyt TU16 b) = Some (RAVal (anyt TU16 (Fido.builtins.u16_add a b)))
   /\ typed_binop BSub GTU16 (anyt TU16 a) (anyt TU16 b) = Some (RAVal (anyt TU16 (Fido.builtins.u16_sub a b)))
   /\ typed_binop BMul GTU16 (anyt TU16 a) (anyt TU16 b) = Some (RAVal (anyt TU16 (Fido.builtins.u16_mul a b)))
-  /\ typed_binop BDiv GTU16 (anyt TU16 a) (anyt TU16 b) = Some (div_checked TU16 Fido.builtins.u16raw Fido.builtins.u16_div a b)
-  /\ typed_binop BRem GTU16 (anyt TU16 a) (anyt TU16 b) = Some (div_checked TU16 Fido.builtins.u16raw Fido.builtins.u16_mod a b)
+  /\ typed_binop BDiv GTU16 (anyt TU16 a) (anyt TU16 b) = Some (div_checked TU16 Fido.GoNumeric.u16raw Fido.builtins.u16_div a b)
+  /\ typed_binop BRem GTU16 (anyt TU16 a) (anyt TU16 b) = Some (div_checked TU16 Fido.GoNumeric.u16raw Fido.builtins.u16_mod a b)
   /\ typed_binop BAnd GTU16 (anyt TU16 a) (anyt TU16 b) = Some (RAVal (anyt TU16 (Fido.builtins.u16_and a b)))
   /\ typed_binop BOr  GTU16 (anyt TU16 a) (anyt TU16 b) = Some (RAVal (anyt TU16 (Fido.builtins.u16_or  a b)))
   /\ typed_binop BXor GTU16 (anyt TU16 a) (anyt TU16 b) = Some (RAVal (anyt TU16 (Fido.builtins.u16_xor a b)))
@@ -569,8 +570,8 @@ Example typed_binop_model_rows :
   typed_binop BAdd GTI16 (anyt TI16 a) (anyt TI16 b) = Some (RAVal (anyt TI16 (Fido.builtins.i16_add a b)))
   /\ typed_binop BSub GTI16 (anyt TI16 a) (anyt TI16 b) = Some (RAVal (anyt TI16 (Fido.builtins.i16_sub a b)))
   /\ typed_binop BMul GTI16 (anyt TI16 a) (anyt TI16 b) = Some (RAVal (anyt TI16 (Fido.builtins.i16_mul a b)))
-  /\ typed_binop BDiv GTI16 (anyt TI16 a) (anyt TI16 b) = Some (div_checked TI16 Fido.builtins.i16raw Fido.builtins.i16_div a b)
-  /\ typed_binop BRem GTI16 (anyt TI16 a) (anyt TI16 b) = Some (div_checked TI16 Fido.builtins.i16raw Fido.builtins.i16_mod a b)
+  /\ typed_binop BDiv GTI16 (anyt TI16 a) (anyt TI16 b) = Some (div_checked TI16 Fido.GoNumeric.i16raw Fido.builtins.i16_div a b)
+  /\ typed_binop BRem GTI16 (anyt TI16 a) (anyt TI16 b) = Some (div_checked TI16 Fido.GoNumeric.i16raw Fido.builtins.i16_mod a b)
   /\ typed_binop BAnd GTI16 (anyt TI16 a) (anyt TI16 b) = Some (RAVal (anyt TI16 (Fido.builtins.i16_and a b)))
   /\ typed_binop BOr  GTI16 (anyt TI16 a) (anyt TI16 b) = Some (RAVal (anyt TI16 (Fido.builtins.i16_or  a b)))
   /\ typed_binop BXor GTI16 (anyt TI16 a) (anyt TI16 b) = Some (RAVal (anyt TI16 (Fido.builtins.i16_xor a b)))
@@ -579,8 +580,8 @@ Example typed_binop_model_rows :
   typed_binop BAdd GTU32 (anyt TU32 a) (anyt TU32 b) = Some (RAVal (anyt TU32 (Fido.builtins.u32_add a b)))
   /\ typed_binop BSub GTU32 (anyt TU32 a) (anyt TU32 b) = Some (RAVal (anyt TU32 (Fido.builtins.u32_sub a b)))
   /\ typed_binop BMul GTU32 (anyt TU32 a) (anyt TU32 b) = Some (RAVal (anyt TU32 (Fido.builtins.u32_mul a b)))
-  /\ typed_binop BDiv GTU32 (anyt TU32 a) (anyt TU32 b) = Some (div_checked TU32 Fido.builtins.u32raw Fido.builtins.u32_div a b)
-  /\ typed_binop BRem GTU32 (anyt TU32 a) (anyt TU32 b) = Some (div_checked TU32 Fido.builtins.u32raw Fido.builtins.u32_mod a b)
+  /\ typed_binop BDiv GTU32 (anyt TU32 a) (anyt TU32 b) = Some (div_checked TU32 Fido.GoNumeric.u32raw Fido.builtins.u32_div a b)
+  /\ typed_binop BRem GTU32 (anyt TU32 a) (anyt TU32 b) = Some (div_checked TU32 Fido.GoNumeric.u32raw Fido.builtins.u32_mod a b)
   /\ typed_binop BAnd GTU32 (anyt TU32 a) (anyt TU32 b) = Some (RAVal (anyt TU32 (Fido.builtins.u32_and a b)))
   /\ typed_binop BOr  GTU32 (anyt TU32 a) (anyt TU32 b) = Some (RAVal (anyt TU32 (Fido.builtins.u32_or  a b)))
   /\ typed_binop BXor GTU32 (anyt TU32 a) (anyt TU32 b) = Some (RAVal (anyt TU32 (Fido.builtins.u32_xor a b)))
@@ -589,8 +590,8 @@ Example typed_binop_model_rows :
   typed_binop BAdd GTI32 (anyt TI32 a) (anyt TI32 b) = Some (RAVal (anyt TI32 (Fido.builtins.i32_add a b)))
   /\ typed_binop BSub GTI32 (anyt TI32 a) (anyt TI32 b) = Some (RAVal (anyt TI32 (Fido.builtins.i32_sub a b)))
   /\ typed_binop BMul GTI32 (anyt TI32 a) (anyt TI32 b) = Some (RAVal (anyt TI32 (Fido.builtins.i32_mul a b)))
-  /\ typed_binop BDiv GTI32 (anyt TI32 a) (anyt TI32 b) = Some (div_checked TI32 Fido.builtins.i32raw Fido.builtins.i32_div a b)
-  /\ typed_binop BRem GTI32 (anyt TI32 a) (anyt TI32 b) = Some (div_checked TI32 Fido.builtins.i32raw Fido.builtins.i32_mod a b)
+  /\ typed_binop BDiv GTI32 (anyt TI32 a) (anyt TI32 b) = Some (div_checked TI32 Fido.GoNumeric.i32raw Fido.builtins.i32_div a b)
+  /\ typed_binop BRem GTI32 (anyt TI32 a) (anyt TI32 b) = Some (div_checked TI32 Fido.GoNumeric.i32raw Fido.builtins.i32_mod a b)
   /\ typed_binop BAnd GTI32 (anyt TI32 a) (anyt TI32 b) = Some (RAVal (anyt TI32 (Fido.builtins.i32_and a b)))
   /\ typed_binop BOr  GTI32 (anyt TI32 a) (anyt TI32 b) = Some (RAVal (anyt TI32 (Fido.builtins.i32_or  a b)))
   /\ typed_binop BXor GTI32 (anyt TI32 a) (anyt TI32 b) = Some (RAVal (anyt TI32 (Fido.builtins.i32_xor a b)))
@@ -599,8 +600,8 @@ Example typed_binop_model_rows :
   typed_binop BAdd GTInt64 (anyt TI64 a) (anyt TI64 b) = Some (RAVal (anyt TI64 (Fido.builtins.i64_add a b)))
   /\ typed_binop BSub GTInt64 (anyt TI64 a) (anyt TI64 b) = Some (RAVal (anyt TI64 (Fido.builtins.i64_sub a b)))
   /\ typed_binop BMul GTInt64 (anyt TI64 a) (anyt TI64 b) = Some (RAVal (anyt TI64 (Fido.builtins.i64_mul a b)))
-  /\ typed_binop BDiv GTInt64 (anyt TI64 a) (anyt TI64 b) = Some (div_checked TI64 Fido.builtins.i64raw Fido.builtins.i64_div a b)
-  /\ typed_binop BRem GTInt64 (anyt TI64 a) (anyt TI64 b) = Some (div_checked TI64 Fido.builtins.i64raw Fido.builtins.i64_mod a b)
+  /\ typed_binop BDiv GTInt64 (anyt TI64 a) (anyt TI64 b) = Some (div_checked TI64 Fido.GoNumeric.i64raw Fido.builtins.i64_div a b)
+  /\ typed_binop BRem GTInt64 (anyt TI64 a) (anyt TI64 b) = Some (div_checked TI64 Fido.GoNumeric.i64raw Fido.builtins.i64_mod a b)
   /\ typed_binop BAnd GTInt64 (anyt TI64 a) (anyt TI64 b) = Some (RAVal (anyt TI64 (Fido.builtins.i64_and a b)))
   /\ typed_binop BOr  GTInt64 (anyt TI64 a) (anyt TI64 b) = Some (RAVal (anyt TI64 (Fido.builtins.i64_or  a b)))
   /\ typed_binop BXor GTInt64 (anyt TI64 a) (anyt TI64 b) = Some (RAVal (anyt TI64 (Fido.builtins.i64_xor a b)))
@@ -609,8 +610,8 @@ Example typed_binop_model_rows :
   typed_binop BAdd GTU64 (anyt TU64 a) (anyt TU64 b) = Some (RAVal (anyt TU64 (Fido.builtins.u64_add a b)))
   /\ typed_binop BSub GTU64 (anyt TU64 a) (anyt TU64 b) = Some (RAVal (anyt TU64 (Fido.builtins.u64_sub a b)))
   /\ typed_binop BMul GTU64 (anyt TU64 a) (anyt TU64 b) = Some (RAVal (anyt TU64 (Fido.builtins.u64_mul a b)))
-  /\ typed_binop BDiv GTU64 (anyt TU64 a) (anyt TU64 b) = Some (div_checked TU64 Fido.builtins.u64raw Fido.builtins.u64_div a b)
-  /\ typed_binop BRem GTU64 (anyt TU64 a) (anyt TU64 b) = Some (div_checked TU64 Fido.builtins.u64raw Fido.builtins.u64_mod a b)
+  /\ typed_binop BDiv GTU64 (anyt TU64 a) (anyt TU64 b) = Some (div_checked TU64 Fido.GoNumeric.u64raw Fido.builtins.u64_div a b)
+  /\ typed_binop BRem GTU64 (anyt TU64 a) (anyt TU64 b) = Some (div_checked TU64 Fido.GoNumeric.u64raw Fido.builtins.u64_mod a b)
   /\ typed_binop BAnd GTU64 (anyt TU64 a) (anyt TU64 b) = Some (RAVal (anyt TU64 (Fido.builtins.u64_and a b)))
   /\ typed_binop BOr  GTU64 (anyt TU64 a) (anyt TU64 b) = Some (RAVal (anyt TU64 (Fido.builtins.u64_or  a b)))
   /\ typed_binop BXor GTU64 (anyt TU64 a) (anyt TU64 b) = Some (RAVal (anyt TU64 (Fido.builtins.u64_xor a b)))
@@ -1391,8 +1392,8 @@ Definition gosem_float_surface :=
    fsf_checked_conv_same_agrees, fsf_checked_conv_narrow_agrees, fsf_checked_conv_widen_agrees,
    fsf_checked_complete, floats_checked_total,
    eval_value_floats_checked, floats_checked_children_eqs,
-   binary_normalize_opp, Fido.builtins.binary_round_exact,
-   Fido.builtins.renorm_binary_round_idem,
+   binary_normalize_opp, Fido.GoNumeric.binary_round_exact,
+   Fido.GoNumeric.renorm_binary_round_idem,
    ptype_float_const_repr, ptype_float_payload_f64, ptype_float_payload_f32, box_float_gate,
    binary_normalize_wide_determined, add_carry_raw_wide_accepted, binary_round_of_norm_wide,
    dy_norm_value_unique, sf_render_signed_value_f64, sf_render_add_agrees_f64,

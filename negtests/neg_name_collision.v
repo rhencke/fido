@@ -7,6 +7,7 @@
    FIELD half is neg_field_collision.v).  The two are functions-of-a-param so they emit as named
    Go funcs (not inlined as bare expressions). *)
 From Fido Require Import preamble.
+From Fido Require Import GoNumeric.
 Definition foo' (x : GoI64) : GoI64 := i64_add x (1)%i64.
 Definition foo_ (x : GoI64) : GoI64 := i64_add x (2)%i64.
 Definition neg_bad : IO GoI64 := ret (i64_add (foo' (10)%i64) (foo_ (20)%i64)).

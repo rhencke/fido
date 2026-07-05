@@ -5,6 +5,7 @@
    pins the structural mantissa path: a wrapped int64 reintroduction would emit 0x0p0
    instead of aborting, failing this fixture either way. *)
 From Fido Require Import preamble.
+From Fido Require Import GoNumeric.
 From Stdlib Require Import ZArith.
 Definition neg_bad : GoFloat64 := S754_finite false 18446744073709551616%positive 0%Z.
 Go Main Extraction neg_out "neg_bad".

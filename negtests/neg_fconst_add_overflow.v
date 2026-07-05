@@ -3,6 +3,7 @@
    exceeds signed int64 at the checked add.  The reasoned folder must classify it OVERFLOW
    (never "non-constant") and extraction abort. *)
 From Fido Require Import preamble.
+From Fido Require Import GoNumeric.
 From Stdlib Require Import ZArith.
 Definition neg_bad : GoFloat64 :=
   f64_of_fconst (mkFC (Z.shiftl 1 62 + Z.shiftl 1 62) 1%positive).

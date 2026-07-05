@@ -5,6 +5,7 @@
    a regression emits a function no Go call can instantiate.  ([ret_only] must be a
    top-level decl — the extraction ROOT itself inlines into [main] with erased types. *)
 From Fido Require Import preamble.
+From Fido Require Import GoNumeric.
 Definition ret_only {A B : Type} (x : A) : list B := nil.
 Extraction NoInline ret_only.
 Definition neg_bad (x : GoI64) : list GoI64 := ret_only x.

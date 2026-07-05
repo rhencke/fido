@@ -5,5 +5,6 @@
    and demoed in main.v.  Extraction MUST abort rather than silently emit `0.0` (dropping the sign).
    Completes the float-CONSTANT-with-no-Go-form boundary alongside neg_float_nan_literal.v (±Inf / NaN). *)
 From Fido Require Import preamble.
+From Fido Require Import GoNumeric.
 Definition neg_bad : IO GoFloat32 := ret (f32_lit (S754_zero true)).
 Go Main Extraction neg_out "neg_bad".

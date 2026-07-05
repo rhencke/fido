@@ -10,6 +10,7 @@
     (interleaving order) is a LINEAR EXTENSION of it: you cannot synchronise with
     the future.  Axiom-free. *)
 From Fido Require Import preamble.
+From Fido Require Import GoNumeric.
 From Stdlib Require Import List Lia Arith.
 (* No [PrimInt63]: the value carriers ([GoI64]/…) are [Z]-records and locations are [nat]
   ; this proof layer names no kernel primitive. *)

@@ -4,5 +4,6 @@
    A regression that re-suppresses the decl while the call prints, or prints the fix's
    internal name bare, would leave wrong-arity/undefined Go at `go build` = too late. *)
 From Fido Require Import preamble.
+From Fido Require Import GoNumeric.
 Definition neg_bad (x : GoI64) : list GoI64 := List.repeat x 3.
 Go Main Extraction neg_out "neg_bad".
