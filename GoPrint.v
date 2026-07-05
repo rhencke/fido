@@ -1362,7 +1362,7 @@ Fixpoint gttokens_ty (t : GoTy) : list Token :=
   | GTNamed n => TId (tyname_to_ident n) :: nil
   end.
 (* [_ => 1] is the deliberate UNIT size of every leaf type (the 13 primitives + [GTNamed], each one token).
-   [tsize] feeds only the EXPRESSION parser's budget layer ([esize]) — it dies with that layer's purge.
+   [tsize] is a PROOF-LAYER size measure only (type-node count for induction bounds).
    (The output side, [print_ty]/[gttokens_ty], is fully exhaustive.) *)
 Fixpoint tsize (t : GoTy) : nat :=
   match t with
@@ -1659,8 +1659,8 @@ Proof. vm_compute; reflexivity. Qed.
     for the postfix loop to mis-capture.  A POSTFIX operand ([ESel]/[EIndex]/[ESlice]/[ECall]/[EAssert])
     must STILL be parenthesised: the grammar binds a prefix unary to an *Atom*, with the postfix chain
     folded OUTSIDE the unary — a bare [^a.b] would re-parse as [(^a).b], breaking the round-trip.  Type-led
-    atoms ([EConv]/[ESliceLit]/[EMapLit]) are parenthesised too (sound to bare, but beyond the leaf fuel
-    budget).  The BARE set is exactly the leaf atoms; everything else gets parens. *)
+    atoms ([EConv]/[ESliceLit]/[EMapLit]) are parenthesised too (sound to bare; the printer keeps the
+    conservative wrap).  The BARE set is exactly the leaf atoms; everything else gets parens. *)
 
 (** [unop_needs_paren e0] — does a PREFIX-UNARY operand [e0] need parentheses?  FALSE only for the four LEAF
     atoms ([EId]/[EInt]/[EStr]/[EHex], printed BARE — the minimal [^x]); TRUE for every other form.  This is a
@@ -1873,8 +1873,7 @@ Definition infix_op (t : Token) : option BinOp :=
     measure [5 * token-length + rank] instead of a fuel budget.  [{struct a}] requires every
     recursive call to carry a strictly smaller certificate: the same-length grammar dispatches
     (expr -> primary -> atom, list-head -> expr) descend by RANK; every other call consumes at
-    least one token and descends by LENGTH.  Each body mirrors its fueled original arm-for-arm;
-    results carry their suffix bound ([<] for the consuming phases, [<=] for the possibly-empty
+    least one token and descends by LENGTH.  Results carry their suffix bound ([<] for the consuming phases, [<=] for the possibly-empty
     postfix/climb folds) — the bound of each call is the Acc certificate of the next. *)
 (** bound-carrying [parse_gty]: the public face throws the suffix bound away; the conversion and
     assertion arms below need it for their NEXT recursive call. *)
@@ -1945,7 +1944,7 @@ with parse_atom_acc (toks : list Token) (a : Acc lt (5 * List.length toks + 1)) 
       | None => None
       end
   (* type-form CONVERSIONS and composite LITERALS — the type via the bound-carrying [parse_gty_b],
-     then '(' -> conversion, '{' -> literal, exactly as in the fueled arms. *)
+     then '(' -> conversion, '{' -> literal — the same case split as [parse_atom_eq] states. *)
   | TLB :: TRB :: rest0 => fun a =>
       match parse_gty_b (TLB :: TRB :: rest0) with
       | Some (GTSlice u, exist _ r Hr) =>
@@ -2565,8 +2564,8 @@ Proof.
       destruct (parse_climb_acc k2 l2 t2 P) as [[e3 [r3 Hr3]]|] end; reflexivity.
 Qed.
 
-(** the PUBLIC parser: each function is its worker's projection at the [lt_wf] certificate — the same
-    names and shapes as before, minus the budget argument.  [parse] needs no size seed. *)
+(** the PUBLIC parser: each function is its worker's projection at the [lt_wf] certificate.
+    [parse] takes the token list alone. *)
 Definition parse_expr (k : nat) (toks : list Token) : option (GExpr * list Token) :=
   match parse_expr_acc k toks (lt_wf (5 * List.length toks + 3)) with
   | Some (e, exist _ r _) => Some (e, r) | None => None end.
@@ -2716,8 +2715,8 @@ Proof.
   reflexivity.
 Qed.
 
-(** the one-step BODY equations over the public functions — the fueled [*_S] unfolding suite,
-    restated without a budget: each equation is the parser's defining case split, verbatim. *)
+(** the one-step BODY equations over the public functions: each equation is the parser's
+    defining case split, verbatim, with no premise of any kind. *)
 Lemma parse_expr_eq : forall k toks,
   parse_expr k toks = match parse_primary toks with Some (l, r) => parse_climb k l r | None => None end.
 Proof.
@@ -4956,8 +4955,7 @@ Proof.
 Qed.
 
 (** the argument list parses back: [parse_args]/[parse_args_tl] invert [gtokens_args]/[gtokens_args_tl] up to
-    and including the ')'.  Each arg round-trips via its [Pexpr] (from the [Forall]); the MAX-based [af] fuel
-    suffices because each arg parses at a fresh fuel (not a running sum). *)
+    and including the ')'.  Each arg round-trips via its [Pexpr] (from the [Forall]). *)
 Lemma parse_args_tl_roundtrip : forall args rest,
   List.Forall Pexpr args ->
   parse_args_tl (gtokens_args_tl args ++ TRP :: rest)%list = Some (args, rest).
@@ -4990,7 +4988,7 @@ Proof.
 Qed.
 (** the ELEMENT list parses back: [parse_elems]/[parse_elems_tl] invert [gtokens_args]/[gtokens_args_tl] up to
     and including the '}'.  VERBATIM the [parse_args] round-trips with terminator [TRP]→[TRC] (elements reuse
-    the same comma machinery + [af] fuel; only the closer token differs). *)
+    the same comma machinery; only the closer token differs). *)
 Lemma parse_elems_tl_roundtrip : forall es rest,
   List.Forall Pexpr es ->
   parse_elems_tl (gtokens_args_tl es ++ TRC :: rest)%list = Some (es, rest).
@@ -5023,7 +5021,7 @@ Proof.
 Qed.
 (** the KEYED pair list parses back: [parse_map_elems]/[parse_map_elems_tl] invert [gtokens_pairs]/[gtokens_pairs_tl]
     up to and including the '}'.  Each pair's KEY parses (stopping at the [TColon]) then its VALUE (stopping at the
-    pair separator / closer), both via their [Pexpr] (from the [Forall]); the MAX-based [mf] fuel covers both. *)
+    pair separator / closer), both via their [Pexpr] (from the [Forall]). *)
 Lemma parse_map_elems_tl_roundtrip : forall kvs rest,
   List.Forall (fun p => Pexpr (fst p) /\ Pexpr (snd p)) kvs ->
   parse_map_elems_tl (gtokens_pairs_tl kvs ++ TRC :: rest)%list = Some (kvs, rest).
@@ -5522,8 +5520,8 @@ Qed.
     surface) + a recursive-descent token parser ([parse_gty]) + the round-trip [parse_gty_roundtrip] —
     the gateway for type-form conversions / composite literals / type assertions.  Self-contained:
     additive over [GoTy], no [GExpr] dependency.  [GoTy] has no list child, so ordinary induction
-    suffices and a SUM-based [tsize] fuel works (a map's two children parse at the same fuel,
-    sum >= max).  ================================================================================== *)
+    suffices; [parse_gty] is Acc-structural on token length (no budget of any kind).
+    ================================================================================== *)
 
 
 (** composed: the printed type lexes to its token list. *)
