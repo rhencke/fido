@@ -11,7 +11,8 @@ block list (shallow-IO demos) or be explicitly classified outside shallow CFG
 semantics (deep-IO, e.g. the defer demos, whose blocks fail-loud under run_io);
 a classification gate for that pairing lands with it.
 GATE AUTHORITY: `plugin/fuel-gate.sh` is the mechanical authority for the fuel gate
-(header = the classes, selftest = the executable spec); this file only summarizes it.  The executable expression
+(its class definitions are the spec; the selftest is a regression matrix derived from
+the same variables); this file only summarizes it.  The executable expression
 parser is not sacred: prefer relational/canonical-token proofs (`parses_expr`,
 `gtokens_inj`); the merged-worker WF design below is the fallback.
 

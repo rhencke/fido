@@ -1,7 +1,9 @@
 #!/bin/sh
 # fuel-gate.sh — the budget-identifier ratchet.  THIS SCRIPT IS THE MECHANICAL AUTHORITY
-# for the fuel gate: the classes below are the spec, and the selftest fixture matrix is
-# its executable definition (plans/fuel-free.md only summarizes it).
+# for the fuel gate: the CLASS DEFINITIONS below (A/B/C, single-sourced in the variables)
+# are the spec.  The selftest is a REGRESSION FIXTURE MATRIX derived from those same
+# variables — every class-A alias, B stem, and C segment gets a generated FAIL fixture,
+# plus shaped contextual cases (plans/fuel-free.md only summarizes this).
 #
 # IDENTIFIER-AND-CONTEXT scoped over the scanned *.v files (comments stripped first, so
 # prose mentions are not counted — the gate is code-level, never a prose linter):
@@ -28,8 +30,11 @@ cd "$(dirname "$0")/.."
 SCAN_DIR="${FG_SCAN_DIR:-.}"
 BASELINE="${FG_BASELINE:-plugin/fuel-gate.baseline}"
 
-A='\b(fuel|gas|run_blocks_fuel|block_fuel|countdown|allowance|step_limit|steps_left|max_steps|max_depth|depth_limit|cycle_limit|iteration_cap|max_iter|max_iterations|run_for|parse_bound)\b'
-C="\\b(Definition|Let)[[:space:]]+([A-Za-z0-9']+_)*(fuel|limit|budget|cap)(_[A-Za-z0-9']+)*\\b"
+ANAMES='fuel gas run_blocks_fuel block_fuel countdown allowance step_limit steps_left max_steps max_depth depth_limit cycle_limit iteration_cap max_iter max_iterations run_for parse_bound'
+A="\\b($(echo $ANAMES | tr ' ' '|'))\\b"
+BSTEMS='budget|limit|need|capacity|bound|step|steps'
+CSEGS='fuel|limit|budget|cap'
+C="\\b(Definition|Let)[[:space:]]+([A-Za-z0-9']+_)*($CSEGS)(_[A-Za-z0-9']+)*\\b"
 
 strip_comments() {
   awk 'BEGIN { d = 0 }
@@ -48,7 +53,7 @@ strip_comments() {
 # the group, across whitespace AND newlines (so [(need limit capacity bound : nat)]
 # counts 4, [{step steps : nat}] counts 2, and a line-broken group still counts).
 count_b() {
-  awk -v q="'" '
+  awk -v q="'" -v bs="$BSTEMS" '
     { gsub(/[(){}:]/, " & "); n = split($0, t, /[ \t]+/);
       for (i = 1; i <= n; i++) {
         tok = t[i]; if (tok == "") continue;
@@ -58,7 +63,7 @@ count_b() {
             if (col[d] && typ[d] == "nat") {
               m = split(ids[d], w, " ");
               for (j = 1; j <= m; j++)
-                if (w[j] ~ ("^(budget|limit|need|capacity|bound|step|steps)" q "*$")) cnt++
+                if (w[j] ~ ("^(" bs ")" q "*$")) cnt++
             }
             d--
           }
@@ -138,6 +143,24 @@ Fixpoint run (steps : nat) : nat := 0.
 Definition h {steps : nat} : nat := 0.
 Definition loop_cap := 9.
 EOF
+    # EXHAUSTIVE derived fixtures — one per class-A alias, B stem, C segment, from the
+    # SAME variables that define the gate (the matrix cannot lag the classes).
+    for nm in $ANAMES; do
+      printf 'Definition z := %s.\n' "$nm" > "$tmp/da.v"
+      [ "$(count_file "$tmp/da.v")" != "0" ] || { echo "fido: fuel-gate SELFTEST FAILED — class-A alias undetected: $nm"; exit 1; }
+    done
+    for st in $(echo "$BSTEMS" | tr '|' ' '); do
+      printf 'Definition t (%s : nat) : nat := 0.\n' "$st" > "$tmp/db.v"
+      [ "$(count_file "$tmp/db.v")" = "1" ] || { echo "fido: fuel-gate SELFTEST FAILED — class-B stem not counted once: $st"; exit 1; }
+      printf "Definition t (%s' : nat) : nat := 0.\n" "$st" > "$tmp/db2.v"
+      [ "$(count_file "$tmp/db2.v")" = "1" ] || { echo "fido: fuel-gate SELFTEST FAILED — primed class-B stem not counted once: $st"; exit 1; }
+    done
+    for sg in $(echo "$CSEGS" | tr '|' ' '); do
+      printf 'Definition my_%s : nat := 3.\n' "$sg" > "$tmp/dc.v"
+      [ "$(count_file "$tmp/dc.v")" != "0" ] || { echo "fido: fuel-gate SELFTEST FAILED — class-C segment undetected (Definition): $sg"; exit 1; }
+      printf 'Let %s_x : nat := 3.\n' "$sg" > "$tmp/dc2.v"
+      [ "$(count_file "$tmp/dc2.v")" != "0" ] || { echo "fido: fuel-gate SELFTEST FAILED — class-C segment undetected (Let): $sg"; exit 1; }
+    done
     # per-OCCURRENCE counting: one line, four class-A identifiers, count must be 4
     printf 'Definition z := fuel + gas + max_steps + run_for.\n' > "$tmp/multi.v"
     m=$(count_file "$tmp/multi.v")
@@ -188,7 +211,7 @@ EOF
     if ( FG_SCAN_DIR="$tmp/scan" FG_BASELINE="$tmp/base" sh plugin/fuel-gate.sh bless >/dev/null 2>&1 ); then
       echo "fido: fuel-gate SELFTEST FAILED — bless ratified growth"; exit 1
     fi
-    echo "fido: fuel-gate selftest OK (pass fixture clean; $i shapes + multi-count + swap + bless-down enforced)"
+    echo "fido: fuel-gate selftest OK (pass fixture clean; $i shaped cases + exhaustive per-alias/stem/segment fixtures + multi-count + swap + bless-down)"
     ;;
   run|*)
     [ -f "$BASELINE" ] || { echo "fido: fuel-gate: missing $BASELINE (run: sh plugin/fuel-gate.sh bless)"; exit 1; }
