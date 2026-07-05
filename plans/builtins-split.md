@@ -17,7 +17,20 @@ would be circular here).
 
 1. **GoNumeric.v / GoFloat.v** — the Z-carried fixed-width wrappers (`GoI64`/`GoU8`/…,
    `GoInt`/`GoUint`) + wrapping lemmas; `spec_float` carriers + canonicalization.  Bottom
-   of the DAG (ZArith/SpecFloat only).
+   of the DAG (ZArith/SpecFloat only).  EXECUTION SPEC (recon 2026-07-05): the region is
+   builtins.v ~19–660 with the float layer FIRST (`SpecFloat` Export at ~80, `GoFloat64`
+   notation ~85, `renorm`, f32 at ~440–455, float64 ops ~456+) and the fixed-width
+   records after (`GoI64` ~586, u8..u64/i8..i32, `GoInt`/`GoUint` + `intwrap`); the
+   carrier one-liners `GoString` (~62) and `GoSlice` (~69) are INTERLEAVED — they are
+   NOT numeric and stay behind for wave 2 (GoRuntimeTypes) unless trivially hoisted.
+   PLUGIN: dozens of the ~57 `from_builtins`-pinned recognizers are numeric
+   (`fixed_width_op`, `is_any_i64_op`/`u64`/`int`, `int_lit`/`u64_lit`/`uint_lit`
+   folds, wrap ctors, zarith helpers).  Per-recognizer re-pinning each wave would be
+   churn; instead generalize ownership ONCE: `from_model r` = exact-dirpath membership
+   in the SEMANTIC-module whitelist ({Fido.builtins} ∪ landed semantic modules,
+   extended per wave) — preserves the anti-shadow ownership property (exact Fido-owned
+   dirpaths) and keeps hooks separate (`from_hooks` stays its own check; the boss's
+   hooks-vs-semantics split remains real).  `named`/`named_in` switch to `from_model`.
 2. **GoRuntimeTypes.v** — the carrier TYPE seeds it enumerates (`GoString`, `GoSlice`,
    `GoChan`, `GoMap` type-level; `ListNode`/`ChanBox`) + `GoTypeTag` + `GoAny` + `Tagged`
    + `zero_val` + comparability + `tag_eq`.  (If a structure module later wants its type
