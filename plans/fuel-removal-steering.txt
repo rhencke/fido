@@ -3,7 +3,9 @@ STATUS 2026-07-05: the memo's CURRENT PRIORITY sections are FULFILLED — semant
 (run_blocks_fuel/block_fuel/block_nth) is DELETED (7e5f754), blocks_eval/blocks_diverge
 are the authority, the lexer is WF, and the fuel gate is live in make check and the
 Docker prover stage.  This memo no longer steers current work: the one current
-authority is plans/fuel-free.md.
+authority is plans/fuel-free.md.  The memo's blocks_eval/blocks_diverge SKETCH below is
+superseded by the landed shape: be_jump/bd_jump consume the single blocks_step transition
+relation rather than restating its premises.
 The MECHANICAL gate derived from it is plugin/fuel-gate.sh (its class definitions are the spec):
 identifier/context-scoped over BUDGET-shaped terms only.  Relational small-step
 semantics (step/steps/ustep) are the PRESCRIBED architecture (see "Use small-step

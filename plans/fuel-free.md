@@ -8,9 +8,10 @@ runner, its cap, and the silent missing-block default are gone; `run_blocks` is 
 emission-only marker.  CFG LAYER LANDED: `blocks_step` (the structural
 one-step transition), `blocks_jump_wf` (admissibility in OUTCOME terms only —
 every block's run on every world is Done, a panic, or an in-range Jump;
-membership decided by outcomes, never by markers), `blocks_step_eval`, and
-`blocks_jump_wf_progress` (class-wide never-stuck: conclude or an explicit
-step; no per-demo machinery).  The emitter's rejections of non-literal starts
+membership decided by outcomes, never by markers) and `blocks_jump_wf_progress`
+(class-wide never-stuck: conclude or an explicit step; no per-demo machinery).
+`be_jump`/`bd_jump` CONSUME `blocks_step` directly — the transition shape
+exists exactly once, with no separate composition lemma.  The emitter's rejections of non-literal starts
 and out-of-range entry/jump targets in the run_blocks arm are the TRUSTED
 syntactic mirror of the literal/range part only.  The shallow relations claim
 nothing about emitted deep-IO behavior (that is the deep run_cmd story); a
