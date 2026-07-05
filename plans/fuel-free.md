@@ -7,10 +7,15 @@ STATUS: semantic fuel is DELETED (7e5f754) — `blocks_eval` (Inductive) +
 runner, its cap, and the silent missing-block default are gone; `run_blocks` is an
 emission-only marker.  NOT YET DONE (re-scoped per boss 2026-07-05 "holistic
 proofs or nothing" — per-demo lemmas would themselves be example-based): ONE
-admissibility predicate (`blocks_wf`: every jump literal and in-range) with
-GENERAL theorems over the whole class — never-stuck progress for all wf CFGs,
-and the wf/deep-IO classification of the live demos falls out as instances,
-not as N hand lemmas.  Demos/golden stay sanity checks, never evidence.
+admissibility predicate `blocks_wf blocks start`, specified at the REAL
+boundary: (i) SEMANTIC jump safety — for every block b in the list and EVERY
+world w, run_io b w is Done, a panic, or an IN-RANGE Jump (blocks are arbitrary
+IO Next, so a syntactic jump-literal check cannot carry this; the emitter's
+literal/in-range checks at go.ml:3690/3702 are the TRUSTED mirror, not the
+proof) — and (ii) an in-range start pc.  Over that class: a never-stuck
+progress theorem for ALL wf CFGs; live demos are classified only as instances
+of the theorem or explicit deep-IO non-core exclusions.  Demos/golden stay
+sanity checks, never evidence.
 GATE AUTHORITY: `plugin/fuel-gate.sh` is the mechanical authority for the fuel gate
 (its class definitions are the spec; the selftest is a regression matrix derived from
 the same variables); this file only summarizes it.  The executable expression
@@ -30,8 +35,8 @@ eval_cmd, equivalence both directions, gated; real no_heap totality), cmd_unifie
    missing-block default died by deletion); `run_blocks` = emission-only marker
    (`run_blocks_never_ret`); fuel gate wired in BOTH Makefile and the Dockerfile
    prover stage; manifest ratcheted to GoPrint.v 22 / builtins.v 2 / main.v 3 /
-   GoSem.v 1.  REMAINING here: the per-demo pairing + classification gate (see
-   STATUS above).
+   GoSem.v 1.  REMAINING here: the holistic CFG theorem of the STATUS section —
+   `blocks_wf` + class-wide progress (no per-demo machinery of any kind).
 2. **GoPrint.v** — LEXER DONE: `lex` is Acc-structural on input length and the ENTIRE
    lemma suite is stated over `lex` itself (`lex_acc_pi` proof-irrelevance + the
    `lex_eq_*` one-step unfold equations; no budget premise, no auxiliary evaluator).
