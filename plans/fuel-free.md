@@ -79,9 +79,20 @@ Open items it adds, in its recommended order:
    `sblocks_forward_terminates` (the in-range check AND the forward-jump check together
    ⇒ every IN-RANGE configuration evaluates, for every world — the checked instance of
    `blocks_ranked` with rank `len - pc`).  Conditional jumps stay OUTSIDE this class (computed targets);
-   they keep the per-program certificate route.  NEXT here (own design): static CYCLE
-   detection ⇒ a checked `blocks_spinning` divergence certificate, then widening the
-   body/terminator syntax toward the emitter's conditional-jump shape.
+   they keep the per-program certificate route.  NEXT here (designed, not yet built): the static-cycle DIVERGENCE
+   certificate.  ⚠ Key honesty point: a static cycle alone does NOT certify divergence —
+   an [sb_body] may PANIC, and a panicking run STOPS (OPanic is an outcome, not a step).
+   The certificate therefore pairs (a) the DECIDED graph fact — following [sb_term]
+   jumps from [pc], [Done] is never reached; decidable by walking [length sbs + 1]
+   static steps and applying PIGEONHOLE (a revisit among <= len distinct pcs proves the
+   trail is ultimately cyclic — a completeness THEOREM about a finite graph, never a
+   semantic budget) — with (b) a PER-PROGRAM totality obligation for the bodies on the
+   reachable set ([forall w, exists w', run_io (sb_body b) w = ORet tt w']).  Soundness:
+   (a)+(b) ⇒ [blocks_spinning] at inv := membership in the reachable pc set ⇒
+   [blocks_diverge] for every world, via [blocks_spinning_diverges].  After that:
+   widening the terminator syntax toward the emitter's conditional-jump shape (targets
+   as a FINITE SET of static labels chosen by the body's boolean — keeps target
+   admissibility decidable while admitting loops-with-exit).
 2. **Quarantine `run_blocks` demos harder** — integration/log-diff evidence only.
 3. **Plugin starving** (standing): feature-by-feature GoAst -> GoPrint -> GoSafe -> GoEmit.
 4. **Gated public surfaces**: every doc-cited theorem inside a manifest-gated surface.
