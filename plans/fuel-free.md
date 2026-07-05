@@ -1,20 +1,18 @@
 # Fuel-free semantics — remaining sites
 
-★STEERING MEMO IS LAW (boss, 2026-07-05; full text:
-`/home/rhencke/.claude/uploads/195aa470-10b2-4d8e-a054-896e00718775/59081153-claude_fuel_removal_steering.txt`
-— re-read it before working this arc):
-1. SEMANTIC FUEL FIRST — builtins' `run_blocks_fuel`/`block_fuel := 1000` outranks all
-   remaining parser cleanup (it CHANGES SEMANTICS: emitted Go may diverge while the model
-   caps out).  Authority = relational `blocks_eval` (Inductive) + coinductive
-   `blocks_diverge`; do NOT build an unfueled total runner for divergent CFGs; per-demo
-   termination certificates; out-of-range label lookup must NEVER default to Done.
-2. The executable expression parser is NOT sacred — prefer relational/canonical-token
-   proofs (`parses_expr : Inductive`, `gtokens_inj`) over rescuing it with WF recursion;
-   the guarantee is printed syntax faithful+recoverable, not "a parser succeeds".
-   (The merged-worker WF design below stays as the fallback if the executable parser
-   earns its keep.)
-3. Gates: during migration a NO-GROWTH gate on fuel-shaped terms in certified .v files;
-   zero-tolerance after.  Certified modules never import demos/bounded runners.
+★STEERING MEMO (binding; versioned at `plans/fuel-removal-steering.txt` — read it first):
+SEMANTIC fuel outranks parser cleanup — builtins' `run_blocks_fuel`/`block_fuel := 1000`
+CHANGES SEMANTICS (emitted Go may diverge while the model caps out), and `block_nth`
+maps a missing label to `ret Done` (silent success on invalid control flow).  Both are
+LIVE today and are the item-1 target below.  The REPLACEMENT must be: a relational
+`blocks_eval` (Inductive) + a coinductive `blocks_diverge` as the authoritative
+semantics, per-admitted-program termination certificates, NO unfueled total runner for
+divergent CFGs, and label lookup that can never default to success.  The executable
+expression parser is not sacred: prefer relational/canonical-token proofs
+(`parses_expr`, `gtokens_inj`); the merged-worker WF design below is the fallback.
+REQUIRED GATES (to add, not yet present): during migration a no-growth count of
+fuel-shaped terms in certified .v files; zero-tolerance after.  Certified modules must
+never import demos or bounded runners.
 
 GOAL (boss audit, P0): no fuel, gas, step budget, or bound under any name, anywhere.
 LANDED (8cbe20d + follow-up): cmd.v (structural run_cmd + unwind_defers derivations +
@@ -24,7 +22,12 @@ eval_cmd, equivalence both directions, gated; real no_heap totality), cmd_unifie
 
 ## Remaining
 
-1. **GoPrint.v** — LEXER DONE: `lex` is Acc-structural on input length and the ENTIRE
+1. **builtins.v — FIRST (semantic fuel)**: `run_blocks_fuel`/`block_fuel`
+   (the goto-CFG runner — genuine partiality): replace with a step relation +
+   termination-certificate execution (Acc-based); each CFG demo supplies its concrete
+   derivation; the plugin erases the proof argument (arity update, fail-closed;
+   plugin/go.ml knows the current names).
+2. **GoPrint.v** — LEXER DONE: `lex` is Acc-structural on input length and the ENTIRE
    lemma suite is stated over `lex` itself (`lex_acc_pi` proof-irrelevance + the
    `lex_eq_*` one-step unfold equations; no budget premise, no auxiliary evaluator).
    TYPE PARSER DONE (59aeabb): `parse_gty` is Acc-structural on token length (the result
@@ -62,11 +65,6 @@ eval_cmd, equivalence both directions, gated; real no_heap totality), cmd_unifie
    2026-07-05: expressiveness may be sacrificed; fuel is not ironclad).  The
    round-trip theorems keep their statements; the budget premises disappear.
    printer.ml regenerates; golden byte-identical.
-2. **builtins.v — NOW FIRST (steering memo §CURRENT PRIORITY)**: `run_blocks_fuel`/`block_fuel`
-   (the goto-CFG runner — genuine partiality): replace with a step relation +
-   termination-certificate execution (Acc-based); each CFG demo supplies its concrete
-   derivation; the plugin erases the proof argument (arity update, fail-closed;
-   plugin/go.ml knows the current names).
 3. **plugin/printer.ml / plugin/go.ml**: regenerate / update after 1-2 so no fuel
    remnant survives in extracted or trusted code.
 4. **Word sweep**: repo-wide `fuel` grep must come back empty (comments included).
