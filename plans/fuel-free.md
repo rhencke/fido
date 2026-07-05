@@ -10,16 +10,20 @@ semantics, per-admitted-program termination certificates, NO unfueled total runn
 divergent CFGs, and label lookup that can never default to success.  The executable
 expression parser is not sacred: prefer relational/canonical-token proofs
 (`parses_expr`, `gtokens_inj`); the merged-worker WF design below is the fallback.
-REQUIRED GATES (to add, not yet present; identifier/context-scoped, NEVER a bare
-word grep): during migration a no-growth count — zero-tolerance after — of
-BUDGET-shaped identifiers in certified .v files: `fuel`, `gas`, `budget`,
-`max_steps`, `max_depth`, `depth_limit`, `cycle_limit`, `run_for`,
-`run_blocks_fuel`, `block_fuel`, and bounded-evaluator names.  EXPLICITLY OUTSIDE
-the gate: relational small-step names (`step`, `steps`, `ustep`, trace-step
-relations — they ARE the prescribed replacement architecture), Acc/length
-well-founded measures, and non-budget uses of `depth`.  The gate ships with
-fixtures proving `Inductive step`/`ustep` pass while `run_blocks_fuel`/`max_steps`
-fail.  Certified modules must never import demos or bounded runners.
+REQUIRED GATE (NOT YET IMPLEMENTED — nothing is enforced today; it MUST land with
+the builtins purge, wired into `make check`, before that purge is called done).
+Shape: an identifier-scoped no-growth ratchet — zero-tolerance after migration —
+over certified .v files, covering the memo's renamed-bound aliases as
+word-boundary identifiers: `fuel`, `gas`, `budget`, `max_steps`, `max_depth`,
+`depth_limit`, `cycle_limit`, `step_limit`, `steps_left`, `run_for`, `countdown`,
+`allowance`, `iteration_cap`, `run_blocks_fuel`, `block_fuel`, bounded-evaluator
+names, and any parser "bound"/"capacity" budget parameter.  EXPLICITLY OUTSIDE the
+gate (word-boundary safe): the bare relational names `step`/`steps`/`ustep`
+(small-step relations ARE the prescribed architecture), Acc/length well-founded
+measures, and non-budget `depth`.  Its REQUIRED self-test (to be built with it,
+not existing yet): fixtures where `Inductive step`/`ustep` PASS and
+`run_blocks_fuel`/`max_steps`/`countdown`/`allowance` FAIL.  Certified modules
+must never import demos or bounded runners.
 
 GOAL (boss audit, P0): no fuel, gas, step budget, or bound under any name, anywhere.
 LANDED (8cbe20d + follow-up): cmd.v (structural run_cmd + unwind_defers derivations +
