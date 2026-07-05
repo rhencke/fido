@@ -1,7 +1,7 @@
 # Fuel-free semantics — remaining sites
 
-★STEERING MEMO: `plans/fuel-removal-steering.txt` is the ORIGINAL directive (verbatim,
-with a fulfilled-status note); THIS file is the one current authority.
+★THIS file is the ONE active steering document for the fuel purge.  The boss's
+original memo is FULFILLED and archived verbatim in `LESSONS.md` (archaeology).
 STATUS: semantic fuel is DELETED (7e5f754) — `blocks_eval` (Inductive) +
 `blocks_diverge` (CoInductive) are the authoritative CFG semantics; the fueled
 runner, its cap, and the silent missing-block default are gone; `run_blocks` is an
