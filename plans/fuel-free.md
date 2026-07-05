@@ -107,7 +107,7 @@ grammar; see item 2's ★AUTHORITY note).  Open items it adds, in its recommende
    then `goto Lt`/return, `CBIf body t1 t2` = bind the boolean then
    `if v { goto L1 } else { goto L2 }`; REJECT (fail-closed `unsupported`) any
    non-literal list spine, non-literal target, or out-of-range entry — mirroring the
-   run_blocks arm's rejections.  (c) Migration per the starve policy: the landing
+   run_blocks arm's rejections.  (c) Deletion per the starve policy: the landing
    REPLACES at least one `run_blocks` demo (e.g. `cond_goto_demo`) with a `run_cblocks`
    equivalent and DELETES the replaced demo; golden updates intentionally.
    (d) Negtests: a non-literal CBlock spine aborts; an out-of-range static target

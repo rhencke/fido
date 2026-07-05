@@ -77,7 +77,7 @@ Example demo_emit_bytes :
 Proof. vm_compute; reflexivity. Qed.
 
 (** Certified-emission witnesses for the two statement forms [demo_prog] does not carry
-    ([print], [panic]) — MIGRATION.md's covered row cites these; each pins the exact bytes
+    ([print], [panic]) — DELETION.md's covered row cites these; each pins the exact bytes
     emitted through the certificate path. *)
 Definition print_prog : Program :=
   mkProgram (mkIdent "main" eq_refl)

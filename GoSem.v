@@ -1236,7 +1236,7 @@ Proof. repeat split; vm_compute; reflexivity. Qed.
     [reval_val_runfloat_none] / [denote_expr_conv_float_src_absent]; supported-side pin
     [runtime_float_source_conv_absent]), and [cap] of a slice literal [cap_slicelit_e]
     (supported + certified-emitted — GoEmit's demo prints it — yet NO denotation arm; the
-    MIGRATION.md cap row cites this member).  Each member is pinned supported AND undenoted AND
+    DELETION.md cap row cites this member).  Each member is pinned supported AND undenoted AND
     eval-level absent.  (SIGNED-ZERO constant folds are NOT members: the checker's authority is
     the CONSTANT-fold layer ([sf_const_binop]/[sf_const_neg] — zero-sign erasure), so
     [-(float64(0))] and the zero-binop shapes fold to [+0] and DENOTE — [negzero_const_runs] +

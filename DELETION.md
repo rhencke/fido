@@ -1,9 +1,10 @@
-# Legacy → certified-emission migration ledger
+# The trusted-path DELETION ledger
 
-Live status of starving `plugin/go.ml` (policy: `ARCHITECTURE.md` §3). A row is **covered**
-only under §3's five-layer definition; anything less is **partial**. Legacy demos live in
-`main.v` (the golden suite for the still-live plugin output). Keep this file SHORT: one row
-per feature group; compress when it grows.
+What the certified path covers, and which trusted-path code/demos that coverage makes
+deletable (policy: `ARCHITECTURE.md` §3 — there is no transition; superseded paths are
+deleted). A row is **covered** only under §3's five-layer definition; anything less is
+**partial**. Trusted-path demos live in `main.v`. Keep this file SHORT: one row per
+feature group; compress when it grows.
 
 | Feature group | Legacy location (main.v) | Certified equivalent | Status | Deletion action |
 |---|---|---|---|---|

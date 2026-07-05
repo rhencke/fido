@@ -51,10 +51,13 @@ through an escaping printer) and validated identifiers. Forbidden: raw
 expr/stmt/type/decl strings and any constructor smuggling source text. A supported
 construct gets a constructor; else it is unrepresentable or rejected by the builder.
 
-**`GoPrint.v` — printing + syntax faithfulness (imports `GoAst`).** Two strengths, never
-conflated: **expressions** get a full parse round-trip `parse_str (gprint 0 e) = Some (e,
-[])` (+ `gprint_inj`) over a real lexer + precedence parser — self-consistency of the
-**Rocq grammar**, NOT Go-compiler acceptance; **programs/statements** get
+**`GoPrint.v` — printing + syntax faithfulness (imports `GoAst`).** The intended syntax
+AUTHORITY is the relational/canonical grammar layer (`CanonExpr`-shaped relations +
+`gprint_*_canonical` + `canon_*_unique` + lexical faithfulness — CLAUDE.md "Syntax
+authority"); it does not exist yet. Today's gated facts, never conflated: **expressions**
+carry a parse round-trip `parse_str (gprint 0 e) = Some (e, [])` (+ `gprint_inj`) over an
+executable lexer + parser — DERIVED TOOLING evidence of Rocq-grammar self-consistency,
+NOT Go-compiler acceptance and not the endpoint authority; **programs/statements** carry
 print-INJECTIVITY only (`print_program_inj`/`print_stmt_inj`). Purely syntactic.
 
 **`GoSem.v` — behavioral bridge from `GoAst` into the existing proof models — SLICE 1.**
@@ -122,24 +125,23 @@ the trust base.
 
 ---
 
-## 3. Legacy status and transition discipline
+## 3. The trusted plugin and the deletion law
 
-`plugin/go.ml` is **trusted legacy scaffolding.** It may remain only to keep demos
-building; it **may not define the correctness claim.**
+**There is no transition (CLAUDE.md's law governs).** `plugin/go.ml` is **trusted and
+therefore not part of the intended proof architecture.** It never defines a correctness
+claim, and nothing is preserved for a migration's sake — a weak path is deleted the moment
+certified architecture supersedes it.
 
-- New architectural work must **reduce** reliance on Legacy. A patch that makes `go.ml`'s
-  lowering nicer is moving the wrong direction.
-- The old path builds demos; the new path defines the claim; the old path gets deleted as
-  the new path subsumes it.
-- No parallel universes beside the spine.
-- **Legacy starvation rule:** no new architecture, safety claim, or legacy
-  demo touches `plugin/go.ml`; an existing legacy demo grows only to preserve current
-  build coverage. A feature is **covered** only when GoAst represents it, GoPrint emits
-  it, GoSafe admits it appropriately, GoEmit emits it through the certificate, and GoSem /
-  GoSemSafe models it exactly or rejects honestly — one layer alone is not coverage. Each
-  new certified feature names the legacy demos it supersedes and deletes/shrinks them in
-  the same patch when possible; a `go.ml` branch whose only load is superseded coverage is
-  a deletion candidate. Live status: `MIGRATION.md`.
+- No new architecture, safety claim, or demo touches `plugin/go.ml`; a patch that makes
+  its lowering nicer is moving the wrong direction.
+- No parallel universes beside the spine — no second authority for syntax, semantics,
+  emission, safety, termination, or divergence.
+- A feature is **covered** only when GoAst represents it, GoPrint emits it, GoSafe admits
+  it appropriately, GoEmit emits it through the certificate, and GoSem/GoSemSafe models it
+  exactly or rejects honestly — one layer alone is not coverage. Each certified feature
+  names the trusted-path demos it supersedes and DELETES them in the same patch; a
+  `go.ml` branch whose only load is superseded coverage is a deletion candidate. Live
+  ledger: `DELETION.md`.
 
 Honest current status: the spine compiles zero-axiom and `main.v` builds a
 `GoAst.Program` emitted ONLY through `EmittableProgram`; but the repo's `main.go` is STILL
