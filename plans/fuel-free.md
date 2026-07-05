@@ -1,5 +1,21 @@
 # Fuel-free semantics — remaining sites
 
+★STEERING MEMO IS LAW (boss, 2026-07-05; full text:
+`/home/rhencke/.claude/uploads/195aa470-10b2-4d8e-a054-896e00718775/59081153-claude_fuel_removal_steering.txt`
+— re-read it before working this arc):
+1. SEMANTIC FUEL FIRST — builtins' `run_blocks_fuel`/`block_fuel := 1000` outranks all
+   remaining parser cleanup (it CHANGES SEMANTICS: emitted Go may diverge while the model
+   caps out).  Authority = relational `blocks_eval` (Inductive) + coinductive
+   `blocks_diverge`; do NOT build an unfueled total runner for divergent CFGs; per-demo
+   termination certificates; out-of-range label lookup must NEVER default to Done.
+2. The executable expression parser is NOT sacred — prefer relational/canonical-token
+   proofs (`parses_expr : Inductive`, `gtokens_inj`) over rescuing it with WF recursion;
+   the guarantee is printed syntax faithful+recoverable, not "a parser succeeds".
+   (The merged-worker WF design below stays as the fallback if the executable parser
+   earns its keep.)
+3. Gates: during migration a NO-GROWTH gate on fuel-shaped terms in certified .v files;
+   zero-tolerance after.  Certified modules never import demos/bounded runners.
+
 GOAL (boss audit, P0): no fuel, gas, step budget, or bound under any name, anywhere.
 LANDED (8cbe20d + follow-up): cmd.v (structural run_cmd + unwind_defers derivations +
 eval_cmd, equivalence both directions, gated; real no_heap totality), cmd_unified.v
@@ -46,7 +62,7 @@ eval_cmd, equivalence both directions, gated; real no_heap totality), cmd_unifie
    2026-07-05: expressiveness may be sacrificed; fuel is not ironclad).  The
    round-trip theorems keep their statements; the budget premises disappear.
    printer.ml regenerates; golden byte-identical.
-2. **builtins.v** (`n_dec_aux` LANDED — the shared digits.v authority): `run_blocks_fuel`/`block_fuel`
+2. **builtins.v — NOW FIRST (steering memo §CURRENT PRIORITY)**: `run_blocks_fuel`/`block_fuel`
    (the goto-CFG runner — genuine partiality): replace with a step relation +
    termination-certificate execution (Acc-based); each CFG demo supplies its concrete
    derivation; the plugin erases the proof argument (arity update, fail-closed;
