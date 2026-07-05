@@ -295,7 +295,7 @@ Qed.
     [hex_escaped_byte]s (so [esc_byte] really takes its hex fallback), and a RAW body byte in [32,126]
     minus {34,92}.  Rejected: truncated or unknown escapes, a [\x] whose two chars are not both lower-case
     hex, a [\xHH] of a named-escape/printable byte, and any raw byte [esc_byte] would have escaped.
-    Structural on sub-terms of [s] (no fuel needed); the ONE decode authority. *)
+    Structural on sub-terms of [s]; the ONE decode authority. *)
 Fixpoint unescape_opt (s : string) : option string :=
   match s with
   | EmptyString => Some EmptyString
@@ -545,7 +545,7 @@ Qed.
     (so an escaped dquote, backslash-then-34, is consumed, never mistaken for the terminator); a bare dquote
     (34) closes; any other byte is body.  This only SPLITS at the terminator — DECODING reuses [unescape_opt]
     (via [esc_string_roundtrip_opt]), so there is exactly ONE un-escaper.
-    Structural on [s] (each recursive call is on a sub-term), so no fuel is needed (like [unescape_opt]). *)
+    Structural on [s] (each recursive call is on a sub-term, like [unescape_opt]). *)
 Fixpoint scan_quote (s : string) : option (string * string) :=
   match s with
   | EmptyString => None                                            (* unterminated literal *)
@@ -1118,7 +1118,7 @@ Definition lex (s : string) : option (list Token) := lex_acc s (lt_wf (String.le
 (** [lex_acc] is PROOF-IRRELEVANT in its termination certificate: any two [Acc] proofs give the same
     result (strong induction on the input length; every branch steps both sides in lockstep and the
     recursive certificates fall to the IH).  This is what lets the one-step unfold equations below be
-    stated over [lex] ITSELF — no auxiliary evaluator, no step budget, nothing fuel-shaped. *)
+    stated over [lex] ITSELF — no auxiliary evaluator and no step budget of any kind. *)
 Lemma lex_acc_pi : forall n s, String.length s < n ->
   forall a1 a2 : Acc lt (String.length s), lex_acc s a1 = lex_acc s a2.
 Proof.
@@ -2091,8 +2091,6 @@ Lemma infix_op_token : forall o, infix_op (op_token o) = Some o.
 Proof. destruct o; reflexivity. Qed.
 
 
-(** ---- LEXER FUEL MONOTONICITY ---- adding fuel never changes a [Some] answer; bridges the fuel when
-    composing [lex] over a concatenation. *)
 (** ---- LEXER ROUND-TRIP groundwork ---- the seam predicate + the scanner-splitting lemmas.
     [clean_start rest] = the next char cannot EXTEND an identifier/number token (it is not an id-char), so
     a token ending just before [rest] is complete — exactly the boundary [gprint] emits between subtrees
