@@ -11,10 +11,9 @@ eval_cmd, equivalence both directions, gated; real no_heap totality), cmd_unifie
 1. **GoPrint.v** — LEXER DONE: `lex` is Acc-structural on input length and the ENTIRE
    lemma suite is stated over `lex` itself (`lex_acc_pi` proof-irrelevance + the
    `lex_eq_*` one-step unfold equations; no budget premise, no auxiliary evaluator).
-   REMAINING: the parser — inventory (2026-07-05):
-   - `parse_gty fuel` (~1386) + `parse_gty_S` + `tsize`/`tsize_le_len` budget; the
-     round-trip's `tsize c <= F` premises (`parse_gty_roundtrip`, `parse_convty_roundtrip`)
-     and the `S (length toks)` instantiations (`parse_gty_print_ty`, `parse_conv_print`).
+   TYPE PARSER DONE (59aeabb): `parse_gty` is Acc-structural on token length (the result
+   carries its suffix bound for the map arm's second call); `parse_gty_roundtrip` is
+   premise-free; `parse_convty` fuel-free.  REMAINING:
    - the 10-way mutual `parse_expr/parse_primary/parse_atom/parse_postfix/parse_args(_tl)/
      parse_elems(_tl)/parse_map_elems(_tl)/parse_climb` on fuel (~1728-1905) +
      `parse toks := parse_expr (3 * List.length toks + 4) 0 toks` + the `*_S` unfold
