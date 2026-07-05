@@ -3,7 +3,7 @@ IMAGE    := fido
 TAG      ?= latest
 PLATFORM ?= linux/$(shell uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
 
-.PHONY: builder build bake push run run-extracted extract go-run install-hooks check golden negtest printer printer-verify emit-verify emit-demo smart-ctor-gate axiom-authority-selftest prover-log go-verify print-goimage toolchain-gate toolchain-selftest go-verify-selftest
+.PHONY: builder build bake push run run-extracted extract go-run install-hooks check golden negtest printer printer-verify emit-verify emit-demo smart-ctor-gate axiom-authority-selftest prover-log go-verify print-goimage toolchain-gate toolchain-selftest go-verify-selftest fuel-gate
 .DEFAULT_GOAL := build
 
 # THE ONE Go-toolchain image authority, DIGEST-PINNED (mutable tags drift; these runs justify

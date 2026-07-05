@@ -23,11 +23,14 @@ constants named *fuel*/*limit*/*budget*/*cap*.  Small-step RELATION declarations
 fixture; the FAIL matrix detects block_fuel := 1000, Fixpoint run_blocks_fuel,
 run_blocks := run_blocks_fuel block_fuel, max_steps/countdown/allowance
 parameters, parser need/limit/capacity/bound/parse_bound counters, steps_left,
-max_iter/max_iterations, Fixpoint run (steps : nat), and loop_cap.  Ratchet:
-count may never exceed `plugin/fuel-gate.baseline` (34 at landing — the live
-parser + builtins fuel); bless DOWN only; zero-tolerance = baseline 0 after the
-purge.  Still to add with the builtins landing: the Dockerfile prover-stage call
-(the script is the ONE authority; Makefile calls it today).  Certified modules
+max_iter/max_iterations, Fixpoint run (steps : nat), and loop_cap.  Ratchet: a PER-FILE occurrence MANIFEST (`plugin/fuel-gate.baseline`) — counted
+per occurrence, not per line, so a new identifier cannot hide on a matching line
+or behind a deletion in another file; bless is DOWN-ONLY (refuses on growth).
+Manifest at landing: GoPrint.v 22 (parser fuel), builtins.v 12 (run_blocks_fuel/
+block_fuel), main.v 3 (CFG demos), GoSem.v 1 — every entry dies with the purge;
+zero-tolerance = an empty manifest.  Still to add with the builtins landing: the
+Dockerfile prover-stage call (the script is the ONE authority; Makefile calls it
+today).  Certified modules
 must never import demos or bounded runners.
 
 GOAL (boss audit, P0): no fuel, gas, step budget, or bound under any name, anywhere.

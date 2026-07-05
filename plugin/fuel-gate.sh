@@ -1,75 +1,95 @@
 #!/bin/sh
 # fuel-gate.sh — the budget-identifier ratchet (steering memo, plans/fuel-free.md "REQUIRED GATE").
 #
-# IDENTIFIER-AND-CONTEXT scoped over the root *.v files (comments stripped first, so
+# IDENTIFIER-AND-CONTEXT scoped over the scanned *.v files (comments stripped first, so
 # prose mentions are not counted — the gate is code-level, never a prose linter):
-#   CLASS A (unconditional budget identifiers, word-boundary):
+#   CLASS A (unconditional budget identifiers, word-boundary, counted PER OCCURRENCE):
 #     fuel gas run_blocks_fuel block_fuel countdown allowance step_limit steps_left
 #     max_steps max_depth depth_limit cycle_limit iteration_cap max_iter max_iterations
 #     run_for parse_bound
-#   CLASS B (nat-typed budget BINDERS in parens — catches step/steps/budget/limit/need/
-#     capacity/bound USED AS an execution-cap parameter, while relation declarations
-#     like [Inductive steps : nat -> ...] pass):
-#     \((budget|limit|need|capacity|bound|step|steps)[ \t]*:[ \t]*nat\)
-#   CLASS C (top-level nat cap CONSTANTS whose name embeds fuel/limit/budget/cap):
-#     (Definition|Let) <name-containing-fuel|limit|budget|cap> : nat
-# Small-step RELATIONS (Inductive/CoInductive step/steps/ustep) are NOT matched by any
-# class — they are the prescribed replacement architecture, not fuel.
+#   CLASS B (budget-named binders in ( ) or { } groups typed nat — grouped and implicit
+#     binders included, so [(need limit capacity bound : nat)] and [{steps : nat}] count;
+#     relation declarations like [Inductive steps : nat -> ...] have no bracket group and pass):
+#   CLASS C (top-level Definition/Let whose NAME contains a budget SEGMENT
+#     fuel|limit|budget|cap, underscore-bounded so e.g. [escape] never matches; the type
+#     annotation is NOT required, so [Definition loop_cap := 9] counts):
+# Small-step RELATIONS (Inductive/CoInductive step/steps/ustep) match no class.
 #
-# Modes:
-#   (none)    ratchet: total count must not EXCEED plugin/fuel-gate.baseline
-#   bless     rewrite the baseline to the current (lower) count
-#   selftest  fixture matrix in a temp dir: PASS/FAIL cases per the spec
+# BASELINE = a PER-FILE occurrence MANIFEST (plugin/fuel-gate.baseline: "count<TAB>file").
+# The ratchet fails if ANY file's count exceeds its manifest entry (a new fuel site cannot
+# hide behind a deletion elsewhere, nor behind an already-matching line).  bless is
+# DOWN-ONLY: it refuses if any file's count grew.
+#
+# Modes: (none) ratchet | bless (down-only) | selftest (fixture matrix).
 set -eu
 cd "$(dirname "$0")/.."
+SCAN_DIR="${FG_SCAN_DIR:-.}"
+BASELINE="${FG_BASELINE:-plugin/fuel-gate.baseline}"
 
 A='\b(fuel|gas|run_blocks_fuel|block_fuel|countdown|allowance|step_limit|steps_left|max_steps|max_depth|depth_limit|cycle_limit|iteration_cap|max_iter|max_iterations|run_for|parse_bound)\b'
-B='\((budget|limit|need|capacity|bound|step|steps)[[:space:]]*:[[:space:]]*nat\)'
-C='\b(Definition|Let)[[:space:]]+[A-Za-z0-9_]*(fuel|limit|budget|cap)[A-Za-z0-9_]*[[:space:]]*:[[:space:]]*nat\b'
+B='[({][^(){}:]*\b(budget|limit|need|capacity|bound|step|steps)\b[^(){}:]*:[[:space:]]*nat'
+C="\\b(Definition|Let)[[:space:]]+([A-Za-z0-9']+_)*(fuel|limit|budget|cap)(_[A-Za-z0-9']+)*\\b"
 
-# strip (possibly nested) Rocq comments, then count class matches.
-count_file() {
+strip_comments() {
   awk 'BEGIN { d = 0 }
-       { n = split($0, ch, "");
-         out = "";
+       { n = length($0); out = "";
          for (i = 1; i <= n; i++) {
            two = substr($0, i, 2);
            if (two == "(*") { d++; i++; continue }
            if (two == "*)" && d > 0) { d--; i++; continue }
-           if (d == 0) out = out ch[i];
+           if (d == 0) out = out substr($0, i, 1);
          }
-         print out }' "$1" \
-  | grep -E -c "$A|$B|$C" || true
+         print out }' "$1"
 }
 
-count_all() {
-  total=0
-  for f in ./*.v; do
+count_file() {  # per-OCCURRENCE count across the three classes
+  s=$(strip_comments "$1")
+  a=$(printf '%s\n' "$s" | grep -oE "$A" | wc -l)
+  b=$(printf '%s\n' "$s" | grep -oE "$B" | wc -l)
+  c=$(printf '%s\n' "$s" | grep -oE "$C" | wc -l)
+  echo $((a + b + c))
+}
+
+manifest() {  # "count<TAB>file" for every scanned file with count > 0, sorted by file
+  for f in "$SCAN_DIR"/*.v; do
+    [ -e "$f" ] || continue
     c=$(count_file "$f")
-    total=$((total + c))
-  done
-  echo "$total"
+    [ "$c" = "0" ] || printf '%s\t%s\n' "$c" "$(basename "$f")"
+  done | LC_ALL=C sort -k2
+}
+
+grew() {  # exit 0 if any file's current count exceeds its baseline entry
+  manifest | while IFS="$(printf '\t')" read -r c f; do
+    b=$(awk -F'\t' -v f="$f" '$2 == f { print $1 }' "$BASELINE")
+    [ -n "$b" ] || b=0
+    if [ "$c" -gt "$b" ]; then
+      echo "fido: FUEL GATE — $f has $c budget occurrences (baseline $b)"
+    fi
+  done | grep . >&2
 }
 
 case "${1:-run}" in
   bless)
-    count_all > plugin/fuel-gate.baseline
-    echo "fido: fuel-gate baseline blessed: $(cat plugin/fuel-gate.baseline)"
+    if [ -f "$BASELINE" ] && grew; then
+      echo "fido: fuel-gate bless REFUSED — the count grew somewhere; bless is DOWN-ONLY (delete the fuel, don't ratify it)"
+      exit 1
+    fi
+    manifest > "$BASELINE"
+    echo "fido: fuel-gate baseline blessed ($(wc -l < "$BASELINE") files carry fuel debt)"
     ;;
   selftest)
     tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
-    # PASS fixtures: small-step relation declarations + non-budget uses — count must be 0.
     cat > "$tmp/pass.v" <<'EOF'
 Inductive step : nat -> nat -> Prop := | step_intro : forall n, step n n.
 Inductive steps : nat -> Prop := | steps_zero : steps 0.
 Inductive ustep : Type := | u_one.
+Definition escape (n : nat) : nat := n.
 Lemma acc_measure : forall s : list nat, Acc lt (length s) -> True.
 Proof. auto. Qed.
-(* a comment mentioning fuel and block_fuel and max_steps is prose, not code *)
+(* prose mentions of fuel, block_fuel and max_steps do not count *)
 EOF
     p=$(count_file "$tmp/pass.v")
     [ "$p" = "0" ] || { echo "fido: fuel-gate SELFTEST FAILED — PASS fixture counted $p"; exit 1; }
-    # FAIL fixtures: every canonical semantic-fuel shape must be detected.
     i=0
     while IFS= read -r line; do
       i=$((i + 1))
@@ -81,25 +101,37 @@ Definition block_fuel : nat := 1000.
 Fixpoint run_blocks_fuel (fuel start : nat) (blocks : list nat) : nat := 0.
 Definition run_blocks := run_blocks_fuel block_fuel.
 Definition f (max_steps : nat) (countdown : nat) (allowance : nat) : nat := 0.
-Definition parse (need : nat) (limit : nat) (capacity : nat) (bound : nat) : nat := parse_bound.
+Definition parse (need limit capacity bound : nat) : nat := parse_bound.
 Definition g (steps_left : nat) (max_iter : nat) (max_iterations : nat) : nat := 0.
 Fixpoint run (steps : nat) : nat := 0.
-Definition loop_cap : nat := 9.
+Definition h {steps : nat} : nat := 0.
+Definition loop_cap := 9.
 EOF
-    echo "fido: fuel-gate selftest OK (1 PASS fixture clean, $i FAIL fixtures detected)"
+    # per-OCCURRENCE counting: one line, four class-A identifiers, count must be 4
+    printf 'Definition z := fuel + gas + max_steps + run_for.\n' > "$tmp/multi.v"
+    m=$(count_file "$tmp/multi.v")
+    [ "$m" = "4" ] || { echo "fido: fuel-gate SELFTEST FAILED — multi-occurrence line counted $m, want 4"; exit 1; }
+    # manifest ratchet: a deletion in one file must NOT excuse a new site in another
+    mkdir "$tmp/scan"
+    printf 'Definition block_fuel : nat := 1.\nDefinition x := gas.\n' > "$tmp/scan/a.v"
+    ( FG_SCAN_DIR="$tmp/scan" FG_BASELINE="$tmp/base" sh plugin/fuel-gate.sh bless >/dev/null )
+    printf 'Definition block_fuel : nat := 1.\n' > "$tmp/scan/a.v"   # one removed...
+    printf 'Definition y := countdown.\n' > "$tmp/scan/b.v"          # ...one added elsewhere
+    if ( FG_SCAN_DIR="$tmp/scan" FG_BASELINE="$tmp/base" sh plugin/fuel-gate.sh run >/dev/null 2>&1 ); then
+      echo "fido: fuel-gate SELFTEST FAILED — cross-file swap passed the ratchet"; exit 1
+    fi
+    # bless is DOWN-ONLY: with the grown scan dir, bless must refuse
+    if ( FG_SCAN_DIR="$tmp/scan" FG_BASELINE="$tmp/base" sh plugin/fuel-gate.sh bless >/dev/null 2>&1 ); then
+      echo "fido: fuel-gate SELFTEST FAILED — bless ratified growth"; exit 1
+    fi
+    echo "fido: fuel-gate selftest OK (pass fixture clean; $i shapes + multi-count + swap + bless-down enforced)"
     ;;
   run|*)
-    [ -f plugin/fuel-gate.baseline ] || { echo "fido: fuel-gate: missing plugin/fuel-gate.baseline (run: sh plugin/fuel-gate.sh bless)"; exit 1; }
-    base=$(cat plugin/fuel-gate.baseline)
-    cur=$(count_all)
-    if [ "$cur" -gt "$base" ]; then
-      echo "fido: FUEL GATE FAILED — budget-identifier count grew: $cur > baseline $base (no new fuel under any name; see plans/fuel-removal-steering.txt)"
+    [ -f "$BASELINE" ] || { echo "fido: fuel-gate: missing $BASELINE (run: sh plugin/fuel-gate.sh bless)"; exit 1; }
+    if grew; then
+      echo "fido: FUEL GATE FAILED — no new fuel under any name (see plans/fuel-removal-steering.txt)"
       exit 1
     fi
-    if [ "$cur" -lt "$base" ]; then
-      echo "fido: fuel-gate OK ($cur <= $base) — count DROPPED; ratchet down with: sh plugin/fuel-gate.sh bless"
-    else
-      echo "fido: fuel-gate OK ($cur <= $base)"
-    fi
+    echo "fido: fuel-gate OK (no file above its baseline manifest entry)"
     ;;
 esac
