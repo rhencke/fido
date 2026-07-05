@@ -46,8 +46,10 @@ CSEGS='fuel|limit|budget'
 ALLOWCAP='cap|cap_slicelit_e|cap_demo|cap_aliases|chan_cap|chan_cap_send|chan_cap_recv|chan_cap_close|chan_cap_write_same|sh_cap|make_chan_cap|make_chan_buf_cap|is_cap_ref|is_make_chan_cap_ref|cstep_cap|cstep_cap_respected|csteps_cap|csteps_cap_respected|csteps_from_empty_cap_respected|rstep_at_some_cap|subslice_past_cap_panics'
 CAPNAME="\\b([A-Za-z0-9_']+_)*cap(_[A-Za-z0-9_']+)*\\b"
 
-count_cap() {  # stdin = stripped source; per-occurrence cap-segment names minus the allowlist
-  grep -oE "$CAPNAME" | grep -vxE "$ALLOWCAP" | wc -l
+count_cap() {  # stdin = stripped source; per-occurrence cap-segment names minus the
+  # allowlist — allowed DOMAIN stems tolerate trailing primes (a [chan_cap'] derived
+  # in a proof is the same domain symbol), while primed BUDGET caps still fail.
+  grep -oE "$CAPNAME" | grep -vxE "($ALLOWCAP)'*" | wc -l
 }
 C="\\b(Definition|Let)[[:space:]]+([A-Za-z0-9']+_)*($CSEGS)(_[A-Za-z0-9']+)*\\b"
 CML="\\blet([[:space:]]+rec)?[[:space:]]+([A-Za-z0-9_']+_)*($CSEGS)(_[A-Za-z0-9_']+)*\\b"
@@ -242,6 +244,10 @@ EOF
     [ "$(count_file "$tmp/capf.v")" = "1" ] || { echo "fido: fuel-gate SELFTEST FAILED — Fixpoint cap name not counted"; exit 1; }
     printf 'let f loop_cap = loop_cap\n' > "$tmp/capbml.ml"
     [ "$(count_file "$tmp/capbml.ml")" = "2" ] || { echo "fido: fuel-gate SELFTEST FAILED — .ml cap binder+reference not counted"; exit 1; }
+    printf "Definition chan_cap' := 0.\n" > "$tmp/capprime.v"
+    [ "$(count_file "$tmp/capprime.v")" = "0" ] || { echo "fido: fuel-gate SELFTEST FAILED — primed DOMAIN cap name counted"; exit 1; }
+    printf "Definition loop_cap' := 1.\n" > "$tmp/capprimebad.v"
+    [ "$(count_file "$tmp/capprimebad.v")" = "1" ] || { echo "fido: fuel-gate SELFTEST FAILED — primed BUDGET cap name not counted"; exit 1; }
     printf 'Definition make_chan_cap := 0.\nDefinition chan_cap := 0.\nDefinition cap := 0.\n' > "$tmp/capok.v"
     [ "$(count_file "$tmp/capok.v")" = "0" ] || { echo "fido: fuel-gate SELFTEST FAILED — domain-cap allowlist counted"; exit 1; }
     printf 'let is_cap_ref r = r\n' > "$tmp/capok.ml"
