@@ -76,9 +76,9 @@ Open items it adds, in its recommended order:
    STATIC terminator — the jump structure is DATA), `sblock_denote` into the shallow
    authority, and two DECIDED admissibility facts with soundness theorems on the gated
    surface: `check_targets_jump_wf` (boolean in-range check ⇒ `blocks_jump_wf`) and
-   `sblocks_forward_terminates` (boolean forward-jump check ⇒ every configuration of
-   the CFG evaluates, for every world — the checked instance of `blocks_ranked` with
-   rank `len - pc`).  Conditional jumps stay OUTSIDE this class (computed targets);
+   `sblocks_forward_terminates` (the in-range check AND the forward-jump check together
+   ⇒ every IN-RANGE configuration evaluates, for every world — the checked instance of
+   `blocks_ranked` with rank `len - pc`).  Conditional jumps stay OUTSIDE this class (computed targets);
    they keep the per-program certificate route.  NEXT here (own design): static CYCLE
    detection ⇒ a checked `blocks_spinning` divergence certificate, then widening the
    body/terminator syntax toward the emitter's conditional-jump shape.

@@ -6415,9 +6415,11 @@ Proof.
   rewrite List.length_map. apply Nat.ltb_lt. exact Hok.
 Qed.
 
-(** every jump goes strictly FORWARD — decidable, and a CHECKED termination
-    certificate: [fun pc _ => len - pc] is a ranking function, so every
-    configuration of a forward CFG evaluates (for EVERY world). *)
+(** every jump goes strictly FORWARD — decidable.  TOGETHER WITH [check_targets]
+    it is a CHECKED termination certificate: [fun pc _ => len - pc] is a ranking
+    function, so every IN-RANGE configuration of a target-checked forward CFG
+    evaluates (for EVERY world) — [sblocks_forward_terminates] states exactly
+    that, with BOTH checks as premises. *)
 Fixpoint check_forward_from (i : nat) (sbs : list SBlock) : bool :=
   match sbs with
   | nil => true
