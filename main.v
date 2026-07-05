@@ -2865,12 +2865,12 @@ Definition gmap_deftype_demo : IO unit :=
 (** USER RECURSION ([Fixpoint] → self-calling Go func): the [nat] match lowers in
     STATEMENT position as [if n == 0 { … } else { k := n - 1; … }]; [n : nat] is the
     structurally decreasing argument (→ Go [uint]). *)
-Fixpoint countdown (n : nat) (v : GoI64) {struct n} : IO unit :=
+Fixpoint descend (n : nat) (v : GoI64) {struct n} : IO unit :=
   match n with
   | O => ret tt
-  | S k => bind (println [any v]) (fun _ => countdown k (i64_sub v (1)%i64))
+  | S k => bind (println [any v]) (fun _ => descend k (i64_sub v (1)%i64))
   end.
-Definition recursion_demo : IO unit := countdown 3 (3)%i64.   (* 3 / 2 / 1 *)
+Definition recursion_demo : IO unit := descend 3 (3)%i64.   (* 3 / 2 / 1 *)
 
 (** PURE recursion — the nat match in VALUE/tail position lowers through [pp_pure_tail]:
     each arm [return]s; the recursive call is a self-call expression. *)

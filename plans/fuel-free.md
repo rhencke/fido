@@ -33,65 +33,41 @@ eval_cmd, equivalence both directions, gated; real no_heap totality), cmd_unifie
 ## Remaining
 
 1. **builtins.v — LANDED (7e5f754)**: `blocks_eval`/`blocks_diverge` authoritative;
-   `run_blocks_fuel`/`block_fuel`/`block_nth`/the exhaustion lemma DELETED (the
-   missing-block default died by deletion); `run_blocks` = emission-only marker
-   (`run_blocks_never_ret`); fuel gate wired in BOTH Makefile and the Dockerfile
-   prover stage; manifest ratcheted to GoPrint.v 22 / main.v 3 (builtins.v and
-   GoSem.v are at zero).  The holistic CFG layer is IN: `blocks_jump_wf` +
-   `blocks_jump_wf_progress` (class-wide, outcome-only; no per-demo machinery).
-2. **GoPrint.v** — LEXER DONE: `lex` is Acc-structural on input length and the ENTIRE
-   lemma suite is stated over `lex` itself (`lex_acc_pi` proof-irrelevance + the
-   `lex_eq_*` one-step unfold equations; no budget premise, no auxiliary evaluator).
-   TYPE PARSER DONE (59aeabb): `parse_gty` is Acc-structural on token length (the result
-   carries its suffix bound for the map arm's second call); `parse_gty_roundtrip` is
-   premise-free; `parse_convty` fuel-free.  REMAINING:
-   - the 10-way mutual `parse_expr/parse_primary/parse_atom/parse_postfix/parse_args(_tl)/
-     parse_elems(_tl)/parse_map_elems(_tl)/parse_climb` on fuel (~1728-1905) +
-     `parse toks := parse_expr (3 * List.length toks + 4) 0 toks` + the `*_S` unfold
-     lemmas (~3291-3342) + the `esize`/`length_gtokens_ge_esize`/`lspine_fuel3`/`all_Pexpr`
-     budget layer + `parse_expr_TReturn_None`'s `S (S (S f))` arithmetic.
-   ★DECISION (revised 2026-07-05 after review): keep the EXECUTABLE parser —
-   ARCHITECTURE.md's binding charter and the Wirth-frontend goal require the live
-   text -> tokens -> parser -> AST boundary, and the WF-executable route preserves
-   EVERY public statement verbatim: `parse toks` becomes the Acc-structural worker's
-   projection, `parse_str`, `gtokens_parse`, `parse_print_roundtrip : parse_str
-   (gprint 0 e) = Some (e, nil)`, `gprint_inj`, the disjointness lemmas, and the
-   rt_* examples ALL keep their statements (only budget premises disappear), so
-   ARCHITECTURE.md / PROGRESS.md / CLAUDE.md parser claims stay true unchanged and
-   the Print Assumptions gates keep their names.  A relational grammar spec may be
-   ADDED later as documentation, never as a replacement for the executable boundary.
-   THE DESIGN (merged worker; no phase rank needed):
-   (a) A single `{struct a}` Acc fixpoint REQUIRES every recursive call on a strictly
-       smaller certificate, so the same-length dispatch chain expr -> primary -> atom
-       cannot stay three mutual functions.  MERGE it: one worker `parse_e (mode : PMode)`
-       (MAtom | MPrimary | MExpr; k for the climb) whose body inlines atom, then
-       (mode >= MPrimary) the postfix fold, then (mode = MExpr) the climb.  The mode is
-       consumed at entry — every recursive call (into MExpr/MAtom) is on STRICTLY fewer
-       tokens, so the whole mutual block (worker + postfix + climb + args/elems/map
-       lists + tails) is Acc-structural on token length ALONE.
-   (b) Sequential calls need the previous call's suffix bound, so the workers return
-       STRONG results: `{r | length r < length input}` for the consuming phases
-       (atom/primary/expr/args/elems/map_elems), `<=` for the possibly-empty folds
-       (postfix/climb/*_tl).  The body's `parse_gty` calls switch to a bound-carrying
-       `parse_gty_b := parse_gty_acc _ (lt_wf _)` (the public `parse_gty` becomes its
-       projection) — the public face already threw the bound away, and the conversion
-       arms need it for their next call.
-   Then the lexer recipe verbatim: certificate proof-irrelevance by strong induction on
-   length, one-step unfold equations at the `Acc_intro (fun y _ => lt_wf y)` certificate
-   (the sig proofs evaporate there), public `parse_atom/parse_primary/parse_expr/parse`
-   as projections, the round-trip layer restated budget-free, and the WHOLE budget layer
-   (`esize`, `length_gtokens_ge_esize`, `lspine_fuel3`, `pops_fuel`, `all_Pexpr`'s fuel
-   threading, `tsize` once nothing sizes with it) DELETES.  If a form resists a fuel-free
-   restatement, SHRINK the accepted subset rather than keep a budget (boss
-   2026-07-05: expressiveness may be sacrificed; fuel is not ironclad).  The
-   round-trip theorems keep their statements; the budget premises disappear.
-   printer.ml regenerates; golden byte-identical.
-3. **plugin/printer.ml / plugin/go.ml**: regenerate / update after 1-2 so no fuel
-   remnant survives in extracted or trusted code.
-4. **Word sweep** — the MECHANICAL target is the fuel-gate manifest reaching EMPTY
-   over its scanned scope: the certified root .v files AND plugin/*.ml (the gate
-   scans both; archaeology is never scanned).  Non-code surfaces (Makefile,
-   Dockerfile, shell scripts, docs) are OUT of the gate by design — it is
-   code-level, never a prose linter, and its own name contains the word — their
-   cleanup is a manual closeout item with an obvious definition of done: no budget
-   identifier names anything in them except the gate's own artifacts.
+   fueled runner + silent missing-block default DELETED; `run_blocks` = emission-only
+   marker; `blocks_jump_wf` + `blocks_jump_wf_progress` = the holistic CFG layer.
+2. **GoPrint.v — LANDED**: LEXER + TYPE PARSER done earlier; the EXPRESSION PARSER is
+   now the same ELEVEN mutual functions Acc-structural on the RANKED measure
+   `5 * token-length + rank` (atom 1, primary 2, expr 3, list heads 4, folds 0) —
+   same-length grammar dispatch descends by rank, every consuming call by length; a
+   well-founded measure certifying descent, never a budget bounding execution.  The
+   recipe: sig-bound results feed each next call's `Acc_inv` certificate;
+   `parse_acc_pi_all` (one strong induction, 11 conjuncts) gives certificate
+   proof-irrelevance; one-step unfold equations at the `Acc_intro (fun y _ => lt_wf y)`
+   certificate restate the whole `*_S` suite budget-free (`parse_expr_eq` …
+   `parse_climb_eq`); publics are `lt_wf` projections; `parse toks = parse_expr 0 toks`
+   (no size seed).  `Pexpr`/`all_Pexpr`/`parse_climb_pairs`/`parse_postfix_pairs`/the
+   six list round-trips/`gtokens_parse`/`parse_print_roundtrip`/`gprint_inj` keep their
+   statements, budget premises GONE.  DELETED: the fueled mutual block, the `*_S`
+   suite, `pairs_fuel`/`lspine_fuel3`/`pops_fuel`(+snoc)/`af`/`mf`,
+   `length_gtokens_ge_esize`/`esize_le_gtparen`.  `esize` SURVIVES strictly as the
+   proof-layer induction measure (strong induction in `all_Pexpr`) — it appears in no
+   definition, statement premise, or runtime path.
+3. **plugin/printer.ml — CLEAN**: regenerated by extraction; zero fuel identifiers.
+4. **Word sweep — CODE DONE**: the fuel-gate manifest is EMPTY (0 files; `main.v`'s
+   budget-shaped demo name `countdown` renamed `descend`).  Residual: stale prose in
+   docs is swept opportunistically (the gate is code-level by design).
+
+## Follow-ups from the boss's post-fuel memo (2026-07-05, "remaining correctness concerns")
+
+The memo endorses the executable-WF parser shape ("structural recursion over syntax and
+well-founded recursion over input text — never execution budgets") — satisfied above.
+Open items it adds, in its recommended order:
+
+1. **CFG relations, deeper**: `blocks_eval` determinism / uniqueness of terminating
+   outcomes; `blocks_eval`/`blocks_diverge` DISJOINTNESS; certificate-checked
+   termination/divergence for accepted CFGs.  (Well-formedness + progress already
+   landed as `blocks_jump_wf`(+`_progress`).)
+2. **Quarantine `run_blocks` demos harder** — integration/log-diff evidence only.
+3. **Plugin starving** (standing): feature-by-feature GoAst -> GoPrint -> GoSafe -> GoEmit.
+4. **Gated public surfaces**: every doc-cited theorem inside a manifest-gated surface.
+5. **Legacy deletion** (standing): no parallel uncertified paths.

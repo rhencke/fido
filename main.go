@@ -2564,16 +2564,16 @@ func Gmap_deftype_demo() {
 	println(s)
 }
 
-func Countdown(n uint, v int64) {
+func Descend(n uint, v int64) {
 	if n == 0 {
 	} else {
 		k := n - 1
 		println(v)
-		Countdown(k, v-1)
+		Descend(k, v-1)
 	}
 }
 func Recursion_demo() {
-	Countdown(3, 3)
+	Descend(3, 3)
 }
 
 func Pow2(n uint) int64 {
