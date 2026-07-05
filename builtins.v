@@ -6180,47 +6180,52 @@ Inductive Next : Type :=
 
 (** [run_blocks start blocks]: the blocks are given as a list (block [n] is the
     nth entry); start at [start], run each block (IO ending in a [Next]), follow
-    [Jump]s until [Done].  In [IO] because a backward [Jump] need not terminate.
-    The plugin emits the blocks as Go labels + [goto] (only labels that are
-    [Jump] targets are emitted, since Go rejects unused labels).
+    [Jump]s until [Done].  The plugin emits the blocks as Go labels + [goto]
+    (only labels that are [Jump] targets are emitted, since Go rejects unused labels).
 
-    This is the ONE genuinely non-terminating
-    combinator — a backward [Jump] is an unbounded loop — so a TOTAL Coq function
-    must idealise divergence away, exactly as [run_io] is total (OOM / divergence
-    are out of scope by decision).  We do so with FUEL: [run_blocks_fuel] follows
-    [Jump]s up to [block_fuel] steps; exhausting the fuel means the CFG did NOT
-    reach [Done] within the cap — a DIVERGENT loop (the emitted goto runs forever).
-    Exhaustion is therefore a LOUD distinct outcome (a recognizable string panic),
-    NEVER identified with normal completion [Done]/[ret tt] — so
-    no proof can conclude a divergent CFG terminated normally.  This affects only
-    PROOFS: the plugin lowers [run_blocks] BY NAME to Go labels + [goto] (the real,
-    unbounded semantics), so the fuel/marker never reach the emitted Go. *)
-Fixpoint block_nth (blocks : list (IO Next)) (n : nat) : IO Next :=
-  match blocks, n with
-  | b :: _,    O   => b
-  | _ :: rest, S k => block_nth rest k
-  | nil,       _   => ret Done
-  end.
-Fixpoint run_blocks_fuel (fuel start : nat) (blocks : list (IO Next)) : IO unit :=
-  match fuel with
-  | O   => fun w => OPanic (anyt TString "fido: run_blocks exceeded block_fuel — divergent CFG (model idealisation, never extracted)"%string) w
-  | S f => bind (block_nth blocks start)
-                (fun nx => match nx with
-                           | Jump n => run_blocks_fuel f n blocks
-                           | Done   => ret tt
-                           end)
-  end.
-(** The divergence-idealisation cap (proof-only; never computed nor extracted). *)
-Definition block_fuel : nat := 1000.
+    A backward [Jump] need not terminate, so NO total Rocq function can be the
+    semantic authority here.  The AUTHORITY is relational and unfueled:
+    [blocks_eval] (the finite runs — done / panic / in-range jump; an
+    out-of-range jump or missing block admits NO rule, so invalid control flow
+    is UNEVALUABLE — never a fabricated success) and [blocks_diverge] (the
+    coinductive infinite jump chains — real divergence, not "did not halt
+    within N").  [run_blocks] itself is EMISSION-ONLY: the plugin lowers it BY
+    NAME to labels + [goto] and suppresses this body; the model-side body is a
+    loud marker panic, so evaluating it in Rocq never fabricates an outcome —
+    demo/model claims are stated against [blocks_eval], never evaluation. *)
+Inductive blocks_eval (blocks : list (IO Next)) : nat -> World -> Outcome unit -> Prop :=
+  | be_done : forall pc w b w',
+      nth_error blocks pc = Some b ->
+      run_io b w = ORet Done w' ->
+      blocks_eval blocks pc w (ORet tt w')
+  | be_panic : forall pc w b v w',
+      nth_error blocks pc = Some b ->
+      run_io b w = OPanic v w' ->
+      blocks_eval blocks pc w (OPanic v w')
+  | be_jump : forall pc w b pc' w' out,
+      nth_error blocks pc = Some b ->
+      run_io b w = ORet (Jump pc') w' ->
+      (pc' < List.length blocks)%nat ->
+      blocks_eval blocks pc' w' out ->
+      blocks_eval blocks pc w out.
+CoInductive blocks_diverge (blocks : list (IO Next)) : nat -> World -> Prop :=
+  | bd_jump : forall pc w b pc' w',
+      nth_error blocks pc = Some b ->
+      run_io b w = ORet (Jump pc') w' ->
+      (pc' < List.length blocks)%nat ->
+      blocks_diverge blocks pc' w' ->
+      blocks_diverge blocks pc w.
+
+(** EMISSION-ONLY marker (the plugin suppresses this body and emits labels+goto).
+    Evaluating the model-side [run_blocks] yields a loud, recognizable panic —
+    never a fabricated [Done], never a step-capped approximation. *)
 Definition run_blocks (start : nat) (blocks : list (IO Next)) : IO unit :=
-  run_blocks_fuel block_fuel start blocks.
+  fun w => OPanic (anyt TString "fido: run_blocks is EMISSION-ONLY — model-side CFG semantics are blocks_eval/blocks_diverge, never evaluation"%string) w.
 
-(** Fuel exhaustion is NEVER normal completion: running an exhausted CFG
-    panics LOUDLY, distinct from [Done]'s [ORet tt], so the divergence idealisation cannot be
-    mistaken for a terminating run. *)
-Lemma run_blocks_fuel_exhausted_not_done : forall start blocks (w : World),
-  run_io (run_blocks_fuel 0 start blocks) w <> ORet tt w.
-Proof. intros start blocks w. cbn. discriminate. Qed.
+(** The marker can never be mistaken for normal completion. *)
+Lemma run_blocks_never_ret : forall start blocks (w w' : World),
+  run_io (run_blocks start blocks) w <> ORet tt w'.
+Proof. intros start blocks w w'. cbn. discriminate. Qed.
 
 (** ---- Session types ----
 

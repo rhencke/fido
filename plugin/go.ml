@@ -5011,7 +5011,6 @@ let proof_only_names =
     "slice_in_len"; "subslice_inb";  (* SliceH bounds-check predicates (→int63) — proof-only, the index ops lower by name *)
     "MkChan"; "ch_loc"; "MkMap"; "gm_loc";  (* GoChan/GoMap handle ctor/projs — erased
       (GoChan A -> chan T, GoMap K V -> map[K]V; channels/maps come from make_* by name) *)
-    "block_nth"; "run_blocks_fuel"; "block_fuel";  (* fueled run_blocks internals *)
     "wrap64"; "in_i64";            (* GoI64 normaliser / range check — proof-only (Z) *)
     "wrapU64"; "in_u64";           (* GoU64 normaliser / range check — proof-only (Z) *)
     "i64_of_Z"; "Z_of_i64"; "u64_of_Z"; "Z_of_u64";  (* Number-Notation parsers — parse-time only *)

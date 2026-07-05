@@ -117,6 +117,8 @@ COPY --chown=opam:opam negtests/ negtests/
 RUN --mount=type=cache,id=fido-dune,uid=1000,gid=1000,target=/workspace/_build \
     sh plugin/smart-ctor-gate.sh \
     && sh plugin/axiom-authority-selftest.sh \
+    && sh plugin/fuel-gate.sh selftest \
+    && sh plugin/fuel-gate.sh \
     && sh plugin/spine-gate.sh selftest \
     && sh plugin/spine-gate.sh printer /tmp/printer.log \
     && if ! diff plugin/printer.ml printer.ml; then \
