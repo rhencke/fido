@@ -6197,8 +6197,9 @@ Inductive Next : Type :=
     OUTCOME terms only: a CFG is jump-wf iff every block's run on EVERY world
     yields Done, a panic, or an IN-RANGE Jump — membership is decided by
     outcomes, never by which syntactic markers a body contains.
+    [blocks_step] is the structural one-step transition, and
     [blocks_jump_wf_progress] is the class-wide theorem: from any in-range pc,
-    a jump-wf CFG is NEVER STUCK.  These relations describe only shallow
+    a jump-wf CFG concludes or makes an explicit [blocks_step].  These relations describe only shallow
     [run_io] behavior; connecting any block to its EMITTED behavior is the
     deep [run_cmd]/emitted-runtime story, a separate claim these relations do
     not make.  Demos are sanity checks, never evidence. *)
@@ -6234,25 +6235,42 @@ Definition blocks_jump_wf (blocks : list (IO Next)) : Prop :=
     | _ => True
     end.
 
-(** CLASS-WIDE PROGRESS: from any in-range pc, a jump-wf CFG is never stuck —
-    the configuration either concludes ([blocks_eval] done/panic) or steps to
-    another IN-RANGE configuration.  Holds for the WHOLE class, not per demo. *)
+(** THE ONE-STEP CFG TRANSITION (structural): configuration [(pc, w)] steps to
+    [(pc', w')] when block [pc] runs to an IN-RANGE [Jump pc']. *)
+Inductive blocks_step (blocks : list (IO Next)) : nat -> World -> nat -> World -> Prop :=
+  | bs_jump : forall pc w b pc' w',
+      nth_error blocks pc = Some b ->
+      run_io b w = ORet (Jump pc') w' ->
+      (pc' < List.length blocks)%nat ->
+      blocks_step blocks pc w pc' w'.
+
+(** a step composes with any continuation of the run. *)
+Lemma blocks_step_eval : forall blocks pc w pc' w' out,
+  blocks_step blocks pc w pc' w' ->
+  blocks_eval blocks pc' w' out ->
+  blocks_eval blocks pc w out.
+Proof.
+  intros blocks pc w pc' w' out Hs He. destruct Hs as [pc w b pc' w' Hnth Hrun Hlt].
+  exact (be_jump blocks pc w b pc' w' out Hnth Hrun Hlt He).
+Qed.
+
+(** CLASS-WIDE PROGRESS: from any in-range pc, a jump-wf CFG is NEVER STUCK —
+    it concludes ([blocks_eval] done/panic) or makes an explicit [blocks_step]
+    to another in-range configuration.  Holds for the WHOLE class, not per demo. *)
 Lemma blocks_jump_wf_progress : forall blocks pc (w : World),
   blocks_jump_wf blocks -> (pc < List.length blocks)%nat ->
-  exists b, nth_error blocks pc = Some b /\
-    match run_io b w with
-    | ORet Done w'      => blocks_eval blocks pc w (ORet tt w')
-    | OPanic v w'       => blocks_eval blocks pc w (OPanic v w')
-    | ORet (Jump pc') _ => (pc' < List.length blocks)%nat
-    end.
+     (exists w', blocks_eval blocks pc w (ORet tt w'))
+  \/ (exists v w', blocks_eval blocks pc w (OPanic v w'))
+  \/ (exists pc' w', blocks_step blocks pc w pc' w').
 Proof.
   intros blocks pc w Hwf Hpc.
   destruct (nth_error blocks pc) as [b|] eqn:Hnth.
-  - exists b. split; [ reflexivity | ].
-    destruct (run_io b w) as [[pc'|] w' | v w'] eqn:Hrun.
-    + pose proof (Hwf pc b w Hnth) as H. rewrite Hrun in H. exact H.
-    + exact (be_done blocks pc w b w' Hnth Hrun).
-    + exact (be_panic blocks pc w b v w' Hnth Hrun).
+  - destruct (run_io b w) as [[pc'|] w' | v w'] eqn:Hrun.
+    + right. right. exists pc', w'.
+      pose proof (Hwf pc b w Hnth) as H. rewrite Hrun in H.
+      exact (bs_jump blocks pc w b pc' w' Hnth Hrun H).
+    + left. exists w'. exact (be_done blocks pc w b w' Hnth Hrun).
+    + right. left. exists v, w'. exact (be_panic blocks pc w b v w' Hnth Hrun).
   - exfalso. apply nth_error_Some in Hpc. congruence.
 Qed.
 

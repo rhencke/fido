@@ -5,17 +5,17 @@ with a fulfilled-status note); THIS file is the one current authority.
 STATUS: semantic fuel is DELETED (7e5f754) — `blocks_eval` (Inductive) +
 `blocks_diverge` (CoInductive) are the authoritative CFG semantics; the fueled
 runner, its cap, and the silent missing-block default are gone; `run_blocks` is an
-emission-only marker.  NOT YET DONE (re-scoped per boss 2026-07-05 "holistic
-proofs or nothing" — per-demo lemmas would themselves be example-based): LANDED as
-`blocks_jump_wf` + `blocks_jump_wf_progress` (builtins.v): admissibility is
-stated in OUTCOME terms only — every block's run on every world is Done, a
-panic, or an in-range Jump; membership is decided by outcomes, never by which
-markers a body contains — and progress holds class-wide (never stuck from any
-in-range pc).  The go.ml:3690/3702 emitter checks mirror only the SYNTACTIC
-literal/range part.  The shallow relations claim nothing about emitted deep-IO
-behavior (that is the deep run_cmd story); a future core class excluding
-specific block shapes needs a real constructor/type boundary.  Demos/golden
-stay sanity checks, never evidence.
+emission-only marker.  CFG LAYER LANDED: `blocks_step` (the structural
+one-step transition), `blocks_jump_wf` (admissibility in OUTCOME terms only —
+every block's run on every world is Done, a panic, or an in-range Jump;
+membership decided by outcomes, never by markers), `blocks_step_eval`, and
+`blocks_jump_wf_progress` (class-wide never-stuck: conclude or an explicit
+step; no per-demo machinery).  The emitter's rejections of non-literal starts
+and out-of-range entry/jump targets in the run_blocks arm are the TRUSTED
+syntactic mirror of the literal/range part only.  The shallow relations claim
+nothing about emitted deep-IO behavior (that is the deep run_cmd story); a
+future core class excluding specific block shapes needs a real
+constructor/type boundary.  Demos/golden stay sanity checks, never evidence.
 GATE AUTHORITY: `plugin/fuel-gate.sh` is the mechanical authority for the fuel gate
 (its class definitions are the spec; the selftest is a regression matrix derived from
 the same variables); this file only summarizes it.  The executable expression
