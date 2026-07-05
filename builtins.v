@@ -6203,6 +6203,16 @@ Inductive Next : Type :=
     [run_io] behavior; connecting any block to its EMITTED behavior is the
     deep [run_cmd]/emitted-runtime story, a separate claim these relations do
     not make.  Demos are sanity checks, never evidence. *)
+(** THE ONE-STEP CFG TRANSITION (structural): configuration [(pc, w)] steps to
+    [(pc', w')] when block [pc] runs to an IN-RANGE [Jump pc'].  [blocks_eval]
+    and [blocks_diverge] both consume THIS relation — the transition shape
+    exists exactly once. *)
+Inductive blocks_step (blocks : list (IO Next)) : nat -> World -> nat -> World -> Prop :=
+  | bs_jump : forall pc w b pc' w',
+      nth_error blocks pc = Some b ->
+      run_io b w = ORet (Jump pc') w' ->
+      (pc' < List.length blocks)%nat ->
+      blocks_step blocks pc w pc' w'.
 Inductive blocks_eval (blocks : list (IO Next)) : nat -> World -> Outcome unit -> Prop :=
   | be_done : forall pc w b w',
       nth_error blocks pc = Some b ->
@@ -6212,17 +6222,13 @@ Inductive blocks_eval (blocks : list (IO Next)) : nat -> World -> Outcome unit -
       nth_error blocks pc = Some b ->
       run_io b w = OPanic v w' ->
       blocks_eval blocks pc w (OPanic v w')
-  | be_jump : forall pc w b pc' w' out,
-      nth_error blocks pc = Some b ->
-      run_io b w = ORet (Jump pc') w' ->
-      (pc' < List.length blocks)%nat ->
+  | be_jump : forall pc w pc' w' out,
+      blocks_step blocks pc w pc' w' ->
       blocks_eval blocks pc' w' out ->
       blocks_eval blocks pc w out.
 CoInductive blocks_diverge (blocks : list (IO Next)) : nat -> World -> Prop :=
-  | bd_jump : forall pc w b pc' w',
-      nth_error blocks pc = Some b ->
-      run_io b w = ORet (Jump pc') w' ->
-      (pc' < List.length blocks)%nat ->
+  | bd_jump : forall pc w pc' w',
+      blocks_step blocks pc w pc' w' ->
       blocks_diverge blocks pc' w' ->
       blocks_diverge blocks pc w.
 
@@ -6234,25 +6240,6 @@ Definition blocks_jump_wf (blocks : list (IO Next)) : Prop :=
     | ORet (Jump pc') _ => (pc' < List.length blocks)%nat
     | _ => True
     end.
-
-(** THE ONE-STEP CFG TRANSITION (structural): configuration [(pc, w)] steps to
-    [(pc', w')] when block [pc] runs to an IN-RANGE [Jump pc']. *)
-Inductive blocks_step (blocks : list (IO Next)) : nat -> World -> nat -> World -> Prop :=
-  | bs_jump : forall pc w b pc' w',
-      nth_error blocks pc = Some b ->
-      run_io b w = ORet (Jump pc') w' ->
-      (pc' < List.length blocks)%nat ->
-      blocks_step blocks pc w pc' w'.
-
-(** a step composes with any continuation of the run. *)
-Lemma blocks_step_eval : forall blocks pc w pc' w' out,
-  blocks_step blocks pc w pc' w' ->
-  blocks_eval blocks pc' w' out ->
-  blocks_eval blocks pc w out.
-Proof.
-  intros blocks pc w pc' w' out Hs He. destruct Hs as [pc w b pc' w' Hnth Hrun Hlt].
-  exact (be_jump blocks pc w b pc' w' out Hnth Hrun Hlt He).
-Qed.
 
 (** CLASS-WIDE PROGRESS: from any in-range pc, a jump-wf CFG is NEVER STUCK —
     it concludes ([blocks_eval] done/panic) or makes an explicit [blocks_step]
