@@ -32,9 +32,10 @@ eval_cmd, equivalence both directions, gated; real no_heap totality), cmd_unifie
 
 ## Remaining
 
-1. **builtins.v — LANDED (7e5f754)**: `blocks_eval`/`blocks_diverge` authoritative;
-   fueled runner + silent missing-block default DELETED; `run_blocks` = emission-only
-   marker; `blocks_jump_wf` + `blocks_jump_wf_progress` = the holistic CFG layer.
+1. **CFG semantics — LANDED**: `blocks_eval`/`blocks_diverge` authoritative; the
+   fueled runner + silent missing-block default DELETED.  The layer now lives in
+   `GoCFG.v` (the split, memory `builtins-split-directive`); `run_blocks` is an
+   emission-only marker in `GoExtractionHooks.v` — a plugin hook, never semantics.
 2. **GoPrint.v — LANDED**: LEXER + TYPE PARSER done earlier; the EXPRESSION PARSER is
    now the same ELEVEN mutual functions Acc-structural on the RANKED measure
    `5 * token-length + rank` (atom 1, primary 2, expr 3, list heads 4, folds 0) —
@@ -100,8 +101,8 @@ Open items it adds, in its recommended order:
    REPLACES at least one `run_blocks` demo (e.g. `cond_goto_demo`) with a `run_cblocks`
    equivalent and DELETES the replaced demo; golden updates intentionally.
    (d) Negtests: a non-literal CBlock spine aborts; an out-of-range static target
-   aborts.  Acceptance: make check green, the new demo's gate lemmas in builtins/main,
-   fuel-gate/axiom manifests unchanged.
+   aborts.  Acceptance: make check green, the new demo's gate lemmas in GoCFG.v/main.v
+   (`run_cblocks` itself in GoExtractionHooks.v), fuel-gate/axiom manifests unchanged.
 2. **Quarantine `run_blocks` demos harder** — integration/log-diff evidence only.
 3. **Plugin starving** (standing): feature-by-feature GoAst -> GoPrint -> GoSafe -> GoEmit.
 4. **Gated public surfaces**: every doc-cited theorem inside a manifest-gated surface.
