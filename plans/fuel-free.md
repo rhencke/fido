@@ -84,9 +84,24 @@ Open items it adds, in its recommended order:
    check — pigeonhole-complete over the finite pc space, a `CBIf` on the trail fails
    the walk conservatively — PLUS the per-program `cblocks_total` obligation ⇒
    divergence for every world; a panicking body stops a run, so totality cannot be
-   dropped).  NEXT (own arc): connect the class to the EMITTER — a plugin path that
-   constructs `CBlock` lists so accepted CFGs arrive with their checkers already run
-   (the starve-the-plugin direction).
+   dropped).  NEXT (own arc, spec pinned): connect the class to the EMITTER.
+   (a) Rocq side: `run_cblocks (start : nat) (cbs : list CBlock) : IO unit` — an
+   emission-only marker EXACTLY like `run_blocks` (loud model-side panic +
+   `run_cblocks_never_ret`); demos supply per-program GATE LEMMAS discharged by
+   `eq_refl` (`check_targets demo = true`, and `check_forward demo = true` where the
+   shape is forward) — the checkers RUN inside Rocq, so an accepted CFG arrives with
+   its admissibility already decided.  (b) Plugin side (plugin/go.ml): recognize
+   `run_cblocks` by name (the three-step recipe: recognizer + arm + NoInline/inline-ref
+   bookkeeping); lower the STATIC structure syntactically — `CBSeq body t` = the body
+   then `goto Lt`/return, `CBIf body t1 t2` = bind the boolean then
+   `if v { goto L1 } else { goto L2 }`; REJECT (fail-closed `unsupported`) any
+   non-literal list spine, non-literal target, or out-of-range entry — mirroring the
+   run_blocks arm's rejections.  (c) Migration per the starve policy: the landing
+   REPLACES at least one `run_blocks` demo (e.g. `cond_goto_demo`) with a `run_cblocks`
+   equivalent and DELETES the replaced demo; golden updates intentionally.
+   (d) Negtests: a non-literal CBlock spine aborts; an out-of-range static target
+   aborts.  Acceptance: make check green, the new demo's gate lemmas in builtins/main,
+   fuel-gate/axiom manifests unchanged.
 2. **Quarantine `run_blocks` demos harder** — integration/log-diff evidence only.
 3. **Plugin starving** (standing): feature-by-feature GoAst -> GoPrint -> GoSafe -> GoEmit.
 4. **Gated public surfaces**: every doc-cited theorem inside a manifest-gated surface.
