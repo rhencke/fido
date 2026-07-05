@@ -6376,130 +6376,151 @@ Proof.
   exact (bd_jump blocks pc w pc' w' Hstep (CIH pc' w' Hinv')).
 Qed.
 
-(** ---- The STATIC-TERMINATOR CFG core class ---- the first CONSTRUCTOR boundary for
-    blocks: a straight-line effect plus a terminator that is SYNTAX, not a computed
-    value.  Because the jump structure is data, admissibility is DECIDED by a boolean
-    checker with a soundness theorem — never promised by a comment, never evidenced by
-    a demo.  Conditional jumps stay OUTSIDE this class (their targets are computed by
-    the body); the general class keeps its per-program certificate route above. *)
-Record SBlock := mkSBlock { sb_body : IO unit ; sb_term : Next }.
-Definition sblock_denote (b : SBlock) : IO Next :=
-  bind (sb_body b) (fun _ => ret (sb_term b)).
+(** ---- The STATIC-TARGET CFG core class ---- the constructor boundary for blocks: a
+    body plus terminators that are SYNTAX, not computed values.  [CBSeq] runs a
+    straight-line effect and terminates unconditionally; [CBIf] lets the body choose
+    between TWO static targets — loops-with-exit become representable while target
+    admissibility stays DECIDED by boolean checkers with soundness theorems.  Bodies
+    stay opaque effects; anything whose TARGETS are computed remains outside the class
+    (the general class keeps its per-program certificate route above). *)
+Inductive CBlock :=
+| CBSeq : IO unit -> Next -> CBlock
+| CBIf  : IO bool -> Next -> Next -> CBlock.
+Definition cblock_denote (b : CBlock) : IO Next :=
+  match b with
+  | CBSeq body t => bind body (fun _ => ret t)
+  | CBIf body t1 t2 => bind body (fun v => ret (if v then t1 else t2))
+  end.
+Definition cb_targets (b : CBlock) : list Next :=
+  match b with CBSeq _ t => (t :: nil)%list | CBIf _ t1 t2 => (t1 :: t2 :: nil)%list end.
 
-(** every terminator lands in range — decidable, sound for [blocks_jump_wf]. *)
+(** a returned terminator is always one of the block's SYNTACTIC targets. *)
+Lemma cblock_denote_ret : forall b (w : World) (t : Next) (w' : World),
+  run_io (cblock_denote b) w = ORet t w' -> List.In t (cb_targets b).
+Proof.
+  intros b w t w' H. destruct b as [ body t0 | body t1 t2 ]; cbn [cblock_denote cb_targets] in *.
+  - unfold bind, run_io in H. destruct (body w) as [ [] w0 | v w0 ]; [ | discriminate H ].
+    injection H as <- _. left. reflexivity.
+  - unfold bind, run_io in H. destruct (body w) as [ v w0 | v w0 ]; [ | discriminate H ].
+    injection H as <- _. destruct v; [ left; reflexivity | right; left; reflexivity ].
+Qed.
+
+(** every target lands in range — decidable, sound for [blocks_jump_wf]. *)
 Definition check_target (len : nat) (t : Next) : bool :=
   match t with Done => true | Jump pc => Nat.ltb pc len end.
-Definition check_targets (sbs : list SBlock) : bool :=
-  List.forallb (fun b => check_target (List.length sbs) (sb_term b)) sbs.
+Definition check_targets (cbs : list CBlock) : bool :=
+  List.forallb (fun b => List.forallb (check_target (List.length cbs)) (cb_targets b)) cbs.
 
-Lemma sblock_denote_ret : forall b (w : World) (t : Next) (w' : World),
-  run_io (sblock_denote b) w = ORet t w' -> t = sb_term b.
+Theorem check_targets_jump_wf : forall cbs,
+  check_targets cbs = true ->
+  blocks_jump_wf (List.map cblock_denote cbs).
 Proof.
-  intros b w t w' H. unfold sblock_denote, bind, run_io in H.
-  destruct (sb_body b w) as [ [] w0 | v w0 ]; [ | discriminate H ].
-  injection H as <- _. reflexivity.
-Qed.
-
-Theorem check_targets_jump_wf : forall sbs,
-  check_targets sbs = true ->
-  blocks_jump_wf (List.map sblock_denote sbs).
-Proof.
-  intros sbs Hc n b w Hnth.
+  intros cbs Hc n b w Hnth.
   rewrite List.nth_error_map in Hnth.
-  destruct (nth_error sbs n) as [ sb | ] eqn:Hn; [ | discriminate Hnth ].
+  destruct (nth_error cbs n) as [ cb | ] eqn:Hn; [ | discriminate Hnth ].
   injection Hnth as <-.
-  destruct (run_io (sblock_denote sb) w) as [ [ pc' | ] w' | v w' ] eqn:Hrun; [ | exact I | exact I ].
-  pose proof (sblock_denote_ret sb w (Jump pc') w' Hrun) as Ht.
-  pose proof (proj1 (List.forallb_forall _ sbs) Hc sb (List.nth_error_In sbs n Hn)) as Hok.
-  cbv beta in Hok. rewrite <- Ht in Hok. cbn [check_target] in Hok.
-  rewrite List.length_map. apply Nat.ltb_lt. exact Hok.
+  destruct (run_io (cblock_denote cb) w) as [ [ pc' | ] w' | v w' ] eqn:Hrun; [ | exact I | exact I ].
+  pose proof (cblock_denote_ret cb w (Jump pc') w' Hrun) as Ht.
+  pose proof (proj1 (List.forallb_forall _ cbs) Hc cb (List.nth_error_In cbs n Hn)) as Hok.
+  cbv beta in Hok.
+  pose proof (proj1 (List.forallb_forall _ (cb_targets cb)) Hok (Jump pc') Ht) as Hok'.
+  cbn [check_target] in Hok'.
+  rewrite List.length_map. apply Nat.ltb_lt. exact Hok'.
 Qed.
 
-(** every jump goes strictly FORWARD — decidable.  TOGETHER WITH [check_targets]
-    it is a CHECKED termination certificate: [fun pc _ => len - pc] is a ranking
-    function, so every IN-RANGE configuration of a target-checked forward CFG
-    evaluates (for EVERY world) — [sblocks_forward_terminates] states exactly
-    that, with BOTH checks as premises. *)
-Fixpoint check_forward_from (i : nat) (sbs : list SBlock) : bool :=
-  match sbs with
+(** every target of every block goes strictly FORWARD — decidable.  TOGETHER WITH
+    [check_targets] it is a CHECKED termination certificate: [fun pc _ => len - pc] is
+    a ranking function, so every IN-RANGE configuration of a target-checked forward CFG
+    evaluates (for EVERY world) — [cblocks_forward_terminates] states exactly that,
+    with BOTH checks as premises.  Loops-with-exit fail this check by construction and
+    keep the per-program [blocks_ranked] route. *)
+Fixpoint check_forward_from (i : nat) (cbs : list CBlock) : bool :=
+  match cbs with
   | nil => true
-  | b :: r => (match sb_term b with Done => true | Jump pc => Nat.ltb i pc end
+  | b :: r => (List.forallb (fun t => match t with Done => true | Jump pc => Nat.ltb i pc end)
+                            (cb_targets b)
                && check_forward_from (S i) r)%bool
   end.
-Definition check_forward (sbs : list SBlock) : bool := check_forward_from 0 sbs.
+Definition check_forward (cbs : list CBlock) : bool := check_forward_from 0 cbs.
 
-Lemma check_forward_from_nth : forall sbs i n b pc,
-  check_forward_from i sbs = true -> nth_error sbs n = Some b -> sb_term b = Jump pc ->
+Lemma check_forward_from_nth : forall cbs i n b pc,
+  check_forward_from i cbs = true -> nth_error cbs n = Some b -> List.In (Jump pc) (cb_targets b) ->
   (i + n < pc)%nat.
 Proof.
-  induction sbs as [ | b0 r IH ]; intros i n b pc Hc Hn Ht.
+  induction cbs as [ | b0 r IH ]; intros i n b pc Hc Hn Ht.
   - destruct n; discriminate Hn.
   - cbn [check_forward_from] in Hc. apply andb_prop in Hc. destruct Hc as [ Hb Hr ].
     destruct n as [ | n ].
-    + injection Hn as <-. rewrite Ht in Hb. apply Nat.ltb_lt in Hb. lia.
+    + injection Hn as ->.
+      pose proof (proj1 (List.forallb_forall _ (cb_targets b)) Hb (Jump pc) Ht) as Hj.
+      cbv beta in Hj. apply Nat.ltb_lt in Hj. lia.
     + cbn [nth_error] in Hn. pose proof (IH (S i) n b pc Hr Hn Ht). lia.
 Qed.
 
-Theorem sblocks_forward_terminates : forall sbs,
-  check_targets sbs = true -> check_forward sbs = true ->
-  forall pc (w : World), (pc < List.length sbs)%nat ->
-  exists out, blocks_eval (List.map sblock_denote sbs) pc w out.
+Theorem cblocks_forward_terminates : forall cbs,
+  check_targets cbs = true -> check_forward cbs = true ->
+  forall pc (w : World), (pc < List.length cbs)%nat ->
+  exists out, blocks_eval (List.map cblock_denote cbs) pc w out.
 Proof.
-  intros sbs Hct Hcf pc w Hpc.
-  apply (blocks_ranked_terminates (List.map sblock_denote sbs)
-           (fun pc _ => List.length sbs - pc)).
+  intros cbs Hct Hcf pc w Hpc.
+  apply (blocks_ranked_terminates (List.map cblock_denote cbs)
+           (fun pc _ => List.length cbs - pc)).
   - apply check_targets_jump_wf. exact Hct.
   - intros n w0 b Hnth.
     rewrite List.nth_error_map in Hnth.
-    destruct (nth_error sbs n) as [ sb | ] eqn:Hn; [ | discriminate Hnth ].
+    destruct (nth_error cbs n) as [ cb | ] eqn:Hn; [ | discriminate Hnth ].
     injection Hnth as <-.
-    destruct (run_io (sblock_denote sb) w0) as [ [ pc' | ] w' | v w' ] eqn:Hrun; [ | exact I | exact I ].
-    pose proof (sblock_denote_ret sb w0 (Jump pc') w' Hrun) as Ht.
-    pose proof (check_forward_from_nth sbs 0 n sb pc' Hcf Hn (eq_sym Ht)) as Hfwd.
-    pose proof (proj1 (List.forallb_forall _ sbs) Hct sb (List.nth_error_In sbs n Hn)) as Hok.
-    cbv beta in Hok. rewrite <- Ht in Hok. cbn [check_target] in Hok. apply Nat.ltb_lt in Hok.
+    destruct (run_io (cblock_denote cb) w0) as [ [ pc' | ] w' | v w' ] eqn:Hrun; [ | exact I | exact I ].
+    pose proof (cblock_denote_ret cb w0 (Jump pc') w' Hrun) as Ht.
+    pose proof (check_forward_from_nth cbs 0 n cb pc' Hcf Hn Ht) as Hfwd.
+    pose proof (proj1 (List.forallb_forall _ cbs) Hct cb (List.nth_error_In cbs n Hn)) as Hok.
+    cbv beta in Hok.
+    pose proof (proj1 (List.forallb_forall _ (cb_targets cb)) Hok (Jump pc') Ht) as Hok'.
+    cbn [check_target] in Hok'. apply Nat.ltb_lt in Hok'.
     lia.
   - rewrite List.length_map. exact Hpc.
 Qed.
 
-(** ---- The static-cycle DIVERGENCE certificate ---- the dual of the forward check.
-    A static cycle alone does NOT certify divergence: a body may PANIC, and [OPanic]
-    is an outcome, not a step.  The certificate pairs the DECIDED graph fact —
-    following static jumps from [pc0], [Done] is never reached, decided by walking
-    [S (length sbs)] static steps: the walk visits more pcs than the finite pc space
-    holds, so PIGEONHOLE yields a revisit and the deterministic trail is ultimately
-    periodic (a completeness THEOREM about a finite graph, never a semantic budget) —
-    with a PER-PROGRAM totality obligation for the bodies. *)
-Definition snext (sbs : list SBlock) (pc : nat) : option nat :=
-  match nth_error sbs pc with
-  | Some b => match sb_term b with Jump pc' => Some pc' | Done => None end
-  | None => None
+(** ---- The static-cycle DIVERGENCE certificate ---- over the DETERMINISTIC fragment:
+    [snext] follows only unconditional static jumps (a [CBIf] on the trail makes the
+    walk FAIL — conservative, no divergence claim).  A static cycle alone does NOT
+    certify divergence: a body may PANIC, and [OPanic] is an outcome, not a step.  The
+    certificate pairs the DECIDED graph fact — following static jumps from [pc0],
+    [Done] is never reached, decided by walking [S (length cbs)] static steps: the walk
+    visits more pcs than the finite pc space holds, so PIGEONHOLE yields a revisit and
+    the deterministic trail is ultimately periodic (a completeness THEOREM about a
+    finite graph, never a semantic budget) — with a PER-PROGRAM totality obligation for
+    the bodies. *)
+Definition snext (cbs : list CBlock) (pc : nat) : option nat :=
+  match nth_error cbs pc with
+  | Some (CBSeq _ (Jump pc')) => Some pc'
+  | _ => None
   end.
-Fixpoint swalk (sbs : list SBlock) (pc : nat) (i : nat) : option nat :=
+Fixpoint swalk (cbs : list CBlock) (pc : nat) (i : nat) : option nat :=
   match i with
   | O => Some pc
-  | S i' => match snext sbs pc with Some pc' => swalk sbs pc' i' | None => None end
+  | S i' => match snext cbs pc with Some pc' => swalk cbs pc' i' | None => None end
   end.
 
-Lemma swalk_split : forall sbs a b pc,
-  swalk sbs pc (a + b) = match swalk sbs pc a with Some p => swalk sbs p b | None => None end.
+Lemma swalk_split : forall cbs a b pc,
+  swalk cbs pc (a + b) = match swalk cbs pc a with Some p => swalk cbs p b | None => None end.
 Proof.
   induction a as [ | a IH ]; intros b pc; cbn [swalk Nat.add]; [ reflexivity | ].
-  destruct (snext sbs pc) as [ pc' | ]; [ apply IH | reflexivity ].
+  destruct (snext cbs pc) as [ pc' | ]; [ apply IH | reflexivity ].
 Qed.
-Lemma swalk_defined_le : forall sbs m m' pc q,
-  swalk sbs pc m = Some q -> (m' <= m)%nat -> exists q', swalk sbs pc m' = Some q'.
+Lemma swalk_defined_le : forall cbs m m' pc q,
+  swalk cbs pc m = Some q -> (m' <= m)%nat -> exists q', swalk cbs pc m' = Some q'.
 Proof.
-  intros sbs m m' pc q H Hle. replace m with (m' + (m - m'))%nat in H by lia.
+  intros cbs m m' pc q H Hle. replace m with (m' + (m - m'))%nat in H by lia.
   rewrite swalk_split in H.
-  destruct (swalk sbs pc m') as [ p | ] eqn:E; [ eexists; reflexivity | discriminate H ].
+  destruct (swalk cbs pc m') as [ p | ] eqn:E; [ eexists; reflexivity | discriminate H ].
 Qed.
-Lemma swalk_step_range : forall sbs pc m p q,
-  swalk sbs pc m = Some p -> swalk sbs pc (S m) = Some q -> (p < List.length sbs)%nat.
+Lemma swalk_step_range : forall cbs pc m p q,
+  swalk cbs pc m = Some p -> swalk cbs pc (S m) = Some q -> (p < List.length cbs)%nat.
 Proof.
-  intros sbs pc m p q Hm HSm. replace (S m) with (m + 1)%nat in HSm by lia.
+  intros cbs pc m p q Hm HSm. replace (S m) with (m + 1)%nat in HSm by lia.
   rewrite swalk_split, Hm in HSm. cbn [swalk] in HSm. unfold snext in HSm.
-  destruct (nth_error sbs p) eqn:En; [ | discriminate HSm ].
+  destruct (nth_error cbs p) eqn:En; [ | discriminate HSm ].
   apply nth_error_Some. congruence.
 Qed.
 
@@ -6529,7 +6550,7 @@ Proof.
     apply List.existsb_exists in E. destruct E as [ z [ Hz He ] ].
     apply Nat.eqb_eq in He. subst z. exact Hz.
   - destruct (IH x H) as [ l1 [ l2 [ Heq Hin ] ] ].
-    exists (y :: l1), l2. split; [ cbn; rewrite Heq; reflexivity | exact Hin ].
+    exists (y :: l1)%list, l2. split; [ cbn; rewrite Heq; reflexivity | exact Hin ].
 Qed.
 Lemma bounded_long_dup : forall (l : list nat) bound,
   (forall x, List.In x l -> (x < bound)%nat) -> (bound < List.length l)%nat ->
@@ -6550,15 +6571,15 @@ Proof.
   rewrite (IH (S start) k) by lia. f_equal. lia.
 Qed.
 
-(** the pigeonhole completeness: a successful [S (length sbs)]-walk means the walk is
+(** the pigeonhole completeness: a successful [S (length cbs)]-walk means the walk is
     defined at EVERY length — the deterministic trail revisits a pc and is periodic
     from there on. *)
-Lemma swalk_all_defined : forall sbs pc0 i j x, (i < j)%nat ->
-  swalk sbs pc0 i = Some x -> swalk sbs pc0 j = Some x ->
-  forall m, exists q, swalk sbs pc0 m = Some q.
+Lemma swalk_all_defined : forall cbs pc0 i j x, (i < j)%nat ->
+  swalk cbs pc0 i = Some x -> swalk cbs pc0 j = Some x ->
+  forall m, exists q, swalk cbs pc0 m = Some q.
 Proof.
-  intros sbs pc0 i j x Hij Hi Hj.
-  assert (Hstep : forall m, (j <= m)%nat -> swalk sbs pc0 m = swalk sbs pc0 (m - (j - i))).
+  intros cbs pc0 i j x Hij Hi Hj.
+  assert (Hstep : forall m, (j <= m)%nat -> swalk cbs pc0 m = swalk cbs pc0 (m - (j - i))).
   { intros m Hm. replace m with (j + (m - j))%nat at 1 by lia. rewrite swalk_split, Hj.
     replace (m - (j - i))%nat with (i + (m - j))%nat by lia. rewrite swalk_split, Hi. reflexivity. }
   intro m. induction m as [ m IH ] using lt_wf_ind.
@@ -6566,18 +6587,18 @@ Proof.
   - rewrite (Hstep m Hge). apply IH. lia.
   - eapply swalk_defined_le; [ exact Hj | lia ].
 Qed.
-Lemma swalk_window_all : forall sbs pc0 q,
-  swalk sbs pc0 (S (List.length sbs)) = Some q ->
-  forall m, exists q', swalk sbs pc0 m = Some q'.
+Lemma swalk_window_all : forall cbs pc0 q,
+  swalk cbs pc0 (S (List.length cbs)) = Some q ->
+  forall m, exists q', swalk cbs pc0 m = Some q'.
 Proof.
-  intros sbs pc0 q Hw.
-  set (n := List.length sbs) in *.
-  set (f := fun k => match swalk sbs pc0 k with Some p => p | None => 0%nat end).
+  intros cbs pc0 q Hw.
+  set (n := List.length cbs) in *.
+  set (f := fun k => match swalk cbs pc0 k with Some p => p | None => 0%nat end).
   set (tr := List.map f (List.seq 0 (S n))).
-  assert (Hdef : forall k, (k <= S n)%nat -> exists p, swalk sbs pc0 k = Some p).
+  assert (Hdef : forall k, (k <= S n)%nat -> exists p, swalk cbs pc0 k = Some p).
   { intros k Hk. eapply swalk_defined_le; [ exact Hw | lia ]. }
   assert (Htr_at : forall idx v, List.nth_error tr idx = Some v ->
-            (idx <= n)%nat /\ swalk sbs pc0 idx = Some v).
+            (idx <= n)%nat /\ swalk cbs pc0 idx = Some v).
   { intros idx v Hnth.
     assert (Hlt : (idx < List.length tr)%nat) by (apply List.nth_error_Some; congruence).
     unfold tr in Hlt. rewrite List.length_map, List.length_seq in Hlt.
@@ -6589,7 +6610,7 @@ Proof.
   { intros x Hx. destruct (List.In_nth_error tr x Hx) as [ idx Hnth ].
     destruct (Htr_at idx x Hnth) as [ Hle Hsw ].
     destruct (Hdef (S idx) ltac:(lia)) as [ p1 Hp1 ].
-    exact (swalk_step_range sbs pc0 idx x p1 Hsw Hp1). }
+    exact (swalk_step_range cbs pc0 idx x p1 Hsw Hp1). }
   assert (Hlen : (n < List.length tr)%nat)
     by (unfold tr; rewrite List.length_map, List.length_seq; lia).
   destruct (bounded_long_dup tr n Hbnd Hlen) as [ x Hfd ].
@@ -6602,55 +6623,60 @@ Proof.
     replace (List.length l1 + S k2 - List.length l1)%nat with (S k2) by lia. cbn. exact Hk2. }
   destruct (Htr_at _ _ Hi_tr) as [ _ Hwi ].
   destruct (Htr_at _ _ Hj_tr) as [ _ Hwj ].
-  exact (swalk_all_defined sbs pc0 (List.length l1) (List.length l1 + S k2)%nat x ltac:(lia) Hwi Hwj).
+  exact (swalk_all_defined cbs pc0 (List.length l1) (List.length l1 + S k2)%nat x ltac:(lia) Hwi Hwj).
 Qed.
 
 (** the PER-PROGRAM totality obligation: every body returns on every world (no panic,
-    no divergence inside a block).  NOT decidable from [SBlock] syntax — each accepted
+    no divergence inside a block).  NOT decidable from [CBlock] syntax — each accepted
     program discharges it by proof. *)
-Definition sblocks_total (sbs : list SBlock) : Prop :=
-  forall b, List.In b sbs -> forall (w : World), exists w', run_io (sb_body b) w = ORet tt w'.
+Definition cblocks_total (cbs : list CBlock) : Prop :=
+  forall b, List.In b cbs ->
+    match b with
+    | CBSeq body _ => forall (w : World), exists w', run_io body w = ORet tt w'
+    | CBIf body _ _ => forall (w : World), exists v w', run_io body w = ORet v w'
+    end.
 
-Theorem sblocks_static_diverges : forall sbs pc0,
-  (match swalk sbs pc0 (S (List.length sbs)) with Some _ => true | None => false end) = true ->
-  sblocks_total sbs ->
-  forall w : World, blocks_diverge (List.map sblock_denote sbs) pc0 w.
+Theorem cblocks_static_diverges : forall cbs pc0,
+  (match swalk cbs pc0 (S (List.length cbs)) with Some _ => true | None => false end) = true ->
+  cblocks_total cbs ->
+  forall w : World, blocks_diverge (List.map cblock_denote cbs) pc0 w.
 Proof.
-  intros sbs pc0 Hchk Htot w.
-  destruct (swalk sbs pc0 (S (List.length sbs))) as [ qend | ] eqn:Hwalk; [ | discriminate Hchk ].
-  pose proof (swalk_window_all sbs pc0 qend Hwalk) as ALL.
-  apply (blocks_spinning_diverges _ (fun pc _ => exists m, swalk sbs pc0 m = Some pc)).
+  intros cbs pc0 Hchk Htot w.
+  destruct (swalk cbs pc0 (S (List.length cbs))) as [ qend | ] eqn:Hwalk; [ | discriminate Hchk ].
+  pose proof (swalk_window_all cbs pc0 qend Hwalk) as ALL.
+  apply (blocks_spinning_diverges _ (fun pc _ => exists m, swalk cbs pc0 m = Some pc)).
   2: { exists 0%nat. reflexivity. }
   intros pc w0 [ m Hm ].
   destruct (ALL (S m)) as [ pc' Hm1 ].
-  assert (Hsn : snext sbs pc = Some pc').
+  assert (Hsn : snext cbs pc = Some pc').
   { replace (S m) with (m + 1)%nat in Hm1 by lia. rewrite swalk_split, Hm in Hm1.
-    cbn [swalk] in Hm1. destruct (snext sbs pc) as [ p | ] eqn:E; [ | discriminate Hm1 ].
+    cbn [swalk] in Hm1. destruct (snext cbs pc) as [ p | ] eqn:E; [ | discriminate Hm1 ].
     injection Hm1 as <-. reflexivity. }
   unfold snext in Hsn.
-  destruct (nth_error sbs pc) as [ b | ] eqn:Hb; [ | discriminate Hsn ].
-  destruct (sb_term b) as [ pcT | ] eqn:Hterm; [ | discriminate Hsn ].
+  destruct (nth_error cbs pc) as [ b | ] eqn:Hb; [ | discriminate Hsn ].
+  destruct b as [ body t | body t1 t2 ]; [ | discriminate Hsn ].
+  destruct t as [ pcT | ] eqn:Hterm; [ | discriminate Hsn ].
   injection Hsn as ->.
   destruct (ALL (S (S m))) as [ q2 Hm2 ].
-  assert (Hrange : (pc' < List.length sbs)%nat)
-    by (exact (swalk_step_range sbs pc0 (S m) pc' q2 Hm1 Hm2)).
-  destruct (Htot b (List.nth_error_In sbs pc Hb) w0) as [ w' Hrun ].
+  assert (Hrange : (pc' < List.length cbs)%nat)
+    by (exact (swalk_step_range cbs pc0 (S m) pc' q2 Hm1 Hm2)).
+  destruct (Htot _ (List.nth_error_In cbs pc Hb) w0) as [ w' Hrun ].
   exists pc', w'. split.
-  - apply (bs_jump _ pc w0 (sblock_denote b) pc' w').
+  - apply (bs_jump _ pc w0 (cblock_denote (CBSeq body (Jump pc'))) pc' w').
     + rewrite List.nth_error_map, Hb. reflexivity.
-    + unfold sblock_denote, bind, run_io. unfold run_io in Hrun. rewrite Hrun, Hterm. reflexivity.
+    + cbn [cblock_denote]. unfold bind, run_io. unfold run_io in Hrun. rewrite Hrun. reflexivity.
     + rewrite List.length_map. exact Hrange.
   - exists (S m). exact Hm1.
 Qed.
 
 (** The CFG semantics surface, manifest-gated (PROGRESS "Current gates"): class-wide
     progress + one-step determinism + unique terminating outcomes + termination/divergence
-    disjointness + the two certificate-soundness theorems + the static-terminator core class's CHECKED
+    disjointness + the two certificate-soundness theorems + the static-target core class's CHECKED
     admissibility, termination, and divergence, certified zero-axiom as a bundle. *)
 Definition blocks_cfg_surface :=
   (blocks_jump_wf_progress, blocks_step_det, blocks_eval_det, blocks_eval_diverge_disjoint,
    blocks_ranked_terminates, blocks_spinning_diverges,
-   check_targets_jump_wf, sblocks_forward_terminates, sblocks_static_diverges).
+   check_targets_jump_wf, cblocks_forward_terminates, cblocks_static_diverges).
 Print Assumptions blocks_cfg_surface.
 
 (** EMISSION-ONLY marker (the plugin suppresses this body and emits labels+goto).

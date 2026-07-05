@@ -87,10 +87,18 @@ Open items it adds, in its recommended order:
    semantic budget), and `sblocks_static_diverges`: the decided never-reaches-Done fact
    PLUS the per-program `sblocks_total` obligation (bodies return on every world — a
    panicking body STOPS a run, so totality cannot be dropped) ⇒ `blocks_diverge` for
-   every world, via `blocks_spinning_diverges`.  On the gated surface.  NEXT: widening
-   the terminator syntax toward the emitter's conditional-jump shape (targets as a
-   FINITE SET of static labels chosen by the body's boolean — keeps target
-   admissibility decidable while admitting loops-with-exit).
+   every world, via `blocks_spinning_diverges`.  On the gated surface.  The CONDITIONAL widening LANDED and
+   SUPERSEDED the record type outright (no parallel machinery): `CBlock` = `CBSeq`
+   (straight-line body + one static terminator) | `CBIf` (boolean body choosing between
+   TWO static targets — loops-with-exit representable).  `cblock_denote_ret` pins every
+   returned terminator to the block's SYNTACTIC target list; `check_targets_jump_wf` and
+   `cblocks_forward_terminates` decide admissibility/termination over the widened class
+   (a loop-with-exit fails the forward check by construction and keeps the per-program
+   `blocks_ranked` route); the deterministic-walk divergence certificate
+   (`cblocks_static_diverges`) survives conservatively — a `CBIf` on the trail fails the
+   walk, so no divergence is claimed.  NEXT (own arc): connect the class to the
+   EMITTER — a plugin path that constructs `CBlock` lists so accepted CFGs arrive with
+   their checkers already run (the starve-the-plugin direction).
 2. **Quarantine `run_blocks` demos harder** — integration/log-diff evidence only.
 3. **Plugin starving** (standing): feature-by-feature GoAst -> GoPrint -> GoSafe -> GoEmit.
 4. **Gated public surfaces**: every doc-cited theorem inside a manifest-gated surface.
