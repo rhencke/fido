@@ -27,7 +27,6 @@ SCAN_DIR="${FG_SCAN_DIR:-.}"
 BASELINE="${FG_BASELINE:-plugin/fuel-gate.baseline}"
 
 A='\b(fuel|gas|run_blocks_fuel|block_fuel|countdown|allowance|step_limit|steps_left|max_steps|max_depth|depth_limit|cycle_limit|iteration_cap|max_iter|max_iterations|run_for|parse_bound)\b'
-B='[({][^(){}:]*\b(budget|limit|need|capacity|bound|step|steps)\b[^(){}:]*:[[:space:]]*nat'
 C="\\b(Definition|Let)[[:space:]]+([A-Za-z0-9']+_)*(fuel|limit|budget|cap)(_[A-Za-z0-9']+)*\\b"
 
 strip_comments() {
@@ -42,10 +41,40 @@ strip_comments() {
          print out }' "$1"
 }
 
+# CLASS B: a TOKEN-LEVEL scan of binder groups — every ( ... ) / { ... } group whose
+# type annotation is exactly [nat] contributes ONE count PER budget-named identifier in
+# the group, across whitespace AND newlines (so [(need limit capacity bound : nat)]
+# counts 4, [{step steps : nat}] counts 2, and a line-broken group still counts).
+count_b() {
+  awk '
+    { gsub(/[(){}:]/, " & "); n = split($0, t, /[ \t]+/);
+      for (i = 1; i <= n; i++) {
+        tok = t[i]; if (tok == "") continue;
+        if (tok == "(" || tok == "{") { d++; ids[d] = ""; col[d] = 0; typ[d] = "" }
+        else if (tok == ")" || tok == "}") {
+          if (d > 0) {
+            if (col[d] && typ[d] == "nat") {
+              m = split(ids[d], w, " ");
+              for (j = 1; j <= m; j++)
+                if (w[j] ~ /^(budget|limit|need|capacity|bound|step|steps)$/) cnt++
+            }
+            d--
+          }
+        }
+        else if (tok == ":") { if (d > 0) col[d] = 1 }
+        else if (d > 0) {
+          if (!col[d]) ids[d] = ids[d] " " tok;
+          else typ[d] = (typ[d] == "" ? tok : typ[d] " " tok)
+        }
+      }
+    }
+    END { print cnt + 0 }'
+}
+
 count_file() {  # per-OCCURRENCE count across the three classes
   s=$(strip_comments "$1")
   a=$(printf '%s\n' "$s" | grep -oE "$A" | wc -l)
-  b=$(printf '%s\n' "$s" | grep -oE "$B" | wc -l)
+  b=$(printf '%s\n' "$s" | count_b)
   c=$(printf '%s\n' "$s" | grep -oE "$C" | wc -l)
   echo $((a + b + c))
 }
@@ -111,6 +140,24 @@ EOF
     printf 'Definition z := fuel + gas + max_steps + run_for.\n' > "$tmp/multi.v"
     m=$(count_file "$tmp/multi.v")
     [ "$m" = "4" ] || { echo "fido: fuel-gate SELFTEST FAILED — multi-occurrence line counted $m, want 4"; exit 1; }
+    # EXACT grouped-binder counts (occurrences, not groups; multiline-safe)
+    printf 'Definition parse (need limit capacity bound : nat) : nat := 0.\n' > "$tmp/grp.v"
+    g=$(count_file "$tmp/grp.v")
+    [ "$g" = "4" ] || { echo "fido: fuel-gate SELFTEST FAILED — grouped binders counted $g, want 4"; exit 1; }
+    printf 'Definition h {step steps : nat} : nat := 0.\n' > "$tmp/imp.v"
+    g=$(count_file "$tmp/imp.v")
+    [ "$g" = "2" ] || { echo "fido: fuel-gate SELFTEST FAILED — implicit group counted $g, want 2"; exit 1; }
+    printf 'Definition p (need limit capacity bound\n : nat) : nat := 0.\n' > "$tmp/ml.v"
+    g=$(count_file "$tmp/ml.v")
+    [ "$g" = "4" ] || { echo "fido: fuel-gate SELFTEST FAILED — multiline group counted $g, want 4"; exit 1; }
+    # widening an EXISTING group must trip the ratchet
+    mkdir "$tmp/scan2"
+    printf 'Definition q (need : nat) : nat := 0.\n' > "$tmp/scan2/a.v"
+    ( FG_SCAN_DIR="$tmp/scan2" FG_BASELINE="$tmp/base2" sh plugin/fuel-gate.sh bless >/dev/null )
+    printf 'Definition q (need limit : nat) : nat := 0.\n' > "$tmp/scan2/a.v"
+    if ( FG_SCAN_DIR="$tmp/scan2" FG_BASELINE="$tmp/base2" sh plugin/fuel-gate.sh run >/dev/null 2>&1 ); then
+      echo "fido: fuel-gate SELFTEST FAILED — widened binder group passed the ratchet"; exit 1
+    fi
     # manifest ratchet: a deletion in one file must NOT excuse a new site in another
     mkdir "$tmp/scan"
     printf 'Definition block_fuel : nat := 1.\nDefinition x := gas.\n' > "$tmp/scan/a.v"
