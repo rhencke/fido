@@ -54,23 +54,23 @@ if [ -n "$ppcallers" ]; then
 fi
 echo "fido: emission-discipline gate OK — no direct print_program call outside GoEmit.v / GoPrint.v ✓"
 
-# 4. BRIDGE-RECOGNIZER scoping: each recognizer is `let is_X = named_in [...]` (the from_builtins
+# 4. BRIDGE-RECOGNIZER scoping: each recognizer is `let is_X = named_in [...]` (the from_model
 # guard lives ONCE in named_in); a raw global_basename match is a shadowing forge.
 cov_preds='[is_i64_of_narrow_ref] / [is_f64_to_f32_ref]+[operand_is_runtime] / [is_f64_to_i64_ref] / [is_f64_to_u64_ref] / [is_int_of_fw] / [is_num_to_f64_ref] / [is_int_to_f32_ref]'
 recog_def()    { awk -v p="$1" '$0 ~ ("^let " p "([ =:(]|$)"){f=1;print;next} f&&(/^let [A-Za-z_]/||/^\(\*/){exit} f{print}' "$2" 2>/dev/null; }
 recog_routed() { b=$(recog_def "$1" "$2"); printf '%s' "$b" | grep -q 'named_in' && ! printf '%s' "$b" | grep -q 'global_basename'; }
 st_t=$(mktemp)
-printf '%s\n' 'let is_ok = named_in ["a"]' 'let mid x = 1' 'let is_raw r = List.mem (global_basename r) ["a"]' 'let named_in ns r = from_builtins r && List.mem (global_basename r) ns' > "$st_t"
-# the named_in alias is "routed"; a raw global_basename body is not; named_in carries from_builtins.
-if ! recog_routed is_ok "$st_t" || recog_routed is_raw "$st_t" || ! recog_def named_in "$st_t" | grep -q 'from_builtins'; then
+printf '%s\n' 'let is_ok = named_in ["a"]' 'let mid x = 1' 'let is_raw r = List.mem (global_basename r) ["a"]' 'let named_in ns r = from_model r && List.mem (global_basename r) ns' > "$st_t"
+# the named_in alias is "routed"; a raw global_basename body is not; named_in carries from_model.
+if ! recog_routed is_ok "$st_t" || recog_routed is_raw "$st_t" || ! recog_def named_in "$st_t" | grep -q 'from_model'; then
   echo "fido: BRIDGE-RECOGNIZER TRIPWIRE self-test broke"; rm -f "$st_t"; exit 1
 fi
 rm -f "$st_t"
-recog_def named_in plugin/go.ml | grep -q 'from_builtins' || { echo "fido: BRIDGE-RECOGNIZER TRIPWIRE — [named_in] lost its [from_builtins] guard; raw basename matching is a shadowing forge."; exit 1; }
+recog_def named_in plugin/go.ml | grep -q 'from_model' || { echo "fido: BRIDGE-RECOGNIZER TRIPWIRE — [named_in] lost its [from_model] guard; raw basename matching is a shadowing forge."; exit 1; }
 for pred in $(printf '%s' "$cov_preds" | grep -oE '\[is_[a-z0-9_]+\]' | tr -d '[]'); do
-  recog_routed "$pred" plugin/go.ml || { echo "fido: BRIDGE-RECOGNIZER TRIPWIRE — $pred should be 'let $pred = named_in [\"lit\"; …]', routing its basename match through the from_builtins-scoped [named_in] rather than a raw [global_basename]."; exit 1; }
+  recog_routed "$pred" plugin/go.ml || { echo "fido: BRIDGE-RECOGNIZER TRIPWIRE — $pred should be 'let $pred = named_in [\"lit\"; …]', routing its basename match through the from_model-scoped [named_in] rather than a raw [global_basename]."; exit 1; }
 done
-echo "fido: bridge-recognizer tripwire OK — cov_preds recognizers route through the from_builtins-scoped named_in ✓"
+echo "fido: bridge-recognizer tripwire OK — cov_preds recognizers route through the from_model-scoped named_in ✓"
 
 # 5. SELECTOR-BRIDGE: mk_goexpr_sel emits local.Field only for a plain field of an MLrel receiver;
 # dropping either guard re-opens a peel divergence the golden misses.

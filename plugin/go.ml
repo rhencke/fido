@@ -228,32 +228,30 @@ let record_ctor_tyname r =
       go_export (globref_basename (Names.GlobRef.IndRef ind))
   | _ -> ""
 
-(* [from_builtins r]: the ref's DEFINING module is exactly [Fido.builtins] — full-dirpath
-   IDENTITY, the ownership check behind every by-name recognizer/suppression.  Coq
-   references point at the defining module regardless of where they are used, so this
-   holds for a builtin no matter which theory references it, and a same-basename USER
-   definition (any other module, including one with a "builtins" path component) is never
-   mis-recognized. *)
-let from_builtins r =
-  (* EXACT full-dirpath identity, not a component scan: the WHOLE dirpath must be Fido's
-     canonical [Fido.builtins].  A component scan accepted any theory with a "builtins"
-     component anywhere in its path (e.g. a user module [builtins] nested in a fixture),
-     which would be mis-recognized as Fido-owned and its same-basename definitions
-     swallowed/mis-lowered.  Identity of the defining module is the ownership check. *)
+(* [from_model r]: the ref's DEFINING module is one of the SEMANTIC-MODEL modules — the
+   ownership check behind every by-name recognizer/suppression.  EXACT full-dirpath
+   membership in [model_dirpaths] (extended per split wave, plans/builtins-split.md),
+   never a component scan: Coq references point at the defining module regardless of
+   where they are used, so a same-basename USER definition (any other module, including
+   one with a matching path component) is never mis-recognized.  Extraction HOOKS are
+   NEVER in this list — [from_hooks] is the separate, narrower ownership for names that
+   exist only to be lowered. *)
+let model_dirpaths = ["Fido.builtins"]
+let from_model r =
   match (try Some (Nametab.dirpath_of_global r.glob) with Not_found -> None) with
   | None -> false
-  | Some dp -> String.equal (DirPath.to_string dp) "Fido.builtins"
+  | Some dp -> List.mem (DirPath.to_string dp) model_dirpaths
 
 (* A Fido builtin/combinator is matched by its basename AND a check that it lives in [builtins.v]
    — so a user theory CANNOT shadow a builtin name.
    Stdlib refs are package-qualified and use [ref_has_suffix]. *)
-let named n r = String.equal (global_basename r) n && from_builtins r
+let named n r = String.equal (global_basename r) n && from_model r
 
 (* [from_gocfg r] / [from_hooks r]: exact-dirpath identity for the split-out modules
    (the builtins.v mining, boss directive 2026-07-05).  [Fido.GoCFG] owns the CFG SEMANTIC
    names the lowering must recognize (the [Next] constructors); [Fido.GoExtractionHooks]
    owns names that exist ONLY to be lowered by this plugin (run_blocks).  Same ownership
-   discipline as [from_builtins]: identity of the DEFINING module, never a component scan. *)
+   discipline as [from_model]: identity of the DEFINING module, never a component scan. *)
 let from_gocfg r =
   match (try Some (Nametab.dirpath_of_global r.glob) with Not_found -> None) with
   | None -> false
@@ -274,11 +272,11 @@ let from_digits r =
 
 (* [named_in ns r]: the list form of [named] — TRUE iff [r] is a [builtins.v] ref whose basename is one of
    [ns].  EVERY conversion recognizer the verified-printer bridge routes through (the cov_preds set) is defined
-   as exactly [let is_X = named_in […]] so the [from_builtins] guard lives here, once.  smart-ctor-gate.sh
+   as exactly [let is_X = named_in […]] so the [from_model] guard lives here, once.  smart-ctor-gate.sh
    check 4 (bridge-recognizer) is a grep TRIPWIRE (not a seal) flagging the common accidental break — a recognizer doing a raw
-   [global_basename] match, or this helper losing [from_builtins]; a deliberate shadow inside this trusted,
+   [global_basename] match, or this helper losing [from_model]; a deliberate shadow inside this trusted,
    unverified plugin (gap #10) is out of its scope, as that file's header states for every check. *)
-let named_in ns r = from_builtins r && List.mem (global_basename r) ns
+let named_in ns r = from_model r && List.mem (global_basename r) ns
 
 let ref_has_suffix r suffix =
   let p = global_path r in
@@ -441,7 +439,7 @@ let arrN_size_of_type r = arr_n_of_name "GoArr" "" (global_basename r)
 let arrN_lit_size   r = arr_n_of_name "arr"   "_lit" (global_basename r)
 let is_arrN_type r = arrN_size_of_type r <> None
 let is_arrN_lit_ref r = arrN_lit_size r <> None
-let is_arr_eqb_ref r = named "arr_eqb" r || (from_builtins r && arr_n_of_name "arr" "_eqb" (global_basename r) <> None)   (* array == (field-wise; arrays comparable, slices not) *)
+let is_arr_eqb_ref r = named "arr_eqb" r || (from_model r && arr_n_of_name "arr" "_eqb" (global_basename r) <> None)   (* array == (field-wise; arrays comparable, slices not) *)
 let is_arr_set_ref = named "arr_set"   (* functional array update → copy-mutate-return IIFE *)
 let is_for_each_ref = named "for_each"
 let is_str_range_ref = named "str_range"        (* for i, r := range s (string range, byte index + rune) *)
@@ -471,19 +469,19 @@ let is_ptr_get_ok_ref = named "ptr_get_ok"   (* safe (nil-checked) deref, CPS *)
    pointer.  [GSPtr R] → [*R]; field access is by the
    typed de Bruijn index [m] ([mem_depth m] slot), named by the COHERENCE-PINNED projection arg
    ([proj = mem_get m . sr_to] — so slot and name cannot disagree). *)
-let is_gsptr_type r = from_builtins r && global_basename r = "GSPtr"
-let is_gsptr_new_ref r       = from_builtins r && global_basename r = "gsptr_new"
-let is_gsptr_deref_ref r     = from_builtins r && global_basename r = "gsptr_deref"
-let is_gsptr_assign_ref r    = from_builtins r && global_basename r = "gsptr_assign"
-let is_gsptr_get_field_ref r = from_builtins r && global_basename r = "gsptr_get_field"
-let is_gsptr_set_field_ref r = from_builtins r && global_basename r = "gsptr_set_field"
-let is_gstruct_eqb_ref r     = from_builtins r && global_basename r = "gstruct_eqb"
+let is_gsptr_type r = from_model r && global_basename r = "GSPtr"
+let is_gsptr_new_ref r       = from_model r && global_basename r = "gsptr_new"
+let is_gsptr_deref_ref r     = from_model r && global_basename r = "gsptr_deref"
+let is_gsptr_assign_ref r    = from_model r && global_basename r = "gsptr_assign"
+let is_gsptr_get_field_ref r = from_model r && global_basename r = "gsptr_get_field"
+let is_gsptr_set_field_ref r = from_model r && global_basename r = "gsptr_set_field"
+let is_gstruct_eqb_ref r     = from_model r && global_basename r = "gstruct_eqb"
 (* GENERIC arity-free struct rep: every proof-side name → suppress decl.
    The ops lower by name ([gsptr_*]/[gstruct_eqb]); the carrier ([Tup]/[Mem]/[TagTup]/[EqTup]/[StructRep]),
    the index ops ([mem_get]/[mem_depth]/[mem_tag], [MHere]/[MNext]), the iso/tags, the field-fold
    ([write_fields]/[read_fields]/[wr_fields]) and the eq machinery are all proof-only. *)
 let is_gsptr_machinery r =
-  from_builtins r &&
+  from_model r &&
   List.mem (global_basename r)
     ["gsptr_new"; "gsptr_deref"; "gsptr_assign"; "gsptr_get_field"; "gsptr_set_field";
      "gsptr_hs"; "mkGSPtr"; "gsp_base"; "gstruct_eqb"; "gfield_coh";
@@ -567,7 +565,7 @@ let is_go_spawn_ref = named "go_spawn"
 let is_defer_call_ref = named "defer_call"
 let is_proto_type r = named "Proto" r
 let is_proto_ctor r =
-  from_builtins r &&
+  from_model r &&
   (String.equal (global_basename r) "PSend" ||
    String.equal (global_basename r) "PRecv" ||
    String.equal (global_basename r) "PEnd")
@@ -901,13 +899,13 @@ let is_erased_record_typename s =
   || String.equal s "ComparableW"   (* comparable-constraint witness: erased (drives [K comparable], not a struct) *)
   || String.equal s "GoUint"   (* platform-uint wrapper: distinct record erased to its [uint] carrier; ctor/proj recognized below *)
 let is_numint_type r =                      (* GoU8 / GoI16 *)
-  from_builtins r &&
+  from_model r &&
   (let n = global_basename r in str_prefix "Go" n && is_ui_digits (String.sub n 2 (String.length n - 2)))
 let is_numint_ctor r =                      (* MkU8 / MkI16 *)
-  from_builtins r &&
+  from_model r &&
   (let n = global_basename r in str_prefix "Mk" n && is_ui_digits (String.sub n 2 (String.length n - 2)))
 let is_numint_proj r =                      (* u8raw / i16raw / i64raw : (u|i) digits "raw" *)
-  from_builtins r &&
+  from_model r &&
   (let n = global_basename r in let len = String.length n in
   len >= 5 && (n.[0] = 'u' || n.[0] = 'i') && str_suffix "raw" n
   && all_digits (String.sub n 1 (len - 4)))
@@ -961,15 +959,15 @@ let narrow_go_name s =
    that would mis-tag), and the projection [uintraw] emits [int(<value>)] (back to the int carrier).
    These typed conversions are the per-value analogue of the narrow [any_narrow_conv] cast, but they
    apply UNIVERSALLY (any position), so [GoUint] needs no destination-typing machinery. *)
-let is_uint_ctor r = from_builtins r && String.equal (global_basename r) "MkUint"   (* the record constructor (MLcons) *)
-let is_uint_lit  r = from_builtins r && String.equal (global_basename r) "uint_lit" (* the [uint_lit n] smart constructor (MLglob app) *)
-let is_uint_proj r = from_builtins r && String.equal (global_basename r) "uintraw"
-let is_f32_ctor  r = from_builtins r && String.equal (global_basename r) "mkF32"
-let is_f32_proj  r = from_builtins r && String.equal (global_basename r) "f32val"
-let is_f32_round r = from_builtins r && String.equal (global_basename r) "f32_round"
+let is_uint_ctor r = from_model r && String.equal (global_basename r) "MkUint"   (* the record constructor (MLcons) *)
+let is_uint_lit  r = from_model r && String.equal (global_basename r) "uint_lit" (* the [uint_lit n] smart constructor (MLglob app) *)
+let is_uint_proj r = from_model r && String.equal (global_basename r) "uintraw"
+let is_f32_ctor  r = from_model r && String.equal (global_basename r) "mkF32"
+let is_f32_proj  r = from_model r && String.equal (global_basename r) "f32val"
+let is_f32_round r = from_model r && String.equal (global_basename r) "f32_round"
 (* [f32_neg x] — float32 unary negation (IEEE sign-flip): Go's native [-x] (like [PrimFloat.opp]
    for float64).  The [f32_of_f64 (opp …)] body is proof-only (suppressed); recognised → [-x]. *)
-let is_f32_neg_ref r = from_builtins r && String.equal (global_basename r) "f32_neg"
+let is_f32_neg_ref r = from_model r && String.equal (global_basename r) "f32_neg"
 
 (* Full-width int64 ops ([i64_add]/[i64_lit]/…).  [GoI64]/[MkI64]/[i64raw] already
    ride the numint machinery above (erased type/ctor/proj, rendered int64), but the
@@ -977,7 +975,7 @@ let is_f32_neg_ref r = from_builtins r && String.equal (global_basename r) "f32_
    arithmetic/comparison ops lower to BARE Go operators via [binop_of], and [i64_lit]
    folds its [Z] literal.  The width-64 op names fall through [parse_fixed_width]
    (capped at 32), so they never get the narrow masked treatment. *)
-let is_i64_op r name = from_builtins r && String.equal (global_basename r) ("i64_" ^ name)
+let is_i64_op r name = from_model r && String.equal (global_basename r) ("i64_" ^ name)
 let is_i64_lit r = is_i64_op r "lit"
 let is_any_i64_op r =
   List.exists (is_i64_op r)
@@ -990,13 +988,13 @@ let is_any_i64_op r =
    arithmetic/comparison lower to BARE Go operators via [binop_of].  [int_lit] folds its [Z] literal
    — BARE decimal in expression position (the Go [int] default; e.g. an index [xs[5]]; [pp_expr]),
    [int(N)] when a Go type must be pinned (a [:=] binding / box; [pp_typed_lit]). *)
-let is_int_op r name = from_builtins r && String.equal (global_basename r) ("int_" ^ name)
+let is_int_op r name = from_model r && String.equal (global_basename r) ("int_" ^ name)
 let is_int_lit r = is_int_op r "lit"
 let is_any_int_op r =
   List.exists (is_int_op r)
     ["lit"; "add"; "sub"; "mul"; "neg"; "eqb"; "ltb"; "leb"; "div"; "mod"]
-let is_goint_ctor r = from_builtins r && String.equal (global_basename r) "MkGoInt"
-let is_goint_proj r = from_builtins r && String.equal (global_basename r) "intraw"
+let is_goint_ctor r = from_model r && String.equal (global_basename r) "MkGoInt"
+let is_goint_proj r = from_model r && String.equal (global_basename r) "intraw"
 
 (* Full-width uint64 ops ([u64_add]/[u64_lit]/…).  [GoU64]/[MkU64]/[u64raw]
    ride the numint machinery (erased type/ctor/proj, rendered uint64), but the
@@ -1007,7 +1005,7 @@ let is_goint_proj r = from_builtins r && String.equal (global_basename r) "intra
    For literals, [Printf.sprintf "%Lu"] gives unsigned decimal for all [Int64.t]
    values, including those that are "negative" when interpreted as signed
    (i.e. u64 values in [2^63, 2^64)). *)
-let is_u64_op r name = from_builtins r && String.equal (global_basename r) ("u64_" ^ name)
+let is_u64_op r name = from_model r && String.equal (global_basename r) ("u64_" ^ name)
 let is_u64_lit r = is_u64_op r "lit"
 let is_any_u64_op r =
   List.exists (is_u64_op r)
@@ -1058,7 +1056,7 @@ let is_float_op_ref r name =
   ref_has_suffix r (".PrimFloat." ^ name) ||
   (* GoFloat64 ops are now named [f64_<op>] Definitions over [spec_float];
      their CALLS lower to the same Go float64 operators, their DECLS are suppressed (is_inlined_ref). *)
-  (from_builtins r && String.equal (global_basename r) ("f64_" ^ name))
+  (from_model r && String.equal (global_basename r) ("f64_" ^ name))
 
 (* Float unary negation: [PrimFloat.opp x] → Go [-x].  IEEE-exact (flips the sign
    bit), so [opp (+0.0) = -0.0] and [opp NaN] stays NaN — matching Go's unary [-]
@@ -1129,7 +1127,7 @@ let parse_fixed_width n =
         | Some width when width >= 1 && width <= 32 -> Some ((n.[0] = 'i'), width, op)
         | _ -> None
   end
-let fixed_width_op r = if from_builtins r then parse_fixed_width (global_basename r) else None
+let fixed_width_op r = if from_model r then parse_fixed_width (global_basename r) else None
 let fw_is r op = match fixed_width_op r with Some (_, _, o) -> String.equal o op | None -> false
 
 (* Faithful narrow interface identity.  The sub-64-bit numeric narrows
@@ -1237,7 +1235,7 @@ let classify_float_op r =
    closure is suppressed by module via [is_zarith_helper]. *)
 let f32_op_table = [ "f32_add", " + "; "f32_sub", " - "; "f32_mul", " * "; "f32_div", " / " ]
 let classify_f32_op r =
-  if not (from_builtins r) then None else
+  if not (from_model r) then None else
   let bn = global_basename r in
   List.find_map (fun (name, op) -> if String.equal bn name then Some op else None) f32_op_table
 
@@ -5007,7 +5005,7 @@ let pp_function state name body typ =
 (* Proof-only world-STATE accessors (abstract heap of the denotational model): they
    appear only inside the IO ops' bodies, never in real Go, so their decls are
    suppressed. *)
-(* Fido-OWNED proof-only names — matched with OWNERSHIP ([from_builtins]), never by bare
+(* Fido-OWNED proof-only names — matched with OWNERSHIP ([from_model]), never by bare
    basename, so a same-named USER definition emits normally.  Stdlib deps of these bodies
    (List.tl/app, the eqb family, eq_rect/…, Datatypes.length) are NOT listed: they are
    governed by stdlib LIVENESS (dead deps of suppressed bodies drop; live uses emit).
@@ -5032,7 +5030,7 @@ let proof_only_names =
     "wrapU64"; "in_u64";           (* GoU64 normaliser / range check — proof-only (Z) *)
     "i64_of_Z"; "Z_of_i64"; "u64_of_Z"; "Z_of_u64";  (* Number-Notation parsers — parse-time only *)
     "go_list_nth"; "ascii_byte"; "go_str_byte" ]   (* self-contained slice/str index helpers *)
-let is_proof_only_state r = from_builtins r && List.mem (global_basename r) proof_only_names
+let is_proof_only_state r = from_model r && List.mem (global_basename r) proof_only_names
 
 (* PHASE-STABLE suppression: never reads [live_stdlib]; its ONE registry read
    ([comparable_inst], via [is_comparable_witness_inst]) is filled by [collect_decls]
@@ -5043,11 +5041,11 @@ let is_suppressed_ref r =
   is_proof_only_state r ||
   (* Z-carried signed-narrow sign-extend helpers: internal, only inside by-name-
      lowered narrow op bodies (the masked Go is emitted by [fixed_width_op]); never emitted. *)
-  (from_builtins r && List.mem (global_basename r) ["i8_norm_z"; "i16_norm_z"; "i32_norm_z"]) ||
+  (from_model r && List.mem (global_basename r) ["i8_norm_z"; "i16_norm_z"; "i32_norm_z"]) ||
   (* GoAny type-tag typeclass: the [Tagged_*] instances (bodies are GoTypeTag
      constructors) and the [the_tag] projection are proof-only — the runtime tag is
      erased from every [any] payload. *)
-  (from_builtins r
+  (from_model r
    && (str_prefix "Tagged" (global_basename r) || String.equal (global_basename r) "the_tag")) ||
   is_nat_zero r || is_nat_succ r ||
   is_bool_true r || is_bool_false r ||
@@ -5057,25 +5055,25 @@ let is_suppressed_ref r =
   is_any_u64_op r ||  (* full-width uint64 ops — lowered via binop_of / u64_lit fold *)
   is_any_int_op r ||  (* platform-int [GoInt] ops — lowered via binop_of / int_lit fold *)
   is_goint_proj r || is_goint_ctor r ||  (* erased [GoInt] proj [intraw] / ctor [MkGoInt] decls *)
-  (from_builtins r && String.equal (global_basename r) "intwrap") ||  (* internal range-carrying GoInt constructor *)
+  (from_model r && String.equal (global_basename r) "intwrap") ||  (* internal range-carrying GoInt constructor *)
   is_zarith_helper r ||  (* Z/positive arith dragged in by GoI64/GoU64 bodies — never emitted *)
   is_numint_proj r || is_numint_ctor r ||  (* erased numeric-wrapper proj/ctor decls *)
-  (from_builtins r && String.equal (global_basename r) "u8wrap") ||  (* internal range-carrying u8 constructor; only inside by-name-lowered op bodies *)
-  (from_builtins r && String.equal (global_basename r) "u16wrap") ||  (* internal range-carrying u16 constructor *)
-  (from_builtins r && String.equal (global_basename r) "u32wrap") ||  (* internal range-carrying u32 constructor *)
-  (from_builtins r && String.equal (global_basename r) "i8wrap") ||  (* internal provenance-carrying i8 constructor *)
-  (from_builtins r && String.equal (global_basename r) "i16wrap") ||  (* internal provenance-carrying i16 constructor *)
-  (from_builtins r && String.equal (global_basename r) "i32wrap") ||  (* internal provenance-carrying i32 constructor *)
-  (from_builtins r && String.equal (global_basename r) "u64wrap") ||  (* internal range-carrying u64 constructor *)
-  (from_builtins r && String.equal (global_basename r) "i64wrap") ||  (* internal range-carrying i64 constructor *)
+  (from_model r && String.equal (global_basename r) "u8wrap") ||  (* internal range-carrying u8 constructor; only inside by-name-lowered op bodies *)
+  (from_model r && String.equal (global_basename r) "u16wrap") ||  (* internal range-carrying u16 constructor *)
+  (from_model r && String.equal (global_basename r) "u32wrap") ||  (* internal range-carrying u32 constructor *)
+  (from_model r && String.equal (global_basename r) "i8wrap") ||  (* internal provenance-carrying i8 constructor *)
+  (from_model r && String.equal (global_basename r) "i16wrap") ||  (* internal provenance-carrying i16 constructor *)
+  (from_model r && String.equal (global_basename r) "i32wrap") ||  (* internal provenance-carrying i32 constructor *)
+  (from_model r && String.equal (global_basename r) "u64wrap") ||  (* internal range-carrying u64 constructor *)
+  (from_model r && String.equal (global_basename r) "i64wrap") ||  (* internal range-carrying i64 constructor *)
   is_f32_proj r || is_f32_ctor r ||  (* erased GoFloat32 wrapper proj/ctor decls *)
   is_uint_proj r || is_uint_ctor r || is_uint_lit r ||  (* erased platform-uint [GoUint] proj/ctor/lit decls *)
-  is_vararg_ref r || is_va_slice_ref r || (from_builtins r && String.equal (global_basename r) "va_ph") ||  (* variadic wrapper machinery *)
+  is_vararg_ref r || is_va_slice_ref r || (from_model r && String.equal (global_basename r) "va_ph") ||  (* variadic wrapper machinery *)
   is_print_ref r || is_println_ref r ||
   is_len_ref r || is_cap_ref r || is_append_ref r || is_panic_ref r ||
   is_type_assert_ref r || is_type_assert_safe_ref r || is_type_switch_ref r ||
   is_struct_eqb_ref r || is_val_switch_ref r ||
-  (from_builtins r && List.mem (global_basename r)
+  (from_model r && List.mem (global_basename r)
     ["go_complex"; "go_real"; "go_imag"; "MkComplex128"; "c_re"; "c_im";
      "complex_add"; "complex_sub"; "complex_mul"; "complex_div"; "complex_neg";
      "complex_eqb"; "complex_neqb";
@@ -5094,18 +5092,18 @@ let is_suppressed_ref r =
   is_slice_of_list_ref r || is_slice_get_ref r || is_slice_at_ok_ref r ||
   is_arr_lit_ref r || is_arr_eqb_ref r || is_arr_set_ref r ||
   is_arrN_lit_ref r ||
-  (from_builtins r && (arr_n_of_name "mkArr" "" (global_basename r) <> None
+  (from_model r && (arr_n_of_name "mkArr" "" (global_basename r) <> None
     || arr_n_of_name "arr" "_data" (global_basename r) <> None)) ||  (* GoArr<N> machinery (builtins-owned; decl-suppressed, recognized by name) *)
-  (from_builtins r && List.mem (global_basename r) ["mkFC"; "fc_num"; "fc_den"; "fc_add"; "fc_sub"; "fc_mul"; "fc_div"; "f64_of_fconst"; "f32_of_fconst"; "sf_of_Z"]) ||  (* FConst machinery: folded by name *)
+  (from_model r && List.mem (global_basename r) ["mkFC"; "fc_num"; "fc_den"; "fc_add"; "fc_sub"; "fc_mul"; "fc_div"; "f64_of_fconst"; "f32_of_fconst"; "sf_of_Z"]) ||  (* FConst machinery: folded by name *)
   (* spec_float float64 ops + helpers: the [f64_<op>] CALLS lower to Go
      float operators (is_float_op_ref / is_f64_cmp_ref / is_min/max_ref); the helpers are internal to
      by-name-lowered op bodies / the parse-time literal notation.  All DECLS suppressed. *)
-  (from_builtins r && List.mem (global_basename r)
+  (from_model r && List.mem (global_basename r)
     ["f64_add"; "f64_sub"; "f64_mul"; "f64_div"; "f64_opp"; "f64_abs";
      "f64_eqb"; "f64_ltb"; "f64_leb"; "f64_gtb"; "f64_geb"; "f64_neqb"; "f64_min"; "f64_max";
      "renorm"; "cond_Zopp"; "f64_of_frac"; "uint_to_Z"; "f64_of_decimal";
      "parse_f64"; "print_f64"; "f32_round"]) ||
-  (from_builtins r && List.mem (global_basename r) ["mkArray"; "arr_data"; "goi64_list_eqb"; "go_list_set"]) ||
+  (from_model r && List.mem (global_basename r) ["mkArray"; "arr_data"; "goi64_list_eqb"; "go_list_set"]) ||
   is_str_len_ref r || is_str_concat_ref r || is_str_at_ok_ref r ||
   is_str_slice_ref r || ref_has_suffix r ".String.substring" ||  (* s[a:b]: recognized → slice expr; body + substring suppressed *)
   is_str_eqb_ref r || is_str_ltb_ref r || is_str_cmp_ref r || is_f64_cmp_ref r || is_f32_cmp_ref r ||
@@ -5116,9 +5114,9 @@ let is_suppressed_ref r =
   is_ptr_nil_ref r || is_ptr_nil_tf_ref r || is_ptr_as_ref_ref r || is_ref_as_ptr_ref r || is_ptr_get_ok_ref r ||
   is_gsptr_machinery r ||  (* the ONE generic arity-free struct-rep machinery (StructRep/GSPtr/Mem/…) *)
   Hashtbl.mem class_inst (global_path r) ||  (* per-record class INSTANCES (user files) — TYPE-classified in pass 2 *)
-  (from_builtins r && str_prefix "StructRepOf" (global_basename r)) ||  (* the canonical-rep class itself (builtins) *)
+  (from_model r && str_prefix "StructRepOf" (global_basename r)) ||  (* the canonical-rep class itself (builtins) *)
   is_sliceh_type r || is_slice_make_h_ref r || is_slice_idx_get_ref r ||
-  is_slice_idx_set_ref r || is_subslice_ref r || (from_builtins r && String.equal (global_basename r) "subslice_desc") || is_slice_append_h_ref r ||
+  is_slice_idx_set_ref r || is_subslice_ref r || (from_model r && String.equal (global_basename r) "subslice_desc") || is_slice_append_h_ref r ||
   is_slice_make_lc_ref r || is_slice_clear_h_ref r || is_slice_copy_ref r ||
   is_go_map_type r || is_map_make_ref r || is_map_make_typed_ref r ||
   is_map_set_ref r || is_map_del_ref r || is_map_len_ref r || is_map_get_or_ref r ||
@@ -5131,18 +5129,18 @@ let is_suppressed_ref r =
   is_go_spawn_ref r || is_defer_call_ref r ||
   is_run_session_ref r || is_sbind_ref r || is_sret_ref r ||
   is_ssend_ref r || is_srecv_ref r || is_slift_ref r ||
-  (from_builtins r && String.equal (global_basename r) "Sess") ||
+  (from_model r && String.equal (global_basename r) "Sess") ||
   is_dual_ref r || is_proto_ctor r || is_proto_type r ||
   is_IO_type r || is_ret_ref r || is_bind_ref r ||
-  (from_builtins r && String.equal (global_basename r) "catch") ||
-  (from_builtins r && String.equal (global_basename r) "with_defer") ||
+  (from_model r && String.equal (global_basename r) "catch") ||
+  (from_model r && String.equal (global_basename r) "with_defer") ||
   is_unit_tt r ||
   is_go_prim_type r || is_float64_type r ||
   is_float_opp_ref r || is_f32_neg_ref r ||
   is_num_to_f64_ref r || is_of_uint63_ref r || is_int63_of_z_ref r ||  (* int/int64/float32/uint64→float64 cast: recognized → float64(x); body + of_uint63/of_Z/of_pos suppressed *)
-  is_f64_to_i64_ref r || (from_builtins r && String.equal (global_basename r) "f64_trunc_Z") ||  (* float64→int64 cast → int64(x); the Prim2SF-match body (f64_trunc_Z) suppressed *)
+  is_f64_to_i64_ref r || (from_model r && String.equal (global_basename r) "f64_trunc_Z") ||  (* float64→int64 cast → int64(x); the Prim2SF-match body (f64_trunc_Z) suppressed *)
   is_f64_to_u64_ref r ||  (* float64→uint64 cast → uint64(x); shares the suppressed f64_trunc_Z body *)
-  is_cw_eqb_ref r || is_comparable_witness_inst r || (from_builtins r && String.equal (global_basename r) "MkComparableW") ||  (* comparable-constraint witness machinery: cw_eqb→==, instances dropped as args *)
+  is_cw_eqb_ref r || is_comparable_witness_inst r || (from_model r && String.equal (global_basename r) "MkComparableW") ||  (* comparable-constraint witness machinery: cw_eqb→==, instances dropped as args *)
   is_i64_of_narrow_ref r ||  (* narrow→int64 widening — call sites cast to [int64(x)] (NOT identity); the to_Z-match body suppressed *)
   is_f64_to_f32_ref r ||  (* float64→float32 narrowing ([f32_of_f64]/[f32_lit]) → float32(x); SpecFloat round body suppressed *)
   is_int_to_f32_ref r ||  (* DIRECT int→float32 → float32(x); binary_normalize body suppressed *)
@@ -5518,7 +5516,7 @@ let collect_decls struc =
     (* per-record class INSTANCES ([StructRepOf R]): classified by the RET type's head
        (the class TYPE is builtins-owned) — user instances register here, never by name *)
     (match ret with
-     | Tglob (c, _) when from_builtins c && String.equal (global_basename c) "StructRepOf" ->
+     | Tglob (c, _) when from_model c && String.equal (global_basename c) "StructRepOf" ->
          Hashtbl.replace class_inst (global_path r) ()
      | _ -> ()) ;
     let idxs =
