@@ -72,9 +72,16 @@ Open items it adds, in its recommended order:
    with class-wide soundness `blocks_ranked_terminates` (termination for EVERY world by
    well-founded descent), and `blocks_spinning` (a per-program SPIN invariant) with the
    coinductive `blocks_spinning_diverges`.  Both soundness theorems joined the gated
-   surface.  A SYNTACTIC certificate checker (deciding the obligations from block
-   structure) waits on a real constructor/type boundary for blocks — the shallow
-   `IO Next` embedding has no syntax to check; noted as the structured-CFG follow-up.
+   surface.  FIRST CONSTRUCTOR BOUNDARY LANDED: `SBlock` (a straight-line body + a
+   STATIC terminator — the jump structure is DATA), `sblock_denote` into the shallow
+   authority, and two DECIDED admissibility facts with soundness theorems on the gated
+   surface: `check_targets_jump_wf` (boolean in-range check ⇒ `blocks_jump_wf`) and
+   `sblocks_forward_terminates` (boolean forward-jump check ⇒ every configuration of
+   the CFG evaluates, for every world — the checked instance of `blocks_ranked` with
+   rank `len - pc`).  Conditional jumps stay OUTSIDE this class (computed targets);
+   they keep the per-program certificate route.  NEXT here (own design): static CYCLE
+   detection ⇒ a checked `blocks_spinning` divergence certificate, then widening the
+   body/terminator syntax toward the emitter's conditional-jump shape.
 2. **Quarantine `run_blocks` demos harder** — integration/log-diff evidence only.
 3. **Plugin starving** (standing): feature-by-feature GoAst -> GoPrint -> GoSafe -> GoEmit.
 4. **Gated public surfaces**: every doc-cited theorem inside a manifest-gated surface.

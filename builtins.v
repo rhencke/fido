@@ -6376,12 +6376,98 @@ Proof.
   exact (bd_jump blocks pc w pc' w' Hstep (CIH pc' w' Hinv')).
 Qed.
 
+(** ---- The STATIC-TERMINATOR CFG core class ---- the first CONSTRUCTOR boundary for
+    blocks: a straight-line effect plus a terminator that is SYNTAX, not a computed
+    value.  Because the jump structure is data, admissibility is DECIDED by a boolean
+    checker with a soundness theorem — never promised by a comment, never evidenced by
+    a demo.  Conditional jumps stay OUTSIDE this class (their targets are computed by
+    the body); the general class keeps its per-program certificate route above. *)
+Record SBlock := mkSBlock { sb_body : IO unit ; sb_term : Next }.
+Definition sblock_denote (b : SBlock) : IO Next :=
+  bind (sb_body b) (fun _ => ret (sb_term b)).
+
+(** every terminator lands in range — decidable, sound for [blocks_jump_wf]. *)
+Definition check_target (len : nat) (t : Next) : bool :=
+  match t with Done => true | Jump pc => Nat.ltb pc len end.
+Definition check_targets (sbs : list SBlock) : bool :=
+  List.forallb (fun b => check_target (List.length sbs) (sb_term b)) sbs.
+
+Lemma sblock_denote_ret : forall b (w : World) (t : Next) (w' : World),
+  run_io (sblock_denote b) w = ORet t w' -> t = sb_term b.
+Proof.
+  intros b w t w' H. unfold sblock_denote, bind, run_io in H.
+  destruct (sb_body b w) as [ [] w0 | v w0 ]; [ | discriminate H ].
+  injection H as <- _. reflexivity.
+Qed.
+
+Theorem check_targets_jump_wf : forall sbs,
+  check_targets sbs = true ->
+  blocks_jump_wf (List.map sblock_denote sbs).
+Proof.
+  intros sbs Hc n b w Hnth.
+  rewrite List.nth_error_map in Hnth.
+  destruct (nth_error sbs n) as [ sb | ] eqn:Hn; [ | discriminate Hnth ].
+  injection Hnth as <-.
+  destruct (run_io (sblock_denote sb) w) as [ [ pc' | ] w' | v w' ] eqn:Hrun; [ | exact I | exact I ].
+  pose proof (sblock_denote_ret sb w (Jump pc') w' Hrun) as Ht.
+  pose proof (proj1 (List.forallb_forall _ sbs) Hc sb (List.nth_error_In sbs n Hn)) as Hok.
+  cbv beta in Hok. rewrite <- Ht in Hok. cbn [check_target] in Hok.
+  rewrite List.length_map. apply Nat.ltb_lt. exact Hok.
+Qed.
+
+(** every jump goes strictly FORWARD — decidable, and a CHECKED termination
+    certificate: [fun pc _ => len - pc] is a ranking function, so every
+    configuration of a forward CFG evaluates (for EVERY world). *)
+Fixpoint check_forward_from (i : nat) (sbs : list SBlock) : bool :=
+  match sbs with
+  | nil => true
+  | b :: r => (match sb_term b with Done => true | Jump pc => Nat.ltb i pc end
+               && check_forward_from (S i) r)%bool
+  end.
+Definition check_forward (sbs : list SBlock) : bool := check_forward_from 0 sbs.
+
+Lemma check_forward_from_nth : forall sbs i n b pc,
+  check_forward_from i sbs = true -> nth_error sbs n = Some b -> sb_term b = Jump pc ->
+  (i + n < pc)%nat.
+Proof.
+  induction sbs as [ | b0 r IH ]; intros i n b pc Hc Hn Ht.
+  - destruct n; discriminate Hn.
+  - cbn [check_forward_from] in Hc. apply andb_prop in Hc. destruct Hc as [ Hb Hr ].
+    destruct n as [ | n ].
+    + injection Hn as <-. rewrite Ht in Hb. apply Nat.ltb_lt in Hb. lia.
+    + cbn [nth_error] in Hn. pose proof (IH (S i) n b pc Hr Hn Ht). lia.
+Qed.
+
+Theorem sblocks_forward_terminates : forall sbs,
+  check_targets sbs = true -> check_forward sbs = true ->
+  forall pc (w : World), (pc < List.length sbs)%nat ->
+  exists out, blocks_eval (List.map sblock_denote sbs) pc w out.
+Proof.
+  intros sbs Hct Hcf pc w Hpc.
+  apply (blocks_ranked_terminates (List.map sblock_denote sbs)
+           (fun pc _ => List.length sbs - pc)).
+  - apply check_targets_jump_wf. exact Hct.
+  - intros n w0 b Hnth.
+    rewrite List.nth_error_map in Hnth.
+    destruct (nth_error sbs n) as [ sb | ] eqn:Hn; [ | discriminate Hnth ].
+    injection Hnth as <-.
+    destruct (run_io (sblock_denote sb) w0) as [ [ pc' | ] w' | v w' ] eqn:Hrun; [ | exact I | exact I ].
+    pose proof (sblock_denote_ret sb w0 (Jump pc') w' Hrun) as Ht.
+    pose proof (check_forward_from_nth sbs 0 n sb pc' Hcf Hn (eq_sym Ht)) as Hfwd.
+    pose proof (proj1 (List.forallb_forall _ sbs) Hct sb (List.nth_error_In sbs n Hn)) as Hok.
+    cbv beta in Hok. rewrite <- Ht in Hok. cbn [check_target] in Hok. apply Nat.ltb_lt in Hok.
+    lia.
+  - rewrite List.length_map. exact Hpc.
+Qed.
+
 (** The CFG semantics surface, manifest-gated (PROGRESS "Current gates"): class-wide
     progress + one-step determinism + unique terminating outcomes + termination/divergence
-    disjointness + the two certificate-soundness theorems, certified zero-axiom as a bundle. *)
+    disjointness + the two certificate-soundness theorems + the static-terminator core class's CHECKED
+    admissibility and termination, certified zero-axiom as a bundle. *)
 Definition blocks_cfg_surface :=
   (blocks_jump_wf_progress, blocks_step_det, blocks_eval_det, blocks_eval_diverge_disjoint,
-   blocks_ranked_terminates, blocks_spinning_diverges).
+   blocks_ranked_terminates, blocks_spinning_diverges,
+   check_targets_jump_wf, sblocks_forward_terminates).
 Print Assumptions blocks_cfg_surface.
 
 (** EMISSION-ONLY marker (the plugin suppresses this body and emits labels+goto).
