@@ -64,8 +64,10 @@ well-founded recursion over input text — never execution budgets") — satisfi
 Open items it adds, in its recommended order:
 
 1. **CFG relations — LANDED, current state**: the shallow authority carries
-   `blocks_step_det` (one-step determinism), `blocks_eval_det` (unique terminating
-   outcomes), `blocks_eval_diverge_disjoint`, and two per-program certificate schemes
+   `blocks_jump_wf_progress` (class-wide never-stuck under the outcome-only
+   `blocks_jump_wf` admissibility), `blocks_step_det` (one-step determinism),
+   `blocks_eval_det` (unique terminating outcomes), `blocks_eval_diverge_disjoint`,
+   and two per-program certificate schemes
    with class-wide soundness: `blocks_ranked`/`blocks_ranked_terminates` (ranking
    function ⇒ termination for every world) and `blocks_spinning`/
    `blocks_spinning_diverges` (spin invariant ⇒ divergence, coinductive).  The
