@@ -6,19 +6,16 @@ STATUS: semantic fuel is DELETED (7e5f754) — `blocks_eval` (Inductive) +
 `blocks_diverge` (CoInductive) are the authoritative CFG semantics; the fueled
 runner, its cap, and the silent missing-block default are gone; `run_blocks` is an
 emission-only marker.  NOT YET DONE (re-scoped per boss 2026-07-05 "holistic
-proofs or nothing" — per-demo lemmas would themselves be example-based): TWO SEPARATED
-concepts (a panic-admitting predicate cannot also exclude panicking deep-IO
-blocks): (1) `blocks_jump_wf blocks start` — semantic jump safety (for every
-block b and EVERY world w, run_io b w is Done, a panic, or an IN-RANGE Jump;
-blocks are arbitrary IO Next, so no syntactic check can carry this; the
-emitter's go.ml:3690/3702 checks mirror only the SYNTACTIC literal/range part)
-plus an in-range start — with a never-stuck progress theorem over ALL jump-wf
-CFGs.  (2) The deep-IO story is ORTHOGONAL: blocks using shallow fail-loud
-markers (defer_call etc.) satisfy jump-wf — their shallow outcome is a panic —
-and the shallow relations claim nothing about their emitted behavior; that
-connection is the deep run_cmd/emitted-runtime story.  Any future "core CFG
-class" that excludes such blocks needs a REAL constructor/type boundary, not a
-prose exclusion.  Demos/golden stay sanity checks, never evidence.
+proofs or nothing" — per-demo lemmas would themselves be example-based): LANDED as
+`blocks_jump_wf` + `blocks_jump_wf_progress` (builtins.v): admissibility is
+stated in OUTCOME terms only — every block's run on every world is Done, a
+panic, or an in-range Jump; membership is decided by outcomes, never by which
+markers a body contains — and progress holds class-wide (never stuck from any
+in-range pc).  The go.ml:3690/3702 emitter checks mirror only the SYNTACTIC
+literal/range part.  The shallow relations claim nothing about emitted deep-IO
+behavior (that is the deep run_cmd story); a future core class excluding
+specific block shapes needs a real constructor/type boundary.  Demos/golden
+stay sanity checks, never evidence.
 GATE AUTHORITY: `plugin/fuel-gate.sh` is the mechanical authority for the fuel gate
 (its class definitions are the spec; the selftest is a regression matrix derived from
 the same variables); this file only summarizes it.  The executable expression
@@ -38,8 +35,8 @@ eval_cmd, equivalence both directions, gated; real no_heap totality), cmd_unifie
    missing-block default died by deletion); `run_blocks` = emission-only marker
    (`run_blocks_never_ret`); fuel gate wired in BOTH Makefile and the Dockerfile
    prover stage; manifest ratcheted to GoPrint.v 22 / builtins.v 2 / main.v 3 /
-   GoSem.v 1.  REMAINING here: the holistic CFG theorem of the STATUS section —
-   `blocks_jump_wf` + class-wide progress (no per-demo machinery of any kind).
+   GoSem.v 1.  The holistic CFG layer is IN: `blocks_jump_wf` +
+   `blocks_jump_wf_progress` (class-wide, outcome-only; no per-demo machinery).
 2. **GoPrint.v** — LEXER DONE: `lex` is Acc-structural on input length and the ENTIRE
    lemma suite is stated over `lex` itself (`lex_acc_pi` proof-irrelevance + the
    `lex_eq_*` one-step unfold equations; no budget premise, no auxiliary evaluator).

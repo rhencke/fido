@@ -6193,17 +6193,15 @@ Inductive Next : Type :=
     within N").  [run_blocks] itself is EMISSION-ONLY: the plugin lowers it BY
     NAME to labels + [goto] and suppresses this body; the model-side body is a
     loud marker panic, so evaluating it in Rocq never fabricates an outcome.
-    The GENERAL claims are NOT YET stated (follow-up work, holistic only —
-    never per-demo lemmas): [blocks_jump_wf blocks start] — SEMANTIC jump
-    safety (every block's run on EVERY world yields Done, a panic, or an
-    IN-RANGE Jump) plus an in-range start — with a class-wide never-stuck
-    progress theorem over ALL jump-wf CFGs.  That predicate says NOTHING about
-    deep IO: a block whose body uses a shallow fail-loud marker (e.g.
-    [defer_call]) SATISFIES it — its shallow outcome is simply a panic — and
-    the shallow relations describe only shallow [run_io] behavior.  Connecting
-    such blocks to their EMITTED behavior is the deep [run_cmd]/emitted-runtime
-    story, a separate claim these relations do not make.  Demos are sanity
-    checks, never evidence. *)
+    [blocks_jump_wf] below is the holistic admissibility condition, stated in
+    OUTCOME terms only: a CFG is jump-wf iff every block's run on EVERY world
+    yields Done, a panic, or an IN-RANGE Jump — membership is decided by
+    outcomes, never by which syntactic markers a body contains.
+    [blocks_jump_wf_progress] is the class-wide theorem: from any in-range pc,
+    a jump-wf CFG is NEVER STUCK.  These relations describe only shallow
+    [run_io] behavior; connecting any block to its EMITTED behavior is the
+    deep [run_cmd]/emitted-runtime story, a separate claim these relations do
+    not make.  Demos are sanity checks, never evidence. *)
 Inductive blocks_eval (blocks : list (IO Next)) : nat -> World -> Outcome unit -> Prop :=
   | be_done : forall pc w b w',
       nth_error blocks pc = Some b ->
@@ -6226,6 +6224,37 @@ CoInductive blocks_diverge (blocks : list (IO Next)) : nat -> World -> Prop :=
       (pc' < List.length blocks)%nat ->
       blocks_diverge blocks pc' w' ->
       blocks_diverge blocks pc w.
+
+(** HOLISTIC ADMISSIBILITY (outcome terms only): every block's run, on every
+    world, is Done, a panic, or an in-range Jump. *)
+Definition blocks_jump_wf (blocks : list (IO Next)) : Prop :=
+  forall n b (w : World), nth_error blocks n = Some b ->
+    match run_io b w with
+    | ORet (Jump pc') _ => (pc' < List.length blocks)%nat
+    | _ => True
+    end.
+
+(** CLASS-WIDE PROGRESS: from any in-range pc, a jump-wf CFG is never stuck —
+    the configuration either concludes ([blocks_eval] done/panic) or steps to
+    another IN-RANGE configuration.  Holds for the WHOLE class, not per demo. *)
+Lemma blocks_jump_wf_progress : forall blocks pc (w : World),
+  blocks_jump_wf blocks -> (pc < List.length blocks)%nat ->
+  exists b, nth_error blocks pc = Some b /\
+    match run_io b w with
+    | ORet Done w'      => blocks_eval blocks pc w (ORet tt w')
+    | OPanic v w'       => blocks_eval blocks pc w (OPanic v w')
+    | ORet (Jump pc') _ => (pc' < List.length blocks)%nat
+    end.
+Proof.
+  intros blocks pc w Hwf Hpc.
+  destruct (nth_error blocks pc) as [b|] eqn:Hnth.
+  - exists b. split; [ reflexivity | ].
+    destruct (run_io b w) as [[pc'|] w' | v w'] eqn:Hrun.
+    + pose proof (Hwf pc b w Hnth) as H. rewrite Hrun in H. exact H.
+    + exact (be_done blocks pc w b w' Hnth Hrun).
+    + exact (be_panic blocks pc w b v w' Hnth Hrun).
+  - exfalso. apply nth_error_Some in Hpc. congruence.
+Qed.
 
 (** EMISSION-ONLY marker (the plugin suppresses this body and emits labels+goto).
     Evaluating the model-side [run_blocks] yields a loud, recognizable panic —
