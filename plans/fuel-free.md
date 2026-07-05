@@ -41,11 +41,26 @@ eval_cmd, equivalence both directions, gated; real no_heap totality), cmd_unifie
 
 ## Remaining
 
-1. **builtins.v — FIRST (semantic fuel)**: `run_blocks_fuel`/`block_fuel`
-   (the goto-CFG runner — genuine partiality): replace with a step relation +
-   termination-certificate execution (Acc-based); each CFG demo supplies its concrete
-   derivation; the plugin erases the proof argument (arity update, fail-closed;
-   plugin/go.ml knows the current names).
+1. **builtins.v — FIRST (semantic fuel)** — SETTLED LANDING SHAPE (2026-07-05 recon:
+   the plugin recognizes `run_blocks` BY NAME, two args, go.ml:491/3652, and suppresses
+   its body; the golden runs the EMITTED GO, so the Rocq body is never executed for
+   demos — it exists only for model-side claims):
+   a. `blocks_eval : list (IO Next) -> nat -> World -> Outcome unit -> Prop` (Inductive:
+      done/panic/jump via `nth_error`, `pc' < length blocks` premise) + CoInductive
+      `blocks_diverge` — THE authoritative semantics.  Not extracted.
+   b. `block_nth` nil arm: `ret Done` → an explicit invalid-state `OPanic` ("missing
+      block") — invalid control flow can never model as success.
+   c. `run_blocks_fuel` + `block_fuel` + the exhaustion lemma DELETED.  `run_blocks`
+      keeps its name/arity for the plugin but its body becomes an EMISSION-ONLY marker:
+      a total `fun w => OPanic "run_blocks is emission-only; semantics = blocks_eval"`
+      — no fuel, no fabricated outcome, no type-level termination lie; model-side
+      behavior of each demo is stated against `blocks_eval` (finite derivations by
+      econstructor for the terminating demos).
+   d. Ratchet: builtins.v 12 → ~1 manifest entries; the fuel-gate baseline blesses DOWN.
+   e. plugin arity untouched (still 2 args); go.ml comments naming run_blocks_fuel/
+      block_fuel updated; the Dockerfile prover-stage fuel-gate call added HERE.
+   Genuine cert-indexed EXECUTION (an admitted program running inside the model under a
+   termination certificate) is the later deep arc; it is NOT required to delete the fuel.
 2. **GoPrint.v** — LEXER DONE: `lex` is Acc-structural on input length and the ENTIRE
    lemma suite is stated over `lex` itself (`lex_acc_pi` proof-irrelevance + the
    `lex_eq_*` one-step unfold equations; no budget premise, no auxiliary evaluator).
