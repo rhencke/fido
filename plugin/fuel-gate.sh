@@ -46,7 +46,7 @@ strip_comments() {
 # the group, across whitespace AND newlines (so [(need limit capacity bound : nat)]
 # counts 4, [{step steps : nat}] counts 2, and a line-broken group still counts).
 count_b() {
-  awk '
+  awk -v q="'" '
     { gsub(/[(){}:]/, " & "); n = split($0, t, /[ \t]+/);
       for (i = 1; i <= n; i++) {
         tok = t[i]; if (tok == "") continue;
@@ -56,7 +56,7 @@ count_b() {
             if (col[d] && typ[d] == "nat") {
               m = split(ids[d], w, " ");
               for (j = 1; j <= m; j++)
-                if (w[j] ~ /^(budget|limit|need|capacity|bound|step|steps)$/) cnt++
+                if (w[j] ~ ("^(budget|limit|need|capacity|bound|step|steps)" q "*$")) cnt++
             }
             d--
           }
@@ -150,6 +150,21 @@ EOF
     printf 'Definition p (need limit capacity bound\n : nat) : nat := 0.\n' > "$tmp/ml.v"
     g=$(count_file "$tmp/ml.v")
     [ "$g" = "4" ] || { echo "fido: fuel-gate SELFTEST FAILED — multiline group counted $g, want 4"; exit 1; }
+    # PRIMED budget binders count per identifier too (Rocq [x'] spellings)
+    printf "Definition pp (need' limit' capacity' bound' : nat) : nat := 0.\n" > "$tmp/pr.v"
+    g=$(count_file "$tmp/pr.v")
+    [ "$g" = "4" ] || { echo "fido: fuel-gate SELFTEST FAILED — primed group counted $g, want 4"; exit 1; }
+    printf "Definition hp {step' steps' : nat} : nat := 0.\n" > "$tmp/pri.v"
+    g=$(count_file "$tmp/pri.v")
+    [ "$g" = "2" ] || { echo "fido: fuel-gate SELFTEST FAILED — primed implicit group counted $g, want 2"; exit 1; }
+    # widening a PRIMED group must trip the ratchet
+    mkdir "$tmp/scan3"
+    printf "Definition r (need' : nat) : nat := 0.\n" > "$tmp/scan3/a.v"
+    ( FG_SCAN_DIR="$tmp/scan3" FG_BASELINE="$tmp/base3" sh plugin/fuel-gate.sh bless >/dev/null )
+    printf "Definition r (need' limit' : nat) : nat := 0.\n" > "$tmp/scan3/a.v"
+    if ( FG_SCAN_DIR="$tmp/scan3" FG_BASELINE="$tmp/base3" sh plugin/fuel-gate.sh run >/dev/null 2>&1 ); then
+      echo "fido: fuel-gate SELFTEST FAILED — widened primed group passed the ratchet"; exit 1
+    fi
     # widening an EXISTING group must trip the ratchet
     mkdir "$tmp/scan2"
     printf 'Definition q (need : nat) : nat := 0.\n' > "$tmp/scan2/a.v"
