@@ -1,5 +1,7 @@
 #!/bin/sh
-# fuel-gate.sh — the budget-identifier ratchet (steering memo, plans/fuel-free.md "REQUIRED GATE").
+# fuel-gate.sh — the budget-identifier ratchet.  THIS SCRIPT IS THE MECHANICAL AUTHORITY
+# for the fuel gate: the classes below are the spec, and the selftest fixture matrix is
+# its executable definition (plans/fuel-free.md only summarizes it).
 #
 # IDENTIFIER-AND-CONTEXT scoped over the scanned *.v files (comments stripped first, so
 # prose mentions are not counted — the gate is code-level, never a prose linter):
@@ -92,7 +94,7 @@ grew() {  # exit 0 if any file's current count exceeds its baseline entry
     b=$(awk -F'\t' -v f="$f" '$2 == f { print $1 }' "$BASELINE")
     [ -n "$b" ] || b=0
     if [ "$c" -gt "$b" ]; then
-      echo "fido: FUEL GATE — $f has $c budget occurrences (baseline $b)"
+      echo "fido: FUEL GATE — $f has $c budget occurrences (baseline $b) — no new fuel under any name"
     fi
   done | grep . >&2
 }
@@ -191,7 +193,7 @@ EOF
   run|*)
     [ -f "$BASELINE" ] || { echo "fido: fuel-gate: missing $BASELINE (run: sh plugin/fuel-gate.sh bless)"; exit 1; }
     if grew; then
-      echo "fido: FUEL GATE FAILED — no new fuel under any name (see plans/fuel-removal-steering.txt)"
+      echo "fido: FUEL GATE FAILED — delete the budget identifier or the construct that needs it (this script's header defines the classes)"
       exit 1
     fi
     echo "fido: fuel-gate OK (no file above its baseline manifest entry)"

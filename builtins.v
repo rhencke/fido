@@ -6168,9 +6168,10 @@ Fixpoint slice_fold {A S : Type} (xs : GoSlice A) (init : S) (step : S -> A -> S
     the TRUSTED plugin lowering, demo-pinned (SPEC_CONFORMANCE's control-flow
     row) — no completeness theorem is claimed.
 
-    [run_blocks start body]: start at label [start]; run [body l] (which does IO
-    and yields a [Next]); follow [Jump]s until [Done].  It lives in [IO] because
-    a backward [Jump] need not terminate.  The plugin does NOT emit a dispatch
+    [run_blocks start blocks]: the blocks are a LIST ([nth_error] addresses block
+    [n]); control starts at [start] and follows [Jump]s until [Done] — the
+    authoritative semantics are the [blocks_eval]/[blocks_diverge] relations
+    below.  The plugin does NOT emit a dispatch
     loop — it emits the blocks as Go labels + [goto], and a structuring pass
     lifts reducible graphs back to [if]/[for]/[break].  Structured combinators
     (if, for_each, slice_fold) are patterns that pass recognises, not the model. *)

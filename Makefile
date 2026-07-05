@@ -66,7 +66,8 @@ run-local: extract
 
 # Fail-closed regression harness: compile each negtests/*.v and assert it ABORTS extraction with its
 # declared `(* EXPECT: … *)` message (a reopened fail-closed site is the defect the golden cannot see).
-# the budget-identifier ratchet (steering memo; spec in plans/fuel-free.md "REQUIRED GATE").
+# the budget-identifier ratchet (plugin/fuel-gate.sh is the mechanical authority — its
+# header defines the classes, its selftest is the executable spec).
 # Runs its own fixture selftest first, so the detector's PASS/FAIL matrix is re-proven on
 # every check; then ratchets the certified-file count against plugin/fuel-gate.baseline.
 fuel-gate:

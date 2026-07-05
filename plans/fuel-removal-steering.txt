@@ -4,7 +4,7 @@ STATUS 2026-07-05: the memo's CURRENT PRIORITY sections are FULFILLED — semant
 are the authority, the lexer is WF, and the fuel gate is live in make check and the
 Docker prover stage.  This memo no longer steers current work: the one current
 authority is plans/fuel-free.md.
-The MECHANICAL gate derived from it is specified in plans/fuel-free.md "REQUIRED GATE":
+The MECHANICAL gate derived from it is plugin/fuel-gate.sh (its header + selftest are the spec):
 identifier/context-scoped over BUDGET-shaped terms only.  Relational small-step
 semantics (step/steps/ustep) are the PRESCRIBED architecture (see "Use small-step
 semantics where useful" below), never gate targets; the memo's word lists are to be
