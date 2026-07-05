@@ -6325,11 +6325,63 @@ Proof.
     exact (IH Hrest).
 Qed.
 
+(** TERMINATION CERTIFICATE — a RANKING function: every jump strictly decreases [rank].
+    The certificate is PER-PROGRAM evidence (each accepted CFG supplies its own [rank]
+    and discharges the two obligations); the soundness theorem below is CLASS-WIDE and
+    fuel-free — termination follows for EVERY world, by well-founded descent, never by
+    stepping a budget. *)
+Definition blocks_ranked (blocks : list (IO Next)) (rank : nat -> World -> nat) : Prop :=
+  forall pc (w : World) b, nth_error blocks pc = Some b ->
+    match run_io b w with
+    | ORet (Jump pc') w' => (rank pc' w' < rank pc w)%nat
+    | _ => True
+    end.
+
+Theorem blocks_ranked_terminates : forall blocks rank,
+  blocks_jump_wf blocks -> blocks_ranked blocks rank ->
+  forall pc (w : World), (pc < List.length blocks)%nat ->
+  exists out, blocks_eval blocks pc w out.
+Proof.
+  intros blocks rank Hwf Hrank.
+  assert (H : forall n pc (w : World), (rank pc w < n)%nat -> (pc < List.length blocks)%nat ->
+              exists out, blocks_eval blocks pc w out).
+  { induction n as [ | n IH ]; intros pc w Hr Hpc; [ lia | ].
+    destruct (nth_error blocks pc) as [ b | ] eqn:Hnth.
+    2: { exfalso. apply nth_error_Some in Hpc. congruence. }
+    destruct (run_io b w) as [ [ pc' | ] w' | v w' ] eqn:Hrun.
+    - (* Jump: in range by [blocks_jump_wf], smaller by [blocks_ranked] — recurse *)
+      pose proof (Hwf pc b w Hnth) as Hin. rewrite Hrun in Hin.
+      pose proof (Hrank pc w b Hnth) as Hdec. rewrite Hrun in Hdec.
+      destruct (IH pc' w' ltac:(lia) Hin) as [ out Hout ].
+      exists out. exact (be_jump blocks pc w pc' w' out (bs_jump blocks pc w b pc' w' Hnth Hrun Hin) Hout).
+    - exists (ORet tt w'). exact (be_done blocks pc w b w' Hnth Hrun).
+    - exists (OPanic v w'). exact (be_panic blocks pc w b v w' Hnth Hrun). }
+  intros pc w Hpc. exact (H (S (rank pc w)) pc w (Nat.lt_succ_diag_r _) Hpc).
+Qed.
+
+(** DIVERGENCE CERTIFICATE — a SPIN invariant: a property every configuration in which
+    STEPS and re-establishes it.  Per-program evidence; the soundness theorem is the
+    class-wide coinductive counterpart of [blocks_ranked_terminates]. *)
+Definition blocks_spinning (blocks : list (IO Next)) (inv : nat -> World -> Prop) : Prop :=
+  forall pc (w : World), inv pc w ->
+    exists pc' w', blocks_step blocks pc w pc' w' /\ inv pc' w'.
+
+Theorem blocks_spinning_diverges : forall blocks inv,
+  blocks_spinning blocks inv ->
+  forall pc (w : World), inv pc w -> blocks_diverge blocks pc w.
+Proof.
+  intros blocks inv Hspin. cofix CIH.
+  intros pc w Hinv.
+  destruct (Hspin pc w Hinv) as [ pc' [ w' [ Hstep Hinv' ] ] ].
+  exact (bd_jump blocks pc w pc' w' Hstep (CIH pc' w' Hinv')).
+Qed.
+
 (** The CFG semantics surface, manifest-gated (PROGRESS "Current gates"): class-wide
     progress + one-step determinism + unique terminating outcomes + termination/divergence
-    disjointness, certified zero-axiom as a bundle. *)
+    disjointness + the two certificate-soundness theorems, certified zero-axiom as a bundle. *)
 Definition blocks_cfg_surface :=
-  (blocks_jump_wf_progress, blocks_step_det, blocks_eval_det, blocks_eval_diverge_disjoint).
+  (blocks_jump_wf_progress, blocks_step_det, blocks_eval_det, blocks_eval_diverge_disjoint,
+   blocks_ranked_terminates, blocks_spinning_diverges).
 Print Assumptions blocks_cfg_surface.
 
 (** EMISSION-ONLY marker (the plugin suppresses this body and emits labels+goto).

@@ -67,9 +67,14 @@ Open items it adds, in its recommended order:
    (one-step determinism), `blocks_eval_det` (unique terminating outcomes),
    `blocks_eval_diverge_disjoint` (termination and divergence exclude each other) —
    all class-wide, bundled with `blocks_jump_wf_progress` into the manifest-gated
-   `blocks_cfg_surface` (zero-axiom).  REMAINING here: certificate-checked
-   termination/divergence for accepted CFGs (needs a certificate format + a
-   verified checker — its own design).
+   `blocks_cfg_surface` (zero-axiom).  CERTIFICATES LANDED (the honest shallow form):
+   `blocks_ranked` (a per-program RANKING function — every jump strictly decreases it)
+   with class-wide soundness `blocks_ranked_terminates` (termination for EVERY world by
+   well-founded descent), and `blocks_spinning` (a per-program SPIN invariant) with the
+   coinductive `blocks_spinning_diverges`.  Both soundness theorems joined the gated
+   surface.  A SYNTACTIC certificate checker (deciding the obligations from block
+   structure) waits on a real constructor/type boundary for blocks — the shallow
+   `IO Next` embedding has no syntax to check; noted as the structured-CFG follow-up.
 2. **Quarantine `run_blocks` demos harder** — integration/log-diff evidence only.
 3. **Plugin starving** (standing): feature-by-feature GoAst -> GoPrint -> GoSafe -> GoEmit.
 4. **Gated public surfaces**: every doc-cited theorem inside a manifest-gated surface.
