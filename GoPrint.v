@@ -991,7 +991,293 @@ Fixpoint lex_aux (fuel : nat) (s : string) : option (list Token) :=
           | None => None end
     end
   end.
-Definition lex (s : string) : option (list Token) := lex_aux (S (String.length s)) s.
+(** ---- LENGTH FACTS for the scanners: every rest is a (non-strict) suffix by length —
+    with the consumed head char, each lexer step strictly shrinks the input, which is the
+    whole termination argument (no step budget). *)
+Lemma scan_id_len : forall s tok r, scan_id s = (tok, r) -> String.length r <= String.length s.
+Proof.
+  induction s as [| c s' IH]; intros tok r H; cbn [scan_id] in H.
+  - injection H as <- <-. cbn. lia.
+  - destruct (is_idc c); [ | injection H as <- <-; cbn; lia ].
+    destruct (scan_id s') as [d r'] eqn:E. injection H as <- <-.
+    cbn. pose proof (IH d r' eq_refl). lia.
+Qed.
+Lemma scan_digits_len : forall s num r, scan_digits s = (num, r) -> String.length r <= String.length s.
+Proof.
+  induction s as [| c s' IH]; intros num r H; cbn [scan_digits] in H.
+  - injection H as <- <-. cbn. lia.
+  - destruct (is_dec_char c); [ | injection H as <- <-; cbn; lia ].
+    destruct (scan_digits s') as [d r'] eqn:E. injection H as <- <-.
+    cbn. pose proof (IH d r' eq_refl). lia.
+Qed.
+Lemma scan_hex_len : forall s d r, scan_hex s = (d, r) -> String.length r <= String.length s.
+Proof.
+  induction s as [| c s' IH]; intros d r H; cbn [scan_hex] in H.
+  - injection H as <- <-. cbn. lia.
+  - destruct (is_hex c); [ | injection H as <- <-; cbn; lia ].
+    destruct (scan_hex s') as [d' r'] eqn:E. injection H as <- <-.
+    cbn. pose proof (IH d' r' eq_refl). lia.
+Qed.
+Lemma scan_quote_len : forall s b r, scan_quote s = Some (b, r) -> String.length r <= String.length s.
+Proof.
+  (* the escape case skips TWO characters, so induct on a length bound (a proof-side
+     measure over the finite input — not an evaluator budget) *)
+  assert (aux : forall n s b r, String.length s <= n ->
+                scan_quote s = Some (b, r) -> String.length r <= String.length s).
+  { induction n as [| n IH]; intros s b r Hle H.
+    - destruct s; [ discriminate H | cbn in Hle; lia ].
+    - destruct s as [| c1 s']; [ discriminate H | ]. cbn [scan_quote] in H.
+      destruct (Nat.eqb (nat_of_ascii c1) 34); [ injection H as <- <-; cbn; lia | ].
+      destruct (Nat.eqb (nat_of_ascii c1) 92).
+      + destruct s' as [| c2 rest2]; [ discriminate H | ].
+        destruct (scan_quote rest2) as [[body r']|] eqn:E; [ | discriminate H ].
+        injection H as <- <-.
+        cbn in Hle |- *. pose proof (IH rest2 body r' ltac:(lia) E). lia.
+      + destruct (scan_quote s') as [[body r']|] eqn:E; [ | discriminate H ].
+        injection H as <- <-. cbn in Hle |- *. pose proof (IH s' body r' ltac:(lia) E). lia. }
+  intros s b r H. exact (aux (String.length s) s b r (le_n _) H).
+Qed.
+Lemma lex_op_len : forall c s' t r, lex_op c s' = Some (t, r) -> String.length r <= String.length s'.
+Proof.
+  intros c s' t r H. unfold lex_op in H.
+  destruct s' as [| d s''];
+    repeat match type of H with
+    | context [Ascii.eqb ?a ?b] => destruct (Ascii.eqb a b)
+    end;
+    try discriminate H; inversion H; subst; cbn; lia.
+Qed.
+
+(** The per-arm DECREASE facts — each recursive call's [Acc_inv] obligation, discharged from
+    the scanner length lemmas plus the consumed head character (stated on the CONCRETE
+    [String c s'] shape the match branch provides — no equation plumbing). *)
+Lemma is_idstart_is_idc : forall c, is_idstart c = true -> is_idc c = true.
+Proof.
+  intros c H. unfold is_idstart in H. unfold is_idc.
+  apply Bool.orb_prop in H. destruct H as [H | H].
+  - apply Bool.orb_prop in H. destruct H as [H | H]; rewrite H;
+      rewrite ?Bool.orb_true_r, ?Bool.orb_true_l; reflexivity.
+  - rewrite H. rewrite ?Bool.orb_true_r. reflexivity.
+Qed.
+Lemma lex_step_tail : forall c s', String.length s' < String.length (String c s').
+Proof. intros. cbn. lia. Qed.
+Lemma lex_step_id : forall c s' tok rest, is_idc c = true ->
+  scan_id (String c s') = (tok, rest) -> String.length rest < String.length (String c s').
+Proof.
+  intros c s' tok rest Hc Hscan. cbn [scan_id] in Hscan. rewrite Hc in Hscan.
+  destruct (scan_id s') as [d r] eqn:E2. injection Hscan as <- <-.
+  pose proof (scan_id_len s' d r E2). cbn. lia.
+Qed.
+Lemma lex_step_digits : forall c s' num rest, is_dec_char c = true ->
+  scan_digits (String c s') = (num, rest) -> String.length rest < String.length (String c s').
+Proof.
+  intros c s' num rest Hc Hscan. cbn [scan_digits] in Hscan. rewrite Hc in Hscan.
+  destruct (scan_digits s') as [d r] eqn:E2. injection Hscan as <- <-.
+  pose proof (scan_digits_len s' d r E2). cbn. lia.
+Qed.
+Lemma lex_step_negdigits : forall c s' num rest,
+  scan_digits s' = (num, rest) -> String.length rest < String.length (String c s').
+Proof. intros c s' num rest Hscan. pose proof (scan_digits_len s' num rest Hscan). cbn. lia. Qed.
+Lemma lex_step_hex : forall c c1 s2 hd rest,
+  scan_hex s2 = (hd, rest) -> String.length rest < String.length (String c (String c1 s2)).
+Proof. intros c c1 s2 hd rest Hscan. pose proof (scan_hex_len s2 hd rest Hscan). cbn. lia. Qed.
+Lemma lex_step_quote : forall c s' body rest,
+  scan_quote s' = Some (body, rest) -> String.length rest < String.length (String c s').
+Proof. intros c s' body rest Hscan. pose proof (scan_quote_len s' body rest Hscan). cbn. lia. Qed.
+Lemma lex_step_op : forall c s' t rest,
+  lex_op c s' = Some (t, rest) -> String.length rest < String.length (String c s').
+Proof. intros c s' t rest Hop. pose proof (lex_op_len c s' t rest Hop). cbn. lia. Qed.
+
+Definition cert {A : Type} (x : A) : { y : A | x = y } := exist _ x eq_refl.
+Fixpoint lex_acc (s : string) (a : Acc lt (String.length s)) {struct a} : option (list Token) :=
+  match s return Acc lt (String.length s) -> option (list Token) with
+  | EmptyString => fun _ => Some nil
+  | String c s' => fun a =>
+      if is_space c then
+        lex_acc s' (Acc_inv a (lex_step_tail c s'))
+      else match Bool.bool_dec (is_idstart c) true with
+      | left Hid =>
+          match cert (scan_id (String c s')) with
+          | exist _ (tok, rest) Hscan =>
+              match lex_ident tok with
+              | Some t =>
+                  match lex_acc rest (Acc_inv a (lex_step_id c s' tok rest
+                                                   (is_idstart_is_idc c Hid) Hscan)) with
+                  | Some l => Some (t :: l) | None => None end
+              | None => None end
+          end
+      | right _ =>
+      match Bool.bool_dec (is_dec_char c) true with
+      | left Hdec =>
+          match s' return Acc lt (String.length (String c s')) -> option (list Token) with
+          | String c1 s2 => fun a =>
+              if andb (Ascii.eqb c (ch 48)) (Ascii.eqb c1 (ch 120)) then
+                match cert (scan_hex s2) with
+                | exist _ (hd, rest) Hscan =>
+                    match hd with
+                    | EmptyString => None
+                    | String _ _ =>
+                        match bool_dec ((0 <=? parseHex_pos 0 hd)%Z) true with
+                        | left H =>
+                            match lex_acc rest (Acc_inv a (lex_step_hex c c1 s2 hd rest Hscan)) with
+                            | Some l => Some (THex (exist _ (parseHex_pos 0 hd) H) :: l) | None => None end
+                        | right _ => None
+                        end
+                    end
+                end
+              else
+                match cert (scan_digits (String c (String c1 s2))) with
+                | exist _ (num, rest) Hscan =>
+                    match lex_acc rest (Acc_inv a (lex_step_digits c (String c1 s2) num rest Hdec Hscan)) with
+                    | Some l => Some (TInt (parse_Z num) :: l) | None => None end
+                end
+          | EmptyString => fun a =>
+              match cert (scan_digits (String c EmptyString)) with
+              | exist _ (num, rest) Hscan =>
+                  match lex_acc rest (Acc_inv a (lex_step_digits c EmptyString num rest Hdec Hscan)) with
+                  | Some l => Some (TInt (parse_Z num) :: l) | None => None end
+              end
+          end a
+      | right _ =>
+      if andb (Ascii.eqb c (ch 45)) (match s' with String d _ => is_dec_char d | _ => false end) then
+        match cert (scan_digits s') with
+        | exist _ (num, rest) Hscan =>
+            match lex_acc rest (Acc_inv a (lex_step_negdigits c s' num rest Hscan)) with
+            | Some l => Some (TInt (parse_Z (String c num)) :: l) | None => None end
+        end
+      else if Ascii.eqb c (ch 34) then
+        match cert (scan_quote s') with
+        | exist _ (Some (body, rest)) Hscan =>
+            match unescape_opt body with
+            | Some sdec =>
+                match lex_acc rest (Acc_inv a (lex_step_quote c s' body rest Hscan)) with
+                | Some l => Some (TStr sdec :: l) | None => None end
+            | None => None
+            end
+        | exist _ None _ => None
+        end
+      else
+        match cert (lex_op c s') with
+        | exist _ (Some (t, rest)) Hop =>
+            match lex_acc rest (Acc_inv a (lex_step_op c s' t rest Hop)) with
+            | Some l => Some (t :: l) | None => None end
+        | exist _ None _ => None
+        end
+      end end
+  end a.
+Definition lex (s : string) : option (list Token) := lex_acc s (lt_wf (String.length s)).
+
+(** [lex_acc] agrees with the fuel-parameterized twin at EVERY sufficient budget — the bridge the
+    not-yet-migrated lemma suite consumes ([lex s = lex_aux (S (length s)) s] as the instance).
+    Strong induction on the length; the fuel is quantified ABOVE the length, so each recursive
+    call re-instantiates without any monotonicity plumbing. *)
+Lemma lex_acc_aux : forall n s, String.length s < n ->
+  forall (a : Acc lt (String.length s)) fuel, String.length s < fuel ->
+  lex_acc s a = lex_aux fuel s.
+Proof.
+  induction n as [| n IH]; intros s Hn a fuel Hf; [ lia | ].
+  destruct a as [ha]. destruct fuel as [| f]; [ lia | ].
+  destruct s as [| c s']; [ reflexivity | ].
+  destruct (is_space c) eqn:Hsp.
+  { cbn [lex_acc lex_aux]. rewrite Hsp. apply IH; cbn in Hn, Hf |- *; lia. }
+  destruct (Bool.bool_dec (is_idstart c) true) as [Hid | Hnid].
+  { destruct (scan_id (String c s')) as [tok rest] eqn:Escan.
+    cbn [lex_aux]. rewrite Hsp, Hid, Escan.
+    cbn [lex_acc]. rewrite Hsp.
+    destruct (Bool.bool_dec (is_idstart c) true) as [Hid2 | C]; [ | contradiction ].
+    destruct (cert (scan_id (String c s'))) as [[tok0 rest0] Hscan].
+    pose proof (eq_trans (eq_sym Escan) Hscan) as He. injection He as <- <-.
+    destruct (lex_ident tok); [ | reflexivity ].
+    pose proof (lex_step_id c s' tok rest (is_idstart_is_idc c Hid) Escan) as Hlt.
+    rewrite (IH rest ltac:(cbn in Hn, Hlt |- *; lia) _ f ltac:(cbn in Hf, Hlt |- *; lia)). reflexivity. }
+  destruct (Bool.bool_dec (is_dec_char c) true) as [Hdec | Hndec].
+  { destruct s' as [| c1 s2].
+    { destruct (scan_digits (String c EmptyString)) as [num rest] eqn:Escan.
+      cbn [lex_aux]. rewrite Hsp, (Bool.not_true_is_false _ Hnid), Hdec, Escan.
+      cbn [lex_acc]. rewrite Hsp.
+      destruct (Bool.bool_dec (is_idstart c) true) as [C | _]; [ contradiction | ].
+      destruct (Bool.bool_dec (is_dec_char c) true) as [Hdec2 | C]; [ | contradiction ].
+      destruct (cert (scan_digits (String c EmptyString))) as [[num0 rest0] Hscan].
+      pose proof (eq_trans (eq_sym Escan) Hscan) as He. injection He as <- <-.
+      pose proof (lex_step_digits c EmptyString num rest Hdec Escan) as Hlt.
+      rewrite (IH rest ltac:(cbn in Hn, Hlt |- *; lia) _ f ltac:(cbn in Hf, Hlt |- *; lia)). reflexivity. }
+    destruct (andb (Ascii.eqb c (ch 48)) (Ascii.eqb c1 (ch 120))) eqn:Hpre.
+    { destruct (scan_hex s2) as [hd rest] eqn:Escan.
+      cbn [lex_aux]. rewrite Hsp, (Bool.not_true_is_false _ Hnid), Hdec, Hpre, Escan.
+      cbn [lex_acc]. rewrite Hsp.
+      destruct (Bool.bool_dec (is_idstart c) true) as [C | _]; [ contradiction | ].
+      destruct (Bool.bool_dec (is_dec_char c) true) as [Hdec2 | C]; [ | contradiction ].
+      rewrite Hpre.
+      destruct (cert (scan_hex s2)) as [[hd0 rest0] Hscan].
+      pose proof (eq_trans (eq_sym Escan) Hscan) as He. injection He as <- <-.
+      destruct hd as [| h hd']; [ reflexivity | ].
+      destruct (bool_dec ((0 <=? parseHex_pos 0 (String h hd'))%Z) true); [ | reflexivity ].
+      pose proof (lex_step_hex c c1 s2 (String h hd') rest Escan) as Hlt.
+      rewrite (IH rest ltac:(cbn in Hn, Hlt |- *; lia) _ f ltac:(cbn in Hf, Hlt |- *; lia)). reflexivity. }
+    { destruct (scan_digits (String c (String c1 s2))) as [num rest] eqn:Escan.
+      cbn [lex_aux]. rewrite Hsp, (Bool.not_true_is_false _ Hnid), Hdec, Hpre, Escan.
+      cbn [lex_acc]. rewrite Hsp.
+      destruct (Bool.bool_dec (is_idstart c) true) as [C | _]; [ contradiction | ].
+      destruct (Bool.bool_dec (is_dec_char c) true) as [Hdec2 | C]; [ | contradiction ].
+      rewrite Hpre.
+      destruct (cert (scan_digits (String c (String c1 s2)))) as [[num0 rest0] Hscan].
+      pose proof (eq_trans (eq_sym Escan) Hscan) as He. injection He as <- <-.
+      pose proof (lex_step_digits c (String c1 s2) num rest Hdec Escan) as Hlt.
+      rewrite (IH rest ltac:(cbn in Hn, Hlt |- *; lia) _ f ltac:(cbn in Hf, Hlt |- *; lia)). reflexivity. } }
+  destruct (andb (Ascii.eqb c (ch 45)) (match s' with String d _ => is_dec_char d | _ => false end)) eqn:Hneg.
+  { destruct (scan_digits s') as [num rest] eqn:Escan.
+    cbn [lex_aux]. rewrite Hsp, (Bool.not_true_is_false _ Hnid), (Bool.not_true_is_false _ Hndec), Hneg, Escan.
+    cbn [lex_acc]. rewrite Hsp.
+    destruct (Bool.bool_dec (is_idstart c) true) as [C | _]; [ contradiction | ].
+    destruct (Bool.bool_dec (is_dec_char c) true) as [C | _]; [ contradiction | ].
+    rewrite Hneg.
+    destruct (cert (scan_digits s')) as [[num0 rest0] Hscan].
+    pose proof (eq_trans (eq_sym Escan) Hscan) as He. injection He as <- <-.
+    pose proof (lex_step_negdigits c s' num rest Escan) as Hlt.
+    rewrite (IH rest ltac:(cbn in Hn, Hlt |- *; lia) _ f ltac:(cbn in Hf, Hlt |- *; lia)). reflexivity. }
+  destruct (Ascii.eqb c (ch 34)) eqn:Hq.
+  { destruct (scan_quote s') as [[body rest]|] eqn:Escan.
+    { cbn [lex_aux]. rewrite Hsp, (Bool.not_true_is_false _ Hnid), (Bool.not_true_is_false _ Hndec), Hneg, Hq, Escan.
+      cbn [lex_acc]. rewrite Hsp.
+      destruct (Bool.bool_dec (is_idstart c) true) as [C | _]; [ contradiction | ].
+      destruct (Bool.bool_dec (is_dec_char c) true) as [C | _]; [ contradiction | ].
+      rewrite Hneg, Hq.
+      destruct (cert (scan_quote s')) as [[[body0 rest0]|] Hscan];
+        pose proof (eq_trans (eq_sym Escan) Hscan) as He; [ | discriminate He ].
+      injection He as <- <-.
+      destruct (unescape_opt body); [ | reflexivity ].
+      pose proof (lex_step_quote c s' body rest Escan) as Hlt.
+      rewrite (IH rest ltac:(cbn in Hn, Hlt |- *; lia) _ f ltac:(cbn in Hf, Hlt |- *; lia)). reflexivity. }
+    { cbn [lex_aux]. rewrite Hsp, (Bool.not_true_is_false _ Hnid), (Bool.not_true_is_false _ Hndec), Hneg, Hq, Escan.
+      cbn [lex_acc]. rewrite Hsp.
+      destruct (Bool.bool_dec (is_idstart c) true) as [C | _]; [ contradiction | ].
+      destruct (Bool.bool_dec (is_dec_char c) true) as [C | _]; [ contradiction | ].
+      rewrite Hneg, Hq.
+      destruct (cert (scan_quote s')) as [[[body0 rest0]|] Hscan];
+        pose proof (eq_trans (eq_sym Escan) Hscan) as He; [ discriminate He | reflexivity ]. } }
+  destruct (lex_op c s') as [[t rest]|] eqn:Eop.
+  { cbn [lex_aux]. rewrite Hsp, (Bool.not_true_is_false _ Hnid), (Bool.not_true_is_false _ Hndec), Hneg, Hq, Eop.
+    cbn [lex_acc]. rewrite Hsp.
+    destruct (Bool.bool_dec (is_idstart c) true) as [C | _]; [ contradiction | ].
+    destruct (Bool.bool_dec (is_dec_char c) true) as [C | _]; [ contradiction | ].
+    rewrite Hneg, Hq.
+    destruct (cert (lex_op c s')) as [[[t0 rest0]|] Hop];
+      pose proof (eq_trans (eq_sym Eop) Hop) as He; [ | discriminate He ].
+    injection He as <- <-.
+    pose proof (lex_step_op c s' t rest Eop) as Hlt.
+    rewrite (IH rest ltac:(cbn in Hn, Hlt |- *; lia) _ f ltac:(cbn in Hf, Hlt |- *; lia)). reflexivity. }
+  { cbn [lex_aux]. rewrite Hsp, (Bool.not_true_is_false _ Hnid), (Bool.not_true_is_false _ Hndec), Hneg, Hq, Eop.
+    cbn [lex_acc]. rewrite Hsp.
+    destruct (Bool.bool_dec (is_idstart c) true) as [C | _]; [ contradiction | ].
+    destruct (Bool.bool_dec (is_dec_char c) true) as [C | _]; [ contradiction | ].
+    rewrite Hneg, Hq.
+    destruct (cert (lex_op c s')) as [[[t0 rest0]|] Hop];
+      pose proof (eq_trans (eq_sym Eop) Hop) as He; [ discriminate He | reflexivity ]. }
+Qed.
+Lemma lex_eq_aux : forall s, lex s = lex_aux (S (String.length s)) s.
+Proof.
+  intro s. unfold lex.
+  exact (lex_acc_aux (S (String.length s)) s (Nat.lt_succ_diag_r _) _ _ (Nat.lt_succ_diag_r _)).
+Qed.
 
 (** ---- TYPE-PARSER DEFINITIONS (before the expression parser so [parse_postfix] can call [parse_gty]
     for type assertions / conversions; the round-trip PROOFS are below, after the seams). ---- *)
@@ -3032,7 +3318,7 @@ Qed.
     canonical token list, for EVERY expression. *)
 Theorem gtokens_lex : forall e ctx, lex (gprint ctx e) = Some (gtokens ctx e).
 Proof.
-  intros e ctx. unfold lex.
+  intros e ctx. rewrite lex_eq_aux.
   assert (Hb : S (String.length (gprint ctx e) + String.length "") <= S (String.length (gprint ctx e)))
     by (cbn [String.length]; lia).
   pose proof (lex_gprint_app e ctx "" (S (String.length (gprint ctx e))) nil eq_refl eq_refl Hb) as H.
@@ -4745,7 +5031,7 @@ Qed.
 (** composed: the printed type lexes to its token list. *)
 Lemma lex_print_ty : forall t, lex (print_ty t) = Some (gttokens_ty t).
 Proof.
-  intro t. unfold lex.
+  intro t. rewrite lex_eq_aux.
   pose proof (gttokens_ty_lex t "" (S (String.length (print_ty t))) nil eq_refl ltac:(reflexivity)
                 ltac:(cbn [String.length]; lia)) as H.
   rewrite str_app_nil_r in H. rewrite app_nil_r in H. exact H.
@@ -4878,8 +5164,8 @@ Qed.
     equal "return " ++ gprint 0 e — the [GsExprStmt] / [GsReturnVal] disjointness. *)
 Lemma parse_str_return_gprint : forall e, parse_str ("return " ++ gprint 0 e)%string = None.
 Proof.
-  intro e. unfold parse_str, lex.
-  pose proof (gtokens_lex e 0) as HL. unfold lex in HL.
+  intro e. unfold parse_str. rewrite lex_eq_aux.
+  pose proof (gtokens_lex e 0) as HL. rewrite lex_eq_aux in HL.
   rewrite (lex_return_app (gprint 0 e) (S (String.length ("return " ++ gprint 0 e)%string))
              (gtokens 0 e) HL ltac:(lia)).
   apply parse_TReturn_None.
@@ -4914,7 +5200,10 @@ Proof. reflexivity. Qed.
 Lemma lex_aux_defer : forall f X, lex_aux (S f) ("defer " ++ X)%string = None.
 Proof. intros f X. cbn [lex_aux]. rewrite scan_id_defer. rewrite lex_ident_defer. reflexivity. Qed.
 Lemma parse_str_defer_gprint : forall e, parse_str ("defer " ++ gprint 0 e)%string = None.
-Proof. intro e. unfold parse_str, lex. rewrite lex_aux_defer. reflexivity. Qed.
+Proof.
+  intro e. unfold parse_str. rewrite lex_eq_aux.
+  rewrite length_app. cbn [String.length]. rewrite lex_aux_defer. reflexivity.
+Qed.
 Lemma gprint_neq_defer : forall e1 e2, gprint 0 e2 <> ("defer " ++ gprint 0 e1)%string.
 Proof.
   intros e1 e2 H. pose proof (parse_print_roundtrip e2) as R. rewrite H in R.
@@ -4948,7 +5237,7 @@ Qed.
 Lemma lex_shortdecl_None : forall x X,
   go_ident x = true -> lex (x ++ (" := " ++ X))%string = None.
 Proof.
-  intros x X Hx. unfold lex. rewrite length_app.
+  intros x X Hx. rewrite lex_eq_aux. rewrite length_app.
   apply (lex_aux_ident_None _ _ _ Hx); [ reflexivity | ].
   apply lex_aux_defassign_any. rewrite length_app. cbn [String.length]. lia.
 Qed.
