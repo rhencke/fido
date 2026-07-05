@@ -6194,14 +6194,16 @@ Inductive Next : Type :=
     NAME to labels + [goto] and suppresses this body; the model-side body is a
     loud marker panic, so evaluating it in Rocq never fabricates an outcome.
     The GENERAL claims are NOT YET stated (follow-up work, holistic only —
-    never per-demo lemmas): an admissibility predicate [blocks_wf blocks start]
-    (SEMANTIC jump safety — every block's run on EVERY world yields Done, a
-    panic, or an IN-RANGE Jump — plus an in-range start) with a class-wide
-    never-stuck progress theorem over ALL wf CFGs.  Deep-IO blocks (e.g. the
-    defer-based demos, whose [defer_call] intentionally fail-louds under
-    [run_io]) are explicit non-core exclusions of that class, belonging to the
-    deep [run_cmd]/emitted-runtime story — demos are sanity checks, never
-    evidence. *)
+    never per-demo lemmas): [blocks_jump_wf blocks start] — SEMANTIC jump
+    safety (every block's run on EVERY world yields Done, a panic, or an
+    IN-RANGE Jump) plus an in-range start — with a class-wide never-stuck
+    progress theorem over ALL jump-wf CFGs.  That predicate says NOTHING about
+    deep IO: a block whose body uses a shallow fail-loud marker (e.g.
+    [defer_call]) SATISFIES it — its shallow outcome is simply a panic — and
+    the shallow relations describe only shallow [run_io] behavior.  Connecting
+    such blocks to their EMITTED behavior is the deep [run_cmd]/emitted-runtime
+    story, a separate claim these relations do not make.  Demos are sanity
+    checks, never evidence. *)
 Inductive blocks_eval (blocks : list (IO Next)) : nat -> World -> Outcome unit -> Prop :=
   | be_done : forall pc w b w',
       nth_error blocks pc = Some b ->
