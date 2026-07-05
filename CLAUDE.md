@@ -1,59 +1,168 @@
-# Fido
+# Fido — operating law for a theorem-first repository
 
-**Verified model components with a TRUSTED extraction backend** — the honest claim, *not* "formally verified
-Go." Theorems are proved in Rocq; each `*.go` is a **proof artifact extracted from `*.v`** — never hand-written,
-never edited. The plugin (`plugin/go.ml`) is **trusted and unverified**: no theorem relates its emitted Go to
-the source term (gap #10), so the golden tests are the only end-to-end check. The AST-first spine
-(`GoAst`/`GoPrint`/`GoTypes`/`GoSafe`/`GoEmit`) is the path toward closing that gap. The extracted printer is
-wired into the LIVE plugin for only a SMALL expression class (single-sourced in `PROGRESS.md`), and even there
-the TRUSTED plugin CONSTRUCTS the `GExpr` and only the VERIFIED `gprint` PRINTS it — the construction is NOT
-verified. The behavioral-safety emission cert is only a NARROW seed (`emit_panic_free`: accepted iff the program
-denotes to `c` with `cmd_no_panic c` — any denotable panic rejected there; an ABSENT
-(undenoted) program by non-denotation; OFF the main path), not a full gate on the emitted output. Do not headline this as "formally verified Go."
-**Current state, goal, and roadmap: `PROGRESS.md`.**
+**Verified model components with a TRUSTED extraction backend** — the honest headline, *never*
+"formally verified Go." Theorems are proved in Rocq; every `*.go` is a proof artifact extracted
+from `*.v` — never hand-written, never edited. **Current state and gates: `PROGRESS.md`.
+Architecture charter (binding): `ARCHITECTURE.md`.**
 
-## Architecture direction — `ARCHITECTURE.md` GOVERNS (binding; read it)
+## The law
 
-Fido is an **AST-first, proof-gated emission** architecture; `ARCHITECTURE.md` is binding and wins when in
-doubt. Spine: **`GoAst`** (structured syntax) → **`GoPrint`** (printing + expression round-trip / program
-injectivity; SYNTAX only) → **`GoSem`** (behavior; slice 1 — the `cmd.v` bridge; must bridge or retire
-`unified.v`/`concurrency.v`, never fork a second universe; NO completeness / NO BehaviorSafe) → **`GoSafe`**
-(`SupportedProgram` syntactic gate now; `BehaviorSafe` later) → **`GoEmit`** (the ONLY blessed emit; requires a
-certificate — `EmittableProgram` now; NO official `emit : Program -> string`). `plugin/go.ml` is
-trusted/transitional and is NOT grown. **Naming is a correctness claim** — never call
-a syntactic gate `SafeProgram`.
+**There is no transition. There is only the intended architecture and things that should be
+deleted.**
 
-## Rules that shape every change
+Nobody depends on this repository. There is no backwards-compatibility obligation, no migration
+path to preserve, no transition artifact. A weak, half-baked, legacy, demo-only, or
+convenience-oriented approach is deleted unless it is (a) part of the intended theorem-first
+architecture, (b) an explicitly unsupported frontier, or (c) an isolated integration/log-diff
+test that cannot be mistaken for proof evidence.
 
-**Slow is fine; incorrect is not.** No overclaim, no stale docs; proofs go on the emission path, not beside it.
+**MVP 1.0 = the smallest theorem-complete vertical slice using the strongest proof architecture
+we know how to build.** Not the fastest demo, not the broadest feature sample, not the easiest
+milestone. **Cut supported scope before weakening proof strength.**
 
-1. **Never edit `*.go`.** It is extracted from `*.v` (both committed; `*.go` always re-derivable). Change the
+- This is a theorem-first research repo, not a product with legacy customers.
+- The certified path contains only architecture we would defend long term.
+- A smaller certified subset beats a broader trusted/demo subset.
+- Expressiveness expands by proof principles, never by lists of examples.
+- Demos are integration/log-diff checks only — never proof evidence.
+- Tests catch regressions; they do not certify semantics, safety, termination, divergence,
+  supportedness, or Go adequacy.
+- Public correctness claims must be backed by manifest-gated theorem surfaces; an ungated
+  internal theorem is not public evidence.
+- Unsupported features are rejected, unrepresentable, or explicitly fenced — never modeled with
+  stubs, dummy panics, conservative approximations, or examples.
+- No second authority: syntax, semantics, emission, safety, termination, and divergence each
+  have exactly one authoritative definition. Never add code beside a weaker path — delete the
+  weaker path.
+
+## Mandatory change classification
+
+Before making any change, classify it as exactly one of:
+
+1. **Certified theorem path**
+2. **Proved restriction** (admissibility / rejection with a sealed boundary)
+3. **Explicit unsupported frontier**
+4. **Integration/log-diff test for theorem-backed behavior**
+5. **Isolated research note** that cannot be imported by, or cited as, proof evidence
+
+If a change fits none of these, do not make it. For any architecture change, also answer: What
+correctness claim does this strengthen? What theorem surface exposes it? What unsupported
+behavior does it reject? What weaker path did it make obsolete — and what code is deleted
+because of it? Does it create a second authority? Could it be mistaken for proof evidence when
+it is only integration evidence?
+
+## Deletion pressure
+
+Every architecture-expanding change looks for obsolete code to delete; if nothing can be
+deleted, say why no parallel proof path or second authority was created.
+
+Bad reasons to keep code: it is impressive; it still runs; it might be useful later; it helps
+demos; it preserves a migration path; it documents an old approach through active code; it makes
+feature coverage look broader. Good reasons: certified path, proved restriction, explicit
+unsupported frontier, isolated theorem-backed integration test, isolated research note.
+
+**Bad taste:** keeping a legacy plugin path because it emits impressive Go · growing
+`builtins.v` instead of splitting final-purpose modules · hiding dependencies behind
+`preamble.v` · making printer correctness depend on executable-parser implementation details ·
+replacing fuel with renamed allowances/depth caps/bounded runners · treating panic stubs as
+semantics for unsupported behavior · demos for unsupported features called progress · defining a
+relation without its determinism/disjointness/classification facts · letting `SupportedProgram`
+sound like semantic safety · stale comments preserving old architectures as active mental
+models · adding code beside a weaker path instead of deleting it.
+
+**Good taste:** delete the weak path and shrink the supported subset · unfueled
+relational/coinductive semantics as authority before executable tooling · canonical
+grammar/injectivity over parser implementation behavior · plugin hooks in a module named as
+plugin hooks · unsupported features unrepresentable or rejected · a small theorem-complete
+vertical slice over a demo garden · public claims moved into manifest-gated surfaces ·
+god-files split into modules whose names express proof responsibilities · scope cut before
+proof strength.
+
+## Standing technical law
+
+1. **Never edit `*.go`.** Extracted from `*.v` (both committed; `*.go` re-derivable). Change the
    `.v` / plugin and re-extract.
-2. **Model honestly — faithful or fail-loud, never plausible-but-wrong.** Small scope is fine; *wrong* or
-   *partial* semantics is not. The plugin's `unsupported` ABORTS extraction for anything it can't lower
-   correctly. ⚠️ **NEVER add a raw / opaque / string-rescue escape hatch to a structured AST** (`LESSONS.md`
-   postmortem): build structured-or-fail-loud; a construct that can't be represented structurally yet is
-   REJECTED mechanically, never preserved as text.
-3. **Zero project axioms — every GATED `Print Assumptions` surface is EMPTY; preserve it.** The whole IO/heap/channel/session and
-   numeric model is `Definition`s / `Record`s over concrete Rocq data (`Z`, `nat` locations,
-   `SpecFloat.spec_float`); every law is a derived theorem. Model every new builtin as a `Definition` /
-   `Record` — **never** an `Axiom` / `Parameter` / `Admitted`, and never a kernel PRIMITIVE
-   (`PrimInt63`/`PrimFloat`, which are axioms too). Run `Print Assumptions <thm>` after a significant result and
-   keep it empty. (This is the MODEL's trust base; the plugin is a separate, still-trusted TCB — gap #10.)
-4. **Partial / unsafe ops are safe-by-construction or proof-gated.** The unsafe primitives (nil deref, OOB,
-   div-by-zero, send-on-closed, failed assertion) are modelled, but their unsafe use is forbidden: prefer an
-   **evidence-carrying** API (demand `i < len`, `d <> 0`, non-nil, then extract to the raw op) or a
-   **check-and-branch** (comma-ok / `option`). Never *accidentally* write a Rocq program that needs a nil deref.
-5. **Imports are on hold.** Emit `package main`, no `import` block. Defer any builtin that needs one
-   (`math.Abs`, `fmt`, stdlib) — do NOT approximate it. Finish the no-import layer first.
+2. **Model honestly — faithful or fail-loud, never plausible-but-wrong.** The plugin's
+   `unsupported` ABORTS extraction for anything it can't lower correctly. ⚠️ **NEVER add a
+   raw/opaque/string-rescue escape hatch to a structured AST** (`LESSONS.md` postmortem):
+   structured-or-fail-loud; an unrepresentable construct is REJECTED mechanically, never
+   preserved as text.
+3. **Zero project axioms — every GATED `Print Assumptions` surface is EMPTY; preserve it.** The
+   whole model is `Definition`s/`Record`s over concrete Rocq data. Model every new builtin as a
+   `Definition`/`Record` — never `Axiom`/`Parameter`/`Admitted`, never a kernel primitive
+   (`PrimInt63`/`PrimFloat` are axioms too). Run `Print Assumptions` after significant results.
+   (This is the MODEL's trust base; the plugin is a separate trusted TCB — gap #10.)
+4. **No fuel, ever.** No gas, step budgets, max-depths, bounded runners, cycle caps, parser or
+   recursion allowances, or renamed equivalents anywhere in the certified path
+   (`plugin/fuel-gate.sh` enforces mechanically; the manifest is EMPTY — keep it so). A
+   ranked/well-founded structural measure is acceptable ONLY as a termination proof from
+   decreasing structure — never as an externally supplied execution budget: the measure
+   certifies descent inside the proof; no caller passes a bound and no semantics observes one.
+   A bounded run is not a proof; a timeout is not nontermination. Divergence is proved by a
+   real relation — coinduction, an invariant, a finite-graph cycle theorem, a formal
+   certificate.
+5. **Partial/unsafe ops are safe-by-construction or proof-gated.** Prefer evidence-carrying APIs
+   (demand `i < len`, `d <> 0`, non-nil) or check-and-branch (comma-ok / `option`). Never
+   *accidentally* write a Rocq program that needs a nil deref.
+6. **Naming is a correctness claim.** `SupportedProgram` is syntactic admissibility ONLY — it
+   implies no semantic safety, panic-freedom, termination/divergence classification,
+   race-freedom, memory safety, or real-Go adequacy unless separately proved and exposed
+   through a manifest-gated surface. Never let a syntactic gate sound like `SafeProgram`.
+7. **Imports are on hold.** Emit `package main`, no `import` block; defer any builtin needing
+   one — do NOT approximate it.
+
+## The trusted plugin
+
+`plugin/go.ml` is **trusted and therefore not part of the intended MVP proof architecture**. Do
+not grow it. Do not route official MVP claims through it. Bypass it with the certified emission
+path (`GoAst` → `GoPrint` → `GoSafe` → `GoEmit` — the ONLY blessed emit, certificate-required;
+`ARCHITECTURE.md` governs the spine), isolate it as a research/integration tool, or delete the
+pieces superseded by certified architecture. Trusted plugin output never inherits certified
+claims it has not earned: the official MVP output comes from the certified theorem path, and a
+broad generated `main.go` from the trusted plugin is not stronger than a tiny certified emitted
+artifact. Do not preserve plugin behavior because it emits impressive Go. (Today: no theorem
+relates the plugin's emitted Go to the source term — gap #10; the extracted printer is wired in
+for only a SMALL expression class, single-sourced in `PROGRESS.md`, and even there the plugin
+CONSTRUCTS the `GExpr` unverified.)
+
+## Syntax authority
+
+The syntax authority is **relational/canonical grammar plus canonical-token injectivity and
+lexical faithfulness** — target shapes: `CanonExpr : Prec -> GExpr -> list Token -> Prop`
+(likewise `CanonStmt`/`CanonProgram`), `gprint_expr_canonical`/`gprint_stmt_canonical`/
+`gprint_program_canonical`, `canon_expr_unique`/`canon_stmt_unique`/`canon_program_unique`,
+`lex_gprint_expr`/`lex_gprint_stmt`/`lex_gprint_program`. Printer correctness is proved against
+the canonical grammar. Executable parsers, if kept, are **derived tooling** proved
+sound/complete against the relational grammar — never the authority, never the foundation of
+printer correctness. (The current Acc-structural parser is fuel-free but
+implementation-centered; the canonical layer is the stronger endpoint.)
+
+## CFG law
+
+CFGs are in the MVP only when backed by formal CFG syntax, well-formedness, unfueled
+terminating evaluation, coinductive divergence, determinism/uniqueness, eval/diverge
+disjointness, and certificate-checked termination/divergence (`GoCFG.v` is exactly this layer;
+`GoCFG.blocks_cfg_surface` is its gate). Otherwise CFGs are outside the MVP. Emission-only
+markers never live in semantic modules: a name that exists only because the plugin lowers it
+belongs in `GoExtractionHooks.v` or gets deleted. "Panics if evaluated model-side" is a hook
+guard in an isolated hook module — never a certified semantic definition.
+
+## Demos and tests
+
+`main.v` and `expected_output.txt` are high-level integration/log-diff checks only — useful
+regression tools, never proof evidence. They cannot certify semantics, safety, supportedness,
+termination, divergence, Go adequacy, or MVP readiness. A demo may illustrate a theorem-backed
+feature; it cannot make an unsupported feature supported. Demos of uncertified/legacy behavior
+are deleted or isolated; new demos exercise theorem-backed behavior through the certified path.
+Never add a demo that previews unsupported semantics and call it progress.
 
 ## Workflow & commands
 
-Verify-then-bless after an intended change: **`make check`** (re-extracts, runs, diffs vs the golden — confirm
-the delta is exactly what you intended) → **`make golden`** (bless `expected_output.txt`) → commit → re-index.
-**Run / verify ONLY through these targets — never a bare `go run`** (it bypasses extraction and can validate
-stale Go). After every successful commit, re-index the codebase-memory MCP (`index_repository`, mode `fast`) if
-it is connected — the index is a static snapshot with no self-update.
+Verify-then-bless after an intended change: **`make check`** (re-extracts, runs, diffs vs the
+golden — confirm the delta is exactly what you intended) → **`make golden`** (bless
+`expected_output.txt`) → commit → re-index. **Run/verify ONLY through make targets — never a
+bare `go run`** (it can validate stale Go). After every successful commit, re-index the
+codebase-memory MCP (`index_repository`, mode `fast`) if connected.
 
 ```
 make build         # full Docker build → static binary
@@ -61,54 +170,45 @@ make extract       # pull generated Go into the repo (runs gofmt -w)
 make check         # extract + run + diff vs expected_output.txt   ← the verify step
 make golden        # extract + show delta + bless expected_output.txt
 make run-local     # extract + go run (no Docker; needs a host Go)
-make negtest       # fail-closed harness: assert each negtests/*.v ABORTS extraction (host rocq)
+make negtest       # fail-closed harness: assert each negtests/*.v ABORTS extraction
 make install-hooks # activate the pre-commit hook (once after clone)
 ```
 
-The demos in `main.v` are the test suite; `expected_output.txt` is the golden runtime output.
-
 ## Files
 
-- `builtins.v` — the modelled Go layer (in scope via `preamble.v`).  ★FROZEN (boss 2026-07-05):
-  never grows; being MINED into final-purpose modules, then deleted.  Landed so far: `GoCFG.v`
-  (the CFG semantic authority — relations, certificates, `CBlock`, the gated
-  `blocks_cfg_surface`) and `GoExtractionHooks.v` (names that exist ONLY to be plugin-lowered —
-  `run_blocks`; a hook is never a semantic authority). `main.v` — extraction driver
-  (`Go Main Extraction`) + the demos that test it. `cmd.v` — the effect evaluator (`run_cmd`, the authority
-  the bridge agrees with). `preamble.v`, `dune`/`dune-project` — shared preamble + Docker build.
-- `plugin/go.ml` (+ `g_go_extraction.mlg`) — the Rocq → MiniML → Go extraction plugin. Ops recognized by name,
-  their `.v` bodies suppressed. **Trusted and unverified** (gap #10).
-- `GoAst`/`GoPrint`/`GoTypes`/`GoSafe`/`GoEmit` — the certified-emission spine (see `ARCHITECTURE.md`).
-- `GoSemCore.v`/`GoSemDenote.v`/`GoSem.v` + `cmd_unified.v` — GoSem slice 1 (the `cmd.v` bridge into `unified.v`);
-  `GoSemSafe.v` — the first behavioral-safety PROPERTIES (panic-freedom) + a NARROW DECIDABLE emission gate
-  (`panic_free_gate`/`emit_panic_free_gated`, end-to-end sound: emit ⟹ proven panic-free run; accepted iff
-  the program denotes to `c` with `cmd_no_panic c` — denotable panics rejected there, an ABSENT (undenoted)
-  program by non-denotation; OFF the main path), NOT a full BehaviorSafe gate. Status in `PROGRESS.md`. All NOT extracted (it builds Go
-  source but is not run).
-- `unified.v` — proof-only: the `ustep` operational semantics (race-freedom + liveness/deadlock proved on it),
-  NOT the certified-emission path. `concurrency.v` — proof-only: calculus-agnostic trace / happens-before /
-  race / bounded-deadlock theory.
-- `SPEC_CONFORMANCE.md` — the Go-spec conformance ledger. `EXPECTED_ASSUMPTIONS.txt` — the asserted axiom set
-  (EMPTY; the manifest gate fails the build on drift; regenerate via `manifest-axioms.sh` if intentionally
-  changed).
-- `negtests/` — the fail-closed harness: each `*.v` hits a fail-closed site and MUST abort extraction (first
-  line `(* EXPECT: <substring> *)`); runs in the Docker prover stage and via `make negtest`.
+- `builtins.v` — **legacy load-bearing raw ore, not the intended final architecture. FROZEN: do
+  not grow it.** Mine permanent definitions into purpose-specific modules and delete the
+  monolith: `GoEffects.v` (World/Outcome/IO/ret/bind/panic/catch, observational equality,
+  effect laws), `GoPanic.v` (panic payloads), `GoNumeric.v`/`GoFloat.v`, `GoRuntimeTypes.v`
+  (tags/GoAny/zero values/comparability), `GoSlice.v`/`GoHeap.v`/`GoMap.v`/`GoChan.v`/
+  `GoSession.v`, plus the landed `GoCFG.v` and `GoExtractionHooks.v` (ONLY names the plugin
+  lowers by name). Plugin-recognized hooks stay isolated from semantic definitions; semantic
+  modules never export hooks as authority. Do not hide dependencies behind a giant `preamble.v`
+  re-export — prefer narrow imports in certified files; do not grow `preamble.v` into a
+  dependency fog.
+- `GoAst`/`GoPrint`/`GoTypes`/`GoSafe`/`GoEmit` — the certified-emission spine; `GoSem*` slices
+  behavior (the `cmd.v` bridge; bridge or retire `unified.v`/`concurrency.v`, never fork a
+  second universe); `cmd.v` — the effect evaluator the bridge agrees with;
+  `unified.v`/`concurrency.v` — proof-only.
+- `main.v` — extraction driver (`Go Main Extraction`) + integration demos (see "Demos").
+- `plugin/go.ml` (+ `g_go_extraction.mlg`) — the trusted extraction backend (see "The trusted
+  plugin"). Ops recognized by name; their `.v` bodies suppressed.
+- `SPEC_CONFORMANCE.md` — the Go-spec conformance ledger. `EXPECTED_ASSUMPTIONS.txt` — the
+  asserted axiom set (EMPTY; the manifest gate fails the build on drift).
+- `negtests/` — the fail-closed harness (each `*.v` MUST abort extraction; first line
+  `(* EXPECT: <substring> *)`).
 
-Gotchas:
-- **`gofmt` is load-bearing.** `make extract` runs `gofmt -w` (the plugin emits non-canonical whitespace). Do
-  not remove it.
-- **Extraction is a side effect of compiling `main.v`;** dune doesn't track it. The build nukes stale `*.go`
-  and forces re-extraction — do NOT "fix" a missing `.go` by touching `main.v`.
-- **Pre-commit hook** (`make install-hooks`): when a `.v`/`plugin/` file is staged it re-extracts + auto-stages
-  the Go (a broken proof aborts the commit), so committed `*.go` can't drift from prover output.
+Gotchas: **`gofmt` is load-bearing** (`make extract` runs it; do not remove). **Extraction is a
+side effect of compiling `main.v`** — dune doesn't track it; the build forces re-extraction; do
+NOT "fix" a missing `.go` by touching `main.v`. **Pre-commit hook** (`make install-hooks`)
+re-extracts + auto-stages Go, so committed `*.go` can't drift from prover output.
 
 ## Where the detail lives
 
-- **`ARCHITECTURE.md`** — ★ the binding charter (spine, residual TCB, per-patch rules). Read before any
-  structural change; it governs.
-- **`PROGRESS.md`** — the live status ledger (architecture, GREEN / RED / NEXT, trust base, gates). Update it
-  when a feature lands or a claim changes.
-- **`SPEC_CONFORMANCE.md`** — the Go-spec conformance ledger.
-- **`LESSONS.md`** — expensive mistakes (the `SRaw` raw-string-hatch teardown). Read before lifting a
-  printer/parser into Rocq or adding any "escape hatch."
-- **`git log`** — commit messages carry the detailed rationale.
+- **`ARCHITECTURE.md`** — ★ the binding charter. Read before any structural change; it governs.
+- **`PROGRESS.md`** — the live status ledger (GREEN/RED/NEXT, trust base, the single-sourced
+  gate list). Update it when a claim changes.
+- **`LESSONS.md`** — expensive mistakes. Read before lifting a printer/parser into Rocq or
+  adding any "escape hatch."
+- **`git log`** — the archive; commit messages carry rationale. History lives there, never in
+  active code or docs.
