@@ -1691,6 +1691,12 @@ Definition str_range_demo : IO unit :=
                         (rune_to_str (i32wrap 33))))   (* "H€!" — H(1 byte) €(3) !(1) *)
     (fun i r => println [any i; any r]).   (* 0 72 / 1 8364 / 4 33 (byte offset, rune) *)
 
+(** ⚠ QUARANTINE — EVERY [run_blocks] demo in this file (this one, [count_demo],
+    [cfg_nonzero_entry_demo], [cond_goto_demo], …) is INTEGRATION/log-diff evidence about
+    the TRUSTED emitter's labels+goto lowering ONLY.  None of them is semantic evidence:
+    the model-side CFG authority is [blocks_eval]/[blocks_diverge] with the gated
+    class-wide theorems ([blocks_cfg_surface], builtins.v), and evaluating [run_blocks]
+    model-side PANICS loudly.  A demo here can never make a CFG shape supported. *)
 (** Capture in a goto loop: the loop-temp [iv] is captured BY VALUE per iteration, so
     the deferred calls (LIFO at return) print 2, 1, 0 — not 2, 2, 2.
     ⚠ Trust boundary: this is the EMITTED-Go RUNTIME; the shallow `run_io` model of
