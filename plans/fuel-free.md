@@ -10,25 +10,25 @@ semantics, per-admitted-program termination certificates, NO unfueled total runn
 divergent CFGs, and label lookup that can never default to success.  The executable
 expression parser is not sacred: prefer relational/canonical-token proofs
 (`parses_expr`, `gtokens_inj`); the merged-worker WF design below is the fallback.
-REQUIRED GATE (NOT YET IMPLEMENTED — nothing is enforced today; it MUST land with
-the builtins purge, wired into `make check`, before that purge is called done).
-Semantics: IDENTIFIER-AND-CONTEXT scoped over certified .v files — a no-growth
-ratchet during migration, zero-tolerance after.  FAILING class: any budget-shaped
-BINDER/PARAMETER/COUNTER — a fixpoint/function argument, evaluator counter, or
-parser bound of type nat used as an execution cap — under ANY of the spellings
-`fuel`, `gas`, `budget`, `limit`, `need`, `capacity`, `bound`, `parse_bound`,
-`max_steps`, `max_depth`, `depth_limit`, `cycle_limit`, `step_limit`,
-`steps_left`, `run_for`, `countdown`, `allowance`, `iteration_cap`, `max_iter`,
-`max_iterations`, `run_blocks_fuel`, `block_fuel`, or a bounded-evaluator name —
-and any `step`/`steps` used AS such a binder/parameter.  PASSING class
-(contextual, not a name exemption): declarations of and references to the
-approved small-step RELATIONS (`Inductive`/`CoInductive` `step`/`steps`/`ustep`
-and their constructors), Acc/length well-founded measures, and non-budget uses
-of the common words.  REQUIRED self-test (built with the gate, not existing
-yet): PASS fixtures `Inductive step`, `Inductive steps`, `Inductive ustep`;
-FAIL fixtures `Fixpoint run (steps : nat)`, parser counters named
-`need`/`limit`/`capacity`/`parse_bound`, `steps_left`, and a max-iteration
-variant.  Certified modules must never import demos or bounded runners.
+REQUIRED GATE — IMPLEMENTED AND WIRED: `plugin/fuel-gate.sh` (called by `make check`
+via the `fuel-gate` target; its fixture SELFTEST runs on every check).  Semantics:
+identifier-and-context scoped over the root .v files with comments stripped —
+class A unconditional budget identifiers (fuel, gas, run_blocks_fuel, block_fuel,
+countdown, allowance, step_limit, steps_left, max_steps, max_depth, depth_limit,
+cycle_limit, iteration_cap, max_iter, max_iterations, run_for, parse_bound);
+class B nat-typed budget BINDERS in parens (budget/limit/need/capacity/bound and
+step/steps USED AS an execution-cap parameter); class C top-level nat cap
+constants named *fuel*/*limit*/*budget*/*cap*.  Small-step RELATION declarations
+(`Inductive step/steps/ustep`) match no class — proven by the selftest's PASS
+fixture; the FAIL matrix detects block_fuel := 1000, Fixpoint run_blocks_fuel,
+run_blocks := run_blocks_fuel block_fuel, max_steps/countdown/allowance
+parameters, parser need/limit/capacity/bound/parse_bound counters, steps_left,
+max_iter/max_iterations, Fixpoint run (steps : nat), and loop_cap.  Ratchet:
+count may never exceed `plugin/fuel-gate.baseline` (34 at landing — the live
+parser + builtins fuel); bless DOWN only; zero-tolerance = baseline 0 after the
+purge.  Still to add with the builtins landing: the Dockerfile prover-stage call
+(the script is the ONE authority; Makefile calls it today).  Certified modules
+must never import demos or bounded runners.
 
 GOAL (boss audit, P0): no fuel, gas, step budget, or bound under any name, anywhere.
 LANDED (8cbe20d + follow-up): cmd.v (structural run_cmd + unwind_defers derivations +

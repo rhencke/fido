@@ -66,6 +66,13 @@ run-local: extract
 
 # Fail-closed regression harness: compile each negtests/*.v and assert it ABORTS extraction with its
 # declared `(* EXPECT: … *)` message (a reopened fail-closed site is the defect the golden cannot see).
+# the budget-identifier ratchet (steering memo; spec in plans/fuel-free.md "REQUIRED GATE").
+# Runs its own fixture selftest first, so the detector's PASS/FAIL matrix is re-proven on
+# every check; then ratchets the certified-file count against plugin/fuel-gate.baseline.
+fuel-gate:
+	sh plugin/fuel-gate.sh selftest
+	sh plugin/fuel-gate.sh
+
 negtest:
 	dune build
 	@sh negtests/run.sh
@@ -152,7 +159,7 @@ run: build
 # Golden-file regression check: extract, run, diff vs expected_output.txt (cheap end-to-end check that a
 # Rocq/plugin change altered no observable behaviour). DEPENDS ON [extract] (never stale Go) and [emit-demo]
 # (the certified-emission path is exercised on every verify, not just ad-hoc). go vet gates it.
-check: toolchain-gate toolchain-selftest go-verify-selftest extract emit-demo
+check: fuel-gate toolchain-gate toolchain-selftest go-verify-selftest extract emit-demo
 	@echo "fido: go vet (suspicious-but-compiling constructs)..."; \
 	if ! $(GOVET); then \
 	  echo "fido: GO VET FAILED — the emitted Go has a vet diagnostic (a real defect even though it compiles); fix the plugin/.v, not the Go."; \
