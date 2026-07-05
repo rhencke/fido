@@ -6261,6 +6261,77 @@ Proof.
   - exfalso. apply nth_error_Some in Hpc. congruence.
 Qed.
 
+(** ONE-STEP DETERMINISM: [run_io] is a function, so a configuration steps to at
+    most one successor.  Class-wide — no well-formedness premise needed. *)
+Lemma blocks_step_det : forall blocks pc (w : World) pc1 w1 pc2 w2,
+  blocks_step blocks pc w pc1 w1 -> blocks_step blocks pc w pc2 w2 ->
+  pc1 = pc2 /\ w1 = w2.
+Proof.
+  intros blocks pc w pc1 w1 pc2 w2 H1 H2.
+  inversion H1 as [ ? ? b1 ? ? Hn1 Hr1 Hlt1 ]; subst.
+  inversion H2 as [ ? ? b2 ? ? Hn2 Hr2 Hlt2 ]; subst.
+  rewrite Hn1 in Hn2. injection Hn2 as <-.
+  rewrite Hr1 in Hr2. inversion Hr2; subst. split; reflexivity.
+Qed.
+
+(** TERMINATING OUTCOMES ARE UNIQUE: [blocks_eval] is deterministic — from one
+    configuration there is at most one evaluation outcome.  Induction on the
+    first derivation; the second is pinned step-by-step by [run_io]'s
+    functionality (a Done/Panic conclusion and a Jump step are mutually
+    exclusive at the same configuration). *)
+Theorem blocks_eval_det : forall blocks pc (w : World) out1 out2,
+  blocks_eval blocks pc w out1 -> blocks_eval blocks pc w out2 -> out1 = out2.
+Proof.
+  intros blocks pc w out1 out2 H1. revert out2.
+  induction H1 as [ pc w b w' Hn Hr | pc w b v w' Hn Hr | pc w pc' w' out Hstep H1 IH ];
+    intros out2 H2.
+  - inversion H2 as [ ? ? b2 w2 Hn2 Hr2 | ? ? b2 v2 w2 Hn2 Hr2 | ? ? pc2 w2 out2' Hstep2 Hrest ]; subst.
+    + rewrite Hn in Hn2. injection Hn2 as <-. rewrite Hr in Hr2. inversion Hr2; subst. reflexivity.
+    + rewrite Hn in Hn2. injection Hn2 as <-. rewrite Hr in Hr2. discriminate Hr2.
+    + inversion Hstep2 as [ ? ? b2 ? ? Hn2 Hr2 Hlt2 ]; subst.
+      rewrite Hn in Hn2. injection Hn2 as <-. rewrite Hr in Hr2. discriminate Hr2.
+  - inversion H2 as [ ? ? b2 w2 Hn2 Hr2 | ? ? b2 v2 w2 Hn2 Hr2 | ? ? pc2 w2 out2' Hstep2 Hrest ]; subst.
+    + rewrite Hn in Hn2. injection Hn2 as <-. rewrite Hr in Hr2. discriminate Hr2.
+    + rewrite Hn in Hn2. injection Hn2 as <-. rewrite Hr in Hr2. inversion Hr2; subst. reflexivity.
+    + inversion Hstep2 as [ ? ? b2 ? ? Hn2 Hr2 Hlt2 ]; subst.
+      rewrite Hn in Hn2. injection Hn2 as <-. rewrite Hr in Hr2. discriminate Hr2.
+  - inversion H2 as [ ? ? b2 w2 Hn2 Hr2 | ? ? b2 v2 w2 Hn2 Hr2 | ? ? pc2 w2 out2' Hstep2 Hrest ]; subst.
+    + inversion Hstep as [ ? ? b1 ? ? Hn1 Hr1 Hlt1 ]; subst.
+      rewrite Hn1 in Hn2. injection Hn2 as <-. rewrite Hr1 in Hr2. discriminate Hr2.
+    + inversion Hstep as [ ? ? b1 ? ? Hn1 Hr1 Hlt1 ]; subst.
+      rewrite Hn1 in Hn2. injection Hn2 as <-. rewrite Hr1 in Hr2. discriminate Hr2.
+    + destruct (blocks_step_det _ _ _ _ _ _ _ Hstep Hstep2) as [ E1 E2 ]. subst.
+      exact (IH out2 Hrest).
+Qed.
+
+(** TERMINATION AND DIVERGENCE ARE DISJOINT: no configuration both evaluates to
+    an outcome and diverges.  Induction on the evaluation; each divergence step
+    must agree with the evaluation's step ([run_io] functionality), so the
+    divergence is pushed past the whole finite run and dies at the conclusion. *)
+Theorem blocks_eval_diverge_disjoint : forall blocks pc (w : World) out,
+  blocks_eval blocks pc w out -> blocks_diverge blocks pc w -> False.
+Proof.
+  intros blocks pc w out Heval.
+  induction Heval as [ pc w b w' Hn Hr | pc w b v w' Hn Hr | pc w pc' w' out Hstep Heval IH ];
+    intro Hdiv.
+  - inversion Hdiv as [ ? ? pc2 w2 Hstep2 Hrest ]; subst.
+    inversion Hstep2 as [ ? ? b2 ? ? Hn2 Hr2 Hlt2 ]; subst.
+    rewrite Hn in Hn2. injection Hn2 as <-. rewrite Hr in Hr2. discriminate Hr2.
+  - inversion Hdiv as [ ? ? pc2 w2 Hstep2 Hrest ]; subst.
+    inversion Hstep2 as [ ? ? b2 ? ? Hn2 Hr2 Hlt2 ]; subst.
+    rewrite Hn in Hn2. injection Hn2 as <-. rewrite Hr in Hr2. discriminate Hr2.
+  - inversion Hdiv as [ ? ? pc2 w2 Hstep2 Hrest ]; subst.
+    destruct (blocks_step_det _ _ _ _ _ _ _ Hstep Hstep2) as [ E1 E2 ]. subst.
+    exact (IH Hrest).
+Qed.
+
+(** The CFG semantics surface, manifest-gated (PROGRESS "Current gates"): class-wide
+    progress + one-step determinism + unique terminating outcomes + termination/divergence
+    disjointness, certified zero-axiom as a bundle. *)
+Definition blocks_cfg_surface :=
+  (blocks_jump_wf_progress, blocks_step_det, blocks_eval_det, blocks_eval_diverge_disjoint).
+Print Assumptions blocks_cfg_surface.
+
 (** EMISSION-ONLY marker (the plugin suppresses this body and emits labels+goto).
     Evaluating the model-side [run_blocks] yields a loud, recognizable panic —
     never a fabricated [Done], never a step-capped approximation. *)

@@ -63,10 +63,13 @@ The memo endorses the executable-WF parser shape ("structural recursion over syn
 well-founded recursion over input text — never execution budgets") — satisfied above.
 Open items it adds, in its recommended order:
 
-1. **CFG relations, deeper**: `blocks_eval` determinism / uniqueness of terminating
-   outcomes; `blocks_eval`/`blocks_diverge` DISJOINTNESS; certificate-checked
-   termination/divergence for accepted CFGs.  (Well-formedness + progress already
-   landed as `blocks_jump_wf`(+`_progress`).)
+1. **CFG relations, deeper — determinism + disjointness LANDED**: `blocks_step_det`
+   (one-step determinism), `blocks_eval_det` (unique terminating outcomes),
+   `blocks_eval_diverge_disjoint` (termination and divergence exclude each other) —
+   all class-wide, bundled with `blocks_jump_wf_progress` into the manifest-gated
+   `blocks_cfg_surface` (zero-axiom).  REMAINING here: certificate-checked
+   termination/divergence for accepted CFGs (needs a certificate format + a
+   verified checker — its own design).
 2. **Quarantine `run_blocks` demos harder** — integration/log-diff evidence only.
 3. **Plugin starving** (standing): feature-by-feature GoAst -> GoPrint -> GoSafe -> GoEmit.
 4. **Gated public surfaces**: every doc-cited theorem inside a manifest-gated surface.
