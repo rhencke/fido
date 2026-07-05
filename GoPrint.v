@@ -1362,9 +1362,8 @@ Fixpoint gttokens_ty (t : GoTy) : list Token :=
   | GTNamed n => TId (tyname_to_ident n) :: nil
   end.
 (* [_ => 1] is the deliberate UNIT size of every leaf type (the 13 primitives + [GTNamed], each one token).
-   Unlike a printer default this is FAIL-CLOSED: it feeds only the type-parser FUEL bound, so a future
-   COMPOSITE type that this undercounts makes its round-trip proof run out of fuel and FAIL TO COMPILE — loud,
-   never wrong output.  (The output side, [print_ty]/[gttokens_ty], is fully exhaustive.) *)
+   [tsize] feeds only the EXPRESSION parser's budget layer ([esize]) — it dies with that layer's purge.
+   (The output side, [print_ty]/[gttokens_ty], is fully exhaustive.) *)
 Fixpoint tsize (t : GoTy) : nat :=
   match t with
   | GTPtr u | GTSlice u | GTChan u => S (tsize u)
@@ -1383,51 +1382,179 @@ Proof.
   - cbn; lia.
 Qed.
 
-Fixpoint parse_gty (fuel : nat) (toks : list Token) : option (GoTy * list Token) :=
-  match fuel with
-  | O => None
-  | S f =>
-    match toks with
-    | TStar :: rest => match parse_gty f rest with Some (u, r) => Some (GTPtr u, r) | None => None end
-    | TLB :: TRB :: rest => match parse_gty f rest with Some (u, r) => Some (GTSlice u, r) | None => None end
-    | TChan :: rest => match parse_gty f rest with Some (u, r) => Some (GTChan u, r) | None => None end
-    | TMap :: TLB :: r0 =>
-        match parse_gty f r0 with
-        | Some (k, TRB :: r1) => match parse_gty f r1 with Some (v, r2) => Some (GTMap k v, r2) | None => None end
-        | _ => None
+(** The type parser is Acc-STRUCTURAL on the token-list length (every arm consumes >= 1 token before
+    recursing) — no step budget.  The result carries its own SUFFIX BOUND ([length r <= length input]) so
+    the map arm's second recursive call ([V] after [K]) stays inside the termination certificate. *)
+Lemma tlt1 : forall n, n < S n.                                    Proof. intros; lia. Qed.
+Lemma tlt2 : forall n, n < S (S n).                                Proof. intros; lia. Qed.
+Lemma tle1 : forall m n, m <= n -> m <= S n.                       Proof. intros; lia. Qed.
+Lemma tle2 : forall m n, m <= n -> m <= S (S n).                   Proof. intros; lia. Qed.
+Lemma tlt_map : forall a b, S a <= b -> a < S (S b).               Proof. intros; lia. Qed.
+Lemma tle_map : forall a b c, a <= b -> S b <= c -> a <= S (S c).  Proof. intros; lia. Qed.
+
+Fixpoint parse_gty_acc (toks : list Token) (a : Acc lt (List.length toks)) {struct a}
+  : option (GoTy * { r : list Token | List.length r <= List.length toks }) :=
+  match toks return Acc lt (List.length toks) ->
+                    option (GoTy * { r : list Token | List.length r <= List.length toks }) with
+  | nil => fun _ => None
+  | tok :: rest0 => fun a =>
+    match tok with
+    | TStar =>
+        match parse_gty_acc rest0 (Acc_inv a (tlt1 (List.length rest0))) with
+        | Some (u, exist _ r Hr) => Some (GTPtr u, exist _ r (tle1 _ _ Hr))
+        | None => None
         end
-    | TId i :: rest =>
+    | TChan =>
+        match parse_gty_acc rest0 (Acc_inv a (tlt1 (List.length rest0))) with
+        | Some (u, exist _ r Hr) => Some (GTChan u, exist _ r (tle1 _ _ Hr))
+        | None => None
+        end
+    | TLB =>
+        match rest0 as r0 return Acc lt (S (List.length r0)) ->
+                                 option (GoTy * { r : list Token | List.length r <= S (List.length r0) }) with
+        | TRB :: rest => fun a =>
+            match parse_gty_acc rest (Acc_inv a (tlt2 (List.length rest))) with
+            | Some (u, exist _ r Hr) => Some (GTSlice u, exist _ r (tle2 _ _ Hr))
+            | None => None
+            end
+        | _ => fun _ => None
+        end a
+    | TMap =>
+        match rest0 as r0' return Acc lt (S (List.length r0')) ->
+                                  option (GoTy * { r : list Token | List.length r <= S (List.length r0') }) with
+        | TLB :: r0 => fun a =>
+            match parse_gty_acc r0 (Acc_inv a (tlt2 (List.length r0))) with
+            | Some (k, exist _ rK HrK) =>
+                match rK as rk return List.length rk <= List.length r0 ->
+                                      option (GoTy * { r : list Token | List.length r <= S (S (List.length r0)) }) with
+                | TRB :: r1 => fun HrK =>
+                    match parse_gty_acc r1 (Acc_inv a (tlt_map _ _ HrK)) with
+                    | Some (v, exist _ r2 Hr2) => Some (GTMap k v, exist _ r2 (tle_map _ _ _ Hr2 HrK))
+                    | None => None
+                    end
+                | _ => fun _ => None
+                end HrK
+            | None => None
+            end
+        | _ => fun _ => None
+        end a
+    | TId i =>
         match classify (proj1_sig i) with
-        | Some t => Some (t, rest)
+        | Some t => Some (t, exist _ rest0 (tle1 _ _ (le_n _)))
         | None => match bool_dec (nominal_type_ident (proj1_sig i)) true with
-                  | left H => Some (GTNamed (mkTyName (proj1_sig i) H), rest)
+                  | left H => Some (GTNamed (mkTyName (proj1_sig i) H), exist _ rest0 (tle1 _ _ (le_n _)))
                   | right _ => None
                   end
         end
     | _ => None
     end
+  end a.
+Definition parse_gty (toks : list Token) : option (GoTy * list Token) :=
+  match parse_gty_acc toks (lt_wf (List.length toks)) with
+  | Some (t, exist _ r _) => Some (t, r)
+  | None => None
   end.
-Lemma parse_gty_S : forall f toks, parse_gty (S f) toks =
-  match toks with
-  | TStar :: rest => match parse_gty f rest with Some (u, r) => Some (GTPtr u, r) | None => None end
-  | TLB :: TRB :: rest => match parse_gty f rest with Some (u, r) => Some (GTSlice u, r) | None => None end
-  | TChan :: rest => match parse_gty f rest with Some (u, r) => Some (GTChan u, r) | None => None end
-  | TMap :: TLB :: r0 =>
-      match parse_gty f r0 with
-      | Some (k, TRB :: r1) => match parse_gty f r1 with Some (v, r2) => Some (GTMap k v, r2) | None => None end
-      | _ => None
-      end
-  | TId i :: rest =>
-      match classify (proj1_sig i) with
-      | Some t => Some (t, rest)
-      | None => match bool_dec (nominal_type_ident (proj1_sig i)) true with
-                | left H => Some (GTNamed (mkTyName (proj1_sig i) H), rest)
-                | right _ => None
-                end
-      end
-  | _ => None
-  end.
-Proof. reflexivity. Qed.
+
+(** certificate proof-irrelevance (the [lex_acc_pi] recipe) + the one-step unfold equations over
+    [parse_gty] ITSELF — the reasoning principle that replaces any budget-indexed unfolding. *)
+Lemma parse_gty_acc_pi : forall n toks, List.length toks < n ->
+  forall a1 a2 : Acc lt (List.length toks), parse_gty_acc toks a1 = parse_gty_acc toks a2.
+Proof.
+  induction n as [| n IH]; intros toks Hn a1 a2; [ lia | ].
+  destruct a1 as [h1]. destruct a2 as [h2].
+  destruct toks as [| tok rest0]; [ reflexivity | ].
+  cbn [parse_gty_acc Acc_inv].
+  destruct tok; try reflexivity.
+  - (* TStar *)
+    erewrite (IH rest0); [ reflexivity | cbn in Hn |- *; lia ].
+  - (* TLB *)
+    destruct rest0 as [| tk rest]; [ reflexivity | ]. destruct tk; try reflexivity.
+    cbn [Acc_inv].
+    erewrite (IH rest); [ reflexivity | cbn in Hn |- *; lia ].
+  - (* TChan *)
+    erewrite (IH rest0); [ reflexivity | cbn in Hn |- *; lia ].
+  - (* TMap *)
+    destruct rest0 as [| tk r0]; [ reflexivity | ]. destruct tk; try reflexivity.
+    cbn [Acc_inv].
+    rewrite (IH r0 ltac:(cbn in Hn |- *; lia)
+               (h1 (List.length r0) (tlt2 (List.length r0)))
+               (h2 (List.length r0) (tlt2 (List.length r0)))).
+    destruct (parse_gty_acc r0 (h2 (List.length r0) (tlt2 (List.length r0))))
+      as [[k [rK HrK]]|]; [ | reflexivity ].
+    destruct rK as [| tk1 r1]; [ reflexivity | ]. destruct tk1; try reflexivity.
+    cbv beta.
+    match goal with |- context [parse_gty_acc r1 ?P] =>
+      tryif is_var P then fail else generalize P end.
+    match goal with |- context [parse_gty_acc r1 ?P] =>
+      tryif is_var P then fail else generalize P end.
+    intros g2 g1.
+    rewrite (IH r1 ltac:(cbn in Hn, HrK |- *; lia) g1 g2).
+    reflexivity.
+Qed.
+Lemma parse_gty_unfold_pi : forall toks,
+  parse_gty toks
+  = match parse_gty_acc toks (Acc_intro (List.length toks) (fun y _ => lt_wf y)) with
+    | Some (t, exist _ r _) => Some (t, r)
+    | None => None
+    end.
+Proof.
+  intro toks. unfold parse_gty.
+  rewrite (parse_gty_acc_pi (S (List.length toks)) toks (Nat.lt_succ_diag_r _)
+             (lt_wf (List.length toks)) (Acc_intro (List.length toks) (fun y _ => lt_wf y))).
+  reflexivity.
+Qed.
+
+Lemma parse_gty_eq_star : forall rest,
+  parse_gty (TStar :: rest) = match parse_gty rest with Some (u, r) => Some (GTPtr u, r) | None => None end.
+Proof.
+  intro rest. rewrite parse_gty_unfold_pi. cbn [parse_gty_acc Acc_inv]. unfold parse_gty.
+  destruct (parse_gty_acc rest (lt_wf (List.length rest))) as [[u [r Hr]]|]; reflexivity.
+Qed.
+Lemma parse_gty_eq_chan : forall rest,
+  parse_gty (TChan :: rest) = match parse_gty rest with Some (u, r) => Some (GTChan u, r) | None => None end.
+Proof.
+  intro rest. rewrite parse_gty_unfold_pi. cbn [parse_gty_acc Acc_inv]. unfold parse_gty.
+  destruct (parse_gty_acc rest (lt_wf (List.length rest))) as [[u [r Hr]]|]; reflexivity.
+Qed.
+Lemma parse_gty_eq_slice : forall rest,
+  parse_gty (TLB :: TRB :: rest) = match parse_gty rest with Some (u, r) => Some (GTSlice u, r) | None => None end.
+Proof.
+  intro rest. rewrite parse_gty_unfold_pi. cbn [parse_gty_acc Acc_inv]. unfold parse_gty.
+  destruct (parse_gty_acc rest (lt_wf (List.length rest))) as [[u [r Hr]]|]; reflexivity.
+Qed.
+Lemma parse_gty_eq_map : forall r0,
+  parse_gty (TMap :: TLB :: r0)
+  = match parse_gty r0 with
+    | Some (k, TRB :: r1) => match parse_gty r1 with Some (v, r2) => Some (GTMap k v, r2) | None => None end
+    | _ => None
+    end.
+Proof.
+  intro r0. rewrite parse_gty_unfold_pi. cbn [parse_gty_acc Acc_inv]. unfold parse_gty.
+  destruct (parse_gty_acc r0 (lt_wf (List.length r0))) as [[k [rK HrK]]|]; [ | reflexivity ].
+  destruct rK as [| tk1 r1]; [ reflexivity | ]. destruct tk1; try reflexivity.
+  cbv beta.
+  match goal with |- context [parse_gty_acc r1 ?P] =>
+    tryif is_var P then fail else generalize P end.
+  match goal with |- context [parse_gty_acc r1 ?P] =>
+    tryif is_var P then fail else generalize P end.
+  intros g2 g1.
+  rewrite (parse_gty_acc_pi (S (List.length r1)) r1 (Nat.lt_succ_diag_r _) g1 g2).
+  destruct (parse_gty_acc r1 g2) as [[v [r2 Hr2]]|]; reflexivity.
+Qed.
+Lemma parse_gty_eq_id : forall i rest,
+  parse_gty (TId i :: rest)
+  = match classify (proj1_sig i) with
+    | Some t => Some (t, rest)
+    | None => match bool_dec (nominal_type_ident (proj1_sig i)) true with
+              | left H => Some (GTNamed (mkTyName (proj1_sig i) H), rest)
+              | right _ => None
+              end
+    end.
+Proof.
+  intros i rest. rewrite parse_gty_unfold_pi. cbn [parse_gty_acc Acc_inv].
+  destruct (classify (proj1_sig i)); [ reflexivity | ].
+  destruct (bool_dec (nominal_type_ident (proj1_sig i)) true); reflexivity.
+Qed.
 
 (** ---- STRING-LEXER FAIL-CLOSED REGRESSION ---- a spelling NOT in the printer image (a malformed escape, or a
     raw byte [esc_byte] would have escaped) must be REJECTED at tokenization ([lex = None]), NOT lossily normalized
@@ -1751,18 +1878,18 @@ with parse_atom (fuel : nat) (toks : list Token) : option (GExpr * list Token) :
        (no preceding operand to index/etc.).  Parse the type ([parse_gty], reused from EAssert), require it be
        a conversion head, then the parenthesised operand.  [parse_gty] is defined before this mutual block. *)
     | TLB :: TRB :: _ =>
-        match parse_gty f toks with
+        match parse_gty toks with
         | Some (GTSlice u, TLP :: r1) => match parse_expr f 0 r1 with Some (e, TRP :: r2) => Some (EConv (CTSlice u) e, r2) | _ => None end
         (* slice composite literal [[]T{e1,..,en}] — same [[]T] lead as the conversion, disambiguated by the
            NEXT token: '{' (TLC) -> [ESliceLit], '(' (TLP) -> [EConv].  Elements via [parse_elems]. *)
         | Some (GTSlice u, TLC :: r1) => match parse_elems f r1 with Some (es, r2) => Some (ESliceLit u es, r2) | None => None end
         | _ => None end
     | TChan :: _ =>
-        match parse_gty f toks with
+        match parse_gty toks with
         | Some (GTChan u, TLP :: r1) => match parse_expr f 0 r1 with Some (e, TRP :: r2) => Some (EConv (CTChan u) e, r2) | _ => None end
         | _ => None end
     | TMap :: _ =>
-        match parse_gty f toks with
+        match parse_gty toks with
         | Some (GTMap k v, TLP :: r1) => match parse_expr f 0 r1 with Some (e, TRP :: r2) => Some (EConv (CTMap k v) e, r2) | _ => None end
         (* map composite literal [map[K]V{k1: v1,..,kn: vn}] — same [map[K]V] lead as the conversion,
            disambiguated by the NEXT token: '{' (TLC) -> [EMapLit], '(' (TLP) -> [EConv].  KEYED elements
@@ -1782,7 +1909,7 @@ with parse_postfix (fuel : nat) (a : GExpr) (toks : list Token) : option (GExpr 
   | S f =>
     match toks with
     | TDot :: TLP :: rest =>   (* type assertion [.(T)] — disjoint from [.field] (2nd token [TLP] vs [TId]) *)
-        match parse_gty f rest with Some (T, TRP :: r) => parse_postfix f (EAssert a T) r | _ => None end
+        match parse_gty rest with Some (T, TRP :: r) => parse_postfix f (EAssert a T) r | _ => None end
     | TDot :: TId field :: rest => parse_postfix f (ESel a field) rest
     | TLB :: rest =>
         match parse_expr f 0 rest with
@@ -3303,16 +3430,16 @@ Lemma parse_atom_S : forall f toks, parse_atom (S f) toks =
   | TAmp   :: rest => match parse_atom f rest with Some (e, r) => Some (EUn UAddr e, r)  | None => None end
   | TMinus :: TLP :: rest => match parse_expr f 0 rest with Some (e, TRP :: r) => Some (EUn UNeg e, r) | _ => None end
   | TLB :: TRB :: _ =>
-      match parse_gty f toks with
+      match parse_gty toks with
       | Some (GTSlice u, TLP :: r1) => match parse_expr f 0 r1 with Some (e, TRP :: r2) => Some (EConv (CTSlice u) e, r2) | _ => None end
       | Some (GTSlice u, TLC :: r1) => match parse_elems f r1 with Some (es, r2) => Some (ESliceLit u es, r2) | None => None end
       | _ => None end
   | TChan :: _ =>
-      match parse_gty f toks with
+      match parse_gty toks with
       | Some (GTChan u, TLP :: r1) => match parse_expr f 0 r1 with Some (e, TRP :: r2) => Some (EConv (CTChan u) e, r2) | _ => None end
       | _ => None end
   | TMap :: _ =>
-      match parse_gty f toks with
+      match parse_gty toks with
       | Some (GTMap k v, TLP :: r1) => match parse_expr f 0 r1 with Some (e, TRP :: r2) => Some (EConv (CTMap k v) e, r2) | _ => None end
       | Some (GTMap k v, TLC :: r1) => match parse_map_elems f r1 with Some (kvs, r2) => Some (EMapLit k v kvs, r2) | None => None end
       | _ => None end
@@ -3326,7 +3453,7 @@ Proof. reflexivity. Qed.
 Lemma parse_postfix_S : forall f a toks, parse_postfix (S f) a toks =
   match toks with
   | TDot :: TLP :: rest =>
-      match parse_gty f rest with Some (T, TRP :: r) => parse_postfix f (EAssert a T) r | _ => None end
+      match parse_gty rest with Some (T, TRP :: r) => parse_postfix f (EAssert a T) r | _ => None end
   | TDot :: TId field :: rest => parse_postfix f (ESel a field) rest
   | TLB :: rest =>
       match parse_expr f 0 rest with
@@ -4258,18 +4385,18 @@ Proof.
 Qed.
 
 (** THE TYPE-PARSER ROUND-TRIP: [parse_gty] inverts [gttokens_ty] (leaving any clean tail [rest]). *)
-Lemma parse_gty_roundtrip : forall t rest F, tsize t <= F -> parse_gty F (gttokens_ty t ++ rest)%list = Some (t, rest).
+Lemma parse_gty_roundtrip : forall t rest, parse_gty (gttokens_ty t ++ rest)%list = Some (t, rest).
 Proof.
   induction t as [ | | | | | | | | | | | | | | u IHt | u IHt | u IHt | t1 IHt1 t2 IHt2 | n ];
-    intros rest F HF; destruct F as [ | f ]; try (cbn [tsize] in HF; lia).
-  1-14: cbn [gttokens_ty app]; rewrite parse_gty_S; reflexivity.
-  - (* GTPtr u *) cbn [gttokens_ty app]. rewrite parse_gty_S. rewrite (IHt rest f ltac:(cbn [tsize] in HF; lia)). reflexivity.
-  - (* GTSlice u *) cbn [gttokens_ty app]. rewrite parse_gty_S. rewrite (IHt rest f ltac:(cbn [tsize] in HF; lia)). reflexivity.
-  - (* GTChan u *) cbn [gttokens_ty app]. rewrite parse_gty_S. rewrite (IHt rest f ltac:(cbn [tsize] in HF; lia)). reflexivity.
-  - (* GTMap k v *) cbn [gttokens_ty]. rewrite parse_gty_S. cbn [app]. rewrite <- app_assoc. cbn [app].
-    rewrite (IHt1 (TRB :: gttokens_ty t2 ++ rest)%list f ltac:(cbn [tsize] in HF; lia)).
-    rewrite (IHt2 rest f ltac:(cbn [tsize] in HF; lia)). reflexivity.
-  - (* GTNamed n *) cbn [gttokens_ty app]. rewrite parse_gty_S.
+    intro rest.
+  1-14: cbn [gttokens_ty app]; rewrite parse_gty_eq_id; reflexivity.
+  - (* GTPtr u *) cbn [gttokens_ty app]. rewrite parse_gty_eq_star. rewrite (IHt rest). reflexivity.
+  - (* GTSlice u *) cbn [gttokens_ty app]. rewrite parse_gty_eq_slice. rewrite (IHt rest). reflexivity.
+  - (* GTChan u *) cbn [gttokens_ty app]. rewrite parse_gty_eq_chan. rewrite (IHt rest). reflexivity.
+  - (* GTMap k v *) cbn [gttokens_ty]. cbn [app]. rewrite <- app_assoc. cbn [app]. rewrite parse_gty_eq_map.
+    rewrite (IHt1 (TRB :: gttokens_ty t2 ++ rest)%list).
+    rewrite (IHt2 rest). reflexivity.
+  - (* GTNamed n *) cbn [gttokens_ty app]. rewrite parse_gty_eq_id.
     assert (Hkw : is_type_keyword (proj1_sig n) = false).
     { pose proof (proj2_sig n) as Hn. unfold nominal_type_ident in Hn.
       apply andb_prop in Hn. destruct Hn as [ _ Hnk ]. apply negb_true_iff in Hnk. exact Hnk. }
@@ -4327,7 +4454,7 @@ Proof.
                 | intros args' Hj; apply Hpc; right; exact Hj | exact Hcl | cbn [pops_fuel] in HF; lia ].
     + (* PAssert T *) destruct F as [ | F' ]; [ cbn [pops_fuel] in HF; lia | ].
       cbn [app]. rewrite parse_postfix_S. rewrite <- app_assoc. cbn [app].
-      rewrite (parse_gty_roundtrip T (TRP :: gtokens_pops ops ++ rest)%list F' ltac:(cbn [pops_fuel] in HF; lia)).
+      rewrite (parse_gty_roundtrip T (TRP :: gtokens_pops ops ++ rest)%list).
       cbv beta iota.
       apply IH; [ intros j Hj; apply Hpe; right; exact Hj
                 | intros lo hi Hj; apply Hps; right; exact Hj
@@ -4351,22 +4478,19 @@ Proof.
   rewrite <- !app_assoc; cbn [app]; rewrite <- !app_assoc; cbn [app].
   destruct c as [ u | u | k v ].
   - (* CTSlice u — []u(e0) *)
-    pose proof (parse_gty_roundtrip (GTSlice u) (TLP :: (gtokens 0 e0 ++ TRP :: TAIL)) f
-                  ltac:(cbn [tsize convty_ty] in HF |- *; lia)) as Hg.
+    pose proof (parse_gty_roundtrip (GTSlice u) (TLP :: (gtokens 0 e0 ++ TRP :: TAIL))) as Hg.
     rewrite parse_atom_S. cbn [convty_ty gttokens_ty app] in Hg |- *.
     rewrite Hg. cbv beta iota.
     rewrite (HP 0 0 (TRP :: TAIL) f (le_n 0) (conj eq_refl I)
                ltac:(cbn [tsize convty_ty] in HF |- *; lia)). reflexivity.
   - (* CTChan u — chan u(e0) *)
-    pose proof (parse_gty_roundtrip (GTChan u) (TLP :: (gtokens 0 e0 ++ TRP :: TAIL)) f
-                  ltac:(cbn [tsize convty_ty] in HF |- *; lia)) as Hg.
+    pose proof (parse_gty_roundtrip (GTChan u) (TLP :: (gtokens 0 e0 ++ TRP :: TAIL))) as Hg.
     rewrite parse_atom_S. cbn [convty_ty gttokens_ty app] in Hg |- *.
     rewrite Hg. cbv beta iota.
     rewrite (HP 0 0 (TRP :: TAIL) f (le_n 0) (conj eq_refl I)
                ltac:(cbn [tsize convty_ty] in HF |- *; lia)). reflexivity.
   - (* CTMap k v — map[k]v(e0) *)
-    pose proof (parse_gty_roundtrip (GTMap k v) (TLP :: (gtokens 0 e0 ++ TRP :: TAIL)) f
-                  ltac:(cbn [tsize convty_ty] in HF |- *; lia)) as Hg.
+    pose proof (parse_gty_roundtrip (GTMap k v) (TLP :: (gtokens 0 e0 ++ TRP :: TAIL))) as Hg.
     rewrite parse_atom_S. cbn [convty_ty gttokens_ty app] in Hg |- *.
     rewrite Hg. cbv beta iota.
     rewrite (HP 0 0 (TRP :: TAIL) f (le_n 0) (conj eq_refl I)
@@ -4388,8 +4512,7 @@ Proof.
      stuck [gttokens_ty t]/[gtokens_args es] appends right (alternating, as the EConv case does, +1 round for
      the leading '['']' conses). *)
   cbn [app]; rewrite <- ?app_assoc; cbn [app]; rewrite <- ?app_assoc; cbn [app].
-  pose proof (parse_gty_roundtrip (GTSlice t) (TLC :: (gtokens_args es ++ TRC :: TAIL)) f
-                ltac:(cbn [tsize]; lia)) as Hg.
+  pose proof (parse_gty_roundtrip (GTSlice t) (TLC :: (gtokens_args es ++ TRC :: TAIL))) as Hg.
   rewrite parse_atom_S. cbn [gttokens_ty app] in Hg |- *.
   rewrite Hg. cbv beta iota.
   rewrite (parse_elems_roundtrip es TAIL f Hfa ltac:(pose proof (af_le es); lia)).
@@ -4409,8 +4532,7 @@ Proof.
   destruct F as [ | f ]; [ lia | ].
   (* normalise the [++ TAIL] into the type's clean tail, keeping [gttokens_ty (GTMap kt vt)] folded as the head *)
   rewrite <- ?app_assoc; cbn [app]; rewrite <- ?app_assoc; cbn [app].
-  pose proof (parse_gty_roundtrip (GTMap kt vt) (TLC :: (gtokens_pairs kvs ++ TRC :: TAIL)) f
-                ltac:(cbn [tsize]; lia)) as Hg.
+  pose proof (parse_gty_roundtrip (GTMap kt vt) (TLC :: (gtokens_pairs kvs ++ TRC :: TAIL))) as Hg.
   rewrite parse_atom_S. cbn [gttokens_ty app] in Hg |- *.
   rewrite Hg. cbv beta iota.
   rewrite (parse_map_elems_roundtrip kvs TAIL f Hfa ltac:(pose proof (mf_le kvs); lia)).
@@ -4810,11 +4932,10 @@ Qed.
 
 (** ★THE END-TO-END TYPE ROUND-TRIP: the printed type [print_ty t] lexes and parses back to [t]. *)
 Theorem parse_gty_print_ty : forall t,
-  match lex (print_ty t) with Some toks => parse_gty (S (List.length toks)) toks | None => None end = Some (t, nil).
+  match lex (print_ty t) with Some toks => parse_gty toks | None => None end = Some (t, nil).
 Proof.
   intro t. rewrite lex_print_ty.
   rewrite <- (app_nil_r (gttokens_ty t)). apply parse_gty_roundtrip.
-  pose proof (tsize_le_len t). rewrite app_nil_r. lia.
 Qed.
 
 
@@ -4830,7 +4951,6 @@ Qed.
     already.) *)
 Definition conv_print  (c : ConvTy) : string     := print_ty (convty_ty c).
 Definition conv_tokens (c : ConvTy) : list Token := gttokens_ty (convty_ty c).
-Definition conv_size   (c : ConvTy) : nat        := tsize (convty_ty c).
 
 (** the printed conversion-type lexes to its token list (inherited from [lex_print_ty]). *)
 Lemma conv_print_lex : forall c, lex (conv_print c) = Some (conv_tokens c).
@@ -4838,8 +4958,8 @@ Proof. intro c. apply lex_print_ty. Qed.
 
 (** [parse_convty] = [parse_gty] keeping ONLY the three conversion heads; anything else (a primitive, a
     pointer, or a named type — all identifier/[*]-led, i.e. NOT a syntactic conversion form) is rejected. *)
-Definition parse_convty (fuel : nat) (toks : list Token) : option (ConvTy * list Token) :=
-  match parse_gty fuel toks with
+Definition parse_convty (toks : list Token) : option (ConvTy * list Token) :=
+  match parse_gty toks with
   | Some (GTSlice u, r) => Some (CTSlice u, r)
   | Some (GTChan u, r)  => Some (CTChan u, r)
   | Some (GTMap k v, r) => Some (CTMap k v, r)
@@ -4847,21 +4967,20 @@ Definition parse_convty (fuel : nat) (toks : list Token) : option (ConvTy * list
   end.
 
 (** round-trip: a conversion-type's tokens parse back to it (reusing [parse_gty_roundtrip]). *)
-Lemma parse_convty_roundtrip : forall c rest F,
-  conv_size c <= F -> parse_convty F (conv_tokens c ++ rest)%list = Some (c, rest).
+Lemma parse_convty_roundtrip : forall c rest,
+  parse_convty (conv_tokens c ++ rest)%list = Some (c, rest).
 Proof.
-  intros c rest F HF. unfold parse_convty, conv_tokens, conv_size in *.
-  destruct c as [ u | u | k v ]; cbn [convty_ty] in HF |- *;
-    rewrite (parse_gty_roundtrip _ rest F HF); reflexivity.
+  intros c rest. unfold parse_convty, conv_tokens.
+  destruct c as [ u | u | k v ]; cbn [convty_ty];
+    rewrite (parse_gty_roundtrip _ rest); reflexivity.
 Qed.
 
 (** ★END-TO-END: the printed conversion-type lexes and parses back to itself. *)
 Theorem parse_conv_print : forall c,
-  match lex (conv_print c) with Some toks => parse_convty (S (List.length toks)) toks | None => None end = Some (c, nil).
+  match lex (conv_print c) with Some toks => parse_convty toks | None => None end = Some (c, nil).
 Proof.
   intro c. rewrite conv_print_lex.
   rewrite <- (app_nil_r (conv_tokens c)). apply parse_convty_roundtrip.
-  unfold conv_size, conv_tokens. pose proof (tsize_le_len (convty_ty c)). rewrite app_nil_r. lia.
 Qed.
 
 (** FAITHFULNESS — the type printer is INJECTIVE, derived from the token-level round-trip
