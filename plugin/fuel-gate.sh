@@ -216,7 +216,7 @@ EOF
   run|*)
     [ -f "$BASELINE" ] || { echo "fido: fuel-gate: missing $BASELINE (run: sh plugin/fuel-gate.sh bless)"; exit 1; }
     if grew; then
-      echo "fido: FUEL GATE FAILED — delete the budget identifier or the construct that needs it (this script's header defines the classes)"
+      echo "fido: FUEL GATE FAILED — delete the budget identifier or the construct that needs it (the class definitions ANAMES/BSTEMS/CSEGS near the top of plugin/fuel-gate.sh are the authority)"
       exit 1
     fi
     echo "fido: fuel-gate OK (no file above its baseline manifest entry)"

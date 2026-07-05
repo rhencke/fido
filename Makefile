@@ -68,8 +68,8 @@ run-local: extract
 # declared `(* EXPECT: … *)` message (a reopened fail-closed site is the defect the golden cannot see).
 # the budget-identifier ratchet (plugin/fuel-gate.sh is the mechanical authority — its
 # class definitions are the spec; the selftest is a regression matrix derived from them).
-# Runs its own fixture selftest first, so the detector's PASS/FAIL matrix is re-proven on
-# every check; then ratchets the certified-file count against plugin/fuel-gate.baseline.
+# Re-runs its fixture selftest first (a shell regression matrix, NOT a proof — the class
+# variables are the authority); then ratchets the certified-file count against plugin/fuel-gate.baseline.
 fuel-gate:
 	sh plugin/fuel-gate.sh selftest
 	sh plugin/fuel-gate.sh
