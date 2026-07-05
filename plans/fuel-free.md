@@ -41,7 +41,8 @@ eval_cmd, equivalence both directions, gated; real no_heap totality), cmd_unifie
 
 ## Remaining
 
-1. **builtins.v — FIRST (semantic fuel)** — SETTLED LANDING SHAPE (2026-07-05 recon:
+1. **builtins.v — LANDED 7e5f754** (relations authoritative; fueled runner deleted;
+   remaining: per-demo `blocks_eval` claims + the 2 baselined stragglers) — the shape was (2026-07-05 recon:
    the plugin recognizes `run_blocks` BY NAME, two args, go.ml:491/3652, and suppresses
    its body; the golden runs the EMITTED GO, so the Rocq body is never executed for
    demos — it exists only for model-side claims):
