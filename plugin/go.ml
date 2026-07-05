@@ -2072,7 +2072,7 @@ let raw_term tab next =
   | _ -> unsupported "a run_blocks block terminator that is neither Jump nor Done — an unrecognized Next value would silently become `return`, truncating the block's control flow"
 
 (* ---- The verified [GoPrint] expression printer, wired LIVE ----
-   [goexpr_bridge] CONSTRUCTS a structured [coq_GExpr] directly (never by parsing a string) for the migrated
+   [goexpr_bridge] CONSTRUCTS a structured [coq_GExpr] directly (never by parsing a string) for the covered
    expression class — a binary-operator TREE over runtime-local ([MLrel] -> [EId]) and integer-literal leaves,
    the bare int64/uint64 complement [^x] ([EUn UXor]), the runtime numeric CONVERSIONS (the [inline_conv_table]
    arms below + the [operand_is_runtime]-guarded [is_f64_to_f32_ref] arm), and the fixed-width ARITHMETIC
@@ -3211,7 +3211,7 @@ and pp_prec state env ctx e =
                  (* VERIFIED path: a binop TREE over runtime locals -> structured [GoPrint] node printed by
                     the machine-checked [Printer.gprint] (precedence + parens are [GoPrint]'s, not ours). *)
                  | Some ge -> str (coq_string_to_ocaml (Printer.gprint (coq_nat_of_int ctx) ge))
-                 (* TRUSTED fallback: every not-yet-migrated shape stays on [pp_prec] string concatenation. *)
+                 (* TRUSTED fallback: every shape outside the covered class stays on [pp_prec] string concatenation — a deletion candidate as certified coverage grows (DELETION.md). *)
                  | None ->
                      let inner = pp_prec state env p a ++ str opstr ++ pp_prec state env (p + 1) b in
                      if p < ctx then str "(" ++ inner ++ str ")" else inner))

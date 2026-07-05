@@ -18,8 +18,10 @@
     Statements and whole programs currently have print-INJECTIVITY only ([print_stmt_inj] /
     [print_program_inj]) — there is no statement PARSER yet, so no statement round-trip.
 
-    ⚠️ HONEST SCOPE — these are ROCQ-GRAMMAR self-consistency results: the printer is verified AGAINST THE
-    PARSER in THIS file, NOT against Go's own parser.  There is NO theorem that Go's compiler reads the
+    ⚠️ HONEST SCOPE — these are ROCQ-GRAMMAR self-consistency results, and the executable parser is
+    DERIVED TOOLING (CLAUDE.md "Syntax authority"): the intended authority is the relational/canonical
+    grammar layer (CanonExpr + gprint_canonical + canon_unique — not yet built), against which this
+    parser must eventually be proved sound/complete.  Nothing here is Go-compiler acceptance.  There is NO theorem that Go's compiler reads the
     emitted text as the same AST (that Go-subset RECOGNITION theorem — emitted grammar ⊆ Go grammar — is
     gap #10), and the plugin → emitted-bytes path also has a trusted [gofmt] post-step (see the Makefile).
     This file proves NO behavioral safety. *)
@@ -1585,9 +1587,11 @@ Example lex_str_pos_esc : lex (print_string_lit (String (ch 34) (String (ch 92) 
                         = Some (TStr (String (ch 34) (String (ch 92) (String (ch 10) "x"))) :: nil).
 Proof. vm_compute; reflexivity. Qed.
 
-(** ---- THE GRAMMAR (EBNF) ---- the exact language GoPrint lexes, parses, and prints.  The AST below,
-    the printer [gprint], and the recursive-descent parser [parse] are three views of THIS one grammar, and
-    the round-trip theorem [parse_print_roundtrip] proves the printer and parser agree on it.  (Wirth-style:
+(** ---- THE GRAMMAR (EBNF, prose) ---- the language GoPrint lexes, parses, and prints.  The AST below,
+    the printer [gprint], and the recursive-descent parser [parse] are three views of this grammar;
+    [parse_print_roundtrip] proves printer and parser agree.  The intended AUTHORITY is a RELATIONAL
+    canonical-grammar layer (CanonExpr et al., CLAUDE.md "Syntax authority") — once it lands, this prose
+    EBNF and the executable parser are both derived views proved against it.  (Wirth-style:
     state the grammar, then make the code visibly implement it.)  Notation: [{ x }] = zero-or-more,
     [[ x ]] = optional, ["lit"] = a terminal token, [->] names the AST node a production builds.
 
