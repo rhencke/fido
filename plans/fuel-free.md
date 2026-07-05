@@ -52,8 +52,24 @@ eval_cmd, equivalence both directions, gated; real no_heap totality), cmd_unifie
      `parse toks := parse_expr (3 * List.length toks + 4) 0 toks` + the `*_S` unfold
      lemmas (~3291-3342) + the `esize`/`length_gtokens_ge_esize`/`lspine_fuel3`/`all_Pexpr`
      budget layer + `parse_expr_TReturn_None`'s `S (S (S f))` arithmetic.
-   DESIGN (settled 2026-07-05, supersedes the lexicographic sketch — no phase rank
-   is needed at all):
+   ★DECISION (2026-07-05, per the memo's preference + "holistic proofs or nothing"):
+   go RELATIONAL, not WF-executable.  Blast radius CONFIRMED self-contained to
+   GoPrint.v (no other file consumes parse/parse_str).  Build:
+   (1) `Inductive parses : nat -> list Token -> GExpr -> list Token -> Prop` (the
+       precedence-climbing grammar as derivation rules; the k index is the CLIMB
+       PRECEDENCE, not a budget);
+   (2) `gtokens_parses : forall e ctx rest, parses 0 (gtokens ctx e ++ rest) e rest`
+       (rework of the existing roundtrip induction — derivations instead of fuel);
+   (3) DETERMINISM: `parses_det : parses k t e r -> parses k t e' r' -> e = e' /\ r = r'`;
+   (4) `gtokens_inj` + `gprint_inj` from (2)+(3); the disjointness lemmas via
+       inversion (a TReturn-led list admits no derivation);
+   (5) DELETE the executable parse/parse_expr mutual block (parse_gty stays — already
+       fuel-free); esize/length_gtokens_ge_esize/lspine_fuel3/pops_fuel/all_Pexpr and
+       the *_S unfold lemmas die with it; rt_* Examples become derivation examples or
+       drop (demos are sanity checks, not evidence).
+   Manifest target after: GoPrint.v 0; then main.v's 3, then done.
+   FALLBACK ONLY — the superseded merged-worker WF design:
+   (settled 2026-07-05, no phase rank needed):
    (a) A single `{struct a}` Acc fixpoint REQUIRES every recursive call on a strictly
        smaller certificate, so the same-length dispatch chain expr -> primary -> atom
        cannot stay three mutual functions.  MERGE it: one worker `parse_e (mode : PMode)`
