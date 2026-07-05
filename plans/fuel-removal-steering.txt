@@ -1,5 +1,5 @@
 [REPO NOTE — added when versioning this memo; body below is the boss's VERBATIM text.
-The MECHANICAL gate derived from it is specified in plans/fuel-free.md "REQUIRED GATES":
+The MECHANICAL gate derived from it is specified in plans/fuel-free.md "REQUIRED GATE":
 identifier/context-scoped over BUDGET-shaped terms only.  Relational small-step
 semantics (step/steps/ustep) are the PRESCRIBED architecture (see "Use small-step
 semantics where useful" below), never gate targets; the memo's word lists are to be
