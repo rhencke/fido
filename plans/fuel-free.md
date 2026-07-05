@@ -63,42 +63,28 @@ The memo endorses the executable-WF parser shape ("structural recursion over syn
 well-founded recursion over input text — never execution budgets") — satisfied above.
 Open items it adds, in its recommended order:
 
-1. **CFG relations, deeper — determinism + disjointness LANDED**: `blocks_step_det`
-   (one-step determinism), `blocks_eval_det` (unique terminating outcomes),
-   `blocks_eval_diverge_disjoint` (termination and divergence exclude each other) —
-   all class-wide, bundled with `blocks_jump_wf_progress` into the manifest-gated
-   `blocks_cfg_surface` (zero-axiom).  CERTIFICATES LANDED (the honest shallow form):
-   `blocks_ranked` (a per-program RANKING function — every jump strictly decreases it)
-   with class-wide soundness `blocks_ranked_terminates` (termination for EVERY world by
-   well-founded descent), and `blocks_spinning` (a per-program SPIN invariant) with the
-   coinductive `blocks_spinning_diverges`.  Both soundness theorems joined the gated
-   surface.  FIRST CONSTRUCTOR BOUNDARY LANDED: `SBlock` (a straight-line body + a
-   STATIC terminator — the jump structure is DATA), `sblock_denote` into the shallow
-   authority, and two DECIDED admissibility facts with soundness theorems on the gated
-   surface: `check_targets_jump_wf` (boolean in-range check ⇒ `blocks_jump_wf`) and
-   `sblocks_forward_terminates` (the in-range check AND the forward-jump check together
-   ⇒ every IN-RANGE configuration evaluates, for every world — the checked instance of
-   `blocks_ranked` with rank `len - pc`).  Conditional jumps stay OUTSIDE this class (computed targets);
-   they keep the per-program certificate route.  The static-cycle DIVERGENCE certificate LANDED:
-   `swalk`/`snext` (the deterministic static trail), constructive pigeonhole
-   (`find_dup` + `bounded_long_dup` — a duplicate FINDER, never classical extraction),
-   `swalk_window_all` (a successful `S (length sbs)`-walk means the trail is defined at
-   EVERY length — the periodicity/completeness theorem about the finite graph, never a
-   semantic budget), and `sblocks_static_diverges`: the decided never-reaches-Done fact
-   PLUS the per-program `sblocks_total` obligation (bodies return on every world — a
-   panicking body STOPS a run, so totality cannot be dropped) ⇒ `blocks_diverge` for
-   every world, via `blocks_spinning_diverges`.  On the gated surface.  The CONDITIONAL widening LANDED and
-   SUPERSEDED the record type outright (no parallel machinery): `CBlock` = `CBSeq`
-   (straight-line body + one static terminator) | `CBIf` (boolean body choosing between
-   TWO static targets — loops-with-exit representable).  `cblock_denote_ret` pins every
-   returned terminator to the block's SYNTACTIC target list; `check_targets_jump_wf` and
-   `cblocks_forward_terminates` decide admissibility/termination over the widened class
-   (a loop-with-exit fails the forward check by construction and keeps the per-program
-   `blocks_ranked` route); the deterministic-walk divergence certificate
-   (`cblocks_static_diverges`) survives conservatively — a `CBIf` on the trail fails the
-   walk, so no divergence is claimed.  NEXT (own arc): connect the class to the
-   EMITTER — a plugin path that constructs `CBlock` lists so accepted CFGs arrive with
-   their checkers already run (the starve-the-plugin direction).
+1. **CFG relations — LANDED, current state**: the shallow authority carries
+   `blocks_step_det` (one-step determinism), `blocks_eval_det` (unique terminating
+   outcomes), `blocks_eval_diverge_disjoint`, and two per-program certificate schemes
+   with class-wide soundness: `blocks_ranked`/`blocks_ranked_terminates` (ranking
+   function ⇒ termination for every world) and `blocks_spinning`/
+   `blocks_spinning_diverges` (spin invariant ⇒ divergence, coinductive).  The
+   CONSTRUCTOR boundary is `CBlock` (builtins.v): `CBSeq` (straight-line body + one
+   static terminator) | `CBIf` (boolean body choosing between TWO static targets —
+   loops-with-exit representable); `cblock_denote` lands it in the shallow authority
+   and `cblock_denote_ret` pins every returned terminator to the block's SYNTACTIC
+   target list.  DECIDED facts over the class, all on the gated zero-axiom
+   `blocks_cfg_surface`: `check_targets_jump_wf` (boolean in-range check ⇒
+   `blocks_jump_wf`), `cblocks_forward_terminates` (in-range AND forward checks ⇒
+   every in-range configuration evaluates, for every world; a loop-with-exit fails
+   the forward check by construction and keeps the per-program `blocks_ranked`
+   route), and `cblocks_static_diverges` (the deterministic-walk never-reaches-Done
+   check — pigeonhole-complete over the finite pc space, a `CBIf` on the trail fails
+   the walk conservatively — PLUS the per-program `cblocks_total` obligation ⇒
+   divergence for every world; a panicking body stops a run, so totality cannot be
+   dropped).  NEXT (own arc): connect the class to the EMITTER — a plugin path that
+   constructs `CBlock` lists so accepted CFGs arrive with their checkers already run
+   (the starve-the-plugin direction).
 2. **Quarantine `run_blocks` demos harder** — integration/log-diff evidence only.
 3. **Plugin starving** (standing): feature-by-feature GoAst -> GoPrint -> GoSafe -> GoEmit.
 4. **Gated public surfaces**: every doc-cited theorem inside a manifest-gated surface.
