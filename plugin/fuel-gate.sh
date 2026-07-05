@@ -5,7 +5,8 @@
 # variables — every class-A alias, B stem, and C segment gets a generated FAIL fixture,
 # plus shaped contextual cases (plans/fuel-free.md only summarizes this).
 #
-# IDENTIFIER-AND-CONTEXT scoped over the scanned *.v files (comments stripped first, so
+# IDENTIFIER-AND-CONTEXT scoped over the scanned files — the certified *.v AND the
+# trusted plugin *.ml, with language-aware classes (comments stripped first, so
 # prose mentions are not counted — the gate is code-level, never a prose linter):
 #   CLASS A (unconditional budget identifiers, word-boundary, counted PER OCCURRENCE):
 #     fuel gas run_blocks_fuel block_fuel countdown allowance step_limit steps_left
@@ -30,11 +31,14 @@ cd "$(dirname "$0")/.."
 SCAN_DIR="${FG_SCAN_DIR:-.}"
 BASELINE="${FG_BASELINE:-plugin/fuel-gate.baseline}"
 
-ANAMES='fuel gas run_blocks_fuel block_fuel countdown allowance step_limit steps_left max_steps max_depth depth_limit cycle_limit iteration_cap max_iter max_iterations run_for parse_bound'
+ANAMES='fuel gas run_blocks_fuel block_fuel countdown allowance step_limit steps_left max_steps max_depth depth_limit cycle_limit iteration_cap loop_cap iter_cap max_iter max_iterations run_for parse_bound'
 A="\\b($(echo $ANAMES | tr ' ' '|'))\\b"
 BSTEMS='budget|limit|need|capacity|bound|step|steps'
-CSEGS='fuel|limit|budget|cap'
+# 'cap' is Go's capacity builtin in this repo (recognizers + modelled ops), NOT a
+# budget spelling — budget-cap NAMES (loop_cap/iter_cap/iteration_cap) are class A.
+CSEGS='fuel|limit|budget'
 C="\\b(Definition|Let)[[:space:]]+([A-Za-z0-9']+_)*($CSEGS)(_[A-Za-z0-9']+)*\\b"
+CML="\\blet([[:space:]]+rec)?[[:space:]]+([A-Za-z0-9_']+_)*($CSEGS)(_[A-Za-z0-9_']+)*\\b"
 
 strip_comments() {
   awk 'BEGIN { d = 0 }
@@ -78,11 +82,19 @@ count_b() {
     END { print cnt + 0 }'
 }
 
-count_file() {  # per-OCCURRENCE count across the three classes
+count_file() {  # per-OCCURRENCE count; classes are LANGUAGE-AWARE by file suffix:
+  # class A everywhere; Rocq files get the binder-group scan (B) and Definition/Let
+  # cap constants (C); OCaml files get top-level let/let-rec budget-segment bindings (CML).
   s=$(strip_comments "$1")
   a=$(printf '%s\n' "$s" | grep -oE "$A" | wc -l)
-  b=$(printf '%s\n' "$s" | count_b)
-  c=$(printf '%s\n' "$s" | grep -oE "$C" | wc -l)
+  case "$1" in
+    *.ml)
+      b=0
+      c=$(printf '%s\n' "$s" | grep -oE "$CML" | wc -l) ;;
+    *)
+      b=$(printf '%s\n' "$s" | count_b)
+      c=$(printf '%s\n' "$s" | grep -oE "$C" | wc -l) ;;
+  esac
   echo $((a + b + c))
 }
 
@@ -194,11 +206,22 @@ EOF
     if ( FG_SCAN_DIR="$tmp/scan3" FG_BASELINE="$tmp/base3" sh plugin/fuel-gate.sh run >/dev/null 2>&1 ); then
       echo "fido: fuel-gate SELFTEST FAILED — widened primed group passed the ratchet"; exit 1
     fi
-    # plugin OCaml sources are in scope: a budget identifier in a .ml is counted
+    # plugin OCaml sources are in scope, with OCaml-shaped classes: class-A aliases AND
+    # lower-case let/let-rec budget-segment bindings are counted, per occurrence
     mkdir -p "$tmp/scanml/plugin"
     printf 'let block_fuel = 1000\n' > "$tmp/scanml/plugin/x.ml"
     ( FG_SCAN_DIR="$tmp/scanml" FG_BASELINE="$tmp/baseml" sh plugin/fuel-gate.sh bless >/dev/null )
     grep -q 'plugin/x.ml' "$tmp/baseml" || { echo "fido: fuel-gate SELFTEST FAILED — .ml budget identifier not manifested"; exit 1; }
+    printf 'let loop_cap = 9\n' > "$tmp/scanml/plugin/y.ml"
+    [ "$(count_file "$tmp/scanml/plugin/y.ml")" = "1" ] || { echo "fido: fuel-gate SELFTEST FAILED — OCaml let cap binding not counted"; exit 1; }
+    printf 'let rec parse_budget n = n\n' > "$tmp/scanml/plugin/z.ml"
+    [ "$(count_file "$tmp/scanml/plugin/z.ml")" = "1" ] || { echo "fido: fuel-gate SELFTEST FAILED — OCaml let-rec budget binding not counted"; exit 1; }
+    # ratchet growth INSIDE a plugin .ml must fail
+    ( FG_SCAN_DIR="$tmp/scanml" FG_BASELINE="$tmp/baseml2" sh plugin/fuel-gate.sh bless >/dev/null )
+    printf 'let block_fuel = 1000\nlet step_limit = 2\n' > "$tmp/scanml/plugin/x.ml"
+    if ( FG_SCAN_DIR="$tmp/scanml" FG_BASELINE="$tmp/baseml2" sh plugin/fuel-gate.sh run >/dev/null 2>&1 ); then
+      echo "fido: fuel-gate SELFTEST FAILED — .ml ratchet growth passed"; exit 1
+    fi
     # widening an EXISTING group must trip the ratchet
     mkdir "$tmp/scan2"
     printf 'Definition q (need : nat) : nat := 0.\n' > "$tmp/scan2/a.v"

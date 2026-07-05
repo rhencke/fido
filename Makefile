@@ -69,7 +69,8 @@ run-local: extract
 # the budget-identifier ratchet (plugin/fuel-gate.sh is the mechanical authority — its
 # class definitions are the spec; the selftest is a regression matrix derived from them).
 # Re-runs its fixture selftest first (a shell regression matrix, NOT a proof — the class
-# variables are the authority); then ratchets the certified-file count against plugin/fuel-gate.baseline.
+# variables are the authority); then ratchets the manifest over the certified .v files
+# and the trusted plugin .ml sources against plugin/fuel-gate.baseline.
 fuel-gate:
 	sh plugin/fuel-gate.sh selftest
 	sh plugin/fuel-gate.sh
