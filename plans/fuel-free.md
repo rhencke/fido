@@ -38,8 +38,8 @@ eval_cmd, equivalence both directions, gated; real no_heap totality), cmd_unifie
    `run_blocks_fuel`/`block_fuel`/`block_nth`/the exhaustion lemma DELETED (the
    missing-block default died by deletion); `run_blocks` = emission-only marker
    (`run_blocks_never_ret`); fuel gate wired in BOTH Makefile and the Dockerfile
-   prover stage; manifest ratcheted to GoPrint.v 22 / builtins.v 2 / main.v 3 /
-   GoSem.v 1.  The holistic CFG layer is IN: `blocks_jump_wf` +
+   prover stage; manifest ratcheted to GoPrint.v 22 / main.v 3 (builtins.v and
+   GoSem.v are at zero).  The holistic CFG layer is IN: `blocks_jump_wf` +
    `blocks_jump_wf_progress` (class-wide, outcome-only; no per-demo machinery).
 2. **GoPrint.v** — LEXER DONE: `lex` is Acc-structural on input length and the ENTIRE
    lemma suite is stated over `lex` itself (`lex_acc_pi` proof-irrelevance + the

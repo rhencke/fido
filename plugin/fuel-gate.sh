@@ -10,14 +10,15 @@
 # prose mentions are not counted — the gate is code-level, never a prose linter):
 #   CLASS A (unconditional budget identifiers, word-boundary, counted PER OCCURRENCE):
 #     fuel gas run_blocks_fuel block_fuel countdown allowance step_limit steps_left
-#     max_steps max_depth depth_limit cycle_limit iteration_cap max_iter max_iterations
-#     run_for parse_bound
+#     max_steps max_depth depth_limit cycle_limit max_iter max_iterations run_for
+#     parse_bound   (budget *_cap NAMES are covered generically by the CAP CLASS)
 #   CLASS B (budget-named binders in ( ) or { } groups typed nat — grouped and implicit
 #     binders included, so [(need limit capacity bound : nat)] and [{steps : nat}] count;
 #     relation declarations like [Inductive steps : nat -> ...] have no bracket group and pass):
 #   CLASS C (top-level Definition/Let whose NAME contains a budget SEGMENT
-#     fuel|limit|budget|cap, underscore-bounded so e.g. [escape] never matches; the type
-#     annotation is NOT required, so [Definition loop_cap := 9] counts):
+#     fuel|limit|budget, underscore-bounded so e.g. [escape] never matches; the type
+#     annotation is NOT required), plus the CAP CLASS: *_cap names default-reject with
+#     an enumerated domain-capacity allowlist (see ALLOWCAP below):
 # Small-step RELATIONS (Inductive/CoInductive step/steps/ustep) match no class.
 #
 # BASELINE = a PER-FILE occurrence MANIFEST (plugin/fuel-gate.baseline: "count<TAB>file").
@@ -31,12 +32,23 @@ cd "$(dirname "$0")/.."
 SCAN_DIR="${FG_SCAN_DIR:-.}"
 BASELINE="${FG_BASELINE:-plugin/fuel-gate.baseline}"
 
-ANAMES='fuel gas run_blocks_fuel block_fuel countdown allowance step_limit steps_left max_steps max_depth depth_limit cycle_limit iteration_cap loop_cap iter_cap max_iter max_iterations run_for parse_bound'
+ANAMES='fuel gas run_blocks_fuel block_fuel countdown allowance step_limit steps_left max_steps max_depth depth_limit cycle_limit max_iter max_iterations run_for parse_bound'
 A="\\b($(echo $ANAMES | tr ' ' '|'))\\b"
 BSTEMS='budget|limit|need|capacity|bound|step|steps'
-# 'cap' is Go's capacity builtin in this repo (recognizers + modelled ops), NOT a
-# budget spelling — budget-cap NAMES (loop_cap/iter_cap/iteration_cap) are class A.
 CSEGS='fuel|limit|budget'
+# CAP CLASS (default-reject with a domain quarantine): any Definition/Let/let-bound
+# name containing an underscore-bounded 'cap' segment is a budget spelling UNLESS it
+# is one of the enumerated Go-capacity DOMAIN symbols below (the cap builtin, the
+# channel-capacity ops, and their plugin recognizers).  A new *_cap name fails.
+ALLOWCAP='cap|cap_slicelit_e|chan_cap|make_chan_cap|is_cap_ref|is_make_chan_cap_ref'
+CAPNAME="([A-Za-z0-9_']+_)*cap(_[A-Za-z0-9_']+)*"
+CCAPV="\\b(Definition|Let)[[:space:]]+$CAPNAME\\b"
+CCAPML="\\blet([[:space:]]+rec)?[[:space:]]+$CAPNAME\\b"
+
+count_cap() {  # stdin = stripped source; $1 = the keyworded regex; count NON-allowlisted names
+  grep -oE "$1" | sed -E 's/^(Definition|Let|let([[:space:]]+rec)?)[[:space:]]+//' \
+    | grep -vxE "$ALLOWCAP" | wc -l
+}
 C="\\b(Definition|Let)[[:space:]]+([A-Za-z0-9']+_)*($CSEGS)(_[A-Za-z0-9']+)*\\b"
 CML="\\blet([[:space:]]+rec)?[[:space:]]+([A-Za-z0-9_']+_)*($CSEGS)(_[A-Za-z0-9_']+)*\\b"
 
@@ -84,18 +96,21 @@ count_b() {
 
 count_file() {  # per-OCCURRENCE count; classes are LANGUAGE-AWARE by file suffix:
   # class A everywhere; Rocq files get the binder-group scan (B) and Definition/Let
-  # cap constants (C); OCaml files get top-level let/let-rec budget-segment bindings (CML).
+  # constants (C); OCaml files get top-level let/let-rec budget-segment bindings (CML);
+  # the default-reject cap class applies in BOTH languages (count_cap).
   s=$(strip_comments "$1")
   a=$(printf '%s\n' "$s" | grep -oE "$A" | wc -l)
   case "$1" in
     *.ml)
       b=0
-      c=$(printf '%s\n' "$s" | grep -oE "$CML" | wc -l) ;;
+      c=$(printf '%s\n' "$s" | grep -oE "$CML" | wc -l)
+      k=$(printf '%s\n' "$s" | count_cap "$CCAPML") ;;
     *)
       b=$(printf '%s\n' "$s" | count_b)
-      c=$(printf '%s\n' "$s" | grep -oE "$C" | wc -l) ;;
+      c=$(printf '%s\n' "$s" | grep -oE "$C" | wc -l)
+      k=$(printf '%s\n' "$s" | count_cap "$CCAPV") ;;
   esac
-  echo $((a + b + c))
+  echo $((a + b + c + k))
 }
 
 manifest() {  # "count<TAB>path" for every scanned file with count > 0, sorted by path.
@@ -216,6 +231,16 @@ EOF
     [ "$(count_file "$tmp/scanml/plugin/y.ml")" = "1" ] || { echo "fido: fuel-gate SELFTEST FAILED — OCaml let cap binding not counted"; exit 1; }
     printf 'let rec parse_budget n = n\n' > "$tmp/scanml/plugin/z.ml"
     [ "$(count_file "$tmp/scanml/plugin/z.ml")" = "1" ] || { echo "fido: fuel-gate SELFTEST FAILED — OCaml let-rec budget binding not counted"; exit 1; }
+    # NEW *_cap names are budget spellings (default-reject) in BOTH languages,
+    # while the enumerated domain-capacity symbols stay clean
+    printf 'Definition cycle_cap := 1.\n' > "$tmp/capv.v"
+    [ "$(count_file "$tmp/capv.v")" = "1" ] || { echo "fido: fuel-gate SELFTEST FAILED — new .v *_cap name not counted"; exit 1; }
+    printf 'let parse_cap = 1\n' > "$tmp/capml.ml"
+    [ "$(count_file "$tmp/capml.ml")" = "1" ] || { echo "fido: fuel-gate SELFTEST FAILED — new .ml *_cap name not counted"; exit 1; }
+    printf 'Definition make_chan_cap := 0.\nDefinition chan_cap := 0.\nDefinition cap := 0.\n' > "$tmp/capok.v"
+    [ "$(count_file "$tmp/capok.v")" = "0" ] || { echo "fido: fuel-gate SELFTEST FAILED — domain-cap allowlist counted"; exit 1; }
+    printf 'let is_cap_ref r = r\n' > "$tmp/capok.ml"
+    [ "$(count_file "$tmp/capok.ml")" = "0" ] || { echo "fido: fuel-gate SELFTEST FAILED — .ml domain-cap allowlist counted"; exit 1; }
     # ratchet growth INSIDE a plugin .ml must fail
     ( FG_SCAN_DIR="$tmp/scanml" FG_BASELINE="$tmp/baseml2" sh plugin/fuel-gate.sh bless >/dev/null )
     printf 'let block_fuel = 1000\nlet step_limit = 2\n' > "$tmp/scanml/plugin/x.ml"
