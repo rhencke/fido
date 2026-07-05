@@ -249,6 +249,20 @@ let from_builtins r =
    Stdlib refs are package-qualified and use [ref_has_suffix]. *)
 let named n r = String.equal (global_basename r) n && from_builtins r
 
+(* [from_gocfg r] / [from_hooks r]: exact-dirpath identity for the split-out modules
+   (the builtins.v mining, boss directive 2026-07-05).  [Fido.GoCFG] owns the CFG SEMANTIC
+   names the lowering must recognize (the [Next] constructors); [Fido.GoExtractionHooks]
+   owns names that exist ONLY to be lowered by this plugin (run_blocks).  Same ownership
+   discipline as [from_builtins]: identity of the DEFINING module, never a component scan. *)
+let from_gocfg r =
+  match (try Some (Nametab.dirpath_of_global r.glob) with Not_found -> None) with
+  | None -> false
+  | Some dp -> String.equal (DirPath.to_string dp) "Fido.GoCFG"
+let from_hooks r =
+  match (try Some (Nametab.dirpath_of_global r.glob) with Not_found -> None) with
+  | None -> false
+  | Some dp -> String.equal (DirPath.to_string dp) "Fido.GoExtractionHooks"
+
 (* [from_digits r]: the ref's defining module is exactly [Fido.digits] — the shared decimal
    authority (model panic payloads + the verified printer).  Its decls are NEVER emitted as
    user Go (model-only there; the printer consumes them via OCaml extraction), so the
@@ -488,9 +502,12 @@ let is_slice_append_h_ref = named "slice_append"   (* append(s, v); cap decides 
 let is_slice_make_lc_ref = named "slice_make_lc"   (* make([]T, len, cap) *)
 let is_slice_clear_h_ref = named "slice_clear_h"   (* clear(s) *)
 let is_slice_copy_ref = named "slice_copy"         (* copy(dst, src) *)
-let is_run_blocks_ref = named "run_blocks"
-let is_jump_ctor = named "Jump"
-let is_done_ctor = named "Done"
+(* CFG names live in the split-out modules: the hook in [Fido.GoExtractionHooks], the
+   [Next] constructors in [Fido.GoCFG] (semantic module — the plugin recognizes its
+   CONSTRUCTORS at lowering sites but lowers no definition from it). *)
+let is_run_blocks_ref r = String.equal (global_basename r) "run_blocks" && from_hooks r
+let is_jump_ctor r = String.equal (global_basename r) "Jump" && from_gocfg r
+let is_done_ctor r = String.equal (global_basename r) "Done" && from_gocfg r
 let is_map_make_ref = named "map_make"
 let is_map_make_typed_ref = named "map_make_typed"
 let is_map_set_ref = named "map_set"

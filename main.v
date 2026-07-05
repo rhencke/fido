@@ -1,6 +1,7 @@
 (** Fido entry point.  ([concurrency.v] is proof-only trace/happens-before theory; it emits no Go.) *)
 
 From Fido Require Import preamble.
+From Fido Require Import GoCFG GoExtractionHooks.  (* CFG semantics + the run_blocks emission hook *)
 From Fido Require Import GoAst GoSafe GoEmit.  (* AST-first certified-emission spine (ARCHITECTURE.md) *)
 From Stdlib Require Import ZArith.
 From Stdlib Require Import Lia.
@@ -1695,7 +1696,7 @@ Definition str_range_demo : IO unit :=
     [cfg_nonzero_entry_demo], [cond_goto_demo], …) is INTEGRATION/log-diff evidence about
     the TRUSTED emitter's labels+goto lowering ONLY.  None of them is semantic evidence:
     the model-side CFG authority is [blocks_eval]/[blocks_diverge] with the gated
-    class-wide theorems ([blocks_cfg_surface], builtins.v), and evaluating [run_blocks]
+    class-wide theorems ([blocks_cfg_surface], GoCFG.v), and evaluating [run_blocks]
     model-side PANICS loudly.  A demo here can never make a CFG shape supported. *)
 (** Capture in a goto loop: the loop-temp [iv] is captured BY VALUE per iteration, so
     the deferred calls (LIFO at return) print 2, 1, 0 — not 2, 2, 2.

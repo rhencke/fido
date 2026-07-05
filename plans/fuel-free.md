@@ -71,7 +71,7 @@ Open items it adds, in its recommended order:
    with class-wide soundness: `blocks_ranked`/`blocks_ranked_terminates` (ranking
    function ⇒ termination for every world) and `blocks_spinning`/
    `blocks_spinning_diverges` (spin invariant ⇒ divergence, coinductive).  The
-   CONSTRUCTOR boundary is `CBlock` (builtins.v): `CBSeq` (straight-line body + one
+   CONSTRUCTOR boundary is `CBlock` (GoCFG.v): `CBSeq` (straight-line body + one
    static terminator) | `CBIf` (boolean body choosing between TWO static targets —
    loops-with-exit representable); `cblock_denote` lands it in the shallow authority
    and `cblock_denote_ret` pins every returned terminator to the block's SYNTACTIC

@@ -69,7 +69,11 @@ The demos in `main.v` are the test suite; `expected_output.txt` is the golden ru
 
 ## Files
 
-- `builtins.v` — the modelled Go layer (in scope via `preamble.v`). `main.v` — extraction driver
+- `builtins.v` — the modelled Go layer (in scope via `preamble.v`).  ★FROZEN (boss 2026-07-05):
+  never grows; being MINED into final-purpose modules, then deleted.  Landed so far: `GoCFG.v`
+  (the CFG semantic authority — relations, certificates, `CBlock`, the gated
+  `blocks_cfg_surface`) and `GoExtractionHooks.v` (names that exist ONLY to be plugin-lowered —
+  `run_blocks`; a hook is never a semantic authority). `main.v` — extraction driver
   (`Go Main Extraction`) + the demos that test it. `cmd.v` — the effect evaluator (`run_cmd`, the authority
   the bridge agrees with). `preamble.v`, `dune`/`dune-project` — shared preamble + Docker build.
 - `plugin/go.ml` (+ `g_go_extraction.mlg`) — the Rocq → MiniML → Go extraction plugin. Ops recognized by name,
