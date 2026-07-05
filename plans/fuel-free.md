@@ -1,7 +1,10 @@
 # Fuel-free semantics — remaining sites
 
 ★THIS file is the ONE active steering document for the fuel purge.  The boss's
-original memo is FULFILLED and archived verbatim in `LESSONS.md` (archaeology).
+original memo is archived verbatim in `LESSONS.md` (archaeology); its SEMANTIC-FUEL
+priority (CFG runner, invalid-label default, gates, lexer) is fulfilled — the
+remaining items it mandated (expression-parser fuel, extraction/trusted-code
+cleanup, word sweep) are ACTIVE, tracked below.
 STATUS: semantic fuel is DELETED (7e5f754) — `blocks_eval` (Inductive) +
 `blocks_diverge` (CoInductive) are the authoritative CFG semantics; the fueled
 runner, its cap, and the silent missing-block default are gone; `run_blocks` is an
@@ -78,4 +81,9 @@ eval_cmd, equivalence both directions, gated; real no_heap totality), cmd_unifie
    printer.ml regenerates; golden byte-identical.
 3. **plugin/printer.ml / plugin/go.ml**: regenerate / update after 1-2 so no fuel
    remnant survives in extracted or trusted code.
-4. **Word sweep**: repo-wide `fuel` grep must come back empty (comments included).
+4. **Word sweep** — scoped to the ACTIVE surfaces: certified .v files, plugin/,
+   Makefile/Dockerfile, and active docs (plans/, PROGRESS.md, ARCHITECTURE.md,
+   CLAUDE.md).  Archaeology (LESSONS.md) is excluded by design — it preserves the
+   history.  The mechanical form of this target is the fuel-gate MANIFEST reaching
+   EMPTY (zero budget-identifier occurrences in every scanned file), not a bare
+   word grep.

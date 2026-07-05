@@ -90,13 +90,16 @@ split is a reviewability win, not a weight-loss win.
 
 ---
 
-## Archaeology: the fuel-removal steering memo (FULFILLED — historical record only)
+## Archaeology: the fuel-removal steering memo (historical record only)
 
 The boss's fuel-removal directive, preserved verbatim below (including its repo
-note).  Its priorities were executed and its relation sketches are SUPERSEDED by
-the landed definitions in `builtins.v` (`blocks_step` as the one transition
-authority, consumed by `be_jump`/`bd_jump`).  Nothing in this section steers
-current work; the only active steering document is `plans/fuel-free.md`.
+note).  Its SEMANTIC-FUEL priority was executed (the fueled CFG runner, the
+invalid-label default, the lexer, and the gates) and its relation sketches are
+SUPERSEDED by the landed definitions in `builtins.v` (`blocks_step` as the one
+transition authority, consumed by `be_jump`/`bd_jump`).  The directive's
+REMAINING items (expression-parser fuel, extraction cleanup, word sweep) are
+ACTIVE and tracked in `plans/fuel-free.md` — the only active steering document;
+nothing in this section steers current work.
 
 ```text
 [REPO NOTE — added when versioning this memo; body below is the boss's VERBATIM text.
