@@ -224,4 +224,3 @@ Fixpoint slice_fold {A S : Type} (xs : GoSlice A) (init : S) (step : S -> A -> S
   | nil        => init
   | cons x rest => slice_fold rest (step init x) step
   end.
-

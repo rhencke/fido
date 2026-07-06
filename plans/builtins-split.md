@@ -63,7 +63,7 @@ would be circular here).
    the aliasing-capable representation lives.  ★PIECE MAP (the op layer accreted
    demo-first, so the pure-list family is NON-CONTIGUOUS — cut piece by piece, verify
    each): P1 `len`+`len_agrees_structural`+the no-value-cap note+`append` (~2600-2624);
-   P2 `slice_of_list` (~2683-2686); P3 `go_list_nth`+`slice_get`+the gated
+   P2 `slice_of_list` + `slice_make` (the fresh zero-filled make); P3 `go_list_nth`+`slice_get`+the gated
    `slice_get_bounds_surface`+`slice_at_ok` (~2711-2800); P4 the array family
    `GoArray`/`arr_lit`/`arr_get_ok`/`arr_set` (~2802-2851); P5 `for_each`/`slice_fold`
    (~4720+, iteration combinators — verify their deps before including).  Between the
