@@ -375,45 +375,6 @@ Definition str_gtb  (a b : GoString) : bool := str_ltb b a.
 Definition str_geb  (a b : GoString) : bool := negb (str_ltb a b).
 Definition str_neqb (a b : GoString) : bool := negb (str_eqb a b).
 
-(** Expression switch on a STRING scrutinee — Go's [switch s { case "a": …; default: … }].
-    Same shape as [int_switch2] but the equality is [str_eqb] (byte equality); the plugin
-    arm is SHARED (it emits the scrutinee and each case value verbatim, Go doing the [==]),
-    so int64 and string scrutinees lower identically. *)
-Definition str_switch2 {B : Type} (x : GoString)
-  (v1 : GoString) (k1 : IO B)
-  (v2 : GoString) (k2 : IO B)
-  (d : IO B) : IO B :=
-  if str_eqb x v1 then k1
-  else if str_eqb x v2 then k2
-  else d.
-
-Example str_switch2_first : forall {B} (k1 k2 d : IO B),
-  str_switch2 "a"%string "a"%string k1 "b"%string k2 d = k1.
-Proof. reflexivity. Qed.
-Example str_switch2_second : forall {B} (k1 k2 d : IO B),
-  str_switch2 "b"%string "a"%string k1 "b"%string k2 d = k2.
-Proof. reflexivity. Qed.
-Example str_switch2_default : forall {B} (k1 k2 d : IO B),
-  str_switch2 "z"%string "a"%string k1 "b"%string k2 d = d.
-Proof. reflexivity. Qed.
-
-(** N-ary string expression switch (3 cases) — same generalised plugin arm as
-    [str_switch2]/[int_switch2]; completes the >2-case coverage for both scrutinee types. *)
-Definition str_switch3 {B : Type} (x : GoString)
-  (v1 : GoString) (k1 : IO B)
-  (v2 : GoString) (k2 : IO B)
-  (v3 : GoString) (k3 : IO B)
-  (d : IO B) : IO B :=
-  if str_eqb x v1 then k1
-  else if str_eqb x v2 then k2
-  else if str_eqb x v3 then k3
-  else d.
-Example str_switch3_third : forall {B} (k1 k2 k3 d : IO B),
-  str_switch3 "c"%string "a"%string k1 "b"%string k2 "c"%string k3 d = k3.
-Proof. reflexivity. Qed.
-Example str_switch3_default : forall {B} (k1 k2 k3 d : IO B),
-  str_switch3 "z"%string "a"%string k1 "b"%string k2 "c"%string k3 d = d.
-Proof. reflexivity. Qed.
 
 (** ---- [range] over a string (Go spec "For statements: For range"): [for i, r := range s] ----
     Go ranges a STRING by UTF-8 code point: [i] is the BYTE offset of each code point's first

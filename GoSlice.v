@@ -224,3 +224,39 @@ Fixpoint slice_fold {A S : Type} (xs : GoSlice A) (init : S) (step : S -> A -> S
   | nil        => init
   | cons x rest => slice_fold rest (step init x) step
   end.
+
+(** ==================================================================================================
+    VARIADIC PARAMS + ARRAY COMPARABILITY — [Variadic T]/[vararg] (a variadic param IS a slice;
+    the phantom field keeps the param type distinguishable so the plugin renders [...T]), and the
+    field-wise array [==] deciders ([arr_eqb]/[arr3_eqb]/[arr2_eqb] over [goi64_list_eqb]).
+    Pure; mined out of the frozen builtins.v monolith (plans/builtins-split.md).
+    ================================================================================================ *)
+
+(** Variadic parameter (Go [func f(xs ...T)]): inside [f] the param is a SLICE, but Go's call
+    syntax SPREADS — [f(slice...)].  [Variadic T] is a 2-FIELD record (the [bool] phantom stops
+    Coq from unboxing the single slice field, so the PARAM TYPE stays distinguishable from a
+    plain [[]T] — the plugin renders it [...T], not [[]T]; no [Comparable] is needed for a
+    variadic param so the phantom-breaks-equality issue that ruled this out for [GoI64] does
+    not apply here).  [vararg xs] marks a call argument for spreading ([xs...]); inside [f],
+    [va_slice] recovers the slice (it IS the param itself — the projection is erased, no Go emitted). *)
+Record Variadic (T : Type) := MkVariadic { va_slice : GoSlice T ; va_ph : bool }.
+Arguments MkVariadic {T} _ _.
+Arguments va_slice {T} _.  Arguments va_ph {T} _.
+Definition vararg {T} (xs : GoSlice T) : Variadic T := MkVariadic xs true.
+
+
+(** Array COMPARABILITY (Go spec "Comparison operators": arrays are comparable iff the
+    element type is — unlike SLICES, which are NOT comparable).  Go's array [==] is
+    FIELD-WISE; [arr_eqb] decides it element-by-element (here for [int64] arrays), so it
+    is a THEOREM that it decides array equality.  Lowers to the bare Go [a == b].  Go
+    requires the two arrays be the SAME type (same length) for [==] — different lengths
+    are a Go COMPILE error, so only same-length arrays are compared. *)
+Fixpoint goi64_list_eqb (xs ys : list GoI64) : bool :=
+  match xs, ys with
+  | nil, nil => true
+  | x :: xs', y :: ys' => andb (i64_eqb x y) (goi64_list_eqb xs' ys')
+  | _, _ => false
+  end.
+Definition arr_eqb (a b : GoArray GoI64) : bool := goi64_list_eqb (arr_data a) (arr_data b).
+Definition arr3_eqb (a b : GoArr3 GoI64) : bool := goi64_list_eqb (arr3_data a) (arr3_data b).
+Definition arr2_eqb (a b : GoArr2 GoI64) : bool := goi64_list_eqb (arr2_data a) (arr2_data b).

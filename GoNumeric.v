@@ -1639,3 +1639,66 @@ Definition f32_max (x y : GoFloat32) : GoFloat32 :=
   else if SFeqb (f32val x) (S754_zero false)
        then (if SFltb (SFdiv 24 128 (sf_of_Z 1) (f32val x)) (S754_zero false) then y else x)   (* max wants +0 *)
        else x.
+
+(** ==================================================================================================
+    [min]/[max] (Go 1.21 predeclared builtins) on int/int64/uint64 — each type's own order — and
+    the FAITHFUL float [min]/[max] + direct [>]/[>=]/[!=] float comparisons (NaN propagation,
+    signed-zero rule, [>=] is the SWAPPED [leb], never [¬(<)]).  Pure; mined out of the frozen
+    builtins.v monolith (plans/builtins-split.md).
+    ================================================================================================ *)
+
+(** [min]/[max] (Go 1.21 predeclared builtins) on [int] — the smaller / larger of
+    two values, by the SIGNED ordering (Go's int [<]), so [go_min] = Go [min(a,b)]
+    and [go_max] = Go [max(a,b)] for the [int] type.  Computable (so [go_min 3 5 =
+    3] is a THEOREM); the plugin lowers the call to Go's builtin.  (Go's [min]/[max]
+    also apply to floats — with NaN/`-0` corner cases — and strings; those follow
+    once those orderings are settled.) *)
+Definition go_min (a b : GoInt) : GoInt := if int_ltb a b then a else b.
+Definition go_max (a b : GoInt) : GoInt := if int_ltb a b then b else a.
+
+(** [min]/[max] on the CANONICAL full-width types: [int64] ([GoI64], SIGNED order via
+    [i64_ltb]) and [uint64] ([GoU64], UNSIGNED order via [u64_ltb]) — each exactly Go's
+    [min(a,b)]/[max(a,b)] for that type.  Computable theorems; the plugin lowers each
+    call to the Go builtin.  No carrier bridge (the comparison is the type's own [<]). *)
+Definition i64_min (a b : GoI64) : GoI64 := if i64_ltb a b then a else b.
+Definition i64_max (a b : GoI64) : GoI64 := if i64_ltb a b then b else a.
+Definition u64_min (a b : GoU64) : GoU64 := if u64_ltb a b then a else b.
+Definition u64_max (a b : GoU64) : GoU64 := if u64_ltb a b then b else a.
+
+(** [min]/[max] on FLOAT (Go spec "min and max" — the float rules).  A naive
+    [if a < b] is WRONG on two IEEE corners that Go's builtin handles, so we model
+    them faithfully (the body is suppressed; each call lowers to Go's [min]/[max],
+    which does the same):
+    - NaN PROPAGATION: if either argument is a NaN, the result is a NaN.  Detected by
+      [eqb x x = false] (only NaN is unequal to itself).
+    - SIGNED ZERO: when the two are numerically EQUAL and are [±0], [max] yields [+0]
+      and [min] yields [-0] (Go treats [+0 > -0]).  Detected by [eqb a 0] (both are
+      [±0]) and [1/a < 0] (a is the negative zero, since [1 / -0 = -inf]).
+    Otherwise the smaller / larger by [ltb].  Machine-checked on all these corners. *)
+Definition f64_min (a b : GoFloat64) : GoFloat64 :=
+  if negb (SFeqb a a) then a            (* a is NaN → NaN *)
+  else if negb (SFeqb b b) then b       (* b is NaN → NaN *)
+  else if SFltb a b then a
+  else if SFltb b a then b
+  else (* numerically equal (incl. ±0) *)
+    if SFeqb a (S754_zero false)
+    then (if SFltb (SFdiv 53 1024 (sf_of_Z 1) a) (S754_zero false) then a else b)   (* min wants -0 *)
+    else a.
+Definition f64_max (a b : GoFloat64) : GoFloat64 :=
+  if negb (SFeqb a a) then a            (* a is NaN → NaN *)
+  else if negb (SFeqb b b) then b       (* b is NaN → NaN *)
+  else if SFltb a b then b
+  else if SFltb b a then a
+  else (* numerically equal (incl. ±0) *)
+    if SFeqb a (S754_zero false)
+    then (if SFltb (SFdiv 53 1024 (sf_of_Z 1) a) (S754_zero false) then b else a)   (* max wants +0 *)
+    else a.
+
+(** Direct [>] / [>=] / [!=] for float64.  CRUCIAL NaN subtlety: [>=] is NOT
+    [¬(<)] — with a NaN operand, [a >= b] is FALSE (Go/IEEE), whereas [¬(a < b)]
+    would be TRUE.  So [f64_geb] is the SWAPPED [leb] ([b <= a]), and [f64_gtb] the
+    swapped [ltb] — both correctly false on NaN.  [f64_neqb] IS [negb (eqb)] (a NaN
+    compares UNEQUAL to everything, so [a != b] is true — matching [negb false]). *)
+Definition f64_gtb  (a b : GoFloat64) : bool := SFltb b a.
+Definition f64_geb  (a b : GoFloat64) : bool := SFleb b a.
+Definition f64_neqb (a b : GoFloat64) : bool := negb (SFeqb a b).

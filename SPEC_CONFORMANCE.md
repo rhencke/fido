@@ -609,7 +609,7 @@ keep them separate:
   panic-free gate (behavioral: `cmd_no_panic` of the denotation) rejects `defer panic(v)` while accepting +
   emitting `defer println(..)` (`GoSemSafe.panic_free_gate_defer`).
 - **(B) shallow `IO` (`World -> Outcome`) — NO defer meaning, FAILS LOUD (✓ rule 2):** a sequential shallow
-  reading cannot reify a func-scoped defer, so `builtins.defer_call (_ : IO unit) := fun w => OPanic … w`
+  reading cannot reify a func-scoped defer, so `GoExtractionHooks.defer_call (_ : IO unit) := fun w => OPanic … w`
   PANICS rather than silently dropping the effect (which replaced the old `ORet tt w` no-op).
   There is NO shallow `Cmd -> IO` interpreter — `run_cmd` (R2) is the only `Cmd` semantics.
 

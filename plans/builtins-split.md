@@ -30,7 +30,7 @@ BLOCKs closed structurally):
 7. `GoChan.v` (123a276) — channels + the whole go-mem story (happens-before, races,
    close⤳zero, fork edge); ForkEvent ctors renamed Fk* to kill import-order shadowing.
 8. `GoHeap.v` (ee184b7) — the ref heap: locals (`Ref` + `ref_sel`/`ref_upd` selectors),
-   `ValidWorld` (+ `w_init`), pointers + `&x`, closed-world nil-safety, `SliceH`
+   `ValidWorld`, pointers + `&x`, closed-world nil-safety, `SliceH`
    aliasing handles, `HStruct` bundles + chan/ref frame lemmas, generic
    `StructRep`/`GSPtr` struct heap.  The STRUCT CHANNELS demo stays in builtins.
 9. `GoSession.v` (6f9c779) — Proto/dual + the linear forge-proof `Sess` indexed monad +
@@ -53,11 +53,15 @@ rule, not "lives in builtins.v").
     body is a loud-panic plugin-hook guard, not certified semantics — CFG law), with
     its recognizer re-pinned from `from_model` to `from_hooks`.
 
-## Remaining ore (~570 lines) — the endgame carve
+13. `GoSwitch.v` — ONE module for every switch/assert dispatch combinator: type
+    assertions (`type_assert`/`type_assert_safe` + theorems), the type-switch family,
+    and the int64 AND string expression switches (`str_switch2/3` pulled over from
+    GoString — one authority).  In the same wave the pure tails went home: min/max +
+    the faithful float min/max + f64 `>`/`>=`/`!=` → GoNumeric; `Variadic`/`vararg` +
+    the array `==` deciders (`arr_eqb` family) → GoSlice.
 
-- Type assertion (`type_assert*`, rides with type switch) + Type switch (~240 lines) —
-  needs IO (branch continuations), so GoRuntimeTypes can't take it; destination decided
-  at cut time (GoTypeSwitch.v or a justified home).
+## Remaining ore (~280 lines) — the endgame carve
+
 - Complex numbers (~160 lines) — GoComplex.v.
 - The STRUCT CHANNELS demo (~45 lines) — GoChan.v candidate (channel-of-tuple theorem).
 - `range` over a slice → GoSlice.v; integer `range` → decided at cut time.
