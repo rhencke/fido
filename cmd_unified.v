@@ -29,6 +29,7 @@
     the trace is existential in the heap bridge's statement.)
     Proof-only: emits no Go, adds no axiom. *)
 
+From Fido Require Import GoChan.
 From Fido Require Import preamble concurrency cmd unified.
 From Fido Require Import GoRuntimeTypes.
 From Fido Require Import GoEffects.

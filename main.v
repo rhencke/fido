@@ -1,6 +1,7 @@
 (** Fido entry point.  ([concurrency.v] is proof-only trace/happens-before theory; it emits no Go.) *)
 
 From Fido Require Import preamble.
+From Fido Require Import GoChan.
 From Fido Require Import GoMap.
 From Fido Require Import GoCFG GoExtractionHooks.  (* CFG semantics + the run_blocks emission hook *)
 From Fido Require Import GoNumeric.

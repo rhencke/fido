@@ -9,6 +9,7 @@
     (program order ∪ synchronisation) is a STRICT PARTIAL ORDER — the trace position
     (interleaving order) is a LINEAR EXTENSION of it: you cannot synchronise with
     the future.  Axiom-free. *)
+From Fido Require Import GoChan.
 From Fido Require Import preamble.
 From Fido Require Import GoNumeric.
 From Fido Require Import GoRuntimeTypes.

@@ -15,6 +15,7 @@
     Public surface: [gosem_panic_free_surface] (single-sourced in PROGRESS.md "Current gates"); each
     theorem's exact contract is at its site. *)
 
+From Fido Require Import GoChan.
 From Fido Require Import preamble cmd GoAst GoTypes GoSafe GoSem cmd_unified unified GoEmit.
 From Fido Require Import GoRuntimeTypes.
 From Fido Require Import GoEffects.

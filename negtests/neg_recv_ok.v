@@ -3,6 +3,7 @@
    cannot be emitted as a value and would be SILENTLY DROPPED.  Extraction MUST abort
    (the dropped-continuation class). *)
 From Fido Require Import preamble.
+From Fido Require Import GoChan.
 From Fido Require Import GoEffects.
 From Fido Require Import GoRuntimeTypes.
 From Fido Require Import GoNumeric.
