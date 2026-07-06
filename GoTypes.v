@@ -5,6 +5,7 @@
     closed type-error because [ptype] does — the pinning regressions live in GoSafe; GoSem slice-1's blank-assign
     gates on [svalue]).  NO theorems (only [Definition]s / one [Inductive]) ⇒ NO axioms. *)
 From Fido Require Import GoAst.   (* GoAst supplies the syntax ([GExpr]/[GoTy]/[BinOp]/…) AND [classify]
+From Fido Require Import GoSlice.
 From Fido Require Import GoRuntimeTypes.
                                      (the keyword -> [GoTy] map for scalar conversions).  DELIBERATELY the
                                      ONLY Fido import — GoTypes is the bottom of the type-category layer. *)

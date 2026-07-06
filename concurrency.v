@@ -13,6 +13,7 @@ From Fido Require Import preamble.
 From Fido Require Import GoNumeric.
 From Fido Require Import GoRuntimeTypes.
 From Fido Require Import GoEffects.
+From Fido Require Import GoSlice.
 From Fido Require Import GoPanic.
 From Stdlib Require Import List Lia Arith.
 Require Import Coq.Logic.FunctionalExtensionality.

@@ -5,6 +5,7 @@ From Fido Require Import GoCFG GoExtractionHooks.  (* CFG semantics + the run_bl
 From Fido Require Import GoNumeric.
 From Fido Require Import GoRuntimeTypes.
 From Fido Require Import GoEffects.
+From Fido Require Import GoSlice.
 From Fido Require Import GoPanic.
 From Fido Require Import GoAst GoSafe GoEmit.  (* AST-first certified-emission spine (ARCHITECTURE.md) *)
 From Stdlib Require Import ZArith.

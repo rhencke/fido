@@ -24,6 +24,7 @@ From Fido Require Import GoAst GoTypes GoSafe cmd preamble.   (* [preamble] re-e
 From Fido Require Import GoNumeric.
 From Fido Require Import GoRuntimeTypes.
 From Fido Require Import GoEffects.
+From Fido Require Import GoSlice.
 From Fido Require Import GoPanic.
 From Fido Require Export GoSemCore.
 From Fido Require Export GoSemDenote.

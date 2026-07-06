@@ -3,6 +3,7 @@
    is modeled; emitting `[]T(nil)` would silently DISCARD the runtime data.  Extraction MUST
    abort (the slice_of_list-nil class). *)
 From Fido Require Import preamble.
+From Fido Require Import GoSlice.
 From Fido Require Import GoRuntimeTypes.
 From Fido Require Import GoNumeric.
 Definition neg_bad (xs : list GoI64) : GoSlice GoI64 := slice_of_list TI64 xs.

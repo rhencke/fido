@@ -32,6 +32,7 @@
 From Fido Require Import preamble concurrency cmd unified.
 From Fido Require Import GoRuntimeTypes.
 From Fido Require Import GoEffects.
+From Fido Require Import GoSlice.
 From Stdlib Require Import List Lia.
 Import ListNotations.
 

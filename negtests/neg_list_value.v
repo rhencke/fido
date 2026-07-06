@@ -5,6 +5,7 @@
    untyped `nil`, and the element type is erased).  Extraction MUST abort and direct to
    `slice_of_list <tag> [v1; …]`.  Locks the list-in-value-position fail-closed boundary. *)
 From Fido Require Import preamble.
+From Fido Require Import GoSlice.
 From Fido Require Import GoEffects.
 From Fido Require Import GoNumeric.
 Require Import Coq.Lists.List. Import ListNotations.
