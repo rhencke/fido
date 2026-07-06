@@ -19,7 +19,33 @@ land closed-recv proofs for at least TWO distinct element types.
 
 ## Remaining slices
 
-2d. **`CAlloc` (design v2, UNSTARTED).** Allocation must be DETERMINISTIC — an observably
+2d. **`CAlloc` (design v2, LANDED except the ValidWorld gate lemmas — see the ledger).**
+   ★LIVE WIP LEDGER (update as slices land; the tree may hold uncommitted WIP):
+   [x] cmd.v: `CAlloc : GoAny -> (nat -> Cmd A) -> Cmd A` (appended LAST) + `cell_of_any`/
+       `alloc_world` (+output lemma) + arms in Cmd_rect'/cbind/CmdEq(CE_al)/go/run_cmd +
+       no_defer/cmd_no_panic/no_heap → false + all 7 induction/destruct patterns extended
+       (3× Cmd_rect' patterns, 4× fix-style; run_cmd_eval/eval_run_cmd alloc cases mirror
+       COut's shape — go/run_cmd are TOTAL on CAlloc).
+   [x] unified.v: `UAlloc : V -> (nat -> UCmd) -> UCmd`; UConfig += `uc_next : nat` (LAST
+       field — every mkUCfg gains a 9th arg, threading nx unchanged except ustep_alloc);
+       `ustep_alloc` = allocate at EXACTLY uc_next, `upd h nx v`, emit `KWrite nx`, bump
+       (allocation IS a write); UOnlyAcc/UMemFree/uoa_* arms; EVERY ustep
+       inversion/case-analysis (~12 sites + uprivate_disc_step/uready_can_step/
+       ustuck_blocked/out-trace-grows) gains the alloc case.
+   [x] cmd_unified.v: `cmd_to_ucmd` CAlloc→UAlloc arm; UFrag UF_al ctor +
+       cmd_to_ucmd_fragment case; ustart_w gains `(w_next w)` as uc_next;
+       body_runs_sem (+ the defer-unwind ladder + the public theorems) thread the
+       allocator agreement: config nx = `w_next w` in, `w_next (oc_world oc)` out
+       (COut/CRead preserve w_next definitionally; CWrite via a heap_write_next lemma;
+       CAlloc: both sides allocate at the SAME location, heap_agrees extends via
+       any_of_cell (cell_of_any v) = v round-trip lemma).
+   [ ] regression obligations (gate lemmas, ValidWorld-premised): no location-0
+       allocation from a valid start; no clobber of an allocated cell; preservation of
+       ValidWorld through alloc (likely lands in GoHeap.v as valid_alloc_cmd or in
+       cmd_unified.v).
+   [x] GoSemSafe.v: two dead heap arms gain `| CAlloc _ _ =>` dead cases.
+   Original design v2 spec follows:
+   **(design v2 spec.)** Allocation must be DETERMINISTIC — an observably
    nondeterministic allocator leaks through the binder continuation and could clobber a
    mirrored-but-untraced cell. Shape: `CAlloc : GoAny -> (nat -> Cmd A) -> Cmd A`; `go`
    allocates at `w_next w` and bumps; unified side mirrors `uc_next` and `ustep_alloc`

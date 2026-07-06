@@ -40,13 +40,20 @@ Inductive Cmd (A : Type) : Type :=
      structural booleans cannot scan under it, and extensional facts about it need
      [CmdEq], never an axiom. *)
   | CWrite : nat -> GoAny -> Cmd A -> Cmd A   (* *l = v; then k — tag-PRESERVING (typed cell) *)
-  | CRead  : nat -> (GoAny -> Cmd A) -> Cmd A.  (* x := *l; then k x *)
+  | CRead  : nat -> (GoAny -> Cmd A) -> Cmd A   (* x := *l; then k x *)
+  (* [CAlloc] (appended LAST, same discipline as the heap pair): l := new(v); then k l.
+     DETERMINISTIC allocator — allocates at EXACTLY [w_next w] and bumps; an any-fresh-l
+     rule would be an observably nondeterministic allocator (the continuation branches on
+     [l]) and could clobber a mirrored-but-untraced cell.  Freshness ("the cell was [None]",
+     "l <> 0") is a THEOREM only under [GoHeap.ValidWorld] — never a totality fact here. *)
+  | CAlloc : GoAny -> (nat -> Cmd A) -> Cmd A.
 Arguments CRet {A} _.
 Arguments COut {A} _ _ _.
 Arguments CPan {A} _.
 Arguments CDfr {A} _ _.
 Arguments CWrite {A} _ _ _.
 Arguments CRead {A} _ _.
+Arguments CAlloc {A} _ _.
 
 (** The deferred action [Cmd unit] makes [A] a NON-uniform parameter, so Coq's auto-generated [Cmd_ind]
     has a POLYMORPHIC motive ([forall A, Cmd A -> Prop]) and a spurious induction hypothesis for the
@@ -59,14 +66,16 @@ Fixpoint Cmd_rect' (A : Type) (P : Cmd A -> Type)
   (fpan : forall v, P (CPan v)) (fdfr : forall d c', P c' -> P (CDfr d c'))
   (fwr : forall l v c', P c' -> P (CWrite l v c'))
   (frd : forall l f, (forall x, P (f x)) -> P (CRead l f))
+  (fal : forall v f, (forall l, P (f l)) -> P (CAlloc v f))
   (c : Cmd A) : P c :=
   match c with
   | CRet a => fret a
-  | COut b xs c' => fout b xs c' (Cmd_rect' A P fret fout fpan fdfr fwr frd c')
+  | COut b xs c' => fout b xs c' (Cmd_rect' A P fret fout fpan fdfr fwr frd fal c')
   | CPan v => fpan v
-  | CDfr d c' => fdfr d c' (Cmd_rect' A P fret fout fpan fdfr fwr frd c')
-  | CWrite l v c' => fwr l v c' (Cmd_rect' A P fret fout fpan fdfr fwr frd c')
-  | CRead l f => frd l f (fun x => Cmd_rect' A P fret fout fpan fdfr fwr frd (f x))
+  | CDfr d c' => fdfr d c' (Cmd_rect' A P fret fout fpan fdfr fwr frd fal c')
+  | CWrite l v c' => fwr l v c' (Cmd_rect' A P fret fout fpan fdfr fwr frd fal c')
+  | CRead l f => frd l f (fun x => Cmd_rect' A P fret fout fpan fdfr fwr frd fal (f x))
+  | CAlloc v f => fal v f (fun l => Cmd_rect' A P fret fout fpan fdfr fwr frd fal (f l))
   end.
 Definition Cmd_ind' (A : Type) (P : Cmd A -> Prop) := Cmd_rect' A P.
 
@@ -80,6 +89,7 @@ Fixpoint cbind {A B} (c : Cmd A) (k : A -> Cmd B) : Cmd B :=
   | CDfr d c' => CDfr d (cbind c' k)
   | CWrite l v c' => CWrite l v (cbind c' k)
   | CRead l f => CRead l (fun x => cbind (f x) k)
+  | CAlloc v f => CAlloc v (fun l => cbind (f l) k)
   end.
 
 
@@ -96,11 +106,12 @@ Inductive CmdEq {A : Type} : Cmd A -> Cmd A -> Prop :=
   | CE_pan : forall v, CmdEq (CPan v) (CPan v)
   | CE_dfr : forall d c c', CmdEq c c' -> CmdEq (CDfr d c) (CDfr d c')
   | CE_wr  : forall l v c c', CmdEq c c' -> CmdEq (CWrite l v c) (CWrite l v c')
-  | CE_rd  : forall l f g, (forall x, CmdEq (f x) (g x)) -> CmdEq (CRead l f) (CRead l g).
+  | CE_rd  : forall l f g, (forall x, CmdEq (f x) (g x)) -> CmdEq (CRead l f) (CRead l g)
+  | CE_al  : forall v f g, (forall l, CmdEq (f l) (g l)) -> CmdEq (CAlloc v f) (CAlloc v g).
 Lemma CmdEq_refl : forall {A} (c : Cmd A), CmdEq c c.
 Proof.
   intros A c;
-    induction c as [a | b xs c' IH | v | d c' IH | l v c' IH | l f IH] using Cmd_rect';
+    induction c as [a | b xs c' IH | v | d c' IH | l v c' IH | l f IH | v f IH] using Cmd_rect';
     constructor; auto.
 Qed.
 
@@ -109,14 +120,14 @@ Proof. reflexivity. Qed.
 Lemma cbind_ret_r : forall {A} (c : Cmd A), CmdEq (cbind c (fun a => CRet a)) c.
 Proof.
   intros A c;
-    induction c as [a | b xs c' IH | v | d c' IH | l v c' IH | l f IH] using Cmd_rect';
+    induction c as [a | b xs c' IH | v | d c' IH | l v c' IH | l f IH | v f IH] using Cmd_rect';
     cbn [cbind]; constructor; auto.
 Qed.
 Lemma cbind_assoc : forall {A B C} (c : Cmd A) (k : A -> Cmd B) (h : B -> Cmd C),
   CmdEq (cbind (cbind c k) h) (cbind c (fun a => cbind (k a) h)).
 Proof.
   intros A B C c k h.
-  induction c as [a | b xs c' IH | v | d c' IH | l v c' IH | l f IH] using Cmd_rect';
+  induction c as [a | b xs c' IH | v | d c' IH | l v c' IH | l f IH | v f IH] using Cmd_rect';
     cbn [cbind].
   - apply CmdEq_refl.
   - constructor; exact IH.
@@ -124,6 +135,7 @@ Proof.
   - constructor; exact IH.
   - constructor; exact IH.
   - constructor; intro x; exact (IH x).
+  - constructor; intro l; exact (IH l).
 Qed.
 
 (** ---- The AUTHORITATIVE (and ONLY) operational interpreter ----
@@ -158,6 +170,16 @@ Definition heap_write (l : nat) (v : GoAny) (w : World) : option World :=
   | None, _ => None
   end.
 
+Lemma heap_write_next : forall l v w w',
+  heap_write l v w = Some w' -> w_next w' = w_next w.
+Proof.
+  intros l v w w' H. unfold heap_write in H.
+  destruct (w_refs w l) as [[T [tc y]]|]; [ | discriminate H ].
+  destruct v as [A [x ta]].
+  destruct (tag_eq ta tc); [ | discriminate H ].
+  injection H as <-. reflexivity.
+Qed.
+
 Lemma heap_write_output : forall l v w w',
   heap_write l v w = Some w' -> w_output w' = w_output w.
 Proof.
@@ -167,6 +189,20 @@ Proof.
   destruct (tag_eq ta tc); [ | discriminate H ].
   injection H as <-. reflexivity.
 Qed.
+
+(** [cell_of_any] is [any_of_cell]'s inverse (pair order); [alloc_world v w] installs
+    [v]'s cell at EXACTLY [w_next w] and bumps the allocator — the deterministic allocation
+    both [go]/[run_cmd] (below) and the unified mirror perform.  TOTAL: unlike the heap
+    pair, allocation cannot be absent. *)
+Definition cell_of_any (v : GoAny) : RefCell :=
+  match v with existT _ T (x, t) => existT _ T (t, x) end.
+Definition alloc_world (v : GoAny) (w : World) : World :=
+  mkWorld (fun k => if Nat.eqb k (w_next w) then Some (cell_of_any v) else w_refs w k)
+          (w_chans w) (w_maps w) (S (w_next w)) (w_output w).
+Lemma alloc_world_output : forall v w, w_output (alloc_world v w) = w_output w.
+Proof. reflexivity. Qed.
+Lemma any_cell_roundtrip : forall v, any_of_cell (cell_of_any v) = v.
+Proof. intros [T [x t]]. reflexivity. Qed.
 
 (** [go c w] runs [c]'s body, ACCUMULATING the deferred actions (without running them yet).  Structural
     on [c] — the CPS continuations are subterms (a [CRead] continuation's application included).
@@ -189,12 +225,15 @@ Fixpoint go {A} (c : Cmd A) (w : World) : option (Outcome A * list (Cmd unit)) :
                  | Some cell => go (f (any_of_cell cell)) w
                  | None => None
                  end
+  | CAlloc v f => go (f (w_next w)) (alloc_world v w)
   end.
 
 (** Project an [Outcome A] to [Outcome unit], keeping its panic value and world — the "active panic"
     carrier threaded through defer unwinding. *)
 Definition oc_unit {A} (oc : Outcome A) : Outcome unit :=
   match oc with ORet _ w => ORet tt w | OPanic v w => OPanic v w end.
+Lemma oc_unit_world : forall {A} (oc : Outcome A), oc_world (oc_unit oc) = oc_world oc.
+Proof. intros A [a w | v w]; reflexivity. Qed.
 
 (** The TOTAL-per-structure interpreter.  [CDfr d c'] is DEFER-COMPOSITIONAL: run the
     continuation [c'] (whose own later defers unwind inside it), then run [d] as its OWN func scope
@@ -231,6 +270,7 @@ Fixpoint run_cmd {A} (c : Cmd A) (w : World) : option (Outcome A) :=
       | Some cell => run_cmd (f (any_of_cell cell)) w
       | None => None
       end
+  | CAlloc v f => run_cmd (f (w_next w)) (alloc_world v w)
   end.
 
 (** ---- The RELATIONAL face of the semantics: [unwind_defers] + [eval_cmd] ----
@@ -299,7 +339,7 @@ Qed.
 Theorem run_cmd_eval : forall (c : Cmd unit) w oc,
   run_cmd c w = Some oc -> eval_cmd c w oc.
 Proof.
-  fix IH 1. intros [a | b xs c' | v | d c' | l v c' | l f] w oc H; cbn [run_cmd] in H.
+  fix IH 1. intros [a | b xs c' | v | d c' | l v c' | l f | v f] w oc H; cbn [run_cmd] in H.
   - injection H as <-. exists (ORet a w), nil, (ORet tt w).
     split; [ reflexivity | split; [ exact (UwNil _) | reflexivity ] ].
   - destruct (IH c' (w_log b xs w) oc H) as [oc0 [ds [r [Hgo [Hun Hoc]]]]].
@@ -343,6 +383,8 @@ Proof.
   - destruct (w_refs w l) as [cell|] eqn:E; [ | discriminate H ].
     destruct (IH (f (any_of_cell cell)) w oc H) as [oc0 [ds [r [Hgo [Hun Hoc]]]]].
     exists oc0, ds, r. split; [ cbn [go]; rewrite E; exact Hgo | split; [ exact Hun | exact Hoc ] ].
+  - destruct (IH (f (w_next w)) (alloc_world v w) oc H) as [oc0 [ds [r [Hgo [Hun Hoc]]]]].
+    exists oc0, ds, r. split; [ cbn [go]; exact Hgo | split; [ exact Hun | exact Hoc ] ].
 Qed.
 
 (** eval_cmd ⊆ run_cmd (the converse — together the two directions make [eval_cmd] and [run_cmd]
@@ -351,7 +393,7 @@ Qed.
 Theorem eval_run_cmd : forall (c : Cmd unit) w oc,
   eval_cmd c w oc -> run_cmd c w = Some oc.
 Proof.
-  fix IH 1. intros [a | b xs c' | v | d c' | l v c' | l f] w oc (oc0 & ds & r & Hgo & Hun & Hoc);
+  fix IH 1. intros [a | b xs c' | v | d c' | l v c' | l f | v f] w oc (oc0 & ds & r & Hgo & Hun & Hoc);
     cbn [go] in Hgo; cbn [run_cmd].
   - injection Hgo as <- <-. inversion Hun; subst. reflexivity.
   - apply IH. exists oc0, ds, r. split; [ exact Hgo | split; [ exact Hun | exact Hoc ] ].
@@ -388,6 +430,7 @@ Proof.
     apply IH. exists oc0, ds, r. split; [ exact Hgo | split; [ exact Hun | exact Hoc ] ].
   - destruct (w_refs w l) as [cell|] eqn:E; [ | discriminate Hgo ].
     apply IH. exists oc0, ds, r. split; [ exact Hgo | split; [ exact Hun | exact Hoc ] ].
+  - apply IH. exists oc0, ds, r. split; [ exact Hgo | split; [ exact Hun | exact Hoc ] ].
 Qed.
 
 
@@ -398,7 +441,7 @@ Qed.
 Fixpoint no_defer (c : Cmd unit) : bool :=
   match c with
   | CRet _ => true | COut _ _ c' => no_defer c' | CPan _ => true | CDfr _ _ => false
-  | CWrite _ _ _ => false | CRead _ _ => false   (* heap ops are OUTSIDE the no_defer fragment this slice
+  | CWrite _ _ _ => false | CRead _ _ => false | CAlloc _ _ => false   (* heap ops are OUTSIDE the no_defer fragment this slice
        (a boolean cannot scan under [CRead]'s binder; [CWrite] is excluded with it so the fragment stays
        the straight-line output/panic/return class its consumers were proved on) *)
   end.
@@ -410,7 +453,7 @@ Fixpoint no_defer (c : Cmd unit) : bool :=
 Fixpoint cmd_no_panic (c : Cmd unit) : bool :=
   match c with
   | CRet _ => true | COut _ _ c' => cmd_no_panic c' | CPan _ => false | CDfr d c' => cmd_no_panic d && cmd_no_panic c'
-  | CWrite _ _ _ => false | CRead _ _ => false   (* CONSERVATIVE: the decidable panic-free gate also
+  | CWrite _ _ _ => false | CRead _ _ => false | CAlloc _ _ => false   (* CONSERVATIVE: the decidable panic-free gate also
        promises COMPLETION (the [ORet] run), which a heap op cannot guarantee (an unallocated or
        tag-mismatched access is ABSENT) and a boolean cannot scan under [CRead]'s binder —
        heap programs leave this gate until a finer, allocation-aware analysis exists *)
@@ -425,18 +468,19 @@ Fixpoint no_heap (c : Cmd unit) : bool :=
   match c with
   | CRet _ => true | COut _ _ c' => no_heap c'
   | CPan _ => true | CDfr d c' => no_heap d && no_heap c'
-  | CWrite _ _ _ => false | CRead _ _ => false
+  | CWrite _ _ _ => false | CRead _ _ => false | CAlloc _ _ => false
   end.
 Lemma cmd_no_panic_no_heap : forall c, cmd_no_panic c = true -> no_heap c = true.
 Proof.
   (* [Cmd_rect'] gives no hypothesis for the DEFERRED body, so recurse structurally
      (both [d] and [c'] are direct subterms — the same shape as [cmd_to_ucmd_fragment]) *)
-  fix IH 1. intros [a | b xs c' | v | d c' | l v c' | l f]; cbn [cmd_no_panic no_heap]; intro H.
+  fix IH 1. intros [a | b xs c' | v | d c' | l v c' | l f | v f]; cbn [cmd_no_panic no_heap]; intro H.
   - reflexivity.
   - exact (IH c' H).
   - discriminate H.
   - destruct (cmd_no_panic d) eqn:Hd; [ | discriminate H ].
     cbn in H. rewrite (IH d Hd). cbn [andb]. exact (IH c' H).
+  - discriminate H.
   - discriminate H.
   - discriminate H.
 Qed.
@@ -449,7 +493,7 @@ Qed.
 Theorem run_cmd_terminates : forall (c : Cmd unit) w,
   no_heap c = true -> exists oc, run_cmd c w = Some oc.
 Proof.
-  fix IH 1. intros [a | b xs c' | v | d c' | l v c' | l f] w Hnh; cbn [no_heap] in Hnh;
+  fix IH 1. intros [a | b xs c' | v | d c' | l v c' | l f | v f] w Hnh; cbn [no_heap] in Hnh;
     cbn [run_cmd].
   - exists (ORet a w). reflexivity.
   - exact (IH c' (w_log b xs w) Hnh).
@@ -458,6 +502,7 @@ Proof.
     destruct (IH c' w Hnh) as [oc Hoc]. rewrite Hoc.
     destruct (IH d (oc_world oc) Hd) as [ocd Hocd]. rewrite Hocd.
     destruct ocd as [[] w' | vd w']; eexists; reflexivity.
+  - discriminate Hnh.
   - discriminate Hnh.
   - discriminate Hnh.
 Qed.

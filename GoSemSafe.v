@@ -38,6 +38,7 @@ Fixpoint cmd_out_world (c : Cmd unit) (w : World) : World :=
   | CDfr _ _ => w        (* dead under the [no_defer] premise of every consumer *)
   | CWrite _ _ _ => w    (* dead: heap ops are outside the [no_defer] fragment *)
   | CRead _ _ => w       (* dead: heap ops are outside the [no_defer] fragment *)
+  | CAlloc _ _ => w      (* dead: heap ops are outside the [no_defer] fragment *)
   end.
 
 (** The panic value a defer-free command ends in ([None] if it never panics). *)
@@ -49,6 +50,7 @@ Fixpoint cmd_panic_val (c : Cmd unit) : option GoAny :=
   | CDfr _ _ => None     (* dead under the [no_defer] premise of every consumer *)
   | CWrite _ _ _ => None (* dead: heap ops are outside the [no_defer] fragment *)
   | CRead _ _ => None    (* dead: heap ops are outside the [no_defer] fragment *)
+  | CAlloc _ _ => None   (* dead: heap ops are outside the [no_defer] fragment *)
   end.
 
 (** A defer-free command that DOES panic runs to [OPanic v] with the EXACT pre-panic output
@@ -57,11 +59,12 @@ Fixpoint cmd_panic_val (c : Cmd unit) : option GoAny :=
 Lemma run_cmd_panics_world : forall c w v,
   no_defer c = true -> cmd_panic_val c = Some v -> run_cmd c w = Some (OPanic v (cmd_out_world c w)).
 Proof.
-  fix IH 1. intros [a | b xs c' | v0 | d c' | l v0 c' | l f] w v Hnd Hpv;
+  fix IH 1. intros [a | b xs c' | v0 | d c' | l v0 c' | l f | v0 f] w v Hnd Hpv;
     cbn [no_defer] in Hnd; cbn [cmd_panic_val] in Hpv; cbn [run_cmd cmd_out_world].
   - discriminate Hpv.
   - exact (IH c' (w_log b xs w) v Hnd Hpv).
   - injection Hpv as ->. reflexivity.
+  - discriminate Hnd.
   - discriminate Hnd.
   - discriminate Hnd.
   - discriminate Hnd.
