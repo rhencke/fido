@@ -4122,6 +4122,14 @@ let pp_io_body ?(ret_val=false) state tab env body =
                     if String.length tab >= 1 then String.sub tab 0 (String.length tab - 1) else "" in
                   (* body walker: effect-only bind chains; the tail is either [ret v]
                      (handed to [term]) or a final bare action (emitted, then [term None]) *)
+                  (* STATEMENT-FORM whitelist for BOTH action positions (bind actions and
+                     the final bare action): only a call-shaped effect op is a legal Go
+                     statement; a value-returning lowering (slice_get → `xs[i]`, …) would
+                     print a bare non-statement expression — fail-open at go build. *)
+                  let statement_form action =
+                    (match fst (collect_app (strip_magic action) []) with
+                     | MLglob ar -> is_println_ref ar || is_print_ref ar
+                     | _ -> false) in
                   let rec emit_cbody benv b term =
                     let h, args = collect_app b [] in
                     let vis = List.filter (fun a -> not (is_erased a)) args in
@@ -4143,11 +4151,7 @@ let pp_io_body ?(ret_val=false) state tab env body =
                            fail-open at go build).  Only the known statement-legal effect ops
                            pass; everything else fails CLOSED.  Classified through
                            [strip_magic] so a magic wrapper cannot bypass the rule. *)
-                        let statement_form =
-                          (match fst (collect_app (strip_magic action) []) with
-                           | MLglob ar -> is_println_ref ar || is_print_ref ar
-                           | _ -> false) in
-                        if result_used || not statement_form then
+                        if result_used || not (statement_form action) then
                           unsupported "a run_cblocks body action outside the effect-only statement forms (print/println with a dead result) — a value-returning or non-call action would need hoisted variables or print a non-statement Go expression; use run_blocks for value-threading blocks"
                         else
                           let ids = alloc_binders benv (List.map (fun _ -> Dummy) ids) in
@@ -4155,7 +4159,10 @@ let pp_io_body ?(ret_val=false) state tab env body =
                           ++ emit_cbody (List.rev ids @ benv) kbody term
                     | MLglob rr, [v] when is_ret_ref rr -> term benv (Some v)
                     | MLglob rr, [] when is_ret_ref rr -> term benv None
-                    | _ -> emit_action state [] tab benv [Dummy] b ++ term benv None in
+                    | _ ->
+                        if not (statement_form b) then
+                          unsupported "a run_cblocks body action outside the effect-only statement forms (print/println) — a value-returning or non-call action would print a non-statement Go expression; use run_blocks for value-threading blocks"
+                        else emit_action state [] tab benv [Dummy] b ++ term benv None in
                   let doc_of i part =
                     let lbl =
                       if needs_label i
