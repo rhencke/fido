@@ -3,122 +3,66 @@
 builtins.v is FROZEN raw ore being mined into final-purpose modules; the monolith and
 preamble's global re-export die at the end.  No compatibility façade at any step.
 
-**Landed:** `GoCFG.v` (the CFG semantic authority) + `GoExtractionHooks.v` (plugin-lowered
-names only) + plugin ownership re-pinned (`from_gocfg`/`from_hooks`); wave 1 `GoNumeric.v`
-(float layer folded in — no separate GoFloat.v); wave 2 `GoRuntimeTypes.v`; wave 3
-`GoEffects.v` (`run_io_inj` quarantined to concurrency.v); wave 4 `GoPanic.v`; wave 5
-`GoSlice.v`; wave 6 `GoMap.v` (735198e); wave 7 `GoChan.v` (123a276 — ForkEvent ctors
-renamed FkWrite/FkGo/FkStart/FkRead to kill import-order shadowing); wave 8 `GoHeap.v`
-(the ref heap — see below; review 9 then DROPPED the never-used GoChan/GoMap imports
-from the cmd/GoSem universe and builtins' dead digits import — imports are honest by
-USE, not by recipe); wave 9 `GoSession.v` (Proto/dual + the linear Sess indexed monad +
-run_session; builtins does NOT import it — sessions were the monolith's tail with no
-op-layer dependents; concurrency.v/unified.v qualified `builtins.PSend`-style references
-rewritten to `GoSession.*`); wave 10 — the ENTIRE numeric op layer (builtins 45–1114,
-~1070 lines: fixed-width ops/bitwise/shifts/conversions, evidence-carrying div/rem,
-GoI64/GoU64 ops + laws, untyped consts, int64→float64) moved INTO `GoNumeric.v` — it was
-PURE (zero IO/panic/tag), so records and ops are ONE authority; 168 qualified
-`builtins.<op>` references in GoSem/GoSemDenote/GoTypes rewrote to `GoNumeric.<op>`;
-main.v's module-identity ownership demo sharpened to a user module named [GoNumeric]
-(the real owner's name).  ★Remaining ore (~1090 lines): println/misc, panic/recover
-(→ GoEffects candidates), type switch, string ops + []byte/rune (→ GoString.v),
-complex (→ GoComplex.v), the struct-channel demo (→ GoChan.v candidate), range
-(string→GoString, slice→GoSlice, int→GoNumeric/…); then DELETE the monolith +
-preamble's `Require Export`.
+## Landed
 
-## The dependency-honest wave order
+`GoCFG.v` (CFG semantic authority) + `GoExtractionHooks.v` (plugin-lowered names only) +
+plugin ownership by exact-dirpath whitelist (`from_model`/`model_dirpaths`, extended per
+wave; `from_gocfg`/`from_hooks` separate).  Then, in dependency-honest order (each wave:
+exact-marker cut → module with honest header → explicit imports by USE, no façade →
+dune + whitelist bump → `make check` golden byte-identical → commit → external review,
+BLOCKs closed structurally):
 
-The boss's sketch says "GoEffects next"; the DEFINITIONAL dependencies force its
-prerequisites out first — `World`'s fields need the heap-cell types, whose cells need
-`GoTypeTag`/`GoAny`, whose tag enumerates EVERY carrier (numerics, floats, string, slice,
-chan, map, the recursive demo structs).  Every op in builtins is IO-typed, so GoEffects
-must sit BELOW builtins in the import DAG — never import it (GoCFG-style interim imports
-would be circular here).
+1. `GoNumeric.v` — the numeric records + wrapping lemmas + spec_float floats (float
+   layer folded in; no separate GoFloat.v), and since wave 10 the ENTIRE pure numeric
+   op layer (fixed-width ops/bitwise/shifts/conversions, evidence-carrying div/rem,
+   GoI64/GoU64 ops + laws, untyped consts, int64→float64): records and ops are ONE
+   authority.  168 qualified `builtins.<op>` refs rewrote to `GoNumeric.<op>`;
+   main.v's module-identity ownership demo now collides with the REAL owner name.
+2. `GoRuntimeTypes.v` — carriers + `GoTypeTag` + `GoAny` + `Tagged` + `zero_val` +
+   runtime comparability (`key_eqb`/`struct_eqb`).
+3. `GoEffects.v` — World/Outcome/IO/run_io/ret/bind/panic/catch + `io_eq` setoid +
+   effect laws + Hoare layer.  `run_io_inj` (the one funext touch) QUARANTINED to
+   concurrency.v — the certified path reasons over `io_eq` only.
+4. `GoPanic.v` — the runtime panic payloads (digits + GoRuntimeTypes only).
+5. `GoSlice.v` — the PURE-LIST slice/array model + gated `slice_get_bounds_surface`
+   (loud aliasing caveat; the aliasing-capable rep is GoHeap's `SliceH`).
+6. `GoMap.v` (735198e) — Go maps over the world heap.
+7. `GoChan.v` (123a276) — channels + the whole go-mem story (happens-before, races,
+   close⤳zero, fork edge); ForkEvent ctors renamed Fk* to kill import-order shadowing.
+8. `GoHeap.v` (ee184b7) — the ref heap: locals (`Ref` + `ref_sel`/`ref_upd` selectors),
+   `ValidWorld` (+ `w_init`), pointers + `&x`, closed-world nil-safety, `SliceH`
+   aliasing handles, `HStruct` bundles + chan/ref frame lemmas, generic
+   `StructRep`/`GSPtr` struct heap.  The STRUCT CHANNELS demo stays in builtins.
+9. `GoSession.v` (6f9c779) — Proto/dual + the linear forge-proof `Sess` indexed monad +
+   `run_session`; builtins does NOT import it; `builtins.PSend`-style qualified refs in
+   concurrency.v/unified.v rewrote to `GoSession.*`.
+10. numeric op layer → `GoNumeric.v` (ca28cba; see 1).
+11. `GoString.v` — string ops, []byte/string conversions, the faithful UTF-8 rune view,
+    string comparison + lexicographic order, the string switch, `range` over a string,
+    and the sealed `ComparableW` generic-comparable witnesses (anchored on `str_eqb`).
 
-1. **GoNumeric.v / GoFloat.v** — the Z-carried fixed-width wrappers (`GoI64`/`GoU8`/…,
-   `GoInt`/`GoUint`) + wrapping lemmas; `spec_float` carriers + canonicalization.  Bottom
-   of the DAG (ZArith/SpecFloat only).  EXECUTION SPEC (recon 2026-07-05): the region is
-   builtins.v ~19–660 with the float layer FIRST (`SpecFloat` Export at ~80, `GoFloat64`
-   notation ~85, `renorm`, f32 at ~440–455, float64 ops ~456+) and the fixed-width
-   records after (`GoI64` ~586, u8..u64/i8..i32, `GoInt`/`GoUint` + `intwrap`); the
-   carrier one-liners `GoString` (~62) and `GoSlice` (~69) are INTERLEAVED — they are
-   NOT numeric and stay behind for wave 2 (GoRuntimeTypes) unless trivially hoisted.
-   PLUGIN: dozens of the ~57 `from_builtins`-pinned recognizers are numeric
-   (`fixed_width_op`, `is_any_i64_op`/`u64`/`int`, `int_lit`/`u64_lit`/`uint_lit`
-   folds, wrap ctors, zarith helpers).  Per-recognizer re-pinning each wave would be
-   churn; instead generalize ownership ONCE: `from_model r` = exact-dirpath membership
-   in the SEMANTIC-module whitelist ({Fido.builtins} ∪ landed semantic modules,
-   extended per wave) — preserves the anti-shadow ownership property (exact Fido-owned
-   dirpaths) and keeps hooks separate (`from_hooks` stays its own check; the boss's
-   hooks-vs-semantics split remains real).  `named`/`named_in` switch to `from_model`.  ★LANDED (2c9134e): `from_model` +
-   `model_dirpaths` whitelist are live (singleton today); each wave = whitelist bump +
-   the module move.  IMPORT SWEEP (no façade): the numeric/float names are used outside
-   builtins ONLY by `main.v`, `GoSemCore.v`, `GoSem.v`, `GoSemDenote.v`,
-   `concurrency.v` (GoAst/GoTypes/GoPrint hits are comments) — those five files plus
-   builtins.v gain `From Fido Require Import GoNumeric GoFloat.` in the cut.
-2. **GoRuntimeTypes.v** — the carrier TYPE seeds it enumerates (`GoString`, `GoSlice`,
-   `GoChan`, `GoMap` type-level; `ListNode`/`ChanBox`) + `GoTypeTag` + `GoAny` + `Tagged`
-   + `zero_val` + comparability + `tag_eq`.  (If a structure module later wants its type
-   seed, it moves then — one authority at every step.)
-3. **GoEffects.v** — `RefCell`/`RefHeap`/`ChanCell`/`ChanHeap`/`MapCell`/`MapHeap` (they
-   exist only as `World` fields; the structure modules own the OPS later), `World`,
-   `Outcome`, `IO`, `run_io`, `ret`, `bind`, `panic`, `catch`, `io_eq` + the setoid
-   instances + effect laws + the Hoare layer.  ★`run_io_inj` (the ONE funext touch) does
-   NOT come along: challenge it — builtins' own uses get replaced by `io_eq` reasoning
-   where possible; the residue moves to the proof-only universe that wants Leibniz-IO
-   (concurrency.v/unified.v), explicitly OUTSIDE the MVP theorem surface.
-4. **builtins.v shrinks** — imports GoNumeric/GoFloat/GoRuntimeTypes/GoEffects; the
-   monolith is then the op layer only.
-5. **GoPanic.v — LANDED** (runtime panic payloads; digits+GoRuntimeTypes only).
-6. **Structure modules** (ops + laws, each deleting its builtins section):
-   **GoSlice.v** first — recon (2026-07-06): TWO families in builtins.  (a) the PURE-LIST
-   family (~builtins 2600-2860): `append`/`slice_of_list`/`go_list_nth`/`slice_get` (+ the
-   GATED `slice_get_bounds_surface` — its PROGRESS gate name becomes
-   `GoSlice.slice_get_bounds_surface`)/`slice_at_ok`/`len_agrees_structural` and the array
-   family `arr_lit`/`arr_get_ok`/`arr_set` — self-contained over
-   GoEffects+GoPanic+GoRuntimeTypes; GoSlice.v takes THIS family with the aliasing caveat
-   stated loudly (pure lists are sound only for single-goroutine no-aliasing programs).
-   (b) the HEAP-BACKED `SliceH` family (~4000-4100, shared backing cells, `subslice`
-   aliasing) is entangled with the ref-heap machinery and moves with the HEAP wave, where
-   the aliasing-capable representation lives.  ★PIECE MAP (the op layer accreted
-   demo-first, so the pure-list family is NON-CONTIGUOUS — cut piece by piece, verify
-   each): P1 `len`+`len_agrees_structural`+the no-value-cap note+`append` (~2600-2624);
-   P2 `slice_of_list` + `slice_make` (the fresh zero-filled make); P3 `go_list_nth`+`slice_get`+the gated
-   `slice_get_bounds_surface`+`slice_at_ok` (~2711-2800); P4 the array family
-   `GoArray`/`arr_lit`/`arr_get_ok`/`arr_set` (~2802-2851); P5 `for_each`/`slice_fold`
-   (~4720+, iteration combinators — verify their deps before including).  Between the
-   pieces sit go_min/go_max and float comparison helpers — they STAY in builtins.
-   GoSlice.v imports GoNumeric+GoRuntimeTypes+GoEffects+GoPanic; whitelist +=
-   Fido.GoSlice; the PROGRESS gate line renames to `GoSlice.slice_get_bounds_surface`.
-   **GoHeap.v — wave 8** (the ref heap): TWO cuts — A = mutable locals (`Ref`/`ref_new`,
-   the selectors `ref_sel`/`ref_upd`/`ref_sel_opt` live HERE, not GoEffects) + `ValidWorld`
-   + pointers + `&x` + closed-world nil-safety + `SliceH` aliasing handles + `HStruct`
-   field-cell bundles + the chan/ref world-independence frame lemmas; B = the generic
-   struct heap (`Tup`/`Mem`/`StructRep`/`StructRepOf`/`GSPtr` + `gsptr_*` + `gstruct_eqb`,
-   with its `Local Transparent`/`Opaque` directives).  The STRUCT CHANNELS demo
-   (`struct_make2`/`struct_chan_roundtrip2`) sits between the cuts and STAYS in builtins
-   (channel demo, not heap).  Imports all seven foundations; whitelist += Fido.GoHeap;
-   import sweep = main.v, concurrency.v (Ref/ptr/frame lemmas — the limit-2 bridge),
-   negtests/neg_addr.v.
-   **Remaining ore after wave 8** (~2300 lines): the numeric OP layer (fixed-width
-   ops/shifts/conversions/div-rem + int64/uint64 laws), Builtins misc + panic/recover,
-   type switch, string ops + []byte/rune conversions, complex numbers, the struct-channel
-   demo, range (string/slice/int), sessions (→ GoSession.v), linear sessions.  Then
-   whatever remains is deleted with the monolith and preamble's `Require Export`.
+Reviews 9/10 also enforced: imports honest by USE (the never-used GoChan/GoMap imports
+in the cmd/GoSem universe and builtins' dead digits import are gone) and location prose
+that tells the truth everywhere (plugin comments state the `model_dirpaths` ownership
+rule, not "lives in builtins.v").
 
-Acceptance per wave: `make check` green, golden byte-identical (module moves must not
-change emission — the plugin's `from_builtins` ownership follows the definitions:
-recognizers re-pin per wave exactly as `from_gocfg`/`from_hooks` did), all gated
-surfaces still zero-axiom, no doc contradicting the layout.
+## Remaining ore (~660 lines) — the endgame carve
 
-## Plugin note (per wave)
+- println/print + `output_distinguishes_programs` and panic/recover semantics —
+  GoEffects.v candidates (it owns IO/output/panic/catch).
+- Type switch (~240 lines) — needs IO (branch continuations), so GoRuntimeTypes can't
+  take it; destination decided at cut time (GoTypeSwitch.v or a justified home).
+- Complex numbers (~160 lines) — GoComplex.v.
+- The STRUCT CHANNELS demo (~45 lines) — GoChan.v candidate (channel-of-tuple theorem).
+- `range` over a slice → GoSlice.v; integer `range` → decided at cut time.
+- Then DELETE builtins.v and preamble's `Require Export builtins` — every consumer
+  imports narrowly; the split is complete when the monolith is GONE.
 
-`from_builtins` pins every recognizer to `Fido.builtins`.  Each wave that moves
-plugin-recognized names adds an exact-dirpath ownership check for the new module and
-re-pins ONLY the moved recognizers — the split must be real in the trusted recognition
-scheme every step, never pretended.
+## Acceptance per wave
+
+`make check` green, golden byte-identical, gated surfaces zero-axiom, plugin ownership
+genuinely extended (never pretended), no doc contradicting the layout.
 
 ## Deferred behind the split
 
-The `run_cblocks` emitter connection (spec in plans/fuel-free.md) resumes after wave 3
-(its hook lands in GoExtractionHooks.v; its gate lemmas in GoCFG.v/main.v).
+The `run_cblocks` emitter connection (spec in plans/fuel-free.md).

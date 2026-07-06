@@ -11,6 +11,7 @@ From Fido Require Import GoSlice.
 From Fido Require Import GoPanic.
 From Fido Require Import GoHeap.
 From Fido Require Import GoSession.
+From Fido Require Import GoString.
 From Fido Require Import GoAst GoSafe GoEmit.  (* AST-first certified-emission spine (ARCHITECTURE.md) *)
 From Stdlib Require Import ZArith.
 From Stdlib Require Import Lia.
@@ -827,7 +828,7 @@ Definition bitwise_demo : IO unit :=
 
 (** Shifts (Go spec "Arithmetic operators": [<< >>]).  Evidence-carrying: the
     count must be proven non-negative ([eq_refl] for a literal); a negative count
-    is unrepresentable (`u8_shl_neg`, a `Fail` in builtins.v).  MACHINE-CHECKED:
+    is unrepresentable (`u8_shl_neg`, a `Fail` in GoNumeric.v).  MACHINE-CHECKED:
     over-width `<<` → 0 (no upper limit); signed `<<` wraps two's-complement;
     `>>` is ARITHMETIC for signed — `-3>>1 = -2` (toward −∞), distinct from
     `-3/2 = -1` (toward zero), and `-1>>3 = -1` (NOT 0). *)
@@ -847,7 +848,7 @@ Definition shift_demo : IO unit :=
 
 (** Numeric conversions (Go spec "Conversions").  Widen ([int_of_*]) preserves the value;
     narrow ([*_of_int]) TRUNCATES to the width.  Invariant: distinct types mix ONLY through
-    an explicit conversion (implicit mixing is a type error — `Fail`s in builtins.v). *)
+    an explicit conversion (implicit mixing is a type error — `Fail`s in GoNumeric.v). *)
 Example spec_u8_of_int_trunc : u8_of_int (int_lit 1000 eq_refl)  = u8_lit 232 eq_refl. Proof. reflexivity. Qed.
 Example spec_u8_of_int_neg   : u8_of_int (int_lit (-1) eq_refl) = u8_lit 255 eq_refl. Proof. reflexivity. Qed.
 Example spec_i8_of_int_wrap  : i8_of_int (int_lit 200 eq_refl)  = i8_lit (-56) eq_refl. Proof. reflexivity. Qed.

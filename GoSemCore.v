@@ -16,6 +16,7 @@
     ============================================================================ *)
 From Fido Require Import GoAst GoTypes preamble.   (* [preamble] re-exports [builtins]: [GoAny]/[anyt]/[intwrap]/[World]/[w_log]/[Outcome]/[ORet] *)
 From Fido Require Import GoNumeric.
+From Fido Require Import GoString.
 From Fido Require Import GoRuntimeTypes.
 From Fido Require Import GoEffects.
 From Fido Require Import GoSlice.
@@ -354,19 +355,19 @@ Fixpoint eval_str (e : GExpr) : option string :=
   end.
 
 (** The 6 COMPARISON ops on STRING constants — DELEGATED to the MODEL's string order, named by their FULLY
-    QUALIFIED paths ([Fido.builtins.str_eqb] / [str_neqb] / [str_ltb] / [str_gtb] / [str_geb], the byte-wise
+    QUALIFIED paths ([Fido.GoString.str_eqb] / [str_neqb] / [str_ltb] / [str_gtb] / [str_geb], the byte-wise
     unsigned Go order, plugin-lowered to the native Go operators).  The qualified names make the live path
     SHADOW-IMMUNE: a local/nested [str_ltb] in GoSem cannot reroute it (the [str_cmp_*_model] pins below prove
     each branch IS the qualified model constant).  GoSem forks NO string order; [<=] is DERIVED from the model's
     [>=] ([s <= t] iff [t >= s]).  Non-comparison ops -> [None]. *)
 Definition str_cmp_op (op : BinOp) : option (GoString -> GoString -> bool) :=
   match op with
-  | BEq => Some Fido.builtins.str_eqb
-  | BNe => Some Fido.builtins.str_neqb
-  | BLt => Some Fido.builtins.str_ltb
-  | BLe => Some (fun s t => Fido.builtins.str_geb t s)   (* [s <= t]  iff  [t >= s] — derived from the model order, not re-implemented *)
-  | BGt => Some Fido.builtins.str_gtb
-  | BGe => Some Fido.builtins.str_geb
+  | BEq => Some Fido.GoString.str_eqb
+  | BNe => Some Fido.GoString.str_neqb
+  | BLt => Some Fido.GoString.str_ltb
+  | BLe => Some (fun s t => Fido.GoString.str_geb t s)   (* [s <= t]  iff  [t >= s] — derived from the model order, not re-implemented *)
+  | BGt => Some Fido.GoString.str_gtb
+  | BGe => Some Fido.GoString.str_geb
   | _   => None
   end.
 

@@ -22,6 +22,7 @@
     ============================================================================ *)
 From Fido Require Import GoAst GoTypes GoSafe cmd preamble.   (* [preamble] re-exports [builtins]: [GoAny]/[anyt]/[intwrap]/[World]/[w_log]/[Outcome]/[ORet] *)
 From Fido Require Import GoNumeric.
+From Fido Require Import GoString.
 From Fido Require Import GoRuntimeTypes.
 From Fido Require Import GoEffects.
 From Fido Require Import GoSlice.
@@ -1470,17 +1471,17 @@ Definition gosem_trust_surface :=
 Print Assumptions gosem_trust_surface.
 
 (** ---- STRING-AUTHORITY PINS (gated): each of [str_cmp_op]'s six branches IS, by reflexivity, the FULLY
-    QUALIFIED model constant [Fido.builtins.str_*] — so a fork that reroutes a branch breaks a pin and FAILS the
+    QUALIFIED model constant [Fido.GoString.str_*] — so a fork that reroutes a branch breaks a pin and FAILS the
     build ([<=] = the model's [str_geb] with operands swapped).  Bundled into [gosem_string_authority_surface]
     so its [Print Assumptions] certifies the whole cone zero-axiom (the honest place for the "authority
     guarantee" claim); a fork that DIDN'T reroute a live branch would be dead code. *)
 Example str_cmp_model_rows :
-  (str_cmp_op BEq = Some Fido.builtins.str_eqb)
-  /\ (str_cmp_op BNe = Some Fido.builtins.str_neqb)
-  /\ (str_cmp_op BLt = Some Fido.builtins.str_ltb)
-  /\ (str_cmp_op BLe = Some (fun s t => Fido.builtins.str_geb t s))
-  /\ (str_cmp_op BGt = Some Fido.builtins.str_gtb)
-  /\ (str_cmp_op BGe = Some Fido.builtins.str_geb).
+  (str_cmp_op BEq = Some Fido.GoString.str_eqb)
+  /\ (str_cmp_op BNe = Some Fido.GoString.str_neqb)
+  /\ (str_cmp_op BLt = Some Fido.GoString.str_ltb)
+  /\ (str_cmp_op BLe = Some (fun s t => Fido.GoString.str_geb t s))
+  /\ (str_cmp_op BGt = Some Fido.GoString.str_gtb)
+  /\ (str_cmp_op BGe = Some Fido.GoString.str_geb).
 Proof. repeat split; reflexivity. Qed.
 Definition gosem_string_authority_surface :=
   (str_cmp_model_rows).
