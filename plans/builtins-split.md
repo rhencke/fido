@@ -49,9 +49,20 @@ would be circular here).
    (concurrency.v/unified.v), explicitly OUTSIDE the MVP theorem surface.
 4. **builtins.v shrinks** — imports GoNumeric/GoFloat/GoRuntimeTypes/GoEffects; the
    monolith is then the op layer only.
-5. **GoPanic.v** (runtime panic payloads), then **GoSlice.v / GoHeap.v / GoMap.v /
-   GoChan.v / GoSession.v** (ops + their laws, each deleting its builtins section),
-   then whatever remains is deleted with the monolith and preamble's `Require Export`.
+5. **GoPanic.v — LANDED** (runtime panic payloads; digits+GoRuntimeTypes only).
+6. **Structure modules** (ops + laws, each deleting its builtins section):
+   **GoSlice.v** first — recon (2026-07-06): TWO families in builtins.  (a) the PURE-LIST
+   family (~builtins 2600-2860): `append`/`slice_of_list`/`go_list_nth`/`slice_get` (+ the
+   GATED `slice_get_bounds_surface` — its PROGRESS gate name becomes
+   `GoSlice.slice_get_bounds_surface`)/`slice_at_ok`/`len_agrees_structural` and the array
+   family `arr_lit`/`arr_get_ok`/`arr_set` — self-contained over
+   GoEffects+GoPanic+GoRuntimeTypes; GoSlice.v takes THIS family with the aliasing caveat
+   stated loudly (pure lists are sound only for single-goroutine no-aliasing programs).
+   (b) the HEAP-BACKED `SliceH` family (~4000-4100, shared backing cells, `subslice`
+   aliasing) is entangled with the ref-heap machinery and moves with the HEAP wave, where
+   the aliasing-capable representation lives.  Then GoHeap.v / GoMap.v / GoChan.v /
+   GoSession.v; then whatever remains is deleted with the monolith and preamble's
+   `Require Export`.
 
 Acceptance per wave: `make check` green, golden byte-identical (module moves must not
 change emission — the plugin's `from_builtins` ownership follows the definitions:
