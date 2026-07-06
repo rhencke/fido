@@ -89,7 +89,7 @@ Definition float_dyadic_repr (t : GoTy) (m e : Z) : bool :=
   end.
 
 (** The SEALED dyadic payload — normalization is STRUCTURAL, not a comment: [DyConst]'s proof field
-    witnesses the carried pair is in the IMAGE of [dy_norm] (the [builtins.GoFloat32]/[mkF32] pattern —
+    witnesses the carried pair is in the IMAGE of [dy_norm] (the [GoNumeric.GoFloat32]/[mkF32] pattern —
     an unnormalized payload like [(2, 0)] is UNCONSTRUCTABLE: no [m0 e0] normalizes to it, so the
     [dy_div]-misbehaving states are impossible, not discouraged).  EVERY construction must exhibit the
     image witness: [dy_make] supplies it definitionally (no theorem, so this file's Definitions-only

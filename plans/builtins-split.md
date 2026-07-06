@@ -14,7 +14,17 @@ from the cmd/GoSem universe and builtins' dead digits import — imports are hon
 USE, not by recipe); wave 9 `GoSession.v` (Proto/dual + the linear Sess indexed monad +
 run_session; builtins does NOT import it — sessions were the monolith's tail with no
 op-layer dependents; concurrency.v/unified.v qualified `builtins.PSend`-style references
-rewritten to `GoSession.*`).
+rewritten to `GoSession.*`); wave 10 — the ENTIRE numeric op layer (builtins 45–1114,
+~1070 lines: fixed-width ops/bitwise/shifts/conversions, evidence-carrying div/rem,
+GoI64/GoU64 ops + laws, untyped consts, int64→float64) moved INTO `GoNumeric.v` — it was
+PURE (zero IO/panic/tag), so records and ops are ONE authority; 168 qualified
+`builtins.<op>` references in GoSem/GoSemDenote/GoTypes rewrote to `GoNumeric.<op>`;
+main.v's module-identity ownership demo sharpened to a user module named [GoNumeric]
+(the real owner's name).  ★Remaining ore (~1090 lines): println/misc, panic/recover
+(→ GoEffects candidates), type switch, string ops + []byte/rune (→ GoString.v),
+complex (→ GoComplex.v), the struct-channel demo (→ GoChan.v candidate), range
+(string→GoString, slice→GoSlice, int→GoNumeric/…); then DELETE the monolith +
+preamble's `Require Export`.
 
 ## The dependency-honest wave order
 

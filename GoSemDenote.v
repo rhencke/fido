@@ -4006,28 +4006,28 @@ Qed.
 
 
 (** ★ DISPATCH AUTHORITY PINS (gated) — [cmp_verdict]'s WHOLE dispatch table.  Each comparison branch
-    IS, by reflexivity, the FULLY QUALIFIED model constant [Fido.builtins.int_eqb]/[int_ltb]/[int_leb]
+    IS, by reflexivity, the FULLY QUALIFIED model constant [Fido.GoNumeric.int_eqb]/[int_ltb]/[int_leb]
     ([!=] the negation, [>]/[>=] the argument swap) — the [str_cmp_op] authority-pin pattern, immune to
     name shadowing: a branch rerouted to any local helper breaks a pin and fails the gated build.
     [cmp_verdict_complete] then seals EVERY [BinOp] constructor by case analysis — the six comparisons
     to those verdicts and every other constructor to [None] — so no future explicit arithmetic/shift/
     logical mapping can drift in while the surface stays green. *)
 Example cmp_verdict_model_rows :
-  (cmp_verdict BEq = Some Fido.builtins.int_eqb)
-  /\ (cmp_verdict BNe = Some (fun x y => negb (Fido.builtins.int_eqb x y)))
-  /\ (cmp_verdict BLt = Some Fido.builtins.int_ltb)
-  /\ (cmp_verdict BLe = Some Fido.builtins.int_leb)
-  /\ (cmp_verdict BGt = Some (fun x y => Fido.builtins.int_ltb y x))
-  /\ (cmp_verdict BGe = Some (fun x y => Fido.builtins.int_leb y x)).
+  (cmp_verdict BEq = Some Fido.GoNumeric.int_eqb)
+  /\ (cmp_verdict BNe = Some (fun x y => negb (Fido.GoNumeric.int_eqb x y)))
+  /\ (cmp_verdict BLt = Some Fido.GoNumeric.int_ltb)
+  /\ (cmp_verdict BLe = Some Fido.GoNumeric.int_leb)
+  /\ (cmp_verdict BGt = Some (fun x y => Fido.GoNumeric.int_ltb y x))
+  /\ (cmp_verdict BGe = Some (fun x y => Fido.GoNumeric.int_leb y x)).
 Proof. repeat split; reflexivity. Qed.
 Example cmp_verdict_complete : forall o,
   cmp_verdict o = match o with
-                  | BEq => Some Fido.builtins.int_eqb
-                  | BNe => Some (fun x y => negb (Fido.builtins.int_eqb x y))
-                  | BLt => Some Fido.builtins.int_ltb
-                  | BLe => Some Fido.builtins.int_leb
-                  | BGt => Some (fun x y => Fido.builtins.int_ltb y x)
-                  | BGe => Some (fun x y => Fido.builtins.int_leb y x)
+                  | BEq => Some Fido.GoNumeric.int_eqb
+                  | BNe => Some (fun x y => negb (Fido.GoNumeric.int_eqb x y))
+                  | BLt => Some Fido.GoNumeric.int_ltb
+                  | BLe => Some Fido.GoNumeric.int_leb
+                  | BGt => Some (fun x y => Fido.GoNumeric.int_ltb y x)
+                  | BGe => Some (fun x y => Fido.GoNumeric.int_leb y x)
                   | _ => None
                   end.
 Proof. intro o; destruct o; reflexivity. Qed.
@@ -4088,14 +4088,14 @@ Qed.
     DISPATCH AUTHORITY (gated): each live row IS, by reflexivity, the FULLY QUALIFIED model op —
     a rerouted row breaks a pin and fails the build. *)
 Example int_bitop_model_rows :
-  (int_bitop BAnd    = Some Fido.builtins.int_and)
-  /\ (int_bitop BOr     = Some Fido.builtins.int_or)
-  /\ (int_bitop BXor    = Some Fido.builtins.int_xor)
-  /\ (int_bitop BAndNot = Some Fido.builtins.int_andnot).
+  (int_bitop BAnd    = Some Fido.GoNumeric.int_and)
+  /\ (int_bitop BOr     = Some Fido.GoNumeric.int_or)
+  /\ (int_bitop BXor    = Some Fido.GoNumeric.int_xor)
+  /\ (int_bitop BAndNot = Some Fido.GoNumeric.int_andnot).
 Proof. repeat split; reflexivity. Qed.
 Example int_shift_op_model_rows :
-  (int_shift_op BShl = Some Fido.builtins.int_shl)
-  /\ (int_shift_op BShr = Some Fido.builtins.int_shr).
+  (int_shift_op BShl = Some Fido.GoNumeric.int_shl)
+  /\ (int_shift_op BShr = Some Fido.GoNumeric.int_shr).
 Proof. split; reflexivity. Qed.
 (* completeness: the dispatches are live on EXACTLY their ops — no silent hole, no silent widening *)
 Lemma int_bitop_complete : forall o,

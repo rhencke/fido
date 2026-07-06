@@ -4084,7 +4084,7 @@ Qed.
     guarantee lives on [rstep], not on [run_io].
     ============================================================================ *)
 (** The CONCRETE realizable coding [keystone_inj]/[keystone_prj] and its bounded round-trip
-    [keystone_roundtrip] are defined in [builtins.v] (over GoNumeric's [Z]-carried [i64wrap]). *)
+    [keystone_roundtrip] are defined in [GoNumeric.v] (over the [Z]-carried [i64wrap]). *)
 
 Section Keystone.
   Variable chenv : nat -> GoChan GoI64.    (* calculus channel id -> the IO channel *)

@@ -43,20 +43,6 @@ func Pred(n uint) uint {
 	}
 }
 
-type ListNode struct {
-	Ln_val  int64
-	Ln_next *ListNode
-}
-
-type ChanBox struct {
-	Cb_id   int64
-	Cb_chan chan ChanBox
-}
-
-type Tup = any
-type TagTup = any
-type EqTup = any
-
 func I64_abs(a int64) int64 {
 	if a < 0 {
 		return 0 - a
@@ -72,6 +58,20 @@ func U64_of_i64(a int64) uint64 {
 func I64_of_u64(a uint64) int64 {
 	return int64(a)
 }
+
+type ListNode struct {
+	Ln_val  int64
+	Ln_next *ListNode
+}
+
+type ChanBox struct {
+	Cb_id   int64
+	Cb_chan chan ChanBox
+}
+
+type Tup = any
+type TagTup = any
+type EqTup = any
 
 func Ceqb[T1 comparable](a T1, b T1) bool {
 	return a == b

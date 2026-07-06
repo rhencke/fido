@@ -2917,13 +2917,13 @@ Definition ownname_demo : IO unit :=
            any (OwnNames.go_min (7)%i64); any (OwnNames.repeat (6)%i64)].   (* 9 8 7 6 *)
 
 (** Invariant: OWNERSHIP is module IDENTITY, not a path component — a user module named
-    [builtins] defining [i64_add] is NOT owned; a component-scan regression would
-    mis-lower the call to native [+] (42 instead of 30). *)
-Module builtins.
+    [GoNumeric] (the REAL owner module's own name) defining [i64_add] is NOT owned; a
+    component-scan regression would mis-lower the call to native [+] (42 instead of 30). *)
+Module GoNumeric.
   Definition i64_add (x : GoI64) (_ : GoI64) : GoI64 := x.
-End builtins.
+End GoNumeric.
 Definition ownpath_demo : IO unit :=
-  println [any (builtins.i64_add (30)%i64 (12)%i64)].   (* 30 — NOT 42 *)
+  println [any (GoNumeric.i64_add (30)%i64 (12)%i64)].   (* 30 — NOT 42 *)
 
 (** Invariant: rendered-name binder uniqueness — [x'] and [x_] both mangle to Go [x_];
     the renderer renames the SECOND, so a signature never has duplicate Go params. *)
@@ -3194,7 +3194,7 @@ Definition main_effect : IO unit :=
   pure_rec_demo                 >>'   (* prints: 16 (pure value-returning recursion, pow2 4) *)
   natpred_demo                  >>'   (* prints: 16 1 (Nat.pred live use -> func Pred emitted; stdlib liveness) *)
   ownname_demo                  >>'   (* prints: 9 8 7 6 (user defs colliding with suppressed basenames/prefixes EMIT - ownership/type-checked suppression) *)
-  ownpath_demo                  >>'   (* prints: 30 (module IDENTITY ownership: user builtins.i64_add is NOT the intrinsic) *)
+  ownpath_demo                  >>'   (* prints: 30 (module IDENTITY ownership: user GoNumeric.i64_add is NOT the intrinsic) *)
   mangle_demo                   >>'   (* prints: 21 (x'/x_ binders mangle-collide - the canonical renderer keeps Go params unique) *)
   capture_demo                  >>'   (* prints: 77 1 (scope-aware allocation: a mangled loop binder cannot shadow-capture the outer variable) *)
   mutual_rec_demo               >>'   (* prints: true / false (mutual recursion is_even/is_odd) *)
