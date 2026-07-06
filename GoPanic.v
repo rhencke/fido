@@ -52,4 +52,3 @@ Definition rt_select_block : GoAny := anyt TString "go: select would block (no r
     than over-append.  Lives only in the suppressed [send] body (native Go [ch <- v] blocks
     faithfully) — like the [rt_*] above, in [is_inlined_ref]. *)
 Definition rt_chan_send_block : GoAny := anyt TString "go: send would block (buffer full / unbuffered, no receiver)"%string.
-
