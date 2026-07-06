@@ -19,7 +19,6 @@ From Stdlib Require Import Lia.
 From Stdlib Require Import Arith.
 From Fido Require Import GoRuntimeTypes.
 From Fido Require Import GoEffects.
-From Fido Require Import builtins.
 
 Inductive Next : Type :=
   | Jump : nat -> Next   (* goto block n *)

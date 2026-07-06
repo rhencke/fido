@@ -13,6 +13,7 @@ From Fido Require Import GoHeap.
 From Fido Require Import GoSession.
 From Fido Require Import GoString.
 From Fido Require Import GoSwitch.
+From Fido Require Import GoComplex.
 From Fido Require Import GoAst GoSafe GoEmit.  (* AST-first certified-emission spine (ARCHITECTURE.md) *)
 From Stdlib Require Import ZArith.
 From Stdlib Require Import Lia.

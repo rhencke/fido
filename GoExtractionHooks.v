@@ -11,7 +11,6 @@
 Require Import Coq.Strings.String.   (* the marker panic message *)
 From Fido Require Import GoRuntimeTypes.
 From Fido Require Import GoEffects.
-From Fido Require Import builtins.
 From Fido Require Import GoCFG.
 
 (** EMISSION-ONLY marker (the plugin suppresses this body and emits labels+goto).

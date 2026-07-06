@@ -260,3 +260,16 @@ Fixpoint goi64_list_eqb (xs ys : list GoI64) : bool :=
 Definition arr_eqb (a b : GoArray GoI64) : bool := goi64_list_eqb (arr_data a) (arr_data b).
 Definition arr3_eqb (a b : GoArr3 GoI64) : bool := goi64_list_eqb (arr3_data a) (arr3_data b).
 Definition arr2_eqb (a b : GoArr2 GoI64) : bool := goi64_list_eqb (arr2_data a) (arr2_data b).
+
+(** ---- Indexed [range] over a slice (Go spec "For statements: For range"): [for i, x := range xs] ----
+    [i] is the element INDEX (0, 1, 2, …), [x] the element — the indexed counterpart of
+    [for_each] (which discards the index).  The index is the Go [int] index type (the [Z]-carried [GoInt]).
+    Lowers to the native two-variable [for i, x := range xs]; the accumulator model below is
+    proof-only (recognized by name, decl suppressed). *)
+Fixpoint for_each_idx_from {A : Type} (i : GoInt) (xs : GoSlice A) (body : GoInt -> A -> IO unit) : IO unit :=
+  match xs with
+  | nil         => ret tt
+  | cons x rest => bind (body i x) (fun _ => for_each_idx_from (int_add i (intwrap 1)) rest body)
+  end.
+Definition for_each_idx {A : Type} (xs : GoSlice A) (body : GoInt -> A -> IO unit) : IO unit :=
+  for_each_idx_from (intwrap 0) xs body.

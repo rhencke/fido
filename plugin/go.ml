@@ -236,7 +236,7 @@ let record_ctor_tyname r =
    one with a matching path component) is never mis-recognized.  Extraction HOOKS are
    NEVER in this list — [from_hooks] is the separate, narrower ownership for names that
    exist only to be lowered. *)
-let model_dirpaths = ["Fido.builtins"; "Fido.GoNumeric"; "Fido.GoRuntimeTypes"; "Fido.GoEffects"; "Fido.GoPanic"; "Fido.GoSlice"; "Fido.GoMap"; "Fido.GoChan"; "Fido.GoHeap"; "Fido.GoSession"; "Fido.GoString"; "Fido.GoSwitch"]
+let model_dirpaths = ["Fido.GoNumeric"; "Fido.GoRuntimeTypes"; "Fido.GoEffects"; "Fido.GoPanic"; "Fido.GoSlice"; "Fido.GoMap"; "Fido.GoChan"; "Fido.GoHeap"; "Fido.GoSession"; "Fido.GoString"; "Fido.GoSwitch"; "Fido.GoComplex"]
 let from_model r =
   match (try Some (Nametab.dirpath_of_global r.glob) with Not_found -> None) with
   | None -> false
@@ -1099,7 +1099,7 @@ let is_i64_of_narrow_ref =
 let is_of_uint63_ref r = ref_has_suffix r ".PrimFloat.of_uint63"
 let is_int63_of_z_ref r = let n = global_basename r in n = "of_Z" || n = "of_pos" || n = "of_pos_rec"
 
-(* Fixed-width unsigned integer ops (builtins.v).  Carrier is int64; each op
+(* Fixed-width unsigned integer ops (GoNumeric.v).  Carrier is int64; each op
    masks back to the width, e.g. [u8_add a b] → [((a + b) & 0xff)], matching Go's
    uint8 wrap.  Comparisons go through [binop_of]; the masked arithmetic and the
    literal/normaliser get explicit cases in [pp_expr]. *)

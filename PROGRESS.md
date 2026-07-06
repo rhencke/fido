@@ -50,10 +50,10 @@ plugin CONSTRUCTS the `GExpr`; only `gprint` is verified. NOT "verified Go."
   guard-unreachability `floats_checked_total` (guard KEPT, fail-closed); denotation ⊆
   `SupportedProgram` (`gosem_sound`) + compositional converses; surfaces topic-split +
   manifest-gated. NO BehaviorSafe; main output still legacy. Zero axioms.
-- **Model layer** (proof-only): the split foundation modules (GoNumeric → GoRuntimeTypes →
-  GoEffects/GoPanic → GoSlice/GoMap/GoChan/GoHeap; plans/builtins-split.md) + the frozen
-  `builtins.v` op-layer remainder, `cmd.v`, `unified.v` (race-freedom/liveness proved
-  on `ustep`), `concurrency.v`.
+- **Model layer** (proof-only): the split model modules (GoNumeric → GoRuntimeTypes →
+  GoEffects/GoPanic → GoSlice/GoMap/GoChan/GoHeap → GoSession/GoString/GoSwitch/GoComplex;
+  plans/builtins-split.md — `builtins.v` is DELETED), `cmd.v`, `unified.v`
+  (race-freedom/liveness proved on `ustep`), `concurrency.v`.
 - **cmd↔unified bridge** (`cmd_unified.v`): ONE bridge, `bridge_heap_agrees` — any completing
   command (typed heap cells, arbitrary defer nesting, any panics) agrees with `run_cmd` end to
   end incl. final heaps; `no_heap` completion is `cmd.run_cmd_terminates`. ⚠ chan/spawn later.

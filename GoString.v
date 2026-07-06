@@ -2,7 +2,8 @@
     GoString — Go strings over the model: the string ops ([str_len]/[str_concat]/…), [[]byte]/
     [string] conversions, the FAITHFUL UTF-8 rune view ([str_to_runes]/[runes_to_str] — exactly
     Go's DecodeRune incl. U+FFFD on invalid input, round-trip verified), string comparison and
-    the total lexicographic order, the string expression switch, and [range] over a string.
+    the total lexicographic order, and [range] over a string (the string expression switch
+    lives in GoSwitch.v).
     Also HOME OF the sealed [ComparableW] witnesses for Go's generic [comparable] constraint
     (i64/u64/string): a witness CARRIES its decidability proof ([Squash]-sealed), and the string
     one is anchored on [str_eqb] defined here — one authority for both.  Mined out of the frozen

@@ -883,3 +883,48 @@ Proof.
   - left.  exact fork_write_before_read.
   - right. exact fork_write_before_read.
 Qed.
+
+(** ---- STRUCT CHANNELS (a 2-field [int64 x int64] struct over a channel) ----
+
+    A struct channel is a [GoChan (GoI64 * GoI64)]: the CELL stores the field TUPLE, tagged by the
+    DECIDABLE [TProd TI64 TI64] (a product is canonical, so [tag_eq] recovers it — a nominal
+    [GoTypeTag] for a NAMED struct is impossible, [tag_eq] cannot decide it).  The value sent IS the
+    tuple, so the channel marshals it by the IDENTITY.
+
+    COHERENCE — there is NO [StructRep] to choose, so a send and a receive CANNOT disagree on
+    field order: marshalling by the identity makes a swapped-rep corruption UNREPRESENTABLE
+    (the non-overridable behaviour of a Go [chan (int64,int64)]).  A named 2-field struct over
+    a channel would need a nominal struct tag (unavailable) — out of scope, not approximated.
+
+    *(Extraction of the idiomatic native [chan R] / [ch <- p] / [<-ch] is a separate slice: Coq's
+    [prod] is the multi-return tuple, so emitting it as a Go struct needs dedicated plugin work;
+    this lands the MODEL + the correctness theorem.)* *)
+Definition struct_make2 (n : GoInt) : IO (GoChan (GoI64 * GoI64)) :=
+  bind (make_chan_buf (TProd TI64 TI64) n) (fun ch => ret (MkChan (ch_loc ch))).
+Definition struct_send2 (ch : GoChan (GoI64 * GoI64)) (v : GoI64 * GoI64) : IO unit :=
+  send (TProd TI64 TI64) (MkChan (ch_loc ch)) v.
+Definition struct_recv2 (ch : GoChan (GoI64 * GoI64)) : IO (GoI64 * GoI64) :=
+  recv (TProd TI64 TI64) (MkChan (ch_loc ch)).
+
+(** CORRECTNESS — round-trip faithfulness.  On an OPEN, EMPTY channel, [struct_send2] then
+    [struct_recv2] recovers the struct EXACTLY: the field-tuple marshalling is lossless, by
+    [sr2_eta] of the channel's CANONICAL rep (send and recv share it — no rep to mismatch).  This
+    is the acceptance test at the model level (a struct survives a channel round-trip intact). *)
+Theorem struct_chan_roundtrip2 :
+  forall (ch : GoChan (GoI64 * GoI64)) (v : GoI64 * GoI64) (w : World),
+    @chan_closed (GoI64 * GoI64)%type (MkChan (ch_loc ch)) w = false ->
+    chan_buf (TProd TI64 TI64) (MkChan (ch_loc ch)) w = nil ->
+    chan_room (TProd TI64 TI64) (MkChan (ch_loc ch)) w = true ->
+    exists w', run_io (bind (struct_send2 ch v)
+                            (fun _ => struct_recv2 ch)) w = ORet v w'.
+Proof.
+  intros ch v w Hopen Hempty Hroom.
+  unfold struct_send2, struct_recv2.
+  rewrite run_bind.
+  rewrite (run_send (TProd TI64 TI64) (MkChan (ch_loc ch)) v w Hopen Hroom).
+  assert (Hbuf1 : chan_buf (TProd TI64 TI64) (MkChan (ch_loc ch))
+            (chan_send_upd (TProd TI64 TI64) (MkChan (ch_loc ch)) v w) = v :: nil)
+    by (rewrite chan_buf_send, Hempty; reflexivity).
+  rewrite (run_recv (TProd TI64 TI64) (MkChan (ch_loc ch)) v nil _ Hbuf1).
+  eexists; reflexivity.
+Qed.

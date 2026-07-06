@@ -176,16 +176,19 @@ make install-hooks # activate the pre-commit hook (once after clone)
 
 ## Files
 
-- `builtins.v` — **legacy load-bearing raw ore, not the intended final architecture. FROZEN: do
-  not grow it.** Mine permanent definitions into purpose-specific modules and delete the
-  monolith: `GoEffects.v` (World/Outcome/IO/ret/bind/panic/catch, observational equality,
-  effect laws), `GoPanic.v` (panic payloads), `GoNumeric.v`/`GoFloat.v`, `GoRuntimeTypes.v`
-  (tags/GoAny/zero values/comparability), `GoSlice.v`/`GoHeap.v`/`GoMap.v`/`GoChan.v`/
-  `GoSession.v`, plus the landed `GoCFG.v` and `GoExtractionHooks.v` (ONLY names the plugin
-  lowers by name). Plugin-recognized hooks stay isolated from semantic definitions; semantic
-  modules never export hooks as authority. Do not hide dependencies behind a giant `preamble.v`
-  re-export — prefer narrow imports in certified files; do not grow `preamble.v` into a
-  dependency fog.
+- **The model modules** (the COMPLETED builtins split — `builtins.v` is DELETED;
+  plans/builtins-split.md is the ledger): `GoNumeric.v` (records + the pure op layer + min/max
+  + float comparisons), `GoRuntimeTypes.v` (tags/GoAny/zero values/runtime comparability),
+  `GoEffects.v` (World/Outcome/IO/effect laws, output, block-scoped defer, int range),
+  `GoPanic.v` (panic payloads), `GoSlice.v` (pure-list slices/arrays/variadics/slice range),
+  `GoMap.v`, `GoChan.v` (channels + the go-mem story), `GoHeap.v` (the ref heap: locals,
+  pointers, nil-safety, SliceH aliasing, the struct heap), `GoSession.v`, `GoString.v`
+  (strings/UTF-8/ComparableW), `GoSwitch.v` (type asserts + every switch combinator),
+  `GoComplex.v`, plus `GoCFG.v` and `GoExtractionHooks.v` (ONLY names the plugin lowers by
+  name). Plugin-recognized hooks stay isolated from semantic definitions; semantic modules
+  never export hooks as authority. `preamble.v` declares the ML plugins ONLY — narrow imports
+  everywhere, never a re-export fog. Plugin ownership is the exact-dirpath `model_dirpaths`
+  whitelist (`from_model`), hooks separate (`from_hooks`).
 - `GoAst`/`GoPrint`/`GoTypes`/`GoSafe`/`GoEmit` — the certified-emission spine; `GoSem*` slices
   behavior (the `cmd.v` bridge; bridge or retire `unified.v`/`concurrency.v`, never fork a
   second universe); `cmd.v` — the effect evaluator the bridge agrees with;

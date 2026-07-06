@@ -18,6 +18,7 @@ Require Import Coq.Lists.List.
 From Stdlib Require Import ZArith.
 From Fido Require Import GoNumeric.
 From Fido Require Import GoRuntimeTypes.
+From Fido Require Import GoPanic.   (* rt_nil_deref for the nil-func invocation panic *)
 
 (** ---- World: a CONCRETE proof-only state record. ----
 
@@ -342,3 +343,35 @@ Proof.
   intros A cleanup x. unfold with_defer.
   rewrite bind_ret_l, catch_ret, bind_ret_l. reflexivity.
 Qed.
+
+(** ---- Integer [range] (Go 1.22, spec "For statements: For range" over an integer): [for i := range n] ----
+    Produces [i = 0, 1, …, n-1] (and runs zero times when [n = 0], exactly Go's rule).
+    The bound [n] is the iteration COUNT (a [nat] — non-negative, and the structurally
+    DECREASING argument, so termination is by construction with no carrier conversion); the produced index
+    [i] is the Go [int] index type (the [Z]-carried [GoInt]).  Recognized by name + decl suppressed, so the
+    lowering is the native [for i := range n] (the [nat] count renders as the bound). *)
+Fixpoint int_range_aux (i : GoInt) (n : nat) (body : GoInt -> IO unit) : IO unit :=
+  match n with
+  | O    => ret tt
+  | S f  => bind (body i) (fun _ => int_range_aux (int_add i (intwrap 1)) f body)
+  end.
+Definition int_range (n : nat) (body : GoInt -> IO unit) : IO unit :=
+  int_range_aux (intwrap 0) n body.
+
+(** Function VALUES.  [gofunc_of] wraps a real closure as a non-nil [GoFunc]; the
+    [zero_val (TArrow ..) = None] nil func is the ONLY other inhabitant.  [gofunc_call] is the
+    EFFECTFUL invocation: a real closure runs, but a [nil] ([None]) func PANICS with Go's exact
+    nil-dereference message ([rt_nil_deref]).  So a nil func is never a silently-callable
+    placeholder — extraction emits the bare Go call [f(x)], whose runtime nil-panic MATCHES. *)
+Definition gofunc_of {A B} (f : A -> B) : GoFunc A B := SomeFunc f.
+Definition gofunc_call {A B} (f : GoFunc A B) (x : A) : IO B :=
+  match f with
+  | SomeFunc g => ret (g x)
+  | NilFunc    => panic rt_nil_deref
+  end.
+Lemma gofunc_call_of : forall {A B} (f : A -> B) (x : A) (w : World),
+  run_io (gofunc_call (gofunc_of f) x) w = ORet (f x) w.
+Proof. reflexivity. Qed.
+Lemma gofunc_call_nil : forall {A B} (x : A) (w : World),
+  run_io (gofunc_call (@NilFunc A B) x) w = OPanic rt_nil_deref w.
+Proof. reflexivity. Qed.

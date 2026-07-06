@@ -4,5 +4,3 @@
 
 Declare ML Module "rocq-go-extraction".
 Declare ML Module "rocq-runtime.plugins.extraction".
-
-From Fido Require Export builtins.

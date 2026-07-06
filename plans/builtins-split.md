@@ -38,8 +38,9 @@ BLOCKs closed structurally):
    concurrency.v/unified.v rewrote to `GoSession.*`.
 10. numeric op layer → `GoNumeric.v` (ca28cba; see 1).
 11. `GoString.v` — string ops, []byte/string conversions, the faithful UTF-8 rune view,
-    string comparison + lexicographic order, the string switch, `range` over a string,
-    and the sealed `ComparableW` generic-comparable witnesses (anchored on `str_eqb`).
+    string comparison + lexicographic order, `range` over a string, and the sealed
+    `ComparableW` generic-comparable witnesses (anchored on `str_eqb`; the string switch
+    moved on to GoSwitch.v in wave 13).
 
 Reviews 9/10 also enforced: imports honest by USE (the never-used GoChan/GoMap imports
 in the cmd/GoSem universe and builtins' dead digits import are gone) and location prose
@@ -60,13 +61,13 @@ rule, not "lives in builtins.v").
     the faithful float min/max + f64 `>`/`>=`/`!=` → GoNumeric; `Variadic`/`vararg` +
     the array `==` deciders (`arr_eqb` family) → GoSlice.
 
-## Remaining ore (~280 lines) — the endgame carve
-
-- Complex numbers (~160 lines) — GoComplex.v.
-- The STRUCT CHANNELS demo (~45 lines) — GoChan.v candidate (channel-of-tuple theorem).
-- `range` over a slice → GoSlice.v; integer `range` → decided at cut time.
-- Then DELETE builtins.v and preamble's `Require Export builtins` — every consumer
-  imports narrowly; the split is complete when the monolith is GONE.
+14. THE DELETION — `GoComplex.v` took the pure complex layer; the STRUCT CHANNELS
+    theorem went home to `GoChan.v`; `range` over a slice to `GoSlice.v`; integer
+    `range` to `GoEffects.v` (an IO loop combinator).  Then **`builtins.v` was
+    DELETED**, `preamble.v` dropped its `Require Export builtins` (it declares the ML
+    plugins only), GoCFG/GoExtractionHooks dropped their dead builtins imports, dune
+    dropped the module, and `Fido.builtins` LEFT `model_dirpaths` — the plugin cannot
+    even name the monolith any more.  The split is COMPLETE.
 
 ## Acceptance per wave
 
