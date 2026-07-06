@@ -27,7 +27,7 @@ From Stdlib Require Import List Lia.
 Import ListNotations.
 
 (** The program syntax.  [COut] = a [print]/[println] of [xs] THEN the continuation; [CPan] = panic
-    (no continuation — it short-circuits); [CDfr] = defer; [CWrite]/[CRead] = the typed heap pair.
+    (no continuation — it short-circuits); [CDfr] = defer; [CWrite]/[CRead]/[CAlloc] = the typed heap trio.
     Channel effect nodes and [catch] follow in later slices. *)
 Inductive Cmd (A : Type) : Type :=
   | CRet : A -> Cmd A
@@ -41,7 +41,7 @@ Inductive Cmd (A : Type) : Type :=
      [CmdEq], never an axiom. *)
   | CWrite : nat -> GoAny -> Cmd A -> Cmd A   (* *l = v; then k — tag-PRESERVING (typed cell) *)
   | CRead  : nat -> (GoAny -> Cmd A) -> Cmd A   (* x := *l; then k x *)
-  (* [CAlloc] (appended LAST, same discipline as the heap pair): l := new(v); then k l.
+  (* [CAlloc] (appended LAST, same discipline as the read/write pair): l := new(v); then k l.
      DETERMINISTIC allocator — allocates at EXACTLY [w_next w] and bumps; an any-fresh-l
      rule would be an observably nondeterministic allocator (the continuation branches on
      [l]) and could clobber a mirrored-but-untraced cell.  Freshness ("the cell was [None]",

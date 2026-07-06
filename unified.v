@@ -16,7 +16,7 @@
     discipline (a later slice — see [UPrivateDisc] below).
 
     Effects and how each is carried:
-      - heap        [UWrite]/[URead]   -> [uc_heap] + [KWrite]/[KRead] trace events (drives race-freedom)
+      - heap        [UWrite]/[URead]/[UAlloc] -> [uc_heap]+[uc_next] + [KWrite]/[KRead] trace events (drives race-freedom; allocation IS a write)
       - channels    [USend]/[URecv]/[UClose] -> [uc_bufs] + [KSend]/[KRecv]/[KClose] (the [rstep] rules)
       - goroutines  [USpawn]           -> [uc_live] + [KSpawn]/[KStart] (the go-before-start hb edge)
       - OUTPUT      [UOut]             -> [uc_out] (an append-only log; output is not a memory race)
@@ -40,7 +40,7 @@ Import ListNotations.
 (** THE unified command language — every admitted effect, one syntax.  VALUES are a PARAMETER
     [V] — ONE calculus, two instantiations: the [rstep] embedding takes [V := nat] (values
     identity, so the trace/race machinery applies verbatim) and the cmd.v bridge takes
-    [V := GoAny] — the TRANSLATION covers output/panic/defer + the heap pair; the AGREEMENT
+    [V := GoAny] — the TRANSLATION covers output/panic/defer + the heap trio (write/read/alloc); the AGREEMENT
     is [cmd_unified.bridge_heap_agrees] (any completing command — heap ops, ALLOCATION, and defers included,
     final-heap agreement; [no_heap] completion is a theorem); channel agreement remains
     (plans/bridge-effects.md).  Locations/channels stay [nat]; [UOut] carries the rich [GoAny]

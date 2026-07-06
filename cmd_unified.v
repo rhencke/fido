@@ -14,7 +14,7 @@
     [w_output : list (bool * list GoAny)]).
 
     The module exposes ONE single-goroutine [usteps] AGREEMENT bridge, [bridge_heap_agrees]:
-    ANY [c] (heap reads/writes, arbitrary defer nesting, any panics) whose [run_cmd] COMPLETES
+    ANY [c] (heap reads/writes/ALLOCATIONS, arbitrary defer nesting, any panics) whose [run_cmd] COMPLETES
     agrees end to end INCLUDING final heaps, from the [ustart_w] mirrored-heap start (the
     completion premise is the well-formedness gate; for [no_heap] commands completion is a
     THEOREM — cmd.v's [run_cmd_terminates] — so consumers compose the two).  Plus cmd.v-side
@@ -445,7 +445,7 @@ Qed.
 
 
 
-(** ★ The GENERAL heap bridge (PUBLIC + GATED): for ANY [c] — heap reads/writes, arbitrary
+(** ★ The GENERAL heap bridge (PUBLIC + GATED): for ANY [c] — heap reads/writes/ALLOCATIONS, arbitrary
     defer nesting, any panics — whose [run_cmd] COMPLETES, the [usteps] run from the
     [ustart_w w] config (heap = [w]'s allocated cells, boxed) AGREES end to end, INCLUDING
     the final heaps ([heap_agrees] against the result world's allocated cells).  Assembly:

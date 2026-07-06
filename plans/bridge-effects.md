@@ -5,7 +5,7 @@ heap/channel/spawn effects, `run_cmd` stays THE sequential authority, the public
 theorems grow to cover the new constructors. Proof-only (no golden/plugin risk).
 
 DONE (theorems are the authority): slice 1 — value-parametric calculus (`Section
-UnifiedVal`); slice 2 — heap read/write (`CWrite`/`CRead`, unallocated access = ABSENCE)
+UnifiedVal`); slice 2 — heap read/write/ALLOC (`CWrite`/`CRead`/`CAlloc`, unallocated access = ABSENCE, deterministic allocation with the gated ValidWorld lemmas)
 and the ONE conditional bridge `bridge_heap_agrees` (heap + defers + panics, final-heap
 agreement from the `ustart_w` mirrored start; gated via `cmd_unified_surface`).
 
