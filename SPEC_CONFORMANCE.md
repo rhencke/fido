@@ -166,8 +166,9 @@ the earlier `list GoRune` (the rune view, which mismodelled `len`/`s[i]`).
 all lower to the native conversions; the runtime does the real UTF-8. ✓
 **`range s` DONE (2026-06-19):** `str_range s (fun i r => …)` → the native two-variable
 `for i, r := range s { … }` — `i` the BYTE offset of each code point, `r` the rune; byte
-offsets are the prefix sums of the per-rune UTF-8 widths (machine-checked `str_range_offsets`,
-`A 中 B → 0 1 4`), matching Go exactly. ✓
+offsets are the prefix sums of the CONSUMED source widths — the encoded rune width for valid
+UTF-8, ONE byte per invalid unit (U+FFFD), machine-checked `str_range_offsets`
+(`A 中 B → 0 1 4`) and `str_range_invalid_offsets` — matching Go exactly. ✓
 **Deferred (fails loud):** byte-level mutation (Go forbids `s[i] = …` anyway; strings
 are immutable).
 

@@ -46,12 +46,18 @@ in the cmd/GoSem universe and builtins' dead digits import are gone) and locatio
 that tells the truth everywhere (plugin comments state the `model_dirpaths` ownership
 rule, not "lives in builtins.v").
 
-## Remaining ore (~660 lines) — the endgame carve
+12. print/println + `w_log` + `output_distinguishes_programs` + block-scoped
+    `with_defer` (+ its two proofs) → `GoEffects.v` (it owns IO/output/panic/catch);
+    `w_init` moved DOWN from GoHeap to GoEffects (a pure World constant — the World
+    authority owns it); func-scoped `defer_call` → `GoExtractionHooks.v` (its model
+    body is a loud-panic plugin-hook guard, not certified semantics — CFG law), with
+    its recognizer re-pinned from `from_model` to `from_hooks`.
 
-- println/print + `output_distinguishes_programs` and panic/recover semantics —
-  GoEffects.v candidates (it owns IO/output/panic/catch).
-- Type switch (~240 lines) — needs IO (branch continuations), so GoRuntimeTypes can't
-  take it; destination decided at cut time (GoTypeSwitch.v or a justified home).
+## Remaining ore (~570 lines) — the endgame carve
+
+- Type assertion (`type_assert*`, rides with type switch) + Type switch (~240 lines) —
+  needs IO (branch continuations), so GoRuntimeTypes can't take it; destination decided
+  at cut time (GoTypeSwitch.v or a justified home).
 - Complex numbers (~160 lines) — GoComplex.v.
 - The STRUCT CHANNELS demo (~45 lines) — GoChan.v candidate (channel-of-tuple theorem).
 - `range` over a slice → GoSlice.v; integer `range` → decided at cut time.

@@ -250,7 +250,7 @@ let named n r = String.equal (global_basename r) n && from_model r
 (* [from_gocfg r] / [from_hooks r]: exact-dirpath identity for the split-out modules
    (the builtins.v mining, boss directive 2026-07-05).  [Fido.GoCFG] owns the CFG SEMANTIC
    names the lowering must recognize (the [Next] constructors); [Fido.GoExtractionHooks]
-   owns names that exist ONLY to be lowered by this plugin (run_blocks).  Same ownership
+   owns names that exist ONLY to be lowered by this plugin (run_blocks, defer_call).  Same ownership
    discipline as [from_model]: identity of the DEFINING module, never a component scan. *)
 let from_gocfg r =
   match (try Some (Nametab.dirpath_of_global r.glob) with Not_found -> None) with
@@ -341,7 +341,7 @@ let is_string_empty r = ref_has_suffix r ".Strings.String.EmptyString"
 let is_string_cons  r = ref_has_suffix r ".Strings.String.String"
 let is_ascii_ctor   r = ref_has_suffix r ".Strings.Ascii.Ascii"
 
-(* String builtins (builtins.v): [str_len s] → [int64(len(s))]; [str_concat a b]
+(* String builtins (GoString.v): [str_len s] → [int64(len(s))]; [str_concat a b]
    → [a + b] (via [binop_of]); [str_at_ok] → bounds-checked byte index. *)
 let is_str_len_ref    r = named "str_len" r
 let is_str_concat_ref r = named "str_concat" r
@@ -562,7 +562,7 @@ let is_recv_ok_ref = named "recv_ok"
 let is_select_recv2_ref = named "select_recv2"
 let is_select_recv_default_ref = named "select_recv_default"
 let is_go_spawn_ref = named "go_spawn"
-let is_defer_call_ref = named "defer_call"
+let is_defer_call_ref r = String.equal (global_basename r) "defer_call" && from_hooks r
 let is_proto_type r = named "Proto" r
 let is_proto_ctor r =
   from_model r &&

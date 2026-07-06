@@ -257,3 +257,88 @@ Proof.
   - exists a, w'. split; [reflexivity | exact H].
   - destruct H.
 Qed.
+
+(** ==================================================================================================
+    OUTPUT + BLOCK-SCOPED DEFER — [print]/[println] as RECORDED effects on the world's [w_output]
+    trace (programs that print differently are not [run_io]-equal — [output_distinguishes_programs]),
+    and the panic/recover layer's block-scoped [with_defer] (cleanup runs EXACTLY ONCE on both the
+    normal and the panic path — proved).  The func-scoped [defer_call] is NOT here: its shallow
+    [run_io] meaning is a loud-panic plugin-hook guard, so it lives in GoExtractionHooks.v; the
+    faithful func-scoped defer is cmd.v's [CDfr].  Mined out of the frozen builtins.v monolith
+    (plans/builtins-split.md).
+    ================================================================================================ *)
+
+(** [print]/[println] write to stdout — a RECORDED effect: each call appends an event
+    [(is_println, args)] to the world's [w_output] trace, so programs that print different
+    things are not [run_io]-equal.  Lowered BY NAME to native Go [print]/[println]; the
+    trace is proof-only and never extracted. *)
+Definition w_log (b : bool) (xs : list GoAny) (w : World) : World :=
+  mkWorld (w_refs w) (w_chans w) (w_maps w) (w_next w) (w_output w ++ ((b, xs) :: nil)).
+Definition print   (xs : list GoAny) : IO unit := fun w => ORet tt (w_log false xs w).
+Definition println (xs : list GoAny) : IO unit := fun w => ORet tt (w_log true xs w).
+
+(** The initial world: empty heaps, allocator at 1 — so location 0 is reserved for [nil]. *)
+Definition w_init : World := mkWorld (fun _ => None) (fun _ => None) (fun _ => None) 1 nil.
+
+(** [run_io] RESPECTS output — a program that prints TWICE is not provably equal to
+    one that prints ONCE.  The result worlds differ in their [w_output] trace length. *)
+Example output_distinguishes_programs :
+  run_io (bind (println nil) (fun _ => println nil)) w_init
+  <> run_io (println nil) w_init.
+Proof. vm_compute. discriminate. Qed.
+
+(** [panic], [bind_panic_l], and the PANIC-SENSITIVE Hoare logic ([hoare_panic_unreachable] /
+    [hoare_no_panic]) are defined up top with the panic-aware semantics; all are proved lemmas. *)
+
+(** ---- panic / recover semantics ----
+
+    [catch m h] is the semantic of [defer func() { if r := recover(); r != nil { h(r) } }()].
+    [recover()] in Go is just the panic value bound by [h] — it needs no separate axiom.
+
+    Compound panics: if [h] itself panics with [w], [catch (panic v) h = h v = panic w],
+    so the new panic [w] replaces [v].  This is correct Go semantics and falls out from
+    [catch_panic] alone — no extra law needed.
+
+    [with_defer] models [defer cleanup()] (without recover): runs [cleanup] on both
+    normal exit and panic exit.  If [cleanup] panics mid-panic, the new panic wins —
+    also correct Go semantics, again from [catch_panic] + [bind_panic_l]. *)
+
+(** [catch] is declared up top; [catch_ret] and [catch_panic] are proved
+    lemmas (from [run_catch]), not axioms. *)
+
+(** [with_defer cleanup m]: run [m], then run [cleanup] EXACTLY ONCE regardless
+    of outcome (Go runs one deferred call once).  If [cleanup] panics, its panic
+    replaces any in-flight panic.
+    Invariant: cleanup does NOT live inside the [catch] that distinguishes the
+    body outcome — [m]'s outcome is reified into a [GoAny + A] sum WITHOUT running
+    cleanup, then cleanup runs exactly once on the single post-[catch] path and
+    the captured body panic is re-raised. *)
+Definition with_defer {A : Type} (cleanup : IO unit) (m : IO A) : IO A :=
+  r <-' catch (x <-' m ;; ret (@inr GoAny A x)) (fun v => ret (@inl GoAny A v)) ;;
+  cleanup >>' match r with
+              | inl v => panic v
+              | inr x => ret x
+              end.
+
+(** When the guarded body panics, the deferred [cleanup] still runs and the
+    original panic propagates afterwards.  Follows from [bind_panic_l] (panic
+    short-circuits the body, reifying nothing) and [catch_panic] (the handler
+    captures the panic as [inl v]); cleanup then runs once and re-raises it. *)
+Lemma with_defer_panic : forall {A} (cleanup : IO unit) (v : GoAny),
+  @with_defer A cleanup (panic v) =io= cleanup >>' panic v.
+Proof.
+  intros A cleanup v. unfold with_defer.
+  rewrite bind_panic_l, catch_panic, bind_ret_l. reflexivity.
+Qed.
+
+(** Companion lemma for the NORMAL path: when the body returns [x], cleanup runs
+    and [x] propagates.  Crucially this holds UNCONDITIONALLY in [cleanup] — even
+    a [cleanup] that panics is run exactly once (the RHS mentions [cleanup] once);
+    together with [with_defer_panic] it certifies a single cleanup execution on
+    both exits. *)
+Lemma with_defer_ret : forall {A} (cleanup : IO unit) (x : A),
+  @with_defer A cleanup (ret x) =io= cleanup >>' ret x.
+Proof.
+  intros A cleanup x. unfold with_defer.
+  rewrite bind_ret_l, catch_ret, bind_ret_l. reflexivity.
+Qed.

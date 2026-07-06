@@ -16,7 +16,6 @@ From Stdlib Require Import StrictProp.
 From Fido Require Import GoNumeric.
 From Fido Require Import GoRuntimeTypes.
 From Fido Require Import GoEffects.
-From Fido Require Import GoSlice.
 
 (** ---- String operations (Go spec "String types") ----
 

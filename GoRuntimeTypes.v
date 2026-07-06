@@ -16,7 +16,7 @@ From Fido Require Import GoNumeric.
     BYTE count and [s[i]] the i'th BYTE, exactly as the spec defines.
     Immutability is automatic (a pure value).  The plugin maps [string] → Go
     [string] and decodes literals to byte-faithful Go string literals.
-    The rune view ([range s]) is a separate UTF-8 decode, deferred. *)
+    The rune view ([range s]) is GoString.v's faithful UTF-8 decode. *)
 From Stdlib Require Import Strings.String Strings.Ascii.
 Definition GoString : Type := string.
 

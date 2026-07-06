@@ -131,7 +131,7 @@ Qed.
     [run_cmd] runs the body THEN its defers at function-scope return (LIFO, on panic too).  There is no
     shallow [Cmd -> IO] reading of a [Cmd]: a sequential [World -> Outcome] cannot run a func-scoped defer,
     so a "shallow" reading would DROP the deferred effect — which is why [run_cmd]
-    is the sole semantics (and why [builtins.defer_call] FAILS LOUD instead of silently dropping). *)
+    is the sole semantics (and why [GoExtractionHooks.defer_call] FAILS LOUD instead of silently dropping). *)
 Definition oc_world {A} (oc : Outcome A) : World := match oc with ORet _ w => w | OPanic _ w => w end.
 Definition oc_set_world {A} (oc : Outcome A) (w : World) : Outcome A :=
   match oc with ORet a _ => ORet a w | OPanic v _ => OPanic v w end.

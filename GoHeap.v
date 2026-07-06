@@ -89,9 +89,6 @@ Definition ValidWorld (w : World) : Prop :=
   (forall l, (w_next w <=? l)%nat = true ->
      w_refs w l = None /\ w_chans w l = None /\ w_maps w l = None).
 
-(** The initial world: empty heaps, allocator at 1 — so location 0 is reserved for [nil]. *)
-Definition w_init : World := mkWorld (fun _ => None) (fun _ => None) (fun _ => None) 1 nil.
-
 Lemma valid_w_init : ValidWorld w_init.
 Proof.
   split.
