@@ -24,7 +24,7 @@ land closed-recv proofs for at least TWO distinct element types.
    mirrored-but-untraced cell. Shape: `CAlloc : GoAny -> (nat -> Cmd A) -> Cmd A`; `go`
    allocates at `w_next w` and bumps; unified side mirrors `uc_next` and `ustep_alloc`
    allocates EXACTLY there (emits `KWrite l` — allocation IS a write). Freshness is a
-   THEOREM only under `builtins.ValidWorld`, so every public allocation surface carries a
+   THEOREM only under `GoHeap.ValidWorld`, so every public allocation surface carries a
    `ValidWorld w` premise with preservation through the body run and the defer unwind;
    the allocator agreement `uc_next = w_next w` threads beside `heap_agrees`. Landing
    obligations: no clobber of an allocated cell; no nil (location-0) allocation from a

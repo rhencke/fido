@@ -14,7 +14,7 @@
     groups, demos + the gated surfaces live in GoSem.v (the composition point re-exporting
     both; the surfaces remain the public authority).
     ============================================================================ *)
-From Fido Require Import GoAst GoTypes preamble.   (* [preamble] re-exports [builtins]: [GoAny]/[anyt]/[intwrap]/[World]/[w_log]/[Outcome]/[ORet] *)
+From Fido Require Import GoAst GoTypes preamble.   (* [preamble] declares the extraction ML plugins only *)
 From Fido Require Import GoNumeric.
 From Fido Require Import GoString.
 From Fido Require Import GoRuntimeTypes.

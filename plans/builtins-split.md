@@ -1,7 +1,8 @@
 # The builtins.v split — wave roadmap (boss directive 2026-07-05; CLAUDE.md law governs)
 
-builtins.v is FROZEN raw ore being mined into final-purpose modules; the monolith and
-preamble's global re-export die at the end.  No compatibility façade at any step.
+builtins.v (6,800 lines of raw ore) WAS mined into final-purpose modules; the monolith and
+preamble's global re-export are GONE (wave 14, 861076a).  No compatibility façade existed
+at any step.
 
 ## Landed
 
@@ -32,7 +33,7 @@ BLOCKs closed structurally):
 8. `GoHeap.v` (ee184b7) — the ref heap: locals (`Ref` + `ref_sel`/`ref_upd` selectors),
    `ValidWorld`, pointers + `&x`, closed-world nil-safety, `SliceH`
    aliasing handles, `HStruct` bundles + chan/ref frame lemmas, generic
-   `StructRep`/`GSPtr` struct heap.  The STRUCT CHANNELS demo stays in builtins.
+   `StructRep`/`GSPtr` struct heap.  The STRUCT CHANNELS demo stayed behind (→ GoChan.v in wave 14).
 9. `GoSession.v` (6f9c779) — Proto/dual + the linear forge-proof `Sess` indexed monad +
    `run_session`; builtins does NOT import it; `builtins.PSend`-style qualified refs in
    concurrency.v/unified.v rewrote to `GoSession.*`.

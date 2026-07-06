@@ -1598,7 +1598,7 @@ Definition int_sw3_demo (x : GoI64) : IO unit :=
 
 (** Complex numbers (Go's predeclared [complex]/[real]/[imag]): build a [complex128] from
     two float64 components, then extract them.  [go_real (go_complex re im) = re] holds by
-    [reflexivity] (see builtins.v); lowers to native [complex(…)]/[real(…)]/[imag(…)]. *)
+    [reflexivity] (see GoComplex.v); lowers to native [complex(…)]/[real(…)]/[imag(…)]. *)
 Definition complex_demo : IO unit :=
   let c := go_complex (1.5)%go64 (2.5)%go64 in
   println [any (go_real c); any (go_imag c)].   (* the two components (Go float format) *)

@@ -20,7 +20,7 @@
     the program-level fixture GROUPS / demos / frontier + the gated SURFACES (the public
     authority); grounding examples stay adjacent to their theorems upstream.
     ============================================================================ *)
-From Fido Require Import GoAst GoTypes GoSafe cmd preamble.   (* [preamble] re-exports [builtins]: [GoAny]/[anyt]/[intwrap]/[World]/[w_log]/[Outcome]/[ORet] *)
+From Fido Require Import GoAst GoTypes GoSafe cmd preamble.   (* [preamble] declares the extraction ML plugins only *)
 From Fido Require Import GoNumeric.
 From Fido Require Import GoString.
 From Fido Require Import GoRuntimeTypes.

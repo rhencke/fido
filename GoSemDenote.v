@@ -9,7 +9,7 @@
     Local-sealed split exists.  Program-level fixtures, demos, and the gated surfaces
     live downstream in GoSem.v (re-exports GoSemCore + this file).
     ============================================================================ *)
-From Fido Require Import GoAst GoTypes GoSafe cmd preamble.   (* [preamble] re-exports [builtins]: [GoAny]/[anyt]/[intwrap]/[World]/[w_log]/[Outcome]/[ORet] *)
+From Fido Require Import GoAst GoTypes GoSafe cmd preamble.   (* [preamble] declares the extraction ML plugins only *)
 From Fido Require Import GoNumeric.
 From Fido Require Import GoRuntimeTypes.
 From Fido Require Import GoEffects.
