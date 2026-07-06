@@ -19,7 +19,7 @@ land closed-recv proofs for at least TWO distinct element types.
 
 ## Remaining slices
 
-2d. **`CAlloc` (design v2, LANDED except the ValidWorld gate lemmas — see the ledger).**
+2d. **`CAlloc` (design v2) — ★LANDED COMPLETE (fcede13 + the gate-lemma commit): every ledger box checked; the gate lemmas are IN `cmd_unified_surface` (manifest-gated).**
    ★LIVE WIP LEDGER (update as slices land; the tree may hold uncommitted WIP):
    [x] cmd.v: `CAlloc : GoAny -> (nat -> Cmd A) -> Cmd A` (appended LAST) + `cell_of_any`/
        `alloc_world` (+output lemma) + arms in Cmd_rect'/cbind/CmdEq(CE_al)/go/run_cmd +
@@ -39,7 +39,7 @@ land closed-recv proofs for at least TWO distinct element types.
        (COut/CRead preserve w_next definitionally; CWrite via a heap_write_next lemma;
        CAlloc: both sides allocate at the SAME location, heap_agrees extends via
        any_of_cell (cell_of_any v) = v round-trip lemma).
-   [ ] regression obligations (gate lemmas, ValidWorld-premised): no location-0
+   [x] regression obligations (gate lemmas, ValidWorld-premised): no location-0
        allocation from a valid start; no clobber of an allocated cell; preservation of
        ValidWorld through alloc (likely lands in GoHeap.v as valid_alloc_cmd or in
        cmd_unified.v).

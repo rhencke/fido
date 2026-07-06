@@ -33,6 +33,7 @@ From Fido Require Import preamble concurrency cmd unified.
 From Fido Require Import GoRuntimeTypes.
 From Fido Require Import GoEffects.
 From Fido Require Import GoSlice.
+From Fido Require Import GoHeap.   (* ValidWorld — the CAlloc gate lemmas live where alloc_world meets it *)
 From Stdlib Require Import List Lia.
 Import ListNotations.
 
@@ -552,6 +553,35 @@ End BridgeVal.
     nothing consumes — compiled but outside every printed cone) — is mechanically rejected
     repo-wide by smart-ctor-gate.sh check 6 (token-aware; exact boundary documented at the
     detector); a general Local lemma's audit is membership in a consumer's cone. *)
+(** ---- The CAlloc regression obligations (design v2's gate lemmas): under GoHeap's
+    [ValidWorld] the deterministic allocator is SAFE — the minted location is never 0
+    (Go's nil is unreachable from a continuation branching on it), never a clobber of
+    an allocated cell, and validity is PRESERVED by [alloc_world] (so the obligations
+    compose down a run).  cmd.v owns [alloc_world], GoHeap owns [ValidWorld]; the
+    bridge is where the two meet. *)
+Theorem calloc_loc_nonzero : forall w, ValidWorld w -> Nat.eqb (w_next w) 0 = false.
+Proof.
+  intros w [Hpos _]. destruct (w_next w); [ discriminate Hpos | reflexivity ].
+Qed.
+Theorem calloc_no_clobber : forall w, ValidWorld w -> w_refs w (w_next w) = None.
+Proof.
+  intros w [_ Hbound].
+  exact (proj1 (Hbound (w_next w) (PeanoNat.Nat.leb_refl _))).
+Qed.
+Theorem alloc_world_valid : forall v w, ValidWorld w -> ValidWorld (alloc_world v w).
+Proof.
+  intros v w [Hpos Hbound]. split.
+  - reflexivity.
+  - intros l Hl. cbn [alloc_world w_next] in Hl.
+    apply PeanoNat.Nat.leb_le in Hl.
+    assert (Hgt : w_next w <= l) by lia.
+    assert (El : Nat.eqb l (w_next w) = false)
+      by (apply PeanoNat.Nat.eqb_neq; lia).
+    cbn [alloc_world w_refs w_chans w_maps]. rewrite El.
+    apply Hbound. apply PeanoNat.Nat.leb_le. exact Hgt.
+Qed.
+
 Definition cmd_unified_surface :=
-  (cmd_to_ucmd_fragment, bridge_heap_agrees, run_cmd_out_monotone, run_cmd_no_panic_ret).
+  (cmd_to_ucmd_fragment, bridge_heap_agrees, run_cmd_out_monotone, run_cmd_no_panic_ret,
+   calloc_loc_nonzero, calloc_no_clobber, alloc_world_valid).
 Print Assumptions cmd_unified_surface.
