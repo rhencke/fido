@@ -55,7 +55,7 @@ Arguments p_loc {A} _.
     Because it is an inductive (not a type), it survives extraction —
     the plugin inspects the constructor to emit [v.(T)] with the right type.
 
-    Extend this inductive as new Go types are added to builtins. *)
+    Extend this inductive as new Go types are added to the model. *)
 
 (* A genuinely RECURSIVE Go struct type — [type ListNode struct { Val int64 ; Next *ListNode }].
    Defined above [GoTypeTag] so the tag inductive can carry the NULLARY nominal tag

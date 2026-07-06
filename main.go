@@ -1594,9 +1594,15 @@ block1:
 
 func Cond_goto_demo(early bool) {
 	println(1)
-	if !early {
-		println(2)
+	if early {
+		goto block2
+	} else {
+		goto block1
 	}
+block1:
+	println(2)
+	goto block2
+block2:
 	println(3)
 	return
 }

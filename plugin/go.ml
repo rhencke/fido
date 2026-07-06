@@ -504,7 +504,10 @@ let is_slice_copy_ref = named "slice_copy"         (* copy(dst, src) *)
    [Next] constructors in [Fido.GoCFG] (semantic module — the plugin recognizes its
    CONSTRUCTORS at lowering sites but lowers no definition from it). *)
 let is_run_blocks_ref r = String.equal (global_basename r) "run_blocks" && from_hooks r
+let is_run_cblocks_ref r = String.equal (global_basename r) "run_cblocks" && from_hooks r
 let is_jump_ctor r = String.equal (global_basename r) "Jump" && from_gocfg r
+let is_cbseq_ctor r = String.equal (global_basename r) "CBSeq" && from_gocfg r
+let is_cbif_ctor  r = String.equal (global_basename r) "CBIf"  && from_gocfg r
 let is_done_ctor r = String.equal (global_basename r) "Done" && from_gocfg r
 let is_map_make_ref = named "map_make"
 let is_map_make_typed_ref = named "map_make_typed"
@@ -2055,6 +2058,11 @@ let pp_destr_binder fenv body id =
 
 let db1_free e = dbn_free 1 e
 
+(* forward cell: [is_suppressed_ref] is defined after the emitters (it consults late
+   registries), but pp_expr's suppression SEAL needs it — bound once, right after the
+   real definition. *)
+let is_suppressed_ref_fwd : (global -> bool) ref = ref (fun _ -> false)
+
 (*s CFG block terminators ([Next] values).  A block emitter delegates its
     terminator to one of these, so the same emitter prints raw labels+goto or
     structured continue/break depending on context. *)
@@ -2942,6 +2950,11 @@ let rec pp_expr state env = function
   | MLglob r ->
       if is_bool_true r     then str "true"
       else if is_bool_false r then str "false"
+      (* [Extraction Inline]'d constants: the decl is SUPPRESSED (dterm_emits) because the
+         optimizer substitutes use sites; a reference that SURVIVED substitution would call
+         an undefined Go identifier — fail loud here, never at go build. *)
+      else if to_inline r then
+        unsupported "a residual reference to an [Extraction Inline]'d constant — its Go declaration is suppressed (the body inlines at use sites), so a surviving reference would call an undefined Go identifier"
       (* TYPED-MAP RULE: a BARE (unapplied) map constructor has no key/value tags to render a typed
          map, and `make(map[any]any)` is the wrong Go type (not the model's typed map[K]V) — fail loud. *)
       else if is_map_make_ref r || is_map_make_typed_ref r then
@@ -2966,6 +2979,12 @@ let rec pp_expr state env = function
            && not (Hashtbl.mem live_stdlib (global_path r)
                    && Hashtbl.mem stdlib_decl_present (global_path r)) then
         unsupported ("stdlib reference " ^ global_basename r ^ " with no emitted Go definition (not lowered by name, and its declaration is dead or absent)")
+      (* the SEAL on suppression: a suppressed model/hook declaration is never emitted as
+         Go, so a reference surviving to value position (e.g. a partial application of a
+         by-name-lowered op) would print an UNDEFINED Go identifier — every recognized
+         call shape was tried above/at callers; fail loud, never at go build. *)
+      else if !is_suppressed_ref_fwd r then
+        unsupported ("a live value-position reference to the suppressed model/hook name " ^ global_basename r ^ " — its declaration is never emitted as Go (by-name lowerings apply only at recognized call shapes)")
       else str (go_export (global_basename r))
 
   | MLfix (i, names, _) ->
@@ -4062,6 +4081,103 @@ let pp_io_body ?(ret_val=false) state tab env body =
                   arm_doc
               | None ->
                   unsupported "run_blocks with a non-literal block list (the CFG blocks must be statically known; emitting only a comment would silently DROP all control flow)")
+         (* run_cblocks start [cb0; …] → Go labels + goto for the STATIC-TARGET CBlock
+            class (GoCFG.CBlock): terminators are constructor SYNTAX (CBSeq/CBIf), so this
+            lowering never recognizes computed [Next] values and needs no structurer.
+            Bodies are effect-only action chains (a value-binding bind fails CLOSED —
+            hoisting is run_blocks territory); non-literal spines/targets/entries and
+            non-constructor elements fail CLOSED, mirroring the run_blocks rejections. *)
+         | MLglob r, [start; blocks] when is_run_cblocks_ref r ->
+             (match unfold_list [] blocks with
+              | Some cbs ->
+                  let start_v = match nat_value start with
+                    | Some v -> v
+                    | None -> unsupported "run_cblocks with a non-literal start block index (the CFG entry label must be statically known; defaulting to block0 would silently run a DIFFERENT program)" in
+                  let nblk = List.length cbs in
+                  let cb_parts cb = match cb with
+                    | MLcons (_, c, [body; t]) when is_cbseq_ctor c -> `Seq (body, t)
+                    | MLcons (_, c, [body; t1; t2]) when is_cbif_ctor c -> `If (body, t1, t2)
+                    | _ -> unsupported "a run_cblocks element that is not a literal CBSeq/CBIf constructor application (a computed CBlock value has no static structure to lower)" in
+                  let parts = List.map cb_parts cbs in
+                  let target_lbl t = match t with
+                    | MLcons (_, c, [nn]) when is_jump_ctor c ->
+                        (match nat_value nn with
+                         | Some v -> Some v
+                         | None -> unsupported "a run_cblocks Jump to a non-literal block target (the goto label must be statically known; defaulting would jump to the WRONG block)")
+                    | MLcons (_, c, []) when is_done_ctor c -> None
+                    | _ -> unsupported "a run_cblocks terminator that is neither a literal Jump nor Done — an unrecognized Next value would silently become `return`, truncating the block's control flow" in
+                  let jumps =
+                    List.concat_map
+                      (function `Seq (_, t) -> [t] | `If (_, t1, t2) -> [t1; t2]) parts
+                    |> List.filter_map target_lbl in
+                  let () =
+                    if nblk = 0 || start_v >= nblk then
+                      unsupported (Printf.sprintf "run_cblocks entry block index %d is out of range (there are only %d blocks): `goto block%d` would be an undefined Go label" start_v nblk start_v);
+                    List.iter (fun t ->
+                      if t >= nblk then
+                        unsupported (Printf.sprintf "run_cblocks Jump to block index %d is out of range (there are only %d blocks): an undefined Go label" t nblk))
+                      (List.sort_uniq compare jumps) in
+                  let needs_label i = List.mem i jumps || (i = start_v && start_v <> 0) in
+                  let lbl_indent =
+                    if String.length tab >= 1 then String.sub tab 0 (String.length tab - 1) else "" in
+                  (* body walker: effect-only bind chains; the tail is either [ret v]
+                     (handed to [term]) or a final bare action (emitted, then [term None]) *)
+                  let rec emit_cbody benv b term =
+                    let h, args = collect_app b [] in
+                    let vis = List.filter (fun a -> not (is_erased a)) args in
+                    match h, vis with
+                    | MLglob rr, [action; k] when is_bind_ref rr ->
+                        let ids, kbody = collect_lam k in
+                        (* effect-only discipline: a bind is fine only when its RESULT is
+                           dead (the binder unused downstream) and the action is not a
+                           value read — either would need a hoisted Go variable, which is
+                           run_blocks territory; emitting anyway would reference an
+                           UNDECLARED identifier (fail-open at go build = too late). *)
+                        let result_used = (match ids with
+                          | [] -> false
+                          | [_] -> not (db1_free kbody)   (* [db1_free] = index 1 does NOT occur *)
+                          | _ -> true) in
+                        let action_is_value =
+                          (match fst (collect_app action []) with
+                           | MLglob ar -> is_ref_get_ref ar | _ -> false) in
+                        if result_used || action_is_value then
+                          unsupported "a run_cblocks body that THREADS a bound value (needs hoisted variables) — the CBlock lowering is effect-only; use run_blocks for value-threading blocks"
+                        else
+                          let ids = alloc_binders benv (List.map (fun _ -> Dummy) ids) in
+                          emit_action state [] tab benv ids action
+                          ++ emit_cbody (List.rev ids @ benv) kbody term
+                    | MLglob rr, [v] when is_ret_ref rr -> term benv (Some v)
+                    | MLglob rr, [] when is_ret_ref rr -> term benv None
+                    | _ -> emit_action state [] tab benv [Dummy] b ++ term benv None in
+                  let doc_of i part =
+                    let lbl =
+                      if needs_label i
+                      then str lbl_indent ++ str ("block" ^ print_i64_dec (Int64.of_int i)) ++ str ":" ++ fnl ()
+                      else mt () in
+                    lbl ++
+                    (match part with
+                     | `Seq (body, t) ->
+                         emit_cbody env body (fun _benv v ->
+                           match v with
+                           | None -> raw_term tab t
+                           | Some _ -> unsupported "a run_cblocks CBSeq body ending in a value [ret] — a CBSeq body is a unit action sequence; the terminator is the constructor's own Next argument")
+                     | `If (body, t1, t2) ->
+                         emit_cbody env body (fun benv v ->
+                           match v with
+                           | Some cond ->
+                               str tab ++ str "if " ++ pp_expr state benv cond ++ str " {" ++ fnl ()
+                               ++ raw_term (tab ^ "\t") t1
+                               ++ str tab ++ str "} else {" ++ fnl ()
+                               ++ raw_term (tab ^ "\t") t2
+                               ++ str tab ++ str "}" ++ fnl ()
+                           | None -> unsupported "a run_cblocks CBIf body that does not end in [ret cond] — the branch condition must be the body's final value")) in
+                  let entry =
+                    if start_v <> 0
+                    then str tab ++ str ("goto block" ^ print_i64_dec (Int64.of_int start_v)) ++ fnl ()
+                    else mt () in
+                  List.fold_left (fun acc d -> acc ++ d) entry (List.mapi doc_of parts)
+              | None ->
+                  unsupported "run_cblocks with a non-literal block-list spine (the CFG must be a literal [cb0; …] list; a computed spine has no static structure to lower)")
          | MLglob r, [m; h] when named "catch" r ->
              let ids, h_body = collect_lam h in
              let ids = alloc_binders env ids in
@@ -5108,7 +5224,7 @@ let is_suppressed_ref r =
   is_str_slice_ref r || ref_has_suffix r ".String.substring" ||  (* s[a:b]: recognized → slice expr; body + substring suppressed *)
   is_str_eqb_ref r || is_str_ltb_ref r || is_str_cmp_ref r || is_f64_cmp_ref r || is_f32_cmp_ref r ||
   is_int_of_fw r ||  (* widening conversions — call sites recognized and emitted as a real [int(x)] cast; body suppressed *)
-  is_for_each_ref r || is_slice_fold_ref r || is_run_blocks_ref r ||
+  is_for_each_ref r || is_slice_fold_ref r || is_run_blocks_ref r || is_run_cblocks_ref r ||
   is_ref_type r || is_ref_new_ref r || is_ref_get_ref r || is_ref_set_ref r ||
   is_ptr_type r || is_ptr_new_ref r || is_go_new_ref r || is_ptr_get_ref r || is_ptr_set_ref r ||
   is_ptr_nil_ref r || is_ptr_nil_tf_ref r || is_ptr_as_ref_ref r || is_ref_as_ptr_ref r || is_ptr_get_ok_ref r ||
@@ -5159,6 +5275,8 @@ let is_suppressed_ref r =
    [collect_decls] pass 4): a dead private dependency of a suppressed proof-only body
    DROPS; a real use KEEPS its definition, which then lowers exactly or fails loud at
    emission.  Registration passes use [is_suppressed_ref] — they never read the table. *)
+let () = is_suppressed_ref_fwd := is_suppressed_ref
+
 let is_inlined_ref r =
   is_suppressed_ref r ||
   (is_stdlib_ref r && not (Hashtbl.mem live_stdlib (global_path r)))
@@ -5171,7 +5289,7 @@ let is_inlined_ref r =
    [pp_decl]'s Dfix arm additionally splits [dfix_emits]=false into all-suppressed (drop)
    vs MIXED (abort) — group-consistent with pass-3 registration. *)
 let dterm_emits r typ =
-  not (is_inlined_ref r) && not (is_record_proj r)
+  not (is_inlined_ref r) && not (to_inline r) && not (is_record_proj r)
   && (match typ with Tglob (rt, _) when is_proto_type rt -> false | _ -> true)
 let dfix_emits refs = not (Array.exists is_inlined_ref refs)
 

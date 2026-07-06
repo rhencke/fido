@@ -113,6 +113,14 @@ grammar; see item 2's ★AUTHORITY note).  Open items it adds, in its recommende
    (d) Negtests: a non-literal CBlock spine aborts; an out-of-range static target
    aborts.  Acceptance: make check green, the new demo's gate lemmas in GoCFG.v/main.v
    (`run_cblocks` itself in GoExtractionHooks.v), fuel-gate/axiom manifests unchanged.
+   ★LANDED: the hook + `run_cblocks_never_ret`; the plugin arm (labels+goto, effect-only
+   bodies, every rejection fail-closed); `cond_goto_demo` REPLACED (the run_blocks version
+   deleted) with `eq_refl` gates `cond_goto_targets_ok`/`cond_goto_forward_ok` tied to the
+   demo by the definitional `cond_goto_demo_gated`; negtests `neg_cblock_oob` (the arm's
+   target validation) + `neg_cblock_spine` (the NEW suppression seal — the landing also
+   closed a fail-open class: a suppressed model/hook name leaking to value position now
+   aborts instead of printing an undefined Go identifier, and `Extraction Inline`'d
+   constants are suppressed with a residual-reference guard).  Golden byte-identical.
 2. **Quarantine `run_blocks` demos harder** — integration/log-diff evidence only.
 3. **Plugin starving** (standing): feature-by-feature GoAst -> GoPrint -> GoSafe -> GoEmit.
 4. **Gated public surfaces**: every doc-cited theorem inside a manifest-gated surface.

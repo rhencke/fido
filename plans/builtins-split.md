@@ -35,7 +35,7 @@ BLOCKs closed structurally):
    aliasing handles, `HStruct` bundles + chan/ref frame lemmas, generic
    `StructRep`/`GSPtr` struct heap.  The STRUCT CHANNELS demo stayed behind (→ GoChan.v in wave 14).
 9. `GoSession.v` (6f9c779) — Proto/dual + the linear forge-proof `Sess` indexed monad +
-   `run_session`; builtins does NOT import it; `builtins.PSend`-style qualified refs in
+   `run_session`; builtins did NOT import it; `builtins.PSend`-style qualified refs in
    concurrency.v/unified.v rewrote to `GoSession.*`.
 10. numeric op layer → `GoNumeric.v` (ca28cba; see 1).
 11. `GoString.v` — string ops, []byte/string conversions, the faithful UTF-8 rune view,

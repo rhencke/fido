@@ -3,7 +3,7 @@
 From Fido Require Import preamble.
 From Fido Require Import GoChan.
 From Fido Require Import GoMap.
-From Fido Require Import GoCFG GoExtractionHooks.  (* CFG semantics + the run_blocks emission hook *)
+From Fido Require Import GoCFG GoExtractionHooks.  (* CFG semantics + the run_blocks/run_cblocks emission hooks *)
 From Fido Require Import GoNumeric.
 From Fido Require Import GoRuntimeTypes.
 From Fido Require Import GoEffects.
@@ -1704,12 +1704,14 @@ Definition str_range_demo : IO unit :=
                         (rune_to_str (i32wrap 33))))   (* "H€!" — H(1 byte) €(3) !(1) *)
     (fun i r => println [any i; any r]).   (* 0 72 / 1 8364 / 4 33 (byte offset, rune) *)
 
-(** ⚠ QUARANTINE — EVERY [run_blocks] demo in this file (this one, [count_demo],
-    [cfg_nonzero_entry_demo], [cond_goto_demo], …) is INTEGRATION/log-diff evidence about
-    the TRUSTED emitter's labels+goto lowering ONLY.  None of them is semantic evidence:
-    the model-side CFG authority is [blocks_eval]/[blocks_diverge] with the gated
-    class-wide theorems ([blocks_cfg_surface], GoCFG.v), and evaluating [run_blocks]
-    model-side PANICS loudly.  A demo here can never make a CFG shape supported. *)
+(** ⚠ QUARANTINE — EVERY [run_blocks]/[run_cblocks] demo in this file (this one,
+    [count_demo], [cfg_nonzero_entry_demo], [cond_goto_demo], …) is INTEGRATION/log-diff
+    evidence about the TRUSTED emitter's labels+goto lowering ONLY.  None of them is
+    semantic evidence: the model-side CFG authority is [blocks_eval]/[blocks_diverge] with
+    the gated class-wide theorems ([blocks_cfg_surface], GoCFG.v), and evaluating either
+    marker model-side PANICS loudly.  A demo here can never make a CFG shape supported —
+    though a [run_cblocks] demo's STATIC admissibility ([check_targets]/[check_forward])
+    is decided in Rocq by its [eq_refl] gate lemmas before emission ever runs. *)
 (** Capture in a goto loop: the loop-temp [iv] is captured BY VALUE per iteration, so
     the deferred calls (LIFO at return) print 2, 1, 0 — not 2, 2, 2.
     ⚠ Trust boundary: this is the EMITTED-Go RUNTIME; the shallow `run_io` model of
@@ -2059,15 +2061,43 @@ Definition cfg_nonzero_entry_demo : IO unit :=
     bind (println [any (int_lit 5 eq_refl)]) (fun _ => ret (Jump 0%nat))     (* block 1 — the ENTRY, then → block 0 *)
   ].
 
-(** Goto-CFG: block 0 conditionally skips block 1; the structurer lifts this to a
-    one-armed [if !early { println(2) }].  early ⇒ 1,3 ; else ⇒ 1,2,3. *)
+(** Goto-CFG on the STATIC-TARGET class: block 0 prints 1 then branches on [early]
+    (skip to 2 / fall to 1) — the terminators are [CBSeq]/[CBIf] SYNTAX, so this demo's
+    admissibility is DECIDED before emission by GoCFG's checkers (the [eq_refl] gate
+    lemmas below), and the plugin lowers labels+goto without recognizing computed [Next]
+    values.  early ⇒ 1,3 ; else ⇒ 1,2,3.  (Replaces the run_blocks version — the
+    starve policy deletes the superseded demo.) *)
 Definition cond_goto_demo (early : bool) : IO unit :=
-  run_blocks 0%nat [
-    bind (println [any (int_lit 1 eq_refl)]) (fun _ =>
-      if early then ret (Jump 2%nat) else ret (Jump 1%nat)) ;
-    bind (println [any (int_lit 2 eq_refl)]) (fun _ => ret (Jump 2%nat)) ;
-    bind (println [any (int_lit 3 eq_refl)]) (fun _ => ret Done)
+  run_cblocks 0%nat [
+    CBIf (bind (println [any (int_lit 1 eq_refl)]) (fun _ => ret early))
+         (Jump 2%nat) (Jump 1%nat) ;
+    CBSeq (println [any (int_lit 2 eq_refl)]) (Jump 2%nat) ;
+    CBSeq (println [any (int_lit 3 eq_refl)]) Done
   ].
+
+(** The demo's CFG, as a NAMED term for the gate lemmas.  Proof-only: [Extraction Inline]
+    suppresses its Go declaration (no extracted use sites), and [cond_goto_demo_gated]
+    proves — definitionally — that the demo RUNS exactly this gated CFG, so the checkers
+    below gate the demo's actual argument, never a drifting copy. *)
+Definition cond_goto_blocks (early : bool) : list CBlock := [
+    CBIf (bind (println [any (int_lit 1 eq_refl)]) (fun _ => ret early))
+         (Jump 2%nat) (Jump 1%nat) ;
+    CBSeq (println [any (int_lit 2 eq_refl)]) (Jump 2%nat) ;
+    CBSeq (println [any (int_lit 3 eq_refl)]) Done
+  ].
+Extraction Inline cond_goto_blocks.
+Example cond_goto_demo_gated : forall early,
+  cond_goto_demo early = run_cblocks 0%nat (cond_goto_blocks early).
+Proof. intro early. reflexivity. Qed.
+
+(** GATE LEMMAS ([eq_refl] — the checkers RUN in Rocq): every target in range
+    ([check_targets] ⇒ [jump_wf], GoCFG.check_targets_jump_wf), and strictly FORWARD
+    ([check_forward] — the ranked termination certificate's decider).  The bodies are
+    irrelevant to both checkers, so one [reflexivity] covers every [early]. *)
+Example cond_goto_targets_ok : forall early, check_targets (cond_goto_blocks early) = true.
+Proof. intro early. reflexivity. Qed.
+Example cond_goto_forward_ok : forall early, check_forward (cond_goto_blocks early) = true.
+Proof. intro early. reflexivity. Qed.
 
 (** Diamond: two arms reconverging at a merge; the structurer (immediate post-dominator)
     lifts to [if b { 10 } else { 20 }; 99], emitting the merge once. *)
@@ -3253,7 +3283,7 @@ Extraction NoInline
   make_chan make_chan_buf send recv close_chan recv_ok select_recv2 select_recv_default go_spawn
   map_empty map_make map_make_typed
   map_get_opt map_len map_get_or map_set map_delete map_clear
-  print println defer_call append slice_of_list run_blocks str_range for_each_idx int_range
+  print println defer_call append slice_of_list run_blocks run_cblocks str_range for_each_idx int_range
   len slice_get slice_at_ok str_at_ok str_slice str_eqb str_ltb str_to_bytes str_from_bytes str_to_runes runes_to_str rune_to_str
   type_assert type_assert_safe type_switch2 type_switch3 type_switch_or2 type_switch_or3 struct_eqb int_switch2 int_switch3 str_switch2 str_switch3
   go_complex go_real go_imag complex_add complex_sub complex_mul complex_div complex_neg complex_eqb complex_neqb

@@ -24,6 +24,20 @@ Lemma run_blocks_never_ret : forall start blocks (w w' : World),
   run_io (run_blocks start blocks) w <> ORet tt w'.
 Proof. intros start blocks w w'. cbn. discriminate. Qed.
 
+(** EMISSION-ONLY marker for the STATIC-TARGET CFG class ([GoCFG.CBlock]): the terminators
+    are constructor SYNTAX ([CBSeq]/[CBIf]), so the plugin lowers the structure without
+    recognizing computed [Next] values, and a demo's admissibility arrives ALREADY DECIDED
+    by GoCFG's checkers ([check_targets]/[check_forward] — [eq_refl] gate lemmas at the
+    call site).  Model-side semantics live in GoCFG ([cblock_denote] under
+    [blocks_eval]/[blocks_diverge]) — never this marker. *)
+Definition run_cblocks (start : nat) (cbs : list CBlock) : IO unit :=
+  fun w => OPanic (anyt TString "fido: run_cblocks is EMISSION-ONLY — the CBlock semantics are GoCFG's cblock_denote under blocks_eval/blocks_diverge, never evaluation"%string) w.
+
+(** The marker can never be mistaken for normal completion. *)
+Lemma run_cblocks_never_ret : forall start cbs (w w' : World),
+  run_io (run_cblocks start cbs) w <> ORet tt w'.
+Proof. intros start cbs w w'. cbn. discriminate. Qed.
+
 (** [defer_call] — Go's func-scoped [defer], lowered BY NAME by the plugin; the shallow sequential
     [run_io] semantics CANNOT reify a func-scoped deferred command, so the model body is a LOUD
     panic guard (never a silent drop).  The faithful semantics is [run_cmd]'s [CDfr] (cmd.v).
