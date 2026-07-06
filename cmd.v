@@ -12,7 +12,7 @@
     its CONTINUATION, so [cbind] (append the continuation) and the interpreters are genuine structural
     [Fixpoint]s.
 
-    THIS FILE: the syntax for output/panic/defer + the typed HEAP pair ([CWrite]/[CRead] — tag-preserving
+    THIS FILE: the syntax for output/panic/defer + the typed HEAP trio ([CWrite]/[CRead]/[CAlloc] — tag-preserving
     writes, ABSENT on unallocated access), [cbind] + the monad laws (over [CmdEq]), and the
     AUTHORITATIVE operational interpreter [run_cmd] — which runs the body THEN its [defer] stack (LIFO,
     func-scope return, on panic too; the #12 fix).  There is NO shallow [Cmd -> IO] reading: a sequential

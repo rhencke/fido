@@ -29,7 +29,9 @@ land closed-recv proofs for at least TWO distinct element types.
    [x] unified.v: `UAlloc : V -> (nat -> UCmd) -> UCmd`; UConfig += `uc_next : nat` (LAST
        field — every mkUCfg gains a 9th arg, threading nx unchanged except ustep_alloc);
        `ustep_alloc` = allocate at EXACTLY uc_next, `upd h nx v`, emit `KWrite nx`, bump
-       (allocation IS a write); UOnlyAcc/UMemFree/uoa_* arms; EVERY ustep
+       (allocation IS a write); UOnlyAcc/UMemFree deliberately gained NO UAlloc constructor
+       (a dynamic location defeats the static ownership discipline — fail-closed absence;
+       uprivate_disc_step's alloc inversion is vacuous); EVERY ustep
        inversion/case-analysis (~12 sites + uprivate_disc_step/uready_can_step/
        ustuck_blocked/out-trace-grows) gains the alloc case.
    [x] cmd_unified.v: `cmd_to_ucmd` CAlloc→UAlloc arm; UFrag UF_al ctor +

@@ -79,8 +79,9 @@ plugin CONSTRUCTS the `GExpr`; only `gprint` is verified. NOT "verified Go."
 
 ## NEXT
 
-- Resume the cmd↔unified bridge (`plans/bridge-effects.md`): `CAlloc`, channels (structural
-  typed zero), spawn.
+- Continue the cmd↔unified bridge (`plans/bridge-effects.md`): `CAlloc` LANDED (allocator
+  agreement in `bridge_heap_agrees` + gated ValidWorld safety lemmas); next channels
+  (structural typed zero), then spawn.
 - Grow behavioral safety toward `BehaviorSafe` → `SafeProgram` → `emit_safe` — locals arc OPEN
   (`plans/gosem-locals.md`; next: the env statement layer); wire the certified path to the main
   output; widen the live GoPrint bridge — gate-honestly.

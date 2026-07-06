@@ -148,7 +148,7 @@ Proof.
   destruct (run_cmd_terminates c w (cmd_no_panic_no_heap c Hnp)) as [oc Hrun].
   destruct (run_cmd_no_panic_ret c w oc Hrun Hnp) as [w' ->].
   destruct (bridge_heap_agrees vz c ucap w (ORet tt w') Hrun)
-    as [uc [Hus [Hlive [Hpan [Hout _]]]]].
+    as [uc [Hus [Hlive [Hpan [Hout [_ _]]]]]].
   exists uc, w'. split; [ exact Hrun | split; [ exact Hus | split; [ exact Hlive | split ] ] ].
   - rewrite Hpan. reflexivity.
   - cbn [oc_world] in Hout. exact Hout.

@@ -41,7 +41,7 @@ Import ListNotations.
     [V] — ONE calculus, two instantiations: the [rstep] embedding takes [V := nat] (values
     identity, so the trace/race machinery applies verbatim) and the cmd.v bridge takes
     [V := GoAny] — the TRANSLATION covers output/panic/defer + the heap pair; the AGREEMENT
-    is [cmd_unified.bridge_heap_agrees] (any completing command — heap ops and defers included,
+    is [cmd_unified.bridge_heap_agrees] (any completing command — heap ops, ALLOCATION, and defers included,
     final-heap agreement; [no_heap] completion is a theorem); channel agreement remains
     (plans/bridge-effects.md).  Locations/channels stay [nat]; [UOut] carries the rich [GoAny]
     payload at EVERY instantiation since output is observed, not raced.  [vzero] is ONLY a

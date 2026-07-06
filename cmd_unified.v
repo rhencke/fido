@@ -1,13 +1,14 @@
 (** cmd_unified.v — the FIRST bridge between Fido's two proof-only semantics universes.
 
     GoSem denotes the supported AST into [cmd.v]'s command tree [Cmd unit] (CRet / COut / CPan / CDfr,
-    plus the heap pair CWrite / CRead — typed cells, ABSENT on unallocated access).
+    plus the heap TRIO CWrite / CRead / CAlloc — typed cells, ABSENT on unallocated access,
+    DETERMINISTIC allocation at exactly [w_next]).
     [unified.v] is the closed-world OPERATIONAL semantics ([UCmd] / [ustep]) on which race-freedom and
     liveness/deadlock are proved.  The charter (ARCHITECTURE.md) requires GoSem to BRIDGE that existing
     semantics, NOT fork a second universe.  The structural fact that makes the bridge concrete: [cmd.v]'s
     constructors map 1-for-1 into [unified.v]'s fragment —
         CRet -> URet,  COut b xs -> UOut b xs,  CPan v -> UPan v,  CDfr d -> UDfr d,
-        CWrite l v -> UWrite l v,  CRead l f -> URead l f.
+        CWrite l v -> UWrite l v,  CRead l f -> URead l f,  CAlloc v f -> UAlloc v f.
     So [cmd_to_ucmd] is a TOTAL translation of cmd.v's [Cmd unit] command tree into a subset of [UCmd].  The
     print/println flag on [COut] is PRESERVED ([unified.v]'s [UOut]/[uc_out] carry it, exactly the model's
     [w_output : list (bool * list GoAny)]).
@@ -55,7 +56,7 @@ Fixpoint cmd_to_ucmd (c : Cmd unit) : UCmdG :=
   end.
 
 (** PUBLIC + GATED: the IMAGE seal — [cmd_to_ucmd] lands in the TRANSLATED fragment BY
-    CONSTRUCTION: output/panic/defer plus the heap pair, and NO channel/spawn form ever
+    CONSTRUCTION: output/panic/defer plus the heap trio (write/read/alloc), and NO channel/spawn form ever
     ([USend]/[URecv]/[USelect]/[UClose]/[USpawn] all excluded) — so no bridged run can reach
     a closed-recv rule; the CHANNEL slice must land its own structural seal before that
     changes (plans/bridge-effects.md). *)
@@ -459,7 +460,8 @@ Theorem bridge_heap_agrees : forall (c : Cmd unit) ucap w oc,
     /\ uc_live uc 0 = false
     /\ uc_panic uc 0 = ocpanic oc
     /\ w_output (oc_world oc) = w_output w ++ map snd (uc_out uc)
-    /\ heap_agrees (uc_heap uc) (w_refs (oc_world oc)).
+    /\ heap_agrees (uc_heap uc) (w_refs (oc_world oc))
+    /\ uc_next uc = w_next (oc_world oc).   (* the allocator agreement, end to end *)
 Proof.
   intros c ucap w oc H.
   destruct (run_cmd_eval c w oc H) as [oc0 [ds [result [Hgo [Hun Hcomb]]]]].
@@ -504,7 +506,7 @@ Proof.
   - exists (mkUCfg pB (fun _ => nil) hB (upd (fun t => Nat.eqb t 0) 0 false) trB
                    ((nil ++ map (fun e => (0, e)) evs0) ++ map (fun e => (0, e)) evs1) dfB paB
                    (w_next (oc_world result))).
-    split; [ | split; [ apply upd_same | split; [ | split ] ] ].
+    split; [ | split; [ apply upd_same | split; [ | split; [ | split ] ] ] ].
     + unfold ustart_w. eapply usteps_trans; [ exact HusA | ].
       eapply usteps_trans; [ exact HusB | ].
       eapply usteps_step;
@@ -515,10 +517,11 @@ Proof.
       rewrite Hw0, Hout0, !map_app, map_snd_pair0. cbn [app map].
       rewrite map_snd_pair0, <- app_assoc. reflexivity.
     + cbn [uc_heap]. rewrite Hocw. exact HhaB.
+    + cbn [uc_next]. rewrite Hocw. reflexivity.
   - exists (mkUCfg pB (fun _ => nil) hB (upd (fun t => Nat.eqb t 0) 0 false) trB
                    ((nil ++ map (fun e => (0, e)) evs0) ++ map (fun e => (0, e)) evs1) dfB
                    (upd paB 0 (Some v)) (w_next (oc_world result))).
-    split; [ | split; [ apply upd_same | split; [ | split ] ] ].
+    split; [ | split; [ apply upd_same | split; [ | split; [ | split ] ] ] ].
     + unfold ustart_w. eapply usteps_trans; [ exact HusA | ].
       eapply usteps_trans; [ exact HusB | ].
       eapply usteps_step;
@@ -529,6 +532,7 @@ Proof.
       rewrite Hw0, Hout0, !map_app, map_snd_pair0. cbn [app map].
       rewrite map_snd_pair0, <- app_assoc. reflexivity.
     + cbn [uc_heap]. rewrite Hocw. exact HhaB.
+    + cbn [uc_next]. rewrite Hocw. reflexivity.
 Qed.
 
 (** The NEGATIVE witness for the quarantine: an unallocated read has NO completing run at
