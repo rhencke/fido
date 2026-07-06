@@ -79,7 +79,6 @@ Lemma gofunc_call_nil : forall {A B} (x : A) (w : World),
 Proof. reflexivity. Qed.
 
 (** ---- Types ---- *)
-(** [GoAny] / [any] are defined up top (the panic semantics need them). *)
 
 
 (** ---- Fixed-width unsigned integers (precise, computable models) ----
