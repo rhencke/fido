@@ -3,6 +3,7 @@
    (`invalid map key type`).  Extraction MUST abort rather than emit `make(map[[]T]V)`
    (the map-key comparability rule). *)
 From Fido Require Import preamble.
+From Fido Require Import GoMap.
 From Fido Require Import GoEffects.
 From Fido Require Import GoRuntimeTypes.
 From Fido Require Import GoNumeric.
