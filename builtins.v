@@ -12,52 +12,13 @@ From Stdlib Require Import StrictProp.   (* Squash: carry a range invariant in S
 From Fido Require Import GoNumeric.   (* the numeric model (split wave 1) — ints + spec_float floats *)
 From Fido Require Import GoRuntimeTypes.   (* the runtime type layer (split wave 2) — carriers + GoTypeTag + GoAny + zero_val *)
 From Fido Require Import GoEffects.   (* the effect model (split wave 3) — World/Outcome/IO/io_eq/Hoare *)
+From Fido Require Import GoPanic.     (* the runtime panic payloads (split wave 4) *)
 Require Import Coq.Strings.String Coq.Strings.Ascii.
 From Fido Require Import digits.      (* decimal authority for runtime panic payloads *)
 (* No [PrimInt63] / [PrimFloat] imports: the numeric model is AXIOM-FREE — integers are [Z]-carried
    records, heap locations [nat], floats [SpecFloat.spec_float]. *)
 
 
-(** ---- Runtime-panic VALUES ----
-    A modeled runtime panic carries the SAME string Go's [recover] sees via the runtime error's
-    [Error()] — so a [catch]/recover handler can DISTINGUISH runtime errors from each other AND
-    from a user [panic] (which carries the user's own value).  The string IS the abstraction
-    relation to Go's panic value.  Model-only: a runtime panic lowers to the NATIVE Go operation
-    (whose own panic fires), so these values live solely in the suppressed op bodies and are never
-    extracted — they are listed in the plugin's [is_inlined_ref]. *)
-Definition rt_nil_deref    : GoAny := anyt TString "runtime error: invalid memory address or nil pointer dereference"%string.
-Definition rt_div_zero     : GoAny := anyt TString "runtime error: integer divide by zero"%string.   (* integer / and % by zero — consumed by GoSem's effectful denotation (not extracted) *)
-Definition rt_shift_neg    : GoAny := anyt TString "runtime error: negative shift amount"%string.    (* a NEGATIVE runtime shift count — consumed by GoSem's T5 typed-shift denotation (not extracted); payload verified against gc via go run *)
-(** Decimal rendering of a [Z] (for the EXACT runtime panic payloads below) — DEFINITIONALLY
-    the ONE decimal authority ([digits.print_Z], shared with the verified printer, whose parse
-    round-trip [GoPrint.print_parse_Z] gates it): no second digit-builder exists. *)
-Notation Z_dec_string := digits.print_Z.
-(** The EXACT Go bounds-panic payload (verified against gc 1.23 via `go run`): a non-negative
-    out-of-range index reads "index out of range [i] with length n"; a NEGATIVE index reads
-    "index out of range [i]" with NO length part.  Parametrized — every panic site supplies the
-    actual index and length, no collapsed class-wide value. *)
-Definition rt_index_oob (i : Z) (n : nat) : GoAny :=
-  anyt TString (if (i <? 0)%Z
-                then ("runtime error: index out of range [" ++ Z_dec_string i ++ "]")%string
-                else ("runtime error: index out of range [" ++ Z_dec_string i ++ "] with length "
-                      ++ Z_dec_string (Z.of_nat n))%string).
-Definition rt_slice_bounds : GoAny := anyt TString "runtime error: slice bounds out of range"%string.
-Definition rt_neg_make     : GoAny := anyt TString "runtime error: makeslice: len out of range"%string.
-Definition rt_nil_map      : GoAny := anyt TString "assignment to entry in nil map"%string.
-Definition rt_send_closed  : GoAny := anyt TString "send on closed channel"%string.
-Definition rt_close_closed : GoAny := anyt TString "close of closed channel"%string.
-Definition rt_close_nil    : GoAny := anyt TString "close of nil channel"%string.
-Definition rt_assert_fail  : GoAny := anyt TString "interface conversion: interface is not the asserted type"%string.
-(** Model-INTERNAL fail-loud for a [select] whose every case would block and that has no [default]:
-    the sequential [IO] model has no Blocked outcome, so it refuses LOUDLY rather than fabricate a
-    value.  Unreachable in a well-formed program; the EXTRACTION is the native Go [select{}] which
-    blocks faithfully, so this value lives only in the suppressed body — in [is_inlined_ref]. *)
-Definition rt_select_block : GoAny := anyt TString "go: select would block (no ready case, no default)"%string.
-(** Model-INTERNAL fail-loud for a [send] with no buffer room (full [Some n], or unbuffered [Some 0] with no
-    waiting receiver): Go BLOCKS, which the sequential IO model cannot represent, so it refuses LOUDLY rather
-    than over-append.  Lives only in the suppressed [send] body (native Go [ch <- v] blocks
-    faithfully) — like the [rt_*] above, in [is_inlined_ref]. *)
-Definition rt_chan_send_block : GoAny := anyt TString "go: send would block (buffer full / unbuffered, no receiver)"%string.
 
 
 (** Function VALUES.  [gofunc_of] wraps a real closure as a non-nil [GoFunc]; the

@@ -13,6 +13,7 @@ From Fido Require Import preamble.
 From Fido Require Import GoNumeric.
 From Fido Require Import GoRuntimeTypes.
 From Fido Require Import GoEffects.
+From Fido Require Import GoPanic.
 From Stdlib Require Import List Lia Arith.
 Require Import Coq.Logic.FunctionalExtensionality.
 (* No [PrimInt63]: the value carriers ([GoI64]/…) are [Z]-records and locations are [nat]
