@@ -17,6 +17,7 @@
 
 From Fido Require Import preamble cmd GoAst GoTypes GoSafe GoSem cmd_unified unified GoEmit.
 From Fido Require Import GoRuntimeTypes.
+From Fido Require Import GoEffects.
 From Stdlib Require Import String List Bool Sumbool ZArith.   (* ZArith registers Z's number notation so [EInt 10] type-directs to [Z] *)
 Import ListNotations.
 

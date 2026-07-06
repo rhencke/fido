@@ -6,6 +6,7 @@
    are modeled)") rather than emit a plausible-but-wrong call.  Locks the [print|println]
    `unfold_list = None` fail-closed site. *)
 From Fido Require Import preamble.
+From Fido Require Import GoEffects.
 From Fido Require Import GoRuntimeTypes.
 Definition neg_bad (l : list GoAny) : IO unit := println l.
 Go Main Extraction neg_out "neg_bad".

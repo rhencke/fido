@@ -30,6 +30,7 @@
 
 From Fido Require Import preamble concurrency.
 From Fido Require Import GoRuntimeTypes.
+From Fido Require Import GoEffects.
 From Stdlib Require Import List Lia Arith FunctionalExtensionality.
 Import ListNotations.
 

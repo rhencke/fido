@@ -6,6 +6,7 @@
    This is the field-namespace half of the identifier-collision class (the package-level half
    is `register_emitted_name`); neither had a negative fixture before. *)
 From Fido Require Import preamble.
+From Fido Require Import GoEffects.
 From Fido Require Import GoNumeric.
 Record Pt := { x' : GoI64 ; x_ : GoI64 }.
 Definition mk : Pt := {| x' := (1)%i64 ; x_ := (2)%i64 |}.

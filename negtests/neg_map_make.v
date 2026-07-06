@@ -3,6 +3,7 @@
    types (reads yield `any`, not assignable to `map[K]V`).  Extraction MUST abort, directing
    to `map_make_typed <keytag> <valtag>` (the typed-map rule). *)
 From Fido Require Import preamble.
+From Fido Require Import GoEffects.
 From Fido Require Import GoRuntimeTypes.
 From Fido Require Import GoNumeric.
 Definition neg_bad : IO (GoMap GoI64 GoI64) := map_make.

@@ -12,7 +12,9 @@
 From Fido Require Import preamble.
 From Fido Require Import GoNumeric.
 From Fido Require Import GoRuntimeTypes.
+From Fido Require Import GoEffects.
 From Stdlib Require Import List Lia Arith.
+Require Import Coq.Logic.FunctionalExtensionality.
 (* No [PrimInt63]: the value carriers ([GoI64]/…) are [Z]-records and locations are [nat]
   ; this proof layer names no kernel primitive. *)
 Import ListNotations.
@@ -4494,7 +4496,16 @@ Section KeystonePtr.
 
   (* EXTRACTABLE deref = bridge ref-access: on a live pointer the *T ops the plugin emits ARE the ref
      accesses the Keystone reasons about — so a calculus location is a real (non-nil) Go pointer. *)
-  (* These bridge lemmas state STRUCTURAL (Leibniz) equality of two distinct IO functions — needed
+  (** [run_io_inj]: observational equality UPGRADED to Leibniz equality — this is the ONE place the
+    trust base still touches [functional_extensionality].  The IO ALGEBRA above
+    is genuinely axiom-free (proved over [io_eq]); funext survives ONLY where a STRUCTURAL
+    rewrite of the IO term is needed — the concurrency [Denotes] Keystone bridge ([ptr_set_is_ref]),
+    which inducts on the IO term's shape and so cannot use the observational [io_eq].  Removing it
+    there needs an observational [Denotes], part of the concurrency unification (#2/#3). *)
+Lemma run_io_inj : forall {A} (m m' : IO A), io_eq m m' -> m = m'.
+Proof. intros A m m' H. apply functional_extensionality. exact H. Qed.
+
+(* These bridge lemmas state STRUCTURAL (Leibniz) equality of two distinct IO functions — needed
      because the [Denotes] Keystone below inducts on the IO term's shape and so cannot use the
      observational [io_eq].  This is the one surviving funext use, via run_io_inj. *)
   Lemma ptr_set_is_ref : forall l v, ptr_set TI64 (ptrenv l) v = ref_set (plocenv l) v.

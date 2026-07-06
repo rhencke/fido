@@ -21,6 +21,7 @@
     [catch] are future slices (plans/bridge-effects.md). *)
 From Fido Require Import preamble.
 From Fido Require Import GoRuntimeTypes.
+From Fido Require Import GoEffects.
 From Stdlib Require Import List Lia.
 Import ListNotations.
 
