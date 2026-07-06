@@ -17,7 +17,6 @@ From Fido Require Import GoNumeric.
 From Fido Require Import GoRuntimeTypes.
 From Fido Require Import GoEffects.
 From Fido Require Import GoPanic.
-From Fido Require Import GoSlice.
 From Fido Require Import GoMap.
 From Fido Require Import GoChan.
 

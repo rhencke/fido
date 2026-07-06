@@ -220,7 +220,7 @@ Spec: a struct is a sequence of named fields; VALUE semantics (assign/pass copie
   through the tag-free phantom `Ptr` is vacuously positive); a FINITE nullary nominal
   tag (`TListNode`) round-trips `tag_eq`; `linked_list_demo` heap-allocates and
   traverses → `1 2 3`, golden-locked. ⚠ each named recursive type needs its own tag
-  ctor in builtins.v (auto-tagging needs a named-type registry — deferred).
+  ctor in GoRuntimeTypes.v (auto-tagging needs a named-type registry — deferred).
 - ✗ not yet: embedding a bare PRIMITIVE (no methods to promote — niche); struct tags
   (no-op without reflection).
 

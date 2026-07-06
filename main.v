@@ -10,6 +10,7 @@ From Fido Require Import GoEffects.
 From Fido Require Import GoSlice.
 From Fido Require Import GoPanic.
 From Fido Require Import GoHeap.
+From Fido Require Import GoSession.
 From Fido Require Import GoAst GoSafe GoEmit.  (* AST-first certified-emission spine (ARCHITECTURE.md) *)
 From Stdlib Require Import ZArith.
 From Stdlib Require Import Lia.

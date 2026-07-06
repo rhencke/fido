@@ -8,8 +8,13 @@ names only) + plugin ownership re-pinned (`from_gocfg`/`from_hooks`); wave 1 `Go
 (float layer folded in — no separate GoFloat.v); wave 2 `GoRuntimeTypes.v`; wave 3
 `GoEffects.v` (`run_io_inj` quarantined to concurrency.v); wave 4 `GoPanic.v`; wave 5
 `GoSlice.v`; wave 6 `GoMap.v` (735198e); wave 7 `GoChan.v` (123a276 — ForkEvent ctors
-renamed FkWrite/FkGo/FkStart/FkRead to kill import-order shadowing; GoChan front-loaded in
-the cmd-universe files); wave 8 `GoHeap.v` (the ref heap — see below).
+renamed FkWrite/FkGo/FkStart/FkRead to kill import-order shadowing); wave 8 `GoHeap.v`
+(the ref heap — see below; review 9 then DROPPED the never-used GoChan/GoMap imports
+from the cmd/GoSem universe and builtins' dead digits import — imports are honest by
+USE, not by recipe); wave 9 `GoSession.v` (Proto/dual + the linear Sess indexed monad +
+run_session; builtins does NOT import it — sessions were the monolith's tail with no
+op-layer dependents; concurrency.v/unified.v qualified `builtins.PSend`-style references
+rewritten to `GoSession.*`).
 
 ## The dependency-honest wave order
 

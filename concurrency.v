@@ -17,6 +17,7 @@ From Fido Require Import GoEffects.
 From Fido Require Import GoSlice.
 From Fido Require Import GoPanic.
 From Fido Require Import GoHeap.
+From Fido Require Import GoSession.
 From Stdlib Require Import List Lia Arith.
 Require Import Coq.Logic.FunctionalExtensionality.
 (* No [PrimInt63]: the value carriers ([GoI64]/…) are [Z]-records and locations are [nat]
@@ -7297,12 +7298,12 @@ Inductive StepKind : Type :=
 (** The communication sequence a protocol prescribes, head-first ([PEnd ↦ []]). *)
 Fixpoint proto_steps (p : Proto) : list StepKind :=
   match p with
-  | builtins.PSend A p' => PKSend A :: proto_steps p'
-  | builtins.PRecv A p' => PKRecv A :: proto_steps p'
+  | GoSession.PSend A p' => PKSend A :: proto_steps p'
+  | GoSession.PRecv A p' => PKRecv A :: proto_steps p'
   | PEnd                 => []
   end.
 
-(** The forge-proof session type IS the EXTRACTED [builtins.Sess] — an inductive
+(** The forge-proof session type IS the EXTRACTED [GoSession.Sess] — an inductive
     whose constructors are the disciplined ops [SRet]/[SSend]/[SRecv]/[SLift]/[SBind].
     Each step that advances the protocol performs the matching communication;
     [SLift] (local IO, no message) keeps the state FIXED ([P ↦ P]) so it cannot
@@ -7372,7 +7373,7 @@ Qed.
     [MkSess (ret tt) : Sess (PSend A P) P unit] is exactly that impossible-here
     forgery — emitting nothing while typed as a send. *)
 Corollary psess_send_nonempty :
-  forall (A : Type) (P : Proto) (s : PSess (builtins.PSend A P) P unit) (steps : list StepKind),
+  forall (A : Type) (P : Proto) (s : PSess (GoSession.PSend A P) P unit) (steps : list StepKind),
     PEmits s steps -> steps <> [].
 Proof.
   intros A P s steps H. apply psess_emits_proto in H. simpl in H.
@@ -7382,7 +7383,7 @@ Qed.
 
 (** Concrete witness that the model is inhabited and the trace is exactly the
     protocol's: a client for [PSend unit PEnd] that sends [tt] then ends. *)
-Definition ex_proto : Proto := builtins.PSend unit PEnd.
+Definition ex_proto : Proto := GoSession.PSend unit PEnd.
 
 Definition ex_client : PSess ex_proto PEnd unit :=
   PSBind (PSSend tt) (fun _ => PSRet tt).
@@ -7408,7 +7409,7 @@ Qed.
 
     The whole point of a session TYPE is that the two endpoints follow
     COMPLEMENTARY protocols: where one sends, the other receives the SAME type, in
-    the SAME order.  [dual] (builtins.v) flips every send↔recv at the protocol
+    the SAME order.  [dual] (GoSession.v) flips every send↔recv at the protocol
     level; here we lift it to the TRACE level and prove a client realising [P] and a
     server realising [dual P] perform traces that are exact mirror images — every
     message the client sends is exactly the one the server receives, with no type
@@ -7475,9 +7476,9 @@ Qed.
     head [PRecv A] cancel, both endpoints advancing to their continuations. *)
 Inductive pair_step : Proto * Proto -> Proto * Proto -> Prop :=
   | ps_send : forall (A : Type) (P' Q : Proto),
-      pair_step (builtins.PSend A P', builtins.PRecv A Q) (P', Q)
+      pair_step (GoSession.PSend A P', GoSession.PRecv A Q) (P', Q)
   | ps_recv : forall (A : Type) (P' Q : Proto),
-      pair_step (builtins.PRecv A P', builtins.PSend A Q) (P', Q).
+      pair_step (GoSession.PRecv A P', GoSession.PSend A Q) (P', Q).
 
 (** PROGRESS + PRESERVATION in one: a dual pair is either both-finished, or it can
     take a matched step — AND the stepped pair is again dual (so the invariant that
@@ -7518,9 +7519,9 @@ Qed.
     theorems above this is the full session-types theory for the forge-proof
     [PSess]: SOUNDNESS, COMMUNICATION SAFETY, PROGRESS / deadlock-freedom,
     TERMINATION + DETERMINISM.  Scope: a FAITHFUL real-channel denotation
-    ([PSess] → [builtins] [IO] over a [GoChan]) is blocked — a heterogeneous session
+    ([PSess] → the model [IO] over a [GoChan]) is blocked — a heterogeneous session
     channel needs [GoChan GoAny] but [GoTypeTag GoAny] is universe-inconsistent
-    (builtins.v); still pure-protocol. *)
+    (GoRuntimeTypes.v); still pure-protocol. *)
 
 (** Reflexive-transitive closure of [pair_step]: a whole synchronized run. *)
 Inductive pair_steps : Proto * Proto -> Proto * Proto -> Prop :=
@@ -7553,7 +7554,7 @@ Qed.
 
 (** Concrete bidirectional witness (exercises [PSRecv]): a ping-pong protocol —
     send an [int64], receive one back. *)
-Definition pingpong : Proto := builtins.PSend GoI64 (builtins.PRecv GoI64 PEnd).
+Definition pingpong : Proto := GoSession.PSend GoI64 (GoSession.PRecv GoI64 PEnd).
 
 Definition pingpong_client : PSess pingpong PEnd unit :=
   PSBind (PSSend (zero_val TI64))
@@ -7592,9 +7593,9 @@ Proof. apply dual_pair_terminates. Qed.
 (** A step that records the communicated kind (from the sender's view). *)
 Inductive pair_step_tr : Proto * Proto -> StepKind -> Proto * Proto -> Prop :=
   | pst_send : forall (A : Type) (P' Q : Proto),
-      pair_step_tr (builtins.PSend A P', builtins.PRecv A Q) (PKSend A) (P', Q)
+      pair_step_tr (GoSession.PSend A P', GoSession.PRecv A Q) (PKSend A) (P', Q)
   | pst_recv : forall (A : Type) (P' Q : Proto),
-      pair_step_tr (builtins.PRecv A P', builtins.PSend A Q) (PKRecv A) (P', Q).
+      pair_step_tr (GoSession.PRecv A P', GoSession.PSend A Q) (PKRecv A) (P', Q).
 
 (** A traced run accumulates the communicated kinds in order. *)
 Inductive pair_steps_tr : Proto * Proto -> list StepKind -> Proto * Proto -> Prop :=

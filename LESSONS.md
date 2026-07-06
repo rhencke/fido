@@ -95,7 +95,7 @@ split is a reviewability win, not a weight-loss win.
 The boss's fuel-removal directive, preserved verbatim below (including its repo
 note).  Its SEMANTIC-FUEL priority was executed (the fueled CFG runner, the
 invalid-label default, the lexer, and the gates) and its relation sketches are
-SUPERSEDED by the landed definitions in `builtins.v` (`blocks_step` as the one
+SUPERSEDED by the landed definitions in `GoCFG.v` (`blocks_step` as the one
 transition authority, consumed by `be_jump`/`bd_jump`).  The directive's
 REMAINING items (expression-parser fuel, extraction cleanup, word sweep) are
 ACTIVE and tracked in `plans/fuel-free.md` — the only active steering document;

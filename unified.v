@@ -29,6 +29,7 @@
     [ustep_pan_defer]. *)
 
 From Fido Require Import preamble concurrency.
+From Fido Require Import GoSession.
 From Fido Require Import GoRuntimeTypes.
 From Fido Require Import GoEffects.
 From Fido Require Import GoSlice.
@@ -1056,8 +1057,8 @@ Proof. intros cap cfg cfg' H. apply rsteps_embeds. exact (rstepsC_embed _ _ _ H)
 (** The send/recv polarity sequence a protocol prescribes (send = [true]). *)
 Fixpoint proto_polarity (p : Proto) : list bool :=
   match p with
-  | builtins.PSend _ p' => true  :: proto_polarity p'
-  | builtins.PRecv _ p' => false :: proto_polarity p'
+  | GoSession.PSend _ p' => true  :: proto_polarity p'
+  | GoSession.PRecv _ p' => false :: proto_polarity p'
   | PEnd                 => []
   end.
 
@@ -1080,8 +1081,8 @@ Qed.
 (** Compile a protocol to a unified-semantics program: send on [cs], recv on the pre-closed [cr]. *)
 Fixpoint proto_ucmd (cs cr val : nat) (p : Proto) : UCmdN :=
   match p with
-  | builtins.PSend _ p' => USend cs val (proto_ucmd cs cr val p')
-  | builtins.PRecv _ p' => URecv cr (fun _ => proto_ucmd cs cr val p')
+  | GoSession.PSend _ p' => USend cs val (proto_ucmd cs cr val p')
+  | GoSession.PRecv _ p' => URecv cr (fun _ => proto_ucmd cs cr val p')
   | PEnd                 => URet
   end.
 

@@ -236,7 +236,7 @@ let record_ctor_tyname r =
    one with a matching path component) is never mis-recognized.  Extraction HOOKS are
    NEVER in this list — [from_hooks] is the separate, narrower ownership for names that
    exist only to be lowered. *)
-let model_dirpaths = ["Fido.builtins"; "Fido.GoNumeric"; "Fido.GoRuntimeTypes"; "Fido.GoEffects"; "Fido.GoPanic"; "Fido.GoSlice"; "Fido.GoMap"; "Fido.GoChan"; "Fido.GoHeap"]
+let model_dirpaths = ["Fido.builtins"; "Fido.GoNumeric"; "Fido.GoRuntimeTypes"; "Fido.GoEffects"; "Fido.GoPanic"; "Fido.GoSlice"; "Fido.GoMap"; "Fido.GoChan"; "Fido.GoHeap"; "Fido.GoSession"]
 let from_model r =
   match (try Some (Nametab.dirpath_of_global r.glob) with Not_found -> None) with
   | None -> false
@@ -385,11 +385,11 @@ let fullwidth_conv_name = function
    package-qualified (e.g. fmt.Println) and will never match these. *)
 let is_print_ref r   = named "print" r
 (* Table of axiom type names → Go type keywords.
-   Basename matching is safe: these names are reserved by builtins.v and
+   Basename matching is safe: these names are reserved by the model (GoNumeric.v) and
    no user theory should shadow them. *)
 let go_prim_type_table = [
   "GoInt",     "int";    (* platform int — the Z-carried [GoInt] record, rendered Go [int] *)
-  "GoUint",    "uint";   (* platform uint — the DISTINCT record [GoUint] (builtins.v), erased to its [uint] carrier (ctor/proj below) *)
+  "GoUint",    "uint";   (* platform uint — the DISTINCT record [GoUint] (GoNumeric.v), erased to its [uint] carrier (ctor/proj below) *)
   "GoFloat32", "float32";
   (* NOTE: the fixed-width [int8]…[uint64] are NOT here — they are the distinct records
      [GoI8]/[GoU8]/…/[GoI64]/[GoU64] (rendered via [is_numint_type]/[narrow_prim_type]).  A transparent
@@ -535,7 +535,7 @@ let comparable_witness : (string, int list) Hashtbl.t = Hashtbl.create 16
 let comparable_inst    : (string, unit)     Hashtbl.t = Hashtbl.create 16
 let is_comparable_witness_inst r = Hashtbl.mem comparable_inst (global_path r)
 (* Per-record typeclass INSTANCES living in USER files (e.g. [StructRepOf R] in main.v):
-   classified by the RET TYPE's head (the CLASS type is builtins-owned), registered in
+   classified by the RET TYPE's head (the CLASS type is model-owned, GoHeap.v), registered in
    [collect_decls] pass 2, suppressed by MEMBERSHIP — never by the instance's name. *)
 let class_inst : (string, unit) Hashtbl.t = Hashtbl.create 16
 let is_slice_make_ref = named "slice_make"
@@ -623,11 +623,11 @@ let go_type_tag_map = [
   "TI64",     "int64";    (* full-width Z-carried int64 (GoI64) *)
   "TU64",     "uint64";   (* full-width Z-carried uint64 (GoU64) *)
   "TFloat32", "float32";
-  (* RECURSIVE nominal struct (builtins.v [ListNode]) — its nullary tag names the Go type, so
+  (* RECURSIVE nominal struct (GoRuntimeTypes.v [ListNode]) — its nullary tag names the Go type, so
      [go_type_of_tag TListNode = "ListNode"] and [go_type_of_tag (TPtr TListNode) = "*ListNode"];
      [ptr_new TListNode v] thus emits [func(_v ListNode) *ListNode { return &_v }(v)]. *)
   "TListNode", "ListNode";
-  (* RECURSIVE-through-channel struct (builtins.v [ChanBox], "sends itself") — so [go_type_of_tag
+  (* RECURSIVE-through-channel struct (GoRuntimeTypes.v [ChanBox], "sends itself") — so [go_type_of_tag
      (TChan TChanBox) = "chan ChanBox"] and [make_chan TChanBox] emits [make(chan ChanBox)]. *)
   "TChanBox", "ChanBox";
 ]
@@ -813,7 +813,7 @@ let is_go_type_tag_ctor r =
   String.equal (global_basename r) "TMap"
 
 (* IO monad — basename matching is acceptable here because these names
-   live in builtins.v and user theories should not shadow them. *)
+   live in the model (GoEffects.v) and user theories should not shadow them. *)
 let is_IO_type  r = named "IO" r
 let is_ret_ref = named "ret"
 let is_bind_ref = named "bind"
@@ -861,7 +861,7 @@ let is_sigT_ref r =
   named "GoAny" r
 
 (* Distinct fixed-width numeric types: each [GoU<N>]/[GoI<N>] is a single-field
-   record over the [int] carrier (builtins.v) — DISTINCT in Rocq (mixing a uint8
+   record over the [int] carrier (GoNumeric.v) — DISTINCT in Rocq (mixing a uint8
    with an int is a type error: Go spec "Numeric types"), but the wrapper is
    ERASED in extraction (exactly like [existT]/[any]): the type IS its [int64]
    carrier, and the constructor [MkU<N>] / projection [<u|i><N>raw] are identity.
@@ -947,13 +947,13 @@ let narrow_dest_conv t = match t with
 let narrow_go_name s =
   if List.mem s ["uint8"; "int8"; "uint16"; "int16"; "uint32"; "int32"] then Some s else None
 
-(* Abstract [GoFloat32] wrapper (builtins.v): a [float] carrier + an UNFORGEABLE provenance
+(* Abstract [GoFloat32] wrapper (GoNumeric.v): a [float] carrier + an UNFORGEABLE provenance
    proof (the carrier is in the image of [f32_round]).  ERASED exactly like the numint
    wrappers — the Go value IS a [float32] (type name → "float32" via [go_prim_type_table];
    struct decl suppressed via [is_erased_record_typename]).  The constructor [mkF32] and
    projection [f32val] are IDENTITY (no wrapper at runtime), and the rounding helper
    [f32_round] is proof-only (suppressed; it only appears inside by-name-lowered ops). *)
-(* Platform-uint wrapper [GoUint] (builtins.v): a genuinely DISTINCT record over an
+(* Platform-uint wrapper [GoUint] (GoNumeric.v): a genuinely DISTINCT record over an
    [int] carrier, rendered Go [uint].  The constructor [MkUint]/[uint_lit] emit [uint(<carrier>)] (a
    typed conversion — so the value is Go [uint] in EVERY position incl. an [any]-box, NOT a bare [int]
    that would mis-tag), and the projection [uintraw] emits [int(<value>)] (back to the int carrier).
@@ -1375,7 +1375,7 @@ let binop_of r =
   else if is_str_ltb_ref r then Some Printer.BLt
   (* array comparison: Go field-wise [==] (arrays are comparable, slices are not) *)
   else if is_arr_eqb_ref r then Some Printer.BEq
-  (* direct >/>=/!= for string and float64 (recognized by name, gated on builtins.v) *)
+  (* direct >/>=/!= for string and float64 (recognized by name, gated on [from_model]) *)
   else if named "str_gtb"  r then Some Printer.BGt
   else if named "str_geb"  r then Some Printer.BGe
   else if named "str_neqb" r then Some Printer.BNe
@@ -5093,7 +5093,7 @@ let is_suppressed_ref r =
   is_arr_lit_ref r || is_arr_eqb_ref r || is_arr_set_ref r ||
   is_arrN_lit_ref r ||
   (from_model r && (arr_n_of_name "mkArr" "" (global_basename r) <> None
-    || arr_n_of_name "arr" "_data" (global_basename r) <> None)) ||  (* GoArr<N> machinery (builtins-owned; decl-suppressed, recognized by name) *)
+    || arr_n_of_name "arr" "_data" (global_basename r) <> None)) ||  (* GoArr<N> machinery (model-owned; decl-suppressed, recognized by name) *)
   (from_model r && List.mem (global_basename r) ["mkFC"; "fc_num"; "fc_den"; "fc_add"; "fc_sub"; "fc_mul"; "fc_div"; "f64_of_fconst"; "f32_of_fconst"; "sf_of_Z"]) ||  (* FConst machinery: folded by name *)
   (* spec_float float64 ops + helpers: the [f64_<op>] CALLS lower to Go
      float operators (is_float_op_ref / is_f64_cmp_ref / is_min/max_ref); the helpers are internal to
@@ -5114,7 +5114,7 @@ let is_suppressed_ref r =
   is_ptr_nil_ref r || is_ptr_nil_tf_ref r || is_ptr_as_ref_ref r || is_ref_as_ptr_ref r || is_ptr_get_ok_ref r ||
   is_gsptr_machinery r ||  (* the ONE generic arity-free struct-rep machinery (StructRep/GSPtr/Mem/…) *)
   Hashtbl.mem class_inst (global_path r) ||  (* per-record class INSTANCES (user files) — TYPE-classified in pass 2 *)
-  (from_model r && str_prefix "StructRepOf" (global_basename r)) ||  (* the canonical-rep class itself (builtins) *)
+  (from_model r && str_prefix "StructRepOf" (global_basename r)) ||  (* the canonical-rep class itself (GoHeap.v) *)
   is_sliceh_type r || is_slice_make_h_ref r || is_slice_idx_get_ref r ||
   is_slice_idx_set_ref r || is_subslice_ref r || (from_model r && String.equal (global_basename r) "subslice_desc") || is_slice_append_h_ref r ||
   is_slice_make_lc_ref r || is_slice_clear_h_ref r || is_slice_copy_ref r ||
@@ -5514,7 +5514,7 @@ let collect_decls struc =
     if param_types = [] && is_comparablew_type ret then
       Hashtbl.replace comparable_inst (global_path r) () ;
     (* per-record class INSTANCES ([StructRepOf R]): classified by the RET type's head
-       (the class TYPE is builtins-owned) — user instances register here, never by name *)
+       (the class TYPE is model-owned, GoHeap.v) — user instances register here, never by name *)
     (match ret with
      | Tglob (c, _) when from_model c && String.equal (global_basename c) "StructRepOf" ->
          Hashtbl.replace class_inst (global_path r) ()
