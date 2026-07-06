@@ -4137,11 +4137,18 @@ let pp_io_body ?(ret_val=false) state tab env body =
                           | [] -> false
                           | [_] -> not (db1_free kbody)   (* [db1_free] = index 1 does NOT occur *)
                           | _ -> true) in
-                        let action_is_value =
-                          (match fst (collect_app action []) with
-                           | MLglob ar -> is_ref_get_ref ar | _ -> false) in
-                        if result_used || action_is_value then
-                          unsupported "a run_cblocks body that THREADS a bound value (needs hoisted variables) — the CBlock lowering is effect-only; use run_blocks for value-threading blocks"
+                        (* STATEMENT-FORM whitelist: a dead-result action still PRINTS as a Go
+                           statement, and only a CALL-shaped lowering is a legal Go statement —
+                           e.g. a dead [slice_get] would print a bare `xs[i]` (invalid Go,
+                           fail-open at go build).  Only the known statement-legal effect ops
+                           pass; everything else fails CLOSED.  Classified through
+                           [strip_magic] so a magic wrapper cannot bypass the rule. *)
+                        let statement_form =
+                          (match fst (collect_app (strip_magic action) []) with
+                           | MLglob ar -> is_println_ref ar || is_print_ref ar
+                           | _ -> false) in
+                        if result_used || not statement_form then
+                          unsupported "a run_cblocks body action outside the effect-only statement forms (print/println with a dead result) — a value-returning or non-call action would need hoisted variables or print a non-statement Go expression; use run_blocks for value-threading blocks"
                         else
                           let ids = alloc_binders benv (List.map (fun _ -> Dummy) ids) in
                           emit_action state [] tab benv ids action
