@@ -476,34 +476,7 @@ Notation "x - y" := (f64_sub x y) (at level 50, left associativity) : go64_scope
 Notation "x * y" := (f64_mul x y) (at level 40, left associativity) : go64_scope.
 Notation "x / y" := (f64_div x y) (at level 40, left associativity) : go64_scope.
 
-(** [GoChan]/[GoMap] are CONCRETE phantom-LOCATION records: a [GoChan A] is a
-    handle [{ ch_loc : nat }] into the world's channel state, the element type
-    [A] carried only PHANTOM (in the type, never as a field).  Invariant: they
-    do NOT carry their [GoTypeTag] — a tag field would make [GoTypeTag] (which
-    references them via [TChan]/[TMap]) UNIVERSE-INCONSISTENT.  At extraction
-    [GoChan A] → Go [chan T], [GoMap K V] → [map[K]V] (rendered by type NAME);
-    the handle and record wrapper are erased. *)
-Record GoChan (A : Type) : Type := MkChan { ch_loc : nat }.
-Record GoMap  (K V : Type) : Type := MkMap { gm_loc : nat }.
-Arguments MkChan {A} _.
-Arguments ch_loc {A} _.
-Arguments MkMap {K V} _.
-Arguments gm_loc {K V} _.
-(** [Ptr A] is a TAG-FREE phantom-LOCATION record (same universe reason as
-    [GoChan]/[GoMap]).  The pointee's type lives in the world heap cell ([RefCell]
-    stores the tag), so the deref ops ([ptr_get]/[ptr_set]/…) take the [GoTypeTag]
-    explicitly.  Extraction: [Ptr A] → Go [*T]; the [p_loc] handle is erased. *)
-Record Ptr (A : Type) : Type := mkPtr { p_loc : nat }.
-Arguments mkPtr {A} _.
-Arguments p_loc {A} _.
 
-(** ---- Type assertions ----
-
-    [GoTypeTag T] is a term-level witness encoding the Go type [T].
-    Because it is an inductive (not a type), it survives extraction —
-    the plugin inspects the constructor to emit [v.(T)] with the right type.
-
-    Extend this inductive as new Go types are added to builtins. *)
 
 (* int64/uint64 range predicates + wrap-to-range, hoisted so the GoI64/GoU64 records can carry a
    RANGE invariant.  Z-carried (not int63): int64 = [-2^63, 2^63), uint64 = [0, 2^64). *)
@@ -565,24 +538,7 @@ Record GoUint := MkUint { uintraw : Z ; uintok : Squash (in_u64 uintraw = true) 
    value (e.g. [i32wrap c]) is a real, distinct int32. *)
 Notation GoRune := GoI32.
 
-(* A genuinely RECURSIVE Go struct type — [type ListNode struct { Val int64 ; Next *ListNode }].
-   Defined above [GoTypeTag] so the tag inductive can carry the NULLARY nominal tag
-   [TListNode : GoTypeTag ListNode].  Axiom-free because:
-   (1) [Inductive] (the [Record] keyword forbids self-reference) with record-projection syntax —
-       extraction still classifies it as a record ⇒ the plugin emits a Go [struct].  The recursion
-       goes through the TAG-FREE phantom handle [Ptr ListNode] ⇒ vacuously positive, and
-       [GoTypeTag ListNode] stays universe-consistent.
-   (2) A NULLARY nominal tag does not structurally contain itself: [TListNode] is a base case like
-       [TBool]; the [Next] field's tag is the FINITE term [TPtr TListNode], so the recursive TYPE
-       round-trips through [tag_eq]. *)
-Inductive ListNode := MkListNode { ln_val : GoI64 ; ln_next : Ptr ListNode }.
 
-(* "CHANNELS THAT SEND THEMSELVES" — [type ChanBox struct { Id int64 ; Ch chan ChanBox }]: a
-   [chan ChanBox] can carry a value whose [Ch] field IS that very channel.  Same construction as
-   [ListNode], with the recursion through the tag-free [GoChan] ⇒ vacuously positive and
-   [GoTypeTag ChanBox] universe-consistent; the nullary nominal tag [TChanBox] is finite, the
-   channel-of-itself tag is [TChan TChanBox].  2 fields ⇒ not unboxed ⇒ emits the named Go struct. *)
-Inductive ChanBox := MkChanBox { cb_id : GoI64 ; cb_chan : GoChan ChanBox }.
 
 (* [i64wrap] = wrap-to-int64-range + carry the (SProp) range proof, so [i64wrap (2^63) _] is
    unconstructable.  Hoisted here (before the narrow→int64 conversions at [i64_of_u8]… use it). *)
