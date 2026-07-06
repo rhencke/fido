@@ -848,7 +848,7 @@ Qed.
 
     The one boundary subtlety: [embed_cmd] must commute with [upd] on the program map (and, at a spawn,
     with the constant defer/panic maps).  These are pointwise equalities of FUNCTIONS, discharged by
-    [functional_extensionality] — already part of the project's trust base (builtins.v [run_io_inj]),
+    [functional_extensionality] — already part of the proof-only universe's trust base (concurrency.v [run_io_inj], quarantined outside the certified path),
     and NOT in [main_effect]'s cone, so [EXPECTED_ASSUMPTIONS.txt] stays empty and the axiom gate is
     unaffected.  ([Print Assumptions rstep_embeds] therefore shows [functional_extensionality]; this is
     the same funext the END-TO-END TRUST BASE already discloses, introduced nowhere new logically.) *)

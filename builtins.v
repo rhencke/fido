@@ -1,11 +1,6 @@
-(** Go builtin functions and types — always in scope, no import required.
-
-    GoAny models Go's [any] / [interface{}] type.  It is Rocq's sigma type
-    {T : Type & T}: the type witness is erased by the extraction plugin,
-    which then passes the underlying Go value directly.
-
-    The [any] notation wraps any value without requiring a per-type
-    constructor.  To add a new Go type to println, just write [any val]. *)
+(** builtins — the OP LAYER of the modelled Go: the IO-typed operations over the split-out
+    foundations (GoNumeric | GoRuntimeTypes | GoEffects; plans/builtins-split.md).  ★FROZEN
+    raw ore (CLAUDE.md): never grows; being mined into final-purpose modules, then deleted. *)
 
 Require Import Coq.Init.Specif.
 Require Import Coq.Classes.Morphisms.   (* Proper / setoid rewriting for [io_eq] — replaces funext *)
@@ -21,20 +16,6 @@ Require Import Coq.Strings.String Coq.Strings.Ascii.
 From Fido Require Import digits.      (* decimal authority for runtime panic payloads *)
 (* No [PrimInt63] / [PrimFloat] imports: the numeric model is AXIOM-FREE — integers are [Z]-carried
    records, heap locations [nat], floats [SpecFloat.spec_float]. *)
-
-(** ---- IO monad ----
-
-    [IO A := World -> Outcome A] — CONCRETE definitions the extraction plugin
-    lowers BY NAME ([bind m f] to sequential Go statements, [ret x] to its
-    argument), erasing the world token.  [run_io m w] is the proof-only
-    denotation (never extracted); the monad laws are derived lemmas, not
-    axioms.  The Hoare triple [{{ P }} m {{ Q }}] is defined via [run_io].
-
-    [World] is abstract HERE; it goes concrete only together with channels/
-    refs/maps (concretising it alone would make their laws inconsistent).
-    [run_io m w] yields an OUTCOME: [ORet a w'] or [OPanic v w'].  Invariant:
-    panic is an OUTCOME, not a total [A * World] — a total type would force
-    [World] empty.  DIVERGENCE is idealised away: [run_io] is total. *)
 
 
 (** ---- Runtime-panic VALUES ----

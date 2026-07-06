@@ -257,5 +257,3 @@ Proof.
   - exists a, w'. split; [reflexivity | exact H].
   - destruct H.
 Qed.
-
-
