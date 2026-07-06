@@ -53,6 +53,10 @@ type ChanBox struct {
 	Cb_chan chan ChanBox
 }
 
+type Tup = any
+type TagTup = any
+type EqTup = any
+
 func I64_abs(a int64) int64 {
 	if a < 0 {
 		return 0 - a
@@ -72,10 +76,6 @@ func I64_of_u64(a uint64) int64 {
 func Ceqb[T1 comparable](a T1, b T1) bool {
 	return a == b
 }
-
-type Tup = any
-type TagTup = any
-type EqTup = any
 
 func Add(n int, m int) int {
 	return n + m

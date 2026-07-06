@@ -4,7 +4,12 @@ builtins.v is FROZEN raw ore being mined into final-purpose modules; the monolit
 preamble's global re-export die at the end.  No compatibility façade at any step.
 
 **Landed:** `GoCFG.v` (the CFG semantic authority) + `GoExtractionHooks.v` (plugin-lowered
-names only) + plugin ownership re-pinned (`from_gocfg`/`from_hooks`).
+names only) + plugin ownership re-pinned (`from_gocfg`/`from_hooks`); wave 1 `GoNumeric.v`
+(float layer folded in — no separate GoFloat.v); wave 2 `GoRuntimeTypes.v`; wave 3
+`GoEffects.v` (`run_io_inj` quarantined to concurrency.v); wave 4 `GoPanic.v`; wave 5
+`GoSlice.v`; wave 6 `GoMap.v` (735198e); wave 7 `GoChan.v` (123a276 — ForkEvent ctors
+renamed FkWrite/FkGo/FkStart/FkRead to kill import-order shadowing; GoChan front-loaded in
+the cmd-universe files); wave 8 `GoHeap.v` (the ref heap — see below).
 
 ## The dependency-honest wave order
 
@@ -69,9 +74,22 @@ would be circular here).
    (~4720+, iteration combinators — verify their deps before including).  Between the
    pieces sit go_min/go_max and float comparison helpers — they STAY in builtins.
    GoSlice.v imports GoNumeric+GoRuntimeTypes+GoEffects+GoPanic; whitelist +=
-   Fido.GoSlice; the PROGRESS gate line renames to `GoSlice.slice_get_bounds_surface`.  Then GoHeap.v / GoMap.v / GoChan.v /
-   GoSession.v; then whatever remains is deleted with the monolith and preamble's
-   `Require Export`.
+   Fido.GoSlice; the PROGRESS gate line renames to `GoSlice.slice_get_bounds_surface`.
+   **GoHeap.v — wave 8** (the ref heap): TWO cuts — A = mutable locals (`Ref`/`ref_new`,
+   the selectors `ref_sel`/`ref_upd`/`ref_sel_opt` live HERE, not GoEffects) + `ValidWorld`
+   + pointers + `&x` + closed-world nil-safety + `SliceH` aliasing handles + `HStruct`
+   field-cell bundles + the chan/ref world-independence frame lemmas; B = the generic
+   struct heap (`Tup`/`Mem`/`StructRep`/`StructRepOf`/`GSPtr` + `gsptr_*` + `gstruct_eqb`,
+   with its `Local Transparent`/`Opaque` directives).  The STRUCT CHANNELS demo
+   (`struct_make2`/`struct_chan_roundtrip2`) sits between the cuts and STAYS in builtins
+   (channel demo, not heap).  Imports all seven foundations; whitelist += Fido.GoHeap;
+   import sweep = main.v, concurrency.v (Ref/ptr/frame lemmas — the limit-2 bridge),
+   negtests/neg_addr.v.
+   **Remaining ore after wave 8** (~2300 lines): the numeric OP layer (fixed-width
+   ops/shifts/conversions/div-rem + int64/uint64 laws), Builtins misc + panic/recover,
+   type switch, string ops + []byte/rune conversions, complex numbers, the struct-channel
+   demo, range (string/slice/int), sessions (→ GoSession.v), linear sessions.  Then
+   whatever remains is deleted with the monolith and preamble's `Require Export`.
 
 Acceptance per wave: `make check` green, golden byte-identical (module moves must not
 change emission — the plugin's `from_builtins` ownership follows the definitions:

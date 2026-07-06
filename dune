@@ -3,4 +3,4 @@
  (synopsis "Fido verified theories — extracted to Go via rocq-go-extraction")
  (plugins rocq-go-extraction)
  (theories Stdlib)
- (modules digits GoNumeric GoRuntimeTypes GoEffects GoPanic GoSlice GoMap GoChan builtins GoCFG GoExtractionHooks preamble main concurrency cmd unified cmd_unified GoAst GoPrint GoTypes GoSafe GoEmit GoSemCore GoSemDenote GoSem GoSemSafe))
+ (modules digits GoNumeric GoRuntimeTypes GoEffects GoPanic GoSlice GoMap GoChan GoHeap builtins GoCFG GoExtractionHooks preamble main concurrency cmd unified cmd_unified GoAst GoPrint GoTypes GoSafe GoEmit GoSemCore GoSemDenote GoSem GoSemSafe))
