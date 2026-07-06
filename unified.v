@@ -29,6 +29,7 @@
     [ustep_pan_defer]. *)
 
 From Fido Require Import preamble concurrency.
+From Fido Require Import GoRuntimeTypes.
 From Stdlib Require Import List Lia Arith FunctionalExtensionality.
 Import ListNotations.
 

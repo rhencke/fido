@@ -20,6 +20,7 @@
     [Cmd] (a shallow drop/no-op would silently erase a deferred effect).  Channel ops and
     [catch] are future slices (plans/bridge-effects.md). *)
 From Fido Require Import preamble.
+From Fido Require Import GoRuntimeTypes.
 From Stdlib Require Import List Lia.
 Import ListNotations.
 

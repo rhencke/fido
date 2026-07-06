@@ -17,6 +17,7 @@
 Require Import Coq.Lists.List.
 From Stdlib Require Import Lia.
 From Stdlib Require Import Arith.
+From Fido Require Import GoRuntimeTypes.
 From Fido Require Import builtins.
 
 Inductive Next : Type :=

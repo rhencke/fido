@@ -9,6 +9,7 @@
     [blocks_cfg_surface]).  If a hook stops being lowered, it must be DELETED, not kept as a
     pseudo-builtin.  ============================================================================== *)
 Require Import Coq.Strings.String.   (* the marker panic message *)
+From Fido Require Import GoRuntimeTypes.
 From Fido Require Import builtins.
 From Fido Require Import GoCFG.
 

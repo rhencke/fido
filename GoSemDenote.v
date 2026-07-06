@@ -11,6 +11,7 @@
     ============================================================================ *)
 From Fido Require Import GoAst GoTypes GoSafe cmd preamble.   (* [preamble] re-exports [builtins]: [GoAny]/[anyt]/[intwrap]/[World]/[w_log]/[Outcome]/[ORet] *)
 From Fido Require Import GoNumeric.
+From Fido Require Import GoRuntimeTypes.
 From Fido Require Import GoSemCore.
 From Stdlib Require Import String List Bool ZArith Lia.
 Import ListNotations.

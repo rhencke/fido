@@ -16,6 +16,7 @@
     ============================================================================ *)
 From Fido Require Import GoAst GoTypes preamble.   (* [preamble] re-exports [builtins]: [GoAny]/[anyt]/[intwrap]/[World]/[w_log]/[Outcome]/[ORet] *)
 From Fido Require Import GoNumeric.
+From Fido Require Import GoRuntimeTypes.
 From Stdlib Require Import String List Bool ZArith Lia.
 Import ListNotations.
 (** Box an integer-constant VALUE [z] of int type [t] as the MODEL's runtime [GoAny] — or [None].  FAILS CLOSED

@@ -236,7 +236,7 @@ let record_ctor_tyname r =
    one with a matching path component) is never mis-recognized.  Extraction HOOKS are
    NEVER in this list — [from_hooks] is the separate, narrower ownership for names that
    exist only to be lowered. *)
-let model_dirpaths = ["Fido.builtins"; "Fido.GoNumeric"]
+let model_dirpaths = ["Fido.builtins"; "Fido.GoNumeric"; "Fido.GoRuntimeTypes"]
 let from_model r =
   match (try Some (Nametab.dirpath_of_global r.glob) with Not_found -> None) with
   | None -> false

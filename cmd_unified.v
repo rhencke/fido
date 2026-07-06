@@ -30,6 +30,7 @@
     Proof-only: emits no Go, adds no axiom. *)
 
 From Fido Require Import preamble concurrency cmd unified.
+From Fido Require Import GoRuntimeTypes.
 From Stdlib Require Import List Lia.
 Import ListNotations.
 
