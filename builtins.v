@@ -18,7 +18,6 @@ From Fido Require Import GoMap.       (* Go maps over the world heap (split wave
 From Fido Require Import GoChan.      (* Go channels + the go-mem story (split wave 7) *)
 From Fido Require Import GoHeap.      (* the ref heap — locals/pointers/SliceH/struct heap (split wave 8) *)
 Require Import Coq.Strings.String Coq.Strings.Ascii.
-From Fido Require Import digits.      (* decimal authority for runtime panic payloads *)
 (* No [PrimInt63] / [PrimFloat] imports: the numeric model is AXIOM-FREE — integers are [Z]-carried
    records, heap locations [nat], floats [SpecFloat.spec_float]. *)
 

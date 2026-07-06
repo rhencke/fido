@@ -1144,7 +1144,7 @@ Definition map_demo : IO unit :=
 
 (** MAP REFERENCE SEMANTICS (aliasing): a [GoMap] mutated in a callee is observed by the
     caller — maps are reference types (the heap model threads the write through the
-    [World]).  Function-boundary companion to [map_get_set_same] (builtins.v). *)
+    [World]).  Function-boundary companion to [map_get_set_same] (GoMap.v). *)
 Definition map_put (m : GoMap GoI64 GoI64) : IO unit := map_set TI64 TI64 (7)%i64 (77)%i64 m.
 Definition map_alias_demo : IO unit :=
   bind (map_make_typed TI64 TI64) (fun m =>
@@ -1750,7 +1750,7 @@ Definition narrow_ref_demo : IO unit :=
   println [any okU; any okI]))))).                                   (* true false *)
 
 (** POINTERS (Go spec "Pointer types"): a [Ptr] lowers to Go [*T]; a COPY of the pointer
-    aliases the SAME cell ([ptr_alias] THEOREM, builtins.v); read-after-write is
+    aliases the SAME cell ([ptr_alias] THEOREM, GoHeap.v); read-after-write is
     [ptr_get_set_same]. *)
 Definition ptr_demo : IO unit :=
   bind (ptr_new TI64 (10)%i64) (fun p =>      (* p := new(int64) ← 10 *)
@@ -2902,7 +2902,7 @@ Definition pure_rec_demo : IO unit := println [any (pow2 4)].   (* 2^4 = 16 *)
 Definition natpred_demo : IO unit :=
   println [any (pow2 (Nat.pred 5)); any (pow2 (Nat.pred 0))].   (* 2^4 / 2^0 -> 16 1 *)
 
-(** Invariant: proof-only suppression matches by [from_builtins] OWNERSHIP, never by bare
+(** Invariant: proof-only suppression matches by [from_model] OWNERSHIP, never by bare
     basename — a user def colliding with a suppressed name EMITS normally. *)
 Module OwnNames.
   Definition tl (x : GoI64) : GoI64 := x.                (* exact-basename collision (List.tl) *)

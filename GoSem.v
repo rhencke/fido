@@ -21,8 +21,6 @@
     authority); grounding examples stay adjacent to their theorems upstream.
     ============================================================================ *)
 From Fido Require Import GoAst GoTypes GoSafe cmd preamble.   (* [preamble] re-exports [builtins]: [GoAny]/[anyt]/[intwrap]/[World]/[w_log]/[Outcome]/[ORet] *)
-From Fido Require Import GoChan.
-From Fido Require Import GoMap.
 From Fido Require Import GoNumeric.
 From Fido Require Import GoRuntimeTypes.
 From Fido Require Import GoEffects.

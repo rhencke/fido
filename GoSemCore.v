@@ -15,7 +15,6 @@
     both; the surfaces remain the public authority).
     ============================================================================ *)
 From Fido Require Import GoAst GoTypes preamble.   (* [preamble] re-exports [builtins]: [GoAny]/[anyt]/[intwrap]/[World]/[w_log]/[Outcome]/[ORet] *)
-From Fido Require Import GoChan.
 From Fido Require Import GoNumeric.
 From Fido Require Import GoRuntimeTypes.
 From Fido Require Import GoEffects.

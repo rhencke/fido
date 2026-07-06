@@ -28,7 +28,6 @@
     remaining defers — it records the active panic and unwinding CONTINUES.  See [ustep_ret_defer] /
     [ustep_pan_defer]. *)
 
-From Fido Require Import GoChan.
 From Fido Require Import preamble concurrency.
 From Fido Require Import GoRuntimeTypes.
 From Fido Require Import GoEffects.

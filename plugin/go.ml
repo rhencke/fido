@@ -242,8 +242,8 @@ let from_model r =
   | None -> false
   | Some dp -> List.mem (DirPath.to_string dp) model_dirpaths
 
-(* A Fido builtin/combinator is matched by its basename AND a check that it lives in [builtins.v]
-   — so a user theory CANNOT shadow a builtin name.
+(* A Fido builtin/combinator is matched by its basename AND a check that it lives in one of the
+   semantic model modules ([model_dirpaths]) — so a user theory CANNOT shadow a builtin name.
    Stdlib refs are package-qualified and use [ref_has_suffix]. *)
 let named n r = String.equal (global_basename r) n && from_model r
 
@@ -270,7 +270,7 @@ let from_digits r =
   | None -> false
   | Some dp -> String.equal (DirPath.to_string dp) "Fido.digits"
 
-(* [named_in ns r]: the list form of [named] — TRUE iff [r] is a [builtins.v] ref whose basename is one of
+(* [named_in ns r]: the list form of [named] — TRUE iff [r] is a model-module ref ([from_model]) whose basename is one of
    [ns].  EVERY conversion recognizer the verified-printer bridge routes through (the cov_preds set) is defined
    as exactly [let is_X = named_in […]] so the [from_model] guard lives here, once.  smart-ctor-gate.sh
    check 4 (bridge-recognizer) is a grep TRIPWIRE (not a seal) flagging the common accidental break — a recognizer doing a raw

@@ -309,7 +309,7 @@ Inductive PAct :=
      ALL successors.  When NO case is ready there is no [step] at all — empty-select is a
      LOCAL non-step contributing to global deadlock [Stuck], NEVER a fabricated value.
      Scope: every case shares the post-select continuation [rest]; per-case branch BODIES
-     are the orthogonal goto-dispatch dimension ([select2] in builtins.v). *)
+     are the orthogonal goto-dispatch dimension ([select2] in GoChan.v). *)
 
 Definition upd {A} (f : nat -> A) (k : nat) (v : A) : nat -> A :=
   fun x => if Nat.eqb x k then v else f x.
@@ -4083,7 +4083,7 @@ Qed.
     guarantee lives on [rstep], not on [run_io].
     ============================================================================ *)
 (** The CONCRETE realizable coding [keystone_inj]/[keystone_prj] and its bounded round-trip
-    [keystone_roundtrip] are defined in [builtins.v] (where [Z]/[i64wrap] live). *)
+    [keystone_roundtrip] are defined in [builtins.v] (over GoNumeric's [Z]-carried [i64wrap]). *)
 
 Section Keystone.
   Variable chenv : nat -> GoChan GoI64.    (* calculus channel id -> the IO channel *)
@@ -5413,7 +5413,7 @@ End KeystoneHeap.
     The honest "the [World] IS the whole state" statement uses a SINGLE world matching BOTH: every
     [rstep] advances at most one component ([chan_*_upd] for a channel op, [ref_upd] for a write),
     and the [World]'s ref- and channel-heaps are INDEPENDENT ([ref_sel_chan_*_upd] /
-    [chan_buf_ref_upd_frame] in builtins.v), so the untouched component stays matched in the SAME
+    [chan_buf_ref_upd_frame] in GoHeap.v), so the untouched component stays matched in the SAME
     advanced world.  [reachable_refines_state]: every reachable state of a concurrent program — its
     channels AND its memory — is realized by ONE [run_io] world, across all interleavings.  Open/closed
     channel STATUS is matched too ([reachable_refines_closed]); CAPACITY is a proven invariant of
@@ -6242,7 +6242,7 @@ Proof.
   - intros Hdone. specialize (Hdone 0 eq_refl). cbn in Hdone. discriminate.
 Qed.
 
-(** ── BRIDGE: the typed sequential [select_recv2] (builtins.v) is a SOUND but INCOMPLETE scheduler
+(** ── BRIDGE: the typed sequential [select_recv2] (GoChan.v) is a SOUND but INCOMPLETE scheduler
     of this authoritative relational [CSelect]. ──
 
     [select_recv2 ta ch1 k1 ta ch2 k2] takes ch1 if ready, else ch2 (ch1-PRIORITY) — exactly the
@@ -6253,7 +6253,7 @@ Qed.
     (2) INCOMPLETE — when two cases are ready it realises only ch1, yet [rstep_select] ALSO permits
         the ch2 transition the typed model never takes; and
     (3) WORLD-LEVEL — the real [select_recv2] (not just [sel_first_ready]) reduces, on a ready
-        channel, to a plain [recv] there ([select_recv2_ch1_buffered] etc. in builtins.v), which is
+        channel, to a plain [recv] there ([select_recv2_ch1_buffered] etc. in GoChan.v), which is
         already operationally bridged — see [select_fire_is_recv_fire] below. *)
 
 (** (1) SOUNDNESS: whatever case the ch1-priority scheduler ([sel_first_ready]) picks, the
@@ -6300,8 +6300,8 @@ Qed.
     real [select_recv2]; this ties them).  Operationally, firing a BUFFERED select case [(c,f)]
     reaches the IDENTICAL successor config as a plain [rstep_recv] on [c] would — select-taking-a-
     ready-channel IS a recv on that channel.  This mirrors, in the calculus, the [run_io] theorem
-    [select_recv2_ch1_buffered] (builtins.v): [select_recv2] on a ready ch1 = [bind (recv ta ch1) k1].
-    Composed — [select_recv2] = [recv] (World, builtins) ∘ [recv] ↔ [rstep_recv] ([denote_sim_recv],
+    [select_recv2_ch1_buffered] (GoChan.v): [select_recv2] on a ready ch1 = [bind (recv ta ch1) k1].
+    Composed — [select_recv2] = [recv] (World, GoChan) ∘ [recv] ↔ [rstep_recv] ([denote_sim_recv],
     World) ∘ [rstep_recv] = [rstep_select]-successor (here) — the typed [select_recv2] is tied to the
     operational select through [run_io], not merely to [sel_first_ready]. *)
 Theorem select_fire_is_recv_fire :

@@ -19,7 +19,6 @@
     [World -> Outcome] cannot run a func-scoped defer at return, so [run_cmd] is the ONLY semantics for a
     [Cmd] (a shallow drop/no-op would silently erase a deferred effect).  Channel ops and
     [catch] are future slices (plans/bridge-effects.md). *)
-From Fido Require Import GoChan.
 From Fido Require Import preamble.
 From Fido Require Import GoRuntimeTypes.
 From Fido Require Import GoEffects.
