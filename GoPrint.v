@@ -4767,8 +4767,6 @@ Definition bstep (t : Token) (d : nat) : nat :=
   end.
 Fixpoint nd (ts : list Token) (d : nat) : nat :=   (* nat depth after scanning [ts] from [d] *)
   match ts with nil => d | t :: r => nd r (bstep t d) end.
-Lemma nd_app : forall a b d, nd (a ++ b) d = nd b (nd a d).
-Proof. induction a as [ | t a IH ]; intros b d; [ reflexivity | apply IH ]. Qed.
 (** [bd] (option, dip-tracking) and [nd] (nat, clamped) agree while no dip occurs *)
 Lemma bd_nd : forall a d e, bd a d = Some e -> nd a d = e.
 Proof.
@@ -4819,21 +4817,19 @@ Proof.
   cbn [firstn nd] in H. exact H.
 Qed.
 (** ★ the group split: on a trailing balanced group [P ++ OPEN :: body ++ CLOSE :: nil] the last
-    depth-0 token is the framing OPEN at index [length P] — [last0] pins the prefix length. *)
+    depth-0 token is the framing OPEN at index [length P] — [last0] pins the prefix length.  The
+    final token [cl] is UNCONSTRAINED (it is at depth-before 1, so never records a best); the
+    lemma is therefore stated without a closer hypothesis on [cl]. *)
 Lemma last0_group : forall P body op cl,
   bd P 0 = Some 0 -> bd body 0 = Some 0 ->
-  (op = TLP \/ op = TLB \/ op = TLC) -> (cl = TRP \/ cl = TRB \/ cl = TRC) ->
+  (op = TLP \/ op = TLB \/ op = TLC) ->
   last0 (P ++ op :: body ++ cl :: nil) = length P.
 Proof.
-  intros P body op cl HP Hbody Hop Hcl. unfold last0.
-  rewrite last0_aux_app. rewrite (bd_nd P 0 0 HP).
-  assert (HLP : last0_aux P 0 0 0 = last0_aux P 0 0 0) by reflexivity.
-  (* scan the group [op :: body ++ cl :: nil] from depth 0, best carried in *)
+  intros P body op cl HP Hbody Hop. unfold last0.
+  rewrite last0_aux_app, (bd_nd P 0 0 HP).
   cbn [last0_aux]. rewrite PeanoNat.Nat.add_0_l.
   assert (Hopd : bstep op 0 = 1) by (destruct Hop as [E|[E|E]]; subst op; reflexivity).
-  rewrite Hopd. cbn [Nat.eqb].
-  (* now scanning [body ++ cl :: nil] from depth 1, best = length P *)
-  rewrite last0_aux_app.
+  rewrite Hopd. cbn [Nat.eqb]. rewrite last0_aux_app.
   assert (Hbnn : bd body 0 <> None) by (rewrite Hbody; discriminate).
   assert (Hbody1 : last0_aux body 1 (S (length P)) (length P) = length P).
   { apply last0_aux_inv. intros k Hk. replace 1 with (0 + 1) by reflexivity.
@@ -4842,8 +4838,6 @@ Proof.
   assert (Hndbody : nd body 1 = 1)
     by (apply bd_nd; replace 1 with (S 0) by reflexivity; apply bd_up; exact Hbody).
   rewrite Hndbody. cbn [last0_aux Nat.eqb]. reflexivity.
-  (* [Hcl] unused: the final [cl] is at depth-before 1, so it never records a best — the split
-     holds for ANY final token; the closer hypothesis is kept only to document the group shape. *)
 Qed.
 (** LEXICAL FAITHFULNESS through the grammar: printing then lexing yields EXACTLY a
     canonical derivation's tokens — the composed [lex_gprint_expr] shape CLAUDE.md names. *)
