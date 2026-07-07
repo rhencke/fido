@@ -23,6 +23,12 @@ the parser as the foundation, the exact inversion CLAUDE.md forbids.  The execut
 parser is re-based LAST as derived tooling (`parse_sound`/`parse_complete` against the
 relation).
 
+★STATUS: Phases 1+2 LANDED — CanonTy (CTy* ctors, avoiding the ConvTy CT* namespace) +
+the 5-way mutual CanonExpr/CanonArgs/CanonArgsTl/CanonPairs/CanonPairsTl with SPLIT paren
+productions; the Minimality/Combined schemes; canon_ty_tokens + canon_expr_tokens (token-
+functionality) + gttokens_ty_canonical + gprint_expr_canonical + lex_gprint_expr, all in
+the printer gate.  NEXT = Phase 3, canon_expr_unique (parser-free).
+
 ## Phases (each: green, golden byte-identical, gated, reviewed)
 
 1. **CanonTy + CanonExpr (the relations).**  Mutual inductives mirroring `gtokens`'

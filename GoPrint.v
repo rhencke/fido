@@ -3171,6 +3171,132 @@ Fixpoint gtokens_pairs_tl (kvs : list (GExpr * GExpr)) : list Token :=
 Definition gtokens_pairs (kvs : list (GExpr * GExpr)) : list Token :=
   match kvs with nil => nil | p :: r => let (k, v) := p in (gtokens 0 k ++ TColon :: (gtokens 0 v ++ gtokens_pairs_tl r))%list end.
 
+(** ============================================================================
+    THE CANONICAL RELATIONAL GRAMMAR (plans/canonical-grammar.md; CLAUDE.md "Syntax
+    authority").  [CanonTy]/[CanonExpr] state the canonical token productions as an
+    INDUCTIVE RELATION — the grammar the printer is proved against, with parenthesis
+    choices split into separate productions (each carrying its boolean premise) so
+    inversion discriminates on the leading token.  The relation mirrors [gttokens_ty]/
+    [gtokens] EXACTLY: any divergence is a bug in one of them, never a tolerance.
+    ============================================================================ *)
+Inductive CanonTy : GoTy -> list Token -> Prop :=
+  | CTyInt     : CanonTy GTInt     (TId (mkIdent "int" eq_refl) :: nil)
+  | CTyInt64   : CanonTy GTInt64   (TId (mkIdent "int64" eq_refl) :: nil)
+  | CTyBool    : CanonTy GTBool    (TId (mkIdent "bool" eq_refl) :: nil)
+  | CTyString  : CanonTy GTString  (TId (mkIdent "string" eq_refl) :: nil)
+  | CTyFloat64 : CanonTy GTFloat64 (TId (mkIdent "float64" eq_refl) :: nil)
+  | CTyFloat32 : CanonTy GTFloat32 (TId (mkIdent "float32" eq_refl) :: nil)
+  | CTyUint    : CanonTy GTUint    (TId (mkIdent "uint" eq_refl) :: nil)
+  | CTyU8      : CanonTy GTU8      (TId (mkIdent "uint8" eq_refl) :: nil)
+  | CTyI8      : CanonTy GTI8      (TId (mkIdent "int8" eq_refl) :: nil)
+  | CTyU16     : CanonTy GTU16     (TId (mkIdent "uint16" eq_refl) :: nil)
+  | CTyI16     : CanonTy GTI16     (TId (mkIdent "int16" eq_refl) :: nil)
+  | CTyU32     : CanonTy GTU32     (TId (mkIdent "uint32" eq_refl) :: nil)
+  | CTyI32     : CanonTy GTI32     (TId (mkIdent "int32" eq_refl) :: nil)
+  | CTyU64     : CanonTy GTU64     (TId (mkIdent "uint64" eq_refl) :: nil)
+  | CTyPtr     : forall u ts, CanonTy u ts -> CanonTy (GTPtr u) (TStar :: ts)
+  | CTySlice   : forall u ts, CanonTy u ts -> CanonTy (GTSlice u) (TLB :: TRB :: ts)
+  | CTyChan    : forall u ts, CanonTy u ts -> CanonTy (GTChan u) (TChan :: ts)
+  | CTyMap     : forall k v tk tv, CanonTy k tk -> CanonTy v tv ->
+      CanonTy (GTMap k v) (TMap :: TLB :: (tk ++ TRB :: tv))
+  | CTyNamed   : forall n, CanonTy (GTNamed n) (TId (tyname_to_ident n) :: nil).
+
+Inductive CanonExpr : nat -> GExpr -> list Token -> Prop :=
+  | CanId  : forall ctx i,  CanonExpr ctx (EId i)  (TId i :: nil)
+  | CanInt : forall ctx z,  CanonExpr ctx (EInt z) (TInt z :: nil)
+  | CanStr : forall ctx s,  CanonExpr ctx (EStr s) (TStr s :: nil)
+  | CanHex : forall ctx zc, CanonExpr ctx (EHex zc) (THex zc :: nil)
+  | CanUnP : forall ctx o e ts,
+      unop_paren o e = true -> CanonExpr 0 e ts ->
+      CanonExpr ctx (EUn o e) (prefix_token o :: TLP :: (ts ++ TRP :: nil))
+  | CanUnN : forall ctx o e ts,
+      unop_paren o e = false -> CanonExpr 0 e ts ->
+      CanonExpr ctx (EUn o e) (prefix_token o :: ts)
+  | CanBnP : forall ctx o l r tl tr,
+      Nat.ltb (binop_prec o) ctx = true ->
+      CanonExpr (binop_prec o) l tl -> CanonExpr (S (binop_prec o)) r tr ->
+      CanonExpr ctx (EBn o l r) (TLP :: ((tl ++ op_token o :: tr) ++ TRP :: nil))
+  | CanBnN : forall ctx o l r tl tr,
+      Nat.ltb (binop_prec o) ctx = false ->
+      CanonExpr (binop_prec o) l tl -> CanonExpr (S (binop_prec o)) r tr ->
+      CanonExpr ctx (EBn o l r) (tl ++ op_token o :: tr)
+  | CanSelP : forall ctx e0 f t0,
+      op_needs_paren e0 = true -> CanonExpr 0 e0 t0 ->
+      CanonExpr ctx (ESel e0 f) ((TLP :: (t0 ++ TRP :: nil)) ++ TDot :: TId f :: nil)
+  | CanSelN : forall ctx e0 f t0,
+      op_needs_paren e0 = false -> CanonExpr 0 e0 t0 ->
+      CanonExpr ctx (ESel e0 f) (t0 ++ TDot :: TId f :: nil)
+  | CanIndexP : forall ctx e0 i t0 ti,
+      op_needs_paren e0 = true -> CanonExpr 0 e0 t0 -> CanonExpr 0 i ti ->
+      CanonExpr ctx (EIndex e0 i) ((TLP :: (t0 ++ TRP :: nil)) ++ TLB :: (ti ++ TRB :: nil))
+  | CanIndexN : forall ctx e0 i t0 ti,
+      op_needs_paren e0 = false -> CanonExpr 0 e0 t0 -> CanonExpr 0 i ti ->
+      CanonExpr ctx (EIndex e0 i) (t0 ++ TLB :: (ti ++ TRB :: nil))
+  | CanSliceP : forall ctx e0 lo hi t0 tlo thi,
+      op_needs_paren e0 = true ->
+      CanonExpr 0 e0 t0 -> CanonExpr 0 lo tlo -> CanonExpr 0 hi thi ->
+      CanonExpr ctx (ESlice e0 lo hi)
+        ((TLP :: (t0 ++ TRP :: nil)) ++ TLB :: (tlo ++ TColon :: (thi ++ TRB :: nil)))
+  | CanSliceN : forall ctx e0 lo hi t0 tlo thi,
+      op_needs_paren e0 = false ->
+      CanonExpr 0 e0 t0 -> CanonExpr 0 lo tlo -> CanonExpr 0 hi thi ->
+      CanonExpr ctx (ESlice e0 lo hi)
+        (t0 ++ TLB :: (tlo ++ TColon :: (thi ++ TRB :: nil)))
+  | CanCallP : forall ctx e0 args t0 targs,
+      op_needs_paren e0 = true -> CanonExpr 0 e0 t0 -> CanonArgs args targs ->
+      CanonExpr ctx (ECall e0 args) ((TLP :: (t0 ++ TRP :: nil)) ++ TLP :: (targs ++ TRP :: nil))
+  | CanCallN : forall ctx e0 args t0 targs,
+      op_needs_paren e0 = false -> CanonExpr 0 e0 t0 -> CanonArgs args targs ->
+      CanonExpr ctx (ECall e0 args) (t0 ++ TLP :: (targs ++ TRP :: nil))
+  | CanAssertP : forall ctx e0 T t0 tT,
+      op_needs_paren e0 = true -> CanonExpr 0 e0 t0 -> CanonTy T tT ->
+      CanonExpr ctx (EAssert e0 T) ((TLP :: (t0 ++ TRP :: nil)) ++ TDot :: TLP :: (tT ++ TRP :: nil))
+  | CanAssertN : forall ctx e0 T t0 tT,
+      op_needs_paren e0 = false -> CanonExpr 0 e0 t0 -> CanonTy T tT ->
+      CanonExpr ctx (EAssert e0 T) (t0 ++ TDot :: TLP :: (tT ++ TRP :: nil))
+  | CanConv : forall ctx c e0 tT t0,
+      CanonTy (convty_ty c) tT -> CanonExpr 0 e0 t0 ->
+      CanonExpr ctx (EConv c e0) (tT ++ TLP :: (t0 ++ TRP :: nil))
+  | CanSliceLit : forall ctx t es tT tes,
+      CanonTy t tT -> CanonArgs es tes ->
+      CanonExpr ctx (ESliceLit t es) (TLB :: TRB :: (tT ++ TLC :: (tes ++ TRC :: nil)))
+  | CanMapLit : forall ctx kt vt kvs tT tkvs,
+      CanonTy (GTMap kt vt) tT -> CanonPairs kvs tkvs ->
+      CanonExpr ctx (EMapLit kt vt kvs) (tT ++ TLC :: (tkvs ++ TRC :: nil))
+with CanonArgs : list GExpr -> list Token -> Prop :=
+  | CanArgs0 : CanonArgs nil nil
+  | CanArgs1 : forall a r ta tr,
+      CanonExpr 0 a ta -> CanonArgsTl r tr -> CanonArgs (a :: r) (ta ++ tr)
+with CanonArgsTl : list GExpr -> list Token -> Prop :=
+  | CanArgsTl0 : CanonArgsTl nil nil
+  | CanArgsTl1 : forall b m tb tm,
+      CanonExpr 0 b tb -> CanonArgsTl m tm -> CanonArgsTl (b :: m) (TComma :: (tb ++ tm))
+with CanonPairs : list (GExpr * GExpr) -> list Token -> Prop :=
+  | CanPairs0 : CanonPairs nil nil
+  | CanPairs1 : forall k v r tk tv tr,
+      CanonExpr 0 k tk -> CanonExpr 0 v tv -> CanonPairsTl r tr ->
+      CanonPairs ((k, v) :: r) (tk ++ TColon :: (tv ++ tr))
+with CanonPairsTl : list (GExpr * GExpr) -> list Token -> Prop :=
+  | CanPairsTl0 : CanonPairsTl nil nil
+  | CanPairsTl1 : forall k v m tk tv tm,
+      CanonExpr 0 k tk -> CanonExpr 0 v tv -> CanonPairsTl m tm ->
+      CanonPairsTl ((k, v) :: m) (TComma :: (tk ++ TColon :: (tv ++ tm))).
+
+Scheme CanonExpr_mind := Minimality for CanonExpr Sort Prop
+  with CanonArgs_mind := Minimality for CanonArgs Sort Prop
+  with CanonArgsTl_mind := Minimality for CanonArgsTl Sort Prop
+  with CanonPairs_mind := Minimality for CanonPairs Sort Prop
+  with CanonPairsTl_mind := Minimality for CanonPairsTl Sort Prop.
+Combined Scheme CanonExpr_mutind from
+  CanonExpr_mind, CanonArgs_mind, CanonArgsTl_mind, CanonPairs_mind, CanonPairsTl_mind.
+
+(** TOKEN-FUNCTIONALITY of the grammar: a derivation's token list is EXACTLY the
+    printer's canonical assignment — the relation adds productions, never freedom. *)
+Lemma canon_ty_tokens : forall t ts, CanonTy t ts -> ts = gttokens_ty t.
+Proof.
+  induction 1; cbn [gttokens_ty]; subst; reflexivity.
+Qed.
+
 (** token analog of [gparen] + the re-fold lemmas (mirror [gprint_ESel]/[gprint_EIndex]). *)
 Definition gtparen (e0 : GExpr) : list Token :=
   if op_needs_paren e0 then (TLP :: (gtokens 0 e0 ++ TRP :: nil))%list else gtokens 0 e0.
@@ -4256,6 +4382,111 @@ Proof.
   pose proof (lex_gprint_app e ctx "" nil eq_refl lex_empty) as H.
   rewrite str_app_nil_r in H. rewrite app_nil_r in H. exact H.
 Qed.
+
+(** TOKEN-FUNCTIONALITY, all five relations at once: a derivation's tokens ARE the
+    printer's canonical assignment. *)
+Lemma canon_expr_tokens_mut :
+  (forall ctx e ts, CanonExpr ctx e ts -> ts = gtokens ctx e)
+  /\ (forall args ts, CanonArgs args ts -> ts = gtokens_args args)
+  /\ (forall args ts, CanonArgsTl args ts -> ts = gtokens_args_tl args)
+  /\ (forall kvs ts, CanonPairs kvs ts -> ts = gtokens_pairs kvs)
+  /\ (forall kvs ts, CanonPairsTl kvs ts -> ts = gtokens_pairs_tl kvs).
+Proof.
+  apply CanonExpr_mutind; intros; subst;
+    rewrite ?gtokens_ECall, ?gtokens_ESliceLit, ?gtokens_EMapLit,
+            ?gtokens_EAssert, ?gtokens_EConv, ?gtokens_EIndex, ?gtokens_ESlice, ?gtokens_EUn;
+    repeat match goal with
+           | H : CanonTy _ _ |- _ => apply canon_ty_tokens in H; subst
+           end;
+    cbn [gtokens gtokens_args gtokens_args_tl gtokens_pairs gtokens_pairs_tl];
+    unfold gtparen;
+    repeat match goal with H : _ = true |- _ => rewrite H; clear H
+                         | H : _ = false |- _ => rewrite H; clear H end;
+    reflexivity.
+Qed.
+Theorem canon_expr_tokens : forall ctx e ts, CanonExpr ctx e ts -> ts = gtokens ctx e.
+Proof. exact (proj1 canon_expr_tokens_mut). Qed.
+
+(** CANONICITY: the printer's token assignment inhabits the grammar, at every context. *)
+Lemma gttokens_ty_canonical : forall t, CanonTy t (gttokens_ty t).
+Proof. induction t; cbn [gttokens_ty]; constructor; assumption. Qed.
+Lemma canon_args_intro : forall args,
+  Forall (fun a => CanonExpr 0 a (gtokens 0 a)) args ->
+  CanonArgs args (gtokens_args args)
+  /\ CanonArgsTl args (gtokens_args_tl args).
+Proof.
+  induction 1 as [ | a r Ha Hr [IH1 IH2] ].
+  - split; constructor.
+  - split.
+    + cbn [gtokens_args]. apply CanArgs1; [ exact Ha | exact IH2 ].
+    + cbn [gtokens_args_tl]. apply CanArgsTl1; [ exact Ha | exact IH2 ].
+Qed.
+Lemma canon_pairs_intro : forall kvs,
+  Forall (fun p => CanonExpr 0 (fst p) (gtokens 0 (fst p))
+                   /\ CanonExpr 0 (snd p) (gtokens 0 (snd p))) kvs ->
+  CanonPairs kvs (gtokens_pairs kvs)
+  /\ CanonPairsTl kvs (gtokens_pairs_tl kvs).
+Proof.
+  induction 1 as [ | [k v] r [Hk Hv] Hr [IH1 IH2] ].
+  - split; constructor.
+  - split.
+    + cbn [gtokens_pairs]. apply CanPairs1; [ exact Hk | exact Hv | exact IH2 ].
+    + cbn [gtokens_pairs_tl]. apply CanPairsTl1; [ exact Hk | exact Hv | exact IH2 ].
+Qed.
+
+Theorem gprint_expr_canonical : forall e ctx, CanonExpr ctx e (gtokens ctx e).
+Proof.
+  induction e using GExpr_ind'; intro ctx.
+  - apply CanId.
+  - apply CanInt.
+  - (* EUn *) rewrite gtokens_EUn.
+    destruct (unop_paren o e) eqn:Ep.
+    + apply CanUnP; [ exact Ep | apply IHe ].
+    + apply CanUnN; [ exact Ep | apply IHe ].
+  - (* EBn *) cbn [gtokens].
+    destruct (Nat.ltb (binop_prec o) ctx) eqn:Ep.
+    + apply CanBnP; [ exact Ep | apply IHe1 | apply IHe2 ].
+    + apply CanBnN; [ exact Ep | apply IHe1 | apply IHe2 ].
+  - (* ESel *) cbn [gtokens].
+    destruct (op_needs_paren e) eqn:Ep.
+    + apply CanSelP; [ exact Ep | apply IHe ].
+    + apply CanSelN; [ exact Ep | apply IHe ].
+  - (* EIndex *) rewrite gtokens_EIndex. unfold gtparen.
+    destruct (op_needs_paren e1) eqn:Ep.
+    + apply CanIndexP; [ exact Ep | apply IHe1 | apply IHe2 ].
+    + apply CanIndexN; [ exact Ep | apply IHe1 | apply IHe2 ].
+  - (* ESlice *) rewrite gtokens_ESlice. unfold gtparen.
+    destruct (op_needs_paren e1) eqn:Ep.
+    + apply CanSliceP; [ exact Ep | apply IHe1 | apply IHe2 | apply IHe3 ].
+    + apply CanSliceN; [ exact Ep | apply IHe1 | apply IHe2 | apply IHe3 ].
+  - (* ECall *) rewrite gtokens_ECall. unfold gtparen.
+    destruct (canon_args_intro args ltac:(eapply Forall_impl; [ | exact H ]; cbn; intros a Ha; apply Ha)) as [Hargs _].
+    destruct (op_needs_paren e) eqn:Ep.
+    + apply CanCallP; [ exact Ep | apply IHe | exact Hargs ].
+    + apply CanCallN; [ exact Ep | apply IHe | exact Hargs ].
+  - (* EAssert *) rewrite gtokens_EAssert. unfold gtparen.
+    destruct (op_needs_paren e) eqn:Ep.
+    + apply CanAssertP; [ exact Ep | apply IHe | apply gttokens_ty_canonical ].
+    + apply CanAssertN; [ exact Ep | apply IHe | apply gttokens_ty_canonical ].
+  - (* EConv *) rewrite gtokens_EConv.
+    apply CanConv; [ apply gttokens_ty_canonical | apply IHe ].
+  - (* ESliceLit *) rewrite gtokens_ESliceLit.
+    destruct (canon_args_intro es ltac:(eapply Forall_impl; [ | exact H ]; cbn; intros a Ha; apply Ha)) as [Hes _].
+    apply CanSliceLit; [ apply gttokens_ty_canonical | exact Hes ].
+  - (* EMapLit *) rewrite gtokens_EMapLit.
+    destruct (canon_pairs_intro kvs ltac:(eapply Forall_impl; [ | exact H ]; cbn;
+                intros p Hp; split; [ exact (proj1 Hp 0) | exact (proj2 Hp 0) ])) as [Hkvs _].
+    apply CanMapLit; [ apply gttokens_ty_canonical | exact Hkvs ].
+  - apply CanStr.
+  - apply CanHex.
+Qed.
+
+(** LEXICAL FAITHFULNESS through the grammar: printing then lexing yields EXACTLY a
+    canonical derivation's tokens — the composed [lex_gprint_expr] shape CLAUDE.md names. *)
+Theorem lex_gprint_expr : forall ctx e,
+  lex (gprint ctx e) = Some (gtokens ctx e) /\ CanonExpr ctx e (gtokens ctx e).
+Proof. intros ctx e. split; [ apply gtokens_lex | apply gprint_expr_canonical ]. Qed.
+
 
 (** ==================================================================================================
     ---- THE PARSER ROUND-TRIP ----  [parse_expr] inverts [gtokens]: the canonical token list of
@@ -6191,6 +6422,9 @@ Print Assumptions parse_conv_print.
 Print Assumptions parse_gty_print_ty.
 Print Assumptions print_stmt_inj.
 Print Assumptions print_program_inj.
+Print Assumptions gprint_expr_canonical.
+Print Assumptions canon_expr_tokens.
+Print Assumptions lex_gprint_expr.
 
 (** Extract the Rocq printers to the OCaml the plugin calls. *)
 Require Import Extraction.
