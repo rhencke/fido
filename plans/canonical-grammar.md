@@ -40,11 +40,13 @@ group-split tool (`last0`/`last0_group` + `nd`/`nd_add`/`bd_nd`/`bd_prefix_defin
 gated; found: the closer hypothesis is unnecessary — the final token is at depth-before 1, so it
 never records a best.  Phase 3b SLICE 2b LANDED — `bdip`/`bdip_app_nodip`/`balanced_close_split`
 (cancel a balanced prefix before a matched closer; the inner-list / paren-peel tool), gated.
-STILL TO WRITE: the paren/bare operand discrimination;
-`no_depth0_comma` + the top-level separator split + `gtokens_args_inj`/`gtokens_pairs_inj`; ★the
-EBn OPERATOR-PRECEDENCE disambiguation (rightmost-minimal-precedence depth-0 op + the ctx-wrapping
-invariant lemmas + `op_token`/`prefix_token` injectivity) — the crux risk; and `gtokens_inj`
-itself.  (The arbitrary-SUFFIX determinism lemma was found FALSE — see the design.)
+Phase 3b SLICE 2c LANDED — `fsep`/`fsep_app_none`/`fsep_balanced_sep`/`sep_split` (the depth-0
+separator split for comma/colon lists; `TComma`/`TColon` are depth-neutral so `bdip` can't find
+them), gated.  STILL TO WRITE: the paren/bare operand discrimination; `no_depth0_sep` (`fsep` of
+any `gtokens` is `None`) + `gtokens_args_inj`/`gtokens_pairs_inj`; ★the EBn OPERATOR-PRECEDENCE
+disambiguation (rightmost-minimal-precedence depth-0 op + the ctx-wrapping invariant lemmas +
+`op_token`/`prefix_token` injectivity) — the crux risk; and `gtokens_inj` itself.  (The
+arbitrary-SUFFIX determinism lemma was found FALSE — see the design.)
 
 ## Phases (each: green, golden byte-identical, gated, reviewed)
 
@@ -128,7 +130,7 @@ to the THREE expression bracket kinds — parens `TLP`/`TRP`, square `TLB`/`TRB`
   via a first-depth-0-separator lemma, resting on `no_depth0_comma`: no expression's `gtokens 0 e`
   contains a depth-0 `TComma`/`TColon` (they occur only inside nested groups, at depth ≥1), so the
   first top-level separator delimits the first element.  (`last0`/`last0_group` and
-  `bdip`/`balanced_close_split` LANDED + gated; `no_depth0_comma`, the separator split, and
+  `bdip`/`balanced_close_split` and `fsep`/`sep_split` LANDED + gated; `no_depth0_sep` and
   `gtokens_args_inj`/`gtokens_pairs_inj` are TO WRITE.)
 
 `gtokens_inj` by structural induction on `e1` (`GExpr_ind'`), `destruct e2`, per pair — on

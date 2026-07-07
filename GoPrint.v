@@ -4891,6 +4891,67 @@ Proof.
   destruct (app_eq_length ts1 ts2 (cl :: r1) (cl :: r2) HL HE) as [-> HT].
   injection HT as ->. split; reflexivity.
 Qed.
+
+(** ---- the SEPARATOR split.  [TComma]/[TColon] are DEPTH-NEUTRAL (not closers), so [bdip] cannot
+    find them.  [fsep ts d]: index of the first [TComma]/[TColon] at depth 0.  A balanced list with
+    NO depth-0 separator ([fsep ts 0 = None]) followed by one has that separator FIRST at index
+    [length ts] — [sep_split] cancels it, the tool the [gtokens_args]/[gtokens_pairs] list
+    injectivity will use.  Clean interfaces: the closer/separator hypotheses are token disjunctions. *)
+Fixpoint fsep (ts : list Token) (d : nat) : option nat :=
+  match ts with
+  | nil => None
+  | TLP :: r => option_map S (fsep r (S d))
+  | TLB :: r => option_map S (fsep r (S d))
+  | TLC :: r => option_map S (fsep r (S d))
+  | TRP :: r => option_map S (fsep r (Nat.pred d))
+  | TRB :: r => option_map S (fsep r (Nat.pred d))
+  | TRC :: r => option_map S (fsep r (Nat.pred d))
+  | TComma :: r => match d with O => Some O | S _ => option_map S (fsep r d) end
+  | TColon :: r => match d with O => Some O | S _ => option_map S (fsep r d) end
+  | _ :: r => option_map S (fsep r d)
+  end.
+Lemma option_map_S_none : forall x : option nat, option_map S x = None -> x = None.
+Proof. intros [i | ]; cbn [option_map]; [ discriminate | reflexivity ]. Qed.
+Lemma fsep_app_none : forall a b d e,
+  fsep a d = None -> bd a d = Some e ->
+  fsep (a ++ b) d = option_map (fun i => length a + i) (fsep b e).
+Proof.
+  induction a as [ | t a IH ]; intros b d e Hf Hb.
+  - cbn [bd] in Hb. injection Hb as <-. cbn [app fsep length].
+    destruct (fsep b d) as [n | ]; reflexivity.
+  - destruct t; cbn [bd fsep app length] in Hf, Hb |- *;
+      try (destruct d as [ | d0 ]; [ solve [ discriminate Hf | discriminate Hb ]
+                                    | cbn [fsep bd Nat.pred] in Hf, Hb |- * ]);
+      apply option_map_S_none in Hf;
+      lazymatch goal with
+      | [ |- context [ fsep (a ++ b) ?dd ] ] => rewrite (IH b dd e Hf Hb)
+      end;
+      cbn [option_map]; destruct (fsep b e) as [n | ]; cbn [option_map];
+      (reflexivity || (f_equal; lia)).
+Qed.
+Lemma fsep_balanced_sep : forall ts sep r,
+  bd ts 0 = Some 0 -> fsep ts 0 = None -> (sep = TComma \/ sep = TColon) ->
+  fsep (ts ++ sep :: r) 0 = Some (length ts).
+Proof.
+  intros ts sep r Hb Hf Hsep.
+  rewrite (fsep_app_none ts (sep :: r) 0 0 Hf Hb).
+  assert (Hs0 : fsep (sep :: r) 0 = Some 0) by (destruct Hsep as [E|E]; subst sep; reflexivity).
+  rewrite Hs0. cbn [option_map]. f_equal. apply PeanoNat.Nat.add_0_r.
+Qed.
+Lemma sep_split : forall sep ts1 ts2 r1 r2,
+  (sep = TComma \/ sep = TColon) ->
+  bd ts1 0 = Some 0 -> bd ts2 0 = Some 0 -> fsep ts1 0 = None -> fsep ts2 0 = None ->
+  (ts1 ++ sep :: r1)%list = (ts2 ++ sep :: r2)%list ->
+  ts1 = ts2 /\ r1 = r2.
+Proof.
+  intros sep ts1 ts2 r1 r2 Hsep H1 H2 F1 F2 HE.
+  assert (HL : length ts1 = length ts2).
+  { pose proof (fsep_balanced_sep ts1 sep r1 H1 F1 Hsep) as G1.
+    pose proof (fsep_balanced_sep ts2 sep r2 H2 F2 Hsep) as G2.
+    rewrite HE in G1. rewrite G2 in G1. injection G1 as G1. symmetry. exact G1. }
+  destruct (app_eq_length ts1 ts2 (sep :: r1) (sep :: r2) HL HE) as [-> HT].
+  injection HT as ->. split; reflexivity.
+Qed.
 (** LEXICAL FAITHFULNESS through the grammar: printing then lexing yields EXACTLY a
     canonical derivation's tokens — the composed [lex_gprint_expr] shape CLAUDE.md names. *)
 Theorem lex_gprint_expr : forall ctx e,
@@ -6840,6 +6901,7 @@ Print Assumptions gttokens_ty_inj.
 Print Assumptions gtokens_balanced.
 Print Assumptions last0_group.
 Print Assumptions balanced_close_split.
+Print Assumptions sep_split.
 
 (** Extract the Rocq printers to the OCaml the plugin calls. *)
 Require Import Extraction.
