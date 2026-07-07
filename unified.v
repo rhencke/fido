@@ -44,29 +44,31 @@ Import ListNotations.
     is [cmd_unified.bridge_heap_agrees] (any completing command — heap ops, ALLOCATION, and defers included,
     final-heap agreement; [no_heap] completion is a theorem); channel agreement remains
     (plans/bridge-effects.md).  Locations/channels stay [nat]; [UOut] carries the rich [GoAny]
-    payload at EVERY instantiation since output is observed, not raced.  [vzero] is ONLY a
-    calculus parameter — what a closed, drained recv binds ([0] at [nat]); at [V := GoAny] it
-    does NOT represent Go's closed-recv semantics (Go's zero is PER ELEMENT TYPE, and no
-    single [GoAny] is it): the bridge quantifies [vzero] universally — its image contains no
-    closed-recv form ([cmd_unified.cmd_to_ucmd_fragment]) and its mirrored-allocated start +
-    completion premise keep the heap defaults unconsulted — until [URecv]/[USelect] carry
+    payload at EVERY instantiation since output is observed, not raced.  There is NO global
+    closed-recv zero: [URecv]/[USelect] carry the zero PER SITE (Go's zero is per element
+    type — the [rstep] embedding supplies [0] at [nat]; the cmd bridge supplies the typed
+    [zero_val] through the channel's own tag), so the old universally-quantified [vzero]
+    calculus parameter is GONE — nothing left to quantify.  The heap defaults stay
+    unconsulted because the bridge's mirrored-allocated start +
     typed element-zero structure. *)
 Section UnifiedVal.
 Context {V : Type}.
-Variable vzero : V.
-
 Inductive UCmd : Type :=
   | URet   : UCmd                                  (* return / done *)
   | UOut   : bool -> list GoAny -> UCmd -> UCmd    (* print[ln] xs; then k — OUTPUT (bool = println: trailing newline, exactly the model's [w_output] flag) *)
   | UPan   : GoAny -> UCmd                          (* panic v              — PANIC (no continuation) *)
   | UDfr   : UCmd -> UCmd -> UCmd                   (* defer d; then k      — DEFER *)
   | USend  : nat -> V -> UCmd -> UCmd              (* ch <- v; then k *)
-  | URecv  : nat -> (V -> UCmd) -> UCmd            (* x := <-ch; then k x *)
+  | URecv  : nat -> V -> (V -> UCmd) -> UCmd       (* x := <-ch; then k x — the 2nd arg is THE
+                                                      CLOSED-RECV ZERO this recv binds on a closed,
+                                                      drained channel: typed PER SITE by the
+                                                      translation (Go's zero is per element type),
+                                                      never a global calculus parameter *)
   | UWrite : nat -> V -> UCmd -> UCmd              (* *l = v; then k *)
   | URead  : nat -> (V -> UCmd) -> UCmd            (* x := *l; then k x *)
   | USpawn : UCmd -> UCmd -> UCmd                  (* go child(); then k *)
   | UClose : nat -> UCmd -> UCmd                   (* close(ch); then k *)
-  | USelect : list (nat * (V -> UCmd)) -> UCmd    (* select over recv cases (channel, value-binding cont) *)
+  | USelect : list (nat * (V * (V -> UCmd))) -> UCmd    (* select over recv cases (channel, ITS closed-recv zero, value-binding cont) *)
   | UAlloc : V -> (nat -> UCmd) -> UCmd.           (* l := new(v); then k l — allocates at EXACTLY uc_next (deterministic; appended LAST, same discipline as cmd.v's CAlloc) *)
 
 (** THE unified configuration — one closed world holding every effect's state. *)
@@ -126,8 +128,8 @@ Inductive ustep : UConfig -> UConfig -> Prop :=
       ustep (mkUCfg p b h lv tr o df pa nx)
             (mkUCfg (upd p tid k) (upd b c (b c ++ [(v, length tr)])) h lv
                     (tr ++ [mkEv tid (KSend c)]) o df pa nx)
-  | ustep_recv : forall p b h lv tr o df pa nx tid c f v s brest,
-      lv tid = true -> p tid = URecv c f -> b c = (v, s) :: brest ->
+  | ustep_recv : forall p b h lv tr o df pa nx tid c z f v s brest,
+      lv tid = true -> p tid = URecv c z f -> b c = (v, s) :: brest ->
       ustep (mkUCfg p b h lv tr o df pa nx)
             (mkUCfg (upd p tid (f v)) (upd b c brest) h lv
                     (tr ++ [mkEv tid (KRecv c s)]) o df pa nx)
@@ -173,7 +175,7 @@ Inductive ustep : UConfig -> UConfig -> Prop :=
             (mkUCfg p b h (upd lv tid false) tr o df (upd pa tid (Some v)) nx)
   (* ---- faithful CLOSED-CHANNEL panics: send/close on a closed channel PANICS (Go), modelled by
          transitioning the goroutine to [UPan] (the defer/death machinery above then runs); a recv on a
-         CLOSED, drained channel returns the zero value (binds [vzero]), exactly [rstep_recv_closed]. ---- *)
+         CLOSED, drained channel returns the SITE'S OWN zero (the [URecv]/[USelect] field), exactly [rstep_recv_closed]. ---- *)
   | ustep_send_closed : forall p b h lv tr o df pa nx tid c v k,
       lv tid = true -> p tid = USend c v k -> closedb tr c = true ->
       ustep (mkUCfg p b h lv tr o df pa nx)
@@ -182,23 +184,23 @@ Inductive ustep : UConfig -> UConfig -> Prop :=
       lv tid = true -> p tid = UClose c k -> closedb tr c = true ->
       ustep (mkUCfg p b h lv tr o df pa nx)
             (mkUCfg (upd p tid (UPan rt_close_closed)) b h lv tr o df pa nx)
-  | ustep_recv_closed : forall p b h lv tr o df pa nx tid c f pos e,
-      lv tid = true -> p tid = URecv c f -> b c = [] ->
+  | ustep_recv_closed : forall p b h lv tr o df pa nx tid c z f pos e,
+      lv tid = true -> p tid = URecv c z f -> b c = [] ->
       nth_error tr pos = Some e -> e_kind e = KClose c ->
       ustep (mkUCfg p b h lv tr o df pa nx)
-            (mkUCfg (upd p tid (f vzero)) b h lv (tr ++ [mkEv tid (KRecv c pos)]) o df pa nx)
+            (mkUCfg (upd p tid (f z)) b h lv (tr ++ [mkEv tid (KRecv c pos)]) o df pa nx)
   (* ---- SELECT: any ready case (buffered, or closed-drained) may fire — genuinely nondeterministic ---- *)
-  | ustep_select : forall p b h lv tr o df pa nx tid cases c f v s brest,
+  | ustep_select : forall p b h lv tr o df pa nx tid cases c z f v s brest,
       lv tid = true -> p tid = USelect cases ->
-      In (c, f) cases -> b c = (v, s) :: brest ->
+      In (c, (z, f)) cases -> b c = (v, s) :: brest ->
       ustep (mkUCfg p b h lv tr o df pa nx)
             (mkUCfg (upd p tid (f v)) (upd b c brest) h lv
                     (tr ++ [mkEv tid (KRecv c s)]) o df pa nx)
-  | ustep_select_closed : forall p b h lv tr o df pa nx tid cases c f pos e,
+  | ustep_select_closed : forall p b h lv tr o df pa nx tid cases c z f pos e,
       lv tid = true -> p tid = USelect cases ->
-      In (c, f) cases -> b c = [] -> nth_error tr pos = Some e -> e_kind e = KClose c ->
+      In (c, (z, f)) cases -> b c = [] -> nth_error tr pos = Some e -> e_kind e = KClose c ->
       ustep (mkUCfg p b h lv tr o df pa nx)
-            (mkUCfg (upd p tid (f vzero)) b h lv (tr ++ [mkEv tid (KRecv c pos)]) o df pa nx).
+            (mkUCfg (upd p tid (f z)) b h lv (tr ++ [mkEv tid (KRecv c pos)]) o df pa nx).
 
 Inductive usteps : UConfig -> UConfig -> Prop :=
   | usteps_refl : forall cfg, usteps cfg cfg
@@ -256,10 +258,10 @@ Inductive UMemFree : UCmd -> Prop :=
   | UMF_pan   : forall v, UMemFree (UPan v)
   | UMF_dfr   : forall d k, UMemFree d -> UMemFree k -> UMemFree (UDfr d k)
   | UMF_send  : forall c v k, UMemFree k -> UMemFree (USend c v k)
-  | UMF_recv  : forall c f, (forall v, UMemFree (f v)) -> UMemFree (URecv c f)
+  | UMF_recv  : forall c z f, (forall v, UMemFree (f v)) -> UMemFree (URecv c z f)
   | UMF_spawn : forall child k, UMemFree child -> UMemFree k -> UMemFree (USpawn child k)
   | UMF_close : forall c k, UMemFree k -> UMemFree (UClose c k)
-  | UMF_select : forall cases, (forall c f, In (c, f) cases -> forall v, UMemFree (f v)) ->
+  | UMF_select : forall cases, (forall c z f, In (c, (z, f)) cases -> forall v, UMemFree (f v)) ->
                    UMemFree (USelect cases).
 
 (* [UOnlyAcc P c]: every memory access [c] makes (now AND in its deferred actions / continuations)
@@ -270,18 +272,18 @@ Inductive UOnlyAcc (P : nat -> Prop) : UCmd -> Prop :=
   | UOA_pan   : forall v, UOnlyAcc P (UPan v)
   | UOA_dfr   : forall d k, UOnlyAcc P d -> UOnlyAcc P k -> UOnlyAcc P (UDfr d k)
   | UOA_send  : forall c v k, UOnlyAcc P k -> UOnlyAcc P (USend c v k)
-  | UOA_recv  : forall c f, (forall v, UOnlyAcc P (f v)) -> UOnlyAcc P (URecv c f)
+  | UOA_recv  : forall c z f, (forall v, UOnlyAcc P (f v)) -> UOnlyAcc P (URecv c z f)
   | UOA_write : forall l v k, P l -> UOnlyAcc P k -> UOnlyAcc P (UWrite l v k)
   | UOA_read  : forall l f, P l -> (forall v, UOnlyAcc P (f v)) -> UOnlyAcc P (URead l f)
   | UOA_spawn : forall child k, UMemFree child -> UOnlyAcc P k -> UOnlyAcc P (USpawn child k)
   | UOA_close : forall c k, UOnlyAcc P k -> UOnlyAcc P (UClose c k)
-  | UOA_select : forall cases, (forall c f, In (c, f) cases -> forall v, UOnlyAcc P (f v)) ->
+  | UOA_select : forall cases, (forall c z f, In (c, (z, f)) cases -> forall v, UOnlyAcc P (f v)) ->
                    UOnlyAcc P (USelect cases).
 
 Lemma umemfree_onlyacc : forall c, UMemFree c -> forall P, UOnlyAcc P c.
 Proof.
   intros c H. induction H as
-    [ | pr xs k Hk IHk | v | d k Hd IHd Hk2 IHk2 | c0 v0 k Hk IHk | c0 f Hf IHf
+    [ | pr xs k Hk IHk | v | d k Hd IHd Hk2 IHk2 | c0 v0 k Hk IHk | c0 z0 f Hf IHf
     | child k Hc IHc Hk2 IHk2 | c0 k Hk IHk | cases Hcs IHcs ]; intros P.
   - apply UOA_ret.
   - apply UOA_out; apply IHk.
@@ -291,7 +293,7 @@ Proof.
   - apply UOA_recv; intros v; apply IHf.
   - apply UOA_spawn; [exact Hc | apply IHk2].
   - apply UOA_close; apply IHk.
-  - apply UOA_select; intros c1 f1 Hin v; exact (IHcs c1 f1 Hin v P).
+  - apply UOA_select; intros c1 z1 f1 Hin v; exact (IHcs c1 z1 f1 Hin v P).
 Qed.
 
 Lemma uoa_out_inv   : forall P pr xs k, UOnlyAcc P (UOut pr xs k) -> UOnlyAcc P k.
@@ -300,8 +302,8 @@ Lemma uoa_dfr_inv   : forall P d k, UOnlyAcc P (UDfr d k) -> UOnlyAcc P d /\ UOn
 Proof. intros P d k H; inversion H; subst; split; assumption. Qed.
 Lemma uoa_send_inv  : forall P c v k, UOnlyAcc P (USend c v k) -> UOnlyAcc P k.
 Proof. intros P c v k H; inversion H; subst; assumption. Qed.
-Lemma uoa_recv_inv  : forall P c f, UOnlyAcc P (URecv c f) -> forall v, UOnlyAcc P (f v).
-Proof. intros P c f H; inversion H; subst; assumption. Qed.
+Lemma uoa_recv_inv  : forall P c z f, UOnlyAcc P (URecv c z f) -> forall v, UOnlyAcc P (f v).
+Proof. intros P c z f H; inversion H; subst; assumption. Qed.
 Lemma uoa_write_inv : forall P l v k, UOnlyAcc P (UWrite l v k) -> P l /\ UOnlyAcc P k.
 Proof. intros P l v k H; inversion H; subst; split; assumption. Qed.
 Lemma uoa_read_inv  : forall P l f, UOnlyAcc P (URead l f) -> P l /\ (forall v, UOnlyAcc P (f v)).
@@ -311,56 +313,57 @@ Proof. intros P child k H; inversion H; subst; split; assumption. Qed.
 Lemma uoa_close_inv : forall P c k, UOnlyAcc P (UClose c k) -> UOnlyAcc P k.
 Proof. intros P c k H; inversion H; subst; assumption. Qed.
 Lemma uoa_select_inv : forall P cases, UOnlyAcc P (USelect cases) ->
-  forall c f, In (c, f) cases -> forall v, UOnlyAcc P (f v).
-Proof. intros P cases H; inversion H; subst; assumption. Qed.
+  forall c z f, In (c, (z, f)) cases -> forall v, UOnlyAcc P (f v).
+Proof. intros P cases H; inversion H; subst; eauto. Qed.
 
 (* Select readiness for the unified calculus (mirrors concurrency.v's [sel_ready_cl]): the FIRST case
    whose channel is non-empty ([USR_buf]) or closed-drained ([USR_closed]); [None] iff every case is
    empty-and-open — the only genuinely blocking select. *)
 Inductive USelReady : Type :=
   | USR_buf    (c : nat) (f : V -> UCmd) (v : V) (s : nat)
-  | USR_closed (c : nat) (f : V -> UCmd).
+  | USR_closed (c : nat) (z : V) (f : V -> UCmd).
 Fixpoint usel_ready_cl (b : nat -> list (V * nat)) (tr : Trace)
-                       (cases : list (nat * (V -> UCmd))) : option USelReady :=
+                       (cases : list (nat * (V * (V -> UCmd)))) : option USelReady :=
   match cases with
   | nil => None
-  | (c, f) :: rest =>
+  | (c, (z, f)) :: rest =>
       match b c with
       | (v, s) :: _ => Some (USR_buf c f v s)
-      | nil => if closedb tr c then Some (USR_closed c f) else usel_ready_cl b tr rest
+      | nil => if closedb tr c then Some (USR_closed c z f) else usel_ready_cl b tr rest
       end
   end.
 Lemma usel_ready_cl_buf : forall b tr cases c f v s,
   usel_ready_cl b tr cases = Some (USR_buf c f v s) ->
-  In (c, f) cases /\ exists rest, b c = (v, s) :: rest.
+  (exists z, In (c, (z, f)) cases) /\ exists rest, b c = (v, s) :: rest.
 Proof.
-  induction cases as [|[c0 f0] rest IH]; intros c f v s H; cbn in H; [discriminate|].
+  induction cases as [|[c0 [z0 f0]] rest IH]; intros c f v s H; cbn in H; [discriminate|].
   destruct (b c0) as [|[v0 s0] brest] eqn:Hb0.
   - destruct (closedb tr c0) eqn:Hcl0; [discriminate|].
-    destruct (IH _ _ _ _ H) as [Hin Hex]. split; [right; exact Hin | exact Hex].
-  - injection H as -> -> -> ->. split; [left; reflexivity | exists brest; exact Hb0].
+    destruct (IH _ _ _ _ H) as [[z Hin] Hex].
+    split; [exists z; right; exact Hin | exact Hex].
+  - injection H as -> -> -> ->. split; [exists z0; left; reflexivity | exists brest; exact Hb0].
 Qed.
-Lemma usel_ready_cl_closed : forall b tr cases c f,
-  usel_ready_cl b tr cases = Some (USR_closed c f) ->
-  In (c, f) cases /\ b c = nil /\ closedb tr c = true.
+Lemma usel_ready_cl_closed : forall b tr cases c z f,
+  usel_ready_cl b tr cases = Some (USR_closed c z f) ->
+  In (c, (z, f)) cases /\ b c = nil /\ closedb tr c = true.
 Proof.
-  induction cases as [|[c0 f0] rest IH]; intros c f H; cbn in H; [discriminate|].
+  induction cases as [|[c0 [z0 f0]] rest IH]; intros c z f H; cbn in H; [discriminate|].
   destruct (b c0) as [|[v0 s0] brest] eqn:Hb0.
   - destruct (closedb tr c0) eqn:Hcl0.
-    + injection H as -> ->. split; [left; reflexivity | split; [exact Hb0 | exact Hcl0]].
-    + destruct (IH _ _ H) as [Hin [Hbc Hclc]]. split; [right; exact Hin | split; [exact Hbc | exact Hclc]].
+    + injection H as -> -> ->. split; [left; reflexivity | split; [exact Hb0 | exact Hcl0]].
+    + destruct (IH _ _ _ H) as [Hin [Hbc Hclc]]. split; [right; exact Hin | split; [exact Hbc | exact Hclc]].
   - discriminate.
 Qed.
 Lemma usel_ready_cl_none : forall b tr cases,
   usel_ready_cl b tr cases = None ->
-  forall c f, In (c, f) cases -> b c = nil /\ closedb tr c = false.
+  forall c z f, In (c, (z, f)) cases -> b c = nil /\ closedb tr c = false.
 Proof.
-  induction cases as [|[c0 f0] rest IH]; intros H c f Hin; cbn in H; [inversion Hin|].
+  induction cases as [|[c0 [z0 f0]] rest IH]; intros H c z f Hin; cbn in H; [inversion Hin|].
   destruct (b c0) as [|[v0 s0] brest] eqn:Hb0.
   - destruct (closedb tr c0) eqn:Hcl0; [discriminate|].
     destruct Hin as [Heq | Hin].
-    + injection Heq as Hc Hf. subst c0. split; [exact Hb0 | exact Hcl0].
-    + exact (IH H c f Hin).
+    + injection Heq as Hc Hz Hf. subst c0. split; [exact Hb0 | exact Hcl0].
+    + exact (IH H c z f Hin).
   - discriminate.
 Qed.
 
@@ -395,7 +398,7 @@ Proof.
     | p b h lv tr o df pa nx tid l f Hlv Hp
     | p b h lv tr o df pa nx tid v f Hlv Hp
     | p b h lv tr o df pa nx tid c v k Hlv Hp Hcl
-    | p b h lv tr o df pa nx tid c f v s brest Hlv Hp Hbc
+    | p b h lv tr o df pa nx tid c z f v s brest Hlv Hp Hbc
     | p b h lv tr o df pa nx tid c k Hlv Hp Hcl
     | p b h lv tr o df pa nx tid child k cid Hlv Hp Hcid
     | p b h lv tr o df pa nx tid pr xs k Hlv Hp
@@ -406,9 +409,9 @@ Proof.
     | p b h lv tr o df pa nx tid v Hlv Hp Hdfeq
     | p b h lv tr o df pa nx tid c v k Hlv Hp Hcl
     | p b h lv tr o df pa nx tid c k Hlv Hp Hcl
-    | p b h lv tr o df pa nx tid c f pos e Hlv Hp Hbc Hpos Hek
-    | p b h lv tr o df pa nx tid cases c f v s brest Hlv Hp Hin Hbc
-    | p b h lv tr o df pa nx tid cases c f pos e Hlv Hp Hin Hbc Hpos Hek ];
+    | p b h lv tr o df pa nx tid c z f pos e Hlv Hp Hbc Hpos Hek
+    | p b h lv tr o df pa nx tid cases c z f v s brest Hlv Hp Hin Hbc
+    | p b h lv tr o df pa nx tid cases c z f pos e Hlv Hp Hin Hbc Hpos Hek ];
     cbn [uc_trace uc_prog uc_live uc_defers] in Htr, Hprog, Hdf |- *.
   - (* write: owner access (own l = tid), cont k *)
     pose proof (Hprog tid Hlv) as HO. rewrite Hp in HO. apply uoa_write_inv in HO. destruct HO as [Hown HOk].
@@ -439,7 +442,7 @@ Proof.
     pose proof (Hprog tid Hlv) as HO. rewrite Hp in HO.
     split; [| split].
     + apply (TraceOwned_app own tr (mkEv tid (KRecv c s)) Htr). intros l' [Hw|Hr]; cbn in *; discriminate.
-    + intros g Hg. exact (uonlyacc_upd own p tid (f v) lv g Hprog (uoa_recv_inv _ _ _ HO v) Hg).
+    + intros g Hg. exact (uonlyacc_upd own p tid (f v) lv g Hprog (uoa_recv_inv _ _ _ _ HO v) Hg).
     + exact Hdf.
   - (* close: KClose, cont k *)
     pose proof (Hprog tid Hlv) as HO. rewrite Hp in HO. apply uoa_close_inv in HO.
@@ -507,23 +510,23 @@ Proof.
   - (* close-on-closed: prog becomes UPan *)
     split; [exact Htr | split; [| exact Hdf]].
     intros g Hg. exact (uonlyacc_upd own p tid (UPan rt_close_closed) lv g Hprog (UOA_pan _ _) Hg).
-  - (* recv-on-closed: cont f vzero; event KRecv (not memory) *)
+  - (* recv-on-closed: cont f z (the site's typed zero); event KRecv (not memory) *)
     pose proof (Hprog tid Hlv) as HO. rewrite Hp in HO.
     split; [| split].
     + apply (TraceOwned_app own tr (mkEv tid (KRecv c pos)) Htr). intros l' [Hw|Hr]; cbn in *; discriminate.
-    + intros g Hg. exact (uonlyacc_upd own p tid (f vzero) lv g Hprog (uoa_recv_inv _ _ _ HO vzero) Hg).
+    + intros g Hg. exact (uonlyacc_upd own p tid (f z) lv g Hprog (uoa_recv_inv _ _ _ _ HO z) Hg).
     + exact Hdf.
   - (* select (buffered case (c,f) fires): cont f v; event KRecv (not memory) *)
     pose proof (Hprog tid Hlv) as HO. rewrite Hp in HO.
     split; [| split].
     + apply (TraceOwned_app own tr (mkEv tid (KRecv c s)) Htr). intros l' [Hw|Hr]; cbn in *; discriminate.
-    + intros g Hg. exact (uonlyacc_upd own p tid (f v) lv g Hprog (uoa_select_inv _ _ HO c f Hin v) Hg).
+    + intros g Hg. exact (uonlyacc_upd own p tid (f v) lv g Hprog (uoa_select_inv _ _ HO c z f Hin v) Hg).
     + exact Hdf.
-  - (* select-closed (case (c,f) closed-drained): cont f vzero; event KRecv (not memory) *)
+  - (* select-closed (case (c,(z,f)) closed-drained): cont f z; event KRecv (not memory) *)
     pose proof (Hprog tid Hlv) as HO. rewrite Hp in HO.
     split; [| split].
     + apply (TraceOwned_app own tr (mkEv tid (KRecv c pos)) Htr). intros l' [Hw|Hr]; cbn in *; discriminate.
-    + intros g Hg. exact (uonlyacc_upd own p tid (f vzero) lv g Hprog (uoa_select_inv _ _ HO c f Hin vzero) Hg).
+    + intros g Hg. exact (uonlyacc_upd own p tid (f z) lv g Hprog (uoa_select_inv _ _ HO c z f Hin z) Hg).
     + exact Hdf.
 Qed.
 
@@ -565,7 +568,7 @@ Qed.
 Definition ucan_step (cfg : UConfig) : Prop := exists cfg', ustep cfg cfg'.
 Definition UFreshAvail (cfg : UConfig) : Prop := exists cid, uc_live cfg cid = false.
 Definition ublocked (cfg : UConfig) (tid : nat) : Prop :=
-  (exists c f, uc_prog cfg tid = URecv c f
+  (exists c z f, uc_prog cfg tid = URecv c z f
                /\ uc_bufs cfg c = [] /\ closedb (uc_trace cfg) c = false)
   \/ (exists cases, uc_prog cfg tid = USelect cases
                     /\ usel_ready_cl (uc_bufs cfg) (uc_trace cfg) cases = None)
@@ -578,7 +581,7 @@ Theorem uready_can_step : forall cfg tid,
 Proof.
   intros cfg tid [cid Hcid] Hlive Hnblk. destruct cfg as [p b h lv tr o df pa nx].
   cbn [uc_prog uc_bufs uc_trace uc_live] in *.
-  destruct (p tid) as [ | xs k | v | d k | c v k | c f | l v k | l f | child k | c k | cases | v f ] eqn:Hp.
+  destruct (p tid) as [ | xs k | v | d k | c v k | c z f | l v k | l f | child k | c k | cases | v f ] eqn:Hp.
   - (* URet *) destruct (df tid) as [|d ds] eqn:E.
     + eexists. eapply ustep_ret_done; [exact Hlive | exact Hp | exact E].
     + eexists. eapply ustep_ret_defer; [exact Hlive | exact Hp | exact E].
@@ -596,7 +599,7 @@ Proof.
     + destruct (closedb tr c) eqn:Ecl.
       * destruct (closedb_true_witness _ _ Ecl) as [pos [e [Hpos Hek]]].
         eexists. eapply ustep_recv_closed; [exact Hlive | exact Hp | exact Eb | exact Hpos | exact Hek].
-      * exfalso. apply Hnblk. left. exists c, f. split; [exact Hp | split; [exact Eb | exact Ecl]].
+      * exfalso. apply Hnblk. left. exists c, z, f. split; [exact Hp | split; [exact Eb | exact Ecl]].
     + eexists. eapply ustep_recv; [exact Hlive | exact Hp | exact Eb].
   - eexists. eapply ustep_write; [exact Hlive | exact Hp].
   - eexists. eapply ustep_read; [exact Hlive | exact Hp].
@@ -604,10 +607,10 @@ Proof.
   - (* UClose *) destruct (closedb tr c) eqn:Ecl.
     + eexists. eapply ustep_close_closed; [exact Hlive | exact Hp | exact Ecl].
     + eexists. eapply ustep_close; [exact Hlive | exact Hp | exact Ecl].
-  - (* USelect *) destruct (usel_ready_cl b tr cases) as [[c f v s | c f]|] eqn:Esel.
-    + destruct (usel_ready_cl_buf _ _ _ _ _ _ _ Esel) as [Hin [rest Hb]].
+  - (* USelect *) destruct (usel_ready_cl b tr cases) as [[c f v s | c z f]|] eqn:Esel.
+    + destruct (usel_ready_cl_buf _ _ _ _ _ _ _ Esel) as [[z Hin] [rest Hb]].
       eexists. eapply ustep_select; [exact Hlive | exact Hp | exact Hin | exact Hb].
-    + destruct (usel_ready_cl_closed _ _ _ _ _ Esel) as [Hin [Hb Hcl]].
+    + destruct (usel_ready_cl_closed _ _ _ _ _ _ Esel) as [Hin [Hb Hcl]].
       destruct (closedb_true_witness _ _ Hcl) as [pos [e [Hpos Hek]]].
       eexists. eapply ustep_select_closed; [exact Hlive | exact Hp | exact Hin | exact Hb | exact Hpos | exact Hek].
     + exfalso. apply Hnblk. right. left. exists cases. split; [exact Hp | exact Esel].
@@ -624,7 +627,7 @@ Theorem ustuck_blocked : forall cfg,
 Proof.
   intros cfg [cid Hcid] Hnstep tid Hlive. destruct cfg as [p b h lv tr o df pa nx].
   cbn [uc_prog uc_bufs uc_trace uc_live] in *.
-  destruct (p tid) as [ | xs k | v | d k | c v k | c f | l v k | l f | child k | c k | cases | v f ] eqn:Hp.
+  destruct (p tid) as [ | xs k | v | d k | c v k | c z f | l v k | l f | child k | c k | cases | v f ] eqn:Hp.
   - exfalso. apply Hnstep. destruct (df tid) as [|d ds] eqn:E.
     + eexists. eapply ustep_ret_done; [exact Hlive | exact Hp | exact E].
     + eexists. eapply ustep_ret_defer; [exact Hlive | exact Hp | exact E].
@@ -642,7 +645,7 @@ Proof.
     + destruct (closedb tr c) eqn:Ecl.
       * exfalso. apply Hnstep. destruct (closedb_true_witness _ _ Ecl) as [pos [e [Hpos Hek]]].
         eexists. eapply ustep_recv_closed; [exact Hlive | exact Hp | exact Eb | exact Hpos | exact Hek].
-      * left. exists c, f. split; [exact Hp | split; [exact Eb | exact Ecl]].
+      * left. exists c, z, f. split; [exact Hp | split; [exact Eb | exact Ecl]].
     + exfalso. apply Hnstep. eexists. eapply ustep_recv; [exact Hlive | exact Hp | exact Eb].
   - exfalso. apply Hnstep. eexists. eapply ustep_write; [exact Hlive | exact Hp].
   - exfalso. apply Hnstep. eexists. eapply ustep_read; [exact Hlive | exact Hp].
@@ -651,10 +654,10 @@ Proof.
     + eexists. eapply ustep_close_closed; [exact Hlive | exact Hp | exact Ecl].
     + eexists. eapply ustep_close; [exact Hlive | exact Hp | exact Ecl].
   - (* USelect: the OTHER blocking shape (no ready case) *)
-    destruct (usel_ready_cl b tr cases) as [[c f v s | c f]|] eqn:Esel.
-    + exfalso. apply Hnstep. destruct (usel_ready_cl_buf _ _ _ _ _ _ _ Esel) as [Hin [rest Hb]].
+    destruct (usel_ready_cl b tr cases) as [[c f v s | c z f]|] eqn:Esel.
+    + exfalso. apply Hnstep. destruct (usel_ready_cl_buf _ _ _ _ _ _ _ Esel) as [[z Hin] [rest Hb]].
       eexists. eapply ustep_select; [exact Hlive | exact Hp | exact Hin | exact Hb].
-    + exfalso. apply Hnstep. destruct (usel_ready_cl_closed _ _ _ _ _ Esel) as [Hin [Hb Hcl]].
+    + exfalso. apply Hnstep. destruct (usel_ready_cl_closed _ _ _ _ _ _ Esel) as [Hin [Hb Hcl]].
       destruct (closedb_true_witness _ _ Hcl) as [pos [e [Hpos Hek]]].
       eexists. eapply ustep_select_closed; [exact Hlive | exact Hp | exact Hin | exact Hb | exact Hpos | exact Hek].
     + right. left. exists cases. split; [exact Hp | exact Esel].
@@ -700,26 +703,25 @@ Qed.
 
 End UnifiedVal.
 
-(** Make the zero value [vzero] and the capacity [ucap] IMPLICIT on the constructors and the
-    step-composition lemmas (a section [Variable] generalises explicit, unlike an inductive
-    parameter) — so the positional [apply (ustep_X _ … )] proofs and the [embed] cases infer
-    them from the goal, while the RELATION [ustep vzero ucap …] keeps both explicit for
-    statements. *)
-Arguments ustep_write {V vzero ucap}.   Arguments ustep_read {V vzero ucap}.
-Arguments ustep_send {V vzero ucap}.    Arguments ustep_spawn {V vzero ucap}.
-Arguments ustep_close {V vzero ucap}.   Arguments ustep_recv {V vzero ucap}.
-Arguments ustep_out {V vzero ucap}.     Arguments ustep_defer {V vzero ucap}.
-Arguments ustep_ret_defer {V vzero ucap}.  Arguments ustep_ret_done {V vzero ucap}.
-Arguments ustep_pan_defer {V vzero ucap}.  Arguments ustep_pan_done {V vzero ucap}.
-Arguments ustep_send_closed {V vzero ucap}.  Arguments ustep_close_closed {V vzero ucap}.
-Arguments ustep_recv_closed {V vzero ucap}.  Arguments ustep_select {V vzero ucap}.
-Arguments ustep_select_closed {V vzero ucap}.
-Arguments usteps_refl {V vzero ucap}.   Arguments usteps_step {V vzero ucap}.
-Arguments ustep_out_grows {V vzero ucap}.  Arguments ustep_trace_grows {V vzero ucap}.
-Arguments usteps_out_grows {V vzero ucap}. Arguments usteps_trace_grows {V vzero ucap}.
+(** Make the capacity [ucap] IMPLICIT on the constructors and the step-composition lemmas
+    (a section [Variable] generalises explicit, unlike an inductive parameter) — so the
+    positional [apply (ustep_X _ … )] proofs and the [embed] cases infer it from the goal,
+    while the RELATION [ustep ucap …] keeps it explicit for statements. *)
+Arguments ustep_write {V ucap}.   Arguments ustep_read {V ucap}.
+Arguments ustep_send {V ucap}.    Arguments ustep_spawn {V ucap}.
+Arguments ustep_close {V ucap}.   Arguments ustep_recv {V ucap}.
+Arguments ustep_out {V ucap}.     Arguments ustep_defer {V ucap}.
+Arguments ustep_ret_defer {V ucap}.  Arguments ustep_ret_done {V ucap}.
+Arguments ustep_pan_defer {V ucap}.  Arguments ustep_pan_done {V ucap}.
+Arguments ustep_send_closed {V ucap}.  Arguments ustep_close_closed {V ucap}.
+Arguments ustep_recv_closed {V ucap}.  Arguments ustep_select {V ucap}.
+Arguments ustep_select_closed {V ucap}.
+Arguments usteps_refl {V ucap}.   Arguments usteps_step {V ucap}.
+Arguments ustep_out_grows {V ucap}.  Arguments ustep_trace_grows {V ucap}.
+Arguments usteps_out_grows {V ucap}. Arguments usteps_trace_grows {V ucap}.
 
 (** The [V := nat] instance used by everything below (demos, the [rstep] embedding, sessions) —
-    values identity with the rich calculus; [vzero] is [0] at this instance. *)
+    values identity with the rich calculus; each recv/select site carries [0] as its zero. *)
 Notation UCmdN := (@UCmd nat).
 
 (** ============================================================================
@@ -735,7 +737,7 @@ Notation UCmdN := (@UCmd nat).
     recorded.  Pre-fix, the deferred print was provably dropped. *)
 Lemma unified_panic_runs_defer : forall (xv pv : GoAny),
   exists cfg',
-    usteps 0 (fun _ => None) (mkUCfg (fun t => if Nat.eqb t 0 then UPan pv else URet)
+    usteps (fun _ => None) (mkUCfg (fun t => if Nat.eqb t 0 then UPan pv else URet)
                    (fun _ => nil) (fun _ => 0) (fun t => Nat.eqb t 0) nil
                    nil (fun t => if Nat.eqb t 0 then UOut true (xv :: nil) URet :: nil else nil)
                    (fun _ => None) 0)
@@ -759,7 +761,7 @@ Qed.
     binding 7 — the mutable-heap effect, with the [KWrite]/[KRead] events that drive race-freedom. *)
 Lemma unified_heap_write_read : forall (k : nat -> UCmdN),
   exists cfg',
-    usteps 0 (fun _ => None) (mkUCfg (fun t => if Nat.eqb t 0 then UWrite 0 7 (URead 0 k) else URet)
+    usteps (fun _ => None) (mkUCfg (fun t => if Nat.eqb t 0 then UWrite 0 7 (URead 0 k) else URet)
                    (fun _ => nil) (fun _ => 0) (fun t => Nat.eqb t 0) nil
                    nil (fun _ => nil) (fun _ => None) 0)
            cfg'
@@ -779,7 +781,7 @@ Qed.
     receives it back, binding 5 — the channel effect, with [KSend]/[KRecv] synchronisation events. *)
 Lemma unified_chan_send_recv : forall (k : nat -> UCmdN),
   exists cfg',
-    usteps 0 (fun _ => None) (mkUCfg (fun t => if Nat.eqb t 0 then USend 0 5 (URecv 0 k) else URet)
+    usteps (fun _ => None) (mkUCfg (fun t => if Nat.eqb t 0 then USend 0 5 (URecv 0 0 k) else URet)
                    (fun _ => nil) (fun _ => 0) (fun t => Nat.eqb t 0) nil
                    nil (fun _ => nil) (fun _ => None) 0)
            cfg'
@@ -787,9 +789,9 @@ Lemma unified_chan_send_recv : forall (k : nat -> UCmdN),
 Proof.
   intros k. eexists. split.
   - eapply usteps_step.
-    { apply (ustep_send _ _ _ _ _ _ _ _ _ 0 0 5 (URecv 0 k)); reflexivity. }
+    { apply (ustep_send _ _ _ _ _ _ _ _ _ 0 0 5 (URecv 0 0 k)); reflexivity. }
     eapply usteps_step.
-    { apply (ustep_recv _ _ _ _ _ _ _ _ _ 0 0 k 5 0 nil); reflexivity. }
+    { apply (ustep_recv _ _ _ _ _ _ _ _ _ 0 0 0 k 5 0 nil); reflexivity. }
     apply usteps_refl.
   - cbn. reflexivity.
 Qed.
@@ -799,7 +801,7 @@ Qed.
     (the shallow [run_io] made differently-printing programs provably equal; [ustep]'s [uc_out] does not). *)
 Lemma unified_output_ordered : forall (x y : GoAny),
   exists cfg',
-    usteps 0 (fun _ => None) (mkUCfg (fun t => if Nat.eqb t 0 then UOut true (x :: nil) (UOut true (y :: nil) URet) else URet)
+    usteps (fun _ => None) (mkUCfg (fun t => if Nat.eqb t 0 then UOut true (x :: nil) (UOut true (y :: nil) URet) else URet)
                    (fun _ => nil) (fun _ => 0) (fun t => Nat.eqb t 0) nil
                    nil (fun _ => nil) (fun _ => None) 0)
            cfg'
@@ -824,9 +826,9 @@ Qed.
     round-trips, and the goroutine dies with the panic recorded. *)
 Lemma unified_all_effects : forall (msg boom : GoAny),
   exists cfg',
-    usteps 0 (fun _ => None) (mkUCfg
+    usteps (fun _ => None) (mkUCfg
               (fun t => if Nat.eqb t 0
-                        then UWrite 0 9 (USend 0 5 (URecv 0 (fun _ =>
+                        then UWrite 0 9 (USend 0 5 (URecv 0 0 (fun _ =>
                                UDfr (UOut true (msg :: nil) URet) (UPan boom))))
                         else URet)
               (fun _ => nil) (fun _ => 0) (fun t => Nat.eqb t 0) nil
@@ -840,12 +842,12 @@ Proof.
   intros msg boom. eexists. split.
   - eapply usteps_step.
     { apply (ustep_write _ _ _ _ _ _ _ _ _ 0 0 9
-               (USend 0 5 (URecv 0 (fun _ => UDfr (UOut true (msg :: nil) URet) (UPan boom))))); reflexivity. }
+               (USend 0 5 (URecv 0 0 (fun _ => UDfr (UOut true (msg :: nil) URet) (UPan boom))))); reflexivity. }
     eapply usteps_step.
     { apply (ustep_send _ _ _ _ _ _ _ _ _ 0 0 5
-               (URecv 0 (fun _ => UDfr (UOut true (msg :: nil) URet) (UPan boom)))); reflexivity. }
+               (URecv 0 0 (fun _ => UDfr (UOut true (msg :: nil) URet) (UPan boom)))); reflexivity. }
     eapply usteps_step.
-    { apply (ustep_recv _ _ _ _ _ _ _ _ _ 0 0 (fun _ => UDfr (UOut true (msg :: nil) URet) (UPan boom))
+    { apply (ustep_recv _ _ _ _ _ _ _ _ _ 0 0 0 (fun _ => UDfr (UOut true (msg :: nil) URet) (UPan boom))
                5 1 nil); reflexivity. }
     eapply usteps_step.
     { apply (ustep_defer _ _ _ _ _ _ _ _ _ 0 (UOut true (msg :: nil) URet) (UPan boom)); reflexivity. }
@@ -889,15 +891,15 @@ Fixpoint embed_cmd (c : Cmd) : UCmdN :=
   match c with
   | CRet         => URet
   | CSend ch v k => USend ch v (embed_cmd k)
-  | CRecv ch f   => URecv ch (fun v => embed_cmd (f v))
+  | CRecv ch f  => URecv ch 0 (fun v => embed_cmd (f v))
   | CWrite l v k => UWrite l v (embed_cmd k)
   | CRead l f    => URead l (fun v => embed_cmd (f v))
   | CSpawn ch k  => USpawn (embed_cmd ch) (embed_cmd k)
   | CSelect cs   =>
-      USelect ((fix emb_cs (xs : list (nat * (nat -> Cmd))) : list (nat * (nat -> UCmdN)) :=
+      USelect ((fix emb_cs (xs : list (nat * (nat -> Cmd))) : list (nat * (nat * (nat -> UCmdN))) :=
                   match xs with
                   | []              => []
-                  | (ch, f) :: rest => (ch, fun v => embed_cmd (f v)) :: emb_cs rest
+                  | (ch, f) :: rest => (ch, (0, fun v => embed_cmd (f v))) :: emb_cs rest
                   end) cs)
   | CClose ch k  => UClose ch (embed_cmd k)
   end.
@@ -906,10 +908,10 @@ Fixpoint embed_cmd (c : Cmd) : UCmdN :=
    call inside is not a recursive call and needs no guard).  It is CONVERTIBLE to the [CSelect]
    branch's inlined fix, so [embed_cmd (CSelect cs)] reduces to [USelect (embed_cases cs)] — letting
    the select rules reason about [In] over this named form. *)
-Fixpoint embed_cases (cs : list (nat * (nat -> Cmd))) : list (nat * (nat -> UCmdN)) :=
+Fixpoint embed_cases (cs : list (nat * (nat -> Cmd))) : list (nat * (nat * (nat -> UCmdN))) :=
   match cs with
   | []             => []
-  | (ch, f) :: rest => (ch, fun v => embed_cmd (f v)) :: embed_cases rest
+  | (ch, f) :: rest => (ch, (0, fun v => embed_cmd (f v))) :: embed_cases rest
   end.
 
 Lemma embed_cmd_select : forall cs, embed_cmd (CSelect cs) = USelect (embed_cases cs).
@@ -948,9 +950,10 @@ Proof.
   - rewrite (upd_other _ _ _ _ Hne). reflexivity.
 Qed.
 
-(** [In] is preserved under [embed_cases] — needed for the two select rules. *)
+(** [In] is preserved under [embed_cases] — needed for the two select rules
+    (the embedding supplies [0] as every case's closed-recv zero). *)
 Lemma in_embed_cases : forall cs c f,
-  In (c, f) cs -> In (c, fun v => embed_cmd (f v)) (embed_cases cs).
+  In (c, f) cs -> In (c, (0, fun v => embed_cmd (f v))) (embed_cases cs).
 Proof.
   induction cs as [ | [ch g] rest IH ]; cbn; intros c f H; [ contradiction | ].
   destruct H as [Heq | Hin].
@@ -959,7 +962,7 @@ Proof.
 Qed.
 
 (** THE forward simulation: every [rstep] is a [ustep] on the embedded configs — rule for rule. *)
-Theorem rstep_embeds : forall cfg cfg', rstep cfg cfg' -> ustep 0 (fun _ => None) (embed_cfg cfg) (embed_cfg cfg').
+Theorem rstep_embeds : forall cfg cfg', rstep cfg cfg' -> ustep (fun _ => None) (embed_cfg cfg) (embed_cfg cfg').
 Proof.
   intros cfg cfg' H. destruct H as
     [ p b h lv tr tid c v k Hlv Hp Hcl
@@ -978,7 +981,7 @@ Proof.
   - (* recv *)
     unfold embed_cfg; cbn [rc_prog rc_bufs rc_heap rc_live rc_trace].
     rewrite (embed_upd_prog p tid (f v)).
-    apply ustep_recv with (f := fun w => embed_cmd (f w)) (v := v);
+    apply ustep_recv with (z := 0) (f := fun w => embed_cmd (f w)) (v := v);
       [ exact Hlv | cbn beta; rewrite Hp; reflexivity | exact Hbc ].
   - (* write *)
     unfold embed_cfg; cbn [rc_prog rc_bufs rc_heap rc_live rc_trace].
@@ -1005,7 +1008,7 @@ Proof.
   - (* select *)
     unfold embed_cfg; cbn [rc_prog rc_bufs rc_heap rc_live rc_trace].
     rewrite (embed_upd_prog p tid (f v)).
-    apply ustep_select with (cases := embed_cases cases) (c := c) (f := fun w => embed_cmd (f w)) (v := v);
+    apply ustep_select with (cases := embed_cases cases) (c := c) (z := 0) (f := fun w => embed_cmd (f w)) (v := v);
       [ exact Hlv | cbn beta; rewrite Hp; reflexivity
       | apply in_embed_cases; exact Hin | exact Hbc ].
   - (* close *)
@@ -1015,18 +1018,18 @@ Proof.
   - (* recv from a closed, drained channel *)
     unfold embed_cfg; cbn [rc_prog rc_bufs rc_heap rc_live rc_trace].
     rewrite (embed_upd_prog p tid (f 0)).
-    apply ustep_recv_closed with (c := c) (f := fun w => embed_cmd (f w)) (pos := pos) (e := e);
+    apply ustep_recv_closed with (c := c) (z := 0) (f := fun w => embed_cmd (f w)) (pos := pos) (e := e);
       [ exact Hlv | cbn beta; rewrite Hp; reflexivity | exact Hbc | exact Hpos | exact Hek ].
   - (* select on a closed, drained case *)
     unfold embed_cfg; cbn [rc_prog rc_bufs rc_heap rc_live rc_trace].
     rewrite (embed_upd_prog p tid (f 0)).
-    apply ustep_select_closed with (cases := embed_cases cases) (c := c) (f := fun w => embed_cmd (f w)) (pos := pos) (e := e);
+    apply ustep_select_closed with (cases := embed_cases cases) (c := c) (z := 0) (f := fun w => embed_cmd (f w)) (pos := pos) (e := e);
       [ exact Hlv | cbn beta; rewrite Hp; reflexivity
       | apply in_embed_cases; exact Hin | exact Hbc | exact Hpos | exact Hek ].
 Qed.
 
 (** Lifted to runs: an [rsteps] execution embeds into a [usteps] execution. *)
-Theorem rsteps_embeds : forall cfg cfg', rsteps cfg cfg' -> usteps 0 (fun _ => None) (embed_cfg cfg) (embed_cfg cfg').
+Theorem rsteps_embeds : forall cfg cfg', rsteps cfg cfg' -> usteps (fun _ => None) (embed_cfg cfg) (embed_cfg cfg').
 Proof.
   intros cfg cfg' H. induction H as [c | a b c Hab Hbc IH].
   - apply usteps_refl.
@@ -1042,7 +1045,7 @@ Proof. intro cfg. reflexivity. Qed.
     trace.  This is the formal sense in which [ustep] is THE one authoritative semantics — [rstep]'s
     every behaviour (and thus every theorem stated over [rstep]'s traces) lives inside it. *)
 Corollary rsteps_trace_embeds : forall cfg cfg', rsteps cfg cfg' ->
-  usteps 0 (fun _ => None) (embed_cfg cfg) (embed_cfg cfg') /\ uc_trace (embed_cfg cfg') = rc_trace cfg'.
+  usteps (fun _ => None) (embed_cfg cfg) (embed_cfg cfg') /\ uc_trace (embed_cfg cfg') = rc_trace cfg'.
 Proof.
   intros cfg cfg' H. split.
   - apply rsteps_embeds; exact H.
@@ -1051,7 +1054,7 @@ Qed.
 
 (** CLAIM BOUNDARY (kept exact).  [rstepsC_embeds] shows every BOUNDED-capacity [rstepC] run is
     REPRESENTED by the UNBOUNDED U semantics used for the [rstep] embedding
-    ([usteps 0 (fun _ => None)] — [rstepC]'s guarded send maps to a plain send, its cap-0
+    ([usteps (fun _ => None)] — [rstepC]'s guarded send maps to a plain send, its cap-0
     rendezvous to send-then-recv, via [rstepsC_embed] + [rsteps_embeds]).  That TRANSFERS the
     trace/race invariants stated over those runs.  It does NOT make [UCmd]'s
     capacity-PARAMETERIZED semantics a faithful model of unbuffered rendezvous: under
@@ -1059,7 +1062,7 @@ Qed.
     [USend] with a ready [URecv] — a native [ustep] rendezvous rule remains FUTURE WORK if
     channels become certified-path semantics. *)
 Corollary rstepsC_embeds : forall cap cfg cfg', rstepsC cap cfg cfg' ->
-  usteps 0 (fun _ => None) (embed_cfg cfg) (embed_cfg cfg').
+  usteps (fun _ => None) (embed_cfg cfg) (embed_cfg cfg').
 Proof. intros cap cfg cfg' H. apply rsteps_embeds. exact (rstepsC_embed _ _ _ H). Qed.
 
 (** ============================================================================
@@ -1105,7 +1108,7 @@ Qed.
 Fixpoint proto_ucmd (cs cr val : nat) (p : Proto) : UCmdN :=
   match p with
   | GoSession.PSend _ p' => USend cs val (proto_ucmd cs cr val p')
-  | GoSession.PRecv _ p' => URecv cr (fun _ => proto_ucmd cs cr val p')
+  | GoSession.PRecv _ p' => URecv cr 0 (fun _ => proto_ucmd cs cr val p')
   | PEnd                 => URet
   end.
 
@@ -1125,7 +1128,7 @@ Theorem proto_ucmd_realizes :
     nth_error tr pos = Some ecl -> e_kind ecl = KClose cr ->
     prg tid = proto_ucmd cs cr val p ->
     exists cfg',
-      usteps 0 (fun _ => None) (mkUCfg prg b h lv tr o df pa nx) cfg'
+      usteps (fun _ => None) (mkUCfg prg b h lv tr o df pa nx) cfg'
       /\ uc_prog cfg' tid = URet
       /\ trace_polarity (uc_trace cfg') = trace_polarity tr ++ proto_polarity p.
 Proof.
@@ -1134,7 +1137,7 @@ Proof.
   - (* PSend: a send on the open [cs] fires, then recurse *)
     pose (prg' := upd prg tid (proto_ucmd cs cr val p')).
     pose (b'   := upd b cs (b cs ++ [(val, length tr)])).
-    assert (Hstep : ustep 0 (fun _ => None) (mkUCfg prg b h lv tr o df pa nx)
+    assert (Hstep : ustep (fun _ => None) (mkUCfg prg b h lv tr o df pa nx)
                           (mkUCfg prg' b' h lv (tr ++ [mkEv tid (KSend cs)]) o df pa nx)).
     { apply ustep_send; [ exact Hlv | rewrite Hprg; reflexivity | exact Hcs | reflexivity ]. }
     assert (Hcr' : b' cr = []) by (unfold b'; rewrite (upd_other _ _ _ _ (not_eq_sym Hne)); exact Hbcr).
@@ -1149,9 +1152,9 @@ Proof.
     rewrite Htr, trace_polarity_app. cbn. rewrite <- app_assoc. reflexivity.
   - (* PRecv: a recv on the closed+drained [cr] fires (yields zero), then recurse *)
     pose (prg' := upd prg tid (proto_ucmd cs cr val p')).
-    assert (Hstep : ustep 0 (fun _ => None) (mkUCfg prg b h lv tr o df pa nx)
+    assert (Hstep : ustep (fun _ => None) (mkUCfg prg b h lv tr o df pa nx)
                           (mkUCfg prg' b h lv (tr ++ [mkEv tid (KRecv cr pos)]) o df pa nx)).
-    { apply ustep_recv_closed with (c := cr) (f := fun _ => proto_ucmd cs cr val p') (pos := pos) (e := ecl);
+    { apply ustep_recv_closed with (c := cr) (z := 0) (f := fun _ => proto_ucmd cs cr val p') (pos := pos) (e := ecl);
         [ exact Hlv | rewrite Hprg; reflexivity | exact Hbcr | exact Hpos | exact Hek ]. }
     assert (Hcs' : closedb (tr ++ [mkEv tid (KRecv cr pos)]) cs = false)
       by (rewrite closedb_app, Hcs; reflexivity).
@@ -1193,7 +1196,7 @@ Corollary psess_realized_operationally :
     nth_error tr pos = Some ecl -> e_kind ecl = KClose cr ->
     prg tid = proto_ucmd cs cr val i ->
     exists cfg',
-      usteps 0 (fun _ => None) (mkUCfg prg b h lv tr o df pa nx) cfg'
+      usteps (fun _ => None) (mkUCfg prg b h lv tr o df pa nx) cfg'
       /\ uc_prog cfg' tid = URet
       /\ trace_polarity (uc_trace cfg') = trace_polarity tr ++ map step_polarity steps.
 Proof.

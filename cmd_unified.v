@@ -163,7 +163,7 @@ Local Lemma body_runs_sem : forall c w oc ds ucap p b h lv tr o df pa,
   heap_agrees h (w_refs w) ->
   lv 0 = true -> p 0 = cmd_to_ucmd c ->
   exists p' h' tr' df' evs,
-    usteps vz ucap (mkUCfg p b h lv tr o df pa (w_next w))
+    usteps ucap (mkUCfg p b h lv tr o df pa (w_next w))
                 (mkUCfg p' b h' lv tr' (o ++ map (fun e => (0, e)) evs) df' pa
                         (w_next (oc_world oc)))
     /\ p' 0 = (match oc with ORet _ _ => URet | OPanic v _ => UPan v end)
@@ -266,7 +266,7 @@ Local Lemma pop_defer_step : forall ucap p b h lv tr o df pa nx d rest q0,
   (match p 0 with UPan v => Some v | _ => pa 0 end) = q0 ->
   df 0 = cmd_to_ucmd d :: rest ->
   exists paP, paP 0 = q0 /\
-    usteps vz ucap (mkUCfg p b h lv tr o df pa nx)
+    usteps ucap (mkUCfg p b h lv tr o df pa nx)
                 (mkUCfg (upd p 0 (cmd_to_ucmd d)) b h lv tr o (upd df 0 rest) paP nx).
 Proof.
   intros ucap p b h lv tr o df pa nx d rest q0 Hlv Hp Hq0 Hdf.
@@ -299,7 +299,7 @@ Local Lemma unwind_heap : forall ds acc result,
     heap_agrees h (w_refs (oc_world acc)) ->
     df 0 = map cmd_to_ucmd ds ++ ds_tail ->
     exists p' h' tr' df' pa' evs,
-      usteps vz ucap (mkUCfg p b h lv tr o df pa (w_next (oc_world acc)))
+      usteps ucap (mkUCfg p b h lv tr o df pa (w_next (oc_world acc)))
                   (mkUCfg p' b h' lv tr' (o ++ map (fun e => (0, e)) evs) df' pa'
                           (w_next (oc_world result)))
       /\ (p' 0 = URet \/ exists v, p' 0 = UPan v)
@@ -456,7 +456,7 @@ Qed.
 Theorem bridge_heap_agrees : forall (c : Cmd unit) ucap w oc,
   run_cmd c w = Some oc ->
   exists uc : UConfig,
-    usteps vz ucap (ustart_w w (cmd_to_ucmd c)) uc
+    usteps ucap (ustart_w w (cmd_to_ucmd c)) uc
     /\ uc_live uc 0 = false
     /\ uc_panic uc 0 = ocpanic oc
     /\ w_output (oc_world oc) = w_output w ++ map snd (uc_out uc)

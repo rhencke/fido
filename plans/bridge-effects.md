@@ -94,6 +94,20 @@ land closed-recv proofs for at least TWO distinct element types.
    counterpart demanded (absence is the gate); ustart_w starts with empty uc_bufs
    mirroring... a WORLD WITH LIVE CHANNELS must mirror them — `bufs_of_world` joins
    `heap_of_world`.  Every new public statement keeps run_cmd in its conclusion.
+   ★IMPLEMENTATION LEDGER (live; the tree may hold WIP):
+   [x] unified.v batch 1 — `URecv : nat -> V -> (V -> UCmd) -> UCmd` (zero field 2nd);
+       `USelect : list (nat * (V * (V -> UCmd)))` (case = channel, zero, cont);
+       Section var `vzero` DELETED; ustep_recv_closed/ustep_select_closed bind the
+       field; usel_ready_cl + USR shapes + 3 lemmas carry the zero; UMemFree/UOnlyAcc
+       ctors + uoa inversions; uprivate_disc_step/uready_can_step/ustuck_blocked/
+       ublocked shapes; demos; the rstep embedding (embed_cmd URecv/USelect supply 0;
+       embed_cases; proto_ucmd + session lemmas' URecv sites).
+   [x] cmd_unified.v — usteps calls lose the vz argument (Section var was vz there —
+       cmd_unified's OWN Section BridgeVal vz survives only if still used by
+       heap_of_world's default); every `usteps vz ucap` updates.
+   [x] GoSemSafe.v — panic_free_runs_ret_ustep's vz quantification follows (vz survives only for ustart_w's heap default).
+   [ ] cmd.v trio + run_cmd arms + fragments; bridge kit; obligations (separate
+       commits — batch 1 must land green first).
    NOTE the capacity mismatch to resolve at implementation: unified's `uroom` counts
    `length < cap` with `ucap` a RULE PARAMETER; the World's cell carries its own cap —
    the bridge instantiates `ucap := fun c => cell c's cap` via a mirroring function.
