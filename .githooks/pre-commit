@@ -76,8 +76,8 @@ fi
 #      new tracked .v is auto-included and omission drift is impossible — a hard-coded list had silently
 #      skipped emitdemo/emit_demo.v and negtests/*.v.  (negtests/*.v are NEGATIVE fixtures that ABORT
 #      extraction — ordinary programs hitting fail-closed sites, so they legitimately contain no
-#      Axiom/Admitted; if a tracked .v needs a banned word only in PROSE, keep that prose clear of the
-#      bare word — the "Admitted in a comment" gotcha — rather than narrowing this scan.)
+#      Axiom/Admitted.  Comments are STRIPPED before scanning (see `strip_comments` below), so PROSE may
+#      use these words freely — only real command tokens are matched.)
 #  (b) A top-level Hypothesis / Variable is forbidden in every NO-SECTION .v — the extracted/model
 #      modules (the whole builtins split: GoNumeric/GoRuntimeTypes/GoEffects/…/GoSwitch/GoComplex,
 #      the spine, cmd.v, main.v) use no Sections by design, so ANY Hypothesis/Variable there is a
@@ -96,19 +96,42 @@ if [ "$(printf '%s\n' $scanned_v | LC_ALL=C sort)" != "$(git ls-files '*.v' | LC
   echo "fido: the scan list must be DERIVED from 'git ls-files' so no .v is ever omitted."
   exit 1
 fi
+# THIS SCAN IS A DEFENSE-IN-DEPTH TRIPWIRE, not the zero-axiom AUTHORITY.  The authority is build-time
+# `Print Assumptions` / the manifest gate (`make check` + the Docker prover stage): kernel-checked and
+# immune to ALL lexical obfuscation (comments, strings, notation).  This grep just catches accidental /
+# casual introductions fast, before commit.
+#
+# COMMAND BOUNDARY: a Rocq command token starts at line-start OR after a period + whitespace (Rocq accepts
+# many commands per line — `Definition d := 0. Axiom bad.` — and treats (* … *) comments, NESTABLE, as
+# whitespace, so `Definition d := 0. (* sep *) Axiom bad.` must not hide the token either).  `strip_comments`
+# blanks every comment character (newlines kept, nesting depth-tracked) so the scans see real tokens; then
+# `cb` matches line-start or period-whitespace.  A period inside a qualified name (`List.map`) has no
+# following whitespace, so it never matches `cb`.  (String-literal `(*` is NOT tracked — a contrived `"(*"`
+# could over-blank; that residual is fail-CLOSED for the Section/Variable scans, and for Axiom/Parameter it
+# is caught anyway by the authoritative Print Assumptions gate above.  Chasing a full Rocq lexer into this
+# shell tripwire is the gate-gravity-well the project law forbids.)
+strip_comments() {
+  awk 'BEGIN{d=0} {
+    n=length($0); out=""; i=1;
+    while(i<=n){
+      two=substr($0,i,2);
+      if(two=="(*"){d++; out=out"  "; i+=2; continue}
+      if(two=="*)"&&d>0){d--; out=out"  "; i+=2; continue}
+      c=substr($0,i,1); if(d>0){out=out" "}else{out=out c}; i++;
+    }
+    print out;
+  }' "$1"
+}
+cb='(^|[.][[:space:]])[[:space:]]*'
+amod='((#\[[^]]*\]|Local|Global|Polymorphic|Monomorphic)[[:space:]]+)*'   # optional locality/attribute prefix
 # SECTION-CLASSIFICATION GUARD: a `Section` exempts a file from the top-level Hypothesis/Variable scan
 # below (Section-local Variables are discharged at close, not global axioms).  Only the proof-universe
 # theories legitimately carry Sections; a MODEL/extracted .v gaining one would silently exit the scan.
 # Pin the allowlist and FAIL if a Section appears in any OTHER tracked .v — a model file must carry no
 # Section (a conscious classification, never a silent bypass).  Genuinely proof-only? add it here.
-# A Rocq COMMAND BOUNDARY is line-start OR a period + whitespace (Rocq accepts many commands per line —
-# `Definition d := 0. Section S. Variable leaked : nat.` must not hide the later tokens from these scans).
-# A period inside a qualified name (`List.map`) has no following whitespace, so it never matches `cb`.
-cb='(^|[.][[:space:]])[[:space:]]*'
-amod='((#\[[^]]*\]|Local|Global|Polymorphic|Monomorphic)[[:space:]]+)*'   # optional locality/attribute prefix
 sec_allow='concurrency.v unified.v cmd_unified.v'
 for f in $scanned_v; do
-  if grep -qE "${cb}Section[[:space:]]" "$f"; then
+  if strip_comments "$f" | grep -qE "${cb}Section[[:space:]]"; then
     case " $sec_allow " in
       *" $f "*) ;;   # a whitelisted proof-universe theory
       *)
@@ -120,13 +143,22 @@ for f in $scanned_v; do
     esac
   fi
 done
-if grep -nE "${cb}${amod}(Axiom|Axioms|Parameter|Parameters|Conjecture)[[:space:]]|Admitted" \
-        $scanned_v 2>/dev/null \
-   || { nosec_v=$(for f in $scanned_v; do grep -qE "${cb}Section[[:space:]]" "$f" || printf '%s\n' "$f"; done);
-        [ -n "$nosec_v" ] && grep -nE "${cb}${amod}(Hypothesis|Hypotheses|Variable|Variables)[[:space:]]" $nosec_v 2>/dev/null; }; then
-  echo "fido: ERROR — a Fido Axiom/Parameter/Conjecture/Admitted (any tracked .v), or a top-level"
-  echo "fido: Hypothesis/Variable in an extracted file, was introduced.  The 0-axiom guarantee forbids"
-  echo "fido: this; model the construct as a Definition (or a discharged Section variable in a proof file)."
+axiom_hit=""
+for f in $scanned_v; do
+  if strip_comments "$f" | grep -qE "${cb}${amod}(Axiom|Axioms|Parameter|Parameters|Conjecture)[[:space:]]|Admitted"; then
+    axiom_hit="$f (Axiom/Parameter/Conjecture/Admitted)"; break
+  fi
+  # a no-Section (model/extracted) file must carry no top-level Hypothesis/Variable
+  if ! strip_comments "$f" | grep -qE "${cb}Section[[:space:]]"; then
+    if strip_comments "$f" | grep -qE "${cb}${amod}(Hypothesis|Hypotheses|Variable|Variables)[[:space:]]"; then
+      axiom_hit="$f (top-level Hypothesis/Variable in a no-Section file)"; break
+    fi
+  fi
+done
+if [ -n "$axiom_hit" ]; then
+  echo "fido: ERROR — a Fido Axiom/Parameter/Conjecture/Admitted, or a top-level Hypothesis/Variable in an"
+  echo "fido: extracted file, was introduced: $axiom_hit.  The 0-axiom guarantee forbids this; model the"
+  echo "fido: construct as a Definition (or a discharged Section variable in a proof file)."
   exit 1
 fi
 
