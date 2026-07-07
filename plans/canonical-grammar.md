@@ -95,15 +95,19 @@ to the THREE expression bracket kinds — parens `TLP`/`TRP`, square `TLB`/`TRB`
   leaves nothing for the operand to over-consume.
 - Split machinery.  ⚠ "balanced prefix cancels" is FALSE (`gtokens 0 (EId x) = [TId x]` is a
   balanced proper prefix of `gtokens 0 (EBn Add (EId x) (EId y))`).  The valid split for the
-  delimited-group forms is `last0 L` = the LAST index `i` with `bd (firstn i L) 0 = Some 0` (the
-  last depth-0 position), computed on the SHARED complete list `L = P ++ OPEN :: body ++ CLOSE ::
-  nil` (`P`/`body` balanced): after the framing `OPEN` at index `length P`, `body` keeps depth ≥1
-  and `CLOSE` has depth-before 1, so no depth-0 position follows — `last0 L = length P`.  Because
-  `last0` takes the LAST 0-position, an INTERNAL depth-0 opener inside `P` (e.g. when the operand
-  is itself an `EIndex`) is harmless — it is an EARLIER position.  Both decompositions of the same
-  `L` give `length P_a = length P_b`, then `app_eq_length` splits.  (`last0` + its
-  `last0 (P ++ OPEN :: body ++ CLOSE :: nil) = length P` lemma is still TO WRITE — a forward
-  depth scan, no reverse needed.)
+  delimited-group forms is `last0 L` = the index of the LAST TOKEN of `L` whose bracket-depth-
+  BEFORE it is 0 — equivalently the GREATEST `i` with `i < length L` (STRICT) and
+  `bd (firstn i L) 0 = Some 0`.  ⚠ the strict `i < length L` is LOAD-BEARING: `L` is a COMPLETE
+  balanced list, so `bd (firstn (length L) L) = bd L 0 = Some 0` too — WITHOUT the strict bound
+  `last0` would be `length L`, not `length P`.  On the shared complete list `L = P ++ OPEN ::
+  body ++ CLOSE :: nil` (`P`/`body` balanced): the framing `OPEN` sits at index `length P` with
+  depth-before 0; every later token has depth-before ≥1 (from `OPEN`, `body` from depth 1 stays
+  ≥1, `CLOSE` at depth-before 1) and `i = length L` is excluded — so `last0 L = length P`.  An
+  INTERNAL depth-0 opener inside `P` (operand is itself an `EIndex`) is harmless: it is an EARLIER
+  index, and `last0` takes the LAST.  Both decompositions of the same `L` give
+  `length P_a = length P_b`, then `app_eq_length` splits.  (`last0` — a forward depth scan
+  recording the last depth-0 TOKEN index, so a token index is always < length L — plus its
+  `last0 (P ++ OPEN :: body ++ CLOSE :: nil) = length P` lemma is still TO WRITE.)
 - `bdip` (all-kinds first-dip) + `bdip_app_nodip` + `app_eq_length` give `balanced_close_split`
   (any closer `cl`): `ts1 ++ cl::r1 = ts2 ++ cl::r2`, `ts1`/`ts2` balanced ⇒ `ts1=ts2 /\ r1=r2`.
   ROLE: split the INNER content of a group (comma/colon-joined balanced arg/pair/index elements)
