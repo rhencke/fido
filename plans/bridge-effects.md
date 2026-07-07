@@ -9,13 +9,14 @@ UnifiedVal`); slice 2 — heap read/write/ALLOC (`CWrite`/`CRead`/`CAlloc`, unal
 and the ONE conditional bridge `bridge_heap_agrees` (heap + defers + panics, final-heap
 agreement from the `ustart_w` mirrored start; gated via `cmd_unified_surface`).
 
-⚠ STANDING VALUE-SEMANTICS RULE: the GoAny instance carries NO zero semantics — Go's
-closed-recv zero is PER ELEMENT TYPE, so every public bridge statement quantifies the
-calculus' `vzero` universally, licensed by side conditions keeping runs inside mirrored
-allocated cells. ⛔ PRECONDITION FOR CHANNELS: the closed-recv zero must be represented
-STRUCTURALLY first (the channel element tag at the `URecv`/`USelect` boundary with
-`zero_val`-style typed zeros); a global `GoAny` fallback is FORBIDDEN, and the slice must
-land closed-recv proofs for at least TWO distinct element types.
+⚠ STANDING VALUE-SEMANTICS RULE (v2, after batch 1): Go's closed-recv zero is PER
+ELEMENT TYPE, and the calculus now represents that STRUCTURALLY — `URecv`/`USelect`
+carry the zero per site and the closed rules bind it; the old global `vzero` parameter
+is DELETED.  The residual `vz` in cmd_unified is ONLY the unallocated-heap default of
+`ustart_w` (still universally quantified, still never consulted under the completion
+premise).  ⛔ REMAINING obligation for the cmd trio: the zeros must be the TYPED
+`zero_val` through the channel's own tag (a global `GoAny` fallback stays FORBIDDEN),
+with closed-recv proofs for at least TWO distinct element types.
 
 ## Remaining slices
 

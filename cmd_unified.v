@@ -81,15 +81,14 @@ Proof.
 Qed.
 
 
-(** [vz] — the calculus' closed-recv parameter and the start configs' initial-heap default at
-    this instance.  It is an ARBITRARY [GoAny], NOT a Go zero value, and every public statement
-    below that MENTIONS the unified [GoAny] configuration ([usteps]/[ustart_w]) UNIVERSALLY
+(** [vz] — the start configs' UNALLOCATED-HEAP default at this instance, and nothing more
+    (the calculus has NO global closed-recv zero any more: [URecv]/[USelect] carry the zero
+    PER SITE).  It is an ARBITRARY [GoAny], NOT a Go zero value, and every public statement
+    below that MENTIONS the unified [GoAny] configuration ([ustart_w]) UNIVERSALLY
     QUANTIFIES it (section generalization; the pure [run_cmd]-side theorems in this section
-    never involve it).  The license: [bridge_heap_agrees] starts from the [ustart_w] heap that
-    MIRRORS the World's allocated cells, the image contains no closed-recv form
-    ([cmd_to_ucmd_fragment]), and the [go]-completion premise keeps the run inside allocated
-    memory — so neither the closed-recv parameter nor the [vz] heap defaults are ever
-    consulted. *)
+    never involve it).  The license: [bridge_heap_agrees] starts from the [ustart_w] heap
+    that MIRRORS the World's allocated cells and the [go]-completion premise keeps the run
+    inside allocated memory — so the [vz] heap defaults are never consulted. *)
 Section BridgeVal.
 Variable vz : GoAny.
 
