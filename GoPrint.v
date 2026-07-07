@@ -4754,6 +4754,97 @@ Proof.
   - (* EStr *) reflexivity.
   - (* EHex *) reflexivity.
 Qed.
+
+(** ---- Phase 3b slice 2: the [last0] group-split tool (plans/canonical-grammar.md).  A trailing
+    delimited group [P ++ OPEN :: body ++ CLOSE :: nil] ([P]/[body] balanced) is split by the LAST
+    depth-0 TOKEN index, which is the framing [OPEN] at index [length P] — after it depth stays ≥1.
+    Computed on the SHARED complete list, so both decompositions force [length P_a = length P_b]. *)
+Definition bstep (t : Token) (d : nat) : nat :=
+  match t with
+  | TLP => S d | TLB => S d | TLC => S d
+  | TRP => Nat.pred d | TRB => Nat.pred d | TRC => Nat.pred d
+  | _ => d
+  end.
+Fixpoint nd (ts : list Token) (d : nat) : nat :=   (* nat depth after scanning [ts] from [d] *)
+  match ts with nil => d | t :: r => nd r (bstep t d) end.
+Lemma nd_app : forall a b d, nd (a ++ b) d = nd b (nd a d).
+Proof. induction a as [ | t a IH ]; intros b d; [ reflexivity | apply IH ]. Qed.
+(** [bd] (option, dip-tracking) and [nd] (nat, clamped) agree while no dip occurs *)
+Lemma bd_nd : forall a d e, bd a d = Some e -> nd a d = e.
+Proof.
+  induction a as [ | t a IH ]; intros d e H; cbn [bd nd] in *.
+  - injection H as <-. reflexivity.
+  - destruct t; try (apply IH; exact H);
+      (destruct d as [ | d0 ]; [ discriminate H | cbn [bstep Nat.pred]; apply IH; exact H ]).
+Qed.
+(** last depth-0 TOKEN index: scan tracking the last index whose depth-BEFORE is 0 *)
+Fixpoint last0_aux (ts : list Token) (d i best : nat) : nat :=
+  match ts with
+  | nil => best
+  | t :: r => last0_aux r (bstep t d) (S i) (if Nat.eqb d 0 then i else best)
+  end.
+Definition last0 (ts : list Token) : nat := last0_aux ts 0 0 0.
+Lemma last0_aux_app : forall a b d i best,
+  last0_aux (a ++ b) d i best = last0_aux b (nd a d) (i + length a) (last0_aux a d i best).
+Proof.
+  induction a as [ | t a IH ]; intros b d i best; cbn [app nd last0_aux length].
+  - rewrite PeanoNat.Nat.add_0_r. reflexivity.
+  - rewrite IH. rewrite PeanoNat.Nat.add_succ_r. reflexivity.
+Qed.
+(** scanning from a HIGHER start depth just shifts the running depth (no over-close clamp,
+    since [bd a c <> None] means [a] never dips below 0 from [c]).  Induction generalizes [c]. *)
+Lemma nd_add : forall a c d, bd a c <> None -> nd a (c + d) = nd a c + d.
+Proof.
+  induction a as [ | t a IH ]; intros c d H; cbn [bd nd] in *; [ reflexivity | ].
+  destruct t; cbn [bstep];
+    try (apply IH; exact H);
+    try (change (S (c + d)) with (S c + d); apply IH; exact H);
+    (destruct c as [ | c0 ]; [ exfalso; apply H; reflexivity | ];
+     cbn [Nat.pred]; change (c0 + d) with (c0 + d); apply IH; exact H).
+Qed.
+(** a prefix of a non-dipping list never dips *)
+Lemma bd_prefix_defined : forall k a, bd a 0 <> None -> bd (firstn k a) 0 <> None.
+Proof.
+  intros k a H. rewrite <- (firstn_skipn k a) in H. rewrite bd_app in H.
+  destruct (bd (firstn k a) 0); [ discriminate | exact H ].
+Qed.
+(** scanning a list all of whose prefix-depths (from [d]) are ≥1 never records a new best *)
+Lemma last0_aux_inv : forall a d j best,
+  (forall k, k < length a -> 1 <= nd (firstn k a) d) -> last0_aux a d j best = best.
+Proof.
+  induction a as [ | t a IH ]; intros d j best H; cbn [last0_aux]; [ reflexivity | ].
+  assert (Hd : 1 <= d) by (specialize (H 0 (PeanoNat.Nat.lt_0_succ _)); cbn [firstn nd] in H; exact H).
+  replace (Nat.eqb d 0) with false by (destruct d; [ inversion Hd | reflexivity ]).
+  apply IH. intros k Hk. specialize (H (S k) (proj1 (PeanoNat.Nat.succ_lt_mono _ _) Hk)).
+  cbn [firstn nd] in H. exact H.
+Qed.
+(** ★ the group split: on a trailing balanced group [P ++ OPEN :: body ++ CLOSE :: nil] the last
+    depth-0 token is the framing OPEN at index [length P] — [last0] pins the prefix length. *)
+Lemma last0_group : forall P body op cl,
+  bd P 0 = Some 0 -> bd body 0 = Some 0 ->
+  (op = TLP \/ op = TLB \/ op = TLC) -> (cl = TRP \/ cl = TRB \/ cl = TRC) ->
+  last0 (P ++ op :: body ++ cl :: nil) = length P.
+Proof.
+  intros P body op cl HP Hbody Hop Hcl. unfold last0.
+  rewrite last0_aux_app. rewrite (bd_nd P 0 0 HP).
+  assert (HLP : last0_aux P 0 0 0 = last0_aux P 0 0 0) by reflexivity.
+  (* scan the group [op :: body ++ cl :: nil] from depth 0, best carried in *)
+  cbn [last0_aux]. rewrite PeanoNat.Nat.add_0_l.
+  assert (Hopd : bstep op 0 = 1) by (destruct Hop as [E|[E|E]]; subst op; reflexivity).
+  rewrite Hopd. cbn [Nat.eqb].
+  (* now scanning [body ++ cl :: nil] from depth 1, best = length P *)
+  rewrite last0_aux_app.
+  assert (Hbnn : bd body 0 <> None) by (rewrite Hbody; discriminate).
+  assert (Hbody1 : last0_aux body 1 (S (length P)) (length P) = length P).
+  { apply last0_aux_inv. intros k Hk. replace 1 with (0 + 1) by reflexivity.
+    rewrite (nd_add (firstn k body) 0 1 (bd_prefix_defined k body Hbnn)). lia. }
+  rewrite Hbody1.
+  assert (Hndbody : nd body 1 = 1)
+    by (apply bd_nd; replace 1 with (S 0) by reflexivity; apply bd_up; exact Hbody).
+  rewrite Hndbody. cbn [last0_aux Nat.eqb]. reflexivity.
+  (* [Hcl] unused: the final [cl] is at depth-before 1, so it never records a best — the split
+     holds for ANY final token; the closer hypothesis is kept only to document the group shape. *)
+Qed.
 (** LEXICAL FAITHFULNESS through the grammar: printing then lexing yields EXACTLY a
     canonical derivation's tokens — the composed [lex_gprint_expr] shape CLAUDE.md names. *)
 Theorem lex_gprint_expr : forall ctx e,
@@ -6701,6 +6792,7 @@ Print Assumptions lex_gprint_expr.
 Print Assumptions canon_ty_unique.
 Print Assumptions gttokens_ty_inj.
 Print Assumptions gtokens_balanced.
+Print Assumptions last0_group.
 
 (** Extract the Rocq printers to the OCaml the plugin calls. *)
 Require Import Extraction.

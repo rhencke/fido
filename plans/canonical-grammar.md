@@ -35,9 +35,11 @@ children).  Phase 3b SLICE 1 LANDED — the three-bracket balance toolkit (bd/bd
 bd_app_pass/bd_op_token/bd_prefix_token/bd_gtparen/gttokens_ty_bd + arg/pair balance lemmas)
 and gtokens_balanced (every canonical expression token list is uniformly bracket-balanced),
 gated.  NEXT = Phase 3b SLICE 2: the complete-list gtokens_inj (canon_expr_unique =
-canon_expr_tokens + gtokens_inj), design pinned below.  bdip/balanced_close_split (the inner-list
-/ paren-peel tool) are written + verified-to-compile — to land WITH gtokens_inj so nothing unused
-is committed.  STILL TO WRITE: the `last0` group split; the paren/bare operand discrimination;
+canon_expr_tokens + gtokens_inj), design pinned below.  Phase 3b SLICE 2a LANDED — the `last0`
+group-split tool (`last0`/`last0_group` + `nd`/`nd_add`/`bd_nd`/`bd_prefix_defined`/`last0_aux_inv`),
+gated; found: the closer hypothesis is unnecessary — the final token is at depth-before 1, so it
+never records a best.  STILL TO WRITE: `bdip`/`balanced_close_split` (the inner-list / paren-peel
+tool); the paren/bare operand discrimination;
 `no_depth0_comma` + the top-level separator split + `gtokens_args_inj`/`gtokens_pairs_inj`; ★the
 EBn OPERATOR-PRECEDENCE disambiguation (rightmost-minimal-precedence depth-0 op + the ctx-wrapping
 invariant lemmas + `op_token`/`prefix_token` injectivity) — the crux risk; and `gtokens_inj`
@@ -109,8 +111,11 @@ to the THREE expression bracket kinds — parens `TLP`/`TRP`, square `TLB`/`TRB`
   INTERNAL depth-0 opener inside `P` (operand is itself an `EIndex`) is harmless: it is an EARLIER
   index, and `last0` takes the LAST.  Both decompositions of the same `L` give
   `length P_a = length P_b`, then `app_eq_length` splits.  (`last0` — a forward depth scan
-  recording the last depth-0 TOKEN index, so a token index is always < length L — plus its
-  `last0 (P ++ OPEN :: body ++ CLOSE :: nil) = length P` lemma is still TO WRITE.)
+  recording the last depth-0 TOKEN index, so a token index is always < length L — and
+  `last0_group : last0 (P ++ OPEN :: body ++ CLOSE :: nil) = length P` are LANDED + GATED (slice 2a),
+  via `nd`/`nd_add`/`bd_nd`/`bd_prefix_defined`/`last0_aux_inv`.  NOTE the closer
+  hypothesis turned out unnecessary — the final token is at depth-before 1, so it never records a
+  best; the split holds for any final token.  The `app_eq_length`-based split COROLLARY is trivial.)
 - `bdip` (all-kinds first-dip) + `bdip_app_nodip` + `app_eq_length` give `balanced_close_split`
   (any closer `cl`): `ts1 ++ cl::r1 = ts2 ++ cl::r2`, `ts1`/`ts2` balanced ⇒ `ts1=ts2 /\ r1=r2`.
   ROLE: after `last0` isolates the group `OPEN :: body ++ CLOSE :: nil` and the `OPEN` is stripped,
@@ -121,8 +126,8 @@ to the THREE expression bracket kinds — parens `TLP`/`TRP`, square `TLB`/`TRB`
   on the element list, splitting at the TOP-LEVEL (depth-0-within-the-group) `TComma`/`TColon`
   via a first-depth-0-separator lemma, resting on `no_depth0_comma`: no expression's `gtokens 0 e`
   contains a depth-0 `TComma`/`TColon` (they occur only inside nested groups, at depth ≥1), so the
-  first top-level separator delimits the first element.  (bdip/balanced_close_split written +
-  verified-to-compile; `last0`, `no_depth0_comma`, the separator split, and
+  first top-level separator delimits the first element.  (`last0`/`last0_group` LANDED + gated;
+  `bdip`/`balanced_close_split`, `no_depth0_comma`, the separator split, and
   `gtokens_args_inj`/`gtokens_pairs_inj` are TO WRITE.)
 
 `gtokens_inj` by structural induction on `e1` (`GExpr_ind'`), `destruct e2`, per pair — on
