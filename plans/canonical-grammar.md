@@ -85,13 +85,22 @@ to the THREE expression bracket kinds — parens `TLP`/`TRP`, square `TLB`/`TRB`
   closers {TRP,TRB,TRC} -1, None on a below-zero dip).  `bd_app` like `sqd_app`.
 - `gtokens_balanced : forall ctx e, bd (gtokens ctx e) 0 = Some 0` (structural on `GExpr_ind'`
   + `args`/`pairs` sublemmas) — every canonical expr token list is uniformly balanced.
-- Two split lemmas, both proved by a first-/last-dip index argument (`firstdip` for closers;
-  a right-scan `lastrise` mirror for the opener-led groups):
-  - `balanced_close_split` (generalizes `balanced_rb_split` to any closer): balanced prefixes
-    before an unmatched closer coincide — frames the fixed-tail suffixes.
-  - `last_group_split` (rightmost balanced bracket framing): `a ++ (OP :: m ++ CL :: nil) =
-    a' ++ (OP :: m' ++ CL :: nil)` with `a,a',m,m'` balanced ⇒ `a=a' /\ m=m'` — frames the
-    variable-length `[...]`/`(...)`/`{...}` groups of EIndex/ESlice/ECall/EAssert/lits.
+- Split machinery.  ⚠ The naive "balanced prefix cancels" is FALSE: `gtokens 0 (EId x) = [TId x]`
+  is a BALANCED proper prefix of `gtokens 0 (EBn Add (EId x) (EId y)) = [TId x; TPlus; TId y]`,
+  so `bd`-balance alone does not pin where the operand ends.  The fix pins the split point on the
+  SHARED combined list `L` (both sides describe the same `L`), not on the individual operands:
+  - `bdip` (all-kinds first-dip index, `firstdip`'s `bd`-analogue) + `bdip_app_nodip` +
+    `app_eq_length` give `balanced_close_split` (any closer): `ts1 ++ cl::r1 = ts2 ++ cl::r2`,
+    `ts1`/`ts2` balanced ⇒ `ts1=ts2 /\ r1=r2` — for the FIXED-tail forms.
+  - `last0 L` = the last index `i < length L` with `bd (firstn i L) 0 = Some 0` (the last
+    depth-0 position).  Every constructor's DELIMITED group is TRAILING (`prefix ++ OPEN ::
+    body ++ CLOSE :: nil`, `body` balanced), and inside `OPEN…CLOSE` depth stays ≥1 until the
+    final `CLOSE`, so `last0 L = length prefix` — pinning `length prefix` on the shared `L`, hence
+    `length prefix_a = length prefix_b`, then `app_eq_length` splits.  This frames the
+    variable-length `[...]`/`(...)`/`{...}` groups of EIndex/ESlice/ECall/EConv/EAssert/lits
+    WITHOUT needing gtparen prefix-freeness (which is false).  (ESliceLit's leading `[]` returns
+    to depth 0, so its `last0` pins the `{`-group; the `[]`+type prefix then strips by fixed tail
+    + `canon_ty_unique`.)
 
 `gtokens_inj` by structural induction on `e1`, `destruct e2`, per pair:
 - Atoms (EId/EInt/EStr/EHex): single-token lists; head-token injectivity (`tok0_str`-style),
