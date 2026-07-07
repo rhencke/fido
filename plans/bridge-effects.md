@@ -61,11 +61,42 @@ land closed-recv proofs for at least TWO distinct element types.
    `no_heap`/`cmd_no_panic` map `CAlloc` to `false`; `UFrag`/`Cmd_rect'`/`cbind`/`CmdEq`
    gain the arm (and the `unwind_defers`/`eval_cmd` cases follow the interpreter's).
 
-3. **CHANNELS** (single-goroutine deterministic fragment): `CSend`/`CRecv`/`CClose`
-   against `w_chans` — BLOCKED on the ⛔ precondition. The ustep side BLOCKS on
-   full/empty buffers; `run_cmd` models would-block as `None` (absent), so run_cmd
-   COMPLETION is itself the deterministic-fragment gate. Send-on-closed is the modeled
-   panic on both sides.
+3. **CHANNELS** (single-goroutine deterministic fragment) — ★DESIGN v1 (2026-07-07),
+   satisfying the ⛔ typed-zero precondition STRUCTURALLY:
+   (a) cmd.v gains the channel trio, mirroring GoChan's OWN op shapes (its `recv` takes
+   the element tag as an argument — the syntax carrying it is faithful, not invented):
+   `CChSend : nat -> GoAny -> Cmd A -> Cmd A`,
+   `CChRecv : nat -> {T : Type & GoTypeTag T} -> (GoAny -> Cmd A) -> Cmd A`,
+   `CChClose : nat -> Cmd A -> Cmd A`.
+   run_cmd against `w_chans` (the cell = tag + buffer + closed + cap): send on absent
+   cell/full buffer/UNBUFFERED = None (a single goroutine can never complete a
+   would-block — completion IS the deterministic-fragment gate); send-on-closed =
+   `OPanic rt_send_closed`; payload/syntax tag vs cell tag mismatch = None (the
+   well-typed discipline, exactly heap_write's); recv pops the buffer boxing through
+   the CELL tag; recv on closed+drained binds `anyt tag (zero_val tag)` FROM THE
+   SYNTAX TAG (checked equal to the cell's) — the per-element-type zero, no GoAny
+   fallback anywhere; close on closed = `OPanic rt_close_closed`.
+   (b) unified.v: `URecv` gains the closed-zero as a FIELD —
+   `URecv : nat -> V -> (V -> UCmd) -> UCmd` — and `ustep_recv_closed`/`USelect`'s
+   closed rule bind THAT field; the global `vzero` Section parameter DIES (the rstep
+   embedding instantiates the field at 0 per site; the bridge instantiates it at the
+   typed zero).  Killing vzero is the stronger form of the standing value-semantics
+   rule: nothing left to quantify.
+   (c) cmd_unified.v: the channel agreement kit — `chans_agree` (uc_bufs c mirrors the
+   cell's buffer BOXED through the cell tag; closedb tr c mirrors the closed flag;
+   position bookkeeping existential like the trace) beside heap_agrees + the allocator
+   agreement; `cmd_to_ucmd` maps the trio (URecv's zero field := `anyt tag (zero_val
+   tag)`); UFrag grows three ctors (the channel slice REPLACES the no-channel seal —
+   the seal's claim narrows to no-spawn/no-select).
+   (d) LANDING OBLIGATIONS: closed-recv agreement proofs for at least TWO distinct
+   element types (TI64 and TString zeros); send-on-closed panic agreement; the
+   would-block absences (unbuffered send, open-empty recv) have NO usteps
+   counterpart demanded (absence is the gate); ustart_w starts with empty uc_bufs
+   mirroring... a WORLD WITH LIVE CHANNELS must mirror them — `bufs_of_world` joins
+   `heap_of_world`.  Every new public statement keeps run_cmd in its conclusion.
+   NOTE the capacity mismatch to resolve at implementation: unified's `uroom` counts
+   `length < cap` with `ucap` a RULE PARAMETER; the World's cell carries its own cap —
+   the bridge instantiates `ucap := fun c => cell c's cap` via a mirroring function.
 
 4. **SPAWN** (capstone; design deferred until reached): multi-goroutine ustep runs are
    schedule-nondeterministic vs sequential `run_cmd`. Candidate shapes: ∃-schedule
