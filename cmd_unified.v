@@ -283,11 +283,13 @@ Proof.
   rewrite Hlen. exact Hr.
 Qed.
 
-(** Phase A, SEMANTIC (heap ops included): grounded directly in [go]'s RESULT — given a
-    successful body run and a calculus heap agreeing with [w]'s allocated cells, the [ustep]
-    run mirrors it: program per [oc], defers = [ds] (in [go]'s order), output advanced by
-    exactly [go]'s delta, final heaps AGREE.  The trace is EXISTENTIAL (heap steps emit
-    [KWrite]/[KRead] events — the race substrate, not part of this agreement). *)
+(** Phase A, SEMANTIC (heap AND channel ops included): grounded directly in [go]'s RESULT —
+    given a successful body run and a calculus state agreeing with [w] (heap, buffers,
+    trace-closedness, capacities), the [ustep] run mirrors it: program per [oc], defers =
+    [ds] (in [go]'s order), output advanced by exactly [go]'s delta, final heaps AND
+    buffers/closedness AGREE with the result world, capacities invariant.  The trace is
+    EXISTENTIAL beyond its closedness view (steps emit [KWrite]/[KRead]/[KSend]/[KRecv]/
+    [KClose] events — the race substrate). *)
 Local Lemma body_runs_sem : forall c w oc ds ucap p b h lv tr o df pa,
   go c w = Some (oc, ds) ->
   heap_agrees h (w_refs w) ->
@@ -695,8 +697,9 @@ Proof.
 Qed.
 
 
-(** OUTPUT-MONOTONICITY of [run_cmd], for ANY [c] (arbitrary defer nesting, heap ops included —
-    a write never touches [w_output]): a COMPLETING run only ever APPENDS to the world's output,
+(** OUTPUT-MONOTONICITY of [run_cmd], for ANY [c] (arbitrary defer nesting, heap AND channel
+    ops included — no write, allocation, send, recv, or close touches [w_output]): a
+    COMPLETING run only ever APPENDS to the world's output,
     never RETRACTS — Go's deferred actions and panics cannot un-print already-printed output.
     Structural on the tree — the [CDfr] case composes the continuation's delta with the deferred
     scope's (whose final world is the result's world in BOTH combine arms).  A standalone

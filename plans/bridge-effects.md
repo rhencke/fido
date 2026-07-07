@@ -140,9 +140,9 @@ FORBIDDEN and unrepresentable through the public path).
        zero", never an arbitrary GoAny).  The stale pre-commit builtins.v scan is repaired:
        the no-Section extracted/model set is DERIVED (cannot silently skip new modules).
    SLICE 3 (channels, single-goroutine deterministic fragment): ★COMPLETE.
-   NOTE the capacity mismatch to resolve at implementation: unified's `uroom` counts
-   `length < cap` with `ucap` a RULE PARAMETER; the World's cell carries its own cap —
-   the bridge instantiates `ucap := fun c => cell c's cap` via a mirroring function.
+   The capacity story is RESOLVED: unified's `uroom` counts `length < cap` with `ucap` a
+   rule parameter, and the bridge pins it to the World's own caps via `ucap_of_world`
+   (`ucap_agree` threads the invariant; `room_from_agree` transfers the cell's room check).
 
 4. **SPAWN** (capstone; design deferred until reached): multi-goroutine ustep runs are
    schedule-nondeterministic vs sequential `run_cmd`. Candidate shapes: ∃-schedule
