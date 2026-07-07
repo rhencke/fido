@@ -616,7 +616,8 @@ Qed.
 (** [no_defer c] — [c] registers no [CDfr]: a straight-line output/panic/return command.  A pure [Cmd]
     predicate, so it lives here (cmd.v); consumed by GoSemSafe's defer-free exact-output panic lemmas
     ([run_cmd_panics_world]).  The ustep bridge is SEPARATE:
-    [cmd_unified.bridge_heap_agrees] covers every COMPLETING [c] (heap, defers, panics). *)
+    [cmd_unified.bridge_heap_agrees] covers every COMPLETING [c] (heap, allocation, the
+    channel trio — buffers/closedness included — defers, panics). *)
 Fixpoint no_defer (c : Cmd unit) : bool :=
   match c with
   | CRet _ => true | COut _ _ c' => no_defer c' | CPan _ => true | CDfr _ _ => false
@@ -640,8 +641,10 @@ Fixpoint cmd_no_panic (c : Cmd unit) : bool :=
        heap programs leave this gate until a finer, allocation-aware analysis exists *)
   end.
 
-(** [no_heap c] — [c] contains NO heap node ([CWrite]/[CRead]/[CAlloc]) anywhere, body or deferred.  The decidable
-    fragment on which the totality theorem below holds: a heap access can be ABSENT ([run_cmd] = [None]),
+(** [no_heap c] — [c] contains NO heap node ([CWrite]/[CRead]/[CAlloc]) and NO channel node
+    ([CChSend]/[CChRecv]/[CChClose]) anywhere, body or deferred.  The decidable
+    fragment on which the totality theorem below holds: a heap access can be ABSENT ([run_cmd] = [None])
+    and a channel op can be absent too (would-block / absent cell / tag mismatch),
     so unconditional completion is FALSE outside this fragment — completion there is a
     per-program premise, never a theorem.  [cmd_no_panic] is a strict subset (its heap arms are [false] too),
     so panic-free consumers inherit [no_heap] for free ([cmd_no_panic_no_heap] below). *)
@@ -671,8 +674,8 @@ Proof.
 Qed.
 
 (** ---- TOTALITY on the [no_heap] fragment: [run_cmd] COMPLETES there, unconditionally — no bound.
-    The option is heap-absence only, and a [no_heap] tree never reaches a heap arm, so a
-    structural induction produces the outcome directly.  [run_cmd_terminates] is a gated public
+    The option is heap/channel-absence only, and a [no_heap] tree never reaches a heap or
+    channel arm, so a structural induction produces the outcome directly.  [run_cmd_terminates] is a gated public
     surface ([Print Assumptions] below); consumed by cmd_unified.v and GoSem's run layer, whose
     commands are [no_heap] via [cmd_no_panic_no_heap] or by construction. *)
 Theorem run_cmd_terminates : forall (c : Cmd unit) w,

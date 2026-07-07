@@ -1,22 +1,27 @@
-# The cmd↔unified EFFECT-bridge arc (chan/heap/spawn) — PAUSED at the heap milestone
+# The cmd↔unified EFFECT-bridge arc — heap + allocation + CHANNELS landed; spawn remains
 
 GOAL: extend the bridge's common fragment past output/panic/return/defer — `Cmd` grows
 heap/channel/spawn effects, `run_cmd` stays THE sequential authority, the public agreement
 theorems grow to cover the new constructors. Proof-only (no golden/plugin risk).
 
 DONE (theorems are the authority): slice 1 — value-parametric calculus (`Section
-UnifiedVal`); slice 2 — heap read/write/ALLOC (`CWrite`/`CRead`/`CAlloc`, unallocated access = ABSENCE, deterministic allocation with the gated ValidWorld lemmas)
-and the ONE conditional bridge `bridge_heap_agrees` (heap + defers + panics, final-heap
-agreement from the `ustart_w` mirrored start; gated via `cmd_unified_surface`).
+UnifiedVal`); slice 2 — heap read/write/ALLOC (`CWrite`/`CRead`/`CAlloc`, unallocated access = ABSENCE, deterministic allocation with the gated ValidWorld lemmas);
+slice 3 — the CHANNEL trio (`CChSend`/`CChRecv`/`CChClose`, per-site TYPED closed-recv
+zeros through each cell's own tag, would-block = ABSENCE, gated typed-zero/panic/
+mismatch obligations incl. TI64+TString instances).  The ONE conditional bridge
+`bridge_heap_agrees` covers it all (heap + buffers + closedness + allocator + defers +
+panics, from the `ustart_w` mirrored start under `chans_open`, capacities pinned via
+`ucap_of_world`; gated via `cmd_unified_surface`).
 
 ⚠ STANDING VALUE-SEMANTICS RULE (v2, after batch 1): Go's closed-recv zero is PER
 ELEMENT TYPE, and the calculus now represents that STRUCTURALLY — `URecv`/`USelect`
 carry the zero per site and the closed rules bind it; the old global `vzero` parameter
 is DELETED.  The residual `vz` in cmd_unified is ONLY the unallocated-heap default of
 `ustart_w` (still universally quantified, still never consulted under the completion
-premise).  ⛔ REMAINING obligation for the cmd trio: the zeros must be the TYPED
-`zero_val` through the channel's own tag (a global `GoAny` fallback stays FORBIDDEN),
-with closed-recv proofs for at least TWO distinct element types.
+premise).  ✓ The cmd-trio obligation is DISCHARGED: the zeros ARE the typed `zero_val`
+through the channel's own tag (`cmd_to_ucmd_recv_zero` pins the translation; the TI64 and
+TString closed-recv instances are gated theorems; a global `GoAny` fallback stays
+FORBIDDEN and unrepresentable through the public path).
 
 ## Remaining slices
 
