@@ -37,8 +37,9 @@ and gtokens_balanced (every canonical expression token list is uniformly bracket
 gated.  NEXT = Phase 3b SLICE 2: the complete-list gtokens_inj (canon_expr_unique =
 canon_expr_tokens + gtokens_inj), design pinned below.  bdip/balanced_close_split (the inner-list
 / paren-peel tool) are written + verified-to-compile — to land WITH gtokens_inj so nothing unused
-is committed.  STILL TO WRITE: the `last0` group split + the paren/bare operand
-discrimination.  (The arbitrary-SUFFIX determinism lemma was found FALSE — see the design.)
+is committed.  STILL TO WRITE: the `last0` group split, the paren/bare operand discrimination,
+`no_depth0_comma` + the top-level separator split + `gtokens_args_inj`/`gtokens_pairs_inj`, and
+`gtokens_inj` itself.  (The arbitrary-SUFFIX determinism lemma was found FALSE — see the design.)
 
 ## Phases (each: green, golden byte-identical, gated, reviewed)
 
@@ -110,10 +111,17 @@ to the THREE expression bracket kinds — parens `TLP`/`TRP`, square `TLB`/`TRB`
   `last0 (P ++ OPEN :: body ++ CLOSE :: nil) = length P` lemma is still TO WRITE.)
 - `bdip` (all-kinds first-dip) + `bdip_app_nodip` + `app_eq_length` give `balanced_close_split`
   (any closer `cl`): `ts1 ++ cl::r1 = ts2 ++ cl::r2`, `ts1`/`ts2` balanced ⇒ `ts1=ts2 /\ r1=r2`.
-  ROLE: split the INNER content of a group (comma/colon-joined balanced arg/pair/index elements)
-  after the group is isolated, and peel the paren-wrapped operand `TLP::(gtokens 0 e0 ++ TRP::nil)`
-  (matched `TRP`, prefix `gtokens 0 e0` balanced).  (bdip/balanced_close_split written + verified-
-  to-compile; `last0` still TO WRITE.)
+  ROLE: after `last0` isolates the group `OPEN :: body ++ CLOSE :: nil` and the `OPEN` is stripped,
+  `balanced_close_split cl:=CLOSE` peels the `body` token list (balanced) off the final `CLOSE`.
+- The comma/colon-joined ELEMENTS inside `body` (ECall args, ESliceLit elems, EMapLit pairs,
+  ESlice's `lo:hi`) are NOT split by `balanced_close_split` (`TComma`/`TColon` are depth-neutral,
+  not closers).  They need `gtokens_args_inj`/`gtokens_pairs_inj` — list injectivity by induction
+  on the element list, splitting at the TOP-LEVEL (depth-0-within-the-group) `TComma`/`TColon`
+  via a first-depth-0-separator lemma, resting on `no_depth0_comma`: no expression's `gtokens 0 e`
+  contains a depth-0 `TComma`/`TColon` (they occur only inside nested groups, at depth ≥1), so the
+  first top-level separator delimits the first element.  (bdip/balanced_close_split written +
+  verified-to-compile; `last0`, `no_depth0_comma`, the separator split, and
+  `gtokens_args_inj`/`gtokens_pairs_inj` are TO WRITE.)
 
 `gtokens_inj` by structural induction on `e1` (`GExpr_ind'`), `destruct e2`, per pair — on
 COMPLETE lists (no suffix):
@@ -122,9 +130,11 @@ COMPLETE lists (no suffix):
 - Fixed-tail postfix ESel: strip the 2-token tail `TDot :: TId f` (equal, since the whole lists
   are equal) ⇒ `f_a=f_b` and `gtparen e0_a = gtparen e0_b`; then the operand step.
 - Delimited-group forms (EIndex/ESlice/ECall/EConv/EAssert/ESliceLit/EMapLit): end in a CLOSER;
-  the `last0` split pins the operand/type prefix length, `app_eq_length` isolates the
-  group, then `balanced_close_split` splits the inner elements; recurse.  EConv/lits lead with a
-  TYPE (`canon_ty_unique`); `[]`/`map` lead tokens discriminate cross-shape.
+  `last0` pins the operand/type prefix length, `app_eq_length` isolates the group, `OPEN` stripped
+  + `balanced_close_split cl:=CLOSE` peels `body`, then the single sub-expr (EIndex) recurses
+  directly / the multi-element `body` splits via `gtokens_args_inj`/`gtokens_pairs_inj` (EIndex has
+  one index, ESlice one `lo:hi` colon, ECall/lits a comma list, EMapLit colon+comma pairs); recurse
+  on each.  EConv/lits lead with a TYPE (`canon_ty_unique`); `[]`/`map` lead tokens discriminate.
 - Operand step `gtparen e0_a = gtparen e0_b -> e0_a = e0_b` (COMPLETE): `destruct op_needs_paren`
   both sides — bare/bare and paren/paren strip to `gtokens 0 e0_a = gtokens 0 e0_b` ⇒ IH; the
   paren/bare MISMATCH needs a discrimination lemma (a complete bare `gtokens 0 e` cannot equal a
