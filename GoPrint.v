@@ -4839,6 +4839,55 @@ Proof.
     by (apply bd_nd; replace 1 with (S 0) by reflexivity; apply bd_up; exact Hbody).
   rewrite Hndbody. cbn [last0_aux Nat.eqb]. reflexivity.
 Qed.
+
+(** ---- the INNER-list / paren split: [balanced_close_split] cancels a balanced prefix before
+    a matched CLOSER (used to peel a group's [body] off its final closer, and the paren-wrapped
+    operand off its [TRP]).  [bdip]: index of the first token that dips [bd] below the start
+    depth ([firstdip]'s all-kinds analogue); a balanced prefix never dips, so in [ts ++ cl :: r]
+    the [cl] is the first dip at index [length ts]. *)
+Fixpoint bdip (ts : list Token) (d : nat) : option nat :=
+  match ts with
+  | nil => None
+  | TLP :: r => option_map S (bdip r (S d))
+  | TLB :: r => option_map S (bdip r (S d))
+  | TLC :: r => option_map S (bdip r (S d))
+  | TRP :: r => match d with O => Some O | S d' => option_map S (bdip r d') end
+  | TRB :: r => match d with O => Some O | S d' => option_map S (bdip r d') end
+  | TRC :: r => match d with O => Some O | S d' => option_map S (bdip r d') end
+  | _ :: r => option_map S (bdip r d)
+  end.
+Lemma bdip_app_nodip : forall a b d d',
+  bd a d = Some d' ->
+  bdip (a ++ b) d = option_map (fun i => length a + i) (bdip b d').
+Proof.
+  induction a as [ | t a IH ]; intros b d d' H; cbn [bd] in H.
+  - injection H as H; subst d'. cbn [app length]. destruct (bdip b d) as [n | ]; reflexivity.
+  - destruct t; cbn [bdip app length];
+      try (rewrite (IH b _ _ H); destruct (bdip b d'); reflexivity);
+      (destruct d as [ | d0 ]; [ discriminate H | rewrite (IH b _ _ H); destruct (bdip b d'); reflexivity ]).
+Qed.
+Lemma bdip_balanced_close : forall ts cl r,
+  bd ts 0 = Some 0 -> (forall rr, bdip (cl :: rr) 0 = Some 0) ->
+  bdip (ts ++ cl :: r) 0 = Some (length ts).
+Proof.
+  intros ts cl r Hb Hcl.
+  rewrite (bdip_app_nodip ts (cl :: r) 0 0 Hb), Hcl. cbn [option_map].
+  f_equal. apply PeanoNat.Nat.add_0_r.
+Qed.
+Lemma balanced_close_split : forall cl ts1 ts2 r1 r2,
+  (forall rr, bdip (cl :: rr) 0 = Some 0) ->
+  bd ts1 0 = Some 0 -> bd ts2 0 = Some 0 ->
+  (ts1 ++ cl :: r1)%list = (ts2 ++ cl :: r2)%list ->
+  ts1 = ts2 /\ r1 = r2.
+Proof.
+  intros cl ts1 ts2 r1 r2 Hcl H1 H2 HE.
+  assert (HL : length ts1 = length ts2).
+  { pose proof (bdip_balanced_close ts1 cl r1 H1 Hcl) as F1.
+    pose proof (bdip_balanced_close ts2 cl r2 H2 Hcl) as F2.
+    rewrite HE in F1. rewrite F2 in F1. injection F1 as F1. symmetry. exact F1. }
+  destruct (app_eq_length ts1 ts2 (cl :: r1) (cl :: r2) HL HE) as [-> HT].
+  injection HT as ->. split; reflexivity.
+Qed.
 (** LEXICAL FAITHFULNESS through the grammar: printing then lexing yields EXACTLY a
     canonical derivation's tokens — the composed [lex_gprint_expr] shape CLAUDE.md names. *)
 Theorem lex_gprint_expr : forall ctx e,
@@ -6787,6 +6836,7 @@ Print Assumptions canon_ty_unique.
 Print Assumptions gttokens_ty_inj.
 Print Assumptions gtokens_balanced.
 Print Assumptions last0_group.
+Print Assumptions balanced_close_split.
 
 (** Extract the Rocq printers to the OCaml the plugin calls. *)
 Require Import Extraction.
