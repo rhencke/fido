@@ -85,24 +85,39 @@ to the THREE expression bracket kinds — parens `TLP`/`TRP`, square `TLB`/`TRB`
   closers {TRP,TRB,TRC} -1, None on a below-zero dip).  `bd_app` like `sqd_app`.
 - `gtokens_balanced : forall ctx e, bd (gtokens ctx e) 0 = Some 0` (structural on `GExpr_ind'`
   + `args`/`pairs` sublemmas) — every canonical expr token list is uniformly balanced.
-- Split machinery.  ⚠ The naive "balanced prefix cancels" is FALSE: `gtokens 0 (EId x) = [TId x]`
-  is a BALANCED proper prefix of `gtokens 0 (EBn Add (EId x) (EId y)) = [TId x; TPlus; TId y]`,
-  so `bd`-balance alone does not pin where the operand ends.  The fix pins the split point on the
-  SHARED combined list `L` (both sides describe the same `L`), not on the individual operands:
-  - `bdip` (all-kinds first-dip index, `firstdip`'s `bd`-analogue) + `bdip_app_nodip` +
-    `app_eq_length` give `balanced_close_split` (any closer): `ts1 ++ cl::r1 = ts2 ++ cl::r2`,
-    `ts1`/`ts2` balanced ⇒ `ts1=ts2 /\ r1=r2` — for the FIXED-tail forms.
-  - `last0 L` = the last index `i < length L` with `bd (firstn i L) 0 = Some 0` (the last
-    depth-0 position).  Every constructor's DELIMITED group is TRAILING (`prefix ++ OPEN ::
-    body ++ CLOSE :: nil`, `body` balanced), and inside `OPEN…CLOSE` depth stays ≥1 until the
-    final `CLOSE`, so `last0 L = length prefix` — pinning `length prefix` on the shared `L`, hence
-    `length prefix_a = length prefix_b`, then `app_eq_length` splits.  This frames the
-    variable-length `[...]`/`(...)`/`{...}` groups of EIndex/ESlice/ECall/EConv/EAssert/lits
-    WITHOUT needing gtparen prefix-freeness (which is false).  (ESliceLit's leading `[]` returns
-    to depth 0, so its `last0` pins the `{`-group; the `[]`+type prefix then strips by fixed tail
-    + `canon_ty_unique`.)
+- Split machinery.  ⚠ TWO dead ends ruled out: (1) "balanced prefix cancels" is FALSE
+  (`gtokens 0 (EId x) = [TId x]` is a balanced proper prefix of `gtokens 0 (EBn Add (EId x)
+  (EId y))`); (2) a `last0` "last depth-0 position" argument is ALSO insufficient — `gtparen b`
+  can carry an INTERNAL depth-0 opener (when `b` is itself `EIndex`/`ECall`: its own `[`/`(` sits
+  at depth 0 after the balanced operand), so bracket depth alone cannot pin where the operand
+  ends.  ★THE RIGHT STRUCTURE is a CONTINUATION-PASSING DETERMINISM lemma, strong induction on
+  the SIZE of `e1` — the operand IH (on a strictly smaller expression) carries the continuation
+  and resolves the extent WITHOUT any global bracket scan:
 
-`gtokens_inj` by structural induction on `e1`, `destruct e2`, per pair:
+    `gtokens_det : forall e1 e2 ctx s1 s2, (gtokens ctx e1 ++ s1)%list = (gtokens ctx e2 ++ s2)%list
+                   -> e1 = e2 /\ s1 = s2`
+
+  `gtokens_inj` is the `s1=s2=nil` instance; `canon_expr_unique` = `canon_expr_tokens` + it.
+- `bdip` (all-kinds first-dip) + `bdip_app_nodip` + `app_eq_length` give `balanced_close_split`
+  (any closer `cl`): `ts1 ++ cl::r1 = ts2 ++ cl::r2`, `ts1`/`ts2` balanced ⇒ `ts1=ts2 /\ r1=r2`.
+  Its ROLE in `gtokens_det`: strip the PAREN-DELIMITED operand case `gtparen e0 =
+  TLP::(gtokens 0 e0 ++ TRP::nil)` — the matched `TRP` closes the leading `TLP`, so
+  balanced_close_split (with `cl := TRP`, prefix `gtokens 0 e0` balanced by `gtokens_balanced`)
+  peels it, exposing `gtokens 0 e0` for the operand IH. (bdip/balanced_close_split LANDED green,
+  uncommitted; `last0` is NOT needed and will not be written.)
+
+`gtokens_det` by strong induction on `size e1`, `destruct e1`/`destruct e2`, per pair:
+- Atoms (EId/EInt/EStr/EHex): single-token; the continuation makes the head token decide — equal
+  heads ⇒ same atom + `s1=s2`; cross-shape auto-discriminated by distinct closed token ctors.
+- Every operand-bearing form: peel the FIXED framing tokens into the continuation, `destruct
+  op_needs_paren` (bare ⇒ operand IH directly; paren ⇒ `balanced_close_split TRP` then operand
+  IH), then recurse on the remaining sub-expressions (index/args/pairs via list-length induction
+  with `balanced_close_split` on the comma/colon-joined balanced elements) threading the
+  continuation.  EConv/lits lead with a TYPE (`canon_ty_unique`/`gttokens_ty_inj`); the `[]`/`map`
+  lead tokens discriminate them cross-shape.  EBn's infix `op_token` sits at top balance level.
+
+[HISTORICAL, superseded by the continuation-passing structure above — kept one release for the
+dead-end record] `gtokens_inj` by structural induction on `e1`, `destruct e2`, per pair:
 - Atoms (EId/EInt/EStr/EHex): single-token lists; head-token injectivity (`tok0_str`-style),
   and the closed distinct token constructors auto-discriminate cross-shape.
 - Fixed-tail postfix ESel/EAssert: strip the fixed 2- resp. 4-token tail (identical since the
