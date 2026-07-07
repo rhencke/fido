@@ -96,6 +96,25 @@ if [ "$(printf '%s\n' $scanned_v | LC_ALL=C sort)" != "$(git ls-files '*.v' | LC
   echo "fido: the scan list must be DERIVED from 'git ls-files' so no .v is ever omitted."
   exit 1
 fi
+# SECTION-CLASSIFICATION GUARD: a `Section` exempts a file from the top-level Hypothesis/Variable scan
+# below (Section-local Variables are discharged at close, not global axioms).  Only the proof-universe
+# theories legitimately carry Sections; a MODEL/extracted .v gaining one would silently exit the scan.
+# Pin the allowlist and FAIL if a Section appears in any OTHER tracked .v — a model file must carry no
+# Section (a conscious classification, never a silent bypass).  Genuinely proof-only? add it here.
+sec_allow='concurrency.v unified.v cmd_unified.v'
+for f in $scanned_v; do
+  if grep -qE '^[[:space:]]*Section[[:space:]]' "$f"; then
+    case " $sec_allow " in
+      *" $f "*) ;;   # a whitelisted proof-universe theory
+      *)
+        echo "fido: ERROR — '$f' contains a Section but is not a whitelisted proof-universe theory."
+        echo "fido: a Section exempts the file from the top-level Hypothesis/Variable scan; a model/extracted"
+        echo "fido: .v must carry none.  If this file is genuinely proof-only, add it to sec_allow; else remove"
+        echo "fido: the Section."
+        exit 1 ;;
+    esac
+  fi
+done
 amod='((#\[[^]]*\]|Local|Global|Polymorphic|Monomorphic)[[:space:]]+)*'   # optional locality/attribute prefix
 if grep -nE "^[[:space:]]*${amod}(Axiom|Axioms|Parameter|Parameters|Conjecture)[[:space:]]|Admitted" \
         $scanned_v 2>/dev/null \

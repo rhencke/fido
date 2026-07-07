@@ -9,7 +9,7 @@ UnifiedVal`); slice 2 — heap read/write/ALLOC (`CWrite`/`CRead`/`CAlloc`, unal
 slice 3 — the CHANNEL trio (`CChSend`/`CChRecv`/`CChClose`, per-site TYPED closed-recv
 zeros through each cell's own tag, would-block = ABSENCE, gated typed-zero/panic/
 mismatch obligations incl. TI64+TString instances).  The ONE conditional bridge
-`bridge_heap_agrees` covers it all (heap + buffers + closedness + allocator + defers +
+`bridge_effects_agree` covers it all (heap + buffers + closedness + allocator + defers +
 panics, from the `ustart_w` mirrored start under `chans_open`, capacities pinned via
 `ucap_of_world`; gated via `cmd_unified_surface`).
 
@@ -29,7 +29,7 @@ FORBIDDEN and unrepresentable through the public path).
    ★LIVE WIP LEDGER (update as slices land; the tree may hold uncommitted WIP):
    [x] cmd.v: `CAlloc : GoAny -> (nat -> Cmd A) -> Cmd A` (appended LAST) + `cell_of_any`/
        `alloc_world` (+output lemma) + arms in Cmd_rect'/cbind/CmdEq(CE_al)/go/run_cmd +
-       no_defer/cmd_no_panic/no_heap → false + all 7 induction/destruct patterns extended
+       no_defer/cmd_no_panic/structurally_total_cmd → false + all 7 induction/destruct patterns extended
        (3× Cmd_rect' patterns, 4× fix-style; run_cmd_eval/eval_run_cmd alloc cases mirror
        COut's shape — go/run_cmd are TOTAL on CAlloc).
    [x] unified.v: `UAlloc : V -> (nat -> UCmd) -> UCmd`; UConfig += `uc_next : nat` (LAST
@@ -64,7 +64,7 @@ FORBIDDEN and unrepresentable through the public path).
    obligations: no clobber of an allocated cell; no nil (location-0) allocation from a
    valid start; no unified allocation behavior beyond the cmd side's; a continuation
    branching on `Nat.eqb l 0` cannot reach the `l = 0` branch from a mirrored start.
-   `no_heap`/`cmd_no_panic` map `CAlloc` to `false`; `UFrag`/`Cmd_rect'`/`cbind`/`CmdEq`
+   `structurally_total_cmd`/`cmd_no_panic` map `CAlloc` to `false`; `UFrag`/`Cmd_rect'`/`cbind`/`CmdEq`
    gain the arm (and the `unwind_defers`/`eval_cmd` cases follow the interpreter's).
 
 3. **CHANNELS** (single-goroutine deterministic fragment) — ★DESIGN v1 (2026-07-07),
@@ -143,6 +143,14 @@ FORBIDDEN and unrepresentable through the public path).
    The capacity story is RESOLVED: unified's `uroom` counts `length < cap` with `ucap` a
    rule parameter, and the bridge pins it to the World's own caps via `ucap_of_world`
    (`ucap_agree` threads the invariant; `room_from_agree` transfers the cell's room check).
+   `bridge_effects_agree` now EXPOSES `ucap_agree (ucap_of_world w) (w_chans (oc_world oc))`
+   in its public conclusion (not just the internal invariant) — the theorem matches the prose.
+   ⚠ WfTrace / HAPPENS-BEFORE BOUNDARY: the bridge concludes `bufs_agree`/`closed_agree` only,
+   NEVER `WfTrace`. `bufs_of_world` gives every INITIAL buffered value synthetic position 0
+   with no producing `KSend` in the empty start trace, so a buffered recv can emit `KRecv c 0`
+   unbacked. This bridge MUST NOT compose with `concurrency.v`'s happens-before / race-freedom
+   without an extra invariant (empty initial buffers, or a per-value buffer-origin invariant).
+   Docs must never imply race-freedom from `bridge_effects_agree` alone.
 
 4. **SPAWN** (capstone; design deferred until reached): multi-goroutine ustep runs are
    schedule-nondeterministic vs sequential `run_cmd`. Candidate shapes: ∃-schedule

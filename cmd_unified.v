@@ -132,7 +132,15 @@ Proof. intros w l cell H. unfold heap_of_world. rewrite H. reflexivity. Qed.
 (** ---- The CHANNEL mirroring kit ----
     [bufs_of_world w c]: the cell's buffer BOXED through the cell's own tag (synthetic
     position 0 — the agreements ignore positions; they exist for happens-before, which the
-    single-goroutine bridge does not consult).  [ucap_of_world w c]: the cell's capacity —
+    single-goroutine bridge does not consult).
+    ⚠ WfTrace / HAPPENS-BEFORE BOUNDARY: that synthetic position 0 on an INITIAL buffered
+    value has NO producing [KSend] in the (empty) start trace, so a buffered recv can emit
+    [KRecv c 0] with no earlier [KSend c 0].  [bridge_effects_agree] concludes [bufs_agree]
+    and [closed_agree] ONLY — it does NOT conclude [WfTrace] and MUST NOT be composed with
+    [concurrency.v]'s happens-before / race-freedom ([WfTrace] requires every [KRecv]'s
+    source to point at an earlier [KSend]/[KClose]) without an extra invariant: empty initial
+    buffers, or a buffer-origin invariant giving each initial value a real producer event.
+    [ucap_of_world w c]: the cell's capacity —
     sound to FIX at the start world because the trio has NO make-channel, so the chan-heap
     DOMAIN (and every cap) is invariant across a bridged run.  [chans_open w]: every
     allocated cell OPEN — the bridge's start premise (unified closedness is a TRACE
