@@ -126,7 +126,15 @@ with closed-recv proofs for at least TWO distinct element types.
        `closed_agree` (closedb tr c = the cell's flag; absent → false).  Old cases preserve
        them via closedb_app (KWrite/KRead/KSend/KRecv events never close).  The recv-closed
        case gets its trace witness from closed_agree + closedb_true_witness.
-   [ ] the landing obligations (two-type closed-recv agreements etc.) after batch 3.
+   [x] the landing obligations — THEOREM-shaped on the manifest-gated cmd_unified_surface:
+       cchrecv_closed_typed_zero (general) + the TI64/TString instances; the closed-send/
+       close panic agreements; the would-block ABSENCES (open-empty recv, no-room send,
+       the unbuffered corollary); tag-mismatch REJECTION both directions; and the
+       admissibility pin cmd_to_ucmd_recv_zero (the certified translation puts anyt tgt
+       (zero_val tgt) in URecv's field — "URecv carries z" composes with "z IS the typed
+       zero", never an arbitrary GoAny).  The stale pre-commit builtins.v scan is repaired:
+       the no-Section extracted/model set is DERIVED (cannot silently skip new modules).
+   SLICE 3 (channels, single-goroutine deterministic fragment): ★COMPLETE.
    NOTE the capacity mismatch to resolve at implementation: unified's `uroom` counts
    `length < cap` with `ucap` a RULE PARAMETER; the World's cell carries its own cap —
    the bridge instantiates `ucap := fun c => cell c's cap` via a mirroring function.

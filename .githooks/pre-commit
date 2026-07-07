@@ -78,10 +78,14 @@ fi
 #      extraction — ordinary programs hitting fail-closed sites, so they legitimately contain no
 #      Axiom/Admitted; if a tracked .v needs a banned word only in PROSE, keep that prose clear of the
 #      bare word — the "Admitted in a comment" gotcha — rather than narrowing this scan.)
-#  (b) A top-level Hypothesis / Variable is forbidden only in the EXTRACTED trust base (builtins.v /
-#      main.v, which use NO Sections).  The proof-only theories legitimately use SECTION-local
-#      Hypothesis / Variable (discharged at Section close — NOT global axioms), so those two
-#      constructs are not grepped there (Print Assumptions would catch a mis-discharged one).
+#  (b) A top-level Hypothesis / Variable is forbidden in every NO-SECTION .v — the extracted/model
+#      modules (the whole builtins split: GoNumeric/GoRuntimeTypes/GoEffects/…/GoSwitch/GoComplex,
+#      the spine, cmd.v, main.v) use no Sections by design, so ANY Hypothesis/Variable there is a
+#      top-level assumption.  The set is DERIVED (a .v containing no `Section` command), so a new
+#      split module can never be silently skipped.  The proof-only theories (concurrency.v /
+#      unified.v / cmd_unified.v) legitimately use SECTION-local Hypothesis / Variable (discharged
+#      at Section close — NOT global axioms), and their `Section` lines exempt them here
+#      (Print Assumptions would catch a mis-discharged one).
 scanned_v=$(git ls-files '*.v')
 # SELF-CHECK INVARIANT: the set about to be scanned MUST equal the full tracked-.v set (re-derived
 # independently here).  Since `scanned_v` IS `git ls-files '*.v'` this holds by construction today; the
@@ -95,7 +99,8 @@ fi
 amod='((#\[[^]]*\]|Local|Global|Polymorphic|Monomorphic)[[:space:]]+)*'   # optional locality/attribute prefix
 if grep -nE "^[[:space:]]*${amod}(Axiom|Axioms|Parameter|Parameters|Conjecture)[[:space:]]|Admitted" \
         $scanned_v 2>/dev/null \
-   || grep -nE "^[[:space:]]*${amod}(Hypothesis|Hypotheses|Variable|Variables)[[:space:]]" builtins.v main.v 2>/dev/null; then
+   || { nosec_v=$(for f in $scanned_v; do grep -qE '^[[:space:]]*Section[[:space:]]' "$f" || printf '%s\n' "$f"; done);
+        [ -n "$nosec_v" ] && grep -nE "^[[:space:]]*${amod}(Hypothesis|Hypotheses|Variable|Variables)[[:space:]]" $nosec_v 2>/dev/null; }; then
   echo "fido: ERROR — a Fido Axiom/Parameter/Conjecture/Admitted (any tracked .v), or a top-level"
   echo "fido: Hypothesis/Variable in an extracted file, was introduced.  The 0-axiom guarantee forbids"
   echo "fido: this; model the construct as a Definition (or a discharged Section variable in a proof file)."

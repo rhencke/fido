@@ -36,6 +36,7 @@ From Fido Require Import GoEffects.
 From Fido Require Import GoSlice.
 From Fido Require Import GoHeap.   (* ValidWorld — the CAlloc gate lemmas live where alloc_world meets it *)
 From Fido Require Import GoPanic.  (* the channel trio's Go-faithful panic payloads *)
+From Fido Require Import GoNumeric.  (* GoI64/TI64 — the closed-recv typed-zero instance obligations *)
 From Stdlib Require Import List Lia.
 Import ListNotations.
 
@@ -945,7 +946,98 @@ Proof.
     apply Hbound. apply PeanoNat.Nat.leb_le. exact Hgt.
 Qed.
 
+(** ---- The CHANNEL landing obligations (theorem-shaped, per plans/bridge-effects.md):
+    the typed-zero MECHANISM pinned as theorems — the closed-drained recv binds EXACTLY
+    [anyt tgt (zero_val tgt)] (general + the two required element-type instances), the
+    closed-send/close panics, the would-block ABSENCES (the deterministic-fragment gate),
+    tag-mismatch REJECTION (never a coercion), and the admissibility pin the calculus
+    cannot provide alone: the certified translation puts the TYPED zero in [URecv]'s
+    field, so "URecv carries z" composes with "z IS the typed zero" — never an arbitrary
+    [GoAny] zero through the public path. *)
+Theorem cchrecv_closed_typed_zero : forall {T} (tgt : GoTypeTag T) ch (f : GoAny -> Cmd unit) w E tag cap,
+  w_chans w ch = Some (existT _ E (tag, (nil, (true, cap)))) ->
+  (exists p, tag_eq tgt tag = Some p) ->
+  run_cmd (CChRecv ch (existT _ T tgt) f) w = run_cmd (f (anyt tgt (zero_val tgt))) w.
+Proof.
+  intros T tgt ch f w E tag cap Hc [p Hp].
+  cbn [run_cmd]. rewrite Hc, Hp. reflexivity.
+Qed.
+Corollary cchrecv_closed_zero_i64 : forall ch (f : GoAny -> Cmd unit) w cap,
+  w_chans w ch
+    = Some (existT (fun E : Type => (GoTypeTag E * (list E * (bool * option nat)))%type)
+                   GoI64 (TI64, (nil, (true, cap)))) ->
+  run_cmd (CChRecv ch (existT (fun T : Type => GoTypeTag T) GoI64 TI64) f) w = run_cmd (f (anyt TI64 (zero_val TI64))) w.
+Proof.
+  intros ch f w cap Hc.
+  exact (cchrecv_closed_typed_zero TI64 ch f w GoI64 TI64 cap Hc
+           (ex_intro _ eq_refl (tag_eq_refl TI64))).
+Qed.
+Corollary cchrecv_closed_zero_string : forall ch (f : GoAny -> Cmd unit) w cap,
+  w_chans w ch
+    = Some (existT (fun E : Type => (GoTypeTag E * (list E * (bool * option nat)))%type)
+                   GoString (TString, (nil, (true, cap)))) ->
+  run_cmd (CChRecv ch (existT (fun T : Type => GoTypeTag T) GoString TString) f) w = run_cmd (f (anyt TString (zero_val TString))) w.
+Proof.
+  intros ch f w cap Hc.
+  exact (cchrecv_closed_typed_zero TString ch f w GoString TString cap Hc
+           (ex_intro _ eq_refl (tag_eq_refl TString))).
+Qed.
+Theorem cchsend_closed_panics : forall ch v (k : Cmd unit) w E tag buf cap,
+  w_chans w ch = Some (existT _ E (tag, (buf, (true, cap)))) ->
+  run_cmd (CChSend ch v k) w = Some (OPanic rt_send_closed w).
+Proof. intros ch v k w E tag buf cap Hc. cbn [run_cmd]. rewrite Hc. reflexivity. Qed.
+Theorem cchclose_closed_panics : forall ch (k : Cmd unit) w E tag buf cap,
+  w_chans w ch = Some (existT _ E (tag, (buf, (true, cap)))) ->
+  run_cmd (CChClose ch k) w = Some (OPanic rt_close_closed w).
+Proof. intros ch k w E tag buf cap Hc. cbn [run_cmd]. rewrite Hc. reflexivity. Qed.
+Theorem cchrecv_open_empty_absent : forall {T} (tgt : GoTypeTag T) ch (f : GoAny -> Cmd unit) w E tag cap,
+  w_chans w ch = Some (existT _ E (tag, (nil, (false, cap)))) ->
+  run_cmd (CChRecv ch (existT _ T tgt) f) w = None.
+Proof.
+  intros T tgt ch f w E tag cap Hc. cbn [run_cmd]. rewrite Hc.
+  destruct (tag_eq tgt tag); reflexivity.
+Qed.
+Theorem cchsend_no_room_absent : forall ch v (k : Cmd unit) w E tag buf cap,
+  w_chans w ch = Some (existT _ E (tag, (buf, (false, cap)))) ->
+  chan_room_cap (length buf) cap = false ->
+  run_cmd (CChSend ch v k) w = None.
+Proof.
+  intros ch v k w E tag buf cap Hc Hr. cbn [run_cmd]. rewrite Hc.
+  destruct v as [A0 [x ta]].
+  destruct (tag_coerce tag ta x); [ rewrite Hr | ]; reflexivity.
+Qed.
+Corollary cchsend_unbuffered_absent : forall ch v (k : Cmd unit) w E tag,
+  w_chans w ch = Some (existT _ E (tag, (nil, (false, Some 0)))) ->
+  run_cmd (CChSend ch v k) w = None.
+Proof.
+  intros ch v k w E tag Hc.
+  exact (cchsend_no_room_absent ch v k w E tag nil (Some 0) Hc eq_refl).
+Qed.
+Theorem cchrecv_tag_mismatch_absent : forall {T} (tgt : GoTypeTag T) ch (f : GoAny -> Cmd unit) w E tag buf closed cap,
+  w_chans w ch = Some (existT _ E (tag, (buf, (closed, cap)))) ->
+  tag_eq tgt tag = None ->
+  run_cmd (CChRecv ch (existT _ T tgt) f) w = None.
+Proof.
+  intros T tgt ch f w E tag buf closed cap Hc Hne. cbn [run_cmd]. rewrite Hc, Hne. reflexivity.
+Qed.
+Theorem cchsend_tag_mismatch_absent : forall ch {A0} (x : A0) (ta : GoTypeTag A0) (k : Cmd unit) w E tag buf cap,
+  w_chans w ch = Some (existT _ E (tag, (buf, (false, cap)))) ->
+  tag_coerce tag ta x = None ->
+  run_cmd (CChSend ch (existT _ A0 (x, ta)) k) w = None.
+Proof.
+  intros ch A0 x ta k w E tag buf cap Hc Hne. cbn [run_cmd]. rewrite Hc, Hne. reflexivity.
+Qed.
+(** the ADMISSIBILITY pin: the certified translation puts the TYPED zero in URecv's field *)
+Theorem cmd_to_ucmd_recv_zero : forall ch T (tgt : GoTypeTag T) (f : GoAny -> Cmd unit),
+  cmd_to_ucmd (CChRecv ch (existT _ T tgt) f)
+  = URecv ch (anyt tgt (zero_val tgt)) (fun x => cmd_to_ucmd (f x)).
+Proof. reflexivity. Qed.
+
 Definition cmd_unified_surface :=
   (cmd_to_ucmd_fragment, bridge_heap_agrees, run_cmd_out_monotone, run_cmd_no_panic_ret,
-   calloc_loc_nonzero, calloc_no_clobber, alloc_world_valid).
+   calloc_loc_nonzero, calloc_no_clobber, alloc_world_valid,
+   @cchrecv_closed_typed_zero, cchrecv_closed_zero_i64, cchrecv_closed_zero_string,
+   cchsend_closed_panics, cchclose_closed_panics,
+   @cchrecv_open_empty_absent, cchsend_no_room_absent, cchsend_unbuffered_absent,
+   @cchrecv_tag_mismatch_absent, @cchsend_tag_mismatch_absent, cmd_to_ucmd_recv_zero).
 Print Assumptions cmd_unified_surface.
