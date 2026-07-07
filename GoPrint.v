@@ -4481,6 +4481,137 @@ Proof.
   - apply CanHex.
 Qed.
 
+(** ---- Phase 3a: the BRACKET-BALANCE toolkit + type-level uniqueness ----
+    [sqd ts d]: the square-bracket depth after scanning [ts] from depth [d] ([None] = a
+    [TRB] at depth 0 — a dip below the start).  Canonical token lists are BALANCED, so in
+    [ts ++ TRB :: r] the appended [TRB] is the FIRST dip — both sides of an equation
+    identify the same split point, giving the cancellation the [TMap]/bracket productions
+    need.  Parser-free by construction: uniqueness is proved on the token-assignment
+    FUNCTIONS (via [canon_ty_tokens]-style functionality), never via [parse]. *)
+Fixpoint sqd (ts : list Token) (d : nat) : option nat :=
+  match ts with
+  | nil => Some d
+  | TLB :: r => sqd r (S d)
+  | TRB :: r => match d with O => None | S d' => sqd r d' end
+  | _ :: r => sqd r d
+  end.
+Lemma sqd_app : forall a b d,
+  sqd (a ++ b) d = match sqd a d with Some d' => sqd b d' | None => None end.
+Proof.
+  induction a as [ | t a IH ]; intros b d; [ reflexivity | ].
+  destruct t; cbn [sqd app]; try apply IH.
+  destruct d; [ reflexivity | apply IH ].
+Qed.
+Lemma sqd_up : forall ts d e, sqd ts d = Some e -> sqd ts (S d) = Some (S e).
+Proof.
+  induction ts as [ | t ts IH ]; intros d e H; cbn [sqd] in *.
+  - injection H as <-. reflexivity.
+  - destruct t; try (apply IH; exact H).
+    (* TRB, the only survivor: the head consumed one depth level *)
+    destruct d as [ | d ]; [ discriminate H | apply IH; exact H ].
+Qed.
+(** the index of the first dip below the start depth (None = never dips) *)
+Fixpoint firstdip (ts : list Token) (d : nat) : option nat :=
+  match ts with
+  | nil => None
+  | TLB :: r => option_map S (firstdip r (S d))
+  | TRB :: r => match d with O => Some O | S d' => option_map S (firstdip r d') end
+  | _ :: r => option_map S (firstdip r d)
+  end.
+Lemma firstdip_app_nodip : forall a b d d',
+  sqd a d = Some d' ->
+  firstdip (a ++ b) d = option_map (fun i => length a + i) (firstdip b d').
+Proof.
+  induction a as [ | t a IH ]; intros b d d' H; cbn [sqd] in H.
+  - injection H as E. rewrite <- E. cbn [app length].
+    destruct (firstdip b d); reflexivity.
+  - destruct t; cbn [firstdip app length];
+      try (rewrite (IH b _ _ H); destruct (firstdip b d'); reflexivity).
+    (* TRB, the only survivor: no dip here since sqd stayed defined *)
+    destruct d as [ | d0 ]; [ discriminate H | ].
+    rewrite (IH b _ _ H). destruct (firstdip b d'); reflexivity.
+Qed.
+Lemma firstdip_balanced_rb : forall ts r,
+  sqd ts 0 = Some 0 ->
+  firstdip (ts ++ TRB :: r) 0 = Some (length ts).
+Proof.
+  intros ts r H. rewrite (firstdip_app_nodip ts (TRB :: r) 0 0 H).
+  cbn [firstdip option_map]. f_equal. lia.
+Qed.
+Lemma app_eq_length : forall {A} (a1 a2 b1 b2 : list A),
+  length a1 = length a2 -> (a1 ++ b1)%list = (a2 ++ b2)%list -> a1 = a2 /\ b1 = b2.
+Proof.
+  induction a1 as [ | x a1 IH ]; intros a2 b1 b2 HL HE; destruct a2 as [ | y a2 ];
+    cbn [length app] in *; try discriminate HL.
+  - split; [ reflexivity | exact HE ].
+  - injection HL as HL. injection HE as -> HE.
+    destruct (IH a2 b1 b2 HL HE) as [-> ->]. split; reflexivity.
+Qed.
+(** THE bracket-cancellation lemma: two balanced prefixes before an unmatched [TRB]
+    in the SAME list coincide. *)
+Lemma balanced_rb_split : forall ts1 ts2 r1 r2,
+  sqd ts1 0 = Some 0 -> sqd ts2 0 = Some 0 ->
+  (ts1 ++ TRB :: r1)%list = (ts2 ++ TRB :: r2)%list ->
+  ts1 = ts2 /\ r1 = r2.
+Proof.
+  intros ts1 ts2 r1 r2 H1 H2 HE.
+  assert (HL : length ts1 = length ts2).
+  { pose proof (firstdip_balanced_rb ts1 r1 H1) as F1.
+    pose proof (firstdip_balanced_rb ts2 r2 H2) as F2.
+    rewrite HE in F1. rewrite F2 in F1. injection F1 as F1. symmetry. exact F1. }
+  destruct (app_eq_length ts1 ts2 (TRB :: r1) (TRB :: r2) HL HE) as [-> HT].
+  injection HT as ->. split; reflexivity.
+Qed.
+(** the type token assignment is balanced *)
+Lemma gttokens_ty_balanced : forall t, sqd (gttokens_ty t) 0 = Some 0.
+Proof.
+  induction t; cbn [gttokens_ty sqd]; try reflexivity; try assumption.
+  (* TMap: TMap :: TLB :: (tk ++ TRB :: tv) — key at depth 1, then the value at 0 *)
+  rewrite sqd_app, (sqd_up _ _ _ IHt1). cbn [sqd]. exact IHt2.
+Qed.
+(** the head-identifier string of a token list (the leaf/named discrimination handle) *)
+Definition tok0_str (ts : list Token) : string :=
+  match ts with TId i :: _ => proj1_sig i | _ => EmptyString end.
+(** ★TYPE-LEVEL TOKEN INJECTIVITY, parser-free: equal canonical token lists mean equal
+    types.  Leaf collisions with [GTNamed] are killed by the [nominal_type_ident]
+    validity (a type keyword is unrepresentable as a [TyName]); [TMap]'s two children
+    split by bracket cancellation. *)
+Lemma gttokens_ty_inj : forall t1 t2, gttokens_ty t1 = gttokens_ty t2 -> t1 = t2.
+Proof.
+  induction t1 as [ | | | | | | | | | | | | | | u IHu | u IHu | u IHu | k IHk v IHv | n ];
+    destruct t2 as [ | | | | | | | | | | | | | | u2 | u2 | u2 | k2 v2 | n2 ];
+    cbn [gttokens_ty]; intro E; try reflexivity; try discriminate E;
+    (* GTNamed vs a primitive leaf (either side): the head-string equality contradicts
+       the keyword-exclusion validity carried by the TyName *)
+    try (exfalso; apply (f_equal tok0_str) in E;
+         match goal with nm : TyName |- _ => destruct nm as [sn Hn] end;
+         cbn in E; subst sn; cbn in Hn; discriminate Hn).
+  - (* GTPtr *) apply (f_equal (@tl Token)) in E. cbn in E.
+    rewrite (IHu _ E). reflexivity.
+  - (* GTSlice *) apply (f_equal (@tl Token)) in E. apply (f_equal (@tl Token)) in E.
+    cbn in E. rewrite (IHu _ E). reflexivity.
+  - (* GTChan *) apply (f_equal (@tl Token)) in E. cbn in E.
+    rewrite (IHu _ E). reflexivity.
+  - (* GTMap *) apply (f_equal (@tl Token)) in E. apply (f_equal (@tl Token)) in E.
+    cbn in E.
+    destruct (balanced_rb_split _ _ _ _ (gttokens_ty_balanced k) (gttokens_ty_balanced k2) E)
+      as [E1 E2].
+    rewrite (IHk _ E1), (IHv _ E2). reflexivity.
+  - (* GTNamed vs GTNamed *)
+    apply (f_equal tok0_str) in E.
+    destruct n as [s1 H1]; destruct n2 as [s2 H2]; cbn in E; subst s2.
+    assert (EH : H1 = H2) by apply (Eqdep_dec.UIP_dec Bool.bool_dec).
+    subst H2. reflexivity.
+Qed.
+(** ★CANONICAL TYPE UNIQUENESS (CLAUDE.md's [canon_*_unique] shape at the type layer):
+    one token list, one type — via functionality + token injectivity, parser-free. *)
+Theorem canon_ty_unique : forall t1 t2 ts,
+  CanonTy t1 ts -> CanonTy t2 ts -> t1 = t2.
+Proof.
+  intros t1 t2 ts H1 H2.
+  apply canon_ty_tokens in H1. apply canon_ty_tokens in H2. subst.
+  apply gttokens_ty_inj. congruence.
+Qed.
 (** LEXICAL FAITHFULNESS through the grammar: printing then lexing yields EXACTLY a
     canonical derivation's tokens — the composed [lex_gprint_expr] shape CLAUDE.md names. *)
 Theorem lex_gprint_expr : forall ctx e,
@@ -6425,6 +6556,8 @@ Print Assumptions print_program_inj.
 Print Assumptions gprint_expr_canonical.
 Print Assumptions canon_expr_tokens.
 Print Assumptions lex_gprint_expr.
+Print Assumptions canon_ty_unique.
+Print Assumptions gttokens_ty_inj.
 
 (** Extract the Rocq printers to the OCaml the plugin calls. *)
 Require Import Extraction.
