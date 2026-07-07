@@ -1,4 +1,4 @@
-# The canonical relational grammar — the syntax AUTHORITY (CLAUDE.md; boss checkpoint-49 order #5)
+# The canonical relational grammar — the syntax AUTHORITY (CLAUDE.md "Syntax authority")
 
 GOAL: the intended syntax authority is a RELATIONAL canonical grammar with parser-free
 token injectivity — printer correctness proved against the GRAMMAR, the executable
@@ -6,7 +6,7 @@ parser demoted to derived tooling.  Target shapes (CLAUDE.md "Syntax authority")
 `CanonExpr : nat -> GExpr -> list Token -> Prop` (+ CanonStmt/CanonProgram),
 `gprint_expr_canonical`, `canon_expr_unique`, `lex_gprint_expr` (likewise per layer).
 
-WHAT EXISTS (GoPrint.v, 6199 lines): the token type + the fuel-free Acc lexer;
+WHAT EXISTS (in GoPrint.v): the token type + the fuel-free Acc lexer;
 `gtokens ctx e` (the executable canonical token assignment); `gtokens_lex : lex (gprint
 ctx e) = Some (gtokens ctx e)` (lexical faithfulness, expression layer); `gtokens_parse`
 + `parse_print_roundtrip` (the executable-parser round-trip); `print_stmt_inj`/
@@ -16,9 +16,9 @@ string equality — the parser is still the de-facto foundation.
 
 ## The architecture (the parser-free uniqueness discipline)
 
-⛔ `canon_expr_unique` must be proved DIRECTLY on the relation (leading-token
-discrimination + balanced-bracket framing + strong induction) — NEVER via
-`gtokens_parse`: deriving uniqueness from the parser's functionality would reinstate
+⛔ `canon_expr_unique` must be proved DIRECTLY on the token functions (the continuation-passing
+`gtokens_det`, strong induction on expression size — full design in "Phase 3b/3c" below) —
+NEVER via `gtokens_parse`: deriving uniqueness from the parser's functionality would reinstate
 the parser as the foundation, the exact inversion CLAUDE.md forbids.  The executable
 parser is re-based LAST as derived tooling (`parse_sound`/`parse_complete` against the
 relation).
@@ -34,8 +34,10 @@ sig equality, and the sqd/firstdip/balanced_rb_split bracket-balance toolkit spl
 children).  Phase 3b SLICE 1 LANDED — the three-bracket balance toolkit (bd/bd_app/bd_up/
 bd_app_pass/bd_op_token/bd_prefix_token/bd_gtparen/gttokens_ty_bd + arg/pair balance lemmas)
 and gtokens_balanced (every canonical expression token list is uniformly bracket-balanced),
-gated.  NEXT = Phase 3b SLICE 2: split lemmas (balanced_close_split/last_group_split) +
-gtokens_inj + canon_expr_unique (parser-free) at the expression layer.
+gated.  NEXT = Phase 3b SLICE 2: the continuation-passing gtokens_det (canon_expr_unique =
+canon_expr_tokens + its s1=s2=nil instance), design pinned below.  bdip/balanced_close_split
+(the fixed-tail/paren-peel tool) are written + verified-to-compile — to land WITH gtokens_det so
+nothing unused is committed; last0/last_group_split were RULED OUT (see the design's dead-end note).
 
 ## Phases (each: green, golden byte-identical, gated, reviewed)
 
@@ -52,11 +54,10 @@ gtokens_inj + canon_expr_unique (parser-free) at the expression layer.
    `lex_gprint_expr : lex (gprint ctx e) = Some ts /\ CanonExpr ctx e ts` (compose with
    `gtokens_lex`).
 3. **★`canon_expr_unique`** (the meat): `CanonExpr ctx e1 ts -> CanonExpr ctx e2 ts ->
-   e1 = e2`, parser-free.  Toolkit: per-production LEADING-TOKEN discrimination (each
-   production's first token classifies its constructor within a precedence context);
-   bracket-balance framing (args/pairs/index/slice bodies are delimited, so equal
-   concatenations split identically — `tokens_balanced` + an append-cancellation
-   lemma family); strong induction on token-list length for the nested lists.
+   e1 = e2`, parser-free — via `canon_expr_tokens` + the continuation-passing `gtokens_det`
+   (strong induction on expression size).  Full design + the two ruled-out dead ends
+   (balanced-prefix cancellation; `last0`) in the "Phase 3b/3c" section below.  Slice 1 (the
+   `bd` balance toolkit + `gtokens_balanced`) is LANDED.
 4. **CanonStmt/CanonProgram** + the same trio over the statement printer (the
    statement layer's `lex_gprint_stmt` does not exist yet — build the statement
    `gtokens` analogue first).
@@ -103,8 +104,8 @@ to the THREE expression bracket kinds — parens `TLP`/`TRP`, square `TLB`/`TRB`
   Its ROLE in `gtokens_det`: strip the PAREN-DELIMITED operand case `gtparen e0 =
   TLP::(gtokens 0 e0 ++ TRP::nil)` — the matched `TRP` closes the leading `TLP`, so
   balanced_close_split (with `cl := TRP`, prefix `gtokens 0 e0` balanced by `gtokens_balanced`)
-  peels it, exposing `gtokens 0 e0` for the operand IH. (bdip/balanced_close_split LANDED green,
-  uncommitted; `last0` is NOT needed and will not be written.)
+  peels it, exposing `gtokens 0 e0` for the operand IH. (bdip/balanced_close_split are written +
+  verified-to-compile, to land WITH gtokens_det; `last0` is NOT needed and will not be written.)
 
 `gtokens_det` by strong induction on `size e1`, `destruct e1`/`destruct e2`, per pair:
 - Atoms (EId/EInt/EStr/EHex): single-token; the continuation makes the head token decide — equal
@@ -116,29 +117,9 @@ to the THREE expression bracket kinds — parens `TLP`/`TRP`, square `TLB`/`TRB`
   continuation.  EConv/lits lead with a TYPE (`canon_ty_unique`/`gttokens_ty_inj`); the `[]`/`map`
   lead tokens discriminate them cross-shape.  EBn's infix `op_token` sits at top balance level.
 
-[HISTORICAL, superseded by the continuation-passing structure above — kept one release for the
-dead-end record] `gtokens_inj` by structural induction on `e1`, `destruct e2`, per pair:
-- Atoms (EId/EInt/EStr/EHex): single-token lists; head-token injectivity (`tok0_str`-style),
-  and the closed distinct token constructors auto-discriminate cross-shape.
-- Fixed-tail postfix ESel/EAssert: strip the fixed 2- resp. 4-token tail (identical since the
-  whole lists are equal), giving `t0a = t0b`, recurse.  The `op_needs_paren` boolean split is a
-  premise equality (like the type layer's leaf discrimination), so P vs N pairs discharge by the
-  paren token being present/absent.
-- Variable-tail postfix EIndex/ESlice/ECall + EConv/ESliceLit/EMapLit: `last_group_split` (and
-  for the inner arg/pair lists, an induction on list length with `balanced_close_split` on the
-  comma-joined balanced elements).
-- EUn: leading `prefix_token o` — the operator token discriminates from atoms/postfix (whose
-  leading token comes from the operand and is never a bare prefix operator except via a nested
-  EUn, handled by recursion); `unop_paren` P/N split by the `TLP` presence.
-- EBn: the `Nat.ltb (binop_prec o) ctx` P/N split by the leading `TLP`; the infix `op_token o`
-  at the top balance level is located by `bd` (the operator sits at depth 0 between two balanced
-  operands) — the one genuinely infix case, framed by a depth-0 operator-scan lemma.
-- Cross-shape pairs discharged by the leading token + first-group opener kind (EConv leads with a
-  TYPE token, ESliceLit with `TLB TRB`, EMapLit with `TMap`), all closed-constructor distinct.
-
-Then `canon_expr_unique` + `gtokens_inj` join the printer Print Assumptions gate.  Phase 3c =
-reprove `gprint_inj` off `parse_print_roundtrip` (now a corollary of `gtokens_inj` + `gtokens_lex`),
-retiring the parser as the expression-injectivity authority.
+Then `canon_expr_unique` (+ `gtokens_det`/`gtokens_inj`) join the printer Print Assumptions gate.
+Phase 3c = reprove `gprint_inj` off `parse_print_roundtrip` (now a corollary of `gtokens_inj` +
+`gtokens_lex`), retiring the parser as the expression-injectivity authority.
 
 ## Landing rules
 
