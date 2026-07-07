@@ -101,9 +101,14 @@ fi
 # theories legitimately carry Sections; a MODEL/extracted .v gaining one would silently exit the scan.
 # Pin the allowlist and FAIL if a Section appears in any OTHER tracked .v — a model file must carry no
 # Section (a conscious classification, never a silent bypass).  Genuinely proof-only? add it here.
+# A Rocq COMMAND BOUNDARY is line-start OR a period + whitespace (Rocq accepts many commands per line —
+# `Definition d := 0. Section S. Variable leaked : nat.` must not hide the later tokens from these scans).
+# A period inside a qualified name (`List.map`) has no following whitespace, so it never matches `cb`.
+cb='(^|[.][[:space:]])[[:space:]]*'
+amod='((#\[[^]]*\]|Local|Global|Polymorphic|Monomorphic)[[:space:]]+)*'   # optional locality/attribute prefix
 sec_allow='concurrency.v unified.v cmd_unified.v'
 for f in $scanned_v; do
-  if grep -qE '^[[:space:]]*Section[[:space:]]' "$f"; then
+  if grep -qE "${cb}Section[[:space:]]" "$f"; then
     case " $sec_allow " in
       *" $f "*) ;;   # a whitelisted proof-universe theory
       *)
@@ -115,11 +120,10 @@ for f in $scanned_v; do
     esac
   fi
 done
-amod='((#\[[^]]*\]|Local|Global|Polymorphic|Monomorphic)[[:space:]]+)*'   # optional locality/attribute prefix
-if grep -nE "^[[:space:]]*${amod}(Axiom|Axioms|Parameter|Parameters|Conjecture)[[:space:]]|Admitted" \
+if grep -nE "${cb}${amod}(Axiom|Axioms|Parameter|Parameters|Conjecture)[[:space:]]|Admitted" \
         $scanned_v 2>/dev/null \
-   || { nosec_v=$(for f in $scanned_v; do grep -qE '^[[:space:]]*Section[[:space:]]' "$f" || printf '%s\n' "$f"; done);
-        [ -n "$nosec_v" ] && grep -nE "^[[:space:]]*${amod}(Hypothesis|Hypotheses|Variable|Variables)[[:space:]]" $nosec_v 2>/dev/null; }; then
+   || { nosec_v=$(for f in $scanned_v; do grep -qE "${cb}Section[[:space:]]" "$f" || printf '%s\n' "$f"; done);
+        [ -n "$nosec_v" ] && grep -nE "${cb}${amod}(Hypothesis|Hypotheses|Variable|Variables)[[:space:]]" $nosec_v 2>/dev/null; }; then
   echo "fido: ERROR — a Fido Axiom/Parameter/Conjecture/Admitted (any tracked .v), or a top-level"
   echo "fido: Hypothesis/Variable in an extracted file, was introduced.  The 0-axiom guarantee forbids"
   echo "fido: this; model the construct as a Definition (or a discharged Section variable in a proof file)."

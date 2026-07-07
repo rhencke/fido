@@ -143,7 +143,16 @@ Qed.
     calculus [unified.v]'s race-freedom / liveness are proved on — to COMPLETION ([uc_live 0 = false]) with NO
     panic ([uc_panic 0 = None]), its output equal to the [run_cmd] [ORet] run's.  cmd.v's [run_cmd] STAYS the
     authority: the conclusion CARRIES [run_cmd c w = Some (ORet tt w')] and ties [uc_out] to that [w']
-    (not a free observer). *)
+    (not a free observer).
+    ⚠ SCOPE — this is the OPEN-CHANNEL-START form: the [chans_open w] premise is REQUIRED (inherited from
+    [bridge_effects_agree], whose start invariant [closed_agree nil (w_chans w)] forces every allocated cell
+    open at the empty start trace).  A [cmd_no_panic] program has NO channel nodes ([structurally_total_cmd]),
+    so this premise is IRRELEVANT to its behaviour and is discharged TRIVIALLY by the intended channel-free
+    start world (no allocated cells ⇒ [chans_open] holds vacuously); it bites only a world that already carries
+    unrelated PRE-CLOSED channels.  A [chans_open]-free projection for the no-channel fragment is possible but
+    would DUPLICATE [body_runs_sem]'s induction (a second bridge authority that deletes nothing), so it is
+    deliberately NOT added — the premise is stated explicitly here rather than hidden behind "any completing
+    command" prose. *)
 Theorem panic_free_runs_ret_ustep : forall (vz : GoAny) (c : Cmd unit) w,
   cmd_no_panic c = true ->
   chans_open w ->
@@ -187,7 +196,9 @@ Proof.
   exists c, w'. split; [reflexivity | exact Hrun].
 Qed.
 
-(** The same decidable-predicate guarantee at the OPERATIONAL level (via [panic_free_runs_ret_ustep]). *)
+(** The same decidable-predicate guarantee at the OPERATIONAL level (via [panic_free_runs_ret_ustep] —
+    it inherits that theorem's [chans_open w] OPEN-CHANNEL-START premise, trivial for the intended
+    channel-free start world; see the ⚠ SCOPE note there). *)
 Theorem panic_free_denotable_runs_ret_ustep : forall (vz : GoAny) p w,
   panic_free_denotable p = true ->
   chans_open w ->

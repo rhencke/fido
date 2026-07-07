@@ -62,6 +62,56 @@ children).  NEXT = Phase 3b/3c, canon_expr_unique (parser-free) at the expressio
    foundation); rewrite GoPrint's header authority claims; the PROGRESS gate list
    gains the canonical surface (one manifest-gated `Print Assumptions`).
 
+## Phase 3b/3c — the expression uniqueness proof (design, pinned before coding)
+
+TARGET (mirrors the type layer exactly): `canon_expr_unique ctx e1 e2 ts` = `canon_expr_tokens`
+on both sides + a PARSER-FREE `gtokens_inj : forall ctx e1 e2, gtokens ctx e1 = gtokens ctx e2
+-> e1 = e2`.  (`canon_ty_unique` already has this shape via `gttokens_ty_inj`.)  Everything
+below is proved on the token FUNCTIONS, never via `parse`/`gtokens_parse`.
+
+Why the naive prefix argument FAILS: postfix forms share their operand's leading tokens —
+`gtokens ctx (ESel (EId i) f) = TId i :: TDot :: TId f :: nil` has `TId i :: nil`
+(= `gtokens (EId i)`) as a proper prefix.  So leading-token discrimination alone cannot
+separate `EId` from `ESel`/`EIndex`/`ECall`/… ; segmentation must come from BRACKET BALANCE.
+
+TOOLKIT (generalize the type-layer `sqd`/`firstdip`/`balanced_rb_split` from ONE bracket kind
+to the THREE expression bracket kinds — parens `TLP`/`TRP`, square `TLB`/`TRB`, brace
+`TLC`/`TRC`):
+- `bd : list Token -> nat -> option nat` — NET all-kinds depth (openers {TLP,TLB,TLC} +1,
+  closers {TRP,TRB,TRC} -1, None on a below-zero dip).  `bd_app` like `sqd_app`.
+- `gtokens_balanced : forall ctx e, bd (gtokens ctx e) 0 = Some 0` (structural on `GExpr_ind'`
+  + `args`/`pairs` sublemmas) — every canonical expr token list is uniformly balanced.
+- Two split lemmas, both proved by a first-/last-dip index argument (`firstdip` for closers;
+  a right-scan `lastrise` mirror for the opener-led groups):
+  - `balanced_close_split` (generalizes `balanced_rb_split` to any closer): balanced prefixes
+    before an unmatched closer coincide — frames the fixed-tail suffixes.
+  - `last_group_split` (rightmost balanced bracket framing): `a ++ (OP :: m ++ CL :: nil) =
+    a' ++ (OP :: m' ++ CL :: nil)` with `a,a',m,m'` balanced ⇒ `a=a' /\ m=m'` — frames the
+    variable-length `[...]`/`(...)`/`{...}` groups of EIndex/ESlice/ECall/EAssert/lits.
+
+`gtokens_inj` by structural induction on `e1`, `destruct e2`, per pair:
+- Atoms (EId/EInt/EStr/EHex): single-token lists; head-token injectivity (`tok0_str`-style),
+  and the closed distinct token constructors auto-discriminate cross-shape.
+- Fixed-tail postfix ESel/EAssert: strip the fixed 2- resp. 4-token tail (identical since the
+  whole lists are equal), giving `t0a = t0b`, recurse.  The `op_needs_paren` boolean split is a
+  premise equality (like the type layer's leaf discrimination), so P vs N pairs discharge by the
+  paren token being present/absent.
+- Variable-tail postfix EIndex/ESlice/ECall + EConv/ESliceLit/EMapLit: `last_group_split` (and
+  for the inner arg/pair lists, an induction on list length with `balanced_close_split` on the
+  comma-joined balanced elements).
+- EUn: leading `prefix_token o` — the operator token discriminates from atoms/postfix (whose
+  leading token comes from the operand and is never a bare prefix operator except via a nested
+  EUn, handled by recursion); `unop_paren` P/N split by the `TLP` presence.
+- EBn: the `Nat.ltb (binop_prec o) ctx` P/N split by the leading `TLP`; the infix `op_token o`
+  at the top balance level is located by `bd` (the operator sits at depth 0 between two balanced
+  operands) — the one genuinely infix case, framed by a depth-0 operator-scan lemma.
+- Cross-shape pairs discharged by the leading token + first-group opener kind (EConv leads with a
+  TYPE token, ESliceLit with `TLB TRB`, EMapLit with `TMap`), all closed-constructor distinct.
+
+Then `canon_expr_unique` + `gtokens_inj` join the printer Print Assumptions gate.  Phase 3c =
+reprove `gprint_inj` off `parse_print_roundtrip` (now a corollary of `gtokens_inj` + `gtokens_lex`),
+retiring the parser as the expression-injectivity authority.
+
 ## Landing rules
 
 Golden byte-identical throughout (proof-only; no emission change).  No new axioms;
