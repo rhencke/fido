@@ -31,7 +31,11 @@ the printer gate.  Phase 3a LANDED (9759804) — canon_ty_unique (type-level tok
 PARSER-FREE: canon_ty_tokens functionality + gttokens_ty_inj (leading-token discrimination,
 the nominal_type_ident keyword-exclusion killing GTNamed collisions, UIP-on-bool for TyName
 sig equality, and the sqd/firstdip/balanced_rb_split bracket-balance toolkit splitting TMap's
-children).  NEXT = Phase 3b/3c, canon_expr_unique (parser-free) at the expression layer.
+children).  Phase 3b SLICE 1 LANDED — the three-bracket balance toolkit (bd/bd_app/bd_up/
+bd_app_pass/bd_op_token/bd_prefix_token/bd_gtparen/gttokens_ty_bd + arg/pair balance lemmas)
+and gtokens_balanced (every canonical expression token list is uniformly bracket-balanced),
+gated.  NEXT = Phase 3b SLICE 2: split lemmas (balanced_close_split/last_group_split) +
+gtokens_inj + canon_expr_unique (parser-free) at the expression layer.
 
 ## Phases (each: green, golden byte-identical, gated, reviewed)
 

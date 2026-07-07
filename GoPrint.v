@@ -4618,6 +4618,142 @@ Proof.
   apply canon_ty_tokens in H1. apply canon_ty_tokens in H2. subst.
   apply gttokens_ty_inj. congruence.
 Qed.
+
+(** ---- Phase 3b: the THREE-BRACKET balance toolkit (generalizes Phase 3a's square-only
+    [sqd] to parens/square/brace) — the foundation for parser-free EXPRESSION token
+    injectivity.  [bd ts d]: NET all-kinds bracket depth ([None] on a below-zero dip).
+    Canonical expression token lists are uniformly balanced ([gtokens_balanced]): every
+    sub-token-list a production wraps returns to depth 0 and never dips — which is what the
+    group-split lemmas cancel on.  Uniform (kind-agnostic) depth is sound HERE because
+    canonical output is always properly nested (no crossing brackets). *)
+Fixpoint bd (ts : list Token) (d : nat) : option nat :=
+  match ts with
+  | nil => Some d
+  | TLP :: r => bd r (S d)
+  | TLB :: r => bd r (S d)
+  | TLC :: r => bd r (S d)
+  | TRP :: r => match d with O => None | S d' => bd r d' end
+  | TRB :: r => match d with O => None | S d' => bd r d' end
+  | TRC :: r => match d with O => None | S d' => bd r d' end
+  | _ :: r => bd r d
+  end.
+Lemma bd_app : forall a b d,
+  bd (a ++ b) d = match bd a d with Some d' => bd b d' | None => None end.
+Proof.
+  induction a as [ | t a IH ]; intros b d; [ reflexivity | ].
+  destruct t; cbn [bd app]; try apply IH; destruct d; solve [ reflexivity | apply IH ].
+Qed.
+(** the workhorse: a defined prefix passes its exit depth into the suffix scan *)
+Lemma bd_app_pass : forall a b d e, bd a d = Some e -> bd (a ++ b) d = bd b e.
+Proof. intros a b d e H. rewrite bd_app, H. reflexivity. Qed.
+Lemma bd_up : forall ts d e, bd ts d = Some e -> bd ts (S d) = Some (S e).
+Proof.
+  induction ts as [ | t ts IH ]; intros d e H; cbn [bd] in *.
+  - injection H as <-. reflexivity.
+  - destruct t; try (apply IH; exact H);
+      destruct d as [ | d0 ]; solve [ discriminate H | apply IH; exact H ].
+Qed.
+(** operator/prefix tokens are never brackets, so they leave the depth unchanged *)
+Lemma bd_op_token : forall o r d, bd (op_token o :: r) d = bd r d.
+Proof. destruct o; reflexivity. Qed.
+Lemma bd_prefix_token : forall o r d, bd (prefix_token o :: r) d = bd r d.
+Proof. destruct o; reflexivity. Qed.
+(** the parenthesizer preserves balance (either the bare operand, or [TLP … TRP] around it) *)
+Lemma bd_gtparen : forall e0, bd (gtokens 0 e0) 0 = Some 0 -> bd (gtparen e0) 0 = Some 0.
+Proof.
+  intros e0 H. unfold gtparen. destruct (op_needs_paren e0); [ | exact H ].
+  cbn [bd]. rewrite (bd_app_pass _ _ _ _ (bd_up _ _ _ H)). reflexivity.
+Qed.
+(** the comma-joined arg/pair lists are balanced when every element is *)
+Lemma gtokens_args_tl_bd : forall r,
+  Forall (fun b => bd (gtokens 0 b) 0 = Some 0) r -> bd (gtokens_args_tl r) 0 = Some 0.
+Proof.
+  induction r as [ | b m IH ]; intro Hf; [ reflexivity | ].
+  cbn [gtokens_args_tl bd]. rewrite (bd_app_pass _ _ _ _ (Forall_inv Hf)).
+  apply IH. exact (Forall_inv_tail Hf).
+Qed.
+Lemma gtokens_args_bd : forall args,
+  Forall (fun a => bd (gtokens 0 a) 0 = Some 0) args -> bd (gtokens_args args) 0 = Some 0.
+Proof.
+  intros [ | a r ] Hf; [ reflexivity | ].
+  cbn [gtokens_args]. rewrite (bd_app_pass _ _ _ _ (Forall_inv Hf)).
+  apply gtokens_args_tl_bd. exact (Forall_inv_tail Hf).
+Qed.
+Lemma gtokens_pairs_tl_bd : forall r,
+  Forall (fun p => bd (gtokens 0 (fst p)) 0 = Some 0 /\ bd (gtokens 0 (snd p)) 0 = Some 0) r ->
+  bd (gtokens_pairs_tl r) 0 = Some 0.
+Proof.
+  induction r as [ | p m IH ]; intro Hf; [ reflexivity | ].
+  destruct p as [k v]. pose proof (Forall_inv Hf) as Hp. destruct Hp as [Hk Hv]; cbn in Hk, Hv.
+  cbn [gtokens_pairs_tl bd]. rewrite (bd_app_pass _ _ _ _ Hk). cbn [bd].
+  rewrite (bd_app_pass _ _ _ _ Hv). apply IH. exact (Forall_inv_tail Hf).
+Qed.
+Lemma gtokens_pairs_bd : forall kvs,
+  Forall (fun p => bd (gtokens 0 (fst p)) 0 = Some 0 /\ bd (gtokens 0 (snd p)) 0 = Some 0) kvs ->
+  bd (gtokens_pairs kvs) 0 = Some 0.
+Proof.
+  intros [ | p r ] Hf; [ reflexivity | ].
+  destruct p as [k v]. pose proof (Forall_inv Hf) as Hp. destruct Hp as [Hk Hv]; cbn in Hk, Hv.
+  cbn [gtokens_pairs bd]. rewrite (bd_app_pass _ _ _ _ Hk). cbn [bd].
+  rewrite (bd_app_pass _ _ _ _ Hv). apply gtokens_pairs_tl_bd. exact (Forall_inv_tail Hf).
+Qed.
+(** the [bd] (all-kinds) balance of a TYPE token list — types carry only square brackets, but
+    [gtokens_balanced] scans with [bd], so it needs this [bd]-form (not Phase 3a's [sqd] one). *)
+Lemma gttokens_ty_bd : forall t, bd (gttokens_ty t) 0 = Some 0.
+Proof.
+  induction t as [ | | | | | | | | | | | | | | u IHu | u IHu | u IHu | k IHk v IHv | n ];
+    cbn [gttokens_ty]; try reflexivity.
+  - (* GTPtr *) cbn [bd]. exact IHu.
+  - (* GTSlice *) cbn [bd]. exact IHu.
+  - (* GTChan *) cbn [bd]. exact IHu.
+  - (* GTMap *) cbn [bd]. rewrite (bd_app_pass _ _ _ _ (bd_up _ _ _ IHk)). cbn [bd]. exact IHv.
+Qed.
+(** ★ every canonical expression token list is uniformly balanced *)
+Lemma gtokens_balanced : forall e ctx, bd (gtokens ctx e) 0 = Some 0.
+Proof.
+  induction e using GExpr_ind'; intro ctx.
+  - (* EId *) reflexivity.
+  - (* EInt *) reflexivity.
+  - (* EUn *) rewrite gtokens_EUn, bd_prefix_token.
+    destruct (unop_paren o e); [ | exact (IHe 0) ].
+    cbn [bd]. rewrite (bd_app_pass _ _ _ _ (bd_up _ _ _ (IHe 0))). reflexivity.
+  - (* EBn *) cbn [gtokens].
+    assert (Hin : bd (gtokens (binop_prec o) e1 ++ op_token o :: gtokens (S (binop_prec o)) e2) 0 = Some 0)
+      by (rewrite (bd_app_pass _ _ _ _ (IHe1 (binop_prec o))), bd_op_token; exact (IHe2 (S (binop_prec o)))).
+    destruct (Nat.ltb (binop_prec o) ctx); [ | exact Hin ].
+    cbn [bd]. rewrite (bd_app_pass _ _ _ _ (bd_up _ _ _ Hin)). reflexivity.
+  - (* ESel *)
+    replace (gtokens ctx (ESel e f)) with (gtparen e ++ TDot :: TId f :: nil)%list by reflexivity.
+    rewrite (bd_app_pass _ _ _ _ (bd_gtparen e (IHe 0))). reflexivity.
+  - (* EIndex *) rewrite gtokens_EIndex, (bd_app_pass _ _ _ _ (bd_gtparen e1 (IHe1 0))).
+    cbn [bd]. rewrite (bd_app_pass _ _ _ _ (bd_up _ _ _ (IHe2 0))). reflexivity.
+  - (* ESlice *) rewrite gtokens_ESlice, (bd_app_pass _ _ _ _ (bd_gtparen e1 (IHe1 0))).
+    cbn [bd]. rewrite (bd_app_pass _ _ _ _ (bd_up _ _ _ (IHe2 0))). cbn [bd].
+    rewrite (bd_app_pass _ _ _ _ (bd_up _ _ _ (IHe3 0))). reflexivity.
+  - (* ECall *) rewrite gtokens_ECall, (bd_app_pass _ _ _ _ (bd_gtparen e (IHe 0))).
+    cbn [bd].
+    assert (Ha : bd (gtokens_args args) 0 = Some 0)
+      by (apply gtokens_args_bd; eapply Forall_impl; [ | exact H ]; cbn; intros a Ha; exact (Ha 0)).
+    rewrite (bd_app_pass _ _ _ _ (bd_up _ _ _ Ha)). reflexivity.
+  - (* EAssert *) rewrite gtokens_EAssert, (bd_app_pass _ _ _ _ (bd_gtparen e (IHe 0))).
+    cbn [bd]. rewrite (bd_app_pass _ _ _ _ (bd_up _ _ _ (gttokens_ty_bd T))). reflexivity.
+  - (* EConv *) rewrite gtokens_EConv, (bd_app_pass _ _ _ _ (gttokens_ty_bd (convty_ty c))).
+    cbn [bd]. rewrite (bd_app_pass _ _ _ _ (bd_up _ _ _ (IHe 0))). reflexivity.
+  - (* ESliceLit *) rewrite gtokens_ESliceLit. cbn [bd].
+    rewrite (bd_app_pass _ _ _ _ (gttokens_ty_bd t)). cbn [bd].
+    assert (Ha : bd (gtokens_args es) 0 = Some 0)
+      by (apply gtokens_args_bd; eapply Forall_impl; [ | exact H ]; cbn; intros a Ha; exact (Ha 0)).
+    rewrite (bd_app_pass _ _ _ _ (bd_up _ _ _ Ha)). reflexivity.
+  - (* EMapLit *) rewrite gtokens_EMapLit.
+    rewrite (bd_app_pass _ _ _ _ (gttokens_ty_bd (GTMap kt vt))).
+    cbn [bd].
+    assert (Hp : bd (gtokens_pairs kvs) 0 = Some 0)
+      by (apply gtokens_pairs_bd; eapply Forall_impl; [ | exact H ]; cbn;
+          intros p Hp; split; [ exact (proj1 Hp 0) | exact (proj2 Hp 0) ]).
+    rewrite (bd_app_pass _ _ _ _ (bd_up _ _ _ Hp)). reflexivity.
+  - (* EStr *) reflexivity.
+  - (* EHex *) reflexivity.
+Qed.
 (** LEXICAL FAITHFULNESS through the grammar: printing then lexing yields EXACTLY a
     canonical derivation's tokens — the composed [lex_gprint_expr] shape CLAUDE.md names. *)
 Theorem lex_gprint_expr : forall ctx e,
@@ -6564,6 +6700,7 @@ Print Assumptions canon_expr_tokens.
 Print Assumptions lex_gprint_expr.
 Print Assumptions canon_ty_unique.
 Print Assumptions gttokens_ty_inj.
+Print Assumptions gtokens_balanced.
 
 (** Extract the Rocq printers to the OCaml the plugin calls. *)
 Require Import Extraction.
