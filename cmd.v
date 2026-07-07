@@ -30,8 +30,9 @@ From Stdlib Require Import List Lia.
 Import ListNotations.
 
 (** The program syntax.  [COut] = a [print]/[println] of [xs] THEN the continuation; [CPan] = panic
-    (no continuation — it short-circuits); [CDfr] = defer; [CWrite]/[CRead]/[CAlloc] = the typed heap trio.
-    Channel effect nodes and [catch] follow in later slices. *)
+    (no continuation — it short-circuits); [CDfr] = defer; [CWrite]/[CRead]/[CAlloc] = the typed heap trio;
+    [CChSend]/[CChRecv]/[CChClose] = the channel trio (single-goroutine deterministic fragment).
+    [catch] and spawn/select follow in later slices. *)
 Inductive Cmd (A : Type) : Type :=
   | CRet : A -> Cmd A
   | COut : bool -> list GoAny -> Cmd A -> Cmd A

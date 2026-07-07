@@ -47,8 +47,8 @@ Import ListNotations.
     spawn/select agreement remains (plans/bridge-effects.md).  Locations/channels stay [nat]; [UOut] carries the rich [GoAny]
     payload at EVERY instantiation since output is observed, not raced.  There is NO global
     closed-recv zero: [URecv]/[USelect] carry the zero PER SITE (Go's zero is per element
-    type — the [rstep] embedding supplies [0] at [nat]; the cmd bridge WILL supply the typed
-    [zero_val] through the channel's own tag when its channel slice lands), so the old
+    type — the [rstep] embedding supplies [0] at [nat]; the cmd bridge supplies the typed
+    [zero_val] through the channel's own tag via [cmd_to_ucmd]), so the old
     universally-quantified [vzero]
     calculus parameter is GONE — nothing left to quantify.  The heap defaults stay
     unconsulted because the bridge's mirrored-allocated start +

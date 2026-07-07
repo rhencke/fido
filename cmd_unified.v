@@ -1,14 +1,17 @@
 (** cmd_unified.v — the FIRST bridge between Fido's two proof-only semantics universes.
 
     GoSem denotes the supported AST into [cmd.v]'s command tree [Cmd unit] (CRet / COut / CPan / CDfr,
-    plus the heap TRIO CWrite / CRead / CAlloc — typed cells, ABSENT on unallocated access,
-    DETERMINISTIC allocation at exactly [w_next]).
+    the heap TRIO CWrite / CRead / CAlloc — typed cells, ABSENT on unallocated access,
+    DETERMINISTIC allocation at exactly [w_next] — and the CHANNEL trio CChSend / CChRecv /
+    CChClose, the recv sites carrying their element tags).
     [unified.v] is the closed-world OPERATIONAL semantics ([UCmd] / [ustep]) on which race-freedom and
     liveness/deadlock are proved.  The charter (ARCHITECTURE.md) requires GoSem to BRIDGE that existing
     semantics, NOT fork a second universe.  The structural fact that makes the bridge concrete: [cmd.v]'s
     constructors map 1-for-1 into [unified.v]'s fragment —
         CRet -> URet,  COut b xs -> UOut b xs,  CPan v -> UPan v,  CDfr d -> UDfr d,
-        CWrite l v -> UWrite l v,  CRead l f -> URead l f,  CAlloc v f -> UAlloc v f.
+        CWrite l v -> UWrite l v,  CRead l f -> URead l f,  CAlloc v f -> UAlloc v f,
+        CChSend c v -> USend c v,  CChRecv c tg f -> URecv c (anyt tg (zero_val tg)) f,
+        CChClose c -> UClose c.
     So [cmd_to_ucmd] is a TOTAL translation of cmd.v's [Cmd unit] command tree into a subset of [UCmd].  The
     print/println flag on [COut] is PRESERVED ([unified.v]'s [UOut]/[uc_out] carry it, exactly the model's
     [w_output : list (bool * list GoAny)]).
@@ -45,7 +48,8 @@ From Stdlib Require Import List Lia.
 Import ListNotations.
 
 (** PUBLIC.  The total structural translation: cmd.v command tree -> [UCmd]'s
-    output/panic/return/defer + heap fragment, [COut]'s println flag PRESERVED into [UOut]'s flag. *)
+    output/panic/return/defer + heap + channel fragment (no spawn/select), [COut]'s println
+    flag PRESERVED into [UOut]'s flag and every [URecv] zero the TYPED [zero_val]. *)
 (** The bridge instantiates the value-parametric calculus at [V := GoAny]: the fragment's
     payloads ([UOut]/[UPan] values) are the model's own [GoAny], no erasure. *)
 Notation UCmdG := (@UCmd GoAny).
@@ -795,9 +799,10 @@ Qed.
 Local Lemma ucap_of_world_agrees : forall w, ucap_agree (ucap_of_world w) (w_chans w).
 Proof. intros w c. reflexivity. Qed.
 
-(** ★ The GENERAL heap bridge (PUBLIC + GATED): for ANY [c] — heap reads/writes/ALLOCATIONS, arbitrary
-    defer nesting, any panics — whose [run_cmd] COMPLETES, the [usteps] run from the
-    [ustart_w w] config (heap = [w]'s allocated cells, boxed) AGREES end to end, INCLUDING
+(** ★ The GENERAL bridge (PUBLIC + GATED): for ANY [c] — heap reads/writes/ALLOCATIONS, the
+    CHANNEL trio, arbitrary defer nesting, any panics — whose [run_cmd] COMPLETES (given the
+    [chans_open] start), the [usteps] run at [ucap_of_world w] from the [ustart_w w] config
+    (heap + buffers mirrored, boxed) AGREES end to end, INCLUDING
     the final heaps ([heap_agrees] against the result world's allocated cells).  Assembly:
     [body_runs_sem] (Phase A, semantic) + [unwind_heap] (the deferred-heap unwind, by
     induction on the [unwind_defers] derivation obtained from [run_cmd_eval]) + the 2-mode
