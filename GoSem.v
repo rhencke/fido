@@ -880,7 +880,7 @@ Example denotable_body_escapes_stmt_denotable :
        GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [runeconv_mb])] = false.
 Proof. split; vm_compute; reflexivity. Qed.
 
-(** ---- EXECUTABLE TOTALITY on the [no_heap] fragment (every denoted command today): cmd.v's gated [run_cmd_terminates] (structural totality, no bound) proves each such
+(** ---- EXECUTABLE TOTALITY on the [structurally_total_cmd] fragment (every denoted command today): cmd.v's gated [run_cmd_terminates] (structural totality, no bound) proves each such
     [Cmd unit] — defers included — runs to [Some] Outcome, so a denoted program always RUNS;
     GoSem needs no denotation-side totality layer.  Concrete end-to-end runs (with their EXACT output worlds,
     incl. the defer LIFO order and a deferred panic) are pinned by the typed [GoSemRequiredCategoryCoverage]

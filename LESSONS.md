@@ -97,17 +97,17 @@ note).  Its SEMANTIC-FUEL priority was executed (the fueled CFG runner, the
 invalid-label default, the lexer, and the gates) and its relation sketches are
 SUPERSEDED by the landed definitions in `GoCFG.v` (`blocks_step` as the one
 transition authority, consumed by `be_jump`/`bd_jump`).  The directive's
-REMAINING items (expression-parser fuel, extraction cleanup, word sweep) are
-ACTIVE and tracked in `plans/fuel-free.md` — the only active steering document;
-nothing in this section steers current work.
+REMAINING items (expression-parser fuel, extraction cleanup, word sweep) are all
+LANDED; the fuel purge is COMPLETE and enforced mechanically by `plugin/fuel-gate.sh`
+(EMPTY manifest — the code-level authority). Nothing in this section steers current work.
 
 ```text
 [REPO NOTE — added when versioning this memo; body below is the boss's VERBATIM text.
 STATUS 2026-07-05: the memo's CURRENT PRIORITY sections are FULFILLED — semantic fuel
 (run_blocks_fuel/block_fuel/block_nth) is DELETED (7e5f754), blocks_eval/blocks_diverge
 are the authority, the lexer is WF, and the fuel gate is live in make check and the
-Docker prover stage.  This memo no longer steers current work: the one current
-authority is plans/fuel-free.md.  The memo's blocks_eval/blocks_diverge SKETCH below is
+Docker prover stage.  This memo no longer steers current work: the mechanical fuel
+authority is plugin/fuel-gate.sh.  The memo's blocks_eval/blocks_diverge SKETCH below is
 superseded by the landed shape: be_jump/bd_jump consume the single blocks_step transition
 relation rather than restating its premises.
 The MECHANICAL gate derived from it is plugin/fuel-gate.sh (its class definitions are the spec):

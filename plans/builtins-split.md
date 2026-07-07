@@ -77,4 +77,6 @@ genuinely extended (never pretended), no doc contradicting the layout.
 
 ## Deferred behind the split
 
-The `run_cblocks` emitter connection (spec in plans/fuel-free.md).
+The `run_cblocks` emitter connection — LANDED (the `CBlock` class in `GoCFG.v`, the
+`run_cblocks` hook in `GoExtractionHooks.v`, the plugin arm + negtests; `cond_goto_demo`
+migrated). Nothing here is deferred any longer.

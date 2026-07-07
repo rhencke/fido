@@ -54,7 +54,7 @@ plugin CONSTRUCTS the `GExpr`; only `gprint` is verified. NOT "verified Go."
   GoEffects/GoPanic → GoSlice/GoMap/GoChan/GoHeap → GoSession/GoString/GoSwitch/GoComplex;
   plans/builtins-split.md — `builtins.v` is DELETED), `cmd.v`, `unified.v`
   (race-freedom/liveness proved on `ustep`), `concurrency.v`.
-- **cmd↔unified bridge** (`cmd_unified.v`): ONE bridge, `bridge_heap_agrees` — any completing
+- **cmd↔unified bridge** (`cmd_unified.v`): ONE bridge, `bridge_effects_agree` — any completing
   command (typed heap cells, ALLOCATION, the CHANNEL trio send/recv/close with per-site TYPED
   closed-recv zeros, arbitrary defer nesting, any panics) agrees with `run_cmd` end to end
   incl. final heaps/buffers/closedness, capacities pinned to the world's; the typed-zero
@@ -81,10 +81,15 @@ plugin CONSTRUCTS the `GExpr`; only `gprint` is verified. NOT "verified Go."
 
 ## NEXT
 
-- Continue the cmd↔unified bridge (`plans/bridge-effects.md`): `CAlloc` AND the channel
-  slice LANDED (typed zeros through the channel's own tag, gated obligations); next spawn
-  (design deferred until reached) — or return to the canonical relational syntax authority
-  per the checkpoint-49 review's recommended order.
+- **The canonical relational syntax authority is the ACTIVE arc** (`plans/canonical-grammar.md`;
+  checkpoint-50 order: syntax authority before spawn). Phases 1+2 landed (`CanonTy`/`CanonExpr`
+  + `gprint_expr_canonical` + `lex_gprint_expr`); Phase 3a landed (`canon_ty_unique`, type-level
+  token uniqueness, PARSER-FREE via `gttokens_ty_inj`). NEXT: `canon_expr_unique` parser-free,
+  then reprove `gprint_inj` off `parse_print_roundtrip`, then `CanonStmt`/`CanonProgram`.
+- The cmd↔unified bridge (`plans/bridge-effects.md`): `CAlloc` AND the channel slice LANDED
+  (typed zeros through the channel's own tag, gated obligations; `bridge_effects_agree` now
+  exposes capacity agreement publicly). Spawn/select is the deferred capstone (design deferred
+  until reached) — it waits behind the syntax authority.
 - Grow behavioral safety toward `BehaviorSafe` → `SafeProgram` → `emit_safe` — locals arc OPEN
   (`plans/gosem-locals.md`; next: the env statement layer); wire the certified path to the main
   output; widen the live GoPrint bridge — gate-honestly.

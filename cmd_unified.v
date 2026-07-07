@@ -16,13 +16,13 @@
     print/println flag on [COut] is PRESERVED ([unified.v]'s [UOut]/[uc_out] carry it, exactly the model's
     [w_output : list (bool * list GoAny)]).
 
-    The module exposes ONE single-goroutine [usteps] AGREEMENT bridge, [bridge_heap_agrees]:
+    The module exposes ONE single-goroutine [usteps] AGREEMENT bridge, [bridge_effects_agree]:
     ANY [c] — heap reads/writes/ALLOCATIONS, the CHANNEL trio (send/recv/close), arbitrary
     defer nesting, any panics — whose [run_cmd] COMPLETES agrees end to end INCLUDING the
     final heaps, BUFFERS ([bufs_agree], boxed through each cell's own tag), CLOSEDNESS
     ([closed_agree] — a trace property, hence the [chans_open] start premise), the allocator
     pointer, and capacities pinned to the world's ([ucap_of_world]) — from the [ustart_w]
-    mirrored start (the completion premise is the well-formedness gate; for [no_heap]
+    mirrored start (the completion premise is the well-formedness gate; for [structurally_total_cmd]
     commands completion is a THEOREM — cmd.v's [run_cmd_terminates] — so consumers compose
     the two).  Plus cmd.v-side properties for a COMPLETING [run_cmd] on ANY [c]: output only
     APPENDS, and a panic-free completing run returns [ORet].
@@ -109,7 +109,7 @@ Qed.
     PER SITE).  It is an ARBITRARY [GoAny], NOT a Go zero value, and every public statement
     below that MENTIONS the unified [GoAny] configuration ([ustart_w]) UNIVERSALLY
     QUANTIFIES it (section generalization; the pure [run_cmd]-side theorems in this section
-    never involve it).  The license: [bridge_heap_agrees] starts from the [ustart_w] heap
+    never involve it).  The license: [bridge_effects_agree] starts from the [ustart_w] heap
     that MIRRORS the World's allocated cells and the [go]-completion premise keeps the run
     inside allocated memory — so the [vz] heap defaults are never consulted. *)
 Section BridgeVal.
@@ -703,7 +703,7 @@ Qed.
     never RETRACTS — Go's deferred actions and panics cannot un-print already-printed output.
     Structural on the tree — the [CDfr] case composes the continuation's delta with the deferred
     scope's (whose final world is the result's world in BOTH combine arms).  A standalone
-    cmd.v-side property; the bridge [bridge_heap_agrees] establishes its output agreement
+    cmd.v-side property; the bridge [bridge_effects_agree] establishes its output agreement
     independently, so this theorem is a sibling, not a dependency, of the bridge. *)
 Theorem run_cmd_out_monotone : forall (c : Cmd unit) w oc,
   run_cmd c w = Some oc ->
@@ -811,7 +811,7 @@ Proof. intros w c. reflexivity. Qed.
     induction on the [unwind_defers] derivation obtained from [run_cmd_eval]) + the 2-mode
     final done.  The completion premise is the well-formedness gate (an unallocated access
     never completes — [cread_unallocated_absent] below). *)
-Theorem bridge_heap_agrees : forall (c : Cmd unit) w oc,
+Theorem bridge_effects_agree : forall (c : Cmd unit) w oc,
   run_cmd c w = Some oc ->
   chans_open w ->
   exists uc : UConfig,
@@ -821,8 +821,9 @@ Theorem bridge_heap_agrees : forall (c : Cmd unit) w oc,
     /\ w_output (oc_world oc) = w_output w ++ map snd (uc_out uc)
     /\ heap_agrees (uc_heap uc) (w_refs (oc_world oc))
     /\ bufs_agree (uc_bufs uc) (w_chans (oc_world oc))       (* the channel agreements, *)
-    /\ closed_agree (uc_trace uc) (w_chans (oc_world oc))    (* end to end *)
-    /\ uc_next uc = w_next (oc_world oc).   (* the allocator agreement, end to end *)
+    /\ closed_agree (uc_trace uc) (w_chans (oc_world oc))    (* end to end, *)
+    /\ ucap_agree (ucap_of_world w) (w_chans (oc_world oc))  (* capacities pinned to the world's, *)
+    /\ uc_next uc = w_next (oc_world oc).   (* and the allocator agreement, end to end *)
 Proof.
   intros c w oc H Hopen.
   set (ucap := ucap_of_world w).
@@ -875,7 +876,7 @@ Proof.
   - exists (mkUCfg pB bB hB (upd (fun t => Nat.eqb t 0) 0 false) trB
                    ((nil ++ map (fun e => (0, e)) evs0) ++ map (fun e => (0, e)) evs1) dfB paB
                    (w_next (oc_world result))).
-    split; [ | split; [ apply upd_same | split; [ | split; [ | split; [ | split; [ | split ] ] ] ] ] ].
+    split; [ | split; [ apply upd_same | split; [ | split; [ | split; [ | split; [ | split; [ | split ] ] ] ] ] ] ].
     + unfold ustart_w. eapply usteps_trans; [ exact HusA | ].
       eapply usteps_trans; [ exact HusB | ].
       eapply usteps_step;
@@ -888,11 +889,12 @@ Proof.
     + cbn [uc_heap]. rewrite Hocw. exact HhaB.
     + cbn [uc_bufs]. rewrite Hocw. exact HbaB.
     + cbn [uc_trace]. rewrite Hocw. exact HcaB.
+    + rewrite Hocw. exact HuaB.
     + cbn [uc_next]. rewrite Hocw. reflexivity.
   - exists (mkUCfg pB bB hB (upd (fun t => Nat.eqb t 0) 0 false) trB
                    ((nil ++ map (fun e => (0, e)) evs0) ++ map (fun e => (0, e)) evs1) dfB
                    (upd paB 0 (Some v)) (w_next (oc_world result))).
-    split; [ | split; [ apply upd_same | split; [ | split; [ | split; [ | split; [ | split ] ] ] ] ] ].
+    split; [ | split; [ apply upd_same | split; [ | split; [ | split; [ | split; [ | split; [ | split ] ] ] ] ] ] ].
     + unfold ustart_w. eapply usteps_trans; [ exact HusA | ].
       eapply usteps_trans; [ exact HusB | ].
       eapply usteps_step;
@@ -905,12 +907,13 @@ Proof.
     + cbn [uc_heap]. rewrite Hocw. exact HhaB.
     + cbn [uc_bufs]. rewrite Hocw. exact HbaB.
     + cbn [uc_trace]. rewrite Hocw. exact HcaB.
+    + rewrite Hocw. exact HuaB.
     + cbn [uc_next]. rewrite Hocw. reflexivity.
 Qed.
 
 (** The NEGATIVE witness for the quarantine: an unallocated read has NO completing run at
     all — so no unconditional (premise-free) bridge over heap commands can exist; the agreement
-    for heap programs must carry allocation/completion premises, as [bridge_heap_agrees]'s
+    for heap programs must carry allocation/completion premises, as [bridge_effects_agree]'s
     [run_cmd]-completion premise does. *)
 Example cread_unallocated_absent : forall w,
   w_refs w 0 = None ->
@@ -925,7 +928,7 @@ End BridgeVal.
     exactly: the audit covers what the four bundled theorems consume — the [go]-grounded
     derivation plumbing feeds the [run_cmd_*] properties, and the semantic Phase A +
     unwind machinery ([body_runs_sem] / [unwind_heap]
-    / [pop_defer_step]) is CONSUMED by [bridge_heap_agrees].  The one always-dead-by-convention
+    / [pop_defer_step]) is CONSUMED by [bridge_effects_agree].  The one always-dead-by-convention
     artifact shape — a LOCAL [Example], vernacular or #[local] attribute spelling (an Example
     nothing consumes — compiled but outside every printed cone) — is mechanically rejected
     repo-wide by smart-ctor-gate.sh check 6 (token-aware; exact boundary documented at the
@@ -1046,7 +1049,7 @@ Theorem cmd_to_ucmd_recv_zero : forall ch T (tgt : GoTypeTag T) (f : GoAny -> Cm
 Proof. reflexivity. Qed.
 
 Definition cmd_unified_surface :=
-  (cmd_to_ucmd_fragment, bridge_heap_agrees, run_cmd_out_monotone, run_cmd_no_panic_ret,
+  (cmd_to_ucmd_fragment, bridge_effects_agree, run_cmd_out_monotone, run_cmd_no_panic_ret,
    calloc_loc_nonzero, calloc_no_clobber, alloc_world_valid,
    @cchrecv_closed_typed_zero, cchrecv_closed_zero_i64, cchrecv_closed_zero_string,
    cchsend_closed_panics, cchclose_closed_panics,

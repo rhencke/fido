@@ -81,14 +81,14 @@ Qed.
 
 (** The DENOTATIONAL behavioral-safety result: a program whose denotation is [CPan]-free runs to [ORet] —
     never [OPanic] (defers included: a deferred [println] runs at return and cannot panic).
-    Composes cmd.v's [run_cmd_terminates] — which holds on the [no_heap] fragment, entailed here by
-    [cmd_no_panic_no_heap] — with [run_cmd_no_panic_ret] (a completing panic-free run returns [ORet]). *)
+    Composes cmd.v's [run_cmd_terminates] — which holds on the [structurally_total_cmd] fragment, entailed here by
+    [cmd_no_panic_structurally_total] — with [run_cmd_no_panic_ret] (a completing panic-free run returns [ORet]). *)
 Theorem panic_free_runs_ret : forall (c : Cmd unit) w,
   cmd_no_panic c = true ->
   exists w', run_cmd c w = Some (ORet tt w').
 Proof.
   intros c w Hnp.
-  destruct (run_cmd_terminates c w (cmd_no_panic_no_heap c Hnp)) as [oc Hrun].
+  destruct (run_cmd_terminates c w (cmd_no_panic_structurally_total c Hnp)) as [oc Hrun].
   destruct (run_cmd_no_panic_ret c w oc Hrun Hnp) as [w' ->].
   exists w'. exact Hrun.
 Qed.
@@ -138,7 +138,7 @@ Proof.
 Qed.
 
 (** ★ The panic-freedom guarantee reaches the OPERATIONAL semantics.  Composing the GENERAL cmd↔unified bridge
-    [cmd_unified.bridge_heap_agrees] (any COMPLETING command — [cmd_no_panic] entails [no_heap], whose completion is [run_cmd_terminates] — the [ustep] run AGREES with the
+    [cmd_unified.bridge_effects_agree] (any COMPLETING command — [cmd_no_panic] entails [structurally_total_cmd], whose completion is [run_cmd_terminates] — the [ustep] run AGREES with the
     deterministic [run_cmd]) with [run_cmd_no_panic_ret]: a [CPan]-free command runs under [ustep] — the
     calculus [unified.v]'s race-freedom / liveness are proved on — to COMPLETION ([uc_live 0 = false]) with NO
     panic ([uc_panic 0 = None]), its output equal to the [run_cmd] [ORet] run's.  cmd.v's [run_cmd] STAYS the
@@ -155,10 +155,10 @@ Theorem panic_free_runs_ret_ustep : forall (vz : GoAny) (c : Cmd unit) w,
     /\ w_output w' = w_output w ++ map snd (uc_out uc).
 Proof.
   intros vz c w Hnp Hopen.
-  destruct (run_cmd_terminates c w (cmd_no_panic_no_heap c Hnp)) as [oc Hrun].
+  destruct (run_cmd_terminates c w (cmd_no_panic_structurally_total c Hnp)) as [oc Hrun].
   destruct (run_cmd_no_panic_ret c w oc Hrun Hnp) as [w' ->].
-  destruct (bridge_heap_agrees vz c w (ORet tt w') Hrun Hopen)
-    as [uc [Hus [Hlive [Hpan [Hout [_ [_ [_ _]]]]]]]].
+  destruct (bridge_effects_agree vz c w (ORet tt w') Hrun Hopen)
+    as [uc [Hus [Hlive [Hpan [Hout [_ [_ [_ [_ _]]]]]]]]].
   exists uc, w'. split; [ exact Hrun | split; [ exact Hus | split; [ exact Hlive | split ] ] ].
   - rewrite Hpan. reflexivity.
   - cbn [oc_world] in Hout. exact Hout.

@@ -600,7 +600,7 @@ keep them separate:
 - **(R2) cmd.v `CDfr` — the FAITHFUL model:** `cmd.v` models `defer` as `CDfr d k`;
   `run_cmd` (the SOLE `Cmd` interpreter — total, structural, no step bound) unwinds the LIFO defers at
   func-scope return — a panicking defer REPLACES the active panic (last-raised-wins) but the older defers STILL run,
-  every defer's effects happen.  `bridge_heap_agrees` proves the `ustep` run AGREES with this for ANY completing command (heap ops, allocation, the channel trio, and defers included — final heaps, buffers, and closedness agreeing under the `chans_open` start; `no_heap` completion is a theorem).
+  every defer's effects happen.  `bridge_effects_agree` proves the `ustep` run AGREES with this for ANY completing command (heap ops, allocation, the channel trio, and defers included — final heaps, buffers, and closedness agreeing under the `chans_open` start; `structurally_total_cmd` completion is a theorem).
 - **(R3) GoAst `GsDefer` — STRUCTURED syntax (✓ emittable, ✓ DENOTED):** `defer <call>` is a real AST
   statement, print-injective (`print_stmt_inj`), syntactically SUPPORTED + certificate-emittable (gated to a
   call via `expr_stmt_ok`), and GoSem DENOTES it into R2's faithful model (`denote_stmt GsDefer = CDfr d (CRet

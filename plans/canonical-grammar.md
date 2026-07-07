@@ -27,7 +27,11 @@ relation).
 the 5-way mutual CanonExpr/CanonArgs/CanonArgsTl/CanonPairs/CanonPairsTl with SPLIT paren
 productions; the Minimality/Combined schemes; canon_ty_tokens + canon_expr_tokens (token-
 functionality) + gttokens_ty_canonical + gprint_expr_canonical + lex_gprint_expr, all in
-the printer gate.  NEXT = Phase 3, canon_expr_unique (parser-free).
+the printer gate.  Phase 3a LANDED (9759804) — canon_ty_unique (type-level token uniqueness)
+PARSER-FREE: canon_ty_tokens functionality + gttokens_ty_inj (leading-token discrimination,
+the nominal_type_ident keyword-exclusion killing GTNamed collisions, UIP-on-bool for TyName
+sig equality, and the sqd/firstdip/balanced_rb_split bracket-balance toolkit splitting TMap's
+children).  NEXT = Phase 3b/3c, canon_expr_unique (parser-free) at the expression layer.
 
 ## Phases (each: green, golden byte-identical, gated, reviewed)
 

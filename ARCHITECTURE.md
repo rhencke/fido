@@ -54,7 +54,12 @@ construct gets a constructor; else it is unrepresentable or rejected by the buil
 **`GoPrint.v` — printing + syntax faithfulness (imports `GoAst`).** The intended syntax
 AUTHORITY is the relational/canonical grammar layer (`CanonExpr`-shaped relations +
 `gprint_*_canonical` + `canon_*_unique` + lexical faithfulness — CLAUDE.md "Syntax
-authority"); it does not exist yet. Today's gated facts, never conflated: **expressions**
+authority"). It now EXISTS for **types and expressions**: `CanonTy`/`CanonExpr` relations,
+`gprint_expr_canonical` (the printer inhabits the grammar), `lex_gprint_expr` (lexical
+faithfulness), and `canon_ty_unique` (type-level token uniqueness, proved PARSER-FREE via
+`gttokens_ty_inj`). Still OPEN and NOT yet the authority: expression-level `canon_expr_unique`,
+and the whole statement/program canonical layer (`CanonStmt`/`CanonProgram` + canonicity /
+uniqueness / lex). So today's still-parser-derived facts, never conflated: **expressions**
 carry a parse round-trip `parse_str (gprint 0 e) = Some (e, [])` (+ `gprint_inj`) over an
 executable lexer + parser — DERIVED TOOLING evidence of Rocq-grammar self-consistency,
 NOT Go-compiler acceptance and not the endpoint authority; **programs/statements** carry

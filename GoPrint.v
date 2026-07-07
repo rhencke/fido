@@ -20,8 +20,14 @@
 
     ⚠️ HONEST SCOPE — these are ROCQ-GRAMMAR self-consistency results, and the executable parser is
     DERIVED TOOLING (CLAUDE.md "Syntax authority"): the intended authority is the relational/canonical
-    grammar layer (CanonExpr + gprint_canonical + canon_unique — not yet built), against which this
-    parser must eventually be proved sound/complete.  Nothing here is Go-compiler acceptance.  There is NO theorem that Go's compiler reads the
+    grammar layer.  That layer now EXISTS for TYPES and EXPRESSIONS — [CanonTy]/[CanonExpr] relations,
+    [gprint_expr_canonical] (the printer inhabits the grammar), [lex_gprint_expr] (lexical faithfulness),
+    and [canon_ty_unique] (type-level token uniqueness, proved PARSER-FREE via [gttokens_ty_inj]).  Still
+    OPEN: expression-level uniqueness [canon_expr_unique], and the statement/program canonical layers
+    ([CanonStmt]/[CanonProgram] + their canonicity/uniqueness/lex).  Until those land, [print_stmt_inj] /
+    [print_program_inj] remain STRING-injectivity and [gprint_inj] is still parser-round-trip-based — so
+    the parser has NOT yet been demoted below the grammar at the expression-uniqueness/statement layers.
+    Nothing here is Go-compiler acceptance.  There is NO theorem that Go's compiler reads the
     emitted text as the same AST (that Go-subset RECOGNITION theorem — emitted grammar ⊆ Go grammar — is
     gap #10), and the plugin → emitted-bytes path also has a trusted [gofmt] post-step (see the Makefile).
     This file proves NO behavioral safety. *)

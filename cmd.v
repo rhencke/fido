@@ -616,7 +616,7 @@ Qed.
 (** [no_defer c] — [c] registers no [CDfr]: a straight-line output/panic/return command.  A pure [Cmd]
     predicate, so it lives here (cmd.v); consumed by GoSemSafe's defer-free exact-output panic lemmas
     ([run_cmd_panics_world]).  The ustep bridge is SEPARATE:
-    [cmd_unified.bridge_heap_agrees] covers every COMPLETING [c] (heap, allocation, the
+    [cmd_unified.bridge_effects_agree] covers every COMPLETING [c] (heap, allocation, the
     channel trio — buffers/closedness included — defers, panics). *)
 Fixpoint no_defer (c : Cmd unit) : bool :=
   match c with
@@ -641,25 +641,25 @@ Fixpoint cmd_no_panic (c : Cmd unit) : bool :=
        heap programs leave this gate until a finer, allocation-aware analysis exists *)
   end.
 
-(** [no_heap c] — [c] contains NO heap node ([CWrite]/[CRead]/[CAlloc]) and NO channel node
+(** [structurally_total_cmd c] — [c] contains NO heap node ([CWrite]/[CRead]/[CAlloc]) and NO channel node
     ([CChSend]/[CChRecv]/[CChClose]) anywhere, body or deferred.  The decidable
     fragment on which the totality theorem below holds: a heap access can be ABSENT ([run_cmd] = [None])
     and a channel op can be absent too (would-block / absent cell / tag mismatch),
     so unconditional completion is FALSE outside this fragment — completion there is a
     per-program premise, never a theorem.  [cmd_no_panic] is a strict subset (its heap arms are [false] too),
-    so panic-free consumers inherit [no_heap] for free ([cmd_no_panic_no_heap] below). *)
-Fixpoint no_heap (c : Cmd unit) : bool :=
+    so panic-free consumers inherit [structurally_total_cmd] for free ([cmd_no_panic_structurally_total] below). *)
+Fixpoint structurally_total_cmd (c : Cmd unit) : bool :=
   match c with
-  | CRet _ => true | COut _ _ c' => no_heap c'
-  | CPan _ => true | CDfr d c' => no_heap d && no_heap c'
+  | CRet _ => true | COut _ _ c' => structurally_total_cmd c'
+  | CPan _ => true | CDfr d c' => structurally_total_cmd d && structurally_total_cmd c'
   | CWrite _ _ _ => false | CRead _ _ => false | CAlloc _ _ => false
   | CChSend _ _ _ => false | CChRecv _ _ _ => false | CChClose _ _ => false
   end.
-Lemma cmd_no_panic_no_heap : forall c, cmd_no_panic c = true -> no_heap c = true.
+Lemma cmd_no_panic_structurally_total : forall c, cmd_no_panic c = true -> structurally_total_cmd c = true.
 Proof.
   (* [Cmd_rect'] gives no hypothesis for the DEFERRED body, so recurse structurally
      (both [d] and [c'] are direct subterms — the same shape as [cmd_to_ucmd_fragment]) *)
-  fix IH 1. intros [a | b xs c' | v | d c' | l v c' | l f | v f | ch v c' | ch tg f | ch c']; cbn [cmd_no_panic no_heap]; intro H.
+  fix IH 1. intros [a | b xs c' | v | d c' | l v c' | l f | v f | ch v c' | ch tg f | ch c']; cbn [cmd_no_panic structurally_total_cmd]; intro H.
   - reflexivity.
   - exact (IH c' H).
   - discriminate H.
@@ -673,20 +673,20 @@ Proof.
   - discriminate H.
 Qed.
 
-(** ---- TOTALITY on the [no_heap] fragment: [run_cmd] COMPLETES there, unconditionally — no bound.
-    The option is heap/channel-absence only, and a [no_heap] tree never reaches a heap or
+(** ---- TOTALITY on the [structurally_total_cmd] fragment: [run_cmd] COMPLETES there, unconditionally — no bound.
+    The option is heap/channel-absence only, and a [structurally_total_cmd] tree never reaches a heap or
     channel arm, so a structural induction produces the outcome directly.  [run_cmd_terminates] is a gated public
     surface ([Print Assumptions] below); consumed by cmd_unified.v and GoSem's run layer, whose
-    commands are [no_heap] via [cmd_no_panic_no_heap] or by construction. *)
+    commands are [structurally_total_cmd] via [cmd_no_panic_structurally_total] or by construction. *)
 Theorem run_cmd_terminates : forall (c : Cmd unit) w,
-  no_heap c = true -> exists oc, run_cmd c w = Some oc.
+  structurally_total_cmd c = true -> exists oc, run_cmd c w = Some oc.
 Proof.
-  fix IH 1. intros [a | b xs c' | v | d c' | l v c' | l f | v f | ch v c' | ch tg f | ch c'] w Hnh; cbn [no_heap] in Hnh;
+  fix IH 1. intros [a | b xs c' | v | d c' | l v c' | l f | v f | ch v c' | ch tg f | ch c'] w Hnh; cbn [structurally_total_cmd] in Hnh;
     cbn [run_cmd].
   - exists (ORet a w). reflexivity.
   - exact (IH c' (w_log b xs w) Hnh).
   - exists (OPanic v w). reflexivity.
-  - destruct (no_heap d) eqn:Hd; [ | discriminate Hnh ]. cbn in Hnh.
+  - destruct (structurally_total_cmd d) eqn:Hd; [ | discriminate Hnh ]. cbn in Hnh.
     destruct (IH c' w Hnh) as [oc Hoc]. rewrite Hoc.
     destruct (IH d (oc_world oc) Hd) as [ocd Hocd]. rewrite Hocd.
     destruct ocd as [[] w' | vd w']; eexists; reflexivity.
