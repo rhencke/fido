@@ -22,6 +22,7 @@
 From Fido Require Import preamble.
 From Fido Require Import GoRuntimeTypes.
 From Fido Require Import GoEffects.
+From Fido Require Import GoPanic.   (* the channel trio's Go-faithful panics (send/close on closed, close of nil) *)
 From Fido Require Import GoSlice.
 From Stdlib Require Import List Lia.
 Import ListNotations.
@@ -46,7 +47,17 @@ Inductive Cmd (A : Type) : Type :=
      rule would be an observably nondeterministic allocator (the continuation branches on
      [l]) and could clobber a mirrored-but-untraced cell.  Freshness ("the cell was [None]",
      "l <> 0") is a THEOREM only under [GoHeap.ValidWorld] — never a totality fact here. *)
-  | CAlloc : GoAny -> (nat -> Cmd A) -> Cmd A.
+  | CAlloc : GoAny -> (nat -> Cmd A) -> Cmd A
+  (* the CHANNEL trio (single-goroutine deterministic fragment).  [CChRecv] carries the
+     element TAG — GoChan's own [recv] op takes it, so the syntax carrying it is faithful —
+     and a closed, drained recv binds the TYPED zero [anyt tag (zero_val tag)].  Would-block
+     shapes (send with no room incl. unbuffered, recv on open-empty, any op on an absent
+     cell) have NO behavior here ([run_cmd] = [None]): the Cmd layer HAS a stuck outcome,
+     unlike the shallow IO ops (whose loud would-block panics are documented stand-ins), so
+     absence is the deterministic-fragment gate.  Send/close on closed PANIC as Go does. *)
+  | CChSend  : nat -> GoAny -> Cmd A -> Cmd A
+  | CChRecv  : nat -> {T : Type & GoTypeTag T} -> (GoAny -> Cmd A) -> Cmd A
+  | CChClose : nat -> Cmd A -> Cmd A.
 Arguments CRet {A} _.
 Arguments COut {A} _ _ _.
 Arguments CPan {A} _.
@@ -54,6 +65,9 @@ Arguments CDfr {A} _ _.
 Arguments CWrite {A} _ _ _.
 Arguments CRead {A} _ _.
 Arguments CAlloc {A} _ _.
+Arguments CChSend {A} _ _ _.
+Arguments CChRecv {A} _ _ _.
+Arguments CChClose {A} _ _.
 
 (** The deferred action [Cmd unit] makes [A] a NON-uniform parameter, so Coq's auto-generated [Cmd_ind]
     has a POLYMORPHIC motive ([forall A, Cmd A -> Prop]) and a spurious induction hypothesis for the
@@ -67,15 +81,21 @@ Fixpoint Cmd_rect' (A : Type) (P : Cmd A -> Type)
   (fwr : forall l v c', P c' -> P (CWrite l v c'))
   (frd : forall l f, (forall x, P (f x)) -> P (CRead l f))
   (fal : forall v f, (forall l, P (f l)) -> P (CAlloc v f))
+  (fsn : forall c v c', P c' -> P (CChSend c v c'))
+  (frc : forall c tg f, (forall x, P (f x)) -> P (CChRecv c tg f))
+  (fcl : forall c c', P c' -> P (CChClose c c'))
   (c : Cmd A) : P c :=
   match c with
   | CRet a => fret a
-  | COut b xs c' => fout b xs c' (Cmd_rect' A P fret fout fpan fdfr fwr frd fal c')
+  | COut b xs c' => fout b xs c' (Cmd_rect' A P fret fout fpan fdfr fwr frd fal fsn frc fcl c')
   | CPan v => fpan v
-  | CDfr d c' => fdfr d c' (Cmd_rect' A P fret fout fpan fdfr fwr frd fal c')
-  | CWrite l v c' => fwr l v c' (Cmd_rect' A P fret fout fpan fdfr fwr frd fal c')
-  | CRead l f => frd l f (fun x => Cmd_rect' A P fret fout fpan fdfr fwr frd fal (f x))
-  | CAlloc v f => fal v f (fun l => Cmd_rect' A P fret fout fpan fdfr fwr frd fal (f l))
+  | CDfr d c' => fdfr d c' (Cmd_rect' A P fret fout fpan fdfr fwr frd fal fsn frc fcl c')
+  | CWrite l v c' => fwr l v c' (Cmd_rect' A P fret fout fpan fdfr fwr frd fal fsn frc fcl c')
+  | CRead l f => frd l f (fun x => Cmd_rect' A P fret fout fpan fdfr fwr frd fal fsn frc fcl (f x))
+  | CAlloc v f => fal v f (fun l => Cmd_rect' A P fret fout fpan fdfr fwr frd fal fsn frc fcl (f l))
+  | CChSend c v c' => fsn c v c' (Cmd_rect' A P fret fout fpan fdfr fwr frd fal fsn frc fcl c')
+  | CChRecv c tg f => frc c tg f (fun x => Cmd_rect' A P fret fout fpan fdfr fwr frd fal fsn frc fcl (f x))
+  | CChClose c c' => fcl c c' (Cmd_rect' A P fret fout fpan fdfr fwr frd fal fsn frc fcl c')
   end.
 Definition Cmd_ind' (A : Type) (P : Cmd A -> Prop) := Cmd_rect' A P.
 
@@ -90,6 +110,9 @@ Fixpoint cbind {A B} (c : Cmd A) (k : A -> Cmd B) : Cmd B :=
   | CWrite l v c' => CWrite l v (cbind c' k)
   | CRead l f => CRead l (fun x => cbind (f x) k)
   | CAlloc v f => CAlloc v (fun l => cbind (f l) k)
+  | CChSend c v c' => CChSend c v (cbind c' k)
+  | CChRecv c tg f => CChRecv c tg (fun x => cbind (f x) k)
+  | CChClose c c' => CChClose c (cbind c' k)
   end.
 
 
@@ -107,11 +130,14 @@ Inductive CmdEq {A : Type} : Cmd A -> Cmd A -> Prop :=
   | CE_dfr : forall d c c', CmdEq c c' -> CmdEq (CDfr d c) (CDfr d c')
   | CE_wr  : forall l v c c', CmdEq c c' -> CmdEq (CWrite l v c) (CWrite l v c')
   | CE_rd  : forall l f g, (forall x, CmdEq (f x) (g x)) -> CmdEq (CRead l f) (CRead l g)
-  | CE_al  : forall v f g, (forall l, CmdEq (f l) (g l)) -> CmdEq (CAlloc v f) (CAlloc v g).
+  | CE_al  : forall v f g, (forall l, CmdEq (f l) (g l)) -> CmdEq (CAlloc v f) (CAlloc v g)
+  | CE_sn  : forall c v k k', CmdEq k k' -> CmdEq (CChSend c v k) (CChSend c v k')
+  | CE_rc  : forall c tg f g, (forall x, CmdEq (f x) (g x)) -> CmdEq (CChRecv c tg f) (CChRecv c tg g)
+  | CE_cl  : forall c k k', CmdEq k k' -> CmdEq (CChClose c k) (CChClose c k').
 Lemma CmdEq_refl : forall {A} (c : Cmd A), CmdEq c c.
 Proof.
   intros A c;
-    induction c as [a | b xs c' IH | v | d c' IH | l v c' IH | l f IH | v f IH] using Cmd_rect';
+    induction c as [a | b xs c' IH | v | d c' IH | l v c' IH | l f IH | v f IH | ch v c' IH | ch tg f IH | ch c' IH] using Cmd_rect';
     constructor; auto.
 Qed.
 
@@ -120,14 +146,14 @@ Proof. reflexivity. Qed.
 Lemma cbind_ret_r : forall {A} (c : Cmd A), CmdEq (cbind c (fun a => CRet a)) c.
 Proof.
   intros A c;
-    induction c as [a | b xs c' IH | v | d c' IH | l v c' IH | l f IH | v f IH] using Cmd_rect';
+    induction c as [a | b xs c' IH | v | d c' IH | l v c' IH | l f IH | v f IH | ch v c' IH | ch tg f IH | ch c' IH] using Cmd_rect';
     cbn [cbind]; constructor; auto.
 Qed.
 Lemma cbind_assoc : forall {A B C} (c : Cmd A) (k : A -> Cmd B) (h : B -> Cmd C),
   CmdEq (cbind (cbind c k) h) (cbind c (fun a => cbind (k a) h)).
 Proof.
   intros A B C c k h.
-  induction c as [a | b xs c' IH | v | d c' IH | l v c' IH | l f IH | v f IH] using Cmd_rect';
+  induction c as [a | b xs c' IH | v | d c' IH | l v c' IH | l f IH | v f IH | ch v c' IH | ch tg f IH | ch c' IH] using Cmd_rect';
     cbn [cbind].
   - apply CmdEq_refl.
   - constructor; exact IH.
@@ -136,6 +162,9 @@ Proof.
   - constructor; exact IH.
   - constructor; intro x; exact (IH x).
   - constructor; intro l; exact (IH l).
+  - constructor; exact IH.
+  - constructor; intro x; exact (IH x).
+  - constructor; exact IH.
 Qed.
 
 (** ---- The AUTHORITATIVE (and ONLY) operational interpreter ----
@@ -204,6 +233,21 @@ Proof. reflexivity. Qed.
 Lemma any_cell_roundtrip : forall v, any_of_cell (cell_of_any v) = v.
 Proof. intros [T [x t]]. reflexivity. Qed.
 
+(** ---- The channel trio's World glue: read/update a channel CELL at a raw location.
+    The transitions mirror GoChan's op semantics (closed-send/close panics, buffer FIFO,
+    the closed-drained TYPED zero); the would-block shapes are ABSENT in [run_cmd]
+    ([None]) rather than the shallow IO ops' loud stand-in panics — the Cmd layer has a
+    real stuck outcome, so absence IS the deterministic-fragment gate. *)
+Definition chan_cell_upd (c : nat) (cell : ChanCell) (w : World) : World :=
+  mkWorld (w_refs w) (fun k => if Nat.eqb k c then Some cell else w_chans w k)
+          (w_maps w) (w_next w) (w_output w).
+Definition chan_room_cap (buflen : nat) (cap : option nat) : bool :=
+  match cap with None => true | Some n => Nat.ltb buflen n end.
+Lemma chan_cell_upd_output : forall c cell w, w_output (chan_cell_upd c cell w) = w_output w.
+Proof. reflexivity. Qed.
+Lemma chan_cell_upd_next : forall c cell w, w_next (chan_cell_upd c cell w) = w_next w.
+Proof. reflexivity. Qed.
+
 (** [go c w] runs [c]'s body, ACCUMULATING the deferred actions (without running them yet).  Structural
     on [c] — the CPS continuations are subterms (a [CRead] continuation's application included).
     OPTION-VALUED: an unallocated or tag-mismatched heap access has no behavior, so
@@ -226,6 +270,46 @@ Fixpoint go {A} (c : Cmd A) (w : World) : option (Outcome A * list (Cmd unit)) :
                  | None => None
                  end
   | CAlloc v f => go (f (w_next w)) (alloc_world v w)
+  | CChSend c v k =>
+      match w_chans w c with
+      | None => None
+      | Some (existT _ E (tag, (buf, (closed, cap)))) =>
+          if closed then Some (OPanic rt_send_closed w, nil)
+          else match v with existT _ A0 (x, ta) =>
+            match tag_coerce tag ta x with
+            | None => None
+            | Some xe =>
+                if chan_room_cap (length buf) cap
+                then go k (chan_cell_upd c (existT _ E (tag, (buf ++ xe :: nil, (closed, cap)))) w)
+                else None
+            end end
+      end
+  | CChRecv c tg f =>
+      match w_chans w c with
+      | None => None
+      | Some (existT _ E (tag, (buf, (closed, cap)))) =>
+          match tg with existT _ T tgt =>
+            match tag_eq tgt tag with
+            | None => None
+            | Some _ =>
+                match buf with
+                | v0 :: rest =>
+                    go (f (existT _ E (v0, tag)))
+                       (chan_cell_upd c (existT _ E (tag, (rest, (closed, cap)))) w)
+                | nil => if closed then go (f (anyt tgt (zero_val tgt))) w else None
+                end
+            end end
+      end
+  | CChClose c k =>
+      match w_chans w c with
+      (* an ABSENT cell is ABSENT, exactly like send/recv on nil: the closed world never
+         reaches a nil close ([GoChan]'s [rt_close_nil] guard is the IO layer's open-world
+         boundary), and a fragment panic here would have no unified counterpart. *)
+      | None => None
+      | Some (existT _ E (tag, (buf, (closed, cap)))) =>
+          if closed then Some (OPanic rt_close_closed w, nil)
+          else go k (chan_cell_upd c (existT _ E (tag, (buf, (true, cap)))) w)
+      end
   end.
 
 (** Project an [Outcome A] to [Outcome unit], keeping its panic value and world — the "active panic"
@@ -271,6 +355,43 @@ Fixpoint run_cmd {A} (c : Cmd A) (w : World) : option (Outcome A) :=
       | None => None
       end
   | CAlloc v f => run_cmd (f (w_next w)) (alloc_world v w)
+  | CChSend c v k =>
+      match w_chans w c with
+      | None => None
+      | Some (existT _ E (tag, (buf, (closed, cap)))) =>
+          if closed then Some (OPanic rt_send_closed w)
+          else match v with existT _ A0 (x, ta) =>
+            match tag_coerce tag ta x with
+            | None => None
+            | Some xe =>
+                if chan_room_cap (length buf) cap
+                then run_cmd k (chan_cell_upd c (existT _ E (tag, (buf ++ xe :: nil, (closed, cap)))) w)
+                else None
+            end end
+      end
+  | CChRecv c tg f =>
+      match w_chans w c with
+      | None => None
+      | Some (existT _ E (tag, (buf, (closed, cap)))) =>
+          match tg with existT _ T tgt =>
+            match tag_eq tgt tag with
+            | None => None
+            | Some _ =>
+                match buf with
+                | v0 :: rest =>
+                    run_cmd (f (existT _ E (v0, tag)))
+                            (chan_cell_upd c (existT _ E (tag, (rest, (closed, cap)))) w)
+                | nil => if closed then run_cmd (f (anyt tgt (zero_val tgt))) w else None
+                end
+            end end
+      end
+  | CChClose c k =>
+      match w_chans w c with
+      | None => None   (* absent = absent — see [go]'s arm *)
+      | Some (existT _ E (tag, (buf, (closed, cap)))) =>
+          if closed then Some (OPanic rt_close_closed w)
+          else run_cmd k (chan_cell_upd c (existT _ E (tag, (buf, (true, cap)))) w)
+      end
   end.
 
 (** ---- The RELATIONAL face of the semantics: [unwind_defers] + [eval_cmd] ----
@@ -339,7 +460,7 @@ Qed.
 Theorem run_cmd_eval : forall (c : Cmd unit) w oc,
   run_cmd c w = Some oc -> eval_cmd c w oc.
 Proof.
-  fix IH 1. intros [a | b xs c' | v | d c' | l v c' | l f | v f] w oc H; cbn [run_cmd] in H.
+  fix IH 1. intros [a | b xs c' | v | d c' | l v c' | l f | v f | ch v c' | ch tg f | ch c'] w oc H; cbn [run_cmd] in H.
   - injection H as <-. exists (ORet a w), nil, (ORet tt w).
     split; [ reflexivity | split; [ exact (UwNil _) | reflexivity ] ].
   - destruct (IH c' (w_log b xs w) oc H) as [oc0 [ds [r [Hgo [Hun Hoc]]]]].
@@ -385,6 +506,40 @@ Proof.
     exists oc0, ds, r. split; [ cbn [go]; rewrite E; exact Hgo | split; [ exact Hun | exact Hoc ] ].
   - destruct (IH (f (w_next w)) (alloc_world v w) oc H) as [oc0 [ds [r [Hgo [Hun Hoc]]]]].
     exists oc0, ds, r. split; [ cbn [go]; exact Hgo | split; [ exact Hun | exact Hoc ] ].
+  - (* CChSend *)
+    destruct (w_chans w ch) as [[E [tag [buf [closed cap]]]]|] eqn:Ec; [ | discriminate H ].
+    destruct closed.
+    + injection H as <-. exists (OPanic rt_send_closed w), nil, (OPanic rt_send_closed w).
+      split; [ cbn [go]; rewrite Ec; reflexivity | split; [ exact (UwNil _) | reflexivity ] ].
+    + destruct v as [A0 [x ta]].
+      destruct (tag_coerce tag ta x) as [xe|] eqn:Etc; [ | discriminate H ].
+      destruct (chan_room_cap (length buf) cap) eqn:Er; [ | discriminate H ].
+      destruct (IH c' _ oc H) as [oc0 [ds [r [Hgo [Hun Hoc]]]]].
+      exists oc0, ds, r.
+      split; [ cbn [go]; rewrite Ec; cbn beta iota; rewrite Etc; cbn beta iota; rewrite Er; exact Hgo
+             | split; [ exact Hun | exact Hoc ] ].
+  - (* CChRecv *)
+    destruct (w_chans w ch) as [[E [tag [buf [closed cap]]]]|] eqn:Ec; [ | discriminate H ].
+    destruct tg as [T tgt].
+    destruct (tag_eq tgt tag) as [pf|] eqn:Ete; [ | discriminate H ].
+    destruct buf as [|v0 rest].
+    + destruct closed; [ | discriminate H ].
+      destruct (IH (f (anyt tgt (zero_val tgt))) w oc H) as [oc0 [ds [r [Hgo [Hun Hoc]]]]].
+      exists oc0, ds, r.
+      split; [ cbn [go]; rewrite Ec; cbn beta iota; rewrite Ete; exact Hgo
+             | split; [ exact Hun | exact Hoc ] ].
+    + destruct (IH (f (existT _ E (v0, tag))) _ oc H) as [oc0 [ds [r [Hgo [Hun Hoc]]]]].
+      exists oc0, ds, r.
+      split; [ cbn [go]; rewrite Ec; cbn beta iota; rewrite Ete; exact Hgo
+             | split; [ exact Hun | exact Hoc ] ].
+  - (* CChClose *)
+    destruct (w_chans w ch) as [[E [tag [buf [closed cap]]]]|] eqn:Ec; [ | discriminate H ].
+    destruct closed.
+    + injection H as <-. exists (OPanic rt_close_closed w), nil, (OPanic rt_close_closed w).
+      split; [ cbn [go]; rewrite Ec; reflexivity | split; [ exact (UwNil _) | reflexivity ] ].
+    + destruct (IH c' _ oc H) as [oc0 [ds [r [Hgo [Hun Hoc]]]]].
+      exists oc0, ds, r.
+      split; [ cbn [go]; rewrite Ec; exact Hgo | split; [ exact Hun | exact Hoc ] ].
 Qed.
 
 (** eval_cmd ⊆ run_cmd (the converse — together the two directions make [eval_cmd] and [run_cmd]
@@ -393,7 +548,7 @@ Qed.
 Theorem eval_run_cmd : forall (c : Cmd unit) w oc,
   eval_cmd c w oc -> run_cmd c w = Some oc.
 Proof.
-  fix IH 1. intros [a | b xs c' | v | d c' | l v c' | l f | v f] w oc (oc0 & ds & r & Hgo & Hun & Hoc);
+  fix IH 1. intros [a | b xs c' | v | d c' | l v c' | l f | v f | ch v c' | ch tg f | ch c'] w oc (oc0 & ds & r & Hgo & Hun & Hoc);
     cbn [go] in Hgo; cbn [run_cmd].
   - injection Hgo as <- <-. inversion Hun; subst. reflexivity.
   - apply IH. exists oc0, ds, r. split; [ exact Hgo | split; [ exact Hun | exact Hoc ] ].
@@ -431,6 +586,27 @@ Proof.
   - destruct (w_refs w l) as [cell|] eqn:E; [ | discriminate Hgo ].
     apply IH. exists oc0, ds, r. split; [ exact Hgo | split; [ exact Hun | exact Hoc ] ].
   - apply IH. exists oc0, ds, r. split; [ exact Hgo | split; [ exact Hun | exact Hoc ] ].
+  - (* CChSend *)
+    destruct (w_chans w ch) as [[E [tag [buf [closed cap]]]]|] eqn:Ec; [ | discriminate Hgo ].
+    destruct closed.
+    + injection Hgo as <- <-. inversion Hun; subst. reflexivity.
+    + destruct v as [A0 [x ta]].
+      destruct (tag_coerce tag ta x) as [xe|] eqn:Etc; [ | discriminate Hgo ].
+      destruct (chan_room_cap (length buf) cap) eqn:Er; [ | discriminate Hgo ].
+      apply IH. exists oc0, ds, r. split; [ exact Hgo | split; [ exact Hun | exact Hoc ] ].
+  - (* CChRecv *)
+    destruct (w_chans w ch) as [[E [tag [buf [closed cap]]]]|] eqn:Ec; [ | discriminate Hgo ].
+    destruct tg as [T tgt].
+    destruct (tag_eq tgt tag) as [pf|] eqn:Ete; [ | discriminate Hgo ].
+    destruct buf as [|v0 rest].
+    + destruct closed; [ | discriminate Hgo ].
+      apply IH. exists oc0, ds, r. split; [ exact Hgo | split; [ exact Hun | exact Hoc ] ].
+    + apply IH. exists oc0, ds, r. split; [ exact Hgo | split; [ exact Hun | exact Hoc ] ].
+  - (* CChClose *)
+    destruct (w_chans w ch) as [[E [tag [buf [closed cap]]]]|] eqn:Ec; [ | discriminate Hgo ].
+    destruct closed.
+    + injection Hgo as <- <-. inversion Hun; subst. reflexivity.
+    + apply IH. exists oc0, ds, r. split; [ exact Hgo | split; [ exact Hun | exact Hoc ] ].
 Qed.
 
 
@@ -441,7 +617,8 @@ Qed.
 Fixpoint no_defer (c : Cmd unit) : bool :=
   match c with
   | CRet _ => true | COut _ _ c' => no_defer c' | CPan _ => true | CDfr _ _ => false
-  | CWrite _ _ _ => false | CRead _ _ => false | CAlloc _ _ => false   (* heap ops are OUTSIDE the no_defer fragment this slice
+  | CWrite _ _ _ => false | CRead _ _ => false | CAlloc _ _ => false
+  | CChSend _ _ _ => false | CChRecv _ _ _ => false | CChClose _ _ => false   (* heap/channel ops are OUTSIDE the no_defer fragment this slice
        (a boolean cannot scan under [CRead]'s binder; [CWrite] is excluded with it so the fragment stays
        the straight-line output/panic/return class its consumers were proved on) *)
   end.
@@ -453,7 +630,8 @@ Fixpoint no_defer (c : Cmd unit) : bool :=
 Fixpoint cmd_no_panic (c : Cmd unit) : bool :=
   match c with
   | CRet _ => true | COut _ _ c' => cmd_no_panic c' | CPan _ => false | CDfr d c' => cmd_no_panic d && cmd_no_panic c'
-  | CWrite _ _ _ => false | CRead _ _ => false | CAlloc _ _ => false   (* CONSERVATIVE: the decidable panic-free gate also
+  | CWrite _ _ _ => false | CRead _ _ => false | CAlloc _ _ => false
+  | CChSend _ _ _ => false | CChRecv _ _ _ => false | CChClose _ _ => false   (* CONSERVATIVE: the decidable panic-free gate also
        promises COMPLETION (the [ORet] run), which a heap op cannot guarantee (an unallocated or
        tag-mismatched access is ABSENT) and a boolean cannot scan under [CRead]'s binder —
        heap programs leave this gate until a finer, allocation-aware analysis exists *)
@@ -469,17 +647,21 @@ Fixpoint no_heap (c : Cmd unit) : bool :=
   | CRet _ => true | COut _ _ c' => no_heap c'
   | CPan _ => true | CDfr d c' => no_heap d && no_heap c'
   | CWrite _ _ _ => false | CRead _ _ => false | CAlloc _ _ => false
+  | CChSend _ _ _ => false | CChRecv _ _ _ => false | CChClose _ _ => false
   end.
 Lemma cmd_no_panic_no_heap : forall c, cmd_no_panic c = true -> no_heap c = true.
 Proof.
   (* [Cmd_rect'] gives no hypothesis for the DEFERRED body, so recurse structurally
      (both [d] and [c'] are direct subterms — the same shape as [cmd_to_ucmd_fragment]) *)
-  fix IH 1. intros [a | b xs c' | v | d c' | l v c' | l f | v f]; cbn [cmd_no_panic no_heap]; intro H.
+  fix IH 1. intros [a | b xs c' | v | d c' | l v c' | l f | v f | ch v c' | ch tg f | ch c']; cbn [cmd_no_panic no_heap]; intro H.
   - reflexivity.
   - exact (IH c' H).
   - discriminate H.
   - destruct (cmd_no_panic d) eqn:Hd; [ | discriminate H ].
     cbn in H. rewrite (IH d Hd). cbn [andb]. exact (IH c' H).
+  - discriminate H.
+  - discriminate H.
+  - discriminate H.
   - discriminate H.
   - discriminate H.
   - discriminate H.
@@ -493,7 +675,7 @@ Qed.
 Theorem run_cmd_terminates : forall (c : Cmd unit) w,
   no_heap c = true -> exists oc, run_cmd c w = Some oc.
 Proof.
-  fix IH 1. intros [a | b xs c' | v | d c' | l v c' | l f | v f] w Hnh; cbn [no_heap] in Hnh;
+  fix IH 1. intros [a | b xs c' | v | d c' | l v c' | l f | v f | ch v c' | ch tg f | ch c'] w Hnh; cbn [no_heap] in Hnh;
     cbn [run_cmd].
   - exists (ORet a w). reflexivity.
   - exact (IH c' (w_log b xs w) Hnh).
@@ -502,6 +684,9 @@ Proof.
     destruct (IH c' w Hnh) as [oc Hoc]. rewrite Hoc.
     destruct (IH d (oc_world oc) Hd) as [ocd Hocd]. rewrite Hocd.
     destruct ocd as [[] w' | vd w']; eexists; reflexivity.
+  - discriminate Hnh.
+  - discriminate Hnh.
+  - discriminate Hnh.
   - discriminate Hnh.
   - discriminate Hnh.
   - discriminate Hnh.

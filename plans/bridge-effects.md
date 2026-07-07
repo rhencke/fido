@@ -107,8 +107,26 @@ with closed-recv proofs for at least TWO distinct element types.
        cmd_unified's OWN Section BridgeVal vz survives only if still used by
        heap_of_world's default); every `usteps vz ucap` updates.
    [x] GoSemSafe.v — panic_free_runs_ret_ustep's vz quantification follows (vz survives only for ustart_w's heap default).
-   [ ] cmd.v trio + run_cmd arms + fragments; bridge kit; obligations (separate
-       commits — batch 1 must land green first).
+   [x] cmd.v trio + run_cmd/go arms + fragments + equivalence-proof cases (the would-block
+       shapes are None; chan_room_cap consciously classified capacity-domain in the fuel
+       gate's ALLOWCAP).
+   [x] cmd_unified.v batch 3 — THE CHANNEL BRIDGE KIT (LANDED; design pinned 2026-07-07):
+       cmd_to_ucmd arms (CChSend→USend, CChClose→UClose, CChRecv→URecv with the TYPED zero
+       `anyt tgt (zero_val tgt)` from the syntax tag — the design's core moment); UFrag +3
+       ctors (the seal narrows to no-spawn/no-select); ustart_w mirrors channels:
+       `bufs_of_world` (each allocated cell's buffer boxed through the CELL tag, synthetic
+       positions — the agreement ignores positions) and `ucap_of_world` (cap per allocated
+       cell — sound to FIX at the start because the trio has NO make-channel: the chan-heap
+       DOMAIN is run-invariant).  NEW premise `chans_open w` (every allocated cell OPEN at
+       start): unified closedness is a TRACE property (closedb), so a pre-closed start cell
+       is unrepresentable in an empty trace — closure during the RUN generates the KClose
+       event on both sides consistently, and the closed-recv obligations are exercised by
+       close-then-recv programs.  The invariant tuple grows: heap_agrees + uc_next-mirror +
+       `bufs_agree` (map fst of uc_bufs c = boxed cell buffer; absent cell → nil) +
+       `closed_agree` (closedb tr c = the cell's flag; absent → false).  Old cases preserve
+       them via closedb_app (KWrite/KRead/KSend/KRecv events never close).  The recv-closed
+       case gets its trace witness from closed_agree + closedb_true_witness.
+   [ ] the landing obligations (two-type closed-recv agreements etc.) after batch 3.
    NOTE the capacity mismatch to resolve at implementation: unified's `uroom` counts
    `length < cap` with `ucap` a RULE PARAMETER; the World's cell carries its own cap —
    the bridge instantiates `ucap := fun c => cell c's cap` via a mirroring function.

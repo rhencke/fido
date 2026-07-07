@@ -39,6 +39,9 @@ Fixpoint cmd_out_world (c : Cmd unit) (w : World) : World :=
   | CWrite _ _ _ => w    (* dead: heap ops are outside the [no_defer] fragment *)
   | CRead _ _ => w       (* dead: heap ops are outside the [no_defer] fragment *)
   | CAlloc _ _ => w      (* dead: heap ops are outside the [no_defer] fragment *)
+  | CChSend _ _ _ => w   (* dead: channel ops are outside the [no_defer] fragment *)
+  | CChRecv _ _ _ => w   (* dead: channel ops are outside the [no_defer] fragment *)
+  | CChClose _ _ => w    (* dead: channel ops are outside the [no_defer] fragment *)
   end.
 
 (** The panic value a defer-free command ends in ([None] if it never panics). *)
@@ -51,6 +54,9 @@ Fixpoint cmd_panic_val (c : Cmd unit) : option GoAny :=
   | CWrite _ _ _ => None (* dead: heap ops are outside the [no_defer] fragment *)
   | CRead _ _ => None    (* dead: heap ops are outside the [no_defer] fragment *)
   | CAlloc _ _ => None   (* dead: heap ops are outside the [no_defer] fragment *)
+  | CChSend _ _ _ => None  (* dead: channel ops are outside the [no_defer] fragment *)
+  | CChRecv _ _ _ => None  (* dead: channel ops are outside the [no_defer] fragment *)
+  | CChClose _ _ => None   (* dead: channel ops are outside the [no_defer] fragment *)
   end.
 
 (** A defer-free command that DOES panic runs to [OPanic v] with the EXACT pre-panic output
@@ -59,11 +65,14 @@ Fixpoint cmd_panic_val (c : Cmd unit) : option GoAny :=
 Lemma run_cmd_panics_world : forall c w v,
   no_defer c = true -> cmd_panic_val c = Some v -> run_cmd c w = Some (OPanic v (cmd_out_world c w)).
 Proof.
-  fix IH 1. intros [a | b xs c' | v0 | d c' | l v0 c' | l f | v0 f] w v Hnd Hpv;
+  fix IH 1. intros [a | b xs c' | v0 | d c' | l v0 c' | l f | v0 f | ch v0 c' | ch tg f | ch c'] w v Hnd Hpv;
     cbn [no_defer] in Hnd; cbn [cmd_panic_val] in Hpv; cbn [run_cmd cmd_out_world].
   - discriminate Hpv.
   - exact (IH c' (w_log b xs w) v Hnd Hpv).
   - injection Hpv as ->. reflexivity.
+  - discriminate Hnd.
+  - discriminate Hnd.
+  - discriminate Hnd.
   - discriminate Hnd.
   - discriminate Hnd.
   - discriminate Hnd.
@@ -135,20 +144,21 @@ Qed.
     panic ([uc_panic 0 = None]), its output equal to the [run_cmd] [ORet] run's.  cmd.v's [run_cmd] STAYS the
     authority: the conclusion CARRIES [run_cmd c w = Some (ORet tt w')] and ties [uc_out] to that [w']
     (not a free observer). *)
-Theorem panic_free_runs_ret_ustep : forall (vz : GoAny) (c : Cmd unit) ucap w,
+Theorem panic_free_runs_ret_ustep : forall (vz : GoAny) (c : Cmd unit) w,
   cmd_no_panic c = true ->
+  chans_open w ->
   exists (uc : UConfig) (w' : World),
     run_cmd c w = Some (ORet tt w')                    (* cmd.v's AUTHORITATIVE panic-free [ORet] run — grounds [w'] *)
-    /\ usteps ucap (ustart_w vz w (cmd_to_ucmd c)) uc
+    /\ usteps (ucap_of_world w) (ustart_w vz w (cmd_to_ucmd c)) uc
     /\ uc_live uc 0 = false
     /\ uc_panic uc 0 = None
     /\ w_output w' = w_output w ++ map snd (uc_out uc).
 Proof.
-  intros vz c ucap w Hnp.
+  intros vz c w Hnp Hopen.
   destruct (run_cmd_terminates c w (cmd_no_panic_no_heap c Hnp)) as [oc Hrun].
   destruct (run_cmd_no_panic_ret c w oc Hrun Hnp) as [w' ->].
-  destruct (bridge_heap_agrees vz c ucap w (ORet tt w') Hrun)
-    as [uc [Hus [Hlive [Hpan [Hout [_ _]]]]]].
+  destruct (bridge_heap_agrees vz c w (ORet tt w') Hrun Hopen)
+    as [uc [Hus [Hlive [Hpan [Hout [_ [_ [_ _]]]]]]]].
   exists uc, w'. split; [ exact Hrun | split; [ exact Hus | split; [ exact Hlive | split ] ] ].
   - rewrite Hpan. reflexivity.
   - cbn [oc_world] in Hout. exact Hout.
@@ -178,19 +188,20 @@ Proof.
 Qed.
 
 (** The same decidable-predicate guarantee at the OPERATIONAL level (via [panic_free_runs_ret_ustep]). *)
-Theorem panic_free_denotable_runs_ret_ustep : forall (vz : GoAny) p ucap w,
+Theorem panic_free_denotable_runs_ret_ustep : forall (vz : GoAny) p w,
   panic_free_denotable p = true ->
+  chans_open w ->
   exists c uc w',
     denote_program p = Some c
     /\ run_cmd c w = Some (ORet tt w')
-    /\ usteps ucap (ustart_w vz w (cmd_to_ucmd c)) uc
+    /\ usteps (ucap_of_world w) (ustart_w vz w (cmd_to_ucmd c)) uc
     /\ uc_live uc 0 = false
     /\ uc_panic uc 0 = None
     /\ w_output w' = w_output w ++ map snd (uc_out uc).
 Proof.
-  intros vz p ucap w H. unfold panic_free_denotable in H.
+  intros vz p w H Hopen. unfold panic_free_denotable in H.
   destruct (denote_program p) as [c|] eqn:Ec; [|discriminate H].
-  destruct (panic_free_runs_ret_ustep vz c ucap w H)
+  destruct (panic_free_runs_ret_ustep vz c w H Hopen)
     as [uc [w' [Hrun [Hus [Hlive [Hpan Hout]]]]]].
   exists c, uc, w'.
   split; [reflexivity | split; [exact Hrun | split; [exact Hus | split; [exact Hlive | split; [exact Hpan | exact Hout]]]]].

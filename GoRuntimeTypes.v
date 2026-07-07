@@ -211,6 +211,33 @@ Fixpoint tag_eq {A B} (ta : GoTypeTag A) (tb : GoTypeTag B) {struct ta} : option
   | _, _ => None
   end.
 
+(** [tag_eq] succeeds ONLY on the SAME tag: the returned type equality transports one
+    tag onto the other.  Axiom-free — singleton elimination on the returned proof; every
+    congruence reduces definitionally on [eq_refl].  The foundation the channel bridge's
+    boxing agreement stands on (a successful coercion cannot cross tags). *)
+(* [injection] must extract the (Prop-sorted) equality payloads inside [Some _ = Some _];
+   the flag below enables exactly that — a kernel-checked elaboration setting, NOT an axiom. *)
+Local Set Keep Proof Equalities.
+Lemma tag_eq_sound : forall {A} (ta : GoTypeTag A) {B} (tb : GoTypeTag B) (p : A = B),
+  tag_eq ta tb = Some p -> eq_rect A GoTypeTag ta B p = tb.
+Proof.
+  induction ta; intros B0 tb p H; destruct tb; cbn in H; try discriminate H;
+    try (injection H as <-; reflexivity);
+    repeat (match type of H with
+            | context [match tag_eq ?x ?y with _ => _ end] =>
+                let q := fresh "q" in let Hq := fresh "Hq" in
+                destruct (tag_eq x y) as [q|] eqn:Hq; [ | discriminate H ]
+            end);
+    injection H as <-;
+    repeat match goal with q : @eq Type _ _ |- _ => destruct q end;
+    cbn;
+    repeat match goal with
+           | IH : context [tag_eq _ _ = Some _ -> _] , Hq : tag_eq _ _ = Some eq_refl |- _ =>
+               rewrite <- (IH _ _ eq_refl Hq); clear IH Hq
+           end;
+    reflexivity.
+Qed.
+
 (** Cast a value along a tag match (identity when the tags agree). *)
 Definition tag_coerce {A B} (ta : GoTypeTag A) (tb : GoTypeTag B) (x : B) : option A :=
   match tag_eq ta tb with Some p => Some (eq_rect B (fun T => T) x A (eq_sym p)) | None => None end.
