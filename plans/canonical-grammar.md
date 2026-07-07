@@ -37,9 +37,11 @@ and gtokens_balanced (every canonical expression token list is uniformly bracket
 gated.  NEXT = Phase 3b SLICE 2: the complete-list gtokens_inj (canon_expr_unique =
 canon_expr_tokens + gtokens_inj), design pinned below.  bdip/balanced_close_split (the inner-list
 / paren-peel tool) are written + verified-to-compile — to land WITH gtokens_inj so nothing unused
-is committed.  STILL TO WRITE: the `last0` group split, the paren/bare operand discrimination,
-`no_depth0_comma` + the top-level separator split + `gtokens_args_inj`/`gtokens_pairs_inj`, and
-`gtokens_inj` itself.  (The arbitrary-SUFFIX determinism lemma was found FALSE — see the design.)
+is committed.  STILL TO WRITE: the `last0` group split; the paren/bare operand discrimination;
+`no_depth0_comma` + the top-level separator split + `gtokens_args_inj`/`gtokens_pairs_inj`; ★the
+EBn OPERATOR-PRECEDENCE disambiguation (rightmost-minimal-precedence depth-0 op + the ctx-wrapping
+invariant lemmas + `op_token`/`prefix_token` injectivity) — the crux risk; and `gtokens_inj`
+itself.  (The arbitrary-SUFFIX determinism lemma was found FALSE — see the design.)
 
 ## Phases (each: green, golden byte-identical, gated, reviewed)
 
@@ -140,8 +142,18 @@ COMPLETE lists (no suffix):
   paren/bare MISMATCH needs a discrimination lemma (a complete bare `gtokens 0 e` cannot equal a
   single `TLP…TRP`-wrapped group) — via `bd`/leading-token.  ★the two OPEN sub-lemmas: the
   `last0` group split, and the paren/bare operand discrimination.
-- EUn: leading `prefix_token o` discriminates; `unop_paren` P/N by the `TLP`.  EBn: `Nat.ltb
-  (binop_prec o) ctx` P/N by leading `TLP`; the infix `op_token o` sits at top balance level.
+- EUn: leading `prefix_token o` (injective on unops) fixes `o`; `unop_paren` P/N by the `TLP`;
+  then the operand step.  A prefix operator, so no infix issue.
+- ★EBn is the HARDEST case — genuine OPERATOR-PRECEDENCE disambiguation, NOT a bracket scan.
+  `inner = gtokens p el ++ op_token o :: gtokens (S p) er` (`p = binop_prec o`) can carry SEVERAL
+  depth-0 operators (`a+b*c` ⇒ `[a;+;b;*;c]`), so "the op at top balance level" does NOT locate the
+  split.  The top operator is the RIGHTMOST depth-0 operator of MINIMAL precedence, justified by the
+  ctx-wrapping invariants: `el` at ctx `p` wraps prec `< p` ⇒ its depth-0 ops have prec ≥ p; `er` at
+  ctx `S p` wraps prec `≤ p` ⇒ its depth-0 ops have prec `> p`; `op_token o` has prec `p` ⇒ the
+  minimal depth-0 precedence is `p`, achieved rightmost by `op_token o` (left-associative).  This
+  needs an operator-precedence scan + the wrapping-invariant lemmas + `op_token`/`prefix_token`
+  injectivity — a self-contained sub-arc, the crux risk of Phase 3b.  `Nat.ltb (binop_prec o) ctx`
+  P/N split by the leading `TLP` as usual.
 
 Then `canon_expr_unique` (+ `gtokens_inj`) join the printer Print Assumptions gate.
 Phase 3c = reprove `gprint_inj` off `parse_print_roundtrip` (now a corollary of `gtokens_inj` +
