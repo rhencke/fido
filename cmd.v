@@ -34,7 +34,7 @@ Inductive Cmd (A : Type) : Type :=
   | COut : bool -> list GoAny -> Cmd A -> Cmd A
   | CPan : GoAny -> Cmd A
   | CDfr : Cmd unit -> Cmd A -> Cmd A    (* [defer d]; [d] runs at function-scope return *)
-  (* the HEAP pair (appended LAST so existing destruct/induction
+  (* the HEAP nodes (appended LAST so existing destruct/induction
      bullet lists keep their order).  [CRead] is the syntax's first value-BINDING
      constructor — its continuation is a function, which shapes everything below:
      structural booleans cannot scan under it, and extensional facts about it need
@@ -459,7 +459,7 @@ Fixpoint cmd_no_panic (c : Cmd unit) : bool :=
        heap programs leave this gate until a finer, allocation-aware analysis exists *)
   end.
 
-(** [no_heap c] — [c] contains NO heap node ([CWrite]/[CRead]) anywhere, body or deferred.  The decidable
+(** [no_heap c] — [c] contains NO heap node ([CWrite]/[CRead]/[CAlloc]) anywhere, body or deferred.  The decidable
     fragment on which the totality theorem below holds: a heap access can be ABSENT ([run_cmd] = [None]),
     so unconditional completion is FALSE outside this fragment — completion there is a
     per-program premise, never a theorem.  [cmd_no_panic] is a strict subset (its heap arms are [false] too),
