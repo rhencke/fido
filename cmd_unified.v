@@ -14,20 +14,24 @@
     [w_output : list (bool * list GoAny)]).
 
     The module exposes ONE single-goroutine [usteps] AGREEMENT bridge, [bridge_heap_agrees]:
-    ANY [c] (heap reads/writes/ALLOCATIONS, arbitrary defer nesting, any panics) whose [run_cmd] COMPLETES
-    agrees end to end INCLUDING final heaps, from the [ustart_w] mirrored-heap start (the
-    completion premise is the well-formedness gate; for [no_heap] commands completion is a
-    THEOREM — cmd.v's [run_cmd_terminates] — so consumers compose the two).  Plus cmd.v-side
-    properties for a COMPLETING [run_cmd] on ANY [c] (heap ops included): output only APPENDS,
-    and a panic-free completing run returns [ORet].
+    ANY [c] — heap reads/writes/ALLOCATIONS, the CHANNEL trio (send/recv/close), arbitrary
+    defer nesting, any panics — whose [run_cmd] COMPLETES agrees end to end INCLUDING the
+    final heaps, BUFFERS ([bufs_agree], boxed through each cell's own tag), CLOSEDNESS
+    ([closed_agree] — a trace property, hence the [chans_open] start premise), the allocator
+    pointer, and capacities pinned to the world's ([ucap_of_world]) — from the [ustart_w]
+    mirrored start (the completion premise is the well-formedness gate; for [no_heap]
+    commands completion is a THEOREM — cmd.v's [run_cmd_terminates] — so consumers compose
+    the two).  Plus cmd.v-side properties for a COMPLETING [run_cmd] on ANY [c]: output only
+    APPENDS, and a panic-free completing run returns [ORet].
     The EXACT gated public-surface set is the [Print Assumptions] block at the end of this file (the single in-file
     authority); this header does not re-enumerate it.
     There is NO public projection-observer theorem: every unified-side run/unwind lemma is LOCAL
     (file-private) proof plumbing grounded directly in cmd.v's [go]/[unwind_defers] — no exported
     theorem concludes with a private observer, so a consumer cannot prove bridge facts against
-    anything but [run_cmd].  (No concurrency ops in this fragment, so [uc_bufs] is untouched;
-    [uc_heap] carries the heap commands' effects and heap steps append [KWrite]/[KRead] to [uc_trace] —
-    the trace is existential in the heap bridge's statement.)
+    anything but [run_cmd].  (No SPAWN/SELECT in this fragment — [uc_bufs] carries the
+    channel trio's effects, [uc_heap] the heap commands'; steps append [KWrite]/[KRead]/
+    [KSend]/[KRecv]/[KClose] to [uc_trace], which stays existential in the bridge's statement
+    beyond the [closed_agree] conclusion.)
     Proof-only: emits no Go, adds no axiom. *)
 
 From Fido Require Import preamble concurrency cmd unified.

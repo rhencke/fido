@@ -55,9 +55,11 @@ plugin CONSTRUCTS the `GExpr`; only `gprint` is verified. NOT "verified Go."
   plans/builtins-split.md — `builtins.v` is DELETED), `cmd.v`, `unified.v`
   (race-freedom/liveness proved on `ustep`), `concurrency.v`.
 - **cmd↔unified bridge** (`cmd_unified.v`): ONE bridge, `bridge_heap_agrees` — any completing
-  command (typed heap cells, arbitrary defer nesting, any panics) agrees with `run_cmd` end to
-  end incl. final heaps; `no_heap` completion is `cmd.run_cmd_terminates`. ⚠ chan/spawn later.
-  Zero axioms.
+  command (typed heap cells, ALLOCATION, the CHANNEL trio send/recv/close with per-site TYPED
+  closed-recv zeros, arbitrary defer nesting, any panics) agrees with `run_cmd` end to end
+  incl. final heaps/buffers/closedness, capacities pinned to the world's; the typed-zero
+  obligations (TI64+TString instances, panic agreements, would-block absences, tag-mismatch
+  rejection, the translation pin) are gated theorems. ⚠ spawn/select later. Zero axioms.
 - **GoSemSafe** — panic-freedom properties + the narrow gate (`panic_free_gate` sound+complete,
   `emit_panic_free_gated`; both rejection mechanisms pinned). Off the main path; NOT
   BehaviorSafe. Zero axioms.
@@ -79,9 +81,10 @@ plugin CONSTRUCTS the `GExpr`; only `gprint` is verified. NOT "verified Go."
 
 ## NEXT
 
-- Continue the cmd↔unified bridge (`plans/bridge-effects.md`): `CAlloc` LANDED (allocator
-  agreement in `bridge_heap_agrees` + gated ValidWorld safety lemmas); next channels
-  (structural typed zero), then spawn.
+- Continue the cmd↔unified bridge (`plans/bridge-effects.md`): `CAlloc` AND the channel
+  slice LANDED (typed zeros through the channel's own tag, gated obligations); next spawn
+  (design deferred until reached) — or return to the canonical relational syntax authority
+  per the checkpoint-49 review's recommended order.
 - Grow behavioral safety toward `BehaviorSafe` → `SafeProgram` → `emit_safe` — locals arc OPEN
   (`plans/gosem-locals.md`; next: the env statement layer); wire the certified path to the main
   output; widen the live GoPrint bridge — gate-honestly.

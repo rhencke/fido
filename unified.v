@@ -40,10 +40,11 @@ Import ListNotations.
 (** THE unified command language — every admitted effect, one syntax.  VALUES are a PARAMETER
     [V] — ONE calculus, two instantiations: the [rstep] embedding takes [V := nat] (values
     identity, so the trace/race machinery applies verbatim) and the cmd.v bridge takes
-    [V := GoAny] — the TRANSLATION covers output/panic/defer + the heap trio (write/read/alloc); the AGREEMENT
-    is [cmd_unified.bridge_heap_agrees] (any completing command — heap ops, ALLOCATION, and defers included,
-    final-heap agreement; [no_heap] completion is a theorem); channel agreement remains
-    (plans/bridge-effects.md).  Locations/channels stay [nat]; [UOut] carries the rich [GoAny]
+    [V := GoAny] — the TRANSLATION covers output/panic/defer + the heap trio (write/read/alloc)
+    + the CHANNEL trio (send/recv/close, the recv zeros TYPED per site); the AGREEMENT is
+    [cmd_unified.bridge_heap_agrees] (any completing command — heap, allocation, channels,
+    defers — final heap/buffer/closedness agreement; [no_heap] completion is a theorem);
+    spawn/select agreement remains (plans/bridge-effects.md).  Locations/channels stay [nat]; [UOut] carries the rich [GoAny]
     payload at EVERY instantiation since output is observed, not raced.  There is NO global
     closed-recv zero: [URecv]/[USelect] carry the zero PER SITE (Go's zero is per element
     type — the [rstep] embedding supplies [0] at [nat]; the cmd bridge WILL supply the typed

@@ -17,12 +17,14 @@
     AUTHORITATIVE operational interpreter [run_cmd] — which runs the body THEN its [defer] stack (LIFO,
     func-scope return, on panic too; the #12 fix).  There is NO shallow [Cmd -> IO] reading: a sequential
     [World -> Outcome] cannot run a func-scoped defer at return, so [run_cmd] is the ONLY semantics for a
-    [Cmd] (a shallow drop/no-op would silently erase a deferred effect).  Channel ops and
-    [catch] are future slices (plans/bridge-effects.md). *)
+    [Cmd] (a shallow drop/no-op would silently erase a deferred effect).  The CHANNEL trio
+    ([CChSend]/[CChRecv]/[CChClose]) is part of this syntax — the single-goroutine
+    deterministic fragment; [catch] and spawn/select are future slices
+    (plans/bridge-effects.md). *)
 From Fido Require Import preamble.
 From Fido Require Import GoRuntimeTypes.
 From Fido Require Import GoEffects.
-From Fido Require Import GoPanic.   (* the channel trio's Go-faithful panics (send/close on closed, close of nil) *)
+From Fido Require Import GoPanic.   (* the channel trio's Go-faithful panics (send/close on a closed channel) *)
 From Fido Require Import GoSlice.
 From Stdlib Require Import List Lia.
 Import ListNotations.
