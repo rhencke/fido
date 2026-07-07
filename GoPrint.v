@@ -4874,16 +4874,20 @@ Proof.
   rewrite (bdip_app_nodip ts (cl :: r) 0 0 Hb), Hcl. cbn [option_map].
   f_equal. apply PeanoNat.Nat.add_0_r.
 Qed.
+(** PUBLIC interface takes the CLEAN closer condition [cl = TRP \/ TRB \/ TRC] — the operational
+    [bdip (cl :: rr) 0 = Some 0] is derived internally, not leaked to callers. *)
 Lemma balanced_close_split : forall cl ts1 ts2 r1 r2,
-  (forall rr, bdip (cl :: rr) 0 = Some 0) ->
+  (cl = TRP \/ cl = TRB \/ cl = TRC) ->
   bd ts1 0 = Some 0 -> bd ts2 0 = Some 0 ->
   (ts1 ++ cl :: r1)%list = (ts2 ++ cl :: r2)%list ->
   ts1 = ts2 /\ r1 = r2.
 Proof.
   intros cl ts1 ts2 r1 r2 Hcl H1 H2 HE.
+  assert (Hbdip : forall rr, bdip (cl :: rr) 0 = Some 0)
+    by (intro rr; destruct Hcl as [E|[E|E]]; subst cl; reflexivity).
   assert (HL : length ts1 = length ts2).
-  { pose proof (bdip_balanced_close ts1 cl r1 H1 Hcl) as F1.
-    pose proof (bdip_balanced_close ts2 cl r2 H2 Hcl) as F2.
+  { pose proof (bdip_balanced_close ts1 cl r1 H1 Hbdip) as F1.
+    pose proof (bdip_balanced_close ts2 cl r2 H2 Hbdip) as F2.
     rewrite HE in F1. rewrite F2 in F1. injection F1 as F1. symmetry. exact F1. }
   destruct (app_eq_length ts1 ts2 (cl :: r1) (cl :: r2) HL HE) as [-> HT].
   injection HT as ->. split; reflexivity.
