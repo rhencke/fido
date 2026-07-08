@@ -66,7 +66,7 @@ unsupported frontier, isolated theorem-backed integration test, isolated researc
 `preamble.v` · making printer correctness depend on executable-parser implementation details ·
 replacing fuel with renamed allowances/depth caps/bounded runners · treating panic stubs as
 semantics for unsupported behavior · demos for unsupported features called progress · defining a
-relation without its determinism/disjointness/classification facts · letting `SupportedProgram`
+relation without its determinism/disjointness/classification facts · letting `GoCompile`
 sound like semantic safety · stale comments preserving old architectures as active mental
 models · adding code beside a weaker path instead of deleting it.
 
@@ -104,7 +104,7 @@ proof strength.
 5. **Partial/unsafe ops are safe-by-construction or proof-gated.** Prefer evidence-carrying APIs
    (demand `i < len`, `d <> 0`, non-nil) or check-and-branch (comma-ok / `option`). Never
    *accidentally* write a Rocq program that needs a nil deref.
-6. **Naming is a correctness claim.** `SupportedProgram` is syntactic admissibility ONLY — it
+6. **Naming is a correctness claim.** `GoCompile` is syntactic admissibility ONLY — it
    implies no semantic safety, panic-freedom, termination/divergence classification,
    race-freedom, memory safety, or real-Go adequacy unless separately proved and exposed
    through a manifest-gated surface. Never let a syntactic gate sound like `SafeProgram`.
@@ -115,7 +115,7 @@ proof strength.
 
 `plugin/go.ml` is **trusted and therefore not part of the intended MVP proof architecture**. Do
 not grow it. Do not route official MVP claims through it. Bypass it with the certified emission
-path (`GoAst` → `GoPrint` → `GoSafe` → `GoEmit` — the ONLY blessed emit, certificate-required;
+path (`GoAst` → `GoPrint` → `GoCompile` → `GoEmit` — the ONLY blessed emit, certificate-required;
 `ARCHITECTURE.md` governs the spine), isolate it as a research/integration tool, or delete the
 pieces superseded by certified architecture. Trusted plugin output never inherits certified
 claims it has not earned: the official MVP output comes from the certified theorem path, and a
@@ -189,7 +189,7 @@ make install-hooks # activate the pre-commit hook (once after clone)
   never export hooks as authority. `preamble.v` declares the ML plugins ONLY — narrow imports
   everywhere, never a re-export fog. Plugin ownership is the exact-dirpath `model_dirpaths`
   whitelist (`from_model`), hooks separate (`from_hooks`).
-- `GoAst`/`GoPrint`/`GoTypes`/`GoSafe`/`GoEmit` — the certified-emission spine; `GoSem*` slices
+- `GoAst`/`GoPrint`/`GoTypes`/`GoCompile`/`GoEmit` — the certified-emission spine; `GoSem*` slices
   behavior (the `cmd.v` bridge; bridge or retire `unified.v`/`concurrency.v`, never fork a
   second universe); `cmd.v` — the effect evaluator the bridge agrees with;
   `unified.v`/`concurrency.v` — proof-only.

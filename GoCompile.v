@@ -1,14 +1,21 @@
 (** ============================================================================
-    GoSafe.v — supportedness now, behavioral safety later (AST-first spine; ARCHITECTURE.md §2/§2a).
-    [SupportedProgram] is a PHASE-1 SYNTACTIC gate, NOT behavioral safety (naming is a correctness
-    claim — never call a syntactic gate "Safe").  [BehaviorSafe] lands once GoSem denotes enough;
-    until then GoEmit emits only the SUPPORTED subset and must not be described as safe.
-    GoSafe is a CONSERVATIVE supported-subset checker, not Go's typechecker.  [ScopeS] seals
-    valid distinct names and bound categories; used flags are threaded STATE whose provenance is
-    owned by the fold from [scope_empty] ([supported_program], which rejects unused locals).
+    GoCompile.v — the STATIC COMPILER-ADMISSIBILITY layer (the compiler front-end proof layer;
+    AST-first spine; ARCHITECTURE.md §2/§2a).  [GoCompile] proves the compiler-front-end
+    obligations for the emitted subset: package-main, legal statement forms, names resolve, scopes
+    are valid, locals are used, no redeclare, constants fit, type categories are admissible.  It is
+    NOT behavioral safety (naming is a correctness claim — a static gate never claims runtime safety,
+    panic-freedom, termination, or race-freedom); that is GoSemSafe / a future GoSafe, a SEPARATE
+    layer.  GoAst may represent Go-shaped programs that do NOT compile; GoCompile is what proves a
+    represented program is statically admissible.  It is a CONSERVATIVE checker for the current
+    emitted subset, not a full Go typechecker.  [ScopeS] seals valid distinct names and bound
+    categories; used flags are threaded STATE whose provenance is owned by the fold from
+    [scope_empty] ([go_compile_check], which rejects unused locals).
+    (Today [GoCompile p := go_compile_check p = true] is the executable checker as authority; the
+    proof-bearing declarative relation [CompileExpr]/[CompileStmt]/[CompileBody] + checker soundness
+    is the next GoCompile phase — see plans/gocompile.md.)
     ============================================================================ *)
-From Fido Require Import GoAst.   (* syntax + [classify]; deliberately NOT GoPrint — safety must not depend on the printer *)
-From Fido Require Import GoTypes. (* the shared type-category checker ([ptype]/[svalue]) — one authority for GoSafe AND GoSem *)
+From Fido Require Import GoAst.   (* syntax + [classify]; deliberately NOT GoPrint — admissibility must not depend on the printer *)
+From Fido Require Import GoTypes. (* the shared type-category checker ([ptype]/[svalue]) — one authority for GoCompile AND GoSem *)
 From Stdlib Require Import String List Bool ZArith Eqdep_dec.
 Import ListNotations.
 Open Scope string_scope.
@@ -19,7 +26,7 @@ Open Scope string_scope.
     shapes are UNREPRESENTABLE, [Fail]-pinned below).  [scope_declare] is the one declaration
     path (binds from the RHS [PTy] internally, decides [scope_wf] at construction).  BOUNDARY:
     construction PROVENANCE is not type-sealed — it is the scoped fold's property ([body_okS]
-    declares only via [scope_declare]; [supported_program] runs the fold from [scope_empty]);
+    declares only via [scope_declare]; [go_compile_check] runs the fold from [scope_empty]);
     full module-opacity would block the [vm_compute] fixture discipline. *)
 Definition bound_cat_ok (c : PTy) : bool :=
   match c with
@@ -826,7 +833,7 @@ Proof.
 Qed.
 
 (** ===== STRUCTURAL: the CLOSED fragment [stmt_ok], the internal scope-threaded checkers
-    ===== [stmt_okS]/[body_okS], and the program gate [supported_program] ===== *)
+    ===== [stmt_okS]/[body_okS], and the program gate [go_compile_check] ===== *)
 
 (** A builtin valid as a standalone EXPRESSION-STATEMENT call, by NAME and ARITY only (argument
     TYPES are per-builtin in [expr_stmt_ok]).  Conversions and value builtins are excluded
@@ -875,7 +882,7 @@ Definition expr_stmt_ok (e : GExpr) : bool :=
   end.
 
 (** The CLOSED (scope-free) supported statement fragment — what GoSemDenote's slice-1 evaluator
-    is gated on; the program gate is [supported_program] below, and the [.._nil] bridge lemmas
+    is gated on; the program gate is [go_compile_check] below, and the [.._nil] bridge lemmas
     prove the spellings agree on decl-free bodies.  [GsReturnVal] is invalid in the void [main];
     [defer] requires a CALL (same gate as an expr statement). *)
 Definition stmt_ok (s : GoStmt) : bool :=
@@ -889,7 +896,7 @@ Definition stmt_ok (s : GoStmt) : bool :=
   end.
 
 (** ===== The SCOPE-THREADED checkers — ONE fold over the sealed [ScopeS], run by
-    ===== [supported_program] below =====
+    ===== [go_compile_check] below =====
     The scope-aware twins of [expr_stmt_ok]/[stmt_ok]: the same per-builtin discipline, but every
     argument/operand goes through [type_expr] (uses resolve AND mark in one traversal).
     [GsShortDecl] is admitted here — RHS typed first (Go's order), then [scope_declare] binds
@@ -961,13 +968,13 @@ Definition scope_all_used (G : ScopeS) : bool :=
     CONSERVATIVE structural scope + type-category supportedness — rejects free identifiers,
     use-before-declare, redeclaration, unused locals, and structurally-evident type/constant
     errors, but it is NOT full Go type-checking and NOT behavioral safety. *)
-Definition supported_program (p : Program) : bool :=
+Definition go_compile_check (p : Program) : bool :=
   String.eqb (proj1_sig (prog_pkg p)) "main"
   && match body_okS scope_empty (prog_body p) with
      | Some Gfin => scope_all_used Gfin
      | None => false
      end.
-Definition SupportedProgram (p : Program) : Prop := supported_program p = true.
+Definition GoCompile (p : Program) : Prop := go_compile_check p = true.
 
 (** ===== The DECL-FREE bridge: the scoped fold at [scope_empty] IS the closed fragment =====
     On a decl-free body the fold can neither bind nor mark, so it agrees EXACTLY with
@@ -1059,13 +1066,13 @@ Proof.
 Qed.
 
 (** The consumer-facing corollary ([gosem_sound]'s repair): a main-package body in the CLOSED
-    fragment is accepted by [supported_program]. *)
-Lemma supported_program_of_stmt_ok : forall p,
+    fragment is accepted by [go_compile_check]. *)
+Lemma go_compile_check_of_stmt_ok : forall p,
   String.eqb (proj1_sig (prog_pkg p)) "main" = true ->
   forallb stmt_ok (prog_body p) = true ->
-  supported_program p = true.
+  go_compile_check p = true.
 Proof.
-  intros p Hpkg Hb. unfold supported_program.
+  intros p Hpkg Hb. unfold go_compile_check.
   rewrite Hpkg, (body_okS_of_stmt_ok _ Hb). reflexivity.
 Qed.
 
@@ -1102,7 +1109,7 @@ Definition gs_use (i : Ident) : GoStmt := GsBlankAssign (EId i).
 Definition unsupported_value_stmt : Program :=
   mkProgram (mkIdent "main" eq_refl) [GsExprStmt (EInt 1)].
 
-(** REJECTED — every entry is INVALID Go the gate must refuse ([supported_program = false]).
+(** REJECTED — every entry is INVALID Go the gate must refuse ([go_compile_check = false]).
     ⚠ This list is the SOUNDNESS obligation; valid-but-rejected programs belong in
     [valid_unsupported_programs], never here. *)
 Definition bad_programs : list Program :=
@@ -1224,7 +1231,7 @@ Definition bad_programs : list Program :=
   ; pl_arg (gs_int (EId (mkIdent "x" eq_refl)))
   ].
 Example bad_programs_rejected :
-  forallb (fun p => negb (supported_program p)) bad_programs = true.
+  forallb (fun p => negb (go_compile_check p)) bad_programs = true.
 Proof. vm_compute. reflexivity. Qed.
 
 (** REJECTED-BUT-VALID: Go ACCEPTS every program here; the gate still rejects (bounded fail-loud
@@ -1267,23 +1274,23 @@ Definition valid_unsupported_programs : list Program :=
              GsBlankAssign (ECall (EId (mkIdent "len" eq_refl)) [EId id_m])]   (* m := map[int]int{1:2}; _ = len(m) *)
   ] ++ ptrchan_key_quarantine.
 Example valid_unsupported_rejected :
-  forallb (fun p => negb (supported_program p)) valid_unsupported_programs = true.
+  forallb (fun p => negb (go_compile_check p)) valid_unsupported_programs = true.
 Proof. vm_compute. reflexivity. Qed.
 
 (** The CLOSED fragment never admits a short declaration (pinned at the constructor) — why
-    denotable bodies are decl-free; [supported_program] DOES admit declarations (the
+    denotable bodies are decl-free; [go_compile_check] DOES admit declarations (the
     [good_programs] locals rows). *)
 Example shortdecl_stmt_ok_false : forall x e, stmt_ok (GsShortDecl x e) = false.
 Proof. reflexivity. Qed.
 
 (** [body_okS] is the INTERNAL body checker, NOT the program gate: it can SUCCEED on an
-    unused-local body that [supported_program] rejects via [scope_all_used]. *)
+    unused-local body that [go_compile_check] rejects via [scope_all_used]. *)
 Example body_okS_not_the_gate :
   match body_okS scope_empty [GsShortDecl id_x (EInt 1); GsReturn] with
   | Some G => scope_all_used G = false
   | None => False
   end
-  /\ supported_program (gs_main [GsShortDecl id_x (EInt 1); GsReturn]) = false.
+  /\ go_compile_check (gs_main [GsShortDecl id_x (EInt 1); GsReturn]) = false.
 Proof. split; vm_compute; reflexivity. Qed.
 
 (** ★ THE CTMAP TARGET CLASS GATE — universal: every [goty_supported]-rejected map target's nil
@@ -1291,7 +1298,7 @@ Proof. split; vm_compute; reflexivity. Qed.
     outer-key-only shortcut can satisfy it). *)
 Theorem ctmap_conv_unsupported_target_rejected : forall k v,
   goty_supported (GTMap k v) = false ->
-  supported_program (gs_blank (EConv (CTMap k v) (EId (mkIdent "nil" eq_refl)))) = false.
+  go_compile_check (gs_blank (EConv (CTMap k v) (EId (mkIdent "nil" eq_refl)))) = false.
 Proof. intros k v _. reflexivity. Qed.
 
 (** The [len(string(65))] ledger row rejects via the NON-LITERAL-[PtStr] [len] fallback
@@ -1345,7 +1352,7 @@ Definition good_programs : list Program :=
   ; gs_main [GsShortDecl id_x (EInt 1); GsBlankAssign (EBn BAdd (EId id_x) (EInt 1))]  (* use marked INSIDE a subexpression *)
   ; gs_main [GsShortDecl id_x (EInt 1); GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [EId id_x])]  (* use marked through a CALL ARGUMENT *)
   ].
-Example good_programs_supported : forallb supported_program good_programs = true.
+Example good_programs_compile : forallb go_compile_check good_programs = true.
 Proof. vm_compute. reflexivity. Qed.
 
 (** EXPRESSION-LEVEL direct pins not surfaced through the program lists. *)
@@ -1355,19 +1362,19 @@ Example complement_const_uint_none  : complement_const GTUint 0 = None.        P
 Example complement_const_u8_exact   : complement_const GTU8 0 = Some 255%Z.    Proof. reflexivity. Qed.
 Example complement_const_int_signed : complement_const GTInt 0 = Some (-1)%Z.  Proof. reflexivity. Qed.
 
-(** FORGE-RESISTANCE — [eq_refl] cannot inhabit [SupportedProgram <bad>]: no certificate exists
+(** FORGE-RESISTANCE — [eq_refl] cannot inhabit [GoCompile <bad>]: no certificate exists
     for a rejected program.  (The [:= eq_refl] term form is what must fail; [Fail Lemma] would
     only guard the vernac.) *)
 Fail Example forge_value_stmt :
-  SupportedProgram unsupported_value_stmt := eq_refl.
+  GoCompile unsupported_value_stmt := eq_refl.
 Fail Example forge_nonmain_pkg :
-  SupportedProgram (mkProgram (mkIdent "lib" eq_refl) [GsReturn]) := eq_refl.
+  GoCompile (mkProgram (mkIdent "lib" eq_refl) [GsReturn]) := eq_refl.
 Fail Example forge_free_blank :
-  SupportedProgram (gs_blank (EId (mkIdent "x" eq_refl))) := eq_refl.
+  GoCompile (gs_blank (EId (mkIdent "x" eq_refl))) := eq_refl.
 Fail Example forge_uint8_overflow :
-  SupportedProgram (pl_arg (gs_u8 (EInt 300))) := eq_refl.
+  GoCompile (pl_arg (gs_u8 (EInt 300))) := eq_refl.
 Fail Example forge_unused_local :
-  SupportedProgram (gs_main [GsShortDecl id_x (EInt 1); GsReturn]) := eq_refl.
+  GoCompile (gs_main [GsShortDecl id_x (EInt 1); GsReturn]) := eq_refl.
 
 (** ===================================================================================================
     ===== SEMANTIC: BehaviorSafe over GoSem (future) =====
@@ -1378,9 +1385,9 @@ Fail Example forge_unused_local :
     gate the charter forbids.  ([GoSemSafe.panic_free_gate] is a narrow off-main seed, not this
     gate.)  When GoSem suffices: [BehaviorSafe] + [SafeProgram]/[emit_safe]. *)
 
-(** GATE — GoSafe is on the blessed emission path; keep it axiom-free (checked by the GOEMIT_GATE, mirroring
+(** GATE — GoCompile is on the blessed emission path; keep it axiom-free (checked by the GOEMIT_GATE, mirroring
     the digits/GoAst/GoPrint printer gate). *)
-Print Assumptions SupportedProgram.
+Print Assumptions GoCompile.
 Print Assumptions bad_programs_rejected.
 Print Assumptions ctmap_conv_unsupported_target_rejected.
 Print Assumptions body_okS_nil_declfree.

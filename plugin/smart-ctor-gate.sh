@@ -49,7 +49,7 @@ ppcallers=$(grep -nE '\bprint_program\b[[:space:]]*[("a-zA-Z0-9_]' \
 if [ -n "$ppcallers" ]; then
   echo "fido: EMISSION-DISCIPLINE GATE — a direct GoPrint.print_program CALL is in active code outside GoEmit.v:"
   echo "$ppcallers"
-  echo "fido: emit ONLY through GoEmit.emit_supported (certificate-gated); print_program is for proofs/tests."
+  echo "fido: emit ONLY through GoEmit.emit_compiled (certificate-gated); print_program is for proofs/tests."
   exit 1
 fi
 echo "fido: emission-discipline gate OK — no direct print_program call outside GoEmit.v / GoPrint.v ✓"

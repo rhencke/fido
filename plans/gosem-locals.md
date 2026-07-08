@@ -10,7 +10,7 @@ define the `BehaviorSafe` gate.
 Rungs 1–4 and 5a/5b are DONE (the theorems are the authority): `GsShortDecl` +
 print-injectivity; ONE recognized-name table (`special_ident` + inverse); the sealed
 `ScopeS`/`scope_declare` checking with `type_expr` (bridged to closed `ptype`), category
-projection `tcat` (mark-insensitive); the program gate `supported_program` (package-main +
+projection `tcat` (mark-insensitive); the program gate `go_compile_check` (package-main +
 `body_okS` fold from `scope_empty` + `scope_all_used`; `stmt_ok` stays the CLOSED fragment
 GoSem slice 1 is gated on, agreement `body_okS_nil_declfree`); the sealed `_tc` engine
 family with `EId` arms and the env instance `denote_expr_env (G)(ρ)` + closed coincidence
@@ -33,7 +33,7 @@ so decl programs are supported-but-undenoted (`shortdecl_supported_undenoted`,
 - CHECKER ADMISSION ≠ DENOTABILITY: `bind_category` is a supportedness authority; which
   admitted bindings VALUE is the evaluator's decision.
 - `Γ ≈ ρ` (binding value tags match checker categories; used flags supportedness-only) is
-  the lemma spine for env-denotation ⊆ `supported_program`, quantified over DENOTED runs.
+  the lemma spine for env-denotation ⊆ `go_compile_check`, quantified over DENOTED runs.
 - A TERMINATOR's dead tail is checked by the suffix fold from the current scope.
 - Locals widen NAME reach, not operation reach: a resolved variable feeds EXISTING runtime
   value paths only.
@@ -61,7 +61,7 @@ Decided implementation shape (2026-07-04, argued from the code):
 
 Acceptance: `x := 1; _ = x` denotes (+ runtime bindings `x := len([]int{1})`, `y := x`);
 `x := 0; _ = 1/x` denotes the runtime div panic; `x := 1/len([]int{}); _ = x` denotes the
-RHS panic without ρ extension; GoSafe rejections unchanged.
+RHS panic without ρ extension; GoCompile rejections unchanged.
 
 ## Then — 6: gate reach
 

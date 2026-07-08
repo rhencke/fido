@@ -3,7 +3,8 @@
 # for the fuel gate: the CLASS DEFINITIONS below (A/B/C, single-sourced in the variables)
 # are the spec.  The selftest is a REGRESSION FIXTURE MATRIX derived from those same
 # variables — every class-A alias, B stem, and C segment gets a generated FAIL fixture,
-# plus shaped contextual cases (plans/fuel-free.md only summarizes this).
+# plus shaped contextual cases.  (The fuel purge is CLOSED; this gate + the empty baseline
+# are the whole live authority — there is no separate steering plan.)
 #
 # IDENTIFIER-AND-CONTEXT scoped over the scanned files — the certified *.v AND the
 # trusted plugin *.ml, with language-aware classes (comments stripped first, so

@@ -5,10 +5,11 @@ Standing architectural charter — binding on Claude Code, Codex review, and hum
 The central rule:
 
 ```text
-Raw structured Go ASTs may represent unsafe programs.
+Raw structured Go ASTs may represent Go-shaped programs that do not compile.
 Only CERTIFIED ASTs may be emitted through the official path.
-Early on the certificate is "supported subset" (syntactic). It becomes "behaviorally safe"
-only when GoSem-backed SAFETY theorems back the certificate — a FIRST NARROW one exists
+The certificate is "statically compiler-admissible" (GoCompile: the front-end obligations —
+names/scopes/forms/constants). It becomes "behaviorally safe" only when GoSem-backed SAFETY
+theorems (a SEPARATE layer — GoSemSafe / future GoSafe) back it — a FIRST NARROW one exists
 (§2a), but the general behaviorally-safe certificate for the main output does NOT — and the
 NAME of the certificate must never claim more than is proved.
 ```
@@ -34,15 +35,20 @@ claim stayed the same.
 ## 2. The architectural spine
 
 ```text
-GoAst   says what can be written.
-GoPrint proves printing faithfulness ONLY (expression round-trip + program/statement print-injectivity).
-GoSem   defines behavior — SLICE 1 (cmd.v bridge + denotation⊆gate soundness); NOT complete, no BehaviorSafe yet.
-GoSafe  defines supportedness now, behavioral safety later.
-GoEmit  is the only blessed emission path and requires the appropriate certificate.
+GoAst     — this represents a SYNTACTICALLY VALID program (well-formed Go syntax); it may not compile.
+GoPrint   proves printing faithfulness ONLY (expression round-trip + program/statement print-injectivity).
+GoCompile — this program WOULD COMPILE: the front-end obligations for the emitted subset (names
+          resolve, scopes valid, forms legal, locals used, constants fit).
+GoSem     — the SEMANTICS atop a compilable program: runtime meaning, only for programs GoCompile
+          admits — SLICE 1 (cmd.v bridge + denotation⊆gate); NOT complete.
+GoSemSafe / future GoSafe  — SAFETY atop the semantics: behavioral safety, only for programs GoSem
+          gives meaning.  A SEPARATE layer, never GoCompile.
+GoEmit    is the only blessed emission path and requires the appropriate certificate (GoCompile now).
 
-Printer proofs are SYNTAX proofs — they do NOT imply race freedom, memory safety,
-termination, session correctness, or GoSem correctness. Safety proofs are BEHAVIORAL.
-Emission COMPOSES the two.
+The Go compiler may compile our program, but it must not be the FIRST component to understand it —
+GoCompile proves the front-end obligations. Printer proofs are SYNTAX proofs — they do NOT imply
+static admissibility, race freedom, memory safety, termination, session correctness, or GoSem
+correctness. Static admissibility is GoCompile; behavioral safety is BEHAVIORAL. Emission COMPOSES them.
 ```
 
 **`GoAst.v` — structured Go syntax.** May represent unsafe programs, but must **not**
@@ -68,7 +74,7 @@ print-INJECTIVITY only (`print_program_inj`/`print_stmt_inj`). Purely syntactic.
 **`GoSem.v` — behavioral bridge from `GoAst` into the existing proof models — SLICE 1.**
 `denote_program : Program -> option (Cmd unit)` bridges into `cmd.v`'s proven command tree
 (no second universe), over a PARTIAL `eval_value` — coverage single-sourced in PROGRESS.md.
-`gosem_sound`: denotation ⊆ `SupportedProgram`. Certified surface: the `Print
+`gosem_sound`: denotation ⊆ `GoCompile`. Certified surface: the `Print
 Assumptions`-gated `gosem_*_surface` tuples (list single-sourced in PROGRESS.md "Current
 gates"). NO completeness, NO `BehaviorSafe`. As GoSem grows it must **bridge or retire**
 `unified.v` and `concurrency.v` — ONE behavioral authority, never a second universe.
@@ -80,31 +86,34 @@ values so overflow / div-or-shift-by-zero are decided from the folded value) + c
 CONSERVATIVE supported-subset classifier, NOT Go's typechecker.** No new rule unless it
 (a) rejects a real CLOSED bad program currently accepted, or (b) admits a needed demo.
 
-**`GoSafe.v` — supportedness now, behavioral safety later (imports `GoAst` + `GoTypes`).**
-The program gate is `supported_program`/`SupportedProgram`: package-main + the
+**`GoCompile.v` — STATIC compiler-admissibility, the compiler front-end proof layer (imports
+`GoAst` + `GoTypes`).**  The program gate is `go_compile_check`/`GoCompile`: package-main + the
 scope-threaded body fold `body_okS` (over the sealed `ScopeS`; locals bind only via
 `scope_declare`) + the final `scope_all_used`. `stmt_ok` is the CLOSED scope-free fragment
-GoSem slice 1 is gated on (decl-free agreement: `body_okS_nil_declfree`). **Phase 1 is
-SYNTACTIC supportedness and must be NAMED as such** (Rule 5).
+GoSem slice 1 is gated on (decl-free agreement: `body_okS_nil_declfree`). **This is STATIC
+admissibility, NOT behavioral safety — a static gate never claims runtime safety (Rule 6).**
+Today `GoCompile p := go_compile_check p = true` (the executable checker as authority); the
+proof-bearing declarative `CompileExpr`/`CompileStmt`/`CompileBody` relation + checker soundness
+is the next GoCompile phase (`plans/gocompile.md`) — NOT a decorative bool-alias.
 
 ```text
-SupportedProgram  -- syntactic: in the supported subset; no unmodeled constructs; no raw escape hatches.
+GoCompile  -- syntactic: in the supported subset; no unmodeled constructs; no raw escape hatches.
 BehaviorSafe      -- semantic GATE (reserved; not yet defined): no nil deref / OOB /
                      send-on-closed / illegal close / data race; happens-before consistency; session safety.
 ```
 
 Safety must become the **ticket required by the emitter**, not a theorem sitting near an AST.
 
-**`GoEmit.v` — the only blessed emission path (imports `GoAst`, `GoPrint`, `GoSafe`).**
+**`GoEmit.v` — the only blessed emission path (imports `GoAst`, `GoPrint`, `GoCompile`).**
 
 ```coq
-Record EmittableProgram := { ep_program : GoAst.Program; ep_supported : GoSafe.SupportedProgram ep_program }.
-Definition emit_supported (p : EmittableProgram) : string := GoPrint.print_program p.(ep_program).
+Record EmittableProgram := { ep_program : GoAst.Program; ep_compile : GoCompile.GoCompile ep_program }.
+Definition emit_compiled (p : EmittableProgram) : string := GoPrint.print_program p.(ep_program).
 (* Later, once GoSem is COMPLETE and BehaviorSafe is real:
    a SafeProgram = EmittableProgram + BehaviorSafe, emitted by emit_safe. *)
 ```
 
-`emit_supported` is a printer/supported-subset milestone — NOT behaviorally safe. Do
+`emit_compiled` is a printer/supported-subset milestone — NOT behaviorally safe. Do
 **not** export a raw `emit : GoAst.Program -> string`. Raw printing for tests must not be
 the extraction path or back any safety claim.
 
@@ -141,7 +150,7 @@ certified architecture supersedes it.
   its lowering nicer is moving the wrong direction.
 - No parallel universes beside the spine — no second authority for syntax, semantics,
   emission, safety, termination, or divergence.
-- A feature is **covered** only when GoAst represents it, GoPrint emits it, GoSafe admits
+- A feature is **covered** only when GoAst represents it, GoPrint emits it, GoCompile admits
   it appropriately, GoEmit emits it through the certificate, and GoSem/GoSemSafe models it
   exactly or rejects honestly — one layer alone is not coverage. Each certified feature
   names the trusted-path demos it supersedes and DELETES them in the same patch; a
@@ -179,7 +188,7 @@ are pure, golden byte-identical.
 ```text
 Phase 0  Freeze the direction.                                                       DONE
 Phase 1  Extract the printer/parser seed into GoAst/GoPrint.                         DONE
-Phase 2  Create GoSafe (SupportedProgram) + GoEmit (EmittableProgram; no raw emit).  DONE
+Phase 2  Create GoCompile (GoCompile) + GoEmit (EmittableProgram; no raw emit).  DONE
 Phase 3  main.v builds GoAst.Program and emits ONLY through the certificate.         DONE
 Phase 4  Grow the AST/printer form-by-form (represented, printed,                    ONGOING
          round-tripped/injective, gate-honest).
@@ -247,7 +256,7 @@ invariants, not the social history of a bug.
 [live]     No raw-syntax constructor NAMES in source (plugin/smart-ctor-gate.sh).
 [live]     Official emit only via GoEmit's certificate API; no direct print_program call outside GoEmit.
 [live]     Print Assumptions for every public safety theorem (list single-sourced in PROGRESS.md "Current gates").
-[review]   The Phase-1 gate is named SupportedProgram, NOT SafeProgram, until GoSem-backed BehaviorSafe exists.
+[review]   The Phase-1 gate is named GoCompile, NOT SafeProgram, until GoSem-backed BehaviorSafe exists.
 [review]   Docs and NAMES do not claim more than the live path proves.
 ```
 
@@ -261,7 +270,7 @@ definitions, not by grep.
 ## 9. What not to do
 
 No second universe beside the spine; no old plugin printer wired into `GoEmit`; no parser
-used to rescue old-printer strings; no `SupportedProgram`/`BehaviorSafe` axiom; no
+used to rescue old-printer strings; no `GoCompile`/`BehaviorSafe` axiom; no
 convenient unsafe `emit`; no "safe Go" claim for a program that skipped the behavioral
 certificate.
 

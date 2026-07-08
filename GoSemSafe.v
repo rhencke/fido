@@ -15,7 +15,7 @@
     Public surface: [gosem_panic_free_surface] (single-sourced in PROGRESS.md "Current gates"); each
     theorem's exact contract is at its site. *)
 
-From Fido Require Import preamble cmd GoAst GoTypes GoSafe GoSem cmd_unified unified GoEmit.
+From Fido Require Import preamble cmd GoAst GoTypes GoCompile GoSem cmd_unified unified GoEmit.
 From Fido Require Import GoRuntimeTypes.
 From Fido Require Import GoEffects.
 From Fido Require Import GoSlice.
@@ -223,13 +223,13 @@ Example panic_free_denotable_decides :
   panic_free_denotable panic_free_prog = true /\ panic_free_denotable panicking_prog = false.
 Proof. split; reflexivity. Qed.
 
-(** [panic_free_denotable] REFINES [SupportedProgram]: [panic_free_denotable p = true] implies
-    [supported_program p = true], which IS [SupportedProgram p] — the [Prop] [GoEmit.EmittableProgram] carries in
-    its [ep_supported] field.  So this support proof suffices to build that [ep_supported] component.  Exactly
+(** [panic_free_denotable] REFINES [GoCompile]: [panic_free_denotable p = true] implies
+    [go_compile_check p = true], which IS [GoCompile p] — the [Prop] [GoEmit.EmittableProgram] carries in
+    its [ep_compile] field.  So this support proof suffices to build that [ep_compile] component.  Exactly
     that implication — NOT a claim about "safe" programs in general, about a future [BehaviorSafe], or about
     [SafeProgram]. *)
 Lemma panic_free_denotable_supported : forall p,
-  panic_free_denotable p = true -> SupportedProgram p.
+  panic_free_denotable p = true -> GoCompile p.
 Proof.
   intros p H. unfold panic_free_denotable in H.
   destruct (denote_program p) as [c|] eqn:Ec; [|discriminate H].
@@ -241,26 +241,26 @@ Qed.
     modeled nil/pointer/channel hazards; any denoted panic is caught by [cmd_no_panic], and an ABSENT
     (undenoted) program by non-denotation — a full [BehaviorSafe]
     (nil deref / send-on-closed / race) lands with those constructs.  So this is NAMED for what it PROVES, NOT
-    [SafeProgram] / [BehaviorSafe]: a program that is EMITTABLE ([SupportedProgram], via
+    [SafeProgram] / [BehaviorSafe]: a program that is EMITTABLE ([GoCompile], via
     [panic_free_denotable_supported]) AND carries the decidable panic-free RUN guarantee.  It is the FIRST
     certificate whose PRECONDITION is behavioral (a proven [ORet] run), not merely the syntactic
-    [SupportedProgram] of [GoEmit.EmittableProgram]. *)
+    [GoCompile] of [GoEmit.EmittableProgram]. *)
 Record PanicFreeEmittable : Type := mkPanicFreeEmittable {
   pfe_program    : Program;
   pfe_panic_free : panic_free_denotable pfe_program = true;
 }.
 
 (** REFINEMENT: a [PanicFreeEmittable] IS an [EmittableProgram] (still emittable through the BLESSED path) —
-    its behavioral precondition discharges the syntactic [ep_supported] via [panic_free_denotable_supported]. *)
+    its behavioral precondition discharges the syntactic [ep_compile] via [panic_free_denotable_supported]. *)
 Definition pfe_emittable (c : PanicFreeEmittable) : EmittableProgram :=
   mkEmittable (pfe_program c) (panic_free_denotable_supported (pfe_program c) (pfe_panic_free c)).
 
-(** SEED of [emit_safe]: the blessed emitter on the behavioral certificate.  Goes THROUGH [emit_supported]
+(** SEED of [emit_safe]: the blessed emitter on the behavioral certificate.  Goes THROUGH [emit_compiled]
     (no forked emission logic — pinned by [emit_panic_free_via_blessed]); the difference from plain
-    [emit_supported] is the STRONGER precondition — you cannot build a [PanicFreeEmittable] without discharging
+    [emit_compiled] is the STRONGER precondition — you cannot build a [PanicFreeEmittable] without discharging
     [panic_free_denotable], so this emitter accepts ONLY programs with a proven panic-free run. *)
-Definition emit_panic_free (c : PanicFreeEmittable) : string := emit_supported (pfe_emittable c).
-Lemma emit_panic_free_via_blessed : forall c, emit_panic_free c = emit_supported (pfe_emittable c).
+Definition emit_panic_free (c : PanicFreeEmittable) : string := emit_compiled (pfe_emittable c).
+Lemma emit_panic_free_via_blessed : forall c, emit_panic_free c = emit_compiled (pfe_emittable c).
 Proof. reflexivity. Qed.
 
 (** The behavioral guarantee TRAVELS with the certificate: a [PanicFreeEmittable]'s program DENOTES and RUNS to
@@ -340,7 +340,7 @@ Example panic_free_gate_decides :
 Proof. split; [apply panic_free_gate_complete; reflexivity | reflexivity]. Qed.
 
 (** Representative emission-gate reach test for a NON-[panic()] runtime panic.  [slice_oob_prog] is VALID Go
-    and [SupportedProgram] (an OOB-positive constant slice index is a run-time panic, not a compile error);
+    and [GoCompile] (an OOB-positive constant slice index is a run-time panic, not a compile error);
     since tier R2 GoSem DENOTES it — to a command carrying the exact [rt_index_oob 5 2] [CPan]
     ([GoSem.slice_index_panics_denote] pins the payload; [denote_expr_index_oob] is the class) — and the gate
     REJECTS it by [cmd_no_panic] ON the denotation.  The [denotable_program = true] conjunct below CHECKS that
@@ -352,8 +352,8 @@ Definition slice_oob_prog : Program :=
   mkProgram (mkIdent "main" eq_refl)
     [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (EInt 5)]); GsReturn].
 Example panic_free_gate_slice :
-  supported_program slice_safe_prog = true                 (* BOTH are valid Go (B1: OOB-positive const index = run-time panic) ... *)
-  /\ supported_program slice_oob_prog = true
+  go_compile_check slice_safe_prog = true                 (* BOTH are valid Go (B1: OOB-positive const index = run-time panic) ... *)
+  /\ go_compile_check slice_oob_prog = true
   /\ (exists c, panic_free_gate slice_safe_prog = Some c)   (* ... the in-bounds one the BEHAVIORAL gate ACCEPTS ... *)
   /\ denotable_program slice_oob_prog = true                (* ... the OOB one DENOTES (tier R2 — its exact [rt_index_oob] [CPan]) ... *)
   /\ panic_free_gate slice_oob_prog = None                  (* ... so its rejection is [cmd_no_panic]'s judgment ON the denotation, NOT non-denotation *)
@@ -375,10 +375,10 @@ Qed.
     non-denotation incompleteness), and the gate REJECTS it: a deferred panic still ends the run in [OPanic]
     ([GoSem.rc_defer_panic]), so admitting it would break [pfe_runs_ret]. *)
 Example panic_free_gate_defer :
-  supported_program gosem_defer_prog = true
+  go_compile_check gosem_defer_prog = true
   /\ (exists c, panic_free_gate gosem_defer_prog = Some c)
   /\ emit_panic_free_gated gosem_defer_prog <> None
-  /\ supported_program gosem_defer_panic_prog = true
+  /\ go_compile_check gosem_defer_panic_prog = true
   /\ denotable_program gosem_defer_panic_prog = true
   /\ panic_free_gate gosem_defer_panic_prog = None
   /\ emit_panic_free_gated gosem_defer_panic_prog = None.
@@ -396,7 +396,7 @@ Qed.
     OPanic run) — and the gate REJECTS it by [cmd_no_panic] on the denotation (the denotable-panic mechanism,
     NOT non-denotation): the FIRST runtime-panic case certified-rejected at its true behavior. *)
 Example panic_free_gate_div :
-  supported_program gosem_runtime_blank_prog = true
+  go_compile_check gosem_runtime_blank_prog = true
   /\ denotable_program gosem_runtime_blank_prog = true
   /\ panic_free_gate gosem_runtime_blank_prog = None
   /\ emit_panic_free_gated gosem_runtime_blank_prog = None.
@@ -410,7 +410,7 @@ Qed.
     ARGUMENT's [CPan] — immediate and deferred), and the gate rejects both by [cmd_no_panic] on the
     denotation. *)
 Example panic_free_gate_arg_panic :
-  forallb supported_program [gosem_arg_panic_prog; gosem_defer_arg_panic_prog] = true
+  forallb go_compile_check [gosem_arg_panic_prog; gosem_defer_arg_panic_prog] = true
   /\ forallb denotable_program [gosem_arg_panic_prog; gosem_defer_arg_panic_prog] = true
   /\ forallb (fun p => match panic_free_gate p with None => true | Some _ => false end)
        [gosem_arg_panic_prog; gosem_defer_arg_panic_prog] = true
@@ -430,11 +430,11 @@ Proof. repeat split; vm_compute; reflexivity. Qed.
 Definition panic_absent_prog : Program :=
   mkProgram (mkIdent "main" eq_refl) [GsExprStmt (ECall (EId (mkIdent "panic" eq_refl)) [runeconv_mb])].
 Example panic_free_gate_absent :
-  supported_program (println_prog runeconv_mb) = true
+  go_compile_check (println_prog runeconv_mb) = true
   /\ denotable_program (println_prog runeconv_mb) = false
   /\ panic_free_gate (println_prog runeconv_mb) = None
   /\ emit_panic_free_gated (println_prog runeconv_mb) = None
-  /\ supported_program panic_absent_prog = true
+  /\ go_compile_check panic_absent_prog = true
   /\ denotable_program panic_absent_prog = false
   /\ panic_free_gate panic_absent_prog = None
   /\ emit_panic_free_gated panic_absent_prog = None.

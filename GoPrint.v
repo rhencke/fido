@@ -6305,8 +6305,8 @@ Qed.
 (** ---- PROGRAM PRINTER ---- prints a [GoAst.Program] to Go source: `package <pkg>` then `func main()`
     whose body is the program's [GoStmt] list, ONE tab-indented statement per line (gofmt's layout).  An
     expression statement reuses the machine-checked [gprint]; the package name is a validated [Ident] (no
-    raw text).  GoEmit's blessed [emit_supported] is exactly [print_program], gated by a
-    [SupportedProgram] certificate. *)
+    raw text).  GoEmit's blessed [emit_compiled] is exactly [print_program], gated by a
+    [GoCompile] certificate. *)
 Definition go_nl : string := String (Ascii.ascii_of_nat 10) EmptyString.
 Definition go_tab : string := String (Ascii.ascii_of_nat 9) EmptyString.
 Definition print_stmt (s : GoStmt) : string :=

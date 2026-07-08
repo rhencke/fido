@@ -1,7 +1,7 @@
 (** ============================================================================
     GoSem.v — the AST's BEHAVIORAL semantics as a BRIDGE into cmd.v (ARCHITECTURE.md §GoSem).
     No second universe: [denote_program : Program -> option (Cmd unit)] translates a GoAst program into
-    cmd.v's proven command tree (reusing [run_cmd]/[cbind], the GoSafe gate, the model's own value
+    cmd.v's proven command tree (reusing [run_cmd]/[cbind], the GoCompile gate, the model's own value
     ctors) — single-authority, faithful.
 
     SLICE 1 (partial): denotes println/print/panic/return/blank-assign/defer + effectful call args,
@@ -9,7 +9,7 @@
     bitwise + heterogeneous-shift rows), and the typed-runtime tier T1–T5 (ONE shared evaluator,
     [reval_val_with]; [denote_expr] is a thin wrapper).
     FAITHFUL-OR-ABSENT: the right behavior or [None] ("not modeled yet", never "invalid" and never
-    wrong).  [gosem_sound]: denotation ⊆ [SupportedProgram]; NOT the converse, NOT [BehaviorSafe].
+    wrong).  [gosem_sound]: denotation ⊆ [GoCompile]; NOT the converse, NOT [BehaviorSafe].
     Absence boundaries are PINNED, not prose — [gosem_frontier_surface] is the ONE gated authority,
     and its Coq definition is the ONLY member list (this header deliberately enumerates none of it).
     Public zero-axiom surfaces (topic-split, composed, manifest-gated): [gosem_trust_surface]
@@ -20,7 +20,7 @@
     the program-level fixture GROUPS / demos / frontier + the gated SURFACES (the public
     authority); grounding examples stay adjacent to their theorems upstream.
     ============================================================================ *)
-From Fido Require Import GoAst GoTypes GoSafe cmd preamble.   (* [preamble] declares the extraction ML plugins only *)
+From Fido Require Import GoAst GoTypes GoCompile cmd preamble.   (* [preamble] declares the extraction ML plugins only *)
 From Fido Require Import GoNumeric.
 From Fido Require Import GoString.
 From Fido Require Import GoRuntimeTypes.
@@ -221,7 +221,7 @@ Proof. split; vm_compute; reflexivity. Qed.
 Definition gosem_maplen_divzero_prog : Program :=
   mkProgram (mkIdent "main" eq_refl) [GsBlankAssign divzero_map_e].
 Example maplen_divzero_runs : forall w,
-  supported_program gosem_maplen_divzero_prog = true
+  go_compile_check gosem_maplen_divzero_prog = true
   /\ match denote_program gosem_maplen_divzero_prog with
      | Some c => run_cmd c w | None => None end = Some (OPanic rt_div_zero w).
 Proof. intro w; split; vm_compute; reflexivity. Qed.
@@ -302,7 +302,7 @@ Example runtime_typed_unop_runs : forall w,
     ; Some (OPanic rt_div_zero w) ].
 Proof. intro w. vm_compute. reflexivity. Qed.
 Example typed_unary_holes_absent :
-  forallb (fun e => supported_program (println_prog e)
+  forallb (fun e => go_compile_check (println_prog e)
                     && negb (denotable_program (println_prog e))
                     && match denote_program (println_prog e) with None => true | Some _ => false end)
           [ runnot_uint_e
@@ -368,7 +368,7 @@ Definition runconv_float_src_e : GExpr :=
         [ECall (EId (mkIdent "float64" eq_refl)) [runlen3_e]].
 Example runtime_float_source_conv_absent :
   ptype runconv_float_src_e = Some (PtRunInt GTInt64)
-  /\ supported_program (println_prog runconv_float_src_e) = true
+  /\ go_compile_check (println_prog runconv_float_src_e) = true
   /\ denotable_program (println_prog runconv_float_src_e) = false
   /\ denote_program (println_prog runconv_float_src_e) = None.
 Proof. repeat split; vm_compute; reflexivity. Qed.
@@ -438,7 +438,7 @@ Example typed_operand_cross_width_none :
 Proof. vm_compute. reflexivity. Qed.
 Example typed_binop_cross_width_rejected :
   ptype (EBn BAdd runb_u8one runb_i64) = None
-  /\ supported_program (println_prog (EBn BAdd runb_u8one runb_i64)) = false.
+  /\ go_compile_check (println_prog (EBn BAdd runb_u8one runb_i64)) = false.
 Proof. split; vm_compute; reflexivity. Qed.
 (** T4 — SAME-WIDTH typed COMPARISONS denote (all six ops at [u8], mixed-const both kinds, the
     signed [i64] pair) — go-run-verified against gc: true, false, true, false, true, false, true,
@@ -470,7 +470,7 @@ Definition runuint_cmp_e : GExpr :=
           (ECall (EId (mkIdent "uint" eq_refl)) [runlen3_e]).
 Example typed_cmp_cross_width_rejected :
   ptype (EBn BEq runb_u8one runb_i64) = None
-  /\ supported_program (println_prog (EBn BEq runb_u8one runb_i64)) = false.
+  /\ go_compile_check (println_prog (EBn BEq runb_u8one runb_i64)) = false.
 Proof. split; vm_compute; reflexivity. Qed.
 (** DISPATCH AUTHORITY (gated): each live [typed_cmp] row IS the fully qualified model op — one
     6-conjunct pin per width (the derived [neqb]/[gtb]/[geb] are model Definitions, pinned as such). *)
@@ -671,7 +671,7 @@ Example typed_runtime_shift_runs : forall w,
        ; Some (ORet tt (w_log true (anyt TU8 (u8wrap 6) :: nil) w))
        ; Some (ORet tt (w_log true (anyt TI64 (i64wrap 6) :: nil) w))
        ; Some (ORet tt (w_log true (anyt TU64 (u64wrap 1) :: nil) w)) ]
-  /\ forallb supported_program (map println_prog typed_shift_cases) = true.
+  /\ forallb go_compile_check (map println_prog typed_shift_cases) = true.
 Proof. intro w. repeat split; vm_compute; reflexivity. Qed.
 (** The shift EDGES: a constant count, a typed-width count, a HUGE count (saturates — gc gives 0),
     and the NEGATIVE runtime count (gc's exact panic payload) — go-run-verified: 12, 24, 0, panic. *)
@@ -750,8 +750,8 @@ Proof. intro w. vm_compute. reflexivity. Qed.
 Example shift_bigconst_gate :
   ptype (EBn BShl runlen3_e (EInt 4294967296)) = None
   /\ ptype (EBn BShl runb_u8 (EInt 4294967296)) = None
-  /\ supported_program (println_prog (EBn BShl runlen3_e (EInt 4294967296))) = false
-  /\ supported_program (println_prog (EBn BShl runb_u8 (EInt 4294967296))) = false.
+  /\ go_compile_check (println_prog (EBn BShl runlen3_e (EInt 4294967296))) = false
+  /\ go_compile_check (println_prog (EBn BShl runb_u8 (EInt 4294967296))) = false.
 Proof. repeat split; vm_compute; reflexivity. Qed.
 Definition runshift_uintleft_e : GExpr :=
   EBn BShl (ECall (EId (mkIdent "uint" eq_refl)) [runlen3_e]) (EInt 1).
@@ -760,15 +760,15 @@ Definition runshift_uintleft_e : GExpr :=
     model ops.  ONE grouped pin. *)
 Example typed_uint_hole_programs_absent :
   (ptype runuint_cmp_e = Some PtBool
-  /\ supported_program (println_prog runuint_cmp_e) = true
+  /\ go_compile_check (println_prog runuint_cmp_e) = true
   /\ denotable_program (println_prog runuint_cmp_e) = false
   /\ denote_program (println_prog runuint_cmp_e) = None)
   /\ (ptype runuint_binop_e = Some (PtRunInt GTUint)
-  /\ supported_program (println_prog runuint_binop_e) = true
+  /\ go_compile_check (println_prog runuint_binop_e) = true
   /\ denotable_program (println_prog runuint_binop_e) = false
   /\ denote_program (println_prog runuint_binop_e) = None)
   /\ (ptype runshift_uintleft_e = Some (PtRunInt GTUint)
-  /\ supported_program (println_prog runshift_uintleft_e) = true
+  /\ go_compile_check (println_prog runshift_uintleft_e) = true
   /\ denotable_program (println_prog runshift_uintleft_e) = false
   /\ denote_program (println_prog runshift_uintleft_e) = None).
 Proof. repeat split; vm_compute; reflexivity. Qed.
@@ -810,19 +810,19 @@ Definition runconv_absent_src_e : GExpr :=
 Example runtime_conv_absent_src_pinned :
   ptype runconv_absent_src_e = Some (PtRunInt GTInt64)
   /\ ptype runuint_binop_e = Some (PtRunInt GTUint)
-  /\ supported_program (println_prog runconv_absent_src_e) = true
+  /\ go_compile_check (println_prog runconv_absent_src_e) = true
   /\ denotable_program (println_prog runconv_absent_src_e) = false
   /\ denote_program (println_prog runconv_absent_src_e) = None.
 Proof. repeat split; vm_compute; reflexivity. Qed.
 
 (** FAIL-CLOSED pins for an INVALID NESTED map type (the INVALID-Go class of the [goty_supported]
     authority — its valid-but-out-of-core class, ptr/chan map keys, is pinned surface-by-surface in
-    [GoSafe.valid_unsupported_programs]):
+    [GoCompile.valid_unsupported_programs]):
     [map[int]map[[]int]int]
     hides a non-comparable slice KEY inside the VALUE type, so even the EMPTY literal is invalid Go — the
     gate REJECTS it at the ROOT ([ptype = None] ⇒ unsupported, never emitted) and NO layer assigns it
     behavior ([eval_value] / [reval_int] / [denote_program] all decline) through [len],
-    [println(len(..))], and the divide-by-zero shape.  GoSafe's [bad_programs_rejected] carries the same
+    [println(len(..))], and the divide-by-zero shape.  GoCompile's [bad_programs_rejected] carries the same
     witnesses at the gate level. *)
 Definition maplen_invalid_vt_e : GExpr :=
   ECall (EId (mkIdent "len" eq_refl)) [EMapLit GTInt (GTMap (GTSlice GTInt) GTInt) []].
@@ -831,9 +831,9 @@ Example map_len_invalid_type_rejected :
   /\ ptype maplen_invalid_vt_e = None
   /\ eval_value maplen_invalid_vt_e = None
   /\ reval_int maplen_invalid_vt_e = None
-  /\ supported_program (println_prog maplen_invalid_vt_e) = false
+  /\ go_compile_check (println_prog maplen_invalid_vt_e) = false
   /\ denote_program (println_prog maplen_invalid_vt_e) = None
-  /\ supported_program (mkProgram (mkIdent "main" eq_refl)
+  /\ go_compile_check (mkProgram (mkIdent "main" eq_refl)
        [GsBlankAssign (EBn BDiv (EInt 1) maplen_invalid_vt_e)]) = false
   /\ denote_program (mkProgram (mkIdent "main" eq_refl)
        [GsBlankAssign (EBn BDiv (EInt 1) maplen_invalid_vt_e)]) = None.
@@ -902,7 +902,7 @@ Definition gosem_return_stops_prog : Program :=
 
 (** UNIVERSAL TERMINATOR PROPERTY:
     a TERMINATOR ([return] / a denoted [panic]) must NOT depend on its UNREACHABLE successors DENOTING — only on
-    their CLOSED-supportedness ([stmt_ok], NOT live [supported_program]: a used-decl successor is
+    their CLOSED-supportedness ([stmt_ok], NOT live [go_compile_check]: a used-decl successor is
     live-supported yet gated out here — [shortdecl_deadtail_supported_undenoted], GoSemDenote.v).
     Stated for ALL [s]/[c]/[rest]: whenever [denote_stmt] marks [s] terminating
     ([Some (c, true)]), [denote_body] emits [c] and gates the rest ONLY on [forallb stmt_ok rest], NEVER on
@@ -961,7 +961,7 @@ Definition gosem_defer_arg_panic_prog : Program :=
 
 (** STRUCTURAL short-circuit regressions: after a KNOWN-panic argument, later ARGUMENTS and later STATEMENTS
     are unreachable — later args are gated by the caller's [expr_stmt_ok], successor statements by
-    [forallb stmt_ok] (the closed fragment, NOT [supported_program]); neither is required to DENOTE.  The undenoted piece
+    [forallb stmt_ok] (the closed fragment, NOT [go_compile_check]); neither is required to DENOTE.  The undenoted piece
     in each is the multi-byte rune ([runeconv_mb], supported-printable yet undenoted —
     [out_boundary_runtime_undenoted]): as a LATER ARG of
     the panicking call, as the SUCCESSOR statement, and as the successor of a DEFERRED panicking-arg call.
@@ -1255,7 +1255,7 @@ Definition undenoted_frontier : list GExpr :=
   ; runconv_float_src_e
   ; cap_slicelit_e ].
 Example undenoted_frontier_pinned :
-  forallb (fun e => supported_program (println_prog e)
+  forallb (fun e => go_compile_check (println_prog e)
                     && negb (denotable_program (println_prog e))
                     && match eval_value e with None => true | Some _ => false end)
           undenoted_frontier = true.
@@ -1271,7 +1271,7 @@ Definition negzero_const_e : GExpr :=
   EUn UNeg (ECall (EId (mkIdent "float64" eq_refl)) [EInt 0]).
 Example negzero_const_runs : forall w,
   eval_value negzero_const_e = Some (anyt TFloat64 (S754_zero false))
-  /\ supported_program (println_prog negzero_const_e) = true
+  /\ go_compile_check (println_prog negzero_const_e) = true
   /\ denotable_program (println_prog negzero_const_e) = true
   /\ (match denote_program (println_prog negzero_const_e) with
       | Some c => run_cmd c w | None => None end)
@@ -1306,7 +1306,7 @@ Example signed_zero_folds_eval :
     ; Some (anyt TFloat64 (S754_zero false))
     ; Some (anyt TFloat32 (f32_lit (S754_zero false))) ; Some (anyt TFloat32 (f32_lit (S754_zero false)))
     ; Some (anyt TFloat32 (f32_lit (S754_zero false))) ]
-  /\ forallb supported_program (map println_prog
+  /\ forallb go_compile_check (map println_prog
        [ zeromul_const_e ; zerodiv_const_e ; negzeromul_const_e
        ; zeromul32_const_e ; zerodiv32_const_e ; negzeromul32_const_e ]) = true
   /\ forallb denotable_program (map println_prog
@@ -1340,7 +1340,7 @@ Proof. repeat split; vm_compute; reflexivity. Qed.
     gate pin over all the per-tier fixture lists (R1–R8, T1–T5, the shift edges, the
     arg-panic short-circuits). *)
 Example runtime_fixture_progs_supported :
-  forallb supported_program
+  forallb go_compile_check
     (   ([ println_prog runidx_e
     ; println_prog (EIndex (ESliceLit GTInt [ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]]]) (EInt 0)) ])
      ++ ([ println_prog runconv_e ; println_prog runconv_trunc_e
@@ -1374,7 +1374,7 @@ Proof. vm_compute. reflexivity. Qed.
 
 (** All the demo programs above are SUPPORTED (each is emittable Go); grouped so the gate is pinned once. *)
 Example demo_progs_supported :
-  forallb supported_program
+  forallb go_compile_check
     [gosem_demo_prog; gosem_return_stops_prog; gosem_panic_demo_prog;
      gosem_runtime_blank_prog; gosem_defer_prog; gosem_defer_lifo_prog; gosem_defer_panic_prog;
      gosem_arg_panic_prog; gosem_defer_arg_panic_prog] = true.
@@ -1390,7 +1390,7 @@ Definition gosem_core_surface :=
    denotable_stmts_main_denotes, denotable_body_terminator_free_iff,
    eval_value_good_ok, eval_value_good_runs, eval_value_failclosed, eval_absent_none,
    denote_expr_pure, arg_panic_shortcircuit_runs, gosem_category_coverage,
-   denote_expr_env_nil, GoSafe.tcat_mark_insensitive, env_eid_pins, env_float_pins,
+   denote_expr_env_nil, GoCompile.tcat_mark_insensitive, env_eid_pins, env_float_pins,
    env_float_conv_class).
 Definition gosem_float_surface :=
   (fsf_checked_binop_agrees, fsf_checked_neg_agrees,

@@ -82,7 +82,7 @@ Ours:
   denominator is a `positive`).  The PLUGIN FOLD is bounded to int64
   endpoints/intermediates with CHECKED literal parsing — a magnitude beyond int64
   declines the fold and extraction fails loud (`neg_fconst_overflow.v`), never a
-  silently wrong rational.  SEPARATELY, the GoTypes/GoSafe checker subset is DYADIC
+  silently wrong rational.  SEPARATELY, the GoTypes/GoCompile checker subset is DYADIC
   exact-or-reject (`m·2^e`; a rounding case like `float64(1)/float64(3)` is valid Go
   that the GATE rejects — quarantined incompleteness, never a wrong value).
 - *Remaining:* the narrow `_lit`s take an `int` argument (narrow constant arithmetic
@@ -535,11 +535,11 @@ expression, so we never rely on a later `go build` error).  WITNESS: `addr_of_de
 `x := int64(10); Write_thru(&x); …` — writing through `&x` mutates `x` (10→99), the canonical reason `&`
 exists; golden-locked.)
 
-### [Short variable declarations](https://go.dev/ref/spec#Short_variable_declarations) — AST gate (GoSafe `supported_program`): ✓ core rules; ⚠ named narrowings
+### [Short variable declarations](https://go.dev/ref/spec#Short_variable_declarations) — AST gate (GoCompile `go_compile_check`): ✓ core rules; ⚠ named narrowings
 Spec: `x := e` declares and initializes; redeclaring in the same block / a lone blank LHS
 is "no new variables on left side of :="; `x := nil` is "use of untyped nil"; an unused
 local is "declared and not used" (a COMPILE error); predeclared identifiers are shadowable.
-Ours — the program gate `supported_program`, distinct from the model-layer `ref_new` row
+Ours — the program gate `go_compile_check`, distinct from the model-layer `ref_new` row
 above: the scope-threaded fold `stmt_okS`/`body_okS` over the sealed `ScopeS` (declarations
 only via `scope_declare`, uses marked by `type_expr` in the same traversal) plus the final
 `scope_all_used` unused-local rejection.  ✓ redeclare / blank LHS / untyped nil / unused / use-before-declare

@@ -1,8 +1,8 @@
 (** GoTypes.v — the SHARED constant-aware type-category checker (AST-first spine; see ARCHITECTURE.md).
-    A LOWER module (imports ONLY GoAst, below GoSafe): it owns [ptype] ([GExpr -> option PTy], the structural
+    A LOWER module (imports ONLY GoAst, below GoCompile): it owns [ptype] ([GExpr -> option PTy], the structural
     constant-aware TYPE-CATEGORY assignment), its numeric/conversion combinators, and the value-position wrapper
-    [svalue] — so the layers above share ONE type authority (GoSafe's [SupportedProgram] rejects a free ident /
-    closed type-error because [ptype] does — the pinning regressions live in GoSafe; GoSem slice-1's blank-assign
+    [svalue] — so the layers above share ONE type authority (GoCompile's [GoCompile] rejects a free ident /
+    closed type-error because [ptype] does — the pinning regressions live in GoCompile; GoSem slice-1's blank-assign
     gates on [svalue]).  NO theorems (only [Definition]s / one [Inductive]) ⇒ NO axioms. *)
 From Fido Require Import GoAst.   (* GoAst supplies the syntax ([GExpr]/[GoTy]/[BinOp]/…) AND [classify]
 From Fido Require Import GoSlice.
@@ -29,11 +29,11 @@ Open Scope string_scope.
     never silently a runtime category; a MIXED const/runtime op is runtime BY CONSTRUCTION.
     ⚠ STRING/BOOL constants are NOT value-carrying: a form needing the folded value
     fail-CLOSES ([len("a"+"b")] is valid Go that Fido rejects — pinned in
-    [GoSafe.valid_unsupported_programs]; [bad_programs] holds INVALID Go).  A FREE
+    [GoCompile.valid_unsupported_programs]; [bad_programs] holds INVALID Go).  A FREE
     identifier is REJECTED (no-declaration model); [nil] ([PtNil]) is admitted only inside
     a slice/chan conversion.  A new [ptype] rule lands ONLY if it rejects a real
     accepted-bad closed program or admits an intentionally supported demo; relied-on
-    closed-invalid classes are PINNED in [GoSafe.bad_programs] (curated fixtures, not an
+    closed-invalid classes are PINNED in [GoCompile.bad_programs] (curated fixtures, not an
     exhaustive rejection theorem). *)
 (** ---- DYADIC float-constant values ---- a typed float CONSTANT carries the EXACT value [m * 2^e]
     ([m e : Z], NORMALIZED: [m = 0 -> e = 0], else [m] odd) — the same shape as the model's
@@ -480,10 +480,10 @@ Fixpoint nodup_z (l : list Z) : bool :=
     rejections span TWO distinct classes that must never be conflated:
     - INVALID Go — a NON-COMPARABLE map KEY (https://go.dev/ref/spec#Map_types: [map[[]int]int] is a
       compile error), which may hide at ANY depth ([map[int]map[[]int]int{}] is invalid even EMPTY, where
-      no entry check sees it).  Rejecting these is the SOUNDNESS side ([GoSafe.bad_programs]).
+      no entry check sees it).  Rejecting these is the SOUNDNESS side ([GoCompile.bad_programs]).
     - VALID Go, outside the core — pointer / chan map keys (comparable in Go) — conservatively rejected:
-      fail-loud INCOMPLETENESS, quarantined in [GoSafe.valid_unsupported_programs] with a fixture on EVERY
-      rejecting surface — the CARTESIAN [GoSafe.ptrchan_key_quarantine]: root literal (int-only key
+      fail-loud INCOMPLETENESS, quarantined in [GoCompile.valid_unsupported_programs] with a fixture on EVERY
+      rejecting surface — the CARTESIAN [GoCompile.ptrchan_key_quarantine]: root literal (int-only key
       restriction), nested map value type, slice element type, and the CTSlice/CTChan/CTMap nil
       conversions.
     [GTNamed] map keys are also rejected, but they are NOT a quarantinable valid class HERE: the closed
@@ -613,14 +613,14 @@ Fixpoint ptype (e : GExpr) : option PTy :=
           | Some SnCap =>
               match ca with PtAgg => Some (PtRunInt GTInt) | _ => None end    (* cap: slice/chan aggregate ONLY — NOT string, and NOT a map ([PtMap] -> None: Go forbids [cap] of a map) *)
           | Some (SnType t) => conv_to_scalar ca t                            (* a scalar conversion T(a) *)
-          | Some SnNil | Some SnPrintln | Some SnPrint | Some SnPanic => None (* not VALUE-position call heads ([println]/[print]/[panic] are statement-position callees — GoSafe's concern; [nil] is not callable) *)
+          | Some SnNil | Some SnPrintln | Some SnPrint | Some SnPanic => None (* not VALUE-position call heads ([println]/[print]/[panic] are statement-position callees — GoCompile's concern; [nil] is not callable) *)
           | None => None                                                      (* unknown function: REJECT *)
           end
       end
   | ECall _ _ => None
   | EConv c e0 =>
       match c with
-      | CTMap _ _ => None                 (* a MAP conversion is QUARANTINED — the TARGET type is wholly unchecked here; a future admission must consult [goty_supported] on the WHOLE target, FORCED by GoSafe's gated ∀-theorem [ctmap_conv_unsupported_target_rejected].  Even the VALID [map[K]V(nil)] is rejected (pinned in [GoSafe.valid_unsupported_programs]); invalid-target witnesses (root / nested / slice-wrapped key) in [GoSafe.bad_programs] *)
+      | CTMap _ _ => None                 (* a MAP conversion is QUARANTINED — the TARGET type is wholly unchecked here; a future admission must consult [goty_supported] on the WHOLE target, FORCED by GoCompile's gated ∀-theorem [ctmap_conv_unsupported_target_rejected].  Even the VALID [map[K]V(nil)] is rejected (pinned in [GoCompile.valid_unsupported_programs]); invalid-target witnesses (root / nested / slice-wrapped key) in [GoCompile.bad_programs] *)
       | CTSlice _ | CTChan _ =>
           (* an aggregate conversion is admitted ONLY for the predeclared [nil] operand ([[]int(nil)]) and a
              SUPPORTED target type ([goty_supported] — [[]map[[]int]int(nil)] hides an invalid map key;
@@ -664,7 +664,7 @@ Fixpoint ptype (e : GExpr) : option PTy :=
          PAIRWISE DISTINCT (Go forbids duplicate constant keys).  Restricting keys to integer CONSTANTS is
          what makes distinctness decidable here — their VALUE is carried ([int_const_val]); a non-integer
          comparable key (string/bool) or a runtime/non-constant key is conservatively REJECTED (fail-loud), its
-         value not foldable in [PTy].  The GoSafe
+         value not foldable in [PTy].  The GoCompile
          companions [map[int]uint8{1:300}] / [map[uint8]int{300:1}] (representability), [map[int]int{1:2,1:3}]
          (distinctness), and [map[int]map[[]int]int{}] (nested validity) lock it. *)
       if andb (andb (andb (is_int_goty kt) (goty_supported vt))
@@ -693,7 +693,7 @@ Definition map_key_vals : list (GExpr * GExpr) -> list Z := map_key_vals_with pt
 (** STRUCTURALLY-supported VALUE expression — [ptype] accepts it (well-typed by REFINED
     category).  Closed type errors of the PINNED classes are rejected — shape errors,
     numeric/structural errors, FREE identifiers ([ptype (EId _) = None]) — fixture-backed
-    in [GoSafe.bad_programs], NOT a universal rejection theorem.  Accepted: [EInt], well-typed
+    in [GoCompile.bad_programs], NOT a universal rejection theorem.  Accepted: [EInt], well-typed
     binops/unops/conversions; [len] of a string LITERAL (folds to the byte count) or of a
     slice/chan/map aggregate; [cap] of a slice/chan aggregate ONLY (Go forbids [cap] of a
     map); a slice literal with [goty_supported] element type and ASSIGNABLE elements; an
@@ -702,7 +702,7 @@ Definition map_key_vals : list (GExpr * GExpr) -> list Z := map_key_vals_with pt
     over-rejected fail-closed; an OOB POSITIVE constant is VALID Go — run-time panic — so
     supported); an INTEGER-key map LITERAL with [goty_supported] value type, DISTINCT
     assignable constant keys, assignable values ([map[K]V(x)] conversions stay quarantined
-    — sealed by [GoSafe.ctmap_conv_unsupported_target_rejected]).  [len] of a NON-literal
+    — sealed by [GoCompile.ctmap_conv_unsupported_target_rejected]).  [len] of a NON-literal
     string is rejected (its const length is not folded here).  ★[PtNil] is NOT a value —
     bare [_ = nil] is "use of untyped nil"; [nil] is a value only inside a slice/chan
     conversion.  ★DEFAULT-[int] BOUNDARY: a bare untyped int constant used as a value must

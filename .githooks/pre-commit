@@ -69,7 +69,7 @@ fi
 # modifiers and attribute stacks before the keyword — the forms a bare-keyword scan missed).  It is NOT the
 # authority and makes no completeness claim — a legal form it misses is caught by the Rocq manifest gate:
 #  (a) Axiom / Parameter / Conjecture / Admitted are forbidden in EVERY tracked .v — the proof-only
-#      theories (concurrency.v / unified.v), the spine (GoAst/GoPrint/GoTypes/GoSafe/GoEmit), the emit demo
+#      theories (concurrency.v / unified.v), the spine (GoAst/GoPrint/GoTypes/GoCompile/GoEmit), the emit demo
 #      (emitdemo/emit_demo.v) AND the fail-closed fixtures (negtests/*.v): an Admitted is an INCOMPLETE
 #      proof and an Axiom/Parameter is a global assumption, neither of which the 0-axiom claim allows
 #      ANYWHERE.  The scan set is DERIVED from `git ls-files '*.v'` (NOT a hand-maintained list), so any

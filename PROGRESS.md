@@ -8,8 +8,8 @@ Live ledger, bytes under ~8 KB. Design: `ARCHITECTURE.md`; rules: `CLAUDE.md`; m
 Be **safer than Go's compiler can prove** — lift type/memory/concurrency safety to compile time —
 while still lowering into ordinary Go. TARGET: prove, before emitting, that nil deref / OOB /
 send-on-closed / failed assertion / data race / silent overflow cannot happen. ⚠️ TODAY the spine
-gates SUPPORTED SYNTACTIC emission on the main path; behavioral safety is only the narrow off-main
-`emit_panic_free` seed.
+gates STATIC compiler-admissibility (GoCompile: "this program would compile") on the main path;
+behavioral safety is only the narrow off-main `emit_panic_free` seed.
 
 **Honest claim:** *verified model components with a TRUSTED extraction backend* — NOT "formally
 verified Go." No theorem relates emitted Go to its source term (gap #10). `emit_panic_free`
@@ -18,9 +18,10 @@ an ABSENT program by non-denotation) — no full BehaviorSafe gate.
 
 ## Architecture (AST-first certified emission — `ARCHITECTURE.md` governs)
 
-Spine: **GoAst** → **GoPrint** (round-trip/injectivity; SYNTAX only) → **GoSafe**
-(`SupportedProgram` now; `BehaviorSafe` later) → **GoEmit** (certificate-only emit). `GoTypes` =
-the shared conservative classifier. **GoSem** bridges AST behavior into `cmd.v`/`unified.v`.
+Spine: **GoAst** (syntactically valid) → **GoPrint** (round-trip/injectivity; SYNTAX only) →
+**GoCompile** (STATIC compiler-admissibility: "would compile"; behavioral safety is a SEPARATE
+layer — GoSemSafe/future GoSafe) → **GoEmit** (certificate-only emit). `GoTypes` = the shared
+conservative classifier. **GoSem** gives semantics ATOP a compilable program (into `cmd.v`/`unified.v`).
 
 **Live plugin bridge:** `plugin/go.ml` (trusted) still emits `main.go`; the extracted verified
 printer prints a SMALL expression class on that path (binop trees over runtime locals, literals,
@@ -29,17 +30,20 @@ plugin CONSTRUCTS the `GExpr`; only `gprint` is verified. NOT "verified Go."
 
 ## GREEN (proved / working)
 
-- **Spine ZERO-AXIOM** (`make emit-verify`): digits / GoAst / GoPrint / GoTypes / GoSafe / GoEmit
+- **Spine ZERO-AXIOM** (`make emit-verify`): digits / GoAst / GoPrint / GoTypes / GoCompile / GoEmit
   (digits.v = the shared decimal authority, compiled in both gated flows).
 - **GoPrint round-trip + injectivity** over the expression core (all postfix forms, `EConv`,
   slice/map composite literals, exact-lexer strings) + the statement layer
   (`print_stmt_inj`/`print_program_inj`). `GsDefer` supported+emittable+denoted; `GsShortDecl`
   gate-admitted; the expression-level env evaluator exists; statement-level env denotation is
   NEXT — short-decl programs are currently supported-but-undenoted.
-- **GoSafe `SupportedProgram`** — decidable supported-subset gate (closed type errors rejected
-  via `ptype`; slice + integer-key map literals admitted structurally; quarantines
-  ledger-pinned); locals `x := e` via the sealed `ScopeS` fold (declare-only binding, marked
-  uses, unused rejected; decl-free agreement `body_okS_nil_declfree`).
+- **GoCompile** (`GoCompile`/`go_compile_check`) — the STATIC compiler-admissibility gate
+  ("this program would compile"): closed type errors rejected via `ptype`; slice + integer-key
+  map literals admitted structurally; quarantines ledger-pinned; locals `x := e` via the sealed
+  `ScopeS` fold (declare-only binding, marked uses, unused rejected; decl-free agreement
+  `body_okS_nil_declfree`).  STATIC admissibility only, NOT behavioral safety.  (`GoCompile p :=
+  go_compile_check p = true` today; the proof-bearing declarative relation is Phase 2 —
+  `plans/gocompile.md`.)
 - **GoEmit** — certificate-only (`EmittableProgram`); `make emit-demo` go-builds a certified
   program.
 - **GoSem slice 1** (SURFACES are the authority — no theorem inventory): partial AST → `Cmd`
@@ -48,7 +52,7 @@ plugin CONSTRUCTS the `GExpr`; only `gprint` is verified. NOT "verified Go."
   evaluator with dispatch authorities pinned and boundary rows pinned absent; float constants
   exact-or-reject behind `floats_checked` with checker completeness `fsf_checked_complete` +
   guard-unreachability `floats_checked_total` (guard KEPT, fail-closed); denotation ⊆
-  `SupportedProgram` (`gosem_sound`) + compositional converses; surfaces topic-split +
+  `GoCompile` (`gosem_sound`) + compositional converses; surfaces topic-split +
   manifest-gated. NO BehaviorSafe; main output still legacy. Zero axioms.
 - **Model layer** (proof-only): the split model modules (GoNumeric → GoRuntimeTypes →
   GoEffects/GoPanic → GoSlice/GoMap/GoChan/GoHeap → GoSession/GoString/GoSwitch/GoComplex;

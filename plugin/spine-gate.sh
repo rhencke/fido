@@ -29,7 +29,7 @@ clean_artifacts() {
 
 case "$1" in
   printer) run_gate "$2" digits.v GoAst.v GoPrint.v ;;
-  emit)    run_gate "$2" digits.v GoAst.v GoPrint.v GoTypes.v GoSafe.v GoEmit.v ;;
+  emit)    run_gate "$2" digits.v GoAst.v GoPrint.v GoTypes.v GoCompile.v GoEmit.v ;;
   selftest)
     # Verify the FULL advertised cleanup contract, in an isolated dir, on BOTH failure
     # branches, with a successfully-compiled file already in the set and a sentinel

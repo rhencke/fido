@@ -14,7 +14,7 @@ From Fido Require Import GoSession.
 From Fido Require Import GoString.
 From Fido Require Import GoSwitch.
 From Fido Require Import GoComplex.
-From Fido Require Import GoAst GoSafe GoEmit.  (* AST-first certified-emission spine (ARCHITECTURE.md) *)
+From Fido Require Import GoAst GoCompile GoEmit.  (* AST-first certified-emission spine (ARCHITECTURE.md) *)
 From Stdlib Require Import ZArith.
 From Stdlib Require Import Lia.
 From Stdlib Require Import Strings.String.   (* string-literal scope for the String-types demo *)
@@ -23,16 +23,16 @@ Require Import Coq.Lists.List.
 Import ListNotations.
 
 (** ★AST-FIRST SPINE (ARCHITECTURE.md §7): a structured [GoAst.Program] emitted ONLY through the
-    proof-gated [GoEmit] path — a [GoSafe.SupportedProgram] certificate is REQUIRED to build an
+    proof-gated [GoEmit] path — a [GoCompile.GoCompile] certificate is REQUIRED to build an
     [EmittableProgram].  Does NOT feed the legacy plugin extraction ([main_effect] / main.go). *)
 Definition spine_prog : GoAst.Program :=
   GoAst.mkProgram (GoAst.mkIdent "main"%string eq_refl)
                   [GoAst.GsExprStmt (GoAst.ECall (GoAst.EId (GoAst.mkIdent "println"%string eq_refl))
                                                  [GoAst.EInt 1]);
                    GoAst.GsReturn].
-Lemma spine_supported : GoSafe.SupportedProgram spine_prog. Proof. reflexivity. Qed.
+Lemma spine_supported : GoCompile.GoCompile spine_prog. Proof. reflexivity. Qed.
 Definition spine_cert : GoEmit.EmittableProgram := GoEmit.mkEmittable spine_prog spine_supported.
-Definition spine_emit : string := GoEmit.emit_supported spine_cert.
+Definition spine_emit : string := GoEmit.emit_compiled spine_cert.
 
 (* Float literals parse in [go64_scope] (decimal → the binary64 [spec_float]); integer literals are
    type-directed (nat field indices / GoInt via [int_lit] / [%i64] / [%u64]). *)

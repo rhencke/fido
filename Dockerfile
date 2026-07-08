@@ -127,7 +127,7 @@ RUN --mount=type=cache,id=fido-dune,uid=1000,gid=1000,target=/workspace/_build \
        fi \
     && cp printer.ml plugin/printer.ml \
     && sh plugin/spine-gate.sh emit /tmp/emit.log \
-    && rm -f digits.vo digits.glob .digits.aux GoAst.vo GoAst.glob .GoAst.aux GoPrint.vo GoPrint.glob .GoPrint.aux GoTypes.vo GoTypes.glob .GoTypes.aux GoSafe.vo GoSafe.glob .GoSafe.aux GoEmit.vo GoEmit.glob .GoEmit.aux printer.ml \
+    && rm -f digits.vo digits.glob .digits.aux GoAst.vo GoAst.glob .GoAst.aux GoPrint.vo GoPrint.glob .GoPrint.aux GoTypes.vo GoTypes.glob .GoTypes.aux GoCompile.vo GoCompile.glob .GoCompile.aux GoEmit.vo GoEmit.glob .GoEmit.aux printer.ml \
     && rm -f _build/default/*.go \
     && for v in $(grep -l 'Go Main Extraction' *.v); do rm -f "_build/default/${v%.v}.vo"; done \
     && (dune build > /tmp/build.log 2>&1; rc=$?; cat /tmp/build.log; exit $rc) \

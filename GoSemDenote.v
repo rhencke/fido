@@ -9,7 +9,7 @@
     Local-sealed split exists.  Program-level fixtures, demos, and the gated surfaces
     live downstream in GoSem.v (re-exports GoSemCore + this file).
     ============================================================================ *)
-From Fido Require Import GoAst GoTypes GoSafe cmd preamble.   (* [preamble] declares the extraction ML plugins only *)
+From Fido Require Import GoAst GoTypes GoCompile cmd preamble.   (* [preamble] declares the extraction ML plugins only *)
 From Fido Require Import GoNumeric.
 From Fido Require Import GoRuntimeTypes.
 From Fido Require Import GoEffects.
@@ -1784,7 +1784,7 @@ Local Ltac fold_tc_in H :=
     | progress change (typed_operand_tc ptype) with typed_operand in H
     | progress change (rexit_tc ptype leaf_closed) with rexit_with in H ].
 
-(** ===== The ENV instance: [GoSafe.tcat G] + the value environment [env_get ρ], constructed
+(** ===== The ENV instance: [GoCompile.tcat G] + the value environment [env_get ρ], constructed
     behind the [_tc] seal.  At the EMPTY scope and env it IS the closed evaluator
     ([denote_expr_env_nil] — engines' extensionality + the [tcat_nil_ptype] bridge), so the
     spellings cannot drift.  The statement layer that BUILDS ρ is ABSENT;
@@ -4421,7 +4421,7 @@ Qed.
     [denote_body] never re-decides; the flag is not derivable: [return] and a constant
     blank-assign both give [CRet tt] but differ stop/fall-through).  Effect arms go through
     [denote_call]; the inclusion chain is [denote_call_ok] → [denote_stmt_sound] ([stmt_ok]) →
-    [denote_body_sound] ([forallb stmt_ok]) → [gosem_sound] ([supported_program]). *)
+    [denote_body_sound] ([forallb stmt_ok]) → [gosem_sound] ([go_compile_check]). *)
 Definition denote_stmt (s : GoStmt) : option (Cmd unit * bool) :=
   match s with
   | GsReturn        => Some (CRet tt, true)    (* TERMINATES the body *)
@@ -4442,7 +4442,7 @@ Definition denote_stmt (s : GoStmt) : option (Cmd unit * bool) :=
          arg panics AT the defer statement); only the call-on-values is deferred (the LIFO
          unwind). *)
       denote_call CallDeferred e
-  | GsShortDecl _ _ => None  (* the expression-level env instance exists ([denote_expr_env]); THIS statement arm is ABSENT — [supported_program] admits used locals, so decl programs are supported-but-undenoted ([shortdecl_supported_undenoted]) *)
+  | GsShortDecl _ _ => None  (* the expression-level env instance exists ([denote_expr_env]); THIS statement arm is ABSENT — [go_compile_check] admits used locals, so decl programs are supported-but-undenoted ([shortdecl_supported_undenoted]) *)
   end.
 
 Fixpoint denote_body (b : list GoStmt) : option (Cmd unit) :=
@@ -4456,7 +4456,7 @@ Fixpoint denote_body (b : list GoStmt) : option (Cmd unit) :=
             (* [s] TERMINATES (return / panic, per [denote_stmt]'s flag): emit its command [c] (which stops —
                [CRet]/[CPan]); the REST is UNREACHABLE, so its DENOTABILITY is irrelevant — require only that it
                be in the CLOSED supported fragment ([forallb stmt_ok rest]; on decl-free bodies the scoped
-               fold agrees exactly, [GoSafe.body_okS_nil_declfree]).  Keeps [denote_body] ⊆ [supported_program]
+               fold agrees exactly, [GoCompile.body_okS_nil_declfree]).  Keeps [denote_body] ⊆ [go_compile_check]
                ([gosem_sound]) while NOT making a terminator depend on a successor slice 1 cannot yet evaluate. *)
             (if forallb stmt_ok rest then Some c else None)
           else
@@ -4473,7 +4473,7 @@ Definition denote_program (p : Program) : option (Cmd unit) :=
   else None.
 
 (** ---- GATE CONNECTION (the slice-1 earns-its-weight theorem): denotation ⊆ supportedness ----
-    GoSem gives a behavior ONLY to a program GoSafe accepts.  Because each [denote_stmt] arm that returns
+    GoSem gives a behavior ONLY to a program GoCompile accepts.  Because each [denote_stmt] arm that returns
     [Some] is itself gated ([GsReturn] is always [stmt_ok]; [GsBlankAssign] on [svalue]; [GsExprStmt] under
     [expr_stmt_ok]), this is structural. *)
 Lemma denote_call_ok : forall m e, denote_call m e <> None -> expr_stmt_ok e = true.
@@ -4491,8 +4491,8 @@ Proof.
 Qed.
 
 (** The [GsShortDecl] ABSENCE pinned at the CONSTRUCTOR, for every ident/expression (the
-    CLOSED-fragment rejection pin [GoSafe.shortdecl_stmt_ok_false] is its twin —
-    [supported_program] ADMITS used decls; this pair is about slice 1's scope-free fragment). *)
+    CLOSED-fragment rejection pin [GoCompile.shortdecl_stmt_ok_false] is its twin —
+    [go_compile_check] ADMITS used decls; this pair is about slice 1's scope-free fragment). *)
 Example shortdecl_denote_absent : forall x e, denote_stmt (GsShortDecl x e) = None.
 Proof. reflexivity. Qed.
 
@@ -4508,18 +4508,18 @@ Proof.
       * destruct (denote_body rest) eqn:Er; [|congruence]. apply IH. congruence.
 Qed.
 
-Theorem gosem_sound : forall p, denote_program p <> None -> supported_program p = true.
+Theorem gosem_sound : forall p, denote_program p <> None -> go_compile_check p = true.
 Proof.
   intros p H. unfold denote_program in H.
   destruct (String.eqb (proj1_sig (prog_pkg p)) "main") eqn:Epkg; [|congruence].
-  exact (supported_program_of_stmt_ok p Epkg (denote_body_sound _ H)).
+  exact (go_compile_check_of_stmt_ok p Epkg (denote_body_sound _ H)).
 Qed.
 
-(** SEAM pin: [supported_program] ADMITS a used local while the statement layer does not yet
+(** SEAM pin: [go_compile_check] ADMITS a used local while the statement layer does not yet
     thread the env instance — SUPPORTED yet NOT denotable.  FLIPS when the env statement layer
     lands (swap per the frontier-pin discipline). *)
 Example shortdecl_supported_undenoted :
-  supported_program (mkProgram (mkIdent "main" eq_refl)
+  go_compile_check (mkProgram (mkIdent "main" eq_refl)
     [GsShortDecl (mkIdent "x" eq_refl) (EInt 1);
      GsBlankAssign (EId (mkIdent "x" eq_refl)); GsReturn]) = true
   /\ denote_program (mkProgram (mkIdent "main" eq_refl)
@@ -4528,10 +4528,10 @@ Example shortdecl_supported_undenoted :
 Proof. split; vm_compute; reflexivity. Qed.
 
 (** The TERMINATOR dead-tail face of the seam: a used-decl tail after [return] passes
-    [supported_program] yet the dead-tail check is [forallb stmt_ok], so the body does NOT
-    denote — terminator tails are gated on [stmt_ok], not [supported_program]. *)
+    [go_compile_check] yet the dead-tail check is [forallb stmt_ok], so the body does NOT
+    denote — terminator tails are gated on [stmt_ok], not [go_compile_check]. *)
 Example shortdecl_deadtail_supported_undenoted :
-  supported_program (mkProgram (mkIdent "main" eq_refl)
+  go_compile_check (mkProgram (mkIdent "main" eq_refl)
     [GsReturn; GsShortDecl (mkIdent "x" eq_refl) (EInt 1);
      GsBlankAssign (EId (mkIdent "x" eq_refl))]) = true
   /\ denote_program (mkProgram (mkIdent "main" eq_refl)
@@ -4541,7 +4541,7 @@ Proof. split; vm_compute; reflexivity. Qed.
 
 (** ---- DENOTABILITY IS DECIDABLE, characterized STRUCTURALLY (converse-direction companion of [gosem_sound]).
     [denotable_body] mirrors [denote_body]: a body denotes iff its head denotes AND — at a TERMINATOR — the
-    unreachable rest is merely CLOSED-supported ([forallb stmt_ok], NOT live [supported_program]: a
+    unreachable rest is merely CLOSED-supported ([forallb stmt_ok], NOT live [go_compile_check]: a
     live-supported decl tail still blocks denotation — [shortdecl_deadtail_supported_undenoted]), else the
     rest is itself denotable; [denote_body_dec] proves they
     AGREE.  A CHARACTERIZATION result, NOT [supported ⟹ denotes]: the [denotable_*] ⊊ [supported_*] gap
@@ -4618,7 +4618,7 @@ Proof. vm_compute. reflexivity. Qed.
 
 (** BOUNDARY PIN (keeps the converse EXACT — pins the FULL state, not just non-denotability): a MULTI-BYTE rune
     [`string(200)`] (UTF-8 = 2 bytes — [eval_str] folds only [0,127]) is SUPPORTED at the classifier AND the gate
-    ([ptype] = [PtStr], [printable_arg_ok], so [println(string(200))] is a [supported_program]) yet ABSENT
+    ([ptype] = [PtStr], [printable_arg_ok], so [println(string(200))] is a [go_compile_check]) yet ABSENT
     ([eval_value] = [None], so the program does NOT denote).  Pinning support+absence TOGETHER stops the boundary
     from silently sliding to "rejected" (if [ptype] dropped it) or "wrong" (if [eval] folded it).  Until
     multi-byte rune encoding is modelled, these stay OUTSIDE the denoted fragment, faithfully absent. *)
@@ -4629,7 +4629,7 @@ Definition runeconv_mb_prog : Program :=
 Example runeconv_multibyte_boundary :
   ptype runeconv_mb = Some PtStr                  (* SUPPORTED at the classifier (a valid [PtStr]) *)
   /\ printable_arg_ok runeconv_mb = true          (* ... and printable *)
-  /\ supported_program runeconv_mb_prog = true    (* ... so [println(string(200))] IS a supported program *)
+  /\ go_compile_check runeconv_mb_prog = true    (* ... so [println(string(200))] IS a supported program *)
   /\ eval_value runeconv_mb = None                (* yet ABSENT: the multi-byte rune is not folded *)
   /\ denote_program runeconv_mb_prog = None.      (* ... so the SUPPORTED program does NOT denote (faithful-or-absent) *)
 Proof. repeat split; vm_compute; reflexivity. Qed.
@@ -4713,7 +4713,7 @@ Proof.
   cbn [denotable_program prog_pkg prog_body proj1_sig]. exact (out_main_denotable stmts H).
 Qed.
 
-Corollary denotable_supported : forall p, denotable_program p = true -> supported_program p = true.
+Corollary denotable_supported : forall p, denotable_program p = true -> go_compile_check p = true.
 Proof. intros p H. apply gosem_sound, (proj2 (denote_program_dec p)), H. Qed.
 
 (** Grounding fixture: a multi-statement `func main(){ println("a"); println("b"); return }` — its
@@ -4800,7 +4800,7 @@ Definition maplen_runval_e : GExpr :=
     [runeconv_multibyte_boundary] pins; [eval_value runlen_e = None] remains the strictness pin for
     the EVAL-level [eval_len_supported] inclusion). *)
 Example out_boundary_runtime_undenoted :
-  supported_program runeconv_mb_prog = true
+  go_compile_check runeconv_mb_prog = true
   /\ folded_arg runeconv_mb = false
   /\ denote_program runeconv_mb_prog = None
   /\ eval_value runlen_e = None.   (* the eval-level strictness pin survives the tier: constant folds only *)
@@ -4810,7 +4810,7 @@ Proof. repeat split; vm_compute; reflexivity. Qed.
     denotable, so its `main` DENOTES — generalizing [out_main_denotes] to ALL denoting statement forms
     interleaved, including a terminator followed by (closed-supported) DEAD code.  SUFFICIENT, not necessary: a
     terminator's unreachable rest need only be CLOSED-supported ([stmt_ok]).  STILL CONDITIONAL on [stmt_denotable], NOT full
-    [supported_program] — the gap is representatively witnessed by [undenoted_frontier] (downstream in GoSem.v; see its comment). *)
+    [go_compile_check] — the gap is representatively witnessed by [undenoted_frontier] (downstream in GoSem.v; see its comment). *)
 Definition stmt_denotable (s : GoStmt) : bool :=
   match denote_stmt s with Some _ => true | None => false end.
 
