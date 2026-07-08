@@ -275,10 +275,28 @@ COMPLETE lists (no suffix):
   Some (gtokens (S (prec o)) r, o)` (NOT on `gtokens ctx (EBn o l r)`: for `prec o < ctx` that is
   paren-WRAPPED and `eb_find` returns `None`; `gtokens_inj` peels the wrapper before calling `eb_find`),
   broken into: 2k-a `eb_find_acc_pi` (LANDED, gated) — [Acc]-proof-irrelevance so the correctness proof can
-  reason equationally across the [Acc_inv] certs `eb_find_acc`'s own recursion produces; 2k-b the
-  operand-processing lemma (by induction on `GExpr`: processing `gtokens c e` at `oc=false` consumes `e`
-  and its rightmost-min depth-0 op is `e`'s top op for an unwrapped `EBn`, `None` for a primary — combined
-  with the suffix scan); 2k-c the top-level `eb_find` correctness.  Then `gtokens_inj`'s EBn case
+  reason equationally across the [Acc_inv] certs `eb_find_acc`'s own recursion produces.
+  ★2k-b STRUCTURE (worked out from the `gtokens` clauses — code-ready): a CONJUNCTION proved by ONE
+  induction on `e` (`GExpr_ind'`):
+    (i) OPERAND (d=0): `eb_find_acc (gtokens c e ++ suffix) 0 false = eb_combine (eb_top c e) (eb_find_acc
+        suffix 0 true)` where `eb_top c (EBn o l r) = if prec o <? c then None else Some (gtokens (S prec o)
+        r, o)`, `eb_top c _ = None`; `eb_combine (Some (_,o)) rest = match rest with Some (r',o') => if
+        prec o' <=? prec o then rest else this | None => this`, `eb_combine None rest = rest`.
+    (ii) DEPTH (d≥1): `eb_find_acc (gtokens c e ++ suffix) (S sd) oc = eb_find_acc suffix (S sd) oc` — a
+        gtokens block is skipped whole inside brackets.
+  Sub-lemma `eb_bal_skip` (do FIRST): `bd g 0 = Some 0 -> eb_find_acc (g ++ more) (S sd) oc =
+  eb_find_acc more (S sd) oc` (any bracket-balanced token block is skipped at depth ≥1), by strong
+  induction on `length g` — the opener case splits `g` at its matching closer via `bdip_balanced_close`/
+  `balanced_close_split`; combined with `gtokens_balanced` it discharges (ii) and every WRAPPED/grouped
+  operand.  Per-constructor facts from `gtokens`: the postfix base `e0` sits at `gtokens 0 e0` WRAPPED by
+  `op_needs_paren` (an EBn base ⇒ wrapped ⇒ a paren group ⇒ `eb_top`=None); `EUn`'s operand is `gtokens 0`
+  wrapped by `unop_paren`; delimiters (`TDot TId`, `TLB..TRB`, `TLP..TRP`, `.(T)`, composites `[]T{..}` /
+  `map[K]V{..}` — the type via `skip_gty_acc`) are consumed by depth-tracking + `eb_bal_skip`.  The lone
+  non-primary case `EBn` unfolds to `gtokens (prec o) l ++ op_token o :: gtokens (S prec o) r`, applies (i)
+  to `l` (suffix = `op_token o :: …`) then handles `op_token o` (infix at oc=true) whose recursion on `r`
+  gives ops of prec > prec o, so `eb_combine` keeps `o` — i.e. `eb_top c (EBn o l r)` as stated.
+  2k-c = the top-level `eb_find` correctness (from (i) at `c = prec o`, `eb_top`'s prec-bound
+  `eb_top c e = Some (_,o') -> c <= prec o'`, and the `eb_combine` arithmetic).  Then `gtokens_inj`'s EBn case
   (`app`-split at `op_token o` via the suffix, `op_token_inj` for `o`, IH on `l` and `r`).
 
 Then `canon_expr_unique` (+ `gtokens_inj`) join the printer Print Assumptions gate.
