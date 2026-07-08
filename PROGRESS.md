@@ -33,9 +33,11 @@ plugin CONSTRUCTS the `GExpr`; only `gprint` is verified. NOT "verified Go."
 
 - **Spine ZERO-AXIOM** (`make emit-verify`): digits / GoAst / GoPrint / GoTypes / GoCompile / GoEmit
   (digits.v = the shared decimal authority, compiled in both gated flows).
-- **GoPrint round-trip + injectivity** over the expression core (all postfix forms, `EConv`,
-  slice/map composite literals, exact-lexer strings) + the statement layer
-  (`print_stmt_inj`/`print_program_inj`). `GsDefer` supported+emittable+denoted; `GsShortDecl`
+- **GoPrint injectivity** over the expression core (all postfix forms, `EConv`, slice/map composite
+  literals, exact-lexer strings) — `gprint_inj` is now PARSER-FREE (rests on `gtokens_inj`/
+  `canon_expr_unique` + `gtokens_lex`, NOT `parse_print_roundtrip`, which is demoted to derived parser
+  self-consistency tooling) — plus the statement layer
+  (`print_stmt_inj`/`print_program_inj`, still STRING-injectivity). `GsDefer` supported+emittable+denoted; `GsShortDecl`
   gate-admitted; the expression-level env evaluator exists; statement-level env denotation is
   NEXT — short-decl programs are currently supported-but-undenoted.
 - **GoCompile** (`GoCompile`/`go_compile_check`) — the STATIC compiler-admissibility gate
@@ -98,9 +100,11 @@ plugin CONSTRUCTS the `GExpr`; only `gprint` is verified. NOT "verified Go."
   `canon_expr_tokens` + `gtokens_inj`). Both gated, zero axioms. (`ConvTy` = slice/chan/map only — the
   Option-B restriction that makes conversion-vs-call token-disjoint; named conversions need a compile env
   and are out of subset; directional channel TYPES are NOT modeled — `GoTy` has bidirectional `chan` only.)
-  REMAINING, in order (Phase 3c): reprove `gprint_inj` off `canon_expr_unique` + `lex_gprint_expr` +
-  `gprint_expr_canonical`, DEMOTING `parse_print_roundtrip` from printer authority to derived parser tooling
-  → replace parser-roundtrip-based statement/program disjointness with canonical-token facts →
+  Phase 3c STARTED: `gprint_inj` is reproved PARSER-FREE off `gtokens_inj` + `gtokens_lex` (canonical
+  authority), and `parse_print_roundtrip` is recaptioned as derived parser self-consistency tooling —
+  the parser is DEMOTED below the grammar at the expression layer. REMAINING (Phase 3c cont.): replace
+  the parser-roundtrip-based statement/program disjointness lemmas (`gprint` never `return`/expr-vs-stmt)
+  with lexical/canonical-token facts, retiring `parse_print_roundtrip`'s last authority uses →
   `CanonStmt`/`CanonProgram` (+ `gprint_stmt/program_canonical`, `canon_stmt/program_unique`,
   `lex_gprint_stmt/program`).
 - The cmd↔unified bridge (`plans/bridge-effects.md`): `CAlloc` AND the channel slice LANDED

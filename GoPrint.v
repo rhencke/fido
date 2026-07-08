@@ -13,20 +13,23 @@
     "verified" — and even for the bridged class only the PRINTING is verified, NOT the trusted MiniML->[GExpr]
     CONSTRUCTION in [plugin/go.ml] that chooses the AST.
 
-    WHAT IS PROVEN: EXPRESSIONS have a full printer/parser round-trip ([parse_print_roundtrip]) plus
-    injectivity ([gprint_inj]); the TYPE sub-language likewise ([print_ty_inj], [parse_gty_roundtrip]).
-    Statements and whole programs currently have print-INJECTIVITY only ([print_stmt_inj] /
-    [print_program_inj]) — there is no statement PARSER yet, so no statement round-trip.
+    WHAT IS PROVEN: EXPRESSION printer injectivity ([gprint_inj]) is now PARSER-FREE — it rests on the
+    canonical authority ([canon_expr_unique]/[gtokens_inj] + [gtokens_lex]).  The TYPE sub-language has
+    [print_ty_inj]/[parse_gty_roundtrip].  Statements and whole programs currently have print-INJECTIVITY
+    only ([print_stmt_inj] / [print_program_inj]) — there is no statement PARSER yet, so no statement
+    round-trip.
 
     ⚠️ HONEST SCOPE — these are ROCQ-GRAMMAR self-consistency results, and the executable parser is
-    DERIVED TOOLING (CLAUDE.md "Syntax authority"): the intended authority is the relational/canonical
-    grammar layer.  That layer now EXISTS for TYPES and EXPRESSIONS — [CanonTy]/[CanonExpr] relations,
+    DERIVED TOOLING (CLAUDE.md "Syntax authority"): the authority is the relational/canonical grammar
+    layer.  That layer now EXISTS for TYPES and EXPRESSIONS — [CanonTy]/[CanonExpr] relations,
     [gprint_expr_canonical] (the printer inhabits the grammar), [lex_gprint_expr] (lexical faithfulness),
-    and [canon_ty_unique] (type-level token uniqueness, proved PARSER-FREE via [gttokens_ty_inj]).  Still
-    OPEN: expression-level uniqueness [canon_expr_unique], and the statement/program canonical layers
-    ([CanonStmt]/[CanonProgram] + their canonicity/uniqueness/lex).  Until those land, [print_stmt_inj] /
-    [print_program_inj] remain STRING-injectivity and [gprint_inj] is still parser-round-trip-based — so
-    the parser has NOT yet been demoted below the grammar at the expression-uniqueness/statement layers.
+    [canon_ty_unique] (type-level token uniqueness, PARSER-FREE via [gttokens_ty_inj]), and
+    [canon_expr_unique] (expression-level token uniqueness, PARSER-FREE via [gtokens_inj]).  So the parser
+    IS now demoted below the grammar at the expression layer — [gprint_inj] no longer depends on
+    [parse_print_roundtrip], which is now derived parser SELF-CONSISTENCY tooling.  Still OPEN: the
+    statement/program canonical layers ([CanonStmt]/[CanonProgram] + their canonicity/uniqueness/lex);
+    until those land, [print_stmt_inj] / [print_program_inj] remain STRING-injectivity and the
+    statement/program disjointness lemmas still route through [parse_print_roundtrip].
     Nothing here is Go-compiler acceptance.  There is NO theorem that Go's compiler reads the
     emitted text as the same AST (that Go-subset RECOGNITION theorem — emitted grammar ⊆ Go grammar — is
     UNPROVEN, a SEPARATE Go-syntax recognition gap; Go's toolchain is TRUSTED, ARCHITECTURE §2a item 3 —
@@ -8372,21 +8375,29 @@ Proof.
   rewrite app_nil_r in HP. exact HP.
 Qed.
 
-(** ★ THE END-TO-END EXPRESSION ROUND-TRIP — printing then parsing (lex + parse) recovers the AST EXACTLY.
-    Composes [gtokens_lex] (printer→tokens) with [gtokens_parse] (tokens→AST).  HONEST SCOPE: printer/parser
-    SELF-CONSISTENCY for the clean Rocq grammar — NOT yet a theorem about Go's own parser (a SEPARATE,
-    unproven Go-syntax recognition gap; Go's toolchain is trusted — NOT the plugin's gap #10). *)
+(** THE END-TO-END EXPRESSION ROUND-TRIP — printing then parsing (lex + parse) recovers the AST EXACTLY.
+    Composes [gtokens_lex] (printer→tokens) with [gtokens_parse] (tokens→AST).  DERIVED PARSER TOOLING
+    (CLAUDE.md "Syntax authority"), NOT the printer-injectivity authority: [gprint_inj] rests on
+    [gtokens_inj]/[canon_expr_unique] (parser-free), so this theorem only certifies that the executable
+    parser AGREES with the canonical grammar — parser SELF-CONSISTENCY, not a source of correctness.
+    (It remains load-bearing for the not-yet-rebased statement/program disjointness lemmas below — those
+    move onto lexical/canonical-token facts next.)  HONEST SCOPE: still the clean Rocq grammar, NOT a
+    theorem about Go's own parser (a SEPARATE unproven Go-syntax recognition gap; Go's toolchain is
+    trusted — NOT the plugin's gap #10). *)
 Theorem parse_print_roundtrip : forall e, parse_str (gprint 0 e) = Some (e, nil).
 Proof.
   intro e. unfold parse_str. rewrite (gtokens_lex e 0). apply gtokens_parse.
 Qed.
 
-(** FAITHFULNESS COROLLARY — the printer is INJECTIVE: distinct ASTs never print alike. *)
-Corollary gprint_inj : forall e1 e2, gprint 0 e1 = gprint 0 e2 -> e1 = e2.
+(** FAITHFULNESS — the printer is INJECTIVE: distinct ASTs never print alike.  PARSER-FREE: this rests on
+    the CANONICAL authority, NOT the executable parser.  Printing then LEXING is faithful ([gtokens_lex]:
+    [lex (gprint 0 e) = Some (gtokens 0 e)]), so equal strings give equal token lists, and
+    [gtokens_inj] (canonical-token uniqueness) recovers the AST.  [parse_print_roundtrip] is NOT used. *)
+Theorem gprint_inj : forall e1 e2, gprint 0 e1 = gprint 0 e2 -> e1 = e2.
 Proof.
-  intros e1 e2 He.
-  pose proof (parse_print_roundtrip e1) as R1. pose proof (parse_print_roundtrip e2) as R2.
-  unfold parse_str in R1, R2. rewrite He in R1. rewrite R1 in R2. injection R2 as Ht. exact Ht.
+  intros e1 e2 He. apply (gtokens_inj e1 0 e2).
+  pose proof (gtokens_lex e1 0) as L1. pose proof (gtokens_lex e2 0) as L2.
+  rewrite He in L1. rewrite L1 in L2. injection L2 as Ht. exact Ht.
 Qed.
 
 (** ==================================================================================================

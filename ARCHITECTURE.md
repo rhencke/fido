@@ -36,7 +36,7 @@ claim stayed the same.
 
 ```text
 GoAst     — this represents a SYNTACTICALLY VALID program (well-formed Go syntax); it may not compile.
-GoPrint   proves printing faithfulness ONLY (expression round-trip + program/statement print-injectivity).
+GoPrint   proves printing faithfulness ONLY (parser-free expression injectivity via the canonical grammar + program/statement print-injectivity).
 GoCompile — this program WOULD COMPILE: the front-end obligations for the emitted subset (names
           resolve, scopes valid, forms legal, locals used, constants fit).
 GoSem     — the SEMANTICS atop a compilable program: runtime meaning, only for programs GoCompile
@@ -62,14 +62,16 @@ AUTHORITY is the relational/canonical grammar layer (`CanonExpr`-shaped relation
 `gprint_*_canonical` + `canon_*_unique` + lexical faithfulness — CLAUDE.md "Syntax
 authority"). It now EXISTS for **types and expressions**: `CanonTy`/`CanonExpr` relations,
 `gprint_expr_canonical` (the printer inhabits the grammar), `lex_gprint_expr` (lexical
-faithfulness), and `canon_ty_unique` (type-level token uniqueness, proved PARSER-FREE via
-`gttokens_ty_inj`). Still OPEN and NOT yet the authority: expression-level `canon_expr_unique`,
-and the whole statement/program canonical layer (`CanonStmt`/`CanonProgram` + canonicity /
-uniqueness / lex). So today's still-parser-derived facts, never conflated: **expressions**
-carry a parse round-trip `parse_str (gprint 0 e) = Some (e, [])` (+ `gprint_inj`) over an
-executable lexer + parser — DERIVED TOOLING evidence of Rocq-grammar self-consistency,
-NOT Go-compiler acceptance and not the endpoint authority; **programs/statements** carry
-print-INJECTIVITY only (`print_program_inj`/`print_stmt_inj`). Purely syntactic.
+faithfulness), `canon_ty_unique` (type-level token uniqueness, PARSER-FREE via `gttokens_ty_inj`),
+and `canon_expr_unique` (expression-level token uniqueness, PARSER-FREE via `gtokens_inj`). So at the
+**expression** layer the authority is now the canonical grammar: `gprint_inj` is reproved PARSER-FREE
+off `gtokens_inj` + `gtokens_lex`, and the executable parse round-trip
+`parse_str (gprint 0 e) = Some (e, [])` (`parse_print_roundtrip`) is DERIVED TOOLING — evidence the
+parser AGREES with the grammar (Rocq-grammar self-consistency), NOT Go-compiler acceptance and NOT the
+printer-injectivity authority. Still OPEN: the whole statement/program canonical layer
+(`CanonStmt`/`CanonProgram` + canonicity / uniqueness / lex); **programs/statements** carry
+print-INJECTIVITY only (`print_program_inj`/`print_stmt_inj`), and their disjointness lemmas still route
+through `parse_print_roundtrip` until that layer lands. Purely syntactic.
 
 **`GoSem.v` — behavioral bridge from `GoAst` into the existing proof models — SLICE 1.**
 `denote_program : Program -> option (Cmd unit)` bridges into `cmd.v`'s proven command tree
