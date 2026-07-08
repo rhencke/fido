@@ -94,8 +94,8 @@ plugin CONSTRUCTS the `GExpr`; only `gprint` is verified. NOT "verified Go."
   `bare_not_paren_group`/`gtparen_inj`, the operator-token injectivities
   `op_token_inj`/`prefix_token_inj`, the pure type-skipper `skip_gty`
   (`skip_gty_types` exactness + `skip_gty_lt` progress), slice 2j the EBn precedence-split LOCATOR
-  `eb_find` (finds the rightmost depth-0 min-precedence infix op as a suffix split) + `eb_find_lt`
-  progress, slice 2k-c the OPERAND LAW `eb_operand` — the depth-0 dual of `eb_depth` proving the
+  `eb_find` (finds the rightmost depth-0 min-precedence infix op as a suffix split),
+  slice 2k-c the OPERAND LAW `eb_operand` — the depth-0 dual of `eb_depth` proving the
   locator's rightmost-min split via pure combine algebra, the `EBn`-crux — and slice 2k-d `eb_find_gtokens
   : eb_find (gtokens ctx e) = eb_top ctx e`, THE `gtokens_inj` EBn discriminator (`eb_operand` at the empty
   suffix ⇒ a block's tokens locate their own top operator: `Some (R,o)` for an unwrapped `EBn`, `None`

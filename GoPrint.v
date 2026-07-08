@@ -5534,79 +5534,6 @@ Fixpoint eb_find_acc (toks : list Token) (d : nat) (oc : bool) (a : Acc lt (List
 Definition eb_find (toks : list Token) : option (list Token * BinOp) :=
   eb_find_acc toks 0 false (lt_wf (List.length toks)).
 
-(** PROGRESS: the located split's right part [R] is a STRICT suffix — [eb_find] always consumes ≥ 1 token
-    (the operator plus its left operand).  (The strict-decrease progress guarantee for the locator; the
-    landed EBn diagonal [gtokens_inj_ebn] recurses STRUCTURALLY on the [GExpr] via the operand IHs, not on
-    [R], so [eb_find_lt] is not yet a consumer — it stays the locator's stated progress fact.) *)
-Ltac ebtl f IH Hn :=
-  destruct (skip_gty_acc _ (lt_wf _)) as [ [ [ | t1 g ] Hlt ] | ]; try exact I; destruct t1; try exact I;
-  pose proof (IH g 1 true (f _ (Nat.lt_trans _ _ _ (tlt1 (List.length g)) Hlt))
-                ltac:(cbn [List.length] in Hlt, Hn; lia)) as Hr;
-  destruct (eb_find_acc g 1 true _) as [[r' o'] | ]; first [ cbn [List.length] in Hlt, Hr |- *; lia | exact I ].
-Lemma eb_find_acc_len : forall n toks d oc (a : Acc lt (List.length toks)), List.length toks < n ->
-  match eb_find_acc toks d oc a with Some (r, _) => List.length r < List.length toks | None => True end.
-Proof.
-  induction n as [ | n IH ]; intros toks d oc a Hn; [ lia | ].
-  destruct a as [f]. destruct toks as [ | tok rest0 ]; [ destruct d, oc; exact I | ].
-  cbn [List.length] in Hn.
-  destruct d as [ | d' ]; cbn [eb_find_acc].
-  - (* d = 0 *)
-    destruct oc.
-    + (* oc = true *)
-      destruct (infix_op tok) as [ o | ] eqn:Eio.
-      * (* infix operator o : candidate; recursion finds the rightmost-min to its right *)
-        pose proof (IH rest0 0 false (f _ (tlt1 (List.length rest0))) ltac:(lia)) as Hr.
-        destruct (eb_find_acc rest0 0 false _) as [[r' o'] | ];
-          [ destruct (Nat.leb (binop_prec o') (binop_prec o)); cbn [List.length] in Hr |- *; lia
-          | cbn [List.length]; lia ].
-      * (* non-infix while operand-complete: postfix TLP / TLB / TDot (Token order) *)
-        destruct tok; try exact I.
-        -- (* TLP call *) pose proof (IH rest0 1 true (f _ (tlt1 (List.length rest0))) ltac:(lia)) as Hr.
-           destruct (eb_find_acc rest0 1 true _) as [[r' o'] | ]; [ cbn [List.length] in Hr |- *; lia | exact I ].
-        -- (* TLB index *) pose proof (IH rest0 1 true (f _ (tlt1 (List.length rest0))) ltac:(lia)) as Hr.
-           destruct (eb_find_acc rest0 1 true _) as [[r' o'] | ]; [ cbn [List.length] in Hr |- *; lia | exact I ].
-        -- (* TDot: .field / .(assert) *) destruct rest0 as [ | t1 rest1 ]; [ exact I | ]. destruct t1; try exact I.
-           ++ (* TId field *) pose proof (IH rest1 0 true (f _ (tlt2 (List.length rest1))) ltac:(cbn [List.length] in Hn; lia)) as Hr.
-              destruct (eb_find_acc rest1 0 true _) as [[r' o'] | ]; [ cbn [List.length] in Hr |- *; lia | exact I ].
-           ++ (* TLP assert *) pose proof (IH rest1 1 true (f _ (tlt2 (List.length rest1))) ltac:(cbn [List.length] in Hn; lia)) as Hr.
-              destruct (eb_find_acc rest1 1 true _) as [[r' o'] | ]; [ cbn [List.length] in Hr |- *; lia | exact I ].
-    + (* oc = false : operand-expecting (Token order: atoms, TMinus, prefixes, TLP, type-leads) *)
-      destruct tok; try exact I.
-      -- (* TId atom *) pose proof (IH rest0 0 true (f _ (tlt1 (List.length rest0))) ltac:(lia)) as Hr.
-         destruct (eb_find_acc rest0 0 true _) as [[r' o'] | ]; [ cbn [List.length] in Hr |- *; lia | exact I ].
-      -- (* TInt atom *) pose proof (IH rest0 0 true (f _ (tlt1 (List.length rest0))) ltac:(lia)) as Hr.
-         destruct (eb_find_acc rest0 0 true _) as [[r' o'] | ]; [ cbn [List.length] in Hr |- *; lia | exact I ].
-      -- (* TStr atom *) pose proof (IH rest0 0 true (f _ (tlt1 (List.length rest0))) ltac:(lia)) as Hr.
-         destruct (eb_find_acc rest0 0 true _) as [[r' o'] | ]; [ cbn [List.length] in Hr |- *; lia | exact I ].
-      -- (* THex atom *) pose proof (IH rest0 0 true (f _ (tlt1 (List.length rest0))) ltac:(lia)) as Hr.
-         destruct (eb_find_acc rest0 0 true _) as [[r' o'] | ]; [ cbn [List.length] in Hr |- *; lia | exact I ].
-      -- (* TMinus : UNeg needs TLP *) destruct rest0 as [ | t1 rest1 ]; [ exact I | ]. destruct t1; try exact I.
-         pose proof (IH rest1 1 true (f _ (tlt2 (List.length rest1))) ltac:(cbn [List.length] in Hn; lia)) as Hr.
-         destruct (eb_find_acc rest1 1 true _) as [[r' o'] | ]; [ cbn [List.length] in Hr |- *; lia | exact I ].
-      -- (* TStar prefix *) pose proof (IH rest0 0 false (f _ (tlt1 (List.length rest0))) ltac:(lia)) as Hr.
-         destruct (eb_find_acc rest0 0 false _) as [[r' o'] | ]; [ cbn [List.length] in Hr |- *; lia | exact I ].
-      -- (* TAmp prefix *) pose proof (IH rest0 0 false (f _ (tlt1 (List.length rest0))) ltac:(lia)) as Hr.
-         destruct (eb_find_acc rest0 0 false _) as [[r' o'] | ]; [ cbn [List.length] in Hr |- *; lia | exact I ].
-      -- (* TCaret prefix *) pose proof (IH rest0 0 false (f _ (tlt1 (List.length rest0))) ltac:(lia)) as Hr.
-         destruct (eb_find_acc rest0 0 false _) as [[r' o'] | ]; [ cbn [List.length] in Hr |- *; lia | exact I ].
-      -- (* TBang prefix *) pose proof (IH rest0 0 false (f _ (tlt1 (List.length rest0))) ltac:(lia)) as Hr.
-         destruct (eb_find_acc rest0 0 false _) as [[r' o'] | ]; [ cbn [List.length] in Hr |- *; lia | exact I ].
-      -- (* TLP paren operand *) pose proof (IH rest0 1 true (f _ (tlt1 (List.length rest0))) ltac:(lia)) as Hr.
-         destruct (eb_find_acc rest0 1 true _) as [[r' o'] | ]; [ cbn [List.length] in Hr |- *; lia | exact I ].
-      -- (* TLB []-composite: type-lead *) ebtl f IH Hn.
-      -- (* TChan chan-composite: type-lead *) ebtl f IH Hn.
-      -- (* TMap map-composite: type-lead *) ebtl f IH Hn.
-  - (* d = S d' : inside brackets — operators ignored, depth tracked *)
-    match goal with |- context [eb_find_acc rest0 ?nd ?ocx _] =>
-      pose proof (IH rest0 nd ocx (f _ (tlt1 (List.length rest0))) ltac:(lia)) as Hr end.
-    destruct (eb_find_acc rest0 _ _ _) as [[r' o'] | ]; [ cbn [List.length] in Hr |- *; lia | exact I ].
-Qed.
-Lemma eb_find_lt : forall toks r o, eb_find toks = Some (r, o) -> List.length r < List.length toks.
-Proof.
-  intros toks r o H. unfold eb_find in H.
-  pose proof (eb_find_acc_len (S (List.length toks)) toks 0 false (lt_wf (List.length toks)) (tlt1 _)) as Hlt.
-  destruct (eb_find_acc toks 0 false _) as [[r' o'] | ]; [ injection H as <- <-; exact Hlt | discriminate H ].
-Qed.
 (** [eb_find_acc]'s result does not depend on WHICH [Acc] witness is supplied — proof-irrelevance in the
     descent certificate.  Lets the coming correctness proof reason EQUATIONALLY about [eb_find_acc] across
     the [Acc_inv]-derived certs its own recursion produces (which differ from a fresh [lt_wf]). *)
@@ -8110,7 +8037,6 @@ Print Assumptions op_token_inj.
 Print Assumptions prefix_token_inj.
 Print Assumptions skip_gty_types.
 Print Assumptions skip_gty_lt.
-Print Assumptions eb_find_lt.
 Print Assumptions eb_find_pi.
 Print Assumptions eb_depth_ty.
 Print Assumptions eb_depth_args.

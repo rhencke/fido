@@ -85,8 +85,8 @@ toks` — a skip consumes ≥ 1 token, the well-foundedness the scan will recurs
 type-context foundation (handles the pointer-`TStar` hazard by skipping whole types).
 LANDED (slice 2j): ★the EBn OPERATOR-PRECEDENCE LOCATOR
 `eb_find` — the rightmost-minimal-precedence depth-0 infix op as a suffix split, prefix/infix
-disambiguation by operand-complete state, type-leads skipped whole via `skip_gty_acc`'s strict sig — plus
-its progress lemma `eb_find_lt` (the returned suffix is strict).  LANDED (slice 2k-c): ★the OPERAND LAW
+disambiguation by operand-complete state, type-leads skipped whole via `skip_gty_acc`'s strict sig.
+LANDED (slice 2k-c): ★the OPERAND LAW
 `eb_operand` — the depth-0 dual of `eb_depth`: a whole `gtokens ctx e` block at a depth-0 FROM-position
 is consumed, leaving the suffix scan combined with the node's own top operator (`eb_top ctx e`); the
 `EBn`-unwrapped recursive-combine split is proved via the crux algebra (`eb_infix_combine`,
@@ -133,8 +133,8 @@ determinism lemma was found FALSE — see the design.)
    `bd` balance toolkit + `gtokens_balanced`; the `last0`/`bdip`/`fsep` split lemmas;
    `no_depth0_sep`; `gtokens_args_inj`; `gtokens_pairs_inj`; the paren/bare operand discrimination
    `bare_not_paren_group`/`gtparen_inj`; the operator-token injectivities
-   `op_token_inj`/`prefix_token_inj`; the type-skipper `skip_gty`; slice 2j the EBn locator `eb_find` +
-   `eb_find_lt`; slice 2k-c the OPERAND LAW `eb_operand` — the depth-0 dual of `eb_depth`; slice 2k-d
+   `op_token_inj`/`prefix_token_inj`; the type-skipper `skip_gty`; slice 2j the EBn locator `eb_find`;
+   slice 2k-c the OPERAND LAW `eb_operand` — the depth-0 dual of `eb_depth`; slice 2k-d
    `eb_find_gtokens` — the EBn discriminator, `eb_find_inner` its corollary) are LANDED +
    gated; `gtokens_inj` itself is the open crux.  The EBn precedence substrate is fully landed
    (`eb_find_gtokens : eb_find (gtokens ctx e) = eb_top ctx e`, the EBn discriminator; `eb_find_inner` its
@@ -280,7 +280,7 @@ COMPLETE lists (no suffix):
   the type-skip foundation.  `skip_gty_acc` now returns the STRICT sig `{ r | length r < length toks }`,
   so `skip_gty_lt` is a trivial projection.)
 
-  ★EBn LOCATOR — `eb_find` + `eb_find_lt` LANDED (slice 2j): the split is found by
+  ★EBn LOCATOR — `eb_find` LANDED (slice 2j): the split is found by
   `eb_find : list Token -> option (list Token * BinOp)` — a SUFFIX-returning `Acc`-recursive scan
   (`eb_find_acc toks d oc a`) that walks the unwrapped tokens tracking bracket-depth `d` + operand-complete
   `oc`, returning `Some (R, o)` for the RIGHTMOST depth-0 infix operator `o` of MINIMAL precedence (the top
@@ -291,8 +291,7 @@ COMPLETE lists (no suffix):
   is never read as `BMul`); its STRICT sig hands the length proof to the value-group recursion's `Acc`
   cert DIRECTLY — no convoy (the earlier `eq_refl` convoy made a proof unable to case-split the scrutinee;
   the strict sig was the fix).  Bracket interiors (`d>0`) are depth-tracked, operators ignored.
-  `eb_find_lt` (gated): the returned `R` is a STRICT suffix (`eb_find` consumes ≥ 1 token), the
-  well-foundedness the `gtokens_inj` EBn recursion needs.  Slice 2k = the rightmost-min CORRECTNESS on the
+  Slice 2k = the rightmost-min CORRECTNESS on the
   UNWRAPPED inner — `eb_find (gtokens (prec o) l ++ op_token o :: gtokens (S (prec o)) r) =
   Some (gtokens (S (prec o)) r, o)` (NOT on `gtokens ctx (EBn o l r)`: for `prec o < ctx` that is
   paren-WRAPPED and `eb_find` returns `None`; `gtokens_inj` peels the wrapper before calling `eb_find`),
