@@ -95,10 +95,12 @@ plugin CONSTRUCTS the `GExpr`; only `gprint` is verified. NOT "verified Go."
   `op_token_inj`/`prefix_token_inj`, the pure type-skipper `skip_gty`
   (`skip_gty_types` exactness + `skip_gty_lt` progress), slice 2j the EBn precedence-split LOCATOR
   `eb_find` (finds the rightmost depth-0 min-precedence infix op as a suffix split) + `eb_find_lt`
-  progress, and slice 2k-c the OPERAND LAW `eb_operand` — the depth-0 dual of `eb_depth` proving the
-  locator's rightmost-min split via pure combine algebra, the `EBn`-crux). NEXT: the top-level `eb_find`
-  correctness at `suffix = nil` (a corollary of `eb_operand`) → the EBn case of `gtokens_inj` →
-  `canon_expr_unique` (all parser-free); then reprove `gprint_inj`
+  progress, slice 2k-c the OPERAND LAW `eb_operand` — the depth-0 dual of `eb_depth` proving the
+  locator's rightmost-min split via pure combine algebra, the `EBn`-crux — and slice 2k-d `eb_find_inner`,
+  the top-level `eb_find` rightmost-min correctness at `suffix = nil`, proved as a corollary of
+  `eb_operand` at the `EBn` node). NEXT: the EBn case of `gtokens_inj` (peel the ctx-wrapper, app-split at
+  `op_token o` via `eb_find_inner`'s R, `op_token_inj` for `o`, IH on `l`/`r`) → `canon_expr_unique` (all
+  parser-free); then reprove `gprint_inj`
   off `gtokens_inj` (retiring `parse_print_roundtrip`), then `CanonStmt`/`CanonProgram`.
 - The cmd↔unified bridge (`plans/bridge-effects.md`): `CAlloc` AND the channel slice LANDED
   (typed zeros through the channel's own tag, gated obligations; `bridge_effects_agree` now

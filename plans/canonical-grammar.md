@@ -90,12 +90,14 @@ its progress lemma `eb_find_lt` (the returned suffix is strict).  LANDED (slice 
 `eb_operand` — the depth-0 dual of `eb_depth`: a whole `gtokens ctx e` block at a depth-0 FROM-position
 is consumed, leaving the suffix scan combined with the node's own top operator (`eb_top ctx e`); the
 `EBn`-unwrapped recursive-combine split is proved via the crux algebra (`eb_infix_combine`,
-`eb_combine_left_absorb`) + `eb_top_prec`.  STILL TO WRITE: the top-level `eb_find` rightmost-min
-CORRECTNESS at `suffix = nil` — `eb_find (gtokens (prec o) l ++ op_token o :: gtokens (S (prec o)) r) =
-Some (gtokens (S (prec o)) r, o)` (NOT on `gtokens ctx (EBn o l r)` itself: when `prec o < ctx` that is
-paren-WRAPPED `TLP :: inner ++ [TRP]`, on which `eb_find` returns `None` — `gtokens_inj` peels the
-wrapper first, so `eb_find` only ever sees the inner) — a corollary of `eb_operand` at `c = prec o`;
-then `gtokens_inj` itself.  (The arbitrary-SUFFIX determinism lemma was found FALSE — see the design.)
+`eb_combine_left_absorb`) + `eb_top_prec`.  LANDED (slice 2k-d): ★the top-level `eb_find` rightmost-min
+CORRECTNESS at `suffix = nil` — `eb_find_inner : eb_find (gtokens (prec o) l ++ op_token o :: gtokens (S
+(prec o)) r) = Some (gtokens (S (prec o)) r, o)` (NOT on `gtokens ctx (EBn o l r)` itself: when `prec o <
+ctx` that is paren-WRAPPED `TLP :: inner ++ [TRP]`, on which `eb_find` returns `None` — `gtokens_inj`
+peels the wrapper first, so `eb_find` only ever sees the inner) — proved as a corollary of `eb_operand` at
+`c = prec o` (unwrapped, empty suffix).  STILL TO WRITE: `gtokens_inj` itself (peel the ctx-wrapper,
+app-split at `op_token o` via `eb_find_inner`'s R, `op_token_inj` for `o`, IH on `l`/`r`) then
+`canon_expr_unique`.  (The arbitrary-SUFFIX determinism lemma was found FALSE — see the design.)
 
 ## Phases (each: green, golden byte-identical, gated, reviewed)
 
@@ -121,8 +123,8 @@ then `gtokens_inj` itself.  (The arbitrary-SUFFIX determinism lemma was found FA
    `op_token_inj`/`prefix_token_inj`; the type-skipper `skip_gty`; slice 2j the EBn locator `eb_find` +
    `eb_find_lt`; slice 2k-c the OPERAND LAW `eb_operand` — the depth-0 dual of `eb_depth`) are LANDED +
    gated; `gtokens_inj` itself is the open crux — the locator AND its operand-law substrate are landed, so
-   the top-level `eb_find` correctness (2k-d, a corollary of `eb_operand`) and the `gtokens_inj` assembly
-   are what remain.
+   the top-level `eb_find` correctness (2k-d `eb_find_inner`, a corollary of `eb_operand`) is LANDED too,
+   so the `gtokens_inj` EBn assembly (peel the wrapper, split at `op_token o`, IH on `l`/`r`) is what remains.
 4. **CanonStmt/CanonProgram** + the same trio over the statement printer (the
    statement layer's `lex_gprint_stmt` does not exist yet — build the statement
    `gtokens` analogue first).
@@ -307,10 +309,11 @@ COMPLETE lists (no suffix):
   `eb_combine_absorb` (a left operand's op, prec ≥ the node op, never displaces the always-`Some` split);
   the type-led operands use `eb_type_skip`/`eb_type_slice`/`eb_type_conv` (whole-type skip via
   `skip_gty_acc` + `skip_gty_types`, parser-free) and `eb_top_unbare` for the bare unary operand.
-  2k-d (NEXT) = the top-level `eb_find` correctness at `suffix = nil` (a corollary of (i)=`eb_operand`
-  at `c = prec o`, `eb_top_prec` = `eb_top c e = Some (_,o') -> c <= prec o'`, and the `eb_combine`
-  arithmetic).  Then `gtokens_inj`'s EBn case (`app`-split at `op_token o` via the suffix, `op_token_inj`
-  for `o`, IH on `l` and `r`).
+  2k-d (LANDED, `eb_find_inner`) = the top-level `eb_find` correctness at `suffix = nil` (proved as a
+  corollary of (i)=`eb_operand` at the `EBn` node with `c = binop_prec o` ⇒ unwrapped, empty suffix ⇒
+  `eb_top` = `Some (R,o)` and the combine keeps `o` with `R ++ nil = R`).  NEXT = `gtokens_inj`'s EBn case
+  (peel the ctx-wrapper when `prec o < ctx`; `app`-split at `op_token o` via `eb_find_inner`'s R;
+  `op_token_inj` for `o`; IH on `l` and `r`).
 
 Then `canon_expr_unique` (+ `gtokens_inj`) join the printer Print Assumptions gate.
 Phase 3c = reprove `gprint_inj` off `gtokens_inj` + `gtokens_lex` (making it a corollary of the
