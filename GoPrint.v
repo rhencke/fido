@@ -6598,6 +6598,51 @@ Proof.
   - exfalso; pose proof (nonatom_len ctx (ESlice e lo hi) eq_refl) as HL; rewrite E in HL; cbn [gtokens length] in HL; lia.
   - exfalso; pose proof (nonatom_len ctx (ESlice e lo hi) eq_refl) as HL; rewrite E in HL; cbn [gtokens length] in HL; lia.
 Qed.
+(* the EUn ROW: [EUn o e] against EVERY [e2].  [EUn] leads with a bare [prefix_token o] — and NOTHING
+   else does (the lead fact [gtparen_hd_not_prefix] for the postfix forms; a concrete type-token for the
+   composites; [TLP] for a wrapped [EBn]) EXCEPT an unwrapped [EBn] whose left operand leads with one,
+   which [eb_find_gtokens] catches ([eb_top] [None] for [EUn] vs [Some]).  atoms: [nonatom_len]; the
+   diagonal: [gtokens_eun_inner] fed the operand IH. *)
+Lemma gtokens_inj_eun_row : forall ctx o e e2,
+  (forall c e', gtokens c e = gtokens c e' -> e = e') ->
+  gtokens ctx (EUn o e) = gtokens ctx e2 -> EUn o e = e2.
+Proof.
+  intros ctx o e e2 IH E.
+  destruct e2 as [ i0 | z | o0 e0 | o0 l r | e0 f0 | e0 j | e0 lo hi | e0 args | e0 T | c e0 | t0 es0 | kt vt kvs | s | zc ].
+  - exfalso; pose proof (nonatom_len ctx (EUn o e) eq_refl) as HL; rewrite E in HL; cbn [gtokens length] in HL; lia.
+  - exfalso; pose proof (nonatom_len ctx (EUn o e) eq_refl) as HL; rewrite E in HL; cbn [gtokens length] in HL; lia.
+  - exact (gtokens_eun_inner ctx o e o0 e0 IH E).
+  - exfalso; pose proof (f_equal eb_find E) as HF; rewrite !eb_find_gtokens in HF; cbn [eb_top] in HF;
+      destruct (Nat.ltb (binop_prec o0) ctx) eqn:W;
+      [ pose proof (f_equal (@hd_error Token) E) as HD;
+        rewrite gtokens_hd_eun, (gtokens_hd_ebn_wrapped ctx o0 l r W) in HD;
+        destruct o; cbn [prefix_token] in HD; discriminate HD
+      | discriminate HF ].
+  - exfalso; pose proof (f_equal (@hd_error Token) E) as HD;
+      rewrite gtokens_hd_eun, gtokens_ESel, (hd_error_app_l _ _ (gtparen_nonnil e0)) in HD;
+      exact (gtparen_hd_not_prefix e0 o (eq_sym HD)).
+  - exfalso; pose proof (f_equal (@hd_error Token) E) as HD;
+      rewrite gtokens_hd_eun, gtokens_EIndex, (hd_error_app_l _ _ (gtparen_nonnil e0)) in HD;
+      exact (gtparen_hd_not_prefix e0 o (eq_sym HD)).
+  - exfalso; pose proof (f_equal (@hd_error Token) E) as HD;
+      rewrite gtokens_hd_eun, gtokens_ESlice, (hd_error_app_l _ _ (gtparen_nonnil e0)) in HD;
+      exact (gtparen_hd_not_prefix e0 o (eq_sym HD)).
+  - exfalso; pose proof (f_equal (@hd_error Token) E) as HD;
+      rewrite gtokens_hd_eun, gtokens_ECall, (hd_error_app_l _ _ (gtparen_nonnil e0)) in HD;
+      exact (gtparen_hd_not_prefix e0 o (eq_sym HD)).
+  - exfalso; pose proof (f_equal (@hd_error Token) E) as HD;
+      rewrite gtokens_hd_eun, gtokens_EAssert, (hd_error_app_l _ _ (gtparen_nonnil e0)) in HD;
+      exact (gtparen_hd_not_prefix e0 o (eq_sym HD)).
+  - exfalso; pose proof (f_equal (@hd_error Token) E) as HD;
+      rewrite gtokens_hd_eun, gtokens_EConv in HD; destruct c;
+      cbn [convty_ty gttokens_ty app hd_error] in HD; destruct o; cbn [prefix_token] in HD; discriminate HD.
+  - exfalso; pose proof (f_equal (@hd_error Token) E) as HD;
+      rewrite gtokens_hd_eun, gtokens_hd_eslicelit in HD; destruct o; cbn [prefix_token] in HD; discriminate HD.
+  - exfalso; pose proof (f_equal (@hd_error Token) E) as HD;
+      rewrite gtokens_hd_eun, gtokens_hd_emaplit in HD; destruct o; cbn [prefix_token] in HD; discriminate HD.
+  - exfalso; pose proof (nonatom_len ctx (EUn o e) eq_refl) as HL; rewrite E in HL; cbn [gtokens length] in HL; lia.
+  - exfalso; pose proof (nonatom_len ctx (EUn o e) eq_refl) as HL; rewrite E in HL; cbn [gtokens length] in HL; lia.
+Qed.
 (* the four ATOM-ROW diagonals+cross-cells of [gtokens_inj]: an atom [e1] against EVERY [e2].
    Each atom prints to ONE distinguishing token, so [gtokens ctx e1] has length 1: another atom's
    single token either matches ([congruence] recovers the payload) or is a different token
@@ -8656,6 +8701,7 @@ Print Assumptions gtokens_olast_ebn_wrapped.
 Print Assumptions gtokens_inj_esel_row.
 Print Assumptions gtokens_inj_eindex_row.
 Print Assumptions gtokens_inj_eslice_row.
+Print Assumptions gtokens_inj_eun_row.
 
 (** Extract the Rocq printers to the OCaml the plugin calls. *)
 Require Import Extraction.
