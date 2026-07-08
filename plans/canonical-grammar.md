@@ -206,15 +206,23 @@ COMPLETE lists (no suffix):
   THE SCAN (design; code next): a left-to-right fold tracking (a) bracket depth `bd`, (b) an
   OPERAND-COMPLETE state — an operator token counts as INFIX only after a complete operand
   (atom/closer/finished postfix chain), so a leading `TMinus`/`TStar`/`TAmp`/`TCaret` reads unary, not
-  binary — and (c) the RIGHTMOST depth-0 position of MINIMAL `infix_op` precedence.  Two invariants by
-  structural induction on the operand pin the split: INV-L (`gtokens p el`: its depth-0 infix ops have
-  prec ≥ p and it ends operand-complete) and INV-R (`gtokens (S p) er`: its depth-0 infix ops have prec
-  > p).  On `inner`: the left gives prec ≥ p, `op_token o` prec p (the new min, rightmost so far), the
-  right prec > p — so the scan lands on `op_token o`'s position; `op_token_inj` recovers `o`, an
-  `app`-length split gives `el`/`er`, IH recurses.  ⛔ NOT derivable from the parser: `parse (gtokens e)
-  = e` (`parse_print_roundtrip`) + equal token lists would give uniqueness in two lines — the exact
+  binary — and (c) the RIGHTMOST depth-0 position of MINIMAL `infix_op` precedence.  ⚠ TYPE-CONTEXT
+  HAZARD (review 47): `gttokens_ty` emits pointer types as `TStar :: …`, and type-led operands splice
+  type tokens at EXPRESSION depth 0 — `ESliceLit`'s element type after `[]` (`a * []*int{}`), `EMapLit`'s
+  value type after `map[K]`, an `EConv` pointer target — so a depth-0 `TStar` can be a POINTER star, not
+  `BMul`.  (`TMinus`/`TAmp`/`TCaret` never occur in types; only `TStar` does; `EAssert`'s type sits
+  inside `TLP…TRP` at depth ≥ 1, safe.)  The scan MUST therefore also track TYPE-CONTEXT (a region
+  opened by a type-leading shape — `[]`/`map`/`chan`/`*`/`[N]` — and closed at the value delimiter `{`
+  or `(`), and NOT read operator tokens inside it as infix; only then do the invariants hold.  Two
+  invariants by structural induction on the operand pin the split: INV-L (`gtokens p el`: its depth-0
+  NON-TYPE infix ops have prec ≥ p and it ends operand-complete) and INV-R (`gtokens (S p) er`: its
+  depth-0 non-type infix ops have prec > p).  On `inner`: the left gives prec ≥ p, `op_token o` prec p
+  (the new min, rightmost so far), the right prec > p — so the scan lands on `op_token o`'s position;
+  `op_token_inj` recovers `o`, an `app`-length split gives `el`/`er`, IH recurses.  ⛔ NOT derivable from
+  the parser: `parse (gtokens e) = e` (`gtokens_parse`; the string-level analogue is
+  `parse_print_roundtrip`) + equal token lists would give uniqueness in two lines — the exact
   parser-as-foundation inversion the charter forbids; the scan REPROVES the precedence-climb
-  structurally.  (The operand-complete tracking mirrors the parser's postfix/climb state — the
+  structurally.  (The operand-complete + type-context tracking mirrors the parser's postfix/climb state — the
   intricate part, hence a self-contained sub-arc.)
 
 Then `canon_expr_unique` (+ `gtokens_inj`) join the printer Print Assumptions gate.
