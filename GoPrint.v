@@ -5934,25 +5934,20 @@ Proof.
     [ left; reflexivity | left; reflexivity | apply (skip_gty_types (GTSlice t)) ].
 Qed.
 (* the DEPTH-0 CONVERSION type-skip: ANY conversion type [gttokens_ty t] at a FROM-position, then '(',
-   lands at depth 1.  Scalar/named leads step through the single [TId] then '('; pointer leads step the
-   [TStar] prefix then recurse; slice/chan/map leads take the whole-type [eb_type_skip].  For [EConv]. *)
-Lemma eb_type_conv : forall t rest a a2,
-  eb_find_acc (gttokens_ty t ++ TLP :: rest) 0 false a = eb_find_acc rest 1 true a2.
+   lands at depth 1.  Ranged over [ConvTy] — NOT all [GoTy] — so it covers EXACTLY the type-form
+   conversions [EConv] can represent ([]T / chan T / map[K]V, all bracket-led → whole-type [eb_type_skip]);
+   an identifier-led form like [int64(x)] is a CALL, not an [EConv], so no scalar/pointer "conversion" is
+   asserted here (naming is a correctness claim — this is not a general type-then-'(' skip). *)
+Lemma eb_type_conv : forall c rest a a2,
+  eb_find_acc (gttokens_ty (convty_ty c) ++ TLP :: rest) 0 false a = eb_find_acc rest 1 true a2.
 Proof.
-  induction t; intros rest a a2;
-    try (cbn [gttokens_ty app]; erewrite (eb0f_id _ _ _ (lt_wf _));
-         erewrite (eb0t_lparen _ _ (lt_wf _)); eapply eb_find_acc_pi; apply tlt1).
-  - (* GTPtr u *) cbn [gttokens_ty app];
-      erewrite (eb0f_prefix _ _ _ (lt_wf _)) by (right; right; left; reflexivity); apply IHt.
-  - (* GTSlice u *) cbn [gttokens_ty];
-      erewrite (eb_type_skip TLB _ TLP _ _ (lt_wf _)) by (eb_tyskip_side (GTSlice t));
-      eapply eb_find_acc_pi; apply tlt1.
-  - (* GTChan u *) cbn [gttokens_ty];
-      erewrite (eb_type_skip TChan _ TLP _ _ (lt_wf _)) by (eb_tyskip_side (GTChan t));
-      eapply eb_find_acc_pi; apply tlt1.
-  - (* GTMap k v *) cbn [gttokens_ty];
-      erewrite (eb_type_skip TMap _ TLP _ _ (lt_wf _)) by (eb_tyskip_side (GTMap t1 t2));
-      eapply eb_find_acc_pi; apply tlt1.
+  intros c rest a a2; destruct c as [ u | u | k v ]; cbn [convty_ty gttokens_ty].
+  - apply (eb_type_skip TLB (TRB :: gttokens_ty u) TLP rest a a2);
+      [ left; reflexivity | right; reflexivity | apply (skip_gty_types (GTSlice u)) ].
+  - apply (eb_type_skip TChan (gttokens_ty u) TLP rest a a2);
+      [ right; right; reflexivity | right; reflexivity | apply (skip_gty_types (GTChan u)) ].
+  - apply (eb_type_skip TMap (TLB :: (gttokens_ty k ++ TRB :: gttokens_ty v)) TLP rest a a2);
+      [ right; left; reflexivity | right; reflexivity | apply (skip_gty_types (GTMap k v)) ].
 Qed.
 
 (* ═══ the OPERAND LAW [eb_operand] ═══  a whole [gtokens ctx e] block at a depth-0 FROM-position is
@@ -6034,7 +6029,7 @@ Proof.
       [ eb0_lp; eb_ih6 (eb_depth e); eb0_cl1 | eb0_bare IHe (eb_top_bare 0 _ Hp) ];
       eb0_dotlp; eb_ih (eb_depth_ty T); eb0_cl1; eb_fin.
   - (* EConv *) cbn [eb_top eb_combine]; eb_pin; rewrite gtokens_EConv; eb_norm;
-      erewrite (eb_type_conv (convty_ty c) _ _ (lt_wf _)); eb_ih6 (eb_depth e); eb0_cl1; eb_fin.
+      erewrite (eb_type_conv c _ _ (lt_wf _)); eb_ih6 (eb_depth e); eb0_cl1; eb_fin.
   - (* ESliceLit *) cbn [eb_top eb_combine]; eb_pin; rewrite gtokens_ESliceLit; eb_norm;
       erewrite (eb_type_slice t _ _ (lt_wf _));
       eb_ih (eb_depth_args es (all_eb_dep es)); eb0_cl1; eb_fin.
