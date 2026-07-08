@@ -102,9 +102,11 @@ plugin CONSTRUCTS the `GExpr`; only `gprint` is verified. NOT "verified Go."
   otherwise), with the `EBn`-node instance `eb_find_inner` its corollary, and `gtokens_ebn_inner` — the
   EBn-case RECURSION of `gtokens_inj`, and `gtokens_eun_inner` the EUn-case recursion — the two "loose"
   (non-primary) diagonals, each equal-tokens ⇒ equal node via `eb_find_inner`/`prefix_token_inj` + the
-  operand IHs). NEXT: assemble `gtokens_inj` (both loose diagonals DONE; remaining = the primary diagonals
-  + the cross-constructor discrimination via `eb_top`/`last0`/`gtparen_inj`/args-pairs) →
-  `canon_expr_unique` (all parser-free); then reprove `gprint_inj`
+  operand IHs). NEXT: the `gtokens_inj` ASSEMBLY — the LARGE remaining bulk. The two loose diagonals are a
+  small fraction; still open are the primary diagonals (atoms/postfix/composites) and, hardest, the
+  ~14×13 cross-constructor discrimination (`gtokens` is not prefix-free, so most pairs need a real
+  discriminator — `eb_top`/`last0`/length/last-token — and the assembly will likely surface further
+  discrimination sub-lemmas). Then `canon_expr_unique` (all parser-free); then reprove `gprint_inj`
   off `gtokens_inj` (retiring `parse_print_roundtrip`), then `CanonStmt`/`CanonProgram`.
 - The cmd↔unified bridge (`plans/bridge-effects.md`): `CAlloc` AND the channel slice LANDED
   (typed zeros through the channel's own tag, gated obligations; `bridge_effects_agree` now

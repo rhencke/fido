@@ -100,8 +100,11 @@ for an unwrapped `EBn o _ r`, `None` for every primary / prefix `EUn` / paren-WR
 `gtokens_ebn_inner` (equal inner tokens ⇒ equal operator + operands, via `eb_find_inner` + the two operand
 IHs + `app_inv_tail`) and `gtokens_eun_inner` (equal tokens ⇒ equal unop + operand, via `prefix_token_inj`
 + `bare_not_paren_group` for the wrap-vs-bare impossibility + the operand IH).  STILL TO WRITE: the
-`gtokens_inj` ASSEMBLY (both loose diagonals done; remaining is the primary diagonals + the
-cross-constructor discrimination via `eb_top`/`last0`/`gtparen_inj`) then `canon_expr_unique`.
+`gtokens_inj` ASSEMBLY — the LARGE remaining bulk (the two loose diagonals are a small fraction): the
+primary diagonals (atoms/postfix/composites) and, HARDEST, the ~14×13 cross-constructor discrimination.
+Since `gtokens` is not prefix-free, most constructor pairs need a real discriminator (`eb_top`/`last0`/
+length/last-token), and the assembly will likely surface further discrimination sub-lemmas beyond the
+landed toolkit — this is the genuine remaining crux, not a mechanical wiring pass.  Then `canon_expr_unique`.
 (The arbitrary-SUFFIX
 determinism lemma was found FALSE — see the design.)
 
@@ -129,10 +132,13 @@ determinism lemma was found FALSE — see the design.)
    `op_token_inj`/`prefix_token_inj`; the type-skipper `skip_gty`; slice 2j the EBn locator `eb_find` +
    `eb_find_lt`; slice 2k-c the OPERAND LAW `eb_operand` — the depth-0 dual of `eb_depth`; slice 2k-d
    `eb_find_gtokens` — the EBn discriminator, `eb_find_inner` its corollary) are LANDED +
-   gated; `gtokens_inj` itself is the open crux — the locator AND its operand-law substrate are landed, so
-   the top-level `eb_find` correctness (2k-d `eb_find_gtokens : eb_find (gtokens ctx e) = eb_top ctx e`, the
-   EBn discriminator; `eb_find_inner` its corollary) is LANDED too, so the `gtokens_inj` EBn assembly (equal
-   tokens ⇒ equal `eb_top` ⇒ same operator + split, IH on `l`/`r`) is what remains.
+   gated; `gtokens_inj` itself is the open crux.  The EBn precedence substrate is fully landed
+   (`eb_find_gtokens : eb_find (gtokens ctx e) = eb_top ctx e`, the EBn discriminator; `eb_find_inner` its
+   corollary), and the two "loose" (operator-bearing) same-constructor DIAGONALS are done
+   (`gtokens_ebn_inner`/`gtokens_eun_inner`) — but these are a small fraction.  The LARGE remaining bulk is
+   the `gtokens_inj` ASSEMBLY: the primary diagonals (atoms/postfix/composites) and, hardest, the ~14×13
+   cross-constructor discrimination (not prefix-free ⇒ most pairs need a real discriminator; the assembly
+   will likely surface further discrimination sub-lemmas — the genuine remaining crux, not mere wiring).
 4. **CanonStmt/CanonProgram** + the same trio over the statement printer (the
    statement layer's `lex_gprint_stmt` does not exist yet — build the statement
    `gtokens` analogue first).
