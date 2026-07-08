@@ -6711,6 +6711,79 @@ Proof.
   apply (gttokens_ty_no_dot (convty_ty c)). rewrite <- Ep.
   apply in_or_app; right; simpl; auto.
 Qed.
+(* a WRAPPED [EBn] is a SINGLE paren group — its framing [TLP] is at position 0, so [last0 = 0].  The
+   [TRP]-ending [ECall]/[EAssert] have a NONEMPTY prefix before their framing [TLP] ([last0 = length
+   prefix >= 1]), so [f_equal last0] discriminates; [EConv] differs from a wrapped [EBn] by first token
+   (a type-lead vs [TLP]). *)
+Lemma gtokens_last0_ebn_wrapped : forall ctx o l r,
+  Nat.ltb (binop_prec o) ctx = true -> last0 (gtokens ctx (EBn o l r)) = 0.
+Proof.
+  intros ctx o l r W. cbn [gtokens]. rewrite W.
+  assert (Hin : bd (gtokens (binop_prec o) l ++ op_token o :: gtokens (S (binop_prec o)) r) 0 = Some 0)
+    by (rewrite (bd_app_pass _ _ _ _ (gtokens_balanced l (binop_prec o))), bd_op_token; apply gtokens_balanced).
+  exact (last0_group nil (gtokens (binop_prec o) l ++ op_token o :: gtokens (S (binop_prec o)) r) TLP TRP eq_refl Hin (or_introl eq_refl)).
+Qed.
+Lemma gtokens_ecall_neq_ebn_wrapped : forall ctx e args o l r,
+  Nat.ltb (binop_prec o) ctx = true -> gtokens ctx (ECall e args) = gtokens ctx (EBn o l r) -> False.
+Proof.
+  intros ctx e args o l r W E. pose proof (f_equal last0 E) as HL. rewrite gtokens_ECall in HL.
+  rewrite (last0_group (gtparen e) (gtokens_args args) TLP TRP (bd_gtparen e (gtokens_balanced e 0)) (bd_args_d args 0) (or_introl eq_refl)) in HL.
+  rewrite (gtokens_last0_ebn_wrapped ctx o l r W) in HL.
+  apply length_zero_iff_nil in HL. exact (gtparen_nonnil e HL).
+Qed.
+Lemma gtokens_eassert_neq_ebn_wrapped : forall ctx e T o l r,
+  Nat.ltb (binop_prec o) ctx = true -> gtokens ctx (EAssert e T) = gtokens ctx (EBn o l r) -> False.
+Proof.
+  intros ctx e T o l r W E. rewrite gtokens_EAssert in E.
+  assert (Ha : (gtparen e ++ TDot :: TLP :: (gttokens_ty T ++ TRP :: nil))%list
+             = ((gtparen e ++ TDot :: nil) ++ TLP :: (gttokens_ty T ++ TRP :: nil))%list)
+    by (rewrite <- (app_assoc (gtparen e) (TDot :: nil)); reflexivity).
+  rewrite Ha in E.
+  assert (HPa : bd (gtparen e ++ TDot :: nil) 0 = Some 0)
+    by (rewrite (bd_app_pass _ _ _ _ (bd_gtparen e (gtokens_balanced e 0))); reflexivity).
+  pose proof (f_equal last0 E) as HL.
+  rewrite (last0_group (gtparen e ++ TDot :: nil) (gttokens_ty T) TLP TRP HPa (gttokens_ty_bd T) (or_introl eq_refl)) in HL.
+  rewrite (gtokens_last0_ebn_wrapped ctx o l r W) in HL.
+  apply length_zero_iff_nil in HL. destruct (gtparen e); discriminate HL.
+Qed.
+Lemma gtokens_econv_neq_ebn_wrapped : forall ctx c e o l r,
+  Nat.ltb (binop_prec o) ctx = true -> gtokens ctx (EConv c e) = gtokens ctx (EBn o l r) -> False.
+Proof.
+  intros ctx c e o l r W E. pose proof (f_equal (@hd_error Token) E) as HD.
+  rewrite gtokens_EConv, (gtokens_hd_ebn_wrapped ctx o l r W) in HD.
+  destruct c; cbn [convty_ty gttokens_ty app hd_error] in HD; discriminate HD.
+Qed.
+(* the EAssert ROW: [EAssert e T] against EVERY [e2].  Ends [TRP]; leads [gtparen e].  atoms:
+   [nonatom_len]; EUn: the lead fact; EBn: split on wrap — unwrapped killed by [eb_find_gtokens]
+   ([eb_top] [None] vs [Some]), wrapped by [gtokens_eassert_neq_ebn_wrapped]; ESel/EIndex/ESlice/lits:
+   [olast] ([TRP] vs their closer); the [TRP]-siblings ECall/EConv: [gtokens_eassert_neq_ecall]/
+   [gtokens_eassert_neq_econv]; the diagonal: [gtokens_inj_eassert] fed the base IH. *)
+Lemma gtokens_inj_eassert_row : forall ctx e T e2,
+  (forall c e', gtokens c e = gtokens c e' -> e = e') ->
+  gtokens ctx (EAssert e T) = gtokens ctx e2 -> EAssert e T = e2.
+Proof.
+  intros ctx e T e2 IH E.
+  destruct e2 as [ i0 | z | o0 e0 | o0 l0 r0 | e0 f0 | e0 j | e0 lo hi | e0 args | e0 T0 | c e0 | t0 es0 | kt vt kvs | s | zc ].
+  - exfalso; pose proof (nonatom_len ctx (EAssert e T) eq_refl) as HL; rewrite E in HL; cbn [gtokens length] in HL; lia.
+  - exfalso; pose proof (nonatom_len ctx (EAssert e T) eq_refl) as HL; rewrite E in HL; cbn [gtokens length] in HL; lia.
+  - exfalso; pose proof (f_equal (@hd_error Token) E) as HD;
+      rewrite gtokens_EAssert, gtokens_hd_eun, (hd_error_app_l _ _ (gtparen_nonnil e)) in HD;
+      exact (gtparen_hd_not_prefix e o0 HD).
+  - exfalso; destruct (Nat.ltb (binop_prec o0) ctx) eqn:W;
+      [ exact (gtokens_eassert_neq_ebn_wrapped ctx e T o0 l0 r0 W E)
+      | pose proof (f_equal eb_find E) as HF; rewrite !eb_find_gtokens in HF; cbn [eb_top] in HF;
+        rewrite W in HF; discriminate HF ].
+  - exfalso; pose proof (f_equal olast E) as HO; rewrite gtokens_olast_eassert, gtokens_olast_esel in HO; discriminate HO.
+  - exfalso; pose proof (f_equal olast E) as HO; rewrite gtokens_olast_eassert, gtokens_olast_eindex in HO; discriminate HO.
+  - exfalso; pose proof (f_equal olast E) as HO; rewrite gtokens_olast_eassert, gtokens_olast_eslice in HO; discriminate HO.
+  - exfalso; exact (gtokens_eassert_neq_ecall ctx e T e0 args E).
+  - exact (gtokens_inj_eassert ctx e T e0 T0 IH E).
+  - exfalso; exact (gtokens_eassert_neq_econv ctx e T c e0 E).
+  - exfalso; pose proof (f_equal olast E) as HO; rewrite gtokens_olast_eassert, gtokens_olast_eslicelit in HO; discriminate HO.
+  - exfalso; pose proof (f_equal olast E) as HO; rewrite gtokens_olast_eassert, gtokens_olast_emaplit in HO; discriminate HO.
+  - exfalso; pose proof (nonatom_len ctx (EAssert e T) eq_refl) as HL; rewrite E in HL; cbn [gtokens length] in HL; lia.
+  - exfalso; pose proof (nonatom_len ctx (EAssert e T) eq_refl) as HL; rewrite E in HL; cbn [gtokens length] in HL; lia.
+Qed.
 (* the four ATOM-ROW diagonals+cross-cells of [gtokens_inj]: an atom [e1] against EVERY [e2].
    Each atom prints to ONE distinguishing token, so [gtokens ctx e1] has length 1: another atom's
    single token either matches ([congruence] recovers the payload) or is a different token
@@ -8774,6 +8847,11 @@ Print Assumptions gtparen_olast_not_dot.
 Print Assumptions gtokens_eassert_neq_ecall.
 Print Assumptions gttokens_ty_no_dot.
 Print Assumptions gtokens_eassert_neq_econv.
+Print Assumptions gtokens_last0_ebn_wrapped.
+Print Assumptions gtokens_ecall_neq_ebn_wrapped.
+Print Assumptions gtokens_eassert_neq_ebn_wrapped.
+Print Assumptions gtokens_econv_neq_ebn_wrapped.
+Print Assumptions gtokens_inj_eassert_row.
 
 (** Extract the Rocq printers to the OCaml the plugin calls. *)
 Require Import Extraction.

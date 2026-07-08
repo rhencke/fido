@@ -91,11 +91,13 @@ plugin CONSTRUCTS the `GExpr`; only `gprint` is verified. NOT "verified Go."
   `lex_gprint_expr`, and `canon_ty_unique` (type-level token uniqueness, PARSER-FREE via `gttokens_ty_inj`).
   Phase 3b — parser-free EXPRESSION token uniqueness (`gtokens_inj` ⇒ `canon_expr_unique`) — is PARTIALLY
   COMPLETE: the balance/split + operator-precedence toolkit, all 14 same-constructor diagonals, the
-  cross-discriminators (`nonatom_len`/`olast`/first-token/lead-token/`eb_find_gtokens`), and 10 of the 14
-  destruct-`e2` rows are landed and gated. (The source theorems + `Print Assumptions` are the record;
+  cross-discriminators (`nonatom_len`/`olast`/first-token/lead-token/`eb_find_gtokens`), and 11 of the 14
+  destruct-`e2` rows (now incl. `EAssert`, via the within-`TRP` discriminators + wrapped-`EBn` `last0=0`
+  pairs) are landed and gated. (The source theorems + `Print Assumptions` are the record;
   git log carries the per-slice history; `plans/canonical-grammar.md` carries the design.)
-  REMAINING, in order: the 4 `TRP`-ending rows `ECall`/`EAssert`/`EConv`/`EBn` (need within-`TRP`
-  discrimination, PARSER-FREE — never via `parse_atom`/`parse_postfix`) → assemble `gtokens_inj`
+  REMAINING, in order: the 3 rows `ECall`/`EConv`/`EBn` (`ECall`/`EConv` need the last within-`TRP`
+  discrimination `ECall`-vs-`EConv`, the conversion-vs-call type-prefix-vs-expr-prefix case, PARSER-FREE —
+  never via `parse_atom`/`parse_postfix`; the `EBn` row is ready via the wrapped/unwrapped split) → assemble `gtokens_inj`
   (complete-list only; the suffix generalization is false) → `canon_expr_unique` (from `canon_expr_tokens`
   + `gtokens_inj`) → reprove `gprint_inj` off canonical token uniqueness, demoting `parse_print_roundtrip`
   from the authority → `CanonStmt`/`CanonProgram`.
