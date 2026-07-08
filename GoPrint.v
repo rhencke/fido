@@ -6097,6 +6097,23 @@ Proof.
            end;
     lia.
 Qed.
+(* the ESel diagonal of [gtokens_inj]: two selectors with equal tokens are equal.  Both end in the FIXED
+   2-token tail [TDot :: TId f]; [app_inj_tail] peels [TId f] (⇒ f=f') then [TDot] (⇒ the [gtparen] bases
+   are equal), and [gtparen_inj] (with the base IH) recovers the base.  Takes the base IH. *)
+Lemma gtokens_inj_esel : forall ctx e0 f e0' f',
+  (forall c e, gtokens c e0 = gtokens c e -> e0 = e) ->
+  gtokens ctx (ESel e0 f) = gtokens ctx (ESel e0' f') -> ESel e0 f = ESel e0' f'.
+Proof.
+  intros ctx e0 f e0' f' IH E. rewrite !gtokens_ESel in E.
+  assert (H1 : (gtparen e0 ++ TDot :: TId f :: nil = (gtparen e0 ++ TDot :: nil) ++ TId f :: nil)%list)
+    by (rewrite <- app_assoc; reflexivity).
+  assert (H2 : (gtparen e0' ++ TDot :: TId f' :: nil = (gtparen e0' ++ TDot :: nil) ++ TId f' :: nil)%list)
+    by (rewrite <- app_assoc; reflexivity).
+  rewrite H1, H2 in E.
+  apply app_inj_tail in E. destruct E as [E Ef]. injection Ef as ->.
+  apply app_inj_tail in E. destruct E as [E _].
+  apply (gtparen_inj e0 e0' (IH 0)) in E. subst e0'. reflexivity.
+Qed.
 
 (** LEXICAL FAITHFULNESS through the grammar: printing then lexing yields EXACTLY a
     canonical derivation's tokens — the composed [lex_gprint_expr] shape CLAUDE.md names. *)
@@ -8076,6 +8093,7 @@ Print Assumptions gtokens_ebn_inner.
 Print Assumptions gtokens_inj_ebn.
 Print Assumptions gtokens_eun_inner.
 Print Assumptions nonatom_len.
+Print Assumptions gtokens_inj_esel.
 
 (** Extract the Rocq printers to the OCaml the plugin calls. *)
 Require Import Extraction.
