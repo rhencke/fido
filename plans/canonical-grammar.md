@@ -15,11 +15,11 @@ THE LAYERS (design context, in GoPrint.v): the token type + the fuel-free Acc le
 canonicity) + `lex_gprint_expr` (lexical faithfulness, `lex (gprint ctx e) = Some (gtokens ctx e)`
 composed with the canonical derivation).  Type-level token uniqueness is `canon_ty_unique`, PARSER-FREE
 via `gttokens_ty_inj`; expression uniqueness has the SAME shape via the complete-list `gtokens_inj` (⇒
-`canon_expr_unique`), designed in the "Phase 3b/3c" section below.  ARCHITECTURE NOTE: until `gtokens_inj`
-is the authority, `gprint_inj` routes through `gtokens_parse` + `parse_print_roundtrip` (the
-executable-parser round-trip) and the statement layer (`print_stmt_inj`/`print_program_inj`) is STRING
-injectivity — so EXPRESSION injectivity is still parser-derived (Phase 3c reproves `gprint_inj` off
-`gtokens_inj`; the parser is retired to derived tooling LAST, Phase 5).
+`canon_expr_unique`), designed in the "Phase 3b/3c" section below.  ARCHITECTURE NOTE: the arc moves
+`gprint_inj` OFF the executable parser — Phase 3c reproves `gprint_inj` off `gtokens_inj` (replacing the
+`gtokens_parse` + `parse_print_roundtrip` route), the statement layer (`print_stmt_inj`/
+`print_program_inj`, string injectivity) moves onto the canonical layer likewise, and the parser is
+retired to derived tooling LAST (Phase 5).
 
 ## The architecture (the parser-free uniqueness discipline)
 
@@ -50,9 +50,8 @@ relation).
    arbitrary-suffix determinism lemma) in the "Phase 3b/3c" section below.  `gtokens_inj` (the assembly
    over the per-constructor diagonals + the ~14×13 cross-constructor discrimination) is the crux;
    `canon_expr_unique` follows from it exactly as `canon_ty_unique` follows from `gttokens_ty_inj`.
-4. **CanonStmt/CanonProgram** + the same trio over the statement printer (the
-   statement layer's `lex_gprint_stmt` does not exist yet — build the statement
-   `gtokens` analogue first).
+4. **CanonStmt/CanonProgram** + the same trio over the statement printer (build the
+   statement `gtokens` analogue + its `lex_gprint_stmt` first, then mirror the expression layer).
 5. **Re-base the parser as derived tooling**: `parse_sound : parse ts = Some (e, nil)
    -> CanonExpr 0 e ts`, `parse_complete` (its converse via canon_expr_tokens +
    gtokens_parse — legitimate HERE because the parser is the SUBJECT, not the
@@ -63,7 +62,7 @@ relation).
 
 TARGET (mirrors the type layer exactly): `canon_expr_unique ctx e1 e2 ts` = `canon_expr_tokens`
 on both sides + a PARSER-FREE `gtokens_inj : forall ctx e1 e2, gtokens ctx e1 = gtokens ctx e2
--> e1 = e2`.  (`canon_ty_unique` already has this shape via `gttokens_ty_inj`.)  Everything
+-> e1 = e2`.  (`canon_ty_unique` has this shape via `gttokens_ty_inj` — the type-layer template.)  Everything
 below is proved on the token FUNCTIONS, never via `parse`/`gtokens_parse`.
 
 Why the naive prefix argument FAILS: postfix forms share their operand's leading tokens —
