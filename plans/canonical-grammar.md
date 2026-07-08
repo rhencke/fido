@@ -166,7 +166,7 @@ COMPLETE lists (no suffix):
   `chan` (`CTChan`) — and closed at the value delimiter `{` or `(`; a `TStar` counts as type syntax
   ONLY once inside such a scan.  ⚠ do NOT list a bare `*` as an opener: a depth-0 `TStar` at
   OPERAND-START is unary deref (`prefix_token UDeref`), not a type — cf. `*b * c` — and there is no
-  bare-pointer conversion (`ConvTy` = slice/chan/map only, `GoAst.v:201`) and no `[N]` arrays (`GoTy`
+  bare-pointer conversion (`ConvTy` = slice/chan/map only, in `GoAst.v`) and no `[N]` arrays (`GoTy`
   has no array ctor).  With type-context tracked, the invariants hold — and these two invariants are
   captured by the operand law `eb_operand` (INV-L `gtokens p el`: its depth-0 non-type infix ops have prec
   ≥ p and it ends operand-complete; INV-R `gtokens (S p) er`: prec > p — both are exactly the `eb_top_prec`
