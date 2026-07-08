@@ -6071,11 +6071,14 @@ Proof.
     by (cbn [gtokens]; rewrite Elt; reflexivity).
   rewrite <- Hg, eb_find_gtokens; cbn [eb_top]; rewrite Elt; reflexivity.
 Qed.
-(* the EBn-case RECURSION of [gtokens_inj]: two binary nodes with equal INNER token lists have equal
-   operators AND equal operands.  [eb_find_inner] reads the operator [o] and the right-operand tokens R
-   off each side (PARSER-FREE — [eb_find] IS the authority), so equal token lists ⇒ [o1=o2] and R1=R2 ⇒
-   [r1=r2] by the right IH; the shared operator+right suffix then [app]-cancels off the front ⇒ equal left
-   tokens ⇒ [l1=l2] by the left IH.  Takes the two operand IHs the [GExpr_ind'] induction supplies. *)
+(* the EBn-case UNWRAPPED-INNER recursion for [gtokens_inj]: two binary nodes with equal INNER token lists
+   ([gtokens (prec o) l ++ op_token o :: gtokens (S prec o) r]) have equal operators AND equal operands.
+   [eb_find_inner] reads the operator [o] and the right-operand tokens R off each side (PARSER-FREE —
+   [eb_find] IS the authority), so equal token lists ⇒ [o1=o2] and R1=R2 ⇒ [r1=r2] by the right IH; the
+   shared operator+right suffix then [app]-cancels off the front ⇒ equal left tokens ⇒ [l1=l2] by the left
+   IH.  Takes the two operand IHs the [GExpr_ind'] induction supplies.  NOT the full EBn diagonal: the
+   caller ([gtokens_inj]'s EBn case) first peels the ctx-wrapper ([TLP … TRP] when [prec o < ctx]) and
+   rules out a wrapped-vs-unwrapped mismatch (via [eb_find_gtokens]) to reach equal INNER lists. *)
 Lemma gtokens_ebn_inner : forall o1 l1 r1 o2 l2 r2,
   (forall ctx e, gtokens ctx l1 = gtokens ctx e -> l1 = e) ->
   (forall ctx e, gtokens ctx r1 = gtokens ctx e -> r1 = e) ->
