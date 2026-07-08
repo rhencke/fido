@@ -40,7 +40,7 @@ children).  Phase 3b SLICE 1 LANDED — the three-bracket balance toolkit (bd/bd
 bd_app_pass/bd_op_token/bd_prefix_token/bd_gtparen/gttokens_ty_bd + arg/pair balance lemmas)
 and gtokens_balanced (every canonical expression token list is uniformly bracket-balanced),
 gated.  Phase 3b SLICE 2 (the complete-list gtokens_inj; canon_expr_unique = canon_expr_tokens +
-gtokens_inj; design pinned below) is split into sub-slices 2a–2e building toward the crux:
+gtokens_inj; design pinned below) is split into sub-slices 2a–2f building toward the crux:
 Phase 3b SLICE 2a LANDED — the `last0`
 group-split tool (`last0`/`last0_group` + `nd`/`nd_add`/`bd_nd`/`bd_prefix_defined`/`last0_aux_inv`),
 gated; found: the closer hypothesis is unnecessary — the final token is at depth-before 1, so it
@@ -83,7 +83,7 @@ arbitrary-SUFFIX determinism lemma was found FALSE — see the design.)
 3. **★`canon_expr_unique`** (the meat): `CanonExpr ctx e1 ts -> CanonExpr ctx e2 ts ->
    e1 = e2`, parser-free — via `canon_expr_tokens` + the COMPLETE-list `gtokens_inj`
    (structural induction on `e1`, delimited groups split by `last0` (the last depth-0 position)).  Full design + the ruled-out dead ends (balanced-prefix cancellation; the FALSE
-   arbitrary-suffix determinism lemma) in the "Phase 3b/3c" section below.  Slices 1–2e (the
+   arbitrary-suffix determinism lemma) in the "Phase 3b/3c" section below.  Slices 1–2f (the
    `bd` balance toolkit + `gtokens_balanced`; the `last0`/`bdip`/`fsep` split lemmas;
    `no_depth0_sep`; `gtokens_args_inj`; `gtokens_pairs_inj`) are LANDED + gated; `gtokens_inj` itself
    is the open crux (with the paren/bare operand discrimination and the EBn precedence sub-arc).
