@@ -1604,9 +1604,11 @@ Proof. vm_compute; reflexivity. Qed.
 
 (** ---- THE GRAMMAR (EBNF, prose) ---- the language GoPrint lexes, parses, and prints.  The AST below,
     the printer [gprint], and the recursive-descent parser [parse] are three views of this grammar;
-    [parse_print_roundtrip] proves printer and parser agree.  The intended AUTHORITY is a RELATIONAL
-    canonical-grammar layer (CanonExpr et al., CLAUDE.md "Syntax authority") — once it lands, this prose
-    EBNF and the executable parser are both derived views proved against it.  (Wirth-style:
+    [parse_print_roundtrip] proves printer and parser agree.  The AUTHORITY is the RELATIONAL
+    canonical-grammar layer (CanonExpr et al., CLAUDE.md "Syntax authority"), which now EXISTS for types
+    and expressions (`canon_ty_unique`/`canon_expr_unique`, and `gprint_inj` rests on it parser-free): so
+    this prose EBNF and the executable parser are both derived views, and [parse_print_roundtrip] is
+    derived parser self-consistency, not the authority.  (Wirth-style:
     state the grammar, then make the code visibly implement it.)  Notation: [{ x }] = zero-or-more,
     [[ x ]] = optional, ["lit"] = a terminal token, [->] names the AST node a production builds.
 
@@ -1720,8 +1722,8 @@ Definition op_needs_paren (e0 : GExpr) : bool :=
     o] and its right at ctx [S p]: a same-precedence LEFT child stays bare ([Add (Add a b) c] → [a+b+c])
     and a same-precedence RIGHT child is parenthesized ([Add a (Add b c)] → [a+(b+c)]).  Paren omission is
     PARSE-SHAPE preservation ONLY, never semantic associativity — the printer never collapses [a+(b+c)] to
-    [a+b+c] (no AST normalization); that these distinct ASTs give distinct tokens is exactly the goal of
-    [gtokens_inj] (assembled below from the per-constructor diagonals and rows — still in progress, see the
+    [a+b+c] (no AST normalization); that these distinct ASTs give distinct tokens is exactly what
+    [gtokens_inj] proves (assembled below from the per-constructor diagonals and rows — see the
     [gtokens_inj_*] block).  (Directional channel TYPES [chan<-]/[<-chan] and named-type conversions are
     NOT in the emitted subset — see plans/canonical-grammar.md; [ConvTy] is slice/chan/map only.) *)
 Fixpoint gprint (ctx : nat) (e : GExpr) {struct e} : string :=
