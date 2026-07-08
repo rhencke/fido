@@ -248,8 +248,28 @@ COMPLETE lists (no suffix):
   `parse_gty_b`/`parse_atom`/`parse_climb` (NOT invoked — reproved as pure token functions).  NB the
   operand-complete/type state is PER-BRACKET-LEVEL (nested), so the scan is recursive-descent, not a
   flat fold.  (`skip_gty` + `skip_gty_types` (exactness) + `skip_gty_lt` (progress) LANDED as slice 2i
-  — the type-skip foundation; NEXT is the
-  operand-complete + precedence fold that consumes operands and locates the split.)
+  — the type-skip foundation.)
+
+  ★EBn LOCATOR DESIGN (validated — the function was WRITTEN and COMPILES; see the saved WIP): the split
+  is found by `eb_find : list Token -> option (list Token * BinOp)` — a SUFFIX-returning `Acc`-recursive
+  scan (`eb_find_acc toks d oc a`) that walks the unwrapped tokens tracking bracket-depth `d` +
+  operand-complete `oc`, returning `Some (R, o)` for the RIGHTMOST depth-0 infix operator `o` of MINIMAL
+  precedence (the top constructor by left-assoc) with `R` the suffix after it.  Returning the SUFFIX (not
+  a position) means no index arithmetic: the chosen op's `R` just propagates up the recursion.  Overlap
+  is resolved by `oc`: at `oc=false` `*`/`&`/`^` are unary prefixes and `-(` is `UNeg`; at `oc=true` they
+  are the infix ops (`infix_op`).  Type-led operands are skipped WHOLE by `skip_gty` (so a pointer-`TStar`
+  inside a type is never read as `BMul`); `skip_gty_lt` is the strict decrease making THAT recursive call
+  well-founded; bracket interiors (`d>0`) are depth-tracked, operators ignored.  ⚠ OBSTACLE FOUND (this is
+  the NEXT unblock): the type-lead uses `skip_gty` inline via a `match ... as sg return (skip_gty _ = sg
+  -> _) with ... end eq_refl` CONVOY (needed to feed `skip_gty_lt`'s equation into the `Acc` cert), and a
+  proof about it can't `destruct`/`remember` the scrutinee — the `Acc` cert depends on the equation
+  ("Conclusion depends on the bodies").  FIX (slice 2j-prep): make `skip_gty_acc` return the STRICT sig
+  `{ r | length r < length toks }` (the progress proof carried IN the sig, not derived from an equation) —
+  then `eb_find`'s type-lead reads `Some (exist _ (TLC::g) Hlt)` and builds the cert from `Hlt` with NO
+  convoy; `skip_gty_lt` becomes a trivial projection; `skip_gty_types` re-proves.  THEN `eb_find_lt`
+  (progress: the returned `R` is a strict suffix) and the rightmost-min correctness (`eb_find` on
+  `gtokens ctx (EBn o l r)` returns `(gtokens (S (prec o)) r, o)`) land, feeding the EBn case of
+  `gtokens_inj`.
 
 Then `canon_expr_unique` (+ `gtokens_inj`) join the printer Print Assumptions gate.
 Phase 3c = reprove `gprint_inj` off `gtokens_inj` + `gtokens_lex` (making it a corollary of the
