@@ -114,11 +114,16 @@ plugin CONSTRUCTS the `GExpr`; only `gprint` is verified. NOT "verified Go."
   the FOUR ATOM ROWS `gtokens_inj_eid`/`gtokens_inj_eint`/`gtokens_inj_estr`/`gtokens_inj_ehex`, each a full
   matrix ROW (atom `e1` vs EVERY `e2`): the atom prints to ONE token, so an atom `e2` matches-or-discriminates
   by `congruence` and a non-atom `e2` is killed by `nonatom_len` (≥2 tokens vs 1) — so the atom-row diagonals
-  AND all atom×non-atom cross-cells are closed. NEXT: keep building the `gtokens_inj` ASSEMBLY — the remaining
-  bulk (the landed diagonals + `nonatom_len` are a small fraction): the ~14×13 cross-constructor discrimination
-  for the TEN NON-ATOM rows (`gtokens` is not prefix-free, so most pairs need a real discriminator — `eb_top`
-  for `EBn`, `last0`/last-token for the delimited forms, plus more discrimination sub-lemmas likely; the atom
-  columns are the easy `nonatom_len` case), then the assembly itself. Then `canon_expr_unique` (all
+  AND all atom×non-atom cross-cells are closed; and — LANDED — the LAST-TOKEN cross-discriminator `olast`
+  (last element as an `option`, via `fold_left`) with the eight `gtokens_olast_*` values (`EIndex`/`ESlice`
+  → `TRB`, `ECall`/`EAssert`/`EConv` → `TRP`, `ESliceLit`/`EMapLit` → `TRC`, `ESel` → `TId f`) — an
+  `f_equal olast` mismatch discriminates a delimited/postfix pair with DIFFERENT closers. NEXT: keep building
+  the `gtokens_inj` ASSEMBLY — the remaining bulk (the landed diagonals + `nonatom_len` + `olast` + the atom
+  rows are a small fraction): the ~14×13 cross-constructor discrimination for the TEN NON-ATOM rows still
+  needs (a) WITHIN-closer-class discrimination (`EIndex` vs `ESlice`; `ECall`/`EAssert`/`EConv`; `ESliceLit`
+  vs `EMapLit`), (b) `eb_top`/`eb_find_gtokens` for `EBn` (Some vs None), and (c) a LEAD-token discriminator
+  for `EUn` (a bare `prefix_token` no other form leads with); the atom columns are the easy `nonatom_len` case.
+  Then the assembly itself. Then `canon_expr_unique` (all
   parser-free); then reprove `gprint_inj` off `gtokens_inj` (retiring `parse_print_roundtrip`), then
   `CanonStmt`/`CanonProgram`.
 - The cmd↔unified bridge (`plans/bridge-effects.md`): `CAlloc` AND the channel slice LANDED

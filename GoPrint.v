@@ -6303,6 +6303,58 @@ Proof.
   injection Eb as Eb. apply app_inj_tail in Eb. destruct Eb as [Eb _].
   apply (gtokens_pairs_inj kvs kvs' Hall) in Eb. subst kvs'. reflexivity.
 Qed.
+(** ---- the LAST-TOKEN discriminator: a cross-constructor tool for the [gtokens_inj] assembly.
+    The delimited/postfix forms end in a fixed closer ([EIndex]/[ESlice] → [TRB], [ECall]/[EAssert]/
+    [EConv] → [TRP], [ESliceLit]/[EMapLit] → [TRC], [ESel] → [TId f]); an off-diagonal pair with
+    DIFFERENT last tokens is discriminated by [f_equal olast].  [olast] is the last element as an
+    [option] (via [fold_left], so a prefix never affects it: the accumulator is overwritten by every
+    element).  Parser-free. *)
+Definition olast (l : list Token) : option Token := fold_left (fun _ x => Some x) l None.
+Lemma olast_app1 : forall l x, olast (l ++ x :: nil) = Some x.
+Proof. intros l x. unfold olast. rewrite fold_left_app. reflexivity. Qed.
+Lemma olast_group : forall A op body cl, olast (A ++ op :: (body ++ cl :: nil)) = Some cl.
+Proof.
+  intros A op body cl. unfold olast.
+  rewrite fold_left_app. cbn [fold_left]. rewrite fold_left_app. cbn [fold_left]. reflexivity.
+Qed.
+Lemma gtokens_olast_eindex : forall ctx e i, olast (gtokens ctx (EIndex e i)) = Some TRB.
+Proof. intros ctx e i. rewrite gtokens_EIndex. apply olast_group. Qed.
+Lemma gtokens_olast_ecall : forall ctx e args, olast (gtokens ctx (ECall e args)) = Some TRP.
+Proof. intros ctx e args. rewrite gtokens_ECall. apply olast_group. Qed.
+Lemma gtokens_olast_econv : forall ctx c e, olast (gtokens ctx (EConv c e)) = Some TRP.
+Proof. intros ctx c e. rewrite gtokens_EConv. apply olast_group. Qed.
+Lemma gtokens_olast_emaplit : forall ctx kt vt kvs, olast (gtokens ctx (EMapLit kt vt kvs)) = Some TRC.
+Proof. intros ctx kt vt kvs. rewrite gtokens_EMapLit. apply olast_group. Qed.
+Lemma gtokens_olast_eslice : forall ctx e lo hi, olast (gtokens ctx (ESlice e lo hi)) = Some TRB.
+Proof.
+  intros ctx e lo hi. rewrite gtokens_ESlice.
+  assert (H : (gtparen e ++ TLB :: (gtokens 0 lo ++ TColon :: (gtokens 0 hi ++ TRB :: nil)))%list
+            = (gtparen e ++ TLB :: ((gtokens 0 lo ++ TColon :: gtokens 0 hi) ++ TRB :: nil))%list)
+    by (rewrite <- (app_assoc (gtokens 0 lo) (TColon :: gtokens 0 hi)); reflexivity).
+  rewrite H. apply olast_group.
+Qed.
+Lemma gtokens_olast_eassert : forall ctx e T, olast (gtokens ctx (EAssert e T)) = Some TRP.
+Proof.
+  intros ctx e T. rewrite gtokens_EAssert.
+  assert (H : (gtparen e ++ TDot :: TLP :: (gttokens_ty T ++ TRP :: nil))%list
+            = ((gtparen e ++ TDot :: nil) ++ TLP :: (gttokens_ty T ++ TRP :: nil))%list)
+    by (rewrite <- (app_assoc (gtparen e) (TDot :: nil)); reflexivity).
+  rewrite H. apply olast_group.
+Qed.
+Lemma gtokens_olast_eslicelit : forall ctx t es, olast (gtokens ctx (ESliceLit t es)) = Some TRC.
+Proof.
+  intros ctx t es. rewrite gtokens_ESliceLit.
+  assert (H : (TLB :: TRB :: (gttokens_ty t ++ TLC :: (gtokens_args es ++ TRC :: nil)))%list
+            = ((TLB :: TRB :: gttokens_ty t) ++ TLC :: (gtokens_args es ++ TRC :: nil))%list) by reflexivity.
+  rewrite H. apply olast_group.
+Qed.
+Lemma gtokens_olast_esel : forall ctx e f, olast (gtokens ctx (ESel e f)) = Some (TId f).
+Proof.
+  intros ctx e f. rewrite gtokens_ESel.
+  assert (H : (gtparen e ++ TDot :: TId f :: nil)%list = ((gtparen e ++ TDot :: nil) ++ TId f :: nil)%list)
+    by (rewrite <- (app_assoc (gtparen e) (TDot :: nil)); reflexivity).
+  rewrite H. apply olast_app1.
+Qed.
 (* the four ATOM-ROW diagonals+cross-cells of [gtokens_inj]: an atom [e1] against EVERY [e2].
    Each atom prints to ONE distinguishing token, so [gtokens ctx e1] has length 1: another atom's
    single token either matches ([congruence] recovers the payload) or is a different token
@@ -8341,6 +8393,14 @@ Print Assumptions gtokens_inj_eid.
 Print Assumptions gtokens_inj_eint.
 Print Assumptions gtokens_inj_estr.
 Print Assumptions gtokens_inj_ehex.
+Print Assumptions gtokens_olast_eindex.
+Print Assumptions gtokens_olast_ecall.
+Print Assumptions gtokens_olast_econv.
+Print Assumptions gtokens_olast_emaplit.
+Print Assumptions gtokens_olast_eslice.
+Print Assumptions gtokens_olast_eassert.
+Print Assumptions gtokens_olast_eslicelit.
+Print Assumptions gtokens_olast_esel.
 
 (** Extract the Rocq printers to the OCaml the plugin calls. *)
 Require Import Extraction.
