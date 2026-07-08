@@ -157,14 +157,14 @@ COMPLETE lists (no suffix):
   an OPERAND-COMPLETE state — an operator token counts as INFIX only after a complete operand
   (atom/closer/finished postfix chain), so a leading `TMinus`/`TStar`/`TAmp`/`TCaret` reads unary, not
   binary — and (c) the RIGHTMOST depth-0 position of MINIMAL `infix_op` precedence.  ⚠ TYPE-CONTEXT
-  HAZARD (review 47): `gttokens_ty` emits pointer types as `TStar :: …`, and type-led operands splice
+  HAZARD: `gttokens_ty` emits pointer types as `TStar :: …`, and type-led operands splice
   type tokens at EXPRESSION depth 0 — `ESliceLit`'s element type after `[]` (`a * []*int{}`) and
   `EMapLit`'s value type after `map[K]` — so a `TStar` INSIDE such a type is a POINTER star, not `BMul`.
   (`TMinus`/`TAmp`/`TCaret` never occur in types; only `TStar` does; `EAssert`'s type sits inside
   `TLP…TRP` at depth ≥ 1, safe.)  `eb_find_acc` therefore ALSO tracks TYPE-CONTEXT — a region entered
   ONLY by an expression-level type-LED form: `[]` (`ESliceLit`/`CTSlice`), `map` (`EMapLit`/`CTMap`),
   `chan` (`CTChan`) — and closed at the value delimiter `{` or `(`; a `TStar` counts as type syntax
-  ONLY once inside such a scan.  ⚠ do NOT list a bare `*` as an opener (review 48): a depth-0 `TStar` at
+  ONLY once inside such a scan.  ⚠ do NOT list a bare `*` as an opener: a depth-0 `TStar` at
   OPERAND-START is unary deref (`prefix_token UDeref`), not a type — cf. `*b * c` — and there is no
   bare-pointer conversion (`ConvTy` = slice/chan/map only, `GoAst.v:201`) and no `[N]` arrays (`GoTy`
   has no array ctor).  With type-context tracked, the invariants hold — and these two invariants are
