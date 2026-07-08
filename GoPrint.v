@@ -6123,6 +6123,28 @@ Proof.
       exact Etail.
   - (* both bare *) rewrite (IH 0 e2 Etail). reflexivity.
 Qed.
+(* the FULL EBn diagonal of [gtokens_inj]: promotes [gtokens_ebn_inner] past the ctx-wrapper.  Two [EBn]
+   nodes with equal tokens are equal.  [eb_find_gtokens] turns the token equality into [eb_top ctx e1 =
+   eb_top ctx e2]: a WRAPPED node ([prec o < ctx]) has [eb_top] = [None], an UNWRAPPED one [Some] — so a
+   wrapped-vs-unwrapped MISMATCH is a [None = Some] contradiction.  When both wrap the same way the tokens
+   strip to equal INNER lists ([TLP]/[TRP] peeled via [app_inj_tail] when wrapped), and [gtokens_ebn_inner]
+   closes it.  Takes the two operand IHs. *)
+Lemma gtokens_inj_ebn : forall ctx o1 l1 r1 o2 l2 r2,
+  (forall c e, gtokens c l1 = gtokens c e -> l1 = e) ->
+  (forall c e, gtokens c r1 = gtokens c e -> r1 = e) ->
+  gtokens ctx (EBn o1 l1 r1) = gtokens ctx (EBn o2 l2 r2) -> EBn o1 l1 r1 = EBn o2 l2 r2.
+Proof.
+  intros ctx o1 l1 r1 o2 l2 r2 IHl IHr E.
+  pose proof (f_equal eb_find E) as Ef. rewrite !eb_find_gtokens in Ef. cbn [eb_top] in Ef.
+  cbn [gtokens] in E.
+  destruct (Nat.ltb (binop_prec o1) ctx) eqn:W1; destruct (Nat.ltb (binop_prec o2) ctx) eqn:W2.
+  - (* both wrapped *) injection E as E. apply app_inj_tail in E. destruct E as [Ein _].
+    destruct (gtokens_ebn_inner _ _ _ _ _ _ IHl IHr Ein) as [Ho [Hl Hr]]. subst. reflexivity.
+  - (* wrapped vs unwrapped — impossible *) discriminate Ef.
+  - (* unwrapped vs wrapped — impossible *) discriminate Ef.
+  - (* both unwrapped *)
+    destruct (gtokens_ebn_inner _ _ _ _ _ _ IHl IHr E) as [Ho [Hl Hr]]. subst. reflexivity.
+Qed.
 
 (** LEXICAL FAITHFULNESS through the grammar: printing then lexing yields EXACTLY a
     canonical derivation's tokens — the composed [lex_gprint_expr] shape CLAUDE.md names. *)
@@ -8100,6 +8122,7 @@ Print Assumptions eb_operand.
 Print Assumptions eb_find_gtokens.
 Print Assumptions eb_find_inner.
 Print Assumptions gtokens_ebn_inner.
+Print Assumptions gtokens_inj_ebn.
 Print Assumptions gtokens_eun_inner.
 
 (** Extract the Rocq printers to the OCaml the plugin calls. *)
