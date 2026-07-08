@@ -6093,6 +6093,33 @@ Proof.
     by (eapply app_inv_tail; exact Hinner).
   pose proof (IHl _ _ Hl0) as Hl. subst l2. auto.
 Qed.
+(* a BARE unary operand ([unop_needs_paren]=false) is a LEAF atom, which is also [op_needs_paren]=false —
+   so the operand-step [bare_not_paren_group] (stated on [op_needs_paren]) applies to it. *)
+Lemma unop_np_op_np : forall e, unop_needs_paren e = false -> op_needs_paren e = false.
+Proof. destruct e; cbn [unop_needs_paren op_needs_paren]; intro H; solve [ reflexivity | discriminate H ]. Qed.
+(* the EUn-case RECURSION of [gtokens_inj]: two unary nodes with equal token lists have equal operator
+   AND equal operand.  [prefix_token_inj] fixes the operator off the first token; the [unop_paren] wrap is
+   P/P or N/N (a wrapped-vs-bare mismatch is impossible — a bare operand is an atom, never a [TLP…TRP]
+   group, by [bare_not_paren_group]); then the operand IH recurses.  Takes the operand IH. *)
+Lemma gtokens_eun_inner : forall ctx o1 e1 o2 e2,
+  (forall c e, gtokens c e1 = gtokens c e -> e1 = e) ->
+  gtokens ctx (EUn o1 e1) = gtokens ctx (EUn o2 e2) -> EUn o1 e1 = EUn o2 e2.
+Proof.
+  intros ctx o1 e1 o2 e2 IH E.
+  cbn [gtokens] in E. injection E as Eo Etail. apply prefix_token_inj in Eo. subst o2.
+  destruct (unop_paren o1 e1) eqn:U1; destruct (unop_paren o1 e2) eqn:U2.
+  - (* both wrapped *) injection Etail as Etail. apply app_inj_tail in Etail. destruct Etail as [Etail _].
+    rewrite (IH 0 e2 Etail). reflexivity.
+  - (* e1 wrapped, e2 bare — impossible *) exfalso.
+    destruct o1; cbn [unop_paren] in U2; try discriminate U2;
+      apply (bare_not_paren_group e2 (gtokens 0 e1) (unop_np_op_np e2 U2) (gtokens_balanced e1 0));
+      symmetry; exact Etail.
+  - (* e1 bare, e2 wrapped — impossible *) exfalso.
+    destruct o1; cbn [unop_paren] in U1; try discriminate U1;
+      apply (bare_not_paren_group e1 (gtokens 0 e2) (unop_np_op_np e1 U1) (gtokens_balanced e2 0));
+      exact Etail.
+  - (* both bare *) rewrite (IH 0 e2 Etail). reflexivity.
+Qed.
 
 (** LEXICAL FAITHFULNESS through the grammar: printing then lexing yields EXACTLY a
     canonical derivation's tokens — the composed [lex_gprint_expr] shape CLAUDE.md names. *)
@@ -8070,6 +8097,7 @@ Print Assumptions eb_operand.
 Print Assumptions eb_find_gtokens.
 Print Assumptions eb_find_inner.
 Print Assumptions gtokens_ebn_inner.
+Print Assumptions gtokens_eun_inner.
 
 (** Extract the Rocq printers to the OCaml the plugin calls. *)
 Require Import Extraction.
