@@ -5657,21 +5657,18 @@ Proof. intros t rest d oc a a2 H; destruct H as [ -> | [ -> | -> ] ]; eb_step_by
 Lemma eb_step_close : forall t rest d oc (a : Acc lt (List.length (t :: rest))) a2, (t = TRP \/ t = TRB \/ t = TRC) ->
   eb_find_acc (t :: rest) (S (S d)) oc a = eb_find_acc rest (S d) oc a2.
 Proof. intros t rest d oc a a2 H; destruct H as [ -> | [ -> | -> ] ]; eb_step_by. Qed.
-Lemma eb_step_optoken : forall o rest d oc (a : Acc lt (List.length (op_token o :: rest))) a2,
-  eb_find_acc (op_token o :: rest) (S d) oc a = eb_find_acc rest (S d) oc a2.
-Proof. intros o rest d oc a a2; destruct o; eb_step_by. Qed.
-Lemma eb_step_id : forall f rest d oc (a : Acc lt (List.length (TId f :: rest))) a2,
-  eb_find_acc (TId f :: rest) (S d) oc a = eb_find_acc rest (S d) oc a2.
-Proof. intros f rest d oc a a2; eb_step_by. Qed.
-Lemma eb_step_dot : forall rest d oc (a : Acc lt (List.length (TDot :: rest))) a2,
-  eb_find_acc (TDot :: rest) (S d) oc a = eb_find_acc rest (S d) oc a2.
-Proof. intros rest d oc a a2; eb_step_by. Qed.
-Lemma eb_step_colon : forall rest d oc (a : Acc lt (List.length (TColon :: rest))) a2,
-  eb_find_acc (TColon :: rest) (S d) oc a = eb_find_acc rest (S d) oc a2.
-Proof. intros rest d oc a a2; eb_step_by. Qed.
-Lemma eb_step_comma : forall rest d oc (a : Acc lt (List.length (TComma :: rest))) a2,
-  eb_find_acc (TComma :: rest) (S d) oc a = eb_find_acc rest (S d) oc a2.
-Proof. intros rest d oc a a2; eb_step_by. Qed.
+(* every NON-bracket token (atoms [TId]/[TInt]/[TStr]/[THex], every [op_token]/[prefix_token], type
+   keywords [TStar]/[TChan]/[TMap], separators [TDot]/[TColon]/[TComma]) is neutral — ONE general lemma
+   covers them all, so the toolkit is exhaustive over the canonical token alphabet, not an ad-hoc subset. *)
+Definition eb_is_bracket (t : Token) : bool :=
+  match t with TLP | TLB | TLC | TRP | TRB | TRC => true | _ => false end.
+Lemma eb_step_neutral : forall t rest d oc (a : Acc lt (List.length (t :: rest))) a2,
+  eb_is_bracket t = false -> eb_find_acc (t :: rest) (S d) oc a = eb_find_acc rest (S d) oc a2.
+Proof. intros t rest d oc a a2 H; destruct t; try discriminate H; eb_step_by. Qed.
+Lemma eb_is_bracket_optoken : forall o, eb_is_bracket (op_token o) = false.
+Proof. destruct o; reflexivity. Qed.
+Lemma eb_is_bracket_prefix : forall o, eb_is_bracket (prefix_token o) = false.
+Proof. destruct o; reflexivity. Qed.
 
 (** LEXICAL FAITHFULNESS through the grammar: printing then lexing yields EXACTLY a
     canonical derivation's tokens — the composed [lex_gprint_expr] shape CLAUDE.md names. *)
