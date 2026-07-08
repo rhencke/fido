@@ -5672,7 +5672,6 @@ Ltac eb_cl := erewrite (eb_step_close _ _ _ _ _ (lt_wf _)) by (solve [ left; ref
 Ltac eb_neu := erewrite (eb_step_neutral _ _ _ _ _ (lt_wf _)) by reflexivity.
 (* skip a sub-block via an IH/depth lemma [L] whose last explicit arg is the RHS [Acc] (pinned [lt_wf]) *)
 Ltac eb_ih L := erewrite (L _ _ _ _ (lt_wf _)).
-Ltac eb_ih6 L := erewrite (L _ _ _ _ _ (lt_wf _)).
 (** DEPTH law for TYPES: [gttokens_ty t] is skipped whole at depth ≥ 1 (used by the composite/conversion
     cases of the expression depth law). *)
 Lemma eb_depth_ty : forall t more sd oc (a : Acc lt (List.length (gttokens_ty t ++ more))) a2,
@@ -7649,6 +7648,7 @@ Print Assumptions skip_gty_types.
 Print Assumptions skip_gty_lt.
 Print Assumptions eb_find_lt.
 Print Assumptions eb_find_pi.
+Print Assumptions eb_depth_ty.
 
 (** Extract the Rocq printers to the OCaml the plugin calls. *)
 Require Import Extraction.
