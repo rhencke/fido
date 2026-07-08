@@ -136,7 +136,10 @@ plugin CONSTRUCTS the `GExpr`; only `gprint` is verified. NOT "verified Go."
   for a wrapped `EBn`, and `eb_find_gtokens` catches the unwrapped `EBn`). The FOUR REMAINING rows: the `TRP` trio `ECall`/`EAssert`/`EConv` (still need within-`TRP`
   discrimination — the conversion-vs-call ambiguity, likely a `skip_gty` next-token split; wrapped-`EBn`-vs-
   `TRP` needs the same), and the `EBn` row (its wrapped case collides with the `TRP` forms — same
-  discriminator). Then `induction e1` wires the rows together. Then
+  discriminator). Within-`TRP` progress: `gtparen_olast_not_dot` (an expr/`gtparen` never ends in `TDot`)
+  + `gtokens_eassert_neq_ecall` (the first TRP pair: `last0_group` split ⇒ equal prefixes ⇒ `gtparen e'`
+  would end in `TDot`, impossible) are LANDED; the remaining pairs (`EConv`-vs-`ECall` is the hard
+  type-prefix-vs-expr-prefix case) + the row wiring remain. Then `induction e1` wires the rows together. Then
   `canon_expr_unique` (all
   parser-free); then reprove `gprint_inj` off `gtokens_inj` (retiring `parse_print_roundtrip`), then
   `CanonStmt`/`CanonProgram`.

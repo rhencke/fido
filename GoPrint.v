@@ -6643,6 +6643,40 @@ Proof.
   - exfalso; pose proof (nonatom_len ctx (EUn o e) eq_refl) as HL; rewrite E in HL; cbn [gtokens length] in HL; lia.
   - exfalso; pose proof (nonatom_len ctx (EUn o e) eq_refl) as HL; rewrite E in HL; cbn [gtokens length] in HL; lia.
 Qed.
+(** ---- the within-[TRP]-class discrimination (the conversion-vs-call cluster: [ECall]/[EAssert]/[EConv]
+    and a wrapped [EBn] all end in [TRP], so [olast] can't separate them).  Helper: an expression /
+    [gtparen] NEVER ends in [TDot] — its last token is an atom token, a closer [TRP]/[TRB]/[TRC], or a
+    selector [TId] (the [gtokens_olast_*] values), or [TRP] when wrapped. *)
+Lemma gtparen_olast_not_dot : forall e, olast (gtparen e) <> Some TDot.
+Proof.
+  intro e. unfold gtparen. destruct (op_needs_paren e) eqn:OP.
+  - rewrite app_comm_cons, olast_app1. discriminate.
+  - intro Hc; destruct e; cbn [op_needs_paren] in OP; try discriminate OP;
+      rewrite ?gtokens_olast_esel, ?gtokens_olast_eindex, ?gtokens_olast_eslice, ?gtokens_olast_ecall,
+              ?gtokens_olast_eassert, ?gtokens_olast_econv, ?gtokens_olast_eslicelit, ?gtokens_olast_emaplit in Hc;
+      try (cbn [gtokens] in Hc; unfold olast in Hc; cbn [fold_left] in Hc);
+      discriminate Hc.
+Qed.
+(* EAssert vs ECall: both end [TRP], so split off the framing [TLP] group by [last0_group]; the equal
+   prefixes force [gtparen e ++ TDot::nil = gtparen e'], i.e. [gtparen e'] ends in [TDot] — impossible by
+   [gtparen_olast_not_dot]. *)
+Lemma gtokens_eassert_neq_ecall : forall ctx e T e' args,
+  gtokens ctx (EAssert e T) = gtokens ctx (ECall e' args) -> False.
+Proof.
+  intros ctx e T e' args E. rewrite gtokens_EAssert, gtokens_ECall in E.
+  assert (Ha : (gtparen e ++ TDot :: TLP :: (gttokens_ty T ++ TRP :: nil))%list
+             = ((gtparen e ++ TDot :: nil) ++ TLP :: (gttokens_ty T ++ TRP :: nil))%list)
+    by (rewrite <- (app_assoc (gtparen e) (TDot :: nil)); reflexivity).
+  rewrite Ha in E.
+  assert (HPa : bd (gtparen e ++ TDot :: nil) 0 = Some 0)
+    by (rewrite (bd_app_pass _ _ _ _ (bd_gtparen e (gtokens_balanced e 0))); reflexivity).
+  pose proof (f_equal last0 E) as HL.
+  rewrite (last0_group (gtparen e ++ TDot :: nil) (gttokens_ty T) TLP TRP HPa (gttokens_ty_bd T) (or_introl eq_refl)) in HL.
+  rewrite (last0_group (gtparen e') (gtokens_args args) TLP TRP (bd_gtparen e' (gtokens_balanced e' 0)) (bd_args_d args 0) (or_introl eq_refl)) in HL.
+  destruct (app_eq_length _ _ _ _ HL E) as [Ep _].
+  pose proof (f_equal olast Ep) as HO. rewrite olast_app1 in HO.
+  exact (gtparen_olast_not_dot e' (eq_sym HO)).
+Qed.
 (* the four ATOM-ROW diagonals+cross-cells of [gtokens_inj]: an atom [e1] against EVERY [e2].
    Each atom prints to ONE distinguishing token, so [gtokens ctx e1] has length 1: another atom's
    single token either matches ([congruence] recovers the payload) or is a different token
@@ -8702,6 +8736,8 @@ Print Assumptions gtokens_inj_esel_row.
 Print Assumptions gtokens_inj_eindex_row.
 Print Assumptions gtokens_inj_eslice_row.
 Print Assumptions gtokens_inj_eun_row.
+Print Assumptions gtparen_olast_not_dot.
+Print Assumptions gtokens_eassert_neq_ecall.
 
 (** Extract the Rocq printers to the OCaml the plugin calls. *)
 Require Import Extraction.
