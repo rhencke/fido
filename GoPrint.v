@@ -5380,7 +5380,7 @@ Proof. intros o1 o2 H. destruct o1; destruct o2; solve [ reflexivity | discrimin
 
 (** ---- Phase 3b slice 2i: [skip_gty] — a PURE token-skipper for the EBn scan's type-context.
     Returns the tokens AFTER one type (it does NOT build a [GoTy], so it is a token utility like [bd],
-    NOT a second type-parser and NOT the parser — keeping the coming [gtokens_inj] parser-free).
+    NOT a second type-parser and NOT the parser — keeping [gtokens_inj] parser-free).
     [Acc]-recursive on length ([map[K]V]'s key-then-value skip is non-structural).  Correctness
     [skip_gty_types] ([skip_gty (gttokens_ty t ++ rest) = Some rest]) is proved by induction on [t]. *)
 Fixpoint skip_gty_acc (toks : list Token) (a : Acc lt (List.length toks)) {struct a}
@@ -5465,8 +5465,8 @@ Proof.
   destruct (skip_gty_acc (gttokens_ty t ++ rest) _) as [[r Hr] | ]; [ rewrite H; reflexivity | contradiction ].
 Qed.
 (** SOUNDNESS / progress: a successful [skip_gty] consumes ≥ 1 token (types are non-empty), so it
-    STRICTLY shortens the list — the well-foundedness the coming precedence scan needs to recurse.
-    Now a trivial projection of [skip_gty_acc]'s STRICT result sig. *)
+    STRICTLY shortens the list — the well-foundedness the precedence scan needs to recurse.
+    A trivial projection of [skip_gty_acc]'s STRICT result sig. *)
 Lemma skip_gty_lt : forall toks rest, skip_gty toks = Some rest -> List.length rest < List.length toks.
 Proof.
   intros toks rest H. unfold skip_gty in H.
@@ -5483,7 +5483,7 @@ Qed.
     misread as [BMul]; [skip_gty_lt] is the strict decrease that makes that recursion well-founded.  Bracket
     interiors ([d > 0]) are depth-tracked and their operators ignored.  This is a PURE token utility (no
     parser / [gtokens_parse]) — the authority [gtokens_ebn_inner]/[gtokens_inj_ebn] use for the EBn split
-    (the full [gtokens_inj] is still to come). *)
+    within [gtokens_inj]. *)
 Fixpoint eb_find_acc (toks : list Token) (d : nat) (oc : bool) (a : Acc lt (List.length toks)) {struct a}
   : option (list Token * BinOp) :=
   match toks return Acc lt (List.length toks) -> option (list Token * BinOp) with
@@ -5547,7 +5547,7 @@ Definition eb_find (toks : list Token) : option (list Token * BinOp) :=
   eb_find_acc toks 0 false (lt_wf (List.length toks)).
 
 (** [eb_find_acc]'s result does not depend on WHICH [Acc] witness is supplied — proof-irrelevance in the
-    descent certificate.  Lets the coming correctness proof reason EQUATIONALLY about [eb_find_acc] across
+    descent certificate.  Lets the correctness proofs reason EQUATIONALLY about [eb_find_acc] across
     the [Acc_inv]-derived certs its own recursion produces (which differ from a fresh [lt_wf]). *)
 Lemma eb_find_acc_pi : forall n toks d oc (a a' : Acc lt (List.length toks)), List.length toks < n ->
   eb_find_acc toks d oc a = eb_find_acc toks d oc a'.
@@ -6509,8 +6509,9 @@ Qed.
 (* a WRAPPED [EBn] ends with its framing [TRP] — the [olast] complement to [gtokens_hd_ebn_wrapped].
    It discriminates a wrapped [EBn] by last token ONLY for a NON-[TRP]-ending row: [ESel] ([TId f]),
    [EIndex]/[ESlice] ([TRB]), the lits ([TRC]).  A [TRP]-ending row ([ECall]/[EAssert]/[EConv]) ends in
-   [TRP] too, so [olast] does NOT separate it from a wrapped [EBn] — that collision needs a different
-   discriminator (the within-[TRP] work still to come). *)
+   [TRP] too, so [olast] does NOT separate it from a wrapped [EBn] — that collision is handled by the
+   [last0=0] discriminators [gtokens_ecall_neq_ebn_wrapped]/[gtokens_eassert_neq_ebn_wrapped]/
+   [gtokens_econv_neq_ebn_wrapped] instead. *)
 Lemma gtokens_olast_ebn_wrapped : forall ctx o l r,
   Nat.ltb (binop_prec o) ctx = true -> olast (gtokens ctx (EBn o l r)) = Some TRP.
 Proof. intros ctx o l r H. cbn [gtokens]. rewrite H, app_comm_cons. apply olast_app1. Qed.
