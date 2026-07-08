@@ -6,6 +6,9 @@ parser demoted to derived tooling.  Target shapes (CLAUDE.md "Syntax authority")
 `CanonExpr : nat -> GExpr -> list Token -> Prop` (+ CanonStmt/CanonProgram),
 `gprint_expr_canonical`, `canon_expr_unique`, `lex_gprint_expr` (likewise per layer).
 
+_This doc is DESIGN only. Live status — which phases/slices/diagonals have landed and what is next —
+is **PROGRESS.md "NEXT"** alone; per-slice landed history is in the git log._
+
 THE LAYERS (design context, in GoPrint.v): the token type + the fuel-free Acc lexer; `gtokens ctx e`
 (the executable canonical token assignment); the RELATIONAL grammar `CanonTy`/`CanonExpr` +
 `canon_ty_tokens`/`canon_expr_tokens` (token-functionality) + `gprint_expr_canonical` (printer
@@ -16,8 +19,7 @@ via `gttokens_ty_inj`; expression uniqueness has the SAME shape via the complete
 is the authority, `gprint_inj` routes through `gtokens_parse` + `parse_print_roundtrip` (the
 executable-parser round-trip) and the statement layer (`print_stmt_inj`/`print_program_inj`) is STRING
 injectivity — so EXPRESSION injectivity is still parser-derived (Phase 3c reproves `gprint_inj` off
-`gtokens_inj`; the parser is retired to derived tooling LAST, Phase 5).  Live landed/remaining status:
-PROGRESS.md "NEXT".
+`gtokens_inj`; the parser is retired to derived tooling LAST, Phase 5).
 
 ## The architecture (the parser-free uniqueness discipline)
 
@@ -27,18 +29,6 @@ PROGRESS.md "NEXT".
 the parser as the foundation, the exact inversion CLAUDE.md forbids.  The executable
 parser is re-based LAST as derived tooling (`parse_sound`/`parse_complete` against the
 relation).
-
-STATUS: the live landed/remaining roster (which phases, slices, and diagonals have landed and what
-is next) has ONE authority — PROGRESS.md "NEXT".  This doc is DESIGN only and keeps no parallel
-status roster; per-slice landed history is in the git log.  The arc's shape: Phases 1+2 (the
-relations `CanonTy`/`CanonExpr` + token-functionality + `gprint_expr_canonical` + `lex_gprint_expr`),
-Phase 3a (`canon_ty_unique` — type-level token uniqueness via `gttokens_ty_inj`), Phase 3b (the
-`bd` balance / `last0` / `bdip` / `fsep` split toolkit + `gtokens_args_inj`/`gtokens_pairs_inj` +
-the paren/bare operand discrimination + the type-skipper `skip_gty` + the EBn precedence scan
-`eb_find`/`eb_operand`/`eb_find_gtokens`, all building the complete-list `gtokens_inj` ⇒
-`canon_expr_unique`), Phases 3c–5 (reprove `gprint_inj` off `gtokens_inj`; the statement layer;
-re-base the parser as derived tooling).  The proof DESIGN + per-diagonal technique is the
-"Phase 3b/3c" section below.
 
 ## Phases (each: green, golden byte-identical, gated, reviewed)
 
@@ -57,11 +47,9 @@ re-base the parser as derived tooling).  The proof DESIGN + per-diagonal techniq
 3. **★`canon_expr_unique`** (the meat): `CanonExpr ctx e1 ts -> CanonExpr ctx e2 ts ->
    e1 = e2`, parser-free — via `canon_expr_tokens` + the COMPLETE-list `gtokens_inj`
    (structural induction on `e1`, delimited groups split by `last0` (the last depth-0 position)).  Full design + the ruled-out dead ends (balanced-prefix cancellation; the FALSE
-   arbitrary-suffix determinism lemma) in the "Phase 3b/3c" section below.  The toolkit slices and the
-   same-constructor diagonals landed so far, their techniques, and what remains are tracked ONCE — the
-   proof design in that section, the live landed/remaining roster in PROGRESS.md "NEXT".  `gtokens_inj`
-   itself (the assembly over those diagonals + the ~14×13 cross-constructor discrimination) is the open
-   crux; `canon_expr_unique` follows from it exactly as `canon_ty_unique` follows from `gttokens_ty_inj`.
+   arbitrary-suffix determinism lemma) in the "Phase 3b/3c" section below.  `gtokens_inj` (the assembly
+   over the per-constructor diagonals + the ~14×13 cross-constructor discrimination) is the crux;
+   `canon_expr_unique` follows from it exactly as `canon_ty_unique` follows from `gttokens_ty_inj`.
 4. **CanonStmt/CanonProgram** + the same trio over the statement printer (the
    statement layer's `lex_gprint_stmt` does not exist yet — build the statement
    `gtokens` analogue first).
@@ -71,9 +59,7 @@ re-base the parser as derived tooling).  The proof DESIGN + per-diagonal techniq
    foundation); rewrite GoPrint's header authority claims; the PROGRESS gate list
    gains the canonical surface (one manifest-gated `Print Assumptions`).
 
-## Phase 3b/3c — the expression uniqueness proof (design + the per-slice/per-diagonal technique record;
-## this section is the single plan-side DESIGN/TECHNIQUE record. The live landed/remaining STATUS is the
-## sole authority for it — PROGRESS.md "NEXT")
+## Phase 3b/3c — the expression uniqueness proof (design + per-slice/per-diagonal technique)
 
 TARGET (mirrors the type layer exactly): `canon_expr_unique ctx e1 e2 ts` = `canon_expr_tokens`
 on both sides + a PARSER-FREE `gtokens_inj : forall ctx e1 e2, gtokens ctx e1 = gtokens ctx e2
@@ -256,7 +242,7 @@ COMPLETE lists (no suffix):
   `gtokens_args_inj`/`gtokens_pairs_inj`, the type recovered via `gttokens_ty_inj` + `convty_ty_inj`.  The
   full `gtokens_inj` assembles these diagonals with the four ATOM-row diagonals (single distinguishing
   token each) and the ~14×13 cross-constructor discrimination — the genuine crux (not just the EBn case;
-  likely surfacing further discrimination sub-lemmas).  (Live landed/remaining status: PROGRESS.md "NEXT".)
+  likely surfacing further discrimination sub-lemmas).
 
 Then `canon_expr_unique` (+ `gtokens_inj`) join the printer Print Assumptions gate.
 Phase 3c = reprove `gprint_inj` off `gtokens_inj` + `gtokens_lex` (making it a corollary of the
