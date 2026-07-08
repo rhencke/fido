@@ -39,8 +39,9 @@ sig equality, and the sqd/firstdip/balanced_rb_split bracket-balance toolkit spl
 children).  Phase 3b SLICE 1 LANDED — the three-bracket balance toolkit (bd/bd_app/bd_up/
 bd_app_pass/bd_op_token/bd_prefix_token/bd_gtparen/gttokens_ty_bd + arg/pair balance lemmas)
 and gtokens_balanced (every canonical expression token list is uniformly bracket-balanced),
-gated.  NEXT = Phase 3b SLICE 2: the complete-list gtokens_inj (canon_expr_unique =
-canon_expr_tokens + gtokens_inj), design pinned below.  Phase 3b SLICE 2a LANDED — the `last0`
+gated.  Phase 3b SLICE 2 (the complete-list gtokens_inj; canon_expr_unique = canon_expr_tokens +
+gtokens_inj; design pinned below) is split into sub-slices 2a–2e building toward the crux:
+Phase 3b SLICE 2a LANDED — the `last0`
 group-split tool (`last0`/`last0_group` + `nd`/`nd_add`/`bd_nd`/`bd_prefix_defined`/`last0_aux_inv`),
 gated; found: the closer hypothesis is unnecessary — the final token is at depth-before 1, so it
 never records a best.  Phase 3b SLICE 2b LANDED — `bdip`/`bdip_app_nodip`/`balanced_close_split`
@@ -80,8 +81,10 @@ arbitrary-SUFFIX determinism lemma was found FALSE — see the design.)
 3. **★`canon_expr_unique`** (the meat): `CanonExpr ctx e1 ts -> CanonExpr ctx e2 ts ->
    e1 = e2`, parser-free — via `canon_expr_tokens` + the COMPLETE-list `gtokens_inj`
    (structural induction on `e1`, delimited groups split by `last0` (the last depth-0 position)).  Full design + the ruled-out dead ends (balanced-prefix cancellation; the FALSE
-   arbitrary-suffix determinism lemma) in the "Phase 3b/3c" section below.  Slice 1 (the
-   `bd` balance toolkit + `gtokens_balanced`) is LANDED.
+   arbitrary-suffix determinism lemma) in the "Phase 3b/3c" section below.  Slices 1–2e (the
+   `bd` balance toolkit + `gtokens_balanced`; the `last0`/`bdip`/`fsep` split lemmas;
+   `no_depth0_sep`; `gtokens_args_inj`) are LANDED + gated; `gtokens_inj` itself is the open crux
+   (with `gtokens_pairs_inj`, the paren/bare operand discrimination, and the EBn precedence sub-arc).
 4. **CanonStmt/CanonProgram** + the same trio over the statement printer (the
    statement layer's `lex_gprint_stmt` does not exist yet — build the statement
    `gtokens` analogue first).
@@ -179,8 +182,9 @@ COMPLETE lists (no suffix):
   P/N split by the leading `TLP` as usual.
 
 Then `canon_expr_unique` (+ `gtokens_inj`) join the printer Print Assumptions gate.
-Phase 3c = reprove `gprint_inj` off `parse_print_roundtrip` (now a corollary of `gtokens_inj` +
-`gtokens_lex`), retiring the parser as the expression-injectivity authority.
+Phase 3c = reprove `gprint_inj` off `gtokens_inj` + `gtokens_lex` (making it a corollary of the
+canonical layer, no longer of `parse_print_roundtrip`), retiring the parser as the
+expression-injectivity authority.
 
 ## Landing rules
 
