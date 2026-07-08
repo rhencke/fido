@@ -113,7 +113,7 @@ Definition emit_compiled (p : EmittableProgram) : string := GoPrint.print_progra
    a SafeProgram = EmittableProgram + BehaviorSafe, emitted by emit_safe. *)
 ```
 
-`emit_compiled` is a printer/supported-subset milestone — NOT behaviorally safe. Do
+`emit_compiled` is a printer/compile-admissibility milestone — NOT behaviorally safe. Do
 **not** export a raw `emit : GoAst.Program -> string`. Raw printing for tests must not be
 the extraction path or back any safety claim.
 

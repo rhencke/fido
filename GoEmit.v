@@ -4,11 +4,12 @@
     [emit_compiled] is the sole exported way to turn a program into Go text.  There is DELIBERATELY no
     `emit : Program -> string` — a RAW program cannot reach the blessed path (charter §8 Rule 3), so the
     certificate is never decorative.
-    PHASE-1: this certifies SUPPORTEDNESS (syntactic), NOT behavioral safety.  The behavioral path
-    ([SafeProgram] = EmittableProgram + GoCompile.BehaviorSafe, [emit_safe]) lands once GoSem is COMPLETE (GoSem
-    slice 1 — the cmd.v bridge + denotation⊆gate soundness — exists, but does not yet denote enough for
-    BehaviorSafe; unified.v is an existing PROOF-ONLY operational semantics, NOT the certified path's, which
-    GoSem must still bridge or retire).
+    PHASE-1: this certifies COMPILE-ADMISSIBILITY (static — "this would compile"), NOT behavioral safety.
+    The behavioral path ([SafeProgram] = EmittableProgram + BehaviorSafe, where BehaviorSafe is the
+    BEHAVIORAL layer — GoSemSafe / the future GoSafe, NEVER inside GoCompile — emitted by [emit_safe]) lands
+    once GoSem is COMPLETE (GoSem slice 1 — the cmd.v bridge + denotation⊆gate soundness — exists, but does
+    not yet denote enough for BehaviorSafe; unified.v is an existing PROOF-ONLY operational semantics, NOT
+    the certified path's, which GoSem must still bridge or retire).
     A raw printer (GoPrint.print_program) still exists for proofs/tests, but it is NOT this blessed emitter.
     ============================================================================ *)
 From Fido Require Import GoAst GoPrint GoCompile.
@@ -16,8 +17,8 @@ From Stdlib Require Import String List ZArith.  (* List/ListNotations: body list
 Import ListNotations.
 Open Scope string_scope.
 
-(** A program cleared for the blessed printer: the AST + its supportedness certificate (the proof is part of
-    the value, so an [EmittableProgram] cannot be built for an unsupported program). *)
+(** A program cleared for the blessed printer: the AST + its compile-admissibility certificate (the proof is
+    part of the value, so an [EmittableProgram] cannot be built for a program that would not compile). *)
 Record EmittableProgram : Type := mkEmittable {
   ep_program   : Program;
   ep_compile : GoCompile ep_program;
@@ -28,7 +29,7 @@ Record EmittableProgram : Type := mkEmittable {
 Definition emit_compiled (p : EmittableProgram) : string := print_program (ep_program p).
 
 (** ---- THE CERTIFIED-EMISSION DEMO ----  a runnable `package main` exercising the current
-    SUPPORTED/EMITTABLE statement+expression surface END-TO-END through the blessed path.
+    COMPILE-ADMISSIBLE/EMITTABLE statement+expression surface END-TO-END through the blessed path.
     [demo_prog] is the single authority for the exercised forms (no prose re-count);
     [demo_compiles] discharges the certificate, [emit_compiled] prints it via the
     machine-checked [gprint], [demo_emit_bytes] pins the exact emitted Go, and
@@ -82,10 +83,10 @@ Proof. vm_compute; reflexivity. Qed.
 Definition print_prog : Program :=
   mkProgram (mkIdent "main" eq_refl)
             [GsExprStmt (ECall (EId (mkIdent "print" eq_refl)) [EInt 1]); GsReturn].
-Lemma print_supported : GoCompile print_prog.
+Lemma print_compiles : GoCompile print_prog.
 Proof. reflexivity. Qed.
 Example print_emit_bytes :
-  emit_compiled (mkEmittable print_prog print_supported) =
+  emit_compiled (mkEmittable print_prog print_compiles) =
   ("package main" ++ go_nl ++ go_nl ++ "func main() {" ++ go_nl ++
    go_tab ++ "print(1)" ++ go_nl ++ go_tab ++ "return" ++ go_nl ++ "}" ++ go_nl)%string.
 Proof. vm_compute; reflexivity. Qed.
@@ -93,10 +94,10 @@ Proof. vm_compute; reflexivity. Qed.
 Definition panic_prog : Program :=
   mkProgram (mkIdent "main" eq_refl)
             [GsExprStmt (ECall (EId (mkIdent "panic" eq_refl)) [EInt 1])].
-Lemma panic_supported : GoCompile panic_prog.
+Lemma panic_compiles : GoCompile panic_prog.
 Proof. reflexivity. Qed.
 Example panic_emit_bytes :
-  emit_compiled (mkEmittable panic_prog panic_supported) =
+  emit_compiled (mkEmittable panic_prog panic_compiles) =
   ("package main" ++ go_nl ++ go_nl ++ "func main() {" ++ go_nl ++
    go_tab ++ "panic(1)" ++ go_nl ++ "}" ++ go_nl)%string.
 Proof. vm_compute; reflexivity. Qed.
@@ -118,7 +119,8 @@ Lemma emit_compiled_program_inj :
   forall c1 c2, emit_compiled c1 = emit_compiled c2 -> ep_program c1 = ep_program c2.
 Proof. intros c1 c2 H. unfold emit_compiled in H. exact (print_program_inj _ _ H). Qed.
 
-(** GATE — GoCompile/GoEmit are part of the trust base (the blessed path); keep them axiom-free. *)
+(** GATE — GoCompile/GoEmit are the CERTIFIED emission spine (the blessed path): VERIFIED, not
+    trusted — keep their proofs axiom-free so the spine adds zero project axioms to the TCB. *)
 Print Assumptions emit_compiled.
 Print Assumptions demo_emit_bytes.
 Print Assumptions print_emit_bytes.

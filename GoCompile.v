@@ -1376,14 +1376,9 @@ Fail Example forge_uint8_overflow :
 Fail Example forge_unused_local :
   GoCompile (gs_main [GsShortDecl id_x (EInt 1); GsReturn]) := eq_refl.
 
-(** ===================================================================================================
-    ===== SEMANTIC: BehaviorSafe over GoSem (future) =====
-    =================================================================================================== *)
-
-(** Reserved: the behavioral-safety GATE over GoSem's denotation.  NOT yet defined — slice-1
-    denotation is too partial, and a placeholder [BehaviorSafe _ := True] is the overclaiming
-    gate the charter forbids.  ([GoSemSafe.panic_free_gate] is a narrow off-main seed, not this
-    gate.)  When GoSem suffices: [BehaviorSafe] + [SafeProgram]/[emit_safe]. *)
+(** BOUNDARY — behavioral safety ([BehaviorSafe]/[SafeProgram]/[emit_safe]) is NOT defined here:
+    GoCompile is STATIC compiler-admissibility only (naming is a correctness claim).  The behavioral
+    layer lives in GoSemSafe.v (the narrow [panic_free_gate] seed today; the future GoSafe.v). *)
 
 (** GATE — GoCompile is on the blessed emission path; keep it axiom-free (checked by the GOEMIT_GATE, mirroring
     the digits/GoAst/GoPrint printer gate). *)
