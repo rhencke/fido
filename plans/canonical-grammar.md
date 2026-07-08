@@ -14,7 +14,7 @@ composed with the canonical derivation); `canon_ty_unique` — type-level token 
 via `gttokens_ty_inj`; and the Phase-3b toolkit toward expression uniqueness (`bd`/`gtokens_balanced`,
 the `last0`/`bdip`/`fsep` split lemmas, `no_depth0_sep`, `gtokens_args_inj`, `gtokens_pairs_inj`, the
 paren/bare operand discrimination `bare_not_paren_group`/`gtparen_inj`, the operator-token
-injectivities `op_token_inj`/`prefix_token_inj`).  STILL OPEN: the complete-list
+injectivities `op_token_inj`/`prefix_token_inj`, the type-skipper `skip_gty`).  STILL OPEN: the complete-list
 `gtokens_inj` (⇒ `canon_expr_unique`).  Until it lands, `gprint_inj` still routes
 through `gtokens_parse` + `parse_print_roundtrip` (the executable-parser round-trip) and the
 statement layer (`print_stmt_inj`/`print_program_inj`) is still STRING injectivity — so EXPRESSION
@@ -42,7 +42,7 @@ children).  Phase 3b SLICE 1 LANDED — the three-bracket balance toolkit (bd/bd
 bd_app_pass/bd_op_token/bd_prefix_token/bd_gtparen/gttokens_ty_bd + arg/pair balance lemmas)
 and gtokens_balanced (every canonical expression token list is uniformly bracket-balanced),
 gated.  Phase 3b SLICE 2 (the complete-list gtokens_inj; canon_expr_unique = canon_expr_tokens +
-gtokens_inj; design pinned below) is split into sub-slices 2a–2h building toward the crux:
+gtokens_inj; design pinned below) is split into sub-slices 2a–2i building toward the crux:
 Phase 3b SLICE 2a LANDED — the `last0`
 group-split tool (`last0`/`last0_group` + `nd`/`nd_add`/`bd_nd`/`bd_prefix_defined`/`last0_aux_inv`),
 gated; found: the closer hypothesis is unnecessary — the final token is at depth-before 1, so it
@@ -76,6 +76,11 @@ injective on its own domain), gated; ⚠ but they OVERLAP each other — `op_tok
 UNeg = TMinus` (likewise `TStar` mul/deref, `TAmp` and/addr, `TCaret` xor/xor) — so a depth-0
 `TMinus`/`TStar`/`TAmp`/`TCaret` may be binary OR unary; the EBn split must be found by prefix/infix
 POSITION (a binary op follows a COMPLETE operand), never by token identity.
+Phase 3b SLICE 2i LANDED — `skip_gty` (a PURE token type-skipper: returns the tokens after ONE type,
+does NOT build a `GoTy`, so a token utility not a type-parser; `Acc`-recursive on length, the `map[K]V`
+key-then-value skip non-structural) + `skip_gty_types` (`skip_gty (gttokens_ty t ++ rest) = Some rest`,
+by induction on `t`; the `forall a` subsumes `Acc`-proof-irrelevance), gated — the scan's type-context
+foundation (handles the pointer-`TStar` hazard by skipping whole types).
 STILL TO WRITE: ★the EBn OPERATOR-PRECEDENCE
 disambiguation (rightmost-minimal-precedence depth-0 op + the ctx-wrapping invariant lemmas, over the
 prefix/infix distinction above) — the crux risk; and `gtokens_inj` itself.  (The
@@ -98,12 +103,12 @@ arbitrary-SUFFIX determinism lemma was found FALSE — see the design.)
 3. **★`canon_expr_unique`** (the meat): `CanonExpr ctx e1 ts -> CanonExpr ctx e2 ts ->
    e1 = e2`, parser-free — via `canon_expr_tokens` + the COMPLETE-list `gtokens_inj`
    (structural induction on `e1`, delimited groups split by `last0` (the last depth-0 position)).  Full design + the ruled-out dead ends (balanced-prefix cancellation; the FALSE
-   arbitrary-suffix determinism lemma) in the "Phase 3b/3c" section below.  Slices 1–2h (the
+   arbitrary-suffix determinism lemma) in the "Phase 3b/3c" section below.  Slices 1–2i (the
    `bd` balance toolkit + `gtokens_balanced`; the `last0`/`bdip`/`fsep` split lemmas;
    `no_depth0_sep`; `gtokens_args_inj`; `gtokens_pairs_inj`; the paren/bare operand discrimination
    `bare_not_paren_group`/`gtparen_inj`; the operator-token injectivities
-   `op_token_inj`/`prefix_token_inj`) are LANDED + gated; `gtokens_inj` itself is the open crux
-   (with only the EBn precedence sub-arc left).
+   `op_token_inj`/`prefix_token_inj`; the type-skipper `skip_gty`) are LANDED + gated; `gtokens_inj`
+   itself is the open crux (with only the EBn precedence sub-arc left).
 4. **CanonStmt/CanonProgram** + the same trio over the statement printer (the
    statement layer's `lex_gprint_stmt` does not exist yet — build the statement
    `gtokens` analogue first).
@@ -240,7 +245,8 @@ COMPLETE lists (no suffix):
   sub-parts (skip-type, complete-operand incl. postfix chain, precedence fold) mirror the SHAPE of
   `parse_gty_b`/`parse_atom`/`parse_climb` (NOT invoked — reproved as pure token functions).  NB the
   operand-complete/type state is PER-BRACKET-LEVEL (nested), so the scan is recursive-descent, not a
-  flat fold.  (Code next: `skip_gty` + its lemma is the self-contained first unit.)
+  flat fold.  (`skip_gty` + `skip_gty_types` LANDED as slice 2i — the type-skip foundation; NEXT is the
+  operand-complete + precedence fold that consumes operands and locates the split.)
 
 Then `canon_expr_unique` (+ `gtokens_inj`) join the printer Print Assumptions gate.
 Phase 3c = reprove `gprint_inj` off `gtokens_inj` + `gtokens_lex` (making it a corollary of the

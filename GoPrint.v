@@ -5362,6 +5362,93 @@ Proof. intros o1 o2 H. destruct o1; destruct o2; solve [ reflexivity | discrimin
 Lemma prefix_token_inj : forall o1 o2, prefix_token o1 = prefix_token o2 -> o1 = o2.
 Proof. intros o1 o2 H. destruct o1; destruct o2; solve [ reflexivity | discriminate H ]. Qed.
 
+(** ---- Phase 3b slice 2i: [skip_gty] — a PURE token-skipper for the EBn scan's type-context.
+    Returns the tokens AFTER one type (it does NOT build a [GoTy], so it is a token utility like [bd],
+    NOT a second type-parser and NOT the parser — keeping the coming [gtokens_inj] parser-free).
+    [Acc]-recursive on length ([map[K]V]'s key-then-value skip is non-structural).  Correctness
+    [skip_gty_types] ([skip_gty (gttokens_ty t ++ rest) = Some rest]) is proved by induction on [t]. *)
+Fixpoint skip_gty_acc (toks : list Token) (a : Acc lt (List.length toks)) {struct a}
+  : option { r : list Token | List.length r <= List.length toks } :=
+  match toks return Acc lt (List.length toks) ->
+                    option { r : list Token | List.length r <= List.length toks } with
+  | nil => fun _ => None
+  | tok :: rest0 => fun a =>
+    match tok with
+    | TId _ => Some (exist _ rest0 (tle1 _ _ (le_n _)))
+    | TStar =>
+        match skip_gty_acc rest0 (Acc_inv a (tlt1 (List.length rest0))) with
+        | Some (exist _ r Hr) => Some (exist _ r (tle1 _ _ Hr))
+        | None => None
+        end
+    | TChan =>
+        match skip_gty_acc rest0 (Acc_inv a (tlt1 (List.length rest0))) with
+        | Some (exist _ r Hr) => Some (exist _ r (tle1 _ _ Hr))
+        | None => None
+        end
+    | TLB =>
+        match rest0 as r0 return Acc lt (S (List.length r0)) ->
+                                 option { r : list Token | List.length r <= S (List.length r0) } with
+        | TRB :: rest => fun a =>
+            match skip_gty_acc rest (Acc_inv a (tlt2 (List.length rest))) with
+            | Some (exist _ r Hr) => Some (exist _ r (tle2 _ _ Hr))
+            | None => None
+            end
+        | _ => fun _ => None
+        end a
+    | TMap =>
+        match rest0 as r0 return Acc lt (S (List.length r0)) ->
+                                 option { r : list Token | List.length r <= S (List.length r0) } with
+        | TLB :: r0' => fun a =>
+            match skip_gty_acc r0' (Acc_inv a (tlt2 (List.length r0'))) with
+            | Some (exist _ (TRB :: r1) H1) =>
+                match skip_gty_acc r1 (Acc_inv a (tlt_map _ _ H1)) with
+                | Some (exist _ r2 H2) => Some (exist _ r2 (tle_map _ _ _ H2 H1))
+                | None => None
+                end
+            | _ => None
+            end
+        | _ => fun _ => None
+        end a
+    | _ => None
+    end
+  end a.
+Definition skip_gty (toks : list Token) : option (list Token) :=
+  match skip_gty_acc toks (lt_wf (List.length toks)) with Some (exist _ r _) => Some r | None => None end.
+(** [skip_gty_acc] returns EXACTLY the post-type remainder — proved on the token FUNCTION by
+    induction on [t]; the [forall a] subsumes [Acc]-proof-irrelevance (the recursive certs need no pin). *)
+Lemma skip_gty_acc_types : forall t rest a,
+  match skip_gty_acc (gttokens_ty t ++ rest) a with Some (exist _ r _) => r = rest | None => False end.
+Proof.
+  induction t as [ | | | | | | | | | | | | | | u IHu | u IHu | u IHu | k IHk v IHv | n ];
+    intros rest a.
+  all: try (destruct a as [f]; cbn [gttokens_ty app skip_gty_acc]; reflexivity).  (* scalars + GTNamed *)
+  - (* GTPtr *) destruct a as [f]; cbn [gttokens_ty app skip_gty_acc].
+    specialize (IHu rest (f _ (tlt1 (List.length (gttokens_ty u ++ rest))))).
+    destruct (skip_gty_acc (gttokens_ty u ++ rest) _) as [[r Hr] | ]; [ exact IHu | exact IHu ].
+  - (* GTSlice *) destruct a as [f]; cbn [gttokens_ty app skip_gty_acc].
+    specialize (IHu rest (f _ (tlt2 (List.length (gttokens_ty u ++ rest))))).
+    destruct (skip_gty_acc (gttokens_ty u ++ rest) _) as [[r Hr] | ]; [ exact IHu | exact IHu ].
+  - (* GTChan *) destruct a as [f]; cbn [gttokens_ty app skip_gty_acc].
+    specialize (IHu rest (f _ (tlt1 (List.length (gttokens_ty u ++ rest))))).
+    destruct (skip_gty_acc (gttokens_ty u ++ rest) _) as [[r Hr] | ]; [ exact IHu | exact IHu ].
+  - (* GTMap — reassociate the WHOLE arg (with its Acc cert) before unfolding, so IHk/IHv apply *)
+    assert (Heq : (gttokens_ty (GTMap k v) ++ rest)%list
+                = (TMap :: TLB :: gttokens_ty k ++ TRB :: (gttokens_ty v ++ rest))%list)
+      by (cbn [gttokens_ty app]; rewrite <- (app_assoc (gttokens_ty k) (TRB :: gttokens_ty v) rest); reflexivity).
+    revert a; rewrite Heq; intro a. destruct a as [f]. cbn [skip_gty_acc].
+    specialize (IHk (TRB :: gttokens_ty v ++ rest) (f _ (tlt2 (List.length (gttokens_ty k ++ TRB :: gttokens_ty v ++ rest))))).
+    destruct (skip_gty_acc (gttokens_ty k ++ TRB :: gttokens_ty v ++ rest) _) as [[r1 H1] | ]; [ | exact IHk ].
+    subst r1. cbn [skip_gty_acc].
+    specialize (IHv rest (f _ (tlt_map _ _ H1))).
+    destruct (skip_gty_acc (gttokens_ty v ++ rest) _) as [[r2 H2] | ]; [ exact IHv | exact IHv ].
+Qed.
+Lemma skip_gty_types : forall t rest, skip_gty (gttokens_ty t ++ rest) = Some rest.
+Proof.
+  intros t rest. unfold skip_gty.
+  pose proof (skip_gty_acc_types t rest (lt_wf (List.length (gttokens_ty t ++ rest)))) as H.
+  destruct (skip_gty_acc (gttokens_ty t ++ rest) _) as [[r Hr] | ]; [ rewrite H; reflexivity | contradiction ].
+Qed.
+
 (** LEXICAL FAITHFULNESS through the grammar: printing then lexing yields EXACTLY a
     canonical derivation's tokens — the composed [lex_gprint_expr] shape CLAUDE.md names. *)
 Theorem lex_gprint_expr : forall ctx e,
@@ -7321,6 +7408,7 @@ Print Assumptions bare_not_paren_group.
 Print Assumptions gtparen_inj.
 Print Assumptions op_token_inj.
 Print Assumptions prefix_token_inj.
+Print Assumptions skip_gty_types.
 
 (** Extract the Rocq printers to the OCaml the plugin calls. *)
 Require Import Extraction.
