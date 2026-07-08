@@ -5719,6 +5719,35 @@ Proof.
   - inversion Hall as [ | ? ? Ha1 Hr ]; subst; unfold eb_dep_pred in Ha1.
     cbn [gtokens_args]; eb_pin; rewrite <- (app_assoc (gtokens 0 a1) (gtokens_args_tl r) more); eb_ih6 Ha1; eb_ih (eb_depth_args_tl r Hr); eb_fin.
 Qed.
+(** DEPTH law for the comma-tail / full KEYED-pair list of EMapLit. *)
+Lemma eb_depth_pairs_tl : forall kvs, Forall (fun p => eb_dep_pred (fst p) /\ eb_dep_pred (snd p)) kvs ->
+  forall more sd oc (a : Acc lt (List.length (gtokens_pairs_tl kvs ++ more))) a2,
+    eb_find_acc (gtokens_pairs_tl kvs ++ more) (S sd) oc a = eb_find_acc more (S sd) oc a2.
+Proof.
+  induction kvs as [ | p m IH ]; intros Hall more sd oc a a2.
+  - cbn [gtokens_pairs_tl app]; eb_fin.
+  - destruct p as [ k v ]; inversion Hall as [ | ? ? Hp Hm ]; subst;
+      destruct Hp as [ Hk Hv ]; cbn [fst snd] in Hk, Hv; unfold eb_dep_pred in Hk, Hv.
+    cbn [gtokens_pairs_tl app]; eb_neu;
+      rewrite <- (app_assoc (gtokens 0 k) (TColon :: gtokens 0 v ++ gtokens_pairs_tl m) more);
+      eb_ih6 Hk; cbn [app]; eb_neu;
+      rewrite <- (app_assoc (gtokens 0 v) (gtokens_pairs_tl m) more);
+      eb_ih6 Hv; specialize (IH Hm); eb_ih IH; eb_fin.
+Qed.
+Lemma eb_depth_pairs : forall kvs, Forall (fun p => eb_dep_pred (fst p) /\ eb_dep_pred (snd p)) kvs ->
+  forall more sd oc (a : Acc lt (List.length (gtokens_pairs kvs ++ more))) a2,
+    eb_find_acc (gtokens_pairs kvs ++ more) (S sd) oc a = eb_find_acc more (S sd) oc a2.
+Proof.
+  intros [ | p r ] Hall more sd oc a a2.
+  - cbn [gtokens_pairs app]; eb_fin.
+  - destruct p as [ k v ]; inversion Hall as [ | ? ? Hp Hr ]; subst;
+      destruct Hp as [ Hk Hv ]; cbn [fst snd] in Hk, Hv; unfold eb_dep_pred in Hk, Hv.
+    cbn [gtokens_pairs]; eb_pin;
+      rewrite <- (app_assoc (gtokens 0 k) (TColon :: gtokens 0 v ++ gtokens_pairs_tl r) more);
+      eb_ih6 Hk; cbn [app]; eb_neu;
+      rewrite <- (app_assoc (gtokens 0 v) (gtokens_pairs_tl r) more);
+      eb_ih6 Hv; eb_ih (eb_depth_pairs_tl r Hr); eb_fin.
+Qed.
 
 (** LEXICAL FAITHFULNESS through the grammar: printing then lexing yields EXACTLY a
     canonical derivation's tokens — the composed [lex_gprint_expr] shape CLAUDE.md names. *)
@@ -7685,6 +7714,7 @@ Print Assumptions eb_find_lt.
 Print Assumptions eb_find_pi.
 Print Assumptions eb_depth_ty.
 Print Assumptions eb_depth_args.
+Print Assumptions eb_depth_pairs.
 
 (** Extract the Rocq printers to the OCaml the plugin calls. *)
 Require Import Extraction.
