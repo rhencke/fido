@@ -30,6 +30,27 @@ the parser as the foundation, the exact inversion CLAUDE.md forbids.  The execut
 parser is re-based LAST as derived tooling (`parse_sound`/`parse_complete` against the
 relation).
 
+## Printer precedence/associativity (parse-shape preservation, NOT full-parenthesization)
+
+`GExpr` has NO paren constructor — parens are a PRINTING ARTIFACT emitted only where Go's binding rules
+would otherwise reparse the tokens into a DIFFERENT AST.  The context `ctx : nat` is the parent
+precedence: an `EBn o l r` prints `l` at ctx `binop_prec o` and `r` at ctx `S (binop_prec o)` (Go binops
+are LEFT-associative), so a same-precedence LEFT child stays bare and a same-precedence RIGHT child is
+parenthesized — `Add (Add a b) c` → `a + b + c`, `Add a (Add b c)` → `a + (b + c)`.  Omission is
+PARSE-SHAPE preservation ONLY, NEVER semantic associativity: the printer never collapses `a + (b + c)` to
+`a + b + c` (no AST normalization); `gtokens_inj` proves those distinct ASTs give distinct tokens.  The
+`eb_find`/`eb_operand` scan is the parser-free proof that a block's tokens locate the rightmost-min top
+operator (the left-assoc split), never `parse`.
+
+EXPLICIT DEFERRED FRONTIERS (after the expression arc seals — do NOT expand mid-proof, per checkpoint-53):
+- Named-type conversions `T(x)` (T a NAME) are EXCLUDED — token-shape-ambiguous with calls absent a
+  compile env Γ.  `ConvTy` is slice/chan/map ONLY (the "Option B" subset): conversions are type-led
+  through `[]`/`chan`/`map`, syntactically disjoint from calls — exactly what makes the `ECall`-vs-`EConv`
+  discrimination parser-free.  Γ-indexed `CanonExpr` (Option A) is the long-term path.
+- Directional channel TYPES `chan<-`/`<-chan` are NOT modeled (`GoTy` has only bidirectional `chan T`), so
+  the leftmost-`chan` parenthesization rules (`chan (<-chan T)`, the `(<-chan T)(x)` conversion head) do
+  not arise in the current subset.  Adding `ChanDir` + `needs_type_parens` is future type-grammar work.
+
 ## Phases (each: green, golden byte-identical, gated, reviewed)
 
 1. **CanonTy + CanonExpr (the relations).**  Mutual inductives mirroring `gtokens`'

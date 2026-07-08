@@ -1710,8 +1710,16 @@ Definition op_needs_paren (e0 : GExpr) : bool :=
   | EId _ | EInt _ | EStr _ | EHex _ | ESel _ _ | EIndex _ _ | ESlice _ _ _ | ECall _ _ | EAssert _ _ | EConv _ _ | ESliceLit _ _ | EMapLit _ _ _ => false
   end.
 
-(** ---- THE PRINTER ---- precedence-correct (reuses [binop_prec]/[binop_text]/[unop_text]); a binop wraps
-    in parens exactly when its precedence [< ctx]. *)
+(** ---- THE PRINTER ---- PRECEDENCE/ASSOCIATIVITY-aware (reuses [binop_prec]/[binop_text]/[unop_text]),
+    NOT full-parenthesization: an [EBn] wraps in parens exactly when its precedence [< ctx].  The AST has
+    NO paren constructor — parens are a PRINTING ARTIFACT (they live only in [gprint]/[gtokens], never in
+    [GExpr]).  Go binops are LEFT-associative, so an [EBn] prints its left operand at ctx [p := binop_prec
+    o] and its right at ctx [S p]: a same-precedence LEFT child stays bare ([Add (Add a b) c] → [a+b+c])
+    and a same-precedence RIGHT child is parenthesized ([Add a (Add b c)] → [a+(b+c)]).  Paren omission is
+    PARSE-SHAPE preservation ONLY, never semantic associativity — the printer never collapses [a+(b+c)] to
+    [a+b+c] (no AST normalization); [gtokens_inj] proves exactly that these distinct ASTs give distinct
+    tokens.  (Directional channel TYPES [chan<-]/[<-chan] and named-type conversions are NOT in the
+    emitted subset — see plans/canonical-grammar.md; [ConvTy] is slice/chan/map only.) *)
 Fixpoint gprint (ctx : nat) (e : GExpr) {struct e} : string :=
   match e with
   | EId i  => proj1_sig i
