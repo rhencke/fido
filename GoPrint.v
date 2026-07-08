@@ -5253,6 +5253,93 @@ Proof.
         f_equal. exact (IH (q2 :: m2) (Forall_inv_tail Hall) Htail).
 Qed.
 
+(** ---- Phase 3b slice 2g: the PAREN/BARE operand discrimination.  [gtparen] wraps an operand in
+    [TLP … TRP] iff [op_needs_paren] ([true] exactly for [EUn]/[EBn]).  The one hard sub-step of the
+    operand step is: a BARE non-operator expression's tokens can NEVER equal a single parenthesized
+    group [TLP :: g ++ TRP :: nil].  Discriminated by [last0] (slice 2a): the single group has
+    [last0 = 0] (only the leading [TLP] sits at depth 0), while every postfix form has an INTERIOR
+    depth-0 token ([last0 = length (gtparen operand) ≥ 1]).  Parser-free. *)
+Lemma gtparen_nonnil : forall e0, gtparen e0 <> nil.
+Proof. intro e0. unfold gtparen. destruct (op_needs_paren e0); [ discriminate | apply gtokens_nonnil ]. Qed.
+Lemma last0_paren_group : forall g, bd g 0 = Some 0 -> last0 (TLP :: (g ++ TRP :: nil)) = 0.
+Proof. intros g Hg. exact (last0_group nil g TLP TRP eq_refl Hg (or_introl eq_refl)). Qed.
+Lemma bare_not_paren_group : forall e g,
+  op_needs_paren e = false -> bd g 0 = Some 0 -> gtokens 0 e <> (TLP :: (g ++ TRP :: nil))%list.
+Proof.
+  intros e g Hop Hg;
+    destruct e as [ i | z | o e0 | o e1 e2 | e0 f | e0 i0 | e0 lo hi | e0 args | e0 T | c e0
+                  | t es | kt vt kvs | s | zc ];
+    cbn [op_needs_paren] in Hop; try discriminate Hop.
+  - (* EId *) discriminate.
+  - (* EInt *) discriminate.
+  - (* ESel *) rewrite gtokens_ESel. intro HE.
+    assert (Hr : (gtparen e0 ++ TDot :: TId f :: nil = (gtparen e0 ++ TDot :: nil) ++ TId f :: nil)%list)
+      by (rewrite <- app_assoc; reflexivity).
+    rewrite Hr in HE. change (TLP :: (g ++ TRP :: nil))%list with ((TLP :: g) ++ TRP :: nil)%list in HE.
+    apply app_inj_tail in HE. destruct HE as [_ HE]. discriminate HE.
+  - (* EIndex *) rewrite gtokens_EIndex. intro HE.
+    pose proof (f_equal last0 HE) as HL.
+    rewrite (last0_group (gtparen e0) (gtokens 0 i0) TLB TRB
+               (bd_gtparen e0 (gtokens_balanced e0 0)) (gtokens_balanced i0 0)
+               (or_intror (or_introl eq_refl))) in HL.
+    rewrite (last0_paren_group g Hg) in HL.
+    apply length_zero_iff_nil in HL. exact (gtparen_nonnil e0 HL).
+  - (* ESlice *) rewrite gtokens_ESlice. intro HE.
+    pose proof (f_equal last0 HE) as HL.
+    assert (Hbody : bd (gtokens 0 lo ++ TColon :: gtokens 0 hi)%list 0 = Some 0)
+      by (rewrite (bd_app_pass _ _ _ _ (gtokens_balanced lo 0)); cbn [bd]; apply gtokens_balanced).
+    assert (Hr : (gtparen e0 ++ TLB :: (gtokens 0 lo ++ TColon :: (gtokens 0 hi ++ TRB :: nil))
+               = gtparen e0 ++ TLB :: ((gtokens 0 lo ++ TColon :: gtokens 0 hi) ++ TRB :: nil))%list)
+      by (rewrite <- (app_assoc (gtokens 0 lo) (TColon :: gtokens 0 hi) (TRB :: nil)); reflexivity).
+    rewrite Hr in HL.
+    rewrite (last0_group (gtparen e0) (gtokens 0 lo ++ TColon :: gtokens 0 hi)%list TLB TRB
+               (bd_gtparen e0 (gtokens_balanced e0 0)) Hbody (or_intror (or_introl eq_refl))) in HL.
+    rewrite (last0_paren_group g Hg) in HL.
+    apply length_zero_iff_nil in HL. exact (gtparen_nonnil e0 HL).
+  - (* ECall *) rewrite gtokens_ECall. intro HE.
+    pose proof (f_equal last0 HE) as HL.
+    rewrite (last0_group (gtparen e0) (gtokens_args args) TLP TRP
+               (bd_gtparen e0 (gtokens_balanced e0 0)) (bd_args_d args 0) (or_introl eq_refl)) in HL.
+    rewrite (last0_paren_group g Hg) in HL.
+    apply length_zero_iff_nil in HL. exact (gtparen_nonnil e0 HL).
+  - (* EAssert *) rewrite gtokens_EAssert. intro HE.
+    pose proof (f_equal last0 HE) as HL.
+    assert (HP : bd (gtparen e0 ++ TDot :: nil)%list 0 = Some 0)
+      by (rewrite (bd_app_pass _ _ _ _ (bd_gtparen e0 (gtokens_balanced e0 0))); reflexivity).
+    assert (Hr : (gtparen e0 ++ TDot :: TLP :: (gttokens_ty T ++ TRP :: nil)
+               = (gtparen e0 ++ TDot :: nil) ++ TLP :: (gttokens_ty T ++ TRP :: nil))%list)
+      by (rewrite <- app_assoc; reflexivity).
+    rewrite Hr in HL.
+    rewrite (last0_group (gtparen e0 ++ TDot :: nil)%list (gttokens_ty T) TLP TRP HP
+               (gttokens_ty_bd T) (or_introl eq_refl)) in HL.
+    rewrite (last0_paren_group g Hg) in HL.
+    rewrite app_length in HL. cbn [length] in HL. lia.
+  - (* EConv *) rewrite gtokens_EConv. intro HE. destruct (convty_ty c) eqn:Ec; discriminate HE.
+  - (* ESliceLit *) rewrite gtokens_ESliceLit. discriminate.
+  - (* EMapLit *) rewrite gtokens_EMapLit. discriminate.
+  - (* EStr *) discriminate.
+  - (* EHex *) discriminate.
+Qed.
+(** the OPERAND step: [gtparen] is injective given the operand's injectivity IH.  bare/bare and
+    paren/paren strip to [gtokens 0 e1 = gtokens 0 e2] (⇒ IH); the paren/bare mismatch is impossible
+    by [bare_not_paren_group]. *)
+Lemma gtparen_inj : forall e1 e2,
+  (forall e', gtokens 0 e1 = gtokens 0 e' -> e1 = e') ->
+  gtparen e1 = gtparen e2 -> e1 = e2.
+Proof.
+  intros e1 e2 IH HE. unfold gtparen in HE.
+  destruct (op_needs_paren e1) eqn:H1; destruct (op_needs_paren e2) eqn:H2.
+  - injection HE as HE.
+    destruct (balanced_close_split TRP (gtokens 0 e1) (gtokens 0 e2) nil nil
+               (or_introl eq_refl) (gtokens_balanced e1 0) (gtokens_balanced e2 0) HE) as [Hk _].
+    exact (IH e2 Hk).
+  - exfalso. symmetry in HE.
+    exact (bare_not_paren_group e2 (gtokens 0 e1) H2 (gtokens_balanced e1 0) HE).
+  - exfalso.
+    exact (bare_not_paren_group e1 (gtokens 0 e2) H1 (gtokens_balanced e2 0) HE).
+  - exact (IH e2 HE).
+Qed.
+
 (** LEXICAL FAITHFULNESS through the grammar: printing then lexing yields EXACTLY a
     canonical derivation's tokens — the composed [lex_gprint_expr] shape CLAUDE.md names. *)
 Theorem lex_gprint_expr : forall ctx e,
@@ -7208,6 +7295,8 @@ Print Assumptions sep_split.
 Print Assumptions no_depth0_sep.
 Print Assumptions gtokens_args_inj.
 Print Assumptions gtokens_pairs_inj.
+Print Assumptions bare_not_paren_group.
+Print Assumptions gtparen_inj.
 
 (** Extract the Rocq printers to the OCaml the plugin calls. *)
 Require Import Extraction.

@@ -12,8 +12,9 @@ executable canonical token assignment); the RELATIONAL grammar `CanonTy`/`CanonE
 canonicity) + `lex_gprint_expr` (lexical faithfulness, `lex (gprint ctx e) = Some (gtokens ctx e)`
 composed with the canonical derivation); `canon_ty_unique` — type-level token uniqueness, PARSER-FREE
 via `gttokens_ty_inj`; and the Phase-3b toolkit toward expression uniqueness (`bd`/`gtokens_balanced`,
-the `last0`/`bdip`/`fsep` split lemmas, `no_depth0_sep`, `gtokens_args_inj`, `gtokens_pairs_inj`).
-STILL OPEN: the complete-list `gtokens_inj` (⇒ `canon_expr_unique`).  Until it lands, `gprint_inj` still routes
+the `last0`/`bdip`/`fsep` split lemmas, `no_depth0_sep`, `gtokens_args_inj`, `gtokens_pairs_inj`, the
+paren/bare operand discrimination `bare_not_paren_group`/`gtparen_inj`).  STILL OPEN: the complete-list
+`gtokens_inj` (⇒ `canon_expr_unique`).  Until it lands, `gprint_inj` still routes
 through `gtokens_parse` + `parse_print_roundtrip` (the executable-parser round-trip) and the
 statement layer (`print_stmt_inj`/`print_program_inj`) is still STRING injectivity — so EXPRESSION
 injectivity remains parser-derived (Phase 3c reproves `gprint_inj` off `gtokens_inj`; the parser is
@@ -40,7 +41,7 @@ children).  Phase 3b SLICE 1 LANDED — the three-bracket balance toolkit (bd/bd
 bd_app_pass/bd_op_token/bd_prefix_token/bd_gtparen/gttokens_ty_bd + arg/pair balance lemmas)
 and gtokens_balanced (every canonical expression token list is uniformly bracket-balanced),
 gated.  Phase 3b SLICE 2 (the complete-list gtokens_inj; canon_expr_unique = canon_expr_tokens +
-gtokens_inj; design pinned below) is split into sub-slices 2a–2f building toward the crux:
+gtokens_inj; design pinned below) is split into sub-slices 2a–2g building toward the crux:
 Phase 3b SLICE 2a LANDED — the `last0`
 group-split tool (`last0`/`last0_group` + `nd`/`nd_add`/`bd_nd`/`bd_prefix_defined`/`last0_aux_inv`),
 gated; found: the closer hypothesis is unnecessary — the final token is at depth-before 1, so it
@@ -61,7 +62,13 @@ discriminating lengths via `no_depth0_sep`/`fsep`; helpers `app_cons_nonnil`/`gt
 `gtokens_pairs_inj` (the map-pair analogue: `k TColon v` pairs comma-joined; peels one pair with TWO
 `sep_split`s — first on `TColon` for the key, then on `TComma` for the value — then recurses; helpers
 `gtokens_pairs_tl_cons`/`gtokens_pairs_nonnil`/`gtokens_pairs_single`/`gtokens_pairs_cons2`), gated.
-STILL TO WRITE: the paren/bare operand discrimination; ★the EBn OPERATOR-PRECEDENCE
+Phase 3b SLICE 2g LANDED — the paren/bare operand discrimination: `bare_not_paren_group` (a bare
+non-operator expression's tokens NEVER equal a single paren group `TLP :: g ++ TRP :: nil`,
+discriminated by `last0` — the group has `last0 = 0`, every postfix form an interior depth-0 token) +
+`gtparen_inj` (the operand step: `gtparen` injective given the operand's injectivity IH; bare/bare and
+paren/paren via `balanced_close_split`, the mismatch via `bare_not_paren_group`; helpers
+`gtparen_nonnil`/`last0_paren_group`), gated.
+STILL TO WRITE: ★the EBn OPERATOR-PRECEDENCE
 disambiguation (rightmost-minimal-precedence depth-0 op + the ctx-wrapping invariant lemmas +
 `op_token`/`prefix_token` injectivity) — the crux risk; and `gtokens_inj` itself.  (The
 arbitrary-SUFFIX determinism lemma was found FALSE — see the design.)
@@ -83,10 +90,11 @@ arbitrary-SUFFIX determinism lemma was found FALSE — see the design.)
 3. **★`canon_expr_unique`** (the meat): `CanonExpr ctx e1 ts -> CanonExpr ctx e2 ts ->
    e1 = e2`, parser-free — via `canon_expr_tokens` + the COMPLETE-list `gtokens_inj`
    (structural induction on `e1`, delimited groups split by `last0` (the last depth-0 position)).  Full design + the ruled-out dead ends (balanced-prefix cancellation; the FALSE
-   arbitrary-suffix determinism lemma) in the "Phase 3b/3c" section below.  Slices 1–2f (the
+   arbitrary-suffix determinism lemma) in the "Phase 3b/3c" section below.  Slices 1–2g (the
    `bd` balance toolkit + `gtokens_balanced`; the `last0`/`bdip`/`fsep` split lemmas;
-   `no_depth0_sep`; `gtokens_args_inj`; `gtokens_pairs_inj`) are LANDED + gated; `gtokens_inj` itself
-   is the open crux (with the paren/bare operand discrimination and the EBn precedence sub-arc).
+   `no_depth0_sep`; `gtokens_args_inj`; `gtokens_pairs_inj`; the paren/bare operand discrimination
+   `bare_not_paren_group`/`gtparen_inj`) are LANDED + gated; `gtokens_inj` itself is the open crux
+   (with only the EBn precedence sub-arc left).
 4. **CanonStmt/CanonProgram** + the same trio over the statement printer (the
    statement layer's `lex_gprint_stmt` does not exist yet — build the statement
    `gtokens` analogue first).
@@ -167,9 +175,9 @@ COMPLETE lists (no suffix):
   on each.  EConv/lits lead with a TYPE (`canon_ty_unique`); `[]`/`map` lead tokens discriminate.
 - Operand step `gtparen e0_a = gtparen e0_b -> e0_a = e0_b` (COMPLETE): `destruct op_needs_paren`
   both sides — bare/bare and paren/paren strip to `gtokens 0 e0_a = gtokens 0 e0_b` ⇒ IH; the
-  paren/bare MISMATCH needs a discrimination lemma (a complete bare `gtokens 0 e` cannot equal a
-  single `TLP…TRP`-wrapped group) — via `bd`/leading-token.  ★the remaining OPEN sub-lemma here is
-  the paren/bare operand discrimination (the `last0` group split LANDED in slice 2a).
+  paren/bare MISMATCH is impossible (a complete bare `gtokens 0 e` cannot equal a single
+  `TLP…TRP`-wrapped group) — `bare_not_paren_group` via `last0`.  This whole operand step
+  (`bare_not_paren_group` + `gtparen_inj`) LANDED in slice 2g.
 - EUn: leading `prefix_token o` (injective on unops) fixes `o`; `unop_paren` P/N by the `TLP`;
   then the operand step.  A prefix operator, so no infix issue.
 - ★EBn is the HARDEST case — genuine OPERATOR-PRECEDENCE disambiguation, NOT a bracket scan.
