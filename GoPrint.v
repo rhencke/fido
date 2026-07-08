@@ -5448,6 +5448,35 @@ Proof.
   pose proof (skip_gty_acc_types t rest (lt_wf (List.length (gttokens_ty t ++ rest)))) as H.
   destruct (skip_gty_acc (gttokens_ty t ++ rest) _) as [[r Hr] | ]; [ rewrite H; reflexivity | contradiction ].
 Qed.
+(** SOUNDNESS / progress: a successful [skip_gty] consumes ≥ 1 token (types are non-empty), so it
+    STRICTLY shortens the list — the well-foundedness the coming precedence scan needs to recurse. *)
+Lemma skip_gty_acc_lt : forall n toks (a : Acc lt (List.length toks)), List.length toks < n ->
+  match skip_gty_acc toks a with Some (exist _ r _) => List.length r < List.length toks | None => True end.
+Proof.
+  induction n as [ | n IH ]; intros toks a Hn; [ lia | ].
+  destruct a as [f]. destruct toks as [ | tok rest0 ]; [ exact I | ].
+  cbn [List.length] in Hn.
+  destruct tok; cbn [skip_gty_acc]; try exact I; try (cbn [List.length]; lia).
+  - (* TStar *) pose proof (IH rest0 (f _ (tlt1 (List.length rest0))) ltac:(lia)) as H.
+    destruct (skip_gty_acc rest0 _) as [[r Hr] | ]; [ cbn [List.length] in H |- *; lia | exact I ].
+  - (* TLB *) destruct rest0 as [ | t1 rest ]; [ exact I | ]. destruct t1; cbn [skip_gty_acc]; try exact I.
+    pose proof (IH rest (f _ (tlt2 (List.length rest))) ltac:(cbn [List.length] in Hn; lia)) as H.
+    destruct (skip_gty_acc rest _) as [[r Hr] | ]; [ cbn [List.length] in H |- *; lia | exact I ].
+  - (* TChan *) pose proof (IH rest0 (f _ (tlt1 (List.length rest0))) ltac:(lia)) as H.
+    destruct (skip_gty_acc rest0 _) as [[r Hr] | ]; [ cbn [List.length] in H |- *; lia | exact I ].
+  - (* TMap *) destruct rest0 as [ | t1 r0' ]; [ exact I | ]. destruct t1; cbn [skip_gty_acc]; try exact I.
+    pose proof (IH r0' (f _ (tlt2 (List.length r0'))) ltac:(cbn [List.length] in Hn; lia)) as Hk.
+    destruct (skip_gty_acc r0' _) as [[r1 H1] | ]; [ | exact I ].
+    destruct r1 as [ | t2 r1' ]; [ exact I | ]. destruct t2; cbn [skip_gty_acc]; try exact I.
+    pose proof (IH r1' (f _ (tlt_map _ _ H1)) ltac:(cbn [List.length] in Hn, H1; lia)) as Hv.
+    destruct (skip_gty_acc r1' _) as [[r2 H2] | ]; [ cbn [List.length] in H1, Hv |- *; lia | exact I ].
+Qed.
+Lemma skip_gty_lt : forall toks rest, skip_gty toks = Some rest -> List.length rest < List.length toks.
+Proof.
+  intros toks rest H. unfold skip_gty in H.
+  pose proof (skip_gty_acc_lt (S (List.length toks)) toks (lt_wf (List.length toks)) (tlt1 _)) as Hlt.
+  destruct (skip_gty_acc toks _) as [[r Hr] | ]; [ injection H as <-; exact Hlt | discriminate H ].
+Qed.
 
 (** LEXICAL FAITHFULNESS through the grammar: printing then lexing yields EXACTLY a
     canonical derivation's tokens — the composed [lex_gprint_expr] shape CLAUDE.md names. *)
@@ -7409,6 +7438,7 @@ Print Assumptions gtparen_inj.
 Print Assumptions op_token_inj.
 Print Assumptions prefix_token_inj.
 Print Assumptions skip_gty_types.
+Print Assumptions skip_gty_lt.
 
 (** Extract the Rocq printers to the OCaml the plugin calls. *)
 Require Import Extraction.

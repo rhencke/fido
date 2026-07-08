@@ -92,7 +92,8 @@ plugin CONSTRUCTS the `GExpr`; only `gprint` is verified. NOT "verified Go."
   `bd`/`gtokens_balanced`; slices 2a–2i the `last0`/`bdip`/`fsep` split lemmas, `no_depth0_sep`,
   `gtokens_args_inj`, `gtokens_pairs_inj`, the paren/bare operand discrimination
   `bare_not_paren_group`/`gtparen_inj`, the operator-token injectivities
-  `op_token_inj`/`prefix_token_inj`). NEXT: the EBn precedence crux → `gtokens_inj` →
+  `op_token_inj`/`prefix_token_inj`, the pure type-skipper `skip_gty`
+  (`skip_gty_types` exactness + `skip_gty_lt` progress)). NEXT: the EBn precedence crux → `gtokens_inj` →
   `canon_expr_unique` (all parser-free); then reprove `gprint_inj`
   off `gtokens_inj` (retiring `parse_print_roundtrip`), then `CanonStmt`/`CanonProgram`.
 - The cmd↔unified bridge (`plans/bridge-effects.md`): `CAlloc` AND the channel slice LANDED
