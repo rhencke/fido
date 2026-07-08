@@ -6494,9 +6494,11 @@ Proof.
   - cbn [gtokens hd_error] in Hd; destruct op; cbn [prefix_token] in Hd; discriminate Hd.
   - cbn [gtokens hd_error] in Hd; destruct op; cbn [prefix_token] in Hd; discriminate Hd.
 Qed.
-(* a WRAPPED [EBn] ends with its framing [TRP] — the [olast] complement to [gtokens_hd_ebn_wrapped],
-   letting a [TRP]-ending row (e.g. none) OR a non-[TRP]-ending row (ESel/EIndex/ESlice) discriminate a
-   wrapped [EBn] by last token. *)
+(* a WRAPPED [EBn] ends with its framing [TRP] — the [olast] complement to [gtokens_hd_ebn_wrapped].
+   It discriminates a wrapped [EBn] by last token ONLY for a NON-[TRP]-ending row: [ESel] ([TId f]),
+   [EIndex]/[ESlice] ([TRB]), the lits ([TRC]).  A [TRP]-ending row ([ECall]/[EAssert]/[EConv]) ends in
+   [TRP] too, so [olast] does NOT separate it from a wrapped [EBn] — that collision needs a different
+   discriminator (the within-[TRP] work still to come). *)
 Lemma gtokens_olast_ebn_wrapped : forall ctx o l r,
   Nat.ltb (binop_prec o) ctx = true -> olast (gtokens ctx (EBn o l r)) = Some TRP.
 Proof. intros ctx o l r H. cbn [gtokens]. rewrite H, app_comm_cons. apply olast_app1. Qed.
