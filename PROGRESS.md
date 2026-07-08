@@ -130,8 +130,8 @@ plugin CONSTRUCTS the `GExpr`; only `gprint` is verified. NOT "verified Go."
   `EUn` cross-cell for every postfix row) + `gtokens_olast_ebn_wrapped` (a wrapped `EBn` ends `TRP`); and
   the full non-atom rows `gtokens_inj_esel_row`/`gtokens_inj_eindex_row`/`gtokens_inj_eslice_row` (the
   `EIndex`/`ESlice` rows use `gtokens_eindex_neq_eslice` between the two `TRB`-forms and `olast`+lead-fact+
-  `eb_find` for the rest). EIGHT full rows now done (4 atoms + `ESliceLit`/`EMapLit`/`ESel`/`EIndex`/
-  `ESlice`). REMAINING rows: the `TRP` trio `ECall`/`EAssert`/`EConv` (still need within-`TRP`
+  `eb_find` for the rest). NINE of the 14 full rows now done (4 atoms + `ESliceLit`/`EMapLit`/`ESel`/
+  `EIndex`/`ESlice`). The FIVE REMAINING rows: the `TRP` trio `ECall`/`EAssert`/`EConv` (still need within-`TRP`
   discrimination — the conversion-vs-call ambiguity, likely a `skip_gty` next-token split; wrapped-`EBn`-vs-
   `TRP` needs the same), and the `EUn`/`EBn` rows. Then `induction e1` wires the rows together. Then
   `canon_expr_unique` (all
