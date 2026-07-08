@@ -42,8 +42,13 @@ never records a best.  Phase 3b SLICE 2b LANDED — `bdip`/`bdip_app_nodip`/`bal
 (cancel a balanced prefix before a matched closer; the inner-list / paren-peel tool), gated.
 Phase 3b SLICE 2c LANDED — `fsep`/`fsep_app_none`/`fsep_balanced_sep`/`sep_split` (the depth-0
 separator split for comma/colon lists; `TComma`/`TColon` are depth-neutral so `bdip` can't find
-them), gated.  STILL TO WRITE: the paren/bare operand discrimination; `no_depth0_sep` (`fsep` of
-any `gtokens` is `None`) + `gtokens_args_inj`/`gtokens_pairs_inj`; ★the EBn OPERATOR-PRECEDENCE
+them), gated.  Phase 3b SLICE 2d LANDED — `no_depth0_sep` (`fsep (gtokens ctx e) d = None` at ANY
+start depth: a single expression exposes no depth-0 separator; helpers `bd_gtokens_d`/`bd_ty_d`/
+`bd_gtparen_d`/`bd_args_d`/`bd_pairs_d`, `fsep_prefix_token`/`fsep_op_token`/`fsep_ty_none`/
+`fsep_gtparen`/`fsep_args`/`fsep_pairs`), gated; the args/pairs `fsep` sublemmas are stated at start
+depth `S d` (their top-level separators sit at depth ≥ 1, where `fsep` — recording only at depth 0 —
+skips them).  STILL TO WRITE: the paren/bare operand discrimination; `gtokens_args_inj`/
+`gtokens_pairs_inj` (now that `no_depth0_sep` feeds `sep_split`); ★the EBn OPERATOR-PRECEDENCE
 disambiguation (rightmost-minimal-precedence depth-0 op + the ctx-wrapping invariant lemmas +
 `op_token`/`prefix_token` injectivity) — the crux risk; and `gtokens_inj` itself.  (The
 arbitrary-SUFFIX determinism lemma was found FALSE — see the design.)
@@ -129,8 +134,8 @@ to the THREE expression bracket kinds — parens `TLP`/`TRP`, square `TLB`/`TRB`
   on the element list, splitting at the TOP-LEVEL (depth-0-within-the-group) `TComma`/`TColon`
   via a first-depth-0-separator lemma, resting on `no_depth0_comma`: no expression's `gtokens 0 e`
   contains a depth-0 `TComma`/`TColon` (they occur only inside nested groups, at depth ≥1), so the
-  first top-level separator delimits the first element.  (`last0`/`last0_group` and
-  `bdip`/`balanced_close_split` and `fsep`/`sep_split` LANDED + gated; `no_depth0_sep` and
+  first top-level separator delimits the first element.  (`last0`/`last0_group`,
+  `bdip`/`balanced_close_split`, `fsep`/`sep_split`, and `no_depth0_sep` LANDED + gated;
   `gtokens_args_inj`/`gtokens_pairs_inj` are TO WRITE.)
 
 `gtokens_inj` by structural induction on `e1` (`GExpr_ind'`), `destruct e2`, per pair — on
