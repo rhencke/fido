@@ -42,7 +42,7 @@ children).  Phase 3b SLICE 1 LANDED — the three-bracket balance toolkit (bd/bd
 bd_app_pass/bd_op_token/bd_prefix_token/bd_gtparen/gttokens_ty_bd + arg/pair balance lemmas)
 and gtokens_balanced (every canonical expression token list is uniformly bracket-balanced),
 gated.  Phase 3b SLICE 2 (the complete-list gtokens_inj; canon_expr_unique = canon_expr_tokens +
-gtokens_inj; design pinned below) is split into sub-slices 2a–2j building toward the crux:
+gtokens_inj; design pinned below) is split into sub-slices 2a–2k building toward the crux:
 Phase 3b SLICE 2a LANDED — the `last0`
 group-split tool (`last0`/`last0_group` + `nd`/`nd_add`/`bd_nd`/`bd_prefix_defined`/`last0_aux_inv`),
 gated; found: the closer hypothesis is unnecessary — the final token is at depth-before 1, so it
@@ -86,13 +86,16 @@ type-context foundation (handles the pointer-`TStar` hazard by skipping whole ty
 LANDED (slice 2j): ★the EBn OPERATOR-PRECEDENCE LOCATOR
 `eb_find` — the rightmost-minimal-precedence depth-0 infix op as a suffix split, prefix/infix
 disambiguation by operand-complete state, type-leads skipped whole via `skip_gty_acc`'s strict sig — plus
-its progress lemma `eb_find_lt` (the returned suffix is strict).  STILL TO WRITE: `eb_find`'s
-rightmost-min CORRECTNESS on the UNWRAPPED inner — `eb_find (gtokens (prec o) l ++ op_token o ::
-gtokens (S (prec o)) r) = Some (gtokens (S (prec o)) r, o)` (NOT on `gtokens ctx (EBn o l r)` itself:
-when `prec o < ctx` that is paren-WRAPPED `TLP :: inner ++ [TRP]`, on which `eb_find` returns `None` —
-`gtokens_inj` peels the wrapper first, so `eb_find` only ever sees the inner) — via the ctx-wrapping
-invariant lemmas; the crux risk; then `gtokens_inj` itself.  (The arbitrary-SUFFIX
-determinism lemma was found FALSE — see the design.)
+its progress lemma `eb_find_lt` (the returned suffix is strict).  LANDED (slice 2k-c): ★the OPERAND LAW
+`eb_operand` — the depth-0 dual of `eb_depth`: a whole `gtokens ctx e` block at a depth-0 FROM-position
+is consumed, leaving the suffix scan combined with the node's own top operator (`eb_top ctx e`); the
+`EBn`-unwrapped recursive-combine split is proved via the crux algebra (`eb_infix_combine`,
+`eb_combine_left_absorb`) + `eb_top_prec`.  STILL TO WRITE: the top-level `eb_find` rightmost-min
+CORRECTNESS at `suffix = nil` — `eb_find (gtokens (prec o) l ++ op_token o :: gtokens (S (prec o)) r) =
+Some (gtokens (S (prec o)) r, o)` (NOT on `gtokens ctx (EBn o l r)` itself: when `prec o < ctx` that is
+paren-WRAPPED `TLP :: inner ++ [TRP]`, on which `eb_find` returns `None` — `gtokens_inj` peels the
+wrapper first, so `eb_find` only ever sees the inner) — a corollary of `eb_operand` at `c = prec o`;
+then `gtokens_inj` itself.  (The arbitrary-SUFFIX determinism lemma was found FALSE — see the design.)
 
 ## Phases (each: green, golden byte-identical, gated, reviewed)
 
@@ -111,13 +114,15 @@ determinism lemma was found FALSE — see the design.)
 3. **★`canon_expr_unique`** (the meat): `CanonExpr ctx e1 ts -> CanonExpr ctx e2 ts ->
    e1 = e2`, parser-free — via `canon_expr_tokens` + the COMPLETE-list `gtokens_inj`
    (structural induction on `e1`, delimited groups split by `last0` (the last depth-0 position)).  Full design + the ruled-out dead ends (balanced-prefix cancellation; the FALSE
-   arbitrary-suffix determinism lemma) in the "Phase 3b/3c" section below.  Slices 1–2j (the
+   arbitrary-suffix determinism lemma) in the "Phase 3b/3c" section below.  Slices 1–2k-c (the
    `bd` balance toolkit + `gtokens_balanced`; the `last0`/`bdip`/`fsep` split lemmas;
    `no_depth0_sep`; `gtokens_args_inj`; `gtokens_pairs_inj`; the paren/bare operand discrimination
    `bare_not_paren_group`/`gtparen_inj`; the operator-token injectivities
    `op_token_inj`/`prefix_token_inj`; the type-skipper `skip_gty`; slice 2j the EBn locator `eb_find` +
-   `eb_find_lt`) are LANDED + gated; `gtokens_inj` itself is the open crux — the EBn locator is landed, so
-   its rightmost-min correctness and the `gtokens_inj` assembly are what remain.
+   `eb_find_lt`; slice 2k-c the OPERAND LAW `eb_operand` — the depth-0 dual of `eb_depth`) are LANDED +
+   gated; `gtokens_inj` itself is the open crux — the locator AND its operand-law substrate are landed, so
+   the top-level `eb_find` correctness (2k-d, a corollary of `eb_operand`) and the `gtokens_inj` assembly
+   are what remain.
 4. **CanonStmt/CanonProgram** + the same trio over the statement printer (the
    statement layer's `lex_gprint_stmt` does not exist yet — build the statement
    `gtokens` analogue first).
@@ -277,13 +282,13 @@ COMPLETE lists (no suffix):
   broken into: 2k-a `eb_find_acc_pi` (LANDED, gated) — [Acc]-proof-irrelevance so the correctness proof can
   reason equationally across the [Acc_inv] certs `eb_find_acc`'s own recursion produces.
   ★The two depth-scan laws (worked out from the `gtokens` clauses) — TWO SEPARATE inductions on `e`
-  (`GExpr_ind'`), (ii) LANDED and (i) NEXT (the depth law (ii) is self-contained, so it was proved first
-  and stands alone; it is NOT one conjunction with (i)):
+  (`GExpr_ind'`), BOTH LANDED (the depth law (ii) is self-contained, so it was proved first and stands
+  alone; it is NOT one conjunction with (i)):
     (ii) DEPTH (d≥1) — LANDED as `eb_depth` (`eb_find_acc (gtokens c e ++ suffix) (S sd) oc =
         eb_find_acc suffix (S sd) oc` — a gtokens block is skipped whole inside brackets).  Proved by
         induction on `GExpr` (NOT the arbitrary-balanced-`g` `eb_bal_skip` route — that needs a fiddly
         min-depth split and was AVOIDED), chaining the depth-step toolkit + `eb_depth_ty`/`args`/`pairs`.
-    (i) OPERAND (d=0) — NEXT (`eb_operand`): `eb_find_acc (gtokens c e ++ suffix) 0 false = eb_combine
+    (i) OPERAND (d=0) — LANDED (`eb_operand`): `eb_find_acc (gtokens c e ++ suffix) 0 false = eb_combine
         (eb_top c e) suffix (eb_find_acc suffix 0 true)` where `eb_top c (EBn o _ r) = if prec o <? c then
         None else Some (gtokens (S prec o) r, o)`, `eb_top c _ = None` (LANDED); and `eb_combine (Some
         (rr,o)) suffix rest = match rest with Some (r',o') => if prec o' <=? prec o then rest else Some
@@ -297,9 +302,15 @@ COMPLETE lists (no suffix):
         case `EBn` unwrapped unfolds to `gtokens (prec o) l ++ op_token o :: gtokens (S prec o) r`, applies
         (i) to `l` (suffix = `op_token o :: …`), handles `op_token o` via `eb0t_infix` (infix at oc=true)
         whose recursion on `r` gives ops of prec > prec o, so `eb_combine` keeps `o`.
-  2k-c = the top-level `eb_find` correctness (from (i) at `c = prec o`, `eb_top`'s prec-bound
-  `eb_top c e = Some (_,o') -> c <= prec o'`, and the `eb_combine` arithmetic).  Then `gtokens_inj`'s EBn case
-  (`app`-split at `op_token o` via the suffix, `op_token_inj` for `o`, IH on `l` and `r`).
+  The `EBn`-unwrapped crux was isolated into pure combine ALGEBRA (all LANDED, gated): `eb_infix_combine`
+  (the node op IS the rightmost-min split over the right operand's scan), `eb_combine_left_absorb`/
+  `eb_combine_absorb` (a left operand's op, prec ≥ the node op, never displaces the always-`Some` split);
+  the type-led operands use `eb_type_skip`/`eb_type_slice`/`eb_type_conv` (whole-type skip via
+  `skip_gty_acc` + `skip_gty_types`, parser-free) and `eb_top_unbare` for the bare unary operand.
+  2k-d (NEXT) = the top-level `eb_find` correctness at `suffix = nil` (a corollary of (i)=`eb_operand`
+  at `c = prec o`, `eb_top_prec` = `eb_top c e = Some (_,o') -> c <= prec o'`, and the `eb_combine`
+  arithmetic).  Then `gtokens_inj`'s EBn case (`app`-split at `op_token o` via the suffix, `op_token_inj`
+  for `o`, IH on `l` and `r`).
 
 Then `canon_expr_unique` (+ `gtokens_inj`) join the printer Print Assumptions gate.
 Phase 3c = reprove `gprint_inj` off `gtokens_inj` + `gtokens_lex` (making it a corollary of the

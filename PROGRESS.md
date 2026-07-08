@@ -88,15 +88,17 @@ plugin CONSTRUCTS the `GExpr`; only `gprint` is verified. NOT "verified Go."
 - **The canonical relational syntax authority is the ACTIVE arc** (`plans/canonical-grammar.md`;
   checkpoint-50 order: syntax authority before spawn). Phases 1+2 landed (`CanonTy`/`CanonExpr`
   + `gprint_expr_canonical` + `lex_gprint_expr`); Phase 3a landed (`canon_ty_unique`, type-level
-  token uniqueness, PARSER-FREE via `gttokens_ty_inj`); Phase 3b slices 1–2j landed (slice 1
+  token uniqueness, PARSER-FREE via `gttokens_ty_inj`); Phase 3b slices 1–2k-c landed (slice 1
   `bd`/`gtokens_balanced`; slices 2a–2j the `last0`/`bdip`/`fsep` split lemmas, `no_depth0_sep`,
   `gtokens_args_inj`, `gtokens_pairs_inj`, the paren/bare operand discrimination
   `bare_not_paren_group`/`gtparen_inj`, the operator-token injectivities
   `op_token_inj`/`prefix_token_inj`, the pure type-skipper `skip_gty`
-  (`skip_gty_types` exactness + `skip_gty_lt` progress), and slice 2j the EBn precedence-split LOCATOR
+  (`skip_gty_types` exactness + `skip_gty_lt` progress), slice 2j the EBn precedence-split LOCATOR
   `eb_find` (finds the rightmost depth-0 min-precedence infix op as a suffix split) + `eb_find_lt`
-  progress). NEXT: `eb_find` rightmost-min correctness → the EBn case of `gtokens_inj` → `canon_expr_unique`
-  (all parser-free); then reprove `gprint_inj`
+  progress, and slice 2k-c the OPERAND LAW `eb_operand` — the depth-0 dual of `eb_depth` proving the
+  locator's rightmost-min split via pure combine algebra, the `EBn`-crux). NEXT: the top-level `eb_find`
+  correctness at `suffix = nil` (a corollary of `eb_operand`) → the EBn case of `gtokens_inj` →
+  `canon_expr_unique` (all parser-free); then reprove `gprint_inj`
   off `gtokens_inj` (retiring `parse_print_roundtrip`), then `CanonStmt`/`CanonProgram`.
 - The cmd↔unified bridge (`plans/bridge-effects.md`): `CAlloc` AND the channel slice LANDED
   (typed zeros through the channel's own tag, gated obligations; `bridge_effects_agree` now
