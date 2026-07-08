@@ -6071,6 +6071,28 @@ Proof.
     by (cbn [gtokens]; rewrite Elt; reflexivity).
   rewrite <- Hg, eb_find_gtokens; cbn [eb_top]; rewrite Elt; reflexivity.
 Qed.
+(* the EBn-case RECURSION of [gtokens_inj]: two binary nodes with equal INNER token lists have equal
+   operators AND equal operands.  [eb_find_inner] reads the operator [o] and the right-operand tokens R
+   off each side (PARSER-FREE — [eb_find] IS the authority), so equal token lists ⇒ [o1=o2] and R1=R2 ⇒
+   [r1=r2] by the right IH; the shared operator+right suffix then [app]-cancels off the front ⇒ equal left
+   tokens ⇒ [l1=l2] by the left IH.  Takes the two operand IHs the [GExpr_ind'] induction supplies. *)
+Lemma gtokens_ebn_inner : forall o1 l1 r1 o2 l2 r2,
+  (forall ctx e, gtokens ctx l1 = gtokens ctx e -> l1 = e) ->
+  (forall ctx e, gtokens ctx r1 = gtokens ctx e -> r1 = e) ->
+  (gtokens (binop_prec o1) l1 ++ op_token o1 :: gtokens (S (binop_prec o1)) r1)%list
+    = (gtokens (binop_prec o2) l2 ++ op_token o2 :: gtokens (S (binop_prec o2)) r2)%list ->
+  o1 = o2 /\ l1 = l2 /\ r1 = r2.
+Proof.
+  intros o1 l1 r1 o2 l2 r2 IHl IHr Hinner.
+  assert (Hf : eb_find (gtokens (binop_prec o1) l1 ++ op_token o1 :: gtokens (S (binop_prec o1)) r1)%list
+             = eb_find (gtokens (binop_prec o2) l2 ++ op_token o2 :: gtokens (S (binop_prec o2)) r2)%list)
+    by (rewrite Hinner; reflexivity).
+  rewrite !eb_find_inner in Hf. injection Hf as HR Ho. subst o2.
+  pose proof (IHr _ _ HR) as Hr. subst r2.
+  assert (Hl0 : gtokens (binop_prec o1) l1 = gtokens (binop_prec o1) l2)
+    by (eapply app_inv_tail; exact Hinner).
+  pose proof (IHl _ _ Hl0) as Hl. subst l2. auto.
+Qed.
 
 (** LEXICAL FAITHFULNESS through the grammar: printing then lexing yields EXACTLY a
     canonical derivation's tokens — the composed [lex_gprint_expr] shape CLAUDE.md names. *)
@@ -8047,6 +8069,7 @@ Print Assumptions eb_type_conv.
 Print Assumptions eb_operand.
 Print Assumptions eb_find_gtokens.
 Print Assumptions eb_find_inner.
+Print Assumptions gtokens_ebn_inner.
 
 (** Extract the Rocq printers to the OCaml the plugin calls. *)
 Require Import Extraction.
