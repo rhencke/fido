@@ -5799,8 +5799,6 @@ Proof.
     destruct (Nat.ltb (binop_prec b) c) eqn:E end; [ discriminate H | ].
   injection H as <- <-. apply Nat.ltb_ge in E. exact E.
 Qed.
-Lemma infix_op_optoken : forall o, infix_op (op_token o) = Some o.
-Proof. destruct o; reflexivity. Qed.
 (** [eb_combine this suffix rest] — the depth-0 scan's combine: the node's own operator [this] (over
     [gtokens c e]) versus the [suffix]'s scan [rest].  The rightmost-minimal wins; when [this] wins its
     right part gains the trailing [suffix] (the split's R runs to end-of-input). *)
@@ -5845,7 +5843,7 @@ Lemma eb0t_infix : forall o rest a a', eb_find_acc (op_token o :: rest) 0 true a
   | None => Some (rest, o)
   end.
 Proof.
-  intros o rest a a'; destruct a as [f]; cbn [eb_find_acc]; rewrite infix_op_optoken.
+  intros o rest a a'; destruct a as [f]; cbn [eb_find_acc]; rewrite infix_op_token.
   match goal with |- context [eb_find_acc rest 0 false ?A] => rewrite (eb_find_pi rest 0 false A) end.
   rewrite (eb_find_pi rest 0 false a'). reflexivity.
 Qed.
