@@ -102,8 +102,10 @@ lists ⇒ equal op+operands, via `eb_find_inner` + the operand IHs + `app_inv_ta
 ctx-wrapper: `eb_find_gtokens` turns the token equality into `eb_top ctx e1 = eb_top ctx e2`, so a
 wrapped-vs-unwrapped mismatch is a `None=Some` contradiction and same-wrapping strips to equal inner lists)
 and `gtokens_eun_inner` (the EUn diagonal — EUn's tokens don't depend on ctx: equal tokens ⇒ equal unop +
-operand, via `prefix_token_inj` + `bare_not_paren_group` + the operand IH).  STILL TO WRITE: the
-`gtokens_inj` ASSEMBLY — the LARGE remaining bulk (the two diagonals are a small fraction): the primary
+operand, via `prefix_token_inj` + `bare_not_paren_group` + the operand IH).  The first cross-discriminator
+`nonatom_len` is also LANDED (`unop_needs_paren e = true -> 2 <= length (gtokens ctx e)` — atoms print to
+one token, every other form to ≥2; the atom row/column of the destruct-`e2` matrix).  STILL TO WRITE: the
+`gtokens_inj` ASSEMBLY — the LARGE remaining bulk (the diagonals + `nonatom_len` are a small fraction): the primary
 diagonals (atoms/postfix/composites) and, HARDEST, the ~14×13 cross-constructor
 discrimination.  Since `gtokens` is not prefix-free, most constructor pairs need a real discriminator
 (`eb_top`/`last0`/length/last-token), and the assembly will likely surface further discrimination

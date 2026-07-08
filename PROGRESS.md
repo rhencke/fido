@@ -102,12 +102,13 @@ plugin CONSTRUCTS the `GExpr`; only `gprint` is verified. NOT "verified Go."
   otherwise), with the `EBn`-node instance `eb_find_inner` its corollary; plus the two operator-bearing
   same-constructor DIAGONALS of `gtokens_inj`, both FULL: `gtokens_inj_ebn` (the EBn diagonal —
   `gtokens_ebn_inner`'s unwrapped-inner recursion promoted past the ctx-wrapper, with wrapped-vs-unwrapped
-  mismatch discriminated via `eb_find_gtokens`) and `gtokens_eun_inner` (the EUn diagonal)). NEXT: the
-  `gtokens_inj` ASSEMBLY — the LARGE remaining bulk (the two diagonals are a small fraction): the primary
-  diagonals (atoms/postfix/composites) and, hardest, the ~14×13 cross-constructor
-  discrimination (`gtokens` is not prefix-free, so most pairs need a real discriminator —
-  `eb_top`/`last0`/length/last-token — and the assembly will likely surface further discrimination
-  sub-lemmas). Then `canon_expr_unique` (all parser-free); then reprove `gprint_inj`
+  mismatch discriminated via `eb_find_gtokens`) and `gtokens_eun_inner` (the EUn diagonal); plus the first
+  cross-discriminator `nonatom_len` (atoms print to 1 token, every other form to ≥2 — the atom row/column
+  of the destruct-e2 matrix)). NEXT: keep building the `gtokens_inj` ASSEMBLY — the LARGE remaining bulk
+  (the diagonals + `nonatom_len` are a small fraction): the primary diagonals (atoms/postfix/composites)
+  and, hardest, the ~14×13 cross-constructor discrimination (`gtokens` is not prefix-free, so most pairs
+  need a real discriminator — `eb_top`/`last0`/length/last-token — with more discrimination sub-lemmas
+  likely), then the assembly itself. Then `canon_expr_unique` (all parser-free); then reprove `gprint_inj`
   off `gtokens_inj` (retiring `parse_print_roundtrip`), then `CanonStmt`/`CanonProgram`.
 - The cmd↔unified bridge (`plans/bridge-effects.md`): `CAlloc` AND the channel slice LANDED
   (typed zeros through the channel's own tag, gated obligations; `bridge_effects_agree` now
