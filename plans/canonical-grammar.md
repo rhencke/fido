@@ -149,8 +149,9 @@ determinism lemma was found FALSE — see the design.)
    gains the canonical surface (one manifest-gated `Print Assumptions`).
 
 ## Phase 3b/3c — the expression uniqueness proof (design, pinned before coding; the balance/split
-## toolkit, the type-skipper, and the whole EBn precedence scan are now LANDED — only `gtokens_inj`'s
-## assembly + `canon_expr_unique` remain, see the slice log above)
+## toolkit, the type-skipper, and the whole EBn precedence scan are now LANDED — the SUBSTANTIAL
+## `gtokens_inj` assembly (primary diagonals + ~14×13 cross-discrimination) + `canon_expr_unique` remain,
+## see the slice log above)
 
 TARGET (mirrors the type layer exactly): `canon_expr_unique ctx e1 e2 ts` = `canon_expr_tokens`
 on both sides + a PARSER-FREE `gtokens_inj : forall ctx e1 e2, gtokens ctx e1 = gtokens ctx e2
@@ -320,9 +321,12 @@ COMPLETE lists (no suffix):
   2k-d (LANDED) = the top-level `eb_find` correctness, in its GENERAL form `eb_find_gtokens : eb_find
   (gtokens ctx e) = eb_top ctx e` (proved from (i)=`eb_operand` at the empty suffix ⇒ the combine collapses
   to `eb_top`; `Some (R,o)` for an unwrapped `EBn`, `None` otherwise).  `eb_find_inner` (the `EBn`-node
-  instance, `R ++ nil = R`) is now its corollary.  NEXT = `gtokens_inj`'s EBn case (equal tokens ⇒ equal
-  `eb_top` via `eb_find_gtokens` ⇒ peel the ctx-wrapper when `prec o < ctx`; `app`-split at `op_token o`;
-  `op_token_inj` for `o`; IH on `l` and `r`).
+  instance, `R ++ nil = R`) is now its corollary.  The EBn/EUn same-constructor DIAGONALS are LANDED
+  (`gtokens_ebn_inner` — the EBn case: equal `eb_top` via `eb_find_gtokens` ⇒ peel the ctx-wrapper when
+  `prec o < ctx`, `app`-split at `op_token o`, IH on `l`/`r`; `gtokens_eun_inner` — the EUn case).  NEXT =
+  the FULL `gtokens_inj` ASSEMBLY — the large remaining bulk: the primary diagonals (atoms/postfix/
+  composites) and the ~14×13 cross-constructor discrimination (the genuine crux; likely surfaces further
+  discrimination sub-lemmas), NOT just the EBn case.
 
 Then `canon_expr_unique` (+ `gtokens_inj`) join the printer Print Assumptions gate.
 Phase 3c = reprove `gprint_inj` off `gtokens_inj` + `gtokens_lex` (making it a corollary of the
