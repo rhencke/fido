@@ -5904,7 +5904,8 @@ Proof.
     + apply Habs. lia.
   - apply Habs. lia.
 Qed.
-(* the DEPTH-0 TYPE-SKIP step: a bracket-led type ([TLB]/[TMap]/[TChan] head — slice/map/chan) at an
+(* the DEPTH-0 TYPE-SKIP step: a type-lead-tokened type ([TLB] bracket for slice, or the [TMap]/[TChan]
+   type KEYWORD for map/chan — the three [gttokens_ty] leads the scanner's type arm recognizes) at an
    operand FROM-position is skipped WHOLE by [skip_gty_acc], landing on the following composite '{' /
    conversion '(' at depth 1.  The [skip_gty] fact is discharged by [skip_gty_types] at each call site
    (so this stays parser-free — the type-skipper is the authority, not a re-scan). *)
@@ -5935,8 +5936,9 @@ Proof.
 Qed.
 (* the DEPTH-0 CONVERSION type-skip: a conversion type's tokens [gttokens_ty (convty_ty c)] at a
    FROM-position, then '(', land at depth 1.  Ranged over [ConvTy] — NOT all [GoTy] — so it covers EXACTLY
-   the type-form conversions [EConv] can represent ([]T / chan T / map[K]V, all bracket-led → whole-type
-   [eb_type_skip]); an identifier-led form like [int64(x)] is a CALL, not an [EConv], so no scalar/pointer
+   the type-form conversions [EConv] can represent ([]T / chan T / map[K]V — a '[' bracket or a map/chan
+   type keyword lead, all handled by the whole-type [eb_type_skip]); an identifier-led form like [int64(x)]
+   is a CALL, not an [EConv], so no scalar/pointer
    "conversion" is asserted here (naming is a correctness claim — this is not a general type-then-'(' skip). *)
 Lemma eb_type_conv : forall c rest a a2,
   eb_find_acc (gttokens_ty (convty_ty c) ++ TLP :: rest) 0 false a = eb_find_acc rest 1 true a2.
