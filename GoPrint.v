@@ -5799,6 +5799,56 @@ Proof.
     destruct (Nat.ltb (binop_prec b) c) eqn:E end; [ discriminate H | ].
   injection H as <- <-. apply Nat.ltb_ge in E. exact E.
 Qed.
+Lemma infix_op_optoken : forall o, infix_op (op_token o) = Some o.
+Proof. destruct o; reflexivity. Qed.
+(** [eb_combine this suffix rest] — the depth-0 scan's combine: the node's own operator [this] (over
+    [gtokens c e]) versus the [suffix]'s scan [rest].  The rightmost-minimal wins; when [this] wins its
+    right part gains the trailing [suffix] (the split's R runs to end-of-input). *)
+Definition eb_combine (this : option (list Token * BinOp)) (suffix : list Token)
+    (rest : option (list Token * BinOp)) : option (list Token * BinOp) :=
+  match this with
+  | Some (rr, o) =>
+      match rest with
+      | Some (r', o') => if Nat.leb (binop_prec o') (binop_prec o) then rest else Some ((rr ++ suffix)%list, o)
+      | None => Some ((rr ++ suffix)%list, o)
+      end
+  | None => rest
+  end.
+(* the DEPTH-0 one-token step toolkit for the operand law (mirrors the eb_step_* depth toolkit at d=0,
+   tracking operand-complete [oc]).  All but the infix step are the [eb_step_by] shape. *)
+Lemma eb0f_prefix : forall t rest a a2, (t = TBang \/ t = TCaret \/ t = TStar \/ t = TAmp) ->
+  eb_find_acc (t :: rest) 0 false a = eb_find_acc rest 0 false a2.
+Proof. intros t rest a a2 H; destruct H as [ -> | [ -> | [ -> | -> ] ] ]; eb_step_by. Qed.
+Lemma eb0f_id : forall f rest a a2, eb_find_acc (TId f :: rest) 0 false a = eb_find_acc rest 0 true a2.
+Proof. intros; eb_step_by. Qed.
+Lemma eb0f_int : forall z rest a a2, eb_find_acc (TInt z :: rest) 0 false a = eb_find_acc rest 0 true a2.
+Proof. intros; eb_step_by. Qed.
+Lemma eb0f_str : forall s rest a a2, eb_find_acc (TStr s :: rest) 0 false a = eb_find_acc rest 0 true a2.
+Proof. intros; eb_step_by. Qed.
+Lemma eb0f_hex : forall h rest a a2, eb_find_acc (THex h :: rest) 0 false a = eb_find_acc rest 0 true a2.
+Proof. intros; eb_step_by. Qed.
+Lemma eb0f_lparen : forall rest a a2, eb_find_acc (TLP :: rest) 0 false a = eb_find_acc rest 1 true a2.
+Proof. intros; eb_step_by. Qed.
+Lemma eb0f_uneg : forall rest a a2, eb_find_acc (TMinus :: TLP :: rest) 0 false a = eb_find_acc rest 1 true a2.
+Proof. intros; eb_step_by. Qed.
+Lemma eb0t_lparen : forall rest a a2, eb_find_acc (TLP :: rest) 0 true a = eb_find_acc rest 1 true a2.
+Proof. intros; eb_step_by. Qed.
+Lemma eb0t_lbracket : forall rest a a2, eb_find_acc (TLB :: rest) 0 true a = eb_find_acc rest 1 true a2.
+Proof. intros; eb_step_by. Qed.
+Lemma eb0t_dot_id : forall f rest a a2, eb_find_acc (TDot :: TId f :: rest) 0 true a = eb_find_acc rest 0 true a2.
+Proof. intros; eb_step_by. Qed.
+Lemma eb0t_dot_lparen : forall rest a a2, eb_find_acc (TDot :: TLP :: rest) 0 true a = eb_find_acc rest 1 true a2.
+Proof. intros; eb_step_by. Qed.
+Lemma eb0t_infix : forall o rest a a', eb_find_acc (op_token o :: rest) 0 true a =
+  match eb_find_acc rest 0 false a' with
+  | Some (r', o') => if Nat.leb (binop_prec o') (binop_prec o) then Some (r', o') else Some (rest, o)
+  | None => Some (rest, o)
+  end.
+Proof.
+  intros o rest a a'; destruct a as [f]; cbn [eb_find_acc]; rewrite infix_op_optoken.
+  match goal with |- context [eb_find_acc rest 0 false ?A] => rewrite (eb_find_pi rest 0 false A) end.
+  rewrite (eb_find_pi rest 0 false a'). reflexivity.
+Qed.
 
 (** LEXICAL FAITHFULNESS through the grammar: printing then lexing yields EXACTLY a
     canonical derivation's tokens — the composed [lex_gprint_expr] shape CLAUDE.md names. *)
@@ -7768,6 +7818,7 @@ Print Assumptions eb_depth_args.
 Print Assumptions eb_depth_pairs.
 Print Assumptions eb_depth.
 Print Assumptions eb_top_prec.
+Print Assumptions eb0t_infix.
 
 (** Extract the Rocq printers to the OCaml the plugin calls. *)
 Require Import Extraction.
