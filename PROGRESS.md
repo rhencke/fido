@@ -104,13 +104,16 @@ plugin CONSTRUCTS the `GExpr`; only `gprint` is verified. NOT "verified Go."
   `gtokens_ebn_inner`'s unwrapped-inner recursion promoted past the ctx-wrapper, with wrapped-vs-unwrapped
   mismatch discriminated via `eb_find_gtokens`) and `gtokens_eun_inner` (the EUn diagonal); plus the first
   cross-discriminator `nonatom_len` (atoms print to 1 token, every other form to ≥2 — the atom row/column
-  of the destruct-e2 matrix); and ALL FIVE POSTFIX diagonals `gtokens_inj_esel`/`gtokens_inj_eindex`/
-  `gtokens_inj_eassert`/`gtokens_inj_eslice`/`gtokens_inj_ecall` (base + fixed-tail / bracket-or-paren
-  group: `last0_group` pins the base length, `app_eq_length` splits it off, then `app_inj_tail` /
-  `sep_split` (the `lo:hi` colon) / `gtokens_args_inj` (the comma arg list) peel the group)). NEXT: keep
+  of the destruct-e2 matrix); and ALL NINE NON-OPERATOR same-constructor DIAGONALS — the five POSTFIX
+  forms `gtokens_inj_esel`/`gtokens_inj_eindex`/`gtokens_inj_eassert`/`gtokens_inj_eslice`/
+  `gtokens_inj_ecall` and the three type-led COMPOSITES `gtokens_inj_econv`/`gtokens_inj_eslicelit`/
+  `gtokens_inj_emaplit` (base-or-type prefix + delimited group: `last0_group` pins the prefix length,
+  `app_eq_length` splits it off — `gttokens_ty_inj`/`convty_ty_inj` recover the type — then `app_inj_tail`
+  / `sep_split` (the `lo:hi` colon) / `gtokens_args_inj` / `gtokens_pairs_inj` peel the group)). NEXT: keep
   building the `gtokens_inj` ASSEMBLY — the remaining bulk
-  (the landed diagonals + `nonatom_len` are a small fraction): the REMAINING primary diagonals (the atom
-  diagonals; the type-led composites `EConv`/`ESliceLit`/`EMapLit` — every POSTFIX diagonal is now done)
+  (the landed diagonals + `nonatom_len` are a small fraction): the ONLY remaining primary diagonals are
+  the four ATOM rows (`EId`/`EInt`/`EStr`/`EHex` — a single distinguishing token each; every operator,
+  postfix and composite diagonal is done)
   and, hardest, the ~14×13 cross-constructor discrimination (`gtokens` is not prefix-free, so most pairs
   need a real discriminator; the LENGTH one is landed as `nonatom_len`, the rest — `eb_top` for `EBn`,
   `last0`/last-token for the delimited forms, plus more discrimination sub-lemmas likely — remain), then

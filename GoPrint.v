@@ -6224,6 +6224,85 @@ Proof.
   injection Eb as Eb. apply app_inj_tail in Eb. destruct Eb as [Eb _].
   apply (gtokens_args_inj args args' Hall) in Eb. subst args'. reflexivity.
 Qed.
+(* [convty_ty] is injective: its three images [GTSlice u]/[GTChan u]/[GTMap k v] have distinct GoTy
+   heads and GoTy constructors are injective.  Needed so the EConv diagonal recovers the ConvTy from
+   its printed type tokens. *)
+Lemma convty_ty_inj : forall c1 c2, convty_ty c1 = convty_ty c2 -> c1 = c2.
+Proof.
+  intros [u1|u1|k1 v1] [u2|u2|k2 v2] H; cbn [convty_ty] in H; try discriminate H;
+    injection H as; subst; reflexivity.
+Qed.
+(* the EConv diagonal: two type-form conversions with equal tokens are equal.  Both are
+   [gttokens_ty(convty_ty c) ++ TLP :: (gtokens 0 e0 ++ TRP :: nil)] — a balanced TYPE prefix framing
+   a paren group over the operand.  [last0_group] pins the type-prefix length (the framing [TLP] is the
+   last depth-0 token, since the type is balanced and the operand sits at depth ≥1), [app_eq_length]
+   splits the type (⇒ c via [gttokens_ty_inj]+[convty_ty_inj]) from the group; stripping [TLP]/[TRP]
+   leaves equal operand tokens (⇒ e0 via its IH).  Takes only the operand IH. *)
+Lemma gtokens_inj_econv : forall ctx c e0 c' e0',
+  (forall cx e, gtokens cx e0 = gtokens cx e -> e0 = e) ->
+  gtokens ctx (EConv c e0) = gtokens ctx (EConv c' e0') -> EConv c e0 = EConv c' e0'.
+Proof.
+  intros ctx c e0 c' e0' IH E. rewrite !gtokens_EConv in E.
+  pose proof (f_equal last0 E) as HL.
+  rewrite (last0_group (gttokens_ty (convty_ty c)) (gtokens 0 e0) TLP TRP
+             (gttokens_ty_bd (convty_ty c)) (gtokens_balanced e0 0) (or_introl eq_refl)) in HL.
+  rewrite (last0_group (gttokens_ty (convty_ty c')) (gtokens 0 e0') TLP TRP
+             (gttokens_ty_bd (convty_ty c')) (gtokens_balanced e0' 0) (or_introl eq_refl)) in HL.
+  destruct (app_eq_length _ _ _ _ HL E) as [Ep Eb].
+  apply gttokens_ty_inj in Ep. apply convty_ty_inj in Ep. subst c'.
+  injection Eb as Eb. apply app_inj_tail in Eb. destruct Eb as [Eb _].
+  apply (IH 0) in Eb. subst e0'. reflexivity.
+Qed.
+(* the ESliceLit diagonal: two slice literals with equal tokens are equal.  Both are
+   [TLB :: TRB :: (gttokens_ty t ++ TLC :: (gtokens_args es ++ TRC :: nil))] — a leading [] marker, the
+   element type, then a brace-delimited element list.  Re-associating the [] marker into the prefix,
+   [TLB :: TRB :: gttokens_ty t] is balanced and its framing [TLC] is the last depth-0 token;
+   [last0_group] pins that prefix length, [app_eq_length] splits it (⇒ t via [gttokens_ty_inj] after
+   stripping [TLB]/[TRB]) from the brace group; [TLC]/[TRC] peeled, the element list gives es via
+   [gtokens_args_inj].  Takes the per-element Forall IH. *)
+Lemma gtokens_inj_eslicelit : forall ctx t es t' es',
+  Forall (fun a => forall a' c, gtokens c a = gtokens c a' -> a = a') es ->
+  gtokens ctx (ESliceLit t es) = gtokens ctx (ESliceLit t' es') -> ESliceLit t es = ESliceLit t' es'.
+Proof.
+  intros ctx t es t' es' Hall E. rewrite !gtokens_ESliceLit in E.
+  assert (H1 : (TLB :: TRB :: (gttokens_ty t ++ TLC :: (gtokens_args es ++ TRC :: nil)))%list
+             = ((TLB :: TRB :: gttokens_ty t) ++ TLC :: (gtokens_args es ++ TRC :: nil))%list) by reflexivity.
+  assert (H2 : (TLB :: TRB :: (gttokens_ty t' ++ TLC :: (gtokens_args es' ++ TRC :: nil)))%list
+             = ((TLB :: TRB :: gttokens_ty t') ++ TLC :: (gtokens_args es' ++ TRC :: nil))%list) by reflexivity.
+  rewrite H1, H2 in E.
+  assert (HP : bd (TLB :: TRB :: gttokens_ty t) 0 = Some 0) by (cbn [bd]; apply gttokens_ty_bd).
+  assert (HP' : bd (TLB :: TRB :: gttokens_ty t') 0 = Some 0) by (cbn [bd]; apply gttokens_ty_bd).
+  pose proof (f_equal last0 E) as HL.
+  rewrite (last0_group (TLB :: TRB :: gttokens_ty t) (gtokens_args es) TLC TRC HP (bd_args_d es 0) (or_intror (or_intror eq_refl))) in HL.
+  rewrite (last0_group (TLB :: TRB :: gttokens_ty t') (gtokens_args es') TLC TRC HP' (bd_args_d es' 0) (or_intror (or_intror eq_refl))) in HL.
+  destruct (app_eq_length _ _ _ _ HL E) as [Ep Eb].
+  injection Ep as Ep. apply gttokens_ty_inj in Ep. subst t'.
+  injection Eb as Eb. apply app_inj_tail in Eb. destruct Eb as [Eb _].
+  apply (gtokens_args_inj es es' Hall) in Eb. subst es'. reflexivity.
+Qed.
+(* the EMapLit diagonal: two map literals with equal tokens are equal.  Both are
+   [gttokens_ty(GTMap kt vt) ++ TLC :: (gtokens_pairs kvs ++ TRC :: nil)] — a [map[K]V] type prefix
+   framing a brace-delimited keyed-pair list.  [last0_group] pins the type-prefix length (framing [TLC]
+   is the last depth-0 token), [app_eq_length] splits the type (⇒ kt/vt via [gttokens_ty_inj]) from the
+   brace group; [TLC]/[TRC] peeled, the pair list gives kvs via [gtokens_pairs_inj].  Takes the
+   per-pair (key ∧ value) Forall IH. *)
+Lemma gtokens_inj_emaplit : forall ctx kt vt kvs kt' vt' kvs',
+  Forall (fun p => (forall a' c, gtokens c (fst p) = gtokens c a' -> fst p = a')
+                /\ (forall a' c, gtokens c (snd p) = gtokens c a' -> snd p = a')) kvs ->
+  gtokens ctx (EMapLit kt vt kvs) = gtokens ctx (EMapLit kt' vt' kvs') ->
+  EMapLit kt vt kvs = EMapLit kt' vt' kvs'.
+Proof.
+  intros ctx kt vt kvs kt' vt' kvs' Hall E. rewrite !gtokens_EMapLit in E.
+  pose proof (f_equal last0 E) as HL.
+  rewrite (last0_group (gttokens_ty (GTMap kt vt)) (gtokens_pairs kvs) TLC TRC
+             (gttokens_ty_bd (GTMap kt vt)) (bd_pairs_d kvs 0) (or_intror (or_intror eq_refl))) in HL.
+  rewrite (last0_group (gttokens_ty (GTMap kt' vt')) (gtokens_pairs kvs') TLC TRC
+             (gttokens_ty_bd (GTMap kt' vt')) (bd_pairs_d kvs' 0) (or_intror (or_intror eq_refl))) in HL.
+  destruct (app_eq_length _ _ _ _ HL E) as [Ep Eb].
+  apply gttokens_ty_inj in Ep. injection Ep as Ekt Evt. subst kt' vt'.
+  injection Eb as Eb. apply app_inj_tail in Eb. destruct Eb as [Eb _].
+  apply (gtokens_pairs_inj kvs kvs' Hall) in Eb. subst kvs'. reflexivity.
+Qed.
 
 (** LEXICAL FAITHFULNESS through the grammar: printing then lexing yields EXACTLY a
     canonical derivation's tokens — the composed [lex_gprint_expr] shape CLAUDE.md names. *)
@@ -8208,6 +8287,9 @@ Print Assumptions gtokens_inj_eindex.
 Print Assumptions gtokens_inj_eassert.
 Print Assumptions gtokens_inj_eslice.
 Print Assumptions gtokens_inj_ecall.
+Print Assumptions gtokens_inj_econv.
+Print Assumptions gtokens_inj_eslicelit.
+Print Assumptions gtokens_inj_emaplit.
 
 (** Extract the Rocq printers to the OCaml the plugin calls. *)
 Require Import Extraction.
