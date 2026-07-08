@@ -5690,7 +5690,7 @@ Qed.
 Ltac eb_ih6 L := erewrite (L _ _ _ _ _ (lt_wf _)).
 Ltac eb_opt := erewrite (eb_step_neutral _ _ _ _ _ (lt_wf _)) by (rewrite bd_op_token; reflexivity).
 Ltac eb_pre := erewrite (eb_step_neutral _ _ _ _ _ (lt_wf _)) by (rewrite bd_prefix_token; reflexivity).
-Ltac eb_norm := rewrite <- ?app_assoc; cbn [app].
+Ltac eb_norm := do 4 (rewrite <- ?(app_assoc (A := Token)); cbn [app]).
 (* normalize the goal's LHS [Acc] to [lt_wf] so a later token-list rewrite co-varies (the original
    dependent [a] would make [rewrite app_assoc] ill-typed by abstracting the list out of [a]'s type). *)
 Ltac eb_pin := match goal with |- eb_find_acc ?toks ?d ?oc ?a = _ => rewrite (eb_find_pi toks d oc a) end.
@@ -5747,6 +5747,39 @@ Proof.
       eb_ih6 Hk; cbn [app]; eb_neu;
       rewrite <- (app_assoc (gtokens 0 v) (gtokens_pairs_tl r) more);
       eb_ih6 Hv; eb_ih (eb_depth_pairs_tl r Hr); eb_fin.
+Qed.
+(* skip a postfix BASE [gtparen e0] (bare, or [TLP … TRP]-wrapped by [op_needs_paren]) at depth ≥ 1. *)
+(** ★ the EXPRESSION DEPTH LAW: a whole [gtokens ctx e] block is skipped at bracket-depth ≥ 1 (operators
+    inside it never affect the top-level scan).  Assembles the type/arg/pair depth helpers over GExpr.
+    Each case: pin the [Acc], (destruct the paren/wrap [if],) [eb_norm] right-associates the whole token
+    stream, then a uniform step chain consumes it via the toolkit + the sub-[gtokens] IHs. *)
+Lemma eb_depth : forall e, eb_dep_pred e.
+Proof.
+  induction e using GExpr_ind'; unfold eb_dep_pred in *; intros ctx more sd oc a a2.
+  - (* EId *) cbn [gtokens app]; eb_neu; eb_fin.
+  - (* EInt *) cbn [gtokens app]; eb_neu; eb_fin.
+  - (* EUn *) cbn [gtokens]; eb_pin; destruct (unop_paren o e); eb_norm;
+      [ eb_pre; eb_op; eb_ih6 IHe; eb_cl | eb_pre; eb_ih6 IHe ]; eb_fin.
+  - (* EBn *) cbn [gtokens]; eb_pin; destruct (Nat.ltb (binop_prec o) ctx); eb_norm;
+      [ eb_op; eb_ih6 IHe1; eb_opt; eb_ih6 IHe2; eb_cl | eb_ih6 IHe1; eb_opt; eb_ih6 IHe2 ]; eb_fin.
+  - (* ESel *) cbn [gtokens]; eb_pin; destruct (op_needs_paren e); eb_norm;
+      [ eb_op; eb_ih6 IHe; eb_cl | eb_ih6 IHe ]; eb_neu; eb_neu; eb_fin.
+  - (* EIndex *) cbn [gtokens]; eb_pin; destruct (op_needs_paren e1); eb_norm;
+      [ eb_op; eb_ih6 IHe1; eb_cl | eb_ih6 IHe1 ]; eb_op; eb_ih6 IHe2; eb_cl; eb_fin.
+  - (* ESlice *) cbn [gtokens]; eb_pin; destruct (op_needs_paren e1); eb_norm;
+      [ eb_op; eb_ih6 IHe1; eb_cl | eb_ih6 IHe1 ]; eb_op; eb_ih6 IHe2; eb_neu; eb_ih6 IHe3; eb_cl; eb_fin.
+  - (* ECall *) eb_pin; rewrite gtokens_ECall; unfold gtparen; destruct (op_needs_paren e); eb_norm;
+      [ eb_op; eb_ih6 IHe; eb_cl | eb_ih6 IHe ]; eb_op; eb_ih (eb_depth_args args H); eb_cl; eb_fin.
+  - (* EAssert *) cbn [gtokens]; eb_pin; destruct (op_needs_paren e); eb_norm;
+      [ eb_op; eb_ih6 IHe; eb_cl | eb_ih6 IHe ]; eb_neu; eb_op; eb_ih (eb_depth_ty T); eb_cl; eb_fin.
+  - (* EConv *) cbn [gtokens]; eb_pin; eb_norm;
+      eb_ih (eb_depth_ty (convty_ty c)); eb_op; eb_ih6 IHe; eb_cl; eb_fin.
+  - (* ESliceLit *) eb_pin; rewrite gtokens_ESliceLit; eb_norm;
+      eb_op; eb_cl; eb_ih (eb_depth_ty t); eb_op; eb_ih (eb_depth_args es H); eb_cl; eb_fin.
+  - (* EMapLit *) eb_pin; rewrite gtokens_EMapLit; eb_norm;
+      eb_ih (eb_depth_ty (GTMap kt vt)); eb_op; eb_ih (eb_depth_pairs kvs H); eb_cl; eb_fin.
+  - (* EStr *) cbn [gtokens app]; eb_neu; eb_fin.
+  - (* EHex *) cbn [gtokens app]; eb_neu; eb_fin.
 Qed.
 
 (** LEXICAL FAITHFULNESS through the grammar: printing then lexing yields EXACTLY a
@@ -7715,6 +7748,7 @@ Print Assumptions eb_find_pi.
 Print Assumptions eb_depth_ty.
 Print Assumptions eb_depth_args.
 Print Assumptions eb_depth_pairs.
+Print Assumptions eb_depth.
 
 (** Extract the Rocq printers to the OCaml the plugin calls. *)
 Require Import Extraction.
