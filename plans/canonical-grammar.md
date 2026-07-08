@@ -270,12 +270,16 @@ COMPLETE lists (no suffix):
   cert DIRECTLY — no convoy (the earlier `eq_refl` convoy made a proof unable to case-split the scrutinee;
   the strict sig was the fix).  Bracket interiors (`d>0`) are depth-tracked, operators ignored.
   `eb_find_lt` (gated): the returned `R` is a STRICT suffix (`eb_find` consumes ≥ 1 token), the
-  well-foundedness the `gtokens_inj` EBn recursion needs.  NEXT (slice 2k): the rightmost-min CORRECTNESS
-  on the UNWRAPPED inner — `eb_find (gtokens (prec o) l ++ op_token o :: gtokens (S (prec o)) r) =
+  well-foundedness the `gtokens_inj` EBn recursion needs.  Slice 2k = the rightmost-min CORRECTNESS on the
+  UNWRAPPED inner — `eb_find (gtokens (prec o) l ++ op_token o :: gtokens (S (prec o)) r) =
   Some (gtokens (S (prec o)) r, o)` (NOT on `gtokens ctx (EBn o l r)`: for `prec o < ctx` that is
-  paren-WRAPPED and `eb_find` returns `None`; `gtokens_inj` peels the wrapper before calling `eb_find`) —
-  then `gtokens_inj`'s EBn case (`app`-split at `op_token o` via the suffix, `op_token_inj` for `o`, IH on
-  `l` and `r`).
+  paren-WRAPPED and `eb_find` returns `None`; `gtokens_inj` peels the wrapper before calling `eb_find`),
+  broken into: 2k-a `eb_find_acc_pi` (LANDED, gated) — [Acc]-proof-irrelevance so the correctness proof can
+  reason equationally across the [Acc_inv] certs `eb_find_acc`'s own recursion produces; 2k-b the
+  operand-processing lemma (by induction on `GExpr`: processing `gtokens c e` at `oc=false` consumes `e`
+  and its rightmost-min depth-0 op is `e`'s top op for an unwrapped `EBn`, `None` for a primary — combined
+  with the suffix scan); 2k-c the top-level `eb_find` correctness.  Then `gtokens_inj`'s EBn case
+  (`app`-split at `op_token o` via the suffix, `op_token_inj` for `o`, IH on `l` and `r`).
 
 Then `canon_expr_unique` (+ `gtokens_inj`) join the printer Print Assumptions gate.
 Phase 3c = reprove `gprint_inj` off `gtokens_inj` + `gtokens_lex` (making it a corollary of the

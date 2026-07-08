@@ -5604,6 +5604,48 @@ Proof.
   pose proof (eb_find_acc_len (S (List.length toks)) toks 0 false (lt_wf (List.length toks)) (tlt1 _)) as Hlt.
   destruct (eb_find_acc toks 0 false _) as [[r' o'] | ]; [ injection H as <- <-; exact Hlt | discriminate H ].
 Qed.
+(** [eb_find_acc]'s result does not depend on WHICH [Acc] witness is supplied — proof-irrelevance in the
+    descent certificate.  Lets the coming correctness proof reason EQUATIONALLY about [eb_find_acc] across
+    the [Acc_inv]-derived certs its own recursion produces (which differ from a fresh [lt_wf]). *)
+Lemma eb_find_acc_pi : forall n toks d oc (a a' : Acc lt (List.length toks)), List.length toks < n ->
+  eb_find_acc toks d oc a = eb_find_acc toks d oc a'.
+Proof.
+  induction n as [ | n IH ]; intros toks d oc a a' Hn; [ lia | ].
+  destruct a as [f]. destruct a' as [f']. destruct toks as [ | tok rest0 ]; [ reflexivity | ].
+  cbn [List.length] in Hn. destruct d as [ | d' ]; cbn [eb_find_acc].
+  - destruct oc.
+    + (* oc = true *)
+      destruct (infix_op tok) as [ o | ] eqn:Eio.
+      * erewrite (IH rest0 0 false) by lia; reflexivity.
+      * destruct tok; try reflexivity.
+        -- (* TLP *) apply IH; lia.
+        -- (* TLB *) apply IH; lia.
+        -- (* TDot *) destruct rest0 as [ | t1 rest1 ]; [ reflexivity | ]. destruct t1; try reflexivity;
+             apply IH; cbn [List.length] in Hn; lia.
+    + (* oc = false *)
+      destruct tok; try reflexivity.
+      -- (* TId *)   apply IH; lia.
+      -- (* TInt *)  apply IH; lia.
+      -- (* TStr *)  apply IH; lia.
+      -- (* THex *)  apply IH; lia.
+      -- (* TMinus *) destruct rest0 as [ | t1 rest1 ]; [ reflexivity | ]. destruct t1; try reflexivity;
+           apply IH; cbn [List.length] in Hn; lia.
+      -- (* TStar *)  apply IH; lia.
+      -- (* TAmp *)   apply IH; lia.
+      -- (* TCaret *) apply IH; lia.
+      -- (* TBang *)  apply IH; lia.
+      -- (* TLP *)    apply IH; lia.
+      -- (* TLB type-lead *)   destruct (skip_gty_acc _ (lt_wf _)) as [ [ [ | t1 g ] Hlt ] | ]; try reflexivity;
+           destruct t1; try reflexivity; apply IH; pose proof (Nat.lt_lt_succ_r _ _ Hlt); cbn [List.length] in Hlt, Hn; lia.
+      -- (* TChan type-lead *)  destruct (skip_gty_acc _ (lt_wf _)) as [ [ [ | t1 g ] Hlt ] | ]; try reflexivity;
+           destruct t1; try reflexivity; apply IH; cbn [List.length] in Hlt, Hn; lia.
+      -- (* TMap type-lead *)   destruct (skip_gty_acc _ (lt_wf _)) as [ [ [ | t1 g ] Hlt ] | ]; try reflexivity;
+           destruct t1; try reflexivity; apply IH; cbn [List.length] in Hlt, Hn; lia.
+  - (* d = S d' : depth-tracking *) apply IH; lia.
+Qed.
+Lemma eb_find_pi : forall toks d oc (a : Acc lt (List.length toks)),
+  eb_find_acc toks d oc a = eb_find_acc toks d oc (lt_wf (List.length toks)).
+Proof. intros; apply (eb_find_acc_pi (S (List.length toks))); apply tlt1. Qed.
 
 (** LEXICAL FAITHFULNESS through the grammar: printing then lexing yields EXACTLY a
     canonical derivation's tokens — the composed [lex_gprint_expr] shape CLAUDE.md names. *)
@@ -7567,6 +7609,7 @@ Print Assumptions prefix_token_inj.
 Print Assumptions skip_gty_types.
 Print Assumptions skip_gty_lt.
 Print Assumptions eb_find_lt.
+Print Assumptions eb_find_pi.
 
 (** Extract the Rocq printers to the OCaml the plugin calls. *)
 Require Import Extraction.
