@@ -6437,6 +6437,36 @@ Proof.
   - exfalso; pose proof (nonatom_len ctx (EMapLit kt vt kvs) eq_refl) as HL; rewrite E in HL; cbn [gtokens length] in HL; lia.
   - exfalso; pose proof (nonatom_len ctx (EMapLit kt vt kvs) eq_refl) as HL; rewrite E in HL; cbn [gtokens length] in HL; lia.
 Qed.
+(* WITHIN-closer-class discrimination for the [TRB] pair: [EIndex] and [ESlice] both print as
+   [gtparen(base) ++ TLB :: <body> ++ TRB :: nil] (same last token [TRB], so [olast] cannot separate them).
+   [last0] pins the framing [TLB] (⇒ equal base-prefix lengths), [app_eq_length] splits the base off, and
+   stripping [TLB]/[TRB] leaves the bracket bodies: [gtokens 0 i] (one index) vs
+   [gtokens 0 lo ++ TColon :: gtokens 0 hi] (a `lo:hi` colon).  The `lo:hi` body carries a DEPTH-0 [TColon]
+   ([fsep .. = Some]) that a single index never does ([no_depth0_sep] ⇒ [None]) — so [f_equal fsep]
+   discriminates.  Returns [False], so either row ([EIndex]'s or [ESlice]'s, via [eq_sym]) can use it. *)
+Lemma gtokens_eindex_neq_eslice : forall ctx e i e' lo hi,
+  gtokens ctx (EIndex e i) = gtokens ctx (ESlice e' lo hi) -> False.
+Proof.
+  intros ctx e i e' lo hi E. rewrite gtokens_EIndex, gtokens_ESlice in E.
+  assert (Hs : (gtparen e' ++ TLB :: (gtokens 0 lo ++ TColon :: (gtokens 0 hi ++ TRB :: nil)))%list
+             = (gtparen e' ++ TLB :: ((gtokens 0 lo ++ TColon :: gtokens 0 hi) ++ TRB :: nil))%list)
+    by (rewrite <- (app_assoc (gtokens 0 lo) (TColon :: gtokens 0 hi)); reflexivity).
+  rewrite Hs in E.
+  assert (Hb : bd (gtokens 0 lo ++ TColon :: gtokens 0 hi) 0 = Some 0)
+    by (rewrite (bd_app_pass _ _ _ _ (gtokens_balanced lo 0)); cbn [bd]; apply gtokens_balanced).
+  pose proof (f_equal last0 E) as HL.
+  rewrite (last0_group (gtparen e) (gtokens 0 i) TLB TRB
+             (bd_gtparen e (gtokens_balanced e 0)) (gtokens_balanced i 0) (or_intror (or_introl eq_refl))) in HL.
+  rewrite (last0_group (gtparen e') (gtokens 0 lo ++ TColon :: gtokens 0 hi) TLB TRB
+             (bd_gtparen e' (gtokens_balanced e' 0)) Hb (or_intror (or_introl eq_refl))) in HL.
+  destruct (app_eq_length _ _ _ _ HL E) as [_ Eb].
+  injection Eb as Eb. apply app_inj_tail in Eb. destruct Eb as [Eb _].
+  pose proof (f_equal (fun l => fsep l 0) Eb) as HF. cbn beta in HF.
+  rewrite (no_depth0_sep i 0 0) in HF.
+  rewrite (fsep_balanced_sep (gtokens 0 lo) TColon (gtokens 0 hi)
+             (gtokens_balanced lo 0) (no_depth0_sep lo 0 0) (or_intror eq_refl)) in HF.
+  discriminate HF.
+Qed.
 (* the four ATOM-ROW diagonals+cross-cells of [gtokens_inj]: an atom [e1] against EVERY [e2].
    Each atom prints to ONE distinguishing token, so [gtokens ctx e1] has length 1: another atom's
    single token either matches ([congruence] recovers the payload) or is a different token
@@ -8489,6 +8519,7 @@ Print Assumptions gtokens_hd_emaplit.
 Print Assumptions gtokens_hd_ebn_wrapped.
 Print Assumptions gtokens_inj_eslicelit_row.
 Print Assumptions gtokens_inj_emaplit_row.
+Print Assumptions gtokens_eindex_neq_eslice.
 
 (** Extract the Rocq printers to the OCaml the plugin calls. *)
 Require Import Extraction.
