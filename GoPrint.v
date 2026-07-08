@@ -4920,7 +4920,7 @@ Qed.
     find them.  [fsep ts d]: index of the first [TComma]/[TColon] at depth 0.  A balanced list with
     NO depth-0 separator ([fsep ts 0 = None]) followed by one has that separator FIRST at index
     [length ts] — [sep_split] cancels it, the tool the [gtokens_args]/[gtokens_pairs] list
-    injectivity will use.  Clean interfaces: the closer/separator hypotheses are token disjunctions. *)
+    injectivity uses.  Clean interfaces: the closer/separator hypotheses are token disjunctions. *)
 Fixpoint fsep (ts : list Token) (d : nat) : option nat :=
   match ts with
   | nil => None
