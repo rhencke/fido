@@ -6762,6 +6762,107 @@ Proof.
   rewrite gtokens_EConv, (gtokens_hd_ebn_wrapped ctx o l r W) in HD.
   destruct c; cbn [convty_ty gttokens_ty app hd_error] in HD; discriminate HD.
 Qed.
+(** ---- the LAST within-[TRP] discrimination: ECall vs EConv (conversion-vs-call).  Both split (via
+    [last0_group] at the framing [TLP]) into [PREFIX ++ TLP :: (BODY ++ TRP :: nil)], so token equality
+    forces [gtparen e] (a CALL's EXPRESSION callee prefix) [=] [gttokens_ty (convty_ty c)] (a CONVERSION's
+    TYPE prefix).  The discriminator is structural: a type's tokens contain no [TLP] and no [TLC], yet any
+    expression whose [gtparen] LEADS with a compound-type head ([TLB]/[TChan]/[TMap] — the only three
+    [gttokens_ty (convty_ty c)] first tokens) must contain a [TLP] or [TLC] (its leftmost primary is an
+    [EConv] → [TLP], an [ESliceLit]/[EMapLit] → [TLC], or a postfix chain over one of those).  This is
+    why [ConvTy] is slice/chan/map only (its heads are lexically types); a NAMED-type conversion would
+    need a compile env and is not in the emitted subset. *)
+Lemma gttokens_ty_no_lp : forall t, ~ In TLP (gttokens_ty t).
+Proof.
+  intro t; induction t; cbn [gttokens_ty]; intro H;
+    repeat match goal with
+    | [ H : In _ (_ ++ _) |- _ ] => apply in_app_or in H
+    | [ H : In _ (_ :: _) |- _ ] => cbn [In] in H
+    | [ H : _ \/ _ |- _ ] => destruct H
+    | [ H : _ = TLP |- _ ] => discriminate H
+    | [ H : False |- _ ] => contradiction
+    | [ IH : ~ In TLP (gttokens_ty ?x), Hin : In TLP (gttokens_ty ?x) |- _ ] => exact (IH Hin)
+    end.
+Qed.
+Lemma gttokens_ty_no_lc : forall t, ~ In TLC (gttokens_ty t).
+Proof.
+  intro t; induction t; cbn [gttokens_ty]; intro H;
+    repeat match goal with
+    | [ H : In _ (_ ++ _) |- _ ] => apply in_app_or in H
+    | [ H : In _ (_ :: _) |- _ ] => cbn [In] in H
+    | [ H : _ \/ _ |- _ ] => destruct H
+    | [ H : _ = TLC |- _ ] => discriminate H
+    | [ H : False |- _ ] => contradiction
+    | [ IH : ~ In TLC (gttokens_ty ?x), Hin : In TLC (gttokens_ty ?x) |- _ ] => exact (IH Hin)
+    end.
+Qed.
+(* if [gtparen e] leads with a compound-type head ([TLB]/[TChan]/[TMap]) then it CONTAINS a [TLP] or a
+   [TLC].  Induction on [e]: atoms lead [TId]/[TInt]/[TStr]/[THex] and [EUn]/[EBn] lead [TLP] (hypothesis
+   false, vacuous); [EConv]/[ECall]/[EAssert] contribute a [TLP], [ESliceLit]/[EMapLit] a [TLC] directly;
+   the [gtparen]-led postfix forms [ESel]/[EIndex]/[ESlice] carry the head (hence the hypothesis) and the
+   [TLP]/[TLC] up from their base via the IH. *)
+Lemma gtparen_typelead_impure : forall e,
+  hd_error (gtparen e) = Some TLB \/ hd_error (gtparen e) = Some TChan \/ hd_error (gtparen e) = Some TMap ->
+  In TLP (gtparen e) \/ In TLC (gtparen e).
+Proof.
+  intro e;
+    induction e as [ i | z | o e IHe | o l r IHl IHr | e IHe f | e IHe i IHi
+                   | e IHe lo IHlo hi IHhi | e IHe args | e IHe T | c e IHe | t es | kt vt kvs | s | zc ];
+    intro Hhd.
+  - exfalso; unfold gtparen in Hhd; cbn [op_needs_paren gtokens hd_error] in Hhd; destruct Hhd as [H|[H|H]]; discriminate H.
+  - exfalso; unfold gtparen in Hhd; cbn [op_needs_paren gtokens hd_error] in Hhd; destruct Hhd as [H|[H|H]]; discriminate H.
+  - exfalso; unfold gtparen in Hhd; cbn [op_needs_paren gtokens hd_error] in Hhd; destruct Hhd as [H|[H|H]]; discriminate H.
+  - exfalso; unfold gtparen in Hhd; cbn [op_needs_paren gtokens hd_error] in Hhd; destruct Hhd as [H|[H|H]]; discriminate H.
+  - assert (Hg : gtparen (ESel e f) = (gtparen e ++ TDot :: TId f :: nil)%list)
+      by (unfold gtparen at 1; cbn [op_needs_paren]; rewrite gtokens_ESel; reflexivity).
+    rewrite Hg; rewrite Hg in Hhd; rewrite (hd_error_app_l _ _ (gtparen_nonnil e)) in Hhd;
+      destruct (IHe Hhd) as [H|H]; [left|right]; apply in_or_app; left; exact H.
+  - assert (Hg : gtparen (EIndex e i) = (gtparen e ++ TLB :: (gtokens 0 i ++ TRB :: nil))%list)
+      by (unfold gtparen at 1; cbn [op_needs_paren]; rewrite gtokens_EIndex; reflexivity).
+    rewrite Hg; rewrite Hg in Hhd; rewrite (hd_error_app_l _ _ (gtparen_nonnil e)) in Hhd;
+      destruct (IHe Hhd) as [H|H]; [left|right]; apply in_or_app; left; exact H.
+  - assert (Hg : gtparen (ESlice e lo hi) = (gtparen e ++ TLB :: (gtokens 0 lo ++ TColon :: (gtokens 0 hi ++ TRB :: nil)))%list)
+      by (unfold gtparen at 1; cbn [op_needs_paren]; rewrite gtokens_ESlice; reflexivity).
+    rewrite Hg; rewrite Hg in Hhd; rewrite (hd_error_app_l _ _ (gtparen_nonnil e)) in Hhd;
+      destruct (IHe Hhd) as [H|H]; [left|right]; apply in_or_app; left; exact H.
+  - assert (Hg : gtparen (ECall e args) = (gtparen e ++ TLP :: (gtokens_args args ++ TRP :: nil))%list)
+      by (unfold gtparen at 1; cbn [op_needs_paren]; rewrite gtokens_ECall; reflexivity).
+    left; rewrite Hg; apply in_or_app; right; apply in_eq.
+  - assert (Hg : gtparen (EAssert e T) = (gtparen e ++ TDot :: TLP :: (gttokens_ty T ++ TRP :: nil))%list)
+      by (unfold gtparen at 1; cbn [op_needs_paren]; rewrite gtokens_EAssert; reflexivity).
+    left; rewrite Hg; apply in_or_app; right; apply in_cons; apply in_eq.
+  - assert (Hg : gtparen (EConv c e) = (gttokens_ty (convty_ty c) ++ TLP :: (gtokens 0 e ++ TRP :: nil))%list)
+      by (unfold gtparen at 1; cbn [op_needs_paren]; rewrite gtokens_EConv; reflexivity).
+    left; rewrite Hg; apply in_or_app; right; apply in_eq.
+  - assert (Hg : gtparen (ESliceLit t es) = (TLB :: TRB :: (gttokens_ty t ++ TLC :: (gtokens_args es ++ TRC :: nil)))%list)
+      by (unfold gtparen at 1; cbn [op_needs_paren]; rewrite gtokens_ESliceLit; reflexivity).
+    right; rewrite Hg; apply in_cons; apply in_cons; apply in_or_app; right; apply in_eq.
+  - assert (Hg : gtparen (EMapLit kt vt kvs) = (gttokens_ty (GTMap kt vt) ++ TLC :: (gtokens_pairs kvs ++ TRC :: nil))%list)
+      by (unfold gtparen at 1; cbn [op_needs_paren]; rewrite gtokens_EMapLit; reflexivity).
+    right; rewrite Hg; apply in_or_app; right; apply in_eq.
+  - exfalso; unfold gtparen in Hhd; cbn [op_needs_paren gtokens hd_error] in Hhd; destruct Hhd as [H|[H|H]]; discriminate H.
+  - exfalso; unfold gtparen in Hhd; cbn [op_needs_paren gtokens hd_error] in Hhd; destruct Hhd as [H|[H|H]]; discriminate H.
+Qed.
+(* ECall vs EConv: [last0_group] splits both at the framing [TLP]; the equal prefixes force
+   [gtparen e = gttokens_ty (convty_ty c)], so the call prefix leads with a compound-type head and (by
+   [gtparen_typelead_impure]) contains a [TLP] or [TLC] — impossible in a type ([gttokens_ty_no_lp]/
+   [gttokens_ty_no_lc]). *)
+Lemma gtokens_ecall_neq_econv : forall ctx e args c e',
+  gtokens ctx (ECall e args) = gtokens ctx (EConv c e') -> False.
+Proof.
+  intros ctx e args c e' E. rewrite gtokens_ECall, gtokens_EConv in E.
+  pose proof (f_equal last0 E) as HL.
+  rewrite (last0_group (gtparen e) (gtokens_args args) TLP TRP
+             (bd_gtparen e (gtokens_balanced e 0)) (bd_args_d args 0) (or_introl eq_refl)) in HL.
+  rewrite (last0_group (gttokens_ty (convty_ty c)) (gtokens 0 e') TLP TRP
+             (gttokens_ty_bd (convty_ty c)) (gtokens_balanced e' 0) (or_introl eq_refl)) in HL.
+  destruct (app_eq_length _ _ _ _ HL E) as [Ep _].
+  pose proof (f_equal (@hd_error Token) Ep) as HD.
+  assert (Hhd : hd_error (gtparen e) = Some TLB \/ hd_error (gtparen e) = Some TChan \/ hd_error (gtparen e) = Some TMap)
+    by (destruct c; cbn [convty_ty gttokens_ty hd_error] in HD; auto).
+  destruct (gtparen_typelead_impure e Hhd) as [Hlp | Hlc].
+  - rewrite Ep in Hlp. exact (gttokens_ty_no_lp (convty_ty c) Hlp).
+  - rewrite Ep in Hlc. exact (gttokens_ty_no_lc (convty_ty c) Hlc).
+Qed.
 (* the EAssert ROW: [EAssert e T] against EVERY [e2].  Ends [TRP]; leads [gtparen e].  atoms:
    [nonatom_len]; EUn: the lead fact; EBn: split on wrap — unwrapped killed by [eb_find_gtokens]
    ([eb_top] [None] vs [Some]), wrapped by [gtokens_eassert_neq_ebn_wrapped]; ESel/EIndex/ESlice/lits:
@@ -6839,6 +6940,183 @@ Proof.
           pose proof (nonatom_len c g eq_refl) as HL; rewrite <- H in HL
       end; cbn [length gtokens] in HL; lia);
     cbn [gtokens] in E; congruence.
+Qed.
+(* the ECall ROW: [ECall e args] against EVERY [e2].  Ends [TRP]; leads [gtparen e].  atoms:
+   [nonatom_len]; EUn: the lead fact; EBn: split on wrap — wrapped by [gtokens_ecall_neq_ebn_wrapped]
+   ([last0 = 0] vs the call's nonempty prefix), unwrapped by [eb_find_gtokens] ([eb_top] [None] vs [Some]);
+   ESel/EIndex/ESlice/lits: [olast] ([TRP] vs their closer); the [TRP]-siblings EAssert/EConv:
+   [gtokens_eassert_neq_ecall] (via [eq_sym]) / [gtokens_ecall_neq_econv]; the diagonal:
+   [gtokens_inj_ecall] fed the base IH and the per-argument [Forall] IH. *)
+Lemma gtokens_inj_ecall_row : forall ctx e args e2,
+  (forall c e', gtokens c e = gtokens c e' -> e = e') ->
+  Forall (fun a => forall a' c, gtokens c a = gtokens c a' -> a = a') args ->
+  gtokens ctx (ECall e args) = gtokens ctx e2 -> ECall e args = e2.
+Proof.
+  intros ctx e args e2 IH Hall E.
+  destruct e2 as [ i0 | z | o0 e0 | o0 l0 r0 | e0 f0 | e0 j | e0 lo hi | e0 args0 | e0 T0 | c e0 | t0 es0 | kt vt kvs | s | zc ].
+  - exfalso; pose proof (nonatom_len ctx (ECall e args) eq_refl) as HL; rewrite E in HL; cbn [gtokens length] in HL; lia.
+  - exfalso; pose proof (nonatom_len ctx (ECall e args) eq_refl) as HL; rewrite E in HL; cbn [gtokens length] in HL; lia.
+  - exfalso; pose proof (f_equal (@hd_error Token) E) as HD;
+      rewrite gtokens_ECall, gtokens_hd_eun, (hd_error_app_l _ _ (gtparen_nonnil e)) in HD;
+      exact (gtparen_hd_not_prefix e o0 HD).
+  - exfalso; destruct (Nat.ltb (binop_prec o0) ctx) eqn:W;
+      [ exact (gtokens_ecall_neq_ebn_wrapped ctx e args o0 l0 r0 W E)
+      | pose proof (f_equal eb_find E) as HF; rewrite !eb_find_gtokens in HF; cbn [eb_top] in HF;
+        rewrite W in HF; discriminate HF ].
+  - exfalso; pose proof (f_equal olast E) as HO; rewrite gtokens_olast_ecall, gtokens_olast_esel in HO; discriminate HO.
+  - exfalso; pose proof (f_equal olast E) as HO; rewrite gtokens_olast_ecall, gtokens_olast_eindex in HO; discriminate HO.
+  - exfalso; pose proof (f_equal olast E) as HO; rewrite gtokens_olast_ecall, gtokens_olast_eslice in HO; discriminate HO.
+  - exact (gtokens_inj_ecall ctx e args e0 args0 IH Hall E).
+  - exfalso; exact (gtokens_eassert_neq_ecall ctx e0 T0 e args (eq_sym E)).
+  - exfalso; exact (gtokens_ecall_neq_econv ctx e args c e0 E).
+  - exfalso; pose proof (f_equal olast E) as HO; rewrite gtokens_olast_ecall, gtokens_olast_eslicelit in HO; discriminate HO.
+  - exfalso; pose proof (f_equal olast E) as HO; rewrite gtokens_olast_ecall, gtokens_olast_emaplit in HO; discriminate HO.
+  - exfalso; pose proof (nonatom_len ctx (ECall e args) eq_refl) as HL; rewrite E in HL; cbn [gtokens length] in HL; lia.
+  - exfalso; pose proof (nonatom_len ctx (ECall e args) eq_refl) as HL; rewrite E in HL; cbn [gtokens length] in HL; lia.
+Qed.
+(* the EConv ROW: [EConv c e] against EVERY [e2].  Ends [TRP]; leads a compound-type head ([TLB]/[TChan]/
+   [TMap] by [c]).  atoms: [nonatom_len]; EUn: first token (a type head vs a [prefix_token]); EBn: split on
+   wrap — wrapped by [gtokens_econv_neq_ebn_wrapped] (type-head vs [TLP]), unwrapped by [eb_find_gtokens];
+   ESel/EIndex/ESlice/lits: [olast] ([TRP] vs their closer); the [TRP]-siblings ECall/EAssert:
+   [gtokens_ecall_neq_econv] / [gtokens_eassert_neq_econv] (via [eq_sym]); the diagonal: [gtokens_inj_econv]
+   fed the operand IH. *)
+Lemma gtokens_inj_econv_row : forall ctx c e e2,
+  (forall cx e', gtokens cx e = gtokens cx e' -> e = e') ->
+  gtokens ctx (EConv c e) = gtokens ctx e2 -> EConv c e = e2.
+Proof.
+  intros ctx c e e2 IH E.
+  destruct e2 as [ i0 | z | o0 e0 | o0 l0 r0 | e0 f0 | e0 j | e0 lo hi | e0 args0 | e0 T0 | c0 e0 | t0 es0 | kt vt kvs | s | zc ].
+  - exfalso; pose proof (nonatom_len ctx (EConv c e) eq_refl) as HL; rewrite E in HL; cbn [gtokens length] in HL; lia.
+  - exfalso; pose proof (nonatom_len ctx (EConv c e) eq_refl) as HL; rewrite E in HL; cbn [gtokens length] in HL; lia.
+  - exfalso; pose proof (f_equal (@hd_error Token) E) as HD;
+      rewrite gtokens_EConv, gtokens_hd_eun in HD; destruct c;
+      cbn [convty_ty gttokens_ty app hd_error] in HD; destruct o0; cbn [prefix_token] in HD; discriminate HD.
+  - exfalso; destruct (Nat.ltb (binop_prec o0) ctx) eqn:W;
+      [ exact (gtokens_econv_neq_ebn_wrapped ctx c e o0 l0 r0 W E)
+      | pose proof (f_equal eb_find E) as HF; rewrite !eb_find_gtokens in HF; cbn [eb_top] in HF;
+        rewrite W in HF; discriminate HF ].
+  - exfalso; pose proof (f_equal olast E) as HO; rewrite gtokens_olast_econv, gtokens_olast_esel in HO; discriminate HO.
+  - exfalso; pose proof (f_equal olast E) as HO; rewrite gtokens_olast_econv, gtokens_olast_eindex in HO; discriminate HO.
+  - exfalso; pose proof (f_equal olast E) as HO; rewrite gtokens_olast_econv, gtokens_olast_eslice in HO; discriminate HO.
+  - exfalso; exact (gtokens_ecall_neq_econv ctx e0 args0 c e (eq_sym E)).
+  - exfalso; exact (gtokens_eassert_neq_econv ctx e0 T0 c e (eq_sym E)).
+  - exact (gtokens_inj_econv ctx c e c0 e0 IH E).
+  - exfalso; pose proof (f_equal olast E) as HO; rewrite gtokens_olast_econv, gtokens_olast_eslicelit in HO; discriminate HO.
+  - exfalso; pose proof (f_equal olast E) as HO; rewrite gtokens_olast_econv, gtokens_olast_emaplit in HO; discriminate HO.
+  - exfalso; pose proof (nonatom_len ctx (EConv c e) eq_refl) as HL; rewrite E in HL; cbn [gtokens length] in HL; lia.
+  - exfalso; pose proof (nonatom_len ctx (EConv c e) eq_refl) as HL; rewrite E in HL; cbn [gtokens length] in HL; lia.
+Qed.
+(* the EBn ROW: [EBn o l r] against EVERY [e2] — the LAST row.  Split on whether the node WRAPS in [ctx]
+   ([W := binop_prec o <? ctx]).  For a non-[EBn] [e2] the UNWRAPPED node is caught uniformly by
+   [eb_find_gtokens] ([eb_top] [Some] vs [None]); the WRAPPED node (a single [TLP … TRP] paren group,
+   [last0 = 0]) is caught per form: EUn by first token ([TLP] vs [prefix_token]); ESel/EIndex/ESlice/lits by
+   [olast] ([TRP] vs their closer); the [TRP]-siblings ECall/EAssert/EConv by [gtokens_*_neq_ebn_wrapped]
+   (via [eq_sym]); atoms by [nonatom_len].  The [EBn] diagonal is [gtokens_inj_ebn] fed the two operand IHs. *)
+Lemma gtokens_inj_ebn_row : forall ctx o l r e2,
+  (forall c e', gtokens c l = gtokens c e' -> l = e') ->
+  (forall c e', gtokens c r = gtokens c e' -> r = e') ->
+  gtokens ctx (EBn o l r) = gtokens ctx e2 -> EBn o l r = e2.
+Proof.
+  intros ctx o l r e2 IHl IHr E.
+  destruct e2 as [ i0 | z | o0 e0 | o2 l2 r2 | e0 f0 | e0 j | e0 lo hi | e0 args0 | e0 T0 | c e0 | t0 es0 | kt vt kvs | s | zc ].
+  - exfalso; pose proof (nonatom_len ctx (EBn o l r) eq_refl) as HL; rewrite E in HL; cbn [gtokens length] in HL; lia.
+  - exfalso; pose proof (nonatom_len ctx (EBn o l r) eq_refl) as HL; rewrite E in HL; cbn [gtokens length] in HL; lia.
+  - exfalso; pose proof (f_equal eb_find E) as HF; rewrite !eb_find_gtokens in HF; cbn [eb_top] in HF;
+      destruct (Nat.ltb (binop_prec o) ctx) eqn:W;
+      [ pose proof (f_equal (@hd_error Token) E) as HD;
+        rewrite (gtokens_hd_ebn_wrapped ctx o l r W), gtokens_hd_eun in HD;
+        destruct o0; cbn [prefix_token] in HD; discriminate HD
+      | discriminate HF ].
+  - exact (gtokens_inj_ebn ctx o l r o2 l2 r2 IHl IHr E).
+  - exfalso; pose proof (f_equal eb_find E) as HF; rewrite !eb_find_gtokens in HF; cbn [eb_top] in HF;
+      destruct (Nat.ltb (binop_prec o) ctx) eqn:W;
+      [ pose proof (f_equal olast E) as HO;
+        rewrite (gtokens_olast_ebn_wrapped ctx o l r W), gtokens_olast_esel in HO; discriminate HO
+      | discriminate HF ].
+  - exfalso; pose proof (f_equal eb_find E) as HF; rewrite !eb_find_gtokens in HF; cbn [eb_top] in HF;
+      destruct (Nat.ltb (binop_prec o) ctx) eqn:W;
+      [ pose proof (f_equal olast E) as HO;
+        rewrite (gtokens_olast_ebn_wrapped ctx o l r W), gtokens_olast_eindex in HO; discriminate HO
+      | discriminate HF ].
+  - exfalso; pose proof (f_equal eb_find E) as HF; rewrite !eb_find_gtokens in HF; cbn [eb_top] in HF;
+      destruct (Nat.ltb (binop_prec o) ctx) eqn:W;
+      [ pose proof (f_equal olast E) as HO;
+        rewrite (gtokens_olast_ebn_wrapped ctx o l r W), gtokens_olast_eslice in HO; discriminate HO
+      | discriminate HF ].
+  - exfalso; pose proof (f_equal eb_find E) as HF; rewrite !eb_find_gtokens in HF; cbn [eb_top] in HF;
+      destruct (Nat.ltb (binop_prec o) ctx) eqn:W;
+      [ exact (gtokens_ecall_neq_ebn_wrapped ctx e0 args0 o l r W (eq_sym E))
+      | discriminate HF ].
+  - exfalso; pose proof (f_equal eb_find E) as HF; rewrite !eb_find_gtokens in HF; cbn [eb_top] in HF;
+      destruct (Nat.ltb (binop_prec o) ctx) eqn:W;
+      [ exact (gtokens_eassert_neq_ebn_wrapped ctx e0 T0 o l r W (eq_sym E))
+      | discriminate HF ].
+  - exfalso; pose proof (f_equal eb_find E) as HF; rewrite !eb_find_gtokens in HF; cbn [eb_top] in HF;
+      destruct (Nat.ltb (binop_prec o) ctx) eqn:W;
+      [ exact (gtokens_econv_neq_ebn_wrapped ctx c e0 o l r W (eq_sym E))
+      | discriminate HF ].
+  - exfalso; pose proof (f_equal eb_find E) as HF; rewrite !eb_find_gtokens in HF; cbn [eb_top] in HF;
+      destruct (Nat.ltb (binop_prec o) ctx) eqn:W;
+      [ pose proof (f_equal olast E) as HO;
+        rewrite (gtokens_olast_ebn_wrapped ctx o l r W), gtokens_olast_eslicelit in HO; discriminate HO
+      | discriminate HF ].
+  - exfalso; pose proof (f_equal eb_find E) as HF; rewrite !eb_find_gtokens in HF; cbn [eb_top] in HF;
+      destruct (Nat.ltb (binop_prec o) ctx) eqn:W;
+      [ pose proof (f_equal olast E) as HO;
+        rewrite (gtokens_olast_ebn_wrapped ctx o l r W), gtokens_olast_emaplit in HO; discriminate HO
+      | discriminate HF ].
+  - exfalso; pose proof (nonatom_len ctx (EBn o l r) eq_refl) as HL; rewrite E in HL; cbn [gtokens length] in HL; lia.
+  - exfalso; pose proof (nonatom_len ctx (EBn o l r) eq_refl) as HL; rewrite E in HL; cbn [gtokens length] in HL; lia.
+Qed.
+(** ---- CANONICAL-TOKEN INJECTIVITY (the parser-free syntax authority for expressions): equal token
+    lists force equal ASTs.  [induction e1 using GExpr_ind'] dispatches each head constructor to its row
+    lemma, feeding the structural IHs (and, for the list-bearing [ECall]/[ESliceLit]/[EMapLit], reordering
+    the [GExpr_ind'] per-element [Forall] into the row's argument order).  Complete-list only (the
+    arbitrary-suffix strengthening is FALSE — a suffix can re-associate a trailing binop).  NEVER routed
+    through [gtokens_parse]/[parse_print_roundtrip]: the discriminators ([last0]/[olast]/first-token/
+    [eb_find]) read the token list directly. *)
+Lemma gtokens_inj : forall e1 ctx e2, gtokens ctx e1 = gtokens ctx e2 -> e1 = e2.
+Proof.
+  intro e1;
+    induction e1 as
+      [ i | z | o e0 IHe0 | o l IHl r IHr | e0 IHe0 f | e0 IHe0 i IHi
+      | e0 IHe0 lo IHlo hi IHhi | e0 IHe0 args IHargs | e0 IHe0 T | c e0 IHe0
+      | t es IHes | kt vt kvs IHkvs | s | zc ] using GExpr_ind'; intros ctx e2 E.
+  - exact (gtokens_inj_eid ctx i e2 E).
+  - exact (gtokens_inj_eint ctx z e2 E).
+  - exact (gtokens_inj_eun_row ctx o e0 e2 IHe0 E).
+  - exact (gtokens_inj_ebn_row ctx o l r e2 IHl IHr E).
+  - exact (gtokens_inj_esel_row ctx e0 f e2 IHe0 E).
+  - exact (gtokens_inj_eindex_row ctx e0 i e2 IHe0 IHi E).
+  - exact (gtokens_inj_eslice_row ctx e0 lo hi e2 IHe0 IHlo IHhi E).
+  - refine (gtokens_inj_ecall_row ctx e0 args e2 IHe0 _ E). clear E.
+    induction IHargs as [ | a rest pa prest IHrest ].
+    + constructor.
+    + constructor; [ intros a' c; exact (pa c a') | exact IHrest ].
+  - exact (gtokens_inj_eassert_row ctx e0 T e2 IHe0 E).
+  - exact (gtokens_inj_econv_row ctx c e0 e2 IHe0 E).
+  - refine (gtokens_inj_eslicelit_row ctx t es e2 _ E). clear E.
+    induction IHes as [ | a rest pa prest IHrest ].
+    + constructor.
+    + constructor; [ intros a' c; exact (pa c a') | exact IHrest ].
+  - refine (gtokens_inj_emaplit_row ctx kt vt kvs e2 _ E). clear E.
+    induction IHkvs as [ | p rest pp prest IHrest ].
+    + constructor.
+    + constructor; [ destruct pp as [pk pv]; split; intros a' c; [ exact (pk c a') | exact (pv c a') ] | exact IHrest ].
+  - exact (gtokens_inj_estr ctx s e2 E).
+  - exact (gtokens_inj_ehex ctx zc e2 E).
+Qed.
+(** ---- EXPRESSION UNIQUENESS (the canonical-grammar authority CLAUDE.md names): at a fixed context a
+    token list has AT MOST ONE [CanonExpr] derivation.  A corollary of [canon_expr_tokens] (each
+    derivation's tokens are [gtokens ctx e]) and [gtokens_inj] — PARSER-FREE, the type-level
+    [canon_ty_unique]'s expression analogue.  (The reverse — one AST, one token list — is [gtokens]'s
+    functionality plus [gprint_expr_canonical].) *)
+Theorem canon_expr_unique : forall ctx e1 e2 ts,
+  CanonExpr ctx e1 ts -> CanonExpr ctx e2 ts -> e1 = e2.
+Proof.
+  intros ctx e1 e2 ts H1 H2.
+  apply canon_expr_tokens in H1. apply canon_expr_tokens in H2. subst.
+  apply (gtokens_inj e1 ctx e2). congruence.
 Qed.
 
 (** LEXICAL FAITHFULNESS through the grammar: printing then lexing yields EXACTLY a
@@ -8861,6 +9139,14 @@ Print Assumptions gtokens_ecall_neq_ebn_wrapped.
 Print Assumptions gtokens_eassert_neq_ebn_wrapped.
 Print Assumptions gtokens_econv_neq_ebn_wrapped.
 Print Assumptions gtokens_inj_eassert_row.
+Print Assumptions gttokens_ty_no_lp.
+Print Assumptions gttokens_ty_no_lc.
+Print Assumptions gtparen_typelead_impure.
+Print Assumptions gtokens_ecall_neq_econv.
+Print Assumptions gtokens_inj_ecall_row.
+Print Assumptions gtokens_inj_econv_row.
+Print Assumptions gtokens_inj_ebn_row.
+Print Assumptions gtokens_inj.
 
 (** Extract the Rocq printers to the OCaml the plugin calls. *)
 Require Import Extraction.

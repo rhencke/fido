@@ -89,18 +89,20 @@ plugin CONSTRUCTS the `GExpr`; only `gprint` is verified. NOT "verified Go."
 - **The canonical relational syntax authority is the ACTIVE arc** (`plans/canonical-grammar.md`;
   syntax authority before spawn). Phases 1+2+3a landed: `CanonTy`/`CanonExpr`, `gprint_expr_canonical`,
   `lex_gprint_expr`, and `canon_ty_unique` (type-level token uniqueness, PARSER-FREE via `gttokens_ty_inj`).
-  Phase 3b — parser-free EXPRESSION token uniqueness (`gtokens_inj` ⇒ `canon_expr_unique`) — is PARTIALLY
-  COMPLETE: the balance/split + operator-precedence toolkit, all 14 same-constructor diagonals, the
-  cross-discriminators (`nonatom_len`/`olast`/first-token/lead-token/`eb_find_gtokens`), and 11 of the 14
-  destruct-`e2` rows (now incl. `EAssert`, via the within-`TRP` discriminators + wrapped-`EBn` `last0=0`
-  pairs) are landed and gated. (The source theorems + `Print Assumptions` are the record;
-  git log carries the per-slice history; `plans/canonical-grammar.md` carries the design.)
-  REMAINING, in order: the 3 rows `ECall`/`EConv`/`EBn` (`ECall`/`EConv` need the last within-`TRP`
-  discrimination `ECall`-vs-`EConv`, the conversion-vs-call type-prefix-vs-expr-prefix case, PARSER-FREE —
-  never via `parse_atom`/`parse_postfix`; the `EBn` row is ready via the wrapped/unwrapped split) → assemble `gtokens_inj`
-  (complete-list only; the suffix generalization is false) → `canon_expr_unique` (from `canon_expr_tokens`
-  + `gtokens_inj`) → reprove `gprint_inj` off canonical token uniqueness, demoting `parse_print_roundtrip`
-  from the authority → `CanonStmt`/`CanonProgram`.
+  Phase 3b — parser-free EXPRESSION token uniqueness — is COMPLETE: `gtokens_inj`
+  (`forall ctx e1 e2, gtokens ctx e1 = gtokens ctx e2 -> e1 = e2`, complete-list; NEVER via
+  `gtokens_parse`/`parse_print_roundtrip` — assembled from the 14 same-constructor diagonals and 14
+  destruct-`e2` rows over the balance/split + operator-precedence + `nonatom_len`/`olast`/first-token/
+  `eb_find` toolkit; the last within-`TRP` case `ECall`-vs-`EConv` via `gtokens_ecall_neq_econv`: an
+  expression prefix carries a `TLP`/`TLC` a type prefix cannot) ⇒ `canon_expr_unique` (from
+  `canon_expr_tokens` + `gtokens_inj`). Both gated, zero axioms. (`ConvTy` = slice/chan/map only — the
+  Option-B restriction that makes conversion-vs-call token-disjoint; named conversions need a compile env
+  and are out of subset; directional channel TYPES are NOT modeled — `GoTy` has bidirectional `chan` only.)
+  REMAINING, in order (Phase 3c): reprove `gprint_inj` off `canon_expr_unique` + `lex_gprint_expr` +
+  `gprint_expr_canonical`, DEMOTING `parse_print_roundtrip` from printer authority to derived parser tooling
+  → replace parser-roundtrip-based statement/program disjointness with canonical-token facts →
+  `CanonStmt`/`CanonProgram` (+ `gprint_stmt/program_canonical`, `canon_stmt/program_unique`,
+  `lex_gprint_stmt/program`).
 - The cmd↔unified bridge (`plans/bridge-effects.md`): `CAlloc` AND the channel slice LANDED
   (typed zeros through the channel's own tag, gated obligations; `bridge_effects_agree` now
   exposes capacity agreement publicly). Spawn/select is the deferred capstone (design deferred
