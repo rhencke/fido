@@ -1717,9 +1717,10 @@ Definition op_needs_paren (e0 : GExpr) : bool :=
     o] and its right at ctx [S p]: a same-precedence LEFT child stays bare ([Add (Add a b) c] → [a+b+c])
     and a same-precedence RIGHT child is parenthesized ([Add a (Add b c)] → [a+(b+c)]).  Paren omission is
     PARSE-SHAPE preservation ONLY, never semantic associativity — the printer never collapses [a+(b+c)] to
-    [a+b+c] (no AST normalization); [gtokens_inj] proves exactly that these distinct ASTs give distinct
-    tokens.  (Directional channel TYPES [chan<-]/[<-chan] and named-type conversions are NOT in the
-    emitted subset — see plans/canonical-grammar.md; [ConvTy] is slice/chan/map only.) *)
+    [a+b+c] (no AST normalization); that these distinct ASTs give distinct tokens is exactly the goal of
+    [gtokens_inj] (assembled below from the per-constructor diagonals and rows — still in progress, see the
+    [gtokens_inj_*] block).  (Directional channel TYPES [chan<-]/[<-chan] and named-type conversions are
+    NOT in the emitted subset — see plans/canonical-grammar.md; [ConvTy] is slice/chan/map only.) *)
 Fixpoint gprint (ctx : nat) (e : GExpr) {struct e} : string :=
   match e with
   | EId i  => proj1_sig i

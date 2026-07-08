@@ -38,7 +38,8 @@ precedence: an `EBn o l r` prints `l` at ctx `binop_prec o` and `r` at ctx `S (b
 are LEFT-associative), so a same-precedence LEFT child stays bare and a same-precedence RIGHT child is
 parenthesized — `Add (Add a b) c` → `a + b + c`, `Add a (Add b c)` → `a + (b + c)`.  Omission is
 PARSE-SHAPE preservation ONLY, NEVER semantic associativity: the printer never collapses `a + (b + c)` to
-`a + b + c` (no AST normalization); `gtokens_inj` proves those distinct ASTs give distinct tokens.  The
+`a + b + c` (no AST normalization); that those distinct ASTs give distinct tokens is exactly what the
+COMPLETE-list `gtokens_inj` (in assembly — see the Phase 3b section below) is to establish.  The
 `eb_find`/`eb_operand` scan is the parser-free proof that a block's tokens locate the rightmost-min top
 operator (the left-assoc split), never `parse`.
 
