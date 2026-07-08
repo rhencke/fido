@@ -4952,6 +4952,177 @@ Proof.
   destruct (app_eq_length ts1 ts2 (sep :: r1) (sep :: r2) HL HE) as [-> HT].
   injection HT as ->. split; reflexivity.
 Qed.
+(** ---- Phase 3b slice 2d: [no_depth0_sep] — a SINGLE expression's canonical tokens expose NO
+    depth-0 separator ([TComma]/[TColon] occur only INSIDE brackets, at depth ≥ 1).  This discharges
+    the [fsep _ 0 = None] premises of [sep_split]; the [gtokens_args]/[gtokens_pairs] list injectivity
+    (next slice) rests on it.  Proved on the token FUNCTIONS (structural on [GExpr_ind']), never via
+    [parse].  Two shifted forms are needed: [bd (gtokens ..) d = Some d] (any start depth), and the
+    args/pairs [fsep] vanish at start depth [S d] — their top-level separators sit at depth ≥ 1, where
+    [fsep] (which records only at depth 0) skips them. *)
+Lemma bd_gtokens_d : forall e ctx d, bd (gtokens ctx e) d = Some d.
+Proof. intros e ctx d. induction d as [ | d IH ]; [ apply gtokens_balanced | apply bd_up; exact IH ]. Qed.
+Lemma bd_ty_d : forall t d, bd (gttokens_ty t) d = Some d.
+Proof. intros t d. induction d as [ | d IH ]; [ apply gttokens_ty_bd | apply bd_up; exact IH ]. Qed.
+Lemma bd_gtparen_d : forall e0 d, bd (gtparen e0) d = Some d.
+Proof.
+  intros e0 d. unfold gtparen. destruct (op_needs_paren e0); [ | apply bd_gtokens_d ].
+  cbn [bd]. rewrite (bd_app_pass _ _ _ _ (bd_gtokens_d e0 0 (S d))). reflexivity.
+Qed.
+Lemma bd_args_d : forall args d, bd (gtokens_args args) d = Some d.
+Proof.
+  intros args d. induction d as [ | d IH ];
+    [ apply gtokens_args_bd, Forall_forall; intros a _; apply gtokens_balanced
+    | apply bd_up; exact IH ].
+Qed.
+Lemma bd_pairs_d : forall kvs d, bd (gtokens_pairs kvs) d = Some d.
+Proof.
+  intros kvs d. induction d as [ | d IH ];
+    [ apply gtokens_pairs_bd, Forall_forall; intros p _; split; apply gtokens_balanced
+    | apply bd_up; exact IH ].
+Qed.
+(** operator/prefix tokens are never separators, so [fsep] steps past them unchanged (the [fsep] twins
+    of [bd_op_token]/[bd_prefix_token]). *)
+Lemma fsep_prefix_token : forall o r d, fsep (prefix_token o :: r) d = option_map S (fsep r d).
+Proof. destruct o; reflexivity. Qed.
+Lemma fsep_op_token : forall o r d, fsep (op_token o :: r) d = option_map S (fsep r d).
+Proof. destruct o; reflexivity. Qed.
+(** TYPE token lists carry NO [TComma]/[TColon] (only ids/brackets/[*]/[chan]/[map]), so [fsep] never
+    records — at any start depth. *)
+Lemma fsep_ty_none : forall t d, fsep (gttokens_ty t) d = None.
+Proof.
+  induction t as [ | | | | | | | | | | | | | | u IHu | u IHu | u IHu | k IHk v IHv | n ];
+    intro d; cbn [gttokens_ty]; try reflexivity.
+  - (* GTPtr *) cbn [fsep]. rewrite IHu. reflexivity.
+  - (* GTSlice *) cbn [fsep Nat.pred]. rewrite IHu. reflexivity.
+  - (* GTChan *) cbn [fsep]. rewrite IHu. reflexivity.
+  - (* GTMap *) cbn [fsep Nat.pred].
+    rewrite (fsep_app_none (gttokens_ty k) (TRB :: gttokens_ty v) (S d) (S d) (IHk (S d)) (bd_ty_d k (S d))).
+    cbn [fsep Nat.pred]. rewrite IHv. reflexivity.
+Qed.
+(** the parenthesizer keeps [fsep] at [None]: bare = the operand's tokens; [TLP … TRP] wraps them one
+    deeper, so any inner separator would need depth 0 but sits at depth ≥ 1. *)
+Lemma fsep_gtparen : forall e0 d,
+  (forall ctx d', fsep (gtokens ctx e0) d' = None) -> fsep (gtparen e0) d = None.
+Proof.
+  intros e0 d IH. unfold gtparen. destruct (op_needs_paren e0); [ | apply IH ].
+  cbn [fsep].
+  rewrite (fsep_app_none (gtokens 0 e0) (TRP :: nil) (S d) (S d) (IH 0 (S d)) (bd_gtokens_d e0 0 (S d))).
+  reflexivity.
+Qed.
+(** the comma/colon-joined arg/pair lists have NO depth-0 separator once scanned at depth [S d] (they
+    live one bracket deep inside their group): every top-level [TComma]/[TColon] sits at depth [S d]. *)
+Lemma fsep_args_tl : forall r d,
+  Forall (fun b => forall ctx d', fsep (gtokens ctx b) d' = None) r ->
+  fsep (gtokens_args_tl r) (S d) = None.
+Proof.
+  induction r as [ | b m IH ]; intros d Hf; [ reflexivity | ].
+  cbn [gtokens_args_tl fsep].
+  rewrite (fsep_app_none (gtokens 0 b) (gtokens_args_tl m) (S d) (S d)
+             (Forall_inv Hf 0 (S d)) (bd_gtokens_d b 0 (S d))),
+          (IH d (Forall_inv_tail Hf)).
+  reflexivity.
+Qed.
+Lemma fsep_args : forall args d,
+  Forall (fun a => forall ctx d', fsep (gtokens ctx a) d' = None) args ->
+  fsep (gtokens_args args) (S d) = None.
+Proof.
+  intros [ | a r ] d Hf; [ reflexivity | ].
+  cbn [gtokens_args].
+  rewrite (fsep_app_none (gtokens 0 a) (gtokens_args_tl r) (S d) (S d)
+             (Forall_inv Hf 0 (S d)) (bd_gtokens_d a 0 (S d))),
+          (fsep_args_tl r d (Forall_inv_tail Hf)).
+  reflexivity.
+Qed.
+Lemma fsep_pairs_tl : forall r d,
+  Forall (fun p => (forall ctx d', fsep (gtokens ctx (fst p)) d' = None)
+                /\ (forall ctx d', fsep (gtokens ctx (snd p)) d' = None)) r ->
+  fsep (gtokens_pairs_tl r) (S d) = None.
+Proof.
+  induction r as [ | p m IH ]; intros d Hf; [ reflexivity | ].
+  destruct p as [k v]. pose proof (Forall_inv Hf) as Hp. destruct Hp as [Hk Hv]; cbn in Hk, Hv.
+  cbn [gtokens_pairs_tl fsep].
+  rewrite (fsep_app_none (gtokens 0 k) (TColon :: (gtokens 0 v ++ gtokens_pairs_tl m)) (S d) (S d)
+             (Hk 0 (S d)) (bd_gtokens_d k 0 (S d))).
+  cbn [fsep].
+  rewrite (fsep_app_none (gtokens 0 v) (gtokens_pairs_tl m) (S d) (S d)
+             (Hv 0 (S d)) (bd_gtokens_d v 0 (S d))),
+          (IH d (Forall_inv_tail Hf)).
+  reflexivity.
+Qed.
+Lemma fsep_pairs : forall kvs d,
+  Forall (fun p => (forall ctx d', fsep (gtokens ctx (fst p)) d' = None)
+                /\ (forall ctx d', fsep (gtokens ctx (snd p)) d' = None)) kvs ->
+  fsep (gtokens_pairs kvs) (S d) = None.
+Proof.
+  intros [ | p r ] d Hf; [ reflexivity | ].
+  destruct p as [k v]. pose proof (Forall_inv Hf) as Hp. destruct Hp as [Hk Hv]; cbn in Hk, Hv.
+  cbn [gtokens_pairs].
+  rewrite (fsep_app_none (gtokens 0 k) (TColon :: (gtokens 0 v ++ gtokens_pairs_tl r)) (S d) (S d)
+             (Hk 0 (S d)) (bd_gtokens_d k 0 (S d))).
+  cbn [fsep].
+  rewrite (fsep_app_none (gtokens 0 v) (gtokens_pairs_tl r) (S d) (S d)
+             (Hv 0 (S d)) (bd_gtokens_d v 0 (S d))),
+          (fsep_pairs_tl r d (Forall_inv_tail Hf)).
+  reflexivity.
+Qed.
+(** ★ every SINGLE canonical expression token list has NO depth-0 separator — [fsep] vanishes at any
+    start depth (separators are always bracket-nested).  Structural on [GExpr_ind']. *)
+Lemma no_depth0_sep : forall e ctx d, fsep (gtokens ctx e) d = None.
+Proof.
+  induction e using GExpr_ind'; intros ctx d.
+  - (* EId *) reflexivity.
+  - (* EInt *) reflexivity.
+  - (* EUn *) rewrite gtokens_EUn, fsep_prefix_token.
+    destruct (unop_paren o e).
+    + cbn [fsep].
+      rewrite (fsep_app_none (gtokens 0 e) (TRP :: nil) (S d) (S d) (IHe 0 (S d)) (bd_gtokens_d e 0 (S d))).
+      reflexivity.
+    + rewrite (IHe 0 d). reflexivity.
+  - (* EBn *) cbn [gtokens].
+    assert (Hbd : forall dd, bd (gtokens (binop_prec o) e1 ++ op_token o :: gtokens (S (binop_prec o)) e2) dd = Some dd)
+      by (intro dd; rewrite (bd_app_pass _ _ _ _ (bd_gtokens_d e1 (binop_prec o) dd)), bd_op_token; apply bd_gtokens_d).
+    assert (Hin : forall dd, fsep (gtokens (binop_prec o) e1 ++ op_token o :: gtokens (S (binop_prec o)) e2) dd = None)
+      by (intro dd; rewrite (fsep_app_none _ _ _ _ (IHe1 (binop_prec o) dd) (bd_gtokens_d e1 (binop_prec o) dd)),
+            fsep_op_token, (IHe2 (S (binop_prec o)) dd); reflexivity).
+    destruct (Nat.ltb (binop_prec o) ctx).
+    + cbn [fsep]. rewrite (fsep_app_none _ _ _ _ (Hin (S d)) (Hbd (S d))). reflexivity.
+    + apply Hin.
+  - (* ESel *) rewrite gtokens_ESel.
+    rewrite (fsep_app_none _ _ _ _ (fsep_gtparen e d IHe) (bd_gtparen_d e d)). reflexivity.
+  - (* EIndex *) rewrite gtokens_EIndex.
+    rewrite (fsep_app_none _ _ _ _ (fsep_gtparen e1 d IHe1) (bd_gtparen_d e1 d)).
+    cbn [fsep].
+    rewrite (fsep_app_none _ _ _ _ (IHe2 0 (S d)) (bd_gtokens_d e2 0 (S d))). reflexivity.
+  - (* ESlice *) rewrite gtokens_ESlice.
+    rewrite (fsep_app_none _ _ _ _ (fsep_gtparen e1 d IHe1) (bd_gtparen_d e1 d)).
+    cbn [fsep].
+    rewrite (fsep_app_none _ _ _ _ (IHe2 0 (S d)) (bd_gtokens_d e2 0 (S d))).
+    cbn [fsep].
+    rewrite (fsep_app_none _ _ _ _ (IHe3 0 (S d)) (bd_gtokens_d e3 0 (S d))). reflexivity.
+  - (* ECall *) rewrite gtokens_ECall.
+    rewrite (fsep_app_none _ _ _ _ (fsep_gtparen e d IHe) (bd_gtparen_d e d)).
+    cbn [fsep].
+    rewrite (fsep_app_none _ _ _ _ (fsep_args args d H) (bd_args_d args (S d))). reflexivity.
+  - (* EAssert *) rewrite gtokens_EAssert.
+    rewrite (fsep_app_none _ _ _ _ (fsep_gtparen e d IHe) (bd_gtparen_d e d)).
+    cbn [fsep].
+    rewrite (fsep_app_none _ _ _ _ (fsep_ty_none T (S d)) (bd_ty_d T (S d))). reflexivity.
+  - (* EConv *) rewrite gtokens_EConv.
+    rewrite (fsep_app_none _ _ _ _ (fsep_ty_none (convty_ty c) d) (bd_ty_d (convty_ty c) d)).
+    cbn [fsep].
+    rewrite (fsep_app_none _ _ _ _ (IHe 0 (S d)) (bd_gtokens_d e 0 (S d))). reflexivity.
+  - (* ESliceLit *) rewrite gtokens_ESliceLit. cbn [fsep Nat.pred].
+    rewrite (fsep_app_none _ _ _ _ (fsep_ty_none t d) (bd_ty_d t d)).
+    cbn [fsep].
+    rewrite (fsep_app_none _ _ _ _ (fsep_args es d H) (bd_args_d es (S d))). reflexivity.
+  - (* EMapLit *) rewrite gtokens_EMapLit.
+    rewrite (fsep_app_none _ _ _ _ (fsep_ty_none (GTMap kt vt) d) (bd_ty_d (GTMap kt vt) d)).
+    cbn [fsep].
+    rewrite (fsep_app_none _ _ _ _ (fsep_pairs kvs d H) (bd_pairs_d kvs (S d))). reflexivity.
+  - (* EStr *) reflexivity.
+  - (* EHex *) reflexivity.
+Qed.
+
 (** LEXICAL FAITHFULNESS through the grammar: printing then lexing yields EXACTLY a
     canonical derivation's tokens — the composed [lex_gprint_expr] shape CLAUDE.md names. *)
 Theorem lex_gprint_expr : forall ctx e,
@@ -6903,6 +7074,7 @@ Print Assumptions gtokens_balanced.
 Print Assumptions last0_group.
 Print Assumptions balanced_close_split.
 Print Assumptions sep_split.
+Print Assumptions no_depth0_sep.
 
 (** Extract the Rocq printers to the OCaml the plugin calls. *)
 Require Import Extraction.
