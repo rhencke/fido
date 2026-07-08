@@ -47,8 +47,13 @@ start depth: a single expression exposes no depth-0 separator; helpers `bd_gtoke
 `bd_gtparen_d`/`bd_args_d`/`bd_pairs_d`, `fsep_prefix_token`/`fsep_op_token`/`fsep_ty_none`/
 `fsep_gtparen`/`fsep_args`/`fsep_pairs`), gated; the args/pairs `fsep` sublemmas are stated at start
 depth `S d` (their top-level separators sit at depth ≥ 1, where `fsep` — recording only at depth 0 —
-skips them).  STILL TO WRITE: the paren/bare operand discrimination; `gtokens_args_inj`/
-`gtokens_pairs_inj` (now that `no_depth0_sep` feeds `sep_split`); ★the EBn OPERATOR-PRECEDENCE
+skips them).  Phase 3b SLICE 2e LANDED — `gtokens_args_inj` (argument-list injectivity: equal
+`gtokens_args` lists are equal arg lists, given element injectivity carried as a `Forall`; peels the
+first element off the first top-level `TComma` via `sep_split`+`no_depth0_sep` and recurses,
+discriminating lengths via `no_depth0_sep`/`fsep`; helpers `app_cons_nonnil`/`gtokens_nonnil`/
+`gtokens_args_nonnil`/`gtokens_args_single`/`gtokens_args_cons2`), gated.  STILL TO WRITE: the
+paren/bare operand discrimination; `gtokens_pairs_inj` (the map-pair analogue: `k TColon v` pairs
+comma-joined); ★the EBn OPERATOR-PRECEDENCE
 disambiguation (rightmost-minimal-precedence depth-0 op + the ctx-wrapping invariant lemmas +
 `op_token`/`prefix_token` injectivity) — the crux risk; and `gtokens_inj` itself.  (The
 arbitrary-SUFFIX determinism lemma was found FALSE — see the design.)
@@ -135,8 +140,8 @@ to the THREE expression bracket kinds — parens `TLP`/`TRP`, square `TLB`/`TRB`
   via a first-depth-0-separator lemma, resting on `no_depth0_sep` (LANDED): no expression's `gtokens 0 e`
   contains a depth-0 `TComma`/`TColon` (they occur only inside nested groups, at depth ≥1), so the
   first top-level separator delimits the first element.  (`last0`/`last0_group`,
-  `bdip`/`balanced_close_split`, `fsep`/`sep_split`, and `no_depth0_sep` LANDED + gated;
-  `gtokens_args_inj`/`gtokens_pairs_inj` are TO WRITE.)
+  `bdip`/`balanced_close_split`, `fsep`/`sep_split`, `no_depth0_sep`, and `gtokens_args_inj`
+  LANDED + gated; `gtokens_pairs_inj` (map pairs) is TO WRITE.)
 
 `gtokens_inj` by structural induction on `e1` (`GExpr_ind'`), `destruct e2`, per pair — on
 COMPLETE lists (no suffix):

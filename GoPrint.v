@@ -5123,6 +5123,63 @@ Proof.
   - (* EHex *) reflexivity.
 Qed.
 
+(** ---- Phase 3b slice 2e: [gtokens_args_inj] — the ARGUMENT-list injectivity (ECall / ESliceLit
+    element lists).  Given element injectivity (the outer [gtokens_inj] IH, carried as a [Forall]),
+    equal [gtokens_args] lists ARE equal argument lists.  The split: [gtokens_args (a::b::m) =
+    gtokens 0 a ++ TComma :: gtokens_args (b::m)], so [sep_split] (fed by [no_depth0_sep] +
+    [gtokens_balanced]) peels the first element off the first top-level [TComma] and recurses;
+    [no_depth0_sep] also DISCRIMINATES lengths — a singleton's tokens carry no depth-0 comma, a
+    multi-element list's do (via [fsep]).  Parser-free. *)
+Lemma app_cons_nonnil : forall (A : Type) (l1 : list A) (x : A) (l2 : list A), (l1 ++ x :: l2)%list <> nil.
+Proof. intros A l1 x l2. destruct l1; discriminate. Qed.
+Lemma gtokens_nonnil : forall ctx e, gtokens ctx e <> nil.
+Proof.
+  intros ctx e; destruct e; cbn [gtokens];
+    repeat match goal with |- context [ if ?b then _ else _ ] => destruct b end;
+    solve [ discriminate | apply app_cons_nonnil ].
+Qed.
+Lemma gtokens_args_nonnil : forall a r, gtokens_args (a :: r) <> nil.
+Proof.
+  intros a r. cbn [gtokens_args]. destruct (gtokens 0 a) eqn:E;
+    [ exfalso; exact (gtokens_nonnil 0 a E) | discriminate ].
+Qed.
+Lemma gtokens_args_single : forall a, gtokens_args (a :: nil) = gtokens 0 a.
+Proof. intro a. cbn [gtokens_args gtokens_args_tl]. apply app_nil_r. Qed.
+Lemma gtokens_args_cons2 : forall a b m,
+  gtokens_args (a :: b :: m) = (gtokens 0 a ++ TComma :: gtokens_args (b :: m))%list.
+Proof. intros a b m. cbn [gtokens_args gtokens_args_tl]. reflexivity. Qed.
+Lemma gtokens_args_inj : forall args1 args2,
+  Forall (fun a => forall a' c, gtokens c a = gtokens c a' -> a = a') args1 ->
+  gtokens_args args1 = gtokens_args args2 -> args1 = args2.
+Proof.
+  induction args1 as [ | a1 r1 IH ]; intros args2 Hall HE.
+  - destruct args2 as [ | a2 r2 ]; [ reflexivity | ].
+    exfalso. exact (gtokens_args_nonnil a2 r2 (eq_sym HE)).
+  - destruct args2 as [ | a2 r2 ].
+    + exfalso. exact (gtokens_args_nonnil a1 r1 HE).
+    + destruct r1 as [ | b1 m1 ]; destruct r2 as [ | b2 m2 ].
+      * rewrite !gtokens_args_single in HE.
+        f_equal. exact (Forall_inv Hall a2 0 HE).
+      * exfalso. rewrite gtokens_args_single, gtokens_args_cons2 in HE.
+        pose proof (no_depth0_sep a1 0 0) as Hf. rewrite HE in Hf.
+        rewrite (fsep_balanced_sep (gtokens 0 a2) TComma (gtokens_args (b2 :: m2))
+                   (gtokens_balanced a2 0) (no_depth0_sep a2 0 0) (or_introl eq_refl)) in Hf.
+        discriminate Hf.
+      * exfalso. rewrite gtokens_args_single, gtokens_args_cons2 in HE.
+        pose proof (no_depth0_sep a2 0 0) as Hf. rewrite <- HE in Hf.
+        rewrite (fsep_balanced_sep (gtokens 0 a1) TComma (gtokens_args (b1 :: m1))
+                   (gtokens_balanced a1 0) (no_depth0_sep a1 0 0) (or_introl eq_refl)) in Hf.
+        discriminate Hf.
+      * rewrite !gtokens_args_cons2 in HE.
+        destruct (sep_split TComma (gtokens 0 a1) (gtokens 0 a2)
+                   (gtokens_args (b1 :: m1)) (gtokens_args (b2 :: m2))
+                   (or_introl eq_refl) (gtokens_balanced a1 0) (gtokens_balanced a2 0)
+                   (no_depth0_sep a1 0 0) (no_depth0_sep a2 0 0) HE) as [Ha Htail].
+        f_equal;
+          [ exact (Forall_inv Hall a2 0 Ha)
+          | exact (IH (b2 :: m2) (Forall_inv_tail Hall) Htail) ].
+Qed.
+
 (** LEXICAL FAITHFULNESS through the grammar: printing then lexing yields EXACTLY a
     canonical derivation's tokens — the composed [lex_gprint_expr] shape CLAUDE.md names. *)
 Theorem lex_gprint_expr : forall ctx e,
@@ -7075,6 +7132,7 @@ Print Assumptions last0_group.
 Print Assumptions balanced_close_split.
 Print Assumptions sep_split.
 Print Assumptions no_depth0_sep.
+Print Assumptions gtokens_args_inj.
 
 (** Extract the Rocq printers to the OCaml the plugin calls. *)
 Require Import Extraction.
