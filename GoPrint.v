@@ -6044,12 +6044,22 @@ Qed.
 Lemma eb_find_acc_nil : forall d oc (a : Acc lt (List.length (@nil Token))),
   eb_find_acc nil d oc a = None.
 Proof. intros d oc a; destruct a; reflexivity. Qed.
-(* ═══ 2k-d: the top-level [eb_find] rightmost-min CORRECTNESS ═══  a COROLLARY of [eb_operand] at the
-   binary node itself: at [ctx = binop_prec o] the node is UNWRAPPED (its tokens are the bare inner
-   [gtokens (prec o) l ++ op_token o :: gtokens (S prec o) r]) and [eb_top] returns [Some (R, o)] with
-   R = the right operand's tokens; with the empty suffix the combine keeps [o] and R runs to end-of-input.
-   So the inner tokens LOCATE their own operator [o] as the split, R the suffix — exactly what the
-   [gtokens_inj] EBn case consumes after peeling any ctx-wrapper.  PARSER-FREE (no [gtokens_parse]). *)
+(* ═══ 2k-d: [eb_find] over a canonical block IS its top operator ═══  [eb_operand] at the empty suffix
+   collapses to [eb_find (gtokens ctx e) = eb_top ctx e]: a whole canonical expr's tokens locate their own
+   top-level operator ([Some (R,o)] for an UNWRAPPED [EBn o _ r] with R = the right operand's tokens; [None]
+   for every primary / prefix [EUn] / paren-WRAPPED [EBn]).  This is the [gtokens_inj] EBn discriminator —
+   equal token lists ⇒ equal [eb_top] ⇒ same operator / same right-operand split.  PARSER-FREE. *)
+Lemma eb_find_gtokens : forall ctx e, eb_find (gtokens ctx e) = eb_top ctx e.
+Proof.
+  intros ctx e. unfold eb_find.
+  pose proof (eb_operand e) as H; unfold eb_op_pred in H.
+  specialize (H ctx nil (lt_wf _) (lt_wf _)).
+  rewrite app_nil_r in H; rewrite H; rewrite eb_find_acc_nil.
+  destruct (eb_top ctx e) as [ [rr o] | ]; cbn [eb_combine]; [ rewrite app_nil_r | ]; reflexivity.
+Qed.
+(* the EBn-node instance: at [ctx = binop_prec o] the node is UNWRAPPED, so its tokens ARE the bare inner
+   [gtokens (prec o) l ++ op_token o :: gtokens (S prec o) r] and [eb_top] = [Some (R, o)] — the split the
+   [gtokens_inj] EBn case consumes after peeling any ctx-wrapper. *)
 Lemma eb_find_inner : forall o l r,
   eb_find (gtokens (binop_prec o) l ++ op_token o :: gtokens (S (binop_prec o)) r)%list
     = Some (gtokens (S (binop_prec o)) r, o).
@@ -6059,12 +6069,7 @@ Proof.
   assert (Hg : gtokens (binop_prec o) (EBn o l r)
              = (gtokens (binop_prec o) l ++ op_token o :: gtokens (S (binop_prec o)) r)%list)
     by (cbn [gtokens]; rewrite Elt; reflexivity).
-  unfold eb_find.
-  pose proof (eb_operand (EBn o l r)) as H; unfold eb_op_pred in H.
-  specialize (H (binop_prec o) nil (lt_wf _) (lt_wf _)).
-  rewrite app_nil_r in H; rewrite Hg in H; rewrite H.
-  rewrite eb_find_acc_nil; cbn [eb_top]; rewrite Elt; cbn [eb_combine].
-  rewrite app_nil_r; reflexivity.
+  rewrite <- Hg, eb_find_gtokens; cbn [eb_top]; rewrite Elt; reflexivity.
 Qed.
 
 (** LEXICAL FAITHFULNESS through the grammar: printing then lexing yields EXACTLY a
@@ -8040,6 +8045,7 @@ Print Assumptions eb_top_bare.
 Print Assumptions eb_type_skip.
 Print Assumptions eb_type_conv.
 Print Assumptions eb_operand.
+Print Assumptions eb_find_gtokens.
 Print Assumptions eb_find_inner.
 
 (** Extract the Rocq printers to the OCaml the plugin calls. *)
