@@ -5182,6 +5182,77 @@ Proof.
           | exact (IH (b2 :: m2) (Forall_inv_tail Hall) Htail) ].
 Qed.
 
+(** ---- Phase 3b slice 2f: [gtokens_pairs_inj] — the KEYED-PAIR-list injectivity (EMapLit).  Each pair
+    prints as `k TColon v`, pairs comma-joined, so a pair carries an INTERNAL depth-0 `TColon` besides the
+    inter-pair `TComma`.  Peeling one pair is therefore TWO `sep_split`s: first on `TColon` (the key ends
+    at the first depth-0 separator, since [no_depth0_sep] gives the key no depth-0 sep), then on `TComma`
+    (the value ends at the next), then recurse.  Length discrimination is again the [no_depth0_sep]/[fsep]
+    None-vs-Some contradiction.  Parser-free. *)
+Lemma gtokens_pairs_tl_cons : forall p m, gtokens_pairs_tl (p :: m) = (TComma :: gtokens_pairs (p :: m))%list.
+Proof. intros [k v] m. cbn [gtokens_pairs_tl gtokens_pairs]. reflexivity. Qed.
+Lemma gtokens_pairs_nonnil : forall p r, gtokens_pairs (p :: r) <> nil.
+Proof.
+  intros [k v] r. cbn [gtokens_pairs]. destruct (gtokens 0 k) eqn:E;
+    [ exfalso; exact (gtokens_nonnil 0 k E) | discriminate ].
+Qed.
+Lemma gtokens_pairs_single : forall k v,
+  gtokens_pairs ((k, v) :: nil) = (gtokens 0 k ++ TColon :: gtokens 0 v)%list.
+Proof. intros k v. cbn [gtokens_pairs gtokens_pairs_tl]. rewrite app_nil_r. reflexivity. Qed.
+Lemma gtokens_pairs_cons2 : forall k v q m,
+  gtokens_pairs ((k, v) :: q :: m) =
+  (gtokens 0 k ++ TColon :: (gtokens 0 v ++ TComma :: gtokens_pairs (q :: m)))%list.
+Proof. intros k v q m. cbn [gtokens_pairs]. rewrite gtokens_pairs_tl_cons. reflexivity. Qed.
+Lemma gtokens_pairs_inj : forall kvs1 kvs2,
+  Forall (fun p => (forall a' c, gtokens c (fst p) = gtokens c a' -> fst p = a')
+                /\ (forall a' c, gtokens c (snd p) = gtokens c a' -> snd p = a')) kvs1 ->
+  gtokens_pairs kvs1 = gtokens_pairs kvs2 -> kvs1 = kvs2.
+Proof.
+  induction kvs1 as [ | [k1 v1] r1 IH ]; intros kvs2 Hall HE.
+  - destruct kvs2 as [ | p2 r2 ]; [ reflexivity | ].
+    exfalso. exact (gtokens_pairs_nonnil p2 r2 (eq_sym HE)).
+  - destruct kvs2 as [ | [k2 v2] r2 ].
+    + exfalso. exact (gtokens_pairs_nonnil (k1, v1) r1 HE).
+    + pose proof (Forall_inv Hall) as Hp1. destruct Hp1 as [Hk1 Hv1]; cbn [fst snd] in Hk1, Hv1.
+      destruct r1 as [ | q1 m1 ]; destruct r2 as [ | q2 m2 ].
+      * rewrite !gtokens_pairs_single in HE.
+        destruct (sep_split TColon (gtokens 0 k1) (gtokens 0 k2) (gtokens 0 v1) (gtokens 0 v2)
+                   (or_intror eq_refl) (gtokens_balanced k1 0) (gtokens_balanced k2 0)
+                   (no_depth0_sep k1 0 0) (no_depth0_sep k2 0 0) HE) as [Hk Hv].
+        assert (k1 = k2) as -> by exact (Hk1 k2 0 Hk).
+        assert (v1 = v2) as -> by exact (Hv1 v2 0 Hv). reflexivity.
+      * exfalso. rewrite gtokens_pairs_single, gtokens_pairs_cons2 in HE.
+        destruct (sep_split TColon (gtokens 0 k1) (gtokens 0 k2)
+                   (gtokens 0 v1) (gtokens 0 v2 ++ TComma :: gtokens_pairs (q2 :: m2))
+                   (or_intror eq_refl) (gtokens_balanced k1 0) (gtokens_balanced k2 0)
+                   (no_depth0_sep k1 0 0) (no_depth0_sep k2 0 0) HE) as [_ Hrest].
+        pose proof (no_depth0_sep v1 0 0) as Hf. rewrite Hrest in Hf.
+        rewrite (fsep_balanced_sep (gtokens 0 v2) TComma (gtokens_pairs (q2 :: m2))
+                   (gtokens_balanced v2 0) (no_depth0_sep v2 0 0) (or_introl eq_refl)) in Hf.
+        discriminate Hf.
+      * exfalso. rewrite gtokens_pairs_single, gtokens_pairs_cons2 in HE.
+        destruct (sep_split TColon (gtokens 0 k1) (gtokens 0 k2)
+                   (gtokens 0 v1 ++ TComma :: gtokens_pairs (q1 :: m1)) (gtokens 0 v2)
+                   (or_intror eq_refl) (gtokens_balanced k1 0) (gtokens_balanced k2 0)
+                   (no_depth0_sep k1 0 0) (no_depth0_sep k2 0 0) HE) as [_ Hrest].
+        pose proof (no_depth0_sep v2 0 0) as Hf. rewrite <- Hrest in Hf.
+        rewrite (fsep_balanced_sep (gtokens 0 v1) TComma (gtokens_pairs (q1 :: m1))
+                   (gtokens_balanced v1 0) (no_depth0_sep v1 0 0) (or_introl eq_refl)) in Hf.
+        discriminate Hf.
+      * rewrite !gtokens_pairs_cons2 in HE.
+        destruct (sep_split TColon (gtokens 0 k1) (gtokens 0 k2)
+                   (gtokens 0 v1 ++ TComma :: gtokens_pairs (q1 :: m1))
+                   (gtokens 0 v2 ++ TComma :: gtokens_pairs (q2 :: m2))
+                   (or_intror eq_refl) (gtokens_balanced k1 0) (gtokens_balanced k2 0)
+                   (no_depth0_sep k1 0 0) (no_depth0_sep k2 0 0) HE) as [Hk Hrest].
+        destruct (sep_split TComma (gtokens 0 v1) (gtokens 0 v2)
+                   (gtokens_pairs (q1 :: m1)) (gtokens_pairs (q2 :: m2))
+                   (or_introl eq_refl) (gtokens_balanced v1 0) (gtokens_balanced v2 0)
+                   (no_depth0_sep v1 0 0) (no_depth0_sep v2 0 0) Hrest) as [Hv Htail].
+        assert (k1 = k2) as -> by exact (Hk1 k2 0 Hk).
+        assert (v1 = v2) as -> by exact (Hv1 v2 0 Hv).
+        f_equal. exact (IH (q2 :: m2) (Forall_inv_tail Hall) Htail).
+Qed.
+
 (** LEXICAL FAITHFULNESS through the grammar: printing then lexing yields EXACTLY a
     canonical derivation's tokens — the composed [lex_gprint_expr] shape CLAUDE.md names. *)
 Theorem lex_gprint_expr : forall ctx e,
@@ -7136,6 +7207,7 @@ Print Assumptions balanced_close_split.
 Print Assumptions sep_split.
 Print Assumptions no_depth0_sep.
 Print Assumptions gtokens_args_inj.
+Print Assumptions gtokens_pairs_inj.
 
 (** Extract the Rocq printers to the OCaml the plugin calls. *)
 Require Import Extraction.

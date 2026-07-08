@@ -12,8 +12,8 @@ executable canonical token assignment); the RELATIONAL grammar `CanonTy`/`CanonE
 canonicity) + `lex_gprint_expr` (lexical faithfulness, `lex (gprint ctx e) = Some (gtokens ctx e)`
 composed with the canonical derivation); `canon_ty_unique` — type-level token uniqueness, PARSER-FREE
 via `gttokens_ty_inj`; and the Phase-3b toolkit toward expression uniqueness (`bd`/`gtokens_balanced`,
-the `last0`/`bdip`/`fsep` split lemmas, `no_depth0_sep`, `gtokens_args_inj`).  STILL OPEN: the
-complete-list `gtokens_inj` (⇒ `canon_expr_unique`).  Until it lands, `gprint_inj` still routes
+the `last0`/`bdip`/`fsep` split lemmas, `no_depth0_sep`, `gtokens_args_inj`, `gtokens_pairs_inj`).
+STILL OPEN: the complete-list `gtokens_inj` (⇒ `canon_expr_unique`).  Until it lands, `gprint_inj` still routes
 through `gtokens_parse` + `parse_print_roundtrip` (the executable-parser round-trip) and the
 statement layer (`print_stmt_inj`/`print_program_inj`) is still STRING injectivity — so EXPRESSION
 injectivity remains parser-derived (Phase 3c reproves `gprint_inj` off `gtokens_inj`; the parser is
@@ -57,9 +57,11 @@ skips them).  Phase 3b SLICE 2e LANDED — `gtokens_args_inj` (argument-list inj
 `gtokens_args` lists are equal arg lists, given element injectivity carried as a `Forall`; peels the
 first element off the first top-level `TComma` via `sep_split`+`no_depth0_sep` and recurses,
 discriminating lengths via `no_depth0_sep`/`fsep`; helpers `app_cons_nonnil`/`gtokens_nonnil`/
-`gtokens_args_nonnil`/`gtokens_args_single`/`gtokens_args_cons2`), gated.  STILL TO WRITE: the
-paren/bare operand discrimination; `gtokens_pairs_inj` (the map-pair analogue: `k TColon v` pairs
-comma-joined); ★the EBn OPERATOR-PRECEDENCE
+`gtokens_args_nonnil`/`gtokens_args_single`/`gtokens_args_cons2`), gated.  Phase 3b SLICE 2f LANDED —
+`gtokens_pairs_inj` (the map-pair analogue: `k TColon v` pairs comma-joined; peels one pair with TWO
+`sep_split`s — first on `TColon` for the key, then on `TComma` for the value — then recurses; helpers
+`gtokens_pairs_tl_cons`/`gtokens_pairs_nonnil`/`gtokens_pairs_single`/`gtokens_pairs_cons2`), gated.
+STILL TO WRITE: the paren/bare operand discrimination; ★the EBn OPERATOR-PRECEDENCE
 disambiguation (rightmost-minimal-precedence depth-0 op + the ctx-wrapping invariant lemmas +
 `op_token`/`prefix_token` injectivity) — the crux risk; and `gtokens_inj` itself.  (The
 arbitrary-SUFFIX determinism lemma was found FALSE — see the design.)
@@ -83,8 +85,8 @@ arbitrary-SUFFIX determinism lemma was found FALSE — see the design.)
    (structural induction on `e1`, delimited groups split by `last0` (the last depth-0 position)).  Full design + the ruled-out dead ends (balanced-prefix cancellation; the FALSE
    arbitrary-suffix determinism lemma) in the "Phase 3b/3c" section below.  Slices 1–2e (the
    `bd` balance toolkit + `gtokens_balanced`; the `last0`/`bdip`/`fsep` split lemmas;
-   `no_depth0_sep`; `gtokens_args_inj`) are LANDED + gated; `gtokens_inj` itself is the open crux
-   (with `gtokens_pairs_inj`, the paren/bare operand discrimination, and the EBn precedence sub-arc).
+   `no_depth0_sep`; `gtokens_args_inj`; `gtokens_pairs_inj`) are LANDED + gated; `gtokens_inj` itself
+   is the open crux (with the paren/bare operand discrimination and the EBn precedence sub-arc).
 4. **CanonStmt/CanonProgram** + the same trio over the statement printer (the
    statement layer's `lex_gprint_stmt` does not exist yet — build the statement
    `gtokens` analogue first).
@@ -148,8 +150,8 @@ to the THREE expression bracket kinds — parens `TLP`/`TRP`, square `TLB`/`TRB`
   via a first-depth-0-separator lemma, resting on `no_depth0_sep` (LANDED): no expression's `gtokens 0 e`
   contains a depth-0 `TComma`/`TColon` (they occur only inside nested groups, at depth ≥1), so the
   first top-level separator delimits the first element.  (`last0`/`last0_group`,
-  `bdip`/`balanced_close_split`, `fsep`/`sep_split`, `no_depth0_sep`, and `gtokens_args_inj`
-  LANDED + gated; `gtokens_pairs_inj` (map pairs) is TO WRITE.)
+  `bdip`/`balanced_close_split`, `fsep`/`sep_split`, `no_depth0_sep`, `gtokens_args_inj`, and
+  `gtokens_pairs_inj` LANDED + gated.)
 
 `gtokens_inj` by structural induction on `e1` (`GExpr_ind'`), `destruct e2`, per pair — on
 COMPLETE lists (no suffix):
