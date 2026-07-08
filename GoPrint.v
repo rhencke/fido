@@ -3105,9 +3105,10 @@ Example rt_maplit2 : parse_str (gprint 0 (EMapLit GTString GTInt ((EX "a", EInt 
 Proof. vm_compute; reflexivity. Qed.
 
 (** ---- THE CANONICAL TOKEN LIST ---- [gtokens ctx e] is the token list [gprint ctx e] lexes to.  Mirrors
-    [gprint]'s structure exactly; [op_token]/[prefix_token] RIGHT-invert the parser's [infix_op]/[prefix_op]
-    in INFIX / PREFIX position respectively — but their ranges OVERLAP on [TMinus]/[TStar]/[TAmp]/[TCaret]
-    (slice 2h), so a token alone does NOT fix the op; the parser selects infix-vs-prefix by POSITION.
+    [gprint]'s structure exactly; [op_token] RIGHT-inverts the parser's SINGLE token→op classifier
+    [infix_op] (in [parse_climb]) — prefix ops [prefix_token] have NO classifier, [parse_primary]
+    recognizes them inline.  The two token maps OVERLAP on [TMinus]/[TStar]/[TAmp]/[TCaret] (slice 2h),
+    so a token alone does NOT fix the op — the parser selects infix-vs-prefix by POSITION.
     This is the bridge for the general round-trip: [lex (gprint ctx e) = Some (gtokens ctx e)] (lexer side)
     and [parse_expr F (gtokens ctx e ++ rest) = Some (e, rest)] (parser side), composed. *)
 Definition op_token (o : BinOp) : Token :=
@@ -3382,7 +3383,8 @@ Proof.
   destruct kvs as [ | [k v] r ]; [ reflexivity | rewrite gtp_eq; reflexivity ].
 Qed.
 
-(** [op_token]/[prefix_token] really invert the parser's token classifiers. *)
+(** [op_token] right-inverts the parser's ONLY token→op classifier [infix_op] (prefix ops have no
+    classifier — [parse_primary] recognizes [prefix_token] inline). *)
 Lemma infix_op_token : forall o, infix_op (op_token o) = Some o.
 Proof. destruct o; reflexivity. Qed.
 
