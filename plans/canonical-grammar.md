@@ -63,8 +63,10 @@ discriminating lengths via `no_depth0_sep`/`fsep`; helpers `app_cons_nonnil`/`gt
 `sep_split`s — first on `TColon` for the key, then on `TComma` for the value — then recurses; helpers
 `gtokens_pairs_tl_cons`/`gtokens_pairs_nonnil`/`gtokens_pairs_single`/`gtokens_pairs_cons2`), gated.
 Phase 3b SLICE 2g LANDED — the paren/bare operand discrimination: `bare_not_paren_group` (a bare
-non-operator expression's tokens NEVER equal a single paren group `TLP :: g ++ TRP :: nil`,
-discriminated by `last0` — the group has `last0 = 0`, every postfix form an interior depth-0 token) +
+non-operator expression's tokens NEVER equal a single paren group `TLP :: g ++ TRP :: nil`, by THREE
+paths — leading-token mismatch for atoms/`EConv`/lits; `last0` (`= 0` for the group vs an interior
+depth-0 token, via `last0_group`) for `EIndex`/`ESlice`/`ECall`/`EAssert`; last-token `TId f`≠`TRP`
+via `app_inj_tail` for `ESel`) +
 `gtparen_inj` (the operand step: `gtparen` injective given the operand's injectivity IH; bare/bare and
 paren/paren via `balanced_close_split`, the mismatch via `bare_not_paren_group`; helpers
 `gtparen_nonnil`/`last0_paren_group`), gated.

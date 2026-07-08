@@ -5256,9 +5256,14 @@ Qed.
 (** ---- Phase 3b slice 2g: the PAREN/BARE operand discrimination.  [gtparen] wraps an operand in
     [TLP … TRP] iff [op_needs_paren] ([true] exactly for [EUn]/[EBn]).  The one hard sub-step of the
     operand step is: a BARE non-operator expression's tokens can NEVER equal a single parenthesized
-    group [TLP :: g ++ TRP :: nil].  Discriminated by [last0] (slice 2a): the single group has
-    [last0 = 0] (only the leading [TLP] sits at depth 0), while every postfix form has an INTERIOR
-    depth-0 token ([last0 = length (gtparen operand) ≥ 1]).  Parser-free. *)
+    group [TLP :: g ++ TRP :: nil].  THREE discrimination paths by constructor:
+    (a) atoms / [EConv] / [ESliceLit] / [EMapLit] — the LEADING token is not [TLP] (leading-token
+        mismatch);
+    (b) [EIndex]/[ESlice]/[ECall]/[EAssert] — end in a bracket group, so [last0] (slice 2a) SEPARATES
+        them: the single group has [last0 = 0] (only the leading [TLP] at depth 0), while these have an
+        INTERIOR depth-0 token [last0 = length (gtparen operand) ≥ 1] via [last0_group];
+    (c) [ESel] — no trailing bracket group, so discriminated by its LAST token ([TId f] ≠ [TRP], via
+        [app_inj_tail]).  Parser-free. *)
 Lemma gtparen_nonnil : forall e0, gtparen e0 <> nil.
 Proof. intro e0. unfold gtparen. destruct (op_needs_paren e0); [ discriminate | apply gtokens_nonnil ]. Qed.
 Lemma last0_paren_group : forall g, bd g 0 = Some 0 -> last0 (TLP :: (g ++ TRP :: nil)) = 0.
