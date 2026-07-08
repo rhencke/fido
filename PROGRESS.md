@@ -104,7 +104,9 @@ plugin CONSTRUCTS the `GExpr`; only `gprint` is verified. NOT "verified Go."
   `gtokens_ebn_inner`'s unwrapped-inner recursion promoted past the ctx-wrapper, with wrapped-vs-unwrapped
   mismatch discriminated via `eb_find_gtokens`) and `gtokens_eun_inner` (the EUn diagonal); plus the first
   cross-discriminator `nonatom_len` (atoms print to 1 token, every other form to ≥2 — the atom row/column
-  of the destruct-e2 matrix)). NEXT: keep building the `gtokens_inj` ASSEMBLY — the LARGE remaining bulk
+  of the destruct-e2 matrix); and the first two POSTFIX diagonals `gtokens_inj_esel`/`gtokens_inj_eindex`
+  (base + fixed-tail / bracket-group, split via `app_inj_tail`/`last0`)). NEXT: keep building the
+  `gtokens_inj` ASSEMBLY — the LARGE remaining bulk
   (the diagonals + `nonatom_len` are a small fraction): the primary diagonals (atoms/postfix/composites)
   and, hardest, the ~14×13 cross-constructor discrimination (`gtokens` is not prefix-free, so most pairs
   need a real discriminator; the LENGTH one is landed as `nonatom_len`, the rest — `eb_top` for `EBn`,
