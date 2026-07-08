@@ -29,7 +29,9 @@
     the parser has NOT yet been demoted below the grammar at the expression-uniqueness/statement layers.
     Nothing here is Go-compiler acceptance.  There is NO theorem that Go's compiler reads the
     emitted text as the same AST (that Go-subset RECOGNITION theorem — emitted grammar ⊆ Go grammar — is
-    gap #10), and the plugin → emitted-bytes path also has a trusted [gofmt] post-step (see the Makefile).
+    UNPROVEN, a SEPARATE Go-syntax recognition gap; Go's toolchain is TRUSTED, ARCHITECTURE §2a item 3 —
+    NOT the plugin's source→term gap #10), and the plugin → emitted-bytes path also has a trusted [gofmt]
+    post-step (see the Makefile).
     This file proves NO behavioral safety. *)
 
 From Stdlib Require Import String List Ascii ZArith Lia Bool Eqdep_dec Floats.SpecFloat.
@@ -6435,7 +6437,8 @@ Qed.
 
 (** ★ THE END-TO-END EXPRESSION ROUND-TRIP — printing then parsing (lex + parse) recovers the AST EXACTLY.
     Composes [gtokens_lex] (printer→tokens) with [gtokens_parse] (tokens→AST).  HONEST SCOPE: printer/parser
-    SELF-CONSISTENCY for the clean Rocq grammar — NOT yet a theorem about Go's own parser (gap #10). *)
+    SELF-CONSISTENCY for the clean Rocq grammar — NOT yet a theorem about Go's own parser (a SEPARATE,
+    unproven Go-syntax recognition gap; Go's toolchain is trusted — NOT the plugin's gap #10). *)
 Theorem parse_print_roundtrip : forall e, parse_str (gprint 0 e) = Some (e, nil).
 Proof.
   intro e. unfold parse_str. rewrite (gtokens_lex e 0). apply gtokens_parse.

@@ -67,8 +67,8 @@ arbitrary-SUFFIX determinism lemma was found FALSE — see the design.)
 ## Phases (each: green, golden byte-identical, gated, reviewed)
 
 1. **CanonTy + CanonExpr (the relations).**  Mutual inductives mirroring `gtokens`'
-   arms as PRODUCTIONS — `CanonTy : GoTy -> list Token -> Prop`,
-   `CanonConvTy : ConvTy -> list Token -> Prop`,
+   arms as PRODUCTIONS — `CanonTy : GoTy -> list Token -> Prop` (EConv's conversion type REUSES it
+   as `CanonTy (convty_ty c)`; there is NO separate `CanonConvTy`),
    `CanonExpr : nat -> GExpr -> list Token -> Prop` with
    `CanonArgs : list GExpr -> list Token -> Prop` and
    `CanonPairs : list (GExpr * GExpr) -> list Token -> Prop` for the three
