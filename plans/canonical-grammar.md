@@ -1,8 +1,8 @@
 # The canonical relational grammar — the syntax AUTHORITY (CLAUDE.md "Syntax authority")
 
-GOAL: the intended syntax authority is a RELATIONAL canonical grammar with parser-free
+DESIGN: the syntax authority is a RELATIONAL canonical grammar with parser-free
 token injectivity — printer correctness proved against the GRAMMAR, the executable
-parser demoted to derived tooling.  Target shapes (CLAUDE.md "Syntax authority"):
+parser as derived tooling.  Shapes (CLAUDE.md "Syntax authority"):
 `CanonExpr : nat -> GExpr -> list Token -> Prop` (+ CanonStmt/CanonProgram),
 `gprint_expr_canonical`, `canon_expr_unique`, `lex_gprint_expr` (likewise per layer).
 
@@ -15,15 +15,15 @@ THE LAYERS (design context, in GoPrint.v): the token type + the fuel-free Acc le
 canonicity) + `lex_gprint_expr` (lexical faithfulness, `lex (gprint ctx e) = Some (gtokens ctx e)`
 composed with the canonical derivation).  Type-level token uniqueness is `canon_ty_unique`, PARSER-FREE
 via `gttokens_ty_inj`; expression uniqueness has the SAME shape via the complete-list `gtokens_inj` (⇒
-`canon_expr_unique`), designed in the "Phase 3b/3c" section below.  ARCHITECTURE NOTE: the arc moves
-`gprint_inj` OFF the executable parser — Phase 3c reproves `gprint_inj` off `gtokens_inj` (replacing the
-`gtokens_parse` + `parse_print_roundtrip` route), the statement layer (`print_stmt_inj`/
-`print_program_inj`, string injectivity) moves onto the canonical layer likewise, and the parser is
-retired to derived tooling LAST (Phase 5).
+`canon_expr_unique`), whose method is in the "Phase 3b/3c" section below.  ARCHITECTURE NOTE: the
+discipline is that `gprint_inj` rests on `gtokens_inj` + `gtokens_lex`, NOT the
+`gtokens_parse` + `parse_print_roundtrip` route; the statement layer (`print_stmt_inj`/
+`print_program_inj`, string injectivity) rests on the canonical layer the same way; the executable
+parser is derived tooling, re-based as `parse_sound`/`parse_complete` in the LAST phase.
 
 ## The architecture (the parser-free uniqueness discipline)
 
-⛔ `canon_expr_unique` must be proved DIRECTLY on the token functions (the complete-list
+⛔ `canon_expr_unique` is proved DIRECTLY on the token functions (the complete-list
 `gtokens_inj`, structural induction on `e1` with a `last0` bracket split — full design in
 "Phase 3b/3c" below) — NEVER via `gtokens_parse`: deriving uniqueness from the parser's would reinstate
 the parser as the foundation, the exact inversion CLAUDE.md forbids.  The executable
@@ -66,7 +66,7 @@ EXPLICIT DEFERRED FRONTIERS (after the expression arc seals — do NOT expand mi
    derivation); `gprint_expr_canonical : CanonExpr ctx e (gtokens ctx e)` (structural);
    `lex_gprint_expr : lex (gprint ctx e) = Some ts /\ CanonExpr ctx e ts` (compose with
    `gtokens_lex`).
-3. **★`canon_expr_unique`** (the meat): `CanonExpr ctx e1 ts -> CanonExpr ctx e2 ts ->
+3. **★`canon_expr_unique`**: `CanonExpr ctx e1 ts -> CanonExpr ctx e2 ts ->
    e1 = e2`, parser-free — via `canon_expr_tokens` + the COMPLETE-list `gtokens_inj`
    (structural induction on `e1`, delimited groups split by `last0` (the last depth-0 position)).  Full design + the ruled-out dead ends (balanced-prefix cancellation; the FALSE
    arbitrary-suffix determinism lemma) in the "Phase 3b/3c" section below.  `gtokens_inj` (the assembly
@@ -265,9 +265,9 @@ COMPLETE lists (no suffix):
   token each) and the ~14×13 cross-constructor discrimination — the genuine crux (not just the EBn case;
   likely surfacing further discrimination sub-lemmas).
 
-Then `canon_expr_unique` (+ `gtokens_inj`) join the printer Print Assumptions gate.
-Phase 3c = reprove `gprint_inj` off `gtokens_inj` + `gtokens_lex` (making it a corollary of the
-canonical layer, no longer of `parse_print_roundtrip`), retiring the parser as the
+`canon_expr_unique` (+ `gtokens_inj`) are in the printer Print Assumptions gate.
+Phase 3c: `gprint_inj` rests off `gtokens_inj` + `gtokens_lex` (a corollary of the
+canonical layer, not of `parse_print_roundtrip`), so the parser is not the
 expression-injectivity authority.
 
 ## Landing rules
