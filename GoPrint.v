@@ -5319,7 +5319,7 @@ Proof.
     rewrite (last0_group (gtparen e0 ++ TDot :: nil)%list (gttokens_ty T) TLP TRP HP
                (gttokens_ty_bd T) (or_introl eq_refl)) in HL.
     rewrite (last0_paren_group g Hg) in HL.
-    rewrite app_length in HL. cbn [length] in HL. lia.
+    rewrite List.length_app in HL. cbn [length] in HL. lia.
   - (* EConv *) rewrite gtokens_EConv. intro HE. destruct (convty_ty c) eqn:Ec; discriminate HE.
   - (* ESliceLit *) rewrite gtokens_ESliceLit. discriminate.
   - (* EMapLit *) rewrite gtokens_EMapLit. discriminate.
