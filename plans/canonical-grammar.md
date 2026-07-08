@@ -136,7 +136,9 @@ determinism lemma was found FALSE — see the design.)
    foundation); rewrite GoPrint's header authority claims; the PROGRESS gate list
    gains the canonical surface (one manifest-gated `Print Assumptions`).
 
-## Phase 3b/3c — the expression uniqueness proof (design, pinned before coding)
+## Phase 3b/3c — the expression uniqueness proof (design, pinned before coding; the balance/split
+## toolkit, the type-skipper, and the whole EBn precedence scan are now LANDED — only `gtokens_inj`'s
+## assembly + `canon_expr_unique` remain, see the slice log above)
 
 TARGET (mirrors the type layer exactly): `canon_expr_unique ctx e1 e2 ts` = `canon_expr_tokens`
 on both sides + a PARSER-FREE `gtokens_inj : forall ctx e1 e2, gtokens ctx e1 = gtokens ctx e2
