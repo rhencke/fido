@@ -96,8 +96,11 @@ at the empty suffix collapses the combine — the block's tokens locate their ow
 for an unwrapped `EBn o _ r`, `None` for every primary / prefix `EUn` / paren-WRAPPED `EBn`).  This is the
 `gtokens_inj` EBn DISCRIMINATOR (equal token lists ⇒ equal `eb_top` ⇒ same operator + same right split).
 `eb_find_inner` (the `EBn`-node instance `eb_find inner = Some (gtokens (S prec o) r, o)`) is now a
-4-line corollary.  STILL TO WRITE: `gtokens_inj` itself (EBn via `eb_find_gtokens`; app-split at
-`op_token o`, `op_token_inj` for `o`, IH on `l`/`r`) then `canon_expr_unique`.  (The arbitrary-SUFFIX
+4-line corollary, and `gtokens_ebn_inner` — the EBn-case RECURSION of `gtokens_inj` (two nodes with equal
+inner tokens ⇒ equal operator + operands, via `eb_find_inner` + the two operand IHs + `app_inv_tail`) — is
+LANDED.  STILL TO WRITE: the `gtokens_inj` ASSEMBLY (the EBn crux recursion is done; remaining is the
+ctx-wrapper peel + the primary/EUn/composite cross-discrimination via `eb_top`/`last0`/`gtparen_inj`) then
+`canon_expr_unique`.  (The arbitrary-SUFFIX
 determinism lemma was found FALSE — see the design.)
 
 ## Phases (each: green, golden byte-identical, gated, reviewed)
