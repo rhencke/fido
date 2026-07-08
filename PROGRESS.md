@@ -104,10 +104,11 @@ plugin CONSTRUCTS the `GExpr`; only `gprint` is verified. NOT "verified Go."
   `gtokens_ebn_inner`'s unwrapped-inner recursion promoted past the ctx-wrapper, with wrapped-vs-unwrapped
   mismatch discriminated via `eb_find_gtokens`) and `gtokens_eun_inner` (the EUn diagonal); plus the first
   cross-discriminator `nonatom_len` (atoms print to 1 token, every other form to ≥2 — the atom row/column
-  of the destruct-e2 matrix); and ALL NINE NON-OPERATOR same-constructor DIAGONALS — the five POSTFIX
-  forms `gtokens_inj_esel`/`gtokens_inj_eindex`/`gtokens_inj_eassert`/`gtokens_inj_eslice`/
+  of the destruct-e2 matrix); and the remaining EIGHT NON-ATOM, NON-OPERATOR same-constructor DIAGONALS —
+  the five POSTFIX forms `gtokens_inj_esel`/`gtokens_inj_eindex`/`gtokens_inj_eassert`/`gtokens_inj_eslice`/
   `gtokens_inj_ecall` and the three type-led COMPOSITES `gtokens_inj_econv`/`gtokens_inj_eslicelit`/
-  `gtokens_inj_emaplit` (base-or-type prefix + delimited group: `last0_group` pins the prefix length,
+  `gtokens_inj_emaplit` (so with `gtokens_inj_ebn`/`gtokens_eun_inner` above, all 10 non-atom diagonals are
+  done) (base-or-type prefix + delimited group: `last0_group` pins the prefix length,
   `app_eq_length` splits it off — `gttokens_ty_inj`/`convty_ty_inj` recover the type — then `app_inj_tail`
   / `sep_split` (the `lo:hi` colon) / `gtokens_args_inj` / `gtokens_pairs_inj` peel the group)). NEXT: keep
   building the `gtokens_inj` ASSEMBLY — the remaining bulk

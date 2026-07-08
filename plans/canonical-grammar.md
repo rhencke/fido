@@ -104,12 +104,17 @@ wrapped-vs-unwrapped mismatch is a `None=Some` contradiction and same-wrapping s
 and `gtokens_eun_inner` (the EUn diagonal — EUn's tokens don't depend on ctx: equal tokens ⇒ equal unop +
 operand, via `prefix_token_inj` + `bare_not_paren_group` + the operand IH).  The first cross-discriminator
 `nonatom_len` is also LANDED (`unop_needs_paren e = true -> 2 <= length (gtokens ctx e)` — atoms print to
-one token, every other form to ≥2; the atom row/column of the destruct-`e2` matrix), as are the first two
-POSTFIX diagonals `gtokens_inj_esel` (base + fixed 2-token tail, `app_inj_tail` + `gtparen_inj`) and
-`gtokens_inj_eindex` (base + bracket group, `last0_group` pins the base-prefix length + `app_eq_length`).
-STILL TO WRITE: the
-`gtokens_inj` ASSEMBLY — the LARGE remaining bulk (the diagonals + `nonatom_len` are a small fraction): the primary
-diagonals (atoms/postfix/composites) and, HARDEST, the ~14×13 cross-constructor
+one token, every other form to ≥2; the atom row/column of the destruct-`e2` matrix), as are ALL FIVE
+POSTFIX diagonals `gtokens_inj_esel` (base + fixed 2-token tail, `app_inj_tail` + `gtparen_inj`),
+`gtokens_inj_eindex`/`gtokens_inj_eslice`/`gtokens_inj_ecall` (base + bracket-or-paren group, `last0_group`
+pins the base-prefix length + `app_eq_length`, then `app_inj_tail`/`sep_split`/`gtokens_args_inj`) and
+`gtokens_inj_eassert` (base + `.(T)` paren group), AND the three TYPE-LED COMPOSITE diagonals
+`gtokens_inj_econv`/`gtokens_inj_eslicelit`/`gtokens_inj_emaplit` (type prefix peeled by `last0_group`,
+recovered via `gttokens_ty_inj` + `convty_ty_inj`; brace groups via `gtokens_args_inj`/`gtokens_pairs_inj`).
+So EVERY non-atom diagonal is done (10 of 14 ctors).  STILL TO WRITE: the
+`gtokens_inj` ASSEMBLY — the remaining bulk (the diagonals + `nonatom_len` are a small fraction): the only
+remaining primary diagonals are the four ATOM rows (`EId`/`EInt`/`EStr`/`EHex`, one token each) and,
+HARDEST, the ~14×13 cross-constructor
 discrimination.  Since `gtokens` is not prefix-free, most constructor pairs need a real discriminator; the
 LENGTH one (atom vs everything) is landed as `nonatom_len`, but the rest (`eb_top` for `EBn`, `last0`/
 last-token for the delimited forms) and probably further discrimination sub-lemmas remain — the genuine
@@ -144,12 +149,14 @@ determinism lemma was found FALSE — see the design.)
    `eb_find_gtokens` — the EBn discriminator, `eb_find_inner` its corollary) are LANDED +
    gated; `gtokens_inj` itself is the open crux.  The EBn precedence substrate is fully landed
    (`eb_find_gtokens : eb_find (gtokens ctx e) = eb_top ctx e`, the EBn discriminator; `eb_find_inner` its
-   corollary), plus the two operator-bearing DIAGONALS of `gtokens_inj`, both FULL: `gtokens_inj_ebn` (the
-   EBn diagonal — `gtokens_ebn_inner`'s unwrapped-inner recursion promoted past the ctx-wrapper, mismatch
-   discriminated via `eb_find_gtokens`) and `gtokens_eun_inner` (the EUn diagonal), plus the first
-   cross-discriminator `nonatom_len` (atom vs everything, by length) — but these are a small
-   fraction.  The LARGE remaining bulk is the `gtokens_inj` ASSEMBLY: the primary
-   diagonals (atoms/postfix/composites), and, hardest, the ~14×13 cross-constructor discrimination (not
+   corollary), plus ALL TEN NON-ATOM DIAGONALS of `gtokens_inj`: the two operator-bearing (`gtokens_inj_ebn`
+   — the EBn diagonal, `gtokens_ebn_inner`'s unwrapped-inner recursion promoted past the ctx-wrapper,
+   mismatch discriminated via `eb_find_gtokens` — and `gtokens_eun_inner`, the EUn diagonal), the five
+   POSTFIX (`gtokens_inj_esel`/`_eindex`/`_eassert`/`_eslice`/`_ecall`) and the three type-led COMPOSITE
+   (`gtokens_inj_econv`/`_eslicelit`/`_emaplit`), plus the first cross-discriminator `nonatom_len` (atom vs
+   everything, by length) — but these are a small
+   fraction.  The remaining bulk is the `gtokens_inj` ASSEMBLY: the only remaining primary
+   diagonals are the four ATOM rows, and, hardest, the ~14×13 cross-constructor discrimination (not
    prefix-free ⇒ most pairs need a real discriminator; the assembly
    will likely surface further discrimination sub-lemmas — the genuine remaining crux, not mere wiring).
 4. **CanonStmt/CanonProgram** + the same trio over the statement printer (the
