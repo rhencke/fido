@@ -137,10 +137,12 @@ determinism lemma was found FALSE — see the design.)
    `eb_find_gtokens` — the EBn discriminator, `eb_find_inner` its corollary) are LANDED +
    gated; `gtokens_inj` itself is the open crux.  The EBn precedence substrate is fully landed
    (`eb_find_gtokens : eb_find (gtokens ctx e) = eb_top ctx e`, the EBn discriminator; `eb_find_inner` its
-   corollary), and the two "loose" (operator-bearing) same-constructor DIAGONALS are done
-   (`gtokens_ebn_inner`/`gtokens_eun_inner`) — but these are a small fraction.  The LARGE remaining bulk is
-   the `gtokens_inj` ASSEMBLY: the primary diagonals (atoms/postfix/composites) and, hardest, the ~14×13
-   cross-constructor discrimination (not prefix-free ⇒ most pairs need a real discriminator; the assembly
+   corollary), plus two `gtokens_inj` case-recursion HELPERS: `gtokens_ebn_inner` (ONLY the EBn
+   UNWRAPPED-INNER recursion — the full EBn diagonal still needs the ctx-wrapper peel + wrapped/unwrapped
+   discrimination) and `gtokens_eun_inner` (the full EUn diagonal) — but these are a small fraction.  The
+   LARGE remaining bulk is the `gtokens_inj` ASSEMBLY: the EBn ctx-wrapper peel/discrimination, the primary
+   diagonals (atoms/postfix/composites), and, hardest, the ~14×13 cross-constructor discrimination (not
+   prefix-free ⇒ most pairs need a real discriminator; the assembly
    will likely surface further discrimination sub-lemmas — the genuine remaining crux, not mere wiring).
 4. **CanonStmt/CanonProgram** + the same trio over the statement printer (the
    statement layer's `lex_gprint_stmt` does not exist yet — build the statement
