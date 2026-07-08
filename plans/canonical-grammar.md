@@ -6,13 +6,18 @@ parser demoted to derived tooling.  Target shapes (CLAUDE.md "Syntax authority")
 `CanonExpr : nat -> GExpr -> list Token -> Prop` (+ CanonStmt/CanonProgram),
 `gprint_expr_canonical`, `canon_expr_unique`, `lex_gprint_expr` (likewise per layer).
 
-WHAT EXISTS (in GoPrint.v): the token type + the fuel-free Acc lexer;
-`gtokens ctx e` (the executable canonical token assignment); `gtokens_lex : lex (gprint
-ctx e) = Some (gtokens ctx e)` (lexical faithfulness, expression layer); `gtokens_parse`
-+ `parse_print_roundtrip` (the executable-parser round-trip); `print_stmt_inj`/
-`print_program_inj` (statement-layer STRING injectivity).  The gap: no relational
-grammar, and every injectivity fact routes through either the executable parser or
-string equality — the parser is still the de-facto foundation.
+WHAT EXISTS (in GoPrint.v): the token type + the fuel-free Acc lexer; `gtokens ctx e` (the
+executable canonical token assignment); the RELATIONAL grammar `CanonTy`/`CanonExpr` +
+`canon_ty_tokens`/`canon_expr_tokens` (token-functionality) + `gprint_expr_canonical` (printer
+canonicity) + `lex_gprint_expr` (lexical faithfulness, `lex (gprint ctx e) = Some (gtokens ctx e)`
+composed with the canonical derivation); `canon_ty_unique` — type-level token uniqueness, PARSER-FREE
+via `gttokens_ty_inj`; and the Phase-3b toolkit toward expression uniqueness (`bd`/`gtokens_balanced`,
+the `last0`/`bdip`/`fsep` split lemmas, `no_depth0_sep`, `gtokens_args_inj`).  STILL OPEN: the
+complete-list `gtokens_inj` (⇒ `canon_expr_unique`).  Until it lands, `gprint_inj` still routes
+through `gtokens_parse` + `parse_print_roundtrip` (the executable-parser round-trip) and the
+statement layer (`print_stmt_inj`/`print_program_inj`) is still STRING injectivity — so EXPRESSION
+injectivity remains parser-derived (Phase 3c reproves `gprint_inj` off `gtokens_inj`; the parser is
+retired to derived tooling LAST, Phase 5).
 
 ## The architecture (the parser-free uniqueness discipline)
 
