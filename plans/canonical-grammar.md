@@ -117,12 +117,13 @@ determinism lemma was found FALSE — see the design.)
 3. **★`canon_expr_unique`** (the meat): `CanonExpr ctx e1 ts -> CanonExpr ctx e2 ts ->
    e1 = e2`, parser-free — via `canon_expr_tokens` + the COMPLETE-list `gtokens_inj`
    (structural induction on `e1`, delimited groups split by `last0` (the last depth-0 position)).  Full design + the ruled-out dead ends (balanced-prefix cancellation; the FALSE
-   arbitrary-suffix determinism lemma) in the "Phase 3b/3c" section below.  Slices 1–2k-c (the
+   arbitrary-suffix determinism lemma) in the "Phase 3b/3c" section below.  Slices 1–2k-d (the
    `bd` balance toolkit + `gtokens_balanced`; the `last0`/`bdip`/`fsep` split lemmas;
    `no_depth0_sep`; `gtokens_args_inj`; `gtokens_pairs_inj`; the paren/bare operand discrimination
    `bare_not_paren_group`/`gtparen_inj`; the operator-token injectivities
    `op_token_inj`/`prefix_token_inj`; the type-skipper `skip_gty`; slice 2j the EBn locator `eb_find` +
-   `eb_find_lt`; slice 2k-c the OPERAND LAW `eb_operand` — the depth-0 dual of `eb_depth`) are LANDED +
+   `eb_find_lt`; slice 2k-c the OPERAND LAW `eb_operand` — the depth-0 dual of `eb_depth`; slice 2k-d
+   `eb_find_gtokens` — the EBn discriminator, `eb_find_inner` its corollary) are LANDED +
    gated; `gtokens_inj` itself is the open crux — the locator AND its operand-law substrate are landed, so
    the top-level `eb_find` correctness (2k-d `eb_find_gtokens : eb_find (gtokens ctx e) = eb_top ctx e`, the
    EBn discriminator; `eb_find_inner` its corollary) is LANDED too, so the `gtokens_inj` EBn assembly (equal

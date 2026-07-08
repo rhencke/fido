@@ -88,7 +88,7 @@ plugin CONSTRUCTS the `GExpr`; only `gprint` is verified. NOT "verified Go."
 - **The canonical relational syntax authority is the ACTIVE arc** (`plans/canonical-grammar.md`;
   checkpoint-50 order: syntax authority before spawn). Phases 1+2 landed (`CanonTy`/`CanonExpr`
   + `gprint_expr_canonical` + `lex_gprint_expr`); Phase 3a landed (`canon_ty_unique`, type-level
-  token uniqueness, PARSER-FREE via `gttokens_ty_inj`); Phase 3b slices 1–2k-c landed (slice 1
+  token uniqueness, PARSER-FREE via `gttokens_ty_inj`); Phase 3b slices 1–2k-d landed (slice 1
   `bd`/`gtokens_balanced`; slices 2a–2j the `last0`/`bdip`/`fsep` split lemmas, `no_depth0_sep`,
   `gtokens_args_inj`, `gtokens_pairs_inj`, the paren/bare operand discrimination
   `bare_not_paren_group`/`gtparen_inj`, the operator-token injectivities
@@ -96,10 +96,10 @@ plugin CONSTRUCTS the `GExpr`; only `gprint` is verified. NOT "verified Go."
   (`skip_gty_types` exactness + `skip_gty_lt` progress), slice 2j the EBn precedence-split LOCATOR
   `eb_find` (finds the rightmost depth-0 min-precedence infix op as a suffix split) + `eb_find_lt`
   progress, slice 2k-c the OPERAND LAW `eb_operand` — the depth-0 dual of `eb_depth` proving the
-  locator's rightmost-min split via pure combine algebra, the `EBn`-crux — and slice 2k-d `eb_find_inner`,
-  the top-level `eb_find` rightmost-min correctness at `suffix = nil`, proved as a corollary of
-  `eb_operand` at the `EBn` node — generalized to `eb_find_gtokens : eb_find (gtokens ctx e) = eb_top ctx
-  e`, THE `gtokens_inj` EBn discriminator, with `eb_find_inner` now its corollary). NEXT: `gtokens_inj`
+  locator's rightmost-min split via pure combine algebra, the `EBn`-crux — and slice 2k-d `eb_find_gtokens
+  : eb_find (gtokens ctx e) = eb_top ctx e`, THE `gtokens_inj` EBn discriminator (`eb_operand` at the empty
+  suffix ⇒ a block's tokens locate their own top operator: `Some (R,o)` for an unwrapped `EBn`, `None`
+  otherwise), with the `EBn`-node instance `eb_find_inner` now its corollary). NEXT: `gtokens_inj`
   (EBn via `eb_find_gtokens`; primaries via `last0`/`gtparen_inj`/args-pairs; EUn via `prefix_token_inj`) →
   `canon_expr_unique` (all parser-free); then reprove `gprint_inj`
   off `gtokens_inj` (retiring `parse_print_roundtrip`), then `CanonStmt`/`CanonProgram`.
