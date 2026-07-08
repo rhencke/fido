@@ -5847,6 +5847,14 @@ Proof.
   match goal with |- context [eb_find_acc rest 0 false ?A] => rewrite (eb_find_pi rest 0 false A) end.
   rewrite (eb_find_pi rest 0 false a'). reflexivity.
 Qed.
+(* a closer at depth 1 returns to depth 0, operand-COMPLETE (closes a paren/index/composite group). *)
+Lemma eb_close1 : forall t rest oc a a2, (t = TRP \/ t = TRB \/ t = TRC) ->
+  eb_find_acc (t :: rest) 1 oc a = eb_find_acc rest 0 true a2.
+Proof. intros t rest oc a a2 H; destruct H as [ -> | [ -> | -> ] ]; eb_step_by. Qed.
+(* a bare / unwrapped operand base is never an [EBn] ([op_needs_paren]=false rules out [EUn]/[EBn]), so it
+   contributes NO depth-0 operator — its [eb_top] is [None]. *)
+Lemma eb_top_bare : forall c e, op_needs_paren e = false -> eb_top c e = None.
+Proof. intros c e H; destruct e; cbn [eb_top op_needs_paren] in *; try reflexivity; discriminate H. Qed.
 
 (** LEXICAL FAITHFULNESS through the grammar: printing then lexing yields EXACTLY a
     canonical derivation's tokens — the composed [lex_gprint_expr] shape CLAUDE.md names. *)
@@ -7817,6 +7825,7 @@ Print Assumptions eb_depth_pairs.
 Print Assumptions eb_depth.
 Print Assumptions eb_top_prec.
 Print Assumptions eb0t_infix.
+Print Assumptions eb_top_bare.
 
 (** Extract the Rocq printers to the OCaml the plugin calls. *)
 Require Import Extraction.
