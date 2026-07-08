@@ -276,8 +276,9 @@ COMPLETE lists (no suffix):
   paren-WRAPPED and `eb_find` returns `None`; `gtokens_inj` peels the wrapper before calling `eb_find`),
   broken into: 2k-a `eb_find_acc_pi` (LANDED, gated) — [Acc]-proof-irrelevance so the correctness proof can
   reason equationally across the [Acc_inv] certs `eb_find_acc`'s own recursion produces.
-  ★2k-b STRUCTURE (worked out from the `gtokens` clauses — code-ready): a CONJUNCTION proved by ONE
-  induction on `e` (`GExpr_ind'`):
+  ★The two depth-scan laws (worked out from the `gtokens` clauses) — TWO SEPARATE inductions on `e`
+  (`GExpr_ind'`), (ii) LANDED and (i) NEXT (the depth law (ii) is self-contained, so it was proved first
+  and stands alone; it is NOT one conjunction with (i)):
     (ii) DEPTH (d≥1) — LANDED as `eb_depth` (`eb_find_acc (gtokens c e ++ suffix) (S sd) oc =
         eb_find_acc suffix (S sd) oc` — a gtokens block is skipped whole inside brackets).  Proved by
         induction on `GExpr` (NOT the arbitrary-balanced-`g` `eb_bal_skip` route — that needs a fiddly
