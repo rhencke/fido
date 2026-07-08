@@ -3,7 +3,7 @@
     boundary's sealed evaluator — public access would bypass [floats_checked];
     negtest-sealed), the runtime GTInt tier R1–R8 and the typed tiers T1–T5 over ONE
     shared evaluator, [denote_expr]/[denote_program] + the statement layer,
-    [gosem_sound] (denotation ⊆ supportedness) + the compositional converses, and the
+    [gosem_sound] (denotation ⊆ [GoCompile]) + the compositional converses, and the
     class theorems (tier seals, dispatch authorities, slice-index/map reductions).
     ONE file: the proofs compute through the [Local] evaluator core, so no smaller
     Local-sealed split exists.  Program-level fixtures, demos, and the gated surfaces
@@ -4472,7 +4472,7 @@ Definition denote_program (p : Program) : option (Cmd unit) :=
   then denote_body (prog_body p)
   else None.
 
-(** ---- GATE CONNECTION (the slice-1 earns-its-weight theorem): denotation ⊆ supportedness ----
+(** ---- GATE CONNECTION (the slice-1 earns-its-weight theorem): denotation ⊆ [GoCompile] ----
     GoSem gives a behavior ONLY to a program GoCompile accepts.  Because each [denote_stmt] arm that returns
     [Some] is itself gated ([GsReturn] is always [stmt_ok]; [GsBlankAssign] on [svalue]; [GsExprStmt] under
     [expr_stmt_ok]), this is structural. *)

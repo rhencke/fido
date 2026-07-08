@@ -963,10 +963,10 @@ Fixpoint body_okS (G : ScopeS) (b : list GoStmt) : option ScopeS :=
 Definition scope_all_used (G : ScopeS) : bool :=
   forallb (fun ent => snd (snd ent)) (sc_list G).
 
-(** THE PROGRAM GATE — decidable PHASE-1 supportedness: package-main + the ONE scope-threaded
-    fold [body_okS] from [scope_empty] + every declared local USED ([scope_all_used]).
-    CONSERVATIVE structural scope + type-category supportedness — rejects free identifiers,
-    use-before-declare, redeclaration, unused locals, and structurally-evident type/constant
+(** THE PROGRAM GATE — decidable PHASE-1 compile-admissibility ("this would compile"): package-main +
+    the ONE scope-threaded fold [body_okS] from [scope_empty] + every declared local USED
+    ([scope_all_used]).  CONSERVATIVE structural scope + type-category admissibility — rejects free
+    identifiers, use-before-declare, redeclaration, unused locals, and structurally-evident type/constant
     errors, but it is NOT full Go type-checking and NOT behavioral safety. *)
 Definition go_compile_check (p : Program) : bool :=
   String.eqb (proj1_sig (prog_pkg p)) "main"
