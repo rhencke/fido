@@ -6041,6 +6041,31 @@ Proof.
   - (* EStr *) cbn [gtokens app eb_top eb_combine]; eb0_atom eb0f_str; eb_fin.
   - (* EHex *) cbn [gtokens app eb_top eb_combine]; eb0_atom eb0f_hex; eb_fin.
 Qed.
+Lemma eb_find_acc_nil : forall d oc (a : Acc lt (List.length (@nil Token))),
+  eb_find_acc nil d oc a = None.
+Proof. intros d oc a; destruct a; reflexivity. Qed.
+(* ═══ 2k-d: the top-level [eb_find] rightmost-min CORRECTNESS ═══  a COROLLARY of [eb_operand] at the
+   binary node itself: at [ctx = binop_prec o] the node is UNWRAPPED (its tokens are the bare inner
+   [gtokens (prec o) l ++ op_token o :: gtokens (S prec o) r]) and [eb_top] returns [Some (R, o)] with
+   R = the right operand's tokens; with the empty suffix the combine keeps [o] and R runs to end-of-input.
+   So the inner tokens LOCATE their own operator [o] as the split, R the suffix — exactly what the
+   [gtokens_inj] EBn case consumes after peeling any ctx-wrapper.  PARSER-FREE (no [gtokens_parse]). *)
+Lemma eb_find_inner : forall o l r,
+  eb_find (gtokens (binop_prec o) l ++ op_token o :: gtokens (S (binop_prec o)) r)%list
+    = Some (gtokens (S (binop_prec o)) r, o).
+Proof.
+  intros o l r.
+  assert (Elt : Nat.ltb (binop_prec o) (binop_prec o) = false) by (apply Nat.ltb_ge; lia).
+  assert (Hg : gtokens (binop_prec o) (EBn o l r)
+             = (gtokens (binop_prec o) l ++ op_token o :: gtokens (S (binop_prec o)) r)%list)
+    by (cbn [gtokens]; rewrite Elt; reflexivity).
+  unfold eb_find.
+  pose proof (eb_operand (EBn o l r)) as H; unfold eb_op_pred in H.
+  specialize (H (binop_prec o) nil (lt_wf _) (lt_wf _)).
+  rewrite app_nil_r in H; rewrite Hg in H; rewrite H.
+  rewrite eb_find_acc_nil; cbn [eb_top]; rewrite Elt; cbn [eb_combine].
+  rewrite app_nil_r; reflexivity.
+Qed.
 
 (** LEXICAL FAITHFULNESS through the grammar: printing then lexing yields EXACTLY a
     canonical derivation's tokens — the composed [lex_gprint_expr] shape CLAUDE.md names. *)
@@ -8015,6 +8040,7 @@ Print Assumptions eb_top_bare.
 Print Assumptions eb_type_skip.
 Print Assumptions eb_type_conv.
 Print Assumptions eb_operand.
+Print Assumptions eb_find_inner.
 
 (** Extract the Rocq printers to the OCaml the plugin calls. *)
 Require Import Extraction.
