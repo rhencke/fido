@@ -5259,9 +5259,10 @@ Qed.
     group [TLP :: g ++ TRP :: nil].  THREE discrimination paths by constructor:
     (a) atoms / [EConv] / [ESliceLit] / [EMapLit] — the LEADING token is not [TLP] (leading-token
         mismatch);
-    (b) [EIndex]/[ESlice]/[ECall]/[EAssert] — end in a bracket group, so [last0] (slice 2a) SEPARATES
-        them: the single group has [last0 = 0] (only the leading [TLP] at depth 0), while these have an
-        INTERIOR depth-0 token [last0 = length (gtparen operand) ≥ 1] via [last0_group];
+    (b) [EIndex]/[ESlice]/[ECall]/[EAssert] — end in a bracket group whose OPENER sits at a depth-0
+        position INTERIOR to the list (at [length (gtparen operand)], or one past it for [EAssert]'s
+        [.(T)]), so [last0 ≥ 1] via [last0_group] — whereas the single group has [last0 = 0] (only the
+        leading [TLP] at depth 0);
     (c) [ESel] — no trailing bracket group, so discriminated by its LAST token ([TId f] ≠ [TRP], via
         [app_inj_tail]).  Parser-free. *)
 Lemma gtparen_nonnil : forall e0, gtparen e0 <> nil.
