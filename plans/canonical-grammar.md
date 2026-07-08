@@ -203,6 +203,19 @@ COMPLETE lists (no suffix):
   ambiguous at the token level — the scan must classify by prefix/infix POSITION (an infix op follows
   a COMPLETE operand; a unary prefix leads an operand), the parser's job reproved structurally.
   `Nat.ltb (binop_prec o) ctx` P/N split by the leading `TLP` as usual.
+  THE SCAN (design; code next): a left-to-right fold tracking (a) bracket depth `bd`, (b) an
+  OPERAND-COMPLETE state — an operator token counts as INFIX only after a complete operand
+  (atom/closer/finished postfix chain), so a leading `TMinus`/`TStar`/`TAmp`/`TCaret` reads unary, not
+  binary — and (c) the RIGHTMOST depth-0 position of MINIMAL `infix_op` precedence.  Two invariants by
+  structural induction on the operand pin the split: INV-L (`gtokens p el`: its depth-0 infix ops have
+  prec ≥ p and it ends operand-complete) and INV-R (`gtokens (S p) er`: its depth-0 infix ops have prec
+  > p).  On `inner`: the left gives prec ≥ p, `op_token o` prec p (the new min, rightmost so far), the
+  right prec > p — so the scan lands on `op_token o`'s position; `op_token_inj` recovers `o`, an
+  `app`-length split gives `el`/`er`, IH recurses.  ⛔ NOT derivable from the parser: `parse (gtokens e)
+  = e` (`parse_print_roundtrip`) + equal token lists would give uniqueness in two lines — the exact
+  parser-as-foundation inversion the charter forbids; the scan REPROVES the precedence-climb
+  structurally.  (The operand-complete tracking mirrors the parser's postfix/climb state — the
+  intricate part, hence a self-contained sub-arc.)
 
 Then `canon_expr_unique` (+ `gtokens_inj`) join the printer Print Assumptions gate.
 Phase 3c = reprove `gprint_inj` off `gtokens_inj` + `gtokens_lex` (making it a corollary of the
