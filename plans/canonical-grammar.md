@@ -132,7 +132,7 @@ to the THREE expression bracket kinds — parens `TLP`/`TRP`, square `TLB`/`TRB`
   ESlice's `lo:hi`) are NOT split by `balanced_close_split` (`TComma`/`TColon` are depth-neutral,
   not closers).  They need `gtokens_args_inj`/`gtokens_pairs_inj` — list injectivity by induction
   on the element list, splitting at the TOP-LEVEL (depth-0-within-the-group) `TComma`/`TColon`
-  via a first-depth-0-separator lemma, resting on `no_depth0_comma`: no expression's `gtokens 0 e`
+  via a first-depth-0-separator lemma, resting on `no_depth0_sep` (LANDED): no expression's `gtokens 0 e`
   contains a depth-0 `TComma`/`TColon` (they occur only inside nested groups, at depth ≥1), so the
   first top-level separator delimits the first element.  (`last0`/`last0_group`,
   `bdip`/`balanced_close_split`, `fsep`/`sep_split`, and `no_depth0_sep` LANDED + gated;
