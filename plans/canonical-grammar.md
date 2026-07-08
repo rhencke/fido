@@ -96,15 +96,18 @@ at the empty suffix collapses the combine — the block's tokens locate their ow
 for an unwrapped `EBn o _ r`, `None` for every primary / prefix `EUn` / paren-WRAPPED `EBn`).  This is the
 `gtokens_inj` EBn DISCRIMINATOR (equal token lists ⇒ equal `eb_top` ⇒ same operator + same right split).
 `eb_find_inner` (the `EBn`-node instance `eb_find inner = Some (gtokens (S prec o) r, o)`) is now a
-4-line corollary, and the two "loose" (non-primary) diagonals of `gtokens_inj` are LANDED:
-`gtokens_ebn_inner` (equal inner tokens ⇒ equal operator + operands, via `eb_find_inner` + the two operand
-IHs + `app_inv_tail`) and `gtokens_eun_inner` (equal tokens ⇒ equal unop + operand, via `prefix_token_inj`
-+ `bare_not_paren_group` for the wrap-vs-bare impossibility + the operand IH).  STILL TO WRITE: the
-`gtokens_inj` ASSEMBLY — the LARGE remaining bulk (the two loose diagonals are a small fraction): the
-primary diagonals (atoms/postfix/composites) and, HARDEST, the ~14×13 cross-constructor discrimination.
-Since `gtokens` is not prefix-free, most constructor pairs need a real discriminator (`eb_top`/`last0`/
-length/last-token), and the assembly will likely surface further discrimination sub-lemmas beyond the
-landed toolkit — this is the genuine remaining crux, not a mechanical wiring pass.  Then `canon_expr_unique`.
+4-line corollary.  Two `gtokens_inj` case-recursion helpers are LANDED: `gtokens_ebn_inner` (equal INNER
+token lists ⇒ equal operator + operands, via `eb_find_inner` + the two operand IHs + `app_inv_tail` — this
+is ONLY the unwrapped-inner recursion; the FULL EBn diagonal still needs the ctx-wrapper peel + the
+wrapped-vs-unwrapped mismatch discrimination) and `gtokens_eun_inner` (the FULL EUn diagonal — EUn's tokens
+don't depend on ctx: equal tokens ⇒ equal unop + operand, via `prefix_token_inj` + `bare_not_paren_group`
+for the wrap-vs-bare impossibility + the operand IH).  STILL TO WRITE: the `gtokens_inj` ASSEMBLY — the
+LARGE remaining bulk (the two helpers above are a small fraction): the EBn ctx-wrapper peel/discrimination,
+the primary diagonals (atoms/postfix/composites), and, HARDEST, the ~14×13 cross-constructor
+discrimination.  Since `gtokens` is not prefix-free, most constructor pairs need a real discriminator
+(`eb_top`/`last0`/length/last-token), and the assembly will likely surface further discrimination
+sub-lemmas beyond the landed toolkit — the genuine remaining crux, not a mechanical wiring pass.  Then
+`canon_expr_unique`.
 (The arbitrary-SUFFIX
 determinism lemma was found FALSE — see the design.)
 
@@ -321,12 +324,14 @@ COMPLETE lists (no suffix):
   2k-d (LANDED) = the top-level `eb_find` correctness, in its GENERAL form `eb_find_gtokens : eb_find
   (gtokens ctx e) = eb_top ctx e` (proved from (i)=`eb_operand` at the empty suffix ⇒ the combine collapses
   to `eb_top`; `Some (R,o)` for an unwrapped `EBn`, `None` otherwise).  `eb_find_inner` (the `EBn`-node
-  instance, `R ++ nil = R`) is now its corollary.  The EBn/EUn same-constructor DIAGONALS are LANDED
-  (`gtokens_ebn_inner` — the EBn case: equal `eb_top` via `eb_find_gtokens` ⇒ peel the ctx-wrapper when
-  `prec o < ctx`, `app`-split at `op_token o`, IH on `l`/`r`; `gtokens_eun_inner` — the EUn case).  NEXT =
-  the FULL `gtokens_inj` ASSEMBLY — the large remaining bulk: the primary diagonals (atoms/postfix/
-  composites) and the ~14×13 cross-constructor discrimination (the genuine crux; likely surfaces further
-  discrimination sub-lemmas), NOT just the EBn case.
+  instance, `R ++ nil = R`) is now its corollary.  Two case-recursion helpers are LANDED:
+  `gtokens_ebn_inner` (the EBn UNWRAPPED-INNER recursion: equal inner lists ⇒ `app`-split at `op_token o`,
+  IH on `l`/`r` — the full EBn diagonal STILL needs the ctx-wrapper peel + wrapped/unwrapped mismatch
+  discrimination via `eb_find_gtokens`) and `gtokens_eun_inner` (the FULL EUn diagonal — no ctx-wrapper).  NEXT =
+  the FULL `gtokens_inj` ASSEMBLY — the large remaining bulk: the EBn ctx-wrapper peel/discrimination that
+  wraps `gtokens_ebn_inner` into the full EBn diagonal, the primary diagonals (atoms/postfix/composites),
+  and the ~14×13 cross-constructor discrimination (the genuine crux; likely surfaces further discrimination
+  sub-lemmas), NOT just the EBn case.
 
 Then `canon_expr_unique` (+ `gtokens_inj`) join the printer Print Assumptions gate.
 Phase 3c = reprove `gprint_inj` off `gtokens_inj` + `gtokens_lex` (making it a corollary of the
