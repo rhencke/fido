@@ -96,32 +96,11 @@ at the empty suffix collapses the combine — the block's tokens locate their ow
 for an unwrapped `EBn o _ r`, `None` for every primary / prefix `EUn` / paren-WRAPPED `EBn`).  This is the
 `gtokens_inj` EBn DISCRIMINATOR (equal token lists ⇒ equal `eb_top` ⇒ same operator + same right split).
 `eb_find_inner` (the `EBn`-node instance `eb_find inner = Some (gtokens (S prec o) r, o)`) is now a
-4-line corollary.  The two operator-bearing same-constructor DIAGONALS of `gtokens_inj` are LANDED, both
-FULL: `gtokens_inj_ebn` (the EBn diagonal — `gtokens_ebn_inner`'s unwrapped-inner recursion (equal inner
-lists ⇒ equal op+operands, via `eb_find_inner` + the operand IHs + `app_inv_tail`) promoted PAST the
-ctx-wrapper: `eb_find_gtokens` turns the token equality into `eb_top ctx e1 = eb_top ctx e2`, so a
-wrapped-vs-unwrapped mismatch is a `None=Some` contradiction and same-wrapping strips to equal inner lists)
-and `gtokens_eun_inner` (the EUn diagonal — EUn's tokens don't depend on ctx: equal tokens ⇒ equal unop +
-operand, via `prefix_token_inj` + `bare_not_paren_group` + the operand IH).  The first cross-discriminator
-`nonatom_len` is also LANDED (`unop_needs_paren e = true -> 2 <= length (gtokens ctx e)` — atoms print to
-one token, every other form to ≥2; the atom row/column of the destruct-`e2` matrix), as are ALL FIVE
-POSTFIX diagonals `gtokens_inj_esel` (base + fixed 2-token tail, `app_inj_tail` + `gtparen_inj`),
-`gtokens_inj_eindex`/`gtokens_inj_eslice`/`gtokens_inj_ecall` (base + bracket-or-paren group, `last0_group`
-pins the base-prefix length + `app_eq_length`, then `app_inj_tail`/`sep_split`/`gtokens_args_inj`) and
-`gtokens_inj_eassert` (base + `.(T)` paren group), AND the three TYPE-LED COMPOSITE diagonals
-`gtokens_inj_econv`/`gtokens_inj_eslicelit`/`gtokens_inj_emaplit` (type prefix peeled by `last0_group`,
-recovered via `gttokens_ty_inj` + `convty_ty_inj`; brace groups via `gtokens_args_inj`/`gtokens_pairs_inj`).
-So EVERY non-atom diagonal is done (10 of 14 ctors).  STILL TO WRITE: the
-`gtokens_inj` ASSEMBLY — the remaining bulk (the diagonals + `nonatom_len` are a small fraction): the only
-remaining primary diagonals are the four ATOM rows (`EId`/`EInt`/`EStr`/`EHex`, one token each) and,
-HARDEST, the ~14×13 cross-constructor
-discrimination.  Since `gtokens` is not prefix-free, most constructor pairs need a real discriminator; the
-LENGTH one (atom vs everything) is landed as `nonatom_len`, but the rest (`eb_top` for `EBn`, `last0`/
-last-token for the delimited forms) and probably further discrimination sub-lemmas remain — the genuine
-remaining crux, not a mechanical wiring pass.  Then
-`canon_expr_unique`.
-(The arbitrary-SUFFIX
-determinism lemma was found FALSE — see the design.)
+4-line corollary.  The same-constructor DIAGONALS of `gtokens_inj` (which have landed, their proof
+techniques, and what remains — the four ATOM rows + the ~14×13 cross-constructor discrimination) are
+recorded in exactly ONE place each: the proof design in the "Phase 3b/3c" section below, the live
+landed/remaining roster in PROGRESS.md "NEXT".  This block keeps no parallel roster.
+(The arbitrary-SUFFIX determinism lemma was found FALSE — see the design.)
 
 ## Phases (each: green, golden byte-identical, gated, reviewed)
 
@@ -140,25 +119,11 @@ determinism lemma was found FALSE — see the design.)
 3. **★`canon_expr_unique`** (the meat): `CanonExpr ctx e1 ts -> CanonExpr ctx e2 ts ->
    e1 = e2`, parser-free — via `canon_expr_tokens` + the COMPLETE-list `gtokens_inj`
    (structural induction on `e1`, delimited groups split by `last0` (the last depth-0 position)).  Full design + the ruled-out dead ends (balanced-prefix cancellation; the FALSE
-   arbitrary-suffix determinism lemma) in the "Phase 3b/3c" section below.  Slices 1–2k-d (the
-   `bd` balance toolkit + `gtokens_balanced`; the `last0`/`bdip`/`fsep` split lemmas;
-   `no_depth0_sep`; `gtokens_args_inj`; `gtokens_pairs_inj`; the paren/bare operand discrimination
-   `bare_not_paren_group`/`gtparen_inj`; the operator-token injectivities
-   `op_token_inj`/`prefix_token_inj`; the type-skipper `skip_gty`; slice 2j the EBn locator `eb_find`;
-   slice 2k-c the OPERAND LAW `eb_operand` — the depth-0 dual of `eb_depth`; slice 2k-d
-   `eb_find_gtokens` — the EBn discriminator, `eb_find_inner` its corollary) are LANDED +
-   gated; `gtokens_inj` itself is the open crux.  The EBn precedence substrate is fully landed
-   (`eb_find_gtokens : eb_find (gtokens ctx e) = eb_top ctx e`, the EBn discriminator; `eb_find_inner` its
-   corollary), plus ALL TEN NON-ATOM DIAGONALS of `gtokens_inj`: the two operator-bearing (`gtokens_inj_ebn`
-   — the EBn diagonal, `gtokens_ebn_inner`'s unwrapped-inner recursion promoted past the ctx-wrapper,
-   mismatch discriminated via `eb_find_gtokens` — and `gtokens_eun_inner`, the EUn diagonal), the five
-   POSTFIX (`gtokens_inj_esel`/`_eindex`/`_eassert`/`_eslice`/`_ecall`) and the three type-led COMPOSITE
-   (`gtokens_inj_econv`/`_eslicelit`/`_emaplit`), plus the first cross-discriminator `nonatom_len` (atom vs
-   everything, by length) — but these are a small
-   fraction.  The remaining bulk is the `gtokens_inj` ASSEMBLY: the only remaining primary
-   diagonals are the four ATOM rows, and, hardest, the ~14×13 cross-constructor discrimination (not
-   prefix-free ⇒ most pairs need a real discriminator; the assembly
-   will likely surface further discrimination sub-lemmas — the genuine remaining crux, not mere wiring).
+   arbitrary-suffix determinism lemma) in the "Phase 3b/3c" section below.  The toolkit slices and the
+   same-constructor diagonals landed so far, their techniques, and what remains are tracked ONCE — the
+   proof design in that section, the live landed/remaining roster in PROGRESS.md "NEXT".  `gtokens_inj`
+   itself (the assembly over those diagonals + the ~14×13 cross-constructor discrimination) is the open
+   crux; `canon_expr_unique` follows from it exactly as `canon_ty_unique` follows from `gttokens_ty_inj`.
 4. **CanonStmt/CanonProgram** + the same trio over the statement printer (the
    statement layer's `lex_gprint_stmt` does not exist yet — build the statement
    `gtokens` analogue first).
@@ -168,12 +133,9 @@ determinism lemma was found FALSE — see the design.)
    foundation); rewrite GoPrint's header authority claims; the PROGRESS gate list
    gains the canonical surface (one manifest-gated `Print Assumptions`).
 
-## Phase 3b/3c — the expression uniqueness proof (design, pinned before coding; the balance/split
-## toolkit, the type-skipper, and the whole EBn precedence scan are now LANDED — the SUBSTANTIAL
-## `gtokens_inj` assembly (the only remaining primary diagonals are the four ATOM rows —
-## every operator/postfix/composite diagonal is done (`EBn`/`EUn` + `ESel`/`EIndex`/`EAssert`/`ESlice`/
-## `ECall` + `EConv`/`ESliceLit`/`EMapLit`) — plus the ~14×13 cross-discrimination) + `canon_expr_unique`
-## remain, see the slice log above)
+## Phase 3b/3c — the expression uniqueness proof (design + the per-slice/per-diagonal technique record;
+## this section is the single plan-side DESIGN/TECHNIQUE record. The live landed/remaining STATUS is the
+## sole authority for it — PROGRESS.md "NEXT")
 
 TARGET (mirrors the type layer exactly): `canon_expr_unique ctx e1 e2 ts` = `canon_expr_tokens`
 on both sides + a PARSER-FREE `gtokens_inj : forall ctx e1 e2, gtokens ctx e1 = gtokens ctx e2
@@ -234,7 +196,8 @@ to the THREE expression bracket kinds — parens `TLP`/`TRP`, square `TLB`/`TRB`
 COMPLETE lists (no suffix):
 - Atoms (EId/EInt/EStr/EHex): single-token; the head token separates the four atoms; a longer form
   (even one sharing the head token, e.g. a bare-atom-based `ESel`) is ruled out by `nonatom_len` (length
-  ≥ 2 for every non-atom) — LANDED.
+  ≥ 2 for every non-atom, LANDED).  The four atom-row diagonals themselves are NOT yet written (they are
+  the last remaining primary diagonals).
 - Fixed-tail postfix ESel: strip the 2-token tail `TDot :: TId f` (equal, since the whole lists
   are equal) ⇒ `f_a=f_b` and `gtparen e0_a = gtparen e0_b`; then the operand step.  LANDED as
   `gtokens_inj_esel`.
@@ -352,13 +315,15 @@ COMPLETE lists (no suffix):
   at `op_token o`, IH on `l`/`r`) promoted past the ctx-wrapper: `eb_find_gtokens` ⇒ `eb_top` equality ⇒
   wrapped-vs-unwrapped mismatch is `None=Some`, same-wrapping strips to equal inner lists) and
   `gtokens_eun_inner` (the EUn diagonal — no ctx-wrapper).  The first cross-discriminator `nonatom_len`
-  (atom vs everything, by length) is LANDED too, as are ALL FIVE postfix diagonals `gtokens_inj_esel`/
-  `gtokens_inj_eindex`/`gtokens_inj_eassert`/`gtokens_inj_eslice`/`gtokens_inj_ecall` AND the three
-  type-led composites `gtokens_inj_econv`/`gtokens_inj_eslicelit`/`gtokens_inj_emaplit`.  NEXT =
-  the FULL `gtokens_inj` ASSEMBLY — the remaining bulk: the four ATOM-row diagonals (trivial — one
-  distinguishing token each),
-  and the ~14×13 cross-constructor discrimination (the genuine crux; likely surfaces further discrimination
-  sub-lemmas), NOT just the EBn case.
+  (atom vs everything, by length) is LANDED too, as are the five postfix diagonals `gtokens_inj_esel`/
+  `gtokens_inj_eindex`/`gtokens_inj_eassert`/`gtokens_inj_eslice`/`gtokens_inj_ecall` and the three
+  type-led composites `gtokens_inj_econv`/`gtokens_inj_eslicelit`/`gtokens_inj_emaplit` (base-or-type
+  prefix peeled by `last0_group` + `app_eq_length`, then `app_inj_tail`/`sep_split`/`gtokens_args_inj`/
+  `gtokens_pairs_inj`; the type recovered via `gttokens_ty_inj` + `convty_ty_inj`).  What remains for
+  `gtokens_inj` is the ASSEMBLY over these diagonals: the four ATOM-row diagonals (trivial — one
+  distinguishing token each) and, the genuine crux, the ~14×13 cross-constructor discrimination (not just
+  the EBn case; likely surfacing further discrimination sub-lemmas).  Live landed/remaining status is
+  PROGRESS.md "NEXT" — this section is the design/technique record, not a status ledger.
 
 Then `canon_expr_unique` (+ `gtokens_inj`) join the printer Print Assumptions gate.
 Phase 3c = reprove `gprint_inj` off `gtokens_inj` + `gtokens_lex` (making it a corollary of the
