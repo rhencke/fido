@@ -5470,7 +5470,8 @@ Qed.
     composites and conversions) are skipped WHOLE by [skip_gty] so a pointer-[TStar] inside a type is never
     misread as [BMul]; [skip_gty_lt] is the strict decrease that makes that recursion well-founded.  Bracket
     interiors ([d > 0]) are depth-tracked and their operators ignored.  This is a PURE token utility (no
-    parser / [gtokens_parse]) — the authority for the EBn case of the coming [gtokens_inj]. *)
+    parser / [gtokens_parse]) — the authority [gtokens_ebn_inner]/[gtokens_inj_ebn] use for the EBn split
+    (the full [gtokens_inj] is still to come). *)
 Fixpoint eb_find_acc (toks : list Token) (d : nat) (oc : bool) (a : Acc lt (List.length toks)) {struct a}
   : option (list Token * BinOp) :=
   match toks return Acc lt (List.length toks) -> option (list Token * BinOp) with
@@ -5534,7 +5535,9 @@ Definition eb_find (toks : list Token) : option (list Token * BinOp) :=
   eb_find_acc toks 0 false (lt_wf (List.length toks)).
 
 (** PROGRESS: the located split's right part [R] is a STRICT suffix — [eb_find] always consumes ≥ 1 token
-    (the operator plus its left operand), so the coming [gtokens_inj] EBn recursion on [R] is well-founded. *)
+    (the operator plus its left operand).  (The strict-decrease progress guarantee for the locator; the
+    landed EBn diagonal [gtokens_inj_ebn] recurses STRUCTURALLY on the [GExpr] via the operand IHs, not on
+    [R], so [eb_find_lt] is not yet a consumer — it stays the locator's stated progress fact.) *)
 Ltac ebtl f IH Hn :=
   destruct (skip_gty_acc _ (lt_wf _)) as [ [ [ | t1 g ] Hlt ] | ]; try exact I; destruct t1; try exact I;
   pose proof (IH g 1 true (f _ (Nat.lt_trans _ _ _ (tlt1 (List.length g)) Hlt))
@@ -6058,8 +6061,8 @@ Proof.
   destruct (eb_top ctx e) as [ [rr o] | ]; cbn [eb_combine]; [ rewrite app_nil_r | ]; reflexivity.
 Qed.
 (* the EBn-node instance: at [ctx = binop_prec o] the node is UNWRAPPED, so its tokens ARE the bare inner
-   [gtokens (prec o) l ++ op_token o :: gtokens (S prec o) r] and [eb_top] = [Some (R, o)] — the split the
-   [gtokens_inj] EBn case consumes after peeling any ctx-wrapper. *)
+   [gtokens (prec o) l ++ op_token o :: gtokens (S prec o) r] and [eb_top] = [Some (R, o)] — the split
+   [gtokens_ebn_inner] consumes on equal inner lists (after [gtokens_inj_ebn] peels any ctx-wrapper). *)
 Lemma eb_find_inner : forall o l r,
   eb_find (gtokens (binop_prec o) l ++ op_token o :: gtokens (S (binop_prec o)) r)%list
     = Some (gtokens (S (binop_prec o)) r, o).
@@ -6076,9 +6079,9 @@ Qed.
    [eb_find_inner] reads the operator [o] and the right-operand tokens R off each side (PARSER-FREE —
    [eb_find] IS the authority), so equal token lists ⇒ [o1=o2] and R1=R2 ⇒ [r1=r2] by the right IH; the
    shared operator+right suffix then [app]-cancels off the front ⇒ equal left tokens ⇒ [l1=l2] by the left
-   IH.  Takes the two operand IHs the [GExpr_ind'] induction supplies.  NOT the full EBn diagonal: the
-   caller ([gtokens_inj]'s EBn case) first peels the ctx-wrapper ([TLP … TRP] when [prec o < ctx]) and
-   rules out a wrapped-vs-unwrapped mismatch (via [eb_find_gtokens]) to reach equal INNER lists. *)
+   IH.  Takes the two operand IHs the [GExpr_ind'] induction supplies.  NOT the full EBn diagonal: its
+   caller [gtokens_inj_ebn] first peels the ctx-wrapper ([TLP … TRP] when [prec o < ctx]) and rules out a
+   wrapped-vs-unwrapped mismatch (via [eb_find_gtokens]) to reach equal INNER lists. *)
 Lemma gtokens_ebn_inner : forall o1 l1 r1 o2 l2 r2,
   (forall ctx e, gtokens ctx l1 = gtokens ctx e -> l1 = e) ->
   (forall ctx e, gtokens ctx r1 = gtokens ctx e -> r1 = e) ->
