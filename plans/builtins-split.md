@@ -43,7 +43,7 @@ BLOCKs closed structurally):
     `ComparableW` generic-comparable witnesses (anchored on `str_eqb`; the string switch
     moved on to GoSwitch.v in wave 13).
 
-Reviews 9/10 also enforced: imports honest by USE (the never-used GoChan/GoMap imports
+Invariants enforced here: imports honest by USE (the never-used GoChan/GoMap imports
 in the cmd/GoSem universe and builtins' dead digits import are gone) and location prose
 that tells the truth everywhere (plugin comments state the `model_dirpaths` ownership
 rule, not "lives in builtins.v").
