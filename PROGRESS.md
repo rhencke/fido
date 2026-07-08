@@ -107,8 +107,9 @@ plugin CONSTRUCTS the `GExpr`; only `gprint` is verified. NOT "verified Go."
   of the destruct-e2 matrix)). NEXT: keep building the `gtokens_inj` ASSEMBLY — the LARGE remaining bulk
   (the diagonals + `nonatom_len` are a small fraction): the primary diagonals (atoms/postfix/composites)
   and, hardest, the ~14×13 cross-constructor discrimination (`gtokens` is not prefix-free, so most pairs
-  need a real discriminator — `eb_top`/`last0`/length/last-token — with more discrimination sub-lemmas
-  likely), then the assembly itself. Then `canon_expr_unique` (all parser-free); then reprove `gprint_inj`
+  need a real discriminator; the LENGTH one is landed as `nonatom_len`, the rest — `eb_top` for `EBn`,
+  `last0`/last-token for the delimited forms, plus more discrimination sub-lemmas likely — remain), then
+  the assembly itself. Then `canon_expr_unique` (all parser-free); then reprove `gprint_inj`
   off `gtokens_inj` (retiring `parse_print_roundtrip`), then `CanonStmt`/`CanonProgram`.
 - The cmd↔unified bridge (`plans/bridge-effects.md`): `CAlloc` AND the channel slice LANDED
   (typed zeros through the channel's own tag, gated obligations; `bridge_effects_agree` now
