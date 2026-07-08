@@ -5782,6 +5782,24 @@ Proof.
   - (* EHex *) cbn [gtokens app]; eb_neu; eb_fin.
 Qed.
 
+(** The SPEC of the depth-0 scan [eb_find_acc _ 0 false].  [eb_top c e] = the rightmost-minimal-precedence
+    depth-0 operator WITHIN [gtokens c e] (its own top operator when [e] is an unwrapped [EBn], else [None]
+    — a primary or a paren-wrapped node contributes no depth-0 operator).  [eb_top_prec]: that operator's
+    precedence is ≥ [c] (an unwrapped [EBn]'s top op has prec ≥ the printing context), the fact the
+    top-level correctness needs to show the SPLIT operator beats the operands. *)
+Definition eb_top (c : nat) (e : GExpr) : option (list Token * BinOp) :=
+  match e with
+  | EBn o _ r => if Nat.ltb (binop_prec o) c then None else Some (gtokens (S (binop_prec o)) r, o)
+  | _ => None
+  end.
+Lemma eb_top_prec : forall c e rr o', eb_top c e = Some (rr, o') -> c <= binop_prec o'.
+Proof.
+  intros c e rr o' H; destruct e; cbn [eb_top] in H; try discriminate H.
+  match goal with H : context [ Nat.ltb (binop_prec ?b) c ] |- _ =>
+    destruct (Nat.ltb (binop_prec b) c) eqn:E end; [ discriminate H | ].
+  injection H as <- <-. apply Nat.ltb_ge in E. exact E.
+Qed.
+
 (** LEXICAL FAITHFULNESS through the grammar: printing then lexing yields EXACTLY a
     canonical derivation's tokens — the composed [lex_gprint_expr] shape CLAUDE.md names. *)
 Theorem lex_gprint_expr : forall ctx e,
@@ -7749,6 +7767,7 @@ Print Assumptions eb_depth_ty.
 Print Assumptions eb_depth_args.
 Print Assumptions eb_depth_pairs.
 Print Assumptions eb_depth.
+Print Assumptions eb_top_prec.
 
 (** Extract the Rocq printers to the OCaml the plugin calls. *)
 Require Import Extraction.
