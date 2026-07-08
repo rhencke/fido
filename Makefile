@@ -100,7 +100,8 @@ GOPRINT_GATE = sh plugin/spine-gate.sh printer /tmp/printer.log
 GOPRINT_CLEAN = rm -f digits.vo digits.glob .digits.aux GoAst.vo GoAst.glob .GoAst.aux GoPrint.vo GoPrint.glob .GoPrint.aux printer.ml
 
 # Gate for the BLESSED-EMISSION spine: the printer source set + GoTypes/GoCompile/GoEmit, standalone
-# (dependency order), ZERO axioms across the whole trust base — the SAME script as the Docker stage.
+# (dependency order), ZERO axioms across the whole VERIFIED spine (certified, NOT the TCB) — the SAME
+# script as the Docker stage.
 GOEMIT_GATE = sh plugin/spine-gate.sh emit /tmp/emit.log
 GOEMIT_CLEAN = rm -f digits.vo digits.glob .digits.aux GoAst.vo GoAst.glob .GoAst.aux GoPrint.vo GoPrint.glob .GoPrint.aux GoTypes.vo GoTypes.glob .GoTypes.aux GoCompile.vo GoCompile.glob .GoCompile.aux GoEmit.vo GoEmit.glob .GoEmit.aux printer.ml
 
@@ -127,11 +128,11 @@ printer-verify:
 	  $(GOPRINT_CLEAN); echo "fido: GoAst/GoPrint OK — zero axioms, plugin/printer.ml in sync ✓"
 
 # Read-only LOCAL mirror of the Docker prover-stage EMISSION-spine gate: compile digits/GoAst/GoPrint/GoTypes/GoCompile/GoEmit
-# standalone and assert ZERO axioms across the whole blessed-emission trust base (printer + supportedness gate
-# + certified emitter).  Modifies nothing.
+# standalone and assert ZERO axioms across the whole certified emission spine (printer + compile-admissibility
+# gate + certified emitter) — VERIFIED, NOT the TCB.  Modifies nothing.
 emit-verify:
 	@set -e; $(GOEMIT_GATE); $(GOEMIT_CLEAN); \
-	  echo "fido: GoAst/GoPrint/GoCompile/GoEmit OK — zero axioms (blessed-emission trust base) ✓"
+	  echo "fido: GoAst/GoPrint/GoCompile/GoEmit OK — zero axioms (certified emission spine, VERIFIED not TCB) ✓"
 
 # emit-demo: the end-to-end certified-emission check. GOEMIT_GATE (zero-axiom spine) → extract
 # GoEmit.demo_emit (bytes pinned by demo_emit_bytes) → write emitdemo/spine_demo.go → assert the real Go
