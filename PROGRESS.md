@@ -88,8 +88,11 @@ plugin CONSTRUCTS the `GExpr`; only `gprint` is verified. NOT "verified Go."
 - **The canonical relational syntax authority is the ACTIVE arc** (`plans/canonical-grammar.md`;
   checkpoint-50 order: syntax authority before spawn). Phases 1+2 landed (`CanonTy`/`CanonExpr`
   + `gprint_expr_canonical` + `lex_gprint_expr`); Phase 3a landed (`canon_ty_unique`, type-level
-  token uniqueness, PARSER-FREE via `gttokens_ty_inj`). NEXT: `canon_expr_unique` parser-free,
-  then reprove `gprint_inj` off `parse_print_roundtrip`, then `CanonStmt`/`CanonProgram`.
+  token uniqueness, PARSER-FREE via `gttokens_ty_inj`); Phase 3b slices 2a–2e landed
+  (`bd`/`gtokens_balanced`, the `last0`/`bdip`/`fsep` split lemmas, `no_depth0_sep`,
+  `gtokens_args_inj`). NEXT: `gtokens_pairs_inj` → the paren/bare operand discrimination → the EBn
+  precedence crux → `gtokens_inj` → `canon_expr_unique` (all parser-free); then reprove `gprint_inj`
+  off `gtokens_inj` (retiring `parse_print_roundtrip`), then `CanonStmt`/`CanonProgram`.
 - The cmd↔unified bridge (`plans/bridge-effects.md`): `CAlloc` AND the channel slice LANDED
   (typed zeros through the channel's own tag, gated obligations; `bridge_effects_agree` now
   exposes capacity agreement publicly). Spawn/select is the deferred capstone (design deferred

@@ -166,8 +166,8 @@ COMPLETE lists (no suffix):
 - Operand step `gtparen e0_a = gtparen e0_b -> e0_a = e0_b` (COMPLETE): `destruct op_needs_paren`
   both sides — bare/bare and paren/paren strip to `gtokens 0 e0_a = gtokens 0 e0_b` ⇒ IH; the
   paren/bare MISMATCH needs a discrimination lemma (a complete bare `gtokens 0 e` cannot equal a
-  single `TLP…TRP`-wrapped group) — via `bd`/leading-token.  ★the two OPEN sub-lemmas: the
-  `last0` group split, and the paren/bare operand discrimination.
+  single `TLP…TRP`-wrapped group) — via `bd`/leading-token.  ★the remaining OPEN sub-lemma here is
+  the paren/bare operand discrimination (the `last0` group split LANDED in slice 2a).
 - EUn: leading `prefix_token o` (injective on unops) fixes `o`; `unop_paren` P/N by the `TLP`;
   then the operand step.  A prefix operator, so no infix issue.
 - ★EBn is the HARDEST case — genuine OPERATOR-PRECEDENCE disambiguation, NOT a bracket scan.
