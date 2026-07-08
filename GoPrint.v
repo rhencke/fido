@@ -5346,6 +5346,18 @@ Proof.
   - exact (IH e2 HE).
 Qed.
 
+(** ---- Phase 3b slice 2h: the operator-token injectivities — foundations of the EBn crux.
+    [op_token] maps the 19 [BinOp]s to DISTINCT tokens and [prefix_token] the 5 [UnaryOp]s to
+    distinct tokens, so each is injective ON ITS OWN DOMAIN.  ⚠ NOTE they OVERLAP each other:
+    [op_token BSub = prefix_token UNeg = TMinus], likewise [TStar] (BMul/UDeref), [TAmp]
+    (BAnd/UAddr), [TCaret] (BXor/UXor) — so a depth-0 [TMinus]/[TStar]/[TAmp]/[TCaret] can be a
+    binary operator OR a unary prefix; the EBn split must be located by the prefix/infix POSITION
+    (a binary op follows a complete operand), never by token identity alone. *)
+Lemma op_token_inj : forall o1 o2, op_token o1 = op_token o2 -> o1 = o2.
+Proof. intros o1 o2 H. destruct o1; destruct o2; solve [ reflexivity | discriminate H ]. Qed.
+Lemma prefix_token_inj : forall o1 o2, prefix_token o1 = prefix_token o2 -> o1 = o2.
+Proof. intros o1 o2 H. destruct o1; destruct o2; solve [ reflexivity | discriminate H ]. Qed.
+
 (** LEXICAL FAITHFULNESS through the grammar: printing then lexing yields EXACTLY a
     canonical derivation's tokens — the composed [lex_gprint_expr] shape CLAUDE.md names. *)
 Theorem lex_gprint_expr : forall ctx e,
@@ -7303,6 +7315,8 @@ Print Assumptions gtokens_args_inj.
 Print Assumptions gtokens_pairs_inj.
 Print Assumptions bare_not_paren_group.
 Print Assumptions gtparen_inj.
+Print Assumptions op_token_inj.
+Print Assumptions prefix_token_inj.
 
 (** Extract the Rocq printers to the OCaml the plugin calls. *)
 Require Import Extraction.
