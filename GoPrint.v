@@ -5657,18 +5657,14 @@ Proof. intros t rest d oc a a2 H; destruct H as [ -> | [ -> | -> ] ]; eb_step_by
 Lemma eb_step_close : forall t rest d oc (a : Acc lt (List.length (t :: rest))) a2, (t = TRP \/ t = TRB \/ t = TRC) ->
   eb_find_acc (t :: rest) (S (S d)) oc a = eb_find_acc rest (S d) oc a2.
 Proof. intros t rest d oc a a2 H; destruct H as [ -> | [ -> | -> ] ]; eb_step_by. Qed.
-(* every NON-bracket token (atoms [TId]/[TInt]/[TStr]/[THex], every [op_token]/[prefix_token], type
-   keywords [TStar]/[TChan]/[TMap], separators [TDot]/[TColon]/[TComma]) is neutral — ONE general lemma
-   covers them all, so the toolkit is exhaustive over the canonical token alphabet, not an ad-hoc subset. *)
-Definition eb_is_bracket (t : Token) : bool :=
-  match t with TLP | TLB | TLC | TRP | TRB | TRC => true | _ => false end.
+(* a token is neutral iff it leaves the bracket depth unchanged — decided by the EXISTING balance
+   authority [bd] ([bd (t :: nil) 1 = Some 1]), NOT a second bracket classifier.  ONE lemma covers every
+   neutral token (atoms, every [op_token]/[prefix_token] via [bd_op_token]/[bd_prefix_token], type
+   keywords, separators); the [destruct t] is structurally exhaustive — a bracket makes [bd] disagree with
+   [Some 1] and is discharged by [discriminate]. *)
 Lemma eb_step_neutral : forall t rest d oc (a : Acc lt (List.length (t :: rest))) a2,
-  eb_is_bracket t = false -> eb_find_acc (t :: rest) (S d) oc a = eb_find_acc rest (S d) oc a2.
-Proof. intros t rest d oc a a2 H; destruct t; try discriminate H; eb_step_by. Qed.
-Lemma eb_is_bracket_optoken : forall o, eb_is_bracket (op_token o) = false.
-Proof. destruct o; reflexivity. Qed.
-Lemma eb_is_bracket_prefix : forall o, eb_is_bracket (prefix_token o) = false.
-Proof. destruct o; reflexivity. Qed.
+  bd (t :: nil) 1 = Some 1 -> eb_find_acc (t :: rest) (S d) oc a = eb_find_acc rest (S d) oc a2.
+Proof. intros t rest d oc a a2 H; destruct t; cbn in H; try discriminate H; eb_step_by. Qed.
 
 (** LEXICAL FAITHFULNESS through the grammar: printing then lexing yields EXACTLY a
     canonical derivation's tokens — the composed [lex_gprint_expr] shape CLAUDE.md names. *)
