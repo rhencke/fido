@@ -5933,11 +5933,11 @@ Proof.
   intros t rest a a2. apply (eb_type_skip TLB (TRB :: gttokens_ty t) TLC rest a a2);
     [ left; reflexivity | left; reflexivity | apply (skip_gty_types (GTSlice t)) ].
 Qed.
-(* the DEPTH-0 CONVERSION type-skip: ANY conversion type [gttokens_ty t] at a FROM-position, then '(',
-   lands at depth 1.  Ranged over [ConvTy] — NOT all [GoTy] — so it covers EXACTLY the type-form
-   conversions [EConv] can represent ([]T / chan T / map[K]V, all bracket-led → whole-type [eb_type_skip]);
-   an identifier-led form like [int64(x)] is a CALL, not an [EConv], so no scalar/pointer "conversion" is
-   asserted here (naming is a correctness claim — this is not a general type-then-'(' skip). *)
+(* the DEPTH-0 CONVERSION type-skip: a conversion type's tokens [gttokens_ty (convty_ty c)] at a
+   FROM-position, then '(', land at depth 1.  Ranged over [ConvTy] — NOT all [GoTy] — so it covers EXACTLY
+   the type-form conversions [EConv] can represent ([]T / chan T / map[K]V, all bracket-led → whole-type
+   [eb_type_skip]); an identifier-led form like [int64(x)] is a CALL, not an [EConv], so no scalar/pointer
+   "conversion" is asserted here (naming is a correctness claim — this is not a general type-then-'(' skip). *)
 Lemma eb_type_conv : forall c rest a a2,
   eb_find_acc (gttokens_ty (convty_ty c) ++ TLP :: rest) 0 false a = eb_find_acc rest 1 true a2.
 Proof.
