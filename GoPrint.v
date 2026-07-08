@@ -5665,6 +5665,26 @@ Proof. intros t rest d oc a a2 H; destruct H as [ -> | [ -> | -> ] ]; eb_step_by
 Lemma eb_step_neutral : forall t rest d oc (a : Acc lt (List.length (t :: rest))) a2,
   bd (t :: nil) 1 = Some 1 -> eb_find_acc (t :: rest) (S d) oc a = eb_find_acc rest (S d) oc a2.
 Proof. intros t rest d oc a a2 H; destruct t; cbn in H; try discriminate H; eb_step_by. Qed.
+(* chaining tactics for the depth law: consume the canonical token stream at depth ≥ 1 down to [suffix]. *)
+Ltac eb_fin := eapply eb_find_acc_pi; apply tlt1.
+Ltac eb_op := erewrite (eb_step_open _ _ _ _ _ (lt_wf _)) by (solve [ left; reflexivity | right; left; reflexivity | right; right; reflexivity ]).
+Ltac eb_cl := erewrite (eb_step_close _ _ _ _ _ (lt_wf _)) by (solve [ left; reflexivity | right; left; reflexivity | right; right; reflexivity ]).
+Ltac eb_neu := erewrite (eb_step_neutral _ _ _ _ _ (lt_wf _)) by reflexivity.
+(* skip a sub-block via an IH/depth lemma [L] whose last explicit arg is the RHS [Acc] (pinned [lt_wf]) *)
+Ltac eb_ih L := erewrite (L _ _ _ _ (lt_wf _)).
+Ltac eb_ih6 L := erewrite (L _ _ _ _ _ (lt_wf _)).
+(** DEPTH law for TYPES: [gttokens_ty t] is skipped whole at depth ≥ 1 (used by the composite/conversion
+    cases of the expression depth law). *)
+Lemma eb_depth_ty : forall t more sd oc (a : Acc lt (List.length (gttokens_ty t ++ more))) a2,
+  eb_find_acc (gttokens_ty t ++ more) (S sd) oc a = eb_find_acc more (S sd) oc a2.
+Proof.
+  induction t as [ | | | | | | | | | | | | | | u IHu | u IHu | u IHu | k IHk v IHv | n ];
+    intros more sd oc a a2; cbn [gttokens_ty app]; try (eb_neu; eb_fin).
+  - (* GTPtr *) eb_neu; eb_ih IHu; eb_fin.
+  - (* GTSlice *) eb_op; eb_cl; eb_ih IHu; eb_fin.
+  - (* GTChan *) eb_neu; eb_ih IHu; eb_fin.
+  - (* GTMap *) eb_neu; eb_op; rewrite <- app_assoc; cbn [app]; eb_ih IHk; eb_cl; eb_ih IHv; eb_fin.
+Qed.
 
 (** LEXICAL FAITHFULNESS through the grammar: printing then lexing yields EXACTLY a
     canonical derivation's tokens — the composed [lex_gprint_expr] shape CLAUDE.md names. *)
