@@ -5646,6 +5646,32 @@ Qed.
 Lemma eb_find_pi : forall toks d oc (a : Acc lt (List.length toks)),
   eb_find_acc toks d oc a = eb_find_acc toks d oc (lt_wf (List.length toks)).
 Proof. intros; apply (eb_find_acc_pi (S (List.length toks))); apply tlt1. Qed.
+(* one-token DEPTH steps at depth ≥ 1 (operators ignored): opener → +1, closer → −1, neutral → same.
+   [destruct a] exposes [Acc_intro] so [cbn] can unfold the [Acc]-Fixpoint; the two witnesses reconcile
+   by [eb_find_acc_pi]. *)
+Ltac eb_step_by := match goal with |- eb_find_acc (_ :: _) _ _ ?A = _ => destruct A as [accf] end;
+  cbn [eb_find_acc]; eapply eb_find_acc_pi; apply tlt1.
+Lemma eb_step_open : forall t rest d oc (a : Acc lt (List.length (t :: rest))) a2, (t = TLP \/ t = TLB \/ t = TLC) ->
+  eb_find_acc (t :: rest) (S d) oc a = eb_find_acc rest (S (S d)) oc a2.
+Proof. intros t rest d oc a a2 H; destruct H as [ -> | [ -> | -> ] ]; eb_step_by. Qed.
+Lemma eb_step_close : forall t rest d oc (a : Acc lt (List.length (t :: rest))) a2, (t = TRP \/ t = TRB \/ t = TRC) ->
+  eb_find_acc (t :: rest) (S (S d)) oc a = eb_find_acc rest (S d) oc a2.
+Proof. intros t rest d oc a a2 H; destruct H as [ -> | [ -> | -> ] ]; eb_step_by. Qed.
+Lemma eb_step_optoken : forall o rest d oc (a : Acc lt (List.length (op_token o :: rest))) a2,
+  eb_find_acc (op_token o :: rest) (S d) oc a = eb_find_acc rest (S d) oc a2.
+Proof. intros o rest d oc a a2; destruct o; eb_step_by. Qed.
+Lemma eb_step_id : forall f rest d oc (a : Acc lt (List.length (TId f :: rest))) a2,
+  eb_find_acc (TId f :: rest) (S d) oc a = eb_find_acc rest (S d) oc a2.
+Proof. intros f rest d oc a a2; eb_step_by. Qed.
+Lemma eb_step_dot : forall rest d oc (a : Acc lt (List.length (TDot :: rest))) a2,
+  eb_find_acc (TDot :: rest) (S d) oc a = eb_find_acc rest (S d) oc a2.
+Proof. intros rest d oc a a2; eb_step_by. Qed.
+Lemma eb_step_colon : forall rest d oc (a : Acc lt (List.length (TColon :: rest))) a2,
+  eb_find_acc (TColon :: rest) (S d) oc a = eb_find_acc rest (S d) oc a2.
+Proof. intros rest d oc a a2; eb_step_by. Qed.
+Lemma eb_step_comma : forall rest d oc (a : Acc lt (List.length (TComma :: rest))) a2,
+  eb_find_acc (TComma :: rest) (S d) oc a = eb_find_acc rest (S d) oc a2.
+Proof. intros rest d oc a a2; eb_step_by. Qed.
 
 (** LEXICAL FAITHFULNESS through the grammar: printing then lexing yields EXACTLY a
     canonical derivation's tokens — the composed [lex_gprint_expr] shape CLAUDE.md names. *)
