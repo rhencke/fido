@@ -107,9 +107,10 @@ operand, via `prefix_token_inj` + `bare_not_paren_group` + the operand IH).  The
 one token, every other form to ≥2; the atom row/column of the destruct-`e2` matrix).  STILL TO WRITE: the
 `gtokens_inj` ASSEMBLY — the LARGE remaining bulk (the diagonals + `nonatom_len` are a small fraction): the primary
 diagonals (atoms/postfix/composites) and, HARDEST, the ~14×13 cross-constructor
-discrimination.  Since `gtokens` is not prefix-free, most constructor pairs need a real discriminator
-(`eb_top`/`last0`/length/last-token), and the assembly will likely surface further discrimination
-sub-lemmas beyond the landed toolkit — the genuine remaining crux, not a mechanical wiring pass.  Then
+discrimination.  Since `gtokens` is not prefix-free, most constructor pairs need a real discriminator; the
+LENGTH one (atom vs everything) is landed as `nonatom_len`, but the rest (`eb_top` for `EBn`, `last0`/
+last-token for the delimited forms) and probably further discrimination sub-lemmas remain — the genuine
+remaining crux, not a mechanical wiring pass.  Then
 `canon_expr_unique`.
 (The arbitrary-SUFFIX
 determinism lemma was found FALSE — see the design.)
@@ -142,7 +143,8 @@ determinism lemma was found FALSE — see the design.)
    (`eb_find_gtokens : eb_find (gtokens ctx e) = eb_top ctx e`, the EBn discriminator; `eb_find_inner` its
    corollary), plus the two operator-bearing DIAGONALS of `gtokens_inj`, both FULL: `gtokens_inj_ebn` (the
    EBn diagonal — `gtokens_ebn_inner`'s unwrapped-inner recursion promoted past the ctx-wrapper, mismatch
-   discriminated via `eb_find_gtokens`) and `gtokens_eun_inner` (the EUn diagonal) — but these are a small
+   discriminated via `eb_find_gtokens`) and `gtokens_eun_inner` (the EUn diagonal), plus the first
+   cross-discriminator `nonatom_len` (atom vs everything, by length) — but these are a small
    fraction.  The LARGE remaining bulk is the `gtokens_inj` ASSEMBLY: the primary
    diagonals (atoms/postfix/composites), and, hardest, the ~14×13 cross-constructor discrimination (not
    prefix-free ⇒ most pairs need a real discriminator; the assembly
@@ -218,8 +220,9 @@ to the THREE expression bracket kinds — parens `TLP`/`TRP`, square `TLB`/`TRB`
 
 `gtokens_inj` by structural induction on `e1` (`GExpr_ind'`), `destruct e2`, per pair — on
 COMPLETE lists (no suffix):
-- Atoms (EId/EInt/EStr/EHex): single-token; the head token decides; cross-shape auto-discriminated
-  by distinct closed token ctors.
+- Atoms (EId/EInt/EStr/EHex): single-token; the head token separates the four atoms; a longer form
+  (even one sharing the head token, e.g. a bare-atom-based `ESel`) is ruled out by `nonatom_len` (length
+  ≥ 2 for every non-atom) — LANDED.
 - Fixed-tail postfix ESel: strip the 2-token tail `TDot :: TId f` (equal, since the whole lists
   are equal) ⇒ `f_a=f_b` and `gtparen e0_a = gtparen e0_b`; then the operand step.
 - Delimited-group forms (EIndex/ESlice/ECall/EConv/EAssert/ESliceLit/EMapLit): end in a CLOSER;
@@ -332,7 +335,8 @@ COMPLETE lists (no suffix):
   FULL: `gtokens_inj_ebn` (the EBn diagonal — `gtokens_ebn_inner`'s unwrapped-inner recursion (`app`-split
   at `op_token o`, IH on `l`/`r`) promoted past the ctx-wrapper: `eb_find_gtokens` ⇒ `eb_top` equality ⇒
   wrapped-vs-unwrapped mismatch is `None=Some`, same-wrapping strips to equal inner lists) and
-  `gtokens_eun_inner` (the EUn diagonal — no ctx-wrapper).  NEXT =
+  `gtokens_eun_inner` (the EUn diagonal — no ctx-wrapper).  The first cross-discriminator `nonatom_len`
+  (atom vs everything, by length) is LANDED too.  NEXT =
   the FULL `gtokens_inj` ASSEMBLY — the large remaining bulk: the primary diagonals (atoms/postfix/composites),
   and the ~14×13 cross-constructor discrimination (the genuine crux; likely surfaces further discrimination
   sub-lemmas), NOT just the EBn case.
