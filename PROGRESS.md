@@ -120,14 +120,17 @@ plugin CONSTRUCTS the `GExpr`; only `gprint` is verified. NOT "verified Go."
   `f_equal olast` mismatch discriminates a delimited/postfix pair with DIFFERENT closers; and — LANDED — the
   FIRST-TOKEN discriminator (`hd_error`) `gtokens_hd_eun` (→ `prefix_token o`) / `gtokens_hd_eslicelit` (→
   `TLB`) / `gtokens_hd_emaplit` (→ `TMap`) + `gtokens_hd_ebn_wrapped` (a wrapped `EBn` leads `TLP`); and —
-  ★LANDED — the FIRST FULL NON-ATOM ROW `gtokens_inj_eslicelit_row` (`ESliceLit` vs EVERY `e2`, fed the
-  per-element `Forall` IH): `nonatom_len` (atoms), first-token (EUn/EMapLit), `eb_find_gtokens`+wrapped-`hd`
-  (EBn unwrapped/wrapped), `olast` (the other delimited/postfix), the diagonal — proving the row pattern
+  ★LANDED — the TWO type-led composite rows `gtokens_inj_eslicelit_row` and `gtokens_inj_emaplit_row`
+  (`ESliceLit`/`EMapLit` vs EVERY `e2`, fed the per-element/per-pair `Forall` IH): `nonatom_len` (atoms),
+  first-token (EUn; and `TLB` vs `TMap` between the two composites), `eb_find_gtokens`+wrapped-`hd` (EBn
+  unwrapped/wrapped), `olast` (the other delimited/postfix), the diagonal — proving the row pattern
   end-to-end. NEXT: keep building
-  the `gtokens_inj` ASSEMBLY — the remaining bulk: the OTHER NINE non-atom rows (analogous — each combines
-  the discriminators for its closer/lead; still to build: WITHIN-closer-class discrimination `EIndex` vs
-  `ESlice` and `ECall`/`EAssert`/`EConv`, and the `EBn`/`EUn`/postfix rows), then `induction e1` wires the
-  rows together. Then `canon_expr_unique` (all
+  the `gtokens_inj` ASSEMBLY — the remaining bulk: the OTHER EIGHT non-atom rows. Those still need
+  WITHIN-closer-class discriminators — the `TRP` trio `ECall`/`EAssert`/`EConv` (entangled with the
+  genuine conversion-vs-call ambiguity; likely a `skip_gty`-based next-token split) and the `TRB` pair
+  `EIndex` vs `ESlice` (a depth-0-in-bracket `TColon` via the diagonal split + `fsep`) — plus the
+  `EBn`/`EUn`/`ESel` rows (`eb_find` Some/None for EBn; a lead-token fact for EUn). Then `induction e1`
+  wires the rows together. Then `canon_expr_unique` (all
   parser-free); then reprove `gprint_inj` off `gtokens_inj` (retiring `parse_print_roundtrip`), then
   `CanonStmt`/`CanonProgram`.
 - The cmd↔unified bridge (`plans/bridge-effects.md`): `CAlloc` AND the channel slice LANDED

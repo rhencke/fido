@@ -6405,6 +6405,38 @@ Proof.
   - exfalso; pose proof (nonatom_len ctx (ESliceLit t es) eq_refl) as HL; rewrite E in HL; cbn [gtokens length] in HL; lia.
   - exfalso; pose proof (nonatom_len ctx (ESliceLit t es) eq_refl) as HL; rewrite E in HL; cbn [gtokens length] in HL; lia.
 Qed.
+(* the EMapLit ROW — the clean analogue of [gtokens_inj_eslicelit_row]: [EMapLit] leads with [TMap] (its
+   [map[K]V] type prefix) and ends with [TRC], so first-token separates it from EUn/ESliceLit and [olast]
+   from the [TRB]/[TRP]/[TId] forms; EBn via [eb_find_gtokens]+wrapped-[hd]; the diagonal is
+   [gtokens_inj_emaplit] fed the per-pair [Forall] IH. *)
+Lemma gtokens_inj_emaplit_row : forall ctx kt vt kvs e2,
+  Forall (fun p => (forall a' c, gtokens c (fst p) = gtokens c a' -> fst p = a')
+                /\ (forall a' c, gtokens c (snd p) = gtokens c a' -> snd p = a')) kvs ->
+  gtokens ctx (EMapLit kt vt kvs) = gtokens ctx e2 -> EMapLit kt vt kvs = e2.
+Proof.
+  intros ctx kt vt kvs e2 Hall E.
+  destruct e2 as [ i | z | o e | o l r | e f | e j | e lo hi | e args | e T | c e | t0 es0 | kt2 vt2 kvs2 | s | zc ].
+  - exfalso; pose proof (nonatom_len ctx (EMapLit kt vt kvs) eq_refl) as HL; rewrite E in HL; cbn [gtokens length] in HL; lia.
+  - exfalso; pose proof (nonatom_len ctx (EMapLit kt vt kvs) eq_refl) as HL; rewrite E in HL; cbn [gtokens length] in HL; lia.
+  - exfalso; pose proof (f_equal (@hd_error Token) E) as HD;
+      rewrite gtokens_hd_emaplit, gtokens_hd_eun in HD; injection HD as HD;
+      destruct o; cbn [prefix_token] in HD; discriminate HD.
+  - exfalso; pose proof (f_equal eb_find E) as HF; rewrite !eb_find_gtokens in HF; cbn [eb_top] in HF;
+      destruct (Nat.ltb (binop_prec o) ctx) eqn:W;
+      [ pose proof (f_equal (@hd_error Token) E) as HD;
+        rewrite gtokens_hd_emaplit, (gtokens_hd_ebn_wrapped ctx o l r W) in HD; discriminate HD
+      | discriminate HF ].
+  - exfalso; pose proof (f_equal olast E) as HO; rewrite gtokens_olast_emaplit, gtokens_olast_esel in HO; discriminate HO.
+  - exfalso; pose proof (f_equal olast E) as HO; rewrite gtokens_olast_emaplit, gtokens_olast_eindex in HO; discriminate HO.
+  - exfalso; pose proof (f_equal olast E) as HO; rewrite gtokens_olast_emaplit, gtokens_olast_eslice in HO; discriminate HO.
+  - exfalso; pose proof (f_equal olast E) as HO; rewrite gtokens_olast_emaplit, gtokens_olast_ecall in HO; discriminate HO.
+  - exfalso; pose proof (f_equal olast E) as HO; rewrite gtokens_olast_emaplit, gtokens_olast_eassert in HO; discriminate HO.
+  - exfalso; pose proof (f_equal olast E) as HO; rewrite gtokens_olast_emaplit, gtokens_olast_econv in HO; discriminate HO.
+  - exfalso; pose proof (f_equal (@hd_error Token) E) as HD; rewrite gtokens_hd_emaplit, gtokens_hd_eslicelit in HD; discriminate HD.
+  - exact (gtokens_inj_emaplit ctx kt vt kvs kt2 vt2 kvs2 Hall E).
+  - exfalso; pose proof (nonatom_len ctx (EMapLit kt vt kvs) eq_refl) as HL; rewrite E in HL; cbn [gtokens length] in HL; lia.
+  - exfalso; pose proof (nonatom_len ctx (EMapLit kt vt kvs) eq_refl) as HL; rewrite E in HL; cbn [gtokens length] in HL; lia.
+Qed.
 (* the four ATOM-ROW diagonals+cross-cells of [gtokens_inj]: an atom [e1] against EVERY [e2].
    Each atom prints to ONE distinguishing token, so [gtokens ctx e1] has length 1: another atom's
    single token either matches ([congruence] recovers the payload) or is a different token
@@ -8456,6 +8488,7 @@ Print Assumptions gtokens_hd_eslicelit.
 Print Assumptions gtokens_hd_emaplit.
 Print Assumptions gtokens_hd_ebn_wrapped.
 Print Assumptions gtokens_inj_eslicelit_row.
+Print Assumptions gtokens_inj_emaplit_row.
 
 (** Extract the Rocq printers to the OCaml the plugin calls. *)
 Require Import Extraction.
