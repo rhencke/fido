@@ -1867,7 +1867,7 @@ Qed.
 
 (** ---- THE PARSER ---- recursive descent + precedence climbing over the TOKEN stream.  The ambiguous
     operator tokens are resolved by POSITION: a prefix [TStar]/[TAmp]/[TCaret]/[TBang] is a unary op
-    ([parse_primary]); an infix one is a binary op ([infix_op] in [parse_climb]).  [TMinus]+[TLP] is the
+    ([parse_atom]); an infix one is a binary op ([infix_op] in [parse_climb]).  [TMinus]+[TLP] is the
     parenthesised unary minus [UNeg]; bare negative literals are already [TInt] from the lexer. *)
 Definition infix_op (t : Token) : option BinOp :=
   match t with
@@ -3106,7 +3106,7 @@ Proof. vm_compute; reflexivity. Qed.
 
 (** ---- THE CANONICAL TOKEN LIST ---- [gtokens ctx e] is the token list [gprint ctx e] lexes to.  Mirrors
     [gprint]'s structure exactly; [op_token] RIGHT-inverts the parser's SINGLE token→op classifier
-    [infix_op] (in [parse_climb]) — prefix ops [prefix_token] have NO classifier, [parse_primary]
+    [infix_op] (in [parse_climb]) — prefix ops [prefix_token] have NO classifier, [parse_atom]
     recognizes them inline.  The two token maps OVERLAP on [TMinus]/[TStar]/[TAmp]/[TCaret] (slice 2h),
     so a token alone does NOT fix the op — the parser selects infix-vs-prefix by POSITION.
     This is the bridge for the general round-trip: [lex (gprint ctx e) = Some (gtokens ctx e)] (lexer side)
@@ -3384,7 +3384,7 @@ Proof.
 Qed.
 
 (** [op_token] right-inverts the parser's ONLY token→op classifier [infix_op] (prefix ops have no
-    classifier — [parse_primary] recognizes [prefix_token] inline). *)
+    classifier — [parse_atom] recognizes [prefix_token] inline). *)
 Lemma infix_op_token : forall o, infix_op (op_token o) = Some o.
 Proof. destruct o; reflexivity. Qed.
 
