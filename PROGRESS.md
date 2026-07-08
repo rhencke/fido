@@ -107,8 +107,9 @@ plugin CONSTRUCTS the `GExpr`; only `gprint` is verified. NOT "verified Go."
   of the destruct-e2 matrix); and the first two POSTFIX diagonals `gtokens_inj_esel`/`gtokens_inj_eindex`
   (base + fixed-tail / bracket-group, split via `app_inj_tail`/`last0`)). NEXT: keep building the
   `gtokens_inj` ASSEMBLY — the LARGE remaining bulk
-  (the diagonals + `nonatom_len` are a small fraction): the primary diagonals (atoms/postfix/composites)
-  and, hardest, the ~14×13 cross-constructor discrimination (`gtokens` is not prefix-free, so most pairs
+  (the landed diagonals + `nonatom_len` are a small fraction): the REMAINING primary diagonals (the atom
+  diagonals; the postfix `ESlice`/`ECall`/`EAssert`; the composites `EConv`/`ESliceLit`/`EMapLit` — `ESel`/
+  `EIndex` are done) and, hardest, the ~14×13 cross-constructor discrimination (`gtokens` is not prefix-free, so most pairs
   need a real discriminator; the LENGTH one is landed as `nonatom_len`, the rest — `eb_top` for `EBn`,
   `last0`/last-token for the delimited forms, plus more discrimination sub-lemmas likely — remain), then
   the assembly itself. Then `canon_expr_unique` (all parser-free); then reprove `gprint_inj`

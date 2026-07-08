@@ -163,7 +163,8 @@ determinism lemma was found FALSE — see the design.)
 
 ## Phase 3b/3c — the expression uniqueness proof (design, pinned before coding; the balance/split
 ## toolkit, the type-skipper, and the whole EBn precedence scan are now LANDED — the SUBSTANTIAL
-## `gtokens_inj` assembly (primary diagonals + ~14×13 cross-discrimination) + `canon_expr_unique` remain,
+## `gtokens_inj` assembly (the remaining primary diagonals — `ESel`/`EIndex` done, `ESlice`/`ECall`/
+## `EAssert` + composites left — plus the ~14×13 cross-discrimination) + `canon_expr_unique` remain,
 ## see the slice log above)
 
 TARGET (mirrors the type layer exactly): `canon_expr_unique ctx e1 e2 ts` = `canon_expr_tokens`
@@ -227,13 +228,16 @@ COMPLETE lists (no suffix):
   (even one sharing the head token, e.g. a bare-atom-based `ESel`) is ruled out by `nonatom_len` (length
   ≥ 2 for every non-atom) — LANDED.
 - Fixed-tail postfix ESel: strip the 2-token tail `TDot :: TId f` (equal, since the whole lists
-  are equal) ⇒ `f_a=f_b` and `gtparen e0_a = gtparen e0_b`; then the operand step.
+  are equal) ⇒ `f_a=f_b` and `gtparen e0_a = gtparen e0_b`; then the operand step.  LANDED as
+  `gtokens_inj_esel`.
 - Delimited-group forms (EIndex/ESlice/ECall/EConv/EAssert/ESliceLit/EMapLit): end in a CLOSER;
   `last0` pins the operand/type prefix length, `app_eq_length` isolates the group, `OPEN` stripped
   + `balanced_close_split cl:=CLOSE` peels `body`, then the single sub-expr (EIndex) recurses
   directly / the multi-element `body` splits via `gtokens_args_inj`/`gtokens_pairs_inj` (EIndex has
   one index, ESlice one `lo:hi` colon, ECall/lits a comma list, EMapLit colon+comma pairs); recurse
   on each.  EConv/lits lead with a TYPE (`canon_ty_unique`); `[]`/`map` lead tokens discriminate.
+  The EIndex instance is LANDED as `gtokens_inj_eindex`; ESlice/ECall/EConv/EAssert/ESliceLit/EMapLit
+  remain.
 - Operand step `gtparen e0_a = gtparen e0_b -> e0_a = e0_b` (COMPLETE): `destruct op_needs_paren`
   both sides — bare/bare and paren/paren strip to `gtokens 0 e0_a = gtokens 0 e0_b` ⇒ IH; the
   paren/bare MISMATCH is impossible (a complete bare `gtokens 0 e` cannot equal a single
@@ -339,8 +343,10 @@ COMPLETE lists (no suffix):
   at `op_token o`, IH on `l`/`r`) promoted past the ctx-wrapper: `eb_find_gtokens` ⇒ `eb_top` equality ⇒
   wrapped-vs-unwrapped mismatch is `None=Some`, same-wrapping strips to equal inner lists) and
   `gtokens_eun_inner` (the EUn diagonal — no ctx-wrapper).  The first cross-discriminator `nonatom_len`
-  (atom vs everything, by length) is LANDED too.  NEXT =
-  the FULL `gtokens_inj` ASSEMBLY — the large remaining bulk: the primary diagonals (atoms/postfix/composites),
+  (atom vs everything, by length) is LANDED too, as are the postfix diagonals `gtokens_inj_esel`/
+  `gtokens_inj_eindex`.  NEXT =
+  the FULL `gtokens_inj` ASSEMBLY — the large remaining bulk: the remaining primary diagonals (`ESlice`/
+  `ECall`/`EAssert` + composites `EConv`/`ESliceLit`/`EMapLit`; the atom diagonals),
   and the ~14×13 cross-constructor discrimination (the genuine crux; likely surfaces further discrimination
   sub-lemmas), NOT just the EBn case.
 
