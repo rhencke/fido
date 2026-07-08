@@ -5855,6 +5855,195 @@ Proof. intros t rest oc a a2 H; destruct H as [ -> | [ -> | -> ] ]; eb_step_by. 
    contributes NO depth-0 operator — its [eb_top] is [None]. *)
 Lemma eb_top_bare : forall c e, op_needs_paren e = false -> eb_top c e = None.
 Proof. intros c e H; destruct e; cbn [eb_top op_needs_paren] in *; try reflexivity; discriminate H. Qed.
+Lemma eb_top_unbare : forall c e, unop_needs_paren e = false -> eb_top c e = None.
+Proof. intros c e H; destruct e; cbn [eb_top unop_needs_paren] in *; try reflexivity; discriminate H. Qed.
+(* the EBn-unwrapped crux ALGEBRA.  [eb_combine_absorb]: a left operand's op ([topl], prec ≥ the split
+   op) never displaces an always-present split ([Some (r_step,o_step)]).  [eb_infix_combine]: the infix
+   step over the right operand's scan ([eb_combine topr ..], topr's op prec > the split op's) equals the
+   node's own combine — i.e. the node operator [o] IS the rightmost-min split. *)
+Lemma eb_combine_absorb : forall topl suffix r_step o_step,
+  (forall rr' o', topl = Some (rr', o') -> binop_prec o_step <= binop_prec o') ->
+  eb_combine topl suffix (Some (r_step, o_step)) = Some (r_step, o_step).
+Proof.
+  intros [ [rrl o_l] | ] suffix r_step o_step H; [ | reflexivity ].
+  cbn [eb_combine]. specialize (H _ _ eq_refl).
+  destruct (Nat.leb (binop_prec o_step) (binop_prec o_l)) eqn:E; [ reflexivity | ].
+  apply Nat.leb_gt in E. lia.
+Qed.
+Lemma eb_infix_combine : forall o topr rr suffix S,
+  (forall r' o', topr = Some (r', o') -> binop_prec o < binop_prec o') ->
+  match eb_combine topr suffix S with
+  | Some (r', o') => if Nat.leb (binop_prec o') (binop_prec o) then Some (r', o') else Some ((rr ++ suffix)%list, o)
+  | None => Some ((rr ++ suffix)%list, o)
+  end = eb_combine (Some (rr, o)) suffix S.
+Proof.
+  intros o topr rr suffix S Htop; destruct topr as [ [rrr o_r] | ]; [ specialize (Htop _ _ eq_refl) | ];
+    destruct S as [ [s' o_s] | ]; cbn [eb_combine].
+  - (* topr=Some, S=Some *) destruct (Nat.leb (binop_prec o_s) (binop_prec o_r)) eqn:E1; [ reflexivity | ].
+    apply Nat.leb_gt in E1.
+    destruct (Nat.leb (binop_prec o_r) (binop_prec o)) eqn:E2; [ apply Nat.leb_le in E2; lia | ].
+    destruct (Nat.leb (binop_prec o_s) (binop_prec o)) eqn:E3; [ apply Nat.leb_le in E3; lia | reflexivity ].
+  - (* topr=Some, S=None *) destruct (Nat.leb (binop_prec o_r) (binop_prec o)) eqn:E2; [ apply Nat.leb_le in E2; lia | reflexivity ].
+  - (* topr=None, S=Some *) reflexivity.
+  - (* topr=None, S=None *) reflexivity.
+Qed.
+(* the EBn CRUX CLOSER: a left operand's op ([topl], prec ≥ the node op [o]) never displaces the node's
+   own combine (which is always [Some] with op-prec ≤ [o]).  Folds [eb_combine_absorb] over the three
+   shapes of the inner combine — so the [EBn]-unwrapped case closes by one [apply] + [eb_top_prec]. *)
+Lemma eb_combine_left_absorb : forall topl rr o suffix1 suffix2 S,
+  (forall rr2 o2, topl = Some (rr2, o2) -> binop_prec o <= binop_prec o2) ->
+  eb_combine topl suffix1 (eb_combine (Some (rr, o)) suffix2 S) = eb_combine (Some (rr, o)) suffix2 S.
+Proof.
+  intros topl rr o suffix1 suffix2 S Htop.
+  assert (Habs : forall r_step o_step, binop_prec o_step <= binop_prec o ->
+                   eb_combine topl suffix1 (Some (r_step, o_step)) = Some (r_step, o_step)).
+  { intros r_step o_step Hle. apply eb_combine_absorb. intros rr2 o2 Hb. specialize (Htop _ _ Hb). lia. }
+  destruct S as [ [s' o_s] | ]; cbn [eb_combine].
+  - destruct (Nat.leb (binop_prec o_s) (binop_prec o)) eqn:E.
+    + apply Habs. apply Nat.leb_le in E. exact E.
+    + apply Habs. lia.
+  - apply Habs. lia.
+Qed.
+(* the DEPTH-0 TYPE-SKIP step: a bracket-led type ([TLB]/[TMap]/[TChan] head — slice/map/chan) at an
+   operand FROM-position is skipped WHOLE by [skip_gty_acc], landing on the following composite '{' /
+   conversion '(' at depth 1.  The [skip_gty] fact is discharged by [skip_gty_types] at each call site
+   (so this stays parser-free — the type-skipper is the authority, not a re-scan). *)
+Lemma eb_type_skip : forall th tt topen rest a a2,
+  (th = TLB \/ th = TMap \/ th = TChan) -> (topen = TLC \/ topen = TLP) ->
+  skip_gty ((th :: tt) ++ topen :: rest) = Some (topen :: rest) ->
+  eb_find_acc ((th :: tt) ++ topen :: rest) 0 false a = eb_find_acc rest 1 true a2.
+Proof.
+  intros th tt topen rest a a2 Hth Htopen Hsk.
+  unfold skip_gty in Hsk. destruct a as [f].
+  destruct Hth as [ -> | [ -> | -> ] ]; cbn [eb_find_acc app] in Hsk |- *;
+    match goal with |- context [ skip_gty_acc ?T ?A ] =>
+      destruct (skip_gty_acc T A) as [ [r Hr] | ] end;
+    cbn in Hsk; try discriminate Hsk; injection Hsk as Hsk; subst r;
+    destruct Htopen as [ -> | -> ]; cbn [eb_find_acc]; eapply eb_find_acc_pi; apply tlt1.
+Qed.
+Ltac eb_tyskip_side T := solve
+  [ left; reflexivity | right; reflexivity | right; left; reflexivity | right; right; reflexivity
+  | apply (skip_gty_types T) ].
+(* [ESliceLit]'s bridge presents its [ [] ]-slice type CONS-headed ([TLB :: TRB :: gttokens_ty t]); this
+   wrapper matches that shape ([eb_type_skip]'s app-headed LHS needs an app at the split, which the
+   [gtokens_EMapLit]/[gtokens_EConv] bridges already provide). *)
+Lemma eb_type_slice : forall t rest a a2,
+  eb_find_acc (TLB :: TRB :: gttokens_ty t ++ TLC :: rest) 0 false a = eb_find_acc rest 1 true a2.
+Proof.
+  intros t rest a a2. apply (eb_type_skip TLB (TRB :: gttokens_ty t) TLC rest a a2);
+    [ left; reflexivity | left; reflexivity | apply (skip_gty_types (GTSlice t)) ].
+Qed.
+(* the DEPTH-0 CONVERSION type-skip: ANY conversion type [gttokens_ty t] at a FROM-position, then '(',
+   lands at depth 1.  Scalar/named leads step through the single [TId] then '('; pointer leads step the
+   [TStar] prefix then recurse; slice/chan/map leads take the whole-type [eb_type_skip].  For [EConv]. *)
+Lemma eb_type_conv : forall t rest a a2,
+  eb_find_acc (gttokens_ty t ++ TLP :: rest) 0 false a = eb_find_acc rest 1 true a2.
+Proof.
+  induction t; intros rest a a2;
+    try (cbn [gttokens_ty app]; erewrite (eb0f_id _ _ _ (lt_wf _));
+         erewrite (eb0t_lparen _ _ (lt_wf _)); eapply eb_find_acc_pi; apply tlt1).
+  - (* GTPtr u *) cbn [gttokens_ty app];
+      erewrite (eb0f_prefix _ _ _ (lt_wf _)) by (right; right; left; reflexivity); apply IHt.
+  - (* GTSlice u *) cbn [gttokens_ty];
+      erewrite (eb_type_skip TLB _ TLP _ _ (lt_wf _)) by (eb_tyskip_side (GTSlice t));
+      eapply eb_find_acc_pi; apply tlt1.
+  - (* GTChan u *) cbn [gttokens_ty];
+      erewrite (eb_type_skip TChan _ TLP _ _ (lt_wf _)) by (eb_tyskip_side (GTChan t));
+      eapply eb_find_acc_pi; apply tlt1.
+  - (* GTMap k v *) cbn [gttokens_ty];
+      erewrite (eb_type_skip TMap _ TLP _ _ (lt_wf _)) by (eb_tyskip_side (GTMap t1 t2));
+      eapply eb_find_acc_pi; apply tlt1.
+Qed.
+
+(* ═══ the OPERAND LAW [eb_operand] ═══  a whole [gtokens ctx e] block at a depth-0 FROM-position is
+   consumed, leaving the [suffix] scan combined with the node's own top operator [eb_top ctx e].  The
+   depth-0 dual of [eb_depth]: primaries drive [eb_top]=None (so the combine collapses to the suffix
+   scan); only [EBn]-unwrapped contributes a real split — proved by the crux algebra above.  Interior
+   sub-blocks (at depth ≥ 1) reuse the COMPLETE [eb_depth]; only the bare depth-0 base / the [EBn]
+   operands recurse through the operand IH. *)
+Definition eb_op_pred (e : GExpr) : Prop :=
+  forall ctx suffix (a : Acc lt (List.length (gtokens ctx e ++ suffix))) a2,
+    eb_find_acc (gtokens ctx e ++ suffix) 0 false a
+      = eb_combine (eb_top ctx e) suffix (eb_find_acc suffix 0 true a2).
+(* the arg/pair lists sit at depth ≥ 1 (inside the call/composite brackets) — skipped by the DEPTH law,
+   whose per-element premise holds unconditionally from the complete [eb_depth] (NOT the operand IH). *)
+Lemma all_eb_dep : forall args, Forall eb_dep_pred args.
+Proof. intros; apply Forall_forall; intros; apply eb_depth. Qed.
+Lemma all_eb_dep_pairs : forall kvs, Forall (fun p => eb_dep_pred (fst p) /\ eb_dep_pred (snd p)) kvs.
+Proof. intros; apply Forall_forall; intros x Hx; split; apply eb_depth. Qed.
+(* depth-0 FROM-position (oc=false) one-token steps and TO-position (oc=true) postfix steps *)
+Ltac eb0_atom L := erewrite (L _ _ _ (lt_wf _)).
+Ltac eb0_lp := erewrite (eb0f_lparen _ _ (lt_wf _)).
+Ltac eb0_uneg := erewrite (eb0f_uneg _ _ (lt_wf _)).
+(* [eb0_pre]/[eb0_cl1] carry a [by]-discharged side-condition, so the whole rewrite term is elaborated
+   up front — [a2]'s length must be GROUND.  Capture [t]/[rest] from the goal so [lt_wf (length rest)] is
+   concrete (a bare [lt_wf _] leaves [length ?rest] unresolvable while [?rest] is still an evar). *)
+Ltac eb0_pre :=
+  match goal with |- eb_find_acc (?t :: ?rest) 0 false _ = _ =>
+    erewrite (eb0f_prefix t rest _ (lt_wf (List.length rest)))
+      by (solve [ left; reflexivity | right; left; reflexivity
+                | right; right; left; reflexivity | right; right; right; reflexivity ]) end.
+Ltac eb0_dotid := erewrite (eb0t_dot_id _ _ _ (lt_wf _)).
+Ltac eb0_dotlp := erewrite (eb0t_dot_lparen _ _ (lt_wf _)).
+Ltac eb0_tlp := erewrite (eb0t_lparen _ _ (lt_wf _)).
+Ltac eb0_lb := erewrite (eb0t_lbracket _ _ (lt_wf _)).
+Ltac eb0_cl1 :=
+  match goal with |- eb_find_acc (?t :: ?rest) 1 ?oc _ = _ =>
+    erewrite (eb_close1 t rest oc _ (lt_wf (List.length rest)))
+      by (solve [ left; reflexivity | right; left; reflexivity | right; right; reflexivity ]) end.
+(* skip a BARE depth-0 base via the operand IH, killing [eb_top]=None with [Hrw] (op/unop_needs_paren).
+   Every bare base prints at context 0; capture the ground [suffix] so [a2]'s length is concrete. *)
+Ltac eb0_bare IH Hrw :=
+  match goal with |- eb_find_acc (gtokens 0 _ ++ ?sfx) 0 false _ = _ =>
+    erewrite (IH 0 sfx _ (lt_wf (List.length sfx))) end;
+  rewrite Hrw; cbn [eb_combine].
+Lemma eb_operand : forall e, eb_op_pred e.
+Proof.
+  induction e using GExpr_ind'; unfold eb_op_pred in *; intros ctx suffix a a2.
+  - (* EId *) cbn [gtokens app eb_top eb_combine]; eb0_atom eb0f_id; eb_fin.
+  - (* EInt *) cbn [gtokens app eb_top eb_combine]; eb0_atom eb0f_int; eb_fin.
+  - (* EUn *) cbn [eb_top eb_combine]; destruct o; cbn [gtokens prefix_token unop_paren].
+    5: (eb_pin; eb_norm; eb0_uneg; eb_ih6 (eb_depth e); eb0_cl1; eb_fin).
+    all: (eb_pin; destruct (unop_needs_paren e) eqn:Hp; eb_norm;
+          [ eb0_pre; eb0_lp; eb_ih6 (eb_depth e); eb0_cl1
+          | eb0_pre; eb0_bare IHe (eb_top_unbare 0 _ Hp) ]; eb_fin).
+  - (* EBn — the CRUX *) cbn [gtokens eb_top]; eb_pin; destruct (Nat.ltb (binop_prec o) ctx) eqn:Hlt.
+    + (* wrapped: prec o < ctx, eb_top = None *) cbn [eb_combine]; eb_norm;
+        eb0_lp; eb_ih6 (eb_depth e1); eb_opt; eb_ih6 (eb_depth e2); eb0_cl1; eb_fin.
+    + (* unwrapped: eb_top = Some (gtokens (S prec o) r, o) — the recursive-combine split *)
+      eb_norm; rewrite (eb_find_pi suffix 0 true a2);
+        erewrite (IHe1 _ _ _ (lt_wf _)); erewrite (eb0t_infix o _ _ (lt_wf _));
+        erewrite (IHe2 _ _ _ (lt_wf _));
+        rewrite (eb_infix_combine o (eb_top (S (binop_prec o)) e2) (gtokens (S (binop_prec o)) e2)
+                   suffix (eb_find_acc suffix 0 true (lt_wf (List.length suffix)))
+                   (fun r' o' H => eb_top_prec (S (binop_prec o)) e2 r' o' H));
+        apply eb_combine_left_absorb; intros rr2 o2 Hb; exact (eb_top_prec _ _ _ _ Hb).
+  - (* ESel *) cbn [gtokens eb_top eb_combine]; eb_pin; destruct (op_needs_paren e) eqn:Hp; eb_norm;
+      [ eb0_lp; eb_ih6 (eb_depth e); eb0_cl1 | eb0_bare IHe (eb_top_bare 0 _ Hp) ]; eb0_dotid; eb_fin.
+  - (* EIndex *) cbn [gtokens eb_top eb_combine]; eb_pin; destruct (op_needs_paren e1) eqn:Hp; eb_norm;
+      [ eb0_lp; eb_ih6 (eb_depth e1); eb0_cl1 | eb0_bare IHe1 (eb_top_bare 0 _ Hp) ];
+      eb0_lb; eb_ih6 (eb_depth e2); eb0_cl1; eb_fin.
+  - (* ESlice *) cbn [gtokens eb_top eb_combine]; eb_pin; destruct (op_needs_paren e1) eqn:Hp; eb_norm;
+      [ eb0_lp; eb_ih6 (eb_depth e1); eb0_cl1 | eb0_bare IHe1 (eb_top_bare 0 _ Hp) ];
+      eb0_lb; eb_ih6 (eb_depth e2); eb_neu; eb_ih6 (eb_depth e3); eb0_cl1; eb_fin.
+  - (* ECall *) cbn [eb_top eb_combine]; eb_pin; rewrite gtokens_ECall; unfold gtparen;
+      destruct (op_needs_paren e) eqn:Hp; eb_norm;
+      [ eb0_lp; eb_ih6 (eb_depth e); eb0_cl1 | eb0_bare IHe (eb_top_bare 0 _ Hp) ];
+      eb0_tlp; eb_ih (eb_depth_args args (all_eb_dep args)); eb0_cl1; eb_fin.
+  - (* EAssert *) cbn [gtokens eb_top eb_combine]; eb_pin; destruct (op_needs_paren e) eqn:Hp; eb_norm;
+      [ eb0_lp; eb_ih6 (eb_depth e); eb0_cl1 | eb0_bare IHe (eb_top_bare 0 _ Hp) ];
+      eb0_dotlp; eb_ih (eb_depth_ty T); eb0_cl1; eb_fin.
+  - (* EConv *) cbn [eb_top eb_combine]; eb_pin; rewrite gtokens_EConv; eb_norm;
+      erewrite (eb_type_conv (convty_ty c) _ _ (lt_wf _)); eb_ih6 (eb_depth e); eb0_cl1; eb_fin.
+  - (* ESliceLit *) cbn [eb_top eb_combine]; eb_pin; rewrite gtokens_ESliceLit; eb_norm;
+      erewrite (eb_type_slice t _ _ (lt_wf _));
+      eb_ih (eb_depth_args es (all_eb_dep es)); eb0_cl1; eb_fin.
+  - (* EMapLit *) cbn [eb_top eb_combine]; eb_pin; rewrite gtokens_EMapLit; eb_norm; cbn [gttokens_ty];
+      erewrite (eb_type_skip TMap _ TLC _ _ (lt_wf _)) by (eb_tyskip_side (GTMap kt vt));
+      eb_ih (eb_depth_pairs kvs (all_eb_dep_pairs kvs)); eb0_cl1; eb_fin.
+  - (* EStr *) cbn [gtokens app eb_top eb_combine]; eb0_atom eb0f_str; eb_fin.
+  - (* EHex *) cbn [gtokens app eb_top eb_combine]; eb0_atom eb0f_hex; eb_fin.
+Qed.
 
 (** LEXICAL FAITHFULNESS through the grammar: printing then lexing yields EXACTLY a
     canonical derivation's tokens — the composed [lex_gprint_expr] shape CLAUDE.md names. *)
@@ -7826,6 +8015,9 @@ Print Assumptions eb_depth.
 Print Assumptions eb_top_prec.
 Print Assumptions eb0t_infix.
 Print Assumptions eb_top_bare.
+Print Assumptions eb_type_skip.
+Print Assumptions eb_type_conv.
+Print Assumptions eb_operand.
 
 (** Extract the Rocq printers to the OCaml the plugin calls. *)
 Require Import Extraction.
