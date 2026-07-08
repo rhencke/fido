@@ -5684,6 +5684,41 @@ Proof.
   - (* GTChan *) eb_neu; eb_ih IHu; eb_fin.
   - (* GTMap *) eb_neu; eb_op; rewrite <- app_assoc; cbn [app]; eb_ih IHk; eb_cl; eb_ih IHv; eb_fin.
 Qed.
+(* more tactics for the expression depth law: [eb_ih6] skips a sub-block via a 6-arg IH; [eb_opt]/[eb_pre]
+   step over [op_token]/[prefix_token] (neutral, via [bd_op_token]/[bd_prefix_token]); [eb_norm]
+   right-associates the token stream and re-exposes conses after a skip. *)
+Ltac eb_ih6 L := erewrite (L _ _ _ _ _ (lt_wf _)).
+Ltac eb_opt := erewrite (eb_step_neutral _ _ _ _ _ (lt_wf _)) by (rewrite bd_op_token; reflexivity).
+Ltac eb_pre := erewrite (eb_step_neutral _ _ _ _ _ (lt_wf _)) by (rewrite bd_prefix_token; reflexivity).
+Ltac eb_norm := rewrite <- ?app_assoc; cbn [app].
+(* normalize the goal's LHS [Acc] to [lt_wf] so a later token-list rewrite co-varies (the original
+   dependent [a] would make [rewrite app_assoc] ill-typed by abstracting the list out of [a]'s type). *)
+Ltac eb_pin := match goal with |- eb_find_acc ?toks ?d ?oc ?a = _ => rewrite (eb_find_pi toks d oc a) end.
+(* the ELEMENT depth-law predicate carried by [GExpr_ind']'s [Forall] premises (a Definition, so the
+   [Forall] hypotheses have a real [forall] type — a [Notation] leaves a beta-redex that blocks the
+   [lt_wf _] length inference). *)
+Definition eb_dep_pred (e : GExpr) : Prop :=
+  forall c more sd oc (a : Acc lt (List.length (gtokens c e ++ more))) a2,
+    eb_find_acc (gtokens c e ++ more) (S sd) oc a = eb_find_acc more (S sd) oc a2.
+(** DEPTH law for the comma-tail / full arg-list of ECall / ESliceLit. *)
+Lemma eb_depth_args_tl : forall args, Forall eb_dep_pred args ->
+  forall more sd oc (a : Acc lt (List.length (gtokens_args_tl args ++ more))) a2,
+    eb_find_acc (gtokens_args_tl args ++ more) (S sd) oc a = eb_find_acc more (S sd) oc a2.
+Proof.
+  induction args as [ | b m IH ]; intros Hall more sd oc a a2.
+  - cbn [gtokens_args_tl app]; eb_fin.
+  - inversion Hall as [ | ? ? Hb Hm ]; subst; unfold eb_dep_pred in Hb.
+    cbn [gtokens_args_tl app]; eb_neu; rewrite <- (app_assoc (gtokens 0 b) (gtokens_args_tl m) more); eb_ih6 Hb; specialize (IH Hm); eb_ih IH; eb_fin.
+Qed.
+Lemma eb_depth_args : forall args, Forall eb_dep_pred args ->
+  forall more sd oc (a : Acc lt (List.length (gtokens_args args ++ more))) a2,
+    eb_find_acc (gtokens_args args ++ more) (S sd) oc a = eb_find_acc more (S sd) oc a2.
+Proof.
+  intros [ | a1 r ] Hall more sd oc a a2.
+  - cbn [gtokens_args app]; eb_fin.
+  - inversion Hall as [ | ? ? Ha1 Hr ]; subst; unfold eb_dep_pred in Ha1.
+    cbn [gtokens_args]; eb_pin; rewrite <- (app_assoc (gtokens 0 a1) (gtokens_args_tl r) more); eb_ih6 Ha1; eb_ih (eb_depth_args_tl r Hr); eb_fin.
+Qed.
 
 (** LEXICAL FAITHFULNESS through the grammar: printing then lexing yields EXACTLY a
     canonical derivation's tokens — the composed [lex_gprint_expr] shape CLAUDE.md names. *)
@@ -7649,6 +7684,7 @@ Print Assumptions skip_gty_lt.
 Print Assumptions eb_find_lt.
 Print Assumptions eb_find_pi.
 Print Assumptions eb_depth_ty.
+Print Assumptions eb_depth_args.
 
 (** Extract the Rocq printers to the OCaml the plugin calls. *)
 Require Import Extraction.
