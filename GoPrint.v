@@ -6303,6 +6303,53 @@ Proof.
   injection Eb as Eb. apply app_inj_tail in Eb. destruct Eb as [Eb _].
   apply (gtokens_pairs_inj kvs kvs' Hall) in Eb. subst kvs'. reflexivity.
 Qed.
+(* the four ATOM-ROW diagonals+cross-cells of [gtokens_inj]: an atom [e1] against EVERY [e2].
+   Each atom prints to ONE distinguishing token, so [gtokens ctx e1] has length 1: another atom's
+   single token either matches ([congruence] recovers the payload) or is a different token
+   constructor ([congruence] discriminates), and any NON-atom prints to ≥ 2 tokens ([nonatom_len]),
+   so its token list cannot equal a length-1 list.  Uniform tactic: [try] the length contradiction
+   ([nonatom_len] fails to apply on atoms since [unop_needs_paren atom = false], so [try] skips them),
+   then [congruence] on the two length-1 lists.  Parser-free. *)
+Lemma gtokens_inj_eid : forall ctx x e2, gtokens ctx (EId x) = gtokens ctx e2 -> EId x = e2.
+Proof.
+  intros ctx x e2 E. destruct e2;
+    try (exfalso;
+      match goal with
+      | [ H : gtokens ?c (EId _) = gtokens ?c ?g |- _ ] =>
+          pose proof (nonatom_len c g eq_refl) as HL; rewrite <- H in HL
+      end; cbn [length gtokens] in HL; lia);
+    cbn [gtokens] in E; congruence.
+Qed.
+Lemma gtokens_inj_eint : forall ctx z e2, gtokens ctx (EInt z) = gtokens ctx e2 -> EInt z = e2.
+Proof.
+  intros ctx z e2 E. destruct e2;
+    try (exfalso;
+      match goal with
+      | [ H : gtokens ?c (EInt _) = gtokens ?c ?g |- _ ] =>
+          pose proof (nonatom_len c g eq_refl) as HL; rewrite <- H in HL
+      end; cbn [length gtokens] in HL; lia);
+    cbn [gtokens] in E; congruence.
+Qed.
+Lemma gtokens_inj_estr : forall ctx s e2, gtokens ctx (EStr s) = gtokens ctx e2 -> EStr s = e2.
+Proof.
+  intros ctx s e2 E. destruct e2;
+    try (exfalso;
+      match goal with
+      | [ H : gtokens ?c (EStr _) = gtokens ?c ?g |- _ ] =>
+          pose proof (nonatom_len c g eq_refl) as HL; rewrite <- H in HL
+      end; cbn [length gtokens] in HL; lia);
+    cbn [gtokens] in E; congruence.
+Qed.
+Lemma gtokens_inj_ehex : forall ctx zc e2, gtokens ctx (EHex zc) = gtokens ctx e2 -> EHex zc = e2.
+Proof.
+  intros ctx zc e2 E. destruct e2;
+    try (exfalso;
+      match goal with
+      | [ H : gtokens ?c (EHex _) = gtokens ?c ?g |- _ ] =>
+          pose proof (nonatom_len c g eq_refl) as HL; rewrite <- H in HL
+      end; cbn [length gtokens] in HL; lia);
+    cbn [gtokens] in E; congruence.
+Qed.
 
 (** LEXICAL FAITHFULNESS through the grammar: printing then lexing yields EXACTLY a
     canonical derivation's tokens — the composed [lex_gprint_expr] shape CLAUDE.md names. *)
@@ -8290,6 +8337,10 @@ Print Assumptions gtokens_inj_ecall.
 Print Assumptions gtokens_inj_econv.
 Print Assumptions gtokens_inj_eslicelit.
 Print Assumptions gtokens_inj_emaplit.
+Print Assumptions gtokens_inj_eid.
+Print Assumptions gtokens_inj_eint.
+Print Assumptions gtokens_inj_estr.
+Print Assumptions gtokens_inj_ehex.
 
 (** Extract the Rocq printers to the OCaml the plugin calls. *)
 Require Import Extraction.

@@ -110,16 +110,17 @@ plugin CONSTRUCTS the `GExpr`; only `gprint` is verified. NOT "verified Go."
   `gtokens_inj_emaplit` (so with `gtokens_inj_ebn`/`gtokens_eun_inner` above, all 10 non-atom diagonals are
   done) (base-or-type prefix + delimited group: `last0_group` pins the prefix length,
   `app_eq_length` splits it off — `gttokens_ty_inj`/`convty_ty_inj` recover the type — then `app_inj_tail`
-  / `sep_split` (the `lo:hi` colon) / `gtokens_args_inj` / `gtokens_pairs_inj` peel the group)). NEXT: keep
-  building the `gtokens_inj` ASSEMBLY — the remaining bulk
-  (the landed diagonals + `nonatom_len` are a small fraction): the ONLY remaining primary diagonals are
-  the four ATOM rows (`EId`/`EInt`/`EStr`/`EHex` — a single distinguishing token each; every operator,
-  postfix and composite diagonal is done)
-  and, hardest, the ~14×13 cross-constructor discrimination (`gtokens` is not prefix-free, so most pairs
-  need a real discriminator; the LENGTH one is landed as `nonatom_len`, the rest — `eb_top` for `EBn`,
-  `last0`/last-token for the delimited forms, plus more discrimination sub-lemmas likely — remain), then
-  the assembly itself. Then `canon_expr_unique` (all parser-free); then reprove `gprint_inj`
-  off `gtokens_inj` (retiring `parse_print_roundtrip`), then `CanonStmt`/`CanonProgram`.
+  / `sep_split` (the `lo:hi` colon) / `gtokens_args_inj` / `gtokens_pairs_inj` peel the group)); and — LANDED —
+  the FOUR ATOM ROWS `gtokens_inj_eid`/`gtokens_inj_eint`/`gtokens_inj_estr`/`gtokens_inj_ehex`, each a full
+  matrix ROW (atom `e1` vs EVERY `e2`): the atom prints to ONE token, so an atom `e2` matches-or-discriminates
+  by `congruence` and a non-atom `e2` is killed by `nonatom_len` (≥2 tokens vs 1) — so the atom-row diagonals
+  AND all atom×non-atom cross-cells are closed. NEXT: keep building the `gtokens_inj` ASSEMBLY — the remaining
+  bulk (the landed diagonals + `nonatom_len` are a small fraction): the ~14×13 cross-constructor discrimination
+  for the TEN NON-ATOM rows (`gtokens` is not prefix-free, so most pairs need a real discriminator — `eb_top`
+  for `EBn`, `last0`/last-token for the delimited forms, plus more discrimination sub-lemmas likely; the atom
+  columns are the easy `nonatom_len` case), then the assembly itself. Then `canon_expr_unique` (all
+  parser-free); then reprove `gprint_inj` off `gtokens_inj` (retiring `parse_print_roundtrip`), then
+  `CanonStmt`/`CanonProgram`.
 - The cmd↔unified bridge (`plans/bridge-effects.md`): `CAlloc` AND the channel slice LANDED
   (typed zeros through the channel's own tag, gated obligations; `bridge_effects_agree` now
   exposes capacity agreement publicly). Spawn/select is the deferred capstone (design deferred
