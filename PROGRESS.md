@@ -100,9 +100,10 @@ plugin CONSTRUCTS the `GExpr`; only `gprint` is verified. NOT "verified Go."
   : eb_find (gtokens ctx e) = eb_top ctx e`, THE `gtokens_inj` EBn discriminator (`eb_operand` at the empty
   suffix ⇒ a block's tokens locate their own top operator: `Some (R,o)` for an unwrapped `EBn`, `None`
   otherwise), with the `EBn`-node instance `eb_find_inner` its corollary, and `gtokens_ebn_inner` — the
-  EBn-case RECURSION of `gtokens_inj` (equal inner tokens ⇒ equal operator + operands, via `eb_find_inner`
-  + the operand IHs)). NEXT: assemble `gtokens_inj` (EBn crux DONE; remaining = the ctx-wrapper peel + the
-  primary/EUn/composite cross-discrimination via `eb_top`/`last0`/`gtparen_inj`/args-pairs) →
+  EBn-case RECURSION of `gtokens_inj`, and `gtokens_eun_inner` the EUn-case recursion — the two "loose"
+  (non-primary) diagonals, each equal-tokens ⇒ equal node via `eb_find_inner`/`prefix_token_inj` + the
+  operand IHs). NEXT: assemble `gtokens_inj` (both loose diagonals DONE; remaining = the primary diagonals
+  + the cross-constructor discrimination via `eb_top`/`last0`/`gtparen_inj`/args-pairs) →
   `canon_expr_unique` (all parser-free); then reprove `gprint_inj`
   off `gtokens_inj` (retiring `parse_print_roundtrip`), then `CanonStmt`/`CanonProgram`.
 - The cmd↔unified bridge (`plans/bridge-effects.md`): `CAlloc` AND the channel slice LANDED
