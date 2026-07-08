@@ -97,9 +97,9 @@ to the THREE expression bracket kinds — parens `TLP`/`TRP`, square `TLB`/`TRB`
   index, and `last0` takes the LAST.  Both decompositions of the same `L` give
   `length P_a = length P_b`, then `app_eq_length` splits.  (`last0` — a forward depth scan
   recording the last depth-0 TOKEN index, so a token index is always < length L — and
-  `last0_group : last0 (P ++ OPEN :: body ++ CLOSE :: nil) = length P` (slice 2a),
+  `last0_group : last0 (P ++ OPEN :: body ++ CLOSE :: nil) = length P`,
   via `nd`/`nd_add`/`bd_nd`/`bd_prefix_defined`/`last0_aux_inv`.  NOTE the closer
-  hypothesis turned out unnecessary — the final token is at depth-before 1, so it never records a
+  hypothesis is unnecessary — the final token is at depth-before 1, so it never records a
   best; the split holds for any final token.  The `app_eq_length`-based split COROLLARY is trivial.)
 - `bdip` (all-kinds first-dip) + `bdip_app_nodip` + `app_eq_length` give `balanced_close_split`
   (any closer `cl`): `ts1 ++ cl::r1 = ts2 ++ cl::r2`, `ts1`/`ts2` balanced ⇒ `ts1=ts2 /\ r1=r2`.
@@ -136,10 +136,10 @@ COMPLETE lists (no suffix):
   `gtokens 0 e` cannot equal a single `TLP…TRP`-wrapped group) — `bare_not_paren_group` via `last0`.
 - EUn (`gtokens_eun_inner`): leading `prefix_token o` (injective on unops) fixes `o`; `unop_paren` P/N
   by the `TLP`; then the operand step.  A prefix operator, so no infix issue.
-- ★EBn was the HARDEST case — genuine OPERATOR-PRECEDENCE disambiguation, NOT a bracket scan.  The
-  design below is REALIZED by the scan `eb_find`/`eb_find_acc`, proved correct by the
-  operand law `eb_operand` → `eb_find_gtokens` — this paragraph explains WHY the
-  scan is correct; `gtokens_inj`'s EBn case (`gtokens_inj_ebn`) applies it.
+- ★EBn is the HARDEST case — genuine OPERATOR-PRECEDENCE disambiguation, NOT a bracket scan.  The
+  design: a scan `eb_find`/`eb_find_acc`, correct by the operand law `eb_operand` → `eb_find_gtokens`
+  — this paragraph explains WHY the scan is correct; `gtokens_inj`'s EBn case (`gtokens_inj_ebn`)
+  applies it.
   `inner = gtokens p el ++ op_token o :: gtokens (S p) er` (`p = binop_prec o`) can carry SEVERAL
   depth-0 operators (`a+b*c` ⇒ `[a;+;b;*;c]`), so "the op at top balance level" does NOT locate the
   split.  The top operator is the RIGHTMOST depth-0 operator of MINIMAL precedence, justified by the
@@ -167,8 +167,8 @@ COMPLETE lists (no suffix):
   ONLY once inside such a scan.  ⚠ do NOT list a bare `*` as an opener (review 48): a depth-0 `TStar` at
   OPERAND-START is unary deref (`prefix_token UDeref`), not a type — cf. `*b * c` — and there is no
   bare-pointer conversion (`ConvTy` = slice/chan/map only, `GoAst.v:201`) and no `[N]` arrays (`GoTy`
-  has no array ctor).  With type-context tracked, the invariants hold — and these two invariants are now
-  REALIZED by the operand law `eb_operand` (INV-L `gtokens p el`: its depth-0 non-type infix ops have prec
+  has no array ctor).  With type-context tracked, the invariants hold — and these two invariants are
+  captured by the operand law `eb_operand` (INV-L `gtokens p el`: its depth-0 non-type infix ops have prec
   ≥ p and it ends operand-complete; INV-R `gtokens (S p) er`: prec > p — both are exactly the `eb_top_prec`
   bounds `eb_operand` threads).  On `inner`: the left gives prec ≥ p, `op_token o` prec p (the new min,
   rightmost so far), the right prec > p — so the scan lands on `op_token o`'s position; `op_token_inj`
@@ -188,25 +188,25 @@ COMPLETE lists (no suffix):
   (`eb_find_acc toks d oc a`) that walks the unwrapped tokens tracking bracket-depth `d` + operand-complete
   `oc`, returning `Some (R, o)` for the RIGHTMOST depth-0 infix operator `o` of MINIMAL precedence (the top
   constructor by left-assoc) with `R` the suffix after it.  Returning the SUFFIX (not a position) means no
-  index arithmetic: the chosen op's `R` just propagates up the recursion.  Overlap is resolved by `oc`: at
+  index arithmetic: the chosen op's `R` just propagates up the recursion.  Overlap is disambiguated by `oc`: at
   `oc=false` `*`/`&`/`^` are unary prefixes and `-(` is `UNeg`; at `oc=true` they are the infix ops
   (`infix_op`).  Type-led operands are skipped WHOLE by `skip_gty_acc` (so a pointer-`TStar` inside a type
   is never read as `BMul`); its STRICT sig hands the length proof to the value-group recursion's `Acc`
-  cert DIRECTLY — no convoy (the earlier `eq_refl` convoy made a proof unable to case-split the scrutinee;
-  the strict sig was the fix).  Bracket interiors (`d>0`) are depth-tracked, operators ignored.
-  Slice 2k = the rightmost-min CORRECTNESS on the
+  cert DIRECTLY — no convoy: the strict sig lets a proof case-split the scrutinee (an `eq_refl` convoy
+  would block it).  Bracket interiors (`d>0`) are depth-tracked, operators ignored.
+  The rightmost-min CORRECTNESS on the
   UNWRAPPED inner — `eb_find (gtokens (prec o) l ++ op_token o :: gtokens (S (prec o)) r) =
   Some (gtokens (S (prec o)) r, o)` (NOT on `gtokens ctx (EBn o l r)`: for `prec o < ctx` that is
   paren-WRAPPED and `eb_find` returns `None`; `gtokens_inj` peels the wrapper before calling `eb_find`),
-  broken into: 2k-a `eb_find_acc_pi` — [Acc]-proof-irrelevance so the correctness proof can
+  broken into: `eb_find_acc_pi` — [Acc]-proof-irrelevance so the correctness proof can
   reason equationally across the [Acc_inv] certs `eb_find_acc`'s own recursion produces.
-  ★The two depth-scan laws (worked out from the `gtokens` clauses) — TWO SEPARATE inductions on `e`
-  (`GExpr_ind'`) (the depth law (ii) is self-contained, so it is proved first and stands
-  alone; it is NOT one conjunction with (i)):
+  ★The two depth-scan laws (from the `gtokens` clauses) — TWO SEPARATE inductions on `e`
+  (`GExpr_ind'`) (the depth law (ii) is self-contained — a separate induction, NOT one conjunction
+  with (i)):
     (ii) DEPTH (d≥1) — `eb_depth` (`eb_find_acc (gtokens c e ++ suffix) (S sd) oc =
-        eb_find_acc suffix (S sd) oc` — a gtokens block is skipped whole inside brackets).  Proved by
-        induction on `GExpr` (NOT the arbitrary-balanced-`g` `eb_bal_skip` route — that needs a fiddly
-        min-depth split and was AVOIDED), chaining the depth-step toolkit + `eb_depth_ty`/`args`/`pairs`.
+        eb_find_acc suffix (S sd) oc` — a gtokens block is skipped whole inside brackets).  By
+        induction on `GExpr` (NOT the arbitrary-balanced-`g` `eb_bal_skip` route, which needs a fiddly
+        min-depth split), chaining the depth-step toolkit + `eb_depth_ty`/`args`/`pairs`.
     (i) OPERAND (d=0) — `eb_operand`: `eb_find_acc (gtokens c e ++ suffix) 0 false = eb_combine
         (eb_top c e) suffix (eb_find_acc suffix 0 true)` where `eb_top c (EBn o _ r) = if prec o <? c then
         None else Some (gtokens (S prec o) r, o)`, `eb_top c _ = None`; and `eb_combine (Some
@@ -221,13 +221,13 @@ COMPLETE lists (no suffix):
         case `EBn` unwrapped unfolds to `gtokens (prec o) l ++ op_token o :: gtokens (S prec o) r`, applies
         (i) to `l` (suffix = `op_token o :: …`), handles `op_token o` via `eb0t_infix` (infix at oc=true)
         whose recursion on `r` gives ops of prec > prec o, so `eb_combine` keeps `o`.
-  The `EBn`-unwrapped crux is isolated into pure combine ALGEBRA: `eb_infix_combine`
+  The `EBn`-unwrapped crux factors into pure combine ALGEBRA: `eb_infix_combine`
   (the node op IS the rightmost-min split over the right operand's scan), `eb_combine_left_absorb`/
   `eb_combine_absorb` (a left operand's op, prec ≥ the node op, never displaces the always-`Some` split);
   the type-led operands use `eb_type_skip`/`eb_type_slice`/`eb_type_conv` (whole-type skip via
   `skip_gty_acc` + `skip_gty_types`, parser-free) and `eb_top_unbare` for the bare unary operand.
-  2k-d = the top-level `eb_find` correctness, in its GENERAL form `eb_find_gtokens : eb_find
-  (gtokens ctx e) = eb_top ctx e` (proved from (i)=`eb_operand` at the empty suffix ⇒ the combine collapses
+  The top-level `eb_find` correctness, in its GENERAL form `eb_find_gtokens : eb_find
+  (gtokens ctx e) = eb_top ctx e` (from (i)=`eb_operand` at the empty suffix ⇒ the combine collapses
   to `eb_top`; `Some (R,o)` for an unwrapped `EBn`, `None` otherwise); `eb_find_inner` (the `EBn`-node
   instance, `R ++ nil = R`) is its corollary.  The same-constructor DIAGONALS then discriminate per pair:
   the two operator-bearing — `gtokens_inj_ebn` (the EBn diagonal — `gtokens_ebn_inner`'s unwrapped-inner
