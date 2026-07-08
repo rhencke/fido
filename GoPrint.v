@@ -6114,6 +6114,27 @@ Proof.
   apply app_inj_tail in E. destruct E as [E _].
   apply (gtparen_inj e0 e0' (IH 0)) in E. subst e0'. reflexivity.
 Qed.
+(* the EIndex diagonal: two index expressions with equal tokens are equal.  Both are
+   [gtparen(base) ++ TLB :: (gtokens 0 idx ++ TRB :: nil)]; [last0] pins the base-prefix LENGTH (the [TLB]
+   opener is the last depth-0 token), [app_eq_length] then splits the shared list into equal `gtparen`
+   bases (⇒ base via [gtparen_inj]) and equal bracket groups; stripping [TLB]/[TRB] gives equal index
+   tokens (⇒ index via its IH).  Takes the base + index IHs. *)
+Lemma gtokens_inj_eindex : forall ctx e0 i e0' i',
+  (forall c e, gtokens c e0 = gtokens c e -> e0 = e) ->
+  (forall c e, gtokens c i  = gtokens c e -> i  = e) ->
+  gtokens ctx (EIndex e0 i) = gtokens ctx (EIndex e0' i') -> EIndex e0 i = EIndex e0' i'.
+Proof.
+  intros ctx e0 i e0' i' IHe IHi E. rewrite !gtokens_EIndex in E.
+  pose proof (f_equal last0 E) as HL.
+  rewrite (last0_group (gtparen e0) (gtokens 0 i) TLB TRB
+             (bd_gtparen e0 (gtokens_balanced e0 0)) (gtokens_balanced i 0) (or_intror (or_introl eq_refl))) in HL.
+  rewrite (last0_group (gtparen e0') (gtokens 0 i') TLB TRB
+             (bd_gtparen e0' (gtokens_balanced e0' 0)) (gtokens_balanced i' 0) (or_intror (or_introl eq_refl))) in HL.
+  destruct (app_eq_length _ _ _ _ HL E) as [Ep Eb].
+  apply (gtparen_inj e0 e0' (IHe 0)) in Ep. subst e0'.
+  injection Eb as Eb. apply app_inj_tail in Eb. destruct Eb as [Eb _].
+  apply (IHi 0) in Eb. subst i'. reflexivity.
+Qed.
 
 (** LEXICAL FAITHFULNESS through the grammar: printing then lexing yields EXACTLY a
     canonical derivation's tokens — the composed [lex_gprint_expr] shape CLAUDE.md names. *)
@@ -8094,6 +8115,7 @@ Print Assumptions gtokens_inj_ebn.
 Print Assumptions gtokens_eun_inner.
 Print Assumptions nonatom_len.
 Print Assumptions gtokens_inj_esel.
+Print Assumptions gtokens_inj_eindex.
 
 (** Extract the Rocq printers to the OCaml the plugin calls. *)
 Require Import Extraction.
