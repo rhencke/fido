@@ -6135,6 +6135,95 @@ Proof.
   injection Eb as Eb. apply app_inj_tail in Eb. destruct Eb as [Eb _].
   apply (IHi 0) in Eb. subst i'. reflexivity.
 Qed.
+(* the EAssert diagonal: two type-assertions with equal tokens are equal.  Both are
+   [gtparen(base) ++ TDot :: TLP :: (gttokens_ty T ++ TRP :: nil)].  Re-associating the [TDot]
+   into the base prefix, the trailing [TLP..gttokens_ty T..TRP] is a balanced paren group whose
+   framing [TLP] is the last depth-0 token; [last0_group] pins the [gtparen(base)++TDot] length,
+   [app_eq_length] splits base (⇒ base via [gtparen_inj]) from the group, and stripping [TLP]/[TRP]
+   leaves equal type tokens (⇒ T via [gttokens_ty_inj]).  Takes only the base IH — T is a type. *)
+Lemma gtokens_inj_eassert : forall ctx e0 T e0' T',
+  (forall c e, gtokens c e0 = gtokens c e -> e0 = e) ->
+  gtokens ctx (EAssert e0 T) = gtokens ctx (EAssert e0' T') -> EAssert e0 T = EAssert e0' T'.
+Proof.
+  intros ctx e0 T e0' T' IH E. rewrite !gtokens_EAssert in E.
+  assert (H1 : (gtparen e0 ++ TDot :: TLP :: (gttokens_ty T ++ TRP :: nil))%list
+             = ((gtparen e0 ++ TDot :: nil) ++ TLP :: (gttokens_ty T ++ TRP :: nil))%list)
+    by (rewrite <- (app_assoc (gtparen e0) (TDot :: nil)); reflexivity).
+  assert (H2 : (gtparen e0' ++ TDot :: TLP :: (gttokens_ty T' ++ TRP :: nil))%list
+             = ((gtparen e0' ++ TDot :: nil) ++ TLP :: (gttokens_ty T' ++ TRP :: nil))%list)
+    by (rewrite <- (app_assoc (gtparen e0') (TDot :: nil)); reflexivity).
+  rewrite H1, H2 in E.
+  assert (HP : bd (gtparen e0 ++ TDot :: nil) 0 = Some 0)
+    by (rewrite (bd_app_pass _ _ _ _ (bd_gtparen e0 (gtokens_balanced e0 0))); reflexivity).
+  assert (HP' : bd (gtparen e0' ++ TDot :: nil) 0 = Some 0)
+    by (rewrite (bd_app_pass _ _ _ _ (bd_gtparen e0' (gtokens_balanced e0' 0))); reflexivity).
+  pose proof (f_equal last0 E) as HL.
+  rewrite (last0_group (gtparen e0 ++ TDot :: nil) (gttokens_ty T) TLP TRP HP (gttokens_ty_bd T) (or_introl eq_refl)) in HL.
+  rewrite (last0_group (gtparen e0' ++ TDot :: nil) (gttokens_ty T') TLP TRP HP' (gttokens_ty_bd T') (or_introl eq_refl)) in HL.
+  destruct (app_eq_length _ _ _ _ HL E) as [Ep Eb].
+  apply app_inj_tail in Ep. destruct Ep as [Ep _].
+  apply (gtparen_inj e0 e0' (IH 0)) in Ep. subst e0'.
+  injection Eb as Eb. apply app_inj_tail in Eb. destruct Eb as [Eb _].
+  apply gttokens_ty_inj in Eb. subst T'. reflexivity.
+Qed.
+(* the ESlice diagonal: two 2-index slices with equal tokens are equal.  Both are
+   [gtparen(base) ++ TLB :: (gtokens 0 lo ++ TColon :: (gtokens 0 hi ++ TRB :: nil))].  [last0_group]
+   pins the base length (the framing [TLB] is the last depth-0 token), [app_eq_length] splits base
+   (⇒ base) from the bracket group; stripping [TLB]/[TRB], the internal depth-0 [TColon] separates
+   [lo] from [hi] via [sep_split] (each operand exposes no depth-0 separator by [no_depth0_sep]).
+   Takes the base, lo and hi IHs. *)
+Lemma gtokens_inj_eslice : forall ctx e0 lo hi e0' lo' hi',
+  (forall c e, gtokens c e0 = gtokens c e -> e0 = e) ->
+  (forall c e, gtokens c lo = gtokens c e -> lo = e) ->
+  (forall c e, gtokens c hi = gtokens c e -> hi = e) ->
+  gtokens ctx (ESlice e0 lo hi) = gtokens ctx (ESlice e0' lo' hi') -> ESlice e0 lo hi = ESlice e0' lo' hi'.
+Proof.
+  intros ctx e0 lo hi e0' lo' hi' IHe IHlo IHhi E. rewrite !gtokens_ESlice in E.
+  assert (H1 : (gtparen e0 ++ TLB :: (gtokens 0 lo ++ TColon :: (gtokens 0 hi ++ TRB :: nil)))%list
+             = (gtparen e0 ++ TLB :: ((gtokens 0 lo ++ TColon :: gtokens 0 hi) ++ TRB :: nil))%list)
+    by (rewrite <- (app_assoc (gtokens 0 lo) (TColon :: gtokens 0 hi)); reflexivity).
+  assert (H2 : (gtparen e0' ++ TLB :: (gtokens 0 lo' ++ TColon :: (gtokens 0 hi' ++ TRB :: nil)))%list
+             = (gtparen e0' ++ TLB :: ((gtokens 0 lo' ++ TColon :: gtokens 0 hi') ++ TRB :: nil))%list)
+    by (rewrite <- (app_assoc (gtokens 0 lo') (TColon :: gtokens 0 hi')); reflexivity).
+  rewrite H1, H2 in E.
+  assert (Hb : bd (gtokens 0 lo ++ TColon :: gtokens 0 hi) 0 = Some 0)
+    by (rewrite (bd_app_pass _ _ _ _ (gtokens_balanced lo 0)); cbn [bd]; apply gtokens_balanced).
+  assert (Hb' : bd (gtokens 0 lo' ++ TColon :: gtokens 0 hi') 0 = Some 0)
+    by (rewrite (bd_app_pass _ _ _ _ (gtokens_balanced lo' 0)); cbn [bd]; apply gtokens_balanced).
+  pose proof (f_equal last0 E) as HL.
+  rewrite (last0_group (gtparen e0) (gtokens 0 lo ++ TColon :: gtokens 0 hi) TLB TRB
+             (bd_gtparen e0 (gtokens_balanced e0 0)) Hb (or_intror (or_introl eq_refl))) in HL.
+  rewrite (last0_group (gtparen e0') (gtokens 0 lo' ++ TColon :: gtokens 0 hi') TLB TRB
+             (bd_gtparen e0' (gtokens_balanced e0' 0)) Hb' (or_intror (or_introl eq_refl))) in HL.
+  destruct (app_eq_length _ _ _ _ HL E) as [Ep Eb].
+  apply (gtparen_inj e0 e0' (IHe 0)) in Ep. subst e0'.
+  injection Eb as Eb. apply app_inj_tail in Eb. destruct Eb as [Eb _].
+  destruct (sep_split TColon (gtokens 0 lo) (gtokens 0 lo') (gtokens 0 hi) (gtokens 0 hi')
+             (or_intror eq_refl) (gtokens_balanced lo 0) (gtokens_balanced lo' 0)
+             (no_depth0_sep lo 0 0) (no_depth0_sep lo' 0 0) Eb) as [Elo Ehi].
+  apply (IHlo 0) in Elo. apply (IHhi 0) in Ehi. subst lo' hi'. reflexivity.
+Qed.
+(* the ECall diagonal: two calls with equal tokens are equal.  Both are
+   [gtparen(base) ++ TLP :: (gtokens_args args ++ TRP :: nil)].  [last0_group] pins the base length
+   (framing [TLP] is the last depth-0 token), [app_eq_length] splits base (⇒ base) from the paren
+   group; stripping [TLP]/[TRP] leaves equal argument token lists (⇒ args via [gtokens_args_inj]).
+   Takes the base IH and the per-argument Forall IH. *)
+Lemma gtokens_inj_ecall : forall ctx e0 args e0' args',
+  (forall c e, gtokens c e0 = gtokens c e -> e0 = e) ->
+  Forall (fun a => forall a' c, gtokens c a = gtokens c a' -> a = a') args ->
+  gtokens ctx (ECall e0 args) = gtokens ctx (ECall e0' args') -> ECall e0 args = ECall e0' args'.
+Proof.
+  intros ctx e0 args e0' args' IHe Hall E. rewrite !gtokens_ECall in E.
+  pose proof (f_equal last0 E) as HL.
+  rewrite (last0_group (gtparen e0) (gtokens_args args) TLP TRP
+             (bd_gtparen e0 (gtokens_balanced e0 0)) (bd_args_d args 0) (or_introl eq_refl)) in HL.
+  rewrite (last0_group (gtparen e0') (gtokens_args args') TLP TRP
+             (bd_gtparen e0' (gtokens_balanced e0' 0)) (bd_args_d args' 0) (or_introl eq_refl)) in HL.
+  destruct (app_eq_length _ _ _ _ HL E) as [Ep Eb].
+  apply (gtparen_inj e0 e0' (IHe 0)) in Ep. subst e0'.
+  injection Eb as Eb. apply app_inj_tail in Eb. destruct Eb as [Eb _].
+  apply (gtokens_args_inj args args' Hall) in Eb. subst args'. reflexivity.
+Qed.
 
 (** LEXICAL FAITHFULNESS through the grammar: printing then lexing yields EXACTLY a
     canonical derivation's tokens — the composed [lex_gprint_expr] shape CLAUDE.md names. *)
@@ -8116,6 +8205,9 @@ Print Assumptions gtokens_eun_inner.
 Print Assumptions nonatom_len.
 Print Assumptions gtokens_inj_esel.
 Print Assumptions gtokens_inj_eindex.
+Print Assumptions gtokens_inj_eassert.
+Print Assumptions gtokens_inj_eslice.
+Print Assumptions gtokens_inj_ecall.
 
 (** Extract the Rocq printers to the OCaml the plugin calls. *)
 Require Import Extraction.
