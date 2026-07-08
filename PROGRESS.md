@@ -88,8 +88,8 @@ plugin CONSTRUCTS the `GExpr`; only `gprint` is verified. NOT "verified Go."
 - **The canonical relational syntax authority is the ACTIVE arc** (`plans/canonical-grammar.md`;
   checkpoint-50 order: syntax authority before spawn). Phases 1+2 landed (`CanonTy`/`CanonExpr`
   + `gprint_expr_canonical` + `lex_gprint_expr`); Phase 3a landed (`canon_ty_unique`, type-level
-  token uniqueness, PARSER-FREE via `gttokens_ty_inj`); Phase 3b slices 1–2i landed (slice 1
-  `bd`/`gtokens_balanced`; slices 2a–2i the `last0`/`bdip`/`fsep` split lemmas, `no_depth0_sep`,
+  token uniqueness, PARSER-FREE via `gttokens_ty_inj`); Phase 3b slices 1–2j landed (slice 1
+  `bd`/`gtokens_balanced`; slices 2a–2j the `last0`/`bdip`/`fsep` split lemmas, `no_depth0_sep`,
   `gtokens_args_inj`, `gtokens_pairs_inj`, the paren/bare operand discrimination
   `bare_not_paren_group`/`gtparen_inj`, the operator-token injectivities
   `op_token_inj`/`prefix_token_inj`, the pure type-skipper `skip_gty`
