@@ -124,8 +124,9 @@ determinism lemma was found FALSE — see the design.)
    `op_token_inj`/`prefix_token_inj`; the type-skipper `skip_gty`; slice 2j the EBn locator `eb_find` +
    `eb_find_lt`; slice 2k-c the OPERAND LAW `eb_operand` — the depth-0 dual of `eb_depth`) are LANDED +
    gated; `gtokens_inj` itself is the open crux — the locator AND its operand-law substrate are landed, so
-   the top-level `eb_find` correctness (2k-d `eb_find_inner`, a corollary of `eb_operand`) is LANDED too,
-   so the `gtokens_inj` EBn assembly (peel the wrapper, split at `op_token o`, IH on `l`/`r`) is what remains.
+   the top-level `eb_find` correctness (2k-d `eb_find_gtokens : eb_find (gtokens ctx e) = eb_top ctx e`, the
+   EBn discriminator; `eb_find_inner` its corollary) is LANDED too, so the `gtokens_inj` EBn assembly (equal
+   tokens ⇒ equal `eb_top` ⇒ same operator + split, IH on `l`/`r`) is what remains.
 4. **CanonStmt/CanonProgram** + the same trio over the statement printer (the
    statement layer's `lex_gprint_stmt` does not exist yet — build the statement
    `gtokens` analogue first).
@@ -211,58 +212,50 @@ COMPLETE lists (no suffix):
   (`bare_not_paren_group` + `gtparen_inj`) LANDED in slice 2g.
 - EUn: leading `prefix_token o` (injective on unops) fixes `o`; `unop_paren` P/N by the `TLP`;
   then the operand step.  A prefix operator, so no infix issue.
-- ★EBn is the HARDEST case — genuine OPERATOR-PRECEDENCE disambiguation, NOT a bracket scan.
+- ★EBn was the HARDEST case — genuine OPERATOR-PRECEDENCE disambiguation, NOT a bracket scan.  The
+  design below is now REALIZED: the scan is `eb_find`/`eb_find_acc` (slice 2j) proved correct by the
+  operand law `eb_operand` → `eb_find_gtokens` (slices 2k-c/2k-d) — this paragraph explains WHY the
+  landed scan is correct; `gtokens_inj`'s EBn case just applies it.
   `inner = gtokens p el ++ op_token o :: gtokens (S p) er` (`p = binop_prec o`) can carry SEVERAL
   depth-0 operators (`a+b*c` ⇒ `[a;+;b;*;c]`), so "the op at top balance level" does NOT locate the
   split.  The top operator is the RIGHTMOST depth-0 operator of MINIMAL precedence, justified by the
   ctx-wrapping invariants: `el` at ctx `p` wraps prec `< p` ⇒ its depth-0 ops have prec ≥ p; `er` at
   ctx `S p` wraps prec `≤ p` ⇒ its depth-0 ops have prec `> p`; `op_token o` has prec `p` ⇒ the
-  minimal depth-0 precedence is `p`, achieved rightmost by `op_token o` (left-associative).  This
-  needs an operator-precedence scan + the wrapping-invariant lemmas + `op_token`/`prefix_token`
-  injectivity (`op_token_inj`/`prefix_token_inj` LANDED, slice 2h) — a self-contained sub-arc, the
-  crux risk of Phase 3b.  ⚠ TOKEN OVERLAP: `op_token` and `prefix_token` SHARE `TMinus`/`TStar`/
-  `TAmp`/`TCaret` (BSub/UNeg, BMul/UDeref, BAnd/UAddr, BXor/UXor), so "depth-0 operator" is
-  ambiguous at the token level — the scan must classify by prefix/infix POSITION (an infix op follows
-  a COMPLETE operand; a unary prefix leads an operand), the parser's job reproved structurally.
-  `Nat.ltb (binop_prec o) ctx` P/N split by the leading `TLP` as usual.
-  THE SCAN (design; code next): a left-to-right fold tracking (a) bracket depth `bd`, (b) an
-  OPERAND-COMPLETE state — an operator token counts as INFIX only after a complete operand
+  minimal depth-0 precedence is `p`, achieved rightmost by `op_token o` (left-associative).  This is
+  done by the operator-precedence scan `eb_find` + the wrapping bounds (`eb_top_prec`) + `op_token`/
+  `prefix_token` injectivity (`op_token_inj`/`prefix_token_inj` LANDED, slice 2h) — the sub-arc is now
+  CLOSED (`eb_find`/`eb_operand`/`eb_find_gtokens` LANDED, gated).  ⚠ TOKEN OVERLAP: `op_token` and
+  `prefix_token` SHARE `TMinus`/`TStar`/`TAmp`/`TCaret` (BSub/UNeg, BMul/UDeref, BAnd/UAddr, BXor/UXor),
+  so "depth-0 operator" is ambiguous at the token level — the scan classifies by prefix/infix POSITION
+  (an infix op follows a COMPLETE operand; a unary prefix leads an operand), the parser's job reproved
+  structurally.  `Nat.ltb (binop_prec o) ctx` P/N split by the leading `TLP` as usual.
+  THE SCAN (LANDED as `eb_find_acc`, slice 2j): a left-to-right fold tracking (a) bracket depth `bd`, (b)
+  an OPERAND-COMPLETE state — an operator token counts as INFIX only after a complete operand
   (atom/closer/finished postfix chain), so a leading `TMinus`/`TStar`/`TAmp`/`TCaret` reads unary, not
   binary — and (c) the RIGHTMOST depth-0 position of MINIMAL `infix_op` precedence.  ⚠ TYPE-CONTEXT
   HAZARD (review 47): `gttokens_ty` emits pointer types as `TStar :: …`, and type-led operands splice
   type tokens at EXPRESSION depth 0 — `ESliceLit`'s element type after `[]` (`a * []*int{}`) and
   `EMapLit`'s value type after `map[K]` — so a `TStar` INSIDE such a type is a POINTER star, not `BMul`.
   (`TMinus`/`TAmp`/`TCaret` never occur in types; only `TStar` does; `EAssert`'s type sits inside
-  `TLP…TRP` at depth ≥ 1, safe.)  The scan MUST therefore also track TYPE-CONTEXT — a region entered
+  `TLP…TRP` at depth ≥ 1, safe.)  `eb_find_acc` therefore ALSO tracks TYPE-CONTEXT — a region entered
   ONLY by an expression-level type-LED form: `[]` (`ESliceLit`/`CTSlice`), `map` (`EMapLit`/`CTMap`),
   `chan` (`CTChan`) — and closed at the value delimiter `{` or `(`; a `TStar` counts as type syntax
   ONLY once inside such a scan.  ⚠ do NOT list a bare `*` as an opener (review 48): a depth-0 `TStar` at
   OPERAND-START is unary deref (`prefix_token UDeref`), not a type — cf. `*b * c` — and there is no
   bare-pointer conversion (`ConvTy` = slice/chan/map only, `GoAst.v:201`) and no `[N]` arrays (`GoTy`
-  has no array ctor).  With type-context tracked, the invariants hold.  Two
-  invariants by structural induction on the operand pin the split: INV-L (`gtokens p el`: its depth-0
-  NON-TYPE infix ops have prec ≥ p and it ends operand-complete) and INV-R (`gtokens (S p) er`: its
-  depth-0 non-type infix ops have prec > p).  On `inner`: the left gives prec ≥ p, `op_token o` prec p
-  (the new min, rightmost so far), the right prec > p — so the scan lands on `op_token o`'s position;
-  `op_token_inj` recovers `o`, an `app`-length split gives `el`/`er`, IH recurses.  ⛔ NOT derivable from
-  the parser: `parse (gtokens e) = e` (`gtokens_parse`; the string-level analogue is
-  `parse_print_roundtrip`) + equal token lists would give uniqueness in two lines — the exact
-  parser-as-foundation inversion the charter forbids; the scan REPROVES the precedence-climb
-  structurally.  (The operand-complete + type-context tracking mirrors the parser's postfix/climb state — the
-  intricate part, hence a self-contained sub-arc.)
-  IMPLEMENTATION (grounded in the real parser): `parse_atom` consumes a whole TYPE as a UNIT via
-  `parse_gty_b` (GoPrint.v ~1892/1960) then dispatches `(`→conversion / `{`→literal — so the scan
-  should RECOGNIZE-AND-SKIP a full type on hitting a type-led `[]`/`map`/`chan` at operand-expecting
-  position, rather than carry a fragile flat in-type flag.  ARCH RESOLUTION (parser-free is paramount
-  here): NOT `parse_gty_b` (a parser function — using it would make `gtokens_inj` lean on the parser,
-  the forbidden inversion); instead a FRESH pure `skip_gty : list Token -> option (list Token)` that
-  returns just the remainder (does NOT build a `GoTy`, so it is a token UTILITY like `bd`/`fsep`, not a
-  second type-parser) — `Acc`-recursive on length (the `map[K]V` two-part skip is non-structural), with
-  correctness `skip_gty (gttokens_ty t ++ rest) = Some rest` by induction on `t`.  The scan's three
-  sub-parts (skip-type, complete-operand incl. postfix chain, precedence fold) mirror the SHAPE of
-  `parse_gty_b`/`parse_atom`/`parse_climb` (NOT invoked — reproved as pure token functions).  NB the
-  operand-complete/type state is PER-BRACKET-LEVEL (nested), so the scan is recursive-descent, not a
-  flat fold.  (`skip_gty` + `skip_gty_types` (exactness) + `skip_gty_lt` (progress) LANDED as slice 2i —
+  has no array ctor).  With type-context tracked, the invariants hold — and these two invariants are now
+  REALIZED by the operand law `eb_operand` (INV-L `gtokens p el`: its depth-0 non-type infix ops have prec
+  ≥ p and it ends operand-complete; INV-R `gtokens (S p) er`: prec > p — both are exactly the `eb_top_prec`
+  bounds `eb_operand` threads).  On `inner`: the left gives prec ≥ p, `op_token o` prec p (the new min,
+  rightmost so far), the right prec > p — so the scan lands on `op_token o`'s position; `op_token_inj`
+  recovers `o`, an `app`-length split gives `el`/`er`, IH recurses.  ⛔ NOT derived from the parser:
+  `parse (gtokens e) = e` (`gtokens_parse`; the string-level analogue is `parse_print_roundtrip`) + equal
+  token lists would give uniqueness in two lines — the exact parser-as-foundation inversion the charter
+  forbids; the scan REPROVES the precedence-climb structurally.
+  TYPE-SKIP (LANDED): a type-led operand is skipped WHOLE by the pure `skip_gty : list Token -> option
+  (list Token)` — NOT the parser `parse_gty_b` (that would make `gtokens_inj` lean on the parser); a token
+  UTILITY like `bd`/`fsep` that returns just the remainder (`Acc`-recursive on length; the `map[K]V`
+  two-part skip is non-structural).  (`skip_gty` + `skip_gty_types` (exactness) + `skip_gty_lt` (progress) LANDED as slice 2i —
   the type-skip foundation.  `skip_gty_acc` now returns the STRICT sig `{ r | length r < length toks }`,
   so `skip_gty_lt` is a trivial projection.)
 
@@ -310,10 +303,11 @@ COMPLETE lists (no suffix):
   `eb_combine_absorb` (a left operand's op, prec ≥ the node op, never displaces the always-`Some` split);
   the type-led operands use `eb_type_skip`/`eb_type_slice`/`eb_type_conv` (whole-type skip via
   `skip_gty_acc` + `skip_gty_types`, parser-free) and `eb_top_unbare` for the bare unary operand.
-  2k-d (LANDED, `eb_find_inner`) = the top-level `eb_find` correctness at `suffix = nil` (proved as a
-  corollary of (i)=`eb_operand` at the `EBn` node with `c = binop_prec o` ⇒ unwrapped, empty suffix ⇒
-  `eb_top` = `Some (R,o)` and the combine keeps `o` with `R ++ nil = R`).  NEXT = `gtokens_inj`'s EBn case
-  (peel the ctx-wrapper when `prec o < ctx`; `app`-split at `op_token o` via `eb_find_inner`'s R;
+  2k-d (LANDED) = the top-level `eb_find` correctness, in its GENERAL form `eb_find_gtokens : eb_find
+  (gtokens ctx e) = eb_top ctx e` (proved from (i)=`eb_operand` at the empty suffix ⇒ the combine collapses
+  to `eb_top`; `Some (R,o)` for an unwrapped `EBn`, `None` otherwise).  `eb_find_inner` (the `EBn`-node
+  instance, `R ++ nil = R`) is now its corollary.  NEXT = `gtokens_inj`'s EBn case (equal tokens ⇒ equal
+  `eb_top` via `eb_find_gtokens` ⇒ peel the ctx-wrapper when `prec o < ctx`; `app`-split at `op_token o`;
   `op_token_inj` for `o`; IH on `l` and `r`).
 
 Then `canon_expr_unique` (+ `gtokens_inj`) join the printer Print Assumptions gate.
