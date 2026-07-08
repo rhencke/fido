@@ -6677,6 +6677,40 @@ Proof.
   pose proof (f_equal olast Ep) as HO. rewrite olast_app1 in HO.
   exact (gtparen_olast_not_dot e' (eq_sym HO)).
 Qed.
+(* a TYPE's tokens contain NO [TDot] (used for EAssert-vs-EConv: the split forces EAssert's [.]-ended
+   prefix to equal a type's tokens). *)
+Lemma gttokens_ty_no_dot : forall t, ~ In TDot (gttokens_ty t).
+Proof.
+  intro t; induction t; cbn [gttokens_ty]; intro H;
+    repeat match goal with
+    | [ H : In _ (_ ++ _) |- _ ] => apply in_app_or in H
+    | [ H : In _ (_ :: _) |- _ ] => cbn [In] in H
+    | [ H : _ \/ _ |- _ ] => destruct H
+    | [ H : _ = TDot |- _ ] => discriminate H
+    | [ H : False |- _ ] => contradiction
+    | [ IH : ~ In TDot (gttokens_ty ?x), Hin : In TDot (gttokens_ty ?x) |- _ ] => exact (IH Hin)
+    end.
+Qed.
+(* EAssert vs EConv: both end [TRP]; [last0_group] splits off the framing [TLP] group; the equal prefixes
+   force [gtparen e ++ TDot::nil = gttokens_ty (convty_ty c)], i.e. a type's tokens contain [TDot] —
+   impossible by [gttokens_ty_no_dot]. *)
+Lemma gtokens_eassert_neq_econv : forall ctx e T c e',
+  gtokens ctx (EAssert e T) = gtokens ctx (EConv c e') -> False.
+Proof.
+  intros ctx e T c e' E. rewrite gtokens_EAssert, gtokens_EConv in E.
+  assert (Ha : (gtparen e ++ TDot :: TLP :: (gttokens_ty T ++ TRP :: nil))%list
+             = ((gtparen e ++ TDot :: nil) ++ TLP :: (gttokens_ty T ++ TRP :: nil))%list)
+    by (rewrite <- (app_assoc (gtparen e) (TDot :: nil)); reflexivity).
+  rewrite Ha in E.
+  assert (HPa : bd (gtparen e ++ TDot :: nil) 0 = Some 0)
+    by (rewrite (bd_app_pass _ _ _ _ (bd_gtparen e (gtokens_balanced e 0))); reflexivity).
+  pose proof (f_equal last0 E) as HL.
+  rewrite (last0_group (gtparen e ++ TDot :: nil) (gttokens_ty T) TLP TRP HPa (gttokens_ty_bd T) (or_introl eq_refl)) in HL.
+  rewrite (last0_group (gttokens_ty (convty_ty c)) (gtokens 0 e') TLP TRP (gttokens_ty_bd (convty_ty c)) (gtokens_balanced e' 0) (or_introl eq_refl)) in HL.
+  destruct (app_eq_length _ _ _ _ HL E) as [Ep _].
+  apply (gttokens_ty_no_dot (convty_ty c)). rewrite <- Ep.
+  apply in_or_app; right; simpl; auto.
+Qed.
 (* the four ATOM-ROW diagonals+cross-cells of [gtokens_inj]: an atom [e1] against EVERY [e2].
    Each atom prints to ONE distinguishing token, so [gtokens ctx e1] has length 1: another atom's
    single token either matches ([congruence] recovers the payload) or is a different token
@@ -8738,6 +8772,8 @@ Print Assumptions gtokens_inj_eslice_row.
 Print Assumptions gtokens_inj_eun_row.
 Print Assumptions gtparen_olast_not_dot.
 Print Assumptions gtokens_eassert_neq_ecall.
+Print Assumptions gttokens_ty_no_dot.
+Print Assumptions gtokens_eassert_neq_econv.
 
 (** Extract the Rocq printers to the OCaml the plugin calls. *)
 Require Import Extraction.

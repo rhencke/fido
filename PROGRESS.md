@@ -1,7 +1,8 @@
 # Fido — status
 
-Live ledger, bytes under ~8 KB. Design: `ARCHITECTURE.md`; rules: `CLAUDE.md`; mistakes:
-`LESSONS.md`; Go-spec: `SPEC_CONFORMANCE.md`. History is in git — **current** state only.
+Live ledger, kept under ~10 KB — a compact CURRENT-STATE ledger, never a proof diary (per-lemma
+history is in git; per-slice design is in `plans/`). Design: `ARCHITECTURE.md`; rules: `CLAUDE.md`;
+mistakes: `LESSONS.md`; Go-spec: `SPEC_CONFORMANCE.md`. History is in git — **current** state only.
 
 ## The goal
 
@@ -86,63 +87,18 @@ plugin CONSTRUCTS the `GExpr`; only `gprint` is verified. NOT "verified Go."
 ## NEXT
 
 - **The canonical relational syntax authority is the ACTIVE arc** (`plans/canonical-grammar.md`;
-  checkpoint-50 order: syntax authority before spawn). Phases 1+2 landed (`CanonTy`/`CanonExpr`
-  + `gprint_expr_canonical` + `lex_gprint_expr`); Phase 3a landed (`canon_ty_unique`, type-level
-  token uniqueness, PARSER-FREE via `gttokens_ty_inj`); Phase 3b slices 1–2k-d landed (slice 1
-  `bd`/`gtokens_balanced`; slices 2a–2j the `last0`/`bdip`/`fsep` split lemmas, `no_depth0_sep`,
-  `gtokens_args_inj`, `gtokens_pairs_inj`, the paren/bare operand discrimination
-  `bare_not_paren_group`/`gtparen_inj`, the operator-token injectivities
-  `op_token_inj`/`prefix_token_inj`, the pure type-skipper `skip_gty`
-  (`skip_gty_types` exactness + `skip_gty_lt` progress), slice 2j the EBn precedence-split LOCATOR
-  `eb_find` (finds the rightmost depth-0 min-precedence infix op as a suffix split),
-  slice 2k-c the OPERAND LAW `eb_operand` — the depth-0 dual of `eb_depth` proving the
-  locator's rightmost-min split via pure combine algebra, the `EBn`-crux — and slice 2k-d `eb_find_gtokens
-  : eb_find (gtokens ctx e) = eb_top ctx e`, THE `gtokens_inj` EBn discriminator (`eb_operand` at the empty
-  suffix ⇒ a block's tokens locate their own top operator: `Some (R,o)` for an unwrapped `EBn`, `None`
-  otherwise), with the `EBn`-node instance `eb_find_inner` its corollary; plus the two operator-bearing
-  same-constructor DIAGONALS of `gtokens_inj`, both FULL: `gtokens_inj_ebn` (the EBn diagonal —
-  `gtokens_ebn_inner`'s unwrapped-inner recursion promoted past the ctx-wrapper, with wrapped-vs-unwrapped
-  mismatch discriminated via `eb_find_gtokens`) and `gtokens_eun_inner` (the EUn diagonal); plus the first
-  cross-discriminator `nonatom_len` (atoms print to 1 token, every other form to ≥2 — the atom row/column
-  of the destruct-e2 matrix); and — LANDED — the other EIGHT NON-ATOM, NON-OPERATOR same-constructor DIAGONALS:
-  the five POSTFIX forms `gtokens_inj_esel`/`gtokens_inj_eindex`/`gtokens_inj_eassert`/`gtokens_inj_eslice`/
-  `gtokens_inj_ecall` and the three type-led COMPOSITES `gtokens_inj_econv`/`gtokens_inj_eslicelit`/
-  `gtokens_inj_emaplit` (so with `gtokens_inj_ebn`/`gtokens_eun_inner` above, all 10 non-atom diagonals are
-  done) (base-or-type prefix + delimited group: `last0_group` pins the prefix length,
-  `app_eq_length` splits it off — `gttokens_ty_inj`/`convty_ty_inj` recover the type — then `app_inj_tail`
-  / `sep_split` (the `lo:hi` colon) / `gtokens_args_inj` / `gtokens_pairs_inj` peel the group)); and — LANDED —
-  the FOUR ATOM ROWS `gtokens_inj_eid`/`gtokens_inj_eint`/`gtokens_inj_estr`/`gtokens_inj_ehex`, each a full
-  matrix ROW (atom `e1` vs EVERY `e2`): the atom prints to ONE token, so an atom `e2` matches-or-discriminates
-  by `congruence` and a non-atom `e2` is killed by `nonatom_len` (≥2 tokens vs 1) — so the atom-row diagonals
-  AND all atom×non-atom cross-cells are closed; and — LANDED — the LAST-TOKEN cross-discriminator `olast`
-  (last element as an `option`, via `fold_left`) with the eight `gtokens_olast_*` values (`EIndex`/`ESlice`
-  → `TRB`, `ECall`/`EAssert`/`EConv` → `TRP`, `ESliceLit`/`EMapLit` → `TRC`, `ESel` → `TId f`) — an
-  `f_equal olast` mismatch discriminates a delimited/postfix pair with DIFFERENT closers; and — LANDED — the
-  FIRST-TOKEN discriminator (`hd_error`) `gtokens_hd_eun` (→ `prefix_token o`) / `gtokens_hd_eslicelit` (→
-  `TLB`) / `gtokens_hd_emaplit` (→ `TMap`) + `gtokens_hd_ebn_wrapped` (a wrapped `EBn` leads `TLP`); and —
-  ★LANDED — the TWO type-led composite rows `gtokens_inj_eslicelit_row` and `gtokens_inj_emaplit_row`
-  (`ESliceLit`/`EMapLit` vs EVERY `e2`, fed the per-element/per-pair `Forall` IH): `nonatom_len` (atoms),
-  first-token (EUn; and `TLB` vs `TMap` between the two composites), `eb_find_gtokens`+wrapped-`hd` (EBn
-  unwrapped/wrapped), `olast` (the other delimited/postfix), the diagonal — proving the row pattern
-  end-to-end. NEXT: keep building
-  the `gtokens_inj` ASSEMBLY. Now LANDED: the shared LEAD-token fact `gtparen_hd_not_prefix` (a
-  postfix/composite/atom form never leads with a bare `prefix_token` — a 14-case `gtparen` induction, the
-  `EUn` cross-cell for every postfix row) + `gtokens_olast_ebn_wrapped` (a wrapped `EBn` ends `TRP`); and
-  the full non-atom rows `gtokens_inj_esel_row`/`gtokens_inj_eindex_row`/`gtokens_inj_eslice_row` (the
-  `EIndex`/`ESlice` rows use `gtokens_eindex_neq_eslice` between the two `TRB`-forms and `olast`+lead-fact+
-  `eb_find` for the rest). TEN of the 14 full rows now done (4 atoms + `ESliceLit`/`EMapLit`/`ESel`/
-  `EIndex`/`ESlice`/`EUn` — the EUn row is first-token-driven: `EUn` leads a bare `prefix_token`, which
-  `gtparen_hd_not_prefix` rules out for the postfix forms, a concrete type-token for the composites, `TLP`
-  for a wrapped `EBn`, and `eb_find_gtokens` catches the unwrapped `EBn`). The FOUR REMAINING rows: the `TRP` trio `ECall`/`EAssert`/`EConv` (still need within-`TRP`
-  discrimination — the conversion-vs-call ambiguity, likely a `skip_gty` next-token split; wrapped-`EBn`-vs-
-  `TRP` needs the same), and the `EBn` row (its wrapped case collides with the `TRP` forms — same
-  discriminator). Within-`TRP` progress: `gtparen_olast_not_dot` (an expr/`gtparen` never ends in `TDot`)
-  + `gtokens_eassert_neq_ecall` (the first TRP pair: `last0_group` split ⇒ equal prefixes ⇒ `gtparen e'`
-  would end in `TDot`, impossible) are LANDED; the remaining pairs (`EConv`-vs-`ECall` is the hard
-  type-prefix-vs-expr-prefix case) + the row wiring remain. Then `induction e1` wires the rows together. Then
-  `canon_expr_unique` (all
-  parser-free); then reprove `gprint_inj` off `gtokens_inj` (retiring `parse_print_roundtrip`), then
-  `CanonStmt`/`CanonProgram`.
+  syntax authority before spawn). Phases 1+2+3a landed: `CanonTy`/`CanonExpr`, `gprint_expr_canonical`,
+  `lex_gprint_expr`, and `canon_ty_unique` (type-level token uniqueness, PARSER-FREE via `gttokens_ty_inj`).
+  Phase 3b — parser-free EXPRESSION token uniqueness (`gtokens_inj` ⇒ `canon_expr_unique`) — is PARTIALLY
+  COMPLETE: the balance/split + operator-precedence toolkit, all 14 same-constructor diagonals, the
+  cross-discriminators (`nonatom_len`/`olast`/first-token/lead-token/`eb_find_gtokens`), and 10 of the 14
+  destruct-`e2` rows are landed and gated. (The source theorems + `Print Assumptions` are the record;
+  git log carries the per-slice history; `plans/canonical-grammar.md` carries the design.)
+  REMAINING, in order: the 4 `TRP`-ending rows `ECall`/`EAssert`/`EConv`/`EBn` (need within-`TRP`
+  discrimination, PARSER-FREE — never via `parse_atom`/`parse_postfix`) → assemble `gtokens_inj`
+  (complete-list only; the suffix generalization is false) → `canon_expr_unique` (from `canon_expr_tokens`
+  + `gtokens_inj`) → reprove `gprint_inj` off canonical token uniqueness, demoting `parse_print_roundtrip`
+  from the authority → `CanonStmt`/`CanonProgram`.
 - The cmd↔unified bridge (`plans/bridge-effects.md`): `CAlloc` AND the channel slice LANDED
   (typed zeros through the channel's own tag, gated obligations; `bridge_effects_agree` now
   exposes capacity agreement publicly). Spawn/select is the deferred capstone (design deferred
