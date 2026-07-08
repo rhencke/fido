@@ -228,6 +228,12 @@ COMPLETE lists (no suffix):
   parser-as-foundation inversion the charter forbids; the scan REPROVES the precedence-climb
   structurally.  (The operand-complete + type-context tracking mirrors the parser's postfix/climb state — the
   intricate part, hence a self-contained sub-arc.)
+  IMPLEMENTATION (grounded in the real parser): `parse_atom` consumes a whole TYPE as a UNIT via
+  `parse_gty_b` (GoPrint.v ~1892/1960) then dispatches `(`→conversion / `{`→literal — so the scan
+  should RECOGNIZE-AND-SKIP a full type (a `parse_gty_b`-shaped pure helper) on hitting a type-led
+  `[]`/`map`/`chan` at operand-expecting position, rather than carry a fragile flat in-type flag; the
+  scan's three sub-parts (skip-type, complete-operand incl. postfix chain, precedence fold) mirror
+  `parse_gty_b`/`parse_atom`/`parse_climb` structurally (NOT invoked — reproved as pure token functions).
 
 Then `canon_expr_unique` (+ `gtokens_inj`) join the printer Print Assumptions gate.
 Phase 3c = reprove `gprint_inj` off `gtokens_inj` + `gtokens_lex` (making it a corollary of the
