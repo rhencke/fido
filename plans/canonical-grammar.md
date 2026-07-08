@@ -230,10 +230,17 @@ COMPLETE lists (no suffix):
   intricate part, hence a self-contained sub-arc.)
   IMPLEMENTATION (grounded in the real parser): `parse_atom` consumes a whole TYPE as a UNIT via
   `parse_gty_b` (GoPrint.v ~1892/1960) then dispatches `(`→conversion / `{`→literal — so the scan
-  should RECOGNIZE-AND-SKIP a full type (a `parse_gty_b`-shaped pure helper) on hitting a type-led
-  `[]`/`map`/`chan` at operand-expecting position, rather than carry a fragile flat in-type flag; the
-  scan's three sub-parts (skip-type, complete-operand incl. postfix chain, precedence fold) mirror
-  `parse_gty_b`/`parse_atom`/`parse_climb` structurally (NOT invoked — reproved as pure token functions).
+  should RECOGNIZE-AND-SKIP a full type on hitting a type-led `[]`/`map`/`chan` at operand-expecting
+  position, rather than carry a fragile flat in-type flag.  ARCH RESOLUTION (parser-free is paramount
+  here): NOT `parse_gty_b` (a parser function — using it would make `gtokens_inj` lean on the parser,
+  the forbidden inversion); instead a FRESH pure `skip_gty : list Token -> option (list Token)` that
+  returns just the remainder (does NOT build a `GoTy`, so it is a token UTILITY like `bd`/`fsep`, not a
+  second type-parser) — `Acc`-recursive on length (the `map[K]V` two-part skip is non-structural), with
+  correctness `skip_gty (gttokens_ty t ++ rest) = Some rest` by induction on `t`.  The scan's three
+  sub-parts (skip-type, complete-operand incl. postfix chain, precedence fold) mirror the SHAPE of
+  `parse_gty_b`/`parse_atom`/`parse_climb` (NOT invoked — reproved as pure token functions).  NB the
+  operand-complete/type state is PER-BRACKET-LEVEL (nested), so the scan is recursive-descent, not a
+  flat fold.  (Code next: `skip_gty` + its lemma is the self-contained first unit.)
 
 Then `canon_expr_unique` (+ `gtokens_inj`) join the printer Print Assumptions gate.
 Phase 3c = reprove `gprint_inj` off `gtokens_inj` + `gtokens_lex` (making it a corollary of the
