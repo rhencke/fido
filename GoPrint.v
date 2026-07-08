@@ -6075,6 +6075,28 @@ Proof.
   - (* both unwrapped *)
     destruct (gtokens_ebn_inner _ _ _ _ _ _ IHl IHr E) as [Ho [Hl Hr]]. subst. reflexivity.
 Qed.
+(* an ATOM's tokens are a SINGLE token; every non-atom's are ≥ 2 — the length discriminator for the
+   [gtokens_inj] atom row (a length-1 [EId]/[EInt]/[EStr]/[EHex] token list can equal only another atom's,
+   never a longer form).  [unop_needs_paren e = true] is exactly "e is not a leaf atom". *)
+Lemma nonatom_len : forall ctx e, unop_needs_paren e = true -> 2 <= List.length (gtokens ctx e).
+Proof.
+  assert (P : forall c e0, 1 <= List.length (gtokens c e0)).
+  { intros c e0. pose proof (gtokens_nonnil c e0). destruct (gtokens c e0) as [ | ? ? ];
+      [ congruence | cbn [List.length]; lia ]. }
+  intros ctx e H.
+  destruct e as [ i | z | o e0 | o l r | e0 f | e0 i0 | e0 lo hi | e0 args | e0 T | c e0 | t es | kt vt kvs | s | h ];
+    cbn [unop_needs_paren] in H; try discriminate H; clear H;
+    cbn [gtokens gtparen gttokens_ty];
+    repeat (destruct (unop_paren _ _) || destruct (Nat.ltb _ _));
+    repeat (progress (rewrite ?List.length_app; cbn [List.length]));
+    repeat match goal with |- context [ List.length (gtokens ?c0 ?e00) ] =>
+             lazymatch goal with
+             | [ _ : 1 <= List.length (gtokens c0 e00) |- _ ] => fail
+             | _ => pose proof (P c0 e00)
+             end
+           end;
+    lia.
+Qed.
 
 (** LEXICAL FAITHFULNESS through the grammar: printing then lexing yields EXACTLY a
     canonical derivation's tokens — the composed [lex_gprint_expr] shape CLAUDE.md names. *)
@@ -8053,6 +8075,7 @@ Print Assumptions eb_find_inner.
 Print Assumptions gtokens_ebn_inner.
 Print Assumptions gtokens_inj_ebn.
 Print Assumptions gtokens_eun_inner.
+Print Assumptions nonatom_len.
 
 (** Extract the Rocq printers to the OCaml the plugin calls. *)
 Require Import Extraction.
