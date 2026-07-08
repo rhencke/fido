@@ -98,9 +98,10 @@ plugin CONSTRUCTS the `GExpr`; only `gprint` is verified. NOT "verified Go."
   progress, slice 2k-c the OPERAND LAW `eb_operand` — the depth-0 dual of `eb_depth` proving the
   locator's rightmost-min split via pure combine algebra, the `EBn`-crux — and slice 2k-d `eb_find_inner`,
   the top-level `eb_find` rightmost-min correctness at `suffix = nil`, proved as a corollary of
-  `eb_operand` at the `EBn` node). NEXT: the EBn case of `gtokens_inj` (peel the ctx-wrapper, app-split at
-  `op_token o` via `eb_find_inner`'s R, `op_token_inj` for `o`, IH on `l`/`r`) → `canon_expr_unique` (all
-  parser-free); then reprove `gprint_inj`
+  `eb_operand` at the `EBn` node — generalized to `eb_find_gtokens : eb_find (gtokens ctx e) = eb_top ctx
+  e`, THE `gtokens_inj` EBn discriminator, with `eb_find_inner` now its corollary). NEXT: `gtokens_inj`
+  (EBn via `eb_find_gtokens`; primaries via `last0`/`gtparen_inj`/args-pairs; EUn via `prefix_token_inj`) →
+  `canon_expr_unique` (all parser-free); then reprove `gprint_inj`
   off `gtokens_inj` (retiring `parse_print_roundtrip`), then `CanonStmt`/`CanonProgram`.
 - The cmd↔unified bridge (`plans/bridge-effects.md`): `CAlloc` AND the channel slice LANDED
   (typed zeros through the channel's own tag, gated obligations; `bridge_effects_agree` now

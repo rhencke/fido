@@ -90,14 +90,15 @@ its progress lemma `eb_find_lt` (the returned suffix is strict).  LANDED (slice 
 `eb_operand` — the depth-0 dual of `eb_depth`: a whole `gtokens ctx e` block at a depth-0 FROM-position
 is consumed, leaving the suffix scan combined with the node's own top operator (`eb_top ctx e`); the
 `EBn`-unwrapped recursive-combine split is proved via the crux algebra (`eb_infix_combine`,
-`eb_combine_left_absorb`) + `eb_top_prec`.  LANDED (slice 2k-d): ★the top-level `eb_find` rightmost-min
-CORRECTNESS at `suffix = nil` — `eb_find_inner : eb_find (gtokens (prec o) l ++ op_token o :: gtokens (S
-(prec o)) r) = Some (gtokens (S (prec o)) r, o)` (NOT on `gtokens ctx (EBn o l r)` itself: when `prec o <
-ctx` that is paren-WRAPPED `TLP :: inner ++ [TRP]`, on which `eb_find` returns `None` — `gtokens_inj`
-peels the wrapper first, so `eb_find` only ever sees the inner) — proved as a corollary of `eb_operand` at
-`c = prec o` (unwrapped, empty suffix).  STILL TO WRITE: `gtokens_inj` itself (peel the ctx-wrapper,
-app-split at `op_token o` via `eb_find_inner`'s R, `op_token_inj` for `o`, IH on `l`/`r`) then
-`canon_expr_unique`.  (The arbitrary-SUFFIX determinism lemma was found FALSE — see the design.)
+`eb_combine_left_absorb`) + `eb_top_prec`.  LANDED (slice 2k-d): ★the top-level `eb_find` correctness at
+`suffix = nil`, in its GENERAL form `eb_find_gtokens : eb_find (gtokens ctx e) = eb_top ctx e` (`eb_operand`
+at the empty suffix collapses the combine — the block's tokens locate their own top operator: `Some (R,o)`
+for an unwrapped `EBn o _ r`, `None` for every primary / prefix `EUn` / paren-WRAPPED `EBn`).  This is the
+`gtokens_inj` EBn DISCRIMINATOR (equal token lists ⇒ equal `eb_top` ⇒ same operator + same right split).
+`eb_find_inner` (the `EBn`-node instance `eb_find inner = Some (gtokens (S prec o) r, o)`) is now a
+4-line corollary.  STILL TO WRITE: `gtokens_inj` itself (EBn via `eb_find_gtokens`; app-split at
+`op_token o`, `op_token_inj` for `o`, IH on `l`/`r`) then `canon_expr_unique`.  (The arbitrary-SUFFIX
+determinism lemma was found FALSE — see the design.)
 
 ## Phases (each: green, golden byte-identical, gated, reviewed)
 
