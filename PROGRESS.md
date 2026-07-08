@@ -128,12 +128,13 @@ plugin CONSTRUCTS the `GExpr`; only `gprint` is verified. NOT "verified Go."
   the `gtokens_inj` ASSEMBLY. Now LANDED: the shared LEAD-token fact `gtparen_hd_not_prefix` (a
   postfix/composite/atom form never leads with a bare `prefix_token` — a 14-case `gtparen` induction, the
   `EUn` cross-cell for every postfix row) + `gtokens_olast_ebn_wrapped` (a wrapped `EBn` ends `TRP`); and
-  the THIRD full non-atom row `gtokens_inj_esel_row` (`ESel` vs EVERY `e2`). Six full rows now done (4 atoms
-  + `ESliceLit`/`EMapLit`/`ESel`). REMAINING rows: `EIndex`/`ESlice` (now unlocked — `olast` `TRB` vs the
-  others, `gtokens_eindex_neq_eslice` between them, lead fact for EUn, `eb_find`+wrapped-`olast` for EBn),
-  the `TRP` trio `ECall`/`EAssert`/`EConv` (still need within-`TRP` discrimination — the conversion-vs-call
-  ambiguity, likely a `skip_gty` next-token split; plus wrapped-`EBn`-vs-`TRP` needs the same), and the
-  `EUn`/`EBn` rows. Then `induction e1` wires the rows together. Then `canon_expr_unique` (all
+  the full non-atom rows `gtokens_inj_esel_row`/`gtokens_inj_eindex_row`/`gtokens_inj_eslice_row` (the
+  `EIndex`/`ESlice` rows use `gtokens_eindex_neq_eslice` between the two `TRB`-forms and `olast`+lead-fact+
+  `eb_find` for the rest). EIGHT full rows now done (4 atoms + `ESliceLit`/`EMapLit`/`ESel`/`EIndex`/
+  `ESlice`). REMAINING rows: the `TRP` trio `ECall`/`EAssert`/`EConv` (still need within-`TRP`
+  discrimination — the conversion-vs-call ambiguity, likely a `skip_gty` next-token split; wrapped-`EBn`-vs-
+  `TRP` needs the same), and the `EUn`/`EBn` rows. Then `induction e1` wires the rows together. Then
+  `canon_expr_unique` (all
   parser-free); then reprove `gprint_inj` off `gtokens_inj` (retiring `parse_print_roundtrip`), then
   `CanonStmt`/`CanonProgram`.
 - The cmd↔unified bridge (`plans/bridge-effects.md`): `CAlloc` AND the channel slice LANDED
