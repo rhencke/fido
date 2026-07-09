@@ -1532,6 +1532,7 @@ Definition tsw_demo (a : GoAny) : IO unit :=
   type_switch2 a
     TBool   (fun b => println [any b; any (1)%i64])      (* case bool   → b, 1 *)
     TString (fun s => println [any s; any (2)%i64])       (* case string → s, 2 *)
+    eq_refl                                               (* bool/string distinct *)
     (println [any (9)%i64]).                              (* default     → 9   *)
 
 (** Type SWITCH respects narrow distinctness: a boxed uint8 hits `case uint8:` (not
@@ -1540,6 +1541,7 @@ Definition tsw_narrow (a : GoAny) : IO unit :=
   type_switch2 a
     TU8  (fun u => println [any (i64_of_u8 u)])     (* case uint8 → widen → print *)
     TI64 (fun i => println [any i])                  (* case int64 → print *)
+    eq_refl                                          (* uint8/int64 distinct *)
     (println [any (9)%i64]).                          (* default *)
 Definition tsw_distinct_demo : IO unit :=
   bind (tsw_narrow (any (u8_of_i64 (i64_lit 200 eq_refl)))) (fun _ =>   (* uint8 → 200 *)
@@ -1552,6 +1554,7 @@ Definition tsw_inline_demo : IO unit :=
   type_switch2 (any (u8_of_i64 (i64_lit 200 eq_refl)))   (* INLINE boxed scrutinee, NON-FINAL switch *)
     TU8  (fun u => println [any (i64_of_u8 u)])          (* uint8 → 200 *)
     TI64 (fun i => println [any i])
+    eq_refl                                              (* uint8/int64 distinct *)
     (println [any (9)%i64]) >>'
   println [any (5)%i64].                                  (* continues AFTER the switch → 5 *)
 
@@ -1562,6 +1565,7 @@ Definition tsw3_demo (a : GoAny) : IO unit :=
     TBool   (fun b => println [any b; any (1)%i64])      (* case bool   → b, 1 *)
     TString (fun s => println [any s; any (2)%i64])       (* case string → s, 2 *)
     TI64    (fun n => println [any n; any (3)%i64])        (* case int64  → n, 3 *)
+    eq_refl                                               (* bool/string/int64 pairwise distinct *)
     (println [any (9)%i64]).                              (* default     → 9   *)
 
 (** Multi-type case (Go's [case T1, T2:]): one arm matching EITHER type, value not
@@ -1569,6 +1573,7 @@ Definition tsw3_demo (a : GoAny) : IO unit :=
 Definition tsw_or_demo (a : GoAny) : IO unit :=
   type_switch_or2 a TBool TString
     (println [any (1)%i64])      (* case bool, string → 1 *)
+    eq_refl                      (* bool/string distinct *)
     (println [any (0)%i64]).     (* default           → 0 *)
 
 (** N-type multi-case (Go's [case T1, T2, T3:]): one arm matching ANY of three types.
@@ -1578,6 +1583,7 @@ Definition tsw_or_demo (a : GoAny) : IO unit :=
 Definition tsw_or3_demo (a : GoAny) : IO unit :=
   type_switch_or3 a TBool TString TI64
     (println [any (1)%i64])      (* case bool, string, int64 → 1 *)
+    eq_refl                      (* bool/string/int64 pairwise distinct *)
     (println [any (0)%i64]).     (* default                  → 0 *)
 
 (** Native EXPRESSION switch (Go's [switch x { case 1: …; case 2: …; default: … }]) on an
@@ -1586,6 +1592,7 @@ Definition int_sw_demo (x : GoI64) : IO unit :=
   int_switch2 x
     (1)%i64 (println [any (10)%i64])    (* case 1 → 10 *)
     (2)%i64 (println [any (20)%i64])    (* case 2 → 20 *)
+    eq_refl                             (* cases 1,2 distinct (no duplicate case) *)
     (println [any (99)%i64]).           (* default → 99 *)
 
 (** N-ary expression switch (3 cases) — confirms the generalised arm lowers >2 cases. *)
@@ -1594,6 +1601,7 @@ Definition int_sw3_demo (x : GoI64) : IO unit :=
     (1)%i64 (println [any (10)%i64])    (* case 1 → 10 *)
     (2)%i64 (println [any (20)%i64])    (* case 2 → 20 *)
     (3)%i64 (println [any (30)%i64])    (* case 3 → 30 *)
+    eq_refl                             (* cases 1,2,3 pairwise distinct *)
     (println [any (99)%i64]).           (* default → 99 *)
 
 (** Complex numbers (Go's predeclared [complex]/[real]/[imag]): build a [complex128] from
@@ -1654,6 +1662,7 @@ Definition str_sw_demo (x : GoString) : IO unit :=
   str_switch2 x
     "a"%string (println [any (1)%i64])   (* case "a" → 1 *)
     "b"%string (println [any (2)%i64])   (* case "b" → 2 *)
+    eq_refl                              (* cases "a","b" distinct *)
     (println [any (9)%i64]).             (* default  → 9 *)
 
 (** N-ary string expression switch (3 cases). *)
@@ -1662,6 +1671,7 @@ Definition str_sw3_demo (x : GoString) : IO unit :=
     "a"%string (println [any (1)%i64])   (* case "a" → 1 *)
     "b"%string (println [any (2)%i64])   (* case "b" → 2 *)
     "c"%string (println [any (3)%i64])   (* case "c" → 3 *)
+    eq_refl                              (* cases "a","b","c" pairwise distinct *)
     (println [any (9)%i64]).             (* default  → 9 *)
 
 (** [[]byte] / [string] conversions: round-trips "Hi" → bytes → "Hi" (byte-count
