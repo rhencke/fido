@@ -1084,6 +1084,12 @@ Proof. intros. unfold chan_recv_upd. apply ref_sel_opt_chan_write_frame. Qed.
 Lemma chan_buf_ref_upd_frame : forall {A B} (tag : GoTypeTag A) (ch : GoChan A) (r : Ref B) (v : B) (w : World),
   chan_buf tag ch (ref_upd r v w) = chan_buf tag ch w.
 Proof. intros. unfold chan_buf, ref_upd. reflexivity. Qed.
+(** A ref write leaves channel PRESENCE untouched ([ref_upd] touches only [w_refs]; [chan_present] reads
+    [w_chans]) — frames the [WPresent] (allocated-channels) conjunct of the multi-channel refinement across the
+    heap-write step, so the bridge's channels stay ALLOCATED through a [CWrite]. *)
+Lemma chan_present_ref_upd_frame : forall {A B} (ch : GoChan A) (r : Ref B) (v : B) (w : World),
+  chan_present ch (ref_upd r v w) = chan_present ch w.
+Proof. intros. unfold chan_present, ref_upd. reflexivity. Qed.
 
 (** ---- World-component independence for the CLOSEDNESS refinement ----
     [chan_close_upd] touches only the channel-closed flag of ONE channel; it leaves buffers and refs
