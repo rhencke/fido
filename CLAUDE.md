@@ -143,9 +143,11 @@ lexical faithfulness** — target shapes: `CanonExpr : Prec -> GExpr -> list Tok
 `gprint_program_canonical`, `canon_expr_unique`/`canon_stmt_unique`/`canon_program_unique`,
 `lex_gprint_expr`/`lex_gprint_stmt`/`lex_gprint_program`. Printer correctness is proved against
 the canonical grammar. Executable parsers, if kept, are **derived tooling** proved
-sound/complete against the relational grammar — never the authority, never the foundation of
-printer correctness. (The current Acc-structural parser is fuel-free but
-implementation-centered; the canonical layer is the stronger endpoint.)
+**complete** against the relational grammar — never the authority, never the foundation of
+printer correctness. (Soundness in the `parse ts -> CanonExpr` direction is NOT generally
+attainable: the current Acc-structural parser accepts redundant parens, so it is
+complete-not-sound — `parse_complete` holds, `parse_sound` is FALSE as stated. The parser is
+fuel-free but implementation-centered; the canonical layer is the stronger endpoint.)
 
 ## CFG law
 
