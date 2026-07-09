@@ -146,7 +146,17 @@ Definition numty_eqb (a b : GoTy) : bool :=
 
 (** ---- INTEGER-CONSTANT REPRESENTABILITY ---- the inclusive value range of each fixed-width integer type;
     the PLATFORM types [int]/[uint] use the CONSERVATIVE 32-bit range, so a certified constant is in range on
-    EVERY Go target (a 64-bit-only constant is rejected — sound on all platforms). *)
+    EVERY Go target (a 64-bit-only constant is rejected — sound on all platforms).
+    ⚠ CROSS-LAYER COHERENCE (deliberate, NOT an accidental mismatch): the RUNTIME carrier [GoNumeric.GoInt] /
+    [GoUint] is 64-bit — it wraps at the true 2⁶³/2⁶⁴ (GoNumeric's chosen target-platform assumption).  This
+    ACCEPTANCE layer is STRICTLY MORE conservative than that runtime: it admits only the int constants valid on
+    a 32-bit target as well — a PORTABLE SUBSET of what the 64-bit runtime could compute.  The discipline is
+    CONSERVATIVE-ACCEPT (32-bit here) over FAITHFUL-COMPUTE (64-bit runtime): every accepted constant is
+    computed exactly, and every reject is sound on all targets — there is NO accepted-but-wrong case, so the
+    two widths are coherent, not contradictory (cf. [GoSem] "evaluator accept-set never looser than [ptype]").
+    Broadening this to the full 64-bit range (accepting every constant valid on the committed 64-bit target) is
+    a TARGET-PLATFORM POLICY choice, deferred: it flips the accept-set and cascades through the [GoSem]
+    conservative-32 fixtures. *)
 Definition int_ty_range (t : GoTy) : option (Z * Z) :=
   match t with
   | GTU8    => Some (0, 255)%Z
