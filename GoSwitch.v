@@ -185,10 +185,19 @@ Proof. intros. reflexivity. Qed.
     on an int64 scrutinee.  Semantically an equality if-chain (faithful: Go's expression
     switch compares the scrutinee to each case value with [==], first match wins) but
     lowered to the native Go [switch].  Axiom-free (built on [i64_eqb]); N-ary is the same
-    shape (the plugin arm is generalised over the (value, body) pairs). *)
+    shape (the plugin arm is generalised over the (value, body) pairs).
+
+    DISTINCT CASES (Go rejects duplicate CONSTANT cases): each combinator demands a proof
+    that its case VALUES are pairwise distinct ([i64_neqb]/[str_neqb]).  Because the equality
+    is decided in Rocq, ANY constant case expression — a literal or a folded arithmetic
+    constant like [i64_add v1 v2] — is compared by its VALUE, so a duplicate-case switch is
+    UNREPRESENTABLE (no rendered-text / trusted-rendering dependency, and constant folding is
+    the model's own [i64_eqb]).  A NON-constant case value cannot discharge the obligation, so
+    only distinct-constant switches are representable — a proved restriction, not a fail-open. *)
 Definition int_switch2 {B : Type} (x : GoI64)
   (v1 : GoI64) (k1 : IO B)
   (v2 : GoI64) (k2 : IO B)
+  (Hd : i64_neqb v1 v2 = true)
   (d : IO B) : IO B :=
   if i64_eqb x v1 then k1
   else if i64_eqb x v2 then k2
@@ -196,14 +205,17 @@ Definition int_switch2 {B : Type} (x : GoI64)
 
 (** Build-checked dispatch: the scrutinee selects the first matching case, else default. *)
 Example int_switch2_first : forall {B} (k1 k2 d : IO B),
-  int_switch2 (1)%i64 (1)%i64 k1 (2)%i64 k2 d = k1.
+  int_switch2 (1)%i64 (1)%i64 k1 (2)%i64 k2 eq_refl d = k1.
 Proof. reflexivity. Qed.
 Example int_switch2_second : forall {B} (k1 k2 d : IO B),
-  int_switch2 (2)%i64 (1)%i64 k1 (2)%i64 k2 d = k2.
+  int_switch2 (2)%i64 (1)%i64 k1 (2)%i64 k2 eq_refl d = k2.
 Proof. reflexivity. Qed.
 Example int_switch2_default : forall {B} (k1 k2 d : IO B),
-  int_switch2 (9)%i64 (1)%i64 k1 (2)%i64 k2 d = d.
+  int_switch2 (9)%i64 (1)%i64 k1 (2)%i64 k2 eq_refl d = d.
 Proof. reflexivity. Qed.
+(** A DUPLICATE-case switch is UNREPRESENTABLE — the distinctness obligation is unprovable. *)
+Fail Example int_switch2_dup_rejected : forall {B} (k1 k2 d : IO B),
+  int_switch2 (1)%i64 (5)%i64 k1 (5)%i64 k2 eq_refl d = d.
 
 (** N-ary expression switch — three cases here; same generalised plugin arm as
     [int_switch2] (it takes any number of (value, body) pairs). *)
@@ -211,16 +223,17 @@ Definition int_switch3 {B : Type} (x : GoI64)
   (v1 : GoI64) (k1 : IO B)
   (v2 : GoI64) (k2 : IO B)
   (v3 : GoI64) (k3 : IO B)
+  (Hd : (i64_neqb v1 v2 && i64_neqb v1 v3 && i64_neqb v2 v3)%bool = true)
   (d : IO B) : IO B :=
   if i64_eqb x v1 then k1
   else if i64_eqb x v2 then k2
   else if i64_eqb x v3 then k3
   else d.
 Example int_switch3_third : forall {B} (k1 k2 k3 d : IO B),
-  int_switch3 (3)%i64 (1)%i64 k1 (2)%i64 k2 (3)%i64 k3 d = k3.
+  int_switch3 (3)%i64 (1)%i64 k1 (2)%i64 k2 (3)%i64 k3 eq_refl d = k3.
 Proof. reflexivity. Qed.
 Example int_switch3_default : forall {B} (k1 k2 k3 d : IO B),
-  int_switch3 (9)%i64 (1)%i64 k1 (2)%i64 k2 (3)%i64 k3 d = d.
+  int_switch3 (9)%i64 (1)%i64 k1 (2)%i64 k2 (3)%i64 k3 eq_refl d = d.
 Proof. reflexivity. Qed.
 
 (** Expression switch on a STRING scrutinee — Go's [switch s { case "a": …; default: … }].
@@ -230,20 +243,25 @@ Proof. reflexivity. Qed.
 Definition str_switch2 {B : Type} (x : GoString)
   (v1 : GoString) (k1 : IO B)
   (v2 : GoString) (k2 : IO B)
+  (Hd : str_neqb v1 v2 = true)
   (d : IO B) : IO B :=
   if str_eqb x v1 then k1
   else if str_eqb x v2 then k2
   else d.
 
 Example str_switch2_first : forall {B} (k1 k2 d : IO B),
-  str_switch2 "a"%string "a"%string k1 "b"%string k2 d = k1.
+  str_switch2 "a"%string "a"%string k1 "b"%string k2 eq_refl d = k1.
 Proof. reflexivity. Qed.
 Example str_switch2_second : forall {B} (k1 k2 d : IO B),
-  str_switch2 "b"%string "a"%string k1 "b"%string k2 d = k2.
+  str_switch2 "b"%string "a"%string k1 "b"%string k2 eq_refl d = k2.
 Proof. reflexivity. Qed.
 Example str_switch2_default : forall {B} (k1 k2 d : IO B),
-  str_switch2 "z"%string "a"%string k1 "b"%string k2 d = d.
+  str_switch2 "z"%string "a"%string k1 "b"%string k2 eq_refl d = d.
 Proof. reflexivity. Qed.
+(** A DUPLICATE-case string switch is likewise UNREPRESENTABLE (Go compares string cases by
+    value, and [str_neqb] decides byte equality — no escaping/rendering dependency). *)
+Fail Example str_switch2_dup_rejected : forall {B} (k1 k2 d : IO B),
+  str_switch2 "a"%string "a"%string k1 "a"%string k2 eq_refl d = d.
 
 (** N-ary string expression switch (3 cases) — same generalised plugin arm as
     [str_switch2]/[int_switch2]; completes the >2-case coverage for both scrutinee types. *)
@@ -251,14 +269,15 @@ Definition str_switch3 {B : Type} (x : GoString)
   (v1 : GoString) (k1 : IO B)
   (v2 : GoString) (k2 : IO B)
   (v3 : GoString) (k3 : IO B)
+  (Hd : (str_neqb v1 v2 && str_neqb v1 v3 && str_neqb v2 v3)%bool = true)
   (d : IO B) : IO B :=
   if str_eqb x v1 then k1
   else if str_eqb x v2 then k2
   else if str_eqb x v3 then k3
   else d.
 Example str_switch3_third : forall {B} (k1 k2 k3 d : IO B),
-  str_switch3 "c"%string "a"%string k1 "b"%string k2 "c"%string k3 d = k3.
+  str_switch3 "c"%string "a"%string k1 "b"%string k2 "c"%string k3 eq_refl d = k3.
 Proof. reflexivity. Qed.
 Example str_switch3_default : forall {B} (k1 k2 k3 d : IO B),
-  str_switch3 "z"%string "a"%string k1 "b"%string k2 "c"%string k3 d = d.
+  str_switch3 "z"%string "a"%string k1 "b"%string k2 "c"%string k3 eq_refl d = d.
 Proof. reflexivity. Qed.

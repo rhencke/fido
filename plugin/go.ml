@@ -4505,27 +4505,12 @@ let pp_io_body ?(ret_val=false) state tab env body =
              let d = List.nth rest (n - 1) in
              let rec chunk = function v :: k :: tl -> (v, k) :: chunk tl | _ -> [] in
              let pairs = chunk (List.filteri (fun i _ -> i < n - 1) rest) in
-             (* Duplicate-case key by VALUE — never by rendered text.  Go rejects duplicate
-                expression-switch CONSTANTS by value: a string case → its exact byte list
-                (decode_go_string), an int/uint literal → its folded numeric value (z_eval /
-                zu_eval, which constant-fold the [Z]).  A case value that is neither literal is a
-                non-constant expression, which Go does NOT dedup, so it is EXCLUDED (returns None)
-                — no rendered-text key survives anywhere. *)
-             let rec inner_z e =                              (* peel [i64wrap]/smart-literal → inner [Z] *)
-               match strip_magic e with
-               | MLapp (h, args) ->
-                   let h2, all = collect_app h args in
-                   (match h2, List.filter (fun a -> not (is_erased a)) all with
-                    | MLglob r, [g] when String.equal (global_basename r) "i64wrap" -> inner_z g
-                    | MLglob r, [z] when is_i64_lit r || is_int_lit r -> z
-                    | _ -> e)
-               | _ -> e in
-             let case_key v =
-               match decode_go_string v with
-               | Some bytes -> Some ("s:" ^ String.concat "," (List.map string_of_int bytes))
-               | None -> (match z_eval (inner_z v) with
-                          | Some n -> Some ("i:" ^ Int64.to_string n) | None -> None) in
-             let () = reject_dup_cases "switch" (List.filter_map (fun (v, _) -> case_key v) pairs) in
+             (* No duplicate-case guard is needed here: the expression-switch combinators
+                (int_switch2/3, str_switch2/3) carry a Rocq distinctness obligation
+                (i64_neqb/str_neqb), so a duplicate-case switch is UNREPRESENTABLE at the source —
+                the model's own [i64_eqb] constant-folds any case expression.  (The TYPE switch,
+                whose case is a rendered type NAME, cannot be model-sealed soundly and keeps the
+                emission-level [reject_dup_cases] guard below.) *)
              str tab ++ str "switch " ++ scrut ++ str " {" ++ fnl () ++
              prlist (fun (v, k) ->
                str tab ++ str "case " ++ pp_expr state env v ++ str ":" ++ fnl () ++

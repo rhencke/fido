@@ -153,17 +153,19 @@ to the CFG; control-flow coverage is demo-by-demo, golden-locked).
   completeness claim. native `switch` is emitted (not decomposed): the `GoSwitch` combinators
   lower int64/string expression switch (`int_switch2`/`3`/`str_switch2`/`3` — semantically an
   `==`-chain, first-match-wins) and `GoAny` type switch (`type_switch2`/`3` + or-forms) to native
-  Go `switch x {case v:…}` / `switch v:=x.(type){…}`. ✓ DUPLICATE cases are FAIL-CLOSED: the
-  plugin's switch/type-switch arms reject a switch whose case values/types collide (a Go
-  "duplicate case" compile error) via `reject_dup_cases`. Keys are by VALUE, never rendered text: a
-  string case by its decoded BYTE list (`decode_go_string` — Go compares string cases by value, so
-  this catches a collision independent of escaping), an int case by its folded `int64` (peel the
-  `i64wrap`/smart-literal wrapper to the inner `Z`, then `z_eval`), a type case by its emitted
-  `go_type_of_tag` name — sound with NO assumption that the trusted tag→Go-type bridge is injective.
-  A non-constant case (which Go does not dedup) is excluded. Negtests
-  `neg_int_switch_dup`/`neg_str_switch_dup`/`neg_type_switch_dup` pin the abort. (A model-side distinctness obligation was rejected: it would only guarantee distinct
-  TAGS and still rest on that unprovable rendering-injectivity boundary — gap #10.) ⚠ coverage is
-  BOUNDED (fixed per-arity combinators; scrutinees limited to int64/string/tag). Other control
+  Go `switch x {case v:…}` / `switch v:=x.(type){…}`. ✓ DUPLICATE cases cannot emit a Go
+  "duplicate case", by TWO mechanisms matched to where each is sound:
+  · EXPRESSION switch (int64/string): the combinators carry a Rocq distinctness obligation
+    (`i64_neqb`/`str_neqb`), so a duplicate-case switch is UNREPRESENTABLE at the source. Because
+    the equality is the MODEL's own `i64_eqb`/`str_eqb`, ANY constant case expression is compared by
+    VALUE (a folded arithmetic constant `i64_add v1 v2` as readily as a literal) — no rendered text,
+    no trusted-rendering dependency. A NON-constant case cannot discharge the proof, so only
+    distinct-constant switches are representable (a proved restriction; `Fail Example`s pin it).
+  · TYPE switch (`GoAny` tag): the case is a rendered type NAME, which cannot be model-sealed
+    soundly (it would rest on the trusted tag→Go-type bridge being injective — gap #10), so the
+    plugin's type-switch arms keep an emission-level `reject_dup_cases` comparing the actual
+    `go_type_of_tag` names. Negtest `neg_type_switch_dup` pins the abort.
+  ⚠ coverage is BOUNDED (fixed per-arity combinators; scrutinees limited to int64/string/tag). Other control
   flow decomposes through the goto-CFG.
 - **Go statements** — ✓ `go f()` → `go func(){…}()`; the fork happens-before edge is race-free
   (`fork_program_race_free`). ⚠ scheduler / interleaving idealised away.
