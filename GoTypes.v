@@ -10,7 +10,6 @@ From Fido Require Import GoRuntimeTypes.
                                      (the keyword -> [GoTy] map for scalar conversions).  DELIBERATELY the
                                      ONLY Fido import — GoTypes is the bottom of the type-category layer. *)
 From Stdlib Require Import String List Bool ZArith.
-From Stdlib Require Import Lia.
 Import ListNotations.
 Open Scope string_scope.
 
@@ -155,9 +154,10 @@ Definition numty_eqb (a b : GoTy) : bool :=
     CONSERVATIVE-ACCEPT (32-bit here) over FAITHFUL-COMPUTE (64-bit runtime): every accepted constant is
     computed exactly, and every reject is sound on all targets — there is NO accepted-but-wrong case, so the
     two widths are coherent, not contradictory (cf. [GoSem] "evaluator accept-set never looser than [ptype]").
-    This is MECHANICALLY GATED, not asserted: [int_const_int_within_i64_range] / [int_const_uint_within_u64_range]
-    (just below) PROVE every accepted [int]/[uint] constant lies in the int64/uint64 range ([GoNumeric.in_i64] /
-    [in_u64]).
+    This is MECHANICALLY GATED, not asserted: [GoSemDenote.int_const_int_subsumes_i64] /
+    [int_const_uint_subsumes_u64] PROVE every accepted [int]/[uint] constant lies in the LIVE runtime range
+    [GoNumeric.in_i64] / [in_u64].  The proof lives in the SEMANTIC layer (which imports both this
+    type-category layer and [GoNumeric]); GoTypes itself stays DEFINITIONS-ONLY (no theorems ⇒ no axioms).
     Broadening this to the full 64-bit range (accepting every constant valid on the committed 64-bit target) is
     a TARGET-PLATFORM POLICY choice, deferred: it flips the accept-set and cascades through the [GoSem]
     conservative-32 fixtures. *)
@@ -178,30 +178,6 @@ Definition int_ty_range (t : GoTy) : option (Z * Z) :=
 Definition int_const_repr (z : Z) (t : GoTy) : bool :=
   match int_ty_range t with Some (lo, hi) => andb (Z.leb lo z) (Z.leb z hi) | None => false end.
 
-(** MECHANICAL GATE for the cross-layer coherence claimed above: EVERY int constant this acceptance layer
-    admits at the platform types [int]/[uint] lies in the 64-bit RUNTIME range, so it is carried EXACTLY by
-    [GoInt]/[GoUint] — never wrapped, never a rounded lie.  This is the PROOF that the conservative-32
-    accept-set is a subset of the 64-bit faithful-compute range (there is no accepted-but-wrong constant);
-    the coherence is a THEOREM, not a comment.
-    ⚠ The RHS interval is EXACTLY [GoNumeric.in_i64] / [in_u64]'s body (int64 [[-2⁶³, 2⁶³)], uint64
-    [[0, 2⁶⁴)]) — stated as the literal here because GoTypes is the type-category layer (it does NOT import
-    the runtime module GoNumeric); the [GoSem] tiers, which see both, carry the runtime-predicate form. *)
-Lemma int_const_int_within_i64_range : forall z,
-  int_const_repr z GTInt = true ->
-  andb (-9223372036854775808 <=? z)%Z (z <? 9223372036854775808)%Z = true.
-Proof.
-  intros z H. unfold int_const_repr, int_ty_range in H. cbn in H.
-  apply andb_prop in H. destruct H as [Hlo Hhi]. apply Z.leb_le in Hlo. apply Z.leb_le in Hhi.
-  apply andb_true_intro. split; [apply Z.leb_le | apply Z.ltb_lt]; lia.
-Qed.
-Lemma int_const_uint_within_u64_range : forall z,
-  int_const_repr z GTUint = true ->
-  andb (0 <=? z)%Z (z <? 18446744073709551616)%Z = true.
-Proof.
-  intros z H. unfold int_const_repr, int_ty_range in H. cbn in H.
-  apply andb_prop in H. destruct H as [Hlo Hhi]. apply Z.leb_le in Hlo. apply Z.leb_le in Hhi.
-  apply andb_true_intro. split; [apply Z.leb_le | apply Z.ltb_lt]; lia.
-Qed.
 (** A CONSERVATIVE SUFFICIENT test (NOT "iff exactly representable") that an int constant [z] is an EXACT
     constant of float type [t]: is [z] in the CONTIGUOUS interval [[-2^53, 2^53]] for [float64] ([[-2^24, 2^24]]
     for [float32]) where EVERY integer is exactly representable?  (There ARE exactly-representable integers
@@ -764,10 +740,3 @@ Definition svalue (e : GExpr) : bool :=
   | None => false
   end.
 Arguments svalue_cat !c /.
-
-(** ===== GATED coherence surface =====================================================================
-    The cross-layer int-width coherence (conservative-32 ACCEPT ⊆ 64-bit faithful COMPUTE) is a THEOREM,
-    manifest-gated: both must report "Closed under the global context" (zero axioms), and the axiom
-    manifest fails the build on any drift.  (Coherence is proved, never merely asserted in a comment.) *)
-Print Assumptions int_const_int_within_i64_range.
-Print Assumptions int_const_uint_within_u64_range.

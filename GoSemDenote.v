@@ -5090,3 +5090,28 @@ Proof.
   apply String.eqb_eq in Hf. rewrite Hf.
   reflexivity.
 Qed.
+
+(** ===== CROSS-LAYER INT-WIDTH COHERENCE — the mechanical gate for [GoTypes.int_ty_range]'s doc ==========
+    Every int constant the type-category ACCEPTANCE layer ([GoTypes.int_const_repr]) admits at the platform
+    types [int]/[uint] lies in the LIVE 64-bit runtime range ([in_i64]/[in_u64]) — so it is carried EXACTLY by
+    [GoInt]/[GoUint], never wrapped, never a rounded lie.  This PROVES the conservative-32 accept-set is a
+    SUBSET of the 64-bit faithful-compute range: there is no accepted-but-wrong constant.  The semantic layer
+    is the honest home — it imports BOTH GoTypes and GoNumeric, so the bound is tied to the runtime PREDICATE,
+    never a duplicated literal; GoTypes itself stays definitions-only (no theorems ⇒ no axioms). *)
+Lemma int_const_int_subsumes_i64 : forall z,
+  int_const_repr z GTInt = true -> in_i64 z = true.
+Proof.
+  intros z H. unfold int_const_repr, int_ty_range in H. cbn in H.
+  apply andb_prop in H. destruct H as [Hlo Hhi]. apply Z.leb_le in Hlo. apply Z.leb_le in Hhi.
+  unfold in_i64. apply andb_true_intro. split; [apply Z.leb_le | apply Z.ltb_lt]; lia.
+Qed.
+Lemma int_const_uint_subsumes_u64 : forall z,
+  int_const_repr z GTUint = true -> in_u64 z = true.
+Proof.
+  intros z H. unfold int_const_repr, int_ty_range in H. cbn in H.
+  apply andb_prop in H. destruct H as [Hlo Hhi]. apply Z.leb_le in Hlo. apply Z.leb_le in Hhi.
+  unfold in_u64. apply andb_true_intro. split; [apply Z.leb_le | apply Z.ltb_lt]; lia.
+Qed.
+
+Print Assumptions int_const_int_subsumes_i64.
+Print Assumptions int_const_uint_subsumes_u64.
