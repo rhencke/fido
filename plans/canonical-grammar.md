@@ -19,7 +19,8 @@ via `gttokens_ty_inj`; expression uniqueness has the SAME shape via the complete
 discipline is that `gprint_inj` rests on `gtokens_inj` + `gtokens_lex`, NOT the
 `gtokens_parse` + `parse_print_roundtrip` route; the statement layer (`print_stmt_inj`/
 `print_program_inj`, string injectivity) rests on the canonical layer the same way; the executable
-parser is derived tooling; Phase 5 re-bases it against the grammar (`parse_sound`/`parse_complete`).
+parser is derived tooling; Phase 5 re-bases it against the grammar via `parse_complete` (the parser is
+COMPLETE-not-SOUND — `parse_sound` is FALSE as stated, it accepts redundant parens; see step 5).
 
 ## The architecture (the parser-free uniqueness discipline)
 
@@ -27,7 +28,8 @@ parser is derived tooling; Phase 5 re-bases it against the grammar (`parse_sound
 `gtokens_inj`, structural induction on `e1` with a `last0` bracket split — full design in
 "Phase 3b/3c" below) — NEVER via `gtokens_parse`: deriving uniqueness from the parser's would reinstate
 the parser as the foundation, the exact inversion CLAUDE.md forbids.  Phase 5
-re-bases the executable parser as derived tooling against the relation (`parse_sound`/`parse_complete`).
+re-bases the executable parser as derived tooling against the relation via `parse_complete` (the parser is
+COMPLETE-not-SOUND — `parse_sound` is FALSE as stated; see step 5).
 
 ## Printer precedence/associativity (parse-shape preservation, NOT full-parenthesization)
 
