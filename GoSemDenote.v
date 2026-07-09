@@ -5114,3 +5114,15 @@ Proof.
   apply andb_prop in H. destruct H as [Hlo Hhi]. apply Z.leb_le in Hlo. apply Z.leb_le in Hhi.
   unfold in_u64. apply andb_true_intro. split; [apply Z.leb_le | apply Z.ltb_lt]; lia.
 Qed.
+
+(** The conservative-32 boundary is REAL, not vacuous: [2^40] is a valid [int64]/[uint64] ([in_i64]/[in_u64]
+    = true) yet REJECTED as a platform [int]/[uint] constant ([int_const_repr … GTInt]/[GTUint] = false) — so
+    [int_ty_range] at [int]/[uint] is STRICTLY narrower than the 64-bit runtime carrier.  Without these pins the
+    [subsumes] lemmas alone would still hold if the accept-set were WIDENED to 64-bit; a class claim must pin
+    BOTH the accepted side ([subsumes]) AND the rejected side (here).  A weakening to 64-bit breaks THIS pin. *)
+Example int_const_int_conservative_pin :
+  int_const_repr 1099511627776 GTInt = false /\ in_i64 1099511627776 = true.
+Proof. split; vm_compute; reflexivity. Qed.
+Example int_const_uint_conservative_pin :
+  int_const_repr 1099511627776 GTUint = false /\ in_u64 1099511627776 = true.
+Proof. split; vm_compute; reflexivity. Qed.
