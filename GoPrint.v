@@ -8559,6 +8559,17 @@ Proof.
   intro e. unfold parse_str. rewrite (gtokens_lex e 0). apply gtokens_parse.
 Qed.
 
+(** PARSER COMPLETENESS against the CANONICAL GRAMMAR (plans/canonical-grammar.md Phase 5): every canonical
+    derivation [CanonExpr 0 e ts] is ACCEPTED by the executable parser, which recovers exactly [e] and
+    consumes all of [ts].  A corollary of [canon_expr_tokens] (a derivation's tokens ARE [gtokens 0 e]) +
+    [gtokens_parse].  This states the parser's completeness against the AUTHORITY (the [CanonExpr] relation),
+    not the token function — the executable parser is DERIVED TOOLING proved COMPLETE for the grammar, never
+    the grammar's foundation (the printer-injectivity authority stays parser-free). *)
+Theorem parse_complete : forall e ts, CanonExpr 0 e ts -> parse ts = Some (e, nil).
+Proof.
+  intros e ts H. apply canon_expr_tokens in H. subst ts. apply gtokens_parse.
+Qed.
+
 (** FAITHFULNESS — the printer is INJECTIVE: distinct ASTs never print alike.  PARSER-FREE: this rests on
     the CANONICAL authority, NOT the executable parser.  Printing then LEXING is faithful ([gtokens_lex]:
     [lex (gprint 0 e) = Some (gtokens 0 e)]), so equal strings give equal token lists, and
@@ -9609,6 +9620,7 @@ Print Assumptions print_parse_hex.
 Print Assumptions print_parse_float_hex.
 Print Assumptions gtokens_lex.
 Print Assumptions gtokens_parse.
+Print Assumptions parse_complete.
 Print Assumptions parse_print_roundtrip.
 Print Assumptions gprint_inj.
 Print Assumptions parse_gty_roundtrip.
