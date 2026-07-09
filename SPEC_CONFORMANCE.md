@@ -150,9 +150,14 @@ to the CFG; control-flow coverage is demo-by-demo, golden-locked).
   `if`/`for`/labeled break-continue, raw `goto` for irreducible graphs). Coverage is DEMO-BY-
   DEMO golden-locked (`sign_demo`, `count_demo`/`labeled_break_demo`, `for i,x := range`,
   Go-1.22 `int_range`, `irreducible_demo`) — gap #10, no emitted-Go↔CFG theorem, no
-  completeness claim. ✓ native `switch` IS emitted (expression switch on int/string
-  `{int,str}_switchN x … → switch x { case v: … }`; type switch `type_switch_or*`; the
-  `GoSwitch` combinators) — not decomposed to `bool` `if`s.
+  completeness claim. ⚠ native `switch` is emitted (not decomposed): the `GoSwitch`
+  combinators lower int64/string expression switch (`int_switch2`/`3`/`str_switch2`/`3` —
+  semantically an `==`-chain, first-match-wins) and `GoAny` type switch (`type_switch2`/`3` +
+  or-forms) to native Go `switch x {case v:…}` / `switch v:=x.(type){…}`. BOUNDED: coverage is
+  INCOMPLETE (fixed per-arity combinators; scrutinees limited to int64/string/tag), and the
+  combinators are FORGEABLE — case values are unconstrained, so a DUPLICATE/overlapping-case
+  switch is representable and would emit a Go "duplicate case" (the lowering does not statically
+  reject it). Other control flow decomposes through the goto-CFG.
 - **Go statements** — ✓ `go f()` → `go func(){…}()`; the fork happens-before edge is race-free
   (`fork_program_race_free`). ⚠ scheduler / interleaving idealised away.
 - **Defer statements** — THREE representations + one boundary, kept separate: (R1) trusted
