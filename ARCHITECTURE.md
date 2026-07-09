@@ -70,7 +70,7 @@ split by `semi_free_split`). So the authority is now the canonical grammar for t
 AND programs: printer injectivity is PARSER-FREE throughout — `gprint_inj` off `gtokens_inj` + `gtokens_lex`,
 `print_ty_inj` off `gttokens_ty_inj` + `lex_print_ty`. The executable parser is DERIVED TOOLING — the
 self-consistency round-trips (`parse_print_roundtrip`, `parse_gty_print_ty`) AND completeness against the
-grammar (`parse_complete` : `CanonExpr 0 e ts -> parse ts = Some (e, nil)`, Phase 5) — evidence the parser
+grammar (`parse_complete` : `CanonExpr 0 e ts -> parse ts = Some (e, nil)`, and `parse_gty_complete` for types, Phase 5) — evidence the parser
 is COMPLETE for the grammar (Rocq-grammar self-consistency; COMPLETE-not-SOUND — it accepts non-canonical streams like redundant parens, so `parse_sound` is FALSE as stated), NOT Go-compiler acceptance and NOT the printer-injectivity authority
 (nothing depends on either now). The statement/program DISJOINTNESS lemmas (`gprint_neq_return`/…) are
 PARSER-FREE too — LEXICAL (a keyword form fails to `lex` or leads with `TReturn`, which no expression's tokens

@@ -23,7 +23,8 @@
     (parser-free).  The executable parser
     (expression + type) survives as gated DERIVED TOOLING — self-consistency round-trips
     ([parse_print_roundtrip], [parse_gty_print_ty]) AND completeness against the canonical grammar
-    ([parse_complete] : [CanonExpr 0 e ts -> parse ts = Some (e, nil)]) — nothing certified depends on it.
+    ([parse_complete] : [CanonExpr 0 e ts -> parse ts = Some (e, nil)]; [parse_gty_complete] for types) —
+    nothing certified depends on it.
     ⚠ the parser is COMPLETE-not-SOUND: it recovers every canonical/printed AST, but is NOT proved to accept
     ONLY canonical token lists (it accepts redundant parens — [parse [TLP; TId x; TRP]] = [Some (EId x, nil)]),
     so [parse_sound : parse ts = Some (e,nil) -> CanonExpr 0 e ts] is FALSE as stated and is NOT claimed.
@@ -1672,7 +1673,8 @@ Proof. vm_compute; reflexivity. Qed.
     `canon_program_unique`; and `gprint_inj` rests parser-free on the canonical token functions
     `gtokens_inj`/`gtokens_lex`): so this prose EBNF and the executable parser
     are both derived views — [parse_print_roundtrip] is derived parser self-consistency and [parse_complete]
-    proves the parser COMPLETE against [CanonExpr], but neither is the authority.  (Wirth-style:
+    ([parse_gty_complete] for types) proves the parser COMPLETE against [CanonExpr]/[CanonTy], but neither is
+    the authority.  (Wirth-style:
     state the grammar, then make the code visibly implement it.)  Notation: [{ x }] = zero-or-more,
     [[ x ]] = optional, ["lit"] = a terminal token, [->] names the AST node a production builds.
 
@@ -8578,6 +8580,16 @@ Proof.
   intros e ts H. apply canon_expr_tokens in H. subst ts. apply gtokens_parse.
 Qed.
 
+(** TYPE-PARSER COMPLETENESS — the [CanonTy] analogue of [parse_complete]: every canonical type derivation is
+    accepted by the type parser, recovering the [GoTy] and consuming all tokens.  A corollary of
+    [canon_ty_tokens] + [parse_gty_roundtrip].  Like [parse_complete] this is COMPLETE-not-SOUND derived
+    tooling stated against the [CanonTy] authority. *)
+Theorem parse_gty_complete : forall t ts, CanonTy t ts -> parse_gty ts = Some (t, nil).
+Proof.
+  intros t ts H. apply canon_ty_tokens in H. subst ts.
+  rewrite <- (app_nil_r (gttokens_ty t)). apply parse_gty_roundtrip.
+Qed.
+
 (** FAITHFULNESS — the printer is INJECTIVE: distinct ASTs never print alike.  PARSER-FREE: this rests on
     the CANONICAL authority, NOT the executable parser.  Printing then LEXING is faithful ([gtokens_lex]:
     [lex (gprint 0 e) = Some (gtokens 0 e)]), so equal strings give equal token lists, and
@@ -9629,6 +9641,7 @@ Print Assumptions print_parse_float_hex.
 Print Assumptions gtokens_lex.
 Print Assumptions gtokens_parse.
 Print Assumptions parse_complete.
+Print Assumptions parse_gty_complete.
 Print Assumptions parse_print_roundtrip.
 Print Assumptions gprint_inj.
 Print Assumptions parse_gty_roundtrip.
