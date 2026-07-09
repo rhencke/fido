@@ -248,7 +248,7 @@ let record_ctor_tyname r =
 
 (* [from_model r]: the ref's DEFINING module is one of the SEMANTIC-MODEL modules — the
    ownership check behind every by-name recognizer/suppression.  EXACT full-dirpath
-   membership in [model_dirpaths] (extended per split wave, plans/builtins-split.md),
+   membership in [model_dirpaths],
    never a component scan: Coq references point at the defining module regardless of
    where they are used, so a same-basename USER definition (any other module, including
    one with a matching path component) is never mis-recognized.  Extraction HOOKS are
@@ -265,8 +265,8 @@ let from_model r =
    Stdlib refs are package-qualified and use [ref_has_suffix]. *)
 let named n r = String.equal (global_basename r) n && from_model r
 
-(* [from_gocfg r] / [from_hooks r]: exact-dirpath identity for the split-out modules
-   (the builtins.v mining, boss directive 2026-07-05).  [Fido.GoCFG] owns the CFG SEMANTIC
+(* [from_gocfg r] / [from_hooks r]: exact-dirpath identity for the split-out modules.
+   [Fido.GoCFG] owns the CFG SEMANTIC
    names the lowering must recognize (the [Next] constructors); [Fido.GoExtractionHooks]
    owns names that exist ONLY to be lowered by this plugin (run_blocks, defer_call).  Same ownership
    discipline as [from_model]: identity of the DEFINING module, never a component scan. *)
