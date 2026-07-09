@@ -307,3 +307,13 @@ Lemma str_switch3_rejects_dup : forall {B} (v v3 : GoString) (k1 k2 k3 d : IO B)
   (Hd : (str_neqb v v && str_neqb v v3 && str_neqb v v3)%bool = true),
   str_switch3 ""%string v k1 v k2 v3 k3 Hd d = d -> False.
 Proof. intros B v v3 k1 k2 k3 d Hd _. rewrite str_neqb_irrefl in Hd. cbn in Hd. discriminate Hd. Qed.
+
+(** GATED SURFACE: the value-switch seal is PROOF AUTHORITY (it is what makes a duplicate-case
+    expression switch unrepresentable), so its trust base is manifest-gated ZERO-AXIOM — the
+    [*_rejects_dup] lemmas and the [*_neqb_irrefl] they rest on.  A NEW axiom reaching any of these
+    fails the axiom-manifest gate (rule 3). *)
+Definition value_switch_seal_surface :=
+  (@int_switch2_rejects_dup, @int_switch3_rejects_dup,
+   @str_switch2_rejects_dup, @str_switch3_rejects_dup,
+   @i64_neqb_irrefl, @str_neqb_irrefl).
+Print Assumptions value_switch_seal_surface.

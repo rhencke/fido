@@ -131,7 +131,8 @@ Zero-axiom is gated by `Print Assumptions` in THREE flows (single-sourced here):
 (`manifest-axioms.sh` vs empty `EXPECTED_ASSUMPTIONS.txt`) covers `main_effect` /
 `gosem_trust_surface` / `gosem_string_authority_surface` / `cmd.cmd_semantics_surface` /
 `cmd_unified_surface` / `gosem_panic_free_surface` / `GoSlice.slice_get_bounds_surface` /
-`GoCFG.blocks_cfg_surface`;
+`GoCFG.blocks_cfg_surface` / `GoSwitch.value_switch_seal_surface` (the value-switch seal's
+`*_rejects_dup` proof authority);
 **printer** + **emit** (compiled STANDALONE incl. `digits.v`, grep `^Axioms:`) cover the spine. A
 `Print Assumptions` under none of the three is not gated.
 
