@@ -96,13 +96,17 @@ EXPLICIT DEFERRED FRONTIERS (after the expression arc seals — do NOT expand mi
    the delicate `lex` extension (on which all of `gtokens_lex`/`gprint_inj` rests) is done LAST, each
    step re-verifying the expression proofs.  `lex_gprint_program` demotes `print_stmt/program_inj`
    from string-injectivity to a corollary.
-5. **Re-base the parser as derived tooling** against the relation: `parse_complete :
-   CanonExpr 0 e ts -> parse ts = Some (e, nil)` (its converse via canon_expr_tokens +
-   gtokens_parse) and `parse_sound : parse ts = Some (e, nil) -> CanonExpr 0 e ts` (⚠
-   likely needs the parser to be canonical-only re: redundant parens) — legitimate HERE
-   because the parser is the SUBJECT, not the foundation; rewrite GoPrint's header
-   authority claims; the PROGRESS gate list gains the canonical surface.  (Which of these
-   have landed: PROGRESS's "NEXT", per this doc's design-only rule above.)
+5. **Re-base the parser as derived tooling** against the relation — two directions:
+   - `parse_complete : CanonExpr 0 e ts -> parse ts = Some (e, nil)` (grammar ⇒ parser
+     accepts and recovers the AST) — a corollary of canon_expr_tokens + gtokens_parse.
+   - `parse_sound : parse ts = Some (e, nil) -> CanonExpr 0 e ts` (parser accepts ⇒
+     grammar) — ⚠ FALSE as literally stated: the recursive-descent parser accepts
+     REDUNDANT parens (`parse [TLP; TId x; TRP] = Some (EId x, nil)`, whose tokens are
+     NOT `gtokens 0 (EId x)`), so this needs either a parser restricted to canonical
+     token lists or a reformulation (e.g. over a broader "parseable" grammar).  Do NOT
+     claim it in the current form.
+   Legitimate HERE because the parser is the SUBJECT, not the foundation; rewrite
+   GoPrint's header authority claims; the PROGRESS gate list gains the canonical surface.
 
 ## Phase 3b/3c — the expression uniqueness proof (design + per-slice/per-diagonal technique)
 
