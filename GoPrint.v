@@ -4408,8 +4408,9 @@ Proof.
     cbn [gprint gtokens app] in *. apply lex_gprint_hex; assumption.
 Qed.
 
-(** THE HEADLINE (lexer half): [lex (gprint ctx e) = Some (gtokens ctx e)] — the printed AST lexes to its
-    canonical token list, for EVERY expression. *)
+(** LEXICAL FAITHFULNESS (a foundation of the parser-free authority): [lex (gprint ctx e) =
+    Some (gtokens ctx e)] — the printed AST lexes to its canonical token list, for EVERY expression.
+    Load-bearing: [gprint_inj]/[print_ty_inj] and the statement/program disjointness all rest on it. *)
 Theorem gtokens_lex : forall e ctx, lex (gprint ctx e) = Some (gtokens ctx e).
 Proof.
   intros e ctx.
