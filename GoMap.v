@@ -162,10 +162,11 @@ Definition map_len {K V} (m : GoMap K V) : IO GoInt :=
 (** [map_get_or k default m]: the value at [k], or [default] if absent. *)
 Definition map_get_or {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (default : V) (m : GoMap K V) : IO V :=
   fun w => ORet (match map_sel kt vt k m w with Some v => v | None => default end) w.
-(** A WRITE to a NIL map ([MkMap 0], [gm_loc = 0]) PANICS — Go's "assignment to entry
-    in nil map".  (Go's nil map is fine to READ — zero for every key — and to [delete]/[clear] —
-    no-ops; only assignment panics, so only [map_set] carries the guard.)  Location 0 is reserved
-    by [ValidWorld], so [eqb (gm_loc m) 0] exactly detects nil.  Lowered by name ([m[k] = v]). *)
+(** A WRITE to a NIL map ([MkMap 0], [gm_loc = 0]) PANICS — Go's "assignment to entry in nil map" — so
+    [map_set] carries a nil guard that PANICS ([rt_nil_map]).  Go's nil map READS as zero for every key and
+    [delete]/[clear] are NO-OPS on it: [map_delete]/[map_clear] return the world UNCHANGED, and — since
+    [map_write] itself no-ops at [gm_loc = 0] — NO map update ever writes the reserved location 0.  Location 0
+    is reserved by [ValidWorld], so [eqb (gm_loc m) 0] exactly detects nil.  Lowered by name ([m[k] = v]). *)
 Definition map_set {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (v : V) (m : GoMap K V) : IO unit :=
   fun w => if Nat.eqb (gm_loc m) 0 then OPanic rt_nil_map w
            else ORet tt (map_upd kt vt k v m w).
