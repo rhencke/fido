@@ -31,13 +31,32 @@ case "$1" in
   printer) run_gate "$2" digits.v GoAst.v GoPrint.v ;;
   emit)    run_gate "$2" digits.v GoAst.v GoPrint.v GoTypes.v GoCompile.v GoEmit.v ;;
   selftest)
-    # Verify the FULL advertised cleanup contract, in an isolated dir, on BOTH failure
-    # branches, with a successfully-compiled file already in the set and a sentinel
-    # printer.ml present: nothing may survive a failure.
+    # The gate REQUIRES rocq: without it every [run_gate] would "fail" for the WRONG reason (a missing
+    # compiler, not a rejected spine), so both failure branches would pass VACUOUSLY and print a misleading
+    # OK.  Refuse LOUDLY instead — an unverifiable gate must never self-report success.
+    command -v rocq >/dev/null 2>&1 || {
+      echo "fido: spine-gate selftest CANNOT RUN — 'rocq' not found; the gate is unverifiable here" >&2
+      exit 1; }
+    # Verify the FULL contract in an isolated dir: the SUCCESS path (a clean spine compiles, [run_gate]
+    # returns 0, and its .vo SURVIVES for the caller) AND both FAILURE branches (axiom + broken each reject
+    # and clean up — nothing survives, even a good file already in the set + a sentinel printer.ml).
     d="$(mktemp -d)"
     printf 'Definition sg_ok : nat := 0.\n' > "$d/sg_ok.v"
     printf 'Axiom sg_ax : True.\nPrint Assumptions sg_ax.\n' > "$d/sg_ax.v"
     printf 'this is not gallina\n' > "$d/sg_broken.v"
+    # (a) SUCCESS path — a real compile that PASSES leaves its artifact (proves the gate is not
+    #     vacuously "OK": [run_gate] actually reached rocq and accepted a clean, axiom-free spine).
+    ok=0
+    ( cd "$d" || exit 5
+      run_gate spine.log sg_ok.v >/dev/null 2>&1 || exit 6
+      [ -e sg_ok.vo ] || exit 7
+      exit 0 ) || ok=$?
+    if [ "$ok" -ne 0 ]; then
+      echo "fido: spine-gate selftest FAILED (success path, code $ok) — a clean spine must compile AND leave its .vo" >&2
+      rm -rf "$d"; exit 1
+    fi
+    rm -f "$d/sg_ok.vo" "$d/sg_ok.glob" "$d/.sg_ok.aux" "$d/printer.ml"
+    # (b) FAILURE paths — reject + clean.
     for bad in sg_ax sg_broken; do
       fail=0
       ( cd "$d" || exit 5
@@ -53,6 +72,6 @@ case "$1" in
       fi
     done
     rm -rf "$d"
-    echo "fido: spine-gate cleanup-on-failure selftest OK (axiom + compile branches, sentinel printer.ml, isolated dir) ✓" ;;
+    echo "fido: spine-gate selftest OK (rocq present; success path compiles+survives; axiom + compile failure branches reject+clean) ✓" ;;
   *) echo "spine-gate: unknown mode $1" >&2; exit 2 ;;
 esac
