@@ -21,6 +21,11 @@ goto-CFG → idiomatic-Go structuring pass is TRUSTED (gap #10: no theorem relat
 to the CFG; control-flow coverage is demo-by-demo, golden-locked).
 
 ## Lexical / Constants
+- **Identifiers** — ⚠ SUPPORTED SUBSET: `go_ident` admits only the ASCII identifier grammar
+  (`_A-Za-z`-led, `_A-Za-z0-9` body, non-keyword). Go identifiers are UNICODE (`letter =
+  unicode_letter | "_"`); a Unicode-letter name (`café`, `π`) is a REJECTED frontier — `is_idstart`/
+  `is_idc` refuse every code point > 127, so it is UNREPRESENTABLE as an `Ident` (no `go_ident s =
+  true` proof), never silently mishandled.
 - **Integer/float literals** — ⚠ typed fixed-width view over the `Z`-records (untyped layer
   in Constants); lexical shapes round-trip (`neglit_demo`).
 - **Constants / constant expressions** — ✓ representability (out-of-range constant is

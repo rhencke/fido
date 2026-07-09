@@ -42,8 +42,13 @@ Definition go_keyword (s : string) : bool :=
     ["break"; "case"; "chan"; "const"; "continue"; "default"; "defer"; "else"; "fallthrough"; "for";
      "func"; "go"; "goto"; "if"; "import"; "interface"; "map"; "package"; "range"; "return";
      "select"; "struct"; "switch"; "type"; "var"].
-(** A Go IDENTIFIER (for an [AIdent] atom): non-empty, [_A-Za-z]-led, all identifier chars, and NOT a Go
-    keyword.  A builtin type name like [int]/[string] IS a valid identifier (predeclared, shadowable —
+(** The SUPPORTED Go-identifier subset (for an [AIdent] atom).  Go identifiers are UNICODE — the spec's
+    [letter = unicode_letter | "_"] admits any code point classified as a Unicode letter — but this model
+    admits only the ASCII subset: non-empty, [_A-Za-z]-led ([is_idstart]), all-[_A-Za-z0-9] ([is_idc]), and
+    NOT a Go keyword.  A UNICODE-letter identifier (e.g. [café], [π] — valid Go) is an EXPLICIT UNSUPPORTED
+    FRONTIER, not a silent mishandling: [is_idstart]/[is_idc] reject every code point > 127, so [go_ident]
+    returns [false] and the name is UNREPRESENTABLE as an [Ident] (the [go_ident s = true] proof cannot be
+    built).  A builtin type name like [int]/[string] IS a valid identifier (predeclared, shadowable —
     Go allows [var int = 5]), so [go_ident] ACCEPTS it; only [nominal_type_ident] rejects it. *)
 Definition go_ident (s : string) : bool :=
   match s with

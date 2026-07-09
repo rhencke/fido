@@ -1725,7 +1725,8 @@ Proof. vm_compute; reflexivity. Qed.
                | "uint" | "uint8" | "int8" | "uint16" | "int16" | "uint32" | "int32" | "uint64"
                | "*" Type | "[]" Type | "chan" Type | "map" "[" Type "]" Type           -- composite
                | ident .                          -> GTNamed  nominal type
-      ident    = idstart { idstart | digit } ,  idstart = "_" | "A".."Z" | "a".."z" .   -- a [go_ident]
+      ident    = idstart { idstart | digit } ,  idstart = "_" | "A".."Z" | "a".."z" .   -- [go_ident]: the ASCII
+                                                                                        -- SUBSET of Go's UNICODE idents (Unicode-letter names are a rejected frontier)
       int      = [ "-" ] digit { digit } .       -- decimal; the lexer reads a leading "-"<digit> as one [TInt]
       hexlit   = "0" "x" hex { hex } .           -- lowercase hex int literal (>= 0); [hex] = digit | a..f (as in
                                                     Escape); the lexer's [0x] branch scans it to one [THex]
