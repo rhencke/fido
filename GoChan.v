@@ -75,8 +75,14 @@ Definition make_chan_buf {A : Type} (tag : GoTypeTag A) (n : GoInt) : IO (GoChan
     explicitly; it coerces the cell's stored buffer ([list E]) to the accessor's
     view ([list A]) — they are equal by construction, [tag_eq] recovers the proof.
     [chan_closed] needs no tag (it reads the bool directly). *)
+(** The channel STATE accessors treat the NIL sentinel ([ch_loc = 0]) as having NO cell: a nil channel
+    reads as canonically EMPTY / OPEN / no-capacity, and NEVER trusts whatever [w_chans 0] happens to hold.
+    [ValidWorld] reserves location 0, but the public [mkWorld]/[MkChan] constructors could FORGE a cell
+    there; the guard makes a forged loc-0 cell UNOBSERVABLE, so every nil-channel operation ([recv]/[send]/
+    [select]) fails loud on the canonical empty/open state instead of reading fabricated data. *)
 Definition chan_buf {A : Type} (tag : GoTypeTag A) (ch : GoChan A) (w : World) : list A :=
-  match w_chans w (ch_loc ch) with
+  if Nat.eqb (ch_loc ch) 0 then nil
+  else match w_chans w (ch_loc ch) with
   | Some (existT _ E (etag, (buf, _))) =>
       match tag_eq tag etag with
       | Some p => eq_rect E (fun X : Type => list X) buf A (eq_sym p)
@@ -85,13 +91,15 @@ Definition chan_buf {A : Type} (tag : GoTypeTag A) (ch : GoChan A) (w : World) :
   | None => nil
   end.
 Definition chan_closed {A : Type} (ch : GoChan A) (w : World) : bool :=
-  match w_chans w (ch_loc ch) with
+  if Nat.eqb (ch_loc ch) 0 then false
+  else match w_chans w (ch_loc ch) with
   | Some (existT _ _ (_, (_, (cl, _)))) => cl
   | None => false
   end.
-(** [chan_cap ch w] — the channel's capacity ([None] = unbounded; an absent cell reads [None]). *)
+(** [chan_cap ch w] — the channel's capacity ([None] = unbounded; an absent OR nil cell reads [None]). *)
 Definition chan_cap {A : Type} (ch : GoChan A) (w : World) : option nat :=
-  match w_chans w (ch_loc ch) with
+  if Nat.eqb (ch_loc ch) 0 then None
+  else match w_chans w (ch_loc ch) with
   | Some (existT _ _ (_, (_, (_, cap)))) => cap
   | None => None
   end.
@@ -105,6 +113,15 @@ Definition chan_room {A : Type} (tag : GoTypeTag A) (ch : GoChan A) (w : World) 
        | None   => true
        | Some n => Nat.ltb (List.length (chan_buf tag ch w)) n
        end.
+(** CANONICAL NIL STATE: a nil channel ([MkChan 0]) reads as empty / open / no-capacity in ANY world [w],
+    including a FORGED one carrying a cell at location 0 — the accessor guards make [w_chans 0] unobservable.
+    These are the witnesses that nil-channel reads cannot be tricked by a fabricated loc-0 heap cell. *)
+Lemma chan_buf_nil : forall {A} (tag : GoTypeTag A) (w : World), chan_buf tag (MkChan 0) w = nil.
+Proof. reflexivity. Qed.
+Lemma chan_closed_nil : forall {A} (w : World), chan_closed (@MkChan A 0) w = false.
+Proof. reflexivity. Qed.
+Lemma chan_cap_nil : forall {A} (w : World), chan_cap (@MkChan A 0) w = None.
+Proof. reflexivity. Qed.
 (** Write a channel cell at [ch]'s location, tagged with [tag], preserving its capacity [cap].
     ROOT NIL GUARD: location 0 is the reserved nil sentinel (never allocated).  A write there would
     FORGE channel state at an unallocated handle, so it is a NO-OP — the single choke point that makes
@@ -277,6 +294,15 @@ Definition recv_ok {A B} (tag : GoTypeTag A) (ch : GoChan A) (f : A -> bool -> I
                        else OPanic (anyt TString
                          "fido: recv_ok on an open EMPTY channel blocks — a deadlock in a sequential run_io, with no synchronous value"%string) w
            end.
+(** ANTI-FORGERY WITNESSES: on a nil channel ([MkChan 0]) — in ANY world [w], even one forging a cell at
+    location 0 — [send] and [recv] FAIL LOUD and never move a value.  Because the accessors read a nil
+    handle canonically (empty/open, [chan_*_nil]), these hold by computation, independent of [w_chans 0]. *)
+Lemma send_nil : forall {A} (tag : GoTypeTag A) (v : A) (w : World),
+  run_io (send tag (MkChan 0) v) w = OPanic rt_chan_send_block w.
+Proof. reflexivity. Qed.
+Lemma recv_nil_no_value : forall {A} (tag : GoTypeTag A) (w : World) (a : A) (w' : World),
+  run_io (recv tag (MkChan 0)) w <> ORet a w'.
+Proof. intros A tag w a w' H. unfold recv, run_io in H. discriminate H. Qed.
 Definition select_recv2 {A B C} (ta : GoTypeTag A) (ch1 : GoChan A) (k1 : A -> IO C)
                                  (tb : GoTypeTag B) (ch2 : GoChan B) (k2 : B -> IO C) : IO C :=
   fun w => match chan_buf ta ch1 w with
@@ -535,21 +561,23 @@ Qed.
     IO send to a freshly-made unbuffered channel FAILS LOUD ([rt_chan_send_block]) — Go blocks
     pending a receiver — rather than silently over-appending.  (The buffered [send]-then-[recv]
     path carries [chan_room = true].) *)
+(** The freshly-allocated location is non-nil ([w_next <> 0], a [ValidWorld] property: the allocator never
+    hands out the reserved sentinel) — required now that [chan_cap] reads a nil handle as canonically [None]. *)
 Lemma make_chan_buf_caps : forall {A} (tag : GoTypeTag A) (n : GoInt) (w : World) ch w',
+  Nat.eqb (w_next w) 0 = false ->
   run_io (make_chan_buf tag n) w = ORet ch w' -> chan_cap ch w' = Some (Z.to_nat (intraw n)).
 Proof.
-  intros A tag n w ch w' H. unfold make_chan_buf, make_chan_cap, run_io in H.
-  injection H as Hch Hw. subst ch w'. unfold chan_cap. cbn. rewrite Nat.eqb_refl. reflexivity.
+  intros A tag n w ch w' Hnz H. unfold make_chan_buf, make_chan_cap, run_io in H.
+  injection H as Hch Hw. subst ch w'. unfold chan_cap. cbn. rewrite Hnz, Nat.eqb_refl. reflexivity.
 Qed.
 Lemma make_chan_unbuffered_send_blocks : forall {A} (tag : GoTypeTag A) (v : A) (w : World) ch w',
   run_io (make_chan tag) w = ORet ch w' -> run_io (send tag ch v) w' = OPanic rt_chan_send_block w'.
 Proof.
   intros A tag v w ch w' H. unfold make_chan, make_chan_cap, run_io in H.
   injection H as Hch Hw. subst ch w'. unfold send, run_io, chan_closed, chan_room, chan_cap, chan_buf. cbn.
-  rewrite !Nat.eqb_refl. cbn.
-  (* [chan_room] is false on EITHER arm of the nil check: a nil handle has no room, and an
-     unbuffered ([Some 0]) buffer is full — so send blocks regardless of [w_next]'s value. *)
-  destruct (Nat.eqb (w_next w) 0); reflexivity.
+  (* [chan_room] is false on EITHER arm of the nil check: a nil handle (canonical None cap) has no room,
+     and a fresh unbuffered ([Some 0]) buffer is full — so send blocks regardless of [w_next]'s value. *)
+  destruct (Nat.eqb (w_next w) 0); cbn; rewrite ?Nat.eqb_refl; cbn; reflexivity.
 Qed.
 
 (** Sending on a closed channel panics (Go spec): close then send → panic.  (On a non-nil channel — a

@@ -44,7 +44,7 @@ CSEGS='fuel|limit|budget'
 # DOMAIN symbols below (the cap builtin, the channel/slice capacity ops and lemmas,
 # and their plugin recognizers).  Any NEW cap-segment name fails the ratchet until
 # it is either renamed or consciously classified here as capacity-domain.
-ALLOWCAP='cap|chan_room_cap|cap_slicelit_e|cap_demo|cap_aliases|chan_cap|chan_cap_send|chan_cap_recv|chan_cap_close|chan_cap_write_same|sh_cap|make_chan_cap|make_chan_buf_cap|is_cap_ref|is_make_chan_cap_ref|cstep_cap|cstep_cap_respected|csteps_cap|csteps_cap_respected|csteps_from_empty_cap_respected|rstep_at_some_cap|subslice_past_cap_panics'
+ALLOWCAP='cap|chan_room_cap|cap_slicelit_e|cap_demo|cap_aliases|chan_cap|chan_cap_send|chan_cap_recv|chan_cap_close|chan_cap_nil|chan_cap_write_same|sh_cap|make_chan_cap|make_chan_buf_cap|is_cap_ref|is_make_chan_cap_ref|cstep_cap|cstep_cap_respected|csteps_cap|csteps_cap_respected|csteps_from_empty_cap_respected|rstep_at_some_cap|subslice_past_cap_panics'
 
 count_cap() {  # stdin = stripped source.  FULL-TOKEN classification with TWO
   # normalizations: the SEGMENT test deletes every prime (so camouflage like
