@@ -8376,7 +8376,9 @@ Proof.
       apply Hunwr; [ exact Hk | exact Htl | exact I ].
 Qed.
 
-(** THE HEADLINE (parser half): [parse] inverts [gtokens] — the canonical token list parses back to [e]. *)
+(** DERIVED PARSER TOOLING: [parse] inverts [gtokens] — the canonical token list parses back to [e].  This
+    certifies the executable parser AGREES with the canonical grammar (parser self-consistency); it is NOT
+    the authority (printer injectivity rests on [gtokens_inj], parser-free). *)
 Theorem gtokens_parse : forall e, parse (gtokens 0 e) = Some (e, nil).
 Proof.
   intro e. unfold parse.
@@ -8474,7 +8476,8 @@ Proof.
     rewrite (parse_gty_roundtrip _ rest); reflexivity.
 Qed.
 
-(** ★END-TO-END: the printed conversion-type lexes and parses back to itself. *)
+(** DERIVED PARSER TOOLING: the printed conversion-type lexes and parses back to itself — the executable
+    conversion-type parser AGREES with the canonical tokens (parser self-consistency, nothing depends on it). *)
 Theorem parse_conv_print : forall c,
   match lex (conv_print c) with Some toks => parse_convty toks | None => None end = Some (c, nil).
 Proof.
