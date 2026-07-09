@@ -902,7 +902,17 @@ Inductive Token : Type :=
        separator (Go's ASI at '\n'), [TPackage] the [package] keyword) are design intent; the lexer arms
        that produce them are NOT YET added (the current [lex] rejects a LONE '=' — it accepts only '==' —
        so ':=' and '_ = ' fail to lex, and the reserved word 'defer' is rejected).  That the expression
-       [gtokens] emits none of them is the FORTHCOMING lemma [gtokens_no_stmt], NOT yet proved. *)
+       [gtokens] emits none of them is the lemma [gtokens_no_stmt] (its type/operator LEAVES are
+       proved just below the token functions; the [GExpr] induction is FORTHCOMING). *)
+
+(** [is_stmt_tok t]: [t] is a STATEMENT/PROGRAM keyword/punctuator that the EXPRESSION token stream
+    [gtokens] never emits ([TReturn]/[TAssign]/[TDefine]/[TDefer]/[TSemi]/[TPackage]/[TFunc]).
+    [TChan]/[TMap] are TYPE keywords (freely emitted by [gttokens_ty]) — NOT statement tokens. *)
+Definition is_stmt_tok (t : Token) : bool :=
+  match t with
+  | TReturn | TAssign | TDefine | TDefer | TSemi | TPackage | TFunc => true
+  | _ => false
+  end.
 
 (** scan a maximal run of decimal digits off the head. *)
 Fixpoint scan_digits (s : string) : string * string :=
@@ -1386,6 +1396,18 @@ Fixpoint gttokens_ty (t : GoTy) : list Token :=
   | GTMap k v => TMap :: TLB :: (gttokens_ty k ++ TRB :: gttokens_ty v)
   | GTNamed n => TId (tyname_to_ident n) :: nil
   end.
+
+(** A TYPE's canonical tokens never include a statement token ([gttokens_ty] emits only
+    [TId]/[TStar]/[TLB]/[TRB]/[TChan]/[TMap]) — a leaf of [gtokens_no_stmt]. *)
+Lemma gttokens_ty_stmt_free : forall t, Forall (fun tok => is_stmt_tok tok = false) (gttokens_ty t).
+Proof.
+  induction t; simpl;
+    repeat (apply Forall_cons; [reflexivity|]);
+    try apply Forall_nil; try assumption.
+  (* GTMap: the [gttokens_ty k ++ TRB :: gttokens_ty v] tail *)
+  apply Forall_app; split; [assumption|].
+  apply Forall_cons; [reflexivity | assumption].
+Qed.
 (* [_ => 1] is the deliberate UNIT size of every leaf type (the 13 primitives + [GTNamed], each one token).
    [tsize] is a PROOF-LAYER size measure only (type-node count for induction bounds).
    (The output side, [print_ty]/[gttokens_ty], is fully exhaustive.) *)
@@ -3151,6 +3173,12 @@ Definition op_token (o : BinOp) : Token :=
   end.
 Definition prefix_token (o : UnaryOp) : Token :=
   match o with UNot => TBang | UXor => TCaret | UDeref => TStar | UAddr => TAmp | UNeg => TMinus end.
+
+(** Operator tokens are never statement tokens — leaves of [gtokens_no_stmt]. *)
+Lemma op_token_not_stmt : forall o, is_stmt_tok (op_token o) = false.
+Proof. intro o; destruct o; reflexivity. Qed.
+Lemma prefix_token_not_stmt : forall o, is_stmt_tok (prefix_token o) = false.
+Proof. intro o; destruct o; reflexivity. Qed.
 
 Fixpoint gtokens (ctx : nat) (e : GExpr) : list Token :=
   match e with
