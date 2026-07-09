@@ -809,6 +809,18 @@ Proof.
   - unfold slice_idx_set, run_io. rewrite Hi, Hsel. reflexivity.
 Qed.
 
+(** [slice_range_live s n w] — every backing cell [0, n) of [s] reads back LIVE (a real allocation).  Used to
+    gate the realloc copy: a forged / dangling source (some cell absent) must FAIL LOUD, never copy fabricated
+    zero elements out of unallocated locations. *)
+Fixpoint slice_range_live {A} (s : SliceH A) (n : nat) (w : World) : bool :=
+  match n with
+  | O    => true
+  | S m  => match ref_sel_opt (sh_cell s m) w with
+            | Some _ => slice_range_live s m w
+            | None   => false
+            end
+  end.
+
 (** [append(s, v)] — the SUBTLE Go semantics:
     - WITHIN cap ([len < cap]): writes the cell at index [len] IN PLACE and returns a
       [len+1] handle over the SAME backing — so it ALIASES the original (and any
@@ -828,19 +840,23 @@ Definition slice_append {A} (tag : GoTypeTag A) (s : SliceH A) (v : A) : IO (Sli
                        (ref_upd (sh_cell s (sh_len s)) v w)
       | None   => OPanic rt_nil_deref w
       end
-    else (* reallocate: fresh disjoint backing of len+1, copy old, append v *)
-      let base' := w_next w in
-      let n := sh_len s in
-      ORet (mkSliceH base' 0 (S n) (S n) tag)
-           (mkWorld (fun k =>
-              if (Nat.leb base' k
-                  && Nat.ltb k (base' + S n))%bool
-              then (let j := k - base' in
-                    if Nat.eqb j n
-                    then Some (existT _ A (tag, v))                         (* the appended element *)
-                    else Some (existT _ A (tag, ref_sel (sh_cell s j) w)))  (* a copy of old s[j] *)
-              else w_refs w k)
-              (w_chans w) (w_maps w) (base' + S n) (w_output w)).
+    else (* reallocate: fresh disjoint backing of len+1, copy old, append v — but ONLY if every source
+            cell [0, len) is LIVE; a forged / dangling handle FAILS LOUD instead of copying fabricated
+            (zero-filled) elements out of unallocated locations *)
+      if slice_range_live s (sh_len s) w then
+        let base' := w_next w in
+        let n := sh_len s in
+        ORet (mkSliceH base' 0 (S n) (S n) tag)
+             (mkWorld (fun k =>
+                if (Nat.leb base' k
+                    && Nat.ltb k (base' + S n))%bool
+                then (let j := k - base' in
+                      if Nat.eqb j n
+                      then Some (existT _ A (tag, v))                         (* the appended element *)
+                      else Some (existT _ A (tag, ref_sel (sh_cell s j) w)))  (* a copy of old s[j] *)
+                else w_refs w k)
+                (w_chans w) (w_maps w) (base' + S n) (w_output w))
+      else OPanic rt_nil_deref w.
 
 (** WITHIN-cap append is IN PLACE: it updates exactly [s]'s cell at index [len], so the
     new element is written into the SHARED backing — a THEOREM.  (Reading [result[len]]
@@ -882,27 +898,45 @@ Definition slice_make_lc {A} (tag : GoTypeTag A) (len cap : GoInt) : IO (SliceH 
                            (w_chans w) (w_maps w) (base + cp) (w_output w))
            else OPanic rt_neg_make w.
 
+(** A cell of a [make([]T,len,cap)] backing (any [j < cap]) is LIVE — reads [Some zero_val].  So liveness for
+    these ops is DERIVED from the allocation, never leaked to callers as a bare precondition. *)
+Lemma slice_make_lc_cell_live : forall {A} (tag : GoTypeTag A) (len cap : GoInt) (w : World) s w0 (j : nat),
+  run_io (slice_make_lc tag len cap) w = ORet s w0 ->
+  (j < sh_cap s)%nat ->
+  ref_sel_opt (sh_cell s j) w0 = Some (zero_val tag).
+Proof.
+  intros A tag len cap w s w0 j Hmk Hj.
+  unfold slice_make_lc, run_io in Hmk. cbv zeta in Hmk.
+  destruct (Z.leb 0 (intraw len) && Z.leb (intraw len) (intraw cap))%bool eqn:Hc; [ | discriminate Hmk ].
+  injection Hmk as Hs Hw0. subst s w0. cbn [sh_cap] in Hj.
+  unfold ref_sel_opt, sh_cell, sh_loc; cbn [sh_base sh_off sh_tag r_loc r_tag w_refs].
+  rewrite !Nat.add_0_l.
+  rewrite (proj2 (Nat.leb_le (w_next w) (w_next w + j)) (Nat.le_add_r _ _)).
+  rewrite (proj2 (Nat.ltb_lt (w_next w + j) (w_next w + Z.to_nat (intraw cap))) ltac:(lia)).
+  cbn -[tag_coerce]. apply tag_coerce_refl.
+Qed.
+
 (** A [make([]T, len, cap)] slice has spare capacity, so [append] is IN PLACE and the
     result SHARES its backing — a THEOREM directly from [slice_append_incap]: the append
-    writes the cell at index [len] of the ORIGINAL handle. *)
-Lemma make_lc_append_inplace : forall {A} (tag : GoTypeTag A) (len cap : GoInt) (v a : A) (w : World),
+    writes the cell at index [len] of the ORIGINAL handle.  Liveness of the spare cell is
+    DERIVED from the allocation ([slice_make_lc_cell_live]), not leaked. *)
+Lemma make_lc_append_inplace : forall {A} (tag : GoTypeTag A) (len cap : GoInt) (v : A) (w : World),
   (intraw len <? intraw cap)%Z = true ->
   forall s w0, run_io (slice_make_lc tag len cap) w = ORet s w0 ->
-  ref_sel_opt (sh_cell s (sh_len s)) w0 = Some a ->   (* the spare cell is live (make_lc allocated it) *)
   run_io (slice_append tag s v) w0
     = ORet (mkSliceH (sh_base s) (sh_off s) (S (sh_len s)) (sh_cap s) tag)
            (ref_upd (sh_cell s (sh_len s)) v w0).
 Proof.
-  intros A tag len cap v a w Hlt s w0 Hmk Hsel.
-  (* the handle from make_lc has sh_len = Z.to_nat len, sh_cap = Z.to_nat cap, so len < cap ⇒ in place.
-     make_lc now PANICS unless 0 <= len <= cap; the success hypothesis Hmk forces that branch. *)
-  unfold slice_make_lc, run_io in Hmk.
-  destruct (Z.leb 0 (intraw len) && Z.leb (intraw len) (intraw cap))%bool eqn:Hc.
-  - injection Hmk as Hs _. subst s. apply (slice_append_incap tag _ v a).
-    + cbn [sh_len sh_cap]. apply Nat.ltb_lt. apply andb_prop in Hc. destruct Hc as [Hc0 Hc1].
-      apply Z.leb_le in Hc0. apply Z.leb_le in Hc1. apply Z.ltb_lt in Hlt. lia.
-    + exact Hsel.
-  - discriminate Hmk.
+  intros A tag len cap v w Hlt s w0 Hmk.
+  pose proof Hmk as Hmk0. unfold slice_make_lc, run_io in Hmk0. cbv zeta in Hmk0.
+  destruct (Z.leb 0 (intraw len) && Z.leb (intraw len) (intraw cap))%bool eqn:Hc; [ | discriminate Hmk0 ].
+  injection Hmk0 as Hs _.
+  assert (Hlen : (sh_len s < sh_cap s)%nat).
+  { rewrite <- Hs; cbn [sh_len sh_cap]. apply andb_prop in Hc. destruct Hc as [Hc0 Hc1].
+    apply Z.leb_le in Hc0. apply Z.leb_le in Hc1. apply Z.ltb_lt in Hlt. lia. }
+  apply (slice_append_incap tag s v (zero_val tag)).
+  - apply Nat.ltb_lt. exact Hlen.
+  - exact (slice_make_lc_cell_live tag len cap w s w0 (sh_len s) Hmk Hlen).
 Qed.
 
 (* Element [i]'s cell is [sh_start s + i] (= [sh_loc s i] by [add_assoc]); the
