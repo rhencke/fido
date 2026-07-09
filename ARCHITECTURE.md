@@ -68,10 +68,11 @@ and `canon_expr_unique` (expression-level token uniqueness, PARSER-FREE via `gto
 off `gtokens_inj` + `gtokens_lex`, and the executable parse round-trip
 `parse_str (gprint 0 e) = Some (e, [])` (`parse_print_roundtrip`) is DERIVED TOOLING — evidence the
 parser AGREES with the grammar (Rocq-grammar self-consistency), NOT Go-compiler acceptance and NOT the
-printer-injectivity authority. Still OPEN: the whole statement/program canonical layer
+printer-injectivity authority (nothing depends on it now). The statement/program DISJOINTNESS lemmas
+(`gprint_neq_return`/…) are PARSER-FREE too — LEXICAL (a keyword form fails to `lex` or leads with
+`TReturn`, which no expression's tokens do). Still OPEN: the whole statement/program canonical layer
 (`CanonStmt`/`CanonProgram` + canonicity / uniqueness / lex); **programs/statements** carry
-print-INJECTIVITY only (`print_program_inj`/`print_stmt_inj`), and their disjointness lemmas still route
-through `parse_print_roundtrip` until that layer lands. Purely syntactic.
+print-INJECTIVITY only (`print_program_inj`/`print_stmt_inj`) until it lands. Purely syntactic.
 
 **`GoSem.v` — behavioral bridge from `GoAst` into the existing proof models — SLICE 1.**
 `denote_program : Program -> option (Cmd unit)` bridges into `cmd.v`'s proven command tree

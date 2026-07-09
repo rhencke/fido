@@ -26,10 +26,12 @@
     [canon_ty_unique] (type-level token uniqueness, PARSER-FREE via [gttokens_ty_inj]), and
     [canon_expr_unique] (expression-level token uniqueness, PARSER-FREE via [gtokens_inj]).  So the parser
     IS now demoted below the grammar at the expression layer — [gprint_inj] no longer depends on
-    [parse_print_roundtrip], which is now derived parser SELF-CONSISTENCY tooling.  Still OPEN: the
-    statement/program canonical layers ([CanonStmt]/[CanonProgram] + their canonicity/uniqueness/lex);
-    until those land, [print_stmt_inj] / [print_program_inj] remain STRING-injectivity and the
-    statement/program disjointness lemmas still route through [parse_print_roundtrip].
+    [parse_print_roundtrip], which is now derived parser SELF-CONSISTENCY tooling (nothing depends on it).
+    The statement/program DISJOINTNESS lemmas ([gprint_neq_return]/[_return_val]/[_blank]/[_defer]/
+    [_shortdecl]) are also PARSER-FREE now — LEXICAL: a keyword form either fails to [lex] or leads with
+    [TReturn], which no expression's tokens do ([gtokens_hd_not_return]).  Still OPEN: the statement/program
+    canonical layers ([CanonStmt]/[CanonProgram] + their canonicity/uniqueness/lex); [print_stmt_inj] /
+    [print_program_inj] remain STRING-injectivity until they land.
     Nothing here is Go-compiler acceptance.  There is NO theorem that Go's compiler reads the
     emitted text as the same AST (that Go-subset RECOGNITION theorem — emitted grammar ⊆ Go grammar — is
     UNPROVEN, a SEPARATE Go-syntax recognition gap; Go's toolchain is TRUSTED, ARCHITECTURE §2a item 3 —
@@ -8509,14 +8511,72 @@ Definition print_program (p : Program) : string :=
   ("package " ++ proj1_sig (prog_pkg p) ++ go_nl ++ go_nl ++
    "func main() {" ++ go_nl ++ print_stmts (prog_body p) ++ "}" ++ go_nl)%string.
 
-(** No [gprint] output is the bare keyword "return": it would have to parse back to that expression
-    ([parse_print_roundtrip]), but "return" LEXES to the [TReturn] keyword token, which is not a valid
-    expression, so the parser rejects it ([parse_str "return" = None]) — and the round-trip would then equate
-    [None] with [Some _].  This is what keeps [GsReturn] disjoint from [GsExprStmt] at the printer level (no
-    ad-hoc "gprint contains no …" string surgery). *)
+(** ---- statement/program DISJOINTNESS, PARSER-FREE (Phase 3c): a printed statement keyword form is never
+    a printed expression.  The discipline is LEXICAL, not parser-round-trip: [gtokens_lex] says
+    [lex (gprint 0 e) = Some (gtokens 0 e)], so if a [gprint] output equalled a keyword-led string its LEX
+    would too — but the keyword strings either FAIL to lex ("_ = ", "defer ", " := ": a lone '=' or a
+    reserved word) or lex to a leading [TReturn], and an expression's tokens NEVER lead with [TReturn]
+    ([gtokens_hd_not_return]).  No [parse]/[parse_print_roundtrip]. *)
+(* an expression's [gtparen] tokens never LEAD with [TReturn] (the return keyword is not an expression
+   token) — the [gtparen] complement mirroring [gtparen_hd_not_prefix], one step simpler ([TReturn] is
+   nullary, no operator to destruct). *)
+Lemma gtparen_hd_not_return : forall e, hd_error (gtparen e) <> Some TReturn.
+Proof.
+  intro e. induction e using GExpr_ind'; intro Hd; unfold gtparen in Hd; cbn [op_needs_paren] in Hd.
+  - cbn [gtokens hd_error] in Hd; discriminate Hd.
+  - cbn [gtokens hd_error] in Hd; discriminate Hd.
+  - cbn [hd_error] in Hd; discriminate Hd.
+  - cbn [hd_error] in Hd; discriminate Hd.
+  - rewrite gtokens_ESel, (hd_error_app_l _ _ (gtparen_nonnil e)) in Hd; exact (IHe Hd).
+  - rewrite gtokens_EIndex, (hd_error_app_l _ _ (gtparen_nonnil e1)) in Hd; exact (IHe1 Hd).
+  - rewrite gtokens_ESlice, (hd_error_app_l _ _ (gtparen_nonnil e1)) in Hd; exact (IHe1 Hd).
+  - rewrite gtokens_ECall, (hd_error_app_l _ _ (gtparen_nonnil e)) in Hd; exact (IHe Hd).
+  - rewrite gtokens_EAssert, (hd_error_app_l _ _ (gtparen_nonnil e)) in Hd; exact (IHe Hd).
+  - rewrite gtokens_EConv in Hd; destruct c; cbn [convty_ty gttokens_ty app hd_error] in Hd; discriminate Hd.
+  - rewrite gtokens_ESliceLit in Hd; cbn [hd_error] in Hd; discriminate Hd.
+  - rewrite gtokens_EMapLit in Hd; cbn [gttokens_ty app hd_error] in Hd; discriminate Hd.
+  - cbn [gtokens hd_error] in Hd; discriminate Hd.
+  - cbn [gtokens hd_error] in Hd; discriminate Hd.
+Qed.
+(* the full [gtokens] head is never [TReturn]: atoms/[EUn]/composites lead with a concrete non-[TReturn]
+   token; a wrapped [EBn] leads [TLP], an unwrapped one recurses into its left operand ([IHl]); the postfix
+   forms lead with [gtparen] of their base ([gtparen_hd_not_return]). *)
+Lemma gtokens_hd_not_return : forall ctx e, hd_error (gtokens ctx e) <> Some TReturn.
+Proof.
+  intros ctx e; revert ctx;
+    induction e as [ i | z | o e0 IHe0 | o l IHl r IHr | e0 IHe0 f | e0 IHe0 i IHi
+      | e0 IHe0 lo IHlo hi IHhi | e0 IHe0 args IHargs | e0 IHe0 T | c e0 IHe0
+      | t es IHes | kt vt kvs IHkvs | s | zc ] using GExpr_ind'; intros ctx Hd.
+  - cbn [gtokens hd_error] in Hd; discriminate Hd.
+  - cbn [gtokens hd_error] in Hd; discriminate Hd.
+  - rewrite gtokens_hd_eun in Hd; destruct o; cbn [prefix_token] in Hd; discriminate Hd.
+  - cbn [gtokens] in Hd; destruct (Nat.ltb (binop_prec o) ctx) eqn:W;
+      [ cbn [hd_error] in Hd; discriminate Hd
+      | rewrite (hd_error_app_l _ _ (gtokens_nonnil (binop_prec o) l)) in Hd; exact (IHl (binop_prec o) Hd) ].
+  - rewrite gtokens_ESel, (hd_error_app_l _ _ (gtparen_nonnil e0)) in Hd; exact (gtparen_hd_not_return e0 Hd).
+  - rewrite gtokens_EIndex, (hd_error_app_l _ _ (gtparen_nonnil e0)) in Hd; exact (gtparen_hd_not_return e0 Hd).
+  - rewrite gtokens_ESlice, (hd_error_app_l _ _ (gtparen_nonnil e0)) in Hd; exact (gtparen_hd_not_return e0 Hd).
+  - rewrite gtokens_ECall, (hd_error_app_l _ _ (gtparen_nonnil e0)) in Hd; exact (gtparen_hd_not_return e0 Hd).
+  - rewrite gtokens_EAssert, (hd_error_app_l _ _ (gtparen_nonnil e0)) in Hd; exact (gtparen_hd_not_return e0 Hd).
+  - rewrite gtokens_EConv in Hd; destruct c; cbn [convty_ty gttokens_ty app hd_error] in Hd; discriminate Hd.
+  - rewrite gtokens_ESliceLit in Hd; cbn [hd_error] in Hd; discriminate Hd.
+  - rewrite gtokens_EMapLit in Hd; cbn [gttokens_ty app hd_error] in Hd; discriminate Hd.
+  - cbn [gtokens hd_error] in Hd; discriminate Hd.
+  - cbn [gtokens hd_error] in Hd; discriminate Hd.
+Qed.
+(* the bare keyword "return" lexes to a lone [TReturn]; "_ = " fails to lex (lone '=' is not "=="). *)
+Lemma lex_return : lex "return"%string = Some (TReturn :: nil).
+Proof. reflexivity. Qed.
+Lemma lex_blank_None : forall X, lex ("_ = " ++ X)%string = None.
+Proof. intro X. vm_compute. reflexivity. Qed.
+
+(** No [gprint] output is the bare keyword "return": its LEX would be [Some (gtokens 0 e)] ([gtokens_lex]),
+    but "return" lexes to [Some (TReturn :: nil)] ([lex_return]), forcing [gtokens 0 e] to lead with
+    [TReturn] — impossible ([gtokens_hd_not_return]).  Keeps [GsReturn] disjoint from [GsExprStmt]. *)
 Lemma gprint_neq_return : forall e, gprint 0 e <> "return"%string.
 Proof.
-  intros e H. pose proof (parse_print_roundtrip e) as R. rewrite H in R. vm_compute in R. discriminate R.
+  intros e H. pose proof (gtokens_lex e 0) as L. rewrite H, lex_return in L.
+  injection L as L. apply (gtokens_hd_not_return 0 e). rewrite <- L. reflexivity.
 Qed.
 
 (** append-cancel: a common prefix is injective (used by [print_stmt_inj] and [print_program_inj]). *)
@@ -8526,42 +8586,28 @@ Proof.
   injection H as H. exact (IH _ _ H).
 Qed.
 
-(** The expression parser REJECTS a leading [TReturn] (the reserved keyword token is not a valid atom), so
-    [parse] of any [TReturn]-led list is [None]. *)
-Lemma parse_expr_TReturn_None : forall rest, parse_expr 0 (TReturn :: rest) = None.
-Proof. intros rest. rewrite parse_expr_eq, parse_primary_eq, parse_atom_eq. reflexivity. Qed.
-Lemma parse_TReturn_None : forall rest, parse (TReturn :: rest) = None.
-Proof. intros rest. unfold parse. apply parse_expr_TReturn_None. Qed.
-
-(** A printed [return e] (the [GsReturnVal] text "return " ++ gprint 0 e) does NOT parse back: it LEXES to a
-    leading [TReturn] ([lex_return_app] over [gtokens_lex]), which [parse] rejects.  So no [gprint] output can
-    equal "return " ++ gprint 0 e — the [GsExprStmt] / [GsReturnVal] disjointness. *)
-Lemma parse_str_return_gprint : forall e, parse_str ("return " ++ gprint 0 e)%string = None.
-Proof.
-  intro e. unfold parse_str.
-  rewrite (lex_return_app (gprint 0 e) (gtokens 0 e) (gtokens_lex e 0)).
-  apply parse_TReturn_None.
-Qed.
+(** A printed [return e] (the [GsReturnVal] text "return " ++ gprint 0 e) LEXES to a leading [TReturn]
+    ([lex_return_app] over [gtokens_lex]); an expression's tokens never lead with [TReturn]
+    ([gtokens_hd_not_return]), so no [gprint] output equals "return " ++ gprint 0 e — the
+    [GsExprStmt] / [GsReturnVal] disjointness. *)
 Lemma gprint_neq_return_val : forall e1 e2, gprint 0 e2 <> ("return " ++ gprint 0 e1)%string.
 Proof.
-  intros e1 e2 H. pose proof (parse_print_roundtrip e2) as R. rewrite H in R.
-  rewrite parse_str_return_gprint in R. discriminate R.
+  intros e1 e2 H. pose proof (gtokens_lex e2 0) as L. rewrite H in L.
+  rewrite (lex_return_app (gprint 0 e1) (gtokens 0 e1) (gtokens_lex e1 0)) in L.
+  injection L as L. apply (gtokens_hd_not_return 0 e2). rewrite <- L. reflexivity.
 Qed.
 
-(** A printed [_ = e] (the [GsBlankAssign] text "_ = " ++ X) does NOT parse back: a LONE '=' fails to lex
-    ([lex_op] yields [None] unless the next char is '='), so [lex ("_ = " ++ X) = None] and thus
-    [parse_str ("_ = " ++ X) = None].  Hence no [gprint] output equals "_ = " ++ gprint 0 e — the
-    [GsExprStmt] / [GsBlankAssign] disjointness.  (The reject is decided by the fixed "_ = " prefix, so
-    [vm_compute] closes it for any tail [X].) *)
-Lemma parse_str_blank_None : forall X, parse_str ("_ = " ++ X)%string = None.
-Proof. intro X. vm_compute. reflexivity. Qed.
+(** A printed [_ = e] (the [GsBlankAssign] text "_ = " ++ X) does NOT LEX: a LONE '=' fails [lex_op]
+    (which accepts only "=="), so [lex ("_ = " ++ X) = None] ([lex_blank_None], decided by the fixed
+    "_ = " prefix for any tail [X]).  Hence no [gprint] output equals "_ = " ++ gprint 0 e — the
+    [GsExprStmt] / [GsBlankAssign] disjointness. *)
 Lemma gprint_neq_blank : forall e1 e2, gprint 0 e2 <> ("_ = " ++ gprint 0 e1)%string.
 Proof.
-  intros e1 e2 H. pose proof (parse_print_roundtrip e2) as R. rewrite H in R.
-  rewrite parse_str_blank_None in R. discriminate R.
+  intros e1 e2 H. pose proof (gtokens_lex e2 0) as L. rewrite H, (lex_blank_None (gprint 0 e1)) in L.
+  discriminate L.
 Qed.
 
-(** A printed [defer <call>] (the [GsDefer] text "defer " ++ X) does NOT parse back: "defer" is a Go
+(** A printed [defer <call>] (the [GsDefer] text "defer " ++ X) does NOT LEX: "defer" is a Go
     RESERVED WORD, so [lex_ident "defer" = None] FAILS the whole lex — [lex ("defer " ++ X) = None] for
     any suffix [X].  Hence no [gprint] output equals "defer " ++ gprint 0 e — the [GsExprStmt] / [GsDefer]
     disjointness. *)
@@ -8577,17 +8623,13 @@ Proof.
              eq_refl eq_refl (scan_id_defer X)).
   rewrite lex_ident_defer. reflexivity.
 Qed.
-Lemma parse_str_defer_gprint : forall e, parse_str ("defer " ++ gprint 0 e)%string = None.
-Proof.
-  intro e. unfold parse_str. rewrite lex_defer. reflexivity.
-Qed.
 Lemma gprint_neq_defer : forall e1 e2, gprint 0 e2 <> ("defer " ++ gprint 0 e1)%string.
 Proof.
-  intros e1 e2 H. pose proof (parse_print_roundtrip e2) as R. rewrite H in R.
-  rewrite parse_str_defer_gprint in R. discriminate R.
+  intros e1 e2 H. pose proof (gtokens_lex e2 0) as L. rewrite H, (lex_defer (gprint 0 e1)) in L.
+  discriminate L.
 Qed.
 
-(** A printed [x := e] (the [GsShortDecl] text) does NOT parse back as an expression: the ident LEXES
+(** A printed [x := e] (the [GsShortDecl] text) does NOT LEX: the ident LEXES
     ([lex_ident_go]) and ':' lexes ([TColon]), but the following LONE '=' fails [lex_op] (which accepts
     only "=="), so the whole lex is [None] — the [GsExprStmt] / [GsShortDecl] disjointness. *)
 Lemma lex_defassign : forall X, lex (" := " ++ X)%string = None.
@@ -8622,14 +8664,11 @@ Proof.
   intros x X Hx.
   apply (lex_ident_None _ _ Hx); [ reflexivity | apply lex_defassign ].
 Qed.
-Lemma parse_str_shortdecl_None : forall x X,
-  go_ident x = true -> parse_str (x ++ (" := " ++ X))%string = None.
-Proof. intros x X Hx. unfold parse_str. rewrite (lex_shortdecl_None x X Hx). reflexivity. Qed.
 Lemma gprint_neq_shortdecl : forall x e1 e2, go_ident x = true ->
   gprint 0 e2 <> (x ++ " := " ++ gprint 0 e1)%string.
 Proof.
-  intros x e1 e2 Hx H. pose proof (parse_print_roundtrip e2) as R. rewrite H in R.
-  rewrite (parse_str_shortdecl_None x (gprint 0 e1) Hx) in R. discriminate R.
+  intros x e1 e2 Hx H. pose proof (gtokens_lex e2 0) as L. rewrite H in L.
+  rewrite (lex_shortdecl_None x (gprint 0 e1) Hx) in L. discriminate L.
 Qed.
 
 (** Ident equality from its underlying string (the [go_ident] bool proof is unique — UIP on bool). *)
