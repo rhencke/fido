@@ -173,15 +173,19 @@ to the CFG; control-flow coverage is demo-by-demo, golden-locked).
   unmodeled. *Pending:* select send cases, N-ary.
 
 ## Built-in functions
-- ✓ import-free set (all plugin-lowered): `len`, `cap`, `append`, `make` (chan/map; slice
-  `make([]T,n)` fresh-zeroed `len=n`; slice `make([]T,len,cap)` via the heap `SliceH` —
-  `slice_make_lc`, spare-cap `make_lc_append_inplace`), `new` (`go_new` → fresh `*T` at the zero
-  value), `copy` (`slice_copy`), `delete`, `panic`, `print`/`println`, `recover`
-  (`catch`/`with_defer`), `close`, `clear` (maps `map_get_clear`; slices `slice_clear_h`), and
-  Go-1.21 `min`/`max` on `int`/`int64`[signed]/`uint64`[unsigned]/`float`[NaN-propagation +
-  signed-zero corners] (`spec_go_min`, `spec_i64_max`, `spec_u64_max_high`, `f64_min_nan`/
-  `f64_min_negzero`). ✗ `complex`/`real`/`imag` (need `complex64`/`complex128`, unmodeled).
-  String `min`/`max` not yet added (not blocked — the byte-lexicographic order `str_ltb` is settled).
+- ✓ import-free set (all plugin-lowered): `len`, `append` (`slice_append`, cap decides realloc),
+  `make` (chan/map; slice `make([]T,n)` fresh-zeroed `len=n`; slice `make([]T,len,cap)` via the
+  heap `SliceH` — `slice_make_lc`, spare-cap `make_lc_append_inplace`), `new` (`go_new` → fresh
+  `*T` at the zero value), `copy` (`slice_copy`), `delete`, `panic`, `print`/`println`, `recover`
+  (`catch`/`with_defer`), `close`, `clear` (maps `map_get_clear`; slices `slice_clear_h`), Go-1.21
+  `min`/`max` on `int`/`int64`[signed]/`uint64`[unsigned]/`float`[NaN-propagation + signed-zero]
+  (`spec_go_min`, `spec_i64_max`, `spec_u64_max_high`, `f64_min_nan`), and `complex`/`real`/`imag`
+  on **`complex128`** (`GoComplex128` pair of `float64`; `go_complex`/`go_real`/`go_imag` +
+  component-wise `complex_add`/`_sub`/`_mul`/`_neg`, `complex_div`→native `/`; law
+  `go_real_complex`). ⚠ `cap` is faithful only on the heap `SliceH` (the explicit `sh_cap` field);
+  the FUNCTIONAL value-slice `cap` is INTENTIONALLY not modeled (Go's cap-after-`append` is
+  spec-underdetermined). ✗ `complex64` (only `complex128` modeled); string `min`/`max` not yet
+  added (not blocked — the order `str_ltb` is settled).
 
 ## Memory model (go.dev/ref/mem)
 - ✓ **partial order + race freedom, axiom-free** (`hb` = transitive closure, STRICT partial
