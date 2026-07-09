@@ -118,8 +118,10 @@ plugin CONSTRUCTS the `GExpr`; only `gprint` is verified. NOT "verified Go."
   REMAINING (Phase 4/5): the `:=`/`=`/`defer` statement forms (need new lexer arms) and the program-level
   `lex_gprint_program` (a `TPackage`-keyword arm — "package" is a keyword that fails to lex today,
   `lex_package` — plus an ASI pass emitting `TSemi`). Phase 5: `parse_complete` (parser complete for the
-  canonical grammar, `CanonExpr 0 e ts -> parse ts = Some (e, nil)`) LANDED+gated; `parse_sound` remains (⚠
-  likely needs the parser to be canonical-only — it may accept redundant parens — investigate first).
+  canonical grammar, `CanonExpr 0 e ts -> parse ts = Some (e, nil)`) LANDED+gated. `parse_sound`
+  (`parse ts = Some (e, nil) -> CanonExpr 0 e ts`) is FALSE as literally stated — the recursive-descent
+  parser accepts REDUNDANT parens (`parse [TLP; TId x; TRP] = Some (EId x, nil)`, tokens ≠ `gtokens 0 (EId x)`)
+  — so it is NOT a pursued goal in this form (would need a canonical-only parser or a reformulation).
 - The cmd↔unified bridge (`plans/bridge-effects.md`): `CAlloc` AND the channel slice LANDED
   (typed zeros through the channel's own tag, gated obligations; `bridge_effects_agree` now
   exposes capacity agreement publicly). Spawn/select is the deferred capstone (design deferred
