@@ -82,8 +82,9 @@ EXPLICIT DEFERRED FRONTIERS (after the expression arc seals — do NOT expand mi
    `GsShortDecl x e`→`TId x::TDefine::gtokens 0 e`) and `prog_tokens : Program -> list Token`
    (`TPackage::TId pkg::TFunc::TId "main"::TLP::TRP::TLC::` the `TSemi`-separated body `::TRC::nil`).
    `stmt_tokens_inj`/`prog_tokens_inj` (foundation: `gtokens_no_stmt` — `is_stmt_tok t = true ->
-   ~ In t (gtokens ctx e)`, one `GExpr_ind'` induction, expressions use only the expression alphabet
-   — then head/`TSemi`-split discrimination + `gtokens_inj`).  Then `CanonStmt : GoStmt -> list
+   ~ In t (gtokens ctx e)`, one `GExpr_ind'` induction, expressions use only the expression alphabet.
+   `stmt_tokens_inj` = head/second-token discrimination + `gtokens_inj`; `prog_tokens_inj` = the
+   `TSemi`-separated-list split + `stmt_tokens_inj`).  Then `CanonStmt : GoStmt -> list
    Token -> Prop` / `CanonProgram` + `canon_stmt/program_tokens` + `gprint_stmt/program_canonical`
    + `canon_stmt/program_unique` (from `canon_*_tokens` + `stmt/prog_tokens_inj`).  ★LEXER: extend
    the SINGLE `lex` (NOT a second `lex_stmt` — a second lexer would violate the one-authority law and
