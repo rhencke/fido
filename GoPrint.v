@@ -13,9 +13,10 @@
     "verified" — and even for the bridged class only the PRINTING is verified, NOT the trusted MiniML->[GExpr]
     CONSTRUCTION in [plugin/go.ml] that chooses the AST.
 
-    WHAT IS PROVEN: printer injectivity is PARSER-FREE — EXPRESSION [gprint_inj] rests on
-    [canon_expr_unique]/[gtokens_inj] + [gtokens_lex], and TYPE [print_ty_inj] rests on [gttokens_ty_inj]
-    + [lex_print_ty] (NOT the type parser).  Statements and whole programs currently have print-INJECTIVITY
+    WHAT IS PROVEN: printer injectivity is PARSER-FREE — EXPRESSION [gprint_inj] rests on [gtokens_inj]
+    + [gtokens_lex] ([canon_expr_unique] is a SIBLING corollary of [gtokens_inj], not a dependency of
+    [gprint_inj]), and TYPE [print_ty_inj] rests on [gttokens_ty_inj] + [lex_print_ty] (NOT the type
+    parser).  Statements and whole programs currently have print-INJECTIVITY
     only ([print_stmt_inj] / [print_program_inj]) — there is no statement PARSER yet, so no statement
     round-trip; their printer-level disjointness lemmas are LEXICAL (parser-free).  The executable parser
     (expression + type) survives ONLY as gated derived self-consistency tooling ([parse_print_roundtrip],
@@ -1610,9 +1611,10 @@ Proof. vm_compute; reflexivity. Qed.
     the printer [gprint], and the recursive-descent parser [parse] are three views of this grammar;
     [parse_print_roundtrip] proves printer and parser agree.  The AUTHORITY is the RELATIONAL
     canonical-grammar layer (CanonExpr et al., CLAUDE.md "Syntax authority"), which now EXISTS for types
-    and expressions (`canon_ty_unique`/`canon_expr_unique`, and `gprint_inj` rests on it parser-free): so
-    this prose EBNF and the executable parser are both derived views, and [parse_print_roundtrip] is
-    derived parser self-consistency, not the authority.  (Wirth-style:
+    and expressions (`canon_ty_unique`/`canon_expr_unique`; and `gprint_inj` rests parser-free on the
+    canonical token functions `gtokens_inj`/`gtokens_lex`): so this prose EBNF and the executable parser
+    are both derived views, and [parse_print_roundtrip] is derived parser self-consistency, not the
+    authority.  (Wirth-style:
     state the grammar, then make the code visibly implement it.)  Notation: [{ x }] = zero-or-more,
     [[ x ]] = optional, ["lit"] = a terminal token, [->] names the AST node a production builds.
 
@@ -4410,7 +4412,8 @@ Qed.
 
 (** LEXICAL FAITHFULNESS (a foundation of the parser-free authority): [lex (gprint ctx e) =
     Some (gtokens ctx e)] — the printed AST lexes to its canonical token list, for EVERY expression.
-    Load-bearing: [gprint_inj]/[print_ty_inj] and the statement/program disjointness all rest on it. *)
+    Load-bearing: [gprint_inj] and the statement/program disjointness lemmas rest on it (the TYPE analogue
+    [print_ty_inj] rests on [lex_print_ty], not on this). *)
 Theorem gtokens_lex : forall e ctx, lex (gprint ctx e) = Some (gtokens ctx e).
 Proof.
   intros e ctx.
