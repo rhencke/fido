@@ -9046,7 +9046,10 @@ Proof. intro e. exact (lex_return_app (gprint 0 e) (gtokens 0 e) (gtokens_lex e 
 (** the decidable SUPPORTEDNESS GATE for statement-level lexical faithfulness: exactly the three forms the
     current lexer handles.  [lex_gprint_stmt_supported] is [lex_gprint_stmt] on this gated subset — the three
     FENCED forms ([GsBlankAssign]/[GsDefer]/[GsShortDecl]) return [false] and need the new '='/':='/'defer'
-    lexer arms.  (Explicit boundary, not a silent omission: LESSONS "gate the emittable subset".) *)
+    lexer arms.  The gate is EXACT (not a one-way side-condition): [stmt_lex_supported_iff] proves
+    [stmt_lex_supported s = true] IFF [lex (print_stmt s) = Some (stmt_tokens s)], and
+    [lex_gprint_stmt_unsupported] proves the fenced forms lex to [None] — so a rejected form is REJECTED, not
+    silently misclassified.  (Explicit boundary: LESSONS "gate the emittable subset".) *)
 Definition stmt_lex_supported (s : GoStmt) : bool :=
   match s with
   | GsExprStmt _ | GsReturn | GsReturnVal _ => true
@@ -9148,6 +9151,28 @@ Lemma gprint_neq_shortdecl : forall x e1 e2, go_ident x = true ->
 Proof.
   intros x e1 e2 Hx H. pose proof (gtokens_lex e2 0) as L. rewrite H in L.
   rewrite (lex_shortdecl_None x (gprint 0 e1) Hx) in L. discriminate L.
+Qed.
+
+(** EXACTNESS of the [stmt_lex_supported] gate: the three FENCED forms genuinely do NOT lex — their printed
+    text returns [None] (a lone '=', ':=', or reserved 'defer' fails [lex]).  With [lex_gprint_stmt_supported]
+    this makes the gate EXACT, not a one-way side-condition: [stmt_lex_supported s = true] IFF the statement
+    lexes to its canonical tokens ([stmt_lex_supported_iff]).  A rejected form is REJECTED (lexes to [None]),
+    never silently misclassified (behavioral-rejection-must-pin-valid-side). *)
+Theorem lex_gprint_stmt_unsupported : forall s,
+  stmt_lex_supported s = false -> lex (print_stmt s) = None.
+Proof.
+  intros [e| |e|e|e|x e] H; cbn [stmt_lex_supported] in H; try discriminate H; cbn [print_stmt].
+  - apply lex_blank_None.
+  - apply lex_defer.
+  - exact (lex_shortdecl_None (proj1_sig x) (gprint 0 e) (proj2_sig x)).
+Qed.
+Theorem stmt_lex_supported_iff : forall s,
+  stmt_lex_supported s = true <-> lex (print_stmt s) = Some (stmt_tokens s).
+Proof.
+  intro s. split.
+  - apply lex_gprint_stmt_supported.
+  - intro Hlex. destruct (stmt_lex_supported s) eqn:E; [ reflexivity | ].
+    rewrite (lex_gprint_stmt_unsupported s E) in Hlex. discriminate Hlex.
 Qed.
 
 (** Ident equality from its underlying string (the [go_ident] bool proof is unique — UIP on bool). *)
@@ -9694,6 +9719,8 @@ Print Assumptions lex_print_stmt_exprstmt.
 Print Assumptions lex_print_stmt_return.
 Print Assumptions lex_print_stmt_returnval.
 Print Assumptions lex_gprint_stmt_supported.
+Print Assumptions lex_gprint_stmt_unsupported.
+Print Assumptions stmt_lex_supported_iff.
 
 (** Extract the Rocq printers to the OCaml the plugin calls. *)
 Require Import Extraction.
