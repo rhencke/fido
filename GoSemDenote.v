@@ -5097,7 +5097,9 @@ Qed.
     [GoInt]/[GoUint], never wrapped, never a rounded lie.  This PROVES the conservative-32 accept-set is a
     SUBSET of the 64-bit faithful-compute range: there is no accepted-but-wrong constant.  The semantic layer
     is the honest home — it imports BOTH GoTypes and GoNumeric, so the bound is tied to the runtime PREDICATE,
-    never a duplicated literal; GoTypes itself stays definitions-only (no theorems ⇒ no axioms). *)
+    never a duplicated literal; GoTypes itself stays definitions-only (no theorems ⇒ no axioms).  Zero-axiom
+    gating rides the CANONICAL [GoSem.gosem_trust_surface] (topic [gosem_runtime_int_surface]) — NOT an ad-hoc
+    [Print Assumptions] here — so it fails the Docker manifest gate on any drift, like every other GoSem seal. *)
 Lemma int_const_int_subsumes_i64 : forall z,
   int_const_repr z GTInt = true -> in_i64 z = true.
 Proof.
@@ -5112,6 +5114,3 @@ Proof.
   apply andb_prop in H. destruct H as [Hlo Hhi]. apply Z.leb_le in Hlo. apply Z.leb_le in Hhi.
   unfold in_u64. apply andb_true_intro. split; [apply Z.leb_le | apply Z.ltb_lt]; lia.
 Qed.
-
-Print Assumptions int_const_int_subsumes_i64.
-Print Assumptions int_const_uint_subsumes_u64.

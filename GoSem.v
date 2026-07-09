@@ -1450,7 +1450,10 @@ Definition gosem_runtime_int_surface :=
    denote_expr_int_shift_left_panic, denote_expr_int_shift_count_panic,
    denote_expr_int_shift_const_count_runs, denote_expr_typed_shift_const_count_runs,
    shift_bigconst_runs, shift_bigconst_gate, gtint_bitwise_runs, gtint_shift_runs,
-   runtime_typed_binop_runs, typed_mixed_const_runs, typed_binop_model_rows).
+   runtime_typed_binop_runs, typed_mixed_const_runs, typed_binop_model_rows,
+   (* cross-layer int-width coherence: the type-category int-const accept-set ([int]/[uint]) lies inside the
+      64-bit runtime range [in_i64]/[in_u64] — the mechanical gate for [GoTypes.int_ty_range]'s coherence doc *)
+   int_const_int_subsumes_i64, int_const_uint_subsumes_u64).
 Definition gosem_map_surface :=
   (eval_map_len_reduces, eval_map_len_supported, map_len_eval_absent, maplen_divzero_runs,
    map_len_invalid_type_rejected,
