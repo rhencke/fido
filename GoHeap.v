@@ -259,6 +259,17 @@ Definition ref_get {A} (tag : GoTypeTag A) (r : Ref A) : IO A :=
            | Some a => ORet a w
            | None   => OPanic rt_nil_deref w
            end.
+(** ┌─ HEAP-WRITE ANTI-FORGERY: SCOPE AND FRONTIER ────────────────────────────────────────────────────┐
+    Every heap-write op ([ref_set]/[ptr_set]/[slice_idx_set]/[hfield_set]/[slice_append] in-place) now
+    writes ONLY through a cell that is LIVE ([ref_sel_opt = Some]), and FAILS LOUD ([rt_nil_deref]) on a
+    nil / absent / dangling / retyped handle — so a forged handle can no longer FABRICATE a cell at an
+    unallocated location, symmetric with the reads.  ⚠ FRONTIER (shared with [chan]/[map]'s forged-non-nil
+    case): this does NOT stop a forged handle whose location COINCIDES with an ALREADY-LIVE cell of another
+    object — the location-based model then ALIASES that cell (as [ptr_alias]/[subslice_alias]/[hstruct_alias]
+    are theorems, aliasing is intrinsic).  Preventing forged ALIASING needs allocation PROVENANCE on the
+    handle types ([Ref]/[Ptr]/[SliceH]/[HStruct] carrying an unforgeable allocation witness) — a deliberate
+    architectural extension, out of the current location-based scope, NOT claimed as solved here.
+    └───────────────────────────────────────────────────────────────────────────────────────────────────┘ *)
 (** [ref_set] — the WRITE side, now SYMMETRIC with [ref_get]: it writes only through an allocated,
     correctly-typed cell ([ref_sel_opt r w = Some _]), and FAILS LOUD ([rt_nil_deref]) on a missing / forged
     / dangling / retyped [r] — exactly as [ref_get] does, instead of fabricating a cell at an unallocated
@@ -809,9 +820,14 @@ Qed.
 Definition slice_append {A} (tag : GoTypeTag A) (s : SliceH A) (v : A) : IO (SliceH A) :=
   fun w =>
     if (sh_len s <? sh_cap s)%nat
-    then (* in place: write index len, len+1, SAME base/off/cap *)
-      ORet (mkSliceH (sh_base s) (sh_off s) (S (sh_len s)) (sh_cap s) tag)
-           (ref_upd (sh_cell s (sh_len s)) v w)
+    then (* in place: write the spare-capacity cell at index len — only if it is LIVE (a real
+            slice_make allocates cap cells; a forged handle's spare cell is absent -> FAIL LOUD,
+            never fabricate a cell), then a len+1 handle over the SAME base/off/cap *)
+      match ref_sel_opt (sh_cell s (sh_len s)) w with
+      | Some _ => ORet (mkSliceH (sh_base s) (sh_off s) (S (sh_len s)) (sh_cap s) tag)
+                       (ref_upd (sh_cell s (sh_len s)) v w)
+      | None   => OPanic rt_nil_deref w
+      end
     else (* reallocate: fresh disjoint backing of len+1, copy old, append v *)
       let base' := w_next w in
       let n := sh_len s in
@@ -829,21 +845,23 @@ Definition slice_append {A} (tag : GoTypeTag A) (s : SliceH A) (v : A) : IO (Sli
 (** WITHIN-cap append is IN PLACE: it updates exactly [s]'s cell at index [len], so the
     new element is written into the SHARED backing — a THEOREM.  (Reading [result[len]]
     or [parent[off+len]] sees [v].) *)
-Lemma slice_append_incap : forall {A} (tag : GoTypeTag A) (s : SliceH A) (v : A) (w : World),
+Lemma slice_append_incap : forall {A} (tag : GoTypeTag A) (s : SliceH A) (v a : A) (w : World),
   (sh_len s <? sh_cap s)%nat = true ->
+  ref_sel_opt (sh_cell s (sh_len s)) w = Some a ->
   run_io (slice_append tag s v) w
     = ORet (mkSliceH (sh_base s) (sh_off s) (S (sh_len s)) (sh_cap s) tag)
            (ref_upd (sh_cell s (sh_len s)) v w).
-Proof. intros A tag s v w Hlt. unfold slice_append, run_io. rewrite Hlt. reflexivity. Qed.
+Proof. intros A tag s v a w Hlt Hsel. unfold slice_append, run_io. rewrite Hlt, Hsel. reflexivity. Qed.
 
 (** ...and that in-place write is OBSERVED through the parent backing: reading the cell
     at index [len] after the append returns [v] (the appended element aliases). *)
-Lemma slice_append_incap_aliases : forall {A} (tag : GoTypeTag A) (s : SliceH A) (v : A) (w : World),
+Lemma slice_append_incap_aliases : forall {A} (tag : GoTypeTag A) (s : SliceH A) (v a : A) (w : World),
   (sh_len s <? sh_cap s)%nat = true ->
+  ref_sel_opt (sh_cell s (sh_len s)) w = Some a ->
   ref_sel (sh_cell s (sh_len s))
           (match run_io (slice_append tag s v) w with ORet _ w' => w' | OPanic _ w' => w' end) = v.
 Proof.
-  intros A tag s v w Hlt. rewrite slice_append_incap by exact Hlt. cbn.
+  intros A tag s v a w Hlt Hsel. rewrite (slice_append_incap tag s v a w Hlt Hsel). cbn.
   apply ref_sel_upd_same.
 Qed.
 
@@ -867,21 +885,23 @@ Definition slice_make_lc {A} (tag : GoTypeTag A) (len cap : GoInt) : IO (SliceH 
 (** A [make([]T, len, cap)] slice has spare capacity, so [append] is IN PLACE and the
     result SHARES its backing — a THEOREM directly from [slice_append_incap]: the append
     writes the cell at index [len] of the ORIGINAL handle. *)
-Lemma make_lc_append_inplace : forall {A} (tag : GoTypeTag A) (len cap : GoInt) (v : A) (w : World),
+Lemma make_lc_append_inplace : forall {A} (tag : GoTypeTag A) (len cap : GoInt) (v a : A) (w : World),
   (intraw len <? intraw cap)%Z = true ->
   forall s w0, run_io (slice_make_lc tag len cap) w = ORet s w0 ->
+  ref_sel_opt (sh_cell s (sh_len s)) w0 = Some a ->   (* the spare cell is live (make_lc allocated it) *)
   run_io (slice_append tag s v) w0
     = ORet (mkSliceH (sh_base s) (sh_off s) (S (sh_len s)) (sh_cap s) tag)
            (ref_upd (sh_cell s (sh_len s)) v w0).
 Proof.
-  intros A tag len cap v w Hlt s w0 Hmk.
+  intros A tag len cap v a w Hlt s w0 Hmk Hsel.
   (* the handle from make_lc has sh_len = Z.to_nat len, sh_cap = Z.to_nat cap, so len < cap ⇒ in place.
      make_lc now PANICS unless 0 <= len <= cap; the success hypothesis Hmk forces that branch. *)
   unfold slice_make_lc, run_io in Hmk.
   destruct (Z.leb 0 (intraw len) && Z.leb (intraw len) (intraw cap))%bool eqn:Hc.
-  - injection Hmk as Hs _. subst s. apply slice_append_incap. cbn [sh_len sh_cap].
-    apply Nat.ltb_lt. apply andb_prop in Hc. destruct Hc as [Hc0 Hc1].
-    apply Z.leb_le in Hc0. apply Z.leb_le in Hc1. apply Z.ltb_lt in Hlt. lia.
+  - injection Hmk as Hs _. subst s. apply (slice_append_incap tag _ v a).
+    + cbn [sh_len sh_cap]. apply Nat.ltb_lt. apply andb_prop in Hc. destruct Hc as [Hc0 Hc1].
+      apply Z.leb_le in Hc0. apply Z.leb_le in Hc1. apply Z.ltb_lt in Hlt. lia.
+    + exact Hsel.
   - discriminate Hmk.
 Qed.
 
@@ -1331,6 +1351,37 @@ Proof.
 Qed.
 
 Local Transparent run_io bind ret hfield_get hfield_set ref_sel_opt ref_upd hfield_cell.
+
+(** LIVENESS from ALLOCATION: [wr_fields] (the transformer [gsptr_new] runs) makes EVERY field cell LIVE —
+    so [fields_live] is a CONSEQUENCE of allocation, not an unforced precondition leaked to callers. *)
+Lemma wr_fields_live : forall ts h k tgs vls w,
+  fields_live ts h k tgs (wr_fields ts h k tgs vls w).
+Proof.
+  induction ts as [ | t rest IH ]; intros h k tgs vls w; cbn [wr_fields fields_live]; [ exact I | ].
+  split.
+  - exists (fst vls).
+    rewrite (wr_fields_frame rest h (S k) (snd tgs) (snd vls) t (fst tgs) k
+               (ref_upd (hfield_cell h k (fst tgs)) (fst vls) w) (Nat.lt_succ_diag_r k)).
+    apply ref_sel_opt_upd_same.
+  - apply IH.
+Qed.
+Lemma gsptr_new_fields_live : forall {R} `{StructRepOf R} (v0 : R) (w : World) p w1,
+  run_io (gsptr_new v0) w = ORet p w1 ->
+  fields_live srep_ts (gsptr_hs p) 0 (sr_tags srep_rep) w1.
+Proof.
+  intros R Hrep v0 w p w1 Hnew. unfold run_io, gsptr_new in Hnew. cbv zeta in Hnew.
+  injection Hnew as Hp Hw1. subst p w1. apply wr_fields_live.
+Qed.
+(** The FORCED whole-struct round-trip: from a pointer FRESH from [gsptr_new] (its cells provably LIVE),
+    [assign] then [deref] recovers the value — [fields_live] is DISCHARGED by the allocation, not leaked. *)
+Corollary gsptr_new_deref_assign : forall {R} `{StructRepOf R} (v0 v : R) (w : World) p w1,
+  run_io (gsptr_new v0) w = ORet p w1 ->
+  run_io (bind (gsptr_assign p v) (fun _ => gsptr_deref p)) w1 =
+  run_io (bind (gsptr_assign p v) (fun _ => ret v)) w1.
+Proof.
+  intros R Hrep v0 v w p w1 Hnew.
+  exact (gsptr_deref_assign p v w1 (gsptr_new_fields_live v0 w p w1 Hnew)).
+Qed.
 
 (** STRUCTURAL EQUALITY — Go's [==] on a struct compares fields pairwise.  Generic over arity: an
     [EqTup ts] is a per-field equality-test bundle; [tup_eqb] [&&]s them, and [gstruct_eqb] compares two
