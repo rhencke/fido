@@ -522,7 +522,11 @@ Proof.
   intros A tag n w ch w' HV H.
   assert (Hnz : Nat.eqb (w_next w) 0 = false) by (apply pos_neq0, (valid_fresh_nonzero w HV)).
   unfold make_chan_buf, make_chan_cap, run_io in H.
-  injection H as Hch Hw. subst ch w'. unfold chan_cap. cbn. rewrite Hnz, Nat.eqb_refl. reflexivity.
+  (* a NEGATIVE size would have PANICKED, contradicting the [ORet] result — so only the exact
+     non-negative allocation reaches here; no silent [Z.to_nat] clamp is blessed. *)
+  revert H. destruct ((intraw n <? 0)%Z); intro H.
+  - discriminate H.
+  - injection H as Hch Hw. subst ch w'. unfold chan_cap. cbn. rewrite Hnz, Nat.eqb_refl. reflexivity.
 Qed.
 
 (** ALIASING — the defining pointer property, a THEOREM: two pointers at the SAME

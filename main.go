@@ -69,6 +69,8 @@ type ChanBox struct {
 	Cb_chan chan ChanBox
 }
 
+var Rt_makechan_size any = "makechan: size out of range"
+
 type Tup = any
 type TagTup = any
 type EqTup = any

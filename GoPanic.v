@@ -51,3 +51,7 @@ Definition rt_select_block : GoAny := anyt TString "go: select would block (no r
     than over-append.  Lives only in the suppressed [send] body (native Go [ch <- v] blocks
     faithfully) — like the [rt_*] above, in [is_inlined_ref]. *)
 Definition rt_chan_send_block : GoAny := anyt TString "go: send would block (buffer full / unbuffered, no receiver)"%string.
+(** A [make(chan T, n)] with a NEGATIVE runtime size PANICS in Go (runtime/chan.go [plainError], no
+    "runtime error:" prefix — the same convention as [rt_send_closed]).  [make_chan_buf] raises this LOUDLY
+    instead of silently clamping a negative capacity to 0 via [Z.to_nat]. *)
+Definition rt_makechan_size : GoAny := anyt TString "makechan: size out of range"%string.

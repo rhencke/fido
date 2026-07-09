@@ -45,8 +45,12 @@ Definition make_chan_cap {A : Type} (tag : GoTypeTag A) (cap : option nat) : IO 
                          (w_maps w) (S l) (w_output w)).
 Definition make_chan {A : Type} (tag : GoTypeTag A) : IO (GoChan A) :=
   make_chan_cap tag (Some 0%nat).
+(** [make(chan T, n)]: a NEGATIVE runtime size PANICS in Go ([rt_makechan_size]) — [make_chan_buf] FAILS
+    LOUD rather than silently repairing it to 0 through [Z.to_nat].  On a non-negative [n] the stored
+    capacity is EXACTLY [Z.to_nat (intraw n)] (no clamping happens — [Z.to_nat] is faithful for [n >= 0]). *)
 Definition make_chan_buf {A : Type} (tag : GoTypeTag A) (n : GoInt) : IO (GoChan A) :=
-  make_chan_cap tag (Some (Z.to_nat (intraw n))).
+  fun w => if (intraw n <? 0)%Z then OPanic rt_makechan_size w
+           else make_chan_cap tag (Some (Z.to_nat (intraw n))) w.
 (** The channel OPERATIONS ([send]/[recv]/[close_chan]/[recv_ok]/[select_*]/
     [go_spawn]) are DEFINITIONS over the concrete channel STATE below (declared
     after it, so they can reference it); their [run_*] laws and the channel laws
@@ -584,6 +588,15 @@ Proof.
   (* [chan_room] is false on EITHER arm of the nil check: a nil handle (canonical None cap) has no room,
      and a fresh unbuffered ([Some 0]) buffer is full — so send blocks regardless of [w_next]'s value. *)
   destruct (Nat.eqb (w_next w) 0); cbn; rewrite ?Nat.eqb_refl; cbn; reflexivity.
+Qed.
+(** FAIL-LOUD witness: [make(chan T, n)] with a NEGATIVE runtime size PANICS ([rt_makechan_size]) — the
+    model never silently clamps a negative capacity to 0.  (Positive [n]: [make_chan_buf_caps] in [GoHeap.v]
+    witnesses the stored capacity is EXACTLY [Z.to_nat (intraw n)], forced by [ValidWorld].) *)
+Lemma make_chan_buf_neg_panics : forall {A} (tag : GoTypeTag A) (n : GoInt) (w : World),
+  (intraw n < 0)%Z -> run_io (make_chan_buf tag n) w = OPanic rt_makechan_size w.
+Proof.
+  intros A tag n w Hneg. unfold make_chan_buf, run_io.
+  rewrite (proj2 (Z.ltb_lt (intraw n) 0) Hneg). reflexivity.
 Qed.
 
 (** Sending on a closed channel panics (Go spec): close then send → panic.  (On a non-nil channel — a
