@@ -78,18 +78,32 @@ echo "fido: bridge-recognizer tripwire OK — cov_preds recognizers route throug
 # fail-open) is that is_val_switch_ref names EXACTLY the sealed combinators.  Gate both halves:
 # (a) it routes through named_in (no prefix/global_basename regression), and (b) EVERY name it
 # lists carries the distinctness obligation in GoSwitch.v.
-vsw_sealed() { awk -v n="$1" '$0 ~ ("Definition " n "[ ({]"){f=1} f{print} f&&/:=/{exit}' "$2" | grep -qE 'i64_neqb|str_neqb'; }
+# NO FALSE-GREEN: every grep runs on COMMENT-STRIPPED text (a `neqb`/`named_in`/combinator-name
+# mention in a comment must not green the gate), and the obligation must be REAL code — `neqb` AND
+# `= true` together — not a documented aspiration.  Self-tests cover BOTH directions + the comment
+# trap.  Comment strip is greedy (over-stripping only ever fails CLOSED).
+vsw_nocomment() { sed 's/(\*.*\*)//g'; }
+vsw_sealed() {
+  s=$(awk -v n="$1" '$0 ~ ("Definition " n "[ ({]"){f=1} f{print} f&&/:=/{exit}' "$2" | vsw_nocomment)
+  printf '%s' "$s" | grep -q 'neqb' && printf '%s' "$s" | grep -qE '=[[:space:]]*true'
+}
 vsw_st=$(mktemp)
-printf '%s\n' 'Definition int_switch9 (x : GoI64) (v1 : GoI64) (k1 : IO B) (d : IO B) : IO B :=' > "$vsw_st"
-vsw_sealed int_switch9 "$vsw_st" && { echo "fido: VALUE-SWITCH OWNERSHIP self-test broke — an UNSEALED combinator was not caught."; rm -f "$vsw_st"; exit 1; }
+printf '%s\n' 'Definition sw9 (v1 v2 : GoI64) (k : IO B) (d : IO B) : IO B :=' > "$vsw_st"
+vsw_sealed sw9 "$vsw_st"   && { echo "fido: VALUE-SWITCH OWNERSHIP self-test broke — an UNSEALED combinator passed."; rm -f "$vsw_st"; exit 1; }
+printf '%s\n' 'Definition sw9 (v1 v2 : GoI64) (* i64_neqb v1 v2 = true *) (d : IO B) : IO B :=' > "$vsw_st"
+vsw_sealed sw9 "$vsw_st"   && { echo "fido: VALUE-SWITCH OWNERSHIP self-test broke — a COMMENTED obligation passed."; rm -f "$vsw_st"; exit 1; }
+printf '%s\n' 'Definition sw9 (v1 v2 : GoI64) (Hd : i64_neqb v1 v2 = true) (d : IO B) : IO B :=' > "$vsw_st"
+vsw_sealed sw9 "$vsw_st"   || { echo "fido: VALUE-SWITCH OWNERSHIP self-test broke — a SEALED combinator was rejected."; rm -f "$vsw_st"; exit 1; }
 rm -f "$vsw_st"
-recog_routed is_val_switch_ref plugin/go.ml || { echo "fido: VALUE-SWITCH OWNERSHIP — is_val_switch_ref must be 'named_in [\"int_switch2\"; …]' (from_model, EXACT sealed names), not a prefix/global_basename match: a broad match would lower an unsealed value-switch and bypass the model seal."; exit 1; }
-vsw_names=$(recog_def is_val_switch_ref plugin/go.ml | grep -oE '"(int|str)_switch[0-9]+"' | tr -d '"' | sort -u)
-[ -n "$vsw_names" ] || { echo "fido: VALUE-SWITCH OWNERSHIP — is_val_switch_ref lists no int/str_switchN combinator names."; exit 1; }
+vsw_block=$(recog_def is_val_switch_ref plugin/go.ml | vsw_nocomment)
+printf '%s' "$vsw_block" | grep -q 'named_in'        || { echo "fido: VALUE-SWITCH OWNERSHIP — is_val_switch_ref must route through named_in (exact sealed names), not a prefix match: a broad match would lower an unsealed value-switch and bypass the model seal."; exit 1; }
+printf '%s' "$vsw_block" | grep -q 'global_basename' && { echo "fido: VALUE-SWITCH OWNERSHIP — is_val_switch_ref does a raw global_basename match (a shadowing/prefix forge); route through the from_model-scoped named_in."; exit 1; }
+vsw_names=$(printf '%s' "$vsw_block" | grep -oE '"(int|str)_switch[0-9]+"' | tr -d '"' | sort -u)
+[ -n "$vsw_names" ] || { echo "fido: VALUE-SWITCH OWNERSHIP — is_val_switch_ref lists no exact int/str_switchN names (a bare prefix?)."; exit 1; }
 for nm in $vsw_names; do
-  vsw_sealed "$nm" GoSwitch.v || { echo "fido: VALUE-SWITCH OWNERSHIP — $nm is plugin-lowered by is_val_switch_ref but carries NO i64_neqb/str_neqb distinctness obligation in GoSwitch.v; an unsealed value-switch emits a Go 'duplicate case' (fail-open).  Seal it or drop it from the recognizer."; exit 1; }
+  vsw_sealed "$nm" GoSwitch.v || { echo "fido: VALUE-SWITCH OWNERSHIP — $nm is plugin-lowered by is_val_switch_ref but carries NO real i64_neqb/str_neqb distinctness obligation in GoSwitch.v; an unsealed value-switch emits a Go 'duplicate case' (fail-open).  Seal it or drop it from the recognizer."; exit 1; }
 done
-echo "fido: value-switch ownership gate OK — is_val_switch_ref names exactly the sealed combinators ($(printf '%s' "$vsw_names" | tr '\n' ' ')), each carrying the i64_neqb/str_neqb distinctness obligation ✓"
+echo "fido: value-switch ownership gate OK — is_val_switch_ref names exactly the sealed combinators ($(printf '%s' "$vsw_names" | tr '\n' ' ')), each carrying a real i64_neqb/str_neqb distinctness obligation ✓"
 
 # 5. SELECTOR-BRIDGE: mk_goexpr_sel emits local.Field only for a plain field of an MLrel receiver;
 # dropping either guard re-opens a peel divergence the golden misses.
