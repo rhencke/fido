@@ -5115,14 +5115,19 @@ Proof.
   unfold in_u64. apply andb_true_intro. split; [apply Z.leb_le | apply Z.ltb_lt]; lia.
 Qed.
 
-(** The conservative-32 boundary is REAL, not vacuous: [2^40] is a valid [int64]/[uint64] ([in_i64]/[in_u64]
-    = true) yet REJECTED as a platform [int]/[uint] constant ([int_const_repr … GTInt]/[GTUint] = false) — so
-    [int_ty_range] at [int]/[uint] is STRICTLY narrower than the 64-bit runtime carrier.  Without these pins the
+(** The conservative-32 boundary is REAL, not vacuous: a value valid in the 64-bit runtime carrier
+    ([in_i64]/[in_u64] = true) is yet REJECTED as a platform [int]/[uint] constant ([int_const_repr … = false])
+    — so [int_ty_range] at [int]/[uint] is STRICTLY narrower than the runtime.  Without these pins the
     [subsumes] lemmas alone would still hold if the accept-set were WIDENED to 64-bit; a class claim must pin
-    BOTH the accepted side ([subsumes]) AND the rejected side (here).  A weakening to 64-bit breaks THIS pin. *)
+    BOTH the accepted side ([subsumes]) AND the rejected side (here).
+    ⚠ SIGNED [int] is a TWO-SIDED interval [[-2³¹, 2³¹)], so BOTH endpoints are pinned: [2^40] (above [2³¹])
+    AND [-2^40] (below [-2³¹]) are valid [int64] yet refused — widening EITHER endpoint breaks the build.
+    [uint]'s lower bound is [0] (shared with [uint64]: a negative is rejected by BOTH layers, so it is not a
+    narrowing), leaving only the UPPER bound to pin — so its single pin is complete. *)
 Example int_const_int_conservative_pin :
-  int_const_repr 1099511627776 GTInt = false /\ in_i64 1099511627776 = true.
-Proof. split; vm_compute; reflexivity. Qed.
+  int_const_repr 1099511627776 GTInt = false /\ in_i64 1099511627776 = true
+  /\ int_const_repr (-1099511627776) GTInt = false /\ in_i64 (-1099511627776) = true.
+Proof. repeat split; vm_compute; reflexivity. Qed.
 Example int_const_uint_conservative_pin :
   int_const_repr 1099511627776 GTUint = false /\ in_u64 1099511627776 = true.
 Proof. split; vm_compute; reflexivity. Qed.
