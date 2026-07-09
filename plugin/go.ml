@@ -58,6 +58,24 @@ let unsupported what =
            out of emitted code (proof-only suppression; stdlib deps drop by liveness) \
            — refusing to emit wrong Go."))
 
+(* Fail-closed switch well-formedness: a Go [switch] / type-switch with duplicate case
+   values/types is a "duplicate case" COMPILE error (fail-open Go).  Reject it at extraction.
+   The [reprs] are the ACTUAL emitted case strings, so this is SOUND with NO assumption about
+   how a tag/value renders — it catches any collision directly.  (A model-side distinctness
+   obligation, by contrast, would only guarantee distinct TAGS/values and still rely on the
+   trusted tag→Go-type rendering [coq_goty_of_tag] being injective — an unprovable boundary,
+   since that bridge reconstructs types from extracted MiniML.) *)
+let reject_dup_cases kind reprs =
+  let rec go seen = function
+    | [] -> ()
+    | s :: tl ->
+        if List.mem s seen then
+          unsupported (Printf.sprintf
+            "a switch with a DUPLICATE case '%s' (%s) — Go rejects duplicate case %s; each case must be distinct"
+            s kind (if String.equal kind "type switch" then "types" else "values"))
+        else go (s :: seen) tl
+  in go [] reprs
+
 (* NAME-INJECTIVITY: package-level Go identifiers must be INJECTIVE.  Two distinct source declarations that
    mangle to the SAME Go name (`foo'`/`foo_` → `Foo_`; `foo`/`Foo` → `Foo` after export-capitalization;
    the same basename in two flattened modules) would emit the identifier twice — a Go `redeclared` error.
@@ -4451,6 +4469,8 @@ let pp_io_body ?(ret_val=false) state tab env body =
              let d = List.nth rest (n - 1) in
              let rec chunk = function t :: k :: tl -> (t, k) :: chunk tl | _ -> [] in
              let pairs = chunk (List.filteri (fun i _ -> i < n - 1) rest) in
+             let () = reject_dup_cases "type switch"
+                        (List.map (fun (t, _) -> go_type_of_tag t) pairs) in
              let case_used kont =
                match collect_lam kont with ([v], _) -> not (is_dummy v) | _ -> false in
              let any_used = List.exists (fun (_, k) -> case_used k) pairs in
@@ -4485,6 +4505,8 @@ let pp_io_body ?(ret_val=false) state tab env body =
              let d = List.nth rest (n - 1) in
              let rec chunk = function v :: k :: tl -> (v, k) :: chunk tl | _ -> [] in
              let pairs = chunk (List.filteri (fun i _ -> i < n - 1) rest) in
+             let () = reject_dup_cases "switch"
+                        (List.map (fun (v, _) -> Pp.string_of_ppcmds (pp_expr state env v)) pairs) in
              str tab ++ str "switch " ++ scrut ++ str " {" ++ fnl () ++
              prlist (fun (v, k) ->
                str tab ++ str "case " ++ pp_expr state env v ++ str ":" ++ fnl () ++
@@ -4503,6 +4525,7 @@ let pp_io_body ?(ret_val=false) state tab env body =
              let k = List.nth rest (n - 2) in
              let d = List.nth rest (n - 1) in
              let tags = List.filteri (fun i _ -> i < n - 2) rest in
+             let () = reject_dup_cases "type switch" (List.map go_type_of_tag tags) in
              str tab ++ str "switch " ++ payload ++ str ".(type) {" ++ fnl () ++
              str tab ++ str "case " ++
              pp_sep_list ", "

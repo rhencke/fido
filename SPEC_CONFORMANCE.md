@@ -153,13 +153,15 @@ to the CFG; control-flow coverage is demo-by-demo, golden-locked).
   completeness claim. native `switch` is emitted (not decomposed): the `GoSwitch` combinators
   lower int64/string expression switch (`int_switch2`/`3`/`str_switch2`/`3` — semantically an
   `==`-chain, first-match-wins) and `GoAny` type switch (`type_switch2`/`3` + or-forms) to native
-  Go `switch x {case v:…}` / `switch v:=x.(type){…}`. ✓ SAFE-BY-CONSTRUCTION: each combinator
-  demands an ERASED distinctness proof (`i64_neq`/`str_neq` on case values, `tag_neq` on case tags
-  — sound since non-renderable tags are already fail-loud in `go_type_of_tag`), so a
-  DUPLICATE/overlapping-case switch (a Go "duplicate case" error) is UNREPRESENTABLE; the proof is
-  a `Prop`, so the plugin arm and emitted Go stay byte-identical. ⚠ coverage is BOUNDED (fixed
-  per-arity combinators; scrutinees limited to int64/string/tag). Other control flow decomposes
-  through the goto-CFG.
+  Go `switch x {case v:…}` / `switch v:=x.(type){…}`. ✓ DUPLICATE cases are FAIL-CLOSED: the
+  plugin's switch/type-switch arms reject a switch whose case values/types collide (a Go
+  "duplicate case" compile error) via `reject_dup_cases`, comparing the ACTUAL emitted case
+  strings (`pp_expr` value / `go_type_of_tag` type) — sound with NO assumption that the trusted
+  tag→Go-type bridge is injective; negtests `neg_int_switch_dup`/`neg_type_switch_dup` pin the
+  abort. (A model-side distinctness obligation was rejected: it would only guarantee distinct
+  TAGS and still rest on that unprovable rendering-injectivity boundary — gap #10.) ⚠ coverage is
+  BOUNDED (fixed per-arity combinators; scrutinees limited to int64/string/tag). Other control
+  flow decomposes through the goto-CFG.
 - **Go statements** — ✓ `go f()` → `go func(){…}()`; the fork happens-before edge is race-free
   (`fork_program_race_free`). ⚠ scheduler / interleaving idealised away.
 - **Defer statements** — THREE representations + one boundary, kept separate: (R1) trusted
