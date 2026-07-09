@@ -24,6 +24,9 @@
     (expression + type) survives as gated DERIVED TOOLING — self-consistency round-trips
     ([parse_print_roundtrip], [parse_gty_print_ty]) AND completeness against the canonical grammar
     ([parse_complete] : [CanonExpr 0 e ts -> parse ts = Some (e, nil)]) — nothing certified depends on it.
+    ⚠ the parser is COMPLETE-not-SOUND: it recovers every canonical/printed AST, but is NOT proved to accept
+    ONLY canonical token lists (it accepts redundant parens — [parse [TLP; TId x; TRP]] = [Some (EId x, nil)]),
+    so [parse_sound : parse ts = Some (e,nil) -> CanonExpr 0 e ts] is FALSE as stated and is NOT claimed.
 
     ⚠️ HONEST SCOPE — these are ROCQ-GRAMMAR self-consistency results, and the executable parser is
     DERIVED TOOLING (CLAUDE.md "Syntax authority"): the authority is the relational/canonical grammar
@@ -7300,7 +7303,8 @@ Proof. intros ctx e. split; [ apply gtokens_lex | apply gprint_expr_canonical ].
 (** ==================================================================================================
     ---- THE PARSER ROUND-TRIP (DERIVED TOOLING) ----  [parse_expr] inverts [gtokens]: the canonical token
     list of [e] (printed at any context [ctx >= k]) parses back to [e], leaving any clean tail [rest]
-    untouched.  This certifies the executable parser AGREES with the canonical grammar — it is NOT the
+    untouched.  This certifies the executable parser is COMPLETE for the canonical grammar (it inverts the
+    canonical tokens; NOT proved SOUND — it also accepts non-canonical streams, see the file header) — it is NOT the
     printer-injectivity authority ([gprint_inj] rests on [gtokens_inj], parser-free).
     Proved by the classic PRECEDENCE-CLIMBING decomposition — peel [e]'s left spine into a [base] primary
     and a list of [(op, right)] pairs ([lspine]); [parse_primary] reads the base, [parse_climb] folds the
@@ -8538,7 +8542,8 @@ Proof.
 Qed.
 
 (** DERIVED PARSER TOOLING: [parse] inverts [gtokens] — the canonical token list parses back to [e].  This
-    certifies the executable parser AGREES with the canonical grammar (parser self-consistency); it is NOT
+    certifies the executable parser is COMPLETE for the canonical grammar (parser self-consistency; NOT
+    soundness — the parser also accepts non-canonical streams); it is NOT
     the authority (printer injectivity rests on [gtokens_inj], parser-free). *)
 Theorem gtokens_parse : forall e, parse (gtokens 0 e) = Some (e, nil).
 Proof.
@@ -8551,7 +8556,7 @@ Qed.
     Composes [gtokens_lex] (printer→tokens) with [gtokens_parse] (tokens→AST).  DERIVED PARSER TOOLING
     (CLAUDE.md "Syntax authority"), NOT the printer-injectivity authority: [gprint_inj] applies
     [gtokens_inj] + [gtokens_lex] (parser-free), so this theorem only certifies that the executable parser
-    AGREES with the canonical grammar — parser SELF-CONSISTENCY, not a source of correctness.  NOTHING
+    is COMPLETE for the canonical grammar — parser SELF-CONSISTENCY (NOT soundness), not a source of correctness.  NOTHING
     depends on it (the statement/program disjointness lemmas are also parser-free — LEXICAL).  HONEST
     SCOPE: still the clean Rocq grammar, NOT a
     theorem about Go's own parser (a SEPARATE unproven Go-syntax recognition gap; Go's toolchain is
