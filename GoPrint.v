@@ -8673,9 +8673,9 @@ Definition print_program (p : Program) : string :=
     already tokenises the [GsExprStmt]/[GsReturn]/[GsReturnVal] forms, but CANNOT tokenise the
     [GsBlankAssign]/[GsShortDecl]/[GsDefer] forms (it rejects a lone '=', ':=', and 'defer').  The blank
     identifier ['_'] is a valid [go_ident], so it is intended to tokenise as [TId "_"].  Statement uniqueness
-    ([stmt_tokens_inj], also forthcoming) will be a head/second-token discrimination + [gtokens_inj]
-    (leading [TReturn]/[TDefer]/[TId], then [TAssign]/[TDefine] within the [TId]-led forms; [TSemi] enters
-    only at the program level), the flat-statement analogue of the expression layer. *)
+    ([stmt_tokens_inj], just below) is a head/second-token discrimination + [gtokens_inj] (leading
+    [TReturn]/[TDefer]/[TId], then [TAssign]/[TDefine] within the [TId]-led forms; [TSemi] enters only at the
+    program level), the flat-statement analogue of the expression layer. *)
 Definition blank_ident : Ident := exist (fun s => go_ident s = true) "_"%string eq_refl.
 Definition stmt_tokens (s : GoStmt) : list Token :=
   match s with
@@ -8686,6 +8686,62 @@ Definition stmt_tokens (s : GoStmt) : list Token :=
   | GsDefer e       => TDefer :: gtokens 0 e
   | GsShortDecl x e => TId x :: TDefine :: gtokens 0 e
   end.
+
+(** ---- [stmt_tokens_inj]: the canonical STATEMENT tokens are injective (Phase 4, the flat-statement
+    analogue of [canon_expr_unique]/[gtokens_inj]).  The whole cross-constructor discrimination rests on
+    [gtokens_no_stmt]: an expression's tokens contain NO statement token, so a [GsExprStmt]'s token list can
+    never equal one of the keyword forms (each of which carries a [TReturn]/[TAssign]/[TDefer]/[TDefine] at a
+    fixed position); within a head/2nd-token class the remaining tail is a [gtokens] equality closed by
+    [gtokens_inj].  No parser, no round-trip. *)
+Lemma gtokens_neq_stmt_hd : forall e tok rest,
+  is_stmt_tok tok = true -> gtokens 0 e <> tok :: rest.
+Proof.
+  intros e tok rest Htok Heq.
+  pose proof (gtokens_no_stmt e 0) as Hf. rewrite Forall_forall in Hf.
+  assert (Hin : In tok (gtokens 0 e)) by (rewrite Heq; left; reflexivity).
+  specialize (Hf tok Hin). rewrite Htok in Hf. discriminate.
+Qed.
+Lemma gtokens_neq_stmt_snd : forall e t0 tok rest,
+  is_stmt_tok tok = true -> gtokens 0 e <> t0 :: tok :: rest.
+Proof.
+  intros e t0 tok rest Htok Heq.
+  pose proof (gtokens_no_stmt e 0) as Hf. rewrite Forall_forall in Hf.
+  assert (Hin : In tok (gtokens 0 e)) by (rewrite Heq; right; left; reflexivity).
+  specialize (Hf tok Hin). rewrite Htok in Hf. discriminate.
+Qed.
+(* peel one concrete head token off a list equality [a :: l1 = a :: l2] -> [l1 = l2] (robust to whether
+   [injection] drops the trivial head — uses [tl] so no name-count guessing). *)
+Local Ltac drophd H := apply (f_equal (@tl Token)) in H; cbn [tl] in H.
+Local Ltac sti :=
+  match goal with
+  | |- ?x = ?x => reflexivity
+  | H : gtokens 0 ?a = gtokens 0 ?b |- _ => apply gtokens_inj in H; subst; reflexivity
+  | H : TReturn :: gtokens 0 _ = TReturn :: gtokens 0 _ |- _ => drophd H; sti
+  | H : TDefer  :: gtokens 0 _ = TDefer  :: gtokens 0 _ |- _ => drophd H; sti
+  | H : TId _ :: TAssign :: _ = TId _ :: TAssign :: _ |- _ => drophd H; drophd H; sti
+  | H : TId _ :: TDefine :: _ = TId _ :: TDefine :: _ |- _ =>
+      assert (Hx := H); apply (f_equal (@hd_error Token)) in Hx; cbn [hd_error] in Hx;
+      drophd H; drophd H; apply gtokens_inj in H; congruence
+  | H : gtokens 0 ?e = TReturn :: _ |- _ => exfalso; exact (gtokens_neq_stmt_hd e TReturn _ eq_refl H)
+  | H : gtokens 0 ?e = TDefer  :: _ |- _ => exfalso; exact (gtokens_neq_stmt_hd e TDefer _ eq_refl H)
+  | H : gtokens 0 ?e = _ :: TAssign :: _ |- _ => exfalso; exact (gtokens_neq_stmt_snd e _ TAssign _ eq_refl H)
+  | H : gtokens 0 ?e = _ :: TDefine :: _ |- _ => exfalso; exact (gtokens_neq_stmt_snd e _ TDefine _ eq_refl H)
+  | H : TReturn :: _ = gtokens 0 _ |- _ => symmetry in H; sti
+  | H : TDefer  :: _ = gtokens 0 _ |- _ => symmetry in H; sti
+  | H : TId _ :: TAssign :: _ = gtokens 0 _ |- _ => symmetry in H; sti
+  | H : TId _ :: TDefine :: _ = gtokens 0 _ |- _ => symmetry in H; sti
+  | H : TReturn :: nil = TReturn :: gtokens 0 ?r |- _ =>
+      exfalso; drophd H; symmetry in H; exact (gtokens_nonnil 0 r H)
+  | H : TReturn :: gtokens 0 ?r = TReturn :: nil |- _ =>
+      exfalso; drophd H; exact (gtokens_nonnil 0 r H)
+  | H : _ |- _ => discriminate H
+  end.
+Lemma stmt_tokens_inj : forall s1 s2, stmt_tokens s1 = stmt_tokens s2 -> s1 = s2.
+Proof.
+  intros s1 s2 H.
+  destruct s1 as [e1| |r1|b1|d1|x1 v1], s2 as [e2| |r2|b2|d2|x2 v2];
+    cbn [stmt_tokens] in H; sti.
+Qed.
 
 (** ---- statement/program DISJOINTNESS, PARSER-FREE (Phase 3c): a printed statement keyword form is never
     a printed expression.  The discipline is LEXICAL, not parser-round-trip: [gtokens_lex] says
@@ -9378,6 +9434,7 @@ Print Assumptions gtokens_inj_ebn_row.
 Print Assumptions gtokens_inj.
 Print Assumptions canon_expr_unique.
 Print Assumptions gtokens_no_stmt.
+Print Assumptions stmt_tokens_inj.
 
 (** Extract the Rocq printers to the OCaml the plugin calls. *)
 Require Import Extraction.
