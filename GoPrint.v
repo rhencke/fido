@@ -13,11 +13,13 @@
     "verified" — and even for the bridged class only the PRINTING is verified, NOT the trusted MiniML->[GExpr]
     CONSTRUCTION in [plugin/go.ml] that chooses the AST.
 
-    WHAT IS PROVEN: EXPRESSION printer injectivity ([gprint_inj]) is now PARSER-FREE — it rests on the
-    canonical authority ([canon_expr_unique]/[gtokens_inj] + [gtokens_lex]).  The TYPE sub-language has
-    [print_ty_inj]/[parse_gty_roundtrip].  Statements and whole programs currently have print-INJECTIVITY
+    WHAT IS PROVEN: printer injectivity is PARSER-FREE — EXPRESSION [gprint_inj] rests on
+    [canon_expr_unique]/[gtokens_inj] + [gtokens_lex], and TYPE [print_ty_inj] rests on [gttokens_ty_inj]
+    + [lex_print_ty] (NOT the type parser).  Statements and whole programs currently have print-INJECTIVITY
     only ([print_stmt_inj] / [print_program_inj]) — there is no statement PARSER yet, so no statement
-    round-trip.
+    round-trip; their printer-level disjointness lemmas are LEXICAL (parser-free).  The executable parser
+    (expression + type) survives ONLY as gated derived self-consistency tooling ([parse_print_roundtrip],
+    [parse_gty_print_ty]) — nothing depends on it.
 
     ⚠️ HONEST SCOPE — these are ROCQ-GRAMMAR self-consistency results, and the executable parser is
     DERIVED TOOLING (CLAUDE.md "Syntax authority"): the authority is the relational/canonical grammar
@@ -7135,8 +7137,10 @@ Proof. intros ctx e. split; [ apply gtokens_lex | apply gprint_expr_canonical ].
 
 
 (** ==================================================================================================
-    ---- THE PARSER ROUND-TRIP ----  [parse_expr] inverts [gtokens]: the canonical token list of
-    [e] (printed at any context [ctx >= k]) parses back to [e], leaving any clean tail [rest] untouched.
+    ---- THE PARSER ROUND-TRIP (DERIVED TOOLING) ----  [parse_expr] inverts [gtokens]: the canonical token
+    list of [e] (printed at any context [ctx >= k]) parses back to [e], leaving any clean tail [rest]
+    untouched.  This certifies the executable parser AGREES with the canonical grammar — it is NOT the
+    printer-injectivity authority ([gprint_inj] rests on [gtokens_inj], parser-free).
     Proved by the classic PRECEDENCE-CLIMBING decomposition — peel [e]'s left spine into a [base] primary
     and a list of [(op, right)] pairs ([lspine]); [parse_primary] reads the base, [parse_climb] folds the
     spine ([parse_climb_pairs]).  Composed with [gtokens_lex] this gives the end-to-end
@@ -8422,7 +8426,10 @@ Proof.
   rewrite str_app_nil_r in H. rewrite app_nil_r in H. exact H.
 Qed.
 
-(** ★THE END-TO-END TYPE ROUND-TRIP: the printed type [print_ty t] lexes and parses back to [t]. *)
+(** THE END-TO-END TYPE ROUND-TRIP: the printed type [print_ty t] lexes and parses back to [t].  DERIVED
+    PARSER TOOLING (the type analogue of [parse_print_roundtrip]), NOT the type-injectivity authority:
+    [print_ty_inj] rests on [gttokens_ty_inj]/[lex_print_ty] (parser-free), so this only certifies the type
+    parser AGREES with the canonical type tokens — parser self-consistency, nothing depends on it. *)
 Theorem parse_gty_print_ty : forall t,
   match lex (print_ty t) with Some toks => parse_gty toks | None => None end = Some (t, nil).
 Proof.
@@ -8475,15 +8482,17 @@ Proof.
   rewrite <- (app_nil_r (conv_tokens c)). apply parse_convty_roundtrip.
 Qed.
 
-(** FAITHFULNESS — the type printer is INJECTIVE, derived from the token-level round-trip
-    [parse_gty_print_ty]: distinct [GoTy]s print to distinct strings (a keyword-prefixed name [int8x] is
-    never confused with the keyword [int8]; a keyword [int] is never a nominal name). *)
+(** FAITHFULNESS — the type printer is INJECTIVE.  PARSER-FREE: like [gprint_inj], this rests on the
+    canonical authority, NOT the type parser.  Printing then LEXING is faithful ([lex_print_ty]:
+    [lex (print_ty t) = Some (gttokens_ty t)]), so equal strings give equal token lists, and
+    [gttokens_ty_inj] (type-token uniqueness) recovers the [GoTy].  [parse_gty_print_ty] is NOT used —
+    distinct [GoTy]s print to distinct strings (a keyword-prefixed name [int8x] is never confused with the
+    keyword [int8]; a keyword [int] is never a nominal name). *)
 Theorem print_ty_inj : forall t1 t2, print_ty t1 = print_ty t2 -> t1 = t2.
 Proof.
-  intros t1 t2 H.
-  pose proof (parse_gty_print_ty t1) as Q1.
-  pose proof (parse_gty_print_ty t2) as Q2.
-  rewrite <- H in Q2. rewrite Q1 in Q2. congruence.
+  intros t1 t2 H. apply gttokens_ty_inj.
+  pose proof (lex_print_ty t1) as L1. pose proof (lex_print_ty t2) as L2.
+  rewrite H in L1. rewrite L1 in L2. injection L2 as Ht. exact Ht.
 Qed.
 
 (** ---- PROGRAM PRINTER ---- prints a [GoAst.Program] to Go source: `package <pkg>` then `func main()`

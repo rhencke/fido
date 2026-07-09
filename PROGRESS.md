@@ -100,14 +100,15 @@ plugin CONSTRUCTS the `GExpr`; only `gprint` is verified. NOT "verified Go."
   `canon_expr_tokens` + `gtokens_inj`). Both gated, zero axioms. (`ConvTy` = slice/chan/map only — the
   Option-B restriction that makes conversion-vs-call token-disjoint; named conversions need a compile env
   and are out of subset; directional channel TYPES are NOT modeled — `GoTy` has bidirectional `chan` only.)
-  Phase 3c DONE at the expression layer: `gprint_inj` reproved PARSER-FREE off `gtokens_inj` +
-  `gtokens_lex`, and the statement/program DISJOINTNESS lemmas (`gprint_neq_return`/`_return_val`/`_blank`/
-  `_defer`/`_shortdecl`) reproved PARSER-FREE too — LEXICAL (`gtokens_hd_not_return` + `lex_*_None`), the
-  six dead `parse_str_*_None`/`parse_TReturn_None` bridges DELETED. `parse_print_roundtrip` is now pure
-  derived parser self-consistency tooling (nothing depends on it); the parser is DEMOTED below the grammar
-  everywhere except its own rebase. REMAINING (Phase 4/5): `CanonStmt`/`CanonProgram` (+
-  `gprint_stmt/program_canonical`, `canon_stmt/program_unique`, `lex_gprint_stmt/program`), then re-base
-  the executable parser as `parse_sound`/`parse_complete` derived tooling.
+  Phase 3c DONE: ALL printer injectivity is now PARSER-FREE — EXPRESSION `gprint_inj` off `gtokens_inj` +
+  `gtokens_lex`, TYPE `print_ty_inj` off `gttokens_ty_inj` + `lex_print_ty`, and the statement/program
+  DISJOINTNESS lemmas (`gprint_neq_return`/`_return_val`/`_blank`/`_defer`/`_shortdecl`) LEXICALLY
+  (`gtokens_hd_not_return` + `lex_*_None`); the six dead `parse_str_*_None`/`parse_TReturn_None` bridges
+  DELETED. No printer-injectivity or disjointness theorem depends on the executable parser; it survives
+  ONLY as gated derived self-consistency tooling (`parse_print_roundtrip`, `parse_gty_print_ty` — nothing
+  depends on either). REMAINING (Phase 4/5): `CanonStmt`/`CanonProgram` (+ `gprint_stmt/program_canonical`,
+  `canon_stmt/program_unique`, `lex_gprint_stmt/program`), then re-base the executable parser as
+  `parse_sound`/`parse_complete` derived tooling.
 - The cmd↔unified bridge (`plans/bridge-effects.md`): `CAlloc` AND the channel slice LANDED
   (typed zeros through the channel's own tag, gated obligations; `bridge_effects_agree` now
   exposes capacity agreement publicly). Spawn/select is the deferred capstone (design deferred
