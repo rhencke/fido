@@ -704,7 +704,8 @@ let mk_named_ty s =
    | Printer.False -> unsupported (Printf.sprintf
        "coq_goty_of_tag: nominal type name %S is not a valid nominal-type identifier (a Go keyword or builtin type name) — would bypass the verified GTNamed invariant" s))
 (* [EId] erases its [go_ident] proof to a bare string, exactly like [GTNamed].  [mk_goexpr_id]
-   re-checks [go_ident] at the boundary and returns [None] when the name is not a valid Go identifier
+   re-checks [go_ident] at the boundary and returns [None] when the name is not [go_ident]-valid (the
+   supported ASCII identifier subset — Go's Unicode-letter names are a rejected frontier)
    (the caller then falls back to the trusted printer) — so a forged [Printer.EId] can never enter
    the verified [gprint] path. *)
 let mk_goexpr_id name =

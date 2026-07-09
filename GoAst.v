@@ -13,8 +13,9 @@ From Stdlib Require Import String List Ascii ZArith Lia Bool Eqdep_dec.
 Import ListNotations.
 Open Scope string_scope.
 
-(** ---- IDENTIFIER VALIDITY (for nominal [GTNamed] types) ---- a Go identifier is [_A-Za-z][_A-Za-z0-9]*.
-    These come BEFORE [GoTy] because [GTNamed] carries a VALIDATED identifier ([Ident], a [sig]): the
+(** ---- IDENTIFIER VALIDITY (for nominal [GTNamed] types) ---- the SUPPORTED (ASCII) Go-identifier subset is
+    [_A-Za-z][_A-Za-z0-9]*; Go's own identifiers are UNICODE, and Unicode-letter names are a rejected frontier
+    (see [go_ident] below).  These come BEFORE [GoTy] because [GTNamed] carries a VALIDATED identifier ([Ident], a [sig]): the
     validity is part of the TYPE, so an invalid nominal name (a keyword, or non-identifier text) is
     UNREPRESENTABLE — not merely excluded by a side-condition theorem.  The would-be cycle ([valid_ident]
     must reject type keywords, but the keyword→[GoTy] map [classify] needs [GoTy]) is broken by factoring
