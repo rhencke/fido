@@ -128,6 +128,24 @@ Lemma chan_closed_nil : forall {A} (w : World), chan_closed (@MkChan A 0) w = fa
 Proof. reflexivity. Qed.
 Lemma chan_cap_nil : forall {A} (w : World), chan_cap (@MkChan A 0) w = None.
 Proof. reflexivity. Qed.
+(** [chan_present ch w] — is [ch]'s cell ALLOCATED?  FALSE for the nil sentinel ([ch_loc = 0], whose cell is
+    unobservable) AND for a nonzero ABSENT location (a forged / dangling handle whose [w_chans] cell is [None]).
+    An operation that would CREATE channel state ([close]) fails loud when this is false, so an unallocated
+    handle never fabricates a cell — the general fix for nonzero-absent forgery, beyond the loc-0 case.
+    (Tag-AGNOSTIC: [close] does not read the buffer's element type — cell EXISTENCE is what it needs.) *)
+Definition chan_present {A : Type} (ch : GoChan A) (w : World) : bool :=
+  if Nat.eqb (ch_loc ch) 0 then false
+  else match w_chans w (ch_loc ch) with Some _ => true | None => false end.
+Lemma chan_present_nonnil : forall {A} (ch : GoChan A) w,
+  chan_present ch w = true -> Nat.eqb (ch_loc ch) 0 = false.
+Proof. intros A ch w H. unfold chan_present in H. destruct (Nat.eqb (ch_loc ch) 0); [ discriminate H | reflexivity ]. Qed.
+Lemma chan_closed_true_present : forall {A} (ch : GoChan A) w,
+  chan_closed ch w = true -> chan_present ch w = true.
+Proof.
+  intros A ch w H. unfold chan_closed in H. unfold chan_present.
+  destruct (Nat.eqb (ch_loc ch) 0); [ discriminate H | ].
+  destruct (w_chans w (ch_loc ch)) as [c|]; [ reflexivity | discriminate H ].
+Qed.
 (** Write a channel cell at [ch]'s location, tagged with [tag], preserving its capacity [cap].
     ROOT NIL GUARD: location 0 is the reserved nil sentinel (never allocated).  A write there would
     FORGE channel state at an unallocated handle, so it is a NO-OP — the single choke point that makes
@@ -289,9 +307,13 @@ Definition recv {A} (tag : GoTypeTag A) (ch : GoChan A) : IO A :=
     writes location 0), and [recv] on a nil (hence empty, open) channel already hits its empty-channel block
     panic.  This is NOT excused as "unreachable": [MkChan 0] is a PUBLIC handle, so nil ops are made fail-loud,
     not assumed away.  Lowered by name ([close(ch)]), golden-stable. *)
+(** [close] fails loud on ANY unallocated handle — nil ([ch_loc = 0]) OR nonzero ABSENT (forged/dangling) —
+    via [chan_present], so it can never FABRICATE a closed cell at an unallocated location (Go's [close(nil)]
+    panic, generalised to the whole no-cell class).  Only an allocated cell reaches the closed-flag check. *)
 Definition close_chan {A} (tag : GoTypeTag A) (ch : GoChan A) : IO unit :=
-  fun w => if Nat.eqb (ch_loc ch) 0 then OPanic rt_close_nil w
-           else if chan_closed ch w then OPanic rt_close_closed w else ORet tt (chan_close_upd tag ch w).
+  fun w => if chan_present ch w
+           then (if chan_closed ch w then OPanic rt_close_closed w else ORet tt (chan_close_upd tag ch w))
+           else OPanic rt_close_nil w.
 Definition recv_ok {A B} (tag : GoTypeTag A) (ch : GoChan A) (f : A -> bool -> IO B) : IO B :=
   fun w => match chan_buf tag ch w with
            | v :: _ => f v true (chan_recv_upd tag ch w)
@@ -528,21 +550,27 @@ Lemma run_recv_ok_closed_empty : forall {A B} (tag : GoTypeTag A) (ch : GoChan A
   run_io (recv_ok tag ch f) w = run_io (f (zero_val tag) false) w.
 Proof. intros A B tag ch f w H Hc. unfold recv_ok, run_io. rewrite H, Hc. reflexivity. Qed.
 Lemma run_close : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (w : World),
-  Nat.eqb (ch_loc ch) 0 = false ->
+  chan_present ch w = true ->
   chan_closed ch w = false ->
   run_io (close_chan tag ch) w = ORet tt (chan_close_upd tag ch w).
-Proof. intros A tag ch w Hnn H. unfold close_chan, run_io. rewrite Hnn, H. reflexivity. Qed.
-(** Closing a non-nil CLOSED channel panics with "close of closed channel" (the CAUSE distinguishes this from "close of nil channel" — a nil channel hits the prior guard).  The
-    non-nil hypothesis selects the [rt_close_closed] cause; [close_chan_nil] covers the nil one. *)
+Proof. intros A tag ch w Hp H. unfold close_chan, run_io. rewrite Hp, H. reflexivity. Qed.
+(** Closing a non-nil CLOSED channel panics with "close of closed channel" (the CAUSE distinguishes this from "close of nil channel" — an unallocated handle hits the [chan_present] guard).  [chan_closed = true]
+    already implies the cell is present ([chan_closed_true_present]); [close_chan_nil] / [close_absent] cover the no-cell ones. *)
 Lemma run_close_closed : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (w : World),
-  Nat.eqb (ch_loc ch) 0 = false ->
   chan_closed ch w = true ->
   run_io (close_chan tag ch) w = OPanic rt_close_closed w.
-Proof. intros A tag ch w Hnn H. unfold close_chan, run_io. rewrite Hnn, H. reflexivity. Qed.
+Proof. intros A tag ch w H. unfold close_chan, run_io. rewrite (chan_closed_true_present ch w H), H. reflexivity. Qed.
 (** Faithfulness: [close] on a nil channel PANICS with "close of nil channel", exactly Go's [close(nil)]. *)
 Lemma close_chan_nil : forall {A} (tag : GoTypeTag A) (w : World),
   run_io (close_chan tag (@MkChan A 0)) w = OPanic rt_close_nil w.
 Proof. reflexivity. Qed.
+(** ANTI-FORGERY (nonzero-absent generalisation of [close_chan_nil]): [close] on ANY unallocated handle
+    ([chan_present = false] — nil OR a forged/dangling nonzero location) FAILS LOUD with NO mutation (the world
+    is returned unchanged in the [OPanic]) — it never fabricates a closed cell at an absent location. *)
+Lemma close_absent : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (w : World),
+  chan_present ch w = false ->
+  run_io (close_chan tag ch) w = OPanic rt_close_nil w.
+Proof. intros A tag ch w H. unfold close_chan, run_io. rewrite H. reflexivity. Qed.
 
 (** ---- The channel laws, DERIVED as theorems ---- *)
 
@@ -602,27 +630,29 @@ Qed.
 (** Sending on a closed channel panics (Go spec): close then send → panic.  (On a non-nil channel — a
     nil one would panic at the first [close].) *)
 Theorem send_closed_panics : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (v : A) (w : World),
-  Nat.eqb (ch_loc ch) 0 = false ->
+  chan_present ch w = true ->
   chan_closed ch w = false ->
   run_io (bind (close_chan tag ch) (fun _ => send tag ch v)) w
   = OPanic rt_send_closed (chan_close_upd tag ch w).
 Proof.
-  intros A tag ch v w Hnn Hopen.
-  rewrite run_bind, (run_close tag ch w Hnn Hopen). cbn.
-  exact (run_send_closed tag ch v (chan_close_upd tag ch w) (chan_closed_close tag ch w Hnn)).
+  intros A tag ch v w Hp Hopen.
+  rewrite run_bind, (run_close tag ch w Hp Hopen). cbn.
+  exact (run_send_closed tag ch v (chan_close_upd tag ch w)
+           (chan_closed_close tag ch w (chan_present_nonnil ch w Hp))).
 Qed.
 
 (** Closing an already-closed channel panics (Go spec): close then close → panic.  (On a non-nil
     channel — a nil one would panic at the first [close].) *)
 Theorem double_close_panics : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (w : World),
-  Nat.eqb (ch_loc ch) 0 = false ->
+  chan_present ch w = true ->
   chan_closed ch w = false ->
   run_io (bind (close_chan tag ch) (fun _ => close_chan tag ch)) w
   = OPanic rt_close_closed (chan_close_upd tag ch w).
 Proof.
-  intros A tag ch w Hnn Hopen.
-  rewrite run_bind, (run_close tag ch w Hnn Hopen). cbn.
-  exact (run_close_closed tag ch (chan_close_upd tag ch w) Hnn (chan_closed_close tag ch w Hnn)).
+  intros A tag ch w Hp Hopen.
+  rewrite run_bind, (run_close tag ch w Hp Hopen). cbn.
+  exact (run_close_closed tag ch (chan_close_upd tag ch w)
+           (chan_closed_close tag ch w (chan_present_nonnil ch w Hp))).
 Qed.
 
 (** [recv_ok] on a closed, EMPTY channel returns [(zero_val tag, false)] — Go's

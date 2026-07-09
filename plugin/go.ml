@@ -5174,7 +5174,7 @@ let pp_function state name body typ =
    A module-level list so it is built once, not re-allocated per call. *)
 let proof_only_names =
   [ "ref_sel"; "ref_sel_opt"; "ref_upd";
-    "chan_buf"; "chan_closed"; "chan_cap"; "chan_room"; "chan_send_upd"; "chan_recv_upd"; "chan_close_upd";
+    "chan_buf"; "chan_closed"; "chan_cap"; "chan_room"; "chan_present"; "chan_send_upd"; "chan_recv_upd"; "chan_close_upd";
     "map_sel"; "map_upd"; "map_rem"; "map_size"; "map_count"; "map_clear_upd"; "run_io";
     "map_get_fn"; "map_write"; "key_eqb";          (* map-cell read/write + key equality *)
     "chan_write";                                  (* chan-cell writer *)

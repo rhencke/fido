@@ -583,12 +583,24 @@ Proof.
   intros A tag w ch w' HV Hrun. unfold run_io, make_chan in Hrun. cbv zeta in Hrun.
   injection Hrun as Hc _. subst ch. cbn [ch_loc]. apply pos_neq0, (valid_fresh_nonzero w HV).
 Qed.
+(** A freshly-[make]d channel's cell is PRESENT ([chan_present = true]): [make_chan_cap] installs a [Some]
+    cell at [w_next w], and [ValidWorld] forces [w_next w <> 0].  So [close] on a just-made channel reaches its
+    real closed-flag path (it is not mistaken for an unallocated handle) — the allocation discharges the
+    [chan_present] premise the guarded [close]/[run_close] now demand. *)
+Lemma chan_present_make_chan : forall {A} (tag : GoTypeTag A) (w : World) ch w',
+  ValidWorld w -> run_io (make_chan tag) w = ORet ch w' -> chan_present ch w' = true.
+Proof.
+  intros A tag w ch w' HV Hrun. unfold run_io, make_chan, make_chan_cap in Hrun. cbv zeta in Hrun.
+  injection Hrun as Hc Hw'. subst ch w'. unfold chan_present. cbn [ch_loc].
+  rewrite (pos_neq0 _ (valid_fresh_nonzero w HV)).
+  cbn [w_chans]. rewrite Nat.eqb_refl. reflexivity.
+Qed.
 Corollary chan_alloc_close_no_panic : forall {A} (tag : GoTypeTag A) (w : World) ch w',
   ValidWorld w -> run_io (make_chan tag) w = ORet ch w' -> chan_closed ch w' = false ->
   exists w'', run_io (close_chan tag ch) w' = ORet tt w''.
 Proof.
   intros A tag w ch w' HV Hrun Hcl. eexists.
-  apply run_close; [ apply (make_chan_nonzero tag w ch w' HV Hrun) | exact Hcl ].
+  apply run_close; [ apply (chan_present_make_chan tag w ch w' HV Hrun) | exact Hcl ].
 Qed.
 (** CAPACITY FAITHFULNESS: a freshly-made buffered channel stores the requested capacity [Some n].  The
     [w_next <> 0] the read-back needs (now that [chan_cap] reads a nil handle as [None]) is FORCED by
