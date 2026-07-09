@@ -8806,9 +8806,11 @@ Qed.
     ([lex (print_program p) = Some (program_tokens p)] is the OPEN [lex_gprint_program] work — see the ⚠).
     [print_program] emits [package <pkg>\n\n func main() {\n <body> }\n].  Go's ASI (Go spec "Semicolons")
     inserts a [TSemi] after a line's final token when that token is an identifier / literal / [return] /
-    [)] / []] / [}] — so HERE, exactly: after the package [Ident] (the '\n' after [main]); after EACH
-    statement line (every [stmt_tokens] form ends in an ident/[)]/[return]-class token — the '\n'
-    [print_stmts] emits); and after the closing [}] (its trailing '\n', since [}] is a trigger).  NONE after
+    [)] / []] / [}] — so HERE, exactly: after the package name [Ident] [<pkg>] (the FIRST '\n', before the
+    blank line — NOT after "main", which is the func name later); after EACH statement line (every
+    [stmt_tokens] form ends in one of those trigger tokens — an ident/literal, a [)]/[]]/[}] closer, or
+    [return] — via the '\n' [print_stmts] emits); and after the closing [}] (its trailing '\n', since [}] is
+    a trigger).  NONE after
     the opening [{] (not a trigger) nor after the blank line (no token).  Hence the frame is
     [TPackage; TId pkg; TSemi; TFunc; TId main; TLP; TRP; TLC] then the body — [stmt_tokens]s each TERMINATED
     by [TSemi] ([stmts_tokens]) — then [TRC; TSemi].  [TSemi] is the statement analogue of [TComma] in the
