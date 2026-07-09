@@ -3,8 +3,7 @@
     runtime error (nil deref, divide-by-zero, index/slice bounds, nil-map write, closed-channel
     send/close, negative shift/make, would-block).  The string IS the abstraction relation to
     Go's panic value; decimals come from the ONE decimal authority ([digits.print_Z]).
-    Model-only values (the ops that panic with them lower to native Go operations); mined out of
-    the frozen builtins.v monolith (plans/builtins-split.md).  No [IO]/[World] here — a payload
+    Model-only values (the ops that panic with them lower to native Go operations).  No [IO]/[World] here — a payload
     is data, the PANICKING is [GoEffects.panic] at each op site.
     ================================================================================================ *)
 Require Import Coq.Strings.String.

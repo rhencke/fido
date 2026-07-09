@@ -3,8 +3,7 @@
     ([GoString]/[GoSlice]/[GoChan]/[GoMap]/[Ptr]/[GoFunc], the recursive demo structs
     [ListNode]/[ChanBox]), the term-level type witness [GoTypeTag] with its decidable coercion
     [tag_eq], the boxed value [GoAny] (+ [any]/[anyt]), the [Tagged] inference class, and the
-    per-type [zero_val].  Mined out of the frozen builtins.v monolith (plans/builtins-split.md
-    wave 2); imports only the numeric model — nothing here touches [IO]/[World].
+    per-type [zero_val].  Imports only the numeric model — nothing here touches [IO]/[World].
     ================================================================================================ *)
 Require Import Coq.Strings.String Coq.Strings.Ascii.
 From Stdlib Require Import ZArith.

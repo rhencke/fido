@@ -9,9 +9,8 @@
     Includes: [len] + the agreement seal, [append], [slice_of_list], [slice_make], the panicking
     [slice_get] with its GATED two-sided bounds surface ([GoSlice.slice_get_bounds_surface]),
     the safe-by-construction [slice_at_ok], the fixed-size array family, and the structural
-    iteration combinators [for_each]/[slice_fold].  Mined out of the frozen builtins.v monolith
-    (plans/builtins-split.md).  =====================================================================
-    *)
+    iteration combinators [for_each]/[slice_fold].
+    ================================================================================================ *)
 Require Import Coq.Lists.List.
 From Stdlib Require Import Lia.
 From Stdlib Require Import ZArith.
@@ -229,7 +228,7 @@ Fixpoint slice_fold {A S : Type} (xs : GoSlice A) (init : S) (step : S -> A -> S
     VARIADIC PARAMS + ARRAY COMPARABILITY — [Variadic T]/[vararg] (a variadic param IS a slice;
     the phantom field keeps the param type distinguishable so the plugin renders [...T]), and the
     field-wise array [==] deciders ([arr_eqb]/[arr3_eqb]/[arr2_eqb] over [goi64_list_eqb]).
-    Pure; mined out of the frozen builtins.v monolith (plans/builtins-split.md).
+    Pure.
     ================================================================================================ *)
 
 (** Variadic parameter (Go [func f(xs ...T)]): inside [f] the param is a SLICE, but Go's call

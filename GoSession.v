@@ -5,8 +5,7 @@
     wrong order/direction/payload, and incomplete protocols are Rocq TYPE ERRORS.  [run_session]
     has NO sequential [run_io] meaning (a session run is concurrent) — its model body is a LOUD
     panic; the faithful semantics is the session calculus in concurrency.v, and the plugin lowers
-    the ops BY NAME to channel-passing Go.  Mined out of the frozen builtins.v monolith
-    (plans/builtins-split.md).
+    the ops BY NAME to channel-passing Go.
     ================================================================================================ *)
 
 Require Import Coq.Strings.String.

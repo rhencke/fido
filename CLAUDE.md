@@ -186,8 +186,8 @@ make install-hooks # activate the pre-commit hook (once after clone)
 
 ## Files
 
-- **The model modules** (the COMPLETED builtins split — `builtins.v` is DELETED;
-  plans/builtins-split.md is the ledger): `GoNumeric.v` (records + the pure op layer + min/max
+- **The model modules** (the COMPLETED builtins split — `builtins.v` is DELETED):
+  `GoNumeric.v` (records + the pure op layer + min/max
   + float comparisons), `GoRuntimeTypes.v` (tags/GoAny/zero values/runtime comparability),
   `GoEffects.v` (World/Outcome/IO/effect laws, output, block-scoped defer, int range),
   `GoPanic.v` (panic payloads), `GoSlice.v` (pure-list slices/arrays/variadics/slice range),

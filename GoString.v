@@ -6,8 +6,7 @@
     lives in GoSwitch.v).
     Also HOME OF the sealed [ComparableW] witnesses for Go's generic [comparable] constraint
     (i64/u64/string): a witness CARRIES its decidability proof ([Squash]-sealed), and the string
-    one is anchored on [str_eqb] defined here — one authority for both.  Mined out of the frozen
-    builtins.v monolith (plans/builtins-split.md).
+    one is anchored on [str_eqb] defined here — one authority for both.
     ================================================================================================ *)
 
 Require Import Coq.Strings.String Coq.Strings.Ascii.

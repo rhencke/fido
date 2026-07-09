@@ -7,7 +7,6 @@
     the representation where Go aliasing is REAL, unlike GoSlice's pure single-goroutine lists), and
     heap-backed structs ([HStruct] field-cell bundles; the generic [StructRep]/[GSPtr] typed struct
     heap).  ONE module owns the ref-heap story; the map and channel heaps live in GoMap/GoChan.
-    Mined out of the frozen builtins.v monolith (plans/builtins-split.md).
     ================================================================================================ *)
 
 Require Import Coq.Lists.List.

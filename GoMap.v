@@ -2,8 +2,7 @@
     GoMap — Go's [map[K]V] over the world's map heap.  Ops are IO where they touch the heap
     ([map_make]/[map_set]/[map_delete]/…); reads recover the typed view through the stored tags.
     Reference-type semantics: the pure-update model matches Go's in-place mutation for
-    single-goroutine programs (no observable aliasing difference).  Mined out of the frozen
-    builtins.v monolith (plans/builtins-split.md).
+    single-goroutine programs (no observable aliasing difference).
     ================================================================================================ *)
 Require Import Coq.Lists.List.
 Require Import Coq.Strings.String.

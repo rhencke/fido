@@ -10,7 +10,6 @@
     these single actions (GoCFG.v).  ★ NO LEIBNIZ UPGRADE HERE: [run_io_inj] (io_eq ⇒ eq, the one
     funext touch) lives in the proof-only universe (concurrency.v), OUTSIDE the MVP theorem
     surface — everything in this module and the certified path reasons over [io_eq].
-    Mined out of the frozen builtins.v monolith (plans/builtins-split.md wave 3).
     ================================================================================================ *)
 Require Import Coq.Classes.Morphisms.   (* Proper / setoid rewriting for [io_eq] *)
 Require Import Coq.Setoids.Setoid.
@@ -265,8 +264,7 @@ Qed.
     and the panic/recover layer's block-scoped [with_defer] (cleanup runs EXACTLY ONCE on both the
     normal and the panic path — proved).  The func-scoped [defer_call] is NOT here: its shallow
     [run_io] meaning is a loud-panic plugin-hook guard, so it lives in GoExtractionHooks.v; the
-    faithful func-scoped defer is cmd.v's [CDfr].  Mined out of the frozen builtins.v monolith
-    (plans/builtins-split.md).
+    faithful func-scoped defer is cmd.v's [CDfr].
     ================================================================================================ *)
 
 (** [print]/[println] write to stdout — a RECORDED effect: each call appends an event

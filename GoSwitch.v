@@ -4,8 +4,7 @@
     the TYPE switch family ([type_switch2]/[type_switch3] + the or-case forms) dispatching on a
     [GoAny]'s tag, and the EXPRESSION switches on an [int64] ([int_switch2]/[int_switch3]) and a
     [string] ([str_switch2]/[str_switch3]) scrutinee — ONE module for every switch/assert
-    combinator the plugin lowers to native Go [switch]/[x.(T)].  Mined out of the frozen
-    builtins.v monolith (plans/builtins-split.md).
+    combinator the plugin lowers to native Go [switch]/[x.(T)].
     ================================================================================================ *)
 
 Require Import Coq.Strings.String.

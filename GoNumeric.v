@@ -2,8 +2,7 @@
     GoNumeric — the AXIOM-FREE numeric model: Go's integer types as GENUINELY DISTINCT
     [Z]-carried records (fixed-width [GoI8]..[GoU64], full-width [GoI64]/[GoU64], platform
     [GoInt]/[GoUint]) and Go's floats on Rocq's [spec_float] (every operation a computable
-    [Z]-arithmetic definition; no [PrimInt63]/[PrimFloat] anywhere).  Mined out of the frozen
-    builtins.v monolith (plans/builtins-split.md wave 1); the DAG bottom — nothing here touches
+    [Z]-arithmetic definition; no [PrimInt63]/[PrimFloat] anywhere).  The DAG bottom — nothing here touches
     [IO]/[World].  ================================================================================ *)
 Require Import Coq.Strings.String Coq.Strings.Ascii.
 From Stdlib Require Import Lia.
@@ -569,8 +568,7 @@ Definition intwrap (z : Z) : GoInt := MkGoInt (wrap64 z) (squash (in_i64_wrap64 
     u8/i8..u32/i32 arithmetic, bitwise ops, shifts, conversions, EVIDENCE-CARRYING div/rem (a zero
     divisor is unrepresentable), the full-width GoI64/GoU64 ops + their proven arithmetic and
     boolean-algebra laws, untyped integer constants, and the exact int64 → float64 conversion.
-    Entirely IO-free: records and their operations are ONE authority.  Mined out of the frozen
-    builtins.v monolith (plans/builtins-split.md).
+    Entirely IO-free: records and their operations are ONE authority.
     ================================================================================================ *)
 
 (** ---- Fixed-width unsigned integers (precise, computable models) ----
@@ -1643,8 +1641,7 @@ Definition f32_max (x y : GoFloat32) : GoFloat32 :=
 (** ==================================================================================================
     [min]/[max] (Go 1.21 predeclared builtins) on int/int64/uint64 — each type's own order — and
     the FAITHFUL float [min]/[max] + direct [>]/[>=]/[!=] float comparisons (NaN propagation,
-    signed-zero rule, [>=] is the SWAPPED [leb], never [¬(<)]).  Pure; mined out of the frozen
-    builtins.v monolith (plans/builtins-split.md).
+    signed-zero rule, [>=] is the SWAPPED [leb], never [¬(<)]).  Pure.
     ================================================================================================ *)
 
 (** [min]/[max] (Go 1.21 predeclared builtins) on [int] — the smaller / larger of

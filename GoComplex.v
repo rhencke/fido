@@ -2,7 +2,6 @@
     GoComplex — Go's complex numbers (spec "Complex numbers"): [GoComplex128] as a pair of
     [GoFloat64]s, the predeclared [complex]/[real]/[imag], component-wise +/-, the exact
     Gauss product, faithful complex division, and ==/!= — all PURE over the spec_float layer.
-    Mined out of the frozen builtins.v monolith (plans/builtins-split.md).
     ================================================================================================ *)
 
 From Stdlib Require Import ZArith.

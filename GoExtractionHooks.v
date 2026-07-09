@@ -42,6 +42,6 @@ Proof. intros start cbs w w'. cbn. discriminate. Qed.
     [run_io] semantics CANNOT reify a func-scoped deferred command, so the model body is a LOUD
     panic guard (never a silent drop).  The faithful semantics is [run_cmd]'s [CDfr] (cmd.v).
     A hook guard is not a certified semantic definition — that is why it lives HERE (CLAUDE.md,
-    CFG law), mined out of the frozen builtins.v monolith. *)
+    CFG law). *)
 Definition defer_call (_ : IO unit) : IO unit :=
   fun w => OPanic (anyt TString "fido: defer_call has no shallow run_io meaning — a func-scoped defer needs the deep command model; the faithful semantics is run_cmd's CDfr (cmd.v); run_io fails loud rather than silently dropping the deferred effect"%string) w.

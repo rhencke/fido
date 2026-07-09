@@ -5,7 +5,7 @@
     definition and the synchronisation theorems, program-level race freedom, the 4th go-mem
     close⤳zero rule, and the goroutine fork edge.  ONE module owns the channel story — the
     model-side concurrency theory lives here, the rstep calculus universe stays in
-    concurrency.v.  Mined out of the frozen builtins.v monolith (plans/builtins-split.md).
+    concurrency.v.
     ================================================================================================ *)
 Require Import Coq.Lists.List.
 Require Import Coq.Strings.String.

@@ -58,8 +58,8 @@ plugin CONSTRUCTS the `GExpr`; only `gprint` is verified. NOT "verified Go."
   `GoCompile` (`gosem_sound`) + compositional converses; surfaces topic-split +
   manifest-gated. NO BehaviorSafe; main output still legacy. Zero axioms.
 - **Model layer** (proof-only): the split model modules (GoNumeric → GoRuntimeTypes →
-  GoEffects/GoPanic → GoSlice/GoMap/GoChan/GoHeap → GoSession/GoString/GoSwitch/GoComplex;
-  plans/builtins-split.md — `builtins.v` is DELETED), `cmd.v`, `unified.v`
+  GoEffects/GoPanic → GoSlice/GoMap/GoChan/GoHeap → GoSession/GoString/GoSwitch/GoComplex —
+  `builtins.v` is DELETED), `cmd.v`, `unified.v`
   (race-freedom/liveness proved on `ustep`), `concurrency.v`.
 - **cmd↔unified bridge** (`cmd_unified.v`): ONE bridge, `bridge_effects_agree` — any completing
   command (typed heap cells, ALLOCATION, the CHANNEL trio send/recv/close with per-site TYPED
