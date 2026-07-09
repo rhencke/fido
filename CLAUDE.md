@@ -20,6 +20,16 @@ test that cannot be mistaken for proof evidence.
 we know how to build.** Not the fastest demo, not the broadest feature sample, not the easiest
 milestone. **Cut supported scope before weakening proof strength.**
 
+**Cost is not a constraint; incorrectness is fatal.** Time and tokens are free — never trade
+correctness, generality, or expressive strength for a cheaper path. Given a choice between a
+cheaper/less-expressive mechanism and a harder/more-general/more-correct one, take the harder one:
+this is a research project exploring the strongest guarantees the current art allows, not a
+collection of half-measures. (This is not license to shortcut — it is the opposite: do the harder,
+more-correct thing.) **Plans and directives are best-effort guidance, not gospel.** When a plan
+conflicts with reality — a stronger proof, a better generalization, a more correct formulation —
+follow the stronger path and honor the plan's higher-level intent; a plan detail never outranks a
+more-correct mechanism. (Surface the divergence and why; don't silently abandon the ask.)
+
 - This is a theorem-first research repo, not a product with legacy customers.
 - The certified path contains only architecture we would defend long term.
 - A smaller certified subset beats a broader trusted/demo subset.
