@@ -177,10 +177,11 @@ to the CFG; control-flow coverage is demo-by-demo, golden-locked).
   `len=n` theorem), `delete`, `panic`, `print`/`println`, `recover` (`catch`/`with_defer`),
   `close`, `clear` (maps, `map_get_clear`), and Go-1.21 `min`/`max` on `int`/`int64`[signed]/
   `uint64`[unsigned]/`float`[NaN-propagation + signed-zero corners] (`spec_go_min`,
-  `spec_i64_max`, `spec_u64_max_high`, `f64_min_nan`/`f64_min_negzero`). ✗ **gated on a
-  non-import prerequisite** (not difficulty): `new` (needs pointer type), `copy` +
-  `make([]T,len,cap)` + slice-`clear` (need slice-aliasing/mutation), `complex`/`real`/`imag`
-  (need `complex64/128`, unmodeled); string-`min`/`max` pending ordering.
+  `spec_i64_max`, `spec_u64_max_high`, `f64_min_nan`/`f64_min_negzero`). ✓ `new` (`go_new` →
+  `new(T)` = fresh `*T` at the zero value) + — via the heap `SliceH` aliasing model — `copy`
+  (`slice_copy`), `make([]T,len,cap)` (`slice_make_lc`, spare-cap `make_lc_append_inplace`),
+  slice-`clear` (`slice_clear_h`) (all lowered by the plugin). ✗ `complex`/`real`/`imag` (need
+  `complex64`/`complex128`, unmodeled); string-`min`/`max` pending an ordering decision.
 
 ## Memory model (go.dev/ref/mem)
 - ✓ **partial order + race freedom, axiom-free** (`hb` = transitive closure, STRICT partial
