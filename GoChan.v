@@ -95,13 +95,16 @@ Definition chan_cap {A : Type} (ch : GoChan A) (w : World) : option nat :=
   | Some (existT _ _ (_, (_, (_, cap)))) => cap
   | None => None
   end.
-(** [chan_room tag ch w] — is there room for one more send?  [None] (unbounded) always; [Some n] iff the
-    current FIFO is shorter than [n].  An IO [send] is permitted only when this holds (else it FAILS LOUD). *)
+(** [chan_room tag ch w] — is there room for one more send?  A NIL channel ([ch_loc = 0]) has NO room —
+    Go BLOCKS forever on a nil send — so [send] FAILS LOUD ([OPanic rt_chan_send_block]) and NEVER enqueues /
+    writes the reserved location 0.  Otherwise: [None]-capacity (unbounded, the concurrency bridge's abstract
+    channels) always has room; [Some n] iff the FIFO is shorter than [n]. *)
 Definition chan_room {A : Type} (tag : GoTypeTag A) (ch : GoChan A) (w : World) : bool :=
-  match chan_cap ch w with
-  | None   => true
-  | Some n => Nat.ltb (List.length (chan_buf tag ch w)) n
-  end.
+  if Nat.eqb (ch_loc ch) 0 then false
+  else match chan_cap ch w with
+       | None   => true
+       | Some n => Nat.ltb (List.length (chan_buf tag ch w)) n
+       end.
 (** Write a channel cell at [ch]'s location, tagged with [tag], preserving its capacity [cap]. *)
 Definition chan_write {A : Type} (tag : GoTypeTag A) (ch : GoChan A)
                       (buf : list A) (cl : bool) (cap : option nat) (w : World) : World :=
@@ -223,12 +226,14 @@ Definition recv {A} (tag : GoTypeTag A) (ch : GoChan A) : IO A :=
                        else OPanic (anyt TString
                          "fido: recv on an open EMPTY channel blocks — a deadlock in a sequential run_io, with no synchronous value"%string) w
            end.
-(** [close] on a NIL channel ([MkChan 0]) PANICS — Go's "close of nil channel" —
-    instead of fabricating a close at the reserved location 0.  (Go also panics on a double-close, the
-    [chan_closed] guard below.)  [send]/[recv] on a nil channel BLOCK FOREVER in Go; that is the documented
-    "blocking idealised away" limitation (a faithful model needs a divergence/stuck outcome — foundation),
-    and like all nil ops it is UNREACHABLE in the closed world ([make_chan] mints a nonzero handle —
-    [chan_alloc_close_no_panic]).  Lowered by name ([close(ch)]), so the guard is golden-stable. *)
+(** [close] on a NIL channel ([MkChan 0]) PANICS — Go's "close of nil channel" — instead of fabricating a
+    close at the reserved location 0.  (Go also panics on a double-close, the [chan_closed] guard below.)
+    [send]/[recv] on a nil channel BLOCK FOREVER in Go; the sequential [run_io] has no stuck/divergence
+    outcome, so both FAIL LOUD rather than fabricate state: a nil channel has NO room ([chan_room] is false
+    for [ch_loc = 0]), so [send] takes its block branch ([OPanic rt_chan_send_block] — it never enqueues /
+    writes location 0), and [recv] on a nil (hence empty, open) channel already hits its empty-channel block
+    panic.  This is NOT excused as "unreachable": [MkChan 0] is a PUBLIC handle, so nil ops are made fail-loud,
+    not assumed away.  Lowered by name ([close(ch)]), golden-stable. *)
 Definition close_chan {A} (tag : GoTypeTag A) (ch : GoChan A) : IO unit :=
   fun w => if Nat.eqb (ch_loc ch) 0 then OPanic rt_close_nil w
            else if chan_closed ch w then OPanic rt_close_closed w else ORet tt (chan_close_upd tag ch w).
@@ -509,7 +514,10 @@ Lemma make_chan_unbuffered_send_blocks : forall {A} (tag : GoTypeTag A) (v : A) 
 Proof.
   intros A tag v w ch w' H. unfold make_chan, make_chan_cap, run_io in H.
   injection H as Hch Hw. subst ch w'. unfold send, run_io, chan_closed, chan_room, chan_cap, chan_buf. cbn.
-  rewrite !Nat.eqb_refl. cbn. reflexivity.
+  rewrite !Nat.eqb_refl. cbn.
+  (* [chan_room] is false on EITHER arm of the nil check: a nil handle has no room, and an
+     unbuffered ([Some 0]) buffer is full — so send blocks regardless of [w_next]'s value. *)
+  destruct (Nat.eqb (w_next w) 0); reflexivity.
 Qed.
 
 (** Sending on a closed channel panics (Go spec): close then send → panic.  (On a non-nil channel — a

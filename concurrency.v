@@ -4097,6 +4097,11 @@ Section Keystone.
      [Vrep n := Z.of_nat n < 2^63], [inj := keystone_inj], [prj := keystone_prj], [Hret := keystone_roundtrip]. *)
   Hypothesis Hret  : forall n, Vrep n -> prj (inj n) = n.
   Hypothesis Vrep0 : Vrep 0.               (* the zero value is representable (the initial heap holds it) *)
+  (* The bridge's channels are ALLOCATED — a real IO channel handle is non-nil ([ch_loc <> 0]), exactly as
+     [ptrenv_live] states for the pointer environment.  This lets the unbounded ([chan_cap = None]) bridge
+     channel actually have room: [chan_room] is false on a NIL handle (Go blocks forever on a nil send), so
+     without allocation the room proof would fail — as it must for a nil channel. *)
+  Hypothesis chenv_live : forall c, Nat.eqb (ch_loc (chenv c)) 0 = false.
 
   (* Deep<->shallow correspondence.  D_recv's premise is itself a [forall x],
      reflecting the HOAS continuation: the IO term [g] must agree with [denote] of
@@ -4135,7 +4140,7 @@ Section Keystone.
   Proof.
     intros p b h lv tr tid c v k m w HD [HMbuf HMcap] Hclosed.
     assert (Hroom : chan_room TI64 (chenv c) w = true)
-      by (unfold chan_room; rewrite HMcap; reflexivity).
+      by (unfold chan_room; rewrite (chenv_live c), HMcap; reflexivity).
     inversion HD as [| ch0 v0 k0 m' HDk Hch Hm | | | ]; subst.
     exists m'. split; [exact HDk | split].
     - rewrite run_bind, (run_send TI64 (chenv c) (inj v) w Hclosed Hroom). cbn. reflexivity.
@@ -4466,11 +4471,14 @@ Section Keystone.
 End Keystone.
 
 (** NON-VACUITY: instantiating the abstract value-coding with the CONCRETE [keystone_inj]/[keystone_prj]
-    and representability [Vrep64 n := Z.of_nat n < 2^63] DISCHARGES the section hypotheses
+    and representability [Vrep64 n := Z.of_nat n < 2^63] DISCHARGES the value-coding section hypotheses
     ([keystone_roundtrip] is [Hret], [Vrep64_0] is [Vrep0]) — so [denote_adequate] /
-    [denote_adequate_mem] hold for a REAL coding (representable = real int64 values). *)
-Definition denote_adequate_keystone (chenv : nat -> GoChan GoI64) (locenv : nat -> Ref GoI64) :=
-  denote_adequate chenv locenv keystone_inj keystone_prj Vrep64 keystone_roundtrip.
+    [denote_adequate_mem] hold for a REAL coding (representable = real int64 values).  The remaining
+    [chenv_live] precondition (the bridge channels are ALLOCATED / non-nil) is a property of the channel
+    ENVIRONMENT, not the value coding, so it stays an explicit parameter of the channel wrapper. *)
+Definition denote_adequate_keystone (chenv : nat -> GoChan GoI64) (locenv : nat -> Ref GoI64)
+    (chenv_live : forall c, Nat.eqb (ch_loc (chenv c)) 0 = false) :=
+  denote_adequate chenv locenv keystone_inj keystone_prj Vrep64 keystone_roundtrip chenv_live.
 Definition denote_adequate_mem_keystone (chenv : nat -> GoChan GoI64) (locenv : nat -> Ref GoI64) :=
   denote_adequate_mem chenv locenv keystone_inj keystone_prj Vrep64 keystone_roundtrip Vrep64_0.
 
@@ -5088,6 +5096,9 @@ Section MpTyped.
   (* the handoff pointer is LIVE (non-nil) — an allocated *T cell has a nonzero handle; lets the raw
      [ptr_set]/[ptr_get] (which PANIC on nil) coincide with the bridge ref-accesses. *)
   Hypothesis ptrenv_live : forall l, Nat.eqb (p_loc (ptrenv l)) 0 = false.
+  (* the handoff channel is LIVE (non-nil) too — an allocated chan handle is nonzero; lets the unbounded
+     [send] have room (a NIL channel has [chan_room = false] — Go blocks forever on nil send). *)
+  Hypothesis chenv_live : forall c, Nat.eqb (ch_loc (chenv c)) 0 = false.
 
   (* g0 = [*p = v0; ch <- v1] ; g1 = [<-ch; _ := *p] — built from the EXTRACTABLE ptr/chan ops. *)
   Definition mp_g0_io (v0 v1 : nat) : IO unit :=
@@ -5135,7 +5146,7 @@ Section MpTyped.
   Proof.
     intros v0 v1 w0 Hbuf Hcl Hcap. unfold mp_handoff_io.
     assert (Hroom : chan_room TI64 (chenv 0) w0 = true)
-      by (unfold chan_room; rewrite Hcap; reflexivity).
+      by (unfold chan_room; rewrite (chenv_live 0), Hcap; reflexivity).
     rewrite run_bind, run_ptr_set, ptrenv_live; cbv beta iota.
     rewrite run_bind, run_send by (first [ exact Hcl | exact Hroom ]); cbv beta iota.
     rewrite run_bind, (run_recv TI64 (chenv 0) (inj v1) (@nil GoI64))
@@ -5740,6 +5751,7 @@ Theorem mp_end_to_end :
     (forall i j, chenv i = chenv j -> i = j) ->
     (forall i j, r_loc (plocenv ptrenv i) = r_loc (plocenv ptrenv j) -> i = j) ->
     (forall l, Nat.eqb (p_loc (ptrenv l)) 0 = false) ->
+    (forall c, Nat.eqb (ch_loc (chenv c)) 0 = false) ->   (* the bridge channels are ALLOCATED (non-nil) *)
     (forall c, chan_buf TI64 (chenv c) w0 = []) ->
     chan_closed (chenv 0) w0 = false ->
     chan_cap (chenv 0) w0 = None ->          (* the handoff channel is UNBOUNDED *)
@@ -5759,7 +5771,7 @@ Theorem mp_end_to_end :
       (* (e) the equivalent single-threaded handoff IO delivers exactly the right values *)
       /\ (exists w', run_io (mp_handoff_io chenv ptrenv inj v0 v1) w0 = ORet (inj v1, inj v0) w').
 Proof.
-  intros chenv ptrenv inj prj v0 v1 w0 Hchen Hloc Hlive Hbuf Hcl Hcap Hheap.
+  intros chenv ptrenv inj prj v0 v1 w0 Hchen Hloc Hlive Hchlive Hbuf Hcl Hcap Hheap.
   destruct (mp_exec_trace v0 v1) as [cfg [Hsteps Htr]].
   exists cfg.
   split; [exact Hsteps |].
@@ -5780,7 +5792,7 @@ Proof.
     destruct (wstate_steps chenv (plocenv ptrenv) inj Hchen Hloc
                 (mp_init v0 v1) cfg w0 Hsteps Hinit) as [w HW].
     exists w. exact HW. }
-  exact (mp_handoff_delivers chenv ptrenv inj Hlive v0 v1 w0 (Hbuf 0) Hcl Hcap).
+  exact (mp_handoff_delivers chenv ptrenv inj Hlive Hchlive v0 v1 w0 (Hbuf 0) Hcl Hcap).
 Qed.
 
 (** ============================================================================
