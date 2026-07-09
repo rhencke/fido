@@ -79,8 +79,9 @@ EXPLICIT DEFERRED FRONTIERS (after the expression arc seals — do NOT expand mi
    `printer.ml` and the golden stay byte-identical.)  `stmt_tokens : GoStmt -> list Token`
    (`GsExprStmt e`→`gtokens 0 e`; `GsReturn`→`[TReturn]`; `GsReturnVal e`→`TReturn::gtokens 0 e`;
    `GsBlankAssign e`→`TId "_"::TAssign::gtokens 0 e`; `GsDefer e`→`TDefer::gtokens 0 e`;
-   `GsShortDecl x e`→`TId x::TDefine::gtokens 0 e`) and `prog_tokens : Program -> list Token`
-   (`TPackage::TId pkg::TFunc::TId "main"::TLP::TRP::TLC::` the `TSemi`-separated body `::TRC::nil`).
+   `GsShortDecl x e`→`TId x::TDefine::gtokens 0 e`) and `program_tokens : Program -> list Token`
+   (`TPackage::TId pkg::TSemi::TFunc::TId "main"::TLP::TRP::TLC::` the `TSemi`-TERMINATED body `::TRC::TSemi::nil`
+   — Go ASI puts a `TSemi` after the package clause, after each statement, and after the closing `}`).
    `stmt_tokens_inj`/`prog_tokens_inj` (foundation: `gtokens_no_stmt` — `is_stmt_tok t = true ->
    ~ In t (gtokens ctx e)`, one `GExpr_ind'` induction, expressions use only the expression alphabet.
    `stmt_tokens_inj` = head/second-token discrimination + `gtokens_inj`; `prog_tokens_inj` = the

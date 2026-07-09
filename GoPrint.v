@@ -8810,9 +8810,11 @@ Qed.
     by [TSemi] ([stmts_tokens]) — then [TRC; TSemi].  [TSemi] is the statement analogue of [TComma] in the
     argument lists; because no [stmt_tokens] list contains a [TSemi] ([stmt_tokens_semi_free], from
     [gtokens_no_stmt]) it splits the body cleanly.
-    ⚠ the current [lex] emits NEITHER [TPackage]/[TFunc]/[TSemi] NOR the [:=]/[=]/[defer] statement forms;
-    [program_tokens] is the TARGET those new lexer arms + an ASI pass must hit, NOT a proved [lex] output.
-    The uniqueness results below hold of [program_tokens] as a token FUNCTION regardless of that open work. *)
+    ⚠ [lex] already emits [TFunc] (a reserved word via [lex_ident]), but NOT [TPackage] ("package" lexes as a
+    plain [TId]) nor [TSemi] (no ASI), and it rejects the [:=]/[=]/[defer] statement forms; so a full
+    [lex_gprint_program] still needs a [TPackage]-keyword arm + an ASI pass emitting [TSemi] + the [:=]/[=]/
+    [defer] arms.  Until then [program_tokens] is the TARGET those must hit, NOT a proved [lex] output; the
+    uniqueness results below hold of [program_tokens] as a token FUNCTION regardless of that open work. *)
 Definition main_ident : Ident := exist (fun s => go_ident s = true) "main"%string eq_refl.
 Fixpoint stmts_tokens (ss : list GoStmt) : list Token :=
   match ss with
