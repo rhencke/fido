@@ -706,17 +706,22 @@ Definition slice_idx_get {A} (tag : GoTypeTag A) (s : SliceH A) (i : GoInt) : IO
                 end
            else OPanic (rt_index_oob (intraw i) (sh_len s)) w.
 Definition slice_idx_set {A} (s : SliceH A) (i : GoInt) (v : A) : IO unit :=
-  fun w => if slice_in_len s i then ORet tt (ref_upd (sh_cell s (Z.to_nat (intraw i))) v w)
+  fun w => if slice_in_len s i
+           then match ref_sel_opt (sh_cell s (Z.to_nat (intraw i))) w with
+                | Some _ => ORet tt (ref_upd (sh_cell s (Z.to_nat (intraw i))) v w)
+                | None   => OPanic rt_nil_deref w   (* forged backing cell: FAIL LOUD, symmetric with slice_idx_get *)
+                end
            else OPanic (rt_index_oob (intraw i) (sh_len s)) w.
 Lemma run_slice_idx_get : forall {A} (tag : GoTypeTag A) (s : SliceH A) (i : GoInt) (a : A) (w : World),
   slice_in_len s i = true ->
   ref_sel_opt (sh_cell s (Z.to_nat (intraw i))) w = Some a ->
   run_io (slice_idx_get tag s i) w = ORet a w.
 Proof. intros A tag s i a w Hi Hsel. unfold slice_idx_get, run_io. rewrite Hi, Hsel. reflexivity. Qed.
-Lemma run_slice_idx_set : forall {A} (s : SliceH A) (i : GoInt) (v : A) (w : World),
+Lemma run_slice_idx_set : forall {A} (s : SliceH A) (i : GoInt) (v a : A) (w : World),
   slice_in_len s i = true ->
+  ref_sel_opt (sh_cell s (Z.to_nat (intraw i))) w = Some a ->
   run_io (slice_idx_set s i v) w = ORet tt (ref_upd (sh_cell s (Z.to_nat (intraw i))) v w).
-Proof. intros A s i v w Hi. unfold slice_idx_set, run_io. rewrite Hi. reflexivity. Qed.
+Proof. intros A s i v a w Hi Hsel. unfold slice_idx_set, run_io. rewrite Hi, Hsel. reflexivity. Qed.
 (** Out of range is a PANIC, exactly Go: writing at index = len ('s len=1,cap=2,
     write index 1 witness) is rejected, not silently aimed at the spare capacity cell. *)
 Lemma run_slice_idx_set_oob : forall {A} (s : SliceH A) (i : GoInt) (v : A) (w : World),
@@ -784,10 +789,13 @@ Lemma slice_idx_get_set_same : forall {A} (tag : GoTypeTag A) (s : SliceH A) (i 
   bind (slice_idx_set s i v) (fun _ => ret v).
 Proof.
   intros A tag s i v Hi. intro w.
-  rewrite !run_bind, !(run_slice_idx_set s i v w Hi). cbn.
-  rewrite (run_slice_idx_get tag s i v (ref_upd (sh_cell s (Z.to_nat (intraw i))) v w) Hi
-             (ref_sel_opt_upd_same (sh_cell s (Z.to_nat (intraw i))) v w)), run_ret.
-  reflexivity.
+  rewrite !run_bind.
+  destruct (ref_sel_opt (sh_cell s (Z.to_nat (intraw i))) w) as [a|] eqn:Hsel.
+  - rewrite !(run_slice_idx_set s i v a w Hi Hsel). cbn.
+    rewrite (run_slice_idx_get tag s i v (ref_upd (sh_cell s (Z.to_nat (intraw i))) v w) Hi
+               (ref_sel_opt_upd_same (sh_cell s (Z.to_nat (intraw i))) v w)), run_ret.
+    reflexivity.
+  - unfold slice_idx_set, run_io. rewrite Hi, Hsel. reflexivity.
 Qed.
 
 (** [append(s, v)] — the SUBTLE Go semantics:
@@ -931,7 +939,10 @@ Definition hfield_get {A} (h : HStruct) (k : nat) (tag : GoTypeTag A) : IO A :=
            | None   => OPanic rt_nil_deref w
            end.
 Definition hfield_set {A} (h : HStruct) (k : nat) (tag : GoTypeTag A) (v : A) : IO unit :=
-  fun w => ORet tt (ref_upd (hfield_cell h k tag) v w).
+  fun w => match ref_sel_opt (hfield_cell h k tag) w with
+           | Some _ => ORet tt (ref_upd (hfield_cell h k tag) v w)
+           | None   => OPanic rt_nil_deref w   (* forged struct cell: FAIL LOUD, symmetric with hfield_get *)
+           end.
 Lemma run_hfield_get : forall {A} (h : HStruct) (k : nat) (tag : GoTypeTag A) (w : World),
   run_io (hfield_get h k tag) w =
     match ref_sel_opt (hfield_cell h k tag) w with
@@ -945,9 +956,10 @@ Lemma run_hfield_get_some : forall {A} (h : HStruct) (k : nat) (tag : GoTypeTag 
   ref_sel_opt (hfield_cell h k tag) w = Some a ->
   run_io (hfield_get h k tag) w = ORet a w.
 Proof. intros A h k tag a w H. unfold run_io, hfield_get. rewrite H. reflexivity. Qed.
-Lemma run_hfield_set : forall {A} (h : HStruct) (k : nat) (tag : GoTypeTag A) (v : A) (w : World),
+Lemma run_hfield_set : forall {A} (h : HStruct) (k : nat) (tag : GoTypeTag A) (v a : A) (w : World),
+  ref_sel_opt (hfield_cell h k tag) w = Some a ->
   run_io (hfield_set h k tag v) w = ORet tt (ref_upd (hfield_cell h k tag) v w).
-Proof. reflexivity. Qed.
+Proof. intros A h k tag v a w Hsel. unfold hfield_set, run_io. rewrite Hsel. reflexivity. Qed.
 
 (** A [ref_sel] at a DIFFERENT location is unaffected by a [ref_upd] — the foundation
     for field INDEPENDENCE (writing one field leaves the others alone). *)
@@ -1035,8 +1047,11 @@ Lemma hfield_get_set_same : forall {A} (h : HStruct) (k : nat) (tag : GoTypeTag 
   bind (hfield_set h k tag v) (fun _ => ret v).
 Proof.
   intros. intro w.
-  rewrite !run_bind, run_hfield_set. cbn.
-  rewrite run_hfield_get, ref_sel_opt_upd_same. cbn. rewrite run_ret. reflexivity.
+  rewrite !run_bind.
+  destruct (ref_sel_opt (hfield_cell h k tag) w) as [a|] eqn:Hsel.
+  - rewrite !(run_hfield_set h k tag v a w Hsel). cbn.
+    rewrite run_hfield_get, ref_sel_opt_upd_same. cbn. rewrite run_ret. reflexivity.
+  - unfold hfield_set, run_io. rewrite Hsel. reflexivity.
 Qed.
 
 (** DIFFERENT fields are INDEPENDENT — writing field [k] does NOT change field [k']
@@ -1240,14 +1255,40 @@ Lemma hfield_cell_loc : forall {A} (h : HStruct) (k : nat) (tag : GoTypeTag A),
   r_loc (hfield_cell h k tag) = hs_base h + k.
 Proof. reflexivity. Qed.
 
+(** Every field cell [k, k+1, …] of the struct is LIVE (allocated) in [w] — the precondition a whole-struct
+    write needs now that [hfield_set] fails loud on a forged cell (a struct from [gsptr_new] satisfies it —
+    the allocator writes each cell).  Distinct fields sit at distinct locations [hs_base + k'], so a write
+    to one leaves the others' liveness intact ([fields_live_frame]). *)
+Fixpoint fields_live (ts : list Type) (h : HStruct) (k : nat) : TagTup ts -> World -> Prop :=
+  match ts return TagTup ts -> World -> Prop with
+  | nil       => fun _ _ => True
+  | t :: rest => fun tgs w =>
+      (exists a, ref_sel_opt (hfield_cell h k (fst tgs)) w = Some a)
+      /\ fields_live rest h (S k) (snd tgs) w
+  end.
+Lemma fields_live_frame : forall ts h j (tgs : TagTup ts) A (tag : GoTypeTag A) k v w,
+  k < j -> fields_live ts h j tgs w -> fields_live ts h j tgs (ref_upd (hfield_cell h k tag) v w).
+Proof.
+  induction ts as [ | t rest IH ]; intros h j tgs A tag k v w Hkj Hlive; cbn [fields_live] in *.
+  - exact I.
+  - destruct Hlive as [[a Ha] Hrest]. split.
+    + exists a. rewrite ref_sel_opt_upd_diff; [ exact Ha | rewrite !hfield_cell_loc; lia ].
+    + apply (IH h (S j) (snd tgs) A tag k v w); [ lia | exact Hrest ].
+Qed.
+
 Local Opaque run_io bind ret hfield_get hfield_set ref_sel_opt ref_upd hfield_cell.
 
 Lemma run_write_fields : forall ts h k tgs vls w,
+  fields_live ts h k tgs w ->
   run_io (write_fields ts h k tgs vls) w = ORet tt (wr_fields ts h k tgs vls w).
 Proof.
-  induction ts as [ | t rest IH ]; intros h k tgs vls w; cbn [write_fields wr_fields].
+  induction ts as [ | t rest IH ]; intros h k tgs vls w Hlive; cbn [write_fields wr_fields fields_live] in *.
   - rewrite run_ret. reflexivity.
-  - rewrite run_bind, run_hfield_set. cbn. rewrite IH. reflexivity.
+  - destruct Hlive as [[a Ha] Hrest].
+    rewrite run_bind, (run_hfield_set h k (fst tgs) (fst vls) a w Ha). cbn.
+    rewrite (IH h (S k) (snd tgs) (snd vls) (ref_upd (hfield_cell h k (fst tgs)) (fst vls) w)
+               (fields_live_frame rest h (S k) (snd tgs) t (fst tgs) k (fst vls) w (Nat.lt_succ_diag_r k) Hrest)).
+    reflexivity.
 Qed.
 
 (** Writes at cells [≥ j] leave a cell [k < j] untouched — the field-independence frame. *)
@@ -1276,15 +1317,16 @@ Qed.
 
 (** WHOLE-STRUCT round-trip — a THEOREM, ANY arity: after [assign v], [deref] reconstructs [v]
     EXACTLY ([read_after_wr] recovers the tuple, [sr_eta] reassembles the struct). *)
-Lemma gsptr_deref_assign : forall {R} `{StructRepOf R} (p : GSPtr R) (v : R),
-  bind (gsptr_assign p v) (fun _ => gsptr_deref p) =io=
-  bind (gsptr_assign p v) (fun _ => ret v).
+Lemma gsptr_deref_assign : forall {R} `{StructRepOf R} (p : GSPtr R) (v : R) (w : World),
+  fields_live srep_ts (gsptr_hs p) 0 (sr_tags srep_rep) w ->   (* the struct's field cells are LIVE (from gsptr_new) *)
+  run_io (bind (gsptr_assign p v) (fun _ => gsptr_deref p)) w =
+  run_io (bind (gsptr_assign p v) (fun _ => ret v)) w.
 Proof.
-  intros R Hrep p v. intro w.
+  intros R Hrep p v w Hlive.
   unfold gsptr_assign, gsptr_deref.
-  rewrite run_bind, run_write_fields. cbn.
+  rewrite run_bind, run_write_fields by exact Hlive. cbn.
   rewrite run_bind, read_after_wr. cbn.
-  rewrite run_ret, run_bind, run_write_fields. cbn.
+  rewrite run_ret, run_bind, run_write_fields by exact Hlive. cbn.
   rewrite run_ret, (sr_eta srep_rep v). reflexivity.
 Qed.
 
