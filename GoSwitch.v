@@ -213,14 +213,23 @@ Proof. reflexivity. Qed.
 Example int_switch2_default : forall {B} (k1 k2 d : IO B),
   int_switch2 (9)%i64 (1)%i64 k1 (2)%i64 k2 eq_refl d = d.
 Proof. reflexivity. Qed.
-(** SEAL WITNESS (coqc-checked, non-spoofable): the body APPLIES [int_switch2] with a STRONG
-    distinctness proof [Hd : i64_neqb v1 v2 = true].  It type-checks ONLY IF [int_switch2]'s
-    obligation IS that distinctness — a WEAKENED / removed obligation rejects [Hd], so the body is
-    ill-typed and the build dies.  Coq (not a text grep) judges the strength; the ownership gate
-    only requires this witness (which references [int_switch2]) to exist. *)
-Definition int_switch2_seal_witness {B} (v1 v2 : GoI64) (k1 k2 d : IO B)
-  (Hd : i64_neqb v1 v2 = true) : IO B :=
-  int_switch2 (0)%i64 v1 k1 v2 k2 Hd d.
+(** The distinctness predicates are IRREFLEXIVE — a value is never distinct from itself.  A WEAKENED
+    [i64_neqb]/[str_neqb] (e.g. a constant [true]) makes these unprovable, so the build dies. *)
+Lemma i64_neqb_irrefl : forall v, i64_neqb v v = false.
+Proof. intro v. unfold i64_neqb. now rewrite (proj2 (i64_eqb_spec v v) (eq_refl v)). Qed.
+Lemma str_neqb_irrefl : forall v, str_neqb v v = false.
+Proof. intro v. unfold str_neqb. now rewrite (proj2 (str_eqb_spec v v) (eq_refl v)). Qed.
+
+(** SEAL WITNESS (coqc-checked, non-spoofable): applying [int_switch2] to EQUAL cases [(v, v)]
+    demands its obligation for [(v, v)]; that obligation IS [i64_neqb v v = true], which
+    [i64_neqb_irrefl] proves FALSE — so the hypothesis is contradictory and [int_switch2] provably
+    CANNOT be applied to a duplicate case.  A weakened OBLIGATION rejects the coupling and a weakened
+    [i64_neqb] breaks [i64_neqb_irrefl]; either way this fails to compile.  Judges the OBSERVABLE
+    duplicate-rejection, not just the obligation shape.  The ownership gate requires this witness
+    (which applies [int_switch2]) for every recognized combinator. *)
+Lemma int_switch2_rejects_dup : forall {B} (v : GoI64) (k1 k2 d : IO B) (Hd : i64_neqb v v = true),
+  int_switch2 (0)%i64 v k1 v k2 Hd d = d -> False.
+Proof. intros B v k1 k2 d Hd _. rewrite i64_neqb_irrefl in Hd. discriminate Hd. Qed.
 
 (** N-ary expression switch — three cases here; same generalised plugin arm as
     [int_switch2] (it takes any number of (value, body) pairs). *)
@@ -240,11 +249,12 @@ Proof. reflexivity. Qed.
 Example int_switch3_default : forall {B} (k1 k2 k3 d : IO B),
   int_switch3 (9)%i64 (1)%i64 k1 (2)%i64 k2 (3)%i64 k3 eq_refl d = d.
 Proof. reflexivity. Qed.
-(** SEAL WITNESS for [int_switch3] — see [int_switch2_seal_witness]: applies [int_switch3] with the
-    strong pairwise-distinctness proof, so a weakened obligation makes this ill-typed. *)
-Definition int_switch3_seal_witness {B} (v1 v2 v3 : GoI64) (k1 k2 k3 d : IO B)
-  (Hd : (i64_neqb v1 v2 && i64_neqb v1 v3 && i64_neqb v2 v3)%bool = true) : IO B :=
-  int_switch3 (0)%i64 v1 k1 v2 k2 v3 k3 Hd d.
+(** SEAL WITNESS for [int_switch3] — see [int_switch2_rejects_dup]: applying [int_switch3] to cases
+    [(v, v, v3)] (a duplicate) demands a contradictory obligation ([i64_neqb v v] is false). *)
+Lemma int_switch3_rejects_dup : forall {B} (v v3 : GoI64) (k1 k2 k3 d : IO B)
+  (Hd : (i64_neqb v v && i64_neqb v v3 && i64_neqb v v3)%bool = true),
+  int_switch3 (0)%i64 v k1 v k2 v3 k3 Hd d = d -> False.
+Proof. intros B v v3 k1 k2 k3 d Hd _. rewrite i64_neqb_irrefl in Hd. cbn in Hd. discriminate Hd. Qed.
 
 (** Expression switch on a STRING scrutinee — Go's [switch s { case "a": …; default: … }].
     Same shape as [int_switch2] but the equality is [str_eqb] (byte equality); the plugin
@@ -268,12 +278,11 @@ Proof. reflexivity. Qed.
 Example str_switch2_default : forall {B} (k1 k2 d : IO B),
   str_switch2 "z"%string "a"%string k1 "b"%string k2 eq_refl d = d.
 Proof. reflexivity. Qed.
-(** SEAL WITNESS for [str_switch2] — see [int_switch2_seal_witness]: applies [str_switch2] with a
-    strong [str_neqb v1 v2 = true] proof (Go compares string cases by value; no escaping
-    dependency), so a weakened obligation makes this ill-typed. *)
-Definition str_switch2_seal_witness {B} (v1 v2 : GoString) (k1 k2 d : IO B)
-  (Hd : str_neqb v1 v2 = true) : IO B :=
-  str_switch2 ""%string v1 k1 v2 k2 Hd d.
+(** SEAL WITNESS for [str_switch2] — see [int_switch2_rejects_dup] (Go compares string cases by
+    value; [str_neqb_irrefl] is the byte-equality analogue, no escaping dependency). *)
+Lemma str_switch2_rejects_dup : forall {B} (v : GoString) (k1 k2 d : IO B) (Hd : str_neqb v v = true),
+  str_switch2 ""%string v k1 v k2 Hd d = d -> False.
+Proof. intros B v k1 k2 d Hd _. rewrite str_neqb_irrefl in Hd. discriminate Hd. Qed.
 
 (** N-ary string expression switch (3 cases) — same generalised plugin arm as
     [str_switch2]/[int_switch2]; completes the >2-case coverage for both scrutinee types. *)
@@ -293,7 +302,8 @@ Proof. reflexivity. Qed.
 Example str_switch3_default : forall {B} (k1 k2 k3 d : IO B),
   str_switch3 "z"%string "a"%string k1 "b"%string k2 "c"%string k3 eq_refl d = d.
 Proof. reflexivity. Qed.
-(** SEAL WITNESS for [str_switch3] — see [int_switch2_seal_witness]. *)
-Definition str_switch3_seal_witness {B} (v1 v2 v3 : GoString) (k1 k2 k3 d : IO B)
-  (Hd : (str_neqb v1 v2 && str_neqb v1 v3 && str_neqb v2 v3)%bool = true) : IO B :=
-  str_switch3 ""%string v1 k1 v2 k2 v3 k3 Hd d.
+(** SEAL WITNESS for [str_switch3] — see [int_switch2_rejects_dup]. *)
+Lemma str_switch3_rejects_dup : forall {B} (v v3 : GoString) (k1 k2 k3 d : IO B)
+  (Hd : (str_neqb v v && str_neqb v v3 && str_neqb v v3)%bool = true),
+  str_switch3 ""%string v k1 v k2 v3 k3 Hd d = d -> False.
+Proof. intros B v v3 k1 k2 k3 d Hd _. rewrite str_neqb_irrefl in Hd. cbn in Hd. discriminate Hd. Qed.

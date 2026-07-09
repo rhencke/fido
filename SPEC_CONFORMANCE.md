@@ -160,7 +160,11 @@ to the CFG; control-flow coverage is demo-by-demo, golden-locked).
     the equality is the MODEL's own `i64_eqb`/`str_eqb`, ANY constant case expression is compared by
     VALUE (a folded arithmetic constant `i64_add v1 v2` as readily as a literal) — no rendered text,
     no trusted-rendering dependency. A NON-constant case cannot discharge the proof, so only
-    distinct-constant switches are representable (a proved restriction; `Fail Example`s pin it).
+    distinct-constant switches are representable (a proved restriction). The recognizer that lowers
+    these (`is_val_switch_ref`) is gated to EXACTLY the sealed combinators, each with a coqc
+    `*_rejects_dup` lemma that applies the combinator to EQUAL cases and derives `False` — so the
+    build fails if any obligation weakens, a `neqb` predicate weakens, or an unsealed value-switch is
+    added (`plugin/smart-ctor-gate.sh`).
   · TYPE switch (`GoAny` tag): the case is a rendered type NAME, which cannot be model-sealed
     soundly (it would rest on the trusted tag→Go-type bridge being injective — gap #10), so the
     plugin's type-switch arms keep an emission-level `reject_dup_cases` comparing the actual
