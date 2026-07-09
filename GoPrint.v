@@ -906,13 +906,15 @@ Inductive Token : Type :=
   | TAssign | TDefine | TDefer | TSemi | TPackage.
     (* STATEMENT/PROGRAM tokens.  Roles: [TAssign] ['=']/blank-assign, [TDefine] [':=']/short decl, [TDefer]
        the [defer] keyword, [TSemi] the statement TERMINATOR (Go's ASI at '\n'), [TPackage]/[TFunc] the
-       [package]/[func] keywords.  These are now EMITTED by the LANDED canonical [stmt_tokens]/[program_tokens]
-       (token uniqueness proved: [stmt_tokens_inj]/[program_tokens_inj]).  What is NOT YET built is the LEXER
-       side: the current [lex] rejects a LONE '=' (accepts only '==') so ':=' and '_ = ' fail to lex, and the
-       reserved word 'defer' is rejected — so [lex_gprint_stmt]/[lex_gprint_program] await new lexer arms + an
-       ASI pass, and [stmt_tokens]/[program_tokens] are the TARGET, not proved [lex] output.  That the
-       expression [gtokens] emits none of these is the lemma [gtokens_no_stmt] (its type/operator LEAVES are
-       just below the token functions; the [GExpr] induction is right after the [gtokens] re-fold lemmas). *)
+       [package]/[func] keywords.  These are EMITTED by the LANDED canonical [stmt_tokens]/[program_tokens]
+       (token uniqueness proved: [stmt_tokens_inj]/[program_tokens_inj]).  LEXER side: [lex] ALREADY tokenises
+       the [GsExprStmt]/[GsReturn]/[GsReturnVal] forms — [lex (print_stmt s) = Some (stmt_tokens s)] is PROVED
+       for those three ([lex_print_stmt_exprstmt]/[_return]/[_returnval]) — but NOT the [TAssign]/[TDefine]/
+       [TDefer]/[TSemi]/[TPackage] arms: [lex] rejects a LONE '=' (accepts only '==') so ':=' and '_ = ' fail
+       to lex, and reserved 'defer' is rejected, so [lex_gprint_stmt] on those forms + [lex_gprint_program]'s
+       ASI pass await new lexer arms.  That the expression [gtokens] emits none of these is the lemma
+       [gtokens_no_stmt] (its type/operator LEAVES are just below the token functions; the [GExpr] induction is
+       right after the [gtokens] re-fold lemmas). *)
 
 (** [is_stmt_tok t]: [t] is a STATEMENT/PROGRAM keyword/punctuator that the EXPRESSION token stream
     [gtokens] never emits ([TReturn]/[TAssign]/[TDefine]/[TDefer]/[TSemi]/[TPackage]/[TFunc]).
