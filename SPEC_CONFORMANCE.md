@@ -155,10 +155,11 @@ to the CFG; control-flow coverage is demo-by-demo, golden-locked).
   `==`-chain, first-match-wins) and `GoAny` type switch (`type_switch2`/`3` + or-forms) to native
   Go `switch x {case v:…}` / `switch v:=x.(type){…}`. ✓ DUPLICATE cases are FAIL-CLOSED: the
   plugin's switch/type-switch arms reject a switch whose case values/types collide (a Go
-  "duplicate case" compile error) via `reject_dup_cases`, comparing the ACTUAL emitted case
-  strings (`pp_expr` value / `go_type_of_tag` type) — sound with NO assumption that the trusted
-  tag→Go-type bridge is injective; negtests `neg_int_switch_dup`/`neg_type_switch_dup` pin the
-  abort. (A model-side distinctness obligation was rejected: it would only guarantee distinct
+  "duplicate case" compile error) via `reject_dup_cases`. Keys are by VALUE: a string case by its
+  decoded BYTE list (`decode_go_string` — Go compares string cases by value, so this catches a
+  collision independent of escaping), an int case by its injective decimal, a type case by its
+  emitted `go_type_of_tag` name — sound with NO assumption that the trusted tag→Go-type bridge is
+  injective. Negtests `neg_int_switch_dup`/`neg_str_switch_dup`/`neg_type_switch_dup` pin the abort. (A model-side distinctness obligation was rejected: it would only guarantee distinct
   TAGS and still rest on that unprovable rendering-injectivity boundary — gap #10.) ⚠ coverage is
   BOUNDED (fixed per-arity combinators; scrutinees limited to int64/string/tag). Other control
   flow decomposes through the goto-CFG.

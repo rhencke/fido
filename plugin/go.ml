@@ -4505,8 +4505,16 @@ let pp_io_body ?(ret_val=false) state tab env body =
              let d = List.nth rest (n - 1) in
              let rec chunk = function v :: k :: tl -> (v, k) :: chunk tl | _ -> [] in
              let pairs = chunk (List.filteri (fun i _ -> i < n - 1) rest) in
-             let () = reject_dup_cases "switch"
-                        (List.map (fun (v, _) -> Pp.string_of_ppcmds (pp_expr state env v)) pairs) in
+             (* Duplicate-case key by VALUE, not by rendered text: Go compares expression-switch
+                case CONSTANTS by value, so two string cases with equal bytes collide even if
+                their source escaping differs.  Decode a string case to its exact byte list
+                (the same verified decoder [pp_expr] uses); an int case's decimal rendering is
+                already injective on the value.  Distinct prefixes keep the two kinds apart. *)
+             let case_key v =
+               match decode_go_string v with
+               | Some bytes -> "s:" ^ String.concat "," (List.map string_of_int bytes)
+               | None -> "i:" ^ Pp.string_of_ppcmds (pp_expr state env v) in
+             let () = reject_dup_cases "switch" (List.map (fun (v, _) -> case_key v) pairs) in
              str tab ++ str "switch " ++ scrut ++ str " {" ++ fnl () ++
              prlist (fun (v, k) ->
                str tab ++ str "case " ++ pp_expr state env v ++ str ":" ++ fnl () ++
