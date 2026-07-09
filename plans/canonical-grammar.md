@@ -72,8 +72,29 @@ EXPLICIT DEFERRED FRONTIERS (after the expression arc seals — do NOT expand mi
    arbitrary-suffix determinism lemma) in the "Phase 3b/3c" section below.  `gtokens_inj` (the assembly
    over the per-constructor diagonals + the ~14×13 cross-constructor discrimination) is the crux;
    `canon_expr_unique` follows from it exactly as `canon_ty_unique` follows from `gttokens_ty_inj`.
-4. **CanonStmt/CanonProgram** + the same trio over the statement printer (build the
-   statement `gtokens` analogue + its `lex_gprint_stmt` first, then mirror the expression layer).
+4. **CanonStmt/CanonProgram** (token-level, mirroring the expression layer).  New `Token`
+   constructors: `TAssign` (`=`), `TDefine` (`:=`), `TDefer` (`defer`), `TSemi` (statement
+   separator — the printed `\n`), `TPackage` (`package`).  (`bd`/`fsep`/`infix_op` all have `_`
+   wildcards so these fall through depth-/operator-neutral; `gtokens` is not extracted, so
+   `printer.ml` and the golden stay byte-identical.)  `stmt_tokens : GoStmt -> list Token`
+   (`GsExprStmt e`→`gtokens 0 e`; `GsReturn`→`[TReturn]`; `GsReturnVal e`→`TReturn::gtokens 0 e`;
+   `GsBlankAssign e`→`TId "_"::TAssign::gtokens 0 e`; `GsDefer e`→`TDefer::gtokens 0 e`;
+   `GsShortDecl x e`→`TId x::TDefine::gtokens 0 e`) and `prog_tokens : Program -> list Token`
+   (`TPackage::TId pkg::TFunc::TId "main"::TLP::TRP::TLC::` the `TSemi`-separated body `::TRC::nil`).
+   `stmt_tokens_inj`/`prog_tokens_inj` (foundation: `gtokens_no_stmt` — `is_stmt_tok t = true ->
+   ~ In t (gtokens ctx e)`, one `GExpr_ind'` induction, expressions use only the expression alphabet
+   — then head/`TSemi`-split discrimination + `gtokens_inj`).  Then `CanonStmt : GoStmt -> list
+   Token -> Prop` / `CanonProgram` + `canon_stmt/program_tokens` + `gprint_stmt/program_canonical`
+   + `canon_stmt/program_unique` (from `canon_*_tokens` + `stmt/prog_tokens_inj`).  ★LEXER: extend
+   the SINGLE `lex` (NOT a second `lex_stmt` — a second lexer would violate the one-authority law and
+   is less faithful to Go, which has one lexer with automatic-semicolon-insertion) to recognise
+   `=`/`:=`/`defer`/`package` and emit `TSemi` at `\n` (`\t` skipped like `' '`); this preserves the
+   expression round-trips (expression output has no `\n`/statement tokens, so `lex` on `gprint e` is
+   unchanged) and gives `lex_gprint_stmt`/`lex_gprint_program`.  SEQUENCING (risk-first-last): the
+   token grammar + uniqueness (`stmt_tokens_inj`→`canon_*_unique`) is built FIRST — it needs no lexer;
+   the delicate `lex` extension (on which all of `gtokens_lex`/`gprint_inj` rests) is done LAST, each
+   step re-verifying the expression proofs.  `lex_gprint_program` demotes `print_stmt/program_inj`
+   from string-injectivity to a corollary.
 5. **Re-base the parser as derived tooling**: `parse_sound : parse ts = Some (e, nil)
    -> CanonExpr 0 e ts`, `parse_complete` (its converse via canon_expr_tokens +
    gtokens_parse — legitimate HERE because the parser is the SUBJECT, not the

@@ -894,8 +894,13 @@ Inductive Token : Type :=
   | TPlus | TMinus | TStar | TSlash | TPercent | TAmp | TPipe | TCaret | TBang
   | TShl | TShr | TAndNot | TEq | TNe | TLt | TLe | TGt | TGe | TLand | TLor
   | TLP | TRP | TLB | TRB | TLC | TRC | TComma | TColon | TDot
-  | TFunc | TReturn | TChan | TMap.   (* [chan]/[map] are Go RESERVED WORDS (not [go_ident]s), so they are
+  | TFunc | TReturn | TChan | TMap   (* [chan]/[map] are Go RESERVED WORDS (not [go_ident]s), so they are
                                           dedicated keyword tokens — needed for [chan T] / [map[K]V] types. *)
+  | TAssign | TDefine | TDefer | TSemi | TPackage.
+    (* STATEMENT/PROGRAM tokens (the canonical statement layer): [TAssign] = ['='] (blank-assign [_ = e]),
+       [TDefine] = [':='] (short decl [x := e]), [TDefer] = the [defer] keyword, [TSemi] = the statement
+       SEPARATOR (the printed '\n' between statements), [TPackage] = the [package] keyword.  The expression
+       [gtokens] never emits any of these — expressions use only the expression alphabet. *)
 
 (** scan a maximal run of decimal digits off the head. *)
 Fixpoint scan_digits (s : string) : string * string :=
@@ -8526,6 +8531,21 @@ Fixpoint print_stmts (ss : list GoStmt) : string :=
 Definition print_program (p : Program) : string :=
   ("package " ++ proj1_sig (prog_pkg p) ++ go_nl ++ go_nl ++
    "func main() {" ++ go_nl ++ print_stmts (prog_body p) ++ "}" ++ go_nl)%string.
+
+(** ---- THE CANONICAL STATEMENT TOKENS ---- the statement analogue of [gtokens]: [stmt_tokens s] is the
+    canonical token list of one statement (the tokens its [print_stmt] lexes to).  The blank identifier ['_']
+    is a valid [go_ident], so it tokenises as [TId "_"].  Statement uniqueness ([stmt_tokens_inj]) is then a
+    head/second-token discrimination + [gtokens_inj], the flat-statement analogue of the expression layer. *)
+Definition blank_ident : Ident := exist (fun s => go_ident s = true) "_"%string eq_refl.
+Definition stmt_tokens (s : GoStmt) : list Token :=
+  match s with
+  | GsExprStmt e    => gtokens 0 e
+  | GsReturn        => TReturn :: nil
+  | GsReturnVal e   => TReturn :: gtokens 0 e
+  | GsBlankAssign e => TId blank_ident :: TAssign :: gtokens 0 e
+  | GsDefer e       => TDefer :: gtokens 0 e
+  | GsShortDecl x e => TId x :: TDefine :: gtokens 0 e
+  end.
 
 (** ---- statement/program DISJOINTNESS, PARSER-FREE (Phase 3c): a printed statement keyword form is never
     a printed expression.  The discipline is LEXICAL, not parser-round-trip: [gtokens_lex] says
