@@ -21,8 +21,9 @@
     [print_stmt_inj] / [print_program_inj] survive as the (weaker) STRING-injectivity siblings — there is no
     statement PARSER, so no statement round-trip; the printer-level disjointness lemmas are LEXICAL
     (parser-free).  The executable parser
-    (expression + type) survives ONLY as gated derived self-consistency tooling ([parse_print_roundtrip],
-    [parse_gty_print_ty]) — nothing depends on it.
+    (expression + type) survives as gated DERIVED TOOLING — self-consistency round-trips
+    ([parse_print_roundtrip], [parse_gty_print_ty]) AND completeness against the canonical grammar
+    ([parse_complete] : [CanonExpr 0 e ts -> parse ts = Some (e, nil)]) — nothing certified depends on it.
 
     ⚠️ HONEST SCOPE — these are ROCQ-GRAMMAR self-consistency results, and the executable parser is
     DERIVED TOOLING (CLAUDE.md "Syntax authority"): the authority is the relational/canonical grammar
@@ -34,7 +35,8 @@
     [stmt_tokens_inj], itself resting on [gtokens_no_stmt]), and [canon_program_unique] (program-level, via
     [program_tokens_inj] — the body a [TSemi]-separated statement list split by [semi_free_split]).  So the
     parser IS now demoted below the grammar at the expression layer — [gprint_inj] no longer depends on
-    [parse_print_roundtrip], which is now derived parser SELF-CONSISTENCY tooling (nothing depends on it).  The
+    [parse_print_roundtrip] (derived parser self-consistency) nor on [parse_complete] (the parser proved
+    COMPLETE against [CanonExpr], Phase 5); both are derived tooling nothing certified depends on.  The
     statement/program DISJOINTNESS lemmas ([gprint_neq_return]/[_return_val]/[_blank]/[_defer]/[_shortdecl])
     are also PARSER-FREE now — LEXICAL: a keyword form either fails to [lex] or leads with [TReturn], which no
     expression's tokens do ([gtokens_hd_not_return]).  LEXICAL faithfulness ([lex (print_stmt s) =
@@ -1665,8 +1667,8 @@ Proof. vm_compute; reflexivity. Qed.
     expressions, statements, and whole programs (`canon_ty_unique`/`canon_expr_unique`/`canon_stmt_unique`/
     `canon_program_unique`; and `gprint_inj` rests parser-free on the canonical token functions
     `gtokens_inj`/`gtokens_lex`): so this prose EBNF and the executable parser
-    are both derived views, and [parse_print_roundtrip] is derived parser self-consistency, not the
-    authority.  (Wirth-style:
+    are both derived views — [parse_print_roundtrip] is derived parser self-consistency and [parse_complete]
+    proves the parser COMPLETE against [CanonExpr], but neither is the authority.  (Wirth-style:
     state the grammar, then make the code visibly implement it.)  Notation: [{ x }] = zero-or-more,
     [[ x ]] = optional, ["lit"] = a terminal token, [->] names the AST node a production builds.
 

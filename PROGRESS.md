@@ -104,9 +104,10 @@ plugin CONSTRUCTS the `GExpr`; only `gprint` is verified. NOT "verified Go."
   `gtokens_lex`, TYPE `print_ty_inj` off `gttokens_ty_inj` + `lex_print_ty`, and the statement/program
   DISJOINTNESS lemmas (`gprint_neq_return`/`_return_val`/`_blank`/`_defer`/`_shortdecl`) LEXICALLY
   (`gtokens_hd_not_return` + `lex_*_None`); the six dead `parse_str_*_None`/`parse_TReturn_None` bridges
-  DELETED. No printer-injectivity or disjointness theorem depends on the executable parser; it survives
-  ONLY as gated derived self-consistency tooling (`parse_print_roundtrip`, `parse_gty_print_ty` — nothing
-  depends on either). Phase 4 STATEMENT + PROGRAM canonical layers DONE: `stmt_tokens_inj` (via
+  DELETED. No printer-injectivity or disjointness theorem depends on the executable parser; it survives as
+  gated derived tooling — self-consistency round-trips (`parse_print_roundtrip`, `parse_gty_print_ty`) AND
+  Phase-5 completeness against the grammar (`parse_complete` : `CanonExpr 0 e ts -> parse ts = Some (e, nil)`)
+  — nothing certified depends on any of them. Phase 4 STATEMENT + PROGRAM canonical layers DONE: `stmt_tokens_inj` (via
   `gtokens_no_stmt` — expression tokens are statement-token-free) + the `CanonStmt` trio, and
   `program_tokens_inj` (body a `TSemi`-separated statement list split by `semi_free_split`, since
   `stmt_tokens` is `TSemi`-free) + the `CanonProgram` trio (`canon_program_tokens`/
@@ -116,8 +117,9 @@ plugin CONSTRUCTS the `GExpr`; only `gprint` is verified. NOT "verified Go."
   (`lex_print_stmt_exprstmt`/`_return`/`_returnval`, via `gtokens_lex`/`lex_return`/`lex_return_app`; gated).
   REMAINING (Phase 4/5): the `:=`/`=`/`defer` statement forms (need new lexer arms) and the program-level
   `lex_gprint_program` (a `TPackage`-keyword arm — "package" is a keyword that fails to lex today,
-  `lex_package` — plus an ASI pass emitting `TSemi`), then re-base the executable parser as
-  `parse_sound`/`parse_complete` derived tooling.
+  `lex_package` — plus an ASI pass emitting `TSemi`). Phase 5: `parse_complete` (parser complete for the
+  canonical grammar, `CanonExpr 0 e ts -> parse ts = Some (e, nil)`) LANDED+gated; `parse_sound` remains (⚠
+  likely needs the parser to be canonical-only — it may accept redundant parens — investigate first).
 - The cmd↔unified bridge (`plans/bridge-effects.md`): `CAlloc` AND the channel slice LANDED
   (typed zeros through the channel's own tag, gated obligations; `bridge_effects_agree` now
   exposes capacity agreement publicly). Spawn/select is the deferred capstone (design deferred

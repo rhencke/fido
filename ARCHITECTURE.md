@@ -68,9 +68,10 @@ authority"). It now EXISTS for **types, expressions, statements, and whole progr
 `canon_program_unique` (program-level, via `program_tokens_inj` — the body a `TSemi`-separated statement list
 split by `semi_free_split`). So the authority is now the canonical grammar for types, expressions, statements,
 AND programs: printer injectivity is PARSER-FREE throughout — `gprint_inj` off `gtokens_inj` + `gtokens_lex`,
-`print_ty_inj` off `gttokens_ty_inj` + `lex_print_ty`. The executable parse round-trips
-(`parse_print_roundtrip`, `parse_gty_print_ty`) are DERIVED TOOLING — evidence the parser AGREES with the
-grammar (Rocq-grammar self-consistency), NOT Go-compiler acceptance and NOT the printer-injectivity authority
+`print_ty_inj` off `gttokens_ty_inj` + `lex_print_ty`. The executable parser is DERIVED TOOLING — the
+self-consistency round-trips (`parse_print_roundtrip`, `parse_gty_print_ty`) AND completeness against the
+grammar (`parse_complete` : `CanonExpr 0 e ts -> parse ts = Some (e, nil)`, Phase 5) — evidence the parser
+AGREES with the grammar (Rocq-grammar self-consistency), NOT Go-compiler acceptance and NOT the printer-injectivity authority
 (nothing depends on either now). The statement/program DISJOINTNESS lemmas (`gprint_neq_return`/…) are
 PARSER-FREE too — LEXICAL (a keyword form fails to `lex` or leads with `TReturn`, which no expression's tokens
 do). The STATEMENT and PROGRAM canonical layers are now DONE: `CanonStmt`/`CanonProgram` + their
