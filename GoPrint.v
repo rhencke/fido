@@ -37,9 +37,10 @@
     [parse_print_roundtrip], which is now derived parser SELF-CONSISTENCY tooling (nothing depends on it).  The
     statement/program DISJOINTNESS lemmas ([gprint_neq_return]/[_return_val]/[_blank]/[_defer]/[_shortdecl])
     are also PARSER-FREE now — LEXICAL: a keyword form either fails to [lex] or leads with [TReturn], which no
-    expression's tokens do ([gtokens_hd_not_return]).  Still OPEN: LEXICAL faithfulness at the statement/
-    program level ([lex_gprint_stmt]/[lex_gprint_program], which need new lexer arms for ':='/'='/'defer' —
-    the [stmt_tokens]/[program_tokens] are the INTENDED tokens, not yet proved equal to [lex (print_stmt s)]);
+    expression's tokens do ([gtokens_hd_not_return]).  LEXICAL faithfulness ([lex (print_stmt s) =
+    Some (stmt_tokens s)]) is PROVED for the 3 lex-supported statement forms ([lex_print_stmt_exprstmt]/
+    [_return]/[_returnval]); Still OPEN: the ':='/'='/'defer' statement forms ([GsBlankAssign]/[GsShortDecl]/
+    [GsDefer] — new lexer arms) and the program level [lex_gprint_program] (an ASI pass emitting [TSemi]);
     [print_stmt_inj] / [print_program_inj] remain the weaker STRING-injectivity siblings.
     Nothing here is Go-compiler acceptance.  There is NO theorem that Go's compiler reads the
     emitted text as the same AST (that Go-subset RECOGNITION theorem — emitted grammar ⊆ Go grammar — is
@@ -8678,17 +8679,18 @@ Definition print_program (p : Program) : string :=
 
 (** ---- THE CANONICAL STATEMENT TOKENS ---- the statement analogue of [gtokens]: [stmt_tokens s] is the
     INTENDED canonical token list of one statement and the INTENDED [lex] target
-    ([lex_gprint_stmt] : [lex (print_stmt s) = Some (stmt_tokens s)]) — OPEN, proved for NO form here.
-    Backed lexically SO FAR: an expression lexes to its [gtokens] ([gtokens_lex]) and the bare keyword
-    "return" to [TReturn] ([lex_return]); the [return e] composition is not yet proved, and the
-    [GsBlankAssign]/[GsShortDecl]/[GsDefer] texts currently do NOT [lex] at all — the arms for a lone '=',
-    ':=', and the reserved word 'defer' are NOT YET added (see [lex_blank_None] et al.).  So [lex_gprint_stmt]
-    awaits those new lexer arms (and, at the program level, an ASI pass emitting [TSemi]); [stmt_tokens] is
-    the TARGET, not a proved [lex] output.  The blank identifier ['_'] is a valid [go_ident] (intended
-    [TId "_"]).  Statement UNIQUENESS ([stmt_tokens_inj], just below) is INDEPENDENT of all that — a
-    head/second-token discrimination + [gtokens_inj] (leading [TReturn]/[TDefer]/[TId], then [TAssign]/
-    [TDefine] within the [TId]-led forms; [TSemi] enters only at the program level), holding of [stmt_tokens]
-    as a token FUNCTION, the flat-statement analogue of the expression layer. *)
+    ([lex_gprint_stmt] : [lex (print_stmt s) = Some (stmt_tokens s)]).  That target is PROVED for the three
+    [lex]-supported forms — [GsExprStmt] ([lex_print_stmt_exprstmt], via [gtokens_lex]), [GsReturn]
+    ([lex_print_stmt_return], via [lex_return]), and [GsReturnVal] ([lex_print_stmt_returnval], via
+    [lex_return_app] over [gtokens_lex]) — all just below the disjointness lemmas.  The remaining three
+    ([GsBlankAssign]/[GsShortDecl]/[GsDefer]) do NOT lex yet: the arms for a lone '=', ':=', and the reserved
+    word 'defer' are unbuilt ([lex_blank_None]/[lex_defer]/… prove they currently return [None]), so the FULL
+    [lex_gprint_stmt] (and, at the program level, an ASI pass emitting [TSemi]) awaits that lexer work.  The
+    blank identifier ['_'] is a valid [go_ident] (intended [TId "_"]).  Statement UNIQUENESS
+    ([stmt_tokens_inj], just below) is INDEPENDENT of lexing — a head/second-token discrimination +
+    [gtokens_inj] (leading [TReturn]/[TDefer]/[TId], then [TAssign]/[TDefine] within the [TId]-led forms;
+    [TSemi] enters only at the program level), holding of [stmt_tokens] as a token FUNCTION, the
+    flat-statement analogue of the expression layer. *)
 Definition blank_ident : Ident := exist (fun s => go_ident s = true) "_"%string eq_refl.
 Definition stmt_tokens (s : GoStmt) : list Token :=
   match s with
@@ -9020,6 +9022,21 @@ Proof.
   rewrite (lex_return_app (gprint 0 e1) (gtokens 0 e1) (gtokens_lex e1 0)) in L.
   injection L as L. apply (gtokens_hd_not_return 0 e2). rewrite <- L. reflexivity.
 Qed.
+
+(** LEXICAL FAITHFULNESS ([lex (print_stmt s) = Some (stmt_tokens s)]) for the three [lex]-SUPPORTED
+    statement forms — [lex_gprint_stmt] restricted to the forms the current lexer already handles.  The
+    other three ([GsBlankAssign]/[GsShortDecl]/[GsDefer]) currently lex to [None] ([lex_blank_None]/
+    [lex_defer]/…) — new '='/':='/'defer' arms are required for them (and an ASI pass for the program
+    level), so the FULL [lex_gprint_stmt] awaits that lexer work. *)
+Lemma lex_print_stmt_exprstmt : forall e,
+  lex (print_stmt (GsExprStmt e)) = Some (stmt_tokens (GsExprStmt e)).
+Proof. intro e. exact (gtokens_lex e 0). Qed.
+Lemma lex_print_stmt_return :
+  lex (print_stmt GsReturn) = Some (stmt_tokens GsReturn).
+Proof. exact lex_return. Qed.
+Lemma lex_print_stmt_returnval : forall e,
+  lex (print_stmt (GsReturnVal e)) = Some (stmt_tokens (GsReturnVal e)).
+Proof. intro e. exact (lex_return_app (gprint 0 e) (gtokens 0 e) (gtokens_lex e 0)). Qed.
 
 (** A printed [_ = e] (the [GsBlankAssign] text "_ = " ++ X) does NOT LEX: a LONE '=' fails [lex_op]
     (which accepts only "=="), so [lex ("_ = " ++ X) = None] ([lex_blank_None], decided by the fixed
@@ -9635,6 +9652,9 @@ Print Assumptions program_tokens_inj.
 Print Assumptions canon_program_tokens.
 Print Assumptions gprint_program_canonical.
 Print Assumptions canon_program_unique.
+Print Assumptions lex_print_stmt_exprstmt.
+Print Assumptions lex_print_stmt_return.
+Print Assumptions lex_print_stmt_returnval.
 
 (** Extract the Rocq printers to the OCaml the plugin calls. *)
 Require Import Extraction.

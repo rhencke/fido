@@ -111,10 +111,12 @@ plugin CONSTRUCTS the `GExpr`; only `gprint` is verified. NOT "verified Go."
   `program_tokens_inj` (body a `TSemi`-separated statement list split by `semi_free_split`, since
   `stmt_tokens` is `TSemi`-free) + the `CanonProgram` trio (`canon_program_tokens`/
   `gprint_program_canonical`/`canon_program_unique`), all gated, zero axioms — token-level uniqueness is now
-  PARSER-FREE for types/expressions/statements/programs alike. REMAINING (Phase 4/5): the LEXICAL
-  faithfulness `lex_gprint_stmt`/`lex_gprint_program` (needs new lexer arms for `:=`/`=`/`defer`; the
-  `stmt_tokens`/`program_tokens` are the INTENDED tokens, not yet proved `= lex (print_stmt s)`), then
-  re-base the executable parser as `parse_sound`/`parse_complete` derived tooling.
+  PARSER-FREE for types/expressions/statements/programs alike. LEXICAL faithfulness
+  (`lex (print_stmt s) = Some (stmt_tokens s)`) is PROVED for the 3 lex-supported statement forms
+  (`lex_print_stmt_exprstmt`/`_return`/`_returnval`, via `gtokens_lex`/`lex_return`/`lex_return_app`; gated).
+  REMAINING (Phase 4/5): the `:=`/`=`/`defer` statement forms (need new lexer arms) and the program-level
+  `lex_gprint_program` (an ASI pass emitting `TSemi`), then re-base the executable parser as
+  `parse_sound`/`parse_complete` derived tooling.
 - The cmd↔unified bridge (`plans/bridge-effects.md`): `CAlloc` AND the channel slice LANDED
   (typed zeros through the channel's own tag, gated obligations; `bridge_effects_agree` now
   exposes capacity agreement publicly). Spawn/select is the deferred capstone (design deferred

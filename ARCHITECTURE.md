@@ -75,10 +75,11 @@ grammar (Rocq-grammar self-consistency), NOT Go-compiler acceptance and NOT the 
 PARSER-FREE too — LEXICAL (a keyword form fails to `lex` or leads with `TReturn`, which no expression's tokens
 do). The STATEMENT and PROGRAM canonical layers are now DONE: `CanonStmt`/`CanonProgram` + their
 canonicity/functionality/uniqueness (token uniqueness PARSER-FREE via `stmt_tokens_inj`/`program_tokens_inj`,
-resting on `gtokens_no_stmt`). Still OPEN: LEXICAL faithfulness at the statement/program level
-(`lex_gprint_stmt`/`lex_gprint_program`, needing new lexer arms for `:=`/`=`/`defer` — `stmt_tokens`/
-`program_tokens` are the INTENDED tokens, not yet proved equal to `lex (print_stmt s)`); `print_stmt_inj`/
-`print_program_inj` remain the weaker STRING-injectivity siblings. Purely syntactic.
+resting on `gtokens_no_stmt`). LEXICAL faithfulness (`lex (print_stmt s) = Some (stmt_tokens s)`) is PROVED
+for the 3 lex-supported statement forms (`lex_print_stmt_exprstmt`/`_return`/`_returnval`, via `gtokens_lex`/
+`lex_return`/`lex_return_app`). Still OPEN: the `:=`/`=`/`defer` statement forms (needing new lexer arms) and
+the program level `lex_gprint_program` (an ASI pass emitting `TSemi`); `print_stmt_inj`/`print_program_inj`
+remain the weaker STRING-injectivity siblings. Purely syntactic.
 
 **`GoSem.v` — behavioral bridge from `GoAst` into the existing proof models — SLICE 1.**
 `denote_program : Program -> option (Cmd unit)` bridges into `cmd.v`'s proven command tree
