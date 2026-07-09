@@ -36,7 +36,7 @@ claim stayed the same.
 
 ```text
 GoAst     — this represents a SYNTACTICALLY VALID program (well-formed Go syntax); it may not compile.
-GoPrint   proves printing faithfulness ONLY (parser-free type/expression/statement token uniqueness via the canonical grammar + program print-injectivity).
+GoPrint   proves printing faithfulness ONLY (parser-free type/expression/statement/program token uniqueness via the canonical grammar; string-level print-injectivity siblings too).
 GoCompile — this program WOULD COMPILE: the front-end obligations for the emitted subset (names
           resolve, scopes valid, forms legal, locals used, constants fit).
 GoSem     — the SEMANTICS atop a compilable program: runtime meaning, only for programs GoCompile
@@ -60,23 +60,25 @@ construct gets a constructor; else it is unrepresentable or rejected by the buil
 **`GoPrint.v` — printing + syntax faithfulness (imports `GoAst`).** The intended syntax
 AUTHORITY is the relational/canonical grammar layer (`CanonExpr`-shaped relations +
 `gprint_*_canonical` + `canon_*_unique` + lexical faithfulness — CLAUDE.md "Syntax
-authority"). It now EXISTS for **types, expressions, and statements**: `CanonTy`/`CanonExpr`/`CanonStmt`
-relations, `gprint_expr_canonical`/`gprint_stmt_canonical` (the printer inhabits the grammar),
-`lex_gprint_expr` (lexical faithfulness, expression-level), `canon_ty_unique` (type-level token uniqueness,
-PARSER-FREE via `gttokens_ty_inj`), `canon_expr_unique` (expression-level, via `gtokens_inj`), and
-`canon_stmt_unique` (statement-level token uniqueness, PARSER-FREE via `stmt_tokens_inj`). So the
-authority is now the canonical grammar for types, expressions, AND statements: printer injectivity is
-PARSER-FREE throughout — `gprint_inj` off `gtokens_inj` + `gtokens_lex`, `print_ty_inj` off `gttokens_ty_inj`
-+ `lex_print_ty`. The executable parse round-trips (`parse_print_roundtrip`, `parse_gty_print_ty`) are
-DERIVED TOOLING — evidence the parser AGREES with the grammar (Rocq-grammar self-consistency), NOT
-Go-compiler acceptance and NOT the printer-injectivity authority (nothing depends on either now). The
-statement/program DISJOINTNESS lemmas (`gprint_neq_return`/…) are PARSER-FREE too — LEXICAL (a keyword
-form fails to `lex` or leads with `TReturn`, which no expression's tokens do). The STATEMENT canonical layer
-is now DONE: `CanonStmt` + `canon_stmt_tokens`/`gprint_stmt_canonical`/`canon_stmt_unique` (token uniqueness
-PARSER-FREE via `stmt_tokens_inj`, resting on `gtokens_no_stmt`). Still OPEN: the PROGRAM canonical layer
-(`CanonProgram` + canonicity/uniqueness) and LEXICAL faithfulness at the statement/program level
-(`lex_gprint_stmt`/`lex_gprint_program`, needing new lexer arms); **programs** carry print-INJECTIVITY only
-(`print_program_inj`), as does the string-level `print_stmt_inj`. Purely syntactic.
+authority"). It now EXISTS for **types, expressions, statements, and whole programs**: `CanonTy`/`CanonExpr`/
+`CanonStmt`/`CanonProgram` relations, `gprint_expr_canonical`/`gprint_stmt_canonical`/`gprint_program_canonical`
+(the printer inhabits the grammar), `lex_gprint_expr` (lexical faithfulness, expression-level),
+`canon_ty_unique` (type-level token uniqueness, PARSER-FREE via `gttokens_ty_inj`), `canon_expr_unique`
+(expression-level, via `gtokens_inj`), `canon_stmt_unique` (statement-level, via `stmt_tokens_inj`), and
+`canon_program_unique` (program-level, via `program_tokens_inj` — the body a `TSemi`-separated statement list
+split by `semi_free_split`). So the authority is now the canonical grammar for types, expressions, statements,
+AND programs: printer injectivity is PARSER-FREE throughout — `gprint_inj` off `gtokens_inj` + `gtokens_lex`,
+`print_ty_inj` off `gttokens_ty_inj` + `lex_print_ty`. The executable parse round-trips
+(`parse_print_roundtrip`, `parse_gty_print_ty`) are DERIVED TOOLING — evidence the parser AGREES with the
+grammar (Rocq-grammar self-consistency), NOT Go-compiler acceptance and NOT the printer-injectivity authority
+(nothing depends on either now). The statement/program DISJOINTNESS lemmas (`gprint_neq_return`/…) are
+PARSER-FREE too — LEXICAL (a keyword form fails to `lex` or leads with `TReturn`, which no expression's tokens
+do). The STATEMENT and PROGRAM canonical layers are now DONE: `CanonStmt`/`CanonProgram` + their
+canonicity/functionality/uniqueness (token uniqueness PARSER-FREE via `stmt_tokens_inj`/`program_tokens_inj`,
+resting on `gtokens_no_stmt`). Still OPEN: LEXICAL faithfulness at the statement/program level
+(`lex_gprint_stmt`/`lex_gprint_program`, needing new lexer arms for `:=`/`=`/`defer` — `stmt_tokens`/
+`program_tokens` are the INTENDED tokens, not yet proved equal to `lex (print_stmt s)`); `print_stmt_inj`/
+`print_program_inj` remain the weaker STRING-injectivity siblings. Purely syntactic.
 
 **`GoSem.v` — behavioral bridge from `GoAst` into the existing proof models — SLICE 1.**
 `denote_program : Program -> option (Cmd unit)` bridges into `cmd.v`'s proven command tree

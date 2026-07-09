@@ -16,29 +16,31 @@
     WHAT IS PROVEN: printer injectivity is PARSER-FREE — EXPRESSION [gprint_inj] rests on [gtokens_inj]
     + [gtokens_lex] ([canon_expr_unique] is a SIBLING corollary of [gtokens_inj], not a dependency of
     [gprint_inj]), and TYPE [print_ty_inj] rests on [gttokens_ty_inj] + [lex_print_ty] (NOT the type
-    parser).  STATEMENTS now have a token-level canonical layer too ([CanonStmt] + [canon_stmt_unique] via
-    [stmt_tokens_inj]); whole programs still have STRING print-INJECTIVITY only ([print_program_inj]), as does
-    the string-level [print_stmt_inj] — there is no statement PARSER, so no statement round-trip; the
-    printer-level disjointness lemmas are LEXICAL (parser-free).  The executable parser
+    parser).  STATEMENTS and whole PROGRAMS now have a token-level canonical layer too ([CanonStmt]/
+    [CanonProgram] + [canon_stmt_unique]/[canon_program_unique] via [stmt_tokens_inj]/[program_tokens_inj]);
+    [print_stmt_inj] / [print_program_inj] survive as the (weaker) STRING-injectivity siblings — there is no
+    statement PARSER, so no statement round-trip; the printer-level disjointness lemmas are LEXICAL
+    (parser-free).  The executable parser
     (expression + type) survives ONLY as gated derived self-consistency tooling ([parse_print_roundtrip],
     [parse_gty_print_ty]) — nothing depends on it.
 
     ⚠️ HONEST SCOPE — these are ROCQ-GRAMMAR self-consistency results, and the executable parser is
     DERIVED TOOLING (CLAUDE.md "Syntax authority"): the authority is the relational/canonical grammar
-    layer.  That layer now EXISTS for TYPES, EXPRESSIONS, and STATEMENTS — [CanonTy]/[CanonExpr]/[CanonStmt]
-    relations, [gprint_expr_canonical]/[gprint_stmt_canonical] (the printer inhabits the grammar),
-    [lex_gprint_expr] (lexical faithfulness, expression-level), [canon_ty_unique] (type-level token
-    uniqueness, PARSER-FREE via [gttokens_ty_inj]), [canon_expr_unique] (expression-level, via [gtokens_inj]),
-    and [canon_stmt_unique] (statement-level token uniqueness, PARSER-FREE via [stmt_tokens_inj], itself
-    resting on [gtokens_no_stmt]).  So the parser IS now demoted below the grammar at the expression layer —
-    [gprint_inj] no longer depends on [parse_print_roundtrip], which is now derived parser SELF-CONSISTENCY
-    tooling (nothing depends on it).  The statement/program DISJOINTNESS lemmas ([gprint_neq_return]/
-    [_return_val]/[_blank]/[_defer]/[_shortdecl]) are also PARSER-FREE now — LEXICAL: a keyword form either
-    fails to [lex] or leads with [TReturn], which no expression's tokens do ([gtokens_hd_not_return]).  Still
-    OPEN: the PROGRAM canonical layer ([CanonProgram] + its canonicity/uniqueness) and LEXICAL faithfulness at
-    the statement/program level ([lex_gprint_stmt]/[lex_gprint_program], which need new lexer arms for
-    ':='/'='/'defer'); [print_stmt_inj] / [print_program_inj] remain STRING-injectivity (the TOKEN-level
-    statement uniqueness [canon_stmt_unique] is now separately proven).
+    layer.  That layer now EXISTS for TYPES, EXPRESSIONS, STATEMENTS, and whole PROGRAMS — [CanonTy]/
+    [CanonExpr]/[CanonStmt]/[CanonProgram] relations, [gprint_expr_canonical]/[gprint_stmt_canonical]/
+    [gprint_program_canonical] (the printer inhabits the grammar), [lex_gprint_expr] (lexical faithfulness,
+    expression-level), [canon_ty_unique] (type-level token uniqueness, PARSER-FREE via [gttokens_ty_inj]),
+    [canon_expr_unique] (expression-level, via [gtokens_inj]), [canon_stmt_unique] (statement-level, via
+    [stmt_tokens_inj], itself resting on [gtokens_no_stmt]), and [canon_program_unique] (program-level, via
+    [program_tokens_inj] — the body a [TSemi]-separated statement list split by [semi_free_split]).  So the
+    parser IS now demoted below the grammar at the expression layer — [gprint_inj] no longer depends on
+    [parse_print_roundtrip], which is now derived parser SELF-CONSISTENCY tooling (nothing depends on it).  The
+    statement/program DISJOINTNESS lemmas ([gprint_neq_return]/[_return_val]/[_blank]/[_defer]/[_shortdecl])
+    are also PARSER-FREE now — LEXICAL: a keyword form either fails to [lex] or leads with [TReturn], which no
+    expression's tokens do ([gtokens_hd_not_return]).  Still OPEN: LEXICAL faithfulness at the statement/
+    program level ([lex_gprint_stmt]/[lex_gprint_program], which need new lexer arms for ':='/'='/'defer' —
+    the [stmt_tokens]/[program_tokens] are the INTENDED tokens, not yet proved equal to [lex (print_stmt s)]);
+    [print_stmt_inj] / [print_program_inj] remain the weaker STRING-injectivity siblings.
     Nothing here is Go-compiler acceptance.  There is NO theorem that Go's compiler reads the
     emitted text as the same AST (that Go-subset RECOGNITION theorem — emitted grammar ⊆ Go grammar — is
     UNPROVEN, a SEPARATE Go-syntax recognition gap; Go's toolchain is TRUSTED, ARCHITECTURE §2a item 3 —
@@ -1652,9 +1654,9 @@ Proof. vm_compute; reflexivity. Qed.
     the printer [gprint], and the recursive-descent parser [parse] are three views of this grammar;
     [parse_print_roundtrip] proves printer and parser agree.  The AUTHORITY is the RELATIONAL
     canonical-grammar layer (CanonExpr et al., CLAUDE.md "Syntax authority"), which now EXISTS for types,
-    expressions, and statements (`canon_ty_unique`/`canon_expr_unique`/`canon_stmt_unique`; and `gprint_inj`
-    rests parser-free on the canonical token functions `gtokens_inj`/`gtokens_lex`): so this prose EBNF and
-    the executable parser
+    expressions, statements, and whole programs (`canon_ty_unique`/`canon_expr_unique`/`canon_stmt_unique`/
+    `canon_program_unique`; and `gprint_inj` rests parser-free on the canonical token functions
+    `gtokens_inj`/`gtokens_lex`): so this prose EBNF and the executable parser
     are both derived views, and [parse_print_roundtrip] is derived parser self-consistency, not the
     authority.  (Wirth-style:
     state the grammar, then make the code visibly implement it.)  Notation: [{ x }] = zero-or-more,
@@ -8786,6 +8788,128 @@ Proof.
   apply stmt_tokens_inj. congruence.
 Qed.
 
+(** ---- THE CANONICAL PROGRAM TOKENS ---- the whole-[Program] analogue.  A program prints as
+    [package <pkg>] then [func main() { <body> }]; at the token level Go's ASI inserts a [TSemi] after
+    the package clause and after EACH statement line (the '\n' [print_stmts] emits).  So [stmt_tokens]s are
+    interleaved with [TSemi] terminators ([stmts_tokens]), bracketed by the fixed keyword/punctuator frame.
+    [TSemi] is the statement analogue of [TComma] in the argument lists — and because no [stmt_tokens] list
+    contains a [TSemi] ([stmt_tokens_semi_free], from [gtokens_no_stmt]), it splits the body cleanly. *)
+Definition main_ident : Ident := exist (fun s => go_ident s = true) "main"%string eq_refl.
+Fixpoint stmts_tokens (ss : list GoStmt) : list Token :=
+  match ss with
+  | nil => nil
+  | s :: rest => (stmt_tokens s ++ TSemi :: stmts_tokens rest)%list
+  end.
+Definition program_tokens (p : Program) : list Token :=
+  (TPackage :: TId (prog_pkg p) :: TSemi ::
+   TFunc :: TId main_ident :: TLP :: TRP :: TLC ::
+   (stmts_tokens (prog_body p) ++ TRC :: nil))%list.
+
+(** an expression's tokens never contain [TSemi] ([TSemi] is a statement token; [gtokens] emits none). *)
+Lemma gtokens_semi_free : forall ctx e, Forall (fun t => t <> TSemi) (gtokens ctx e).
+Proof.
+  intros ctx e. rewrite Forall_forall. intros t Hin Hsemi.
+  pose proof (gtokens_no_stmt e ctx) as Hf. rewrite Forall_forall in Hf.
+  specialize (Hf t Hin). subst t. discriminate Hf.
+Qed.
+(** hence a statement's tokens never contain [TSemi] (the explicit keyword tokens are [TReturn]/[TAssign]/
+    [TDefer]/[TDefine]/[TId], none [TSemi]; the rest is [gtokens]). *)
+Lemma stmt_tokens_semi_free : forall s, Forall (fun t => t <> TSemi) (stmt_tokens s).
+Proof.
+  intro s; destruct s; cbn [stmt_tokens];
+    repeat (apply Forall_cons; [ discriminate | ]);
+    first [ apply gtokens_semi_free | apply Forall_nil ].
+Qed.
+(** split a list at its first [TSemi] when both prefixes are [TSemi]-free: prefixes and suffixes match. *)
+Lemma semi_free_split : forall a1 b1 a2 b2,
+  Forall (fun t => t <> TSemi) a1 -> Forall (fun t => t <> TSemi) a2 ->
+  (a1 ++ TSemi :: b1)%list = (a2 ++ TSemi :: b2)%list ->
+  a1 = a2 /\ b1 = b2.
+Proof.
+  induction a1 as [ | x a1 IH ]; intros b1 a2 b2 H1 H2 Heq.
+  - destruct a2 as [ | y a2 ]; cbn [app] in Heq.
+    + split; [ reflexivity | ].
+      apply (f_equal (@tl Token)) in Heq; cbn [tl] in Heq; exact Heq.
+    + exfalso. apply (Forall_inv H2).
+      apply (f_equal (@hd_error Token)) in Heq; cbn [hd_error] in Heq.
+      injection Heq as Heq; symmetry; exact Heq.
+  - destruct a2 as [ | y a2 ]; cbn [app] in Heq.
+    + exfalso. apply (Forall_inv H1).
+      apply (f_equal (@hd_error Token)) in Heq; cbn [hd_error] in Heq.
+      injection Heq as Heq; exact Heq.
+    + assert (Ht := Heq).
+      apply (f_equal (@hd_error Token)) in Heq; cbn [hd_error] in Heq; injection Heq as Hxy.
+      apply (f_equal (@tl Token)) in Ht; cbn [tl] in Ht.
+      destruct (IH b1 a2 b2 (Forall_inv_tail H1) (Forall_inv_tail H2) Ht) as [Ha Hb].
+      subst; split; reflexivity.
+Qed.
+(** the body's [TSemi]-interleaved token list is injective — split off one statement at a time. *)
+Lemma stmts_tokens_inj : forall b1 b2, stmts_tokens b1 = stmts_tokens b2 -> b1 = b2.
+Proof.
+  induction b1 as [ | s1 b1 IH ]; intros b2 Heq.
+  - destruct b2 as [ | s2 b2 ]; [ reflexivity | ].
+    cbn [stmts_tokens] in Heq. symmetry in Heq. apply app_eq_nil in Heq.
+    destruct Heq as [_ Hbad]; discriminate Hbad.
+  - destruct b2 as [ | s2 b2 ].
+    + cbn [stmts_tokens] in Heq. apply app_eq_nil in Heq.
+      destruct Heq as [_ Hbad]; discriminate Hbad.
+    + cbn [stmts_tokens] in Heq.
+      destruct (semi_free_split _ _ _ _ (stmt_tokens_semi_free s1) (stmt_tokens_semi_free s2) Heq)
+        as [Hs Hrest].
+      apply stmt_tokens_inj in Hs. apply IH in Hrest. subst; reflexivity.
+Qed.
+(** [program_tokens] is injective: the package [Ident] sits at a fixed frame position, the body is the
+    [TSemi]-interleaved statement list ([stmts_tokens_inj]) after stripping the trailing [TRC]. *)
+Lemma program_tokens_inj : forall p1 p2, program_tokens p1 = program_tokens p2 -> p1 = p2.
+Proof.
+  intros [pk1 b1] [pk2 b2] Heq. unfold program_tokens in Heq; cbn [prog_pkg prog_body] in Heq.
+  injection Heq as Hpk Hbody.
+  apply app_inj_tail in Hbody. destruct Hbody as [Hbody _].
+  apply stmts_tokens_inj in Hbody. subst pk2; subst b2. reflexivity.
+Qed.
+
+(** ---- THE CANONICAL PROGRAM GRAMMAR ---- [CanonProgram p ts] and its statement-list helper
+    [CanonStmts ss ts], mirroring [CanonStmt]/[CanonExpr]: the printer inhabits it
+    ([gprint_program_canonical]), derivations are token-functional ([canon_program_tokens]), and it is
+    uniquely invertible ([canon_program_unique], via [program_tokens_inj]). *)
+Inductive CanonStmts : list GoStmt -> list Token -> Prop :=
+  | CanStmts0 : CanonStmts nil nil
+  | CanStmts1 : forall s rest ts trest,
+      CanonStmt s ts -> CanonStmts rest trest ->
+      CanonStmts (s :: rest) (ts ++ TSemi :: trest).
+Inductive CanonProgram : Program -> list Token -> Prop :=
+  | CanProg : forall p tb, CanonStmts (prog_body p) tb ->
+      CanonProgram p (TPackage :: TId (prog_pkg p) :: TSemi ::
+                      TFunc :: TId main_ident :: TLP :: TRP :: TLC :: (tb ++ TRC :: nil)).
+
+Lemma canon_stmts_tokens : forall ss ts, CanonStmts ss ts -> ts = stmts_tokens ss.
+Proof.
+  induction 1 as [ | s rest ts trest Hs Hrest IH ]; cbn [stmts_tokens]; [ reflexivity | ].
+  apply canon_stmt_tokens in Hs. subst; reflexivity.
+Qed.
+Lemma canon_program_tokens : forall p ts, CanonProgram p ts -> ts = program_tokens p.
+Proof.
+  intros p ts H; destruct H as [ p tb Hb ]. apply canon_stmts_tokens in Hb.
+  unfold program_tokens. subst; reflexivity.
+Qed.
+Lemma gprint_stmts_canonical : forall ss, CanonStmts ss (stmts_tokens ss).
+Proof.
+  induction ss as [ | s rest IH ]; cbn [stmts_tokens].
+  - apply CanStmts0.
+  - apply CanStmts1; [ apply gprint_stmt_canonical | exact IH ].
+Qed.
+Lemma gprint_program_canonical : forall p, CanonProgram p (program_tokens p).
+Proof.
+  intro p. unfold program_tokens. apply CanProg. apply gprint_stmts_canonical.
+Qed.
+Theorem canon_program_unique : forall p1 p2 ts,
+  CanonProgram p1 ts -> CanonProgram p2 ts -> p1 = p2.
+Proof.
+  intros p1 p2 ts H1 H2.
+  apply canon_program_tokens in H1. apply canon_program_tokens in H2. subst.
+  apply program_tokens_inj. congruence.
+Qed.
+
 (** ---- statement/program DISJOINTNESS, PARSER-FREE (Phase 3c): a printed statement keyword form is never
     a printed expression.  The discipline is LEXICAL, not parser-round-trip: [gtokens_lex] says
     [lex (gprint 0 e) = Some (gtokens 0 e)], so if a [gprint] output equalled a keyword-led string its LEX
@@ -9481,6 +9605,11 @@ Print Assumptions stmt_tokens_inj.
 Print Assumptions canon_stmt_tokens.
 Print Assumptions gprint_stmt_canonical.
 Print Assumptions canon_stmt_unique.
+Print Assumptions stmts_tokens_inj.
+Print Assumptions program_tokens_inj.
+Print Assumptions canon_program_tokens.
+Print Assumptions gprint_program_canonical.
+Print Assumptions canon_program_unique.
 
 (** Extract the Rocq printers to the OCaml the plugin calls. *)
 Require Import Extraction.

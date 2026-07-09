@@ -106,13 +106,15 @@ plugin CONSTRUCTS the `GExpr`; only `gprint` is verified. NOT "verified Go."
   (`gtokens_hd_not_return` + `lex_*_None`); the six dead `parse_str_*_None`/`parse_TReturn_None` bridges
   DELETED. No printer-injectivity or disjointness theorem depends on the executable parser; it survives
   ONLY as gated derived self-consistency tooling (`parse_print_roundtrip`, `parse_gty_print_ty` — nothing
-  depends on either). Phase 4 STATEMENT layer DONE: `stmt_tokens_inj` (via `gtokens_no_stmt` — expression
-  tokens are statement-token-free) + the `CanonStmt` trio (`canon_stmt_tokens`/`gprint_stmt_canonical`/
-  `canon_stmt_unique`), all gated, zero axioms — token-level statement uniqueness is now PARSER-FREE.
-  REMAINING (Phase 4/5): the PROGRAM canonical layer (`program_tokens`/`program_tokens_inj` + `CanonProgram`
-  + `gprint_program_canonical`/`canon_program_unique`), the LEXICAL faithfulness `lex_gprint_stmt/program`
-  (needs new lexer arms for `:=`/`=`/`defer`), then re-base the executable parser as
-  `parse_sound`/`parse_complete` derived tooling.
+  depends on either). Phase 4 STATEMENT + PROGRAM canonical layers DONE: `stmt_tokens_inj` (via
+  `gtokens_no_stmt` — expression tokens are statement-token-free) + the `CanonStmt` trio, and
+  `program_tokens_inj` (body a `TSemi`-separated statement list split by `semi_free_split`, since
+  `stmt_tokens` is `TSemi`-free) + the `CanonProgram` trio (`canon_program_tokens`/
+  `gprint_program_canonical`/`canon_program_unique`), all gated, zero axioms — token-level uniqueness is now
+  PARSER-FREE for types/expressions/statements/programs alike. REMAINING (Phase 4/5): the LEXICAL
+  faithfulness `lex_gprint_stmt`/`lex_gprint_program` (needs new lexer arms for `:=`/`=`/`defer`; the
+  `stmt_tokens`/`program_tokens` are the INTENDED tokens, not yet proved `= lex (print_stmt s)`), then
+  re-base the executable parser as `parse_sound`/`parse_complete` derived tooling.
 - The cmd↔unified bridge (`plans/bridge-effects.md`): `CAlloc` AND the channel slice LANDED
   (typed zeros through the channel's own tag, gated obligations; `bridge_effects_agree` now
   exposes capacity agreement publicly). Spawn/select is the deferred capstone (design deferred
