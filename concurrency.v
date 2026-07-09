@@ -4183,19 +4183,22 @@ Section Keystone.
 
   (** A WRITE step: the deep [CWrite] run-reduces to its continuation at the world
       after [ref_upd], the heap match holding by [ref_sel_upd_same] — mirroring
-      [rstep_write].  (No precondition: a write overwrites unconditionally.) *)
+      [rstep_write].  Precondition [WHMatch1 l w] (the cell is LIVE, [ref_sel_opt = Some]): a Go write
+      targets an ALLOCATED variable, and the guarded [ref_set] proceeds only through such a cell. *)
   Lemma denote_sim_write : forall p b h lv tr tid l v k m w,
     Denotes (CWrite l v k) m ->
+    WHMatch1 l w (mkRCfg p b h lv tr) ->
     exists m',
       Denotes k m' /\
       run_io m w = run_io m' (ref_upd (locenv l) (inj v) w) /\
       WHMatch1 l (ref_upd (locenv l) (inj v) w)
               (mkRCfg (upd p tid k) b (upd h l v) lv (tr ++ [mkEv tid (KWrite l)])).
   Proof.
-    intros p b h lv tr tid l v k m w HD.
+    intros p b h lv tr tid l v k m w HD HM.
+    unfold WHMatch1 in HM; cbn [rc_heap] in HM.
     inversion HD as [| | | l0 v0 k0 m' HDk Hl Hm | ]; subst.
     exists m'. split; [exact HDk | split].
-    - rewrite run_bind, (run_ref_set (locenv l) (inj v) w). cbn. reflexivity.
+    - rewrite run_bind, (run_ref_set_some (locenv l) (inj v) (inj (h l)) w HM). cbn. reflexivity.
     - unfold WHMatch1. cbn [rc_heap]. rewrite upd_same, ref_sel_opt_upd_same. reflexivity.
   Qed.
 
@@ -4405,7 +4408,7 @@ Section Keystone.
     - (* recv — impossible *) rewrite Hp in HOL. inversion HOL.
     - (* write *)
       rewrite Hp in HOL, HD. inversion HOL as [| v' k' HVv HOLk |]; subst l1.
-      destruct (denote_sim_write p b h lv tr 0 l v k m w HD) as [m' [HDk' [Hrun' HM']]].
+      destruct (denote_sim_write p b h lv tr 0 l v k m w HD HM) as [m' [HDk' [Hrun' HM']]].
       unfold SimInvMem; cbn [rc_prog rc_live]; rewrite upd_same.
       split; [exact HOLk | split; [| split; [| split]]].
       + intros t Ht. rewrite (upd_other _ _ _ _ Ht). exact (Hidle t Ht).
@@ -4539,11 +4542,12 @@ Proof. intros A m m' H. apply functional_extensionality. exact H. Qed.
       is preserved (post value [inj v], mirroring [upd h l v l = v]).  Mirrors [denote_sim_write]
       but over the genuine *T deref [ptr_set]. *)
   Lemma ptr_write_sim : forall l v h w,
+    PHMatch l w h ->               (* the cell is LIVE pre-write — so the guarded [ptr_set] proceeds *)
     run_io (ptr_set TI64 (ptrenv l) (inj v)) w = ORet tt (ref_upd (plocenv l) (inj v) w)
     /\ PHMatch l (ref_upd (plocenv l) (inj v) w) (upd h l v).
   Proof.
-    intros l v h w. split.
-    - rewrite ptr_set_is_ref, run_ref_set. reflexivity.
+    intros l v h w HM. split.
+    - rewrite ptr_set_is_ref. exact (run_ref_set_some (plocenv l) (inj v) (inj (h l)) w HM).
     - unfold PHMatch. rewrite upd_same, ref_sel_opt_upd_same. reflexivity.
   Qed.
 
@@ -5138,16 +5142,17 @@ Section MpTyped.
     bind (recv TI64 (chenv 0)) (fun rcvd =>
     bind (ptr_get TI64 (ptrenv 0)) (fun pv => ret (rcvd, pv))))).
 
-  Lemma mp_handoff_delivers : forall v0 v1 w0,
+  Lemma mp_handoff_delivers : forall v0 v1 w0 a0,
+    ref_sel_opt (ptr_as_ref TI64 (ptrenv 0)) w0 = Some a0 ->  (* the handoff pointer's cell is LIVE *)
     chan_buf TI64 (chenv 0) w0 = [] ->
     chan_closed (chenv 0) w0 = false ->
     chan_cap (chenv 0) w0 = None ->
     exists w', run_io (mp_handoff_io v0 v1) w0 = ORet (inj v1, inj v0) w'.
   Proof.
-    intros v0 v1 w0 Hbuf Hcl Hcap. unfold mp_handoff_io.
+    intros v0 v1 w0 a0 Hpre Hbuf Hcl Hcap. unfold mp_handoff_io.
     assert (Hroom : chan_room TI64 (chenv 0) w0 = true)
       by (unfold chan_room; rewrite (chenv_live 0), Hcap; reflexivity).
-    rewrite run_bind, run_ptr_set, ptrenv_live; cbv beta iota.
+    rewrite run_bind, (ptr_set_nonnil TI64 (ptrenv 0) (inj v0) a0 w0 (ptrenv_live 0) Hpre); cbv beta iota.
     rewrite run_bind, run_send by (first [ exact Hcl | exact Hroom ]); cbv beta iota.
     rewrite run_bind, (run_recv TI64 (chenv 0) (inj v1) (@nil GoI64))
       by (rewrite chan_buf_send by apply chenv_live; rewrite chan_buf_ref_upd_frame, Hbuf; reflexivity); cbv beta iota.
@@ -5760,7 +5765,7 @@ Theorem mp_end_to_end :
     (forall c, chan_buf TI64 (chenv c) w0 = []) ->
     chan_closed (chenv 0) w0 = false ->
     chan_cap (chenv 0) w0 = None ->          (* the handoff channel is UNBOUNDED *)
-    (forall l, ref_sel (plocenv ptrenv l) w0 = inj 0) ->
+    (forall l, ref_sel_opt (plocenv ptrenv l) w0 = Some (inj 0)) ->   (* the memory cells are ALLOCATED (live) *)
     exists cfg,
       (* (a) the typed program EXECUTES, generating the canonical handoff trace *)
       rsteps (mp_init v0 v1) cfg
@@ -5793,11 +5798,11 @@ Proof.
   { assert (Hinit : WState chenv (plocenv ptrenv) inj w0 (mp_init v0 v1)).
     { split.
       - intro c. unfold rchan, mp_init; cbn [rc_bufs]. rewrite Hbuf. reflexivity.
-      - intro l. unfold mp_init; cbn [rc_heap]. exact (Hheap l). }
+      - intro l. unfold mp_init; cbn [rc_heap]. exact (ref_sel_of_opt (plocenv ptrenv l) (inj 0) w0 (Hheap l)). }
     destruct (wstate_steps chenv (plocenv ptrenv) inj Hchen Hloc Hchlive
                 (mp_init v0 v1) cfg w0 Hsteps Hinit) as [w HW].
     exists w. exact HW. }
-  exact (mp_handoff_delivers chenv ptrenv inj Hlive Hchlive v0 v1 w0 (Hbuf 0) Hcl Hcap).
+  exact (mp_handoff_delivers chenv ptrenv inj Hlive Hchlive v0 v1 w0 (inj 0) (Hheap 0) (Hbuf 0) Hcl Hcap).
 Qed.
 
 (** ============================================================================
