@@ -910,8 +910,16 @@ Inductive Token : Type :=
     [TChan]/[TMap] are TYPE keywords (freely emitted by [gttokens_ty]) — NOT statement tokens. *)
 Definition is_stmt_tok (t : Token) : bool :=
   match t with
+  (* statement / program keywords the EXPRESSION token stream never emits *)
   | TReturn | TAssign | TDefine | TDefer | TSemi | TPackage | TFunc => true
-  | _ => false
+  (* every token the expression/type grammar DOES emit — ENUMERATED, no catch-all, so a NEW
+     [Token] constructor forces an explicit classification here (fail-closed trust boundary)
+     instead of silently defaulting to non-statement. *)
+  | TId _ | TInt _ | TStr _ | THex _
+  | TPlus | TMinus | TStar | TSlash | TPercent | TAmp | TPipe | TCaret | TBang
+  | TShl | TShr | TAndNot | TEq | TNe | TLt | TLe | TGt | TGe | TLand | TLor
+  | TLP | TRP | TLB | TRB | TLC | TRC | TComma | TColon | TDot
+  | TChan | TMap => false
   end.
 
 (** scan a maximal run of decimal digits off the head. *)
