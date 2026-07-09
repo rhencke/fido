@@ -513,6 +513,17 @@ Proof.
   intros A tag w ch w' HV Hrun Hcl. eexists.
   apply run_close; [ apply (make_chan_nonzero tag w ch w' HV Hrun) | exact Hcl ].
 Qed.
+(** CAPACITY FAITHFULNESS: a freshly-made buffered channel stores the requested capacity [Some n].  The
+    [w_next <> 0] the read-back needs (now that [chan_cap] reads a nil handle as [None]) is FORCED by
+    [ValidWorld] — the allocator never mints the reserved sentinel — not left as a free side condition. *)
+Lemma make_chan_buf_caps : forall {A} (tag : GoTypeTag A) (n : GoInt) (w : World) ch w',
+  ValidWorld w -> run_io (make_chan_buf tag n) w = ORet ch w' -> chan_cap ch w' = Some (Z.to_nat (intraw n)).
+Proof.
+  intros A tag n w ch w' HV H.
+  assert (Hnz : Nat.eqb (w_next w) 0 = false) by (apply pos_neq0, (valid_fresh_nonzero w HV)).
+  unfold make_chan_buf, make_chan_cap, run_io in H.
+  injection H as Hch Hw. subst ch w'. unfold chan_cap. cbn. rewrite Hnz, Nat.eqb_refl. reflexivity.
+Qed.
 
 (** ALIASING — the defining pointer property, a THEOREM: two pointers at the SAME
     location ([p] and a copy [q]) see each other's writes.  A write through [q] is

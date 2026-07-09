@@ -78,8 +78,10 @@ Definition make_chan_buf {A : Type} (tag : GoTypeTag A) (n : GoInt) : IO (GoChan
 (** The channel STATE accessors treat the NIL sentinel ([ch_loc = 0]) as having NO cell: a nil channel
     reads as canonically EMPTY / OPEN / no-capacity, and NEVER trusts whatever [w_chans 0] happens to hold.
     [ValidWorld] reserves location 0, but the public [mkWorld]/[MkChan] constructors could FORGE a cell
-    there; the guard makes a forged loc-0 cell UNOBSERVABLE, so every nil-channel operation ([recv]/[send]/
-    [select]) fails loud on the canonical empty/open state instead of reading fabricated data. *)
+    there; the guard makes a forged loc-0 cell UNOBSERVABLE.  So a nil channel is canonically NEVER-READY
+    (empty + open): [recv]/[send] FAIL LOUD (Go blocks forever), and a [select] case on a nil channel NEVER
+    FIRES — the other cases or a [default] run instead, and a select blocks (fails loud) only when EVERY case
+    is blocked.  No operation ever acts on fabricated loc-0 data. *)
 Definition chan_buf {A : Type} (tag : GoTypeTag A) (ch : GoChan A) (w : World) : list A :=
   if Nat.eqb (ch_loc ch) 0 then nil
   else match w_chans w (ch_loc ch) with
@@ -336,6 +338,18 @@ Lemma select_default_open_empty :
     chan_buf ta ch w = nil -> chan_closed ch w = false ->
     select_recv_default ta ch k1 d w = d w.
 Proof. intros A C ta ch k1 d w He Hc. unfold select_recv_default. rewrite He, Hc. reflexivity. Qed.
+(** NIL-CHANNEL SELECT (witnesses, hold in ANY world incl. a forged one): a [select] case on a nil channel
+    is NEVER READY, so it never fires from fabricated loc-0 data.  With a [default] the default runs; with no
+    default and every case nil, the select fails loud (blocks).  (A nil case is skipped, NOT a loud failure
+    in itself — only an all-blocked select fails loud.) *)
+Lemma select_default_nil :
+  forall {A C} (ta : GoTypeTag A) (k1 : A -> IO C) (d : IO C) (w : World),
+    select_recv_default ta (MkChan 0) k1 d w = d w.
+Proof. reflexivity. Qed.
+Lemma select_recv2_nil_blocks :
+  forall {A B C} (ta : GoTypeTag A) (k1 : A -> IO C) (tb : GoTypeTag B) (k2 : B -> IO C) (w : World),
+    select_recv2 ta (MkChan 0) k1 tb (MkChan 0) k2 w = OPanic rt_select_block w.
+Proof. reflexivity. Qed.
 
 (** ── Select as SENTINEL + goto ──
     [select] factors into a runtime WAIT that returns WHICH case fired plus a pure CFG DISPATCH
@@ -557,19 +571,11 @@ Proof.
   rewrite (chan_buf_send tag ch v w (chan_room_nonnil tag ch w Hroom)), Hempty. reflexivity.
 Qed.
 
-(** [make_chan_buf n] STORES the capacity [Some n]; [make_chan] is UNBUFFERED [Some 0], so an
-    IO send to a freshly-made unbuffered channel FAILS LOUD ([rt_chan_send_block]) — Go blocks
-    pending a receiver — rather than silently over-appending.  (The buffered [send]-then-[recv]
-    path carries [chan_room = true].) *)
-(** The freshly-allocated location is non-nil ([w_next <> 0], a [ValidWorld] property: the allocator never
-    hands out the reserved sentinel) — required now that [chan_cap] reads a nil handle as canonically [None]. *)
-Lemma make_chan_buf_caps : forall {A} (tag : GoTypeTag A) (n : GoInt) (w : World) ch w',
-  Nat.eqb (w_next w) 0 = false ->
-  run_io (make_chan_buf tag n) w = ORet ch w' -> chan_cap ch w' = Some (Z.to_nat (intraw n)).
-Proof.
-  intros A tag n w ch w' Hnz H. unfold make_chan_buf, make_chan_cap, run_io in H.
-  injection H as Hch Hw. subst ch w'. unfold chan_cap. cbn. rewrite Hnz, Nat.eqb_refl. reflexivity.
-Qed.
+(** [make_chan] is UNBUFFERED ([Some 0]), so an IO send to a freshly-made unbuffered channel FAILS LOUD
+    ([rt_chan_send_block]) — Go blocks pending a receiver — rather than silently over-appending.
+    (The capacity-faithfulness witness [make_chan_buf_caps], and the fresh-handle-is-non-nil witness
+    [make_chan_nonzero], live in [GoHeap.v] where [ValidWorld] FORCES the allocator's [w_next <> 0]
+    — the honest home for allocation reasoning, alongside [ptr_new_nonzero]/[map_make_typed_nonzero].) *)
 Lemma make_chan_unbuffered_send_blocks : forall {A} (tag : GoTypeTag A) (v : A) (w : World) ch w',
   run_io (make_chan tag) w = ORet ch w' -> run_io (send tag ch v) w' = OPanic rt_chan_send_block w'.
 Proof.
