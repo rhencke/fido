@@ -910,9 +910,11 @@ Inductive Token : Type :=
        (token uniqueness proved: [stmt_tokens_inj]/[program_tokens_inj]).  LEXER side: [lex] ALREADY tokenises
        the [GsExprStmt]/[GsReturn]/[GsReturnVal] forms — [lex (print_stmt s) = Some (stmt_tokens s)] is PROVED
        for those three ([lex_print_stmt_exprstmt]/[_return]/[_returnval]) — but NOT the [TAssign]/[TDefine]/
-       [TDefer]/[TSemi]/[TPackage] arms: [lex] rejects a LONE '=' (accepts only '==') so ':=' and '_ = ' fail
-       to lex, and reserved 'defer' is rejected, so [lex_gprint_stmt] on those forms + [lex_gprint_program]'s
-       ASI pass await new lexer arms.  That the expression [gtokens] emits none of these is the lemma
+       [TDefer]/[TSemi]/[TPackage] arms: [lex] rejects a LONE '=' (accepts only '==') so [TAssign] ('_ = ') and
+       [TDefine] (':=') fail, 'defer' and 'package' are [go_keyword]s so [lex_ident] returns [None] on them (no
+       [TDefer]/[TPackage]), and [TSemi] needs an ASI pass — so [lex_gprint_stmt] on the ':='/'='/'defer'
+       forms + [lex_gprint_program]'s [TPackage] arm + ASI await new lexer arms.  That the expression
+       [gtokens] emits none of these is the lemma
        [gtokens_no_stmt] (its type/operator LEAVES are just below the token functions; the [GExpr] induction is
        right after the [gtokens] re-fold lemmas). *)
 
@@ -8810,11 +8812,13 @@ Qed.
     by [TSemi] ([stmts_tokens]) — then [TRC; TSemi].  [TSemi] is the statement analogue of [TComma] in the
     argument lists; because no [stmt_tokens] list contains a [TSemi] ([stmt_tokens_semi_free], from
     [gtokens_no_stmt]) it splits the body cleanly.
-    ⚠ [lex] already emits [TFunc] (a reserved word via [lex_ident]), but NOT [TPackage] ("package" lexes as a
-    plain [TId]) nor [TSemi] (no ASI), and it rejects the [:=]/[=]/[defer] statement forms; so a full
-    [lex_gprint_program] still needs a [TPackage]-keyword arm + an ASI pass emitting [TSemi] + the [:=]/[=]/
-    [defer] arms.  Until then [program_tokens] is the TARGET those must hit, NOT a proved [lex] output; the
-    uniqueness results below hold of [program_tokens] as a token FUNCTION regardless of that open work. *)
+    ⚠ [lex] already emits [TFunc] (a reserved word via [lex_ident]), but NOT [TPackage] ("package" is a
+    [go_keyword], so [lex_ident "package" = None] and the program text in fact FAILS to lex at its very first
+    token today — [lex_package]) nor [TSemi] (no ASI), and it rejects the [:=]/[=]/[defer]
+    statement forms; so a full [lex_gprint_program] still needs a [TPackage]-keyword arm in [lex_ident] + an
+    ASI pass emitting [TSemi] + the [:=]/[=]/[defer] arms.  Until then [program_tokens] is the TARGET those
+    must hit, NOT a proved [lex] output; the uniqueness results below hold of [program_tokens] as a token
+    FUNCTION regardless of that open work. *)
 Definition main_ident : Ident := exist (fun s => go_ident s = true) "main"%string eq_refl.
 Fixpoint stmts_tokens (ss : list GoStmt) : list Token :=
   match ss with
@@ -9067,6 +9071,21 @@ Proof.
   rewrite (lex_eq_id "d"%char ("efer " ++ X)%string "defer"%string (String " "%char X)
              eq_refl eq_refl (scan_id_defer X)).
   rewrite lex_ident_defer. reflexivity.
+Qed.
+(** ["package"] is a [go_keyword] too, so [lex_ident "package" = None] and a program's printed text FAILS
+    to lex at its very first token — [lex_gprint_program] needs a [TPackage]-keyword arm.  (Mirrors the
+    [defer] proof.) *)
+Lemma scan_id_package : forall X, scan_id ("package " ++ X)%string = ("package"%string, (" " ++ X)%string).
+Proof. intro X. reflexivity. Qed.
+Lemma lex_ident_package : lex_ident "package" = None.
+Proof. reflexivity. Qed.
+Lemma lex_package : forall X, lex ("package " ++ X)%string = None.
+Proof.
+  intro X.
+  change ("package " ++ X)%string with (String "p"%char ("ackage " ++ X))%string.
+  rewrite (lex_eq_id "p"%char ("ackage " ++ X)%string "package"%string (String " "%char X)
+             eq_refl eq_refl (scan_id_package X)).
+  rewrite lex_ident_package. reflexivity.
 Qed.
 Lemma gprint_neq_defer : forall e1 e2, gprint 0 e2 <> ("defer " ++ gprint 0 e1)%string.
 Proof.
