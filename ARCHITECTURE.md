@@ -60,10 +60,11 @@ construct gets a constructor; else it is unrepresentable or rejected by the buil
 **`GoPrint.v` — printing + syntax faithfulness (imports `GoAst`).** The intended syntax
 AUTHORITY is the relational/canonical grammar layer (`CanonExpr`-shaped relations +
 `gprint_*_canonical` + `canon_*_unique` + lexical faithfulness — CLAUDE.md "Syntax
-authority"). It now EXISTS for **types and expressions**: `CanonTy`/`CanonExpr` relations,
-`gprint_expr_canonical` (the printer inhabits the grammar), `lex_gprint_expr` (lexical
-faithfulness), `canon_ty_unique` (type-level token uniqueness, PARSER-FREE via `gttokens_ty_inj`),
-and `canon_expr_unique` (expression-level token uniqueness, PARSER-FREE via `gtokens_inj`). So the
+authority"). It now EXISTS for **types, expressions, and statements**: `CanonTy`/`CanonExpr`/`CanonStmt`
+relations, `gprint_expr_canonical`/`gprint_stmt_canonical` (the printer inhabits the grammar),
+`lex_gprint_expr` (lexical faithfulness, expression-level), `canon_ty_unique` (type-level token uniqueness,
+PARSER-FREE via `gttokens_ty_inj`), `canon_expr_unique` (expression-level, via `gtokens_inj`), and
+`canon_stmt_unique` (statement-level token uniqueness, PARSER-FREE via `stmt_tokens_inj`). So the
 authority is now the canonical grammar for types, expressions, AND statements: printer injectivity is
 PARSER-FREE throughout — `gprint_inj` off `gtokens_inj` + `gtokens_lex`, `print_ty_inj` off `gttokens_ty_inj`
 + `lex_print_ty`. The executable parse round-trips (`parse_print_roundtrip`, `parse_gty_print_ty`) are

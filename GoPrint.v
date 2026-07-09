@@ -1651,9 +1651,10 @@ Proof. vm_compute; reflexivity. Qed.
 (** ---- THE GRAMMAR (EBNF, prose) ---- the language GoPrint lexes, parses, and prints.  The AST below,
     the printer [gprint], and the recursive-descent parser [parse] are three views of this grammar;
     [parse_print_roundtrip] proves printer and parser agree.  The AUTHORITY is the RELATIONAL
-    canonical-grammar layer (CanonExpr et al., CLAUDE.md "Syntax authority"), which now EXISTS for types
-    and expressions (`canon_ty_unique`/`canon_expr_unique`; and `gprint_inj` rests parser-free on the
-    canonical token functions `gtokens_inj`/`gtokens_lex`): so this prose EBNF and the executable parser
+    canonical-grammar layer (CanonExpr et al., CLAUDE.md "Syntax authority"), which now EXISTS for types,
+    expressions, and statements (`canon_ty_unique`/`canon_expr_unique`/`canon_stmt_unique`; and `gprint_inj`
+    rests parser-free on the canonical token functions `gtokens_inj`/`gtokens_lex`): so this prose EBNF and
+    the executable parser
     are both derived views, and [parse_print_roundtrip] is derived parser self-consistency, not the
     authority.  (Wirth-style:
     state the grammar, then make the code visibly implement it.)  Notation: [{ x }] = zero-or-more,
