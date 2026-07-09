@@ -903,13 +903,15 @@ Inductive Token : Type :=
   | TFunc | TReturn | TChan | TMap   (* [chan]/[map] are Go RESERVED WORDS (not [go_ident]s), so they are
                                           dedicated keyword tokens — needed for [chan T] / [map[K]V] types. *)
   | TAssign | TDefine | TDefer | TSemi | TPackage.
-    (* STATEMENT/PROGRAM tokens for the coming canonical statement layer — their INTENDED roles ([TAssign]
-       ['=']/blank-assign, [TDefine] [':=']/short decl, [TDefer] the [defer] keyword, [TSemi] the statement
-       separator (Go's ASI at '\n'), [TPackage] the [package] keyword) are design intent; the lexer arms
-       that produce them are NOT YET added (the current [lex] rejects a LONE '=' — it accepts only '==' —
-       so ':=' and '_ = ' fail to lex, and the reserved word 'defer' is rejected).  That the expression
-       [gtokens] emits none of them is the lemma [gtokens_no_stmt] (its type/operator LEAVES are just
-       below the token functions; the [GExpr] induction is right after the [gtokens] re-fold lemmas). *)
+    (* STATEMENT/PROGRAM tokens.  Roles: [TAssign] ['=']/blank-assign, [TDefine] [':=']/short decl, [TDefer]
+       the [defer] keyword, [TSemi] the statement TERMINATOR (Go's ASI at '\n'), [TPackage]/[TFunc] the
+       [package]/[func] keywords.  These are now EMITTED by the LANDED canonical [stmt_tokens]/[program_tokens]
+       (token uniqueness proved: [stmt_tokens_inj]/[program_tokens_inj]).  What is NOT YET built is the LEXER
+       side: the current [lex] rejects a LONE '=' (accepts only '==') so ':=' and '_ = ' fail to lex, and the
+       reserved word 'defer' is rejected — so [lex_gprint_stmt]/[lex_gprint_program] await new lexer arms + an
+       ASI pass, and [stmt_tokens]/[program_tokens] are the TARGET, not proved [lex] output.  That the
+       expression [gtokens] emits none of these is the lemma [gtokens_no_stmt] (its type/operator LEAVES are
+       just below the token functions; the [GExpr] induction is right after the [gtokens] re-fold lemmas). *)
 
 (** [is_stmt_tok t]: [t] is a STATEMENT/PROGRAM keyword/punctuator that the EXPRESSION token stream
     [gtokens] never emits ([TReturn]/[TAssign]/[TDefine]/[TDefer]/[TSemi]/[TPackage]/[TFunc]).
@@ -8675,14 +8677,18 @@ Definition print_program (p : Program) : string :=
    "func main() {" ++ go_nl ++ print_stmts (prog_body p) ++ "}" ++ go_nl)%string.
 
 (** ---- THE CANONICAL STATEMENT TOKENS ---- the statement analogue of [gtokens]: [stmt_tokens s] is the
-    INTENDED canonical token list of one statement.  ⚠ NOT yet connected to [lex] — [lex_gprint_stmt]
-    ([lex (print_stmt s) = Some (stmt_tokens s)]) is FORTHCOMING and needs new lexer arms: the current [lex]
-    already tokenises the [GsExprStmt]/[GsReturn]/[GsReturnVal] forms, but CANNOT tokenise the
-    [GsBlankAssign]/[GsShortDecl]/[GsDefer] forms (it rejects a lone '=', ':=', and 'defer').  The blank
-    identifier ['_'] is a valid [go_ident], so it is intended to tokenise as [TId "_"].  Statement uniqueness
-    ([stmt_tokens_inj], just below) is a head/second-token discrimination + [gtokens_inj] (leading
-    [TReturn]/[TDefer]/[TId], then [TAssign]/[TDefine] within the [TId]-led forms; [TSemi] enters only at the
-    program level), the flat-statement analogue of the expression layer. *)
+    INTENDED canonical token list of one statement and the INTENDED [lex] target
+    ([lex_gprint_stmt] : [lex (print_stmt s) = Some (stmt_tokens s)]) — OPEN, proved for NO form here.
+    Backed lexically SO FAR: an expression lexes to its [gtokens] ([gtokens_lex]) and the bare keyword
+    "return" to [TReturn] ([lex_return]); the [return e] composition is not yet proved, and the
+    [GsBlankAssign]/[GsShortDecl]/[GsDefer] texts currently do NOT [lex] at all — the arms for a lone '=',
+    ':=', and the reserved word 'defer' are NOT YET added (see [lex_blank_None] et al.).  So [lex_gprint_stmt]
+    awaits those new lexer arms (and, at the program level, an ASI pass emitting [TSemi]); [stmt_tokens] is
+    the TARGET, not a proved [lex] output.  The blank identifier ['_'] is a valid [go_ident] (intended
+    [TId "_"]).  Statement UNIQUENESS ([stmt_tokens_inj], just below) is INDEPENDENT of all that — a
+    head/second-token discrimination + [gtokens_inj] (leading [TReturn]/[TDefer]/[TId], then [TAssign]/
+    [TDefine] within the [TId]-led forms; [TSemi] enters only at the program level), holding of [stmt_tokens]
+    as a token FUNCTION, the flat-statement analogue of the expression layer. *)
 Definition blank_ident : Ident := exist (fun s => go_ident s = true) "_"%string eq_refl.
 Definition stmt_tokens (s : GoStmt) : list Token :=
   match s with
