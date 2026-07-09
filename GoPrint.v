@@ -902,8 +902,8 @@ Inductive Token : Type :=
        separator (Go's ASI at '\n'), [TPackage] the [package] keyword) are design intent; the lexer arms
        that produce them are NOT YET added (the current [lex] rejects a LONE '=' — it accepts only '==' —
        so ':=' and '_ = ' fail to lex, and the reserved word 'defer' is rejected).  That the expression
-       [gtokens] emits none of them is the lemma [gtokens_no_stmt] (its type/operator LEAVES are
-       proved just below the token functions; the [GExpr] induction is FORTHCOMING). *)
+       [gtokens] emits none of them is the lemma [gtokens_no_stmt] (its type/operator LEAVES are just
+       below the token functions; the [GExpr] induction is right after the [gtokens] re-fold lemmas). *)
 
 (** [is_stmt_tok t]: [t] is a STATEMENT/PROGRAM keyword/punctuator that the EXPRESSION token stream
     [gtokens] never emits ([TReturn]/[TAssign]/[TDefine]/[TDefer]/[TSemi]/[TPackage]/[TFunc]).
@@ -3448,6 +3448,103 @@ Proof.
                                         match m with nil => nil | q :: m' => let (k', v') := q in (TComma :: (gtokens 0 k' ++ TColon :: (gtokens 0 v' ++ gtp m')))%list end) r))%list
                          end) ++ TRC :: nil))%list.
   destruct kvs as [ | [k v] r ]; [ reflexivity | rewrite gtp_eq; reflexivity ].
+Qed.
+
+(** ---- [gtokens_no_stmt]: the EXPRESSION token stream never contains a STATEMENT token ----
+    The head-token discriminator for [stmt_tokens_inj] / [CanonStmt] (a statement's leading keyword or
+    ['=']/[':=']/';' can never begin inside an expression's canonical tokens).  Its type/operator LEAVES
+    ([gttokens_ty_stmt_free], [op_token_not_stmt], [prefix_token_not_stmt]) are above; the remaining work is
+    the [GExpr] induction, routed through the same [gtparen]/[gtokens_args]/[gtokens_pairs] re-fold lemmas
+    the canonical proof uses.  [gtparen] and the arg/pair helpers factor the paren-wrap and comma-joined
+    sublists so the main induction stays one line per constructor. *)
+Lemma gtparen_stmt_free : forall e0,
+  (forall ctx, Forall (fun t => is_stmt_tok t = false) (gtokens ctx e0)) ->
+  Forall (fun t => is_stmt_tok t = false) (gtparen e0).
+Proof.
+  intros e0 IH. unfold gtparen. destruct (op_needs_paren e0).
+  - apply Forall_cons; [ reflexivity | ].
+    apply Forall_app; split; [ apply IH | apply Forall_cons; [ reflexivity | apply Forall_nil ] ].
+  - apply IH.
+Qed.
+Lemma gtokens_args_tl_stmt_free : forall args,
+  Forall (fun a => forall ctx, Forall (fun t => is_stmt_tok t = false) (gtokens ctx a)) args ->
+  Forall (fun t => is_stmt_tok t = false) (gtokens_args_tl args).
+Proof.
+  induction 1 as [ | a m Ha Hm IH ]; [ apply Forall_nil | ].
+  cbn [gtokens_args_tl]. apply Forall_cons; [ reflexivity | ].
+  apply Forall_app; split; [ apply Ha | exact IH ].
+Qed.
+Lemma gtokens_args_stmt_free : forall args,
+  Forall (fun a => forall ctx, Forall (fun t => is_stmt_tok t = false) (gtokens ctx a)) args ->
+  Forall (fun t => is_stmt_tok t = false) (gtokens_args args).
+Proof.
+  intros args H. destruct H as [ | a m Ha Hm ]; [ apply Forall_nil | ].
+  cbn [gtokens_args]. apply Forall_app; split;
+    [ apply Ha | apply gtokens_args_tl_stmt_free; exact Hm ].
+Qed.
+Lemma gtokens_pairs_tl_stmt_free : forall kvs,
+  Forall (fun p => (forall ctx, Forall (fun t => is_stmt_tok t = false) (gtokens ctx (fst p)))
+                /\ (forall ctx, Forall (fun t => is_stmt_tok t = false) (gtokens ctx (snd p)))) kvs ->
+  Forall (fun t => is_stmt_tok t = false) (gtokens_pairs_tl kvs).
+Proof.
+  induction 1 as [ | [k v] m [Hk Hv] Hm IH ]; [ apply Forall_nil | ].
+  cbn [gtokens_pairs_tl]. apply Forall_cons; [ reflexivity | ].
+  apply Forall_app; split; [ apply Hk | ].
+  apply Forall_cons; [ reflexivity | ].
+  apply Forall_app; split; [ apply Hv | exact IH ].
+Qed.
+Lemma gtokens_pairs_stmt_free : forall kvs,
+  Forall (fun p => (forall ctx, Forall (fun t => is_stmt_tok t = false) (gtokens ctx (fst p)))
+                /\ (forall ctx, Forall (fun t => is_stmt_tok t = false) (gtokens ctx (snd p)))) kvs ->
+  Forall (fun t => is_stmt_tok t = false) (gtokens_pairs kvs).
+Proof.
+  intros kvs H. destruct H as [ | [k v] m [Hk Hv] Hm ]; [ apply Forall_nil | ].
+  cbn [gtokens_pairs]. apply Forall_app; split; [ apply Hk | ].
+  apply Forall_cons; [ reflexivity | ].
+  apply Forall_app; split; [ apply Hv | apply gtokens_pairs_tl_stmt_free; exact Hm ].
+Qed.
+
+(** Discharge a "[gtokens] stream is statement-free" goal: peel [++]/[::], close each leaf against the
+    literal-token / [op_token] / [prefix_token] / [gttokens_ty] / [gtparen] / arg-list / pair-list facts,
+    and apply an operand IH (any [forall ctx, Forall _ (gtokens ctx x)] hypothesis) at its leaf. *)
+Local Ltac stmtfree_tac :=
+  repeat
+    first
+      [ apply Forall_nil
+      | (apply Forall_app; split)
+      | apply gttokens_ty_stmt_free
+      | apply gtparen_stmt_free
+      | apply gtokens_args_stmt_free
+      | apply gtokens_pairs_stmt_free
+      | (apply Forall_cons;
+           [ first [ reflexivity | apply op_token_not_stmt | apply prefix_token_not_stmt ] | ])
+      | match goal with
+        | H : forall _, Forall _ (gtokens _ ?x) |- Forall _ (gtokens ?c ?x) => apply (H c)
+        end
+      | assumption ].
+
+Lemma gtokens_no_stmt : forall e ctx,
+  Forall (fun t => is_stmt_tok t = false) (gtokens ctx e).
+Proof.
+  induction e as [ i | z | o e IHe | o l IHl r IHr | e0 IHe0 f
+                 | e0 IHe0 i IHi | e0 IHe0 lo IHlo hi IHhi | e0 IHe0 args IHargs
+                 | e0 IHe0 T | c0 ec0 IHec0 | slt sles IHsles | mkt mvt mkvs IHmkvs
+                 | sv | hz ] using GExpr_ind'; intro ctx.
+  - cbn [gtokens]; stmtfree_tac.                                  (* EId *)
+  - cbn [gtokens]; stmtfree_tac.                                  (* EInt *)
+  - rewrite gtokens_EUn; apply Forall_cons; [ apply prefix_token_not_stmt | ];
+      destruct (unop_paren o e); stmtfree_tac.                    (* EUn *)
+  - cbn [gtokens]; destruct (Nat.ltb (binop_prec o) ctx); stmtfree_tac.  (* EBn *)
+  - rewrite gtokens_ESel; stmtfree_tac.                           (* ESel *)
+  - rewrite gtokens_EIndex; stmtfree_tac.                         (* EIndex *)
+  - rewrite gtokens_ESlice; stmtfree_tac.                         (* ESlice *)
+  - rewrite gtokens_ECall; stmtfree_tac.                          (* ECall *)
+  - rewrite gtokens_EAssert; stmtfree_tac.                        (* EAssert *)
+  - rewrite gtokens_EConv; stmtfree_tac.                          (* EConv *)
+  - rewrite gtokens_ESliceLit; stmtfree_tac.                      (* ESliceLit *)
+  - rewrite gtokens_EMapLit; stmtfree_tac.                        (* EMapLit *)
+  - cbn [gtokens]; stmtfree_tac.                                  (* EStr *)
+  - cbn [gtokens]; stmtfree_tac.                                  (* EHex *)
 Qed.
 
 (** [op_token] right-inverts the parser's ONLY token→op classifier [infix_op] (prefix ops have no
