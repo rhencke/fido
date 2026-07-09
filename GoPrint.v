@@ -9377,6 +9377,7 @@ Print Assumptions gtokens_inj_econv_row.
 Print Assumptions gtokens_inj_ebn_row.
 Print Assumptions gtokens_inj.
 Print Assumptions canon_expr_unique.
+Print Assumptions gtokens_no_stmt.
 
 (** Extract the Rocq printers to the OCaml the plugin calls. *)
 Require Import Extraction.
