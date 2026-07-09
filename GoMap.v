@@ -77,9 +77,13 @@ Definition map_make {K V : Type} : IO (GoMap K V) :=
     [K' -> option V']) to the caller's [K -> option V] view (equal by construction,
     [tag_eq] recovers the proofs).  Each update REWRITES the cell with the caller's
     tags, so a read round-trips via [tag_eq_refl] (just as for channels). *)
+(** A NIL map ([gm_loc = 0]) reads as the ZERO value for EVERY key (Go's nil-map read), NEVER trusting a
+    forged cell at the reserved location 0 — the read-side dual of the [map_write] nil guard below.  The
+    public [mkWorld]/[MkMap] constructors could fabricate a loc-0 cell; this guard makes it unobservable. *)
 Definition map_get_fn {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
                        (m : GoMap K V) (w : World) : K -> option V :=
-  match w_maps w (gm_loc m) with
+  if Nat.eqb (gm_loc m) 0 then (fun _ => None)
+  else match w_maps w (gm_loc m) with
   | Some (_, existT _ _ (kt', existT _ _ (vt', f))) =>
       match tag_eq kt kt', tag_eq vt vt' with
       | Some pk, Some pv =>
@@ -111,7 +115,8 @@ Definition map_sel {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
    do their +1/-1 bookkeeping here.  [map_size] is the Go-facing [len(m)] — the same count widened to
    the [Z]-carried [GoInt]. *)
 Definition map_count {K V} (m : GoMap K V) (w : World) : nat :=
-  match w_maps w (gm_loc m) with Some (sz, _) => sz | None => 0 end.
+  if Nat.eqb (gm_loc m) 0 then 0   (* [len] of a nil map is 0 — never read a forged loc-0 cell's size *)
+  else match w_maps w (gm_loc m) with Some (sz, _) => sz | None => 0 end.
 Definition map_size {K V} (m : GoMap K V) (w : World) : GoInt :=
   intwrap (Z.of_nat (map_count m w)).
 Definition map_upd {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
@@ -252,13 +257,15 @@ Proof.
   - exfalso. apply Hne. symmetry. apply Hcmp. exact E.
   - reflexivity.
 Qed.
+(** Reading a NIL map ([map_empty = MkMap 0]) gives [None] for every key in ANY world [w] — even one
+    forging a cell at location 0.  The nil guard in [map_get_fn] makes [w_maps 0] unobservable, so this is
+    the map read-side anti-forgery witness (the dual of the [map_write] nil no-op). *)
 Theorem map_sel_empty : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (w : World),
-  w_maps w 0 = None ->
   map_sel kt vt k (@map_empty K V) w = None.
-Proof.
-  intros K V kt vt k w Hw. unfold map_sel, map_get_fn, map_empty. cbn.
-  rewrite Hw. reflexivity.
-Qed.
+Proof. reflexivity. Qed.
+(** [len] of a nil map is 0 in ANY world — the [map_count] nil guard ignores a forged loc-0 cell's size. *)
+Theorem map_size_empty : forall {K V} (w : World), map_size (@map_empty K V) w = intwrap 0%Z.
+Proof. reflexivity. Qed.
 
 (** GET-AFTER-WRITE laws — THEOREMS, derived from the heap interface. *)
 (** A comparable key is self-equal under [key_eqb] (the [_same]/[_rem] side
@@ -295,13 +302,12 @@ Proof.
   rewrite run_ret. reflexivity.
 Qed.
 
-(** Reading the empty (nil) map gives [None] — in a world where its location is
-    unallocated (Go's nil map reads the zero value for every key). *)
+(** Reading the nil map gives [None] in ANY world (Go's nil map reads the zero value for every key) —
+    the guard in [map_get_fn] holds even against a forged loc-0 cell. *)
 Lemma map_get_empty : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (w : World),
-  w_maps w 0 = None ->
   run_io (@map_get_opt K V kt vt k map_empty) w = ORet None w.
 Proof.
-  intros K V kt vt k w Hw. rewrite run_map_get_opt, map_sel_empty by exact Hw. reflexivity.
+  intros K V kt vt k w. rewrite run_map_get_opt, map_sel_empty. reflexivity.
 Qed.
 
 (** Setting key [k2] leaves the read at a different key [k1] unchanged — on a NON-NIL map (a nil map
