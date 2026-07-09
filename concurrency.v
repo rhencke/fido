@@ -4145,8 +4145,8 @@ Section Keystone.
     exists m'. split; [exact HDk | split].
     - rewrite run_bind, (run_send TI64 (chenv c) (inj v) w Hclosed Hroom). cbn. reflexivity.
     - unfold WMatch1, rchan in *. cbn [rc_bufs] in *. rewrite upd_same. split.
-      + rewrite (chan_buf_send TI64 (chenv c) (inj v) w), HMbuf, !map_app. cbn. reflexivity.
-      + rewrite (chan_cap_send TI64 (chenv c) (inj v) w). exact HMcap.
+      + rewrite (chan_buf_send TI64 (chenv c) (inj v) w (chenv_live c)), HMbuf, !map_app. cbn. reflexivity.
+      + rewrite (chan_cap_send TI64 (chenv c) (inj v) w (chenv_live c)). exact HMcap.
   Qed.
 
   (** A RECV step: the deep [CRecv] run-reduces by BINDING the head value; [Hret]
@@ -4172,8 +4172,8 @@ Section Keystone.
     - rewrite run_bind, (run_recv TI64 (chenv c) (inj v) (map inj (map fst brest)) w Hbuf).
       cbn. reflexivity.
     - unfold WMatch1, rchan. cbn [rc_bufs]. rewrite upd_same. split.
-      + rewrite (chan_buf_recv TI64 (chenv c) (inj v) (map inj (map fst brest)) w Hbuf). reflexivity.
-      + rewrite (chan_cap_recv TI64 (chenv c) w). exact HMcap.
+      + rewrite (chan_buf_recv TI64 (chenv c) (inj v) (map inj (map fst brest)) w (chenv_live c) Hbuf). reflexivity.
+      + rewrite (chan_cap_recv TI64 (chenv c) w (chenv_live c)). exact HMcap.
   Qed.
 
   (* World <-> config on one location [l]: the IO ref's value is the calculus heap
@@ -4279,7 +4279,7 @@ Section Keystone.
         apply Forall_app. split; [exact HVb | repeat constructor; exact HVv].
       + exists m', (chan_send_upd TI64 (chenv c) (inj v) w).
         split; [exact HDk' | split; [exact HM' | split]].
-        * rewrite (chan_closed_send TI64 (chenv c) (inj v) w). exact Hcl.
+        * rewrite (chan_closed_send TI64 (chenv c) (inj v) w (chenv_live c)). exact Hcl.
         * rewrite Hrun. exact Hrun'.
     - (* recv *)
       rewrite Hp in HOC, HD. inversion HOC as [| | f' HOCf]; subst c1.
@@ -4299,7 +4299,7 @@ Section Keystone.
         rewrite Hbc in HVb. cbn in HVb. exact (Forall_inv_tail HVb).
       + exists m', (chan_recv_upd TI64 (chenv c) w).
         split; [exact HDk' | split; [exact HM' | split]].
-        * rewrite (chan_closed_recv TI64 (chenv c) w). exact Hcl.
+        * rewrite (chan_closed_recv TI64 (chenv c) w (chenv_live c)). exact Hcl.
         * rewrite Hrun. exact Hrun'.
     - (* write — impossible under OnChan *)
       rewrite Hp in HOC. inversion HOC.
@@ -5150,7 +5150,7 @@ Section MpTyped.
     rewrite run_bind, run_ptr_set, ptrenv_live; cbv beta iota.
     rewrite run_bind, run_send by (first [ exact Hcl | exact Hroom ]); cbv beta iota.
     rewrite run_bind, (run_recv TI64 (chenv 0) (inj v1) (@nil GoI64))
-      by (rewrite chan_buf_send, chan_buf_ref_upd_frame, Hbuf; reflexivity); cbv beta iota.
+      by (rewrite chan_buf_send by apply chenv_live; rewrite chan_buf_ref_upd_frame, Hbuf; reflexivity); cbv beta iota.
     rewrite run_bind, run_ptr_get, ptrenv_live; cbv beta iota.
     unfold plocenv; rewrite ref_sel_opt_chan_recv_upd, ref_sel_opt_chan_send_upd, ref_sel_opt_upd_same;
       cbv beta iota.
@@ -5187,6 +5187,9 @@ Section KeystoneMulti.
   Variable chenv : nat -> GoChan GoI64.
   Variable inj : nat -> GoI64.
   Hypothesis chenv_inj : forall i j, chenv i = chenv j -> i = j.
+  (* the multi-channel environment is ALLOCATED (non-nil) — needed for the guarded [chan_buf_send]/
+     [chan_buf_recv]/[chan_closed_*] read-back laws (a nil write is a no-op). *)
+  Hypothesis chenv_live : forall c, Nat.eqb (ch_loc (chenv c)) 0 = false.
 
   Definition WMatchC (w : World) (cfg : RConfig) : Prop :=
     forall c, chan_buf TI64 (chenv c) w = map inj (rchan cfg c).
@@ -5215,7 +5218,7 @@ Section KeystoneMulti.
       exists (chan_send_upd TI64 (chenv c0) (inj v) w).
       intros c. specialize (HM c). unfold WMatchC, rchan in *; cbn [rc_bufs] in *.
       destruct (Nat.eq_dec c c0) as [->|Hne].
-      + rewrite upd_same, chan_buf_send, HM, !map_app. cbn. reflexivity.
+      + rewrite upd_same, chan_buf_send, HM, !map_app by apply chenv_live. cbn. reflexivity.
       + rewrite (upd_other _ _ _ _ Hne),
           (chan_buf_send_frame TI64 (chenv c0) (chenv c) (inj v) w
              (chenv_neq c0 c (not_eq_sym Hne))).
@@ -5227,7 +5230,7 @@ Section KeystoneMulti.
       intros c. specialize (HM c). unfold WMatchC, rchan in *; cbn [rc_bufs] in *.
       destruct (Nat.eq_dec c c0) as [->|Hne].
       + rewrite upd_same,
-          (chan_buf_recv TI64 (chenv c0) (inj v) (map inj (map fst brest)) w Hbuf).
+          (chan_buf_recv TI64 (chenv c0) (inj v) (map inj (map fst brest)) w (chenv_live c0) Hbuf).
         reflexivity.
       + rewrite (upd_other _ _ _ _ Hne),
           (chan_buf_recv_frame TI64 (chenv c0) (chenv c) w
@@ -5249,7 +5252,7 @@ Section KeystoneMulti.
       intros c. specialize (HM c). unfold WMatchC, rchan in *; cbn [rc_bufs] in *.
       destruct (Nat.eq_dec c c0) as [->|Hne].
       + rewrite upd_same,
-          (chan_buf_recv TI64 (chenv c0) (inj v) (map inj (map fst brest)) w Hbuf).
+          (chan_buf_recv TI64 (chenv c0) (inj v) (map inj (map fst brest)) w (chenv_live c0) Hbuf).
         reflexivity.
       + rewrite (upd_other _ _ _ _ Hne),
           (chan_buf_recv_frame TI64 (chenv c0) (chenv c) w
@@ -5443,6 +5446,8 @@ Section KeystoneState.
   Variable inj : nat -> GoI64.
   Hypothesis chenv_inj : forall i j, chenv i = chenv j -> i = j.
   Hypothesis locenv_loc_inj : forall i j, r_loc (locenv i) = r_loc (locenv j) -> i = j.
+  (* the channel environment is ALLOCATED (non-nil) — the guarded channel read-back laws demand it. *)
+  Hypothesis chenv_live : forall c, Nat.eqb (ch_loc (chenv c)) 0 = false.
 
   Lemma kst_chenv_neq : forall i j, i <> j -> chenv i <> chenv j.
   Proof. intros i j Hij Heq. apply Hij, chenv_inj, Heq. Qed.
@@ -5470,7 +5475,7 @@ Section KeystoneState.
     - (* send: channel world advances; heap untouched and refs framed through chan_send_upd *)
       exists (chan_send_upd TI64 (chenv c0) (inj v) w). split.
       + unfold WMatchC, rchan; cbn [rc_bufs]; intros c. destruct (Nat.eq_dec c c0) as [->|Hne].
-        * rewrite upd_same, chan_buf_send, (HMc c0), !map_app. cbn. reflexivity.
+        * rewrite upd_same, chan_buf_send, (HMc c0), !map_app by apply chenv_live. cbn. reflexivity.
         * rewrite (upd_other _ _ _ _ Hne),
             (chan_buf_send_frame TI64 (chenv c0) (chenv c) (inj v) w (kst_chenv_neq c0 c (not_eq_sym Hne))).
           exact (HMc c).
@@ -5480,7 +5485,7 @@ Section KeystoneState.
         by (rewrite (HMc c0); cbn [rc_bufs]; rewrite Hbc; reflexivity).
       exists (chan_recv_upd TI64 (chenv c0) w). split.
       + unfold WMatchC, rchan; cbn [rc_bufs]; intros c. destruct (Nat.eq_dec c c0) as [->|Hne].
-        * rewrite upd_same, (chan_buf_recv TI64 (chenv c0) (inj v) (map inj (map fst brest)) w Hbuf).
+        * rewrite upd_same, (chan_buf_recv TI64 (chenv c0) (inj v) (map inj (map fst brest)) w (chenv_live c0) Hbuf).
           reflexivity.
         * rewrite (upd_other _ _ _ _ Hne),
             (chan_buf_recv_frame TI64 (chenv c0) (chenv c) w (kst_chenv_neq c0 c (not_eq_sym Hne))).
@@ -5505,7 +5510,7 @@ Section KeystoneState.
         by (rewrite (HMc c0); cbn [rc_bufs]; rewrite Hbc; reflexivity).
       exists (chan_recv_upd TI64 (chenv c0) w). split.
       + unfold WMatchC, rchan; cbn [rc_bufs]; intros c. destruct (Nat.eq_dec c c0) as [->|Hne].
-        * rewrite upd_same, (chan_buf_recv TI64 (chenv c0) (inj v) (map inj (map fst brest)) w Hbuf).
+        * rewrite upd_same, (chan_buf_recv TI64 (chenv c0) (inj v) (map inj (map fst brest)) w (chenv_live c0) Hbuf).
           reflexivity.
         * rewrite (upd_other _ _ _ _ Hne),
             (chan_buf_recv_frame TI64 (chenv c0) (chenv c) w (kst_chenv_neq c0 c (not_eq_sym Hne))).
@@ -5600,7 +5605,7 @@ Section KeystoneState.
     - (* send *)
       exists (chan_send_upd TI64 (chenv c0) (inj v) w). split; [|split].
       + unfold WMatchC, rchan; cbn [rc_bufs]; intros c. destruct (Nat.eq_dec c c0) as [->|Hne].
-        * rewrite upd_same, chan_buf_send, (HMc c0), !map_app. cbn. reflexivity.
+        * rewrite upd_same, chan_buf_send, (HMc c0), !map_app by apply chenv_live. cbn. reflexivity.
         * rewrite (upd_other _ _ _ _ Hne),
             (chan_buf_send_frame TI64 (chenv c0) (chenv c) (inj v) w (kst_chenv_neq c0 c (not_eq_sym Hne))).
           exact (HMc c).
@@ -5608,7 +5613,7 @@ Section KeystoneState.
       + unfold WClosedMatch; cbn [rc_trace]; intros c1. rewrite closedb_app.
         replace (closedb (mkEv tid (KSend c0) :: nil) c1) with false by reflexivity.
         rewrite Bool.orb_false_r. destruct (Nat.eq_dec c1 c0) as [->|Hne].
-        * rewrite chan_closed_send. exact (HMcl c0).
+        * rewrite chan_closed_send by apply chenv_live. exact (HMcl c0).
         * rewrite (chan_closed_send_frame TI64 (chenv c0) (chenv c1) (inj v) w (kst_chenv_neq c0 c1 (not_eq_sym Hne))).
           exact (HMcl c1).
     - (* recv *)
@@ -5616,7 +5621,7 @@ Section KeystoneState.
         by (rewrite (HMc c0); cbn [rc_bufs]; rewrite Hbc; reflexivity).
       exists (chan_recv_upd TI64 (chenv c0) w). split; [|split].
       + unfold WMatchC, rchan; cbn [rc_bufs]; intros c. destruct (Nat.eq_dec c c0) as [->|Hne].
-        * rewrite upd_same, (chan_buf_recv TI64 (chenv c0) (inj v) (map inj (map fst brest)) w Hbuf). reflexivity.
+        * rewrite upd_same, (chan_buf_recv TI64 (chenv c0) (inj v) (map inj (map fst brest)) w (chenv_live c0) Hbuf). reflexivity.
         * rewrite (upd_other _ _ _ _ Hne),
             (chan_buf_recv_frame TI64 (chenv c0) (chenv c) w (kst_chenv_neq c0 c (not_eq_sym Hne))).
           exact (HMc c).
@@ -5624,7 +5629,7 @@ Section KeystoneState.
       + unfold WClosedMatch; cbn [rc_trace]; intros c1. rewrite closedb_app.
         replace (closedb (mkEv tid (KRecv c0 s) :: nil) c1) with false by reflexivity.
         rewrite Bool.orb_false_r. destruct (Nat.eq_dec c1 c0) as [->|Hne].
-        * rewrite chan_closed_recv. exact (HMcl c0).
+        * rewrite chan_closed_recv by apply chenv_live. exact (HMcl c0).
         * rewrite (chan_closed_recv_frame TI64 (chenv c0) (chenv c1) w (kst_chenv_neq c0 c1 (not_eq_sym Hne))).
           exact (HMcl c1).
     - (* write *)
@@ -5657,7 +5662,7 @@ Section KeystoneState.
         by (rewrite (HMc c0); cbn [rc_bufs]; rewrite Hbc; reflexivity).
       exists (chan_recv_upd TI64 (chenv c0) w). split; [|split].
       + unfold WMatchC, rchan; cbn [rc_bufs]; intros c. destruct (Nat.eq_dec c c0) as [->|Hne].
-        * rewrite upd_same, (chan_buf_recv TI64 (chenv c0) (inj v) (map inj (map fst brest)) w Hbuf). reflexivity.
+        * rewrite upd_same, (chan_buf_recv TI64 (chenv c0) (inj v) (map inj (map fst brest)) w (chenv_live c0) Hbuf). reflexivity.
         * rewrite (upd_other _ _ _ _ Hne),
             (chan_buf_recv_frame TI64 (chenv c0) (chenv c) w (kst_chenv_neq c0 c (not_eq_sym Hne))).
           exact (HMc c).
@@ -5665,18 +5670,18 @@ Section KeystoneState.
       + unfold WClosedMatch; cbn [rc_trace]; intros c1. rewrite closedb_app.
         replace (closedb (mkEv tid (KRecv c0 s) :: nil) c1) with false by reflexivity.
         rewrite Bool.orb_false_r. destruct (Nat.eq_dec c1 c0) as [->|Hne].
-        * rewrite chan_closed_recv. exact (HMcl c0).
+        * rewrite chan_closed_recv by apply chenv_live. exact (HMcl c0).
         * rewrite (chan_closed_recv_frame TI64 (chenv c0) (chenv c1) w (kst_chenv_neq c0 c1 (not_eq_sym Hne))).
           exact (HMcl c1).
     - (* close: world ADVANCES via chan_close_upd *)
       exists (chan_close_upd TI64 (chenv c0) w). split; [|split].
       + unfold WMatchC, rchan; cbn [rc_bufs]; intros c. destruct (Nat.eq_dec c c0) as [->|Hne].
-        * unfold chan_close_upd. rewrite chan_buf_write_same. exact (HMc c0).
+        * unfold chan_close_upd. rewrite chan_buf_write_same by apply chenv_live. exact (HMc c0).
         * rewrite (chan_buf_close_frame TI64 (chenv c0) (chenv c) w (kst_chenv_neq c0 c (not_eq_sym Hne))).
           exact (HMc c).
       + unfold WHMatchC; cbn [rc_heap]; intros l. rewrite ref_sel_chan_close_upd. exact (HMh l).
       + unfold WClosedMatch; cbn [rc_trace]; intros c1. rewrite closedb_app. destruct (Nat.eq_dec c1 c0) as [->|Hne].
-        * rewrite chan_closed_close. symmetry. apply Bool.orb_true_intro. right.
+        * rewrite chan_closed_close by apply chenv_live. symmetry. apply Bool.orb_true_intro. right.
           cbn. rewrite Bool.orb_false_r. apply Nat.eqb_refl.
         * rewrite (chan_closed_close_frame TI64 (chenv c0) (chenv c1) w (kst_chenv_neq c0 c1 (not_eq_sym Hne))).
           replace (closedb (mkEv tid (KClose c0) :: nil) c1) with false
@@ -5789,7 +5794,7 @@ Proof.
     { split.
       - intro c. unfold rchan, mp_init; cbn [rc_bufs]. rewrite Hbuf. reflexivity.
       - intro l. unfold mp_init; cbn [rc_heap]. exact (Hheap l). }
-    destruct (wstate_steps chenv (plocenv ptrenv) inj Hchen Hloc
+    destruct (wstate_steps chenv (plocenv ptrenv) inj Hchen Hloc Hchlive
                 (mp_init v0 v1) cfg w0 Hsteps Hinit) as [w HW].
     exists w. exact HW. }
   exact (mp_handoff_delivers chenv ptrenv inj Hlive Hchlive v0 v1 w0 (Hbuf 0) Hcl Hcap).
@@ -8415,14 +8420,15 @@ Proof. intros cap p cfg H. exact (rstepsC_bounded _ _ _ H (boundedC_init cap p))
 Corollary reachableC_refines_bounded :
   forall (chenv : nat -> GoChan GoI64) (inj : nat -> GoI64),
     (forall i j, chenv i = chenv j -> i = j) ->
+    (forall c, Nat.eqb (ch_loc (chenv c)) 0 = false) ->   (* the channels are ALLOCATED (non-nil) *)
   forall cap p cfg w0,
     (forall c, chan_buf TI64 (chenv c) w0 = []) ->
     rstepsC cap (rinit_cfg p) cfg ->
     (exists w, WMatchC chenv inj w cfg) /\ BoundedC cap cfg.
 Proof.
-  intros chenv inj Hci cap p cfg w0 Hempty Hsteps.
+  intros chenv inj Hci Hcl cap p cfg w0 Hempty Hsteps.
   split.
-  - exact (reachable_refines chenv inj Hci p cfg w0 Hempty (rstepsC_embed _ _ _ Hsteps)).
+  - exact (reachable_refines chenv inj Hci Hcl p cfg w0 Hempty (rstepsC_embed _ _ _ Hsteps)).
   - exact (reachableC_bounded cap p cfg Hsteps).
 Qed.
 

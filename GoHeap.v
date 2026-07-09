@@ -884,7 +884,7 @@ Qed.
     state at once (the combined state refinement). *)
 Lemma ref_sel_chan_write_frame : forall {A B} (tag : GoTypeTag A) (ch : GoChan A) buf cl cap (r : Ref B) (w : World),
   ref_sel r (chan_write tag ch buf cl cap w) = ref_sel r w.
-Proof. intros. unfold ref_sel, chan_write. reflexivity. Qed.
+Proof. intros. unfold ref_sel, chan_write. destruct (Nat.eqb (ch_loc ch) 0); reflexivity. Qed.
 
 Lemma ref_sel_chan_send_upd : forall {A B} (tag : GoTypeTag A) (ch : GoChan A) (v : A) (r : Ref B) (w : World),
   ref_sel r (chan_send_upd tag ch v w) = ref_sel r w.
@@ -897,7 +897,7 @@ Proof. intros. unfold chan_recv_upd. apply ref_sel_chan_write_frame. Qed.
    independent World components) — needed by the heap bridge after the fail-loud read. *)
 Lemma ref_sel_opt_chan_write_frame : forall {A B} (tag : GoTypeTag A) (ch : GoChan A) buf cl cap (r : Ref B) (w : World),
   ref_sel_opt r (chan_write tag ch buf cl cap w) = ref_sel_opt r w.
-Proof. intros. unfold ref_sel_opt, chan_write. reflexivity. Qed.
+Proof. intros. unfold ref_sel_opt, chan_write. destruct (Nat.eqb (ch_loc ch) 0); reflexivity. Qed.
 Lemma ref_sel_opt_chan_send_upd : forall {A B} (tag : GoTypeTag A) (ch : GoChan A) (v : A) (r : Ref B) (w : World),
   ref_sel_opt r (chan_send_upd tag ch v w) = ref_sel_opt r w.
 Proof. intros. unfold chan_send_upd. apply ref_sel_opt_chan_write_frame. Qed.

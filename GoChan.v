@@ -105,10 +105,16 @@ Definition chan_room {A : Type} (tag : GoTypeTag A) (ch : GoChan A) (w : World) 
        | None   => true
        | Some n => Nat.ltb (List.length (chan_buf tag ch w)) n
        end.
-(** Write a channel cell at [ch]'s location, tagged with [tag], preserving its capacity [cap]. *)
+(** Write a channel cell at [ch]'s location, tagged with [tag], preserving its capacity [cap].
+    ROOT NIL GUARD: location 0 is the reserved nil sentinel (never allocated).  A write there would
+    FORGE channel state at an unallocated handle, so it is a NO-OP — the single choke point that makes
+    the raw [chan_send_upd]/[chan_recv_upd]/[chan_close_upd] unable to fabricate a loc-0 cell, exactly as
+    [map_write] guards the nil map.  (Public [send]/[recv]/[close_chan] already fail loud on nil; this
+    seals the raw update primitives too.) *)
 Definition chan_write {A : Type} (tag : GoTypeTag A) (ch : GoChan A)
                       (buf : list A) (cl : bool) (cap : option nat) (w : World) : World :=
-  mkWorld (w_refs w)
+  if Nat.eqb (ch_loc ch) 0 then w
+  else mkWorld (w_refs w)
           (fun k => if Nat.eqb k (ch_loc ch)
                     then Some (existT _ A (tag, (buf, (cl, cap))))
                     else w_chans w k)
@@ -121,23 +127,28 @@ Definition chan_close_upd {A : Type} (tag : GoTypeTag A) (ch : GoChan A) (w : Wo
   chan_write tag ch (chan_buf tag ch w) true (chan_cap ch w) w.
 
 (** Reading back what [chan_write] wrote (with the SAME tag) — the heap-cell
-    round-trip, via [eqb_refl] (location hit) + [tag_eq_refl] (coercion identity). *)
+    round-trip, via [eqb_refl] (location hit) + [tag_eq_refl] (coercion identity).
+    The non-nil side condition ([ch_loc <> 0]) is what the ROOT guard demands: a nil write is a
+    no-op, so the round-trip holds only for an ALLOCATED handle. *)
 Lemma chan_buf_write_same : forall {A} (tag : GoTypeTag A) ch buf cl cap w,
+  Nat.eqb (ch_loc ch) 0 = false ->
   chan_buf tag ch (chan_write tag ch buf cl cap w) = buf.
 Proof.
-  intros A tag ch buf cl cap w. unfold chan_buf, chan_write. cbn.
+  intros A tag ch buf cl cap w Hnn. unfold chan_buf, chan_write. rewrite Hnn. cbn.
   rewrite (Nat.eqb_refl (ch_loc ch)), tag_eq_refl. reflexivity.
 Qed.
 Lemma chan_closed_write_same : forall {A} (tag : GoTypeTag A) ch buf cl cap w,
+  Nat.eqb (ch_loc ch) 0 = false ->
   chan_closed ch (chan_write tag ch buf cl cap w) = cl.
 Proof.
-  intros A tag ch buf cl cap w. unfold chan_closed, chan_write. cbn.
+  intros A tag ch buf cl cap w Hnn. unfold chan_closed, chan_write. rewrite Hnn. cbn.
   rewrite (Nat.eqb_refl (ch_loc ch)). reflexivity.
 Qed.
 Lemma chan_cap_write_same : forall {A} (tag : GoTypeTag A) ch buf cl cap w,
+  Nat.eqb (ch_loc ch) 0 = false ->
   chan_cap ch (chan_write tag ch buf cl cap w) = cap.
 Proof.
-  intros A tag ch buf cl cap w. unfold chan_cap, chan_write. cbn.
+  intros A tag ch buf cl cap w Hnn. unfold chan_cap, chan_write. rewrite Hnn. cbn.
   rewrite (Nat.eqb_refl (ch_loc ch)). reflexivity.
 Qed.
 (** A write to [ch] leaves a DIFFERENT channel's cell ([ch']) untouched — record
@@ -150,40 +161,61 @@ Qed.
 Lemma chan_read_write_frame : forall {A} (tag : GoTypeTag A) (ch ch' : GoChan A) buf cl cap w,
   ch <> ch' -> w_chans (chan_write tag ch buf cl cap w) (ch_loc ch') = w_chans w (ch_loc ch').
 Proof.
-  intros A tag ch ch' buf cl cap w Hne. unfold chan_write. cbn.
+  intros A tag ch ch' buf cl cap w Hne. unfold chan_write.
+  destruct (Nat.eqb (ch_loc ch) 0).           (* nil write is a no-op ⇒ frame is trivial *)
+  { reflexivity. }
+  cbn.
   rewrite (proj2 (Nat.eqb_neq (ch_loc ch') (ch_loc ch))).
   - reflexivity.
   - intro H. apply (chan_loc_neq ch ch' Hne). symmetry; exact H.
 Qed.
 
-(** Heap-interface laws: how [chan_buf]/[chan_closed]
-    read after each update. *)
+(** Heap-interface laws: how [chan_buf]/[chan_closed] read after each update.  Each carries the
+    ROOT-guard side condition [ch_loc <> 0] — on the reserved nil handle the update is a no-op, so the
+    read-back holds only for an ALLOCATED channel (the bridge supplies this via [chenv_live]). *)
 Theorem chan_buf_send : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (v : A) (w : World),
+  Nat.eqb (ch_loc ch) 0 = false ->
   chan_buf tag ch (chan_send_upd tag ch v w) = chan_buf tag ch w ++ (v :: nil).
-Proof. intros. unfold chan_send_upd. rewrite chan_buf_write_same. reflexivity. Qed.
+Proof. intros A tag ch v w Hnn. unfold chan_send_upd. rewrite chan_buf_write_same by exact Hnn. reflexivity. Qed.
 Theorem chan_buf_recv : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (v : A) (rest : list A) (w : World),
+  Nat.eqb (ch_loc ch) 0 = false ->
   chan_buf tag ch w = v :: rest -> chan_buf tag ch (chan_recv_upd tag ch w) = rest.
-Proof. intros A tag ch v rest w H. unfold chan_recv_upd. rewrite chan_buf_write_same, H. reflexivity. Qed.
+Proof. intros A tag ch v rest w Hnn H. unfold chan_recv_upd. rewrite chan_buf_write_same by exact Hnn. rewrite H. reflexivity. Qed.
 Theorem chan_closed_send : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (v : A) (w : World),
+  Nat.eqb (ch_loc ch) 0 = false ->
   chan_closed ch (chan_send_upd tag ch v w) = chan_closed ch w.
-Proof. intros. unfold chan_send_upd. rewrite chan_closed_write_same. reflexivity. Qed.
+Proof. intros A tag ch v w Hnn. unfold chan_send_upd. rewrite chan_closed_write_same by exact Hnn. reflexivity. Qed.
 Theorem chan_closed_recv : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (w : World),
+  Nat.eqb (ch_loc ch) 0 = false ->
   chan_closed ch (chan_recv_upd tag ch w) = chan_closed ch w.
-Proof. intros. unfold chan_recv_upd. rewrite chan_closed_write_same. reflexivity. Qed.
+Proof. intros A tag ch w Hnn. unfold chan_recv_upd. rewrite chan_closed_write_same by exact Hnn. reflexivity. Qed.
 Theorem chan_closed_close : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (w : World),
+  Nat.eqb (ch_loc ch) 0 = false ->
   chan_closed ch (chan_close_upd tag ch w) = true.
-Proof. intros. unfold chan_close_upd. rewrite chan_closed_write_same. reflexivity. Qed.
+Proof. intros A tag ch w Hnn. unfold chan_close_upd. rewrite chan_closed_write_same by exact Hnn. reflexivity. Qed.
 (** Capacity is INVARIANT under send/recv/close (the cell's [cap] is re-written unchanged) — needed so a
     capacity-aware [send] can reason across updates, and so the [WMatch1] bridge keeps its [None] channels. *)
 Theorem chan_cap_send : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (v : A) (w : World),
+  Nat.eqb (ch_loc ch) 0 = false ->
   chan_cap ch (chan_send_upd tag ch v w) = chan_cap ch w.
-Proof. intros. unfold chan_send_upd. rewrite chan_cap_write_same. reflexivity. Qed.
+Proof. intros A tag ch v w Hnn. unfold chan_send_upd. rewrite chan_cap_write_same by exact Hnn. reflexivity. Qed.
 Theorem chan_cap_recv : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (w : World),
+  Nat.eqb (ch_loc ch) 0 = false ->
   chan_cap ch (chan_recv_upd tag ch w) = chan_cap ch w.
-Proof. intros. unfold chan_recv_upd. rewrite chan_cap_write_same. reflexivity. Qed.
+Proof. intros A tag ch w Hnn. unfold chan_recv_upd. rewrite chan_cap_write_same by exact Hnn. reflexivity. Qed.
 Theorem chan_cap_close : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (w : World),
+  Nat.eqb (ch_loc ch) 0 = false ->
   chan_cap ch (chan_close_upd tag ch w) = chan_cap ch w.
-Proof. intros. unfold chan_close_upd. rewrite chan_cap_write_same. reflexivity. Qed.
+Proof. intros A tag ch w Hnn. unfold chan_close_upd. rewrite chan_cap_write_same by exact Hnn. reflexivity. Qed.
+(** [chan_room = true] WITNESSES allocation: since [chan_room] is false on the nil handle ([ch_loc = 0]),
+    any channel with room is non-nil.  Lets a caller that already has [chan_room = true] discharge the
+    read-back side conditions above. *)
+Lemma chan_room_nonnil : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (w : World),
+  chan_room tag ch w = true -> Nat.eqb (ch_loc ch) 0 = false.
+Proof.
+  intros A tag ch w H. unfold chan_room in H.
+  destruct (Nat.eqb (ch_loc ch) 0) eqn:E; [ discriminate H | reflexivity ].
+Qed.
 
 (** Channel SEPARATION (frame): a send/receive on one channel leaves
     every OTHER channel's buffer untouched (distinct cells are independent). *)
@@ -482,7 +514,7 @@ Proof.
   intros A tag ch v w Hclosed Hempty Hroom.
   rewrite run_bind, (run_send tag ch v w Hclosed Hroom). cbn.
   apply (run_recv tag ch v nil).
-  rewrite chan_buf_send, Hempty. reflexivity.
+  rewrite (chan_buf_send tag ch v w (chan_room_nonnil tag ch w Hroom)), Hempty. reflexivity.
 Qed.
 
 (** [recv_ok] variant: after [send ch v] into an open, empty channel, [recv_ok]
@@ -496,7 +528,7 @@ Proof.
   intros A B tag ch v f w Hclosed Hempty Hroom.
   rewrite run_bind, (run_send tag ch v w Hclosed Hroom). cbn.
   apply (run_recv_ok tag ch f v nil).
-  rewrite chan_buf_send, Hempty. reflexivity.
+  rewrite (chan_buf_send tag ch v w (chan_room_nonnil tag ch w Hroom)), Hempty. reflexivity.
 Qed.
 
 (** [make_chan_buf n] STORES the capacity [Some n]; [make_chan] is UNBUFFERED [Some 0], so an
@@ -530,7 +562,7 @@ Theorem send_closed_panics : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (v :
 Proof.
   intros A tag ch v w Hnn Hopen.
   rewrite run_bind, (run_close tag ch w Hnn Hopen). cbn.
-  exact (run_send_closed tag ch v (chan_close_upd tag ch w) (chan_closed_close tag ch w)).
+  exact (run_send_closed tag ch v (chan_close_upd tag ch w) (chan_closed_close tag ch w Hnn)).
 Qed.
 
 (** Closing an already-closed channel panics (Go spec): close then close → panic.  (On a non-nil
@@ -543,7 +575,7 @@ Theorem double_close_panics : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (w 
 Proof.
   intros A tag ch w Hnn Hopen.
   rewrite run_bind, (run_close tag ch w Hnn Hopen). cbn.
-  exact (run_close_closed tag ch (chan_close_upd tag ch w) Hnn (chan_closed_close tag ch w)).
+  exact (run_close_closed tag ch (chan_close_upd tag ch w) Hnn (chan_closed_close tag ch w Hnn)).
 Qed.
 
 (** [recv_ok] on a closed, EMPTY channel returns [(zero_val tag, false)] — Go's
@@ -932,7 +964,8 @@ Proof.
   rewrite (run_send (TProd TI64 TI64) (MkChan (ch_loc ch)) v w Hopen Hroom).
   assert (Hbuf1 : chan_buf (TProd TI64 TI64) (MkChan (ch_loc ch))
             (chan_send_upd (TProd TI64 TI64) (MkChan (ch_loc ch)) v w) = v :: nil)
-    by (rewrite chan_buf_send, Hempty; reflexivity).
+    by (rewrite (chan_buf_send (TProd TI64 TI64) (MkChan (ch_loc ch)) v w
+                   (chan_room_nonnil (TProd TI64 TI64) (MkChan (ch_loc ch)) w Hroom)), Hempty; reflexivity).
   rewrite (run_recv (TProd TI64 TI64) (MkChan (ch_loc ch)) v nil _ Hbuf1).
   eexists; reflexivity.
 Qed.
