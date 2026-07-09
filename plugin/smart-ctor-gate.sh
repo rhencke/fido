@@ -72,38 +72,31 @@ for pred in $(printf '%s' "$cov_preds" | grep -oE '\[is_[a-z0-9_]+\]' | tr -d '[
 done
 echo "fido: bridge-recognizer tripwire OK — cov_preds recognizers route through the from_model-scoped named_in ✓"
 
-# 4b. VALUE-SWITCH OWNERSHIP: the emission-level duplicate guard was DELETED once the
-# expression-switch combinators gained a Rocq distinctness obligation (i64_neqb/str_neqb).  So the
-# ONLY thing keeping an UNSEALED value-switch from lowering (and emitting a Go "duplicate case" —
-# fail-open) is that is_val_switch_ref names EXACTLY the sealed combinators.  Gate both halves:
-# (a) it routes through named_in (no prefix/global_basename regression), and (b) EVERY name it
-# lists carries the distinctness obligation in GoSwitch.v.
-# NO FALSE-GREEN: every grep runs on COMMENT-STRIPPED text (a `neqb`/`named_in`/combinator-name
-# mention in a comment must not green the gate), and the obligation must be REAL code — `neqb` AND
-# `= true` together — not a documented aspiration.  Self-tests cover BOTH directions + the comment
-# trap.  Comment strip is greedy (over-stripping only ever fails CLOSED).
-vsw_nocomment() { sed 's/(\*.*\*)//g'; }
-vsw_sealed() {
-  s=$(awk -v n="$1" '$0 ~ ("Definition " n "[ ({]"){f=1} f{print} f&&/:=/{exit}' "$2" | vsw_nocomment)
-  printf '%s' "$s" | grep -q 'neqb' && printf '%s' "$s" | grep -qE '=[[:space:]]*true'
-}
-vsw_st=$(mktemp)
-printf '%s\n' 'Definition sw9 (v1 v2 : GoI64) (k : IO B) (d : IO B) : IO B :=' > "$vsw_st"
-vsw_sealed sw9 "$vsw_st"   && { echo "fido: VALUE-SWITCH OWNERSHIP self-test broke — an UNSEALED combinator passed."; rm -f "$vsw_st"; exit 1; }
-printf '%s\n' 'Definition sw9 (v1 v2 : GoI64) (* i64_neqb v1 v2 = true *) (d : IO B) : IO B :=' > "$vsw_st"
-vsw_sealed sw9 "$vsw_st"   && { echo "fido: VALUE-SWITCH OWNERSHIP self-test broke — a COMMENTED obligation passed."; rm -f "$vsw_st"; exit 1; }
-printf '%s\n' 'Definition sw9 (v1 v2 : GoI64) (Hd : i64_neqb v1 v2 = true) (d : IO B) : IO B :=' > "$vsw_st"
-vsw_sealed sw9 "$vsw_st"   || { echo "fido: VALUE-SWITCH OWNERSHIP self-test broke — a SEALED combinator was rejected."; rm -f "$vsw_st"; exit 1; }
-rm -f "$vsw_st"
+# 4b. VALUE-SWITCH OWNERSHIP + SEAL-COUPLING: the emission-level duplicate guard was DELETED once
+# the expression-switch combinators gained a Rocq distinctness obligation.  So an UNSEALED value-
+# switch bypasses the seal unless is_val_switch_ref names EXACTLY the sealed combinators AND each
+# has a coqc-checked duplicate-rejection witness.  The gate does NOT text-judge obligation STRENGTH
+# (a weakened `orb (neqb …) true = true` would spoof any grep) — that is Coq's job: a `Fail Example
+# <name>_dup_rejected` in GoSwitch.v is compiled by coqc, and a WEAKENED obligation makes its
+# duplicate switch typecheck, so the `Fail` errors and the build dies.  The gate only enforces the
+# TEXT properties Coq cannot: (a) is_val_switch_ref = named_in of exact int/str_switchN names, and
+# (b) each such name HAS its `Fail Example` witness.  Every read is comment-stripped by a nested +
+# multi-line-aware stripper (a mention in ANY comment must not green the gate).
+vsw_nocomment() { awk 'BEGIN{d=0}{s="";i=1;n=length($0);while(i<=n){t=substr($0,i,2);if(t=="(*"){d++;i+=2}else if(t=="*)"&&d>0){d--;i+=2}else{if(d==0)s=s substr($0,i,1);i++}}print s}'; }
+strip_st=$(printf 'keep1 (* a\n neqb = true (* nested *)\n b *) keep2\n' | vsw_nocomment | tr -d '[:space:]')
+[ "$strip_st" = "keep1keep2" ] || { echo "fido: VALUE-SWITCH OWNERSHIP — comment-stripper self-test broke (multi-line/nested comment survived; got '$strip_st')."; exit 1; }
 vsw_block=$(recog_def is_val_switch_ref plugin/go.ml | vsw_nocomment)
 printf '%s' "$vsw_block" | grep -q 'named_in'        || { echo "fido: VALUE-SWITCH OWNERSHIP — is_val_switch_ref must route through named_in (exact sealed names), not a prefix match: a broad match would lower an unsealed value-switch and bypass the model seal."; exit 1; }
 printf '%s' "$vsw_block" | grep -q 'global_basename' && { echo "fido: VALUE-SWITCH OWNERSHIP — is_val_switch_ref does a raw global_basename match (a shadowing/prefix forge); route through the from_model-scoped named_in."; exit 1; }
 vsw_names=$(printf '%s' "$vsw_block" | grep -oE '"(int|str)_switch[0-9]+"' | tr -d '"' | sort -u)
 [ -n "$vsw_names" ] || { echo "fido: VALUE-SWITCH OWNERSHIP — is_val_switch_ref lists no exact int/str_switchN names (a bare prefix?)."; exit 1; }
+gsw=$(vsw_nocomment < GoSwitch.v)
+printf '%s' "$gsw" | grep -q 'Fail Example int_switch2_dup_rejected' || { echo "fido: VALUE-SWITCH OWNERSHIP — witness-presence self-test broke (int_switch2 witness not found in stripped GoSwitch.v)."; exit 1; }
+printf '%s' "$gsw" | grep -q 'Fail Example zzz_nope_dup_rejected'    && { echo "fido: VALUE-SWITCH OWNERSHIP — witness-presence self-test broke (a nonexistent witness was matched)."; exit 1; }
 for nm in $vsw_names; do
-  vsw_sealed "$nm" GoSwitch.v || { echo "fido: VALUE-SWITCH OWNERSHIP — $nm is plugin-lowered by is_val_switch_ref but carries NO real i64_neqb/str_neqb distinctness obligation in GoSwitch.v; an unsealed value-switch emits a Go 'duplicate case' (fail-open).  Seal it or drop it from the recognizer."; exit 1; }
+  printf '%s' "$gsw" | grep -q "Fail Example ${nm}_dup_rejected" || { echo "fido: VALUE-SWITCH OWNERSHIP — $nm is plugin-lowered by is_val_switch_ref but has NO 'Fail Example ${nm}_dup_rejected' in GoSwitch.v; that coqc witness is what makes a WEAKENED/removed distinctness obligation fail the build.  Add it (or drop $nm from the recognizer)."; exit 1; }
 done
-echo "fido: value-switch ownership gate OK — is_val_switch_ref names exactly the sealed combinators ($(printf '%s' "$vsw_names" | tr '\n' ' ')), each carrying a real i64_neqb/str_neqb distinctness obligation ✓"
+echo "fido: value-switch ownership gate OK — is_val_switch_ref = exact sealed set ($(printf '%s' "$vsw_names" | tr '\n' ' ')), each with a coqc-checked Fail Example <name>_dup_rejected ✓"
 
 # 5. SELECTOR-BRIDGE: mk_goexpr_sel emits local.Field only for a plain field of an MLrel receiver;
 # dropping either guard re-opens a peel divergence the golden misses.

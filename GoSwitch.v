@@ -235,6 +235,11 @@ Proof. reflexivity. Qed.
 Example int_switch3_default : forall {B} (k1 k2 k3 d : IO B),
   int_switch3 (9)%i64 (1)%i64 k1 (2)%i64 k2 (3)%i64 k3 eq_refl d = d.
 Proof. reflexivity. Qed.
+(** A DUPLICATE-case 3-way switch is UNREPRESENTABLE (here cases 1,2,2 collide). This is the
+    coqc witness the value-switch ownership gate requires: a WEAKENED obligation would let this
+    typecheck, making the [Fail] error out. *)
+Fail Example int_switch3_dup_rejected : forall {B} (k1 k2 k3 d : IO B),
+  int_switch3 (0)%i64 (1)%i64 k1 (2)%i64 k2 (2)%i64 k3 eq_refl d = d.
 
 (** Expression switch on a STRING scrutinee — Go's [switch s { case "a": …; default: … }].
     Same shape as [int_switch2] but the equality is [str_eqb] (byte equality); the plugin
@@ -281,3 +286,7 @@ Proof. reflexivity. Qed.
 Example str_switch3_default : forall {B} (k1 k2 k3 d : IO B),
   str_switch3 "z"%string "a"%string k1 "b"%string k2 "c"%string k3 eq_refl d = d.
 Proof. reflexivity. Qed.
+(** A DUPLICATE-case 3-way string switch is UNREPRESENTABLE (cases "a","b","b" collide) — the
+    coqc weakening witness for str_switch3. *)
+Fail Example str_switch3_dup_rejected : forall {B} (k1 k2 k3 d : IO B),
+  str_switch3 "z"%string "a"%string k1 "b"%string k2 "b"%string k3 eq_refl d = d.
