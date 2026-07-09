@@ -1665,7 +1665,8 @@ Proof. vm_compute; reflexivity. Qed.
 
 (** ---- THE GRAMMAR (EBNF, prose) ---- the language GoPrint lexes, parses, and prints.  The AST below,
     the printer [gprint], and the recursive-descent parser [parse] are three views of this grammar;
-    [parse_print_roundtrip] proves printer and parser agree.  The AUTHORITY is the RELATIONAL
+    [parse_print_roundtrip] proves the parser recovers every PRINTED AST (parser COMPLETE, not sound — it
+    also accepts non-canonical streams).  The AUTHORITY is the RELATIONAL
     canonical-grammar layer (CanonExpr et al., CLAUDE.md "Syntax authority"), which now EXISTS for types,
     expressions, statements, and whole programs (`canon_ty_unique`/`canon_expr_unique`/`canon_stmt_unique`/
     `canon_program_unique`; and `gprint_inj` rests parser-free on the canonical token functions
@@ -8608,7 +8609,7 @@ Qed.
 (** THE END-TO-END TYPE ROUND-TRIP: the printed type [print_ty t] lexes and parses back to [t].  DERIVED
     PARSER TOOLING (the type analogue of [parse_print_roundtrip]), NOT the type-injectivity authority:
     [print_ty_inj] rests on [gttokens_ty_inj]/[lex_print_ty] (parser-free), so this only certifies the type
-    parser AGREES with the canonical type tokens — parser self-consistency, nothing depends on it. *)
+    parser is COMPLETE for the canonical type tokens (parser self-consistency, NOT soundness), nothing depends on it. *)
 Theorem parse_gty_print_ty : forall t,
   match lex (print_ty t) with Some toks => parse_gty toks | None => None end = Some (t, nil).
 Proof.
@@ -8654,7 +8655,7 @@ Proof.
 Qed.
 
 (** DERIVED PARSER TOOLING: the printed conversion-type lexes and parses back to itself — the executable
-    conversion-type parser AGREES with the canonical tokens (parser self-consistency, nothing depends on it). *)
+    conversion-type parser is COMPLETE for the canonical tokens (parser self-consistency, NOT soundness; nothing depends on it). *)
 Theorem parse_conv_print : forall c,
   match lex (conv_print c) with Some toks => parse_convty toks | None => None end = Some (c, nil).
 Proof.
