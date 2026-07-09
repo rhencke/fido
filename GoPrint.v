@@ -897,10 +897,11 @@ Inductive Token : Type :=
   | TFunc | TReturn | TChan | TMap   (* [chan]/[map] are Go RESERVED WORDS (not [go_ident]s), so they are
                                           dedicated keyword tokens — needed for [chan T] / [map[K]V] types. *)
   | TAssign | TDefine | TDefer | TSemi | TPackage.
-    (* STATEMENT/PROGRAM tokens (the canonical statement layer): [TAssign] = ['='] (blank-assign [_ = e]),
-       [TDefine] = [':='] (short decl [x := e]), [TDefer] = the [defer] keyword, [TSemi] = the statement
-       SEPARATOR (the printed '\n' between statements), [TPackage] = the [package] keyword.  The expression
-       [gtokens] never emits any of these — expressions use only the expression alphabet. *)
+    (* STATEMENT/PROGRAM tokens for the coming canonical statement layer — their INTENDED roles ([TAssign]
+       ['=']/blank-assign, [TDefine] [':=']/short decl, [TDefer] the [defer] keyword, [TSemi] the statement
+       separator (Go's ASI at '\n'), [TPackage] the [package] keyword) are design intent; the lexer arms
+       that produce them are NOT YET added ([lex] currently rejects '='/':='/'defer').  That the expression
+       [gtokens] emits none of them is the FORTHCOMING lemma [gtokens_no_stmt], NOT yet proved. *)
 
 (** scan a maximal run of decimal digits off the head. *)
 Fixpoint scan_digits (s : string) : string * string :=
@@ -8533,9 +8534,11 @@ Definition print_program (p : Program) : string :=
    "func main() {" ++ go_nl ++ print_stmts (prog_body p) ++ "}" ++ go_nl)%string.
 
 (** ---- THE CANONICAL STATEMENT TOKENS ---- the statement analogue of [gtokens]: [stmt_tokens s] is the
-    canonical token list of one statement (the tokens its [print_stmt] lexes to).  The blank identifier ['_']
-    is a valid [go_ident], so it tokenises as [TId "_"].  Statement uniqueness ([stmt_tokens_inj]) is then a
-    head/second-token discrimination + [gtokens_inj], the flat-statement analogue of the expression layer. *)
+    INTENDED canonical token list of one statement.  ⚠ NOT yet connected to [lex] — [lex_gprint_stmt]
+    ([lex (print_stmt s) = Some (stmt_tokens s)]) is FORTHCOMING and needs the statement lexer arms (the
+    current [lex] cannot tokenise these statements).  The blank identifier ['_'] is a valid [go_ident], so it
+    is intended to tokenise as [TId "_"].  Statement uniqueness ([stmt_tokens_inj], also forthcoming) will be
+    a head/[TSemi]-split discrimination + [gtokens_inj], the flat-statement analogue of the expression layer. *)
 Definition blank_ident : Ident := exist (fun s => go_ident s = true) "_"%string eq_refl.
 Definition stmt_tokens (s : GoStmt) : list Token :=
   match s with
