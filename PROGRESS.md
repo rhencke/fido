@@ -34,9 +34,9 @@ plugin CONSTRUCTS the `GExpr`; only `gprint` is verified. NOT "verified Go."
 - **Spine ZERO-AXIOM** (`make emit-verify`): digits / GoAst / GoPrint / GoTypes / GoCompile / GoEmit
   (digits.v = the shared decimal authority, compiled in both gated flows).
 - **GoPrint injectivity** over the expression core (all postfix forms, `EConv`, slice/map composite
-  literals, exact-lexer strings) — `gprint_inj` is now PARSER-FREE (rests on `gtokens_inj`/
-  `canon_expr_unique` + `gtokens_lex`, NOT `parse_print_roundtrip`, which is demoted to derived parser
-  self-consistency tooling) — plus the statement layer
+  literals, exact-lexer strings) — `gprint_inj` is now PARSER-FREE (applies `gtokens_inj` + `gtokens_lex`,
+  NOT `parse_print_roundtrip`, which is demoted to derived parser self-consistency tooling;
+  `canon_expr_unique` is a sibling corollary of `gtokens_inj`, not a dependency) — plus the statement layer
   (`print_stmt_inj`/`print_program_inj`, still STRING-injectivity). `GsDefer` supported+emittable+denoted; `GsShortDecl`
   gate-admitted; the expression-level env evaluator exists; statement-level env denotation is
   NEXT — short-decl programs are currently supported-but-undenoted.

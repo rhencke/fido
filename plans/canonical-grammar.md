@@ -266,8 +266,8 @@ COMPLETE lists (no suffix):
   likely surfacing further discrimination sub-lemmas).
 
 `canon_expr_unique` (+ `gtokens_inj`) are in the printer Print Assumptions gate.
-Phase 3c: `gprint_inj` rests off `gtokens_inj` + `gtokens_lex` (a corollary of the
-canonical layer, not of `parse_print_roundtrip`), so the parser is not the
+Phase 3c: `gprint_inj` applies `gtokens_inj` + `gtokens_lex` (the canonical token
+functions, not `parse_print_roundtrip`), so the parser is not the
 expression-injectivity authority.
 
 ## Landing rules

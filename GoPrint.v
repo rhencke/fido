@@ -8392,11 +8392,11 @@ Qed.
 
 (** THE END-TO-END EXPRESSION ROUND-TRIP — printing then parsing (lex + parse) recovers the AST EXACTLY.
     Composes [gtokens_lex] (printer→tokens) with [gtokens_parse] (tokens→AST).  DERIVED PARSER TOOLING
-    (CLAUDE.md "Syntax authority"), NOT the printer-injectivity authority: [gprint_inj] rests on
-    [gtokens_inj]/[canon_expr_unique] (parser-free), so this theorem only certifies that the executable
-    parser AGREES with the canonical grammar — parser SELF-CONSISTENCY, not a source of correctness.
-    (It remains load-bearing for the not-yet-rebased statement/program disjointness lemmas below — those
-    move onto lexical/canonical-token facts next.)  HONEST SCOPE: still the clean Rocq grammar, NOT a
+    (CLAUDE.md "Syntax authority"), NOT the printer-injectivity authority: [gprint_inj] applies
+    [gtokens_inj] + [gtokens_lex] (parser-free), so this theorem only certifies that the executable parser
+    AGREES with the canonical grammar — parser SELF-CONSISTENCY, not a source of correctness.  NOTHING
+    depends on it (the statement/program disjointness lemmas are also parser-free — LEXICAL).  HONEST
+    SCOPE: still the clean Rocq grammar, NOT a
     theorem about Go's own parser (a SEPARATE unproven Go-syntax recognition gap; Go's toolchain is
     trusted — NOT the plugin's gap #10). *)
 Theorem parse_print_roundtrip : forall e, parse_str (gprint 0 e) = Some (e, nil).
