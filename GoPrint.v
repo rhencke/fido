@@ -8788,12 +8788,21 @@ Proof.
   apply stmt_tokens_inj. congruence.
 Qed.
 
-(** ---- THE CANONICAL PROGRAM TOKENS ---- the whole-[Program] analogue.  A program prints as
-    [package <pkg>] then [func main() { <body> }]; at the token level Go's ASI inserts a [TSemi] after
-    the package clause and after EACH statement line (the '\n' [print_stmts] emits).  So [stmt_tokens]s are
-    interleaved with [TSemi] terminators ([stmts_tokens]), bracketed by the fixed keyword/punctuator frame.
-    [TSemi] is the statement analogue of [TComma] in the argument lists — and because no [stmt_tokens] list
-    contains a [TSemi] ([stmt_tokens_semi_free], from [gtokens_no_stmt]), it splits the body cleanly. *)
+(** ---- THE CANONICAL PROGRAM TOKENS ---- the whole-[Program] analogue and the INTENDED [lex] target
+    ([lex (print_program p) = Some (program_tokens p)] is the OPEN [lex_gprint_program] work — see the ⚠).
+    [print_program] emits [package <pkg>\n\n func main() {\n <body> }\n].  Go's ASI (Go spec "Semicolons")
+    inserts a [TSemi] after a line's final token when that token is an identifier / literal / [return] /
+    [)] / []] / [}] — so HERE, exactly: after the package [Ident] (the '\n' after [main]); after EACH
+    statement line (every [stmt_tokens] form ends in an ident/[)]/[return]-class token — the '\n'
+    [print_stmts] emits); and after the closing [}] (its trailing '\n', since [}] is a trigger).  NONE after
+    the opening [{] (not a trigger) nor after the blank line (no token).  Hence the frame is
+    [TPackage; TId pkg; TSemi; TFunc; TId main; TLP; TRP; TLC] then the body — [stmt_tokens]s each TERMINATED
+    by [TSemi] ([stmts_tokens]) — then [TRC; TSemi].  [TSemi] is the statement analogue of [TComma] in the
+    argument lists; because no [stmt_tokens] list contains a [TSemi] ([stmt_tokens_semi_free], from
+    [gtokens_no_stmt]) it splits the body cleanly.
+    ⚠ the current [lex] emits NEITHER [TPackage]/[TFunc]/[TSemi] NOR the [:=]/[=]/[defer] statement forms;
+    [program_tokens] is the TARGET those new lexer arms + an ASI pass must hit, NOT a proved [lex] output.
+    The uniqueness results below hold of [program_tokens] as a token FUNCTION regardless of that open work. *)
 Definition main_ident : Ident := exist (fun s => go_ident s = true) "main"%string eq_refl.
 Fixpoint stmts_tokens (ss : list GoStmt) : list Token :=
   match ss with
@@ -8803,7 +8812,7 @@ Fixpoint stmts_tokens (ss : list GoStmt) : list Token :=
 Definition program_tokens (p : Program) : list Token :=
   (TPackage :: TId (prog_pkg p) :: TSemi ::
    TFunc :: TId main_ident :: TLP :: TRP :: TLC ::
-   (stmts_tokens (prog_body p) ++ TRC :: nil))%list.
+   (stmts_tokens (prog_body p) ++ TRC :: TSemi :: nil))%list.
 
 (** an expression's tokens never contain [TSemi] ([TSemi] is a statement token; [gtokens] emits none). *)
 Lemma gtokens_semi_free : forall ctx e, Forall (fun t => t <> TSemi) (gtokens ctx e).
@@ -8858,13 +8867,23 @@ Proof.
         as [Hs Hrest].
       apply stmt_tokens_inj in Hs. apply IH in Hrest. subst; reflexivity.
 Qed.
+(** strip a common two-element suffix. *)
+Lemma app_snoc2_inj : forall (l1 l2 : list Token) a b,
+  (l1 ++ a :: b :: nil)%list = (l2 ++ a :: b :: nil)%list -> l1 = l2.
+Proof.
+  intros l1 l2 a b H.
+  change (a :: b :: nil) with ((a :: nil) ++ (b :: nil))%list in H.
+  rewrite !app_assoc in H.
+  apply app_inj_tail in H; destruct H as [H _].
+  apply app_inj_tail in H; destruct H as [H _]. exact H.
+Qed.
 (** [program_tokens] is injective: the package [Ident] sits at a fixed frame position, the body is the
-    [TSemi]-interleaved statement list ([stmts_tokens_inj]) after stripping the trailing [TRC]. *)
+    [TSemi]-interleaved statement list ([stmts_tokens_inj]) after stripping the trailing [TRC; TSemi]. *)
 Lemma program_tokens_inj : forall p1 p2, program_tokens p1 = program_tokens p2 -> p1 = p2.
 Proof.
   intros [pk1 b1] [pk2 b2] Heq. unfold program_tokens in Heq; cbn [prog_pkg prog_body] in Heq.
   injection Heq as Hpk Hbody.
-  apply app_inj_tail in Hbody. destruct Hbody as [Hbody _].
+  apply app_snoc2_inj in Hbody.
   apply stmts_tokens_inj in Hbody. subst pk2; subst b2. reflexivity.
 Qed.
 
@@ -8880,7 +8899,7 @@ Inductive CanonStmts : list GoStmt -> list Token -> Prop :=
 Inductive CanonProgram : Program -> list Token -> Prop :=
   | CanProg : forall p tb, CanonStmts (prog_body p) tb ->
       CanonProgram p (TPackage :: TId (prog_pkg p) :: TSemi ::
-                      TFunc :: TId main_ident :: TLP :: TRP :: TLC :: (tb ++ TRC :: nil)).
+                      TFunc :: TId main_ident :: TLP :: TRP :: TLC :: (tb ++ TRC :: TSemi :: nil)).
 
 Lemma canon_stmts_tokens : forall ss ts, CanonStmts ss ts -> ts = stmts_tokens ss.
 Proof.
