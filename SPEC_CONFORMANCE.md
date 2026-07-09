@@ -173,15 +173,15 @@ to the CFG; control-flow coverage is demo-by-demo, golden-locked).
   unmodeled. *Pending:* select send cases, N-ary.
 
 ## Built-in functions
-- ✓ import-free set: `len`, `cap`, `append`, `make` (chan/map + `make([]T,n)` fresh-zeroed,
-  `len=n` theorem), `delete`, `panic`, `print`/`println`, `recover` (`catch`/`with_defer`),
-  `close`, `clear` (maps, `map_get_clear`), and Go-1.21 `min`/`max` on `int`/`int64`[signed]/
-  `uint64`[unsigned]/`float`[NaN-propagation + signed-zero corners] (`spec_go_min`,
-  `spec_i64_max`, `spec_u64_max_high`, `f64_min_nan`/`f64_min_negzero`). ✓ `new` (`go_new` →
-  `new(T)` = fresh `*T` at the zero value) + — via the heap `SliceH` aliasing model — `copy`
-  (`slice_copy`), `make([]T,len,cap)` (`slice_make_lc`, spare-cap `make_lc_append_inplace`),
-  slice-`clear` (`slice_clear_h`) (all lowered by the plugin). ✗ `complex`/`real`/`imag` (need
-  `complex64`/`complex128`, unmodeled); string-`min`/`max` pending an ordering decision.
+- ✓ import-free set (all plugin-lowered): `len`, `cap`, `append`, `make` (chan/map; slice
+  `make([]T,n)` fresh-zeroed `len=n`; slice `make([]T,len,cap)` via the heap `SliceH` —
+  `slice_make_lc`, spare-cap `make_lc_append_inplace`), `new` (`go_new` → fresh `*T` at the zero
+  value), `copy` (`slice_copy`), `delete`, `panic`, `print`/`println`, `recover`
+  (`catch`/`with_defer`), `close`, `clear` (maps `map_get_clear`; slices `slice_clear_h`), and
+  Go-1.21 `min`/`max` on `int`/`int64`[signed]/`uint64`[unsigned]/`float`[NaN-propagation +
+  signed-zero corners] (`spec_go_min`, `spec_i64_max`, `spec_u64_max_high`, `f64_min_nan`/
+  `f64_min_negzero`). ✗ `complex`/`real`/`imag` (need `complex64`/`complex128`, unmodeled).
+  String `min`/`max` not yet added (not blocked — the byte-lexicographic order `str_ltb` is settled).
 
 ## Memory model (go.dev/ref/mem)
 - ✓ **partial order + race freedom, axiom-free** (`hb` = transitive closure, STRICT partial
