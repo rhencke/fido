@@ -40,7 +40,8 @@
     expression's tokens do ([gtokens_hd_not_return]).  LEXICAL faithfulness ([lex (print_stmt s) =
     Some (stmt_tokens s)]) is PROVED for the 3 lex-supported statement forms ([lex_print_stmt_exprstmt]/
     [_return]/[_returnval]); Still OPEN: the ':='/'='/'defer' statement forms ([GsBlankAssign]/[GsShortDecl]/
-    [GsDefer] — new lexer arms) and the program level [lex_gprint_program] (an ASI pass emitting [TSemi]);
+    [GsDefer] — new lexer arms) and the program level [lex_gprint_program] (a [TPackage]-keyword arm —
+    "package" is a keyword that fails to lex today, [lex_package] — PLUS an ASI pass emitting [TSemi]);
     [print_stmt_inj] / [print_program_inj] remain the weaker STRING-injectivity siblings.
     Nothing here is Go-compiler acceptance.  There is NO theorem that Go's compiler reads the
     emitted text as the same AST (that Go-subset RECOGNITION theorem — emitted grammar ⊆ Go grammar — is
@@ -8689,7 +8690,8 @@ Definition print_program (p : Program) : string :=
     [lex_return_app] over [gtokens_lex]) — all just below the disjointness lemmas.  The remaining three
     ([GsBlankAssign]/[GsShortDecl]/[GsDefer]) do NOT lex yet: the arms for a lone '=', ':=', and the reserved
     word 'defer' are unbuilt ([lex_blank_None]/[lex_defer]/… prove they currently return [None]), so the FULL
-    [lex_gprint_stmt] (and, at the program level, an ASI pass emitting [TSemi]) awaits that lexer work.  The
+    [lex_gprint_stmt] (and, at the program level, a [TPackage]-keyword arm + an ASI pass emitting [TSemi])
+    awaits that lexer work.  The
     blank identifier ['_'] is a valid [go_ident] (intended [TId "_"]).  Statement UNIQUENESS
     ([stmt_tokens_inj], just below) is INDEPENDENT of lexing — a head/second-token discrimination +
     [gtokens_inj] (leading [TReturn]/[TDefer]/[TId], then [TAssign]/[TDefine] within the [TId]-led forms;

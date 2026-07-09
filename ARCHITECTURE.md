@@ -78,7 +78,8 @@ canonicity/functionality/uniqueness (token uniqueness PARSER-FREE via `stmt_toke
 resting on `gtokens_no_stmt`). LEXICAL faithfulness (`lex (print_stmt s) = Some (stmt_tokens s)`) is PROVED
 for the 3 lex-supported statement forms (`lex_print_stmt_exprstmt`/`_return`/`_returnval`, via `gtokens_lex`/
 `lex_return`/`lex_return_app`). Still OPEN: the `:=`/`=`/`defer` statement forms (needing new lexer arms) and
-the program level `lex_gprint_program` (an ASI pass emitting `TSemi`); `print_stmt_inj`/`print_program_inj`
+the program level `lex_gprint_program` (a `TPackage`-keyword arm — "package" is a keyword that fails to lex
+today, `lex_package` — plus an ASI pass emitting `TSemi`); `print_stmt_inj`/`print_program_inj`
 remain the weaker STRING-injectivity siblings. Purely syntactic.
 
 **`GoSem.v` — behavioral bridge from `GoAst` into the existing proof models — SLICE 1.**
