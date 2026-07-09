@@ -840,9 +840,10 @@ Definition slice_append {A} (tag : GoTypeTag A) (s : SliceH A) (v : A) : IO (Sli
                        (ref_upd (sh_cell s (sh_len s)) v w)
       | None   => OPanic rt_nil_deref w
       end
-    else (* reallocate: fresh disjoint backing of len+1, copy old, append v — but ONLY if every source
-            cell [0, len) is LIVE; a forged / dangling handle FAILS LOUD instead of copying fabricated
-            (zero-filled) elements out of unallocated locations *)
+    else if Nat.eqb (sh_len s) (sh_cap s) then
+      (* PAST cap, at the SOLE valid grow point [len = cap]: reallocate a fresh disjoint backing of
+         len+1, copy old, append v — but ONLY if every source cell [0, len) is LIVE; a forged / dangling
+         handle FAILS LOUD instead of copying fabricated (zero-filled) elements out of unallocated cells *)
       if slice_range_live s (sh_len s) w then
         let base' := w_next w in
         let n := sh_len s in
@@ -856,7 +857,10 @@ Definition slice_append {A} (tag : GoTypeTag A) (s : SliceH A) (v : A) : IO (Sli
                       else Some (existT _ A (tag, ref_sel (sh_cell s j) w)))  (* a copy of old s[j] *)
                 else w_refs w k)
                 (w_chans w) (w_maps w) (base' + S n) (w_output w))
-      else OPanic rt_nil_deref w.
+      else OPanic rt_nil_deref w
+    else (* [len > cap]: an IMPOSSIBLE SliceH — Go maintains the [len <= cap] invariant, so no real
+            slice reaches here; a forged handle that violates it FAILS LOUD, never a phantom grow *)
+      OPanic rt_nil_deref w.
 
 (** WITHIN-cap append is IN PLACE: it updates exactly [s]'s cell at index [len], so the
     new element is written into the SHARED backing — a THEOREM.  (Reading [result[len]]
@@ -879,6 +883,19 @@ Lemma slice_append_incap_aliases : forall {A} (tag : GoTypeTag A) (s : SliceH A)
 Proof.
   intros A tag s v a w Hlt Hsel. rewrite (slice_append_incap tag s v a w Hlt Hsel). cbn.
   apply ref_sel_upd_same.
+Qed.
+
+(** A [len > cap] [SliceH] is IMPOSSIBLE for a real slice (Go maintains [len <= cap]); a forged handle that
+    violates the invariant makes [append] FAIL LOUD — it never phantom-grows an over-long slice.  This is the
+    anti-forgery witness for the malformed-shape case (paired with [slice_range_live]'s dangling-source guard). *)
+Lemma slice_append_len_gt_cap_panics : forall {A} (tag : GoTypeTag A) (s : SliceH A) (v : A) (w : World),
+  (sh_cap s < sh_len s)%nat ->
+  run_io (slice_append tag s v) w = OPanic rt_nil_deref w.
+Proof.
+  intros A tag s v w Hgt. unfold slice_append, run_io.
+  assert (H1 : (sh_len s <? sh_cap s)%nat = false) by (apply Nat.ltb_ge; lia).
+  assert (H2 : Nat.eqb (sh_len s) (sh_cap s) = false) by (apply Nat.eqb_neq; lia).
+  rewrite H1, H2. reflexivity.
 Qed.
 
 (** [make([]T, len, cap)]: allocate [cap] fresh zeroed cells; the handle
