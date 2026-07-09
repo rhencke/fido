@@ -16,25 +16,29 @@
     WHAT IS PROVEN: printer injectivity is PARSER-FREE — EXPRESSION [gprint_inj] rests on [gtokens_inj]
     + [gtokens_lex] ([canon_expr_unique] is a SIBLING corollary of [gtokens_inj], not a dependency of
     [gprint_inj]), and TYPE [print_ty_inj] rests on [gttokens_ty_inj] + [lex_print_ty] (NOT the type
-    parser).  Statements and whole programs currently have print-INJECTIVITY
-    only ([print_stmt_inj] / [print_program_inj]) — there is no statement PARSER yet, so no statement
-    round-trip; their printer-level disjointness lemmas are LEXICAL (parser-free).  The executable parser
+    parser).  STATEMENTS now have a token-level canonical layer too ([CanonStmt] + [canon_stmt_unique] via
+    [stmt_tokens_inj]); whole programs still have STRING print-INJECTIVITY only ([print_program_inj]), as does
+    the string-level [print_stmt_inj] — there is no statement PARSER, so no statement round-trip; the
+    printer-level disjointness lemmas are LEXICAL (parser-free).  The executable parser
     (expression + type) survives ONLY as gated derived self-consistency tooling ([parse_print_roundtrip],
     [parse_gty_print_ty]) — nothing depends on it.
 
     ⚠️ HONEST SCOPE — these are ROCQ-GRAMMAR self-consistency results, and the executable parser is
     DERIVED TOOLING (CLAUDE.md "Syntax authority"): the authority is the relational/canonical grammar
-    layer.  That layer now EXISTS for TYPES and EXPRESSIONS — [CanonTy]/[CanonExpr] relations,
-    [gprint_expr_canonical] (the printer inhabits the grammar), [lex_gprint_expr] (lexical faithfulness),
-    [canon_ty_unique] (type-level token uniqueness, PARSER-FREE via [gttokens_ty_inj]), and
-    [canon_expr_unique] (expression-level token uniqueness, PARSER-FREE via [gtokens_inj]).  So the parser
-    IS now demoted below the grammar at the expression layer — [gprint_inj] no longer depends on
-    [parse_print_roundtrip], which is now derived parser SELF-CONSISTENCY tooling (nothing depends on it).
-    The statement/program DISJOINTNESS lemmas ([gprint_neq_return]/[_return_val]/[_blank]/[_defer]/
-    [_shortdecl]) are also PARSER-FREE now — LEXICAL: a keyword form either fails to [lex] or leads with
-    [TReturn], which no expression's tokens do ([gtokens_hd_not_return]).  Still OPEN: the statement/program
-    canonical layers ([CanonStmt]/[CanonProgram] + their canonicity/uniqueness/lex); [print_stmt_inj] /
-    [print_program_inj] remain STRING-injectivity until they land.
+    layer.  That layer now EXISTS for TYPES, EXPRESSIONS, and STATEMENTS — [CanonTy]/[CanonExpr]/[CanonStmt]
+    relations, [gprint_expr_canonical]/[gprint_stmt_canonical] (the printer inhabits the grammar),
+    [lex_gprint_expr] (lexical faithfulness, expression-level), [canon_ty_unique] (type-level token
+    uniqueness, PARSER-FREE via [gttokens_ty_inj]), [canon_expr_unique] (expression-level, via [gtokens_inj]),
+    and [canon_stmt_unique] (statement-level token uniqueness, PARSER-FREE via [stmt_tokens_inj], itself
+    resting on [gtokens_no_stmt]).  So the parser IS now demoted below the grammar at the expression layer —
+    [gprint_inj] no longer depends on [parse_print_roundtrip], which is now derived parser SELF-CONSISTENCY
+    tooling (nothing depends on it).  The statement/program DISJOINTNESS lemmas ([gprint_neq_return]/
+    [_return_val]/[_blank]/[_defer]/[_shortdecl]) are also PARSER-FREE now — LEXICAL: a keyword form either
+    fails to [lex] or leads with [TReturn], which no expression's tokens do ([gtokens_hd_not_return]).  Still
+    OPEN: the PROGRAM canonical layer ([CanonProgram] + its canonicity/uniqueness) and LEXICAL faithfulness at
+    the statement/program level ([lex_gprint_stmt]/[lex_gprint_program], which need new lexer arms for
+    ':='/'='/'defer'); [print_stmt_inj] / [print_program_inj] remain STRING-injectivity (the TOKEN-level
+    statement uniqueness [canon_stmt_unique] is now separately proven).
     Nothing here is Go-compiler acceptance.  There is NO theorem that Go's compiler reads the
     emitted text as the same AST (that Go-subset RECOGNITION theorem — emitted grammar ⊆ Go grammar — is
     UNPROVEN, a SEPARATE Go-syntax recognition gap; Go's toolchain is TRUSTED, ARCHITECTURE §2a item 3 —

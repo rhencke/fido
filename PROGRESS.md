@@ -106,8 +106,12 @@ plugin CONSTRUCTS the `GExpr`; only `gprint` is verified. NOT "verified Go."
   (`gtokens_hd_not_return` + `lex_*_None`); the six dead `parse_str_*_None`/`parse_TReturn_None` bridges
   DELETED. No printer-injectivity or disjointness theorem depends on the executable parser; it survives
   ONLY as gated derived self-consistency tooling (`parse_print_roundtrip`, `parse_gty_print_ty` — nothing
-  depends on either). REMAINING (Phase 4/5): `CanonStmt`/`CanonProgram` (+ `gprint_stmt/program_canonical`,
-  `canon_stmt/program_unique`, `lex_gprint_stmt/program`), then re-base the executable parser as
+  depends on either). Phase 4 STATEMENT layer DONE: `stmt_tokens_inj` (via `gtokens_no_stmt` — expression
+  tokens are statement-token-free) + the `CanonStmt` trio (`canon_stmt_tokens`/`gprint_stmt_canonical`/
+  `canon_stmt_unique`), all gated, zero axioms — token-level statement uniqueness is now PARSER-FREE.
+  REMAINING (Phase 4/5): the PROGRAM canonical layer (`program_tokens`/`program_tokens_inj` + `CanonProgram`
+  + `gprint_program_canonical`/`canon_program_unique`), the LEXICAL faithfulness `lex_gprint_stmt/program`
+  (needs new lexer arms for `:=`/`=`/`defer`), then re-base the executable parser as
   `parse_sound`/`parse_complete` derived tooling.
 - The cmd↔unified bridge (`plans/bridge-effects.md`): `CAlloc` AND the channel slice LANDED
   (typed zeros through the channel's own tag, gated obligations; `bridge_effects_agree` now
