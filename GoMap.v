@@ -89,9 +89,15 @@ Definition map_get_fn {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
       end
   | None => fun _ => None
   end.
+(** The single map-cell WRITE.  Location 0 is the RESERVED nil sentinel: [map_write] on a nil map
+    ([gm_loc = 0]) is a NO-OP — so NO map update ([map_upd]/[map_rem]/[map_clear_upd]) can EVER mutate
+    location 0, regardless of caller.  The loc-0 write path is closed at its root, not just at the IO
+    wrappers (checkpoint-56 audit: make the bad state impossible, not merely avoided).  Read-back-after-write
+    theorems below therefore carry a [gm_loc m <> 0] side condition. *)
 Definition map_write {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
                       (m : GoMap K V) (f : K -> option V) (sz : nat) (w : World) : World :=
-  mkWorld (w_refs w) (w_chans w)
+  if Nat.eqb (gm_loc m) 0 then w
+  else mkWorld (w_refs w) (w_chans w)
           (fun l => if Nat.eqb l (gm_loc m)
                     then Some (sz, existT _ K (kt, existT _ V (vt, f)))
                     else w_maps w l)
@@ -123,9 +129,10 @@ Definition map_rem {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
     the written function — via [eqb_refl] (location hit) + [tag_eq_refl] (the K/V
     coercions become identities, then eta). *)
 Lemma map_get_fn_write_same : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) m f sz w,
+  Nat.eqb (gm_loc m) 0 = false ->
   map_get_fn kt vt m (map_write kt vt m f sz w) = f.
 Proof.
-  intros K V kt vt m f sz w. unfold map_get_fn, map_write. cbn.
+  intros K V kt vt m f sz w Hnil. unfold map_get_fn, map_write. rewrite Hnil. cbn.
   rewrite (Nat.eqb_refl (gm_loc m)), !tag_eq_refl. reflexivity.
 Qed.
 
@@ -206,41 +213,41 @@ Proof. reflexivity. Qed.
     [comparable_TInt64]. *)
 Theorem map_sel_upd_same : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
     (k : K) (v : V) (m : GoMap K V) (w : World),
-  key_eqb kt k k = true ->
+  key_eqb kt k k = true -> Nat.eqb (gm_loc m) 0 = false ->
   map_sel kt vt k m (map_upd kt vt k v m w) = Some v.
 Proof.
-  intros K V kt vt k v m w Hk. unfold map_sel, map_upd.
-  rewrite map_get_fn_write_same. cbn. rewrite Hk. reflexivity.
+  intros K V kt vt k v m w Hk Hnil. unfold map_sel, map_upd.
+  rewrite map_get_fn_write_same by exact Hnil. cbn. rewrite Hk. reflexivity.
 Qed.
 Theorem map_sel_upd_diff : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
     (k1 k2 : K) (v : V) (m : GoMap K V) (w : World),
-  Comparable kt -> k1 <> k2 ->
+  Comparable kt -> k1 <> k2 -> Nat.eqb (gm_loc m) 0 = false ->
   map_sel kt vt k1 m (map_upd kt vt k2 v m w) = map_sel kt vt k1 m w.
 Proof.
-  intros K V kt vt k1 k2 v m w Hcmp Hne. unfold map_sel, map_upd.
-  rewrite map_get_fn_write_same. cbn.
+  intros K V kt vt k1 k2 v m w Hcmp Hne Hnil. unfold map_sel, map_upd.
+  rewrite map_get_fn_write_same by exact Hnil. cbn.
   destruct (key_eqb kt k2 k1) eqn:E.
   - exfalso. apply Hne. symmetry. apply Hcmp. exact E.
   - reflexivity.
 Qed.
 Theorem map_sel_rem : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
     (k : K) (m : GoMap K V) (w : World),
-  key_eqb kt k k = true ->
+  key_eqb kt k k = true -> Nat.eqb (gm_loc m) 0 = false ->
   map_sel kt vt k m (map_rem kt vt k m w) = None.
 Proof.
-  intros K V kt vt k m w Hk. unfold map_sel, map_rem.
-  rewrite map_get_fn_write_same. cbn. rewrite Hk. reflexivity.
+  intros K V kt vt k m w Hk Hnil. unfold map_sel, map_rem.
+  rewrite map_get_fn_write_same by exact Hnil. cbn. rewrite Hk. reflexivity.
 Qed.
 (** DELETE FRAME (the dual of [map_sel_rem], mirroring [map_sel_upd_diff] for set): deleting key [k2]
     leaves a DIFFERENT key [k1] reading exactly what it read before — Go's `delete(m, k2)` touches only
     [k2].  Independence of keys is as defining for a map as [map_sel_rem] is. *)
 Theorem map_sel_rem_diff : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
     (k1 k2 : K) (m : GoMap K V) (w : World),
-  Comparable kt -> k1 <> k2 ->
+  Comparable kt -> k1 <> k2 -> Nat.eqb (gm_loc m) 0 = false ->
   map_sel kt vt k1 m (map_rem kt vt k2 m w) = map_sel kt vt k1 m w.
 Proof.
-  intros K V kt vt k1 k2 m w Hcmp Hne. unfold map_sel, map_rem.
-  rewrite map_get_fn_write_same. cbn.
+  intros K V kt vt k1 k2 m w Hcmp Hne Hnil. unfold map_sel, map_rem.
+  rewrite map_get_fn_write_same by exact Hnil. cbn.
   destruct (key_eqb kt k2 k1) eqn:E.
   - exfalso. apply Hne. symmetry. apply Hcmp. exact E.
   - reflexivity.
@@ -270,7 +277,8 @@ Proof.
   rewrite !run_bind, !run_map_set.
   destruct (Nat.eqb (gm_loc m) 0) eqn:Hnil.
   - reflexivity.   (* nil map: both sides panic at the [map_set] step *)
-  - cbn. rewrite run_map_get_opt, map_sel_upd_same by (apply comparable_key_refl; exact Hcmp).
+  - cbn. rewrite run_map_get_opt, map_sel_upd_same
+      by first [ apply comparable_key_refl; exact Hcmp | exact Hnil ].
     rewrite run_ret. reflexivity.
 Qed.
 
@@ -282,7 +290,8 @@ Lemma map_get_delete_same : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
 Proof.
   intros K V kt vt k m Hcmp Hnil. intro w.
   rewrite !run_bind, !run_map_delete, !Hnil. cbn.
-  rewrite run_map_get_opt, map_sel_rem by (apply comparable_key_refl; exact Hcmp).
+  rewrite run_map_get_opt, map_sel_rem
+    by first [ apply comparable_key_refl; exact Hcmp | exact Hnil ].
   rewrite run_ret. reflexivity.
 Qed.
 
@@ -350,8 +359,9 @@ Lemma map_clear_nil_noop : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (w
 Proof. reflexivity. Qed.
 Theorem map_sel_clear : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
     (k : K) (m : GoMap K V) (w : World),
+  Nat.eqb (gm_loc m) 0 = false ->
   map_sel kt vt k m (map_clear_upd kt vt m w) = None.
-Proof. intros. unfold map_sel, map_clear_upd. rewrite map_get_fn_write_same. reflexivity. Qed.
+Proof. intros K V kt vt k m w Hnil. unfold map_sel, map_clear_upd. rewrite map_get_fn_write_same by exact Hnil. reflexivity. Qed.
 
 Lemma map_get_clear : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (m : GoMap K V),
   Nat.eqb (gm_loc m) 0 = false ->
@@ -360,5 +370,5 @@ Lemma map_get_clear : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K)
 Proof.
   intros K V kt vt k m Hnil. intro w.
   rewrite !run_bind, !run_map_clear, !Hnil. cbn.
-  rewrite run_map_get_opt, map_sel_clear, run_ret. reflexivity.
+  rewrite run_map_get_opt. rewrite map_sel_clear by exact Hnil. rewrite run_ret. reflexivity.
 Qed.
