@@ -4123,7 +4123,8 @@ Section Keystone.
      channel-separation/frame law, tracked.) *)
   Definition WMatch1 (c : nat) (w : World) (cfg : RConfig) : Prop :=
     chan_buf TI64 (chenv c) w = map inj (rchan cfg c)
-    /\ chan_cap (chenv c) w = None.   (* the bridge's channel is UNBOUNDED (matches the unbounded [rstep] buffer); so a capacity-aware [send] always has room here *)
+    /\ chan_cap (chenv c) w = None   (* the bridge's channel is UNBOUNDED (matches the unbounded [rstep] buffer); so a capacity-aware [send] always has room here *)
+    /\ chan_present (chenv c) w = true.   (* ...but ONLY because it is ALLOCATED: an ABSENT cell would ALSO read cap None (the checkpoint-57 conflation), so cell-existence is pinned SEPARATELY — [chan_room]/[send] no longer treat absence as unbounded room *)
 
   (** A SEND step: the deep [CSend] run-reduces to its continuation at the world after
       [chan_send_upd], and the buffer match is preserved — mirroring [rstep_send]. *)
@@ -4138,15 +4139,16 @@ Section Keystone.
               (mkRCfg (upd p tid k) (upd b c (b c ++ [(v, length tr)])) h lv
                       (tr ++ [mkEv tid (KSend c)])).
   Proof.
-    intros p b h lv tr tid c v k m w HD [HMbuf HMcap] Hclosed.
+    intros p b h lv tr tid c v k m w HD [HMbuf [HMcap HMpres]] Hclosed.
     assert (Hroom : chan_room TI64 (chenv c) w = true)
-      by (unfold chan_room; rewrite (chenv_live c), HMcap; reflexivity).
+      by (unfold chan_room; rewrite HMpres, HMcap; reflexivity).
     inversion HD as [| ch0 v0 k0 m' HDk Hch Hm | | | ]; subst.
     exists m'. split; [exact HDk | split].
     - rewrite run_bind, (run_send TI64 (chenv c) (inj v) w Hclosed Hroom). cbn. reflexivity.
-    - unfold WMatch1, rchan in *. cbn [rc_bufs] in *. rewrite upd_same. split.
+    - unfold WMatch1, rchan in *. cbn [rc_bufs] in *. rewrite upd_same. split; [| split].
       + rewrite (chan_buf_send TI64 (chenv c) (inj v) w (chenv_live c)), HMbuf, !map_app. cbn. reflexivity.
       + rewrite (chan_cap_send TI64 (chenv c) (inj v) w (chenv_live c)). exact HMcap.
+      + exact (chan_present_send TI64 (chenv c) (inj v) w (chenv_live c)).
   Qed.
 
   (** A RECV step: the deep [CRecv] run-reduces by BINDING the head value; [Hret]
@@ -4163,7 +4165,7 @@ Section Keystone.
       WMatch1 c (chan_recv_upd TI64 (chenv c) w)
               (mkRCfg (upd p tid (f v)) (upd b c brest) h lv (tr ++ [mkEv tid (KRecv c s)])).
   Proof.
-    intros p b h lv tr tid c f m w v s brest HD [HMbuf HMcap] Hbc Hv.
+    intros p b h lv tr tid c f m w v s brest HD [HMbuf [HMcap HMpres]] Hbc Hv.
     inversion HD as [| | ch0 f0 g HDg Hch Hm | | ]; subst.
     assert (Hbuf : chan_buf TI64 (chenv c) w = inj v :: map inj (map fst brest)).
     { unfold rchan in HMbuf. cbn [rc_bufs] in HMbuf. rewrite Hbc in HMbuf. cbn in HMbuf. exact HMbuf. }
@@ -4171,9 +4173,10 @@ Section Keystone.
     - specialize (HDg (inj v)). rewrite (Hret v Hv) in HDg. exact HDg.
     - rewrite run_bind, (run_recv TI64 (chenv c) (inj v) (map inj (map fst brest)) w Hbuf).
       cbn. reflexivity.
-    - unfold WMatch1, rchan. cbn [rc_bufs]. rewrite upd_same. split.
+    - unfold WMatch1, rchan. cbn [rc_bufs]. rewrite upd_same. split; [| split].
       + rewrite (chan_buf_recv TI64 (chenv c) (inj v) (map inj (map fst brest)) w (chenv_live c) Hbuf). reflexivity.
       + rewrite (chan_cap_recv TI64 (chenv c) w (chenv_live c)). exact HMcap.
+      + exact (chan_present_recv TI64 (chenv c) w (chenv_live c)).
   Qed.
 
   (* World <-> config on one location [l]: the IO ref's value is the calculus heap
@@ -4331,10 +4334,10 @@ Section Keystone.
   Lemma siminv_init : forall c prog0 m w0,
     OnChan c prog0 -> Denotes prog0 m ->
     chan_buf TI64 (chenv c) w0 = [] -> chan_closed (chenv c) w0 = false ->
-    chan_cap (chenv c) w0 = None ->
+    chan_cap (chenv c) w0 = None -> chan_present (chenv c) w0 = true ->
     SimInv c m w0 (rinit_cfg (fun t => if Nat.eqb t 0 then prog0 else CRet)).
   Proof.
-    intros c prog0 m w0 HOC HD Hbuf Hcl Hcap.
+    intros c prog0 m w0 HOC HD Hbuf Hcl Hcap Hpres.
     unfold SimInv, rinit_cfg; cbn [rc_prog rc_live].
     split; [exact HOC | split; [| split; [| split; [| split]]]].
     - intros t Ht. destruct (Nat.eqb t 0) eqn:E;
@@ -4343,7 +4346,7 @@ Section Keystone.
     - intros pos e Hpos c'. exfalso. apply nth_error_lt in Hpos. cbn in Hpos. lia.
     - unfold rchan; cbn [rc_bufs]. constructor.   (* initial buffer is empty ⇒ Forall vacuous *)
     - exists m, w0. split; [exact HD | split; [| split]].
-      + unfold WMatch1, rchan; cbn [rc_bufs]. split; [rewrite Hbuf; reflexivity | exact Hcap].
+      + unfold WMatch1, rchan; cbn [rc_bufs]. split; [rewrite Hbuf; reflexivity | split; [exact Hcap | exact Hpres]].
       + exact Hcl.
       + reflexivity.
   Qed.
@@ -4356,14 +4359,14 @@ Section Keystone.
   Theorem denote_adequate : forall c prog0 m w0 cfg_final,
     OnChan c prog0 -> Denotes prog0 m ->
     chan_buf TI64 (chenv c) w0 = [] -> chan_closed (chenv c) w0 = false ->
-    chan_cap (chenv c) w0 = None ->
+    chan_cap (chenv c) w0 = None -> chan_present (chenv c) w0 = true ->
     rsteps (rinit_cfg (fun t => if Nat.eqb t 0 then prog0 else CRet)) cfg_final ->
     rc_prog cfg_final 0 = CRet ->
     exists w_final, run_io m w0 = ORet tt w_final /\ WMatch1 c w_final cfg_final.
   Proof.
-    intros c prog0 m w0 cfg_final HOC HD Hbuf Hcl Hcap Hrsteps Hdone.
+    intros c prog0 m w0 cfg_final HOC HD Hbuf Hcl Hcap Hpres Hrsteps Hdone.
     pose proof (siminv_steps _ _ _ _ _ Hrsteps
-                  (siminv_init _ _ _ _ HOC HD Hbuf Hcl Hcap)) as HS.
+                  (siminv_init _ _ _ _ HOC HD Hbuf Hcl Hcap Hpres)) as HS.
     destruct HS as [_ [_ [_ [_ [_ [m' [w' [HD' [HM' [_ Hrun']]]]]]]]]].
     rewrite Hdone in HD'. inversion HD'; subst.
     exists w'. split; [rewrite Hrun'; apply run_ret | exact HM'].
@@ -5147,11 +5150,12 @@ Section MpTyped.
     chan_buf TI64 (chenv 0) w0 = [] ->
     chan_closed (chenv 0) w0 = false ->
     chan_cap (chenv 0) w0 = None ->
+    chan_present (chenv 0) w0 = true ->   (* the handoff channel is ALLOCATED (checkpoint-57: absence is not unbounded room) *)
     exists w', run_io (mp_handoff_io v0 v1) w0 = ORet (inj v1, inj v0) w'.
   Proof.
-    intros v0 v1 w0 a0 Hpre Hbuf Hcl Hcap. unfold mp_handoff_io.
+    intros v0 v1 w0 a0 Hpre Hbuf Hcl Hcap Hpres. unfold mp_handoff_io.
     assert (Hroom : chan_room TI64 (chenv 0) w0 = true)
-      by (unfold chan_room; rewrite (chenv_live 0), Hcap; reflexivity).
+      by (unfold chan_room; rewrite Hpres, Hcap; reflexivity).
     rewrite run_bind, (ptr_set_nonnil TI64 (ptrenv 0) (inj v0) a0 w0 (ptrenv_live 0) Hpre); cbv beta iota.
     rewrite run_bind, run_send by (first [ exact Hcl | exact Hroom ]); cbv beta iota.
     rewrite run_bind, (run_recv TI64 (chenv 0) (inj v1) (@nil GoI64))
@@ -5765,6 +5769,7 @@ Theorem mp_end_to_end :
     (forall c, chan_buf TI64 (chenv c) w0 = []) ->
     chan_closed (chenv 0) w0 = false ->
     chan_cap (chenv 0) w0 = None ->          (* the handoff channel is UNBOUNDED *)
+    chan_present (chenv 0) w0 = true -> (* ...and ALLOCATED: an absent cell also reads cap None, so cell-existence is a SEPARATE premise (checkpoint-57) *)
     (forall l, ref_sel_opt (plocenv ptrenv l) w0 = Some (inj 0)) ->   (* the memory cells are ALLOCATED (live) *)
     exists cfg,
       (* (a) the typed program EXECUTES, generating the canonical handoff trace *)
@@ -5781,7 +5786,7 @@ Theorem mp_end_to_end :
       (* (e) the equivalent single-threaded handoff IO delivers exactly the right values *)
       /\ (exists w', run_io (mp_handoff_io chenv ptrenv inj v0 v1) w0 = ORet (inj v1, inj v0) w').
 Proof.
-  intros chenv ptrenv inj prj v0 v1 w0 Hchen Hloc Hlive Hchlive Hbuf Hcl Hcap Hheap.
+  intros chenv ptrenv inj prj v0 v1 w0 Hchen Hloc Hlive Hchlive Hbuf Hcl Hcap Hpres Hheap.
   destruct (mp_exec_trace v0 v1) as [cfg [Hsteps Htr]].
   exists cfg.
   split; [exact Hsteps |].
@@ -5802,7 +5807,7 @@ Proof.
     destruct (wstate_steps chenv (plocenv ptrenv) inj Hchen Hloc Hchlive
                 (mp_init v0 v1) cfg w0 Hsteps Hinit) as [w HW].
     exists w. exact HW. }
-  exact (mp_handoff_delivers chenv ptrenv inj Hlive Hchlive v0 v1 w0 (inj 0) (Hheap 0) (Hbuf 0) Hcl Hcap).
+  exact (mp_handoff_delivers chenv ptrenv inj Hlive Hchlive v0 v1 w0 (inj 0) (Hheap 0) (Hbuf 0) Hcl Hcap Hpres).
 Qed.
 
 (** ============================================================================

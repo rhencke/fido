@@ -109,30 +109,11 @@ Definition chan_cap {A : Type} (ch : GoChan A) (w : World) : option nat :=
   | Some (existT _ _ (_, (_, (_, cap)))) => cap
   | None => None
   end.
-(** [chan_room tag ch w] — is there room for one more send?  A NIL channel ([ch_loc = 0]) has NO room —
-    Go BLOCKS forever on a nil send — so [send] FAILS LOUD ([OPanic rt_chan_send_block]) and NEVER enqueues /
-    writes the reserved location 0.  Otherwise: [None]-capacity (unbounded, the concurrency bridge's abstract
-    channels) always has room; [Some n] iff the FIFO is shorter than [n]. *)
-Definition chan_room {A : Type} (tag : GoTypeTag A) (ch : GoChan A) (w : World) : bool :=
-  if Nat.eqb (ch_loc ch) 0 then false
-  else match chan_cap ch w with
-       | None   => true
-       | Some n => Nat.ltb (List.length (chan_buf tag ch w)) n
-       end.
-(** CANONICAL NIL STATE: a nil channel ([MkChan 0]) reads as empty / open / no-capacity in ANY world [w],
-    including a FORGED one carrying a cell at location 0 — the accessor guards make [w_chans 0] unobservable.
-    These are the witnesses that nil-channel reads cannot be tricked by a fabricated loc-0 heap cell. *)
-Lemma chan_buf_nil : forall {A} (tag : GoTypeTag A) (w : World), chan_buf tag (MkChan 0) w = nil.
-Proof. reflexivity. Qed.
-Lemma chan_closed_nil : forall {A} (w : World), chan_closed (@MkChan A 0) w = false.
-Proof. reflexivity. Qed.
-Lemma chan_cap_nil : forall {A} (w : World), chan_cap (@MkChan A 0) w = None.
-Proof. reflexivity. Qed.
 (** [chan_present ch w] — is [ch]'s cell ALLOCATED?  FALSE for the nil sentinel ([ch_loc = 0], whose cell is
     unobservable) AND for a nonzero ABSENT location (a forged / dangling handle whose [w_chans] cell is [None]).
-    An operation that would CREATE channel state ([close]) fails loud when this is false, so an unallocated
-    handle never fabricates a cell — the general fix for nonzero-absent forgery, beyond the loc-0 case.
-    (Tag-AGNOSTIC: [close] does not read the buffer's element type — cell EXISTENCE is what it needs.) *)
+    An operation that would CREATE channel state ([send]/[close]) fails loud when this is false, so an
+    unallocated handle never fabricates a cell — the general fix for nonzero-absent forgery, beyond loc-0.
+    (Tag-AGNOSTIC: cell EXISTENCE is what [chan_room]/[close] need; typed reads still go through [chan_buf].) *)
 Definition chan_present {A : Type} (ch : GoChan A) (w : World) : bool :=
   if Nat.eqb (ch_loc ch) 0 then false
   else match w_chans w (ch_loc ch) with Some _ => true | None => false end.
@@ -146,6 +127,27 @@ Proof.
   destruct (Nat.eqb (ch_loc ch) 0); [ discriminate H | ].
   destruct (w_chans w (ch_loc ch)) as [c|]; [ reflexivity | discriminate H ].
 Qed.
+(** [chan_room tag ch w] — is there room for one more send?  An UNALLOCATED handle (nil [ch_loc = 0] OR a
+    nonzero ABSENT cell) has NO room ([chan_present] false) — Go BLOCKS forever on a nil send and a forged
+    handle must not fabricate — so [send] FAILS LOUD ([OPanic rt_chan_send_block]) and never enqueues.
+    Otherwise: [None]-capacity (unbounded, the concurrency bridge's ALLOCATED abstract channels) always has
+    room; [Some n] iff the FIFO is shorter than [n]. *)
+Definition chan_room {A : Type} (tag : GoTypeTag A) (ch : GoChan A) (w : World) : bool :=
+  if chan_present ch w then
+    match chan_cap ch w with
+    | None   => true
+    | Some n => Nat.ltb (List.length (chan_buf tag ch w)) n
+    end
+  else false.   (* an UNALLOCATED handle (nil OR nonzero-absent) has NO room: [send] fails loud, never fabricates a cell *)
+(** CANONICAL NIL STATE: a nil channel ([MkChan 0]) reads as empty / open / no-capacity in ANY world [w],
+    including a FORGED one carrying a cell at location 0 — the accessor guards make [w_chans 0] unobservable.
+    These are the witnesses that nil-channel reads cannot be tricked by a fabricated loc-0 heap cell. *)
+Lemma chan_buf_nil : forall {A} (tag : GoTypeTag A) (w : World), chan_buf tag (MkChan 0) w = nil.
+Proof. reflexivity. Qed.
+Lemma chan_closed_nil : forall {A} (w : World), chan_closed (@MkChan A 0) w = false.
+Proof. reflexivity. Qed.
+Lemma chan_cap_nil : forall {A} (w : World), chan_cap (@MkChan A 0) w = None.
+Proof. reflexivity. Qed.
 (** Write a channel cell at [ch]'s location, tagged with [tag], preserving its capacity [cap].
     ROOT NIL GUARD: location 0 is the reserved nil sentinel (never allocated).  A write there would
     FORGE channel state at an unallocated handle, so it is a NO-OP — the single choke point that makes
@@ -211,6 +213,36 @@ Proof.
   - intro H. apply (chan_loc_neq ch ch' Hne). symmetry; exact H.
 Qed.
 
+(** [chan_present] ALGEBRA for the concurrency bridge: a write to a non-nil handle leaves it PRESENT (it
+    installs a [Some] cell), and it leaves a DIFFERENT channel's presence unchanged (frame).  So the bridge's
+    cell-existence invariant is PRESERVED across [chan_send_upd]/[chan_recv_upd] — the bridge channels stay
+    ALLOCATED, never decaying into the absent state that [chan_room]/[send] now reject. *)
+Lemma chan_present_write_same : forall {A} (tag : GoTypeTag A) ch buf cl cap w,
+  Nat.eqb (ch_loc ch) 0 = false -> chan_present ch (chan_write tag ch buf cl cap w) = true.
+Proof.
+  intros A tag ch buf cl cap w Hnn. unfold chan_present, chan_write. rewrite Hnn. cbn.
+  rewrite Nat.eqb_refl. reflexivity.
+Qed.
+Lemma chan_present_write_frame : forall {A} (tag : GoTypeTag A) (ch ch' : GoChan A) buf cl cap w,
+  ch <> ch' -> chan_present ch' (chan_write tag ch buf cl cap w) = chan_present ch' w.
+Proof.
+  intros A tag ch ch' buf cl cap w Hne. unfold chan_present.
+  destruct (Nat.eqb (ch_loc ch') 0); [ reflexivity | ].
+  rewrite (chan_read_write_frame tag ch ch' buf cl cap w Hne). reflexivity.
+Qed.
+Lemma chan_present_send : forall {A} (tag : GoTypeTag A) ch v w,
+  Nat.eqb (ch_loc ch) 0 = false -> chan_present ch (chan_send_upd tag ch v w) = true.
+Proof. intros A tag ch v w Hnn. unfold chan_send_upd. apply chan_present_write_same; exact Hnn. Qed.
+Lemma chan_present_recv : forall {A} (tag : GoTypeTag A) ch w,
+  Nat.eqb (ch_loc ch) 0 = false -> chan_present ch (chan_recv_upd tag ch w) = true.
+Proof. intros A tag ch w Hnn. unfold chan_recv_upd. apply chan_present_write_same; exact Hnn. Qed.
+Lemma chan_present_send_frame : forall {A} (tag : GoTypeTag A) (ch ch' : GoChan A) v w,
+  ch <> ch' -> chan_present ch' (chan_send_upd tag ch v w) = chan_present ch' w.
+Proof. intros A tag ch ch' v w Hne. unfold chan_send_upd. apply chan_present_write_frame; exact Hne. Qed.
+Lemma chan_present_recv_frame : forall {A} (tag : GoTypeTag A) (ch ch' : GoChan A) w,
+  ch <> ch' -> chan_present ch' (chan_recv_upd tag ch w) = chan_present ch' w.
+Proof. intros A tag ch ch' w Hne. unfold chan_recv_upd. apply chan_present_write_frame; exact Hne. Qed.
+
 (** Heap-interface laws: how [chan_buf]/[chan_closed] read after each update.  Each carries the
     ROOT-guard side condition [ch_loc <> 0] — on the reserved nil handle the update is a no-op, so the
     read-back holds only for an ALLOCATED channel (the bridge supplies this via [chenv_live]). *)
@@ -248,15 +280,18 @@ Theorem chan_cap_close : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (w : Wor
   Nat.eqb (ch_loc ch) 0 = false ->
   chan_cap ch (chan_close_upd tag ch w) = chan_cap ch w.
 Proof. intros A tag ch w Hnn. unfold chan_close_upd. rewrite chan_cap_write_same by exact Hnn. reflexivity. Qed.
-(** [chan_room = true] WITNESSES allocation: since [chan_room] is false on the nil handle ([ch_loc = 0]),
-    any channel with room is non-nil.  Lets a caller that already has [chan_room = true] discharge the
-    read-back side conditions above. *)
-Lemma chan_room_nonnil : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (w : World),
-  chan_room tag ch w = true -> Nat.eqb (ch_loc ch) 0 = false.
+(** [chan_room = true] WITNESSES allocation: [chan_room] is false on ANY unallocated handle (nil OR
+    nonzero-absent, via [chan_present]), so a channel with room has a PRESENT cell (hence is non-nil).  Lets a
+    caller that already has [chan_room = true] discharge the read-back / cell-existence side conditions above. *)
+Lemma chan_room_present : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (w : World),
+  chan_room tag ch w = true -> chan_present ch w = true.
 Proof.
   intros A tag ch w H. unfold chan_room in H.
-  destruct (Nat.eqb (ch_loc ch) 0) eqn:E; [ discriminate H | reflexivity ].
+  destruct (chan_present ch w) eqn:E; [ reflexivity | discriminate H ].
 Qed.
+Lemma chan_room_nonnil : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (w : World),
+  chan_room tag ch w = true -> Nat.eqb (ch_loc ch) 0 = false.
+Proof. intros A tag ch w H. exact (chan_present_nonnil ch w (chan_room_present tag ch w H)). Qed.
 
 (** Channel SEPARATION (frame): a send/receive on one channel leaves
     every OTHER channel's buffer untouched (distinct cells are independent). *)
@@ -331,6 +366,36 @@ Proof. reflexivity. Qed.
 Lemma recv_nil_no_value : forall {A} (tag : GoTypeTag A) (w : World) (a : A) (w' : World),
   run_io (recv tag (MkChan 0)) w <> ORet a w'.
 Proof. intros A tag w a w' H. unfold recv, run_io in H. discriminate H. Qed.
+(** An ABSENT cell ([chan_present = false] — nil OR a forged/dangling nonzero location) reads canonically
+    empty / open, so [send]/[recv]/[close] on it never move a value or fabricate state.  These GENERALISE the
+    [*_nil] witnesses from the loc-0 sentinel to the WHOLE unallocated class (the checkpoint-57 nonzero-absent
+    case).  [chan_buf]/[chan_closed] read [nil]/[false] on any absent cell (the [Some] case is [chan_present]). *)
+Lemma chan_buf_absent : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (w : World),
+  chan_present ch w = false -> chan_buf tag ch w = nil.
+Proof.
+  intros A tag ch w H. unfold chan_present in H. unfold chan_buf.
+  destruct (Nat.eqb (ch_loc ch) 0); [ reflexivity | ].
+  destruct (w_chans w (ch_loc ch)) as [c|]; [ discriminate H | reflexivity ].
+Qed.
+Lemma chan_closed_absent : forall {A} (ch : GoChan A) (w : World),
+  chan_present ch w = false -> chan_closed ch w = false.
+Proof.
+  intros A ch w H. unfold chan_present in H. unfold chan_closed.
+  destruct (Nat.eqb (ch_loc ch) 0); [ reflexivity | ].
+  destruct (w_chans w (ch_loc ch)) as [c|]; [ discriminate H | reflexivity ].
+Qed.
+Lemma send_absent : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (v : A) (w : World),
+  chan_present ch w = false -> run_io (send tag ch v) w = OPanic rt_chan_send_block w.
+Proof.
+  intros A tag ch v w H. unfold send, run_io.
+  rewrite (chan_closed_absent ch w H). unfold chan_room. rewrite H. reflexivity.
+Qed.
+Lemma recv_absent_no_value : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (w : World) (a : A) (w' : World),
+  chan_present ch w = false -> run_io (recv tag ch) w <> ORet a w'.
+Proof.
+  intros A tag ch w a w' H Hr. unfold recv, run_io in Hr.
+  rewrite (chan_buf_absent tag ch w H), (chan_closed_absent ch w H) in Hr. discriminate Hr.
+Qed.
 Definition select_recv2 {A B C} (ta : GoTypeTag A) (ch1 : GoChan A) (k1 : A -> IO C)
                                  (tb : GoTypeTag B) (ch2 : GoChan B) (k2 : B -> IO C) : IO C :=
   fun w => match chan_buf ta ch1 w with
@@ -612,9 +677,9 @@ Lemma make_chan_unbuffered_send_blocks : forall {A} (tag : GoTypeTag A) (v : A) 
   run_io (make_chan tag) w = ORet ch w' -> run_io (send tag ch v) w' = OPanic rt_chan_send_block w'.
 Proof.
   intros A tag v w ch w' H. unfold make_chan, make_chan_cap, run_io in H.
-  injection H as Hch Hw. subst ch w'. unfold send, run_io, chan_closed, chan_room, chan_cap, chan_buf. cbn.
-  (* [chan_room] is false on EITHER arm of the nil check: a nil handle (canonical None cap) has no room,
-     and a fresh unbuffered ([Some 0]) buffer is full — so send blocks regardless of [w_next]'s value. *)
+  injection H as Hch Hw. subst ch w'. unfold send, run_io, chan_closed, chan_room, chan_present, chan_cap, chan_buf. cbn.
+  (* [chan_room] is false on EITHER arm: an unallocated ([w_next = 0]) handle is [chan_present = false] (no
+     room), and a fresh unbuffered ([Some 0]) buffer is full — so send blocks regardless of [w_next]'s value. *)
   destruct (Nat.eqb (w_next w) 0); cbn; rewrite ?Nat.eqb_refl; cbn; reflexivity.
 Qed.
 (** FAIL-LOUD witness: [make(chan T, n)] with a NEGATIVE runtime size PANICS ([rt_makechan_size]) — the
