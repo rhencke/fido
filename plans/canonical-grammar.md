@@ -19,7 +19,7 @@ via `gttokens_ty_inj`; expression uniqueness has the SAME shape via the complete
 discipline is that `gprint_inj` rests on `gtokens_inj` + `gtokens_lex`, NOT the
 `gtokens_parse` + `parse_print_roundtrip` route; the statement layer (`print_stmt_inj`/
 `print_program_inj`, string injectivity) rests on the canonical layer the same way; the executable
-parser is derived tooling, re-based as `parse_sound`/`parse_complete` in the LAST phase.
+parser is derived tooling, re-based against the grammar in Phase 5 (`parse_complete` LANDED; `parse_sound` remaining).
 
 ## The architecture (the parser-free uniqueness discipline)
 
@@ -27,8 +27,8 @@ parser is derived tooling, re-based as `parse_sound`/`parse_complete` in the LAS
 `gtokens_inj`, structural induction on `e1` with a `last0` bracket split — full design in
 "Phase 3b/3c" below) — NEVER via `gtokens_parse`: deriving uniqueness from the parser's would reinstate
 the parser as the foundation, the exact inversion CLAUDE.md forbids.  The executable
-parser is re-based LAST as derived tooling (`parse_sound`/`parse_complete` against the
-relation).
+parser is re-based as derived tooling against the relation (`parse_complete` LANDED; `parse_sound`
+remaining) — Phase 5.
 
 ## Printer precedence/associativity (parse-shape preservation, NOT full-parenthesization)
 
@@ -97,11 +97,12 @@ EXPLICIT DEFERRED FRONTIERS (after the expression arc seals — do NOT expand mi
    the delicate `lex` extension (on which all of `gtokens_lex`/`gprint_inj` rests) is done LAST, each
    step re-verifying the expression proofs.  `lex_gprint_program` demotes `print_stmt/program_inj`
    from string-injectivity to a corollary.
-5. **Re-base the parser as derived tooling**: `parse_sound : parse ts = Some (e, nil)
-   -> CanonExpr 0 e ts`, `parse_complete` (its converse via canon_expr_tokens +
-   gtokens_parse — legitimate HERE because the parser is the SUBJECT, not the
-   foundation); rewrite GoPrint's header authority claims; the PROGRESS gate list
-   gains the canonical surface (one manifest-gated `Print Assumptions`).
+5. **Re-base the parser as derived tooling**: `parse_complete : CanonExpr 0 e ts ->
+   parse ts = Some (e, nil)` — ✓ LANDED+gated (via canon_expr_tokens + gtokens_parse;
+   legitimate HERE because the parser is the SUBJECT, not the foundation); GoPrint's
+   header authority claims rewritten; the PROGRESS gate list carries the surface.
+   REMAINING: `parse_sound : parse ts = Some (e, nil) -> CanonExpr 0 e ts` (⚠ likely
+   needs the parser to be canonical-only — it may accept redundant parens; investigate).
 
 ## Phase 3b/3c — the expression uniqueness proof (design + per-slice/per-diagonal technique)
 
