@@ -722,8 +722,9 @@ let mk_goexpr_hex z =
    | Printer.True  -> Some (Printer.EHex z)
    | Printer.False -> None)
 (* [ESel]'s field is an [Ident] (an erased [go_ident] proof, exactly like [EId]'s payload).  [mk_goexpr_sel]
-   re-checks [go_ident] on the field name at the boundary and returns [None] when it is not a valid Go
-   identifier (the caller then falls back to the trusted printer) — so a forged [Printer.ESel] with an invalid
+   re-checks [go_ident] on the field name at the boundary and returns [None] when it is not [go_ident]-valid
+   (the supported ASCII identifier subset — Go's Unicode-letter names are a rejected frontier) (the caller
+   then falls back to the trusted printer) — so a forged [Printer.ESel] with an invalid
    field can never enter the verified [gprint] path.  The base is an already-built (recursively validated)
    [Printer.GExpr]. *)
 let mk_goexpr_sel base name =
