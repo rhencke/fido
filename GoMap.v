@@ -162,8 +162,12 @@ Definition map_get_or {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (defau
 Definition map_set {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (v : V) (m : GoMap K V) : IO unit :=
   fun w => if Nat.eqb (gm_loc m) 0 then OPanic rt_nil_map w
            else ORet tt (map_upd kt vt k v m w).
+(** [delete(m, k)] on a NIL map ([gm_loc = 0]) is a NO-OP in Go — and MUST NOT write (a raw [map_rem]
+    would mutate the reserved location 0).  Only a non-nil map is removed from; the nil guard makes the
+    world UNCHANGED, matching Go and preserving [ValidWorld] (see [map_delete_nil_noop]). *)
 Definition map_delete {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (m : GoMap K V) : IO unit :=
-  fun w => ORet tt (map_rem kt vt k m w).
+  fun w => if Nat.eqb (gm_loc m) 0 then ORet tt w
+           else ORet tt (map_rem kt vt k m w).
 
 Lemma run_map_get_opt : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (m : GoMap K V) (w : World),
   run_io (map_get_opt kt vt k m) w = ORet (map_sel kt vt k m w) w.
@@ -186,7 +190,12 @@ Lemma map_set_nil : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (
   run_io (map_set kt vt k v (@map_empty K V)) w = OPanic rt_nil_map w.
 Proof. reflexivity. Qed.
 Lemma run_map_delete : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (m : GoMap K V) (w : World),
-  run_io (map_delete kt vt k m) w = ORet tt (map_rem kt vt k m w).
+  run_io (map_delete kt vt k m) w =
+    if Nat.eqb (gm_loc m) 0 then ORet tt w else ORet tt (map_rem kt vt k m w).
+Proof. reflexivity. Qed.
+(** Faithfulness: deleting from a NIL map is a NO-OP (Go), leaving the world UNCHANGED (no loc-0 write). *)
+Lemma map_delete_nil_noop : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (w : World),
+  run_io (map_delete kt vt k (@map_empty K V)) w = ORet tt w.
 Proof. reflexivity. Qed.
 
 (** Heap-interface laws — how [map_sel] reads after each update.
@@ -267,12 +276,12 @@ Qed.
 
 Lemma map_get_delete_same : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
     (k : K) (m : GoMap K V),
-  Comparable kt ->
+  Comparable kt -> Nat.eqb (gm_loc m) 0 = false ->
   bind (map_delete kt vt k m) (fun _ => map_get_opt kt vt k m) =io=
   bind (map_delete kt vt k m) (fun _ => ret (@None V)).
 Proof.
-  intros K V kt vt k m Hcmp. intro w.
-  rewrite !run_bind, !run_map_delete. cbn.
+  intros K V kt vt k m Hcmp Hnil. intro w.
+  rewrite !run_bind, !run_map_delete, !Hnil. cbn.
   rewrite run_map_get_opt, map_sel_rem by (apply comparable_key_refl; exact Hcmp).
   rewrite run_ret. reflexivity.
 Qed.
@@ -303,12 +312,12 @@ Qed.
     two-value lookup of a DIFFERENT key [k1] returns exactly what it returned before the delete. *)
 Lemma map_get_delete_diff : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
     (k1 k2 : K) (m : GoMap K V) (w : World),
-  Comparable kt -> k1 <> k2 ->
+  Comparable kt -> k1 <> k2 -> Nat.eqb (gm_loc m) 0 = false ->
   run_io (bind (map_delete kt vt k2 m) (fun _ => map_get_opt kt vt k1 m)) w =
   ORet (map_sel kt vt k1 m w) (map_rem kt vt k2 m w).
 Proof.
-  intros K V kt vt k1 k2 m w Hcmp Hne.
-  rewrite run_bind, run_map_delete. cbn.
+  intros K V kt vt k1 k2 m w Hcmp Hne Hnil.
+  rewrite run_bind, run_map_delete, Hnil. cbn.
   rewrite run_map_get_opt, map_sel_rem_diff by assumption. reflexivity.
 Qed.
 
@@ -328,10 +337,16 @@ Proof. intros K V kt vt k default m w H. rewrite run_map_get_or, H. reflexivity.
 Definition map_clear_upd {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
                          (m : GoMap K V) (w : World) : World :=
   map_write kt vt m (fun _ => None) 0 w.   (* clear ⇒ empty ⇒ len 0 *)
+(** [clear(m)] on a NIL map ([gm_loc = 0]) is a NO-OP in Go — and MUST NOT write location 0. *)
 Definition map_clear {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (m : GoMap K V) : IO unit :=
-  fun w => ORet tt (map_clear_upd kt vt m w).
+  fun w => if Nat.eqb (gm_loc m) 0 then ORet tt w
+           else ORet tt (map_clear_upd kt vt m w).
 Lemma run_map_clear : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (m : GoMap K V) (w : World),
-  run_io (map_clear kt vt m) w = ORet tt (map_clear_upd kt vt m w).
+  run_io (map_clear kt vt m) w =
+    if Nat.eqb (gm_loc m) 0 then ORet tt w else ORet tt (map_clear_upd kt vt m w).
+Proof. reflexivity. Qed.
+Lemma map_clear_nil_noop : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (w : World),
+  run_io (map_clear kt vt (@map_empty K V)) w = ORet tt w.
 Proof. reflexivity. Qed.
 Theorem map_sel_clear : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
     (k : K) (m : GoMap K V) (w : World),
@@ -339,10 +354,11 @@ Theorem map_sel_clear : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
 Proof. intros. unfold map_sel, map_clear_upd. rewrite map_get_fn_write_same. reflexivity. Qed.
 
 Lemma map_get_clear : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (m : GoMap K V),
+  Nat.eqb (gm_loc m) 0 = false ->
   bind (map_clear kt vt m) (fun _ => map_get_opt kt vt k m) =io=
   bind (map_clear kt vt m) (fun _ => ret (@None V)).
 Proof.
-  intros. intro w.
-  rewrite !run_bind, !run_map_clear. cbn.
+  intros K V kt vt k m Hnil. intro w.
+  rewrite !run_bind, !run_map_clear, !Hnil. cbn.
   rewrite run_map_get_opt, map_sel_clear, run_ret. reflexivity.
 Qed.
