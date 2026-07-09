@@ -618,11 +618,14 @@ let is_go_imag_ref r    = named "go_imag" r
 let is_complex_neg_ref r = named "complex_neg" r
 (* Native expression switch [{int,str}_switchN x v1 k1 … d] → Go [switch x { case v: …;
    default: … }]; args after the scrutinee are (value, body) PAIRS then the default (odd
-   count ≥ 3).  Same lowering for int64 and string scrutinees (Go does the [==] itself). *)
-let is_val_switch_ref r =
-  let s = global_basename r in
-  let pre p = String.length s >= String.length p && String.sub s 0 (String.length p) = p in
-  pre "int_switch" || pre "str_switch"
+   count ≥ 3).  Same lowering for int64 and string scrutinees (Go does the [==] itself).
+   OWNED — EXACTLY the sealed combinators (each carries a Rocq [i64_neqb]/[str_neqb]
+   distinctness obligation), never a bare prefix: with the emission-level duplicate guard gone
+   (the model seal makes duplicate cases unrepresentable), a broad prefix match would lower an
+   UNSEALED value-switch and bypass the seal.  A new arity ([int_switch4]…) must be sealed AND
+   added here in lockstep — the recognizer cannot silently adopt an unowned lowering. *)
+let is_val_switch_ref =
+  named_in ["int_switch2"; "int_switch3"; "str_switch2"; "str_switch3"]
 let is_run_session_ref = named "run_session"
 let is_sbind_ref = named "sbind"
 let is_sret_ref  = named "sret"
