@@ -8743,6 +8743,44 @@ Proof.
     cbn [stmt_tokens] in H; sti.
 Qed.
 
+(** ---- THE CANONICAL STATEMENT GRAMMAR ---- [CanonStmt s ts] is the statement analogue of [CanonExpr]:
+    an INDUCTIVE relation stating the canonical token production of one [GoStmt], each expression sub-part
+    delegating to [CanonExpr 0].  It is the parser-free syntax authority at the statement level; the printer
+    inhabits it ([gprint_stmt_canonical]), its derivations are token-functional ([canon_stmt_tokens]), and it
+    is uniquely invertible ([canon_stmt_unique], via [stmt_tokens_inj]) — mirroring the [CanonExpr] trio. *)
+Inductive CanonStmt : GoStmt -> list Token -> Prop :=
+  | CanExprStmt   : forall e t,   CanonExpr 0 e t -> CanonStmt (GsExprStmt e) t
+  | CanReturn     :                                  CanonStmt GsReturn (TReturn :: nil)
+  | CanReturnVal  : forall e t,   CanonExpr 0 e t -> CanonStmt (GsReturnVal e) (TReturn :: t)
+  | CanBlankAssign: forall e t,   CanonExpr 0 e t -> CanonStmt (GsBlankAssign e) (TId blank_ident :: TAssign :: t)
+  | CanDefer      : forall e t,   CanonExpr 0 e t -> CanonStmt (GsDefer e) (TDefer :: t)
+  | CanShortDecl  : forall x e t, CanonExpr 0 e t -> CanonStmt (GsShortDecl x e) (TId x :: TDefine :: t).
+
+(** TOKEN-FUNCTIONALITY: a derivation's token list is EXACTLY [stmt_tokens s] (delegating to
+    [canon_expr_tokens] on each expression part) — the relation adds productions, never freedom. *)
+Lemma canon_stmt_tokens : forall s ts, CanonStmt s ts -> ts = stmt_tokens s.
+Proof.
+  intros s ts H; destruct H as [ e t He | | e t He | e t He | e t He | x e t He ];
+    cbn [stmt_tokens]; try reflexivity;
+    apply canon_expr_tokens in He; subst; reflexivity.
+Qed.
+
+(** CANONICITY: the printer's [stmt_tokens] assignment inhabits the grammar. *)
+Lemma gprint_stmt_canonical : forall s, CanonStmt s (stmt_tokens s).
+Proof.
+  intro s; destruct s; cbn [stmt_tokens]; constructor; apply gprint_expr_canonical.
+Qed.
+
+(** UNIQUENESS, PARSER-FREE: one token list has AT MOST ONE [CanonStmt] derivation — a corollary of
+    [canon_stmt_tokens] and [stmt_tokens_inj], the statement analogue of [canon_expr_unique]. *)
+Theorem canon_stmt_unique : forall s1 s2 ts,
+  CanonStmt s1 ts -> CanonStmt s2 ts -> s1 = s2.
+Proof.
+  intros s1 s2 ts H1 H2.
+  apply canon_stmt_tokens in H1. apply canon_stmt_tokens in H2. subst.
+  apply stmt_tokens_inj. congruence.
+Qed.
+
 (** ---- statement/program DISJOINTNESS, PARSER-FREE (Phase 3c): a printed statement keyword form is never
     a printed expression.  The discipline is LEXICAL, not parser-round-trip: [gtokens_lex] says
     [lex (gprint 0 e) = Some (gtokens 0 e)], so if a [gprint] output equalled a keyword-led string its LEX
@@ -9435,6 +9473,9 @@ Print Assumptions gtokens_inj.
 Print Assumptions canon_expr_unique.
 Print Assumptions gtokens_no_stmt.
 Print Assumptions stmt_tokens_inj.
+Print Assumptions canon_stmt_tokens.
+Print Assumptions gprint_stmt_canonical.
+Print Assumptions canon_stmt_unique.
 
 (** Extract the Rocq printers to the OCaml the plugin calls. *)
 Require Import Extraction.
