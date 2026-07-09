@@ -8802,27 +8802,20 @@ Proof.
   apply stmt_tokens_inj. congruence.
 Qed.
 
-(** ---- THE CANONICAL PROGRAM TOKENS ---- the whole-[Program] analogue and the INTENDED [lex] target
+(** ---- THE CANONICAL PROGRAM TOKENS ---- the whole-[Program] token function and the INTENDED [lex] target
     ([lex (print_program p) = Some (program_tokens p)] is the OPEN [lex_gprint_program] work — see the ⚠).
-    [print_program] emits [package <pkg>\n\n func main() {\n <body> }\n].  Go's ASI (Go spec "Semicolons")
-    inserts a [TSemi] after a line's final token when that token is an identifier / literal / [return] /
-    [)] / []] / [}] — so HERE, exactly: after the package name [Ident] [<pkg>] (the FIRST '\n', before the
-    blank line — NOT after "main", which is the func name later); after EACH statement line (every
-    [stmt_tokens] form ends in one of those trigger tokens — an ident/literal, a [)]/[]]/[}] closer, or
-    [return] — via the '\n' [print_stmts] emits); and after the closing [}] (its trailing '\n', since [}] is
-    a trigger).  NONE after
-    the opening [{] (not a trigger) nor after the blank line (no token).  Hence the frame is
-    [TPackage; TId pkg; TSemi; TFunc; TId main; TLP; TRP; TLC] then the body — [stmt_tokens]s each TERMINATED
-    by [TSemi] ([stmts_tokens]) — then [TRC; TSemi].  [TSemi] is the statement analogue of [TComma] in the
-    argument lists; because no [stmt_tokens] list contains a [TSemi] ([stmt_tokens_semi_free], from
-    [gtokens_no_stmt]) it splits the body cleanly.
-    ⚠ [lex] already emits [TFunc] (a reserved word via [lex_ident]), but NOT [TPackage] ("package" is a
-    [go_keyword], so [lex_ident "package" = None] and the program text in fact FAILS to lex at its very first
-    token today — [lex_package]) nor [TSemi] (no ASI), and it rejects the [:=]/[=]/[defer]
-    statement forms; so a full [lex_gprint_program] still needs a [TPackage]-keyword arm in [lex_ident] + an
-    ASI pass emitting [TSemi] + the [:=]/[=]/[defer] arms.  Until then [program_tokens] is the TARGET those
-    must hit, NOT a proved [lex] output; the uniqueness results below hold of [program_tokens] as a token
-    FUNCTION regardless of that open work. *)
+    Modelling Go's ASI (Go spec "Semicolons"), a [TSemi] TERMINATES the package clause, EACH statement, and
+    the closing [}] (each such line's final token is an ASI trigger; the opening [{] and the blank line get
+    none).  Hence the frame [TPackage; TId pkg; TSemi; TFunc; TId main; TLP; TRP; TLC], the [stmts_tokens]
+    body (each [stmt_tokens] [TSemi]-terminated), then [TRC; TSemi] — the definition below is the authority
+    for the exact shape.  [TSemi] is the statement analogue of [TComma] in the argument lists; because no
+    [stmt_tokens] list contains a [TSemi] ([stmt_tokens_semi_free], from [gtokens_no_stmt]) it splits the
+    body cleanly.
+    ⚠ [lex] already emits [TFunc] but NOT [TPackage] ("package" is a [go_keyword], so [lex_ident "package" =
+    None] and a program's text FAILS to lex at its first token — [lex_package]) nor [TSemi] (no ASI), and it
+    rejects the [:=]/[=]/[defer] statement forms; so [lex_gprint_program] needs a [TPackage]-keyword arm + an
+    ASI pass + those three arms.  Until then [program_tokens] is the TARGET, NOT a proved [lex] output; the
+    uniqueness results below hold of [program_tokens] as a token FUNCTION regardless. *)
 Definition main_ident : Ident := exist (fun s => go_ident s = true) "main"%string eq_refl.
 Fixpoint stmts_tokens (ss : list GoStmt) : list Token :=
   match ss with
