@@ -150,8 +150,9 @@ to the CFG; control-flow coverage is demo-by-demo, golden-locked).
   `if`/`for`/labeled break-continue, raw `goto` for irreducible graphs). Coverage is DEMO-BY-
   DEMO golden-locked (`sign_demo`, `count_demo`/`labeled_break_demo`, `for i,x := range`,
   Go-1.22 `int_range`, `irreducible_demo`) — gap #10, no emitted-Go↔CFG theorem, no
-  completeness claim. ⚠ native `switch` KEYWORD not emitted (n-ary switch/type-switch
-  decomposes to chained `bool` `if`s — faithful behavior).
+  completeness claim. ✓ native `switch` IS emitted (expression switch on int/string
+  `{int,str}_switchN x … → switch x { case v: … }`; type switch `type_switch_or*`; the
+  `GoSwitch` combinators) — not decomposed to `bool` `if`s.
 - **Go statements** — ✓ `go f()` → `go func(){…}()`; the fork happens-before edge is race-free
   (`fork_program_race_free`). ⚠ scheduler / interleaving idealised away.
 - **Defer statements** — THREE representations + one boundary, kept separate: (R1) trusted
@@ -169,8 +170,8 @@ to the CFG; control-flow coverage is demo-by-demo, golden-locked).
   `_exact_unique`). ⚠ the SEQUENTIAL select MODEL is an unsound deterministic under-
   approximation: CHOICE (both ready ⇒ takes ch1; `det_select_incomplete` — the relational
   layer is the authority) and BLOCKING (none ready + no default ⇒ fail-loud `rt_select_block`;
-  Go blocks — a local non-step). ✗ nil-send (blocks forever) and close(nil) panic idealised /
-  unmodeled. *Pending:* select send cases, N-ary.
+  Go blocks — a local non-step). ✓ close(nil) PANICS (`MkChan 0`, Go's "close of nil channel").
+  ✗ nil-SEND (blocks forever) idealised away. *Pending:* `select` send cases, N-ary.
 
 ## Built-in functions
 - ✓ import-free set (all plugin-lowered): `len`, `append` (`slice_append`, cap decides realloc),
