@@ -121,45 +121,6 @@ Definition scope_declare (G : ScopeS) (x : Ident) (rhs : PTy) : option ScopeS :=
   | None => None
   end.
 
-(** The pure per-node RESULT rules, factored out of [type_expr]'s [EBn]/[EUn] arms so the coming
-    declarative admissibility relation ([CompileExpr], plans/gocompile.md Phase 2) and the executable
-    [type_expr] share ONE authority for the binop/unop type rule (no second, drifting copy).  Operate on the
-    ALREADY-TYPED operand categories; the scope threading + recursion stay in [type_expr]. *)
-Definition ebn_result (o : BinOp) (cl cr : PTy) : option PTy :=
-  match o with
-  | BAdd => match cl, cr with
-            | PtStr, PtStr => Some PtStr
-            | _, _ => num_binop o cl cr
-            end
-  | BMul|BDiv|BRem|BShl|BShr|BAnd|BAndNot|BSub|BOr|BXor => num_binop o cl cr
-  | BEq|BNe => if eq_comparable cl cr then Some PtBool else None
-  | BLt|BLe|BGt|BGe => if ord_comparable cl cr then Some PtBool else None
-  | BLAnd|BLOr => if andb (is_bool_cat cl) (is_bool_cat cr) then Some PtBool else None
-  end.
-Definition eun_result (o : UnaryOp) (c0 : PTy) : option PTy :=
-  match o with
-  | UNeg => match c0 with
-            | PtIntConst z => Some (PtIntConst (Z.opp z))
-            | PtTIntConst t z =>
-                let r := Z.opp z in if int_const_repr r t then Some (PtTIntConst t r) else None
-            | PtFloatConst t d =>
-                let d' := dy_make (Z.opp (dy_m d)) (dy_e d) in
-                if float_dyadic_repr t (dy_m d') (dy_e d') then Some (PtFloatConst t d') else None
-            | PtRunInt t => Some (PtRunInt t) | PtRunFloat t => Some (PtRunFloat t)
-            | _ => None end
-  | UXor => match c0 with
-            | PtIntConst z => Some (PtIntConst (Z.lnot z))
-            | PtTIntConst t z =>
-                match complement_const t z with
-                | Some r => if int_const_repr r t then Some (PtTIntConst t r) else None
-                | None => None
-                end
-            | PtRunInt t => Some (PtRunInt t)
-            | _ => None end
-  | UNot => match c0 with PtBool => Some PtBool | _ => None end
-  | UDeref | UAddr => None
-  end.
-
 Fixpoint type_expr (G : ScopeS) (e : GExpr) : option (PTy * ScopeS) :=
   match e with
   | EId i =>
@@ -182,7 +143,16 @@ Fixpoint type_expr (G : ScopeS) (e : GExpr) : option (PTy * ScopeS) :=
       | Some (cl, G1) =>
           match type_expr G1 r with
           | Some (cr, G2) =>
-              match ebn_result o cl cr with
+              match (match o with
+                     | BAdd => match cl, cr with
+                               | PtStr, PtStr => Some PtStr
+                               | _, _ => num_binop o cl cr
+                               end
+                     | BMul|BDiv|BRem|BShl|BShr|BAnd|BAndNot|BSub|BOr|BXor => num_binop o cl cr
+                     | BEq|BNe => if eq_comparable cl cr then Some PtBool else None
+                     | BLt|BLe|BGt|BGe => if ord_comparable cl cr then Some PtBool else None
+                     | BLAnd|BLOr => if andb (is_bool_cat cl) (is_bool_cat cr) then Some PtBool else None
+                     end) with
               | Some c => Some (c, G2)
               | None => None
               end
@@ -193,7 +163,28 @@ Fixpoint type_expr (G : ScopeS) (e : GExpr) : option (PTy * ScopeS) :=
   | EUn o e0 =>
       match type_expr G e0 with
       | Some (c0, G1) =>
-          match eun_result o c0 with
+          match (match o with
+                 | UNeg => match c0 with
+                           | PtIntConst z => Some (PtIntConst (Z.opp z))
+                           | PtTIntConst t z =>
+                               let r := Z.opp z in if int_const_repr r t then Some (PtTIntConst t r) else None
+                           | PtFloatConst t d =>
+                               let d' := dy_make (Z.opp (dy_m d)) (dy_e d) in
+                               if float_dyadic_repr t (dy_m d') (dy_e d') then Some (PtFloatConst t d') else None
+                           | PtRunInt t => Some (PtRunInt t) | PtRunFloat t => Some (PtRunFloat t)
+                           | _ => None end
+                 | UXor => match c0 with
+                           | PtIntConst z => Some (PtIntConst (Z.lnot z))
+                           | PtTIntConst t z =>
+                               match complement_const t z with
+                               | Some r => if int_const_repr r t then Some (PtTIntConst t r) else None
+                               | None => None
+                               end
+                           | PtRunInt t => Some (PtRunInt t)
+                           | _ => None end
+                 | UNot => match c0 with PtBool => Some PtBool | _ => None end
+                 | UDeref | UAddr => None
+                 end) with
           | Some c => Some (c, G1)
           | None => None
           end
