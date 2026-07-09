@@ -9043,6 +9043,24 @@ Lemma lex_print_stmt_returnval : forall e,
   lex (print_stmt (GsReturnVal e)) = Some (stmt_tokens (GsReturnVal e)).
 Proof. intro e. exact (lex_return_app (gprint 0 e) (gtokens 0 e) (gtokens_lex e 0)). Qed.
 
+(** the decidable SUPPORTEDNESS GATE for statement-level lexical faithfulness: exactly the three forms the
+    current lexer handles.  [lex_gprint_stmt_supported] is [lex_gprint_stmt] on this gated subset — the three
+    FENCED forms ([GsBlankAssign]/[GsDefer]/[GsShortDecl]) return [false] and need the new '='/':='/'defer'
+    lexer arms.  (Explicit boundary, not a silent omission: LESSONS "gate the emittable subset".) *)
+Definition stmt_lex_supported (s : GoStmt) : bool :=
+  match s with
+  | GsExprStmt _ | GsReturn | GsReturnVal _ => true
+  | GsBlankAssign _ | GsDefer _ | GsShortDecl _ _ => false
+  end.
+Theorem lex_gprint_stmt_supported : forall s,
+  stmt_lex_supported s = true -> lex (print_stmt s) = Some (stmt_tokens s).
+Proof.
+  intros [e| |e|e|e|x e] H; cbn [stmt_lex_supported] in H; try discriminate H.
+  - apply lex_print_stmt_exprstmt.
+  - apply lex_print_stmt_return.
+  - apply lex_print_stmt_returnval.
+Qed.
+
 (** A printed [_ = e] (the [GsBlankAssign] text "_ = " ++ X) does NOT LEX: a LONE '=' fails [lex_op]
     (which accepts only "=="), so [lex ("_ = " ++ X) = None] ([lex_blank_None], decided by the fixed
     "_ = " prefix for any tail [X]).  Hence no [gprint] output equals "_ = " ++ gprint 0 e — the
@@ -9675,6 +9693,7 @@ Print Assumptions canon_program_unique.
 Print Assumptions lex_print_stmt_exprstmt.
 Print Assumptions lex_print_stmt_return.
 Print Assumptions lex_print_stmt_returnval.
+Print Assumptions lex_gprint_stmt_supported.
 
 (** Extract the Rocq printers to the OCaml the plugin calls. *)
 Require Import Extraction.
