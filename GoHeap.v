@@ -1014,6 +1014,58 @@ Definition live_preserve_surface :=
    @LiveChan_close_preserved, @LiveMap_set_preserved, @LiveMap_delete_preserved, @LiveMap_clear_preserved).
 Print Assumptions live_preserve_surface.
 
+(** OP-LEVEL PRESERVATION — the CHECKED op (not just its update root) preserves Live*.  For the writes that
+    ALWAYS SUCCEED on a live handle ([ref_set]/[ptr_set]/[map_set]/[map_delete]/[map_clear] — no panic/block
+    branch is reachable when the handle is Live), the op RETURNS ([ORet]) and the handle stays Live: this is
+    the "checked op preserves Live*" fact the review asks for, stated [exists w', run_io op w = ORet tt w' /\
+    Live* ... w'] (the world after the op IS Live).  ⚠ The CHANNEL ops are NOT here: [send]/[recv]/[close] keep
+    panic/block branches even on a live channel (send-on-closed, empty recv, full send), so their op-level
+    preservation is a case split (success → root Live; fail-loud/block → world unchanged, still Live) — a
+    separate follow-up, NOT claimed by this surface. *)
+Lemma LiveRef_ref_set_op : forall {A} (r : Ref A) (v : A) (w : World),
+  LiveRef r w -> exists w', run_io (ref_set r v) w = ORet tt w' /\ LiveRef r w'.
+Proof.
+  intros A r v w H.
+  destruct (ref_sel_opt r w) as [a|] eqn:Hs; [ | unfold LiveRef in H; congruence ].
+  exists (ref_upd r v w). split; [ exact (run_ref_set_some r v a w Hs) | exact (LiveRef_preserved r v w H) ].
+Qed.
+Lemma LivePtr_ptr_set_op : forall {A} (tag : GoTypeTag A) (p : Ptr A) (v : A) (w : World),
+  LivePtr tag p w -> exists w', run_io (ptr_set tag p v) w = ORet tt w' /\ LivePtr tag p w'.
+Proof.
+  intros A tag p v w H. destruct H as [Hnil Hcell].
+  exists (ref_upd (ptr_as_ref tag p) v w). split.
+  - rewrite run_ptr_set, Hnil.
+    destruct (ref_sel_opt (ptr_as_ref tag p) w) as [a|] eqn:Hs; [ reflexivity | congruence ].
+  - exact (LivePtr_preserved tag p v w (conj Hnil Hcell)).
+Qed.
+Lemma LiveMap_set_op : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (v : V) (m : GoMap K V) (w : World),
+  LiveMap kt vt m w -> exists w', run_io (map_set kt vt k v m) w = ORet tt w' /\ LiveMap kt vt m w'.
+Proof.
+  intros K V kt vt k v m w H. exists (map_upd kt vt k v m w). split.
+  - rewrite run_map_set. unfold LiveMap in H. rewrite H. reflexivity.
+  - exact (LiveMap_set_preserved kt vt k v m w H).
+Qed.
+Lemma LiveMap_delete_op : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (m : GoMap K V) (w : World),
+  LiveMap kt vt m w -> exists w', run_io (map_delete kt vt k m) w = ORet tt w' /\ LiveMap kt vt m w'.
+Proof.
+  intros K V kt vt k m w H. exists (map_rem kt vt k m w). split.
+  - rewrite run_map_delete. unfold LiveMap in H. rewrite H. reflexivity.
+  - exact (LiveMap_delete_preserved kt vt k m w H).
+Qed.
+Lemma LiveMap_clear_op : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (m : GoMap K V) (w : World),
+  LiveMap kt vt m w -> exists w', run_io (map_clear kt vt m) w = ORet tt w' /\ LiveMap kt vt m w'.
+Proof.
+  intros K V kt vt m w H. exists (map_clear_upd kt vt m w). split.
+  - rewrite run_map_clear. unfold LiveMap in H. rewrite H. reflexivity.
+  - exact (LiveMap_clear_preserved kt vt m w H).
+Qed.
+
+(** Live* OP-LEVEL PRESERVATION SURFACE (manifest-gated, zero-axiom): the ALWAYS-SUCCEEDS-on-live checked
+    writes (ref/ptr set, map set/delete/clear) return and keep the handle Live.  Channel ops = follow-up. *)
+Definition live_op_preserve_surface :=
+  (@LiveRef_ref_set_op, @LivePtr_ptr_set_op, @LiveMap_set_op, @LiveMap_delete_op, @LiveMap_clear_op).
+Print Assumptions live_op_preserve_surface.
+
 (** ADDRESS-OF / ASSIGNMENT SEMANTICS SURFACE (manifest-gated, zero-axiom PUBLIC evidence): the read-after-
     write / non-nil / deref / aliasing theorems the [SPEC_CONFORMANCE] "Variables / assignment" + address-of
     `&x` ledger cites, so those public claims are GATED, not ungated internal lemmas.  [ref_sel_upd_same] /
