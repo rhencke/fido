@@ -55,10 +55,11 @@ Definition map_make_typed {K V : Type} (kt : GoTypeTag K) (vt : GoTypeTag V) : I
     but INSTALLS NO CELL (it leaves [w_maps] untouched).  Under [ValidWorld] the fresh location is therefore
     absent ([gm_present = false], hence [map_cell_ok = false]), and — since [map_write] root-guards on
     [map_cell_ok] — every subsequent op is
-    then UNUSABLE ([map_set] fails loud, [delete]/[clear] no-op), matching its status as an UNSUPPORTED frontier
-    (the plugin REJECTS untyped [map_make]: `make(map[any]any)` loses K/V).  The certified allocation path is
-    [map_make_typed], which installs the cell.  (This cell-less path is slated for deletion — kept only until
-    the plugin recognizer is removed with it.) *)
+    then UNUSABLE ([map_set] fails loud, [delete]/[clear] no-op).  That "unusable under [ValidWorld]" status is
+    a THEOREM, not prose: [map_make_untyped_unusable] (GoHeap) proves [map_cell_ok kt vt m w' = false] for the
+    made map.  It matches its status as an UNSUPPORTED frontier (the plugin REJECTS untyped [map_make]:
+    `make(map[any]any)` loses K/V).  The certified allocation path is [map_make_typed], which installs the cell.
+    (This cell-less path is slated for deletion — kept only until the plugin recognizer is removed with it.) *)
 Definition map_make {K V : Type} : IO (GoMap K V) :=
   fun w => ORet (MkMap (w_next w))
                 (mkWorld (w_refs w) (w_chans w) (w_maps w)
@@ -104,9 +105,12 @@ Definition map_get_fn {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
     the untyped no-cell [map_make] is REJECTED by the plugin — an unsupported frontier.)
     ⚠ [gm_present] is TAG-AGNOSTIC: it checks a cell EXISTS, NOT that its stored key/value tags match [m]'s —
     so a forged wrong-tag handle aliasing a real cell reads [gm_present = true].  It is therefore NOT the write
-    guard: the tag-aware [map_cell_ok] (below) is, and the checkpoint-58 wrong-tag provenance wall is CLOSED for
-    maps ([map_cell_ok_wrong_tag] + [no_public_map_retyping]).  [gm_present] survives only as the existence
-    half of the read-side proofs. *)
+    guard: the tag-aware [map_cell_ok] (below) is.  What IS mechanically closed (checkpoint-58 #3): a wrong-tag
+    handle cannot RETYPE a live cell through any public map write ([map_cell_ok_wrong_tag] +
+    [no_public_map_retyping]).  STILL OPEN (checkpoint-58 steps 6–7): the raw [map_write] root is not yet
+    internalized behind the checked API, and the cell-less [map_make] is not yet deleted — so "the map
+    provenance wall is fully closed" would OVERCLAIM.  [gm_present] survives only as the existence half of the
+    read-side proofs. *)
 Definition gm_present {K V} (m : GoMap K V) (w : World) : bool :=
   if Nat.eqb (gm_loc m) 0 then false
   else match w_maps w (gm_loc m) with Some _ => true | None => false end.
@@ -534,9 +538,12 @@ Theorem map_write_wrong_tag_no_retype :
 Proof. intros. apply map_write_absent_noop. eapply map_cell_ok_wrong_tag; eassumption. Qed.
 
 (** CAPSTONE — NO PUBLIC MAP RETYPING: a forged WRONG-TAG handle aliasing a live cell of another key/value
-    type cannot RETYPE it through ANY public map write.  [map_set] fails loud (world unchanged), [delete] and
-    [clear] no-op.  Together with [map_set_absent]/[…_absent_noop] (the nil / nonzero-ABSENT class) and the
-    raw [map_write_wrong_tag_no_retype], the map layer admits NO forged-handle fabrication OR retyping. *)
+    type cannot RETYPE it through the public map WRITES ([map_set]/[delete]/[clear]).  [map_set] fails loud
+    (world unchanged), [delete] and [clear] no-op.  Together with [map_set_absent]/[…_absent_noop] (the nil /
+    nonzero-ABSENT class) and the raw [map_write_wrong_tag_no_retype], NO forged-handle write — through the
+    checked ops OR the raw [map_write] root — fabricates or retypes a cell.  (SCOPE: this is the write-path
+    provenance guarantee; it does NOT assert the raw root is internalized or [map_make] deleted — checkpoint-58
+    steps 6–7, still open.) *)
 Theorem no_public_map_retyping :
   forall {K V K' V'} (kt : GoTypeTag K) (vt : GoTypeTag V)
          (kt' : GoTypeTag K') (vt' : GoTypeTag V')

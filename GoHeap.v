@@ -577,6 +577,20 @@ Proof.
   rewrite (pos_neq0 _ (valid_fresh_nonzero w HV)).
   cbn [w_maps]. rewrite Nat.eqb_refl. cbn. rewrite !tag_eq_refl. reflexivity.
 Qed.
+(** DUAL — the UNTYPED [map_make] installs NO cell, so under [ValidWorld] its fresh location is DISJOINT
+    from [w_maps] ([valid_fresh_disjoint]) and the made map is UNUSABLE: [map_cell_ok kt vt m w' = false] for
+    ANY [kt]/[vt] (even the "right" ones).  This is the MECHANICAL backing for the [map_make] note in GoMap.v
+    — its "unusable under [ValidWorld]" status is a THEOREM, not prose.  (The plugin also REJECTS untyped
+    [map_make] outright — an unsupported frontier; this lemma pins that even IF constructed it is inert.) *)
+Lemma map_make_untyped_unusable : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (w : World) m w',
+  ValidWorld w -> run_io (@map_make K V) w = ORet m w' -> map_cell_ok kt vt m w' = false.
+Proof.
+  intros K V kt vt w m w' HV Hrun. unfold run_io, map_make in Hrun.
+  injection Hrun as Hm Hw'. subst m w'. unfold map_cell_ok. cbn [gm_loc].
+  rewrite (pos_neq0 _ (valid_fresh_nonzero w HV)).
+  cbn [w_maps]. destruct (valid_fresh_disjoint w HV) as [_ [_ Hmap]].
+  rewrite Hmap. reflexivity.
+Qed.
 Lemma map_set_nonnil : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (v : V) (m : GoMap K V) (w : World),
   map_cell_ok kt vt m w = true ->
   run_io (map_set kt vt k v m) w = ORet tt (map_upd kt vt k v m w).
