@@ -142,10 +142,12 @@ to the CFG; control-flow coverage is demo-by-demo, golden-locked).
   `ref_as_ptr_not_nil`: `&x` of an allocated local (`r_loc<>0`, which `ref_new` gives ONLY in a well-formed
   world — `ref_new_loc_nonzero`, the ref analogue of `ptr_new_nonzero`, both premised on `ValidWorld`) is
   NON-NIL end-to-end (`ref_new_addr_nonnil`). NON-NIL is NOT safe-deref: a non-nil `&x` to an absent/wrong-tag
-  cell still FAILS LOUD, so panic-free read/write (`ptr_get_ref_as_ptr`/`ptr_set_ref_as_ptr`) ALSO require the
-  live cell (`ref_sel_opt = Some`, which `ref_new` establishes) — a SEPARATE premise those non-nil lemmas do
-  not prove. NOT unconditional, since the public `mkRef 0` is a representable nil ref (and a malformed world
-  would let even `ref_new` mint one); `ptr_set_ref_as_ptr_aliases`; plugin
+  cell still FAILS LOUD, so panic-free read/write ALSO require the live cell (`ref_sel_opt = Some`, which
+  `ref_new` establishes — `ref_new_reads`) — a SEPARATE premise the non-nil lemmas do not prove. The PROVEN
+  end-to-end safe-deref theorems (both premises chained) are `ref_alloc_addr_read_no_panic` /
+  `ref_alloc_addr_write_no_panic` (ref analogue of `ptr_alloc_assign_no_panic`). NOT unconditional, since the
+  public `mkRef 0` is a representable nil ref (and a malformed world would let even `ref_new` mint one);
+  `ptr_set_ref_as_ptr_aliases`; plugin
   emits `&x` FAIL-CLOSED, bound-variable operand only, else `unsupported`).
 - **Short variable declarations `x := e`** — AST gate `go_compile_check` (scope-threaded
   `stmt_okS`/`body_okS` over the sealed `ScopeS`; final `scope_all_used`): ✓ redeclare / blank

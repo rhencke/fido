@@ -573,8 +573,10 @@ Qed.
     <> 0]) [&x] is NON-NIL ([ref_as_ptr_not_nil] / [ref_new_addr_nonnil], below).  ⚠ NON-NIL IS NOT YET
     SAFE-DEREF: a non-nil [&x] whose cell is ABSENT/wrong-tag ([ref_sel_opt = None]) still FAILS LOUD
     ([rt_nil_deref]); a panic-free read/write ALSO needs the cell LIVE ([ref_sel_opt r w = Some _], which
-    [ref_new] establishes), via [ptr_get_ref_as_ptr]/[ptr_set_ref_as_ptr] — those carry BOTH premises, and
-    neither [ref_as_ptr_not_nil] nor [ref_new_addr_nonnil] proves the live-cell half.  This is NOT intrinsic
+    [ref_new] establishes — [ref_new_reads]), via [ptr_get_ref_as_ptr]/[ptr_set_ref_as_ptr], which carry BOTH
+    premises (neither [ref_as_ptr_not_nil] nor [ref_new_addr_nonnil] proves the live-cell half).  The proven
+    END-TO-END safe-deref theorems are [ref_alloc_addr_read_no_panic]/[ref_alloc_addr_write_no_panic] (the ref
+    analogue of [ptr_alloc_assign_no_panic]), chaining allocation → both premises → no panic.  This is NOT intrinsic
     to [ref_as_ptr] NOR to [ref_new]: [Ref] is a public record, so the forgeable [mkRef 0] is a representable
     nil ref whose [&] is a nil [Ptr]; and on a malformed [w] ([w_next w = 0]) even [ref_new] would mint a nil
     ref.  The nonzero-location premise is a HYPOTHESIS (discharged by [ref_new] UNDER [ValidWorld], NOT by an
@@ -615,14 +617,26 @@ Qed.
    [ref_as_ptr_not_nil].  Needs [ValidWorld w] (the honest premise the informal "&x is never nil" prose
    dropped).  This is a NON-NIL theorem (the ref counterpart of [ptr_new_nonzero]), NOT a no-panic one:
    panic-free read/write THROUGH [&x] additionally needs the live cell ([ref_sel_opt = Some], via
-   [ptr_get_ref_as_ptr]/[ptr_set_ref_as_ptr]) — the ref analogue of [ptr_alloc_assign_no_panic]'s two-premise
-   discipline.  The guarantee is a theorem OFF the invariant, never intrinsic to the public [Ref]/[Ptr]
-   record. *)
+   [ptr_get_ref_as_ptr]/[ptr_set_ref_as_ptr]), proven END-TO-END by [ref_alloc_addr_read_no_panic]/
+   [ref_alloc_addr_write_no_panic] below (the ref analogue of [ptr_alloc_assign_no_panic]).  The guarantee is
+   a theorem OFF the invariant, never intrinsic to the public [Ref]/[Ptr] record. *)
 Corollary ref_new_addr_nonnil : forall {A} (tag : GoTypeTag A) (v : A) (w : World) r w',
   ValidWorld w -> run_io (ref_new tag v) w = ORet r w' -> p_loc (ref_as_ptr r) <> 0.
 Proof.
   intros A tag v w r w' HV Hrun.
   apply ref_as_ptr_not_nil. exact (ref_new_loc_nonzero tag v w r w' HV Hrun).
+Qed.
+
+(* The [ref_new] analogue of [ptr_new_reads]: a freshly allocated local has a LIVE, correctly-typed cell
+   ([ref_sel_opt r w' = Some v]) — [ref_new] installs [Some (existT _ A (tag, v))] at [w_next w].  This is the
+   SECOND premise (beside nonzero-location) that the panic-free deref theorems below need; UNCONDITIONAL (no
+   [ValidWorld] — installation is intrinsic to [ref_new], location freshness is what needs the invariant). *)
+Lemma ref_new_reads : forall {A} (tag : GoTypeTag A) (v : A) (w : World) r w',
+  run_io (ref_new tag v) w = ORet r w' -> ref_sel_opt r w' = Some v.
+Proof.
+  intros A tag v w r w' Hrun. unfold run_io, ref_new in Hrun. cbv zeta in Hrun.
+  injection Hrun as Hr Hw. subst r w'.
+  unfold ref_sel_opt; cbn. rewrite Nat.eqb_refl; cbn. apply tag_coerce_refl.
 Qed.
 
 (* READ through [&x]: [*(&x)] reads [x]'s value (with x's tag) without panicking — for a nonzero-location,
@@ -658,6 +672,27 @@ Proof.
   intros A r v a w Hnz Hsel. exists (ref_upd r v w). split.
   - exact (ptr_set_ref_as_ptr r v a w Hnz Hsel).
   - exact (ref_sel_upd_same r v a w Hsel).
+Qed.
+
+(* CLOSED-WORLD SAFE-DEREF (end-to-end, the ref analogue of [ptr_alloc_assign_no_panic]): allocate a local,
+   take its address, and read/write THROUGH [&x] — provably NO panic.  These chain BOTH premises the deref
+   lemmas need: nonzero-location ([ref_new_loc_nonzero], under [ValidWorld]) AND live cell ([ref_new_reads],
+   unconditional).  THIS is "safe deref end-to-end" — non-nil ([ref_new_addr_nonnil]) alone is NOT it. *)
+Corollary ref_alloc_addr_read_no_panic : forall {A} (tag : GoTypeTag A) (v : A) (w : World) r w',
+  ValidWorld w -> run_io (ref_new tag v) w = ORet r w' ->
+  run_io (ptr_get (r_tag r) (ref_as_ptr r)) w' = ORet v w'.
+Proof.
+  intros A tag v w r w' HV Hrun. apply (ptr_get_ref_as_ptr r v w').
+  - exact (ref_new_loc_nonzero tag v w r w' HV Hrun).
+  - exact (ref_new_reads tag v w r w' Hrun).
+Qed.
+Corollary ref_alloc_addr_write_no_panic : forall {A} (tag : GoTypeTag A) (v v' : A) (w : World) r w',
+  ValidWorld w -> run_io (ref_new tag v) w = ORet r w' ->
+  exists w'', run_io (ptr_set (r_tag r) (ref_as_ptr r) v') w' = ORet tt w'' /\ ref_sel r w'' = v'.
+Proof.
+  intros A tag v v' w r w' HV Hrun. apply (ptr_set_ref_as_ptr_aliases r v' v w').
+  - exact (ref_new_loc_nonzero tag v w r w' HV Hrun).
+  - exact (ref_new_reads tag v w r w' Hrun).
 Qed.
 
 (** ---- CLOSED-WORLD nil-safety: the modeled nil panics are UNREACHABLE for ALLOCATED handles ----
