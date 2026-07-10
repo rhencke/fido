@@ -569,13 +569,17 @@ Qed.
     A [Ref] and a [Ptr] share the SAME [w_refs] heap (a [Ref] is a Go local, a [Ptr] its `*T` handle), so
     [&x] is simply the [Ref]'s location wrapped as a (tag-free) [Ptr] — [ptr_as_ref]'s inverse.  KEY SAFETY
     PROPERTY (CONDITIONAL, not blanket): a local allocated by [ref_new] IN A WELL-FORMED WORLD ([ValidWorld
-    w], so [w_next w <> 0]) lives at a NONZERO location ([ref_new_loc_nonzero]), and for such an [x] ([r_loc r
-    <> 0]) [&x] is non-nil and safe to dereference ([ref_as_ptr_not_nil] / [ref_new_addr_nonnil], below).
-    This is NOT intrinsic to [ref_as_ptr] NOR to [ref_new]: [Ref] is a public record, so the forgeable [mkRef
-    0] is a representable nil ref whose [&] is a nil [Ptr]; and on a malformed [w] ([w_next w = 0]) even
-    [ref_new] would mint a nil ref.  The nonzero-location premise is a HYPOTHESIS (discharged by [ref_new]
-    UNDER [ValidWorld], NOT by an arbitrary [Ref]).  Read/write THROUGH [&x] alias [x] —
-    the defining pointer behaviour — inherited from the shared heap, no new axiom. *)
+    w], so [w_next w <> 0]) lives at a NONZERO location ([ref_new_loc_nonzero]), so for such an [x] ([r_loc r
+    <> 0]) [&x] is NON-NIL ([ref_as_ptr_not_nil] / [ref_new_addr_nonnil], below).  ⚠ NON-NIL IS NOT YET
+    SAFE-DEREF: a non-nil [&x] whose cell is ABSENT/wrong-tag ([ref_sel_opt = None]) still FAILS LOUD
+    ([rt_nil_deref]); a panic-free read/write ALSO needs the cell LIVE ([ref_sel_opt r w = Some _], which
+    [ref_new] establishes), via [ptr_get_ref_as_ptr]/[ptr_set_ref_as_ptr] — those carry BOTH premises, and
+    neither [ref_as_ptr_not_nil] nor [ref_new_addr_nonnil] proves the live-cell half.  This is NOT intrinsic
+    to [ref_as_ptr] NOR to [ref_new]: [Ref] is a public record, so the forgeable [mkRef 0] is a representable
+    nil ref whose [&] is a nil [Ptr]; and on a malformed [w] ([w_next w = 0]) even [ref_new] would mint a nil
+    ref.  The nonzero-location premise is a HYPOTHESIS (discharged by [ref_new] UNDER [ValidWorld], NOT by an
+    arbitrary [Ref]).  Read/write THROUGH [&x] alias [x] — the defining pointer behaviour — inherited from the
+    shared heap, no new axiom. *)
 Definition ref_as_ptr {A} (r : Ref A) : Ptr A := mkPtr (r_loc r).
 
 Lemma ref_as_ptr_loc : forall {A} (r : Ref A), p_loc (ref_as_ptr r) = r_loc r.
@@ -607,10 +611,13 @@ Proof.
   pose proof (valid_fresh_nonzero w HV) as Hp. apply Nat.ltb_lt in Hp. lia.
 Qed.
 
-(* CLOSED-WORLD end-to-end: [&x] of a FRESHLY allocated local is non-nil — chains [ref_new_loc_nonzero] into
+(* CLOSED-WORLD end-to-end: [&x] of a FRESHLY allocated local is NON-NIL — chains [ref_new_loc_nonzero] into
    [ref_as_ptr_not_nil].  Needs [ValidWorld w] (the honest premise the informal "&x is never nil" prose
-   dropped).  Mirrors [ptr_alloc_assign_no_panic]'s discipline: the guarantee is a theorem OFF the invariant,
-   never intrinsic to the public [Ref]/[Ptr] record. *)
+   dropped).  This is a NON-NIL theorem (the ref counterpart of [ptr_new_nonzero]), NOT a no-panic one:
+   panic-free read/write THROUGH [&x] additionally needs the live cell ([ref_sel_opt = Some], via
+   [ptr_get_ref_as_ptr]/[ptr_set_ref_as_ptr]) — the ref analogue of [ptr_alloc_assign_no_panic]'s two-premise
+   discipline.  The guarantee is a theorem OFF the invariant, never intrinsic to the public [Ref]/[Ptr]
+   record. *)
 Corollary ref_new_addr_nonnil : forall {A} (tag : GoTypeTag A) (v : A) (w : World) r w',
   ValidWorld w -> run_io (ref_new tag v) w = ORet r w' -> p_loc (ref_as_ptr r) <> 0.
 Proof.
