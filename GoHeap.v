@@ -909,14 +909,17 @@ Print Assumptions heap_alloc_safety_surface.
 
     One canonical name per handle for "the cell(s) EXIST at this handle's nonnil location(s) AND store the
     matching tag".  The four SCALAR predicates are here ([LiveRef]/[LivePtr]/[LiveChan]/[LiveMap]); the two
-    AGGREGATE peers ([LiveSlice] = whole [0, cap) backing live, [LiveStruct] = every field live) are defined
-    later next to their multi-cell reps ([slice_range_live] / [fields_live]), gated in
+    AGGREGATE peers ([LiveSlice] = whole [0, cap) backing live, [LiveStruct] = non-nil pointer with every field
+    live) are defined later next to their multi-cell reps ([slice_range_live] / [fields_live]), gated in
     [live_aggregate_handle_surface] — together the SIX cover every handle.  Each unfolds to the per-family cell
     authority ([ref_sel_opt] / [chan_cell_ok] / [map_cell_ok] / [slice_range_live] / [fields_live]).  [LivePtr]
-    alone pairs the cell with a nonzero-loc guard, because the pointer ops fault on nil FIRST; the aggregates do
-    NOT bolt one on — an empty struct / cap-0 slice touches no memory (its ops are unconditionally safe,
-    faithfully matching Go, so the trivially-true zero-cell predicate gates nothing unsafe), and no aggregate op
-    observes a base.  [Live*] is a NAMED INTERFACE over that authority, NOT a second authority; the
+    and [LiveStruct] each pair the cell/field authority with a nonzero-base guard, because their ops are POINTER
+    derefs that fault on nil FIRST ([ptr_get]/[ptr_set] and [gsptr_deref]/[gsptr_assign] alike — Go's [*p] panics
+    on nil for EVERY pointee, incl. a zero-field struct, so the guard is load-bearing and WIRED, not decorative:
+    it is exactly what keeps a nil handle from reading "live", and an empty struct's only failure mode IS the nil
+    pointer).  [LiveSlice] does NOT pair one on — a slice is a value, a nil slice is a VALID empty Go slice that
+    never faults (indexing bounds-checks), so its zero-cap triviality is sound, not a hole.  [Live*] is a NAMED
+    INTERFACE over that authority, NOT a second authority; the
     ops' DEFINITIONS branch on the underlying check directly ([Live*] mirrors it, the ops do not reference the
     name).  ⚠ CELL liveness ONLY: the channel ops ([send]/[recv]/[close]) additionally demand room / not-closed
     / non-empty conditions BEYOND [LiveChan] (those are NOT liveness), so [LiveChan] is not the full send/recv
@@ -2006,11 +2009,32 @@ Definition gsptr_new {R} `{StructRepOf R} (v : R) : IO (GSPtr R) :=
     let wa := mkWorld (w_refs w) (w_chans w) (w_maps w) (l + List.length srep_ts) (w_output w) in
     ORet p (wr_fields srep_ts (gsptr_hs p) 0 (sr_tags srep_rep) (sr_to srep_rep v) wa).
 
+(** [gsptr_deref] / [gsptr_assign] NIL-GUARD on [gsp_base p = 0] FIRST — a struct pointer is a pointer, so a nil
+    deref/assign FAILS LOUD ([rt_nil_deref]) exactly like the scalar [Ptr] ops ([ptr_get_ok]/[ptr_set]) and like
+    Go's generated [*p] / [*p = v], which panic on nil REGARDLESS of the pointee (a zero-size / zero-field type
+    is no exception — the indirection still faults).  Without this guard an EMPTY struct (no field cells) would
+    read/write a nil pointer as a silent no-op, contradicting Go.  For a nonempty struct a nil base ALSO makes
+    the field cell absent, so the else-branch would fail loud too; the explicit guard is what covers the empty
+    case uniformly.  Lowered by name ([*p] / [*p = v]); the guard branch is Go's own native nil panic. *)
 Definition gsptr_deref {R} `{StructRepOf R} (p : GSPtr R) : IO R :=
-  bind (read_fields srep_ts (gsptr_hs p) 0 (sr_tags srep_rep)) (fun tp => ret (sr_from srep_rep tp)).
+  fun w => if Nat.eqb (gsp_base p) 0 then OPanic rt_nil_deref w
+           else bind (read_fields srep_ts (gsptr_hs p) 0 (sr_tags srep_rep)) (fun tp => ret (sr_from srep_rep tp)) w.
 
 Definition gsptr_assign {R} `{StructRepOf R} (p : GSPtr R) (v : R) : IO unit :=
-  write_fields srep_ts (gsptr_hs p) 0 (sr_tags srep_rep) (sr_to srep_rep v).
+  fun w => if Nat.eqb (gsp_base p) 0 then OPanic rt_nil_deref w
+           else write_fields srep_ts (gsptr_hs p) 0 (sr_tags srep_rep) (sr_to srep_rep v) w.
+
+(** Under a NON-nil base the guard collapses to the raw field read/write — the [run_*] laws below drive
+    everything through these two, so the guard is dispatched once here. *)
+Lemma run_gsptr_assign : forall {R} `{StructRepOf R} (p : GSPtr R) (v : R) (w : World),
+  Nat.eqb (gsp_base p) 0 = false ->
+  run_io (gsptr_assign p v) w = run_io (write_fields srep_ts (gsptr_hs p) 0 (sr_tags srep_rep) (sr_to srep_rep v)) w.
+Proof. intros R Hrep p v w Hb. unfold gsptr_assign, run_io. rewrite Hb. reflexivity. Qed.
+Lemma run_gsptr_deref : forall {R} `{StructRepOf R} (p : GSPtr R) (w : World),
+  Nat.eqb (gsp_base p) 0 = false ->
+  run_io (gsptr_deref p) w =
+  run_io (bind (read_fields srep_ts (gsptr_hs p) 0 (sr_tags srep_rep)) (fun tp => ret (sr_from srep_rep tp))) w.
+Proof. intros R Hrep p w Hb. unfold gsptr_deref, run_io. rewrite Hb. reflexivity. Qed.
 
 (** A struct field cell's heap location is [base + slot] — extracted as a small lemma so the proofs
     below can reason about cell distinctness with [hfield_cell] kept opaque (so [cbn] won't expand it
@@ -2040,7 +2064,7 @@ Proof.
     + apply (IH h (S j) (snd tgs) A tag k v w); [ lia | exact Hrest ].
 Qed.
 
-Local Opaque run_io bind ret hfield_get hfield_set ref_sel_opt ref_upd ref_install hfield_cell.
+Local Opaque run_io bind ret hfield_get hfield_set ref_sel_opt ref_upd ref_install hfield_cell gsptr_assign gsptr_deref.
 
 Lemma run_write_fields : forall ts h k tgs vls w,
   fields_live ts h k tgs w ->
@@ -2083,16 +2107,17 @@ Qed.
 (** WHOLE-STRUCT round-trip — a THEOREM, ANY arity: after [assign v], [deref] reconstructs [v]
     EXACTLY ([read_after_wr] recovers the tuple, [sr_eta] reassembles the struct). *)
 Lemma gsptr_deref_assign : forall {R} `{StructRepOf R} (p : GSPtr R) (v : R) (w : World),
+  Nat.eqb (gsp_base p) 0 = false ->                            (* the pointer is NON-nil (else assign/deref FAIL LOUD) *)
   fields_live srep_ts (gsptr_hs p) 0 (sr_tags srep_rep) w ->   (* the struct's field cells are LIVE (from gsptr_new) *)
   run_io (bind (gsptr_assign p v) (fun _ => gsptr_deref p)) w =
   run_io (bind (gsptr_assign p v) (fun _ => ret v)) w.
 Proof.
-  intros R Hrep p v w Hlive.
-  unfold gsptr_assign, gsptr_deref.
-  rewrite run_bind, run_write_fields by exact Hlive. cbn.
+  intros R Hrep p v w Hb Hlive.
+  rewrite !run_bind, !(run_gsptr_assign p v w Hb),
+          !(run_write_fields srep_ts (gsptr_hs p) 0 (sr_tags srep_rep) (sr_to srep_rep v) w Hlive). cbn.
+  rewrite (run_gsptr_deref p (wr_fields srep_ts (gsptr_hs p) 0 (sr_tags srep_rep) (sr_to srep_rep v) w) Hb).
   rewrite run_bind, read_after_wr. cbn.
-  rewrite run_ret, run_bind, run_write_fields by exact Hlive. cbn.
-  rewrite run_ret, (sr_eta srep_rep v). reflexivity.
+  rewrite !run_ret, (sr_eta srep_rep v). reflexivity.
 Qed.
 
 Local Transparent run_io bind ret hfield_get hfield_set ref_sel_opt ref_upd ref_install hfield_cell.
@@ -2117,56 +2142,65 @@ Proof.
   intros R Hrep v0 w p w1 Hnew. unfold run_io, gsptr_new in Hnew. cbv zeta in Hnew.
   injection Hnew as Hp Hw1. subst p w1. apply wr_fields_live.
 Qed.
-(** LiveStruct — the aggregate peer for struct pointers: every field cell is LIVE.  Unfolds to the single
-    struct authority [fields_live srep_ts (gsptr_hs p) 0 (sr_tags srep_rep)] (a NAMED interface, not a second
-    authority).  It is WIRED INTO the whole-struct semantics by [gsptr_assign_live] below — a [LiveStruct]
-    pointer's whole-struct assign RETURNS ([ORet], never a [rt_nil_deref] on a dangling field).
-    ⚠ For a ZERO-FIELD struct [fields_live nil] is trivially [True]; that triviality is SOUND, not a hole: an
-    empty struct has no field memory, so its [gsptr_assign]/[gsptr_deref] access nothing and are UNCONDITIONALLY
-    safe ([gsptr_assign_live] holds trivially) — faithfully matching Go, where dereferencing even a nil pointer
-    to a zero-size type touches no memory and does NOT panic.  So there is no unsafe operation for LiveStruct to
-    gate on an empty struct.  NO base-nonzero guard is bolted on: it would model a nil-deref panic Go does not
-    perform on zero-size types, and no whole-struct op observes the base.  For a NONEMPTY struct the field
-    liveness is the genuine precondition (a nil/dangling field cell makes [gsptr_deref] fail loud
-    [rt_nil_deref]). *)
-Definition LiveStruct {R} `{StructRepOf R} (p : GSPtr R) (w : World) : Prop :=
-  fields_live srep_ts (gsptr_hs p) 0 (sr_tags srep_rep) w.
-Lemma gsptr_new_live : forall {R} `{StructRepOf R} (v0 : R) (w : World) p w1,
-  run_io (gsptr_new v0) w = ORet p w1 -> LiveStruct p w1.
+(** A [gsptr_new] pointer has a NONZERO base — it is minted at [w_next w], positive under [ValidWorld]. *)
+Lemma gsptr_new_base_nonzero : forall {R} `{StructRepOf R} (v0 : R) (w : World) p w1,
+  ValidWorld w -> run_io (gsptr_new v0) w = ORet p w1 -> Nat.eqb (gsp_base p) 0 = false.
 Proof.
-  intros R Hrep v0 w p w1 Hnew. unfold LiveStruct.
-  exact (gsptr_new_fields_live v0 w p w1 Hnew).
+  intros R Hrep v0 w p w1 Hvw Hnew.
+  unfold run_io, gsptr_new in Hnew. cbv zeta in Hnew. injection Hnew as Hp Hw1. subst p. cbn [gsp_base].
+  apply Nat.eqb_neq. pose proof (valid_fresh_nonzero w Hvw) as Hnz. apply Nat.ltb_lt in Hnz. lia.
 Qed.
-(** WIRING: a whole-struct assign to a [LiveStruct] pointer RETURNS ([ORet tt]) — [LiveStruct] IS consumed as
-    the assign's precondition (via [run_write_fields]), not a free-floating predicate.  For a zero-field struct
-    this holds trivially (empty write is a no-op), witnessing that an empty struct's assign is unconditionally
-    safe. *)
+(** LiveStruct — the aggregate peer for struct pointers: a NON-nil pointer ([gsp_base <> 0]) whose every field
+    cell is LIVE.  The base-nonzero conjunct is BOTH necessary AND wired: [gsptr_deref]/[gsptr_assign] fail loud
+    ([rt_nil_deref]) on a nil base (faithful to Go's [*p], which panics on nil for EVERY pointee incl. zero-size),
+    and [gsptr_assign_live] below CONSUMES it (the assign RETURNS only because the base passes the guard AND the
+    fields are live).  Unfolds to a nil-check plus the single struct authority [fields_live srep_ts (gsptr_hs p)
+    0 (sr_tags srep_rep)] (a NAMED interface, not a second authority).  ⚠ For a ZERO-FIELD struct [fields_live
+    nil] is trivially [True], so LiveStruct collapses to just the nil-check — which is EXACTLY right: an empty
+    struct has no field memory, so the ONLY way its deref/assign can fail is a nil pointer, and the base-nonzero
+    conjunct is precisely that precondition (it does NOT read "live" for a nil handle).  For a NONEMPTY struct the
+    field liveness adds the genuine precondition (a nil/dangling field cell also makes [gsptr_deref] fail loud). *)
+Definition LiveStruct {R} `{StructRepOf R} (p : GSPtr R) (w : World) : Prop :=
+  Nat.eqb (gsp_base p) 0 = false /\ fields_live srep_ts (gsptr_hs p) 0 (sr_tags srep_rep) w.
+Lemma gsptr_new_live : forall {R} `{StructRepOf R} (v0 : R) (w : World) p w1,
+  ValidWorld w -> run_io (gsptr_new v0) w = ORet p w1 -> LiveStruct p w1.
+Proof.
+  intros R Hrep v0 w p w1 Hvw Hnew. unfold LiveStruct. split.
+  - exact (gsptr_new_base_nonzero v0 w p w1 Hvw Hnew).
+  - exact (gsptr_new_fields_live v0 w p w1 Hnew).
+Qed.
+(** WIRING: a whole-struct assign to a [LiveStruct] pointer RETURNS ([ORet tt]) — BOTH conjuncts are consumed
+    (base-nonzero clears the nil guard [run_gsptr_assign], fields-live makes the write return
+    [run_write_fields]), so [LiveStruct] is the genuine precondition, not a free-floating predicate.  A nil
+    pointer is EXCLUDED (it fails loud), so this never claims a nil deref/assign is safe. *)
 Lemma gsptr_assign_live : forall {R} `{StructRepOf R} (p : GSPtr R) (v : R) (w : World),
   LiveStruct p w -> exists w', run_io (gsptr_assign p v) w = ORet tt w'.
 Proof.
-  intros R Hrep p v w Hlive. unfold LiveStruct in Hlive. unfold gsptr_assign. eexists.
+  intros R Hrep p v w [Hb Hlive]. eexists. rewrite (run_gsptr_assign p v w Hb).
   exact (run_write_fields srep_ts (gsptr_hs p) 0 (sr_tags srep_rep) (sr_to srep_rep v) w Hlive).
 Qed.
 
 (** Live* AGGREGATE-HANDLE SURFACE (manifest-gated, zero-axiom): the allocators produce the NAMED aggregate
     Live* predicate — the two slice makes give [LiveSlice] (whole [0, cap) backing live), [gsptr_new] gives
-    [LiveStruct] (all fields live) — and [gsptr_assign_live] WIRES [LiveStruct] into the whole-struct semantics
-    (a live struct's assign returns, [LiveStruct] consumed as the precondition).  Completes the reusable [Live*]
-    family across all SIX handle types ([LiveRef]/[LivePtr]/[LiveChan]/[LiveMap] scalars in [live_handle_surface]
-    + [LiveSlice]/[LiveStruct] here).  The underlying per-cell/fields facts stay in
-    [heap_aggregate_liveness_surface]; this is their Live* face. *)
+    [LiveStruct] (non-nil pointer with all fields live; needs [ValidWorld] for the nonzero base) — and
+    [gsptr_assign_live] WIRES [LiveStruct] into the whole-struct semantics (a live struct's assign returns, BOTH
+    conjuncts consumed: base-nonzero clears the nil guard, fields-live makes the write return; a nil pointer is
+    excluded, never claimed safe).  Completes the reusable [Live*] family across all SIX handle types ([LiveRef]/
+    [LivePtr]/[LiveChan]/[LiveMap] scalars in [live_handle_surface] + [LiveSlice]/[LiveStruct] here).  The
+    underlying per-cell/fields facts stay in [heap_aggregate_liveness_surface]; this is their Live* face. *)
 Definition live_aggregate_handle_surface :=
   (@slice_make_lc_live, @slice_make_h_live, @gsptr_new_live, @gsptr_assign_live).
 Print Assumptions live_aggregate_handle_surface.
 (** The FORCED whole-struct round-trip: from a pointer FRESH from [gsptr_new] (its cells provably LIVE),
     [assign] then [deref] recovers the value — [fields_live] is DISCHARGED by the allocation, not leaked. *)
 Corollary gsptr_new_deref_assign : forall {R} `{StructRepOf R} (v0 v : R) (w : World) p w1,
-  run_io (gsptr_new v0) w = ORet p w1 ->
+  ValidWorld w -> run_io (gsptr_new v0) w = ORet p w1 ->
   run_io (bind (gsptr_assign p v) (fun _ => gsptr_deref p)) w1 =
   run_io (bind (gsptr_assign p v) (fun _ => ret v)) w1.
 Proof.
-  intros R Hrep v0 v w p w1 Hnew.
-  exact (gsptr_deref_assign p v w1 (gsptr_new_fields_live v0 w p w1 Hnew)).
+  intros R Hrep v0 v w p w1 Hvw Hnew.
+  exact (gsptr_deref_assign p v w1 (gsptr_new_base_nonzero v0 w p w1 Hvw Hnew)
+                                   (gsptr_new_fields_live v0 w p w1 Hnew)).
 Qed.
 
 (** STRUCT NO-PANIC (existence — the genuine struct no-panic peer, correct SHAPE): a whole-struct assign to a
@@ -2174,10 +2208,11 @@ Qed.
     on the allocation's LIVE fields ([gsptr_new_fields_live]).  Unlike [gsptr_new_deref_assign] (an equality),
     this is an existence of an [ORet] — the shape a no-panic claim requires. *)
 Corollary gsptr_new_assign_no_panic : forall {R} `{StructRepOf R} (v0 v : R) (w : World) p w1,
-  run_io (gsptr_new v0) w = ORet p w1 ->
+  ValidWorld w -> run_io (gsptr_new v0) w = ORet p w1 ->
   exists w2, run_io (gsptr_assign p v) w1 = ORet tt w2.
 Proof.
-  intros R Hrep v0 v w p w1 Hnew. eexists. unfold gsptr_assign.
+  intros R Hrep v0 v w p w1 Hvw Hnew. eexists.
+  rewrite (run_gsptr_assign p v w1 (gsptr_new_base_nonzero v0 w p w1 Hvw Hnew)).
   exact (run_write_fields srep_ts (gsptr_hs p) 0 (sr_tags srep_rep) (sr_to srep_rep v) w1
            (gsptr_new_fields_live v0 w p w1 Hnew)).
 Qed.
