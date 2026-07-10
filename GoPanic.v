@@ -56,8 +56,9 @@ Definition rt_chan_send_block : GoAny := anyt TString "go: send would block (buf
     this NAMED payload rather than an inline string (de-duplicating the [recv]/[recv_ok] block branches) — an
     honest fail-loud STAND-IN, NOT a faithful Go panic (Go deadlocks, it does not panic); the faithful blocking
     semantics is the relational [rstep] in [concurrency.v].  Because this OPanic is a blocking stand-in, it is
-    NOT certified as an exact PUBLIC panic payload: the recv anti-forgery surface pins only the NEGATIVE facts
-    (no value / no zero delivered), never [recv = OPanic rt_chan_recv_block] as recoverable-panic semantics. *)
+    NOT certified as an exact PUBLIC panic payload: the recv anti-forgery surface pins only CLEAN NEGATIVES
+    ([<> ORet]: no value / no zero delivered by [recv], no result fired by [recv_ok]), never
+    [recv = OPanic rt_chan_recv_block] as recoverable-panic semantics. *)
 Definition rt_chan_recv_block : GoAny := anyt TString "go: recv would block (open empty channel, no sender) — a deadlock in sequential run_io; faithful blocking is rstep in concurrency.v"%string.
 (** A [make(chan T, n)] with a NEGATIVE runtime size PANICS in Go (runtime/chan.go [plainError], no
     "runtime error:" prefix — the same convention as [rt_send_closed]).  [make_chan_buf] raises this LOUDLY
