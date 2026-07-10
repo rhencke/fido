@@ -957,10 +957,13 @@ Definition live_handle_surface :=
   (@ref_new_live, @ptr_new_live, @make_chan_live, @make_chan_buf_live, @map_make_typed_live).
 Print Assumptions live_handle_surface.
 
-(** CHECKED OPS PRESERVE Live* — a public write rides an ALREADY-live cell (the op's guard) and re-installs it
-    with the SAME tag, so the handle stays Live afterwards.  With "allocators produce Live*", a handle a real
-    program threads through its ops is live at EVERY step (the ops' loud/absent branches are never taken).  This
-    is the payoff of the unified interface: one preservation fact per family, not per op-site. *)
+(** RAW-UPDATE-ROOT PRESERVATION of Live* — the state transformers a checked write calls on its SUCCESS branch
+    ([ref_upd], [chan_send_upd]/[chan_recv_upd]/[chan_close_upd], [map_upd]/[map_rem]/[map_clear_upd]) re-install
+    the cell with the SAME tag, so a LIVE handle stays Live across the UPDATE.  ⚠ These are UPDATE-ROOT facts,
+    NOT full checked-op claims: a checked op — [send]/[recv]/[close] especially — need NOT reach its update root
+    (send-on-closed / empty-recv / double-close FAIL LOUD, a full send blocks); those branches leave the world
+    UNCHANGED so Live* is trivially preserved there too, but that op-level statement is a SEPARATE fact, not
+    what these lemmas assert.  One update-root preservation fact per family, not per op-site. *)
 Lemma LiveRef_preserved : forall {A} (r : Ref A) (v : A) (w : World),
   LiveRef r w -> LiveRef r (ref_upd r v w).
 Proof.
@@ -994,8 +997,9 @@ Lemma LiveMap_clear_preserved : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag 
   LiveMap kt vt m w -> LiveMap kt vt m (map_clear_upd kt vt m w).
 Proof. intros K V kt vt m w H. unfold LiveMap in *. unfold map_clear_upd. apply map_cell_ok_write_same; exact H. Qed.
 
-(** Live* PRESERVATION SURFACE (manifest-gated, zero-axiom): checked writes keep the handle Live, one fact per
-    family — ref/ptr set, chan send/recv/close, map set/delete/clear. *)
+(** Live* UPDATE-ROOT PRESERVATION SURFACE (manifest-gated, zero-axiom): each family's RAW UPDATE root keeps a
+    live handle Live — ref/ptr [ref_upd], chan send/recv/close [chan_*_upd], map set/delete/clear [map_*].
+    (Update-root facts, not full checked-op behavior — see the block comment above.) *)
 Definition live_preserve_surface :=
   (@LiveRef_preserved, @LivePtr_preserved, @LiveChan_send_preserved, @LiveChan_recv_preserved,
    @LiveChan_close_preserved, @LiveMap_set_preserved, @LiveMap_delete_preserved, @LiveMap_clear_preserved).
