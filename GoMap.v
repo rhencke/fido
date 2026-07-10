@@ -538,8 +538,10 @@ Proof.
   apply map_set_absent. exact (proj2 (map_cell_ok_wrong_tag kt vt kt' vt' m w n f Hnn Hcell Hmis)).
 Qed.
 
-(** [delete(m, k)] through a WRONG-TAG handle FAILS LOUD ([rt_forged_map], world UNCHANGED) — it never
-    retypes/mutates the aliased cell (the closed-world guard for the forged handle). *)
+(** [delete(m, k)] through a WRONG-TAG handle FAILS LOUD, world UNCHANGED (the [OPanic] carries the ORIGINAL
+    [w]) — it never retypes/mutates the aliased cell.  Stated EXISTENTIALLY ([exists p, = OPanic p w]): the
+    anti-forgery fact is "fails loud, no mutation", NOT the exact payload — [rt_forged_map] is a MODEL-INTERNAL
+    closed-world marker (Go's [delete] never panics), so it is NOT pinned as public certified evidence. *)
 Theorem map_delete_wrong_tag_no_mutation :
   forall {K V K' V'} (kt : GoTypeTag K) (vt : GoTypeTag V)
          (kt' : GoTypeTag K') (vt' : GoTypeTag V')
@@ -547,15 +549,16 @@ Theorem map_delete_wrong_tag_no_mutation :
   Nat.eqb (gm_loc m) 0 = false ->
   w_maps w (gm_loc m) = Some (n, existT _ K' (kt', existT _ V' (vt', f))) ->
   tag_eq kt kt' = None \/ tag_eq vt vt' = None ->
-  run_io (map_delete kt vt k m) w = OPanic rt_forged_map w.
+  exists p, run_io (map_delete kt vt k m) w = OPanic p w.
 Proof.
-  intros K V K' V' kt vt kt' vt' k m w n f Hnn Hcell Hmis.
+  intros K V K' V' kt vt kt' vt' k m w n f Hnn Hcell Hmis. exists rt_forged_map.
   apply map_delete_forged_failloud. exact Hnn.
   exact (proj2 (map_cell_ok_wrong_tag kt vt kt' vt' m w n f Hnn Hcell Hmis)).
 Qed.
 
-(** [clear(m)] through a WRONG-TAG handle FAILS LOUD ([rt_forged_map], world UNCHANGED) — it never
-    clears/retypes the aliased cell (the closed-world guard for the forged handle). *)
+(** [clear(m)] through a WRONG-TAG handle FAILS LOUD, world UNCHANGED — it never clears/retypes the aliased
+    cell.  Stated EXISTENTIALLY (like [map_delete_wrong_tag_no_mutation]): the anti-forgery fact is "fails
+    loud, no mutation", NOT the model-internal [rt_forged_map] payload (Go's [clear] never panics). *)
 Theorem map_clear_wrong_tag_no_mutation :
   forall {K V K' V'} (kt : GoTypeTag K) (vt : GoTypeTag V)
          (kt' : GoTypeTag K') (vt' : GoTypeTag V')
@@ -563,9 +566,9 @@ Theorem map_clear_wrong_tag_no_mutation :
   Nat.eqb (gm_loc m) 0 = false ->
   w_maps w (gm_loc m) = Some (n, existT _ K' (kt', existT _ V' (vt', f))) ->
   tag_eq kt kt' = None \/ tag_eq vt vt' = None ->
-  run_io (map_clear kt vt m) w = OPanic rt_forged_map w.
+  exists p, run_io (map_clear kt vt m) w = OPanic p w.
 Proof.
-  intros K V K' V' kt vt kt' vt' m w n f Hnn Hcell Hmis.
+  intros K V K' V' kt vt kt' vt' m w n f Hnn Hcell Hmis. exists rt_forged_map.
   apply map_clear_forged_failloud. exact Hnn.
   exact (proj2 (map_cell_ok_wrong_tag kt vt kt' vt' m w n f Hnn Hcell Hmis)).
 Qed.
@@ -605,16 +608,16 @@ Theorem no_public_map_retyping :
   w_maps w (gm_loc m) = Some (n, existT _ K' (kt', existT _ V' (vt', f))) ->
   tag_eq kt kt' = None \/ tag_eq vt vt' = None ->
      run_io (map_set kt vt k v m) w = OPanic rt_nil_map w
-  /\ run_io (map_delete kt vt k m) w = OPanic rt_forged_map w
-  /\ run_io (map_clear kt vt m) w = OPanic rt_forged_map w.
+  /\ (exists p, run_io (map_delete kt vt k m) w = OPanic p w)
+  /\ (exists p, run_io (map_clear kt vt m) w = OPanic p w).
 Proof.
   intros K V K' V' kt vt kt' vt' k v m w n f Hnn Hcell Hmis.
   assert (Hbad : map_cell_ok kt vt m w = false)
     by (exact (proj2 (map_cell_ok_wrong_tag kt vt kt' vt' m w n f Hnn Hcell Hmis))).
   split; [ | split ].
   - apply map_set_absent; exact Hbad.
-  - apply map_delete_forged_failloud; [ exact Hnn | exact Hbad ].
-  - apply map_clear_forged_failloud; [ exact Hnn | exact Hbad ].
+  - exists rt_forged_map. apply map_delete_forged_failloud; [ exact Hnn | exact Hbad ].
+  - exists rt_forged_map. apply map_clear_forged_failloud; [ exact Hnn | exact Hbad ].
 Qed.
 Theorem map_sel_clear : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
     (k : K) (m : GoMap K V) (w : World),

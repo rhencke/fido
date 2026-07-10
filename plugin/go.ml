@@ -5242,8 +5242,12 @@ let is_suppressed_ref r =
      "str_to_runes"; "str_to_runes_w"; "str_runes_fst"; "runes_to_str"; "rune_bytes"; "byte_chr"; "rune_to_str";
      "str_range"; "rune_width"; "runes_with_offsets"; "for_each_pairs";
      "for_each_idx"; "for_each_idx_from"; "int_range"; "int_range_aux";
-     (* runtime-panic VALUES — used only inside suppressed panic-op bodies,
-        never emitted (the native Go op panics on its own) *)
+     (* runtime-panic VALUES — used only inside suppressed op bodies, never emitted.  MOST are FAITHFUL native
+        panics (the native Go op panics on its own: nil deref, OOB, nil-map WRITE, ...).  A FEW are MODEL-
+        INTERNAL fail-loud markers for states the native op does NOT panic on — the blocking stand-ins
+        (rt_chan_send_block/recv_block: Go blocks/deadlocks) and rt_forged_map (delete/clear on an IMPOSSIBLE
+        forged handle: Go's delete/clear never panic).  Those are suppressed because their OPanic branch is
+        model-only/unreachable, NOT because Go panics; they are never certified as exact native-panic payloads. *)
      "rt_nil_deref"; "rt_index_oob";
      "rt_slice_bounds"; "rt_neg_make"; "rt_nil_map"; "rt_forged_map";
      "rt_send_closed"; "rt_close_closed"; "rt_close_nil"; "rt_assert_fail"; "rt_select_block";
