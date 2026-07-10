@@ -169,12 +169,14 @@ every forged handle — a same-tag alias over a live backing passes (typed liven
 (the checkpoint-59 step-3 REUSABLE `Live*` family — the four SCALAR predicates LiveRef/LivePtr/LiveChan/LiveMap,
 one canonical typed-liveness interface over the per-family checks; allocators produce Live*) /
 `GoHeap.live_aggregate_handle_surface` (the two AGGREGATE peers completing the six-handle family — LiveSlice
-= whole [0,cap) backing live, LiveStruct = NON-NIL pointer with every field live; BOTH slice makes produce
-LiveSlice, gsptr_new (under ValidWorld) produces LiveStruct, and gsptr_assign_live WIRES LiveStruct into the
+= WELL-FORMED shape (sh_len<=sh_cap) + whole [0,cap) backing live, with LiveSlice_index_live the payoff (an
+in-len index has a live typed cell — the theorem a len>cap forged header breaks, so the shape conjunct is
+load-bearing), LiveStruct = NON-NIL pointer with every field live; BOTH slice makes produce LiveSlice,
+gsptr_new (under ValidWorld) produces LiveStruct, and gsptr_assign_live WIRES LiveStruct into the
 whole-struct semantics — a live struct's assign returns, BOTH conjuncts consumed. gsptr_deref/gsptr_assign
 NIL-GUARD on a zero base (rt_nil_deref) like the scalar Ptr ops and Go's `*p`, so even a zero-field struct's
-nil deref FAILS LOUD — never claimed safe. LiveSlice bolts on NO base guard: a nil slice is a valid empty Go
-slice that never faults) / `GoHeap.live_preserve_surface`
+nil deref FAILS LOUD — never claimed safe. LiveSlice bolts on NO base guard (a nil slice is a valid empty Go
+slice that never faults), but DOES carry the len<=cap shape invariant) / `GoHeap.live_preserve_surface`
 (each family's RAW UPDATE ROOT preserves Live* — ref/ptr ref_upd, chan_*_upd, map_*) / `GoHeap.live_op_preserve_surface`
 (the CHECKED op preserves Live* for the always-succeeds-on-live writes: ref/ptr set, map set/delete/clear return
 `ORet` with the world still Live) / `GoHeap.live_chan_op_preserve_surface` (the case-split channel ops

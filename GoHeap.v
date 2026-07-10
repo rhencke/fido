@@ -1025,16 +1025,18 @@ Print Assumptions heap_alloc_safety_surface.
 
     One canonical name per handle for "the cell(s) EXIST at this handle's nonnil location(s) AND store the
     matching tag".  The four SCALAR predicates are here ([LiveRef]/[LivePtr]/[LiveChan]/[LiveMap]); the two
-    AGGREGATE peers ([LiveSlice] = whole [0, cap) backing live, [LiveStruct] = non-nil pointer with every field
-    live) are defined later next to their multi-cell reps ([slice_range_live] / [fields_live]), gated in
+    AGGREGATE peers ([LiveSlice] = well-formed shape [len <= cap] with the whole [0, cap) backing live,
+    [LiveStruct] = non-nil pointer with every field live) are defined later next to their multi-cell reps
+    ([slice_range_live] / [fields_live]), gated in
     [live_aggregate_handle_surface] — together the SIX cover every handle.  Each unfolds to the per-family cell
     authority ([ref_sel_opt] / [chan_cell_ok] / [map_cell_ok] / [slice_range_live] / [fields_live]).  [LivePtr]
     and [LiveStruct] each pair the cell/field authority with a nonzero-base guard, because their ops are POINTER
     derefs that fault on nil FIRST ([ptr_get]/[ptr_set] and [gsptr_deref]/[gsptr_assign] alike — Go's [*p] panics
     on nil for EVERY pointee, incl. a zero-field struct, so the guard is load-bearing and WIRED, not decorative:
     it is exactly what keeps a nil handle from reading "live", and an empty struct's only failure mode IS the nil
-    pointer).  [LiveSlice] does NOT pair one on — a slice is a value, a nil slice is a VALID empty Go slice that
-    never faults (indexing bounds-checks), so its zero-cap triviality is sound, not a hole.  [Live*] is a NAMED
+    pointer).  [LiveSlice] does NOT pair on a base guard (a nil slice is a valid empty Go value that never
+    faults), but it DOES carry the shape invariant [len <= cap] — without it a [len > cap] header would report an
+    index in-bounds with no backing (see [LiveSlice_index_live]).  [Live*] is a NAMED
     INTERFACE over that authority, NOT a second authority; the
     ops' DEFINITIONS branch on the underlying check directly ([Live*] mirrors it, the ops do not reference the
     name).  ⚠ CELL liveness ONLY: the channel ops ([send]/[recv]/[close]) additionally demand room / not-closed
@@ -1702,17 +1704,17 @@ Proof.
            (slice_make_h_cell_live tag n w s w0 (Z.to_nat (intraw i)) Hmk Hj)).
 Qed.
 
-(** LiveSlice — the aggregate peer of [LiveRef]/[LiveChan]/… for slice handles: the WHOLE backing range [0, cap)
-    reads back LIVE.  Unfolds to the single slice authority [slice_range_live s (sh_cap s)] (a NAMED interface,
-    not a second authority; TYPED liveness — a forged same-tag header over a live backing satisfies it).  That
-    authority is CONSUMED by the semantics — [append]'s realloc-copy guards on [slice_range_live] (a dangling
-    source fails loud rather than copying fabricated zeros).  ⚠ For a ZERO-capacity slice [slice_range_live s 0]
-    is trivially [true]; that triviality is SOUND, not a hole: a cap-0 slice has no indexable cell (every index
-    fails the [slice_in_len] bound), and a nil slice is a VALID empty Go slice — so there is no unsafe operation
-    for LiveSlice to gate, and it correctly asserts "the (empty) backing range is live".  NO base-nonzero guard
-    is bolted on: unlike a pointer, a nil slice does not fault, so such a guard would gate nothing.
-    [slice_range_live_of_cells] is the generic cells→range lift both slice allocators share. *)
-Definition LiveSlice {A} (s : SliceH A) (w : World) : Prop := slice_range_live s (sh_cap s) w = true.
+(** LiveSlice — a WELL-FORMED slice handle: its shape is POSSIBLE ([sh_len <= sh_cap], Go's own slice invariant)
+    AND its whole backing range [0, cap) reads back LIVE.  BOTH conjuncts are load-bearing — WITHOUT [len <= cap]
+    a forged header like [mkSliceH 1 0 1 0 tag] (len 1, cap 0) satisfies the VACUOUS [slice_range_live s 0] yet
+    reports index 0 in-bounds ([slice_in_len] checks [len], not [cap]) with NO backing cell; the payoff
+    [LiveSlice_index_live] (an in-[len] index has a LIVE typed cell) is exactly what fails there, so the shape
+    conjunct is not optional.  The backing authority [slice_range_live s (sh_cap s)] is a NAMED interface (TYPED
+    liveness — a same-tag header over a live backing satisfies it; origin is not checked, the checkpoint-59
+    frontier), CONSUMED by the semantics ([append]'s realloc-copy guards on it).  [slice_range_live_of_cells] is
+    the generic cells→range lift both slice allocators share; [slice_range_live_cell] is its converse. *)
+Definition LiveSlice {A} (s : SliceH A) (w : World) : Prop :=
+  (sh_len s <= sh_cap s)%nat /\ slice_range_live s (sh_cap s) w = true.
 Lemma slice_range_live_of_cells : forall {A} (tag : GoTypeTag A) (s : SliceH A) (w0 : World) (k : nat),
   (forall j, (j < k)%nat -> ref_sel_opt (sh_cell s j) w0 = Some (zero_val tag)) ->
   slice_range_live s k w0 = true.
@@ -1722,15 +1724,33 @@ Proof.
   - cbn [slice_range_live]. rewrite (Hcells m (Nat.lt_succ_diag_r m)).
     apply IH. intros j Hj. apply Hcells. lia.
 Qed.
+Lemma slice_range_live_cell : forall {A} (s : SliceH A) (n : nat) (w : World) (j : nat),
+  slice_range_live s n w = true -> (j < n)%nat -> ref_sel_opt (sh_cell s j) w <> None.
+Proof.
+  intros A s n w j. revert j. induction n as [| m IH]; intros j Hlive Hj; [ lia | ].
+  cbn [slice_range_live] in Hlive.
+  destruct (ref_sel_opt (sh_cell s m) w) as [a|] eqn:Hm; [ | discriminate Hlive ].
+  destruct (Nat.eq_dec j m) as [->|Hne]; [ rewrite Hm; discriminate | apply IH; [ exact Hlive | lia ] ].
+Qed.
+(** THE PAYOFF: from a well-formed [LiveSlice], every IN-[len] index has a LIVE typed backing cell.  This is the
+    theorem the [mkSliceH 1 0 1 0] counterexample breaks without the [len <= cap] conjunct. *)
+Lemma LiveSlice_index_live : forall {A} (s : SliceH A) (w : World) (j : nat),
+  LiveSlice s w -> (j < sh_len s)%nat -> exists v, ref_sel_opt (sh_cell s j) w = Some v.
+Proof.
+  intros A s w j [Hlc Hlive] Hj.
+  pose proof (slice_range_live_cell s (sh_cap s) w j Hlive ltac:(lia)) as Hne.
+  destruct (ref_sel_opt (sh_cell s j) w) as [v|] eqn:E; [ exists v; reflexivity | congruence ].
+Qed.
 (** BOTH slice allocators produce a LiveSlice — [make([]T,len,cap)] (cell fact over [j < cap] directly) and
     [make([]T,n)] (len=cap, so its [j < len] cell fact covers the whole [0, cap) backing — the len=cap
     identity destructed inline, no capacity-named helper). *)
 Lemma slice_make_lc_live : forall {A} (tag : GoTypeTag A) (len cap : GoInt) (w : World) s w0,
   run_io (slice_make_lc tag len cap) w = ORet s w0 -> LiveSlice s w0.
 Proof.
-  intros A tag len cap w s w0 Hmk. unfold LiveSlice.
-  apply (slice_range_live_of_cells tag s w0 (sh_cap s)).
-  intros j Hj. exact (slice_make_lc_cell_live tag len cap w s w0 j Hmk Hj).
+  intros A tag len cap w s w0 Hmk. unfold LiveSlice. split.
+  - exact (slice_make_lc_len_fits tag len cap w s w0 Hmk).
+  - apply (slice_range_live_of_cells tag s w0 (sh_cap s)).
+    intros j Hj. exact (slice_make_lc_cell_live tag len cap w s w0 j Hmk Hj).
 Qed.
 Lemma slice_make_h_live : forall {A} (tag : GoTypeTag A) (n : GoInt) (w : World) s w0,
   run_io (slice_make_h tag n) w = ORet s w0 -> LiveSlice s w0.
@@ -1740,6 +1760,7 @@ Proof.
   { unfold slice_make_h, run_io in Hmk. cbv zeta in Hmk.
     destruct (0 <=? intraw n)%Z eqn:Hc; [ | discriminate Hmk ].
     injection Hmk as Hs Hw0. subst s. reflexivity. }
+  split; [ lia | ].
   apply (slice_range_live_of_cells tag s w0 (sh_cap s)).
   intros j Hj. rewrite Hcl in Hj.
   exact (slice_make_h_cell_live tag n w s w0 j Hmk Hj).
@@ -2460,7 +2481,8 @@ Proof.
 Qed.
 
 (** Live* AGGREGATE-HANDLE SURFACE (manifest-gated, zero-axiom): the allocators produce the NAMED aggregate
-    Live* predicate — the two slice makes give [LiveSlice] (whole [0, cap) backing live), [gsptr_new] gives
+    Live* predicate — the two slice makes give [LiveSlice] (well-formed [len <= cap] + whole [0, cap) backing
+    live), with [LiveSlice_index_live] the payoff (an in-[len] index has a live typed cell); [gsptr_new] gives
     [LiveStruct] (non-nil pointer with all fields live; needs [ValidWorld] for the nonzero base) — and
     [gsptr_assign_live] WIRES [LiveStruct] into the whole-struct semantics (a live struct's assign returns, BOTH
     conjuncts consumed: base-nonzero clears the nil guard, fields-live makes the write return; a nil pointer is
@@ -2468,7 +2490,7 @@ Qed.
     [LivePtr]/[LiveChan]/[LiveMap] scalars in [live_handle_surface] + [LiveSlice]/[LiveStruct] here).  The
     underlying per-cell/fields facts stay in [heap_aggregate_liveness_surface]; this is their Live* face. *)
 Definition live_aggregate_handle_surface :=
-  (@slice_make_lc_live, @slice_make_h_live, @gsptr_new_live, @gsptr_assign_live).
+  (@slice_make_lc_live, @slice_make_h_live, @LiveSlice_index_live, @gsptr_new_live, @gsptr_assign_live).
 Print Assumptions live_aggregate_handle_surface.
 (** The FORCED whole-struct round-trip: from a pointer FRESH from [gsptr_new] (its cells provably LIVE),
     [assign] then [deref] recovers the value — [fields_live] is DISCHARGED by the allocation, not leaked. *)
