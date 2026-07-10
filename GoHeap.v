@@ -637,8 +637,9 @@ Qed.
     [valid_fresh_nonzero]), so [close] on it never hits the NIL panic.  [chan_alloc_close_no_panic] is the guarantee
     (the remaining [close] panic — double-close — is the send-on-closed class, gated separately by
     [chan_closed]).  [send]/[recv] on the same allocated channel likewise never hit the nil case.  (Non-nil is
-    the NIL-panic guarantee ONLY; it is not tag-correctness — the wrong-tag write/read hazards are the
-    checkpoint-58 rebase, closed by [chan_cell_ok], not by non-nil.) *)
+    the NIL-panic guarantee ONLY; it is not tag-correctness.  The wrong-tag write/read hazards remain OPEN —
+    the ops still branch on tag-agnostic [chan_present]/[chan_closed]; the checkpoint-58 op rebase onto the
+    tag-aware [chan_cell_ok] is what WILL close them, and is not yet done.) *)
 Lemma make_chan_nonzero : forall {A} (tag : GoTypeTag A) (w : World) ch w',
   ValidWorld w -> run_io (make_chan tag) w = ORet ch w' -> Nat.eqb (ch_loc ch) 0 = false.
 Proof.
