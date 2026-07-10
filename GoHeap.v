@@ -380,7 +380,8 @@ Qed.
     matching-tag loc-0 cell would READ it — dead only under [WorldOk].)  A [Ref] is a plain Go VARIABLE, so
     [ref_get] lowers to a bare variable read [x] (NOT a pointer deref [*r] — that is [ptr_get]); the loud check
     is proof-only and never reaches the emitted Go (a variable the generator emits is always in scope).  It
-    only rules out the MODEL accepting a forged read. *)
+    only rules out the MODEL accepting a WRONG-TAG or ABSENT forged read (a SAME-TAG forged alias still reads
+    the aliased cell — the origin frontier, not sealed here). *)
 Definition ref_get {A} (tag : GoTypeTag A) (r : Ref A) : IO A :=
   fun w => match ref_sel_opt r w with
            | Some a => ORet a w
@@ -1412,7 +1413,8 @@ Definition hfield_cell {A} (h : HStruct) (k : nat) (tag : GoTypeTag A) : Ref A :
 (** Read a struct field.  FAILS LOUD on a missing/retyped cell — a forged [GSPtr] (e.g.
     [mkGSPtr 5] addressing an unallocated base) panics with the Go nil-pointer/invalid-address message
     instead of fabricating a zero.  Body is plugin-lowered to [p.Field], so the loud check never reaches
-    the emitted Go (a real [p] is always allocated); it only rules out the model accepting a forged read. *)
+    the emitted Go (a real [p] is always allocated); it only rules out the model accepting a WRONG-TAG or
+    ABSENT forged read (a SAME-TAG forged alias still reads the aliased cell — the origin frontier). *)
 Definition hfield_get {A} (h : HStruct) (k : nat) (tag : GoTypeTag A) : IO A :=
   fun w => match ref_sel_opt (hfield_cell h k tag) w with
            | Some a => ORet a w

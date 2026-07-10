@@ -226,7 +226,9 @@ Qed.
     UNALLOCATED map ([map_cell_ok = false] — nil, absent, OR WRONG-TAG) is the IDENTITY.  So [map_write] and the
     updates built on it ([map_upd]/[map_rem]/[map_clear_upd]) can NEVER fabricate a cell for a forged / dangling
     handle — the ONLY cell CREATION is [map_make_typed].  This PINS the [map_write] root guard: a forged handle
-    provably cannot construct map state, at the raw layer, independent of the checked IO wrappers. *)
+    with NO tag-correct cell provably cannot FABRICATE map cells, at the raw layer, independent of the checked
+    IO wrappers.  (A SAME-TAG forged handle can still WRITE its EXISTING aliased cell — Go reference-value
+    aliasing, not fabrication; the origin frontier, not sealed here.) *)
 Lemma map_write_absent_noop : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (m : GoMap K V) f sz w,
   map_cell_ok kt vt m w = false -> map_write kt vt m f sz w = w.
 Proof. intros K V kt vt m f sz w H. unfold map_write. rewrite H. reflexivity. Qed.
