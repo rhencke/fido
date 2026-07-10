@@ -561,16 +561,28 @@ Proof.
   intros K V kt vt w m w' HV Hrun. unfold run_io, map_make_typed in Hrun. cbv zeta in Hrun.
   injection Hrun as Hm _. subst m. cbn [gm_loc]. apply pos_neq0, (valid_fresh_nonzero w HV).
 Qed.
+(** A freshly [make(map[K]V)]d map's cell is PRESENT ([gm_present = true]) — [map_make_typed] installs a
+    [Some] cell at [w_next w], and [ValidWorld] forces [w_next w <> 0].  So [map_set] on a just-made map
+    reaches its real update path (not mistaken for an unallocated handle) — the allocation discharges the
+    [gm_present] premise the guarded [map_set] now demands. *)
+Lemma gm_present_make_typed : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (w : World) m w',
+  ValidWorld w -> run_io (map_make_typed kt vt) w = ORet m w' -> gm_present m w' = true.
+Proof.
+  intros K V kt vt w m w' HV Hrun. unfold run_io, map_make_typed in Hrun. cbv zeta in Hrun.
+  injection Hrun as Hm Hw'. subst m w'. unfold gm_present. cbn [gm_loc].
+  rewrite (pos_neq0 _ (valid_fresh_nonzero w HV)).
+  cbn [w_maps]. rewrite Nat.eqb_refl. reflexivity.
+Qed.
 Lemma map_set_nonnil : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (v : V) (m : GoMap K V) (w : World),
-  Nat.eqb (gm_loc m) 0 = false ->
+  gm_present m w = true ->
   run_io (map_set kt vt k v m) w = ORet tt (map_upd kt vt k v m w).
-Proof. intros K V kt vt k v m w Hnn. rewrite run_map_set, Hnn. reflexivity. Qed.
+Proof. intros K V kt vt k v m w Hp. rewrite run_map_set, Hp. reflexivity. Qed.
 Corollary map_alloc_set_no_panic : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (v : V) (w : World) m w',
   ValidWorld w -> run_io (map_make_typed kt vt) w = ORet m w' ->
   exists w'', run_io (map_set kt vt k v m) w' = ORet tt w''.
 Proof.
   intros K V kt vt k v w m w' HV Hrun. eexists.
-  apply map_set_nonnil, (map_make_typed_nonzero kt vt w m w' HV Hrun).
+  apply map_set_nonnil, (gm_present_make_typed kt vt w m w' HV Hrun).
 Qed.
 
 (** Channel analogue: an ALLOCATED channel is non-nil ([make_chan] mints the pre-bump [w_next], nonzero by
