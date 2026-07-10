@@ -5245,7 +5245,7 @@ let is_suppressed_ref r =
      (* runtime-panic VALUES — used only inside suppressed panic-op bodies,
         never emitted (the native Go op panics on its own) *)
      "rt_nil_deref"; "rt_index_oob";
-     "rt_slice_bounds"; "rt_neg_make"; "rt_nil_map";
+     "rt_slice_bounds"; "rt_neg_make"; "rt_nil_map"; "rt_forged_map";
      "rt_send_closed"; "rt_close_closed"; "rt_close_nil"; "rt_assert_fail"; "rt_select_block";
      "rt_chan_send_block"; "rt_chan_recv_block"; "rt_makechan_size"]) ||
   from_digits r ||

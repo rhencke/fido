@@ -37,6 +37,12 @@ Definition rt_index_oob (i : Z) (n : nat) : GoAny :=
 Definition rt_slice_bounds : GoAny := anyt TString "runtime error: slice bounds out of range"%string.
 Definition rt_neg_make     : GoAny := anyt TString "runtime error: makeslice: len out of range"%string.
 Definition rt_nil_map      : GoAny := anyt TString "assignment to entry in nil map"%string.
+(** A map DELETE / CLEAR through a nonzero handle with NO tag-correct cell — an ABSENT (dangling) or WRONG-TAG
+    forged handle — is IMPOSSIBLE in a real program (Go maps are reference values you cannot forge; delete /
+    clear on a genuine NIL map are Go no-ops, kept as such).  So this is a CLOSED-WORLD FAIL-LOUD GUARD for an
+    unreachable state, NOT a faithful Go panic (Go's delete/clear never panic).  The op lowers to native
+    delete/clear; this OPanic branch is model-only (plugin-suppressed) and unreachable for any allocated map. *)
+Definition rt_forged_map   : GoAny := anyt TString "go: map delete/clear on a forged (absent or wrong-tag) handle — unreachable in a real program; closed-world fail-loud guard, not a Go panic"%string.
 Definition rt_send_closed  : GoAny := anyt TString "send on closed channel"%string.
 Definition rt_close_closed : GoAny := anyt TString "close of closed channel"%string.
 Definition rt_close_nil    : GoAny := anyt TString "close of nil channel"%string.

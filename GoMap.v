@@ -268,7 +268,8 @@ Definition map_get_or {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (defau
 (** A WRITE to a map with NO TAG-CORRECT cell — nil ([MkMap 0]), nonzero-ABSENT (forged/dangling), OR WRONG-TAG
     (a forged handle aliasing a real cell of a DIFFERENT key/value type) — is refused: [map_set] guards on
     [map_cell_ok] and PANICS ([rt_nil_map]) otherwise (Go's "assignment to entry in nil map", generalised to the
-    whole no-usable-cell class); [delete]/[clear] are NO-OPS on it (world UNCHANGED).  The raw [map_write] itself
+    whole no-usable-cell class); [delete]/[clear] NO-OP on a genuine NIL map (Go) but FAIL LOUD ([rt_forged_map])
+    on a nonzero FORGED handle (world UNCHANGED either way).  The raw [map_write] itself
     no-ops on any such handle ([map_write_absent_noop]), so NO map update fabricates OR RETYPES a cell, regardless
     of caller — the only cell CREATION is [map_make_typed].  ([map_get_fn] READS a no-cell map as zero for every
     key; [map_sel] READS a wrong-tag cell as [None].)  Lowered by name ([m[k] = v]). *)
@@ -277,14 +278,17 @@ Definition map_set {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (v : V) (
   (* [m[k] = v] with no tag-correct cell (nil [gm_loc = 0], nonzero ABSENT — forged/dangling, OR WRONG-TAG) FAILS
      LOUD (Go's "assignment to entry in nil map", generalised to the whole no-usable-cell class): a forged handle
      never fabricates NOR retypes a cell.  Only a tag-correct cell ([map_make_typed] installs one) reaches [map_upd]. *)
-(** [delete(m, k)] removes key [k].  With no tag-correct cell (nil [gm_loc = 0], nonzero-absent, OR WRONG-TAG)
-    it is a NO-OP (Go: delete on nil no-ops), guarded on [map_cell_ok] — the world is UNCHANGED and no cell is
-    fabricated OR retyped
-    ([map_delete_nil_noop] / [map_delete_absent_noop]; [map_rem] itself no-ops via [map_rem_absent_noop]). *)
+(** [delete(m, k)] removes key [k].  THREE cases, distinguished so an invalid handle does NOT masquerade as a
+    Go nil map: (1) a LIVE cell ([map_cell_ok]) — delete the key; (2) a genuine NIL map ([gm_loc = 0]) — NO-OP,
+    faithful Go ([delete] on nil no-ops); (3) a nonzero handle with NO tag-correct cell (ABSENT/dangling OR
+    WRONG-TAG — a FORGED handle, impossible in real Go) — FAIL LOUD ([rt_forged_map], world UNCHANGED), a
+    closed-world guard, NOT Go semantics.  In every case no cell is fabricated OR retyped.  Lowers to native
+    [delete(m, k)] (the forged fail-loud is model-only, plugin-suppressed, unreachable for an allocated map).
+    ([map_delete_nil_noop] Go-faithful / [map_delete_forged_failloud] the defensive guard). *)
 Definition map_delete {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (m : GoMap K V) : IO unit :=
-  fun w => if map_cell_ok kt vt m w then ORet tt (map_rem kt vt k m w) else ORet tt w.
-  (* [delete(m, k)] with no tag-correct cell (nil, absent, OR wrong-tag) is a NO-OP (Go: delete on nil no-ops),
-     and crucially never FABRICATES a cell for a forged/dangling handle nor RETYPES a wrong-tag one. *)
+  fun w => if map_cell_ok kt vt m w then ORet tt (map_rem kt vt k m w)
+           else if Nat.eqb (gm_loc m) 0 then ORet tt w
+           else OPanic rt_forged_map w.
 
 Lemma run_map_get_opt : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (m : GoMap K V) (w : World),
   run_io (map_get_opt kt vt k m) w = ORet (map_sel kt vt k m w) w.
@@ -312,15 +316,20 @@ Lemma map_set_nil : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (
 Proof. reflexivity. Qed.
 Lemma run_map_delete : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (m : GoMap K V) (w : World),
   run_io (map_delete kt vt k m) w =
-    if map_cell_ok kt vt m w then ORet tt (map_rem kt vt k m w) else ORet tt w.
+    if map_cell_ok kt vt m w then ORet tt (map_rem kt vt k m w)
+    else if Nat.eqb (gm_loc m) 0 then ORet tt w else OPanic rt_forged_map w.
 Proof. reflexivity. Qed.
-(** ANTI-FORGERY: [delete] with no tag-correct cell ([map_cell_ok = false] — nil, absent, OR WRONG-TAG) is a
-    NO-OP (world UNCHANGED) — it never fabricates a cell for a forged/dangling handle nor retypes a wrong-tag one. *)
-Lemma map_delete_absent_noop : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (m : GoMap K V) (w : World),
-  map_cell_ok kt vt m w = false -> run_io (map_delete kt vt k m) w = ORet tt w.
-Proof. intros K V kt vt k m w H. unfold map_delete, run_io. rewrite H. reflexivity. Qed.
-(** Faithfulness: deleting from a NIL map is a NO-OP (Go), leaving the world UNCHANGED — [map_delete] guards on
-    [map_cell_ok] (nil is [map_cell_ok = false]).  (Absent/wrong-tag more generally: [map_delete_absent_noop].) *)
+(** ANTI-FORGERY: [delete] through a nonzero handle with NO tag-correct cell (ABSENT/dangling OR WRONG-TAG — a
+    FORGED handle, impossible in real Go) FAILS LOUD ([rt_forged_map], world UNCHANGED) — the closed-world guard;
+    it never fabricates a cell nor retypes a wrong-tag one.  (A genuine NIL map delete is the separate Go no-op,
+    [map_delete_nil_noop].) *)
+Lemma map_delete_forged_failloud : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (m : GoMap K V) (w : World),
+  Nat.eqb (gm_loc m) 0 = false ->
+  map_cell_ok kt vt m w = false ->
+  run_io (map_delete kt vt k m) w = OPanic rt_forged_map w.
+Proof. intros K V kt vt k m w Hnn H. unfold map_delete, run_io. rewrite H, Hnn. reflexivity. Qed.
+(** Faithfulness: deleting from a NIL map is a NO-OP (Go), leaving the world UNCHANGED — [map_delete]'s NIL
+    branch ([gm_loc = 0]).  (A nonzero FORGED handle instead fails loud: [map_delete_forged_failloud].) *)
 Lemma map_delete_nil_noop : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (w : World),
   run_io (map_delete kt vt k (@map_empty K V)) w = ORet tt w.
 Proof. reflexivity. Qed.
@@ -416,7 +425,9 @@ Proof.
   - cbn. rewrite run_map_get_opt, map_sel_rem
       by first [ apply comparable_key_refl; exact Hcmp | exact Hp ].
     rewrite run_ret. reflexivity.
-  - cbn. rewrite run_map_get_opt, (map_sel_absent kt vt k m w Hp), run_ret. reflexivity.
+  - cbn. destruct (Nat.eqb (gm_loc m) 0) eqn:Hz; cbn.
+    + rewrite run_map_get_opt, (map_sel_absent kt vt k m w Hp), run_ret. reflexivity.
+    + reflexivity.
 Qed.
 
 (** Reading the nil map gives [None] in ANY world (Go's nil map reads the zero value for every key) —
@@ -475,21 +486,27 @@ Definition map_clear_upd {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
 Lemma map_clear_upd_absent_noop : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (m : GoMap K V) w,
   map_cell_ok kt vt m w = false -> map_clear_upd kt vt m w = w.
 Proof. intros K V kt vt m w H. unfold map_clear_upd. apply map_write_absent_noop; exact H. Qed.
-(** [clear(m)] with no tag-correct cell (nil [gm_loc = 0], nonzero-absent, OR wrong-tag) is a NO-OP —
-    AUTOMATICALLY: [map_clear_upd] no-ops at the [map_write] root ([map_cell_ok = false], so no cell is
-    written/fabricated/retyped). *)
+(** [clear(m)] — THREE cases, like [map_delete] (an invalid handle must not masquerade as a Go nil map):
+    (1) LIVE cell — clear it; (2) genuine NIL map ([gm_loc = 0]) — NO-OP, faithful Go; (3) nonzero FORGED
+    handle (ABSENT/dangling OR WRONG-TAG, impossible in real Go) — FAIL LOUD ([rt_forged_map], world
+    UNCHANGED), a closed-world guard, NOT Go semantics.  No cell written/fabricated/retyped in any case.
+    Lowers to native [clear(m)] (forged fail-loud model-only, plugin-suppressed, unreachable). *)
 Definition map_clear {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (m : GoMap K V) : IO unit :=
-  fun w => if map_cell_ok kt vt m w then ORet tt (map_clear_upd kt vt m w) else ORet tt w.
-  (* [clear(m)] with no tag-correct cell (nil, absent, OR wrong-tag) is a NO-OP, never fabricating/retyping a cell. *)
+  fun w => if map_cell_ok kt vt m w then ORet tt (map_clear_upd kt vt m w)
+           else if Nat.eqb (gm_loc m) 0 then ORet tt w
+           else OPanic rt_forged_map w.
 Lemma run_map_clear : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (m : GoMap K V) (w : World),
   run_io (map_clear kt vt m) w =
-    if map_cell_ok kt vt m w then ORet tt (map_clear_upd kt vt m w) else ORet tt w.
+    if map_cell_ok kt vt m w then ORet tt (map_clear_upd kt vt m w)
+    else if Nat.eqb (gm_loc m) 0 then ORet tt w else OPanic rt_forged_map w.
 Proof. reflexivity. Qed.
-(** ANTI-FORGERY: [clear] with no tag-correct cell ([map_cell_ok = false] — nil, absent, OR WRONG-TAG) is a
-    NO-OP (world UNCHANGED), never retyping a wrong-tag cell. *)
-Lemma map_clear_absent_noop : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (m : GoMap K V) (w : World),
-  map_cell_ok kt vt m w = false -> run_io (map_clear kt vt m) w = ORet tt w.
-Proof. intros K V kt vt m w H. unfold map_clear, run_io. rewrite H. reflexivity. Qed.
+(** ANTI-FORGERY: [clear] through a nonzero FORGED handle (ABSENT/dangling OR WRONG-TAG — impossible in real
+    Go) FAILS LOUD ([rt_forged_map], world UNCHANGED), never retyping/clearing a wrong-tag cell — the
+    closed-world guard.  (A genuine NIL map clear is the Go no-op, [map_clear_nil_noop].) *)
+Lemma map_clear_forged_failloud : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (m : GoMap K V) (w : World),
+  Nat.eqb (gm_loc m) 0 = false ->
+  map_cell_ok kt vt m w = false -> run_io (map_clear kt vt m) w = OPanic rt_forged_map w.
+Proof. intros K V kt vt m w Hnn H. unfold map_clear, run_io. rewrite H, Hnn. reflexivity. Qed.
 Lemma map_clear_nil_noop : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (w : World),
   run_io (map_clear kt vt (@map_empty K V)) w = ORet tt w.
 Proof. reflexivity. Qed.
@@ -521,8 +538,8 @@ Proof.
   apply map_set_absent. exact (proj2 (map_cell_ok_wrong_tag kt vt kt' vt' m w n f Hnn Hcell Hmis)).
 Qed.
 
-(** [delete(m, k)] through a WRONG-TAG handle is a NO-OP (world UNCHANGED) — it never retypes/mutates the
-    aliased cell. *)
+(** [delete(m, k)] through a WRONG-TAG handle FAILS LOUD ([rt_forged_map], world UNCHANGED) — it never
+    retypes/mutates the aliased cell (the closed-world guard for the forged handle). *)
 Theorem map_delete_wrong_tag_no_mutation :
   forall {K V K' V'} (kt : GoTypeTag K) (vt : GoTypeTag V)
          (kt' : GoTypeTag K') (vt' : GoTypeTag V')
@@ -530,14 +547,15 @@ Theorem map_delete_wrong_tag_no_mutation :
   Nat.eqb (gm_loc m) 0 = false ->
   w_maps w (gm_loc m) = Some (n, existT _ K' (kt', existT _ V' (vt', f))) ->
   tag_eq kt kt' = None \/ tag_eq vt vt' = None ->
-  run_io (map_delete kt vt k m) w = ORet tt w.
+  run_io (map_delete kt vt k m) w = OPanic rt_forged_map w.
 Proof.
   intros K V K' V' kt vt kt' vt' k m w n f Hnn Hcell Hmis.
-  apply map_delete_absent_noop. exact (proj2 (map_cell_ok_wrong_tag kt vt kt' vt' m w n f Hnn Hcell Hmis)).
+  apply map_delete_forged_failloud. exact Hnn.
+  exact (proj2 (map_cell_ok_wrong_tag kt vt kt' vt' m w n f Hnn Hcell Hmis)).
 Qed.
 
-(** [clear(m)] through a WRONG-TAG handle is a NO-OP (world UNCHANGED) — it never clears/retypes the
-    aliased cell. *)
+(** [clear(m)] through a WRONG-TAG handle FAILS LOUD ([rt_forged_map], world UNCHANGED) — it never
+    clears/retypes the aliased cell (the closed-world guard for the forged handle). *)
 Theorem map_clear_wrong_tag_no_mutation :
   forall {K V K' V'} (kt : GoTypeTag K) (vt : GoTypeTag V)
          (kt' : GoTypeTag K') (vt' : GoTypeTag V')
@@ -545,10 +563,11 @@ Theorem map_clear_wrong_tag_no_mutation :
   Nat.eqb (gm_loc m) 0 = false ->
   w_maps w (gm_loc m) = Some (n, existT _ K' (kt', existT _ V' (vt', f))) ->
   tag_eq kt kt' = None \/ tag_eq vt vt' = None ->
-  run_io (map_clear kt vt m) w = ORet tt w.
+  run_io (map_clear kt vt m) w = OPanic rt_forged_map w.
 Proof.
   intros K V K' V' kt vt kt' vt' m w n f Hnn Hcell Hmis.
-  apply map_clear_absent_noop. exact (proj2 (map_cell_ok_wrong_tag kt vt kt' vt' m w n f Hnn Hcell Hmis)).
+  apply map_clear_forged_failloud. exact Hnn.
+  exact (proj2 (map_cell_ok_wrong_tag kt vt kt' vt' m w n f Hnn Hcell Hmis)).
 Qed.
 
 (** Even the RAW cell-write root refuses a WRONG-TAG handle: [map_write] (hence [map_upd]/[map_rem]/
@@ -568,8 +587,9 @@ Proof.
 Qed.
 
 (** CAPSTONE — NO PUBLIC MAP RETYPING: a forged WRONG-TAG handle aliasing a live cell of another key/value
-    type cannot RETYPE it through the public map WRITES ([map_set]/[delete]/[clear]).  [map_set] fails loud
-    (world unchanged), [delete] and [clear] no-op.  Together with [map_set_absent]/[…_absent_noop] (the nil /
+    type cannot RETYPE it through the public map WRITES ([map_set]/[delete]/[clear]).  All three FAIL LOUD on a
+    nonzero forged handle (world unchanged) — [map_set] with [rt_nil_map], [delete]/[clear] with [rt_forged_map].
+    Together with [map_set_absent]/[map_delete_forged_failloud]/[map_clear_forged_failloud] (the nil /
     nonzero-ABSENT class) and the raw [map_write_wrong_tag_no_retype], NO forged-handle write — through the
     checked ops OR the raw [map_write] root — fabricates or retypes a cell.  (SCOPE: this is the write-path
     WRONG-TAG ANTI-FORGERY guarantee — typed liveness, NOT origin provenance: a SAME-TAG forged handle aliasing
@@ -585,16 +605,16 @@ Theorem no_public_map_retyping :
   w_maps w (gm_loc m) = Some (n, existT _ K' (kt', existT _ V' (vt', f))) ->
   tag_eq kt kt' = None \/ tag_eq vt vt' = None ->
      run_io (map_set kt vt k v m) w = OPanic rt_nil_map w
-  /\ run_io (map_delete kt vt k m) w = ORet tt w
-  /\ run_io (map_clear kt vt m) w = ORet tt w.
+  /\ run_io (map_delete kt vt k m) w = OPanic rt_forged_map w
+  /\ run_io (map_clear kt vt m) w = OPanic rt_forged_map w.
 Proof.
   intros K V K' V' kt vt kt' vt' k v m w n f Hnn Hcell Hmis.
   assert (Hbad : map_cell_ok kt vt m w = false)
     by (exact (proj2 (map_cell_ok_wrong_tag kt vt kt' vt' m w n f Hnn Hcell Hmis))).
   split; [ | split ].
   - apply map_set_absent; exact Hbad.
-  - apply map_delete_absent_noop; exact Hbad.
-  - apply map_clear_absent_noop; exact Hbad.
+  - apply map_delete_forged_failloud; [ exact Hnn | exact Hbad ].
+  - apply map_clear_forged_failloud; [ exact Hnn | exact Hbad ].
 Qed.
 Theorem map_sel_clear : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
     (k : K) (m : GoMap K V) (w : World),
@@ -611,7 +631,9 @@ Proof.
   destruct (map_cell_ok kt vt m w) eqn:Hp.
   - cbn. rewrite run_map_get_opt, map_sel_clear by exact Hp.
     rewrite run_ret. reflexivity.
-  - cbn. rewrite run_map_get_opt, (map_sel_absent kt vt k m w Hp), run_ret. reflexivity.
+  - cbn. destruct (Nat.eqb (gm_loc m) 0) eqn:Hz; cbn.
+    + rewrite run_map_get_opt, (map_sel_absent kt vt k m w Hp), run_ret. reflexivity.
+    + reflexivity.
 Qed.
 
 (** [len(m)] through a WRONG-TAG handle reads 0 — [map_len] never OBSERVES the aliased foreign cell's size
