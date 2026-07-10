@@ -167,7 +167,7 @@ Proof.
   destruct (Nat.eqb (ch_loc ch) 0); [ reflexivity | ].
   destruct (w_chans w (ch_loc ch)) as [c|]; [ discriminate H | reflexivity ].
 Qed.
-(** WRONG-TAG at a PRESENT cell ⟹ [chan_cell_ok = false] (checkpoint-58): given a NONZERO location holding a
+(** WRONG-TAG at a PRESENT cell ⟹ [chan_cell_ok = false]: given a NONZERO location holding a
     real cell whose STORED element tag DISAGREES with [tag] — a forged handle aliasing a channel of another
     element type — the cell is genuinely PRESENT ([chan_present = true], PROVED here) yet the tag-aware guard
     REJECTS it.  The nonzero premise is what makes the "present" claim mechanically true: WITHOUT it a forged

@@ -55,8 +55,9 @@ Definition ref_sel {A : Type} (r : Ref A) (w : World) : A :=
   end.
 
 (** [ref_sel_opt r w]: the CHECKED (tag-aware) selector — [Some v] iff [r]'s cell EXISTS at [r_loc r] AND its
-    stored tag coerces to [r_tag] (a LIVE, correctly-typed cell); [None] on a missing / forged / retyped
-    handle.  A ref is LIVE at [r] iff [ref_sel_opt r w = Some _].  [ref_sel] (above) is the TOTAL companion
+    stored tag coerces to [r_tag] (a LIVE, correctly-typed cell); [None] on a missing / dangling / WRONG-TAG
+    handle.  (A SAME-TAG forged alias reads [Some] from the aliased cell — typed liveness is not origin, so
+    "[None] on forged" would be FALSE for same-tag aliases.)  A ref is LIVE at [r] iff [ref_sel_opt r w = Some _].  [ref_sel] (above) is the TOTAL companion
     that fabricates a [zero_val] in those cases; [ref_sel_opt] is what the safe ops and the [ref_upd] root
     guard branch on.  (Lives here — AHEAD of [ref_upd] — because the guard reads it.) *)
 Definition ref_sel_opt {A : Type} (r : Ref A) (w : World) : option A :=
