@@ -926,8 +926,10 @@ Definition LiveMap {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (m : GoMap K V) (
   map_cell_ok kt vt m w = true.
 
 (** ALLOCATORS PRODUCE Live* — the fresh handle a real program obtains is always live (the loud/absent branches
-    of the ops are dead for it).  [ref_new]/[ptr_new] are unconditional; [make_chan]/[map_make_typed] need
-    [ValidWorld] (their nonzero-location half). *)
+    of the ops are dead for it).  Only [ref_new] is unconditional (its [LiveRef] is the cell alone).
+    [ptr_new] / [make_chan] / [make_chan_buf] / [map_make_typed] need [ValidWorld] for their nonzero-location
+    half — [ptr_new_live] because [LivePtr] carries the non-nil check ([ptr_new_nonzero]); the chan/map
+    allocators because [chan_cell_ok]/[map_cell_ok] include the nonzero location. *)
 Lemma ref_new_live : forall {A} (tag : GoTypeTag A) (v : A) (w : World) r w',
   run_io (ref_new tag v) w = ORet r w' -> LiveRef r w'.
 Proof. intros A tag v w r w' Hrun. unfold LiveRef. rewrite (ref_new_reads tag v w r w' Hrun). discriminate. Qed.
