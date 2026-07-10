@@ -5206,13 +5206,33 @@ Section KeystoneMulti.
   Lemma chenv_neq : forall i j, i <> j -> chenv i <> chenv j.
   Proof. intros i j Hij Heq. apply Hij, chenv_inj, Heq. Qed.
 
+  (** [WPresentM w] — EVERY channel ALLOCATED (checkpoint-57): threaded ALONGSIDE the buffer match so the
+      channel-only refinement's realizing world has real channels, never ones FABRICATED by a [chan_send_upd]
+      on a merely-non-nil (absent) handle.  Preserved by every world-advancing step (send/recv on the touched
+      channel keeps its cell present; frames the rest); the world-unchanged steps keep it trivially. *)
+  Definition WPresentM (w : World) : Prop := forall c, chan_present (chenv c) w = true.
+  Lemma wpresentM_send : forall c0 v w, WPresentM w -> WPresentM (chan_send_upd TI64 (chenv c0) v w).
+  Proof.
+    intros c0 v w HP c. destruct (Nat.eq_dec c c0) as [->|Hne].
+    - exact (chan_present_send TI64 (chenv c0) v w (chenv_live c0)).
+    - rewrite (chan_present_send_frame TI64 (chenv c0) (chenv c) v w (chenv_neq c0 c (not_eq_sym Hne))).
+      exact (HP c).
+  Qed.
+  Lemma wpresentM_recv : forall c0 w, WPresentM w -> WPresentM (chan_recv_upd TI64 (chenv c0) w).
+  Proof.
+    intros c0 w HP c. destruct (Nat.eq_dec c c0) as [->|Hne].
+    - exact (chan_present_recv TI64 (chenv c0) w (chenv_live c0)).
+    - rewrite (chan_present_recv_frame TI64 (chenv c0) (chenv c) w (chenv_neq c0 c (not_eq_sym Hne))).
+      exact (HP c).
+  Qed.
+
   (** Every [rstep] — any goroutine, any channel — preserves the multi-channel match.
       The frame law keeps the untouched channels matched, so this holds for ARBITRARY
       multi-goroutine interleaving (where race-freedom actually bites). *)
   Lemma wmatchc_step : forall cfg cfg' w,
-    rstep cfg cfg' -> WMatchC w cfg -> exists w', WMatchC w' cfg'.
+    rstep cfg cfg' -> WMatchC w cfg -> WPresentM w -> exists w', WMatchC w' cfg' /\ WPresentM w'.
   Proof.
-    intros cfg cfg' w Hstep HM.
+    intros cfg cfg' w Hstep HM HP.
     destruct Hstep as
       [ p b h lv tr tid c0 v k Hlv Hp _
       | p b h lv tr tid c0 f v s brest Hlv Hp Hbc
@@ -5224,65 +5244,59 @@ Section KeystoneMulti.
       | p b h lv tr tid c0 f pos e Hlv Hp Hbc Hpos Hek
       | p b h lv tr tid cases c0 f pos e Hlv Hp Hin Hbc Hpos Hek ].
     - (* send: world advances by [chan_send_upd] on channel [c0] *)
-      exists (chan_send_upd TI64 (chenv c0) (inj v) w).
-      intros c. specialize (HM c). unfold WMatchC, rchan in *; cbn [rc_bufs] in *.
-      destruct (Nat.eq_dec c c0) as [->|Hne].
-      + rewrite upd_same, chan_buf_send, HM, !map_app by apply chenv_live. cbn. reflexivity.
-      + rewrite (upd_other _ _ _ _ Hne),
-          (chan_buf_send_frame TI64 (chenv c0) (chenv c) (inj v) w
-             (chenv_neq c0 c (not_eq_sym Hne))).
-        exact HM.
+      exists (chan_send_upd TI64 (chenv c0) (inj v) w). split.
+      { intros c. specialize (HM c). unfold WMatchC, rchan in *; cbn [rc_bufs] in *.
+        destruct (Nat.eq_dec c c0) as [->|Hne].
+        - rewrite upd_same, chan_buf_send, HM, !map_app by apply chenv_live. cbn. reflexivity.
+        - rewrite (upd_other _ _ _ _ Hne),
+            (chan_buf_send_frame TI64 (chenv c0) (chenv c) (inj v) w (chenv_neq c0 c (not_eq_sym Hne))).
+          exact HM. }
+      exact (wpresentM_send c0 (inj v) w HP).
     - (* recv: world advances by [chan_recv_upd] on channel [c0] *)
       exists (chan_recv_upd TI64 (chenv c0) w).
       assert (Hbuf : chan_buf TI64 (chenv c0) w = inj v :: map inj (map fst brest)).
       { generalize (HM c0). unfold rchan; cbn [rc_bufs]. rewrite Hbc. cbn. tauto. }
-      intros c. specialize (HM c). unfold WMatchC, rchan in *; cbn [rc_bufs] in *.
-      destruct (Nat.eq_dec c c0) as [->|Hne].
-      + rewrite upd_same,
-          (chan_buf_recv TI64 (chenv c0) (inj v) (map inj (map fst brest)) w (chenv_live c0) Hbuf).
-        reflexivity.
-      + rewrite (upd_other _ _ _ _ Hne),
-          (chan_buf_recv_frame TI64 (chenv c0) (chenv c) w
-             (chenv_neq c0 c (not_eq_sym Hne))).
-        exact HM.
+      split.
+      { intros c. specialize (HM c). unfold WMatchC, rchan in *; cbn [rc_bufs] in *.
+        destruct (Nat.eq_dec c c0) as [->|Hne].
+        - rewrite upd_same, (chan_buf_recv TI64 (chenv c0) (inj v) (map inj (map fst brest)) w (chenv_live c0) Hbuf).
+          reflexivity.
+        - rewrite (upd_other _ _ _ _ Hne),
+            (chan_buf_recv_frame TI64 (chenv c0) (chenv c) w (chenv_neq c0 c (not_eq_sym Hne))).
+          exact HM. }
+      exact (wpresentM_recv c0 w HP).
     - (* write: buffers unchanged, so the same world still matches *)
-      exists w. intros c. specialize (HM c). unfold WMatchC, rchan in *;
-        cbn [rc_bufs] in *. exact HM.
+      exists w. split; [intros c; specialize (HM c); unfold WMatchC, rchan in *; cbn [rc_bufs] in *; exact HM | exact HP].
     - (* read: buffers unchanged *)
-      exists w. intros c. specialize (HM c). unfold WMatchC, rchan in *;
-        cbn [rc_bufs] in *. exact HM.
+      exists w. split; [intros c; specialize (HM c); unfold WMatchC, rchan in *; cbn [rc_bufs] in *; exact HM | exact HP].
     - (* spawn: buffers unchanged *)
-      exists w. intros c. specialize (HM c). unfold WMatchC, rchan in *;
-        cbn [rc_bufs] in *. exact HM.
+      exists w. split; [intros c; specialize (HM c); unfold WMatchC, rchan in *; cbn [rc_bufs] in *; exact HM | exact HP].
     - (* select: receives on the chosen channel [c0] — identical world-refinement to recv *)
       exists (chan_recv_upd TI64 (chenv c0) w).
       assert (Hbuf : chan_buf TI64 (chenv c0) w = inj v :: map inj (map fst brest)).
       { generalize (HM c0). unfold rchan; cbn [rc_bufs]. rewrite Hbc. cbn. tauto. }
-      intros c. specialize (HM c). unfold WMatchC, rchan in *; cbn [rc_bufs] in *.
-      destruct (Nat.eq_dec c c0) as [->|Hne].
-      + rewrite upd_same,
-          (chan_buf_recv TI64 (chenv c0) (inj v) (map inj (map fst brest)) w (chenv_live c0) Hbuf).
-        reflexivity.
-      + rewrite (upd_other _ _ _ _ Hne),
-          (chan_buf_recv_frame TI64 (chenv c0) (chenv c) w
-             (chenv_neq c0 c (not_eq_sym Hne))).
-        exact HM.
+      split.
+      { intros c. specialize (HM c). unfold WMatchC, rchan in *; cbn [rc_bufs] in *.
+        destruct (Nat.eq_dec c c0) as [->|Hne].
+        - rewrite upd_same, (chan_buf_recv TI64 (chenv c0) (inj v) (map inj (map fst brest)) w (chenv_live c0) Hbuf).
+          reflexivity.
+        - rewrite (upd_other _ _ _ _ Hne),
+            (chan_buf_recv_frame TI64 (chenv c0) (chenv c) w (chenv_neq c0 c (not_eq_sym Hne))).
+          exact HM. }
+      exact (wpresentM_recv c0 w HP).
     - (* close: buffers unchanged, so the same world still matches *)
-      exists w. intros c. specialize (HM c). unfold WMatchC, rchan in *;
-        cbn [rc_bufs] in *. exact HM.
+      exists w. split; [intros c; specialize (HM c); unfold WMatchC, rchan in *; cbn [rc_bufs] in *; exact HM | exact HP].
     - (* recv_closed: buffers unchanged (closed recv binds zero, consumes nothing) *)
-      exists w. intros c. specialize (HM c). unfold WMatchC, rchan in *;
-        cbn [rc_bufs] in *. exact HM.
+      exists w. split; [intros c; specialize (HM c); unfold WMatchC, rchan in *; cbn [rc_bufs] in *; exact HM | exact HP].
     - (* select_closed: buffers unchanged *)
-      exists w. intros c. specialize (HM c). unfold WMatchC, rchan in *;
-        cbn [rc_bufs] in *. exact HM.
+      exists w. split; [intros c; specialize (HM c); unfold WMatchC, rchan in *; cbn [rc_bufs] in *; exact HM | exact HP].
   Qed.
 
   Lemma wmatchc_steps : forall cfg cfg' w,
-    rsteps cfg cfg' -> WMatchC w cfg -> exists w', WMatchC w' cfg'.
+    rsteps cfg cfg' -> WMatchC w cfg -> WPresentM w -> exists w', WMatchC w' cfg' /\ WPresentM w'.
   Proof.
-    intros cfg cfg' w H. revert w. induction H; intros w HM; [exists w; exact HM|].
-    destruct (wmatchc_step _ _ _ H HM) as [w' HM']. exact (IHrsteps w' HM').
+    intros cfg cfg' w H. revert w. induction H; intros w HM HP; [exists w; split; [exact HM | exact HP]|].
+    destruct (wmatchc_step _ _ _ H HM HP) as [w' [HM' HP']]. exact (IHrsteps w' HM' HP').
   Qed.
 
   Lemma wmatchc_init : forall p w0,
@@ -5297,11 +5311,13 @@ Section KeystoneMulti.
       channel buffers — across every interleaving. *)
   Theorem reachable_refines : forall p cfg w0,
     (forall c, chan_buf TI64 (chenv c) w0 = []) ->
+    (forall c, chan_present (chenv c) w0 = true) ->
     rsteps (rinit_cfg p) cfg ->
     exists w, WMatchC w cfg.
   Proof.
-    intros p cfg w0 Hempty Hsteps.
-    exact (wmatchc_steps _ _ _ Hsteps (wmatchc_init p w0 Hempty)).
+    intros p cfg w0 Hempty Hpres Hsteps.
+    destruct (wmatchc_steps _ _ _ Hsteps (wmatchc_init p w0 Hempty) Hpres) as [w [HM _]].
+    exists w. exact HM.
   Qed.
 
   (** Capstone: a reachable concurrent state is BOTH realized by a [run_io] world AND
@@ -5310,14 +5326,15 @@ Section KeystoneMulti.
       (proven on the calculus) hold of the SAME reachable execution. *)
   Theorem reachable_refines_and_safe : forall p cfg w0,
     (forall c, chan_buf TI64 (chenv c) w0 = []) ->
+    (forall c, chan_present (chenv c) w0 = true) ->
     rsteps (rinit_cfg p) cfg ->
     Owned (rc_trace cfg) ->
     (exists w, WMatchC w cfg) /\
     TraceRaceFree (rc_trace cfg) /\
     (forall i, ~ hbt (rc_trace cfg) i i).
   Proof.
-    intros p cfg w0 Hempty Hsteps HO.
-    split; [exact (reachable_refines p cfg w0 Hempty Hsteps) |].
+    intros p cfg w0 Hempty Hpres Hsteps HO.
+    split; [exact (reachable_refines p cfg w0 Hempty Hpres Hsteps) |].
     exact (reachable_owned_safe_r p cfg Hsteps HO).
   Qed.
 
@@ -8486,12 +8503,13 @@ Corollary reachableC_refines_bounded :
     (forall c, Nat.eqb (ch_loc (chenv c)) 0 = false) ->   (* the channels are ALLOCATED (non-nil) *)
   forall cap p cfg w0,
     (forall c, chan_buf TI64 (chenv c) w0 = []) ->
+    (forall c, chan_present (chenv c) w0 = true) ->   (* the channels are ALLOCATED (checkpoint-57: absence is not an unbounded channel) *)
     rstepsC cap (rinit_cfg p) cfg ->
     (exists w, WMatchC chenv inj w cfg) /\ BoundedC cap cfg.
 Proof.
-  intros chenv inj Hci Hcl cap p cfg w0 Hempty Hsteps.
+  intros chenv inj Hci Hcl cap p cfg w0 Hempty Hpres Hsteps.
   split.
-  - exact (reachable_refines chenv inj Hci Hcl p cfg w0 Hempty (rstepsC_embed _ _ _ Hsteps)).
+  - exact (reachable_refines chenv inj Hci Hcl p cfg w0 Hempty Hpres (rstepsC_embed _ _ _ Hsteps)).
   - exact (reachableC_bounded cap p cfg Hsteps).
 Qed.
 
