@@ -348,14 +348,37 @@ Proof.
     rewrite Hne. exact (Hfresh l Hle).
 Qed.
 
+(** A RANGE install — the shape the slice allocators produce: fill [w_next w, w_next w + cp) with the zero
+    value in one world, bumping [w_next] past the block.  Validity holds directly (no induction): loc 0 is
+    below the range (base [= w_next w > 0]), and every fresh location [>= w_next w + cp] is above it. *)
+Lemma valid_alloc_slice_range : forall {A} (tag : GoTypeTag A) (cp : nat) (w : World),
+  ValidWorld w ->
+  ValidWorld (mkWorld
+    (fun k => if (Nat.leb (w_next w) k && Nat.ltb k (w_next w + cp))%bool
+              then Some (existT _ A (tag, zero_val tag)) else w_refs w k)
+    (w_chans w) (w_maps w) (w_next w + cp) (w_output w)).
+Proof.
+  intros A tag cp w [Hpos [Hloc0 Hfresh]]. apply Nat.ltb_lt in Hpos. split; [ | split ].
+  - cbn [w_next]. apply Nat.ltb_lt. lia.
+  - cbn [w_refs w_chans w_maps]. destruct Hloc0 as [Hr0 [Hc0 Hm0]].
+    assert (Ha : Nat.leb (w_next w) 0 = false) by (apply Nat.leb_gt; lia).
+    rewrite Ha. repeat split; assumption.
+  - intros l Hle. cbn [w_next w_refs w_chans w_maps] in *. apply Nat.leb_le in Hle.
+    assert (Hb : Nat.ltb l (w_next w + cp) = false) by (apply Nat.ltb_ge; lia).
+    rewrite Hb. destruct (Hfresh l ltac:(apply Nat.leb_le; lia)) as [Hr [Hc Hm]].
+    destruct (Nat.leb (w_next w) l); repeat split; assumption.
+Qed.
+
 (** The invariant is genuinely INDUCTIVE across the REAL allocator API (not just the world-shapes above):
-    running any allocator on a valid world yields a valid world.  With [valid_w_init] this means
+    running any world-allocating op on a valid world yields a valid world.  With [valid_w_init] this means
     EVERY world reachable by a finite allocation sequence is valid — so [valid_fresh_nonzero] /
-    [valid_fresh_disjoint] apply at every allocation, making "fresh ⇒ nonzero ∧ disjoint" a theorem about
-    [ref_new]/[make_chan]/[map_make_typed] — and the multi-cell [gsptr_new] ([valid_run_gsptr_new], below, once
-    [wr_fields] is in scope) — BY NAME.  [gsptr_new_live] LEANS on this: it needs [ValidWorld] for the pointer's
-    nonzero base, and [valid_run_gsptr_new] is what carries that invariant THROUGH a struct allocation so a
-    later allocation in the same program still sees it. *)
+    [valid_fresh_disjoint] apply at every allocation.  Proven BY NAME for the FULL set of world-bumping
+    allocators: the single-cell [valid_run_ref_new] / [valid_run_ptr_new] / [valid_run_make_chan] /
+    [valid_run_make_chan_buf] / [valid_run_map_typed], and the multi-cell [valid_run_slice_make_lc] /
+    [valid_run_slice_make_h] / [valid_run_gsptr_new] (placed next to their later definitions, once the slice /
+    struct machinery is in scope).  Several liveness facts LEAN on this — [ptr_new_nonzero], [make_chan_nonzero],
+    [gsptr_new_live] &c. need [ValidWorld] for a nonzero location/base, and these corollaries are what carry the
+    invariant THROUGH each allocation so a later one in the same program still sees it. *)
 Corollary valid_run_ref_new : forall {A} (tag : GoTypeTag A) (v : A) (w : World) r w',
   ValidWorld w -> run_io (ref_new tag v) w = ORet r w' -> ValidWorld w'.
 Proof.
@@ -367,6 +390,15 @@ Corollary valid_run_make_chan : forall {A} (tag : GoTypeTag A) (w : World) r w',
   ValidWorld w -> run_io (make_chan tag) w = ORet r w' -> ValidWorld w'.
 Proof.
   intros A tag w r w' HV Hrun. unfold run_io, make_chan, make_chan_cap in Hrun. cbv zeta in Hrun.
+  injection Hrun as _ Hw. subst w'. apply valid_alloc_chan; assumption.
+Qed.
+
+Corollary valid_run_make_chan_buf : forall {A} (tag : GoTypeTag A) (n : GoInt) (w : World) r w',
+  ValidWorld w -> run_io (make_chan_buf tag n) w = ORet r w' -> ValidWorld w'.
+Proof.
+  intros A tag n w r w' HV Hrun. unfold run_io, make_chan_buf in Hrun.
+  destruct (intraw n <? 0)%Z eqn:Hn; [ discriminate Hrun | ].
+  unfold make_chan_cap in Hrun. cbv zeta in Hrun.
   injection Hrun as _ Hw. subst w'. apply valid_alloc_chan; assumption.
 Qed.
 
@@ -759,6 +791,14 @@ Lemma ptr_new_nonzero : forall {A} (tag : GoTypeTag A) (v : A) (w : World) p w',
 Proof.
   intros A tag v w p w' HV Hrun. unfold run_io, ptr_new in Hrun. cbv zeta in Hrun.
   injection Hrun as Hp _. subst p. cbn [p_loc]. apply pos_neq0, (valid_fresh_nonzero w HV).
+Qed.
+(** [ptr_new] is in the [ValidWorld] preservation path (its world-shape is the single-cell [valid_alloc_ref]
+    shape) — so a program taking [&x] then allocating again keeps the invariant [ptr_new_nonzero] leans on. *)
+Corollary valid_run_ptr_new : forall {A} (tag : GoTypeTag A) (v : A) (w : World) r w',
+  ValidWorld w -> run_io (ptr_new tag v) w = ORet r w' -> ValidWorld w'.
+Proof.
+  intros A tag v w r w' HV Hrun. unfold run_io, ptr_new in Hrun. cbv zeta in Hrun.
+  injection Hrun as _ Hw. subst w'. apply valid_alloc_ref; assumption.
 Qed.
 
 (** A pointer freshly allocated by [ptr_new] has a live, correctly-typed cell — [ref_sel_opt] reads [Some v]
@@ -1510,6 +1550,23 @@ Proof.
   destruct (Z.leb 0 (intraw len) && Z.leb (intraw len) (intraw cap))%bool eqn:Hc; [ | discriminate Hmk ].
   injection Hmk as Hs Hw0. subst s. cbn [sh_len sh_cap].
   apply andb_prop in Hc as [H0 Hlc]. apply Z.leb_le in H0. apply Z.leb_le in Hlc. lia.
+Qed.
+
+(** Both slice allocators are in the [ValidWorld] preservation path — they RANGE-install [w_next, w_next+cp)
+    ([valid_alloc_slice_range]), so a program making a slice then allocating again keeps the invariant. *)
+Corollary valid_run_slice_make_lc : forall {A} (tag : GoTypeTag A) (len cap : GoInt) (w : World) s w',
+  ValidWorld w -> run_io (slice_make_lc tag len cap) w = ORet s w' -> ValidWorld w'.
+Proof.
+  intros A tag len cap w s w' HV Hrun. unfold run_io, slice_make_lc in Hrun. cbv zeta in Hrun.
+  destruct (Z.leb 0 (intraw len) && Z.leb (intraw len) (intraw cap))%bool eqn:Hc; [ | discriminate Hrun ].
+  injection Hrun as _ Hw. subst w'. apply valid_alloc_slice_range; assumption.
+Qed.
+Corollary valid_run_slice_make_h : forall {A} (tag : GoTypeTag A) (n : GoInt) (w : World) s w',
+  ValidWorld w -> run_io (slice_make_h tag n) w = ORet s w' -> ValidWorld w'.
+Proof.
+  intros A tag n w s w' HV Hrun. unfold run_io, slice_make_h in Hrun. cbv zeta in Hrun.
+  destruct (0 <=? intraw n)%Z eqn:Hc; [ | discriminate Hrun ].
+  injection Hrun as _ Hw. subst w'. apply valid_alloc_slice_range; assumption.
 Qed.
 
 (** SLICE OP NO-PANIC (the aggregate no-panic frontier, now CLOSED): reading or writing a FRESH
