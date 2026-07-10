@@ -1,10 +1,16 @@
 (** ==================================================================================================
-    GoPanic — the RUNTIME PANIC PAYLOADS: the exact strings Go's [recover] sees for each modeled
-    runtime error (nil deref, divide-by-zero, index/slice bounds, nil-map write, closed-channel
-    send/close, negative shift/make, would-block).  The string IS the abstraction relation to
-    Go's panic value; decimals come from the ONE decimal authority ([digits.print_Z]).
-    Model-only values (the ops that panic with them lower to native Go operations).  No [IO]/[World] here — a payload
-    is data, the PANICKING is [GoEffects.panic] at each op site.
+    GoPanic — the RUNTIME PANIC PAYLOADS.  For a GENUINE modeled runtime error (nil deref,
+    divide-by-zero, index/slice bounds, nil-map write, closed-channel send/close, negative
+    shift/make) the string IS the exact value Go's [recover] sees — the abstraction relation to the
+    Go panic value; decimals come from the ONE decimal authority ([digits.print_Z]).
+    The would-block markers ([rt_chan_send_block]/[rt_chan_recv_block]/[rt_select_block]) and the
+    forged-handle guard ([rt_forged_map]) are NOT recover-visible payloads: Go blocks/deadlocks, or
+    (the forged handle) never reaches the state, so they are MODEL-INTERNAL fail-loud STAND-INS the
+    sequential IO model raises where it cannot represent blocking — each carries its own caveat
+    below, none is certified as an exact Go panic value, and the faithful blocking authority is
+    [rstep] in [concurrency.v].
+    Model-only values (the ops that panic with them lower to native Go operations).  No [IO]/[World]
+    here — a payload is data, the PANICKING is [GoEffects.panic] at each op site.
     ================================================================================================ *)
 Require Import Coq.Strings.String.
 From Stdlib Require Import ZArith.
@@ -12,7 +18,8 @@ From Fido Require Import digits.
 From Fido Require Import GoRuntimeTypes.
 
 (** ---- Runtime-panic VALUES ----
-    A modeled runtime panic carries the SAME string Go's [recover] sees via the runtime error's
+    A GENUINE modeled runtime panic (the file header lists which; the would-block and forged-handle
+    stand-ins are excluded) carries the SAME string Go's [recover] sees via the runtime error's
     [Error()] — so a [catch]/recover handler can DISTINGUISH runtime errors from each other AND
     from a user [panic] (which carries the user's own value).  The string IS the abstraction
     relation to Go's panic value.  Model-only: a runtime panic lowers to the NATIVE Go operation

@@ -1,6 +1,6 @@
 (** ============================================================================
     digits.v — the ONE decimal-digit authority (Stdlib-only leaf; imported by BOTH
-    GoPanic.v — the exact runtime-panic payloads — and GoPrint.v, which re-exports it
+    GoPanic.v — the runtime-panic payloads — and GoPrint.v, which re-exports it
     and proves the parse round-trip [print_parse_Z] over it).  Structural double-and-add
     over the positive's bits: total by the number's own structure, no step budget.
     ============================================================================ *)
