@@ -789,7 +789,9 @@ Qed.
     ([rt_chan_send_block]) — Go blocks pending a receiver — rather than silently over-appending.
     (The capacity-faithfulness witness [make_chan_buf_caps], and the fresh-handle-is-non-nil witness
     [make_chan_nonzero], live in [GoHeap.v] where [ValidWorld] FORCES the allocator's [w_next <> 0]
-    — the honest home for allocation reasoning, alongside [ptr_new_nonzero]/[map_make_typed_nonzero].) *)
+    — the honest home for allocation reasoning, alongside [ref_new_loc_nonzero]/[ptr_new_nonzero]/
+    [map_make_typed_nonzero] (the full ref/ptr/chan/map allocator-nonzero family, each premised on
+    [ValidWorld]).) *)
 Lemma make_chan_unbuffered_send_blocks : forall {A} (tag : GoTypeTag A) (v : A) (w : World) ch w',
   run_io (make_chan tag) w = ORet ch w' -> run_io (send tag ch v) w' = OPanic rt_chan_send_block w'.
 Proof.
