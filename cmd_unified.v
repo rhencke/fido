@@ -308,14 +308,14 @@ Local Lemma body_runs_sem : forall c w oc ds ucap p b h lv tr o df pa,
   exists p' b' h' tr' df' evs,
     usteps ucap (mkUCfg p b h lv tr o df pa (w_next w))
                 (mkUCfg p' b' h' lv tr' (o ++ map (fun e => (0, e)) evs) df' pa
-                        (w_next (oc_world oc)))
+                        (w_next (outcome_world oc)))
     /\ p' 0 = (match oc with ORet _ _ => URet | OPanic v _ => UPan v end)
     /\ df' 0 = map cmd_to_ucmd ds ++ df 0
-    /\ heap_agrees h' (w_refs (oc_world oc))
-    /\ bufs_agree b' (w_chans (oc_world oc))
-    /\ closed_agree tr' (w_chans (oc_world oc))
-    /\ ucap_agree ucap (w_chans (oc_world oc))
-    /\ w_output (oc_world oc) = w_output w ++ evs.
+    /\ heap_agrees h' (w_refs (outcome_world oc))
+    /\ bufs_agree b' (w_chans (outcome_world oc))
+    /\ closed_agree tr' (w_chans (outcome_world oc))
+    /\ ucap_agree ucap (w_chans (outcome_world oc))
+    /\ w_output (outcome_world oc) = w_output w ++ evs.
 Proof.
   intros c.
   induction c as [a | bo xs c' IH | v | d c' IHc' | l v c' IH | l f IH | v f IH
@@ -547,7 +547,7 @@ Proof. induction l as [|a l IH]; simpl; [reflexivity | rewrite IH; reflexivity].
 (** [oc_set_world] only advances the world — it preserves the [Outcome]'s panic status (and sets its world). *)
 Local Lemma ocpanic_set_world : forall (acc : Outcome unit) w, ocpanic (oc_set_world acc w) = ocpanic acc.
 Proof. intros [[] w0 | v w0] w; reflexivity. Qed.
-Local Lemma oc_world_set_world : forall (acc : Outcome unit) w, oc_world (oc_set_world acc w) = w.
+Local Lemma oc_world_set_world : forall (acc : Outcome unit) w, outcome_world (oc_set_world acc w) = w.
 Proof. intros [[] w0 | v w0] w; reflexivity. Qed.
 
 
@@ -594,23 +594,23 @@ Local Lemma unwind_heap : forall ds acc result,
     lv 0 = true ->
     (p 0 = URet \/ exists v, p 0 = UPan v) ->
     (match p 0 with UPan v => Some v | _ => pa 0 end) = mode_or (ocpanic acc) qb ->
-    heap_agrees h (w_refs (oc_world acc)) ->
-    bufs_agree b (w_chans (oc_world acc)) ->
-    closed_agree tr (w_chans (oc_world acc)) ->
-    ucap_agree ucap (w_chans (oc_world acc)) ->
+    heap_agrees h (w_refs (outcome_world acc)) ->
+    bufs_agree b (w_chans (outcome_world acc)) ->
+    closed_agree tr (w_chans (outcome_world acc)) ->
+    ucap_agree ucap (w_chans (outcome_world acc)) ->
     df 0 = map cmd_to_ucmd ds ++ ds_tail ->
     exists p' b' h' tr' df' pa' evs,
-      usteps ucap (mkUCfg p b h lv tr o df pa (w_next (oc_world acc)))
+      usteps ucap (mkUCfg p b h lv tr o df pa (w_next (outcome_world acc)))
                   (mkUCfg p' b' h' lv tr' (o ++ map (fun e => (0, e)) evs) df' pa'
-                          (w_next (oc_world result)))
+                          (w_next (outcome_world result)))
       /\ (p' 0 = URet \/ exists v, p' 0 = UPan v)
       /\ (match p' 0 with UPan v => Some v | _ => pa' 0 end) = mode_or (ocpanic result) qb
       /\ df' 0 = ds_tail
-      /\ heap_agrees h' (w_refs (oc_world result))
-      /\ bufs_agree b' (w_chans (oc_world result))
-      /\ closed_agree tr' (w_chans (oc_world result))
-      /\ ucap_agree ucap (w_chans (oc_world result))
-      /\ w_output (oc_world result) = w_output (oc_world acc) ++ evs.
+      /\ heap_agrees h' (w_refs (outcome_world result))
+      /\ bufs_agree b' (w_chans (outcome_world result))
+      /\ closed_agree tr' (w_chans (outcome_world result))
+      /\ ucap_agree ucap (w_chans (outcome_world result))
+      /\ w_output (outcome_world result) = w_output (outcome_world acc) ++ evs.
 Proof.
   intros ds acc result Hun.
   induction Hun as [acc | d ds acc oc_d ds_d net r Hgo Hnest IHnest Hrest IHrest];
@@ -619,10 +619,10 @@ Proof.
     exists p, b, h, tr, df, pa, nil. cbn [map]. rewrite !app_nil_r.
     repeat split; try assumption. apply usteps_refl.
   - cbn [map] in Hdf.
-    destruct (pop_defer_step ucap p b h lv tr o df pa (w_next (oc_world acc)) d
+    destruct (pop_defer_step ucap p b h lv tr o df pa (w_next (outcome_world acc)) d
                 (map cmd_to_ucmd ds ++ ds_tail) (mode_or (ocpanic acc) qb) Hlv Hp Hq0 Hdf)
       as [paP [HpaP Hpop]].
-    destruct (body_runs_sem d (oc_world acc) oc_d ds_d ucap
+    destruct (body_runs_sem d (outcome_world acc) oc_d ds_d ucap
                 (upd p 0 (cmd_to_ucmd d)) b h lv tr o
                 (upd df 0 (map cmd_to_ucmd ds ++ ds_tail)) paP
                 Hgo Hha Hba Hca Hua Hlv (upd_same _ _ _))
@@ -634,13 +634,13 @@ Proof.
     assert (HqA : (match pA 0 with UPan v => Some v | _ => paP 0 end)
                   = mode_or (ocpanic (oc_unit oc_d)) (mode_or (ocpanic acc) qb)).
     { rewrite HprogA. destruct oc_d as [[] ?|vd ?]; cbn [oc_unit ocpanic mode_or]; [ exact HpaP | reflexivity ]. }
-    assert (HhaA' : heap_agrees hA (w_refs (oc_world (oc_unit oc_d))))
+    assert (HhaA' : heap_agrees hA (w_refs (outcome_world (oc_unit oc_d))))
       by (destruct oc_d; exact HhaA).
-    assert (HbaA' : bufs_agree bA (w_chans (oc_world (oc_unit oc_d))))
+    assert (HbaA' : bufs_agree bA (w_chans (outcome_world (oc_unit oc_d))))
       by (destruct oc_d; exact HbaA).
-    assert (HcaA' : closed_agree trA (w_chans (oc_world (oc_unit oc_d))))
+    assert (HcaA' : closed_agree trA (w_chans (outcome_world (oc_unit oc_d))))
       by (destruct oc_d; exact HcaA).
-    assert (HuaA' : ucap_agree ucap (w_chans (oc_world (oc_unit oc_d))))
+    assert (HuaA' : ucap_agree ucap (w_chans (outcome_world (oc_unit oc_d))))
       by (destruct oc_d; exact HuaA).
     destruct (IHnest ucap pA bA hA lv trA (o ++ map (fun e => (0, e)) evs0) dfA paP
                  (map cmd_to_ucmd ds ++ ds_tail) (mode_or (ocpanic acc) qb)
@@ -654,25 +654,25 @@ Proof.
     { rewrite HqB. destruct net as [[] wn | vn wn]; cbn [ocpanic mode_or].
       - rewrite ocpanic_set_world. reflexivity.
       - reflexivity. }
-    assert (HhaB' : heap_agrees hB (w_refs (oc_world (match net with
+    assert (HhaB' : heap_agrees hB (w_refs (outcome_world (match net with
                                        | OPanic v' w' => OPanic v' w'
                                        | ORet _ w' => oc_set_world acc w' end)))).
-    { destruct net as [[] wn | vn wn]; cbn [oc_world] in HhaB |- *;
+    { destruct net as [[] wn | vn wn]; cbn [outcome_world] in HhaB |- *;
         [ rewrite oc_world_set_world; exact HhaB | exact HhaB ]. }
-    assert (HbaB' : bufs_agree bB (w_chans (oc_world (match net with
+    assert (HbaB' : bufs_agree bB (w_chans (outcome_world (match net with
                                        | OPanic v' w' => OPanic v' w'
                                        | ORet _ w' => oc_set_world acc w' end)))).
-    { destruct net as [[] wn | vn wn]; cbn [oc_world] in HbaB |- *;
+    { destruct net as [[] wn | vn wn]; cbn [outcome_world] in HbaB |- *;
         [ rewrite oc_world_set_world; exact HbaB | exact HbaB ]. }
-    assert (HcaB' : closed_agree trB (w_chans (oc_world (match net with
+    assert (HcaB' : closed_agree trB (w_chans (outcome_world (match net with
                                        | OPanic v' w' => OPanic v' w'
                                        | ORet _ w' => oc_set_world acc w' end)))).
-    { destruct net as [[] wn | vn wn]; cbn [oc_world] in HcaB |- *;
+    { destruct net as [[] wn | vn wn]; cbn [outcome_world] in HcaB |- *;
         [ rewrite oc_world_set_world; exact HcaB | exact HcaB ]. }
-    assert (HuaB' : ucap_agree ucap (w_chans (oc_world (match net with
+    assert (HuaB' : ucap_agree ucap (w_chans (outcome_world (match net with
                                        | OPanic v' w' => OPanic v' w'
                                        | ORet _ w' => oc_set_world acc w' end)))).
-    { destruct net as [[] wn | vn wn]; cbn [oc_world] in HuaB |- *;
+    { destruct net as [[] wn | vn wn]; cbn [outcome_world] in HuaB |- *;
         [ rewrite oc_world_set_world; exact HuaB | exact HuaB ]. }
     destruct (IHrest ucap pB bB hB lv trB
                  ((o ++ map (fun e => (0, e)) evs0) ++ map (fun e => (0, e)) evs1)
@@ -685,21 +685,21 @@ Proof.
                  ++ map (fun e => (0, e)) evs2)
         by (rewrite !map_app, !app_assoc; reflexivity).
       rewrite oc_unit_world in HusB.
-      assert (HnextC : oc_world (match net with
+      assert (HnextC : outcome_world (match net with
                                  | OPanic v' w' => OPanic v' w'
-                                 | ORet _ w' => oc_set_world acc w' end) = oc_world net)
-        by (destruct net as [[] wn | vn wn]; cbn [oc_world]; [ rewrite oc_world_set_world | ]; reflexivity).
+                                 | ORet _ w' => oc_set_world acc w' end) = outcome_world net)
+        by (destruct net as [[] wn | vn wn]; cbn [outcome_world]; [ rewrite oc_world_set_world | ]; reflexivity).
       rewrite HnextC in HusC.
       eapply usteps_trans; [ exact Hpop | ].
       eapply usteps_trans; [ exact HusA | ].
       eapply usteps_trans; [ exact HusB | exact HusC ].
     + rewrite Hout2.
-      assert (Hwacc' : w_output (oc_world (match net with
+      assert (Hwacc' : w_output (outcome_world (match net with
                                             | OPanic v' w' => OPanic v' w'
                                             | ORet _ w' => oc_set_world acc w' end))
-                       = w_output (oc_world net))
-        by (destruct net as [[] wn | vn wn]; cbn [oc_world]; [ rewrite oc_world_set_world | ]; reflexivity).
-      assert (Hwseed : w_output (oc_world (oc_unit oc_d)) = w_output (oc_world oc_d))
+                       = w_output (outcome_world net))
+        by (destruct net as [[] wn | vn wn]; cbn [outcome_world]; [ rewrite oc_world_set_world | ]; reflexivity).
+      assert (Hwseed : w_output (outcome_world (oc_unit oc_d)) = w_output (outcome_world oc_d))
         by (destruct oc_d; reflexivity).
       rewrite Hwacc', Hout1, Hwseed, Hout0, <- !app_assoc. reflexivity.
 Qed.
@@ -715,24 +715,24 @@ Qed.
     independently, so this theorem is a sibling, not a dependency, of the bridge. *)
 Theorem run_cmd_out_monotone : forall (c : Cmd unit) w oc,
   run_cmd c w = Some oc ->
-  exists evs, w_output (oc_world oc) = w_output w ++ evs.
+  exists evs, w_output (outcome_world oc) = w_output w ++ evs.
 Proof.
   fix IH 1. intros [a | b xs c' | v | d c' | l v c' | l f | v f | ch v c' | ch tg f | ch c'] w oc H; cbn [run_cmd] in H.
-  - injection H as <-. exists nil. cbn [oc_world]. rewrite app_nil_r. reflexivity.
+  - injection H as <-. exists nil. cbn [outcome_world]. rewrite app_nil_r. reflexivity.
   - destruct (IH c' (w_log b xs w) oc H) as [evs Hevs].
     exists ((b, xs) :: evs). rewrite Hevs, w_output_w_log, <- app_assoc. reflexivity.
-  - injection H as <-. exists nil. cbn [oc_world]. rewrite app_nil_r. reflexivity.
+  - injection H as <-. exists nil. cbn [outcome_world]. rewrite app_nil_r. reflexivity.
   - destruct (run_cmd c' w) as [oc0|] eqn:E0; [ | discriminate H ].
-    destruct (run_cmd d (oc_world oc0)) as [[[] w'|vd w']|] eqn:Ed; try discriminate H.
+    destruct (run_cmd d (outcome_world oc0)) as [[[] w'|vd w']|] eqn:Ed; try discriminate H.
     + injection H as <-.
       destruct (IH c' w oc0 E0) as [evs0 Hevs0].
-      destruct (IH d (oc_world oc0) (ORet tt w') Ed) as [evs1 Hevs1].
+      destruct (IH d (outcome_world oc0) (ORet tt w') Ed) as [evs1 Hevs1].
       exists (evs0 ++ evs1). rewrite oc_world_set_world.
-      cbn [oc_world] in Hevs1. rewrite Hevs1, Hevs0, <- app_assoc. reflexivity.
+      cbn [outcome_world] in Hevs1. rewrite Hevs1, Hevs0, <- app_assoc. reflexivity.
     + injection H as <-.
       destruct (IH c' w oc0 E0) as [evs0 Hevs0].
-      destruct (IH d (oc_world oc0) (OPanic vd w') Ed) as [evs1 Hevs1].
-      exists (evs0 ++ evs1). cbn [oc_world] in Hevs1 |- *.
+      destruct (IH d (outcome_world oc0) (OPanic vd w') Ed) as [evs1 Hevs1].
+      exists (evs0 ++ evs1). cbn [outcome_world] in Hevs1 |- *.
       rewrite Hevs1, Hevs0, <- app_assoc. reflexivity.
   - destruct (heap_write l v w) as [w'|] eqn:E; [ | discriminate H ].
     destruct (IH c' w' oc H) as [evs Hevs].
@@ -745,7 +745,7 @@ Proof.
     destruct v as [A0 [x ta]].
     destruct (tag_coerce tag ta x) as [xe|]; [ | discriminate H ].
     destruct closed.
-    + injection H as <-. exists nil. cbn [oc_world]. rewrite app_nil_r. reflexivity.
+    + injection H as <-. exists nil. cbn [outcome_world]. rewrite app_nil_r. reflexivity.
     + destruct (chan_room_cap (length buf) cap); [ | discriminate H ].
       exact (IH c' _ oc H).
   - (* CChRecv *)
@@ -759,7 +759,7 @@ Proof.
   - (* CChClose *)
     destruct (w_chans w ch) as [[E [tag [buf [closed cap]]]]|]; [ | discriminate H ].
     destruct closed.
-    + injection H as <-. exists nil. cbn [oc_world]. rewrite app_nil_r. reflexivity.
+    + injection H as <-. exists nil. cbn [outcome_world]. rewrite app_nil_r. reflexivity.
     + exact (IH c' _ oc H).
 Qed.
 
@@ -778,8 +778,8 @@ Proof.
   - discriminate Hnp.
   - apply andb_prop in Hnp. destruct Hnp as [Hd Hc'].
     destruct (run_cmd c' w) as [oc0|] eqn:E0; [ | discriminate H ].
-    destruct (run_cmd d (oc_world oc0)) as [ocd|] eqn:Ed; [ | discriminate H ].
-    destruct (IH d (oc_world oc0) ocd Ed Hd) as [wd ->].
+    destruct (run_cmd d (outcome_world oc0)) as [ocd|] eqn:Ed; [ | discriminate H ].
+    destruct (IH d (outcome_world oc0) ocd Ed Hd) as [wd ->].
     injection H as <-.
     destruct (IH c' w oc0 E0 Hc') as [w0 ->].
     exists wd. reflexivity.
@@ -826,12 +826,12 @@ Theorem bridge_effects_agree : forall (c : Cmd unit) w oc,
     usteps (ucap_of_world w) (ustart_w w (cmd_to_ucmd c)) uc
     /\ uc_live uc 0 = false
     /\ uc_panic uc 0 = ocpanic oc
-    /\ w_output (oc_world oc) = w_output w ++ map snd (uc_out uc)
-    /\ heap_agrees (uc_heap uc) (w_refs (oc_world oc))
-    /\ bufs_agree (uc_bufs uc) (w_chans (oc_world oc))       (* the channel agreements, *)
-    /\ closed_agree (uc_trace uc) (w_chans (oc_world oc))    (* end to end, *)
-    /\ ucap_agree (ucap_of_world w) (w_chans (oc_world oc))  (* capacities pinned to the world's, *)
-    /\ uc_next uc = w_next (oc_world oc).   (* and the allocator agreement, end to end *)
+    /\ w_output (outcome_world oc) = w_output w ++ map snd (uc_out uc)
+    /\ heap_agrees (uc_heap uc) (w_refs (outcome_world oc))
+    /\ bufs_agree (uc_bufs uc) (w_chans (outcome_world oc))       (* the channel agreements, *)
+    /\ closed_agree (uc_trace uc) (w_chans (outcome_world oc))    (* end to end, *)
+    /\ ucap_agree (ucap_of_world w) (w_chans (outcome_world oc))  (* capacities pinned to the world's, *)
+    /\ uc_next uc = w_next (outcome_world oc).   (* and the allocator agreement, end to end *)
 Proof.
   intros c w oc H Hopen.
   set (ucap := ucap_of_world w).
@@ -850,13 +850,13 @@ Proof.
   assert (Hq0 : (match pA 0 with UPan v => Some v | _ => (fun _ : nat => @None GoAny) 0 end)
                 = mode_or (ocpanic (oc_unit oc0)) None)
     by (rewrite HprogA; destruct oc0 as [[] ?|? ?]; reflexivity).
-  assert (Hha0 : heap_agrees hA (w_refs (oc_world (oc_unit oc0))))
+  assert (Hha0 : heap_agrees hA (w_refs (outcome_world (oc_unit oc0))))
     by (destruct oc0 as [[] ?|? ?]; exact HhaA).
-  assert (Hba0 : bufs_agree bA (w_chans (oc_world (oc_unit oc0))))
+  assert (Hba0 : bufs_agree bA (w_chans (outcome_world (oc_unit oc0))))
     by (destruct oc0 as [[] ?|? ?]; exact HbaA).
-  assert (Hca0 : closed_agree trA (w_chans (oc_world (oc_unit oc0))))
+  assert (Hca0 : closed_agree trA (w_chans (outcome_world (oc_unit oc0))))
     by (destruct oc0 as [[] ?|? ?]; exact HcaA).
-  assert (Hua0 : ucap_agree ucap (w_chans (oc_world (oc_unit oc0))))
+  assert (Hua0 : ucap_agree ucap (w_chans (outcome_world (oc_unit oc0))))
     by (destruct oc0 as [[] ?|? ?]; exact HuaA).
   destruct (unwind_heap ds (oc_unit oc0) result Hun ucap pA
               bA hA (fun t => Nat.eqb t 0) trA
@@ -868,7 +868,7 @@ Proof.
     by (rewrite HqB; destruct result as [[] ?|? ?]; reflexivity).
   (* relate [result] to run_cmd's [oc] *)
   assert (Hoc : ocpanic oc = ocpanic result
-                /\ oc_world oc = oc_world result).
+                /\ outcome_world oc = outcome_world result).
   { destruct result as [[] w' | v w']; subst oc.
     - (* result returns: the body cannot have panicked (a panic seed never returns) *)
       destruct oc0 as [[] w0 | v0 w0].
@@ -877,13 +877,13 @@ Proof.
         destruct (unwind_panic_stays ds (oc_unit (OPanic v0 w0)) (ORet tt w') Hun v0 w0 eq_refl)
           as [? [? Hcontra]].
         discriminate Hcontra.
-    - cbn [ocpanic oc_world]. split; reflexivity. }
+    - cbn [ocpanic outcome_world]. split; reflexivity. }
   destruct Hoc as [Hocp Hocw].
   (* the final done step per the 2-mode *)
   destruct HprogB as [HretB | [v HpanB]].
   - exists (mkUCfg pB bB hB (upd (fun t => Nat.eqb t 0) 0 false) trB
                    ((nil ++ map (fun e => (0, e)) evs0) ++ map (fun e => (0, e)) evs1) dfB paB
-                   (w_next (oc_world result))).
+                   (w_next (outcome_world result))).
     split; [ | split; [ apply upd_same | split; [ | split; [ | split; [ | split; [ | split; [ | split ] ] ] ] ] ] ].
     + unfold ustart_w. eapply usteps_trans; [ exact HusA | ].
       eapply usteps_trans; [ exact HusB | ].
@@ -891,7 +891,7 @@ Proof.
         [ eapply ustep_ret_done with (tid := 0); [ reflexivity | exact HretB | exact HdfB ] | apply usteps_refl ].
     + cbn [uc_panic]. rewrite Hocp, <- HqB0, HretB. reflexivity.
     + cbn [uc_out]. rewrite Hocw, Hout1.
-      assert (Hw0 : oc_world (oc_unit oc0) = oc_world oc0) by (destruct oc0; reflexivity).
+      assert (Hw0 : outcome_world (oc_unit oc0) = outcome_world oc0) by (destruct oc0; reflexivity).
       rewrite Hw0, Hout0, !map_app, map_snd_pair0. cbn [app map].
       rewrite map_snd_pair0, <- app_assoc. reflexivity.
     + cbn [uc_heap]. rewrite Hocw. exact HhaB.
@@ -901,7 +901,7 @@ Proof.
     + cbn [uc_next]. rewrite Hocw. reflexivity.
   - exists (mkUCfg pB bB hB (upd (fun t => Nat.eqb t 0) 0 false) trB
                    ((nil ++ map (fun e => (0, e)) evs0) ++ map (fun e => (0, e)) evs1) dfB
-                   (upd paB 0 (Some v)) (w_next (oc_world result))).
+                   (upd paB 0 (Some v)) (w_next (outcome_world result))).
     split; [ | split; [ apply upd_same | split; [ | split; [ | split; [ | split; [ | split; [ | split ] ] ] ] ] ] ].
     + unfold ustart_w. eapply usteps_trans; [ exact HusA | ].
       eapply usteps_trans; [ exact HusB | ].
@@ -909,7 +909,7 @@ Proof.
         [ eapply ustep_pan_done with (tid := 0); [ reflexivity | exact HpanB | exact HdfB ] | apply usteps_refl ].
     + cbn [uc_panic]. rewrite upd_same, Hocp, <- HqB0, HpanB. reflexivity.
     + cbn [uc_out]. rewrite Hocw, Hout1.
-      assert (Hw0 : oc_world (oc_unit oc0) = oc_world oc0) by (destruct oc0; reflexivity).
+      assert (Hw0 : outcome_world (oc_unit oc0) = outcome_world oc0) by (destruct oc0; reflexivity).
       rewrite Hw0, Hout0, !map_app, map_snd_pair0. cbn [app map].
       rewrite map_snd_pair0, <- app_assoc. reflexivity.
     + cbn [uc_heap]. rewrite Hocw. exact HhaB.

@@ -176,7 +176,8 @@ Qed.
     shallow [Cmd -> IO] reading of a [Cmd]: a sequential [World -> Outcome] cannot run a func-scoped defer,
     so a "shallow" reading would DROP the deferred effect — which is why [run_cmd]
     is the sole semantics (and why [GoExtractionHooks.defer_call] FAILS LOUD instead of silently dropping). *)
-Definition oc_world {A} (oc : Outcome A) : World := match oc with ORet _ w => w | OPanic _ w => w end.
+(* World projection is [GoEffects.outcome_world] — the single authority; [oc_set_world] (below) is the distinct
+   world-SETTER the bridge needs. *)
 Definition oc_set_world {A} (oc : Outcome A) (w : World) : Outcome A :=
   match oc with ORet a _ => ORet a w | OPanic v _ => OPanic v w end.
 
@@ -322,7 +323,7 @@ Fixpoint go {A} (c : Cmd A) (w : World) : option (Outcome A * list (Cmd unit)) :
     carrier threaded through defer unwinding. *)
 Definition oc_unit {A} (oc : Outcome A) : Outcome unit :=
   match oc with ORet _ w => ORet tt w | OPanic v w => OPanic v w end.
-Lemma oc_unit_world : forall {A} (oc : Outcome A), oc_world (oc_unit oc) = oc_world oc.
+Lemma oc_unit_world : forall {A} (oc : Outcome A), outcome_world (oc_unit oc) = outcome_world oc.
 Proof. intros A [a w | v w]; reflexivity. Qed.
 
 (** The TOTAL-per-structure interpreter.  [CDfr d c'] is DEFER-COMPOSITIONAL: run the
@@ -344,7 +345,7 @@ Fixpoint run_cmd {A} (c : Cmd A) (w : World) : option (Outcome A) :=
       match run_cmd c' w with
       | None => None
       | Some oc =>
-          match run_cmd d (oc_world oc) with
+          match run_cmd d (outcome_world oc) with
           | None => None
           | Some (ORet _ w') => Some (oc_set_world oc w')   (* d returned: keep the active outcome *)
           | Some (OPanic v w') => Some (OPanic v w')        (* d panicked: replace the active panic *)
@@ -414,7 +415,7 @@ Fixpoint run_cmd {A} (c : Cmd A) (w : World) : option (Outcome A) :=
 Inductive unwind_defers : list (Cmd unit) -> Outcome unit -> Outcome unit -> Prop :=
   | UwNil  : forall acc, unwind_defers nil acc acc
   | UwCons : forall d ds acc oc_d ds_d net r,
-      go d (oc_world acc) = Some (oc_d, ds_d) ->
+      go d (outcome_world acc) = Some (oc_d, ds_d) ->
       unwind_defers ds_d (oc_unit oc_d) net ->
       unwind_defers ds (match net with
                         | OPanic v' w' => OPanic v' w'
@@ -476,13 +477,13 @@ Proof.
   - injection H as <-. exists (OPanic v w), nil, (OPanic v w).
     split; [ reflexivity | split; [ exact (UwNil _) | reflexivity ] ].
   - destruct (run_cmd c' w) as [ocm|] eqn:Em; [ | discriminate H ].
-    destruct (run_cmd d (oc_world ocm)) as [ocd|] eqn:Ed; [ | discriminate H ].
+    destruct (run_cmd d (outcome_world ocm)) as [ocd|] eqn:Ed; [ | discriminate H ].
     destruct (IH c' w ocm Em) as [oc0 [ds0 [r0 [Hgo0 [Hun0 Hocm]]]]].
-    destruct (IH d (oc_world ocm) ocd Ed) as [ocd0 [dsd [rd [Hgod [Hund Hocd]]]]].
+    destruct (IH d (outcome_world ocm) ocd Ed) as [ocd0 [dsd [rd [Hgod [Hund Hocd]]]]].
     (* d's scope as ONE [UwCons] over the tail [nil]; its net [ocd] = the seeded unwind result
        (at unit the seed [oc_unit ocd0] carries the status, so the combine collapses —
        the impossible panic-seed/return-result corner is closed by [unwind_panic_stays]) *)
-    assert (Hworld : oc_world ocm = oc_world r0)
+    assert (Hworld : outcome_world ocm = outcome_world r0)
       by (subst ocm; destruct r0 as [[] w0 | v0 w0];
           [ destruct oc0; reflexivity | reflexivity ]).
     assert (Hnet : ocd = rd).
@@ -570,14 +571,14 @@ Proof.
     cbn beta iota.
     inversion Hund as [| d0 ds' acc0 oc_d ds_d net r' Hgod Hnest Hrest Heqd Heqacc Heqr ]; subst.
     inversion Hrest; subst.
-    assert (Hwmid : oc_world (match mid with ORet _ w' => oc_set_world oc0 w'
-                              | OPanic v w' => OPanic v w' end) = oc_world mid)
+    assert (Hwmid : outcome_world (match mid with ORet _ w' => oc_set_world oc0 w'
+                              | OPanic v w' => OPanic v w' end) = outcome_world mid)
       by (destruct mid as [[] wm | vm wm]; [ destruct oc0; reflexivity | reflexivity ]).
     rewrite Hwmid.
     (* the deferred scope's own run: its eval package is (oc_d, ds_d, net) — the at-unit combine
        collapses to [net] (a panic-seeded unwind cannot return: [unwind_panic_stays]) *)
-    assert (Hnetd : run_cmd d (oc_world mid) = Some net).
-    { rewrite (IH d (oc_world mid)
+    assert (Hnetd : run_cmd d (outcome_world mid) = Some net).
+    { rewrite (IH d (outcome_world mid)
                  (match net with ORet _ w' => oc_set_world oc_d w' | OPanic v w' => OPanic v w' end)
                  (ex_intro _ oc_d (ex_intro _ ds_d (ex_intro _ net (conj Hgod (conj Hnest eq_refl)))))).
       destruct oc_d as [[] wd | vd wd]; cbn [oc_unit] in Hnest.
@@ -694,7 +695,7 @@ Proof.
   - exists (OPanic v w). reflexivity.
   - destruct (structurally_total_cmd d) eqn:Hd; [ | discriminate Hnh ]. cbn in Hnh.
     destruct (IH c' w Hnh) as [oc Hoc]. rewrite Hoc.
-    destruct (IH d (oc_world oc) Hd) as [ocd Hocd]. rewrite Hocd.
+    destruct (IH d (outcome_world oc) Hd) as [ocd Hocd]. rewrite Hocd.
     destruct ocd as [[] w' | vd w']; eexists; reflexivity.
   - discriminate Hnh.
   - discriminate Hnh.

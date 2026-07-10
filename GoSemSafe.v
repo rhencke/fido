@@ -170,7 +170,7 @@ Proof.
     as [uc [Hus [Hlive [Hpan [Hout [_ [_ [_ [_ _]]]]]]]]].
   exists uc, w'. split; [ exact Hrun | split; [ exact Hus | split; [ exact Hlive | split ] ] ].
   - rewrite Hpan. reflexivity.
-  - cbn [oc_world] in Hout. exact Hout.
+  - cbn [outcome_world] in Hout. exact Hout.
 Qed.
 
 (** The GATE-SHAPE predicate.  [panic_free_runs_ret] takes a command as its subject; a real gate must be
