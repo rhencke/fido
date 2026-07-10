@@ -1007,6 +1007,41 @@ Proof.
   rewrite (chan_buf_cellko_false ta ch1 w Hbad), Hbad, Bool.andb_false_r. reflexivity.
 Qed.
 
+(** SECOND ARM: when ch1 is empty+OPEN (select falls through to ch2), a WRONG-TAG ch2 does NOT fire its
+    closed-drained zero either — the select BLOCKS.  Together with [select_wait2_wrong_tag_no_fire] (the ch1
+    arm) this seals BOTH select arms against wrong-tag fabrication. *)
+Theorem select_wait2_wrong_tag_ch2_no_fire : forall {A E} (ta : GoTypeTag A) (etag : GoTypeTag E)
+    (ch1 ch2 : GoChan A) (w : World) rest,
+  chan_buf ta ch1 w = nil -> chan_closed ch1 w = false ->
+  Nat.eqb (ch_loc ch2) 0 = false ->
+  w_chans w (ch_loc ch2) = Some (existT _ E (etag, rest)) ->
+  tag_eq ta etag = None ->
+  select_wait2 ta ch1 ch2 w = OPanic rt_select_block w.
+Proof.
+  intros A E ta etag ch1 ch2 w rest Hb1 Hc1 Hnn2 Hcell2 Hmis2.
+  assert (Hbad2 : chan_cell_ok ta ch2 w = false)
+    by exact (proj2 (chan_cell_ok_wrong_tag ta etag ch2 w rest Hnn2 Hcell2 Hmis2)).
+  unfold select_wait2. rewrite Hb1, Hc1.
+  rewrite (chan_buf_cellko_false ta ch2 w Hbad2), Hbad2, Bool.andb_false_r. reflexivity.
+Qed.
+
+(** SECOND ARM for [select_recv2]: ch1 empty+OPEN, ch2 WRONG-TAG ⇒ the select BLOCKS (ch2 never fires its
+    closed-drained [zero_val tb]).  Together with [select_recv2_wrong_tag_no_fire] this seals both arms. *)
+Theorem select_recv2_wrong_tag_ch2_no_fire : forall {A B C E} (ta : GoTypeTag A) (tb : GoTypeTag B) (etag : GoTypeTag E)
+    (ch1 : GoChan A) (k1 : A -> IO C) (ch2 : GoChan B) (k2 : B -> IO C) (w : World) rest,
+  chan_buf ta ch1 w = nil -> chan_closed ch1 w = false ->
+  Nat.eqb (ch_loc ch2) 0 = false ->
+  w_chans w (ch_loc ch2) = Some (existT _ E (etag, rest)) ->
+  tag_eq tb etag = None ->
+  select_recv2 ta ch1 k1 tb ch2 k2 w = OPanic rt_select_block w.
+Proof.
+  intros A B C E ta tb etag ch1 k1 ch2 k2 w rest Hb1 Hc1 Hnn2 Hcell2 Hmis2.
+  assert (Hbad2 : chan_cell_ok tb ch2 w = false)
+    by exact (proj2 (chan_cell_ok_wrong_tag tb etag ch2 w rest Hnn2 Hcell2 Hmis2)).
+  unfold select_recv2. rewrite Hb1, Hc1.
+  rewrite (chan_buf_cellko_false tb ch2 w Hbad2), Hbad2, Bool.andb_false_r. reflexivity.
+Qed.
+
 (** ---- Happens-before: the partial order on channel events (go.dev/ref/mem) ----
 
     The ORDERING that race/deadlock-freedom rest on.
@@ -1393,8 +1428,9 @@ Qed.
     zero-axiom evidence — covering EVERY public op that could observe a forged cell.  A forged wrong-tag handle
     cannot: retype a cell ([send]/[close] fail loud, world UNCHANGED); fabricate a wrong-typed zero on a closed
     recv ([recv_wrong_tag_no_value]/[_no_zero]) or comma-ok recv ([recv_ok_wrong_tag_no_fire]); fire a select
-    case — blocking [select_wait2]/[select_recv2] ([_wrong_tag_no_fire]) or defaulting [select_recv_default]
-    ([_wrong_tag_default]); nor mutate at the raw [chan_write] root ([chan_write_cellko_noop]).
+    case — blocking [select_wait2]/[select_recv2] on EITHER arm ([_wrong_tag_no_fire] for ch1,
+    [_wrong_tag_ch2_no_fire] for ch2) or defaulting [select_recv_default] ([_wrong_tag_default]); nor mutate at
+    the raw [chan_write] root ([chan_write_cellko_noop]).
     [chan_cell_ok_wrong_tag] pins the present-but-mistyped case (proving [chan_present = true] alongside).  The
     [Print Assumptions] below certifies the whole cone axiom-free — manifest-gated public evidence, not merely
     ungated internal lemmas. *)
@@ -1402,5 +1438,6 @@ Definition chan_provenance_surface :=
   (@chan_cell_ok_wrong_tag, @chan_write_cellko_noop, @send_wrong_tag_no_mutation,
    @close_wrong_tag_no_mutation, @recv_wrong_tag_no_value, @recv_wrong_tag_no_zero,
    @recv_ok_wrong_tag_no_fire, @select_wait2_wrong_tag_no_fire,
-   @select_recv2_wrong_tag_no_fire, @select_recv_default_wrong_tag_default).
+   @select_wait2_wrong_tag_ch2_no_fire, @select_recv2_wrong_tag_no_fire,
+   @select_recv2_wrong_tag_ch2_no_fire, @select_recv_default_wrong_tag_default).
 Print Assumptions chan_provenance_surface.
