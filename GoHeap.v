@@ -591,6 +591,31 @@ Proof.
   cbn [w_maps]. destruct (valid_fresh_disjoint w HV) as [_ [_ Hmap]].
   rewrite Hmap. reflexivity.
 Qed.
+
+(** ALLOCATOR EVIDENCE (checkpoint-58, channel dual of [map_cell_ok_make_typed]): a freshly made channel is
+    TAG-CORRECT — the allocator installs a [Some (existT _ A (tag, …))] cell at the fresh [w_next] location,
+    and [ValidWorld] forces [w_next <> 0], so [chan_cell_ok tag ch w' = true].  The [chan_cell_ok] premise the
+    channel ops will demand (next slice) is only satisfiable by a genuinely made channel, never a forged
+    wrong-tag handle.  (Proved directly for each allocator — no capacity-parametrised helper, to keep the
+    fuel/cap ratchet clean.) *)
+Lemma chan_cell_ok_make_chan : forall {A} (tag : GoTypeTag A) (w : World) ch w',
+  ValidWorld w -> run_io (make_chan tag) w = ORet ch w' -> chan_cell_ok tag ch w' = true.
+Proof.
+  intros A tag w ch w' HV Hrun. unfold run_io, make_chan, make_chan_cap in Hrun. cbv zeta in Hrun.
+  injection Hrun as Hch Hw'. subst ch w'. unfold chan_cell_ok. cbn [ch_loc].
+  rewrite (pos_neq0 _ (valid_fresh_nonzero w HV)).
+  cbn [w_chans]. rewrite Nat.eqb_refl. cbn. rewrite tag_eq_refl. reflexivity.
+Qed.
+Lemma chan_cell_ok_make_chan_buf : forall {A} (tag : GoTypeTag A) (n : GoInt) (w : World) ch w',
+  ValidWorld w -> run_io (make_chan_buf tag n) w = ORet ch w' -> chan_cell_ok tag ch w' = true.
+Proof.
+  intros A tag n w ch w' HV Hrun. unfold run_io, make_chan_buf in Hrun.
+  destruct ((intraw n <? 0)%Z) eqn:Hneg; [ discriminate Hrun | ].
+  unfold make_chan_cap in Hrun. cbv zeta in Hrun.
+  injection Hrun as Hch Hw'. subst ch w'. unfold chan_cell_ok. cbn [ch_loc].
+  rewrite (pos_neq0 _ (valid_fresh_nonzero w HV)).
+  cbn [w_chans]. rewrite Nat.eqb_refl. cbn. rewrite tag_eq_refl. reflexivity.
+Qed.
 Lemma map_set_nonnil : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (v : V) (m : GoMap K V) (w : World),
   map_cell_ok kt vt m w = true ->
   run_io (map_set kt vt k v m) w = ORet tt (map_upd kt vt k v m w).

@@ -127,6 +127,58 @@ Proof.
   destruct (Nat.eqb (ch_loc ch) 0); [ discriminate H | ].
   destruct (w_chans w (ch_loc ch)) as [c|]; [ reflexivity | discriminate H ].
 Qed.
+(** [chan_cell_ok tag ch w] — TAG-AWARE cell check (checkpoint-58 provenance, the channel dual of
+    [map_cell_ok]): the cell EXISTS AND its STORED element tag MATCHES [tag].  Strictly stronger than
+    [chan_present] (existence only), so a forged WRONG-TAG handle aliasing a real channel of ANOTHER element
+    type reads [chan_cell_ok = false] even though [chan_present = true].  This is the predicate the channel ops
+    MUST guard on to refuse retype-on-write ([send]/[close] writing the caller's tag over a foreign cell) and
+    value-fabrication-on-read ([recv] on a wrong-tag CLOSED cell yielding [zero_val tag]).
+    ⚠ FOUNDATION SLICE ONLY: the predicate + its allocator/anti-forgery algebra ([chan_cell_ok_wrong_tag],
+    [chan_cell_ok_make_chan] in GoHeap) land here; the public ops ([send]/[recv]/[recv_ok]/[close_chan]/
+    [select_*]) and the raw [chan_write] root are NOT yet rebased onto it — that rewiring cascades the
+    concurrency BRIDGE (WMatch1/WState/WStateC/WMatchC, ~261 op sites) and is the NEXT slice.  Until then the
+    ops still guard on the tag-AGNOSTIC [chan_present]/[chan_closed], so a wrong-tag handle can still retype
+    (bug ①) or read a fabricated zero from a closed cell (bug ②).  This slice adds the leverage, not the fix. *)
+Definition chan_cell_ok {A : Type} (tag : GoTypeTag A) (ch : GoChan A) (w : World) : bool :=
+  if Nat.eqb (ch_loc ch) 0 then false
+  else match w_chans w (ch_loc ch) with
+       | Some (existT _ E (etag, _)) =>
+           match tag_eq tag etag with Some _ => true | None => false end
+       | None => false
+       end.
+Lemma chan_cell_ok_nonnil : forall {A} (tag : GoTypeTag A) (ch : GoChan A) w,
+  chan_cell_ok tag ch w = true -> Nat.eqb (ch_loc ch) 0 = false.
+Proof. intros A tag ch w H. unfold chan_cell_ok in H. destruct (Nat.eqb (ch_loc ch) 0); [ discriminate H | reflexivity ]. Qed.
+(** [chan_cell_ok] REFINES [chan_present]: a tag-correct cell certainly EXISTS.  (The converse fails — a
+    present cell may carry the wrong tag; that gap is exactly the checkpoint-58 wall.) *)
+Lemma chan_cell_ok_present : forall {A} (tag : GoTypeTag A) (ch : GoChan A) w,
+  chan_cell_ok tag ch w = true -> chan_present ch w = true.
+Proof.
+  intros A tag ch w H. unfold chan_cell_ok in H. unfold chan_present.
+  destruct (Nat.eqb (ch_loc ch) 0); [ discriminate H | ].
+  destruct (w_chans w (ch_loc ch)) as [c|]; [ reflexivity | discriminate H ].
+Qed.
+(** An ABSENT cell ([chan_present = false]) is a fortiori NOT tag-correct. *)
+Lemma chan_cell_ok_absent : forall {A} (tag : GoTypeTag A) (ch : GoChan A) w,
+  chan_present ch w = false -> chan_cell_ok tag ch w = false.
+Proof.
+  intros A tag ch w H. unfold chan_present in H. unfold chan_cell_ok.
+  destruct (Nat.eqb (ch_loc ch) 0); [ reflexivity | ].
+  destruct (w_chans w (ch_loc ch)) as [c|]; [ discriminate H | reflexivity ].
+Qed.
+(** WRONG-TAG ⟹ [chan_cell_ok = false]: a real cell whose STORED element tag DISAGREES with [tag] (a forged
+    handle aliasing a channel of another element type) is REJECTED by the tag-aware guard, though it EXISTS
+    ([chan_present = true]).  The leverage the wrong-tag channel anti-forgery theorems (next slice) stand on. *)
+Lemma chan_cell_ok_wrong_tag : forall {A E} (tag : GoTypeTag A) (etag : GoTypeTag E)
+    (ch : GoChan A) (w : World) rest,
+  w_chans w (ch_loc ch) = Some (existT _ E (etag, rest)) ->
+  tag_eq tag etag = None ->
+  chan_cell_ok tag ch w = false.
+Proof.
+  intros A E tag etag ch w rest Hcell Hmis.
+  unfold chan_cell_ok. destruct (Nat.eqb (ch_loc ch) 0); [ reflexivity | ].
+  rewrite Hcell, Hmis. reflexivity.
+Qed.
 (** [chan_room tag ch w] — is there room for one more send?  An UNALLOCATED handle (nil [ch_loc = 0] OR a
     nonzero ABSENT cell) has NO room ([chan_present] false) — Go BLOCKS forever on a nil send and a forged
     handle must not fabricate — so [send] FAILS LOUD ([OPanic rt_chan_send_block]) and never enqueues.
