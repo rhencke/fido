@@ -36,7 +36,8 @@ Definition map_empty {K V : Type} : GoMap K V := MkMap 0.
 (** [map_make_typed kt vt] creates an empty map with concrete key/value types.
     The [GoTypeTag] witnesses survive extraction so the plugin can emit
     [make(map[K]V)] with the correct Go type — an untyped [make(map[any]any)] would instead lose the types to
-    erasure, so untyped map allocation is UNREPRESENTABLE (there is no untyped map allocator; see below).
+    erasure; there is no NAMED untyped map allocator (only [map_make_typed]; the cell-less [map_make] was
+    deleted — see below).
 
     NOTE: Go map access never panics on a missing key — it returns the zero
     value (two-value form gives [false] for [ok]).  This differs from slice
@@ -50,10 +51,13 @@ Definition map_make_typed {K V : Type} (kt : GoTypeTag K) (vt : GoTypeTag V) : I
                                    else w_maps w k)
                          (S l) (w_output w)).
 
-(** There is NO untyped map allocator (checkpoint-58, deleted): an untyped [make(map[any]any)] would lose the
-    key/value types to erasure — a cell-less handle whose reads yield [any], not a typed [map[K]V] — so it is
-    UNREPRESENTABLE here.  [map_make_typed], which carries the key/value [GoTypeTag]s and installs the cell, is
-    the ONLY map allocator; untyped map allocation cannot be constructed (stronger than rejected-at-extraction). *)
+(** There is no NAMED untyped map allocator (checkpoint-58: the cell-less [map_make] was DELETED).
+    [map_make_typed], which carries the key/value [GoTypeTag]s and installs the cell, is the ONLY map
+    allocator.  ⚠ This is NOT unrepresentability: a forged CELL-LESS handle ([MkMap l] whose [w_maps] cell is
+    absent) is still CONSTRUCTIBLE via the public [MkMap] / [mkWorld] constructors — deleting a named helper
+    removes a convenience trap, it does not seal raw allocation.  What makes such a handle INERT is the
+    tag-aware [map_cell_ok] WRITE-GUARD (below): on a cell-less / wrong-tag handle [map_cell_ok = false], so
+    every public write fails loud / no-ops and reads are [None].  The GUARD is the seal, not the deletion. *)
 
 (** ---- Maps via a heap in the world ----
 
@@ -92,7 +96,9 @@ Definition map_get_fn {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
     ABSENT location (a forged / dangling handle whose [w_maps] cell is [None]).  The map WRITE root ([map_write])
     UPDATES only a present cell — an unallocated handle never fabricates one — and the write IO ops fail loud /
     no-op on it.  ([map_make_typed] installs a cell, so a [ValidWorld]-made map is present AND type-correct
-    [map_cell_ok_make_typed]; it is the ONLY map allocator — untyped map allocation is unrepresentable.)
+    [map_cell_ok_make_typed]; it is the ONLY NAMED map allocator — but a forged cell-less handle is still
+    constructible via [MkMap], and it is the [map_cell_ok] guard, not the absence of a named allocator, that
+    makes such a handle inert.)
     ⚠ [gm_present] is TAG-AGNOSTIC: it checks a cell EXISTS, NOT that its stored key/value tags match [m]'s —
     so a forged wrong-tag handle aliasing a real cell reads [gm_present = true].  It is therefore NOT the write
     guard: the tag-aware [map_cell_ok] (below) is.  What IS mechanically closed (checkpoint-58 #3): a wrong-tag
@@ -558,7 +564,8 @@ Qed.
     nonzero-ABSENT class) and the raw [map_write_wrong_tag_no_retype], NO forged-handle write — through the
     checked ops OR the raw [map_write] root — fabricates or retypes a cell.  (SCOPE: this is the write-path
     provenance guarantee; it does NOT assert the raw root is internalized — checkpoint-58 step 6, still open.
-    The cell-less untyped allocator is already gone: untyped map allocation is unrepresentable.) *)
+    The named cell-less allocator [map_make] is deleted, but a forged cell-less handle stays constructible via
+    [MkMap] — the [map_cell_ok] guard is what makes it inert, not the deletion.) *)
 Theorem no_public_map_retyping :
   forall {K V K' V'} (kt : GoTypeTag K) (vt : GoTypeTag V)
          (kt' : GoTypeTag K') (vt' : GoTypeTag V')

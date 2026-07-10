@@ -2519,8 +2519,10 @@ let rec pp_expr state env = function
            str "clear(" ++ pp_expr state env m ++ str ")"
        | MLglob r, [m]       when is_map_len_ref r ->
            str "len(" ++ pp_expr state env m ++ str ")"
-       (* NOTE: there is no untyped map allocator — untyped [make(map[any]any)] is unrepresentable in the
-          model (deleted checkpoint-58); [map_make_typed] carries the key/value tags and is the only one. *)
+       (* NOTE: the cell-less untyped `map_make` was deleted (checkpoint-58), so there is no NAMED untyped map
+          allocator to reject here; `map_make_typed` carries the key/value tags and is the only one lowered.
+          (A World-manipulating cell-less handle written inline is not emittable anyway — World is not
+          extractable — so no untyped-map emission reaches this arm.) *)
 
        (* min(a, b) / max(a, b) — Go 1.21 builtins.  FLOAT min/max on all-constant operands
           would constant-fold the signed-zero corner wrong (-0 collapses), so force runtime. *)
