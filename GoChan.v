@@ -304,6 +304,37 @@ Lemma chan_present_recv_frame : forall {A} (tag : GoTypeTag A) (ch ch' : GoChan 
   ch <> ch' -> chan_present ch' (chan_recv_upd tag ch w) = chan_present ch' w.
 Proof. intros A tag ch ch' w Hne. unfold chan_recv_upd. apply chan_present_write_frame; exact Hne. Qed.
 
+(** TAG-STABILITY / [chan_cell_ok] PRESERVATION (checkpoint-58, the last foundation before the op rebase).
+    A same-[tag] write to a nonzero location leaves the cell tag-correct for [tag] — [chan_send_upd]/
+    [chan_recv_upd]/[chan_close_upd] all write with the channel's OWN [tag], so they PRESERVE [chan_cell_ok]:
+    a channel's stored element TYPE is fixed at allocation and never changes across its lifetime through the
+    legit ops.  This is the "op preserves cell-ok" algebra the bridge will thread once its invariant is
+    strengthened from [chan_present] to [chan_cell_ok] (next slice).  (Preservation only — these do NOT change
+    op behaviour; the ops still guard on the tag-agnostic [chan_present], so bugs ①/② stay open until the
+    rebase.  A FRAME lemma carries [chan_cell_ok] across a write to a DIFFERENT channel.) *)
+Lemma chan_cell_ok_write_same : forall {A} (tag : GoTypeTag A) ch buf cl cap w,
+  Nat.eqb (ch_loc ch) 0 = false ->
+  chan_cell_ok tag ch (chan_write tag ch buf cl cap w) = true.
+Proof.
+  intros A tag ch buf cl cap w Hnn. unfold chan_cell_ok, chan_write. rewrite Hnn. cbn.
+  rewrite (Nat.eqb_refl (ch_loc ch)). cbn. rewrite tag_eq_refl. reflexivity.
+Qed.
+Lemma chan_cell_ok_send : forall {A} (tag : GoTypeTag A) ch v w,
+  Nat.eqb (ch_loc ch) 0 = false -> chan_cell_ok tag ch (chan_send_upd tag ch v w) = true.
+Proof. intros A tag ch v w Hnn. unfold chan_send_upd. apply chan_cell_ok_write_same; exact Hnn. Qed.
+Lemma chan_cell_ok_recv : forall {A} (tag : GoTypeTag A) ch w,
+  Nat.eqb (ch_loc ch) 0 = false -> chan_cell_ok tag ch (chan_recv_upd tag ch w) = true.
+Proof. intros A tag ch w Hnn. unfold chan_recv_upd. apply chan_cell_ok_write_same; exact Hnn. Qed.
+Lemma chan_cell_ok_close : forall {A} (tag : GoTypeTag A) ch w,
+  Nat.eqb (ch_loc ch) 0 = false -> chan_cell_ok tag ch (chan_close_upd tag ch w) = true.
+Proof. intros A tag ch w Hnn. unfold chan_close_upd. apply chan_cell_ok_write_same; exact Hnn. Qed.
+Lemma chan_cell_ok_write_frame : forall {A} (tag : GoTypeTag A) (ch ch' : GoChan A) buf cl cap w,
+  ch <> ch' -> chan_cell_ok tag ch' (chan_write tag ch buf cl cap w) = chan_cell_ok tag ch' w.
+Proof.
+  intros A tag ch ch' buf cl cap w Hne. unfold chan_cell_ok.
+  rewrite (chan_read_write_frame tag ch ch' buf cl cap w Hne). reflexivity.
+Qed.
+
 (** Heap-interface laws: how [chan_buf]/[chan_closed] read after each update.  Each carries the
     ROOT-guard side condition [ch_loc <> 0] — on the reserved nil handle the update is a no-op, so the
     read-back holds only for an ALLOCATED channel (the bridge supplies this via [chenv_live]). *)
