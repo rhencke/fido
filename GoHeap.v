@@ -123,8 +123,9 @@ Definition ref_upd {A : Type} (r : Ref A) (v : A) (w : World) : World :=
   end.
 
 (** RAW ANTI-FORGERY WITNESS (the ref dual of [chan_write_cellko_noop] / [map_write_absent_noop]): a
-    [ref_upd] through a handle with NO live cell ([ref_sel_opt = None] — nil, absent, dangling, OR WRONG-TAG)
-    is the IDENTITY.  So the raw ref write never fabricates or retypes a cell. *)
+    [ref_upd] through a handle with NO live cell ([ref_sel_opt = None] — an absent / dangling / WRONG-TAG handle
+    at any location, or a NIL handle under [WorldOk]; [ref_sel_opt] has no loc-0 guard, so an arbitrary forged
+    loc-0 cell would read live) is the IDENTITY.  So the raw ref write never fabricates or retypes a cell. *)
 Lemma ref_upd_dead_noop : forall {A} (r : Ref A) (v : A) (w : World),
   ref_sel_opt r w = None -> ref_upd r v w = w.
 Proof. intros A r v w H. unfold ref_upd. rewrite H. reflexivity. Qed.
@@ -207,9 +208,11 @@ Proof.
 Qed.
 
 (** PAYOFF 3 (WorldOk): location 0 — Go's [nil] — is empty in ALL three heaps.  So a [ValidWorld] cannot
-    carry a forged cell at the reserved nil location: the accessors' loc-0 read guards are provably redundant
-    on the certified path (they remain for the open-world / public-[mkWorld] case, where a forged loc-0 cell
-    is representable). *)
+    carry a forged cell at the reserved nil location.  For the accessors that DO carry a loc-0 read guard
+    ([chan_buf] / [map_get_fn] / [ptr_get]/[ptr_set]) this makes the guard provably redundant on the certified
+    path (it remains for the open-world / public-[mkWorld] case).  For [ref_sel_opt], which has NO loc-0 guard,
+    [WorldOk] is instead LOAD-BEARING: it is the sole reason a NIL [Ref] cannot alias a forged loc-0 cell
+    ([ref_upd_nil_noop_valid]). *)
 Lemma valid_loc0_empty : forall w, ValidWorld w ->
   w_refs w 0 = None /\ w_chans w 0 = None /\ w_maps w 0 = None.
 Proof. intros w [_ [Hloc0 _]]. exact Hloc0. Qed.
@@ -365,10 +368,12 @@ Proof.
   - discriminate H.
 Qed.
 
-(** [ref_get] — FAILS LOUD on a missing/retyped cell: dereferencing a forged / dangling
+(** [ref_get] — FAILS LOUD on a missing/retyped cell: dereferencing an absent / dangling / WRONG-TAG
     [Ref] (e.g. [mkRef 5 …] at an unallocated location) panics with the Go nil-pointer/invalid-address
-    message instead of fabricating a zero.  Body is plugin-lowered to [*r], so the loud check never reaches
-    the emitted Go (a real [r] is always allocated); it only rules out the model accepting a forged read. *)
+    message instead of fabricating a zero.  ([ref_sel_opt] has no loc-0 guard, so a NIL [Ref] over a forged
+    matching-tag loc-0 cell would READ it — dead only under [WorldOk].)  Body is plugin-lowered to [*r], so the
+    loud check never reaches the emitted Go (a real [r] is always allocated); it only rules out the model
+    accepting a forged read. *)
 Definition ref_get {A} (tag : GoTypeTag A) (r : Ref A) : IO A :=
   fun w => match ref_sel_opt r w with
            | Some a => ORet a w
@@ -376,9 +381,12 @@ Definition ref_get {A} (tag : GoTypeTag A) (r : Ref A) : IO A :=
            end.
 (** ┌─ HEAP-WRITE ANTI-FORGERY: SCOPE AND FRONTIER ────────────────────────────────────────────────────┐
     Every heap-write op ([ref_set]/[ptr_set]/[slice_idx_set]/[hfield_set]/[slice_append] in-place) now
-    writes ONLY through a cell that is LIVE ([ref_sel_opt = Some]), and FAILS LOUD ([rt_nil_deref]) on a
-    nil / absent / dangling / retyped handle — so a forged handle can no longer FABRICATE a cell at an
-    unallocated location, symmetric with the reads.  ⚠ FRONTIER (shared with [chan]/[map]'s forged-non-nil
+    writes ONLY through a cell that is LIVE ([ref_sel_opt = Some]), and FAILS LOUD ([rt_nil_deref]) on an
+    absent / dangling / retyped handle (at ANY location) — so a forged handle can no longer FABRICATE a cell
+    at an unallocated location, symmetric with the reads.  ([ptr_set] additionally guards [p_loc = 0]
+    explicitly; [ref_set] has NO loc-0 guard, so a NIL [Ref] is dead only under [WorldOk] — [valid_loc0_empty]
+    — a forged loc-0 cell of the matching tag being the loc-0 instance of the frontier below.)
+    ⚠ FRONTIER (shared with [chan]/[map]'s forged-non-nil
     case): this does NOT stop a forged handle whose location COINCIDES with an ALREADY-LIVE cell of another
     object — the location-based model then ALIASES that cell (as [ptr_alias]/[subslice_alias]/[hstruct_alias]
     are theorems, aliasing is intrinsic).  Preventing forged ALIASING needs allocation PROVENANCE on the
@@ -386,10 +394,12 @@ Definition ref_get {A} (tag : GoTypeTag A) (r : Ref A) : IO A :=
     architectural extension, out of the current location-based scope, NOT claimed as solved here.
     └───────────────────────────────────────────────────────────────────────────────────────────────────┘ *)
 (** [ref_set] — the WRITE side, now SYMMETRIC with [ref_get]: it writes only through an allocated,
-    correctly-typed cell ([ref_sel_opt r w = Some _]), and FAILS LOUD ([rt_nil_deref]) on a missing / forged
-    / dangling / retyped [r] — exactly as [ref_get] does, instead of fabricating a cell at an unallocated
-    location.  On the loud branch the world is UNCHANGED ([OPanic w]) — no mutation (see [ref_set_dangling]).
-    Body plugin-lowered to [r = v], so the check never reaches the emitted Go (a real [r] is allocated). *)
+    correctly-typed cell ([ref_sel_opt r w = Some _]), and FAILS LOUD ([rt_nil_deref]) on an absent / dangling
+    / retyped [r] (at any location) — exactly as [ref_get] does, instead of fabricating a cell.  (A NIL [r]
+    ([r_loc = 0]) is dead only under [WorldOk]: [ref_set] has no explicit loc-0 guard, so an arbitrary forged
+    loc-0 cell of the matching tag would be written — excluded from reachable worlds by [WorldOk].)  On the
+    loud branch the world is UNCHANGED ([OPanic w]) — no mutation (see [ref_set_dangling]).  Body plugin-lowered
+    to [r = v], so the check never reaches the emitted Go (a real [r] is allocated). *)
 Definition ref_set {A} (r : Ref A) (v : A) : IO unit :=
   fun w => match ref_sel_opt r w with
            | Some _ => ORet tt (ref_upd r v w)
@@ -417,8 +427,9 @@ Proof. reflexivity. Qed.
 Lemma run_ref_set_some : forall {A} (r : Ref A) (v a : A) (w : World),
   ref_sel_opt r w = Some a -> run_io (ref_set r v) w = ORet tt (ref_upd r v w).
 Proof. intros A r v a w H. unfold run_io, ref_set. rewrite H. reflexivity. Qed.
-(** FAIL-LOUD, NO-MUTATION witness: a write through a missing / forged / dangling [r] PANICS and leaves the
-    world UNCHANGED — the raw [ref_upd] can never be reached to fabricate a cell. *)
+(** FAIL-LOUD, NO-MUTATION witness: a write through a handle that reads DEAD ([ref_sel_opt r w = None] —
+    missing / dangling / wrong-tag; NIL only under [WorldOk]) PANICS and leaves the world UNCHANGED — the raw
+    [ref_upd] can never be reached to fabricate a cell. *)
 Lemma ref_set_dangling : forall {A} (r : Ref A) (v : A) (w : World),
   ref_sel_opt r w = None -> run_io (ref_set r v) w = OPanic rt_nil_deref w.
 Proof. intros A r v w H. unfold run_io, ref_set. rewrite H. reflexivity. Qed.
