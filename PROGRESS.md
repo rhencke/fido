@@ -157,11 +157,13 @@ cites: read-after-write, non-nil, read/write-through-`&x`, aliasing) / `GoHeap.h
 struct assign/deref value-fidelity round-trip + slice read/write NO-PANIC for BOTH make allocators
 (slice_make_lc + slice_make_h), in-bounds-gated & Go-faithful; slice transformers subslice/append are out of
 scope; the aggregate make-allocator no-panic cone matches the scalar families) / `GoHeap.slice_bulk_write_surface`
-(the bulk slice ops clear/copy — tag-aware + fail-loud guarded: PRESERVE ValidWorld on the live path
-(valid_run_slice_clear_h/copy) AND REJECT ANY malformed input by failing loud — slice_clear/copy_rejected
-(`exists p, run_io = OPanic p w`) fire whenever the guard is false (impossible shape OR dead/wrong-tag cell),
-with _bad_shape_ corollaries pinning the impossible len>cap shape for clear, copy's DST, and copy's SRC — so a
-forged/malformed slice cannot silently succeed nor fabricate/retype cells) / `GoHeap.live_handle_surface`
+(the bulk slice ops clear/copy — tag-aware fail-loud guarded in the def; the GATED facts are: PRESERVE
+ValidWorld on the live path (valid_run_slice_clear_h/copy) AND REJECT ANY malformed input by failing loud —
+slice_clear/copy_rejected (`exists p, run_io = OPanic p w`) fire whenever the guard is false (impossible shape
+OR dead/wrong-tag cell), with _bad_shape_ corollaries pinning the impossible len>cap shape for clear, copy's
+DST, and copy's SRC. So a forged/malformed slice cannot silently succeed, and the live path stays ValidWorld;
+the per-cell writes are tag-aware BY CONSTRUCTION (no fabricate/retype — a def property, not a separate gated
+theorem)) / `GoHeap.live_handle_surface`
 (the checkpoint-59 step-3 REUSABLE `Live*` family — the four SCALAR predicates LiveRef/LivePtr/LiveChan/LiveMap,
 one canonical typed-liveness interface over the per-family checks; allocators produce Live*) /
 `GoHeap.live_aggregate_handle_surface` (the two AGGREGATE peers completing the six-handle family — LiveSlice

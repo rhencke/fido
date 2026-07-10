@@ -1777,10 +1777,12 @@ Definition sh_start {A} (s : SliceH A) : nat := sh_base s + sh_off s.
     BEYOND its own backing) AND EVERY element cell reads LIVE + TAG-CORRECT ([slice_range_live s (sh_len s) w] —
     itself the tag-aware [ref_sel_opt] range check): a forged / dangling / wrong-tag / malformed handle does NOT
     silently succeed, exactly like [slice_idx_set] / [slice_append].  On the live path each cell is zeroed
-    through a TAG-AWARE per-cell guard, so even defensively
-    nothing at loc 0 / a fresh location / a foreign-typed cell is ever FABRICATED or RETYPED — hence
-    [valid_run_slice_clear_h] (preserves [ValidWorld]).  For a real slice the whole range is zeroed.  Lowered by
-    name ([clear(s)]); the fail-loud branch is model-only (a real [clear] always sees live cells). *)
+    through a TAG-AWARE per-cell guard — an absent / foreign-typed cell is left unchanged, so by CONSTRUCTION
+    the write never fabricates or retypes a cell (a design property of the [ref_sel_opt]-keyed guard, not itself
+    a separate theorem).  The GATED facts are [valid_run_slice_clear_h] (the live path preserves [ValidWorld] —
+    no cell is created at loc 0 / a fresh location) and [slice_clear_rejected] (a malformed slice fails loud).
+    For a real slice the whole range is zeroed.  Lowered by name ([clear(s)]); the fail-loud branch is
+    model-only (a real [clear] always sees live cells). *)
 Definition slice_clear_h {A} (tag : GoTypeTag A) (s : SliceH A) : IO unit :=
   fun w => if (Nat.leb (sh_len s) (sh_cap s) && slice_range_live s (sh_len s) w)%bool
            then ORet tt
@@ -1798,11 +1800,13 @@ Definition slice_clear_h {A} (tag : GoTypeTag A) (s : SliceH A) : IO unit :=
     ([rt_nil_deref]) unless BOTH shapes are possible ([sh_len <= sh_cap] for [dst] and [src], so [n <= cap] and
     neither range spills past its backing) AND the first [n] cells of BOTH read LIVE + TAG-CORRECT
     ([slice_range_live dst n w && slice_range_live src n w]) — a forged / dangling / wrong-tag / malformed handle
-    does NOT silently succeed.  On the live path each [dst] cell takes the [src] value through a TAG-AWARE per-cell guard
-    reading the REAL [src] value ([ref_sel_opt = Some sv], never a fabricated zero); nothing at loc 0 / a fresh
-    location / a foreign-typed cell is ever fabricated or RETYPED — hence [valid_run_slice_copy] (preserves
-    [ValidWorld]).  For real slices the whole range is written.  Lowered by name ([copy(dst, src)]); the
-    fail-loud branch is model-only. *)
+    does NOT silently succeed.  On the live path each [dst] cell takes the [src] value through a TAG-AWARE
+    per-cell guard reading the REAL [src] value ([ref_sel_opt = Some sv], never a fabricated zero); an absent /
+    foreign-typed [dst] or [src] cell leaves [dst] unchanged, so by CONSTRUCTION the write never fabricates or
+    retypes a cell (a design property of the guard, not itself a theorem).  The GATED facts are
+    [valid_run_slice_copy] (the live path preserves [ValidWorld]) and [slice_copy_rejected] (a malformed slice
+    fails loud).  For real slices the whole range is written.  Lowered by name ([copy(dst, src)]); the fail-loud
+    branch is model-only. *)
 Definition slice_copy {A} (tag : GoTypeTag A) (dst src : SliceH A) : IO GoInt :=
   fun w => let n := if Nat.leb (sh_len dst) (sh_len src) then sh_len dst else sh_len src in
            if (Nat.leb (sh_len dst) (sh_cap dst) && Nat.leb (sh_len src) (sh_cap src)
