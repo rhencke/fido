@@ -151,7 +151,9 @@ Zero-axiom is gated by `Print Assumptions` in THREE flows (single-sourced here):
 cones for channels / maps / refs) / `GoHeap.heap_alloc_safety_surface` (the positive-liveness half: the
 ptr/ref/map/chan allocator nonzero + live-cell + end-to-end panic-free-deref cone backing the `&x`
 address-of public claim) / `GoHeap.ref_addr_of_surface` (the address-of/assignment SEMANTICS the SPEC ledger
-cites: read-after-write, non-nil, read/write-through-`&x`, aliasing);
+cites: read-after-write, non-nil, read/write-through-`&x`, aliasing) / `GoHeap.heap_aggregate_liveness_surface`
+(the same allocator-produces-live evidence for the AGGREGATE handles — slice backing + struct fields —
+completing all six handle families);
 **printer** + **emit** (compiled STANDALONE incl. `digits.v`, grep `^Axioms:`) cover the spine. A
 `Print Assumptions` under none of the three is not gated.
 

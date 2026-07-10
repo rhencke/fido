@@ -881,12 +881,15 @@ Proof.
 Qed.
 
 (** CLOSED-WORLD ALLOCATION-SAFETY SURFACE (manifest-gated, zero-axiom PUBLIC evidence): the allocator
-    liveness + panic-free-deref cone for ALL four handle families, so the [SPEC_CONFORMANCE] "address-of `&x`
-    end-to-end" claim (and the ptr/map/chan analogues it leans on) is GATED public evidence, not an ungated
-    internal theorem.  Each family: allocator-mints-nonzero (under [ValidWorld]) + allocator-installs-a-live
-    cell + the end-to-end no-panic corollary chaining BOTH premises.  The [Print Assumptions] certifies the
-    whole cone axiom-free.  (The wrong-tag ANTI-forgery half is the separate [ref_provenance_surface] /
-    [GoChan.chan_provenance_surface] / [GoMap.map_provenance_surface]; this is the positive LIVENESS half.) *)
+    liveness + panic-free-deref cone for the four SCALAR / single-cell handle families (ptr / ref / map /
+    chan), so the [SPEC_CONFORMANCE] "address-of `&x` end-to-end" claim (and the ptr/map/chan analogues it
+    leans on) is GATED public evidence, not an ungated internal theorem.  Each family: allocator-mints-nonzero
+    (under [ValidWorld]) + allocator-installs-a-live cell + the end-to-end no-panic corollary chaining BOTH
+    premises.  The [Print Assumptions] certifies the whole cone axiom-free.  (The AGGREGATE / multi-cell
+    handles — [SliceH], [GSPtr] — have their own allocator-liveness in [heap_aggregate_liveness_surface]
+    below, next to their later definitions.  The wrong-tag ANTI-forgery half is the separate
+    [ref_provenance_surface] / [GoChan.chan_provenance_surface] / [GoMap.map_provenance_surface]; this is the
+    positive LIVENESS half.) *)
 Definition heap_alloc_safety_surface :=
   (@ptr_new_nonzero, @ptr_new_reads, @ptr_alloc_assign_no_panic,
    @ref_new_loc_nonzero, @ref_new_reads, @ref_new_addr_nonnil,
@@ -1772,6 +1775,18 @@ Proof.
   intros R Hrep v0 v w p w1 Hnew.
   exact (gsptr_deref_assign p v w1 (gsptr_new_fields_live v0 w p w1 Hnew)).
 Qed.
+
+(** AGGREGATE-HANDLE LIVENESS SURFACE (manifest-gated, zero-axiom PUBLIC evidence): the companion to
+    [heap_alloc_safety_surface] for the MULTI-CELL handles — a slice's backing and a struct's fields.  These
+    complete the "allocators produce Live*" evidence across ALL SIX handle families (the four scalar ones plus
+    [SliceH] / [GSPtr]); like [ref_new_reads], the liveness is DISCHARGED from the allocation, never leaked as
+    a caller precondition.  [slice_make_lc_cell_live]: every backing cell of a [make([]T,len,cap)] (any
+    [j < cap]) reads [Some zero_val].  [gsptr_new_fields_live]: every field cell of a [gsptr_new] struct is
+    live.  [gsptr_new_deref_assign]: assign-then-deref on a fresh struct pointer round-trips (the struct
+    no-panic peer), the [fields_live] premise discharged by the allocation. *)
+Definition heap_aggregate_liveness_surface :=
+  (@slice_make_lc_cell_live, @gsptr_new_fields_live, @gsptr_new_deref_assign).
+Print Assumptions heap_aggregate_liveness_surface.
 
 (** STRUCTURAL EQUALITY — Go's [==] on a struct compares fields pairwise.  Generic over arity: an
     [EqTup ts] is a per-field equality-test bundle; [tup_eqb] [&&]s them, and [gstruct_eqb] compares two
