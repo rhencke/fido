@@ -146,9 +146,10 @@ Zero-axiom is gated by `Print Assumptions` in THREE flows (single-sourced here):
 `gosem_trust_surface` / `gosem_string_authority_surface` / `cmd.cmd_semantics_surface` /
 `cmd_unified_surface` / `gosem_panic_free_surface` / `GoSlice.slice_get_bounds_surface` /
 `GoCFG.blocks_cfg_surface` / `GoSwitch.value_switch_seal_surface` (the value-switch seal's
-`*_rejects_dup` proof authority) / `GoChan.chan_provenance_surface` /
-`GoMap.map_provenance_surface` / `GoHeap.ref_provenance_surface` (the checkpoint-58 wrong-tag anti-forgery
-cones for channels / maps / refs) / `GoHeap.heap_alloc_safety_surface` (the positive-liveness half: the
+`*_rejects_dup` proof authority) / `GoChan.chan_wrong_tag_antiforgery_surface` /
+`GoMap.map_wrong_tag_antiforgery_surface` / `GoHeap.ref_wrong_tag_antiforgery_surface` (the wrong-tag
+anti-forgery cones — TYPED-LIVENESS negatives, not origin provenance — for channels / maps / refs) /
+`GoHeap.heap_alloc_safety_surface` (the positive-liveness half: the
 ptr/ref/map/chan allocator nonzero + live-cell + end-to-end panic-free-deref cone backing the `&x`
 address-of public claim) / `GoHeap.ref_addr_of_surface` (the address-of/assignment SEMANTICS the SPEC ledger
 cites: read-after-write, non-nil, read/write-through-`&x`, aliasing) / `GoHeap.heap_aggregate_liveness_surface`

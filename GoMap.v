@@ -113,8 +113,9 @@ Definition gm_present {K V} (m : GoMap K V) (w : World) : bool :=
 Lemma gm_present_nonnil : forall {K V} (m : GoMap K V) w,
   gm_present m w = true -> Nat.eqb (gm_loc m) 0 = false.
 Proof. intros K V m w H. unfold gm_present in H. destruct (Nat.eqb (gm_loc m) 0); [ discriminate H | reflexivity ]. Qed.
-(** [map_cell_ok kt vt m w] — TAG-AWARE cell check (the checkpoint-58 provenance fix): the cell exists AND its
-    STORED key/value tags MATCH [kt]/[vt].  Strictly stronger than [gm_present] (which only checks existence),
+(** [map_cell_ok kt vt m w] — TAG-AWARE cell check / TYPED LIVENESS: the cell exists AND its
+    STORED key/value tags MATCH [kt]/[vt].  This is typed liveness, NOT origin provenance — a same-tag forged
+    handle still satisfies it.  Strictly stronger than [gm_present] (which only checks existence),
     so a forged WRONG-TAG handle aliasing a real cell of another type reads [map_cell_ok = false].  The map
     WRITE path guards on THIS, not [gm_present]: a wrong-tag handle can neither RETYPE (write) nor be treated as
     its own map — public write ops fail loud / no-op, so no forged handle retypes an existing cell. *)
@@ -624,14 +625,15 @@ Proof.
   unfold map_len, run_io, map_size, map_count. rewrite Hbad. reflexivity.
 Qed.
 
-(** MANIFEST-GATED PROVENANCE SURFACE (checkpoint-58): the map wrong-tag anti-forgery theorems as PUBLIC,
-    zero-axiom evidence.  A forged wrong-tag handle cannot fabricate OR retype a map cell through any public
+(** MANIFEST-GATED WRONG-TAG ANTI-FORGERY SURFACE: the map wrong-tag anti-forgery theorems as PUBLIC,
+    zero-axiom evidence.  (Typed-liveness negatives, NOT origin provenance — a SAME-TAG alias is not stopped
+    here.)  A forged wrong-tag handle cannot fabricate OR retype a map cell through any public
     write ([map_set]/[delete]/[clear]) nor the raw [map_write] root, NOR observe a foreign cell's size
     ([map_len_wrong_tag_zero] — the read-side seal); [map_cell_ok_wrong_tag] pins the present-but-mistyped case
     (proving [gm_present = true] alongside).  The [Print Assumptions] below certifies the whole cone axiom-free
     — so these anti-forgery claims are manifest-gated public evidence, not merely ungated internal lemmas. *)
-Definition map_provenance_surface :=
+Definition map_wrong_tag_antiforgery_surface :=
   (@map_cell_ok_wrong_tag, @map_set_wrong_tag_no_mutation, @map_delete_wrong_tag_no_mutation,
    @map_clear_wrong_tag_no_mutation, @map_write_wrong_tag_no_retype, @no_public_map_retyping,
    @map_len_wrong_tag_zero).
-Print Assumptions map_provenance_surface.
+Print Assumptions map_wrong_tag_antiforgery_surface.

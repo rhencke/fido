@@ -129,8 +129,9 @@ Proof.
   destruct (Nat.eqb (ch_loc ch) 0); [ discriminate H | ].
   destruct (w_chans w (ch_loc ch)) as [c|]; [ reflexivity | discriminate H ].
 Qed.
-(** [chan_cell_ok tag ch w] — TAG-AWARE cell check (checkpoint-58 provenance, the channel dual of
-    [map_cell_ok]): the cell EXISTS AND its STORED element tag MATCHES [tag].  Strictly stronger than
+(** [chan_cell_ok tag ch w] — TAG-AWARE cell check / TYPED LIVENESS (the channel dual of
+    [map_cell_ok]): the cell EXISTS AND its STORED element tag MATCHES [tag].  This is typed liveness, NOT
+    origin provenance — a same-tag forged handle still satisfies it.  Strictly stronger than
     [chan_present] (existence only), so a forged WRONG-TAG handle aliasing a real channel of ANOTHER element
     type reads [chan_cell_ok = false] even though [chan_present = true].  This is THE predicate the channel ops
     guard on: the raw [chan_write] root UPDATES a cell only when [chan_cell_ok = true], so [send]/[close] cannot
@@ -1441,8 +1442,9 @@ Proof.
   eexists; reflexivity.
 Qed.
 
-(** MANIFEST-GATED PROVENANCE SURFACE (checkpoint-58): the channel wrong-tag anti-forgery theorems as PUBLIC,
-    zero-axiom evidence — covering EVERY public op that could observe a forged cell.  A forged wrong-tag handle
+(** MANIFEST-GATED WRONG-TAG ANTI-FORGERY SURFACE: the channel wrong-tag anti-forgery theorems as PUBLIC,
+    zero-axiom evidence — covering EVERY public op that could observe a forged cell.  (These are typed-liveness
+    negatives, NOT origin provenance — a SAME-TAG alias is not stopped here.)  A forged wrong-tag handle
     cannot: retype a cell ([send]/[close] fail loud, world UNCHANGED); fabricate a wrong-typed zero on a closed
     recv ([recv_wrong_tag_no_value]/[_no_zero]) or comma-ok recv ([recv_ok_wrong_tag_no_fire]); fire a select
     case — a wrong-tag arm of [select_wait2]/[select_recv2] is SKIPPED, reducing the select to the OTHER arm
@@ -1452,10 +1454,10 @@ Qed.
     [chan_cell_ok_wrong_tag] pins the present-but-mistyped case (proving [chan_present = true] alongside).  The
     [Print Assumptions] below certifies the whole cone axiom-free — manifest-gated public evidence, not merely
     ungated internal lemmas. *)
-Definition chan_provenance_surface :=
+Definition chan_wrong_tag_antiforgery_surface :=
   (@chan_cell_ok_wrong_tag, @chan_write_cellko_noop, @send_wrong_tag_no_mutation,
    @close_wrong_tag_no_mutation, @recv_wrong_tag_no_value, @recv_wrong_tag_no_zero,
    @recv_ok_wrong_tag_no_fire, @select_wait2_wrong_tag_no_fire,
    @select_wait2_wrong_tag_ch2_no_fire, @select_recv2_wrong_tag_no_fire,
    @select_recv2_wrong_tag_ch2_no_fire, @select_recv_default_wrong_tag_default).
-Print Assumptions chan_provenance_surface.
+Print Assumptions chan_wrong_tag_antiforgery_surface.

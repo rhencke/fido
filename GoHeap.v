@@ -153,9 +153,9 @@ Proof.
   unfold tag_coerce. rewrite Htag. reflexivity.
 Qed.
 
-(** ROOT-GUARD PROVENANCE (checkpoint-58): the two location-agnostic ref anti-forgery witnesses
+(** ROOT-GUARD ANTI-FORGERY: the two location-agnostic ref anti-forgery witnesses
     ([ref_upd_dead_noop] / [ref_upd_wrong_tag_noop]) are proved above; the NIL case needs [WorldOk], so
-    [ref_upd_nil_noop_valid] and the gated [ref_provenance_surface] live just after [valid_loc0_empty] below. *)
+    [ref_upd_nil_noop_valid] and the gated [ref_wrong_tag_antiforgery_surface] live just after [valid_loc0_empty] below. *)
 
 (** [ref_new tag v]: allocate the fresh location [w_next], seed [r_tag := tag],
     write [v], bump the allocator.  Carries the [GoTypeTag] so the cell is tagged
@@ -229,17 +229,19 @@ Proof.
   unfold ref_sel_opt. rewrite Hnil.
   destruct (valid_loc0_empty w HV) as [Hr0 _]. rewrite Hr0. reflexivity.
 Qed.
-(** ROOT-GUARD PROVENANCE SURFACE (checkpoint-58): the ref anti-forgery witnesses as MANIFEST-GATED, zero-axiom
-    PUBLIC evidence — the ref analogue of [GoChan.chan_provenance_surface] / [GoMap.map_provenance_surface].  A
-    forged / absent / dangling / WRONG-TAG [Ref] (constructible via public [mkRef] but INERT) cannot fabricate
-    OR retype a cell through the raw [ref_upd] root at ANY location ([ref_upd_dead_noop] /
-    [ref_upd_wrong_tag_noop]); the NIL case ([r_loc = 0]) is sealed under [WorldOk] ([ref_upd_nil_noop_valid]).
-    Every public write ([ref_set] / [ptr_set] / [hfield_set]) already guards on [ref_sel_opt = Some] before
-    reaching it.  The [Print Assumptions] below certifies the cone axiom-free — gated public evidence, not
-    ungated internal lemmas. *)
-Definition ref_provenance_surface :=
+(** WRONG-TAG ANTI-FORGERY SURFACE: the ref anti-forgery witnesses as MANIFEST-GATED, zero-axiom PUBLIC
+    evidence — the ref analogue of [GoChan.chan_wrong_tag_antiforgery_surface] /
+    [GoMap.map_wrong_tag_antiforgery_surface].  These are TYPED-LIVENESS negatives (an invalid handle cannot
+    mutate), NOT origin PROVENANCE: a forged / absent / dangling / WRONG-TAG [Ref] (constructible via public
+    [mkRef] but INERT) cannot fabricate OR retype a cell through the raw [ref_upd] root at ANY location
+    ([ref_upd_dead_noop] / [ref_upd_wrong_tag_noop]); the NIL case ([r_loc = 0]) is sealed under [WorldOk]
+    ([ref_upd_nil_noop_valid]).  (A SAME-TAG forged handle aliasing a real same-tag cell is NOT stopped here —
+    that needs allocation origin evidence, still open.)  Every public write ([ref_set] / [ptr_set] /
+    [hfield_set]) already guards on [ref_sel_opt = Some] before reaching it.  The [Print Assumptions] below
+    certifies the cone axiom-free — gated public evidence, not ungated internal lemmas. *)
+Definition ref_wrong_tag_antiforgery_surface :=
   (@ref_upd_dead_noop, @ref_upd_wrong_tag_noop, @ref_upd_nil_noop_valid).
-Print Assumptions ref_provenance_surface.
+Print Assumptions ref_wrong_tag_antiforgery_surface.
 
 (** Consequences of bumping the allocator past [l']: the OLD pointer is still [<= l'], and [l'] is
     distinct from the freshly minted location (so the install's [eqb] guard is [false] at [l']).
@@ -888,7 +890,7 @@ Qed.
     premises.  The [Print Assumptions] certifies the whole cone axiom-free.  (The AGGREGATE / multi-cell
     handles — [SliceH], [GSPtr] — have their own allocator-liveness in [heap_aggregate_liveness_surface]
     below, next to their later definitions.  The wrong-tag ANTI-forgery half is the separate
-    [ref_provenance_surface] / [GoChan.chan_provenance_surface] / [GoMap.map_provenance_surface]; this is the
+    [ref_wrong_tag_antiforgery_surface] / [GoChan.chan_wrong_tag_antiforgery_surface] / [GoMap.map_wrong_tag_antiforgery_surface]; this is the
     positive LIVENESS half.) *)
 Definition heap_alloc_safety_surface :=
   (@ptr_new_nonzero, @ptr_new_reads, @ptr_alloc_assign_no_panic,
