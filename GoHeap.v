@@ -348,17 +348,42 @@ Proof.
     rewrite Hne. exact (Hfresh l Hle).
 Qed.
 
-(** A RANGE install — the shape the slice allocators produce: fill [w_next w, w_next w + cp) with the zero
-    value in one world, bumping [w_next] past the block.  Validity holds directly (no induction): loc 0 is
-    below the range (base [= w_next w > 0]), and every fresh location [>= w_next w + cp] is above it. *)
-Lemma valid_alloc_slice_range : forall {A} (tag : GoTypeTag A) (cp : nat) (w : World),
+(** A LIVE cell is INTERIOR — under [ValidWorld] a handle that reads [Some] sits at [0 < loc < w_next]: loc 0
+    (Go's nil) and every fresh location are empty, so a readable cell is neither. *)
+Lemma valid_live_interior : forall {A} (r : Ref A) (a : A) (w : World),
+  ValidWorld w -> ref_sel_opt r w = Some a -> (0 < r_loc r)%nat /\ (r_loc r < w_next w)%nat.
+Proof.
+  intros A r a w [Hpos [[Hr0 _] Hfresh]] Hs. unfold ref_sel_opt in Hs.
+  destruct (w_refs w (r_loc r)) as [c|] eqn:Hw; [ | discriminate Hs ]. split.
+  - assert (Hne : r_loc r <> 0) by (intro E; rewrite E, Hr0 in Hw; discriminate Hw). lia.
+  - destruct (Nat.ltb (r_loc r) (w_next w)) eqn:Hlt; [ apply Nat.ltb_lt; exact Hlt | ].
+    apply Nat.ltb_ge in Hlt. destruct (Hfresh (r_loc r) (proj2 (Nat.leb_le _ _) Hlt)) as [Hrn _].
+    rewrite Hrn in Hw; discriminate Hw.
+Qed.
+
+(** [ref_upd] preserves [ValidWorld] UNCONDITIONALLY — it is guarded (a no-op on a non-live handle, so it never
+    fabricates a cell at loc 0 or a fresh location) and leaves [w_next] fixed; on a live handle the target is
+    interior ([valid_live_interior]).  This covers every in-place write ([ref_set]/[ptr_set]/append-in-cap). *)
+Lemma valid_ref_upd : forall {A} (r : Ref A) (v : A) (w : World),
+  ValidWorld w -> ValidWorld (ref_upd r v w).
+Proof.
+  intros A r v w HV. unfold ref_upd. destruct (ref_sel_opt r w) as [a|] eqn:Hs; [ | exact HV ].
+  destruct (valid_live_interior r a w HV Hs) as [Hlo Hhi].
+  exact (valid_ref_install_interior r v w HV Hlo Hhi).
+Qed.
+
+(** A RANGE install — the shape the slice ops produce when they mint a fresh backing (both slice makes with the
+    zero value; [slice_append]'s realloc with the copied/appended values).  Validity holds directly (no
+    induction) and is INDIFFERENT to the installed values [g]: loc 0 is below the range (base [= w_next w > 0]),
+    every fresh location [>= w_next w + cp] is above it, and only those out-of-range cells matter to the
+    invariant. *)
+Lemma valid_alloc_range : forall (g : RefHeap) (cp : nat) (w : World),
   ValidWorld w ->
   ValidWorld (mkWorld
-    (fun k => if (Nat.leb (w_next w) k && Nat.ltb k (w_next w + cp))%bool
-              then Some (existT _ A (tag, zero_val tag)) else w_refs w k)
+    (fun k => if (Nat.leb (w_next w) k && Nat.ltb k (w_next w + cp))%bool then g k else w_refs w k)
     (w_chans w) (w_maps w) (w_next w + cp) (w_output w)).
 Proof.
-  intros A tag cp w [Hpos [Hloc0 Hfresh]]. apply Nat.ltb_lt in Hpos. split; [ | split ].
+  intros g cp w [Hpos [Hloc0 Hfresh]]. apply Nat.ltb_lt in Hpos. split; [ | split ].
   - cbn [w_next]. apply Nat.ltb_lt. lia.
   - cbn [w_refs w_chans w_maps]. destruct Hloc0 as [Hr0 [Hc0 Hm0]].
     assert (Ha : Nat.leb (w_next w) 0 = false) by (apply Nat.leb_gt; lia).
@@ -369,16 +394,19 @@ Proof.
     destruct (Nat.leb (w_next w) l); repeat split; assumption.
 Qed.
 
-(** The invariant is genuinely INDUCTIVE across the REAL allocator API (not just the world-shapes above):
-    running any world-allocating op on a valid world yields a valid world.  With [valid_w_init] this means
-    EVERY world reachable by a finite allocation sequence is valid — so [valid_fresh_nonzero] /
-    [valid_fresh_disjoint] apply at every allocation.  Proven BY NAME for the FULL set of world-bumping
-    allocators: the single-cell [valid_run_ref_new] / [valid_run_ptr_new] / [valid_run_make_chan] /
-    [valid_run_make_chan_buf] / [valid_run_map_typed], and the multi-cell [valid_run_slice_make_lc] /
-    [valid_run_slice_make_h] / [valid_run_gsptr_new] (placed next to their later definitions, once the slice /
-    struct machinery is in scope).  Several liveness facts LEAN on this — [ptr_new_nonzero], [make_chan_nonzero],
-    [gsptr_new_live] &c. need [ValidWorld] for a nonzero location/base, and these corollaries are what carry the
-    invariant THROUGH each allocation so a later one in the same program still sees it. *)
+(** The invariant is genuinely INDUCTIVE across the REAL model API (not just the world-shapes above): running
+    any world-MUTATING op on a valid world yields a valid world.  With [valid_w_init] this means EVERY world
+    reachable by a finite op sequence is valid — so [valid_fresh_nonzero] / [valid_fresh_disjoint] apply at
+    every allocation.  Proven BY NAME for every op that can BUMP [w_next]: the single-cell allocators
+    [valid_run_ref_new] / [valid_run_ptr_new] / [valid_run_make_chan] / [valid_run_make_chan_buf] /
+    [valid_run_map_typed], the multi-cell allocators [valid_run_slice_make_lc] / [valid_run_slice_make_h] /
+    [valid_run_gsptr_new], AND [valid_run_slice_append] — [append] is not an allocator but its realloc branch
+    mints a fresh backing (its in-cap branch writes in place, [valid_ref_upd]); those latter three sit next to
+    their later definitions once the slice / struct machinery is in scope.  Every other public op leaves
+    [w_next] fixed and its heap edits are guarded, so [valid_ref_upd] &c. cover them.  Several liveness facts
+    LEAN on all this — [ptr_new_nonzero], [make_chan_nonzero], [gsptr_new_live] &c. need [ValidWorld] for a
+    nonzero location/base, and these corollaries carry the invariant THROUGH each op so a later one still sees
+    it. *)
 Corollary valid_run_ref_new : forall {A} (tag : GoTypeTag A) (v : A) (w : World) r w',
   ValidWorld w -> run_io (ref_new tag v) w = ORet r w' -> ValidWorld w'.
 Proof.
@@ -1552,21 +1580,33 @@ Proof.
   apply andb_prop in Hc as [H0 Hlc]. apply Z.leb_le in H0. apply Z.leb_le in Hlc. lia.
 Qed.
 
-(** Both slice allocators are in the [ValidWorld] preservation path — they RANGE-install [w_next, w_next+cp)
-    ([valid_alloc_slice_range]), so a program making a slice then allocating again keeps the invariant. *)
+(** The slice ops that mint or grow a backing are in the [ValidWorld] preservation path — both makes and
+    [slice_append]'s realloc RANGE-install ([valid_alloc_range]); [slice_append]'s in-cap branch writes in
+    place ([valid_ref_upd]).  So a program making / growing a slice then allocating again keeps the invariant. *)
 Corollary valid_run_slice_make_lc : forall {A} (tag : GoTypeTag A) (len cap : GoInt) (w : World) s w',
   ValidWorld w -> run_io (slice_make_lc tag len cap) w = ORet s w' -> ValidWorld w'.
 Proof.
   intros A tag len cap w s w' HV Hrun. unfold run_io, slice_make_lc in Hrun. cbv zeta in Hrun.
   destruct (Z.leb 0 (intraw len) && Z.leb (intraw len) (intraw cap))%bool eqn:Hc; [ | discriminate Hrun ].
-  injection Hrun as _ Hw. subst w'. apply valid_alloc_slice_range; assumption.
+  injection Hrun as _ Hw. subst w'. apply valid_alloc_range; assumption.
 Qed.
 Corollary valid_run_slice_make_h : forall {A} (tag : GoTypeTag A) (n : GoInt) (w : World) s w',
   ValidWorld w -> run_io (slice_make_h tag n) w = ORet s w' -> ValidWorld w'.
 Proof.
   intros A tag n w s w' HV Hrun. unfold run_io, slice_make_h in Hrun. cbv zeta in Hrun.
   destruct (0 <=? intraw n)%Z eqn:Hc; [ | discriminate Hrun ].
-  injection Hrun as _ Hw. subst w'. apply valid_alloc_slice_range; assumption.
+  injection Hrun as _ Hw. subst w'. apply valid_alloc_range; assumption.
+Qed.
+Corollary valid_run_slice_append : forall {A} (tag : GoTypeTag A) (s : SliceH A) (v : A) (w : World) s' w',
+  ValidWorld w -> run_io (slice_append tag s v) w = ORet s' w' -> ValidWorld w'.
+Proof.
+  intros A tag s v w s' w' HV Hrun. unfold run_io, slice_append in Hrun. cbv zeta in Hrun.
+  destruct (sh_len s <? sh_cap s)%nat eqn:Hlc.
+  - destruct (ref_sel_opt (sh_cell s (sh_len s)) w) as [a|] eqn:Hs; [ | discriminate Hrun ].
+    injection Hrun as _ Hw. subst w'. apply valid_ref_upd; exact HV.
+  - destruct (Nat.eqb (sh_len s) (sh_cap s)) eqn:Heq; [ | discriminate Hrun ].
+    destruct (slice_range_live s (sh_len s) w) eqn:Hlive; [ | discriminate Hrun ].
+    injection Hrun as _ Hw. subst w'. apply valid_alloc_range; exact HV.
 Qed.
 
 (** SLICE OP NO-PANIC (the aggregate no-panic frontier, now CLOSED): reading or writing a FRESH
