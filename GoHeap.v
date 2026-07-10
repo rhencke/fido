@@ -1772,47 +1772,54 @@ Qed.
    clear/copy ranges are the interval [[sh_start s, sh_start s + len)]. *)
 Definition sh_start {A} (s : SliceH A) : nat := sh_base s + sh_off s.
 
-(** [clear(s)] (Go 1.21): zero [s]'s [len] elements.  A declarative range update, TAG-AWARE guarded per cell —
-    an in-range cell is zeroed ONLY if it reads LIVE + TAG-CORRECT ([ref_sel_opt (mkRef k tag) w = Some _]); an
-    absent OR WRONG-TAG cell (a forged / dangling handle, or one aliasing a foreign-typed cell) is LEFT
-    UNCHANGED ([w_refs w k]), never FABRICATED and never RETYPED.  This is the bulk analogue of the guarded
-    [ref_upd]: it cannot install a cell at loc 0 / a fresh location nor retype a foreign cell, so it preserves
-    [ValidWorld] ([valid_run_slice_clear_h]) and forges nothing.  For a real slice (every backing cell live and
-    tag-correct, from [slice_make]) the whole range is zeroed, unchanged.  Lowered by name ([clear(s)]). *)
+(** [clear(s)] (Go 1.21): zero [s]'s [len] elements.  FAILS LOUD ([rt_nil_deref]) unless EVERY element cell
+    reads LIVE + TAG-CORRECT ([slice_range_live s (sh_len s) w] — itself the tag-aware [ref_sel_opt] range
+    check): a forged / dangling / wrong-tag handle does NOT silently succeed, exactly like [slice_idx_set] /
+    [slice_append].  On the live path each cell is zeroed through a TAG-AWARE per-cell guard, so even defensively
+    nothing at loc 0 / a fresh location / a foreign-typed cell is ever FABRICATED or RETYPED — hence
+    [valid_run_slice_clear_h] (preserves [ValidWorld]).  For a real slice the whole range is zeroed.  Lowered by
+    name ([clear(s)]); the fail-loud branch is model-only (a real [clear] always sees live cells). *)
 Definition slice_clear_h {A} (tag : GoTypeTag A) (s : SliceH A) : IO unit :=
-  fun w => ORet tt
-    (mkWorld (fun k => if (Nat.leb (sh_start s) k
-                           && Nat.ltb k (sh_start s + sh_len s))%bool
-                       then match ref_sel_opt (mkRef k tag) w with
-                            | Some _ => Some (existT _ A (tag, zero_val tag))
-                            | None   => w_refs w k
-                            end
-                       else w_refs w k)
-             (w_chans w) (w_maps w) (w_next w) (w_output w)).
+  fun w => if slice_range_live s (sh_len s) w
+           then ORet tt
+             (mkWorld (fun k => if (Nat.leb (sh_start s) k
+                                    && Nat.ltb k (sh_start s + sh_len s))%bool
+                                then match ref_sel_opt (mkRef k tag) w with
+                                     | Some _ => Some (existT _ A (tag, zero_val tag))
+                                     | None   => w_refs w k
+                                     end
+                                else w_refs w k)
+                      (w_chans w) (w_maps w) (w_next w) (w_output w))
+           else OPanic rt_nil_deref w.
 
-(** [copy(dst, src)]: copy [min(len dst, len src)] elements [src → dst], return the count.  TAG-AWARE guarded
-    per cell — a [dst] cell takes the [src] value ONLY when the [dst] cell is a LIVE, TAG-CORRECT cell AND the
-    [src] cell reads LIVE + TAG-CORRECT ([ref_sel_opt = Some sv], the REAL value, never a fabricated zero); any
-    absent / wrong-tag [dst] or [src] leaves the [dst] cell UNCHANGED (never fabricated, never RETYPED).  So a
-    forged handle cannot install at loc 0 / a fresh location nor retype a foreign cell — [copy] preserves
-    [ValidWorld] ([valid_run_slice_copy]) and forges nothing.  For real slices the whole range is written,
-    unchanged.  Lowered by name ([copy(dst, src)]). *)
+(** [copy(dst, src)]: copy [min(len dst, len src)] elements [src → dst], return the count.  FAILS LOUD
+    ([rt_nil_deref]) unless the first [n] cells of BOTH [dst] and [src] read LIVE + TAG-CORRECT
+    ([slice_range_live dst n w && slice_range_live src n w]) — a forged / dangling / wrong-tag handle does NOT
+    silently succeed.  On the live path each [dst] cell takes the [src] value through a TAG-AWARE per-cell guard
+    reading the REAL [src] value ([ref_sel_opt = Some sv], never a fabricated zero); nothing at loc 0 / a fresh
+    location / a foreign-typed cell is ever fabricated or RETYPED — hence [valid_run_slice_copy] (preserves
+    [ValidWorld]).  For real slices the whole range is written.  Lowered by name ([copy(dst, src)]); the
+    fail-loud branch is model-only. *)
 Definition slice_copy {A} (tag : GoTypeTag A) (dst src : SliceH A) : IO GoInt :=
   fun w => let n := if Nat.leb (sh_len dst) (sh_len src) then sh_len dst else sh_len src in
-           ORet (intwrap (Z.of_nat n))
-    (mkWorld (fun k => if (Nat.leb (sh_start dst) k
-                           && Nat.ltb k (sh_start dst + n))%bool
-                       then match ref_sel_opt (mkRef k tag) w,
-                                  ref_sel_opt (mkRef (sh_start src + (k - sh_start dst)) (sh_tag src)) w with
-                            | Some _, Some sv => Some (existT _ A (tag, sv))
-                            | _, _            => w_refs w k
-                            end
-                       else w_refs w k)
-             (w_chans w) (w_maps w) (w_next w) (w_output w)).
+           if (slice_range_live dst n w && slice_range_live src n w)%bool
+           then ORet (intwrap (Z.of_nat n))
+             (mkWorld (fun k => if (Nat.leb (sh_start dst) k
+                                    && Nat.ltb k (sh_start dst + n))%bool
+                                then match ref_sel_opt (mkRef k tag) w,
+                                           ref_sel_opt (mkRef (sh_start src + (k - sh_start dst)) (sh_tag src)) w with
+                                     | Some _, Some sv => Some (existT _ A (tag, sv))
+                                     | _, _            => w_refs w k
+                                     end
+                                else w_refs w k)
+                      (w_chans w) (w_maps w) (w_next w) (w_output w))
+           else OPanic rt_nil_deref w.
 Corollary valid_run_slice_clear_h : forall {A} (tag : GoTypeTag A) (s : SliceH A) (w : World) r w',
   ValidWorld w -> run_io (slice_clear_h tag s) w = ORet r w' -> ValidWorld w'.
 Proof.
-  intros A tag s w r w' HV Hrun. unfold run_io, slice_clear_h in Hrun. injection Hrun as _ Hw. subst w'.
+  intros A tag s w r w' HV Hrun. unfold run_io, slice_clear_h in Hrun.
+  destruct (slice_range_live s (sh_len s) w); [ | discriminate Hrun ].
+  injection Hrun as _ Hw. subst w'.
   apply valid_guarded_refs; [ exact HV | ]. intros k Hk. cbn beta.
   assert (Hns : ref_sel_opt (mkRef k tag) w = None) by (unfold ref_sel_opt; cbn [r_loc]; rewrite Hk; reflexivity).
   destruct (Nat.leb (sh_start s) k && Nat.ltb k (sh_start s + sh_len s))%bool; [ rewrite Hns | ]; exact Hk.
@@ -1821,8 +1828,9 @@ Corollary valid_run_slice_copy : forall {A} (tag : GoTypeTag A) (dst src : Slice
   ValidWorld w -> run_io (slice_copy tag dst src) w = ORet r w' -> ValidWorld w'.
 Proof.
   intros A tag dst src w r w' HV Hrun. unfold run_io, slice_copy in Hrun. cbv zeta in Hrun.
+  set (n := if Nat.leb (sh_len dst) (sh_len src) then sh_len dst else sh_len src) in Hrun.
+  destruct (slice_range_live dst n w && slice_range_live src n w)%bool; [ | discriminate Hrun ].
   injection Hrun as _ Hw. subst w'.
-  set (n := if Nat.leb (sh_len dst) (sh_len src) then sh_len dst else sh_len src).
   apply valid_guarded_refs; [ exact HV | ]. intros k Hk. cbn beta.
   assert (Hns : ref_sel_opt (mkRef k tag) w = None) by (unfold ref_sel_opt; cbn [r_loc]; rewrite Hk; reflexivity).
   destruct (Nat.leb (sh_start dst) k && Nat.ltb k (sh_start dst + n))%bool; [ rewrite Hns | ]; exact Hk.
