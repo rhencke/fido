@@ -277,14 +277,17 @@ Fixpoint go {A} (c : Cmd A) (w : World) : option (Outcome A * list (Cmd unit)) :
       match w_chans w c with
       | None => None
       | Some (existT _ E (tag, (buf, (closed, cap)))) =>
-          if closed then Some (OPanic rt_send_closed w, nil)
-          else match v with existT _ A0 (x, ta) =>
+          (* TAG-FIRST (checkpoint-58): a tag-MISMATCHED send is stuck ([None]) BEFORE observing the cell's
+             [closed] flag — a mistyped send never leaks [rt_send_closed] off a foreign closed cell (matches
+             [GoChan]'s [send], which guards on [chan_cell_ok] first). *)
+          match v with existT _ A0 (x, ta) =>
             match tag_coerce tag ta x with
             | None => None
             | Some xe =>
-                if chan_room_cap (length buf) cap
-                then go k (chan_cell_upd c (existT _ E (tag, (buf ++ xe :: nil, (closed, cap)))) w)
-                else None
+                if closed then Some (OPanic rt_send_closed w, nil)
+                else if chan_room_cap (length buf) cap
+                     then go k (chan_cell_upd c (existT _ E (tag, (buf ++ xe :: nil, (closed, cap)))) w)
+                     else None
             end end
       end
   | CChRecv c tg f =>
@@ -362,14 +365,16 @@ Fixpoint run_cmd {A} (c : Cmd A) (w : World) : option (Outcome A) :=
       match w_chans w c with
       | None => None
       | Some (existT _ E (tag, (buf, (closed, cap)))) =>
-          if closed then Some (OPanic rt_send_closed w)
-          else match v with existT _ A0 (x, ta) =>
+          (* TAG-FIRST (checkpoint-58): see [go]'s [CChSend] — a mistyped send is stuck before observing
+             [closed], never leaking [rt_send_closed]. *)
+          match v with existT _ A0 (x, ta) =>
             match tag_coerce tag ta x with
             | None => None
             | Some xe =>
-                if chan_room_cap (length buf) cap
-                then run_cmd k (chan_cell_upd c (existT _ E (tag, (buf ++ xe :: nil, (closed, cap)))) w)
-                else None
+                if closed then Some (OPanic rt_send_closed w)
+                else if chan_room_cap (length buf) cap
+                     then run_cmd k (chan_cell_upd c (existT _ E (tag, (buf ++ xe :: nil, (closed, cap)))) w)
+                     else None
             end end
       end
   | CChRecv c tg f =>
@@ -509,14 +514,15 @@ Proof.
     exists oc0, ds, r. split; [ cbn [go]; rewrite E; exact Hgo | split; [ exact Hun | exact Hoc ] ].
   - destruct (IH (f (w_next w)) (alloc_world v w) oc H) as [oc0 [ds [r [Hgo [Hun Hoc]]]]].
     exists oc0, ds, r. split; [ cbn [go]; exact Hgo | split; [ exact Hun | exact Hoc ] ].
-  - (* CChSend *)
+  - (* CChSend — TAG-FIRST: match cell, then v, then tag_coerce, THEN closed *)
     destruct (w_chans w ch) as [[E [tag [buf [closed cap]]]]|] eqn:Ec; [ | discriminate H ].
+    destruct v as [A0 [x ta]].
+    destruct (tag_coerce tag ta x) as [xe|] eqn:Etc; [ | discriminate H ].
     destruct closed.
     + injection H as <-. exists (OPanic rt_send_closed w), nil, (OPanic rt_send_closed w).
-      split; [ cbn [go]; rewrite Ec; reflexivity | split; [ exact (UwNil _) | reflexivity ] ].
-    + destruct v as [A0 [x ta]].
-      destruct (tag_coerce tag ta x) as [xe|] eqn:Etc; [ | discriminate H ].
-      destruct (chan_room_cap (length buf) cap) eqn:Er; [ | discriminate H ].
+      split; [ cbn [go]; rewrite Ec; cbn beta iota; rewrite Etc; reflexivity
+             | split; [ exact (UwNil _) | reflexivity ] ].
+    + destruct (chan_room_cap (length buf) cap) eqn:Er; [ | discriminate H ].
       destruct (IH c' _ oc H) as [oc0 [ds [r [Hgo [Hun Hoc]]]]].
       exists oc0, ds, r.
       split; [ cbn [go]; rewrite Ec; cbn beta iota; rewrite Etc; cbn beta iota; rewrite Er; exact Hgo
@@ -589,13 +595,13 @@ Proof.
   - destruct (w_refs w l) as [cell|] eqn:E; [ | discriminate Hgo ].
     apply IH. exists oc0, ds, r. split; [ exact Hgo | split; [ exact Hun | exact Hoc ] ].
   - apply IH. exists oc0, ds, r. split; [ exact Hgo | split; [ exact Hun | exact Hoc ] ].
-  - (* CChSend *)
+  - (* CChSend — TAG-FIRST: match cell, then v, then tag_coerce, THEN closed *)
     destruct (w_chans w ch) as [[E [tag [buf [closed cap]]]]|] eqn:Ec; [ | discriminate Hgo ].
+    destruct v as [A0 [x ta]].
+    destruct (tag_coerce tag ta x) as [xe|] eqn:Etc; [ | discriminate Hgo ].
     destruct closed.
     + injection Hgo as <- <-. inversion Hun; subst. reflexivity.
-    + destruct v as [A0 [x ta]].
-      destruct (tag_coerce tag ta x) as [xe|] eqn:Etc; [ | discriminate Hgo ].
-      destruct (chan_room_cap (length buf) cap) eqn:Er; [ | discriminate Hgo ].
+    + destruct (chan_room_cap (length buf) cap) eqn:Er; [ | discriminate Hgo ].
       apply IH. exists oc0, ds, r. split; [ exact Hgo | split; [ exact Hun | exact Hoc ] ].
   - (* CChRecv *)
     destruct (w_chans w ch) as [[E [tag [buf [closed cap]]]]|] eqn:Ec; [ | discriminate Hgo ].

@@ -395,6 +395,8 @@ Proof.
     eapply usteps_step; [ eapply ustep_alloc; [ exact Hlv | exact Hp ] | exact Hus ].
   - (* CChSend *)
     destruct (w_chans w ch) as [[E [tag [buf [closed cap]]]]|] eqn:Ec; [ | discriminate Hgo ].
+    destruct v as [A0 [x ta]].
+    destruct (tag_coerce tag ta x) as [xe|] eqn:Etc; [ | discriminate Hgo ].
     destruct closed eqn:Ecl.
     + (* send-on-closed: one panic step, both sides *)
       injection Hgo as <- <-.
@@ -405,9 +407,7 @@ Proof.
         [ eapply ustep_send_closed;
             [ exact Hlv | exact Hp | rewrite (Hca ch), Ec; reflexivity ]
         | apply usteps_refl ].
-    + destruct v as [A0 [x ta]].
-      destruct (tag_coerce tag ta x) as [xe|] eqn:Etc; [ | discriminate Hgo ].
-      destruct (chan_room_cap (length buf) cap) eqn:Er; [ | discriminate Hgo ].
+    + destruct (chan_room_cap (length buf) cap) eqn:Er; [ | discriminate Hgo ].
       set (w2 := chan_cell_upd ch (existT _ E (tag, (buf ++ xe :: nil, (false, cap)))) w).
       set (b2 := upd b ch (b ch ++ (existT (fun T => (T * GoTypeTag T)%type) A0 (x, ta), length tr) :: nil)).
       assert (Hba' : bufs_agree b2 (w_chans w2)).
@@ -740,13 +740,13 @@ Proof.
   - destruct (w_refs w l) as [cell|]; [ | discriminate H ].
     exact (IH (f (any_of_cell cell)) w oc H).
   - exact (IH (f (w_next w)) (alloc_world v w) oc H).
-  - (* CChSend *)
+  - (* CChSend — TAG-FIRST: match cell, then v, then tag_coerce, THEN closed *)
     destruct (w_chans w ch) as [[E [tag [buf [closed cap]]]]|]; [ | discriminate H ].
+    destruct v as [A0 [x ta]].
+    destruct (tag_coerce tag ta x) as [xe|]; [ | discriminate H ].
     destruct closed.
     + injection H as <-. exists nil. cbn [oc_world]. rewrite app_nil_r. reflexivity.
-    + destruct v as [A0 [x ta]].
-      destruct (tag_coerce tag ta x) as [xe|]; [ | discriminate H ].
-      destruct (chan_room_cap (length buf) cap); [ | discriminate H ].
+    + destruct (chan_room_cap (length buf) cap); [ | discriminate H ].
       exact (IH c' _ oc H).
   - (* CChRecv *)
     destruct (w_chans w ch) as [[E [tag [buf [closed cap]]]]|]; [ | discriminate H ].
@@ -1005,10 +1005,17 @@ Proof.
   exact (cchrecv_closed_typed_zero TString ch f w GoString TString cap Hc
            (ex_intro _ eq_refl (tag_eq_refl TString))).
 Qed.
-Theorem cchsend_closed_panics : forall ch v (k : Cmd unit) w E tag buf cap,
+(** Send on a CLOSED channel panics ([rt_send_closed]) — Go-faithful, but ONLY for a TAG-CORRECT value
+    ([anyt tag x], the sent value tagged with the cell's own [tag]).  Checkpoint-58: [run_cmd]'s [CChSend] is
+    tag-first, so a MISTYPED send on a closed cell is STUCK ([None]), NOT a panic — a forged wrong-tag value
+    never observes the cell's closedness (mirrors [GoChan.send]'s [chan_cell_ok]-first guard). *)
+Theorem cchsend_closed_panics : forall ch (k : Cmd unit) w E (tag : GoTypeTag E) (x : E) buf cap,
   w_chans w ch = Some (existT _ E (tag, (buf, (true, cap)))) ->
-  run_cmd (CChSend ch v k) w = Some (OPanic rt_send_closed w).
-Proof. intros ch v k w E tag buf cap Hc. cbn [run_cmd]. rewrite Hc. reflexivity. Qed.
+  run_cmd (CChSend ch (anyt tag x) k) w = Some (OPanic rt_send_closed w).
+Proof.
+  intros ch k w E tag x buf cap Hc. cbn [run_cmd]. rewrite Hc. cbn beta iota.
+  rewrite tag_coerce_refl. reflexivity.
+Qed.
 Theorem cchclose_closed_panics : forall ch (k : Cmd unit) w E tag buf cap,
   w_chans w ch = Some (existT _ E (tag, (buf, (true, cap)))) ->
   run_cmd (CChClose ch k) w = Some (OPanic rt_close_closed w).
