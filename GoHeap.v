@@ -1883,8 +1883,9 @@ Qed.
     [heap_alloc_safety_surface] for the MULTI-CELL handles — a slice's backing and a struct's fields.
     LIVENESS (allocator produces a live cell — the checkpoint-58 "allocators produce Live*" fact, discharged
     from the allocation like [ref_new_reads]): [slice_make_lc_cell_live] (every [make([]T,len,cap)] backing
-    cell, any [j < cap], reads [Some zero_val]); [gsptr_new_fields_live] (every [gsptr_new] field cell is
-    live).  STRUCT NO-PANIC (genuine, correct SHAPE = existence of an [ORet]): [gsptr_new_assign_no_panic] — a
+    cell, any [j < cap], reads [Some zero_val]); [slice_make_h_cell_live] (the len=cap [make([]T,n)] backing,
+    any [j < len], reads [Some zero_val]); [gsptr_new_fields_live] (every [gsptr_new] field cell is live).
+    STRUCT NO-PANIC (genuine, correct SHAPE = existence of an [ORet]): [gsptr_new_assign_no_panic] — a
     whole-struct assign to a fresh pointer definitely returns.  FIDELITY: [gsptr_new_deref_assign] —
     assign-then-deref RECOVERS THE VALUE (an EQUALITY, NOT a no-panic on its own).  SLICE NO-PANIC (existence,
     IN-BOUNDS-gated) for BOTH slice MAKE allocators — [slice_make_lc] ([make([]T,len,cap)]) via
