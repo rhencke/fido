@@ -957,6 +957,50 @@ Definition live_handle_surface :=
   (@ref_new_live, @ptr_new_live, @make_chan_live, @make_chan_buf_live, @map_make_typed_live).
 Print Assumptions live_handle_surface.
 
+(** CHECKED OPS PRESERVE Live* — a public write rides an ALREADY-live cell (the op's guard) and re-installs it
+    with the SAME tag, so the handle stays Live afterwards.  With "allocators produce Live*", a handle a real
+    program threads through its ops is live at EVERY step (the ops' loud/absent branches are never taken).  This
+    is the payoff of the unified interface: one preservation fact per family, not per op-site. *)
+Lemma LiveRef_preserved : forall {A} (r : Ref A) (v : A) (w : World),
+  LiveRef r w -> LiveRef r (ref_upd r v w).
+Proof.
+  intros A r v w H. unfold LiveRef in *.
+  destruct (ref_sel_opt r w) as [a|] eqn:Hs; [ | congruence ].
+  rewrite (ref_sel_opt_upd_same r v a w Hs). discriminate.
+Qed.
+Lemma LivePtr_preserved : forall {A} (tag : GoTypeTag A) (p : Ptr A) (v : A) (w : World),
+  LivePtr tag p w -> LivePtr tag p (ref_upd (ptr_as_ref tag p) v w).
+Proof.
+  intros A tag p v w [Hnil Hcell]. unfold LivePtr. split; [ exact Hnil | ].
+  destruct (ref_sel_opt (ptr_as_ref tag p) w) as [a|] eqn:Hs; [ | congruence ].
+  rewrite (ref_sel_opt_upd_same (ptr_as_ref tag p) v a w Hs). discriminate.
+Qed.
+Lemma LiveChan_send_preserved : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (v : A) (w : World),
+  LiveChan tag ch w -> LiveChan tag ch (chan_send_upd tag ch v w).
+Proof. intros A tag ch v w H. unfold LiveChan in *. exact (chan_cell_ok_send tag ch v w H). Qed.
+Lemma LiveChan_recv_preserved : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (w : World),
+  LiveChan tag ch w -> LiveChan tag ch (chan_recv_upd tag ch w).
+Proof. intros A tag ch w H. unfold LiveChan in *. exact (chan_cell_ok_recv tag ch w H). Qed.
+Lemma LiveChan_close_preserved : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (w : World),
+  LiveChan tag ch w -> LiveChan tag ch (chan_close_upd tag ch w).
+Proof. intros A tag ch w H. unfold LiveChan in *. exact (chan_cell_ok_close tag ch w H). Qed.
+Lemma LiveMap_set_preserved : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (v : V) (m : GoMap K V) (w : World),
+  LiveMap kt vt m w -> LiveMap kt vt m (map_upd kt vt k v m w).
+Proof. intros K V kt vt k v m w H. unfold LiveMap in *. unfold map_upd. apply map_cell_ok_write_same; exact H. Qed.
+Lemma LiveMap_delete_preserved : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (m : GoMap K V) (w : World),
+  LiveMap kt vt m w -> LiveMap kt vt m (map_rem kt vt k m w).
+Proof. intros K V kt vt k m w H. unfold LiveMap in *. unfold map_rem. apply map_cell_ok_write_same; exact H. Qed.
+Lemma LiveMap_clear_preserved : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (m : GoMap K V) (w : World),
+  LiveMap kt vt m w -> LiveMap kt vt m (map_clear_upd kt vt m w).
+Proof. intros K V kt vt m w H. unfold LiveMap in *. unfold map_clear_upd. apply map_cell_ok_write_same; exact H. Qed.
+
+(** Live* PRESERVATION SURFACE (manifest-gated, zero-axiom): checked writes keep the handle Live, one fact per
+    family — ref/ptr set, chan send/recv/close, map set/delete/clear. *)
+Definition live_preserve_surface :=
+  (@LiveRef_preserved, @LivePtr_preserved, @LiveChan_send_preserved, @LiveChan_recv_preserved,
+   @LiveChan_close_preserved, @LiveMap_set_preserved, @LiveMap_delete_preserved, @LiveMap_clear_preserved).
+Print Assumptions live_preserve_surface.
+
 (** ADDRESS-OF / ASSIGNMENT SEMANTICS SURFACE (manifest-gated, zero-axiom PUBLIC evidence): the read-after-
     write / non-nil / deref / aliasing theorems the [SPEC_CONFORMANCE] "Variables / assignment" + address-of
     `&x` ledger cites, so those public claims are GATED, not ungated internal lemmas.  [ref_sel_upd_same] /

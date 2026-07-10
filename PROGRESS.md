@@ -158,8 +158,8 @@ struct assign/deref value-fidelity round-trip + slice read/write NO-PANIC for BO
 (slice_make_lc + slice_make_h), in-bounds-gated & Go-faithful; slice transformers subslice/append are out of
 scope; the aggregate make-allocator no-panic cone matches the scalar families) / `GoHeap.live_handle_surface`
 (the checkpoint-59 step-3 REUSABLE `Live*` family — LiveRef/LivePtr/LiveChan/LiveMap, one canonical
-typed-liveness interface over the per-family checks — slice 1: allocators produce Live*; op-preservation is
-follow-up);
+typed-liveness interface over the per-family checks; allocators produce Live*) / `GoHeap.live_preserve_surface`
+(checked writes PRESERVE Live* — one fact per family: ref/ptr set, chan send/recv/close, map set/delete/clear);
 **printer** + **emit** (compiled STANDALONE incl. `digits.v`, grep `^Axioms:`) cover the spine. A
 `Print Assumptions` under none of the three is not gated.
 

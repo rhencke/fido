@@ -169,6 +169,17 @@ Definition map_write {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
           (w_next w) (w_output w)
   else w.   (* ROOT GUARD (tag-aware): updates a MATCHING existing cell only — a nil / absent / WRONG-TAG handle
                is a NO-OP, so the raw updates never fabricate OR retype a cell; only [map_make_typed] creates. *)
+(** PRESERVATION: a [map_write] to a tag-correct cell keeps it tag-correct — the write re-installs a cell at
+    [gm_loc] carrying the SAME [kt]/[vt] tags, so [map_cell_ok] survives (the map-side dual of
+    [chan_cell_ok_write_same]).  This is what makes [LiveMap] preserved across the checked map writes. *)
+Lemma map_cell_ok_write_same : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) m f sz w,
+  map_cell_ok kt vt m w = true ->
+  map_cell_ok kt vt m (map_write kt vt m f sz w) = true.
+Proof.
+  intros K V kt vt m f sz w Hok. unfold map_write. rewrite Hok. unfold map_cell_ok.
+  rewrite (map_cell_ok_nonnil kt vt m w Hok). cbn [w_maps]. rewrite Nat.eqb_refl. cbn.
+  rewrite !tag_eq_refl. reflexivity.
+Qed.
 Definition map_sel {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
                    (k : K) (m : GoMap K V) (w : World) : option V :=
   map_get_fn kt vt m w k.
