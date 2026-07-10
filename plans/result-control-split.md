@@ -73,3 +73,30 @@ observe `OFault` (Phase 1 already), and the well-typed path never produces it.
 
 Phase 1 is all-or-nothing to COMPILE (adding constructors breaks every exhaustive match at once), so it lands in
 one focused pass, not incrementally. Phases 2–3 depend on the concurrency relation and StoreTyping respectively.
+
+## Ripple analysis (from a spike — the change is NOT purely mechanical arm-addition)
+
+A spike added `OBlock`/`OFault` and validated GoEffects: the core (`outcome_world` / `bind` / `catch` / `run_bind`
+/ `run_catch` / `hoare` + the `bind_Proper` / `catch_Proper` congruence destructs + `bind_ret_r` / `bind_assoc` /
+`hoare_bind` / `hoare_consequence` / `hoare_no_panic` destructs) is a clean mechanical extension: block/fault
+short-circuit like panic in `bind`, pass through `catch`, map to `False` in `hoare` (a valid triple guarantees
+RETURN — no panic, no block, no fault). GoChan/GoMap producers migrate by a targeted `OPanic rt_*` → `OBlock` /
+`OFault` replace (no exhaustive-match breaks — their `ORet` sites are LIST matches, not Outcome matches).
+
+The REAL work is the outcome-CLASSIFICATION layers, where a naive 4th/5th arm is WRONG:
+- **GoCFG.v `blocks_jump_wf_progress`** classifies `run_io b w` into done (`ORet None`) / jump (`ORet (Some pc')`) /
+  panic (`OPanic`) and concludes "never stuck". A CFG block is heap/output ops only, so it NEVER yields
+  `OBlock`/`OFault` — but the theorem quantifies over arbitrary `blocks : list (IO (option pc))`, so the dead
+  cases can't be discharged without a FREEDOM fact. NEEDED: an invariant/lemma that the CFG block class never
+  produces `OBlock`/`OFault` (an induction over the block's construction from heap/output ops), used to close the
+  dead cases — NOT a spurious "\/ blocked" disjunct that weakens the never-stuck progress theorem. Same for
+  `blocks_step` / `cblock_denote_*` (GoCFG lines ~100/196/267/318).
+- **cmd.v `run_cmd` / bridge**: the deep-embedded Cmd interpreter already has its OWN would-block notion
+  (`run_cmd = None` for the deterministic-fragment stuck cases); decide how a shallow-IO `OBlock`/`OFault` from a
+  `CChSend`/`CChRecv`/`CWrite` maps into `run_cmd` (short-circuit like panic, or the Cmd's `None`). cmd_unified.v
+  and GoHeap.v exhaustive matches (heap ops never block/fault) take dead passthrough arms + a heap-level freedom
+  fact where a classification theorem needs it.
+
+So Phase 1 = GoEffects mechanical core + producer replace + a per-pure-layer "never `OBlock`/`OFault`" freedom
+lemma (CFG blocks, heap ops) to discharge dead cases in the classification theorems. Budget it as a focused
+multi-hour pass, not a loop-tick grind; land only when `make check` is green and the manifest is empty.
