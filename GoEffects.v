@@ -61,6 +61,12 @@ Inductive Outcome (A : Type) : Type :=
 Arguments ORet {A} _ _.
 Arguments OPanic {A} _ _.
 
+(** The world component of an outcome — present on BOTH constructors.  Lets a "no mutation" claim say the
+    world is UNCHANGED ([outcome_world (run_io op w) = w]) regardless of whether the op returned or failed
+    loud — a stronger fact than mere non-success ([<> ORet]), and one that pins no panic payload. *)
+Definition outcome_world {A} (o : Outcome A) : World :=
+  match o with ORet _ w => w | OPanic _ w => w end.
+
 Definition IO (A : Type) : Type := World -> Outcome A.
 Definition run_io {A} (m : IO A) (w : World) : Outcome A := m w.
 Definition ret {A} (x : A) : IO A := fun w => ORet x w.
