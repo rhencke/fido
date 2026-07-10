@@ -139,7 +139,9 @@ to the CFG; control-flow coverage is demo-by-demo, golden-locked).
 ## Statements
 - **Variables / assignment** — ✓ mutable locals (`ref_new`/`get`/`set`, read-after-write
   `ref_sel_upd_same`/`ref_get_set_same`); address-of `&x` end-to-end (`ref_as_ptr`,
-  `ref_as_ptr_not_nil` ⇒ `&x` never nil ⇒ safe deref, `ptr_set_ref_as_ptr_aliases`; plugin
+  `ref_as_ptr_not_nil`: `&x` of an allocated local (`r_loc<>0`, which `ref_new` gives) is non-nil ⇒
+  safe deref — NOT unconditional, since the public `mkRef 0` is a representable nil ref;
+  `ptr_set_ref_as_ptr_aliases`; plugin
   emits `&x` FAIL-CLOSED, bound-variable operand only, else `unsupported`).
 - **Short variable declarations `x := e`** — AST gate `go_compile_check` (scope-threaded
   `stmt_okS`/`body_okS` over the sealed `ScopeS`; final `scope_all_used`): ✓ redeclare / blank

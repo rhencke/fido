@@ -568,10 +568,12 @@ Qed.
     Taking the address of a local variable [x] (a [Ref A]) yields a [*T] ([Ptr A]) aliasing x's cell.
     A [Ref] and a [Ptr] share the SAME [w_refs] heap (a [Ref] is a Go local, a [Ptr] its `*T` handle), so
     [&x] is simply the [Ref]'s location wrapped as a (tag-free) [Ptr] — [ptr_as_ref]'s inverse.  KEY SAFETY
-    PROPERTY: a [Ref] always lives at a NONZERO location ([ValidWorld] reserves 0 for nil), so
-    [&x] is NEVER nil; dereferencing it therefore never panics.  Taking an address is ALWAYS safe (unlike a
-    raw [*T], which may be nil).  Read/write THROUGH [&x] alias [x] — the defining pointer behaviour —
-    inherited from the shared heap, no new axiom. *)
+    PROPERTY (CONDITIONAL, not blanket): an ALLOCATED local ([ref_new]'s result) lives at a NONZERO location,
+    and for such an [x] ([r_loc r <> 0]) [&x] is non-nil and safe to dereference ([ref_as_ptr_not_nil],
+    below).  This is NOT intrinsic to [ref_as_ptr]: [Ref] is a public record, so the forgeable [mkRef 0] is a
+    representable nil ref whose [&] is a nil [Ptr] — the nonzero-location premise is a HYPOTHESIS on the
+    handle (satisfied by every [ref_new], NOT by an arbitrary [Ref]).  Read/write THROUGH [&x] alias [x] —
+    the defining pointer behaviour — inherited from the shared heap, no new axiom. *)
 Definition ref_as_ptr {A} (r : Ref A) : Ptr A := mkPtr (r_loc r).
 
 Lemma ref_as_ptr_loc : forall {A} (r : Ref A), p_loc (ref_as_ptr r) = r_loc r.

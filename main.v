@@ -1771,8 +1771,10 @@ Definition ptr_demo : IO unit :=
   println [any b]))))).                        (* prints 99 *)
 
 (** [&x] — ADDRESS-OF: takes the address of a LOCAL [Ref], yielding a pointer ALIASING
-    x's cell, so a callee writing through it mutates the caller's variable.  [&x] is
-    provably never nil ([ref_as_ptr_not_nil]); write visibility is
+    x's cell, so a callee writing through it mutates the caller's variable.  Here [x] is an
+    allocated local ([ref_new], so [r_loc x <> 0]), hence [&x] is provably non-nil
+    ([ref_as_ptr_not_nil], whose [r_loc <> 0] premise that allocation satisfies — the guarantee is
+    conditional, not intrinsic: a forged [mkRef 0] would be a nil ref).  Write visibility is
     [ptr_set_ref_as_ptr_aliases].  Lowers to Go [write_thru(&x)]. *)
 Definition write_thru (p : Ptr GoI64) : IO unit :=
   ptr_set TI64 p (99)%i64.                     (* *p = int64(99) *)
