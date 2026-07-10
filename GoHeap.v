@@ -371,9 +371,10 @@ Qed.
 (** [ref_get] — FAILS LOUD on a missing/retyped cell: dereferencing an absent / dangling / WRONG-TAG
     [Ref] (e.g. [mkRef 5 …] at an unallocated location) panics with the Go nil-pointer/invalid-address
     message instead of fabricating a zero.  ([ref_sel_opt] has no loc-0 guard, so a NIL [Ref] over a forged
-    matching-tag loc-0 cell would READ it — dead only under [WorldOk].)  Body is plugin-lowered to [*r], so the
-    loud check never reaches the emitted Go (a real [r] is always allocated); it only rules out the model
-    accepting a forged read. *)
+    matching-tag loc-0 cell would READ it — dead only under [WorldOk].)  A [Ref] is a plain Go VARIABLE, so
+    [ref_get] lowers to a bare variable read [x] (NOT a pointer deref [*r] — that is [ptr_get]); the loud check
+    is proof-only and never reaches the emitted Go (a variable the generator emits is always in scope).  It
+    only rules out the MODEL accepting a forged read. *)
 Definition ref_get {A} (tag : GoTypeTag A) (r : Ref A) : IO A :=
   fun w => match ref_sel_opt r w with
            | Some a => ORet a w
@@ -581,7 +582,9 @@ Lemma ptr_as_ref_of_ref_as_ptr : forall {A} (r : Ref A),
   ptr_as_ref (r_tag r) (ref_as_ptr r) = r.
 Proof. intros A [l tag]. reflexivity. Qed.
 
-(* [&x] is never nil (a [Ref]'s location is nonzero), so it is SAFE to dereference — never panics. *)
+(* [&x] of an ALLOCATED local ([r_loc r <> 0] — the premise, which [ref_new]'s result satisfies) yields a
+   non-nil pointer, SAFE to dereference.  (Not ALL [Ref]s are nonzero: the public [mkRef 0] is a nil ref, so
+   [r_loc r <> 0] is a HYPOTHESIS, not a blanket fact.) *)
 Lemma ref_as_ptr_not_nil : forall {A} (r : Ref A),
   r_loc r <> 0 -> p_loc (ref_as_ptr r) <> 0.
 Proof. intros A r Hnz. rewrite ref_as_ptr_loc. exact Hnz. Qed.
