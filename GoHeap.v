@@ -372,6 +372,22 @@ Proof.
   exact (valid_ref_install_interior r v w HV Hlo Hhi).
 Qed.
 
+(** A bulk ref-heap rewrite preserves [ValidWorld] as long as it never turns an EMPTY cell into a live one —
+    i.e. it agrees with the old heap ([= None]) wherever the old heap was [None].  Loc 0 and every fresh
+    location are [None] in a valid world, so such a rewrite cannot fabricate a cell there.  This is the
+    ValidWorld obligation for the GUARDED bulk slice writes ([slice_clear_h]/[slice_copy]): each only rewrites a
+    cell it read LIVE, so an absent cell stays [None]. *)
+Lemma valid_guarded_refs : forall (newrefs : RefHeap) (w : World),
+  ValidWorld w -> (forall k, w_refs w k = None -> newrefs k = None) ->
+  ValidWorld (mkWorld newrefs (w_chans w) (w_maps w) (w_next w) (w_output w)).
+Proof.
+  intros newrefs w [Hpos [[Hr0 [Hc0 Hm0]] Hfresh]] Hkeep. split; [ | split ].
+  - cbn [w_next]. exact Hpos.
+  - cbn [w_refs w_chans w_maps]. split; [ exact (Hkeep 0 Hr0) | split; [ exact Hc0 | exact Hm0 ] ].
+  - intros l Hle. cbn [w_next w_refs w_chans w_maps] in *. destruct (Hfresh l Hle) as [Hr [Hc Hm]].
+    split; [ exact (Hkeep l Hr) | split; [ exact Hc | exact Hm ] ].
+Qed.
+
 (** A RANGE install — the shape the slice ops produce when they mint a fresh backing (both slice makes with the
     zero value; [slice_append]'s realloc with the copied/appended values).  Validity holds directly (no
     induction) and is INDIFFERENT to the installed values [g]: loc 0 is below the range (base [= w_next w > 0]),
@@ -1756,38 +1772,40 @@ Qed.
    clear/copy ranges are the interval [[sh_start s, sh_start s + len)]. *)
 Definition sh_start {A} (s : SliceH A) : nat := sh_base s + sh_off s.
 
-(** [clear(s)] (Go 1.21): zero [s]'s [len] elements.  A declarative range update that is GUARDED per cell —
-    an in-range cell is zeroed ONLY if it is already LIVE ([w_refs w k = Some _]); an absent cell (a forged /
-    dangling handle whose backing was never allocated) is LEFT [None], never FABRICATED.  This is the bulk
-    analogue of the guarded [ref_upd]: it cannot install a cell at loc 0 or a fresh location, so it preserves
-    [ValidWorld] ([valid_run_slice_clear_h]) and never forges state.  For a real slice (every backing cell
-    live, from [slice_make]) the whole range is zeroed, unchanged.  Lowered by name ([clear(s)]). *)
+(** [clear(s)] (Go 1.21): zero [s]'s [len] elements.  A declarative range update, TAG-AWARE guarded per cell —
+    an in-range cell is zeroed ONLY if it reads LIVE + TAG-CORRECT ([ref_sel_opt (mkRef k tag) w = Some _]); an
+    absent OR WRONG-TAG cell (a forged / dangling handle, or one aliasing a foreign-typed cell) is LEFT
+    UNCHANGED ([w_refs w k]), never FABRICATED and never RETYPED.  This is the bulk analogue of the guarded
+    [ref_upd]: it cannot install a cell at loc 0 / a fresh location nor retype a foreign cell, so it preserves
+    [ValidWorld] ([valid_run_slice_clear_h]) and forges nothing.  For a real slice (every backing cell live and
+    tag-correct, from [slice_make]) the whole range is zeroed, unchanged.  Lowered by name ([clear(s)]). *)
 Definition slice_clear_h {A} (tag : GoTypeTag A) (s : SliceH A) : IO unit :=
   fun w => ORet tt
     (mkWorld (fun k => if (Nat.leb (sh_start s) k
                            && Nat.ltb k (sh_start s + sh_len s))%bool
-                       then match w_refs w k with
+                       then match ref_sel_opt (mkRef k tag) w with
                             | Some _ => Some (existT _ A (tag, zero_val tag))
-                            | None   => None
+                            | None   => w_refs w k
                             end
                        else w_refs w k)
              (w_chans w) (w_maps w) (w_next w) (w_output w)).
 
-(** [copy(dst, src)]: copy [min(len dst, len src)] elements [src → dst], return the count.  GUARDED per cell
-    like [clear] — a [dst] cell in range takes the corresponding [src] value ONLY if the [dst] cell is already
-    LIVE; an absent [dst] cell is left [None], never fabricated.  So a forged [dst] cannot make [copy] install
-    at loc 0 / a fresh location — it preserves [ValidWorld] ([valid_run_slice_copy]).  For a real [dst] the
-    whole range is written, unchanged.  Lowered by name ([copy(dst, src)]). *)
+(** [copy(dst, src)]: copy [min(len dst, len src)] elements [src → dst], return the count.  TAG-AWARE guarded
+    per cell — a [dst] cell takes the [src] value ONLY when the [dst] cell is a LIVE, TAG-CORRECT cell AND the
+    [src] cell reads LIVE + TAG-CORRECT ([ref_sel_opt = Some sv], the REAL value, never a fabricated zero); any
+    absent / wrong-tag [dst] or [src] leaves the [dst] cell UNCHANGED (never fabricated, never RETYPED).  So a
+    forged handle cannot install at loc 0 / a fresh location nor retype a foreign cell — [copy] preserves
+    [ValidWorld] ([valid_run_slice_copy]) and forges nothing.  For real slices the whole range is written,
+    unchanged.  Lowered by name ([copy(dst, src)]). *)
 Definition slice_copy {A} (tag : GoTypeTag A) (dst src : SliceH A) : IO GoInt :=
   fun w => let n := if Nat.leb (sh_len dst) (sh_len src) then sh_len dst else sh_len src in
            ORet (intwrap (Z.of_nat n))
     (mkWorld (fun k => if (Nat.leb (sh_start dst) k
                            && Nat.ltb k (sh_start dst + n))%bool
-                       then match w_refs w k with
-                            | Some _ => Some (existT _ A
-                                          (tag, ref_sel (mkRef (sh_start src + (k - sh_start dst))
-                                                               (sh_tag src)) w))
-                            | None   => None
+                       then match ref_sel_opt (mkRef k tag) w,
+                                  ref_sel_opt (mkRef (sh_start src + (k - sh_start dst)) (sh_tag src)) w with
+                            | Some _, Some sv => Some (existT _ A (tag, sv))
+                            | _, _            => w_refs w k
                             end
                        else w_refs w k)
              (w_chans w) (w_maps w) (w_next w) (w_output w)).
@@ -1795,39 +1813,19 @@ Corollary valid_run_slice_clear_h : forall {A} (tag : GoTypeTag A) (s : SliceH A
   ValidWorld w -> run_io (slice_clear_h tag s) w = ORet r w' -> ValidWorld w'.
 Proof.
   intros A tag s w r w' HV Hrun. unfold run_io, slice_clear_h in Hrun. injection Hrun as _ Hw. subst w'.
-  destruct HV as [Hpos [[Hr0 [Hc0 Hm0]] Hfresh]]. split; [ | split ].
-  - cbn [w_next]. exact Hpos.
-  - cbn [w_refs w_chans w_maps]. split; [ | split ].
-    + destruct (Nat.leb (sh_start s) 0 && Nat.ltb 0 (sh_start s + sh_len s))%bool;
-        [ rewrite Hr0; reflexivity | exact Hr0 ].
-    + exact Hc0.
-    + exact Hm0.
-  - intros l Hle. cbn [w_next w_refs w_chans w_maps] in *. destruct (Hfresh l Hle) as [Hr [Hc Hm]].
-    split; [ | split ].
-    + destruct (Nat.leb (sh_start s) l && Nat.ltb l (sh_start s + sh_len s))%bool;
-        [ rewrite Hr; reflexivity | exact Hr ].
-    + exact Hc.
-    + exact Hm.
+  apply valid_guarded_refs; [ exact HV | ]. intros k Hk. cbn beta.
+  assert (Hns : ref_sel_opt (mkRef k tag) w = None) by (unfold ref_sel_opt; cbn [r_loc]; rewrite Hk; reflexivity).
+  destruct (Nat.leb (sh_start s) k && Nat.ltb k (sh_start s + sh_len s))%bool; [ rewrite Hns | ]; exact Hk.
 Qed.
 Corollary valid_run_slice_copy : forall {A} (tag : GoTypeTag A) (dst src : SliceH A) (w : World) r w',
   ValidWorld w -> run_io (slice_copy tag dst src) w = ORet r w' -> ValidWorld w'.
 Proof.
   intros A tag dst src w r w' HV Hrun. unfold run_io, slice_copy in Hrun. cbv zeta in Hrun.
   injection Hrun as _ Hw. subst w'.
-  destruct HV as [Hpos [[Hr0 [Hc0 Hm0]] Hfresh]].
-  set (n := if Nat.leb (sh_len dst) (sh_len src) then sh_len dst else sh_len src). split; [ | split ].
-  - cbn [w_next]. exact Hpos.
-  - cbn [w_refs w_chans w_maps]. split; [ | split ].
-    + destruct (Nat.leb (sh_start dst) 0 && Nat.ltb 0 (sh_start dst + n))%bool;
-        [ rewrite Hr0; reflexivity | exact Hr0 ].
-    + exact Hc0.
-    + exact Hm0.
-  - intros l Hle. cbn [w_next w_refs w_chans w_maps] in *. destruct (Hfresh l Hle) as [Hr [Hc Hm]].
-    split; [ | split ].
-    + destruct (Nat.leb (sh_start dst) l && Nat.ltb l (sh_start dst + n))%bool;
-        [ rewrite Hr; reflexivity | exact Hr ].
-    + exact Hc.
-    + exact Hm.
+  set (n := if Nat.leb (sh_len dst) (sh_len src) then sh_len dst else sh_len src).
+  apply valid_guarded_refs; [ exact HV | ]. intros k Hk. cbn beta.
+  assert (Hns : ref_sel_opt (mkRef k tag) w = None) by (unfold ref_sel_opt; cbn [r_loc]; rewrite Hk; reflexivity).
+  destruct (Nat.leb (sh_start dst) k && Nat.ltb k (sh_start dst + n))%bool; [ rewrite Hns | ]; exact Hk.
 Qed.
 
 (** ---- Heap-backed STRUCTS as field-cell bundles ----
