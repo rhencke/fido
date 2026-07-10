@@ -523,54 +523,59 @@ Proof. reflexivity. Qed.
     the "live wrong-tag" claim into the already-covered loc-0 case.
     ================================================================================================ *)
 
-(** [m[k] = v] through a WRONG-TAG handle FAILS LOUD ([rt_nil_map]) with the world UNCHANGED — it never
-    RETYPES the aliased cell. *)
+(** [m[k] = v] through a WRONG-TAG handle does NOT complete — it never returns [ORet] with a mutation, so the
+    aliased cell is never RETYPED.  CLEAN NEGATIVE ([<> ORet]) asserting NO panic outcome: the op does fail
+    loud, but its payload ([rt_nil_map]) is FAITHFUL only for a genuine NIL-map write — model-internal for this
+    nonzero forged handle — so it is not pinned as public certified evidence. *)
 Theorem map_set_wrong_tag_no_mutation :
   forall {K V K' V'} (kt : GoTypeTag K) (vt : GoTypeTag V)
          (kt' : GoTypeTag K') (vt' : GoTypeTag V')
-         (k : K) (v : V) (m : GoMap K V) (w : World) n (f : K' -> option V'),
+         (k : K) (v : V) (m : GoMap K V) (w w' : World) n (f : K' -> option V'),
   Nat.eqb (gm_loc m) 0 = false ->
   w_maps w (gm_loc m) = Some (n, existT _ K' (kt', existT _ V' (vt', f))) ->
   tag_eq kt kt' = None \/ tag_eq vt vt' = None ->
-  run_io (map_set kt vt k v m) w = OPanic rt_nil_map w.
+  run_io (map_set kt vt k v m) w <> ORet tt w'.
 Proof.
-  intros K V K' V' kt vt kt' vt' k v m w n f Hnn Hcell Hmis.
-  apply map_set_absent. exact (proj2 (map_cell_ok_wrong_tag kt vt kt' vt' m w n f Hnn Hcell Hmis)).
+  intros K V K' V' kt vt kt' vt' k v m w w' n f Hnn Hcell Hmis Hr.
+  assert (Hbad : map_cell_ok kt vt m w = false)
+    by exact (proj2 (map_cell_ok_wrong_tag kt vt kt' vt' m w n f Hnn Hcell Hmis)).
+  rewrite (map_set_absent kt vt k v m w Hbad) in Hr. discriminate Hr.
 Qed.
 
-(** [delete(m, k)] through a WRONG-TAG handle FAILS LOUD, world UNCHANGED (the [OPanic] carries the ORIGINAL
-    [w]) — it never retypes/mutates the aliased cell.  Stated EXISTENTIALLY ([exists p, = OPanic p w]): the
-    anti-forgery fact is "fails loud, no mutation", NOT the exact payload — [rt_forged_map] is a MODEL-INTERNAL
-    closed-world marker (Go's [delete] never panics), so it is NOT pinned as public certified evidence. *)
+(** [delete(m, k)] through a WRONG-TAG handle does NOT complete — never returns [ORet] with a mutation, so the
+    aliased cell is never retyped.  CLEAN NEGATIVE ([<> ORet]) asserting NO panic outcome: the op does fail
+    loud, but its marker [rt_forged_map] is MODEL-INTERNAL (Go's [delete] never panics), NOT pinned here. *)
 Theorem map_delete_wrong_tag_no_mutation :
   forall {K V K' V'} (kt : GoTypeTag K) (vt : GoTypeTag V)
          (kt' : GoTypeTag K') (vt' : GoTypeTag V')
-         (k : K) (m : GoMap K V) (w : World) n (f : K' -> option V'),
+         (k : K) (m : GoMap K V) (w w' : World) n (f : K' -> option V'),
   Nat.eqb (gm_loc m) 0 = false ->
   w_maps w (gm_loc m) = Some (n, existT _ K' (kt', existT _ V' (vt', f))) ->
   tag_eq kt kt' = None \/ tag_eq vt vt' = None ->
-  exists p, run_io (map_delete kt vt k m) w = OPanic p w.
+  run_io (map_delete kt vt k m) w <> ORet tt w'.
 Proof.
-  intros K V K' V' kt vt kt' vt' k m w n f Hnn Hcell Hmis. exists rt_forged_map.
-  apply map_delete_forged_failloud. exact Hnn.
-  exact (proj2 (map_cell_ok_wrong_tag kt vt kt' vt' m w n f Hnn Hcell Hmis)).
+  intros K V K' V' kt vt kt' vt' k m w w' n f Hnn Hcell Hmis Hr.
+  assert (Hbad : map_cell_ok kt vt m w = false)
+    by exact (proj2 (map_cell_ok_wrong_tag kt vt kt' vt' m w n f Hnn Hcell Hmis)).
+  rewrite (map_delete_forged_failloud kt vt k m w Hnn Hbad) in Hr. discriminate Hr.
 Qed.
 
-(** [clear(m)] through a WRONG-TAG handle FAILS LOUD, world UNCHANGED — it never clears/retypes the aliased
-    cell.  Stated EXISTENTIALLY (like [map_delete_wrong_tag_no_mutation]): the anti-forgery fact is "fails
-    loud, no mutation", NOT the model-internal [rt_forged_map] payload (Go's [clear] never panics). *)
+(** [clear(m)] through a WRONG-TAG handle does NOT complete — never returns [ORet] with a mutation, so the
+    aliased cell is never cleared/retyped.  CLEAN NEGATIVE ([<> ORet]) asserting NO panic outcome; the marker
+    [rt_forged_map] is MODEL-INTERNAL (Go's [clear] never panics), NOT pinned here. *)
 Theorem map_clear_wrong_tag_no_mutation :
   forall {K V K' V'} (kt : GoTypeTag K) (vt : GoTypeTag V)
          (kt' : GoTypeTag K') (vt' : GoTypeTag V')
-         (m : GoMap K V) (w : World) n (f : K' -> option V'),
+         (m : GoMap K V) (w w' : World) n (f : K' -> option V'),
   Nat.eqb (gm_loc m) 0 = false ->
   w_maps w (gm_loc m) = Some (n, existT _ K' (kt', existT _ V' (vt', f))) ->
   tag_eq kt kt' = None \/ tag_eq vt vt' = None ->
-  exists p, run_io (map_clear kt vt m) w = OPanic p w.
+  run_io (map_clear kt vt m) w <> ORet tt w'.
 Proof.
-  intros K V K' V' kt vt kt' vt' m w n f Hnn Hcell Hmis. exists rt_forged_map.
-  apply map_clear_forged_failloud. exact Hnn.
-  exact (proj2 (map_cell_ok_wrong_tag kt vt kt' vt' m w n f Hnn Hcell Hmis)).
+  intros K V K' V' kt vt kt' vt' m w w' n f Hnn Hcell Hmis Hr.
+  assert (Hbad : map_cell_ok kt vt m w = false)
+    by exact (proj2 (map_cell_ok_wrong_tag kt vt kt' vt' m w n f Hnn Hcell Hmis)).
+  rewrite (map_clear_forged_failloud kt vt m w Hnn Hbad) in Hr. discriminate Hr.
 Qed.
 
 (** Even the RAW cell-write root refuses a WRONG-TAG handle: [map_write] (hence [map_upd]/[map_rem]/
@@ -590,11 +595,13 @@ Proof.
 Qed.
 
 (** CAPSTONE — NO PUBLIC MAP RETYPING: a forged WRONG-TAG handle aliasing a live cell of another key/value
-    type cannot RETYPE it through the public map WRITES ([map_set]/[delete]/[clear]).  All three FAIL LOUD on a
-    nonzero forged handle (world unchanged) — [map_set] with [rt_nil_map], [delete]/[clear] with [rt_forged_map].
-    Together with [map_set_absent]/[map_delete_forged_failloud]/[map_clear_forged_failloud] (the nil /
-    nonzero-ABSENT class) and the raw [map_write_wrong_tag_no_retype], NO forged-handle write — through the
-    checked ops OR the raw [map_write] root — fabricates or retypes a cell.  (SCOPE: this is the write-path
+    type cannot RETYPE it through the public map WRITES ([map_set]/[delete]/[clear]).  All three do NOT
+    COMPLETE — never return [ORet] with a mutation (CLEAN NEGATIVES, [<> ORet]; they do fail loud, but the
+    fail-loud payloads are FAITHFUL native panics only for a genuine nil-map WRITE — model-internal for a
+    nonzero forged handle — so NOT pinned here; the exact-payload facts stay in the ungated
+    [map_set_absent]/[map_delete_forged_failloud]/[map_clear_forged_failloud]).  Together with the raw
+    [map_write_wrong_tag_no_retype], NO forged-handle write — through the checked ops OR the raw [map_write]
+    root — fabricates or retypes a cell.  (SCOPE: this is the write-path
     WRONG-TAG ANTI-FORGERY guarantee — typed liveness, NOT origin provenance: a SAME-TAG forged handle aliasing
     a real same-tag cell is Go reference-value aliasing and is NOT ruled out here.  It also does NOT assert the
     raw root is internalized.  The named cell-less allocator [map_make] is deleted, but a forged cell-less
@@ -603,21 +610,21 @@ Qed.
 Theorem no_public_map_retyping :
   forall {K V K' V'} (kt : GoTypeTag K) (vt : GoTypeTag V)
          (kt' : GoTypeTag K') (vt' : GoTypeTag V')
-         (k : K) (v : V) (m : GoMap K V) (w : World) n (f : K' -> option V'),
+         (k : K) (v : V) (m : GoMap K V) (w w' : World) n (f : K' -> option V'),
   Nat.eqb (gm_loc m) 0 = false ->
   w_maps w (gm_loc m) = Some (n, existT _ K' (kt', existT _ V' (vt', f))) ->
   tag_eq kt kt' = None \/ tag_eq vt vt' = None ->
-     run_io (map_set kt vt k v m) w = OPanic rt_nil_map w
-  /\ (exists p, run_io (map_delete kt vt k m) w = OPanic p w)
-  /\ (exists p, run_io (map_clear kt vt m) w = OPanic p w).
+     run_io (map_set kt vt k v m) w <> ORet tt w'
+  /\ run_io (map_delete kt vt k m) w <> ORet tt w'
+  /\ run_io (map_clear kt vt m) w <> ORet tt w'.
 Proof.
-  intros K V K' V' kt vt kt' vt' k v m w n f Hnn Hcell Hmis.
+  intros K V K' V' kt vt kt' vt' k v m w w' n f Hnn Hcell Hmis.
   assert (Hbad : map_cell_ok kt vt m w = false)
     by (exact (proj2 (map_cell_ok_wrong_tag kt vt kt' vt' m w n f Hnn Hcell Hmis))).
-  split; [ | split ].
-  - apply map_set_absent; exact Hbad.
-  - exists rt_forged_map. apply map_delete_forged_failloud; [ exact Hnn | exact Hbad ].
-  - exists rt_forged_map. apply map_clear_forged_failloud; [ exact Hnn | exact Hbad ].
+  split; [ | split ]; intro Hr.
+  - rewrite (map_set_absent kt vt k v m w Hbad) in Hr. discriminate Hr.
+  - rewrite (map_delete_forged_failloud kt vt k m w Hnn Hbad) in Hr. discriminate Hr.
+  - rewrite (map_clear_forged_failloud kt vt m w Hnn Hbad) in Hr. discriminate Hr.
 Qed.
 Theorem map_sel_clear : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
     (k : K) (m : GoMap K V) (w : World),
