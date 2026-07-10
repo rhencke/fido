@@ -52,9 +52,12 @@ Definition map_make_typed {K V : Type} (kt : GoTypeTag K) (vt : GoTypeTag V) : I
                                    else w_maps w k)
                          (S l) (w_output w)).
 
-(** Untyped fallback — loses key/value types to erasure, emits map[any]any.  No
-    tags to seed a cell, so it just mints the handle (the first [map_set] creates
-    the typed cell; an unwritten read is [None], Go's empty-map behaviour). *)
+(** Untyped fallback — loses key/value types to erasure.  It has no tags to seed a cell, so it mints a handle
+    with NO cell ([gm_present = false]); since [map_write] now root-guards on [gm_present], every subsequent
+    map op ([map_set] fails loud, [delete]/[clear] no-op) — a [map_make]d map is UNUSABLE, matching its status
+    as an UNSUPPORTED frontier (the plugin REJECTS untyped [map_make]: `make(map[any]any)` loses K/V).  The
+    certified allocation path is [map_make_typed], which installs the cell.  (This cell-less path is slated for
+    deletion — kept only until the plugin recognizer is removed with it.) *)
 Definition map_make {K V : Type} : IO (GoMap K V) :=
   fun w => ORet (MkMap (w_next w))
                 (mkWorld (w_refs w) (w_chans w) (w_maps w)
@@ -104,11 +107,12 @@ Definition gm_present {K V} (m : GoMap K V) (w : World) : bool :=
 Lemma gm_present_nonnil : forall {K V} (m : GoMap K V) w,
   gm_present m w = true -> Nat.eqb (gm_loc m) 0 = false.
 Proof. intros K V m w H. unfold gm_present in H. destruct (Nat.eqb (gm_loc m) 0); [ discriminate H | reflexivity ]. Qed.
-(** The single map-cell WRITE.  Location 0 is the RESERVED nil sentinel: [map_write] on a nil map
-    ([gm_loc = 0]) is a NO-OP — so NO map update ([map_upd]/[map_rem]/[map_clear_upd]) can EVER mutate
-    location 0, regardless of caller.  The loc-0 write path is closed at its root, not just at the IO
-    wrappers (checkpoint-56 audit: make the bad state impossible, not merely avoided).  Read-back-after-write
-    theorems below therefore carry a [gm_loc m <> 0] side condition. *)
+(** The single map-cell WRITE.  ROOT-GUARDED on [gm_present]: [map_write] UPDATES an ALLOCATED cell only —
+    on an UNALLOCATED map (nil [gm_loc = 0] OR nonzero-ABSENT / forged / dangling) it is a NO-OP.  So NO map
+    update ([map_upd]/[map_rem]/[map_clear_upd]) can EVER fabricate a cell, regardless of caller; the ONLY cell
+    CREATION is [map_make_typed].  The write path is closed at its root, not just at the IO wrappers
+    (checkpoint-56/57: make the bad state impossible, not merely avoided; [map_write_absent_noop] pins it).
+    Read-back-after-write theorems below therefore carry a [gm_present m w = true] side condition. *)
 Definition map_write {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
                       (m : GoMap K V) (f : K -> option V) (sz : nat) (w : World) : World :=
   if gm_present m w
@@ -165,6 +169,21 @@ Proof.
   rewrite (Nat.eqb_refl (gm_loc m)), !tag_eq_refl. reflexivity.
 Qed.
 
+(** RAW ANTI-FABRICATION GATE (the live proof, not just a comment): every RAW map world-update on an
+    UNALLOCATED map ([gm_present = false] — nil OR nonzero-absent) is the IDENTITY.  So [map_write] and the
+    updates built on it ([map_upd]/[map_rem]/[map_clear_upd]) can NEVER fabricate a cell for a forged / dangling
+    handle — the ONLY cell CREATION is [map_make_typed].  This PINS the [map_write] root guard: a forged handle
+    provably cannot construct map state, at the raw layer, independent of the checked IO wrappers. *)
+Lemma map_write_absent_noop : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (m : GoMap K V) f sz w,
+  gm_present m w = false -> map_write kt vt m f sz w = w.
+Proof. intros K V kt vt m f sz w H. unfold map_write. rewrite H. reflexivity. Qed.
+Lemma map_upd_absent_noop : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (v : V) (m : GoMap K V) w,
+  gm_present m w = false -> map_upd kt vt k v m w = w.
+Proof. intros K V kt vt k v m w H. unfold map_upd. apply map_write_absent_noop; exact H. Qed.
+Lemma map_rem_absent_noop : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (m : GoMap K V) w,
+  gm_present m w = false -> map_rem kt vt k m w = w.
+Proof. intros K V kt vt k m w H. unfold map_rem. apply map_write_absent_noop; exact H. Qed.
+
 (** Witness (machine-checked): [map_size] reports the REAL live-key count = Go's [len(m)].
     Insert keys 1,2; overwrite key 1 (len stays 2); delete key 2 (len → 1). *)
 Example map_len_counts :
@@ -201,9 +220,9 @@ Definition map_set {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (v : V) (
   (* [m[k] = v] on an UNALLOCATED map (nil [gm_loc = 0] OR nonzero ABSENT — forged/dangling) FAILS LOUD
      (Go's "assignment to entry in nil map", generalised to the whole no-cell class): a forged handle never
      fabricates a cell.  Only an allocated cell ([map_make_typed] installs one) reaches [map_upd]. *)
-(** [delete(m, k)] removes key [k].  On a NIL map ([gm_loc = 0]) it is a NO-OP in Go — AUTOMATICALLY, with
-    no separate wrapper guard: [map_rem] on a nil map already no-ops (its [map_write] refuses the reserved
-    location 0), so the world is UNCHANGED and location 0 is never written ([map_delete_nil_noop]). *)
+(** [delete(m, k)] removes key [k].  On an UNALLOCATED map (nil [gm_loc = 0] OR nonzero-absent) it is a NO-OP
+    (Go: delete on nil no-ops), guarded on [gm_present] — the world is UNCHANGED and no cell is fabricated
+    ([map_delete_nil_noop] / [map_delete_absent_noop]; [map_rem] itself no-ops via [map_rem_absent_noop]). *)
 Definition map_delete {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (m : GoMap K V) : IO unit :=
   fun w => if gm_present m w then ORet tt (map_rem kt vt k m w) else ORet tt w.
   (* [delete(m, k)] on an UNALLOCATED map (nil OR nonzero-absent) is a NO-OP (Go: delete on nil no-ops), and
@@ -394,8 +413,11 @@ Proof. intros K V kt vt k default m w H. rewrite run_map_get_or, H. reflexivity.
 Definition map_clear_upd {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
                          (m : GoMap K V) (w : World) : World :=
   map_write kt vt m (fun _ => None) 0 w.   (* clear ⇒ empty ⇒ len 0 *)
-(** [clear(m)] on a NIL map ([gm_loc = 0]) is a NO-OP in Go — AUTOMATICALLY: [map_clear_upd] on a nil map
-    no-ops at the [map_write] root (location 0 is never written). *)
+Lemma map_clear_upd_absent_noop : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (m : GoMap K V) w,
+  gm_present m w = false -> map_clear_upd kt vt m w = w.
+Proof. intros K V kt vt m w H. unfold map_clear_upd. apply map_write_absent_noop; exact H. Qed.
+(** [clear(m)] on an UNALLOCATED map (nil [gm_loc = 0] OR nonzero-absent) is a NO-OP — AUTOMATICALLY:
+    [map_clear_upd] no-ops at the [map_write] root ([gm_present = false], so no cell is written/fabricated). *)
 Definition map_clear {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (m : GoMap K V) : IO unit :=
   fun w => if gm_present m w then ORet tt (map_clear_upd kt vt m w) else ORet tt w.
   (* [clear(m)] on an UNALLOCATED map (nil OR nonzero-absent) is a NO-OP, never fabricating a cell. *)
