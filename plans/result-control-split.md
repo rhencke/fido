@@ -38,16 +38,12 @@ VERIFIED (read the code):
   available: `blocks_jump_wf_progress` ("never stuck") must EITHER admit a blocked/faulted classification, OR add
   a block/fault-free well-formedness premise to `blocks_jump_wf`. Decide which at execution.
 
-OPEN — verify at execution, do NOT assume:
-- Whether heap ref/ptr/slice/struct ops can yield `OBlock`/`OFault`. When they fail they do so with `OPanic`
-  (a genuine Go panic — the payload varies by op: nil-deref, index-out-of-range, negative-make, …) and touch no
-  channel/map heap, so PLAUSIBLY never `OBlock`/`OFault` — but this is unchecked; confirm per op.
-- Whether `plugin/go.ml` is affected by the constructor change and whether keeping the existing `GoAny` `rt_*`
-  payloads (vs a distinct reason type) avoids extractor churn. It lowers by name and does not extract `Outcome`,
-  so PLAUSIBLY unaffected — unchecked; confirm against `go.ml`'s suppression logic + `make check`.
-- How `cmd.v run_cmd` (which already has its own `= None` would-block for the deterministic fragment) should map
-  a shallow-IO `OBlock`/`OFault`.
-- The Phase-2 relational design (concurrency.v's step relation) — not yet studied.
+OPEN — questions to answer by reading/building at execution (no answer assumed here):
+- Can any heap ref/ptr/slice/struct op yield `OBlock`/`OFault`? (Enumerate each op's outcomes.)
+- Does `plugin/go.ml` need any change for the constructor addition, and do the existing `GoAny` `rt_*` payloads
+  suffice vs a distinct reason type? (Read `go.ml`'s catch/op lowering + suppression; check `make check`.)
+- How should `cmd.v run_cmd` map a shallow-IO `OBlock`/`OFault`?
+- Phase-2 relational design (concurrency.v's step relation) — not yet studied.
 
 ## Acceptance theorems to add (Phase 1, gated)
 
