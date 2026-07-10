@@ -908,25 +908,27 @@ Print Assumptions heap_alloc_safety_surface.
 (** ---- Live* : the REUSABLE typed-liveness predicate family (checkpoint-59 step 3) ----
 
     One canonical name per scalar handle for "the cell EXISTS at this handle's nonnil location AND stores the
-    matching tag".  ⚠ NOT YET REBASED: [Live*] NAMES the tag-correct-cell liveness the ops CURRENTLY inline-check
-    ([ref_sel_opt]/[chan_cell_ok]/[map_cell_ok]) — no safe-op THEOREM consumes [Live*] yet; making the ops
-    stated in terms of [Live*] is the follow-up, so today it is a DEFINITIONAL mirror, not a proven op
-    precondition.  ⚠ And [Live*] is CELL liveness ONLY: the channel ops ([send]/[recv]/[close]) additionally
+    matching tag".  [Live*] NAMES the tag-correct-cell liveness the ops CURRENTLY inline-check
+    ([ref_sel_opt]/[chan_cell_ok]/[map_cell_ok]).  The op-level preservation theorems (slice 3) DO consume
+    [Live*] as a hypothesis — a proven op↔[Live*] link — but the ops' DEFINITIONS are NOT yet REBASED (stated
+    with [Live*] as their precondition instead of the inline check); that restatement is the remaining
+    follow-up.  ⚠ And [Live*] is CELL liveness ONLY: the channel ops ([send]/[recv]/[close]) additionally
     demand room / not-closed / non-empty conditions BEYOND [LiveChan] (those are NOT liveness), so [LiveChan] is
     not the full send/recv precondition.  Each UNFOLDS to the per-family check that is the single authority
     ([ref_sel_opt] / [chan_cell_ok] / [map_cell_ok]); [Live*] is a NAMED INTERFACE over it, not
     a second authority.  ⚠ This is TYPED LIVENESS, not origin provenance — a SAME-TAG forged handle satisfies
     [Live*] too (the open origin frontier); the wrong-tag/absent negatives are the [*_wrong_tag_antiforgery]
-    surfaces.  SLICE 1 (here): the predicates + "ALLOCATORS produce Live*" (the checkpoint-58 step-5 evidence,
-    unified).  SLICE 2 (below): the RAW UPDATE ROOTS preserve [Live*].  FOLLOW-UP: the OP-LEVEL preservation
-    (the checked op's world-after is [Live*] — success reduces to the root, a fail-loud/block leaves the world
-    UNCHANGED) and rebasing safe-op preconditions onto [Live*], so the scattered per-op side conditions collapse
-    to one interface. *)
+    surfaces.  SLICE 1 (here): the predicates + "ALLOCATORS produce Live*".  SLICE 2 (below): the RAW UPDATE
+    ROOTS preserve [Live*].  SLICE 3 (below): OP-LEVEL preservation — the always-succeed-on-live checked writes
+    ([ref_set]/[ptr_set]/[map_set]/[delete]/[clear]) RETURN with the world still [Live*].  REMAINING: the
+    CHANNEL ops' op-level preservation (a case split, since a live channel keeps panic/block branches) and
+    rebasing the ops' DEFINITIONS onto [Live*]. *)
 Definition LiveRef {A} (r : Ref A) (w : World) : Prop := ref_sel_opt r w <> None.
 (** [LivePtr] is DEFINED to mirror the POINTER safe-op gate: the ops ([ptr_get_ok]/[ptr_set]) inline-guard
     [Nat.eqb (p_loc p) 0] FIRST (nil deref panics) and THEN the live cell — so both conjuncts belong in
-    [LivePtr] (a [Ref] has no such explicit loc-0 guard, hence [LiveRef] is the cell alone).  The ops do not
-    YET consume [LivePtr] — that rebase is the follow-up; this is a definitional match, not a proven link. *)
+    [LivePtr] (a [Ref] has no such explicit loc-0 guard, hence [LiveRef] is the cell alone).  [LivePtr_ptr_set_op]
+    (slice 3) PROVES the link — [ptr_set] on a [LivePtr] returns and preserves it — though [ptr_set]'s DEFINITION
+    is not yet REBASED onto [LivePtr] (still the inline guard); that restatement is the follow-up. *)
 Definition LivePtr {A} (tag : GoTypeTag A) (p : Ptr A) (w : World) : Prop :=
   Nat.eqb (p_loc p) 0 = false /\ ref_sel_opt (ptr_as_ref tag p) w <> None.
 Definition LiveChan {A} (tag : GoTypeTag A) (ch : GoChan A) (w : World) : Prop := chan_cell_ok tag ch w = true.
@@ -971,8 +973,9 @@ Print Assumptions live_handle_surface.
     the cell with the SAME tag, so a LIVE handle stays Live across the UPDATE.  ⚠ These are UPDATE-ROOT facts,
     NOT full checked-op claims: a checked op — [send]/[recv]/[close] especially — need NOT reach its update root
     (send-on-closed / empty-recv / double-close FAIL LOUD, a full send blocks); those branches leave the world
-    UNCHANGED so Live* is trivially preserved there too, but that op-level statement is a SEPARATE fact, not
-    what these lemmas assert.  One update-root preservation fact per family, not per op-site. *)
+    UNCHANGED so Live* is trivially preserved there too, but that op-level statement is a SEPARATE fact — proved
+    for the always-succeed writes in [live_op_preserve_surface] (slice 3) below, the channel case split still
+    open — not what these (update-root) lemmas assert.  One update-root preservation fact per family. *)
 Lemma LiveRef_preserved : forall {A} (r : Ref A) (v : A) (w : World),
   LiveRef r w -> LiveRef r (ref_upd r v w).
 Proof.
