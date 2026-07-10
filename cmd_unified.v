@@ -1050,13 +1050,24 @@ Theorem cchrecv_tag_mismatch_absent : forall {T} (tgt : GoTypeTag T) ch (f : GoA
 Proof.
   intros T tgt ch f w E tag buf closed cap Hc Hne. cbn [run_cmd]. rewrite Hc, Hne. reflexivity.
 Qed.
-Theorem cchsend_tag_mismatch_absent : forall ch {A0} (x : A0) (ta : GoTypeTag A0) (k : Cmd unit) w E tag buf cap,
-  w_chans w ch = Some (existT _ E (tag, (buf, (false, cap)))) ->
+(** A WRONG-TAG send is STUCK ([None]) for ANY [closed] state of the cell (checkpoint-58: [CChSend] is
+    tag-first, so a mistyped send never reaches the [closed] check).  Generalised from the open case so it
+    ALSO covers a CLOSED cell — see [cchsend_closed_wrong_tag_stuck] for the explicitly-named closed corollary. *)
+Theorem cchsend_tag_mismatch_absent : forall ch {A0} (x : A0) (ta : GoTypeTag A0) (k : Cmd unit) w E tag buf closed cap,
+  w_chans w ch = Some (existT _ E (tag, (buf, (closed, cap)))) ->
   tag_coerce tag ta x = None ->
   run_cmd (CChSend ch (existT _ A0 (x, ta)) k) w = None.
 Proof.
-  intros ch A0 x ta k w E tag buf cap Hc Hne. cbn [run_cmd]. rewrite Hc, Hne. reflexivity.
+  intros ch A0 x ta k w E tag buf closed cap Hc Hne. cbn [run_cmd]. rewrite Hc, Hne. reflexivity.
 Qed.
+(** THE CLOSED WRONG-TAG PIN (checkpoint-58, manifest-gated below): a wrong-tag send on a CLOSED cell is STUCK
+    ([None]) — it does NOT fabricate [rt_send_closed] off the foreign cell.  The exact anti-forgery counterpart
+    to [cchsend_closed_panics] (which needs a TAG-CORRECT value). *)
+Corollary cchsend_closed_wrong_tag_stuck : forall ch {A0} (x : A0) (ta : GoTypeTag A0) (k : Cmd unit) w E tag buf cap,
+  w_chans w ch = Some (existT _ E (tag, (buf, (true, cap)))) ->
+  tag_coerce tag ta x = None ->
+  run_cmd (CChSend ch (existT _ A0 (x, ta)) k) w = None.
+Proof. intros ch A0 x ta k w E tag buf cap Hc Hne. exact (cchsend_tag_mismatch_absent ch x ta k w E tag buf true cap Hc Hne). Qed.
 (** the ADMISSIBILITY pin: the certified translation puts the TYPED zero in URecv's field *)
 Theorem cmd_to_ucmd_recv_zero : forall ch T (tgt : GoTypeTag T) (f : GoAny -> Cmd unit),
   cmd_to_ucmd (CChRecv ch (existT _ T tgt) f)
@@ -1069,5 +1080,6 @@ Definition cmd_unified_surface :=
    @cchrecv_closed_typed_zero, cchrecv_closed_zero_i64, cchrecv_closed_zero_string,
    cchsend_closed_panics, cchclose_closed_panics,
    @cchrecv_open_empty_absent, cchsend_no_room_absent, cchsend_unbuffered_absent,
-   @cchrecv_tag_mismatch_absent, @cchsend_tag_mismatch_absent, cmd_to_ucmd_recv_zero).
+   @cchrecv_tag_mismatch_absent, @cchsend_tag_mismatch_absent, @cchsend_closed_wrong_tag_stuck,
+   cmd_to_ucmd_recv_zero).
 Print Assumptions cmd_unified_surface.
