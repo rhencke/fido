@@ -2,11 +2,12 @@
 
 ## Problem (verified by reading `GoEffects.v`)
 
-`Outcome A = ORet A World | OPanic GoAny World`, and `catch` handles EVERY `OPanic`. Blocking
-(`rt_chan_send_block` / `rt_chan_recv_block` / `rt_select_block`) and the forged-handle fault (`rt_forged_map`)
-are `OPanic` payloads — so `catch` on a would-block send runs the handler, a blocked op is "recovered", and any
-defer/recover layer unwinds on a block or fault. Wrong Go semantics: a block / model fault is not a Go panic;
-neither invokes recover nor runs defers.
+`Outcome A = ORet A World | OPanic GoAny World`, and `catch` runs its handler on EVERY `OPanic` (read `catch`).
+Blocking (`rt_chan_send_block` / `rt_chan_recv_block` / `rt_select_block`) and the forged-handle fault
+(`rt_forged_map`) are `OPanic` payloads (read `GoChan.v` / `GoMap.v`) — so `catch` on a would-block send runs the
+handler, i.e. a blocked op is "recovered". Wrong Go semantics: a block / model fault is not a Go panic; neither
+should be recoverable. (The review adds: any defer/recover layer keyed on `OPanic` would likewise fire on a
+block/fault — not re-verified here.)
 
 ## Approach
 
