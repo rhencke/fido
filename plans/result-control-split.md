@@ -91,13 +91,16 @@ in the DAG, so a green GoCFG would imply they passed, but the spike never got th
 
 The REAL work is the outcome-CLASSIFICATION layers, where a naive 4th/5th arm is WRONG:
 - **GoCFG.v `blocks_jump_wf_progress`** classifies `run_io b w` into done (`ORet None`) / jump (`ORet (Some pc')`) /
-  panic (`OPanic`) and concludes "never stuck". ⚠ FIRST QUESTION — CAN a CFG block block/fault at all? The `Cmd`
-  syntax HAS `CChSend`/`CChRecv` (channel ops), so if the CFG block class is built over `Cmd` / channel ops, a
-  block CAN occur and "never stuck" must ADMIT a blocked classification (progress becomes "concludes OR steps OR
-  blocks"), not be discharged. Only if the block class is provably channel/map-FREE (read `cblock_denote`'s type
-  and construction — UNVERIFIED) does a FREEDOM lemma (blocks never yield `OBlock`/`OFault`, by induction) close the
-  dead cases — NOT a spurious "\/ blocked" disjunct that weakens the never-stuck progress theorem. Same for
-  `blocks_step` / `cblock_denote_*` (GoCFG lines ~100/196/267/318).
+  panic (`OPanic`) and concludes "never stuck". SETTLED (read `GoCFG.v`): `blocks_jump_wf : list (IO Next) -> Prop`
+  quantifies over ARBITRARY IO blocks, and `cblock_denote (CBSeq body t) = bind body (fun _ => ret t)` with `body`
+  an arbitrary `IO` — so a block's `body` CAN be a channel op that BLOCKS (or a forged-map op that faults). The
+  block class is NOT channel/map-free, so a freedom lemma is NOT available. The progress theorem must therefore
+  EITHER (a) admit a blocked/faulted classification — "concludes OR steps OR **blocks** OR **faults**" (the
+  faithful reading: a program that blocks at a straight-line block genuinely blocks), OR (b) add a
+  block/fault-FREE well-formedness premise to `blocks_jump_wf` (restricting the certified CFG-block class to
+  non-blocking bodies, deferring channel blocking to the Phase-2 scheduler). Pick (b) if the CFG layer should stay
+  pure control-flow with concurrency at the scheduler; pick (a) to let the CFG progress theorem itself report
+  blocking. Decide at execution; same for `blocks_step` / `cblock_denote_*` (GoCFG lines ~100/196/267/318).
 - **cmd.v `run_cmd` / bridge**: the deep-embedded Cmd interpreter already has its OWN would-block notion
   (`run_cmd = None` for the deterministic-fragment stuck cases); decide how a shallow-IO `OBlock`/`OFault` from a
   `CChSend`/`CChRecv`/`CWrite` maps into `run_cmd` (short-circuit like panic, or the Cmd's `None`). cmd_unified.v
@@ -106,7 +109,8 @@ The REAL work is the outcome-CLASSIFICATION layers, where a naive 4th/5th arm is
   arms are passthroughs, plus a freedom fact where a classification theorem can't otherwise discharge them.
 
 So Phase 1 = GoEffects mechanical core + producer replace + resolving each classification layer's outcome
-handling — a FREEDOM lemma where the layer is provably block/fault-free, ELSE a blocked/faulted classification
-where it is not (the CFG-block-class channel-freedom question is the FIRST thing to settle, since it decides
-which of the two GoCFG needs). Budget it as a focused
+handling — a FREEDOM lemma where the layer is provably block/fault-free (heap ref/ptr/slice/struct — expected,
+verify per op), ELSE a blocked/faulted classification or a wf-premise restriction where it is not. GoCFG is the
+latter: its blocks are arbitrary IO (settled above), so it needs choice (a) blocked classification OR (b) a
+block/fault-free wf premise on `blocks_jump_wf` — decide when executing. Budget it as a focused
 multi-hour pass, not a loop-tick grind; land only when `make check` is green and the manifest is empty.
