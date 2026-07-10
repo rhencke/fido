@@ -5171,7 +5171,7 @@ let pp_function state name body typ =
    governed by stdlib LIVENESS (dead deps of suppressed bodies drop; live uses emit).
    A module-level list so it is built once, not re-allocated per call. *)
 let proof_only_names =
-  [ "ref_sel"; "ref_sel_opt"; "ref_upd";
+  [ "ref_sel"; "ref_sel_opt"; "ref_upd"; "ref_install";
     "chan_buf"; "chan_closed"; "chan_cap"; "chan_room"; "chan_present"; "chan_cell_ok"; "chan_send_upd"; "chan_recv_upd"; "chan_close_upd";
     "map_sel"; "map_upd"; "map_rem"; "map_size"; "map_count"; "map_clear_upd"; "gm_present"; "map_cell_ok"; "run_io";
     "map_get_fn"; "map_write"; "key_eqb";          (* map-cell read/write + key equality *)

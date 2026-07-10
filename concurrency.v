@@ -4184,7 +4184,7 @@ Section Keystone.
     ref_sel_opt (locenv l) w = Some (inj (rc_heap cfg l)).
 
   (** A WRITE step: the deep [CWrite] run-reduces to its continuation at the world
-      after [ref_upd], the heap match holding by [ref_sel_upd_same] — mirroring
+      after [ref_upd], the heap match holding by [ref_sel_opt_upd_same] (the cell is LIVE) — mirroring
       [rstep_write].  Precondition [WHMatch1 l w] (the cell is LIVE, [ref_sel_opt = Some]): a Go write
       targets an ALLOCATED variable, and the guarded [ref_set] proceeds only through such a cell. *)
   Lemma denote_sim_write : forall p b h lv tr tid l v k m w,
@@ -4201,7 +4201,7 @@ Section Keystone.
     inversion HD as [| | | l0 v0 k0 m' HDk Hl Hm | ]; subst.
     exists m'. split; [exact HDk | split].
     - rewrite run_bind, (run_ref_set_some (locenv l) (inj v) (inj (h l)) w HM). cbn. reflexivity.
-    - unfold WHMatch1. cbn [rc_heap]. rewrite upd_same, ref_sel_opt_upd_same. reflexivity.
+    - unfold WHMatch1. cbn [rc_heap]. rewrite upd_same, (ref_sel_opt_upd_same (locenv l) (inj v) (inj (h l)) w HM). reflexivity.
   Qed.
 
   (** A READ step: the deep [CRead] run-reduces by BINDING the ref value (no world
@@ -4548,7 +4548,7 @@ Proof. intros A m m' H. apply functional_extensionality. exact H. Qed.
   Proof.
     intros l v h w HM. split.
     - rewrite ptr_set_is_ref. exact (run_ref_set_some (plocenv l) (inj v) (inj (h l)) w HM).
-    - unfold PHMatch. rewrite upd_same, ref_sel_opt_upd_same. reflexivity.
+    - unfold PHMatch. rewrite upd_same, (ref_sel_opt_upd_same (plocenv l) (inj v) (inj (h l)) w HM). reflexivity.
   Qed.
 
   (** READ through the EXTRACTABLE pointer simulates [rstep_read]: no world change, and the value
@@ -4563,13 +4563,14 @@ Proof. intros A m m' H. apply functional_extensionality. exact H. Qed.
   Qed.
 
   (** Read-after-write through the EXTRACTABLE pointer — the typed cell is coherent: [*p = v]
-      then [*p] yields [v].  Inherited from [ref_sel_upd_same]; the typed-pointer analogue of the
+      then [*p] yields [v].  Inherited from [ref_sel_opt_upd_same] (the live-cell read-back); the typed-pointer analogue of the
       heap law the bridge stands on, now over the op the plugin actually emits. *)
-  Lemma ptr_write_read : forall l v w,
+  Lemma ptr_write_read : forall l v a w,
+    ref_sel_opt (plocenv l) w = Some a ->   (* the cell is LIVE pre-write — the guarded write proceeds *)
     run_io (ptr_get TI64 (ptrenv l)) (ref_upd (plocenv l) v w)
       = ORet v (ref_upd (plocenv l) v w).
   Proof.
-    intros l v w. rewrite ptr_get_is_ref, run_ref_get, ref_sel_opt_upd_same. reflexivity.
+    intros l v a w Hlive. rewrite ptr_get_is_ref, run_ref_get, (ref_sel_opt_upd_same (plocenv l) v a w Hlive). reflexivity.
   Qed.
 End KeystonePtr.
 
@@ -5153,12 +5154,15 @@ Section MpTyped.
     assert (Hroom : chan_room TI64 (chenv 0) w0 = true)
       by (unfold chan_room; rewrite Hcellok, Hcap; reflexivity).
     rewrite run_bind, (ptr_set_nonnil TI64 (ptrenv 0) (inj v0) a0 w0 (ptrenv_live 0) Hpre); cbv beta iota.
-    rewrite run_bind, run_send by (first [ exact Hcl | exact Hroom ]); cbv beta iota.
+    rewrite run_bind, run_send by
+      (first [ rewrite chan_closed_ref_upd; exact Hcl
+             | rewrite chan_room_ref_upd_frame; exact Hroom ]); cbv beta iota.
     rewrite run_bind, (run_recv TI64 (chenv 0) (inj v1) (@nil GoI64))
       by (rewrite chan_buf_send by (rewrite chan_cell_ok_ref_upd_frame; exact Hcellok);
           rewrite chan_buf_ref_upd_frame, Hbuf; reflexivity); cbv beta iota.
     rewrite run_bind, run_ptr_get, ptrenv_live; cbv beta iota.
-    unfold plocenv; rewrite ref_sel_opt_chan_recv_upd, ref_sel_opt_chan_send_upd, ref_sel_opt_upd_same;
+    unfold plocenv; rewrite ref_sel_opt_chan_recv_upd, ref_sel_opt_chan_send_upd,
+      (ref_sel_opt_upd_same (ptr_as_ref TI64 (ptrenv 0)) (inj v0) a0 w0 Hpre);
       cbv beta iota.
     rewrite run_ret. eexists. reflexivity.
   Qed.
@@ -5168,7 +5172,7 @@ End MpTyped.
     rests on EXACTLY the [run_io] law for its operation, and nothing degenerate:
       - [denote_sim_send]  : [run_bind], [run_send],     [chan_buf_send]
       - [denote_sim_recv]  : [run_bind], [run_recv],     [chan_buf_recv]
-      - [denote_sim_write] : [run_bind], [run_ref_set],  [ref_sel_upd_same]
+      - [denote_sim_write] : [run_bind], [run_ref_set],  [ref_sel_opt_upd_same]
       - [denote_sim_read]  : [run_bind], [run_ref_get]
     (+ the carrier/IO types).  [Hret] is a DISCHARGED HYPOTHESIS, not an axiom.
     (Spawn stays out: [go_spawn] has no [run_io] law — see the section header.)
@@ -5342,7 +5346,7 @@ End KeystoneMulti.
 
     [WHMatchC] matches every location's [run_io] ref value to the operational
     [rc_heap]; [whmatchc_step] shows EVERY [rstep] preserves it, the ref SEPARATION
-    (frame) law [ref_sel_upd_diff] handling the untouched locations.  Only
+    (frame) law [ref_sel_opt_upd_diff] handling the untouched locations.  Only
     [rstep_write] advances the heap world (by [ref_upd]); every other step leaves
     [rc_heap] unchanged.  [reachable_refines_heap]: every reachable state's MEMORY is
     realized by a [run_io] world, across all interleavings;
@@ -5352,11 +5356,15 @@ Section KeystoneHeap.
   Variable locenv : nat -> Ref GoI64.
   Variable inj : nat -> GoI64.
   (* Distinct calculus locations sit at distinct World ref CELLS — the heap analogue of
-     [chenv_inj].  (Loc-level, not Ref-level: [ref_sel_upd_diff]'s frame is keyed on [r_loc].) *)
+     [chenv_inj].  (Loc-level, not Ref-level: [ref_sel_opt_upd_diff]'s frame is keyed on [r_loc].) *)
   Hypothesis locenv_loc_inj : forall i j, r_loc (locenv i) = r_loc (locenv j) -> i = j.
 
+  (* The heap match now carries LIVENESS (checkpoint-58): every location's cell is not merely read-equal to
+     the operational heap but ALLOCATED ([ref_sel_opt = Some]) — a Go write targets an allocated variable, and
+     the guarded [ref_upd] advances the world only through a live cell (mirroring the channel [WPresent]
+     invariant).  It refines the total-read match ([ref_sel_of_opt]). *)
   Definition WHMatchC (w : World) (cfg : RConfig) : Prop :=
-    forall l, ref_sel (locenv l) w = inj (rc_heap cfg l).
+    forall l, ref_sel_opt (locenv l) w = Some (inj (rc_heap cfg l)).
 
   Lemma locenv_loc_neq : forall i j, i <> j -> r_loc (locenv i) <> r_loc (locenv j).
   Proof. intros i j Hij Heq. apply Hij, locenv_loc_inj, Heq. Qed.
@@ -5384,9 +5392,9 @@ Section KeystoneHeap.
       exists (ref_upd (locenv l) (inj v) w).
       intros l0. specialize (HM l0). unfold WHMatchC in *; cbn [rc_heap] in *.
       destruct (Nat.eq_dec l0 l) as [->|Hne].
-      + rewrite upd_same, ref_sel_upd_same. reflexivity.
+      + rewrite upd_same, (ref_sel_opt_upd_same (locenv l) (inj v) (inj (h l)) w HM). reflexivity.
       + rewrite (upd_other _ _ _ _ Hne),
-          (ref_sel_upd_diff (locenv l) (locenv l0) (inj v) w (locenv_loc_neq l l0 (not_eq_sym Hne))).
+          (ref_sel_opt_upd_diff (locenv l0) (locenv l) (inj v) w (locenv_loc_neq l0 l Hne)).
         exact HM.
     - (* read: heap untouched (a read binds a value, does not write) *)
       exists w. intros l0. specialize (HM l0). unfold WHMatchC in *; cbn [rc_heap] in *. exact HM.
@@ -5410,7 +5418,7 @@ Section KeystoneHeap.
   Qed.
 
   Lemma whmatchc_init : forall p w0,
-    (forall l, ref_sel (locenv l) w0 = inj 0) -> WHMatchC w0 (rinit_cfg p).
+    (forall l, ref_sel_opt (locenv l) w0 = Some (inj 0)) -> WHMatchC w0 (rinit_cfg p).
   Proof.
     intros p w0 Hzero l. unfold WHMatchC, rinit_cfg; cbn [rc_heap]. exact (Hzero l).
   Qed.
@@ -5418,7 +5426,7 @@ Section KeystoneHeap.
   (** THE MULTI-GOROUTINE HEAP REFINEMENT.  Every reachable state of a concurrent execution
       has its MEMORY realized by some [run_io] world — across every interleaving. *)
   Theorem reachable_refines_heap : forall p cfg w0,
-    (forall l, ref_sel (locenv l) w0 = inj 0) ->
+    (forall l, ref_sel_opt (locenv l) w0 = Some (inj 0)) ->
     rsteps (rinit_cfg p) cfg ->
     exists w, WHMatchC w cfg.
   Proof.
@@ -5430,7 +5438,7 @@ Section KeystoneHeap.
       world AND (under the ownership discipline) is race-free with a strict-partial-order
       happens-before — the memory-state refinement and the race-freedom on the SAME execution. *)
   Theorem reachable_refines_heap_and_safe : forall p cfg w0,
-    (forall l, ref_sel (locenv l) w0 = inj 0) ->
+    (forall l, ref_sel_opt (locenv l) w0 = Some (inj 0)) ->
     rsteps (rinit_cfg p) cfg ->
     Owned (rc_trace cfg) ->
     (exists w, WHMatchC w cfg) /\
@@ -5532,7 +5540,7 @@ Section KeystoneState.
         * rewrite (upd_other _ _ _ _ Hne),
             (chan_buf_send_frame TI64 (chenv c0) (chenv c) (inj v) w (kst_chenv_neq c0 c (not_eq_sym Hne))).
           exact (HMc c).
-      + unfold WHMatchC; cbn [rc_heap]; intros l. rewrite ref_sel_chan_send_upd. exact (HMh l).
+      + unfold WHMatchC; cbn [rc_heap]; intros l. rewrite ref_sel_opt_chan_send_upd. exact (HMh l).
       + exact (wpresent_send c0 (inj v) w HMp).
     - (* recv: channel world advances; heap framed through chan_recv_upd *)
       assert (Hbuf : chan_buf TI64 (chenv c0) w = inj v :: map inj (map fst brest))
@@ -5544,15 +5552,15 @@ Section KeystoneState.
         * rewrite (upd_other _ _ _ _ Hne),
             (chan_buf_recv_frame TI64 (chenv c0) (chenv c) w (kst_chenv_neq c0 c (not_eq_sym Hne))).
           exact (HMc c).
-      + unfold WHMatchC; cbn [rc_heap]; intros l. rewrite ref_sel_chan_recv_upd. exact (HMh l).
+      + unfold WHMatchC; cbn [rc_heap]; intros l. rewrite ref_sel_opt_chan_recv_upd. exact (HMh l).
       + exact (wpresent_recv c0 w HMp).
     - (* write: heap world advances; channels untouched and bufs framed through ref_upd *)
       exists (ref_upd (locenv l) (inj v) w). split; [| split].
       + unfold WMatchC, rchan; cbn [rc_bufs]; intros c. rewrite chan_buf_ref_upd_frame. exact (HMc c).
       + unfold WHMatchC; cbn [rc_heap]; intros l0. destruct (Nat.eq_dec l0 l) as [->|Hne].
-        * rewrite upd_same, ref_sel_upd_same. reflexivity.
+        * rewrite upd_same, (ref_sel_opt_upd_same (locenv l) (inj v) (inj (h l)) w (HMh l)). reflexivity.
         * rewrite (upd_other _ _ _ _ Hne),
-            (ref_sel_upd_diff (locenv l) (locenv l0) (inj v) w (kst_locenv_neq l l0 (not_eq_sym Hne))).
+            (ref_sel_opt_upd_diff (locenv l0) (locenv l) (inj v) w (kst_locenv_neq l0 l Hne)).
           exact (HMh l0).
       + intros c. rewrite chan_cell_ok_ref_upd_frame. exact (HMp c).
     - (* read: world unchanged *)
@@ -5571,7 +5579,7 @@ Section KeystoneState.
         * rewrite (upd_other _ _ _ _ Hne),
             (chan_buf_recv_frame TI64 (chenv c0) (chenv c) w (kst_chenv_neq c0 c (not_eq_sym Hne))).
           exact (HMc c).
-      + unfold WHMatchC; cbn [rc_heap]; intros l. rewrite ref_sel_chan_recv_upd. exact (HMh l).
+      + unfold WHMatchC; cbn [rc_heap]; intros l. rewrite ref_sel_opt_chan_recv_upd. exact (HMh l).
       + exact (wpresent_recv c0 w HMp).
     - (* close: world unchanged (buffers and heap untouched) *)
       exists w. split; [unfold WMatchC, rchan; cbn [rc_bufs]; exact HMc
@@ -5593,7 +5601,7 @@ Section KeystoneState.
 
   Lemma wstate_init : forall p w0,
     (forall c, chan_buf TI64 (chenv c) w0 = []) ->
-    (forall l, ref_sel (locenv l) w0 = inj 0) ->
+    (forall l, ref_sel_opt (locenv l) w0 = Some (inj 0)) ->
     (forall c, chan_cell_ok TI64 (chenv c) w0 = true) ->
     WState w0 (rinit_cfg p).
   Proof.
@@ -5607,7 +5615,7 @@ Section KeystoneState.
       memory — is realized by ONE [run_io] world, across every interleaving. *)
   Theorem reachable_refines_state : forall p cfg w0,
     (forall c, chan_buf TI64 (chenv c) w0 = []) ->
-    (forall l, ref_sel (locenv l) w0 = inj 0) ->
+    (forall l, ref_sel_opt (locenv l) w0 = Some (inj 0)) ->
     (forall c, chan_cell_ok TI64 (chenv c) w0 = true) ->
     rsteps (rinit_cfg p) cfg ->
     exists w, WMatchC chenv inj w cfg /\ WHMatchC locenv inj w cfg /\ WPresent w.   (* channels TAG-CORRECT — exposed, not erased *)
@@ -5623,7 +5631,7 @@ Section KeystoneState.
       nilness stays a frontier.) *)
   Theorem reachable_refines_state_and_safe : forall p cfg w0,
     (forall c, chan_buf TI64 (chenv c) w0 = []) ->
-    (forall l, ref_sel (locenv l) w0 = inj 0) ->
+    (forall l, ref_sel_opt (locenv l) w0 = Some (inj 0)) ->
     (forall c, chan_cell_ok TI64 (chenv c) w0 = true) ->
     rsteps (rinit_cfg p) cfg ->
     Owned (rc_trace cfg) ->
@@ -5670,7 +5678,7 @@ Section KeystoneState.
         * rewrite (upd_other _ _ _ _ Hne),
             (chan_buf_send_frame TI64 (chenv c0) (chenv c) (inj v) w (kst_chenv_neq c0 c (not_eq_sym Hne))).
           exact (HMc c).
-      + unfold WHMatchC; cbn [rc_heap]; intros l. rewrite ref_sel_chan_send_upd. exact (HMh l).
+      + unfold WHMatchC; cbn [rc_heap]; intros l. rewrite ref_sel_opt_chan_send_upd. exact (HMh l).
       + unfold WClosedMatch; cbn [rc_trace]; intros c1. rewrite closedb_app.
         replace (closedb (mkEv tid (KSend c0) :: nil) c1) with false by reflexivity.
         rewrite Bool.orb_false_r. destruct (Nat.eq_dec c1 c0) as [->|Hne].
@@ -5687,7 +5695,7 @@ Section KeystoneState.
         * rewrite (upd_other _ _ _ _ Hne),
             (chan_buf_recv_frame TI64 (chenv c0) (chenv c) w (kst_chenv_neq c0 c (not_eq_sym Hne))).
           exact (HMc c).
-      + unfold WHMatchC; cbn [rc_heap]; intros l. rewrite ref_sel_chan_recv_upd. exact (HMh l).
+      + unfold WHMatchC; cbn [rc_heap]; intros l. rewrite ref_sel_opt_chan_recv_upd. exact (HMh l).
       + unfold WClosedMatch; cbn [rc_trace]; intros c1. rewrite closedb_app.
         replace (closedb (mkEv tid (KRecv c0 s) :: nil) c1) with false by reflexivity.
         rewrite Bool.orb_false_r. destruct (Nat.eq_dec c1 c0) as [->|Hne].
@@ -5699,9 +5707,9 @@ Section KeystoneState.
       exists (ref_upd (locenv l) (inj v) w). split; [|split; [|split]].
       + unfold WMatchC, rchan; cbn [rc_bufs]; intros c. rewrite chan_buf_ref_upd_frame. exact (HMc c).
       + unfold WHMatchC; cbn [rc_heap]; intros l0. destruct (Nat.eq_dec l0 l) as [->|Hne].
-        * rewrite upd_same, ref_sel_upd_same. reflexivity.
+        * rewrite upd_same, (ref_sel_opt_upd_same (locenv l) (inj v) (inj (h l)) w (HMh l)). reflexivity.
         * rewrite (upd_other _ _ _ _ Hne),
-            (ref_sel_upd_diff (locenv l) (locenv l0) (inj v) w (kst_locenv_neq l l0 (not_eq_sym Hne))).
+            (ref_sel_opt_upd_diff (locenv l0) (locenv l) (inj v) w (kst_locenv_neq l0 l Hne)).
           exact (HMh l0).
       + unfold WClosedMatch; cbn [rc_trace]; intros c1. rewrite closedb_app.
         replace (closedb (mkEv tid (KWrite l) :: nil) c1) with false by reflexivity.
@@ -5732,7 +5740,7 @@ Section KeystoneState.
         * rewrite (upd_other _ _ _ _ Hne),
             (chan_buf_recv_frame TI64 (chenv c0) (chenv c) w (kst_chenv_neq c0 c (not_eq_sym Hne))).
           exact (HMc c).
-      + unfold WHMatchC; cbn [rc_heap]; intros l. rewrite ref_sel_chan_recv_upd. exact (HMh l).
+      + unfold WHMatchC; cbn [rc_heap]; intros l. rewrite ref_sel_opt_chan_recv_upd. exact (HMh l).
       + unfold WClosedMatch; cbn [rc_trace]; intros c1. rewrite closedb_app.
         replace (closedb (mkEv tid (KRecv c0 s) :: nil) c1) with false by reflexivity.
         rewrite Bool.orb_false_r. destruct (Nat.eq_dec c1 c0) as [->|Hne].
@@ -5746,7 +5754,7 @@ Section KeystoneState.
         * unfold chan_close_upd. rewrite chan_buf_write_same by apply HMp. exact (HMc c0).
         * rewrite (chan_buf_close_frame TI64 (chenv c0) (chenv c) w (kst_chenv_neq c0 c (not_eq_sym Hne))).
           exact (HMc c).
-      + unfold WHMatchC; cbn [rc_heap]; intros l. rewrite ref_sel_chan_close_upd. exact (HMh l).
+      + unfold WHMatchC; cbn [rc_heap]; intros l. rewrite ref_sel_opt_chan_close_upd. exact (HMh l).
       + unfold WClosedMatch; cbn [rc_trace]; intros c1. rewrite closedb_app. destruct (Nat.eq_dec c1 c0) as [->|Hne].
         * rewrite chan_closed_close by apply HMp. symmetry. apply Bool.orb_true_intro. right.
           cbn. rewrite Bool.orb_false_r. apply Nat.eqb_refl.
@@ -5782,7 +5790,7 @@ Section KeystoneState.
 
   Lemma wstate_initC : forall p w0,
     (forall c, chan_buf TI64 (chenv c) w0 = []) ->
-    (forall l, ref_sel (locenv l) w0 = inj 0) ->
+    (forall l, ref_sel_opt (locenv l) w0 = Some (inj 0)) ->
     (forall c, chan_closed (chenv c) w0 = false) ->
     (forall c, chan_cell_ok TI64 (chenv c) w0 = true) ->
     WStateC w0 (rinit_cfg p).
@@ -5798,7 +5806,7 @@ Section KeystoneState.
       channels, its memory, AND its open/closed channel status — is realized by ONE [run_io] world. *)
   Theorem reachable_refines_closed : forall p cfg w0,
     (forall c, chan_buf TI64 (chenv c) w0 = []) ->
-    (forall l, ref_sel (locenv l) w0 = inj 0) ->
+    (forall l, ref_sel_opt (locenv l) w0 = Some (inj 0)) ->
     (forall c, chan_closed (chenv c) w0 = false) ->
     (forall c, chan_cell_ok TI64 (chenv c) w0 = true) ->
     rsteps (rinit_cfg p) cfg ->
@@ -5866,7 +5874,7 @@ Proof.
   { assert (Hinit : WState chenv (plocenv ptrenv) inj w0 (mp_init v0 v1)).
     { split; [| split].
       - intro c. unfold rchan, mp_init; cbn [rc_bufs]. rewrite Hbuf. reflexivity.
-      - intro l. unfold mp_init; cbn [rc_heap]. exact (ref_sel_of_opt (plocenv ptrenv l) (inj 0) w0 (Hheap l)).
+      - intro l. unfold mp_init; cbn [rc_heap]. exact (Hheap l).
       - exact Hpres. }
     destruct (wstate_steps chenv (plocenv ptrenv) inj Hchen Hloc
                 (mp_init v0 v1) cfg w0 Hsteps Hinit) as [w HW].

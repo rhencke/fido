@@ -54,12 +54,103 @@ Definition ref_sel {A : Type} (r : Ref A) (w : World) : A :=
   | None => zero_val (r_tag r)
   end.
 
-(** [ref_upd r v w]: write [v] (tagged with [r]'s own tag) at [r]'s location. *)
-Definition ref_upd {A : Type} (r : Ref A) (v : A) (w : World) : World :=
+(** [ref_sel_opt r w]: the CHECKED (tag-aware) selector — [Some v] iff [r]'s cell EXISTS at [r_loc r] AND its
+    stored tag coerces to [r_tag] (a LIVE, correctly-typed cell); [None] on a missing / forged / retyped
+    handle.  A ref is LIVE at [r] iff [ref_sel_opt r w = Some _].  [ref_sel] (above) is the TOTAL companion
+    that fabricates a [zero_val] in those cases; [ref_sel_opt] is what the safe ops and the [ref_upd] root
+    guard branch on.  (Lives here — AHEAD of [ref_upd] — because the guard reads it.) *)
+Definition ref_sel_opt {A : Type} (r : Ref A) (w : World) : option A :=
+  match w_refs w (r_loc r) with
+  | Some (existT _ _ (tag0, x0)) => tag_coerce (r_tag r) tag0 x0
+  | None => None
+  end.
+
+(** [ref_install r v w]: the ALLOCATOR's RAW cell install — unconditionally writes [v] (tagged with [r]'s own
+    tag) at [r]'s location, CREATING the cell if absent.  It is NOT a public mutation: it is the installer the
+    allocators own ([ref_upd]'s live branch below, and the struct-field initialiser [wr_fields] that
+    [gsptr_new] runs).  Public writes go through the GUARDED [ref_upd] / [ref_set] / [ptr_set] / [hfield_set],
+    which install ONLY through an already-live cell — so a forged handle can never fabricate / retype via them. *)
+Definition ref_install {A : Type} (r : Ref A) (v : A) (w : World) : World :=
   mkWorld (fun l => if Nat.eqb l (r_loc r)
                     then Some (existT _ A (r_tag r, v))
                     else w_refs w l)
           (w_chans w) (w_maps w) (w_next w) (w_output w).
+
+Lemma ref_sel_opt_install_same : forall {A} (r : Ref A) (v : A) (w : World),
+  ref_sel_opt r (ref_install r v w) = Some v.
+Proof.
+  intros A r v w. unfold ref_sel_opt, ref_install; cbn.
+  rewrite (Nat.eqb_refl (r_loc r)); cbn. apply tag_coerce_refl.
+Qed.
+Lemma ref_sel_opt_install_diff : forall {A B} (r : Ref A) (r' : Ref B) (v : B) (w : World),
+  r_loc r <> r_loc r' -> ref_sel_opt r (ref_install r' v w) = ref_sel_opt r w.
+Proof.
+  intros A B r r' v w Hne. unfold ref_sel_opt, ref_install; cbn.
+  rewrite (proj2 (Nat.eqb_neq (r_loc r) (r_loc r')) Hne). reflexivity.
+Qed.
+Lemma ref_sel_install_same : forall {A} (r : Ref A) (v : A) (w : World),
+  ref_sel r (ref_install r v w) = v.
+Proof.
+  intros A r v w. unfold ref_sel, ref_install. cbn.
+  rewrite (Nat.eqb_refl (r_loc r)). rewrite tag_coerce_refl. reflexivity.
+Qed.
+Lemma ref_sel_install_diff : forall {A B} (r : Ref A) (r' : Ref B) (v : A) (w : World),
+  r_loc r <> r_loc r' -> ref_sel r' (ref_install r v w) = ref_sel r' w.
+Proof.
+  intros A B r r' v w Hne. unfold ref_sel, ref_install. cbn.
+  destruct (Nat.eqb (r_loc r') (r_loc r)) eqn:E; [|reflexivity].
+  apply Nat.eqb_eq in E. congruence.
+Qed.
+
+(** [ref_upd r v w]: the ROOT-GUARDED ref write (checkpoint-58, the ref dual of [chan_write] / [map_write]).
+    It writes [v] at [r]'s location ONLY when [r] is LIVE ([ref_sel_opt r w = Some _]); on a nil / absent /
+    dangling / WRONG-TAG handle it is the IDENTITY ([ref_upd_dead_noop] / [ref_upd_wrong_tag_noop]) — so a
+    forged [Ref] (constructible via the public [mkRef]) can no longer FABRICATE a cell at an unallocated
+    location NOR RETYPE an aliased cell of another type through the raw write.  The seal is the GUARD: a forged
+    handle is representable but INERT.  Cell CREATION is [ref_install] (allocators) / [ref_new]; every
+    [ref_upd] rides an already-live, tag-correct ref, on which it is IDENTICAL to the unconditional install
+    ([ref_upd_live_eq]) — so [ref_set] / [ptr_set] / [hfield_set] (which guard on [ref_sel_opt = Some] BEFORE
+    calling [ref_upd]) are behaviour-preserving on every live ref. *)
+Definition ref_upd {A : Type} (r : Ref A) (v : A) (w : World) : World :=
+  match ref_sel_opt r w with
+  | Some _ => ref_install r v w
+  | None   => w
+  end.
+
+(** RAW ANTI-FORGERY WITNESS (the ref dual of [chan_write_cellko_noop] / [map_write_absent_noop]): a
+    [ref_upd] through a handle with NO live cell ([ref_sel_opt = None] — nil, absent, dangling, OR WRONG-TAG)
+    is the IDENTITY.  So the raw ref write never fabricates or retypes a cell. *)
+Lemma ref_upd_dead_noop : forall {A} (r : Ref A) (v : A) (w : World),
+  ref_sel_opt r w = None -> ref_upd r v w = w.
+Proof. intros A r v w H. unfold ref_upd. rewrite H. reflexivity. Qed.
+
+(** On a LIVE ref the guarded write is IDENTICAL to the unconditional install — so every read-back / aliasing
+    law reduces to the [ref_install] algebra once liveness is in hand (and public writes, which guard first,
+    are unchanged). *)
+Lemma ref_upd_live_eq : forall {A} (r : Ref A) (v a : A) (w : World),
+  ref_sel_opt r w = Some a -> ref_upd r v w = ref_install r v w.
+Proof. intros A r v a w H. unfold ref_upd. rewrite H. reflexivity. Qed.
+
+(** WRONG-TAG ANTI-FORGERY (checkpoint-58): a forged [Ref A] whose location ALIASES a live cell of a
+    DIFFERENT type [B] (stored tag [tb], [tag_eq (r_tag r) tb = None]) does NOT mutate — [ref_upd] is the
+    IDENTITY.  A wrong-tag handle reads [ref_sel_opt = None] (its [tag_coerce] fails), so [ref_upd_dead_noop]
+    applies.  (No [r_loc r <> 0] premise is needed, unlike [chan] / [map]: [ref_sel_opt] carries no loc-0
+    guard, so the tag mismatch ALONE seals the write, at ANY location.) *)
+Lemma ref_upd_wrong_tag_noop : forall {A B} (r : Ref A) (v : A) (w : World) (tb : GoTypeTag B) (x0 : B),
+  w_refs w (r_loc r) = Some (existT _ B (tb, x0)) ->
+  tag_eq (r_tag r) tb = None ->
+  ref_upd r v w = w.
+Proof.
+  intros A B r v w tb x0 Hcell Htag. apply ref_upd_dead_noop.
+  unfold ref_sel_opt. rewrite Hcell.
+  change (tag_coerce (r_tag r) tb x0 = None).
+  unfold tag_coerce. rewrite Htag. reflexivity.
+Qed.
+(** ROOT-GUARD PROVENANCE (checkpoint-58): the ref anti-forgery witnesses as a public, zero-axiom cone.  A
+    forged / nil / absent / WRONG-TAG [Ref] cannot fabricate OR retype a cell through the raw [ref_upd] root
+    ([ref_upd_dead_noop] / [ref_upd_wrong_tag_noop]); every public write ([ref_set] / [ptr_set] / [hfield_set])
+    already guards on [ref_sel_opt = Some] before reaching it.  (No dedicated [Print Assumptions] surface: the
+    whole model's axiom-freedom is manifest-gated at the module level.) *)
 
 (** [ref_new tag v]: allocate the fresh location [w_next], seed [r_tag := tag],
     write [v], bump the allocator.  Carries the [GoTypeTag] so the cell is tagged
@@ -219,28 +310,20 @@ Qed.
 
 (* [ref_get] carries a [GoTypeTag] so that, when a read is bound inside a loop
    block, the lowering knows the Go type to hoist its declaration. *)
-(** A CHECKED read.  [ref_sel] (above) is TOTAL — it returns the type's zero value when the
-    cell is absent or carries the WRONG tag, which silently accepts a FORGED / dangling / retyped handle.
-    [ref_sel_opt] instead returns [None] in those cases, so a reader can FAIL LOUD rather than fabricate a
-    zero (the tenet: "mismatched/missing cells should be impossible in safe APIs, not silently
-    zero-filled").  A genuinely allocated, correctly-typed cell still reads [Some] ([ref_sel_opt_upd_same]),
-    so real programs are unaffected.  [ref_sel] stays for the pure proof/bridge layer. *)
-Definition ref_sel_opt {A : Type} (r : Ref A) (w : World) : option A :=
-  match w_refs w (r_loc r) with
-  | Some (existT _ _ (tag0, x0)) => tag_coerce (r_tag r) tag0 x0
-  | None => None
-  end.
-Lemma ref_sel_opt_upd_same : forall {A} (r : Ref A) (v : A) (w : World),
-  ref_sel_opt r (ref_upd r v w) = Some v.
+(** Read-after-write for the GUARDED [ref_upd] — now carrying a LIVENESS premise ([ref_sel_opt r w = Some a]):
+    since [ref_upd] no-ops on a non-live handle, the round-trip holds precisely for a ref whose cell is already
+    live, on which the write is the unconditional [ref_install] ([ref_upd_live_eq]).  ([ref_sel_opt] itself is
+    defined AHEAD of [ref_upd], with [ref_sel], since the root guard reads it.) *)
+Lemma ref_sel_opt_upd_same : forall {A} (r : Ref A) (v a : A) (w : World),
+  ref_sel_opt r w = Some a -> ref_sel_opt r (ref_upd r v w) = Some v.
 Proof.
-  intros A r v w. unfold ref_sel_opt, ref_upd; cbn.
-  rewrite (Nat.eqb_refl (r_loc r)); cbn. apply tag_coerce_refl.
+  intros A r v a w H. rewrite (ref_upd_live_eq r v a w H). apply ref_sel_opt_install_same.
 Qed.
 Lemma ref_sel_opt_upd_diff : forall {A B} (r : Ref A) (r' : Ref B) (v : B) (w : World),
   r_loc r <> r_loc r' -> ref_sel_opt r (ref_upd r' v w) = ref_sel_opt r w.
 Proof.
-  intros A B r r' v w Hne. unfold ref_sel_opt, ref_upd; cbn.
-  rewrite (proj2 (Nat.eqb_neq (r_loc r) (r_loc r')) Hne). reflexivity.
+  intros A B r r' v w Hne. unfold ref_upd.
+  destruct (ref_sel_opt r' w) as [a|]; [ apply ref_sel_opt_install_diff; exact Hne | reflexivity ].
 Qed.
 (** When the CHECKED read succeeds, the TOTAL read agrees — a live, correctly-typed cell has a real value.
     Bridges [ref_sel_opt = Some a] (cell-existence, the [ref_set] write premise) to the [ref_sel]-valued
@@ -312,15 +395,13 @@ Lemma ref_set_dangling : forall {A} (r : Ref A) (v : A) (w : World),
   ref_sel_opt r w = None -> run_io (ref_set r v) w = OPanic rt_nil_deref w.
 Proof. intros A r v w H. unfold run_io, ref_set. rewrite H. reflexivity. Qed.
 
-(** Read-after-write at the STATE level: [ref_upd]
-    tags the cell with [r]'s own tag, so the subsequent [ref_sel]'s [tag_coerce]
-    is reflexive ([tag_coerce_refl]) and the location lookup hits ([eqb_refl]). *)
-Lemma ref_sel_upd_same : forall {A} (r : Ref A) (v : A) (w : World),
-  ref_sel r (ref_upd r v w) = v.
+(** Read-after-write at the STATE level (with the LIVENESS premise [ref_sel_opt r w = Some a]): on a live ref
+    the guarded [ref_upd] is the [ref_install], which tags the cell with [r]'s own tag, so the subsequent
+    [ref_sel]'s [tag_coerce] is reflexive ([tag_coerce_refl]) and the location lookup hits ([eqb_refl]). *)
+Lemma ref_sel_upd_same : forall {A} (r : Ref A) (v a : A) (w : World),
+  ref_sel_opt r w = Some a -> ref_sel r (ref_upd r v w) = v.
 Proof.
-  intros A r v w. unfold ref_sel, ref_upd. cbn.
-  rewrite (Nat.eqb_refl (r_loc r)).
-  rewrite tag_coerce_refl. reflexivity.
+  intros A r v a w H. rewrite (ref_upd_live_eq r v a w H). apply ref_sel_install_same.
 Qed.
 
 (** Read-after-write — a THEOREM: after [ref_set r v], [ref_get] returns [v]. *)
@@ -330,8 +411,8 @@ Lemma ref_get_set_same : forall {A} (tag : GoTypeTag A) (r : Ref A) (v : A),
 Proof.
   intros. intro w.
   rewrite !run_bind, !run_ref_set.
-  destruct (ref_sel_opt r w) eqn:Hsel.
-  - cbn. rewrite run_ref_get, ref_sel_opt_upd_same. cbn. rewrite run_ret. reflexivity.
+  destruct (ref_sel_opt r w) as [a|] eqn:Hsel.
+  - cbn. rewrite run_ref_get, (ref_sel_opt_upd_same r v a w Hsel). cbn. rewrite run_ret. reflexivity.
   - reflexivity.
 Qed.
 
@@ -437,8 +518,8 @@ Proof.
   rewrite !run_bind, !run_ptr_set.
   destruct (Nat.eqb (p_loc p) 0) eqn:Hnil.
   - reflexivity.
-  - destruct (ref_sel_opt (ptr_as_ref tag p) w) eqn:Hsel.
-    + cbn. rewrite run_ptr_get, Hnil. cbn. rewrite ref_sel_opt_upd_same. cbn. rewrite run_ret. reflexivity.
+  - destruct (ref_sel_opt (ptr_as_ref tag p) w) as [a|] eqn:Hsel.
+    + cbn. rewrite run_ptr_get, Hnil. cbn. rewrite (ref_sel_opt_upd_same (ptr_as_ref tag p) v a w Hsel). cbn. rewrite run_ret. reflexivity.
     + reflexivity.
 Qed.
 
@@ -496,7 +577,7 @@ Theorem ptr_set_ref_as_ptr_aliases : forall {A} (r : Ref A) (v a : A) (w : World
 Proof.
   intros A r v a w Hnz Hsel. exists (ref_upd r v w). split.
   - exact (ptr_set_ref_as_ptr r v a w Hnz Hsel).
-  - apply ref_sel_upd_same.
+  - exact (ref_sel_upd_same r v a w Hsel).
 Qed.
 
 (** ---- CLOSED-WORLD nil-safety: the modeled nil panics are UNREACHABLE for ALLOCATED handles ----
@@ -667,14 +748,17 @@ Qed.
 
 (** ALIASING — the defining pointer property, a THEOREM: two pointers at the SAME
     location ([p] and a copy [q]) see each other's writes.  A write through [q] is
-    observed by a read through [p] — impossible for a non-aliasing [Ref] var. *)
-Lemma ptr_alias : forall {A} (tag : GoTypeTag A) (p q : Ptr A) (v : A) (w : World),
+    observed by a read through [p] — impossible for a non-aliasing [Ref] var.  The
+    write target [q]'s cell must be LIVE ([ref_sel_opt = Some]) — the guarded [ref_upd]
+    only writes through a live cell (a real program's pointer aliases an allocated cell). *)
+Lemma ptr_alias : forall {A} (tag : GoTypeTag A) (p q : Ptr A) (v a : A) (w : World),
   p_loc p = p_loc q ->
+  ref_sel_opt (ptr_as_ref tag q) w = Some a ->
   ref_sel (ptr_as_ref tag p) (ref_upd (ptr_as_ref tag q) v w) = v.
 Proof.
-  intros A tag p q v w Hl.
-  unfold ptr_as_ref. rewrite Hl.
-  apply (ref_sel_upd_same (mkRef (p_loc q) tag) v w).
+  intros A tag p q v a w Hl Hlive.
+  unfold ptr_as_ref in *. rewrite Hl.
+  exact (ref_sel_upd_same (mkRef (p_loc q) tag) v a w Hlive).
 Qed.
 
 (** ---- nil-deref SAFETY ----
@@ -831,11 +915,13 @@ Qed.
 (** ALIASING — the defining slice property, a THEOREM: a write through a SUB-SLICE is
     observed through the PARENT (they share the backing array).  Write [sub[j]] (=
     [parent[a+j]]), read [parent[a+j]] → the written value. *)
-Lemma subslice_alias : forall {A} (s : SliceH A) (a b j : nat) (v : A) (w : World),
+Lemma subslice_alias : forall {A} (s : SliceH A) (a b j : nat) (v a0 : A) (w : World),
+  ref_sel_opt (sh_cell s (a + j)) w = Some a0 ->
   ref_sel (sh_cell s (a + j))
           (ref_upd (sh_cell (subslice_desc s a b) j) v w) = v.
 Proof.
-  intros A s a b j v w. rewrite subslice_shares_cell. apply ref_sel_upd_same.
+  intros A s a b j v a0 w Hlive. rewrite subslice_shares_cell.
+  exact (ref_sel_upd_same (sh_cell s (a + j)) v a0 w Hlive).
 Qed.
 
 (** SEPARATION — the COMPLEMENT of aliasing, equally defining for a faithful reference-type model: a
@@ -847,9 +933,10 @@ Lemma slice_idx_set_frame : forall {A B} (s : SliceH A) (s' : SliceH B) (i j : n
   sh_loc s i <> sh_loc s' j ->
   ref_sel (sh_cell s' j) (ref_upd (sh_cell s i) v w) = ref_sel (sh_cell s' j) w.
 Proof.
-  intros A B s s' i j v w Hne. unfold ref_sel, ref_upd, sh_cell. cbn [r_loc r_tag w_refs].
-  destruct (Nat.eqb (sh_loc s' j) (sh_loc s i)) eqn:E; [|reflexivity].
-  apply Nat.eqb_eq in E. exfalso. apply Hne. symmetry. exact E.
+  intros A B s s' i j v w Hne. unfold ref_upd.
+  destruct (ref_sel_opt (sh_cell s i) w) as [x|]; [| reflexivity].
+  apply (ref_sel_install_diff (sh_cell s i) (sh_cell s' j) v w).
+  unfold sh_cell; cbn [r_loc]. exact Hne.
 Qed.
 
 (** Read-after-write at an index — a THEOREM (from the shared heap). *)
@@ -863,7 +950,7 @@ Proof.
   destruct (ref_sel_opt (sh_cell s (Z.to_nat (intraw i))) w) as [a|] eqn:Hsel.
   - rewrite !(run_slice_idx_set s i v a w Hi Hsel). cbn.
     rewrite (run_slice_idx_get tag s i v (ref_upd (sh_cell s (Z.to_nat (intraw i))) v w) Hi
-               (ref_sel_opt_upd_same (sh_cell s (Z.to_nat (intraw i))) v w)), run_ret.
+               (ref_sel_opt_upd_same (sh_cell s (Z.to_nat (intraw i))) v a w Hsel)), run_ret.
     reflexivity.
   - unfold slice_idx_set, run_io. rewrite Hi, Hsel. reflexivity.
 Qed.
@@ -941,7 +1028,7 @@ Lemma slice_append_incap_aliases : forall {A} (tag : GoTypeTag A) (s : SliceH A)
           (match run_io (slice_append tag s v) w with ORet _ w' => w' | OPanic _ w' => w' end) = v.
 Proof.
   intros A tag s v a w Hlt Hsel. rewrite (slice_append_incap tag s v a w Hlt Hsel). cbn.
-  apply ref_sel_upd_same.
+  exact (ref_sel_upd_same (sh_cell s (sh_len s)) v a w Hsel).
 Qed.
 
 (** A [len > cap] [SliceH] is IMPOSSIBLE for a real slice (Go maintains [len <= cap]); a forged handle that
@@ -1096,9 +1183,8 @@ Proof. intros A h k tag v a w Hsel. unfold hfield_set, run_io. rewrite Hsel. ref
 Lemma ref_sel_upd_diff : forall {A B} (r : Ref A) (r' : Ref B) (v : A) (w : World),
   r_loc r <> r_loc r' -> ref_sel r' (ref_upd r v w) = ref_sel r' w.
 Proof.
-  intros A B r r' v w Hne. unfold ref_sel, ref_upd. cbn.
-  destruct (Nat.eqb (r_loc r') (r_loc r)) eqn:E; [|reflexivity].
-  apply Nat.eqb_eq in E. congruence.
+  intros A B r r' v w Hne. unfold ref_upd.
+  destruct (ref_sel_opt r w) as [a|]; [ apply ref_sel_install_diff; exact Hne | reflexivity ].
 Qed.
 
 (** CROSS-RESOURCE separation: the [World]'s ref-heap and channel-heap are INDEPENDENT components
@@ -1130,13 +1216,18 @@ Proof. intros. unfold chan_recv_upd. apply ref_sel_opt_chan_write_frame. Qed.
 
 Lemma chan_buf_ref_upd_frame : forall {A B} (tag : GoTypeTag A) (ch : GoChan A) (r : Ref B) (v : B) (w : World),
   chan_buf tag ch (ref_upd r v w) = chan_buf tag ch w.
-Proof. intros. unfold chan_buf, ref_upd. reflexivity. Qed.
+Proof. intros. unfold chan_buf, ref_upd, ref_install. destruct (ref_sel_opt r w); reflexivity. Qed.
 (** A ref write leaves channel TAG-CORRECT status untouched ([ref_upd] touches only [w_refs]; [chan_cell_ok]
     reads [w_chans]) — frames the [WPresent] (tag-correct-channels) conjunct of the multi-channel refinement
     across the heap-write step, so the bridge's channels stay tag-correct through a [CWrite]. *)
 Lemma chan_cell_ok_ref_upd_frame : forall {A B} (tag : GoTypeTag A) (ch : GoChan A) (r : Ref B) (v : B) (w : World),
   chan_cell_ok tag ch (ref_upd r v w) = chan_cell_ok tag ch w.
-Proof. intros. unfold chan_cell_ok, ref_upd. reflexivity. Qed.
+Proof. intros. unfold chan_cell_ok, ref_upd, ref_install. destruct (ref_sel_opt r w); reflexivity. Qed.
+(** A ref write leaves channel ROOM untouched too ([chan_room] reads only [w_chans], which [ref_upd] preserves) —
+    the send-side condition frames across a heap write in the typed handoff bridge. *)
+Lemma chan_room_ref_upd_frame : forall {A B} (tag : GoTypeTag A) (ch : GoChan A) (r : Ref B) (v : B) (w : World),
+  chan_room tag ch (ref_upd r v w) = chan_room tag ch w.
+Proof. intros. unfold chan_room, ref_upd, ref_install. destruct (ref_sel_opt r w); reflexivity. Qed.
 
 (** ---- World-component independence for the CLOSEDNESS refinement ----
     [chan_close_upd] touches only the channel-closed flag of ONE channel; it leaves buffers and refs
@@ -1151,6 +1242,11 @@ Qed.
 Lemma ref_sel_chan_close_upd : forall {A B} (tag : GoTypeTag A) (ch : GoChan A) (r : Ref B) (w : World),
   ref_sel r (chan_close_upd tag ch w) = ref_sel r w.
 Proof. intros. unfold chan_close_upd. apply ref_sel_chan_write_frame. Qed.
+(* The CHECKED selector is framed through a channel close too (refs vs channel cells are independent) —
+   the combined-state bridge needs it now [WHMatchC] tracks [ref_sel_opt] liveness. *)
+Lemma ref_sel_opt_chan_close_upd : forall {A B} (tag : GoTypeTag A) (ch : GoChan A) (r : Ref B) (w : World),
+  ref_sel_opt r (chan_close_upd tag ch w) = ref_sel_opt r w.
+Proof. intros. unfold chan_close_upd. apply ref_sel_opt_chan_write_frame. Qed.
 Lemma chan_closed_close_frame : forall {A} (tag : GoTypeTag A) (ch ch' : GoChan A) (w : World),
   ch <> ch' -> chan_closed ch' (chan_close_upd tag ch w) = chan_closed ch' w.
 Proof.
@@ -1159,7 +1255,7 @@ Proof.
 Qed.
 Lemma chan_closed_ref_upd : forall {A B} (r : Ref B) (v : B) (ch : GoChan A) (w : World),
   chan_closed ch (ref_upd r v w) = chan_closed ch w.
-Proof. intros. unfold chan_closed, ref_upd. reflexivity. Qed.
+Proof. intros. unfold chan_closed, ref_upd, ref_install. destruct (ref_sel_opt r w); reflexivity. Qed.
 (** A send/recv on one channel leaves a DIFFERENT channel's closedness untouched (the closed flag of the
     sent/recv'd channel is itself preserved — [chan_closed_send]/[chan_closed_recv] — so [WClosedMatch] is
     framed across every step). *)
@@ -1186,7 +1282,7 @@ Proof.
   rewrite !run_bind.
   destruct (ref_sel_opt (hfield_cell h k tag) w) as [a|] eqn:Hsel.
   - rewrite !(run_hfield_set h k tag v a w Hsel). cbn.
-    rewrite run_hfield_get, ref_sel_opt_upd_same. cbn. rewrite run_ret. reflexivity.
+    rewrite run_hfield_get, (ref_sel_opt_upd_same (hfield_cell h k tag) v a w Hsel). cbn. rewrite run_ret. reflexivity.
   - unfold hfield_set, run_io. rewrite Hsel. reflexivity.
 Qed.
 
@@ -1206,13 +1302,16 @@ Proof.
 Qed.
 
 (** Two pointers to the SAME struct (same [base]) see each other's field writes — the
-    aliasing a [*T] receiver relies on.  A THEOREM. *)
-Lemma hstruct_alias : forall {A} (h h' : HStruct) (k : nat) (tag : GoTypeTag A) (v : A) (w : World),
+    aliasing a [*T] receiver relies on.  A THEOREM.  The written field cell of [h'] must be LIVE
+    ([ref_sel_opt = Some]) — the guarded [ref_upd] writes only through a live cell (a real struct
+    from [gsptr_new] has every field cell allocated). *)
+Lemma hstruct_alias : forall {A} (h h' : HStruct) (k : nat) (tag : GoTypeTag A) (v a : A) (w : World),
   hs_base h = hs_base h' ->
+  ref_sel_opt (hfield_cell h' k tag) w = Some a ->
   ref_sel (hfield_cell h k tag) (ref_upd (hfield_cell h' k tag) v w) = v.
 Proof.
-  intros A h h' k tag v w Hb. unfold hfield_cell. rewrite Hb.
-  apply (ref_sel_upd_same (mkRef (hs_base h' + k) tag) v w).
+  intros A h h' k tag v a w Hb Hlive. unfold hfield_cell in *. rewrite Hb.
+  exact (ref_sel_upd_same (mkRef (hs_base h' + k) tag) v a w Hlive).
 Qed.
 
 (** ---- Struct POINTERS: a heap-backed struct ↔ Go [*R] ----
@@ -1228,7 +1327,7 @@ Qed.
     [*R].  Lowers: [GSPtr R] → [*R], [gsptr_new] → [&R{…}],
     [gsptr_deref] → [*p], [gsptr_assign] → [*p = R{…}], reusing the [Ptr] arms. *)
 
-Local Transparent ref_sel ref_upd hfield_cell ref_sel_opt hfield_get run_io.
+Local Transparent ref_sel ref_upd ref_install hfield_cell ref_sel_opt hfield_get run_io.
 
 (** ============================================================================
     GENERIC STRUCT REPRESENTATION — one [StructRep R ts] for ALL field arities.
@@ -1333,14 +1432,19 @@ Lemma gsptr_field_get_set : forall {R t} `{StructRepOf R} (p : GSPtr R) (m : Mem
   bind (gsptr_set_field p m proj coh v) (fun _ => ret v).
 Proof. intros. unfold gsptr_set_field, gsptr_get_field. apply hfield_get_set_same. Qed.
 
-(** Two handles to the SAME base see each other's writes to a field — the [*R]-receiver ALIASING. *)
-Lemma gsptr_alias : forall {R t} `{StructRepOf R} (p q : GSPtr R) (m : Mem srep_ts t) (v : t) (w : World),
+(** Two handles to the SAME base see each other's writes to a field — the [*R]-receiver ALIASING.
+    The written field cell must be LIVE (inherited from [hstruct_alias]). *)
+Lemma gsptr_alias : forall {R t} `{StructRepOf R} (p q : GSPtr R) (m : Mem srep_ts t) (v a : t) (w : World),
   gsp_base p = gsp_base q ->
+  ref_sel_opt (hfield_cell (gsptr_hs q) (mem_depth m) (mem_tag m (sr_tags srep_rep))) w = Some a ->
   ref_sel (hfield_cell (gsptr_hs p) (mem_depth m) (mem_tag m (sr_tags srep_rep)))
           (ref_upd (hfield_cell (gsptr_hs q) (mem_depth m) (mem_tag m (sr_tags srep_rep))) v w)
     = v.
 Proof.
-  intros R t Hrep p q m v w Hb. apply hstruct_alias. unfold gsptr_hs. cbn. exact Hb.
+  intros R t Hrep p q m v a w Hb Hlive.
+  apply (hstruct_alias (gsptr_hs p) (gsptr_hs q) (mem_depth m) (mem_tag m (sr_tags srep_rep)) v a w).
+  - unfold gsptr_hs. cbn. exact Hb.
+  - exact Hlive.
 Qed.
 
 (** WHOLE-STRUCT ops — [new]/[deref]/[assign].  Generic over arity: [write_fields]/[read_fields]
@@ -1362,13 +1466,18 @@ Fixpoint read_fields (ts : list Type) (h : HStruct) (k : nat) : TagTup ts -> IO 
       ret (x, xs)))
   end.
 
-(** The pure world transformer [write_fields] effects — used to characterise the post-write heap. *)
+(** The pure world transformer the whole-struct write effects — used to characterise the post-write heap AND
+    the initialiser [gsptr_new] runs.  It uses the ALLOCATOR install [ref_install] (unconditional), NOT the
+    guarded [ref_upd]: [gsptr_new] CREATES the field cells here (they are absent in the freshly-bumped world),
+    so the initialiser must install, not no-op.  On a heap where the fields are already LIVE, [ref_install]
+    coincides with the guarded [ref_upd] ([ref_upd_live_eq]) — which is exactly what [run_write_fields] uses to
+    relate the guarded public [write_fields] to this transformer. *)
 Fixpoint wr_fields (ts : list Type) (h : HStruct) (k : nat) : TagTup ts -> Tup ts -> World -> World :=
   match ts return TagTup ts -> Tup ts -> World -> World with
   | nil       => fun _ _ w => w
   | t :: rest => fun tgs vls w =>
       wr_fields rest h (S k) (snd tgs) (snd vls)
-                (ref_upd (hfield_cell h k (fst tgs)) (fst vls) w)
+                (ref_install (hfield_cell h k (fst tgs)) (fst vls) w)
   end.
 
 Definition gsptr_new {R} `{StructRepOf R} (v : R) : IO (GSPtr R) :=
@@ -1403,16 +1512,16 @@ Fixpoint fields_live (ts : list Type) (h : HStruct) (k : nat) : TagTup ts -> Wor
       /\ fields_live rest h (S k) (snd tgs) w
   end.
 Lemma fields_live_frame : forall ts h j (tgs : TagTup ts) A (tag : GoTypeTag A) k v w,
-  k < j -> fields_live ts h j tgs w -> fields_live ts h j tgs (ref_upd (hfield_cell h k tag) v w).
+  k < j -> fields_live ts h j tgs w -> fields_live ts h j tgs (ref_install (hfield_cell h k tag) v w).
 Proof.
   induction ts as [ | t rest IH ]; intros h j tgs A tag k v w Hkj Hlive; cbn [fields_live] in *.
   - exact I.
   - destruct Hlive as [[a Ha] Hrest]. split.
-    + exists a. rewrite ref_sel_opt_upd_diff; [ exact Ha | rewrite !hfield_cell_loc; lia ].
+    + exists a. rewrite ref_sel_opt_install_diff; [ exact Ha | rewrite !hfield_cell_loc; lia ].
     + apply (IH h (S j) (snd tgs) A tag k v w); [ lia | exact Hrest ].
 Qed.
 
-Local Opaque run_io bind ret hfield_get hfield_set ref_sel_opt ref_upd hfield_cell.
+Local Opaque run_io bind ret hfield_get hfield_set ref_sel_opt ref_upd ref_install hfield_cell.
 
 Lemma run_write_fields : forall ts h k tgs vls w,
   fields_live ts h k tgs w ->
@@ -1422,7 +1531,8 @@ Proof.
   - rewrite run_ret. reflexivity.
   - destruct Hlive as [[a Ha] Hrest].
     rewrite run_bind, (run_hfield_set h k (fst tgs) (fst vls) a w Ha). cbn.
-    rewrite (IH h (S k) (snd tgs) (snd vls) (ref_upd (hfield_cell h k (fst tgs)) (fst vls) w)
+    rewrite (ref_upd_live_eq (hfield_cell h k (fst tgs)) (fst vls) a w Ha).
+    rewrite (IH h (S k) (snd tgs) (snd vls) (ref_install (hfield_cell h k (fst tgs)) (fst vls) w)
                (fields_live_frame rest h (S k) (snd tgs) t (fst tgs) k (fst vls) w (Nat.lt_succ_diag_r k) Hrest)).
     reflexivity.
 Qed.
@@ -1434,7 +1544,7 @@ Lemma wr_fields_frame : forall ts h j tgs vls A (tag : GoTypeTag A) k w,
 Proof.
   induction ts as [ | t rest IH ]; intros h j tgs vls A tag k w Hlt; cbn [wr_fields]; [ reflexivity | ].
   rewrite IH by lia.
-  apply ref_sel_opt_upd_diff. rewrite !hfield_cell_loc. lia.
+  apply ref_sel_opt_install_diff. rewrite !hfield_cell_loc. lia.
 Qed.
 
 (** Reading the fields back from the post-write heap recovers exactly the written tuple — ANY arity. *)
@@ -1447,7 +1557,7 @@ Proof.
   - destruct tgs as [tg tgs']. destruct vls as [v0 vs]. cbn [fst snd].
     rewrite run_bind, run_hfield_get.
     rewrite (wr_fields_frame rest h (S k) tgs' vs _ tg k _ (Nat.lt_succ_diag_r k)).
-    rewrite ref_sel_opt_upd_same. cbn.
+    rewrite ref_sel_opt_install_same. cbn.
     rewrite run_bind, IH. cbn. rewrite run_ret. reflexivity.
 Qed.
 
@@ -1466,7 +1576,7 @@ Proof.
   rewrite run_ret, (sr_eta srep_rep v). reflexivity.
 Qed.
 
-Local Transparent run_io bind ret hfield_get hfield_set ref_sel_opt ref_upd hfield_cell.
+Local Transparent run_io bind ret hfield_get hfield_set ref_sel_opt ref_upd ref_install hfield_cell.
 
 (** LIVENESS from ALLOCATION: [wr_fields] (the transformer [gsptr_new] runs) makes EVERY field cell LIVE —
     so [fields_live] is a CONSEQUENCE of allocation, not an unforced precondition leaked to callers. *)
@@ -1477,8 +1587,8 @@ Proof.
   split.
   - exists (fst vls).
     rewrite (wr_fields_frame rest h (S k) (snd tgs) (snd vls) t (fst tgs) k
-               (ref_upd (hfield_cell h k (fst tgs)) (fst vls) w) (Nat.lt_succ_diag_r k)).
-    apply ref_sel_opt_upd_same.
+               (ref_install (hfield_cell h k (fst tgs)) (fst vls) w) (Nat.lt_succ_diag_r k)).
+    apply ref_sel_opt_install_same.
   - apply IH.
 Qed.
 Lemma gsptr_new_fields_live : forall {R} `{StructRepOf R} (v0 : R) (w : World) p w1,
