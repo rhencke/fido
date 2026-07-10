@@ -1775,8 +1775,11 @@ Definition sh_start {A} (s : SliceH A) : nat := sh_base s + sh_off s.
 (** [clear(s)] (Go 1.21): zero [s]'s [len] elements.  FAILS LOUD ([rt_nil_deref]) unless the shape is possible
     ([sh_len <= sh_cap] — Go's slice invariant; an impossible [len > cap] forged header would else zero cells
     BEYOND its own backing) AND EVERY element cell reads LIVE + TAG-CORRECT ([slice_range_live s (sh_len s) w] —
-    itself the tag-aware [ref_sel_opt] range check): a forged / dangling / wrong-tag / malformed handle does NOT
-    silently succeed, exactly like [slice_idx_set] / [slice_append].  On the live path each cell is zeroed
+    itself the tag-aware [ref_sel_opt] range check): a shape-impossible handle, or one with ANY absent /
+    dangling / wrong-tag element, does NOT silently succeed, exactly like [slice_idx_set] / [slice_append].
+    (A SAME-TAG handle aliasing a LIVE backing still PASSES — liveness is TYPED, not origin-checked; the standing
+    checkpoint-59 frontier.  So this rejects malformed/dangling/wrong-tag handles, NOT every forged one.)  On the
+    live path each cell is zeroed
     through a TAG-AWARE per-cell guard — an absent / foreign-typed cell is left unchanged, so by CONSTRUCTION
     the write never fabricates or retypes a cell (a design property of the [ref_sel_opt]-keyed guard, not itself
     a separate theorem).  The GATED facts are [valid_run_slice_clear_h] (the live path preserves [ValidWorld] —
@@ -1799,8 +1802,10 @@ Definition slice_clear_h {A} (tag : GoTypeTag A) (s : SliceH A) : IO unit :=
 (** [copy(dst, src)]: copy [min(len dst, len src)] elements [src → dst], return the count.  FAILS LOUD
     ([rt_nil_deref]) unless BOTH shapes are possible ([sh_len <= sh_cap] for [dst] and [src], so [n <= cap] and
     neither range spills past its backing) AND the first [n] cells of BOTH read LIVE + TAG-CORRECT
-    ([slice_range_live dst n w && slice_range_live src n w]) — a forged / dangling / wrong-tag / malformed handle
-    does NOT silently succeed.  On the live path each [dst] cell takes the [src] value through a TAG-AWARE
+    ([slice_range_live dst n w && slice_range_live src n w]) — a shape-impossible handle, or one with ANY absent
+    / dangling / wrong-tag element in [dst] or [src], does NOT silently succeed.  (A SAME-TAG handle over a LIVE
+    backing still PASSES — typed liveness, not origin; the checkpoint-59 frontier — so this rejects malformed /
+    dangling / wrong-tag handles, NOT every forged one.)  On the live path each [dst] cell takes the [src] value through a TAG-AWARE
     per-cell guard reading the REAL [src] value ([ref_sel_opt = Some sv], never a fabricated zero); an absent /
     foreign-typed [dst] or [src] cell leaves [dst] unchanged, so by CONSTRUCTION the write never fabricates or
     retypes a cell (a design property of the guard, not itself a theorem).  The GATED facts are
@@ -1888,11 +1893,13 @@ Proof.
 Qed.
 
 (** BULK-SLICE-WRITE SURFACE (manifest-gated, zero-axiom): the bulk slice ops [clear]/[copy] are BOTH safe on
-    the live path (preserve [ValidWorld] — [valid_run_slice_clear_h]/[valid_run_slice_copy]) AND rejecting on
-    ANY malformed one — [slice_clear_rejected]/[slice_copy_rejected] fail loud whenever the guard is false (an
-    impossible shape OR a dead / wrong-tag element), with the [_bad_shape_] corollaries pinning the impossible
-    [len > cap] shape for [clear], [copy]'s DST, and [copy]'s SRC specifically.  So the guard is PINNED both
-    ways for every operand, not just asserted. *)
+    the live path (preserve [ValidWorld] — [valid_run_slice_clear_h]/[valid_run_slice_copy]) AND rejecting when
+    the guard is FALSE — [slice_clear_rejected]/[slice_copy_rejected] fail loud whenever an impossible [len>cap]
+    shape OR a dead / dangling / wrong-tag element makes the guard [false], with the [_bad_shape_] corollaries
+    pinning the impossible shape for [clear], [copy]'s DST, and [copy]'s SRC specifically.  So the guard is
+    PINNED both ways for every operand, not just asserted.  ⚠ This rejects a MALFORMED / DANGLING / WRONG-TAG
+    handle — NOT every forged one: a SAME-TAG handle aliasing a live backing passes the tag-aware liveness check
+    (typed liveness, not origin; the standing checkpoint-59 frontier). *)
 Definition slice_bulk_write_surface :=
   (@valid_run_slice_clear_h, @valid_run_slice_copy, @slice_clear_rejected, @slice_copy_rejected,
    @slice_clear_bad_shape_rejected, @slice_copy_bad_shape_rejected, @slice_copy_bad_shape_rejected_src).
