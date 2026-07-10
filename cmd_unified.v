@@ -953,13 +953,18 @@ Proof.
 Qed.
 Theorem calloc_no_clobber : forall w, ValidWorld w -> w_refs w (w_next w) = None.
 Proof.
-  intros w [_ Hbound].
+  intros w [_ [_ Hbound]].
   exact (proj1 (Hbound (w_next w) (PeanoNat.Nat.leb_refl _))).
 Qed.
 Theorem alloc_world_valid : forall v w, ValidWorld w -> ValidWorld (alloc_world v w).
 Proof.
-  intros v w [Hpos Hbound]. split.
+  intros v w [Hpos [Hloc0 Hbound]]. split; [ | split ].
   - reflexivity.
+  - (* WorldOk: [alloc_world] writes at [w_next] (nonzero), so loc 0 stays empty *)
+    destruct Hloc0 as [Hr0 [Hc0 Hm0]].
+    assert (El0 : Nat.eqb 0 (w_next w) = false)
+      by (apply PeanoNat.Nat.eqb_neq; apply PeanoNat.Nat.ltb_lt in Hpos; lia).
+    cbn [alloc_world w_refs w_chans w_maps]. rewrite El0. repeat split; assumption.
   - intros l Hl. cbn [alloc_world w_next] in Hl.
     apply PeanoNat.Nat.leb_le in Hl.
     assert (Hgt : w_next w <= l) by lia.

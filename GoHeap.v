@@ -76,22 +76,26 @@ Definition ref_new {A : Type} (tag : GoTypeTag A) (v : A) : IO (Ref A) :=
 
     Every allocator ([map_make]/[map_make_typed]/[make_chan]/[ref_new]) mints [l := w_next w] and bumps
     [w_next] to [l+1].  For "fresh" / "nonzero" / "disjoint" to be THEOREMS rather than comments we carry an
-    invariant [ValidWorld]: the allocator pointer is positive (so location 0 is RESERVED — it is Go's [nil])
-    AND it bounds the live region (every heap is [None] at and above [w_next]).  Two payoffs follow from the
+    invariant [ValidWorld]: the allocator pointer is positive (so location 0 is RESERVED — it is Go's [nil]),
+    location 0 is EMPTY in all three heaps (the WorldOk property — no forged cell can hide at [nil]), AND it
+    bounds the live region (every heap is [None] at and above [w_next]).  Three payoffs follow from the
     invariant ALONE (no side conditions): the next location is nonzero ([valid_fresh_nonzero] — a fresh
-    pointer/chan/map is never nil) and is currently unallocated in all three heaps ([valid_fresh_disjoint] —
-    a fresh allocation overwrites nothing).  The invariant holds at the initial world ([valid_w_init]) and is
-    PRESERVED by every allocator ([valid_alloc_*]) UNCONDITIONALLY — locations are [nat], so the allocator
-    counter never overflows. *)
+    pointer/chan/map is never nil), is currently unallocated in all three heaps ([valid_fresh_disjoint] — a
+    fresh allocation overwrites nothing), and location 0 is empty ([valid_loc0_empty] — the accessors' loc-0
+    read guards are provably redundant on the certified path).  The invariant holds at the initial world
+    ([valid_w_init]) and is PRESERVED by every allocator ([valid_alloc_*]) UNCONDITIONALLY — allocators write
+    at the nonzero [w_next], so loc 0 stays empty and [nat] locations never overflow. *)
 Definition ValidWorld (w : World) : Prop :=
   (0 <? w_next w)%nat = true /\
+  (w_refs w 0 = None /\ w_chans w 0 = None /\ w_maps w 0 = None) /\   (* WorldOk: loc 0 (Go's [nil]) empty in ALL heaps *)
   (forall l, (w_next w <=? l)%nat = true ->
      w_refs w l = None /\ w_chans w l = None /\ w_maps w l = None).
 
 Lemma valid_w_init : ValidWorld w_init.
 Proof.
-  split.
+  split; [ | split ].
   - now vm_compute.
+  - unfold w_init; cbn. repeat split; reflexivity.
   - intros l _. unfold w_init; cbn. repeat split; reflexivity.
 Qed.
 
@@ -104,8 +108,16 @@ Proof. intros w [Hpos _]. exact Hpos. Qed.
 Lemma valid_fresh_disjoint : forall w, ValidWorld w ->
   w_refs w (w_next w) = None /\ w_chans w (w_next w) = None /\ w_maps w (w_next w) = None.
 Proof.
-  intros w [_ Hfresh]. apply Hfresh. apply Nat.leb_le. lia.
+  intros w [_ [_ Hfresh]]. apply Hfresh. apply Nat.leb_le. lia.
 Qed.
+
+(** PAYOFF 3 (WorldOk): location 0 — Go's [nil] — is empty in ALL three heaps.  So a [ValidWorld] cannot
+    carry a forged cell at the reserved nil location: the accessors' loc-0 read guards are provably redundant
+    on the certified path (they remain for the open-world / public-[mkWorld] case, where a forged loc-0 cell
+    is representable). *)
+Lemma valid_loc0_empty : forall w, ValidWorld w ->
+  w_refs w 0 = None /\ w_chans w 0 = None /\ w_maps w 0 = None.
+Proof. intros w [_ [Hloc0 _]]. exact Hloc0. Qed.
 
 (** Consequences of bumping the allocator past [l']: the OLD pointer is still [<= l'], and [l'] is
     distinct from the freshly minted location (so the install's [eqb] guard is [false] at [l']).
@@ -130,8 +142,11 @@ Lemma valid_alloc_ref : forall {A} (tag : GoTypeTag A) (v : A) (w : World),
     (fun k => if Nat.eqb k (w_next w) then Some (existT _ A (tag, v)) else w_refs w k)
     (w_chans w) (w_maps w) (S (w_next w)) (w_output w)).
 Proof.
-  intros A tag v w HV. destruct HV as [Hpos Hfresh]. split.
+  intros A tag v w HV. destruct HV as [Hpos [Hloc0 Hfresh]]. split; [ | split ].
   - cbn [w_next]. apply Nat.ltb_lt. lia.
+  - cbn [w_refs w_chans w_maps]. destruct Hloc0 as [Hr0 [Hc0 Hm0]].
+    assert (Hne0 : Nat.eqb 0 (w_next w) = false) by (apply Nat.eqb_neq; apply Nat.ltb_lt in Hpos; lia).
+    rewrite Hne0. repeat split; assumption.
   - intros l' Hle. cbn [w_next w_refs w_chans w_maps] in *.
     assert (Hle0 : (w_next w <=? l')%nat = true) by (apply (bump_le w l' Hle)).
     assert (Hneq : Nat.eqb l' (w_next w) = false) by (apply (bump_neq w l' Hle)).
@@ -145,8 +160,11 @@ Lemma valid_alloc_chan : forall {A} (tag : GoTypeTag A) (cap : option nat) (w : 
     (fun k => if Nat.eqb k (w_next w) then Some (existT _ A (tag, (nil, (false, cap)))) else w_chans w k)
     (w_maps w) (S (w_next w)) (w_output w)).
 Proof.
-  intros A tag cap w HV. destruct HV as [Hpos Hfresh]. split.
+  intros A tag cap w HV. destruct HV as [Hpos [Hloc0 Hfresh]]. split; [ | split ].
   - cbn [w_next]. apply Nat.ltb_lt. lia.
+  - cbn [w_refs w_chans w_maps]. destruct Hloc0 as [Hr0 [Hc0 Hm0]].
+    assert (Hne0 : Nat.eqb 0 (w_next w) = false) by (apply Nat.eqb_neq; apply Nat.ltb_lt in Hpos; lia).
+    rewrite Hne0. repeat split; assumption.
   - intros l' Hle. cbn [w_next w_refs w_chans w_maps] in *.
     assert (Hle0 : (w_next w <=? l')%nat = true) by (apply (bump_le w l' Hle)).
     assert (Hneq : Nat.eqb l' (w_next w) = false) by (apply (bump_neq w l' Hle)).
@@ -158,8 +176,9 @@ Lemma valid_alloc_map_bump : forall (w : World),
   ValidWorld w ->
   ValidWorld (mkWorld (w_refs w) (w_chans w) (w_maps w) (S (w_next w)) (w_output w)).
 Proof.
-  intros w HV. destruct HV as [Hpos Hfresh]. split.
+  intros w HV. destruct HV as [Hpos [Hloc0 Hfresh]]. split; [ | split ].
   - cbn [w_next]. apply Nat.ltb_lt. lia.
+  - cbn [w_refs w_chans w_maps]. exact Hloc0.
   - intros l' Hle. cbn [w_next w_refs w_chans w_maps] in *.
     apply Hfresh. apply (bump_le w l' Hle).
 Qed.
@@ -171,8 +190,11 @@ Lemma valid_alloc_map_typed : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
               then Some (0, existT _ K (kt, existT _ V (vt, fun _ => None))) else w_maps w k)
     (S (w_next w)) (w_output w)).
 Proof.
-  intros K V kt vt w HV. destruct HV as [Hpos Hfresh]. split.
+  intros K V kt vt w HV. destruct HV as [Hpos [Hloc0 Hfresh]]. split; [ | split ].
   - cbn [w_next]. apply Nat.ltb_lt. lia.
+  - cbn [w_refs w_chans w_maps]. destruct Hloc0 as [Hr0 [Hc0 Hm0]].
+    assert (Hne0 : Nat.eqb 0 (w_next w) = false) by (apply Nat.eqb_neq; apply Nat.ltb_lt in Hpos; lia).
+    rewrite Hne0. repeat split; assumption.
   - intros l' Hle. cbn [w_next w_refs w_chans w_maps] in *.
     assert (Hle0 : (w_next w <=? l')%nat = true) by (apply (bump_le w l' Hle)).
     assert (Hneq : Nat.eqb l' (w_next w) = false) by (apply (bump_neq w l' Hle)).
