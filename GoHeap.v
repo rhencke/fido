@@ -1841,6 +1841,34 @@ Proof.
   destruct (Nat.leb (sh_start dst) k && Nat.ltb k (sh_start dst + n))%bool; [ rewrite Hns | ]; exact Hk.
 Qed.
 
+(** REJECTION of an IMPOSSIBLE SLICE SHAPE ([sh_cap < sh_len] — Go maintains [len <= cap], so such a header is
+    forged): [clear]/[copy] FAIL LOUD, [exists p, run_io … = OPanic p w] — a rejection ([OPanic], never a silent
+    [ORet]) that leaves the world UNCHANGED ([… p w], no mutation), without pinning the model-internal payload.
+    This is the proof that the shape guard actually rejects — the peer of [slice_append]'s [len > cap] panic. *)
+Corollary slice_clear_bad_shape_rejected : forall {A} (tag : GoTypeTag A) (s : SliceH A) (w : World),
+  (sh_cap s < sh_len s)%nat -> exists p, run_io (slice_clear_h tag s) w = OPanic p w.
+Proof.
+  intros A tag s w Hbad. unfold run_io, slice_clear_h.
+  assert (Hleb : Nat.leb (sh_len s) (sh_cap s) = false) by (apply Nat.leb_gt; exact Hbad).
+  rewrite Hleb. eexists. reflexivity.
+Qed.
+Corollary slice_copy_bad_shape_rejected : forall {A} (tag : GoTypeTag A) (dst src : SliceH A) (w : World),
+  (sh_cap dst < sh_len dst)%nat -> exists p, run_io (slice_copy tag dst src) w = OPanic p w.
+Proof.
+  intros A tag dst src w Hbad. unfold run_io, slice_copy. cbv zeta.
+  assert (Hleb : Nat.leb (sh_len dst) (sh_cap dst) = false) by (apply Nat.leb_gt; exact Hbad).
+  rewrite Hleb. eexists. reflexivity.
+Qed.
+
+(** BULK-SLICE-WRITE SURFACE (manifest-gated, zero-axiom): the bulk slice ops [clear]/[copy] are BOTH safe on
+    the live path (preserve [ValidWorld] — [valid_run_slice_clear_h]/[valid_run_slice_copy]) AND rejecting on a
+    malformed one (an impossible [len > cap] shape FAILS LOUD — [slice_clear_bad_shape_rejected]/
+    [slice_copy_bad_shape_rejected]).  So the shape/liveness guard is PINNED both ways, not just asserted. *)
+Definition slice_bulk_write_surface :=
+  (@valid_run_slice_clear_h, @valid_run_slice_copy,
+   @slice_clear_bad_shape_rejected, @slice_copy_bad_shape_rejected).
+Print Assumptions slice_bulk_write_surface.
+
 (** ---- Heap-backed STRUCTS as field-cell bundles ----
 
     A user struct cannot be a single [w_refs] cell: [GoTypeTag] has no struct

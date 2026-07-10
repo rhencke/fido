@@ -156,7 +156,11 @@ cites: read-after-write, non-nil, read/write-through-`&x`, aliasing) / `GoHeap.h
 (the AGGREGATE handles — slice backing + struct fields: allocator-produces-live + struct assign NO-PANIC +
 struct assign/deref value-fidelity round-trip + slice read/write NO-PANIC for BOTH make allocators
 (slice_make_lc + slice_make_h), in-bounds-gated & Go-faithful; slice transformers subslice/append are out of
-scope; the aggregate make-allocator no-panic cone matches the scalar families) / `GoHeap.live_handle_surface`
+scope; the aggregate make-allocator no-panic cone matches the scalar families) / `GoHeap.slice_bulk_write_surface`
+(the bulk slice ops clear/copy — tag-aware + fail-loud guarded: PRESERVE ValidWorld on the live path
+(valid_run_slice_clear_h/copy) AND REJECT an impossible len>cap shape by failing loud
+(slice_clear/copy_bad_shape_rejected, `exists p, run_io = OPanic p w`) — so a forged/malformed slice cannot
+silently succeed nor fabricate/retype cells) / `GoHeap.live_handle_surface`
 (the checkpoint-59 step-3 REUSABLE `Live*` family — the four SCALAR predicates LiveRef/LivePtr/LiveChan/LiveMap,
 one canonical typed-liveness interface over the per-family checks; allocators produce Live*) /
 `GoHeap.live_aggregate_handle_surface` (the two AGGREGATE peers completing the six-handle family — LiveSlice
