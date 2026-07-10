@@ -93,6 +93,17 @@ Definition map_get_fn {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
       end
   | None => fun _ => None
   end.
+(** [gm_present m w] — is [m]'s cell ALLOCATED?  FALSE for the nil sentinel ([gm_loc = 0]) AND for a nonzero
+    ABSENT location (a forged / dangling handle whose [w_maps] cell is [None]).  The map WRITE root ([map_write])
+    UPDATES only a present cell — an unallocated handle never fabricates one — and the write IO ops fail loud /
+    no-op on it.  ([map_make_typed] installs a cell, so a real map is present; the untyped no-cell [map_make] is
+    REJECTED by the plugin — an unsupported frontier.) *)
+Definition gm_present {K V} (m : GoMap K V) (w : World) : bool :=
+  if Nat.eqb (gm_loc m) 0 then false
+  else match w_maps w (gm_loc m) with Some _ => true | None => false end.
+Lemma gm_present_nonnil : forall {K V} (m : GoMap K V) w,
+  gm_present m w = true -> Nat.eqb (gm_loc m) 0 = false.
+Proof. intros K V m w H. unfold gm_present in H. destruct (Nat.eqb (gm_loc m) 0); [ discriminate H | reflexivity ]. Qed.
 (** The single map-cell WRITE.  Location 0 is the RESERVED nil sentinel: [map_write] on a nil map
     ([gm_loc = 0]) is a NO-OP — so NO map update ([map_upd]/[map_rem]/[map_clear_upd]) can EVER mutate
     location 0, regardless of caller.  The loc-0 write path is closed at its root, not just at the IO
@@ -100,12 +111,15 @@ Definition map_get_fn {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
     theorems below therefore carry a [gm_loc m <> 0] side condition. *)
 Definition map_write {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
                       (m : GoMap K V) (f : K -> option V) (sz : nat) (w : World) : World :=
-  if Nat.eqb (gm_loc m) 0 then w
-  else mkWorld (w_refs w) (w_chans w)
+  if gm_present m w
+  then mkWorld (w_refs w) (w_chans w)
           (fun l => if Nat.eqb l (gm_loc m)
                     then Some (sz, existT _ K (kt, existT _ V (vt, f)))
                     else w_maps w l)
-          (w_next w) (w_output w).
+          (w_next w) (w_output w)
+  else w.   (* ROOT GUARD: [map_write] UPDATES an existing cell only — an UNALLOCATED handle (nil OR nonzero
+               ABSENT) is a NO-OP, so the RAW updates [map_upd]/[map_rem]/[map_clear_upd] can NEVER fabricate a
+               cell (the only cell CREATION is [map_make_typed]).  Read-backs carry [gm_present], not [gm_loc<>0]. *)
 Definition map_sel {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
                    (k : K) (m : GoMap K V) (w : World) : option V :=
   map_get_fn kt vt m w k.
@@ -117,17 +131,6 @@ Definition map_sel {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
 Definition map_count {K V} (m : GoMap K V) (w : World) : nat :=
   if Nat.eqb (gm_loc m) 0 then 0   (* [len] of a nil map is 0 — never read a forged loc-0 cell's size *)
   else match w_maps w (gm_loc m) with Some (sz, _) => sz | None => 0 end.
-(** [gm_present m w] — is [m]'s cell ALLOCATED?  FALSE for the nil sentinel ([gm_loc = 0]) AND for a nonzero
-    ABSENT location (a forged / dangling handle whose [w_maps] cell is [None]).  A map WRITE ([map_set]/
-    [delete]/[clear]) fails loud or no-ops when this is false, so an unallocated handle never fabricates a cell
-    — the general fix for nonzero-absent map forgery, beyond loc-0.  ([map_make_typed] installs a cell, so a
-    real map is present; the untyped no-cell [map_make] is REJECTED by the plugin — an unsupported frontier.) *)
-Definition gm_present {K V} (m : GoMap K V) (w : World) : bool :=
-  if Nat.eqb (gm_loc m) 0 then false
-  else match w_maps w (gm_loc m) with Some _ => true | None => false end.
-Lemma gm_present_nonnil : forall {K V} (m : GoMap K V) w,
-  gm_present m w = true -> Nat.eqb (gm_loc m) 0 = false.
-Proof. intros K V m w H. unfold gm_present in H. destruct (Nat.eqb (gm_loc m) 0); [ discriminate H | reflexivity ]. Qed.
 (** An UNALLOCATED map ([gm_present = false]) reads [None] at EVERY key — the read-side dual of the write
     guards: a nil OR nonzero-absent handle observes no entries (the [Some] cell case is [gm_present = true]). *)
 Lemma map_sel_absent : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (m : GoMap K V) (w : World),
@@ -154,10 +157,11 @@ Definition map_rem {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
     the written function — via [eqb_refl] (location hit) + [tag_eq_refl] (the K/V
     coercions become identities, then eta). *)
 Lemma map_get_fn_write_same : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) m f sz w,
-  Nat.eqb (gm_loc m) 0 = false ->
+  gm_present m w = true ->
   map_get_fn kt vt m (map_write kt vt m f sz w) = f.
 Proof.
-  intros K V kt vt m f sz w Hnil. unfold map_get_fn, map_write. rewrite Hnil. cbn.
+  intros K V kt vt m f sz w Hp. unfold map_get_fn, map_write.
+  rewrite Hp, (gm_present_nonnil m w Hp). cbn.
   rewrite (Nat.eqb_refl (gm_loc m)), !tag_eq_refl. reflexivity.
 Qed.
 
@@ -252,7 +256,7 @@ Proof. reflexivity. Qed.
     [comparable_TInt64]. *)
 Theorem map_sel_upd_same : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
     (k : K) (v : V) (m : GoMap K V) (w : World),
-  key_eqb kt k k = true -> Nat.eqb (gm_loc m) 0 = false ->
+  key_eqb kt k k = true -> gm_present m w = true ->
   map_sel kt vt k m (map_upd kt vt k v m w) = Some v.
 Proof.
   intros K V kt vt k v m w Hk Hnil. unfold map_sel, map_upd.
@@ -260,7 +264,7 @@ Proof.
 Qed.
 Theorem map_sel_upd_diff : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
     (k1 k2 : K) (v : V) (m : GoMap K V) (w : World),
-  Comparable kt -> k1 <> k2 -> Nat.eqb (gm_loc m) 0 = false ->
+  Comparable kt -> k1 <> k2 -> gm_present m w = true ->
   map_sel kt vt k1 m (map_upd kt vt k2 v m w) = map_sel kt vt k1 m w.
 Proof.
   intros K V kt vt k1 k2 v m w Hcmp Hne Hnil. unfold map_sel, map_upd.
@@ -271,7 +275,7 @@ Proof.
 Qed.
 Theorem map_sel_rem : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
     (k : K) (m : GoMap K V) (w : World),
-  key_eqb kt k k = true -> Nat.eqb (gm_loc m) 0 = false ->
+  key_eqb kt k k = true -> gm_present m w = true ->
   map_sel kt vt k m (map_rem kt vt k m w) = None.
 Proof.
   intros K V kt vt k m w Hk Hnil. unfold map_sel, map_rem.
@@ -282,7 +286,7 @@ Qed.
     [k2].  Independence of keys is as defining for a map as [map_sel_rem] is. *)
 Theorem map_sel_rem_diff : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
     (k1 k2 : K) (m : GoMap K V) (w : World),
-  Comparable kt -> k1 <> k2 -> Nat.eqb (gm_loc m) 0 = false ->
+  Comparable kt -> k1 <> k2 -> gm_present m w = true ->
   map_sel kt vt k1 m (map_rem kt vt k2 m w) = map_sel kt vt k1 m w.
 Proof.
   intros K V kt vt k1 k2 m w Hcmp Hne Hnil. unfold map_sel, map_rem.
@@ -318,7 +322,7 @@ Proof.
   rewrite !run_bind, !run_map_set.
   destruct (gm_present m w) eqn:Hp.
   - cbn. rewrite run_map_get_opt, map_sel_upd_same
-      by first [ apply comparable_key_refl; exact Hcmp | exact (gm_present_nonnil m w Hp) ].
+      by first [ apply comparable_key_refl; exact Hcmp | exact Hp ].
     rewrite run_ret. reflexivity.
   - reflexivity.   (* unallocated map (nil OR nonzero-absent): both sides panic at the [map_set] step *)
 Qed.
@@ -333,7 +337,7 @@ Proof.
   rewrite !run_bind, !run_map_delete.
   destruct (gm_present m w) eqn:Hp.
   - cbn. rewrite run_map_get_opt, map_sel_rem
-      by first [ apply comparable_key_refl; exact Hcmp | exact (gm_present_nonnil m w Hp) ].
+      by first [ apply comparable_key_refl; exact Hcmp | exact Hp ].
     rewrite run_ret. reflexivity.
   - cbn. rewrite run_map_get_opt, (map_sel_absent kt vt k m w Hp), run_ret. reflexivity.
 Qed.
@@ -356,7 +360,7 @@ Lemma map_get_set_diff : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
 Proof.
   intros K V kt vt k1 k2 v m w Hcmp Hne Hp.
   rewrite run_bind, run_map_set, Hp. cbn.
-  rewrite run_map_get_opt, map_sel_upd_diff by first [ assumption | exact (gm_present_nonnil m w Hp) ].
+  rewrite run_map_get_opt, map_sel_upd_diff by first [ assumption | exact Hp ].
   reflexivity.
 Qed.
 
@@ -370,7 +374,7 @@ Lemma map_get_delete_diff : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
 Proof.
   intros K V kt vt k1 k2 m w Hcmp Hne Hp.
   rewrite run_bind, run_map_delete, Hp. cbn.
-  rewrite run_map_get_opt, map_sel_rem_diff by first [ assumption | exact (gm_present_nonnil m w Hp) ].
+  rewrite run_map_get_opt, map_sel_rem_diff by first [ assumption | exact Hp ].
   reflexivity.
 Qed.
 
@@ -408,7 +412,7 @@ Lemma map_clear_nil_noop : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (w
 Proof. reflexivity. Qed.
 Theorem map_sel_clear : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
     (k : K) (m : GoMap K V) (w : World),
-  Nat.eqb (gm_loc m) 0 = false ->
+  gm_present m w = true ->
   map_sel kt vt k m (map_clear_upd kt vt m w) = None.
 Proof. intros K V kt vt k m w Hnil. unfold map_sel, map_clear_upd. rewrite map_get_fn_write_same by exact Hnil. reflexivity. Qed.
 
@@ -419,7 +423,7 @@ Proof.
   intros K V kt vt k m. intro w.
   rewrite !run_bind, !run_map_clear.
   destruct (gm_present m w) eqn:Hp.
-  - cbn. rewrite run_map_get_opt, map_sel_clear by exact (gm_present_nonnil m w Hp).
+  - cbn. rewrite run_map_get_opt, map_sel_clear by exact Hp.
     rewrite run_ret. reflexivity.
   - cbn. rewrite run_map_get_opt, (map_sel_absent kt vt k m w Hp), run_ret. reflexivity.
 Qed.
