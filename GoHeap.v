@@ -908,11 +908,13 @@ Print Assumptions heap_alloc_safety_surface.
 (** ---- Live* : the REUSABLE typed-liveness predicate family (checkpoint-59 step 3) ----
 
     One canonical name per scalar handle for "the cell EXISTS at this handle's nonnil location AND stores the
-    matching tag" — the tag-correct-cell LIVENESS the ops' cell/deref guard branches on.  ⚠ [Live*] is CELL
-    liveness ONLY: the channel ops ([send]/[recv]/[close]) additionally demand room / not-closed / non-empty
-    conditions BEYOND [LiveChan] (those are NOT liveness), so [LiveChan] is not the full send/recv precondition.
-    Each UNFOLDS to the per-family check that is the single authority ([ref_sel_opt] / [chan_cell_ok] /
-    [map_cell_ok]); [Live*] is a NAMED INTERFACE over it, not
+    matching tag".  ⚠ NOT YET REBASED: [Live*] NAMES the tag-correct-cell liveness the ops CURRENTLY inline-check
+    ([ref_sel_opt]/[chan_cell_ok]/[map_cell_ok]) — no safe-op THEOREM consumes [Live*] yet; making the ops
+    stated in terms of [Live*] is the follow-up, so today it is a DEFINITIONAL mirror, not a proven op
+    precondition.  ⚠ And [Live*] is CELL liveness ONLY: the channel ops ([send]/[recv]/[close]) additionally
+    demand room / not-closed / non-empty conditions BEYOND [LiveChan] (those are NOT liveness), so [LiveChan] is
+    not the full send/recv precondition.  Each UNFOLDS to the per-family check that is the single authority
+    ([ref_sel_opt] / [chan_cell_ok] / [map_cell_ok]); [Live*] is a NAMED INTERFACE over it, not
     a second authority.  ⚠ This is TYPED LIVENESS, not origin provenance — a SAME-TAG forged handle satisfies
     [Live*] too (the open origin frontier); the wrong-tag/absent negatives are the [*_wrong_tag_antiforgery]
     surfaces.  SLICE 1 (here): the predicates + "ALLOCATORS produce Live*" (the checkpoint-58 step-5 evidence,
@@ -921,9 +923,10 @@ Print Assumptions heap_alloc_safety_surface.
     UNCHANGED) and rebasing safe-op preconditions onto [Live*], so the scattered per-op side conditions collapse
     to one interface. *)
 Definition LiveRef {A} (r : Ref A) (w : World) : Prop := ref_sel_opt r w <> None.
-(** [LivePtr] must match the POINTER safe-op gate EXACTLY: the ops ([ptr_get_ok]/[ptr_set]) guard
-    [Nat.eqb (p_loc p) 0] FIRST (nil deref panics) and THEN the live cell — so both conjuncts are required
-    (a [Ref] has no such explicit loc-0 guard, hence [LiveRef] is the cell alone). *)
+(** [LivePtr] is DEFINED to mirror the POINTER safe-op gate: the ops ([ptr_get_ok]/[ptr_set]) inline-guard
+    [Nat.eqb (p_loc p) 0] FIRST (nil deref panics) and THEN the live cell — so both conjuncts belong in
+    [LivePtr] (a [Ref] has no such explicit loc-0 guard, hence [LiveRef] is the cell alone).  The ops do not
+    YET consume [LivePtr] — that rebase is the follow-up; this is a definitional match, not a proven link. *)
 Definition LivePtr {A} (tag : GoTypeTag A) (p : Ptr A) (w : World) : Prop :=
   Nat.eqb (p_loc p) 0 = false /\ ref_sel_opt (ptr_as_ref tag p) w <> None.
 Definition LiveChan {A} (tag : GoTypeTag A) (ch : GoChan A) (w : World) : Prop := chan_cell_ok tag ch w = true.
