@@ -1451,10 +1451,12 @@ Qed.
     zero-axiom evidence — covering EVERY public op that could observe a forged cell.  (These are typed-liveness
     negatives, NOT origin provenance — a SAME-TAG alias is not stopped here.)  A forged wrong-tag handle
     cannot: retype a cell ([send]/[close] fail loud, world UNCHANGED); take a value on a recv
-    ([recv_wrong_tag_no_value]/[_no_zero] — NEGATIVE facts: no value / no zero delivered) or a comma-ok recv
-    ([recv_ok_wrong_tag_no_fire] — does not fire a fabricated value).  (The recv fail-loud [OPanic] is a MODEL
-    STAND-IN for blocking, NOT faithful Go — Go recv-block DEADLOCKS, unrecoverable; so the surface certifies
-    the anti-forgery NEGATIVES, NOT an exact recv-block panic payload as recoverable-panic semantics.)  Fire a select
+    ([recv_wrong_tag_no_value]/[_no_zero] — NEGATIVE facts: no value / no zero delivered, which do NOT assert
+    block-as-panic).  (The comma-ok [recv_ok] wrong-tag anti-forgery is deliberately NOT gated here: in shallow
+    IO its only non-firing outcome is an [OPanic] blocking STAND-IN, and Go recv-block DEADLOCKS — not a
+    recoverable panic — so certifying [recv_ok = OPanic ...] would misrepresent blocking; the theorem
+    [recv_ok_wrong_tag_no_fire] stays PROVED but UNGATED, and the faithful blocking authority is [rstep] in
+    [concurrency.v].)  Fire a select
     case — a wrong-tag arm of [select_wait2]/[select_recv2] is SKIPPED, reducing the select to the OTHER arm
     alone with NO precondition on it ([_wrong_tag_no_fire] for ch1, [_wrong_tag_ch2_no_fire] for ch2), so both
     arms are sealed in EVERY combination (incl. both wrong-tag); [select_recv_default] takes the DEFAULT
@@ -1465,7 +1467,7 @@ Qed.
 Definition chan_wrong_tag_antiforgery_surface :=
   (@chan_cell_ok_wrong_tag, @chan_write_cellko_noop, @send_wrong_tag_no_mutation,
    @close_wrong_tag_no_mutation, @recv_wrong_tag_no_value, @recv_wrong_tag_no_zero,
-   @recv_ok_wrong_tag_no_fire, @select_wait2_wrong_tag_no_fire,
+   @select_wait2_wrong_tag_no_fire,
    @select_wait2_wrong_tag_ch2_no_fire, @select_recv2_wrong_tag_no_fire,
    @select_recv2_wrong_tag_ch2_no_fire, @select_recv_default_wrong_tag_default).
 Print Assumptions chan_wrong_tag_antiforgery_surface.
