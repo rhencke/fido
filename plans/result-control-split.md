@@ -39,8 +39,9 @@ VERIFIED (read the code):
   a block/fault-free well-formedness premise to `blocks_jump_wf`. Decide which at execution.
 
 OPEN — verify at execution, do NOT assume:
-- Whether heap ref/ptr/slice/struct ops can yield `OBlock`/`OFault`. They fail with `rt_nil_deref` (`OPanic`) and
-  have no channel/forged-map path, so PLAUSIBLY not — but this is unchecked; confirm per op.
+- Whether heap ref/ptr/slice/struct ops can yield `OBlock`/`OFault`. When they fail they do so with `OPanic`
+  (a genuine Go panic — the payload varies by op: nil-deref, index-out-of-range, negative-make, …) and touch no
+  channel/map heap, so PLAUSIBLY never `OBlock`/`OFault` — but this is unchecked; confirm per op.
 - Whether `plugin/go.ml` is affected by the constructor change and whether keeping the existing `GoAny` `rt_*`
   payloads (vs a distinct reason type) avoids extractor churn. It lowers by name and does not extract `Outcome`,
   so PLAUSIBLY unaffected — unchecked; confirm against `go.ml`'s suppression logic + `make check`.
