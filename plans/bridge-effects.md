@@ -43,7 +43,7 @@ FORBIDDEN and unrepresentable through the public path).
    [x] cmd_unified.v: `cmd_to_ucmd` CAlloc→UAlloc arm; UFrag UF_al ctor +
        cmd_to_ucmd_fragment case; ustart_w gains `(w_next w)` as uc_next;
        body_runs_sem (+ the defer-unwind ladder + the public theorems) thread the
-       allocator agreement: config nx = `w_next w` in, `w_next (oc_world oc)` out
+       allocator agreement: config nx = `w_next w` in, `w_next (outcome_world oc)` out
        (COut/CRead preserve w_next definitionally; CWrite via a heap_write_next lemma;
        CAlloc: both sides allocate at the SAME location, heap_agrees extends via
        any_of_cell (cell_of_any v) = v round-trip lemma).
@@ -143,7 +143,7 @@ FORBIDDEN and unrepresentable through the public path).
    The capacity story is RESOLVED: unified's `uroom` counts `length < cap` with `ucap` a
    rule parameter, and the bridge pins it to the World's own caps via `ucap_of_world`
    (`ucap_agree` threads the invariant; `room_from_agree` transfers the cell's room check).
-   `bridge_effects_agree` now EXPOSES `ucap_agree (ucap_of_world w) (w_chans (oc_world oc))`
+   `bridge_effects_agree` now EXPOSES `ucap_agree (ucap_of_world w) (w_chans (outcome_world oc))`
    in its public conclusion (not just the internal invariant) — the theorem matches the prose.
    ⚠ WfTrace / HAPPENS-BEFORE BOUNDARY: the bridge concludes `bufs_agree`/`closed_agree` only,
    NEVER `WfTrace`. `bufs_of_world` gives every INITIAL buffered value synthetic position 0

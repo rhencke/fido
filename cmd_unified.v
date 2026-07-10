@@ -547,7 +547,7 @@ Proof. induction l as [|a l IH]; simpl; [reflexivity | rewrite IH; reflexivity].
 (** [oc_set_world] only advances the world — it preserves the [Outcome]'s panic status (and sets its world). *)
 Local Lemma ocpanic_set_world : forall (acc : Outcome unit) w, ocpanic (oc_set_world acc w) = ocpanic acc.
 Proof. intros [[] w0 | v w0] w; reflexivity. Qed.
-Local Lemma oc_world_set_world : forall (acc : Outcome unit) w, outcome_world (oc_set_world acc w) = w.
+Local Lemma outcome_world_set_world : forall (acc : Outcome unit) w, outcome_world (oc_set_world acc w) = w.
 Proof. intros [[] w0 | v w0] w; reflexivity. Qed.
 
 
@@ -658,22 +658,22 @@ Proof.
                                        | OPanic v' w' => OPanic v' w'
                                        | ORet _ w' => oc_set_world acc w' end)))).
     { destruct net as [[] wn | vn wn]; cbn [outcome_world] in HhaB |- *;
-        [ rewrite oc_world_set_world; exact HhaB | exact HhaB ]. }
+        [ rewrite outcome_world_set_world; exact HhaB | exact HhaB ]. }
     assert (HbaB' : bufs_agree bB (w_chans (outcome_world (match net with
                                        | OPanic v' w' => OPanic v' w'
                                        | ORet _ w' => oc_set_world acc w' end)))).
     { destruct net as [[] wn | vn wn]; cbn [outcome_world] in HbaB |- *;
-        [ rewrite oc_world_set_world; exact HbaB | exact HbaB ]. }
+        [ rewrite outcome_world_set_world; exact HbaB | exact HbaB ]. }
     assert (HcaB' : closed_agree trB (w_chans (outcome_world (match net with
                                        | OPanic v' w' => OPanic v' w'
                                        | ORet _ w' => oc_set_world acc w' end)))).
     { destruct net as [[] wn | vn wn]; cbn [outcome_world] in HcaB |- *;
-        [ rewrite oc_world_set_world; exact HcaB | exact HcaB ]. }
+        [ rewrite outcome_world_set_world; exact HcaB | exact HcaB ]. }
     assert (HuaB' : ucap_agree ucap (w_chans (outcome_world (match net with
                                        | OPanic v' w' => OPanic v' w'
                                        | ORet _ w' => oc_set_world acc w' end)))).
     { destruct net as [[] wn | vn wn]; cbn [outcome_world] in HuaB |- *;
-        [ rewrite oc_world_set_world; exact HuaB | exact HuaB ]. }
+        [ rewrite outcome_world_set_world; exact HuaB | exact HuaB ]. }
     destruct (IHrest ucap pB bB hB lv trB
                  ((o ++ map (fun e => (0, e)) evs0) ++ map (fun e => (0, e)) evs1)
                  dfB paB ds_tail qb Hlv HprogB HqB' HhaB' HbaB' HcaB' HuaB' HdfB)
@@ -688,7 +688,7 @@ Proof.
       assert (HnextC : outcome_world (match net with
                                  | OPanic v' w' => OPanic v' w'
                                  | ORet _ w' => oc_set_world acc w' end) = outcome_world net)
-        by (destruct net as [[] wn | vn wn]; cbn [outcome_world]; [ rewrite oc_world_set_world | ]; reflexivity).
+        by (destruct net as [[] wn | vn wn]; cbn [outcome_world]; [ rewrite outcome_world_set_world | ]; reflexivity).
       rewrite HnextC in HusC.
       eapply usteps_trans; [ exact Hpop | ].
       eapply usteps_trans; [ exact HusA | ].
@@ -698,7 +698,7 @@ Proof.
                                             | OPanic v' w' => OPanic v' w'
                                             | ORet _ w' => oc_set_world acc w' end))
                        = w_output (outcome_world net))
-        by (destruct net as [[] wn | vn wn]; cbn [outcome_world]; [ rewrite oc_world_set_world | ]; reflexivity).
+        by (destruct net as [[] wn | vn wn]; cbn [outcome_world]; [ rewrite outcome_world_set_world | ]; reflexivity).
       assert (Hwseed : w_output (outcome_world (oc_unit oc_d)) = w_output (outcome_world oc_d))
         by (destruct oc_d; reflexivity).
       rewrite Hwacc', Hout1, Hwseed, Hout0, <- !app_assoc. reflexivity.
@@ -727,7 +727,7 @@ Proof.
     + injection H as <-.
       destruct (IH c' w oc0 E0) as [evs0 Hevs0].
       destruct (IH d (outcome_world oc0) (ORet tt w') Ed) as [evs1 Hevs1].
-      exists (evs0 ++ evs1). rewrite oc_world_set_world.
+      exists (evs0 ++ evs1). rewrite outcome_world_set_world.
       cbn [outcome_world] in Hevs1. rewrite Hevs1, Hevs0, <- app_assoc. reflexivity.
     + injection H as <-.
       destruct (IH c' w oc0 E0) as [evs0 Hevs0].
