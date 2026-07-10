@@ -5313,11 +5313,10 @@ Section KeystoneMulti.
     (forall c, chan_buf TI64 (chenv c) w0 = []) ->
     (forall c, chan_present (chenv c) w0 = true) ->
     rsteps (rinit_cfg p) cfg ->
-    exists w, WMatchC w cfg.
+    exists w, WMatchC w cfg /\ WPresentM w.   (* the realizing world's channels are ALLOCATED — the invariant is EXPOSED, not erased *)
   Proof.
     intros p cfg w0 Hempty Hpres Hsteps.
-    destruct (wmatchc_steps _ _ _ Hsteps (wmatchc_init p w0 Hempty) Hpres) as [w [HM _]].
-    exists w. exact HM.
+    exact (wmatchc_steps _ _ _ Hsteps (wmatchc_init p w0 Hempty) Hpres).
   Qed.
 
   (** Capstone: a reachable concurrent state is BOTH realized by a [run_io] world AND
@@ -5329,7 +5328,7 @@ Section KeystoneMulti.
     (forall c, chan_present (chenv c) w0 = true) ->
     rsteps (rinit_cfg p) cfg ->
     Owned (rc_trace cfg) ->
-    (exists w, WMatchC w cfg) /\
+    (exists w, WMatchC w cfg /\ WPresentM w) /\
     TraceRaceFree (rc_trace cfg) /\
     (forall i, ~ hbt (rc_trace cfg) i i).
   Proof.
@@ -5612,11 +5611,10 @@ Section KeystoneState.
     (forall l, ref_sel (locenv l) w0 = inj 0) ->
     (forall c, chan_present (chenv c) w0 = true) ->
     rsteps (rinit_cfg p) cfg ->
-    exists w, WMatchC chenv inj w cfg /\ WHMatchC locenv inj w cfg.
+    exists w, WMatchC chenv inj w cfg /\ WHMatchC locenv inj w cfg /\ WPresent w.   (* channels ALLOCATED — exposed, not erased *)
   Proof.
     intros p cfg w0 Hempty Hzero Hpres Hsteps.
-    destruct (wstate_steps _ _ _ Hsteps (wstate_init p w0 Hempty Hzero Hpres)) as [w [HMc [HMh _]]].
-    exists w. split; [exact HMc | exact HMh].
+    exact (wstate_steps _ _ _ Hsteps (wstate_init p w0 Hempty Hzero Hpres)).
   Qed.
 
   (** Capstone: that single world realizes the reachable BUFFER+HEAP state AND (under ownership) the
@@ -5630,7 +5628,7 @@ Section KeystoneState.
     (forall c, chan_present (chenv c) w0 = true) ->
     rsteps (rinit_cfg p) cfg ->
     Owned (rc_trace cfg) ->
-    (exists w, WMatchC chenv inj w cfg /\ WHMatchC locenv inj w cfg) /\
+    (exists w, WMatchC chenv inj w cfg /\ WHMatchC locenv inj w cfg /\ WPresent w) /\
     TraceRaceFree (rc_trace cfg) /\
     (forall i, ~ hbt (rc_trace cfg) i i).
   Proof.
@@ -5805,12 +5803,10 @@ Section KeystoneState.
     (forall c, chan_closed (chenv c) w0 = false) ->
     (forall c, chan_present (chenv c) w0 = true) ->
     rsteps (rinit_cfg p) cfg ->
-    exists w, WMatchC chenv inj w cfg /\ WHMatchC locenv inj w cfg /\ WClosedMatch w cfg.
+    exists w, WMatchC chenv inj w cfg /\ WHMatchC locenv inj w cfg /\ WClosedMatch w cfg /\ WPresent w.   (* channels ALLOCATED — exposed, not erased *)
   Proof.
     intros p cfg w0 Hempty Hzero Hclosed Hpres Hsteps.
-    destruct (wstate_stepsC _ _ _ Hsteps (wstate_initC p w0 Hempty Hzero Hclosed Hpres))
-      as [w [HMc [HMh [HMcl _]]]].
-    exists w. split; [exact HMc | split; [exact HMh | exact HMcl]].
+    exact (wstate_stepsC _ _ _ Hsteps (wstate_initC p w0 Hempty Hzero Hclosed Hpres)).
   Qed.
 
 End KeystoneState.
@@ -5850,8 +5846,8 @@ Theorem mp_end_to_end :
       (* (c) each goroutine of mp_prog is the Keystone-denotation of EXTRACTABLE typed IO *)
       /\ Denotes chenv (plocenv ptrenv) inj prj (mp_prog v0 v1 0) (mp_g0_io chenv ptrenv inj v0 v1)
       /\ Denotes chenv (plocenv ptrenv) inj prj (mp_prog v0 v1 1) (mp_g1_io chenv ptrenv)
-      (* (d) the FULL reachable state — channels AND memory — is realized by one run_io world *)
-      /\ (exists w, WMatchC chenv inj w cfg /\ WHMatchC (plocenv ptrenv) inj w cfg)
+      (* (d) the FULL reachable state — channels AND memory — is realized by one run_io world whose channels are ALLOCATED *)
+      /\ (exists w, WMatchC chenv inj w cfg /\ WHMatchC (plocenv ptrenv) inj w cfg /\ WPresent chenv w)
       (* (e) the equivalent single-threaded handoff IO delivers exactly the right values *)
       /\ (exists w', run_io (mp_handoff_io chenv ptrenv inj v0 v1) w0 = ORet (inj v1, inj v0) w').
 Proof.
@@ -5875,8 +5871,8 @@ Proof.
       - intro l. unfold mp_init; cbn [rc_heap]. exact (ref_sel_of_opt (plocenv ptrenv l) (inj 0) w0 (Hheap l)).
       - exact Hpres. }
     destruct (wstate_steps chenv (plocenv ptrenv) inj Hchen Hloc Hchlive
-                (mp_init v0 v1) cfg w0 Hsteps Hinit) as [w [HWc [HWh _]]].
-    exists w. split; [exact HWc | exact HWh]. }
+                (mp_init v0 v1) cfg w0 Hsteps Hinit) as [w HW].
+    exists w. exact HW. }
   exact (mp_handoff_delivers chenv ptrenv inj Hlive Hchlive v0 v1 w0 (inj 0) (Hheap 0) (Hbuf 0) Hcl Hcap (Hpres 0)).
 Qed.
 
@@ -8505,7 +8501,7 @@ Corollary reachableC_refines_bounded :
     (forall c, chan_buf TI64 (chenv c) w0 = []) ->
     (forall c, chan_present (chenv c) w0 = true) ->   (* the channels are ALLOCATED (checkpoint-57: absence is not an unbounded channel) *)
     rstepsC cap (rinit_cfg p) cfg ->
-    (exists w, WMatchC chenv inj w cfg) /\ BoundedC cap cfg.
+    (exists w, WMatchC chenv inj w cfg /\ WPresentM chenv w) /\ BoundedC cap cfg.  (* the realizing world's channels are ALLOCATED — exposed, not erased *)
 Proof.
   intros chenv inj Hci Hcl cap p cfg w0 Hempty Hpres Hsteps.
   split.
