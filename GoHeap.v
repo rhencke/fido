@@ -908,27 +908,22 @@ Print Assumptions heap_alloc_safety_surface.
 (** ---- Live* : the REUSABLE typed-liveness predicate family (checkpoint-59 step 3) ----
 
     One canonical name per scalar handle for "the cell EXISTS at this handle's nonnil location AND stores the
-    matching tag".  [Live*] NAMES the tag-correct-cell liveness the ops CURRENTLY inline-check
-    ([ref_sel_opt]/[chan_cell_ok]/[map_cell_ok]).  The op-level preservation theorems (slice 3) DO consume
-    [Live*] as a hypothesis — a proven op↔[Live*] link — but the ops' DEFINITIONS are NOT yet REBASED (stated
-    with [Live*] as their precondition instead of the inline check); that restatement is the remaining
-    follow-up.  ⚠ And [Live*] is CELL liveness ONLY: the channel ops ([send]/[recv]/[close]) additionally
-    demand room / not-closed / non-empty conditions BEYOND [LiveChan] (those are NOT liveness), so [LiveChan] is
-    not the full send/recv precondition.  Each UNFOLDS to the per-family check that is the single authority
-    ([ref_sel_opt] / [chan_cell_ok] / [map_cell_ok]); [Live*] is a NAMED INTERFACE over it, not
-    a second authority.  ⚠ This is TYPED LIVENESS, not origin provenance — a SAME-TAG forged handle satisfies
-    [Live*] too (the open origin frontier); the wrong-tag/absent negatives are the [*_wrong_tag_antiforgery]
-    surfaces.  SLICE 1 (here): the predicates + "ALLOCATORS produce Live*".  SLICE 2 (below): the RAW UPDATE
-    ROOTS preserve [Live*].  SLICE 3 (below): OP-LEVEL preservation — the always-succeed-on-live checked writes
-    ([ref_set]/[ptr_set]/[map_set]/[delete]/[clear]) RETURN with the world still [Live*].  REMAINING: the
-    CHANNEL ops' op-level preservation (a case split, since a live channel keeps panic/block branches) and
-    rebasing the ops' DEFINITIONS onto [Live*]. *)
+    matching tag".  Each UNFOLDS to the per-family check that is the single authority ([ref_sel_opt] /
+    [chan_cell_ok] / [map_cell_ok]) — [Live*] is a NAMED INTERFACE over that check, NOT a second authority; the
+    ops' DEFINITIONS branch on the underlying check directly ([Live*] mirrors it, the ops do not reference the
+    name).  ⚠ CELL liveness ONLY: the channel ops ([send]/[recv]/[close]) additionally demand room / not-closed
+    / non-empty conditions BEYOND [LiveChan] (those are NOT liveness), so [LiveChan] is not the full send/recv
+    precondition.  ⚠ TYPED LIVENESS, not origin provenance — a SAME-TAG forged handle satisfies [Live*] too (the
+    open origin frontier); the wrong-tag/absent negatives are the [*_wrong_tag_antiforgery] surfaces.  What is
+    PROVED about [Live*] is exactly the gated surfaces below: allocators produce it ([live_handle_surface]), the
+    raw update roots preserve it ([live_preserve_surface]), and the always-succeed-on-live checked writes return
+    with it preserved ([live_op_preserve_surface]). *)
 Definition LiveRef {A} (r : Ref A) (w : World) : Prop := ref_sel_opt r w <> None.
 (** [LivePtr] is DEFINED to mirror the POINTER safe-op gate: the ops ([ptr_get_ok]/[ptr_set]) inline-guard
     [Nat.eqb (p_loc p) 0] FIRST (nil deref panics) and THEN the live cell — so both conjuncts belong in
     [LivePtr] (a [Ref] has no such explicit loc-0 guard, hence [LiveRef] is the cell alone).  [LivePtr_ptr_set_op]
-    (slice 3) PROVES the link — [ptr_set] on a [LivePtr] returns and preserves it — though [ptr_set]'s DEFINITION
-    is not yet REBASED onto [LivePtr] (still the inline guard); that restatement is the follow-up. *)
+    proves the link — [ptr_set] on a [LivePtr] returns and preserves it — while [ptr_set]'s definition branches
+    on the inline guard that [LivePtr] mirrors. *)
 Definition LivePtr {A} (tag : GoTypeTag A) (p : Ptr A) (w : World) : Prop :=
   Nat.eqb (p_loc p) 0 = false /\ ref_sel_opt (ptr_as_ref tag p) w <> None.
 Definition LiveChan {A} (tag : GoTypeTag A) (ch : GoChan A) (w : World) : Prop := chan_cell_ok tag ch w = true.
@@ -961,9 +956,8 @@ Lemma map_make_typed_live : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (
   ValidWorld w -> run_io (map_make_typed kt vt) w = ORet m w' -> LiveMap kt vt m w'.
 Proof. intros K V kt vt w m w' HV Hrun. unfold LiveMap. exact (map_cell_ok_make_typed kt vt w m w' HV Hrun). Qed.
 
-(** Live* SLICE-1 SURFACE (manifest-gated, zero-axiom): the unified "allocators produce Live*" evidence across
-    ref / ptr / chan (UNbuffered AND buffered) / map.  (Op-preservation + safe-op-requires-Live is the
-    follow-up slice.) *)
+(** Live* ALLOCATOR SURFACE (manifest-gated, zero-axiom): the unified "allocators produce Live*" evidence
+    across ref / ptr / chan (UNbuffered AND buffered) / map.  (Preservation is the two surfaces further down.) *)
 Definition live_handle_surface :=
   (@ref_new_live, @ptr_new_live, @make_chan_live, @make_chan_buf_live, @map_make_typed_live).
 Print Assumptions live_handle_surface.
@@ -973,9 +967,9 @@ Print Assumptions live_handle_surface.
     the cell with the SAME tag, so a LIVE handle stays Live across the UPDATE.  ⚠ These are UPDATE-ROOT facts,
     NOT full checked-op claims: a checked op — [send]/[recv]/[close] especially — need NOT reach its update root
     (send-on-closed / empty-recv / double-close FAIL LOUD, a full send blocks); those branches leave the world
-    UNCHANGED so Live* is trivially preserved there too, but that op-level statement is a SEPARATE fact — proved
-    for the always-succeed writes in [live_op_preserve_surface] (slice 3) below, the channel case split still
-    open — not what these (update-root) lemmas assert.  One update-root preservation fact per family. *)
+    UNCHANGED so Live* is trivially preserved there too, but that op-level statement is a SEPARATE fact — the
+    always-succeed writes are in [live_op_preserve_surface] below (channels excluded there, being that case
+    split) — not what these (update-root) lemmas assert.  One update-root preservation fact per family. *)
 Lemma LiveRef_preserved : forall {A} (r : Ref A) (v : A) (w : World),
   LiveRef r w -> LiveRef r (ref_upd r v w).
 Proof.
@@ -1023,8 +1017,8 @@ Print Assumptions live_preserve_surface.
     the "checked op preserves Live*" fact the review asks for, stated [exists w', run_io op w = ORet tt w' /\
     Live* ... w'] (the world after the op IS Live).  ⚠ The CHANNEL ops are NOT here: [send]/[recv]/[close] keep
     panic/block branches even on a live channel (send-on-closed, empty recv, full send), so their op-level
-    preservation is a case split (success → root Live; fail-loud/block → world unchanged, still Live) — a
-    separate follow-up, NOT claimed by this surface. *)
+    preservation is a case split (success → root Live; fail-loud/block → world unchanged, still Live), NOT
+    claimed by this surface. *)
 Lemma LiveRef_ref_set_op : forall {A} (r : Ref A) (v : A) (w : World),
   LiveRef r w -> exists w', run_io (ref_set r v) w = ORet tt w' /\ LiveRef r w'.
 Proof.
@@ -1064,7 +1058,8 @@ Proof.
 Qed.
 
 (** Live* OP-LEVEL PRESERVATION SURFACE (manifest-gated, zero-axiom): the ALWAYS-SUCCEEDS-on-live checked
-    writes (ref/ptr set, map set/delete/clear) return and keep the handle Live.  Channel ops = follow-up. *)
+    writes (ref/ptr set, map set/delete/clear) return and keep the handle Live.  Channel ops excluded (their
+    panic/block branches make it a case split). *)
 Definition live_op_preserve_surface :=
   (@LiveRef_ref_set_op, @LivePtr_ptr_set_op, @LiveMap_set_op, @LiveMap_delete_op, @LiveMap_clear_op).
 Print Assumptions live_op_preserve_surface.
