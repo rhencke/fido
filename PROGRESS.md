@@ -157,8 +157,11 @@ cites: read-after-write, non-nil, read/write-through-`&x`, aliasing) / `GoHeap.h
 struct assign/deref value-fidelity round-trip + slice read/write NO-PANIC for BOTH make allocators
 (slice_make_lc + slice_make_h), in-bounds-gated & Go-faithful; slice transformers subslice/append are out of
 scope; the aggregate make-allocator no-panic cone matches the scalar families) / `GoHeap.live_handle_surface`
-(the checkpoint-59 step-3 REUSABLE `Live*` family — LiveRef/LivePtr/LiveChan/LiveMap, one canonical
-typed-liveness interface over the per-family checks; allocators produce Live*) / `GoHeap.live_preserve_surface`
+(the checkpoint-59 step-3 REUSABLE `Live*` family — the four SCALAR predicates LiveRef/LivePtr/LiveChan/LiveMap,
+one canonical typed-liveness interface over the per-family checks; allocators produce Live*) /
+`GoHeap.live_aggregate_handle_surface` (the two AGGREGATE peers completing the six-handle family — LiveSlice
+= whole backing [0,cap) live via slice_range_live, LiveStruct = all fields live via fields_live; BOTH slice
+makes produce LiveSlice, gsptr_new produces LiveStruct) / `GoHeap.live_preserve_surface`
 (each family's RAW UPDATE ROOT preserves Live* — ref/ptr ref_upd, chan_*_upd, map_*) / `GoHeap.live_op_preserve_surface`
 (the CHECKED op preserves Live* for the always-succeeds-on-live writes: ref/ptr set, map set/delete/clear return
 `ORet` with the world still Live) / `GoHeap.live_chan_op_preserve_surface` (the case-split channel ops
