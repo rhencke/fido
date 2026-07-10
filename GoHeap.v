@@ -908,13 +908,18 @@ Print Assumptions heap_alloc_safety_surface.
 (** ---- Live* : the REUSABLE typed-liveness predicate family (checkpoint-59 step 3) ----
 
     One canonical name per scalar handle for "the cell EXISTS at this handle's nonnil location AND stores the
-    matching tag" — exactly what the public safe ops demand.  Each UNFOLDS to the per-family check that is the
-    single authority ([ref_sel_opt] / [chan_cell_ok] / [map_cell_ok]); [Live*] is a NAMED INTERFACE over it, not
+    matching tag" — the tag-correct-cell LIVENESS the ops' cell/deref guard branches on.  ⚠ [Live*] is CELL
+    liveness ONLY: the channel ops ([send]/[recv]/[close]) additionally demand room / not-closed / non-empty
+    conditions BEYOND [LiveChan] (those are NOT liveness), so [LiveChan] is not the full send/recv precondition.
+    Each UNFOLDS to the per-family check that is the single authority ([ref_sel_opt] / [chan_cell_ok] /
+    [map_cell_ok]); [Live*] is a NAMED INTERFACE over it, not
     a second authority.  ⚠ This is TYPED LIVENESS, not origin provenance — a SAME-TAG forged handle satisfies
     [Live*] too (the open origin frontier); the wrong-tag/absent negatives are the [*_wrong_tag_antiforgery]
     surfaces.  SLICE 1 (here): the predicates + "ALLOCATORS produce Live*" (the checkpoint-58 step-5 evidence,
-    unified).  FOLLOW-UP: rebase the safe-op preconditions onto [Live*] and prove checked ops PRESERVE it, so
-    the scattered per-op liveness side conditions collapse to one interface. *)
+    unified).  SLICE 2 (below): the RAW UPDATE ROOTS preserve [Live*].  FOLLOW-UP: the OP-LEVEL preservation
+    (the checked op's world-after is [Live*] — success reduces to the root, a fail-loud/block leaves the world
+    UNCHANGED) and rebasing safe-op preconditions onto [Live*], so the scattered per-op side conditions collapse
+    to one interface. *)
 Definition LiveRef {A} (r : Ref A) (w : World) : Prop := ref_sel_opt r w <> None.
 (** [LivePtr] must match the POINTER safe-op gate EXACTLY: the ops ([ptr_get_ok]/[ptr_set]) guard
     [Nat.eqb (p_loc p) 0] FIRST (nil deref panics) and THEN the live cell — so both conjuncts are required
@@ -925,8 +930,9 @@ Definition LiveChan {A} (tag : GoTypeTag A) (ch : GoChan A) (w : World) : Prop :
 Definition LiveMap {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (m : GoMap K V) (w : World) : Prop :=
   map_cell_ok kt vt m w = true.
 
-(** ALLOCATORS PRODUCE Live* — the fresh handle a real program obtains is always live (the loud/absent branches
-    of the ops are dead for it).  Only [ref_new] is unconditional (its [LiveRef] is the cell alone).
+(** ALLOCATORS PRODUCE Live* — the fresh handle a real program obtains is always live (the ABSENT / wrong-tag
+    loud branches of the ops are dead for it; a live CHANNEL still has its INDEPENDENT closed / full branches —
+    liveness is only the cell).  Only [ref_new] is unconditional (its [LiveRef] is the cell alone).
     [ptr_new] / [make_chan] / [make_chan_buf] / [map_make_typed] need [ValidWorld] for their nonzero-location
     half — [ptr_new_live] because [LivePtr] carries the non-nil check ([ptr_new_nonzero]); the chan/map
     allocators because [chan_cell_ok]/[map_cell_ok] include the nonzero location. *)
