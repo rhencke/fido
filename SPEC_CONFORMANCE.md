@@ -145,7 +145,8 @@ to the CFG; control-flow coverage is demo-by-demo, golden-locked).
   cell still FAILS LOUD, so panic-free read/write ALSO require the live cell (`ref_sel_opt = Some`, which
   `ref_new` establishes — `ref_new_reads`) — a SEPARATE premise the non-nil lemmas do not prove. The PROVEN
   end-to-end safe-deref theorems (both premises chained) are `ref_alloc_addr_read_no_panic` /
-  `ref_alloc_addr_write_no_panic` (ref analogue of `ptr_alloc_assign_no_panic`). NOT unconditional, since the
+  `ref_alloc_addr_write_no_panic` (ref analogue of `ptr_alloc_assign_no_panic`), manifest-gated zero-axiom in
+  `GoHeap.heap_alloc_safety_surface`. NOT unconditional, since the
   public `mkRef 0` is a representable nil ref (and a malformed world would let even `ref_new` mint one);
   `ptr_set_ref_as_ptr_aliases`; plugin
   emits `&x` FAIL-CLOSED, bound-variable operand only, else `unsupported`).

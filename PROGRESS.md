@@ -148,7 +148,9 @@ Zero-axiom is gated by `Print Assumptions` in THREE flows (single-sourced here):
 `GoCFG.blocks_cfg_surface` / `GoSwitch.value_switch_seal_surface` (the value-switch seal's
 `*_rejects_dup` proof authority) / `GoChan.chan_provenance_surface` /
 `GoMap.map_provenance_surface` / `GoHeap.ref_provenance_surface` (the checkpoint-58 wrong-tag anti-forgery
-cones for channels / maps / refs);
+cones for channels / maps / refs) / `GoHeap.heap_alloc_safety_surface` (the positive-liveness half: the
+ptr/ref/map/chan allocator nonzero + live-cell + end-to-end panic-free-deref cone backing the `&x`
+address-of public claim);
 **printer** + **emit** (compiled STANDALONE incl. `digits.v`, grep `^Axioms:`) cover the spine. A
 `Print Assumptions` under none of the three is not gated.
 

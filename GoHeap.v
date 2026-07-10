@@ -593,9 +593,10 @@ Lemma ptr_as_ref_of_ref_as_ptr : forall {A} (r : Ref A),
 Proof. intros A [l tag]. reflexivity. Qed.
 
 (* [&x] of an ALLOCATED local ([r_loc r <> 0] — the premise, which [ref_new]'s result satisfies UNDER
-   [ValidWorld], via [ref_new_loc_nonzero] below) yields a non-nil pointer, SAFE to dereference.  (Not ALL
-   [Ref]s are nonzero: the public [mkRef 0] is a nil ref, so [r_loc r <> 0] is a HYPOTHESIS, not a blanket
-   fact.) *)
+   [ValidWorld], via [ref_new_loc_nonzero] below) yields a NON-NIL pointer.  (NON-NIL ONLY — this lemma does
+   NOT prove safe-deref; a panic-free deref additionally needs the live cell, proven end-to-end by
+   [ref_alloc_addr_read_no_panic]/[ref_alloc_addr_write_no_panic] below.)  (Not ALL [Ref]s are nonzero: the
+   public [mkRef 0] is a nil ref, so [r_loc r <> 0] is a HYPOTHESIS, not a blanket fact.) *)
 Lemma ref_as_ptr_not_nil : forall {A} (r : Ref A),
   r_loc r <> 0 -> p_loc (ref_as_ptr r) <> 0.
 Proof. intros A r Hnz. rewrite ref_as_ptr_loc. exact Hnz. Qed.
@@ -860,6 +861,21 @@ Proof.
   - discriminate H.
   - injection H as Hch Hw. subst ch w'. unfold chan_cap. cbn. rewrite Hnz, Nat.eqb_refl. reflexivity.
 Qed.
+
+(** CLOSED-WORLD ALLOCATION-SAFETY SURFACE (manifest-gated, zero-axiom PUBLIC evidence): the allocator
+    liveness + panic-free-deref cone for ALL four handle families, so the [SPEC_CONFORMANCE] "address-of `&x`
+    end-to-end" claim (and the ptr/map/chan analogues it leans on) is GATED public evidence, not an ungated
+    internal theorem.  Each family: allocator-mints-nonzero (under [ValidWorld]) + allocator-installs-a-live
+    cell + the end-to-end no-panic corollary chaining BOTH premises.  The [Print Assumptions] certifies the
+    whole cone axiom-free.  (The wrong-tag ANTI-forgery half is the separate [ref_provenance_surface] /
+    [GoChan.chan_provenance_surface] / [GoMap.map_provenance_surface]; this is the positive LIVENESS half.) *)
+Definition heap_alloc_safety_surface :=
+  (@ptr_new_nonzero, @ptr_new_reads, @ptr_alloc_assign_no_panic,
+   @ref_new_loc_nonzero, @ref_new_reads, @ref_new_addr_nonnil,
+   @ref_alloc_addr_read_no_panic, @ref_alloc_addr_write_no_panic,
+   @map_make_typed_nonzero, @map_alloc_set_no_panic,
+   @make_chan_nonzero, @chan_alloc_close_no_panic, @make_chan_buf_caps).
+Print Assumptions heap_alloc_safety_surface.
 
 (** ALIASING — the defining pointer property, a THEOREM: two pointers at the SAME
     location ([p] and a copy [q]) see each other's writes.  A write through [q] is
