@@ -27,11 +27,11 @@ From Fido Require Import GoPanic.
     handle [option] lowering properly. *)
 
 (** The CERTIFIED allocator [map_make_typed] mints a fresh location ([w_next], bumped) AND installs its
-    (empty, typed) cell — so a made map is [gm_present].  ([map_empty] is the nil map, a fixed [MkMap 0] handle
-    on which [map_set] panics; the untyped [map_make] mints a handle with NO cell and is UNUSABLE/unsupported —
-    see its note.)  The map CONTENTS live in the concrete [w_maps] heap, where [map_sel]/[map_upd] are
-    DEFINITIONS and the map laws are THEOREMS.  Lowered by name ([make(map[K]V)] / nil), the bodies are
-    proof-only. *)
+    (empty, typed) cell there — so under [ValidWorld] (which forces [w_next <> 0]) a made map is [gm_present]
+    ([gm_present_make_typed]).  ([map_empty] is the nil map, a fixed [MkMap 0] handle on which [map_set] panics;
+    the untyped [map_make] installs NO cell, so under [ValidWorld] it is UNUSABLE/unsupported — see its note.)
+    The map CONTENTS live in the concrete [w_maps] heap, where [map_sel]/[map_upd] are DEFINITIONS and the map
+    laws are THEOREMS.  Lowered by name ([make(map[K]V)] / nil), the bodies are proof-only. *)
 Definition map_empty {K V : Type} : GoMap K V := MkMap 0.
 
 (** [map_make_typed kt vt] creates an empty map with concrete key/value types.
@@ -52,11 +52,12 @@ Definition map_make_typed {K V : Type} (kt : GoTypeTag K) (vt : GoTypeTag V) : I
                          (S l) (w_output w)).
 
 (** Untyped fallback — loses key/value types to erasure.  It has no tags to seed a cell, so it mints a handle
-    with NO cell ([gm_present = false]); since [map_write] now root-guards on [gm_present], every subsequent
-    map op ([map_set] fails loud, [delete]/[clear] no-op) — a [map_make]d map is UNUSABLE, matching its status
-    as an UNSUPPORTED frontier (the plugin REJECTS untyped [map_make]: `make(map[any]any)` loses K/V).  The
-    certified allocation path is [map_make_typed], which installs the cell.  (This cell-less path is slated for
-    deletion — kept only until the plugin recognizer is removed with it.) *)
+    but INSTALLS NO CELL (it leaves [w_maps] untouched).  Under [ValidWorld] the fresh location is therefore
+    absent ([gm_present = false]), and — since [map_write] root-guards on [gm_present] — every subsequent op is
+    then UNUSABLE ([map_set] fails loud, [delete]/[clear] no-op), matching its status as an UNSUPPORTED frontier
+    (the plugin REJECTS untyped [map_make]: `make(map[any]any)` loses K/V).  The certified allocation path is
+    [map_make_typed], which installs the cell.  (This cell-less path is slated for deletion — kept only until
+    the plugin recognizer is removed with it.) *)
 Definition map_make {K V : Type} : IO (GoMap K V) :=
   fun w => ORet (MkMap (w_next w))
                 (mkWorld (w_refs w) (w_chans w) (w_maps w)
@@ -98,8 +99,11 @@ Definition map_get_fn {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
 (** [gm_present m w] — is [m]'s cell ALLOCATED?  FALSE for the nil sentinel ([gm_loc = 0]) AND for a nonzero
     ABSENT location (a forged / dangling handle whose [w_maps] cell is [None]).  The map WRITE root ([map_write])
     UPDATES only a present cell — an unallocated handle never fabricates one — and the write IO ops fail loud /
-    no-op on it.  ([map_make_typed] installs a cell, so a real map is present; the untyped no-cell [map_make] is
-    REJECTED by the plugin — an unsupported frontier.) *)
+    no-op on it.  ([map_make_typed] installs a cell, so a [ValidWorld]-made map is present [gm_present_make_typed];
+    the untyped no-cell [map_make] is REJECTED by the plugin — an unsupported frontier.)
+    ⚠ [gm_present] is TAG-AGNOSTIC: it checks a cell EXISTS, NOT that its stored key/value tags match [m]'s —
+    so a forged wrong-tag handle aliasing a real cell reads [gm_present = true] (the checkpoint-58 provenance
+    wall; tag-aware [map_cell_ok] is the fix, in progress). *)
 Definition gm_present {K V} (m : GoMap K V) (w : World) : bool :=
   if Nat.eqb (gm_loc m) 0 then false
   else match w_maps w (gm_loc m) with Some _ => true | None => false end.
