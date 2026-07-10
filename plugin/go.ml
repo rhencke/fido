@@ -5247,7 +5247,7 @@ let is_suppressed_ref r =
      "rt_nil_deref"; "rt_index_oob";
      "rt_slice_bounds"; "rt_neg_make"; "rt_nil_map";
      "rt_send_closed"; "rt_close_closed"; "rt_close_nil"; "rt_assert_fail"; "rt_select_block";
-     "rt_chan_send_block"; "rt_makechan_size"]) ||
+     "rt_chan_send_block"; "rt_chan_recv_block"; "rt_makechan_size"]) ||
   from_digits r ||
   is_go_type_tag_ctor r || is_zero_val_ref r ||
   is_slice_of_list_ref r || is_slice_get_ref r || is_slice_at_ok_ref r ||

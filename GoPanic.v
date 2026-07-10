@@ -51,6 +51,12 @@ Definition rt_select_block : GoAny := anyt TString "go: select would block (no r
     than over-append.  Lives only in the suppressed [send] body (native Go [ch <- v] blocks
     faithfully) — like the [rt_*] above, in [is_inlined_ref]. *)
 Definition rt_chan_send_block : GoAny := anyt TString "go: send would block (buffer full / unbuffered, no receiver)"%string.
+(** The recv-side dual: a receive from an OPEN EMPTY channel (or a wrong-tag / absent handle, which reads
+    empty) would BLOCK in Go.  Sequential [run_io] has no blocked/divergence outcome, so it FAILS LOUD with
+    this NAMED payload rather than an inline string — an honest fail-loud STAND-IN, not a faithful Go panic
+    (Go deadlocks, it does not panic); the faithful blocking semantics is the relational [rstep] in
+    [concurrency.v].  Naming it makes the recv-block anti-forgery theorems EXACT-payload, not existential. *)
+Definition rt_chan_recv_block : GoAny := anyt TString "go: recv would block (open empty channel, no sender) — a deadlock in sequential run_io; faithful blocking is rstep in concurrency.v"%string.
 (** A [make(chan T, n)] with a NEGATIVE runtime size PANICS in Go (runtime/chan.go [plainError], no
     "runtime error:" prefix — the same convention as [rt_send_closed]).  [make_chan_buf] raises this LOUDLY
     instead of silently clamping a negative capacity to 0 via [Z.to_nat].  Like the [rt_*] above, it lives
