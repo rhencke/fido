@@ -822,9 +822,12 @@ Proof.
 Qed.
 
 (** Channel analogue: an ALLOCATED channel is non-nil ([make_chan] mints the pre-bump [w_next], nonzero by
-    [valid_fresh_nonzero]), so [close] on it never hits the NIL panic.  [chan_alloc_close_no_panic] is the guarantee
-    (the remaining [close] panic — double-close — is the send-on-closed class, gated separately by
-    [chan_closed]).  [send]/[recv] on the same allocated channel likewise never hit the nil case.  (Non-nil is
+    [valid_fresh_nonzero]), so [close] on it never hits the NIL panic.  [chan_alloc_close_no_panic] is the
+    guarantee — and for a FRESH channel it rules out the OTHER [close] panic (double-close) too, since
+    [make_chan_open] proves the fresh cell is open; both are discharged from the allocation, no caller premise.
+    (In GENERAL — an arbitrary already-owned channel — double-close IS a real panic, gated by [chan_closed];
+    that is why the general [close] keeps the guard.)  [send]/[recv] on the same allocated channel likewise
+    never hit the nil case.  (Non-nil is
     the NIL-panic guarantee ONLY; it is not tag-correctness.  The wrong-tag write/read hazards are closed by the
     checkpoint-58 op rebase onto the tag-aware [chan_cell_ok] — [chan_write]/[chan_room]/[send]/[recv]/[close]
     all guard on it; the allocation discharges that guard via [chan_cell_ok_make_chan].) *)
@@ -834,17 +837,32 @@ Proof.
   intros A tag w ch w' HV Hrun. unfold run_io, make_chan in Hrun. cbv zeta in Hrun.
   injection Hrun as Hc _. subst ch. cbn [ch_loc]. apply pos_neq0, (valid_fresh_nonzero w HV).
 Qed.
-(** A freshly-[make]d channel's cell is TAG-CORRECT ([chan_cell_ok = true], via [chan_cell_ok_make_chan] above):
-    [make_chan_cap] installs a [Some (existT _ A (tag, …))] cell at [w_next w], and [ValidWorld] forces
-    [w_next w <> 0].  So [close] on a just-made channel reaches its real closed-flag path (not mistaken for an
-    unallocated / forged handle) — the allocation discharges the [chan_cell_ok] premise the guarded
-    [close]/[run_close] now demand. *)
+(** A freshly-[make]d channel is OPEN ([chan_closed = false]): [make_chan_cap] installs the cell with its
+    closed-flag [false] ([… (false, cap)]).  This is the fact [close] needs to reach its real closed-flag path
+    — and it is PROVABLE from the allocation, NOT a caller premise: this lemma discharges it internally so the
+    no-panic corollary below is a TRUE peer of [ptr_alloc_assign_no_panic] (ValidWorld + alloc result ONLY,
+    no leaked [chan_closed] side condition). *)
+Lemma make_chan_open : forall {A} (tag : GoTypeTag A) (w : World) ch w',
+  ValidWorld w -> run_io (make_chan tag) w = ORet ch w' -> chan_closed ch w' = false.
+Proof.
+  intros A tag w ch w' HV Hrun.
+  assert (Hnz : Nat.eqb (w_next w) 0 = false) by (apply pos_neq0, (valid_fresh_nonzero w HV)).
+  unfold run_io, make_chan, make_chan_cap in Hrun. cbv zeta in Hrun.
+  injection Hrun as Hc Hw. subst ch w'.
+  unfold chan_closed. cbn. rewrite Hnz, Nat.eqb_refl. reflexivity.
+Qed.
+(** A freshly-[make]d channel's cell is TAG-CORRECT ([chan_cell_ok = true], via [chan_cell_ok_make_chan]) AND
+    OPEN ([make_chan_open]).  So [close] on a just-made channel reaches its real closed-flag path (not mistaken
+    for an unallocated / forged handle, and not blocked by a stale closed flag) — the allocation discharges
+    BOTH premises the guarded [close]/[run_close] demand.  No caller side condition: this is the genuine
+    channel peer of [ptr_alloc_assign_no_panic] / [map_alloc_set_no_panic]. *)
 Corollary chan_alloc_close_no_panic : forall {A} (tag : GoTypeTag A) (w : World) ch w',
-  ValidWorld w -> run_io (make_chan tag) w = ORet ch w' -> chan_closed ch w' = false ->
+  ValidWorld w -> run_io (make_chan tag) w = ORet ch w' ->
   exists w'', run_io (close_chan tag ch) w' = ORet tt w''.
 Proof.
-  intros A tag w ch w' HV Hrun Hcl. eexists.
-  apply run_close; [ apply (chan_cell_ok_make_chan tag w ch w' HV Hrun) | exact Hcl ].
+  intros A tag w ch w' HV Hrun. eexists.
+  apply run_close; [ apply (chan_cell_ok_make_chan tag w ch w' HV Hrun)
+                   | exact (make_chan_open tag w ch w' HV Hrun) ].
 Qed.
 (** CAPACITY FAITHFULNESS: a freshly-made buffered channel stores the requested capacity [Some n].  The
     [w_next <> 0] the read-back needs (now that [chan_cap] reads a nil handle as [None]) is FORCED by
@@ -874,7 +892,7 @@ Definition heap_alloc_safety_surface :=
    @ref_new_loc_nonzero, @ref_new_reads, @ref_new_addr_nonnil,
    @ref_alloc_addr_read_no_panic, @ref_alloc_addr_write_no_panic,
    @map_make_typed_nonzero, @map_alloc_set_no_panic,
-   @make_chan_nonzero, @chan_alloc_close_no_panic, @make_chan_buf_caps).
+   @make_chan_nonzero, @make_chan_open, @chan_alloc_close_no_panic, @make_chan_buf_caps).
 Print Assumptions heap_alloc_safety_surface.
 
 (** ADDRESS-OF / ASSIGNMENT SEMANTICS SURFACE (manifest-gated, zero-axiom PUBLIC evidence): the read-after-
