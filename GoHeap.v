@@ -591,7 +591,8 @@ Lemma ref_as_ptr_not_nil : forall {A} (r : Ref A),
   r_loc r <> 0 -> p_loc (ref_as_ptr r) <> 0.
 Proof. intros A r Hnz. rewrite ref_as_ptr_loc. exact Hnz. Qed.
 
-(* READ through [&x]: [*(&x)] reads [x]'s value (with x's tag) and NEVER panics. *)
+(* READ through [&x]: [*(&x)] reads [x]'s value (with x's tag) without panicking — for a nonzero-location,
+   LIVE [x] (the lemma's [r_loc r <> 0] + [ref_sel_opt r w = Some _] premises; NOT unconditional). *)
 Lemma ptr_get_ref_as_ptr : forall {A} (r : Ref A) (a : A) (w : World),
   r_loc r <> 0 ->
   ref_sel_opt r w = Some a ->
@@ -602,8 +603,9 @@ Proof.
   rewrite ptr_as_ref_of_ref_as_ptr, Hpres. reflexivity.
 Qed.
 
-(* WRITE through [&x]: [*(&x) = v] updates [x]'s OWN cell and never panics — for a LIVE [x] ([x]'s cell is
-   allocated, [ref_sel_opt r w = Some _]; [ptr_as_ref (r_tag r) (ref_as_ptr r) = r], so [&x]'s cell IS [x]'s). *)
+(* WRITE through [&x]: [*(&x) = v] updates [x]'s OWN cell without panicking — for a nonzero-location, LIVE [x]
+   ([r_loc r <> 0]; [x]'s cell allocated, [ref_sel_opt r w = Some _]; [ptr_as_ref (r_tag r) (ref_as_ptr r) = r],
+   so [&x]'s cell IS [x]'s). BOTH premises are the lemma's; the guarantee is conditional, not unconditional. *)
 Lemma ptr_set_ref_as_ptr : forall {A} (r : Ref A) (v a : A) (w : World),
   r_loc r <> 0 -> ref_sel_opt r w = Some a ->
   run_io (ptr_set (r_tag r) (ref_as_ptr r) v) w = ORet tt (ref_upd r v w).
