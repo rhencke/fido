@@ -132,23 +132,29 @@ Definition map_cell_ok {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (m : GoMap K 
 Lemma map_cell_ok_nonnil : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (m : GoMap K V) w,
   map_cell_ok kt vt m w = true -> Nat.eqb (gm_loc m) 0 = false.
 Proof. intros K V kt vt m w H. unfold map_cell_ok in H. destruct (Nat.eqb (gm_loc m) 0); [ discriminate H | reflexivity ]. Qed.
-(** WRONG-TAG ⟹ [map_cell_ok = false] (checkpoint-58 provenance): if [m]'s location holds a REAL cell whose
-    STORED key/value tags DISAGREE with the caller's [kt]/[vt] (a forged handle aliasing a cell of ANOTHER
-    type), the tag-aware guard REJECTS it — even though the cell exists ([gm_present = true]).  This is the
-    lemma the wrong-tag anti-forgery theorems below stand on. *)
+(** WRONG-TAG at a PRESENT cell ⟹ [map_cell_ok = false] (checkpoint-58): given a NONZERO location holding a
+    REAL cell whose STORED key/value tags DISAGREE with the caller's [kt]/[vt] (a forged handle aliasing a cell
+    of ANOTHER type), the cell is genuinely PRESENT ([gm_present = true], PROVED here) yet the tag-aware guard
+    REJECTS it.  The nonzero premise is what makes the "present" claim mechanically true — WITHOUT it a forged
+    loc-0 cell would satisfy the [w_maps]/tag hypotheses while [gm_present] stays [false] (the loc-0 guard), so
+    the presence claim would be prose.  The nil / nonzero-ABSENT class is covered separately by the [*_absent]
+    lemmas; this lemma isolates the LIVE wrong-tag case, and is what the wrong-tag anti-forgery theorems below
+    stand on. *)
 Lemma map_cell_ok_wrong_tag :
   forall {K V K' V'} (kt : GoTypeTag K) (vt : GoTypeTag V)
          (kt' : GoTypeTag K') (vt' : GoTypeTag V')
          (m : GoMap K V) (w : World) n (f : K' -> option V'),
+  Nat.eqb (gm_loc m) 0 = false ->
   w_maps w (gm_loc m) = Some (n, existT _ K' (kt', existT _ V' (vt', f))) ->
   tag_eq kt kt' = None \/ tag_eq vt vt' = None ->
-  map_cell_ok kt vt m w = false.
+  gm_present m w = true /\ map_cell_ok kt vt m w = false.
 Proof.
-  intros K V K' V' kt vt kt' vt' m w n f Hcell Hmis.
-  unfold map_cell_ok. destruct (Nat.eqb (gm_loc m) 0); [ reflexivity | ].
-  rewrite Hcell. destruct Hmis as [Hk | Hv].
-  - rewrite Hk. reflexivity.
-  - rewrite Hv. destruct (tag_eq kt kt'); reflexivity.
+  intros K V K' V' kt vt kt' vt' m w n f Hnn Hcell Hmis. split.
+  - unfold gm_present. destruct (Nat.eqb (gm_loc m) 0); [ discriminate Hnn | rewrite Hcell; reflexivity ].
+  - unfold map_cell_ok. destruct (Nat.eqb (gm_loc m) 0); [ discriminate Hnn | ].
+    rewrite Hcell. destruct Hmis as [Hk | Hv].
+    + rewrite Hk. reflexivity.
+    + rewrite Hv. destruct (tag_eq kt kt'); reflexivity.
 Qed.
 (** The single map-cell WRITE.  ROOT-GUARDED on [map_cell_ok] (TAG-AWARE): [map_write] UPDATES a cell only when
     it EXISTS AND its stored tags MATCH [kt]/[vt] — on any other handle (nil, nonzero-ABSENT, OR wrong-tag) it
@@ -417,8 +423,9 @@ Proof.
   intros K V kt vt k w. rewrite run_map_get_opt, map_sel_empty. reflexivity.
 Qed.
 
-(** Setting key [k2] leaves the read at a different key [k1] unchanged — on an ALLOCATED map ([gm_present];
-    an unallocated map would panic / no-op at the [map_set], so the post-state is not [map_upd]). *)
+(** Setting key [k2] leaves the read at a different key [k1] unchanged — on a TAG-CORRECT map ([map_cell_ok],
+    the actual [map_set] guard; a nil / absent / wrong-tag handle would panic / no-op at the [map_set], so the
+    post-state would not be [map_upd]). *)
 Lemma map_get_set_diff : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
     (k1 k2 : K) (v : V) (m : GoMap K V) (w : World),
   Comparable kt -> k1 <> k2 -> map_cell_ok kt vt m w = true ->
@@ -485,11 +492,14 @@ Proof. reflexivity. Qed.
 
 (** ==================================================================================================
     WRONG-TAG ANTI-FORGERY (checkpoint-58 #3, maps).  The hypotheses below isolate the WRONG-TAG case
-    EXPLICITLY: [m]'s location holds a REAL cell ([gm_present = true]) whose stored key/value tags
-    DISAGREE with the caller's [kt]/[vt] — a forged public [MkMap l] handle aliasing a live map of ANOTHER
-    key/value type.  Each theorem PINS that no public map write can retype (or clear) that cell: it fails
-    loud with the world UNCHANGED, or no-ops.  This is strictly beyond the nonzero-ABSENT class — the cell
-    is genuinely there, just of the wrong type.
+    STRUCTURALLY: a NONZERO location ([Nat.eqb (gm_loc m) 0 = false]) holding a REAL cell (so [gm_present = true]
+    — PROVED in [map_cell_ok_wrong_tag], not just asserted) whose stored key/value tags DISAGREE with the
+    caller's [kt]/[vt] — a forged public [MkMap l] handle aliasing a LIVE map of ANOTHER key/value type.  Each
+    theorem PINS that no public map write can retype (or clear) that cell: it fails loud with the world
+    UNCHANGED, or no-ops.  This is strictly beyond the nil / nonzero-ABSENT class (covered by the [*_absent]
+    lemmas) — the cell is genuinely there, just of the wrong type.  The nonzero premise is essential: without
+    it a forged loc-0 cell would satisfy the [w_maps]/tag hypotheses while [gm_present] is [false], collapsing
+    the "live wrong-tag" claim into the already-covered loc-0 case.
     ================================================================================================ *)
 
 (** [m[k] = v] through a WRONG-TAG handle FAILS LOUD ([rt_nil_map]) with the world UNCHANGED — it never
@@ -498,10 +508,14 @@ Theorem map_set_wrong_tag_no_mutation :
   forall {K V K' V'} (kt : GoTypeTag K) (vt : GoTypeTag V)
          (kt' : GoTypeTag K') (vt' : GoTypeTag V')
          (k : K) (v : V) (m : GoMap K V) (w : World) n (f : K' -> option V'),
+  Nat.eqb (gm_loc m) 0 = false ->
   w_maps w (gm_loc m) = Some (n, existT _ K' (kt', existT _ V' (vt', f))) ->
   tag_eq kt kt' = None \/ tag_eq vt vt' = None ->
   run_io (map_set kt vt k v m) w = OPanic rt_nil_map w.
-Proof. intros. apply map_set_absent. eapply map_cell_ok_wrong_tag; eassumption. Qed.
+Proof.
+  intros K V K' V' kt vt kt' vt' k v m w n f Hnn Hcell Hmis.
+  apply map_set_absent. exact (proj2 (map_cell_ok_wrong_tag kt vt kt' vt' m w n f Hnn Hcell Hmis)).
+Qed.
 
 (** [delete(m, k)] through a WRONG-TAG handle is a NO-OP (world UNCHANGED) — it never retypes/mutates the
     aliased cell. *)
@@ -509,10 +523,14 @@ Theorem map_delete_wrong_tag_no_mutation :
   forall {K V K' V'} (kt : GoTypeTag K) (vt : GoTypeTag V)
          (kt' : GoTypeTag K') (vt' : GoTypeTag V')
          (k : K) (m : GoMap K V) (w : World) n (f : K' -> option V'),
+  Nat.eqb (gm_loc m) 0 = false ->
   w_maps w (gm_loc m) = Some (n, existT _ K' (kt', existT _ V' (vt', f))) ->
   tag_eq kt kt' = None \/ tag_eq vt vt' = None ->
   run_io (map_delete kt vt k m) w = ORet tt w.
-Proof. intros. apply map_delete_absent_noop. eapply map_cell_ok_wrong_tag; eassumption. Qed.
+Proof.
+  intros K V K' V' kt vt kt' vt' k m w n f Hnn Hcell Hmis.
+  apply map_delete_absent_noop. exact (proj2 (map_cell_ok_wrong_tag kt vt kt' vt' m w n f Hnn Hcell Hmis)).
+Qed.
 
 (** [clear(m)] through a WRONG-TAG handle is a NO-OP (world UNCHANGED) — it never clears/retypes the
     aliased cell. *)
@@ -520,10 +538,14 @@ Theorem map_clear_wrong_tag_no_mutation :
   forall {K V K' V'} (kt : GoTypeTag K) (vt : GoTypeTag V)
          (kt' : GoTypeTag K') (vt' : GoTypeTag V')
          (m : GoMap K V) (w : World) n (f : K' -> option V'),
+  Nat.eqb (gm_loc m) 0 = false ->
   w_maps w (gm_loc m) = Some (n, existT _ K' (kt', existT _ V' (vt', f))) ->
   tag_eq kt kt' = None \/ tag_eq vt vt' = None ->
   run_io (map_clear kt vt m) w = ORet tt w.
-Proof. intros. apply map_clear_absent_noop. eapply map_cell_ok_wrong_tag; eassumption. Qed.
+Proof.
+  intros K V K' V' kt vt kt' vt' m w n f Hnn Hcell Hmis.
+  apply map_clear_absent_noop. exact (proj2 (map_cell_ok_wrong_tag kt vt kt' vt' m w n f Hnn Hcell Hmis)).
+Qed.
 
 (** Even the RAW cell-write root refuses a WRONG-TAG handle: [map_write] (hence [map_upd]/[map_rem]/
     [map_clear_upd]) is the IDENTITY on it.  So retyping is impossible at the raw layer too, independent of
@@ -532,10 +554,14 @@ Theorem map_write_wrong_tag_no_retype :
   forall {K V K' V'} (kt : GoTypeTag K) (vt : GoTypeTag V)
          (kt' : GoTypeTag K') (vt' : GoTypeTag V')
          (m : GoMap K V) (fn : K -> option V) (sz : nat) (w : World) n (f : K' -> option V'),
+  Nat.eqb (gm_loc m) 0 = false ->
   w_maps w (gm_loc m) = Some (n, existT _ K' (kt', existT _ V' (vt', f))) ->
   tag_eq kt kt' = None \/ tag_eq vt vt' = None ->
   map_write kt vt m fn sz w = w.
-Proof. intros. apply map_write_absent_noop. eapply map_cell_ok_wrong_tag; eassumption. Qed.
+Proof.
+  intros K V K' V' kt vt kt' vt' m fn sz w n f Hnn Hcell Hmis.
+  apply map_write_absent_noop. exact (proj2 (map_cell_ok_wrong_tag kt vt kt' vt' m w n f Hnn Hcell Hmis)).
+Qed.
 
 (** CAPSTONE — NO PUBLIC MAP RETYPING: a forged WRONG-TAG handle aliasing a live cell of another key/value
     type cannot RETYPE it through the public map WRITES ([map_set]/[delete]/[clear]).  [map_set] fails loud
@@ -548,15 +574,16 @@ Theorem no_public_map_retyping :
   forall {K V K' V'} (kt : GoTypeTag K) (vt : GoTypeTag V)
          (kt' : GoTypeTag K') (vt' : GoTypeTag V')
          (k : K) (v : V) (m : GoMap K V) (w : World) n (f : K' -> option V'),
+  Nat.eqb (gm_loc m) 0 = false ->
   w_maps w (gm_loc m) = Some (n, existT _ K' (kt', existT _ V' (vt', f))) ->
   tag_eq kt kt' = None \/ tag_eq vt vt' = None ->
      run_io (map_set kt vt k v m) w = OPanic rt_nil_map w
   /\ run_io (map_delete kt vt k m) w = ORet tt w
   /\ run_io (map_clear kt vt m) w = ORet tt w.
 Proof.
-  intros K V K' V' kt vt kt' vt' k v m w n f Hcell Hmis.
+  intros K V K' V' kt vt kt' vt' k v m w n f Hnn Hcell Hmis.
   assert (Hbad : map_cell_ok kt vt m w = false)
-    by (eapply map_cell_ok_wrong_tag; eassumption).
+    by (exact (proj2 (map_cell_ok_wrong_tag kt vt kt' vt' m w n f Hnn Hcell Hmis))).
   split; [ | split ].
   - apply map_set_absent; exact Hbad.
   - apply map_delete_absent_noop; exact Hbad.

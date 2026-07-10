@@ -554,21 +554,21 @@ Proof.
     [ apply (ptr_new_nonzero tag v w p w' HV Hrun) | apply (ptr_new_reads tag v w p w' Hrun) ].
 Qed.
 
-(** The map analogues: an allocated map is non-nil, so [map_set] on it never panics. *)
+(** The map analogue: an allocated map is non-nil ([map_make_typed_nonzero]).  (Non-nil ALONE does not stop
+    [map_set] panicking — a non-nil WRONG-TAG handle still fails [map_cell_ok] and panics; tag-correctness
+    ([map_cell_ok_make_typed], below) is what discharges the guard.) *)
 Lemma map_make_typed_nonzero : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (w : World) m w',
   ValidWorld w -> run_io (map_make_typed kt vt) w = ORet m w' -> Nat.eqb (gm_loc m) 0 = false.
 Proof.
   intros K V kt vt w m w' HV Hrun. unfold run_io, map_make_typed in Hrun. cbv zeta in Hrun.
   injection Hrun as Hm _. subst m. cbn [gm_loc]. apply pos_neq0, (valid_fresh_nonzero w HV).
 Qed.
-(** A freshly [make(map[K]V)]d map's cell is PRESENT ([gm_present = true]) — [map_make_typed] installs a
-    [Some] cell at [w_next w], and [ValidWorld] forces [w_next w <> 0].  So [map_set] on a just-made map
-    reaches its real update path (not mistaken for an unallocated handle) — the allocation discharges the
-    [gm_present] premise the guarded [map_set] now demands. *)
-(** A freshly [make(map[K]V)]d map is not only present but TYPE-CORRECT: [map_make_typed kt vt] installs a cell
-    whose stored tags ARE [kt]/[vt], so [map_cell_ok kt vt m w' = true] (checkpoint-58: the allocator produces
-    tag-aware liveness evidence — the [map_cell_ok] premise the guarded map ops now demand, only satisfiable by
-    a genuinely made map, never a forged wrong-tag handle). *)
+(** A freshly [make(map[K]V)]d map is present AND TYPE-CORRECT: [map_make_typed kt vt] installs a [Some] cell at
+    [w_next w] whose stored tags ARE [kt]/[vt], and [ValidWorld] forces [w_next w <> 0], so
+    [map_cell_ok kt vt m w' = true] (checkpoint-58: the allocator produces the tag-aware evidence the guarded
+    map ops demand — [map_set] reaches its real update path, not the fail-loud branch).  DIRECTION: this is
+    [map_make_typed ⟹ map_cell_ok] ONLY, NOT provenance — [map_cell_ok] checks nonzero location + cell + tag
+    match, so a SAME-TAG forged world satisfies it too; the converse is not claimed. *)
 Lemma map_cell_ok_make_typed : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (w : World) m w',
   ValidWorld w -> run_io (map_make_typed kt vt) w = ORet m w' -> map_cell_ok kt vt m w' = true.
 Proof.
@@ -594,10 +594,12 @@ Qed.
 
 (** ALLOCATOR EVIDENCE (checkpoint-58, channel dual of [map_cell_ok_make_typed]): a freshly made channel is
     TAG-CORRECT — the allocator installs a [Some (existT _ A (tag, …))] cell at the fresh [w_next] location,
-    and [ValidWorld] forces [w_next <> 0], so [chan_cell_ok tag ch w' = true].  The [chan_cell_ok] premise the
-    channel ops will demand (next slice) is only satisfiable by a genuinely made channel, never a forged
-    wrong-tag handle.  (Proved directly for each allocator — no capacity-parametrised helper, to keep the
-    fuel/cap ratchet clean.) *)
+    and [ValidWorld] forces [w_next <> 0], so [chan_cell_ok tag ch w' = true].  DIRECTION: this proves
+    [make_chan* ⟹ chan_cell_ok] ONLY.  It is NOT provenance — [chan_cell_ok] checks nonzero location + cell
+    presence + tag match, so a SAME-TAG forged world ALSO satisfies it; the converse ([chan_cell_ok ⟹ made by
+    an allocator]) does NOT hold and is not claimed.  What a genuine allocation supplies is exactly the
+    tag-correct-cell evidence the ops (next slice) demand.  (Proved directly per allocator — no capacity helper,
+    keeping the fuel/cap ratchet clean.) *)
 Lemma chan_cell_ok_make_chan : forall {A} (tag : GoTypeTag A) (w : World) ch w',
   ValidWorld w -> run_io (make_chan tag) w = ORet ch w' -> chan_cell_ok tag ch w' = true.
 Proof.
@@ -616,7 +618,10 @@ Proof.
   rewrite (pos_neq0 _ (valid_fresh_nonzero w HV)).
   cbn [w_chans]. rewrite Nat.eqb_refl. cbn. rewrite tag_eq_refl. reflexivity.
 Qed.
-Lemma map_set_nonnil : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (v : V) (m : GoMap K V) (w : World),
+(** [map_set] on a TAG-CORRECT cell ([map_cell_ok = true]) takes its real update path.  (Named for its
+    actual guard [map_cell_ok] — NOT "nonnil": a non-nil WRONG-TAG handle fails [map_cell_ok] and panics, so
+    non-nil is not the write authority.) *)
+Lemma map_set_cell_ok : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (v : V) (m : GoMap K V) (w : World),
   map_cell_ok kt vt m w = true ->
   run_io (map_set kt vt k v m) w = ORet tt (map_upd kt vt k v m w).
 Proof. intros K V kt vt k v m w Hp. rewrite run_map_set, Hp. reflexivity. Qed.
@@ -625,13 +630,15 @@ Corollary map_alloc_set_no_panic : forall {K V} (kt : GoTypeTag K) (vt : GoTypeT
   exists w'', run_io (map_set kt vt k v m) w' = ORet tt w''.
 Proof.
   intros K V kt vt k v w m w' HV Hrun. eexists.
-  apply map_set_nonnil, (map_cell_ok_make_typed kt vt w m w' HV Hrun).
+  apply map_set_cell_ok, (map_cell_ok_make_typed kt vt w m w' HV Hrun).
 Qed.
 
 (** Channel analogue: an ALLOCATED channel is non-nil ([make_chan] mints the pre-bump [w_next], nonzero by
-    [valid_fresh_nonzero]), so [close] on it never hits the nil panic.  [chan_alloc_close_no_panic] is the guarantee
+    [valid_fresh_nonzero]), so [close] on it never hits the NIL panic.  [chan_alloc_close_no_panic] is the guarantee
     (the remaining [close] panic — double-close — is the send-on-closed class, gated separately by
-    [chan_closed]).  [send]/[recv] on the same allocated channel likewise never hit the nil case. *)
+    [chan_closed]).  [send]/[recv] on the same allocated channel likewise never hit the nil case.  (Non-nil is
+    the NIL-panic guarantee ONLY; it is not tag-correctness — the wrong-tag write/read hazards are the
+    checkpoint-58 rebase, closed by [chan_cell_ok], not by non-nil.) *)
 Lemma make_chan_nonzero : forall {A} (tag : GoTypeTag A) (w : World) ch w',
   ValidWorld w -> run_io (make_chan tag) w = ORet ch w' -> Nat.eqb (ch_loc ch) 0 = false.
 Proof.
@@ -641,7 +648,9 @@ Qed.
 (** A freshly-[make]d channel's cell is PRESENT ([chan_present = true]): [make_chan_cap] installs a [Some]
     cell at [w_next w], and [ValidWorld] forces [w_next w <> 0].  So [close] on a just-made channel reaches its
     real closed-flag path (it is not mistaken for an unallocated handle) — the allocation discharges the
-    [chan_present] premise the guarded [close]/[run_close] now demand. *)
+    CURRENT (existence-only) [chan_present] premise the guarded [close]/[run_close] branch on today.  (After the
+    checkpoint-58 op rebase they will demand the tag-aware [chan_cell_ok] instead — discharged by
+    [chan_cell_ok_make_chan]; [chan_present] then survives as the existence half of the read-side proofs.) *)
 Lemma chan_present_make_chan : forall {A} (tag : GoTypeTag A) (w : World) ch w',
   ValidWorld w -> run_io (make_chan tag) w = ORet ch w' -> chan_present ch w' = true.
 Proof.

@@ -113,7 +113,11 @@ Definition chan_cap {A : Type} (ch : GoChan A) (w : World) : option nat :=
     unobservable) AND for a nonzero ABSENT location (a forged / dangling handle whose [w_chans] cell is [None]).
     An operation that would CREATE channel state ([send]/[close]) fails loud when this is false, so an
     unallocated handle never fabricates a cell — the general fix for nonzero-absent forgery, beyond loc-0.
-    (Tag-AGNOSTIC: cell EXISTENCE is what [chan_room]/[close] need; typed reads still go through [chan_buf].) *)
+    ⚠ TAG-AGNOSTIC and existence-ONLY: [chan_present] checks a cell EXISTS, NOT that its stored tag matches, so
+    it does NOT stop wrong-tag forgery.  It is the CURRENT (legacy) guard the ops [chan_room]/[send]/[close]
+    still branch on; the tag-aware [chan_cell_ok] (below) is what they SHOULD guard on and will be rebased onto
+    (checkpoint-58, next slice).  Until then [chan_present] is the existence half of the read-side proofs, NOT
+    the final write authority. *)
 Definition chan_present {A : Type} (ch : GoChan A) (w : World) : bool :=
   if Nat.eqb (ch_loc ch) 0 then false
   else match w_chans w (ch_loc ch) with Some _ => true | None => false end.
@@ -166,18 +170,23 @@ Proof.
   destruct (Nat.eqb (ch_loc ch) 0); [ reflexivity | ].
   destruct (w_chans w (ch_loc ch)) as [c|]; [ discriminate H | reflexivity ].
 Qed.
-(** WRONG-TAG ⟹ [chan_cell_ok = false]: a real cell whose STORED element tag DISAGREES with [tag] (a forged
-    handle aliasing a channel of another element type) is REJECTED by the tag-aware guard, though it EXISTS
-    ([chan_present = true]).  The leverage the wrong-tag channel anti-forgery theorems (next slice) stand on. *)
+(** WRONG-TAG at a PRESENT cell ⟹ [chan_cell_ok = false] (checkpoint-58): given a NONZERO location holding a
+    real cell whose STORED element tag DISAGREES with [tag] — a forged handle aliasing a channel of another
+    element type — the cell is genuinely PRESENT ([chan_present = true], PROVED here) yet the tag-aware guard
+    REJECTS it.  The nonzero premise is what makes the "present" claim mechanically true: WITHOUT it a forged
+    loc-0 cell would satisfy the [w_chans]/tag hypotheses while [chan_present] stays [false] (the loc-0 guard),
+    so the presence claim would be prose, not proof.  This is the leverage the wrong-tag channel anti-forgery
+    theorems (next slice) stand on. *)
 Lemma chan_cell_ok_wrong_tag : forall {A E} (tag : GoTypeTag A) (etag : GoTypeTag E)
     (ch : GoChan A) (w : World) rest,
+  Nat.eqb (ch_loc ch) 0 = false ->
   w_chans w (ch_loc ch) = Some (existT _ E (etag, rest)) ->
   tag_eq tag etag = None ->
-  chan_cell_ok tag ch w = false.
+  chan_present ch w = true /\ chan_cell_ok tag ch w = false.
 Proof.
-  intros A E tag etag ch w rest Hcell Hmis.
-  unfold chan_cell_ok. destruct (Nat.eqb (ch_loc ch) 0); [ reflexivity | ].
-  rewrite Hcell, Hmis. reflexivity.
+  intros A E tag etag ch w rest Hnn Hcell Hmis. split.
+  - unfold chan_present. destruct (Nat.eqb (ch_loc ch) 0); [ discriminate Hnn | rewrite Hcell; reflexivity ].
+  - unfold chan_cell_ok. destruct (Nat.eqb (ch_loc ch) 0); [ discriminate Hnn | rewrite Hcell, Hmis; reflexivity ].
 Qed.
 (** [chan_room tag ch w] — is there room for one more send?  An UNALLOCATED handle (nil [ch_loc = 0] OR a
     nonzero ABSENT cell) has NO room ([chan_present] false) — Go BLOCKS forever on a nil send and a forged
