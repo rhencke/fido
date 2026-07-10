@@ -905,6 +905,44 @@ Definition heap_alloc_safety_surface :=
    @make_chan_nonzero, @make_chan_open, @chan_alloc_close_no_panic, @make_chan_buf_caps).
 Print Assumptions heap_alloc_safety_surface.
 
+(** ---- Live* : the REUSABLE typed-liveness predicate family (checkpoint-59 step 3) ----
+
+    One canonical name per scalar handle for "the cell EXISTS at this handle's nonnil location AND stores the
+    matching tag" — exactly what the public safe ops demand.  Each UNFOLDS to the per-family check that is the
+    single authority ([ref_sel_opt] / [chan_cell_ok] / [map_cell_ok]); [Live*] is a NAMED INTERFACE over it, not
+    a second authority.  ⚠ This is TYPED LIVENESS, not origin provenance — a SAME-TAG forged handle satisfies
+    [Live*] too (the open origin frontier); the wrong-tag/absent negatives are the [*_wrong_tag_antiforgery]
+    surfaces.  SLICE 1 (here): the predicates + "ALLOCATORS produce Live*" (the checkpoint-58 step-5 evidence,
+    unified).  FOLLOW-UP: rebase the safe-op preconditions onto [Live*] and prove checked ops PRESERVE it, so
+    the scattered per-op liveness side conditions collapse to one interface. *)
+Definition LiveRef {A} (r : Ref A) (w : World) : Prop := ref_sel_opt r w <> None.
+Definition LivePtr {A} (tag : GoTypeTag A) (p : Ptr A) (w : World) : Prop := ref_sel_opt (ptr_as_ref tag p) w <> None.
+Definition LiveChan {A} (tag : GoTypeTag A) (ch : GoChan A) (w : World) : Prop := chan_cell_ok tag ch w = true.
+Definition LiveMap {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (m : GoMap K V) (w : World) : Prop :=
+  map_cell_ok kt vt m w = true.
+
+(** ALLOCATORS PRODUCE Live* — the fresh handle a real program obtains is always live (the loud/absent branches
+    of the ops are dead for it).  [ref_new]/[ptr_new] are unconditional; [make_chan]/[map_make_typed] need
+    [ValidWorld] (their nonzero-location half). *)
+Lemma ref_new_live : forall {A} (tag : GoTypeTag A) (v : A) (w : World) r w',
+  run_io (ref_new tag v) w = ORet r w' -> LiveRef r w'.
+Proof. intros A tag v w r w' Hrun. unfold LiveRef. rewrite (ref_new_reads tag v w r w' Hrun). discriminate. Qed.
+Lemma ptr_new_live : forall {A} (tag : GoTypeTag A) (v : A) (w : World) p w',
+  run_io (ptr_new tag v) w = ORet p w' -> LivePtr tag p w'.
+Proof. intros A tag v w p w' Hrun. unfold LivePtr. rewrite (ptr_new_reads tag v w p w' Hrun). discriminate. Qed.
+Lemma make_chan_live : forall {A} (tag : GoTypeTag A) (w : World) ch w',
+  ValidWorld w -> run_io (make_chan tag) w = ORet ch w' -> LiveChan tag ch w'.
+Proof. intros A tag w ch w' HV Hrun. unfold LiveChan. exact (chan_cell_ok_make_chan tag w ch w' HV Hrun). Qed.
+Lemma map_make_typed_live : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (w : World) m w',
+  ValidWorld w -> run_io (map_make_typed kt vt) w = ORet m w' -> LiveMap kt vt m w'.
+Proof. intros K V kt vt w m w' HV Hrun. unfold LiveMap. exact (map_cell_ok_make_typed kt vt w m w' HV Hrun). Qed.
+
+(** Live* SLICE-1 SURFACE (manifest-gated, zero-axiom): the unified "allocators produce Live*" evidence across
+    ref/ptr/chan/map.  (Op-preservation + safe-op-requires-Live is the follow-up slice.) *)
+Definition live_handle_surface :=
+  (@ref_new_live, @ptr_new_live, @make_chan_live, @map_make_typed_live).
+Print Assumptions live_handle_surface.
+
 (** ADDRESS-OF / ASSIGNMENT SEMANTICS SURFACE (manifest-gated, zero-axiom PUBLIC evidence): the read-after-
     write / non-nil / deref / aliasing theorems the [SPEC_CONFORMANCE] "Variables / assignment" + address-of
     `&x` ledger cites, so those public claims are GATED, not ungated internal lemmas.  [ref_sel_upd_same] /
