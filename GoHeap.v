@@ -111,7 +111,10 @@ Qed.
     [WorldOk] ([ValidWorld] forces [w_refs w 0 = None] — [ref_upd_nil_noop_valid]), NOT on the [ref_upd] guard
     alone.  So a forged [Ref] (constructible via the public [mkRef]) can no longer FABRICATE a cell at an
     unallocated location NOR RETYPE an aliased cell of another type through the raw write.  The seal is the
-    GUARD (+ [WorldOk] for loc-0): a forged handle is representable but INERT.  Cell CREATION is [ref_install]
+    GUARD (+ [WorldOk] for loc-0): a WRONG-TAG or ABSENT/dangling forged handle is representable but INERT.
+    ⚠ A SAME-TAG forged handle aliasing a real live same-tag cell is NOT inert — it reads/writes that cell as
+    an alias (typed liveness does not prove origin); ruling that out needs allocation ORIGIN evidence, open.
+    Cell CREATION is [ref_install]
     (allocators) / [ref_new]; every
     [ref_upd] rides an already-live, tag-correct ref, on which it is IDENTICAL to the unconditional install
     ([ref_upd_live_eq]) — so [ref_set] / [ptr_set] / [hfield_set] (which guard on [ref_sel_opt = Some] BEFORE
@@ -137,7 +140,7 @@ Lemma ref_upd_live_eq : forall {A} (r : Ref A) (v a : A) (w : World),
   ref_sel_opt r w = Some a -> ref_upd r v w = ref_install r v w.
 Proof. intros A r v a w H. unfold ref_upd. rewrite H. reflexivity. Qed.
 
-(** WRONG-TAG ANTI-FORGERY (checkpoint-58): a forged [Ref A] whose location ALIASES a live cell of a
+(** WRONG-TAG ANTI-FORGERY: a forged [Ref A] whose location ALIASES a live cell of a
     DIFFERENT type [B] (stored tag [tb], [tag_eq (r_tag r) tb = None]) does NOT mutate — [ref_upd] is the
     IDENTITY.  A wrong-tag handle reads [ref_sel_opt = None] (its [tag_coerce] fails), so [ref_upd_dead_noop]
     applies.  (No [r_loc r <> 0] premise is needed, unlike [chan] / [map]: [ref_sel_opt] carries no loc-0
@@ -233,7 +236,7 @@ Qed.
     evidence — the ref analogue of [GoChan.chan_wrong_tag_antiforgery_surface] /
     [GoMap.map_wrong_tag_antiforgery_surface].  These are TYPED-LIVENESS negatives (an invalid handle cannot
     mutate), NOT origin PROVENANCE: a forged / absent / dangling / WRONG-TAG [Ref] (constructible via public
-    [mkRef] but INERT) cannot fabricate OR retype a cell through the raw [ref_upd] root at ANY location
+    [mkRef]; WRONG-TAG or ABSENT ones INERT) cannot fabricate OR retype a cell through the raw [ref_upd] root at ANY location
     ([ref_upd_dead_noop] / [ref_upd_wrong_tag_noop]); the NIL case ([r_loc = 0]) is sealed under [WorldOk]
     ([ref_upd_nil_noop_valid]).  (A SAME-TAG forged handle aliasing a real same-tag cell is NOT stopped here —
     that needs allocation origin evidence, still open.)  Every public write ([ref_set] / [ptr_set] /

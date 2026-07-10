@@ -570,9 +570,11 @@ Qed.
     (world unchanged), [delete] and [clear] no-op.  Together with [map_set_absent]/[…_absent_noop] (the nil /
     nonzero-ABSENT class) and the raw [map_write_wrong_tag_no_retype], NO forged-handle write — through the
     checked ops OR the raw [map_write] root — fabricates or retypes a cell.  (SCOPE: this is the write-path
-    provenance guarantee; it does NOT assert the raw root is internalized — checkpoint-58 step 6, still open.
-    The named cell-less allocator [map_make] is deleted, but a forged cell-less handle stays constructible via
-    [MkMap] — the [map_cell_ok] guard is what makes it inert, not the deletion.) *)
+    WRONG-TAG ANTI-FORGERY guarantee — typed liveness, NOT origin provenance: a SAME-TAG forged handle aliasing
+    a real same-tag cell is Go reference-value aliasing and is NOT ruled out here.  It also does NOT assert the
+    raw root is internalized.  The named cell-less allocator [map_make] is deleted, but a forged cell-less
+    handle stays constructible via [MkMap] — the [map_cell_ok] guard is what makes such a CELL-LESS handle
+    inert, not the deletion.) *)
 Theorem no_public_map_retyping :
   forall {K V K' V'} (kt : GoTypeTag K) (vt : GoTypeTag V)
          (kt' : GoTypeTag K') (vt' : GoTypeTag V')
