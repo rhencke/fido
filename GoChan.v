@@ -936,23 +936,26 @@ Proof.
   exact (recv_wrong_tag_no_value tag etag ch w (zero_val tag) w rest Hnn Hcell Hmis).
 Qed.
 
-(** A [select] case on a WRONG-TAG ch1 does NOT fire a fabricated [(0, zero_val ta)] even when the aliased cell
-    is CLOSED: [select_wait2] falls through past ch1 (empty + not tag-correct), and with ch2 empty+open the
-    select BLOCKS ([OPanic rt_select_block]) rather than firing a forged case. *)
+(** WRONG-TAG ch1 ⇒ [select_wait2] SKIPS ch1 entirely (never fires case 0 / a fabricated [(0, zero_val ta)]),
+    reducing to the ch2 arm ALONE — for ANY state of ch2 (no ch2 precondition).  So a forged wrong-tag ch1
+    contributes no case, whatever ch2 does. *)
 Theorem select_wait2_wrong_tag_no_fire : forall {A E} (ta : GoTypeTag A) (etag : GoTypeTag E)
     (ch1 ch2 : GoChan A) (w : World) rest,
   Nat.eqb (ch_loc ch1) 0 = false ->
   w_chans w (ch_loc ch1) = Some (existT _ E (etag, rest)) ->
   tag_eq ta etag = None ->
-  chan_buf ta ch2 w = nil -> chan_closed ch2 w = false ->
-  select_wait2 ta ch1 ch2 w = OPanic rt_select_block w.
+  select_wait2 ta ch1 ch2 w =
+    match chan_buf ta ch2 w with
+    | v :: _ => ORet (1, v) (chan_recv_upd ta ch2 w)
+    | nil    => if andb (chan_closed ch2 w) (chan_cell_ok ta ch2 w) then ORet (1, zero_val ta) w
+                else OPanic rt_select_block w
+    end.
 Proof.
-  intros A E ta etag ch1 ch2 w rest Hnn Hcell Hmis Hb2 Hc2.
+  intros A E ta etag ch1 ch2 w rest Hnn Hcell Hmis.
   assert (Hbad : chan_cell_ok ta ch1 w = false)
     by exact (proj2 (chan_cell_ok_wrong_tag ta etag ch1 w rest Hnn Hcell Hmis)).
   unfold select_wait2.
-  rewrite (chan_buf_cellko_false ta ch1 w Hbad), Hbad, Bool.andb_false_r.
-  rewrite Hb2, Hc2. reflexivity.
+  rewrite (chan_buf_cellko_false ta ch1 w Hbad), Hbad, Bool.andb_false_r. reflexivity.
 Qed.
 
 (** A comma-ok recv ([recv_ok]) through a WRONG-TAG handle FAILS LOUD (an [OPanic], world UNCHANGED) — it never
@@ -973,22 +976,25 @@ Proof.
   eexists; reflexivity.
 Qed.
 
-(** A [select_recv2] case on a WRONG-TAG ch1 does NOT fire [zero_val ta] even when the aliased cell is CLOSED:
-    it falls through past ch1, and with ch2 empty+open the select BLOCKS ([rt_select_block]). *)
+(** WRONG-TAG ch1 ⇒ [select_recv2] SKIPS ch1 (never fires [k1] / a fabricated [zero_val ta]), reducing to the
+    ch2 arm ALONE — for ANY state of ch2. *)
 Theorem select_recv2_wrong_tag_no_fire : forall {A B C E} (ta : GoTypeTag A) (etag : GoTypeTag E)
     (ch1 : GoChan A) (k1 : A -> IO C) (tb : GoTypeTag B) (ch2 : GoChan B) (k2 : B -> IO C) (w : World) rest,
   Nat.eqb (ch_loc ch1) 0 = false ->
   w_chans w (ch_loc ch1) = Some (existT _ E (etag, rest)) ->
   tag_eq ta etag = None ->
-  chan_buf tb ch2 w = nil -> chan_closed ch2 w = false ->
-  select_recv2 ta ch1 k1 tb ch2 k2 w = OPanic rt_select_block w.
+  select_recv2 ta ch1 k1 tb ch2 k2 w =
+    match chan_buf tb ch2 w with
+    | v :: _ => k2 v (chan_recv_upd tb ch2 w)
+    | nil    => if andb (chan_closed ch2 w) (chan_cell_ok tb ch2 w) then k2 (zero_val tb) w
+                else OPanic rt_select_block w
+    end.
 Proof.
-  intros A B C E ta etag ch1 k1 tb ch2 k2 w rest Hnn Hcell Hmis Hb2 Hc2.
+  intros A B C E ta etag ch1 k1 tb ch2 k2 w rest Hnn Hcell Hmis.
   assert (Hbad : chan_cell_ok ta ch1 w = false)
     by exact (proj2 (chan_cell_ok_wrong_tag ta etag ch1 w rest Hnn Hcell Hmis)).
   unfold select_recv2.
-  rewrite (chan_buf_cellko_false ta ch1 w Hbad), Hbad, Bool.andb_false_r.
-  rewrite Hb2, Hc2. reflexivity.
+  rewrite (chan_buf_cellko_false ta ch1 w Hbad), Hbad, Bool.andb_false_r. reflexivity.
 Qed.
 
 (** A [select_recv_default] case on a WRONG-TAG ch1 takes the DEFAULT — it never fires the closed-drained
@@ -1007,38 +1013,47 @@ Proof.
   rewrite (chan_buf_cellko_false ta ch1 w Hbad), Hbad, Bool.andb_false_r. reflexivity.
 Qed.
 
-(** SECOND ARM: when ch1 is empty+OPEN (select falls through to ch2), a WRONG-TAG ch2 does NOT fire its
-    closed-drained zero either — the select BLOCKS.  Together with [select_wait2_wrong_tag_no_fire] (the ch1
-    arm) this seals BOTH select arms against wrong-tag fabrication. *)
+(** WRONG-TAG ch2 ⇒ ch2's arm never fires (case 1 / [(1, zero_val ta)]); [select_wait2] reduces to the ch1 arm
+    with ch2 UNAVAILABLE (its fall-through is [OPanic rt_select_block]) — for ANY state of ch1 (no ch1
+    precondition).  Together with [select_wait2_wrong_tag_no_fire] this seals BOTH arms in EVERY combination,
+    including both arms wrong-tag (ch1 skip ∘ ch2 block ⇒ block). *)
 Theorem select_wait2_wrong_tag_ch2_no_fire : forall {A E} (ta : GoTypeTag A) (etag : GoTypeTag E)
     (ch1 ch2 : GoChan A) (w : World) rest,
-  chan_buf ta ch1 w = nil -> chan_closed ch1 w = false ->
   Nat.eqb (ch_loc ch2) 0 = false ->
   w_chans w (ch_loc ch2) = Some (existT _ E (etag, rest)) ->
   tag_eq ta etag = None ->
-  select_wait2 ta ch1 ch2 w = OPanic rt_select_block w.
+  select_wait2 ta ch1 ch2 w =
+    match chan_buf ta ch1 w with
+    | v :: _ => ORet (0, v) (chan_recv_upd ta ch1 w)
+    | nil    => if andb (chan_closed ch1 w) (chan_cell_ok ta ch1 w) then ORet (0, zero_val ta) w
+                else OPanic rt_select_block w
+    end.
 Proof.
-  intros A E ta etag ch1 ch2 w rest Hb1 Hc1 Hnn2 Hcell2 Hmis2.
+  intros A E ta etag ch1 ch2 w rest Hnn2 Hcell2 Hmis2.
   assert (Hbad2 : chan_cell_ok ta ch2 w = false)
     by exact (proj2 (chan_cell_ok_wrong_tag ta etag ch2 w rest Hnn2 Hcell2 Hmis2)).
-  unfold select_wait2. rewrite Hb1, Hc1.
+  unfold select_wait2.
   rewrite (chan_buf_cellko_false ta ch2 w Hbad2), Hbad2, Bool.andb_false_r. reflexivity.
 Qed.
 
-(** SECOND ARM for [select_recv2]: ch1 empty+OPEN, ch2 WRONG-TAG ⇒ the select BLOCKS (ch2 never fires its
-    closed-drained [zero_val tb]).  Together with [select_recv2_wrong_tag_no_fire] this seals both arms. *)
+(** WRONG-TAG ch2 ⇒ ch2's arm never fires [k2] / [zero_val tb]; [select_recv2] reduces to the ch1 arm with
+    ch2's fall-through being [OPanic rt_select_block] — for ANY state of ch1. *)
 Theorem select_recv2_wrong_tag_ch2_no_fire : forall {A B C E} (ta : GoTypeTag A) (tb : GoTypeTag B) (etag : GoTypeTag E)
     (ch1 : GoChan A) (k1 : A -> IO C) (ch2 : GoChan B) (k2 : B -> IO C) (w : World) rest,
-  chan_buf ta ch1 w = nil -> chan_closed ch1 w = false ->
   Nat.eqb (ch_loc ch2) 0 = false ->
   w_chans w (ch_loc ch2) = Some (existT _ E (etag, rest)) ->
   tag_eq tb etag = None ->
-  select_recv2 ta ch1 k1 tb ch2 k2 w = OPanic rt_select_block w.
+  select_recv2 ta ch1 k1 tb ch2 k2 w =
+    match chan_buf ta ch1 w with
+    | v :: _ => k1 v (chan_recv_upd ta ch1 w)
+    | nil    => if andb (chan_closed ch1 w) (chan_cell_ok ta ch1 w) then k1 (zero_val ta) w
+                else OPanic rt_select_block w
+    end.
 Proof.
-  intros A B C E ta tb etag ch1 k1 ch2 k2 w rest Hb1 Hc1 Hnn2 Hcell2 Hmis2.
+  intros A B C E ta tb etag ch1 k1 ch2 k2 w rest Hnn2 Hcell2 Hmis2.
   assert (Hbad2 : chan_cell_ok tb ch2 w = false)
     by exact (proj2 (chan_cell_ok_wrong_tag tb etag ch2 w rest Hnn2 Hcell2 Hmis2)).
-  unfold select_recv2. rewrite Hb1, Hc1.
+  unfold select_recv2.
   rewrite (chan_buf_cellko_false tb ch2 w Hbad2), Hbad2, Bool.andb_false_r. reflexivity.
 Qed.
 
@@ -1428,9 +1443,10 @@ Qed.
     zero-axiom evidence — covering EVERY public op that could observe a forged cell.  A forged wrong-tag handle
     cannot: retype a cell ([send]/[close] fail loud, world UNCHANGED); fabricate a wrong-typed zero on a closed
     recv ([recv_wrong_tag_no_value]/[_no_zero]) or comma-ok recv ([recv_ok_wrong_tag_no_fire]); fire a select
-    case — blocking [select_wait2]/[select_recv2] on EITHER arm ([_wrong_tag_no_fire] for ch1,
-    [_wrong_tag_ch2_no_fire] for ch2) or defaulting [select_recv_default] ([_wrong_tag_default]); nor mutate at
-    the raw [chan_write] root ([chan_write_cellko_noop]).
+    case — a wrong-tag arm of [select_wait2]/[select_recv2] is SKIPPED, reducing the select to the OTHER arm
+    alone with NO precondition on it ([_wrong_tag_no_fire] for ch1, [_wrong_tag_ch2_no_fire] for ch2), so both
+    arms are sealed in EVERY combination (incl. both wrong-tag); [select_recv_default] takes the DEFAULT
+    ([_wrong_tag_default]); nor mutate at the raw [chan_write] root ([chan_write_cellko_noop]).
     [chan_cell_ok_wrong_tag] pins the present-but-mistyped case (proving [chan_present = true] alongside).  The
     [Print Assumptions] below certifies the whole cone axiom-free — manifest-gated public evidence, not merely
     ungated internal lemmas. *)
