@@ -111,13 +111,11 @@ Definition chan_cap {A : Type} (ch : GoChan A) (w : World) : option nat :=
   end.
 (** [chan_present ch w] — is [ch]'s cell ALLOCATED?  FALSE for the nil sentinel ([ch_loc = 0], whose cell is
     unobservable) AND for a nonzero ABSENT location (a forged / dangling handle whose [w_chans] cell is [None]).
-    An operation that would CREATE channel state ([send]/[close]) fails loud when this is false, so an
-    unallocated handle never fabricates a cell — the general fix for nonzero-absent forgery, beyond loc-0.
     ⚠ TAG-AGNOSTIC and existence-ONLY: [chan_present] checks a cell EXISTS, NOT that its stored tag matches, so
-    it does NOT stop wrong-tag forgery.  It is the CURRENT (legacy) guard the ops [chan_room]/[send]/[close]
-    still branch on; the tag-aware [chan_cell_ok] (below) is what they SHOULD guard on and will be rebased onto
-    (checkpoint-58, next slice).  Until then [chan_present] is the existence half of the read-side proofs, NOT
-    the final write authority. *)
+    it does NOT by itself stop wrong-tag forgery.  It is NOT the write authority: the channel ops
+    ([chan_room]/[send]/[recv]/[close]) and the raw [chan_write] root all guard on the TAG-AWARE [chan_cell_ok]
+    (below), so a wrong-tag / absent / nil handle can neither retype nor fabricate a cell.  [chan_present]
+    survives as the EXISTENCE HALF of the read-side proofs ([chan_buf_absent]/[chan_closed_absent]/[close_absent]). *)
 Definition chan_present {A : Type} (ch : GoChan A) (w : World) : bool :=
   if Nat.eqb (ch_loc ch) 0 then false
   else match w_chans w (ch_loc ch) with Some _ => true | None => false end.
@@ -134,15 +132,13 @@ Qed.
 (** [chan_cell_ok tag ch w] — TAG-AWARE cell check (checkpoint-58 provenance, the channel dual of
     [map_cell_ok]): the cell EXISTS AND its STORED element tag MATCHES [tag].  Strictly stronger than
     [chan_present] (existence only), so a forged WRONG-TAG handle aliasing a real channel of ANOTHER element
-    type reads [chan_cell_ok = false] even though [chan_present = true].  This is the predicate the channel ops
-    MUST guard on to refuse retype-on-write ([send]/[close] writing the caller's tag over a foreign cell) and
-    value-fabrication-on-read ([recv] on a wrong-tag CLOSED cell yielding [zero_val tag]).
-    ⚠ FOUNDATION SLICE ONLY: the predicate + its allocator/anti-forgery algebra ([chan_cell_ok_wrong_tag],
-    [chan_cell_ok_make_chan] in GoHeap) land here; the public ops ([send]/[recv]/[recv_ok]/[close_chan]/
-    [select_*]) and the raw [chan_write] root are NOT yet rebased onto it — that rewiring cascades the
-    concurrency BRIDGE (WMatch1/WState/WStateC/WMatchC, ~261 op sites) and is the NEXT slice.  Until then the
-    ops still guard on the tag-AGNOSTIC [chan_present]/[chan_closed], so a wrong-tag handle can still retype
-    (bug ①) or read a fabricated zero from a closed cell (bug ②).  This slice adds the leverage, not the fix. *)
+    type reads [chan_cell_ok = false] even though [chan_present = true].  This is THE predicate the channel ops
+    guard on: the raw [chan_write] root UPDATES a cell only when [chan_cell_ok = true], so [send]/[close] cannot
+    retype a foreign cell (bug ① CLOSED) nor fabricate at an absent location; and [recv]/[recv_ok]/[select_*]
+    fire their CLOSED-drained [zero_val tag] branch only when [chan_cell_ok = true], so a wrong-tag CLOSED cell
+    yields NO fabricated zero (bug ② CLOSED).  The allocator/anti-forgery algebra ([chan_cell_ok_wrong_tag],
+    [chan_cell_ok_make_chan] in GoHeap) and the wrong-tag anti-forgery theorems ([send_wrong_tag_no_mutation],
+    [close_wrong_tag_no_mutation], [recv_wrong_tag_no_zero], [select_wait2_wrong_tag_no_fire]) stand on it. *)
 Definition chan_cell_ok {A : Type} (tag : GoTypeTag A) (ch : GoChan A) (w : World) : bool :=
   if Nat.eqb (ch_loc ch) 0 then false
   else match w_chans w (ch_loc ch) with
@@ -188,18 +184,18 @@ Proof.
   - unfold chan_present. destruct (Nat.eqb (ch_loc ch) 0); [ discriminate Hnn | rewrite Hcell; reflexivity ].
   - unfold chan_cell_ok. destruct (Nat.eqb (ch_loc ch) 0); [ discriminate Hnn | rewrite Hcell, Hmis; reflexivity ].
 Qed.
-(** [chan_room tag ch w] — is there room for one more send?  An UNALLOCATED handle (nil [ch_loc = 0] OR a
-    nonzero ABSENT cell) has NO room ([chan_present] false) — Go BLOCKS forever on a nil send and a forged
-    handle must not fabricate — so [send] FAILS LOUD ([OPanic rt_chan_send_block]) and never enqueues.
-    Otherwise: [None]-capacity (unbounded, the concurrency bridge's ALLOCATED abstract channels) always has
-    room; [Some n] iff the FIFO is shorter than [n]. *)
+(** [chan_room tag ch w] — is there room for one more send?  A handle with no TAG-CORRECT cell (nil [ch_loc = 0],
+    a nonzero ABSENT cell, OR a WRONG-TAG cell) has NO room ([chan_cell_ok] false) — Go BLOCKS forever on a nil
+    send, and a forged / wrong-tag handle must neither fabricate nor retype — so [send] FAILS LOUD
+    ([OPanic rt_chan_send_block]) and never enqueues.  Otherwise: [None]-capacity (unbounded, the concurrency
+    bridge's ALLOCATED abstract channels) always has room; [Some n] iff the FIFO is shorter than [n]. *)
 Definition chan_room {A : Type} (tag : GoTypeTag A) (ch : GoChan A) (w : World) : bool :=
-  if chan_present ch w then
+  if chan_cell_ok tag ch w then
     match chan_cap ch w with
     | None   => true
     | Some n => Nat.ltb (List.length (chan_buf tag ch w)) n
     end
-  else false.   (* an UNALLOCATED handle (nil OR nonzero-absent) has NO room: [send] fails loud, never fabricates a cell *)
+  else false.   (* no TAG-CORRECT cell (nil, absent, OR wrong-tag) ⇒ NO room: [send] fails loud, never fabricates/retypes *)
 (** CANONICAL NIL STATE: a nil channel ([MkChan 0]) reads as empty / open / no-capacity in ANY world [w],
     including a FORGED one carrying a cell at location 0 — the accessor guards make [w_chans 0] unobservable.
     These are the witnesses that nil-channel reads cannot be tricked by a fabricated loc-0 heap cell. *)
@@ -210,19 +206,22 @@ Proof. reflexivity. Qed.
 Lemma chan_cap_nil : forall {A} (w : World), chan_cap (@MkChan A 0) w = None.
 Proof. reflexivity. Qed.
 (** Write a channel cell at [ch]'s location, tagged with [tag], preserving its capacity [cap].
-    ROOT NIL GUARD: location 0 is the reserved nil sentinel (never allocated).  A write there would
-    FORGE channel state at an unallocated handle, so it is a NO-OP — the single choke point that makes
-    the raw [chan_send_upd]/[chan_recv_upd]/[chan_close_upd] unable to fabricate a loc-0 cell, exactly as
-    [map_write] guards the nil map.  (Public [send]/[recv]/[close_chan] already fail loud on nil; this
-    seals the raw update primitives too.) *)
+    ROOT TAG-AWARE GUARD (checkpoint-58): [chan_write] UPDATES a cell only when [chan_cell_ok tag ch w = true]
+    — the cell EXISTS AND its stored element tag MATCHES [tag].  On any other handle (nil [ch_loc = 0], nonzero
+    ABSENT, OR WRONG-TAG) it is a NO-OP.  So NO channel update ([chan_send_upd]/[chan_recv_upd]/[chan_close_upd])
+    can EVER fabricate a cell OR RETYPE an existing cell through a forged handle (closing bug ①); the ONLY cell
+    CREATION is [make_chan_cap].  Exactly as [map_write] guards on [map_cell_ok].  Because updates now ride an
+    already-tag-correct cell, the read-back laws below carry a [chan_cell_ok] premise (genuine cell-preservation),
+    and [chan_write_cellko_noop] pins the raw anti-forgery witness. *)
 Definition chan_write {A : Type} (tag : GoTypeTag A) (ch : GoChan A)
                       (buf : list A) (cl : bool) (cap : option nat) (w : World) : World :=
-  if Nat.eqb (ch_loc ch) 0 then w
-  else mkWorld (w_refs w)
+  if chan_cell_ok tag ch w
+  then mkWorld (w_refs w)
           (fun k => if Nat.eqb k (ch_loc ch)
                     then Some (existT _ A (tag, (buf, (cl, cap))))
                     else w_chans w k)
-          (w_maps w) (w_next w) (w_output w).
+          (w_maps w) (w_next w) (w_output w)
+  else w.   (* ROOT GUARD (tag-aware): a nil / absent / WRONG-TAG handle is a NO-OP — never fabricates OR retypes a cell *)
 Definition chan_send_upd {A : Type} (tag : GoTypeTag A) (ch : GoChan A) (v : A) (w : World) : World :=
   chan_write tag ch (chan_buf tag ch w ++ (v :: nil)) (chan_closed ch w) (chan_cap ch w) w.
 Definition chan_recv_upd {A : Type} (tag : GoTypeTag A) (ch : GoChan A) (w : World) : World :=
@@ -230,32 +229,50 @@ Definition chan_recv_upd {A : Type} (tag : GoTypeTag A) (ch : GoChan A) (w : Wor
 Definition chan_close_upd {A : Type} (tag : GoTypeTag A) (ch : GoChan A) (w : World) : World :=
   chan_write tag ch (chan_buf tag ch w) true (chan_cap ch w) w.
 
-(** Reading back what [chan_write] wrote (with the SAME tag) — the heap-cell
-    round-trip, via [eqb_refl] (location hit) + [tag_eq_refl] (coercion identity).
-    The non-nil side condition ([ch_loc <> 0]) is only the ROOT (loc-0) guard: a nil write is a no-op.  It
-    is NOT an allocation premise — the round-trip holds for ANY nonzero handle because the raw [chan_write]
-    INSTALLS the cell (fabricating one at a nonzero-ABSENT location; the checkpoint-58 [chan_cell_ok] guard
-    flip will restrict this to a genuinely tag-correct cell). *)
+(** Reading back what [chan_write] wrote (with the SAME tag) — the heap-cell round-trip, via [eqb_refl]
+    (location hit) + [tag_eq_refl] (coercion identity).  The side condition is now [chan_cell_ok tag ch w = true]
+    (checkpoint-58): since [chan_write] no-ops on any non-tag-correct handle, the round-trip holds precisely for a
+    genuinely tag-correct cell — GENUINE cell-preservation, no longer "installs a cell at any nonzero handle". *)
 Lemma chan_buf_write_same : forall {A} (tag : GoTypeTag A) ch buf cl cap w,
-  Nat.eqb (ch_loc ch) 0 = false ->
+  chan_cell_ok tag ch w = true ->
   chan_buf tag ch (chan_write tag ch buf cl cap w) = buf.
 Proof.
-  intros A tag ch buf cl cap w Hnn. unfold chan_buf, chan_write. rewrite Hnn. cbn.
+  intros A tag ch buf cl cap w Hok. unfold chan_buf, chan_write.
+  rewrite Hok, (chan_cell_ok_nonnil tag ch w Hok). cbn.
   rewrite (Nat.eqb_refl (ch_loc ch)), tag_eq_refl. reflexivity.
 Qed.
 Lemma chan_closed_write_same : forall {A} (tag : GoTypeTag A) ch buf cl cap w,
-  Nat.eqb (ch_loc ch) 0 = false ->
+  chan_cell_ok tag ch w = true ->
   chan_closed ch (chan_write tag ch buf cl cap w) = cl.
 Proof.
-  intros A tag ch buf cl cap w Hnn. unfold chan_closed, chan_write. rewrite Hnn. cbn.
+  intros A tag ch buf cl cap w Hok. unfold chan_closed, chan_write.
+  rewrite Hok, (chan_cell_ok_nonnil tag ch w Hok). cbn.
   rewrite (Nat.eqb_refl (ch_loc ch)). reflexivity.
 Qed.
 Lemma chan_cap_write_same : forall {A} (tag : GoTypeTag A) ch buf cl cap w,
-  Nat.eqb (ch_loc ch) 0 = false ->
+  chan_cell_ok tag ch w = true ->
   chan_cap ch (chan_write tag ch buf cl cap w) = cap.
 Proof.
-  intros A tag ch buf cl cap w Hnn. unfold chan_cap, chan_write. rewrite Hnn. cbn.
+  intros A tag ch buf cl cap w Hok. unfold chan_cap, chan_write.
+  rewrite Hok, (chan_cell_ok_nonnil tag ch w Hok). cbn.
   rewrite (Nat.eqb_refl (ch_loc ch)). reflexivity.
+Qed.
+(** RAW ANTI-FORGERY WITNESS (dual of [map_write_absent_noop]): a [chan_write] to a handle with NO tag-correct
+    cell ([chan_cell_ok = false] — nil, absent, OR WRONG-TAG) is the IDENTITY.  So the raw updates never
+    fabricate or retype a cell for a forged / dangling handle — the write path is closed at its root. *)
+Lemma chan_write_cellko_noop : forall {A} (tag : GoTypeTag A) (ch : GoChan A) buf cl cap w,
+  chan_cell_ok tag ch w = false -> chan_write tag ch buf cl cap w = w.
+Proof. intros A tag ch buf cl cap w Hko. unfold chan_write. rewrite Hko. reflexivity. Qed.
+(** GENUINE cell-PRESERVATION (honest ONLY because the guard is now on): a [chan_write] to a TAG-CORRECT cell
+    leaves it tag-correct.  Takes [chan_cell_ok = true] as a PREMISE — it is NOT derivable from nonzero location
+    alone (that would certify the retype/fabrication bug); the write installs the caller's [tag], which matches
+    because the cell already carried it. *)
+Lemma chan_cell_ok_write_same : forall {A} (tag : GoTypeTag A) ch buf cl cap w,
+  chan_cell_ok tag ch w = true ->
+  chan_cell_ok tag ch (chan_write tag ch buf cl cap w) = true.
+Proof.
+  intros A tag ch buf cl cap w Hok. unfold chan_write. rewrite Hok. unfold chan_cell_ok.
+  rewrite (chan_cell_ok_nonnil tag ch w Hok). cbn. rewrite Nat.eqb_refl. cbn. rewrite tag_eq_refl. reflexivity.
 Qed.
 (** A write to [ch] leaves a DIFFERENT channel's cell ([ch']) untouched — record
     injectivity ([ch <> ch' => ch_loc ch <> ch_loc ch']) + [eqb_false_complete]. *)
@@ -268,101 +285,102 @@ Lemma chan_read_write_frame : forall {A} (tag : GoTypeTag A) (ch ch' : GoChan A)
   ch <> ch' -> w_chans (chan_write tag ch buf cl cap w) (ch_loc ch') = w_chans w (ch_loc ch').
 Proof.
   intros A tag ch ch' buf cl cap w Hne. unfold chan_write.
-  destruct (Nat.eqb (ch_loc ch) 0).           (* nil write is a no-op ⇒ frame is trivial *)
-  { reflexivity. }
+  destruct (chan_cell_ok tag ch w).           (* no-tag-correct-cell write is a no-op ⇒ frame is trivial *)
+  2: { reflexivity. }
   cbn.
   rewrite (proj2 (Nat.eqb_neq (ch_loc ch') (ch_loc ch))).
   - reflexivity.
   - intro H. apply (chan_loc_neq ch ch' Hne). symmetry; exact H.
 Qed.
-
-(** [chan_present] ALGEBRA for the concurrency bridge.  ⚠ HONEST READING: [chan_present_write_same]/[_send]/
-    [_recv] prove [chan_present = true] from the NONZERO premise ALONE — because the raw [chan_write] INSTALLS
-    a [Some] cell at ANY nonzero location (root-guarded only against loc-0).  So these do NOT witness
-    "allocation PRESERVED": a nonzero-ABSENT handle ALSO satisfies the conclusion, i.e. the raw [chan_send_upd]/
-    [chan_recv_upd] FABRICATE a cell there.  That raw-layer nonzero-absent fabrication is a checkpoint-58 OPEN
-    item — the raw updates are not yet guarded on [chan_cell_ok] (the chan_write-guard flip will close it, and
-    will also make these lemmas genuine cell-preservation, premise-carrying).  The IO ops [send]/[recv] already
-    reject absent (via [chan_room]→[chan_present], fail-loud), and the bridge invokes these ONLY on channels it
-    has SEPARATELY established as present ([WMatch1]'s pinned [chan_present]) — sound THERE, where they carry a
-    real prior allocation across a step; the frame lemma leaves a DIFFERENT channel's presence unchanged. *)
-Lemma chan_present_write_same : forall {A} (tag : GoTypeTag A) ch buf cl cap w,
-  Nat.eqb (ch_loc ch) 0 = false -> chan_present ch (chan_write tag ch buf cl cap w) = true.
+(** A [chan_write] to [ch] leaves a DIFFERENT channel [ch']'s tag-correct status untouched (distinct cells are
+    independent) — frames the [chan_cell_ok] invariant across an update to another channel. *)
+Lemma chan_cell_ok_write_frame : forall {A} (tag : GoTypeTag A) (ch ch' : GoChan A) buf cl cap w,
+  ch <> ch' -> chan_cell_ok tag ch' (chan_write tag ch buf cl cap w) = chan_cell_ok tag ch' w.
 Proof.
-  intros A tag ch buf cl cap w Hnn. unfold chan_present, chan_write. rewrite Hnn. cbn.
-  rewrite Nat.eqb_refl. reflexivity.
-Qed.
-Lemma chan_present_write_frame : forall {A} (tag : GoTypeTag A) (ch ch' : GoChan A) buf cl cap w,
-  ch <> ch' -> chan_present ch' (chan_write tag ch buf cl cap w) = chan_present ch' w.
-Proof.
-  intros A tag ch ch' buf cl cap w Hne. unfold chan_present.
-  destruct (Nat.eqb (ch_loc ch') 0); [ reflexivity | ].
+  intros A tag ch ch' buf cl cap w Hne. unfold chan_cell_ok.
+  destruct (Nat.eqb (ch_loc ch') 0) eqn:E0; [reflexivity|].
   rewrite (chan_read_write_frame tag ch ch' buf cl cap w Hne). reflexivity.
 Qed.
-Lemma chan_present_send : forall {A} (tag : GoTypeTag A) ch v w,
-  Nat.eqb (ch_loc ch) 0 = false -> chan_present ch (chan_send_upd tag ch v w) = true.
-Proof. intros A tag ch v w Hnn. unfold chan_send_upd. apply chan_present_write_same; exact Hnn. Qed.
-Lemma chan_present_recv : forall {A} (tag : GoTypeTag A) ch w,
-  Nat.eqb (ch_loc ch) 0 = false -> chan_present ch (chan_recv_upd tag ch w) = true.
-Proof. intros A tag ch w Hnn. unfold chan_recv_upd. apply chan_present_write_same; exact Hnn. Qed.
-Lemma chan_present_send_frame : forall {A} (tag : GoTypeTag A) (ch ch' : GoChan A) v w,
-  ch <> ch' -> chan_present ch' (chan_send_upd tag ch v w) = chan_present ch' w.
-Proof. intros A tag ch ch' v w Hne. unfold chan_send_upd. apply chan_present_write_frame; exact Hne. Qed.
-Lemma chan_present_recv_frame : forall {A} (tag : GoTypeTag A) (ch ch' : GoChan A) w,
-  ch <> ch' -> chan_present ch' (chan_recv_upd tag ch w) = chan_present ch' w.
-Proof. intros A tag ch ch' w Hne. unfold chan_recv_upd. apply chan_present_write_frame; exact Hne. Qed.
 
-(** Heap-interface laws: how [chan_buf]/[chan_closed] read after each update.  Each carries the
-    ROOT-guard side condition [ch_loc <> 0] — on the reserved nil handle the update is a no-op.  This is the
-    NONZERO premise only, NOT an allocation premise: the read-back holds for any nonzero handle because the raw
-    update INSTALLS the cell (fabricating on a nonzero-absent one).  The bridge supplies the nonzero fact via
-    [chenv_live] and separately pins genuine presence via [WMatch1]. *)
+(** [chan_cell_ok] ALGEBRA for the concurrency bridge (checkpoint-58, replacing the old [chan_present] algebra).
+    These are GENUINE tag-correct-cell preservation: [chan_cell_ok_send]/[_recv]/[_close] take [chan_cell_ok = true]
+    as a PREMISE and conclude the same on the updated world — because the guarded [chan_write] rides an already
+    tag-correct cell (NOT derivable from nonzero-location alone, which would certify fabrication).  The [_frame]
+    variants leave a DIFFERENT channel's tag-correct status unchanged.  The bridge invariants ([WMatch1]/[WPresent]/
+    [WPresentM]/[WStateC]) pin [chan_cell_ok TI64 (chenv c) w = true] and thread it with exactly these. *)
+Lemma chan_cell_ok_send : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (v : A) (w : World),
+  chan_cell_ok tag ch w = true -> chan_cell_ok tag ch (chan_send_upd tag ch v w) = true.
+Proof. intros A tag ch v w Hok. unfold chan_send_upd. apply chan_cell_ok_write_same; exact Hok. Qed.
+Lemma chan_cell_ok_recv : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (w : World),
+  chan_cell_ok tag ch w = true -> chan_cell_ok tag ch (chan_recv_upd tag ch w) = true.
+Proof. intros A tag ch w Hok. unfold chan_recv_upd. apply chan_cell_ok_write_same; exact Hok. Qed.
+Lemma chan_cell_ok_close : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (w : World),
+  chan_cell_ok tag ch w = true -> chan_cell_ok tag ch (chan_close_upd tag ch w) = true.
+Proof. intros A tag ch w Hok. unfold chan_close_upd. apply chan_cell_ok_write_same; exact Hok. Qed.
+Lemma chan_cell_ok_send_frame : forall {A} (tag : GoTypeTag A) (ch ch' : GoChan A) (v : A) (w : World),
+  ch <> ch' -> chan_cell_ok tag ch' (chan_send_upd tag ch v w) = chan_cell_ok tag ch' w.
+Proof. intros A tag ch ch' v w Hne. unfold chan_send_upd. apply chan_cell_ok_write_frame; exact Hne. Qed.
+Lemma chan_cell_ok_recv_frame : forall {A} (tag : GoTypeTag A) (ch ch' : GoChan A) (w : World),
+  ch <> ch' -> chan_cell_ok tag ch' (chan_recv_upd tag ch w) = chan_cell_ok tag ch' w.
+Proof. intros A tag ch ch' w Hne. unfold chan_recv_upd. apply chan_cell_ok_write_frame; exact Hne. Qed.
+Lemma chan_cell_ok_close_frame : forall {A} (tag : GoTypeTag A) (ch ch' : GoChan A) (w : World),
+  ch <> ch' -> chan_cell_ok tag ch' (chan_close_upd tag ch w) = chan_cell_ok tag ch' w.
+Proof. intros A tag ch ch' w Hne. unfold chan_close_upd. apply chan_cell_ok_write_frame; exact Hne. Qed.
+
+(** Heap-interface laws: how [chan_buf]/[chan_closed] read after each update.  Each now carries the TAG-CORRECT
+    side condition [chan_cell_ok tag ch w = true] (checkpoint-58) — the guarded [chan_write] no-ops on any other
+    handle, so these are GENUINE cell-preservation, not "installs on any nonzero handle".  The bridge supplies
+    [chan_cell_ok] from its pinned invariant ([WMatch1]/[WPresent]/[WPresentM]/[WStateC]). *)
 Theorem chan_buf_send : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (v : A) (w : World),
-  Nat.eqb (ch_loc ch) 0 = false ->
+  chan_cell_ok tag ch w = true ->
   chan_buf tag ch (chan_send_upd tag ch v w) = chan_buf tag ch w ++ (v :: nil).
-Proof. intros A tag ch v w Hnn. unfold chan_send_upd. rewrite chan_buf_write_same by exact Hnn. reflexivity. Qed.
+Proof. intros A tag ch v w Hok. unfold chan_send_upd. rewrite chan_buf_write_same by exact Hok. reflexivity. Qed.
 Theorem chan_buf_recv : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (v : A) (rest : list A) (w : World),
-  Nat.eqb (ch_loc ch) 0 = false ->
+  chan_cell_ok tag ch w = true ->
   chan_buf tag ch w = v :: rest -> chan_buf tag ch (chan_recv_upd tag ch w) = rest.
-Proof. intros A tag ch v rest w Hnn H. unfold chan_recv_upd. rewrite chan_buf_write_same by exact Hnn. rewrite H. reflexivity. Qed.
+Proof. intros A tag ch v rest w Hok H. unfold chan_recv_upd. rewrite chan_buf_write_same by exact Hok. rewrite H. reflexivity. Qed.
 Theorem chan_closed_send : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (v : A) (w : World),
-  Nat.eqb (ch_loc ch) 0 = false ->
+  chan_cell_ok tag ch w = true ->
   chan_closed ch (chan_send_upd tag ch v w) = chan_closed ch w.
-Proof. intros A tag ch v w Hnn. unfold chan_send_upd. rewrite chan_closed_write_same by exact Hnn. reflexivity. Qed.
+Proof. intros A tag ch v w Hok. unfold chan_send_upd. rewrite chan_closed_write_same by exact Hok. reflexivity. Qed.
 Theorem chan_closed_recv : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (w : World),
-  Nat.eqb (ch_loc ch) 0 = false ->
+  chan_cell_ok tag ch w = true ->
   chan_closed ch (chan_recv_upd tag ch w) = chan_closed ch w.
-Proof. intros A tag ch w Hnn. unfold chan_recv_upd. rewrite chan_closed_write_same by exact Hnn. reflexivity. Qed.
+Proof. intros A tag ch w Hok. unfold chan_recv_upd. rewrite chan_closed_write_same by exact Hok. reflexivity. Qed.
 Theorem chan_closed_close : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (w : World),
-  Nat.eqb (ch_loc ch) 0 = false ->
+  chan_cell_ok tag ch w = true ->
   chan_closed ch (chan_close_upd tag ch w) = true.
-Proof. intros A tag ch w Hnn. unfold chan_close_upd. rewrite chan_closed_write_same by exact Hnn. reflexivity. Qed.
+Proof. intros A tag ch w Hok. unfold chan_close_upd. rewrite chan_closed_write_same by exact Hok. reflexivity. Qed.
 (** Capacity is INVARIANT under send/recv/close (the cell's [cap] is re-written unchanged) — needed so a
     capacity-aware [send] can reason across updates, and so the [WMatch1] bridge keeps its [None] channels. *)
 Theorem chan_cap_send : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (v : A) (w : World),
-  Nat.eqb (ch_loc ch) 0 = false ->
+  chan_cell_ok tag ch w = true ->
   chan_cap ch (chan_send_upd tag ch v w) = chan_cap ch w.
-Proof. intros A tag ch v w Hnn. unfold chan_send_upd. rewrite chan_cap_write_same by exact Hnn. reflexivity. Qed.
+Proof. intros A tag ch v w Hok. unfold chan_send_upd. rewrite chan_cap_write_same by exact Hok. reflexivity. Qed.
 Theorem chan_cap_recv : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (w : World),
-  Nat.eqb (ch_loc ch) 0 = false ->
+  chan_cell_ok tag ch w = true ->
   chan_cap ch (chan_recv_upd tag ch w) = chan_cap ch w.
-Proof. intros A tag ch w Hnn. unfold chan_recv_upd. rewrite chan_cap_write_same by exact Hnn. reflexivity. Qed.
+Proof. intros A tag ch w Hok. unfold chan_recv_upd. rewrite chan_cap_write_same by exact Hok. reflexivity. Qed.
 Theorem chan_cap_close : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (w : World),
-  Nat.eqb (ch_loc ch) 0 = false ->
+  chan_cell_ok tag ch w = true ->
   chan_cap ch (chan_close_upd tag ch w) = chan_cap ch w.
-Proof. intros A tag ch w Hnn. unfold chan_close_upd. rewrite chan_cap_write_same by exact Hnn. reflexivity. Qed.
-(** [chan_room = true] WITNESSES allocation: [chan_room] is false on ANY unallocated handle (nil OR
-    nonzero-absent, via [chan_present]), so a channel with room has a PRESENT cell (hence is non-nil).  Lets a
-    caller that already has [chan_room = true] discharge the read-back / cell-existence side conditions above. *)
-Lemma chan_room_present : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (w : World),
-  chan_room tag ch w = true -> chan_present ch w = true.
+Proof. intros A tag ch w Hok. unfold chan_close_upd. rewrite chan_cap_write_same by exact Hok. reflexivity. Qed.
+(** [chan_room = true] WITNESSES a TAG-CORRECT cell: [chan_room] is false on ANY handle with no tag-correct cell
+    (nil, nonzero-absent, OR wrong-tag, via [chan_cell_ok]), so a channel with room has a tag-correct cell (hence
+    present, hence non-nil).  Lets a caller that already has [chan_room = true] discharge the read-back /
+    cell-existence side conditions above ([chan_buf_send]'s [chan_cell_ok] premise). *)
+Lemma chan_room_cell_ok : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (w : World),
+  chan_room tag ch w = true -> chan_cell_ok tag ch w = true.
 Proof.
   intros A tag ch w H. unfold chan_room in H.
-  destruct (chan_present ch w) eqn:E; [ reflexivity | discriminate H ].
+  destruct (chan_cell_ok tag ch w) eqn:E; [ reflexivity | discriminate H ].
 Qed.
+Lemma chan_room_present : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (w : World),
+  chan_room tag ch w = true -> chan_present ch w = true.
+Proof. intros A tag ch w H. exact (chan_cell_ok_present tag ch w (chan_room_cell_ok tag ch w H)). Qed.
 Lemma chan_room_nonnil : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (w : World),
   chan_room tag ch w = true -> Nat.eqb (ch_loc ch) 0 = false.
-Proof. intros A tag ch w H. exact (chan_present_nonnil ch w (chan_room_present tag ch w H)). Qed.
+Proof. intros A tag ch w H. exact (chan_cell_ok_nonnil tag ch w (chan_room_cell_ok tag ch w H)). Qed.
 
 (** Channel SEPARATION (frame): a send/receive on one channel leaves
     every OTHER channel's buffer untouched (distinct cells are independent). *)
@@ -400,8 +418,8 @@ Definition send {A} (tag : GoTypeTag A) (ch : GoChan A) (v : A) : IO unit :=
 Definition recv {A} (tag : GoTypeTag A) (ch : GoChan A) : IO A :=
   fun w => match chan_buf tag ch w with
            | v :: _ => ORet v (chan_recv_upd tag ch w)
-           | nil    => if chan_closed ch w
-                       then ORet (zero_val tag) w   (* closed + drained: Go yields the zero value immediately *)
+           | nil    => if andb (chan_closed ch w) (chan_cell_ok tag ch w)
+                       then ORet (zero_val tag) w   (* closed + drained + TAG-CORRECT: Go yields the zero value immediately (a wrong-tag CLOSED cell fails loud below — bug ②) *)
                        else OPanic (anyt TString
                          "fido: recv on an open EMPTY channel blocks — a deadlock in a sequential run_io, with no synchronous value"%string) w
            end.
@@ -413,18 +431,20 @@ Definition recv {A} (tag : GoTypeTag A) (ch : GoChan A) : IO A :=
     writes location 0), and [recv] on a nil (hence empty, open) channel already hits its empty-channel block
     panic.  This is NOT excused as "unreachable": [MkChan 0] is a PUBLIC handle, so nil ops are made fail-loud,
     not assumed away.  Lowered by name ([close(ch)]), golden-stable. *)
-(** [close] fails loud on ANY unallocated handle — nil ([ch_loc = 0]) OR nonzero ABSENT (forged/dangling) —
-    via [chan_present], so it can never FABRICATE a closed cell at an unallocated location (Go's [close(nil)]
-    panic, generalised to the whole no-cell class).  Only an allocated cell reaches the closed-flag check. *)
+(** [close] fails loud on ANY handle with no TAG-CORRECT cell — nil ([ch_loc = 0]), nonzero ABSENT
+    (forged/dangling), OR WRONG-TAG (a forged handle aliasing a real channel of ANOTHER element type) — via
+    [chan_cell_ok], so it can never FABRICATE a closed cell at an unallocated location NOR RETYPE a foreign cell
+    (Go's [close(nil)] panic, generalised to the whole no-tag-correct-cell class; bug ① CLOSED).  Only a
+    tag-correct cell reaches the closed-flag check. *)
 Definition close_chan {A} (tag : GoTypeTag A) (ch : GoChan A) : IO unit :=
-  fun w => if chan_present ch w
+  fun w => if chan_cell_ok tag ch w
            then (if chan_closed ch w then OPanic rt_close_closed w else ORet tt (chan_close_upd tag ch w))
            else OPanic rt_close_nil w.
 Definition recv_ok {A B} (tag : GoTypeTag A) (ch : GoChan A) (f : A -> bool -> IO B) : IO B :=
   fun w => match chan_buf tag ch w with
            | v :: _ => f v true (chan_recv_upd tag ch w)
-           | nil    => if chan_closed ch w
-                       then f (zero_val tag) false w   (* closed + drained: (zero, ok=false) — Go's comma-ok on a closed channel *)
+           | nil    => if andb (chan_closed ch w) (chan_cell_ok tag ch w)
+                       then f (zero_val tag) false w   (* closed + drained + TAG-CORRECT: (zero, ok=false) — Go's comma-ok (a wrong-tag CLOSED cell fails loud) *)
                        else OPanic (anyt TString
                          "fido: recv_ok on an open EMPTY channel blocks — a deadlock in a sequential run_io, with no synchronous value"%string) w
            end.
@@ -459,42 +479,42 @@ Lemma send_absent : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (v : A) (w : 
   chan_present ch w = false -> run_io (send tag ch v) w = OPanic rt_chan_send_block w.
 Proof.
   intros A tag ch v w H. unfold send, run_io.
-  rewrite (chan_closed_absent ch w H). unfold chan_room. rewrite H. reflexivity.
+  rewrite (chan_closed_absent ch w H). unfold chan_room. rewrite (chan_cell_ok_absent tag ch w H). reflexivity.
 Qed.
 Lemma recv_absent_no_value : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (w : World) (a : A) (w' : World),
   chan_present ch w = false -> run_io (recv tag ch) w <> ORet a w'.
 Proof.
   intros A tag ch w a w' H Hr. unfold recv, run_io in Hr.
-  rewrite (chan_buf_absent tag ch w H), (chan_closed_absent ch w H) in Hr. discriminate Hr.
+  rewrite (chan_buf_absent tag ch w H), (chan_cell_ok_absent tag ch w H), Bool.andb_false_r in Hr. discriminate Hr.
 Qed.
 Definition select_recv2 {A B C} (ta : GoTypeTag A) (ch1 : GoChan A) (k1 : A -> IO C)
                                  (tb : GoTypeTag B) (ch2 : GoChan B) (k2 : B -> IO C) : IO C :=
   fun w => match chan_buf ta ch1 w with
            | v :: _ => k1 v (chan_recv_upd ta ch1 w)
-           | nil    => if chan_closed ch1 w then k1 (zero_val ta) w   (* ch1 CLOSED+drained: recv READY, yields zero (Go) *)
+           | nil    => if andb (chan_closed ch1 w) (chan_cell_ok ta ch1 w) then k1 (zero_val ta) w   (* ch1 CLOSED+drained+TAG-CORRECT: recv READY, yields zero (Go); a wrong-tag CLOSED ch1 does NOT fire (bug ②) *)
                        else match chan_buf tb ch2 w with
                             | v :: _ => k2 v (chan_recv_upd tb ch2 w)
-                            | nil    => if chan_closed ch2 w then k2 (zero_val tb) w  (* ch2 closed+drained: zero *)
-                                        else OPanic rt_select_block w  (* both empty+OPEN: FAIL-LOUD (Go blocks; the IO model has no Blocked outcome) — NEVER a fabricated value *)
+                            | nil    => if andb (chan_closed ch2 w) (chan_cell_ok tb ch2 w) then k2 (zero_val tb) w  (* ch2 closed+drained+tag-correct: zero *)
+                                        else OPanic rt_select_block w  (* both empty+OPEN (or wrong-tag): FAIL-LOUD (Go blocks; the IO model has no Blocked outcome) — NEVER a fabricated value *)
                             end
            end.
-(** [select_recv_default] — recv case + [default].  A CLOSED, DRAINED channel's recv is READY in
-    Go (yields the zero value immediately), so [default] is taken ONLY when the channel is empty
-    AND OPEN. *)
+(** [select_recv_default] — recv case + [default].  A CLOSED, DRAINED, TAG-CORRECT channel's recv is READY in
+    Go (yields the zero value immediately), so [default] is taken when the channel is empty AND OPEN (or its cell
+    is not tag-correct — a wrong-tag CLOSED cell is not READY). *)
 Definition select_recv_default {A C} (ta : GoTypeTag A) (ch1 : GoChan A)
                                       (k1 : A -> IO C) (d : IO C) : IO C :=
   fun w => match chan_buf ta ch1 w with
            | v :: _ => k1 v (chan_recv_upd ta ch1 w)
-           | nil    => if chan_closed ch1 w then k1 (zero_val ta) w   (* closed+drained: recv READY, zero *)
-                       else d w                                        (* open+empty: default *)
+           | nil    => if andb (chan_closed ch1 w) (chan_cell_ok ta ch1 w) then k1 (zero_val ta) w   (* closed+drained+tag-correct: recv READY, zero *)
+                       else d w                                        (* open+empty (or wrong-tag): default *)
            end.
-(** CORRECTNESS — closed-channel readiness (example): on a CLOSED, DRAINED channel the
+(** CORRECTNESS — closed-channel readiness (example): on a CLOSED, DRAINED, TAG-CORRECT channel the
     recv case fires with the zero value (NOT [default]); on an OPEN, empty channel [default] fires. *)
 Lemma select_default_closed :
   forall {A C} (ta : GoTypeTag A) (ch : GoChan A) (k1 : A -> IO C) (d : IO C) (w : World),
-    chan_buf ta ch w = nil -> chan_closed ch w = true ->
+    chan_buf ta ch w = nil -> chan_closed ch w = true -> chan_cell_ok ta ch w = true ->
     select_recv_default ta ch k1 d w = k1 (zero_val ta) w.
-Proof. intros A C ta ch k1 d w He Hc. unfold select_recv_default. rewrite He, Hc. reflexivity. Qed.
+Proof. intros A C ta ch k1 d w He Hc Hok. unfold select_recv_default. rewrite He, Hc, Hok. reflexivity. Qed.
 Lemma select_default_open_empty :
   forall {A C} (ta : GoTypeTag A) (ch : GoChan A) (k1 : A -> IO C) (d : IO C) (w : World),
     chan_buf ta ch w = nil -> chan_closed ch w = false ->
@@ -554,11 +574,11 @@ Proof. reflexivity. Qed.
 Definition select_wait2 {A} (ta : GoTypeTag A) (ch1 ch2 : GoChan A) : IO (nat * A) :=
   fun w => match chan_buf ta ch1 w with
            | v :: _ => ORet (0, v) (chan_recv_upd ta ch1 w)
-           | nil    => if chan_closed ch1 w then ORet (0, zero_val ta) w   (* ch1 closed+drained: case 0 fires, zero *)
+           | nil    => if andb (chan_closed ch1 w) (chan_cell_ok ta ch1 w) then ORet (0, zero_val ta) w   (* ch1 closed+drained+tag-correct: case 0 fires, zero (a wrong-tag CLOSED ch1 does NOT fire) *)
                        else match chan_buf ta ch2 w with
                             | v :: _ => ORet (1, v) (chan_recv_upd ta ch2 w)
-                            | nil    => if chan_closed ch2 w then ORet (1, zero_val ta) w  (* ch2 closed+drained: case 1, zero *)
-                                        else OPanic rt_select_block w  (* both empty+OPEN: FAIL-LOUD — Go blocks; never a fabricated case index/value *)
+                            | nil    => if andb (chan_closed ch2 w) (chan_cell_ok ta ch2 w) then ORet (1, zero_val ta) w  (* ch2 closed+drained+tag-correct: case 1, zero *)
+                                        else OPanic rt_select_block w  (* both empty+OPEN (or wrong-tag): FAIL-LOUD — Go blocks; never a fabricated case index/value *)
                             end
            end.
 Definition select2 {A C} (ta : GoTypeTag A) (ch1 ch2 : GoChan A) (k1 k2 : A -> IO C) : IO C :=
@@ -574,10 +594,16 @@ Proof.
   intros A C ta ch1 ch2 k1 k2. intro w.
   unfold select2, select_recv2, select_wait2, bind, run_io.
   destruct (chan_buf ta ch1 w) as [|v1 r1].
-  - destruct (chan_closed ch1 w).
-    + reflexivity.                                    (* ch1 closed+drained: both → k1 zero *)
+  - destruct (chan_closed ch1 w); cbn [andb].
+    + destruct (chan_cell_ok ta ch1 w).
+      * reflexivity.                                  (* ch1 closed+drained+tag-correct: both → k1 zero *)
+      * destruct (chan_buf ta ch2 w) as [|v2 r2].
+        -- destruct (chan_closed ch2 w); cbn [andb];
+             [ destruct (chan_cell_ok ta ch2 w); reflexivity | reflexivity ].
+        -- reflexivity.
     + destruct (chan_buf ta ch2 w) as [|v2 r2].
-      * destruct (chan_closed ch2 w); reflexivity.    (* ch2 closed → k2 zero; else both OPanic rt_select_block *)
+      * destruct (chan_closed ch2 w); cbn [andb];
+          [ destruct (chan_cell_ok ta ch2 w); reflexivity | reflexivity ].
       * reflexivity.                                  (* ch2 ready *)
   - reflexivity.                                      (* ch1 ready *)
 Qed.
@@ -599,14 +625,14 @@ Theorem select_recv2_ch1_buffered :
   run_io (select_recv2 ta ch1 k1 tb ch2 k2) w = run_io (bind (recv ta ch1) k1) w.
 Proof. intros A B C ta ch1 k1 tb ch2 k2 v rest w H. unfold select_recv2, recv, bind, run_io. rewrite H. reflexivity. Qed.
 
-(* ch1 CLOSED + drained ⇒ select yields ch1's zero value = recv ch1 >>= k1 (recv returns zero on the
-   drained channel — Go's "receive from a closed channel proceeds immediately"). *)
+(* ch1 CLOSED + drained + TAG-CORRECT ⇒ select yields ch1's zero value = recv ch1 >>= k1 (recv returns zero on
+   the drained channel — Go's "receive from a closed channel proceeds immediately"). *)
 Theorem select_recv2_ch1_closed :
   forall {A B C} (ta : GoTypeTag A) (ch1 : GoChan A) (k1 : A -> IO C)
                  (tb : GoTypeTag B) (ch2 : GoChan B) (k2 : B -> IO C) (w : World),
-  chan_buf ta ch1 w = nil -> chan_closed ch1 w = true ->
+  chan_buf ta ch1 w = nil -> chan_closed ch1 w = true -> chan_cell_ok ta ch1 w = true ->
   run_io (select_recv2 ta ch1 k1 tb ch2 k2) w = run_io (bind (recv ta ch1) k1) w.
-Proof. intros A B C ta ch1 k1 tb ch2 k2 w He Hc. unfold select_recv2, recv, bind, run_io. rewrite He, Hc. reflexivity. Qed.
+Proof. intros A B C ta ch1 k1 tb ch2 k2 w He Hc Hok. unfold select_recv2, recv, bind, run_io. rewrite He, Hc, Hok. reflexivity. Qed.
 
 (* ch1 EMPTY + OPEN, ch2 BUFFERED ⇒ select falls through to ch2 = recv ch2 >>= k2. *)
 Theorem select_recv2_ch2_buffered :
@@ -616,14 +642,14 @@ Theorem select_recv2_ch2_buffered :
   run_io (select_recv2 ta ch1 k1 tb ch2 k2) w = run_io (bind (recv tb ch2) k2) w.
 Proof. intros A B C ta ch1 k1 tb ch2 k2 v rest w He1 Hc1 He2. unfold select_recv2, recv, bind, run_io. rewrite He1, Hc1, He2. reflexivity. Qed.
 
-(* ch1 EMPTY + OPEN, ch2 CLOSED + drained ⇒ select yields ch2's zero = recv ch2 >>= k2. *)
+(* ch1 EMPTY + OPEN, ch2 CLOSED + drained + TAG-CORRECT ⇒ select yields ch2's zero = recv ch2 >>= k2. *)
 Theorem select_recv2_ch2_closed :
   forall {A B C} (ta : GoTypeTag A) (ch1 : GoChan A) (k1 : A -> IO C)
                  (tb : GoTypeTag B) (ch2 : GoChan B) (k2 : B -> IO C) (w : World),
   chan_buf ta ch1 w = nil -> chan_closed ch1 w = false ->
-  chan_buf tb ch2 w = nil -> chan_closed ch2 w = true ->
+  chan_buf tb ch2 w = nil -> chan_closed ch2 w = true -> chan_cell_ok tb ch2 w = true ->
   run_io (select_recv2 ta ch1 k1 tb ch2 k2) w = run_io (bind (recv tb ch2) k2) w.
-Proof. intros A B C ta ch1 k1 tb ch2 k2 w He1 Hc1 He2 Hc2. unfold select_recv2, recv, bind, run_io. rewrite He1, Hc1, He2, Hc2. reflexivity. Qed.
+Proof. intros A B C ta ch1 k1 tb ch2 k2 w He1 Hc1 He2 Hc2 Hok2. unfold select_recv2, recv, bind, run_io. rewrite He1, Hc1, He2, Hc2, Hok2. reflexivity. Qed.
 
 (** Both channels EMPTY and OPEN (no case can proceed, no default): [select_recv2] /
     [select_wait2] FAIL LOUD ([OPanic rt_select_block]) — a proof that reaches this state hits an
@@ -682,31 +708,36 @@ Lemma run_recv_ok : forall {A B} (tag : GoTypeTag A) (ch : GoChan A)
 Proof. intros A B tag ch f v rest w H. unfold recv_ok, run_io. rewrite H. reflexivity. Qed.
 Lemma run_recv_ok_closed_empty : forall {A B} (tag : GoTypeTag A) (ch : GoChan A)
     (f : A -> bool -> IO B) (w : World),
-  chan_buf tag ch w = nil -> chan_closed ch w = true ->
+  chan_buf tag ch w = nil -> chan_closed ch w = true -> chan_cell_ok tag ch w = true ->
   run_io (recv_ok tag ch f) w = run_io (f (zero_val tag) false) w.
-Proof. intros A B tag ch f w H Hc. unfold recv_ok, run_io. rewrite H, Hc. reflexivity. Qed.
+Proof. intros A B tag ch f w H Hc Hok. unfold recv_ok, run_io. rewrite H, Hc, Hok. reflexivity. Qed.
 Lemma run_close : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (w : World),
-  chan_present ch w = true ->
+  chan_cell_ok tag ch w = true ->
   chan_closed ch w = false ->
   run_io (close_chan tag ch) w = ORet tt (chan_close_upd tag ch w).
-Proof. intros A tag ch w Hp H. unfold close_chan, run_io. rewrite Hp, H. reflexivity. Qed.
-(** Closing a non-nil CLOSED channel panics with "close of closed channel" (the CAUSE distinguishes this from "close of nil channel" — an unallocated handle hits the [chan_present] guard).  [chan_closed = true]
-    already implies the cell is present ([chan_closed_true_present]); [close_chan_nil] / [close_absent] cover the no-cell ones. *)
+Proof. intros A tag ch w Hok H. unfold close_chan, run_io. rewrite Hok, H. reflexivity. Qed.
+(** Closing a CLOSED, TAG-CORRECT channel panics with "close of closed channel" (the CAUSE distinguishes this
+    from "close of nil channel" — a handle with no tag-correct cell hits the [chan_cell_ok] guard).  [chan_closed = true]
+    no longer suffices for the close path: a WRONG-TAG cell can be closed yet [chan_cell_ok = false], so it takes
+    the [rt_close_nil] branch instead — hence the extra [chan_cell_ok] premise here.  [close_chan_nil] /
+    [close_absent] / [close_wrong_tag_no_mutation] cover the no-tag-correct-cell ones. *)
 Lemma run_close_closed : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (w : World),
+  chan_cell_ok tag ch w = true ->
   chan_closed ch w = true ->
   run_io (close_chan tag ch) w = OPanic rt_close_closed w.
-Proof. intros A tag ch w H. unfold close_chan, run_io. rewrite (chan_closed_true_present ch w H), H. reflexivity. Qed.
+Proof. intros A tag ch w Hok H. unfold close_chan, run_io. rewrite Hok, H. reflexivity. Qed.
 (** Faithfulness: [close] on a nil channel PANICS with "close of nil channel", exactly Go's [close(nil)]. *)
 Lemma close_chan_nil : forall {A} (tag : GoTypeTag A) (w : World),
   run_io (close_chan tag (@MkChan A 0)) w = OPanic rt_close_nil w.
 Proof. reflexivity. Qed.
 (** ANTI-FORGERY (nonzero-absent generalisation of [close_chan_nil]): [close] on ANY unallocated handle
     ([chan_present = false] — nil OR a forged/dangling nonzero location) FAILS LOUD with NO mutation (the world
-    is returned unchanged in the [OPanic]) — it never fabricates a closed cell at an absent location. *)
+    is returned unchanged in the [OPanic]) — it never fabricates a closed cell at an absent location.  An absent
+    cell is a fortiori not tag-correct ([chan_cell_ok_absent]), so [close] hits its [chan_cell_ok] guard. *)
 Lemma close_absent : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (w : World),
   chan_present ch w = false ->
   run_io (close_chan tag ch) w = OPanic rt_close_nil w.
-Proof. intros A tag ch w H. unfold close_chan, run_io. rewrite H. reflexivity. Qed.
+Proof. intros A tag ch w H. unfold close_chan, run_io. rewrite (chan_cell_ok_absent tag ch w H). reflexivity. Qed.
 
 (** ---- The channel laws, DERIVED as theorems ---- *)
 
@@ -722,7 +753,7 @@ Proof.
   intros A tag ch v w Hclosed Hempty Hroom.
   rewrite run_bind, (run_send tag ch v w Hclosed Hroom). cbn.
   apply (run_recv tag ch v nil).
-  rewrite (chan_buf_send tag ch v w (chan_room_nonnil tag ch w Hroom)), Hempty. reflexivity.
+  rewrite (chan_buf_send tag ch v w (chan_room_cell_ok tag ch w Hroom)), Hempty. reflexivity.
 Qed.
 
 (** [recv_ok] variant: after [send ch v] into an open, empty channel, [recv_ok]
@@ -736,7 +767,7 @@ Proof.
   intros A B tag ch v f w Hclosed Hempty Hroom.
   rewrite run_bind, (run_send tag ch v w Hclosed Hroom). cbn.
   apply (run_recv_ok tag ch f v nil).
-  rewrite (chan_buf_send tag ch v w (chan_room_nonnil tag ch w Hroom)), Hempty. reflexivity.
+  rewrite (chan_buf_send tag ch v w (chan_room_cell_ok tag ch w Hroom)), Hempty. reflexivity.
 Qed.
 
 (** [make_chan] is UNBUFFERED ([Some 0]), so an IO send to a freshly-made unbuffered channel FAILS LOUD
@@ -748,10 +779,11 @@ Lemma make_chan_unbuffered_send_blocks : forall {A} (tag : GoTypeTag A) (v : A) 
   run_io (make_chan tag) w = ORet ch w' -> run_io (send tag ch v) w' = OPanic rt_chan_send_block w'.
 Proof.
   intros A tag v w ch w' H. unfold make_chan, make_chan_cap, run_io in H.
-  injection H as Hch Hw. subst ch w'. unfold send, run_io, chan_closed, chan_room, chan_present, chan_cap, chan_buf. cbn.
-  (* [chan_room] is false on EITHER arm: an unallocated ([w_next = 0]) handle is [chan_present = false] (no
-     room), and a fresh unbuffered ([Some 0]) buffer is full — so send blocks regardless of [w_next]'s value. *)
-  destruct (Nat.eqb (w_next w) 0); cbn; rewrite ?Nat.eqb_refl; cbn; reflexivity.
+  injection H as Hch Hw. subst ch w'. unfold send, run_io, chan_closed, chan_room, chan_cell_ok, chan_cap, chan_buf. cbn.
+  (* [chan_room] is false on EITHER arm: an unallocated ([w_next = 0]) handle has no tag-correct cell
+     ([chan_cell_ok = false], no room), and a fresh unbuffered ([Some 0]) buffer is full — so send blocks
+     regardless of [w_next]'s value. *)
+  destruct (Nat.eqb (w_next w) 0); cbn; rewrite ?Nat.eqb_refl, ?tag_eq_refl; cbn; reflexivity.
 Qed.
 (** FAIL-LOUD witness: [make(chan T, n)] with a NEGATIVE runtime size PANICS ([rt_makechan_size]) — the
     model never silently clamps a negative capacity to 0.  (Positive [n]: [make_chan_buf_caps] in [GoHeap.v]
@@ -763,43 +795,150 @@ Proof.
   rewrite (proj2 (Z.ltb_lt (intraw n) 0) Hneg). reflexivity.
 Qed.
 
-(** Sending on a closed channel panics (Go spec): close then send → panic.  (On a non-nil channel — a
-    nil one would panic at the first [close].) *)
+(** Sending on a closed channel panics (Go spec): close then send → panic.  (On a TAG-CORRECT channel — a
+    nil / absent / wrong-tag one would panic at the first [close].) *)
 Theorem send_closed_panics : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (v : A) (w : World),
-  chan_present ch w = true ->
+  chan_cell_ok tag ch w = true ->
   chan_closed ch w = false ->
   run_io (bind (close_chan tag ch) (fun _ => send tag ch v)) w
   = OPanic rt_send_closed (chan_close_upd tag ch w).
 Proof.
-  intros A tag ch v w Hp Hopen.
-  rewrite run_bind, (run_close tag ch w Hp Hopen). cbn.
+  intros A tag ch v w Hok Hopen.
+  rewrite run_bind, (run_close tag ch w Hok Hopen). cbn.
   exact (run_send_closed tag ch v (chan_close_upd tag ch w)
-           (chan_closed_close tag ch w (chan_present_nonnil ch w Hp))).
+           (chan_closed_close tag ch w Hok)).
 Qed.
 
-(** Closing an already-closed channel panics (Go spec): close then close → panic.  (On a non-nil
-    channel — a nil one would panic at the first [close].) *)
+(** Closing an already-closed channel panics (Go spec): close then close → panic.  (On a TAG-CORRECT
+    channel — a nil / absent / wrong-tag one would panic at the first [close].) *)
 Theorem double_close_panics : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (w : World),
-  chan_present ch w = true ->
+  chan_cell_ok tag ch w = true ->
   chan_closed ch w = false ->
   run_io (bind (close_chan tag ch) (fun _ => close_chan tag ch)) w
   = OPanic rt_close_closed (chan_close_upd tag ch w).
 Proof.
-  intros A tag ch w Hp Hopen.
-  rewrite run_bind, (run_close tag ch w Hp Hopen). cbn.
+  intros A tag ch w Hok Hopen.
+  rewrite run_bind, (run_close tag ch w Hok Hopen). cbn.
   exact (run_close_closed tag ch (chan_close_upd tag ch w)
-           (chan_closed_close tag ch w (chan_present_nonnil ch w Hp))).
+           (chan_cell_ok_close tag ch w Hok)
+           (chan_closed_close tag ch w Hok)).
 Qed.
 
-(** [recv_ok] on a closed, EMPTY channel returns [(zero_val tag, false)] — Go's
+(** [recv_ok] on a closed, EMPTY, TAG-CORRECT channel returns [(zero_val tag, false)] — Go's
     "receive from a closed channel" rule.  This could NOT be an unconditional
     axiom (with [send_recv_ok] it forces [v = zero_val tag] for all [v], an
-    inconsistency); conditioning on the channel state makes it sound. *)
+    inconsistency); conditioning on the channel state makes it sound.  The [chan_cell_ok] premise excludes a
+    wrong-tag CLOSED cell (which fails loud rather than fabricating a zero — bug ②). *)
 Theorem recv_ok_closed_empty : forall {A B} (tag : GoTypeTag A) (ch : GoChan A)
     (f : A -> bool -> IO B) (w : World),
-  chan_buf tag ch w = nil -> chan_closed ch w = true ->
+  chan_buf tag ch w = nil -> chan_closed ch w = true -> chan_cell_ok tag ch w = true ->
   run_io (recv_ok tag ch f) w = run_io (f (zero_val tag) false) w.
 Proof. intros. apply run_recv_ok_closed_empty; assumption. Qed.
+
+(** ==================================================================================================
+    WRONG-TAG ANTI-FORGERY (checkpoint-58, channels).  Mirrors the map wrong-tag theorems: the hypotheses
+    isolate the WRONG-TAG case STRUCTURALLY — a NONZERO location ([Nat.eqb (ch_loc ch) 0 = false]) holding a
+    REAL cell (so [chan_present = true] — PROVED in [chan_cell_ok_wrong_tag], not asserted) whose stored element
+    tag DISAGREES with the caller's [tag] — a forged public [MkChan l] handle aliasing a LIVE channel of ANOTHER
+    element type.  Each theorem PINS that no public channel op can retype that cell on write (bug ① CLOSED) nor
+    fabricate a wrong-typed zero on read (bug ② CLOSED): the op fails loud with the world UNCHANGED, or blocks.
+    This is strictly beyond the nil / nonzero-ABSENT class (covered by the [*_absent] / [*_nil] lemmas) — the
+    cell is genuinely there, just of the wrong type.  The nonzero premise is essential: without it a forged
+    loc-0 cell would satisfy the [w_chans]/tag hypotheses while [chan_present] is [false], collapsing "live
+    wrong-tag" into the already-covered loc-0 case.
+    ================================================================================================ *)
+
+(** Read-side helper: a handle with no TAG-CORRECT cell ([chan_cell_ok = false] — nil, absent, OR wrong-tag)
+    reads an EMPTY buffer.  [chan_buf] and [chan_cell_ok] branch on the SAME conditions (existence + [tag_eq]),
+    so a wrong-tag forged handle observes no buffered values — it cannot read the real cell's contents. *)
+Lemma chan_buf_cellko_false : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (w : World),
+  chan_cell_ok tag ch w = false -> chan_buf tag ch w = nil.
+Proof.
+  intros A tag ch w H. unfold chan_cell_ok in H. unfold chan_buf.
+  destruct (Nat.eqb (ch_loc ch) 0); [ reflexivity | ].
+  destruct (w_chans w (ch_loc ch)) as [ [E [etag [buf [cl cap]]]] | ]; [ | reflexivity ].
+  destruct (tag_eq tag etag); [ discriminate H | reflexivity ].
+Qed.
+
+(** [send] through a WRONG-TAG handle FAILS LOUD (an [OPanic]) with the world UNCHANGED — it never RETYPES the
+    aliased cell (whether the cell is closed → [rt_send_closed], or open → [rt_chan_send_block], no [ORet]). *)
+Theorem send_wrong_tag_no_mutation : forall {A E} (tag : GoTypeTag A) (etag : GoTypeTag E)
+    (ch : GoChan A) (v : A) (w : World) rest,
+  Nat.eqb (ch_loc ch) 0 = false ->
+  w_chans w (ch_loc ch) = Some (existT _ E (etag, rest)) ->
+  tag_eq tag etag = None ->
+  exists r, run_io (send tag ch v) w = OPanic r w.
+Proof.
+  intros A E tag etag ch v w rest Hnn Hcell Hmis.
+  assert (Hbad : chan_cell_ok tag ch w = false)
+    by exact (proj2 (chan_cell_ok_wrong_tag tag etag ch w rest Hnn Hcell Hmis)).
+  unfold send, run_io. destruct (chan_closed ch w).
+  - exists rt_send_closed. reflexivity.
+  - unfold chan_room. rewrite Hbad. exists rt_chan_send_block. reflexivity.
+Qed.
+
+(** [close] through a WRONG-TAG handle FAILS LOUD ([rt_close_nil]) with the world UNCHANGED — it never
+    RETYPES / closes the aliased cell. *)
+Theorem close_wrong_tag_no_mutation : forall {A E} (tag : GoTypeTag A) (etag : GoTypeTag E)
+    (ch : GoChan A) (w : World) rest,
+  Nat.eqb (ch_loc ch) 0 = false ->
+  w_chans w (ch_loc ch) = Some (existT _ E (etag, rest)) ->
+  tag_eq tag etag = None ->
+  run_io (close_chan tag ch) w = OPanic rt_close_nil w.
+Proof.
+  intros A E tag etag ch w rest Hnn Hcell Hmis.
+  assert (Hbad : chan_cell_ok tag ch w = false)
+    by exact (proj2 (chan_cell_ok_wrong_tag tag etag ch w rest Hnn Hcell Hmis)).
+  unfold close_chan, run_io. rewrite Hbad. reflexivity.
+Qed.
+
+(** [recv] through a WRONG-TAG handle NEVER delivers a value: the buffer reads empty (wrong tag) and the
+    CLOSED-drained zero branch is gated on [chan_cell_ok], so a wrong-tag CLOSED cell yields NO fabricated zero
+    — [recv] fails loud instead. *)
+Theorem recv_wrong_tag_no_value : forall {A E} (tag : GoTypeTag A) (etag : GoTypeTag E)
+    (ch : GoChan A) (w : World) (a : A) (w' : World) rest,
+  Nat.eqb (ch_loc ch) 0 = false ->
+  w_chans w (ch_loc ch) = Some (existT _ E (etag, rest)) ->
+  tag_eq tag etag = None ->
+  run_io (recv tag ch) w <> ORet a w'.
+Proof.
+  intros A E tag etag ch w a w' rest Hnn Hcell Hmis Hr.
+  assert (Hbad : chan_cell_ok tag ch w = false)
+    by exact (proj2 (chan_cell_ok_wrong_tag tag etag ch w rest Hnn Hcell Hmis)).
+  unfold recv, run_io in Hr.
+  rewrite (chan_buf_cellko_false tag ch w Hbad), Hbad, Bool.andb_false_r in Hr. discriminate Hr.
+Qed.
+
+(** ...in particular, a wrong-tag CLOSED recv does NOT return [zero_val tag] (the named form of bug ②). *)
+Corollary recv_wrong_tag_no_zero : forall {A E} (tag : GoTypeTag A) (etag : GoTypeTag E)
+    (ch : GoChan A) (w : World) rest,
+  Nat.eqb (ch_loc ch) 0 = false ->
+  w_chans w (ch_loc ch) = Some (existT _ E (etag, rest)) ->
+  tag_eq tag etag = None ->
+  run_io (recv tag ch) w <> ORet (zero_val tag) w.
+Proof.
+  intros A E tag etag ch w rest Hnn Hcell Hmis.
+  exact (recv_wrong_tag_no_value tag etag ch w (zero_val tag) w rest Hnn Hcell Hmis).
+Qed.
+
+(** A [select] case on a WRONG-TAG ch1 does NOT fire a fabricated [(0, zero_val ta)] even when the aliased cell
+    is CLOSED: [select_wait2] falls through past ch1 (empty + not tag-correct), and with ch2 empty+open the
+    select BLOCKS ([OPanic rt_select_block]) rather than firing a forged case. *)
+Theorem select_wait2_wrong_tag_no_fire : forall {A E} (ta : GoTypeTag A) (etag : GoTypeTag E)
+    (ch1 ch2 : GoChan A) (w : World) rest,
+  Nat.eqb (ch_loc ch1) 0 = false ->
+  w_chans w (ch_loc ch1) = Some (existT _ E (etag, rest)) ->
+  tag_eq ta etag = None ->
+  chan_buf ta ch2 w = nil -> chan_closed ch2 w = false ->
+  select_wait2 ta ch1 ch2 w = OPanic rt_select_block w.
+Proof.
+  intros A E ta etag ch1 ch2 w rest Hnn Hcell Hmis Hb2 Hc2.
+  assert (Hbad : chan_cell_ok ta ch1 w = false)
+    by exact (proj2 (chan_cell_ok_wrong_tag ta etag ch1 w rest Hnn Hcell Hmis)).
+  unfold select_wait2.
+  rewrite (chan_buf_cellko_false ta ch1 w Hbad), Hbad, Bool.andb_false_r.
+  rewrite Hb2, Hc2. reflexivity.
+Qed.
 
 (** ---- Happens-before: the partial order on channel events (go.dev/ref/mem) ----
 
@@ -1178,7 +1317,7 @@ Proof.
   assert (Hbuf1 : chan_buf (TProd TI64 TI64) (MkChan (ch_loc ch))
             (chan_send_upd (TProd TI64 TI64) (MkChan (ch_loc ch)) v w) = v :: nil)
     by (rewrite (chan_buf_send (TProd TI64 TI64) (MkChan (ch_loc ch)) v w
-                   (chan_room_nonnil (TProd TI64 TI64) (MkChan (ch_loc ch)) w Hroom)), Hempty; reflexivity).
+                   (chan_room_cell_ok (TProd TI64 TI64) (MkChan (ch_loc ch)) w Hroom)), Hempty; reflexivity).
   rewrite (run_recv (TProd TI64 TI64) (MkChan (ch_loc ch)) v nil _ Hbuf1).
   eexists; reflexivity.
 Qed.

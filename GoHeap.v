@@ -598,7 +598,8 @@ Qed.
     [make_chan* ⟹ chan_cell_ok] ONLY.  It is NOT provenance — [chan_cell_ok] checks nonzero location + cell
     presence + tag match, so a SAME-TAG forged world ALSO satisfies it; the converse ([chan_cell_ok ⟹ made by
     an allocator]) does NOT hold and is not claimed.  What a genuine allocation supplies is exactly the
-    tag-correct-cell evidence the ops (next slice) demand.  (Proved directly per allocator — no capacity helper,
+    tag-correct-cell evidence the ops now demand (the [chan_write]/[chan_room]/[send]/[recv]/[close] guard, and
+    [chan_alloc_close_no_panic] below discharges it).  (Proved directly per allocator — no capacity helper,
     keeping the fuel/cap ratchet clean.) *)
 Lemma chan_cell_ok_make_chan : forall {A} (tag : GoTypeTag A) (w : World) ch w',
   ValidWorld w -> run_io (make_chan tag) w = ORet ch w' -> chan_cell_ok tag ch w' = true.
@@ -637,35 +638,26 @@ Qed.
     [valid_fresh_nonzero]), so [close] on it never hits the NIL panic.  [chan_alloc_close_no_panic] is the guarantee
     (the remaining [close] panic — double-close — is the send-on-closed class, gated separately by
     [chan_closed]).  [send]/[recv] on the same allocated channel likewise never hit the nil case.  (Non-nil is
-    the NIL-panic guarantee ONLY; it is not tag-correctness.  The wrong-tag write/read hazards remain OPEN —
-    the ops still branch on tag-agnostic [chan_present]/[chan_closed]; the checkpoint-58 op rebase onto the
-    tag-aware [chan_cell_ok] is what WILL close them, and is not yet done.) *)
+    the NIL-panic guarantee ONLY; it is not tag-correctness.  The wrong-tag write/read hazards are closed by the
+    checkpoint-58 op rebase onto the tag-aware [chan_cell_ok] — [chan_write]/[chan_room]/[send]/[recv]/[close]
+    all guard on it; the allocation discharges that guard via [chan_cell_ok_make_chan].) *)
 Lemma make_chan_nonzero : forall {A} (tag : GoTypeTag A) (w : World) ch w',
   ValidWorld w -> run_io (make_chan tag) w = ORet ch w' -> Nat.eqb (ch_loc ch) 0 = false.
 Proof.
   intros A tag w ch w' HV Hrun. unfold run_io, make_chan in Hrun. cbv zeta in Hrun.
   injection Hrun as Hc _. subst ch. cbn [ch_loc]. apply pos_neq0, (valid_fresh_nonzero w HV).
 Qed.
-(** A freshly-[make]d channel's cell is PRESENT ([chan_present = true]): [make_chan_cap] installs a [Some]
-    cell at [w_next w], and [ValidWorld] forces [w_next w <> 0].  So [close] on a just-made channel reaches its
-    real closed-flag path (it is not mistaken for an unallocated handle) — the allocation discharges the
-    CURRENT (existence-only) [chan_present] premise the guarded [close]/[run_close] branch on today.  (After the
-    checkpoint-58 op rebase they will demand the tag-aware [chan_cell_ok] instead — discharged by
-    [chan_cell_ok_make_chan]; [chan_present] then survives as the existence half of the read-side proofs.) *)
-Lemma chan_present_make_chan : forall {A} (tag : GoTypeTag A) (w : World) ch w',
-  ValidWorld w -> run_io (make_chan tag) w = ORet ch w' -> chan_present ch w' = true.
-Proof.
-  intros A tag w ch w' HV Hrun. unfold run_io, make_chan, make_chan_cap in Hrun. cbv zeta in Hrun.
-  injection Hrun as Hc Hw'. subst ch w'. unfold chan_present. cbn [ch_loc].
-  rewrite (pos_neq0 _ (valid_fresh_nonzero w HV)).
-  cbn [w_chans]. rewrite Nat.eqb_refl. reflexivity.
-Qed.
+(** A freshly-[make]d channel's cell is TAG-CORRECT ([chan_cell_ok = true], via [chan_cell_ok_make_chan] above):
+    [make_chan_cap] installs a [Some (existT _ A (tag, …))] cell at [w_next w], and [ValidWorld] forces
+    [w_next w <> 0].  So [close] on a just-made channel reaches its real closed-flag path (not mistaken for an
+    unallocated / forged handle) — the allocation discharges the [chan_cell_ok] premise the guarded
+    [close]/[run_close] now demand. *)
 Corollary chan_alloc_close_no_panic : forall {A} (tag : GoTypeTag A) (w : World) ch w',
   ValidWorld w -> run_io (make_chan tag) w = ORet ch w' -> chan_closed ch w' = false ->
   exists w'', run_io (close_chan tag ch) w' = ORet tt w''.
 Proof.
   intros A tag w ch w' HV Hrun Hcl. eexists.
-  apply run_close; [ apply (chan_present_make_chan tag w ch w' HV Hrun) | exact Hcl ].
+  apply run_close; [ apply (chan_cell_ok_make_chan tag w ch w' HV Hrun) | exact Hcl ].
 Qed.
 (** CAPACITY FAITHFULNESS: a freshly-made buffered channel stores the requested capacity [Some n].  The
     [w_next <> 0] the read-back needs (now that [chan_cap] reads a nil handle as [None]) is FORCED by
@@ -1125,7 +1117,7 @@ Qed.
     state at once (the combined state refinement). *)
 Lemma ref_sel_chan_write_frame : forall {A B} (tag : GoTypeTag A) (ch : GoChan A) buf cl cap (r : Ref B) (w : World),
   ref_sel r (chan_write tag ch buf cl cap w) = ref_sel r w.
-Proof. intros. unfold ref_sel, chan_write. destruct (Nat.eqb (ch_loc ch) 0); reflexivity. Qed.
+Proof. intros. unfold ref_sel, chan_write. destruct (chan_cell_ok tag ch w); reflexivity. Qed.
 
 Lemma ref_sel_chan_send_upd : forall {A B} (tag : GoTypeTag A) (ch : GoChan A) (v : A) (r : Ref B) (w : World),
   ref_sel r (chan_send_upd tag ch v w) = ref_sel r w.
@@ -1138,7 +1130,7 @@ Proof. intros. unfold chan_recv_upd. apply ref_sel_chan_write_frame. Qed.
    independent World components) — needed by the heap bridge after the fail-loud read. *)
 Lemma ref_sel_opt_chan_write_frame : forall {A B} (tag : GoTypeTag A) (ch : GoChan A) buf cl cap (r : Ref B) (w : World),
   ref_sel_opt r (chan_write tag ch buf cl cap w) = ref_sel_opt r w.
-Proof. intros. unfold ref_sel_opt, chan_write. destruct (Nat.eqb (ch_loc ch) 0); reflexivity. Qed.
+Proof. intros. unfold ref_sel_opt, chan_write. destruct (chan_cell_ok tag ch w); reflexivity. Qed.
 Lemma ref_sel_opt_chan_send_upd : forall {A B} (tag : GoTypeTag A) (ch : GoChan A) (v : A) (r : Ref B) (w : World),
   ref_sel_opt r (chan_send_upd tag ch v w) = ref_sel_opt r w.
 Proof. intros. unfold chan_send_upd. apply ref_sel_opt_chan_write_frame. Qed.
@@ -1149,12 +1141,12 @@ Proof. intros. unfold chan_recv_upd. apply ref_sel_opt_chan_write_frame. Qed.
 Lemma chan_buf_ref_upd_frame : forall {A B} (tag : GoTypeTag A) (ch : GoChan A) (r : Ref B) (v : B) (w : World),
   chan_buf tag ch (ref_upd r v w) = chan_buf tag ch w.
 Proof. intros. unfold chan_buf, ref_upd. reflexivity. Qed.
-(** A ref write leaves channel PRESENCE untouched ([ref_upd] touches only [w_refs]; [chan_present] reads
-    [w_chans]) — frames the [WPresent] (allocated-channels) conjunct of the multi-channel refinement across the
-    heap-write step, so the bridge's channels stay ALLOCATED through a [CWrite]. *)
-Lemma chan_present_ref_upd_frame : forall {A B} (ch : GoChan A) (r : Ref B) (v : B) (w : World),
-  chan_present ch (ref_upd r v w) = chan_present ch w.
-Proof. intros. unfold chan_present, ref_upd. reflexivity. Qed.
+(** A ref write leaves channel TAG-CORRECT status untouched ([ref_upd] touches only [w_refs]; [chan_cell_ok]
+    reads [w_chans]) — frames the [WPresent] (tag-correct-channels) conjunct of the multi-channel refinement
+    across the heap-write step, so the bridge's channels stay tag-correct through a [CWrite]. *)
+Lemma chan_cell_ok_ref_upd_frame : forall {A B} (tag : GoTypeTag A) (ch : GoChan A) (r : Ref B) (v : B) (w : World),
+  chan_cell_ok tag ch (ref_upd r v w) = chan_cell_ok tag ch w.
+Proof. intros. unfold chan_cell_ok, ref_upd. reflexivity. Qed.
 
 (** ---- World-component independence for the CLOSEDNESS refinement ----
     [chan_close_upd] touches only the channel-closed flag of ONE channel; it leaves buffers and refs
