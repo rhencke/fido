@@ -402,11 +402,13 @@ Qed.
     [valid_run_map_typed], the multi-cell allocators [valid_run_slice_make_lc] / [valid_run_slice_make_h] /
     [valid_run_gsptr_new], AND [valid_run_slice_append] — [append] is not an allocator but its realloc branch
     mints a fresh backing (its in-cap branch writes in place, [valid_ref_upd]); those latter three sit next to
-    their later definitions once the slice / struct machinery is in scope.  Every other public op leaves
-    [w_next] fixed and its heap edits are guarded, so [valid_ref_upd] &c. cover them.  Several liveness facts
-    LEAN on all this — [ptr_new_nonzero], [make_chan_nonzero], [gsptr_new_live] &c. need [ValidWorld] for a
-    nonzero location/base, and these corollaries carry the invariant THROUGH each op so a later one still sees
-    it. *)
+    their later definitions once the slice / struct machinery is in scope.  The other heap-EDITING ops leave
+    [w_next] fixed and are GUARDED so they never fabricate a cell at loc 0 / a fresh location: the single-cell
+    writes go through [ref_upd] ([valid_ref_upd]), and the bulk slice writes [slice_clear_h] / [slice_copy]
+    guard PER CELL (overwrite only already-live cells) — [valid_run_slice_clear_h] / [valid_run_slice_copy].
+    Several liveness facts LEAN on all this — [ptr_new_nonzero], [make_chan_nonzero], [gsptr_new_live] &c. need
+    [ValidWorld] for a nonzero location/base, and these corollaries carry the invariant THROUGH each op so a
+    later one still sees it. *)
 Corollary valid_run_ref_new : forall {A} (tag : GoTypeTag A) (v : A) (w : World) r w',
   ValidWorld w -> run_io (ref_new tag v) w = ORet r w' -> ValidWorld w'.
 Proof.
@@ -1756,30 +1758,79 @@ Qed.
    clear/copy ranges are the interval [[sh_start s, sh_start s + len)]. *)
 Definition sh_start {A} (s : SliceH A) : nat := sh_base s + sh_off s.
 
-(** [clear(s)] (Go 1.21): zero [s]'s [len] elements.  A single declarative
-    heap update — the cells in [s]'s range map to the zero value, the rest unchanged. *)
+(** [clear(s)] (Go 1.21): zero [s]'s [len] elements.  A declarative range update that is GUARDED per cell —
+    an in-range cell is zeroed ONLY if it is already LIVE ([w_refs w k = Some _]); an absent cell (a forged /
+    dangling handle whose backing was never allocated) is LEFT [None], never FABRICATED.  This is the bulk
+    analogue of the guarded [ref_upd]: it cannot install a cell at loc 0 or a fresh location, so it preserves
+    [ValidWorld] ([valid_run_slice_clear_h]) and never forges state.  For a real slice (every backing cell
+    live, from [slice_make]) the whole range is zeroed, unchanged.  Lowered by name ([clear(s)]). *)
 Definition slice_clear_h {A} (tag : GoTypeTag A) (s : SliceH A) : IO unit :=
   fun w => ORet tt
     (mkWorld (fun k => if (Nat.leb (sh_start s) k
                            && Nat.ltb k (sh_start s + sh_len s))%bool
-                       then Some (existT _ A (tag, zero_val tag))
+                       then match w_refs w k with
+                            | Some _ => Some (existT _ A (tag, zero_val tag))
+                            | None   => None
+                            end
                        else w_refs w k)
              (w_chans w) (w_maps w) (w_next w) (w_output w)).
 
-(** [copy(dst, src)]: copy [min(len dst, len src)] elements [src → dst],
-    return the count (a Go [int], so the [nat] count is widened to a [GoInt]).  A single
-    declarative heap update — each [dst] cell in range takes the corresponding [src] value
-    ([src]'s cell at the same relative index). *)
+(** [copy(dst, src)]: copy [min(len dst, len src)] elements [src → dst], return the count.  GUARDED per cell
+    like [clear] — a [dst] cell in range takes the corresponding [src] value ONLY if the [dst] cell is already
+    LIVE; an absent [dst] cell is left [None], never fabricated.  So a forged [dst] cannot make [copy] install
+    at loc 0 / a fresh location — it preserves [ValidWorld] ([valid_run_slice_copy]).  For a real [dst] the
+    whole range is written, unchanged.  Lowered by name ([copy(dst, src)]). *)
 Definition slice_copy {A} (tag : GoTypeTag A) (dst src : SliceH A) : IO GoInt :=
   fun w => let n := if Nat.leb (sh_len dst) (sh_len src) then sh_len dst else sh_len src in
            ORet (intwrap (Z.of_nat n))
     (mkWorld (fun k => if (Nat.leb (sh_start dst) k
                            && Nat.ltb k (sh_start dst + n))%bool
-                       then Some (existT _ A
-                              (tag, ref_sel (mkRef (sh_start src + (k - sh_start dst))
-                                                   (sh_tag src)) w))
+                       then match w_refs w k with
+                            | Some _ => Some (existT _ A
+                                          (tag, ref_sel (mkRef (sh_start src + (k - sh_start dst))
+                                                               (sh_tag src)) w))
+                            | None   => None
+                            end
                        else w_refs w k)
              (w_chans w) (w_maps w) (w_next w) (w_output w)).
+Corollary valid_run_slice_clear_h : forall {A} (tag : GoTypeTag A) (s : SliceH A) (w : World) r w',
+  ValidWorld w -> run_io (slice_clear_h tag s) w = ORet r w' -> ValidWorld w'.
+Proof.
+  intros A tag s w r w' HV Hrun. unfold run_io, slice_clear_h in Hrun. injection Hrun as _ Hw. subst w'.
+  destruct HV as [Hpos [[Hr0 [Hc0 Hm0]] Hfresh]]. split; [ | split ].
+  - cbn [w_next]. exact Hpos.
+  - cbn [w_refs w_chans w_maps]. split; [ | split ].
+    + destruct (Nat.leb (sh_start s) 0 && Nat.ltb 0 (sh_start s + sh_len s))%bool;
+        [ rewrite Hr0; reflexivity | exact Hr0 ].
+    + exact Hc0.
+    + exact Hm0.
+  - intros l Hle. cbn [w_next w_refs w_chans w_maps] in *. destruct (Hfresh l Hle) as [Hr [Hc Hm]].
+    split; [ | split ].
+    + destruct (Nat.leb (sh_start s) l && Nat.ltb l (sh_start s + sh_len s))%bool;
+        [ rewrite Hr; reflexivity | exact Hr ].
+    + exact Hc.
+    + exact Hm.
+Qed.
+Corollary valid_run_slice_copy : forall {A} (tag : GoTypeTag A) (dst src : SliceH A) (w : World) r w',
+  ValidWorld w -> run_io (slice_copy tag dst src) w = ORet r w' -> ValidWorld w'.
+Proof.
+  intros A tag dst src w r w' HV Hrun. unfold run_io, slice_copy in Hrun. cbv zeta in Hrun.
+  injection Hrun as _ Hw. subst w'.
+  destruct HV as [Hpos [[Hr0 [Hc0 Hm0]] Hfresh]].
+  set (n := if Nat.leb (sh_len dst) (sh_len src) then sh_len dst else sh_len src). split; [ | split ].
+  - cbn [w_next]. exact Hpos.
+  - cbn [w_refs w_chans w_maps]. split; [ | split ].
+    + destruct (Nat.leb (sh_start dst) 0 && Nat.ltb 0 (sh_start dst + n))%bool;
+        [ rewrite Hr0; reflexivity | exact Hr0 ].
+    + exact Hc0.
+    + exact Hm0.
+  - intros l Hle. cbn [w_next w_refs w_chans w_maps] in *. destruct (Hfresh l Hle) as [Hr [Hc Hm]].
+    split; [ | split ].
+    + destruct (Nat.leb (sh_start dst) l && Nat.ltb l (sh_start dst + n))%bool;
+        [ rewrite Hr; reflexivity | exact Hr ].
+    + exact Hc.
+    + exact Hm.
+Qed.
 
 (** ---- Heap-backed STRUCTS as field-cell bundles ----
 
