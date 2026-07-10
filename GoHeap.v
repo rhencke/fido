@@ -146,11 +146,15 @@ Proof.
   change (tag_coerce (r_tag r) tb x0 = None).
   unfold tag_coerce. rewrite Htag. reflexivity.
 Qed.
-(** ROOT-GUARD PROVENANCE (checkpoint-58): the ref anti-forgery witnesses as a public, zero-axiom cone.  A
-    forged / nil / absent / WRONG-TAG [Ref] cannot fabricate OR retype a cell through the raw [ref_upd] root
-    ([ref_upd_dead_noop] / [ref_upd_wrong_tag_noop]); every public write ([ref_set] / [ptr_set] / [hfield_set])
-    already guards on [ref_sel_opt = Some] before reaching it.  (No dedicated [Print Assumptions] surface: the
-    whole model's axiom-freedom is manifest-gated at the module level.) *)
+(** ROOT-GUARD PROVENANCE SURFACE (checkpoint-58): the ref anti-forgery witnesses as MANIFEST-GATED, zero-axiom
+    PUBLIC evidence — the ref analogue of [GoChan.chan_provenance_surface] / [GoMap.map_provenance_surface].  A
+    forged / nil / absent / WRONG-TAG [Ref] (constructible via public [mkRef] but INERT) cannot fabricate OR
+    retype a cell through the raw [ref_upd] root; every public write ([ref_set] / [ptr_set] / [hfield_set])
+    already guards on [ref_sel_opt = Some] before reaching it.  The [Print Assumptions] below certifies the cone
+    axiom-free — so these anti-forgery claims are gated public evidence, not ungated internal lemmas. *)
+Definition ref_provenance_surface :=
+  (@ref_upd_dead_noop, @ref_upd_wrong_tag_noop).
+Print Assumptions ref_provenance_surface.
 
 (** [ref_new tag v]: allocate the fresh location [w_next], seed [r_tag := tag],
     write [v], bump the allocator.  Carries the [GoTypeTag] so the cell is tagged
