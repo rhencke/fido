@@ -22,23 +22,22 @@ From Fido Require Import GoPanic.
     which are semantically equivalent in single-goroutine programs since
     maps are reference types with no observable aliasing difference.
 
-    [map_make] is in [IO] because it allocates a new map reference.
+    [map_make_typed] is in [IO] because it allocates a new map reference AND installs its cell.
     [map_get_opt] returns [option V]; its extraction is deferred until we
     handle [option] lowering properly. *)
 
-(** The allocators are DEFINITIONS: a [GoMap]/[GoChan] is a concrete location
-    handle, so they simply mint one.  [map_empty] is the nil map
-    (a fixed [MkMap 0] handle — [map_set] on it would panic, like Go's nil map);
-    the [IO] allocators take a fresh location from [w_next] and bump it.  The map
-    CONTENTS live in the concrete [w_maps] heap, where [map_sel]/[map_upd] are
-    DEFINITIONS and the map laws are THEOREMS.  Lowered by name ([make(map[K]V)] /
-    nil), the bodies are proof-only. *)
+(** The CERTIFIED allocator [map_make_typed] mints a fresh location ([w_next], bumped) AND installs its
+    (empty, typed) cell — so a made map is [gm_present].  ([map_empty] is the nil map, a fixed [MkMap 0] handle
+    on which [map_set] panics; the untyped [map_make] mints a handle with NO cell and is UNUSABLE/unsupported —
+    see its note.)  The map CONTENTS live in the concrete [w_maps] heap, where [map_sel]/[map_upd] are
+    DEFINITIONS and the map laws are THEOREMS.  Lowered by name ([make(map[K]V)] / nil), the bodies are
+    proof-only. *)
 Definition map_empty {K V : Type} : GoMap K V := MkMap 0.
 
 (** [map_make_typed kt vt] creates an empty map with concrete key/value types.
     The [GoTypeTag] witnesses survive extraction so the plugin can emit
-    [make(map[K]V)] with the correct Go type — unlike bare [map_make] which
-    loses the types to erasure and falls back to [map[any]any].
+    [make(map[K]V)] with the correct Go type — unlike bare untyped [map_make], which loses the types to
+    erasure and is UNSUPPORTED (the plugin REJECTS it, and it mints a cell-less, UNUSABLE map — see its note).
 
     NOTE: Go map access never panics on a missing key — it returns the zero
     value (two-value form gives [false] for [ok]).  This differs from slice
@@ -210,11 +209,12 @@ Definition map_len {K V} (m : GoMap K V) : IO GoInt :=
 (** [map_get_or k default m]: the value at [k], or [default] if absent. *)
 Definition map_get_or {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (default : V) (m : GoMap K V) : IO V :=
   fun w => ORet (match map_sel kt vt k m w with Some v => v | None => default end) w.
-(** A WRITE to a NIL map ([MkMap 0], [gm_loc = 0]) PANICS — Go's "assignment to entry in nil map" — so
-    [map_set] carries a nil guard that PANICS ([rt_nil_map]).  Go's nil map READS as zero for every key and
-    [delete]/[clear] are NO-OPS on it: [map_delete]/[map_clear] return the world UNCHANGED, and — since
-    [map_write] itself no-ops at [gm_loc = 0] — NO map update ever writes the reserved location 0.  Location 0
-    is reserved by [ValidWorld], so [eqb (gm_loc m) 0] exactly detects nil.  Lowered by name ([m[k] = v]). *)
+(** A WRITE to an UNALLOCATED map — nil ([MkMap 0]) OR nonzero-ABSENT (forged/dangling) — is refused: [map_set]
+    guards on [gm_present] and PANICS ([rt_nil_map]) otherwise (Go's "assignment to entry in nil map",
+    generalised to the whole no-cell class); [delete]/[clear] are NO-OPS on it (world UNCHANGED).  The raw
+    [map_write] itself no-ops on any such handle ([map_write_absent_noop]), so NO map update fabricates a cell,
+    regardless of caller — the only cell CREATION is [map_make_typed].  ([map_get_fn] READS an unallocated map
+    as zero for every key.)  Lowered by name ([m[k] = v]). *)
 Definition map_set {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (v : V) (m : GoMap K V) : IO unit :=
   fun w => if gm_present m w then ORet tt (map_upd kt vt k v m w) else OPanic rt_nil_map w.
   (* [m[k] = v] on an UNALLOCATED map (nil [gm_loc = 0] OR nonzero ABSENT — forged/dangling) FAILS LOUD
@@ -261,8 +261,8 @@ Proof. reflexivity. Qed.
 Lemma map_delete_absent_noop : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (m : GoMap K V) (w : World),
   gm_present m w = false -> run_io (map_delete kt vt k m) w = ORet tt w.
 Proof. intros K V kt vt k m w H. unfold map_delete, run_io. rewrite H. reflexivity. Qed.
-(** Faithfulness: deleting from a NIL map is a NO-OP (Go), leaving the world UNCHANGED — because [map_rem]
-    on a nil map no-ops at the [map_write] root (no loc-0 write). *)
+(** Faithfulness: deleting from a NIL map is a NO-OP (Go), leaving the world UNCHANGED — [map_delete] guards on
+    [gm_present] (nil is [gm_present = false]).  (An unallocated map more generally: [map_delete_absent_noop].) *)
 Lemma map_delete_nil_noop : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (w : World),
   run_io (map_delete kt vt k (@map_empty K V)) w = ORet tt w.
 Proof. reflexivity. Qed.
@@ -369,8 +369,8 @@ Proof.
   intros K V kt vt k w. rewrite run_map_get_opt, map_sel_empty. reflexivity.
 Qed.
 
-(** Setting key [k2] leaves the read at a different key [k1] unchanged — on a NON-NIL map (a nil map
-    would panic at the [map_set], so the post-state is not [map_upd]). *)
+(** Setting key [k2] leaves the read at a different key [k1] unchanged — on an ALLOCATED map ([gm_present];
+    an unallocated map would panic / no-op at the [map_set], so the post-state is not [map_upd]). *)
 Lemma map_get_set_diff : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
     (k1 k2 : K) (v : V) (m : GoMap K V) (w : World),
   Comparable kt -> k1 <> k2 -> gm_present m w = true ->
