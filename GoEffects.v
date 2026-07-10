@@ -61,6 +61,12 @@ Inductive Outcome (A : Type) : Type :=
 Arguments ORet {A} _ _.
 Arguments OPanic {A} _ _.
 
+(** The world component of an outcome — present on BOTH constructors.  Lets an op-level "preserves X" claim
+    speak of the world AFTER the op regardless of whether it returned or failed loud/blocked: [X (outcome_world
+    (run_io op w))] — for ops (channels) whose live-handle behaviour is a success/panic case split. *)
+Definition outcome_world {A} (o : Outcome A) : World :=
+  match o with ORet _ w => w | OPanic _ w => w end.
+
 Definition IO (A : Type) : Type := World -> Outcome A.
 Definition run_io {A} (m : IO A) (w : World) : Outcome A := m w.
 Definition ret {A} (x : A) : IO A := fun w => ORet x w.

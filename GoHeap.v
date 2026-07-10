@@ -916,8 +916,9 @@ Print Assumptions heap_alloc_safety_surface.
     precondition.  ⚠ TYPED LIVENESS, not origin provenance — a SAME-TAG forged handle satisfies [Live*] too (the
     open origin frontier); the wrong-tag/absent negatives are the [*_wrong_tag_antiforgery] surfaces.  What is
     PROVED about [Live*] is exactly the gated surfaces below: allocators produce it ([live_handle_surface]), the
-    raw update roots preserve it ([live_preserve_surface]), and the always-succeed-on-live checked writes return
-    with it preserved ([live_op_preserve_surface]). *)
+    raw update roots preserve it ([live_preserve_surface]), the always-succeed-on-live checked writes return with
+    it preserved ([live_op_preserve_surface]), and the case-split channel ops keep it through every branch
+    ([live_chan_op_preserve_surface]). *)
 Definition LiveRef {A} (r : Ref A) (w : World) : Prop := ref_sel_opt r w <> None.
 (** [LivePtr] is DEFINED to mirror the POINTER safe-op gate: the ops ([ptr_get_ok]/[ptr_set]) inline-guard
     [Nat.eqb (p_loc p) 0] FIRST (nil deref panics) and THEN the live cell — so both conjuncts belong in
@@ -968,8 +969,9 @@ Print Assumptions live_handle_surface.
     NOT full checked-op claims: a checked op — [send]/[recv]/[close] especially — need NOT reach its update root
     (send-on-closed / empty-recv / double-close FAIL LOUD, a full send blocks); those branches leave the world
     UNCHANGED so Live* is trivially preserved there too, but that op-level statement is a SEPARATE fact — the
-    always-succeed writes are in [live_op_preserve_surface] below (channels excluded there, being that case
-    split) — not what these (update-root) lemmas assert.  One update-root preservation fact per family. *)
+    always-succeed writes in [live_op_preserve_surface] and the case-split channel ops in
+    [live_chan_op_preserve_surface] below — not what these (update-root) lemmas assert.  One update-root
+    preservation fact per family. *)
 Lemma LiveRef_preserved : forall {A} (r : Ref A) (v : A) (w : World),
   LiveRef r w -> LiveRef r (ref_upd r v w).
 Proof.
@@ -1011,14 +1013,17 @@ Definition live_preserve_surface :=
    @LiveChan_close_preserved, @LiveMap_set_preserved, @LiveMap_delete_preserved, @LiveMap_clear_preserved).
 Print Assumptions live_preserve_surface.
 
-(** OP-LEVEL PRESERVATION — the CHECKED op (not just its update root) preserves Live*.  For the writes that
-    ALWAYS SUCCEED on a live handle ([ref_set]/[ptr_set]/[map_set]/[map_delete]/[map_clear] — no panic/block
-    branch is reachable when the handle is Live), the op RETURNS ([ORet]) and the handle stays Live: this is
-    the "checked op preserves Live*" fact the review asks for, stated [exists w', run_io op w = ORet tt w' /\
-    Live* ... w'] (the world after the op IS Live).  ⚠ The CHANNEL ops are NOT here: [send]/[recv]/[close] keep
-    panic/block branches even on a live channel (send-on-closed, empty recv, full send), so their op-level
-    preservation is a case split (success → root Live; fail-loud/block → world unchanged, still Live), NOT
-    claimed by this surface. *)
+(** OP-LEVEL PRESERVATION — the CHECKED op (not just its update root) preserves Live*.  Two forms, by whether
+    the op can fail loud on a LIVE handle:
+    (1) ALWAYS-SUCCEED writes ([ref_set]/[ptr_set]/[map_set]/[map_delete]/[map_clear] — no panic/block branch
+        is reachable when the handle is Live): the op RETURNS ([ORet]) and the handle stays Live, stated
+        [exists w', run_io op w = ORet tt w' /\ Live* ... w'] (the world after the op IS Live).
+    (2) CASE-SPLIT ops (the channels): [send]/[recv]/[close] keep panic/block branches even on a live channel
+        (send-on-closed, empty recv, full send), so the op MAY fail loud — but the channel stays Live either
+        way (success → root Live; fail-loud/block → world unchanged, still Live).  Stated over the world AFTER
+        the outcome regardless of constructor: [LiveChan tag ch (outcome_world (run_io op w))].  This is
+        WEAKER than form (1) (it does not assert [ORet] — the op may legitimately block), and honestly so:
+        blocking is real Go behaviour, not a failure. *)
 Lemma LiveRef_ref_set_op : forall {A} (r : Ref A) (v : A) (w : World),
   LiveRef r w -> exists w', run_io (ref_set r v) w = ORet tt w' /\ LiveRef r w'.
 Proof.
@@ -1057,12 +1062,52 @@ Proof.
   - exact (LiveMap_clear_preserved kt vt m w H).
 Qed.
 
+(** Form (2): the CHANNEL ops keep a live channel Live through EVERY branch — the successful update root
+    ([chan_*_upd], via the [LiveChan_*_preserved] roots above) and the fail-loud/block branches (world = w,
+    so [LiveChan tag ch w] is the premise).  Stated over [outcome_world] so the one claim covers ORet and
+    OPanic alike; the case analysis is on each op's own branch structure. *)
+Lemma LiveChan_send_op : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (v : A) (w : World),
+  LiveChan tag ch w -> LiveChan tag ch (outcome_world (run_io (send tag ch v) w)).
+Proof.
+  intros A tag ch v w H. unfold run_io, send.
+  destruct (chan_cell_ok tag ch w) eqn:Hok; [ | unfold LiveChan in H; congruence ].
+  destruct (chan_closed ch w).
+  - exact H.
+  - destruct (chan_room tag ch w).
+    + exact (LiveChan_send_preserved tag ch v w H).
+    + exact H.
+Qed.
+Lemma LiveChan_recv_op : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (w : World),
+  LiveChan tag ch w -> LiveChan tag ch (outcome_world (run_io (recv tag ch) w)).
+Proof.
+  intros A tag ch w H. unfold run_io, recv.
+  destruct (chan_buf tag ch w) as [| v rest].
+  - destruct (andb (chan_closed ch w) (chan_cell_ok tag ch w)); exact H.
+  - exact (LiveChan_recv_preserved tag ch w H).
+Qed.
+Lemma LiveChan_close_op : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (w : World),
+  LiveChan tag ch w -> LiveChan tag ch (outcome_world (run_io (close_chan tag ch) w)).
+Proof.
+  intros A tag ch w H. unfold run_io, close_chan.
+  destruct (chan_cell_ok tag ch w) eqn:Hok; [ | unfold LiveChan in H; congruence ].
+  destruct (chan_closed ch w).
+  - exact H.
+  - exact (LiveChan_close_preserved tag ch w H).
+Qed.
+
 (** Live* OP-LEVEL PRESERVATION SURFACE (manifest-gated, zero-axiom): the ALWAYS-SUCCEEDS-on-live checked
-    writes (ref/ptr set, map set/delete/clear) return and keep the handle Live.  Channel ops excluded (their
-    panic/block branches make it a case split). *)
+    writes (ref/ptr set, map set/delete/clear) return ([ORet]) and keep the handle Live — form (1) above.
+    The channels are form (2), the case-split surface [live_chan_op_preserve_surface] just below. *)
 Definition live_op_preserve_surface :=
   (@LiveRef_ref_set_op, @LivePtr_ptr_set_op, @LiveMap_set_op, @LiveMap_delete_op, @LiveMap_clear_op).
 Print Assumptions live_op_preserve_surface.
+
+(** Live* CHANNEL OP-LEVEL PRESERVATION SURFACE (manifest-gated, zero-axiom): [send]/[recv]/[close] keep a
+    live channel Live over the world after the outcome ([outcome_world]) — form (2), covering the block/panic
+    branches, NOT asserting [ORet] (blocking is faithful Go behaviour, not failure). *)
+Definition live_chan_op_preserve_surface :=
+  (@LiveChan_send_op, @LiveChan_recv_op, @LiveChan_close_op).
+Print Assumptions live_chan_op_preserve_surface.
 
 (** ADDRESS-OF / ASSIGNMENT SEMANTICS SURFACE (manifest-gated, zero-axiom PUBLIC evidence): the read-after-
     write / non-nil / deref / aliasing theorems the [SPEC_CONFORMANCE] "Variables / assignment" + address-of

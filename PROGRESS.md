@@ -161,7 +161,9 @@ scope; the aggregate make-allocator no-panic cone matches the scalar families) /
 typed-liveness interface over the per-family checks; allocators produce Live*) / `GoHeap.live_preserve_surface`
 (each family's RAW UPDATE ROOT preserves Live* — ref/ptr ref_upd, chan_*_upd, map_*) / `GoHeap.live_op_preserve_surface`
 (the CHECKED op preserves Live* for the always-succeeds-on-live writes: ref/ptr set, map set/delete/clear return
-`ORet` with the world still Live; channel ops excluded — their panic/block branches make it a case split);
+`ORet` with the world still Live) / `GoHeap.live_chan_op_preserve_surface` (the case-split channel ops
+send/recv/close keep a live channel Live over the world after the outcome — covering their panic/block branches,
+not asserting `ORet`, since blocking is faithful Go behaviour);
 **printer** + **emit** (compiled STANDALONE incl. `digits.v`, grep `^Axioms:`) cover the spine. A
 `Print Assumptions` under none of the three is not gated.
 
