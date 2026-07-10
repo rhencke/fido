@@ -232,8 +232,10 @@ Definition chan_close_upd {A : Type} (tag : GoTypeTag A) (ch : GoChan A) (w : Wo
 
 (** Reading back what [chan_write] wrote (with the SAME tag) — the heap-cell
     round-trip, via [eqb_refl] (location hit) + [tag_eq_refl] (coercion identity).
-    The non-nil side condition ([ch_loc <> 0]) is what the ROOT guard demands: a nil write is a
-    no-op, so the round-trip holds only for an ALLOCATED handle. *)
+    The non-nil side condition ([ch_loc <> 0]) is only the ROOT (loc-0) guard: a nil write is a no-op.  It
+    is NOT an allocation premise — the round-trip holds for ANY nonzero handle because the raw [chan_write]
+    INSTALLS the cell (fabricating one at a nonzero-ABSENT location; the checkpoint-58 [chan_cell_ok] guard
+    flip will restrict this to a genuinely tag-correct cell). *)
 Lemma chan_buf_write_same : forall {A} (tag : GoTypeTag A) ch buf cl cap w,
   Nat.eqb (ch_loc ch) 0 = false ->
   chan_buf tag ch (chan_write tag ch buf cl cap w) = buf.
@@ -274,10 +276,16 @@ Proof.
   - intro H. apply (chan_loc_neq ch ch' Hne). symmetry; exact H.
 Qed.
 
-(** [chan_present] ALGEBRA for the concurrency bridge: a write to a non-nil handle leaves it PRESENT (it
-    installs a [Some] cell), and it leaves a DIFFERENT channel's presence unchanged (frame).  So the bridge's
-    cell-existence invariant is PRESERVED across [chan_send_upd]/[chan_recv_upd] — the bridge channels stay
-    ALLOCATED, never decaying into the absent state that [chan_room]/[send] now reject. *)
+(** [chan_present] ALGEBRA for the concurrency bridge.  ⚠ HONEST READING: [chan_present_write_same]/[_send]/
+    [_recv] prove [chan_present = true] from the NONZERO premise ALONE — because the raw [chan_write] INSTALLS
+    a [Some] cell at ANY nonzero location (root-guarded only against loc-0).  So these do NOT witness
+    "allocation PRESERVED": a nonzero-ABSENT handle ALSO satisfies the conclusion, i.e. the raw [chan_send_upd]/
+    [chan_recv_upd] FABRICATE a cell there.  That raw-layer nonzero-absent fabrication is a checkpoint-58 OPEN
+    item — the raw updates are not yet guarded on [chan_cell_ok] (the chan_write-guard flip will close it, and
+    will also make these lemmas genuine cell-preservation, premise-carrying).  The IO ops [send]/[recv] already
+    reject absent (via [chan_room]→[chan_present], fail-loud), and the bridge invokes these ONLY on channels it
+    has SEPARATELY established as present ([WMatch1]'s pinned [chan_present]) — sound THERE, where they carry a
+    real prior allocation across a step; the frame lemma leaves a DIFFERENT channel's presence unchanged. *)
 Lemma chan_present_write_same : forall {A} (tag : GoTypeTag A) ch buf cl cap w,
   Nat.eqb (ch_loc ch) 0 = false -> chan_present ch (chan_write tag ch buf cl cap w) = true.
 Proof.
@@ -305,8 +313,10 @@ Lemma chan_present_recv_frame : forall {A} (tag : GoTypeTag A) (ch ch' : GoChan 
 Proof. intros A tag ch ch' w Hne. unfold chan_recv_upd. apply chan_present_write_frame; exact Hne. Qed.
 
 (** Heap-interface laws: how [chan_buf]/[chan_closed] read after each update.  Each carries the
-    ROOT-guard side condition [ch_loc <> 0] — on the reserved nil handle the update is a no-op, so the
-    read-back holds only for an ALLOCATED channel (the bridge supplies this via [chenv_live]). *)
+    ROOT-guard side condition [ch_loc <> 0] — on the reserved nil handle the update is a no-op.  This is the
+    NONZERO premise only, NOT an allocation premise: the read-back holds for any nonzero handle because the raw
+    update INSTALLS the cell (fabricating on a nonzero-absent one).  The bridge supplies the nonzero fact via
+    [chenv_live] and separately pins genuine presence via [WMatch1]. *)
 Theorem chan_buf_send : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (v : A) (w : World),
   Nat.eqb (ch_loc ch) 0 = false ->
   chan_buf tag ch (chan_send_upd tag ch v w) = chan_buf tag ch w ++ (v :: nil).
