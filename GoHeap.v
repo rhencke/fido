@@ -1292,6 +1292,50 @@ Proof.
            (slice_make_lc_cell_live tag len cap w s w0 (Z.to_nat (intraw i)) Hmk Hj)).
 Qed.
 
+(** The len=cap allocator [slice_make_h] ([make([]T,n)]) gets the SAME no-panic evidence — it is live code
+    beside [slice_make_lc], not a special case of it (separate definition).  Here len = cap, so an IN-LEN
+    index already satisfies the backing-cell bound ([slice_make_h_cell_live] takes [j < sh_len] directly — no
+    [len<=cap] step needed). *)
+Lemma slice_make_h_cell_live : forall {A} (tag : GoTypeTag A) (n : GoInt) (w : World) s w0 (j : nat),
+  run_io (slice_make_h tag n) w = ORet s w0 ->
+  (j < sh_len s)%nat ->
+  ref_sel_opt (sh_cell s j) w0 = Some (zero_val tag).
+Proof.
+  intros A tag n w s w0 j Hmk Hj.
+  unfold slice_make_h, run_io in Hmk. cbv zeta in Hmk.
+  destruct (0 <=? intraw n)%Z eqn:Hc; [ | discriminate Hmk ].
+  injection Hmk as Hs Hw0. subst s w0. cbn [sh_len] in Hj.
+  unfold ref_sel_opt, sh_cell, sh_loc; cbn [sh_base sh_off sh_tag r_loc r_tag w_refs].
+  rewrite !Nat.add_0_l.
+  rewrite (proj2 (Nat.leb_le (w_next w) (w_next w + j)) (Nat.le_add_r _ _)).
+  rewrite (proj2 (Nat.ltb_lt (w_next w + j) (w_next w + Z.to_nat (intraw n))) ltac:(lia)).
+  cbn -[tag_coerce]. apply tag_coerce_refl.
+Qed.
+Corollary slice_make_h_idx_get_no_panic : forall {A} (tag : GoTypeTag A) (n : GoInt) (w : World) s w0 (i : GoInt),
+  run_io (slice_make_h tag n) w = ORet s w0 ->
+  slice_in_len s i = true ->
+  run_io (slice_idx_get tag s i) w0 = ORet (zero_val tag) w0.
+Proof.
+  intros A tag n w s w0 i Hmk Hin.
+  assert (Hj : (Z.to_nat (intraw i) < sh_len s)%nat).
+  { pose proof Hin as Hin'. unfold slice_in_len in Hin'. apply andb_prop in Hin' as [_ Hlt].
+    apply Nat.ltb_lt in Hlt. exact Hlt. }
+  exact (run_slice_idx_get tag s i (zero_val tag) w0 Hin
+           (slice_make_h_cell_live tag n w s w0 (Z.to_nat (intraw i)) Hmk Hj)).
+Qed.
+Corollary slice_make_h_idx_set_no_panic : forall {A} (tag : GoTypeTag A) (n : GoInt) (w : World) s w0 (i : GoInt) (v : A),
+  run_io (slice_make_h tag n) w = ORet s w0 ->
+  slice_in_len s i = true ->
+  exists w1, run_io (slice_idx_set s i v) w0 = ORet tt w1.
+Proof.
+  intros A tag n w s w0 i v Hmk Hin. eexists.
+  assert (Hj : (Z.to_nat (intraw i) < sh_len s)%nat).
+  { pose proof Hin as Hin'. unfold slice_in_len in Hin'. apply andb_prop in Hin' as [_ Hlt].
+    apply Nat.ltb_lt in Hlt. exact Hlt. }
+  exact (run_slice_idx_set s i v (zero_val tag) w0 Hin
+           (slice_make_h_cell_live tag n w s w0 (Z.to_nat (intraw i)) Hmk Hj)).
+Qed.
+
 (** A [make([]T, len, cap)] slice has spare capacity, so [append] is IN PLACE and the
     result SHARES its backing — a THEOREM directly from [slice_append_incap]: the append
     writes the cell at index [len] of the ORIGINAL handle.  Liveness of the spare cell is
@@ -1843,14 +1887,19 @@ Qed.
     live).  STRUCT NO-PANIC (genuine, correct SHAPE = existence of an [ORet]): [gsptr_new_assign_no_panic] — a
     whole-struct assign to a fresh pointer definitely returns.  FIDELITY: [gsptr_new_deref_assign] —
     assign-then-deref RECOVERS THE VALUE (an EQUALITY, NOT a no-panic on its own).  SLICE NO-PANIC (existence,
-    IN-BOUNDS-gated): [slice_make_idx_get_no_panic] / [slice_make_idx_set_no_panic] — read/write a fresh slice
-    at an in-bounds index returns; unlike the struct case this keeps a genuine [slice_in_len] premise (Go
-    panics on OOB — a real caller obligation, not a leaked derivable one), with the cell liveness discharged
-    from the allocation.  With this the aggregate no-panic cone matches the scalar families (modulo the
-    honest, Go-faithful bounds premise on slice indexing). *)
+    IN-BOUNDS-gated) for BOTH slice MAKE allocators — [slice_make_lc] ([make([]T,len,cap)]) via
+    [slice_make_idx_get_no_panic]/[slice_make_idx_set_no_panic], and [slice_make_h] ([make([]T,n)], len=cap)
+    via [slice_make_h_idx_get_no_panic]/[slice_make_h_idx_set_no_panic] — read/write a fresh slice at an
+    in-bounds index returns; unlike the struct case these keep a genuine [slice_in_len] premise (Go panics on
+    OOB — a real caller obligation, not a leaked derivable one), with the cell liveness discharged from the
+    allocation.  SCOPE: the fresh-MAKE allocators ONLY; slice TRANSFORMERS ([subslice] aliases an existing
+    backing, [slice_append] may grow) are a separate concern, NOT gated here.  For the make allocators the
+    aggregate no-panic cone matches the scalar families (modulo the honest, Go-faithful bounds premise on
+    slice indexing). *)
 Definition heap_aggregate_liveness_surface :=
   (@slice_make_lc_cell_live, @gsptr_new_fields_live, @gsptr_new_assign_no_panic, @gsptr_new_deref_assign,
-   @slice_make_idx_get_no_panic, @slice_make_idx_set_no_panic).
+   @slice_make_idx_get_no_panic, @slice_make_idx_set_no_panic,
+   @slice_make_h_cell_live, @slice_make_h_idx_get_no_panic, @slice_make_h_idx_set_no_panic).
 Print Assumptions heap_aggregate_liveness_surface.
 
 (** STRUCTURAL EQUALITY — Go's [==] on a struct compares fields pairwise.  Generic over arity: an

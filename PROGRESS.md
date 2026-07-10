@@ -153,8 +153,9 @@ ptr/ref/map/chan allocator nonzero + live-cell + end-to-end panic-free-deref con
 address-of public claim) / `GoHeap.ref_addr_of_surface` (the address-of/assignment SEMANTICS the SPEC ledger
 cites: read-after-write, non-nil, read/write-through-`&x`, aliasing) / `GoHeap.heap_aggregate_liveness_surface`
 (the AGGREGATE handles — slice backing + struct fields: allocator-produces-live + struct assign NO-PANIC +
-struct assign/deref value-fidelity round-trip + slice read/write NO-PANIC (in-bounds-gated, Go-faithful);
-the aggregate no-panic cone now matches the scalar families);
+struct assign/deref value-fidelity round-trip + slice read/write NO-PANIC for BOTH make allocators
+(slice_make_lc + slice_make_h), in-bounds-gated & Go-faithful; slice transformers subslice/append are out of
+scope; the aggregate make-allocator no-panic cone matches the scalar families);
 **printer** + **emit** (compiled STANDALONE incl. `digits.v`, grep `^Axioms:`) cover the spine. A
 `Print Assumptions` under none of the three is not gated.
 
