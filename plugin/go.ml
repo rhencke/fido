@@ -2517,7 +2517,7 @@ let rec pp_expr state env = function
        (* clear(m) — Go 1.21 builtin, remove all map entries *)
        | MLglob r, [_kt; _vt; m]       when is_map_clear_ref r ->
            str "clear(" ++ pp_expr state env m ++ str ")"
-       | MLglob r, [m]       when is_map_len_ref r ->
+       | MLglob r, [_kt; _vt; m]       when is_map_len_ref r ->
            str "len(" ++ pp_expr state env m ++ str ")"
        (* NOTE: the cell-less untyped `map_make` was deleted (checkpoint-58), so there is no NAMED untyped map
           allocator to reject here; `map_make_typed` carries the key/value tags and is the only one lowered.

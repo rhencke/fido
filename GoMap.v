@@ -57,7 +57,8 @@ Definition map_make_typed {K V : Type} (kt : GoTypeTag K) (vt : GoTypeTag V) : I
     absent) is still CONSTRUCTIBLE via the public [MkMap] / [mkWorld] constructors — deleting a named helper
     removes a convenience trap, it does not seal raw allocation.  What makes such a handle INERT is the
     tag-aware [map_cell_ok] WRITE-GUARD (below): on a cell-less / wrong-tag handle [map_cell_ok = false], so
-    every public write fails loud / no-ops and reads are [None].  The GUARD is the seal, not the deletion. *)
+    every public write fails loud / no-ops, value-reads are [None] ([map_sel]), and [len] is 0 ([map_len] is
+    tag-aware too — it never observes a foreign cell's size).  The GUARD is the seal, not the deletion. *)
 
 (** ---- Maps via a heap in the world ----
 
@@ -170,14 +171,19 @@ Definition map_write {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
 Definition map_sel {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
                    (k : K) (m : GoMap K V) (w : World) : option V :=
   map_get_fn kt vt m w k.
-(** [map_size] = Go's [len(m)]: the live-key count stored in the map's cell (0 if the map has no cell yet
-    / is nil).  The plugin lowers [map_len] by name to Go [len(m)]; this model AGREES with it. *)
+(** [map_size] = Go's [len(m)]: the live-key count stored in the map's cell — 0 if the handle has no
+    TAG-CORRECT cell ([map_cell_ok = false]: nil, nonzero-absent, OR wrong-tag), so a forged handle never
+    observes a foreign cell's size (the read-side dual of the write guard).  The plugin lowers [map_len] by
+    name to Go [len(m)] (the [GoTypeTag] args are model-only, dropped in emission); this model AGREES with it. *)
 (* The map's live-key count as the RAW heap-internal [nat] (the cell stores [nat]); [map_upd]/[map_rem]
    do their +1/-1 bookkeeping here.  [map_size] is the Go-facing [len(m)] — the same count widened to
    the [Z]-carried [GoInt]. *)
-Definition map_count {K V} (m : GoMap K V) (w : World) : nat :=
-  if Nat.eqb (gm_loc m) 0 then 0   (* [len] of a nil map is 0 — never read a forged loc-0 cell's size *)
-  else match w_maps w (gm_loc m) with Some (sz, _) => sz | None => 0 end.
+Definition map_count {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (m : GoMap K V) (w : World) : nat :=
+  if map_cell_ok kt vt m w   (* TAG-AWARE (checkpoint-58): a nil / nonzero-absent / WRONG-TAG handle has [len] 0
+                                — [map_len] never observes a foreign cell's size (the read-side dual of the
+                                [map_write] guard; [map_sel] likewise reads [None] on such a handle) *)
+  then match w_maps w (gm_loc m) with Some (sz, _) => sz | None => 0 end
+  else 0.
 (** A map with NO USABLE cell ([map_cell_ok = false] — nil, nonzero-absent, OR WRONG-TAG) reads [None] at
     EVERY key: the read-side dual of the write guards.  [map_get_fn] and [map_cell_ok] branch on the SAME
     conditions (existence + [tag_eq]), so a wrong-tag forged handle observes no entries — it cannot read the
@@ -190,18 +196,18 @@ Proof.
   destruct (w_maps w (gm_loc m)) as [ [? [? [kt' [? [vt' ?]]]]] | ]; [ | reflexivity ].
   destruct (tag_eq kt kt'), (tag_eq vt vt'); [ discriminate H | reflexivity | reflexivity | reflexivity ].
 Qed.
-Definition map_size {K V} (m : GoMap K V) (w : World) : GoInt :=
-  intwrap (Z.of_nat (map_count m w)).
+Definition map_size {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (m : GoMap K V) (w : World) : GoInt :=
+  intwrap (Z.of_nat (map_count kt vt m w)).
 Definition map_upd {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
                    (k : K) (v : V) (m : GoMap K V) (w : World) : World :=
   map_write kt vt m (fun k' => if key_eqb kt k k' then Some v else map_get_fn kt vt m w k')
     (match map_get_fn kt vt m w k with         (* len UNCHANGED on an existing key; +1 on a new one *)
-     | Some _ => map_count m w | None => S (map_count m w) end) w.
+     | Some _ => map_count kt vt m w | None => S (map_count kt vt m w) end) w.
 Definition map_rem {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
                    (k : K) (m : GoMap K V) (w : World) : World :=
   map_write kt vt m (fun k' => if key_eqb kt k k' then None else map_get_fn kt vt m w k')
     (match map_get_fn kt vt m w k with         (* len −1 on a present key; UNCHANGED if absent *)
-     | Some _ => Nat.pred (map_count m w) | None => map_count m w end) w.
+     | Some _ => Nat.pred (map_count kt vt m w) | None => map_count kt vt m w end) w.
 
 (** Read-back-after-write: [map_get_fn] of a [map_write] (with the SAME tags) is
     the written function — via [eqb_refl] (location hit) + [tag_eq_refl] (the K/V
@@ -240,8 +246,8 @@ Example map_len_counts :
       let w3 := map_upd TI64 TI64 (i64wrap 2%Z) (i64wrap 20%Z) m w2 in
       let w4 := map_upd TI64 TI64 (i64wrap 1%Z) (i64wrap 99%Z) m w3 in  (* overwrite key 1 — len stays 2 *)
       let w5 := map_rem TI64 TI64 (i64wrap 2%Z) m w4 in                 (* delete key 2 — len → 1 *)
-      andb (Z.eqb (intraw (map_size m w4)) 2%Z)
-           (Z.eqb (intraw (map_size m w5)) 1%Z) = true
+      andb (Z.eqb (intraw (map_size TI64 TI64 m w4)) 2%Z)
+           (Z.eqb (intraw (map_size TI64 TI64 m w5)) 1%Z) = true
   | OPanic _ _ => False
   end.
 Proof. vm_compute. reflexivity. Qed.
@@ -251,8 +257,8 @@ Proof. vm_compute. reflexivity. Qed.
     proof-only [map_sel]/[map_upd]/[map_rem]/[map_size] bodies are suppressed). *)
 Definition map_get_opt {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (m : GoMap K V) : IO (option V) :=
   fun w => ORet (map_sel kt vt k m w) w.
-Definition map_len {K V} (m : GoMap K V) : IO GoInt :=
-  fun w => ORet (map_size m w) w.
+Definition map_len {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (m : GoMap K V) : IO GoInt :=
+  fun w => ORet (map_size kt vt m w) w.
 (** [map_get_or k default m]: the value at [k], or [default] if absent. *)
 Definition map_get_or {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (default : V) (m : GoMap K V) : IO V :=
   fun w => ORet (match map_sel kt vt k m w with Some v => v | None => default end) w.
@@ -280,8 +286,8 @@ Definition map_delete {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (m : G
 Lemma run_map_get_opt : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (m : GoMap K V) (w : World),
   run_io (map_get_opt kt vt k m) w = ORet (map_sel kt vt k m w) w.
 Proof. reflexivity. Qed.
-Lemma run_map_len : forall {K V} (m : GoMap K V) (w : World),
-  run_io (map_len m) w = ORet (map_size m w) w.
+Lemma run_map_len : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (m : GoMap K V) (w : World),
+  run_io (map_len kt vt m) w = ORet (map_size kt vt m w) w.
 Proof. reflexivity. Qed.
 Lemma run_map_get_or : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (default : V) (m : GoMap K V) (w : World),
   run_io (map_get_or kt vt k default m) w =
@@ -370,7 +376,7 @@ Theorem map_sel_empty : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : 
   map_sel kt vt k (@map_empty K V) w = None.
 Proof. reflexivity. Qed.
 (** [len] of a nil map is 0 in ANY world — the [map_count] nil guard ignores a forged loc-0 cell's size. *)
-Theorem map_size_empty : forall {K V} (w : World), map_size (@map_empty K V) w = intwrap 0%Z.
+Theorem map_size_empty : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (w : World), map_size kt vt (@map_empty K V) w = intwrap 0%Z.
 Proof. reflexivity. Qed.
 
 (** GET-AFTER-WRITE laws — THEOREMS, derived from the heap interface. *)
@@ -603,13 +609,29 @@ Proof.
   - cbn. rewrite run_map_get_opt, (map_sel_absent kt vt k m w Hp), run_ret. reflexivity.
 Qed.
 
+(** [len(m)] through a WRONG-TAG handle reads 0 — [map_len] never OBSERVES the aliased foreign cell's size
+    (the read-side dual of the write anti-forgery; [map_count]/[map_size]/[map_len] guard on [map_cell_ok]). *)
+Theorem map_len_wrong_tag_zero : forall {K V K' V'} (kt : GoTypeTag K) (vt : GoTypeTag V)
+    (kt' : GoTypeTag K') (vt' : GoTypeTag V') (m : GoMap K V) (w : World) n (f : K' -> option V'),
+  Nat.eqb (gm_loc m) 0 = false ->
+  w_maps w (gm_loc m) = Some (n, existT _ K' (kt', existT _ V' (vt', f))) ->
+  tag_eq kt kt' = None \/ tag_eq vt vt' = None ->
+  run_io (map_len kt vt m) w = ORet (intwrap 0%Z) w.
+Proof.
+  intros K V K' V' kt vt kt' vt' m w n f Hnn Hcell Hmis.
+  assert (Hbad : map_cell_ok kt vt m w = false)
+    by exact (proj2 (map_cell_ok_wrong_tag kt vt kt' vt' m w n f Hnn Hcell Hmis)).
+  unfold map_len, run_io, map_size, map_count. rewrite Hbad. reflexivity.
+Qed.
+
 (** MANIFEST-GATED PROVENANCE SURFACE (checkpoint-58): the map wrong-tag anti-forgery theorems as PUBLIC,
     zero-axiom evidence.  A forged wrong-tag handle cannot fabricate OR retype a map cell through any public
-    write ([map_set]/[delete]/[clear]) nor the raw [map_write] root; [map_cell_ok_wrong_tag] pins the
-    present-but-mistyped case (proving [gm_present = true] alongside).  The [Print Assumptions] below certifies
-    the whole cone axiom-free — so these anti-forgery claims are manifest-gated public evidence, not merely
-    ungated internal lemmas. *)
+    write ([map_set]/[delete]/[clear]) nor the raw [map_write] root, NOR observe a foreign cell's size
+    ([map_len_wrong_tag_zero] — the read-side seal); [map_cell_ok_wrong_tag] pins the present-but-mistyped case
+    (proving [gm_present = true] alongside).  The [Print Assumptions] below certifies the whole cone axiom-free
+    — so these anti-forgery claims are manifest-gated public evidence, not merely ungated internal lemmas. *)
 Definition map_provenance_surface :=
   (@map_cell_ok_wrong_tag, @map_set_wrong_tag_no_mutation, @map_delete_wrong_tag_no_mutation,
-   @map_clear_wrong_tag_no_mutation, @map_write_wrong_tag_no_retype, @no_public_map_retyping).
+   @map_clear_wrong_tag_no_mutation, @map_write_wrong_tag_no_retype, @no_public_map_retyping,
+   @map_len_wrong_tag_zero).
 Print Assumptions map_provenance_surface.

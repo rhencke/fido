@@ -525,7 +525,7 @@ Definition map_key_narrow_demo : IO unit :=
   match o with
   | Some v =>
     bind (map_delete TU8 TI64 (u8_of_i64 (i64_lit 300 eq_refl)) m) (fun _ =>               (* delete m[44] *)
-    bind (map_len m) (fun n =>                                                              (* len = 0 *)
+    bind (map_len TU8 TI64 m) (fun n =>                                                     (* len = 0 *)
     println [ any hit ; any v ; any n ]))                                                   (* 5 5 0 *)
   | None => println [ any (0)%i64 ]
   end)))).
@@ -1070,7 +1070,7 @@ Definition builtins_demo : IO unit :=
   bind (map_make_typed TI64 TI64) (fun m =>
   bind (map_set TI64 TI64 (1)%i64 (10)%i64 m) (fun _ =>
   bind (map_clear TI64 TI64 m) (fun _ =>                                                                     (* clear → empty *)
-  bind (map_len m) (fun n =>
+  bind (map_len TI64 TI64 m) (fun n =>
   println [ any n ])))))).                                                                         (* 0 (cleared) *)
 
 (** ===== Go spec conformance: "String types" =====
@@ -1141,7 +1141,7 @@ Definition map_demo : IO unit :=
   bind (map_set TI64 TI64 (2)%i64 (200)%i64 m) (fun _ =>            (* m[2] = 200 *)
   bind (map_set TI64 TI64 (3)%i64 (300)%i64 m) (fun _ =>            (* m[3] = 300 *)
   bind (map_set TI64 TI64 (2)%i64 (999)%i64 m) (fun _ =>            (* m[2] = 999  (overwrite) *)
-  bind (map_len m) (fun sz =>
+  bind (map_len TI64 TI64 m) (fun sz =>
   bind (@map_get_or GoI64 GoI64 TI64 TI64 (2)%i64 (0)%i64 m) (fun hit =>  (* key present → 999 *)
   bind (@map_get_or GoI64 GoI64 TI64 TI64 (9)%i64 (0)%i64 m) (fun mis =>  (* key absent  → 0   *)
   println [any sz; any hit; any mis])))))))).             (* prints: 3 999 0 *)
@@ -2900,7 +2900,7 @@ Definition gbox_narrow_demo : IO unit :=
     [map[string]int64(c)].  [co_size] is an IO-VALUE-returning METHOD ([return len(…)]). *)
 Record Counts := MkCounts { co_val : GoMap GoString GoI64 ; co_tag : GoTypeTag (GoMap GoString GoI64) }.
 Definition mk_counts (m : GoMap GoString GoI64) : Counts := MkCounts m (TMap TString TI64).
-Definition co_size (c : Counts) : IO GoInt := map_len (co_val c).   (* IO-value method, single tail → return len(…) *)
+Definition co_size (c : Counts) : IO GoInt := map_len TString TI64 (co_val c).   (* IO-value method, single tail → return len(…) *)
 (* IO-value method whose tail is a BIND-CHAIN ending in [ret] *)
 Definition co_sum (c : Counts) : IO GoI64 :=
   bind (map_get_or TString TI64 "a"%string (0)%i64 (co_val c)) (fun a =>
