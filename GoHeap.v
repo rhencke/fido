@@ -1776,19 +1776,31 @@ Proof.
   exact (gsptr_deref_assign p v w1 (gsptr_new_fields_live v0 w p w1 Hnew)).
 Qed.
 
-(** AGGREGATE-HANDLE LIVENESS SURFACE (manifest-gated, zero-axiom PUBLIC evidence): the LIVENESS companion to
-    [heap_alloc_safety_surface] for the MULTI-CELL handles — a slice's backing and a struct's fields.  SCOPE
-    (narrow, stated honestly): this gates the allocator-produces-a-LIVE-cell fact ONLY (the checkpoint-58
-    "allocators produce Live*" liveness), extending THAT to the aggregate handles.  It does NOT add the
-    nonzero + end-to-end no-panic corollary the scalar cone carries — aggregate no-panic PARITY is NOT proved
-    here.  Like [ref_new_reads], the liveness is DISCHARGED from the allocation, never leaked as a caller
-    precondition.  [slice_make_lc_cell_live]: every backing cell of a [make([]T,len,cap)] (any [j < cap]) reads
-    [Some zero_val].  [gsptr_new_fields_live]: every field cell of a [gsptr_new] struct is live.
-    [gsptr_new_deref_assign]: a FIDELITY theorem — assign-then-deref on a fresh struct pointer RECOVERS THE
-    VALUE (an EQUALITY of observables; NOT a standalone no-panic existence — an equality can hold even if both
-    sides diverge/panic identically), with [fields_live] discharged by the allocation. *)
+(** STRUCT NO-PANIC (existence — the genuine struct no-panic peer, correct SHAPE): a whole-struct assign to a
+    FRESH [gsptr_new] pointer definitely RETURNS ([exists w2, … = ORet tt w2], never [OPanic]) — [run_write_fields]
+    on the allocation's LIVE fields ([gsptr_new_fields_live]).  Unlike [gsptr_new_deref_assign] (an equality),
+    this is an existence of an [ORet] — the shape a no-panic claim requires. *)
+Corollary gsptr_new_assign_no_panic : forall {R} `{StructRepOf R} (v0 v : R) (w : World) p w1,
+  run_io (gsptr_new v0) w = ORet p w1 ->
+  exists w2, run_io (gsptr_assign p v) w1 = ORet tt w2.
+Proof.
+  intros R Hrep v0 v w p w1 Hnew. eexists. unfold gsptr_assign.
+  exact (run_write_fields srep_ts (gsptr_hs p) 0 (sr_tags srep_rep) (sr_to srep_rep v) w1
+           (gsptr_new_fields_live v0 w p w1 Hnew)).
+Qed.
+
+(** AGGREGATE-HANDLE SURFACE (manifest-gated, zero-axiom PUBLIC evidence): companion to
+    [heap_alloc_safety_surface] for the MULTI-CELL handles — a slice's backing and a struct's fields.
+    LIVENESS (allocator produces a live cell — the checkpoint-58 "allocators produce Live*" fact, discharged
+    from the allocation like [ref_new_reads]): [slice_make_lc_cell_live] (every [make([]T,len,cap)] backing
+    cell, any [j < cap], reads [Some zero_val]); [gsptr_new_fields_live] (every [gsptr_new] field cell is
+    live).  STRUCT NO-PANIC (genuine, correct SHAPE = existence of an [ORet]): [gsptr_new_assign_no_panic] — a
+    whole-struct assign to a fresh pointer definitely returns.  FIDELITY: [gsptr_new_deref_assign] —
+    assign-then-deref RECOVERS THE VALUE (an EQUALITY, NOT a no-panic on its own).  FRONTIER (honest): the
+    SLICE op no-panic is NOT yet gated — slice indexing carries a genuine IN-BOUNDS precondition (Go panics on
+    OOB), so its no-panic is a bounds-gated [fresh slice ∧ i < len → ORet], left for a later slice. *)
 Definition heap_aggregate_liveness_surface :=
-  (@slice_make_lc_cell_live, @gsptr_new_fields_live, @gsptr_new_deref_assign).
+  (@slice_make_lc_cell_live, @gsptr_new_fields_live, @gsptr_new_assign_no_panic, @gsptr_new_deref_assign).
 Print Assumptions heap_aggregate_liveness_surface.
 
 (** STRUCTURAL EQUALITY — Go's [==] on a struct compares fields pairwise.  Generic over arity: an
