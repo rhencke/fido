@@ -877,6 +877,19 @@ Definition heap_alloc_safety_surface :=
    @make_chan_nonzero, @chan_alloc_close_no_panic, @make_chan_buf_caps).
 Print Assumptions heap_alloc_safety_surface.
 
+(** ADDRESS-OF / ASSIGNMENT SEMANTICS SURFACE (manifest-gated, zero-axiom PUBLIC evidence): the read-after-
+    write / non-nil / deref / aliasing theorems the [SPEC_CONFORMANCE] "Variables / assignment" + address-of
+    `&x` ledger cites, so those public claims are GATED, not ungated internal lemmas.  [ref_sel_upd_same] /
+    [ref_get_set_same]: a local reads back its last write.  [ref_as_ptr_not_nil]: [&x] of a nonzero-location
+    local is non-nil (NON-NIL ONLY — the panic-free-deref cone is the companion [heap_alloc_safety_surface]).
+    [ptr_get_ref_as_ptr] / [ptr_set_ref_as_ptr]: read/write THROUGH [&x] hit x's own cell (both premised on
+    the live cell).  [ptr_set_ref_as_ptr_aliases]: a write through [&x] is visible at [x] — the defining
+    pointer property. *)
+Definition ref_addr_of_surface :=
+  (@ref_sel_upd_same, @ref_get_set_same, @ref_as_ptr_not_nil,
+   @ptr_get_ref_as_ptr, @ptr_set_ref_as_ptr, @ptr_set_ref_as_ptr_aliases).
+Print Assumptions ref_addr_of_surface.
+
 (** ALIASING — the defining pointer property, a THEOREM: two pointers at the SAME
     location ([p] and a copy [q]) see each other's writes.  A write through [q] is
     observed by a read through [p] — impossible for a non-aliasing [Ref] var.  The
