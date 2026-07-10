@@ -606,3 +606,14 @@ Proof.
     rewrite run_ret. reflexivity.
   - cbn. rewrite run_map_get_opt, (map_sel_absent kt vt k m w Hp), run_ret. reflexivity.
 Qed.
+
+(** MANIFEST-GATED PROVENANCE SURFACE (checkpoint-58): the map wrong-tag anti-forgery theorems as PUBLIC,
+    zero-axiom evidence.  A forged wrong-tag handle cannot fabricate OR retype a map cell through any public
+    write ([map_set]/[delete]/[clear]) nor the raw [map_write] root; [map_cell_ok_wrong_tag] pins the
+    present-but-mistyped case (proving [gm_present = true] alongside).  The [Print Assumptions] below certifies
+    the whole cone axiom-free — so these anti-forgery claims are manifest-gated public evidence, not merely
+    ungated internal lemmas. *)
+Definition map_provenance_surface :=
+  (@map_cell_ok_wrong_tag, @map_set_wrong_tag_no_mutation, @map_delete_wrong_tag_no_mutation,
+   @map_clear_wrong_tag_no_mutation, @map_write_wrong_tag_no_retype, @no_public_map_retyping).
+Print Assumptions map_provenance_surface.

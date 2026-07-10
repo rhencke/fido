@@ -1336,3 +1336,16 @@ Proof.
   rewrite (run_recv (TProd TI64 TI64) (MkChan (ch_loc ch)) v nil _ Hbuf1).
   eexists; reflexivity.
 Qed.
+
+(** MANIFEST-GATED PROVENANCE SURFACE (checkpoint-58): the channel wrong-tag anti-forgery theorems as PUBLIC,
+    zero-axiom evidence.  A forged wrong-tag handle cannot retype a cell ([send]/[close] fail loud, world
+    UNCHANGED), fabricate a wrong-typed zero on a closed recv ([recv_wrong_tag_no_value]/[_no_zero]), fire a
+    select case ([select_wait2_wrong_tag_no_fire]), nor mutate at the raw [chan_write] root
+    ([chan_write_cellko_noop]); [chan_cell_ok_wrong_tag] pins the present-but-mistyped case (proving
+    [chan_present = true] alongside).  The [Print Assumptions] below certifies the whole cone axiom-free — so
+    these anti-forgery claims are manifest-gated public evidence, not merely ungated internal lemmas. *)
+Definition chan_provenance_surface :=
+  (@chan_cell_ok_wrong_tag, @chan_write_cellko_noop, @send_wrong_tag_no_mutation,
+   @close_wrong_tag_no_mutation, @recv_wrong_tag_no_value, @recv_wrong_tag_no_zero,
+   @select_wait2_wrong_tag_no_fire).
+Print Assumptions chan_provenance_surface.
