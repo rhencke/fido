@@ -103,11 +103,16 @@ Proof.
 Qed.
 
 (** [ref_upd r v w]: the ROOT-GUARDED ref write (checkpoint-58, the ref dual of [chan_write] / [map_write]).
-    It writes [v] at [r]'s location ONLY when [r] is LIVE ([ref_sel_opt r w = Some _]); on a nil / absent /
-    dangling / WRONG-TAG handle it is the IDENTITY ([ref_upd_dead_noop] / [ref_upd_wrong_tag_noop]) — so a
-    forged [Ref] (constructible via the public [mkRef]) can no longer FABRICATE a cell at an unallocated
-    location NOR RETYPE an aliased cell of another type through the raw write.  The seal is the GUARD: a forged
-    handle is representable but INERT.  Cell CREATION is [ref_install] (allocators) / [ref_new]; every
+    It writes [v] at [r]'s location ONLY when [r] is LIVE ([ref_sel_opt r w = Some _]); on a handle with NO
+    LIVE cell it is the IDENTITY ([ref_upd_dead_noop]).  This covers, at ANY location, an ABSENT / dangling
+    handle and a WRONG-TAG alias ([ref_upd_wrong_tag_noop] — [tag_coerce] fails).  ⚠ NIL is subtler: unlike
+    [chan_buf] / [map_get_fn], [ref_sel_opt] carries NO loc-0 guard, so in an arbitrary public-[mkWorld] world a
+    forged loc-0 cell of the MATCHING tag would read live and be written; the NIL-ref seal therefore relies on
+    [WorldOk] ([ValidWorld] forces [w_refs w 0 = None] — [ref_upd_nil_noop_valid]), NOT on the [ref_upd] guard
+    alone.  So a forged [Ref] (constructible via the public [mkRef]) can no longer FABRICATE a cell at an
+    unallocated location NOR RETYPE an aliased cell of another type through the raw write.  The seal is the
+    GUARD (+ [WorldOk] for loc-0): a forged handle is representable but INERT.  Cell CREATION is [ref_install]
+    (allocators) / [ref_new]; every
     [ref_upd] rides an already-live, tag-correct ref, on which it is IDENTICAL to the unconditional install
     ([ref_upd_live_eq]) — so [ref_set] / [ptr_set] / [hfield_set] (which guard on [ref_sel_opt = Some] BEFORE
     calling [ref_upd]) are behaviour-preserving on every live ref. *)
@@ -146,15 +151,10 @@ Proof.
   change (tag_coerce (r_tag r) tb x0 = None).
   unfold tag_coerce. rewrite Htag. reflexivity.
 Qed.
-(** ROOT-GUARD PROVENANCE SURFACE (checkpoint-58): the ref anti-forgery witnesses as MANIFEST-GATED, zero-axiom
-    PUBLIC evidence — the ref analogue of [GoChan.chan_provenance_surface] / [GoMap.map_provenance_surface].  A
-    forged / nil / absent / WRONG-TAG [Ref] (constructible via public [mkRef] but INERT) cannot fabricate OR
-    retype a cell through the raw [ref_upd] root; every public write ([ref_set] / [ptr_set] / [hfield_set])
-    already guards on [ref_sel_opt = Some] before reaching it.  The [Print Assumptions] below certifies the cone
-    axiom-free — so these anti-forgery claims are gated public evidence, not ungated internal lemmas. *)
-Definition ref_provenance_surface :=
-  (@ref_upd_dead_noop, @ref_upd_wrong_tag_noop).
-Print Assumptions ref_provenance_surface.
+
+(** ROOT-GUARD PROVENANCE (checkpoint-58): the two location-agnostic ref anti-forgery witnesses
+    ([ref_upd_dead_noop] / [ref_upd_wrong_tag_noop]) are proved above; the NIL case needs [WorldOk], so
+    [ref_upd_nil_noop_valid] and the gated [ref_provenance_surface] live just after [valid_loc0_empty] below. *)
 
 (** [ref_new tag v]: allocate the fresh location [w_next], seed [r_tag := tag],
     write [v], bump the allocator.  Carries the [GoTypeTag] so the cell is tagged
@@ -213,6 +213,30 @@ Qed.
 Lemma valid_loc0_empty : forall w, ValidWorld w ->
   w_refs w 0 = None /\ w_chans w 0 = None /\ w_maps w 0 = None.
 Proof. intros w [_ [Hloc0 _]]. exact Hloc0. Qed.
+
+(** NIL-REF ANTI-FORGERY under [WorldOk]: since [ref_sel_opt] has no loc-0 guard (unlike [chan_buf] /
+    [map_get_fn]), the nil-ref seal needs the invariant — [ValidWorld] forces [w_refs w 0 = None]
+    ([valid_loc0_empty]), so a NIL [Ref] ([r_loc = 0]) reads [ref_sel_opt = None] and [ref_upd] is the IDENTITY.
+    (In an arbitrary forged [mkWorld] a loc-0 cell of the MATCHING tag is representable and WOULD be written;
+    [WorldOk] excludes it from every reachable world.) *)
+Lemma ref_upd_nil_noop_valid : forall {A} (r : Ref A) (v : A) (w : World),
+  ValidWorld w -> r_loc r = 0 -> ref_upd r v w = w.
+Proof.
+  intros A r v w HV Hnil. apply ref_upd_dead_noop.
+  unfold ref_sel_opt. rewrite Hnil.
+  destruct (valid_loc0_empty w HV) as [Hr0 _]. rewrite Hr0. reflexivity.
+Qed.
+(** ROOT-GUARD PROVENANCE SURFACE (checkpoint-58): the ref anti-forgery witnesses as MANIFEST-GATED, zero-axiom
+    PUBLIC evidence — the ref analogue of [GoChan.chan_provenance_surface] / [GoMap.map_provenance_surface].  A
+    forged / absent / dangling / WRONG-TAG [Ref] (constructible via public [mkRef] but INERT) cannot fabricate
+    OR retype a cell through the raw [ref_upd] root at ANY location ([ref_upd_dead_noop] /
+    [ref_upd_wrong_tag_noop]); the NIL case ([r_loc = 0]) is sealed under [WorldOk] ([ref_upd_nil_noop_valid]).
+    Every public write ([ref_set] / [ptr_set] / [hfield_set]) already guards on [ref_sel_opt = Some] before
+    reaching it.  The [Print Assumptions] below certifies the cone axiom-free — gated public evidence, not
+    ungated internal lemmas. *)
+Definition ref_provenance_surface :=
+  (@ref_upd_dead_noop, @ref_upd_wrong_tag_noop, @ref_upd_nil_noop_valid).
+Print Assumptions ref_provenance_surface.
 
 (** Consequences of bumping the allocator past [l']: the OLD pointer is still [<= l'], and [l'] is
     distinct from the freshly minted location (so the install's [eqb] guard is [false] at [l']).
