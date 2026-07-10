@@ -908,24 +908,13 @@ Proof.
   unfold close_chan, run_io. rewrite Hbad. reflexivity.
 Qed.
 
-(** [recv] through a WRONG-TAG handle FAILS LOUD with the EXACT NAMED payload [rt_chan_recv_block]: the buffer
-    reads empty (wrong tag) and the CLOSED-drained zero branch is gated on [chan_cell_ok], so a wrong-tag
-    (CLOSED or open) cell takes the block branch — no fabricated zero.  Exact-payload, not existential; the
-    "never a value" / "never a zero" negatives below are corollaries. *)
-Theorem recv_wrong_tag_block : forall {A E} (tag : GoTypeTag A) (etag : GoTypeTag E)
-    (ch : GoChan A) (w : World) rest,
-  Nat.eqb (ch_loc ch) 0 = false ->
-  w_chans w (ch_loc ch) = Some (existT _ E (etag, rest)) ->
-  tag_eq tag etag = None ->
-  run_io (recv tag ch) w = OPanic rt_chan_recv_block w.
-Proof.
-  intros A E tag etag ch w rest Hnn Hcell Hmis.
-  assert (Hbad : chan_cell_ok tag ch w = false)
-    by exact (proj2 (chan_cell_ok_wrong_tag tag etag ch w rest Hnn Hcell Hmis)).
-  unfold recv, run_io.
-  rewrite (chan_buf_cellko_false tag ch w Hbad), Hbad, Bool.andb_false_r. reflexivity.
-Qed.
-Corollary recv_wrong_tag_no_value : forall {A E} (tag : GoTypeTag A) (etag : GoTypeTag E)
+(** [recv] through a WRONG-TAG handle NEVER delivers a value: the buffer reads empty (wrong tag) and the
+    CLOSED-drained zero branch is gated on [chan_cell_ok], so a wrong-tag CLOSED cell yields NO fabricated zero
+    — [recv] takes its fail-loud block branch instead.  The anti-forgery fact is this NEGATIVE ([<> ORet]); the
+    fail-loud payload [rt_chan_recv_block] is a MODEL STAND-IN (Go recv-block DEADLOCKS, unrecoverable — it is
+    NOT a panic), so it is deliberately NOT promoted to an exact PUBLIC certified claim (that would misrepresent
+    blocking as recoverable-panic semantics — the faithful blocking authority is [rstep] in [concurrency.v]). *)
+Theorem recv_wrong_tag_no_value : forall {A E} (tag : GoTypeTag A) (etag : GoTypeTag E)
     (ch : GoChan A) (w : World) (a : A) (w' : World) rest,
   Nat.eqb (ch_loc ch) 0 = false ->
   w_chans w (ch_loc ch) = Some (existT _ E (etag, rest)) ->
@@ -933,7 +922,10 @@ Corollary recv_wrong_tag_no_value : forall {A E} (tag : GoTypeTag A) (etag : GoT
   run_io (recv tag ch) w <> ORet a w'.
 Proof.
   intros A E tag etag ch w a w' rest Hnn Hcell Hmis Hr.
-  rewrite (recv_wrong_tag_block tag etag ch w rest Hnn Hcell Hmis) in Hr. discriminate Hr.
+  assert (Hbad : chan_cell_ok tag ch w = false)
+    by exact (proj2 (chan_cell_ok_wrong_tag tag etag ch w rest Hnn Hcell Hmis)).
+  unfold recv, run_io in Hr.
+  rewrite (chan_buf_cellko_false tag ch w Hbad), Hbad, Bool.andb_false_r in Hr. discriminate Hr.
 Qed.
 
 (** ...in particular, a wrong-tag CLOSED recv does NOT return [zero_val tag] (the named form of bug ②). *)
@@ -970,21 +962,26 @@ Proof.
   rewrite (chan_buf_cellko_false ta ch1 w Hbad), Hbad, Bool.andb_false_r. reflexivity.
 Qed.
 
-(** A comma-ok recv ([recv_ok]) through a WRONG-TAG handle FAILS LOUD with the EXACT NAMED payload
-    [rt_chan_recv_block] (world UNCHANGED) — it never fires the closed-drained [(zero_val tag, false)] comma-ok
-    result off a foreign cell (the [recv_ok] dual of [recv_wrong_tag_block]).  Exact-payload, not existential. *)
+(** A comma-ok recv ([recv_ok]) through a WRONG-TAG handle NEVER fires the closed-drained
+    [(zero_val tag, false)] comma-ok result off a foreign cell — it takes its fail-loud block branch (an
+    [OPanic], world UNCHANGED; the [recv_ok] dual of [recv_wrong_tag_no_value]).  The anti-forgery fact is
+    "does not fire a fabricated value"; the payload is left EXISTENTIAL on purpose — the fail-loud OPanic is a
+    model STAND-IN for blocking (Go DEADLOCKS, unrecoverable), so pinning an exact panic payload as PUBLIC
+    certified evidence would misrepresent blocking as recoverable-panic semantics ([rstep] in [concurrency.v]
+    is the faithful blocking authority). *)
 Theorem recv_ok_wrong_tag_no_fire : forall {A B E} (tag : GoTypeTag A) (etag : GoTypeTag E)
     (ch : GoChan A) (f : A -> bool -> IO B) (w : World) rest,
   Nat.eqb (ch_loc ch) 0 = false ->
   w_chans w (ch_loc ch) = Some (existT _ E (etag, rest)) ->
   tag_eq tag etag = None ->
-  recv_ok tag ch f w = OPanic rt_chan_recv_block w.
+  exists p, recv_ok tag ch f w = OPanic p w.
 Proof.
   intros A B E tag etag ch f w rest Hnn Hcell Hmis.
   assert (Hbad : chan_cell_ok tag ch w = false)
     by exact (proj2 (chan_cell_ok_wrong_tag tag etag ch w rest Hnn Hcell Hmis)).
   unfold recv_ok.
-  rewrite (chan_buf_cellko_false tag ch w Hbad), Hbad, Bool.andb_false_r. reflexivity.
+  rewrite (chan_buf_cellko_false tag ch w Hbad), Hbad, Bool.andb_false_r.
+  eexists; reflexivity.
 Qed.
 
 (** WRONG-TAG ch1 ⇒ [select_recv2] SKIPS ch1 (never fires [k1] / a fabricated [zero_val ta]), reducing to the
@@ -1453,9 +1450,11 @@ Qed.
 (** MANIFEST-GATED WRONG-TAG ANTI-FORGERY SURFACE: the channel wrong-tag anti-forgery theorems as PUBLIC,
     zero-axiom evidence — covering EVERY public op that could observe a forged cell.  (These are typed-liveness
     negatives, NOT origin provenance — a SAME-TAG alias is not stopped here.)  A forged wrong-tag handle
-    cannot: retype a cell ([send]/[close] fail loud, world UNCHANGED); take a value on a recv — it fails loud
-    with the EXACT NAMED payload [rt_chan_recv_block] ([recv_wrong_tag_block], with [recv_wrong_tag_no_value]/
-    [_no_zero] the negative corollaries) or on a comma-ok recv ([recv_ok_wrong_tag_no_fire], also exact); fire a select
+    cannot: retype a cell ([send]/[close] fail loud, world UNCHANGED); take a value on a recv
+    ([recv_wrong_tag_no_value]/[_no_zero] — NEGATIVE facts: no value / no zero delivered) or a comma-ok recv
+    ([recv_ok_wrong_tag_no_fire] — does not fire a fabricated value).  (The recv fail-loud [OPanic] is a MODEL
+    STAND-IN for blocking, NOT faithful Go — Go recv-block DEADLOCKS, unrecoverable; so the surface certifies
+    the anti-forgery NEGATIVES, NOT an exact recv-block panic payload as recoverable-panic semantics.)  Fire a select
     case — a wrong-tag arm of [select_wait2]/[select_recv2] is SKIPPED, reducing the select to the OTHER arm
     alone with NO precondition on it ([_wrong_tag_no_fire] for ch1, [_wrong_tag_ch2_no_fire] for ch2), so both
     arms are sealed in EVERY combination (incl. both wrong-tag); [select_recv_default] takes the DEFAULT
@@ -1465,7 +1464,7 @@ Qed.
     ungated internal lemmas. *)
 Definition chan_wrong_tag_antiforgery_surface :=
   (@chan_cell_ok_wrong_tag, @chan_write_cellko_noop, @send_wrong_tag_no_mutation,
-   @close_wrong_tag_no_mutation, @recv_wrong_tag_block, @recv_wrong_tag_no_value, @recv_wrong_tag_no_zero,
+   @close_wrong_tag_no_mutation, @recv_wrong_tag_no_value, @recv_wrong_tag_no_zero,
    @recv_ok_wrong_tag_no_fire, @select_wait2_wrong_tag_no_fire,
    @select_wait2_wrong_tag_ch2_no_fire, @select_recv2_wrong_tag_no_fire,
    @select_recv2_wrong_tag_ch2_no_fire, @select_recv_default_wrong_tag_default).
