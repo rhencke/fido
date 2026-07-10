@@ -394,21 +394,19 @@ Proof.
     destruct (Nat.leb (w_next w) l); repeat split; assumption.
 Qed.
 
-(** The invariant is genuinely INDUCTIVE across the REAL model API (not just the world-shapes above): running
-    any world-MUTATING op on a valid world yields a valid world.  With [valid_w_init] this means EVERY world
-    reachable by a finite op sequence is valid — so [valid_fresh_nonzero] / [valid_fresh_disjoint] apply at
-    every allocation.  Proven BY NAME for every op that can BUMP [w_next]: the single-cell allocators
+(** ValidWorld is preserved by every op that BUMPS [w_next] — proven BY NAME: the single-cell allocators
     [valid_run_ref_new] / [valid_run_ptr_new] / [valid_run_make_chan] / [valid_run_make_chan_buf] /
     [valid_run_map_typed], the multi-cell allocators [valid_run_slice_make_lc] / [valid_run_slice_make_h] /
-    [valid_run_gsptr_new], AND [valid_run_slice_append] — [append] is not an allocator but its realloc branch
-    mints a fresh backing (its in-cap branch writes in place, [valid_ref_upd]); those latter three sit next to
-    their later definitions once the slice / struct machinery is in scope.  The other heap-EDITING ops leave
-    [w_next] fixed and are GUARDED so they never fabricate a cell at loc 0 / a fresh location: the single-cell
-    writes go through [ref_upd] ([valid_ref_upd]), and the bulk slice writes [slice_clear_h] / [slice_copy]
-    guard PER CELL (overwrite only already-live cells) — [valid_run_slice_clear_h] / [valid_run_slice_copy].
-    Several liveness facts LEAN on all this — [ptr_new_nonzero], [make_chan_nonzero], [gsptr_new_live] &c. need
-    [ValidWorld] for a nonzero location/base, and these corollaries carry the invariant THROUGH each op so a
-    later one still sees it. *)
+    [valid_run_gsptr_new], and [valid_run_slice_append] ([append] is not an allocator, but its realloc branch
+    mints a fresh backing; the latter three sit next to their later definitions).  It is ALSO preserved by the
+    in-place REF-heap writes — every [ref_set] / [ptr_set] / [slice_idx_set] / append-in-cap funnels through the
+    guarded [ref_upd] ([valid_ref_upd]) — and by the bulk slice writes [slice_clear_h] / [slice_copy] (guarded
+    per cell, [valid_run_slice_clear_h] / [valid_run_slice_copy]).  With [valid_w_init], a program of allocations
+    and these ref/slice writes keeps ValidWorld at every step, so [valid_fresh_nonzero] / [valid_fresh_disjoint]
+    apply at each allocation — which [ptr_new_nonzero] / [make_chan_nonzero] / [gsptr_new_live] &c. need for
+    their nonzero location/base.  SCOPE: the MAP-heap and CHAN-heap edits ([map_set]/[send]/… ) touch their own
+    heaps under their own guards; their ValidWorld preservation is the analogous per-heap fact, proven beside
+    those ops if a chain ever needs it — NOT asserted by this ref/slice cone. *)
 Corollary valid_run_ref_new : forall {A} (tag : GoTypeTag A) (v : A) (w : World) r w',
   ValidWorld w -> run_io (ref_new tag v) w = ORet r w' -> ValidWorld w'.
 Proof.
