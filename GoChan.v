@@ -412,9 +412,15 @@ Qed.
     does NOT silently over-append; otherwise it enqueues.  [None]-capacity (unbounded) channels always have
     room — used by the concurrency bridge's abstract channels. *)
 Definition send {A} (tag : GoTypeTag A) (ch : GoChan A) (v : A) : IO unit :=
-  fun w => if chan_closed ch w then OPanic rt_send_closed w
-           else if chan_room tag ch w then ORet tt (chan_send_upd tag ch v w)
-                else OPanic rt_chan_send_block w.
+  fun w => if chan_cell_ok tag ch w
+           then (if chan_closed ch w then OPanic rt_send_closed w
+                 else if chan_room tag ch w then ORet tt (chan_send_upd tag ch v w)
+                      else OPanic rt_chan_send_block w)
+           else OPanic rt_chan_send_block w.
+  (* TAG-AWARE guard FIRST: a nil / absent / WRONG-TAG handle blocks ([rt_chan_send_block]) WITHOUT observing
+     the (foreign) cell's [chan_closed] flag — a forged wrong-tag handle can never see a real channel's
+     closedness nor get a "send on closed" panic off it.  Only a tag-correct cell reaches the closed / room
+     checks (for such a cell [chan_cell_ok = true], so this is identical to the old order on every valid send). *)
 Definition recv {A} (tag : GoTypeTag A) (ch : GoChan A) : IO A :=
   fun w => match chan_buf tag ch w with
            | v :: _ => ORet v (chan_recv_upd tag ch w)
@@ -478,8 +484,7 @@ Qed.
 Lemma send_absent : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (v : A) (w : World),
   chan_present ch w = false -> run_io (send tag ch v) w = OPanic rt_chan_send_block w.
 Proof.
-  intros A tag ch v w H. unfold send, run_io.
-  rewrite (chan_closed_absent ch w H). unfold chan_room. rewrite (chan_cell_ok_absent tag ch w H). reflexivity.
+  intros A tag ch v w H. unfold send, run_io. rewrite (chan_cell_ok_absent tag ch w H). reflexivity.
 Qed.
 Lemma recv_absent_no_value : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (w : World) (a : A) (w' : World),
   chan_present ch w = false -> run_io (recv tag ch) w <> ORet a w'.
@@ -687,16 +692,26 @@ Definition go_spawn (m : IO unit) : IO unit :=
 Lemma run_send : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (v : A) (w : World),
   chan_closed ch w = false -> chan_room tag ch w = true ->
   run_io (send tag ch v) w = ORet tt (chan_send_upd tag ch v w).
-Proof. intros A tag ch v w H Hr. unfold send, run_io. rewrite H, Hr. reflexivity. Qed.
-(** A send with NO room FAILS LOUD (the model has no Blocked outcome). *)
+Proof.
+  intros A tag ch v w H Hr. unfold send, run_io.
+  rewrite (chan_room_cell_ok tag ch w Hr), H, Hr. reflexivity.
+Qed.
+(** A send with NO room FAILS LOUD (the model has no Blocked outcome).  Holds whether the no-room is a full
+    buffer (tag-correct cell) OR no tag-correct cell at all (nil/absent/wrong-tag) — both block. *)
 Lemma run_send_blocked : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (v : A) (w : World),
   chan_closed ch w = false -> chan_room tag ch w = false ->
   run_io (send tag ch v) w = OPanic rt_chan_send_block w.
-Proof. intros A tag ch v w H Hr. unfold send, run_io. rewrite H, Hr. reflexivity. Qed.
+Proof.
+  intros A tag ch v w H Hr. unfold send, run_io.
+  destruct (chan_cell_ok tag ch w) eqn:Hok; [ rewrite H, Hr | ]; reflexivity.
+Qed.
+(** [send] on a CLOSED channel panics ([rt_send_closed]) — but ONLY for a TAG-CORRECT cell.  A wrong-tag handle
+    aliasing a closed foreign cell does NOT observe that closedness ([send_wrong_tag_no_mutation] blocks it),
+    so the [chan_cell_ok] premise is essential (as for [run_close_closed]). *)
 Lemma run_send_closed : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (v : A) (w : World),
-  chan_closed ch w = true ->
+  chan_cell_ok tag ch w = true -> chan_closed ch w = true ->
   run_io (send tag ch v) w = OPanic rt_send_closed w.
-Proof. intros A tag ch v w H. unfold send, run_io. rewrite H. reflexivity. Qed.
+Proof. intros A tag ch v w Hok H. unfold send, run_io. rewrite Hok, H. reflexivity. Qed.
 Lemma run_recv : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (v : A) (rest : list A) (w : World),
   chan_buf tag ch w = v :: rest ->
   run_io (recv tag ch) w = ORet v (chan_recv_upd tag ch w).
@@ -806,6 +821,7 @@ Proof.
   intros A tag ch v w Hok Hopen.
   rewrite run_bind, (run_close tag ch w Hok Hopen). cbn.
   exact (run_send_closed tag ch v (chan_close_upd tag ch w)
+           (chan_cell_ok_close tag ch w Hok)
            (chan_closed_close tag ch w Hok)).
 Qed.
 
@@ -860,21 +876,20 @@ Proof.
   destruct (tag_eq tag etag); [ discriminate H | reflexivity ].
 Qed.
 
-(** [send] through a WRONG-TAG handle FAILS LOUD (an [OPanic]) with the world UNCHANGED — it never RETYPES the
-    aliased cell (whether the cell is closed → [rt_send_closed], or open → [rt_chan_send_block], no [ORet]). *)
+(** [send] through a WRONG-TAG handle BLOCKS ([rt_chan_send_block]) with the world UNCHANGED — it never RETYPES
+    the aliased cell NOR observes its closedness: the tag-aware guard fires FIRST, so a CLOSED foreign cell does
+    NOT leak an [rt_send_closed].  Uniform block (no case split on the foreign [chan_closed]). *)
 Theorem send_wrong_tag_no_mutation : forall {A E} (tag : GoTypeTag A) (etag : GoTypeTag E)
     (ch : GoChan A) (v : A) (w : World) rest,
   Nat.eqb (ch_loc ch) 0 = false ->
   w_chans w (ch_loc ch) = Some (existT _ E (etag, rest)) ->
   tag_eq tag etag = None ->
-  exists r, run_io (send tag ch v) w = OPanic r w.
+  run_io (send tag ch v) w = OPanic rt_chan_send_block w.
 Proof.
   intros A E tag etag ch v w rest Hnn Hcell Hmis.
   assert (Hbad : chan_cell_ok tag ch w = false)
     by exact (proj2 (chan_cell_ok_wrong_tag tag etag ch w rest Hnn Hcell Hmis)).
-  unfold send, run_io. destruct (chan_closed ch w).
-  - exists rt_send_closed. reflexivity.
-  - unfold chan_room. rewrite Hbad. exists rt_chan_send_block. reflexivity.
+  unfold send, run_io. rewrite Hbad. reflexivity.
 Qed.
 
 (** [close] through a WRONG-TAG handle FAILS LOUD ([rt_close_nil]) with the world UNCHANGED — it never
