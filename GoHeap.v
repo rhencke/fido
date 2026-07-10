@@ -319,11 +319,43 @@ Proof.
     rewrite Hneq. repeat split; assumption.
 Qed.
 
+(** Bumping [w_next] FORWARD (reserving a block of fresh cells without filling them yet) preserves validity —
+    the same-or-larger frontier keeps loc 0 empty and shrinks the "fresh" region.  The multi-cell allocators
+    ([gsptr_new]'s [wr_fields], the slice makes) reserve a block this way, then fill it. *)
+Lemma valid_bump : forall (w : World) (n : nat),
+  ValidWorld w -> ValidWorld (mkWorld (w_refs w) (w_chans w) (w_maps w) (w_next w + n) (w_output w)).
+Proof.
+  intros w n [Hpos [Hloc0 Hfresh]]. split; [ | split ].
+  - cbn [w_next]. apply Nat.ltb_lt. apply Nat.ltb_lt in Hpos. lia.
+  - cbn [w_refs w_chans w_maps]. exact Hloc0.
+  - intros l Hle. cbn [w_next w_refs w_chans w_maps] in *.
+    apply Hfresh. apply Nat.leb_le. apply Nat.leb_le in Hle. lia.
+Qed.
+
+(** Installing a ref cell at an INTERIOR location [0 < loc < w_next] preserves validity — it is neither loc 0
+    (Go's nil) nor a fresh location [>= w_next], and [ref_install] leaves [w_next] and the chan/map heaps
+    untouched.  This is the per-cell step the multi-cell struct allocator repeats. *)
+Lemma valid_ref_install_interior : forall {A} (r : Ref A) (v : A) (w : World),
+  ValidWorld w -> (0 < r_loc r)%nat -> (r_loc r < w_next w)%nat -> ValidWorld (ref_install r v w).
+Proof.
+  intros A r v w [Hpos [Hloc0 Hfresh]] Hlo Hhi. unfold ref_install. split; [ | split ].
+  - cbn [w_next]. exact Hpos.
+  - cbn [w_refs w_chans w_maps]. destruct Hloc0 as [Hr0 [Hc0 Hm0]].
+    assert (Hne : Nat.eqb 0 (r_loc r) = false) by (apply Nat.eqb_neq; lia).
+    rewrite Hne. repeat split; assumption.
+  - intros l Hle. cbn [w_next w_refs w_chans w_maps] in *.
+    assert (Hne : Nat.eqb l (r_loc r) = false) by (apply Nat.eqb_neq; apply Nat.leb_le in Hle; lia).
+    rewrite Hne. exact (Hfresh l Hle).
+Qed.
+
 (** The invariant is genuinely INDUCTIVE across the REAL allocator API (not just the world-shapes above):
     running any allocator on a valid world yields a valid world.  With [valid_w_init] this means
     EVERY world reachable by a finite allocation sequence is valid — so [valid_fresh_nonzero] /
     [valid_fresh_disjoint] apply at every allocation, making "fresh ⇒ nonzero ∧ disjoint" a theorem about
-    [ref_new]/[make_chan]/[map_make_typed] BY NAME. *)
+    [ref_new]/[make_chan]/[map_make_typed] — and the multi-cell [gsptr_new] ([valid_run_gsptr_new], below, once
+    [wr_fields] is in scope) — BY NAME.  [gsptr_new_live] LEANS on this: it needs [ValidWorld] for the pointer's
+    nonzero base, and [valid_run_gsptr_new] is what carries that invariant THROUGH a struct allocation so a
+    later allocation in the same program still sees it. *)
 Corollary valid_run_ref_new : forall {A} (tag : GoTypeTag A) (v : A) (w : World) r w',
   ValidWorld w -> run_io (ref_new tag v) w = ORet r w' -> ValidWorld w'.
 Proof.
@@ -2141,6 +2173,32 @@ Lemma gsptr_new_fields_live : forall {R} `{StructRepOf R} (v0 : R) (w : World) p
 Proof.
   intros R Hrep v0 w p w1 Hnew. unfold run_io, gsptr_new in Hnew. cbv zeta in Hnew.
   injection Hnew as Hp Hw1. subst p w1. apply wr_fields_live.
+Qed.
+(** [wr_fields] preserves [ValidWorld]: it is a SEQUENCE of interior ref installs (each field cell sits in
+    [(0, w_next)] — nonzero because the base is positive, below the frontier because the block [base+k ..
+    base+k+len) was reserved under [w_next]), and [valid_ref_install_interior] handles each step. *)
+Lemma valid_wr_fields : forall ts h k tgs vls w,
+  ValidWorld w -> (0 < hs_base h)%nat -> (hs_base h + k + length ts <= w_next w)%nat ->
+  ValidWorld (wr_fields ts h k tgs vls w).
+Proof.
+  induction ts as [| t rest IH]; intros h k tgs vls w HV Hbase Hfit; cbn [wr_fields length] in *.
+  - exact HV.
+  - apply IH.
+    + apply valid_ref_install_interior; [ exact HV | rewrite hfield_cell_loc; lia | rewrite hfield_cell_loc; lia ].
+    + exact Hbase.
+    + unfold ref_install; cbn [w_next]; lia.
+Qed.
+(** [valid_run_gsptr_new] — the struct allocator is in the [ValidWorld] preservation path (like
+    [valid_run_ref_new] &c.): reserve the field block ([valid_bump]) then fill it ([valid_wr_fields]). *)
+Corollary valid_run_gsptr_new : forall {R} `{StructRepOf R} (v : R) (w : World) p w1,
+  ValidWorld w -> run_io (gsptr_new v) w = ORet p w1 -> ValidWorld w1.
+Proof.
+  intros R Hrep v w p w1 HV Hrun. unfold run_io, gsptr_new in Hrun. cbv zeta in Hrun.
+  injection Hrun as Hp Hw1. subst p w1.
+  apply valid_wr_fields.
+  - exact (valid_bump w (List.length srep_ts) HV).
+  - cbn [gsptr_hs gsp_base hs_base]. destruct HV as [Hpos _]. apply Nat.ltb_lt in Hpos. exact Hpos.
+  - cbn [gsptr_hs gsp_base hs_base w_next]. lia.
 Qed.
 (** A [gsptr_new] pointer has a NONZERO base — it is minted at [w_next w], positive under [ValidWorld]. *)
 Lemma gsptr_new_base_nonzero : forall {R} `{StructRepOf R} (v0 : R) (w : World) p w1,
