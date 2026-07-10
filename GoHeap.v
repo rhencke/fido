@@ -1246,6 +1246,52 @@ Proof.
   cbn -[tag_coerce]. apply tag_coerce_refl.
 Qed.
 
+(** A fresh [make([]T,len,cap)] has [len <= cap] (Go's own make precondition, checked in [slice_make_lc]);
+    extracted so the slice no-panic corollaries can turn an IN-LEN index ([i < len]) into the [i < cap] the
+    backing-cell liveness needs. *)
+Lemma slice_make_lc_len_fits : forall {A} (tag : GoTypeTag A) (len cap : GoInt) (w : World) s w0,
+  run_io (slice_make_lc tag len cap) w = ORet s w0 -> (sh_len s <= sh_cap s)%nat.
+Proof.
+  intros A tag len cap w s w0 Hmk.
+  unfold slice_make_lc, run_io in Hmk. cbv zeta in Hmk.
+  destruct (Z.leb 0 (intraw len) && Z.leb (intraw len) (intraw cap))%bool eqn:Hc; [ | discriminate Hmk ].
+  injection Hmk as Hs Hw0. subst s. cbn [sh_len sh_cap].
+  apply andb_prop in Hc as [H0 Hlc]. apply Z.leb_le in H0. apply Z.leb_le in Hlc. lia.
+Qed.
+
+(** SLICE OP NO-PANIC (the aggregate no-panic frontier, now CLOSED): reading or writing a FRESH
+    [make([]T,len,cap)] slice at an IN-BOUNDS index does NOT panic — an [ORet].  Unlike the struct case this
+    carries a genuine [slice_in_len] precondition: Go PANICS on out-of-range ([run_slice_idx_set_oob]), so
+    in-bounds is a real CALLER obligation, not a leaked derivable premise.  Given it, the backing cell's
+    liveness (for [i < len <= cap]) is DISCHARGED from the allocation ([slice_make_lc_cell_live] +
+    [slice_make_lc_len_fits]). *)
+Corollary slice_make_idx_get_no_panic : forall {A} (tag : GoTypeTag A) (len cap : GoInt) (w : World) s w0 (i : GoInt),
+  run_io (slice_make_lc tag len cap) w = ORet s w0 ->
+  slice_in_len s i = true ->
+  run_io (slice_idx_get tag s i) w0 = ORet (zero_val tag) w0.
+Proof.
+  intros A tag len cap w s w0 i Hmk Hin.
+  assert (Hj : (Z.to_nat (intraw i) < sh_cap s)%nat).
+  { pose proof (slice_make_lc_len_fits tag len cap w s w0 Hmk) as Hlc.
+    pose proof Hin as Hin'. unfold slice_in_len in Hin'. apply andb_prop in Hin' as [_ Hlt].
+    apply Nat.ltb_lt in Hlt. lia. }
+  exact (run_slice_idx_get tag s i (zero_val tag) w0 Hin
+           (slice_make_lc_cell_live tag len cap w s w0 (Z.to_nat (intraw i)) Hmk Hj)).
+Qed.
+Corollary slice_make_idx_set_no_panic : forall {A} (tag : GoTypeTag A) (len cap : GoInt) (w : World) s w0 (i : GoInt) (v : A),
+  run_io (slice_make_lc tag len cap) w = ORet s w0 ->
+  slice_in_len s i = true ->
+  exists w1, run_io (slice_idx_set s i v) w0 = ORet tt w1.
+Proof.
+  intros A tag len cap w s w0 i v Hmk Hin. eexists.
+  assert (Hj : (Z.to_nat (intraw i) < sh_cap s)%nat).
+  { pose proof (slice_make_lc_len_fits tag len cap w s w0 Hmk) as Hlc.
+    pose proof Hin as Hin'. unfold slice_in_len in Hin'. apply andb_prop in Hin' as [_ Hlt].
+    apply Nat.ltb_lt in Hlt. lia. }
+  exact (run_slice_idx_set s i v (zero_val tag) w0 Hin
+           (slice_make_lc_cell_live tag len cap w s w0 (Z.to_nat (intraw i)) Hmk Hj)).
+Qed.
+
 (** A [make([]T, len, cap)] slice has spare capacity, so [append] is IN PLACE and the
     result SHARES its backing — a THEOREM directly from [slice_append_incap]: the append
     writes the cell at index [len] of the ORIGINAL handle.  Liveness of the spare cell is
@@ -1796,11 +1842,15 @@ Qed.
     cell, any [j < cap], reads [Some zero_val]); [gsptr_new_fields_live] (every [gsptr_new] field cell is
     live).  STRUCT NO-PANIC (genuine, correct SHAPE = existence of an [ORet]): [gsptr_new_assign_no_panic] — a
     whole-struct assign to a fresh pointer definitely returns.  FIDELITY: [gsptr_new_deref_assign] —
-    assign-then-deref RECOVERS THE VALUE (an EQUALITY, NOT a no-panic on its own).  FRONTIER (honest): the
-    SLICE op no-panic is NOT yet gated — slice indexing carries a genuine IN-BOUNDS precondition (Go panics on
-    OOB), so its no-panic is a bounds-gated [fresh slice ∧ i < len → ORet], left for a later slice. *)
+    assign-then-deref RECOVERS THE VALUE (an EQUALITY, NOT a no-panic on its own).  SLICE NO-PANIC (existence,
+    IN-BOUNDS-gated): [slice_make_idx_get_no_panic] / [slice_make_idx_set_no_panic] — read/write a fresh slice
+    at an in-bounds index returns; unlike the struct case this keeps a genuine [slice_in_len] premise (Go
+    panics on OOB — a real caller obligation, not a leaked derivable one), with the cell liveness discharged
+    from the allocation.  With this the aggregate no-panic cone matches the scalar families (modulo the
+    honest, Go-faithful bounds premise on slice indexing). *)
 Definition heap_aggregate_liveness_surface :=
-  (@slice_make_lc_cell_live, @gsptr_new_fields_live, @gsptr_new_assign_no_panic, @gsptr_new_deref_assign).
+  (@slice_make_lc_cell_live, @gsptr_new_fields_live, @gsptr_new_assign_no_panic, @gsptr_new_deref_assign,
+   @slice_make_idx_get_no_panic, @slice_make_idx_set_no_panic).
 Print Assumptions heap_aggregate_liveness_surface.
 
 (** STRUCTURAL EQUALITY — Go's [==] on a struct compares fields pairwise.  Generic over arity: an
