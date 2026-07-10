@@ -1841,32 +1841,57 @@ Proof.
   destruct (Nat.leb (sh_start dst) k && Nat.ltb k (sh_start dst + n))%bool; [ rewrite Hns | ]; exact Hk.
 Qed.
 
-(** REJECTION of an IMPOSSIBLE SLICE SHAPE ([sh_cap < sh_len] — Go maintains [len <= cap], so such a header is
-    forged): [clear]/[copy] FAIL LOUD, [exists p, run_io … = OPanic p w] — a rejection ([OPanic], never a silent
+(** REJECTION — whenever the fail-loud guard is [false] (an impossible [len > cap] shape OR any dead / wrong-tag
+    element), [clear]/[copy] FAIL LOUD: [exists p, run_io … = OPanic p w] — a rejection ([OPanic], never a silent
     [ORet]) that leaves the world UNCHANGED ([… p w], no mutation), without pinning the model-internal payload.
-    This is the proof that the shape guard actually rejects — the peer of [slice_append]'s [len > cap] panic. *)
+    These are the proofs that the guard actually rejects (not just an asserted [if]); the [_bad_shape_] corollaries
+    specialise them to the impossible-shape case for BOTH operands — the peer of [slice_append]'s [len > cap]
+    panic. *)
+Lemma slice_clear_rejected : forall {A} (tag : GoTypeTag A) (s : SliceH A) (w : World),
+  (Nat.leb (sh_len s) (sh_cap s) && slice_range_live s (sh_len s) w)%bool = false ->
+  exists p, run_io (slice_clear_h tag s) w = OPanic p w.
+Proof.
+  intros A tag s w Hbad. unfold run_io, slice_clear_h. rewrite Hbad. eexists. reflexivity.
+Qed.
+Lemma slice_copy_rejected : forall {A} (tag : GoTypeTag A) (dst src : SliceH A) (w : World),
+  (Nat.leb (sh_len dst) (sh_cap dst) && Nat.leb (sh_len src) (sh_cap src)
+   && slice_range_live dst (if Nat.leb (sh_len dst) (sh_len src) then sh_len dst else sh_len src) w
+   && slice_range_live src (if Nat.leb (sh_len dst) (sh_len src) then sh_len dst else sh_len src) w)%bool = false ->
+  exists p, run_io (slice_copy tag dst src) w = OPanic p w.
+Proof.
+  intros A tag dst src w Hbad. unfold run_io, slice_copy. cbv zeta. rewrite Hbad. eexists. reflexivity.
+Qed.
 Corollary slice_clear_bad_shape_rejected : forall {A} (tag : GoTypeTag A) (s : SliceH A) (w : World),
   (sh_cap s < sh_len s)%nat -> exists p, run_io (slice_clear_h tag s) w = OPanic p w.
 Proof.
-  intros A tag s w Hbad. unfold run_io, slice_clear_h.
+  intros A tag s w Hbad. apply slice_clear_rejected.
   assert (Hleb : Nat.leb (sh_len s) (sh_cap s) = false) by (apply Nat.leb_gt; exact Hbad).
-  rewrite Hleb. eexists. reflexivity.
+  rewrite Hleb. reflexivity.
 Qed.
 Corollary slice_copy_bad_shape_rejected : forall {A} (tag : GoTypeTag A) (dst src : SliceH A) (w : World),
   (sh_cap dst < sh_len dst)%nat -> exists p, run_io (slice_copy tag dst src) w = OPanic p w.
 Proof.
-  intros A tag dst src w Hbad. unfold run_io, slice_copy. cbv zeta.
+  intros A tag dst src w Hbad. apply slice_copy_rejected.
   assert (Hleb : Nat.leb (sh_len dst) (sh_cap dst) = false) by (apply Nat.leb_gt; exact Hbad).
-  rewrite Hleb. eexists. reflexivity.
+  rewrite Hleb. reflexivity.
+Qed.
+Corollary slice_copy_bad_shape_rejected_src : forall {A} (tag : GoTypeTag A) (dst src : SliceH A) (w : World),
+  (sh_cap src < sh_len src)%nat -> exists p, run_io (slice_copy tag dst src) w = OPanic p w.
+Proof.
+  intros A tag dst src w Hbad. apply slice_copy_rejected.
+  assert (Hleb : Nat.leb (sh_len src) (sh_cap src) = false) by (apply Nat.leb_gt; exact Hbad).
+  rewrite Hleb. destruct (Nat.leb (sh_len dst) (sh_cap dst)); reflexivity.
 Qed.
 
 (** BULK-SLICE-WRITE SURFACE (manifest-gated, zero-axiom): the bulk slice ops [clear]/[copy] are BOTH safe on
-    the live path (preserve [ValidWorld] — [valid_run_slice_clear_h]/[valid_run_slice_copy]) AND rejecting on a
-    malformed one (an impossible [len > cap] shape FAILS LOUD — [slice_clear_bad_shape_rejected]/
-    [slice_copy_bad_shape_rejected]).  So the shape/liveness guard is PINNED both ways, not just asserted. *)
+    the live path (preserve [ValidWorld] — [valid_run_slice_clear_h]/[valid_run_slice_copy]) AND rejecting on
+    ANY malformed one — [slice_clear_rejected]/[slice_copy_rejected] fail loud whenever the guard is false (an
+    impossible shape OR a dead / wrong-tag element), with the [_bad_shape_] corollaries pinning the impossible
+    [len > cap] shape for [clear], [copy]'s DST, and [copy]'s SRC specifically.  So the guard is PINNED both
+    ways for every operand, not just asserted. *)
 Definition slice_bulk_write_surface :=
-  (@valid_run_slice_clear_h, @valid_run_slice_copy,
-   @slice_clear_bad_shape_rejected, @slice_copy_bad_shape_rejected).
+  (@valid_run_slice_clear_h, @valid_run_slice_copy, @slice_clear_rejected, @slice_copy_rejected,
+   @slice_clear_bad_shape_rejected, @slice_copy_bad_shape_rejected, @slice_copy_bad_shape_rejected_src).
 Print Assumptions slice_bulk_write_surface.
 
 (** ---- Heap-backed STRUCTS as field-cell bundles ----
