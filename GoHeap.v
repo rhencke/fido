@@ -568,11 +568,13 @@ Qed.
     Taking the address of a local variable [x] (a [Ref A]) yields a [*T] ([Ptr A]) aliasing x's cell.
     A [Ref] and a [Ptr] share the SAME [w_refs] heap (a [Ref] is a Go local, a [Ptr] its `*T` handle), so
     [&x] is simply the [Ref]'s location wrapped as a (tag-free) [Ptr] — [ptr_as_ref]'s inverse.  KEY SAFETY
-    PROPERTY (CONDITIONAL, not blanket): an ALLOCATED local ([ref_new]'s result) lives at a NONZERO location,
-    and for such an [x] ([r_loc r <> 0]) [&x] is non-nil and safe to dereference ([ref_as_ptr_not_nil],
-    below).  This is NOT intrinsic to [ref_as_ptr]: [Ref] is a public record, so the forgeable [mkRef 0] is a
-    representable nil ref whose [&] is a nil [Ptr] — the nonzero-location premise is a HYPOTHESIS on the
-    handle (satisfied by every [ref_new], NOT by an arbitrary [Ref]).  Read/write THROUGH [&x] alias [x] —
+    PROPERTY (CONDITIONAL, not blanket): a local allocated by [ref_new] IN A WELL-FORMED WORLD ([ValidWorld
+    w], so [w_next w <> 0]) lives at a NONZERO location ([ref_new_loc_nonzero]), and for such an [x] ([r_loc r
+    <> 0]) [&x] is non-nil and safe to dereference ([ref_as_ptr_not_nil] / [ref_new_addr_nonnil], below).
+    This is NOT intrinsic to [ref_as_ptr] NOR to [ref_new]: [Ref] is a public record, so the forgeable [mkRef
+    0] is a representable nil ref whose [&] is a nil [Ptr]; and on a malformed [w] ([w_next w = 0]) even
+    [ref_new] would mint a nil ref.  The nonzero-location premise is a HYPOTHESIS (discharged by [ref_new]
+    UNDER [ValidWorld], NOT by an arbitrary [Ref]).  Read/write THROUGH [&x] alias [x] —
     the defining pointer behaviour — inherited from the shared heap, no new axiom. *)
 Definition ref_as_ptr {A} (r : Ref A) : Ptr A := mkPtr (r_loc r).
 
@@ -584,12 +586,37 @@ Lemma ptr_as_ref_of_ref_as_ptr : forall {A} (r : Ref A),
   ptr_as_ref (r_tag r) (ref_as_ptr r) = r.
 Proof. intros A [l tag]. reflexivity. Qed.
 
-(* [&x] of an ALLOCATED local ([r_loc r <> 0] — the premise, which [ref_new]'s result satisfies) yields a
-   non-nil pointer, SAFE to dereference.  (Not ALL [Ref]s are nonzero: the public [mkRef 0] is a nil ref, so
-   [r_loc r <> 0] is a HYPOTHESIS, not a blanket fact.) *)
+(* [&x] of an ALLOCATED local ([r_loc r <> 0] — the premise, which [ref_new]'s result satisfies UNDER
+   [ValidWorld], via [ref_new_loc_nonzero] below) yields a non-nil pointer, SAFE to dereference.  (Not ALL
+   [Ref]s are nonzero: the public [mkRef 0] is a nil ref, so [r_loc r <> 0] is a HYPOTHESIS, not a blanket
+   fact.) *)
 Lemma ref_as_ptr_not_nil : forall {A} (r : Ref A),
   r_loc r <> 0 -> p_loc (ref_as_ptr r) <> 0.
 Proof. intros A r Hnz. rewrite ref_as_ptr_loc. exact Hnz. Qed.
+
+(* The [ref_new] analogue of [ptr_new_nonzero]: an ALLOCATED local's location is nonzero — but ONLY under
+   [ValidWorld w].  [ref_new] mints [l := w_next w]; that is nonzero exactly when the world is well-formed
+   ([valid_fresh_nonzero]).  So "[ref_new] gives [r_loc <> 0]" is CONDITIONAL on [ValidWorld], NOT a bare
+   fact: on a malformed [w] with [w_next w = 0], [ref_new] would return a nil [Ref].  This is the theorem the
+   address-of prose leans on; state its premise. *)
+Lemma ref_new_loc_nonzero : forall {A} (tag : GoTypeTag A) (v : A) (w : World) r w',
+  ValidWorld w -> run_io (ref_new tag v) w = ORet r w' -> r_loc r <> 0.
+Proof.
+  intros A tag v w r w' HV Hrun. unfold run_io, ref_new in Hrun. cbv zeta in Hrun.
+  injection Hrun as Hr _. subst r. cbn [r_loc].
+  pose proof (valid_fresh_nonzero w HV) as Hp. apply Nat.ltb_lt in Hp. lia.
+Qed.
+
+(* CLOSED-WORLD end-to-end: [&x] of a FRESHLY allocated local is non-nil — chains [ref_new_loc_nonzero] into
+   [ref_as_ptr_not_nil].  Needs [ValidWorld w] (the honest premise the informal "&x is never nil" prose
+   dropped).  Mirrors [ptr_alloc_assign_no_panic]'s discipline: the guarantee is a theorem OFF the invariant,
+   never intrinsic to the public [Ref]/[Ptr] record. *)
+Corollary ref_new_addr_nonnil : forall {A} (tag : GoTypeTag A) (v : A) (w : World) r w',
+  ValidWorld w -> run_io (ref_new tag v) w = ORet r w' -> p_loc (ref_as_ptr r) <> 0.
+Proof.
+  intros A tag v w r w' HV Hrun.
+  apply ref_as_ptr_not_nil. exact (ref_new_loc_nonzero tag v w r w' HV Hrun).
+Qed.
 
 (* READ through [&x]: [*(&x)] reads [x]'s value (with x's tag) without panicking — for a nonzero-location,
    LIVE [x] (the lemma's [r_loc r <> 0] + [ref_sel_opt r w = Some _] premises; NOT unconditional). *)
@@ -838,9 +865,11 @@ Proof.
   intros A B tag k. unfold ptr_get_ok, ptr_is_nil, ptr_nil. reflexivity.
 Qed.
 
-(** A pointer from [ptr_new] is NON-nil AND its cell is allocated at [p]'s own tag, so [ref_sel_opt] hits
-    [Some] and [ptr_get_ok] reads through it ([ok = true]) returning the stored value: safe deref of a live
-    pointer.  (A forged / retyped non-nil handle — [ref_sel_opt = None] — instead FAILS LOUD
+(** A pointer from [ptr_new] is NON-nil (UNDER [ValidWorld] — [ptr_new_nonzero]; on a malformed world it
+    would be nil) AND its cell is allocated at [p]'s own tag ([ptr_new_reads], unconditional), so [ref_sel_opt]
+    hits [Some] and [ptr_get_ok] reads through it ([ok = true]) returning the stored value: safe deref of a
+    live pointer — the "safe" resting on both the [ValidWorld] non-nil premise and the live cell, NOT on
+    [ptr_get_ok] alone.  (A forged / retyped non-nil handle — [ref_sel_opt = None] — instead FAILS LOUD
     rather than fabricating a zero.  That loud branch is UNREACHABLE for any [Ptr] obtained from
     [ptr_new]/[ref_as_ptr], a boundary defense for the public [mkPtr] only.) *)
 Lemma ptr_get_ok_nonnil : forall {A B} (tag : GoTypeTag A) (p : Ptr A)
