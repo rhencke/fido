@@ -74,7 +74,7 @@ Definition ref_new {A : Type} (tag : GoTypeTag A) (v : A) : IO (Ref A) :=
 
 (** ---- [ValidWorld]: allocation freshness as a MACHINE-CHECKED invariant ----
 
-    Every allocator ([map_make]/[map_make_typed]/[make_chan]/[ref_new]) mints [l := w_next w] and bumps
+    Every allocator ([map_make_typed]/[make_chan]/[ref_new]) mints [l := w_next w] and bumps
     [w_next] to [l+1].  For "fresh" / "nonzero" / "disjoint" to be THEOREMS rather than comments we carry an
     invariant [ValidWorld]: the allocator pointer is positive (so location 0 is RESERVED — it is Go's [nil]),
     location 0 is EMPTY in all three heaps (the WorldOk property — no forged cell can hide at [nil]), AND it
@@ -172,17 +172,6 @@ Proof.
     rewrite Hneq. repeat split; assumption.
 Qed.
 
-Lemma valid_alloc_map_bump : forall (w : World),
-  ValidWorld w ->
-  ValidWorld (mkWorld (w_refs w) (w_chans w) (w_maps w) (S (w_next w)) (w_output w)).
-Proof.
-  intros w HV. destruct HV as [Hpos [Hloc0 Hfresh]]. split; [ | split ].
-  - cbn [w_next]. apply Nat.ltb_lt. lia.
-  - cbn [w_refs w_chans w_maps]. exact Hloc0.
-  - intros l' Hle. cbn [w_next w_refs w_chans w_maps] in *.
-    apply Hfresh. apply (bump_le w l' Hle).
-Qed.
-
 Lemma valid_alloc_map_typed : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (w : World),
   ValidWorld w ->
   ValidWorld (mkWorld (w_refs w) (w_chans w)
@@ -206,7 +195,7 @@ Qed.
     running any allocator on a valid world yields a valid world.  With [valid_w_init] this means
     EVERY world reachable by a finite allocation sequence is valid — so [valid_fresh_nonzero] /
     [valid_fresh_disjoint] apply at every allocation, making "fresh ⇒ nonzero ∧ disjoint" a theorem about
-    [ref_new]/[make_chan]/[map_make]/[map_make_typed] BY NAME. *)
+    [ref_new]/[make_chan]/[map_make_typed] BY NAME. *)
 Corollary valid_run_ref_new : forall {A} (tag : GoTypeTag A) (v : A) (w : World) r w',
   ValidWorld w -> run_io (ref_new tag v) w = ORet r w' -> ValidWorld w'.
 Proof.
@@ -226,13 +215,6 @@ Corollary valid_run_map_typed : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag 
 Proof.
   intros K V kt vt w r w' HV Hrun. unfold run_io, map_make_typed in Hrun. cbv zeta in Hrun.
   injection Hrun as _ Hw. subst w'. apply valid_alloc_map_typed; assumption.
-Qed.
-
-Corollary valid_run_map_make : forall {K V} (w : World) r w',
-  ValidWorld w -> run_io (@map_make K V) w = ORet r w' -> ValidWorld w'.
-Proof.
-  intros K V w r w' HV Hrun. unfold run_io, map_make in Hrun.
-  injection Hrun as _ Hw. subst w'. apply valid_alloc_map_bump; assumption.
 Qed.
 
 (* [ref_get] carries a [GoTypeTag] so that, when a read is bound inside a loop
@@ -598,20 +580,6 @@ Proof.
   injection Hrun as Hm Hw'. subst m w'. unfold map_cell_ok. cbn [gm_loc].
   rewrite (pos_neq0 _ (valid_fresh_nonzero w HV)).
   cbn [w_maps]. rewrite Nat.eqb_refl. cbn. rewrite !tag_eq_refl. reflexivity.
-Qed.
-(** DUAL — the UNTYPED [map_make] installs NO cell, so under [ValidWorld] its fresh location is DISJOINT
-    from [w_maps] ([valid_fresh_disjoint]) and the made map is UNUSABLE: [map_cell_ok kt vt m w' = false] for
-    ANY [kt]/[vt] (even the "right" ones).  This is the MECHANICAL backing for the [map_make] note in GoMap.v
-    — its "unusable under [ValidWorld]" status is a THEOREM, not prose.  (The plugin also REJECTS untyped
-    [map_make] outright — an unsupported frontier; this lemma pins that even IF constructed it is inert.) *)
-Lemma map_make_untyped_unusable : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (w : World) m w',
-  ValidWorld w -> run_io (@map_make K V) w = ORet m w' -> map_cell_ok kt vt m w' = false.
-Proof.
-  intros K V kt vt w m w' HV Hrun. unfold run_io, map_make in Hrun.
-  injection Hrun as Hm Hw'. subst m w'. unfold map_cell_ok. cbn [gm_loc].
-  rewrite (pos_neq0 _ (valid_fresh_nonzero w HV)).
-  cbn [w_maps]. destruct (valid_fresh_disjoint w HV) as [_ [_ Hmap]].
-  rewrite Hmap. reflexivity.
 Qed.
 
 (** ALLOCATOR EVIDENCE (checkpoint-58, channel dual of [map_cell_ok_make_typed]): a freshly made channel is

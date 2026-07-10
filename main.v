@@ -3285,7 +3285,7 @@ Extraction NoInline
   slice_make_h slice_make_lc slice_idx_get slice_idx_set subslice slice_append
   slice_clear_h slice_copy
   make_chan make_chan_buf send recv close_chan recv_ok select_recv2 select_recv_default go_spawn
-  map_empty map_make map_make_typed
+  map_empty map_make_typed
   map_get_opt map_len map_get_or map_set map_delete map_clear
   print println defer_call append slice_of_list run_blocks run_cblocks str_range for_each_idx int_range
   len slice_get slice_at_ok str_at_ok str_slice str_eqb str_ltb str_to_bytes str_from_bytes str_to_runes runes_to_str rune_to_str

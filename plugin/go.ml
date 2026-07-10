@@ -527,7 +527,6 @@ let is_jump_ctor r = String.equal (global_basename r) "Jump" && from_gocfg r
 let is_cbseq_ctor r = String.equal (global_basename r) "CBSeq" && from_gocfg r
 let is_cbif_ctor  r = String.equal (global_basename r) "CBIf"  && from_gocfg r
 let is_done_ctor r = String.equal (global_basename r) "Done" && from_gocfg r
-let is_map_make_ref = named "map_make"
 let is_map_make_typed_ref = named "map_make_typed"
 let is_map_set_ref = named "map_set"
 let is_map_del_ref = named "map_delete"
@@ -2520,11 +2519,8 @@ let rec pp_expr state env = function
            str "clear(" ++ pp_expr state env m ++ str ")"
        | MLglob r, [m]       when is_map_len_ref r ->
            str "len(" ++ pp_expr state env m ++ str ")"
-       (* TYPED-MAP RULE: untyped map_make → `make(map[any]any)` loses K/V — the resulting map[any]any
-          is NOT the typed map[K]V the model means (reads return `any`, not the typed value; it is also
-          not assignable to a typed map var).  Fail loud; use map_make_typed which carries the tags. *)
-       | MLglob r, []        when is_map_make_ref r ->
-           unsupported "untyped map_make — `make(map[any]any)` loses the key/value types (reads would yield `any`, not the typed value, and it is not assignable to a typed `map[K]V`); use `map_make_typed <keytag> <valtag>`"
+       (* NOTE: there is no untyped map allocator — untyped [make(map[any]any)] is unrepresentable in the
+          model (deleted checkpoint-58); [map_make_typed] carries the key/value tags and is the only one. *)
 
        (* min(a, b) / max(a, b) — Go 1.21 builtins.  FLOAT min/max on all-constant operands
           would constant-fold the signed-zero corner wrong (-0 collapses), so force runtime. *)
@@ -2980,7 +2976,7 @@ let rec pp_expr state env = function
         unsupported "a residual reference to an [Extraction Inline]'d constant — its Go declaration is suppressed (the body inlines at use sites), so a surviving reference would call an undefined Go identifier"
       (* TYPED-MAP RULE: a BARE (unapplied) map constructor has no key/value tags to render a typed
          map, and `make(map[any]any)` is the wrong Go type (not the model's typed map[K]V) — fail loud. *)
-      else if is_map_make_ref r || is_map_make_typed_ref r then
+      else if is_map_make_typed_ref r then
         unsupported "a bare (unapplied) map constructor — `make(map[any]any)` loses the key/value types; apply `map_make_typed <keytag> <valtag>` so the typed `map[K]V` can be emitted"
       (* a method used as a BARE value (no application) is Go's method EXPRESSION [T.M]
          (a [func(T, …) …] whose first arg is the receiver) — emit [RecvType.Method].
@@ -3675,7 +3671,7 @@ let pp_io_body ?(ret_val=false) state tab env body =
              let emit_m =
                match m with
                | MLglob r when not (is_bool_true r || is_bool_false r
-                                    || is_unit_tt r || is_map_make_ref r) ->
+                                    || is_unit_tt r) ->
                    pp_expr state env m ++ str "()"
                | _ -> pp_expr state env m
              in
@@ -4626,7 +4622,7 @@ let pp_io_body ?(ret_val=false) state tab env body =
        not a function value. *)
     | MLglob r as e
       when not (is_bool_true r || is_bool_false r
-                || is_unit_tt r || is_map_make_ref r) ->
+                || is_unit_tt r) ->
         str tab ++ pp_expr state env e ++ str "()" ++ fnl ()
     | e ->
         str tab ++ pp_expr state env e ++ fnl ()
@@ -5281,7 +5277,7 @@ let is_suppressed_ref r =
   is_sliceh_type r || is_slice_make_h_ref r || is_slice_idx_get_ref r ||
   is_slice_idx_set_ref r || is_subslice_ref r || (from_model r && String.equal (global_basename r) "subslice_desc") || is_slice_append_h_ref r ||
   is_slice_make_lc_ref r || is_slice_clear_h_ref r || is_slice_copy_ref r ||
-  is_go_map_type r || is_map_make_ref r || is_map_make_typed_ref r ||
+  is_go_map_type r || is_map_make_typed_ref r ||
   is_map_set_ref r || is_map_del_ref r || is_map_len_ref r || is_map_get_or_ref r ||
   is_map_get_opt_ref r || is_map_clear_ref r ||
   is_min_ref r || is_max_ref r || is_slice_make_ref r ||

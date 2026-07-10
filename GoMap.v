@@ -1,6 +1,6 @@
 (** ==================================================================================================
     GoMap — Go's [map[K]V] over the world's map heap.  Ops are IO where they touch the heap
-    ([map_make]/[map_set]/[map_delete]/…); reads recover the typed view through the stored tags.
+    ([map_make_typed]/[map_set]/[map_delete]/…); reads recover the typed view through the stored tags.
     Reference-type semantics: the pure-update model matches Go's in-place mutation for
     single-goroutine programs (no observable aliasing difference).
     ================================================================================================ *)
@@ -28,16 +28,15 @@ From Fido Require Import GoPanic.
 
 (** The CERTIFIED allocator [map_make_typed] mints a fresh location ([w_next], bumped) AND installs its
     (empty, typed) cell there — so under [ValidWorld] (which forces [w_next <> 0]) a made map is present AND
-    type-correct ([map_cell_ok_make_typed]).  ([map_empty] is the nil map, a fixed [MkMap 0] handle on which [map_set] panics;
-    the untyped [map_make] installs NO cell, so under [ValidWorld] it is UNUSABLE/unsupported — see its note.)
+    type-correct ([map_cell_ok_make_typed]).  ([map_empty] is the nil map, a fixed [MkMap 0] handle on which [map_set] panics.)
     The map CONTENTS live in the concrete [w_maps] heap, where [map_sel]/[map_upd] are DEFINITIONS and the map
     laws are THEOREMS.  Lowered by name ([make(map[K]V)] / nil), the bodies are proof-only. *)
 Definition map_empty {K V : Type} : GoMap K V := MkMap 0.
 
 (** [map_make_typed kt vt] creates an empty map with concrete key/value types.
     The [GoTypeTag] witnesses survive extraction so the plugin can emit
-    [make(map[K]V)] with the correct Go type — unlike bare untyped [map_make], which loses the types to
-    erasure and is UNSUPPORTED (the plugin REJECTS it, and it mints a cell-less, UNUSABLE map — see its note).
+    [make(map[K]V)] with the correct Go type — an untyped [make(map[any]any)] would instead lose the types to
+    erasure, so untyped map allocation is UNREPRESENTABLE (there is no untyped map allocator; see below).
 
     NOTE: Go map access never panics on a missing key — it returns the zero
     value (two-value form gives [false] for [ok]).  This differs from slice
@@ -51,19 +50,10 @@ Definition map_make_typed {K V : Type} (kt : GoTypeTag K) (vt : GoTypeTag V) : I
                                    else w_maps w k)
                          (S l) (w_output w)).
 
-(** Untyped fallback — loses key/value types to erasure.  It has no tags to seed a cell, so it mints a handle
-    but INSTALLS NO CELL (it leaves [w_maps] untouched).  Under [ValidWorld] the fresh location is therefore
-    absent ([gm_present = false], hence [map_cell_ok = false]), and — since [map_write] root-guards on
-    [map_cell_ok] — every subsequent op is
-    then UNUSABLE ([map_set] fails loud, [delete]/[clear] no-op).  That "unusable under [ValidWorld]" status is
-    a THEOREM, not prose: [map_make_untyped_unusable] (GoHeap) proves [map_cell_ok kt vt m w' = false] for the
-    made map.  It matches its status as an UNSUPPORTED frontier (the plugin REJECTS untyped [map_make]:
-    `make(map[any]any)` loses K/V).  The certified allocation path is [map_make_typed], which installs the cell.
-    (This cell-less path is slated for deletion — kept only until the plugin recognizer is removed with it.) *)
-Definition map_make {K V : Type} : IO (GoMap K V) :=
-  fun w => ORet (MkMap (w_next w))
-                (mkWorld (w_refs w) (w_chans w) (w_maps w)
-                         (S (w_next w)) (w_output w)).
+(** There is NO untyped map allocator (checkpoint-58, deleted): an untyped [make(map[any]any)] would lose the
+    key/value types to erasure — a cell-less handle whose reads yield [any], not a typed [map[K]V] — so it is
+    UNREPRESENTABLE here.  [map_make_typed], which carries the key/value [GoTypeTag]s and installs the cell, is
+    the ONLY map allocator; untyped map allocation cannot be constructed (stronger than rejected-at-extraction). *)
 
 (** ---- Maps via a heap in the world ----
 
@@ -101,16 +91,15 @@ Definition map_get_fn {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
 (** [gm_present m w] — is [m]'s cell ALLOCATED?  FALSE for the nil sentinel ([gm_loc = 0]) AND for a nonzero
     ABSENT location (a forged / dangling handle whose [w_maps] cell is [None]).  The map WRITE root ([map_write])
     UPDATES only a present cell — an unallocated handle never fabricates one — and the write IO ops fail loud /
-    no-op on it.  ([map_make_typed] installs a cell, so a [ValidWorld]-made map is present AND type-correct [map_cell_ok_make_typed];
-    the untyped no-cell [map_make] is REJECTED by the plugin — an unsupported frontier.)
+    no-op on it.  ([map_make_typed] installs a cell, so a [ValidWorld]-made map is present AND type-correct
+    [map_cell_ok_make_typed]; it is the ONLY map allocator — untyped map allocation is unrepresentable.)
     ⚠ [gm_present] is TAG-AGNOSTIC: it checks a cell EXISTS, NOT that its stored key/value tags match [m]'s —
     so a forged wrong-tag handle aliasing a real cell reads [gm_present = true].  It is therefore NOT the write
     guard: the tag-aware [map_cell_ok] (below) is.  What IS mechanically closed (checkpoint-58 #3): a wrong-tag
     handle cannot RETYPE a live cell through any public map write ([map_cell_ok_wrong_tag] +
-    [no_public_map_retyping]).  STILL OPEN (checkpoint-58 steps 6–7): the raw [map_write] root is not yet
-    internalized behind the checked API, and the cell-less [map_make] is not yet deleted — so "the map
-    provenance wall is fully closed" would OVERCLAIM.  [gm_present] survives only as the existence half of the
-    read-side proofs. *)
+    [no_public_map_retyping]).  STILL OPEN (checkpoint-58 step 6): the raw [map_write] root is not yet
+    internalized behind the checked API — so "the map provenance wall is fully closed" would OVERCLAIM.
+    [gm_present] survives only as the existence half of the read-side proofs. *)
 Definition gm_present {K V} (m : GoMap K V) (w : World) : bool :=
   if Nat.eqb (gm_loc m) 0 then false
   else match w_maps w (gm_loc m) with Some _ => true | None => false end.
@@ -568,8 +557,8 @@ Qed.
     (world unchanged), [delete] and [clear] no-op.  Together with [map_set_absent]/[…_absent_noop] (the nil /
     nonzero-ABSENT class) and the raw [map_write_wrong_tag_no_retype], NO forged-handle write — through the
     checked ops OR the raw [map_write] root — fabricates or retypes a cell.  (SCOPE: this is the write-path
-    provenance guarantee; it does NOT assert the raw root is internalized or [map_make] deleted — checkpoint-58
-    steps 6–7, still open.) *)
+    provenance guarantee; it does NOT assert the raw root is internalized — checkpoint-58 step 6, still open.
+    The cell-less untyped allocator is already gone: untyped map allocation is unrepresentable.) *)
 Theorem no_public_map_retyping :
   forall {K V K' V'} (kt : GoTypeTag K) (vt : GoTypeTag V)
          (kt' : GoTypeTag K') (vt' : GoTypeTag V')
