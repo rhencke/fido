@@ -1776,14 +1776,17 @@ Proof.
   exact (gsptr_deref_assign p v w1 (gsptr_new_fields_live v0 w p w1 Hnew)).
 Qed.
 
-(** AGGREGATE-HANDLE LIVENESS SURFACE (manifest-gated, zero-axiom PUBLIC evidence): the companion to
-    [heap_alloc_safety_surface] for the MULTI-CELL handles — a slice's backing and a struct's fields.  These
-    complete the "allocators produce Live*" evidence across ALL SIX handle families (the four scalar ones plus
-    [SliceH] / [GSPtr]); like [ref_new_reads], the liveness is DISCHARGED from the allocation, never leaked as
-    a caller precondition.  [slice_make_lc_cell_live]: every backing cell of a [make([]T,len,cap)] (any
-    [j < cap]) reads [Some zero_val].  [gsptr_new_fields_live]: every field cell of a [gsptr_new] struct is
-    live.  [gsptr_new_deref_assign]: assign-then-deref on a fresh struct pointer round-trips (the struct
-    no-panic peer), the [fields_live] premise discharged by the allocation. *)
+(** AGGREGATE-HANDLE LIVENESS SURFACE (manifest-gated, zero-axiom PUBLIC evidence): the LIVENESS companion to
+    [heap_alloc_safety_surface] for the MULTI-CELL handles — a slice's backing and a struct's fields.  SCOPE
+    (narrow, stated honestly): this gates the allocator-produces-a-LIVE-cell fact ONLY (the checkpoint-58
+    "allocators produce Live*" liveness), extending THAT to the aggregate handles.  It does NOT add the
+    nonzero + end-to-end no-panic corollary the scalar cone carries — aggregate no-panic PARITY is NOT proved
+    here.  Like [ref_new_reads], the liveness is DISCHARGED from the allocation, never leaked as a caller
+    precondition.  [slice_make_lc_cell_live]: every backing cell of a [make([]T,len,cap)] (any [j < cap]) reads
+    [Some zero_val].  [gsptr_new_fields_live]: every field cell of a [gsptr_new] struct is live.
+    [gsptr_new_deref_assign]: a FIDELITY theorem — assign-then-deref on a fresh struct pointer RECOVERS THE
+    VALUE (an EQUALITY of observables; NOT a standalone no-panic existence — an equality can hold even if both
+    sides diverge/panic identically), with [fields_live] discharged by the allocation. *)
 Definition heap_aggregate_liveness_surface :=
   (@slice_make_lc_cell_live, @gsptr_new_fields_live, @gsptr_new_deref_assign).
 Print Assumptions heap_aggregate_liveness_surface.
