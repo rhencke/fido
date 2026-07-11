@@ -453,14 +453,13 @@ Qed.
     and FUNCTIONS are NOT.  Crucially FLOATS are admissible keys HERE even
     though [Comparable TFloat64] FAILS (NaN <> NaN): key admissibility is a property of the
     TYPE, not equality reflection on values.
-    ⚠ STATUS (checkpoint-61): this is the map-key ADMISSIBILITY CRITERION, but [map_make_typed] does NOT yet
-    GATE on it — a NON-comparable key type is currently ACCEPTED (degenerate: [key_eqb] is the false-sentinel,
-    so a stored value is never retrievable; a Go compile ERROR, so a well-typed program never has one).  A
-    COMPUTATIONAL guard [if GoComparableType kt then …] is INFEASIBLE: [GoComparableType] recurses on the
-    single-field-unboxed [GoTypeTag], which the extraction backend cannot emit, so it would break extraction if
-    pulled into a lowered op body.  The FAITHFUL live boundary is therefore EVIDENCE-CARRYING — an
-    [map_make_typed] demanding a [GoComparableType kt = true] PROOF (erased in extraction), making a
-    non-comparable-key map UNREPRESENTABLE — a tracked signature change (plans/result-control-split.md step 10). *)
+    ⚠ THE MAP-KEY GATE (checkpoint-61, LANDED): [map_make_typed] DEMANDS a [GoComparableType kt = true] PROOF,
+    so a NON-comparable-key map (slice / map / func key) is UNREPRESENTABLE — Go's "invalid map key type",
+    caught at the Rocq API (stronger than emission-rejection; [GoMap.neg_noncomparable_key_map] is the [Fail]
+    witness).  A COMPUTATIONAL guard [if GoComparableType kt then …] would be INFEASIBLE — [GoComparableType]
+    recurses on the single-field-unboxed [GoTypeTag], un-emittable — so the gate is EVIDENCE-CARRYING: the
+    [GoComparableType kt = true] proof is a [Prop], ERASED in extraction (golden unaffected, name-lowered op),
+    a pure representability guard the op body never inspects. *)
 Fixpoint GoComparableType {K} (t : GoTypeTag K) : bool :=
   match t with
   | TSlice _ | TMap _ _ | TArrow _ _ => false        (* the three non-comparable Go type classes *)

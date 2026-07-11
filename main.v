@@ -508,7 +508,7 @@ Definition ptr_chan_narrow_demo : IO unit :=
 (** Narrow map VALUES: the plugin casts both the map_set RHS and map_get_or's default to
     the value type from the [GoTypeTag]. *)
 Definition map_narrow_demo : IO unit :=
-  bind (map_make_typed TI64 TU8) (fun m =>
+  bind (map_make_typed TI64 TU8 eq_refl) (fun m =>
   bind (map_set TI64 TU8 (5)%i64 (u8_of_i64 (i64_lit 300 eq_refl)) m) (fun _ =>      (* m[5] = uint8(44) *)
   bind (@map_get_or GoI64 GoU8 TI64 TU8 (5)%i64 (u8_of_i64 (i64_lit 9 eq_refl)) m) (fun hit =>  (* m[5] = 44 *)
   bind (@map_get_or GoI64 GoU8 TI64 TU8 (9)%i64 (u8_of_i64 (i64_lit 9 eq_refl)) m) (fun miss => (* miss → dflt uint8(9) *)
@@ -518,7 +518,7 @@ Definition map_narrow_demo : IO unit :=
     sites — map_set, map_delete, map_get_or, map_get_opt.  Demo: set + get_or +
     get_opt(bind/match) + delete + len with a [uint8] key. *)
 Definition map_key_narrow_demo : IO unit :=
-  bind (map_make_typed TU8 TI64) (fun m =>
+  bind (map_make_typed TU8 TI64 eq_refl) (fun m =>
   bind (map_set TU8 TI64 (u8_of_i64 (i64_lit 300 eq_refl)) (5)%i64 m) (fun _ =>            (* m[uint8 44] = 5 *)
   bind (@map_get_or GoU8 GoI64 TU8 TI64 (u8_of_i64 (i64_lit 300 eq_refl)) (0)%i64 m) (fun hit =>  (* m[44] = 5 *)
   bind (map_get_opt TU8 TI64 (u8_of_i64 (i64_lit 300 eq_refl)) m) (fun o =>                (* Some 5 *)
@@ -998,7 +998,7 @@ Definition i64_pipeline_demo : IO unit :=
   ch <-' make_chan_buf TI64 (int_lit 1 eq_refl) ;;
   send TI64 ch (9000000000000000001)%i64 >>'
   bind (recv TI64 ch) (fun x =>                                 (* x = 9000000000000000001 *)
-  bind (map_make_typed TI64 TI64) (fun m =>
+  bind (map_make_typed TI64 TI64 eq_refl) (fun m =>
   bind (map_set TI64 TI64 (42)%i64 x m) (fun _ =>               (* m[int64(42)] = x *)
   bind (@map_get_or GoI64 GoI64 TI64 TI64 (42)%i64 (0)%i64 m) (fun hit =>
   println [ any hit ])))).                                      (* prints: 9000000000000000001 *)
@@ -1010,7 +1010,7 @@ Definition u64_pipeline_demo : IO unit :=
   ch <-' make_chan_buf TU64 (int_lit 1 eq_refl) ;;
   send TU64 ch (18000000000000000000)%u64 >>'
   bind (recv TU64 ch) (fun x =>                                 (* x = 18000000000000000000 *)
-  bind (map_make_typed TU64 TU64) (fun m =>
+  bind (map_make_typed TU64 TU64 eq_refl) (fun m =>
   bind (map_set TU64 TU64 (7)%u64 x m) (fun _ =>                (* m[uint64(7)] = x *)
   bind (@map_get_or GoU64 GoU64 TU64 TU64 (7)%u64 (0)%u64 m) (fun hit =>
   println [ any hit ])))).                                      (* prints: 18000000000000000000 *)
@@ -1067,7 +1067,7 @@ Example spec_slice_make_n : List.length (slice_make TI64 3) = 3%nat. Proof. refl
 Definition builtins_demo : IO unit :=
   bind (println [ any (go_min (int_lit 3 eq_refl) (int_lit 5 eq_refl)); any (go_max (int_lit 3 eq_refl) (int_lit 5 eq_refl)) ]) (fun _ =>  (* 3 5 — go_min/max BUILTIN demo on GoInt *)
   bind (println [ any (len (slice_make TI64 3)) ]) (fun _ =>                                     (* 3 *)
-  bind (map_make_typed TI64 TI64) (fun m =>
+  bind (map_make_typed TI64 TI64 eq_refl) (fun m =>
   bind (map_set TI64 TI64 (1)%i64 (10)%i64 m) (fun _ =>
   bind (map_clear TI64 TI64 m) (fun _ =>                                                                     (* clear → empty *)
   bind (map_len TI64 TI64 m) (fun n =>
@@ -1136,7 +1136,7 @@ Definition panic_and_recover (n : GoI64) : IO unit :=
 (** Map reads are in [IO] (they observe the map's current contents); [map_get_or]
     returns the value directly. *)
 Definition map_demo : IO unit :=
-  bind (map_make_typed TI64 TI64) (fun m =>            (* make(map[int64]int64) *)
+  bind (map_make_typed TI64 TI64 eq_refl) (fun m =>            (* make(map[int64]int64) *)
   bind (map_set TI64 TI64 (1)%i64 (100)%i64 m) (fun _ =>            (* m[1] = 100 *)
   bind (map_set TI64 TI64 (2)%i64 (200)%i64 m) (fun _ =>            (* m[2] = 200 *)
   bind (map_set TI64 TI64 (3)%i64 (300)%i64 m) (fun _ =>            (* m[3] = 300 *)
@@ -1151,7 +1151,7 @@ Definition map_demo : IO unit :=
     [World]).  Function-boundary companion to [map_get_set_same] (GoMap.v). *)
 Definition map_put (m : GoMap GoI64 GoI64) : IO unit := map_set TI64 TI64 (7)%i64 (77)%i64 m.
 Definition map_alias_demo : IO unit :=
-  bind (map_make_typed TI64 TI64) (fun m =>
+  bind (map_make_typed TI64 TI64 eq_refl) (fun m =>
   bind (map_put m) (fun _ =>                                              (* mutate via a function call *)
   bind (@map_get_or GoI64 GoI64 TI64 TI64 (7)%i64 (0)%i64 m) (fun v =>    (* caller observes the write *)
   println [any v]))).                                                     (* 77 *)
@@ -1380,7 +1380,7 @@ Definition inline_if_demo : IO unit :=
     _ | None => _)] becomes [if v, ok := m[k]; ok { _ } else { _ }] — no [option]
     value is built. *)
 Definition lookup_demo : IO unit :=
-  m <-' map_make_typed TI64 TI64 ;;
+  m <-' map_make_typed TI64 TI64 eq_refl ;;
   map_set TI64 TI64 (7)%i64 (700)%i64 m >>'
   (o <-' map_get_opt TI64 TI64 (7)%i64 m ;;                 (* present → 700 true *)
    match o with
@@ -1922,7 +1922,7 @@ Definition chanbox_slice_demo : IO unit :=
 (** A MAP with STRUCT VALUES ([map[int64]ListNode]; [TMap TI64 TListNode] renders it) —
     with the slice demos, struct values nest in EVERY container. *)
 Definition map_struct_demo : IO unit :=
-  bind (map_make_typed TI64 TListNode) (fun m =>                                          (* map[int64]ListNode *)
+  bind (map_make_typed TI64 TListNode eq_refl) (fun m =>                                          (* map[int64]ListNode *)
   bind (map_set TI64 TListNode (5)%i64 (MkListNode (99)%i64 (ptr_nil_tf tt)) m) (fun _ => (* m[5] = ListNode{99, nil} *)
   bind (@map_get_or GoI64 ListNode TI64 TListNode (5)%i64 (MkListNode (0)%i64 (ptr_nil_tf tt)) m) (fun n =>  (* m[5] *)
   println [any (ln_val n)]))).                                                            (* prints: 99 *)
@@ -2910,7 +2910,7 @@ Definition co_sum (c : Counts) : IO GoI64 :=
   bind (map_get_or TString TI64 "b"%string (0)%i64 (co_val c)) (fun b =>
   ret (i64_add a b))).
 Definition gmap_deftype_demo : IO unit :=
-  bind (map_make_typed TString TI64)              (fun m =>
+  bind (map_make_typed TString TI64 eq_refl)              (fun m =>
   bind (map_set TString TI64 "a"%string (1)%i64 m) (fun _ =>
   bind (map_set TString TI64 "b"%string (2)%i64 m) (fun _ =>
   bind (co_size (mk_counts m))                    (fun n =>   (* method call → (Mk_counts(m)).Co_size() *)

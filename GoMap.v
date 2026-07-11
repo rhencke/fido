@@ -42,7 +42,16 @@ Definition map_empty {K V : Type} : GoMap K V := MkMap 0.
     NOTE: Go map access never panics on a missing key — it returns the zero
     value (two-value form gives [false] for [ok]).  This differs from slice
     indexing, which DOES panic out of bounds. *)
-Definition map_make_typed {K V : Type} (kt : GoTypeTag K) (vt : GoTypeTag V) : IO (GoMap K V) :=
+(** LIVE map-key REJECTION BOUNDARY (checkpoint-61): [map_make_typed] DEMANDS a [GoComparableType kt = true]
+    PROOF — Go's type-level rule (booleans/numbers/strings/pointers/channels/comparable structs; NOT slices /
+    maps / funcs).  So a NON-comparable-key map is UNREPRESENTABLE: [make(map[[]int]V)] cannot even be written,
+    mirroring Go's COMPILE-time rejection (the model does not silently accept-then-degenerate).  The [Hcmp] proof
+    is a [Prop] — ERASED by extraction, so [GoComparableType] never reaches emitted code (name-lowered op,
+    golden unaffected) — the gate is purely a representability guard, unused by the body.  Float64 keys are
+    admissible ([GoComparableType TFloat64 = true]) even though [Comparable TFloat64] fails (±0/NaN) — key
+    admissibility is a TYPE property, not value-equality reflection. *)
+Definition map_make_typed {K V : Type} (kt : GoTypeTag K) (vt : GoTypeTag V)
+                          (Hcmp : GoComparableType kt = true) : IO (GoMap K V) :=
   fun w => let l := w_next w in
            ORet (MkMap l)
                 (mkWorld (w_refs w) (w_chans w)
@@ -50,6 +59,13 @@ Definition map_make_typed {K V : Type} (kt : GoTypeTag K) (vt : GoTypeTag V) : I
                                    then Some (0, existT _ K (kt, existT _ V (vt, fun _ => None)))
                                    else w_maps w k)
                          (S l) (w_output w)).
+(** MACHINE-CHECKED UNREPRESENTABILITY: a NON-comparable-key map (Go's "invalid map key type") cannot be
+    CONSTRUCTED — [map_make_typed] demands [GoComparableType kt = true], which is [false] for a slice / map /
+    func key, so no [Hcmp] proof exists and the [Definition] is REJECTED ([Fail] confirms it).  This is the
+    MODEL-side live boundary (unrepresentable — stronger than, and replacing, the old extraction-abort negtest
+    neg_map_key.v: the map never even reaches emission).  A [TArrow] (func) key stands in for the whole
+    non-comparable class ([GoComparableType (TArrow ..) = false]). *)
+Fail Definition neg_noncomparable_key_map := map_make_typed (TArrow TI64 TI64) TI64 eq_refl.
 
 (** There is no NAMED untyped map allocator (checkpoint-58: the cell-less [map_make] was DELETED).
     [map_make_typed], which carries the key/value [GoTypeTag]s and installs the cell, is the ONLY map
@@ -253,7 +269,7 @@ Proof. intros K V kt vt k m w H. unfold map_rem. apply map_write_absent_noop; ex
 (** Witness (machine-checked): [map_size] reports the REAL live-key count = Go's [len(m)].
     Insert keys 1,2; overwrite key 1 (len stays 2); delete key 2 (len → 1). *)
 Example map_len_counts :
-  match run_io (map_make_typed TI64 TI64)
+  match run_io (map_make_typed TI64 TI64 eq_refl)
                (mkWorld (fun _ => None) (fun _ => None) (fun _ => None) 1 nil) with
   | ORet m w1 =>
       let w2 := map_upd TI64 TI64 (i64wrap 1%Z) (i64wrap 10%Z) m w1 in
@@ -536,19 +552,19 @@ Definition MapFinite {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (m : GoMap K V)
   exists keys : list K, forall k, map_get_fn kt vt m w k <> None -> In k keys.
 (** A fresh [make(map[K]V)] reads [None] at EVERY key — the installed cell's function is [fun _ => None] (and a
     loc-0 nil map reads [None] canonically), so the live-key support is empty. *)
-Lemma map_make_typed_empty : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (w : World) m w' (k : K),
-  run_io (map_make_typed kt vt) w = ORet m w' -> map_get_fn kt vt m w' k = None.
+Lemma map_make_typed_empty : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (Hcmp : GoComparableType kt = true) (w : World) m w' (k : K),
+  run_io (map_make_typed kt vt Hcmp) w = ORet m w' -> map_get_fn kt vt m w' k = None.
 Proof.
-  intros K V kt vt w m w' k H. unfold map_make_typed, run_io in H. injection H as Hm Hw. subst m w'.
+  intros K V kt vt Hcmp w m w' k H. unfold map_make_typed, run_io in H. injection H as Hm Hw. subst m w'.
   unfold map_get_fn. cbn [gm_loc].
   destruct (Nat.eqb (w_next w) 0) eqn:Hz; [ reflexivity | ].
   cbn [w_maps]. rewrite Nat.eqb_refl, !tag_eq_refl. reflexivity.
 Qed.
-Lemma map_make_typed_establishes_mapfinite : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (w : World) m w',
-  run_io (map_make_typed kt vt) w = ORet m w' -> MapFinite kt vt m w'.
+Lemma map_make_typed_establishes_mapfinite : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (Hcmp : GoComparableType kt = true) (w : World) m w',
+  run_io (map_make_typed kt vt Hcmp) w = ORet m w' -> MapFinite kt vt m w'.
 Proof.
-  intros K V kt vt w m w' H. exists nil. intros k Hne. exfalso.
-  apply Hne. exact (map_make_typed_empty kt vt w m w' k H).
+  intros K V kt vt Hcmp w m w' H. exists nil. intros k Hne. exfalso.
+  apply Hne. exact (map_make_typed_empty kt vt Hcmp w m w' k H).
 Qed.
 Lemma map_set_preserves_mapfinite : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (v : V) (m : GoMap K V) (w w' : World),
   Comparable kt -> MapFinite kt vt m w -> run_io (map_set kt vt k v m) w = ORet tt w' -> MapFinite kt vt m w'.
@@ -599,21 +615,16 @@ Qed.
     key-equality SOUNDNESS ([key_eqb kt k k' = true -> k = k']) so the newly-written key's [key_eqb]-class is
     exactly [{k}] — WITHOUT it a type whose [key_eqb] is true for distinct values (e.g. float [±0]) could put a
     live key outside the witness list.
-    ⚠ SCOPE (three tiers) — the OP [map_set] is POLYMORPHIC over ANY [kt], so its acceptance is WIDER than this
-    theorem AND wider than Go itself.  Go permits ONLY comparable key types, so a slice / map / func key is a Go
-    COMPILE ERROR that the model op does NOT reject (there [key_eqb] is the false-sentinel, so [map_set] can
-    never match — degenerate but non-crashing; NOT Go-faithful, a model over-permission).  ⚠ FRONTIER: a
-    non-comparable key type is an EXPLICITLY UNSUPPORTED frontier — the faithful LIVE boundary (an
-    evidence-carrying [map_make_typed] demanding [GoComparableType kt = true], making it UNREPRESENTABLE) is
-    tracked (plans/result-control-split.md step 10); a COMPUTATIONAL [if GoComparableType kt] guard is infeasible
-    ([GoComparableType] recurses on the unboxed [GoTypeTag], un-emittable — it would break extraction).
-    [MapFinite]
-    preservation is gated ONLY under [Comparable kt] (value-equality decidable — the integer / bool / string /
-    pointer scalars), which is NARROWER even than Go-comparable: a Go-valid float64 key is NOT [Comparable]
-    (float [±0]: [SFeqb -0.0 +0.0 = true] identifies DISTINCT values), so a [map_set] with a float /
-    non-value-equal key is accepted but NOT covered here — a DEFERRED frontier (its support stays finite too —
-    the [key_eqb]-class is finite — but proving it needs per-type class enumeration).  So the GATED guarantee is
-    for VALUE-EQUAL-key certified maps, a SUBSET of both Go's map keys and the op's acceptance.  ⚠ This is
+    ⚠ SCOPE (two boundaries) — (1) the CONSTRUCTOR [map_make_typed] now GATES on [GoComparableType kt] (demands
+    the proof), so a NON-comparable key (slice / map / func) is UNREPRESENTABLE — Go-faithful ("invalid map key
+    type"; [neg_noncomparable_key_map] is the [Fail] witness): a certified map always has a Go-comparable key.
+    (2) [MapFinite] preservation by [map_set] is gated ONLY under [Comparable kt] (value-equality decidable — the
+    integer / bool / string / pointer scalars), NARROWER even than Go-comparable: a Go-VALID float64 key IS
+    constructable ([GoComparableType TFloat64 = true]) but NOT [Comparable] (float [±0]: [SFeqb -0.0 +0.0 = true]
+    identifies DISTINCT values), so a [map_set] on a float / non-value-equal key is admitted by the constructor
+    gate yet its finiteness-preservation is NOT gated here — a DEFERRED frontier (its support stays finite too —
+    the [key_eqb]-class is finite — but proving it needs per-type class enumeration).  So the finiteness
+    guarantee is for VALUE-EQUAL-key maps, a SUBSET of the (Go-comparable) constructable maps.  ⚠ This is
     invariant PRESERVATION, NOT a global
     "every map is finite" theorem: the function rep DOES admit an infinite-support [f] (a RAW [mkWorld] /
     same-tag forged handle carrying one is NOT [MapFinite] — the checkpoint-59 typed-liveness frontier); the
