@@ -818,15 +818,10 @@ let zero_of_tag tag =
   | MLcons (_, r, [_; _]) when String.equal (global_basename r) "TMap"   -> "nil"
   | t -> go_type_of_tag t ^ "(0)"
 
-(* MAP-KEY COMPARABILITY: a GoTypeTag is usable as a Go MAP KEY only if it renders to a COMPARABLE Go type.
-   Slices ([]T) and maps (map[K]V) are NOT comparable — Go rejects them as map keys ("invalid map
-   key type").  Scalars / string / chan / ptr ARE comparable, and TArrow/TProd/TUnit already fail
-   in [go_type_of_tag].  (A struct key's comparability depends on its FIELDS — a struct with a
-   slice/map field would still slip through; a deeper gap for the typed-lowering phase.) *)
-let tag_comparable_key kt =
-  match kt with
-  | MLcons (_, r, _) -> not (List.mem (global_basename r) ["TSlice"; "TMap"])
-  | _ -> true
+(* MAP-KEY COMPARABILITY is the MODEL's single authority: [GoMap.map_make_typed] gates on
+   [MapKeysOk (TMap kt vt) = true] (RECURSIVE — every nested map key comparable), making a non-comparable-key
+   map UNREPRESENTABLE.  So the extraction backend needs no map-key check (the former outer-key-only
+   [tag_comparable_key] — incomplete, and dead once the model gates — was deleted, not a second authority). *)
 
 let is_zero_val_ref = named "zero_val"
 
@@ -2497,12 +2492,13 @@ let rec pp_expr state env = function
        | MLglob r, [tag] when is_zero_val_ref r ->
            str (zero_of_tag tag)
 
-       (* map_make_typed kt vt → make(map[K]V) with concrete types from tags.
-          MAP-KEY COMPARABILITY: reject a NON-COMPARABLE key tag (slice/map) — Go forbids it as a map key. *)
+       (* map_make_typed kt vt → make(map[K]V) with concrete types from tags.  MAP-KEY COMPARABILITY is the
+          MODEL's authority now: [GoMap.map_make_typed] gates on [MapKeysOk (TMap kt vt) = true] (recursive — every
+          nested map key comparable), making a bad-key map UNREPRESENTABLE, so [kt] reaching here is always a
+          valid comparable key.  No plugin-side check (the former outer-key-only [tag_comparable_key] was a weaker,
+          incomplete second authority — deleted; the model gate subsumes it). *)
        | MLglob r, [kt; vt] when is_map_make_typed_ref r ->
-           if not (tag_comparable_key kt) then
-             unsupported "map_make_typed with a NON-COMPARABLE key type (a slice or map) — Go forbids slice/map/func map keys (`invalid map key type`); use a comparable key (bool / int / string / pointer / channel / comparable struct)"
-           else str ("make(map[" ^ go_type_of_tag kt ^ "]" ^ go_type_of_tag vt ^ ")")
+           str ("make(map[" ^ go_type_of_tag kt ^ "]" ^ go_type_of_tag vt ^ ")")
 
        (* map_get_or: handled in pp_stmts/MLletin for clean two-statement emission *)
 
