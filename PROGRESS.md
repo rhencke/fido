@@ -170,11 +170,12 @@ finiteness guarantee is for VALUE-EQUAL-key maps, a SUBSET of the (Go-comparable
 finite" theorem — the function rep DOES admit an infinite-support f (a raw/forged handle carrying one is NOT
 MapFinite, the cp59 frontier); the certified ops merely cannot PRODUCE one from a finite map. ⚠ finite SUPPORT
 only — NOT yet len(m) = |support| (the sz-vs-f count-consistency MapWF is the deeper follow-up)) /
-`GoMap.map_count_transition_surface` (the len(m) nat carrier steps correctly through the map writes:
-map_count_write_same read-back (map_count after a map_write to a tag-correct cell = the written sz) + per-op
-deltas — map_set +1 (new) / unchanged (existing), map_delete Nat.pred (present) / unchanged (absent),
-map_clear 0. ⚠ TRANSITIONS ONLY — that the count EQUALS the live-key support size (faithful len(m) for all
-sequences, not just the map_len_counts trace) is the deeper MapWF) /
+`GoMap.map_count_transition_surface` (the STORED count field map_count steps correctly through the
+map_cell_ok-guarded RAW update ROOTS (the world transformers map_upd/map_rem/map_clear_upd, NOT the IO ops that
+wrap them): map_count_write_same read-back (map_count after a map_write to a tag-correct cell = the written sz)
++ deltas — map_upd +1 (new) / unchanged (existing), map_rem Nat.pred (present) / unchanged (absent),
+map_clear_upd 0. ⚠ RAW-TRANSFORMER transitions on map_count ONLY — NOT map_set/map_delete/map_clear IO
+semantics, NOT len(m) (= map_size), and NOT map_count = live-key support size (the deeper MapWF)) /
 `GoHeap.chan_state_ok_surface` (checkpoint-61 #9 "no over-full channel" INVARIANT ChanCapOk — a bounded
 channel's FIFO length <= cap — the channel analogue of SliceWF: gated across every PRIMITIVE state transition
 — ESTABLISHED at construction by BOTH allocators (make_chan unbuffered + make_chan_buf: empty buffer, finite

@@ -543,12 +543,14 @@ Lemma map_clear_nil_noop : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (w
   run_io (map_clear kt vt (@map_empty K V)) w = ORet tt w.
 Proof. reflexivity. Qed.
 
-(** ---- Map COUNT ([len(m)]'s nat carrier) TRANSITION laws ----
+(** ---- [map_count] (the STORED count field) TRANSITION laws for the RAW update ROOTS ----
     Count read-back: [map_count] after a [map_write] to a TAG-CORRECT cell is the written size [sz] — the count
-    dual of [map_get_fn_write_same].  The per-op deltas follow: [map_set] on a NEW key is [+1] and on an
-    EXISTING key UNCHANGED; [map_delete] on a PRESENT key is [Nat.pred] and on an ABSENT key UNCHANGED;
-    [map_clear] resets to 0.  These pin the count TRANSITIONS; that the count EQUALS the live-key support size
-    (i.e. [len(m)] is faithful for ALL sequences, not just the [map_len_counts] trace) is the deeper MapWF. *)
+    dual of [map_get_fn_write_same].  The deltas follow, for the [map_cell_ok]-guarded world TRANSFORMERS (the
+    raw update roots, NOT the IO ops that wrap them): [map_upd] on a NEW key is [+1] and on an EXISTING key
+    UNCHANGED; [map_rem] on a PRESENT key is [Nat.pred] and on an ABSENT key UNCHANGED; [map_clear_upd] is 0.
+    ⚠ These pin the raw-transformer count TRANSITIONS on the stored field [map_count] — NOT the guarded IO ops
+    [map_set]/[map_delete]/[map_clear], and NOT [len(m)] ([= map_size]); and that [map_count] EQUALS the live-key
+    support size is the deeper MapWF, not claimed here. *)
 Lemma map_count_write_same : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) m f sz w,
   map_cell_ok kt vt m w = true -> map_count kt vt m (map_write kt vt m f sz w) = sz.
 Proof.
@@ -589,9 +591,11 @@ Lemma map_clear_upd_count : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (
 Proof.
   intros K V kt vt m w Hok. unfold map_clear_upd. apply map_count_write_same; exact Hok.
 Qed.
-(** MAP COUNT TRANSITION SURFACE (manifest-gated, zero-axiom): the [len(m)] nat carrier steps correctly through
-    the map writes — [+1] / unchanged / [Nat.pred] / unchanged / 0.  ⚠ TRANSITIONS ONLY — that the count EQUALS
-    the live-key count (faithful [len]) is the deeper MapWF, not claimed here. *)
+(** MAP COUNT TRANSITION SURFACE (manifest-gated, zero-axiom): the STORED count field [map_count] steps
+    correctly through the [map_cell_ok]-guarded RAW update ROOTS ([map_upd]/[map_rem]/[map_clear_upd]) —
+    [+1] / unchanged / [Nat.pred] / unchanged / 0.  ⚠ RAW-TRANSFORMER transitions on [map_count] ONLY — NOT the
+    guarded IO ops [map_set]/[map_delete]/[map_clear], NOT [len(m)] ([= map_size]), and NOT [map_count] = the
+    live-key support size (the deeper MapWF), none claimed here. *)
 Definition map_count_transition_surface :=
   (@map_count_write_same, @map_upd_count_new, @map_upd_count_existing,
    @map_rem_count_present, @map_rem_count_absent, @map_clear_upd_count).
