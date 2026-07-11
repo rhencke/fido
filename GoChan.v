@@ -689,9 +689,10 @@ Proof. reflexivity. Qed.
           represent — so it takes a fail-loud [OPanic rt_select_block] branch.
           Blocking is NOT divergence: it is a LOCAL non-step ([concurrency.v] models it —
           [Stuck := ~ can_step /\ ~ done] is the GLOBAL deadlock property).  ⚠ that
-          [OPanic] is a REACHABLE, catchable model fault (a block is a deadlock; [catch]/recover can wrongly
-          observe it) — deliberately NOT pinned as certified behaviour; the fix is the scheduler
-          split (plans/result-control-split.md).  What the select trust boundary DOES pin is only the
+          [OPanic] is a REACHABLE, catchable would-block stand-in (a block is a DEADLOCK, not a panic and
+          not a model fault; [catch]/recover can wrongly observe it) — deliberately NOT pinned as certified
+          behaviour; the fix is the scheduler split, where blocking becomes a retained, resumable
+          continuation (plans/result-control-split.md).  What the select trust boundary DOES pin is only the
           anti-forgery facts (a wrong-tag arm fires nothing): [select_wait2_wrong_tag_no_fire] as a
           [<> ORet (index, _)] negative, [select_recv2_wrong_tag_no_fire] as continuation-independence.
     The EXTRACTION is faithful (native Go [select{}]).  A nondeterministic [select_wait] belongs
@@ -793,9 +794,9 @@ Theorem select_recv2_ch2_closed :
 Proof. intros A B C ta ch1 k1 tb ch2 k2 w He1 Hc1 He2 Hc2 Hok2. unfold select_recv2, recv, bind, run_io. rewrite He1, Hc1, He2, Hc2, Hok2. reflexivity. Qed.
 
 (** NO lemma pins the all-empty-open blocked-select outcome ([= OPanic rt_select_block]): that
-    [OPanic] is a REACHABLE model fault (a blocked select is a deadlock, not a panic), so it is
-    deliberately NOT exported as certified behaviour — the fix is the scheduler split
-    (plans/result-control-split.md).  The select trust boundary pins ONLY anti-forgery facts (a
+    [OPanic] is a REACHABLE would-block stand-in (a blocked select is a DEADLOCK — not a panic, and not a
+    model fault), so it is deliberately NOT exported as certified behaviour — the fix is the scheduler split,
+    where blocking becomes a retained, resumable continuation (plans/result-control-split.md).  The select trust boundary pins ONLY anti-forgery facts (a
     wrong-tag arm fires nothing): [select_wait2_wrong_tag_no_fire] as a [<> ORet (index, _)] negative,
     [select_recv2_wrong_tag_no_fire] as continuation-independence — NEVER the exact
     [= OPanic rt_select_block] payload.  (Two prior [= OPanic rt_select_block] "witness" lemmas were
@@ -1070,8 +1071,9 @@ Qed.
     NOR observes its closedness (the tag-aware guard fires FIRST, so a CLOSED foreign cell does NOT leak an
     [rt_send_closed]).  The anti-forgery pins fails-loud-WORLD-UNCHANGED ([exists p, = OPanic p w]) — NOT the
     exact payload (like GoMap's [map_set_wrong_tag_no_mutation]).  ⚠ the fail-loud stands in for a
-    would-block [OPanic] (a REACHABLE model fault); this GATED surface deliberately does NOT export the
-    [rt_chan_send_block] marker (blocking becomes a resumable continuation under the scheduler split). *)
+    would-block [OPanic] (a REACHABLE DEADLOCK stand-in, not a model fault); this GATED surface deliberately
+    does NOT export the [rt_chan_send_block] marker (blocking becomes a resumable continuation under the
+    scheduler split). *)
 Theorem send_wrong_tag_no_mutation : forall {A E} (tag : GoTypeTag A) (etag : GoTypeTag E)
     (ch : GoChan A) (v : A) (w : World) rest,
   Nat.eqb (ch_loc ch) 0 = false ->
