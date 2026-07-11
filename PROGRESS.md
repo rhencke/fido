@@ -180,9 +180,11 @@ loud on a SLICE-or-MAP key — the only FIXTURE-PINNED closure (negtests/neg_cha
 (TMap (TSlice TI64) TI64) aborts). The 2nd printer pp_type carries an analogous guard (pp_type_comparable_key)
 for struct-field map types but is UNPINNED (defensive, not verified coverage). cp62: MapKeysOk + these plugin
 checks are DUPLICATE map-key authorities GoTypeDesc must unify.
-Residuals (GoTypeDesc frontier): array-of-non-comparable / struct-with-non-comparable-field keys uncaught;
-MapKeysOk doesn't prove renderability (TUnit unrenderable; TArrow-value map legal Go but plugin-rejected). Do
-NOT read it as "a certified map is a valid Go map type". (2)
+Residuals (GoTypeDesc frontier): named-struct-with-non-comparable-field keys uncaught by the plugin's
+under-approximating checks; MapKeysOk doesn't prove renderability — a MapKeysOk-passing map value that the
+plugin can't render fails loud, fixture-pinned by negtests/neg_map_{arrow,unit,prod}_value (TArrow-value = legal
+Go but plugin-rejected; TUnit/TProd unrenderable). Do NOT read it as "a certified map is a valid Go map type".
+(2)
 map_set finiteness-preservation is gated only for Comparable kt (value-equal), NARROWER even than Go-comparable
 — a Go-valid float64 key IS constructable (GoComparableType TFloat64=true) but not Comparable (float ±0: SFeqb
 -0.0 +0.0 = true), so a float/non-value-equal set is admitted by the constructor gate but its preservation is
