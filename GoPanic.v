@@ -65,23 +65,30 @@ Definition rt_send_closed  : GoAny := anyt TString "send on closed channel"%stri
 Definition rt_close_closed : GoAny := anyt TString "close of closed channel"%string.
 Definition rt_close_nil    : GoAny := anyt TString "close of nil channel"%string.
 Definition rt_assert_fail  : GoAny := anyt TString "interface conversion: interface is not the asserted type"%string.
-(** Model-INTERNAL fail-loud for a [select] whose every case would block and that has no [default]:
-    the sequential [IO] model has no Blocked outcome, so it refuses LOUDLY rather than fabricate a
-    value.  ⚠ a blocking select is a DEADLOCK, not a panic — this [OPanic] is presently
-    reachable + catchable (to be fixed by the scheduler split), NOT unreachable.  The EXTRACTION
-    is the native Go [select{}], which blocks faithfully, so this value lives only in the suppressed
-    body — in [is_inlined_ref]. *)
+(** Model-INTERNAL fail-loud for a [select] with no ready case and no [default]: the sequential [IO] model
+    has no Blocked outcome, so it refuses LOUDLY rather than fabricate a value.  ⚠ this REUSES one payload for
+    two causes: an all-EMPTY-OPEN select is a genuine DEADLOCK (not a panic), while a WRONG-TAG arm reads
+    empty and also routes here — a forged MODEL FAULT.  This [OPanic] is presently reachable + catchable (to
+    be fixed by the scheduler split for the block, a distinct [ModelFault] for the forgery — not asserted
+    here), NOT unreachable.  The EXTRACTION is the native Go [select{}], which blocks faithfully, so this
+    value lives only in the suppressed body — in [is_inlined_ref]. *)
 Definition rt_select_block : GoAny := anyt TString "go: select would block (no ready case, no default)"%string.
-(** Model-INTERNAL fail-loud for a [send] with no buffer room (full [Some n], or unbuffered [Some 0] with no
-    waiting receiver): Go BLOCKS, which the sequential IO model cannot represent, so it refuses LOUDLY rather
-    than over-append.  Lives only in the suppressed [send] body (native Go [ch <- v] blocks
-    faithfully) — like the [rt_*] above, in [is_inlined_ref]. *)
+(** Model-INTERNAL fail-loud emitted by [send] on any handle with no room.  Like its recv dual it REUSES one
+    payload for DISTINCT causes: a GENUINE no-room block (a full [Some n] buffer, an unbuffered [Some 0] with
+    no waiting receiver, or a nil channel) — Go BLOCKS (a DEADLOCK), which the sequential IO model cannot
+    represent, so it refuses LOUDLY rather than over-append — whereas a FORGED wrong-tag / absent handle is a
+    MODEL FAULT (impossible in real Go — a distinct [ModelFault] after the planned split, not asserted here).
+    Lives only in the suppressed [send] body (native Go [ch <- v] blocks faithfully) — like the [rt_*] above,
+    in [is_inlined_ref]. *)
 Definition rt_chan_send_block : GoAny := anyt TString "go: send would block (buffer full / unbuffered, no receiver)"%string.
-(** The recv-side dual: a receive from an OPEN EMPTY channel (or a wrong-tag / absent handle, which reads
-    empty) would BLOCK in Go.  Sequential [run_io] has no blocked/divergence outcome, so it FAILS LOUD with
-    this NAMED payload rather than an inline string (de-duplicating the [recv]/[recv_ok] block branches) — an
-    honest fail-loud STAND-IN, NOT a faithful Go panic (Go deadlocks, it does not panic); the faithful blocking
-    semantics is the relational [rstep] in [concurrency.v].  Because this OPanic is a blocking stand-in, it is
+(** The recv-side dual, emitted by [recv]/[recv_ok] on any handle with no readable value.  It REUSES one
+    NAMED payload (de-duplicating the [recv]/[recv_ok] block branches) for two DISTINCT causes the
+    result/control split will separate: a GENUINE recv-block — an OPEN EMPTY (or nil) channel with no sender —
+    BLOCKS in Go (a DEADLOCK; sequential [run_io] has no blocked/divergence outcome, so it FAILS LOUD here),
+    whereas a FORGED wrong-tag / absent handle (which also reads empty) is a MODEL FAULT (impossible in real
+    Go — a distinct [ModelFault] after the planned split, not asserted here).  Either way this is an honest
+    fail-loud STAND-IN, NOT a faithful Go panic (Go deadlocks / faults, it does not panic); the faithful
+    blocking semantics is the relational [rstep] in [concurrency.v].  Because this OPanic is a stand-in, it is
     NOT certified as an exact PUBLIC panic payload: the recv anti-forgery surface pins only CLEAN NEGATIVES
     ([<> ORet]: no value / no zero delivered by [recv], no result fired by [recv_ok]), never
     [recv = OPanic rt_chan_recv_block] as recoverable-panic semantics. *)
