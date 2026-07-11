@@ -2487,10 +2487,13 @@ let rec pp_expr state env = function
        | MLglob r, [tag] when is_zero_val_ref r ->
            str (zero_of_tag tag)
 
-       (* map_make_typed kt vt → make(map[K]V) with concrete types from tags.  MAP-KEY COMPARABILITY is the
-          MODEL's authority: [GoMap.map_make_typed] gates on [MapKeysOk (TMap kt vt) = true] (recursive — every
-          nested map key comparable), so [kt]/[vt] reaching here form a valid Go map type; the backend needs no
-          map-key check of its own. *)
+       (* map_make_typed kt vt → make(map[K]V) with concrete types from tags.  AT THIS ARM the tag already
+          passed [GoMap.map_make_typed]'s [MapKeysOk (TMap kt vt) = true] gate (recursive — every nested map key
+          comparable), so the KEY rendered here is comparable.  ⚠ cp62: this is an ALLOCATOR-BOUNDARY gate, NOT a
+          global map-key authority — [go_type_of_tag] renders arbitrary [GoTypeTag]s and OTHER arms do NOT gate:
+          e.g. [make_chan (TMap (TSlice TI64) TI64)] emits [chan map[[]int64]int64], which Go rejects.  Making
+          the backend's tag→type rendering globally sound is the general certified type authority ([GoTypeDesc]),
+          not a per-allocator model check. *)
        | MLglob r, [kt; vt] when is_map_make_typed_ref r ->
            str ("make(map[" ^ go_type_of_tag kt ^ "]" ^ go_type_of_tag vt ^ ")")
 
