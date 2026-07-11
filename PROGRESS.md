@@ -180,8 +180,10 @@ loud on a SLICE-or-MAP key — the only FIXTURE-PINNED closure (negtests/neg_cha
 (TMap (TSlice TI64) TI64) aborts). The 2nd printer pp_type carries an analogous guard (pp_type_comparable_key)
 for struct-field / defined-type map types, pinned by neg_map_field_bad_key (a type Bad map[[]int64]int64
 aborts). MapKeysOk + these plugin checks are DUPLICATE map-key authorities GoTypeDesc must unify.
-Residuals (GoTypeDesc frontier): named-struct-with-non-comparable-field keys uncaught by the plugin's
-under-approximating checks; MapKeysOk doesn't prove renderability — a MapKeysOk-passing map value that the
+Residuals (GoTypeDesc frontier): a named-struct-with-non-comparable-field key would be uncaught by the plugin's
+under-approximating checks — but it is currently UNREPRESENTABLE (the model's named-struct tags are the CLOSED
+nullary enumeration TListNode/TChanBox, both comparable; no generic named-struct tag exists), so the frontier
+opens only when GoTypeDesc adds one. MapKeysOk doesn't prove renderability — a MapKeysOk-passing map value that the
 plugin can't render fails loud, fixture-pinned by negtests/neg_map_{arrow,unit,prod}_value (TArrow-value = legal
 Go but plugin-rejected; TUnit/TProd unrenderable). Do NOT read it as "a certified map is a valid Go map type".
 (2)
