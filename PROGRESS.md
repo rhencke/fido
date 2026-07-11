@@ -158,11 +158,11 @@ struct assign/deref value-fidelity round-trip + slice read/write NO-PANIC for BO
 (slice_make_lc + slice_make_h), in-bounds-gated & Go-faithful; slice transformers subslice/append are out of
 scope; the aggregate make-allocator no-panic cone matches the scalar families) / `GoHeap.slice_bulk_write_surface`
 (the bulk slice ops clear/copy — tag-aware fail-loud guarded in the def; the GATED facts are: PRESERVE
-ValidWorld on the live path (valid_run_slice_clear_h/copy) AND REJECT-WHEN-GUARD-FALSE by failing loud —
+AllocFrontierOk on the live path (valid_run_slice_clear_h/copy) AND REJECT-WHEN-GUARD-FALSE by failing loud —
 slice_clear/copy_rejected (`exists p, run_io = OPanic p w`) fire whenever an impossible shape OR a
 dead/dangling/wrong-tag cell makes the guard false, with _bad_shape_ corollaries pinning the impossible len>cap
 shape for clear, copy's DST, and copy's SRC. So a shape-malformed / dangling / wrong-tag slice cannot silently
-succeed, and the live path stays ValidWorld; the per-cell writes are tag-aware BY CONSTRUCTION (no
+succeed, and the live path stays AllocFrontierOk; the per-cell writes are tag-aware BY CONSTRUCTION (no
 fabricate/retype — a def property, not a separate gated theorem). ⚠ rejects malformed/dangling/wrong-tag, NOT
 every forged handle — a same-tag alias over a live backing passes (typed liveness, not provenance)) /
 `GoHeap.live_handle_surface`
@@ -172,7 +172,7 @@ one canonical typed-liveness interface over the per-family checks; allocators pr
 = WELL-FORMED shape (sh_len<=sh_cap) + whole [0,cap) backing live, with LiveSlice_index_live the payoff (an
 in-len index has a live typed cell — the theorem a len>cap forged header breaks, so the shape conjunct is
 load-bearing), LiveStruct = NON-NIL pointer with every field live; BOTH slice makes produce LiveSlice,
-gsptr_new (under ValidWorld) produces LiveStruct, and gsptr_assign_live WIRES LiveStruct into the
+gsptr_new (under AllocFrontierOk) produces LiveStruct, and gsptr_assign_live WIRES LiveStruct into the
 whole-struct semantics — a live struct's assign returns, BOTH conjuncts consumed. gsptr_deref/gsptr_assign
 NIL-GUARD on a zero base (rt_nil_deref) like the scalar Ptr ops and Go's `*p`, so even a zero-field struct's
 nil deref FAILS LOUD — never claimed safe. LiveSlice bolts on NO base guard (a nil slice is a valid empty Go

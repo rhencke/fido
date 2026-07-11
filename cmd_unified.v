@@ -41,7 +41,7 @@ From Fido Require Import preamble concurrency cmd unified.
 From Fido Require Import GoRuntimeTypes.
 From Fido Require Import GoEffects.
 From Fido Require Import GoSlice.
-From Fido Require Import GoHeap.   (* ValidWorld — the CAlloc gate lemmas live where alloc_world meets it *)
+From Fido Require Import GoHeap.   (* AllocFrontierOk — the CAlloc gate lemmas live where alloc_world meets it *)
 From Fido Require Import GoPanic.  (* the channel trio's Go-faithful CLOSED-channel panics (send/close on closed); the would-block markers are NOT faithful — see GoPanic's header *)
 From Fido Require Import GoNumeric.  (* GoI64/TI64 — the closed-recv typed-zero instance obligations *)
 From Stdlib Require Import List Lia.
@@ -942,21 +942,21 @@ End BridgeVal.
     repo-wide by smart-ctor-gate.sh check 6 (token-aware; exact boundary documented at the
     detector); a general Local lemma's audit is membership in a consumer's cone. *)
 (** ---- The CAlloc regression obligations (design v2's gate lemmas): under GoHeap's
-    [ValidWorld] the deterministic allocator is SAFE — the minted location is never 0
+    [AllocFrontierOk] the deterministic allocator is SAFE — the minted location is never 0
     (Go's nil is unreachable from a continuation branching on it), never a clobber of
     an allocated cell, and validity is PRESERVED by [alloc_world] (so the obligations
-    compose down a run).  cmd.v owns [alloc_world], GoHeap owns [ValidWorld]; the
+    compose down a run).  cmd.v owns [alloc_world], GoHeap owns [AllocFrontierOk]; the
     bridge is where the two meet. *)
-Theorem calloc_loc_nonzero : forall w, ValidWorld w -> Nat.eqb (w_next w) 0 = false.
+Theorem calloc_loc_nonzero : forall w, AllocFrontierOk w -> Nat.eqb (w_next w) 0 = false.
 Proof.
   intros w [Hpos _]. destruct (w_next w); [ discriminate Hpos | reflexivity ].
 Qed.
-Theorem calloc_no_clobber : forall w, ValidWorld w -> w_refs w (w_next w) = None.
+Theorem calloc_no_clobber : forall w, AllocFrontierOk w -> w_refs w (w_next w) = None.
 Proof.
   intros w [_ [_ Hbound]].
   exact (proj1 (Hbound (w_next w) (PeanoNat.Nat.leb_refl _))).
 Qed.
-Theorem alloc_world_valid : forall v w, ValidWorld w -> ValidWorld (alloc_world v w).
+Theorem alloc_world_valid : forall v w, AllocFrontierOk w -> AllocFrontierOk (alloc_world v w).
 Proof.
   intros v w [Hpos [Hloc0 Hbound]]. split; [ | split ].
   - reflexivity.

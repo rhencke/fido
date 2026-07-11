@@ -27,7 +27,7 @@ From Fido Require Import GoPanic.
     handle [option] lowering properly. *)
 
 (** The CERTIFIED allocator [map_make_typed] mints a fresh location ([w_next], bumped) AND installs its
-    (empty, typed) cell there — so under [ValidWorld] (which forces [w_next <> 0]) a made map is present AND
+    (empty, typed) cell there — so under [AllocFrontierOk] (which forces [w_next <> 0]) a made map is present AND
     type-correct ([map_cell_ok_make_typed]).  ([map_empty] is the nil map, a fixed [MkMap 0] handle on which [map_set] panics.)
     The map CONTENTS live in the concrete [w_maps] heap, where [map_sel]/[map_upd] are DEFINITIONS and the map
     laws are THEOREMS.  Lowered by name ([make(map[K]V)] / nil), the bodies are proof-only. *)
@@ -96,7 +96,7 @@ Definition map_get_fn {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
 (** [gm_present m w] — is [m]'s cell ALLOCATED?  FALSE for the nil sentinel ([gm_loc = 0]) AND for a nonzero
     ABSENT location (a forged / dangling handle whose [w_maps] cell is [None]).  The map WRITE root ([map_write])
     UPDATES only a present cell — an unallocated handle never fabricates one — and the write IO ops fail loud /
-    no-op on it.  ([map_make_typed] installs a cell, so a [ValidWorld]-made map is present AND type-correct
+    no-op on it.  ([map_make_typed] installs a cell, so a [AllocFrontierOk]-made map is present AND type-correct
     [map_cell_ok_make_typed]; it is the ONLY NAMED map allocator — but a forged cell-less handle is still
     constructible via [MkMap], and it is the [map_cell_ok] guard, not the absence of a named allocator, that
     makes such a handle inert.)

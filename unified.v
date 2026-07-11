@@ -119,7 +119,7 @@ Inductive ustep : UConfig -> UConfig -> Prop :=
   (* ---- ALLOCATION: deterministic — at EXACTLY the allocator pointer, then bump.
          Allocation IS a write ([KWrite nx] — it participates in the race substrate);
          the continuation receives the location.  Freshness/no-clobber are THEOREMS
-         under the bridge's ValidWorld-mirrored start, never facts of this rule. *)
+         under the bridge's AllocFrontierOk-mirrored start, never facts of this rule. *)
   | ustep_alloc : forall p b h lv tr o df pa nx tid v f,
       lv tid = true -> p tid = UAlloc v f ->
       ustep (mkUCfg p b h lv tr o df pa nx)

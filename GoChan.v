@@ -81,7 +81,7 @@ Definition make_chan_buf {A : Type} (tag : GoTypeTag A) (n : GoInt) : IO (GoChan
     [chan_closed] needs no tag (it reads the bool directly). *)
 (** The channel STATE accessors treat the NIL sentinel ([ch_loc = 0]) as having NO cell: a nil channel
     reads as canonically EMPTY / OPEN / no-capacity, and NEVER trusts whatever [w_chans 0] happens to hold.
-    [ValidWorld] reserves location 0, but the public [mkWorld]/[MkChan] constructors could FORGE a cell
+    [AllocFrontierOk] reserves location 0, but the public [mkWorld]/[MkChan] constructors could FORGE a cell
     there; the guard makes a forged loc-0 cell UNOBSERVABLE.  So a nil channel is canonically NEVER-READY
     (empty + open): [recv]/[send] FAIL LOUD (Go blocks forever), and a [select] case on a nil channel NEVER
     FIRES — the other cases or a [default] run instead, and a select blocks (fails loud) only when EVERY case
@@ -785,10 +785,10 @@ Qed.
     current bug, [OBlock] under the scheduler split) — Go blocks pending a receiver — rather than silently
     over-appending.
     (The capacity-faithfulness witness [make_chan_buf_caps], and the fresh-handle-is-non-nil witness
-    [make_chan_nonzero], live in [GoHeap.v] where [ValidWorld] FORCES the allocator's [w_next <> 0]
+    [make_chan_nonzero], live in [GoHeap.v] where [AllocFrontierOk] FORCES the allocator's [w_next <> 0]
     — the honest home for allocation reasoning, alongside [ref_new_loc_nonzero]/[ptr_new_nonzero]/
     [map_make_typed_nonzero] (the full ref/ptr/chan/map allocator-nonzero family, each premised on
-    [ValidWorld]).) *)
+    [AllocFrontierOk]).) *)
 Lemma make_chan_unbuffered_send_blocks : forall {A} (tag : GoTypeTag A) (v : A) (w : World) ch w',
   run_io (make_chan tag) w = ORet ch w' -> exists p, run_io (send tag ch v) w' = OPanic p w'.
 Proof.
@@ -801,7 +801,7 @@ Proof.
 Qed.
 (** FAIL-LOUD witness: [make(chan T, n)] with a NEGATIVE runtime size PANICS ([rt_makechan_size]) — the
     model never silently clamps a negative capacity to 0.  (Positive [n]: [make_chan_buf_caps] in [GoHeap.v]
-    witnesses the stored capacity is EXACTLY [Z.to_nat (intraw n)], forced by [ValidWorld].) *)
+    witnesses the stored capacity is EXACTLY [Z.to_nat (intraw n)], forced by [AllocFrontierOk].) *)
 Lemma make_chan_buf_neg_panics : forall {A} (tag : GoTypeTag A) (n : GoInt) (w : World),
   (intraw n < 0)%Z -> run_io (make_chan_buf tag n) w = OPanic rt_makechan_size w.
 Proof.

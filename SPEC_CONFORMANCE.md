@@ -141,7 +141,7 @@ to the CFG; control-flow coverage is demo-by-demo, golden-locked).
   `ref_sel_upd_same`/`ref_get_set_same` — gated in `GoHeap.ref_addr_of_surface`, which also gates the
   address-of read/write/aliasing theorems below); address-of `&x` end-to-end (`ref_as_ptr`,
   `ref_as_ptr_not_nil`: `&x` of an allocated local (`r_loc<>0`, which `ref_new` gives ONLY in a well-formed
-  world — `ref_new_loc_nonzero`, the ref analogue of `ptr_new_nonzero`, both premised on `ValidWorld`) is
+  world — `ref_new_loc_nonzero`, the ref analogue of `ptr_new_nonzero`, both premised on `AllocFrontierOk`) is
   NON-NIL end-to-end (`ref_new_addr_nonnil`). NON-NIL is NOT safe-deref: a non-nil `&x` to an absent/wrong-tag
   cell still FAILS LOUD, so panic-free read/write ALSO require the live cell (`ref_sel_opt = Some`, which
   `ref_new` establishes — `ref_new_reads`) — a SEPARATE premise the non-nil lemmas do not prove. The PROVEN

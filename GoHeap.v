@@ -1,6 +1,6 @@
 (** ==================================================================================================
     GoHeap — the world's REF HEAP as Go's mutable memory: mutable local variables ([Ref]/[ref_new]/
-    [ref_get]/[ref_set]), the [ValidWorld] allocation-freshness invariant (location 0 IS Go's nil,
+    [ref_get]/[ref_set]), the [AllocFrontierOk] allocation-freshness invariant (location 0 IS Go's nil,
     freshness/disjointness are THEOREMS), pointers ([Ptr]/[ptr_new]/[ptr_get]/[ptr_set]) and the
     address-of operator ([&x]), the CLOSED-WORLD nil-safety proofs (modeled nil panics are UNREACHABLE
     for allocated handles), slices as ALIASING HANDLES ([SliceH]: shared backing cells, [subslice] —
@@ -109,7 +109,7 @@ Qed.
     handle and a WRONG-TAG alias ([ref_upd_wrong_tag_noop] — [tag_coerce] fails).  ⚠ NIL is subtler: unlike
     [chan_buf] / [map_get_fn], [ref_sel_opt] carries NO loc-0 guard, so in an arbitrary public-[mkWorld] world a
     forged loc-0 cell of the MATCHING tag would read live and be written; the NIL-ref seal therefore relies on
-    [WorldOk] ([ValidWorld] forces [w_refs w 0 = None] — [ref_upd_nil_noop_valid]), NOT on the [ref_upd] guard
+    [WorldOk] ([AllocFrontierOk] forces [w_refs w 0 = None] — [ref_upd_nil_noop_valid]), NOT on the [ref_upd] guard
     alone.  So a forged [Ref] (constructible via the public [mkRef]) can no longer FABRICATE a cell at an
     unallocated location NOR RETYPE an aliased cell of another type through the raw write.  The seal is the
     GUARD (+ [WorldOk] for loc-0): a WRONG-TAG or ABSENT/dangling forged handle is representable but INERT.
@@ -172,11 +172,11 @@ Definition ref_new {A : Type} (tag : GoTypeTag A) (v : A) : IO (Ref A) :=
                                    else w_refs w k)
                          (w_chans w) (w_maps w) (S l) (w_output w)).
 
-(** ---- [ValidWorld]: allocation freshness as a MACHINE-CHECKED invariant ----
+(** ---- [AllocFrontierOk]: allocation freshness as a MACHINE-CHECKED invariant ----
 
     Every allocator ([map_make_typed]/[make_chan]/[ref_new]) mints [l := w_next w] and bumps
     [w_next] to [l+1].  For "fresh" / "nonzero" / "disjoint" to be THEOREMS rather than comments we carry an
-    invariant [ValidWorld]: the allocator pointer is positive (so location 0 is RESERVED — it is Go's [nil]),
+    invariant [AllocFrontierOk]: the allocator pointer is positive (so location 0 is RESERVED — it is Go's [nil]),
     location 0 is EMPTY in all three heaps (the WorldOk property — no forged cell can hide at [nil]), AND it
     bounds the live region (every heap is [None] at and above [w_next]).  Three payoffs follow from the
     invariant ALONE (no side conditions): the next location is nonzero ([valid_fresh_nonzero] — a fresh
@@ -184,14 +184,19 @@ Definition ref_new {A : Type} (tag : GoTypeTag A) (v : A) : IO (Ref A) :=
     fresh allocation overwrites nothing), and location 0 is empty ([valid_loc0_empty] — the accessors' loc-0
     read guards are provably redundant on the certified path).  The invariant holds at the initial world
     ([valid_w_init]) and is PRESERVED by every allocator ([valid_alloc_*]) UNCONDITIONALLY — allocators write
-    at the nonzero [w_next], so loc 0 stays empty and [nat] locations never overflow. *)
-Definition ValidWorld (w : World) : Prop :=
+    at the nonzero [w_next], so loc 0 stays empty and [nat] locations never overflow.
+    ⚠ NAMING (checkpoint-61, renamed from [ValidWorld]): this predicate proves ONLY the allocation-frontier
+    facts above — NOT complete semantic world validity (no object-representation invariants, no
+    value-well-typedness).  The real [WorldWellFormed Σ w := AllocFrontierOk w /\ WorldRealizes Σ w /\ rep
+    invariants] awaits the StoreTyping authority (plans/result-control-split.md order #4); do not read this
+    name as more than a frontier guard. *)
+Definition AllocFrontierOk (w : World) : Prop :=
   (0 <? w_next w)%nat = true /\
   (w_refs w 0 = None /\ w_chans w 0 = None /\ w_maps w 0 = None) /\   (* WorldOk: loc 0 (Go's [nil]) empty in ALL heaps *)
   (forall l, (w_next w <=? l)%nat = true ->
      w_refs w l = None /\ w_chans w l = None /\ w_maps w l = None).
 
-Lemma valid_w_init : ValidWorld w_init.
+Lemma valid_w_init : AllocFrontierOk w_init.
 Proof.
   split; [ | split ].
   - now vm_compute.
@@ -200,34 +205,34 @@ Proof.
 Qed.
 
 (** PAYOFF 1: the freshly minted location [w_next w] is nonzero — a fresh pointer/chan/map is never [nil]. *)
-Lemma valid_fresh_nonzero : forall w, ValidWorld w -> (0 <? w_next w)%nat = true.
+Lemma valid_fresh_nonzero : forall w, AllocFrontierOk w -> (0 <? w_next w)%nat = true.
 Proof. intros w [Hpos _]. exact Hpos. Qed.
 
 (** PAYOFF 2: the freshly minted location is currently unallocated in ALL three heaps — so installing a
     cell there (what every allocator does) overwrites nothing; allocations never alias a live object. *)
-Lemma valid_fresh_disjoint : forall w, ValidWorld w ->
+Lemma valid_fresh_disjoint : forall w, AllocFrontierOk w ->
   w_refs w (w_next w) = None /\ w_chans w (w_next w) = None /\ w_maps w (w_next w) = None.
 Proof.
   intros w [_ [_ Hfresh]]. apply Hfresh. apply Nat.leb_le. lia.
 Qed.
 
-(** PAYOFF 3 (WorldOk): location 0 — Go's [nil] — is empty in ALL three heaps.  So a [ValidWorld] cannot
+(** PAYOFF 3 (WorldOk): location 0 — Go's [nil] — is empty in ALL three heaps.  So a [AllocFrontierOk] cannot
     carry a forged cell at the reserved nil location.  For the accessors that DO carry a loc-0 read guard
     ([chan_buf] / [map_get_fn] / [ptr_get]/[ptr_set]) this makes the guard provably redundant on the certified
     path (it remains for the open-world / public-[mkWorld] case).  For [ref_sel_opt], which has NO loc-0 guard,
     [WorldOk] is instead LOAD-BEARING: it is the sole reason a NIL [Ref] cannot alias a forged loc-0 cell
     ([ref_upd_nil_noop_valid]). *)
-Lemma valid_loc0_empty : forall w, ValidWorld w ->
+Lemma valid_loc0_empty : forall w, AllocFrontierOk w ->
   w_refs w 0 = None /\ w_chans w 0 = None /\ w_maps w 0 = None.
 Proof. intros w [_ [Hloc0 _]]. exact Hloc0. Qed.
 
 (** NIL-REF ANTI-FORGERY under [WorldOk]: since [ref_sel_opt] has no loc-0 guard (unlike [chan_buf] /
-    [map_get_fn]), the nil-ref seal needs the invariant — [ValidWorld] forces [w_refs w 0 = None]
+    [map_get_fn]), the nil-ref seal needs the invariant — [AllocFrontierOk] forces [w_refs w 0 = None]
     ([valid_loc0_empty]), so a NIL [Ref] ([r_loc = 0]) reads [ref_sel_opt = None] and [ref_upd] is the IDENTITY.
     (In an arbitrary forged [mkWorld] a loc-0 cell of the MATCHING tag is representable and WOULD be written;
     [WorldOk] excludes it from every reachable world.) *)
 Lemma ref_upd_nil_noop_valid : forall {A} (r : Ref A) (v : A) (w : World),
-  ValidWorld w -> r_loc r = 0 -> ref_upd r v w = w.
+  AllocFrontierOk w -> r_loc r = 0 -> ref_upd r v w = w.
 Proof.
   intros A r v w HV Hnil. apply ref_upd_dead_noop.
   unfold ref_sel_opt. rewrite Hnil.
@@ -262,11 +267,11 @@ Proof.
   intros w l' Hle. apply Nat.leb_le in Hle. apply Nat.eqb_neq. lia.
 Qed.
 
-(** PRESERVATION: each allocator carries [ValidWorld] to the post-allocation world (unconditionally —
+(** PRESERVATION: each allocator carries [AllocFrontierOk] to the post-allocation world (unconditionally —
     [nat] locations never overflow, so no [HasRoom] side condition). *)
 Lemma valid_alloc_ref : forall {A} (tag : GoTypeTag A) (v : A) (w : World),
-  ValidWorld w ->
-  ValidWorld (mkWorld
+  AllocFrontierOk w ->
+  AllocFrontierOk (mkWorld
     (fun k => if Nat.eqb k (w_next w) then Some (existT _ A (tag, v)) else w_refs w k)
     (w_chans w) (w_maps w) (S (w_next w)) (w_output w)).
 Proof.
@@ -283,8 +288,8 @@ Proof.
 Qed.
 
 Lemma valid_alloc_chan : forall {A} (tag : GoTypeTag A) (cap : option nat) (w : World),
-  ValidWorld w ->
-  ValidWorld (mkWorld (w_refs w)
+  AllocFrontierOk w ->
+  AllocFrontierOk (mkWorld (w_refs w)
     (fun k => if Nat.eqb k (w_next w) then Some (existT _ A (tag, (nil, (false, cap)))) else w_chans w k)
     (w_maps w) (S (w_next w)) (w_output w)).
 Proof.
@@ -301,8 +306,8 @@ Proof.
 Qed.
 
 Lemma valid_alloc_map_typed : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (w : World),
-  ValidWorld w ->
-  ValidWorld (mkWorld (w_refs w) (w_chans w)
+  AllocFrontierOk w ->
+  AllocFrontierOk (mkWorld (w_refs w) (w_chans w)
     (fun k => if Nat.eqb k (w_next w)
               then Some (0, existT _ K (kt, existT _ V (vt, fun _ => None))) else w_maps w k)
     (S (w_next w)) (w_output w)).
@@ -323,7 +328,7 @@ Qed.
     the same-or-larger frontier keeps loc 0 empty and shrinks the "fresh" region.  The multi-cell allocators
     ([gsptr_new]'s [wr_fields], the slice makes) reserve a block this way, then fill it. *)
 Lemma valid_bump : forall (w : World) (n : nat),
-  ValidWorld w -> ValidWorld (mkWorld (w_refs w) (w_chans w) (w_maps w) (w_next w + n) (w_output w)).
+  AllocFrontierOk w -> AllocFrontierOk (mkWorld (w_refs w) (w_chans w) (w_maps w) (w_next w + n) (w_output w)).
 Proof.
   intros w n [Hpos [Hloc0 Hfresh]]. split; [ | split ].
   - cbn [w_next]. apply Nat.ltb_lt. apply Nat.ltb_lt in Hpos. lia.
@@ -336,7 +341,7 @@ Qed.
     (Go's nil) nor a fresh location [>= w_next], and [ref_install] leaves [w_next] and the chan/map heaps
     untouched.  This is the per-cell step the multi-cell struct allocator repeats. *)
 Lemma valid_ref_install_interior : forall {A} (r : Ref A) (v : A) (w : World),
-  ValidWorld w -> (0 < r_loc r)%nat -> (r_loc r < w_next w)%nat -> ValidWorld (ref_install r v w).
+  AllocFrontierOk w -> (0 < r_loc r)%nat -> (r_loc r < w_next w)%nat -> AllocFrontierOk (ref_install r v w).
 Proof.
   intros A r v w [Hpos [Hloc0 Hfresh]] Hlo Hhi. unfold ref_install. split; [ | split ].
   - cbn [w_next]. exact Hpos.
@@ -348,10 +353,10 @@ Proof.
     rewrite Hne. exact (Hfresh l Hle).
 Qed.
 
-(** A LIVE cell is INTERIOR — under [ValidWorld] a handle that reads [Some] sits at [0 < loc < w_next]: loc 0
+(** A LIVE cell is INTERIOR — under [AllocFrontierOk] a handle that reads [Some] sits at [0 < loc < w_next]: loc 0
     (Go's nil) and every fresh location are empty, so a readable cell is neither. *)
 Lemma valid_live_interior : forall {A} (r : Ref A) (a : A) (w : World),
-  ValidWorld w -> ref_sel_opt r w = Some a -> (0 < r_loc r)%nat /\ (r_loc r < w_next w)%nat.
+  AllocFrontierOk w -> ref_sel_opt r w = Some a -> (0 < r_loc r)%nat /\ (r_loc r < w_next w)%nat.
 Proof.
   intros A r a w [Hpos [[Hr0 _] Hfresh]] Hs. unfold ref_sel_opt in Hs.
   destruct (w_refs w (r_loc r)) as [c|] eqn:Hw; [ | discriminate Hs ]. split.
@@ -361,25 +366,25 @@ Proof.
     rewrite Hrn in Hw; discriminate Hw.
 Qed.
 
-(** [ref_upd] preserves [ValidWorld] UNCONDITIONALLY — it is guarded (a no-op on a non-live handle, so it never
+(** [ref_upd] preserves [AllocFrontierOk] UNCONDITIONALLY — it is guarded (a no-op on a non-live handle, so it never
     fabricates a cell at loc 0 or a fresh location) and leaves [w_next] fixed; on a live handle the target is
     interior ([valid_live_interior]).  This covers every in-place write ([ref_set]/[ptr_set]/append-in-cap). *)
 Lemma valid_ref_upd : forall {A} (r : Ref A) (v : A) (w : World),
-  ValidWorld w -> ValidWorld (ref_upd r v w).
+  AllocFrontierOk w -> AllocFrontierOk (ref_upd r v w).
 Proof.
   intros A r v w HV. unfold ref_upd. destruct (ref_sel_opt r w) as [a|] eqn:Hs; [ | exact HV ].
   destruct (valid_live_interior r a w HV Hs) as [Hlo Hhi].
   exact (valid_ref_install_interior r v w HV Hlo Hhi).
 Qed.
 
-(** A bulk ref-heap rewrite preserves [ValidWorld] as long as it never turns an EMPTY cell into a live one —
+(** A bulk ref-heap rewrite preserves [AllocFrontierOk] as long as it never turns an EMPTY cell into a live one —
     i.e. it agrees with the old heap ([= None]) wherever the old heap was [None].  Loc 0 and every fresh
     location are [None] in a valid world, so such a rewrite cannot fabricate a cell there.  This is the
-    ValidWorld obligation for the GUARDED bulk slice writes ([slice_clear_h]/[slice_copy]): each only rewrites a
+    AllocFrontierOk obligation for the GUARDED bulk slice writes ([slice_clear_h]/[slice_copy]): each only rewrites a
     cell it read LIVE, so an absent cell stays [None]. *)
 Lemma valid_guarded_refs : forall (newrefs : RefHeap) (w : World),
-  ValidWorld w -> (forall k, w_refs w k = None -> newrefs k = None) ->
-  ValidWorld (mkWorld newrefs (w_chans w) (w_maps w) (w_next w) (w_output w)).
+  AllocFrontierOk w -> (forall k, w_refs w k = None -> newrefs k = None) ->
+  AllocFrontierOk (mkWorld newrefs (w_chans w) (w_maps w) (w_next w) (w_output w)).
 Proof.
   intros newrefs w [Hpos [[Hr0 [Hc0 Hm0]] Hfresh]] Hkeep. split; [ | split ].
   - cbn [w_next]. exact Hpos.
@@ -394,8 +399,8 @@ Qed.
     every fresh location [>= w_next w + cp] is above it, and only those out-of-range cells matter to the
     invariant. *)
 Lemma valid_alloc_range : forall (g : RefHeap) (cp : nat) (w : World),
-  ValidWorld w ->
-  ValidWorld (mkWorld
+  AllocFrontierOk w ->
+  AllocFrontierOk (mkWorld
     (fun k => if (Nat.leb (w_next w) k && Nat.ltb k (w_next w + cp))%bool then g k else w_refs w k)
     (w_chans w) (w_maps w) (w_next w + cp) (w_output w)).
 Proof.
@@ -410,7 +415,7 @@ Proof.
     destruct (Nat.leb (w_next w) l); repeat split; assumption.
 Qed.
 
-(** ValidWorld is preserved by every op that BUMPS [w_next] — proven BY NAME: the single-cell allocators
+(** AllocFrontierOk is preserved by every op that BUMPS [w_next] — proven BY NAME: the single-cell allocators
     [valid_run_ref_new] / [valid_run_ptr_new] / [valid_run_make_chan] / [valid_run_make_chan_buf] /
     [valid_run_map_typed], the multi-cell allocators [valid_run_slice_make_lc] / [valid_run_slice_make_h] /
     [valid_run_gsptr_new], and [valid_run_slice_append] ([append] is not an allocator, but its realloc branch
@@ -418,27 +423,27 @@ Qed.
     in-place REF-heap writes — every [ref_set] / [ptr_set] / [slice_idx_set] / append-in-cap funnels through the
     guarded [ref_upd] ([valid_ref_upd]) — and by the bulk slice writes [slice_clear_h] / [slice_copy] (guarded
     per cell, [valid_run_slice_clear_h] / [valid_run_slice_copy]).  With [valid_w_init], a program of allocations
-    and these ref/slice writes keeps ValidWorld at every step, so [valid_fresh_nonzero] / [valid_fresh_disjoint]
+    and these ref/slice writes keeps AllocFrontierOk at every step, so [valid_fresh_nonzero] / [valid_fresh_disjoint]
     apply at each allocation — which [ptr_new_nonzero] / [make_chan_nonzero] / [gsptr_new_live] &c. need for
     their nonzero location/base.  SCOPE: the MAP-heap and CHAN-heap edits ([map_set]/[send]/… ) touch their own
-    heaps under their own guards; their ValidWorld preservation is the analogous per-heap fact, proven beside
+    heaps under their own guards; their AllocFrontierOk preservation is the analogous per-heap fact, proven beside
     those ops if a chain ever needs it — NOT asserted by this ref/slice cone. *)
 Corollary valid_run_ref_new : forall {A} (tag : GoTypeTag A) (v : A) (w : World) r w',
-  ValidWorld w -> run_io (ref_new tag v) w = ORet r w' -> ValidWorld w'.
+  AllocFrontierOk w -> run_io (ref_new tag v) w = ORet r w' -> AllocFrontierOk w'.
 Proof.
   intros A tag v w r w' HV Hrun. unfold run_io, ref_new in Hrun. cbv zeta in Hrun.
   injection Hrun as _ Hw. subst w'. apply valid_alloc_ref; assumption.
 Qed.
 
 Corollary valid_run_make_chan : forall {A} (tag : GoTypeTag A) (w : World) r w',
-  ValidWorld w -> run_io (make_chan tag) w = ORet r w' -> ValidWorld w'.
+  AllocFrontierOk w -> run_io (make_chan tag) w = ORet r w' -> AllocFrontierOk w'.
 Proof.
   intros A tag w r w' HV Hrun. unfold run_io, make_chan, make_chan_cap in Hrun. cbv zeta in Hrun.
   injection Hrun as _ Hw. subst w'. apply valid_alloc_chan; assumption.
 Qed.
 
 Corollary valid_run_make_chan_buf : forall {A} (tag : GoTypeTag A) (n : GoInt) (w : World) r w',
-  ValidWorld w -> run_io (make_chan_buf tag n) w = ORet r w' -> ValidWorld w'.
+  AllocFrontierOk w -> run_io (make_chan_buf tag n) w = ORet r w' -> AllocFrontierOk w'.
 Proof.
   intros A tag n w r w' HV Hrun. unfold run_io, make_chan_buf in Hrun.
   destruct (intraw n <? 0)%Z eqn:Hn; [ discriminate Hrun | ].
@@ -447,7 +452,7 @@ Proof.
 Qed.
 
 Corollary valid_run_map_typed : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (w : World) r w',
-  ValidWorld w -> run_io (map_make_typed kt vt) w = ORet r w' -> ValidWorld w'.
+  AllocFrontierOk w -> run_io (map_make_typed kt vt) w = ORet r w' -> AllocFrontierOk w'.
 Proof.
   intros K V kt vt w r w' HV Hrun. unfold run_io, map_make_typed in Hrun. cbv zeta in Hrun.
   injection Hrun as _ Hw. subst w'. apply valid_alloc_map_typed; assumption.
@@ -610,7 +615,7 @@ Definition go_new {A} (tag : GoTypeTag A) : IO (Ptr A) := ptr_new tag (zero_val 
 (** [ptr_get tag p] = [*p] (deref read); [ptr_set tag p v] = [*p = v] (deref write).  Both take the
     pointee tag explicitly (the tag-free handle does not carry it). *)
 (** The RAW deref/assign PANIC on a nil pointer, faithful to Go's [*p] / [*p = v].  The
-    nil sentinel is location 0, which [ValidWorld] RESERVES (no allocation ever returns it),
+    nil sentinel is location 0, which [AllocFrontierOk] RESERVES (no allocation ever returns it),
     so the [eqb (p_loc p) 0] guard exactly separates "live cell" from "nil".  These are the
     catch-able escape hatches (rule 4); [ptr_get_ok] is the safe-by-construction comma-ok form. *)
 (** [ptr_get] panics on a NIL pointer AND on a DANGLING one — a non-nil but
@@ -683,7 +688,7 @@ Qed.
     Taking the address of a local variable [x] (a [Ref A]) yields a [*T] ([Ptr A]) aliasing x's cell.
     A [Ref] and a [Ptr] share the SAME [w_refs] heap (a [Ref] is a Go local, a [Ptr] its `*T` handle), so
     [&x] is simply the [Ref]'s location wrapped as a (tag-free) [Ptr] — [ptr_as_ref]'s inverse.  KEY SAFETY
-    PROPERTY (CONDITIONAL, not blanket): a local allocated by [ref_new] IN A WELL-FORMED WORLD ([ValidWorld
+    PROPERTY (CONDITIONAL, not blanket): a local allocated by [ref_new] IN A WELL-FORMED WORLD ([AllocFrontierOk
     w], so [w_next w <> 0]) lives at a NONZERO location ([ref_new_loc_nonzero]), so for such an [x] ([r_loc r
     <> 0]) [&x] is NON-NIL ([ref_as_ptr_not_nil] / [ref_new_addr_nonnil], below).  ⚠ NON-NIL IS NOT YET
     SAFE-DEREF: a non-nil [&x] whose cell is ABSENT/wrong-tag ([ref_sel_opt = None]) still FAILS LOUD
@@ -694,7 +699,7 @@ Qed.
     analogue of [ptr_alloc_assign_no_panic]), chaining allocation → both premises → no panic.  This is NOT intrinsic
     to [ref_as_ptr] NOR to [ref_new]: [Ref] is a public record, so the forgeable [mkRef 0] is a representable
     nil ref whose [&] is a nil [Ptr]; and on a malformed [w] ([w_next w = 0]) even [ref_new] would mint a nil
-    ref.  The nonzero-location premise is a HYPOTHESIS (discharged by [ref_new] UNDER [ValidWorld], NOT by an
+    ref.  The nonzero-location premise is a HYPOTHESIS (discharged by [ref_new] UNDER [AllocFrontierOk], NOT by an
     arbitrary [Ref]).  Read/write THROUGH [&x] alias [x] — the defining pointer behaviour — inherited from the
     shared heap, no new axiom. *)
 Definition ref_as_ptr {A} (r : Ref A) : Ptr A := mkPtr (r_loc r).
@@ -708,7 +713,7 @@ Lemma ptr_as_ref_of_ref_as_ptr : forall {A} (r : Ref A),
 Proof. intros A [l tag]. reflexivity. Qed.
 
 (* [&x] of an ALLOCATED local ([r_loc r <> 0] — the premise, which [ref_new]'s result satisfies UNDER
-   [ValidWorld], via [ref_new_loc_nonzero] below) yields a NON-NIL pointer.  (NON-NIL ONLY — this lemma does
+   [AllocFrontierOk], via [ref_new_loc_nonzero] below) yields a NON-NIL pointer.  (NON-NIL ONLY — this lemma does
    NOT prove safe-deref; a panic-free deref additionally needs the live cell, proven end-to-end by
    [ref_alloc_addr_read_no_panic]/[ref_alloc_addr_write_no_panic] below.)  (Not ALL [Ref]s are nonzero: the
    public [mkRef 0] is a nil ref, so [r_loc r <> 0] is a HYPOTHESIS, not a blanket fact.) *)
@@ -717,12 +722,12 @@ Lemma ref_as_ptr_not_nil : forall {A} (r : Ref A),
 Proof. intros A r Hnz. rewrite ref_as_ptr_loc. exact Hnz. Qed.
 
 (* The [ref_new] analogue of [ptr_new_nonzero]: an ALLOCATED local's location is nonzero — but ONLY under
-   [ValidWorld w].  [ref_new] mints [l := w_next w]; that is nonzero exactly when the world is well-formed
-   ([valid_fresh_nonzero]).  So "[ref_new] gives [r_loc <> 0]" is CONDITIONAL on [ValidWorld], NOT a bare
+   [AllocFrontierOk w].  [ref_new] mints [l := w_next w]; that is nonzero exactly when the world is well-formed
+   ([valid_fresh_nonzero]).  So "[ref_new] gives [r_loc <> 0]" is CONDITIONAL on [AllocFrontierOk], NOT a bare
    fact: on a malformed [w] with [w_next w = 0], [ref_new] would return a nil [Ref].  This is the theorem the
    address-of prose leans on; state its premise. *)
 Lemma ref_new_loc_nonzero : forall {A} (tag : GoTypeTag A) (v : A) (w : World) r w',
-  ValidWorld w -> run_io (ref_new tag v) w = ORet r w' -> r_loc r <> 0.
+  AllocFrontierOk w -> run_io (ref_new tag v) w = ORet r w' -> r_loc r <> 0.
 Proof.
   intros A tag v w r w' HV Hrun. unfold run_io, ref_new in Hrun. cbv zeta in Hrun.
   injection Hrun as Hr _. subst r. cbn [r_loc].
@@ -730,14 +735,14 @@ Proof.
 Qed.
 
 (* CLOSED-WORLD end-to-end: [&x] of a FRESHLY allocated local is NON-NIL — chains [ref_new_loc_nonzero] into
-   [ref_as_ptr_not_nil].  Needs [ValidWorld w] (the honest premise the informal "&x is never nil" prose
+   [ref_as_ptr_not_nil].  Needs [AllocFrontierOk w] (the honest premise the informal "&x is never nil" prose
    dropped).  This is a NON-NIL theorem (the ref counterpart of [ptr_new_nonzero]), NOT a no-panic one:
    panic-free read/write THROUGH [&x] additionally needs the live cell ([ref_sel_opt = Some], via
    [ptr_get_ref_as_ptr]/[ptr_set_ref_as_ptr]), proven END-TO-END by [ref_alloc_addr_read_no_panic]/
    [ref_alloc_addr_write_no_panic] below (the ref analogue of [ptr_alloc_assign_no_panic]).  The guarantee is
    a theorem OFF the invariant, never intrinsic to the public [Ref]/[Ptr] record. *)
 Corollary ref_new_addr_nonnil : forall {A} (tag : GoTypeTag A) (v : A) (w : World) r w',
-  ValidWorld w -> run_io (ref_new tag v) w = ORet r w' -> p_loc (ref_as_ptr r) <> 0.
+  AllocFrontierOk w -> run_io (ref_new tag v) w = ORet r w' -> p_loc (ref_as_ptr r) <> 0.
 Proof.
   intros A tag v w r w' HV Hrun.
   apply ref_as_ptr_not_nil. exact (ref_new_loc_nonzero tag v w r w' HV Hrun).
@@ -746,7 +751,7 @@ Qed.
 (* The [ref_new] analogue of [ptr_new_reads]: a freshly allocated local has a LIVE, correctly-typed cell
    ([ref_sel_opt r w' = Some v]) — [ref_new] installs [Some (existT _ A (tag, v))] at [w_next w].  This is the
    SECOND premise (beside nonzero-location) that the panic-free deref theorems below need; UNCONDITIONAL (no
-   [ValidWorld] — installation is intrinsic to [ref_new], location freshness is what needs the invariant). *)
+   [AllocFrontierOk] — installation is intrinsic to [ref_new], location freshness is what needs the invariant). *)
 Lemma ref_new_reads : forall {A} (tag : GoTypeTag A) (v : A) (w : World) r w',
   run_io (ref_new tag v) w = ORet r w' -> ref_sel_opt r w' = Some v.
 Proof.
@@ -792,10 +797,10 @@ Qed.
 
 (* CLOSED-WORLD SAFE-DEREF (end-to-end, the ref analogue of [ptr_alloc_assign_no_panic]): allocate a local,
    take its address, and read/write THROUGH [&x] — provably NO panic.  These chain BOTH premises the deref
-   lemmas need: nonzero-location ([ref_new_loc_nonzero], under [ValidWorld]) AND live cell ([ref_new_reads],
+   lemmas need: nonzero-location ([ref_new_loc_nonzero], under [AllocFrontierOk]) AND live cell ([ref_new_reads],
    unconditional).  THIS is "safe deref end-to-end" — non-nil ([ref_new_addr_nonnil]) alone is NOT it. *)
 Corollary ref_alloc_addr_read_no_panic : forall {A} (tag : GoTypeTag A) (v : A) (w : World) r w',
-  ValidWorld w -> run_io (ref_new tag v) w = ORet r w' ->
+  AllocFrontierOk w -> run_io (ref_new tag v) w = ORet r w' ->
   run_io (ptr_get (r_tag r) (ref_as_ptr r)) w' = ORet v w'.
 Proof.
   intros A tag v w r w' HV Hrun. apply (ptr_get_ref_as_ptr r v w').
@@ -803,7 +808,7 @@ Proof.
   - exact (ref_new_reads tag v w r w' Hrun).
 Qed.
 Corollary ref_alloc_addr_write_no_panic : forall {A} (tag : GoTypeTag A) (v v' : A) (w : World) r w',
-  ValidWorld w -> run_io (ref_new tag v) w = ORet r w' ->
+  AllocFrontierOk w -> run_io (ref_new tag v) w = ORet r w' ->
   exists w'', run_io (ptr_set (r_tag r) (ref_as_ptr r) v') w' = ORet tt w'' /\ ref_sel r w'' = v'.
 Proof.
   intros A tag v v' w r w' HV Hrun. apply (ptr_set_ref_as_ptr_aliases r v' v w').
@@ -831,15 +836,15 @@ Qed.
 
 (** An ALLOCATED pointer is non-nil (its handle is the pre-bump [w_next], nonzero by [valid_fresh_nonzero]). *)
 Lemma ptr_new_nonzero : forall {A} (tag : GoTypeTag A) (v : A) (w : World) p w',
-  ValidWorld w -> run_io (ptr_new tag v) w = ORet p w' -> Nat.eqb (p_loc p) 0 = false.
+  AllocFrontierOk w -> run_io (ptr_new tag v) w = ORet p w' -> Nat.eqb (p_loc p) 0 = false.
 Proof.
   intros A tag v w p w' HV Hrun. unfold run_io, ptr_new in Hrun. cbv zeta in Hrun.
   injection Hrun as Hp _. subst p. cbn [p_loc]. apply pos_neq0, (valid_fresh_nonzero w HV).
 Qed.
-(** [ptr_new] is in the [ValidWorld] preservation path (its world-shape is the single-cell [valid_alloc_ref]
+(** [ptr_new] is in the [AllocFrontierOk] preservation path (its world-shape is the single-cell [valid_alloc_ref]
     shape) — so a program taking [&x] then allocating again keeps the invariant [ptr_new_nonzero] leans on. *)
 Corollary valid_run_ptr_new : forall {A} (tag : GoTypeTag A) (v : A) (w : World) r w',
-  ValidWorld w -> run_io (ptr_new tag v) w = ORet r w' -> ValidWorld w'.
+  AllocFrontierOk w -> run_io (ptr_new tag v) w = ORet r w' -> AllocFrontierOk w'.
 Proof.
   intros A tag v w r w' HV Hrun. unfold run_io, ptr_new in Hrun. cbv zeta in Hrun.
   injection Hrun as _ Hw. subst w'. apply valid_alloc_ref; assumption.
@@ -870,7 +875,7 @@ Proof. intros A tag p a w Hnn Hpres. rewrite run_ptr_get, Hnn, Hpres. reflexivit
 
 (** CLOSED-WORLD GUARANTEE: allocate a pointer, then assign through it — provably NO panic. *)
 Corollary ptr_alloc_assign_no_panic : forall {A} (tag : GoTypeTag A) (v v' : A) (w : World) p w',
-  ValidWorld w -> run_io (ptr_new tag v) w = ORet p w' ->
+  AllocFrontierOk w -> run_io (ptr_new tag v) w = ORet p w' ->
   exists w'', run_io (ptr_set tag p v') w' = ORet tt w''.
 Proof.
   intros A tag v v' w p w' HV Hrun. eexists.
@@ -882,19 +887,19 @@ Qed.
     [map_set] panicking — a non-nil WRONG-TAG handle still fails [map_cell_ok] and panics; tag-correctness
     ([map_cell_ok_make_typed], below) is what discharges the guard.) *)
 Lemma map_make_typed_nonzero : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (w : World) m w',
-  ValidWorld w -> run_io (map_make_typed kt vt) w = ORet m w' -> Nat.eqb (gm_loc m) 0 = false.
+  AllocFrontierOk w -> run_io (map_make_typed kt vt) w = ORet m w' -> Nat.eqb (gm_loc m) 0 = false.
 Proof.
   intros K V kt vt w m w' HV Hrun. unfold run_io, map_make_typed in Hrun. cbv zeta in Hrun.
   injection Hrun as Hm _. subst m. cbn [gm_loc]. apply pos_neq0, (valid_fresh_nonzero w HV).
 Qed.
 (** A freshly [make(map[K]V)]d map is present AND TYPE-CORRECT: [map_make_typed kt vt] installs a [Some] cell at
-    [w_next w] whose stored tags ARE [kt]/[vt], and [ValidWorld] forces [w_next w <> 0], so
+    [w_next w] whose stored tags ARE [kt]/[vt], and [AllocFrontierOk] forces [w_next w <> 0], so
     [map_cell_ok kt vt m w' = true] (checkpoint-58: the allocator produces the tag-aware evidence the guarded
     map ops demand — [map_set] reaches its real update path, not the fail-loud branch).  DIRECTION: this is
     [map_make_typed ⟹ map_cell_ok] ONLY, NOT provenance — [map_cell_ok] checks nonzero location + cell + tag
     match, so a SAME-TAG forged world satisfies it too; the converse is not claimed. *)
 Lemma map_cell_ok_make_typed : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (w : World) m w',
-  ValidWorld w -> run_io (map_make_typed kt vt) w = ORet m w' -> map_cell_ok kt vt m w' = true.
+  AllocFrontierOk w -> run_io (map_make_typed kt vt) w = ORet m w' -> map_cell_ok kt vt m w' = true.
 Proof.
   intros K V kt vt w m w' HV Hrun. unfold run_io, map_make_typed in Hrun. cbv zeta in Hrun.
   injection Hrun as Hm Hw'. subst m w'. unfold map_cell_ok. cbn [gm_loc].
@@ -904,7 +909,7 @@ Qed.
 
 (** ALLOCATOR EVIDENCE (checkpoint-58, channel dual of [map_cell_ok_make_typed]): a freshly made channel is
     TAG-CORRECT — the allocator installs a [Some (existT _ A (tag, …))] cell at the fresh [w_next] location,
-    and [ValidWorld] forces [w_next <> 0], so [chan_cell_ok tag ch w' = true].  DIRECTION: this proves
+    and [AllocFrontierOk] forces [w_next <> 0], so [chan_cell_ok tag ch w' = true].  DIRECTION: this proves
     [make_chan* ⟹ chan_cell_ok] ONLY.  It is NOT provenance — [chan_cell_ok] checks nonzero location + cell
     presence + tag match, so a SAME-TAG forged world ALSO satisfies it; the converse ([chan_cell_ok ⟹ made by
     an allocator]) does NOT hold and is not claimed.  What a genuine allocation supplies is exactly the
@@ -912,7 +917,7 @@ Qed.
     [chan_alloc_close_no_panic] below discharges it).  (Proved directly per allocator — no capacity helper,
     keeping the fuel/cap ratchet clean.) *)
 Lemma chan_cell_ok_make_chan : forall {A} (tag : GoTypeTag A) (w : World) ch w',
-  ValidWorld w -> run_io (make_chan tag) w = ORet ch w' -> chan_cell_ok tag ch w' = true.
+  AllocFrontierOk w -> run_io (make_chan tag) w = ORet ch w' -> chan_cell_ok tag ch w' = true.
 Proof.
   intros A tag w ch w' HV Hrun. unfold run_io, make_chan, make_chan_cap in Hrun. cbv zeta in Hrun.
   injection Hrun as Hch Hw'. subst ch w'. unfold chan_cell_ok. cbn [ch_loc].
@@ -920,7 +925,7 @@ Proof.
   cbn [w_chans]. rewrite Nat.eqb_refl. cbn. rewrite tag_eq_refl. reflexivity.
 Qed.
 Lemma chan_cell_ok_make_chan_buf : forall {A} (tag : GoTypeTag A) (n : GoInt) (w : World) ch w',
-  ValidWorld w -> run_io (make_chan_buf tag n) w = ORet ch w' -> chan_cell_ok tag ch w' = true.
+  AllocFrontierOk w -> run_io (make_chan_buf tag n) w = ORet ch w' -> chan_cell_ok tag ch w' = true.
 Proof.
   intros A tag n w ch w' HV Hrun. unfold run_io, make_chan_buf in Hrun.
   destruct ((intraw n <? 0)%Z) eqn:Hneg; [ discriminate Hrun | ].
@@ -937,7 +942,7 @@ Lemma map_set_cell_ok : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : 
   run_io (map_set kt vt k v m) w = ORet tt (map_upd kt vt k v m w).
 Proof. intros K V kt vt k v m w Hp. rewrite run_map_set, Hp. reflexivity. Qed.
 Corollary map_alloc_set_no_panic : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (v : V) (w : World) m w',
-  ValidWorld w -> run_io (map_make_typed kt vt) w = ORet m w' ->
+  AllocFrontierOk w -> run_io (map_make_typed kt vt) w = ORet m w' ->
   exists w'', run_io (map_set kt vt k v m) w' = ORet tt w''.
 Proof.
   intros K V kt vt k v w m w' HV Hrun. eexists.
@@ -955,7 +960,7 @@ Qed.
     checkpoint-58 op rebase onto the tag-aware [chan_cell_ok] — [chan_write]/[chan_room]/[send]/[recv]/[close]
     all guard on it; the allocation discharges that guard via [chan_cell_ok_make_chan].) *)
 Lemma make_chan_nonzero : forall {A} (tag : GoTypeTag A) (w : World) ch w',
-  ValidWorld w -> run_io (make_chan tag) w = ORet ch w' -> Nat.eqb (ch_loc ch) 0 = false.
+  AllocFrontierOk w -> run_io (make_chan tag) w = ORet ch w' -> Nat.eqb (ch_loc ch) 0 = false.
 Proof.
   intros A tag w ch w' HV Hrun. unfold run_io, make_chan in Hrun. cbv zeta in Hrun.
   injection Hrun as Hc _. subst ch. cbn [ch_loc]. apply pos_neq0, (valid_fresh_nonzero w HV).
@@ -963,10 +968,10 @@ Qed.
 (** A freshly-[make]d channel is OPEN ([chan_closed = false]): [make_chan_cap] installs the cell with its
     closed-flag [false] ([… (false, cap)]).  This is the fact [close] needs to reach its real closed-flag path
     — and it is PROVABLE from the allocation, NOT a caller premise: this lemma discharges it internally so the
-    no-panic corollary below is a TRUE peer of [ptr_alloc_assign_no_panic] (ValidWorld + alloc result ONLY,
+    no-panic corollary below is a TRUE peer of [ptr_alloc_assign_no_panic] (AllocFrontierOk + alloc result ONLY,
     no leaked [chan_closed] side condition). *)
 Lemma make_chan_open : forall {A} (tag : GoTypeTag A) (w : World) ch w',
-  ValidWorld w -> run_io (make_chan tag) w = ORet ch w' -> chan_closed ch w' = false.
+  AllocFrontierOk w -> run_io (make_chan tag) w = ORet ch w' -> chan_closed ch w' = false.
 Proof.
   intros A tag w ch w' HV Hrun.
   assert (Hnz : Nat.eqb (w_next w) 0 = false) by (apply pos_neq0, (valid_fresh_nonzero w HV)).
@@ -980,7 +985,7 @@ Qed.
     BOTH premises the guarded [close]/[run_close] demand.  No caller side condition: this is the genuine
     channel peer of [ptr_alloc_assign_no_panic] / [map_alloc_set_no_panic]. *)
 Corollary chan_alloc_close_no_panic : forall {A} (tag : GoTypeTag A) (w : World) ch w',
-  ValidWorld w -> run_io (make_chan tag) w = ORet ch w' ->
+  AllocFrontierOk w -> run_io (make_chan tag) w = ORet ch w' ->
   exists w'', run_io (close_chan tag ch) w' = ORet tt w''.
 Proof.
   intros A tag w ch w' HV Hrun. eexists.
@@ -989,9 +994,9 @@ Proof.
 Qed.
 (** CAPACITY FAITHFULNESS: a freshly-made buffered channel stores the requested capacity [Some n].  The
     [w_next <> 0] the read-back needs (now that [chan_cap] reads a nil handle as [None]) is FORCED by
-    [ValidWorld] — the allocator never mints the reserved sentinel — not left as a free side condition. *)
+    [AllocFrontierOk] — the allocator never mints the reserved sentinel — not left as a free side condition. *)
 Lemma make_chan_buf_caps : forall {A} (tag : GoTypeTag A) (n : GoInt) (w : World) ch w',
-  ValidWorld w -> run_io (make_chan_buf tag n) w = ORet ch w' -> chan_cap ch w' = Some (Z.to_nat (intraw n)).
+  AllocFrontierOk w -> run_io (make_chan_buf tag n) w = ORet ch w' -> chan_cap ch w' = Some (Z.to_nat (intraw n)).
 Proof.
   intros A tag n w ch w' HV H.
   assert (Hnz : Nat.eqb (w_next w) 0 = false) by (apply pos_neq0, (valid_fresh_nonzero w HV)).
@@ -1007,7 +1012,7 @@ Qed.
     liveness + panic-free-deref cone for the four SCALAR / single-cell handle families (ptr / ref / map /
     chan), so the [SPEC_CONFORMANCE] "address-of `&x` end-to-end" claim (and the ptr/map/chan analogues it
     leans on) is GATED public evidence, not an ungated internal theorem.  Each family: allocator-mints-nonzero
-    (under [ValidWorld]) + allocator-installs-a-live cell + the end-to-end no-panic corollary chaining BOTH
+    (under [AllocFrontierOk]) + allocator-installs-a-live cell + the end-to-end no-panic corollary chaining BOTH
     premises.  The [Print Assumptions] certifies the whole cone axiom-free.  (The AGGREGATE / multi-cell
     handles — [SliceH], [GSPtr] — have their own allocator-liveness in [heap_aggregate_liveness_surface]
     below, next to their later definitions.  The wrong-tag ANTI-forgery half is the separate
@@ -1062,27 +1067,27 @@ Definition LiveMap {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (m : GoMap K V) (
 (** ALLOCATORS PRODUCE Live* — the fresh handle a real program obtains is always live (the ABSENT / wrong-tag
     loud branches of the ops are dead for it; a live CHANNEL still has its INDEPENDENT closed / full branches —
     liveness is only the cell).  Only [ref_new] is unconditional (its [LiveRef] is the cell alone).
-    [ptr_new] / [make_chan] / [make_chan_buf] / [map_make_typed] need [ValidWorld] for their nonzero-location
+    [ptr_new] / [make_chan] / [make_chan_buf] / [map_make_typed] need [AllocFrontierOk] for their nonzero-location
     half — [ptr_new_live] because [LivePtr] carries the non-nil check ([ptr_new_nonzero]); the chan/map
     allocators because [chan_cell_ok]/[map_cell_ok] include the nonzero location. *)
 Lemma ref_new_live : forall {A} (tag : GoTypeTag A) (v : A) (w : World) r w',
   run_io (ref_new tag v) w = ORet r w' -> LiveRef r w'.
 Proof. intros A tag v w r w' Hrun. unfold LiveRef. rewrite (ref_new_reads tag v w r w' Hrun). discriminate. Qed.
 Lemma ptr_new_live : forall {A} (tag : GoTypeTag A) (v : A) (w : World) p w',
-  ValidWorld w -> run_io (ptr_new tag v) w = ORet p w' -> LivePtr tag p w'.
+  AllocFrontierOk w -> run_io (ptr_new tag v) w = ORet p w' -> LivePtr tag p w'.
 Proof.
   intros A tag v w p w' HV Hrun. unfold LivePtr. split.
   - exact (ptr_new_nonzero tag v w p w' HV Hrun).
   - rewrite (ptr_new_reads tag v w p w' Hrun). discriminate.
 Qed.
 Lemma make_chan_live : forall {A} (tag : GoTypeTag A) (w : World) ch w',
-  ValidWorld w -> run_io (make_chan tag) w = ORet ch w' -> LiveChan tag ch w'.
+  AllocFrontierOk w -> run_io (make_chan tag) w = ORet ch w' -> LiveChan tag ch w'.
 Proof. intros A tag w ch w' HV Hrun. unfold LiveChan. exact (chan_cell_ok_make_chan tag w ch w' HV Hrun). Qed.
 Lemma make_chan_buf_live : forall {A} (tag : GoTypeTag A) (n : GoInt) (w : World) ch w',
-  ValidWorld w -> run_io (make_chan_buf tag n) w = ORet ch w' -> LiveChan tag ch w'.
+  AllocFrontierOk w -> run_io (make_chan_buf tag n) w = ORet ch w' -> LiveChan tag ch w'.
 Proof. intros A tag n w ch w' HV Hrun. unfold LiveChan. exact (chan_cell_ok_make_chan_buf tag n w ch w' HV Hrun). Qed.
 Lemma map_make_typed_live : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (w : World) m w',
-  ValidWorld w -> run_io (map_make_typed kt vt) w = ORet m w' -> LiveMap kt vt m w'.
+  AllocFrontierOk w -> run_io (map_make_typed kt vt) w = ORet m w' -> LiveMap kt vt m w'.
 Proof. intros K V kt vt w m w' HV Hrun. unfold LiveMap. exact (map_cell_ok_make_typed kt vt w m w' HV Hrun). Qed.
 
 (** Live* ALLOCATOR SURFACE (manifest-gated, zero-axiom): the unified "allocators produce Live*" evidence
@@ -1298,10 +1303,10 @@ Proof.
   intros A B tag k. unfold ptr_get_ok, ptr_is_nil, ptr_nil. reflexivity.
 Qed.
 
-(** A pointer from [ptr_new] is NON-nil (UNDER [ValidWorld] — [ptr_new_nonzero]; on a malformed world it
+(** A pointer from [ptr_new] is NON-nil (UNDER [AllocFrontierOk] — [ptr_new_nonzero]; on a malformed world it
     would be nil) AND its cell is allocated at [p]'s own tag ([ptr_new_reads], unconditional), so [ref_sel_opt]
     hits [Some] and [ptr_get_ok] reads through it ([ok = true]) returning the stored value: safe deref of a
-    live pointer — the "safe" resting on both the [ValidWorld] non-nil premise and the live cell, NOT on
+    live pointer — the "safe" resting on both the [AllocFrontierOk] non-nil premise and the live cell, NOT on
     [ptr_get_ok] alone.  (A forged / retyped non-nil handle — [ref_sel_opt = None] — instead FAILS LOUD
     rather than fabricating a zero.  That loud branch is UNREACHABLE for any [Ptr] obtained from
     [ptr_new]/[ref_as_ptr], a boundary defense for the public [mkPtr] only.) *)
@@ -1600,25 +1605,25 @@ Proof.
   apply andb_prop in Hc as [H0 Hlc]. apply Z.leb_le in H0. apply Z.leb_le in Hlc. lia.
 Qed.
 
-(** The slice ops that mint or grow a backing are in the [ValidWorld] preservation path — both makes and
+(** The slice ops that mint or grow a backing are in the [AllocFrontierOk] preservation path — both makes and
     [slice_append]'s realloc RANGE-install ([valid_alloc_range]); [slice_append]'s in-cap branch writes in
     place ([valid_ref_upd]).  So a program making / growing a slice then allocating again keeps the invariant. *)
 Corollary valid_run_slice_make_lc : forall {A} (tag : GoTypeTag A) (len cap : GoInt) (w : World) s w',
-  ValidWorld w -> run_io (slice_make_lc tag len cap) w = ORet s w' -> ValidWorld w'.
+  AllocFrontierOk w -> run_io (slice_make_lc tag len cap) w = ORet s w' -> AllocFrontierOk w'.
 Proof.
   intros A tag len cap w s w' HV Hrun. unfold run_io, slice_make_lc in Hrun. cbv zeta in Hrun.
   destruct (Z.leb 0 (intraw len) && Z.leb (intraw len) (intraw cap))%bool eqn:Hc; [ | discriminate Hrun ].
   injection Hrun as _ Hw. subst w'. apply valid_alloc_range; assumption.
 Qed.
 Corollary valid_run_slice_make_h : forall {A} (tag : GoTypeTag A) (n : GoInt) (w : World) s w',
-  ValidWorld w -> run_io (slice_make_h tag n) w = ORet s w' -> ValidWorld w'.
+  AllocFrontierOk w -> run_io (slice_make_h tag n) w = ORet s w' -> AllocFrontierOk w'.
 Proof.
   intros A tag n w s w' HV Hrun. unfold run_io, slice_make_h in Hrun. cbv zeta in Hrun.
   destruct (0 <=? intraw n)%Z eqn:Hc; [ | discriminate Hrun ].
   injection Hrun as _ Hw. subst w'. apply valid_alloc_range; assumption.
 Qed.
 Corollary valid_run_slice_append : forall {A} (tag : GoTypeTag A) (s : SliceH A) (v : A) (w : World) s' w',
-  ValidWorld w -> run_io (slice_append tag s v) w = ORet s' w' -> ValidWorld w'.
+  AllocFrontierOk w -> run_io (slice_append tag s v) w = ORet s' w' -> AllocFrontierOk w'.
 Proof.
   intros A tag s v w s' w' HV Hrun. unfold run_io, slice_append in Hrun. cbv zeta in Hrun.
   destruct (sh_len s <? sh_cap s)%nat eqn:Hlc.
@@ -1805,7 +1810,7 @@ Definition sh_start {A} (s : SliceH A) : nat := sh_base s + sh_off s.
     live path each cell is zeroed
     through a TAG-AWARE per-cell guard — an absent / foreign-typed cell is left unchanged, so by CONSTRUCTION
     the write never fabricates or retypes a cell (a design property of the [ref_sel_opt]-keyed guard, not itself
-    a separate theorem).  The GATED facts are [valid_run_slice_clear_h] (the live path preserves [ValidWorld] —
+    a separate theorem).  The GATED facts are [valid_run_slice_clear_h] (the live path preserves [AllocFrontierOk] —
     no cell is created at loc 0 / a fresh location) and [slice_clear_rejected] (a malformed slice fails loud).
     For a real slice the whole range is zeroed.  Lowered by name ([clear(s)]); the fail-loud branch is
     model-only (a real [clear] always sees live cells). *)
@@ -1832,7 +1837,7 @@ Definition slice_clear_h {A} (tag : GoTypeTag A) (s : SliceH A) : IO unit :=
     per-cell guard reading the REAL [src] value ([ref_sel_opt = Some sv], never a fabricated zero); an absent /
     foreign-typed [dst] or [src] cell leaves [dst] unchanged, so by CONSTRUCTION the write never fabricates or
     retypes a cell (a design property of the guard, not itself a theorem).  The GATED facts are
-    [valid_run_slice_copy] (the live path preserves [ValidWorld]) and [slice_copy_rejected] (a malformed slice
+    [valid_run_slice_copy] (the live path preserves [AllocFrontierOk]) and [slice_copy_rejected] (a malformed slice
     fails loud).  For real slices the whole range is written.  Lowered by name ([copy(dst, src)]); the fail-loud
     branch is model-only. *)
 Definition slice_copy {A} (tag : GoTypeTag A) (dst src : SliceH A) : IO GoInt :=
@@ -1851,7 +1856,7 @@ Definition slice_copy {A} (tag : GoTypeTag A) (dst src : SliceH A) : IO GoInt :=
                       (w_chans w) (w_maps w) (w_next w) (w_output w))
            else OPanic rt_nil_deref w.
 Corollary valid_run_slice_clear_h : forall {A} (tag : GoTypeTag A) (s : SliceH A) (w : World) r w',
-  ValidWorld w -> run_io (slice_clear_h tag s) w = ORet r w' -> ValidWorld w'.
+  AllocFrontierOk w -> run_io (slice_clear_h tag s) w = ORet r w' -> AllocFrontierOk w'.
 Proof.
   intros A tag s w r w' HV Hrun. unfold run_io, slice_clear_h in Hrun.
   destruct (Nat.leb (sh_len s) (sh_cap s) && slice_range_live s (sh_len s) w)%bool; [ | discriminate Hrun ].
@@ -1861,7 +1866,7 @@ Proof.
   destruct (Nat.leb (sh_start s) k && Nat.ltb k (sh_start s + sh_len s))%bool; [ rewrite Hns | ]; exact Hk.
 Qed.
 Corollary valid_run_slice_copy : forall {A} (tag : GoTypeTag A) (dst src : SliceH A) (w : World) r w',
-  ValidWorld w -> run_io (slice_copy tag dst src) w = ORet r w' -> ValidWorld w'.
+  AllocFrontierOk w -> run_io (slice_copy tag dst src) w = ORet r w' -> AllocFrontierOk w'.
 Proof.
   intros A tag dst src w r w' HV Hrun. unfold run_io, slice_copy in Hrun. cbv zeta in Hrun.
   set (n := if Nat.leb (sh_len dst) (sh_len src) then sh_len dst else sh_len src) in Hrun.
@@ -1916,7 +1921,7 @@ Proof.
 Qed.
 
 (** BULK-SLICE-WRITE SURFACE (manifest-gated, zero-axiom): the bulk slice ops [clear]/[copy] are BOTH safe on
-    the live path (preserve [ValidWorld] — [valid_run_slice_clear_h]/[valid_run_slice_copy]) AND rejecting when
+    the live path (preserve [AllocFrontierOk] — [valid_run_slice_clear_h]/[valid_run_slice_copy]) AND rejecting when
     the guard is FALSE — [slice_clear_rejected]/[slice_copy_rejected] fail loud whenever an impossible [len>cap]
     shape OR a dead / dangling / wrong-tag element makes the guard [false], with the [_bad_shape_] corollaries
     pinning the impossible shape for [clear], [copy]'s DST, and [copy]'s SRC specifically.  So the guard is
@@ -2418,12 +2423,12 @@ Proof.
   intros R Hrep v0 w p w1 Hnew. unfold run_io, gsptr_new in Hnew. cbv zeta in Hnew.
   injection Hnew as Hp Hw1. subst p w1. apply wr_fields_live.
 Qed.
-(** [wr_fields] preserves [ValidWorld]: it is a SEQUENCE of interior ref installs (each field cell sits in
+(** [wr_fields] preserves [AllocFrontierOk]: it is a SEQUENCE of interior ref installs (each field cell sits in
     [(0, w_next)] — nonzero because the base is positive, below the frontier because the block [base+k ..
     base+k+len) was reserved under [w_next]), and [valid_ref_install_interior] handles each step. *)
 Lemma valid_wr_fields : forall ts h k tgs vls w,
-  ValidWorld w -> (0 < hs_base h)%nat -> (hs_base h + k + length ts <= w_next w)%nat ->
-  ValidWorld (wr_fields ts h k tgs vls w).
+  AllocFrontierOk w -> (0 < hs_base h)%nat -> (hs_base h + k + length ts <= w_next w)%nat ->
+  AllocFrontierOk (wr_fields ts h k tgs vls w).
 Proof.
   induction ts as [| t rest IH]; intros h k tgs vls w HV Hbase Hfit; cbn [wr_fields length] in *.
   - exact HV.
@@ -2432,10 +2437,10 @@ Proof.
     + exact Hbase.
     + unfold ref_install; cbn [w_next]; lia.
 Qed.
-(** [valid_run_gsptr_new] — the struct allocator is in the [ValidWorld] preservation path (like
+(** [valid_run_gsptr_new] — the struct allocator is in the [AllocFrontierOk] preservation path (like
     [valid_run_ref_new] &c.): reserve the field block ([valid_bump]) then fill it ([valid_wr_fields]). *)
 Corollary valid_run_gsptr_new : forall {R} `{StructRepOf R} (v : R) (w : World) p w1,
-  ValidWorld w -> run_io (gsptr_new v) w = ORet p w1 -> ValidWorld w1.
+  AllocFrontierOk w -> run_io (gsptr_new v) w = ORet p w1 -> AllocFrontierOk w1.
 Proof.
   intros R Hrep v w p w1 HV Hrun. unfold run_io, gsptr_new in Hrun. cbv zeta in Hrun.
   injection Hrun as Hp Hw1. subst p w1.
@@ -2444,9 +2449,9 @@ Proof.
   - cbn [gsptr_hs gsp_base hs_base]. destruct HV as [Hpos _]. apply Nat.ltb_lt in Hpos. exact Hpos.
   - cbn [gsptr_hs gsp_base hs_base w_next]. lia.
 Qed.
-(** A [gsptr_new] pointer has a NONZERO base — it is minted at [w_next w], positive under [ValidWorld]. *)
+(** A [gsptr_new] pointer has a NONZERO base — it is minted at [w_next w], positive under [AllocFrontierOk]. *)
 Lemma gsptr_new_base_nonzero : forall {R} `{StructRepOf R} (v0 : R) (w : World) p w1,
-  ValidWorld w -> run_io (gsptr_new v0) w = ORet p w1 -> Nat.eqb (gsp_base p) 0 = false.
+  AllocFrontierOk w -> run_io (gsptr_new v0) w = ORet p w1 -> Nat.eqb (gsp_base p) 0 = false.
 Proof.
   intros R Hrep v0 w p w1 Hvw Hnew.
   unfold run_io, gsptr_new in Hnew. cbv zeta in Hnew. injection Hnew as Hp Hw1. subst p. cbn [gsp_base].
@@ -2465,7 +2470,7 @@ Qed.
 Definition LiveStruct {R} `{StructRepOf R} (p : GSPtr R) (w : World) : Prop :=
   Nat.eqb (gsp_base p) 0 = false /\ fields_live srep_ts (gsptr_hs p) 0 (sr_tags srep_rep) w.
 Lemma gsptr_new_live : forall {R} `{StructRepOf R} (v0 : R) (w : World) p w1,
-  ValidWorld w -> run_io (gsptr_new v0) w = ORet p w1 -> LiveStruct p w1.
+  AllocFrontierOk w -> run_io (gsptr_new v0) w = ORet p w1 -> LiveStruct p w1.
 Proof.
   intros R Hrep v0 w p w1 Hvw Hnew. unfold LiveStruct. split.
   - exact (gsptr_new_base_nonzero v0 w p w1 Hvw Hnew).
@@ -2485,7 +2490,7 @@ Qed.
 (** Live* AGGREGATE-HANDLE SURFACE (manifest-gated, zero-axiom): the allocators produce the NAMED aggregate
     Live* predicate — the two slice makes give [LiveSlice] (well-formed [len <= cap] + whole [0, cap) backing
     live), with [LiveSlice_index_live] the payoff (an in-[len] index has a live typed cell); [gsptr_new] gives
-    [LiveStruct] (non-nil pointer with all fields live; needs [ValidWorld] for the nonzero base) — and
+    [LiveStruct] (non-nil pointer with all fields live; needs [AllocFrontierOk] for the nonzero base) — and
     [gsptr_assign_live] WIRES [LiveStruct] into the whole-struct semantics (a live struct's assign returns, BOTH
     conjuncts consumed: base-nonzero clears the nil guard, fields-live makes the write return; a nil pointer is
     excluded, never claimed safe).  Completes the reusable [Live*] family across all SIX handle types ([LiveRef]/
@@ -2497,7 +2502,7 @@ Print Assumptions live_aggregate_handle_surface.
 (** The FORCED whole-struct round-trip: from a pointer FRESH from [gsptr_new] (its cells provably LIVE),
     [assign] then [deref] recovers the value — [fields_live] is DISCHARGED by the allocation, not leaked. *)
 Corollary gsptr_new_deref_assign : forall {R} `{StructRepOf R} (v0 v : R) (w : World) p w1,
-  ValidWorld w -> run_io (gsptr_new v0) w = ORet p w1 ->
+  AllocFrontierOk w -> run_io (gsptr_new v0) w = ORet p w1 ->
   run_io (bind (gsptr_assign p v) (fun _ => gsptr_deref p)) w1 =
   run_io (bind (gsptr_assign p v) (fun _ => ret v)) w1.
 Proof.
@@ -2511,7 +2516,7 @@ Qed.
     on the allocation's LIVE fields ([gsptr_new_fields_live]).  Unlike [gsptr_new_deref_assign] (an equality),
     this is an existence of an [ORet] — the shape a no-panic claim requires. *)
 Corollary gsptr_new_assign_no_panic : forall {R} `{StructRepOf R} (v0 v : R) (w : World) p w1,
-  ValidWorld w -> run_io (gsptr_new v0) w = ORet p w1 ->
+  AllocFrontierOk w -> run_io (gsptr_new v0) w = ORet p w1 ->
   exists w2, run_io (gsptr_assign p v) w1 = ORet tt w2.
 Proof.
   intros R Hrep v0 v w p w1 Hvw Hnew. eexists.

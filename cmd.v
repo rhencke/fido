@@ -49,7 +49,7 @@ Inductive Cmd (A : Type) : Type :=
      DETERMINISTIC allocator — allocates at EXACTLY [w_next w] and bumps; an any-fresh-l
      rule would be an observably nondeterministic allocator (the continuation branches on
      [l]) and could clobber a mirrored-but-untraced cell.  Freshness ("the cell was [None]",
-     "l <> 0") is a THEOREM only under [GoHeap.ValidWorld] — never a totality fact here. *)
+     "l <> 0") is a THEOREM only under [GoHeap.AllocFrontierOk] — never a totality fact here. *)
   | CAlloc : GoAny -> (nat -> Cmd A) -> Cmd A
   (* the CHANNEL trio (single-goroutine deterministic fragment).  [CChRecv] carries the
      element TAG — GoChan's own [recv] op takes it, so the syntax carrying it is faithful —

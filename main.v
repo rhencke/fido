@@ -1774,7 +1774,7 @@ Definition ptr_demo : IO unit :=
     x's cell, so a callee writing through it mutates the caller's variable.  Here [x] is an
     allocated local ([ref_new] in a WELL-FORMED world, so [r_loc x <> 0] by [ref_new_loc_nonzero]),
     hence [&x] is provably non-nil ([ref_as_ptr_not_nil] / [ref_new_addr_nonnil], whose premises that
-    allocation-under-[ValidWorld] satisfies — the guarantee is conditional, not intrinsic: a forged
+    allocation-under-[AllocFrontierOk] satisfies — the guarantee is conditional, not intrinsic: a forged
     [mkRef 0], or [ref_new] on a malformed world, would be a nil ref).  Write visibility is
     [ptr_set_ref_as_ptr_aliases].  Lowers to Go [write_thru(&x)]. *)
 Definition write_thru (p : Ptr GoI64) : IO unit :=
