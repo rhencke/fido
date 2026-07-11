@@ -453,18 +453,36 @@ Qed.
     and FUNCTIONS are NOT.  Crucially FLOATS are admissible keys HERE even
     though [Comparable TFloat64] FAILS (NaN <> NaN): key admissibility is a property of the
     TYPE, not equality reflection on values.
-    ⚠ THE MAP-KEY GATE (checkpoint-61, LANDED): [map_make_typed] DEMANDS a [GoComparableType kt = true] PROOF,
-    so a NON-comparable-key map (slice / map / func key) is UNREPRESENTABLE — Go's "invalid map key type",
-    caught at the Rocq API (stronger than emission-rejection; [GoMap.neg_noncomparable_key_map] is the [Fail]
-    witness).  A COMPUTATIONAL guard [if GoComparableType kt then …] would be INFEASIBLE — [GoComparableType]
-    recurses on the single-field-unboxed [GoTypeTag], un-emittable — so the gate is EVIDENCE-CARRYING: the
-    [GoComparableType kt = true] proof is a [Prop], ERASED in extraction (golden unaffected, name-lowered op),
-    a pure representability guard the op body never inspects. *)
+    ⚠ THE MAP-KEY GATE (checkpoint-61, LANDED): [map_make_typed] DEMANDS a [MapKeysOk (TMap kt vt) = true] PROOF
+    (the RECURSIVE well-formedness below — every [TMap] node, outer key AND any nested in the value, has a
+    comparable key), so a map with an invalid key AT ANY DEPTH is UNREPRESENTABLE — Go's "invalid map key type",
+    caught at the Rocq API (stronger than emission-rejection; [GoMap.neg_noncomparable_key_map] +
+    [neg_nested_noncomparable_key_map] are the [Fail] witnesses).  A COMPUTATIONAL guard would be INFEASIBLE —
+    [GoComparableType]/[MapKeysOk] recurse on the single-field-unboxed [GoTypeTag], un-emittable — so the gate is
+    EVIDENCE-CARRYING: the proof is a [Prop], ERASED in extraction (golden unaffected, name-lowered op), a pure
+    representability guard the op body never inspects. *)
 Fixpoint GoComparableType {K} (t : GoTypeTag K) : bool :=
   match t with
   | TSlice _ | TMap _ _ | TArrow _ _ => false        (* the three non-comparable Go type classes *)
   | TProd a b => andb (GoComparableType a) (GoComparableType b)   (* struct/array: all fields must be *)
   | _ => true                                        (* bool/num/string/ptr/chan/unit/listnode/chanbox *)
+  end.
+
+(** [MapKeysOk t] — RECURSIVE map-type well-formedness: EVERY [TMap] node ANYWHERE in [t] has a
+    [GoComparableType]-admissible KEY.  Go rejects a map key that is a slice / map / func AT ANY NESTING DEPTH
+    ([map[int]map[[]int]int] is as invalid as [map[[]int]int]), so [GoComparableType kt] alone — which checks
+    only the OUTER key — is NOT enough; [map_make_typed] gates on [MapKeysOk (TMap kt vt)] to ALSO reject a bad
+    key inside the VALUE type (or nested in a slice / chan / ptr / struct / func).  Like [GoComparableType],
+    proof-only / Prop-erased — never emitted. *)
+Fixpoint MapKeysOk {T} (t : GoTypeTag T) : bool :=
+  match t with
+  | TMap k v   => andb (GoComparableType k) (andb (MapKeysOk k) (MapKeysOk v))
+  | TSlice a   => MapKeysOk a
+  | TChan a    => MapKeysOk a
+  | TPtr a     => MapKeysOk a
+  | TArrow a b => andb (MapKeysOk a) (MapKeysOk b)
+  | TProd a b  => andb (MapKeysOk a) (MapKeysOk b)
+  | _ => true
   end.
 
 Example GoComparableType_float_ok : GoComparableType TFloat64 = true.

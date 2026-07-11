@@ -155,9 +155,11 @@ None) are contained in a finite list — is an INDUCTIVE invariant ESTABLISHED b
 (unconditionally: fresh cell stores fun _ => None, loc-0 nil map reads None everywhere) and PRESERVED by
 map_delete/map_clear (unconditionally, any key type) and map_set (⚠ ONLY under Comparable kt — LOAD-BEARING:
 the k::old_keys witness needs key_eqb soundness so the new key's class is {k}). ⚠ SCOPE (two boundaries): (1)
-the CONSTRUCTOR map_make_typed now GATES on GoComparableType kt (evidence-carrying — demands the proof, erased
-in extraction), so a non-comparable-key map (slice/map/func) is UNREPRESENTABLE — Go-faithful ("invalid map key
-type"; neg_noncomparable_key_map is the Fail witness); a certified map always has a Go-comparable key. (2)
+the CONSTRUCTOR map_make_typed GATES on MapKeysOk (TMap kt vt) (evidence-carrying — a Prop erased in extraction;
+RECURSIVE: every TMap node, outer key AND any nested in the value, must have a comparable key), so a map with an
+invalid key at ANY nesting depth (e.g. map[int]map[[]int]int) is UNREPRESENTABLE — Go-faithful ("invalid map
+key type"; neg_noncomparable_key_map + neg_nested_noncomparable_key_map are the Fail witnesses); a certified
+map is a well-formed Go map type. (2)
 map_set finiteness-preservation is gated only for Comparable kt (value-equal), NARROWER even than Go-comparable
 — a Go-valid float64 key IS constructable (GoComparableType TFloat64=true) but not Comparable (float ±0: SFeqb
 -0.0 +0.0 = true), so a float/non-value-equal set is admitted by the constructor gate but its preservation is

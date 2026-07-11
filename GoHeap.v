@@ -451,7 +451,7 @@ Proof.
   injection Hrun as _ Hw. subst w'. apply valid_alloc_chan; assumption.
 Qed.
 
-Corollary valid_run_map_typed : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (Hcmp : GoComparableType kt = true) (w : World) r w',
+Corollary valid_run_map_typed : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (Hcmp : MapKeysOk (TMap kt vt) = true) (w : World) r w',
   AllocFrontierOk w -> run_io (map_make_typed kt vt Hcmp) w = ORet r w' -> AllocFrontierOk w'.
 Proof.
   intros K V kt vt Hcmp w r w' HV Hrun. unfold run_io, map_make_typed in Hrun. cbv zeta in Hrun.
@@ -886,7 +886,7 @@ Qed.
 (** The map analogue: an allocated map is non-nil ([map_make_typed_nonzero]).  (Non-nil ALONE does not stop
     [map_set] panicking — a non-nil WRONG-TAG handle still fails [map_cell_ok] and panics; tag-correctness
     ([map_cell_ok_make_typed], below) is what discharges the guard.) *)
-Lemma map_make_typed_nonzero : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (Hcmp : GoComparableType kt = true) (w : World) m w',
+Lemma map_make_typed_nonzero : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (Hcmp : MapKeysOk (TMap kt vt) = true) (w : World) m w',
   AllocFrontierOk w -> run_io (map_make_typed kt vt Hcmp) w = ORet m w' -> Nat.eqb (gm_loc m) 0 = false.
 Proof.
   intros K V kt vt Hcmp w m w' HV Hrun. unfold run_io, map_make_typed in Hrun. cbv zeta in Hrun.
@@ -898,7 +898,7 @@ Qed.
     map ops demand — [map_set] reaches its real update path, not the fail-loud branch).  DIRECTION: this is
     [map_make_typed ⟹ map_cell_ok] ONLY, NOT provenance — [map_cell_ok] checks nonzero location + cell + tag
     match, so a SAME-TAG forged world satisfies it too; the converse is not claimed. *)
-Lemma map_cell_ok_make_typed : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (Hcmp : GoComparableType kt = true) (w : World) m w',
+Lemma map_cell_ok_make_typed : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (Hcmp : MapKeysOk (TMap kt vt) = true) (w : World) m w',
   AllocFrontierOk w -> run_io (map_make_typed kt vt Hcmp) w = ORet m w' -> map_cell_ok kt vt m w' = true.
 Proof.
   intros K V kt vt Hcmp w m w' HV Hrun. unfold run_io, map_make_typed in Hrun. cbv zeta in Hrun.
@@ -941,7 +941,7 @@ Lemma map_set_cell_ok : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : 
   map_cell_ok kt vt m w = true ->
   run_io (map_set kt vt k v m) w = ORet tt (map_upd kt vt k v m w).
 Proof. intros K V kt vt k v m w Hp. rewrite run_map_set, Hp. reflexivity. Qed.
-Corollary map_alloc_set_no_panic : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (Hcmp : GoComparableType kt = true) (k : K) (v : V) (w : World) m w',
+Corollary map_alloc_set_no_panic : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (Hcmp : MapKeysOk (TMap kt vt) = true) (k : K) (v : V) (w : World) m w',
   AllocFrontierOk w -> run_io (map_make_typed kt vt Hcmp) w = ORet m w' ->
   exists w'', run_io (map_set kt vt k v m) w' = ORet tt w''.
 Proof.
@@ -1174,7 +1174,7 @@ Proof. intros A tag w ch w' HV Hrun. unfold LiveChan. exact (chan_cell_ok_make_c
 Lemma make_chan_buf_live : forall {A} (tag : GoTypeTag A) (n : GoInt) (w : World) ch w',
   AllocFrontierOk w -> run_io (make_chan_buf tag n) w = ORet ch w' -> LiveChan tag ch w'.
 Proof. intros A tag n w ch w' HV Hrun. unfold LiveChan. exact (chan_cell_ok_make_chan_buf tag n w ch w' HV Hrun). Qed.
-Lemma map_make_typed_live : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (Hcmp : GoComparableType kt = true) (w : World) m w',
+Lemma map_make_typed_live : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (Hcmp : MapKeysOk (TMap kt vt) = true) (w : World) m w',
   AllocFrontierOk w -> run_io (map_make_typed kt vt Hcmp) w = ORet m w' -> LiveMap kt vt m w'.
 Proof. intros K V kt vt Hcmp w m w' HV Hrun. unfold LiveMap. exact (map_cell_ok_make_typed kt vt Hcmp w m w' HV Hrun). Qed.
 

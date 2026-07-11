@@ -51,7 +51,7 @@ Definition map_empty {K V : Type} : GoMap K V := MkMap 0.
     admissible ([GoComparableType TFloat64 = true]) even though [Comparable TFloat64] fails (±0/NaN) — key
     admissibility is a TYPE property, not value-equality reflection. *)
 Definition map_make_typed {K V : Type} (kt : GoTypeTag K) (vt : GoTypeTag V)
-                          (Hcmp : GoComparableType kt = true) : IO (GoMap K V) :=
+                          (Hwf : MapKeysOk (TMap kt vt) = true) : IO (GoMap K V) :=
   fun w => let l := w_next w in
            ORet (MkMap l)
                 (mkWorld (w_refs w) (w_chans w)
@@ -59,13 +59,15 @@ Definition map_make_typed {K V : Type} (kt : GoTypeTag K) (vt : GoTypeTag V)
                                    then Some (0, existT _ K (kt, existT _ V (vt, fun _ => None)))
                                    else w_maps w k)
                          (S l) (w_output w)).
-(** MACHINE-CHECKED UNREPRESENTABILITY: a NON-comparable-key map (Go's "invalid map key type") cannot be
-    CONSTRUCTED — [map_make_typed] demands [GoComparableType kt = true], which is [false] for a slice / map /
-    func key, so no [Hcmp] proof exists and the [Definition] is REJECTED ([Fail] confirms it).  This is the
-    MODEL-side live boundary (unrepresentable — stronger than, and replacing, the old extraction-abort negtest
-    neg_map_key.v: the map never even reaches emission).  A [TArrow] (func) key stands in for the whole
-    non-comparable class ([GoComparableType (TArrow ..) = false]). *)
+(** MACHINE-CHECKED UNREPRESENTABILITY: a map whose type has a NON-comparable KEY at ANY nesting depth (Go's
+    "invalid map key type") cannot be CONSTRUCTED — [map_make_typed] demands [MapKeysOk (TMap kt vt) = true],
+    which is [false] whenever any [TMap] node (the outer key OR one nested in the value) has a slice / map / func
+    key, so no proof exists and the [Definition] is REJECTED ([Fail] confirms it).  MODEL-side live boundary
+    (unrepresentable — stronger than the old extraction-abort negtest neg_map_key.v it replaces).
+    (1) DIRECT bad outer key ([map[func]int]); (2) NESTED bad key in the VALUE ([map[int](map[func]int)]) — the
+    recursive [MapKeysOk] catches BOTH (the [GoComparableType]-only gate would have missed (2)). *)
 Fail Definition neg_noncomparable_key_map := map_make_typed (TArrow TI64 TI64) TI64 eq_refl.
+Fail Definition neg_nested_noncomparable_key_map := map_make_typed TI64 (TMap (TArrow TI64 TI64) TI64) eq_refl.
 
 (** There is no NAMED untyped map allocator (checkpoint-58: the cell-less [map_make] was DELETED).
     [map_make_typed], which carries the key/value [GoTypeTag]s and installs the cell, is the ONLY map
@@ -552,7 +554,7 @@ Definition MapFinite {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (m : GoMap K V)
   exists keys : list K, forall k, map_get_fn kt vt m w k <> None -> In k keys.
 (** A fresh [make(map[K]V)] reads [None] at EVERY key — the installed cell's function is [fun _ => None] (and a
     loc-0 nil map reads [None] canonically), so the live-key support is empty. *)
-Lemma map_make_typed_empty : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (Hcmp : GoComparableType kt = true) (w : World) m w' (k : K),
+Lemma map_make_typed_empty : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (Hcmp : MapKeysOk (TMap kt vt) = true) (w : World) m w' (k : K),
   run_io (map_make_typed kt vt Hcmp) w = ORet m w' -> map_get_fn kt vt m w' k = None.
 Proof.
   intros K V kt vt Hcmp w m w' k H. unfold map_make_typed, run_io in H. injection H as Hm Hw. subst m w'.
@@ -560,7 +562,7 @@ Proof.
   destruct (Nat.eqb (w_next w) 0) eqn:Hz; [ reflexivity | ].
   cbn [w_maps]. rewrite Nat.eqb_refl, !tag_eq_refl. reflexivity.
 Qed.
-Lemma map_make_typed_establishes_mapfinite : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (Hcmp : GoComparableType kt = true) (w : World) m w',
+Lemma map_make_typed_establishes_mapfinite : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (Hcmp : MapKeysOk (TMap kt vt) = true) (w : World) m w',
   run_io (map_make_typed kt vt Hcmp) w = ORet m w' -> MapFinite kt vt m w'.
 Proof.
   intros K V kt vt Hcmp w m w' H. exists nil. intros k Hne. exfalso.
@@ -615,9 +617,11 @@ Qed.
     key-equality SOUNDNESS ([key_eqb kt k k' = true -> k = k']) so the newly-written key's [key_eqb]-class is
     exactly [{k}] — WITHOUT it a type whose [key_eqb] is true for distinct values (e.g. float [±0]) could put a
     live key outside the witness list.
-    ⚠ SCOPE (two boundaries) — (1) the CONSTRUCTOR [map_make_typed] now GATES on [GoComparableType kt] (demands
-    the proof), so a NON-comparable key (slice / map / func) is UNREPRESENTABLE — Go-faithful ("invalid map key
-    type"; [neg_noncomparable_key_map] is the [Fail] witness): a certified map always has a Go-comparable key.
+    ⚠ SCOPE (two boundaries) — (1) the CONSTRUCTOR [map_make_typed] GATES on [MapKeysOk (TMap kt vt)] (recursive:
+    EVERY [TMap] node — the outer key AND any nested in the value — must have a comparable key), so a map with an
+    invalid key at ANY nesting depth is UNREPRESENTABLE — Go-faithful ("invalid map key type";
+    [neg_noncomparable_key_map] / [neg_nested_noncomparable_key_map] are the [Fail] witnesses): a certified map
+    is a well-formed Go map type.
     (2) [MapFinite] preservation by [map_set] is gated ONLY under [Comparable kt] (value-equality decidable — the
     integer / bool / string / pointer scalars), NARROWER even than Go-comparable: a Go-VALID float64 key IS
     constructable ([GoComparableType TFloat64 = true]) but NOT [Comparable] (float [±0]: [SFeqb -0.0 +0.0 = true]
