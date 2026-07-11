@@ -689,9 +689,11 @@ Qed.
     live key outside the witness list.
     ⚠ SCOPE (two boundaries) — (1) the CONSTRUCTOR [map_make_typed] GATES on [MapKeysOk (TMap kt vt)] (recursive:
     EVERY [TMap] node — the outer key AND any nested in the value — must have a comparable key), so a map with an
-    invalid key at ANY nesting depth is UNREPRESENTABLE — Go-faithful ("invalid map key type";
-    [neg_noncomparable_key_map] / [neg_nested_noncomparable_key_map] are the [Fail] witnesses): a certified map
-    is a well-formed Go map type.
+    invalid key at ANY nesting depth cannot be constructed THROUGH THAT ALLOCATOR — Go's "invalid map key type"
+    ([neg_noncomparable_key_map] / [neg_nested_noncomparable_key_map] are the [Fail] witnesses).  ⚠ This is an
+    ALLOCATOR-BOUNDARY gate, NOT global tag unrepresentability nor a renderability certificate (the bad map TAG
+    stays constructible and can reach other emitted type paths — see [map_make_typed]'s scope note); do NOT read
+    it as "a certified map is a valid Go map type".
     (2) [MapFinite] preservation by [map_set] is gated ONLY under [Comparable kt] (value-equality decidable — the
     integer / bool / string / pointer scalars), NARROWER even than Go-comparable: a Go-VALID float64 key IS
     constructable ([GoComparableType TFloat64 = true]) but NOT [Comparable] (float [±0]: [SFeqb -0.0 +0.0 = true]

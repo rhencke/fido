@@ -453,11 +453,14 @@ Qed.
     and FUNCTIONS are NOT.  Crucially FLOATS are admissible keys HERE even
     though [Comparable TFloat64] FAILS (NaN <> NaN): key admissibility is a property of the
     TYPE, not equality reflection on values.
-    ⚠ THE MAP-KEY GATE (checkpoint-61, LANDED): [map_make_typed] DEMANDS a [MapKeysOk (TMap kt vt) = true] PROOF
-    (the RECURSIVE well-formedness below — every [TMap] node, outer key AND any nested in the value, has a
-    comparable key), so a map with an invalid key AT ANY DEPTH is UNREPRESENTABLE — Go's "invalid map key type",
-    caught at the Rocq API ([GoMap.neg_noncomparable_key_map] + [neg_nested_noncomparable_key_map] are the [Fail]
-    witnesses).  The gate is EVIDENCE-CARRYING — the proof is a [Prop], ERASED in extraction (golden unaffected,
+    ⚠ THE MAP-KEY GATE: [map_make_typed] DEMANDS a [MapKeysOk (TMap kt vt) = true] PROOF (the RECURSIVE
+    well-formedness below — every [TMap] node, outer key AND any nested in the value, has a comparable key), so a
+    map with an invalid key AT ANY DEPTH cannot be constructed THROUGH THAT ALLOCATOR — Go's "invalid map key
+    type", caught at the Rocq API ([GoMap.neg_noncomparable_key_map] + [neg_nested_noncomparable_key_map] are the
+    [Fail] witnesses).  ⚠ ALLOCATOR-BOUNDARY only, NOT global tag unrepresentability: the bad map TAG stays a
+    constructible [GoTypeTag] and can reach other type positions ([zero_val], nested tags, [make_chan] —
+    rendering invalid Go); closing that globally needs the general certified type authority, not this per-allocator
+    predicate.  The gate is EVIDENCE-CARRYING — the proof is a [Prop], ERASED in extraction (golden unaffected,
     name-lowered op), a pure representability guard the op body never inspects.  ([GoComparableType]/[MapKeysOk]
     are [bool] predicates, appearing only in these proof obligations.) *)
 Fixpoint GoComparableType {K} (t : GoTypeTag K) : bool :=
