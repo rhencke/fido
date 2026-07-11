@@ -38,12 +38,16 @@ Definition RefHeap : Type := nat -> option RefCell.
 Definition ChanCell : Type := { E : Type & (GoTypeTag E * (list E * (bool * option nat)))%type }.
 Definition ChanHeap : Type := nat -> option ChanCell.
 (** A map cell: the key type [K] + its tag, then existentially the value type [V]
-    + its tag, then the contents as a finite-support function [K -> option V].
+    + its tag, then the contents as a function [K -> option V] (a real Go map's live-key
+    support is finite — the [GoMap.MapFinite] invariant certified ops preserve — though the
+    bare function type does NOT enforce finiteness).
     Like the channel cell, the stored tags let an accessor coerce back to its own
     [K]/[V] view (equal by construction). *)
-(** The leading [nat] is the map's SIZE (number of live keys) — so Go's [len(m)] is faithfully modelled
-    ([map_size]), maintained by [map_upd] (+1 on a genuinely new key) and [map_rem] (−1 on a present key).
-    It sits OUTSIDE the existT (size is type-independent), so the value accessor [map_get_fn] is unchanged. *)
+(** The leading [nat] is the cell's STORED count field: the plugin lowers Go's [len(m)] to [map_size]
+    (this field widened), and [map_upd] (+1 on a genuinely new key) / [map_rem] (−1 on a present key)
+    MAINTAIN it — but that the field EQUALS the number of live keys is the deeper [GoMap] MapWF, not
+    built into the cell.  It sits OUTSIDE the existT (the count is type-independent), so the value
+    accessor [map_get_fn] is unchanged. *)
 Definition MapCell : Type :=
   (nat * { K : Type & (GoTypeTag K * { V : Type & (GoTypeTag V * (K -> option V))%type })%type })%type.
 Definition MapHeap : Type := nat -> option MapCell.
