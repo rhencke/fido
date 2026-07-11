@@ -701,8 +701,8 @@ Proof.
   destruct (chan_cell_ok tag ch w) eqn:Hok; [ rewrite H, Hr | ]; reflexivity.
 Qed.
 (** [send] on a CLOSED channel panics ([rt_send_closed]) — but ONLY for a TAG-CORRECT cell.  A wrong-tag handle
-    aliasing a closed foreign cell does NOT observe that closedness ([send_wrong_tag_no_mutation] blocks it),
-    so the [chan_cell_ok] premise is essential (as for [run_close_closed]). *)
+    aliasing a closed foreign cell does NOT observe that closedness ([send_wrong_tag_no_mutation]: the tag-guard
+    fails it loud FIRST, world unchanged), so the [chan_cell_ok] premise is essential (as for [run_close_closed]). *)
 Lemma run_send_closed : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (v : A) (w : World),
   chan_cell_ok tag ch w = true -> chan_closed ch w = true ->
   run_io (send tag ch v) w = OPanic rt_send_closed w.
@@ -1444,10 +1444,11 @@ Qed.
     are CLEAN NEGATIVES ([<> ORet]: no value / no zero / no fired result delivered), which certify the
     anti-forgery WITHOUT asserting the block-as-panic outcome (Go recv-block DEADLOCKS — not a recoverable
     panic; so the surface never pins [recv = OPanic ...] as recoverable-panic semantics — faithful blocking is
-    [rstep] in [concurrency.v]).  Fire a select
-    case — a wrong-tag arm of [select_wait2]/[select_recv2] is SKIPPED, reducing the select to the OTHER arm
-    alone with NO precondition on it ([_wrong_tag_no_fire] for ch1, [_wrong_tag_ch2_no_fire] for ch2), so both
-    arms are sealed in EVERY combination (incl. both wrong-tag); [select_recv_default] takes the DEFAULT
+    [rstep] in [concurrency.v]).  A wrong-tag arm of [select_wait2]/[select_recv2] NEVER FIRES — with NO
+    precondition on the other arm ([_wrong_tag_no_fire] for ch1, [_wrong_tag_ch2_no_fire] for ch2): [select_wait2]
+    never returns that arm's case ([<> ORet (index, _)]) and [select_recv2]'s result is INDEPENDENT of that
+    arm's continuation (never invoked), each WITHOUT exporting the blocked-select [rt_select_block] payload.  So
+    both arms are sealed in EVERY combination (incl. both wrong-tag); [select_recv_default] takes the DEFAULT
     ([_wrong_tag_default]); nor mutate at the raw [chan_write] root ([chan_write_cellko_noop]).
     [chan_cell_ok_wrong_tag] pins the present-but-mistyped case (proving [chan_present = true] alongside).  The
     [Print Assumptions] below certifies the whole cone axiom-free — manifest-gated public evidence, not merely
