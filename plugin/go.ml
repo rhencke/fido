@@ -761,6 +761,17 @@ let print_u64_dec v = coq_string_to_ocaml (Printer.print_Z (coq_z_of_uint64 v))
 let print_hex_int n =             (* FAIL-CLOSED: print_hex's domain is N — a negative can never reach it *)
   if n < 0 then unsupported "a negative hex-literal operand (Go hex literals are unsigned)"
   else coq_string_to_ocaml (Printer.print_hex (coq_n_of_uint64 (Int64.of_int n)))
+(* A rendered Go type is a COMPARABLE map-key type iff it is not a slice or a map (funcs already fail to
+   render — [TArrow] -> [None] below).  Go structs are comparable iff all fields are; the current nominal
+   keys ([ListNode]/[ChanBox]) ARE comparable, so [GTNamed] -> true here — a non-comparable named-struct key is
+   the general certified type-authority ([GoTypeDesc]) frontier, not this outer check.  ⚠ cp62: the plugin
+   RENDERS [GoTypeTag]s independently of [GoMap.map_make_typed]'s [MapKeysOk] gate, so WITHOUT this check
+   [make_chan (TMap (TSlice TI64) TI64)] would emit [chan map[[]int64]int64], which Go rejects; the check makes
+   the renderer FAIL LOUD on any non-comparable map key at ANY nesting (every [TMap] node hits this guard as
+   [coq_goty_of_tag] recurses). *)
+let goty_comparable_key = function
+  | Printer.GTSlice _ | Printer.GTMap (_, _) -> false
+  | _ -> true
 let rec coq_goty_of_tag = function
   | MLcons (_, r, []) ->
       (match global_basename r with
@@ -792,8 +803,8 @@ let rec coq_goty_of_tag = function
       (match coq_goty_of_tag inner with Some g -> Some (Printer.GTChan g) | None -> None)
   | MLcons (_, r, [kt; vt]) when String.equal (global_basename r) "TMap" ->
       (match coq_goty_of_tag kt, coq_goty_of_tag vt with
-       | Some gk, Some gv -> Some (Printer.GTMap (gk, gv))
-       | _ -> None)
+       | Some gk, Some gv when goty_comparable_key gk -> Some (Printer.GTMap (gk, gv))
+       | _ -> None)   (* non-comparable key (slice/map) or unrenderable child -> fail loud, never emit invalid map[…] Go *)
   | _ -> None
 
 (* go_type_of_tag is now ENTIRELY the verified, Rocq-extracted printer: coq_goty_of_tag builds the
@@ -804,7 +815,7 @@ let rec coq_goty_of_tag = function
 let go_type_of_tag t = match coq_goty_of_tag t with
   | Some g -> coq_string_to_ocaml (Printer.print_ty g)
   | None   -> unsupported (Printf.sprintf
-      "go_type_of_tag: type tag '%s' has no faithful Go rendering (e.g. TUnit / TArrow / TProd, or an unhandled composite tag) — refusing to emit `any`"
+      "go_type_of_tag: type tag '%s' has no faithful Go rendering (e.g. TUnit / TArrow / TProd, a NON-COMPARABLE map key like map[[]T]… at any nesting, or an unhandled composite tag) — refusing to emit invalid Go"
       (match t with MLcons (_, r, _) -> global_basename r | _ -> "<non-constructor term>"))
 
 (** Zero value for a Go type given its tag. *)

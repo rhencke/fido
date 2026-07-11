@@ -149,9 +149,11 @@ type"; the `Fail` witnesses `GoMap.neg_noncomparable_key_map` + `neg_nested_nonc
 is evidence-carrying — the `Hwf` argument is a `Prop`, ERASED in extraction (golden byte-identical); `MapKeysOk`
 is a `bool` `Fixpoint` over `GoTypeTag`, referenced only by that erased proof and proof-only lemmas.  ⚠ cp62:
 this is NOT global tag unrepresentability and the model is NOT the single map-key authority — the bad tag stays a
-constructible `GoTypeTag` and the trusted plugin renders tags independently (`make_chan (TMap (TSlice TI64) TI64)`
-→ `chan map[[]int64]int64`, which Go rejects; `TUnit`/`TArrow` renderability is the plugin's too).  Closing this
-globally is the general certified type authority (`GoTypeDesc`), not this per-allocator predicate.
+constructible `GoTypeTag` and the trusted plugin renders tags independently.  A bad tag at an EMITTED type path
+(`make_chan (TMap (TSlice TI64) TI64)`) is now caught by the plugin's OWN key check
+(`go_type_of_tag`/`goty_comparable_key`, `negtests/neg_chan_bad_map_key`) — so `MapKeysOk` (model) +
+`goty_comparable_key` (plugin) are DUPLICATE map-key authorities that the general certified type authority
+(`GoTypeDesc`) should UNIFY; `TUnit`/`TArrow` renderability (incompleteness) is the plugin's too.
 STILL AHEAD —
 **(b)** closing the wider-acceptance gap (unconditional `map_set` finiteness via `key_eqb`-class enumeration
 for the constructable float/non-value-equal keys);

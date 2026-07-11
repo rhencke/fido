@@ -48,13 +48,15 @@ Definition map_empty {K V : Type} : GoMap K V := MkMap 0.
     [make(map[[]int]V)] and [make(map[int]map[[]int]int)] cannot be constructed THROUGH THIS ALLOCATOR — no
     [MapKeysOk] proof exists, mirroring Go's COMPILE-time "invalid map key type".
     ⚠ SCOPE — this is an ALLOCATOR-BOUNDARY gate, NOT global tag unrepresentability, and NOT a renderability
-    certificate.  The bad tag [TMap (TSlice TI64) TI64] is STILL a constructible [GoTypeTag] term: it can appear
-    in [zero_val], a nested [TChan]/[TMap]/[TPtr]/[TProd] tag, or another allocator — e.g. [make_chan
-    (TMap (TSlice TI64) TI64)] does NOT pass this proof and the trusted tag-to-Go renderer would emit
-    [chan map[[]int64]int64], which Go rejects.  And [MapKeysOk] does not prove renderability ([TUnit] has no
-    faithful rendering; a [TArrow]-VALUE map is legal Go yet the plugin rejects it).  Closing this globally needs
-    the general certified TYPE authority (a [GoTypeDesc] carrying WF + faithful-rendering), not a per-allocator
-    predicate — do NOT read this as "a certified map is a valid Go map type".
+    certificate.  The bad tag [TMap (TSlice TI64) TI64] is STILL a constructible [GoTypeTag] term reaching other
+    positions ([zero_val], a nested [TChan]/[TMap]/[TPtr]/[TProd] tag, another allocator).  Such a tag reaching an
+    EMITTED type path (e.g. [make_chan (TMap (TSlice TI64) TI64)], which does NOT pass this proof) is now caught
+    by the trusted renderer's OWN map-key check ([plugin/go.ml goty_comparable_key], fail-loud;
+    [negtests/neg_chan_bad_map_key] pins it) — cp62: that means the MODEL's [MapKeysOk] and the PLUGIN's key check
+    are DUPLICATE map-key authorities the general certified TYPE authority ([GoTypeDesc]) should UNIFY, not two
+    parallel per-site predicates.  And [MapKeysOk] still does not prove renderability ([TUnit] has no faithful
+    rendering; a [TArrow]-VALUE map is legal Go yet the plugin rejects it — INCOMPLETENESS).  Do NOT read this as
+    "a certified map is a valid Go map type".
     The [Hwf] proof is a [Prop] — ERASED by extraction (name-lowered op, golden unaffected).  Float64 keys are
     admissible ([GoComparableType TFloat64 = true]) even though [Comparable TFloat64] fails (±0/NaN) — key
     admissibility is a TYPE property, not value-equality reflection. *)

@@ -458,9 +458,10 @@ Qed.
     map with an invalid key AT ANY DEPTH cannot be constructed THROUGH THAT ALLOCATOR — Go's "invalid map key
     type", caught at the Rocq API ([GoMap.neg_noncomparable_key_map] + [neg_nested_noncomparable_key_map] are the
     [Fail] witnesses).  ⚠ ALLOCATOR-BOUNDARY only, NOT global tag unrepresentability: the bad map TAG stays a
-    constructible [GoTypeTag] and can reach other type positions ([zero_val], nested tags, [make_chan] —
-    rendering invalid Go); closing that globally needs the general certified type authority, not this per-allocator
-    predicate.  The gate is EVIDENCE-CARRYING — the proof is a [Prop], ERASED in extraction (golden unaffected,
+    constructible [GoTypeTag] reaching other positions ([zero_val], nested tags, another allocator).  Such a tag
+    at an EMITTED type path (e.g. [make_chan]) is now caught by the trusted renderer's OWN map-key check
+    ([plugin/go.ml goty_comparable_key], [negtests/neg_chan_bad_map_key]) — so the MODEL's [MapKeysOk] and the
+    PLUGIN's key check are DUPLICATE authorities the general certified type authority ([GoTypeDesc]) should UNIFY.  The gate is EVIDENCE-CARRYING — the proof is a [Prop], ERASED in extraction (golden unaffected,
     name-lowered op), a pure representability guard the op body never inspects.  ([GoComparableType]/[MapKeysOk]
     are [bool] predicates, appearing only in these proof obligations.) *)
 Fixpoint GoComparableType {K} (t : GoTypeTag K) : bool :=
