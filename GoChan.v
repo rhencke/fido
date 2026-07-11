@@ -443,8 +443,10 @@ Definition recv {A} (tag : GoTypeTag A) (ch : GoChan A) : IO A :=
 (** [close] fails loud on ANY handle with no TAG-CORRECT cell — nil ([ch_loc = 0]), nonzero ABSENT
     (forged/dangling), OR WRONG-TAG (a forged handle aliasing a real channel of ANOTHER element type) — via
     [chan_cell_ok], so it can never FABRICATE a closed cell at an unallocated location NOR RETYPE a foreign cell
-    (Go's [close(nil)] panic, generalised to the whole no-tag-correct-cell class; bug ① CLOSED).  Only a
-    tag-correct cell reaches the closed-flag check. *)
+    (bug ① CLOSED).  ⚠ taxonomy: [close(nil)] is a GENUINE Go panic ([rt_close_nil], faithful/recoverable),
+    whereas a FORGED absent/wrong-tag handle is a MODEL FAULT that REUSES the same payload (impossible in real
+    Go → a distinct [ModelFault] after the planned split, not asserted here).  Only a tag-correct cell reaches
+    the closed-flag check. *)
 Definition close_chan {A} (tag : GoTypeTag A) (ch : GoChan A) : IO unit :=
   fun w => if chan_cell_ok tag ch w
            then (if chan_closed ch w then OPanic rt_close_closed w else ORet tt (chan_close_upd tag ch w))
@@ -468,9 +470,14 @@ Lemma recv_nil_no_value : forall {A} (tag : GoTypeTag A) (w : World) (a : A) (w'
   run_io (recv tag (MkChan 0)) w <> ORet a w'.
 Proof. intros A tag w a w' H. unfold recv, run_io in H. discriminate H. Qed.
 (** An ABSENT cell ([chan_present = false] — nil OR a forged/dangling nonzero location) reads canonically
-    empty / open, so [send]/[recv]/[close] on it never move a value or fabricate state.  These GENERALISE the
-    [*_nil] witnesses from the loc-0 sentinel to the WHOLE unallocated class (the nonzero-absent
-    case).  [chan_buf]/[chan_closed] read [nil]/[false] on any absent cell (the [Some] case is [chan_present]). *)
+    empty / open, so [send]/[recv]/[close] on it never move a value or fabricate state — the PROVEN
+    anti-forgery.  These GENERALISE the [*_nil] witnesses from the loc-0 sentinel to the WHOLE unallocated
+    class (the nonzero-absent case).  ⚠ the two sub-causes differ in the result/control taxonomy: a NIL handle
+    ([MkChan 0]) is a genuine Go value whose send/recv would-BLOCK (a DEADLOCK), while a NONZERO-ABSENT
+    (forged/dangling) handle is impossible in real Go — a MODEL FAULT; the shared [rt_chan_*_block] fail-loud
+    is a model-internal stand-in for both (the split, once built, routes them to a continuation vs a distinct
+    [ModelFault]).  [chan_buf]/[chan_closed] read [nil]/[false] on any absent cell (the [Some] case is
+    [chan_present]). *)
 Lemma chan_buf_absent : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (w : World),
   chan_present ch w = false -> chan_buf tag ch w = nil.
 Proof.
@@ -828,9 +835,10 @@ Qed.
 (** A send with NO room FAILS LOUD with the world UNCHANGED ([exists p, = OPanic p w] — NOT the exact payload).
     Holds whether the no-room is a full buffer (tag-correct cell) OR no tag-correct cell at all
     (nil/absent/wrong-tag).  ⚠ [rt_chan_send_block] is a model-internal stand-in the result/control split
-    SEPARATES: a GENUINE no-room block (a full buffer, or a nil channel) is a DEADLOCK → a retained,
-    resumable continuation; a FORGED handle (nonzero-absent or wrong-tag) is a MODEL FAULT → a distinct,
-    UNREACHABLE [ModelFault].  Neither is a panic. *)
+    (planned, not yet built) will SEPARATE: a GENUINE no-room block (a full buffer, or a nil channel) is a
+    DEADLOCK → a retained, resumable continuation; a FORGED handle (nonzero-absent or wrong-tag) is a MODEL
+    FAULT → a distinct [ModelFault], to be PROVED unreachable under a future store-typing authority (not
+    asserted here — [ModelFault]/StoreTyping do not exist yet).  Neither is a panic. *)
 Lemma run_send_blocked : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (v : A) (w : World),
   chan_closed ch w = false -> chan_room tag ch w = false ->
   exists p, run_io (send tag ch v) w = OPanic p w.
@@ -1076,8 +1084,9 @@ Qed.
     exact payload (like GoMap's [map_set_wrong_tag_no_mutation]).  ⚠ the fail-loud currently REUSES the
     [rt_chan_send_block] would-block payload, but its CAUSE is a FORGED (wrong-tag) handle — a MODEL FAULT
     (impossible in real Go), NOT a genuine deadlock; this GATED surface pins only fails-loud-WORLD-UNCHANGED
-    and deliberately does NOT export that payload.  Under the result/control split a forged handle becomes a
-    distinct, UNREACHABLE [ModelFault] (proved unreachable under store typing), NOT a resumable continuation. *)
+    and deliberately does NOT export that payload.  Under the planned result/control split a forged handle
+    becomes a distinct [ModelFault], to be PROVED unreachable under a future store-typing authority (not
+    asserted here — neither [ModelFault] nor StoreTyping exists yet), NOT a resumable continuation. *)
 Theorem send_wrong_tag_no_mutation : forall {A E} (tag : GoTypeTag A) (etag : GoTypeTag E)
     (ch : GoChan A) (v : A) (w : World) rest,
   Nat.eqb (ch_loc ch) 0 = false ->
@@ -1110,8 +1119,9 @@ Qed.
     CLOSED-drained zero branch is gated on [chan_cell_ok], so a wrong-tag CLOSED cell yields NO fabricated zero
     — [recv] takes its fail-loud branch instead.  The anti-forgery fact is this NEGATIVE ([<> ORet]); the
     reused [rt_chan_recv_block] payload is deliberately NOT promoted to an exact PUBLIC certified claim — for
-    THIS wrong-tag case its CAUSE is a FORGED handle (a MODEL FAULT → a distinct, UNREACHABLE [ModelFault]
-    under the result/control split), whereas a GENUINE recv-block (empty-open / nil channel) is a DEADLOCK
+    THIS wrong-tag case its CAUSE is a FORGED handle (a MODEL FAULT → a distinct [ModelFault] after the
+    planned result/control split, to be PROVED unreachable — not asserted here), whereas a GENUINE recv-block
+    (empty-open / nil channel) is a DEADLOCK
     (unrecoverable, not a panic — faithful blocking is [rstep] in [concurrency.v]).  Neither is a recoverable
     panic. *)
 Theorem recv_wrong_tag_no_value : forall {A E} (tag : GoTypeTag A) (etag : GoTypeTag E)

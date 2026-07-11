@@ -1458,7 +1458,8 @@ Definition slice_in_len {A} (s : SliceH A) (i : GoInt) : bool :=
     a cell BEYOND the backing (a coincidentally same-tagged cell would be silently indexed).  On a WELL-FORMED
     slice ([sh_len <= sh_cap]) the guard is a no-op, so extraction/golden are unchanged.  The malformed
     fail-loud is a MODEL FAULT (currently [OPanic rt_nil_deref], symmetric with the forged-backing-cell branch;
-    both become a distinct [ModelFault], proved unreachable under the store-typing authority). *)
+    both become a distinct [ModelFault] after the store-typing split, to be PROVED unreachable there — not
+    asserted here; [ModelFault]/StoreTyping do not exist yet). *)
 Definition slice_idx_get {A} (tag : GoTypeTag A) (s : SliceH A) (i : GoInt) : IO A :=
   fun w => if Nat.leb (sh_len s) (sh_cap s)
            then (if slice_in_len s i

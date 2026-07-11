@@ -12,8 +12,9 @@
         forged-handle guard ([rt_forged_map]) are CURRENTLY [OPanic] payloads, so [catch]/recover DOES
         observe them — WRONG: a block is a deadlock (recover never fires) and a forged handle is a
         model fault (not a Go event).  Planned fix: blocking moves into a continuation-retaining
-        scheduler relation and model faults into a distinct UNREACHABLE [ModelFault]; neither stays in
-        the panic domain.  The faithful blocking authority today is [rstep] in [concurrency.v].
+        scheduler relation and model faults into a distinct [ModelFault] (to be PROVED unreachable, not
+        asserted here); neither stays in the panic domain.  The faithful blocking authority today is
+        [rstep] in [concurrency.v].
     Decimals come from the ONE decimal authority ([digits.print_Z]).  Model-only values (the ops lower
     to native Go operations).  No [IO]/[World] here — a payload is data, the PANICKING is
     [GoEffects.panic] at each op site.
