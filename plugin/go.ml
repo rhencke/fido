@@ -1578,11 +1578,13 @@ let rec pp_type state = function
   | Tglob (r, [arg]) when is_go_chan_type r ->
       str "chan " ++ pp_type state arg
   (* GoMap K V → map[KT]VT — reject a non-comparable KEY (recursively; slice/map/func, or a struct/array with a
-     non-comparable component), else invalid Go.  ⚠ Reachable only by a bare type DECLARATION (a signature /
-     struct field of a bad-key map type): a bad-key map VALUE is UNCONSTRUCTIBLE (map_make_typed's MapKeysOk gate
-     admits no proof), so no real program passes one — which is why this arm is a defensive guard, not
-     fixture-pinned (the tag-driven path IS: neg_chan_bad_map_key).  The recursion ([pp_type state kt/vt]) also
-     catches a bad map nested inside a comparable key or the value. *)
+     non-comparable component), else invalid Go.  ⚠ This arm fires only for a GoMap in a STRUCT-FIELD / defined-
+     type position (where the type is written unexpanded): a GoMap VALUE / param / return unboxes to [nat] (the
+     single [gm_loc] field) and its printed Go type is TAG-DRIVEN via [go_type_of_tag] (carrying goty_comparable_
+     key, fixture-pinned by neg_chan_bad_map_key).  A bad-key map VALUE is itself constructible ([map_empty] =
+     [MkMap 0], public), so the value side is not the boundary — the type-DECLARATION side is; this arm is a
+     defensive guard, not yet fixture-pinned (a struct-with-a-bad-key-map-field fixture is the follow-up).  The
+     recursion ([pp_type state kt/vt]) also catches a bad map nested inside a comparable key or the value. *)
   | Tglob (r, [kt; vt]) when is_go_map_type r ->
       if pp_type_comparable_key kt then str "map[" ++ pp_type state kt ++ str "]" ++ pp_type state vt
       else unsupported "a NON-COMPARABLE map key (slice / map / func, or a struct/array with such a component) in a map type — Go rejects e.g. map[[]T]V (pp_type path)"

@@ -153,11 +153,12 @@ constructible `GoTypeTag` and the trusted plugin renders tags independently.  A 
 is now caught by the plugin's TWO type printers, each rejecting a slice/map/func map key:
 `go_type_of_tag`/`goty_comparable_key` (`make_chan` / tag-driven path, fixture-pinned by
 `negtests/neg_chan_bad_map_key`) and `pp_type`/`pp_type_comparable_key` (a RECURSIVE mirror of
-`GoComparableType`; DEFENSIVE guard, not fixture-pinned — a bad-KEY map VALUE is unconstructible via
-`map_make_typed`'s `MapKeysOk` gate, so reachable only by a bare type declaration) — so `MapKeysOk` (model) +
-the two plugin type-printer checks are THREE DUPLICATE map-key authorities that the general certified type
-authority (`GoTypeDesc`) should UNIFY.  Residual frontier: named-struct-with-non-comparable-field keys, and
-`TUnit`/`TArrow` renderability (incompleteness).
+`GoComparableType`; DEFENSIVE guard for a `GoMap` in a struct-field/defined-type position — a map
+value/param/return unboxes to `nat` and its printed type is tag-driven via `go_type_of_tag` (pinned); a bad-key
+map VALUE is itself constructible (`map_empty`=`MkMap 0`, public), so the `pp_type` arm is not yet
+fixture-pinned) — so `MapKeysOk` (model) + the two plugin type-printer checks are THREE DUPLICATE map-key
+authorities that the general certified type authority (`GoTypeDesc`) should UNIFY.  Residual frontier:
+named-struct-with-non-comparable-field keys, and `TUnit`/`TArrow` renderability (incompleteness).
 STILL AHEAD —
 **(b)** closing the wider-acceptance gap (unconditional `map_set` finiteness via `key_eqb`-class enumeration
 for the constructable float/non-value-equal keys);

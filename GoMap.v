@@ -53,10 +53,12 @@ Definition map_empty {K V : Type} : GoMap K V := MkMap 0.
     EMITTED type path is now caught by the plugin's TWO type printers, each rejecting a non-comparable map key:
     [go_type_of_tag]/[coq_goty_of_tag] ([goty_comparable_key]; the [make_chan] / tag-driven path, fixture-pinned
     by [negtests/neg_chan_bad_map_key]) and [pp_type] ([pp_type_comparable_key], a RECURSIVE mirror of
-    [GoComparableType] over signature / struct-field / defined-type map types).  ⚠ The [pp_type] arm is a
-    DEFENSIVE guard, NOT fixture-pinned: a bad-KEY map VALUE is UNCONSTRUCTIBLE ([map_make_typed]'s [MapKeysOk]
-    gate admits no proof), so a bad-key map type is reachable only by a bare TYPE DECLARATION that no program can
-    instantiate.  cp62: the MODEL's [MapKeysOk] plus the plugin's TWO type-printer checks ([goty_comparable_key],
+    [GoComparableType]).  ⚠ The [pp_type] arm fires only for a [GoMap] in a STRUCT-FIELD / defined-type position:
+    a map VALUE / param / return unboxes to [nat] ([gm_loc]) and its printed Go type is TAG-DRIVEN via
+    [go_type_of_tag] (which [neg_chan_bad_map_key] pins).  A bad-key map VALUE is itself CONSTRUCTIBLE ([map_empty]
+    = [MkMap 0], public) — the value side is NOT the boundary; the [pp_type] arm is a defensive guard on the
+    type-DECLARATION side, not yet fixture-pinned (a struct-with-a-bad-key-map-field fixture is the follow-up).
+    cp62: the MODEL's [MapKeysOk] plus the plugin's TWO type-printer checks ([goty_comparable_key],
     [pp_type_comparable_key]) are THREE DUPLICATE map-key authorities the general certified TYPE authority
     ([GoTypeDesc]) should UNIFY.  Residuals (the [GoTypeDesc] frontier): a NAMED struct with a non-comparable
     field renders as a name (its fields not re-checked); and [MapKeysOk] does not prove renderability ([TUnit]
