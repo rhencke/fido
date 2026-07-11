@@ -471,8 +471,9 @@ Fixpoint GoComparableType {K} (t : GoTypeTag K) : bool :=
     [GoComparableType]-admissible KEY.  Go rejects a map key that is a slice / map / func AT ANY NESTING DEPTH
     ([map[int]map[[]int]int] is as invalid as [map[[]int]int]), so [GoComparableType kt] alone — which checks
     only the OUTER key — is NOT enough; [map_make_typed] gates on [MapKeysOk (TMap kt vt)] to ALSO reject a bad
-    key inside the VALUE type (or nested in a slice / chan / ptr / struct / func).  Like [GoComparableType],
-    proof-only / Prop-erased — never emitted. *)
+    key inside the VALUE type (or nested in a slice / chan / ptr / struct / func).  Like [GoComparableType], a
+    [bool] predicate used ONLY inside the erased [MapKeysOk … = true] gate proof — never emitted (its [GoTypeTag]
+    recursion is not extractable anyway). *)
 Fixpoint MapKeysOk {T} (t : GoTypeTag T) : bool :=
   match t with
   | TMap k v   => andb (GoComparableType k) (andb (MapKeysOk k) (MapKeysOk v))
