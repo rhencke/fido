@@ -150,6 +150,14 @@ Zero-axiom is gated by `Print Assumptions` in THREE flows (single-sourced here):
 `*_rejects_dup` proof authority) / `GoChan.chan_wrong_tag_antiforgery_surface` /
 `GoMap.map_wrong_tag_antiforgery_surface` / `GoHeap.ref_wrong_tag_antiforgery_surface` (the wrong-tag
 anti-forgery cones — TYPED-LIVENESS negatives, not origin provenance — for channels / maps / refs) /
+`GoMap.map_finite_surface` (checkpoint-61 #10 "a Go map is FINITE": MapFinite — the live keys
+(map_get_fn <> None) are contained in a finite list — is an INDUCTIVE invariant ESTABLISHED by map_make_typed
+(unconditionally: a fresh cell stores fun _ => None, and a loc-0 nil map reads None everywhere, so support is
+empty either way) and PRESERVED by map_set (under Comparable kt, Go's map-key side condition — key_eqb
+soundness) / map_delete / map_clear. So a map built by the allocator and evolved through the checked ops has
+finitely many entries — the function rep cannot smuggle an infinite live domain. ⚠ finite SUPPORT only — NOT
+yet len(m) = |support| (the sz-vs-f count-consistency MapWF is the deeper follow-up); same-tag forged
+over-populated handle stays the checkpoint-59 typed-liveness frontier) /
 `GoHeap.chan_state_ok_surface` (checkpoint-61 #9 "no over-full channel" INVARIANT ChanCapOk — a bounded
 channel's FIFO length <= cap — the channel analogue of SliceWF: gated across every PRIMITIVE state transition
 — ESTABLISHED at construction by BOTH allocators (make_chan unbuffered + make_chan_buf: empty buffer, finite

@@ -524,6 +524,88 @@ Lemma map_clear_nil_noop : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (w
   run_io (map_clear kt vt (@map_empty K V)) w = ORet tt w.
 Proof. reflexivity. Qed.
 
+(** ---- MapFinite: certified maps have FINITELY MANY ENTRIES (checkpoint-61 #10) ----
+    The map cell stores a FUNCTION [f : K -> option V] (representable with an infinite live-key domain) — but a
+    real Go map is always FINITE.  [MapFinite] pins that the live keys ([map_get_fn <> None]) are contained in a
+    finite [list K] — the map analogue of SliceWF / ChanCapOk's shape bound (here: finite SUPPORT, not a count).
+    ESTABLISHED by the allocator (UNCONDITIONALLY — a fresh cell stores [fun _ => None], and a loc-0 nil map also
+    reads [None] at every key, so the support is empty either way; no [AllocFrontierOk] needed, unlike the
+    channel case) and PRESERVED by [map_set] / [map_delete] / [map_clear].  ⚠ [map_set] needs [Comparable kt]
+    (Go's own map-key side condition) for the key-equality soundness; the same-tag forged over-populated handle
+    stays the checkpoint-59 typed-liveness frontier.  This is finite SUPPORT only — it does NOT yet pin
+    [len(m) = |support|] (the [sz]-vs-[f] count consistency, [MapWF], is the deeper follow-up). *)
+Definition MapFinite {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (m : GoMap K V) (w : World) : Prop :=
+  exists keys : list K, forall k, map_get_fn kt vt m w k <> None -> In k keys.
+(** A fresh [make(map[K]V)] reads [None] at EVERY key — the installed cell's function is [fun _ => None] (and a
+    loc-0 nil map reads [None] canonically), so the live-key support is empty. *)
+Lemma map_make_typed_empty : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (w : World) m w' (k : K),
+  run_io (map_make_typed kt vt) w = ORet m w' -> map_get_fn kt vt m w' k = None.
+Proof.
+  intros K V kt vt w m w' k H. unfold map_make_typed, run_io in H. injection H as Hm Hw. subst m w'.
+  unfold map_get_fn. cbn [gm_loc].
+  destruct (Nat.eqb (w_next w) 0) eqn:Hz; [ reflexivity | ].
+  cbn [w_maps]. rewrite Nat.eqb_refl, !tag_eq_refl. reflexivity.
+Qed.
+Lemma map_make_typed_establishes_mapfinite : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (w : World) m w',
+  run_io (map_make_typed kt vt) w = ORet m w' -> MapFinite kt vt m w'.
+Proof.
+  intros K V kt vt w m w' H. exists nil. intros k Hne. exfalso.
+  apply Hne. exact (map_make_typed_empty kt vt w m w' k H).
+Qed.
+Lemma map_set_preserves_mapfinite : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (v : V) (m : GoMap K V) (w w' : World),
+  Comparable kt -> MapFinite kt vt m w -> run_io (map_set kt vt k v m) w = ORet tt w' -> MapFinite kt vt m w'.
+Proof.
+  intros K V kt vt k v m w w' Hcmp [keys Hkeys] Hrun.
+  unfold run_io, map_set in Hrun.
+  destruct (map_cell_ok kt vt m w) eqn:Hok; [ | discriminate Hrun ].
+  assert (Hw' : map_upd kt vt k v m w = w') by congruence. subst w'.
+  exists (k :: keys). intros k' Hne. unfold map_upd in Hne.
+  rewrite (map_get_fn_write_same kt vt m _ _ w Hok) in Hne. cbn in Hne.
+  destruct (key_eqb kt k k') eqn:Hkey.
+  - left. exact (proj1 (Hcmp k k') Hkey).
+  - right. apply Hkeys. exact Hne.
+Qed.
+Lemma map_delete_preserves_mapfinite : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (m : GoMap K V) (w w' : World),
+  MapFinite kt vt m w -> run_io (map_delete kt vt k m) w = ORet tt w' -> MapFinite kt vt m w'.
+Proof.
+  intros K V kt vt k m w w' [keys Hkeys] Hrun.
+  unfold run_io, map_delete in Hrun.
+  destruct (map_cell_ok kt vt m w) eqn:Hok.
+  - assert (Hw' : map_rem kt vt k m w = w') by congruence. subst w'.
+    exists keys. intros k' Hne. unfold map_rem in Hne.
+    rewrite (map_get_fn_write_same kt vt m _ _ w Hok) in Hne. cbn in Hne.
+    destruct (key_eqb kt k k') eqn:Hkey.
+    + exfalso. apply Hne. reflexivity.
+    + apply Hkeys. exact Hne.
+  - destruct (Nat.eqb (gm_loc m) 0) eqn:Hz.
+    + assert (Hw' : w = w') by congruence. subst w'. exists keys. exact Hkeys.
+    + discriminate Hrun.
+Qed.
+Lemma map_clear_preserves_mapfinite : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (m : GoMap K V) (w w' : World),
+  MapFinite kt vt m w -> run_io (map_clear kt vt m) w = ORet tt w' -> MapFinite kt vt m w'.
+Proof.
+  intros K V kt vt m w w' [keys Hkeys] Hrun.
+  unfold run_io, map_clear in Hrun.
+  destruct (map_cell_ok kt vt m w) eqn:Hok.
+  - assert (Hw' : map_clear_upd kt vt m w = w') by congruence. subst w'.
+    exists nil. intros k' Hne. exfalso. apply Hne. unfold map_clear_upd.
+    rewrite (map_get_fn_write_same kt vt m _ _ w Hok). reflexivity.
+  - destruct (Nat.eqb (gm_loc m) 0) eqn:Hz.
+    + assert (Hw' : w = w') by congruence. subst w'. exists keys. exact Hkeys.
+    + discriminate Hrun.
+Qed.
+(** MAP FINITE SURFACE (manifest-gated, zero-axiom): [MapFinite] (finite live-key SUPPORT) is an INDUCTIVE
+    invariant — ESTABLISHED by [map_make_typed] (unconditionally) and PRESERVED by [map_set] (under
+    [Comparable kt]) / [map_delete] / [map_clear].  So a map built by the allocator and evolved through the
+    checked ops has FINITELY many entries — the certified-path faithfulness for checkpoint-61 #10's "a Go map is
+    finite" (the function rep cannot smuggle an infinite live domain).  ⚠ finite SUPPORT only — NOT yet
+    [len(m) = |support|] (the [sz]-vs-[f] count-consistency [MapWF] is the deeper follow-up); and a same-tag
+    forged over-populated handle stays the checkpoint-59 typed-liveness frontier. *)
+Definition map_finite_surface :=
+  (@map_make_typed_establishes_mapfinite, @map_set_preserves_mapfinite,
+   @map_delete_preserves_mapfinite, @map_clear_preserves_mapfinite).
+Print Assumptions map_finite_surface.
+
 (** ==================================================================================================
     WRONG-TAG ANTI-FORGERY (checkpoint-58 #3, maps).  The hypotheses below isolate the WRONG-TAG case
     STRUCTURALLY: a NONZERO location ([Nat.eqb (gm_loc m) 0 = false]) holding a REAL cell (so [gm_present = true]

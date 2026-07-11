@@ -128,16 +128,12 @@ global confinement theorem — `None` still reads for nil/forged-absent/bridge c
 combinators are out of scope). STILL AHEAD — the
 STRUCTURAL excision of `None` from `chan_cap` (the proof-only concurrency bridge still needs it), and the
 same-tag over-full forged handle (the checkpoint-59 typed-liveness frontier).
-10. Map representation. **DESIGN (next arc, fresh context):** the map cell stores a FUNCTION `f : K -> option V`
-(infinite-capable) + a SEPARATE `sz : nat`, with no theorem tying them — so `len(m)` faithfulness is only the
-single `map_len_counts` vm_compute example.  Prove the map analogue of ChanCapOk/SliceWF: `MapFinite` (finite
-support — `exists keys, forall k, map_get_fn k <> None -> In k keys`) and/or the full `MapWF` (adds `NoDup keys`
-+ `map_count = length keys`, i.e. `sz` = the real live-key count).  ESTABLISHED by `map_make_typed` (installs
-`f = fun _ => None`, empty support) and `map_clear` (`map_clear_upd` installs `fun _ => None`); PRESERVED by
-`map_set`/`map_delete` — the hard cases, needing `map_get_fn_write_same` (GoMap `map_get_fn` of a `map_write` is
-the written `f`), key equality soundness (`GoRuntimeTypes.v:420`, `key_eqb t a b = true <-> a = b` under a
-`Comparable` hypothesis — thread `Comparable kt` as a premise), and `In`/`NoDup` list reasoning.  Guard each op
-on `map_cell_ok` (a forged/absent handle is a no-op — `map_upd/rem_absent_noop`); the same-tag forged over-count
-handle stays the cp59 frontier.  Apply the hardened prose discipline (exact op coverage, preservation≠confinement,
-explicit `AllocFrontierOk`/`map_cell_ok`/`Comparable` premises) from the first commit.
+10. Map representation. **PARTIAL:** the map cell stores a FUNCTION `f : K -> option V` (infinite-capable) + a
+SEPARATE `sz : nat`.  `MapFinite` (finite live-key SUPPORT — `exists keys, forall k, map_get_fn k <> None -> In
+k keys`) is now proved (gated `map_finite_surface`): the map analogue of ChanCapOk/SliceWF, ESTABLISHED by
+`map_make_typed` (unconditionally — const-`None` cell / nil both give empty support) and PRESERVED by
+`map_set` (under `Comparable kt`) / `map_delete` / `map_clear`.  So the function rep cannot smuggle an infinite
+live domain.  STILL AHEAD — the deeper `MapWF` count-consistency (`NoDup keys` + `map_count = length keys`,
+i.e. `sz` = the real live-key count, upgrading the single `map_len_counts` vm_compute example to a theorem);
+and the same-tag forged over-count handle (the cp59 typed-liveness frontier).
 11. Clean docs + full build.
