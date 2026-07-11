@@ -38,16 +38,17 @@ Definition RefHeap : Type := nat -> option RefCell.
 Definition ChanCell : Type := { E : Type & (GoTypeTag E * (list E * (bool * option nat)))%type }.
 Definition ChanHeap : Type := nat -> option ChanCell.
 (** A map cell: the key type [K] + its tag, then existentially the value type [V]
-    + its tag, then the contents as a function [K -> option V] (a real Go map's live-key
-    support is finite — the [GoMap.MapFinite] invariant certified ops preserve — though the
-    bare function type does NOT enforce finiteness).
+    + its tag, then the contents as a function [K -> option V].  The bare function type does NOT
+    enforce finiteness; that a real Go map's live-key support is finite is the SEPARATE
+    [GoMap.MapFinite] invariant — its surface owns exactly which ops establish/preserve it (and the
+    [Comparable kt] scope on [map_set]); the single authority, not restated here.
     Like the channel cell, the stored tags let an accessor coerce back to its own
     [K]/[V] view (equal by construction). *)
-(** The leading [nat] is the cell's STORED count field: the plugin lowers Go's [len(m)] to [map_size]
-    (this field widened), and [map_upd] (+1 on a genuinely new key) / [map_rem] (−1 on a present key)
-    MAINTAIN it — but that the field EQUALS the number of live keys is the deeper [GoMap] MapWF, not
-    built into the cell.  It sits OUTSIDE the existT (the count is type-independent), so the value
-    accessor [map_get_fn] is unchanged. *)
+(** The leading [nat] is the cell's STORED count field: Go's [len(m)] is the op [map_len], which reads
+    [map_size] = this field widened; [map_upd] / [map_rem] do the +1 (new key) / −1 (present key)
+    bookkeeping ON this field (on a tag-correct cell).  That the field EQUALS the number of live keys is
+    the deeper [GoMap] MapWF, NOT built into the cell.  It sits OUTSIDE the existT (the count is
+    type-independent), so the value accessor [map_get_fn] is unchanged. *)
 Definition MapCell : Type :=
   (nat * { K : Type & (GoTypeTag K * { V : Type & (GoTypeTag V * (K -> option V))%type })%type })%type.
 Definition MapHeap : Type := nat -> option MapCell.
