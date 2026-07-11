@@ -1020,8 +1020,9 @@ Proof.
   - discriminate H.
   - injection H as Hch Hw. subst ch w'. unfold chan_buf. cbn. rewrite Hnz, Nat.eqb_refl, tag_eq_refl. reflexivity.
 Qed.
-(** ChanStateOk ESTABLISHMENT at construction: a fresh [make(chan T, n)] channel satisfies [ChanCapOk]
-    ([length 0 <= Z.to_nat n]).  Pairs [make_chan_buf_caps] (finite cap) with [make_chan_buf_empty] (empty buffer). *)
+(** ChanStateOk ESTABLISHMENT at construction (under [AllocFrontierOk]): a fresh [make(chan T, n)] channel
+    satisfies [ChanCapOk] ([length 0 <= Z.to_nat n]).  Pairs [make_chan_buf_caps] (finite cap) with
+    [make_chan_buf_empty] (empty buffer). *)
 Lemma make_chan_buf_establishes_chancapok : forall {A} (tag : GoTypeTag A) (n : GoInt) (w : World) ch w',
   AllocFrontierOk w -> run_io (make_chan_buf tag n) w = ORet ch w' -> ChanCapOk tag ch w'.
 Proof.
@@ -1029,8 +1030,8 @@ Proof.
   rewrite (make_chan_buf_caps tag n w ch w' HV H), (make_chan_buf_empty tag n w ch w' HV H).
   cbn. apply Nat.le_0_l.
 Qed.
-(** The UNBUFFERED constructor [make(chan T)] (cap [Some 0]) equally establishes [ChanCapOk] ([length 0 <= 0]).
-    [make_chan_caps]/[make_chan_empty] mirror the buffered witnesses for the [Some 0] allocator. *)
+(** The UNBUFFERED constructor [make(chan T)] (cap [Some 0]) equally establishes [ChanCapOk] ([length 0 <= 0])
+    under [AllocFrontierOk].  [make_chan_caps]/[make_chan_empty] mirror the buffered witnesses for the [Some 0] allocator. *)
 Lemma make_chan_caps : forall {A} (tag : GoTypeTag A) (w : World) ch w',
   AllocFrontierOk w -> run_io (make_chan tag) w = ORet ch w' -> chan_cap ch w' = Some 0%nat.
 Proof.
@@ -1071,8 +1072,8 @@ Definition chan_state_ok_surface :=
    @recv_preserves_chancapok, @close_preserves_chancapok).
 Print Assumptions chan_state_ok_surface.
 
-(** Both constructors ESTABLISH [ChanFinite] (a bounded [Some] capacity): [make_chan] → [Some 0],
-    [make_chan_buf] → [Some (Z.to_nat n)] (from [make_chan_caps]/[make_chan_buf_caps]). *)
+(** Both constructors ESTABLISH [ChanFinite] (a bounded [Some] capacity) under [AllocFrontierOk]: [make_chan] →
+    [Some 0], [make_chan_buf] → [Some (Z.to_nat n)] (from [make_chan_caps]/[make_chan_buf_caps]). *)
 Lemma make_chan_establishes_chanfinite : forall {A} (tag : GoTypeTag A) (w : World) ch w',
   AllocFrontierOk w -> run_io (make_chan tag) w = ORet ch w' -> ChanFinite ch w'.
 Proof. intros A tag w ch w' HV H. exists 0%nat. exact (make_chan_caps tag w ch w' HV H). Qed.

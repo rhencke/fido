@@ -117,8 +117,8 @@ the full `WorldWellFormed` (needs `WorldRealizes`) lands with #5. 7. Restrict
 GoCFG to nonblocking bodies. 8. Translate Cmd channels → UCmd. 9. Finite vs unbounded channels.
 **PARTIAL:** the "no over-full channel" invariant `ChanCapOk` (`length(buf) <= cap`) is proved across every
 PRIMITIVE channel state transition — ESTABLISHED at construction by BOTH allocators (`make_chan` unbuffered +
-`make_chan_buf`, empty buffer + finite cap) and by every `send`, PRESERVED by the primitive `recv` and `close`
-— gated in `chan_state_ok_surface`. The comma-ok/select receive combinators (`recv_ok`/`select_recv2`/
+`make_chan_buf`, empty buffer + finite cap) under `AllocFrontierOk` (nonzero-location allocation) and by every
+`send`, PRESERVED by the primitive `recv` and `close` — gated in `chan_state_ok_surface`. The comma-ok/select receive combinators (`recv_ok`/`select_recv2`/
 `select_recv_default`) are dequeue-then-continue forms reusing the covered `chan_recv_upd` dequeue + a caller
 continuation, so they add no buffer-growing transition; not separately gated. The finite-vs-unbounded half has
 its inductive invariant: `ChanFinite` (gated `chan_finite_surface`) — a bounded `Some` cap — is ESTABLISHED by
