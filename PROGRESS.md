@@ -170,11 +170,14 @@ shape for clear, copy's DST, and copy's SRC. So a shape-malformed / dangling / w
 succeed, and the live path stays AllocFrontierOk; the per-cell writes are tag-aware BY CONSTRUCTION (no
 fabricate/retype — a def property, not a separate gated theorem). ⚠ rejects malformed/dangling/wrong-tag, NOT
 every forged handle — a same-tag alias over a live backing passes (typed liveness, not provenance)) /
-`GoHeap.slice_transformer_wf_surface` (checkpoint-61 step-4 PRESERVATION half: subslice/slice_append cannot
-MANUFACTURE a malformed sh_cap<sh_len header — every ORet output satisfies sh_len<=sh_cap (subslice needs no
-input-WF premise; append rejects a len>cap input), so the well-formed slice algebra is CLOSED and the only
-malformed source, a raw mkSliceH forgery, is caught by the index ops' bad_shape rejection. ⚠ nat-SHAPE only,
-NOT backing-object identity — the same-tag-alias case stays the checkpoint-59 frontier) /
+`GoHeap.slice_transformer_wf_surface` (checkpoint-61 step-4 transformer half, sh_len<=sh_cap SliceWF pinned
+BOTH ways: REJECT a malformed cap<len parent — subslice/slice_append _bad_shape_rejected fail loud (exists p =
+OPanic p w, no exported marker; subslice must guard on len<=cap or its b<=cap bounds check would silently
+NORMALIZE a forged parent into a clean child) — AND PRESERVE well-formedness on every ORet output
+(_preserves_wf). So a transformer neither launders nor manufactures a malformed header; the only malformed
+source, a raw mkSliceH forgery, is caught by the index ops' bad_shape rejection, closing the well-formed slice
+algebra. ⚠ nat-SHAPE only, NOT backing-object identity — the same-tag-alias case stays the checkpoint-59
+frontier) /
 `GoHeap.live_handle_surface`
 (the checkpoint-59 step-3 REUSABLE `Live*` family — the four SCALAR predicates LiveRef/LivePtr/LiveChan/LiveMap,
 one canonical typed-liveness interface over the per-family checks; allocators produce Live*) /

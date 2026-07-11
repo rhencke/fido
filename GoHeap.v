@@ -1441,17 +1441,26 @@ Definition subslice_desc {A} (s : SliceH A) (a b : nat) : SliceH A :=
    — note the upper bound is CAPACITY for a 2-index slice.
    So [subslice] is an IO action that panics on a bad triple instead of silently producing a
    wrapped descriptor whose bogus [sh_len] would defeat the index bounds check.  The native Go
-   [s[a:b]] performs the SAME check, so the lowering (a `:=` binding) is faithful. *)
+   [s[a:b]] performs the SAME check, so the lowering (a `:=` binding) is faithful.
+   ⚠ SliceWF GUARD (checkpoint-61): a malformed [sh_cap < sh_len] PARENT FAILS LOUD FIRST — it is NEVER
+   normalized into a well-formed child.  Without this, [subslice]'s bounds check ([b <= cap]) alone would
+   LAUNDER a forged [cap < len] header into a clean [len = b-a <= cap-a] descriptor, hiding the forgery; the
+   guard rejects it exactly as the index ops and [slice_append]'s [len > cap] branch do (a model fault,
+   [OPanic rt_nil_deref] today, a distinct [ModelFault] after the result/control split).  On a well-formed
+   parent the guard is a no-op — extraction/golden unchanged (name-lowered op). *)
 Definition subslice_inb {A} (s : SliceH A) (a b : GoInt) : bool :=
   (Z.leb 0 (intraw a) && Z.leb (intraw a) (intraw b) && Z.leb (intraw b) (Z.of_nat (sh_cap s)))%bool.
 Definition subslice {A} (s : SliceH A) (a b : GoInt) : IO (SliceH A) :=
-  fun w => if subslice_inb s a b
-           then ORet (subslice_desc s (Z.to_nat (intraw a)) (Z.to_nat (intraw b))) w
-           else OPanic rt_slice_bounds w.
+  fun w => if Nat.leb (sh_len s) (sh_cap s)
+           then (if subslice_inb s a b
+                 then ORet (subslice_desc s (Z.to_nat (intraw a)) (Z.to_nat (intraw b))) w
+                 else OPanic rt_slice_bounds w)
+           else OPanic rt_nil_deref w.
 Lemma run_subslice : forall {A} (s : SliceH A) (a b : GoInt) (w : World),
+  Nat.leb (sh_len s) (sh_cap s) = true ->
   subslice_inb s a b = true ->
   run_io (subslice s a b) w = ORet (subslice_desc s (Z.to_nat (intraw a)) (Z.to_nat (intraw b))) w.
-Proof. intros A s a b w H. unfold subslice, run_io. rewrite H. reflexivity. Qed.
+Proof. intros A s a b w Hwf H. unfold subslice, run_io. rewrite Hwf, H. reflexivity. Qed.
 
 (** Sub-slice element [j] IS parent element [a+j] — the SAME backing cell. *)
 Lemma subslice_shares_cell : forall {A} (s : SliceH A) (a b j : nat),
@@ -1595,18 +1604,21 @@ Proof.
   rewrite H1, H2. reflexivity.
 Qed.
 
-(** SliceWF PRESERVATION (checkpoint-61 step 4): the slice TRANSFORMERS never MANUFACTURE a malformed
-    [sh_cap < sh_len] header — whenever they RETURN ([ORet]) the output satisfies [sh_len <= sh_cap].  So a
-    malformed header can only ever come from a raw [mkSliceH] forgery, and the index ops reject THAT
-    ([slice_idx_{get,set}_bad_shape_rejected]); the well-formed algebra is closed.
-    - [subslice] needs NO well-formedness premise on its INPUT: its bounds guard already forces [b <= cap], so
-      the output [len = b - a <= cap - a = cap'] regardless of the parent's shape.
-    - [slice_append] preserves it per branch: in-cap ([len < cap]) grows to [S len <= cap]; the sole grow point
-      ([len = cap]) reallocs to [S n = S n]; a [len > cap] input FAILS LOUD (no [ORet]). *)
+(** SliceWF on the TRANSFORMERS (checkpoint-61 step 4) — pinned BOTH ways, so a malformed [sh_cap < sh_len]
+    header is neither LAUNDERED nor MANUFACTURED:
+    - REJECT: a malformed PARENT FAILS LOUD ([subslice_bad_shape_rejected]/[slice_append_bad_shape_rejected],
+      [exists p, = OPanic p w], no exported marker).  Crucially [subslice] must guard on [len <= cap] — its
+      bounds check ([b <= cap]) alone would otherwise silently NORMALIZE a forged [cap < len] parent into a
+      clean [len = b-a <= cap-a] child, hiding the forgery.
+    - PRESERVE: whenever a transformer RETURNS ([ORet]) the output satisfies [sh_len <= sh_cap]
+      ([subslice_preserves_wf]/[slice_append_preserves_wf]).
+    So a malformed header can ONLY come from a raw [mkSliceH] forgery, and the index ops reject THAT
+    ([slice_idx_{get,set}_bad_shape_rejected]) — the well-formed slice algebra is CLOSED. *)
 Lemma subslice_preserves_wf : forall {A} (s : SliceH A) (a b : GoInt) (w : World) s' w',
   run_io (subslice s a b) w = ORet s' w' -> Nat.leb (sh_len s') (sh_cap s') = true.
 Proof.
   intros A s a b w s' w' Hrun. unfold run_io, subslice in Hrun.
+  destruct (Nat.leb (sh_len s) (sh_cap s)) eqn:Hwf; [ | discriminate Hrun ].
   destruct (subslice_inb s a b) eqn:Hinb; [ | discriminate Hrun ].
   injection Hrun as Hs' _. subst s'.
   unfold subslice_inb in Hinb.
@@ -1626,13 +1638,26 @@ Proof.
     destruct (slice_range_live s (sh_len s) w) eqn:Hlive; [ | discriminate Hrun ].
     injection Hrun as Hs' _. subst s'. cbn [sh_len sh_cap]. apply Nat.leb_refl.
 Qed.
-(** SLICE TRANSFORMER WF SURFACE (manifest-gated, zero-axiom): [subslice]/[slice_append] PRESERVE the
-    [sh_len <= sh_cap] SliceWF shape (they cannot fabricate a malformed header), the preservation half of
-    checkpoint-61 step 4 that pairs with the index ops' [heap_aggregate_liveness_surface] rejection.  ⚠ This is
-    the nat-SHAPE invariant ONLY — NOT backing-object identity; a same-tag alias over a live backing is still
-    the standing checkpoint-59 typed-liveness frontier. *)
+Lemma subslice_bad_shape_rejected : forall {A} (s : SliceH A) (a b : GoInt) (w : World),
+  (sh_cap s < sh_len s)%nat -> exists p, run_io (subslice s a b) w = OPanic p w.
+Proof.
+  intros A s a b w Hbad. unfold run_io, subslice.
+  assert (Hleb : Nat.leb (sh_len s) (sh_cap s) = false) by (apply Nat.leb_gt; exact Hbad).
+  rewrite Hleb. eexists. reflexivity.
+Qed.
+Lemma slice_append_bad_shape_rejected : forall {A} (tag : GoTypeTag A) (s : SliceH A) (v : A) (w : World),
+  (sh_cap s < sh_len s)%nat -> exists p, run_io (slice_append tag s v) w = OPanic p w.
+Proof. intros A tag s v w Hbad. eexists. apply slice_append_len_gt_cap_panics; exact Hbad. Qed.
+(** SLICE TRANSFORMER WF SURFACE (manifest-gated, zero-axiom): [subslice]/[slice_append] pin the
+    [sh_len <= sh_cap] SliceWF shape BOTH ways — REJECT a malformed [cap < len] parent ([*_bad_shape_rejected],
+    fail loud, no exported marker) AND PRESERVE well-formedness on every [ORet] output ([*_preserves_wf]).  So
+    a transformer neither launders nor manufactures a malformed header; this is checkpoint-61 step 4's
+    transformer half, pairing with the index ops' [heap_aggregate_liveness_surface] rejection.  ⚠ nat-SHAPE
+    invariant ONLY — NOT backing-object identity; a same-tag alias over a live backing is still the standing
+    checkpoint-59 typed-liveness frontier. *)
 Definition slice_transformer_wf_surface :=
-  (@subslice_preserves_wf, @slice_append_preserves_wf).
+  (@subslice_preserves_wf, @slice_append_preserves_wf,
+   @subslice_bad_shape_rejected, @slice_append_bad_shape_rejected).
 Print Assumptions slice_transformer_wf_surface.
 
 (** [make([]T, len, cap)]: allocate [cap] fresh zeroed cells; the handle
