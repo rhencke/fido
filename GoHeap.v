@@ -1365,36 +1365,63 @@ Definition slice_in_len {A} (s : SliceH A) (i : GoInt) : bool :=
     of fabricating a zero.  The loud branch is UNREACHABLE for any slice from [slice_make_h]/[subslice]/
     [slice_append] (their backing cells are allocated at the matching tag), so real programs are
     unaffected; it guards only the public raw [mkSliceH].  Body is plugin-lowered to [s[i]]. *)
+(** ⚠ SliceWF GUARD (checkpoint-61): both index ops FIRST reject a malformed [sh_len > sh_cap] header — a
+    model-invalid SliceH (Go maintains [len <= cap]) whose in-[len] index [cap <= i < len] would otherwise reach
+    a cell BEYOND the backing (a coincidentally same-tagged cell would be silently indexed).  On a WELL-FORMED
+    slice ([sh_len <= sh_cap]) the guard is a no-op, so extraction/golden are unchanged.  The malformed
+    fail-loud is a MODEL FAULT (currently [OPanic rt_nil_deref], symmetric with the forged-backing-cell branch;
+    both become a distinct [ModelFault], proved unreachable under the store-typing authority — cp61). *)
 Definition slice_idx_get {A} (tag : GoTypeTag A) (s : SliceH A) (i : GoInt) : IO A :=
-  fun w => if slice_in_len s i
-           then match ref_sel_opt (sh_cell s (Z.to_nat (intraw i))) w with
-                | Some a => ORet a w
-                | None   => OPanic rt_nil_deref w
-                end
-           else OPanic (rt_index_oob (intraw i) (sh_len s)) w.
+  fun w => if Nat.leb (sh_len s) (sh_cap s)
+           then (if slice_in_len s i
+                 then match ref_sel_opt (sh_cell s (Z.to_nat (intraw i))) w with
+                      | Some a => ORet a w
+                      | None   => OPanic rt_nil_deref w
+                      end
+                 else OPanic (rt_index_oob (intraw i) (sh_len s)) w)
+           else OPanic rt_nil_deref w.
 Definition slice_idx_set {A} (s : SliceH A) (i : GoInt) (v : A) : IO unit :=
-  fun w => if slice_in_len s i
-           then match ref_sel_opt (sh_cell s (Z.to_nat (intraw i))) w with
-                | Some _ => ORet tt (ref_upd (sh_cell s (Z.to_nat (intraw i))) v w)
-                | None   => OPanic rt_nil_deref w   (* forged backing cell: FAIL LOUD, symmetric with slice_idx_get *)
-                end
-           else OPanic (rt_index_oob (intraw i) (sh_len s)) w.
+  fun w => if Nat.leb (sh_len s) (sh_cap s)
+           then (if slice_in_len s i
+                 then match ref_sel_opt (sh_cell s (Z.to_nat (intraw i))) w with
+                      | Some _ => ORet tt (ref_upd (sh_cell s (Z.to_nat (intraw i))) v w)
+                      | None   => OPanic rt_nil_deref w   (* forged backing cell: FAIL LOUD, symmetric with slice_idx_get *)
+                      end
+                 else OPanic (rt_index_oob (intraw i) (sh_len s)) w)
+           else OPanic rt_nil_deref w.
 Lemma run_slice_idx_get : forall {A} (tag : GoTypeTag A) (s : SliceH A) (i : GoInt) (a : A) (w : World),
+  Nat.leb (sh_len s) (sh_cap s) = true ->
   slice_in_len s i = true ->
   ref_sel_opt (sh_cell s (Z.to_nat (intraw i))) w = Some a ->
   run_io (slice_idx_get tag s i) w = ORet a w.
-Proof. intros A tag s i a w Hi Hsel. unfold slice_idx_get, run_io. rewrite Hi, Hsel. reflexivity. Qed.
+Proof. intros A tag s i a w Hwf Hi Hsel. unfold slice_idx_get, run_io. rewrite Hwf, Hi, Hsel. reflexivity. Qed.
 Lemma run_slice_idx_set : forall {A} (s : SliceH A) (i : GoInt) (v a : A) (w : World),
+  Nat.leb (sh_len s) (sh_cap s) = true ->
   slice_in_len s i = true ->
   ref_sel_opt (sh_cell s (Z.to_nat (intraw i))) w = Some a ->
   run_io (slice_idx_set s i v) w = ORet tt (ref_upd (sh_cell s (Z.to_nat (intraw i))) v w).
-Proof. intros A s i v a w Hi Hsel. unfold slice_idx_set, run_io. rewrite Hi, Hsel. reflexivity. Qed.
+Proof. intros A s i v a w Hwf Hi Hsel. unfold slice_idx_set, run_io. rewrite Hwf, Hi, Hsel. reflexivity. Qed.
 (** Out of range is a PANIC, exactly Go: writing at index = len ('s len=1,cap=2,
-    write index 1 witness) is rejected, not silently aimed at the spare capacity cell. *)
+    write index 1 witness) is rejected, not silently aimed at the spare capacity cell.
+    ([sh_len <= sh_cap] premise: the SliceWF guard clears first on the well-formed header). *)
 Lemma run_slice_idx_set_oob : forall {A} (s : SliceH A) (i : GoInt) (v : A) (w : World),
+  Nat.leb (sh_len s) (sh_cap s) = true ->
   slice_in_len s i = false ->
   run_io (slice_idx_set s i v) w = OPanic (rt_index_oob (intraw i) (sh_len s)) w.
-Proof. intros A s i v w Hi. unfold slice_idx_set, run_io. rewrite Hi. reflexivity. Qed.
+Proof. intros A s i v w Hwf Hi. unfold slice_idx_set, run_io. rewrite Hwf, Hi. reflexivity. Qed.
+(** SliceWF REJECTION (checkpoint-61): a MALFORMED [sh_len > sh_cap] header fail-louds at BOTH index ops
+    — BEFORE the [slice_in_len] check, so an in-[len]-but-beyond-[cap] index [cap <= i < len] can NEVER reach
+    a coincidentally same-tagged cell past the backing.  Currently the fault is [OPanic rt_nil_deref]
+    (symmetric with the forged-cell branch); both become a distinct, non-catchable [ModelFault] under the
+    store-typing authority (cp61 result/control split). *)
+Lemma slice_idx_get_malformed_failloud : forall {A} (tag : GoTypeTag A) (s : SliceH A) (i : GoInt) (w : World),
+  Nat.leb (sh_len s) (sh_cap s) = false ->
+  run_io (slice_idx_get tag s i) w = OPanic rt_nil_deref w.
+Proof. intros A tag s i w Hwf. unfold slice_idx_get, run_io. rewrite Hwf. reflexivity. Qed.
+Lemma slice_idx_set_malformed_failloud : forall {A} (s : SliceH A) (i : GoInt) (v : A) (w : World),
+  Nat.leb (sh_len s) (sh_cap s) = false ->
+  run_io (slice_idx_set s i v) w = OPanic rt_nil_deref w.
+Proof. intros A s i v w Hwf. unfold slice_idx_set, run_io. rewrite Hwf. reflexivity. Qed.
 (* [s[a:b]]: same backing [base], [offset] shifted by [a] — SHARES the cells.  [subslice_desc]
    is the PURE descriptor on internal [nat] indices (the aliasing lemmas reason about it);
    [subslice] is the Go-level op taking the [GoInt] bounds and converting at the boundary. *)
@@ -1452,20 +1479,22 @@ Proof.
   unfold sh_cell; cbn [r_loc]. exact Hne.
 Qed.
 
-(** Read-after-write at an index — a THEOREM (from the shared heap). *)
+(** Read-after-write at an index — a THEOREM (from the shared heap).
+    ([sh_len <= sh_cap] premise: the SliceWF guard must clear before either index op reaches the cell). *)
 Lemma slice_idx_get_set_same : forall {A} (tag : GoTypeTag A) (s : SliceH A) (i : GoInt) (v : A),
+  Nat.leb (sh_len s) (sh_cap s) = true ->
   slice_in_len s i = true ->
   bind (slice_idx_set s i v) (fun _ => slice_idx_get tag s i) =io=
   bind (slice_idx_set s i v) (fun _ => ret v).
 Proof.
-  intros A tag s i v Hi. intro w.
+  intros A tag s i v Hwf Hi. intro w.
   rewrite !run_bind.
   destruct (ref_sel_opt (sh_cell s (Z.to_nat (intraw i))) w) as [a|] eqn:Hsel.
-  - rewrite !(run_slice_idx_set s i v a w Hi Hsel). cbn.
-    rewrite (run_slice_idx_get tag s i v (ref_upd (sh_cell s (Z.to_nat (intraw i))) v w) Hi
+  - rewrite !(run_slice_idx_set s i v a w Hwf Hi Hsel). cbn.
+    rewrite (run_slice_idx_get tag s i v (ref_upd (sh_cell s (Z.to_nat (intraw i))) v w) Hwf Hi
                (ref_sel_opt_upd_same (sh_cell s (Z.to_nat (intraw i))) v a w Hsel)), run_ret.
     reflexivity.
-  - unfold slice_idx_set, run_io. rewrite Hi, Hsel. reflexivity.
+  - unfold slice_idx_set, run_io. rewrite Hwf, Hi, Hsel. reflexivity.
 Qed.
 
 (** [slice_range_live s n w] — every backing cell [0, n) of [s] reads back LIVE (a real allocation).  Used to
@@ -1646,11 +1675,12 @@ Corollary slice_make_idx_get_no_panic : forall {A} (tag : GoTypeTag A) (len cap 
   run_io (slice_idx_get tag s i) w0 = ORet (zero_val tag) w0.
 Proof.
   intros A tag len cap w s w0 i Hmk Hin.
+  pose proof (proj2 (Nat.leb_le (sh_len s) (sh_cap s)) (slice_make_lc_len_fits tag len cap w s w0 Hmk)) as Hwf.
   assert (Hj : (Z.to_nat (intraw i) < sh_cap s)%nat).
   { pose proof (slice_make_lc_len_fits tag len cap w s w0 Hmk) as Hlc.
     pose proof Hin as Hin'. unfold slice_in_len in Hin'. apply andb_prop in Hin' as [_ Hlt].
     apply Nat.ltb_lt in Hlt. lia. }
-  exact (run_slice_idx_get tag s i (zero_val tag) w0 Hin
+  exact (run_slice_idx_get tag s i (zero_val tag) w0 Hwf Hin
            (slice_make_lc_cell_live tag len cap w s w0 (Z.to_nat (intraw i)) Hmk Hj)).
 Qed.
 Corollary slice_make_idx_set_no_panic : forall {A} (tag : GoTypeTag A) (len cap : GoInt) (w : World) s w0 (i : GoInt) (v : A),
@@ -1659,11 +1689,12 @@ Corollary slice_make_idx_set_no_panic : forall {A} (tag : GoTypeTag A) (len cap 
   exists w1, run_io (slice_idx_set s i v) w0 = ORet tt w1.
 Proof.
   intros A tag len cap w s w0 i v Hmk Hin. eexists.
+  pose proof (proj2 (Nat.leb_le (sh_len s) (sh_cap s)) (slice_make_lc_len_fits tag len cap w s w0 Hmk)) as Hwf.
   assert (Hj : (Z.to_nat (intraw i) < sh_cap s)%nat).
   { pose proof (slice_make_lc_len_fits tag len cap w s w0 Hmk) as Hlc.
     pose proof Hin as Hin'. unfold slice_in_len in Hin'. apply andb_prop in Hin' as [_ Hlt].
     apply Nat.ltb_lt in Hlt. lia. }
-  exact (run_slice_idx_set s i v (zero_val tag) w0 Hin
+  exact (run_slice_idx_set s i v (zero_val tag) w0 Hwf Hin
            (slice_make_lc_cell_live tag len cap w s w0 (Z.to_nat (intraw i)) Hmk Hj)).
 Qed.
 
@@ -1686,16 +1717,27 @@ Proof.
   rewrite (proj2 (Nat.ltb_lt (w_next w + j) (w_next w + Z.to_nat (intraw n))) ltac:(lia)).
   cbn -[tag_coerce]. apply tag_coerce_refl.
 Qed.
+(** [make([]T,n)] has [len = cap = n], so trivially [len <= cap] (Go's slice invariant) — the SliceWF guard
+    on the index ops clears.  Mirror of [slice_make_lc_len_fits] for the len=cap allocator. *)
+Lemma slice_make_h_len_fits : forall {A} (tag : GoTypeTag A) (n : GoInt) (w : World) s w0,
+  run_io (slice_make_h tag n) w = ORet s w0 -> Nat.leb (sh_len s) (sh_cap s) = true.
+Proof.
+  intros A tag n w s w0 Hmk.
+  unfold slice_make_h, run_io in Hmk. cbv zeta in Hmk.
+  destruct (0 <=? intraw n)%Z eqn:Hc; [ | discriminate Hmk ].
+  injection Hmk as Hs Hw0. subst s. cbn [sh_len sh_cap]. apply Nat.leb_refl.
+Qed.
 Corollary slice_make_h_idx_get_no_panic : forall {A} (tag : GoTypeTag A) (n : GoInt) (w : World) s w0 (i : GoInt),
   run_io (slice_make_h tag n) w = ORet s w0 ->
   slice_in_len s i = true ->
   run_io (slice_idx_get tag s i) w0 = ORet (zero_val tag) w0.
 Proof.
   intros A tag n w s w0 i Hmk Hin.
+  pose proof (slice_make_h_len_fits tag n w s w0 Hmk) as Hwf.
   assert (Hj : (Z.to_nat (intraw i) < sh_len s)%nat).
   { pose proof Hin as Hin'. unfold slice_in_len in Hin'. apply andb_prop in Hin' as [_ Hlt].
     apply Nat.ltb_lt in Hlt. exact Hlt. }
-  exact (run_slice_idx_get tag s i (zero_val tag) w0 Hin
+  exact (run_slice_idx_get tag s i (zero_val tag) w0 Hwf Hin
            (slice_make_h_cell_live tag n w s w0 (Z.to_nat (intraw i)) Hmk Hj)).
 Qed.
 Corollary slice_make_h_idx_set_no_panic : forall {A} (tag : GoTypeTag A) (n : GoInt) (w : World) s w0 (i : GoInt) (v : A),
@@ -1704,10 +1746,11 @@ Corollary slice_make_h_idx_set_no_panic : forall {A} (tag : GoTypeTag A) (n : Go
   exists w1, run_io (slice_idx_set s i v) w0 = ORet tt w1.
 Proof.
   intros A tag n w s w0 i v Hmk Hin. eexists.
+  pose proof (slice_make_h_len_fits tag n w s w0 Hmk) as Hwf.
   assert (Hj : (Z.to_nat (intraw i) < sh_len s)%nat).
   { pose proof Hin as Hin'. unfold slice_in_len in Hin'. apply andb_prop in Hin' as [_ Hlt].
     apply Nat.ltb_lt in Hlt. exact Hlt. }
-  exact (run_slice_idx_set s i v (zero_val tag) w0 Hin
+  exact (run_slice_idx_set s i v (zero_val tag) w0 Hwf Hin
            (slice_make_h_cell_live tag n w s w0 (Z.to_nat (intraw i)) Hmk Hj)).
 Qed.
 
