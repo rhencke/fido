@@ -105,7 +105,7 @@ Panic values: `runtime_panic_not_string`, `runtime_panic_error_text_correct` (pe
 authority (together). 3. Build `GoConcurrentSem` blocking on the `unified.v` `ustep` seed
 (continuation-retaining). 4. `SliceWF` over a backing object; slice ops consume/preserve it;
 malformed → `ModelFault`. 5. `StoreTyping`/`WorldRealizes`/`ValueWF` (Live* derived; alloc-extension;
-preservation; `ModelFault` unreachable). 6. `AllocFrontierOk` (the frontier-only predicate, renamed from the
-overclaiming old name) — DONE 7a67aeb; the full `WorldWellFormed` (needs `WorldRealizes`) lands with #5. 7. Restrict
+preservation; `ModelFault` unreachable). 6. `AllocFrontierOk` (the frontier-only predicate) — DONE 7a67aeb;
+the full `WorldWellFormed` (needs `WorldRealizes`) lands with #5. 7. Restrict
 GoCFG to nonblocking bodies. 8. Translate Cmd channels → UCmd. 9. Finite vs unbounded channels.
 10. Map representation. 11. Clean docs + full build.
