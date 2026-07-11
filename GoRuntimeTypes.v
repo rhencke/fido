@@ -461,9 +461,10 @@ Qed.
     constructible [GoTypeTag] reaching other positions ([zero_val], nested tags, another allocator).  Such a tag
     at an EMITTED type path is now caught by the plugin's TWO type printers, each rejecting a SLICE/MAP/FUNC map
     key: [go_type_of_tag] ([goty_comparable_key]; fixture-pinned by [negtests/neg_chan_bad_map_key]) and [pp_type]
-    ([pp_type_noncomparable_key]; a [GoMap] in a struct-field / defined-type position — a bare handle unboxes to
-    [nat], so check-in-place not yet fixture-pinned).  So the MODEL's [MapKeysOk] and the plugin's TWO parallel
-    type printers are DUPLICATE authorities the general certified type authority ([GoTypeDesc]) unifies.  The gate is EVIDENCE-CARRYING — the proof is a [Prop], ERASED in extraction (golden unaffected,
+    ([pp_type_comparable_key], a RECURSIVE mirror of [GoComparableType]).  The [pp_type] arm is a DEFENSIVE guard,
+    not fixture-pinned: a bad-KEY map VALUE is unconstructible ([map_make_typed]'s [MapKeysOk] gate), so a bad-key
+    map type is reachable only by a bare type declaration.  So [MapKeysOk] + the plugin's two type-printer checks
+    are THREE DUPLICATE authorities the general certified type authority ([GoTypeDesc]) unifies.  The gate is EVIDENCE-CARRYING — the proof is a [Prop], ERASED in extraction (golden unaffected,
     name-lowered op), a pure representability guard the op body never inspects.  ([GoComparableType]/[MapKeysOk]
     are [bool] predicates, appearing only in these proof obligations.) *)
 Fixpoint GoComparableType {K} (t : GoTypeTag K) : bool :=

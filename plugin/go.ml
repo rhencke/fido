@@ -1515,18 +1515,23 @@ let binop_of r =
 
 (*s Type printer. *)
 
-(* A Coq type that [pp_type] renders as a Go slice / map / func is a NON-COMPARABLE map-key type — Go rejects
-   it as a key.  ⚠ cp62: [pp_type] is a SECOND type printer parallel to [go_type_of_tag]/[coq_goty_of_tag]; BOTH
-   must reject non-comparable map keys (pending the unified [GoTypeDesc] authority that would delete this
-   duplication).  Checks the CLEAR non-comparable classes (slice / map / func); an array-of-non-comparable or a
-   struct with a non-comparable field stays the [GoTypeDesc] frontier. *)
-let pp_type_noncomparable_key = function
-  | Tarr _ -> true
-  | Tglob (r, _) when is_go_map_type r -> true
-  | Tglob (r, _) when is_sliceh_type r -> true
-  | Tglob (r, _) when is_gofunc_type r -> true
-  | Tglob (r, _) when is_list_type r || named "GoSlice" r -> true
-  | _ -> false
+(* Is a Coq type a COMPARABLE Go map-key type?  The OCaml mirror of the model's [GoRuntimeTypes.GoComparableType]
+   for the [pp_type] representation: slice / map / func are NON-comparable; a product (struct / array element run)
+   is comparable iff every component is (RECURSIVE, not just the outer constructor); pointers / channels /
+   scalars / named types are comparable.  ⚠ cp62: this is a THIRD parallel map-key authority (with the model's
+   [MapKeysOk] and [go_type_of_tag]'s [goty_comparable_key]); the general certified [GoTypeDesc] must UNIFY the
+   three and carry the decision as a proof, not three ad-hoc predicates.  RESIDUAL FRONTIER: a NAMED struct with a
+   non-comparable field renders as its name here, so its field comparability is NOT re-checked — the [GoTypeDesc]
+   nominal-type descriptor closes that. *)
+let rec pp_type_comparable_key = function
+  | Tarr _ -> false
+  | Tglob (r, _) when is_go_map_type r -> false
+  | Tglob (r, _) when is_sliceh_type r -> false
+  | Tglob (r, _) when is_gofunc_type r -> false
+  | Tglob (r, _) when is_list_type r || named "GoSlice" r -> false
+  | Tglob (r, [a; b]) when is_prod_type r -> pp_type_comparable_key a && pp_type_comparable_key b
+  | Tglob (r, [a]) when is_arrN_type r -> pp_type_comparable_key a
+  | _ -> true
 let rec pp_type state = function
   (* [unit -> R] → Go's nullary [func() R] (the unit arg is erased) — a NULLARY method
      in an interface dictionary (e.g. [String() string]). *)
@@ -1572,12 +1577,15 @@ let rec pp_type state = function
   (* GoChan A → chan T *)
   | Tglob (r, [arg]) when is_go_chan_type r ->
       str "chan " ++ pp_type state arg
-  (* GoMap K V → map[KT]VT — reject a non-comparable key (slice/map/func), else invalid Go; the recursion
-     ([pp_type state kt/vt]) catches a bad map nested inside a comparable key/value too. *)
+  (* GoMap K V → map[KT]VT — reject a non-comparable KEY (recursively; slice/map/func, or a struct/array with a
+     non-comparable component), else invalid Go.  ⚠ Reachable only by a bare type DECLARATION (a signature /
+     struct field of a bad-key map type): a bad-key map VALUE is UNCONSTRUCTIBLE (map_make_typed's MapKeysOk gate
+     admits no proof), so no real program passes one — which is why this arm is a defensive guard, not
+     fixture-pinned (the tag-driven path IS: neg_chan_bad_map_key).  The recursion ([pp_type state kt/vt]) also
+     catches a bad map nested inside a comparable key or the value. *)
   | Tglob (r, [kt; vt]) when is_go_map_type r ->
-      if pp_type_noncomparable_key kt then
-        unsupported "a NON-COMPARABLE map key (slice / map / func) in a map type — Go rejects e.g. map[[]T]V (pp_type path)"
-      else str "map[" ++ pp_type state kt ++ str "]" ++ pp_type state vt
+      if pp_type_comparable_key kt then str "map[" ++ pp_type state kt ++ str "]" ++ pp_type state vt
+      else unsupported "a NON-COMPARABLE map key (slice / map / func, or a struct/array with such a component) in a map type — Go rejects e.g. map[[]T]V (pp_type path)"
   (* list A = GoSlice A → []T  (a rune slice [list GoRune] is just []int32; the
      byte-sequence string is the distinct Coq [string] type, handled below).  [GoSlice]
      is a Fido [Definition := list]; in most positions extraction unfolds it to [list],

@@ -175,10 +175,12 @@ map[int]map[[]int]int) cannot be constructed THROUGH THIS ALLOCATOR (neg_noncomp
 neg_nested_noncomparable_key_map are the Fail witnesses). ⚠ cp62: ALLOCATOR-BOUNDARY only, NOT global tag
 unrepresentability and NOT renderability — the bad tag TMap (TSlice TI64) TI64 stays a constructible GoTypeTag
 (reaches zero_val / nested tags / make_chan). A bad tag reaching an EMITTED type path is now fail-loud in BOTH
-plugin type printers, each rejecting a slice/map/func map key: go_type_of_tag/goty_comparable_key (make_chan /
-tag-driven path, fixture-pinned by negtests/neg_chan_bad_map_key) and pp_type/pp_type_noncomparable_key (GoMap
-in a struct-field/defined-type position — a bare handle unboxes to nat, so check-in-place not yet fixture-pinned)
-— so MapKeysOk (model) + the two plugin type printers are DUPLICATE map-key authorities GoTypeDesc unifies.
+plugin type printers, each rejecting a non-comparable map key: go_type_of_tag/goty_comparable_key (make_chan /
+tag-driven path, fixture-pinned by negtests/neg_chan_bad_map_key) and pp_type/pp_type_comparable_key (a RECURSIVE
+mirror of GoComparableType; DEFENSIVE guard, not fixture-pinned — a bad-KEY map VALUE is unconstructible via
+map_make_typed's MapKeysOk gate, so reachable only by a bare type declaration; named-struct-field keys are the
+GoTypeDesc frontier) — so MapKeysOk (model) + the two plugin type-printer checks are THREE DUPLICATE map-key
+authorities GoTypeDesc unifies.
 Residuals (GoTypeDesc frontier): array-of-non-comparable / struct-with-non-comparable-field keys uncaught;
 MapKeysOk doesn't prove renderability (TUnit unrenderable; TArrow-value map legal Go but plugin-rejected). Do
 NOT read it as "a certified map is a valid Go map type". (2)

@@ -50,16 +50,17 @@ Definition map_empty {K V : Type} : GoMap K V := MkMap 0.
     ⚠ SCOPE — this is an ALLOCATOR-BOUNDARY gate, NOT global tag unrepresentability, and NOT a renderability
     certificate.  The bad tag [TMap (TSlice TI64) TI64] is STILL a constructible [GoTypeTag] term reaching other
     positions ([zero_val], a nested [TChan]/[TMap]/[TPtr]/[TProd] tag, another allocator).  Such a tag reaching an
-    EMITTED type path is now caught by the plugin's TWO type printers, EACH with its own key check that rejects a
-    SLICE/MAP/FUNC map key: [go_type_of_tag]/[coq_goty_of_tag] ([goty_comparable_key]; the [make_chan] /
-    tag-driven path, fixture-pinned by [negtests/neg_chan_bad_map_key]) and [pp_type] ([pp_type_noncomparable_key];
-    for a [GoMap] in a STRUCT-FIELD / defined-type position — a bare [GoMap] value handle unboxes to [nat], so
-    this printer's map arm is reached only there, check-in-place not yet fixture-pinned).  cp62: the MODEL's
-    [MapKeysOk] and the plugin's TWO parallel type printers are
-    DUPLICATE map-key authorities the general certified TYPE authority ([GoTypeDesc]) should UNIFY.  Residuals
-    (the [GoTypeDesc] frontier): an array-of-non-comparable / struct-with-a-non-comparable-field key is not
-    caught; and [MapKeysOk] does not prove renderability ([TUnit] unrenderable; a [TArrow]-VALUE map is legal Go
-    yet plugin-rejected — INCOMPLETENESS).  Do NOT read this as
+    EMITTED type path is now caught by the plugin's TWO type printers, each rejecting a non-comparable map key:
+    [go_type_of_tag]/[coq_goty_of_tag] ([goty_comparable_key]; the [make_chan] / tag-driven path, fixture-pinned
+    by [negtests/neg_chan_bad_map_key]) and [pp_type] ([pp_type_comparable_key], a RECURSIVE mirror of
+    [GoComparableType] over signature / struct-field / defined-type map types).  ⚠ The [pp_type] arm is a
+    DEFENSIVE guard, NOT fixture-pinned: a bad-KEY map VALUE is UNCONSTRUCTIBLE ([map_make_typed]'s [MapKeysOk]
+    gate admits no proof), so a bad-key map type is reachable only by a bare TYPE DECLARATION that no program can
+    instantiate.  cp62: the MODEL's [MapKeysOk] plus the plugin's TWO type-printer checks ([goty_comparable_key],
+    [pp_type_comparable_key]) are THREE DUPLICATE map-key authorities the general certified TYPE authority
+    ([GoTypeDesc]) should UNIFY.  Residuals (the [GoTypeDesc] frontier): a NAMED struct with a non-comparable
+    field renders as a name (its fields not re-checked); and [MapKeysOk] does not prove renderability ([TUnit]
+    unrenderable; a [TArrow]-VALUE map is legal Go yet plugin-rejected — INCOMPLETENESS).  Do NOT read this as
     "a certified map is a valid Go map type".
     The [Hwf] proof is a [Prop] — ERASED by extraction (name-lowered op, golden unaffected).  Float64 keys are
     admissible ([GoComparableType TFloat64 = true]) even though [Comparable TFloat64] fails (±0/NaN) — key
