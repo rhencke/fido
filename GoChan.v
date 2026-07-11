@@ -558,8 +558,8 @@ Proof. reflexivity. Qed.
           [OPanic] is a REACHABLE, catchable BUG (a block is a deadlock; [catch]/recover can wrongly
           observe it) — deliberately NOT pinned as certified behaviour; the fix is the scheduler
           split (plans/result-control-split.md).  What the select trust boundary DOES pin is only the
-          [<> ORet] anti-forgery negatives ([select_recv2_wrong_tag_no_fire] et al.: a wrong-tag
-          select never fabricates a value).
+          anti-forgery facts (a wrong-tag arm fires nothing): [select_wait2_wrong_tag_no_fire] as a
+          [<> ORet (index, _)] negative, [select_recv2_wrong_tag_no_fire] as continuation-independence.
     The EXTRACTION is faithful (native Go [select{}]).  A nondeterministic [select_wait] belongs
     in the [rstep] calculus; a unique-ready determinisation is sound only under an
     interference-freedom discipline keeping readiness stable (else a TOCTOU gap).  Tracked in
@@ -661,10 +661,11 @@ Proof. intros A B C ta ch1 k1 tb ch2 k2 w He1 Hc1 He2 Hc2 Hok2. unfold select_re
 (** NO lemma pins the all-empty-open blocked-select outcome ([= OPanic rt_select_block]): that
     [OPanic] is a REACHABLE checkpoint-61 BUG (a blocked select is a deadlock, not a panic), so it is
     deliberately NOT exported as certified behaviour — the fix is the scheduler split
-    (plans/result-control-split.md).  The select trust boundary pins ONLY the [<> ORet] anti-forgery
-    negatives ([select_recv2_wrong_tag_no_fire] / [select_wait2_wrong_tag_no_fire] et al., below): a
-    wrong-tag select never fabricates a value.  (Two prior [= OPanic rt_select_block] "witness" lemmas
-    were DELETED here — they pinned the bad path and had no consumer.) *)
+    (plans/result-control-split.md).  The select trust boundary pins ONLY anti-forgery facts (a
+    wrong-tag arm fires nothing): [select_wait2_wrong_tag_no_fire] as a [<> ORet (index, _)] negative,
+    [select_recv2_wrong_tag_no_fire] as continuation-independence — NEVER the exact
+    [= OPanic rt_select_block] payload.  (Two prior [= OPanic rt_select_block] "witness" lemmas were
+    DELETED here — they pinned the bad path and had no consumer.) *)
 
 (** [go_spawn m] (Go spec "Go statements") — FAILS LOUD in the sequential [run_io] semantics.
     A goroutine is CONCURRENT, not a synchronous call: sequentialising the child, importing its
@@ -940,26 +941,24 @@ Proof.
   exact (recv_wrong_tag_no_value tag etag ch w (zero_val tag) w rest Hnn Hcell Hmis).
 Qed.
 
-(** WRONG-TAG ch1 ⇒ [select_wait2] SKIPS ch1 entirely (never fires case 0 / a fabricated [(0, zero_val ta)]),
-    reducing to the ch2 arm ALONE — for ANY state of ch2 (no ch2 precondition).  So a forged wrong-tag ch1
-    contributes no case, whatever ch2 does. *)
+(** WRONG-TAG ch1 ⇒ [select_wait2] NEVER fires case 0 (never returns a fabricated [(0, _)] from ch1) — the
+    CLEAN ANTI-FORGERY NEGATIVE ([<> ORet (0, _)]), WITHOUT exporting the blocked-select payload (checkpoint-61:
+    a would-block is a bug, NOT a certified [= OPanic rt_select_block]).  A forged wrong-tag ch1 contributes no
+    case, whatever ch2 does. *)
 Theorem select_wait2_wrong_tag_no_fire : forall {A E} (ta : GoTypeTag A) (etag : GoTypeTag E)
-    (ch1 ch2 : GoChan A) (w : World) rest,
+    (ch1 ch2 : GoChan A) (w : World) (v : A) (w' : World) rest,
   Nat.eqb (ch_loc ch1) 0 = false ->
   w_chans w (ch_loc ch1) = Some (existT _ E (etag, rest)) ->
   tag_eq ta etag = None ->
-  select_wait2 ta ch1 ch2 w =
-    match chan_buf ta ch2 w with
-    | v :: _ => ORet (1, v) (chan_recv_upd ta ch2 w)
-    | nil    => if andb (chan_closed ch2 w) (chan_cell_ok ta ch2 w) then ORet (1, zero_val ta) w
-                else OPanic rt_select_block w
-    end.
+  select_wait2 ta ch1 ch2 w <> ORet (0, v) w'.
 Proof.
-  intros A E ta etag ch1 ch2 w rest Hnn Hcell Hmis.
+  intros A E ta etag ch1 ch2 w v w' rest Hnn Hcell Hmis Hr.
   assert (Hbad : chan_cell_ok ta ch1 w = false)
     by exact (proj2 (chan_cell_ok_wrong_tag ta etag ch1 w rest Hnn Hcell Hmis)).
-  unfold select_wait2.
-  rewrite (chan_buf_cellko_false ta ch1 w Hbad), Hbad, Bool.andb_false_r. reflexivity.
+  unfold select_wait2 in Hr.
+  rewrite (chan_buf_cellko_false ta ch1 w Hbad), Hbad, Bool.andb_false_r in Hr.
+  destruct (chan_buf ta ch2 w) as [ | v2 rest2 ];
+    [ destruct (andb (chan_closed ch2 w) (chan_cell_ok ta ch2 w)) | ]; discriminate Hr.
 Qed.
 
 (** A comma-ok recv ([recv_ok]) through a WRONG-TAG handle NEVER FIRES a value: the buffer reads empty (wrong
@@ -983,21 +982,18 @@ Proof.
   rewrite (chan_buf_cellko_false tag ch w Hbad), Hbad, Bool.andb_false_r in Hr. discriminate Hr.
 Qed.
 
-(** WRONG-TAG ch1 ⇒ [select_recv2] SKIPS ch1 (never fires [k1] / a fabricated [zero_val ta]), reducing to the
-    ch2 arm ALONE — for ANY state of ch2. *)
+(** WRONG-TAG ch1 ⇒ [select_recv2] SKIPS ch1: its continuation [k1] is NEVER invoked, so the result is
+    INDEPENDENT of [k1] (it depends only on ch2 / [k2]).  This certifies the anti-forgery (a forged wrong-tag
+    ch1 fires nothing) WITHOUT exporting the blocked-select payload (checkpoint-61: a would-block is a bug, NOT
+    a certified [= OPanic rt_select_block]). *)
 Theorem select_recv2_wrong_tag_no_fire : forall {A B C E} (ta : GoTypeTag A) (etag : GoTypeTag E)
-    (ch1 : GoChan A) (k1 : A -> IO C) (tb : GoTypeTag B) (ch2 : GoChan B) (k2 : B -> IO C) (w : World) rest,
+    (ch1 : GoChan A) (k1 k1' : A -> IO C) (tb : GoTypeTag B) (ch2 : GoChan B) (k2 : B -> IO C) (w : World) rest,
   Nat.eqb (ch_loc ch1) 0 = false ->
   w_chans w (ch_loc ch1) = Some (existT _ E (etag, rest)) ->
   tag_eq ta etag = None ->
-  select_recv2 ta ch1 k1 tb ch2 k2 w =
-    match chan_buf tb ch2 w with
-    | v :: _ => k2 v (chan_recv_upd tb ch2 w)
-    | nil    => if andb (chan_closed ch2 w) (chan_cell_ok tb ch2 w) then k2 (zero_val tb) w
-                else OPanic rt_select_block w
-    end.
+  select_recv2 ta ch1 k1 tb ch2 k2 w = select_recv2 ta ch1 k1' tb ch2 k2 w.
 Proof.
-  intros A B C E ta etag ch1 k1 tb ch2 k2 w rest Hnn Hcell Hmis.
+  intros A B C E ta etag ch1 k1 k1' tb ch2 k2 w rest Hnn Hcell Hmis.
   assert (Hbad : chan_cell_ok ta ch1 w = false)
     by exact (proj2 (chan_cell_ok_wrong_tag ta etag ch1 w rest Hnn Hcell Hmis)).
   unfold select_recv2.
@@ -1020,44 +1016,38 @@ Proof.
   rewrite (chan_buf_cellko_false ta ch1 w Hbad), Hbad, Bool.andb_false_r. reflexivity.
 Qed.
 
-(** WRONG-TAG ch2 ⇒ ch2's arm never fires (case 1 / [(1, zero_val ta)]); [select_wait2] reduces to the ch1 arm
-    with ch2 UNAVAILABLE (its fall-through is [OPanic rt_select_block]) — for ANY state of ch1 (no ch1
-    precondition).  Together with [select_wait2_wrong_tag_no_fire] this seals BOTH arms in EVERY combination,
-    including both arms wrong-tag (ch1 skip ∘ ch2 block ⇒ block). *)
+(** WRONG-TAG ch2 ⇒ [select_wait2] NEVER fires case 1 (never returns a fabricated [(1, _)] from ch2) — the
+    CLEAN ANTI-FORGERY NEGATIVE ([<> ORet (1, _)]), WITHOUT exporting the blocked-select payload (checkpoint-61:
+    a would-block is a bug, not a certified [= OPanic rt_select_block]).  Together with
+    [select_wait2_wrong_tag_no_fire] this seals BOTH arms in EVERY combination (both wrong-tag ⇒ neither fires). *)
 Theorem select_wait2_wrong_tag_ch2_no_fire : forall {A E} (ta : GoTypeTag A) (etag : GoTypeTag E)
-    (ch1 ch2 : GoChan A) (w : World) rest,
+    (ch1 ch2 : GoChan A) (w : World) (v : A) (w' : World) rest,
   Nat.eqb (ch_loc ch2) 0 = false ->
   w_chans w (ch_loc ch2) = Some (existT _ E (etag, rest)) ->
   tag_eq ta etag = None ->
-  select_wait2 ta ch1 ch2 w =
-    match chan_buf ta ch1 w with
-    | v :: _ => ORet (0, v) (chan_recv_upd ta ch1 w)
-    | nil    => if andb (chan_closed ch1 w) (chan_cell_ok ta ch1 w) then ORet (0, zero_val ta) w
-                else OPanic rt_select_block w
-    end.
+  select_wait2 ta ch1 ch2 w <> ORet (1, v) w'.
 Proof.
-  intros A E ta etag ch1 ch2 w rest Hnn2 Hcell2 Hmis2.
+  intros A E ta etag ch1 ch2 w v w' rest Hnn2 Hcell2 Hmis2 Hr.
   assert (Hbad2 : chan_cell_ok ta ch2 w = false)
     by exact (proj2 (chan_cell_ok_wrong_tag ta etag ch2 w rest Hnn2 Hcell2 Hmis2)).
-  unfold select_wait2.
-  rewrite (chan_buf_cellko_false ta ch2 w Hbad2), Hbad2, Bool.andb_false_r. reflexivity.
+  unfold select_wait2 in Hr.
+  rewrite (chan_buf_cellko_false ta ch2 w Hbad2), Hbad2, Bool.andb_false_r in Hr.
+  destruct (chan_buf ta ch1 w) as [ | v1 rest1 ];
+    [ destruct (andb (chan_closed ch1 w) (chan_cell_ok ta ch1 w)) | ]; discriminate Hr.
 Qed.
 
-(** WRONG-TAG ch2 ⇒ ch2's arm never fires [k2] / [zero_val tb]; [select_recv2] reduces to the ch1 arm with
-    ch2's fall-through being [OPanic rt_select_block] — for ANY state of ch1. *)
+(** WRONG-TAG ch2 ⇒ [select_recv2] SKIPS ch2: its continuation [k2] is NEVER invoked, so the result is
+    INDEPENDENT of [k2] (it depends only on ch1 / [k1]).  Certifies the anti-forgery (a forged wrong-tag ch2
+    fires nothing) WITHOUT exporting the blocked-select payload (checkpoint-61: a would-block is a bug, not a
+    certified [= OPanic rt_select_block]). *)
 Theorem select_recv2_wrong_tag_ch2_no_fire : forall {A B C E} (ta : GoTypeTag A) (tb : GoTypeTag B) (etag : GoTypeTag E)
-    (ch1 : GoChan A) (k1 : A -> IO C) (ch2 : GoChan B) (k2 : B -> IO C) (w : World) rest,
+    (ch1 : GoChan A) (k1 : A -> IO C) (ch2 : GoChan B) (k2 k2' : B -> IO C) (w : World) rest,
   Nat.eqb (ch_loc ch2) 0 = false ->
   w_chans w (ch_loc ch2) = Some (existT _ E (etag, rest)) ->
   tag_eq tb etag = None ->
-  select_recv2 ta ch1 k1 tb ch2 k2 w =
-    match chan_buf ta ch1 w with
-    | v :: _ => k1 v (chan_recv_upd ta ch1 w)
-    | nil    => if andb (chan_closed ch1 w) (chan_cell_ok ta ch1 w) then k1 (zero_val ta) w
-                else OPanic rt_select_block w
-    end.
+  select_recv2 ta ch1 k1 tb ch2 k2 w = select_recv2 ta ch1 k1 tb ch2 k2' w.
 Proof.
-  intros A B C E ta tb etag ch1 k1 ch2 k2 w rest Hnn2 Hcell2 Hmis2.
+  intros A B C E ta tb etag ch1 k1 ch2 k2 k2' w rest Hnn2 Hcell2 Hmis2.
   assert (Hbad2 : chan_cell_ok tb ch2 w = false)
     by exact (proj2 (chan_cell_ok_wrong_tag tb etag ch2 w rest Hnn2 Hcell2 Hmis2)).
   unfold select_recv2.
