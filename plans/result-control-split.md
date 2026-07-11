@@ -141,14 +141,17 @@ set is accepted but NOT covered — a DEFERRED frontier (support stays finite, n
 enumeration).  Invariant
 PRESERVATION, not a global "every map is finite" theorem — the function rep DOES admit an infinite-support `f`
 (a raw/forged handle is not `MapFinite`, the cp59 frontier).
-**LIVE map-key REJECTION boundary — LANDED:** `map_make_typed {K V} (kt) (vt) (Hwf : MapKeysOk (TMap kt vt) =
+**Map-key rejection — ALLOCATOR-BOUNDARY gate:** `map_make_typed {K V} (kt) (vt) (Hwf : MapKeysOk (TMap kt vt) =
 true)` DEMANDS a RECURSIVE well-formedness proof (`MapKeysOk`: every `TMap` node — outer key AND any nested in
 the value — has a comparable key), so a map with an invalid key at ANY nesting depth
-(`map[[]int]int` OR `map[int]map[[]int]int`) is UNREPRESENTABLE (Go's "invalid map key type"; the `Fail`
-witnesses `GoMap.neg_noncomparable_key_map` + `neg_nested_noncomparable_key_map`).  The gate is
-evidence-carrying — the `Hwf : MapKeysOk (TMap kt vt) = true` argument is a `Prop`, ERASED in extraction (golden
-byte-identical); `MapKeysOk` is a `bool` `Fixpoint` over `GoTypeTag`, referenced only by that erased proof and
-proof-only lemmas.  The model is the single map-key authority (no plugin-side check).
+(`map[[]int]int` OR `map[int]map[[]int]int`) cannot be constructed THROUGH THIS ALLOCATOR (Go's "invalid map key
+type"; the `Fail` witnesses `GoMap.neg_noncomparable_key_map` + `neg_nested_noncomparable_key_map`).  The gate
+is evidence-carrying — the `Hwf` argument is a `Prop`, ERASED in extraction (golden byte-identical); `MapKeysOk`
+is a `bool` `Fixpoint` over `GoTypeTag`, referenced only by that erased proof and proof-only lemmas.  ⚠ cp62:
+this is NOT global tag unrepresentability and the model is NOT the single map-key authority — the bad tag stays a
+constructible `GoTypeTag` and the trusted plugin renders tags independently (`make_chan (TMap (TSlice TI64) TI64)`
+→ `chan map[[]int64]int64`, which Go rejects; `TUnit`/`TArrow` renderability is the plugin's too).  Closing this
+globally is the general certified type authority (`GoTypeDesc`), not this per-allocator predicate.
 STILL AHEAD —
 **(b)** closing the wider-acceptance gap (unconditional `map_set` finiteness via `key_eqb`-class enumeration
 for the constructable float/non-value-equal keys);
