@@ -524,16 +524,14 @@ Lemma map_clear_nil_noop : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (w
   run_io (map_clear kt vt (@map_empty K V)) w = ORet tt w.
 Proof. reflexivity. Qed.
 
-(** ---- MapFinite: certified maps have FINITELY MANY ENTRIES (checkpoint-61 #10) ----
-    The map cell stores a FUNCTION [f : K -> option V] (representable with an infinite live-key domain) — but a
+(** ---- MapFinite: finite live-key SUPPORT for the function-based map cell (checkpoint-61 #10) ----
+    The map cell stores a FUNCTION [f : K -> option V] — representable WITH an infinite live-key domain, though a
     real Go map is always FINITE.  [MapFinite] pins that the live keys ([map_get_fn <> None]) are contained in a
     finite [list K] — the map analogue of SliceWF / ChanCapOk's shape bound (here: finite SUPPORT, not a count).
-    ESTABLISHED by the allocator (UNCONDITIONALLY — a fresh cell stores [fun _ => None], and a loc-0 nil map also
-    reads [None] at every key, so the support is empty either way; no [AllocFrontierOk] needed, unlike the
-    channel case) and PRESERVED by [map_set] / [map_delete] / [map_clear].  ⚠ [map_set] needs [Comparable kt]
-    (Go's own map-key side condition) for the key-equality soundness; the same-tag forged over-populated handle
-    stays the checkpoint-59 typed-liveness frontier.  This is finite SUPPORT only — it does NOT yet pin
-    [len(m) = |support|] (the [sz]-vs-[f] count consistency, [MapWF], is the deeper follow-up). *)
+    This file proves the DEFINITION and the establish/preserve transitions; the SINGLE coverage/scope statement
+    — which ops are gated, the load-bearing [Comparable kt] on [map_set], and that this is invariant preservation
+    (NOT a global "every map is finite" theorem — a raw / forged infinite-support handle is out of scope) — lives
+    with the consolidated authority [map_finite_surface] below (one authority). *)
 Definition MapFinite {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (m : GoMap K V) (w : World) : Prop :=
   exists keys : list K, forall k, map_get_fn kt vt m w k <> None -> In k keys.
 (** A fresh [make(map[K]V)] reads [None] at EVERY key — the installed cell's function is [fun _ => None] (and a
@@ -595,12 +593,17 @@ Proof.
     + discriminate Hrun.
 Qed.
 (** MAP FINITE SURFACE (manifest-gated, zero-axiom): [MapFinite] (finite live-key SUPPORT) is an INDUCTIVE
-    invariant — ESTABLISHED by [map_make_typed] (unconditionally) and PRESERVED by [map_set] (under
-    [Comparable kt]) / [map_delete] / [map_clear].  So a map built by the allocator and evolved through the
-    checked ops has FINITELY many entries — the certified-path faithfulness for checkpoint-61 #10's "a Go map is
-    finite" (the function rep cannot smuggle an infinite live domain).  ⚠ finite SUPPORT only — NOT yet
-    [len(m) = |support|] (the [sz]-vs-[f] count-consistency [MapWF] is the deeper follow-up); and a same-tag
-    forged over-populated handle stays the checkpoint-59 typed-liveness frontier. *)
+    invariant — ESTABLISHED by [map_make_typed] (unconditionally) and PRESERVED by [map_delete] / [map_clear]
+    (unconditionally) and by [map_set] ⚠ UNDER [Comparable kt].  The [Comparable kt] premise on [map_set] is
+    LOAD-BEARING, not incidental: the proof witnesses the new support by [k :: old_keys], which needs
+    key-equality SOUNDNESS ([key_eqb kt k k' = true -> k = k']) so the newly-written key's [key_eqb]-class is
+    exactly [{k}] — WITHOUT it a type whose [key_eqb] is true for distinct values (e.g. float [±0]) could put a
+    live key outside the witness list.  So a map BUILT by the allocator and evolved through the checked ops
+    (comparable key, as Go requires) stays finite-support.  ⚠ This is invariant PRESERVATION, NOT a global
+    "every map is finite" theorem: the function rep DOES admit an infinite-support [f] (a RAW [mkWorld] /
+    same-tag forged handle carrying one is NOT [MapFinite] — the checkpoint-59 typed-liveness frontier); the
+    certified ops merely cannot PRODUCE such a value from a finite map.  ⚠ finite SUPPORT only — NOT yet
+    [len(m) = |support|] (the [sz]-vs-[f] count-consistency [MapWF] is the deeper follow-up). *)
 Definition map_finite_surface :=
   (@map_make_typed_establishes_mapfinite, @map_set_preserves_mapfinite,
    @map_delete_preserves_mapfinite, @map_clear_preserves_mapfinite).
