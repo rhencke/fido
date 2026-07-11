@@ -459,7 +459,7 @@ Qed.
     caught at the Rocq API ([GoMap.neg_noncomparable_key_map] + [neg_nested_noncomparable_key_map] are the [Fail]
     witnesses).  The gate is EVIDENCE-CARRYING — the proof is a [Prop], ERASED in extraction (golden unaffected,
     name-lowered op), a pure representability guard the op body never inspects.  ([GoComparableType]/[MapKeysOk]
-    are proof-only: they recurse on the single-field-unboxed [GoTypeTag], which is not emittable.) *)
+    are [bool] predicates no emitted op body references — dropped from extraction, never emitted.) *)
 Fixpoint GoComparableType {K} (t : GoTypeTag K) : bool :=
   match t with
   | TSlice _ | TMap _ _ | TArrow _ _ => false        (* the three non-comparable Go type classes *)
@@ -472,8 +472,8 @@ Fixpoint GoComparableType {K} (t : GoTypeTag K) : bool :=
     ([map[int]map[[]int]int] is as invalid as [map[[]int]int]), so [GoComparableType kt] alone — which checks
     only the OUTER key — is NOT enough; [map_make_typed] gates on [MapKeysOk (TMap kt vt)] to ALSO reject a bad
     key inside the VALUE type (or nested in a slice / chan / ptr / struct / func).  Like [GoComparableType], a
-    [bool] predicate used ONLY inside the erased [MapKeysOk … = true] gate proof — never emitted (its [GoTypeTag]
-    recursion is not extractable anyway). *)
+    [bool] predicate no EMITTED op body references (it appears only in the gate obligation [MapKeysOk … = true]
+    and proof-only lemmas), so it is dropped from extraction — never emitted. *)
 Fixpoint MapKeysOk {T} (t : GoTypeTag T) : bool :=
   match t with
   | TMap k v   => andb (GoComparableType k) (andb (MapKeysOk k) (MapKeysOk v))
