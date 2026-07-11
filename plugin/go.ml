@@ -818,11 +818,6 @@ let zero_of_tag tag =
   | MLcons (_, r, [_; _]) when String.equal (global_basename r) "TMap"   -> "nil"
   | t -> go_type_of_tag t ^ "(0)"
 
-(* MAP-KEY COMPARABILITY is the MODEL's single authority: [GoMap.map_make_typed] gates on
-   [MapKeysOk (TMap kt vt) = true] (RECURSIVE — every nested map key comparable), making a non-comparable-key
-   map UNREPRESENTABLE.  So the extraction backend needs no map-key check (the former outer-key-only
-   [tag_comparable_key] — incomplete, and dead once the model gates — was deleted, not a second authority). *)
-
 let is_zero_val_ref = named "zero_val"
 
 let is_go_type_tag_ctor r =
@@ -2493,10 +2488,9 @@ let rec pp_expr state env = function
            str (zero_of_tag tag)
 
        (* map_make_typed kt vt → make(map[K]V) with concrete types from tags.  MAP-KEY COMPARABILITY is the
-          MODEL's authority now: [GoMap.map_make_typed] gates on [MapKeysOk (TMap kt vt) = true] (recursive — every
-          nested map key comparable), making a bad-key map UNREPRESENTABLE, so [kt] reaching here is always a
-          valid comparable key.  No plugin-side check (the former outer-key-only [tag_comparable_key] was a weaker,
-          incomplete second authority — deleted; the model gate subsumes it). *)
+          MODEL's authority: [GoMap.map_make_typed] gates on [MapKeysOk (TMap kt vt) = true] (recursive — every
+          nested map key comparable), so [kt]/[vt] reaching here form a valid Go map type; the backend needs no
+          map-key check of its own. *)
        | MLglob r, [kt; vt] when is_map_make_typed_ref r ->
            str ("make(map[" ^ go_type_of_tag kt ^ "]" ^ go_type_of_tag vt ^ ")")
 

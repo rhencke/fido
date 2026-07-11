@@ -64,10 +64,9 @@ Definition map_make_typed {K V : Type} (kt : GoTypeTag K) (vt : GoTypeTag V)
 (** MACHINE-CHECKED UNREPRESENTABILITY: a map whose type has a NON-comparable KEY at ANY nesting depth (Go's
     "invalid map key type") cannot be CONSTRUCTED — [map_make_typed] demands [MapKeysOk (TMap kt vt) = true],
     which is [false] whenever any [TMap] node (the outer key OR one nested in the value) has a slice / map / func
-    key, so no proof exists and the [Definition] is REJECTED ([Fail] confirms it).  MODEL-side live boundary
-    (unrepresentable — stronger than the old extraction-abort negtest neg_map_key.v it replaces).
-    (1) DIRECT bad outer key ([map[func]int]); (2) NESTED bad key in the VALUE ([map[int](map[func]int)]) — the
-    recursive [MapKeysOk] catches BOTH (the [GoComparableType]-only gate would have missed (2)). *)
+    key, so no proof exists and the [Definition] is REJECTED ([Fail] confirms it) — the map never even reaches
+    emission.  The recursive [MapKeysOk] rejects BOTH (1) a DIRECT bad outer key ([map[func]int]) and (2) a
+    NESTED bad key in the VALUE ([map[int](map[func]int)]), at ANY depth. *)
 Fail Definition neg_noncomparable_key_map := map_make_typed (TArrow TI64 TI64) TI64 eq_refl.
 Fail Definition neg_nested_noncomparable_key_map := map_make_typed TI64 (TMap (TArrow TI64 TI64) TI64) eq_refl.
 

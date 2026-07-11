@@ -145,11 +145,9 @@ PRESERVATION, not a global "every map is finite" theorem — the function rep DO
 true)` DEMANDS a RECURSIVE well-formedness proof (`MapKeysOk`: every `TMap` node — outer key AND any nested in
 the value — has a comparable key), so a map with an invalid key at ANY nesting depth
 (`map[[]int]int` OR `map[int]map[[]int]int`) is UNREPRESENTABLE (Go's "invalid map key type"; the `Fail`
-witnesses `GoMap.neg_noncomparable_key_map` + `neg_nested_noncomparable_key_map`).  A COMPUTATIONAL guard was
-INFEASIBLE — `GoComparableType`/`MapKeysOk` recurse on the single-field-unboxed `GoTypeTag`, un-emittable
-(aborts extraction) — so the gate is evidence-carrying: the `Prop` erases in extraction (golden byte-identical,
-plugin tolerates the erased arg — VERIFIED). Threaded ~17 occurrences; the old extraction-abort negtest
-neg_map_key.v is deleted (subsumed by the stronger Rocq-level unrepresentability).
+witnesses `GoMap.neg_noncomparable_key_map` + `neg_nested_noncomparable_key_map`).  The gate is
+evidence-carrying — `MapKeysOk` is a proof-only `Prop` (it recurses on the un-emittable `GoTypeTag`), erased in
+extraction (golden byte-identical), so the model is the single map-key authority (no plugin-side check).
 STILL AHEAD —
 **(b)** closing the wider-acceptance gap (unconditional `map_set` finiteness via `key_eqb`-class enumeration
 for the constructable float/non-value-equal keys);

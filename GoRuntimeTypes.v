@@ -456,11 +456,10 @@ Qed.
     ⚠ THE MAP-KEY GATE (checkpoint-61, LANDED): [map_make_typed] DEMANDS a [MapKeysOk (TMap kt vt) = true] PROOF
     (the RECURSIVE well-formedness below — every [TMap] node, outer key AND any nested in the value, has a
     comparable key), so a map with an invalid key AT ANY DEPTH is UNREPRESENTABLE — Go's "invalid map key type",
-    caught at the Rocq API (stronger than emission-rejection; [GoMap.neg_noncomparable_key_map] +
-    [neg_nested_noncomparable_key_map] are the [Fail] witnesses).  A COMPUTATIONAL guard would be INFEASIBLE —
-    [GoComparableType]/[MapKeysOk] recurse on the single-field-unboxed [GoTypeTag], un-emittable — so the gate is
-    EVIDENCE-CARRYING: the proof is a [Prop], ERASED in extraction (golden unaffected, name-lowered op), a pure
-    representability guard the op body never inspects. *)
+    caught at the Rocq API ([GoMap.neg_noncomparable_key_map] + [neg_nested_noncomparable_key_map] are the [Fail]
+    witnesses).  The gate is EVIDENCE-CARRYING — the proof is a [Prop], ERASED in extraction (golden unaffected,
+    name-lowered op), a pure representability guard the op body never inspects.  ([GoComparableType]/[MapKeysOk]
+    are proof-only: they recurse on the single-field-unboxed [GoTypeTag], which is not emittable.) *)
 Fixpoint GoComparableType {K} (t : GoTypeTag K) : bool :=
   match t with
   | TSlice _ | TMap _ _ | TArrow _ _ => false        (* the three non-comparable Go type classes *)
