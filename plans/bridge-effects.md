@@ -1,4 +1,4 @@
-# The cmd↔unified EFFECT-bridge arc — heap + allocation + CHANNELS landed; SPAWN remains
+# The cmd↔unified EFFECT-bridge arc — heap + allocation + CHANNEL TRIO landed; SELECT + SPAWN + catch remain
 
 GOAL: extend the bridge's common fragment past output/panic/return/defer — `Cmd` grows
 heap/channel/spawn effects, `run_cmd` stays THE sequential authority, the public agreement
@@ -23,11 +23,17 @@ can emit `KRecv c 0` unbacked. This bridge MUST NOT compose with `concurrency.v`
 race-freedom without an extra invariant (empty initial buffers, or a per-value buffer-origin
 invariant). Docs must never imply race-freedom from `bridge_effects_agree` alone.
 
-## REMAINING — SPAWN (capstone; design deferred until reached)
+## REMAINING — SELECT, catch, then SPAWN
 
-Multi-goroutine `ustep` runs are schedule-nondeterministic vs sequential `run_cmd`. Candidate
-shapes: ∃-schedule agreement (weak); DRF ⇒ all schedules agree on observables (the payoff,
-composing `concurrency.v`); a restricted no-shared-effect child fragment.
+- **SELECT** (multi-way): cmd.v carries the channel TRIO only (send/recv/close); a `CSelect` +
+  bridge to `unified.v`'s `USelect` is NOT landed. (`select_recv2`/`select_wait2` in GoChan are
+  the shallow-IO two-channel forms — separate from the deep `Cmd` / bridge.)
+- **catch** (recover): no `Cmd`-level catch/recover in the bridged fragment yet — func-scoped
+  defer is landed (`CDfr`), but recover is a future slice.
+- **SPAWN** (capstone; design deferred until reached): multi-goroutine `ustep` runs are
+  schedule-nondeterministic vs sequential `run_cmd`. Candidate shapes: ∃-schedule agreement
+  (weak); DRF ⇒ all schedules agree on observables (the payoff, composing `concurrency.v`); a
+  restricted no-shared-effect child fragment.
 
 ## Standing rules for this arc
 
