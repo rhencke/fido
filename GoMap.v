@@ -1034,6 +1034,20 @@ Proof.
     + reflexivity.
 Qed.
 
+(** MAP SEMANTICS SURFACE (manifest-gated, zero-axiom): the core IO-level "maps behave like Go maps" read/write
+    laws — READ-YOUR-WRITE ([map_get_set_same]: after [m[k]=v], [m[k]] reads [Some v]) and its erase duals
+    ([map_get_delete_same]: after [delete(m,k)], [m[k]] reads [None]; [map_get_clear]: after [clear(m)], EVERY
+    key reads [None]); FRAME / locality (a set / delete at [k2] leaves a read at a DIFFERENT [k1] unchanged:
+    [map_get_set_diff] / [map_get_delete_diff]); the NIL-map read ([map_get_empty]: [None] for every key, in any
+    world); and get-or-default ([map_get_or_hit] / [map_get_or_miss]).  The same-key write/read laws
+    [map_get_set_same] / [map_get_delete_same] and the frame laws carry [Comparable kt] (the frame laws also
+    [k1 <> k2] + a tag-correct cell); [map_get_clear] / [map_get_empty] / [map_get_or_*] need no
+    key-comparability.  Each per-lemma statement is the authority for its exact premises. *)
+Definition map_semantics_surface :=
+  (@map_get_set_same, @map_get_delete_same, @map_get_clear, @map_get_empty,
+   @map_get_set_diff, @map_get_delete_diff, @map_get_or_hit, @map_get_or_miss).
+Print Assumptions map_semantics_surface.
+
 (** [len(m)] through a WRONG-TAG handle reads 0 — [map_len] never OBSERVES the aliased foreign cell's size
     (the read-side dual of the write anti-forgery; [map_count]/[map_size]/[map_len] guard on [map_cell_ok]). *)
 Theorem map_len_wrong_tag_zero : forall {K V K' V'} (kt : GoTypeTag K) (vt : GoTypeTag V)

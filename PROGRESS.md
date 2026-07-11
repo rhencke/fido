@@ -185,6 +185,12 @@ insert / filter(≠k) delete NoDup witness needs key_eqb soundness, so float ±0
 map_clear, via the raw roots map_upd/map_rem/map_clear_upd. The LIVE public-IO-op surface, parallel to
 map_finite_surface — invariant preservation for the Comparable-key (value-equal) SUBSET of the constructable
 maps, NOT a global "every map is count-consistent" theorem) /
+`GoMap.map_semantics_surface` (the core IO-level "maps behave like Go maps" read/write laws — READ-YOUR-WRITE
+(map_get_set_same: after m[k]=v, m[k] reads Some v) + erase duals (map_get_delete_same: delete(m,k) then m[k]
+= None; map_get_clear: after clear(m) EVERY key = None); FRAME/locality (set/delete at k2 leaves read at k1 !=
+k2 unchanged: map_get_set_diff/map_get_delete_diff); the nil-map read (map_get_empty: None for every key, any
+world); get-or-default (map_get_or_hit/miss). Same-key write/read + frame laws carry Comparable kt (frame also
+k1 != k2 + tag-correct cell); clear/empty/get_or need no key-comparability) /
 `GoHeap.chan_state_ok_surface` (checkpoint-61 #9 "no over-full channel" INVARIANT ChanCapOk — a bounded
 channel's FIFO length <= cap — the channel analogue of SliceWF: gated across every PRIMITIVE state transition
 — ESTABLISHED at construction by BOTH allocators (make_chan unbuffered + make_chan_buf: empty buffer, finite
