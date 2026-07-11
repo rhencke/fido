@@ -37,19 +37,16 @@ Definition RefHeap : Type := nat -> option RefCell.
     unbounded, [Some n] = a bounded buffer). *)
 Definition ChanCell : Type := { E : Type & (GoTypeTag E * (list E * (bool * option nat)))%type }.
 Definition ChanHeap : Type := nat -> option ChanCell.
-(** A map cell: the key type [K] + its tag, then existentially the value type [V]
-    + its tag, then the contents as a function [K -> option V].  The bare function type does NOT
-    enforce finiteness; that a real Go map's live-key support is finite is the SEPARATE
-    [GoMap.MapFinite] invariant — its surface owns exactly which ops establish/preserve it (and the
-    [Comparable kt] scope on [map_set]); the single authority, not restated here.
-    Like the channel cell, the stored tags let an accessor coerce back to its own
-    [K]/[V] view (equal by construction). *)
-(** The leading [nat] is the cell's raw STORED count field — the per-cell [nat] GoMap's ops read
-    ([map_size] / [map_len], which Go [len(m)] lowers to) and update ([map_upd] / [map_rem]).  The read
-    guards (nil / forged / tag) and the exact update transitions are GoMap's ([map_count]'s
-    count-transition surface), and that the field EQUALS the number of live keys is GoMap's deeper
-    MapWF — none restated here.  It sits OUTSIDE the existT (the count is type-independent), so the value
-    accessor [map_get_fn] is unchanged. *)
+(** A map cell [(count, <K, tag_K, <V, tag_V, contents>>)]: a raw [nat] count field, OUTSIDE the existT
+    (type-independent — the value accessor [map_get_fn] is unaffected by it), then existentially the key
+    type [K] + its tag, the value type [V] + its tag, and the contents as a function [K -> option V].
+    Like the channel cell, the stored tags let an accessor coerce back to its own [K]/[V] view (equal by
+    construction).
+    ALL map semantics belong to GoMap (the single authority) and are NOT characterised here — the count
+    field's reads / updates ([map_size] / [map_len] / [map_upd] / [map_rem]; [map_count]'s count-transition
+    surface) and their nil / forged / tag guards; that the contents' live-key support is finite though the
+    bare function type does not enforce it ([MapFinite]); and that the count EQUALS that support (the
+    deeper MapWF). *)
 Definition MapCell : Type :=
   (nat * { K : Type & (GoTypeTag K * { V : Type & (GoTypeTag V * (K -> option V))%type })%type })%type.
 Definition MapHeap : Type := nat -> option MapCell.
