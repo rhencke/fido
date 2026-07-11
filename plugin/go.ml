@@ -2525,11 +2525,11 @@ let rec pp_expr state env = function
        (* map_make_typed kt vt → make(map[K]V) with concrete types from tags.  AT THIS ARM the tag already
           passed [GoMap.map_make_typed]'s [MapKeysOk (TMap kt vt) = true] gate (recursive — every nested map key
           comparable), so the KEY rendered here is comparable.  ⚠ cp62: [MapKeysOk] is an ALLOCATOR-BOUNDARY gate,
-          NOT the global map-key authority.  Type rendering itself goes through [go_type_of_tag], which carries
-          its OWN [goty_comparable_key] check, so a non-comparable map key reaching ANY emitted type path (e.g.
-          [make_chan]) fails loud there ([negtests/neg_chan_bad_map_key]) — [MapKeysOk] (model) and
-          [goty_comparable_key] (plugin) are now DUPLICATE map-key checks the general certified type authority
-          ([GoTypeDesc]) should UNIFY. *)
+          NOT the global map-key authority.  The tag→type renderer [go_type_of_tag] carries its OWN
+          [goty_comparable_key] check — it fails loud on a SLICE/MAP map key (fixture-pinned for [make_chan] by
+          [negtests/neg_chan_bad_map_key]); the second type printer [pp_type] carries an analogous UNPINNED guard
+          ([pp_type_comparable_key]).  So [MapKeysOk] (model) and these plugin checks are DUPLICATE map-key
+          authorities the general certified type authority ([GoTypeDesc]) should UNIFY. *)
        | MLglob r, [kt; vt] when is_map_make_typed_ref r ->
            str ("make(map[" ^ go_type_of_tag kt ^ "]" ^ go_type_of_tag vt ^ ")")
 
