@@ -1,7 +1,7 @@
 (** ==================================================================================================
     GoPanic — the RUNTIME PANIC PAYLOADS (a KNOWN-INACCURATE current model; the accurate structured-
     runtime-error + result/control redesign is planned — see plans/result-control-split.md).
-    ⚠ TWO CURRENT INACCURACIES (checkpoint-61), both to be FIXED by that redesign, NOT permanent:
+    ⚠ TWO CURRENT INACCURACIES, both to be FIXED by that redesign, NOT permanent:
     (1) Each payload is [anyt TString "..."].  Go's [recover] does NOT return a string — it returns a
         runtime ERROR OBJECT with a dynamic type ([runtime.boundsError] / [runtime.errorString] /
         [runtime.plainError] / [*runtime.TypeAssertionError], verified on Go 1.23.2).  The string here
@@ -57,7 +57,7 @@ Definition rt_nil_map      : GoAny := anyt TString "assignment to entry in nil m
     forge; delete / clear on a genuine NIL map are Go no-ops, kept as such), but the MODEL currently lets one
     be constructed via [MkMap], so this branch is CURRENTLY reachable.  A CLOSED-WORLD FAIL-LOUD GUARD, NOT a
     Go panic (Go's delete/clear never panic).  The op lowers to native delete/clear; this [OPanic] branch is
-    model-only (plugin-suppressed).  ⚠ checkpoint-61: it is CURRENTLY a catchable [OPanic]; the fix is a
+    model-only (plugin-suppressed).  ⚠ it is presently a catchable [OPanic]; the fix is a
     distinct [ModelFault], to be PROVED unreachable under StoreTyping/ValueWF (not asserted here). *)
 Definition rt_forged_map   : GoAny := anyt TString "go: map delete/clear on a forged (absent or wrong-tag) handle — a model fault (intended-unreachable, not yet proved); closed-world fail-loud guard, not a Go panic"%string.
 Definition rt_send_closed  : GoAny := anyt TString "send on closed channel"%string.
@@ -66,8 +66,8 @@ Definition rt_close_nil    : GoAny := anyt TString "close of nil channel"%string
 Definition rt_assert_fail  : GoAny := anyt TString "interface conversion: interface is not the asserted type"%string.
 (** Model-INTERNAL fail-loud for a [select] whose every case would block and that has no [default]:
     the sequential [IO] model has no Blocked outcome, so it refuses LOUDLY rather than fabricate a
-    value.  ⚠ checkpoint-61: a blocking select is a DEADLOCK, not a panic — this [OPanic] is CURRENTLY
-    reachable + catchable (a bug, to be fixed by the scheduler split), NOT unreachable.  The EXTRACTION
+    value.  ⚠ a blocking select is a DEADLOCK, not a panic — this [OPanic] is presently
+    reachable + catchable (to be fixed by the scheduler split), NOT unreachable.  The EXTRACTION
     is the native Go [select{}], which blocks faithfully, so this value lives only in the suppressed
     body — in [is_inlined_ref]. *)
 Definition rt_select_block : GoAny := anyt TString "go: select would block (no ready case, no default)"%string.

@@ -1,5 +1,5 @@
 (* EXPECT: no faithful Go rendering *)
-(* cp62 renderability fixture: MapKeysOk gates the map KEY, NOT the value's renderability, so
+(* Renderability fixture: MapKeysOk gates the map KEY, NOT the value's renderability, so
    [map_make_typed TI64 (TArrow TI64 TI64)] passes the gate — but a func-valued map [map[int64]func(int64)int64]
    is LEGAL Go the plugin does NOT render ([go_type_of_tag (TArrow ..) = None]).  Extraction MUST abort
    (fail-loud INCOMPLETENESS: a valid Go type conservatively rejected, not silently mis-emitted).  Pins that

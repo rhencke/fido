@@ -913,7 +913,7 @@ Inductive Token : Type :=
   | TAssign | TDefine | TDefer | TSemi | TPackage.
     (* STATEMENT/PROGRAM tokens.  Roles: [TAssign] ['=']/blank-assign, [TDefine] [':=']/short decl, [TDefer]
        the [defer] keyword, [TSemi] the statement TERMINATOR (Go's ASI at '\n'), [TPackage]/[TFunc] the
-       [package]/[func] keywords.  These are EMITTED by the LANDED canonical [stmt_tokens]/[program_tokens]
+       [package]/[func] keywords.  These are EMITTED by the canonical [stmt_tokens]/[program_tokens]
        (token uniqueness proved: [stmt_tokens_inj]/[program_tokens_inj]).  LEXER side: [lex] ALREADY tokenises
        the [GsExprStmt]/[GsReturn]/[GsReturnVal] forms — [lex (print_stmt s) = Some (stmt_tokens s)] is PROVED
        for those three ([lex_print_stmt_exprstmt]/[_return]/[_returnval]) — but NOT the [TAssign]/[TDefine]/

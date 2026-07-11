@@ -54,7 +54,7 @@ Definition map_empty {K V : Type} : GoMap K V := MkMap 0.
     only FIXTURE-PINNED closure ([negtests/neg_chan_bad_map_key]: [make_chan (TMap (TSlice TI64) TI64)] aborts).
     The second type printer [pp_type] carries an analogous guard ([pp_type_comparable_key], a recursive mirror of
     [GoComparableType], for struct-field map types), but it is UNPINNED — a defensive guard, not verified
-    coverage.  cp62: [MapKeysOk] (model) and these plugin checks are DUPLICATE map-key authorities the general
+    coverage.  [MapKeysOk] (model) and these plugin checks are DUPLICATE map-key authorities the general
     certified TYPE authority ([GoTypeDesc]) must UNIFY; and [MapKeysOk] is not a renderability certificate ([TUnit]
     unrenderable, a [TArrow]-value map plugin-rejected).  Do NOT read this as "a certified map is a valid Go map
     type".
@@ -80,7 +80,7 @@ Definition map_make_typed {K V : Type} (kt : GoTypeTag K) (vt : GoTypeTag V)
 Fail Definition neg_noncomparable_key_map := map_make_typed (TArrow TI64 TI64) TI64 eq_refl.
 Fail Definition neg_nested_noncomparable_key_map := map_make_typed TI64 (TMap (TArrow TI64 TI64) TI64) eq_refl.
 
-(** There is no NAMED untyped map allocator (checkpoint-58: the cell-less [map_make] was DELETED).
+(** There is no NAMED untyped map allocator (the cell-less [map_make] was DELETED).
     [map_make_typed], which carries the key/value [GoTypeTag]s and installs the cell, is the ONLY map
     allocator.  ⚠ This is NOT unrepresentability: a forged CELL-LESS handle ([MkMap l] whose [w_maps] cell is
     absent) is still CONSTRUCTIBLE via the public [MkMap] / [mkWorld] constructors — deleting a named helper
@@ -131,9 +131,9 @@ Definition map_get_fn {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
     makes such a handle inert.)
     ⚠ [gm_present] is TAG-AGNOSTIC: it checks a cell EXISTS, NOT that its stored key/value tags match [m]'s —
     so a forged wrong-tag handle aliasing a real cell reads [gm_present = true].  It is therefore NOT the write
-    guard: the tag-aware [map_cell_ok] (below) is.  What IS mechanically closed (checkpoint-58 #3): a wrong-tag
+    guard: the tag-aware [map_cell_ok] (below) is.  What IS mechanically closed: a wrong-tag
     handle cannot RETYPE a live cell through any public map write ([map_cell_ok_wrong_tag] +
-    [no_public_map_retyping]).  STILL OPEN (checkpoint-58 step 6): the raw [map_write] root is not yet
+    [no_public_map_retyping]).  STILL OPEN: the raw [map_write] root is not yet
     internalized behind the checked API — so "the map provenance wall is fully closed" would OVERCLAIM.
     [gm_present] survives only as the existence half of the read-side proofs. *)
 Definition gm_present {K V} (m : GoMap K V) (w : World) : bool :=
@@ -158,7 +158,7 @@ Definition map_cell_ok {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (m : GoMap K 
 Lemma map_cell_ok_nonnil : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (m : GoMap K V) w,
   map_cell_ok kt vt m w = true -> Nat.eqb (gm_loc m) 0 = false.
 Proof. intros K V kt vt m w H. unfold map_cell_ok in H. destruct (Nat.eqb (gm_loc m) 0); [ discriminate H | reflexivity ]. Qed.
-(** WRONG-TAG at a PRESENT cell ⟹ [map_cell_ok = false] (checkpoint-58): given a NONZERO location holding a
+(** WRONG-TAG at a PRESENT cell ⟹ [map_cell_ok = false]: given a NONZERO location holding a
     REAL cell whose STORED key/value tags DISAGREE with the caller's [kt]/[vt] (a forged handle aliasing a cell
     of ANOTHER type), the cell is genuinely PRESENT ([gm_present = true], PROVED here) yet the tag-aware guard
     REJECTS it.  The nonzero premise is what makes the "present" claim mechanically true — WITHOUT it a forged
@@ -186,7 +186,7 @@ Qed.
     it EXISTS AND its stored tags MATCH [kt]/[vt] — on any other handle (nil, nonzero-ABSENT, OR wrong-tag) it
     is a NO-OP.  So NO map update ([map_upd]/[map_rem]/[map_clear_upd]) can EVER fabricate a cell OR RETYPE an
     existing cell through a forged handle, regardless of caller; the ONLY cell CREATION is [map_make_typed].
-    The write path is closed at its root (checkpoint-56/57/58: make the bad state impossible, not merely avoided;
+    The write path is closed at its root (make the bad state impossible, not merely avoided;
     [map_write_absent_noop] pins it).  Read-back-after-write theorems below therefore carry a [map_cell_ok] condition. *)
 Definition map_write {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
                       (m : GoMap K V) (f : K -> option V) (sz : nat) (w : World) : World :=
@@ -222,7 +222,7 @@ Definition map_sel {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
    do their +1/-1 bookkeeping on THIS field.  [map_size] is the Go-facing [len(m)] — the same field widened to
    the [Z]-carried [GoInt]. *)
 Definition map_count {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (m : GoMap K V) (w : World) : nat :=
-  if map_cell_ok kt vt m w   (* TAG-AWARE (checkpoint-58): a nil / nonzero-absent / WRONG-TAG handle has [len] 0
+  if map_cell_ok kt vt m w   (* TAG-AWARE: a nil / nonzero-absent / WRONG-TAG handle has [len] 0
                                 — [map_len] never observes a foreign cell's size (the read-side dual of the
                                 [map_write] guard; [map_sel] likewise reads [None] on such a handle) *)
   then match w_maps w (gm_loc m) with Some (sz, _) => sz | None => 0 end
@@ -230,7 +230,7 @@ Definition map_count {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (m : GoMap K V)
 (** A map with NO USABLE cell ([map_cell_ok = false] — nil, nonzero-absent, OR WRONG-TAG) reads [None] at
     EVERY key: the read-side dual of the write guards.  [map_get_fn] and [map_cell_ok] branch on the SAME
     conditions (existence + [tag_eq]), so a wrong-tag forged handle observes no entries — it cannot read the
-    real cell's values (defensive fail-closed read; the checkpoint-58 read-side anti-forgery witness). *)
+    real cell's values (defensive fail-closed read; the read-side anti-forgery witness). *)
 Lemma map_sel_absent : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (m : GoMap K V) (w : World),
   map_cell_ok kt vt m w = false -> map_sel kt vt k m w = None.
 Proof.
@@ -327,7 +327,7 @@ Definition map_set {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (v : V) (
     faithful Go ([delete] on nil no-ops); (3) a nonzero handle with NO tag-correct cell (ABSENT/dangling OR
     WRONG-TAG — a FORGED handle, impossible in real Go) — FAIL LOUD ([rt_forged_map], world UNCHANGED), a
     closed-world guard, NOT Go semantics.  In every case no cell is fabricated OR retyped.  Lowers to native
-    [delete(m, k)] (the forged fail-loud is model-only, plugin-suppressed; ⚠ checkpoint-61: CURRENTLY a
+    [delete(m, k)] (the forged fail-loud is model-only, plugin-suppressed; ⚠ it is presently a
     reachable, catchable [OPanic] via a wrong-tag / absent [MkMap] handle — a model fault, not yet proved
     unreachable).  ([map_delete_nil_noop] Go-faithful / [map_delete_forged_failloud] the defensive guard). *)
 Definition map_delete {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (m : GoMap K V) : IO unit :=
@@ -535,7 +535,7 @@ Proof. intros K V kt vt m w H. unfold map_clear_upd. apply map_write_absent_noop
     (1) LIVE cell — clear it; (2) genuine NIL map ([gm_loc = 0]) — NO-OP, faithful Go; (3) nonzero FORGED
     handle (ABSENT/dangling OR WRONG-TAG, impossible in real Go) — FAIL LOUD ([rt_forged_map], world
     UNCHANGED), a closed-world guard, NOT Go semantics.  No cell written/fabricated/retyped in any case.
-    Lowers to native [clear(m)] (forged fail-loud model-only, plugin-suppressed; ⚠ checkpoint-61: CURRENTLY a
+    Lowers to native [clear(m)] (forged fail-loud model-only, plugin-suppressed; ⚠ it is presently a
     reachable, catchable [OPanic] — a model fault, not yet proved unreachable). *)
 Definition map_clear {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (m : GoMap K V) : IO unit :=
   fun w => if map_cell_ok kt vt m w then ORet tt (map_clear_upd kt vt m w)
@@ -615,7 +615,7 @@ Definition map_count_transition_surface :=
    @map_rem_count_present, @map_rem_count_absent, @map_clear_upd_count).
 Print Assumptions map_count_transition_surface.
 
-(** ---- MapFinite: finite live-key SUPPORT for the function-based map cell (checkpoint-61 #10) ----
+(** ---- MapFinite: finite live-key SUPPORT for the function-based map cell ----
     The map cell stores a FUNCTION [f : K -> option V] — representable WITH an infinite live-key domain, though a
     real Go map is always FINITE.  [MapFinite] pins that the live keys ([map_get_fn <> None]) are contained in a
     finite [list K] — the map analogue of SliceWF / ChanCapOk's shape bound (here: finite SUPPORT, not a count).
@@ -706,7 +706,7 @@ Qed.
     guarantee is for VALUE-EQUAL-key maps, a SUBSET of the (Go-comparable) constructable maps.  ⚠ This is
     invariant PRESERVATION, NOT a global
     "every map is finite" theorem: the function rep DOES admit an infinite-support [f] (a RAW [mkWorld] /
-    same-tag forged handle carrying one is NOT [MapFinite] — the checkpoint-59 typed-liveness frontier); the
+    same-tag forged handle carrying one is NOT [MapFinite] — the typed-liveness frontier); the
     certified ops merely cannot PRODUCE such a value from a finite map.  ⚠ finite SUPPORT here; the STRONGER
     [len(m) = |support|] count-consistency is [MapWF] ([map_wf_surface] below). *)
 Definition map_finite_surface :=
@@ -714,7 +714,7 @@ Definition map_finite_surface :=
    @map_delete_preserves_mapfinite, @map_clear_preserves_mapfinite).
 Print Assumptions map_finite_surface.
 
-(** ---- MapWF: count-consistency — the STORED count field EQUALS the live-key support (checkpoint-61 #10) ----
+(** ---- MapWF: count-consistency — the STORED count field EQUALS the live-key support ----
     [MapFinite] bounds the live keys by SOME finite list; [MapWF] is the STRONGER count↔support bridge: there is
     a NoDup key list that EXACTLY enumerates the support ([map_get_fn <> None]) AND whose length is the stored
     [map_count].  So [map_count] (hence [len(m)] = [map_size]) is the true number of live keys — the property the
@@ -910,7 +910,7 @@ Definition map_wf_surface :=
 Print Assumptions map_wf_surface.
 
 (** ==================================================================================================
-    WRONG-TAG ANTI-FORGERY (checkpoint-58 #3, maps).  The hypotheses below isolate the WRONG-TAG case
+    WRONG-TAG ANTI-FORGERY (maps).  The hypotheses below isolate the WRONG-TAG case
     STRUCTURALLY: a NONZERO location ([Nat.eqb (gm_loc m) 0 = false]) holding a REAL cell (so [gm_present = true]
     — PROVED in [map_cell_ok_wrong_tag], not just asserted) whose stored key/value tags DISAGREE with the
     caller's [kt]/[vt] — a forged public [MkMap l] handle aliasing a LIVE map of ANOTHER key/value type.  Each

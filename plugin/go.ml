@@ -764,7 +764,7 @@ let print_hex_int n =             (* FAIL-CLOSED: print_hex's domain is N — a 
 (* Reject the CLEAR non-comparable Go map-key classes reachable here — a SLICE or a MAP key (funcs already fail
    to render, [TArrow] -> [None] below).  This is an UNDER-approximation of true Go comparability: a [GTNamed]
    nominal struct is treated as comparable (the current keys [ListNode]/[ChanBox] are; a struct with a
-   non-comparable field would NOT be caught — the [GoTypeDesc] frontier).  ⚠ cp62: the plugin RENDERS
+   non-comparable field would NOT be caught — the [GoTypeDesc] frontier).  ⚠ the plugin RENDERS
    [GoTypeTag]s independently of [GoMap.map_make_typed]'s [MapKeysOk] gate, so WITHOUT this check
    [make_chan (TMap (TSlice TI64) TI64)] would emit [chan map[[]int64]int64], which Go rejects; WITH it the
    renderer fails loud on any SLICE-OR-MAP map key at any nesting (every [TMap] node hits this guard as
@@ -1518,7 +1518,7 @@ let binop_of r =
 (* Is a Coq type a COMPARABLE Go map-key type?  The OCaml mirror of the model's [GoRuntimeTypes.GoComparableType]
    for the [pp_type] representation: slice / map / func are NON-comparable; a product (struct / array element run)
    is comparable iff every component is (RECURSIVE, not just the outer constructor); pointers / channels /
-   scalars / named types are comparable.  ⚠ cp62: this is a THIRD parallel map-key authority (with the model's
+   scalars / named types are comparable.  ⚠ this is a THIRD parallel map-key authority (with the model's
    [MapKeysOk] and [go_type_of_tag]'s [goty_comparable_key]); the general certified [GoTypeDesc] must UNIFY the
    three and carry the decision as a proof, not three ad-hoc predicates.  RESIDUAL FRONTIER: a NAMED struct with a
    non-comparable field renders as its name here, so its field comparability is NOT re-checked — the [GoTypeDesc]
@@ -1581,7 +1581,7 @@ let rec pp_type state = function
      non-comparable component), else invalid Go.  This arm renders a GoMap type only where it is kept UNEXPANDED
      (a struct field / defined type); a GoMap VALUE / param / return unboxes to [nat] ([gm_loc]) so its type is
      not printed here.  ⚠ UNPINNED defensive guard — no negtest reaches it (the separate tag→type renderer
-     [go_type_of_tag] carries its own key check, fixture-pinned by neg_chan_bad_map_key).  cp62: this is a THIRD
+     [go_type_of_tag] carries its own key check, fixture-pinned by neg_chan_bad_map_key).  This is a THIRD
      ad-hoc map-key predicate; the general [GoTypeDesc] must UNIFY the three.  The recursion ([pp_type state
      kt/vt]) also catches a bad map nested inside a comparable key or the value. *)
   | Tglob (r, [kt; vt]) when is_go_map_type r ->
@@ -2524,7 +2524,7 @@ let rec pp_expr state env = function
 
        (* map_make_typed kt vt → make(map[K]V) with concrete types from tags.  AT THIS ARM the tag already
           passed [GoMap.map_make_typed]'s [MapKeysOk (TMap kt vt) = true] gate (recursive — every nested map key
-          comparable), so the KEY rendered here is comparable.  ⚠ cp62: [MapKeysOk] is an ALLOCATOR-BOUNDARY gate,
+          comparable), so the KEY rendered here is comparable.  ⚠ [MapKeysOk] is an ALLOCATOR-BOUNDARY gate,
           NOT the global map-key authority.  The tag→type renderer [go_type_of_tag] carries its OWN
           [goty_comparable_key] check — it fails loud on a SLICE/MAP map key (fixture-pinned for [make_chan] by
           [negtests/neg_chan_bad_map_key]); the second type printer [pp_type] carries an analogous UNPINNED guard
@@ -2548,7 +2548,7 @@ let rec pp_expr state env = function
            str "clear(" ++ pp_expr state env m ++ str ")"
        | MLglob r, [_kt; _vt; m]       when is_map_len_ref r ->
            str "len(" ++ pp_expr state env m ++ str ")"
-       (* NOTE: the cell-less untyped `map_make` was deleted (checkpoint-58), so there is no NAMED untyped map
+       (* NOTE: the cell-less untyped `map_make` was deleted, so there is no NAMED untyped map
           allocator to reject here; `map_make_typed` carries the key/value tags and is the only one lowered.
           (A World-manipulating cell-less handle written inline is not emittable anyway — World is not
           extractable — so no untyped-map emission reaches this arm.) *)

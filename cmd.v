@@ -278,7 +278,7 @@ Fixpoint go {A} (c : Cmd A) (w : World) : option (Outcome A * list (Cmd unit)) :
       match w_chans w c with
       | None => None
       | Some (existT _ E (tag, (buf, (closed, cap)))) =>
-          (* TAG-FIRST (checkpoint-58): a tag-MISMATCHED send is stuck ([None]) BEFORE observing the cell's
+          (* TAG-FIRST: a tag-MISMATCHED send is stuck ([None]) BEFORE observing the cell's
              [closed] flag — a mistyped send never leaks [rt_send_closed] off a foreign closed cell (matches
              [GoChan]'s [send], which guards on [chan_cell_ok] first). *)
           match v with existT _ A0 (x, ta) =>
@@ -366,7 +366,7 @@ Fixpoint run_cmd {A} (c : Cmd A) (w : World) : option (Outcome A) :=
       match w_chans w c with
       | None => None
       | Some (existT _ E (tag, (buf, (closed, cap)))) =>
-          (* TAG-FIRST (checkpoint-58): see [go]'s [CChSend] — a mistyped send is stuck before observing
+          (* TAG-FIRST: see [go]'s [CChSend] — a mistyped send is stuck before observing
              [closed], never leaking [rt_send_closed]. *)
           match v with existT _ A0 (x, ta) =>
             match tag_coerce tag ta x with

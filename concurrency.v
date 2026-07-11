@@ -4097,7 +4097,7 @@ Section Keystone.
      [Vrep n := Z.of_nat n < 2^63], [inj := keystone_inj], [prj := keystone_prj], [Hret := keystone_roundtrip]. *)
   Hypothesis Hret  : forall n, Vrep n -> prj (inj n) = n.
   Hypothesis Vrep0 : Vrep 0.               (* the zero value is representable (the initial heap holds it) *)
-  (* No [chenv_live] non-nil hypothesis is needed anymore (checkpoint-58): the read-back laws now demand
+  (* No [chenv_live] non-nil hypothesis is needed anymore: the read-back laws now demand
      [chan_cell_ok TI64 (chenv c) w = true], which the world-invariant ([WMatch1]) pins and which already
      implies non-nil ([chan_cell_ok_nonnil]).  So the bridge threads tag-correctness, not a separate
      environment-level non-nil fact. *)
@@ -4123,7 +4123,7 @@ Section Keystone.
   Definition WMatch1 (c : nat) (w : World) (cfg : RConfig) : Prop :=
     chan_buf TI64 (chenv c) w = map inj (rchan cfg c)
     /\ chan_cap (chenv c) w = None   (* the bridge's channel is UNBOUNDED (matches the unbounded [rstep] buffer); so a capacity-aware [send] always has room here *)
-    /\ chan_cell_ok TI64 (chenv c) w = true.   (* ...but ONLY because it is TAG-CORRECT-ALLOCATED: an ABSENT or WRONG-TAG cell would ALSO read cap None, so a genuine tag-correct cell is pinned SEPARATELY (checkpoint-58) — [chan_room]/[send]/[recv] guard on [chan_cell_ok], and the read-back laws below consume exactly this *)
+    /\ chan_cell_ok TI64 (chenv c) w = true.   (* ...but ONLY because it is TAG-CORRECT-ALLOCATED: an ABSENT or WRONG-TAG cell would ALSO read cap None, so a genuine tag-correct cell is pinned SEPARATELY — [chan_room]/[send]/[recv] guard on [chan_cell_ok], and the read-back laws below consume exactly this *)
 
   (** A SEND step: the deep [CSend] run-reduces to its continuation at the world after
       [chan_send_upd], and the buffer match is preserved — mirroring [rstep_send]. *)
@@ -4479,7 +4479,7 @@ End Keystone.
     and representability [Vrep64 n := Z.of_nat n < 2^63] DISCHARGES the value-coding section hypotheses
     ([keystone_roundtrip] is [Hret], [Vrep64_0] is [Vrep0]) — so [denote_adequate] /
     [denote_adequate_mem] hold for a REAL coding (representable = real int64 values).  (No separate non-nil
-    channel precondition anymore — checkpoint-58: the tag-correct-cell premise [chan_cell_ok] subsumes it.) *)
+    channel precondition anymore — the tag-correct-cell premise [chan_cell_ok] subsumes it.) *)
 Definition denote_adequate_keystone (chenv : nat -> GoChan GoI64) (locenv : nat -> Ref GoI64) :=
   denote_adequate chenv locenv keystone_inj keystone_prj Vrep64 keystone_roundtrip.
 Definition denote_adequate_mem_keystone (chenv : nat -> GoChan GoI64) (locenv : nat -> Ref GoI64) :=
@@ -5102,7 +5102,7 @@ Section MpTyped.
      [ptr_set]/[ptr_get] (which PANIC on nil) coincide with the bridge ref-accesses. *)
   Hypothesis ptrenv_live : forall l, Nat.eqb (p_loc (ptrenv l)) 0 = false.
   (* No separate [chenv_live] for the channel: the handoff channel's TAG-CORRECT-cell premise ([chan_cell_ok])
-     already implies non-nil, and the unbounded [send]'s room proof reads it off that premise (checkpoint-58). *)
+     already implies non-nil, and the unbounded [send]'s room proof reads it off that premise. *)
 
   (* g0 = [*p = v0; ch <- v1] ; g1 = [<-ch; _ := *p] — built from the EXTRACTABLE ptr/chan ops. *)
   Definition mp_g0_io (v0 v1 : nat) : IO unit :=
@@ -5147,7 +5147,7 @@ Section MpTyped.
     chan_buf TI64 (chenv 0) w0 = [] ->
     chan_closed (chenv 0) w0 = false ->
     chan_cap (chenv 0) w0 = None ->
-    chan_cell_ok TI64 (chenv 0) w0 = true ->   (* the handoff channel is TAG-CORRECT-ALLOCATED (checkpoint-58: absence / wrong-tag is not unbounded room) *)
+    chan_cell_ok TI64 (chenv 0) w0 = true ->   (* the handoff channel is TAG-CORRECT-ALLOCATED (absence / wrong-tag is not unbounded room) *)
     exists w', run_io (mp_handoff_io v0 v1) w0 = ORet (inj v1, inj v0) w'.
   Proof.
     intros v0 v1 w0 a0 Hpre Hbuf Hcl Hcap Hcellok. unfold mp_handoff_io.
@@ -5198,7 +5198,7 @@ Section KeystoneMulti.
   Variable inj : nat -> GoI64.
   Hypothesis chenv_inj : forall i j, chenv i = chenv j -> i = j.
   (* No [chenv_live]: the guarded [chan_buf_send]/[chan_buf_recv]/[chan_closed_*] read-back laws now demand
-     [chan_cell_ok TI64 (chenv c) w = true], supplied by the [WPresentM] invariant (checkpoint-58); it already
+     [chan_cell_ok TI64 (chenv c) w = true], supplied by the [WPresentM] invariant; it already
      implies non-nil. *)
 
   Definition WMatchC (w : World) (cfg : RConfig) : Prop :=
@@ -5207,7 +5207,7 @@ Section KeystoneMulti.
   Lemma chenv_neq : forall i j, i <> j -> chenv i <> chenv j.
   Proof. intros i j Hij Heq. apply Hij, chenv_inj, Heq. Qed.
 
-  (** [WPresentM w] — EVERY channel TAG-CORRECT-ALLOCATED (checkpoint-58): threaded ALONGSIDE the buffer match so
+  (** [WPresentM w] — EVERY channel TAG-CORRECT-ALLOCATED: threaded ALONGSIDE the buffer match so
       the channel-only refinement's realizing world has real, tag-correct channels, never ones FABRICATED or
       RETYPED by a [chan_send_upd] on an absent / wrong-tag handle.  Preserved by every world-advancing step
       (send/recv on the touched channel keeps its cell tag-correct; frames the rest); the world-unchanged steps
@@ -5359,7 +5359,7 @@ Section KeystoneHeap.
      [chenv_inj].  (Loc-level, not Ref-level: [ref_sel_opt_upd_diff]'s frame is keyed on [r_loc].) *)
   Hypothesis locenv_loc_inj : forall i j, r_loc (locenv i) = r_loc (locenv j) -> i = j.
 
-  (* The heap match now carries LIVENESS (checkpoint-58): every location's cell is not merely read-equal to
+  (* The heap match now carries LIVENESS: every location's cell is not merely read-equal to
      the operational heap but ALLOCATED ([ref_sel_opt = Some]) — a Go write targets an allocated variable, and
      the guarded [ref_upd] advances the world only through a live cell (mirroring the channel [WPresent]
      invariant).  It refines the total-read match ([ref_sel_of_opt]). *)
@@ -5478,14 +5478,14 @@ Section KeystoneState.
   Hypothesis chenv_inj : forall i j, chenv i = chenv j -> i = j.
   Hypothesis locenv_loc_inj : forall i j, r_loc (locenv i) = r_loc (locenv j) -> i = j.
   (* No [chenv_live]: the guarded channel read-back laws now demand [chan_cell_ok TI64 (chenv c) w = true],
-     supplied by the [WPresent] invariant (checkpoint-58); it already implies non-nil. *)
+     supplied by the [WPresent] invariant; it already implies non-nil. *)
 
   Lemma kst_chenv_neq : forall i j, i <> j -> chenv i <> chenv j.
   Proof. intros i j Hij Heq. apply Hij, chenv_inj, Heq. Qed.
   Lemma kst_locenv_neq : forall i j, i <> j -> r_loc (locenv i) <> r_loc (locenv j).
   Proof. intros i j Hij Heq. apply Hij, locenv_loc_inj, Heq. Qed.
 
-  (** [WPresent w] — EVERY bridge channel is TAG-CORRECT-ALLOCATED in [w] (checkpoint-58).  Pinned alongside the
+  (** [WPresent w] — EVERY bridge channel is TAG-CORRECT-ALLOCATED in [w].  Pinned alongside the
       buffer/heap matches so the realizing world of the MULTI-channel refinement has real, tag-correct channels,
       not fabricated / retyped ones: an absent OR WRONG-TAG cell reads empty buffer + cap None just like a
       tag-correct-but-empty channel, so a genuine tag-correct cell must be tracked SEPARATELY here too (mirroring
@@ -5840,7 +5840,7 @@ Theorem mp_end_to_end :
     (forall c, chan_buf TI64 (chenv c) w0 = []) ->
     chan_closed (chenv 0) w0 = false ->
     chan_cap (chenv 0) w0 = None ->          (* the handoff channel is UNBOUNDED *)
-    (forall c, chan_cell_ok TI64 (chenv c) w0 = true) -> (* EVERY bridge channel is TAG-CORRECT-ALLOCATED (checkpoint-58): an absent OR wrong-tag cell also reads cap None, so a genuine tag-correct cell is a SEPARATE premise; it subsumes non-nil *)
+    (forall c, chan_cell_ok TI64 (chenv c) w0 = true) -> (* EVERY bridge channel is TAG-CORRECT-ALLOCATED: an absent OR wrong-tag cell also reads cap None, so a genuine tag-correct cell is a SEPARATE premise; it subsumes non-nil *)
     (forall l, ref_sel_opt (plocenv ptrenv l) w0 = Some (inj 0)) ->   (* the memory cells are ALLOCATED (live) *)
     exists cfg,
       (* (a) the typed program EXECUTES, generating the canonical handoff trace *)
@@ -8504,7 +8504,7 @@ Corollary reachableC_refines_bounded :
     (forall i j, chenv i = chenv j -> i = j) ->
   forall cap p cfg w0,
     (forall c, chan_buf TI64 (chenv c) w0 = []) ->
-    (forall c, chan_cell_ok TI64 (chenv c) w0 = true) ->   (* the channels are TAG-CORRECT-ALLOCATED (checkpoint-58: an absent / wrong-tag cell is not an unbounded channel; subsumes non-nil) *)
+    (forall c, chan_cell_ok TI64 (chenv c) w0 = true) ->   (* the channels are TAG-CORRECT-ALLOCATED (an absent / wrong-tag cell is not an unbounded channel; subsumes non-nil) *)
     rstepsC cap (rinit_cfg p) cfg ->
     (exists w, WMatchC chenv inj w cfg /\ WPresentM chenv w) /\ BoundedC cap cfg.  (* the realizing world's channels are tag-correct — exposed, not erased *)
 Proof.

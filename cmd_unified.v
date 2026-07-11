@@ -1012,7 +1012,7 @@ Proof.
            (ex_intro _ eq_refl (tag_eq_refl TString))).
 Qed.
 (** Send on a CLOSED channel panics ([rt_send_closed]) — Go-faithful, but ONLY for a TAG-CORRECT value
-    ([anyt tag x], the sent value tagged with the cell's own [tag]).  Checkpoint-58: [run_cmd]'s [CChSend] is
+    ([anyt tag x], the sent value tagged with the cell's own [tag]).  [run_cmd]'s [CChSend] is
     tag-first, so a MISTYPED send on a closed cell is STUCK ([None]), NOT a panic — a forged wrong-tag value
     never observes the cell's closedness (mirrors [GoChan.send]'s [chan_cell_ok]-first guard). *)
 Theorem cchsend_closed_panics : forall ch (k : Cmd unit) w E (tag : GoTypeTag E) (x : E) buf cap,
@@ -1056,7 +1056,7 @@ Theorem cchrecv_tag_mismatch_absent : forall {T} (tgt : GoTypeTag T) ch (f : GoA
 Proof.
   intros T tgt ch f w E tag buf closed cap Hc Hne. cbn [run_cmd]. rewrite Hc, Hne. reflexivity.
 Qed.
-(** A WRONG-TAG send is STUCK ([None]) for ANY [closed] state of the cell (checkpoint-58: [CChSend] is
+(** A WRONG-TAG send is STUCK ([None]) for ANY [closed] state of the cell ([CChSend] is
     tag-first, so a mistyped send never reaches the [closed] check).  Generalised from the open case so it
     ALSO covers a CLOSED cell — see [cchsend_closed_wrong_tag_stuck] for the explicitly-named closed corollary. *)
 Theorem cchsend_tag_mismatch_absent : forall ch {A0} (x : A0) (ta : GoTypeTag A0) (k : Cmd unit) w E tag buf closed cap,
@@ -1066,7 +1066,7 @@ Theorem cchsend_tag_mismatch_absent : forall ch {A0} (x : A0) (ta : GoTypeTag A0
 Proof.
   intros ch A0 x ta k w E tag buf closed cap Hc Hne. cbn [run_cmd]. rewrite Hc, Hne. reflexivity.
 Qed.
-(** THE CLOSED WRONG-TAG PIN (checkpoint-58, manifest-gated below): a wrong-tag send on a CLOSED cell is STUCK
+(** THE CLOSED WRONG-TAG PIN (manifest-gated below): a wrong-tag send on a CLOSED cell is STUCK
     ([None]) — it does NOT fabricate [rt_send_closed] off the foreign cell.  The exact anti-forgery counterpart
     to [cchsend_closed_panics] (which needs a TAG-CORRECT value). *)
 Corollary cchsend_closed_wrong_tag_stuck : forall ch {A0} (x : A0) (ta : GoTypeTag A0) (k : Cmd unit) w E tag buf cap,

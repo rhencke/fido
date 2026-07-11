@@ -463,7 +463,7 @@ Qed.
     [go_type_of_tag] fails loud on a SLICE-or-MAP key — the only FIXTURE-PINNED closure
     ([negtests/neg_chan_bad_map_key]).  The second printer [pp_type] carries an analogous guard
     ([pp_type_comparable_key]) for struct-field map types but is UNPINNED (defensive, not verified coverage).
-    cp62: [MapKeysOk] and these plugin checks are DUPLICATE map-key authorities the general certified type
+    [MapKeysOk] and these plugin checks are DUPLICATE map-key authorities the general certified type
     authority ([GoTypeDesc]) must UNIFY.  The gate is EVIDENCE-CARRYING — the proof is a [Prop], ERASED in extraction (golden unaffected,
     name-lowered op), a pure representability guard the op body never inspects.  ([GoComparableType]/[MapKeysOk]
     are [bool] predicates, appearing only in these proof obligations.) *)

@@ -103,7 +103,7 @@ Proof.
   apply Nat.eqb_eq in E. congruence.
 Qed.
 
-(** [ref_upd r v w]: the ROOT-GUARDED ref write (checkpoint-58, the ref dual of [chan_write] / [map_write]).
+(** [ref_upd r v w]: the ROOT-GUARDED ref write (the ref dual of [chan_write] / [map_write]).
     It writes [v] at [r]'s location ONLY when [r] is LIVE ([ref_sel_opt r w = Some _]); on a handle with NO
     LIVE cell it is the IDENTITY ([ref_upd_dead_noop]).  This covers, at ANY location, an ABSENT / dangling
     handle and a WRONG-TAG alias ([ref_upd_wrong_tag_noop] — [tag_coerce] fails).  ⚠ NIL is subtler: unlike
@@ -185,7 +185,7 @@ Definition ref_new {A : Type} (tag : GoTypeTag A) (v : A) : IO (Ref A) :=
     read guards are provably redundant on the certified path).  The invariant holds at the initial world
     ([valid_w_init]) and is PRESERVED by every allocator ([valid_alloc_*]) UNCONDITIONALLY — allocators write
     at the nonzero [w_next], so loc 0 stays empty and [nat] locations never overflow.
-    ⚠ SCOPE (checkpoint-61): this predicate proves ONLY the allocation-frontier
+    ⚠ SCOPE: this predicate proves ONLY the allocation-frontier
     facts above — NOT complete semantic world validity (no object-representation invariants, no
     value-well-typedness).  The real [WorldWellFormed Σ w := AllocFrontierOk w /\ WorldRealizes Σ w /\ rep
     invariants] awaits the StoreTyping authority (plans/result-control-split.md order #4); do not read this
@@ -894,7 +894,7 @@ Proof.
 Qed.
 (** A freshly [make(map[K]V)]d map is present AND TYPE-CORRECT: [map_make_typed kt vt] installs a [Some] cell at
     [w_next w] whose stored tags ARE [kt]/[vt], and [AllocFrontierOk] forces [w_next w <> 0], so
-    [map_cell_ok kt vt m w' = true] (checkpoint-58: the allocator produces the tag-aware evidence the guarded
+    [map_cell_ok kt vt m w' = true] (the allocator produces the tag-aware evidence the guarded
     map ops demand — [map_set] reaches its real update path, not the fail-loud branch).  DIRECTION: this is
     [map_make_typed ⟹ map_cell_ok] ONLY, NOT provenance — [map_cell_ok] checks nonzero location + cell + tag
     match, so a SAME-TAG forged world satisfies it too; the converse is not claimed. *)
@@ -907,7 +907,7 @@ Proof.
   cbn [w_maps]. rewrite Nat.eqb_refl. cbn. rewrite !tag_eq_refl. reflexivity.
 Qed.
 
-(** ALLOCATOR EVIDENCE (checkpoint-58, channel dual of [map_cell_ok_make_typed]): a freshly made channel is
+(** ALLOCATOR EVIDENCE (channel dual of [map_cell_ok_make_typed]): a freshly made channel is
     TAG-CORRECT — the allocator installs a [Some (existT _ A (tag, …))] cell at the fresh [w_next] location,
     and [AllocFrontierOk] forces [w_next <> 0], so [chan_cell_ok tag ch w' = true].  DIRECTION: this proves
     [make_chan* ⟹ chan_cell_ok] ONLY.  It is NOT provenance — [chan_cell_ok] checks nonzero location + cell
@@ -957,7 +957,7 @@ Qed.
     that is why the general [close] keeps the guard.)  [send]/[recv] on the same allocated channel likewise
     never hit the nil case.  (Non-nil is
     the NIL-panic guarantee ONLY; it is not tag-correctness.  The wrong-tag write/read hazards are closed by the
-    checkpoint-58 op rebase onto the tag-aware [chan_cell_ok] — [chan_write]/[chan_room]/[send]/[recv]/[close]
+    op rebase onto the tag-aware [chan_cell_ok] — [chan_write]/[chan_room]/[send]/[recv]/[close]
     all guard on it; the allocation discharges that guard via [chan_cell_ok_make_chan].) *)
 Lemma make_chan_nonzero : forall {A} (tag : GoTypeTag A) (w : World) ch w',
   AllocFrontierOk w -> run_io (make_chan tag) w = ORet ch w' -> Nat.eqb (ch_loc ch) 0 = false.
@@ -1056,7 +1056,7 @@ Proof.
   cbn. apply Nat.le_0_l.
 Qed.
 (** CHANNEL STATE-OK SURFACE (manifest-gated, zero-axiom): the "no over-full channel" invariant [ChanCapOk]
-    (checkpoint-61 #9) — a bounded channel's FIFO length is [<= cap], the analogue of SliceWF for slices.
+    — a bounded channel's FIFO length is [<= cap], the analogue of SliceWF for slices.
     Gated across every PRIMITIVE state transition: ESTABLISHED at construction by BOTH allocators
     ([make_chan] unbuffered + [make_chan_buf], under [AllocFrontierOk] — nonzero-location allocation) and by
     every [send] (the sole buffer-GROWING op — its [chan_room] gate forces [length < cap] before the append),
@@ -1065,8 +1065,8 @@ Qed.
     is exactly the same [chan_recv_upd] dequeue already covered by [recv_preserves_chancapok] (it only SHORTENS
     the FIFO), followed by a caller continuation whose final world is out of scope; they add NO buffer-growing
     transition, so they cannot break the invariant.  ⚠ SHAPE (buffer-length) only — a forged same-tag over-full
-    handle stays the checkpoint-59 typed-liveness frontier, and [None]-cap (proof-only unbounded bridge) is
-    vacuous, the residual finite-vs-unbounded excision of #9. *)
+    handle stays the typed-liveness frontier, and [None]-cap (proof-only unbounded bridge) is
+    vacuous, the residual finite-vs-unbounded excision. *)
 Definition chan_state_ok_surface :=
   (@make_chan_establishes_chancapok, @make_chan_buf_establishes_chancapok, @send_establishes_chancapok,
    @recv_preserves_chancapok, @close_preserves_chancapok).
@@ -1084,8 +1084,8 @@ Proof. intros A tag n w ch w' HV H. exists (Z.to_nat (intraw n)). exact (make_ch
     INDUCTIVE invariant of the PRIMITIVE channel ops — BOTH constructors ESTABLISH it under [AllocFrontierOk]
     (the allocator mints a NONZERO location, else a loc-0 channel would read [None]) and [send] / [recv] /
     [close] PRESERVE it unconditionally (capacity is re-written unchanged).  So a channel built by [make_chan] / [make_chan_buf]
-    and evolved through [send] / [recv] / [close] STAYS finite — the certified-path finite-vs-unbounded half of
-    checkpoint-61 #9.  ⚠ This is invariant PRESERVATION, NOT a global confinement theorem: [chan_cap] still
+    and evolved through [send] / [recv] / [close] STAYS finite — the certified-path finite-vs-unbounded half.
+    ⚠ This is invariant PRESERVATION, NOT a global confinement theorem: [chan_cap] still
     reads [None] for nil handles, forged / absent cells, and proof-only concurrency-bridge channels (none
     characterised here), and the comma-ok / select receive COMBINATORS are continuation-parametric — their
     dequeue is cap-invariant but the final world is the caller's, so they are OUT OF SCOPE (not gated, not
@@ -1114,7 +1114,7 @@ Definition heap_alloc_safety_surface :=
    @make_chan_nonzero, @make_chan_open, @chan_alloc_close_no_panic, @make_chan_buf_caps).
 Print Assumptions heap_alloc_safety_surface.
 
-(** ---- Live* : the REUSABLE typed-liveness predicate family (checkpoint-59 step 3) ----
+(** ---- Live* : the REUSABLE typed-liveness predicate family ----
 
     One canonical name per handle for "the cell(s) EXIST at this handle's nonnil location(s) AND store the
     matching tag".  The four SCALAR predicates are here ([LiveRef]/[LivePtr]/[LiveChan]/[LiveMap]); the two
@@ -1326,7 +1326,7 @@ Print Assumptions live_op_preserve_surface.
 (** Live* CHANNEL OP-LEVEL PRESERVATION SURFACE (manifest-gated, zero-axiom): [send]/[recv]/[close] keep a
     live channel Live over the world after the outcome ([outcome_world]) — form (2), covering the block/panic
     branches, NOT asserting [ORet] (blocking is intended-faithful only in the RELATIONAL authority; the
-    shallow-IO would-block branch is CURRENTLY an inaccurate [OPanic] stand-in — checkpoint-61, fix tracked in
+    shallow-IO would-block branch is an inaccurate [OPanic] stand-in — fix tracked in
     plans/result-control-split.md). *)
 Definition live_chan_op_preserve_surface :=
   (@LiveChan_send_op, @LiveChan_recv_op, @LiveChan_close_op).
@@ -1453,12 +1453,12 @@ Definition slice_in_len {A} (s : SliceH A) (i : GoInt) : bool :=
     of fabricating a zero.  The loud branch is UNREACHABLE for any slice from [slice_make_h]/[subslice]/
     [slice_append] (their backing cells are allocated at the matching tag), so real programs are
     unaffected; it guards only the public raw [mkSliceH].  Body is plugin-lowered to [s[i]]. *)
-(** ⚠ SliceWF GUARD (checkpoint-61): both index ops FIRST reject a malformed [sh_len > sh_cap] header — a
+(** ⚠ SliceWF GUARD: both index ops FIRST reject a malformed [sh_len > sh_cap] header — a
     model-invalid SliceH (Go maintains [len <= cap]) whose in-[len] index [cap <= i < len] would otherwise reach
     a cell BEYOND the backing (a coincidentally same-tagged cell would be silently indexed).  On a WELL-FORMED
     slice ([sh_len <= sh_cap]) the guard is a no-op, so extraction/golden are unchanged.  The malformed
     fail-loud is a MODEL FAULT (currently [OPanic rt_nil_deref], symmetric with the forged-backing-cell branch;
-    both become a distinct [ModelFault], proved unreachable under the store-typing authority — cp61). *)
+    both become a distinct [ModelFault], proved unreachable under the store-typing authority). *)
 Definition slice_idx_get {A} (tag : GoTypeTag A) (s : SliceH A) (i : GoInt) : IO A :=
   fun w => if Nat.leb (sh_len s) (sh_cap s)
            then (if slice_in_len s i
@@ -1497,7 +1497,7 @@ Lemma run_slice_idx_set_oob : forall {A} (s : SliceH A) (i : GoInt) (v : A) (w :
   slice_in_len s i = false ->
   run_io (slice_idx_set s i v) w = OPanic (rt_index_oob (intraw i) (sh_len s)) w.
 Proof. intros A s i v w Hwf Hi. unfold slice_idx_set, run_io. rewrite Hwf, Hi. reflexivity. Qed.
-(** SliceWF REJECTION (checkpoint-61): a MALFORMED [sh_cap < sh_len] header FAIL-LOUDS at BOTH index ops —
+(** SliceWF REJECTION: a MALFORMED [sh_cap < sh_len] header FAIL-LOUDS at BOTH index ops —
     BEFORE the [slice_in_len] check, so an in-[len]-but-beyond-[cap] index [cap <= i < len] can NEVER reach a
     coincidentally same-tagged cell past the backing.  Shape follows the [slice_clear/copy_bad_shape_rejected]
     peers: [exists p, run_io … = OPanic p w] — a rejection ([OPanic], never a silent [ORet]) leaving the world
@@ -1530,7 +1530,7 @@ Definition subslice_desc {A} (s : SliceH A) (a b : nat) : SliceH A :=
    So [subslice] is an IO action that panics on a bad triple instead of silently producing a
    wrapped descriptor whose bogus [sh_len] would defeat the index bounds check.  The native Go
    [s[a:b]] performs the SAME check, so the lowering (a `:=` binding) is faithful.
-   ⚠ SliceWF GUARD (checkpoint-61): a malformed [sh_cap < sh_len] PARENT FAILS LOUD FIRST — it is NEVER
+   ⚠ SliceWF GUARD: a malformed [sh_cap < sh_len] PARENT FAILS LOUD FIRST — it is NEVER
    normalized into a well-formed child.  Without this, [subslice]'s bounds check ([b <= cap]) alone would
    LAUNDER a forged [cap < len] header into a clean [len = b-a <= cap-a] descriptor, hiding the forgery; the
    guard rejects it exactly as the index ops and [slice_append]'s [len > cap] branch do (a model fault,
@@ -1692,7 +1692,7 @@ Proof.
   rewrite H1, H2. reflexivity.
 Qed.
 
-(** SliceWF on the TRANSFORMERS (checkpoint-61 step 4) — pinned BOTH ways, so a malformed [sh_cap < sh_len]
+(** SliceWF on the TRANSFORMERS — pinned BOTH ways, so a malformed [sh_cap < sh_len]
     header is neither LAUNDERED nor MANUFACTURED:
     - REJECT: a malformed PARENT FAILS LOUD ([subslice_bad_shape_rejected]/[slice_append_bad_shape_rejected],
       [exists p, = OPanic p w], no exported marker).  Crucially [subslice] must guard on [len <= cap] — its
@@ -1739,10 +1739,10 @@ Proof. intros A tag s v w Hbad. eexists. apply slice_append_len_gt_cap_panics; e
 (** SLICE TRANSFORMER WF SURFACE (manifest-gated, zero-axiom): [subslice]/[slice_append] pin the
     [sh_len <= sh_cap] SliceWF shape BOTH ways — REJECT a malformed [cap < len] parent ([*_bad_shape_rejected],
     fail loud, no exported marker) AND PRESERVE well-formedness on every [ORet] output ([*_preserves_wf]).  So
-    a transformer neither launders nor manufactures a malformed header; this is checkpoint-61 step 4's
+    a transformer neither launders nor manufactures a malformed header; this is the
     transformer half, pairing with the index ops' [heap_aggregate_liveness_surface] rejection.  ⚠ nat-SHAPE
     invariant ONLY — NOT backing-object identity; a same-tag alias over a live backing is still the standing
-    checkpoint-59 typed-liveness frontier. *)
+    typed-liveness frontier. *)
 Definition slice_transformer_wf_surface :=
   (@subslice_preserves_wf, @slice_append_preserves_wf,
    @subslice_bad_shape_rejected, @slice_append_bad_shape_rejected).
@@ -1922,7 +1922,7 @@ Qed.
     reports index 0 in-bounds ([slice_in_len] checks [len], not [cap]) with NO backing cell; the payoff
     [LiveSlice_index_live] (an in-[len] index has a LIVE typed cell) is exactly what fails there, so the shape
     conjunct is not optional.  The backing authority [slice_range_live s (sh_cap s)] is a NAMED interface (TYPED
-    liveness — a same-tag header over a live backing satisfies it; origin is not checked, the checkpoint-59
+    liveness — a same-tag header over a live backing satisfies it; origin is not checked, the typed-liveness
     frontier), CONSUMED by the semantics ([append]'s realloc-copy guards on it).  [slice_range_live_of_cells] is
     the generic cells→range lift both slice allocators share; [slice_range_live_cell] is its converse. *)
 Definition LiveSlice {A} (s : SliceH A) (w : World) : Prop :=
@@ -2011,7 +2011,7 @@ Definition sh_start {A} (s : SliceH A) : nat := sh_base s + sh_off s.
     itself the tag-aware [ref_sel_opt] range check): a shape-impossible handle, or one with ANY absent /
     dangling / wrong-tag element, does NOT silently succeed, exactly like [slice_idx_set] / [slice_append].
     (A SAME-TAG handle aliasing a LIVE backing still PASSES — liveness is TYPED, not origin-checked; the standing
-    checkpoint-59 frontier.  So this rejects malformed/dangling/wrong-tag handles, NOT every forged one.)  On the
+    typed-liveness frontier.  So this rejects malformed/dangling/wrong-tag handles, NOT every forged one.)  On the
     live path each cell is zeroed
     through a TAG-AWARE per-cell guard — an absent / foreign-typed cell is left unchanged, so by CONSTRUCTION
     the write never fabricates or retypes a cell (a design property of the [ref_sel_opt]-keyed guard, not itself
@@ -2037,7 +2037,7 @@ Definition slice_clear_h {A} (tag : GoTypeTag A) (s : SliceH A) : IO unit :=
     neither range spills past its backing) AND the first [n] cells of BOTH read LIVE + TAG-CORRECT
     ([slice_range_live dst n w && slice_range_live src n w]) — a shape-impossible handle, or one with ANY absent
     / dangling / wrong-tag element in [dst] or [src], does NOT silently succeed.  (A SAME-TAG handle over a LIVE
-    backing still PASSES — typed liveness, not origin; the checkpoint-59 frontier — so this rejects malformed /
+    backing still PASSES — typed liveness, not origin; the typed-liveness frontier — so this rejects malformed /
     dangling / wrong-tag handles, NOT every forged one.)  On the live path each [dst] cell takes the [src] value through a TAG-AWARE
     per-cell guard reading the REAL [src] value ([ref_sel_opt = Some sv], never a fabricated zero); an absent /
     foreign-typed [dst] or [src] cell leaves [dst] unchanged, so by CONSTRUCTION the write never fabricates or
@@ -2132,7 +2132,7 @@ Qed.
     pinning the impossible shape for [clear], [copy]'s DST, and [copy]'s SRC specifically.  So the guard is
     PINNED both ways for every operand, not just asserted.  ⚠ This rejects a MALFORMED / DANGLING / WRONG-TAG
     handle — NOT every forged one: a SAME-TAG handle aliasing a live backing passes the tag-aware liveness check
-    (typed liveness, not origin; the standing checkpoint-59 frontier). *)
+    (typed liveness, not origin; the standing typed-liveness frontier). *)
 Definition slice_bulk_write_surface :=
   (@valid_run_slice_clear_h, @valid_run_slice_copy, @slice_clear_rejected, @slice_copy_rejected,
    @slice_clear_bad_shape_rejected, @slice_copy_bad_shape_rejected, @slice_copy_bad_shape_rejected_src).
@@ -2732,7 +2732,7 @@ Qed.
 
 (** AGGREGATE-HANDLE SURFACE (manifest-gated, zero-axiom PUBLIC evidence): companion to
     [heap_alloc_safety_surface] for the MULTI-CELL handles — a slice's backing and a struct's fields.
-    LIVENESS (allocator produces a live cell — the checkpoint-58 "allocators produce Live*" fact, discharged
+    LIVENESS (allocator produces a live cell — the "allocators produce Live*" fact, discharged
     from the allocation like [ref_new_reads]): [slice_make_lc_cell_live] (every [make([]T,len,cap)] backing
     cell, any [j < cap], reads [Some zero_val]); [slice_make_h_cell_live] (the len=cap [make([]T,n)] backing,
     any [j < len], reads [Some zero_val]); [gsptr_new_fields_live] (every [gsptr_new] field cell is live).
@@ -2744,7 +2744,7 @@ Qed.
     via [slice_make_h_idx_get_no_panic]/[slice_make_h_idx_set_no_panic] — read/write a fresh slice at an
     in-bounds index returns; unlike the struct case these keep a genuine [slice_in_len] premise (Go panics on
     OOB — a real caller obligation, not a leaked derivable one), with the cell liveness discharged from the
-    allocation.  SLICE INDEX REJECTION (the guard's OTHER direction, checkpoint-61): [slice_idx_{get,set}_bad_shape_rejected]
+    allocation.  SLICE INDEX REJECTION (the guard's OTHER direction): [slice_idx_{get,set}_bad_shape_rejected]
     — a malformed [cap < len] header FAIL-LOUDS ([exists p, = OPanic p w], no exported marker) BEFORE reaching a
     cell, so the SliceWF guard is pinned BOTH ways for the index ops, mirroring [slice_bulk_write_surface].
     SCOPE: the fresh-MAKE allocators ONLY; slice TRANSFORMERS ([subslice] aliases an existing backing,

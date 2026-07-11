@@ -1,5 +1,5 @@
 (* EXPECT: NON-COMPARABLE map key *)
-(* cp62: the trusted plugin RENDERS [GoTypeTag] terms independently of [GoMap.map_make_typed]'s [MapKeysOk]
+(* The trusted plugin RENDERS [GoTypeTag] terms independently of [GoMap.map_make_typed]'s [MapKeysOk]
    gate, so an invalid nested map tag can reach a NON-map allocator.  Here [make_chan (TMap (TSlice TI64) TI64)]
    would emit [make(chan map[[]int64]int64)] — Go rejects a SLICE map key — a fail-OPEN.  [go_type_of_tag]'s
    map-key comparability check (every [TMap] node) makes the renderer FAIL LOUD instead, so extraction MUST
