@@ -47,9 +47,9 @@ Definition map_empty {K V : Type} : GoMap K V := MkMap 0.
     value, through slice / chan / ptr / struct / func) must have a [GoComparableType]-comparable key.  So a map
     with a bad key AT ANY DEPTH is UNREPRESENTABLE: neither [make(map[[]int]V)] nor [make(map[int]map[[]int]int)]
     can be written, mirroring Go's COMPILE-time "invalid map key type" (the model does not silently
-    accept-then-degenerate).  The [Hwf] proof is a [Prop] — ERASED by extraction, so [MapKeysOk] never reaches
-    emitted code (name-lowered op, golden unaffected; the extraction backend needs NO map-key check — this is
-    the single authority) — the gate is purely a representability guard, unused by the body.  Float64 keys are
+    accept-then-degenerate).  The [Hwf] proof is a [Prop] — ERASED by extraction (name-lowered op, golden
+    unaffected); the extraction backend needs NO map-key check — the model is the single authority, and the gate
+    is purely a representability guard, unused by the body.  Float64 keys are
     admissible ([GoComparableType TFloat64 = true]) even though [Comparable TFloat64] fails (±0/NaN) — key
     admissibility is a TYPE property, not value-equality reflection. *)
 Definition map_make_typed {K V : Type} (kt : GoTypeTag K) (vt : GoTypeTag V)

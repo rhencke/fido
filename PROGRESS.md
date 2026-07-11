@@ -156,7 +156,7 @@ None) are contained in a finite list — is an INDUCTIVE invariant ESTABLISHED b
 map_delete/map_clear (unconditionally, any key type) and map_set (⚠ ONLY under Comparable kt — LOAD-BEARING:
 the k::old_keys witness needs key_eqb soundness so the new key's class is {k}). ⚠ SCOPE (two boundaries): (1)
 the CONSTRUCTOR map_make_typed GATES on a MapKeysOk (TMap kt vt) = true PROOF (a Prop, erased in extraction;
-MapKeysOk itself is a bool Fixpoint over GoTypeTag that no emitted op body references, so extraction drops it;
+MapKeysOk is a bool Fixpoint over GoTypeTag, referenced only by that erased proof and proof-only lemmas;
 RECURSIVE: every TMap node, outer key AND any
 nested in the value, must have a comparable key), so a map with an
 invalid key at ANY nesting depth (e.g. map[int]map[[]int]int) is UNREPRESENTABLE — Go-faithful ("invalid map
