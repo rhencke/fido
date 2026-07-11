@@ -178,8 +178,8 @@ unrepresentability and NOT renderability — the bad tag TMap (TSlice TI64) TI64
 public). Emission-side the plugin has its OWN map-key rejection: go_type_of_tag (the tag→type renderer) fails
 loud on a SLICE-or-MAP key — the only FIXTURE-PINNED closure (negtests/neg_chan_bad_map_key: make_chan
 (TMap (TSlice TI64) TI64) aborts). The 2nd printer pp_type carries an analogous guard (pp_type_comparable_key)
-for struct-field map types but is UNPINNED (defensive, not verified coverage). MapKeysOk + these plugin
-checks are DUPLICATE map-key authorities GoTypeDesc must unify.
+for struct-field / defined-type map types, pinned by neg_map_field_bad_key (a type Bad map[[]int64]int64
+aborts). MapKeysOk + these plugin checks are DUPLICATE map-key authorities GoTypeDesc must unify.
 Residuals (GoTypeDesc frontier): named-struct-with-non-comparable-field keys uncaught by the plugin's
 under-approximating checks; MapKeysOk doesn't prove renderability — a MapKeysOk-passing map value that the
 plugin can't render fails loud, fixture-pinned by negtests/neg_map_{arrow,unit,prod}_value (TArrow-value = legal

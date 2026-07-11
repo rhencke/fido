@@ -53,8 +53,8 @@ Definition map_empty {K V : Type} : GoMap K V := MkMap 0.
     rejection: the tag→type renderer [go_type_of_tag]/[coq_goty_of_tag] fails loud on a SLICE-or-MAP key — the
     only FIXTURE-PINNED closure ([negtests/neg_chan_bad_map_key]: [make_chan (TMap (TSlice TI64) TI64)] aborts).
     The second type printer [pp_type] carries an analogous guard ([pp_type_comparable_key], a recursive mirror of
-    [GoComparableType], for struct-field map types), but it is UNPINNED — a defensive guard, not verified
-    coverage.  [MapKeysOk] (model) and these plugin checks are DUPLICATE map-key authorities the general
+    [GoComparableType], for struct-field / defined-type map types), pinned by [negtests/neg_map_field_bad_key]
+    (a [type Bad map[[]int64]int64] aborts).  [MapKeysOk] (model) and these plugin checks are DUPLICATE map-key authorities the general
     certified TYPE authority ([GoTypeDesc]) must UNIFY; and [MapKeysOk] is not a renderability certificate ([TUnit]
     unrenderable, a [TArrow]-value map plugin-rejected).  Do NOT read this as "a certified map is a valid Go map
     type".

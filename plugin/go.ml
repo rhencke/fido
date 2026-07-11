@@ -1580,8 +1580,9 @@ let rec pp_type state = function
   (* GoMap K V → map[KT]VT — reject a non-comparable KEY (recursively; slice/map/func, or a struct/array with a
      non-comparable component), else invalid Go.  This arm renders a GoMap type only where it is kept UNEXPANDED
      (a struct field / defined type); a GoMap VALUE / param / return unboxes to [nat] ([gm_loc]) so its type is
-     not printed here.  ⚠ UNPINNED defensive guard — no negtest reaches it (the separate tag→type renderer
-     [go_type_of_tag] carries its own key check, fixture-pinned by neg_chan_bad_map_key).  This is a THIRD
+     not printed here.  Pinned by [negtests/neg_map_field_bad_key] — a defined-type-over-map
+     [type Bad map[[]int64]int64] aborts (pp_type path); the separate tag→type renderer [go_type_of_tag] is
+     pinned by neg_chan_bad_map_key.  This is a THIRD
      ad-hoc map-key predicate; the general [GoTypeDesc] must UNIFY the three.  The recursion ([pp_type state
      kt/vt]) also catches a bad map nested inside a comparable key or the value. *)
   | Tglob (r, [kt; vt]) when is_go_map_type r ->
@@ -2527,8 +2528,9 @@ let rec pp_expr state env = function
           comparable), so the KEY rendered here is comparable.  ⚠ [MapKeysOk] is an ALLOCATOR-BOUNDARY gate,
           NOT the global map-key authority.  The tag→type renderer [go_type_of_tag] carries its OWN
           [goty_comparable_key] check — it fails loud on a SLICE/MAP map key (fixture-pinned for [make_chan] by
-          [negtests/neg_chan_bad_map_key]); the second type printer [pp_type] carries an analogous UNPINNED guard
-          ([pp_type_comparable_key]).  So [MapKeysOk] (model) and these plugin checks are DUPLICATE map-key
+          [negtests/neg_chan_bad_map_key]); the second type printer [pp_type] carries an analogous guard
+          ([pp_type_comparable_key], pinned for a defined-type-over-map by [negtests/neg_map_field_bad_key]).  So
+          [MapKeysOk] (model) and these plugin checks are DUPLICATE map-key
           authorities the general certified type authority ([GoTypeDesc]) should UNIFY. *)
        | MLglob r, [kt; vt] when is_map_make_typed_ref r ->
            str ("make(map[" ^ go_type_of_tag kt ^ "]" ^ go_type_of_tag vt ^ ")")

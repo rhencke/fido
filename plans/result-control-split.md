@@ -153,7 +153,7 @@ constructible `GoTypeTag`, a bad-key map VALUE is constructible too (`map_empty`
 trusted plugin renders tags independently.  Emission-side the plugin has its OWN map-key rejection:
 `go_type_of_tag` (the tag→type renderer) fails loud on a SLICE-or-MAP key — the only FIXTURE-PINNED closure
 (`negtests/neg_chan_bad_map_key`).  The 2nd printer `pp_type` carries an analogous guard
-(`pp_type_comparable_key`) for struct-field map types but is UNPINNED (defensive, not verified coverage) — so
+(`pp_type_comparable_key`) for struct-field / defined-type map types, pinned by `negtests/neg_map_field_bad_key` — so
 `MapKeysOk` (model) + these plugin checks are DUPLICATE map-key authorities that the general certified type
 authority (`GoTypeDesc`) should UNIFY.
 STILL AHEAD —

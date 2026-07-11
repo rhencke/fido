@@ -462,7 +462,7 @@ Qed.
     public).  Emission-side the trusted plugin has its OWN map-key rejection: the tag→type renderer
     [go_type_of_tag] fails loud on a SLICE-or-MAP key — the only FIXTURE-PINNED closure
     ([negtests/neg_chan_bad_map_key]).  The second printer [pp_type] carries an analogous guard
-    ([pp_type_comparable_key]) for struct-field map types but is UNPINNED (defensive, not verified coverage).
+    ([pp_type_comparable_key]) for struct-field / defined-type map types, pinned by [negtests/neg_map_field_bad_key].
     [MapKeysOk] and these plugin checks are DUPLICATE map-key authorities the general certified type
     authority ([GoTypeDesc]) must UNIFY.  The gate is EVIDENCE-CARRYING — the proof is a [Prop], ERASED in extraction (golden unaffected,
     name-lowered op), a pure representability guard the op body never inspects.  ([GoComparableType]/[MapKeysOk]
