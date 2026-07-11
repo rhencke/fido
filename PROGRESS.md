@@ -211,6 +211,13 @@ send/recv/close stays finite. ⚠ PRESERVATION, not a global confinement theorem
 receive combinators are continuation-parametric (dequeue is cap-invariant but the final world is the caller's),
 OUT OF SCOPE. For a channel where both ChanFinite and ChanCapOk hold, the FIFO is bounded by a concrete n
 (chan_bounded, the composition theorem, gated here)) /
+`GoChan.chan_semantics_surface` (the core IO-level channel operational-semantics laws for a TAG-CORRECT
+channel — the FIFO round-trip (send_recv: ch<-v into an OPEN, EMPTY channel with room, then <-ch = v; comma-ok
+send_recv_ok = (v, true)) and the Go-spec CLOSED-channel rules (send_closed_panics: close then send panics
+rt_send_closed; double_close_panics: close then close panics rt_close_closed; recv_ok_closed_empty: comma-ok
+receive from a closed EMPTY channel = (zero_val, false)). ⚠ SCOPE: FAITHFUL Go behaviors ONLY — the BLOCKING
+cases (send with no room, recv on empty-open — Go BLOCKS) are NOT gated here: the sequential model fails them
+loud, a cp61 would-block bug tracked for the scheduler split, deliberately excluded from the faithful gate) /
 `GoHeap.heap_alloc_safety_surface` (the positive-liveness half: the
 ptr/ref/map/chan allocator nonzero + live-cell + end-to-end panic-free-deref cone backing the `&x`
 address-of public claim) / `GoHeap.ref_addr_of_surface` (the address-of/assignment SEMANTICS the SPEC ledger

@@ -984,6 +984,20 @@ Theorem recv_ok_closed_empty : forall {A B} (tag : GoTypeTag A) (ch : GoChan A)
   run_io (recv_ok tag ch f) w = run_io (f (zero_val tag) false) w.
 Proof. intros. apply run_recv_ok_closed_empty; assumption. Qed.
 
+(** CHANNEL SEMANTICS SURFACE (manifest-gated, zero-axiom): the core IO-level channel operational-semantics
+    laws for a TAG-CORRECT channel — the FIFO round-trip ([send_recv]: after [ch <- v] into an OPEN, EMPTY
+    channel WITH ROOM, [<-ch] returns [v]; comma-ok variant [send_recv_ok]: [(v, true)]) and the Go-spec
+    CLOSED-channel rules ([send_closed_panics]: [close] then [send] panics [rt_send_closed];
+    [double_close_panics]: [close] then [close] panics [rt_close_closed]; [recv_ok_closed_empty]: comma-ok
+    receive from a CLOSED, EMPTY channel yields [(zero_val, false)]).  Each per-lemma statement carries its exact
+    premises (tag-correct cell; the round-trip also open + empty + room).  ⚠ SCOPE: these are the FAITHFUL Go
+    behaviors only.  The BLOCKING cases (send with no room, recv on an empty-open channel — Go BLOCKS pending a
+    peer) are deliberately NOT here: the current sequential model fails them LOUD (a checkpoint-61 would-block
+    bug, tracked for the scheduler split), so exporting them would advertise unfaithful behavior as semantics. *)
+Definition chan_semantics_surface :=
+  (@send_recv, @send_recv_ok, @send_closed_panics, @double_close_panics, @recv_ok_closed_empty).
+Print Assumptions chan_semantics_surface.
+
 (** ==================================================================================================
     WRONG-TAG ANTI-FORGERY (checkpoint-58, channels).  Mirrors the map wrong-tag theorems: the hypotheses
     isolate the WRONG-TAG case STRUCTURALLY — a NONZERO location ([Nat.eqb (ch_loc ch) 0 = false]) holding a
