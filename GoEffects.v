@@ -43,7 +43,7 @@ Definition ChanHeap : Type := nat -> option ChanCell.
     coerce back to its own [K]/[V] view (equal by construction).
     ALL map semantics are GoMap's (the single authority), NOT restated here — see there for the [nat] count
     field's reads / updates ([map_size] / [map_len] / [map_upd] / [map_rem], [map_count]'s count-transition
-    surface), finiteness ([MapFinite]), and count-vs-support ([MapWF]). *)
+    surface) and finiteness ([MapFinite]). *)
 Definition MapCell : Type :=
   (nat * { K : Type & (GoTypeTag K * { V : Type & (GoTypeTag V * (K -> option V))%type })%type })%type.
 Definition MapHeap : Type := nat -> option MapCell.
