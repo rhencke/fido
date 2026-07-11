@@ -263,6 +263,8 @@ Example map_len_counts :
       andb (Z.eqb (intraw (map_size TI64 TI64 m w4)) 2%Z)
            (Z.eqb (intraw (map_size TI64 TI64 m w5)) 1%Z) = true
   | OPanic _ _ => False
+  | OBlock _ _ => False
+  | OFault _ _ => False
   end.
 Proof. vm_compute. reflexivity. Qed.
 
@@ -299,7 +301,7 @@ Definition map_set {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (v : V) (
 Definition map_delete {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (m : GoMap K V) : IO unit :=
   fun w => if map_cell_ok kt vt m w then ORet tt (map_rem kt vt k m w)
            else if Nat.eqb (gm_loc m) 0 then ORet tt w
-           else OPanic rt_forged_map w.
+           else OFault rt_forged_map w.
 
 Lemma run_map_get_opt : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (m : GoMap K V) (w : World),
   run_io (map_get_opt kt vt k m) w = ORet (map_sel kt vt k m w) w.
@@ -328,7 +330,7 @@ Proof. reflexivity. Qed.
 Lemma run_map_delete : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (m : GoMap K V) (w : World),
   run_io (map_delete kt vt k m) w =
     if map_cell_ok kt vt m w then ORet tt (map_rem kt vt k m w)
-    else if Nat.eqb (gm_loc m) 0 then ORet tt w else OPanic rt_forged_map w.
+    else if Nat.eqb (gm_loc m) 0 then ORet tt w else OFault rt_forged_map w.
 Proof. reflexivity. Qed.
 (** ANTI-FORGERY: [delete] through a nonzero handle with NO tag-correct cell (ABSENT/dangling OR WRONG-TAG — a
     FORGED handle, impossible in real Go) FAILS LOUD ([rt_forged_map], world UNCHANGED) — the closed-world guard;
@@ -337,8 +339,22 @@ Proof. reflexivity. Qed.
 Lemma map_delete_forged_failloud : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (m : GoMap K V) (w : World),
   Nat.eqb (gm_loc m) 0 = false ->
   map_cell_ok kt vt m w = false ->
-  run_io (map_delete kt vt k m) w = OPanic rt_forged_map w.
+  run_io (map_delete kt vt k m) w = OFault rt_forged_map w.
 Proof. intros K V kt vt k m w Hnn H. unfold map_delete, run_io. rewrite H, Hnn. reflexivity. Qed.
+
+(** ACCEPTANCE (result/control split): [catch]/recover CANNOT observe a model fault.  A [delete] on a
+    forged (nonzero, no-tag-correct-cell) handle FAULTS ([OFault rt_forged_map]); [catch] passes the
+    [OFault] straight through, so the handler NEVER runs.  A model fault is not a Go panic — it is a
+    closed-world fail-loud, structurally uncatchable. *)
+Lemma catch_does_not_handle_model_fault : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
+    (k : K) (m : GoMap K V) (h : GoAny -> IO unit) (w : World),
+  Nat.eqb (gm_loc m) 0 = false ->
+  map_cell_ok kt vt m w = false ->
+  run_io (catch (map_delete kt vt k m) h) w = OFault rt_forged_map w.
+Proof.
+  intros K V kt vt k m h w Hnn Hbad. rewrite run_catch, (map_delete_forged_failloud kt vt k m w Hnn Hbad).
+  reflexivity.
+Qed.
 (** Faithfulness: deleting from a NIL map is a NO-OP (Go), leaving the world UNCHANGED — [map_delete]'s NIL
     branch ([gm_loc = 0]).  (A nonzero FORGED handle instead fails loud: [map_delete_forged_failloud].) *)
 Lemma map_delete_nil_noop : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (w : World),
@@ -505,18 +521,18 @@ Proof. intros K V kt vt m w H. unfold map_clear_upd. apply map_write_absent_noop
 Definition map_clear {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (m : GoMap K V) : IO unit :=
   fun w => if map_cell_ok kt vt m w then ORet tt (map_clear_upd kt vt m w)
            else if Nat.eqb (gm_loc m) 0 then ORet tt w
-           else OPanic rt_forged_map w.
+           else OFault rt_forged_map w.
 Lemma run_map_clear : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (m : GoMap K V) (w : World),
   run_io (map_clear kt vt m) w =
     if map_cell_ok kt vt m w then ORet tt (map_clear_upd kt vt m w)
-    else if Nat.eqb (gm_loc m) 0 then ORet tt w else OPanic rt_forged_map w.
+    else if Nat.eqb (gm_loc m) 0 then ORet tt w else OFault rt_forged_map w.
 Proof. reflexivity. Qed.
 (** ANTI-FORGERY: [clear] through a nonzero FORGED handle (ABSENT/dangling OR WRONG-TAG — impossible in real
     Go) FAILS LOUD ([rt_forged_map], world UNCHANGED), never retyping/clearing a wrong-tag cell — the
     closed-world guard.  (A genuine NIL map clear is the Go no-op, [map_clear_nil_noop].) *)
 Lemma map_clear_forged_failloud : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (m : GoMap K V) (w : World),
   Nat.eqb (gm_loc m) 0 = false ->
-  map_cell_ok kt vt m w = false -> run_io (map_clear kt vt m) w = OPanic rt_forged_map w.
+  map_cell_ok kt vt m w = false -> run_io (map_clear kt vt m) w = OFault rt_forged_map w.
 Proof. intros K V kt vt m w Hnn H. unfold map_clear, run_io. rewrite H, Hnn. reflexivity. Qed.
 Lemma map_clear_nil_noop : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (w : World),
   run_io (map_clear kt vt (@map_empty K V)) w = ORet tt w.
@@ -553,10 +569,10 @@ Proof.
   exists rt_nil_map. exact (map_set_absent kt vt k v m w Hbad).
 Qed.
 
-(** [delete(m, k)] through a WRONG-TAG handle is REJECTED — FAILS LOUD ([OPanic]) leaving the WORLD UNCHANGED,
-    so the aliased cell is never retyped.  Rejection AND no-mutation via [exists p, = OPanic p w], pinning NO
-    exact payload; the model-internal marker [rt_forged_map] (Go's [delete] never panics) stays in the ungated
-    [map_delete_forged_failloud]. *)
+(** [delete(m, k)] through a WRONG-TAG handle is REJECTED — FAILS LOUD ([OFault], the model-fault outcome, NOT
+    a panic; Go's [delete] never panics) leaving the WORLD UNCHANGED, so the aliased cell is never retyped.
+    Rejection AND no-mutation via [exists p, = OFault p w], pinning NO exact payload; the model-internal marker
+    [rt_forged_map] stays in the ungated [map_delete_forged_failloud]. *)
 Theorem map_delete_wrong_tag_no_mutation :
   forall {K V K' V'} (kt : GoTypeTag K) (vt : GoTypeTag V)
          (kt' : GoTypeTag K') (vt' : GoTypeTag V')
@@ -564,7 +580,7 @@ Theorem map_delete_wrong_tag_no_mutation :
   Nat.eqb (gm_loc m) 0 = false ->
   w_maps w (gm_loc m) = Some (n, existT _ K' (kt', existT _ V' (vt', f))) ->
   tag_eq kt kt' = None \/ tag_eq vt vt' = None ->
-  exists p, run_io (map_delete kt vt k m) w = OPanic p w.
+  exists p, run_io (map_delete kt vt k m) w = OFault p w.
 Proof.
   intros K V K' V' kt vt kt' vt' k m w n f Hnn Hcell Hmis.
   assert (Hbad : map_cell_ok kt vt m w = false)
@@ -572,10 +588,10 @@ Proof.
   exists rt_forged_map. exact (map_delete_forged_failloud kt vt k m w Hnn Hbad).
 Qed.
 
-(** [clear(m)] through a WRONG-TAG handle is REJECTED — FAILS LOUD ([OPanic]) leaving the WORLD UNCHANGED, so
-    the aliased cell is never cleared/retyped.  Rejection AND no-mutation via [exists p, = OPanic p w], pinning
-    NO exact payload; the model-internal marker [rt_forged_map] (Go's [clear] never panics) stays in the
-    ungated [map_clear_forged_failloud]. *)
+(** [clear(m)] through a WRONG-TAG handle is REJECTED — FAILS LOUD ([OFault], the model-fault outcome, NOT a
+    panic; Go's [clear] never panics) leaving the WORLD UNCHANGED, so the aliased cell is never cleared/retyped.
+    Rejection AND no-mutation via [exists p, = OFault p w], pinning NO exact payload; the model-internal marker
+    [rt_forged_map] stays in the ungated [map_clear_forged_failloud]. *)
 Theorem map_clear_wrong_tag_no_mutation :
   forall {K V K' V'} (kt : GoTypeTag K) (vt : GoTypeTag V)
          (kt' : GoTypeTag K') (vt' : GoTypeTag V')
@@ -583,7 +599,7 @@ Theorem map_clear_wrong_tag_no_mutation :
   Nat.eqb (gm_loc m) 0 = false ->
   w_maps w (gm_loc m) = Some (n, existT _ K' (kt', existT _ V' (vt', f))) ->
   tag_eq kt kt' = None \/ tag_eq vt vt' = None ->
-  exists p, run_io (map_clear kt vt m) w = OPanic p w.
+  exists p, run_io (map_clear kt vt m) w = OFault p w.
 Proof.
   intros K V K' V' kt vt kt' vt' m w n f Hnn Hcell Hmis.
   assert (Hbad : map_cell_ok kt vt m w = false)
@@ -608,11 +624,12 @@ Proof.
 Qed.
 
 (** CAPSTONE — NO PUBLIC MAP RETYPING: a forged WRONG-TAG handle aliasing a live cell of another key/value
-    type cannot RETYPE it through the public map WRITES ([map_set]/[delete]/[clear]).  All three are REJECTED —
-    FAIL LOUD ([OPanic]) leaving the WORLD UNCHANGED (rejection AND no-mutation, via [exists p, = OPanic p w]),
-    pinning NO exact payload (the fail-loud payloads are FAITHFUL native panics only for a genuine nil-map
-    WRITE — model-internal for a nonzero forged handle — so the exact-payload facts stay in the ungated
-    [map_set_absent]/[map_delete_forged_failloud]/[map_clear_forged_failloud]).  Together with the raw
+    type cannot RETYPE it through the public map WRITES ([map_set]/[delete]/[clear]).  All three are REJECTED,
+    leaving the WORLD UNCHANGED (rejection AND no-mutation, via [exists p, = OPanic/OFault p w]), pinning NO
+    exact payload: [map_set]'s nil-map write is a FAITHFUL native panic ([OPanic]), while [delete]/[clear] on a
+    nonzero forged handle are model FAULTS ([OFault], NOT panics — Go's delete/clear never panic), so the
+    exact-payload facts stay in the ungated
+    [map_set_absent]/[map_delete_forged_failloud]/[map_clear_forged_failloud].  Together with the raw
     [map_write_wrong_tag_no_retype], NO forged-handle write — through the checked ops OR the raw [map_write]
     root — fabricates or retypes a cell.  (SCOPE: this is the write-path
     WRONG-TAG ANTI-FORGERY guarantee — typed liveness, NOT origin provenance: a SAME-TAG forged handle aliasing
@@ -628,8 +645,8 @@ Theorem no_public_map_retyping :
   w_maps w (gm_loc m) = Some (n, existT _ K' (kt', existT _ V' (vt', f))) ->
   tag_eq kt kt' = None \/ tag_eq vt vt' = None ->
      (exists p, run_io (map_set kt vt k v m) w = OPanic p w)
-  /\ (exists p, run_io (map_delete kt vt k m) w = OPanic p w)
-  /\ (exists p, run_io (map_clear kt vt m) w = OPanic p w).
+  /\ (exists p, run_io (map_delete kt vt k m) w = OFault p w)
+  /\ (exists p, run_io (map_clear kt vt m) w = OFault p w).
 Proof.
   intros K V K' V' kt vt kt' vt' k v m w n f Hnn Hcell Hmis.
   assert (Hbad : map_cell_ok kt vt m w = false)

@@ -189,7 +189,12 @@ Definition ustart_w (w : World) (u : UCmdG) : UConfig :=
          (bufs_of_world w) (heap_of_world w) (fun t => Nat.eqb t 0) nil nil (fun _ => nil) (fun _ => None)
          (w_next w).   (* pointer + buffers MIRROR the World's *)
 Definition ocpanic (oc : Outcome unit) : option GoAny :=
-  match oc with OPanic v _ => Some v | ORet _ _ => None end.
+  match oc with
+  | OPanic v _ => Some v
+  | ORet _ _   => None
+  | OBlock _ _ => None   (* unreachable in the deterministic fragment ([go]/[run_cmd] are ret-or-panic) *)
+  | OFault _ _ => None
+  end.
 
 (** a tag-preserving write keeps the agreement: the new cell's box IS the written value *)
 Local Lemma heap_write_agrees : forall h w l v w',
@@ -309,7 +314,8 @@ Local Lemma body_runs_sem : forall c w oc ds ucap p b h lv tr o df pa,
     usteps ucap (mkUCfg p b h lv tr o df pa (w_next w))
                 (mkUCfg p' b' h' lv tr' (o ++ map (fun e => (0, e)) evs) df' pa
                         (w_next (outcome_world oc)))
-    /\ p' 0 = (match oc with ORet _ _ => URet | OPanic v _ => UPan v end)
+    /\ p' 0 = (match oc with ORet _ _ => URet | OPanic v _ => UPan v
+               | OBlock _ _ => URet | OFault _ _ => URet end)   (* OBlock/OFault unreachable — [go] is ret-or-panic *)
     /\ df' 0 = map cmd_to_ucmd ds ++ df 0
     /\ heap_agrees h' (w_refs (outcome_world oc))
     /\ bufs_agree b' (w_chans (outcome_world oc))
@@ -546,9 +552,9 @@ Proof. induction l as [|a l IH]; simpl; [reflexivity | rewrite IH; reflexivity].
 
 (** [oc_set_world] only advances the world — it preserves the [Outcome]'s panic status (and sets its world). *)
 Local Lemma ocpanic_set_world : forall (acc : Outcome unit) w, ocpanic (oc_set_world acc w) = ocpanic acc.
-Proof. intros [[] w0 | v w0] w; reflexivity. Qed.
+Proof. intros [[] w0 | v w0 | v w0 | v w0] w; reflexivity. Qed.
 Local Lemma outcome_world_set_world : forall (acc : Outcome unit) w, outcome_world (oc_set_world acc w) = w.
-Proof. intros [[] w0 | v w0] w; reflexivity. Qed.
+Proof. intros [[] w0 | v w0 | v w0 | v w0] w; reflexivity. Qed.
 
 
 
@@ -619,6 +625,8 @@ Proof.
     exists p, b, h, tr, df, pa, nil. cbn [map]. rewrite !app_nil_r.
     repeat split; try assumption. apply usteps_refl.
   - cbn [map] in Hdf.
+    pose proof (go_rp _ _ _ _ Hgo) as Hrp_ocd.
+    pose proof (unwind_rp _ _ _ Hnest (oc_unit_rp _ Hrp_ocd)) as Hrp_net.
     destruct (pop_defer_step ucap p b h lv tr o df pa (w_next (outcome_world acc)) d
                 (map cmd_to_ucmd ds ++ ds_tail) (mode_or (ocpanic acc) qb) Hlv Hp Hq0 Hdf)
       as [paP [HpaP Hpop]].
@@ -629,11 +637,11 @@ Proof.
       as [pA [bA [hA [trA [dfA [evs0 [HusA [HprogA [HdfA [HhaA [HbaA [HcaA [HuaA Hout0]]]]]]]]]]]]].
     rewrite upd_same in HdfA.
     assert (HprogA' : pA 0 = URet \/ exists v, pA 0 = UPan v)
-      by (rewrite HprogA; destruct oc_d as [[] ?|vd ?]; [ left; reflexivity | right; exists vd; reflexivity ]).
+      by (rewrite HprogA; destruct oc_d as [[] ?|vd ?|? ?|? ?]; [ left; reflexivity | right; exists vd; reflexivity | left; reflexivity | left; reflexivity ]).
     (* the nested scope's mode: the sub-derivation runs at base [mode_or (ocpanic acc) qb] *)
     assert (HqA : (match pA 0 with UPan v => Some v | _ => paP 0 end)
                   = mode_or (ocpanic (oc_unit oc_d)) (mode_or (ocpanic acc) qb)).
-    { rewrite HprogA. destruct oc_d as [[] ?|vd ?]; cbn [oc_unit ocpanic mode_or]; [ exact HpaP | reflexivity ]. }
+    { rewrite HprogA. destruct oc_d as [[] ?|vd ?|? ?|? ?]; cbn [oc_unit ocpanic mode_or]; [ exact HpaP | reflexivity | exact HpaP | exact HpaP ]. }
     assert (HhaA' : heap_agrees hA (w_refs (outcome_world (oc_unit oc_d))))
       by (destruct oc_d; exact HhaA).
     assert (HbaA' : bufs_agree bA (w_chans (outcome_world (oc_unit oc_d))))
@@ -650,30 +658,40 @@ Proof.
     assert (HqB' : (match pB 0 with UPan v => Some v | _ => paB 0 end)
                    = mode_or (ocpanic (match net with
                                        | OPanic v' w' => OPanic v' w'
-                                       | ORet _ w' => oc_set_world acc w' end)) qb).
-    { rewrite HqB. destruct net as [[] wn | vn wn]; cbn [ocpanic mode_or].
+                                       | ORet _ w' => oc_set_world acc w' | OBlock v' w' => OBlock v' w' | OFault v' w' => OFault v' w' end)) qb).
+    { rewrite HqB. destruct net as [[] wn | vn wn | vn wn | vn wn]; cbn [ocpanic mode_or].
       - rewrite ocpanic_set_world. reflexivity.
-      - reflexivity. }
+      - reflexivity.
+      - cbn [is_rp] in Hrp_net; exact (False_ind _ Hrp_net).
+      - cbn [is_rp] in Hrp_net; exact (False_ind _ Hrp_net). }
     assert (HhaB' : heap_agrees hB (w_refs (outcome_world (match net with
                                        | OPanic v' w' => OPanic v' w'
-                                       | ORet _ w' => oc_set_world acc w' end)))).
-    { destruct net as [[] wn | vn wn]; cbn [outcome_world] in HhaB |- *;
-        [ rewrite outcome_world_set_world; exact HhaB | exact HhaB ]. }
+                                       | ORet _ w' => oc_set_world acc w' | OBlock v' w' => OBlock v' w' | OFault v' w' => OFault v' w' end)))).
+    { destruct net as [[] wn | vn wn | vn wn | vn wn]; cbn [outcome_world] in HhaB |- *;
+        [ rewrite outcome_world_set_world; exact HhaB | exact HhaB
+        | cbn [is_rp] in Hrp_net; exact (False_ind _ Hrp_net)
+        | cbn [is_rp] in Hrp_net; exact (False_ind _ Hrp_net) ]. }
     assert (HbaB' : bufs_agree bB (w_chans (outcome_world (match net with
                                        | OPanic v' w' => OPanic v' w'
-                                       | ORet _ w' => oc_set_world acc w' end)))).
-    { destruct net as [[] wn | vn wn]; cbn [outcome_world] in HbaB |- *;
-        [ rewrite outcome_world_set_world; exact HbaB | exact HbaB ]. }
+                                       | ORet _ w' => oc_set_world acc w' | OBlock v' w' => OBlock v' w' | OFault v' w' => OFault v' w' end)))).
+    { destruct net as [[] wn | vn wn | vn wn | vn wn]; cbn [outcome_world] in HbaB |- *;
+        [ rewrite outcome_world_set_world; exact HbaB | exact HbaB
+        | cbn [is_rp] in Hrp_net; exact (False_ind _ Hrp_net)
+        | cbn [is_rp] in Hrp_net; exact (False_ind _ Hrp_net) ]. }
     assert (HcaB' : closed_agree trB (w_chans (outcome_world (match net with
                                        | OPanic v' w' => OPanic v' w'
-                                       | ORet _ w' => oc_set_world acc w' end)))).
-    { destruct net as [[] wn | vn wn]; cbn [outcome_world] in HcaB |- *;
-        [ rewrite outcome_world_set_world; exact HcaB | exact HcaB ]. }
+                                       | ORet _ w' => oc_set_world acc w' | OBlock v' w' => OBlock v' w' | OFault v' w' => OFault v' w' end)))).
+    { destruct net as [[] wn | vn wn | vn wn | vn wn]; cbn [outcome_world] in HcaB |- *;
+        [ rewrite outcome_world_set_world; exact HcaB | exact HcaB
+        | cbn [is_rp] in Hrp_net; exact (False_ind _ Hrp_net)
+        | cbn [is_rp] in Hrp_net; exact (False_ind _ Hrp_net) ]. }
     assert (HuaB' : ucap_agree ucap (w_chans (outcome_world (match net with
                                        | OPanic v' w' => OPanic v' w'
-                                       | ORet _ w' => oc_set_world acc w' end)))).
-    { destruct net as [[] wn | vn wn]; cbn [outcome_world] in HuaB |- *;
-        [ rewrite outcome_world_set_world; exact HuaB | exact HuaB ]. }
+                                       | ORet _ w' => oc_set_world acc w' | OBlock v' w' => OBlock v' w' | OFault v' w' => OFault v' w' end)))).
+    { destruct net as [[] wn | vn wn | vn wn | vn wn]; cbn [outcome_world] in HuaB |- *;
+        [ rewrite outcome_world_set_world; exact HuaB | exact HuaB
+        | cbn [is_rp] in Hrp_net; exact (False_ind _ Hrp_net)
+        | cbn [is_rp] in Hrp_net; exact (False_ind _ Hrp_net) ]. }
     destruct (IHrest ucap pB bB hB lv trB
                  ((o ++ map (fun e => (0, e)) evs0) ++ map (fun e => (0, e)) evs1)
                  dfB paB ds_tail qb Hlv HprogB HqB' HhaB' HbaB' HcaB' HuaB' HdfB)
@@ -687,8 +705,11 @@ Proof.
       rewrite oc_unit_world in HusB.
       assert (HnextC : outcome_world (match net with
                                  | OPanic v' w' => OPanic v' w'
-                                 | ORet _ w' => oc_set_world acc w' end) = outcome_world net)
-        by (destruct net as [[] wn | vn wn]; cbn [outcome_world]; [ rewrite outcome_world_set_world | ]; reflexivity).
+                                 | ORet _ w' => oc_set_world acc w' | OBlock v' w' => OBlock v' w' | OFault v' w' => OFault v' w' end) = outcome_world net)
+        by (destruct net as [[] wn | vn wn | vn wn | vn wn]; cbn [outcome_world];
+            [ rewrite outcome_world_set_world; reflexivity | reflexivity
+            | cbn [is_rp] in Hrp_net; exact (False_ind _ Hrp_net)
+            | cbn [is_rp] in Hrp_net; exact (False_ind _ Hrp_net) ]).
       rewrite HnextC in HusC.
       eapply usteps_trans; [ exact Hpop | ].
       eapply usteps_trans; [ exact HusA | ].
@@ -696,9 +717,12 @@ Proof.
     + rewrite Hout2.
       assert (Hwacc' : w_output (outcome_world (match net with
                                             | OPanic v' w' => OPanic v' w'
-                                            | ORet _ w' => oc_set_world acc w' end))
+                                            | ORet _ w' => oc_set_world acc w' | OBlock v' w' => OBlock v' w' | OFault v' w' => OFault v' w' end))
                        = w_output (outcome_world net))
-        by (destruct net as [[] wn | vn wn]; cbn [outcome_world]; [ rewrite outcome_world_set_world | ]; reflexivity).
+        by (destruct net as [[] wn | vn wn | vn wn | vn wn]; cbn [outcome_world];
+            [ rewrite outcome_world_set_world; reflexivity | reflexivity
+            | cbn [is_rp] in Hrp_net; exact (False_ind _ Hrp_net)
+            | cbn [is_rp] in Hrp_net; exact (False_ind _ Hrp_net) ]).
       assert (Hwseed : w_output (outcome_world (oc_unit oc_d)) = w_output (outcome_world oc_d))
         by (destruct oc_d; reflexivity).
       rewrite Hwacc', Hout1, Hwseed, Hout0, <- !app_assoc. reflexivity.
@@ -723,7 +747,7 @@ Proof.
     exists ((b, xs) :: evs). rewrite Hevs, w_output_w_log, <- app_assoc. reflexivity.
   - injection H as <-. exists nil. cbn [outcome_world]. rewrite app_nil_r. reflexivity.
   - destruct (run_cmd c' w) as [oc0|] eqn:E0; [ | discriminate H ].
-    destruct (run_cmd d (outcome_world oc0)) as [[[] w'|vd w']|] eqn:Ed; try discriminate H.
+    destruct (run_cmd d (outcome_world oc0)) as [[[] w'|vd w'|vd w'|vd w']|] eqn:Ed; try discriminate H.
     + injection H as <-.
       destruct (IH c' w oc0 E0) as [evs0 Hevs0].
       destruct (IH d (outcome_world oc0) (ORet tt w') Ed) as [evs1 Hevs1].
@@ -734,6 +758,8 @@ Proof.
       destruct (IH d (outcome_world oc0) (OPanic vd w') Ed) as [evs1 Hevs1].
       exists (evs0 ++ evs1). cbn [outcome_world] in Hevs1 |- *.
       rewrite Hevs1, Hevs0, <- app_assoc. reflexivity.
+    + pose proof (run_cmd_rp _ _ _ Ed) as Hrp; cbn [is_rp] in Hrp; exact (False_ind _ Hrp).
+    + pose proof (run_cmd_rp _ _ _ Ed) as Hrp; cbn [is_rp] in Hrp; exact (False_ind _ Hrp).
   - destruct (heap_write l v w) as [w'|] eqn:E; [ | discriminate H ].
     destruct (IH c' w' oc H) as [evs Hevs].
     exists evs. rewrite Hevs, (heap_write_output l v w w' E). reflexivity.
@@ -846,18 +872,18 @@ Proof.
   rewrite app_nil_r in HdfA.
   assert (HdfA' : dfA 0 = map cmd_to_ucmd ds ++ nil) by (rewrite HdfA, app_nil_r; reflexivity).
   assert (HprogA' : pA 0 = URet \/ exists v, pA 0 = UPan v)
-    by (rewrite HprogA; destruct oc0 as [[] ?|v0 ?]; [ left; reflexivity | right; exists v0; reflexivity ]).
+    by (rewrite HprogA; destruct oc0 as [[] ?|v0 ?|? ?|? ?]; [ left; reflexivity | right; exists v0; reflexivity | left; reflexivity | left; reflexivity ]).
   assert (Hq0 : (match pA 0 with UPan v => Some v | _ => (fun _ : nat => @None GoAny) 0 end)
                 = mode_or (ocpanic (oc_unit oc0)) None)
-    by (rewrite HprogA; destruct oc0 as [[] ?|? ?]; reflexivity).
+    by (rewrite HprogA; destruct oc0 as [[] ?|? ?|? ?|? ?]; reflexivity).
   assert (Hha0 : heap_agrees hA (w_refs (outcome_world (oc_unit oc0))))
-    by (destruct oc0 as [[] ?|? ?]; exact HhaA).
+    by (destruct oc0 as [[] ?|? ?|? ?|? ?]; exact HhaA).
   assert (Hba0 : bufs_agree bA (w_chans (outcome_world (oc_unit oc0))))
-    by (destruct oc0 as [[] ?|? ?]; exact HbaA).
+    by (destruct oc0 as [[] ?|? ?|? ?|? ?]; exact HbaA).
   assert (Hca0 : closed_agree trA (w_chans (outcome_world (oc_unit oc0))))
-    by (destruct oc0 as [[] ?|? ?]; exact HcaA).
+    by (destruct oc0 as [[] ?|? ?|? ?|? ?]; exact HcaA).
   assert (Hua0 : ucap_agree ucap (w_chans (outcome_world (oc_unit oc0))))
-    by (destruct oc0 as [[] ?|? ?]; exact HuaA).
+    by (destruct oc0 as [[] ?|? ?|? ?|? ?]; exact HuaA).
   destruct (unwind_heap ds (oc_unit oc0) result Hun ucap pA
               bA hA (fun t => Nat.eqb t 0) trA
               (nil ++ map (fun e => (0, e)) evs0) dfA (fun _ => None) nil None
@@ -865,18 +891,22 @@ Proof.
     as [pB [bB [hB [trB [dfB [paB [evs1 [HusB [HprogB [HqB [HdfB [HhaB [HbaB [HcaB [HuaB Hout1]]]]]]]]]]]]]]].
   rewrite oc_unit_world in HusB.
   assert (HqB0 : (match pB 0 with UPan v => Some v | _ => paB 0 end) = ocpanic result)
-    by (rewrite HqB; destruct result as [[] ?|? ?]; reflexivity).
+    by (rewrite HqB; destruct result as [[] ?|? ?|? ?|? ?]; reflexivity).
   (* relate [result] to run_cmd's [oc] *)
   assert (Hoc : ocpanic oc = ocpanic result
                 /\ outcome_world oc = outcome_world result).
-  { destruct result as [[] w' | v w']; subst oc.
+  { destruct result as [[] w' | v w' | v w' | v w']; subst oc.
     - (* result returns: the body cannot have panicked (a panic seed never returns) *)
-      destruct oc0 as [[] w0 | v0 w0].
+      destruct oc0 as [[] w0 | v0 w0 | v0 w0 | v0 w0].
       + split; reflexivity.
       + exfalso.
         destruct (unwind_panic_stays ds (oc_unit (OPanic v0 w0)) (ORet tt w') Hun v0 w0 eq_refl)
           as [? [? Hcontra]].
         discriminate Hcontra.
+      + split; reflexivity.
+      + split; reflexivity.
+    - cbn [ocpanic outcome_world]. split; reflexivity.
+    - cbn [ocpanic outcome_world]. split; reflexivity.
     - cbn [ocpanic outcome_world]. split; reflexivity. }
   destruct Hoc as [Hocp Hocw].
   (* the final done step per the 2-mode *)

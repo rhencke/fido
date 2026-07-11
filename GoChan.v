@@ -188,7 +188,7 @@ Qed.
 (** [chan_room tag ch w] — is there room for one more send?  A handle with no TAG-CORRECT cell (nil [ch_loc = 0],
     a nonzero ABSENT cell, OR a WRONG-TAG cell) has NO room ([chan_cell_ok] false) — Go BLOCKS forever on a nil
     send, and a forged / wrong-tag handle must neither fabricate nor retype — so [send] FAILS LOUD
-    ([OPanic rt_chan_send_block]) and never enqueues.  Otherwise: [None]-capacity (unbounded, the concurrency
+    ([OBlock rt_chan_send_block]) and never enqueues.  Otherwise: [None]-capacity (unbounded, the concurrency
     bridge's ALLOCATED abstract channels) always has room; [Some n] iff the FIFO is shorter than [n]. *)
 Definition chan_room {A : Type} (tag : GoTypeTag A) (ch : GoChan A) (w : World) : bool :=
   if chan_cell_ok tag ch w then
@@ -416,8 +416,8 @@ Definition send {A} (tag : GoTypeTag A) (ch : GoChan A) (v : A) : IO unit :=
   fun w => if chan_cell_ok tag ch w
            then (if chan_closed ch w then OPanic rt_send_closed w
                  else if chan_room tag ch w then ORet tt (chan_send_upd tag ch v w)
-                      else OPanic rt_chan_send_block w)
-           else OPanic rt_chan_send_block w.
+                      else OBlock rt_chan_send_block w)
+           else OBlock rt_chan_send_block w.
   (* TAG-AWARE guard FIRST: a nil / absent / WRONG-TAG handle blocks ([rt_chan_send_block]) WITHOUT observing
      the (foreign) cell's [chan_closed] flag — a forged wrong-tag handle can never see a real channel's
      closedness nor get a "send on closed" panic off it.  Only a tag-correct cell reaches the closed / room
@@ -427,16 +427,17 @@ Definition recv {A} (tag : GoTypeTag A) (ch : GoChan A) : IO A :=
            | v :: _ => ORet v (chan_recv_upd tag ch w)
            | nil    => if andb (chan_closed ch w) (chan_cell_ok tag ch w)
                        then ORet (zero_val tag) w   (* closed + drained + TAG-CORRECT: Go yields the zero value immediately (a wrong-tag CLOSED cell fails loud below — bug ②) *)
-                       else OPanic rt_chan_recv_block w   (* open empty (or wrong-tag/absent) — blocks in Go; fail-loud stand-in, NOT a faithful panic (see rt_chan_recv_block) *)
+                       else OBlock rt_chan_recv_block w   (* open empty (or wrong-tag/absent) — blocks in Go; the sequential model records a TERMINAL [OBlock] (not a resuming block — faithful blocking is rstep in concurrency.v) *)
            end.
 (** [close] on a NIL channel ([MkChan 0]) PANICS — Go's "close of nil channel" — instead of fabricating a
     close at the reserved location 0.  (Go also panics on a double-close, the [chan_closed] guard below.)
-    [send]/[recv] on a nil channel BLOCK FOREVER in Go; the sequential [run_io] has no stuck/divergence
-    outcome, so both FAIL LOUD rather than fabricate state: a nil channel has NO room ([chan_room] is false
-    for [ch_loc = 0]), so [send] takes its block branch ([OPanic rt_chan_send_block] — it never enqueues /
-    writes location 0), and [recv] on a nil (hence empty, open) channel already hits its empty-channel block
-    panic.  This is NOT excused as "unreachable": [MkChan 0] is a PUBLIC handle, so nil ops are made fail-loud,
-    not assumed away.  Lowered by name ([close(ch)]), golden-stable. *)
+    [send]/[recv] on a nil channel BLOCK FOREVER in Go; the sequential [run_io] records this as a TERMINAL
+    [OBlock] (a stuck outcome that does not resume — faithful resuming blocking is [rstep] in [concurrency.v]),
+    never fabricated state: a nil channel has NO room ([chan_room] is false for [ch_loc = 0]), so [send] takes
+    its block branch ([OBlock rt_chan_send_block] — it never enqueues / writes location 0), and [recv] on a nil
+    (hence empty, open) channel already hits its empty-channel [OBlock] branch.  This is NOT excused as
+    "unreachable": [MkChan 0] is a PUBLIC handle, so nil ops are made to BLOCK, not assumed away.  Lowered by
+    name ([close(ch)]), golden-stable. *)
 (** [close] fails loud on ANY handle with no TAG-CORRECT cell — nil ([ch_loc = 0]), nonzero ABSENT
     (forged/dangling), OR WRONG-TAG (a forged handle aliasing a real channel of ANOTHER element type) — via
     [chan_cell_ok], so it can never FABRICATE a closed cell at an unallocated location NOR RETYPE a foreign cell
@@ -451,14 +452,22 @@ Definition recv_ok {A B} (tag : GoTypeTag A) (ch : GoChan A) (f : A -> bool -> I
            | v :: _ => f v true (chan_recv_upd tag ch w)
            | nil    => if andb (chan_closed ch w) (chan_cell_ok tag ch w)
                        then f (zero_val tag) false w   (* closed + drained + TAG-CORRECT: (zero, ok=false) — Go's comma-ok (a wrong-tag CLOSED cell fails loud) *)
-                       else OPanic rt_chan_recv_block w   (* open empty (or wrong-tag/absent) — blocks in Go; fail-loud stand-in, NOT a faithful panic (see rt_chan_recv_block) *)
+                       else OBlock rt_chan_recv_block w   (* open empty (or wrong-tag/absent) — blocks in Go; the sequential model records a TERMINAL [OBlock] (not a resuming block — faithful blocking is rstep in concurrency.v) *)
            end.
 (** ANTI-FORGERY WITNESSES: on a nil channel ([MkChan 0]) — in ANY world [w], even one forging a cell at
     location 0 — [send] and [recv] FAIL LOUD and never move a value.  Because the accessors read a nil
     handle canonically (empty/open, [chan_*_nil]), these hold by computation, independent of [w_chans 0]. *)
 Lemma send_nil : forall {A} (tag : GoTypeTag A) (v : A) (w : World),
-  run_io (send tag (MkChan 0) v) w = OPanic rt_chan_send_block w.
+  run_io (send tag (MkChan 0) v) w = OBlock rt_chan_send_block w.
 Proof. reflexivity. Qed.
+
+(** ACCEPTANCE (result/control split): [catch]/recover CANNOT observe a would-block.  A [send] on a
+    nil channel BLOCKS ([OBlock rt_chan_send_block]); [catch] passes the [OBlock] straight through, so
+    the handler [h] NEVER runs (contrast [catch_panic]: a genuine [OPanic] IS handled).  This is the
+    result/control split's headline: a block is not a Go panic, so recover cannot catch it. *)
+Lemma catch_does_not_handle_blocked : forall {A} (tag : GoTypeTag A) (v : A) (h : GoAny -> IO unit) (w : World),
+  run_io (catch (send tag (MkChan 0) v) h) w = OBlock rt_chan_send_block w.
+Proof. intros A tag v h w. rewrite run_catch, (send_nil tag v w). reflexivity. Qed.
 Lemma recv_nil_no_value : forall {A} (tag : GoTypeTag A) (w : World) (a : A) (w' : World),
   run_io (recv tag (MkChan 0)) w <> ORet a w'.
 Proof. intros A tag w a w' H. unfold recv, run_io in H. discriminate H. Qed.
@@ -481,7 +490,7 @@ Proof.
   destruct (w_chans w (ch_loc ch)) as [c|]; [ discriminate H | reflexivity ].
 Qed.
 Lemma send_absent : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (v : A) (w : World),
-  chan_present ch w = false -> run_io (send tag ch v) w = OPanic rt_chan_send_block w.
+  chan_present ch w = false -> run_io (send tag ch v) w = OBlock rt_chan_send_block w.
 Proof.
   intros A tag ch v w H. unfold send, run_io. rewrite (chan_cell_ok_absent tag ch w H). reflexivity.
 Qed.
@@ -499,7 +508,7 @@ Definition select_recv2 {A B C} (ta : GoTypeTag A) (ch1 : GoChan A) (k1 : A -> I
                        else match chan_buf tb ch2 w with
                             | v :: _ => k2 v (chan_recv_upd tb ch2 w)
                             | nil    => if andb (chan_closed ch2 w) (chan_cell_ok tb ch2 w) then k2 (zero_val tb) w  (* ch2 closed+drained+tag-correct: zero *)
-                                        else OPanic rt_select_block w  (* both empty+OPEN (or wrong-tag): FAIL-LOUD (Go blocks; the IO model has no Blocked outcome) — NEVER a fabricated value *)
+                                        else OBlock rt_select_block w  (* both empty+OPEN (or wrong-tag): Go blocks — the sequential model records [OBlock] (a terminal block, NEVER a fabricated value) *)
                             end
            end.
 (** [select_recv_default] — recv case + [default].  A CLOSED, DRAINED, TAG-CORRECT channel's recv is READY in
@@ -534,7 +543,7 @@ Lemma select_default_nil :
 Proof. reflexivity. Qed.
 Lemma select_recv2_nil_blocks :
   forall {A B C} (ta : GoTypeTag A) (k1 : A -> IO C) (tb : GoTypeTag B) (k2 : B -> IO C) (w : World),
-    select_recv2 ta (MkChan 0) k1 tb (MkChan 0) k2 w = OPanic rt_select_block w.
+    select_recv2 ta (MkChan 0) k1 tb (MkChan 0) k2 w = OBlock rt_select_block w.
 Proof. reflexivity. Qed.
 
 (** ── Select as SENTINEL + goto ──
@@ -551,12 +560,13 @@ Proof. reflexivity. Qed.
           so native Go does NOT *refine* this function — it is one example scheduler,
           NON-AUTHORITATIVE as a spec.  The authoritative spec is relational/nondeterministic
           ([rstep]); a safety property must hold for EVERY permitted choice.
-      (2) BLOCKING: none ready and no default ⇒ Go BLOCKS, which the sequential [IO] model cannot
-          represent — so it FAIL-LOUDS ([OPanic rt_select_block], witnessed by
-          [select_recv2_both_empty_open_panics] / [select_wait2_both_empty_open_panics]).
-          Blocking is NOT divergence: it is a LOCAL non-step ([concurrency.v] models it —
-          [Stuck := ~ can_step /\ ~ done] is the GLOBAL deadlock property); in [IO], fail-loud is
-          the SOUND stand-in — a proof cannot derive a false result through a blocked select.
+      (2) BLOCKING: none ready and no default ⇒ Go BLOCKS, which the sequential [IO] model records
+          as a TERMINAL [OBlock rt_select_block] (witnessed by
+          [select_recv2_both_empty_open_blocks] / [select_wait2_both_empty_open_blocks]).
+          Blocking is NOT divergence: it is a LOCAL non-step ([concurrency.v] models the resuming
+          form — [Stuck := ~ can_step /\ ~ done] is the GLOBAL deadlock property); in [IO], the
+          terminal [OBlock] is SOUND — [OBlock <> ORet], so a proof cannot derive a false result
+          through a blocked select.
     The EXTRACTION is faithful (native Go [select{}]).  A nondeterministic [select_wait] belongs
     in the [rstep] calculus; a unique-ready determinisation is sound only under an
     interference-freedom discipline keeping readiness stable (else a TOCTOU gap).  Tracked in
@@ -582,7 +592,7 @@ Definition select_wait2 {A} (ta : GoTypeTag A) (ch1 ch2 : GoChan A) : IO (nat * 
                        else match chan_buf ta ch2 w with
                             | v :: _ => ORet (1, v) (chan_recv_upd ta ch2 w)
                             | nil    => if andb (chan_closed ch2 w) (chan_cell_ok ta ch2 w) then ORet (1, zero_val ta) w  (* ch2 closed+drained+tag-correct: case 1, zero *)
-                                        else OPanic rt_select_block w  (* both empty+OPEN (or wrong-tag): FAIL-LOUD — Go blocks; never a fabricated case index/value *)
+                                        else OBlock rt_select_block w  (* both empty+OPEN (or wrong-tag): FAIL-LOUD — Go blocks; never a fabricated case index/value *)
                             end
            end.
 Definition select2 {A C} (ta : GoTypeTag A) (ch1 ch2 : GoChan A) (k1 k2 : A -> IO C) : IO C :=
@@ -619,7 +629,7 @@ Qed.
     chosen channel, and select INHERITS [recv]'s [run_io] laws and operational refinement
     ([denote_sim_recv] / [rstep_recv]).  Faithful for the cases that CAN proceed (Go's
     "communication can proceed"); the both-empty-open fall-through FAIL-LOUDS
-    ([OPanic rt_select_block]), never fabricates. *)
+    ([OBlock rt_select_block]), never fabricates. *)
 
 (* ch1 BUFFERED ⇒ select dequeues ch1's head = recv ch1 >>= k1. *)
 Theorem select_recv2_ch1_buffered :
@@ -656,21 +666,21 @@ Theorem select_recv2_ch2_closed :
 Proof. intros A B C ta ch1 k1 tb ch2 k2 w He1 Hc1 He2 Hc2 Hok2. unfold select_recv2, recv, bind, run_io. rewrite He1, Hc1, He2, Hc2, Hok2. reflexivity. Qed.
 
 (** Both channels EMPTY and OPEN (no case can proceed, no default): [select_recv2] /
-    [select_wait2] FAIL LOUD ([OPanic rt_select_block]) — a proof that reaches this state hits an
-    [OPanic] it must discharge, never a forged value.  Unreachable in the demos ([select_demo]'s
+    [select_wait2] BLOCK ([OBlock rt_select_block]) — a proof that reaches this state hits an
+    [OBlock] ([<> ORet]), never a forged value.  Unreachable in the demos ([select_demo]'s
     ch1 is buffered ⇒ [select_recv2_ch1_buffered] fires). *)
-Lemma select_recv2_both_empty_open_panics :
+Lemma select_recv2_both_empty_open_blocks :
   forall {A B C} (ta : GoTypeTag A) (ch1 : GoChan A) (k1 : A -> IO C)
                  (tb : GoTypeTag B) (ch2 : GoChan B) (k2 : B -> IO C) (w : World),
   chan_buf ta ch1 w = nil -> chan_closed ch1 w = false ->
   chan_buf tb ch2 w = nil -> chan_closed ch2 w = false ->
-  select_recv2 ta ch1 k1 tb ch2 k2 w = OPanic rt_select_block w.
+  select_recv2 ta ch1 k1 tb ch2 k2 w = OBlock rt_select_block w.
 Proof. intros A B C ta ch1 k1 tb ch2 k2 w He1 Hc1 He2 Hc2. unfold select_recv2. rewrite He1, Hc1, He2, Hc2. reflexivity. Qed.
-Lemma select_wait2_both_empty_open_panics :
+Lemma select_wait2_both_empty_open_blocks :
   forall {A} (ta : GoTypeTag A) (ch1 ch2 : GoChan A) (w : World),
   chan_buf ta ch1 w = nil -> chan_closed ch1 w = false ->
   chan_buf ta ch2 w = nil -> chan_closed ch2 w = false ->
-  select_wait2 ta ch1 ch2 w = OPanic rt_select_block w.
+  select_wait2 ta ch1 ch2 w = OBlock rt_select_block w.
 Proof. intros A ta ch1 ch2 w He1 Hc1 He2 Hc2. unfold select_wait2. rewrite He1, Hc1, He2, Hc2. reflexivity. Qed.
 
 (** [go_spawn m] (Go spec "Go statements") — FAILS LOUD in the sequential [run_io] semantics.
@@ -695,11 +705,11 @@ Proof.
   intros A tag ch v w H Hr. unfold send, run_io.
   rewrite (chan_room_cell_ok tag ch w Hr), H, Hr. reflexivity.
 Qed.
-(** A send with NO room FAILS LOUD (the model has no Blocked outcome).  Holds whether the no-room is a full
-    buffer (tag-correct cell) OR no tag-correct cell at all (nil/absent/wrong-tag) — both block. *)
+(** A send with NO room BLOCKS ([OBlock] — the sequential model's terminal block outcome).  Holds whether the
+    no-room is a full buffer (tag-correct cell) OR no tag-correct cell at all (nil/absent/wrong-tag) — both block. *)
 Lemma run_send_blocked : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (v : A) (w : World),
   chan_closed ch w = false -> chan_room tag ch w = false ->
-  run_io (send tag ch v) w = OPanic rt_chan_send_block w.
+  run_io (send tag ch v) w = OBlock rt_chan_send_block w.
 Proof.
   intros A tag ch v w H Hr. unfold send, run_io.
   destruct (chan_cell_ok tag ch w) eqn:Hok; [ rewrite H, Hr | ]; reflexivity.
@@ -792,7 +802,7 @@ Qed.
     [map_make_typed_nonzero] (the full ref/ptr/chan/map allocator-nonzero family, each premised on
     [ValidWorld]).) *)
 Lemma make_chan_unbuffered_send_blocks : forall {A} (tag : GoTypeTag A) (v : A) (w : World) ch w',
-  run_io (make_chan tag) w = ORet ch w' -> run_io (send tag ch v) w' = OPanic rt_chan_send_block w'.
+  run_io (make_chan tag) w = ORet ch w' -> run_io (send tag ch v) w' = OBlock rt_chan_send_block w'.
 Proof.
   intros A tag v w ch w' H. unfold make_chan, make_chan_cap, run_io in H.
   injection H as Hch Hw. subst ch w'. unfold send, run_io, chan_closed, chan_room, chan_cell_ok, chan_cap, chan_buf. cbn.
@@ -885,7 +895,7 @@ Theorem send_wrong_tag_no_mutation : forall {A E} (tag : GoTypeTag A) (etag : Go
   Nat.eqb (ch_loc ch) 0 = false ->
   w_chans w (ch_loc ch) = Some (existT _ E (etag, rest)) ->
   tag_eq tag etag = None ->
-  run_io (send tag ch v) w = OPanic rt_chan_send_block w.
+  run_io (send tag ch v) w = OBlock rt_chan_send_block w.
 Proof.
   intros A E tag etag ch v w rest Hnn Hcell Hmis.
   assert (Hbad : chan_cell_ok tag ch w = false)
@@ -910,10 +920,11 @@ Qed.
 
 (** [recv] through a WRONG-TAG handle NEVER delivers a value: the buffer reads empty (wrong tag) and the
     CLOSED-drained zero branch is gated on [chan_cell_ok], so a wrong-tag CLOSED cell yields NO fabricated zero
-    — [recv] takes its fail-loud block branch instead.  The anti-forgery fact is this NEGATIVE ([<> ORet]); the
-    fail-loud payload [rt_chan_recv_block] is a MODEL STAND-IN (Go recv-block DEADLOCKS, unrecoverable — it is
-    NOT a panic), so it is deliberately NOT promoted to an exact PUBLIC certified claim (that would misrepresent
-    blocking as recoverable-panic semantics — the faithful blocking authority is [rstep] in [concurrency.v]). *)
+    — [recv] takes its block branch ([OBlock rt_chan_recv_block]) instead.  The anti-forgery fact is this
+    NEGATIVE ([<> ORet], which [OBlock] satisfies); the block outcome carries [rt_chan_recv_block] as a MODEL
+    marker (Go recv-block DEADLOCKS, unrecoverable — [OBlock] is a TERMINAL block, not a resuming one and NOT a
+    panic), so the surface pins the negative rather than an exact panic payload (that would misrepresent
+    blocking — the faithful resuming-blocking authority is [rstep] in [concurrency.v]). *)
 Theorem recv_wrong_tag_no_value : forall {A E} (tag : GoTypeTag A) (etag : GoTypeTag E)
     (ch : GoChan A) (w : World) (a : A) (w' : World) rest,
   Nat.eqb (ch_loc ch) 0 = false ->
@@ -952,7 +963,7 @@ Theorem select_wait2_wrong_tag_no_fire : forall {A E} (ta : GoTypeTag A) (etag :
     match chan_buf ta ch2 w with
     | v :: _ => ORet (1, v) (chan_recv_upd ta ch2 w)
     | nil    => if andb (chan_closed ch2 w) (chan_cell_ok ta ch2 w) then ORet (1, zero_val ta) w
-                else OPanic rt_select_block w
+                else OBlock rt_select_block w
     end.
 Proof.
   intros A E ta etag ch1 ch2 w rest Hnn Hcell Hmis.
@@ -994,7 +1005,7 @@ Theorem select_recv2_wrong_tag_no_fire : forall {A B C E} (ta : GoTypeTag A) (et
     match chan_buf tb ch2 w with
     | v :: _ => k2 v (chan_recv_upd tb ch2 w)
     | nil    => if andb (chan_closed ch2 w) (chan_cell_ok tb ch2 w) then k2 (zero_val tb) w
-                else OPanic rt_select_block w
+                else OBlock rt_select_block w
     end.
 Proof.
   intros A B C E ta etag ch1 k1 tb ch2 k2 w rest Hnn Hcell Hmis.
@@ -1021,7 +1032,7 @@ Proof.
 Qed.
 
 (** WRONG-TAG ch2 ⇒ ch2's arm never fires (case 1 / [(1, zero_val ta)]); [select_wait2] reduces to the ch1 arm
-    with ch2 UNAVAILABLE (its fall-through is [OPanic rt_select_block]) — for ANY state of ch1 (no ch1
+    with ch2 UNAVAILABLE (its fall-through is [OBlock rt_select_block]) — for ANY state of ch1 (no ch1
     precondition).  Together with [select_wait2_wrong_tag_no_fire] this seals BOTH arms in EVERY combination,
     including both arms wrong-tag (ch1 skip ∘ ch2 block ⇒ block). *)
 Theorem select_wait2_wrong_tag_ch2_no_fire : forall {A E} (ta : GoTypeTag A) (etag : GoTypeTag E)
@@ -1033,7 +1044,7 @@ Theorem select_wait2_wrong_tag_ch2_no_fire : forall {A E} (ta : GoTypeTag A) (et
     match chan_buf ta ch1 w with
     | v :: _ => ORet (0, v) (chan_recv_upd ta ch1 w)
     | nil    => if andb (chan_closed ch1 w) (chan_cell_ok ta ch1 w) then ORet (0, zero_val ta) w
-                else OPanic rt_select_block w
+                else OBlock rt_select_block w
     end.
 Proof.
   intros A E ta etag ch1 ch2 w rest Hnn2 Hcell2 Hmis2.
@@ -1044,7 +1055,7 @@ Proof.
 Qed.
 
 (** WRONG-TAG ch2 ⇒ ch2's arm never fires [k2] / [zero_val tb]; [select_recv2] reduces to the ch1 arm with
-    ch2's fall-through being [OPanic rt_select_block] — for ANY state of ch1. *)
+    ch2's fall-through being [OBlock rt_select_block] — for ANY state of ch1. *)
 Theorem select_recv2_wrong_tag_ch2_no_fire : forall {A B C E} (ta : GoTypeTag A) (tb : GoTypeTag B) (etag : GoTypeTag E)
     (ch1 : GoChan A) (k1 : A -> IO C) (ch2 : GoChan B) (k2 : B -> IO C) (w : World) rest,
   Nat.eqb (ch_loc ch2) 0 = false ->
@@ -1054,7 +1065,7 @@ Theorem select_recv2_wrong_tag_ch2_no_fire : forall {A B C E} (ta : GoTypeTag A)
     match chan_buf ta ch1 w with
     | v :: _ => k1 v (chan_recv_upd ta ch1 w)
     | nil    => if andb (chan_closed ch1 w) (chan_cell_ok ta ch1 w) then k1 (zero_val ta) w
-                else OPanic rt_select_block w
+                else OBlock rt_select_block w
     end.
 Proof.
   intros A B C E ta tb etag ch1 k1 ch2 k2 w rest Hnn2 Hcell2 Hmis2.
@@ -1452,8 +1463,8 @@ Qed.
     cannot: retype a cell ([send]/[close] fail loud, world UNCHANGED); take a value on a recv
     ([recv_wrong_tag_no_value]/[_no_zero]) nor fire a comma-ok recv ([recv_ok_wrong_tag_no_fire]) — all three
     are CLEAN NEGATIVES ([<> ORet]: no value / no zero / no fired result delivered), which certify the
-    anti-forgery WITHOUT asserting the block-as-panic outcome (Go recv-block DEADLOCKS — not a recoverable
-    panic; so the surface never pins [recv = OPanic ...] as recoverable-panic semantics — faithful blocking is
+    anti-forgery WITHOUT asserting a panic (Go recv-block DEADLOCKS — a TERMINAL [OBlock], not a recoverable
+    panic; the surface pins the [<> ORet] negative, never [recv = OPanic ...] — faithful resuming-blocking is
     [rstep] in [concurrency.v]).  Fire a select
     case — a wrong-tag arm of [select_wait2]/[select_recv2] is SKIPPED, reducing the select to the OTHER arm
     alone with NO precondition on it ([_wrong_tag_no_fire] for ch1, [_wrong_tag_ch2_no_fire] for ch2), so both
