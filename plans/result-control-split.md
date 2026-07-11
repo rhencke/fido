@@ -115,4 +115,9 @@ just the `nat` shape), consume/preserve across subslice/append/clear/copy, and r
 preservation; `ModelFault` unreachable). 6. `AllocFrontierOk` (the frontier-only predicate) — DONE 7a67aeb;
 the full `WorldWellFormed` (needs `WorldRealizes`) lands with #5. 7. Restrict
 GoCFG to nonblocking bodies. 8. Translate Cmd channels → UCmd. 9. Finite vs unbounded channels.
+**PARTIAL:** certified constructors already produce a FINITE cap (`make_chan_buf_caps`: `chan_cap = Some ..`),
+and `send_respects_capacity` (gated `chan_capacity_surface`) pins the "no over-full channel" bound on the only
+buffer-GROWING op (a successful send leaves `length(buf) <= cap`). STILL AHEAD — the full ChanStateOk invariant
+(`recv`/`close` preservation + the constructor's empty-buffer establishment as one named predicate) and
+excising the `None` (unbounded) capacity that only the proof-only concurrency bridge uses.
 10. Map representation. 11. Clean docs + full build.

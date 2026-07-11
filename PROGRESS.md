@@ -150,6 +150,11 @@ Zero-axiom is gated by `Print Assumptions` in THREE flows (single-sourced here):
 `*_rejects_dup` proof authority) / `GoChan.chan_wrong_tag_antiforgery_surface` /
 `GoMap.map_wrong_tag_antiforgery_surface` / `GoHeap.ref_wrong_tag_antiforgery_surface` (the wrong-tag
 anti-forgery cones — TYPED-LIVENESS negatives, not origin provenance — for channels / maps / refs) /
+`GoChan.chan_capacity_surface` (checkpoint-61 #9 "no over-full channel": send_respects_capacity — a
+successful send leaves a bounded channel's FIFO length <= cap, UNCONDITIONALLY, since send enqueues only
+through the chan_room [length<cap] gate; the buffer-GROWING op respects capacity, the channel analogue of a
+slice write staying within cap. The full ChanStateOk — constructor establishes empty, recv/close preserve —
+is the noted completion) /
 `GoHeap.heap_alloc_safety_surface` (the positive-liveness half: the
 ptr/ref/map/chan allocator nonzero + live-cell + end-to-end panic-free-deref cone backing the `&x`
 address-of public claim) / `GoHeap.ref_addr_of_surface` (the address-of/assignment SEMANTICS the SPEC ledger

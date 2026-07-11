@@ -489,6 +489,33 @@ Lemma send_absent : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (v : A) (w : 
 Proof.
   intros A tag ch v w H. exists rt_chan_send_block. unfold send, run_io. rewrite (chan_cell_ok_absent tag ch w H). reflexivity.
 Qed.
+(** CAPACITY BOUND (checkpoint-61 #9) — a successful [send] never OVER-FILLS a bounded channel: after it, if the
+    channel is finite ([chan_cap = Some n]) its FIFO length is [<= n].  [send] enqueues ONLY through the
+    [chan_room] gate ([length < n] for a [Some n] cap), so the enqueue is capacity-respecting — the channel
+    analogue of a slice write staying within [cap].  UNCONDITIONAL (no prior invariant premise): the room gate
+    alone forces [length < n] BEFORE the append, so even a forged over-full pre-state cannot yield an over-full
+    [ORet] — it fails the room check and blocks.  This pins the only buffer-GROWING op; the full ChanStateOk
+    invariant (the constructor establishes it empty, [recv]/[close] preserve it) is the natural completion. *)
+Lemma send_respects_capacity : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (v : A) (w w' : World) (n : nat),
+  run_io (send tag ch v) w = ORet tt w' ->
+  chan_cap ch w' = Some n ->
+  (List.length (chan_buf tag ch w') <= n)%nat.
+Proof.
+  intros A tag ch v w w' n Hrun Hcap.
+  unfold run_io, send in Hrun.
+  destruct (chan_cell_ok tag ch w) eqn:Hok; [ | discriminate Hrun ].
+  destruct (chan_closed ch w) eqn:Hcl; [ discriminate Hrun | ].
+  destruct (chan_room tag ch w) eqn:Hroom; [ | discriminate Hrun ].
+  assert (Hw' : chan_send_upd tag ch v w = w') by congruence. subst w'.
+  rewrite (chan_cap_send tag ch v w Hok) in Hcap.
+  rewrite (chan_buf_send tag ch v w Hok), length_app. cbn [List.length].
+  unfold chan_room in Hroom. rewrite Hok, Hcap in Hroom. cbv iota in Hroom.
+  apply Nat.ltb_lt in Hroom. lia.
+Qed.
+(** CHANNEL CAPACITY SURFACE (manifest-gated, zero-axiom): the enqueue op respects the buffer capacity —
+    checkpoint-61 #9's "no over-full channel" property for the only buffer-growing op. *)
+Definition chan_capacity_surface := @send_respects_capacity.
+Print Assumptions chan_capacity_surface.
 Lemma recv_absent_no_value : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (w : World) (a : A) (w' : World),
   chan_present ch w = false -> run_io (recv tag ch) w <> ORet a w'.
 Proof.
