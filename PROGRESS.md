@@ -181,7 +181,8 @@ slice that never faults), but DOES carry the len<=cap shape invariant) / `GoHeap
 (the CHECKED op preserves Live* for the always-succeeds-on-live writes: ref/ptr set, map set/delete/clear return
 `ORet` with the world still Live) / `GoHeap.live_chan_op_preserve_surface` (the case-split channel ops
 send/recv/close keep a live channel Live over the world after the outcome — covering their panic/block branches,
-not asserting `ORet`, since blocking is faithful Go behaviour);
+not asserting `ORet` (blocking is intended-faithful only in the RELATIONAL authority; the shallow-IO would-block
+branch is CURRENTLY an inaccurate `OPanic` stand-in — checkpoint-61, fix tracked in plans/result-control-split.md);
 **printer** + **emit** (compiled STANDALONE incl. `digits.v`, grep `^Axioms:`) cover the spine. A
 `Print Assumptions` under none of the three is not gated.
 

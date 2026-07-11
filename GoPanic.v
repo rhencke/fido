@@ -1,16 +1,22 @@
 (** ==================================================================================================
-    GoPanic — the RUNTIME PANIC PAYLOADS.  For a GENUINE modeled runtime error (nil deref,
-    divide-by-zero, index/slice bounds, nil-map write, closed-channel send/close, negative
-    shift/make) the string IS the exact value Go's [recover] sees — the abstraction relation to the
-    Go panic value; decimals come from the ONE decimal authority ([digits.print_Z]).
-    The would-block markers ([rt_chan_send_block]/[rt_chan_recv_block]/[rt_select_block]) and the
-    forged-handle guard ([rt_forged_map]) are NOT recover-visible payloads: Go blocks/deadlocks, or
-    (the forged handle) never reaches the state, so they are MODEL-INTERNAL fail-loud STAND-INS the
-    sequential IO model raises where it cannot represent blocking — each carries its own caveat
-    below, none is certified as an exact Go panic value, and the faithful blocking authority is
-    [rstep] in [concurrency.v].
-    Model-only values (the ops that panic with them lower to native Go operations).  No [IO]/[World]
-    here — a payload is data, the PANICKING is [GoEffects.panic] at each op site.
+    GoPanic — the RUNTIME PANIC PAYLOADS (a KNOWN-INACCURATE current model; the accurate structured-
+    runtime-error + result/control redesign is planned — see plans/result-control-split.md).
+    ⚠ TWO CURRENT INACCURACIES (checkpoint-61), both to be FIXED by that redesign, NOT permanent:
+    (1) Each payload is [anyt TString "..."].  Go's [recover] does NOT return a string — it returns a
+        runtime ERROR OBJECT with a dynamic type ([runtime.boundsError] / [runtime.errorString] /
+        [runtime.plainError] / [*runtime.TypeAssertionError], verified on Go 1.23.2).  The string here
+        models at most the [Error()] TEXT; it is NOT the recovered dynamic value, and a type-switch on
+        a recovered runtime panic would WRONGLY see [string].  Planned fix: a structured [RuntimeError]
+        + [PanicValue = UserPanic | RuntimePanic].
+    (2) The would-block markers ([rt_chan_send_block]/[rt_chan_recv_block]/[rt_select_block]) and the
+        forged-handle guard ([rt_forged_map]) are CURRENTLY [OPanic] payloads, so [catch]/recover DOES
+        observe them — WRONG: a block is a deadlock (recover never fires) and a forged handle is a
+        model fault (not a Go event).  Planned fix: blocking moves into a continuation-retaining
+        scheduler relation and model faults into a distinct UNREACHABLE [ModelFault]; neither stays in
+        the panic domain.  The faithful blocking authority today is [rstep] in [concurrency.v].
+    Decimals come from the ONE decimal authority ([digits.print_Z]).  Model-only values (the ops lower
+    to native Go operations).  No [IO]/[World] here — a payload is data, the PANICKING is
+    [GoEffects.panic] at each op site.
     ================================================================================================ *)
 Require Import Coq.Strings.String.
 From Stdlib Require Import ZArith.
@@ -18,13 +24,13 @@ From Fido Require Import digits.
 From Fido Require Import GoRuntimeTypes.
 
 (** ---- Runtime-panic VALUES ----
-    A GENUINE modeled runtime panic (the file header lists which; the would-block and forged-handle
-    stand-ins are excluded) carries the SAME string Go's [recover] sees via the runtime error's
-    [Error()] — so a [catch]/recover handler can DISTINGUISH runtime errors from each other AND
-    from a user [panic] (which carries the user's own value).  The string IS the abstraction
-    relation to Go's panic value.  Model-only: a runtime panic lowers to the NATIVE Go operation
-    (whose own panic fires), so these values live solely in the suppressed op bodies and are never
-    extracted — they are listed in the plugin's [is_inlined_ref]. *)
+    ⚠ Each payload is a TString modeling the runtime error's [Error()] TEXT only — NOT the dynamic
+    value Go's [recover] returns (a runtime error OBJECT; see the file header, inaccuracy #1).  A
+    [catch]/recover handler can distinguish these by TEXT, but the model does NOT yet expose the
+    runtime-error dynamic type, so a type-switch/assert on a recovered runtime panic is not faithfully
+    modeled (the planned structured [RuntimeError] fixes this).  Model-only: a runtime panic lowers to
+    the NATIVE Go operation (whose own panic fires), so these values live solely in the suppressed op
+    bodies and are never extracted — they are listed in the plugin's [is_inlined_ref]. *)
 Definition rt_nil_deref    : GoAny := anyt TString "runtime error: invalid memory address or nil pointer dereference"%string.
 Definition rt_div_zero     : GoAny := anyt TString "runtime error: integer divide by zero"%string.   (* integer / and % by zero — consumed by GoSem's effectful denotation (not extracted) *)
 Definition rt_shift_neg    : GoAny := anyt TString "runtime error: negative shift amount"%string.    (* a NEGATIVE runtime shift count — consumed by GoSem's T5 typed-shift denotation (not extracted); payload verified against gc via go run *)
