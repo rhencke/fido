@@ -185,7 +185,7 @@ Definition ref_new {A : Type} (tag : GoTypeTag A) (v : A) : IO (Ref A) :=
     read guards are provably redundant on the certified path).  The invariant holds at the initial world
     ([valid_w_init]) and is PRESERVED by every allocator ([valid_alloc_*]) UNCONDITIONALLY — allocators write
     at the nonzero [w_next], so loc 0 stays empty and [nat] locations never overflow.
-    ⚠ NAMING (checkpoint-61, renamed from [ValidWorld]): this predicate proves ONLY the allocation-frontier
+    ⚠ SCOPE (checkpoint-61): this predicate proves ONLY the allocation-frontier
     facts above — NOT complete semantic world validity (no object-representation invariants, no
     value-well-typedness).  The real [WorldWellFormed Σ w := AllocFrontierOk w /\ WorldRealizes Σ w /\ rep
     invariants] awaits the StoreTyping authority (plans/result-control-split.md order #4); do not read this

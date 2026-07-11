@@ -5,7 +5,7 @@ heap/channel/spawn effects, `run_cmd` stays THE sequential authority, the public
 theorems grow to cover the new constructors. Proof-only (no golden/plugin risk).
 
 DONE (theorems are the authority): slice 1 — value-parametric calculus (`Section
-UnifiedVal`); slice 2 — heap read/write/ALLOC (`CWrite`/`CRead`/`CAlloc`, unallocated access = ABSENCE, deterministic allocation with the gated ValidWorld lemmas);
+UnifiedVal`); slice 2 — heap read/write/ALLOC (`CWrite`/`CRead`/`CAlloc`, unallocated access = ABSENCE, deterministic allocation with the gated AllocFrontierOk lemmas);
 slice 3 — the CHANNEL trio (`CChSend`/`CChRecv`/`CChClose`, per-site TYPED closed-recv
 zeros through each cell's own tag, would-block = ABSENCE, gated typed-zero/panic/
 mismatch obligations incl. TI64+TString instances).  The ONE conditional bridge
@@ -47,9 +47,9 @@ FORBIDDEN and unrepresentable through the public path).
        (COut/CRead preserve w_next definitionally; CWrite via a heap_write_next lemma;
        CAlloc: both sides allocate at the SAME location, heap_agrees extends via
        any_of_cell (cell_of_any v) = v round-trip lemma).
-   [x] regression obligations (gate lemmas, ValidWorld-premised): no location-0
+   [x] regression obligations (gate lemmas, AllocFrontierOk-premised): no location-0
        allocation from a valid start; no clobber of an allocated cell; preservation of
-       ValidWorld through alloc (likely lands in GoHeap.v as valid_alloc_cmd or in
+       AllocFrontierOk through alloc (likely lands in GoHeap.v as valid_alloc_cmd or in
        cmd_unified.v).
    [x] GoSemSafe.v: two dead heap arms gain `| CAlloc _ _ =>` dead cases.
    Original design v2 spec follows:
@@ -58,8 +58,8 @@ FORBIDDEN and unrepresentable through the public path).
    mirrored-but-untraced cell. Shape: `CAlloc : GoAny -> (nat -> Cmd A) -> Cmd A`; `go`
    allocates at `w_next w` and bumps; unified side mirrors `uc_next` and `ustep_alloc`
    allocates EXACTLY there (emits `KWrite l` — allocation IS a write). Freshness is a
-   THEOREM only under `GoHeap.ValidWorld`, so every public allocation surface carries a
-   `ValidWorld w` premise with preservation through the body run and the defer unwind;
+   THEOREM only under `GoHeap.AllocFrontierOk`, so every public allocation surface carries a
+   `AllocFrontierOk w` premise with preservation through the body run and the defer unwind;
    the allocator agreement `uc_next = w_next w` threads beside `heap_agrees`. Landing
    obligations: no clobber of an allocated cell; no nil (location-0) allocation from a
    valid start; no unified allocation behavior beyond the cmd side's; a continuation
