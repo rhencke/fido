@@ -170,10 +170,14 @@ the k::old_keys witness needs key_eqb soundness so the new key's class is {k}). 
 the CONSTRUCTOR map_make_typed GATES on a MapKeysOk (TMap kt vt) = true PROOF (a Prop, erased in extraction;
 MapKeysOk is a bool Fixpoint over GoTypeTag, referenced only by that erased proof and proof-only lemmas;
 RECURSIVE: every TMap node, outer key AND any
-nested in the value, must have a comparable key), so a map with an
-invalid key at ANY nesting depth (e.g. map[int]map[[]int]int) is UNREPRESENTABLE — Go-faithful ("invalid map
-key type"; neg_noncomparable_key_map + neg_nested_noncomparable_key_map are the Fail witnesses); a certified
-map is a well-formed Go map type. (2)
+nested in the value, must have a comparable key), so a map with an invalid key at ANY nesting depth (e.g.
+map[int]map[[]int]int) cannot be constructed THROUGH THIS ALLOCATOR (neg_noncomparable_key_map +
+neg_nested_noncomparable_key_map are the Fail witnesses). ⚠ cp62: ALLOCATOR-BOUNDARY only, NOT global tag
+unrepresentability and NOT renderability — the bad tag TMap (TSlice TI64) TI64 stays a constructible GoTypeTag
+(reaches zero_val / nested tags / make_chan → renders chan map[[]int64]int64 which Go rejects), and MapKeysOk
+doesn't prove renderability (TUnit unrenderable; TArrow-value map legal Go but plugin-rejected). Closing this
+needs the general certified type authority (GoTypeDesc), not this per-allocator predicate; do NOT read it as "a
+certified map is a valid Go map type". (2)
 map_set finiteness-preservation is gated only for Comparable kt (value-equal), NARROWER even than Go-comparable
 — a Go-valid float64 key IS constructable (GoComparableType TFloat64=true) but not Comparable (float ±0: SFeqb
 -0.0 +0.0 = true), so a float/non-value-equal set is admitted by the constructor gate but its preservation is

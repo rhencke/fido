@@ -42,14 +42,20 @@ Definition map_empty {K V : Type} : GoMap K V := MkMap 0.
     NOTE: Go map access never panics on a missing key — it returns the zero
     value (two-value form gives [false] for [ok]).  This differs from slice
     indexing, which DOES panic out of bounds. *)
-(** LIVE map-key REJECTION BOUNDARY (checkpoint-61): [map_make_typed] DEMANDS a [MapKeysOk (TMap kt vt) = true]
-    PROOF — RECURSIVE Go type-level well-formedness: EVERY [TMap] node (the outer key AND any nested in the
-    value, through slice / chan / ptr / struct / func) must have a [GoComparableType]-comparable key.  So a map
-    with a bad key AT ANY DEPTH is UNREPRESENTABLE: neither [make(map[[]int]V)] nor [make(map[int]map[[]int]int)]
-    can be written, mirroring Go's COMPILE-time "invalid map key type" (the model does not silently
-    accept-then-degenerate).  The [Hwf] proof is a [Prop] — ERASED by extraction (name-lowered op, golden
-    unaffected); the extraction backend needs NO map-key check — the model is the single authority, and the gate
-    is purely a representability guard, unused by the body.  Float64 keys are
+(** MAP-KEY REJECTION at the ALLOCATOR BOUNDARY: [map_make_typed] DEMANDS a [MapKeysOk (TMap kt vt) = true]
+    PROOF — RECURSIVE Go type-level map-key well-formedness: EVERY [TMap] node (the outer key AND any nested in
+    the value, through slice / chan / ptr / struct / func) must have a [GoComparableType]-comparable key.  So
+    [make(map[[]int]V)] and [make(map[int]map[[]int]int)] cannot be constructed THROUGH THIS ALLOCATOR — no
+    [MapKeysOk] proof exists, mirroring Go's COMPILE-time "invalid map key type".
+    ⚠ SCOPE — this is an ALLOCATOR-BOUNDARY gate, NOT global tag unrepresentability, and NOT a renderability
+    certificate.  The bad tag [TMap (TSlice TI64) TI64] is STILL a constructible [GoTypeTag] term: it can appear
+    in [zero_val], a nested [TChan]/[TMap]/[TPtr]/[TProd] tag, or another allocator — e.g. [make_chan
+    (TMap (TSlice TI64) TI64)] does NOT pass this proof and the trusted tag-to-Go renderer would emit
+    [chan map[[]int64]int64], which Go rejects.  And [MapKeysOk] does not prove renderability ([TUnit] has no
+    faithful rendering; a [TArrow]-VALUE map is legal Go yet the plugin rejects it).  Closing this globally needs
+    the general certified TYPE authority (a [GoTypeDesc] carrying WF + faithful-rendering), not a per-allocator
+    predicate — do NOT read this as "a certified map is a valid Go map type".
+    The [Hwf] proof is a [Prop] — ERASED by extraction (name-lowered op, golden unaffected).  Float64 keys are
     admissible ([GoComparableType TFloat64 = true]) even though [Comparable TFloat64] fails (±0/NaN) — key
     admissibility is a TYPE property, not value-equality reflection. *)
 Definition map_make_typed {K V : Type} (kt : GoTypeTag K) (vt : GoTypeTag V)
@@ -61,12 +67,13 @@ Definition map_make_typed {K V : Type} (kt : GoTypeTag K) (vt : GoTypeTag V)
                                    then Some (0, existT _ K (kt, existT _ V (vt, fun _ => None)))
                                    else w_maps w k)
                          (S l) (w_output w)).
-(** MACHINE-CHECKED UNREPRESENTABILITY: a map whose type has a NON-comparable KEY at ANY nesting depth (Go's
-    "invalid map key type") cannot be CONSTRUCTED — [map_make_typed] demands [MapKeysOk (TMap kt vt) = true],
-    which is [false] whenever any [TMap] node (the outer key OR one nested in the value) has a slice / map / func
-    key, so no proof exists and the [Definition] is REJECTED ([Fail] confirms it) — the map never even reaches
-    emission.  The recursive [MapKeysOk] rejects BOTH (1) a DIRECT bad outer key ([map[func]int]) and (2) a
-    NESTED bad key in the VALUE ([map[int](map[func]int)]), at ANY depth. *)
+(** MACHINE-CHECKED ALLOCATOR-BOUNDARY REJECTION: a map whose type has a NON-comparable KEY at ANY nesting depth
+    cannot be constructed THROUGH [map_make_typed] — it demands [MapKeysOk (TMap kt vt) = true], [false] whenever
+    any [TMap] node (the outer key OR one nested in the value) has a slice / map / func key, so no proof exists
+    and the [Definition] is REJECTED ([Fail] confirms it).  Rejects BOTH (1) a DIRECT bad outer key
+    ([map[func]int]) and (2) a NESTED bad key in the VALUE ([map[int](map[func]int)]).  ⚠ These [Fail] witnesses
+    pin ONLY this allocator: the bad map TAG stays a constructible [GoTypeTag] and can still reach other emitted
+    type paths (the SCOPE note above) — this is not global tag unrepresentability. *)
 Fail Definition neg_noncomparable_key_map := map_make_typed (TArrow TI64 TI64) TI64 eq_refl.
 Fail Definition neg_nested_noncomparable_key_map := map_make_typed TI64 (TMap (TArrow TI64 TI64) TI64) eq_refl.
 
