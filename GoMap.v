@@ -294,8 +294,9 @@ Definition map_set {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (v : V) (
     faithful Go ([delete] on nil no-ops); (3) a nonzero handle with NO tag-correct cell (ABSENT/dangling OR
     WRONG-TAG — a FORGED handle, impossible in real Go) — FAIL LOUD ([rt_forged_map], world UNCHANGED), a
     closed-world guard, NOT Go semantics.  In every case no cell is fabricated OR retyped.  Lowers to native
-    [delete(m, k)] (the forged fail-loud is model-only, plugin-suppressed, unreachable for an allocated map).
-    ([map_delete_nil_noop] Go-faithful / [map_delete_forged_failloud] the defensive guard). *)
+    [delete(m, k)] (the forged fail-loud is model-only, plugin-suppressed; ⚠ checkpoint-61: CURRENTLY a
+    reachable, catchable [OPanic] via a wrong-tag / absent [MkMap] handle — a model fault, not yet proved
+    unreachable).  ([map_delete_nil_noop] Go-faithful / [map_delete_forged_failloud] the defensive guard). *)
 Definition map_delete {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (m : GoMap K V) : IO unit :=
   fun w => if map_cell_ok kt vt m w then ORet tt (map_rem kt vt k m w)
            else if Nat.eqb (gm_loc m) 0 then ORet tt w
@@ -501,7 +502,8 @@ Proof. intros K V kt vt m w H. unfold map_clear_upd. apply map_write_absent_noop
     (1) LIVE cell — clear it; (2) genuine NIL map ([gm_loc = 0]) — NO-OP, faithful Go; (3) nonzero FORGED
     handle (ABSENT/dangling OR WRONG-TAG, impossible in real Go) — FAIL LOUD ([rt_forged_map], world
     UNCHANGED), a closed-world guard, NOT Go semantics.  No cell written/fabricated/retyped in any case.
-    Lowers to native [clear(m)] (forged fail-loud model-only, plugin-suppressed, unreachable). *)
+    Lowers to native [clear(m)] (forged fail-loud model-only, plugin-suppressed; ⚠ checkpoint-61: CURRENTLY a
+    reachable, catchable [OPanic] — a model fault, not yet proved unreachable). *)
 Definition map_clear {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (m : GoMap K V) : IO unit :=
   fun w => if map_cell_ok kt vt m w then ORet tt (map_clear_upd kt vt m w)
            else if Nat.eqb (gm_loc m) 0 then ORet tt w

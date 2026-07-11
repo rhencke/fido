@@ -53,19 +53,23 @@ Definition rt_slice_bounds : GoAny := anyt TString "runtime error: slice bounds 
 Definition rt_neg_make     : GoAny := anyt TString "runtime error: makeslice: len out of range"%string.
 Definition rt_nil_map      : GoAny := anyt TString "assignment to entry in nil map"%string.
 (** A map DELETE / CLEAR through a nonzero handle with NO tag-correct cell — an ABSENT (dangling) or WRONG-TAG
-    forged handle — is IMPOSSIBLE in a real program (Go maps are reference values you cannot forge; delete /
-    clear on a genuine NIL map are Go no-ops, kept as such).  So this is a CLOSED-WORLD FAIL-LOUD GUARD for an
-    unreachable state, NOT a faithful Go panic (Go's delete/clear never panic).  The op lowers to native
-    delete/clear; this OPanic branch is model-only (plugin-suppressed) and unreachable for any allocated map. *)
-Definition rt_forged_map   : GoAny := anyt TString "go: map delete/clear on a forged (absent or wrong-tag) handle — unreachable in a real program; closed-world fail-loud guard, not a Go panic"%string.
+    forged handle — is a MODEL FAULT: INTENDED-unreachable (in real Go, maps are reference values you cannot
+    forge; delete / clear on a genuine NIL map are Go no-ops, kept as such), but the MODEL currently lets one
+    be constructed via [MkMap], so this branch is CURRENTLY reachable.  A CLOSED-WORLD FAIL-LOUD GUARD, NOT a
+    Go panic (Go's delete/clear never panic).  The op lowers to native delete/clear; this [OPanic] branch is
+    model-only (plugin-suppressed).  ⚠ checkpoint-61: it is CURRENTLY a catchable [OPanic]; the fix is a
+    distinct [ModelFault], to be PROVED unreachable under StoreTyping/ValueWF (not asserted here). *)
+Definition rt_forged_map   : GoAny := anyt TString "go: map delete/clear on a forged (absent or wrong-tag) handle — a model fault (intended-unreachable, not yet proved); closed-world fail-loud guard, not a Go panic"%string.
 Definition rt_send_closed  : GoAny := anyt TString "send on closed channel"%string.
 Definition rt_close_closed : GoAny := anyt TString "close of closed channel"%string.
 Definition rt_close_nil    : GoAny := anyt TString "close of nil channel"%string.
 Definition rt_assert_fail  : GoAny := anyt TString "interface conversion: interface is not the asserted type"%string.
 (** Model-INTERNAL fail-loud for a [select] whose every case would block and that has no [default]:
     the sequential [IO] model has no Blocked outcome, so it refuses LOUDLY rather than fabricate a
-    value.  Unreachable in a well-formed program; the EXTRACTION is the native Go [select{}] which
-    blocks faithfully, so this value lives only in the suppressed body — in [is_inlined_ref]. *)
+    value.  ⚠ checkpoint-61: a blocking select is a DEADLOCK, not a panic — this [OPanic] is CURRENTLY
+    reachable + catchable (a bug, to be fixed by the scheduler split), NOT unreachable.  The EXTRACTION
+    is the native Go [select{}], which blocks faithfully, so this value lives only in the suppressed
+    body — in [is_inlined_ref]. *)
 Definition rt_select_block : GoAny := anyt TString "go: select would block (no ready case, no default)"%string.
 (** Model-INTERNAL fail-loud for a [send] with no buffer room (full [Some n], or unbuffered [Some 0] with no
     waiting receiver): Go BLOCKS, which the sequential IO model cannot represent, so it refuses LOUDLY rather
