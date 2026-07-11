@@ -1638,7 +1638,13 @@ let rec pp_type state = function
          pp_sep_list ", " (pp_type state) args ++
          str "]")
   | Tvar i | Tvar' i -> str ("T" ^ string_of_int i)
-  | Tdummy _ | Tunknown | Taxiom | Tmeta _ -> str "any"
+  | Tdummy _ | Tunknown | Taxiom | Tmeta _ ->
+      (* NEVER render an unresolved/erased type as [any].  [any] is a strictly WEAKER Go type — it would make
+         invalid Go compile while invalidating the formal type story (unresolved extraction metadata / a missing
+         param type / an axiom-origin / a dummy would become a real Go type).  Fail LOUD instead; a legitimately-
+         erased type must be resolved in context BEFORE [pp_type], and an arity/type-list mismatch that would
+         synthesise [Tunknown] must abort at its source, not here. *)
+      unsupported "pp_type reached an unresolved/erased type (Tdummy/Tunknown/Taxiom/Tmeta) — refusing to emit `any` (a strictly weaker Go type); resolve the erased type in context or abort the type-list mismatch that produced it"
 
 (* A type in CONVERSION position [<T>(x)].  A composite type (func, …) whose
    rendering contains a space must be parenthesised — Go parses [func(int64) int64(x)]
@@ -3354,10 +3360,17 @@ and pp_typed_closure state env ftype lam =
   let argtypes, rettype = split_arrows ftype in
   let ids, body = collect_lam lam in
   let ids = alloc_binders env ids in
+  (* Pair each binder with its arg type.  The two arity-mismatch directions are NOT symmetric:
+     - FEWER binders than arg types ([], _) : an eta-collapsed under-applied body whose leftover arg types
+       belong to a term with NO faithful Go form (a bare local fixpoint — [neg_repeat_live]); it fails the
+       [MLfix] seal (~3060, "local fixpoint value") at BODY emission, so no arrows are lost in emitted Go and
+       the signature is never rendered.  Truncating the pairing here just lets the body-emitter reject it.
+     - MORE binders than arg types (_ :: _, []) : a binder with no type would need a synthesised [Tunknown]
+       (fail-open to `any`) — abort instead. *)
   let rec zip ids ts = match ids, ts with
-    | [], _ -> []
+    | [], _                -> []
     | id :: ids', t :: ts' -> (id, t) :: zip ids' ts'
-    | id :: ids', []       -> (id, Tunknown) :: zip ids' []
+    | _ :: _, []           -> unsupported "a typed Go closure has MORE binders than its known function type provides arg types (arity/type-list mismatch) — the function type must cover every binder; refusing to synthesise Tunknown (which would fail-open to `any`)"
   in
   let pairs = zip ids argtypes in
   (* drop [unit]-typed params from the SIGNATURE (a nullary method's [unit] trigger) — they
@@ -4953,13 +4966,16 @@ let is_gsptr_record_tglob = function
 let method_eligible body typ =
   let ids, _ = collect_lam body in
   let param_types, ret_type = collect_tarrs typ in
+  (* [visible_types] feeds ONLY the head-inspecting record-receiver test below ([rt :: _ when
+     is_record_tglob rt]); its tail is never rendered, so BOTH arity directions truncate safely and
+     synthesise NO Tunknown — this is a structural probe, not a Go type list that gets emitted. *)
   let rec visible_types ids types =
     match ids, types with
     | [], _ -> []
     | id :: rest, _ when is_dummy id ->
         visible_types rest (match types with _ :: t -> t | [] -> [])
     | _ :: rest, t :: rest_types -> t :: visible_types rest rest_types
-    | _ :: rest, [] -> Tunknown :: visible_types rest []
+    | _ :: _, [] -> []
   in
   match visible_types ids param_types with
   | rt :: rest when is_record_tglob rt || is_gsptr_record_tglob rt ->
@@ -5106,7 +5122,14 @@ let pp_function state name body typ =
   (* A sub-64 narrow return type makes the pure-tail [return]s wrap the int-carrier value
      in its declared Go type ([narrow_ret_type]); [None] for full-width / IO / non-narrow returns. *)
   narrow_ret_type := (match ret_type with Tglob (r, []) -> narrow_prim_type r | _ -> None);
-  (* Pair visible ids with their corresponding types, skipping erased args. *)
+  (* Pair visible ids with their types, skipping erased args.  The two arity-mismatch directions are NOT
+     symmetric (mirrors [pp_typed_closure]):
+     - FEWER param binders than arg types ([], _) : an eta-collapsed under-applied body whose leftover arg
+       types belong to a term with NO faithful Go form (a bare local fixpoint — [neg_repeat_live]); it fails
+       the [MLfix] seal (~3060, "local fixpoint value") at BODY emission before the signature renders, so no
+       arrows are lost in emitted Go.  Truncating the pairing here just lets the body-emitter reject it.
+     - MORE param binders than arg types (_ :: _, []) : a binder with no type would need a synthesised
+       [Tunknown] (fail-open to `any`) — abort instead. *)
   let rec zip_params ids types =
     match ids, types with
     | [], _              -> []
@@ -5114,7 +5137,7 @@ let pp_function state name body typ =
         let rest_types = (match types with _ :: t -> t | [] -> []) in
         zip_params rest rest_types
     | id :: rest, t :: rest_types -> (id, t) :: zip_params rest rest_types
-    | id :: rest, []              -> (id, Tunknown) :: zip_params rest []
+    | _ :: _, []                  -> unsupported "a function's param binders outnumber its extraction type-list (arity/type-list mismatch) — refusing to synthesise Tunknown (which would fail-open to `any`); the type-list must cover every binder"
   in
   let param_pairs = zip_params ids param_types in
   (* env includes all ids (with dummies) for de Bruijn; innermost first. *)
@@ -5542,7 +5565,16 @@ let pp_decl state decl =
            str ")" ++ fnl () ++ fnl ()
        | _ -> mt ())
 
-  | Dtype (r, _, _) when is_uint63_type r || is_go_prim_type r || is_float64_type r
+  | Dtype (r, _, _) when (from_model r && is_erased_record_typename (global_basename r))   (* proof-only
+                          carriers: a type-level fixpoint ([Tup] : [list Type -> Type]) extracts to a type
+                          SYNONYM whose erased [Type] arg would otherwise reach [pp_type].
+                          [is_erased_record_typename] lists the type names whose Go type DECLARATION is
+                          suppressed (proof-only carriers AND natively-BY-NAME-rendered [GoChan]/[GoMap]/
+                          [Ref]/…).  This [from_model] guard is LOCAL to the [Dtype] arm (a ref [r] is in
+                          scope here), NOT a global boundary: the [Dind] record path (below) matches the same
+                          names by BASENAME alone — extraction hands [pp_decl] no per-decl module ref there —
+                          under its documented "no user type shares these proof-only names" assumption. *)
+    || is_uint63_type r || is_go_prim_type r || is_float64_type r
     || is_IO_type r || is_go_map_type r || is_go_chan_type r
     || is_ref_type r
     || String.equal (global_basename r) "Sess"

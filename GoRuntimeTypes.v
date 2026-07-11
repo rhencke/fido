@@ -125,9 +125,11 @@ Inductive GoTypeTag : Type -> Type :=
   | TSlice : forall {A : Type},           GoTypeTag A -> GoTypeTag (GoSlice A)
   | TMap   : forall {K V : Type}, GoTypeTag K -> GoTypeTag V -> GoTypeTag (GoMap K V)
   (* function type — lets a DEFINED TYPE over a func underlying ([type Handler func(A) B])
-     carry the GoTypeTag phantom that stops Coq unboxing its single value field.  Arrows are
-     never decided equal by [tag_eq] (the catch-all returns [None]) — fine, a func type is
-     not a map key nor type-switched. *)
+     carry the GoTypeTag phantom that stops Coq unboxing its single value field.  [tag_eq]
+     decides two [TArrow] tags equal RECURSIVELY (the [TArrow a1 b1, TArrow a2 b2] arm below,
+     via [gofunc_cong]), exactly like [TChan]/[TSlice]/[TMap]/[TProd] — Go func types ARE not
+     comparable as map keys / [==] operands, but that is enforced by [GoComparableType]
+     ([TArrow] there is [false]), NOT by [tag_eq] refusing them. *)
   | TArrow : forall {A B : Type}, GoTypeTag A -> GoTypeTag B -> GoTypeTag (GoFunc A B)
   (* product (pair) type — the SOUND backing for struct channels: unlike a nominal struct,
      [A * B] is CANONICAL, so [tag_eq] can recover [A1*B1 = A2*B2] from the component tags.

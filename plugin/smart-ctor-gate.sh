@@ -42,6 +42,27 @@ if [ -n "$deadrefs" ]; then
 fi
 echo "fido: dead-name gate OK — no SRaw-era or forbidden raw-syntax names in active code ✓"
 
+# 2b. FAIL-OPEN `str "any"` TRIPWIRE: a TRIPWIRE against re-introducing the erased-type -> `any` fallback
+# (an unresolved/erased type Tdummy/Tunknown/Taxiom/Tmeta rendered as Go `any` — a strictly WEAKER type that
+# makes invalid Go compile).  It asserts the `str "any"` LITERAL OCCURS EXACTLY ONCE in plugin/go.ml and at the
+# GoAny/interface{} site ([is_sigT_ref]); a re-added fallback adds a second `str "any"` OCCURRENCE (multi-line
+# OR same-line, so it is not spoofable by line placement).  SCOPE: this checks only the `str "any"` LITERAL —
+# it is NOT a proof that the emitter never produces `any` by another path (that guarantee is the fail-loud
+# [pp_type] arm itself).  Count OCCURRENCES ([grep -o]), not lines ([grep -c] would miss two on one line).
+anyocc=$(grep -oE 'str[[:space:]]+"any"' plugin/go.ml | grep -c . || true)
+if [ "$anyocc" != "1" ]; then
+  echo "fido: str-any TRIPWIRE — expected EXACTLY ONE 'str \"any\"' LITERAL OCCURRENCE (the GoAny/interface{} rendering) in plugin/go.ml; found $anyocc:"
+  grep -nE 'str[[:space:]]+"any"' plugin/go.ml || true
+  echo "fido: an erased type rendering \`any\` is a strictly weaker Go type — fail LOUD (unsupported) instead."
+  exit 1
+fi
+if ! grep -E 'str[[:space:]]+"any"' plugin/go.ml | grep -q 'is_sigT_ref'; then
+  echo "fido: str-any TRIPWIRE — the single 'str \"any\"' LITERAL is not the GoAny ([is_sigT_ref]) rendering:"
+  grep -nE 'str[[:space:]]+"any"' plugin/go.ml || true
+  exit 1
+fi
+echo "fido: str-any tripwire OK — the one 'str \"any\"' LITERAL OCCURRENCE in plugin/go.ml is the GoAny (is_sigT_ref) rendering ✓"
+
 # 3. EMISSION DISCIPLINE: no direct print_program CALL outside GoEmit.v / GoPrint.v (doc refs fine).
 ppcallers=$(grep -nE '\bprint_program\b[[:space:]]*[("a-zA-Z0-9_]' \
   $(for f in *.v; do [ "$f" = GoPrint.v ] || [ "$f" = GoEmit.v ] || echo "$f"; done) \
