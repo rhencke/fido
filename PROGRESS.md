@@ -151,13 +151,16 @@ Zero-axiom is gated by `Print Assumptions` in THREE flows (single-sourced here):
 `GoMap.map_wrong_tag_antiforgery_surface` / `GoHeap.ref_wrong_tag_antiforgery_surface` (the wrong-tag
 anti-forgery cones — TYPED-LIVENESS negatives, not origin provenance — for channels / maps / refs) /
 `GoHeap.chan_state_ok_surface` (checkpoint-61 #9 "no over-full channel" INVARIANT ChanCapOk — a bounded
-channel's FIFO length <= cap — the channel analogue of SliceWF: ESTABLISHED at construction
-(make_chan_buf_establishes_chancapok: empty buffer, finite cap) and by every send (send_establishes_chancapok
-via send_respects_capacity — the room [length<cap] gate forces it before the append), PRESERVED by recv
-(dequeue shortens, or closed-drained leaves w unchanged) and close (buffer/cap re-written unchanged). So under
-the WHOLE certified channel op set a bounded channel never over-fills. ⚠ SHAPE (buffer-length) only — a forged
-same-tag over-full handle stays the checkpoint-59 typed-liveness frontier; None-cap (proof-only unbounded
-bridge) is vacuous, the residual finite-vs-unbounded excision) /
+channel's FIFO length <= cap — the channel analogue of SliceWF: gated across every PRIMITIVE state transition
+— ESTABLISHED at construction by BOTH allocators (make_chan unbuffered + make_chan_buf: empty buffer, finite
+cap) and by every send (send_establishes_chancapok via send_respects_capacity — the room [length<cap] gate
+forces it before the append), PRESERVED by recv (dequeue shortens, or closed-drained leaves w unchanged) and
+close (flag-only). ⚠ the comma-ok/select RECEIVE COMBINATORS (recv_ok/select_recv2/select_recv_default) are
+NOT separately gated — dequeue-then-CONTINUE forms whose channel effect is the same chan_recv_upd dequeue
+already covered (only SHORTENS the FIFO) + a caller continuation out of scope, so they add no buffer-growing
+transition and cannot break it. ⚠ SHAPE (buffer-length) only — a forged same-tag over-full handle stays the
+checkpoint-59 typed-liveness frontier; None-cap (proof-only unbounded bridge) is vacuous, the residual
+finite-vs-unbounded excision) /
 `GoHeap.heap_alloc_safety_surface` (the positive-liveness half: the
 ptr/ref/map/chan allocator nonzero + live-cell + end-to-end panic-free-deref cone backing the `&x`
 address-of public claim) / `GoHeap.ref_addr_of_surface` (the address-of/assignment SEMANTICS the SPEC ledger

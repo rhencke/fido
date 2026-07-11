@@ -115,10 +115,12 @@ just the `nat` shape), consume/preserve across subslice/append/clear/copy, and r
 preservation; `ModelFault` unreachable). 6. `AllocFrontierOk` (the frontier-only predicate) — DONE 7a67aeb;
 the full `WorldWellFormed` (needs `WorldRealizes`) lands with #5. 7. Restrict
 GoCFG to nonblocking bodies. 8. Translate Cmd channels → UCmd. 9. Finite vs unbounded channels.
-**PARTIAL:** the "no over-full channel" invariant `ChanCapOk` (`length(buf) <= cap`) is now proved across the
-WHOLE certified channel op set — ESTABLISHED at construction (`make_chan_buf_establishes_chancapok`: empty
-buffer + finite `make_chan_buf_caps` cap) and by every `send`, PRESERVED by `recv`/`close` — gated in
-`chan_state_ok_surface`. STILL AHEAD — excising the `None` (unbounded) capacity that only the proof-only
-concurrency bridge uses (so the model's channels are all finite like Go's), and the same-tag over-full forged
-handle (the checkpoint-59 typed-liveness frontier).
+**PARTIAL:** the "no over-full channel" invariant `ChanCapOk` (`length(buf) <= cap`) is proved across every
+PRIMITIVE channel state transition — ESTABLISHED at construction by BOTH allocators (`make_chan` unbuffered +
+`make_chan_buf`, empty buffer + finite cap) and by every `send`, PRESERVED by the primitive `recv` and `close`
+— gated in `chan_state_ok_surface`. The comma-ok/select receive combinators (`recv_ok`/`select_recv2`/
+`select_recv_default`) are dequeue-then-continue forms reusing the covered `chan_recv_upd` dequeue + a caller
+continuation, so they add no buffer-growing transition; not separately gated. STILL AHEAD — excising the
+`None` (unbounded) capacity that only the proof-only concurrency bridge uses (so the model's channels are all
+finite like Go's), and the same-tag over-full forged handle (the checkpoint-59 typed-liveness frontier).
 10. Map representation. 11. Clean docs + full build.

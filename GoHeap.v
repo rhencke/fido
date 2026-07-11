@@ -1029,14 +1029,45 @@ Proof.
   rewrite (make_chan_buf_caps tag n w ch w' HV H), (make_chan_buf_empty tag n w ch w' HV H).
   cbn. apply Nat.le_0_l.
 Qed.
+(** The UNBUFFERED constructor [make(chan T)] (cap [Some 0]) equally establishes [ChanCapOk] ([length 0 <= 0]).
+    [make_chan_caps]/[make_chan_empty] mirror the buffered witnesses for the [Some 0] allocator. *)
+Lemma make_chan_caps : forall {A} (tag : GoTypeTag A) (w : World) ch w',
+  AllocFrontierOk w -> run_io (make_chan tag) w = ORet ch w' -> chan_cap ch w' = Some 0%nat.
+Proof.
+  intros A tag w ch w' HV H.
+  assert (Hnz : Nat.eqb (w_next w) 0 = false) by (apply pos_neq0, (valid_fresh_nonzero w HV)).
+  unfold make_chan, make_chan_cap, run_io in H. injection H as Hch Hw. subst ch w'.
+  unfold chan_cap. cbn. rewrite Hnz, Nat.eqb_refl. reflexivity.
+Qed.
+Lemma make_chan_empty : forall {A} (tag : GoTypeTag A) (w : World) ch w',
+  AllocFrontierOk w -> run_io (make_chan tag) w = ORet ch w' -> chan_buf tag ch w' = nil.
+Proof.
+  intros A tag w ch w' HV H.
+  assert (Hnz : Nat.eqb (w_next w) 0 = false) by (apply pos_neq0, (valid_fresh_nonzero w HV)).
+  unfold make_chan, make_chan_cap, run_io in H. injection H as Hch Hw. subst ch w'.
+  unfold chan_buf. cbn. rewrite Hnz, Nat.eqb_refl, tag_eq_refl. reflexivity.
+Qed.
+Lemma make_chan_establishes_chancapok : forall {A} (tag : GoTypeTag A) (w : World) ch w',
+  AllocFrontierOk w -> run_io (make_chan tag) w = ORet ch w' -> ChanCapOk tag ch w'.
+Proof.
+  intros A tag w ch w' HV H. unfold ChanCapOk.
+  rewrite (make_chan_caps tag w ch w' HV H), (make_chan_empty tag w ch w' HV H).
+  cbn. apply Nat.le_0_l.
+Qed.
 (** CHANNEL STATE-OK SURFACE (manifest-gated, zero-axiom): the "no over-full channel" invariant [ChanCapOk]
-    (checkpoint-61 #9) is ESTABLISHED at construction and by every [send] and PRESERVED by [recv]/[close] — so a
-    bounded channel's FIFO length is [<= cap] under the whole certified channel op set, the analogue of SliceWF
-    for slices.  ⚠ SHAPE (buffer-length) invariant ONLY — a forged same-tag over-full handle is still the
-    checkpoint-59 typed-liveness frontier; and [None]-cap (proof-only unbounded bridge) is vacuous, the residual
-    finite-vs-unbounded excision of #9. *)
+    (checkpoint-61 #9) — a bounded channel's FIFO length is [<= cap], the analogue of SliceWF for slices.
+    Gated across every PRIMITIVE state transition: ESTABLISHED at construction by BOTH allocators
+    ([make_chan] unbuffered + [make_chan_buf]), by every [send] (the sole buffer-GROWING op — its [chan_room]
+    gate forces [length < cap] before the append), and PRESERVED by the primitive [recv] (dequeue) and [close]
+    (flag-only).  ⚠ SCOPE: the comma-ok / select RECEIVE COMBINATORS ([recv_ok]/[select_recv2]/
+    [select_recv_default]) are NOT separately gated — they are dequeue-then-CONTINUE forms whose channel effect
+    is exactly the same [chan_recv_upd] dequeue already covered by [recv_preserves_chancapok] (it only SHORTENS
+    the FIFO), followed by a caller continuation whose final world is out of scope; they add NO buffer-growing
+    transition, so they cannot break the invariant.  ⚠ SHAPE (buffer-length) only — a forged same-tag over-full
+    handle stays the checkpoint-59 typed-liveness frontier, and [None]-cap (proof-only unbounded bridge) is
+    vacuous, the residual finite-vs-unbounded excision of #9. *)
 Definition chan_state_ok_surface :=
-  (@make_chan_buf_establishes_chancapok, @send_establishes_chancapok,
+  (@make_chan_establishes_chancapok, @make_chan_buf_establishes_chancapok, @send_establishes_chancapok,
    @recv_preserves_chancapok, @close_preserves_chancapok).
 Print Assumptions chan_state_ok_surface.
 
