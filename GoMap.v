@@ -206,8 +206,8 @@ Definition map_sel {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
     TAG-CORRECT cell ([map_cell_ok = false]: nil, nonzero-absent, OR wrong-tag), so a forged handle never
     observes a foreign cell's count (the read-side dual of the write guard).  The plugin lowers [map_len] by
     name to Go [len(m)] (the [GoTypeTag] args are model-only, dropped in emission); the [map_upd]/[map_rem]
-    +1/-1 bookkeeping (below) MAINTAINS this field — whether it EQUALS the live-key support size is the deeper
-    MapWF, NOT established here. *)
+    +1/-1 bookkeeping (below) MAINTAINS this field, and that it EQUALS the live-key support size is [MapWF]
+    ([map_wf_surface] below — see its header for the scope). *)
 (* The map cell's STORED count as the RAW heap-internal [nat] (the cell stores [nat]); [map_upd]/[map_rem]
    do their +1/-1 bookkeeping on THIS field.  [map_size] is the Go-facing [len(m)] — the same field widened to
    the [Z]-carried [GoInt]. *)
@@ -273,7 +273,8 @@ Proof. intros K V kt vt k m w H. unfold map_rem. apply map_write_absent_noop; ex
 
 (** Witness (machine-checked): on THIS concrete trace the STORED count field tracks the number of distinct
     live keys, so [map_size] = Go's [len(m)] here.  Insert keys 1,2; overwrite key 1 (field stays 2); delete
-    key 2 (field → 1).  A witness on ONE trace — NOT the general "field = |support|" MapWF. *)
+    key 2 (field → 1).  A concrete instance of the general "field = |support|" invariant [MapWF]
+    ([map_wf_surface] below). *)
 Example map_len_counts :
   match run_io (map_make_typed TI64 TI64 eq_refl)
                (mkWorld (fun _ => None) (fun _ => None) (fun _ => None) 1 nil) with
@@ -552,8 +553,8 @@ Proof. reflexivity. Qed.
     raw update roots, NOT the IO ops that wrap them): [map_upd] on a NEW key is [+1] and on an EXISTING key
     UNCHANGED; [map_rem] on a PRESENT key is [Nat.pred] and on an ABSENT key UNCHANGED; [map_clear_upd] is 0.
     ⚠ These pin the raw-transformer count TRANSITIONS on the stored field [map_count] — NOT the guarded IO ops
-    [map_set]/[map_delete]/[map_clear], and NOT [len(m)] ([= map_size]); and that [map_count] EQUALS the live-key
-    support size is the deeper MapWF, not claimed here. *)
+    [map_set]/[map_delete]/[map_clear], and NOT [len(m)] ([= map_size]); that [map_count] EQUALS the live-key
+    support size is [MapWF] ([map_wf_surface] below), which BUILDS on these count steps. *)
 Lemma map_count_write_same : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) m f sz w,
   map_cell_ok kt vt m w = true -> map_count kt vt m (map_write kt vt m f sz w) = sz.
 Proof.
@@ -597,8 +598,8 @@ Qed.
 (** MAP COUNT TRANSITION SURFACE (manifest-gated, zero-axiom): the STORED count field [map_count] steps
     correctly through the [map_cell_ok]-guarded RAW update ROOTS ([map_upd]/[map_rem]/[map_clear_upd]) —
     [+1] / unchanged / [Nat.pred] / unchanged / 0.  ⚠ RAW-TRANSFORMER transitions on [map_count] ONLY — NOT the
-    guarded IO ops [map_set]/[map_delete]/[map_clear], NOT [len(m)] ([= map_size]), and NOT [map_count] = the
-    live-key support size (the deeper MapWF), none claimed here. *)
+    guarded IO ops [map_set]/[map_delete]/[map_clear], NOT [len(m)] ([= map_size]).  ([map_count] = the
+    live-key support size is [MapWF] ([map_wf_surface] below), which builds on these steps.) *)
 Definition map_count_transition_surface :=
   (@map_count_write_same, @map_upd_count_new, @map_upd_count_existing,
    @map_rem_count_present, @map_rem_count_absent, @map_clear_upd_count).
@@ -694,12 +695,171 @@ Qed.
     invariant PRESERVATION, NOT a global
     "every map is finite" theorem: the function rep DOES admit an infinite-support [f] (a RAW [mkWorld] /
     same-tag forged handle carrying one is NOT [MapFinite] — the checkpoint-59 typed-liveness frontier); the
-    certified ops merely cannot PRODUCE such a value from a finite map.  ⚠ finite SUPPORT only — NOT yet
-    [len(m) = |support|] (the [sz]-vs-[f] count-consistency [MapWF] is the deeper follow-up). *)
+    certified ops merely cannot PRODUCE such a value from a finite map.  ⚠ finite SUPPORT here; the STRONGER
+    [len(m) = |support|] count-consistency is [MapWF] ([map_wf_surface] below). *)
 Definition map_finite_surface :=
   (@map_make_typed_establishes_mapfinite, @map_set_preserves_mapfinite,
    @map_delete_preserves_mapfinite, @map_clear_preserves_mapfinite).
 Print Assumptions map_finite_surface.
+
+(** ---- MapWF: count-consistency — the STORED count field EQUALS the live-key support (checkpoint-61 #10) ----
+    [MapFinite] bounds the live keys by SOME finite list; [MapWF] is the STRONGER count↔support bridge: there is
+    a NoDup key list that EXACTLY enumerates the support ([map_get_fn <> None]) AND whose length is the stored
+    [map_count].  So [map_count] (hence [len(m)] = [map_size]) is the true number of live keys — the property the
+    count-transition surface's prose deferred as "the deeper MapWF".  Proved here as an INVARIANT: ESTABLISHED by
+    [map_make_typed] (empty support, count 0, unconditionally) and PRESERVED by the [map_cell_ok]-guarded RAW
+    update ROOTS [map_upd] / [map_rem] (⚠ UNDER [Comparable kt] — see below) and [map_clear_upd].  Like
+    [map_finite_surface] this is invariant preservation over the raw roots, NOT a global "every map is
+    count-consistent" theorem (a forged / raw handle carrying a count out of step with its function is out of
+    scope).  ⚠ The [Comparable kt] premise on [map_upd] / [map_rem] is LOAD-BEARING for the SAME reason as in
+    [map_finite_surface]: the exact-count NoDup witness ([k :: keys] on insert, [filter (≠k) keys] on delete)
+    needs [key_eqb kt] to SOUNDLY decide equality — a non-value-equal key (float [±0]) could otherwise mis-count
+    the support.  So the count guarantee is for value-equal-key maps, a SUBSET of the constructable maps, exactly
+    as for [MapFinite]. *)
+Definition MapWF {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (m : GoMap K V) (w : World) : Prop :=
+  exists keys : list K,
+    NoDup keys /\
+    (forall k, In k keys <-> map_get_fn kt vt m w k <> None) /\
+    map_count kt vt m w = Datatypes.length keys.
+(** filter helpers for the delete case (the removed support = [keys] minus the [key_eqb]-class of the deleted key). *)
+Lemma filter_all_kept : forall {A} (p : A -> bool) (l : list A),
+  (forall x, In x l -> p x = true) -> filter p l = l.
+Proof.
+  intros A p l H. induction l as [| a l' IH]; simpl; [ reflexivity | ].
+  rewrite (H a (or_introl eq_refl)). f_equal. apply IH. intros x Hx. apply H. right. exact Hx.
+Qed.
+Lemma nodup_filter : forall {A} (p : A -> bool) (l : list A), NoDup l -> NoDup (filter p l).
+Proof.
+  intros A p l H. induction H as [| a l' Hnotin Hnd IH]; simpl; [ constructor | ].
+  destruct (p a) eqn:E; [ | exact IH ].
+  constructor; [ | exact IH ]. intros Hin. apply Hnotin. apply (proj1 (filter_In p a l')) in Hin. tauto.
+Qed.
+(** Under [Comparable kt], removing the [key_eqb]-class of a key that occurs (once, by [NoDup]) in [keys]
+    shortens the list by exactly one — the length side of the [map_rem] count step. *)
+Lemma filter_neq_length_pred : forall {K} (kt : GoTypeTag K) (k : K) (keys : list K),
+  Comparable kt -> NoDup keys -> In k keys ->
+  Datatypes.length (filter (fun k' => negb (key_eqb kt k k')) keys) = pred (Datatypes.length keys).
+Proof.
+  intros K kt k keys Hcmp. induction keys as [| a keys' IH]; intros Hnd Hin.
+  - destruct Hin.
+  - apply NoDup_cons_iff in Hnd. destruct Hnd as [Hnotin Hnd'].
+    destruct (key_eqb kt k a) eqn:Hka.
+    + assert (Hkeq : k = a) by (apply Hcmp; exact Hka).
+      assert (Hkni : ~ In k keys') by (rewrite Hkeq; exact Hnotin).
+      assert (Hfk : filter (fun k' => negb (key_eqb kt k k')) keys' = keys').
+      { apply filter_all_kept. intros x Hx. destruct (key_eqb kt k x) eqn:E; [ | reflexivity ].
+        exfalso. apply Hkni. assert (Hx' : k = x) by (apply Hcmp; exact E). rewrite Hx'. exact Hx. }
+      cbn [filter]. rewrite Hka. cbn [negb]. rewrite Hfk. cbn [Datatypes.length]. lia.
+    + assert (Hin' : In k keys').
+      { destruct Hin as [Hak | Hk']; [ | exact Hk' ].
+        exfalso. subst a. rewrite (proj2 (Hcmp k k) eq_refl) in Hka. discriminate. }
+      assert (H0 : Datatypes.length keys' <> 0) by (destruct keys'; [ destruct Hin' | simpl; lia ]).
+      cbn [filter]. rewrite Hka. cbn [negb]. cbn [Datatypes.length]. rewrite (IH Hnd' Hin'). lia.
+Qed.
+
+(** ESTABLISH: a fresh [make(map[K]V)] is count-consistent — empty support ([map_make_typed_empty]) and stored
+    count 0, so the NoDup witness is [nil].  Unconditional (no [Comparable], no [ValidWorld]): even a degenerate
+    [w_next = 0] fresh map is the nil map (count 0, no live keys). *)
+Lemma map_make_typed_establishes_mapwf : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (Hwf : MapKeysOk (TMap kt vt) = true) (w : World) m w',
+  run_io (map_make_typed kt vt Hwf) w = ORet m w' -> MapWF kt vt m w'.
+Proof.
+  intros K V kt vt Hwf w m w' H. exists nil. split; [ constructor | split ].
+  - intros k. split; [ intros [] | ].
+    intros Hne. exfalso. apply Hne. exact (map_make_typed_empty kt vt Hwf w m w' k H).
+  - unfold run_io, map_make_typed in H. injection H as Hm Hw'. subst m w'.
+    unfold map_count, map_cell_ok. cbn [gm_loc].
+    destruct (Nat.eqb (w_next w) 0) eqn:Hz; [ reflexivity | ].
+    cbn [w_maps]. rewrite !Nat.eqb_refl, !tag_eq_refl. reflexivity.
+Qed.
+(** PRESERVE ([map_upd], under [Comparable kt]): insert.  On a genuinely NEW key ([map_get_fn = None]) the
+    support gains [k] (NoDup extends by [k], not already present) and the count is [+1] ([map_upd_count_new]);
+    on an EXISTING key the support and count are unchanged ([map_upd_count_existing]). *)
+Lemma map_upd_preserves_mapwf : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (v : V) (m : GoMap K V) (w : World),
+  Comparable kt -> map_cell_ok kt vt m w = true ->
+  MapWF kt vt m w -> MapWF kt vt m (map_upd kt vt k v m w).
+Proof.
+  intros K V kt vt k v m w Hcmp Hok [keys [Hnd [Hiff Hcount]]].
+  assert (Hgf : forall k', map_get_fn kt vt m (map_upd kt vt k v m w) k'
+                           = if key_eqb kt k k' then Some v else map_get_fn kt vt m w k').
+  { intros k'. unfold map_upd. rewrite (map_get_fn_write_same kt vt m _ _ w Hok). reflexivity. }
+  destruct (map_get_fn kt vt m w k) as [v0 | ] eqn:Hk.
+  - (* existing key *)
+    exists keys. split; [ exact Hnd | split ].
+    + intros k'. rewrite (Hgf k'). destruct (key_eqb kt k k') eqn:E.
+      * assert (Heq : k = k') by (apply Hcmp; exact E).
+        assert (Hik : In k keys) by (apply (proj2 (Hiff k)); rewrite Hk; discriminate).
+        split; intros _; [ discriminate | rewrite <- Heq; exact Hik ].
+      * exact (Hiff k').
+    + rewrite (map_upd_count_existing kt vt k v v0 m w Hok Hk). exact Hcount.
+  - (* new key *)
+    exists (k :: keys). split; [ | split ].
+    + constructor; [ | exact Hnd ].
+      intros Hin. apply (proj1 (Hiff k)) in Hin. rewrite Hk in Hin. apply Hin. reflexivity.
+    + intros k'. rewrite (Hgf k'). destruct (key_eqb kt k k') eqn:E.
+      * assert (Heq : k = k') by (apply Hcmp; exact E).
+        split; intros _; [ discriminate | rewrite <- Heq; apply in_eq ].
+      * split.
+        -- intros Hin. simpl in Hin. destruct Hin as [Heq | Hin'].
+           ++ exfalso. subst k'. rewrite (proj2 (Hcmp k k) eq_refl) in E. discriminate.
+           ++ exact (proj1 (Hiff k') Hin').
+        -- intros Hne. apply in_cons. exact (proj2 (Hiff k') Hne).
+    + rewrite (map_upd_count_new kt vt k v m w Hok Hk). rewrite Hcount. reflexivity.
+Qed.
+(** PRESERVE ([map_rem], under [Comparable kt]): delete.  On a PRESENT key the support loses [k]'s [key_eqb]-class
+    ([filter (≠k) keys], NoDup preserved, length [pred] via [filter_neq_length_pred]) and the count is [Nat.pred]
+    ([map_rem_count_present]); on an ABSENT key both are unchanged ([map_rem_count_absent]). *)
+Lemma map_rem_preserves_mapwf : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (m : GoMap K V) (w : World),
+  Comparable kt -> map_cell_ok kt vt m w = true ->
+  MapWF kt vt m w -> MapWF kt vt m (map_rem kt vt k m w).
+Proof.
+  intros K V kt vt k m w Hcmp Hok [keys [Hnd [Hiff Hcount]]].
+  assert (Hgf : forall k', map_get_fn kt vt m (map_rem kt vt k m w) k'
+                           = if key_eqb kt k k' then None else map_get_fn kt vt m w k').
+  { intros k'. unfold map_rem. rewrite (map_get_fn_write_same kt vt m _ _ w Hok). reflexivity. }
+  destruct (map_get_fn kt vt m w k) as [v0 | ] eqn:Hk.
+  - (* present key *)
+    assert (Hik : In k keys) by (apply (proj2 (Hiff k)); rewrite Hk; discriminate).
+    exists (filter (fun k' => negb (key_eqb kt k k')) keys).
+    split; [ apply nodup_filter; exact Hnd | split ].
+    + intros k'. rewrite (Hgf k'). rewrite filter_In. destruct (key_eqb kt k k') eqn:E.
+      * split; [ intros [_ Hbad]; discriminate Hbad | intros Hne; exfalso; apply Hne; reflexivity ].
+      * split; [ intros [Hin _]; exact (proj1 (Hiff k') Hin)
+               | intros Hne; split; [ exact (proj2 (Hiff k') Hne) | reflexivity ] ].
+    + rewrite (map_rem_count_present kt vt k v0 m w Hok Hk). rewrite Hcount.
+      symmetry. apply (filter_neq_length_pred kt k keys Hcmp Hnd Hik).
+  - (* absent key *)
+    exists keys. split; [ exact Hnd | split ].
+    + intros k'. rewrite (Hgf k'). destruct (key_eqb kt k k') eqn:E.
+      * assert (Heq : k = k') by (apply Hcmp; exact E).
+        assert (Hnik : ~ In k keys) by
+          (intros Hin; apply (proj1 (Hiff k)) in Hin; rewrite Hk in Hin; apply Hin; reflexivity).
+        split; [ intros Hin; exfalso; apply Hnik; rewrite Heq; exact Hin
+               | intros Hne; exfalso; apply Hne; reflexivity ].
+      * exact (Hiff k').
+    + rewrite (map_rem_count_absent kt vt k m w Hok Hk). exact Hcount.
+Qed.
+(** ESTABLISH ([map_clear_upd]): clear empties the support ([fun _ => None]) and zeroes the count — the nil
+    witness, unconditionally (no [Comparable] needed). *)
+Lemma map_clear_upd_establishes_mapwf : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (m : GoMap K V) (w : World),
+  map_cell_ok kt vt m w = true -> MapWF kt vt m (map_clear_upd kt vt m w).
+Proof.
+  intros K V kt vt m w Hok. exists nil. split; [ constructor | split ].
+  - intros k'. assert (Hgf : map_get_fn kt vt m (map_clear_upd kt vt m w) k' = None).
+    { unfold map_clear_upd. rewrite (map_get_fn_write_same kt vt m _ _ w Hok). reflexivity. }
+    rewrite Hgf. split; [ intros [] | intros Hne; exfalso; apply Hne; reflexivity ].
+  - rewrite (map_clear_upd_count kt vt m w Hok). reflexivity.
+Qed.
+(** MAP WF SURFACE (manifest-gated, zero-axiom): the STORED count field [map_count] (hence [len(m)]) EQUALS the
+    live-key support size — established by [map_make_typed], preserved by the raw update roots [map_upd] /
+    [map_rem] (under [Comparable kt]) and [map_clear_upd].  This DISCHARGES the "deeper MapWF" the
+    count-transition and finite surfaces deferred: the count is the true number of live keys (for value-equal-key
+    maps, the [Comparable] subset of the constructable maps — the float-key case stays the deferred frontier,
+    same boundary as [map_finite_surface]).  ⚠ Over the raw roots (the count-transition-surface level); the
+    guarded-IO-op lift is the remaining step. *)
+Definition map_wf_surface :=
+  (@map_make_typed_establishes_mapwf, @map_upd_preserves_mapwf,
+   @map_rem_preserves_mapwf, @map_clear_upd_establishes_mapwf).
+Print Assumptions map_wf_surface.
 
 (** ==================================================================================================
     WRONG-TAG ANTI-FORGERY (checkpoint-58 #3, maps).  The hypotheses below isolate the WRONG-TAG case

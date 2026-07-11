@@ -152,10 +152,11 @@ proof-only lemmas.  The model is the single map-key authority (no plugin-side ch
 STILL AHEAD —
 **(b)** closing the wider-acceptance gap (unconditional `map_set` finiteness via `key_eqb`-class enumeration
 for the constructable float/non-value-equal keys);
-**(c)** the deeper `MapWF` count-consistency (`NoDup keys` + `map_count = length keys`, i.e. `sz` = the real
-live-key count, upgrading the single `map_len_counts` vm_compute example to a theorem) — the RAW update-root
-count TRANSITION laws are landed (`map_count_transition_surface`: `map_count_write_same` +
-`map_upd`/`map_rem`/`map_clear_upd` +1/unchanged/pred/0 deltas on the stored field `map_count`), so MapWF now
-needs only the support↔count bridge (and lifting these to the guarded IO ops); **(d)** the same-tag forged
-over-count handle (the cp59 frontier).
+**(c)** ~~the deeper `MapWF` count-consistency~~ **LANDED** (`GoMap.map_wf_surface`): `MapWF` = `NoDup keys` +
+exact membership + `map_count = length keys`, so `map_count` = `len(m)` = the real live-key count. ESTABLISHED
+by `map_make_typed`, PRESERVED by the RAW update roots `map_upd`/`map_rem` (under `Comparable kt`) and
+`map_clear_upd` — built on the count-transition laws + a `filter (≠k)`-length lemma. Generalises the single
+`map_len_counts` vm_compute example to a theorem. REMAINING: lift preservation to the guarded IO ops
+(`map_set`/`map_delete`/`map_clear` — mechanical), and the float-key (non-`Comparable`) case (same deferred
+frontier as `map_finite_surface`); **(d)** the same-tag forged over-count handle (the cp59 frontier).
 11. Clean docs + full build.
