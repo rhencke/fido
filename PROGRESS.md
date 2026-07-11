@@ -148,10 +148,10 @@ Zero-axiom is gated by `Print Assumptions` in THREE flows (single-sourced here):
 `cmd_unified_surface` / `gosem_panic_free_surface` / `GoSlice.slice_get_bounds_surface` /
 `GoSlice.slice_index_ok_surface` (the comma-ok SAFE index slice_at_ok/arr_get_ok delivers element+true for a
 STRUCTURALLY in-range index (0 <= i < List.length) and zero_val+false out of range — the safe-by-construction
-panic-free slice/array read, the check-and-branch dual of the panicking slice_get. ⚠ Under the REPRESENTABILITY
-premise (length < 2^63, so the wrapped len = the true List.length via len_agrees_structural): the safe-index
-family guards against the WRAPPED len, faithful to the true length only on representable states — on a >2^63
-list len wraps, and only slice_get (the OOB-panicking op) consults the structural length on ALL states. Signed
+panic-free slice/array read, the check-and-branch dual of the panicking slice_get. FAITHFUL on ALL states, NO
+representability premise: the guard consults the STRUCTURAL List.length directly like slice_get — the whole
+family (slice_get, slice_at_ok/arr_get_ok, arr_set's evidence) now uses structural bounds, so there is no
+wrapped-len executable bad path; len_agrees_structural remains only as the emitted-len=structural seal. Signed
 bound covers both ends, so a negative index yields ok=false) /
 `GoCFG.blocks_cfg_surface` / `GoSwitch.value_switch_seal_surface` (the value-switch seal's
 `*_rejects_dup` proof authority) / `GoChan.chan_wrong_tag_antiforgery_surface` /
