@@ -161,12 +161,13 @@ already covered (only SHORTENS the FIFO) + a caller continuation out of scope, s
 transition and cannot break it. ⚠ SHAPE (buffer-length) only — a forged same-tag over-full handle stays the
 checkpoint-59 typed-liveness frontier; None-cap (proof-only unbounded bridge) is vacuous, the residual
 finite-vs-unbounded excision) /
-`GoHeap.chan_finite_surface` (checkpoint-61 #9 finite-vs-unbounded HALF: ChanFinite — every CERTIFIED channel
-has a bounded Some cap — ESTABLISHED by both constructors (make_chan Some 0, make_chan_buf Some (Z.to_nat n))
-and PRESERVED by send/recv/close (cap re-written unchanged by every primitive op; the receive combinators
-reuse the cap-invariant chan_recv_upd). So the certified channel path never yields an unbounded None-cap
-channel — None survives ONLY for nil handles + the proof-only concurrency bridge. Combined with
-chan_state_ok_surface, a certified channel's FIFO is bounded by a CONCRETE n) /
+`GoHeap.chan_finite_surface` (checkpoint-61 #9 finite-vs-unbounded HALF: ChanFinite — a bounded Some cap — is
+an INDUCTIVE invariant of the PRIMITIVE ops: ESTABLISHED by both constructors (make_chan Some 0, make_chan_buf
+Some (Z.to_nat n)) and PRESERVED by send/recv/close (cap re-written unchanged). So a channel built by the
+allocators and evolved through send/recv/close stays finite. ⚠ PRESERVATION, not a global confinement theorem
+— chan_cap still reads None for nil/forged-absent/bridge cells (not characterised), and the comma-ok/select
+receive combinators are continuation-parametric (dequeue is cap-invariant but the final world is the caller's),
+OUT OF SCOPE. For a channel where both ChanFinite and ChanCapOk hold, the FIFO is bounded by a concrete n) /
 `GoHeap.heap_alloc_safety_surface` (the positive-liveness half: the
 ptr/ref/map/chan allocator nonzero + live-cell + end-to-end panic-free-deref cone backing the `&x`
 address-of public claim) / `GoHeap.ref_addr_of_surface` (the address-of/assignment SEMANTICS the SPEC ledger

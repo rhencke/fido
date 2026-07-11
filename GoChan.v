@@ -574,12 +574,12 @@ Proof.
 Qed.
 
 (** ---- ChanFinite: certified channels are BOUNDED (the finite-vs-unbounded half of checkpoint-61 #9) ----
-    [ChanFinite ch w] = [ch] has a FINITE capacity ([Some n]).  Real Go channels are ALWAYS finite; the model's
-    [chan_cap] admits [None] only for nil handles and the proof-only concurrency-bridge abstract channels.  This
-    file proves capacity is INVARIANT under the primitive [send] / [recv] / [close] (each re-writes [cap]
-    unchanged), so a bounded channel STAYS bounded; the constructors ESTABLISH it ([GoHeap]).  The single
-    coverage/scope statement lives with [GoHeap.chan_finite_surface] (one authority).  Combined with [ChanCapOk],
-    a certified channel's FIFO is bounded by a CONCRETE [n]. *)
+    [ChanFinite ch w] = [ch] has a FINITE capacity ([Some n]) — real Go channels are ALWAYS finite.  This file
+    proves capacity is INVARIANT under the primitive [send] / [recv] / [close] (each re-writes [cap] unchanged),
+    so [ChanFinite] is PRESERVED by them; the constructors ESTABLISH it ([GoHeap]).  ⚠ this is invariant
+    preservation, NOT a global confinement claim — [chan_cap] reads [None] for nil handles, forged / absent
+    cells, AND the proof-only concurrency-bridge channels, and this file does not characterise those.  The
+    single coverage/scope statement lives with [GoHeap.chan_finite_surface] (one authority). *)
 Definition ChanFinite {A} (ch : GoChan A) (w : World) : Prop := exists n : nat, chan_cap ch w = Some n.
 Lemma send_preserves_chanfinite : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (v : A) (w w' : World),
   ChanFinite ch w -> run_io (send tag ch v) w = ORet tt w' -> ChanFinite ch w'.

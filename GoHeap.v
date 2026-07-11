@@ -1079,14 +1079,16 @@ Proof. intros A tag w ch w' HV H. exists 0%nat. exact (make_chan_caps tag w ch w
 Lemma make_chan_buf_establishes_chanfinite : forall {A} (tag : GoTypeTag A) (n : GoInt) (w : World) ch w',
   AllocFrontierOk w -> run_io (make_chan_buf tag n) w = ORet ch w' -> ChanFinite ch w'.
 Proof. intros A tag n w ch w' HV H. exists (Z.to_nat (intraw n)). exact (make_chan_buf_caps tag n w ch w' HV H). Qed.
-(** CHANNEL FINITE SURFACE (manifest-gated, zero-axiom): every CERTIFIED channel is BOUNDED ([Some] cap) — the
-    finite-vs-unbounded half of checkpoint-61 #9.  ESTABLISHED by BOTH constructors and PRESERVED by [send] /
-    [recv] / [close] (capacity is re-written unchanged by every primitive op).  So the certified channel path
-    NEVER yields an unbounded ([None]-cap) channel — the [None] case survives ONLY for nil handles and the
-    proof-only concurrency-bridge abstract channels (its residual structural excision).  The comma-ok / select
-    receive combinators are dequeue-then-continue forms reusing the cap-invariant [chan_recv_upd], so they too
-    cannot un-bound a channel; not separately gated.  Combined with [chan_state_ok_surface], a certified
-    channel's FIFO is bounded by a CONCRETE [n]. *)
+(** CHANNEL FINITE SURFACE (manifest-gated, zero-axiom): [ChanFinite] (a bounded [Some] capacity) is an
+    INDUCTIVE invariant of the PRIMITIVE channel ops — BOTH constructors ESTABLISH it and [send] / [recv] /
+    [close] PRESERVE it (capacity is re-written unchanged).  So a channel built by [make_chan] / [make_chan_buf]
+    and evolved through [send] / [recv] / [close] STAYS finite — the certified-path finite-vs-unbounded half of
+    checkpoint-61 #9.  ⚠ This is invariant PRESERVATION, NOT a global confinement theorem: [chan_cap] still
+    reads [None] for nil handles, forged / absent cells, and proof-only concurrency-bridge channels (none
+    characterised here), and the comma-ok / select receive COMBINATORS are continuation-parametric — their
+    dequeue is cap-invariant but the final world is the caller's, so they are OUT OF SCOPE (not gated, not
+    asserted to preserve [ChanFinite]).  For a channel where BOTH [ChanFinite] and [chan_state_ok_surface]'s
+    [ChanCapOk] hold, the FIFO is bounded by a concrete [n]. *)
 Definition chan_finite_surface :=
   (@make_chan_establishes_chanfinite, @make_chan_buf_establishes_chanfinite,
    @send_preserves_chanfinite, @recv_preserves_chanfinite, @close_preserves_chanfinite).
