@@ -242,8 +242,8 @@ of send/receive/close: run_send_closed (send on a closed channel panics rt_send_
 (comma-ok receive from a closed EMPTY channel = (zero_val, false)), run_close_closed (close on a closed channel
 panics rt_close_closed) — plus the sequenced corollaries send_closed_panics (close then send) and
 double_close_panics (close then close). ⚠ SCOPE: FAITHFUL Go behaviors ONLY — the BLOCKING cases (send with no
-room, recv on empty-open — Go BLOCKS) are NOT gated here: the sequential model fails them loud, a cp61
-would-block bug tracked for the scheduler split, deliberately excluded from the faithful gate) /
+room, recv on empty-open — Go BLOCKS) are NOT gated here: the sequential model fails them loud, a would-block
+stand-in (a DEADLOCK the sequential model can't represent) tracked for the scheduler split, deliberately excluded from the faithful gate) /
 `GoHeap.heap_alloc_safety_surface` (the positive-liveness half: the
 ptr/ref/map/chan allocator nonzero + live-cell + end-to-end panic-free-deref cone backing the `&x`
 address-of public claim) / `GoHeap.ref_addr_of_surface` (the address-of/assignment SEMANTICS the SPEC ledger
@@ -289,7 +289,7 @@ slice that never faults), but DOES carry the len<=cap shape invariant) / `GoHeap
 `ORet` with the world still Live) / `GoHeap.live_chan_op_preserve_surface` (the case-split channel ops
 send/recv/close keep a live channel Live over the world after the outcome — covering their panic/block branches,
 not asserting `ORet` (blocking is intended-faithful only in the RELATIONAL authority; the shallow-IO would-block
-branch is CURRENTLY an inaccurate `OPanic` stand-in — checkpoint-61, fix tracked in plans/result-control-split.md);
+branch is an inaccurate `OPanic` stand-in — fix tracked in plans/result-control-split.md);
 **printer** + **emit** (compiled STANDALONE incl. `digits.v`, grep `^Axioms:`) cover the spine. A
 `Print Assumptions` under none of the three is not gated.
 
