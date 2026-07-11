@@ -162,7 +162,7 @@ ok=false) /
 `*_rejects_dup` proof authority) / `GoChan.chan_wrong_tag_antiforgery_surface` /
 `GoMap.map_wrong_tag_antiforgery_surface` / `GoHeap.ref_wrong_tag_antiforgery_surface` (the wrong-tag
 anti-forgery cones — TYPED-LIVENESS negatives, not origin provenance — for channels / maps / refs) /
-`GoMap.map_finite_surface` (checkpoint-61 #10 map finite-support: MapFinite — the live keys (map_get_fn <>
+`GoMap.map_finite_surface` (map finite-support: MapFinite — the live keys (map_get_fn <>
 None) are contained in a finite list — is an INDUCTIVE invariant ESTABLISHED by map_make_typed
 (unconditionally: fresh cell stores fun _ => None, loc-0 nil map reads None everywhere) and PRESERVED by
 map_delete/map_clear (unconditionally, any key type) and map_set (⚠ ONLY under Comparable kt — LOAD-BEARING:
@@ -172,13 +172,13 @@ MapKeysOk is a bool Fixpoint over GoTypeTag, referenced only by that erased proo
 RECURSIVE: every TMap node, outer key AND any
 nested in the value, must have a comparable key), so a map with an invalid key at ANY nesting depth (e.g.
 map[int]map[[]int]int) cannot be constructed THROUGH THIS ALLOCATOR (neg_noncomparable_key_map +
-neg_nested_noncomparable_key_map are the Fail witnesses). ⚠ cp62: ALLOCATOR-BOUNDARY only, NOT global tag
+neg_nested_noncomparable_key_map are the Fail witnesses). ⚠ ALLOCATOR-BOUNDARY only, NOT global tag
 unrepresentability and NOT renderability — the bad tag TMap (TSlice TI64) TI64 stays a constructible GoTypeTag
 (the bad tag stays a constructible GoTypeTag; a bad-key map VALUE is constructible too, map_empty=MkMap 0
 public). Emission-side the plugin has its OWN map-key rejection: go_type_of_tag (the tag→type renderer) fails
 loud on a SLICE-or-MAP key — the only FIXTURE-PINNED closure (negtests/neg_chan_bad_map_key: make_chan
 (TMap (TSlice TI64) TI64) aborts). The 2nd printer pp_type carries an analogous guard (pp_type_comparable_key)
-for struct-field map types but is UNPINNED (defensive, not verified coverage). cp62: MapKeysOk + these plugin
+for struct-field map types but is UNPINNED (defensive, not verified coverage). MapKeysOk + these plugin
 checks are DUPLICATE map-key authorities GoTypeDesc must unify.
 Residuals (GoTypeDesc frontier): named-struct-with-non-comparable-field keys uncaught by the plugin's
 under-approximating checks; MapKeysOk doesn't prove renderability — a MapKeysOk-passing map value that the
@@ -191,7 +191,7 @@ map_set finiteness-preservation is gated only for Comparable kt (value-equal), N
 NOT covered — a DEFERRED frontier (support stays finite, needs per-type key_eqb-class enumeration). So the
 finiteness guarantee is for VALUE-EQUAL-key maps, a SUBSET of the (Go-comparable) constructable maps. ⚠ PRESERVATION, NOT a global "every map is
 finite" theorem — the function rep DOES admit an infinite-support f (a raw/forged handle carrying one is NOT
-MapFinite, the cp59 frontier); the certified ops merely cannot PRODUCE one from a finite map. ⚠ finite SUPPORT
+MapFinite, the typed-liveness frontier); the certified ops merely cannot PRODUCE one from a finite map. ⚠ finite SUPPORT
 here; the STRONGER len(m) = |support| count-consistency is MapWF, GoMap.map_wf_surface below) /
 `GoMap.map_count_transition_surface` (the STORED count field map_count steps correctly through the
 map_cell_ok-guarded RAW update ROOTS (the world transformers map_upd/map_rem/map_clear_upd, NOT the IO ops that
@@ -199,7 +199,7 @@ wrap them): map_count_write_same read-back (map_count after a map_write to a tag
 + deltas — map_upd +1 (new) / unchanged (existing), map_rem Nat.pred (present) / unchanged (absent),
 map_clear_upd 0. ⚠ RAW-TRANSFORMER transitions on map_count ONLY — NOT map_set/map_delete/map_clear IO
 semantics, NOT len(m) (= map_size); map_count = live-key support size is MapWF, GoMap.map_wf_surface below) /
-`GoMap.map_wf_surface` (checkpoint-61 #10 map COUNT-CONSISTENCY: MapWF — a NoDup key list EXACTLY enumerates
+`GoMap.map_wf_surface` (map COUNT-CONSISTENCY: MapWF — a NoDup key list EXACTLY enumerates
 the live-key support (map_get_fn <> None) AND its length is the stored map_count, so map_count = len(m) is the
 TRUE number of live keys — the count-transition surface's deferred "deeper MapWF", now PROVED. INDUCTIVE
 invariant ESTABLISHED by map_make_typed (empty support, count 0, unconditionally) and PRESERVED by the guarded
@@ -214,7 +214,7 @@ maps, NOT a global "every map is count-consistent" theorem) /
 k2 unchanged: map_get_set_diff/map_get_delete_diff); the nil-map read (map_get_empty: None for every key, any
 world); get-or-default (map_get_or_hit/miss). Same-key write/read + frame laws carry Comparable kt (frame also
 k1 != k2 + tag-correct cell); clear/empty/get_or need no key-comparability) /
-`GoHeap.chan_state_ok_surface` (checkpoint-61 #9 "no over-full channel" INVARIANT ChanCapOk — a bounded
+`GoHeap.chan_state_ok_surface` ("no over-full channel" INVARIANT ChanCapOk — a bounded
 channel's FIFO length <= cap — the channel analogue of SliceWF: gated across every PRIMITIVE state transition
 — ESTABLISHED at construction by BOTH allocators (make_chan unbuffered + make_chan_buf: empty buffer, finite
 cap; under AllocFrontierOk — nonzero-location allocation) and by every send (send_establishes_chancapok via
@@ -223,9 +223,9 @@ shortens, or closed-drained leaves w unchanged) and close (flag-only). ⚠ the c
 NOT separately gated — dequeue-then-CONTINUE forms whose channel effect is the same chan_recv_upd dequeue
 already covered (only SHORTENS the FIFO) + a caller continuation out of scope, so they add no buffer-growing
 transition and cannot break it. ⚠ SHAPE (buffer-length) only — a forged same-tag over-full handle stays the
-checkpoint-59 typed-liveness frontier; None-cap (proof-only unbounded bridge) is vacuous, the residual
+typed-liveness frontier; None-cap (proof-only unbounded bridge) is vacuous, the residual
 finite-vs-unbounded excision) /
-`GoHeap.chan_finite_surface` (checkpoint-61 #9 finite-vs-unbounded HALF: ChanFinite — a bounded Some cap — is
+`GoHeap.chan_finite_surface` (finite-vs-unbounded HALF: ChanFinite — a bounded Some cap — is
 an INDUCTIVE invariant of the PRIMITIVE ops: ESTABLISHED by both constructors under AllocFrontierOk
 (nonzero-location allocation; make_chan Some 0, make_chan_buf Some (Z.to_nat n)) and PRESERVED unconditionally
 by send/recv/close (cap re-written unchanged). So a channel built by the allocators and evolved through
@@ -254,7 +254,7 @@ struct assign/deref value-fidelity round-trip + slice read/write NO-PANIC for BO
 direction — slice_idx_{get,set}_bad_shape_rejected fail loud (`exists p, run_io = OPanic p w`, no exported
 marker) on a cap<len malformed header, pinning the index guard BOTH ways as slice_bulk_write_surface does for
 clear/copy; ⚠ that rejects ONLY the nat-shape — a same-tag alias over a live backing still passes (typed
-liveness, not provenance, the checkpoint-59 frontier); slice transformers subslice/append are out of
+liveness, not provenance, the typed-liveness frontier); slice transformers subslice/append are out of
 scope; the aggregate make-allocator no-panic cone matches the scalar families) / `GoHeap.slice_bulk_write_surface`
 (the bulk slice ops clear/copy — tag-aware fail-loud guarded in the def; the GATED facts are: PRESERVE
 AllocFrontierOk on the live path (valid_run_slice_clear_h/copy) AND REJECT-WHEN-GUARD-FALSE by failing loud —
@@ -264,16 +264,16 @@ shape for clear, copy's DST, and copy's SRC. So a shape-malformed / dangling / w
 succeed, and the live path stays AllocFrontierOk; the per-cell writes are tag-aware BY CONSTRUCTION (no
 fabricate/retype — a def property, not a separate gated theorem). ⚠ rejects malformed/dangling/wrong-tag, NOT
 every forged handle — a same-tag alias over a live backing passes (typed liveness, not provenance)) /
-`GoHeap.slice_transformer_wf_surface` (checkpoint-61 step-4 transformer half, sh_len<=sh_cap SliceWF pinned
+`GoHeap.slice_transformer_wf_surface` (the transformer half, sh_len<=sh_cap SliceWF pinned
 BOTH ways: REJECT a malformed cap<len parent — subslice/slice_append _bad_shape_rejected fail loud (exists p =
 OPanic p w, no exported marker; subslice must guard on len<=cap or its b<=cap bounds check would silently
 NORMALIZE a forged parent into a clean child) — AND PRESERVE well-formedness on every ORet output
 (_preserves_wf). So a transformer neither launders nor manufactures a malformed header; the only malformed
 source, a raw mkSliceH forgery, is caught by the index ops' bad_shape rejection, closing the well-formed slice
-algebra. ⚠ nat-SHAPE only, NOT backing-object identity — the same-tag-alias case stays the checkpoint-59
+algebra. ⚠ nat-SHAPE only, NOT backing-object identity — the same-tag-alias case stays the typed-liveness
 frontier) /
 `GoHeap.live_handle_surface`
-(the checkpoint-59 step-3 REUSABLE `Live*` family — the four SCALAR predicates LiveRef/LivePtr/LiveChan/LiveMap,
+(the REUSABLE `Live*` family — the four SCALAR predicates LiveRef/LivePtr/LiveChan/LiveMap,
 one canonical typed-liveness interface over the per-family checks; allocators produce Live*) /
 `GoHeap.live_aggregate_handle_surface` (the two AGGREGATE peers completing the six-handle family — LiveSlice
 = WELL-FORMED shape (sh_len<=sh_cap) + whole [0,cap) backing live, with LiveSlice_index_live the payoff (an
