@@ -168,30 +168,66 @@ Definition arr_get_ok {A B} (tag : GoTypeTag A) (a : GoArray A) (i : GoInt) (k :
 Lemma arr_data_lit : forall {A} (tag : GoTypeTag A) (l : list A), arr_data (arr_lit tag l) = l.
 Proof. reflexivity. Qed.
 
-(** [slice_at_ok] / [arr_get_ok] CORRECTNESS: the comma-ok safe index delivers [(xs[i], true)] IN RANGE and
-    [(zero_val, false)] OUT of range — the safe-by-construction read that CANNOT panic (the caller must handle
-    [ok = false]).  The SIGNED guard [0 <= i < len] covers BOTH ends, so a NEGATIVE index is out of range
-    (yields [ok = false]), never a wraparound.  IO-level equations — the safe index is world-independent. *)
+(** [slice_at_ok] / [arr_get_ok] STRUCTURAL CORRECTNESS: for a REPRESENTABLE slice/array (length < 2^63, so
+    the wrapped [len] equals the TRUE [List.length] — [len_agrees_structural]), the comma-ok safe index delivers
+    [(xs[i], true)] when [i] is STRUCTURALLY in range ([0 <= i < List.length xs]) and [(zero_val, false)] when
+    out of range ([i < 0] OR [List.length xs <= i]).  The SIGNED bound covers BOTH ends, so a NEGATIVE index
+    yields [ok = false].  ⚠ The representability premise is ESSENTIAL (the module note): the safe-index family
+    guards against the WRAPPED [len], which decides against the TRUE length only on representable states — on a
+    > 2^63-element list [len] wraps; only [slice_get] (the OOB-PANICKING op) consults the structural length on
+    ALL states.  IO-level equations — the safe index is world-independent. *)
 Lemma slice_at_ok_in_range : forall {A B} (tag : GoTypeTag A) (xs : GoSlice A) (i : GoInt) (k : A -> bool -> IO B),
-  (Z.leb 0 (intraw i) && Z.ltb (intraw i) (intraw (len xs)))%bool = true ->
+  (Z.of_nat (List.length xs) < 9223372036854775808)%Z ->
+  (0 <= intraw i < Z.of_nat (List.length xs))%Z ->
   slice_at_ok tag xs i k = k (go_list_nth xs (Z.to_nat (intraw i)) (zero_val tag)) true.
-Proof. intros A B tag xs i k H. unfold slice_at_ok. rewrite H. reflexivity. Qed.
+Proof.
+  intros A B tag xs i k Hrep [Hlo Hhi]. unfold slice_at_ok. rewrite (len_agrees_structural xs Hrep).
+  assert (Hg : (Z.leb 0 (intraw i) && Z.ltb (intraw i) (Z.of_nat (List.length xs)))%bool = true).
+  { apply andb_true_intro. split.
+    - apply (proj2 (Z.leb_le 0 (intraw i))). exact Hlo.
+    - apply (proj2 (Z.ltb_lt (intraw i) (Z.of_nat (List.length xs)))). exact Hhi. }
+  rewrite Hg. reflexivity.
+Qed.
 Lemma slice_at_ok_oob : forall {A B} (tag : GoTypeTag A) (xs : GoSlice A) (i : GoInt) (k : A -> bool -> IO B),
-  (Z.leb 0 (intraw i) && Z.ltb (intraw i) (intraw (len xs)))%bool = false ->
+  (Z.of_nat (List.length xs) < 9223372036854775808)%Z ->
+  (intraw i < 0 \/ Z.of_nat (List.length xs) <= intraw i)%Z ->
   slice_at_ok tag xs i k = k (zero_val tag) false.
-Proof. intros A B tag xs i k H. unfold slice_at_ok. rewrite H. reflexivity. Qed.
+Proof.
+  intros A B tag xs i k Hrep Hout. unfold slice_at_ok. rewrite (len_agrees_structural xs Hrep).
+  destruct (Z.leb 0 (intraw i) && Z.ltb (intraw i) (Z.of_nat (List.length xs)))%bool eqn:E.
+  - exfalso. apply andb_prop in E. destruct E as [H1 H2].
+    apply Z.leb_le in H1. apply Z.ltb_lt in H2. destruct Hout; lia.
+  - reflexivity.
+Qed.
 Lemma arr_get_ok_in_range : forall {A B} (tag : GoTypeTag A) (a : GoArray A) (i : GoInt) (k : A -> bool -> IO B),
-  (Z.leb 0 (intraw i) && Z.ltb (intraw i) (intraw (len (arr_data a))))%bool = true ->
+  (Z.of_nat (List.length (arr_data a)) < 9223372036854775808)%Z ->
+  (0 <= intraw i < Z.of_nat (List.length (arr_data a)))%Z ->
   arr_get_ok tag a i k = k (go_list_nth (arr_data a) (Z.to_nat (intraw i)) (zero_val tag)) true.
-Proof. intros A B tag a i k H. unfold arr_get_ok. rewrite H. reflexivity. Qed.
+Proof.
+  intros A B tag a i k Hrep [Hlo Hhi]. unfold arr_get_ok. rewrite (len_agrees_structural (arr_data a) Hrep).
+  assert (Hg : (Z.leb 0 (intraw i) && Z.ltb (intraw i) (Z.of_nat (List.length (arr_data a))))%bool = true).
+  { apply andb_true_intro. split.
+    - apply (proj2 (Z.leb_le 0 (intraw i))). exact Hlo.
+    - apply (proj2 (Z.ltb_lt (intraw i) (Z.of_nat (List.length (arr_data a))))). exact Hhi. }
+  rewrite Hg. reflexivity.
+Qed.
 Lemma arr_get_ok_oob : forall {A B} (tag : GoTypeTag A) (a : GoArray A) (i : GoInt) (k : A -> bool -> IO B),
-  (Z.leb 0 (intraw i) && Z.ltb (intraw i) (intraw (len (arr_data a))))%bool = false ->
+  (Z.of_nat (List.length (arr_data a)) < 9223372036854775808)%Z ->
+  (intraw i < 0 \/ Z.of_nat (List.length (arr_data a)) <= intraw i)%Z ->
   arr_get_ok tag a i k = k (zero_val tag) false.
-Proof. intros A B tag a i k H. unfold arr_get_ok. rewrite H. reflexivity. Qed.
+Proof.
+  intros A B tag a i k Hrep Hout. unfold arr_get_ok. rewrite (len_agrees_structural (arr_data a) Hrep).
+  destruct (Z.leb 0 (intraw i) && Z.ltb (intraw i) (Z.of_nat (List.length (arr_data a))))%bool eqn:E.
+  - exfalso. apply andb_prop in E. destruct E as [H1 H2].
+    apply Z.leb_le in H1. apply Z.ltb_lt in H2. destruct Hout; lia.
+  - reflexivity.
+Qed.
 (** SLICE/ARRAY SAFE-INDEX SURFACE (manifest-gated, zero-axiom): the comma-ok safe index [slice_at_ok] /
-    [arr_get_ok] delivers the element + [true] in range and the zero value + [false] out of range — the
-    safe-by-construction, panic-free slice/array read (the check-and-branch dual of the panicking [slice_get],
-    whose two-sided bounds pin lives in [slice_get_bounds_surface]). *)
+    [arr_get_ok] delivers the element + [true] for a STRUCTURALLY in-range index and the zero value + [false]
+    out of range, on a REPRESENTABLE slice/array (length < 2^63 — the [len_agrees_structural] premise; the
+    guard is against the wrapped [len], which equals the true length only there).  The safe-by-construction,
+    panic-free read — the check-and-branch dual of the panicking [slice_get] (structural on ALL states,
+    [slice_get_bounds_surface]). *)
 Definition slice_index_ok_surface :=
   (@slice_at_ok_in_range, @slice_at_ok_oob, @arr_get_ok_in_range, @arr_get_ok_oob).
 Print Assumptions slice_index_ok_surface.
