@@ -1057,9 +1057,9 @@ Qed.
 (** CHANNEL STATE-OK SURFACE (manifest-gated, zero-axiom): the "no over-full channel" invariant [ChanCapOk]
     (checkpoint-61 #9) — a bounded channel's FIFO length is [<= cap], the analogue of SliceWF for slices.
     Gated across every PRIMITIVE state transition: ESTABLISHED at construction by BOTH allocators
-    ([make_chan] unbuffered + [make_chan_buf]), by every [send] (the sole buffer-GROWING op — its [chan_room]
-    gate forces [length < cap] before the append), and PRESERVED by the primitive [recv] (dequeue) and [close]
-    (flag-only).  ⚠ SCOPE: the comma-ok / select RECEIVE COMBINATORS ([recv_ok]/[select_recv2]/
+    ([make_chan] unbuffered + [make_chan_buf], under [AllocFrontierOk] — nonzero-location allocation) and by
+    every [send] (the sole buffer-GROWING op — its [chan_room] gate forces [length < cap] before the append),
+    and PRESERVED by the primitive [recv] (dequeue) and [close] (flag-only).  ⚠ SCOPE: the comma-ok / select RECEIVE COMBINATORS ([recv_ok]/[select_recv2]/
     [select_recv_default]) are NOT separately gated — they are dequeue-then-CONTINUE forms whose channel effect
     is exactly the same [chan_recv_upd] dequeue already covered by [recv_preserves_chancapok] (it only SHORTENS
     the FIFO), followed by a caller continuation whose final world is out of scope; they add NO buffer-growing
@@ -1080,8 +1080,9 @@ Lemma make_chan_buf_establishes_chanfinite : forall {A} (tag : GoTypeTag A) (n :
   AllocFrontierOk w -> run_io (make_chan_buf tag n) w = ORet ch w' -> ChanFinite ch w'.
 Proof. intros A tag n w ch w' HV H. exists (Z.to_nat (intraw n)). exact (make_chan_buf_caps tag n w ch w' HV H). Qed.
 (** CHANNEL FINITE SURFACE (manifest-gated, zero-axiom): [ChanFinite] (a bounded [Some] capacity) is an
-    INDUCTIVE invariant of the PRIMITIVE channel ops — BOTH constructors ESTABLISH it and [send] / [recv] /
-    [close] PRESERVE it (capacity is re-written unchanged).  So a channel built by [make_chan] / [make_chan_buf]
+    INDUCTIVE invariant of the PRIMITIVE channel ops — BOTH constructors ESTABLISH it under [AllocFrontierOk]
+    (the allocator mints a NONZERO location, else a loc-0 channel would read [None]) and [send] / [recv] /
+    [close] PRESERVE it unconditionally (capacity is re-written unchanged).  So a channel built by [make_chan] / [make_chan_buf]
     and evolved through [send] / [recv] / [close] STAYS finite — the certified-path finite-vs-unbounded half of
     checkpoint-61 #9.  ⚠ This is invariant PRESERVATION, NOT a global confinement theorem: [chan_cap] still
     reads [None] for nil handles, forged / absent cells, and proof-only concurrency-bridge channels (none

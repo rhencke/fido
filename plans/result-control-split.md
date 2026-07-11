@@ -122,9 +122,10 @@ PRIMITIVE channel state transition — ESTABLISHED at construction by BOTH alloc
 `select_recv_default`) are dequeue-then-continue forms reusing the covered `chan_recv_upd` dequeue + a caller
 continuation, so they add no buffer-growing transition; not separately gated. The finite-vs-unbounded half has
 its inductive invariant: `ChanFinite` (gated `chan_finite_surface`) — a bounded `Some` cap — is ESTABLISHED by
-both constructors and PRESERVED by `send`/`recv`/`close`, so a channel built by the allocators and evolved
-through those ops stays finite (invariant preservation, NOT a global confinement theorem — `None` still reads
-for nil/forged-absent/bridge cells, and the CPS receive combinators are out of scope). STILL AHEAD — the
+both constructors under `AllocFrontierOk` (nonzero-location allocation) and PRESERVED by `send`/`recv`/`close`,
+so a channel built by the allocators and evolved through those ops stays finite (invariant preservation, NOT a
+global confinement theorem — `None` still reads for nil/forged-absent/bridge cells, and the CPS receive
+combinators are out of scope). STILL AHEAD — the
 STRUCTURAL excision of `None` from `chan_cap` (the proof-only concurrency bridge still needs it), and the
 same-tag over-full forged handle (the checkpoint-59 typed-liveness frontier).
 10. Map representation. 11. Clean docs + full build.

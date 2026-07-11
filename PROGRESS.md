@@ -153,18 +153,19 @@ anti-forgery cones — TYPED-LIVENESS negatives, not origin provenance — for c
 `GoHeap.chan_state_ok_surface` (checkpoint-61 #9 "no over-full channel" INVARIANT ChanCapOk — a bounded
 channel's FIFO length <= cap — the channel analogue of SliceWF: gated across every PRIMITIVE state transition
 — ESTABLISHED at construction by BOTH allocators (make_chan unbuffered + make_chan_buf: empty buffer, finite
-cap) and by every send (send_establishes_chancapok via send_respects_capacity — the room [length<cap] gate
-forces it before the append), PRESERVED by recv (dequeue shortens, or closed-drained leaves w unchanged) and
-close (flag-only). ⚠ the comma-ok/select RECEIVE COMBINATORS (recv_ok/select_recv2/select_recv_default) are
+cap; under AllocFrontierOk — nonzero-location allocation) and by every send (send_establishes_chancapok via
+send_respects_capacity — the room [length<cap] gate forces it before the append), PRESERVED by recv (dequeue
+shortens, or closed-drained leaves w unchanged) and close (flag-only). ⚠ the comma-ok/select RECEIVE COMBINATORS (recv_ok/select_recv2/select_recv_default) are
 NOT separately gated — dequeue-then-CONTINUE forms whose channel effect is the same chan_recv_upd dequeue
 already covered (only SHORTENS the FIFO) + a caller continuation out of scope, so they add no buffer-growing
 transition and cannot break it. ⚠ SHAPE (buffer-length) only — a forged same-tag over-full handle stays the
 checkpoint-59 typed-liveness frontier; None-cap (proof-only unbounded bridge) is vacuous, the residual
 finite-vs-unbounded excision) /
 `GoHeap.chan_finite_surface` (checkpoint-61 #9 finite-vs-unbounded HALF: ChanFinite — a bounded Some cap — is
-an INDUCTIVE invariant of the PRIMITIVE ops: ESTABLISHED by both constructors (make_chan Some 0, make_chan_buf
-Some (Z.to_nat n)) and PRESERVED by send/recv/close (cap re-written unchanged). So a channel built by the
-allocators and evolved through send/recv/close stays finite. ⚠ PRESERVATION, not a global confinement theorem
+an INDUCTIVE invariant of the PRIMITIVE ops: ESTABLISHED by both constructors under AllocFrontierOk
+(nonzero-location allocation; make_chan Some 0, make_chan_buf Some (Z.to_nat n)) and PRESERVED unconditionally
+by send/recv/close (cap re-written unchanged). So a channel built by the allocators and evolved through
+send/recv/close stays finite. ⚠ PRESERVATION, not a global confinement theorem
 — chan_cap still reads None for nil/forged-absent/bridge cells (not characterised), and the comma-ok/select
 receive combinators are continuation-parametric (dequeue is cap-invariant but the final world is the caller's),
 OUT OF SCOPE. For a channel where both ChanFinite and ChanCapOk hold, the FIFO is bounded by a concrete n) /

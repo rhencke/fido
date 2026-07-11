@@ -576,7 +576,8 @@ Qed.
 (** ---- ChanFinite: certified channels are BOUNDED (the finite-vs-unbounded half of checkpoint-61 #9) ----
     [ChanFinite ch w] = [ch] has a FINITE capacity ([Some n]) — real Go channels are ALWAYS finite.  This file
     proves capacity is INVARIANT under the primitive [send] / [recv] / [close] (each re-writes [cap] unchanged),
-    so [ChanFinite] is PRESERVED by them; the constructors ESTABLISH it ([GoHeap]).  ⚠ this is invariant
+    so [ChanFinite] is PRESERVED by them; the constructors ESTABLISH it under [AllocFrontierOk] ([GoHeap] — the
+    allocator must mint a NONZERO location, else a loc-0 channel reads [None]).  ⚠ this is invariant
     preservation, NOT a global confinement claim — [chan_cap] reads [None] for nil handles, forged / absent
     cells, AND the proof-only concurrency-bridge channels, and this file does not characterise those.  The
     single coverage/scope statement lives with [GoHeap.chan_finite_surface] (one authority). *)
