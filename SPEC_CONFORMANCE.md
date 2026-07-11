@@ -195,9 +195,11 @@ to the CFG; control-flow coverage is demo-by-demo, golden-locked).
   ✓ emittable + DENOTED into R2 (`denote_stmt GsDefer = CDfr d (CRet tt)`, `rc_defer_lifo`/
   `rc_defer_panic`; `defer panic(v)` rejected by `panic_free_gate_defer`). (B) shallow `IO`
   has NO defer meaning → FAILS LOUD (`GoExtractionHooks.defer_call` panics, not a silent no-op).
-- **Send / Receive / Select / Close** — ✓ send-on-closed panics (`send_closed_panics`), comma-
-  ok recv closed+drained ⇒ (zero,false) (`recv_ok_closed_empty`), double-close panics
-  (`double_close_panics`), `select` lowers to faithful Go (`select_recv2`/`select_recv_default`,
+- **Send / Receive / Select / Close** — ✓ send-on-closed panics (`run_send_closed`, the DIRECT
+  closed-state law; `send_closed_panics` = the close-then-send sequence), comma-ok recv
+  closed+drained ⇒ (zero,false) (`recv_ok_closed_empty`), close-on-closed panics (`run_close_closed`;
+  `double_close_panics` = the close-then-close sequence) — the direct-per-operation closed-state
+  evidence gated in `chan_semantics_surface`; `select` lowers to faithful Go (`select_recv2`/`select_recv_default`,
   closed-drained readiness `sel_ready_cl`). Relational/operational select layer axiom-free
   (`CSelect` first-class, `rstep_select` fires any ready case, `det_select_sound`/`_incomplete`/
   `_exact_unique`). ⚠ the SEQUENTIAL select MODEL is an unsound deterministic under-
