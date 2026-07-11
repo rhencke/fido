@@ -168,6 +168,34 @@ Definition arr_get_ok {A B} (tag : GoTypeTag A) (a : GoArray A) (i : GoInt) (k :
 Lemma arr_data_lit : forall {A} (tag : GoTypeTag A) (l : list A), arr_data (arr_lit tag l) = l.
 Proof. reflexivity. Qed.
 
+(** [slice_at_ok] / [arr_get_ok] CORRECTNESS: the comma-ok safe index delivers [(xs[i], true)] IN RANGE and
+    [(zero_val, false)] OUT of range — the safe-by-construction read that CANNOT panic (the caller must handle
+    [ok = false]).  The SIGNED guard [0 <= i < len] covers BOTH ends, so a NEGATIVE index is out of range
+    (yields [ok = false]), never a wraparound.  IO-level equations — the safe index is world-independent. *)
+Lemma slice_at_ok_in_range : forall {A B} (tag : GoTypeTag A) (xs : GoSlice A) (i : GoInt) (k : A -> bool -> IO B),
+  (Z.leb 0 (intraw i) && Z.ltb (intraw i) (intraw (len xs)))%bool = true ->
+  slice_at_ok tag xs i k = k (go_list_nth xs (Z.to_nat (intraw i)) (zero_val tag)) true.
+Proof. intros A B tag xs i k H. unfold slice_at_ok. rewrite H. reflexivity. Qed.
+Lemma slice_at_ok_oob : forall {A B} (tag : GoTypeTag A) (xs : GoSlice A) (i : GoInt) (k : A -> bool -> IO B),
+  (Z.leb 0 (intraw i) && Z.ltb (intraw i) (intraw (len xs)))%bool = false ->
+  slice_at_ok tag xs i k = k (zero_val tag) false.
+Proof. intros A B tag xs i k H. unfold slice_at_ok. rewrite H. reflexivity. Qed.
+Lemma arr_get_ok_in_range : forall {A B} (tag : GoTypeTag A) (a : GoArray A) (i : GoInt) (k : A -> bool -> IO B),
+  (Z.leb 0 (intraw i) && Z.ltb (intraw i) (intraw (len (arr_data a))))%bool = true ->
+  arr_get_ok tag a i k = k (go_list_nth (arr_data a) (Z.to_nat (intraw i)) (zero_val tag)) true.
+Proof. intros A B tag a i k H. unfold arr_get_ok. rewrite H. reflexivity. Qed.
+Lemma arr_get_ok_oob : forall {A B} (tag : GoTypeTag A) (a : GoArray A) (i : GoInt) (k : A -> bool -> IO B),
+  (Z.leb 0 (intraw i) && Z.ltb (intraw i) (intraw (len (arr_data a))))%bool = false ->
+  arr_get_ok tag a i k = k (zero_val tag) false.
+Proof. intros A B tag a i k H. unfold arr_get_ok. rewrite H. reflexivity. Qed.
+(** SLICE/ARRAY SAFE-INDEX SURFACE (manifest-gated, zero-axiom): the comma-ok safe index [slice_at_ok] /
+    [arr_get_ok] delivers the element + [true] in range and the zero value + [false] out of range — the
+    safe-by-construction, panic-free slice/array read (the check-and-branch dual of the panicking [slice_get],
+    whose two-sided bounds pin lives in [slice_get_bounds_surface]). *)
+Definition slice_index_ok_surface :=
+  (@slice_at_ok_in_range, @slice_at_ok_oob, @arr_get_ok_in_range, @arr_get_ok_oob).
+Print Assumptions slice_index_ok_surface.
+
 
 (** Array VALUE-COPY (the defining array-vs-slice distinction): [b := arr_set a i v] is
     [a] with element [i] replaced — a FUNCTIONAL update, so [a] is UNCHANGED (value
