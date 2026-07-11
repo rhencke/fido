@@ -216,8 +216,10 @@ make install-hooks # activate the pre-commit hook (once after clone)
 
 Gotchas: **`gofmt` is load-bearing** (`make extract` runs it; do not remove). **Extraction is a
 side effect of compiling `main.v`** — dune doesn't track it; the build forces re-extraction; do
-NOT "fix" a missing `.go` by touching `main.v`. **Pre-commit hook** (`make install-hooks`)
-re-extracts + auto-stages Go, so committed `*.go` can't drift from prover output.
+NOT "fix" a missing `.go` by touching `main.v`. **The generated `*.go` is gitignored + never committed**
+(cp62 byte-diet): `make extract` regenerates it and `make check` re-verifies, so it can never drift. **Pre-commit
+hook** (`make install-hooks`) re-extracts on any `.v`/plugin change and SEALS the tree — a commit fails
+fail-closed if any `*.go` is ever tracked (`make check` enforces the same seal for CI).
 
 ## Where the detail lives
 

@@ -298,4 +298,5 @@ branch is CURRENTLY an inaccurate `OPanic` stand-in — checkpoint-61, fix track
   (`plugin/smart-ctor-gate.sh`), `emit-demo`, gofmt, `go vet`.
 - `make emit-verify` / `make printer-verify` — local mirrors. `make negtest` — fail-closed
   harness.
-- Pre-commit hook: re-extracts + auto-stages Go; anti-axiom declaration scan.
+- Pre-commit hook: re-extracts on `.v`/plugin change and SEALS the tree (fail-closed if any `*.go` is
+  tracked — the generated Go is gitignored, never committed); anti-axiom declaration scan.
