@@ -50,7 +50,7 @@ Definition map_empty {K V : Type} : GoMap K V := MkMap 0.
     ⚠ SCOPE — an ALLOCATOR-BOUNDARY gate, NOT global tag unrepresentability nor a renderability certificate: the
     bad tag [TMap (TSlice TI64) TI64] stays a constructible [GoTypeTag] term, and a bad-key map VALUE is
     constructible too ([map_empty] = [MkMap 0], public).  Emission-side the trusted plugin has its OWN map-key
-    rejection: the tag→type renderer [go_type_of_tag]/[coq_goty_of_tag] fails loud on a non-comparable key — the
+    rejection: the tag→type renderer [go_type_of_tag]/[coq_goty_of_tag] fails loud on a SLICE-or-MAP key — the
     only FIXTURE-PINNED closure ([negtests/neg_chan_bad_map_key]: [make_chan (TMap (TSlice TI64) TI64)] aborts).
     The second type printer [pp_type] carries an analogous guard ([pp_type_comparable_key], a recursive mirror of
     [GoComparableType], for struct-field map types), but it is UNPINNED — a defensive guard, not verified

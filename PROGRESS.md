@@ -176,7 +176,7 @@ neg_nested_noncomparable_key_map are the Fail witnesses). ⚠ cp62: ALLOCATOR-BO
 unrepresentability and NOT renderability — the bad tag TMap (TSlice TI64) TI64 stays a constructible GoTypeTag
 (the bad tag stays a constructible GoTypeTag; a bad-key map VALUE is constructible too, map_empty=MkMap 0
 public). Emission-side the plugin has its OWN map-key rejection: go_type_of_tag (the tag→type renderer) fails
-loud on a non-comparable key — the only FIXTURE-PINNED closure (negtests/neg_chan_bad_map_key: make_chan
+loud on a SLICE-or-MAP key — the only FIXTURE-PINNED closure (negtests/neg_chan_bad_map_key: make_chan
 (TMap (TSlice TI64) TI64) aborts). The 2nd printer pp_type carries an analogous guard (pp_type_comparable_key)
 for struct-field map types but is UNPINNED (defensive, not verified coverage). cp62: MapKeysOk + these plugin
 checks are DUPLICATE map-key authorities GoTypeDesc must unify.

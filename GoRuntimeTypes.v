@@ -460,7 +460,7 @@ Qed.
     [Fail] witnesses).  ⚠ ALLOCATOR-BOUNDARY only, NOT global tag unrepresentability: the bad map TAG stays a
     constructible [GoTypeTag], and a bad-key map VALUE is constructible too ([GoMap.map_empty] = [MkMap 0],
     public).  Emission-side the trusted plugin has its OWN map-key rejection: the tag→type renderer
-    [go_type_of_tag] fails loud on a non-comparable key — the only FIXTURE-PINNED closure
+    [go_type_of_tag] fails loud on a SLICE-or-MAP key — the only FIXTURE-PINNED closure
     ([negtests/neg_chan_bad_map_key]).  The second printer [pp_type] carries an analogous guard
     ([pp_type_comparable_key]) for struct-field map types but is UNPINNED (defensive, not verified coverage).
     cp62: [MapKeysOk] and these plugin checks are DUPLICATE map-key authorities the general certified type

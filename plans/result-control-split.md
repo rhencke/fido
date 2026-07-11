@@ -151,7 +151,7 @@ is a `bool` `Fixpoint` over `GoTypeTag`, referenced only by that erased proof an
 this is NOT global tag unrepresentability and the model is NOT the single map-key authority — the bad tag stays a
 constructible `GoTypeTag`, a bad-key map VALUE is constructible too (`map_empty`=`MkMap 0`, public), and the
 trusted plugin renders tags independently.  Emission-side the plugin has its OWN map-key rejection:
-`go_type_of_tag` (the tag→type renderer) fails loud on a non-comparable key — the only FIXTURE-PINNED closure
+`go_type_of_tag` (the tag→type renderer) fails loud on a SLICE-or-MAP key — the only FIXTURE-PINNED closure
 (`negtests/neg_chan_bad_map_key`).  The 2nd printer `pp_type` carries an analogous guard
 (`pp_type_comparable_key`) for struct-field map types but is UNPINNED (defensive, not verified coverage) — so
 `MapKeysOk` (model) + these plugin checks are DUPLICATE map-key authorities that the general certified type

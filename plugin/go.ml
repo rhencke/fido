@@ -761,14 +761,14 @@ let print_u64_dec v = coq_string_to_ocaml (Printer.print_Z (coq_z_of_uint64 v))
 let print_hex_int n =             (* FAIL-CLOSED: print_hex's domain is N — a negative can never reach it *)
   if n < 0 then unsupported "a negative hex-literal operand (Go hex literals are unsigned)"
   else coq_string_to_ocaml (Printer.print_hex (coq_n_of_uint64 (Int64.of_int n)))
-(* A rendered Go type is a COMPARABLE map-key type iff it is not a slice or a map (funcs already fail to
-   render — [TArrow] -> [None] below).  Go structs are comparable iff all fields are; the current nominal
-   keys ([ListNode]/[ChanBox]) ARE comparable, so [GTNamed] -> true here — a non-comparable named-struct key is
-   the general certified type-authority ([GoTypeDesc]) frontier, not this outer check.  ⚠ cp62: the plugin
-   RENDERS [GoTypeTag]s independently of [GoMap.map_make_typed]'s [MapKeysOk] gate, so WITHOUT this check
-   [make_chan (TMap (TSlice TI64) TI64)] would emit [chan map[[]int64]int64], which Go rejects; the check makes
-   the renderer FAIL LOUD on any non-comparable map key at ANY nesting (every [TMap] node hits this guard as
-   [coq_goty_of_tag] recurses). *)
+(* Reject the CLEAR non-comparable Go map-key classes reachable here — a SLICE or a MAP key (funcs already fail
+   to render, [TArrow] -> [None] below).  This is an UNDER-approximation of true Go comparability: a [GTNamed]
+   nominal struct is treated as comparable (the current keys [ListNode]/[ChanBox] are; a struct with a
+   non-comparable field would NOT be caught — the [GoTypeDesc] frontier).  ⚠ cp62: the plugin RENDERS
+   [GoTypeTag]s independently of [GoMap.map_make_typed]'s [MapKeysOk] gate, so WITHOUT this check
+   [make_chan (TMap (TSlice TI64) TI64)] would emit [chan map[[]int64]int64], which Go rejects; WITH it the
+   renderer fails loud on any SLICE-OR-MAP map key at any nesting (every [TMap] node hits this guard as
+   [coq_goty_of_tag] recurses) — the [make_chan] case is fixture-pinned by [negtests/neg_chan_bad_map_key]. *)
 let goty_comparable_key = function
   | Printer.GTSlice _ | Printer.GTMap (_, _) -> false
   | _ -> true
