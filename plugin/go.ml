@@ -763,11 +763,14 @@ let print_hex_int n =             (* FAIL-CLOSED: print_hex's domain is N — a 
   else coq_string_to_ocaml (Printer.print_hex (coq_n_of_uint64 (Int64.of_int n)))
 (* Reject the CLEAR non-comparable Go map-key classes reachable here — a SLICE or a MAP key (funcs already fail
    to render, [TArrow] -> [None] below).  This is an UNDER-approximation of true Go comparability: a [GTNamed]
-   nominal struct is treated as comparable.  SAFE for the CURRENT tag set: the model's named-struct [GoTypeTag]s
-   are the CLOSED nullary enumeration [TListNode]/[TChanBox] (both comparable — no slice/map field), and there is
-   NO generic named-struct tag, so a struct with a non-comparable field has NO [GoTypeTag] and is UNREPRESENTABLE
-   as a key here.  The frontier ([GTNamed] with a bad field) opens only when a generic named-struct tag is added
-   — the [GoTypeDesc] arc, which unifies the comparability authority.  ⚠ the plugin RENDERS
+   nominal struct is treated as comparable.  SAFE for the CURRENT tag set on TWO counts: (a) the only [GTNamed]
+   keys come from the CLOSED nullary enumeration [TListNode]/[TChanBox] (both comparable — no slice/map field);
+   there is NO generic named-struct tag, so a bad-field struct cannot be a [GTNamed] key at all.  (b) A bad-field
+   struct IS representable as an ANONYMOUS product ([TProd]) — but that is NOT [GTNamed]; [go_type_of_tag] returns
+   [None] for a [TProd] (no anonymous-product type name), so a [TProd] map type fails to render — the same [None]
+   that [negtests/neg_map_prod_value] pins for a [TProd] map value.
+   The [GTNamed]-with-a-bad-field frontier opens only when a generic named-struct tag is added — the [GoTypeDesc]
+   arc, which unifies the comparability authority.  ⚠ the plugin RENDERS
    [GoTypeTag]s independently of [GoMap.map_make_typed]'s [MapKeysOk] gate, so WITHOUT this check
    [make_chan (TMap (TSlice TI64) TI64)] would emit [chan map[[]int64]int64], which Go rejects; WITH it the
    renderer fails loud on any SLICE-OR-MAP map key at any nesting (every [TMap] node hits this guard as
