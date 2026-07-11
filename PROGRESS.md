@@ -180,11 +180,12 @@ loud on a SLICE-or-MAP key — the only FIXTURE-PINNED closure (negtests/neg_cha
 (TMap (TSlice TI64) TI64) aborts). The 2nd printer pp_type carries an analogous guard (pp_type_comparable_key)
 for struct-field / defined-type map types, pinned by neg_map_field_bad_key (a type Bad map[[]int64]int64
 aborts). MapKeysOk + these plugin checks are DUPLICATE map-key authorities GoTypeDesc must unify.
-Residuals (GoTypeDesc frontier): a named-struct-with-non-comparable-field key would be uncaught by the plugin's
-under-approximating goty_comparable_key `| _ -> true` — but it is currently unreachable on two counts: the only
-GTNamed keys are the CLOSED nullary enumeration TListNode/TChanBox (both comparable; no generic named-struct tag
-exists, so a bad-field struct can't be a GTNamed key), and a bad-field struct represented as an anonymous TProd
-renders None (go_type_of_tag has no anonymous-product name, pinned by neg_map_prod_value). The frontier opens
+Residuals (GoTypeDesc frontier): goty_comparable_key's `| _ -> true` accepts a GTNamed key, but has no false
+accept for the current tag set — it runs only on a SUCCESSFULLY-RENDERED key (Some gk in the TMap arm), and every
+renderable type it accepts is genuinely comparable (scalars, GTPtr, GTChan, GTNamed = the CLOSED enumeration
+TListNode/TChanBox, both comparable; no generic named-struct tag). A bad-field struct as an anonymous TProd has no
+coq_goty_of_tag case -> None, so the TMap short-circuits to None at the KEY-render step (before the guard; the
+same None neg_map_prod_value pins for a TProd map value). The frontier opens
 only when GoTypeDesc adds a generic named tag. MapKeysOk doesn't prove renderability — a MapKeysOk-passing map value that the
 plugin can't render fails loud, fixture-pinned by negtests/neg_map_{arrow,unit,prod}_value (TArrow-value = legal
 Go but plugin-rejected; TUnit/TProd unrenderable). Do NOT read it as "a certified map is a valid Go map type".

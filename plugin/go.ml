@@ -761,16 +761,17 @@ let print_u64_dec v = coq_string_to_ocaml (Printer.print_Z (coq_z_of_uint64 v))
 let print_hex_int n =             (* FAIL-CLOSED: print_hex's domain is N — a negative can never reach it *)
   if n < 0 then unsupported "a negative hex-literal operand (Go hex literals are unsigned)"
   else coq_string_to_ocaml (Printer.print_hex (coq_n_of_uint64 (Int64.of_int n)))
-(* Reject the CLEAR non-comparable Go map-key classes reachable here — a SLICE or a MAP key (funcs already fail
-   to render, [TArrow] -> [None] below).  This is an UNDER-approximation of true Go comparability: a [GTNamed]
-   nominal struct is treated as comparable.  SAFE for the CURRENT tag set on TWO counts: (a) the only [GTNamed]
-   keys come from the CLOSED nullary enumeration [TListNode]/[TChanBox] (both comparable — no slice/map field);
-   there is NO generic named-struct tag, so a bad-field struct cannot be a [GTNamed] key at all.  (b) A bad-field
-   struct IS representable as an ANONYMOUS product ([TProd]) — but that is NOT [GTNamed]; [go_type_of_tag] returns
-   [None] for a [TProd] (no anonymous-product type name), so a [TProd] map type fails to render — the same [None]
-   that [negtests/neg_map_prod_value] pins for a [TProd] map value.
-   The [GTNamed]-with-a-bad-field frontier opens only when a generic named-struct tag is added — the [GoTypeDesc]
-   arc, which unifies the comparability authority.  ⚠ the plugin RENDERS
+(* Reject the CLEAR non-comparable Go map-key classes — a SLICE or a MAP key.  This guard is applied ONLY to a
+   SUCCESSFULLY-RENDERED key type ([coq_goty_of_tag kt = Some gk] in the [TMap] arm below), so it never sees an
+   unrenderable tag.  It is an UNDER-approximation of true Go comparability ([GTNamed] is accepted via the
+   [| _ -> true] catch-all), but has NO false accept for the CURRENT tag set: every renderable type it does not
+   reject is genuinely Go-comparable — scalars, [GTPtr] (pointers), [GTChan] (channels), and [GTNamed], whose only
+   tags are the CLOSED nullary enumeration [TListNode]/[TChanBox] (both comparable).  A non-comparable STRUCT never
+   reaches here as a [GTNamed]: an anonymous product ([TProd]) has no [coq_goty_of_tag] case -> [None], so the
+   [TMap] arm yields [None] because the key failed to render — its [when goty_comparable_key gk] guard fires only
+   when BOTH children render [Some], so this guard never sees the [TProd] (the same [None]
+   [negtests/neg_map_prod_value] pins for a [TProd] map value) — and there is NO generic named-struct tag.  The
+   [GTNamed]-over-a-bad-field-struct frontier opens only when [GoTypeDesc] adds a generic named tag.  ⚠ the plugin RENDERS
    [GoTypeTag]s independently of [GoMap.map_make_typed]'s [MapKeysOk] gate, so WITHOUT this check
    [make_chan (TMap (TSlice TI64) TI64)] would emit [chan map[[]int64]int64], which Go rejects; WITH it the
    renderer fails loud on any SLICE-OR-MAP map key at any nesting (every [TMap] node hits this guard as
