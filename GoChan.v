@@ -420,7 +420,8 @@ Definition send {A} (tag : GoTypeTag A) (ch : GoChan A) (v : A) : IO unit :=
                  else if chan_room tag ch w then ORet tt (chan_send_upd tag ch v w)
                       else OPanic rt_chan_send_block w)
            else OPanic rt_chan_send_block w.
-  (* TAG-AWARE guard FIRST: a nil / absent / WRONG-TAG handle blocks ([rt_chan_send_block]) WITHOUT observing
+  (* TAG-AWARE guard FIRST: a nil / absent / WRONG-TAG handle takes the [rt_chan_send_block] branch (a nil
+     send BLOCKS in Go; a forged absent/wrong-tag handle is a MODEL FAULT) WITHOUT observing
      the (foreign) cell's [chan_closed] flag — a forged wrong-tag handle can never see a real channel's
      closedness nor get a "send on closed" panic off it.  Only a tag-correct cell reaches the closed / room
      checks (for such a cell [chan_cell_ok = true], so this is identical to the old order on every valid send). *)
@@ -429,7 +430,7 @@ Definition recv {A} (tag : GoTypeTag A) (ch : GoChan A) : IO A :=
            | v :: _ => ORet v (chan_recv_upd tag ch w)
            | nil    => if andb (chan_closed ch w) (chan_cell_ok tag ch w)
                        then ORet (zero_val tag) w   (* closed + drained + TAG-CORRECT: Go yields the zero value immediately (a wrong-tag CLOSED cell fails loud below — bug ②) *)
-                       else OPanic rt_chan_recv_block w   (* open empty (or wrong-tag/absent) — blocks in Go; fail-loud stand-in, NOT a faithful panic (see rt_chan_recv_block) *)
+                       else OPanic rt_chan_recv_block w   (* open empty (or nil) → Go blocks; a forged wrong-tag/absent handle → model fault; both fail-loud here, NOT a faithful panic (see rt_chan_recv_block) *)
            end.
 (** [close] on a NIL channel ([MkChan 0]) PANICS — Go's "close of nil channel" — instead of fabricating a
     close at the reserved location 0.  (Go also panics on a double-close, the [chan_closed] guard below.)
@@ -453,7 +454,7 @@ Definition recv_ok {A B} (tag : GoTypeTag A) (ch : GoChan A) (f : A -> bool -> I
            | v :: _ => f v true (chan_recv_upd tag ch w)
            | nil    => if andb (chan_closed ch w) (chan_cell_ok tag ch w)
                        then f (zero_val tag) false w   (* closed + drained + TAG-CORRECT: (zero, ok=false) — Go's comma-ok (a wrong-tag CLOSED cell fails loud) *)
-                       else OPanic rt_chan_recv_block w   (* open empty (or wrong-tag/absent) — blocks in Go; fail-loud stand-in, NOT a faithful panic (see rt_chan_recv_block) *)
+                       else OPanic rt_chan_recv_block w   (* open empty (or nil) → Go blocks; a forged wrong-tag/absent handle → model fault; both fail-loud here, NOT a faithful panic (see rt_chan_recv_block) *)
            end.
 (** ANTI-FORGERY WITNESSES: on a nil channel ([MkChan 0]) — in ANY world [w], even one forging a cell at
     location 0 — [send] FAILS LOUD with the world UNCHANGED ([exists p, = OPanic p w] — NOT the exact
@@ -637,7 +638,7 @@ Definition select_recv2 {A B C} (ta : GoTypeTag A) (ch1 : GoChan A) (k1 : A -> I
                        else match chan_buf tb ch2 w with
                             | v :: _ => k2 v (chan_recv_upd tb ch2 w)
                             | nil    => if andb (chan_closed ch2 w) (chan_cell_ok tb ch2 w) then k2 (zero_val tb) w  (* ch2 closed+drained+tag-correct: zero *)
-                                        else OPanic rt_select_block w  (* both empty+OPEN (or wrong-tag): FAIL-LOUD (Go blocks; the IO model has no Blocked outcome) — NEVER a fabricated value *)
+                                        else OPanic rt_select_block w  (* both empty+OPEN → Go blocks (or wrong-tag → forged model fault): FAIL-LOUD (the IO model has no Blocked outcome) — NEVER a fabricated value *)
                             end
            end.
 (** [select_recv_default] — recv case + [default].  A CLOSED, DRAINED, TAG-CORRECT channel's recv is READY in
@@ -720,7 +721,7 @@ Definition select_wait2 {A} (ta : GoTypeTag A) (ch1 ch2 : GoChan A) : IO (nat * 
                        else match chan_buf ta ch2 w with
                             | v :: _ => ORet (1, v) (chan_recv_upd ta ch2 w)
                             | nil    => if andb (chan_closed ch2 w) (chan_cell_ok ta ch2 w) then ORet (1, zero_val ta) w  (* ch2 closed+drained+tag-correct: case 1, zero *)
-                                        else OPanic rt_select_block w  (* both empty+OPEN (or wrong-tag): FAIL-LOUD — Go blocks; never a fabricated case index/value *)
+                                        else OPanic rt_select_block w  (* both empty+OPEN → Go blocks (or wrong-tag → forged model fault): FAIL-LOUD — never a fabricated case index/value *)
                             end
            end.
 Definition select2 {A C} (ta : GoTypeTag A) (ch1 ch2 : GoChan A) (k1 k2 : A -> IO C) : IO C :=
@@ -826,8 +827,10 @@ Proof.
 Qed.
 (** A send with NO room FAILS LOUD with the world UNCHANGED ([exists p, = OPanic p w] — NOT the exact payload).
     Holds whether the no-room is a full buffer (tag-correct cell) OR no tag-correct cell at all
-    (nil/absent/wrong-tag).  ⚠ the fail-loud stands in for a would-block (a block is a deadlock, not a
-    panic); the scheduler split models blocking as a retained, resumable continuation — NOT a panic. *)
+    (nil/absent/wrong-tag).  ⚠ [rt_chan_send_block] is a model-internal stand-in the result/control split
+    SEPARATES: a GENUINE no-room block (a full buffer, or a nil channel) is a DEADLOCK → a retained,
+    resumable continuation; a FORGED handle (nonzero-absent or wrong-tag) is a MODEL FAULT → a distinct,
+    UNREACHABLE [ModelFault].  Neither is a panic. *)
 Lemma run_send_blocked : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (v : A) (w : World),
   chan_closed ch w = false -> chan_room tag ch w = false ->
   exists p, run_io (send tag ch v) w = OPanic p w.
@@ -1070,10 +1073,11 @@ Qed.
 (** [send] through a WRONG-TAG handle FAILS LOUD with the world UNCHANGED — it never RETYPES the aliased cell
     NOR observes its closedness (the tag-aware guard fires FIRST, so a CLOSED foreign cell does NOT leak an
     [rt_send_closed]).  The anti-forgery pins fails-loud-WORLD-UNCHANGED ([exists p, = OPanic p w]) — NOT the
-    exact payload (like GoMap's [map_set_wrong_tag_no_mutation]).  ⚠ the fail-loud stands in for a
-    would-block [OPanic] (a REACHABLE DEADLOCK stand-in, not a model fault); this GATED surface deliberately
-    does NOT export the [rt_chan_send_block] marker (blocking becomes a resumable continuation under the
-    scheduler split). *)
+    exact payload (like GoMap's [map_set_wrong_tag_no_mutation]).  ⚠ the fail-loud currently REUSES the
+    [rt_chan_send_block] would-block payload, but its CAUSE is a FORGED (wrong-tag) handle — a MODEL FAULT
+    (impossible in real Go), NOT a genuine deadlock; this GATED surface pins only fails-loud-WORLD-UNCHANGED
+    and deliberately does NOT export that payload.  Under the result/control split a forged handle becomes a
+    distinct, UNREACHABLE [ModelFault] (proved unreachable under store typing), NOT a resumable continuation. *)
 Theorem send_wrong_tag_no_mutation : forall {A E} (tag : GoTypeTag A) (etag : GoTypeTag E)
     (ch : GoChan A) (v : A) (w : World) rest,
   Nat.eqb (ch_loc ch) 0 = false ->
@@ -1104,10 +1108,12 @@ Qed.
 
 (** [recv] through a WRONG-TAG handle NEVER delivers a value: the buffer reads empty (wrong tag) and the
     CLOSED-drained zero branch is gated on [chan_cell_ok], so a wrong-tag CLOSED cell yields NO fabricated zero
-    — [recv] takes its fail-loud block branch instead.  The anti-forgery fact is this NEGATIVE ([<> ORet]); the
-    fail-loud payload [rt_chan_recv_block] is a MODEL STAND-IN (Go recv-block DEADLOCKS, unrecoverable — it is
-    NOT a panic), so it is deliberately NOT promoted to an exact PUBLIC certified claim (that would misrepresent
-    blocking as recoverable-panic semantics — the faithful blocking authority is [rstep] in [concurrency.v]). *)
+    — [recv] takes its fail-loud branch instead.  The anti-forgery fact is this NEGATIVE ([<> ORet]); the
+    reused [rt_chan_recv_block] payload is deliberately NOT promoted to an exact PUBLIC certified claim — for
+    THIS wrong-tag case its CAUSE is a FORGED handle (a MODEL FAULT → a distinct, UNREACHABLE [ModelFault]
+    under the result/control split), whereas a GENUINE recv-block (empty-open / nil channel) is a DEADLOCK
+    (unrecoverable, not a panic — faithful blocking is [rstep] in [concurrency.v]).  Neither is a recoverable
+    panic. *)
 Theorem recv_wrong_tag_no_value : forall {A E} (tag : GoTypeTag A) (etag : GoTypeTag E)
     (ch : GoChan A) (w : World) (a : A) (w' : World) rest,
   Nat.eqb (ch_loc ch) 0 = false ->
@@ -1136,7 +1142,8 @@ Qed.
 
 (** WRONG-TAG ch1 ⇒ [select_wait2] NEVER fires case 0 (never returns a fabricated [(0, _)] from ch1) — the
     CLEAN ANTI-FORGERY NEGATIVE ([<> ORet (0, _)]), WITHOUT exporting the blocked-select payload
-    (a would-block is a deadlock, NOT a certified [= OPanic rt_select_block]).  A forged wrong-tag ch1 contributes no
+    (the model-internal [rt_select_block] payload is not certified — a genuine block is a DEADLOCK, a forged
+    arm a MODEL FAULT).  A forged wrong-tag ch1 contributes no
     case, whatever ch2 does. *)
 Theorem select_wait2_wrong_tag_no_fire : forall {A E} (ta : GoTypeTag A) (etag : GoTypeTag E)
     (ch1 ch2 : GoChan A) (w : World) (v : A) (w' : World) rest,
@@ -1159,8 +1166,9 @@ Qed.
     ever calling [f] — for ANY continuation [f] the result is therefore NOT a value return.  This is the CLEAN
     NEGATIVE ([<> ORet], the [recv_ok] dual of [recv_wrong_tag_no_value]): it certifies the anti-forgery fact
     (no [(v,true)] nor fabricated [(zero_val tag,false)] delivered to [f]) WITHOUT asserting the block-as-panic
-    outcome — so it IS gated, unlike an exact [= OPanic] payload (which would misrepresent blocking; Go
-    recv-block DEADLOCKS, not a recoverable panic — faithful blocking is [rstep] in [concurrency.v]). *)
+    outcome — so it IS gated, unlike an exact [= OPanic] payload (which would misrepresent the fail-loud: for
+    THIS wrong-tag case the CAUSE is a FORGED handle — a MODEL FAULT — whereas a GENUINE recv-block DEADLOCKS;
+    neither is a recoverable panic — faithful blocking is [rstep] in [concurrency.v]). *)
 Theorem recv_ok_wrong_tag_no_fire : forall {A B E} (tag : GoTypeTag A) (etag : GoTypeTag E)
     (ch : GoChan A) (f : A -> bool -> IO B) (w : World) (b : B) (w' : World) rest,
   Nat.eqb (ch_loc ch) 0 = false ->
@@ -1177,8 +1185,8 @@ Qed.
 
 (** WRONG-TAG ch1 ⇒ [select_recv2] SKIPS ch1: its continuation [k1] is NEVER invoked, so the result is
     INDEPENDENT of [k1] (it depends only on ch2 / [k2]).  This certifies the anti-forgery (a forged wrong-tag
-    ch1 fires nothing) WITHOUT exporting the blocked-select payload (a would-block is a deadlock, NOT
-    a certified [= OPanic rt_select_block]). *)
+    ch1 fires nothing) WITHOUT exporting the blocked-select payload (the model-internal [rt_select_block]
+    payload is not certified — a genuine block is a DEADLOCK, a forged arm a MODEL FAULT). *)
 Theorem select_recv2_wrong_tag_no_fire : forall {A B C E} (ta : GoTypeTag A) (etag : GoTypeTag E)
     (ch1 : GoChan A) (k1 k1' : A -> IO C) (tb : GoTypeTag B) (ch2 : GoChan B) (k2 : B -> IO C) (w : World) rest,
   Nat.eqb (ch_loc ch1) 0 = false ->
@@ -1211,7 +1219,8 @@ Qed.
 
 (** WRONG-TAG ch2 ⇒ [select_wait2] NEVER fires case 1 (never returns a fabricated [(1, _)] from ch2) — the
     CLEAN ANTI-FORGERY NEGATIVE ([<> ORet (1, _)]), WITHOUT exporting the blocked-select payload
-    (a would-block is a deadlock, not a certified [= OPanic rt_select_block]).  Together with
+    (the model-internal [rt_select_block] payload is not certified — a genuine block is a DEADLOCK, a forged
+    arm a MODEL FAULT).  Together with
     [select_wait2_wrong_tag_no_fire] this seals BOTH arms in EVERY combination (both wrong-tag ⇒ neither fires). *)
 Theorem select_wait2_wrong_tag_ch2_no_fire : forall {A E} (ta : GoTypeTag A) (etag : GoTypeTag E)
     (ch1 ch2 : GoChan A) (w : World) (v : A) (w' : World) rest,
@@ -1231,8 +1240,8 @@ Qed.
 
 (** WRONG-TAG ch2 ⇒ [select_recv2] SKIPS ch2: its continuation [k2] is NEVER invoked, so the result is
     INDEPENDENT of [k2] (it depends only on ch1 / [k1]).  Certifies the anti-forgery (a forged wrong-tag ch2
-    fires nothing) WITHOUT exporting the blocked-select payload (a would-block is a deadlock, not a
-    certified [= OPanic rt_select_block]). *)
+    fires nothing) WITHOUT exporting the blocked-select payload (the model-internal [rt_select_block] payload
+    is not certified — a genuine block is a DEADLOCK, a forged arm a MODEL FAULT). *)
 Theorem select_recv2_wrong_tag_ch2_no_fire : forall {A B C E} (ta : GoTypeTag A) (tb : GoTypeTag B) (etag : GoTypeTag E)
     (ch1 : GoChan A) (k1 : A -> IO C) (ch2 : GoChan B) (k2 k2' : B -> IO C) (w : World) rest,
   Nat.eqb (ch_loc ch2) 0 = false ->
@@ -1635,9 +1644,10 @@ Qed.
     cannot: retype a cell ([send]/[close] fail loud, world UNCHANGED); take a value on a recv
     ([recv_wrong_tag_no_value]/[_no_zero]) nor fire a comma-ok recv ([recv_ok_wrong_tag_no_fire]) — all three
     are CLEAN NEGATIVES ([<> ORet]: no value / no zero / no fired result delivered), which certify the
-    anti-forgery WITHOUT asserting the block-as-panic outcome (Go recv-block DEADLOCKS — not a recoverable
-    panic; so the surface never pins [recv = OPanic ...] as recoverable-panic semantics — faithful blocking is
-    [rstep] in [concurrency.v]).  A wrong-tag arm of [select_wait2]/[select_recv2] NEVER FIRES — with NO
+    anti-forgery WITHOUT asserting the block-as-panic outcome (the reused fail-loud payload is model-internal —
+    for a forged wrong-tag handle its CAUSE is a MODEL FAULT, whereas a genuine recv-block DEADLOCKS; neither is
+    a recoverable panic, so the surface never pins [recv = OPanic ...] as recoverable-panic semantics —
+    faithful blocking is [rstep] in [concurrency.v]).  A wrong-tag arm of [select_wait2]/[select_recv2] NEVER FIRES — with NO
     precondition on the other arm ([_wrong_tag_no_fire] for ch1, [_wrong_tag_ch2_no_fire] for ch2): [select_wait2]
     never returns that arm's case ([<> ORet (index, _)]) and [select_recv2]'s result is INDEPENDENT of that
     arm's continuation (never invoked), each WITHOUT exporting the blocked-select [rt_select_block] payload.  So
