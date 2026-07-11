@@ -154,9 +154,10 @@ STILL AHEAD —
 for the constructable float/non-value-equal keys);
 **(c)** ~~the deeper `MapWF` count-consistency~~ **LANDED** (`GoMap.map_wf_surface`): `MapWF` = `NoDup keys` +
 exact membership + `map_count = length keys`, so `map_count` = `len(m)` = the real live-key count. ESTABLISHED
-by `map_make_typed`, PRESERVED by the RAW update roots `map_upd`/`map_rem` (under `Comparable kt`) and
-`map_clear_upd` — built on the count-transition laws + a `filter (≠k)`-length lemma. Generalises the single
-`map_len_counts` vm_compute example to a theorem. REMAINING: lift preservation to the guarded IO ops
-(`map_set`/`map_delete`/`map_clear` — mechanical), and the float-key (non-`Comparable`) case (same deferred
-frontier as `map_finite_surface`); **(d)** the same-tag forged over-count handle (the cp59 frontier).
+by `map_make_typed`, PRESERVED by the guarded PUBLIC IO ops `map_set`/`map_delete` (under `Comparable kt`) /
+`map_clear`, via the raw roots `map_upd`/`map_rem`/`map_clear_upd` — built on the count-transition laws + a
+`filter (≠k)`-length lemma. The LIVE public-IO-op surface, parallel to `map_finite_surface`. Generalises the
+single `map_len_counts` vm_compute example to a theorem. REMAINING: only the float-key (non-`Comparable`) case
+(same deferred frontier as `map_finite_surface`); **(d)** the same-tag forged over-count handle (the cp59
+frontier).
 11. Clean docs + full build.

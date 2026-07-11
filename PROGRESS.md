@@ -179,12 +179,12 @@ semantics, NOT len(m) (= map_size); map_count = live-key support size is MapWF, 
 `GoMap.map_wf_surface` (checkpoint-61 #10 map COUNT-CONSISTENCY: MapWF — a NoDup key list EXACTLY enumerates
 the live-key support (map_get_fn <> None) AND its length is the stored map_count, so map_count = len(m) is the
 TRUE number of live keys — the count-transition surface's deferred "deeper MapWF", now PROVED. INDUCTIVE
-invariant ESTABLISHED by map_make_typed (empty support, count 0, unconditionally) and PRESERVED by the RAW
-update ROOTS map_upd/map_rem (⚠ under Comparable kt — LOAD-BEARING, exactly as MapFinite: the k::keys insert /
-filter(≠k) delete NoDup witness needs key_eqb soundness, so float ±0 keys stay the DEFERRED frontier) and
-map_clear_upd. ⚠ Over the RAW roots (the count-transition-surface level); the guarded-IO-op lift
-(map_set/map_delete/map_clear) is the remaining step, and — like map_finite_surface — this is invariant
-preservation for the Comparable-key subset, NOT a global "every map is count-consistent" theorem) /
+invariant ESTABLISHED by map_make_typed (empty support, count 0, unconditionally) and PRESERVED by the guarded
+PUBLIC IO ops map_set/map_delete (⚠ under Comparable kt — LOAD-BEARING, exactly as MapFinite: the k::keys
+insert / filter(≠k) delete NoDup witness needs key_eqb soundness, so float ±0 keys stay the DEFERRED frontier) /
+map_clear, via the raw roots map_upd/map_rem/map_clear_upd. The LIVE public-IO-op surface, parallel to
+map_finite_surface — invariant preservation for the Comparable-key (value-equal) SUBSET of the constructable
+maps, NOT a global "every map is count-consistent" theorem) /
 `GoHeap.chan_state_ok_surface` (checkpoint-61 #9 "no over-full channel" INVARIANT ChanCapOk — a bounded
 channel's FIFO length <= cap — the channel analogue of SliceWF: gated across every PRIMITIVE state transition
 — ESTABLISHED at construction by BOTH allocators (make_chan unbuffered + make_chan_buf: empty buffer, finite

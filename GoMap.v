@@ -849,16 +849,51 @@ Proof.
     rewrite Hgf. split; [ intros [] | intros Hne; exfalso; apply Hne; reflexivity ].
   - rewrite (map_clear_upd_count kt vt m w Hok). reflexivity.
 Qed.
+(** LIFT to the guarded PUBLIC IO ops (the level user code reaches): [map_set] / [map_delete] / [map_clear]
+    wrap the raw roots behind the [map_cell_ok] guard, so their [MapWF] preservation follows from the raw
+    lemmas.  On a SUCCESSFUL run ([ORet tt w']): [map_set] requires a tag-correct cell (else it PANICS), so
+    [w' = map_upd ...]; [map_delete] / [map_clear] additionally NO-OP on the nil handle ([w' = w], [MapWF]
+    trivially preserved).  A forged / wrong-tag handle PANICS, so no [ORet tt] arises there. *)
+Lemma map_set_preserves_mapwf : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (v : V) (m : GoMap K V) (w w' : World),
+  Comparable kt -> MapWF kt vt m w -> run_io (map_set kt vt k v m) w = ORet tt w' -> MapWF kt vt m w'.
+Proof.
+  intros K V kt vt k v m w w' Hcmp Hwf Hrun. unfold run_io, map_set in Hrun.
+  destruct (map_cell_ok kt vt m w) eqn:Hok; [ | discriminate Hrun ].
+  assert (Hw' : map_upd kt vt k v m w = w') by congruence. subst w'.
+  apply (map_upd_preserves_mapwf kt vt k v m w Hcmp Hok Hwf).
+Qed.
+Lemma map_delete_preserves_mapwf : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (m : GoMap K V) (w w' : World),
+  Comparable kt -> MapWF kt vt m w -> run_io (map_delete kt vt k m) w = ORet tt w' -> MapWF kt vt m w'.
+Proof.
+  intros K V kt vt k m w w' Hcmp Hwf Hrun. unfold run_io, map_delete in Hrun.
+  destruct (map_cell_ok kt vt m w) eqn:Hok.
+  - assert (Hw' : map_rem kt vt k m w = w') by congruence. subst w'.
+    apply (map_rem_preserves_mapwf kt vt k m w Hcmp Hok Hwf).
+  - destruct (Nat.eqb (gm_loc m) 0) eqn:Hz; [ | discriminate Hrun ].
+    assert (Hw' : w = w') by congruence. subst w'. exact Hwf.
+Qed.
+Lemma map_clear_preserves_mapwf : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (m : GoMap K V) (w w' : World),
+  MapWF kt vt m w -> run_io (map_clear kt vt m) w = ORet tt w' -> MapWF kt vt m w'.
+Proof.
+  intros K V kt vt m w w' Hwf Hrun. unfold run_io, map_clear in Hrun.
+  destruct (map_cell_ok kt vt m w) eqn:Hok.
+  - assert (Hw' : map_clear_upd kt vt m w = w') by congruence. subst w'.
+    apply (map_clear_upd_establishes_mapwf kt vt m w Hok).
+  - destruct (Nat.eqb (gm_loc m) 0) eqn:Hz; [ | discriminate Hrun ].
+    assert (Hw' : w = w') by congruence. subst w'. exact Hwf.
+Qed.
 (** MAP WF SURFACE (manifest-gated, zero-axiom): the STORED count field [map_count] (hence [len(m)]) EQUALS the
-    live-key support size — established by [map_make_typed], preserved by the raw update roots [map_upd] /
-    [map_rem] (under [Comparable kt]) and [map_clear_upd].  This DISCHARGES the "deeper MapWF" the
-    count-transition and finite surfaces deferred: the count is the true number of live keys (for value-equal-key
-    maps, the [Comparable] subset of the constructable maps — the float-key case stays the deferred frontier,
-    same boundary as [map_finite_surface]).  ⚠ Over the raw roots (the count-transition-surface level); the
-    guarded-IO-op lift is the remaining step. *)
+    live-key support size — the LIVE, PUBLIC-IO-op count-consistency invariant, parallel to [map_finite_surface]:
+    ESTABLISHED by [map_make_typed] and PRESERVED by the guarded IO ops [map_set] / [map_delete] (under
+    [Comparable kt]) / [map_clear] (via the raw roots [map_upd] / [map_rem] / [map_clear_upd]).  This DISCHARGES
+    the "deeper MapWF" the count-transition and finite surfaces deferred: the count is the true number of live
+    keys.  Like [map_finite_surface], this is invariant preservation for the [Comparable]-key (value-equal)
+    SUBSET of the constructable maps — the float-key case stays the deferred frontier, same boundary — and is NOT
+    a global "every map is count-consistent" theorem (a raw / forged handle carrying an out-of-step count is out
+    of scope). *)
 Definition map_wf_surface :=
-  (@map_make_typed_establishes_mapwf, @map_upd_preserves_mapwf,
-   @map_rem_preserves_mapwf, @map_clear_upd_establishes_mapwf).
+  (@map_make_typed_establishes_mapwf, @map_set_preserves_mapwf,
+   @map_delete_preserves_mapwf, @map_clear_preserves_mapwf).
 Print Assumptions map_wf_surface.
 
 (** ==================================================================================================
