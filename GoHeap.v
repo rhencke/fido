@@ -1595,6 +1595,46 @@ Proof.
   rewrite H1, H2. reflexivity.
 Qed.
 
+(** SliceWF PRESERVATION (checkpoint-61 step 4): the slice TRANSFORMERS never MANUFACTURE a malformed
+    [sh_cap < sh_len] header — whenever they RETURN ([ORet]) the output satisfies [sh_len <= sh_cap].  So a
+    malformed header can only ever come from a raw [mkSliceH] forgery, and the index ops reject THAT
+    ([slice_idx_{get,set}_bad_shape_rejected]); the well-formed algebra is closed.
+    - [subslice] needs NO well-formedness premise on its INPUT: its bounds guard already forces [b <= cap], so
+      the output [len = b - a <= cap - a = cap'] regardless of the parent's shape.
+    - [slice_append] preserves it per branch: in-cap ([len < cap]) grows to [S len <= cap]; the sole grow point
+      ([len = cap]) reallocs to [S n = S n]; a [len > cap] input FAILS LOUD (no [ORet]). *)
+Lemma subslice_preserves_wf : forall {A} (s : SliceH A) (a b : GoInt) (w : World) s' w',
+  run_io (subslice s a b) w = ORet s' w' -> Nat.leb (sh_len s') (sh_cap s') = true.
+Proof.
+  intros A s a b w s' w' Hrun. unfold run_io, subslice in Hrun.
+  destruct (subslice_inb s a b) eqn:Hinb; [ | discriminate Hrun ].
+  injection Hrun as Hs' _. subst s'.
+  unfold subslice_inb in Hinb.
+  apply andb_prop in Hinb as [Hab1 Hbc]. apply andb_prop in Hab1 as [H0a Hab].
+  apply Z.leb_le in H0a. apply Z.leb_le in Hab. apply Z.leb_le in Hbc.
+  unfold subslice_desc; cbn [sh_len sh_cap]. apply Nat.leb_le. lia.
+Qed.
+Lemma slice_append_preserves_wf : forall {A} (tag : GoTypeTag A) (s : SliceH A) (v : A) (w : World) s' w',
+  run_io (slice_append tag s v) w = ORet s' w' -> Nat.leb (sh_len s') (sh_cap s') = true.
+Proof.
+  intros A tag s v w s' w' Hrun. unfold run_io, slice_append in Hrun. cbv zeta in Hrun.
+  destruct (sh_len s <? sh_cap s)%nat eqn:Hlc.
+  - destruct (ref_sel_opt (sh_cell s (sh_len s)) w) as [a|] eqn:Hs; [ | discriminate Hrun ].
+    injection Hrun as Hs' _. subst s'. cbn [sh_len sh_cap].
+    apply Nat.leb_le. apply Nat.ltb_lt in Hlc. lia.
+  - destruct (Nat.eqb (sh_len s) (sh_cap s)) eqn:Heq; [ | discriminate Hrun ].
+    destruct (slice_range_live s (sh_len s) w) eqn:Hlive; [ | discriminate Hrun ].
+    injection Hrun as Hs' _. subst s'. cbn [sh_len sh_cap]. apply Nat.leb_refl.
+Qed.
+(** SLICE TRANSFORMER WF SURFACE (manifest-gated, zero-axiom): [subslice]/[slice_append] PRESERVE the
+    [sh_len <= sh_cap] SliceWF shape (they cannot fabricate a malformed header), the preservation half of
+    checkpoint-61 step 4 that pairs with the index ops' [heap_aggregate_liveness_surface] rejection.  ⚠ This is
+    the nat-SHAPE invariant ONLY — NOT backing-object identity; a same-tag alias over a live backing is still
+    the standing checkpoint-59 typed-liveness frontier. *)
+Definition slice_transformer_wf_surface :=
+  (@subslice_preserves_wf, @slice_append_preserves_wf).
+Print Assumptions slice_transformer_wf_surface.
+
 (** [make([]T, len, cap)]: allocate [cap] fresh zeroed cells; the handle
     has length [len] and capacity [cap] (so it has [cap - len] spare slots — appending
     within them is IN PLACE, [slice_append_incap]).  Same heap shape as [slice_make_h]
