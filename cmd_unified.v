@@ -48,8 +48,9 @@ From Stdlib Require Import List Lia.
 Import ListNotations.
 
 (** PUBLIC.  The total structural translation: cmd.v command tree -> [UCmd]'s
-    output/panic/return/defer + heap + channel fragment (no spawn/select), [COut]'s println
-    flag PRESERVED into [UOut]'s flag and every [URecv] zero the TYPED [zero_val]. *)
+    output/panic/return/defer + heap + channel fragment (no spawn/select; defer is func-scoped
+    WITHOUT recover), [COut]'s println flag PRESERVED into [UOut]'s flag and every [URecv] zero the
+    TYPED [zero_val]. *)
 (** The bridge instantiates the value-parametric calculus at [V := GoAny]: the fragment's
     payloads ([UOut]/[UPan] values) are the model's own [GoAny], no erasure. *)
 Notation UCmdG := (@UCmd GoAny).
