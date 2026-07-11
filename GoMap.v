@@ -543,6 +543,60 @@ Lemma map_clear_nil_noop : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (w
   run_io (map_clear kt vt (@map_empty K V)) w = ORet tt w.
 Proof. reflexivity. Qed.
 
+(** ---- Map COUNT ([len(m)]'s nat carrier) TRANSITION laws ----
+    Count read-back: [map_count] after a [map_write] to a TAG-CORRECT cell is the written size [sz] — the count
+    dual of [map_get_fn_write_same].  The per-op deltas follow: [map_set] on a NEW key is [+1] and on an
+    EXISTING key UNCHANGED; [map_delete] on a PRESENT key is [Nat.pred] and on an ABSENT key UNCHANGED;
+    [map_clear] resets to 0.  These pin the count TRANSITIONS; that the count EQUALS the live-key support size
+    (i.e. [len(m)] is faithful for ALL sequences, not just the [map_len_counts] trace) is the deeper MapWF. *)
+Lemma map_count_write_same : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) m f sz w,
+  map_cell_ok kt vt m w = true -> map_count kt vt m (map_write kt vt m f sz w) = sz.
+Proof.
+  intros K V kt vt m f sz w Hok. unfold map_count.
+  rewrite (map_cell_ok_write_same kt vt m f sz w Hok).
+  unfold map_write. rewrite Hok. cbn [w_maps]. rewrite (Nat.eqb_refl (gm_loc m)). reflexivity.
+Qed.
+Lemma map_upd_count_new : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (v : V) (m : GoMap K V) (w : World),
+  map_cell_ok kt vt m w = true -> map_get_fn kt vt m w k = None ->
+  map_count kt vt m (map_upd kt vt k v m w) = S (map_count kt vt m w).
+Proof.
+  intros K V kt vt k v m w Hok Hnone. unfold map_upd.
+  rewrite (map_count_write_same kt vt m _ _ w Hok), Hnone. reflexivity.
+Qed.
+Lemma map_upd_count_existing : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (v v0 : V) (m : GoMap K V) (w : World),
+  map_cell_ok kt vt m w = true -> map_get_fn kt vt m w k = Some v0 ->
+  map_count kt vt m (map_upd kt vt k v m w) = map_count kt vt m w.
+Proof.
+  intros K V kt vt k v v0 m w Hok Hsome. unfold map_upd.
+  rewrite (map_count_write_same kt vt m _ _ w Hok), Hsome. reflexivity.
+Qed.
+Lemma map_rem_count_present : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (v0 : V) (m : GoMap K V) (w : World),
+  map_cell_ok kt vt m w = true -> map_get_fn kt vt m w k = Some v0 ->
+  map_count kt vt m (map_rem kt vt k m w) = Nat.pred (map_count kt vt m w).
+Proof.
+  intros K V kt vt k v0 m w Hok Hsome. unfold map_rem.
+  rewrite (map_count_write_same kt vt m _ _ w Hok), Hsome. reflexivity.
+Qed.
+Lemma map_rem_count_absent : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (m : GoMap K V) (w : World),
+  map_cell_ok kt vt m w = true -> map_get_fn kt vt m w k = None ->
+  map_count kt vt m (map_rem kt vt k m w) = map_count kt vt m w.
+Proof.
+  intros K V kt vt k m w Hok Hnone. unfold map_rem.
+  rewrite (map_count_write_same kt vt m _ _ w Hok), Hnone. reflexivity.
+Qed.
+Lemma map_clear_upd_count : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (m : GoMap K V) (w : World),
+  map_cell_ok kt vt m w = true -> map_count kt vt m (map_clear_upd kt vt m w) = 0.
+Proof.
+  intros K V kt vt m w Hok. unfold map_clear_upd. apply map_count_write_same; exact Hok.
+Qed.
+(** MAP COUNT TRANSITION SURFACE (manifest-gated, zero-axiom): the [len(m)] nat carrier steps correctly through
+    the map writes — [+1] / unchanged / [Nat.pred] / unchanged / 0.  ⚠ TRANSITIONS ONLY — that the count EQUALS
+    the live-key count (faithful [len]) is the deeper MapWF, not claimed here. *)
+Definition map_count_transition_surface :=
+  (@map_count_write_same, @map_upd_count_new, @map_upd_count_existing,
+   @map_rem_count_present, @map_rem_count_absent, @map_clear_upd_count).
+Print Assumptions map_count_transition_surface.
+
 (** ---- MapFinite: finite live-key SUPPORT for the function-based map cell (checkpoint-61 #10) ----
     The map cell stores a FUNCTION [f : K -> option V] — representable WITH an infinite live-key domain, though a
     real Go map is always FINITE.  [MapFinite] pins that the live keys ([map_get_fn <> None]) are contained in a
