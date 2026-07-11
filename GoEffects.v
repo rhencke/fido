@@ -55,52 +55,28 @@ Record World : Type := mkWorld
   ; w_output : list (bool * list GoAny) }.
 
 
-(** The result of running an [IO] action.  FOUR terminal shapes, distinguished at the TYPE level so
-    [catch]/recover can see EXACTLY the recoverable one: [ORet] normal return; [OPanic] a Go panic
-    (recover-visible — [catch] runs its handler); [OBlock] a would-block/deadlock the sequential
-    model cannot step (NOT a panic; recover never fires — the faithful blocking authority is [rstep]
-    in [concurrency.v]); [OFault] a model-internal impossible/forged state (closed-world fail-loud,
-    never a Go panic).  [bind] propagates all three non-[ORet] shapes unchanged; only [OPanic] is
-    recoverable by [catch]. *)
 Inductive Outcome (A : Type) : Type :=
   | ORet   : A -> World -> Outcome A
-  | OPanic : GoAny -> World -> Outcome A
-  | OBlock : GoAny -> World -> Outcome A
-  | OFault : GoAny -> World -> Outcome A.
+  | OPanic : GoAny -> World -> Outcome A.
 Arguments ORet {A} _ _.
 Arguments OPanic {A} _ _.
-Arguments OBlock {A} _ _.
-Arguments OFault {A} _ _.
 
-(** The world component of an outcome — present on ALL FOUR constructors.  Lets an op-level "preserves X"
-    claim speak of the world AFTER the op regardless of whether it returned or failed loud/blocked/faulted:
-    [X (outcome_world (run_io op w))] — for ops (channels) whose live-handle behaviour is a success/failure
-    case split. *)
+(** The world component of an outcome — present on BOTH constructors.  Lets an op-level "preserves X" claim
+    speak of the world AFTER the op regardless of whether it returned or failed loud/blocked: [X (outcome_world
+    (run_io op w))] — for ops (channels) whose live-handle behaviour is a success/panic case split. *)
 Definition outcome_world {A} (o : Outcome A) : World :=
-  match o with ORet _ w => w | OPanic _ w => w | OBlock _ w => w | OFault _ w => w end.
+  match o with ORet _ w => w | OPanic _ w => w end.
 
 Definition IO (A : Type) : Type := World -> Outcome A.
 Definition run_io {A} (m : IO A) (w : World) : Outcome A := m w.
 Definition ret {A} (x : A) : IO A := fun w => ORet x w.
 Definition bind {A B} (m : IO A) (f : A -> IO B) : IO B :=
-  fun w => match m w with
-           | ORet a w'   => f a w'
-           | OPanic v w' => OPanic v w'
-           | OBlock v w' => OBlock v w'
-           | OFault v w' => OFault v w'
-           end.
-(** [panic v] short-circuits; [catch m h] runs [h] ONLY on a panic ([OPanic]).  A block ([OBlock])
-    or model fault ([OFault]) passes through UNTOUCHED, so recover cannot observe either (Go's
-    [defer func(){ if r := recover(); r != nil { h(r) } }()] fires on a panic, never on a
-    deadlock). *)
+  fun w => match m w with ORet a w' => f a w' | OPanic v w' => OPanic v w' end.
+(** [panic v] short-circuits; [catch m h] runs [h] only on a panic outcome (Go's
+    [defer func(){ if r := recover(); r != nil { h(r) } }()]). *)
 Definition panic {A} (v : GoAny) : IO A := fun w => OPanic v w.
 Definition catch {A} (m : IO A) (h : GoAny -> IO A) : IO A :=
-  fun w => match m w with
-           | ORet a w'   => ORet a w'
-           | OPanic v w' => h v w'
-           | OBlock v w' => OBlock v w'
-           | OFault v w' => OFault v w'
-           end.
+  fun w => match m w with ORet a w' => ORet a w' | OPanic v w' => h v w' end.
 
 
 Notation "m >>' k"    := (bind m (fun _ => k)) (at level 50, left associativity).
@@ -116,8 +92,6 @@ Lemma run_bind : forall {A B} (m : IO A) (f : A -> IO B) (w : World),
   match run_io m w with
   | ORet a w'   => run_io (f a) w'
   | OPanic v w' => OPanic v w'        (* panic short-circuits the continuation *)
-  | OBlock v w' => OBlock v w'        (* a would-block propagates, uncaught *)
-  | OFault v w' => OFault v w'        (* a model fault propagates, uncaught *)
   end.
 Proof. reflexivity. Qed.
 Lemma run_panic : forall {A} (v : GoAny) (w : World),
@@ -128,8 +102,6 @@ Lemma run_catch : forall {A} (m : IO A) (h : GoAny -> IO A) (w : World),
   match run_io m w with
   | ORet a w'   => ORet a w'          (* normal: pass through, handler not run *)
   | OPanic v w' => run_io (h v) w'    (* panic: run the handler on the value *)
-  | OBlock v w' => OBlock v w'        (* block: NOT recoverable — handler not run *)
-  | OFault v w' => OFault v w'        (* model fault: NOT recoverable — handler not run *)
   end.
 Proof. reflexivity. Qed.
 (** IO OBSERVATIONAL EQUALITY: two IO actions are equal iff they yield the same
@@ -152,21 +124,17 @@ Qed.
   Proper (io_eq ==> pointwise_relation A io_eq ==> io_eq) (@bind A B).
 Proof.
   intros m m' Hm f f' Hf w. rewrite !run_bind, (Hm w).
-  destruct (run_io m' w) as [a w' | v w' | v w' | v w'].
+  destruct (run_io m' w) as [a w' | v w'].
   - apply Hf.
-  - reflexivity.
-  - reflexivity.
   - reflexivity.
 Qed.
 #[global] Instance catch_Proper {A} :
   Proper (io_eq ==> pointwise_relation GoAny io_eq ==> io_eq) (@catch A).
 Proof.
   intros m m' Hm h h' Hh w. rewrite !run_catch, (Hm w).
-  destruct (run_io m' w) as [a w' | v w' | v w' | v w'].
+  destruct (run_io m' w) as [a w' | v w'].
   - reflexivity.
   - apply Hh.
-  - reflexivity.
-  - reflexivity.
 Qed.
 (** [run_io] respects [io_eq] — so an [io_eq] fact setoid-rewrites under [run_io _ w]. *)
 #[global] Instance run_io_Proper {A} : Proper (io_eq ==> eq ==> eq) (@run_io A).
@@ -181,10 +149,8 @@ Proof. intros A B x f w. rewrite run_bind, run_ret. reflexivity. Qed.
 Lemma bind_ret_r : forall {A} (m : IO A),
   bind m (@ret A) =io= m.
 Proof.
-  intros A m w. rewrite run_bind. destruct (run_io m w) as [a w' | v w' | v w' | v w'].
+  intros A m w. rewrite run_bind. destruct (run_io m w) as [a w' | v w'].
   - rewrite run_ret. reflexivity.
-  - reflexivity.
-  - reflexivity.
   - reflexivity.
 Qed.
 
@@ -194,10 +160,8 @@ Proof.
   intros A B C m f g w.
   rewrite (run_bind (bind m f) g), (run_bind m f),
           (run_bind m (fun x => bind (f x) g)).
-  destruct (run_io m w) as [a w' | v w' | v w' | v w'].
+  destruct (run_io m w) as [a w' | v w'].
   - rewrite (run_bind (f a) g). reflexivity.
-  - reflexivity.
-  - reflexivity.
   - reflexivity.
 Qed.
 
@@ -215,21 +179,17 @@ Lemma catch_panic : forall {A} (v : GoAny) (h : GoAny -> IO A),
   catch (panic v) h =io= h v.
 Proof. intros A v h w. rewrite run_catch, run_panic. reflexivity. Qed.
 
-(** ---- Hoare logic (FAILURE-SENSITIVE) ----
-    [{{ P }} m {{ Q }}]: from any [P]-world, [m] runs to a NORMAL [ORet] outcome in a
-    [Q]-world.  Invariant: EVERY non-[ORet] outcome — panic ([OPanic]), block ([OBlock]),
-    model fault ([OFault]) — maps to [False], NOT [True] — so a valid triple GUARANTEES the
-    absence of every modelled panic AND that [m] neither blocks nor faults ([hoare_no_panic]:
-    a valid triple forces an [ORet]); [panic] itself is specifiable only from a FALSE
-    precondition ([hoare_panic_unreachable] — the closed-world "this panic is unreachable"
-    obligation). *)
+(** ---- Hoare logic (PANIC-SENSITIVE) ----
+    [{{ P }} m {{ Q }}]: from any [P]-world, [m] runs WITHOUT PANICKING and ends in a
+    [Q]-world.  Invariant: a panic maps to [False], NOT [True] — so a valid triple
+    GUARANTEES the absence of every modelled panic ([hoare_no_panic]), and [panic] itself
+    is specifiable only from a FALSE precondition ([hoare_panic_unreachable] — the
+    closed-world "this panic is unreachable" obligation). *)
 Definition hoare {A : Type} (P : World -> Prop) (m : IO A)
     (Q : A -> World -> Prop) : Prop :=
   forall w, P w -> match run_io m w with
                    | ORet a w'  => Q a w'
                    | OPanic _ _ => False
-                   | OBlock _ _ => False
-                   | OFault _ _ => False
                    end.
 
 Notation "{{ P }} m {{ Q }}" :=
@@ -251,11 +211,9 @@ Lemma hoare_bind : forall {A B} (m : IO A) (f : A -> IO B) P R Q,
 Proof.
   intros A B m f P R Q Hm Hf w Hw. unfold hoare in *.
   rewrite run_bind. specialize (Hm w Hw).
-  remember (run_io m w) as o eqn:Ho. destruct o as [a w' | v w' | v w' | v w'].
+  remember (run_io m w) as o eqn:Ho. destruct o as [a w' | v w'].
   - exact (Hf a w' Hm).
   - exact Hm.   (* [m] panicked from a [P]-world: ruled out — [Hm : False] *)
-  - exact Hm.   (* [m] blocked: ruled out — [Hm : False] *)
-  - exact Hm.   (* [m] faulted: ruled out — [Hm : False] *)
 Qed.
 
 Lemma hoare_consequence : forall {A} (m : IO A) P P' Q Q',
@@ -266,11 +224,9 @@ Lemma hoare_consequence : forall {A} (m : IO A) P P' Q Q',
 Proof.
   intros A m P P' Q Q' HP H HQ w Hw. unfold hoare in *.
   specialize (H w (HP w Hw)).
-  remember (run_io m w) as o eqn:Ho. destruct o as [a w' | v w' | v w' | v w'].
+  remember (run_io m w) as o eqn:Ho. destruct o as [a w' | v w'].
   - exact (HQ a w' H).
   - exact H.   (* panic ruled out — [H : False] *)
-  - exact H.   (* block ruled out — [H : False] *)
-  - exact H.   (* fault ruled out — [H : False] *)
 Qed.
 
 (** Sequencing rule for [m >>' n] (run [m], discard its result, run [n]).
@@ -295,18 +251,16 @@ Proof.
   intros A v Q w HF. destruct HF.
 Qed.
 
-(** FAILURE-FREEDOM is EXPRESSIBLE and DERIVABLE: a valid triple GUARANTEES a NORMAL ([ORet])
-    outcome in a [Q]-state.  [{{P}} m {{fun _ _ => True}}] IS "[m] neither panics, blocks, nor
-    faults from a [P]-world" — the core safety property. *)
+(** Panic-FREEDOM is EXPRESSIBLE and DERIVABLE: a valid triple GUARANTEES a NORMAL ([ORet])
+    outcome in a [Q]-state.  [{{P}} m {{fun _ _ => True}}] IS "[m] never panics from a
+    [P]-world" — the core safety property. *)
 Lemma hoare_no_panic : forall {A} (P : World -> Prop) (m : IO A) (Q : A -> World -> Prop),
   {{ P }} m {{ Q }} ->
   forall w, P w -> exists a w', run_io m w = ORet a w' /\ Q a w'.
 Proof.
   intros A P m Q H w Hw. specialize (H w Hw).
-  destruct (run_io m w) as [a w' | v w' | v w' | v w'] eqn:E.
+  destruct (run_io m w) as [a w' | v w'] eqn:E.
   - exists a, w'. split; [reflexivity | exact H].
-  - destruct H.
-  - destruct H.
   - destruct H.
 Qed.
 
@@ -392,24 +346,6 @@ Lemma with_defer_ret : forall {A} (cleanup : IO unit) (x : A),
 Proof.
   intros A cleanup x. unfold with_defer.
   rewrite bind_ret_l, catch_ret, bind_ret_l. reflexivity.
-Qed.
-
-(** ACCEPTANCE (result/control split): a BLOCK does NOT trigger defer unwinding.  A blocking body
-    ([OBlock]) propagates through [with_defer] UNCHANGED — the deferred [cleanup] never runs and the
-    block is NOT recovered (contrast [with_defer_ret]/[with_defer_panic], where cleanup DOES run on
-    the normal / panic exits).  Go's deferred calls never fire on a goroutine that deadlocks. *)
-Lemma defer_not_unwound_by_block : forall {A} (cleanup : IO unit) (v : GoAny),
-  @with_defer A cleanup (fun w => OBlock v w) =io= (fun w => OBlock v w).
-Proof.
-  intros A cleanup v w. unfold with_defer, bind, catch, run_io. reflexivity.
-Qed.
-
-(** The [OFault] analogue: a model fault likewise propagates through [with_defer] uncaught, cleanup
-    unrun.  (Under the StoreTyping authority — finding 3 — [OFault] will be proved unreachable.) *)
-Lemma defer_not_unwound_by_fault : forall {A} (cleanup : IO unit) (v : GoAny),
-  @with_defer A cleanup (fun w => OFault v w) =io= (fun w => OFault v w).
-Proof.
-  intros A cleanup v w. unfold with_defer, bind, catch, run_io. reflexivity.
 Qed.
 
 (** ---- Integer [range] (Go 1.22, spec "For statements: For range" over an integer): [for i := range n] ----

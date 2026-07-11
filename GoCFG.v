@@ -31,9 +31,9 @@ Inductive Next : Type :=
 
     A backward [Jump] need not terminate, so NO total Rocq function can be the
     semantic authority here.  The AUTHORITY is relational and unfueled:
-    [blocks_eval] (the finite runs — done / panic / block / fault / in-range
-    jump; an out-of-range jump or missing block admits NO rule, so invalid
-    control flow is UNEVALUABLE — never a fabricated success) and [blocks_diverge] (the
+    [blocks_eval] (the finite runs — done / panic / in-range jump; an
+    out-of-range jump or missing block admits NO rule, so invalid control flow
+    is UNEVALUABLE — never a fabricated success) and [blocks_diverge] (the
     coinductive infinite jump chains — real divergence, not "did not halt
     within N").  [run_blocks] itself is EMISSION-ONLY: the plugin lowers it BY
     NAME to labels + [goto] and suppresses this body; the model-side body is a
@@ -67,14 +67,6 @@ Inductive blocks_eval (blocks : list (IO Next)) : nat -> World -> Outcome unit -
       nth_error blocks pc = Some b ->
       run_io b w = OPanic v w' ->
       blocks_eval blocks pc w (OPanic v w')
-  | be_block : forall pc w b v w',
-      nth_error blocks pc = Some b ->
-      run_io b w = OBlock v w' ->
-      blocks_eval blocks pc w (OBlock v w')
-  | be_fault : forall pc w b v w',
-      nth_error blocks pc = Some b ->
-      run_io b w = OFault v w' ->
-      blocks_eval blocks pc w (OFault v w')
   | be_jump : forall pc w pc' w' out,
       blocks_step blocks pc w pc' w' ->
       blocks_eval blocks pc' w' out ->
@@ -86,8 +78,7 @@ CoInductive blocks_diverge (blocks : list (IO Next)) : nat -> World -> Prop :=
       blocks_diverge blocks pc w.
 
 (** HOLISTIC ADMISSIBILITY (outcome terms only): every block's run, on every
-    world, concludes (Done / panic / block / fault) or makes an in-range Jump —
-    the only ill-formedness ruled out is an OUT-OF-RANGE jump. *)
+    world, is Done, a panic, or an in-range Jump. *)
 Definition blocks_jump_wf (blocks : list (IO Next)) : Prop :=
   forall n b (w : World), nth_error blocks n = Some b ->
     match run_io b w with
@@ -96,28 +87,22 @@ Definition blocks_jump_wf (blocks : list (IO Next)) : Prop :=
     end.
 
 (** CLASS-WIDE PROGRESS: from any in-range pc, a jump-wf CFG is NEVER STUCK —
-    it concludes ([blocks_eval] done/panic/block/fault) or makes an explicit
-    [blocks_step] to another in-range configuration.  A block/fault is a genuine
-    conclusion here (the sequential run stops), not a stuck state.  Holds for the
-    WHOLE class, not per demo. *)
+    it concludes ([blocks_eval] done/panic) or makes an explicit [blocks_step]
+    to another in-range configuration.  Holds for the WHOLE class, not per demo. *)
 Lemma blocks_jump_wf_progress : forall blocks pc (w : World),
   blocks_jump_wf blocks -> (pc < List.length blocks)%nat ->
      (exists w', blocks_eval blocks pc w (ORet tt w'))
   \/ (exists v w', blocks_eval blocks pc w (OPanic v w'))
-  \/ (exists v w', blocks_eval blocks pc w (OBlock v w'))
-  \/ (exists v w', blocks_eval blocks pc w (OFault v w'))
   \/ (exists pc' w', blocks_step blocks pc w pc' w').
 Proof.
   intros blocks pc w Hwf Hpc.
   destruct (nth_error blocks pc) as [b|] eqn:Hnth.
-  - destruct (run_io b w) as [[pc'|] w' | v w' | v w' | v w'] eqn:Hrun.
-    + right. right. right. right. exists pc', w'.
+  - destruct (run_io b w) as [[pc'|] w' | v w'] eqn:Hrun.
+    + right. right. exists pc', w'.
       pose proof (Hwf pc b w Hnth) as H. rewrite Hrun in H.
       exact (bs_jump blocks pc w b pc' w' Hnth Hrun H).
     + left. exists w'. exact (be_done blocks pc w b w' Hnth Hrun).
     + right. left. exists v, w'. exact (be_panic blocks pc w b v w' Hnth Hrun).
-    + right. right. left. exists v, w'. exact (be_block blocks pc w b v w' Hnth Hrun).
-    + right. right. right. left. exists v, w'. exact (be_fault blocks pc w b v w' Hnth Hrun).
   - exfalso. apply nth_error_Some in Hpc. congruence.
 Qed.
 
@@ -143,41 +128,19 @@ Theorem blocks_eval_det : forall blocks pc (w : World) out1 out2,
   blocks_eval blocks pc w out1 -> blocks_eval blocks pc w out2 -> out1 = out2.
 Proof.
   intros blocks pc w out1 out2 H1. revert out2.
-  induction H1 as [ pc w b w' Hn Hr | pc w b v w' Hn Hr | pc w b v w' Hn Hr | pc w b v w' Hn Hr | pc w pc' w' out Hstep H1 IH ];
+  induction H1 as [ pc w b w' Hn Hr | pc w b v w' Hn Hr | pc w pc' w' out Hstep H1 IH ];
     intros out2 H2.
-  - inversion H2 as [ ? ? b2 w2 Hn2 Hr2 | ? ? b2 v2 w2 Hn2 Hr2 | ? ? b2 v2 w2 Hn2 Hr2 | ? ? b2 v2 w2 Hn2 Hr2 | ? ? pc2 w2 out2' Hstep2 Hrest ]; subst.
-    + rewrite Hn in Hn2. injection Hn2 as <-. rewrite Hr in Hr2. inversion Hr2; subst. reflexivity.
-    + rewrite Hn in Hn2. injection Hn2 as <-. rewrite Hr in Hr2. discriminate Hr2.
-    + rewrite Hn in Hn2. injection Hn2 as <-. rewrite Hr in Hr2. discriminate Hr2.
-    + rewrite Hn in Hn2. injection Hn2 as <-. rewrite Hr in Hr2. discriminate Hr2.
-    + inversion Hstep2 as [ ? ? b2 ? ? Hn2 Hr2 Hlt2 ]; subst.
-      rewrite Hn in Hn2. injection Hn2 as <-. rewrite Hr in Hr2. discriminate Hr2.
-  - inversion H2 as [ ? ? b2 w2 Hn2 Hr2 | ? ? b2 v2 w2 Hn2 Hr2 | ? ? b2 v2 w2 Hn2 Hr2 | ? ? b2 v2 w2 Hn2 Hr2 | ? ? pc2 w2 out2' Hstep2 Hrest ]; subst.
-    + rewrite Hn in Hn2. injection Hn2 as <-. rewrite Hr in Hr2. discriminate Hr2.
-    + rewrite Hn in Hn2. injection Hn2 as <-. rewrite Hr in Hr2. inversion Hr2; subst. reflexivity.
-    + rewrite Hn in Hn2. injection Hn2 as <-. rewrite Hr in Hr2. discriminate Hr2.
-    + rewrite Hn in Hn2. injection Hn2 as <-. rewrite Hr in Hr2. discriminate Hr2.
-    + inversion Hstep2 as [ ? ? b2 ? ? Hn2 Hr2 Hlt2 ]; subst.
-      rewrite Hn in Hn2. injection Hn2 as <-. rewrite Hr in Hr2. discriminate Hr2.
-  - inversion H2 as [ ? ? b2 w2 Hn2 Hr2 | ? ? b2 v2 w2 Hn2 Hr2 | ? ? b2 v2 w2 Hn2 Hr2 | ? ? b2 v2 w2 Hn2 Hr2 | ? ? pc2 w2 out2' Hstep2 Hrest ]; subst.
-    + rewrite Hn in Hn2. injection Hn2 as <-. rewrite Hr in Hr2. discriminate Hr2.
-    + rewrite Hn in Hn2. injection Hn2 as <-. rewrite Hr in Hr2. discriminate Hr2.
+  - inversion H2 as [ ? ? b2 w2 Hn2 Hr2 | ? ? b2 v2 w2 Hn2 Hr2 | ? ? pc2 w2 out2' Hstep2 Hrest ]; subst.
     + rewrite Hn in Hn2. injection Hn2 as <-. rewrite Hr in Hr2. inversion Hr2; subst. reflexivity.
     + rewrite Hn in Hn2. injection Hn2 as <-. rewrite Hr in Hr2. discriminate Hr2.
     + inversion Hstep2 as [ ? ? b2 ? ? Hn2 Hr2 Hlt2 ]; subst.
       rewrite Hn in Hn2. injection Hn2 as <-. rewrite Hr in Hr2. discriminate Hr2.
-  - inversion H2 as [ ? ? b2 w2 Hn2 Hr2 | ? ? b2 v2 w2 Hn2 Hr2 | ? ? b2 v2 w2 Hn2 Hr2 | ? ? b2 v2 w2 Hn2 Hr2 | ? ? pc2 w2 out2' Hstep2 Hrest ]; subst.
-    + rewrite Hn in Hn2. injection Hn2 as <-. rewrite Hr in Hr2. discriminate Hr2.
-    + rewrite Hn in Hn2. injection Hn2 as <-. rewrite Hr in Hr2. discriminate Hr2.
+  - inversion H2 as [ ? ? b2 w2 Hn2 Hr2 | ? ? b2 v2 w2 Hn2 Hr2 | ? ? pc2 w2 out2' Hstep2 Hrest ]; subst.
     + rewrite Hn in Hn2. injection Hn2 as <-. rewrite Hr in Hr2. discriminate Hr2.
     + rewrite Hn in Hn2. injection Hn2 as <-. rewrite Hr in Hr2. inversion Hr2; subst. reflexivity.
     + inversion Hstep2 as [ ? ? b2 ? ? Hn2 Hr2 Hlt2 ]; subst.
       rewrite Hn in Hn2. injection Hn2 as <-. rewrite Hr in Hr2. discriminate Hr2.
-  - inversion H2 as [ ? ? b2 w2 Hn2 Hr2 | ? ? b2 v2 w2 Hn2 Hr2 | ? ? b2 v2 w2 Hn2 Hr2 | ? ? b2 v2 w2 Hn2 Hr2 | ? ? pc2 w2 out2' Hstep2 Hrest ]; subst.
-    + inversion Hstep as [ ? ? b1 ? ? Hn1 Hr1 Hlt1 ]; subst.
-      rewrite Hn1 in Hn2. injection Hn2 as <-. rewrite Hr1 in Hr2. discriminate Hr2.
-    + inversion Hstep as [ ? ? b1 ? ? Hn1 Hr1 Hlt1 ]; subst.
-      rewrite Hn1 in Hn2. injection Hn2 as <-. rewrite Hr1 in Hr2. discriminate Hr2.
+  - inversion H2 as [ ? ? b2 w2 Hn2 Hr2 | ? ? b2 v2 w2 Hn2 Hr2 | ? ? pc2 w2 out2' Hstep2 Hrest ]; subst.
     + inversion Hstep as [ ? ? b1 ? ? Hn1 Hr1 Hlt1 ]; subst.
       rewrite Hn1 in Hn2. injection Hn2 as <-. rewrite Hr1 in Hr2. discriminate Hr2.
     + inversion Hstep as [ ? ? b1 ? ? Hn1 Hr1 Hlt1 ]; subst.
@@ -194,14 +157,8 @@ Theorem blocks_eval_diverge_disjoint : forall blocks pc (w : World) out,
   blocks_eval blocks pc w out -> blocks_diverge blocks pc w -> False.
 Proof.
   intros blocks pc w out Heval.
-  induction Heval as [ pc w b w' Hn Hr | pc w b v w' Hn Hr | pc w b v w' Hn Hr | pc w b v w' Hn Hr | pc w pc' w' out Hstep Heval IH ];
+  induction Heval as [ pc w b w' Hn Hr | pc w b v w' Hn Hr | pc w pc' w' out Hstep Heval IH ];
     intro Hdiv.
-  - inversion Hdiv as [ ? ? pc2 w2 Hstep2 Hrest ]; subst.
-    inversion Hstep2 as [ ? ? b2 ? ? Hn2 Hr2 Hlt2 ]; subst.
-    rewrite Hn in Hn2. injection Hn2 as <-. rewrite Hr in Hr2. discriminate Hr2.
-  - inversion Hdiv as [ ? ? pc2 w2 Hstep2 Hrest ]; subst.
-    inversion Hstep2 as [ ? ? b2 ? ? Hn2 Hr2 Hlt2 ]; subst.
-    rewrite Hn in Hn2. injection Hn2 as <-. rewrite Hr in Hr2. discriminate Hr2.
   - inversion Hdiv as [ ? ? pc2 w2 Hstep2 Hrest ]; subst.
     inversion Hstep2 as [ ? ? b2 ? ? Hn2 Hr2 Hlt2 ]; subst.
     rewrite Hn in Hn2. injection Hn2 as <-. rewrite Hr in Hr2. discriminate Hr2.
@@ -236,16 +193,14 @@ Proof.
   { induction n as [ | n IH ]; intros pc w Hr Hpc; [ lia | ].
     destruct (nth_error blocks pc) as [ b | ] eqn:Hnth.
     2: { exfalso. apply nth_error_Some in Hpc. congruence. }
-    destruct (run_io b w) as [ [ pc' | ] w' | v w' | v w' | v w' ] eqn:Hrun.
+    destruct (run_io b w) as [ [ pc' | ] w' | v w' ] eqn:Hrun.
     - (* Jump: in range by [blocks_jump_wf], smaller by [blocks_ranked] — recurse *)
       pose proof (Hwf pc b w Hnth) as Hin. rewrite Hrun in Hin.
       pose proof (Hrank pc w b Hnth) as Hdec. rewrite Hrun in Hdec.
       destruct (IH pc' w' ltac:(lia) Hin) as [ out Hout ].
       exists out. exact (be_jump blocks pc w pc' w' out (bs_jump blocks pc w b pc' w' Hnth Hrun Hin) Hout).
     - exists (ORet tt w'). exact (be_done blocks pc w b w' Hnth Hrun).
-    - exists (OPanic v w'). exact (be_panic blocks pc w b v w' Hnth Hrun).
-    - exists (OBlock v w'). exact (be_block blocks pc w b v w' Hnth Hrun).
-    - exists (OFault v w'). exact (be_fault blocks pc w b v w' Hnth Hrun). }
+    - exists (OPanic v w'). exact (be_panic blocks pc w b v w' Hnth Hrun). }
   intros pc w Hpc. exact (H (S (rank pc w)) pc w (Nat.lt_succ_diag_r _) Hpc).
 Qed.
 
@@ -289,9 +244,9 @@ Lemma cblock_denote_ret : forall b (w : World) (t : Next) (w' : World),
   run_io (cblock_denote b) w = ORet t w' -> List.In t (cb_targets b).
 Proof.
   intros b w t w' H. destruct b as [ body t0 | body t1 t2 ]; cbn [cblock_denote cb_targets] in *.
-  - unfold bind, run_io in H. destruct (body w) as [ [] w0 | v w0 | v w0 | v w0 ]; [ | discriminate H | discriminate H | discriminate H ].
+  - unfold bind, run_io in H. destruct (body w) as [ [] w0 | v w0 ]; [ | discriminate H ].
     injection H as <- _. left. reflexivity.
-  - unfold bind, run_io in H. destruct (body w) as [ v w0 | v w0 | v w0 | v w0 ]; [ | discriminate H | discriminate H | discriminate H ].
+  - unfold bind, run_io in H. destruct (body w) as [ v w0 | v w0 ]; [ | discriminate H ].
     injection H as <- _. destruct v; [ left; reflexivity | right; left; reflexivity ].
 Qed.
 
@@ -309,7 +264,7 @@ Proof.
   rewrite List.nth_error_map in Hnth.
   destruct (nth_error cbs n) as [ cb | ] eqn:Hn; [ | discriminate Hnth ].
   injection Hnth as <-.
-  destruct (run_io (cblock_denote cb) w) as [ [ pc' | ] w' | v w' | v w' | v w' ] eqn:Hrun; [ | exact I | exact I | exact I | exact I ].
+  destruct (run_io (cblock_denote cb) w) as [ [ pc' | ] w' | v w' ] eqn:Hrun; [ | exact I | exact I ].
   pose proof (cblock_denote_ret cb w (Jump pc') w' Hrun) as Ht.
   pose proof (proj1 (List.forallb_forall _ cbs) Hc cb (List.nth_error_In cbs n Hn)) as Hok.
   cbv beta in Hok.
@@ -360,7 +315,7 @@ Proof.
     rewrite List.nth_error_map in Hnth.
     destruct (nth_error cbs n) as [ cb | ] eqn:Hn; [ | discriminate Hnth ].
     injection Hnth as <-.
-    destruct (run_io (cblock_denote cb) w0) as [ [ pc' | ] w' | v w' | v w' | v w' ] eqn:Hrun; [ | exact I | exact I | exact I | exact I ].
+    destruct (run_io (cblock_denote cb) w0) as [ [ pc' | ] w' | v w' ] eqn:Hrun; [ | exact I | exact I ].
     pose proof (cblock_denote_ret cb w0 (Jump pc') w' Hrun) as Ht.
     pose proof (check_forward_from_nth cbs 0 n cb pc' Hcf Hn Ht) as Hfwd.
     pose proof (proj1 (List.forallb_forall _ cbs) Hct cb (List.nth_error_In cbs n Hn)) as Hok.
@@ -374,8 +329,7 @@ Qed.
 (** ---- The static-cycle DIVERGENCE certificate ---- over the DETERMINISTIC fragment:
     [snext] follows only unconditional static jumps (a [CBIf] on the trail makes the
     walk FAIL — conservative, no divergence claim).  A static cycle alone does NOT
-    certify divergence: a body may PANIC / block / fault, and any non-jump [Outcome]
-    ([OPanic] / [OBlock] / [OFault]) is a conclusion, not a step.  The
+    certify divergence: a body may PANIC, and [OPanic] is an outcome, not a step.  The
     certificate pairs the DECIDED graph fact — following static jumps from [pc0],
     [Done] is never reached, decided by walking [S (length cbs)] static steps: the walk
     visits more pcs than the finite pc space holds, so PIGEONHOLE yields a revisit and

@@ -179,12 +179,7 @@ Qed.
 (* World projection is [GoEffects.outcome_world] — the single authority; [oc_set_world] (below) is the distinct
    world-SETTER the bridge needs. *)
 Definition oc_set_world {A} (oc : Outcome A) (w : World) : Outcome A :=
-  match oc with
-  | ORet a _   => ORet a w
-  | OPanic v _ => OPanic v w
-  | OBlock v _ => OBlock v w
-  | OFault v _ => OFault v w
-  end.
+  match oc with ORet a _ => ORet a w | OPanic v _ => OPanic v w end.
 
 (** ---- The heap ops' World glue ----
     A heap cell and a boxed value are the SAME data up to pair order ([RefCell] stores
@@ -327,27 +322,9 @@ Fixpoint go {A} (c : Cmd A) (w : World) : option (Outcome A * list (Cmd unit)) :
 (** Project an [Outcome A] to [Outcome unit], keeping its panic value and world — the "active panic"
     carrier threaded through defer unwinding. *)
 Definition oc_unit {A} (oc : Outcome A) : Outcome unit :=
-  match oc with
-  | ORet _ w   => ORet tt w
-  | OPanic v w => OPanic v w
-  | OBlock v w => OBlock v w
-  | OFault v w => OFault v w
-  end.
+  match oc with ORet _ w => ORet tt w | OPanic v w => OPanic v w end.
 Lemma oc_unit_world : forall {A} (oc : Outcome A), outcome_world (oc_unit oc) = outcome_world oc.
-Proof. intros A [a w | v w | v w | v w]; reflexivity. Qed.
-
-(** The DETERMINISTIC FRAGMENT is RET-OR-PANIC: [go]/[run_cmd] never produce [OBlock] or [OFault].
-    A would-block is ABSENCE ([None]), and this fragment has no model fault — so every [Some]
-    outcome is [ORet] or [OPanic].  This invariant (proved [go_rp]/[run_cmd_rp] below) discharges
-    the UNREACHABLE block/fault cases the shared four-constructor [Outcome] forces into the unwind /
-    eval proofs; cmd.v's defer semantics are UNCHANGED by the result/control split. *)
-Definition is_rp {A} (oc : Outcome A) : Prop :=
-  match oc with ORet _ _ => True | OPanic _ _ => True | OBlock _ _ => False | OFault _ _ => False end.
-Lemma rp_cases : forall {A} (oc : Outcome A), is_rp oc ->
-  (exists a w, oc = ORet a w) \/ (exists v w, oc = OPanic v w).
-Proof. intros A [a w | v w | v w | v w] H; cbn in H; [ left; eauto | right; eauto | contradiction | contradiction ]. Qed.
-Lemma oc_unit_rp : forall {A} (oc : Outcome A), is_rp oc -> is_rp (oc_unit oc).
-Proof. intros A [a w | v w | v w | v w] H; exact H. Qed.
+Proof. intros A [a w | v w]; reflexivity. Qed.
 
 (** The TOTAL-per-structure interpreter.  [CDfr d c'] is DEFER-COMPOSITIONAL: run the
     continuation [c'] (whose own later defers unwind inside it), then run [d] as its OWN func scope
@@ -372,8 +349,6 @@ Fixpoint run_cmd {A} (c : Cmd A) (w : World) : option (Outcome A) :=
           | None => None
           | Some (ORet _ w') => Some (oc_set_world oc w')   (* d returned: keep the active outcome *)
           | Some (OPanic v w') => Some (OPanic v w')        (* d panicked: replace the active panic *)
-          | Some (OBlock v w') => Some (OBlock v w')        (* d blocked: propagate (unreachable — cmd blocks are None) *)
-          | Some (OFault v w') => Some (OFault v w')        (* d faulted: propagate (unreachable) *)
           end
       end
   | CWrite l v c' =>
@@ -428,72 +403,6 @@ Fixpoint run_cmd {A} (c : Cmd A) (w : World) : option (Outcome A) :=
       end
   end.
 
-(** [go]'s body outcome is ret-or-panic — structural, mirroring [go]'s own recursion (the deferred
-    scope is accumulated, not run, so the [CDfr] case needs only the continuation). *)
-Lemma go_rp : forall {A} (c : Cmd A) (w : World) oc ds,
-  go c w = Some (oc, ds) -> is_rp oc.
-Proof.
-  fix IH 2. intros A [a | b xs c' | v | d c' | l v c' | l f | v f | ch v c' | ch tg f | ch c'] w oc ds H;
-    cbn [go] in H.
-  - injection H as <- <-. exact I.
-  - exact (IH _ c' _ _ _ H).
-  - injection H as <- <-. exact I.
-  - destruct (go c' w) as [[oc0 ds0]|] eqn:E; [ | discriminate H ]. injection H as <- <-. exact (IH _ c' _ _ _ E).
-  - destruct (heap_write l v w) as [w'|] eqn:E; [ | discriminate H ]. exact (IH _ c' _ _ _ H).
-  - destruct (w_refs w l) as [cell|] eqn:E; [ | discriminate H ]. exact (IH _ (f (any_of_cell cell)) _ _ _ H).
-  - exact (IH _ (f (w_next w)) _ _ _ H).
-  - destruct (w_chans w ch) as [[E [tag [buf [closed cap]]]]|] eqn:Ec; [ | discriminate H ].
-    destruct v as [A0 [x ta]]. destruct (tag_coerce tag ta x) as [xe|] eqn:Etc; [ | discriminate H ].
-    destruct closed.
-    + injection H as <- <-. exact I.
-    + destruct (chan_room_cap (length buf) cap); [ exact (IH _ c' _ _ _ H) | discriminate H ].
-  - destruct (w_chans w ch) as [[E [tag [buf [closed cap]]]]|] eqn:Ec; [ | discriminate H ].
-    destruct tg as [T tgt]. destruct (tag_eq tgt tag) as [pf|] eqn:Ete; [ | discriminate H ].
-    destruct buf as [|v0 rest].
-    + destruct closed; [ exact (IH _ (f (anyt tgt (zero_val tgt))) _ _ _ H) | discriminate H ].
-    + exact (IH _ (f (existT _ E (v0, tag))) _ _ _ H).
-  - destruct (w_chans w ch) as [[E [tag [buf [closed cap]]]]|] eqn:Ec; [ | discriminate H ].
-    destruct closed.
-    + injection H as <- <-. exact I.
-    + exact (IH _ c' _ _ _ H).
-Qed.
-
-(** [run_cmd]'s outcome is ret-or-panic — [fix] so the [CDfr] case's IH reaches the deferred [d]. *)
-Lemma run_cmd_rp : forall {A} (c : Cmd A) (w : World) oc,
-  run_cmd c w = Some oc -> is_rp oc.
-Proof.
-  fix IH 2. intros A [a | b xs c' | v | d c' | l v c' | l f | v f | ch v c' | ch tg f | ch c'] w oc H;
-    cbn [run_cmd] in H.
-  - injection H as <-. exact I.
-  - exact (IH _ c' _ _ H).
-  - injection H as <-. exact I.
-  - destruct (run_cmd c' w) as [ocm|] eqn:Em; [ | discriminate H ].
-    destruct (run_cmd d (outcome_world ocm)) as [ocd|] eqn:Ed; [ | discriminate H ].
-    pose proof (IH _ c' _ _ Em) as Hrpm. pose proof (IH _ d _ _ Ed) as Hrpd.
-    destruct ocd as [a1 w1 | v1 w1 | v1 w1 | v1 w1]; cbn [is_rp] in Hrpd;
-      [ | | exact (False_ind _ Hrpd) | exact (False_ind _ Hrpd) ].
-    + injection H as <-. destruct ocm as [a0 w0 | v0 w0 | v0 w0 | v0 w0];
-        cbn [oc_set_world is_rp] in *; (exact I || exact (False_ind _ Hrpm)).
-    + injection H as <-. exact I.
-  - destruct (heap_write l v w) as [w'|] eqn:E; [ | discriminate H ]. exact (IH _ c' _ _ H).
-  - destruct (w_refs w l) as [cell|] eqn:E; [ | discriminate H ]. exact (IH _ (f (any_of_cell cell)) _ _ H).
-  - exact (IH _ (f (w_next w)) _ _ H).
-  - destruct (w_chans w ch) as [[E [tag [buf [closed cap]]]]|] eqn:Ec; [ | discriminate H ].
-    destruct v as [A0 [x ta]]. destruct (tag_coerce tag ta x) as [xe|] eqn:Etc; [ | discriminate H ].
-    destruct closed.
-    + injection H as <-. exact I.
-    + destruct (chan_room_cap (length buf) cap); [ exact (IH _ c' _ _ H) | discriminate H ].
-  - destruct (w_chans w ch) as [[E [tag [buf [closed cap]]]]|] eqn:Ec; [ | discriminate H ].
-    destruct tg as [T tgt]. destruct (tag_eq tgt tag) as [pf|] eqn:Ete; [ | discriminate H ].
-    destruct buf as [|v0 rest].
-    + destruct closed; [ exact (IH _ (f (anyt tgt (zero_val tgt))) _ _ H) | discriminate H ].
-    + exact (IH _ (f (existT _ E (v0, tag))) _ _ H).
-  - destruct (w_chans w ch) as [[E [tag [buf [closed cap]]]]|] eqn:Ec; [ | discriminate H ].
-    destruct closed.
-    + injection H as <-. exact I.
-    + exact (IH _ c' _ _ H).
-Qed.
-
 (** ---- The RELATIONAL face of the semantics: [unwind_defers] + [eval_cmd] ----
     [go] is the body relation (as a total function: [go c w = Some (oc, ds)] — the body's outcome
     plus its collected defer forest); [unwind_defers ds acc r] is the LIFO unwind as an INDUCTIVE
@@ -510,9 +419,7 @@ Inductive unwind_defers : list (Cmd unit) -> Outcome unit -> Outcome unit -> Pro
       unwind_defers ds_d (oc_unit oc_d) net ->
       unwind_defers ds (match net with
                         | OPanic v' w' => OPanic v' w'
-                        | ORet _ w'    => oc_set_world acc w'
-                        | OBlock v' w' => OBlock v' w'
-                        | OFault v' w' => OFault v' w' end) r ->
+                        | ORet _ w'    => oc_set_world acc w' end) r ->
       unwind_defers (d :: ds) acc r.
 
 Definition eval_cmd {A} (c : Cmd A) (w : World) (oc : Outcome A) : Prop :=
@@ -522,28 +429,7 @@ Definition eval_cmd {A} (c : Cmd A) (w : World) (oc : Outcome A) : Prop :=
     /\ oc = match r with
             | ORet _ w'   => oc_set_world oc0 w'
             | OPanic v w' => OPanic v w'
-            | OBlock v w' => OBlock v w'
-            | OFault v w' => OFault v w'
             end.
-
-(** Unwinding PRESERVES ret-or-panic: seeded by a ret-or-panic [acc], the result [r] is ret-or-panic
-    — each deferred body's [go] outcome is ret-or-panic ([go_rp]) and the LIFO thread only installs an
-    [ORet] (via [oc_set_world acc]) or an [OPanic] passthrough, so a defer scope never manufactures an
-    [OBlock]/[OFault].  Discharges the block/fault corners in [unwind_panic_stays] / the eval bridges. *)
-Lemma unwind_rp : forall ds acc r, unwind_defers ds acc r -> is_rp acc -> is_rp r.
-Proof.
-  intros ds acc r H; induction H as [acc | d ds acc oc_d ds_d net r Hgo Hnest IHn Hrest IHr];
-    intros Hacc.
-  - exact Hacc.
-  - apply IHr.
-    assert (Hnetrp : is_rp net) by (apply IHn; apply oc_unit_rp; exact (go_rp _ _ _ _ Hgo)).
-    destruct net as [[] wn | vn wn | vn wn | vn wn]; cbn [is_rp] in Hnetrp.
-    + cbn. destruct acc as [a0 w0 | v0 w0 | v0 w0 | v0 w0]; cbn [oc_set_world is_rp] in Hacc |- *;
-        (exact I || exact (False_ind _ Hacc)).
-    + cbn. exact I.
-    + exact (False_ind _ Hnetrp).
-    + exact (False_ind _ Hnetrp).
-Qed.
 
 (** Unwind derivations COMPOSE and SPLIT over append — the accumulator threads uniformly. *)
 Lemma unwind_app : forall ds1 acc mid, unwind_defers ds1 acc mid ->
@@ -572,12 +458,9 @@ Proof.
   intros ds acc r H; induction H as [acc | d ds acc oc_d ds_d net r Hgo Hnest IHn Hrest IHr];
     intros v w ->.
   - exists v, w. reflexivity.
-  - assert (Hnetrp : is_rp net) by (apply (unwind_rp _ _ _ Hnest); apply oc_unit_rp; exact (go_rp _ _ _ _ Hgo)).
-    destruct net as [[] wn | vn wn | vn wn | vn wn].
-    + cbn [oc_set_world] in IHr. exact (IHr v wn eq_refl).
-    + cbn [oc_set_world] in IHr. exact (IHr vn wn eq_refl).
-    + cbn [is_rp] in Hnetrp. exact (False_ind _ Hnetrp).
-    + cbn [is_rp] in Hnetrp. exact (False_ind _ Hnetrp).
+  - destruct net as [[] wn | vn wn]; cbn [oc_set_world] in IHr.
+    + exact (IHr v wn eq_refl).
+    + exact (IHr vn wn eq_refl).
 Qed.
 
 (** run_cmd ⊆ eval_cmd: the structural interpreter's every completing run has a derivation.
@@ -597,37 +480,19 @@ Proof.
     destruct (run_cmd d (outcome_world ocm)) as [ocd|] eqn:Ed; [ | discriminate H ].
     destruct (IH c' w ocm Em) as [oc0 [ds0 [r0 [Hgo0 [Hun0 Hocm]]]]].
     destruct (IH d (outcome_world ocm) ocd Ed) as [ocd0 [dsd [rd [Hgod [Hund Hocd]]]]].
-    (* the deterministic fragment is ret-or-panic, so every [OBlock]/[OFault] case below is vacuous *)
-    pose proof (go_rp _ _ _ _ Hgo0) as Hrp_oc0.
-    pose proof (unwind_rp _ _ _ Hun0 (oc_unit_rp _ Hrp_oc0)) as Hrp_r0.
-    pose proof (go_rp _ _ _ _ Hgod) as Hrp_ocd0.
-    pose proof (unwind_rp _ _ _ Hund (oc_unit_rp _ Hrp_ocd0)) as Hrp_rd.
     (* d's scope as ONE [UwCons] over the tail [nil]; its net [ocd] = the seeded unwind result
        (at unit the seed [oc_unit ocd0] carries the status, so the combine collapses —
        the impossible panic-seed/return-result corner is closed by [unwind_panic_stays]) *)
     assert (Hworld : outcome_world ocm = outcome_world r0)
-      by (subst ocm; destruct r0 as [[] w0 | v0 w0 | v0 w0 | v0 w0];
-          [ destruct oc0; reflexivity | reflexivity
-          | cbn [is_rp] in Hrp_r0; exact (False_ind _ Hrp_r0)
-          | cbn [is_rp] in Hrp_r0; exact (False_ind _ Hrp_r0) ]).
+      by (subst ocm; destruct r0 as [[] w0 | v0 w0];
+          [ destruct oc0; reflexivity | reflexivity ]).
     assert (Hnet : ocd = rd).
-    { subst ocd. destruct ocd0 as [[] wd | vd wd | vd wd | vd wd]; cbn [oc_unit] in Hund.
-      - destruct rd as [[] wr | vr wr | vr wr | vr wr]; cbn [oc_set_world].
-        + reflexivity.
-        + reflexivity.
-        + cbn [is_rp] in Hrp_rd; exact (False_ind _ Hrp_rd).
-        + cbn [is_rp] in Hrp_rd; exact (False_ind _ Hrp_rd).
+    { subst ocd. destruct ocd0 as [[] wd | vd wd]; cbn [oc_unit] in Hund.
+      - destruct rd as [[] wr | vr wr]; cbn [oc_set_world]; reflexivity.
       - destruct (unwind_panic_stays dsd (OPanic vd wd) rd Hund vd wd eq_refl) as [v' [w' ->]].
-        reflexivity.
-      - cbn [is_rp] in Hrp_ocd0; exact (False_ind _ Hrp_ocd0).
-      - cbn [is_rp] in Hrp_ocd0; exact (False_ind _ Hrp_ocd0). }
+        reflexivity. }
     exists oc0, (ds0 ++ (d :: nil)),
-      (match ocd with
-       | OPanic v' w' => OPanic v' w'
-       | ORet _ w'    => oc_set_world r0 w'
-       | OBlock v' w' => OBlock v' w'
-       | OFault v' w' => OFault v' w'
-       end).
+      (match ocd with OPanic v' w' => OPanic v' w' | ORet _ w' => oc_set_world r0 w' end).
     split; [ cbn [go]; rewrite Hgo0; reflexivity | ].
     split.
     + eapply unwind_app; [ exact Hun0 | ].
@@ -635,14 +500,12 @@ Proof.
       * rewrite <- Hworld. exact Hgod.
       * exact Hund.
       * rewrite <- Hnet.
-        destruct ocd as [[] wD | vD wD | vD wD | vD wD]; cbn [oc_set_world]; exact (UwNil _).
+        destruct ocd as [[] wD | vD wD]; cbn [oc_set_world]; exact (UwNil _).
     + subst ocm.
-      destruct ocd as [[] wD | vD wD | vD wD | vD wD]; cbn.
-      * destruct r0 as [[] w0 | v0 w0 | v0 w0 | v0 w0]; cbn [oc_set_world] in H |- *;
-          destruct oc0 as [[] wA | vA wA | vA wA | vA wA]; cbn [oc_set_world] in H |- *;
+      destruct ocd as [[] wD | vD wD]; cbn.
+      * destruct r0 as [[] w0 | v0 w0]; cbn [oc_set_world] in H |- *;
+          destruct oc0 as [[] wA | vA wA]; cbn [oc_set_world] in H |- *;
           injection H as <-; reflexivity.
-      * injection H as <-. reflexivity.
-      * injection H as <-. reflexivity.
       * injection H as <-. reflexivity.
   - destruct (heap_write l v w) as [w'|] eqn:E; [ | discriminate H ].
     destruct (IH c' w' oc H) as [oc0 [ds [r [Hgo [Hun Hoc]]]]].
@@ -702,53 +565,32 @@ Proof.
   - injection Hgo as <- <-. inversion Hun; subst. reflexivity.
   - destruct (go c' w) as [[ocb ds0]|] eqn:Hgo0; [ | discriminate Hgo ].
     injection Hgo as -> <-.
-    pose proof (go_rp _ _ _ _ Hgo0) as Hrp_oc0.
     destruct (unwind_split ds0 (d :: nil) (oc_unit oc0) r Hun) as [mid [Hun0 Hund]].
-    pose proof (unwind_rp _ _ _ Hun0 (oc_unit_rp _ Hrp_oc0)) as Hrp_mid.
-    rewrite (IH c' w (match mid with ORet _ w' => oc_set_world oc0 w' | OPanic v w' => OPanic v w'
-                      | OBlock v w' => OBlock v w' | OFault v w' => OFault v w' end)
+    rewrite (IH c' w (match mid with ORet _ w' => oc_set_world oc0 w' | OPanic v w' => OPanic v w' end)
                (ex_intro _ oc0 (ex_intro _ ds0 (ex_intro _ mid (conj Hgo0 (conj Hun0 eq_refl)))))).
     cbn beta iota.
     inversion Hund as [| d0 ds' acc0 oc_d ds_d net r' Hgod Hnest Hrest Heqd Heqacc Heqr ]; subst.
     inversion Hrest; subst.
-    pose proof (go_rp _ _ _ _ Hgod) as Hrp_ocd.
-    pose proof (unwind_rp _ _ _ Hnest (oc_unit_rp _ Hrp_ocd)) as Hrp_net.
     assert (Hwmid : outcome_world (match mid with ORet _ w' => oc_set_world oc0 w'
-                              | OPanic v w' => OPanic v w' | OBlock v w' => OBlock v w'
-                              | OFault v w' => OFault v w' end) = outcome_world mid)
-      by (destruct mid as [[] wm | vm wm | vm wm | vm wm];
-          [ destruct oc0; reflexivity | reflexivity
-          | cbn [is_rp] in Hrp_mid; exact (False_ind _ Hrp_mid)
-          | cbn [is_rp] in Hrp_mid; exact (False_ind _ Hrp_mid) ]).
+                              | OPanic v w' => OPanic v w' end) = outcome_world mid)
+      by (destruct mid as [[] wm | vm wm]; [ destruct oc0; reflexivity | reflexivity ]).
     rewrite Hwmid.
     (* the deferred scope's own run: its eval package is (oc_d, ds_d, net) — the at-unit combine
        collapses to [net] (a panic-seeded unwind cannot return: [unwind_panic_stays]) *)
     assert (Hnetd : run_cmd d (outcome_world mid) = Some net).
     { rewrite (IH d (outcome_world mid)
-                 (match net with ORet _ w' => oc_set_world oc_d w' | OPanic v w' => OPanic v w'
-                  | OBlock v w' => OBlock v w' | OFault v w' => OFault v w' end)
+                 (match net with ORet _ w' => oc_set_world oc_d w' | OPanic v w' => OPanic v w' end)
                  (ex_intro _ oc_d (ex_intro _ ds_d (ex_intro _ net (conj Hgod (conj Hnest eq_refl)))))).
-      destruct oc_d as [[] wd | vd wd | vd wd | vd wd]; cbn [oc_unit] in Hnest.
-      - destruct net as [[] wn | vn wn | vn wn | vn wn]; cbn [oc_set_world].
-        + reflexivity.
-        + reflexivity.
-        + cbn [is_rp] in Hrp_net; exact (False_ind _ Hrp_net).
-        + cbn [is_rp] in Hrp_net; exact (False_ind _ Hrp_net).
+      destruct oc_d as [[] wd | vd wd]; cbn [oc_unit] in Hnest.
+      - destruct net as [[] wn | vn wn]; cbn [oc_set_world]; reflexivity.
       - destruct (unwind_panic_stays ds_d (OPanic vd wd) net Hnest vd wd eq_refl) as [v' [w' ->]].
-        reflexivity.
-      - cbn [is_rp] in Hrp_ocd; exact (False_ind _ Hrp_ocd).
-      - cbn [is_rp] in Hrp_ocd; exact (False_ind _ Hrp_ocd). }
+        reflexivity. }
     rewrite Hnetd. cbn beta iota.
-    destruct net as [[] wn | vn wn | vn wn | vn wn].
+    destruct net as [[] wn | vn wn].
     + (* d returned: the active outcome survives with d's world *)
-      destruct mid as [[] wm | vm wm | vm wm | vm wm]; cbn [oc_set_world].
-      * destruct oc0 as [[] wA | vA wA | vA wA | vA wA]; cbn [oc_set_world]; reflexivity.
-      * reflexivity.
-      * cbn [is_rp] in Hrp_mid; exact (False_ind _ Hrp_mid).
-      * cbn [is_rp] in Hrp_mid; exact (False_ind _ Hrp_mid).
+      destruct mid as [[] wm | vm wm]; cbn [oc_set_world];
+        destruct oc0 as [[] wA | vA wA]; cbn [oc_set_world]; reflexivity.
     + reflexivity.
-    + cbn [is_rp] in Hrp_net; exact (False_ind _ Hrp_net).
-    + cbn [is_rp] in Hrp_net; exact (False_ind _ Hrp_net).
   - destruct (heap_write l v w) as [w'|] eqn:E; [ | discriminate Hgo ].
     apply IH. exists oc0, ds, r. split; [ exact Hgo | split; [ exact Hun | exact Hoc ] ].
   - destruct (w_refs w l) as [cell|] eqn:E; [ | discriminate Hgo ].
@@ -854,7 +696,7 @@ Proof.
   - destruct (structurally_total_cmd d) eqn:Hd; [ | discriminate Hnh ]. cbn in Hnh.
     destruct (IH c' w Hnh) as [oc Hoc]. rewrite Hoc.
     destruct (IH d (outcome_world oc) Hd) as [ocd Hocd]. rewrite Hocd.
-    destruct ocd as [[] w' | vd w' | vd w' | vd w']; eexists; reflexivity.
+    destruct ocd as [[] w' | vd w']; eexists; reflexivity.
   - discriminate Hnh.
   - discriminate Hnh.
   - discriminate Hnh.

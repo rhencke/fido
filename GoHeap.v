@@ -1531,7 +1531,7 @@ Lemma slice_append_incap_aliases : forall {A} (tag : GoTypeTag A) (s : SliceH A)
   (sh_len s <? sh_cap s)%nat = true ->
   ref_sel_opt (sh_cell s (sh_len s)) w = Some a ->
   ref_sel (sh_cell s (sh_len s))
-          (outcome_world (run_io (slice_append tag s v) w)) = v.
+          (match run_io (slice_append tag s v) w with ORet _ w' => w' | OPanic _ w' => w' end) = v.
 Proof.
   intros A tag s v a w Hlt Hsel. rewrite (slice_append_incap tag s v a w Hlt Hsel). cbn.
   exact (ref_sel_upd_same (sh_cell s (sh_len s)) v a w Hsel).
