@@ -236,7 +236,8 @@ OUT OF SCOPE. For a channel where both ChanFinite and ChanCapOk hold, the FIFO i
 (chan_bounded, the composition theorem, gated here)) /
 `GoChan.chan_semantics_surface` (the core IO-level channel operational-semantics laws for a TAG-CORRECT
 channel — the FIFO round-trip (send_recv: ch<-v into an OPEN, EMPTY channel with room, then <-ch = v; comma-ok
-send_recv_ok = (v, true)) and the Go-spec CLOSED-channel rules gated as DIRECT closed-state evidence for EACH
+send_recv_ok = (v, true)); the 2-element FIFO ORDER (send_send_recv_recv_fifo: send a then b, two recvs return a
+then b — a queue not a bag); and the Go-spec CLOSED-channel rules gated as DIRECT closed-state evidence for EACH
 of send/receive/close: run_send_closed (send on a closed channel panics rt_send_closed), recv_ok_closed_empty
 (comma-ok receive from a closed EMPTY channel = (zero_val, false)), run_close_closed (close on a closed channel
 panics rt_close_closed) — plus the sequenced corollaries send_closed_panics (close then send) and

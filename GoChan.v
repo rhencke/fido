@@ -914,6 +914,43 @@ Proof.
   rewrite (chan_buf_send tag ch v w (chan_room_cell_ok tag ch w Hroom)), Hempty. reflexivity.
 Qed.
 
+(** FIFO ORDER (2 elements): send [a] then [b] into an OPEN, EMPTY channel with room for both, then two
+    receives, returns [a] then [b] — in SEND ORDER.  This strengthens the single-element [send_recv] to the
+    ORDERING property (a FIFO, not a bag): [chan_buf] appends on send ([chan_buf_send]) and dequeues the HEAD on
+    receive ([chan_buf_recv]), so the second value can never overtake the first.  [chan_room] after the first
+    send is a premise — a buffered channel with capacity >= 2 has it. *)
+Theorem send_send_recv_recv_fifo : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (a b : A) (w : World),
+  chan_closed ch w = false -> chan_buf tag ch w = nil ->
+  chan_room tag ch w = true -> chan_room tag ch (chan_send_upd tag ch a w) = true ->
+  run_io (bind (send tag ch a) (fun _ =>
+          bind (send tag ch b) (fun _ =>
+          bind (recv tag ch)   (fun x =>
+          bind (recv tag ch)   (fun y => ret (x, y)))))) w
+  = ORet (a, b)
+      (chan_recv_upd tag ch (chan_recv_upd tag ch (chan_send_upd tag ch b (chan_send_upd tag ch a w)))).
+Proof.
+  intros A tag ch a b w Hopen Hempty Hroom1 Hroom2.
+  assert (Hok  : chan_cell_ok tag ch w = true) by exact (chan_room_cell_ok tag ch w Hroom1).
+  assert (Hok1 : chan_cell_ok tag ch (chan_send_upd tag ch a w) = true)
+    by exact (chan_cell_ok_send tag ch a w Hok).
+  assert (Hopen1 : chan_closed ch (chan_send_upd tag ch a w) = false)
+    by (rewrite (chan_closed_send tag ch a w Hok); exact Hopen).
+  assert (Hok2 : chan_cell_ok tag ch (chan_send_upd tag ch b (chan_send_upd tag ch a w)) = true)
+    by exact (chan_cell_ok_send tag ch b (chan_send_upd tag ch a w) Hok1).
+  assert (Hbuf2 : chan_buf tag ch (chan_send_upd tag ch b (chan_send_upd tag ch a w)) = a :: b :: nil).
+  { rewrite (chan_buf_send tag ch b (chan_send_upd tag ch a w) Hok1).
+    rewrite (chan_buf_send tag ch a w Hok), Hempty. reflexivity. }
+  assert (Hbuf3 : chan_buf tag ch (chan_recv_upd tag ch (chan_send_upd tag ch b (chan_send_upd tag ch a w)))
+                  = b :: nil)
+    by (rewrite (chan_buf_recv tag ch a (b :: nil) (chan_send_upd tag ch b (chan_send_upd tag ch a w)) Hok2 Hbuf2);
+        reflexivity).
+  rewrite run_bind, (run_send tag ch a w Hopen Hroom1). cbn.
+  rewrite run_bind, (run_send tag ch b (chan_send_upd tag ch a w) Hopen1 Hroom2). cbn.
+  rewrite run_bind, (run_recv tag ch a (b :: nil) _ Hbuf2). cbn.
+  rewrite run_bind, (run_recv tag ch b nil _ Hbuf3). cbn.
+  rewrite run_ret. reflexivity.
+Qed.
+
 (** [make_chan] is UNBUFFERED ([Some 0]), so an IO send to a freshly-made unbuffered channel FAILS LOUD with
     the world UNCHANGED ([exists p, = OPanic p w'] — NOT the exact payload; ⚠ checkpoint-61: a would-block
     current bug, [OBlock] under the scheduler split) — Go blocks pending a receiver — rather than silently
@@ -986,7 +1023,9 @@ Proof. intros. apply run_recv_ok_closed_empty; assumption. Qed.
 
 (** CHANNEL SEMANTICS SURFACE (manifest-gated, zero-axiom): the core IO-level channel operational-semantics
     laws for a TAG-CORRECT channel.  FIFO round-trip: [send_recv] (after [ch <- v] into an OPEN, EMPTY channel
-    WITH ROOM, [<-ch] returns [v]) and its comma-ok variant [send_recv_ok] ([(v, true)]).  Go-spec CLOSED-channel
+    WITH ROOM, [<-ch] returns [v]) and its comma-ok variant [send_recv_ok] ([(v, true)]); the 2-element FIFO
+    ORDER [send_send_recv_recv_fifo] (send [a] then [b], two receives return [a] then [b] — a queue, not a bag).
+    Go-spec CLOSED-channel
     rules, gated as DIRECT closed-state evidence for EACH of send / receive / close: [run_send_closed] (a [send]
     on an already-CLOSED channel panics [rt_send_closed]); [recv_ok_closed_empty] (a comma-ok receive from a
     CLOSED, EMPTY channel yields [(zero_val, false)]); [run_close_closed] (a [close] on an already-CLOSED channel
@@ -997,7 +1036,7 @@ Proof. intros. apply run_recv_ok_closed_empty; assumption. Qed.
     Go BLOCKS pending a peer) are NOT here: the sequential model fails them LOUD (a checkpoint-61 would-block bug,
     tracked for the scheduler split), so exporting them would advertise unfaithful behavior as semantics. *)
 Definition chan_semantics_surface :=
-  (@send_recv, @send_recv_ok,
+  (@send_recv, @send_recv_ok, @send_send_recv_recv_fifo,
    @run_send_closed, @recv_ok_closed_empty, @run_close_closed,
    @send_closed_panics, @double_close_panics).
 Print Assumptions chan_semantics_surface.
