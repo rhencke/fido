@@ -707,11 +707,12 @@ Print Assumptions map_finite_surface.
     a NoDup key list that EXACTLY enumerates the support ([map_get_fn <> None]) AND whose length is the stored
     [map_count].  So [map_count] (hence [len(m)] = [map_size]) is the true number of live keys — the property the
     count-transition surface's prose deferred as "the deeper MapWF".  Proved here as an INVARIANT: ESTABLISHED by
-    [map_make_typed] (empty support, count 0, unconditionally) and PRESERVED by the [map_cell_ok]-guarded RAW
-    update ROOTS [map_upd] / [map_rem] (⚠ UNDER [Comparable kt] — see below) and [map_clear_upd].  Like
-    [map_finite_surface] this is invariant preservation over the raw roots, NOT a global "every map is
-    count-consistent" theorem (a forged / raw handle carrying a count out of step with its function is out of
-    scope).  ⚠ The [Comparable kt] premise on [map_upd] / [map_rem] is LOAD-BEARING for the SAME reason as in
+    [map_make_typed] (empty support, count 0, unconditionally); PRESERVED first at the [map_cell_ok]-guarded RAW
+    update ROOTS [map_upd] / [map_rem] (⚠ UNDER [Comparable kt] — see below) and [map_clear_upd], then LIFTED to
+    the guarded PUBLIC IO ops [map_set] / [map_delete] / [map_clear] — the gated [map_wf_surface], the LIVE level
+    user code reaches.  Like [map_finite_surface] this is invariant preservation for the [Comparable]-key subset,
+    NOT a global "every map is count-consistent" theorem (a forged / raw handle carrying a count out of step with
+    its function is out of scope).  ⚠ The [Comparable kt] premise on [map_upd] / [map_rem] is LOAD-BEARING for the SAME reason as in
     [map_finite_surface]: the exact-count NoDup witness ([k :: keys] on insert, [filter (≠k) keys] on delete)
     needs [key_eqb kt] to SOUNDLY decide equality — a non-value-equal key (float [±0]) could otherwise mis-count
     the support.  So the count guarantee is for value-equal-key maps, a SUBSET of the constructable maps, exactly
