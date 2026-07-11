@@ -1,4 +1,4 @@
-# GoCompile — the static compiler-admissibility layer (checkpoint-51 course correction)
+# GoCompile — the static compiler-admissibility layer
 
 The layered stack (the user's framing): **GoAst** = this represents a syntactically valid program ·
 **GoCompile** = this program would compile · **GoSem** = semantics atop a compilable program ·

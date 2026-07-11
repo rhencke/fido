@@ -44,7 +44,7 @@ COMPLETE-list `gtokens_inj` establishes.  The
 `eb_find`/`eb_operand` scan is the parser-free proof that a block's tokens locate the rightmost-min top
 operator (the left-assoc split), never `parse`.
 
-EXPLICIT DEFERRED FRONTIERS (after the expression arc seals — do NOT expand mid-proof, per checkpoint-53):
+EXPLICIT DEFERRED FRONTIERS (after the expression arc seals — do NOT expand mid-proof):
 - Named-type conversions `T(x)` (T a NAME) are EXCLUDED — token-shape-ambiguous with calls absent a
   compile env Γ.  `ConvTy` is slice/chan/map ONLY (the "Option B" subset): conversions are type-led
   through `[]`/`chan`/`map`, syntactically disjoint from calls — exactly what makes the `ECall`-vs-`EConv`
