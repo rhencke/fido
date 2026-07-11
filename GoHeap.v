@@ -1090,10 +1090,10 @@ Proof. intros A tag n w ch w' HV H. exists (Z.to_nat (intraw n)). exact (make_ch
     characterised here), and the comma-ok / select receive COMBINATORS are continuation-parametric — their
     dequeue is cap-invariant but the final world is the caller's, so they are OUT OF SCOPE (not gated, not
     asserted to preserve [ChanFinite]).  For a channel where BOTH [ChanFinite] and [chan_state_ok_surface]'s
-    [ChanCapOk] hold, the FIFO is bounded by a concrete [n]. *)
+    [ChanCapOk] hold, the FIFO is bounded by a concrete [n] — the composition theorem [chan_bounded], gated here. *)
 Definition chan_finite_surface :=
   (@make_chan_establishes_chanfinite, @make_chan_buf_establishes_chanfinite,
-   @send_preserves_chanfinite, @recv_preserves_chanfinite, @close_preserves_chanfinite).
+   @send_preserves_chanfinite, @recv_preserves_chanfinite, @close_preserves_chanfinite, @chan_bounded).
 Print Assumptions chan_finite_surface.
 
 (** CLOSED-WORLD ALLOCATION-SAFETY SURFACE (manifest-gated, zero-axiom PUBLIC evidence): the allocator

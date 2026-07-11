@@ -612,6 +612,17 @@ Proof.
   assert (Hw' : chan_close_upd tag ch w = w') by congruence. subst w'.
   unfold ChanFinite in *. rewrite (chan_cap_close tag ch w Hce). exact Hfin.
 Qed.
+(** The two channel-state invariants COMPOSE: a channel that is both [ChanFinite] (bounded cap) AND [ChanCapOk]
+    (within-cap FIFO) has its buffer bounded by a CONCRETE [n] — [chan_cap = Some n] with [length buf <= n].
+    So for any certified channel (both hold, established by the constructors and preserved by the ops) the FIFO
+    length is a real finite bound, not just "<= cap" against a possibly-absent capacity. *)
+Lemma chan_bounded : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (w : World),
+  ChanFinite ch w -> ChanCapOk tag ch w ->
+  exists n, chan_cap ch w = Some n /\ (List.length (chan_buf tag ch w) <= n)%nat.
+Proof.
+  intros A tag ch w [n Hcap] Hok. exists n. split; [ exact Hcap | ].
+  unfold ChanCapOk in Hok. rewrite Hcap in Hok. exact Hok.
+Qed.
 Lemma recv_absent_no_value : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (w : World) (a : A) (w' : World),
   chan_present ch w = false -> run_io (recv tag ch) w <> ORet a w'.
 Proof.

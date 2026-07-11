@@ -168,7 +168,8 @@ by send/recv/close (cap re-written unchanged). So a channel built by the allocat
 send/recv/close stays finite. ⚠ PRESERVATION, not a global confinement theorem
 — chan_cap still reads None for nil/forged-absent/bridge cells (not characterised), and the comma-ok/select
 receive combinators are continuation-parametric (dequeue is cap-invariant but the final world is the caller's),
-OUT OF SCOPE. For a channel where both ChanFinite and ChanCapOk hold, the FIFO is bounded by a concrete n) /
+OUT OF SCOPE. For a channel where both ChanFinite and ChanCapOk hold, the FIFO is bounded by a concrete n
+(chan_bounded, the composition theorem, gated here)) /
 `GoHeap.heap_alloc_safety_surface` (the positive-liveness half: the
 ptr/ref/map/chan allocator nonzero + live-cell + end-to-end panic-free-deref cone backing the `&x`
 address-of public claim) / `GoHeap.ref_addr_of_surface` (the address-of/assignment SEMANTICS the SPEC ledger
