@@ -12,6 +12,7 @@
 Require Import Coq.Strings.String Coq.Strings.Ascii.
 Require Import Coq.Lists.List.
 From Stdlib Require Import ZArith.
+From Stdlib Require Import Lia.
 From Stdlib Require Import StrictProp.
 From Fido Require Import GoNumeric.
 From Fido Require Import GoRuntimeTypes.
@@ -91,9 +92,42 @@ Lemma str_to_bytes_length : forall s, Datatypes.length (str_to_bytes s) = String
 Proof. induction s as [|c rest IH]; simpl; [reflexivity | rewrite IH; reflexivity]. Qed.
 Definition str_at_ok {B : Type}
   (s : GoString) (i : GoInt) (k : GoByte -> bool -> IO B) : IO B :=
-  if (Z.leb 0 (intraw i) && Z.ltb (intraw i) (intraw (str_len s)))%bool
+  if (Z.leb 0 (intraw i) && Z.ltb (intraw i) (Z.of_nat (String.length s)))%bool
   then k (go_str_byte s (Z.to_nat (intraw i))) true
   else k (u8wrap 0) false.
+(** [str_at_ok] CORRECTNESS: the comma-ok safe byte index delivers [(s[i], true)] when [i] is in range
+    ([0 <= i < String.length s]) and [(0, false)] out of range — the safe-by-construction read that CANNOT
+    panic.  FAITHFUL on ALL states, NO representability premise: the guard consults the STRUCTURAL
+    [String.length] directly (exactly like the slice safe index — no wrapped-[str_len] disagreement, no
+    executable bad path); a NEGATIVE (signed) index yields [ok = false].  IO-level equations. *)
+Lemma str_at_ok_in_range : forall {B : Type} (s : GoString) (i : GoInt) (k : GoByte -> bool -> IO B),
+  (0 <= intraw i < Z.of_nat (String.length s))%Z ->
+  str_at_ok s i k = k (go_str_byte s (Z.to_nat (intraw i))) true.
+Proof.
+  intros B s i k [Hlo Hhi]. unfold str_at_ok.
+  assert (Hg : (Z.leb 0 (intraw i) && Z.ltb (intraw i) (Z.of_nat (String.length s)))%bool = true).
+  { apply andb_true_intro. split.
+    - apply (proj2 (Z.leb_le 0 (intraw i))). exact Hlo.
+    - apply (proj2 (Z.ltb_lt (intraw i) (Z.of_nat (String.length s)))). exact Hhi. }
+  rewrite Hg. reflexivity.
+Qed.
+Lemma str_at_ok_oob : forall {B : Type} (s : GoString) (i : GoInt) (k : GoByte -> bool -> IO B),
+  (intraw i < 0 \/ Z.of_nat (String.length s) <= intraw i)%Z ->
+  str_at_ok s i k = k (u8wrap 0) false.
+Proof.
+  intros B s i k Hout. unfold str_at_ok.
+  destruct (Z.leb 0 (intraw i) && Z.ltb (intraw i) (Z.of_nat (String.length s)))%bool eqn:E.
+  - exfalso. apply andb_prop in E. destruct E as [H1 H2].
+    apply Z.leb_le in H1. apply Z.ltb_lt in H2. destruct Hout; lia.
+  - reflexivity.
+Qed.
+(** STRING SAFE-INDEX SURFACE (manifest-gated, zero-axiom): the comma-ok safe byte index [str_at_ok] delivers
+    [(s[i], true)] for a STRUCTURALLY in-range index ([0 <= i < String.length s]) and [(0, false)] out of range
+    — the safe-by-construction, panic-free byte read.  FAITHFUL on ALL states, NO representability premise: the
+    guard consults the STRUCTURAL [String.length] directly, mirroring the slice safe index
+    ([GoSlice.slice_index_ok_surface]); a NEGATIVE (signed) index yields [ok = false]. *)
+Definition str_index_ok_surface := (@str_at_ok_in_range, @str_at_ok_oob).
+Print Assumptions str_index_ok_surface.
 
 Fixpoint str_concat (a b : GoString) : GoString :=
   match a with

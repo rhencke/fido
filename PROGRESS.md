@@ -153,6 +153,11 @@ representability premise: the guard consults the STRUCTURAL List.length directly
 family (slice_get, slice_at_ok/arr_get_ok, arr_set's evidence) now uses structural bounds, so there is no
 wrapped-len executable bad path; len_agrees_structural remains only as the emitted-len=structural seal. Signed
 bound covers both ends, so a negative index yields ok=false) /
+`GoString.str_index_ok_surface` (the comma-ok SAFE byte index str_at_ok delivers s[i]+true for a STRUCTURALLY
+in-range index (0 <= i < String.length s) and 0+false out of range — the panic-free byte read. Like the slice
+family, the guard consults the STRUCTURAL String.length directly (was the wrapped intraw (str_len s), the same
+bad path now killed), so faithful on ALL states with no representability premise; negative index yields
+ok=false) /
 `GoCFG.blocks_cfg_surface` / `GoSwitch.value_switch_seal_surface` (the value-switch seal's
 `*_rejects_dup` proof authority) / `GoChan.chan_wrong_tag_antiforgery_surface` /
 `GoMap.map_wrong_tag_antiforgery_surface` / `GoHeap.ref_wrong_tag_antiforgery_surface` (the wrong-tag
