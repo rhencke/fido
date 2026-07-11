@@ -554,11 +554,14 @@ Proof. reflexivity. Qed.
           NON-AUTHORITATIVE as a spec.  The authoritative spec is relational/nondeterministic
           ([rstep]); a safety property must hold for EVERY permitted choice.
       (2) BLOCKING: none ready and no default ⇒ Go BLOCKS, which the sequential [IO] model cannot
-          represent — so it FAIL-LOUDS ([OPanic rt_select_block], witnessed by
+          represent — so it CURRENTLY FAIL-LOUDS ([OPanic rt_select_block], witnessed by
           [select_recv2_both_empty_open_panics] / [select_wait2_both_empty_open_panics]).
           Blocking is NOT divergence: it is a LOCAL non-step ([concurrency.v] models it —
-          [Stuck := ~ can_step /\ ~ done] is the GLOBAL deadlock property); in [IO], fail-loud is
-          the SOUND stand-in — a proof cannot derive a false result through a blocked select.
+          [Stuck := ~ can_step /\ ~ done] is the GLOBAL deadlock property).  ⚠ checkpoint-61: this
+          [OPanic] is a REACHABLE, catchable stand-in, NOT sound — a block is a deadlock and
+          [catch]/recover can wrongly observe it; the fix is the scheduler split
+          (plans/result-control-split.md).  What IS pinned today is only the anti-forgery negative
+          ([<> ORet]: a blocked select never fabricates a value).
     The EXTRACTION is faithful (native Go [select{}]).  A nondeterministic [select_wait] belongs
     in the [rstep] calculus; a unique-ready determinisation is sound only under an
     interference-freedom discipline keeping readiness stable (else a TOCTOU gap).  Tracked in
