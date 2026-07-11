@@ -494,8 +494,8 @@ Qed.
     [chan_room] gate ([length < n] for a [Some n] cap), so the enqueue is capacity-respecting — the channel
     analogue of a slice write staying within [cap].  UNCONDITIONAL (no prior invariant premise): the room gate
     alone forces [length < n] BEFORE the append, so even a forged over-full pre-state cannot yield an over-full
-    [ORet] — it fails the room check and blocks.  This pins the only buffer-GROWING op; the full ChanStateOk
-    invariant (the constructor establishes it empty, [recv]/[close] preserve it) is the natural completion. *)
+    [ORet] — it fails the room check and blocks.  This pins the only buffer-GROWING op; it feeds
+    [send_establishes_chancapok] in the full [ChanCapOk] invariant (gated [GoHeap.chan_state_ok_surface]). *)
 Lemma send_respects_capacity : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (v : A) (w w' : World) (n : nat),
   run_io (send tag ch v) w = ORet tt w' ->
   chan_cap ch w' = Some n ->
@@ -514,11 +514,12 @@ Proof.
 Qed.
 (** ---- ChanStateOk: the "no over-full channel" INVARIANT (checkpoint-61 #9) ----
     [ChanCapOk] — a bounded channel's FIFO never exceeds its capacity ([None]-cap: nil / the proof-only unbounded
-    bridge channels are vacuously ok).  The channel analogue of SliceWF ([sh_len <= sh_cap]).  ESTABLISHED at
-    construction (empty buffer, [GoHeap.make_chan_buf_establishes_chancapok]) and by every [send] (the room gate
-    forces [length < cap] before the append — [send_establishes_chancapok], via [send_respects_capacity]);
-    PRESERVED by [recv] (dequeue shortens the FIFO, or a closed-drained recv leaves [w] unchanged) and by
-    [close] (buffer / cap re-written unchanged).  Gated together in [GoHeap.chan_state_ok_surface]. *)
+    bridge channels are vacuously ok).  The channel analogue of SliceWF ([sh_len <= sh_cap]).  This file proves
+    the DEFINITION and the [send] / [recv] / [close] transitions ([send_establishes_chancapok] via
+    [send_respects_capacity]; [recv_preserves_chancapok]; [close_preserves_chancapok]).  The constructor
+    establishment and the SINGLE coverage/scope statement — which ops are gated, and why the comma-ok / select
+    receive combinators need not be — live with the consolidated authority [GoHeap.chan_state_ok_surface]; not
+    restated here (one authority). *)
 Definition ChanCapOk {A} (tag : GoTypeTag A) (ch : GoChan A) (w : World) : Prop :=
   match chan_cap ch w with
   | Some n => (List.length (chan_buf tag ch w) <= n)%nat
