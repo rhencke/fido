@@ -154,11 +154,14 @@ anti-forgery cones — TYPED-LIVENESS negatives, not origin provenance — for c
 None) are contained in a finite list — is an INDUCTIVE invariant ESTABLISHED by map_make_typed
 (unconditionally: fresh cell stores fun _ => None, loc-0 nil map reads None everywhere) and PRESERVED by
 map_delete/map_clear (unconditionally, any key type) and map_set (⚠ ONLY under Comparable kt — LOAD-BEARING:
-the k::old_keys witness needs key_eqb soundness so the new key's class is {k}). ⚠ SCOPE: the OP map_set ACCEPTS
-a WIDER key set than the theorem covers (any kt, Go-faithful — Go permits float64 keys), but preservation is
-gated only for Comparable kt; a set with a non-value-equal key (float ±0) is accepted but NOT covered — a
-DEFERRED frontier (support stays finite, needs per-type key_eqb-class enumeration). So the gated guarantee is
-for COMPARABLE-KEY certified maps, a SUBSET of what the ops accept. ⚠ PRESERVATION, NOT a global "every map is
+the k::old_keys witness needs key_eqb soundness so the new key's class is {k}). ⚠ SCOPE (three tiers): the OP map_set is
+POLYMORPHIC over ANY kt — WIDER than the theorem AND wider than Go itself (Go permits only comparable keys; a
+slice/map/func key is a Go compile error the model op does not reject — a model over-permission, NOT
+Go-faithful). Preservation is gated only for Comparable kt (value-equal), NARROWER even than Go-comparable — a
+Go-valid float64 key is not Comparable (float ±0: SFeqb -0.0 +0.0 = true), so a float/non-value-equal set is
+accepted but NOT covered — a DEFERRED frontier (support stays finite, needs per-type key_eqb-class
+enumeration). So the gated guarantee is for VALUE-EQUAL-key certified maps, a SUBSET of both Go's keys and the
+op's acceptance. ⚠ PRESERVATION, NOT a global "every map is
 finite" theorem — the function rep DOES admit an infinite-support f (a raw/forged handle carrying one is NOT
 MapFinite, the cp59 frontier); the certified ops merely cannot PRODUCE one from a finite map. ⚠ finite SUPPORT
 only — NOT yet len(m) = |support| (the sz-vs-f count-consistency MapWF is the deeper follow-up)) /

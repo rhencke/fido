@@ -599,13 +599,17 @@ Qed.
     key-equality SOUNDNESS ([key_eqb kt k k' = true -> k = k']) so the newly-written key's [key_eqb]-class is
     exactly [{k}] — WITHOUT it a type whose [key_eqb] is true for distinct values (e.g. float [±0]) could put a
     live key outside the witness list.
-    ⚠ SCOPE — the OP [map_set] ACCEPTS a WIDER key set than this theorem covers: it operates on any [kt]
-    (Go-faithfully — Go permits e.g. float64 keys), but [MapFinite] preservation is gated ONLY under
-    [Comparable kt] (the integer / bool / string / pointer scalar families).  For a key whose [key_eqb]
-    identifies DISTINCT values (float [±0]; the Go-comparable-but-not-value-equal types) a [map_set] is still
-    accepted but NOT covered here — a DEFERRED frontier (its support stays finite too — the [key_eqb]-class is
-    finite — but proving it needs per-type class enumeration).  So the GATED guarantee is for COMPARABLE-KEY
-    certified maps, a SUBSET of the maps the ops accept.  ⚠ This is invariant PRESERVATION, NOT a global
+    ⚠ SCOPE (three tiers) — the OP [map_set] is POLYMORPHIC over ANY [kt], so its acceptance is WIDER than this
+    theorem AND wider than Go itself.  Go permits ONLY comparable key types, so a slice / map / func key is a Go
+    COMPILE ERROR that the model op does NOT reject (there [key_eqb] is the false-sentinel, so [map_set] can
+    never match — degenerate but non-crashing; NOT Go-faithful, a model over-permission).  [MapFinite]
+    preservation is gated ONLY under [Comparable kt] (value-equality decidable — the integer / bool / string /
+    pointer scalars), which is NARROWER even than Go-comparable: a Go-valid float64 key is NOT [Comparable]
+    (float [±0]: [SFeqb -0.0 +0.0 = true] identifies DISTINCT values), so a [map_set] with a float /
+    non-value-equal key is accepted but NOT covered here — a DEFERRED frontier (its support stays finite too —
+    the [key_eqb]-class is finite — but proving it needs per-type class enumeration).  So the GATED guarantee is
+    for VALUE-EQUAL-key certified maps, a SUBSET of both Go's map keys and the op's acceptance.  ⚠ This is
+    invariant PRESERVATION, NOT a global
     "every map is finite" theorem: the function rep DOES admit an infinite-support [f] (a RAW [mkWorld] /
     same-tag forged handle carrying one is NOT [MapFinite] — the checkpoint-59 typed-liveness frontier); the
     certified ops merely cannot PRODUCE such a value from a finite map.  ⚠ finite SUPPORT only — NOT yet
