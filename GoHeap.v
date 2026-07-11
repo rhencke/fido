@@ -1409,19 +1409,28 @@ Lemma run_slice_idx_set_oob : forall {A} (s : SliceH A) (i : GoInt) (v : A) (w :
   slice_in_len s i = false ->
   run_io (slice_idx_set s i v) w = OPanic (rt_index_oob (intraw i) (sh_len s)) w.
 Proof. intros A s i v w Hwf Hi. unfold slice_idx_set, run_io. rewrite Hwf, Hi. reflexivity. Qed.
-(** SliceWF REJECTION (checkpoint-61): a MALFORMED [sh_len > sh_cap] header fail-louds at BOTH index ops
-    — BEFORE the [slice_in_len] check, so an in-[len]-but-beyond-[cap] index [cap <= i < len] can NEVER reach
-    a coincidentally same-tagged cell past the backing.  Currently the fault is [OPanic rt_nil_deref]
-    (symmetric with the forged-cell branch); both become a distinct, non-catchable [ModelFault] under the
-    store-typing authority (cp61 result/control split). *)
-Lemma slice_idx_get_malformed_failloud : forall {A} (tag : GoTypeTag A) (s : SliceH A) (i : GoInt) (w : World),
-  Nat.leb (sh_len s) (sh_cap s) = false ->
-  run_io (slice_idx_get tag s i) w = OPanic rt_nil_deref w.
-Proof. intros A tag s i w Hwf. unfold slice_idx_get, run_io. rewrite Hwf. reflexivity. Qed.
-Lemma slice_idx_set_malformed_failloud : forall {A} (s : SliceH A) (i : GoInt) (v : A) (w : World),
-  Nat.leb (sh_len s) (sh_cap s) = false ->
-  run_io (slice_idx_set s i v) w = OPanic rt_nil_deref w.
-Proof. intros A s i v w Hwf. unfold slice_idx_set, run_io. rewrite Hwf. reflexivity. Qed.
+(** SliceWF REJECTION (checkpoint-61): a MALFORMED [sh_cap < sh_len] header FAIL-LOUDS at BOTH index ops —
+    BEFORE the [slice_in_len] check, so an in-[len]-but-beyond-[cap] index [cap <= i < len] can NEVER reach a
+    coincidentally same-tagged cell past the backing.  Shape follows the [slice_clear/copy_bad_shape_rejected]
+    peers: [exists p, run_io … = OPanic p w] — a rejection ([OPanic], never a silent [ORet]) leaving the world
+    UNCHANGED, WITHOUT pinning the model-internal payload (the fault is [rt_nil_deref] today, becoming a
+    distinct non-catchable [ModelFault] after the store-typing split — never an exported marker).  Gated in
+    [heap_aggregate_liveness_surface], pinning the index guard BOTH ways as [slice_bulk_write_surface] does for
+    clear/copy. *)
+Lemma slice_idx_get_bad_shape_rejected : forall {A} (tag : GoTypeTag A) (s : SliceH A) (i : GoInt) (w : World),
+  (sh_cap s < sh_len s)%nat -> exists p, run_io (slice_idx_get tag s i) w = OPanic p w.
+Proof.
+  intros A tag s i w Hbad. unfold run_io, slice_idx_get.
+  assert (Hleb : Nat.leb (sh_len s) (sh_cap s) = false) by (apply Nat.leb_gt; exact Hbad).
+  rewrite Hleb. eexists. reflexivity.
+Qed.
+Lemma slice_idx_set_bad_shape_rejected : forall {A} (s : SliceH A) (i : GoInt) (v : A) (w : World),
+  (sh_cap s < sh_len s)%nat -> exists p, run_io (slice_idx_set s i v) w = OPanic p w.
+Proof.
+  intros A s i v w Hbad. unfold run_io, slice_idx_set.
+  assert (Hleb : Nat.leb (sh_len s) (sh_cap s) = false) by (apply Nat.leb_gt; exact Hbad).
+  rewrite Hleb. eexists. reflexivity.
+Qed.
 (* [s[a:b]]: same backing [base], [offset] shifted by [a] — SHARES the cells.  [subslice_desc]
    is the PURE descriptor on internal [nat] indices (the aliasing lemmas reason about it);
    [subslice] is the Go-level op taking the [GoInt] bounds and converting at the boundary. *)
@@ -2582,14 +2591,17 @@ Qed.
     via [slice_make_h_idx_get_no_panic]/[slice_make_h_idx_set_no_panic] — read/write a fresh slice at an
     in-bounds index returns; unlike the struct case these keep a genuine [slice_in_len] premise (Go panics on
     OOB — a real caller obligation, not a leaked derivable one), with the cell liveness discharged from the
-    allocation.  SCOPE: the fresh-MAKE allocators ONLY; slice TRANSFORMERS ([subslice] aliases an existing
-    backing, [slice_append] may grow) are a separate concern, NOT gated here.  For the make allocators the
-    aggregate no-panic cone matches the scalar families (modulo the honest, Go-faithful bounds premise on
-    slice indexing). *)
+    allocation.  SLICE INDEX REJECTION (the guard's OTHER direction, checkpoint-61): [slice_idx_{get,set}_bad_shape_rejected]
+    — a malformed [cap < len] header FAIL-LOUDS ([exists p, = OPanic p w], no exported marker) BEFORE reaching a
+    cell, so the SliceWF guard is pinned BOTH ways for the index ops, mirroring [slice_bulk_write_surface].
+    SCOPE: the fresh-MAKE allocators ONLY; slice TRANSFORMERS ([subslice] aliases an existing backing,
+    [slice_append] may grow) are a separate concern, NOT gated here.  For the make allocators the aggregate
+    no-panic cone matches the scalar families (modulo the honest, Go-faithful bounds premise on slice indexing). *)
 Definition heap_aggregate_liveness_surface :=
   (@slice_make_lc_cell_live, @gsptr_new_fields_live, @gsptr_new_assign_no_panic, @gsptr_new_deref_assign,
    @slice_make_idx_get_no_panic, @slice_make_idx_set_no_panic,
-   @slice_make_h_cell_live, @slice_make_h_idx_get_no_panic, @slice_make_h_idx_set_no_panic).
+   @slice_make_h_cell_live, @slice_make_h_idx_get_no_panic, @slice_make_h_idx_set_no_panic,
+   @slice_idx_get_bad_shape_rejected, @slice_idx_set_bad_shape_rejected).
 Print Assumptions heap_aggregate_liveness_surface.
 
 (** STRUCTURAL EQUALITY — Go's [==] on a struct compares fields pairwise.  Generic over arity: an

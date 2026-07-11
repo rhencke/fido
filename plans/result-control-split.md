@@ -105,9 +105,12 @@ Panic values: `runtime_panic_not_string`, `runtime_panic_error_text_correct` (pe
 authority (together). 3. Build `GoConcurrentSem` blocking on the `unified.v` `ustep` seed
 (continuation-retaining). 4. `SliceWF` over a backing object; slice ops consume/preserve it;
 malformed → `ModelFault`. **PARTIAL (8b8798a):** the `sh_len <= sh_cap` header guard now fail-louds at
-`slice_idx_get`/`slice_idx_set` (`slice_idx_{get,set}_malformed_failloud`) so no malformed header reaches
-a coincidentally-tagged cell; STILL AHEAD — `SliceWF` over the backing OBJECT IDENTITY (not just the
-`nat` shape), consume/preserve across subslice/append/clear/copy, and routing the fault to a distinct
+`slice_idx_get`/`slice_idx_set` BEFORE any cell access — `slice_idx_{get,set}_bad_shape_rejected` (gated in
+`heap_aggregate_liveness_surface`, `exists p, = OPanic p w`, no exported marker) pin that a `cap < len` shape
+is rejected. This closes ONLY the nat-shape malformation (an in-`len`-beyond-`cap` index can no longer reach a
+spare/foreign cell); a WELL-shaped (`len <= cap`) header over a same-tag aliasing backing is UNCHANGED — the
+standing checkpoint-59 typed-liveness frontier. STILL AHEAD — `SliceWF` over the backing OBJECT IDENTITY (not
+just the `nat` shape), consume/preserve across subslice/append/clear/copy, and routing the fault to a distinct
 `ModelFault` (it is `OPanic rt_nil_deref` today). 5. `StoreTyping`/`WorldRealizes`/`ValueWF` (Live* derived; alloc-extension;
 preservation; `ModelFault` unreachable). 6. `AllocFrontierOk` (the frontier-only predicate) — DONE 7a67aeb;
 the full `WorldWellFormed` (needs `WorldRealizes`) lands with #5. 7. Restrict
