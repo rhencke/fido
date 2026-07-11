@@ -174,14 +174,12 @@ nested in the value, must have a comparable key), so a map with an invalid key a
 map[int]map[[]int]int) cannot be constructed THROUGH THIS ALLOCATOR (neg_noncomparable_key_map +
 neg_nested_noncomparable_key_map are the Fail witnesses). ⚠ cp62: ALLOCATOR-BOUNDARY only, NOT global tag
 unrepresentability and NOT renderability — the bad tag TMap (TSlice TI64) TI64 stays a constructible GoTypeTag
-(reaches zero_val / nested tags / make_chan). A bad tag reaching an EMITTED type path is now fail-loud in BOTH
-plugin type printers, each rejecting a non-comparable map key: go_type_of_tag/goty_comparable_key (make_chan /
-tag-driven path, fixture-pinned by negtests/neg_chan_bad_map_key) and pp_type/pp_type_comparable_key (a RECURSIVE
-mirror of GoComparableType; DEFENSIVE guard for a GoMap in a struct-field/defined-type position — a map
-value/param/return unboxes to nat and its printed type is tag-driven via go_type_of_tag (pinned); a bad-key map
-VALUE is itself constructible (map_empty=MkMap 0, public), so the pp_type arm is not yet fixture-pinned;
-named-struct-field keys are the GoTypeDesc frontier) — so MapKeysOk (model) + the two plugin type-printer checks
-are THREE DUPLICATE map-key authorities GoTypeDesc unifies.
+(the bad tag stays a constructible GoTypeTag; a bad-key map VALUE is constructible too, map_empty=MkMap 0
+public). Emission-side the plugin has its OWN map-key rejection: go_type_of_tag (the tag→type renderer) fails
+loud on a non-comparable key — the only FIXTURE-PINNED closure (negtests/neg_chan_bad_map_key: make_chan
+(TMap (TSlice TI64) TI64) aborts). The 2nd printer pp_type carries an analogous guard (pp_type_comparable_key)
+for struct-field map types but is UNPINNED (defensive, not verified coverage). cp62: MapKeysOk + these plugin
+checks are DUPLICATE map-key authorities GoTypeDesc must unify.
 Residuals (GoTypeDesc frontier): array-of-non-comparable / struct-with-non-comparable-field keys uncaught;
 MapKeysOk doesn't prove renderability (TUnit unrenderable; TArrow-value map legal Go but plugin-rejected). Do
 NOT read it as "a certified map is a valid Go map type". (2)

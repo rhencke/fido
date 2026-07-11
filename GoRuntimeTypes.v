@@ -458,15 +458,13 @@ Qed.
     map with an invalid key AT ANY DEPTH cannot be constructed THROUGH THAT ALLOCATOR — Go's "invalid map key
     type", caught at the Rocq API ([GoMap.neg_noncomparable_key_map] + [neg_nested_noncomparable_key_map] are the
     [Fail] witnesses).  ⚠ ALLOCATOR-BOUNDARY only, NOT global tag unrepresentability: the bad map TAG stays a
-    constructible [GoTypeTag] reaching other positions ([zero_val], nested tags, another allocator).  Such a tag
-    at an EMITTED type path is now caught by the plugin's TWO type printers, each rejecting a SLICE/MAP/FUNC map
-    key: [go_type_of_tag] ([goty_comparable_key]; fixture-pinned by [negtests/neg_chan_bad_map_key]) and [pp_type]
-    ([pp_type_comparable_key], a RECURSIVE mirror of [GoComparableType]).  The [pp_type] arm fires only for a
-    [GoMap] in a STRUCT-FIELD / defined-type position — a map VALUE / param / return unboxes to [nat] and its
-    printed Go type is tag-driven via [go_type_of_tag] (pinned).  A bad-key map VALUE is itself CONSTRUCTIBLE
-    ([map_empty] = [MkMap 0], public); the [pp_type] arm is a defensive guard on the type-DECLARATION side, not
-    yet fixture-pinned.  So [MapKeysOk] + the plugin's two type-printer checks are THREE DUPLICATE authorities the
-    general certified type authority ([GoTypeDesc]) unifies.  The gate is EVIDENCE-CARRYING — the proof is a [Prop], ERASED in extraction (golden unaffected,
+    constructible [GoTypeTag], and a bad-key map VALUE is constructible too ([GoMap.map_empty] = [MkMap 0],
+    public).  Emission-side the trusted plugin has its OWN map-key rejection: the tag→type renderer
+    [go_type_of_tag] fails loud on a non-comparable key — the only FIXTURE-PINNED closure
+    ([negtests/neg_chan_bad_map_key]).  The second printer [pp_type] carries an analogous guard
+    ([pp_type_comparable_key]) for struct-field map types but is UNPINNED (defensive, not verified coverage).
+    cp62: [MapKeysOk] and these plugin checks are DUPLICATE map-key authorities the general certified type
+    authority ([GoTypeDesc]) must UNIFY.  The gate is EVIDENCE-CARRYING — the proof is a [Prop], ERASED in extraction (golden unaffected,
     name-lowered op), a pure representability guard the op body never inspects.  ([GoComparableType]/[MapKeysOk]
     are [bool] predicates, appearing only in these proof obligations.) *)
 Fixpoint GoComparableType {K} (t : GoTypeTag K) : bool :=

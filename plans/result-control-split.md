@@ -149,16 +149,13 @@ type"; the `Fail` witnesses `GoMap.neg_noncomparable_key_map` + `neg_nested_nonc
 is evidence-carrying — the `Hwf` argument is a `Prop`, ERASED in extraction (golden byte-identical); `MapKeysOk`
 is a `bool` `Fixpoint` over `GoTypeTag`, referenced only by that erased proof and proof-only lemmas.  ⚠ cp62:
 this is NOT global tag unrepresentability and the model is NOT the single map-key authority — the bad tag stays a
-constructible `GoTypeTag` and the trusted plugin renders tags independently.  A bad tag at an EMITTED type path
-is now caught by the plugin's TWO type printers, each rejecting a slice/map/func map key:
-`go_type_of_tag`/`goty_comparable_key` (`make_chan` / tag-driven path, fixture-pinned by
-`negtests/neg_chan_bad_map_key`) and `pp_type`/`pp_type_comparable_key` (a RECURSIVE mirror of
-`GoComparableType`; DEFENSIVE guard for a `GoMap` in a struct-field/defined-type position — a map
-value/param/return unboxes to `nat` and its printed type is tag-driven via `go_type_of_tag` (pinned); a bad-key
-map VALUE is itself constructible (`map_empty`=`MkMap 0`, public), so the `pp_type` arm is not yet
-fixture-pinned) — so `MapKeysOk` (model) + the two plugin type-printer checks are THREE DUPLICATE map-key
-authorities that the general certified type authority (`GoTypeDesc`) should UNIFY.  Residual frontier:
-named-struct-with-non-comparable-field keys, and `TUnit`/`TArrow` renderability (incompleteness).
+constructible `GoTypeTag`, a bad-key map VALUE is constructible too (`map_empty`=`MkMap 0`, public), and the
+trusted plugin renders tags independently.  Emission-side the plugin has its OWN map-key rejection:
+`go_type_of_tag` (the tag→type renderer) fails loud on a non-comparable key — the only FIXTURE-PINNED closure
+(`negtests/neg_chan_bad_map_key`).  The 2nd printer `pp_type` carries an analogous guard
+(`pp_type_comparable_key`) for struct-field map types but is UNPINNED (defensive, not verified coverage) — so
+`MapKeysOk` (model) + these plugin checks are DUPLICATE map-key authorities that the general certified type
+authority (`GoTypeDesc`) should UNIFY.
 STILL AHEAD —
 **(b)** closing the wider-acceptance gap (unconditional `map_set` finiteness via `key_eqb`-class enumeration
 for the constructable float/non-value-equal keys);

@@ -47,23 +47,17 @@ Definition map_empty {K V : Type} : GoMap K V := MkMap 0.
     the value, through slice / chan / ptr / struct / func) must have a [GoComparableType]-comparable key.  So
     [make(map[[]int]V)] and [make(map[int]map[[]int]int)] cannot be constructed THROUGH THIS ALLOCATOR — no
     [MapKeysOk] proof exists, mirroring Go's COMPILE-time "invalid map key type".
-    ⚠ SCOPE — this is an ALLOCATOR-BOUNDARY gate, NOT global tag unrepresentability, and NOT a renderability
-    certificate.  The bad tag [TMap (TSlice TI64) TI64] is STILL a constructible [GoTypeTag] term reaching other
-    positions ([zero_val], a nested [TChan]/[TMap]/[TPtr]/[TProd] tag, another allocator).  Such a tag reaching an
-    EMITTED type path is now caught by the plugin's TWO type printers, each rejecting a non-comparable map key:
-    [go_type_of_tag]/[coq_goty_of_tag] ([goty_comparable_key]; the [make_chan] / tag-driven path, fixture-pinned
-    by [negtests/neg_chan_bad_map_key]) and [pp_type] ([pp_type_comparable_key], a RECURSIVE mirror of
-    [GoComparableType]).  ⚠ The [pp_type] arm fires only for a [GoMap] in a STRUCT-FIELD / defined-type position:
-    a map VALUE / param / return unboxes to [nat] ([gm_loc]) and its printed Go type is TAG-DRIVEN via
-    [go_type_of_tag] (which [neg_chan_bad_map_key] pins).  A bad-key map VALUE is itself CONSTRUCTIBLE ([map_empty]
-    = [MkMap 0], public) — the value side is NOT the boundary; the [pp_type] arm is a defensive guard on the
-    type-DECLARATION side, not yet fixture-pinned (a struct-with-a-bad-key-map-field fixture is the follow-up).
-    cp62: the MODEL's [MapKeysOk] plus the plugin's TWO type-printer checks ([goty_comparable_key],
-    [pp_type_comparable_key]) are THREE DUPLICATE map-key authorities the general certified TYPE authority
-    ([GoTypeDesc]) should UNIFY.  Residuals (the [GoTypeDesc] frontier): a NAMED struct with a non-comparable
-    field renders as a name (its fields not re-checked); and [MapKeysOk] does not prove renderability ([TUnit]
-    unrenderable; a [TArrow]-VALUE map is legal Go yet plugin-rejected — INCOMPLETENESS).  Do NOT read this as
-    "a certified map is a valid Go map type".
+    ⚠ SCOPE — an ALLOCATOR-BOUNDARY gate, NOT global tag unrepresentability nor a renderability certificate: the
+    bad tag [TMap (TSlice TI64) TI64] stays a constructible [GoTypeTag] term, and a bad-key map VALUE is
+    constructible too ([map_empty] = [MkMap 0], public).  Emission-side the trusted plugin has its OWN map-key
+    rejection: the tag→type renderer [go_type_of_tag]/[coq_goty_of_tag] fails loud on a non-comparable key — the
+    only FIXTURE-PINNED closure ([negtests/neg_chan_bad_map_key]: [make_chan (TMap (TSlice TI64) TI64)] aborts).
+    The second type printer [pp_type] carries an analogous guard ([pp_type_comparable_key], a recursive mirror of
+    [GoComparableType], for struct-field map types), but it is UNPINNED — a defensive guard, not verified
+    coverage.  cp62: [MapKeysOk] (model) and these plugin checks are DUPLICATE map-key authorities the general
+    certified TYPE authority ([GoTypeDesc]) must UNIFY; and [MapKeysOk] is not a renderability certificate ([TUnit]
+    unrenderable, a [TArrow]-value map plugin-rejected).  Do NOT read this as "a certified map is a valid Go map
+    type".
     The [Hwf] proof is a [Prop] — ERASED by extraction (name-lowered op, golden unaffected).  Float64 keys are
     admissible ([GoComparableType TFloat64 = true]) even though [Comparable TFloat64] fails (±0/NaN) — key
     admissibility is a TYPE property, not value-equality reflection. *)
