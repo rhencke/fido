@@ -44,11 +44,12 @@ Definition ChanHeap : Type := nat -> option ChanCell.
     [Comparable kt] scope on [map_set]); the single authority, not restated here.
     Like the channel cell, the stored tags let an accessor coerce back to its own
     [K]/[V] view (equal by construction). *)
-(** The leading [nat] is the cell's STORED count field — the raw per-cell [nat] that the [map_size] /
-    [map_len] accessors read (and Go [len(m)] lowers to) and that [map_upd] / [map_rem] step by +1 / −1,
-    ALL under GoMap's nil / forged / tag guards.  That the field EQUALS the number of live keys is the
-    deeper [GoMap] MapWF, NOT built into the cell.  It sits OUTSIDE the existT (the count is
-    type-independent), so the value accessor [map_get_fn] is unchanged. *)
+(** The leading [nat] is the cell's raw STORED count field — the per-cell [nat] GoMap's ops read
+    ([map_size] / [map_len], which Go [len(m)] lowers to) and update ([map_upd] / [map_rem]).  The read
+    guards (nil / forged / tag) and the exact update transitions are GoMap's ([map_count]'s
+    count-transition surface), and that the field EQUALS the number of live keys is GoMap's deeper
+    MapWF — none restated here.  It sits OUTSIDE the existT (the count is type-independent), so the value
+    accessor [map_get_fn] is unchanged. *)
 Definition MapCell : Type :=
   (nat * { K : Type & (GoTypeTag K * { V : Type & (GoTypeTag V * (K -> option V))%type })%type })%type.
 Definition MapHeap : Type := nat -> option MapCell.
