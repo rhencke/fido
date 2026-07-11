@@ -153,12 +153,15 @@ anti-forgery cones — TYPED-LIVENESS negatives, not origin provenance — for c
 `GoMap.map_finite_surface` (checkpoint-61 #10 map finite-support: MapFinite — the live keys (map_get_fn <>
 None) are contained in a finite list — is an INDUCTIVE invariant ESTABLISHED by map_make_typed
 (unconditionally: fresh cell stores fun _ => None, loc-0 nil map reads None everywhere) and PRESERVED by
-map_delete/map_clear (unconditionally) and map_set (⚠ UNDER Comparable kt — LOAD-BEARING: the k::old_keys
-witness needs key_eqb soundness so the new key's class is {k}; else e.g. float ±0 escapes). ⚠ PRESERVATION,
-NOT a global "every map is finite" theorem — the function rep DOES admit an infinite-support f (a raw/forged
-handle carrying one is NOT MapFinite, the cp59 frontier); the certified ops merely cannot PRODUCE one from a
-finite map. ⚠ finite SUPPORT only — NOT yet len(m) = |support| (the sz-vs-f count-consistency MapWF is the
-deeper follow-up)) /
+map_delete/map_clear (unconditionally, any key type) and map_set (⚠ ONLY under Comparable kt — LOAD-BEARING:
+the k::old_keys witness needs key_eqb soundness so the new key's class is {k}). ⚠ SCOPE: the OP map_set ACCEPTS
+a WIDER key set than the theorem covers (any kt, Go-faithful — Go permits float64 keys), but preservation is
+gated only for Comparable kt; a set with a non-value-equal key (float ±0) is accepted but NOT covered — a
+DEFERRED frontier (support stays finite, needs per-type key_eqb-class enumeration). So the gated guarantee is
+for COMPARABLE-KEY certified maps, a SUBSET of what the ops accept. ⚠ PRESERVATION, NOT a global "every map is
+finite" theorem — the function rep DOES admit an infinite-support f (a raw/forged handle carrying one is NOT
+MapFinite, the cp59 frontier); the certified ops merely cannot PRODUCE one from a finite map. ⚠ finite SUPPORT
+only — NOT yet len(m) = |support| (the sz-vs-f count-consistency MapWF is the deeper follow-up)) /
 `GoHeap.chan_state_ok_surface` (checkpoint-61 #9 "no over-full channel" INVARIANT ChanCapOk — a bounded
 channel's FIFO length <= cap — the channel analogue of SliceWF: gated across every PRIMITIVE state transition
 — ESTABLISHED at construction by BOTH allocators (make_chan unbuffered + make_chan_buf: empty buffer, finite

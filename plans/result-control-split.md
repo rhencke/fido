@@ -132,10 +132,13 @@ same-tag over-full forged handle (the checkpoint-59 typed-liveness frontier).
 SEPARATE `sz : nat`.  `MapFinite` (finite live-key SUPPORT — `exists keys, forall k, map_get_fn k <> None -> In
 k keys`) is now proved (gated `map_finite_surface`): the map analogue of ChanCapOk/SliceWF, ESTABLISHED by
 `map_make_typed` (unconditionally — const-`None` cell / nil both give empty support) and PRESERVED by
-`map_delete`/`map_clear` (unconditionally) and `map_set` (under `Comparable kt`, load-bearing for the `k::keys`
-witness).  This is invariant PRESERVATION, not a global "every map is finite" theorem — the function rep DOES
-admit an infinite-support `f` (a raw/forged handle is not `MapFinite`, the cp59 frontier); the certified ops
-merely cannot PRODUCE one from a finite map.  STILL AHEAD — the deeper `MapWF` count-consistency (`NoDup keys` + `map_count = length keys`,
-i.e. `sz` = the real live-key count, upgrading the single `map_len_counts` vm_compute example to a theorem);
-and the same-tag forged over-count handle (the cp59 typed-liveness frontier).
+`map_delete`/`map_clear` (unconditionally, any key type) and `map_set` (under `Comparable kt`, load-bearing for
+the `k::keys` witness).  ⚠ the OP `map_set` accepts a WIDER key set than the theorem covers (any `kt`,
+Go-faithful — Go permits float64 keys); a set with a non-value-equal key (float `±0`) is accepted but NOT
+covered — a DEFERRED frontier (support stays finite, needs per-type `key_eqb`-class enumeration).  Invariant
+PRESERVATION, not a global "every map is finite" theorem — the function rep DOES admit an infinite-support `f`
+(a raw/forged handle is not `MapFinite`, the cp59 frontier).  STILL AHEAD — closing the wider-acceptance gap
+(unconditional `map_set` finiteness via `key_eqb`-class enumeration); the deeper `MapWF` count-consistency
+(`NoDup keys` + `map_count = length keys`, i.e. `sz` = the real live-key count, upgrading the single
+`map_len_counts` vm_compute example to a theorem); and the same-tag forged over-count handle (the cp59 frontier).
 11. Clean docs + full build.

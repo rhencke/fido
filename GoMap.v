@@ -598,8 +598,14 @@ Qed.
     LOAD-BEARING, not incidental: the proof witnesses the new support by [k :: old_keys], which needs
     key-equality SOUNDNESS ([key_eqb kt k k' = true -> k = k']) so the newly-written key's [key_eqb]-class is
     exactly [{k}] — WITHOUT it a type whose [key_eqb] is true for distinct values (e.g. float [±0]) could put a
-    live key outside the witness list.  So a map BUILT by the allocator and evolved through the checked ops
-    (comparable key, as Go requires) stays finite-support.  ⚠ This is invariant PRESERVATION, NOT a global
+    live key outside the witness list.
+    ⚠ SCOPE — the OP [map_set] ACCEPTS a WIDER key set than this theorem covers: it operates on any [kt]
+    (Go-faithfully — Go permits e.g. float64 keys), but [MapFinite] preservation is gated ONLY under
+    [Comparable kt] (the integer / bool / string / pointer scalar families).  For a key whose [key_eqb]
+    identifies DISTINCT values (float [±0]; the Go-comparable-but-not-value-equal types) a [map_set] is still
+    accepted but NOT covered here — a DEFERRED frontier (its support stays finite too — the [key_eqb]-class is
+    finite — but proving it needs per-type class enumeration).  So the GATED guarantee is for COMPARABLE-KEY
+    certified maps, a SUBSET of the maps the ops accept.  ⚠ This is invariant PRESERVATION, NOT a global
     "every map is finite" theorem: the function rep DOES admit an infinite-support [f] (a RAW [mkWorld] /
     same-tag forged handle carrying one is NOT [MapFinite] — the checkpoint-59 typed-liveness frontier); the
     certified ops merely cannot PRODUCE such a value from a finite map.  ⚠ finite SUPPORT only — NOT yet
