@@ -1262,7 +1262,7 @@ Qed.
     The engine's own [GoInt] carrier takes the four bitwise binops as TOTAL model ops through ONE
     dispatch authority ([int_bitop]) and the two shifts through a count-checked convoy
     ([int_shift_checked] — [shift_checked_wide]'s exact shape at the engine's result type [RRes]):
-    a NEGATIVE count panics [rt_shift_neg] (gc's exact payload), a count >= 64 SATURATES
+    a NEGATIVE count panics [rt_shift_neg] (gc's exact [Error()] text), a count >= 64 SATURATES
     ([Z.min z 64] — exact for the 64-bit carrier), and the model op takes the raw [Z] count behind
     the nonneg-evidence convoy.  go-run-verified: 3&1=1, 3|4=7, 3^1=2, 3&^2=1, 3<<62 wraps
     negative, 3<<huge = 0, -3>>huge = -1, -3>>1 = -2, a negative runtime count panics. *)
@@ -1670,7 +1670,7 @@ Local Definition reval_int_tc (tc : GExpr -> option PTy) (leaf : string -> optio
               else None
           | EIndex (ESliceLit et es) idx =>
               (* the RUNTIME slice INDEX: literal construction (abort on a panicking element),
-                 then the index; OOB panics with the model's exact [rt_index_oob] payload. *)
+                 then the index; OOB panics with the model's [rt_index_oob] payload ([Error()] text, not the recovered dynamic value). *)
               match reval_elems_with ri es with
               | Some (REVals vs) =>
                   match ri idx with
@@ -2025,7 +2025,8 @@ Qed.
 
 (** ★ CLASS — the determined divide-by-zero PANICS, through the runtime tier: a SUPPORTED runtime
     [GTInt] [/] or [%] whose operands BOTH evaluate ([reval_int] values) with divisor raw 0 denotes to
-    [CPan rt_div_zero] (Go's exact runtime panic value) — for the WHOLE reval-evaluable fragment (the
+    [CPan rt_div_zero] (Go's exact div-by-zero [Error()] TEXT — the recovered VALUE is a runtime error
+    object, not this string; see GoPanic's header) — for the WHOLE reval-evaluable fragment (the
     dividend may itself be a runtime value now, e.g. [len([]int{len([]int{1})}) / len([]int{})]). *)
 Lemma denote_expr_div_zero : forall o a b va vb,
   (o = BDiv \/ o = BRem) ->
@@ -3880,7 +3881,7 @@ Qed.
     count layer — a CONSTANT count directly off the gate's own value, TOTAL with NO evaluation
     premise ([shift_count_const_total]), a RUNTIME count off its evaluated carrier
     ([shift_count_runint_total])).  The result is decided per OUTCOME: the width's model op's VALUE, or
-    the NEGATIVE-COUNT panic ([typed_shift_panic_neg] — gc's exact payload); operand/count panics
+    the NEGATIVE-COUNT panic ([typed_shift_panic_neg] — gc's exact [Error()] text); operand/count panics
     propagate left-to-right; ABSENT sides stay absent.  [GTUint] left is the hole row
     ([typed_shift_uint_none], pinned in [typed_uint_hole_programs_absent]); an untyped-const LEFT
     classifies [GTInt] — the ENGINE's own R8 row runs it ([gtint_shift_runs]; [typed_shift]

@@ -6,7 +6,7 @@
       hazards); does NOT gate the MAIN output (that stays the trusted plugin).
     - The gate accepts a program iff it denotes to [c] with [cmd_no_panic c = true].
     - Rejection has TWO mechanisms: ANY denotation containing a [CPan] — however the panic arises, incl. the
-      runtime panics GoSem denotes at their EXACT payloads since tier R2 (OOB, div-zero, panicking args) — is
+      runtime panics GoSem denotes at their EXACT [Error()] text since tier R2 (OOB, div-zero, panicking args) — is
       caught by [cmd_no_panic]; an ABSENT (undenoted) program is rejected by NON-denotation (faithful-or-absent,
       not a proof it is unsafe).  Concrete instances of both are pinned by the [panic_free_gate_*] examples
       ([_slice]/[_div]/[_defer]/[_arg_panic] the first mechanism, [_absent] the second).

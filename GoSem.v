@@ -674,7 +674,7 @@ Example typed_runtime_shift_runs : forall w,
   /\ forallb go_compile_check (map println_prog typed_shift_cases) = true.
 Proof. intro w. repeat split; vm_compute; reflexivity. Qed.
 (** The shift EDGES: a constant count, a typed-width count, a HUGE count (saturates — gc gives 0),
-    and the NEGATIVE runtime count (gc's exact panic payload) — go-run-verified: 12, 24, 0, panic. *)
+    and the NEGATIVE runtime count (gc's exact panic [Error()] text) — go-run-verified: 12, 24, 0, panic. *)
 Definition runshift_constcnt_e : GExpr := EBn BShl runb_u8 (EInt 2).
 Definition runshift_typedcnt_e : GExpr := EBn BShl runb_u8 runb_u8.
 Definition runshift_hugecnt_e  : GExpr :=
@@ -692,7 +692,7 @@ Proof. intro w. vm_compute. reflexivity. Qed.
     [typed_shift_gtint_left_absent] pin FLIPPED: an untyped-const left ([2 << len] — classifies
     [GTInt]), a runtime left with a WRAPPING const count ([len << 62] — negative like gc), a
     TYPED-width count ([len << uint8]), the HUGE count (saturates: << exhausts to 0), the
-    sign-fill >> (-3 >> huge = -1), and the NEGATIVE runtime count (gc's exact panic payload) —
+    sign-fill >> (-3 >> huge = -1), and the NEGATIVE runtime count (gc's exact panic [Error()] text) —
     go-run-verified: 16, -4611686018427387904, 24, 0, -1, panic.  The [uint] left stays the
     op-less hole row.  Bitwise: go-run-verified 1, 7, 2, 1. *)
 Definition runshift_intleft_e  : GExpr := EBn BShl (EInt 2) runlen3_e.
@@ -941,7 +941,7 @@ Definition gosem_blank_pure_prog : Program :=
 
 (** The determined-DIVIDE-BY-ZERO fixture: `_ = 1 / len([]int{})` is SUPPORTED (a runtime integer division —
     a CONSTANT zero divisor would be a compile error), and now DENOTES to its TRUE behavior via [denote_expr]:
-    the run PANICS with Go's exact runtime value [rt_div_zero] — pinned end-to-end as the typed field
+    the run PANICS with Go's exact runtime-panic [Error()] text (not the recovered dynamic value — see GoPanic's header) [rt_div_zero] — pinned end-to-end as the typed field
     [rc_div_zero]. *)
 Definition gosem_runtime_blank_prog : Program :=
   mkProgram (mkIdent "main" eq_refl) [GsBlankAssign divzero_e].
@@ -1124,7 +1124,7 @@ Proof. intro w. vm_compute. reflexivity. Qed.
     literal (slice AND integer-keyed map), a non-tail RETURN that stops the body with NO output, a denoted PANIC ending in [OPanic],
     [print]'s observable flag, a pure blank-assign falling through, defer
     LIFO ordering at return, a DEFERRED panic firing at return, the determined DIVIDE-BY-ZERO panicking with
-    Go's exact runtime value, a panicking ARGUMENT pre-empting its call, and a deferred call's argument
+    Go's exact runtime-panic [Error()] text (not the recovered dynamic value — see GoPanic's header), a panicking ARGUMENT pre-empting its call, and a deferred call's argument
     panicking AT DEFER TIME.  [gosem_category_coverage] inhabits that type, so it can be built ONLY by
     discharging EVERY field with the stated programs+values: a category cannot be dropped without editing this
     typed STATEMENT (the record), never silently by convention.  Table-INDEPENDENT (no reference to
@@ -1164,7 +1164,7 @@ Record GoSemRequiredCategoryCoverage : Prop := {
   rc_defer_panic : forall w,                                  (* a DEFERRED panic does NOT stop the body ("hi" prints) and fires at return *)
     match denote_program gosem_defer_panic_prog with Some c => run_cmd c w | None => None end
     = Some (OPanic (anyt TString "boom") (w_log true (anyt TString "hi" :: nil) w));
-  rc_div_zero : forall w,                                     (* the determined divide-by-zero PANICS with Go's exact runtime value *)
+  rc_div_zero : forall w,                                     (* the determined divide-by-zero PANICS with Go's exact runtime-panic [Error()] text (not the recovered dynamic value — see GoPanic's header) *)
     match denote_program gosem_runtime_blank_prog with Some c => run_cmd c w | None => None end
     = Some (OPanic rt_div_zero w);
   rc_arg_panic : forall w,                                    (* a PANICKING argument panics BEFORE the call — println prints NOTHING *)

@@ -34,11 +34,13 @@ From Fido Require Import GoRuntimeTypes.
 Definition rt_nil_deref    : GoAny := anyt TString "runtime error: invalid memory address or nil pointer dereference"%string.
 Definition rt_div_zero     : GoAny := anyt TString "runtime error: integer divide by zero"%string.   (* integer / and % by zero — consumed by GoSem's effectful denotation (not extracted) *)
 Definition rt_shift_neg    : GoAny := anyt TString "runtime error: negative shift amount"%string.    (* a NEGATIVE runtime shift count — consumed by GoSem's T5 typed-shift denotation (not extracted); payload verified against gc via go run *)
-(** Decimal rendering of a [Z] (for the EXACT runtime panic payloads below) — DEFINITIONALLY
-    the ONE decimal authority ([digits.print_Z], shared with the verified printer, whose parse
-    round-trip [GoPrint.print_parse_Z] gates it): no second digit-builder exists. *)
+(** Decimal rendering of a [Z] (for the runtime panic payloads' EXACT [Error()] TEXT below — NOT
+    the recovered dynamic value; see the file header) — DEFINITIONALLY the ONE decimal authority
+    ([digits.print_Z], shared with the verified printer, whose parse round-trip
+    [GoPrint.print_parse_Z] gates it): no second digit-builder exists. *)
 Notation Z_dec_string := digits.print_Z.
-(** The EXACT Go bounds-panic payload (verified against gc 1.23 via `go run`): a non-negative
+(** The EXACT Go bounds-panic [Error()] TEXT (verified against gc 1.23 via `go run`; the recovered
+    VALUE is a [runtime.boundsError] object, not this string — see the file header): a non-negative
     out-of-range index reads "index out of range [i] with length n"; a NEGATIVE index reads
     "index out of range [i]" with NO length part.  Parametrized — every panic site supplies the
     actual index and length, no collapsed class-wide value. *)

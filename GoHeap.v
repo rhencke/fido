@@ -1232,7 +1232,9 @@ Print Assumptions live_op_preserve_surface.
 
 (** Live* CHANNEL OP-LEVEL PRESERVATION SURFACE (manifest-gated, zero-axiom): [send]/[recv]/[close] keep a
     live channel Live over the world after the outcome ([outcome_world]) — form (2), covering the block/panic
-    branches, NOT asserting [ORet] (blocking is faithful Go behaviour, not failure). *)
+    branches, NOT asserting [ORet] (blocking is intended-faithful only in the RELATIONAL authority; the
+    shallow-IO would-block branch is CURRENTLY an inaccurate [OPanic] stand-in — checkpoint-61, fix tracked in
+    plans/result-control-split.md). *)
 Definition live_chan_op_preserve_surface :=
   (@LiveChan_send_op, @LiveChan_recv_op, @LiveChan_close_op).
 Print Assumptions live_chan_op_preserve_surface.

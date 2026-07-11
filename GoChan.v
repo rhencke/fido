@@ -401,12 +401,14 @@ Qed.
 
 (** The channel OPERATIONS, DEFINED over the state above.  Extraction lowers each by
     NAME to Go (the bodies — which mention the proof-only state — are suppressed).
-    FAITHFULNESS: [recv] on an open EMPTY channel is a LOUD panic — Go BLOCKS there
-    (a deadlock in a single-goroutine [run_io]), which has no synchronous value.
-    A CLOSED, drained channel correctly yields the zero value (Go's "receive from a
-    closed channel").  ([select] with a [default] is NON-blocking by DESIGN — firing
-    [default] on an open-empty channel is FAITHFUL Go; [recv_ok] gets the same
-    blocking-panic split below.) *)
+    ⚠ BLOCKING (checkpoint-61 current bug): [recv] on an open EMPTY channel BLOCKS in Go
+    (a deadlock in a single-goroutine [run_io], which has no synchronous value).  The shallow
+    model CURRENTLY raises a loud [OPanic] stand-in there — INACCURATE (Go blocks, it does not
+    panic; the faithful blocking authority is [rstep] in [concurrency.v], and the fix is the
+    scheduler split in plans/result-control-split.md).  A CLOSED, drained channel correctly yields
+    the zero value (Go's "receive from a closed channel").  ([select] with a [default] is
+    NON-blocking by DESIGN — firing [default] on an open-empty channel IS faithful Go; [recv_ok]
+    gets the same block split below.) *)
 (** [send] is CAPACITY-AWARE: a send onto a CLOSED channel panics (Go's "send on closed
     channel"); a send with NO ROOM ([chan_room] false — a full [Some n] buffer, or an UNBUFFERED [Some 0]
     channel with no waiting receiver) FAILS LOUD (Go BLOCKS; the sequential IO model has no rendezvous), it

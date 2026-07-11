@@ -42,7 +42,7 @@ From Fido Require Import GoRuntimeTypes.
 From Fido Require Import GoEffects.
 From Fido Require Import GoSlice.
 From Fido Require Import GoHeap.   (* ValidWorld — the CAlloc gate lemmas live where alloc_world meets it *)
-From Fido Require Import GoPanic.  (* the channel trio's Go-faithful panic payloads *)
+From Fido Require Import GoPanic.  (* the channel trio's Go-faithful CLOSED-channel panics (send/close on closed); the would-block markers are NOT faithful — see GoPanic's header *)
 From Fido Require Import GoNumeric.  (* GoI64/TI64 — the closed-recv typed-zero instance obligations *)
 From Stdlib Require Import List Lia.
 Import ListNotations.
