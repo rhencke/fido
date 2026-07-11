@@ -452,7 +452,15 @@ Qed.
     channels, interfaces, and structs/arrays of comparable types are comparable; SLICES, MAPS,
     and FUNCTIONS are NOT.  Crucially FLOATS are admissible keys HERE even
     though [Comparable TFloat64] FAILS (NaN <> NaN): key admissibility is a property of the
-    TYPE, not equality reflection on values.  This is the predicate map constructors gate on. *)
+    TYPE, not equality reflection on values.
+    ⚠ STATUS (checkpoint-61): this is the map-key ADMISSIBILITY CRITERION, but [map_make_typed] does NOT yet
+    GATE on it — a NON-comparable key type is currently ACCEPTED (degenerate: [key_eqb] is the false-sentinel,
+    so a stored value is never retrievable; a Go compile ERROR, so a well-typed program never has one).  A
+    COMPUTATIONAL guard [if GoComparableType kt then …] is INFEASIBLE: [GoComparableType] recurses on the
+    single-field-unboxed [GoTypeTag], which the extraction backend cannot emit, so it would break extraction if
+    pulled into a lowered op body.  The FAITHFUL live boundary is therefore EVIDENCE-CARRYING — an
+    [map_make_typed] demanding a [GoComparableType kt = true] PROOF (erased in extraction), making a
+    non-comparable-key map UNREPRESENTABLE — a tracked signature change (plans/result-control-split.md step 10). *)
 Fixpoint GoComparableType {K} (t : GoTypeTag K) : bool :=
   match t with
   | TSlice _ | TMap _ _ | TArrow _ _ => false        (* the three non-comparable Go type classes *)

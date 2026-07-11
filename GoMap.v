@@ -602,7 +602,12 @@ Qed.
     ⚠ SCOPE (three tiers) — the OP [map_set] is POLYMORPHIC over ANY [kt], so its acceptance is WIDER than this
     theorem AND wider than Go itself.  Go permits ONLY comparable key types, so a slice / map / func key is a Go
     COMPILE ERROR that the model op does NOT reject (there [key_eqb] is the false-sentinel, so [map_set] can
-    never match — degenerate but non-crashing; NOT Go-faithful, a model over-permission).  [MapFinite]
+    never match — degenerate but non-crashing; NOT Go-faithful, a model over-permission).  ⚠ FRONTIER: a
+    non-comparable key type is an EXPLICITLY UNSUPPORTED frontier — the faithful LIVE boundary (an
+    evidence-carrying [map_make_typed] demanding [GoComparableType kt = true], making it UNREPRESENTABLE) is
+    tracked (plans/result-control-split.md step 10); a COMPUTATIONAL [if GoComparableType kt] guard is infeasible
+    ([GoComparableType] recurses on the unboxed [GoTypeTag], un-emittable — it would break extraction).
+    [MapFinite]
     preservation is gated ONLY under [Comparable kt] (value-equality decidable — the integer / bool / string /
     pointer scalars), which is NARROWER even than Go-comparable: a Go-valid float64 key is NOT [Comparable]
     (float [±0]: [SFeqb -0.0 +0.0 = true] identifies DISTINCT values), so a [map_set] with a float /

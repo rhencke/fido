@@ -140,8 +140,19 @@ even than Go-comparable — a Go-valid float64 key is not `Comparable` (float `�
 set is accepted but NOT covered — a DEFERRED frontier (support stays finite, needs per-type `key_eqb`-class
 enumeration).  Invariant
 PRESERVATION, not a global "every map is finite" theorem — the function rep DOES admit an infinite-support `f`
-(a raw/forged handle is not `MapFinite`, the cp59 frontier).  STILL AHEAD — closing the wider-acceptance gap
-(unconditional `map_set` finiteness via `key_eqb`-class enumeration); the deeper `MapWF` count-consistency
-(`NoDup keys` + `map_count = length keys`, i.e. `sz` = the real live-key count, upgrading the single
-`map_len_counts` vm_compute example to a theorem); and the same-tag forged over-count handle (the cp59 frontier).
+(a raw/forged handle is not `MapFinite`, the cp59 frontier).  STILL AHEAD —
+**(a) the LIVE map-key REJECTION boundary (the biggest gap).** `map_make_typed` does NOT gate on
+`GoComparableType` (the type-level Go admissibility criterion — float64 OK, slice/map/func not); a
+non-comparable-key map is currently accepted (degenerate, never-retrievable) not rejected.  ⚠ a COMPUTATIONAL
+guard `if GoComparableType kt then …` is INFEASIBLE — `GoComparableType` recurses on the single-field-unboxed
+`GoTypeTag`, which the extraction backend cannot emit (VERIFIED: it aborts extraction "cannot extract type
+GoTypeTag").  The faithful boundary is EVIDENCE-CARRYING: `map_make_typed {K V} (kt) (vt) (Hcmp :
+GoComparableType kt = true)` — the `Prop` erases in extraction (golden-safe, no `GoComparableType` emitted),
+making a non-comparable-key map UNREPRESENTABLE.  Ripple: ~17 `map_make_typed` occurrences gain `Hcmp`/`eq_refl`
+(main.v demos + the GoHeap/GoMap make-lemmas thread the premise); ⚠ CHECK the plugin recognizer tolerates the
+erased extra arg (arity).  A dedicated arc.
+**(b)** closing the wider-acceptance gap (unconditional `map_set` finiteness via `key_eqb`-class enumeration);
+**(c)** the deeper `MapWF` count-consistency (`NoDup keys` + `map_count = length keys`, i.e. `sz` = the real
+live-key count, upgrading the single `map_len_counts` vm_compute example to a theorem); **(d)** the same-tag
+forged over-count handle (the cp59 frontier).
 11. Clean docs + full build.
