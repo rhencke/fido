@@ -1007,6 +1007,38 @@ Proof.
   - discriminate H.
   - injection H as Hch Hw. subst ch w'. unfold chan_cap. cbn. rewrite Hnz, Nat.eqb_refl. reflexivity.
 Qed.
+(** The fresh [make(chan T, n)] handle reads an EMPTY buffer — the constructor establishes the
+    [ChanCapOk] invariant with the strongest slack ([length 0 <= cap]).  Mirror of [make_chan_buf_caps]
+    (reading [chan_buf] instead of [chan_cap]); the [w_next <> 0] the read-back needs is forced by [AllocFrontierOk]. *)
+Lemma make_chan_buf_empty : forall {A} (tag : GoTypeTag A) (n : GoInt) (w : World) ch w',
+  AllocFrontierOk w -> run_io (make_chan_buf tag n) w = ORet ch w' -> chan_buf tag ch w' = nil.
+Proof.
+  intros A tag n w ch w' HV H.
+  assert (Hnz : Nat.eqb (w_next w) 0 = false) by (apply pos_neq0, (valid_fresh_nonzero w HV)).
+  unfold make_chan_buf, make_chan_cap, run_io in H.
+  revert H. destruct ((intraw n <? 0)%Z); intro H.
+  - discriminate H.
+  - injection H as Hch Hw. subst ch w'. unfold chan_buf. cbn. rewrite Hnz, Nat.eqb_refl, tag_eq_refl. reflexivity.
+Qed.
+(** ChanStateOk ESTABLISHMENT at construction: a fresh [make(chan T, n)] channel satisfies [ChanCapOk]
+    ([length 0 <= Z.to_nat n]).  Pairs [make_chan_buf_caps] (finite cap) with [make_chan_buf_empty] (empty buffer). *)
+Lemma make_chan_buf_establishes_chancapok : forall {A} (tag : GoTypeTag A) (n : GoInt) (w : World) ch w',
+  AllocFrontierOk w -> run_io (make_chan_buf tag n) w = ORet ch w' -> ChanCapOk tag ch w'.
+Proof.
+  intros A tag n w ch w' HV H. unfold ChanCapOk.
+  rewrite (make_chan_buf_caps tag n w ch w' HV H), (make_chan_buf_empty tag n w ch w' HV H).
+  cbn. apply Nat.le_0_l.
+Qed.
+(** CHANNEL STATE-OK SURFACE (manifest-gated, zero-axiom): the "no over-full channel" invariant [ChanCapOk]
+    (checkpoint-61 #9) is ESTABLISHED at construction and by every [send] and PRESERVED by [recv]/[close] — so a
+    bounded channel's FIFO length is [<= cap] under the whole certified channel op set, the analogue of SliceWF
+    for slices.  ⚠ SHAPE (buffer-length) invariant ONLY — a forged same-tag over-full handle is still the
+    checkpoint-59 typed-liveness frontier; and [None]-cap (proof-only unbounded bridge) is vacuous, the residual
+    finite-vs-unbounded excision of #9. *)
+Definition chan_state_ok_surface :=
+  (@make_chan_buf_establishes_chancapok, @send_establishes_chancapok,
+   @recv_preserves_chancapok, @close_preserves_chancapok).
+Print Assumptions chan_state_ok_surface.
 
 (** CLOSED-WORLD ALLOCATION-SAFETY SURFACE (manifest-gated, zero-axiom PUBLIC evidence): the allocator
     liveness + panic-free-deref cone for the four SCALAR / single-cell handle families (ptr / ref / map /

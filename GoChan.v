@@ -512,10 +512,65 @@ Proof.
   unfold chan_room in Hroom. rewrite Hok, Hcap in Hroom. cbv iota in Hroom.
   apply Nat.ltb_lt in Hroom. lia.
 Qed.
-(** CHANNEL CAPACITY SURFACE (manifest-gated, zero-axiom): the enqueue op respects the buffer capacity —
-    checkpoint-61 #9's "no over-full channel" property for the only buffer-growing op. *)
-Definition chan_capacity_surface := @send_respects_capacity.
-Print Assumptions chan_capacity_surface.
+(** ---- ChanStateOk: the "no over-full channel" INVARIANT (checkpoint-61 #9) ----
+    [ChanCapOk] — a bounded channel's FIFO never exceeds its capacity ([None]-cap: nil / the proof-only unbounded
+    bridge channels are vacuously ok).  The channel analogue of SliceWF ([sh_len <= sh_cap]).  ESTABLISHED at
+    construction (empty buffer, [GoHeap.make_chan_buf_establishes_chancapok]) and by every [send] (the room gate
+    forces [length < cap] before the append — [send_establishes_chancapok], via [send_respects_capacity]);
+    PRESERVED by [recv] (dequeue shortens the FIFO, or a closed-drained recv leaves [w] unchanged) and by
+    [close] (buffer / cap re-written unchanged).  Gated together in [GoHeap.chan_state_ok_surface]. *)
+Definition ChanCapOk {A} (tag : GoTypeTag A) (ch : GoChan A) (w : World) : Prop :=
+  match chan_cap ch w with
+  | Some n => (List.length (chan_buf tag ch w) <= n)%nat
+  | None   => True
+  end.
+Theorem chan_buf_close : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (w : World),
+  chan_cell_ok tag ch w = true ->
+  chan_buf tag ch (chan_close_upd tag ch w) = chan_buf tag ch w.
+Proof. intros A tag ch w Hok. unfold chan_close_upd. rewrite chan_buf_write_same by exact Hok. reflexivity. Qed.
+(** A NONEMPTY FIFO WITNESSES a tag-correct cell — every nil-producing branch of [chan_buf] (nil handle,
+    absent cell, wrong tag) gives [nil], so [v :: rest] forces [chan_cell_ok = true]. *)
+Lemma chan_buf_cons_cellok : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (v : A) (rest : list A) (w : World),
+  chan_buf tag ch w = v :: rest -> chan_cell_ok tag ch w = true.
+Proof.
+  intros A tag ch v rest w H. unfold chan_buf in H. unfold chan_cell_ok.
+  destruct (Nat.eqb (ch_loc ch) 0); [ discriminate H | ].
+  destruct (w_chans w (ch_loc ch)) as [ [E [etag [buf [cl cap]]]] | ]; [ | discriminate H ].
+  destruct (tag_eq tag etag); [ reflexivity | discriminate H ].
+Qed.
+Lemma send_establishes_chancapok : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (v : A) (w w' : World),
+  run_io (send tag ch v) w = ORet tt w' -> ChanCapOk tag ch w'.
+Proof.
+  intros A tag ch v w w' Hrun. unfold ChanCapOk.
+  destruct (chan_cap ch w') as [n|] eqn:Hcap; [ | exact I ].
+  exact (send_respects_capacity tag ch v w w' n Hrun Hcap).
+Qed.
+Lemma recv_preserves_chancapok : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (w w' : World) (a : A),
+  ChanCapOk tag ch w -> run_io (recv tag ch) w = ORet a w' -> ChanCapOk tag ch w'.
+Proof.
+  intros A tag ch w w' a Hok Hrun. unfold run_io, recv in Hrun.
+  destruct (chan_buf tag ch w) as [ | v rest ] eqn:Hbuf.
+  - (* empty: a closed-drained recv leaves [w] unchanged; open-empty blocks (no [ORet]) *)
+    destruct (andb (chan_closed ch w) (chan_cell_ok tag ch w)); [ | discriminate Hrun ].
+    assert (Hw' : w = w') by congruence. subst w'. exact Hok.
+  - (* nonempty: dequeue shortens the FIFO *)
+    assert (Hce : chan_cell_ok tag ch w = true) by exact (chan_buf_cons_cellok tag ch v rest w Hbuf).
+    assert (Hw' : chan_recv_upd tag ch w = w') by congruence. subst w'.
+    unfold ChanCapOk in *.
+    rewrite (chan_cap_recv tag ch w Hce), (chan_buf_recv tag ch v rest w Hce Hbuf).
+    destruct (chan_cap ch w) as [n|]; [ | exact I ].
+    rewrite Hbuf in Hok. cbn [List.length] in Hok. lia.
+Qed.
+Lemma close_preserves_chancapok : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (w w' : World),
+  ChanCapOk tag ch w -> run_io (close_chan tag ch) w = ORet tt w' -> ChanCapOk tag ch w'.
+Proof.
+  intros A tag ch w w' Hok Hrun. unfold run_io, close_chan in Hrun.
+  destruct (chan_cell_ok tag ch w) eqn:Hce; [ | discriminate Hrun ].
+  destruct (chan_closed ch w) eqn:Hcl; [ discriminate Hrun | ].
+  assert (Hw' : chan_close_upd tag ch w = w') by congruence. subst w'.
+  unfold ChanCapOk in *.
+  rewrite (chan_cap_close tag ch w Hce), (chan_buf_close tag ch w Hce). exact Hok.
+Qed.
 Lemma recv_absent_no_value : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (w : World) (a : A) (w' : World),
   chan_present ch w = false -> run_io (recv tag ch) w <> ORet a w'.
 Proof.

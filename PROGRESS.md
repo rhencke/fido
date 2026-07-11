@@ -150,11 +150,14 @@ Zero-axiom is gated by `Print Assumptions` in THREE flows (single-sourced here):
 `*_rejects_dup` proof authority) / `GoChan.chan_wrong_tag_antiforgery_surface` /
 `GoMap.map_wrong_tag_antiforgery_surface` / `GoHeap.ref_wrong_tag_antiforgery_surface` (the wrong-tag
 anti-forgery cones — TYPED-LIVENESS negatives, not origin provenance — for channels / maps / refs) /
-`GoChan.chan_capacity_surface` (checkpoint-61 #9 "no over-full channel": send_respects_capacity — a
-successful send leaves a bounded channel's FIFO length <= cap, UNCONDITIONALLY, since send enqueues only
-through the chan_room [length<cap] gate; the buffer-GROWING op respects capacity, the channel analogue of a
-slice write staying within cap. The full ChanStateOk — constructor establishes empty, recv/close preserve —
-is the noted completion) /
+`GoHeap.chan_state_ok_surface` (checkpoint-61 #9 "no over-full channel" INVARIANT ChanCapOk — a bounded
+channel's FIFO length <= cap — the channel analogue of SliceWF: ESTABLISHED at construction
+(make_chan_buf_establishes_chancapok: empty buffer, finite cap) and by every send (send_establishes_chancapok
+via send_respects_capacity — the room [length<cap] gate forces it before the append), PRESERVED by recv
+(dequeue shortens, or closed-drained leaves w unchanged) and close (buffer/cap re-written unchanged). So under
+the WHOLE certified channel op set a bounded channel never over-fills. ⚠ SHAPE (buffer-length) only — a forged
+same-tag over-full handle stays the checkpoint-59 typed-liveness frontier; None-cap (proof-only unbounded
+bridge) is vacuous, the residual finite-vs-unbounded excision) /
 `GoHeap.heap_alloc_safety_surface` (the positive-liveness half: the
 ptr/ref/map/chan allocator nonzero + live-cell + end-to-end panic-free-deref cone backing the `&x`
 address-of public claim) / `GoHeap.ref_addr_of_surface` (the address-of/assignment SEMANTICS the SPEC ledger
