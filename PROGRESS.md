@@ -66,7 +66,8 @@ plugin CONSTRUCTS the `GExpr`; only `gprint` is verified. NOT "verified Go."
   closed-recv zeros, arbitrary defer nesting, any panics) agrees with `run_cmd` end to end
   incl. final heaps/buffers/closedness, capacities pinned to the world's; the typed-zero
   obligations (TI64+TString instances, panic agreements, would-block absences, tag-mismatch
-  rejection, the translation pin) are gated theorems. ⚠ spawn/select later. Zero axioms.
+  rejection, the translation pin) are gated theorems. ⚠ catch + spawn/select later (the fragment
+  covers panic PROPAGATION via `CDfr`, not recover). Zero axioms.
 - **GoSemSafe** — panic-freedom properties + the narrow gate (`panic_free_gate` sound+complete,
   `emit_panic_free_gated`; both rejection mechanisms pinned). Off the main path; NOT
   BehaviorSafe. Zero axioms.
@@ -125,8 +126,8 @@ plugin CONSTRUCTS the `GExpr`; only `gprint` is verified. NOT "verified Go."
   — so it is NOT a pursued goal in this form (would need a canonical-only parser or a reformulation).
 - The cmd↔unified bridge (`plans/bridge-effects.md`): `CAlloc` AND the channel slice LANDED
   (typed zeros through the channel's own tag, gated obligations; `bridge_effects_agree` now
-  exposes capacity agreement publicly). Spawn/select is the deferred capstone (design deferred
-  until reached) — it waits behind the syntax authority.
+  exposes capacity agreement publicly). Cmd-level catch/recover, select, and spawn (the capstone)
+  remain — deferred slices behind the syntax authority.
 - Grow behavioral safety toward `BehaviorSafe` → `SafeProgram` → `emit_safe` — locals arc OPEN
   (`plans/gosem-locals.md`; next: the env statement layer); wire the certified path to the main
   output; widen the live GoPrint bridge — gate-honestly.
