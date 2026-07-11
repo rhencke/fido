@@ -90,8 +90,9 @@ proof strength.
 
 ## Standing technical law
 
-1. **Never edit `*.go`.** Extracted from `*.v` (both committed; `*.go` re-derivable). Change the
-   `.v` / plugin and re-extract.
+1. **Never edit `*.go`.** Extracted from `*.v` (the `*.v` is committed; the generated `*.go` is
+   NOT committed — `make extract` regenerates it, gitignored, and `make check` re-verifies, so it
+   can never drift). Change the `.v` / plugin and re-extract.
 2. **Model honestly — faithful or fail-loud, never plausible-but-wrong.** The plugin's
    `unsupported` ABORTS extraction for anything it can't lower correctly. ⚠️ **NEVER add a
    raw/opaque/string-rescue escape hatch to a structured AST** (`LESSONS.md` postmortem):

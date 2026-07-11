@@ -4,6 +4,12 @@
 *.out
 vendor/
 
+# The extracted program is GENERATED from the .v by `make extract` (a side effect of compiling main.v),
+# canonicalised with gofmt, and its runtime behaviour is pinned by expected_output.txt.  It is NOT committed
+# (cp62 byte-diet): `make check` regenerates + verifies it, so it can never go stale unnoticed, and there is no
+# 58 KB generated artifact tracked in source.  Root-anchored so it only matches the repo-root program file.
+/main.go
+
 # Environment
 .env
 

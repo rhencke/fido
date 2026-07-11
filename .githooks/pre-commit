@@ -37,8 +37,12 @@ if git diff --cached --name-only | grep -qE '\.v$|^plugin/|\.go$'; then
     git add -- plugin/printer.ml
   fi
   make extract
-  git add -A -- '*.go'
-  echo "fido: staged fresh extraction."
+  # The generated main.go is gitignored (cp62 byte-diet) — NOT committed — so `make extract` above is the
+  # anti-drift check (a broken proof / drift aborts it), and there is normally nothing to stage.  Stage any
+  # NON-ignored generated .go if one ever exists; tolerate the (current) zero-match case so `set -e` does not
+  # abort the commit.
+  git add -A -- '*.go' 2>/dev/null || true
+  echo "fido: re-extracted (generated .go is gitignored, verified not committed)."
 fi
 
 # Generated Go must be gofmt-clean.  By design the plugin emits valid-but-not-
