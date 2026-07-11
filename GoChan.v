@@ -572,6 +572,45 @@ Proof.
   unfold ChanCapOk in *.
   rewrite (chan_cap_close tag ch w Hce), (chan_buf_close tag ch w Hce). exact Hok.
 Qed.
+
+(** ---- ChanFinite: certified channels are BOUNDED (the finite-vs-unbounded half of checkpoint-61 #9) ----
+    [ChanFinite ch w] = [ch] has a FINITE capacity ([Some n]).  Real Go channels are ALWAYS finite; the model's
+    [chan_cap] admits [None] only for nil handles and the proof-only concurrency-bridge abstract channels.  This
+    file proves capacity is INVARIANT under the primitive [send] / [recv] / [close] (each re-writes [cap]
+    unchanged), so a bounded channel STAYS bounded; the constructors ESTABLISH it ([GoHeap]).  The single
+    coverage/scope statement lives with [GoHeap.chan_finite_surface] (one authority).  Combined with [ChanCapOk],
+    a certified channel's FIFO is bounded by a CONCRETE [n]. *)
+Definition ChanFinite {A} (ch : GoChan A) (w : World) : Prop := exists n : nat, chan_cap ch w = Some n.
+Lemma send_preserves_chanfinite : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (v : A) (w w' : World),
+  ChanFinite ch w -> run_io (send tag ch v) w = ORet tt w' -> ChanFinite ch w'.
+Proof.
+  intros A tag ch v w w' Hfin Hrun. unfold run_io, send in Hrun.
+  destruct (chan_cell_ok tag ch w) eqn:Hok; [ | discriminate Hrun ].
+  destruct (chan_closed ch w); [ discriminate Hrun | ].
+  destruct (chan_room tag ch w); [ | discriminate Hrun ].
+  assert (Hw' : chan_send_upd tag ch v w = w') by congruence. subst w'.
+  unfold ChanFinite in *. rewrite (chan_cap_send tag ch v w Hok). exact Hfin.
+Qed.
+Lemma recv_preserves_chanfinite : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (w w' : World) (a : A),
+  ChanFinite ch w -> run_io (recv tag ch) w = ORet a w' -> ChanFinite ch w'.
+Proof.
+  intros A tag ch w w' a Hfin Hrun. unfold run_io, recv in Hrun.
+  destruct (chan_buf tag ch w) as [ | v rest ] eqn:Hbuf.
+  - destruct (andb (chan_closed ch w) (chan_cell_ok tag ch w)); [ | discriminate Hrun ].
+    assert (Hw' : w = w') by congruence. subst w'. exact Hfin.
+  - assert (Hce : chan_cell_ok tag ch w = true) by exact (chan_buf_cons_cellok tag ch v rest w Hbuf).
+    assert (Hw' : chan_recv_upd tag ch w = w') by congruence. subst w'.
+    unfold ChanFinite in *. rewrite (chan_cap_recv tag ch w Hce). exact Hfin.
+Qed.
+Lemma close_preserves_chanfinite : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (w w' : World),
+  ChanFinite ch w -> run_io (close_chan tag ch) w = ORet tt w' -> ChanFinite ch w'.
+Proof.
+  intros A tag ch w w' Hfin Hrun. unfold run_io, close_chan in Hrun.
+  destruct (chan_cell_ok tag ch w) eqn:Hce; [ | discriminate Hrun ].
+  destruct (chan_closed ch w); [ discriminate Hrun | ].
+  assert (Hw' : chan_close_upd tag ch w = w') by congruence. subst w'.
+  unfold ChanFinite in *. rewrite (chan_cap_close tag ch w Hce). exact Hfin.
+Qed.
 Lemma recv_absent_no_value : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (w : World) (a : A) (w' : World),
   chan_present ch w = false -> run_io (recv tag ch) w <> ORet a w'.
 Proof.
