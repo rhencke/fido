@@ -50,12 +50,16 @@ Definition map_empty {K V : Type} : GoMap K V := MkMap 0.
     ⚠ SCOPE — this is an ALLOCATOR-BOUNDARY gate, NOT global tag unrepresentability, and NOT a renderability
     certificate.  The bad tag [TMap (TSlice TI64) TI64] is STILL a constructible [GoTypeTag] term reaching other
     positions ([zero_val], a nested [TChan]/[TMap]/[TPtr]/[TProd] tag, another allocator).  Such a tag reaching an
-    EMITTED type path (e.g. [make_chan (TMap (TSlice TI64) TI64)], which does NOT pass this proof) is now caught
-    by the trusted renderer's OWN map-key check ([plugin/go.ml goty_comparable_key], fail-loud;
-    [negtests/neg_chan_bad_map_key] pins it) — cp62: that means the MODEL's [MapKeysOk] and the PLUGIN's key check
-    are DUPLICATE map-key authorities the general certified TYPE authority ([GoTypeDesc]) should UNIFY, not two
-    parallel per-site predicates.  And [MapKeysOk] still does not prove renderability ([TUnit] has no faithful
-    rendering; a [TArrow]-VALUE map is legal Go yet the plugin rejects it — INCOMPLETENESS).  Do NOT read this as
+    EMITTED type path is now caught by the plugin's TWO type printers, EACH with its own key check that rejects a
+    SLICE/MAP/FUNC map key: [go_type_of_tag]/[coq_goty_of_tag] ([goty_comparable_key]; the [make_chan] /
+    tag-driven path, fixture-pinned by [negtests/neg_chan_bad_map_key]) and [pp_type] ([pp_type_noncomparable_key];
+    for a [GoMap] in a STRUCT-FIELD / defined-type position — a bare [GoMap] value handle unboxes to [nat], so
+    this printer's map arm is reached only there, check-in-place not yet fixture-pinned).  cp62: the MODEL's
+    [MapKeysOk] and the plugin's TWO parallel type printers are
+    DUPLICATE map-key authorities the general certified TYPE authority ([GoTypeDesc]) should UNIFY.  Residuals
+    (the [GoTypeDesc] frontier): an array-of-non-comparable / struct-with-a-non-comparable-field key is not
+    caught; and [MapKeysOk] does not prove renderability ([TUnit] unrenderable; a [TArrow]-VALUE map is legal Go
+    yet plugin-rejected — INCOMPLETENESS).  Do NOT read this as
     "a certified map is a valid Go map type".
     The [Hwf] proof is a [Prop] — ERASED by extraction (name-lowered op, golden unaffected).  Float64 keys are
     admissible ([GoComparableType TFloat64 = true]) even though [Comparable TFloat64] fails (±0/NaN) — key

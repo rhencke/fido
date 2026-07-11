@@ -174,11 +174,14 @@ nested in the value, must have a comparable key), so a map with an invalid key a
 map[int]map[[]int]int) cannot be constructed THROUGH THIS ALLOCATOR (neg_noncomparable_key_map +
 neg_nested_noncomparable_key_map are the Fail witnesses). ⚠ cp62: ALLOCATOR-BOUNDARY only, NOT global tag
 unrepresentability and NOT renderability — the bad tag TMap (TSlice TI64) TI64 stays a constructible GoTypeTag
-(reaches zero_val / nested tags / make_chan). A bad tag reaching an EMITTED type path (e.g. make_chan) is now
-fail-loud via the plugin's OWN map-key check (go_type_of_tag/goty_comparable_key; negtests/neg_chan_bad_map_key
-pins it), so MapKeysOk (model) + goty_comparable_key (plugin) are DUPLICATE map-key authorities GoTypeDesc
-should unify; MapKeysOk still doesn't prove renderability (TUnit unrenderable; TArrow-value map legal Go but
-plugin-rejected — incompleteness). Do NOT read it as "a certified map is a valid Go map type". (2)
+(reaches zero_val / nested tags / make_chan). A bad tag reaching an EMITTED type path is now fail-loud in BOTH
+plugin type printers, each rejecting a slice/map/func map key: go_type_of_tag/goty_comparable_key (make_chan /
+tag-driven path, fixture-pinned by negtests/neg_chan_bad_map_key) and pp_type/pp_type_noncomparable_key (GoMap
+in a struct-field/defined-type position — a bare handle unboxes to nat, so check-in-place not yet fixture-pinned)
+— so MapKeysOk (model) + the two plugin type printers are DUPLICATE map-key authorities GoTypeDesc unifies.
+Residuals (GoTypeDesc frontier): array-of-non-comparable / struct-with-non-comparable-field keys uncaught;
+MapKeysOk doesn't prove renderability (TUnit unrenderable; TArrow-value map legal Go but plugin-rejected). Do
+NOT read it as "a certified map is a valid Go map type". (2)
 map_set finiteness-preservation is gated only for Comparable kt (value-equal), NARROWER even than Go-comparable
 — a Go-valid float64 key IS constructable (GoComparableType TFloat64=true) but not Comparable (float ±0: SFeqb
 -0.0 +0.0 = true), so a float/non-value-equal set is admitted by the constructor gate but its preservation is

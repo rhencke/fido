@@ -459,9 +459,11 @@ Qed.
     type", caught at the Rocq API ([GoMap.neg_noncomparable_key_map] + [neg_nested_noncomparable_key_map] are the
     [Fail] witnesses).  ⚠ ALLOCATOR-BOUNDARY only, NOT global tag unrepresentability: the bad map TAG stays a
     constructible [GoTypeTag] reaching other positions ([zero_val], nested tags, another allocator).  Such a tag
-    at an EMITTED type path (e.g. [make_chan]) is now caught by the trusted renderer's OWN map-key check
-    ([plugin/go.ml goty_comparable_key], [negtests/neg_chan_bad_map_key]) — so the MODEL's [MapKeysOk] and the
-    PLUGIN's key check are DUPLICATE authorities the general certified type authority ([GoTypeDesc]) should UNIFY.  The gate is EVIDENCE-CARRYING — the proof is a [Prop], ERASED in extraction (golden unaffected,
+    at an EMITTED type path is now caught by the plugin's TWO type printers, each rejecting a SLICE/MAP/FUNC map
+    key: [go_type_of_tag] ([goty_comparable_key]; fixture-pinned by [negtests/neg_chan_bad_map_key]) and [pp_type]
+    ([pp_type_noncomparable_key]; a [GoMap] in a struct-field / defined-type position — a bare handle unboxes to
+    [nat], so check-in-place not yet fixture-pinned).  So the MODEL's [MapKeysOk] and the plugin's TWO parallel
+    type printers are DUPLICATE authorities the general certified type authority ([GoTypeDesc]) unifies.  The gate is EVIDENCE-CARRYING — the proof is a [Prop], ERASED in extraction (golden unaffected,
     name-lowered op), a pure representability guard the op body never inspects.  ([GoComparableType]/[MapKeysOk]
     are [bool] predicates, appearing only in these proof obligations.) *)
 Fixpoint GoComparableType {K} (t : GoTypeTag K) : bool :=
