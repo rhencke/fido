@@ -155,8 +155,9 @@ None) are contained in a finite list — is an INDUCTIVE invariant ESTABLISHED b
 (unconditionally: fresh cell stores fun _ => None, loc-0 nil map reads None everywhere) and PRESERVED by
 map_delete/map_clear (unconditionally, any key type) and map_set (⚠ ONLY under Comparable kt — LOAD-BEARING:
 the k::old_keys witness needs key_eqb soundness so the new key's class is {k}). ⚠ SCOPE (two boundaries): (1)
-the CONSTRUCTOR map_make_typed GATES on MapKeysOk (TMap kt vt) (evidence-carrying — a Prop erased in extraction;
-RECURSIVE: every TMap node, outer key AND any nested in the value, must have a comparable key), so a map with an
+the CONSTRUCTOR map_make_typed GATES on a MapKeysOk (TMap kt vt) = true PROOF (a Prop, erased in extraction;
+MapKeysOk itself is a bool Fixpoint on the un-emittable GoTypeTag; RECURSIVE: every TMap node, outer key AND any
+nested in the value, must have a comparable key), so a map with an
 invalid key at ANY nesting depth (e.g. map[int]map[[]int]int) is UNREPRESENTABLE — Go-faithful ("invalid map
 key type"; neg_noncomparable_key_map + neg_nested_noncomparable_key_map are the Fail witnesses); a certified
 map is a well-formed Go map type. (2)

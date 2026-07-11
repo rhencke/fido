@@ -146,8 +146,10 @@ true)` DEMANDS a RECURSIVE well-formedness proof (`MapKeysOk`: every `TMap` node
 the value — has a comparable key), so a map with an invalid key at ANY nesting depth
 (`map[[]int]int` OR `map[int]map[[]int]int`) is UNREPRESENTABLE (Go's "invalid map key type"; the `Fail`
 witnesses `GoMap.neg_noncomparable_key_map` + `neg_nested_noncomparable_key_map`).  The gate is
-evidence-carrying — `MapKeysOk` is a proof-only `Prop` (it recurses on the un-emittable `GoTypeTag`), erased in
-extraction (golden byte-identical), so the model is the single map-key authority (no plugin-side check).
+evidence-carrying — the `Hwf : MapKeysOk (TMap kt vt) = true` argument is a `Prop`, ERASED in extraction (golden
+byte-identical); `MapKeysOk` itself is a `bool` `Fixpoint` on the un-emittable `GoTypeTag`, appearing only
+inside that erased proof, so it never reaches emitted code and the model is the single map-key authority (no
+plugin-side check).
 STILL AHEAD —
 **(b)** closing the wider-acceptance gap (unconditional `map_set` finiteness via `key_eqb`-class enumeration
 for the constructable float/non-value-equal keys);
