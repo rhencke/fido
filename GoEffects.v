@@ -37,16 +37,13 @@ Definition RefHeap : Type := nat -> option RefCell.
     unbounded, [Some n] = a bounded buffer). *)
 Definition ChanCell : Type := { E : Type & (GoTypeTag E * (list E * (bool * option nat)))%type }.
 Definition ChanHeap : Type := nat -> option ChanCell.
-(** A map cell [(count, <K, tag_K, <V, tag_V, contents>>)]: a raw [nat] count field, OUTSIDE the existT
-    (type-independent — the value accessor [map_get_fn] is unaffected by it), then existentially the key
-    type [K] + its tag, the value type [V] + its tag, and the contents as a function [K -> option V].
-    Like the channel cell, the stored tags let an accessor coerce back to its own [K]/[V] view (equal by
-    construction).
-    ALL map semantics belong to GoMap (the single authority) and are NOT characterised here — the count
-    field's reads / updates ([map_size] / [map_len] / [map_upd] / [map_rem]; [map_count]'s count-transition
-    surface) and their nil / forged / tag guards; that the contents' live-key support is finite though the
-    bare function type does not enforce it ([MapFinite]); and that the count EQUALS that support (the
-    deeper MapWF). *)
+(** A map cell [(count, <K, tag_K, <V, tag_V, contents>>)]: a raw [nat], then existentially the key type
+    [K] + its tag, the value type [V] + its tag, and the contents [K -> option V] (the leading [nat] sits
+    OUTSIDE the existT, so it is type-independent).  Like the channel cell, the stored tags let an accessor
+    coerce back to its own [K]/[V] view (equal by construction).
+    ALL map semantics are GoMap's (the single authority), NOT restated here — see there for the [nat] count
+    field's reads / updates ([map_size] / [map_len] / [map_upd] / [map_rem], [map_count]'s count-transition
+    surface), finiteness ([MapFinite]), and count-vs-support ([MapWF]). *)
 Definition MapCell : Type :=
   (nat * { K : Type & (GoTypeTag K * { V : Type & (GoTypeTag V * (K -> option V))%type })%type })%type.
 Definition MapHeap : Type := nat -> option MapCell.
