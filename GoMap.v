@@ -85,7 +85,7 @@ Fail Definition neg_nested_noncomparable_key_map := map_make_typed TI64 (TMap (T
     in [IO] (world-dependent).  The contents live in the world through an abstract
     heap interface: [map_sel k m w] is the value at key [k] of map [m] in world
     [w]; [map_upd] / [map_rem] are the world-updates that [map_set] / [map_delete]
-    perform; [map_size] is the length.  These characterise a STANDARD heap, so
+    perform; [map_size] is the stored length accessor.  These characterise a STANDARD heap, so
     they are satisfiable — hence CONSISTENT and non-degenerate — and the
     get-after-write laws below are THEOREMS derived from them, not asserted.
     Map access never panics: a missing key reads [None] (Go's zero value /
@@ -202,12 +202,14 @@ Qed.
 Definition map_sel {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
                    (k : K) (m : GoMap K V) (w : World) : option V :=
   map_get_fn kt vt m w k.
-(** [map_size] = Go's [len(m)]: the live-key count stored in the map's cell — 0 if the handle has no
+(** [map_size] = Go's [len(m)] widened to [GoInt]: the map cell's STORED count field — 0 if the handle has no
     TAG-CORRECT cell ([map_cell_ok = false]: nil, nonzero-absent, OR wrong-tag), so a forged handle never
-    observes a foreign cell's size (the read-side dual of the write guard).  The plugin lowers [map_len] by
-    name to Go [len(m)] (the [GoTypeTag] args are model-only, dropped in emission); this model AGREES with it. *)
-(* The map's live-key count as the RAW heap-internal [nat] (the cell stores [nat]); [map_upd]/[map_rem]
-   do their +1/-1 bookkeeping here.  [map_size] is the Go-facing [len(m)] — the same count widened to
+    observes a foreign cell's count (the read-side dual of the write guard).  The plugin lowers [map_len] by
+    name to Go [len(m)] (the [GoTypeTag] args are model-only, dropped in emission); the [map_upd]/[map_rem]
+    +1/-1 bookkeeping (below) MAINTAINS this field — whether it EQUALS the live-key support size is the deeper
+    MapWF, NOT established here. *)
+(* The map cell's STORED count as the RAW heap-internal [nat] (the cell stores [nat]); [map_upd]/[map_rem]
+   do their +1/-1 bookkeeping on THIS field.  [map_size] is the Go-facing [len(m)] — the same field widened to
    the [Z]-carried [GoInt]. *)
 Definition map_count {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (m : GoMap K V) (w : World) : nat :=
   if map_cell_ok kt vt m w   (* TAG-AWARE (checkpoint-58): a nil / nonzero-absent / WRONG-TAG handle has [len] 0
@@ -232,12 +234,12 @@ Definition map_size {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (m : GoMap K V) 
 Definition map_upd {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
                    (k : K) (v : V) (m : GoMap K V) (w : World) : World :=
   map_write kt vt m (fun k' => if key_eqb kt k k' then Some v else map_get_fn kt vt m w k')
-    (match map_get_fn kt vt m w k with         (* len UNCHANGED on an existing key; +1 on a new one *)
+    (match map_get_fn kt vt m w k with         (* count field: UNCHANGED on an existing key; +1 on a new one *)
      | Some _ => map_count kt vt m w | None => S (map_count kt vt m w) end) w.
 Definition map_rem {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
                    (k : K) (m : GoMap K V) (w : World) : World :=
   map_write kt vt m (fun k' => if key_eqb kt k k' then None else map_get_fn kt vt m w k')
-    (match map_get_fn kt vt m w k with         (* len −1 on a present key; UNCHANGED if absent *)
+    (match map_get_fn kt vt m w k with         (* count field: −1 on a present key; UNCHANGED if absent *)
      | Some _ => Nat.pred (map_count kt vt m w) | None => map_count kt vt m w end) w.
 
 (** Read-back-after-write: [map_get_fn] of a [map_write] (with the SAME tags) is
@@ -269,8 +271,9 @@ Lemma map_rem_absent_noop : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (
   map_cell_ok kt vt m w = false -> map_rem kt vt k m w = w.
 Proof. intros K V kt vt k m w H. unfold map_rem. apply map_write_absent_noop; exact H. Qed.
 
-(** Witness (machine-checked): [map_size] reports the REAL live-key count = Go's [len(m)].
-    Insert keys 1,2; overwrite key 1 (len stays 2); delete key 2 (len → 1). *)
+(** Witness (machine-checked): on THIS concrete trace the STORED count field tracks the number of distinct
+    live keys, so [map_size] = Go's [len(m)] here.  Insert keys 1,2; overwrite key 1 (field stays 2); delete
+    key 2 (field → 1).  A witness on ONE trace — NOT the general "field = |support|" MapWF. *)
 Example map_len_counts :
   match run_io (map_make_typed TI64 TI64 eq_refl)
                (mkWorld (fun _ => None) (fun _ => None) (fun _ => None) 1 nil) with
