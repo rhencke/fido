@@ -1,162 +1,34 @@
-(** THE ONE assumptions gate — the sole Print-Assumptions target (compiled EVERY build by the prover
-    stage against the dune-built .vo, so it can never be skipped by a warm cache: the build asserts
-    BOTH zero 'Axioms:' lines AND exactly as many 'Closed under the global context' lines as there are
-    'Print Assumptions' commands below — an empty/partial log FAILS, so the gate is fail-closed).
-    These are GoPrint's public surfaces (digits/GoAst declare none — axiom-free by inspection only). *)
-From Fido Require Import GoPrint.
-Print Assumptions print_ty_inj.
-Print Assumptions esc_string_roundtrip_opt.
-Print Assumptions unescape_opt_image.
-Print Assumptions print_parse_Z.
-Print Assumptions print_parse_hex.
-Print Assumptions print_parse_float_hex.
-Print Assumptions gtokens_lex.
-Print Assumptions gtokens_parse.
-Print Assumptions parse_complete.
-Print Assumptions parse_gty_complete.
-Print Assumptions parse_print_roundtrip.
-Print Assumptions gprint_inj.
-Print Assumptions parse_gty_roundtrip.
-Print Assumptions gttokens_ty_lex.
-Print Assumptions lex_print_ty.
-Print Assumptions parse_convty_roundtrip.
-Print Assumptions parse_conv_print.
-Print Assumptions parse_gty_print_ty.
-Print Assumptions print_stmt_inj.
-Print Assumptions print_program_inj.
-Print Assumptions gprint_expr_canonical.
-Print Assumptions canon_expr_tokens.
-Print Assumptions lex_gprint_expr.
-Print Assumptions canon_ty_unique.
-Print Assumptions gttokens_ty_inj.
-Print Assumptions gtokens_balanced.
-Print Assumptions last0_group.
-Print Assumptions balanced_close_split.
-Print Assumptions sep_split.
-Print Assumptions no_depth0_sep.
-Print Assumptions gtokens_args_inj.
-Print Assumptions gtokens_pairs_inj.
-Print Assumptions bare_not_paren_group.
-Print Assumptions gtparen_inj.
-Print Assumptions op_token_inj.
-Print Assumptions prefix_token_inj.
-Print Assumptions skip_gty_types.
-Print Assumptions skip_gty_lt.
-Print Assumptions eb_find_pi.
-Print Assumptions eb_depth_ty.
-Print Assumptions eb_depth_args.
-Print Assumptions eb_depth_pairs.
-Print Assumptions eb_depth.
-Print Assumptions eb_top_prec.
-Print Assumptions eb0t_infix.
-Print Assumptions eb_top_bare.
-Print Assumptions eb_type_skip.
-Print Assumptions eb_type_conv.
-Print Assumptions eb_operand.
-Print Assumptions eb_find_gtokens.
-Print Assumptions eb_find_inner.
-Print Assumptions gtokens_ebn_inner.
-Print Assumptions gtokens_inj_ebn.
-Print Assumptions gtokens_eun_inner.
-Print Assumptions nonatom_len.
-Print Assumptions gtokens_inj_esel.
-Print Assumptions gtokens_inj_eindex.
-Print Assumptions gtokens_inj_eassert.
-Print Assumptions gtokens_inj_eslice.
-Print Assumptions gtokens_inj_ecall.
-Print Assumptions gtokens_inj_econv.
-Print Assumptions gtokens_inj_eslicelit.
-Print Assumptions gtokens_inj_emaplit.
-Print Assumptions gtokens_inj_eid.
-Print Assumptions gtokens_inj_eint.
-Print Assumptions gtokens_inj_estr.
-Print Assumptions gtokens_inj_ehex.
-Print Assumptions gtokens_olast_eindex.
-Print Assumptions gtokens_olast_ecall.
-Print Assumptions gtokens_olast_econv.
-Print Assumptions gtokens_olast_emaplit.
-Print Assumptions gtokens_olast_eslice.
-Print Assumptions gtokens_olast_eassert.
-Print Assumptions gtokens_olast_eslicelit.
-Print Assumptions gtokens_olast_esel.
-Print Assumptions gtokens_hd_eun.
-Print Assumptions gtokens_hd_eslicelit.
-Print Assumptions gtokens_hd_emaplit.
-Print Assumptions gtokens_hd_ebn_wrapped.
-Print Assumptions gtokens_inj_eslicelit_row.
-Print Assumptions gtokens_inj_emaplit_row.
-Print Assumptions gtokens_eindex_neq_eslice.
-Print Assumptions gtparen_hd_not_prefix.
-Print Assumptions gtokens_olast_ebn_wrapped.
-Print Assumptions gtokens_inj_esel_row.
-Print Assumptions gtokens_inj_eindex_row.
-Print Assumptions gtokens_inj_eslice_row.
-Print Assumptions gtokens_inj_eun_row.
-Print Assumptions gtparen_olast_not_dot.
-Print Assumptions gtokens_eassert_neq_ecall.
-Print Assumptions gttokens_ty_no_dot.
-Print Assumptions gtokens_eassert_neq_econv.
-Print Assumptions gtokens_last0_ebn_wrapped.
-Print Assumptions gtokens_ecall_neq_ebn_wrapped.
-Print Assumptions gtokens_eassert_neq_ebn_wrapped.
-Print Assumptions gtokens_econv_neq_ebn_wrapped.
-Print Assumptions gtokens_inj_eassert_row.
-Print Assumptions gttokens_ty_no_lp.
-Print Assumptions gttokens_ty_no_lc.
-Print Assumptions gtparen_typelead_impure.
-Print Assumptions gtokens_ecall_neq_econv.
-Print Assumptions gtokens_inj_ecall_row.
-Print Assumptions gtokens_inj_econv_row.
-Print Assumptions gtokens_inj_ebn_row.
-Print Assumptions gtokens_inj.
-Print Assumptions canon_expr_unique.
-Print Assumptions gtokens_no_stmt.
-Print Assumptions stmt_tokens_inj.
-Print Assumptions canon_stmt_tokens.
-Print Assumptions gprint_stmt_canonical.
-Print Assumptions canon_stmt_unique.
-Print Assumptions stmts_tokens_inj.
-Print Assumptions program_tokens_inj.
-Print Assumptions canon_program_tokens.
-Print Assumptions gprint_program_canonical.
-Print Assumptions canon_program_unique.
-Print Assumptions lex_print_stmt_exprstmt.
-Print Assumptions lex_print_stmt_return.
-Print Assumptions lex_print_stmt_returnval.
-Print Assumptions lex_gprint_stmt_supported.
-Print Assumptions lex_gprint_stmt_unsupported.
-Print Assumptions stmt_lex_supported_iff.
+(** THE ONE assumptions gate — the sole Print-Assumptions target, compiled fresh EVERY build against the
+    dune-built .vo so a warm cache can never skip it.  The build asserts BOTH zero 'Axioms:' lines AND
+    exactly as many 'Closed under the global context' lines as there are 'Print Assumptions' commands here
+    (an empty/partial log FAILS — fail-closed both ways).  These are the public surfaces of the collapsed
+    GoAST -> GoCompile -> GoSafe -> GoRender -> GoEmit architecture. *)
+From Fido Require Import TargetConfig Literals GoIdent GoAST GoCompile GoSafe GoRender GoEmit.
 
-(** ---- checkpoint-66 slice roots (TargetConfig..Elaborate) — the compile authority and
-    semantics surfaces. *)
-From Fido Require Import TargetConfig CoreType Surface TypedIR Semantics CompileEnv Elaborate.
-Print Assumptions Elaborate.elab_program_sound.
-Print Assumptions Elaborate.elab_program_complete.
-Print Assumptions Semantics.eval_deterministic.
-Print Assumptions Semantics.eval_total.
-Print Assumptions Semantics.eval_expr_type.
-Print Assumptions Semantics.eval_int_in_range.
-Print Assumptions CoreType.int_lit_ok_in_range.
-Print Assumptions CoreType.neg_lit_ok_in_range.
-Print Assumptions CoreType.println_arg_ok_all.
-Print Assumptions TypedIR.type_of_println_ok.
-Print Assumptions CompileEnv.lookup_predeclared_inv.
-Print Assumptions Elaborate.reject_unresolved_callee.
-Print Assumptions Elaborate.reject_qualified_callee.
-Print Assumptions Elaborate.reject_wrong_package.
-Print Assumptions Elaborate.reject_value_statement.
-Print Assumptions Elaborate.reject_call_argument.
-Print Assumptions Elaborate.reject_nested_negation.
-Print Assumptions Elaborate.reject_negated_bool.
-Print Assumptions Elaborate.reject_negative_literal_node.
-Print Assumptions Elaborate.reject_int_overflow.
-Print Assumptions Elaborate.reject_neg_overflow.
-Print Assumptions Elaborate.accept_min_int.
-Print Assumptions Elaborate.reject_control_byte_string.
-Print Assumptions Elaborate.reject_high_byte_string.
+(* target authority *)
+Print Assumptions TargetConfig.int_min_val.
+Print Assumptions TargetConfig.int_max_val.
+Print Assumptions TargetConfig.println_supported.
 
-(** ---- checkpoint-66 slice roots (GoToken..GoRender) — grammar + renderer surfaces. *)
-From Fido Require Import GoToken GoLex GoGrammar GoRender.
-Print Assumptions GoRender.program_tokens_grammar.
-Print Assumptions GoRender.render_lex_inverse.
-Print Assumptions digits.pos_digits_last.
+(* admitted literal forms + target representability *)
+Print Assumptions Literals.int_lit_ok_in_range.
+Print Assumptions Literals.neg_lit_ok_in_range.
+Print Assumptions Literals.int_lit_ok_range.
+Print Assumptions Literals.neg_lit_ok_range.
+
+(* validated identifiers *)
+Print Assumptions GoIdent.goident_payload_eq.
+Print Assumptions GoIdent.goident_facts.
+
+(* GoCompile: exact static admissibility — the executable checker is SOUND and COMPLETE
+   against the declarative judgment (not a bare boolean equality), and the judgment is decidable *)
+Print Assumptions GoCompile.go_compile_sound.
+Print Assumptions GoCompile.go_compile_complete.
+Print Assumptions GoCompile.go_compile_iff.
+Print Assumptions GoCompile.GoCompile_dec.
+
+(* GoEmit: the DirectoryImage is path-safe (relative, no traversal, .go, unique) and complete *)
+Print Assumptions GoEmit.path_ok_main_go.
+Print Assumptions GoEmit.emit_paths_ok.
+Print Assumptions GoEmit.emit_nonempty.
+Print Assumptions GoEmit.emit_unique_paths.

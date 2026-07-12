@@ -1,5 +1,5 @@
 (rocq.theory
  (name Fido)
- (synopsis "Fido — a proof repository under a foundation reset: the cp66 println slice roots + the surviving syntax layer (pending the syntax-root reset)")
+ (synopsis "Fido — GoAST -> GoCompile -> GoSafe -> direct GoRender -> GoEmit (DirectoryImage); the LLM proposes a GoAST, emission is gated on proved compile + safety")
  (theories Stdlib)
- (modules digits GoAst GoPrint TargetConfig CoreType Surface TypedIR Semantics CompileEnv Elaborate GoToken GoLex GoGrammar GoRender))
+ (modules digits TargetConfig Literals GoIdent GoAST GoCompile GoSafe GoRender GoEmit))
