@@ -53,15 +53,17 @@ syntax root — kept only until the reset reaches it, described honestly in `PRO
 
 ## Trust base (say it exactly)
 
-Trusted: Rocq and its kernel; the toolchain base images and packages (digest-pinning + version verification
-is a build-trust task in `PROGRESS.md`); and — when emission returns — the Rocq extraction transform,
-`ExtrOcamlNativeString`, the OCaml compiler/runtime, one tiny transparent output glue file, and the Go
-toolchain (Go's parse of the bytes is trusted; the Go-subset recognition theorem is the grammar-adequacy
-goal above). No handwritten semantic OCaml exists (`tools/ocaml-origin-gate.sh`).
+Trusted: Rocq and its kernel; the two Docker base images (digest-pinned) plus the opam-repo state and apt
+packages they install (pinning/snapshotting those is a residual build-trust task in `PROGRESS.md`); and —
+when emission returns — the Rocq extraction transform, `ExtrOcamlNativeString`, the OCaml compiler/runtime,
+one tiny transparent output glue file, and the Go toolchain (Go's parse of the bytes is trusted; the
+Go-subset recognition theorem is the grammar-adequacy goal above). No handwritten semantic OCaml exists
+(`tools/ocaml-origin-gate.sh`).
 
-Proved (zero project axioms): the surviving syntax layer's `Print Assumptions` surfaces. "Zero axioms" is
-never evidence that a theorem's *statement* is the right correctness theorem — the deleted `GoCompile` was
-axiom-free and still wrong.
+Proved: the surviving syntax layer's *declared* `Print Assumptions` surfaces print no assumptions — that is
+what the axiom gate establishes, NOT that every definition is globally assumption-free (the precise
+public-surface gate is a build-trust task). "No assumptions" is never evidence that a theorem's *statement*
+is the right correctness theorem — the deleted `GoCompile` was axiom-free and still wrong.
 
 ## What must never come back
 

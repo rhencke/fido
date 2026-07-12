@@ -1,8 +1,10 @@
 #!/bin/sh
-# THE ONE spine-gate authority: compile the surviving module set standalone and assert ZERO axioms
-# (grep '^Axioms:' over the one log every compile writes to).  Called by BOTH the Dockerfile prover stage
-# and the Makefile local mirror — a single definition, no drift path.  EVERY failure path cleans the
-# generated artifacts (vo/glob/aux of the ACTIVE file set); on SUCCESS the .vo are left for the caller.
+# THE ONE spine-gate authority: compile the surviving module set standalone and assert its DECLARED
+# Print-Assumptions surfaces are axiom-free (grep '^Axioms:' over the compile log — this gates the theorems
+# with an explicit `Print Assumptions`, NOT every definition globally; the pre-commit anti-axiom scan +
+# Stdlib-only imports cover the rest by construction).  Called by BOTH the Dockerfile prover stage and the
+# Makefile local mirror — a single definition, no drift path.  EVERY failure path cleans the generated
+# artifacts (vo/glob/aux of the ACTIVE file set); on SUCCESS the .vo are left for the caller.
 #   modes: printer | selftest (no other mode exists — the gate is not a general runner)
 set -eu
 

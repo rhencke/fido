@@ -12,14 +12,14 @@ PLATFORM ?= linux/$(shell uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
 # authority, and NOTHING here claims Go compiler adequacy.
 
 # check: the one verify — zero tracked OCaml, no tracked generated Go, and the surviving Rocq compiles with
-# zero axioms (Rocq's own Print Assumptions).  No Go toolchain is involved (there is no emission).
+# its Print-Assumptions surfaces axiom-free (Rocq's own Print Assumptions).  No Go toolchain is involved (there is no emission).
 check: ocaml-origin-gate go-uncommittable-seal spine-verify
-	@echo "fido: check OK — surviving Rocq compiles, zero axioms, zero tracked OCaml ✓"
+	@echo "fido: check OK — surviving Rocq compiles, its Print-Assumptions surfaces axiom-free, zero tracked OCaml ✓"
 
 spine-verify:
 	@sh tools/spine-gate.sh printer /tmp/fido-verify.log
 	@rm -f digits.vo digits.glob .digits.aux GoAst.vo GoAst.glob .GoAst.aux GoPrint.vo GoPrint.glob .GoPrint.aux
-	@echo "fido: spine-verify OK — digits/GoAst/GoPrint compile standalone, zero axioms ✓"
+	@echo "fido: spine-verify OK — digits/GoAst/GoPrint compile standalone, its Print-Assumptions surfaces axiom-free ✓"
 
 ocaml-origin-gate:
 	@sh tools/ocaml-origin-gate.sh
@@ -30,7 +30,7 @@ go-uncommittable-seal:
 	if [ -n "$$tracked" ]; then echo "fido: SEAL FAILED — a tracked *.go exists but generated Go is never committed:"; echo "$$tracked" | sed 's/^/  /'; exit 1; fi; \
 	echo "fido: uncommittable-Go seal OK — no *.go is tracked ✓"
 
-# Reproducible container build: the pinned Rocq toolchain compiles the surviving modules + asserts zero axioms.
+# Reproducible container build: the pinned Rocq toolchain compiles the surviving modules + asserts its Print-Assumptions surfaces axiom-free.
 build:
 	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --target prover .
 

@@ -1,12 +1,12 @@
 # syntax=docker/dockerfile:1
 
 # Fido under a FOUNDATION RESET (checkpoint 65): the pinned Rocq toolchain compiles the surviving syntax
-# layer (digits, GoAst, GoPrint) and asserts ZERO axioms.  There is NO emitted Go and NO Go toolchain this
+# layer (digits, GoAst, GoPrint) and asserts its Print-Assumptions surfaces axiom-free.  There is NO emitted Go and NO Go toolchain this
 # round — the false compile/emit authority was deleted (a smaller root-only repo beats a green demo on a
 # false compile certificate).  The Go stage returns only when a proof-backed typed emission path exists.
 
 # ── Stage 1: Rocq/OCaml toolchain ─────────────────────────────────────────────
-FROM ocaml/opam:debian-12-ocaml-5.3 AS rocq-builder
+FROM ocaml/opam:debian-12-ocaml-5.3@sha256:bbaac53e502f6602013d8967c3a54cfcb898b556f453ab72e8e23966c3c681df AS rocq-builder
 RUN --mount=type=cache,id=fido-apt-builder,target=/var/cache/apt,sharing=locked \
     sudo apt-get update \
     && sudo apt-get install -y --no-install-recommends \
@@ -27,7 +27,7 @@ RUN --mount=type=cache,id=fido-opam,uid=1000,gid=1000,target=/home/opam/.opam/do
     && opam clean --all
 
 # ── Stage 2: minimal Rocq runtime ─────────────────────────────────────────────
-FROM debian:12-slim AS rocq-base
+FROM debian:12-slim@sha256:60eac759739651111db372c07be67863818726f754804b8707c90979bda511df AS rocq-base
 RUN --mount=type=cache,id=fido-apt-base,target=/var/cache/apt,sharing=locked \
     apt-get update \
     && apt-get install -y --no-install-recommends \
@@ -43,7 +43,7 @@ RUN mkdir -p /workspace && chown opam:opam /workspace
 WORKDIR /workspace
 USER opam
 
-# ── Stage 3: prove — compile the surviving modules, assert zero axioms ────────
+# ── Stage 3: prove — compile the surviving modules, assert its Print-Assumptions surfaces axiom-free ────────
 FROM rocq-base AS prover
 ARG TARGETARCH
 COPY --chown=opam:opam dune-project dune ./

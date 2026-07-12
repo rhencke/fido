@@ -61,7 +61,8 @@ formulation, follow the stronger path and surface the divergence.
 4. **Zero project axioms — every `Print Assumptions` surface is EMPTY; preserve it.** The whole model is
    `Definition`s/`Record`s over concrete Rocq data. Never `Axiom`/`Parameter`/`Admitted`, never a kernel
    primitive (`PrimInt63`/`PrimFloat` are axioms too), never `FunctionalExtensionality` on a retained
-   surface. `make check` asserts zero axioms over the surviving modules (Rocq's own `Print Assumptions`).
+   surface. `make check` asserts the surviving modules' declared `Print Assumptions` surfaces are axiom-free
+   (Rocq's own output — this gates the declared surfaces, not every definition; see `PROGRESS.md`).
 5. **No fuel, ever.** No gas, step budgets, max-depths, bounded runners, cycle caps, or renamed
    equivalents anywhere in retained code. A ranked/well-founded structural measure is acceptable ONLY as a
    termination proof from decreasing structure — never as an externally supplied execution budget. A
@@ -96,13 +97,14 @@ features; do not rebuild the old breadth from memory.
 ## Workflow & commands
 
 Verify after any change: **`make check`** — zero tracked OCaml, no tracked generated Go, and the surviving
-Rocq compiles with zero axioms (Rocq's own `Print Assumptions`, via `tools/spine-gate.sh`). No Go toolchain
+Rocq compiles with its declared `Print Assumptions` surfaces axiom-free (via `tools/spine-gate.sh`; that
+gates the declared surfaces, not every definition — see `PROGRESS.md`'s trust base). No Go toolchain
 is involved (there is no emission this round). Then commit → re-index.
 
 ```
-make check          # the one verify: origin/seal gates + compile digits/GoAst/GoPrint, zero axioms
-make spine-verify   # compile the surviving modules standalone, assert zero axioms
-make build          # reproducible container build: the pinned Rocq toolchain compiles them, zero axioms
+make check          # the one verify: origin/seal gates + compile digits/GoAst/GoPrint, Print-Assumptions surfaces axiom-free
+make spine-verify   # compile the surviving modules standalone, assert its Print-Assumptions surfaces axiom-free
+make build          # reproducible container build: the pinned Rocq toolchain compiles them, Print-Assumptions surfaces axiom-free
 make install-hooks  # activate the pre-commit hook (once after clone)
 ```
 

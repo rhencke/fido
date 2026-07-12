@@ -24,9 +24,10 @@ demo resting on a false compile certificate.
 ## What survives (and is NOT a certified authority)
 
 `digits.v` (the decimal-rendering authority), `GoAst.v`, `GoPrint.v` — the syntax layer. It compiles
-standalone with **zero axioms** (`make check` via `tools/spine-gate.sh`, Rocq's own `Print Assumptions`).
-It is scheduled for the **syntax-root reset** and makes **no Go-adequacy claim**. Known defects to fix in
-that reset (do NOT patch in place):
+standalone, and its declared `Print Assumptions` surfaces are **axiom-free** (`make check` via
+`tools/spine-gate.sh`, Rocq's own output — see the trust base for exactly what that gates). It is scheduled
+for the **syntax-root reset** and makes **no Go-adequacy claim**. Known defects to fix in that reset (do NOT
+patch in place):
 
 - `GoAst.EInt : Z` encodes a *signed* literal; Go has no signed integer literal (`-5` is unary-minus applied
   to the literal `5`). Negatives must arise from unary minus over a nonnegative literal, unrepresentable
@@ -40,11 +41,18 @@ that reset (do NOT patch in place):
 
 ## The trust base
 
-Trusted: Rocq and its kernel; the pinned toolchain images (Rocq/OCaml/Debian — full pinning is a
-build-trust task, see below). No handwritten OCaml exists (`tools/ocaml-origin-gate.sh` enforces zero tracked
-`*.ml`/`*.mli`/`*.mlg`). Proved axiom-free: the surviving syntax layer's `Print Assumptions` surfaces
-(a precise public-surface assumptions gate is a build-trust task — do not read this as "every line is
-globally axiom-free").
+Trusted: Rocq and its kernel; the two Docker base images (`ocaml/opam` + `debian`, now **digest-pinned** in
+the Dockerfile) **plus the opam-repo state and the apt packages they install** (pinning/snapshotting those is
+a residual build-trust task). No handwritten OCaml exists (`tools/ocaml-origin-gate.sh` enforces zero tracked
+`*.ml`/`*.mli`/`*.mlg`).
+
+Precisely what "axiom-free" gates: `spine-gate` greps `^Axioms:` over the compile log, so it establishes only
+that the **explicitly declared `Print Assumptions` surfaces** (GoPrint's injectivity/canonical theorems)
+print no assumptions — NOT that every definition in every file is globally assumption-free. The pre-commit
+anti-axiom scan (no `Axiom`/`Parameter`/`Admitted` in any `.v`) plus Stdlib-only imports cover the rest by
+construction. The precise fix is one public-surface module that `Print Assumptions` every public root
+theorem and is the sole gate target — a build-trust task. Never read "zero axioms" as proof that a theorem's
+*statement* is the right theorem (the deleted `GoCompile` was axiom-free and still wrong).
 
 ## RED / NEXT — pour the roots before any floor (do NOT add features)
 
@@ -65,6 +73,9 @@ globally axiom-free").
 
 ## Build-trust tasks (do while the source graph is small)
 
-One Dune module graph (no second hardcoded shell module list); a real `_build` `.vo` cache in the mounted
-BuildKit cache; digest-pin every base image + pin/snapshot the opam repo + verify installed versions; one
-public-surface assumptions gate; one tiny tracked glue file **iff/when** emission returns (there is none now).
+Done: the two base images are digest-pinned; the opam retry loop fails closed (`test installed = true` +
+`command -v rocq`/`ocamlc`). Still open: pin/snapshot the opam repo and verify installed package versions;
+make one Dune module graph authoritative (no second hardcoded shell module list) with a real `_build` `.vo`
+cache in the mounted BuildKit cache; one public-surface assumptions module as the sole axiom-gate target
+(instead of the `^Axioms:` grep over declared surfaces); one tiny tracked glue file **iff/when** emission
+returns (there is none now).
