@@ -64,3 +64,44 @@ RUN --mount=type=cache,id=fido-dune-rocq-9.2.0-${TARGETARCH},uid=1000,gid=1000,t
          echo "fido: ASSUMPTIONS GATE INCOMPLETE — $want surfaces declared, only $got confirmed closed"; exit 1; \
        fi \
     && echo "fido: prove OK — dune compiled the theory (cached in _build); assumptions gate confirmed $got/$want surfaces closed"
+
+# ── Stage 4: emit — build the tiny Fido Emit transport plugin and confirm a .v can load it and
+#    reach the command.  Separate cache from the prover so a plugin-build failure can never affect
+#    the proof.  (Probe only for now; the real decode+write + pinned-Go run land next.)
+FROM rocq-base AS emit
+ARG TARGETARCH
+COPY --chown=opam:opam dune-project dune ./
+COPY --chown=opam:opam *.v ./
+COPY --chown=opam:opam gate/ gate/
+COPY --chown=opam:opam plugin/ plugin/
+# NO _build cache mount here on purpose: `Fido Emit` writes main.go as a SIDE EFFECT of compiling
+# Witness.v, which a warm cache would skip (dune would see nothing to rebuild).  A fresh build every
+# run guarantees the witness compiles and therefore emits; this RUN layer still caches on input hash.
+RUN rm -rf /workspace/e2e-out \
+    && if dune build > /tmp/emit.log 2>&1; then cat /tmp/emit.log; else cat /tmp/emit.log; echo "fido: emit dune build FAILED"; exit 1; fi \
+    && if [ ! -f /workspace/e2e-out/main.go ]; then echo "fido: emit FAILED — main.go was not written"; exit 1; fi \
+    && echo "fido: emit OK — Fido Emit wrote main.go; contents:" && echo "----" && cat /workspace/e2e-out/main.go && echo "----"
+
+# ── Stage 5: go-e2e — the LAST-MILE integration check (never a proof).  The pinned Go toolchain
+#    builds and runs the emitted program; stdout/stderr/exit must match the reviewed goldens.
+#    gofmt is a NO-OP CHECK (never a rewrite).  A Go build/run failure here is a hard red — it
+#    means GoCompile, rendering, target facts, or the transport is wrong, never a "known issue".
+FROM golang:1.23-alpine@sha256:383395b794dffa5b53012a212365d40c8e37109a626ca30d6151c8348d380b5f AS go-e2e
+WORKDIR /e2e
+COPY --from=emit /workspace/e2e-out/main.go ./main.go
+COPY e2e/golden.stdout e2e/golden.stderr e2e/golden.exit ./
+RUN <<'SH'
+set -u
+echo "fido e2e: emitted program under test:"; echo ----; cat main.go; echo ----
+if [ -n "$(gofmt -l main.go)" ]; then echo "fido e2e: emitted main.go is not gofmt-clean (gofmt is a check, never a rewrite)"; exit 1; fi
+printf 'module fidoe2e\n\ngo 1.23\n' > go.mod
+if ! go vet ./...; then echo "fido e2e: go vet failed on the emitted program"; exit 1; fi
+if ! go build -o prog .; then echo "fido e2e: go build FAILED (a certified artifact must always compile)"; exit 1; fi
+./prog > out.stdout 2> out.stderr; ec=$?
+echo "fido e2e: exit=$ec stdout=[$(cat out.stdout)] stderr=[$(cat out.stderr)]"
+printf '%s\n' "$ec" > out.exit
+diff golden.exit   out.exit   || { echo "fido e2e: EXIT mismatch";   exit 1; }
+diff golden.stdout out.stdout || { echo "fido e2e: STDOUT mismatch"; exit 1; }
+diff golden.stderr out.stderr || { echo "fido e2e: STDERR mismatch"; exit 1; }
+echo "fido e2e OK — pinned Go built + ran the emitted program; stdout/stderr/exit match the reviewed goldens"
+SH
