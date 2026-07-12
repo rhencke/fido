@@ -1,12 +1,14 @@
 (** ============================================================================
     GoPrint — the Go PRINTER, LEXER/PARSER, and round-trip / injectivity proofs.
 
+    ⚠ FOUNDATION RESET (checkpoint 65): this printer rests on a REJECTED syntax root and is scheduled for
+    replacement (see PROGRESS.md) — the canonical grammar self-mirrors the printer instead of an independent
+    Go grammar, the unary-precedence rules are wrong, and the executable parser is complete-not-sound.  It
+    proves NO Go-compiler adequacy and feeds NO emission path (there is none this round).
     [GoAst] owns the SYNTAX ([GExpr]/[GoTy]/operators).  This file owns everything that turns that syntax
     into text and reasons about it: the printers ([print_ty], the literal printers, [gprint] for
     expressions, [print_stmt]/[print_program]), a [lex] + recursive-descent/precedence [parse] (used ONLY
-    by the proofs), and the round-trip + injectivity THEOREMS.  Standard Rocq extraction turns this printer
-    into the OCaml that produces the certified bytes ([GoEmit.demo_emit]), so the EMITTED text is exactly the
-    text Rocq reasons about here.
+    by the proofs), and the round-trip + injectivity THEOREMS.
 
     WHAT IS PROVEN: printer injectivity is PARSER-FREE — EXPRESSION [gprint_inj] rests on [gtokens_inj]
     + [gtokens_lex] ([canon_expr_unique] is a SIBLING corollary of [gtokens_inj], not a dependency of
@@ -8683,8 +8685,8 @@ Qed.
 (** ---- PROGRAM PRINTER ---- prints a [GoAst.Program] to Go source: `package <pkg>` then `func main()`
     whose body is the program's [GoStmt] list, ONE tab-indented statement per line (gofmt's layout).  An
     expression statement reuses the machine-checked [gprint]; the package name is a validated [Ident] (no
-    raw text).  GoEmit's blessed [emit_compiled] is exactly [print_program], gated by a
-    [GoCompile] certificate. *)
+    raw text).  A future emission layer will render a whole program with [print_program], gated by a
+    proof-bearing typed certificate (not the deleted boolean checker). *)
 Definition go_nl : string := String (Ascii.ascii_of_nat 10) EmptyString.
 Definition go_tab : string := String (Ascii.ascii_of_nat 9) EmptyString.
 Definition print_stmt (s : GoStmt) : string :=

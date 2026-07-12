@@ -58,7 +58,7 @@ if [ -n "$axiom_hit" ]; then
 fi
 
 # (4) On any proof / build change, run the certified verify so a broken proof / rejected Go aborts the commit.
-if git diff --cached --name-only | grep -qE '\.v$|^tools/|^Makefile$|^Dockerfile$|^dune$|^dune-project$|^emitdemo/'; then
+if git diff --cached --name-only | grep -qE '\.v$|^tools/|^Makefile$|^Dockerfile$|^dune$|^dune-project$'; then
   echo "fido: proof/build input staged — running the certified verify (make check)..."
   make check
 fi

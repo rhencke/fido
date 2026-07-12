@@ -1,109 +1,44 @@
 BUILDER  := fido-builder
-IMAGE    := fido
-TAG      ?= latest
 PLATFORM ?= linux/$(shell uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
 
-.PHONY: build check emit spine-verify ocaml-origin-gate go-uncommittable-seal \
-        toolchain-gate toolchain-selftest go-verify-selftest go-verify \
-        builder install-hooks print-goimage prover-log
-
+.PHONY: check spine-verify ocaml-origin-gate go-uncommittable-seal build builder install-hooks prover-log
 .DEFAULT_GOAL := check
 
-# THE one Go-toolchain image authority, DIGEST-PINNED (mutable tags drift).  `override` makes command-line /
-# environment assignments INERT.  This is the ONLY Go-image spelling in the repo: every docker run uses
-# $(GOIMAGE), the Dockerfile receives it via --build-arg (its ARG has NO default — a build bypassing make
-# fails loudly), and the pre-commit hook reads it via `make -s print-goimage`.  [toolchain-gate] enforces this.
-override GOIMAGE := golang:1.23-alpine@sha256:383395b794dffa5b53012a212365d40c8e37109a626ca30d6151c8348d380b5f
-print-goimage:
-	@echo $(GOIMAGE)
+# Fido is a PROOF repository under a FOUNDATION RESET (checkpoint 65).  The false compile/emit authority
+# (GoCompile accepted an unresolved named type — see git history) and the disconnected runtime island were
+# deleted.  There is NO emitted Go this round: a smaller root-only repository beats a green extraction demo
+# resting on a false compile certificate.  The surviving syntax layer (digits, GoAst, GoPrint) is scheduled
+# for the syntax-root reset (independent Go grammar + typed elaboration) — it is NOT a certified emission
+# authority, and NOTHING here claims Go compiler adequacy.
 
-# ── The certified pipeline ────────────────────────────────────────────────────
-# Fido is a PROVED Go generator.  Rocq builds the certified spine (GoAst -> GoPrint -> GoTypes -> GoCompile
-# -> GoEmit), proves the emitted bytes ([GoEmit.demo_emit_bytes]), and STANDARD Rocq extraction turns the
-# closed certified output [GoEmit.demo_emit] into OCaml.  A ONE-LINE writer, generated at build time and
-# never tracked, prints it to a .go.  There is NO handwritten OCaml backend and NO custom extraction plugin.
+# check: the one verify — zero tracked OCaml, no tracked generated Go, and the surviving Rocq compiles with
+# zero axioms (Rocq's own Print Assumptions).  No Go toolchain is involved (there is no emission).
+check: ocaml-origin-gate go-uncommittable-seal spine-verify
+	@echo "fido: check OK — surviving Rocq compiles, zero axioms, zero tracked OCaml ✓"
 
-EMIT_OUT := emitdemo/spine_demo.go
-EMIT_CLEAN := rm -f *.vo *.glob .*.aux emitdemo/*.vo emitdemo/*.glob emitdemo/.*.aux \
-                    emitdemo/emit_demo.ml emitdemo/emit_demo.mli emitdemo/gen_write.ml \
-                    emitdemo/*.cmi emitdemo/*.cmo /tmp/fido-emit-writer
-
-# spine-verify: compile the whole certified spine STANDALONE (Stdlib only) and assert ZERO axioms across it
-# (Rocq's own Print Assumptions — the authority; EXPECTED_ASSUMPTIONS.txt is empty).
 spine-verify:
-	@sh tools/spine-gate.sh emit /tmp/fido-spine.log
-	@echo "fido: spine-verify OK — digits..GoEmit compile standalone, zero axioms ✓"
-
-# emit: produce the ONE certified .go with ZERO handwritten OCaml.  spine-gate leaves the spine .vo; we
-# extract GoEmit.demo_emit to native OCaml, GENERATE a one-line writer (untracked), and print the bytes.
-emit:
-	@set -e; \
-	  sh tools/spine-gate.sh emit /tmp/fido-spine.log; \
-	  rocq c -Q . Fido emitdemo/emit_demo.v >/dev/null 2>&1; \
-	  printf 'let () = print_string Emit_demo.demo_emit\n' > emitdemo/gen_write.ml; \
-	  ocamlfind ocamlc -I emitdemo emitdemo/emit_demo.mli emitdemo/emit_demo.ml emitdemo/gen_write.ml \
-	    -o /tmp/fido-emit-writer >/dev/null; \
-	  /tmp/fido-emit-writer > $(EMIT_OUT); \
-	  $(EMIT_CLEAN); \
-	  echo "fido: emit OK — GoEmit.demo_emit (zero-axiom spine) -> $(EMIT_OUT), zero handwritten OCaml ✓"
-
-# check: the one verify.  Zero tracked OCaml + no committed generated Go, the certified emission, and the
-# PINNED Go toolchain accepting the bytes UNCHANGED — gofmt -l is a NO-OP check (the canonical printer is
-# already gofmt-stable; we never run gofmt -w on certified bytes), then go build + go vet.
-check: ocaml-origin-gate go-uncommittable-seal toolchain-gate toolchain-selftest go-verify-selftest emit
-	@docker run --rm -v "$(PWD)":/w -w /w $(GOIMAGE) sh -c '\
-	  unformatted=$$(gofmt -l $(EMIT_OUT)); \
-	  if [ -n "$$unformatted" ]; then echo "fido: CERTIFIED BYTES ARE NOT gofmt-CLEAN — the canonical printer must be gofmt-stable:"; echo "$$unformatted"; exit 1; fi; \
-	  go build -o /dev/null $(EMIT_OUT) && go vet $(EMIT_OUT)' \
-	  || { echo "fido: check FAILED — the pinned Go toolchain rejected the certified output (gofmt/build/vet)"; exit 1; }
-	@echo "fido: check OK — certified output builds under the pinned Go toolchain (gofmt-clean + build + vet) ✓"
+	@sh tools/spine-gate.sh printer /tmp/fido-verify.log
+	@rm -f digits.vo digits.glob .digits.aux GoAst.vo GoAst.glob .GoAst.aux GoPrint.vo GoPrint.glob .GoPrint.aux
+	@echo "fido: spine-verify OK — digits/GoAst/GoPrint compile standalone, zero axioms ✓"
 
 ocaml-origin-gate:
 	@sh tools/ocaml-origin-gate.sh
 
-# SEAL: generated Go is uncommittable.  The certified $(EMIT_OUT) is gitignored + regenerated by `make emit`;
-# a TRACKED *.go would let a hand-edit or stale bytes drift into source.  Fail-closed on any tracked *.go.
+# SEAL: no generated Go is tracked (there is no emission this round; when it returns it stays gitignored).
 go-uncommittable-seal:
 	@tracked=$$(git ls-files -- '*.go' 2>/dev/null); \
-	if [ -n "$$tracked" ]; then \
-	  echo "fido: SEAL FAILED — generated Go is committed, but it must be gitignored + regenerated by 'make emit':"; \
-	  echo "$$tracked" | sed 's/^/  /'; exit 1; \
-	fi; \
+	if [ -n "$$tracked" ]; then echo "fido: SEAL FAILED — a tracked *.go exists but generated Go is never committed:"; echo "$$tracked" | sed 's/^/  /'; exit 1; fi; \
 	echo "fido: uncommittable-Go seal OK — no *.go is tracked ✓"
 
-# ── The reproducible container build ──────────────────────────────────────────
-# Same certified pipeline under the pinned Rocq + Go toolchains; the go-src stage exports the certified .go.
+# Reproducible container build: the pinned Rocq toolchain compiles the surviving modules + asserts zero axioms.
 build:
-	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --build-arg GOIMAGE=$(GOIMAGE) \
-	  --output type=local,dest=. --target go-src .
+	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --target prover .
 
-# ── Toolchain-image authority gates ───────────────────────────────────────────
-MKFILE := $(firstword $(MAKEFILE_LIST))
-toolchain-gate:
-	@sh tools/toolchain-gate.sh $(MKFILE) '$(GOIMAGE)' Dockerfile
-toolchain-selftest:
-	@sh tools/toolchain-selftest.sh '$(MAKE)' $(MKFILE) '$(GOIMAGE)'
-go-verify-selftest:
-	@sh tools/go-verify-selftest.sh '$(MAKE)'
-
-# gc GROUND-TRUTHING: run a scratch Go program under the pinned toolchain to verify Go's ACTUAL semantics
-# before modelling them.  GO must be a dir containing ONLY main.go (checked before docker, mounted readonly).
-go-verify:
-	@test -n "$(GO)" || { echo "fido: go-verify needs GO=<dir containing ONLY main.go>"; exit 1; }
-	@test -f "$(abspath $(GO))/main.go" || { echo "fido: go-verify — no main.go in '$(GO)' (missing/typo'd dir; nothing created)"; exit 1; }
-	@extra=$$(find "$(abspath $(GO))" -maxdepth 1 -name '*.go' ! -name main.go); \
-	test -z "$$extra" || { echo "fido: go-verify — main.go must be the ONLY .go file (file-mode run would silently IGNORE siblings):"; echo "$$extra"; exit 1; }
-	docker run --rm --mount type=bind,src="$(abspath $(GO))",target=/w,readonly \
-	  -w /w -e GOCACHE=/tmp/gocache $(GOIMAGE) sh -c 'go run main.go 2>&1'
-
-# ── One-time setup ────────────────────────────────────────────────────────────
-install-hooks:
-	git config core.hooksPath .githooks
 builder:
 	docker buildx inspect $(BUILDER) > /dev/null 2>&1 || \
 	  docker buildx create --name $(BUILDER) --driver docker-container --bootstrap
 	docker buildx use $(BUILDER)
-
-# Proof-error DIAGNOSIS: rebuild the prover stage and stream its full plain log.
+install-hooks:
+	git config core.hooksPath .githooks
 prover-log:
-	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --build-arg GOIMAGE=$(GOIMAGE) --progress=plain --target prover .
+	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --progress=plain --target prover .

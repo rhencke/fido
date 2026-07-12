@@ -1,5 +1,5 @@
 (rocq.theory
  (name Fido)
- (synopsis "Fido — a proved Go generator: certified AST, printer, type checker, and emitter in Rocq")
+ (synopsis "Fido — a proof repository under a foundation reset (checkpoint 65): the surviving syntax layer, pending the root rebuild")
  (theories Stdlib)
- (modules digits GoNumeric GoRuntimeTypes GoPanic GoEffects GoSlice GoAst GoPrint GoTypes GoCompile GoEmit))
+ (modules digits GoAst GoPrint))

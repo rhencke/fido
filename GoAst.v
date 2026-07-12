@@ -1,13 +1,13 @@
 (** ============================================================================
     GoAst.v — structured Go SYNTAX (the AST: "what can be written").
-    Part of the AST-first certified-emission spine (see ARCHITECTURE.md): a GoAst program is
-    SYNTACTICALLY VALID but may not COMPILE — GoCompile proves it WOULD compile (names/scopes/
-    types resolve), printing lives in GoPrint (behavioral safety is a further, separate layer —
-    GoSemSafe / future GoSafe).  NO raw/opaque syntax strings
-    (charter §8 Rule 1): every constructor
-    takes validated/semantic payloads (validated [Ident]/[TyName], a [Z] literal),
-    never a raw expr/stmt/type string.  Moved here verbatim from the pre-split printer seed; the
-    printer / lexer / parser / round-trip theorems live in GoPrint.v.
+    ⚠ FOUNDATION RESET (checkpoint 65): this AST rests on a REJECTED syntax root and is scheduled for
+    replacement — see PROGRESS.md.  A GoAst program is only SYNTACTICALLY shaped: whether it COMPILES is
+    NOT decided here and is NOT currently proved anywhere (the old boolean GoCompile was fail-open and is
+    deleted; a real declarative name-resolving elaboration is a future root).  Known defects to fix in the
+    reset: [EInt : Z] encodes a signed literal (Go has none — negatives are unary minus over a nonnegative
+    literal); [GTNamed] is an unresolved name with no type environment.  NO raw/opaque syntax strings: every
+    constructor takes validated payloads, never a raw expr/stmt/type string.  The printer / lexer / parser
+    live in GoPrint.v (also flagged for the reset).
     ============================================================================ *)
 From Stdlib Require Import String List Ascii ZArith Lia Bool Eqdep_dec.
 Import ListNotations.
@@ -110,8 +110,8 @@ Inductive GoTy : Type :=
     recognize BY STRING anywhere — scalar type keywords (conversion heads), the predeclared [nil],
     the value builtins [len]/[cap], and the statement-position callee builtins
     [println]/[print]/[panic] — and [special_ident] is the ONE table mapping strings to them.
-    It lives HERE (the SYNTAX layer, just below [GoTy]): the COMPILE-ADMISSIBILITY layer (GoCompile) and the
-    type-category layer (GoTypes) both consume it by exhaustive match, so a NEW recognized name
+    It lives HERE (the SYNTAX layer, just below [GoTy]): a future compile / type layer (the reset) will
+    consume it by exhaustive match, so a NEW recognized name
     extends this table and every consumer is forced mechanically — no parallel string list can
     drift.  ([classify], the scalar-keyword→[GoTy] map the printer/parser also reuse for token
     classification, is the [SnType] PROJECTION of this table; the keyword SET [is_type_keyword]
@@ -296,7 +296,7 @@ Fixpoint GExpr_ind' (P : GExpr -> Prop)
     [f(args)]); [GsReturn] a bare [return] (no value); [GsReturnVal e] a value return [return e]; [GsBlankAssign
     e] a blank assign [_ = e]; [GsDefer e] a deferred call [defer <e>] — all reusing the machine-checked printer
     [gprint].  Like [GExpr] this is SYNTAX only: it can represent a NON-call expr statement / a non-call defer
-    payload / a value return in a VOID function (all illegal Go) — that is GoCompile's concern, not the AST's (so
+    payload / a value return in a VOID function (all illegal Go) — that is a future compile layer's concern, not the AST's (so
     [GsDefer]/[GsExprStmt] carry any [GExpr]; [stmt_ok] gates each to a valid CALL, and [GsReturnVal] is REJECTED
     outright since [main] is void).  Grows (assignment / var / if / for / …) further. *)
 Inductive GoStmt : Type :=
@@ -305,10 +305,10 @@ Inductive GoStmt : Type :=
   | GsReturnVal   : GExpr -> GoStmt   (* a value return [return e] — valid only in a NON-void function (not main) *)
   | GsBlankAssign : GExpr -> GoStmt   (* a blank assignment [_ = e] — discards a VALUE (valid anywhere [e] is a value) *)
   | GsDefer       : GExpr -> GoStmt   (* [defer <e>] — SYNTAX takes any [GExpr]; [stmt_ok] gates it to a CALL, which runs at function-scope return (LIFO) *)
-  | GsShortDecl   : Ident -> GExpr -> GoStmt.  (* [x := e] — short variable declaration.  ADMITTED by GoCompile's [go_compile_check] (the CLOSED [stmt_ok] fragment still rejects it); [denote_stmt] leaves it ABSENT until the env statement layer *)
+  | GsShortDecl   : Ident -> GExpr -> GoStmt.  (* [x := e] — short variable declaration.  whether [x := e] is admitted is a future compile layer's concern, not decided here *)
 
-(** ---- A GO PROGRAM ---- the top-level unit GoEmit emits: a package name + the body of [func main()] (a
+(** ---- A GO PROGRAM ---- the top-level unit a future emission layer will emit: a package name + the body of [func main()] (a
     list of [GoStmt]s).  No raw strings — the package is a validated [Ident] and the body is structured
     statements.  Still small (no imports / top-level decls yet): it carries a real func body, the printer
-    renders it via [gprint], and GoEmit certifies+prints it.  Grows as the AST does. *)
+    renders it via [gprint]; a future emission layer will certify + print it.  Grows as the AST does. *)
 Record Program : Type := mkProgram { prog_pkg : Ident ; prog_body : list GoStmt }.

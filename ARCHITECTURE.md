@@ -1,83 +1,74 @@
-# Fido — Certified Emission Charter (binding)
+# Fido — Architecture Charter (binding)
 
-Read before any structural change. This governs.
+Read before any structural change. This governs. It describes the INTENDED roots and the current reset —
+not a shipping pipeline. There is no emitted Go right now, and that is correct.
 
-## What Fido is
+## The law of this repository
 
-A **proved Go generator**. Everything that decides the emitted program lives in Rocq and is proved; the
-only OCaml is standard extraction output plus a build-generated one-line writer that prints proved bytes.
+Ruthless correctness or ruthless deletion — no middle state. Do not build a floor on an unsettled
+foundation. If twenty local proofs/guards/comments cover one missing root, replace the root and delete the
+leaves. "Trusted," "works," "stable output," "axiom-free," and "conservative" are NOT substitutes for
+semantic correctness. A green boolean checker that accepts an undefined type is not progress; a printer
+grammar that validates itself is not progress. Loss of breadth is irrelevant — unproved breadth was never
+progress.
 
-The certified pipeline, in one line:
+## Where we are (checkpoint 65 reset)
 
-```
-Rocq: GoAst ──▶ GoPrint ──▶ GoTypes ──▶ GoCompile ──▶ GoEmit.demo_emit (: string, bytes proved)
-        │
-   standard Rocq extraction ──▶ emit_demo.ml ──▶ (build-generated) print_string ──▶ spine_demo.go
-        │
-   pinned Go toolchain: gofmt -l (no-op) + go build + go vet  ── trusted last-mile check
-```
+Deleted, and staying deleted: the handwritten OCaml backend + extraction plugin; the **false compile/emit
+authority** (`GoCompile` was a boolean `check p = true` that fail-open-accepted an unresolved named type —
+`[]Foo{}` with `Foo` undefined — which Go rejects; `GoTypes`/`GoEmit` inherited it); and the **disconnected
+runtime island** (`GoNumeric`/`GoRuntimeTypes`/`GoPanic`/`GoEffects`/`GoSlice`, which preserved rejected
+foundations and was not even on the emission path).
 
-- `GoAst` — the Go syntax: `GExpr` / `GoTy` / operators, and `classify`. No parenthesis nodes; precedence
-  and associativity are structural.
-- `GoPrint` — the printer (`gprint` / `print_ty` / `print_stmt` / `print_program`), a proof-only
-  lexer/parser, and the round-trip + **injectivity** theorems. The **relational canonical grammar**
-  (`CanonExpr` / `CanonStmt` / `CanonProgram`, with `canon_*_unique` and `lex_gprint_*`) is the syntax
-  authority; the executable parser is derived tooling, proved **complete** against the grammar and
-  **not** sound (it accepts redundant parens) — nothing certified depends on it.
-- `GoTypes` — the type-category checker; one authority shared by the compiler (and any future semantics).
-- `GoCompile` — **static/syntactic admissibility only**. It proves nothing about runtime behavior.
-- `GoEmit` — the certified emitter; `demo_emit` is the closed output and `demo_emit_bytes` proves its exact
-  bytes.
+Surviving: a syntax layer (`digits`, `GoAst`, `GoPrint`) that compiles zero-axiom but rests on a rejected
+syntax root — kept only until the reset reaches it, described honestly in `PROGRESS.md`, claiming nothing.
 
-Foundation: `digits` (the one decimal authority), `GoNumeric` (numerics over `Z`, deliberately not
-`Sint63`, to stay axiom-free), `GoRuntimeTypes`, `GoPanic`, `GoEffects`, `GoSlice`.
+## The intended roots (pour in order; each before the floor above it)
 
-## Trust base (say this exactly)
+1. **`TargetConfig`** — the one authority for int/uint width and pinned target facts. No hard-coded numeric
+   assumptions scattered across modules.
+2. **`CertifiedType` — one type universe.** Identity, underlying type, zero value, comparability, map-key
+   admissibility, printed tokens, and runtime identity all DERIVE from one descriptor. Invalid Go types are
+   unrepresentable or rejected by elaboration. No parallel "runtime tag" vs "syntax type" universes. A
+   surface name may exist only if elaboration resolves it to a certified descriptor before printing.
+3. **An independent Go grammar.** `GoLex`/`GoGrammar` define valid Go token derivations WITHOUT reference to
+   any printer policy (`unop_paren`/`binop_prec` must not appear in the grammar). Then the printer is proved
+   *adequate*: `PrintsExpr e toks` and `GoExprGrammar … toks e'` gives `e' = erase e`. One token stream, one
+   verified renderer (`typed AST → canonical tokens → bytes`), and `lex (render toks) = toks`; the string
+   output is a projection of the tokens, not a second AST recursion. No formatter rewrites certified bytes.
+4. **A compile environment + declarative elaboration.** `CompileEnv` (keywords; shadowable universe/
+   predeclared bindings; package/type/value namespaces), `ResolveName`, `ElaborateType`, `TypeExpr`,
+   `TypeStmt` — declarative judgments producing a **typed IR** (`TypedProgram`) in which static invalidity is
+   unrepresentable. An executable `elaborate_check : Program -> option ProgramIR` proved SOUND against the
+   relation (and complete for the admitted closed subset). The public compile authority is this proof-bearing
+   relation, never a boolean equality.
+5. **Runtime roots, as consumers require them:** a typed object store + value well-formedness; one native
+   representation each for slice/map/channel (nil/cap/backing, finite maps, finite channels); accurate
+   control/panic/blocking/model-fault with structured runtime errors; no `FunctionalExtensionality`.
+6. **Emission last.** Only after elaboration soundness + grammar adequacy + token render/lex inverse + an
+   exact byte theorem exist, restore a closed extraction output through a proof-bearing typed certificate
+   (`emit_typed : TypedProgram -> bytes`, or `compile_emit : Program -> option CertifiedArtifact` whose
+   success internally performs proved elaboration). Never extract a foreign-callable function whose
+   proof-carrying argument handwritten OCaml can construct after proof erasure.
 
-- **Trusted:** the Go toolchain (there is NO theorem that Go parses the emitted bytes as the same AST — the
-  Go-subset recognition gap is open and Go is trusted), the pinned toolchain images, Rocq/its kernel, and
-  the build-generated one-line writer (pure transport of a proved string; it decides nothing).
-- **Proved (zero project axioms):** the spine's printer injectivity / canonical-grammar uniqueness,
-  `GoCompile` admissibility, and `GoEmit.demo_emit_bytes`. `make check` asserts zero axioms via Rocq's own
-  `Print Assumptions`.
-- **Not claimed:** semantic safety, panic-freedom, termination/divergence, and real-Go behavioral adequacy.
-  `GoCompile` is a *syntactic* gate; naming never implies more (rule 7).
+## Trust base (say it exactly)
 
-## What is deleted, and stays deleted
+Trusted: Rocq and its kernel; the toolchain base images and packages (digest-pinning + version verification
+is a build-trust task in `PROGRESS.md`); and — when emission returns — the Rocq extraction transform,
+`ExtrOcamlNativeString`, the OCaml compiler/runtime, one tiny transparent output glue file, and the Go
+toolchain (Go's parse of the bytes is trusted; the Go-subset recognition theorem is the grammar-adequacy
+goal above). No handwritten semantic OCaml exists (`tools/ocaml-origin-gate.sh`).
 
-The handwritten OCaml backend and the custom extraction plugin (name-based lowering, MiniML/term
-inspection, `Go Main Extraction`, an OCaml printer/renderer, emission-only pseudo-semantics, and a broad
-demo corpus produced by an unproved backend). Stable output from an unproved backend proves only that the
-unproved backend was stable. `tools/ocaml-origin-gate.sh` is the fail-closed tripwire against reintroducing
-any of it.
+Proved (zero project axioms): the surviving syntax layer's `Print Assumptions` surfaces. "Zero axioms" is
+never evidence that a theorem's *statement* is the right correctness theorem — the deleted `GoCompile` was
+axiom-free and still wrong.
 
-## The root frontier (build each root before the floor above it)
+## What must never come back
 
-The spine's type/effect foundation is being reset into single authorities. A file that materially depends on
-a rejected root is **deleted**, not kept as "transitional" — it reappears rebuilt on the correct root.
-
-1. **One `TargetConfig` + one certified type universe** — identity/underlying/zero/comparability/map-key/
-   tokens/renderability derived from ONE descriptor; invalid Go types unrepresentable or rejected by
-   elaboration; no parallel "runtime tag" vs "syntax type" universes.
-2. **One independent Go grammar, one token stream, one renderer** — the printer proved against a grammar
-   defined independently of its own token function; unary/separator rules from real precedence + a
-   `needs_separator` token law, not conservative paren tables; full statement/program lexical faithfulness.
-3. **Proof-producing compile/elaboration into a typed IR** — `Elaborates` / `TypedProgram` making static
-   invalidity unrepresentable, with soundness (and completeness for the supported subset) — not a boolean
-   wrapper as the final authority.
-4. **A typed object store + value well-formedness** — one `StoreTyping`/`ValueWF` (model faults unreachable
-   for well-typed configs); one native slice/map/channel representation each (no ghost counts, no
-   `option nat` "unbounded", no pure-list-as-native-slice).
-5. **Accurate control / panic / blocking / model-fault** — atomic (Returned | genuine Panicked) split from a
-   scheduler relation (block/resume/deadlock/divergence) split from unreachable model faults; structured
-   runtime panic values, never strings; no `FunctionalExtensionality`.
-6. **One semantics and one safe-emission boundary** — one operational semantics, one lowering to the Go AST,
-   one `SafeProgram`-shaped certificate through which official output is emitted. A compile-only certificate
-   never inherits behavioral wording.
-
-## Emission discipline
-
-The official output is a generated Rocq function applied to a **closed** value (`GoEmit.demo_emit : string`),
-never a foreign-callable `f : Program -> string` whose argument handwritten OCaml constructs (extraction
-erases proof fields, so a foreign API is not automatically safe). `gofmt` sits OUTSIDE the byte theorem as a
-NO-OP check only — the printer is gofmt-stable; a `gofmt -l` hit is a printer bug.
+A handwritten OCaml backend or any of its jobs (term inspection, type reconstruction, name-based
+recognition, lowering, AST construction, printer decisions, import selection, control-flow synthesis,
+validation, fallback, byte rewriting); a boolean equality as a compile authority; an unresolved named type
+in the admitted target IR; a signed integer literal constructor; a grammar defined by the printer's own
+decisions; two parallel string/token printer recursions; the dead executable parser; the rejected runtime
+island. Git carries the history; do not resurrect from memory — re-admit each feature only when the roots
+make its proof obligations natural.
