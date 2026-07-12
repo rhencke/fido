@@ -104,9 +104,9 @@ that gates GoPrint's surfaces only, not `digits`/`GoAst` and not the axiom-decla
 re-index.
 
 ```
-make check          # the one verify: origin/seal gates + compile digits/GoAst/GoPrint, Print-Assumptions surfaces axiom-free
-make spine-verify   # compile the surviving modules standalone, assert its Print-Assumptions surfaces axiom-free
-make build          # reproducible container build: the pinned Rocq toolchain compiles them, Print-Assumptions surfaces axiom-free
+make check          # the one verify: origin/seal gates + compile digits/GoAst/GoPrint, GoPrint's surfaces axiom-free
+make spine-verify   # compile the surviving modules standalone, assert GoPrint's declared surfaces axiom-free
+make build          # reproducible container build: the pinned Rocq toolchain compiles them, GoPrint's surfaces axiom-free
 make install-hooks  # activate the pre-commit hook (once after clone)
 ```
 
