@@ -1380,8 +1380,8 @@ Fail Example forge_unused_local :
     GoCompile is STATIC compiler-admissibility only (naming is a correctness claim).  The behavioral
     layer lives in GoSemSafe.v (the narrow [panic_free_gate] seed today; the future GoSafe.v). *)
 
-(** GATE — GoCompile is on the blessed emission path; keep it axiom-free (checked by the GOEMIT_GATE, mirroring
-    the digits/GoAst/GoPrint printer gate). *)
+(** GATE — GoCompile is on the certified emission path; keep it axiom-free (checked by `make check` /
+    tools/spine-gate.sh over the whole spine). *)
 Print Assumptions GoCompile.
 Print Assumptions bad_programs_rejected.
 Print Assumptions ctmap_conv_unsupported_target_rejected.

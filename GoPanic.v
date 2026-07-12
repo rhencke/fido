@@ -29,9 +29,9 @@ From Fido Require Import GoRuntimeTypes.
     value Go's [recover] returns (a runtime error OBJECT; see the file header, inaccuracy #1).  A
     [catch]/recover handler can distinguish these by TEXT, but the model does NOT yet expose the
     runtime-error dynamic type, so a type-switch/assert on a recovered runtime panic is not faithfully
-    modeled (the planned structured [RuntimeError] fixes this).  Model-only: a runtime panic lowers to
-    the NATIVE Go operation (whose own panic fires), so these values live solely in the suppressed op
-    bodies and are never extracted — they are listed in the plugin's [is_inlined_ref]. *)
+    modeled (the planned structured [RuntimeError] fixes this).  Model-only: a runtime panic's intended Go is
+    the NATIVE Go operation (whose own panic fires), so these values live solely in these op
+    bodies and are never emitted. *)
 Definition rt_nil_deref    : GoAny := anyt TString "runtime error: invalid memory address or nil pointer dereference"%string.
 Definition rt_div_zero     : GoAny := anyt TString "runtime error: integer divide by zero"%string.   (* integer / and % by zero — consumed by GoSem's effectful denotation (not extracted) *)
 Definition rt_shift_neg    : GoAny := anyt TString "runtime error: negative shift amount"%string.    (* a NEGATIVE runtime shift count — consumed by GoSem's T5 typed-shift denotation (not extracted); payload verified against gc via go run *)
@@ -58,7 +58,7 @@ Definition rt_nil_map      : GoAny := anyt TString "assignment to entry in nil m
     forge; delete / clear on a genuine NIL map are Go no-ops, kept as such), but the MODEL currently lets one
     be constructed via [MkMap], so this branch is CURRENTLY reachable.  A CLOSED-WORLD FAIL-LOUD GUARD, NOT a
     Go panic (Go's delete/clear never panic).  The op lowers to native delete/clear; this [OPanic] branch is
-    model-only (plugin-suppressed).  ⚠ it is presently a catchable [OPanic]; the fix is a
+    model-only.  ⚠ it is presently a catchable [OPanic]; the fix is a
     distinct [ModelFault], to be PROVED unreachable under StoreTyping/ValueWF (not asserted here). *)
 Definition rt_forged_map   : GoAny := anyt TString "go: map delete/clear on a forged (absent or wrong-tag) handle — a model fault (intended-unreachable, not yet proved); closed-world fail-loud guard, not a Go panic"%string.
 Definition rt_send_closed  : GoAny := anyt TString "send on closed channel"%string.
@@ -96,7 +96,6 @@ Definition rt_chan_recv_block : GoAny := anyt TString "go: recv would block (ope
 (** A [make(chan T, n)] with a NEGATIVE runtime size PANICS in Go (runtime/chan.go [plainError], no
     "runtime error:" prefix — the same convention as [rt_send_closed]).  [make_chan_buf] raises this LOUDLY
     instead of silently clamping a negative capacity to 0 via [Z.to_nat].  Like the [rt_*] above, it lives
-    ONLY in the suppressed [make_chan_buf] body: extraction lowers [make_chan_buf] by name to native Go
-    [make(chan T, n)], which panics on a negative size on its own, so this value is in the plugin's
-    [is_inlined_ref] suppression list and is NEVER emitted. *)
+    ONLY in the [make_chan_buf] body: its intended Go is native
+    [make(chan T, n)], which panics on a negative size on its own, so this value is NEVER emitted. *)
 Definition rt_makechan_size : GoAny := anyt TString "makechan: size out of range"%string.

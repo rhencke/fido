@@ -47,14 +47,14 @@ Qed.
 Definition append {A} (xs ys : GoSlice A) : GoSlice A := xs ++ ys.   (* GoSlice A = list A *)
 
 (** Construct a typed Go slice from a Rocq list literal.
-    The [GoTypeTag] witness lets the plugin emit [[]T{v1, v2, ...}] with the
+    The [GoTypeTag] witness makes the intended Go [[]T{v1, v2, ...}] with the
     correct element type instead of falling back to [append(nil, ...)]. *)
 Definition slice_of_list {A} (_ : GoTypeTag A) (xs : list A) : GoSlice A := xs.
 
 (** [make([]T, n)] — a fresh slice of [n] zero values (Go's [make] for slices).
     Modelled as [repeat (zero_val tag) n] (so [len] is [n], every element the zero
-    value) — a freshly-allocated slice, hence no aliasing concern.  The plugin
-    lowers it to Go [make([]T, n)] (element type from the tag, [n] the length).
+    value) — a freshly-allocated slice, hence no aliasing concern.  Its intended
+    Go is [make([]T, n)] (element type from the tag, [n] the length).
     (The 3-arg [make([]T, len, cap)] and [copy] involve the backing-array /
     aliasing model — deferred.) *)
 Definition slice_make {A : Type} (tag : GoTypeTag A) (n : nat) : GoSlice A :=
@@ -67,8 +67,8 @@ Definition slice_make {A : Type} (tag : GoTypeTag A) (n : nat) : GoSlice A :=
     proof-carrying [slice_at xs i (i < len xs)] → [xs[i]] unguarded.
 
     DEFINITION: [GoSlice A = list A], so the read is the i'th
-    element; out of bounds (incl. a negative index) PANICS, like Go.  The plugin
-    lowers a call BY NAME to [xs[i]] (the body is suppressed and [Extraction
+    element; out of bounds (incl. a negative index) PANICS, like Go.  Its
+    intended Go is an [xs[i]] read (the body is suppressed and [Extraction
     NoInline]'d), so this body affects only PROOFS, never the emitted Go — AND it
     must pull in NO external stdlib function (those would enter the extraction
     closure and leak), so the lookup is the SELF-CONTAINED, [int]-indexed
@@ -128,8 +128,8 @@ Definition slice_at_ok {A B : Type}
     for LOCAL arrays: keep the size OUT of the Coq type ([GoArray A], size-erased) and
     put it in the CONSTRUCTION — [arr_lit l] lowers to [[len(l)]T{…}] (the size read off
     the list, exactly as [slice_of_list] reads it for [[]T{…}]).  A local [a := arr_lit …]
-    then has its Go type INFERRED from the literal, so the plugin never emits a bare
-    [[N]T] annotation.  Distinct from a slice: VALUE semantics, fixed length (an
+    then has its Go type INFERRED from the literal, so no bare
+    [[N]T] annotation is emitted.  Distinct from a slice: VALUE semantics, fixed length (an
     array-typed param/field/return — needing an explicit [N]T — is refused, fail-loud;
     that is the type-level-[N] route, deferred).  [GoArray A = list A] under the hood,
     but the ops are recognized BY NAME and lower to native array Go. *)
@@ -142,7 +142,7 @@ Definition arr_lit {A} (_ : GoTypeTag A) (l : list A) : GoArray A := mkArray l.
     [[N]T], where [N] is part of the TYPE.  [GoArray] above SIZE-ERASES [N] (fine for LOCAL
     arrays where Go infers the size from the literal), but a typed position needs [N] back.  First
     cut: the canonical small size 3 (a 3-vector) as a CONCRETE type [GoArr3], rendered by the
-    plugin as [[3]T].  Its constructor [mkArr3] CARRIES A PROOF that its list has length 3,
+    as [[3]T].  Its constructor [mkArr3] CARRIES A PROOF that its list has length 3,
     so the length is 3 BY CONSTRUCTION — a wrong-length [mkArr3 []] is
     UNCONSTRUCTABLE (the proof obligation [length [] = 3] is unprovable); [arr3_lit] discharges
     it by [eq_refl].  The proof is a [Prop] field, erased at extraction, so [[3]T] is unchanged.
@@ -150,7 +150,7 @@ Definition arr_lit {A} (_ : GoTypeTag A) (l : list A) : GoArray A := mkArray l.
 Record GoArr3 (A : Type) := mkArr3 { arr3_data : list A ; arr3_len : List.length arr3_data = 3%nat }.
 Arguments mkArr3 {A} _ _.  Arguments arr3_data {A} _.  Arguments arr3_len {A} _.
 Definition arr3_lit {A} (_ : GoTypeTag A) (x y z : A) : GoArr3 A := mkArr3 (x :: y :: z :: nil) eq_refl.
-(* Another size — the plugin handles ANY [GoArr<N>] generically (N parsed from the name). *)
+(* Another size — ANY [GoArr<N>] is handled generically (N read from the name). *)
 Record GoArr2 (A : Type) := mkArr2 { arr2_data : list A ; arr2_len : List.length arr2_data = 2%nat }.
 Arguments mkArr2 {A} _ _.  Arguments arr2_data {A} _.  Arguments arr2_len {A} _.
 Definition arr2_lit {A} (_ : GoTypeTag A) (x y : A) : GoArr2 A := mkArr2 (x :: y :: nil) eq_refl.
@@ -158,7 +158,7 @@ Definition arr2_lit {A} (_ : GoTypeTag A) (x y : A) : GoArr2 A := mkArr2 (x :: y
 (** Safe indexed read (CPS / comma-ok like [slice_at_ok] — Go arrays panic on OOB too):
     in range ⇒ [k a[i] true], else [k zero false].  The signed guard covers both ends.
     Lowers IDENTICALLY to [slice_at_ok] (array and slice both index [a[i]] with [len(a)]),
-    so the plugin reuses that arm. *)
+    reusing that arm. *)
 Definition arr_get_ok {A B} (tag : GoTypeTag A) (a : GoArray A) (i : GoInt) (k : A -> bool -> IO B) : IO B :=
   if (Z.leb 0 (intraw i) && Z.ltb (intraw i) (Z.of_nat (List.length (arr_data a))))%bool
   then k (go_list_nth (arr_data a) (Z.to_nat (intraw i)) (zero_val tag)) true
@@ -234,7 +234,7 @@ Print Assumptions slice_index_ok_surface.
     [func(_a [n]T) [n]T { _a[i] = v; return _a }(a)] — Go copies [a] into the value
     parameter, mutates the COPY, and returns it, leaving [a] untouched.  [n] (the size,
     erased from the Coq type) is passed explicitly (the author knows it — the
-    size-in-construction principle), so the plugin can emit the [n]T] annotation.
+    size-in-construction principle), so the [n]T] annotation can be emitted.
     EVIDENCE-CARRYING: a Go array assignment [a[i] = v] panics on a
     dynamic out-of-range index, so [arr_set] DEMANDS [0 <= i < len(a)].  The [Prop] witness
     is erased at extraction (native [a[i] = v] does the runtime check). *)
@@ -256,8 +256,8 @@ Definition arr_set {A} (_n : nat) (_ : GoTypeTag A) (a : GoArray A) (i : GoInt) 
     and its unfolding is a provable equation:
       [for_each nil body = ret tt]
       [for_each (x :: rest) body = body x >>' for_each rest body]
-    The plugin lowers a call to a Go [for _, x := range xs { body }] loop
-    rather than to recursion, so there is no unbounded stack and the generated
+    Its intended Go is a [for _, x := range xs { body }] loop
+    rather than recursion, so there is no unbounded stack and the generated
     code is idiomatic.  (Unbounded [for]/[for cond] loops, which need a
     non-terminating combinator, come separately.) *)
 Fixpoint for_each {A : Type} (xs : GoSlice A) (body : A -> IO unit) : IO unit :=
@@ -272,7 +272,7 @@ Fixpoint for_each {A : Type} (xs : GoSlice A) (body : A -> IO unit) : IO unit :=
     its unfolding is provable:
       [slice_fold nil init step = init]
       [slice_fold (x :: rest) init step = slice_fold rest (step init x) step]
-    The plugin lowers a [let acc := slice_fold xs init step in …] to an
+    Its intended Go for a [let acc := slice_fold xs init step in …] is an
     accumulator loop:
       [acc := init; for _, x := range xs { acc = step acc x }; …]
     so e.g. summing a slice is a real Go [for] loop, and "the running sum does
@@ -285,7 +285,7 @@ Fixpoint slice_fold {A S : Type} (xs : GoSlice A) (init : S) (step : S -> A -> S
 
 (** ==================================================================================================
     VARIADIC PARAMS + ARRAY COMPARABILITY — [Variadic T]/[vararg] (a variadic param IS a slice;
-    the phantom field keeps the param type distinguishable so the plugin renders [...T]), and the
+    the phantom field keeps the param type distinguishable so its intended Go is [...T]), and the
     field-wise array [==] deciders ([arr_eqb]/[arr3_eqb]/[arr2_eqb] over [goi64_list_eqb]).
     Pure.
     ================================================================================================ *)
@@ -293,7 +293,7 @@ Fixpoint slice_fold {A S : Type} (xs : GoSlice A) (init : S) (step : S -> A -> S
 (** Variadic parameter (Go [func f(xs ...T)]): inside [f] the param is a SLICE, but Go's call
     syntax SPREADS — [f(slice...)].  [Variadic T] is a 2-FIELD record (the [bool] phantom stops
     Coq from unboxing the single slice field, so the PARAM TYPE stays distinguishable from a
-    plain [[]T] — the plugin renders it [...T], not [[]T]; no [Comparable] is needed for a
+    plain [[]T] — its intended Go is [...T], not [[]T]; no [Comparable] is needed for a
     variadic param so the phantom-breaks-equality issue that ruled this out for [GoI64] does
     not apply here).  [vararg xs] marks a call argument for spreading ([xs...]); inside [f],
     [va_slice] recovers the slice (it IS the param itself — the projection is erased, no Go emitted). *)

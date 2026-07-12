@@ -13,13 +13,13 @@ From Fido Require Import GoNumeric.
 (** Go's string type (Go spec "String types"): an immutable sequence of BYTES.
     Modelled as Coq's [string] (a sequence of [Ascii.ascii]), so [len] is the
     BYTE count and [s[i]] the i'th BYTE, exactly as the spec defines.
-    Immutability is automatic (a pure value).  The plugin maps [string] → Go
-    [string] and decodes literals to byte-faithful Go string literals.
+    Immutability is automatic (a pure value).  Its intended Go is [string],
+    with literals decoding to byte-faithful Go string literals.
     The rune view ([range s]) is GoString.v's faithful UTF-8 decode. *)
 From Stdlib Require Import Strings.String Strings.Ascii.
 Definition GoString : Type := string.
 
-(** Go's slice type, modelled as [list A]; the plugin maps [list A] → [[]T].
+(** Go's slice type, modelled as [list A] (Go's [[]T]).
     NOTE — aliasing: slices are reference types in Go.  The pure functional
     model (append returns a new list) is sound only for single-goroutine
     sequential programs with no aliasing of the underlying array; aliasing or
@@ -52,7 +52,7 @@ Arguments p_loc {A} _.
 
     [GoTypeTag T] is a term-level witness encoding the Go type [T].
     Because it is an inductive (not a type), it survives extraction —
-    the plugin inspects the constructor to emit [v.(T)] with the right type.
+    its constructor is inspected to emit [v.(T)] with the right type.
 
     Extend this inductive as new Go types are added to the model. *)
 
@@ -60,7 +60,7 @@ Arguments p_loc {A} _.
    Defined above [GoTypeTag] so the tag inductive can carry the NULLARY nominal tag
    [TListNode : GoTypeTag ListNode].  Axiom-free because:
    (1) [Inductive] (the [Record] keyword forbids self-reference) with record-projection syntax —
-       extraction still classifies it as a record ⇒ the plugin emits a Go [struct].  The recursion
+       extraction still classifies it as a record ⇒ its intended Go is a [struct].  The recursion
        goes through the TAG-FREE phantom handle [Ptr ListNode] ⇒ vacuously positive, and
        [GoTypeTag ListNode] stays universe-consistent.
    (2) A NULLARY nominal tag does not structurally contain itself: [TListNode] is a base case like
@@ -119,8 +119,8 @@ Inductive GoTypeTag : Type -> Type :=
      nullary nominal tag (finite, like [TListNode]); the channel-of-itself tag is the finite [TChan
      TChanBox], so a [chan ChanBox] is makeable + send/recv-able. *)
   | TChanBox : GoTypeTag ChanBox
-  (* Composite type tags — carry the element/key/value tags so the plugin can
-     reconstruct the full Go type string recursively. *)
+  (* Composite type tags — carry the element/key/value tags so the full Go
+     type string can be reconstructed recursively. *)
   | TChan  : forall {A : Type},           GoTypeTag A -> GoTypeTag (GoChan A)
   | TSlice : forall {A : Type},           GoTypeTag A -> GoTypeTag (GoSlice A)
   | TMap   : forall {K V : Type}, GoTypeTag K -> GoTypeTag V -> GoTypeTag (GoMap K V)
@@ -295,8 +295,8 @@ Proof. reflexivity. Qed.
     determines which.  Now a DEFINITION (not an axiom): a recursion on the tag that
     is total precisely because [GoTypeTag] enumerates exactly the Go types and each
     has a concrete zero (the composite [GoChan]/[GoMap] zeros use the nil-location
-    handle [MkChan 0]/[MkMap 0]; a slice's is [nil]).  The plugin lowers a
-    [zero_val] CALL by name to the Go zero literal (0/false/""/nil), so this body
+    handle [MkChan 0]/[MkMap 0]; a slice's is [nil]).  A [zero_val] CALL's
+    intended Go is the zero literal (0/false/""/nil), so this body
     affects only proofs, never the emitted Go.  (The default for a [recv] from an
     empty/closed channel, an out-of-range index, etc.) *)
 Fixpoint zero_val {A : Type} (t : GoTypeTag A) {struct t} : A :=
@@ -313,16 +313,16 @@ Fixpoint zero_val {A : Type} (t : GoTypeTag A) {struct t} : A :=
   | TUnit => tt
   | TUint    => MkUint 0%Z (squash eq_refl)   (* platform-uint zero — [Z]-carried (mirrors [TU64]), faithful [0,2^64) *)
   | TFloat32 => f32_of_f64 (S754_zero false)    (* float32 zero, rounded in through the abstract type *)
-  | TListNode => MkListNode (i64wrap 0%Z) (mkPtr 0)   (* zero recursive node: {0, nil} (plugin emits the Go struct zero; proof-only) *)
+  | TListNode => MkListNode (i64wrap 0%Z) (mkPtr 0)   (* zero recursive node: {0, nil} (the Go struct zero; proof-only) *)
   | TChanBox => MkChanBox (i64wrap 0%Z) (MkChan 0)    (* zero box: {0, nil-chan} (proof-only) *)
-  | TChan _  => MkChan 0       (* nil channel (handle erased; plugin emits nil) *)
+  | TChan _  => MkChan 0       (* nil channel (handle erased; the Go zero is nil) *)
   | TSlice _ => nil                   (* empty slice *)
   | TMap _ _ => MkMap 0        (* nil map *)
-  | TArrow _ _ => NilFunc              (* func zero is the nil func ([NilFunc] : GoFunc _ _); plugin emits
+  | TArrow _ _ => NilFunc              (* func zero is the nil func ([NilFunc] : GoFunc _ _); the intended Go is
                                           Go [nil].  FAITHFUL: NOT a callable codomain-zero
                                           placeholder — calling it (via [gofunc_call]) panics, like Go. *)
   | TProd a b => (zero_val a, zero_val b)  (* struct/pair zero: field-wise zeros *)
-  | TPtr _   => mkPtr 0         (* nil pointer (handle erased; plugin emits nil) *)
+  | TPtr _   => mkPtr 0         (* nil pointer (handle erased; the Go zero is nil) *)
   end.
 
 (** ---- [GoAny] / [any] — Go's [interface{}] — a TAGGED (type, value) pair ----
@@ -461,11 +461,9 @@ Qed.
     type", caught at the Rocq API ([GoMap.neg_noncomparable_key_map] + [neg_nested_noncomparable_key_map] are the
     [Fail] witnesses).  ⚠ ALLOCATOR-BOUNDARY only, NOT global tag unrepresentability: the bad map TAG stays a
     constructible [GoTypeTag], and a bad-key map VALUE is constructible too ([GoMap.map_empty] = [MkMap 0],
-    public).  Emission-side the trusted plugin has its OWN map-key rejection: the tag→type renderer
-    [go_type_of_tag] fails loud on a SLICE-or-MAP key — the only FIXTURE-PINNED closure
-    ([negtests/neg_chan_bad_map_key]).  The second printer [pp_type] carries an analogous guard
-    ([pp_type_comparable_key]) for struct-field / defined-type map types, pinned by [negtests/neg_map_field_bad_key].
-    [MapKeysOk] and these plugin checks are DUPLICATE map-key authorities the general certified type
+    public).  Emission-side, a map-key rejection is ALSO needed at the tag→type rendering
+    boundary (fail loud on a SLICE-or-MAP key) and for struct-field / defined-type map types.
+    [MapKeysOk] and any such emission-side check are DUPLICATE map-key authorities the general certified type
     authority ([GoTypeDesc]) must UNIFY.  The gate is EVIDENCE-CARRYING — the proof is a [Prop], ERASED in extraction (golden unaffected,
     name-lowered op), a pure representability guard the op body never inspects.  ([GoComparableType]/[MapKeysOk]
     are [bool] predicates, appearing only in these proof obligations.) *)
@@ -511,8 +509,8 @@ Proof. intros K V kt vt H. destruct (H (MkMap 0) (MkMap 0)) as [_ H2]. discrimin
 
 (** ---- The tag → runtime-Go-type map is INJECTIVE (a machine-checked LOCK) ----
 
-    A type assertion [v.(T)] in the EMITTED Go targets the Go type the plugin prints for the
-    tag [T]; [go_runtime_name] MIRRORS that map for the SCALAR tags.  Soundness invariant: two
+    A type assertion [v.(T)] in the EMITTED Go targets the tag [T]'s intended Go type;
+    [go_runtime_name] MIRRORS that map for the SCALAR tags.  Soundness invariant: two
     tags the model calls different ([tag_eq = None]) MUST lower to DIFFERENT Go types, else
     [v.(Tb)] would succeed on a [Ta]-boxed value exactly where the model's assertion fails.
     [tag_runtime_agrees] proves that over the named tags and is UNPROVABLE if any two named
@@ -566,7 +564,7 @@ Proof. cbn. discriminate. Qed.
     the bare native [a == b] (the witness having discharged the comparability side condition,
     exactly as [div_nz] discharges the non-zero-divisor guard).  Because [pf] is in [SProp] it
     is ERASED at extraction, so [struct_eqb eqb pf a b] extracts to the same 3-arg shape the
-    plugin lowers to [a == b] — the seal costs nothing at runtime but makes the bogus witness
+    the intended Go is [a == b] — the seal costs nothing at runtime but makes the bogus witness
     [struct_eqb (fun _ _ => false) ? a b] UNCONSTRUCTABLE (its [pf] obligation is unprovable).
     [struct_eqb eqb pf a b] is definitionally [eqb a b], so since [eqb] decides equality so
     does [==] (e.g. [struct_eqb_native_spec]). *)

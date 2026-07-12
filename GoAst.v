@@ -77,13 +77,12 @@ Definition mkTyName (s : string) (H : nominal_type_ident s = true) : TyName := e
 Definition HexZ : Type := { z : Z | (0 <=? z)%Z = true }.
 Definition mkHexZ (z : Z) (H : (0 <=? z)%Z = true) : HexZ := exist _ z H.
 (** [HexZ]'s non-negativity invariant as a standalone bool predicate ([hexz_ok z] IS the membership condition
-    [(0 <=? z)]).  Extracted to [Printer.hexz_ok] so the plugin's smart constructor [mk_goexpr_hex] can RE-CHECK
-    it at the boundary and refuse a forged NEGATIVE [EHex] — exactly as [mk_goexpr_id] re-checks [go_ident]
-    (the extracted [EHex] erases its [HexZ] proof to a bare [Z], so without this gate the trusted plugin could
+    [(0 <=? z)]).  It re-checks the invariant at the emission boundary and refuses a forged NEGATIVE [EHex]
+    (the extracted [EHex] erases its [HexZ] proof to a bare [Z], so without this gate an emitter could
     construct an out-of-domain [EHex] that [print_hex]'s round-trip does not cover). *)
 Definition hexz_ok (z : Z) : bool := (0 <=? z)%Z.
 
-(** A Go type, as the plugin renders them.  Note [GTInt] (Go's platform [int], the [GoInt]/[TInt64]
+(** A Go type, in its intended Go rendering.  Note [GTInt] (Go's platform [int], the [GoInt]/[TInt64]
     tag) is DISTINCT from [GTInt64] (the full-width [int64], the [GoI64]/[TI64] tag) — conflating them
     is exactly the kind of bug the verified printer rules out (it caught one in the first integration). *)
 Inductive GoTy : Type :=

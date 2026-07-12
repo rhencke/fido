@@ -16,11 +16,11 @@ From Stdlib Require Import StrictProp.   (* Squash: range invariants in SProp �
     wrap at the true [2^63].  The 64-bit width choice is the only residual platform assumption
     (shared with [GoUint]).  Renders to Go [int]; the wrapper unboxes to its [Z] carrier at
     extraction, so a [GoInt] LITERAL is the proof-carrying [int_lit z (pf : in_i64 z)]
-    (NoInline'd, plugin-folded), never a raw ctor (which would render the bare carrier,
+    (NoInline'd, constant-folded), never a raw ctor (which would render the bare carrier,
     mis-typed [int64]).
 
     DISTINCTNESS is load-bearing: a transparent alias is freely cross-assignable in Rocq while the
-    plugin renders each integer type as a DISTINCT Go type — [fun (x:GoInt) => (x:GoUint)] would
+    each integer type is a DISTINCT Go type — [fun (x:GoInt) => (x:GoUint)] would
     extract to INVALID Go.  As distinct records [GoInt <> GoUint <> GoI64], that confusion is
     UNREPRESENTABLE.  One Rocq type per Go type: [int8]…[uint64] are [GoI8]/…/[GoU64], platform
     [uint] is [GoUint], [GoRune] is [GoI32]. *)
@@ -37,7 +37,7 @@ From Stdlib Require Import StrictProp.   (* Squash: range invariants in SProp �
     over a [spec_float].  At extraction [GoFloat64]/[GoFloat32] → Go [float64]/[float32]; the SF
     ops lower BY NAME to the native Go float operators, and a CANONICAL [spec_float] LITERAL
     [S754_finite s m e] (= ±m·2^e) lowers to the EXACT Go hex-float literal [±0x<m>p<e>]
-    (a NONCANONICAL literal is REJECTED at extraction — the plugin gates on the extracted
+    (a NONCANONICAL literal is REJECTED at extraction — extraction gates on
     [SpecFloat.bounded], because [SFeqb]/[SFcompare] are representation-sensitive). *)
 From Stdlib Require Export Floats.SpecFloat.   (* Export: [spec_float] + its [S754_*] ctors visible downstream *)
 From Fido Require Import digits.
@@ -50,7 +50,7 @@ Notation GoFloat64 := spec_float.
     [binary_normalize]).  This matters because [SFcompare]/[SFeqb] are REPRESENTATION-sensitive (they
     assume a canonical operand), so every [GoFloat64] must be binary64-canonical and every [GoFloat32]
     (the raw [S754_finite] constructor stays exported — the model's ops/literals produce canonical
-    forms, and the PLUGIN refuses to extract a noncanonical literal via [SpecFloat.bounded])
+    forms, and extraction refuses a noncanonical literal via [SpecFloat.bounded])
     binary32-canonical.  The float ops/literals already output the canonical form for their format;
     [renorm] is needed only where a value CROSSES formats (the f32 round and the f32→f64 widen). *)
 Definition cond_Zopp (b : bool) (m : Z) : Z := if b then Z.opp m else m.
@@ -580,8 +580,8 @@ Definition intwrap (z : Z) : GoInt := MkGoInt (wrap64 z) (squash (in_i64_wrap64 
     TYPE DISTINCTNESS (Go spec "Numeric types": numeric types are DISTINCT;
     explicit conversions required).  [GoU8] is its OWN record type, so Rocq
     REJECTS mixing a [uint8] with another integer type; the only way in is
-    [u8_lit] (the untyped-constant conversion).  The plugin ERASES the wrapper at
-    extraction ([MkU8]/[u8raw] → identity), and each op lowers to int64 + the
+    [u8_lit] (the untyped-constant conversion).  Extraction ERASES the wrapper
+    ([MkU8]/[u8raw] → identity), and each op's intended Go is int64 + the
     explicit mask ([u8_add a b] → [(a + b) & 0xff]) — compilable BY CONSTRUCTION.
     [u8_no_implicit] (a [Fail]) is the build-checked proof that mixing is
     unrepresentable. *)
@@ -627,7 +627,7 @@ Notation GoByte := GoU8.
     [int8] in [-128, 128).  Go's int8 arithmetic wraps two's-complement.  Model:
     reduce mod 256 then SIGN-EXTEND onto [[-128,128)] — exactly Go's [int8(x)]
     conversion.  Comparison is SIGNED ([Z.ltb] on the sign-extended value → Go's
-    signed int64 [<]).  The plugin emits the explicit int64 mask + sign-extend,
+    signed int64 [<]).  Its intended Go is the explicit int64 mask + sign-extend,
     e.g. [i8_add a b] → [((((a + b) & 0xff) ^ 0x80) - 0x80)].  Each width is a
     DISTINCT record (like [GoU8]); the wrapper erases at extraction. *)
 (* [i8_norm_z] is hoisted up to the wrapper-record block (the GoI8 provenance invariant needs it).
@@ -643,8 +643,8 @@ Definition i8_ltb (a b : GoI8) : bool := Z.ltb (i8raw a) (i8raw b).   (* SIGNED 
 Definition i8_leb (a b : GoI8) : bool := Z.leb (i8raw a) (i8raw b).
 
 (** Direct [>] / [>=] / [!=] for the fixed-width types, completing Go's six comparison
-    operators (here for [uint8]/[int8] — representative; the plugin's [fw_is] recognizes
-    the same op on EVERY width, so [u16]/[i16]/[u32]/[i32] are identical one-liners).
+    operators (here for [uint8]/[int8] — representative; the same op applies
+    on EVERY width, so [u16]/[i16]/[u32]/[i32] are identical one-liners).
     Defined as the swapped [</<=] and [negb (==)] but recognized by name and lowered to
     the DIRECT Go operator. *)
 Definition u8_gtb  (a b : GoU8) : bool := u8_ltb b a.
@@ -717,7 +717,7 @@ Fail Definition i16_forged : GoI16 := MkI16 40000 (squash (ex_intro _ 40000 eq_r
     - [intN]: the sign-extended carrier already makes the raw bitwise op correct,
       but we re-[norm] (idempotent) so every result is manifestly a valid [intN].
     Go's [&^] (AND-NOT) and unary [^] (complement) are single operators.  The
-    plugin emits the bare Go infix [& | ^ &^] / unary [^] (no wrap) — faithful
+    the intended Go is the bare infix [& | ^ &^] / unary [^] (no wrap) — faithful
     because the operands are in range / sign-extended (verified on int64). *)
 Definition u8_and     (a b : GoU8)  : GoU8  := u8wrap (Z.land (u8raw a) (u8raw b)).
 Definition u8_or      (a b : GoU8)  : GoU8  := u8wrap (Z.lor  (u8raw a) (u8raw b)).
@@ -757,7 +757,7 @@ Fail Definition u8_and_no_implicit (x : GoU8) : GoU8 := u8_and x (5 : nat).
     - [>>]: [uintN] is LOGICAL ([lsr]); [intN] is ARITHMETIC ([asr]) — sign-
       preserving, truncating toward −∞, NOT toward zero like [/] ([-3>>1 = -2],
       whereas [-3/2 = -1]).
-    The plugin emits Go [x << k] / [x >> k]: for [>>], the int64 carrier is
+    Its intended Go is [x << k] / [x >> k]: for [>>], the int64 carrier is
     non-negative for [uintN] (so Go's [>>] is logical) and sign-extended for
     [intN] (so Go's [>>] is arithmetic) — both correct with no mask. *)
 Definition u8_shl  (x : GoU8)  (k : GoInt) (_ : (Z.leb 0 (intraw k)) = true) : GoU8  := u8wrap (Z.shiftl (u8raw x) (intraw k)).
@@ -953,7 +953,7 @@ Definition i64_ltb (a b : GoI64) : bool := Z.ltb (i64raw a) (i64raw b).
 Definition i64_leb (a b : GoI64) : bool := Z.leb (i64raw a) (i64raw b).
 
 (* Platform-int [GoInt] ops — the EXACT [GoI64] shape, rendered with Go [int] operators
-   instead of [int64].  [int_lit] is the proof-carrying literal (NoInline'd, plugin-folded — bare
+   instead of [int64].  [int_lit] is the proof-carrying literal (NoInline'd, constant-folded — bare
    decimal in expression position, [int(N)] when a Go type must be pinned); arithmetic wraps at the
    true [2^63] via [wrap64].  [int_div]/[int_mod] are evidence-gated (nonzero divisor) — Go's truncated
    [/]/[%] ([Z.quot]/[Z.rem]); [MININT/-1] overflows and wraps to MININT, the TRUE int64 [-2^63]. *)
@@ -1157,7 +1157,7 @@ Definition u64wrap (z : Z) : GoU64 := MkU64 (wrapU64 z) (squash (in_u64_wrapU64 
 Definition u64_lit (z : Z) (pf : in_u64 z = true) : GoU64 := MkU64 z (squash pf).
 (* Platform-uint [GoUint] literal — the EXACT [GoU64] shape: a proof-carrying smart
    constructor demanding [in_u64 z] (so [z] is in [[0, 2^64)]).  Like [u64_lit] it is [NoInline]'d and
-   the plugin folds [uint_lit z _] → Go [uint(<decimal>)] — the wrapper unboxes to its [Z] carrier
+   [uint_lit z _]'s intended Go is [uint(<decimal>)] — the wrapper unboxes to its [Z] carrier
    (SProp proof erased), so the [uint(…)] cast MUST come from this op (a raw [MkUint] would render the
    bare carrier, which Go infers as [int]).  An out-of-range constant is unrepresentable: [eq_refl]
    cannot prove [in_u64 z = true] when [z] ∉ [[0, 2^64)]. *)
@@ -1447,7 +1447,7 @@ Qed.
     An out-of-range constant FAILS to elaborate (the [now vm_compute] proof of
     representability cannot be built) — the analog of Go's untyped-constant overflow.
     The literal the notation produces lowers via the existing [i64_lit]/[u64_lit] fold;
-    no plugin change — the arbitrary precision lives entirely in [vm_compute]. *)
+    no emission change — the arbitrary precision lives entirely in [vm_compute]. *)
 Notation i64c e :=
   (i64_lit ltac:(let v := eval vm_compute in (e : Z) in exact v) ltac:(now vm_compute))
   (only parsing).
@@ -1526,7 +1526,7 @@ Definition f64_of_u64 (a : GoU64) : GoFloat64 := binary_normalize 53 1024 (u64ra
     ([spec_float] arithmetic) give the runtime answer; this models the CONSTANT one.  An [FConst] is an exact
     rational [num/den]; [fc_add]/[fc_sub]/[fc_mul] are EXACT ([Q]-style cross-multiply, no
     rounding); [f64_of_fconst] rounds exactly ONCE (its own contract below is the rounding
-    authority).  MODEL + machine-checked; the plugin's FConst-fold lowers a CONSTANT
+    authority).  MODEL + machine-checked; the intended FConst-fold covers a CONSTANT
     expression whose int64-CHECKED endpoints fold — beyond int64 the fold declines and
     extraction fails loud. *)
 (** The denominator is a [positive] — exactly the shape of Coq's [QArith.Q] — so a Go
@@ -1647,7 +1647,7 @@ Definition f32_max (x y : GoFloat32) : GoFloat32 :=
 (** [min]/[max] (Go 1.21 predeclared builtins) on [int] — the smaller / larger of
     two values, by the SIGNED ordering (Go's int [<]), so [go_min] = Go [min(a,b)]
     and [go_max] = Go [max(a,b)] for the [int] type.  Computable (so [go_min 3 5 =
-    3] is a THEOREM); the plugin lowers the call to Go's builtin.  (Go's [min]/[max]
+    3] is a THEOREM); the intended Go is a call to Go's builtin.  (Go's [min]/[max]
     also apply to floats — with NaN/`-0` corner cases — and strings; those follow
     once those orderings are settled.) *)
 Definition go_min (a b : GoInt) : GoInt := if int_ltb a b then a else b.
@@ -1655,8 +1655,8 @@ Definition go_max (a b : GoInt) : GoInt := if int_ltb a b then b else a.
 
 (** [min]/[max] on the CANONICAL full-width types: [int64] ([GoI64], SIGNED order via
     [i64_ltb]) and [uint64] ([GoU64], UNSIGNED order via [u64_ltb]) — each exactly Go's
-    [min(a,b)]/[max(a,b)] for that type.  Computable theorems; the plugin lowers each
-    call to the Go builtin.  No carrier bridge (the comparison is the type's own [<]). *)
+    [min(a,b)]/[max(a,b)] for that type.  Computable theorems; the intended Go is
+    a call to the Go builtin.  No carrier bridge (the comparison is the type's own [<]). *)
 Definition i64_min (a b : GoI64) : GoI64 := if i64_ltb a b then a else b.
 Definition i64_max (a b : GoI64) : GoI64 := if i64_ltb a b then b else a.
 Definition u64_min (a b : GoU64) : GoU64 := if u64_ltb a b then a else b.
