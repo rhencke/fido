@@ -1,8 +1,7 @@
 #!/bin/sh
-# OCaml-origin gate.  Fido has NO handwritten OCaml backend.  There is NO emission this round (the false
-# compile/emit authority was deleted), so there is no OCaml at all; when a proof-bearing emission returns it
-# is standard Rocq extraction of a proved closed value plus one tiny transparent build-generated writer,
-# never tracked.  This gate is literal and fail-closed:
+# OCaml-origin gate.  Fido has NO handwritten OCaml backend.  The only OCaml is the e2e smoke test's
+# standard-extraction output plus one build-generated one-line writer — produced in the build, NEVER tracked
+# (any future emission is the same shape).  This gate is literal and fail-closed:
 #   (1) the set of tracked *.ml / *.mli / *.mlg is EMPTY — no handwritten OCaml, and no committed generated
 #       OCaml either (any future extraction output lives only under ignored build dirs);
 #   (2) no tracked source contains a hallmark NAME of the deleted backend / custom extraction plugin

@@ -18,15 +18,19 @@ roots:
   `TargetConfig`; a parallel runtime type-tag universe; string runtime panics; blocking/model-faults as
   recoverable `OPanic`; a pure-list slice that cannot model nil/cap/backing). **Deleted.**
 
-**There is NO emitted Go this round, by design** — a smaller root-only repository beats a green extraction
-demo resting on a false compile certificate.
+**There is no certified emission and no compile authority** — a green demo on a false compile certificate is
+not progress. The only Go produced is a **minimal e2e smoke test** (`e2e/e2e.v`): one hand-built program is
+printed by the surviving `print_program` (its exact bytes Rocq-checked by `reflexivity`), and the pinned Go
+toolchain confirms it is gofmt-clean + `go build`s + `go vet`s. This is a last-mile integration alarm for
+that ONE program — NOT a compiler-soundness or certified-emission claim for arbitrary programs.
 
 ## What survives (and is NOT a certified authority)
 
-`digits.v` (the decimal-rendering authority), `GoAst.v`, `GoPrint.v` — the syntax layer. It compiles
-standalone, and its declared `Print Assumptions` surfaces are **axiom-free** (`make check` via
-`tools/spine-gate.sh`, Rocq's own output — see the trust base for exactly what that gates). It is scheduled
-for the **syntax-root reset** and makes **no Go-adequacy claim**. Known defects to fix in that reset (do NOT
+`digits.v` (the decimal-rendering authority), `GoAst.v`, `GoPrint.v` — the syntax layer. It compiles in the
+pinned-Rocq container (`make check` → buildx prover stage → `tools/spine-gate.sh`; host Rocq is not
+supported), and its declared `Print Assumptions` surfaces are **axiom-free** (Rocq's own output — see the
+trust base for exactly what that gates). It is scheduled for the **syntax-root reset** and makes **no
+Go-adequacy claim**. Known defects to fix in that reset (do NOT
 patch in place):
 
 - `GoAst.EInt : Z` encodes a *signed* literal; Go has no signed integer literal (`-5` is unary-minus applied

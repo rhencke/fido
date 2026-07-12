@@ -1,44 +1,55 @@
 BUILDER  := fido-builder
 PLATFORM ?= linux/$(shell uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
 
-.PHONY: check spine-verify ocaml-origin-gate go-uncommittable-seal build builder install-hooks prover-log
+# THE one Go-toolchain image authority, DIGEST-PINNED, used ONLY by the e2e smoke test.  `override` makes
+# command-line/environment assignments INERT.  Passed to the Dockerfile via --build-arg (its ARG has no
+# default — a build bypassing make fails loudly).
+override GOIMAGE := golang:1.23-alpine@sha256:383395b794dffa5b53012a212365d40c8e37109a626ca30d6151c8348d380b5f
+
+.PHONY: check ocaml-origin-gate go-uncommittable-seal build builder install-hooks prover-log print-goimage
 .DEFAULT_GOAL := check
 
-# Fido is a PROOF repository under a FOUNDATION RESET (checkpoint 65).  The false compile/emit authority
+# Fido is a PROOF repository under a FOUNDATION RESET (checkpoint 65).  The false compile/emit AUTHORITY
 # (GoCompile accepted an unresolved named type — see git history) and the disconnected runtime island were
-# deleted.  There is NO emitted Go this round: a smaller root-only repository beats a green extraction demo
-# resting on a false compile certificate.  The surviving syntax layer (digits, GoAst, GoPrint) is scheduled
-# for the syntax-root reset (independent Go grammar + typed elaboration) — it is NOT a certified emission
-# authority, and NOTHING here claims Go compiler adequacy.
+# deleted.  The surviving syntax layer (digits, GoAst, GoPrint) is scheduled for the syntax-root reset — it
+# is NOT a certified emission authority and NOTHING here claims Go compiler adequacy.
+#
+# ALL Rocq/Go work runs in the PINNED container via buildx.  Local host Rocq is NOT supported — a different
+# host Rocq version could judge proofs differently, so the proof is only ever what the pinned toolchain says.
+# `check` and the pre-commit hook go through buildx, never host rocq/go.
 
-# check: the one verify — zero tracked OCaml, no tracked generated Go, and the surviving Rocq compiles with
-# GoPrint's declared Print-Assumptions surfaces axiom-free (Rocq's own Print Assumptions).  No Go toolchain is involved (there is no emission).
-check: ocaml-origin-gate go-uncommittable-seal spine-verify
-	@echo "fido: check OK — surviving Rocq compiles, GoPrint's declared Print-Assumptions surfaces axiom-free, zero tracked OCaml ✓"
+print-goimage:
+	@echo $(GOIMAGE)
 
-spine-verify:
-	@sh tools/spine-gate.sh printer /tmp/fido-verify.log
-	@rm -f digits.vo digits.glob .digits.aux GoAst.vo GoAst.glob .GoAst.aux GoPrint.vo GoPrint.glob .GoPrint.aux
-	@echo "fido: spine-verify OK — digits/GoAst/GoPrint compile standalone, GoPrint's declared Print-Assumptions surfaces axiom-free ✓"
+# check: the git/shell gates (no Rocq/Go) + the reproducible container proof AND the e2e smoke test.  buildx
+# runs: dune compiles digits/GoAst/GoPrint (axiom-free surfaces) THEN the e2e prints one known program and
+# the pinned Go toolchain accepts it.
+check: ocaml-origin-gate go-uncommittable-seal build
+	@echo "fido: check OK — pinned container: theory compiles (GoPrint's Print-Assumptions surfaces axiom-free) + e2e printed program accepted by the Go toolchain; zero tracked OCaml, no tracked *.go ✓"
 
 ocaml-origin-gate:
 	@sh tools/ocaml-origin-gate.sh
 
-# SEAL: no generated Go is tracked (there is no emission this round; when it returns it stays gitignored).
+# SEAL: no generated Go is tracked (the e2e .go is generated in the container / gitignored locally).
 go-uncommittable-seal:
 	@tracked=$$(git ls-files -- '*.go' 2>/dev/null); \
 	if [ -n "$$tracked" ]; then echo "fido: SEAL FAILED — a tracked *.go exists but generated Go is never committed:"; echo "$$tracked" | sed 's/^/  /'; exit 1; fi; \
 	echo "fido: uncommittable-Go seal OK — no *.go is tracked ✓"
 
-# Reproducible container build: the pinned Rocq toolchain compiles the surviving modules + asserts GoPrint's declared Print-Assumptions surfaces axiom-free.
-build:
-	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --target prover .
+# build: the reproducible container.  Targets e2e-check, which depends on the prover — so buildx runs the
+# proof (dune, axiom check) AND the e2e (print -> extract -> pinned Go toolchain accepts).  A proof failure,
+# an axiom, or Go rejecting the printed program fails the build, hence `check`.
+build: builder
+	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --build-arg GOIMAGE=$(GOIMAGE) --target e2e-check .
 
 builder:
-	docker buildx inspect $(BUILDER) > /dev/null 2>&1 || \
+	@docker buildx inspect $(BUILDER) > /dev/null 2>&1 || \
 	  docker buildx create --name $(BUILDER) --driver docker-container --bootstrap
-	docker buildx use $(BUILDER)
+	@docker buildx use $(BUILDER)
+
 install-hooks:
 	git config core.hooksPath .githooks
-prover-log:
-	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --progress=plain --target prover .
+
+# Diagnose a failure: rebuild streaming the full plain log (the Rocq error / idtac, or the Go toolchain output).
+prover-log: builder
+	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --build-arg GOIMAGE=$(GOIMAGE) --progress=plain --target e2e-check .

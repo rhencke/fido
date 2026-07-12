@@ -1,7 +1,8 @@
 # Fido — Architecture Charter (binding)
 
 Read before any structural change. This governs. It describes the INTENDED roots and the current reset —
-not a shipping pipeline. There is no emitted Go right now, and that is correct.
+not a shipping pipeline. There is no certified emission or compile authority right now (only a minimal e2e
+smoke test that prints one known program), and that is correct.
 
 ## The law of this repository
 

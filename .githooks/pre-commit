@@ -6,10 +6,10 @@
 # must compile with GoPrint's declared Print-Assumptions surfaces axiom-free — so a broken proof or a reintroduced backend hallmark aborts the commit.
 set -e
 
-# (1) OCaml-origin gate: zero tracked OCaml (the backend is deleted; there is no emission glue this round).
+# (1) OCaml-origin gate: zero tracked OCaml (the backend is deleted; the e2e writer is build-generated, never tracked).
 sh tools/ocaml-origin-gate.sh
 
-# (2) SEAL: no generated Go is tracked.  There is no emission now; if it returns, generated *.go stays
+# (2) SEAL: no generated Go is tracked.  The e2e prints one program; generated *.go is produced in the build and stays
 #     gitignored, and a tracked *.go (e.g. `git add -f`) could let stale bytes drift into source.
 tracked_go=$(git ls-files -- '*.go')
 if [ -n "$tracked_go" ]; then

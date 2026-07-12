@@ -3,10 +3,12 @@
 **A proof project aiming at a proved Go generator — currently under a FOUNDATION RESET (checkpoint 65).**
 The handwritten OCaml backend and extraction plugin are gone; then the **false compile/emit authority**
 (`GoCompile` fail-open-accepted an unresolved named type) and the **disconnected runtime island** were
-deleted too. **There is NO emitted Go this round, by design** — a smaller root-only repository beats a green
-extraction demo resting on a false compile certificate. What survives is a syntax layer (`digits`, `GoAst`,
-`GoPrint`) that compiles zero-axiom but is **scheduled for the syntax-root reset and makes no Go-adequacy
-claim** — it is not a certified authority. The intended end state is a proved generator built from real
+deleted too. **There is no certified emission and no compile authority** — a green demo resting on a false
+compile certificate is not progress. The only Go produced is a **minimal e2e smoke test**: one hand-built
+program printed by the surviving `print_program` (its bytes Rocq-checked), confirmed accepted by the pinned
+Go toolchain — a last-mile integration alarm for that ONE program, NOT a compiler-soundness claim. What
+survives is a syntax layer (`digits`, `GoAst`, `GoPrint`) that compiles zero-axiom but is **scheduled for
+the syntax-root reset and makes no Go-adequacy claim** — it is not a certified authority. The intended end state is a proved generator built from real
 roots (`TargetConfig`, a certified type universe, an independent Go grammar, typed elaboration, one token
 renderer); it will never be "formally verified Go" (Go's toolchain is trusted). **Current state, defects,
 and the root frontier: `PROGRESS.md`. Architecture charter (binding): `ARCHITECTURE.md`.**
@@ -44,15 +46,15 @@ formulation, follow the stronger path and surface the divergence.
 
 ## Standing technical law
 
-1. **No handwritten OCaml backend, ever.** There is no emission and no OCaml this round; when emission
-   returns, the Go output comes ONLY from standard Rocq extraction of a proved closed value plus one
+1. **No handwritten OCaml backend, ever.** The Go output — today the e2e smoke test's one program, and any
+   future emission — comes ONLY from standard Rocq extraction of a proved closed value plus one
    build-GENERATED transparent writer (`let () = print_string …`) that prints the bytes unchanged — never
    tracked, inspects/constructs/decides nothing. `tools/ocaml-origin-gate.sh` enforces **zero tracked
    `*.ml`/`*.mli`/`*.mlg`** and is a TEXTUAL tripwire that greps tracked sources for the deleted backend's
    hallmark NAMES (`MiniML`/`Smartlocate`/`pp_struct`/`Extract_env`/`Go Main Extraction`/…) — a string
    grep deterring textual reintroduction, NOT a semantic detector of term inspection or name-based lowering.
    Never reintroduce a backend, a validator around handwritten output, or an OCaml renderer.
-2. **Generated `*.go` is never committed.** There is no emission this round; when it returns it is produced
+2. **Generated `*.go` is never committed.** The e2e's printed program (and any future emission) is produced
    from proved bytes, stays gitignored, and `make check` regenerates + re-verifies it so it can never drift.
    Never hand-edit generated Go — change the `.v`.
 3. **Model honestly — faithful or fail-loud, never plausible-but-wrong.** An unrepresentable construct is
@@ -98,16 +100,18 @@ features; do not rebuild the old breadth from memory.
 
 ## Workflow & commands
 
-Verify after any change: **`make check`** — zero tracked OCaml, no tracked generated Go, the surviving Rocq
-type-checks, and GoPrint's declared `Print Assumptions` surfaces are axiom-free (via `tools/spine-gate.sh`;
-that gates GoPrint's surfaces only, not `digits`/`GoAst` and not the axiom-declaration scan — see
-`PROGRESS.md`'s trust base). No Go toolchain is involved (there is no emission this round). Then commit →
-re-index.
+Verify after any change: **`make check`** — the git/shell gates (zero tracked OCaml, no tracked `*.go`) plus
+the **pinned-container proof AND the e2e smoke test**, all via buildx. The prover stage (Rocq 9.2.0) compiles
+digits/GoAst/GoPrint and asserts GoPrint's declared `Print Assumptions` surfaces are axiom-free (that gates
+GoPrint's surfaces only, not `digits`/`GoAst` and not the axiom-declaration scan — see `PROGRESS.md`'s trust
+base); the `e2e-check` stage prints one known program and confirms the pinned Go toolchain accepts it.
+**Local host Rocq is NOT supported** — a different host Rocq version could judge proofs differently, so all
+compilation goes through the pinned toolchain. Then commit → re-index.
 
 ```
-make check          # the one verify: origin/seal gates + compile digits/GoAst/GoPrint, GoPrint's surfaces axiom-free
-make spine-verify   # compile the surviving modules standalone, assert GoPrint's declared surfaces axiom-free
-make build          # reproducible container build: the pinned Rocq toolchain compiles them, GoPrint's surfaces axiom-free
+make check          # the one verify: origin/seal gates + the pinned-Rocq buildx proof
+make build          # the buildx proof alone: pinned Rocq compiles digits/GoAst/GoPrint, GoPrint's surfaces axiom-free
+make prover-log     # same, streaming the full plain Rocq log (diagnose a proof failure)
 make install-hooks  # activate the pre-commit hook (once after clone)
 ```
 
@@ -117,10 +121,14 @@ typed certificate, generated Go stays gitignored, and `gofmt` is a NO-OP check (
 
 ## Files
 
-- **The surviving syntax layer** (flagged for reset, see above): `digits.v`, `GoAst.v`, `GoPrint.v`.
-- `tools/` — shell gates only (no OCaml, no semantic logic): `spine-gate.sh` (compile the modules,
-  zero-axiom), `ocaml-origin-gate.sh` (zero tracked OCaml + no backend hallmarks).
-- `Makefile` / `Dockerfile` / `.githooks/pre-commit` / `dune` — the no-emission proof build.
+- **The surviving syntax layer** (flagged for reset, see above): `digits.v`, `GoAst.v`, `GoPrint.v`
+  (built by `dune` — the one module graph).
+- `e2e/e2e.v` — the minimal e2e smoke-test driver (prints one known program; its bytes Rocq-checked). The
+  extraction output + build-generated writer are never tracked.
+- `tools/ocaml-origin-gate.sh` — the one shell gate (zero tracked OCaml + a textual backend-hallmark
+  tripwire); no semantic logic.
+- `Makefile` / `Dockerfile` / `.githooks/pre-commit` / `dune` — the buildx proof + e2e; all Rocq/Go runs in
+  the pinned container (host Rocq unsupported).
 
 ## Where the detail lives
 
