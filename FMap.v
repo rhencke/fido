@@ -23,6 +23,20 @@ Arguments fm_nodup {A}.
 
 Definition fm_keys {A} (m : fmap A) : list string := List.map fst (fm_list m).
 
+(** THE structural invariant: the keys are duplicate-free.  This is [fm_nodup] exposed at [fm_keys] —
+    it is the property that makes duplicate keys unrepresentable (below), distinct from the
+    deterministic-lookup fact [fm_MapsTo_fun]. *)
+Definition fm_keys_nodup {A} (m : fmap A) : NoDup (fm_keys m) := fm_nodup m.
+
+(** Duplicate keys are UNREPRESENTABLE: the [NoDup] obligation [mkFMap] demands is uninhabited for any
+    key-colliding list, so no [fmap] can carry the same key twice. *)
+Lemma dup_key_unrepresentable {A} : forall (k : string) (x y : A),
+  ~ NoDup (List.map fst [(k, x); (k, y)]).
+Proof.
+  intros k x y H; simpl in H; inversion H as [ | h t Hni Hnd ]; subst.
+  apply Hni; left; reflexivity.
+Qed.
+
 Fixpoint fm_assoc {A} (k : string) (l : list (string * A)) : option A :=
   match l with
   | [] => None

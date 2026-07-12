@@ -6,8 +6,10 @@
     subset can represent, and (as the AST grows) derive the static meaning the compiler resolves —
     package grouping, imports, symbols, types, calls, entry point — as facts over the same program.
     Today the fragment is one file (structurally package main + func main) of admissible println
-    statements, so [CompilationFacts] is empty (no symbol/type/package/entry table is needed yet) and
-    the only obligation is integer representability for the 64-bit target.
+    statements at the canonical build path [main.go], so the obligations are exactly: the single key is
+    [main.go] (a build-participating source path) and every integer is representable on the 64-bit
+    target.  No static facts are derived yet, so there is no facts record — an empty one would be
+    scaffolding; when real facts appear they decorate this same program.
 
     HONESTY — two distinct claims:
     A. KERNEL-internal exactness (PROVED): the executable checker succeeds exactly for the formal
@@ -17,7 +19,7 @@
        Exercised by the pinned e2e toolchain, not a proof about cmd/compile.  Do not overclaim
        "equivalent to go build".
 
-    [CompilableProgram] wraps the SAME [GoProgram] + its facts + the compile proof — no copy.
+    [CompilableProgram] wraps the SAME [GoProgram] + the compile proof — no copy, no second tree.
     ============================================================================ *)
 From Stdlib Require Import NArith ZArith List Bool String.
 From Fido Require Import Ints FMap GoAST.
@@ -49,9 +51,18 @@ Definition stmt_ok (s : GoStmt) : bool :=
 Definition file_ok (f : GoFileAST) : bool :=
   match f with MainFile body => forallb stmt_ok body end.
 
-(** The MVP closed-world checker: exactly one file, and it is admissible. *)
+(** The canonical source path of the one-file fragment. *)
+Definition main_path : string := "main.go".
+
+(** The MVP closed-world checker: exactly one file, at the canonical build-participating path
+    [main.go], and it is admissible.  The KEY is pinned, not ignored — the admitted fragment emits
+    exactly one file that `go build` compiles, so any other key is not compile-admissible: a non-[.go]
+    name the Go build ignores, a nested/absolute/traversing path, or a sink control name.  These are
+    rejected IN Rocq (below), never left for the writer to catch.  A general certified [GoSourcePath]
+    model (with the full Go source-selection rules) arrives with multi-file support; today the exact
+    one-file obligation is "the single key is [main.go]". *)
 Definition prog_ok (p : GoProgram) : bool :=
-  match fm_list p with [ (_, f) ] => file_ok f | _ => false end.
+  match fm_list p with [ (k, f) ] => String.eqb k main_path && file_ok f | _ => false end.
 
 Lemma expr_ok_iff : forall e, expr_ok e = true <-> ExprOk e.
 Proof.
@@ -88,43 +99,40 @@ Proof.
            | intro H; inversion H; subst; split; assumption ].
 Qed.
 
-(** ---- the certificate: facts + proof over the SAME program ---- *)
+(** ---- the certificate: a proof over the SAME program ---- *)
 
-(** The static facts GoCompile derives about a program.  EMPTY today — the one-file println fragment
-    needs no symbol/type/package/entry table.  The permanent home for those facts when the AST grows;
-    they will decorate this same [GoProgram], never a copied tree. *)
-Inductive CompilationFacts (p : GoProgram) : Type := mkFacts.
-Arguments mkFacts {p}.
-
-(** MVP: exactly one file, at some path, a main file whose statements are all admissible. *)
-Definition GoCompile (p : GoProgram) (_ : CompilationFacts p) : Prop :=
-  exists path body,
-    fm_keys p = [path]
-    /\ fm_find path p = Some (MainFile body)
+(** MVP: exactly one file, at the canonical [main.go] path, a main file whose statements are all
+    admissible.  There is no facts record: the current fragment derives no symbol/type/package table,
+    and an empty placeholder would be future scaffolding.  When compilation DOES derive static facts
+    they will decorate this same [GoProgram] (never a copied tree), added then, carrying real data. *)
+Definition GoCompile (p : GoProgram) : Prop :=
+  exists body,
+    fm_keys p = [main_path]
+    /\ fm_find main_path p = Some (MainFile body)
     /\ Forall StmtOk body.
 
 Record CompilableProgram : Type := mkCompilable {
   cp_program : GoProgram;
-  cp_facts   : CompilationFacts cp_program;
-  cp_ok      : GoCompile cp_program cp_facts
+  cp_ok      : GoCompile cp_program
 }.
 
 (** ---- (A) internal checker exactness ---- *)
 
-Lemma prog_ok_iff : forall p, prog_ok p = true <-> GoCompile p mkFacts.
+Lemma prog_ok_iff : forall p, prog_ok p = true <-> GoCompile p.
 Proof.
   intro p. unfold prog_ok, GoCompile, fm_keys, fm_find.
   destruct (fm_list p) as [ | [k f] [ | e l ] ] eqn:E; simpl.
-  - split; [ discriminate | intros [path [body [Hk _]]]; discriminate Hk ].
+  - split; [ discriminate | intros [body [Hk _]]; discriminate Hk ].
   - destruct f as [ body ]. split.
-    + intro Hf. exists k, body. split; [ reflexivity | split ].
-      * simpl. rewrite String.eqb_refl. reflexivity.
+    + intro H. apply andb_true_iff in H. destruct H as [ Hk Hf ].
+      apply String.eqb_eq in Hk; subst k. exists body. split; [ reflexivity | split ].
+      * reflexivity.
       * apply forallb_stmt_ok_iff; exact Hf.
-    + intros [path [body' [Hk [Hfind Hbody]]]].
-      injection Hk as Hkp; subst path.
-      simpl in Hfind. rewrite String.eqb_refl in Hfind. injection Hfind as Hf; subst body'.
-      apply forallb_stmt_ok_iff; exact Hbody.
-  - split; [ discriminate | intros [path [body [Hk _]]]; discriminate Hk ].
+    + intros [body' [Hk [Hfind Hbody]]].
+      injection Hk as Hkp; subst k.
+      simpl in Hfind. injection Hfind as Hf; subst body'.
+      apply andb_true_iff; split; [ reflexivity | apply forallb_stmt_ok_iff; exact Hbody ].
+  - split; [ discriminate | intros [body [Hk _]]; discriminate Hk ].
 Qed.
 
 (** A boolean, reflected as a decision that remembers the witnessing equation. *)
@@ -135,7 +143,7 @@ Definition bool_sumbool (b : bool) : {b = true} + {b = false} :=
     program is admissible. *)
 Definition go_compile (p : GoProgram) : option CompilableProgram :=
   match bool_sumbool (prog_ok p) with
-  | left H  => Some (mkCompilable p mkFacts (proj1 (prog_ok_iff p) H))
+  | left H  => Some (mkCompilable p (proj1 (prog_ok_iff p) H))
   | right _ => None
   end.
 
@@ -146,7 +154,7 @@ Proof.
     [ injection Heq as <-; reflexivity | discriminate ].
 Qed.
 
-Theorem go_compile_complete : forall p, GoCompile p mkFacts -> exists cp, go_compile p = Some cp.
+Theorem go_compile_complete : forall p, GoCompile p -> exists cp, go_compile p = Some cp.
 Proof.
   intros p H. apply prog_ok_iff in H. unfold go_compile.
   destruct (bool_sumbool (prog_ok p)) as [ H' | H' ];
@@ -154,8 +162,13 @@ Proof.
 Qed.
 
 (** A rejected program yields no CompilableProgram (and hence no SafeProgram). *)
-Lemma reject_no_compile : forall p, prog_ok p = false -> ~ GoCompile p mkFacts.
+Lemma reject_no_compile : forall p, prog_ok p = false -> ~ GoCompile p.
 Proof. intros p E H; apply prog_ok_iff in H; rewrite H in E; discriminate. Qed.
+
+(** The one compiled file is at the canonical build path — so the emitted image key is [main.go],
+    never an arbitrary/traversing/non-[.go] string.  Consumed by GoEmit. *)
+Lemma compiled_main_go : forall cp : CompilableProgram, fm_keys (cp_program cp) = [main_path].
+Proof. intros [ prog Hok ]; simpl. destruct Hok as [ body [ Hk _ ] ]. exact Hk. Qed.
 
 (** ---- kernel-checked boundary + rejection facts ---- *)
 
@@ -175,8 +188,26 @@ Example reject_neg_overflow :
   prog_ok (fm_singleton "main.go" (MainFile [SPrintln [ENeg (Z.to_N (- int_min + 1))]])) = false.
 Proof. reflexivity. Qed.
 
-(** Duplicate relative paths are unrepresentable: lookup is a function, so a path never maps to two
-    files ([FMap.fm_MapsTo_fun]); the finite map carries a NoDup-keys proof by construction. *)
-Definition path_unique : forall (p : GoProgram) k f1 f2,
-  fm_MapsTo k f1 p -> fm_MapsTo k f2 p -> f1 = f2 :=
-  fun p k f1 f2 => fm_MapsTo_fun k f1 f2 p.
+(** Bad paths are rejected IN Rocq — an admissible body at an inadmissible key is not compile-
+    admissible (no CompilableProgram, no SafeProgram, no image), so the writer never has to reject a
+    certified program.  A non-[.go] name Go ignores, a traversing/absolute/nested path, and a sink
+    control name are all rejected. *)
+Example reject_non_go_ext :
+  prog_ok (fm_singleton "main.txt" (MainFile [SPrintln []])) = false.
+Proof. reflexivity. Qed.
+
+Example reject_traversal_path :
+  prog_ok (fm_singleton "../main.go" (MainFile [SPrintln []])) = false.
+Proof. reflexivity. Qed.
+
+Example reject_absolute_path :
+  prog_ok (fm_singleton "/main.go" (MainFile [SPrintln []])) = false.
+Proof. reflexivity. Qed.
+
+Example reject_nested_path :
+  prog_ok (fm_singleton "sub/main.go" (MainFile [SPrintln []])) = false.
+Proof. reflexivity. Qed.
+
+Example reject_control_name :
+  prog_ok (fm_singleton ".fido-staging/x.go" (MainFile [SPrintln []])) = false.
+Proof. reflexivity. Qed.

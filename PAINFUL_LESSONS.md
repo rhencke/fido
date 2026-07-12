@@ -21,8 +21,8 @@ against.
    and parsers add moving parts without strengthening the experiment. The AST *is* the IR.
 
 5. **The printer does not compile.** `GoCompile` settles names, types, constants, declarations, and legality
-   into `CompilationFacts` over the same `GoProgram` (empty today); `GoRender` only serializes the raw file
-   AST. The renderer never resolves, infers, rejects, or repairs.
+   (as derived facts over the same `GoProgram`, when the fragment grows to need them); `GoRender` only
+   serializes the raw file AST. The renderer never resolves, infers, rejects, or repairs.
 
 6. **Shrink syntax before weakening GoCompile.** If exact compiler acceptance is not modelled for a
    constructor, the constructor must not exist. Never a conservative checker with a final-sounding name.
@@ -71,7 +71,8 @@ against.
     *statement* is the right one.
 
 16. **The integer width has one authority — and premature parameterization is a tax, not a virtue.** The one
-    authority is `Ints` (64-bit: `int_min`/`int_max`/`uint_max`), consumed by derivation, never restated. The
+    authority is `Ints` (64-bit: `int_min`/`int_max`; no `uint` bound without a `uint` construct — lesson 29),
+    consumed by derivation, never restated. The
     earlier `TargetConfig` — parameterizing the theory over Go release, GOOS, GOARCH, and word size — was
     PREMATURE: it paid a target-abstraction tax for 32-bit / cross-target support the project had not chosen
     and did not need, and it threaded a "pinned toolchain" fact through theorems where it was only ever an
@@ -87,8 +88,9 @@ against.
     tree: it was a separate datatype with separate constructors, and it dragged in `Compiles*` relations,
     soundness/completeness/determinism, an `erase_*` forest, four erasure-faithfulness lemmas, and duplicate
     raw+compiled fields — twenty leaves covering one wrong root. Compilation must be EVIDENCE/annotations over
-    the ONE program (`CompilableProgram` = the same `GoProgram` + `CompilationFacts` + the `GoCompile` proof),
-    or, when payloads must truly change, one phase-indexed AST family — never a parallel syntax hierarchy.
+    the ONE program (`CompilableProgram` = the same `GoProgram` + the `GoCompile` proof; derived facts, when
+    they carry real data, decorate that same program), or, when payloads must truly change, one phase-indexed
+    AST family — never a parallel syntax hierarchy.
 
 19. **A subset filter is not compiler admissibility.** If the AST can represent a program the pinned Go
     compiler ACCEPTS (a non-`main` package, a `print` call, an ordinary function), then a `GoCompile` that
@@ -105,15 +107,20 @@ against.
     the general program structure (`go_compile` accepts iff there is exactly one main-file key), never by
     making a single file the root and retrofitting a program layer later.
 
-21. **A finite map is unique-by-construction, not a list you promise to dedup.** `GoProgram`/`DirectoryImage`
-    are a `Record { list ; NoDup-of-keys proof }` (`FMap`): duplicate paths are UNREPRESENTABLE, lookup is a
-    function (`fm_MapsTo_fun`), equality is extensional-by-lookup, and there is NO imposed key order. A bare
-    `list (path * v)` with a runtime "keys are unique" comment is a fail-open invariant — the moment two
-    entries share a key, "which file wins" is an accident of order. Carry the proof in the datatype.
+21. **A finite map is unique-by-construction — and the gated invariant must be the NoDup one, not a
+    lookalike.** `GoProgram`/`DirectoryImage` are a `Record { list ; NoDup-of-keys proof }` (`FMap`):
+    duplicate paths are UNREPRESENTABLE, equality is extensional-by-lookup, and there is NO imposed key
+    order. A bare `list (path * v)` with a runtime "keys are unique" comment is a fail-open invariant — the
+    moment two entries share a key, "which file wins" is an accident of order. Carry the proof in the
+    datatype. ⚠ And gate the RIGHT theorem: `fm_MapsTo_fun` (deterministic first-match lookup) holds even
+    for a duplicate-keyed list, so it does NOT establish uniqueness — that is `fm_keys_nodup`
+    (`NoDup (fm_keys m)`, the record field) plus `dup_key_unrepresentable` (the constructor obligation is
+    unsatisfiable for a key collision). Advertising the deterministic-lookup lemma as the uniqueness
+    invariant is the weak-theorem-statement trap (lesson 15).
 
 22. **Raw syntax carries no compiled facts.** A `GoFileAST` is raw syntax only — the path is the map key, and
     package identifier, imports, entry point, resolved symbols/types/calls are COMPILATION RESULTS derived by
-    `GoCompile` over the whole program into `CompilationFacts`. Baking any of them into the raw file value (a
+    `GoCompile` over the whole program (facts decorating that same program, when they exist). Baking any of them into the raw file value (a
     `package_name` field, an `imports` list, a raw `GoPackage` node) is the second-tree mistake wearing a
     "convenience field" disguise: it duplicates authority and lets a hand-built value assert facts the
     compiler never derived.
@@ -132,7 +139,46 @@ against.
     on-disk header is the authority the sink reads; it belongs to the Rocq-rendered bytes (`GoRender.header`)
     and the sink adds/alters no bytes — it only RECOGNIZES the marker (a filesystem concern), never parses Go.
 
-25. **The generated header is Rocq's bytes, proved present.** `// fido generated.  do not edit.` is the exact
-    first line of every rendered file, part of `render_file` and proved present on every emitted entry
-    (`render_program_header`). The sink neither writes nor edits it — a header the transport inserts would be
-    unproven, could drift, and would make ownership a property of the sink instead of the certified image.
+25. **The generated header is Rocq's bytes, proved to be the EXACT FIRST LINE, and has ONE authority.**
+    `// fido generated.  do not edit.` is the exact first line of every rendered file — `render_file` is
+    literally `header ++ nl_c :: rest`, proved by `render_file_first_line`/`render_program_header` (a mere
+    `header ++ rest` "prefix" is too weak: the sink compares the whole first line via `input_line`). The
+    header is defined ONCE in Rocq (`GoRender.header`) and EXTRACTED to the sink, which re-declares it
+    nowhere; the Docker test derives it from actual output. Three hand-copied header literals (Rocq, OCaml,
+    Dockerfile) let the renderer and the deleter drift apart while every proof stays green.
+
+26. **Path admissibility is a CERTIFIED obligation, not a late OCaml validator.** When the program root
+    became a `fmap string _`, `GoCompile` briefly constrained only "exactly one entry" and ignored the key —
+    so `fm_singleton "not-go.txt" …`, `"../escape.go"`, and `".fido-staging/x.go"` all certified, then were
+    ignored by `go build` or refused by the writer. That is exact/rejected/not-core violated: the untrusted
+    OCaml sink was deciding whether a *certified* image was emittable. Path validity must be decided IN Rocq
+    (rejected candidates have no `CompilableProgram`, no image). Cut scope rather than half-model it: the
+    admitted fragment pins the one key to `main.go` (exact), and a general certified `GoSourcePath` — with
+    the real Go source-selection rules (`.go` suffix, ignored `.`/`_` prefixes, `_test.go`, build
+    constraints) — waits for multi-file support. A partial path whitelist wearing a compiler-authority name
+    is the compile analogue of the self-mirroring printer (lesson 3) and the subset filter (lesson 19).
+
+27. **Emission SYNCHRONIZES a dirty directory, and "never touch foreign" must be true, not aspirational.**
+    A real target already holds earlier generated files and hand-written neighbours. The sink must clean its
+    own stale output (by header + desired-key-set, never mtime/manifest) while leaving foreign state intact —
+    and that safety has sharp edges every one of which is a defect if skipped: `lstat`/no-follow everywhere
+    (a dangling target symlink passes `Sys.file_exists`; a symlinked lock/staging redirects mutation),
+    real-directory parents (a file-shaped parent mutates earlier targets then fails), reserved control names
+    refused-not-deleted when a foreign entry squats them, and refuse-any-non-own-header-owned target. Test
+    each adversarially (foreign at the target, symlinked lock, dangling symlink, squatter at a reserved name):
+    a green happy-path test is not evidence the destructive edges are handled. Claim only the guarantee the
+    code actually provides (single-file atomic rename today; whole-image transactionality is future work).
+
+28. **A shell gate over Rocq source must be string- and nested-comment-aware, or it is fail-open.** The
+    anti-axiom scanner's naive "treat every `(*` as a comment start" let `Definition m := "(*". Axiom h :
+    True.` pass — the string's `(*` opened a phantom comment that swallowed the real `Axiom`. A DEFENSE-IN-
+    DEPTH gate that reports "no axioms" while an axiom is present is worse than none. Lex it properly (track
+    string literals, `""` escapes, and NESTED comments across line boundaries) and self-test the adversarial
+    inputs (delimiters inside strings, nested comments, multi-sentence lines, modifiers/attributes, multiline
+    and unused declarations). The AUTHORITY remains Rocq's own `Print Assumptions` — but a shell tripwire that
+    can be silently defeated is a false green.
+
+29. **Do not declare authority for a construct that does not exist.** A `uint_max` constant with no `uint`
+    in the AST, or an empty `CompilationFacts` record threaded through every theorem while carrying no fact,
+    is premature scaffolding — it adds surface, forces boilerplate, and invites the reader to believe a
+    capability exists. Declare the constant/record when the construct that consumes it lands (lesson 13).

@@ -45,19 +45,23 @@ Definition render_stmt (s : GoStmt) : string :=
 Fixpoint render_stmts (ss : list GoStmt) : string :=
   match ss with [] => "" | s :: ss' => render_stmt s ++ render_stmts ss' end.
 
-Definition render_file (f : GoFileAST) : string :=
-  match f with
-  | MainFile body =>
-      header ++ nl ++ nl
-      ++ "package main" ++ nl ++ nl
-      ++ "func main() {" ++ nl
-      ++ render_stmts body
-      ++ "}" ++ nl
-  end.
+(** Everything after the header's terminating newline.  Kept separate so [render_file] is literally
+    [header], then the newline, then this — making "the header is the exact first line" definitional. *)
+Definition render_after_header (body : list GoStmt) : string :=
+  nl
+  ++ "package main" ++ nl ++ nl
+  ++ "func main() {" ++ nl
+  ++ render_stmts body
+  ++ "}" ++ nl.
 
-(** Every rendered file begins with the exact generated header. *)
-Lemma render_file_header : forall f, exists rest, render_file f = header ++ rest.
-Proof. intros [ body ]; eexists; reflexivity. Qed.
+Definition render_file (f : GoFileAST) : string :=
+  match f with MainFile body => header ++ String nl_c (render_after_header body) end.
+
+(** The header is EXACTLY the first line: [render_file] is [header], then the newline [nl_c], then the
+    rest.  This is the precise ownership contract the sink reads (its `input_line` returns the first
+    line up to the newline) — strictly stronger than "header is a prefix". *)
+Lemma render_file_first_line : forall f, exists rest, render_file f = header ++ String nl_c rest.
+Proof. intros [ body ]. cbn [render_file]. eexists. reflexivity. Qed.
 
 (** ---- all-ASCII output ---- *)
 
@@ -132,9 +136,15 @@ Proof.
   cbn [render_stmts]. rewrite str_ascii_app, render_stmt_ascii, IH. reflexivity.
 Qed.
 
+Lemma render_after_header_ascii : forall body, str_ascii (render_after_header body) = true.
+Proof.
+  intro body. unfold render_after_header. rewrite !str_ascii_app, render_stmts_ascii. reflexivity.
+Qed.
+
 Theorem render_file_ascii : forall f, str_ascii (render_file f) = true.
 Proof.
-  intros [ body ]. cbn [render_file]. rewrite !str_ascii_app, render_stmts_ascii. reflexivity.
+  intros [ body ]. cbn [render_file]. rewrite str_ascii_app. cbn [str_ascii].
+  rewrite render_after_header_ascii. reflexivity.
 Qed.
 
 (** ---- decimal faithfulness: emitted decimal denotes EXACTLY the value, no leading zero ---- *)

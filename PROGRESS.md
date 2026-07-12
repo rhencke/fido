@@ -14,50 +14,58 @@ functions, callees, strings, imports, and any raw `GoPackage` hierarchy are UNRE
 invalid Go". A compiler-invalid candidate (an out-of-range integer) is rejected IN Rocq by `go_compile`,
 before any bytes exist — **zero expected Go compile failures, ever.**
 
-## GREEN — proved axiom-free in the pinned container (27 gated `Print Assumptions` surfaces)
+## GREEN — proved axiom-free in the pinned container (33 gated `Print Assumptions` surfaces)
 
-- **`FMap`** — the one finite-map spine (`fmap A`): keys UNIQUE BY CONSTRUCTION (a `NoDup`-keys proof;
-  duplicate keys unrepresentable), deterministic `fm_find`, extensional-by-lookup `fm_Equal`, no imposed
-  order. `fm_MapsTo_fun`: a key never maps to two values. Shared by the program (path→file) and the image
-  (path→bytes).
-- **`Ints`** — the ONE 64-bit integer authority: `int_min = -2^63`, `int_max = 2^63-1`, `uint_max = 2^64-1`.
-  No `TargetConfig`, no parameterization by Go release / GOOS / GOARCH / word size; the toolchain is pinned
-  only operationally.
+- **`FMap`** — the one finite-map spine (`fmap A`): THE invariant is `fm_keys_nodup` (`NoDup (fm_keys m)`) +
+  `dup_key_unrepresentable` (a key-colliding list cannot satisfy the constructor obligation) — duplicate keys
+  are unrepresentable; DISTINCT from `fm_MapsTo_fun` (deterministic first-match lookup). Extensional-by-lookup
+  `fm_Equal`, no imposed order. Shared by the program (path→file) and the image (path→bytes).
+- **`Ints`** — the ONE 64-bit width authority, only the used constants: `int_min = -2^63`, `int_max = 2^63-1`.
+  No `uint` bound (no `uint` construct exists), no `TargetConfig`, no parameterization by Go release / GOOS /
+  GOARCH / word size; the toolchain is pinned only operationally.
 - **`GoAST`** — the ONE representation: `GoProgram := fmap GoFileAST` + raw `GoFileAST` (`MainFile`/`SPrintln`/
   `EBool`/`EInt`/`ENeg`). No second "compiled" tree, no raw `GoPackage`, no compiled facts in raw syntax.
-- **`GoCompile`** — EXACT whole-PROGRAM static admissibility as evidence over that program: the only
-  obligation is integer representability (`ExprOk`/`StmtOk`; `GoCompile p (facts)`). `CompilationFacts p` is
-  the (empty today) home for derived static facts, never a second tree. `go_compile : GoProgram -> option
-  CompilableProgram` is proof-producing and **sound + complete** (`go_compile_sound`/`_complete`), reflected
-  by `prog_ok_iff`; a rejected program yields no `CompilableProgram` (`reject_no_compile`). Kernel-checked
-  boundary facts: `accept_max_int`/`accept_min_int` (`-(2^63)` admitted), `reject_pos_overflow`/
-  `reject_neg_overflow` (bare `2^63` not); `path_unique` (duplicate paths unrepresentable).
+- **`GoCompile`** — EXACT whole-PROGRAM static admissibility as evidence over that program: `GoCompile :
+  GoProgram -> Prop` — the single key is the canonical build path `main.go` and every integer is
+  representable (`ExprOk`/`StmtOk`). `CompilableProgram` wraps the SAME program + the proof (no facts
+  record — an empty one would be scaffolding). `go_compile : GoProgram -> option CompilableProgram` is
+  proof-producing and **sound + complete** (`go_compile_sound`/`_complete`), reflected by `prog_ok_iff`; a
+  rejected program yields no `CompilableProgram` (`reject_no_compile`); the one compiled key is `main.go`
+  (`compiled_main_go`). Kernel-checked facts: `accept_max_int`/`accept_min_int` (`-(2^63)` admitted),
+  `reject_pos_overflow`/`reject_neg_overflow` (bare `2^63` not), and bad-path rejection —
+  `reject_non_go_ext`/`reject_traversal_path`/`reject_absolute_path`/`reject_nested_path`/
+  `reject_control_name`.
 - **`GoSafe`** — the exact ABSTRACT println-trace semantics with REAL values (`GoValue = VBool | VInt Z`):
   `eval_expr`/`eval_file`, and `eval_zero_sign_agnostic` (`EInt 0` and `ENeg 0` agree). `GoSafe cp := True`
   TODAY (the fragment has no unsafe operation) — the honest, PERMANENT extension point for guarantees beyond
   compiler acceptance, not circular. `SafeProgram` is the capability over `CompilableProgram`.
 - **`GoRender`** — the direct renderer. Every file begins with the exact header `// fido generated.  do not
-  edit.` (`render_file_header`). `render_file_ascii` (every byte < 128); `print_Z_dec_faithful` (the emitted
-  decimal denotes exactly the value, under a numeral denotation, not a parser); `print_Z_pos_no_leading_zero`
-  (no octal reinterpretation); `render_bool/int/neg_faithful` + `render_boundary_max/min`. Digits from the one
-  authority `digits`.
+  edit.` AS THE FIRST LINE (`render_file_first_line`: `render_file f = header ++ nl_c :: rest`).
+  `render_file_ascii` (every byte < 128); `print_Z_dec_faithful` (the emitted decimal denotes exactly the
+  value, numeral denotation not a parser); `print_Z_pos_no_leading_zero` (no octal reinterpretation);
+  `render_bool/int/neg_faithful` + `render_boundary_max/min`. Digits from the one authority `digits`.
 - **`GoEmit`** — the public capability `render_program : SafeProgram -> DirectoryImage`, where
-  `DirectoryImage := fmap string` is a TRUE finite map (path→bytes). One entry per file
-  (`render_program_one_file`); keys are the program's paths (`render_program_keys`); every entry has the
-  header (`render_program_header`) and is ASCII (`render_program_ascii`).
+  `DirectoryImage := fmap string` is a TRUE finite map (path→bytes). One entry keyed `main.go`
+  (`render_program_main_go`); keys are the program's paths (`render_program_keys`); every entry begins with
+  the header first line (`render_program_header`) and is ASCII (`render_program_ascii`).
 
 ## GREEN — executed (integration evidence, never proof)
 
 - **Extraction boundary** (`e2e/Extract.v`): the witness `demo_program = fm_singleton "main.go" (MainFile
-  […])`; `demo_ok : GoCompile …` by `prog_ok_iff`; `demo_safe = certify (mkCompilable …)`; `demo_image =
-  render_program demo_safe`; `image_entries = fm_list demo_image`. Standard extraction (`ExtrOcamlBasic` +
-  `ExtrOcamlNativeString`) hands the sink an ordinary OCaml `(string*string) list` with unique keys.
-  `Print Assumptions image_entries` is asserted axiom-free by the emit stage.
-- **The one filesystem sink** (`e2e/writer.ml`): a dirty-directory synchronizer — exclusive lock, staging
-  INSIDE the target, per-file atomic rename, Fido-ownership by header first-line, stale-cleanup by
-  header + desired-key-set, foreign files/dirs never touched. File I/O only; walks/decodes no Rocq terms.
-  The emit stage exercises it against a DIRTY directory (a stale Fido file it must clean + foreign files it
-  must preserve) and asserts idempotence.
+  […])`; `demo_ok : GoCompile demo_program` by `prog_ok_iff`; `demo_safe = certify (mkCompilable …)`;
+  `demo_image = render_program demo_safe`; `emit_image = (header, fm_list demo_image)`. Standard extraction
+  (`ExtrOcamlBasic` + `ExtrOcamlNativeString`) hands the sink the ownership header (the sole authority) plus
+  an ordinary OCaml `(string*string) list` with unique keys. `Print Assumptions emit_image` is asserted
+  axiom-free by the emit stage.
+- **The one filesystem sink** (`e2e/writer.ml`): a dirty-directory synchronizer — exclusive lock, `lstat`/
+  no-follow preflight (real-directory parents; refuse any non-own-header-owned target incl. dangling
+  symlinks), staging INSIDE the target, per-file atomic rename, Fido-ownership by the extracted header's
+  first line, stale-cleanup by header + desired-key-set. Two reserved control names
+  (`.fido-staging`/`.fido-sync.lock`); foreign entries outside those never touched. File I/O only; consumes
+  the Rocq header, re-declares none; walks/decodes no Rocq terms. The emit stage exercises it against a DIRTY
+  directory (stale Fido file cleaned + foreign preserved, header DERIVED from output, idempotent) AND four
+  adversarial foreign entries it must refuse-and-preserve (foreign at the target key, a symlinked lock, a
+  dangling target symlink, a squatter at a reserved name).
 - **Pinned Go** (digest-pinned `golang:1.23-alpine`, asserted to match the operational pin go1.23/linux/amd64,
   a 64-bit target): gofmt-clean, `go vet` + `go build`, runs the witness (bool + int + `-(2^63)` boundary +
   empty/multiple `println`); stdout/stderr/exit match reviewed goldens (`e2e/golden.*`). `make check` = gates

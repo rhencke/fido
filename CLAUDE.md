@@ -61,16 +61,19 @@ stronger proof or a more correct formulation, follow the stronger path and surfa
 ## Standing technical law
 
 1. **Handwritten OCaml understands filesystems, not programs.** All semantic work — compile, safety,
-   rendering, and the final `(relative-path, exact-bytes)` image — is done in proved Rocq; standard
-   extraction generates the OCaml value. The ONLY handwritten OCaml is a dirty-directory filesystem sink
-   (`e2e/writer.ml`) that receives that already-computed image and SYNCHRONIZES it into a target directory
-   (exclusive lock, staging inside the target, per-file atomic rename, stale-cleanup by header ownership +
-   desired-key-set, foreign files/dirs never touched). **It does not receive, inspect, validate, lower,
-   render, decode, or understand programs; it walks no Rocq terms; it chooses no paths or contents.**
-   `tools/ocaml-origin-gate.sh` enforces at-most-that-one-sink, a bounded size, and no term-walking API.
-   The sink may be more than a one-liner — a correct sync needs real filesystem machinery — but every part
-   is a filesystem concern, never a semantic one. Never reintroduce a backend, a plugin that decodes Rocq
-   terms, an OCaml renderer, or a second emission path.
+   rendering, and the final `(relative-path, exact-bytes)` image (plus the ownership header, from Rocq) —
+   is done in proved Rocq; standard extraction generates the OCaml value. The ONLY handwritten OCaml is a
+   dirty-directory filesystem sink (`e2e/writer.ml`) that receives that already-computed image and
+   SYNCHRONIZES it into a target directory (exclusive lock; `lstat`/no-follow preflight — real-directory
+   parents, refuse any non-own-header-owned target incl. dangling symlinks; staging inside the target;
+   per-file atomic rename; stale-cleanup by header ownership + desired-key-set; two reserved control names
+   `.fido-staging`/`.fido-sync.lock`; foreign entries outside those never touched). **It does not receive,
+   inspect, validate, lower, render, decode, or understand programs; it walks no Rocq terms; it chooses no
+   paths or contents; it re-declares no header.** `tools/ocaml-origin-gate.sh` enforces at-most-that-one-sink,
+   a bounded size, and no term-walking API. The sink may be more than a one-liner — a correct sync needs real
+   filesystem machinery — but every part is a filesystem concern, never a semantic one. Never reintroduce a
+   backend, a plugin that decodes Rocq terms, an OCaml renderer, a second emission path, or a late OCaml
+   path/name validator standing in for certified path admissibility.
 2. **Generated `*.go` / `*.ml` is never committed.** The emitted program and the extraction output are
    produced at build time, gitignored, and `make check` regenerates + re-runs them so they cannot drift.
    Never hand-edit generated Go — change the `.v`. The generated header is Rocq's bytes (`GoRender.header`),
@@ -100,18 +103,22 @@ stronger proof or a more correct formulation, follow the stronger path and surfa
 
 ## The layers (one authority each, over the ONE program)
 
-`FMap` — the finite-map spine (`fmap A`: unique keys by construction, deterministic lookup, extensional-by-
-lookup equality, no imposed order); `fm_MapsTo_fun`. · `Ints` — the one 64-bit width authority
-(`int_min`/`int_max`/`uint_max`). · `GoAST` — `GoProgram := fmap GoFileAST`; raw `MainFile` / `SPrintln` /
-`EBool`/`EInt`/`ENeg` (structural package/func/println; no identifiers, no second tree, no raw package). ·
-`GoCompile` — the declarative `GoCompile : forall p, CompilationFacts p -> Prop` (integer representability) +
-proof-producing `go_compile : GoProgram -> option CompilableProgram` proved sound/complete (`prog_ok_iff`);
-`CompilableProgram` = a proof-bearing wrapper over the SAME program + facts. · `GoSafe` — real `GoValue`
-(`VBool`/`VInt Z`), exact `eval_file`, `GoSafe`/`SafeProgram` (no panic algebra). · `GoRender` — direct
-`GoFileAST → string` with the generated header; proved all-ASCII, decimal denotes exactly the value, no
-leading zero, header present. · `GoEmit` — `render_program : SafeProgram -> DirectoryImage` where
-`DirectoryImage := fmap string`. · `e2e/Extract.v` — the witness + `Extraction`. · `e2e/writer.ml` — the one
-dirty-directory filesystem sink. · `digits` — leaf authority.
+`FMap` — the finite-map spine (`fmap A`): the invariant is `NoDup (fm_keys m)` (`fm_keys_nodup` +
+`dup_key_unrepresentable` — duplicate keys unrepresentable), DISTINCT from the deterministic-lookup fact
+`fm_MapsTo_fun`; extensional-by-lookup equality, no imposed order. · `Ints` — the one 64-bit width authority,
+only the used constants (`int_min`/`int_max`; no `uint` bound without a `uint` construct). · `GoAST` —
+`GoProgram := fmap GoFileAST`; raw `MainFile` / `SPrintln` / `EBool`/`EInt`/`ENeg` (structural
+package/func/println; no identifiers, no second tree, no raw package, no compiled facts in raw syntax). ·
+`GoCompile` — the declarative `GoCompile : GoProgram -> Prop` (the key is `main.go` + integer
+representability) + proof-producing `go_compile : GoProgram -> option CompilableProgram` proved
+sound/complete (`prog_ok_iff`); `CompilableProgram` = a proof-bearing wrapper over the SAME program (no facts
+record); bad paths (non-`.go`/traversal/absolute/nested/control-name) rejected IN Rocq. · `GoSafe` — real
+`GoValue` (`VBool`/`VInt Z`), exact `eval_file`, `GoSafe`/`SafeProgram` (no panic algebra). · `GoRender` —
+direct `GoFileAST → string` with the header as the EXACT first line; proved all-ASCII, decimal denotes
+exactly the value, no leading zero, first-line-is-header. · `GoEmit` — `render_program : SafeProgram ->
+DirectoryImage` where `DirectoryImage := fmap string`; one entry keyed `main.go`. · `e2e/Extract.v` — the
+witness + `Extraction` (header + entries). · `e2e/writer.ml` — the one dirty-directory filesystem sink. ·
+`digits` — leaf authority.
 
 ## Workflow & commands
 
@@ -119,7 +126,9 @@ Verify after any change: **`make check`** — the git/shell gates (at-most-one-s
 the axiom-declaration scan) + the pinned-container **proof** (Rocq 9.2.0: `dune build` + `gate/axiom_gate.v`
 axiom-free, count-checked) + the **e2e** (Dune-cached theory build; then an EXPLICIT step extracts the final
 image, asserts it axiom-free, compiles the sink, runs it against a DIRTY directory — a stale Fido file it
-must clean + foreign files it must preserve + idempotence; the pinned digest-pinned `golang:1.23-alpine` —
+must clean + foreign files it must preserve + idempotence + adversarial refuse-and-preserve (foreign at the
+target key, a symlinked lock, a dangling target symlink, a squatter at a reserved name); the digest-pinned
+`golang:1.23-alpine` —
 asserted to match the operational pin go1.23/linux/amd64 — gofmt-checks/`go vet`/`go build`/runs it;
 stdout/stderr/exit compared byte-for-byte to reviewed goldens). **Local host Rocq is NOT supported** — all
 compilation goes through the pinned toolchain via buildx.

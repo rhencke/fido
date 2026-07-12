@@ -31,7 +31,7 @@ Inductive GoStmt : Type :=
 Inductive GoFileAST : Type :=
 | MainFile : list GoStmt -> GoFileAST.
 
-Definition RelativePath := string.
-
-(** The raw program: a finite map from unique relative paths to raw file ASTs. *)
+(** The raw program: a finite map from unique relative source paths (the [string] keys) to raw file
+    ASTs.  Which key strings are admissible source paths is a COMPILATION obligation (GoCompile), not a
+    property of this raw structure — the map admits any string key; GoCompile rejects the rest. *)
 Definition GoProgram := fmap GoFileAST.
