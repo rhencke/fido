@@ -42,9 +42,9 @@ for f in $scanned_v; do
   if strip_comments "$f" | grep -qE "${cb}${amod}(Axiom|Axioms|Parameter|Parameters|Conjecture)[[:space:]]|Admitted"; then
     axiom_hit="$f (Axiom/Parameter/Conjecture/Admitted)"; break
   fi
-  # every spine file is Section-free by design → a top-level Hypothesis/Variable would be a global assumption
+  # every surviving module is Section-free by design → a top-level Hypothesis/Variable would be a global assumption
   if strip_comments "$f" | grep -qE "${cb}Section[[:space:]]"; then
-    axiom_hit="$f (Section — the certified spine carries none; a Section-local Variable would need review)"; break
+    axiom_hit="$f (Section — the surviving modules carry none; a Section-local Variable would need review)"; break
   fi
   if strip_comments "$f" | grep -qE "${cb}${amod}(Hypothesis|Hypotheses|Variable|Variables)[[:space:]]"; then
     axiom_hit="$f (top-level Hypothesis/Variable)"; break
@@ -56,10 +56,10 @@ if [ -n "$axiom_hit" ]; then
   exit 1
 fi
 
-# (4) On any proof / build change, run the certified verify so a broken proof / rejected Go aborts the commit.
+# (4) On any proof / build change, run the verify so a broken proof / reintroduced backend hallmark aborts.
 if git diff --cached --name-only | grep -qE '\.v$|^tools/|^Makefile$|^Dockerfile$|^dune$|^dune-project$'; then
-  echo "fido: proof/build input staged — running the certified verify (make check)..."
+  echo "fido: proof/build input staged — running the verify (make check)..."
   make check
 fi
 
-echo "fido: certified — proof, bytes, and Go toolchain in sync."
+echo "fido: OK — surviving Rocq compiles, zero axioms, zero tracked OCaml."
