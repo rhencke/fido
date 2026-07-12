@@ -19,7 +19,8 @@ if [ -n "$tracked_go" ]; then
 fi
 
 # (3) Anti-axiom DECLARATION tripwire over ALL tracked .v.  This is DEFENSE-IN-DEPTH, not the authority: the
-#     authority is Rocq's own `Print Assumptions`, asserted ZERO by `make check` (spine-gate).  This cheap
+#     authority is Rocq's own `Print Assumptions`, asserted by `make check` (gate/axiom_gate.v — compiled
+#     fresh every build, count-checked so a warm cache cannot skip it).  This cheap
 #     scan catches a casual Axiom/Parameter/Conjecture/Admitted, or a top-level Hypothesis/Variable in a
 #     no-Section file, before commit.  Comments are stripped first, so prose may use these words freely.
 strip_comments() {

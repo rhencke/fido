@@ -64,9 +64,10 @@ formulation, follow the stronger path and surface the divergence.
 4. **Zero project axioms — every `Print Assumptions` surface is EMPTY; preserve it.** The whole model is
    `Definition`s/`Record`s over concrete Rocq data. Never `Axiom`/`Parameter`/`Admitted`, never a kernel
    primitive (`PrimInt63`/`PrimFloat` are axioms too), never `FunctionalExtensionality` on a retained
-   surface. The live build gate (`make check`) asserts only **GoPrint's** declared `Print Assumptions`
-   surfaces are axiom-free (`digits`/`GoAst` declare none; the axiom-DECLARATION scan runs only in the
-   pre-commit hook, not `make check`/CI — see `PROGRESS.md`).
+   surface. The live build gate (`make check`) asserts only **GoPrint's** public surfaces are axiom-free,
+   via `gate/axiom_gate.v` — the sole `Print Assumptions` target, compiled fresh EVERY build and
+   count-checked, so a warm `_build` cache can never skip it (`digits`/`GoAst` declare no surfaces; the
+   axiom-DECLARATION scan runs only in the pre-commit hook, not `make check`/CI — see `PROGRESS.md`).
 5. **No fuel, ever.** No gas, step budgets, max-depths, bounded runners, cycle caps, or renamed
    equivalents anywhere in retained code. A ranked/well-founded structural measure is acceptable ONLY as a
    termination proof from decreasing structure — never as an externally supplied execution budget. A

@@ -27,8 +27,8 @@ that ONE program — NOT a compiler-soundness or certified-emission claim for ar
 ## What survives (and is NOT a certified authority)
 
 `digits.v` (the decimal-rendering authority), `GoAst.v`, `GoPrint.v` — the syntax layer. It compiles in the
-pinned-Rocq container (`make check` → buildx prover stage → `tools/spine-gate.sh`; host Rocq is not
-supported), and its declared `Print Assumptions` surfaces are **axiom-free** (Rocq's own output — see the
+pinned-Rocq container (`make check` → buildx prover stage → `dune build`; host Rocq is not supported), and
+the gated `Print Assumptions` surfaces are **axiom-free** (`gate/axiom_gate.v`, Rocq's own output — see the
 trust base for exactly what that gates). It is scheduled for the **syntax-root reset** and makes **no
 Go-adequacy claim**. Known defects to fix in that reset (do NOT
 patch in place):
@@ -50,16 +50,16 @@ the Dockerfile) **plus the opam-repo state and the apt packages they install** (
 a residual build-trust task). No handwritten OCaml exists (`tools/ocaml-origin-gate.sh` enforces zero tracked
 `*.ml`/`*.mli`/`*.mlg`).
 
-Exactly what the LIVE build gate enforces (`spine-gate`, run by `make check` and the Docker prover): the
-three files type-check, and it greps `^Axioms:` over the compile log — so it establishes only that the
-theorems with an explicit `Print Assumptions` print no assumptions. That is **GoPrint's 123 declared
-surfaces only**; `digits.v` and `GoAst.v` declare NONE, so the build gate says NOTHING about their
-axiom-freedom (it holds by inspection — no `Axiom`/`Parameter`/`Admitted`, Stdlib-only imports — but is not
-build-gated). The axiom-DECLARATION scan (no `Axiom`/`Parameter`/`Admitted`/top-level `Variable` in any `.v`)
-runs ONLY in the **pre-commit hook**, not in `make check` or the container build, so it is bypassable
-(`--no-verify`) and absent in CI. The precise fix — one public-surface module that `Print Assumptions` every
-root theorem, gated in the build as the sole target (and moving the declaration scan into `make check`) — is
-a build-trust task, deferred with the syntax-root reset. Never read "no assumptions" as proof that a
+Exactly what the LIVE build gate enforces: `dune build` type-checks the modules, then `gate/axiom_gate.v` —
+**the sole Print-Assumptions target, compiled fresh EVERY build** against the dune-built `.vo` (so a warm or
+gate-poisoned `_build` cache can never skip it) — runs `Print Assumptions` on GoPrint's 122 public surfaces.
+The build fails on any `^Axioms:` line AND unless exactly as many `Closed under the global context` lines
+appear as the gate file declares (a vacuous/partial gate log is a FAILURE, fail-closed both ways). `digits.v`
+and `GoAst.v` declare no surfaces, so the gate says NOTHING about their axiom-freedom (it holds by
+inspection — no `Axiom`/`Parameter`/`Admitted`, Stdlib-only imports — but is not build-gated). The
+axiom-DECLARATION scan (no `Axiom`/`Parameter`/`Admitted`/top-level `Variable` in any `.v`) runs ONLY in the
+**pre-commit hook**, not in `make check` or the container build, so it is bypassable (`--no-verify`) and
+absent in CI — moving it into `make check` is a build-trust task. Never read "no assumptions" as proof that a
 theorem's *statement* is the right theorem (the deleted `GoCompile` was axiom-free and still wrong).
 
 ## RED / NEXT — pour the roots before any floor (do NOT add features)

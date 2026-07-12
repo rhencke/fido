@@ -47,22 +47,32 @@ RUN mkdir -p /workspace && chown opam:opam /workspace
 WORKDIR /workspace
 USER opam
 
-# ── Stage 3: prove — dune compiles the surviving modules (into the mounted _build cache, so a leaf edit is
-#    incremental) and asserts GoPrint's declared Print-Assumptions surfaces are axiom-free.  dune is the ONE
-#    module graph (from `dune`); there is no hand-maintained module list.  `Print Assumptions` output is
-#    surfaced by dune, so a leaf edit that recompiles GoPrint re-runs its 123 surfaces; grepping `^Axioms:`
-#    fails the build on any assumption.
+# ── Stage 3: prove — dune compiles the modules (into the mounted _build cache, so a leaf edit is
+#    incremental); then the ASSUMPTIONS GATE (gate/axiom_gate.v — the sole Print-Assumptions target) is
+#    compiled fresh EVERY build against the dune-built .vo, so a warm/poisoned cache can never skip it.
+#    Fail-closed BOTH ways: zero '^Axioms:' lines AND exactly as many 'Closed under the global context'
+#    lines as the gate file has 'Print Assumptions' commands — an empty or partial gate log FAILS.
 FROM rocq-base AS prover
 ARG TARGETARCH
 COPY --chown=opam:opam dune-project dune ./
 COPY --chown=opam:opam *.v ./
+COPY --chown=opam:opam gate/ gate/
 COPY --chown=opam:opam e2e/ e2e/
 RUN --mount=type=cache,id=fido-dune-rocq-9.2.0-${TARGETARCH},uid=1000,gid=1000,target=/workspace/_build,sharing=locked \
     if dune build > /tmp/build.log 2>&1; then cat /tmp/build.log; else cat /tmp/build.log; echo "fido: dune build FAILED"; exit 1; fi \
-    && if grep -q '^Axioms:' /tmp/build.log; then \
-         echo "fido: SPINE AXIOM — a Print Assumptions surface depends on an axiom:"; grep -A3 '^Axioms:' /tmp/build.log; exit 1; \
+    && rm -f gate/*.vo gate/*.glob gate/.*.aux \
+    && if ! rocq c -Q _build/default Fido gate/axiom_gate.v > /tmp/gate.log 2>&1; then \
+         cat /tmp/gate.log; echo "fido: ASSUMPTIONS GATE failed to compile"; exit 1; \
        fi \
-    && echo "fido: prover OK — dune compiled digits/GoAst/GoPrint (cached in _build); GoPrint's Print Assumptions surfaces axiom-free" \
+    && if grep -q '^Axioms:' /tmp/gate.log; then \
+         echo "fido: SPINE AXIOM — a gated surface depends on an assumption:"; grep -A3 '^Axioms:' /tmp/gate.log; exit 1; \
+       fi \
+    && want=$(grep -c '^Print Assumptions' gate/axiom_gate.v) \
+    && got=$(grep -c '^Closed under the global context' /tmp/gate.log) \
+    && if [ "$want" -ne "$got" ]; then \
+         echo "fido: ASSUMPTIONS GATE INCOMPLETE — $want surfaces declared, only $got confirmed closed (a vacuous/partial gate run is a FAILURE)"; exit 1; \
+       fi \
+    && echo "fido: prover OK — dune compiled the theory (cached in _build); assumptions gate confirmed $got/$want surfaces closed" \
     && rocq c -Q _build/default Fido -Q e2e Fido e2e/e2e.v \
     && printf 'let () = print_string E2e.e2e_bytes\n' > e2e/gen_write.ml \
     && ocamlc -I e2e e2e/e2e.mli e2e/e2e.ml e2e/gen_write.ml -o /tmp/e2e_writer \
