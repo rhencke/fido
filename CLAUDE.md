@@ -44,13 +44,14 @@ formulation, follow the stronger path and surface the divergence.
 
 ## Standing technical law
 
-1. **No handwritten OCaml backend, ever.** The Go output comes ONLY from standard Rocq extraction of a
-   proved closed value. The one permitted piece of OCaml is a build-GENERATED one-line writer
-   (`let () = print_string …`) that prints the extracted bytes unchanged; it is never tracked, inspects
-   nothing, constructs nothing, decides nothing. `tools/ocaml-origin-gate.sh` enforces **zero tracked
-   `*.ml`/`*.mli`/`*.mlg`** and bans the deleted backend's hallmarks (MiniML, term inspection,
-   `Go Main Extraction`, name-based lowering). Never reintroduce a backend, a validator around handwritten
-   output, or an OCaml renderer.
+1. **No handwritten OCaml backend, ever.** There is no emission and no OCaml this round; when emission
+   returns, the Go output comes ONLY from standard Rocq extraction of a proved closed value plus one
+   build-GENERATED transparent writer (`let () = print_string …`) that prints the bytes unchanged — never
+   tracked, inspects/constructs/decides nothing. `tools/ocaml-origin-gate.sh` enforces **zero tracked
+   `*.ml`/`*.mli`/`*.mlg`** and is a TEXTUAL tripwire that greps tracked sources for the deleted backend's
+   hallmark NAMES (`MiniML`/`Smartlocate`/`pp_struct`/`Extract_env`/`Go Main Extraction`/…) — a string
+   grep deterring textual reintroduction, NOT a semantic detector of term inspection or name-based lowering.
+   Never reintroduce a backend, a validator around handwritten output, or an OCaml renderer.
 2. **Generated `*.go` is never committed.** There is no emission this round; when it returns it is produced
    from proved bytes, stays gitignored, and `make check` regenerates + re-verifies it so it can never drift.
    Never hand-edit generated Go — change the `.v`.

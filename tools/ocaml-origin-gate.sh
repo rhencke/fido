@@ -5,8 +5,9 @@
 # never tracked.  This gate is literal and fail-closed:
 #   (1) the set of tracked *.ml / *.mli / *.mlg is EMPTY — no handwritten OCaml, and no committed generated
 #       OCaml either (any future extraction output lives only under ignored build dirs);
-#   (2) no tracked source names a hallmark of the deleted handwritten backend / custom extraction plugin —
-#       a reintroduction tripwire (name-based lowering must never come back).
+#   (2) no tracked source contains a hallmark NAME of the deleted backend / custom extraction plugin
+#       (MiniML/Smartlocate/pp_struct/Extract_env/Go Main Extraction/…).  This is a TEXTUAL tripwire on those
+#       names — it deters reintroduction, it does NOT semantically detect term inspection / name-based lowering.
 set -eu
 
 tracked_ocaml=$(git ls-files '*.ml' '*.mli' '*.mlg')
@@ -24,10 +25,11 @@ hits=$(git ls-files '*.v' Makefile Dockerfile dune dune-project 'tools/*' '.gith
          | grep -vxF "$self" \
          | xargs grep -lE "$banned" 2>/dev/null || true)
 if [ -n "$hits" ]; then
-  echo "fido: OCAML-ORIGIN GATE — a deleted-backend hallmark reappears in tracked sources:"
+  echo "fido: OCAML-ORIGIN GATE — a deleted-backend hallmark NAME reappears in tracked sources:"
   echo "$hits" | sed 's/^/  /'
-  echo "fido: the handwritten OCaml backend / custom extraction plugin is deleted for good — no name-based"
-  echo "fido: lowering, no MiniML/term inspection, no 'Go Main Extraction'.  Emit through certified extraction."
+  echo "fido: the handwritten OCaml backend / custom extraction plugin is deleted for good.  This gate is a"
+  echo "fido: textual tripwire on hallmark names — do not reintroduce a backend, name-based lowering, or a"
+  echo "fido: custom extraction command; any future emission goes through standard extraction of proved bytes."
   exit 1
 fi
 

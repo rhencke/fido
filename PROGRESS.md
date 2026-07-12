@@ -77,8 +77,9 @@ theorem's *statement* is the right theorem (the deleted `GoCompile` was axiom-fr
 
 ## Build-trust tasks (do while the source graph is small)
 
-Done: the two base images are digest-pinned; the opam retry loop fails closed (`test installed = true` +
-`command -v rocq`/`ocamlc`). Still open: pin/snapshot the opam repo and verify installed package versions;
+Done: the two base images are digest-pinned; the opam retry loop fails closed (`test installed = true`); the
+prover stage verifies `rocq`/`ocamlc` are present before compiling. Still open: pin/snapshot the opam repo
+and verify installed package *versions*;
 make one Dune module graph authoritative (no second hardcoded shell module list) with a real `_build` `.vo`
 cache in the mounted BuildKit cache; one public-surface assumptions module as the sole axiom-gate target
 (instead of the `^Axioms:` grep over declared surfaces); one tiny tracked glue file **iff/when** emission

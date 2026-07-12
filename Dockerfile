@@ -13,8 +13,8 @@ RUN --mount=type=cache,id=fido-apt-builder,target=/var/cache/apt,sharing=locked 
         make build-essential pkg-config libgmp-dev linux-libc-dev ca-certificates \
     && sudo rm -rf /var/lib/apt/lists/*
 WORKDIR /workspace
-# Install the pinned Rocq/Dune; the retry loop must FAIL if every attempt failed (not fall through to clean),
-# and we verify the executables are actually present.
+# Install the pinned Rocq/Dune; the retry loop must FAIL if every attempt failed (not fall through to clean).
+# (rocq/ocamlc presence is verified in the prover stage, where the switch's bin is on PATH via ENV.)
 RUN --mount=type=cache,id=fido-opam,uid=1000,gid=1000,target=/home/opam/.opam/download-cache \
     opam repo add rocq-released https://rocq-prover.org/opam/released \
     && installed=false \
@@ -23,8 +23,8 @@ RUN --mount=type=cache,id=fido-opam,uid=1000,gid=1000,target=/home/opam/.opam/do
          echo "attempt $attempt failed — retrying in 20 s..."; sleep 20; \
        done \
     && test "$installed" = true \
-    && command -v rocq && command -v ocamlc \
     && opam clean --all
+# (the prover stage — where the opam switch's bin is on PATH via ENV — verifies rocq/ocamlc are present)
 
 # ── Stage 2: minimal Rocq runtime ─────────────────────────────────────────────
 FROM debian:12-slim@sha256:60eac759739651111db372c07be67863818726f754804b8707c90979bda511df AS rocq-base
