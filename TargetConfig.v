@@ -7,10 +7,11 @@
         carry as intrinsic representability evidence — a different width changes what compiles;
       - [tc_println_builtin] is a required premise of [GoCompile]'s [println] rule — a target
         without the builtin compiles no program.
-    [tc_go_version]/[tc_goos]/[tc_goarch] name the language/target that the FUTURE e2e's
-    integration goldens will be facts about; the pinned Go toolchain image (a build pin)
-    returns to the Makefile with that e2e milestone.  They are not consumed by a proof (there
-    is no proof about the real toolchain — that is the last-mile integration boundary).
+    [tc_go_version]/[tc_goos]/[tc_goarch] name the language/target the e2e's integration goldens
+    are facts about; the live go-e2e stage mechanically asserts the running toolchain's
+    GOVERSION/GOOS/GOARCH equal these (go1.23/linux/amd64), so a drift on either side fails.
+    They are not consumed by a proof — the real toolchain is the last-mile integration boundary,
+    not a theorem premise.
 
     [println] is Go's BOOTSTRAPPING builtin: the spec does not guarantee it stays in the
     language and its exact output formatting is implementation-specific.  [tc_println_builtin]

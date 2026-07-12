@@ -1,93 +1,97 @@
 # Fido — Architecture Charter (binding)
 
-Read before any structural change. This governs. It describes the intended architecture and its
-responsibilities — not a shipping product. The design is intentionally minimal: **the AST *is* the IR**;
-"compiled" and "safe" are proofs about one program value, not additional trees.
+Read before any structural change. This governs. The design is intentionally minimal: there is **one
+program AST**, `GoCompile`/`GoSafe` are EVIDENCE over that same tree (never copies), and the handwritten
+OCaml is a dumb filesystem sink.
 
 ## The law of this repository
 
 Ruthless correctness or ruthless deletion — no middle state. Incomplete scope is acceptable; incorrect,
-conservative, duplicated, or "known issue" code in the certified path is not. Do not build a floor on an
-unsettled foundation. Cut representable scope before weakening a proof. When twenty local proofs/guards
-compensate for one missing root, replace the root and delete the leaves. "Trusted," "works," "stable
-output," and "axiom-free" are NOT substitutes for semantic correctness — a green boolean checker is not a
-compile authority; a printer that validates itself is not a grammar.
+conservative, duplicated, self-validating, or half-built code in the certified path is not. Cut representable
+scope before weakening a proof. When twenty local proofs/guards compensate for one missing root, replace the
+root and delete the leaves. A green boolean checker is not a compile authority; a printer's own inverse is
+not a Go-semantics theorem; axiom-free is not correct.
 
 ## The pipeline
 
 ```
-  GoAST          raw proposed Go tree — unproved, possibly compiler-invalid (this IS where an untrusted
-                 proposer writes a program).  No unsupported syntax (absent, never narrowed), no paren node.
+  GoAST          the ONE program tree.  MainFile (package main + func main() STRUCTURAL) / SPrintln (the
+                 builtin println IS the statement) / EBool | EInt | ENeg.  No identifiers; no unsupported
+                 syntax (absent, never narrowed).
 
-  GoCompile      exact static/compiler admissibility for the representable domain, PLUS the decorated
-                 CompiledFile (the same program with ambiguity replaced by checked facts).
+  GoCompile      EXACT static/compiler admissibility as EVIDENCE over that same AST — the only remaining
+                 obligation is integer representability.  A declarative judgment + a sound/complete/decidable
+                 executable decision.  CompiledProgram = a proof-bearing wrapper over the SAME GoFile.
 
-  GoSafe         a real operational semantics + the universal safety floor (no panic) over the CompiledFile;
-                 SafeProgram is the emission certificate.
+  GoSafe         the exact operational semantics with REAL values (VBool/VInt Z) + the safety certificate
+                 SafeProgram over CompiledProgram.  No panic algebra until a panic-capable constructor.
 
-  GoRender       the DIRECT precedence-aware renderer: CompiledFile → string.  No tokens / lexer / parser /
-                 round-trip / second AST.
+  GoRender       the direct CompiledProgram → string renderer.  Proved: all-ASCII, the emitted decimal
+                 denotes exactly the value, and no illegal leading zero.
 
-  GoEmit         a Rocq-defined multi-file DirectoryImage (relative paths + exact bytes), path-safety proved.
+  GoEmit         the final image emit_pairs : SafeProgram -> list (string * string) — exactly one fixed file,
+                 main.go.
 
-  Fido Emit      one tiny transparent transport plugin: reduce the proved DirectoryImage in Rocq, decode
-                 path+bytes, write files.  Decides nothing.
+  extraction     standard Rocq extraction turns emit_pairs into an ordinary OCaml (string * string) list.
 
-  pinned Go      the digest-pinned toolchain builds + runs the emitted program.  Integration evidence only,
-                 never proof.
+  writer         one tiny handwritten OCaml I/O writer drops that image on disk (staging + rename).
+
+  pinned Go      the digest-pinned toolchain builds + runs the emitted program.  Integration only.
 ```
 
-Data flow: raw `GoAST` → proved `CompilesFile` → decorated `CompiledFile` → `BehaviorSafe` proof →
-`SafeProgram` → direct `GoRender` → `DirectoryImage` → `Fido Emit` writes files → pinned Go build/run.
-
-**There is no additional IR.** No `Surface`/`TypedIR`/`GoSyntax`/token/grammar/`CertifiedArtifact` layer.
-`CompiledFile` is the same Go tree with resolved facts; `SafeProgram` is a certificate over it; the renderer
-consumes it directly.
+**There is no second tree.** No `CompiledExpr`/`CompiledStmt`/`CompiledFile`, no erasure forest, no
+Surface/TypedIR/GoSyntax/token/grammar/`CertifiedArtifact` layer. `GoCompile` produces a certificate over the
+one `GoFile`; `GoSafe` is a certificate over that; the renderer traverses it directly.
 
 ## Responsibility table (does / does NOT)
 
 | Layer | Does | Does NOT |
 |---|---|---|
-| **GoAST** | hold the one raw proposed tree; validated idents, unsigned int magnitudes (`ENeg` for negatives), charset-checked strings | represent unsupported syntax; carry a parenthesis node; encode a signed literal |
-| **GoCompile** | own the declarative `CompilesFile` relation + a sound/complete/deterministic executable `go_compile` producing a decorated `CompiledFile`; resolve idents→`CBool`, callee→the `println` builtin, carry intrinsic int-representability; erase back to the raw tree | be a boolean `check=true`; leave any unresolved name for later layers; *prove* adequacy to the real Go compiler (that is the e2e) |
-| **GoSafe** | define an operational semantics (`Outcome`, print-event trace, `eval_file`) and the universal floor `BehaviorSafe` (the run does not panic), proved for the fragment; bundle `SafeProgram` (raw ↔ compiled ↔ safe) | use "safe" as a synonym for "compiles"; duplicate the tree; fork the compiler/semantics/renderer |
-| **GoRender** | traverse `CompiledFile` directly to bytes; legal literal spelling/escaping, canonical spacing; prove `escape_faithful` + `render_all_ascii` structurally | tokenize/lex/parse; round-trip AST→text→AST; resolve names, infer types, reject, or invoke a formatter to repair |
-| **GoEmit** | produce a Rocq-defined `DirectoryImage`; prove every path relative, separator/NUL-free, `.go`, unique; accept only `SafeProgram` | map rejection to an empty file; add VFS metadata |
-| **Fido Emit** (`plugin/g_fido.mlg`) | reduce the proved `DirectoryImage`, structurally decode path+bytes, write verbatim/atomically; fail loud on any unexpected shape | inspect program structure, resolve names, choose files, validate, or fall back |
+| **GoAST** | hold the ONE tree; structural package/func/println; bool + unsigned int magnitudes (`ENeg` for negatives) | carry identifiers, a second tree, unsupported syntax, or a signed literal |
+| **GoCompile** | own `GoCompile : GoFile -> Prop` (integer representability) + a sound/complete/decidable `go_compile`; `CompiledProgram` = wrapper over the SAME AST | copy the syntax; be a boolean; reject valid Go it can represent; prove completeness against a mirror relation |
+| **GoSafe** | real `GoValue` (`VInt : Z`), exact `eval`/`run`, `SafeProgram` (0 = -0) | observe source spelling as "value"; keep an unused `Panicked`/`Outcome` placeholder; fork anything |
+| **GoRender** | traverse `CompiledProgram` to bytes; prove all-ASCII, decimal-denotes-value, no-leading-zero | tokenize/lex/parse/round-trip; resolve names; reject; invoke a formatter |
+| **GoEmit** | produce the fixed single-file `(main.go, bytes)` image | build a generic path predicate over arbitrary strings |
+| **extraction + writer** | Rocq generates the `(string*string) list`; the tiny writer writes it atomically | let handwritten OCaml decode/inspect/lower/validate/choose anything |
 
-## Extensibility (refinement, not forks)
+## The handwritten-OCaml boundary (hard)
 
-`GoSafe` is the floor, not the ceiling. Users/LLMs define stronger predicates over the SAME `CompiledFile`
-(`Definition MyInvariant (c : CompiledFile) := …`) and package refinements that project back to
-`SafeProgram` for emission — without modifying or forking `GoCompile`, `GoSafe`, `GoRender`, or the plugin.
-Rocq decides whether the added proofs are valid; the core stays authoritative.
+**Handwritten OCaml is a filesystem exhaust pipe.** It receives only final relative paths and exact contents.
+It does not receive, inspect, validate, lower, render, or understand programs; it walks no Rocq terms; it
+chooses no paths or contents; it has no fallback. All structural decoding (Coq `string`/`list`/`prod` →
+OCaml) is GENERATED by standard extraction, not handwritten. If that boundary cannot be met, delete the
+writer and the e2e rather than keep a handwritten decoder — incomplete integration is acceptable, a false
+transport foundation is not.
 
-## Growing the language (the discipline)
+The Rocq side computes and certifies the complete image and guarantees: every path relative, nonempty, no
+traversal, unique, deterministic; contents are final exact bytes; a rejected program yields no image;
+successful emission needs no postprocessing.
 
-Every new AST constructor enters only when it has, complete: exact `GoCompile` rules (constructor absent
-otherwise), operational meaning in `GoSafe`, the safety obligation, renderer support with its structural
-proof, and — where observable — an e2e witness. No conservative "known narrowing." Shrink the representable
-language before weakening `GoCompile`.
+## Growing the language
+
+Every new AST constructor enters only when it has, COMPLETE at that time: exact `GoCompile` rules
+(constructor absent otherwise), exact operational meaning in `GoSafe`, renderer support with its
+value/syntax proofs, and — where observable — an e2e witness. No "known narrowing". Shrink the representable
+language before weakening `GoCompile`. Identifiers/functions return only via ONE phase-indexed AST family or
+a node-indexed compile certificate — never a parallel syntax hierarchy.
 
 ## Trust base (say it exactly)
 
-Trusted: Rocq and its kernel; the two Docker base images and the pinned Go image (all digest-pinned) plus
-the opam-repo state and apt packages they install (snapshotting those is a residual build-trust task,
-`PROGRESS.md`); the **one tiny transport glue** (`plugin/g_fido.mlg` — its constr-decode + file-write is
-handwritten OCaml, hence trusted, not proved); and the Go toolchain (Go's parse/compile/run of the emitted
-bytes is trusted — the Go-subset adequacy of `GoCompile`/`GoRender` is checked by the e2e, not proved).
+Trusted: Rocq and its kernel; the two Docker base images and the pinned Go image (all digest-pinned) plus the
+opam-repo state and apt packages they install (snapshotting those is a residual build-trust task); the **one
+tiny I/O writer** (`e2e/writer.ml` — file I/O only, no term walking, hence trusted-not-proved); and the Go
+toolchain (its parse/compile/run of the emitted bytes is trusted — the Go-subset adequacy of
+`GoCompile`/`GoRender` is checked by the e2e, not proved). The extraction-generated OCaml is standard Rocq
+extraction of proved definitions.
 
-Proved (axiom-free, asserted every build by `gate/axiom_gate.v`): the public surfaces of GoCompile
-(sound/complete/deterministic/erase, decidable), GoSafe (no-panic, faithfulness), GoRender
-(escape-faithful, all-ASCII), GoEmit (path safety), and the leaf authorities. "No assumptions" is never
-evidence that a theorem's *statement* is the right correctness theorem.
+Proved (axiom-free, asserted every build by `gate/axiom_gate.v`): GoCompile sound/complete/decidable;
+GoSafe's exact-value fact; GoRender's all-ASCII + decimal-faithful + no-leading-zero; GoEmit's single-file
+image; the target facts. "No assumptions" is never evidence that a theorem's STATEMENT is the right one.
 
 ## What must never come back
 
-A handwritten OCaml backend or any of its jobs (term inspection, type reconstruction, name-based lowering,
-AST construction, printer decisions, import selection, control-flow synthesis, validation, fallback, byte
-rewriting); a **second** handwritten glue file; a boolean equality as the compile authority; a lexer,
-parser, tokenizer, text IR, or AST→text→AST round-trip in the certified/production path; a self-mirroring
-grammar defined by the printer's own decisions; a signed integer literal; an unresolved named type in the
-compiled tree; a raw/string-rescue escape hatch. Git carries the history; re-admit a feature only when the
-roots make its proof obligations natural.
+A handwritten OCaml backend or a plugin that decodes Rocq terms; a SECOND program-AST hierarchy or an
+erasure forest to call a copy "the same"; a boolean as the compile authority, or a subset filter posing as
+compiler admissibility; a lexer/parser/tokenizer/round-trip in the certified path; a self-mirroring grammar;
+a signed integer literal; a raw/string-rescue escape hatch; an unused panic/control placeholder. Git carries
+the history; re-admit a feature only when the roots make its proof obligations natural.

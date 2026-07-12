@@ -1,38 +1,29 @@
 (** ============================================================================
-    GoAST — the ONE program representation: a raw, LLM-proposed Go tree.  There is no
-    separate surface/typed/target IR — this AST *is* the IR; "compiled" and "safe" are
-    PROOFS about a [GoFile] (GoCompile / GoSafe), not new trees.
+    GoAST — the ONE program representation.  Everything the current slice does NOT model
+    exactly is STRUCTURAL, not an identifier the compiler could reject: the program is a
+    [MainFile] (package [main] + one [func main()] are the datatype, not names), whose body
+    is a list of [SPrintln] (the builtin [println] is the statement, not a callee identifier),
+    whose arguments are the exact admitted primitives.  There is no package/function/call/
+    expression identifier — those Go features are UNREPRESENTABLE until their full compiler
+    behaviour is modelled, so a non-[main] package or a [print] call is not "rejected as
+    invalid Go", it simply cannot be proposed.
 
-    A [GoFile] may be compiler-INVALID (an unresolved identifier, an out-of-range integer,
-    a wrong package name) — that is intentional: it is where an untrusted proposer writes a
-    program, which GoCompile then accepts or rejects.  But it may NOT contain syntax whose
-    compiler rules are not modeled exactly: unsupported forms are absent from the datatype,
-    never admitted with a "known narrowing".  Lexical well-formedness is structural
-    (identifiers are validated [GoIdent]s; an integer literal is an UNSIGNED magnitude [N] —
-    a negative value is [ENeg], unary minus over a magnitude, never a signed literal token;
-    a string carries its admitted-charset evidence).  There is NO parenthesis node — the
-    tree is the operation tree, and parentheses appear only in the rendered bytes when Go
-    precedence requires them to preserve that tree.
+    [GoCompile] adds only the remaining static obligation (integer representability) over this
+    SAME tree; there is no second "compiled" syntax hierarchy, no erasure.
+
+    Admitted primitives: booleans, and integers as an UNSIGNED magnitude ([EInt]) or its unary
+    negation ([ENeg]) — Go has no signed integer literal.  (Strings are deferred until their
+    independent literal-denotation proofs exist.)
     ============================================================================ *)
-From Stdlib Require Import String NArith List.
-From Fido Require Import Literals GoIdent.
-Import ListNotations.
+From Stdlib Require Import NArith List.
 
 Inductive GoExpr : Type :=
-| EIdent : GoIdent -> GoExpr                       (* any validated identifier; resolution is GoCompile's job *)
-| EInt   : N -> GoExpr                             (* unsigned decimal magnitude *)
-| ENeg   : N -> GoExpr                             (* unary minus over a magnitude; denotes -[N] *)
-| EStr   : forall s : string, str_ok s = true -> GoExpr.
+| EBool : bool -> GoExpr        (* the predeclared [true]/[false] *)
+| EInt  : N -> GoExpr           (* unsigned decimal magnitude *)
+| ENeg  : N -> GoExpr.          (* unary minus over a magnitude; denotes -[N] *)
 
 Inductive GoStmt : Type :=
-| SCall : GoIdent -> list GoExpr -> GoStmt.        (* callee(args) as an expression statement *)
+| SPrintln : list GoExpr -> GoStmt.   (* the builtin println is the statement, not a callee name *)
 
-Record GoFunc : Type := mkGoFunc {
-  fn_name : GoIdent;
-  fn_body : list GoStmt
-}.
-
-Record GoFile : Type := mkGoFile {
-  file_pkg  : GoIdent;
-  file_func : GoFunc
-}.
+Inductive GoFile : Type :=
+| MainFile : list GoStmt -> GoFile.   (* package main + func main() are structural *)

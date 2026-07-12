@@ -1,67 +1,66 @@
 # Fido — status
 
-The first vertical slice is **proved AND executed**. `ARCHITECTURE.md` is the charter, `PAINFUL_LESSONS.md`
-the postmortems, `git log` the history. This is the live frontier only.
+The vertical slice is **proved AND executed**, over ONE program AST. `ARCHITECTURE.md` is the charter,
+`PAINFUL_LESSONS.md` the postmortems, `git log` the history.
 
 ## The admitted fragment
 
-`package main` + one `func main()` + straight-line builtin `println` over primitive literals: bool /
-string (printable-ASCII + tab/newline charset) / int (unsigned magnitude; negatives ONLY as `ENeg`, unary
-minus over a magnitude). Imports, user functions, variables, and control flow are UNREPRESENTABLE (no
-constructors). A compiler-invalid candidate is rejected IN Rocq by `go_compile` before any `.go` exists —
-**zero expected Go compile failures, ever.**
+`MainFile` (package `main` + one `func main()` — STRUCTURAL, not identifiers) whose body is `SPrintln`
+statements (the builtin `println` is the statement) over primitive literals: bool (`EBool`) and integers
+(`EInt` unsigned magnitude / `ENeg` its negation). Other packages, functions, callees, and strings are
+UNREPRESENTABLE (no constructors) — not "rejected as invalid Go". A compiler-invalid candidate (an
+out-of-range integer) is rejected IN Rocq by `go_compile`, before any bytes exist — **zero expected Go
+compile failures, ever.**
 
-## GREEN — proved axiom-free in the pinned container (17 gated `Print Assumptions` surfaces)
+## GREEN — proved axiom-free in the pinned container (13 gated `Print Assumptions` surfaces)
 
-- **`TargetConfig`** — the one authority for pinned target facts. `tc_int_bits` (64) derives exact
-  `int_min`/`int_max`; `tc_println_builtin` is a required premise of GoCompile's `println` rule. `tc_goos`/
-  `tc_goarch`/`tc_go_version` name the target the e2e goldens are facts about (checked by the e2e, not a
-  proof).
-- **`Literals`** — the admitted string-payload charset (`str_ok`); integer representability lives
-  intrinsically on the compiled constructors, not here.
-- **`GoIdent`** — validated Go identifiers (`sig` type; keyword/empty/ill-formed unrepresentable);
-  `goident_payload_eq` (equality reduces to the payload) is what erasure uses.
-- **`GoAST`** — the one raw proposed tree (`EIdent`/`EInt N`/`ENeg N`/`EStr`; `SCall`; func; file). May be
-  compiler-invalid; carries no unsupported syntax and no parenthesis node.
-- **`GoCompile`** — the authority. A decorated `CompiledFile` (`EIdent`→`CBool`, callee→the `CPrintln`
-  builtin, `CInt`/`CNeg` carry intrinsic representability, pkg/fn are the pinned `main` constants); the
-  declarative `CompilesFile` relation; the executable `go_compile` proved **sound + complete + deterministic**
-  (`go_compile_sound`/`_complete`/`_iff`, `CompilesFile_det`) and **erasing back to the raw tree**
-  (`compiled_erases_to_raw`); `GoCompile` decidable. Never a boolean. Adequacy to the REAL Go compiler is the
-  e2e's job, not a theorem.
-- **`GoSafe`** — an operational semantics (`Outcome = Returned | Panicked`, a `println`-event trace,
-  `eval_file`) and the universal floor `BehaviorSafe` (the run does not panic), proved for the whole
-  fragment (`fragment_never_panics`; no panic source exists — it gains real premises when one arrives).
-  `SafeProgram` ties raw ↔ compiled ↔ safe (`sp_erases` proves faithfulness).
-- **`GoRender`** — the direct `CompiledFile → string` printer. `escape_faithful` (Go string escaping is
-  invertible — the emitted literal denotes exactly the value) and `render_all_ascii` (every emitted byte
-  < 128), both structural over the intrinsically-grammatical tree — no parser.
-- **`GoEmit`** — the Rocq-defined `DirectoryImage`; `emit_directory` accepts `SafeProgram`; every path proved
-  relative / separator-&-NUL-free / not `.`/`..` / `.go` / unique.
+- **`TargetConfig`** — the one authority for pinned facts. `tc_int_bits` (64) derives exact
+  `int_min`/`int_max`, consumed by `GoCompile`. `tc_go_version`/`tc_goos`/`tc_goarch` name the target the e2e
+  asserts the running toolchain against.
+- **`GoAST`** — the ONE tree (`MainFile`/`SPrintln`/`EBool`/`EInt`/`ENeg`). No second "compiled" tree.
+- **`GoCompile`** — EXACT static admissibility as evidence over that AST: the only obligation is integer
+  representability (`ExprOk`/`StmtOk`/`GoCompile`); `go_compile` proved **sound + complete + decidable**
+  (`go_compile_sound`/`_complete`/`_iff`, `GoCompile_dec`). Every representable program Go accepts is
+  accepted; every one rejected is a genuine constant-overflow (`-(2^63)` admitted, bare `2^63` not).
+  `CompiledProgram` is a proof-bearing wrapper over the SAME `GoFile`.
+- **`GoSafe`** — the exact semantics with REAL values (`GoValue = VBool | VInt Z`): `eval_expr`/`run`, and
+  `eval_zero_sign_agnostic` (`EInt 0` and `ENeg 0` agree). No `Panicked`/`Outcome` placeholder — the fragment
+  has no unsafe operation. `SafeProgram` is the safety certificate over `CompiledProgram`.
+- **`GoRender`** — the direct renderer. `render_all_ascii` (every byte < 128); `print_Z_dec_faithful` (the
+  emitted decimal denotes exactly the value, under a numeral denotation, not a parser); and
+  `print_Z_pos_no_leading_zero` (no octal reinterpretation). Digits come from the one authority `digits`.
+- **`GoEmit`** — the final image `emit_pairs : SafeProgram -> list (string * string)`: exactly one fixed
+  file, `main.go` (`emit_is_single_main_go`); no generic path predicate.
 
 ## GREEN — executed (integration evidence, never proof)
 
-- **`Fido Emit` transport plugin** (`plugin/g_fido.mlg`, the one tiny handwritten glue): reduces
-  `emit_directory demo` in Rocq, structurally decodes the `DirectoryImage`, writes files atomically.
-- **e2e witness** (`plugin/Witness.v`): `demo = certify` of a `CompilesFile` proof for `println(true)`;
-  emits exactly the proved `main.go`. The pinned `golang:1.23-alpine` (digest-pinned) confirms it is
-  gofmt-clean, passes `go vet` + `go build`, runs, and produces `stderr "true\n"` / empty stdout / exit 0 —
-  byte-for-byte against reviewed goldens (`e2e/golden.*`). `make check` = gates + prove + e2e, green.
+- **Extraction boundary** (`e2e/Extract.v`): the witness `demo = certify (mkCompiled demo_ast demo_ok)`;
+  `demo_pairs = emit_pairs demo`; standard extraction (`ExtrOcamlBasic` + `ExtrOcamlNativeString`) hands the
+  writer an ordinary OCaml `(string*string) list`. `Print Assumptions demo_pairs` is asserted axiom-free by
+  the emit stage.
+- **The one tiny writer** (`e2e/writer.ml`, ~15 lines): file I/O only (staging dir + rename); walks/decodes
+  no Rocq terms.
+- **Pinned Go** (digest-pinned `golang:1.23-alpine`, asserted to match `TargetConfig` GOVERSION/GOOS/GOARCH):
+  gofmt-clean, `go vet` + `go build`, runs the witness (bool + int + `-(2^63)` boundary + empty/multiple
+  `println`); stdout/stderr/exit match reviewed goldens (`e2e/golden.*`). `make check` = gates + prove + e2e,
+  green. The theory is Dune-cached; the extraction+writer+run is an explicit always-run step (not a Dune
+  side-effect).
 
 ## NEXT — the frontier (pour roots before floors; do NOT add breadth for its own sake)
 
-- More primitive witnesses (multiple/mixed `println` args: strings with each escape, ints incl.
-  `0`/`1`/`-1`/`-(2^63)`, bools) with their compile+safety proofs and goldens.
-- Stronger renderer obligations where they buy correctness: an independent forward Go-subset
-  grammar-membership (structural, never a parser) and a decimal-value faithfulness theorem.
-- The first construct that can actually panic or not terminate — at which point `GoSafe.BehaviorSafe` stops
-  being free and must be proved with real premises, and the semantics gains a `Panicked` branch.
+- Strings — return `EStr` only WITH its complete obligations at that time: an independent Go
+  interpreted-string-literal denotation (every escape legal, the literal denotes exactly the payload), not
+  just the printer's own inverse.
+- The first construct that can actually panic or not terminate — at which point `GoSafe` grows a real
+  `Panicked`/`Outcome` distinction and premises, introduced together with that constructor.
+- Multi-file emission — only with a complete `GoSourceFileName` model.
 - Imports remain on hold (the one change needing explicit sign-off).
 
 ## Build-trust tasks (do while the source graph is small)
 
 Done: base + Go images digest-pinned; the opam retry loop fails closed; `dune` is the one module graph; the
-always-run count-checked `gate/axiom_gate.v` is the sole axiom-gate target; the e2e emits + runs through the
-pinned Go toolchain. Still open: pin/snapshot the opam repo + verify installed package *versions*; move the
-axiom-DECLARATION scan (currently pre-commit-hook-only, so `--no-verify`-bypassable and absent in CI) into
-`make check`.
+always-run count-checked `gate/axiom_gate.v`; the e2e asserts the toolchain matches `TargetConfig` and the
+witness is axiom-free; cached build separated from the always-run emission. Still open: pin/snapshot the opam
+repo + verify installed package *versions*; move the axiom-DECLARATION scan (pre-commit-hook-only) into
+`make check`; a single machine-consumed target manifest shared by Rocq + the build (today three literals —
+Rocq `TargetConfig`, Makefile `PLATFORM`, Dockerfile Go image — with the e2e asserting the toolchain side).

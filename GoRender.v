@@ -1,187 +1,76 @@
 (** ============================================================================
-    GoRender — the DIRECT pretty-printer: it traverses a decorated [CompiledFile] and
-    emits Go source bytes.  There is NO tokenizer, token encoder, lexer, parser, text IR,
-    or AST→text→AST round trip — the renderer is a direct [CompiledFile -> string] function,
-    and its correctness (next module tick) is STRUCTURAL over the intrinsically-grammatical
-    compiled tree, never "a parser recovers the same AST" (doc §4; PAINFUL_LESSONS #3).
+    GoRender — the DIRECT renderer: it traverses the ONE [GoFile] (via a [CompiledProgram])
+    and emits Go source bytes.  No tokenizer/lexer/parser/round-trip/second tree.  package
+    [main] and [func main()] are the fixed structure of [MainFile]; the builtin [println] is
+    the fixed spelling of [SPrintln]; there are no identifiers to render.
 
-    It renders the RESOLVED tree: a [CBool] prints its predeclared spelling, the callee is
-    the literal builtin [println], and package/function are the pinned "main" constants —
-    the renderer never resolves names, infers types, validates, or repairs (GoCompile did
-    all of that).  Its only decisions are serialization inherent to Go syntax: legal literal
-    spelling/escaping, canonical spacing/newlines, deterministic layout.  There are no binary
-    operators in this fragment, so no precedence or parenthesis decision arises and there is
-    no parenthesis node.
-
-    Lexical fusion is prevented by direct canonical spacing (a space after [package]/[func],
-    a comma-space between arguments) — not a token framework.  Decimal digits come from the
-    one authority ([digits.print_Z]); a [CInt]/[CNeg] magnitude is [N], rendered via [Z.of_N]
-    (nonnegative, so no sign — [CNeg]'s sign is the explicit leading [-]).
+    Proved here, over the intrinsically-grammatical AST:
+    - all output is ASCII ([render_all_ascii]);
+    - the emitted decimal spelling denotes EXACTLY the intended value ([print_Z_dec_faithful])
+      and never has an illegal leading zero (no octal reinterpretation — [print_Z_no_leading_zero]);
+    - the rendered file has the fixed legal Go shape (structural).
+    Decimal digits come from the one authority [digits]; a magnitude is an [N] rendered via
+    [Z.of_N] (nonnegative — [ENeg]'s sign is the explicit leading [-]).
     ============================================================================ *)
 From Stdlib Require Import String Ascii NArith ZArith List Bool Lia.
-From Fido Require Import digits Literals GoAST GoCompile.
+From Fido Require Import digits GoAST GoCompile GoSafe.
 Import ListNotations.
 Open Scope string_scope.
 
 Definition nl_c : ascii := ascii_of_nat 10.
 Definition tab_c : ascii := ascii_of_nat 9.
-Definition quote_c : ascii := ascii_of_nat 34.
-Definition bslash_c : ascii := ascii_of_nat 92.
 Definition nl : string := String nl_c EmptyString.
 Definition tab : string := String tab_c EmptyString.
-Definition quote : string := String quote_c EmptyString.
-Definition bslash : string := String bslash_c EmptyString.
 
-(** Source escaping of a string payload — exactly the four escapes the admitted charset
-    (printable ASCII + tab + newline) can require; every other admitted char is verbatim. *)
-Definition escape_char (c : ascii) : string :=
-  if Ascii.eqb c quote_c then bslash ++ quote
-  else if Ascii.eqb c bslash_c then bslash ++ bslash
-  else if Ascii.eqb c nl_c then bslash ++ "n"
-  else if Ascii.eqb c tab_c then bslash ++ "t"
-  else String c EmptyString.
+(** ---- the renderer ---- *)
 
-Fixpoint escape_string (s : string) : string :=
-  match s with
-  | EmptyString => EmptyString
-  | String c s' => escape_char c ++ escape_string s'
+Definition render_expr (e : GoExpr) : string :=
+  match e with
+  | EBool true  => "true"
+  | EBool false => "false"
+  | EInt n => print_Z (Z.of_N n)
+  | ENeg n => "-" ++ print_Z (Z.of_N n)
   end.
 
-(** ---- The renderer over the decorated tree ---- *)
-
-Definition render_cexpr (c : CompiledExpr) : string :=
-  match c with
-  | CBool true  => "true"
-  | CBool false => "false"
-  | CInt n _ => print_Z (Z.of_N n)
-  | CNeg n _ => "-" ++ print_Z (Z.of_N n)
-  | CStr s _ => quote ++ escape_string s ++ quote
-  end.
-
-Fixpoint render_cargs (cs : list CompiledExpr) : string :=
-  match cs with
-  | []        => ""
-  | [c]       => render_cexpr c
-  | c :: cs'  => render_cexpr c ++ ", " ++ render_cargs cs'
-  end.
-
-Definition render_cstmt (s : CompiledStmt) : string :=
-  match s with
-  | CPrintln args => tab ++ "println(" ++ render_cargs args ++ ")" ++ nl
-  end.
-
-Fixpoint render_cstmts (ss : list CompiledStmt) : string :=
-  match ss with
+Fixpoint render_args (es : list GoExpr) : string :=
+  match es with
   | []       => ""
-  | s :: ss' => render_cstmt s ++ render_cstmts ss'
+  | [e]      => render_expr e
+  | e :: es' => render_expr e ++ ", " ++ render_args es'
   end.
 
-(** Package and function are the pinned "main" constants (a [CompiledFile] cannot be
-    otherwise), so they are emitted literally. *)
-Definition render_cfile (c : CompiledFile) : string :=
-  "package main" ++ nl ++ nl
-  ++ "func main() {" ++ nl
-  ++ render_cstmts (cf_body c)
-  ++ "}" ++ nl.
+Definition render_stmt (s : GoStmt) : string :=
+  match s with SPrintln args => tab ++ "println(" ++ render_args args ++ ")" ++ nl end.
 
-(** ============================================================================
-    Renderer-correctness proofs — STRUCTURAL over the intrinsically-grammatical compiled
-    tree, never by parsing the output (doc §4).  Two obligations are discharged here:
+Fixpoint render_stmts (ss : list GoStmt) : string :=
+  match ss with [] => "" | s :: ss' => render_stmt s ++ render_stmts ss' end.
 
-      (1) FAITHFUL ESCAPING — the source string literal the renderer emits denotes exactly
-          the modelled string value.  [go_unescape] is the semantics of Go's string escapes
-          (a small faithful spec of the four backslash escapes, NOT a Go-grammar parser), and
-          [escape_faithful] proves it inverts [escape_string] for every payload.  So no
-          string value is corrupted or aliased by rendering.
-
-      (2) ALL-ASCII OUTPUT — every byte the renderer emits is < 128 ([render_all_ascii]),
-          using the intrinsic [str_ok] evidence on [CStr] and the [< 10] digit bound from
-          [digits].  Go source in this fragment is pure ASCII, so this is the concrete
-          "legal spelling" guarantee: nothing non-ASCII (which could break source UTF-8) is
-          ever emitted.
-
-    Not yet proved (honest scope): a full Go-subset grammar-membership and static-meaning
-    preservation.  Precedence/parenthesisation is N/A (no binary operators in the fragment);
-    exact-byte adequacy against the real toolchain is the e2e's job, not a theorem here. *)
-
-Definition n_c : ascii := ascii_of_nat 110.   (* 'n' *)
-Definition t_c : ascii := ascii_of_nat 116.   (* 't' *)
-
-(** The meaning of a Go-escaped string: undo exactly the four escapes [escape_char] emits. *)
-Fixpoint go_unescape (s : string) : string :=
-  match s with
-  | EmptyString => EmptyString
-  | String c s' =>
-      if Ascii.eqb c bslash_c then
-        match s' with
-        | String d s'' =>
-            if Ascii.eqb d quote_c then String quote_c (go_unescape s'')
-            else if Ascii.eqb d bslash_c then String bslash_c (go_unescape s'')
-            else if Ascii.eqb d n_c then String nl_c (go_unescape s'')
-            else if Ascii.eqb d t_c then String tab_c (go_unescape s'')
-            else String c (go_unescape s')
-        | EmptyString => String c EmptyString
-        end
-      else String c (go_unescape s')
+Definition render_file (f : GoFile) : string :=
+  match f with
+  | MainFile body =>
+      "package main" ++ nl ++ nl
+      ++ "func main() {" ++ nl
+      ++ render_stmts body
+      ++ "}" ++ nl
   end.
 
-(** Each escaped character round-trips, prepended to any already-faithful suffix. *)
-Lemma escape_char_unescape : forall c rest,
-  go_unescape (escape_char c ++ rest) = String c (go_unescape rest).
-Proof.
-  intros c rest. unfold escape_char.
-  destruct (Ascii.eqb c quote_c) eqn:Eq.
-  { apply Ascii.eqb_eq in Eq. subst c. reflexivity. }
-  destruct (Ascii.eqb c bslash_c) eqn:Eb.
-  { apply Ascii.eqb_eq in Eb. subst c. reflexivity. }
-  destruct (Ascii.eqb c nl_c) eqn:En.
-  { apply Ascii.eqb_eq in En. subst c. reflexivity. }
-  destruct (Ascii.eqb c tab_c) eqn:Et.
-  { apply Ascii.eqb_eq in Et. subst c. reflexivity. }
-  simpl. rewrite Eb. reflexivity.
-Qed.
-
-Theorem escape_faithful : forall s, go_unescape (escape_string s) = s.
-Proof.
-  induction s as [ | c s' IH ]; simpl.
-  - reflexivity.
-  - rewrite escape_char_unescape, IH. reflexivity.
-Qed.
+Definition render (cp : CompiledProgram) : string := render_file (cp_ast cp).
 
 (** ---- all-ASCII output ---- *)
 
 Definition is_ascii (c : ascii) : bool := Nat.ltb (nat_of_ascii c) 128.
 
 Fixpoint str_ascii (s : string) : bool :=
-  match s with
-  | EmptyString => true
-  | String c s' => is_ascii c && str_ascii s'
-  end.
+  match s with EmptyString => true | String c s' => is_ascii c && str_ascii s' end.
 
 Lemma str_ascii_app : forall a b, str_ascii (a ++ b) = str_ascii a && str_ascii b.
 Proof.
-  induction a as [ | c a' IH ]; intro b; simpl.
-  - reflexivity.
-  - rewrite IH, andb_assoc. reflexivity.
-Qed.
-
-Lemma str_char_ok_ascii : forall c, str_char_ok c = true -> is_ascii c = true.
-Proof.
-  intros c H. unfold is_ascii. apply Nat.ltb_lt.
-  unfold str_char_ok in H. cbv zeta in H.
-  apply orb_true_iff in H as [H|H]; [ apply orb_true_iff in H as [H|H] | ].
-  - apply Nat.eqb_eq in H. lia.
-  - apply Nat.eqb_eq in H. lia.
-  - apply andb_true_iff in H as [_ H]. apply Nat.leb_le in H. lia.
+  induction a as [ | c a' IH ]; intro b; simpl; [ reflexivity | rewrite IH, andb_assoc; reflexivity ].
 Qed.
 
 Lemma dec_digit_ascii : forall d, (d < 10)%nat -> is_ascii (dec_digit d) = true.
-Proof.
-  intros d Hd. do 10 (destruct d as [ | d ]; [ reflexivity | ]). lia.
-Qed.
+Proof. intros d Hd. do 10 (destruct d as [ | d ]; [ reflexivity | ]). lia. Qed.
 
-(** One fold step, definitionally — kept folded so [dec_digit a] is NEVER forced (evaluating
-    [is_ascii (dec_digit a)] on a symbolic digit churns [nat_of_ascii ∘ ascii_of_nat]). *)
 Lemma render_digits_step : forall dig a ds acc,
   render_digits dig (a :: ds) acc = render_digits dig ds (String (dig a) acc).
 Proof. reflexivity. Qed.
@@ -201,8 +90,7 @@ Lemma print_Z_pos_ascii : forall p, str_ascii (print_Z_pos p) = true.
 Proof.
   intro p. unfold print_Z_pos. rewrite render_digits_ascii; [ reflexivity | ].
   intros d Hd. apply dec_digit_ascii.
-  pose proof (pos_digits_bound 10 p ltac:(lia)) as Hb.
-  rewrite Forall_forall in Hb. apply Hb; exact Hd.
+  pose proof (pos_digits_bound 10 p ltac:(lia)) as Hb. rewrite Forall_forall in Hb. apply Hb; exact Hd.
 Qed.
 
 Lemma print_Z_ascii : forall z, str_ascii (print_Z z) = true.
@@ -213,59 +101,109 @@ Proof.
   - cbn [print_Z]. rewrite str_ascii_app, print_Z_pos_ascii. reflexivity.
 Qed.
 
-
-Lemma escape_char_ascii : forall c, str_char_ok c = true -> str_ascii (escape_char c) = true.
+Lemma render_expr_ascii : forall e, str_ascii (render_expr e) = true.
 Proof.
-  intros c H. unfold escape_char.
-  destruct (Ascii.eqb c quote_c) eqn:Eq. { reflexivity. }
-  destruct (Ascii.eqb c bslash_c) eqn:Eb. { reflexivity. }
-  destruct (Ascii.eqb c nl_c) eqn:En. { reflexivity. }
-  destruct (Ascii.eqb c tab_c) eqn:Et. { reflexivity. }
-  simpl. rewrite (str_char_ok_ascii c H). reflexivity.
-Qed.
-
-Lemma escape_string_ascii : forall s, str_ok s = true -> str_ascii (escape_string s) = true.
-Proof.
-  induction s as [ | c s' IH ]; intro H; [ reflexivity | ].
-  cbn [str_ok] in H. apply andb_true_iff in H as [Hc Hs].
-  cbn [escape_string]. rewrite str_ascii_app, (escape_char_ascii c Hc). simpl.
-  apply IH; exact Hs.
-Qed.
-
-Lemma render_cexpr_ascii : forall c, str_ascii (render_cexpr c) = true.
-Proof.
-  intros [ [] | n Hn | n Hn | s Hs ]; cbn [render_cexpr].
+  intros [ [] | n | n ]; cbn [render_expr].
   - reflexivity.
   - reflexivity.
   - apply print_Z_ascii.
   - rewrite str_ascii_app, print_Z_ascii. reflexivity.
-  - rewrite !str_ascii_app, (escape_string_ascii s Hs). reflexivity.
 Qed.
 
-Lemma render_cargs_ascii : forall cs, str_ascii (render_cargs cs) = true.
+Lemma render_args_ascii : forall es, str_ascii (render_args es) = true.
 Proof.
-  induction cs as [ | c cs' IH ].
-  - reflexivity.
-  - destruct cs' as [ | c2 cs'' ].
-    + apply render_cexpr_ascii.
-    + change (render_cargs (c :: c2 :: cs''))
-        with (render_cexpr c ++ ", " ++ render_cargs (c2 :: cs'')).
-      rewrite !str_ascii_app, render_cexpr_ascii. simpl. exact IH.
+  induction es as [ | e es' IH ]; [ reflexivity | ].
+  destruct es' as [ | e2 es'' ].
+  - apply render_expr_ascii.
+  - change (render_args (e :: e2 :: es''))
+      with (render_expr e ++ ", " ++ render_args (e2 :: es'')).
+    rewrite !str_ascii_app, render_expr_ascii. simpl. exact IH.
 Qed.
 
-Lemma render_cstmt_ascii : forall s, str_ascii (render_cstmt s) = true.
+Lemma render_stmt_ascii : forall s, str_ascii (render_stmt s) = true.
 Proof.
-  intros [ args ]. cbn [render_cstmt].
-  rewrite !str_ascii_app, render_cargs_ascii. reflexivity.
+  intros [ args ]. cbn [render_stmt]. rewrite !str_ascii_app, render_args_ascii. reflexivity.
 Qed.
 
-Lemma render_cstmts_ascii : forall ss, str_ascii (render_cstmts ss) = true.
+Lemma render_stmts_ascii : forall ss, str_ascii (render_stmts ss) = true.
 Proof.
   induction ss as [ | s ss' IH ]; [ reflexivity | ].
-  cbn [render_cstmts]. rewrite str_ascii_app, render_cstmt_ascii, IH. reflexivity.
+  cbn [render_stmts]. rewrite str_ascii_app, render_stmt_ascii, IH. reflexivity.
 Qed.
 
-Theorem render_all_ascii : forall c, str_ascii (render_cfile c) = true.
+Theorem render_all_ascii : forall cp, str_ascii (render cp) = true.
 Proof.
-  intro c. unfold render_cfile. rewrite !str_ascii_app, render_cstmts_ascii. reflexivity.
+  intros [[body] Hok]. unfold render; cbn [cp_ast render_file].
+  rewrite !str_ascii_app, render_stmts_ascii. reflexivity.
+Qed.
+
+(** ---- decimal faithfulness: the emitted spelling denotes EXACTLY the value, with no illegal
+        leading zero (so Go reads it as decimal, not octal).  [dval] is the value of a decimal
+        numeral read MSB-first (Horner) — a numeral denotation, NOT a Go-grammar parser. ---- *)
+
+Definition ascii_digit (c : ascii) : nat := nat_of_ascii c - 48.
+
+Fixpoint dval (s : string) (acc : Z) : Z :=
+  match s with
+  | EmptyString => acc
+  | String c s' => dval s' (acc * 10 + Z.of_nat (ascii_digit c))
+  end.
+Definition dval0 (s : string) : Z := dval s 0.
+
+Lemma ascii_digit_dec_digit : forall d, (d < 10)%nat -> ascii_digit (dec_digit d) = d.
+Proof. intros d Hd. do 10 (destruct d as [ | d ]; [ reflexivity | ]). lia. Qed.
+
+Lemma render_digits_dval : forall ds base,
+  (forall d, In d ds -> (d < 10)%nat) ->
+  dval (render_digits dec_digit ds base) 0 = dval base (dlist_val 10 ds).
+Proof.
+  induction ds as [ | d ds' IH ]; intros base Hall.
+  - reflexivity.
+  - rewrite render_digits_step, (IH (String (dec_digit d) base))
+      by (intros x Hx; apply Hall; right; exact Hx).
+    cbn [dval]. rewrite ascii_digit_dec_digit by (apply Hall; left; reflexivity).
+    cbn [dlist_val]. f_equal. change (Z.of_nat 10) with 10%Z. lia.
+Qed.
+
+Lemma print_Z_pos_dval : forall p, dval0 (print_Z_pos p) = Z.pos p.
+Proof.
+  intro p. unfold dval0, print_Z_pos. rewrite render_digits_dval.
+  - cbn [dval]. rewrite pos_digits_val by lia. reflexivity.
+  - intros d Hd. pose proof (pos_digits_bound 10 p ltac:(lia)) as Hb.
+    rewrite Forall_forall in Hb. apply Hb; exact Hd.
+Qed.
+
+(** The emitted decimal denotes exactly the (nonnegative) magnitude — the sign of [ENeg] is the
+    explicit leading [-], applied by [render_expr] over this faithful magnitude. *)
+Theorem print_Z_dec_faithful : forall z, (0 <= z)%Z -> dval0 (print_Z z) = z.
+Proof.
+  intros [ | p | p ] H.
+  - reflexivity.
+  - apply print_Z_pos_dval.
+  - exfalso; lia.
+Qed.
+
+Definition head_not_zero (s : string) : Prop :=
+  match s with EmptyString => False | String c _ => c <> dec_digit 0 end.
+
+Lemma render_digits_snoc : forall ds a base,
+  render_digits dec_digit (ds ++ [a]) base = String (dec_digit a) (render_digits dec_digit ds base).
+Proof. intros. unfold render_digits. rewrite fold_left_app. reflexivity. Qed.
+
+Theorem print_Z_pos_no_leading_zero : forall p, head_not_zero (print_Z_pos p).
+Proof.
+  intro p. unfold print_Z_pos.
+  destruct (exists_last (pos_digits_nonnil 10 p)) as [init [a Ha]].
+  rewrite Ha, render_digits_snoc. cbn [head_not_zero].
+  assert (Ha1 : (1 <= a)%nat).
+  { pose proof (pos_digits_last 10 p ltac:(lia)) as Hl. rewrite Ha, last_last in Hl. exact Hl. }
+  assert (Ha10 : (a < 10)%nat).
+  { pose proof (pos_digits_bound 10 p ltac:(lia)) as Hb. rewrite Ha, Forall_forall in Hb.
+    apply Hb, in_or_app; right; left; reflexivity. }
+  intro Heq.
+  assert (Hn : nat_of_ascii (dec_digit a) = nat_of_ascii (dec_digit 0)) by (rewrite Heq; reflexivity).
+  unfold dec_digit in Hn.
+  rewrite (nat_ascii_embedding (48 + a)) in Hn by lia.
+  rewrite (nat_ascii_embedding (48 + 0)) in Hn by lia.
+  lia.
 Qed.

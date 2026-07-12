@@ -7,7 +7,7 @@
 # hallmark, or a broken emission aborts the commit.
 set -e
 
-# (1) OCaml-origin gate: at most the ONE tiny transport glue (plugin/g_fido.mlg) is tracked OCaml.
+# (1) OCaml-origin gate: at most the ONE tiny I/O writer (e2e/writer.ml) is tracked OCaml.
 sh tools/ocaml-origin-gate.sh
 
 # (2) SEAL: no generated Go is tracked.  The emitted main.go is produced in the build and stays gitignored;
@@ -60,9 +60,9 @@ fi
 
 # (4) On any proof / build / plugin / e2e change, run the verify so a broken proof, a reintroduced backend
 #     hallmark, or a broken emission aborts the commit.
-if git diff --cached --name-only | grep -qE '\.v$|\.mlg$|^tools/|^plugin/|^e2e/|^Makefile$|^Dockerfile$|^dune$|^dune-project$'; then
+if git diff --cached --name-only | grep -qE '\.v$|\.ml$|^tools/|^e2e/|^Makefile$|^Dockerfile$|^dune$|^dune-project$'; then
   echo "fido: proof/build/e2e input staged — running the verify (make check)..."
   make check
 fi
 
-echo "fido: OK — pinned-Rocq core compiles axiom-free, the e2e witness emits+builds+runs vs goldens, at most one glue."
+echo "fido: OK — pinned-Rocq core compiles axiom-free, the e2e witness emits+builds+runs vs goldens, at most one I/O writer."

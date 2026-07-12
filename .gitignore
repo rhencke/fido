@@ -6,7 +6,10 @@
 *.out
 vendor/
 
-# Plugin/theory build artifacts (the .mlg-generated OCaml + native objects live under _build) — never tracked.
+# Extraction output + writer build artifacts (generated in the build, never tracked).
+/emit_out.ml
+/emit_out.mli
+/fido_writer
 *.cmi
 *.cmo
 *.cmx

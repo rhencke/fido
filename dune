@@ -1,5 +1,5 @@
 (rocq.theory
  (name Fido)
- (synopsis "Fido — GoAST -> GoCompile -> GoSafe -> direct GoRender -> GoEmit (DirectoryImage); the LLM proposes a GoAST, emission is gated on proved compile + safety")
+ (synopsis "Fido — one structural GoAST; GoCompile/GoSafe evidence over it; direct GoRender; GoEmit pairs; extraction to a tiny writer")
  (theories Stdlib)
- (modules digits TargetConfig Literals GoIdent GoAST GoCompile GoSafe GoRender GoEmit))
+ (modules digits TargetConfig GoAST GoCompile GoSafe GoRender GoEmit))

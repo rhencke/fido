@@ -6,14 +6,13 @@ override PLATFORM := linux/amd64
 .PHONY: check prove emit e2e ocaml-origin-gate go-uncommittable-seal builder install-hooks prover-log
 .DEFAULT_GOAL := check
 
-# Fido — the collapsed architecture (ARCHITECTURE.md): an LLM proposes a GoAST; emission is available only
-# after Rocq proves GoCompile (exact static admissibility) and GoSafe.  Chain:
-#   GoAST -> GoCompile -> GoSafe/SafeProgram -> direct GoRender -> GoEmit/DirectoryImage -> (tiny plugin).
-# ALL Rocq work runs in the PINNED container via buildx — host Rocq is NOT supported.  The `Fido Emit`
-# plugin + pinned-Go e2e are the next milestone; today `check` proves the core.
+# Fido — ONE AST (ARCHITECTURE.md): an LLM proposes a GoAST; emission is available only after Rocq proves
+# GoCompile (exact static admissibility) and GoSafe.  Chain:
+#   GoAST -> GoCompile -> GoSafe -> direct GoRender -> GoEmit pairs -> extraction -> tiny I/O writer.
+# ALL Rocq/Go work runs in the PINNED container via buildx — host Rocq is NOT supported.
 
 check: ocaml-origin-gate go-uncommittable-seal prove e2e
-	@echo "fido: check OK — proved the core (GoAST/GoCompile/GoSafe/GoRender/GoEmit) axiom-free AND emitted+ran the e2e witness through the pinned Go toolchain; one transport glue, no tracked *.go ✓"
+	@echo "fido: check OK — proved the core (GoAST/GoCompile/GoSafe/GoRender/GoEmit) axiom-free AND emitted+ran the e2e witness through the pinned Go toolchain; one tiny I/O writer, no tracked *.go ✓"
 
 # The reproducible container proof: dune compiles the modules + the always-run assumptions gate.
 prove: builder
@@ -22,12 +21,13 @@ prove: builder
 prover-log: builder
 	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --progress=plain --target prover .
 
-# WIP: the Fido Emit transport plugin build (intermediate; emits main.go from proved bytes).
+# The emit stage alone (intermediate): Dune-cached theory build, then extract the image + run the writer
+# from proved bytes; checks the witness assumption closure.  Wired into `check` via `e2e`.
 emit: builder
 	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --progress=plain --target emit .
 
-# WIP: the full last-mile e2e — emit the witness, then the pinned Go toolchain builds/runs it
-# and compares stdout/stderr/exit to the reviewed goldens.  Not yet wired into `check`.
+# The full last-mile e2e (part of `check`): emit the witness, then the pinned Go toolchain builds/runs it
+# and compares stdout/stderr/exit to the reviewed goldens.
 e2e: builder
 	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --progress=plain --target go-e2e .
 
