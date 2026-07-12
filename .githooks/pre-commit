@@ -7,7 +7,7 @@
 # hallmark, or a broken emission aborts the commit.
 set -e
 
-# (1) OCaml-origin gate: at most the ONE dirty-directory filesystem sink (e2e/writer.ml) is tracked OCaml.
+# (1) OCaml-origin gate: only the Fido Emit transport boundary (sink + bridge) is tracked OCaml.
 sh tools/ocaml-origin-gate.sh
 
 # (2) SEAL: no generated Go is tracked.  The emitted main.go is produced in the build and stays gitignored;
@@ -28,9 +28,9 @@ sh tools/axiom-scan.sh
 
 # (4) On any proof / build / e2e change, run the verify so a broken proof, a reintroduced backend
 #     hallmark, or a broken emission aborts the commit.
-if git diff --cached --name-only | grep -qE '\.v$|\.ml$|^tools/|^e2e/|^Makefile$|^Dockerfile$|^dune$|^dune-project$'; then
+if git diff --cached --name-only | grep -qE '\.v$|\.ml$|\.mlg$|^tools/|^e2e/|^plugin/|^Makefile$|^Dockerfile$|^dune$|^dune-project$'; then
   echo "fido: proof/build/e2e input staged — running the verify (make check)..."
   make check
 fi
 
-echo "fido: OK — pinned-Rocq core compiles axiom-free, the e2e witness emits+syncs+builds+runs vs goldens, one filesystem sink."
+echo "fido: OK — pinned-Rocq core compiles axiom-free, the whole emitted tree builds+runs vs goldens (go build ./...), transport-only OCaml."

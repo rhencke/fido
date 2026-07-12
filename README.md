@@ -1,9 +1,10 @@
 # Fido
 
 A theorem-first experiment in a **proved** Go generator. An untrusted proposer (an LLM) may write a raw Go
-AST and arbitrary supporting lemmas; **Fido emits `.go` only after Rocq proves the program
-compile-admissible and safe.** It will never be "formally verified Go" — Go's own toolchain is trusted — but
-the path from AST to bytes is built from proved layers, and the last mile is an integration check.
+program (as an AST) and arbitrary supporting lemmas; **Fido emits Go only after Rocq proves the whole
+program compile-admissible and safe.** It will never be "formally verified Go" — Go's own toolchain is
+trusted — but the path from AST to bytes is built from proved layers, and the last mile is a differential
+integration check against `go build ./...`.
 
 ## What actually works today
 
@@ -11,6 +12,8 @@ One complete vertical slice, proved **and** executed end to end. A witness exerc
 primitive:
 
 ```go
+// fido generated.  do not edit.
+
 package main
 
 func main() {
@@ -20,39 +23,40 @@ func main() {
 }
 ```
 
-is produced from proved bytes and synchronized into a directory, then built + run by the pinned Go toolchain;
-its stdout/stderr/exit are compared byte-for-byte to reviewed goldens. Every emitted file begins with the
-exact line `// fido generated.  do not edit.` — part of the Rocq-rendered bytes.
+is produced from proved bytes, synchronized into a directory tree, built by `go build ./...`, and run with
+its stdout/stderr/exit compared byte-for-byte to reviewed goldens — alongside a multi-package differential
+fixture and no-main/duplicate-main rejection fixtures that confirm the whole-program rules agree with Go.
 
-- **One program representation.** A `GoProgram` is a verified finite map from relative paths to raw file ASTs
-  (`package main`/`func main` are structural, not identifiers; the builtin `println` is the statement).
-  Duplicate paths are unrepresentable. `GoCompile`/`GoSafe` are EVIDENCE over that same program — there is no
-  second "compiled" tree and no raw package hierarchy; compilation adds facts, never another tree.
-- **Exact, whole-program compilation.** `GoCompile` is exact compiler admissibility for the representable
-  domain (the obligations are: the single file is at the canonical build path `main.go`, and every integer is
-  representable) — a declarative judgment with a proof-producing sound + complete decision, never a boolean.
-  A rejected program is genuinely compiler-invalid — an out-of-range integer, or a key the Go build wouldn't
-  compile (a non-`.go` name, a traversing/absolute/nested path) — rejected in Rocq, never left for the writer.
-  Two honest claims stay distinct: (A) the checker matches the formal judgment — PROVED; (B) accepted
-  programs are accepted by real Go — the GOAL, exercised by the e2e, never a kernel theorem.
-- **Real semantics.** `GoSafe` evaluates to real Go values (`VInt : Z`, so `0` and `-0` agree). `GoRender`
-  proves its output is all-ASCII, that the emitted decimal denotes exactly the value, that it never has an
-  illegal leading zero, and that the header is the exact first line. Every layer is proved **axiom-free** in a
-  pinned Rocq 9.2.0 container.
-- **A dumb sink.** All semantic work is in Rocq; standard extraction produces the final `(path, bytes)` image
-  plus the ownership header; one handwritten OCaml **dirty-directory synchronizer** installs it (lock +
-  `lstat`-preflight + staging + atomic rename), cleaning its own stale output while refusing to touch any
-  foreign entry. No handwritten code walks or decodes Rocq terms — it understands only the filesystem.
+- **One program representation.** A `GoProgram` is a **nonempty** verified finite map from intrinsic
+  `FilePath` keys to one raw file AST per file (a raw string is **not** a path — Go package discovery
+  depends on it, so only a narrow canonical grammar is representable). A raw file is just top-level
+  declarations; **package clauses, package names, and entry-point status are compilation results**, not raw
+  metadata. There is no second tree and no separate IR.
+- **Exact, whole-program compilation.** `GoCompile` consumes the whole map: it groups files by directory
+  into `package main` packages, requires exactly one `main` per package, and rejects the whole program on
+  any invalid package. It is a declarative judgment with a proof-producing sound + complete decision, aimed
+  at matching `go build ./...` for every representable program. Two claims stay distinct: (A) the checker
+  matches the formal judgment — PROVED; (B) it matches `go build ./...` — the GOAL, exercised
+  differentially, never a kernel theorem about `cmd/go`.
+- **Real semantics + faithful rendering.** `GoSafe` evaluates to real Go values (`VInt : Z`, so `0` and
+  `-0` agree). `GoRender` proves `render_expr_denotes` — the rendered spelling denotes exactly the value —
+  plus all-ASCII, no illegal leading zero, and the header as the exact first line. Every layer is proved
+  **axiom-free** in a pinned Rocq 9.2.0 container.
+- **A transport boundary, not a backend.** The image is an abstract `DirectoryImage` that provably came
+  from rendering a `SafeProgram`. One general Rocq command, `Fido Emit <image> To "<dir>"`, decodes only
+  the final (path, bytes) data and hands it to a generic **ownership-aware dirty-directory synchronizer**
+  (a persistent control dir, per-parent atomically-created stage dirs, refuse-and-preserve for every
+  foreign entry, symlinks never followed). No handwritten OCaml walks a program.
 
-The admitted fragment is deliberately tiny: one program → one `package main` file → one `func main()`,
-straight-line builtin `println` over bool/int literals. Anything else is **unrepresentable**, not stubbed.
+The admitted fragment is deliberately tiny; anything else is **unrepresentable**, not stubbed. Imports are
+absent and unrepresentable — a permanent closed-world contract governs their eventual introduction.
 
 ## Verify it
 
 All Rocq/Go runs go through the pinned toolchain via `buildx` (host Rocq is unsupported):
 
 ```
-make check   # gates + pinned-Rocq proof (axiom-free) + pinned-Go e2e (extract + build/run vs goldens)
+make check   # gates + pinned-Rocq proof (axiom-free) + pinned-Go whole-tree e2e (go build ./... + goldens)
 ```
 
 ## Where to read next

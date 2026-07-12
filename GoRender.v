@@ -1,15 +1,15 @@
 (** ============================================================================
-    GoRender — the DIRECT renderer of one file's raw AST to Go source bytes.  No tokenizer/lexer/
-    parser/round-trip/second tree.  package [main] and [func main()] are the fixed structure of
-    [MainFile]; the builtin [println] is the fixed spelling of [SPrintln]; there are no identifiers.
+    GoRender — the DIRECT renderer of one file's raw declarations to Go source bytes.  No tokenizer/
+    lexer/parser/round-trip/second tree.  The package CLAUSE is emitted from the compiler-derived package
+    name (a CompilationFacts result, passed in — not raw metadata); each [DMain] renders as a
+    `func main()` declaration; the builtin [println] is the fixed spelling of [SPrintln].
 
-    Every rendered file begins with the exact generated header (part of the Rocq-rendered bytes — the
-    filesystem sink never adds or alters it).
-
-    [render_file] etc. are INTERNAL helpers over the raw AST; the PUBLIC capability is
-    [GoEmit.render_program : SafeProgram -> DirectoryImage].  Proved here, over the intrinsically-
-    grammatical AST: all output is ASCII; the emitted decimal denotes EXACTLY the value and never has
-    an illegal leading zero; the rendered literal denotes exactly [GoSafe.eval_expr].
+    Every rendered file begins with the exact generated header as its FIRST LINE (part of the
+    Rocq-rendered bytes — the sink never adds or alters it).  [render_file] is an INTERNAL helper; the
+    PUBLIC capability is [GoEmit.render_program : SafeProgram -> DirectoryImage].  Proved here: all
+    output ASCII; the ROOT correspondence [render_expr_denotes] — the rendered primitive spelling
+    denotes EXACTLY the semantic value (parser-free) — plus decimal faithfulness / no-leading-zero and
+    the int boundary facts.
     ============================================================================ *)
 From Stdlib Require Import String Ascii NArith ZArith List Bool Lia.
 From Fido Require Import digits Ints GoAST GoCompile GoSafe.
@@ -29,7 +29,7 @@ Definition render_expr (e : GoExpr) : string :=
   | EBool true  => "true"
   | EBool false => "false"
   | EInt n => print_Z (Z.of_N n)
-  | ENeg n => "-" ++ print_Z (Z.of_N n)
+  | ENeg n => String "-"%char (print_Z (Z.of_N n))
   end.
 
 Fixpoint render_args (es : list GoExpr) : string :=
@@ -45,23 +45,22 @@ Definition render_stmt (s : GoStmt) : string :=
 Fixpoint render_stmts (ss : list GoStmt) : string :=
   match ss with [] => "" | s :: ss' => render_stmt s ++ render_stmts ss' end.
 
-(** Everything after the header's terminating newline.  Kept separate so [render_file] is literally
-    [header], then the newline, then this — making "the header is the exact first line" definitional. *)
-Definition render_after_header (body : list GoStmt) : string :=
-  nl
-  ++ "package main" ++ nl ++ nl
-  ++ "func main() {" ++ nl
-  ++ render_stmts body
-  ++ "}" ++ nl.
+Definition render_decl (d : GoDecl) : string :=
+  match d with DMain body => "func main() {" ++ nl ++ render_stmts body ++ "}" ++ nl end.
 
-Definition render_file (f : GoFileAST) : string :=
-  match f with MainFile body => header ++ String nl_c (render_after_header body) end.
+(** Each top-level declaration is preceded by a blank line (gofmt spacing). *)
+Fixpoint render_decls (ds : list GoDecl) : string :=
+  match ds with [] => "" | d :: ds' => nl ++ render_decl d ++ render_decls ds' end.
 
-(** The header is EXACTLY the first line: [render_file] is [header], then the newline [nl_c], then the
-    rest.  This is the precise ownership contract the sink reads (its `input_line` returns the first
-    line up to the newline) — strictly stronger than "header is a prefix". *)
-Lemma render_file_first_line : forall f, exists rest, render_file f = header ++ String nl_c rest.
-Proof. intros [ body ]. cbn [render_file]. eexists. reflexivity. Qed.
+(** [render_file] is literally [header], the newline, then the package clause + declarations — so "the
+    header is the exact first line" is definitional.  The package NAME comes from CompilationFacts. *)
+Definition render_file (pkg : string) (f : GoFileAST) : string :=
+  header ++ String nl_c (nl ++ "package " ++ pkg ++ nl ++ render_decls f).
+
+(** The header is EXACTLY the first line (header, then the newline [nl_c]) — the ownership contract the
+    sink reads with `input_line`, strictly stronger than "header is a prefix". *)
+Lemma render_file_first_line : forall pkg f, exists rest, render_file pkg f = header ++ String nl_c rest.
+Proof. intros pkg f. unfold render_file. eexists. reflexivity. Qed.
 
 (** ---- all-ASCII output ---- *)
 
@@ -114,7 +113,7 @@ Proof.
   - reflexivity.
   - reflexivity.
   - apply print_Z_ascii.
-  - rewrite str_ascii_app, print_Z_ascii. reflexivity.
+  - cbn [str_ascii]. rewrite print_Z_ascii. reflexivity.
 Qed.
 
 Lemma render_args_ascii : forall es, str_ascii (render_args es) = true.
@@ -136,15 +135,20 @@ Proof.
   cbn [render_stmts]. rewrite str_ascii_app, render_stmt_ascii, IH. reflexivity.
 Qed.
 
-Lemma render_after_header_ascii : forall body, str_ascii (render_after_header body) = true.
+Lemma render_decl_ascii : forall d, str_ascii (render_decl d) = true.
+Proof. intros [ body ]. cbn [render_decl]. rewrite !str_ascii_app, render_stmts_ascii. reflexivity. Qed.
+
+Lemma render_decls_ascii : forall ds, str_ascii (render_decls ds) = true.
 Proof.
-  intro body. unfold render_after_header. rewrite !str_ascii_app, render_stmts_ascii. reflexivity.
+  induction ds as [ | d ds' IH ]; [ reflexivity | ].
+  cbn [render_decls]. rewrite !str_ascii_app, render_decl_ascii, IH. reflexivity.
 Qed.
 
-Theorem render_file_ascii : forall f, str_ascii (render_file f) = true.
+(** The whole file is ASCII when the (compiler-derived) package name is. *)
+Theorem render_file_ascii : forall pkg f, str_ascii pkg = true -> str_ascii (render_file pkg f) = true.
 Proof.
-  intros [ body ]. cbn [render_file]. rewrite str_ascii_app. cbn [str_ascii].
-  rewrite render_after_header_ascii. reflexivity.
+  intros pkg f Hpkg. unfold render_file. rewrite str_ascii_app. cbn [str_ascii].
+  rewrite !str_ascii_app, Hpkg, render_decls_ascii. reflexivity.
 Qed.
 
 (** ---- decimal faithfulness: emitted decimal denotes EXACTLY the value, no leading zero ---- *)
@@ -211,23 +215,61 @@ Proof.
   lia.
 Qed.
 
-(** ---- the rendered literal denotes EXACTLY the semantic value (parser-free) ----
-    Out-of-range forms are rejected by GoCompile (see its reject facts), never reaching the renderer. *)
+(** ---- ROOT correspondence: rendered spelling denotes EXACTLY the semantic value (parser-free) ---- *)
 
-Lemma render_bool_faithful : forall b,
-  render_expr (EBool b) = (if b then "true" else "false") /\ eval_expr (EBool b) = VBool b.
-Proof. intros [ | ]; split; reflexivity. Qed.
+(** Read a rendered Go integer literal: an optional leading unary minus over the decimal magnitude. *)
+Definition read_go_int (s : string) : Z :=
+  match s with
+  | String c s' => if Ascii.eqb c "-"%char then Z.opp (dval0 s') else dval0 s
+  | EmptyString => dval0 s
+  end.
 
-Lemma render_int_faithful : forall n,
-  dval0 (render_expr (EInt n)) = Z.of_N n /\ eval_expr (EInt n) = VInt (Z.of_N n).
-Proof. intro n. split; [ cbn [render_expr]; apply print_Z_dec_faithful, N2Z.is_nonneg | reflexivity ]. Qed.
+Definition RenderedPrimitiveDenotes (s : string) (v : GoValue) : Prop :=
+  match v with
+  | VBool b => s = (if b then "true" else "false")
+  | VInt z  => read_go_int s = z
+  end.
 
-Lemma render_neg_faithful : forall n,
-  render_expr (ENeg n) = String "-"%char (print_Z (Z.of_N n))
-  /\ dval0 (print_Z (Z.of_N n)) = Z.of_N n
-  /\ eval_expr (ENeg n) = VInt (Z.opp (Z.of_N n)).
+(** print_Z of a nonnegative is nonempty and its first character is a decimal digit, not '-'. *)
+Lemma print_Z_pos_head_not_minus : forall p,
+  match print_Z_pos p with String c _ => Ascii.eqb c "-"%char = false | EmptyString => False end.
 Proof.
-  intro n. split; [ reflexivity | split; [ apply print_Z_dec_faithful, N2Z.is_nonneg | reflexivity ] ].
+  intro p. unfold print_Z_pos.
+  destruct (exists_last (pos_digits_nonnil 10 p)) as [init [a Ha]].
+  rewrite Ha, render_digits_snoc.
+  assert (Ha10 : (a < 10)%nat).
+  { pose proof (pos_digits_bound 10 p ltac:(lia)) as Hb. rewrite Ha, Forall_forall in Hb.
+    apply Hb, in_or_app; right; left; reflexivity. }
+  destruct (Ascii.eqb (dec_digit a) "-"%char) eqn:E; [ | reflexivity ].
+  apply Ascii.eqb_eq in E.
+  assert (Hn : nat_of_ascii (dec_digit a) = nat_of_ascii "-"%char) by (rewrite E; reflexivity).
+  unfold dec_digit in Hn. rewrite (nat_ascii_embedding (48 + a)) in Hn by lia.
+  vm_compute (nat_of_ascii "-"%char) in Hn. lia.
+Qed.
+
+Lemma read_go_int_nonneg : forall z, (0 <= z)%Z -> read_go_int (print_Z z) = dval0 (print_Z z).
+Proof.
+  intros [ | p | p ] H.
+  - reflexivity.
+  - cbn [print_Z]. pose proof (print_Z_pos_head_not_minus p) as Hh.
+    destruct (print_Z_pos p) as [ | c s' ] eqn:E; [ contradiction | ].
+    unfold read_go_int; rewrite Hh; reflexivity.
+  - exfalso; lia.
+Qed.
+
+(** The one root theorem tying AST expression, admissibility, semantic value, and rendered spelling:
+    a rendered admissible primitive denotes exactly its [eval_expr] value.  Booleans get their canonical
+    spellings; nonnegative decimals denote exactly; a negative is unary minus over the magnitude
+    (so `-0` denotes `0`, agreeing with [eval_zero_sign_agnostic]). *)
+Theorem render_expr_denotes : forall e, ExprOk e -> RenderedPrimitiveDenotes (render_expr e) (eval_expr e).
+Proof.
+  intros e _. destruct e as [ [] | n | n ]; cbn [render_expr eval_expr RenderedPrimitiveDenotes].
+  - reflexivity.
+  - reflexivity.
+  - rewrite read_go_int_nonneg by apply N2Z.is_nonneg.
+    apply print_Z_dec_faithful, N2Z.is_nonneg.
+  - unfold read_go_int; cbn [Ascii.eqb].
+    rewrite print_Z_dec_faithful by apply N2Z.is_nonneg. reflexivity.
 Qed.
 
 Lemma render_boundary_max :

@@ -6,10 +6,8 @@
 *.out
 vendor/
 
-# Extraction output + writer build artifacts (generated in the build, never tracked).
-/emit_out.ml
-/emit_out.mli
-/fido_writer
+# Plugin / sink build artifacts (generated in the build, never tracked).
+/sink_test
 *.cmi
 *.cmo
 *.cmx

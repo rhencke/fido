@@ -2,4 +2,4 @@
  (name Fido)
  (synopsis "Fido — GoProgram (finite map of paths to raw file ASTs) -> GoCompile -> GoSafe -> direct GoRender -> finite-map DirectoryImage -> dirty-directory sink")
  (theories Stdlib)
- (modules digits Ints FMap GoAST GoCompile GoSafe GoRender GoEmit))
+ (modules digits Ints FilePath FMap GoAST GoCompile GoSafe GoRender GoEmit))

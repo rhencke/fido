@@ -7,15 +7,15 @@ override PLATFORM := linux/amd64
 .PHONY: check prove emit e2e ocaml-origin-gate go-uncommittable-seal axiom-scan builder install-hooks prover-log
 .DEFAULT_GOAL := check
 
-# Fido — ONE AST (ARCHITECTURE.md): an LLM proposes a GoProgram (a finite map of relative paths to raw
-# file ASTs); emission is available only after Rocq proves GoCompile (exact whole-program admissibility)
-# and GoSafe.  Chain:
-#   GoProgram -> GoCompile -> GoSafe -> direct GoRender -> GoEmit (finite-map DirectoryImage)
-#     -> extraction -> one dirty-directory filesystem sink.
+# Fido (ARCHITECTURE.md): an LLM proposes a GoProgram (a nonempty finite map of intrinsic FilePath keys
+# to raw file ASTs); emission is available only after Rocq proves GoCompile (exact whole-program
+# admissibility, matching `go build ./...`) and GoSafe.  Chain:
+#   GoProgram -> GoCompile (+CompilationFacts) -> GoSafe -> direct GoRender -> abstract DirectoryImage
+#     -> the general `Fido Emit` transport command -> one dirty-directory filesystem sink -> go build ./...
 # ALL Rocq/Go work runs in the PINNED container via buildx — host Rocq is NOT supported.
 
 check: ocaml-origin-gate go-uncommittable-seal axiom-scan prove e2e
-	@echo "fido: check OK — proved the core (FMap/Ints/GoAST/GoCompile/GoSafe/GoRender/GoEmit) axiom-free AND emitted+synced the e2e witness through the pinned Go toolchain; one filesystem sink, no tracked *.go ✓"
+	@echo "fido: check OK — proved the core (FilePath/FMap/Ints/GoAST/GoCompile/GoSafe/GoRender/GoEmit) axiom-free AND emitted the whole tree via the Fido Emit transport + dirty-directory sink through go build ./... vs goldens; transport-only OCaml, no tracked *.go ✓"
 
 # The reproducible container proof: dune compiles the modules + the always-run assumptions gate.
 prove: builder
@@ -24,13 +24,14 @@ prove: builder
 prover-log: builder
 	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --progress=plain --target prover .
 
-# The emit stage alone (intermediate): Dune-cached theory build, then extract the image + run the writer
-# from proved bytes; checks the witness assumption closure.  Wired into `check` via `e2e`.
+# The emit stage alone (intermediate): Dune-cached theory + plugin build, then the general `Fido Emit`
+# command (explicit rocq c on the witness, not a .vo side effect) synchronizes the whole tree; the sink
+# is exercised against dirty + adversarial trees.  Wired into `check` via `e2e`.
 emit: builder
 	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --progress=plain --target emit .
 
-# The full last-mile e2e (part of `check`): emit the witness, then the pinned Go toolchain builds/runs it
-# and compares stdout/stderr/exit to the reviewed goldens.
+# The full last-mile e2e (part of `check`): emit the whole tree, then the pinned Go toolchain runs
+# `go build ./...` over it and runs the witness, comparing stdout/stderr/exit to the reviewed goldens.
 e2e: builder
 	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --progress=plain --target go-e2e .
 

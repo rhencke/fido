@@ -1,157 +1,171 @@
 # Fido — Architecture Charter (binding)
 
-Read before any structural change. This governs. The design is intentionally minimal: there is **one
-program representation** — a `GoProgram` (a finite map from relative paths to raw file ASTs). `GoCompile`/
-`GoSafe` are EVIDENCE over that same program (never copies), and the handwritten OCaml is a dumb
-filesystem synchronizer.
+Read before any structural change. This governs. The AST is the IR: there is **one** program
+representation — a nonempty verified finite map from intrinsic `FilePath` keys to one raw `GoFileAST`
+per file. `GoCompile`/`GoSafe` are EVIDENCE and facts over that same program (never copies), and the only
+handwritten OCaml is the Fido Emit transport boundary (a term-decoding bridge + a filesystem sink), which
+understands filesystems, not programs.
 
 ## The law of this repository
 
 Ruthless correctness or ruthless deletion — no middle state. Incomplete scope is acceptable; incorrect,
-conservative, duplicated, self-validating, or half-built code in the certified path is not. Cut representable
-scope before weakening a proof. When twenty local proofs/guards compensate for one missing root, replace the
-root and delete the leaves. A green boolean checker is not a compile authority; a printer's own inverse is
-not a Go-semantics theorem; axiom-free is not correct.
+approximate, duplicated, transitional, fail-open, or half-built foundations are not. Every retained
+component must be complete and correct in itself and may build only on foundations that are already complete
+and correct. Cut representable scope before weakening a proof. A green boolean checker is not a compile
+authority; a printer's own inverse is not a Go-semantics theorem; a functional-lookup theorem is not proof
+of key uniqueness; regex source scanning is not a sound zero-axiom gate; axiom-free is not correct.
 
 ## The pipeline
 
 ```
-  GoProgram      the ONE program representation: fmap RelativePath GoFileAST — a verified finite map
-                 (FMap) whose keys are unique BY CONSTRUCTION (a NoDup-keys proof; duplicate paths are
-                 unrepresentable, lookup is deterministic, equality is extensional-by-lookup, no imposed
-                 order).  A GoFileAST is RAW syntax only: MainFile (package main + func main() STRUCTURAL)
-                 of SPrintln statements (the builtin println IS the statement) over EBool | EInt | ENeg.
-                 No identifiers; no unsupported syntax (absent, never narrowed).  Package grouping,
-                 imports, entry, symbols, types are COMPILATION RESULTS — never baked into the raw file.
+  GoProgram      the ONE program representation: a NONEMPTY finite map fmap FilePath GoFileAST (FMap).
+                 Keys are unique BY CONSTRUCTION (a NoDup-keys proof — fm_keys_nodup); lookup is
+                 deterministic; enumeration is finite; SEMANTIC equality is extensional-by-lookup
+                 (fm_Equal), distinct from Rocq record =; nonempty is intrinsic.  A GoFileAST is RAW
+                 top-level declarations only (a list of GoDecl; today only DMain = a `func main()` decl).
+                 It carries NO package clause, entry-point flag, imports, symbols, or types — those are
+                 COMPILATION RESULTS.  The path is the map KEY and is not stored in the file.
 
-  GoCompile      EXACT whole-PROGRAM static/compiler admissibility as EVIDENCE over that same program.
-                 A declarative judgment GoCompile : GoProgram -> Prop + a proof-producing
-                 go_compile : GoProgram -> option CompilableProgram (sound + complete + reflected by
-                 prog_ok_iff).  CompilableProgram wraps the SAME program + the compile proof (no facts
-                 record — an empty one would be scaffolding; derived static facts, when they exist, will
-                 decorate this same program, added then with real data).  The single KEY is pinned to
-                 the canonical build path main.go: any other key (a non-.go name Go ignores, a
-                 traversing/absolute/nested path, a sink control name) is NOT compile-admissible and is
-                 rejected IN Rocq — path admissibility is certified here, never left to the writer.
+  FilePath       an INTRINSIC canonical relative source path (not a raw string): slash-separated
+                 lowercase-ASCII directory components + an ordinary lowercase-ASCII `.go` basename, with
+                 no empty/`.`/`..` component, no absolute/leading/trailing/repeated slash, no leading dot
+                 or underscore (so no hidden/`_test`/`_GOOS` file, no control-name collision).  Every
+                 representable path is safe to materialize AND discovered by `go build ./...` on any
+                 target.  Validity is a carried proof; equality is decidable.
 
-  GoSafe         the exact ABSTRACT println-trace semantics with REAL values (VBool/VInt Z) + the safety
-                 capability SafeProgram over CompilableProgram.  GoSafe is trivial TODAY (the fragment has
-                 no unsafe op) and honestly documented as such; it is the PERMANENT extension point for
-                 guarantees beyond compiler acceptance.  No panic algebra until a panic-capable constructor.
+  GoCompile      EXACT WHOLE-PROGRAM admissibility over the whole map, plus derived CompilationFacts.
+                 Files are grouped by parent directory ([fp_parent]); each directory is one package; the
+                 derived package name is `main`; every package has EXACTLY ONE `main` declaration (zero or
+                 more than one rejects the WHOLE program); every declaration is integer-representable; one
+                 invalid package rejects the whole program (all-or-nothing).  go_compile : GoProgram ->
+                 result CompileError CompilableProgram, proved sound + complete against the declarative
+                 judgment (prog_ok_iff).  CompilationFacts p carries the compiler-derived facts the
+                 renderer consumes (today: the package clause name) — decorating the SAME program.
 
-  GoRender       the direct GoFileAST → bytes renderer.  Every file begins with the exact generated header
-                 `// fido generated.  do not edit.` (part of the Rocq-rendered bytes).  Proved: all-ASCII,
-                 the emitted decimal denotes exactly the value, no illegal leading zero, header present.
+  GoSafe         the exact abstract println-trace semantics with REAL values (VBool/VInt Z) + the safety
+                 capability SafeProgram over CompilableProgram.  GoSafe := True TODAY (the fragment has no
+                 unsafe op), documented honestly; the PERMANENT extension point for guarantees beyond
+                 compiler acceptance.
 
-  GoEmit         the public capability render_program : SafeProgram -> DirectoryImage, where
-                 DirectoryImage := fmap string is a TRUE finite map (path -> exact bytes).  One image entry
-                 per program file; acceptance and image production are all-or-nothing.
+  GoRender       the direct GoFileAST -> bytes renderer.  It emits the package clause from the derived
+                 CompilationFacts name and each DMain as a `func main()`.  Every file begins with the
+                 exact header `// fido generated.  do not edit.` as its FIRST LINE.  Proved: all-ASCII;
+                 render_expr_denotes (the rendered primitive spelling denotes exactly its value);
+                 decimal-faithful, no leading zero, header-first-line.
 
-  extraction     standard Rocq extraction turns the image entries into an ordinary OCaml
-                 (string * string) list (unique keys by construction).
+  DirectoryImage an ABSTRACT complete finite map from FilePath to exact final bytes.  A value carries a
+                 PROVENANCE proof that it came from rendering a SafeProgram (di_prov), so it cannot exist
+                 unless its contents ARE a certified rendered program — there is NO arbitrary-map ->
+                 image escape.  Public construction is render_program : SafeProgram -> DirectoryImage.
+                 directory_entries projects it to the (on-disk path, bytes) transport list.
 
-  sink           ONE handwritten OCaml dirty-directory synchronizer installs that image into a target
-                 directory (staging + per-file atomic rename), cleaning its own stale output and never
-                 touching foreign files.  Understands ONLY the filesystem.
+  Fido Emit      the ONE general transport command (a Rocq vernac): `Fido Emit <image-term> To "<root>"`.
+                 It decodes ONLY the final (path, bytes) transport data (exact constructors of
+                 list/prod/string/ascii/bool, fail-loud otherwise) and hands it to the sink.  Not
+                 witness-specific; no recompile for a different SafeProgram.
 
-  pinned Go      the digest-pinned toolchain builds + runs the emitted program.  Integration only.
+  sink           the generic ownership-aware dirty-directory filesystem synchronizer.  Filesystem ONLY.
+
+  pinned Go      `go build ./...` over the WHOLE emitted tree + witness run.  Integration only.
 ```
 
-**There is no second tree.** No `CompiledExpr`/`CompiledStmt`/`CompiledFile`, no raw `GoPackage` hierarchy,
-no erasure forest, no Surface/TypedIR/GoSyntax/token/grammar/`CertifiedArtifact` layer. `GoCompile` produces
-a certificate over the one `GoProgram`; `GoSafe` is a certificate over that; the renderer traverses it
-directly. The permanent root is a PROGRAM, not a file: even the one-file MVP is expressed as a proved subset
-over the finite-map program structure (`go_compile` accepts iff there is exactly one file, keyed `main.go`,
-whose statements are all admissible). A general certified `GoSourcePath` model — the full Go source-selection
-rules over arbitrary keys — arrives with multi-file support; until then the exact obligation is "the one key
-is `main.go`", not a partial path whitelist.
+**There is no second tree, no separate/typed/target/text IR, no tokenizer/lexer/parser, no
+AST->output->AST round-trip authority, no copied compiled AST, no handwritten OCaml language semantics.**
+`GoCompile` produces facts + a proof over the one `GoProgram`; the renderer traverses it directly.
 
 ## Two honest claims (never conflate)
 
-- **(A) KERNEL-internal exactness — PROVED.** The executable checker succeeds exactly for the formal
-  `GoCompile` judgment (`prog_ok_iff`; `go_compile` returns a `CompilableProgram` iff it holds), and the
-  renderer/semantics facts hold. Asserted axiom-free every build by `gate/axiom_gate.v`.
-- **(B) EXTERNAL Go-compiler adequacy — the GOAL, not a kernel theorem.** That every accepted, rendered
-  program is accepted by the real Go compiler is exercised by the pinned e2e toolchain, never proved about
-  `cmd/compile`. Do not overclaim "equivalent to go build".
+- **(A) KERNEL-internal exactness — PROVED.** The executable `go_compile` succeeds exactly for the
+  declarative `GoCompile` judgment (`prog_ok_iff`; sound + complete), and the renderer/semantics facts
+  hold. Asserted axiom-free every build by `gate/axiom_gate.v`.
+- **(B) EXTERNAL adequacy target — the GOAL, not a kernel theorem.** The declarative `GoCompile` judgment
+  matches `go build ./...` acceptance for every representable rendered program. We model the acceptance
+  semantics independently; `cmd/go` is used for DIFFERENTIAL experiments and the e2e, never as the formal
+  decision procedure. A representable program `go build ./...` accepts but GoCompile rejects is a MODEL
+  BUG (fix the model or narrow the representation), never a "permanent limitation"; a program GoCompile
+  accepts but `go build ./...` rejects means no emission should have been possible — a correctness failure.
 
 ## Responsibility table (does / does NOT)
 
 | Layer | Does | Does NOT |
 |---|---|---|
-| **FMap** | the one finite-map spine (path→file, path→bytes); THE invariant `NoDup (fm_keys m)` (duplicate keys unrepresentable) + the distinct deterministic-lookup fact `fm_MapsTo_fun`; extensional-by-lookup equality | impose a key order; use list+dedup; conflate deterministic first-match lookup with the NoDup invariant |
-| **Ints** | the ONE 64-bit width authority — only the constants a construct uses (`int_min`/`int_max`) | declare a `uint` bound with no `uint` construct; parameterize by Go release / GOOS / GOARCH / word size (no TargetConfig) |
-| **GoAST** | hold the ONE program (finite map) + raw file ASTs; structural package/func/println; bool + unsigned int magnitudes (`ENeg` for negatives) | carry identifiers, a second tree, a raw `GoPackage`, compiled facts in raw syntax, or a signed literal |
-| **GoCompile** | own `GoCompile : GoProgram -> Prop` (the key is `main.go` + integer representability) + a proof-producing sound/complete `go_compile`; `CompilableProgram` = wrapper over the SAME program + the proof | copy the syntax; be a boolean; carry an empty facts record; accept an arbitrary/non-`.go`/traversing key; reject valid Go it can represent |
-| **GoSafe** | real `GoValue` (`VInt : Z`), exact abstract `eval_file`, `SafeProgram` over `CompilableProgram` (0 = -0); honest `GoSafe := True` today | observe source spelling as "value"; keep an unused `Panicked`/`Outcome` placeholder; circularly reference compilation; fork anything |
-| **GoRender** | render each `GoFileAST` to bytes with the header AS THE EXACT FIRST LINE; prove all-ASCII, decimal-denotes-value, no-leading-zero, first-line-is-header | tokenize/lex/parse/round-trip; resolve names; reject; invoke a formatter |
-| **GoEmit** | `render_program : SafeProgram -> DirectoryImage` (finite map path→bytes); one entry, keyed `main.go` | build a generic path predicate over arbitrary strings; produce a partial image |
-| **extraction + sink** | Rocq generates the header + `(string*string) list`; the sink syncs it to a directory | let handwritten OCaml decode/inspect/lower/render/validate/choose anything about a program; re-declare the ownership header |
+| **FilePath** | the intrinsic canonical relative-path domain; decidable eq; `fp_parent` (package key); safe + `go build ./...`-discoverable by construction | admit raw strings, absolute/`..`/hidden/`_test`/GOOS-suffixed/non-`.go` paths |
+| **FMap** | key-generic finite map; THE invariant `fm_keys_nodup`; `dup_key_unrepresentable`; deterministic `fm_MapsTo_fun` (distinct, weaker); `fm_Equal` (semantic eq ≠ record `=`) | present `fm_MapsTo_fun` as the uniqueness invariant; impose order; list+dedup |
+| **GoAST** | the nonempty program map + raw `GoDecl` (a `func main` form); nonempty/uniqueness intrinsic | carry a package clause / entry flag / imports / a raw path in the file; a second tree |
+| **GoCompile** | whole-program directory→package + exactly-one-main + int-representability; `go_compile` sound/complete; populated `CompilationFacts` | be a boolean; accept per-file partially; hide package grouping / entry status in a raw node |
+| **GoSafe** | real `GoValue`; abstract `eval_file`; `SafeProgram` (0 = -0); honest `GoSafe := True` | observe spelling as value; keep an unused panic placeholder; circularly reference compilation |
+| **GoRender** | render decls + the derived package clause; header exact first line; `render_expr_denotes` | tokenize/lex/parse/round-trip; deduce packages/entry; invoke a formatter |
+| **DirectoryImage** | abstract complete finite map, provenance-gated; only `render_program` constructs it publicly | expose an arbitrary-map constructor that bypasses SafeProgram |
+| **Fido Emit + sink** | decode ONLY final (path, bytes) with exact constructors; ownership-aware dirty-directory sync | inspect any program/AST/proof/semantics; delete/overwrite/follow foreign state |
 
 ## The handwritten-OCaml boundary (hard)
 
-**Handwritten OCaml is a filesystem exhaust pipe.** It receives only final relative paths and exact contents
-— plus the ownership header, which comes FROM Rocq (the sink re-declares nothing) — and makes a target
-directory's Fido-owned files equal that image. It does not receive, inspect, validate, lower, render, or
-understand programs; it walks no Rocq terms; it chooses no paths or contents; it has no fallback. All
-structural decoding (Coq `string`/`list`/`prod` → OCaml) is GENERATED by standard extraction. A file is
-Fido-owned iff its first line is the exact generated header (an on-disk ownership MARKER, not program
-understanding). If that boundary cannot be met, delete the sink and the e2e rather than keep a handwritten
-decoder — incomplete integration is acceptable, a false transport foundation is not.
+**All semantic work is proved Rocq.** The ONLY handwritten OCaml is the Fido Emit TRANSPORT boundary:
+- `plugin/g_fido.mlg` — the transport bridge: reduces the given term to the final `list (string*string)`
+  and STRUCTURALLY decodes only that (exact expected constructors, fail-loud), then calls the sink. It
+  inspects no program/AST/certificate/proof/semantics.
+- `plugin/fido_sink.ml` + `e2e/sink_test.ml` — the generic dirty-directory synchronizer + its driver.
+  Filesystem ONLY: they walk no Rocq terms.
 
-The sink is a real **dirty-directory synchronizer** (not a fresh-dir writer): it takes an exclusive lock,
-cleans abandoned staging, discovers existing header-owned files, preflights every path (`lstat`, never
-following a symlink: every existing parent component must be a real directory, and it refuses to overwrite
-ANY existing entry that is not its own header-owned regular file — including a dangling symlink), stages all
-bytes INSIDE the target, installs by per-file atomic rename (for the current one-file image, a single atomic
-rename), deletes stale Fido-owned files by header + desired-key-set (never timestamps/manifest), releases the
-lock, and reports success only after a complete sync. Two hidden names — `.fido-staging` and
-`.fido-sync.lock` — are RESERVED sink control names; a foreign non-directory squatting either is refused, not
-altered. **Foreign entries OUTSIDE those two reserved names are never touched.** The sink may be larger than a
-one-liner, but it understands ONLY the filesystem — no semantic logic, no gofmt, no compilation. (Whole-image
-transactional install across MULTIPLE files is future work; today the image is one file, so its single rename
-is atomic.)
+`tools/ocaml-origin-gate.sh` enforces exactly these three files, filesystem-only for the sink,
+transport-only for the bridge, bounded sizes, and no deleted-backend hallmarks. **Never reintroduce a
+handwritten OCaml backend / lowering / renderer / semantic decoder, or a bridge that decodes anything but
+the final transport type.** If the transport boundary cannot be met correctly, delete the e2e — a false
+transport foundation is worse than no integration.
 
-The Rocq side computes and certifies the complete image and guarantees: the one key is `main.go` (a
-build-participating path, unique); contents are final exact bytes whose FIRST LINE is the header; a rejected
-program yields no `SafeProgram` and hence no image; successful emission needs no postprocessing.
+### Dirty-directory synchronization (honest guarantee)
+
+`GoCompile`, `GoSafe`, and DirectoryImage production are whole-program ALL-OR-NOTHING. Installation into an
+existing dirty tree is locked (a persistent `<root>/.fido/` control dir with an exact marker + lock),
+ownership-aware (a `.go` file is Fido-owned iff its first line is the exact header; ownership is rechecked
+immediately before every overwrite/delete), collision-safe (foreign files/dirs/symlinks are never touched,
+symlinks never followed), staged in per-parent random `.fido-stage-<rand>/` directories with an exact
+marker (all files stage before any install; a handled failure removes every invocation stage and leaves
+existing generated files untouched), per-file atomic in the normal same-filesystem case, and convergent on
+rerun. It is **NOT** a transactional whole-tree commit — a crash during install/delete may leave a mixed
+generation; the next run converges after removing marked stale stages. Ownership is by header marker +
+desired-key-set, never timestamps or a manifest. Git is a recovery backstop, not the primary safety
+mechanism.
+
+## Closed world
+
+Imports are absent now, so the derived import set is empty for every file, and import syntax is
+UNREPRESENTABLE. **Permanent contract:** when import declarations are added, `GoCompile` must resolve every
+import to an owned package derived from the SAME `GoProgram`; any unresolved or external import rejects the
+whole program. No package may come from the standard library, module cache, network, vendor tree,
+workspace, or ambient filesystem unless a later reviewed foundation explicitly and completely models that
+source.
 
 ## Growing the language
 
-Every new AST constructor enters only when it has, COMPLETE at that time: exact `GoCompile` rules
-(constructor absent otherwise), exact operational meaning in `GoSafe`, renderer support with its
-value/syntax proofs, and — where observable — an e2e witness. No "known narrowing". Shrink the representable
-language before weakening `GoCompile`. Multi-file / cross-file reasoning (file A imports file B, both owned)
-is the reason the root is a program map; imports remain on hold (only change needing sign-off).
-Identifiers/functions return only via evidence over the ONE program — never a parallel syntax hierarchy.
+Every new AST constructor enters only when it has, COMPLETE at that time: exact whole-program `GoCompile`
+rules matching `go build ./...` (constructor absent otherwise), exact operational meaning in `GoSafe`,
+renderer support with its value/syntax proofs, and — where observable — a differential fixture + e2e
+witness. Shrink the representable language before weakening `GoCompile`. Package clauses / entry status /
+imports are compilation results, never raw metadata. Integer width has one authority (`Ints`, 64-bit);
+there is no `TargetConfig`.
 
 ## Trust base (say it exactly)
 
-Trusted: Rocq and its kernel; the two Docker base images and the pinned Go image (all digest-pinned) plus the
-opam-repo state and apt packages they install (snapshotting those is a residual build-trust task); the **one
-filesystem sink** (`e2e/writer.ml` — file I/O only, no term walking, hence trusted-not-proved); and the Go
-toolchain (its parse/compile/run of the emitted bytes is trusted — the Go-subset adequacy of
-`GoCompile`/`GoRender`, claim (B), is checked by the e2e, not proved). The extraction-generated OCaml is
-standard Rocq extraction of proved definitions.
-
-Proved (axiom-free, asserted every build by `gate/axiom_gate.v`): the Ints boundary values; FMap's key-NoDup
-invariant (duplicate keys unrepresentable) + duplicate-key-list unconstructibility + the deterministic-lookup
-fact; GoCompile claim (A) — `prog_ok_iff`, `go_compile` sound + complete, rejection ⇒ no `CompilableProgram`,
-the one compiled key is `main.go`, the accept/reject boundary facts, and bad-path rejection (non-`.go`,
-traversal, absolute, nested, control-name); GoSafe's zero-sign-agnostic value fact; GoRender's all-ASCII +
-decimal-faithful + no-leading-zero + header-is-exact-first-line + boundary faithfulness; GoEmit's image
-keys/header-first-line/ASCII/one-`main.go`-key facts. "No assumptions" is never evidence that a theorem's
-STATEMENT is the right one — the gated invariant must be the one advertised.
+Trusted: Rocq and its kernel; the digest-pinned Docker/Go images plus the opam-repo state and apt packages;
+the Fido Emit **transport boundary** (the bridge decodes only the final transport constructors; the sink is
+filesystem-only — both trusted-not-proved); and the Go toolchain (claim (B), the `go build ./...` adequacy,
+is exercised differentially by the e2e, not proved). Proved (axiom-free, asserted every build by
+`gate/axiom_gate.v`): the Ints boundary values; FilePath decidable eq + representable/unrepresentable path
+fixtures; FMap's key-NoDup invariant + duplicate-key unconstructibility + deterministic lookup; GoCompile
+claim (A) — `prog_ok_iff`, `go_compile` sound + complete, rejection ⇒ no CompilableProgram; GoSafe's
+zero-sign-agnostic fact; GoRender's `render_expr_denotes` + all-ASCII + decimal-faithful + no-leading-zero +
+header-first-line + boundaries; DirectoryImage's header-first-line / ASCII / nonempty / unique-paths over
+EVERY image. "No assumptions" is never evidence a theorem's STATEMENT is right — the gated invariant must be
+the one advertised.
 
 ## What must never come back
 
-A handwritten OCaml backend or a plugin that decodes Rocq terms; a SECOND program-AST hierarchy, a raw
-`GoPackage` tree, or an erasure forest to call a copy "the same"; compiled facts baked into raw syntax; an
-EMPTY facts/extension record carried as future scaffolding; a `TargetConfig` re-parameterization or a `uint`
-bound before the construct that needs it exists; a boolean as the compile authority, or a subset filter posing
-as compiler admissibility; **path admissibility decided by a late OCaml validator instead of certified in
-GoCompile**; the ownership header re-declared anywhere but Rocq; a lexer/parser/tokenizer/round-trip in the
-certified path; a shell gate over Rocq source that is not string/comment-aware (fail-open); a self-mirroring
-grammar; a signed integer literal; a raw/string-rescue escape hatch; an unused panic/control placeholder; a
-witness-specific writer or a fresh-dir-only writer that cannot safely synchronize a dirty directory. Git
+A handwritten OCaml backend / lowering / renderer / semantic decoder, or a bridge decoding anything but the
+final transport type; a SECOND program-AST hierarchy, a raw `GoPackage` tree, or a copied compiled AST;
+package/import metadata in raw file values; `MainFile` (package/main/entry collapsed into one raw node);
+raw `string` map keys; single-file compiler semantics or a subset filter posing as compiler admissibility;
+a witness-specific extracted emit executable or a hard-coded `main.go` Docker copy; a fail-open regex axiom
+scanner; timestamps/manifests as ownership authority; a claimed transactional whole-directory guarantee; a
+`TargetConfig`; a lexer/parser/tokenizer/round-trip/text-IR/target-IR in the certified path; fuel. Git
 carries the history; re-admit a feature only when the roots make its proof obligations natural.

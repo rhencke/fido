@@ -1,0 +1,95 @@
+DECLARE PLUGIN "fido.emit"
+
+(* The ONE handwritten transport bridge.  It decides NOTHING about programs: it reduces the given Rocq
+   term (a [list (string * string)] — the transport projection of a proved directory image, which only
+   typechecks when that image came from rendering a certified safe program), then STRUCTURALLY decodes
+   only the final (path, bytes) data — exact expected constructors of list / prod / string / ascii /
+   bool, failing LOUD on any other shape — and hands it to the generic dirty-directory filesystem sink.
+   It inspects no program, no syntax tree, no compilation certificate, no safety certificate, no derived
+   facts, no proof, no semantics — only the final transport list. *)
+
+{
+open Pp
+open Stdarg
+
+(* the expected inductives, resolved once by their registered core references (identity, not arity) *)
+let ind_of name =
+  match Rocqlib.lib_ref name with
+  | Names.GlobRef.IndRef ind -> ind
+  | Names.GlobRef.ConstructRef (ind, _) -> ind
+  | _ -> CErrors.user_err (str ("fido emit: " ^ name ^ " is not an inductive"))
+
+let ind_bool  = lazy (ind_of "core.bool.type")
+let ind_list  = lazy (ind_of "core.list.type")
+let ind_prod  = lazy (ind_of "core.prod.type")
+let ind_ascii = lazy (ind_of "core.ascii.type")
+let ind_str   = lazy (ind_of "core.string.type")
+
+let check_ctor sigma c expected_ind expected_idx what =
+  match EConstr.kind sigma c with
+  | Constr.Construct ((ind, idx), _)
+    when Names.Ind.CanOrd.equal ind (Lazy.force expected_ind) && idx = expected_idx -> ()
+  | _ -> CErrors.user_err (str ("fido emit: expected " ^ what))
+
+(* a Rocq [bool]: constructor 1 = true, 2 = false (of the bool inductive). *)
+let decode_bit sigma b =
+  match EConstr.kind sigma b with
+  | Constr.Construct ((ind, idx), _) when Names.Ind.CanOrd.equal ind (Lazy.force ind_bool) -> idx = 1
+  | _ -> CErrors.user_err (str "fido emit: expected a bool bit")
+
+(* [Ascii b0 .. b7] with b0 the low bit (8 bool bits of the ascii inductive). *)
+let decode_ascii sigma a =
+  match EConstr.kind sigma a with
+  | Constr.App (h, bits) when Array.length bits = 8 ->
+     check_ctor sigma h ind_ascii 1 "an ascii";
+     let v = ref 0 in
+     for i = 0 to 7 do if decode_bit sigma bits.(i) then v := !v lor (1 lsl i) done;
+     Char.chr !v
+  | _ -> CErrors.user_err (str "fido emit: expected an ascii")
+
+(* a Rocq [string]: [String ascii rest] | [EmptyString]. *)
+let decode_string sigma c =
+  let buf = Buffer.create 256 in
+  let rec go c =
+    match EConstr.kind sigma c with
+    | Constr.App (h, args) when Array.length args = 2 ->
+       check_ctor sigma h ind_str 2 "a string";       (* String is constructor 2 *)
+       Buffer.add_char buf (decode_ascii sigma args.(0)); go args.(1)
+    | Constr.Construct _ -> check_ctor sigma c ind_str 1 "a string" (* EmptyString is constructor 1 *)
+    | _ -> CErrors.user_err (str "fido emit: expected a string")
+  in go c; Buffer.contents buf
+
+(* a [string * string] = [prod]: [pair _ _ path bytes] (2 type args + 2 values). *)
+let decode_pair sigma f =
+  match EConstr.kind sigma f with
+  | Constr.App (h, a) when Array.length a = 4 ->
+     check_ctor sigma h ind_prod 1 "a (path, bytes) pair";
+     (decode_string sigma a.(2), decode_string sigma a.(3))
+  | _ -> CErrors.user_err (str "fido emit: expected a (path, bytes) pair")
+
+(* a [list (string * string)]: [cons _ h t] | [nil _]. *)
+let decode_entries sigma l =
+  let rec go l acc =
+    match EConstr.kind sigma l with
+    | Constr.App (h, a) when Array.length a = 3 ->
+       check_ctor sigma h ind_list 2 "a directory-entries list";   (* cons is constructor 2 *)
+       go a.(2) (decode_pair sigma a.(1) :: acc)
+    | Constr.App (h, a) when Array.length a = 1 ->
+       check_ctor sigma h ind_list 1 "a directory-entries list"; List.rev acc  (* nil is constructor 1 *)
+    | _ -> CErrors.user_err (str "fido emit: expected a directory-entries list")
+  in go l []
+
+let do_emit t dir =
+  let env = Global.env () in
+  let sigma = Evd.from_env env in
+  let (tc, _) = Constrintern.interp_constr env sigma t in
+  let nf = Reductionops.nf_all env sigma tc in
+  let entries = decode_entries sigma nf in
+  let n = (try Fido_sink.sync dir entries
+           with Fido_sink.Fail m -> CErrors.user_err (str ("fido emit: " ^ m))) in
+  Feedback.msg_notice (str (Printf.sprintf "fido emit: synced %d file(s) into %s" n dir))
+}
+
+VERNAC COMMAND EXTEND FidoEmit CLASSIFIED AS SIDEFF
+| [ "Fido" "Emit" constr(t) "To" string(dir) ] -> { do_emit t dir }
+END
