@@ -32,7 +32,7 @@ are best-effort guidance, not gospel: when a plan conflicts with a stronger proo
 formulation, follow the stronger path and surface the divergence.
 
 - This is a theorem-first research repo, not a product with legacy customers.
-- The certified path contains only architecture we would defend long term.
+- The repository contains only architecture we would defend long term; nothing is "transitional."
 - Expressiveness expands by proof principles, never by lists of examples.
 - Integration checks catch regressions; they never certify semantics, safety, termination, or Go adequacy.
 - Public correctness claims must be backed by zero-axiom theorem surfaces; an ungated internal theorem is
@@ -61,9 +61,9 @@ formulation, follow the stronger path and surface the divergence.
 4. **Zero project axioms — every `Print Assumptions` surface is EMPTY; preserve it.** The whole model is
    `Definition`s/`Record`s over concrete Rocq data. Never `Axiom`/`Parameter`/`Admitted`, never a kernel
    primitive (`PrimInt63`/`PrimFloat` are axioms too), never `FunctionalExtensionality` on a retained
-   surface. `make check` asserts zero axioms over the spine (Rocq's own `Print Assumptions`).
+   surface. `make check` asserts zero axioms over the surviving modules (Rocq's own `Print Assumptions`).
 5. **No fuel, ever.** No gas, step budgets, max-depths, bounded runners, cycle caps, or renamed
-   equivalents in the certified path. A ranked/well-founded structural measure is acceptable ONLY as a
+   equivalents anywhere in retained code. A ranked/well-founded structural measure is acceptable ONLY as a
    termination proof from decreasing structure — never as an externally supplied execution budget. A
    bounded run is not a proof; a timeout is not nontermination.
 6. **Partial/unsafe ops are safe-by-construction or proof-gated.** Prefer evidence-carrying APIs or

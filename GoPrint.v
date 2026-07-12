@@ -9620,12 +9620,11 @@ Proof.
   subst. reflexivity.
 Qed.
 
-(** GATE — digits.v + GoAst.v + GoPrint.v are the CERTIFIED printer spine (VERIFIED, not trusted): the
-    EXTRACTED printer is governed by these theorems, so they MUST stay axiom-free — that is what keeps the
-    spine from adding project axioms to the TCB.  The build (Dockerfile prover stage) compiles all three
-    standalone (`rocq c -Q . Fido`) and FAILS
-    if any of these rests on an unproved assumption (a non-empty Axioms section in its Print Assumptions).
-    Keep this list in sync with the headline results below. *)
+(** GATE — digits.v + GoAst.v + GoPrint.v (the surviving syntax layer; NOT a certified authority — it rests
+    on a rejected syntax root, see PROGRESS.md) MUST stay axiom-free.  The build (`make check` / the
+    Dockerfile prover stage) compiles all three standalone (`rocq c -Q . Fido`) and FAILS if any rests on an
+    unproved assumption (a non-empty Axioms section in its Print Assumptions).  Keep this list in sync with
+    the headline results below. *)
 Print Assumptions print_ty_inj.
 Print Assumptions esc_string_roundtrip_opt.
 Print Assumptions unescape_opt_image.
