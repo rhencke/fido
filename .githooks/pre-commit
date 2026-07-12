@@ -1,16 +1,17 @@
 #!/bin/sh
 # Keep the repository consistent with the PROOF, and seal generated Go as uncommittable.
 #
-# Fido is a proof repository under a foundation reset: there is NO handwritten OCaml, NO plugin, and NO
-# emitted Go this round.  On any proof / build change we run the verify (make check) — the surviving Rocq
-# must compile with GoPrint's declared Print-Assumptions surfaces axiom-free — so a broken proof or a reintroduced backend hallmark aborts the commit.
+# Fido's vertical slice is proved AND executed.  On any proof / build change we run the verify (make check):
+# the pinned-Rocq core must compile with its declared Print-Assumptions surfaces axiom-free, and the pinned-Go
+# e2e must emit + build + run the witness against the goldens — so a broken proof, a reintroduced backend
+# hallmark, or a broken emission aborts the commit.
 set -e
 
-# (1) OCaml-origin gate: zero tracked OCaml (the backend is deleted; the e2e writer is build-generated, never tracked).
+# (1) OCaml-origin gate: at most the ONE tiny transport glue (plugin/g_fido.mlg) is tracked OCaml.
 sh tools/ocaml-origin-gate.sh
 
-# (2) SEAL: no generated Go is tracked.  The e2e prints one program; generated *.go is produced in the build and stays
-#     gitignored, and a tracked *.go (e.g. `git add -f`) could let stale bytes drift into source.
+# (2) SEAL: no generated Go is tracked.  The emitted main.go is produced in the build and stays gitignored;
+#     a tracked *.go (e.g. `git add -f`) could let stale bytes drift into source.
 tracked_go=$(git ls-files -- '*.go')
 if [ -n "$tracked_go" ]; then
   echo "fido: ERROR — a tracked *.go exists, but generated Go is never committed:"
@@ -57,10 +58,11 @@ if [ -n "$axiom_hit" ]; then
   exit 1
 fi
 
-# (4) On any proof / build change, run the verify so a broken proof / reintroduced backend hallmark aborts.
-if git diff --cached --name-only | grep -qE '\.v$|^tools/|^Makefile$|^Dockerfile$|^dune$|^dune-project$'; then
-  echo "fido: proof/build input staged — running the verify (make check)..."
+# (4) On any proof / build / plugin / e2e change, run the verify so a broken proof, a reintroduced backend
+#     hallmark, or a broken emission aborts the commit.
+if git diff --cached --name-only | grep -qE '\.v$|\.mlg$|^tools/|^plugin/|^e2e/|^Makefile$|^Dockerfile$|^dune$|^dune-project$'; then
+  echo "fido: proof/build/e2e input staged — running the verify (make check)..."
   make check
 fi
 
-echo "fido: OK — surviving Rocq compiles, GoPrint's declared Print-Assumptions surfaces axiom-free, zero tracked OCaml."
+echo "fido: OK — pinned-Rocq core compiles axiom-free, the e2e witness emits+builds+runs vs goldens, at most one glue."

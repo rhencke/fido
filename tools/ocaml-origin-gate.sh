@@ -36,4 +36,20 @@ if [ -n "$hits" ]; then
   exit 1
 fi
 
-echo "fido: ocaml-origin gate OK — at most the one transport glue is tracked; no handwritten-backend hallmarks ✓"
+# (3) Anti-regression: the rejected architecture must not reappear as tracked source FILES — a second IR /
+#     grammar / token layer, a lexer/parser/tokenizer, a round-trip authority, or the deleted boolean/backend
+#     modules.  A code-level filename tripwire (NOT a prose linter): the current modules
+#     (GoAST/GoCompile/GoSafe/GoRender/GoEmit/…) do not match; the deleted ones and the generic
+#     lexer/parser/tokenizer/round-trip names do.  Case-sensitive on the module list so GoAST ≠ the deleted GoAst.
+rejected=$(git ls-files '*.v' '*.mlg' | awk -F/ '{print $NF}' \
+  | grep -E '^(GoPrint|GoLex|GoParse|GoParser|GoGrammar|GoToken|GoSyntax|GoStatic|GoAst|Surface|TypedIR|CoreType|CompileEnv|Elaborate|Semantics|CertifiedArtifact|relooper)[.](v|mlg)$' || true)
+rejected_kind=$(git ls-files '*.v' '*.mlg' | grep -iE '(lexer|parser|tokeni[sz]er|round[_-]?trip)' || true)
+if [ -n "$rejected$rejected_kind" ]; then
+  echo "fido: ANTI-REGRESSION GATE — a rejected-architecture module reappeared as a tracked file:"
+  printf '%s\n%s\n' "$rejected" "$rejected_kind" | grep -v '^$' | sed 's/^/  /'
+  echo "fido: there is no second IR/grammar/token layer, no lexer/parser/tokenizer, no round-trip authority."
+  echo "fido: the AST IS the IR; renderer correctness is structural.  See PAINFUL_LESSONS.md."
+  exit 1
+fi
+
+echo "fido: ocaml-origin gate OK — at most the one transport glue; no backend hallmarks; no rejected modules ✓"

@@ -1,140 +1,143 @@
 # Fido — operating law for a theorem-first repository
 
-**A proof project aiming at a proved Go generator — currently under a FOUNDATION RESET (checkpoint 65).**
-The handwritten OCaml backend and extraction plugin are gone; then the **false compile/emit authority**
-(`GoCompile` fail-open-accepted an unresolved named type) and the **disconnected runtime island** were
-deleted too. **There is no certified emission and no compile authority** — a green demo resting on a false
-compile certificate is not progress. The only Go produced is a **minimal e2e smoke test**: one hand-built
-program printed by the surviving `print_program` (its bytes Rocq-checked), confirmed accepted by the pinned
-Go toolchain — a last-mile integration alarm for that ONE program, NOT a compiler-soundness claim. What
-survives is a syntax layer (`digits`, `GoAst`, `GoPrint`) that compiles zero-axiom but is **scheduled for
-the syntax-root reset and makes no Go-adequacy claim** — it is not a certified authority. The intended end state is a proved generator built from real
-roots (`TargetConfig`, a certified type universe, an independent Go grammar, typed elaboration, one token
-renderer); it will never be "formally verified Go" (Go's toolchain is trusted). **Current state, defects,
-and the root frontier: `PROGRESS.md`. Architecture charter (binding): `ARCHITECTURE.md`.**
+**A proof project whose vertical slice is now proved AND executed.** An untrusted proposer (an LLM) may
+write a raw Go AST and arbitrary supporting lemmas; **no `.go` is emitted unless Rocq first proves the
+program compile-admissible and safe.** The pipeline is deliberately small — the AST *is* the IR, and
+"compiled"/"safe" are PROOFS about it, not new trees:
+
+```
+GoAST → GoCompile (decorated CompiledFile) → GoSafe (SafeProgram) → GoRender → GoEmit (DirectoryImage)
+      → one tiny transport plugin (Fido Emit) → pinned Go toolchain build/run  [integration only]
+```
+
+Today's admitted fragment is `package main` + one `func main()` + straight-line builtin `println` over
+primitive literals (bool / string / unsigned-magnitude int, negatives only as `ENeg`). It is complete and
+correct on its own: every layer is proved axiom-free, and one witness (`println(true)`) is emitted to a
+real `main.go` and built+run by the pinned Go toolchain against reviewed goldens. **Current state and the
+next frontier: `PROGRESS.md`. Architecture charter (binding): `ARCHITECTURE.md`. Why rejected shapes must
+not return: `PAINFUL_LESSONS.md`.**
 
 ## The law
 
-**There is no transition. There is only the intended architecture and things that should be deleted.**
-**Ruthless correctness or ruthless deletion — no middle state.** Nothing load-bearing may rest on an
-unsettled abstraction. If a foundation is wrong, incomplete, trusted-rather-than-proved, or narrower than
-the intended final claim, delete the upper floors; a right idea reappears when the correct foundation
-requires it. Git history is the only archaeology.
+**Ruthless correctness or ruthless deletion — no middle state.** Incomplete scope is acceptable; incorrect,
+conservative, approximate, duplicated, half-built, or "known issue" code in the certified path is not.
+Every retained component must be complete and correct in itself and may build only on foundations that are
+already complete and correct. If a foundation is wrong, incomplete, trusted-rather-than-proved, or narrower
+than the final claim, delete the floors above it; a right idea reappears when the correct foundation
+requires it. **Cut representable scope before weakening a proof.** If a constructor cannot yet be modelled
+exactly, remove it from the AST — never admit it with a conservative narrowing. When twenty leaf
+proofs/guards compensate for one missing root, replace the root and delete the leaves.
 
 Nobody depends on this repository. There is no backwards-compatibility obligation, no migration path, no
-transition artifact. A weak, half-baked, legacy, demo-only, or convenience-oriented approach is deleted
-unless it is (a) part of the intended theorem-first architecture, (b) an explicitly unsupported frontier,
-or (c) an isolated integration check that cannot be mistaken for proof evidence.
+transition artifact. **Cost is not a constraint; incorrectness is fatal** — given a cheaper/less-expressive
+mechanism and a harder/more-general/more-correct one, take the harder one. Plans are best-effort guidance;
+when a plan conflicts with a stronger proof or a more correct formulation, follow the stronger path and
+surface the divergence.
 
-**The ideal is immaculate correctness at the root, so that twenty covering leaves disappear.** Cut
-supported scope before weakening proof strength. **Cost is not a constraint; incorrectness is fatal** —
-never trade correctness, generality, or expressive strength for a cheaper path. Given a choice between a
-cheaper/less-expressive mechanism and a harder/more-general/more-correct one, take the harder one. Plans
-are best-effort guidance, not gospel: when a plan conflicts with a stronger proof or a more correct
-formulation, follow the stronger path and surface the divergence.
-
-- This is a theorem-first research repo, not a product with legacy customers.
 - The repository contains only architecture we would defend long term; nothing is "transitional."
 - Expressiveness expands by proof principles, never by lists of examples.
-- Integration checks catch regressions; they never certify semantics, safety, termination, or Go adequacy.
+- Integration checks (the pinned-Go e2e) catch regressions; they never certify semantics, safety,
+  termination, or Go adequacy. **A Go build/run failure for an emitted program is never an expected test** —
+  it means GoCompile, rendering, the target facts, or the transport is wrong.
 - Public correctness claims must be backed by zero-axiom theorem surfaces; an ungated internal theorem is
-  not public evidence.
-- Unsupported features are rejected, unrepresentable, or explicitly fenced — never modeled with stubs,
-  dummy panics, or conservative approximations.
-- No second authority: syntax, semantics, emission, and safety each have exactly one authoritative
-  definition. Never add code beside a weaker path — delete the weaker path.
+  not public evidence. Axiom-free ≠ correct — a kernel-checked proof can still prove a weak or
+  self-referential claim (the deleted `GoCompile` boolean was axiom-free and still wrong).
+- **No second authority:** syntax, compile-admissibility, safety, rendering, and emission each have exactly
+  one authoritative definition. Never add code beside a weaker path — delete the weaker path.
 
 ## Standing technical law
 
-1. **No handwritten OCaml backend, ever.** The Go output — today the e2e smoke test's one program, and any
-   future emission — comes ONLY from standard Rocq extraction of a proved closed value plus one
-   build-GENERATED transparent writer (`let () = print_string …`) that prints the bytes unchanged — never
-   tracked, inspects/constructs/decides nothing. `tools/ocaml-origin-gate.sh` enforces **zero tracked
-   `*.ml`/`*.mli`/`*.mlg`** and is a TEXTUAL tripwire that greps tracked sources for the deleted backend's
-   hallmark NAMES (`MiniML`/`Smartlocate`/`pp_struct`/`Extract_env`/`Go Main Extraction`/…) — a string
-   grep deterring textual reintroduction, NOT a semantic detector of term inspection or name-based lowering.
-   Never reintroduce a backend, a validator around handwritten output, or an OCaml renderer.
-2. **Generated `*.go` is never committed.** The e2e's printed program (and any future emission) is produced
-   from proved bytes, stays gitignored, and `make check` regenerates + re-verifies it so it can never drift.
-   Never hand-edit generated Go — change the `.v`.
+1. **No handwritten semantic OCaml, ever.** All language decisions live in proved Rocq. The ONLY permitted
+   handwritten OCaml is **one tiny transparent transport glue** (`plugin/g_fido.mlg`, the `Fido Emit`
+   command): it reduces a proved `DirectoryImage` in Rocq, structurally decodes path+bytes, and writes
+   files verbatim/atomically — it resolves no names, inspects no program structure, chooses no files,
+   provides no fallback, and fails loud on any unexpected shape. `tools/ocaml-origin-gate.sh` enforces
+   **at most that one glue file** (and a textual tripwire on the deleted backend's hallmark names). Never
+   reintroduce a backend, a validator around handwritten output, an OCaml renderer, name-based lowering, or
+   a second emission path.
+2. **Generated `*.go` is never committed.** The emitted program is produced from proved bytes at build time,
+   stays gitignored, and `make check` regenerates + re-runs it so it can never drift. Never hand-edit
+   generated Go — change the `.v`.
 3. **Model honestly — faithful or fail-loud, never plausible-but-wrong.** An unrepresentable construct is
-   REJECTED mechanically (unrepresentable in the AST, or rejected by the compile relation), never preserved
-   as text. ⚠ NEVER add a raw/opaque/string-rescue escape hatch to a structured AST — a structured-or-fail
-   escape hatch is the expensive mistake this project has already paid for (git history).
+   ABSENT from the AST (or rejected by `go_compile`), never preserved as text or approximated. ⚠ NEVER add a
+   raw/opaque/string-rescue escape hatch to a structured AST — a structured-or-fail escape hatch is the
+   expensive mistake this project has already paid for (`PAINFUL_LESSONS.md`, git history).
 4. **Zero project axioms — every `Print Assumptions` surface is EMPTY; preserve it.** The whole model is
-   `Definition`s/`Record`s over concrete Rocq data. Never `Axiom`/`Parameter`/`Admitted`, never a kernel
-   primitive (`PrimInt63`/`PrimFloat` are axioms too), never `FunctionalExtensionality` on a retained
-   surface. The live build gate (`make check`) asserts only **GoPrint's** public surfaces are axiom-free,
-   via `gate/axiom_gate.v` — the sole `Print Assumptions` target, compiled fresh EVERY build and
-   count-checked, so a warm `_build` cache can never skip it (`digits`/`GoAst` declare no surfaces; the
-   axiom-DECLARATION scan runs only in the pre-commit hook, not `make check`/CI — see `PROGRESS.md`).
-5. **No fuel, ever.** No gas, step budgets, max-depths, bounded runners, cycle caps, or renamed
-   equivalents anywhere in retained code. A ranked/well-founded structural measure is acceptable ONLY as a
-   termination proof from decreasing structure — never as an externally supplied execution budget. A
-   bounded run is not a proof; a timeout is not nontermination.
+   `Definition`s/`Record`s/`Inductive`s over concrete Rocq data. Never `Axiom`/`Parameter`/`Admitted`, never
+   a kernel primitive (`PrimInt63`/`PrimFloat` are axioms too), never `FunctionalExtensionality` on a
+   retained surface. The live build gate (`make check`) asserts the architecture's public surfaces are
+   axiom-free via `gate/axiom_gate.v` — the sole `Print Assumptions` target, compiled fresh EVERY build and
+   count-checked, so a warm `_build` cache can never skip it (the axiom-DECLARATION scan runs in the
+   pre-commit hook, not `make check`/CI — see `PROGRESS.md`).
+5. **No fuel, ever.** No gas, step budgets, max-depths, bounded runners, or renamed equivalents. A
+   ranked/well-founded structural measure is acceptable ONLY as a termination proof from decreasing
+   structure — never an externally supplied execution budget. A bounded run is not a proof; a timeout is not
+   nontermination.
 6. **Partial/unsafe ops are safe-by-construction or proof-gated.** Prefer evidence-carrying APIs or
-   check-and-branch (comma-ok / `option`). Never accidentally write a Rocq program that needs a nil deref.
-7. **Naming is a correctness claim.** A syntactic/static gate implies NO semantic safety, panic-freedom,
-   termination classification, or real-Go adequacy unless separately proved and exposed. Never let a
-   syntactic gate sound like `SafeProgram`. A compile authority must be a declarative, proof-bearing typing
-   relation with a soundness theorem — NEVER a boolean equality `check p = true` (that was the fail-open
-   `GoCompile` this reset deleted; a green boolean is not compiler admissibility).
-8. **Imports are on hold.** Emit `package main`, no `import` block; defer any builtin needing one.
+   check-and-branch (comma-ok / `option`). Never write a Rocq program that needs a nil deref.
+7. **Naming is a correctness claim.** `GoCompile` is exact static/compiler-admissibility for the
+   representable domain — a declarative relation (`CompilesFile`) with an executable checker proved SOUND and
+   COMPLETE against it, never a boolean `check p = true` (that was the fail-open authority this reset
+   deleted). Adequacy of that model to the REAL Go compiler is a last-mile e2e integration fact, NOT a
+   theorem — do not claim it as proved. `GoSafe` is a real no-panic property of an operational semantics, not
+   a synonym for compiling. A syntactic/static gate implies no semantic safety unless separately proved.
+8. **Imports are on hold.** Emit `package main`, no `import` block; defer any builtin needing one. Adding an
+   import is the one change that still needs explicit sign-off.
 
-## The surviving syntax layer (NOT a certified authority)
+## The certified layers (one authority each)
 
-`digits` (the one decimal-rendering authority) · `GoAst` (Go syntax: `GExpr`/`GoTy`/operators) · `GoPrint`
-(the printer + a proof-only lexer/parser + injectivity theorems). It compiles zero-axiom, but rests on a
-**rejected syntax root** and is scheduled for the reset — see `PROGRESS.md` for the concrete defects
-(`EInt : Z` signed literals, unresolved `GTNamed`, the self-mirroring `CanonExpr` that is not an independent
-grammar, the complete-not-sound parser). It proves NO Go-compiler adequacy and is not consumed by any
-emission path (there is none). Do not describe it as "the certified spine" or "the syntax authority."
-
-## The root frontier (`ARCHITECTURE.md` governs — pour each root before any floor)
-
-`TargetConfig` → one certified type universe (`CertifiedType`) → an independent Go grammar + one token stream
-+ one verified renderer → a compile environment with declarative resolution/typing into a typed IR
-(`TypedProgram`, static invalidity unrepresentable, executable checker proved sound) → a typed store /
-accurate control/panic/blocking as consumers require → and only then a proof-bearing typed emission. Delete
-a file that materially depends on a rejected root rather than keeping it as "transitional." Do not add
-features; do not rebuild the old breadth from memory.
+`GoAST` — the ONE raw proposed tree (may be compiler-invalid: unresolved ident, out-of-range int, wrong
+package; that is intentional). No unsupported syntax (absent, not narrowed), no parenthesis node; integer
+literals are unsigned magnitudes, negatives are `ENeg`. · `GoCompile` — the decorated `CompiledFile`
+(resolved names, `println` builtin, intrinsic int-representability) + the `CompilesFile` relation +
+`go_compile` (sound/complete/deterministic; erases back to the raw tree). · `GoSafe` — an operational
+semantics (`Outcome`/print-trace/`eval_file`) + `BehaviorSafe` (no panic, proved) + `SafeProgram` (the
+emission gate). · `GoRender` — the DIRECT `CompiledFile → string` printer (no tokens/lexer/parser/round-trip)
++ structural correctness (`escape_faithful`, `render_all_ascii`). · `GoEmit` — the Rocq-defined
+`DirectoryImage` with proved path safety. · `plugin/g_fido.mlg` — the one transport glue. ·
+`plugin/Witness.v` — the e2e witness. · `digits`/`Literals`/`GoIdent`/`TargetConfig` — leaf authorities.
 
 ## Workflow & commands
 
-Verify after any change: **`make check`** — the git/shell gates (zero tracked OCaml, no tracked `*.go`) plus
-the **pinned-container proof AND the e2e smoke test**, all via buildx. The prover stage (Rocq 9.2.0) compiles
-digits/GoAst/GoPrint and asserts GoPrint's declared `Print Assumptions` surfaces are axiom-free (that gates
-GoPrint's surfaces only, not `digits`/`GoAst` and not the axiom-declaration scan — see `PROGRESS.md`'s trust
-base); the `e2e-check` stage prints one known program and confirms the pinned Go toolchain accepts it.
-**Local host Rocq is NOT supported** — a different host Rocq version could judge proofs differently, so all
-compilation goes through the pinned toolchain. Then commit → re-index.
+Verify after any change: **`make check`** — the git/shell gates (at-most-one-glue OCaml, no tracked `*.go`)
++ the pinned-container **proof** (Rocq 9.2.0: `dune build` + `gate/axiom_gate.v` axiom-free, count-checked)
++ the **e2e** (the `Fido Emit` plugin writes the witness's `main.go`; the pinned Go toolchain — digest-pinned
+`golang:1.23-alpine` — gofmt-checks/`go vet`/`go build`/runs it; stdout/stderr/exit compared byte-for-byte to
+reviewed goldens). **Local host Rocq is NOT supported** — all compilation goes through the pinned toolchain
+via buildx. Then commit → re-index.
 
 ```
-make check          # the one verify: origin/seal gates + the pinned-Rocq buildx proof
-make build          # the buildx proof alone: pinned Rocq compiles digits/GoAst/GoPrint, GoPrint's surfaces axiom-free
-make prover-log     # same, streaming the full plain Rocq log (diagnose a proof failure)
+make check          # the one verify: gates + pinned-Rocq proof + pinned-Go e2e (all buildx)
+make prove          # the proof alone (dune build + axiom gate)
+make e2e            # the emit + pinned-Go run vs goldens alone
+make prover-log     # stream the full plain Rocq log (diagnose a proof failure)
 make install-hooks  # activate the pre-commit hook (once after clone)
 ```
 
+⚠ A cancelled/timed-out buildx can zombie a `sharing=locked` cache lock and fake a hang on the NEXT build —
+kill stale `docker buildx build` processes first. Run long builds detached and poll, not under a foreground
+timeout.
+
 **Pre-commit hook** (`make install-hooks`) runs `make check` on any proof/build change and seals the tree
-(no tracked `*.go`, no tracked OCaml). When emission eventually returns it comes through a proof-bearing
-typed certificate, generated Go stays gitignored, and `gofmt` is a NO-OP check (never a mutating step).
+(no tracked `*.go`, at most the one glue). Generated Go stays gitignored; goldens are human-reviewed, never
+auto-regenerated; `gofmt` is a NO-OP check (never a mutating step).
 
 ## Files
 
-- **The surviving syntax layer** (flagged for reset, see above): `digits.v`, `GoAst.v`, `GoPrint.v`
-  (built by `dune` — the one module graph).
-- `e2e/e2e.v` — the minimal e2e smoke-test driver (prints one known program; its bytes Rocq-checked). The
-  extraction output + build-generated writer are never tracked.
-- `tools/ocaml-origin-gate.sh` — the one shell gate (zero tracked OCaml + a textual backend-hallmark
-  tripwire); no semantic logic.
-- `Makefile` / `Dockerfile` / `.githooks/pre-commit` / `dune` — the buildx proof + e2e; all Rocq/Go runs in
-  the pinned container (host Rocq unsupported).
+- **Certified theory** (`dune` — the one module graph): `TargetConfig.v`, `Literals.v`, `GoIdent.v`,
+  `digits.v`, `GoAST.v`, `GoCompile.v`, `GoSafe.v`, `GoRender.v`, `GoEmit.v`.
+- `plugin/g_fido.mlg` — the ONE transport glue (`Fido Emit`). `plugin/Witness.v` — the e2e witness.
+  `plugin/dune` — the plugin library + witness theory.
+- `e2e/golden.{stdout,stderr,exit}` — the reviewed integration goldens.
+- `gate/axiom_gate.v` — the sole `Print Assumptions` target. `tools/ocaml-origin-gate.sh` — the one shell
+  gate (at-most-one-glue OCaml + backend-hallmark tripwire).
+- `Makefile` / `Dockerfile` / `.githooks/pre-commit` — the buildx proof + e2e; all Rocq/Go runs in the
+  pinned container (host Rocq unsupported).
 
 ## Where the detail lives
 
-- **`ARCHITECTURE.md`** — ★ the binding charter (the intended roots + the current reset). Read before any
-  structural change.
-- **`PROGRESS.md`** — the live status ledger (what is proved, the concrete defects, the root frontier).
-- **`git log`** — the archive; commit messages + old sources carry rationale and expensive-mistake
-  postmortems. History lives there, never in active code.
+- **`ARCHITECTURE.md`** — ★ the binding charter (the layers + responsibilities + trust boundary).
+- **`PROGRESS.md`** — the live status ledger (what is proved+executed, the next frontier).
+- **`PAINFUL_LESSONS.md`** — why rejected architectures (backend, boolean authority, lexer/parser/round-trip,
+  string-rescue) must not reappear.
+- **`git log`** — the archive; commit messages carry rationale and expensive-mistake postmortems.
