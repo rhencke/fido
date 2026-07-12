@@ -73,10 +73,11 @@ path and surface the divergence.
 4. **Zero project axioms — every `Print Assumptions` surface is EMPTY; preserve it.** `Definition`s /
    `Record`s / `Inductive`s over concrete data. Never `Axiom`/`Parameter`/`Admitted`, a kernel primitive,
    or `FunctionalExtensionality`. `make check` asserts the public surfaces axiom-free via `gate/axiom_gate.v`
-   (the sole `Print Assumptions` target, compiled fresh + count-checked). `tools/axiom-scan.sh` is a
-   PURPOSE-BUILT LEXICAL scanner (string/nested-comment/sentence/scope-stack aware — not a regex), sound
-   defense-in-depth for unused declarations, in `make check` + the hook; Sections are permitted (review-
-   sensitive), Module-Type interface `Parameter`/`Axiom` permitted.
+   (the sole `Print Assumptions` target, compiled fresh + count-checked — catches EXTERNAL axioms in a
+   public surface's closure) PLUS the Rocq-native `Fido Audit Assumptions` command
+   (`gate/assumptions_audit.v`) that enumerates the compiled global environment and rejects ANY Fido
+   constant with an axiomatic body — including UNUSED ones — which a source-text scanner cannot do
+   soundly. A planted-axiom self-test proves the audit is not fail-open. NO source-text axiom scanner.
 5. **No fuel, ever.** Totality comes from decreasing structure.
 6. **SafeProgram is the permanent safety boundary.** `GoSafe cp := True` is honest TODAY (the fragment has
    no unsafe op); it is the extension point for guarantees beyond compiler acceptance, not circular. No
@@ -109,13 +110,15 @@ dirty-directory sink. · `digits` — leaf authority.
 
 ## Workflow & commands
 
-Verify after any change: **`make check`** — the host gates (transport-only OCaml, no tracked `*.go`, the
-lexical axiom scan) + the pinned-container **proof** (Rocq 9.2.0: `dune build` + `gate/axiom_gate.v` axiom-
-free, count-checked) + the **e2e** (Dune-cached theory+plugin; then EXPLICIT `Fido Emit` synchronizes the
-whole tree, the sink is exercised on dirty/adversarial trees, and the digest-pinned `golang:1.23-alpine`
-runs `go build ./...` over the whole tree + a multi-package differential + no-main/dup-main rejection
-fixtures, and runs the witness vs reviewed goldens). **Local host Rocq is NOT supported** — all compilation
-goes through the pinned toolchain via buildx.
+Verify after any change: **`make check`** — the host gates (transport-only OCaml, no tracked `*.go`) + the
+pinned-container **proof** (Rocq 9.2.0: `dune build` + `gate/axiom_gate.v` axiom-free, count-checked) + the
+**e2e** (Dune-cached theory+plugin; then EXPLICIT `Fido Emit` synchronizes the whole tree, the Rocq-native
+`Fido Audit Assumptions` gate confirms zero Fido axioms with a planted-axiom self-test, the provenance
+boundary is exercised (a forged raw transport is rejected before any effect), the sink is exercised on
+dirty/adversarial trees, and the digest-pinned `golang:1.23-alpine` runs `go build ./...` over the whole
+tree + `go list ./...` discovery + a multi-package differential + no-main/dup-main rejection fixtures, and
+runs the witness vs reviewed goldens). **Local host Rocq is NOT supported** — all compilation goes through
+the pinned toolchain via buildx.
 
 ```
 make check   # gates + pinned-Rocq proof + pinned-Go whole-tree e2e (all buildx)
@@ -136,8 +139,8 @@ kill stale `docker buildx build` processes first; run long builds detached and p
 - `plugin/g_fido.mlg` — the Fido Emit transport bridge; `plugin/fido_sink.ml` — the dirty-directory sink;
   `plugin/dune` — the plugin library. `e2e/Witness.v` — the witness (emitted explicitly); `e2e/WitnessMulti.v`
   — the multi-package differential; `e2e/sink_test.ml` — the sink driver; `e2e/golden.*` — reviewed goldens.
-- `gate/axiom_gate.v` — the sole `Print Assumptions` target. `tools/ocaml-origin-gate.sh`,
-  `tools/axiom-scan.sh` — the host gates.
+- `gate/axiom_gate.v` — the `Print Assumptions` target; `gate/assumptions_audit.v` — the Rocq-native
+  `Fido Audit Assumptions` global-env axiom audit. `tools/ocaml-origin-gate.sh` — the host origin gate.
 - `Makefile` / `Dockerfile` / `.githooks/pre-commit` — the buildx proof + whole-tree e2e (host Rocq
   unsupported).
 

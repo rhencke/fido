@@ -6,10 +6,12 @@
     A [FilePath] is a validated relative path: slash-separated lowercase-ASCII directory components and
     an ordinary lowercase-ASCII `.go` basename, with NO empty/`.`/`..` component, NO absolute or
     trailing/leading/repeated slash, NO underscore or leading dot (so NO hidden file/dir, NO `_test.go`,
-    NO `_GOOS`/`_GOARCH` build-selection suffix, NO Fido control-name collision).  Every representable
-    path is therefore safe to materialize AND discovered by `go build ./...` on any target, independent
-    of case-folding and platform source selection.  Strange-but-filesystem-valid paths are deliberately
-    UNREPRESENTABLE — narrowness is the point, not an ambitious model of every OS path.
+    NO `_GOOS`/`_GOARCH` build-selection suffix, NO Fido control-name collision), NO directory named
+    `testdata` or `vendor` (which `go build ./...` IGNORES), and a total length bound.  Every
+    representable path is therefore safe to materialize AND DISCOVERED by `go build ./...` (the e2e
+    additionally compares `go list ./...` to the emitted package set), independent of case-folding and
+    platform source selection.  Strange-but-filesystem-valid paths are deliberately UNREPRESENTABLE —
+    narrowness is the point, not an ambitious model of every OS path.
 
     Validity is intrinsic: [FilePath] carries the proof [path_ok fp_str = true], so a value cannot exist
     for a bad path.  Equality is decidable and reduces to string equality (the proof is unique by bool
@@ -33,6 +35,14 @@ Fixpoint tail_ok (s : string) : bool :=
 Definition component_ok (s : string) : bool :=
   match s with EmptyString => false | String c s' => is_lower c && tail_ok s' end.
 
+(** Directory names `go build ./...` IGNORES (so a file beneath one would be certified but never built):
+    `testdata` at any level, and the `vendor` tree.  (Leading `.`/`_` dirs are already excluded by
+    [component_ok] requiring a lowercase-letter first char.)  A DIRECTORY component must avoid these; a
+    filename stem may still be `testdata`/`vendor` (e.g. [vendor.go]). *)
+Definition reserved_dir (s : string) : bool := String.eqb s "testdata" || String.eqb s "vendor".
+
+Definition dir_component_ok (s : string) : bool := component_ok s && negb (reserved_dir s).
+
 (** ---- path grammar ---- *)
 
 Fixpoint split_slash (s : string) : list string :=
@@ -55,11 +65,13 @@ Definition strip_go (s : string) : string := String.substring 0 (String.length s
 (** an ordinary Go source basename: an admissible component stem followed by ".go". *)
 Definition filename_ok (s : string) : bool := ends_go s && component_ok (strip_go s).
 
-(** the whole path: directory components (all but the last segment) are admissible components; the last
-    segment is an admissible `.go` filename.  A single segment (root-level file) is allowed. *)
+(** the whole path: directory components (all but the last segment) are admissible AND not `go build`-
+    ignored; the last segment is an admissible `.go` filename; a total-length bound keeps every path safe
+    to materialize (well under PATH_MAX).  A single segment (root-level file) is allowed. *)
 Definition path_ok (s : string) : bool :=
+  (String.length s <=? 200)%nat &&
   match rev (split_slash s) with
-  | last :: rdirs => forallb component_ok rdirs && filename_ok last
+  | last :: rdirs => forallb dir_component_ok rdirs && filename_ok last
   | [] => false
   end.
 
@@ -119,3 +131,8 @@ Example no_hidden_dir : path_ok ".git/x.go" = false.    Proof. reflexivity. Qed.
 Example no_control   : path_ok ".fido/x.go" = false.    Proof. reflexivity. Qed.
 Example no_trailing  : path_ok "pkg/" = false.          Proof. reflexivity. Qed.
 Example no_bare_go   : path_ok "go" = false.            Proof. reflexivity. Qed.
+(* `go build ./...` ignores these directories, so they must be unrepresentable, not certified: *)
+Example no_testdata     : path_ok "testdata/main.go" = false.   Proof. reflexivity. Qed.
+Example no_testdata_nest : path_ok "a/testdata/x.go" = false.   Proof. reflexivity. Qed.
+Example no_vendor       : path_ok "vendor/x.go" = false.        Proof. reflexivity. Qed.
+Example ok_testdata_file : path_ok "testdata.go" = true.        Proof. reflexivity. Qed.

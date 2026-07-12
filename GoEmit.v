@@ -4,10 +4,12 @@
     [DirectoryImage] is a TRUE finite map from unique intrinsic paths to exact final file bytes
     ([di_map : fmap FilePath string]) PLUS an intrinsic PROVENANCE proof ([di_prov]) that the map was
     produced by rendering a [SafeProgram].  So a value of type [DirectoryImage] cannot exist unless its
-    contents ARE a certified rendered program — abstraction WITHOUT opaque modules (the map stays
-    reducible, so the generic Fido Emit command can evaluate it).  There is no arbitrary-map ->
-    DirectoryImage escape: [mkImage m pf] demands [pf : exists sp, m = render_map sp], which is exactly
-    "m is a rendered safe program".  Public construction is [render_program].
+    contents ARE a certified rendered program — the guarantee comes from the PROVENANCE PROOF, not from
+    hiding a constructor (the map stays reducible, so the Fido Emit command can evaluate it; no opaque
+    module).  [mkImage] is a public constructor, but it demands [pf : exists sp, m = render_map sp] —
+    exactly "m is a rendered safe program" — so it is NOT an arbitrary-map escape; [render_program] is the
+    canonical construction, and the Fido Emit vernac typechecks its argument AS a [DirectoryImage] before
+    any effect, so a forged raw transport is rejected at the boundary.
 
     [directory_entries] is the transport projection the filesystem sink consumes: the intrinsic keys are
     denoted to on-disk relative-path strings ([fp_string], injective).  EVERY DirectoryImage's entries

@@ -15,6 +15,8 @@ Print Assumptions FilePath.fp_eqb_eq.
 Print Assumptions FilePath.ok_main.
 Print Assumptions FilePath.no_dotdot.
 Print Assumptions FilePath.no_test.
+Print Assumptions FilePath.no_testdata.
+Print Assumptions FilePath.no_vendor.
 
 (* the finite map: KEYS ARE NODUP (duplicate keys unrepresentable — the real structural invariant), a
    key-colliding list cannot satisfy the constructor obligation, and lookup is deterministic *)

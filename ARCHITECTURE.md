@@ -42,10 +42,12 @@ of key uniqueness; regex source scanning is not a sound zero-axiom gate; axiom-f
                  judgment (prog_ok_iff).  CompilationFacts p carries the compiler-derived facts the
                  renderer consumes (today: the package clause name) — decorating the SAME program.
 
-  GoSafe         the exact abstract println-trace semantics with REAL values (VBool/VInt Z) + the safety
-                 capability SafeProgram over CompilableProgram.  GoSafe := True TODAY (the fragment has no
+  GoSafe         the safety capability SafeProgram over CompilableProgram, plus a PER-FILE abstract
+                 println-trace with REAL values (VBool/VInt Z).  GoSafe := True TODAY (the fragment has no
                  unsafe op), documented honestly; the PERMANENT extension point for guarantees beyond
-                 compiler acceptance.
+                 compiler acceptance.  There is no whole-PROGRAM execution semantics yet (multi-package is
+                 a compile-time concept — go build ./... — and only the witness package is executed vs
+                 goldens); a per-package program semantics arrives when a construct needs it.
 
   GoRender       the direct GoFileAST -> bytes renderer.  It emits the package clause from the derived
                  CompilationFacts name and each DMain as a `func main()`.  Every file begins with the
@@ -53,11 +55,11 @@ of key uniqueness; regex source scanning is not a sound zero-axiom gate; axiom-f
                  render_expr_denotes (the rendered primitive spelling denotes exactly its value);
                  decimal-faithful, no leading zero, header-first-line.
 
-  DirectoryImage an ABSTRACT complete finite map from FilePath to exact final bytes.  A value carries a
-                 PROVENANCE proof that it came from rendering a SafeProgram (di_prov), so it cannot exist
-                 unless its contents ARE a certified rendered program — there is NO arbitrary-map ->
-                 image escape.  Public construction is render_program : SafeProgram -> DirectoryImage.
-                 directory_entries projects it to the (on-disk path, bytes) transport list.
+  DirectoryImage a complete finite map from FilePath to exact final bytes, PROVENANCE-GATED: a value
+                 carries a proof it came from rendering a SafeProgram (di_prov), so it cannot exist unless
+                 its contents ARE a certified rendered program.  mkImage is a public constructor but
+                 demands that proof (not an arbitrary-map escape); render_program is the canonical
+                 construction.  directory_entries projects it to the (on-disk path, bytes) transport list.
 
   Fido Emit      the ONE general transport command (a Rocq vernac): `Fido Emit <image-term> To "<root>"`.
                  It decodes ONLY the final (path, bytes) transport data (exact constructors of
@@ -95,7 +97,7 @@ AST->output->AST round-trip authority, no copied compiled AST, no handwritten OC
 | **GoCompile** | whole-program directory→package + exactly-one-main + int-representability; `go_compile` sound/complete; populated `CompilationFacts` | be a boolean; accept per-file partially; hide package grouping / entry status in a raw node |
 | **GoSafe** | real `GoValue`; abstract `eval_file`; `SafeProgram` (0 = -0); honest `GoSafe := True` | observe spelling as value; keep an unused panic placeholder; circularly reference compilation |
 | **GoRender** | render decls + the derived package clause; header exact first line; `render_expr_denotes` | tokenize/lex/parse/round-trip; deduce packages/entry; invoke a formatter |
-| **DirectoryImage** | abstract complete finite map, provenance-gated; only `render_program` constructs it publicly | expose an arbitrary-map constructor that bypasses SafeProgram |
+| **DirectoryImage** | complete finite map, provenance-gated (`di_prov` proves it came from `render_program`; `mkImage` demands that proof); `Fido Emit` typechecks its argument as a `DirectoryImage` | be an arbitrary-map escape that bypasses SafeProgram; accept a raw transport list at the emit boundary |
 | **Fido Emit + sink** | decode ONLY final (path, bytes) with exact constructors; ownership-aware dirty-directory sync | inspect any program/AST/proof/semantics; delete/overwrite/follow foreign state |
 
 ## The handwritten-OCaml boundary (hard)

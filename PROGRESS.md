@@ -49,8 +49,10 @@ is rejected IN Rocq before any bytes — **zero expected Go build failures, ever
   delete; foreign files/dirs/symlinks never touched, symlinks never followed; stale generated `.go` cleaned
   by header + desired-key-set (no timestamps/manifest). Honest: convergent on rerun, NOT transactional.
 - **Pinned Go** (`golang:1.23-alpine`): `go build ./...` over the WHOLE tree + `go vet` + gofmt-clean; the
-  witness runs vs reviewed goldens (`e2e/golden.*`); a multi-package tree is ACCEPTED and no-main/duplicate-
-  main fixtures are REJECTED — the differential confirming the whole-program rules match `go build ./...`.
+  witness runs vs reviewed goldens (`e2e/golden.*`); representative differential fixtures — a multi-package
+  tree ACCEPTED, no-main/duplicate-main trees REJECTED, and `go list ./...` matching the emitted package
+  set — exercise the whole-program rules against real `go build ./...` (discovering discrepancies, not
+  proving universal agreement).
 - `make check` = host gates (transport-only OCaml, lexical axiom scan, no tracked `*.go`) + prove + e2e,
   green. One shared Dune cache builds the theory + plugin.
 
@@ -65,7 +67,7 @@ is rejected IN Rocq before any bytes — **zero expected Go build failures, ever
 ## Build-trust tasks
 
 Done: base + Go images digest-pinned; the opam retry loop fails closed; one shared Dune cache builds theory +
-plugin; the always-run count-checked `gate/axiom_gate.v`; the sound lexical `tools/axiom-scan.sh` in `make
-check` + the hook. Still open: pin/snapshot the opam repo + verify installed package versions; investigate a
-Rocq-native global-environment assumption audit (currently the lexical scanner + `Print Assumptions` cover
-declaration-level + public-surface axioms).
+plugin; zero project axioms enforced two ways — the count-checked `gate/axiom_gate.v` (Print Assumptions on
+public surfaces, for external axioms) AND the Rocq-native `Fido Audit Assumptions` global-environment audit
+(`gate/assumptions_audit.v`, catching unused Fido axioms, with a planted-axiom self-test) — replacing the
+fail-open source-text scanner. Still open: pin/snapshot the opam repo + verify installed package versions.

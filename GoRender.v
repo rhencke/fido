@@ -8,8 +8,10 @@
     Rocq-rendered bytes — the sink never adds or alters it).  [render_file] is an INTERNAL helper; the
     PUBLIC capability is [GoEmit.render_program : SafeProgram -> DirectoryImage].  Proved here: all
     output ASCII; the ROOT correspondence [render_expr_denotes] — the rendered primitive spelling
-    denotes EXACTLY the semantic value (parser-free) — plus decimal faithfulness / no-leading-zero and
-    the int boundary facts.
+    denotes EXACTLY the semantic value under an INDEPENDENT decimal reader (parser-free; the milestone
+    forbids a lexer/parser/round-trip in the certified path) — plus decimal faithfulness / no-leading-
+    zero and the int boundary facts.  Whether the REAL Go compiler parses these bytes to that value is
+    claim (B) — external adequacy — exercised by the differential e2e, not a kernel theorem here.
     ============================================================================ *)
 From Stdlib Require Import String Ascii NArith ZArith List Bool Lia.
 From Fido Require Import digits Ints GoAST GoCompile GoSafe.

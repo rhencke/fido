@@ -79,11 +79,44 @@ let decode_entries sigma l =
     | _ -> CErrors.user_err (str "fido emit: expected a directory-entries list")
   in go l []
 
+(* A SOUND zero-axiom audit: enumerate the compiled global environment and reject any constant declared
+   under a Fido module whose body is axiomatic (Undef = Axiom/Parameter/Admitted).  Unlike a source-text
+   scanner this cannot be fooled by comments/strings/command prefixes/attributes/module aliases, and it
+   catches UNUSED axioms (Print Assumptions only sees a term's dependency closure).  Print Assumptions on
+   the public surfaces still guards against EXTERNAL (non-Fido) axioms entering a proof closure. *)
+let modpath_is_fido mp =
+  let s = Names.ModPath.to_string mp in
+  String.length s >= 4 && String.sub s 0 4 = "Fido"
+
+let do_audit () =
+  let env = Global.env () in
+  let bad = ref [] in
+  Environ.fold_constants (fun c cb () ->
+    if modpath_is_fido (Names.Constant.modpath c) then
+      (match cb.Declarations.const_body with
+       | Declarations.Undef _ -> bad := Names.Constant.to_string c :: !bad
+       | _ -> ()))
+    env ();
+  match !bad with
+  | [] -> Feedback.msg_notice
+            (str "fido: assumption audit OK — no Fido constant is an axiom/parameter/admitted")
+  | l -> CErrors.user_err
+           (str ("fido: PROJECT AXIOMS found (Fido constants with no body): " ^ String.concat ", " l))
+
 let do_emit t dir =
   let env = Global.env () in
   let sigma = Evd.from_env env in
   let (tc, _) = Constrintern.interp_constr env sigma t in
-  let nf = Reductionops.nf_all env sigma tc in
+  (* PROVENANCE ENFORCED AT THE BOUNDARY: the command receives a proved directory-image term, and the
+     bridge ITSELF applies the exact certified projection resolved by qualified name below.  Typechecking
+     [projection tc] fails unless [tc] has the certified image type — a proof-carrying value that cannot
+     exist unless its contents were certified.  A raw (path,bytes) list has type list (string*string),
+     not the image type, so it is rejected here, before any effect. *)
+  let de_ref = Nametab.locate (Libnames.qualid_of_string "Fido.GoEmit.directory_entries") in
+  let (sigma, de) = Evd.fresh_global env sigma de_ref in
+  let app = EConstr.mkApp (de, [| tc |]) in
+  let (sigma, _ty) = Typing.type_of env sigma app in   (* raises unless tc : DirectoryImage *)
+  let nf = Reductionops.nf_all env sigma app in
   let entries = decode_entries sigma nf in
   let n = (try Fido_sink.sync dir entries
            with Fido_sink.Fail m -> CErrors.user_err (str ("fido emit: " ^ m))) in
@@ -92,4 +125,8 @@ let do_emit t dir =
 
 VERNAC COMMAND EXTEND FidoEmit CLASSIFIED AS SIDEFF
 | [ "Fido" "Emit" constr(t) "To" string(dir) ] -> { do_emit t dir }
+END
+
+VERNAC COMMAND EXTEND FidoAudit CLASSIFIED AS QUERY
+| [ "Fido" "Audit" "Assumptions" ] -> { do_audit () }
 END

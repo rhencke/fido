@@ -100,14 +100,30 @@ echo "fido: emitted tree:"; echo ----; ( cd "$O" && find . -type f | sort ); ech
 if ! rocq c -Q _build/default/. Fido e2e/WitnessMulti.v > /tmp/emit-multi.log 2>&1; then cat /tmp/emit-multi.log; fail "Fido Emit (multi-package) FAILED"; fi
 { [ -f /workspace/e2e-multi/main.go ] && [ -f /workspace/e2e-multi/extra.go ] && [ -f /workspace/e2e-multi/sub/main.go ]; } || fail "multi-package tree incomplete"
 echo "fido: multi-package tree:"; ( cd /workspace/e2e-multi && find . -name '*.go' | sort )
+# provenance: a forged raw transport (not a DirectoryImage) is rejected BEFORE any effect (Fail fixtures)
+if ! rocq c -Q _build/default/. Fido e2e/WitnessNeg.v > /tmp/emit-neg.log 2>&1; then cat /tmp/emit-neg.log; fail "a forged raw transport was NOT rejected"; fi
+[ ! -e /workspace/e2e-neg ] || fail "a rejected Fido Emit still created its target directory"
+echo "fido: provenance enforced — forged raw transports rejected before any effect"
+
+# --- SOUND zero-project-axiom audit: enumerate the compiled global env (not a text scanner) ---
+if ! rocq c -Q _build/default/. Fido gate/assumptions_audit.v > /tmp/audit.log 2>&1; then cat /tmp/audit.log; fail "assumption audit FAILED"; fi
+grep -q 'assumption audit OK' /tmp/audit.log || { cat /tmp/audit.log; fail "audit did not confirm zero Fido axioms"; }
+# audit self-test: a planted axiom in a Fido-namespaced module MUST be caught (not fail-open)
+mkdir -p /tmp/fa; printf 'Axiom planted_axiom : True.\n' > /tmp/fa/Planted.v
+rocq c -R /tmp/fa Fido /tmp/fa/Planted.v > /tmp/fa/plant.log 2>&1 || { cat /tmp/fa/plant.log; fail "could not compile the audit self-test module"; }
+printf 'From Fido Require Import Planted.\nDeclare ML Module "fido.emit".\nFido Audit Assumptions.\n' > /tmp/fa/Check.v
+if rocq c -R /tmp/fa Fido -Q _build/default/. Fido /tmp/fa/Check.v > /tmp/fa/check.log 2>&1; then fail "the audit did NOT catch a planted Fido axiom (fail-open)"; fi
+echo "fido: assumption audit OK — zero Fido axioms; self-test confirms a planted Fido axiom is caught"
 
 # --- exercise the dirty-directory sink directly (the §17 algorithm) ---
 cp plugin/fido_sink.ml e2e/sink_test.ml /tmp/
 if ! ( cd /tmp && ocamlfind ocamlopt -package unix -linkpkg fido_sink.ml sink_test.ml -o /workspace/sink_test ) > /tmp/sink.log 2>&1; then cat /tmp/sink.log; fail "sink_test compile FAILED"; fi
-hdr='// fido generated.  do not edit.'
-# (1) clean-dir sync produces a marked control dir + main.go
+hdr=$(head -1 "$O/main.go")   # DERIVE the ownership header from actual output (no hardcoded literal)
+stages() { find "$1" -name '.fido-stage-*' 2>/dev/null; }
+# (1) clean-dir sync produces a marked control dir + main.go; no stage dir leaks after success
 mkdir -p /workspace/adv-1; ./sink_test /workspace/adv-1 || fail "clean sync failed"
 [ -f /workspace/adv-1/main.go ] && [ -f /workspace/adv-1/.fido/marker ] || fail "no main.go/control marker"
+[ -z "$(stages /workspace/adv-1)" ] || fail "a stage dir leaked after a successful sync"
 # (2) dirty re-sync: a stale generated .go is cleaned; foreign files/dirs preserved
 printf '%s\n\npackage main\n' "$hdr" > /workspace/adv-1/stale.go
 printf 'keep me\n' > /workspace/adv-1/keep.txt
@@ -116,10 +132,11 @@ mkdir -p /workspace/adv-1/handwritten; printf 'package hand\n' > /workspace/adv-
 [ ! -e /workspace/adv-1/stale.go ] || fail "stale generated .go not cleaned"
 [ -f /workspace/adv-1/keep.txt ] || fail "foreign file deleted"
 [ -f /workspace/adv-1/handwritten/h.go ] || fail "foreign .go (no header) deleted"
-# (3) adversarial refuse-and-preserve
+# (3) adversarial refuse-and-preserve; a handled failure leaves no stage dir behind
 mkdir -p /workspace/adv-a; printf 'FOREIGN\n' > /workspace/adv-a/main.go
 if ./sink_test /workspace/adv-a; then fail "overwrote a foreign main.go"; fi
 [ "$(cat /workspace/adv-a/main.go)" = "FOREIGN" ] || fail "a foreign main.go was altered"
+[ -z "$(stages /workspace/adv-a)" ] || fail "a stage dir leaked after a handled failure"
 mkdir -p /workspace/adv-b-real; printf 'sentinel\n' > /workspace/adv-b-real/keep; ln -s /workspace/adv-b-real /workspace/adv-b
 if ./sink_test /workspace/adv-b; then fail "wrote through a symlinked root"; fi
 [ ! -e /workspace/adv-b-real/main.go ] && [ "$(cat /workspace/adv-b-real/keep)" = "sentinel" ] || fail "disturbed a symlinked root"
@@ -173,6 +190,12 @@ echo "fido e2e diff: ACCEPTED multi-package tree (root main + sub/ main + empty 
 if [ -n "$(gofmt -l .)" ]; then echo "fido e2e diff: multi tree not gofmt-clean"; gofmt -l .; exit 1; fi
 go vet ./... || { echo "fido e2e diff: go vet failed on the ACCEPTED multi-package tree"; exit 1; }
 go build ./... || { echo "fido e2e diff: go build ./... REJECTED a GoCompile-ACCEPTED multi-package tree (model bug)"; exit 1; }
+# DISCOVERY: every emitted-file directory must be a package `go list ./...` actually selects (no file
+# certified into a go-ignored directory).  Compare the two directory sets exactly.
+emitted_dirs=$(find . -name '*.go' -exec dirname {} \; | sort -u)
+listed_dirs=$(go list -f '{{.Dir}}' ./... | sed "s#^$(pwd)#.#; s#^\.\$#.#" | sort -u)
+echo "fido e2e diff: emitted dirs=[$(echo $emitted_dirs)] go-list dirs=[$(echo $listed_dirs)]"
+[ "$emitted_dirs" = "$listed_dirs" ] || { echo "fido e2e diff: emitted package dirs != go list ./... selection (a file was certified into a go-undiscovered directory)"; exit 1; }
 # hand-written REJECTED fixtures: `go build ./...` must reject exactly what GoCompile makes impossible
 mkdir -p /tmp/rej-nomain && cd /tmp/rej-nomain && printf 'module rej\n\ngo 1.23\n' > go.mod
 printf '// fido generated.  do not edit.\n\npackage main\n' > x.go   # a main package with NO func main

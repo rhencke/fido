@@ -4,7 +4,7 @@ BUILDER := fido-builder
 # toolchain's GOOS/GOARCH/word size).  This is an operational pin, not a certified TargetConfig.
 override PLATFORM := linux/amd64
 
-.PHONY: check prove emit e2e ocaml-origin-gate go-uncommittable-seal axiom-scan builder install-hooks prover-log
+.PHONY: check prove emit e2e ocaml-origin-gate go-uncommittable-seal builder install-hooks prover-log
 .DEFAULT_GOAL := check
 
 # Fido (ARCHITECTURE.md): an LLM proposes a GoProgram (a nonempty finite map of intrinsic FilePath keys
@@ -14,7 +14,7 @@ override PLATFORM := linux/amd64
 #     -> the general `Fido Emit` transport command -> one dirty-directory filesystem sink -> go build ./...
 # ALL Rocq/Go work runs in the PINNED container via buildx — host Rocq is NOT supported.
 
-check: ocaml-origin-gate go-uncommittable-seal axiom-scan prove e2e
+check: ocaml-origin-gate go-uncommittable-seal prove e2e
 	@echo "fido: check OK — proved the core (FilePath/FMap/Ints/GoAST/GoCompile/GoSafe/GoRender/GoEmit) axiom-free AND emitted the whole tree via the Fido Emit transport + dirty-directory sink through go build ./... vs goldens; transport-only OCaml, no tracked *.go ✓"
 
 # The reproducible container proof: dune compiles the modules + the always-run assumptions gate.
@@ -38,11 +38,9 @@ e2e: builder
 ocaml-origin-gate:
 	@sh tools/ocaml-origin-gate.sh
 
-# Anti-axiom DECLARATION scan (defense-in-depth; the AUTHORITY is gate/axiom_gate.v's Print Assumptions).
-# Rejects Axiom/Parameter/Conjecture/Admitted/admit anywhere and top-level Variable/Hypothesis/Context;
-# Sections are permitted.  Has positive+negative self-tests.
-axiom-scan:
-	@sh tools/axiom-scan.sh
+# Zero project axioms are enforced two ways in the pinned build: gate/axiom_gate.v (Print Assumptions on
+# the public surfaces, in `prove`) + the Rocq-native `Fido Audit Assumptions` global-environment audit
+# (gate/assumptions_audit.v, in `emit`, with a planted-axiom self-test).  No source-text scanner.
 
 # SEAL: no generated Go is tracked (emission output lives under _build / is gitignored when it returns).
 go-uncommittable-seal:

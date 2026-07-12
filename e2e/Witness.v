@@ -27,4 +27,4 @@ Definition demo_compiled : CompilableProgram :=
 Definition demo_safe : SafeProgram := certify demo_compiled.
 
 Declare ML Module "fido.emit".
-Fido Emit (directory_entries (render_program demo_safe)) To "/workspace/e2e-out".
+Fido Emit (render_program demo_safe) To "/workspace/e2e-out".

@@ -47,11 +47,12 @@ stop. When an entry stops being a live temptation, delete it.
    desired-key-set, never timestamps or a manifest. State the guarantee honestly: convergent on rerun, NOT a
    transactional whole-directory commit (a crash may leave a mixed generation; the next run converges).
 
-7. **Regex source scanning is not a sound zero-axiom gate.** A naive comment stripper missed an `Axiom` hidden
-   behind a `"(*"` string; a line-oriented Section counter missed same-line `Section … End`. Use a
-   purpose-built LEXICAL command scanner (string / nested-comment / sentence / scope-stack aware), permitting
-   Section-local variables and Module-Type interface declarations. `Print Assumptions` stays the authority for
-   the public surfaces; this is defense-in-depth for unused declarations.
+7. **Source-text scanning is not a sound zero-axiom gate — audit the compiled environment instead.** Every
+   text scanner leaked: a naive comment stripper missed an `Axiom` behind a `"(*"` string; a smarter lexical
+   scanner still missed `Time Axiom …`, a no-space `#[global]Axiom`, and module ALIASES that look like scopes.
+   Text always has another escape. The sound gate enumerates the compiled global environment and rejects any
+   Fido constant with an axiomatic body (Undef) — catching UNUSED axioms too, immune to lexical tricks.
+   `Print Assumptions` on the public surfaces stays the complementary check for EXTERNAL axioms in a closure.
 
 8. **No raw/string-rescue escape hatch — the single most expensive mistake this project has paid for.** A
    structured-or-fail AST must never gain a raw/opaque/text fallback constructor. Unrepresentable ⇒ absent

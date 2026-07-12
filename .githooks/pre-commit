@@ -19,12 +19,9 @@ if [ -n "$tracked_go" ]; then
   exit 1
 fi
 
-# (3) Anti-axiom DECLARATION scan over ALL tracked .v (Axiom/Parameter/Conjecture/Admitted/admit anywhere;
-#     top-level Variable/Hypothesis/Context; Sections permitted).  DEFENSE-IN-DEPTH, not the authority: the
-#     authority is Rocq's own `Print Assumptions`, asserted by `make check` (gate/axiom_gate.v — compiled
-#     fresh every build, count-checked so a warm cache cannot skip it).  Shared with `make check` so the
-#     hook and the build run the same scanner (with its own positive+negative self-tests).
-sh tools/axiom-scan.sh
+# (3) Zero project axioms are enforced by the pinned `make check` below: gate/axiom_gate.v (Print
+#     Assumptions on the public surfaces) + the Rocq-native `Fido Audit Assumptions` global-environment
+#     audit (which catches unused Fido axioms and cannot be fooled by source-text tricks).
 
 # (4) On any proof / build / e2e change, run the verify so a broken proof, a reintroduced backend
 #     hallmark, or a broken emission aborts the commit.

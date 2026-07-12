@@ -24,8 +24,9 @@ func main() {
 ```
 
 is produced from proved bytes, synchronized into a directory tree, built by `go build ./...`, and run with
-its stdout/stderr/exit compared byte-for-byte to reviewed goldens — alongside a multi-package differential
-fixture and no-main/duplicate-main rejection fixtures that confirm the whole-program rules agree with Go.
+its stdout/stderr/exit compared byte-for-byte to reviewed goldens — alongside representative differential
+fixtures (a multi-package tree accepted; no-main and duplicate-main trees rejected; `go list ./...` matches
+the emitted package set) that exercise the whole-program rules against real Go.
 
 - **One program representation.** A `GoProgram` is a **nonempty** verified finite map from intrinsic
   `FilePath` keys to one raw file AST per file (a raw string is **not** a path — Go package discovery

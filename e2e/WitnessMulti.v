@@ -27,4 +27,4 @@ Definition multi_compiled : CompilableProgram :=
 Definition multi_safe : SafeProgram := certify multi_compiled.
 
 Declare ML Module "fido.emit".
-Fido Emit (directory_entries (render_program multi_safe)) To "/workspace/e2e-multi".
+Fido Emit (render_program multi_safe) To "/workspace/e2e-multi".
