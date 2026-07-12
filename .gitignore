@@ -1,6 +1,5 @@
-# Go: EVERY .go is GENERATED (the certified output) — none is ever checked in (the uncommittable-Go seal +
-# ocaml-origin gate are the backstops).  `make emit` writes emitdemo/spine_demo.go; `make build` exports
-# spine_demo.go to the repo root.
+# Go: every .go is generated, never checked in.  There is no emission this round; the uncommittable-Go seal
+# + ocaml-origin gate are the backstops, and any generated .go stays ignored if emission returns.
 *.go
 /fido
 *.test
@@ -9,20 +8,6 @@ vendor/
 
 # Environment
 .env
-
-# The certified Go output: emitdemo/spine_demo.go is GENERATED on demand by `make emit` (its exact bytes are
-# pinned + machine-checked by GoEmit.demo_emit_bytes) and NEVER committed — `make check` regenerates + verifies
-# it, so it can never go stale.  The extraction intermediates + the build-generated one-line writer are transient.
-/emitdemo/emit_demo.ml
-/emitdemo/emit_demo.mli
-/emitdemo/gen_write.ml
-/emitdemo/*.cmi
-/emitdemo/*.cmo
-/emitdemo/spine_demo.go
-
-# A stray printer.ml from an old standalone extraction — never tracked
-/printer.ml
-/printer.mli
 
 # Rocq build artifacts — .v sources are checked in, these are not
 *.glob

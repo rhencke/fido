@@ -1,10 +1,10 @@
 #!/bin/sh
-# OCaml-origin gate (checkpoint 64).  Fido has NO handwritten OCaml backend.  The Go output is produced by
-# STANDARD Rocq extraction of a proved closed string ([GoEmit.demo_emit], bytes machine-checked by
-# [demo_emit_bytes]); a one-line writer, GENERATED at build time and never tracked, prints it to a .go.
-# This gate is literal and fail-closed:
+# OCaml-origin gate.  Fido has NO handwritten OCaml backend.  There is NO emission this round (the false
+# compile/emit authority was deleted), so there is no OCaml at all; when a proof-bearing emission returns it
+# is standard Rocq extraction of a proved closed value plus one tiny transparent build-generated writer,
+# never tracked.  This gate is literal and fail-closed:
 #   (1) the set of tracked *.ml / *.mli / *.mlg is EMPTY — no handwritten OCaml, and no committed generated
-#       OCaml either (extraction outputs live only under ignored build dirs);
+#       OCaml either (any future extraction output lives only under ignored build dirs);
 #   (2) no tracked source names a hallmark of the deleted handwritten backend / custom extraction plugin —
 #       a reintroduction tripwire (name-based lowering must never come back).
 set -eu

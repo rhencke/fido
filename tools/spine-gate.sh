@@ -1,11 +1,9 @@
 #!/bin/sh
-# THE ONE spine-gate authority: compile the trust-boundary SOURCE SET standalone and assert
-# ZERO axioms (grep '^Axioms:' over the one log every compile writes to).  Called by BOTH the
-# Dockerfile prover stage and the Makefile local mirrors — a single definition, no drift path.
-# EVERY failure path cleans the generated artifacts (vo/glob/aux of the ACTIVE file set +
-# printer.ml), so read-only callers stay read-only even on a regression; on SUCCESS the
-# artifacts are left for the caller (the printer flow consumes printer.ml, then CLEANs).
-#   modes: printer | emit | selftest (no other mode exists — the gate is not a general runner)
+# THE ONE spine-gate authority: compile the surviving module set standalone and assert ZERO axioms
+# (grep '^Axioms:' over the one log every compile writes to).  Called by BOTH the Dockerfile prover stage
+# and the Makefile local mirror — a single definition, no drift path.  EVERY failure path cleans the
+# generated artifacts (vo/glob/aux of the ACTIVE file set); on SUCCESS the .vo are left for the caller.
+#   modes: printer | selftest (no other mode exists — the gate is not a general runner)
 set -eu
 
 # run_gate <log> <file...> — the PRIVATE gate body; returns nonzero after cleaning on failure.
@@ -24,7 +22,6 @@ run_gate() {
 }
 clean_artifacts() {
   for ca_f in "$@"; do ca_b="${ca_f%.v}"; rm -f "$ca_b.vo" "$ca_b.glob" ".$ca_b.aux"; done
-  rm -f printer.ml
 }
 
 case "$1" in
@@ -38,7 +35,7 @@ case "$1" in
       exit 1; }
     # Verify the FULL contract in an isolated dir: the SUCCESS path (a clean spine compiles, [run_gate]
     # returns 0, and its .vo SURVIVES for the caller) AND both FAILURE branches (axiom + broken each reject
-    # and clean up — nothing survives, even a good file already in the set + a sentinel printer.ml).
+    # and clean up — nothing survives, even a good file already in the set).
     d="$(mktemp -d)"
     printf 'Definition sg_ok : nat := 0.\n' > "$d/sg_ok.v"
     printf 'Axiom sg_ax : True.\nPrint Assumptions sg_ax.\n' > "$d/sg_ax.v"
@@ -54,14 +51,13 @@ case "$1" in
       echo "fido: spine-gate selftest FAILED (success path, code $ok) — a clean spine must compile AND leave its .vo" >&2
       rm -rf "$d"; exit 1
     fi
-    rm -f "$d/sg_ok.vo" "$d/sg_ok.glob" "$d/.sg_ok.aux" "$d/printer.ml"
+    rm -f "$d/sg_ok.vo" "$d/sg_ok.glob" "$d/.sg_ok.aux"
     # (b) FAILURE paths — reject + clean.
     for bad in sg_ax sg_broken; do
       fail=0
       ( cd "$d" || exit 5
-        printf 'sentinel\n' > printer.ml
         if run_gate spine.log sg_ok.v "$bad.v" >/dev/null 2>&1; then exit 3; fi
-        for a in sg_ok.vo sg_ok.glob .sg_ok.aux "$bad.vo" "$bad.glob" ".$bad.aux" printer.ml; do
+        for a in sg_ok.vo sg_ok.glob .sg_ok.aux "$bad.vo" "$bad.glob" ".$bad.aux"; do
           if [ -e "$a" ]; then exit 4; fi
         done
         exit 0 ) || fail=$?

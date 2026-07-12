@@ -35,7 +35,7 @@ syntax root — kept only until the reset reaches it, described honestly in `PRO
    any printer policy (`unop_paren`/`binop_prec` must not appear in the grammar). Then the printer is proved
    *adequate*: `PrintsExpr e toks` and `GoExprGrammar … toks e'` gives `e' = erase e`. One token stream, one
    verified renderer (`typed AST → canonical tokens → bytes`), and `lex (render toks) = toks`; the string
-   output is a projection of the tokens, not a second AST recursion. No formatter rewrites certified bytes.
+   output is a projection of the tokens, not a second AST recursion. No formatter rewrites the rendered bytes.
 4. **A compile environment + declarative elaboration.** `CompileEnv` (keywords; shadowable universe/
    predeclared bindings; package/type/value namespaces), `ResolveName`, `ElaborateType`, `TypeExpr`,
    `TypeStmt` — declarative judgments producing a **typed IR** (`TypedProgram`) in which static invalidity is
