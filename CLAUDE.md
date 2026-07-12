@@ -61,8 +61,9 @@ formulation, follow the stronger path and surface the divergence.
 4. **Zero project axioms — every `Print Assumptions` surface is EMPTY; preserve it.** The whole model is
    `Definition`s/`Record`s over concrete Rocq data. Never `Axiom`/`Parameter`/`Admitted`, never a kernel
    primitive (`PrimInt63`/`PrimFloat` are axioms too), never `FunctionalExtensionality` on a retained
-   surface. `make check` asserts the surviving modules' declared `Print Assumptions` surfaces are axiom-free
-   (Rocq's own output — this gates the declared surfaces, not every definition; see `PROGRESS.md`).
+   surface. The live build gate (`make check`) asserts only **GoPrint's** declared `Print Assumptions`
+   surfaces are axiom-free (`digits`/`GoAst` declare none; the axiom-DECLARATION scan runs only in the
+   pre-commit hook, not `make check`/CI — see `PROGRESS.md`).
 5. **No fuel, ever.** No gas, step budgets, max-depths, bounded runners, cycle caps, or renamed
    equivalents anywhere in retained code. A ranked/well-founded structural measure is acceptable ONLY as a
    termination proof from decreasing structure — never as an externally supplied execution budget. A
@@ -96,10 +97,11 @@ features; do not rebuild the old breadth from memory.
 
 ## Workflow & commands
 
-Verify after any change: **`make check`** — zero tracked OCaml, no tracked generated Go, and the surviving
-Rocq compiles with its declared `Print Assumptions` surfaces axiom-free (via `tools/spine-gate.sh`; that
-gates the declared surfaces, not every definition — see `PROGRESS.md`'s trust base). No Go toolchain
-is involved (there is no emission this round). Then commit → re-index.
+Verify after any change: **`make check`** — zero tracked OCaml, no tracked generated Go, the surviving Rocq
+type-checks, and GoPrint's declared `Print Assumptions` surfaces are axiom-free (via `tools/spine-gate.sh`;
+that gates GoPrint's surfaces only, not `digits`/`GoAst` and not the axiom-declaration scan — see
+`PROGRESS.md`'s trust base). No Go toolchain is involved (there is no emission this round). Then commit →
+re-index.
 
 ```
 make check          # the one verify: origin/seal gates + compile digits/GoAst/GoPrint, Print-Assumptions surfaces axiom-free

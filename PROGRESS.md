@@ -46,13 +46,17 @@ the Dockerfile) **plus the opam-repo state and the apt packages they install** (
 a residual build-trust task). No handwritten OCaml exists (`tools/ocaml-origin-gate.sh` enforces zero tracked
 `*.ml`/`*.mli`/`*.mlg`).
 
-Precisely what "axiom-free" gates: `spine-gate` greps `^Axioms:` over the compile log, so it establishes only
-that the **explicitly declared `Print Assumptions` surfaces** (GoPrint's injectivity/canonical theorems)
-print no assumptions — NOT that every definition in every file is globally assumption-free. The pre-commit
-anti-axiom scan (no `Axiom`/`Parameter`/`Admitted` in any `.v`) plus Stdlib-only imports cover the rest by
-construction. The precise fix is one public-surface module that `Print Assumptions` every public root
-theorem and is the sole gate target — a build-trust task. Never read "zero axioms" as proof that a theorem's
-*statement* is the right theorem (the deleted `GoCompile` was axiom-free and still wrong).
+Exactly what the LIVE build gate enforces (`spine-gate`, run by `make check` and the Docker prover): the
+three files type-check, and it greps `^Axioms:` over the compile log — so it establishes only that the
+theorems with an explicit `Print Assumptions` print no assumptions. That is **GoPrint's 123 declared
+surfaces only**; `digits.v` and `GoAst.v` declare NONE, so the build gate says NOTHING about their
+axiom-freedom (it holds by inspection — no `Axiom`/`Parameter`/`Admitted`, Stdlib-only imports — but is not
+build-gated). The axiom-DECLARATION scan (no `Axiom`/`Parameter`/`Admitted`/top-level `Variable` in any `.v`)
+runs ONLY in the **pre-commit hook**, not in `make check` or the container build, so it is bypassable
+(`--no-verify`) and absent in CI. The precise fix — one public-surface module that `Print Assumptions` every
+root theorem, gated in the build as the sole target (and moving the declaration scan into `make check`) — is
+a build-trust task, deferred with the syntax-root reset. Never read "no assumptions" as proof that a
+theorem's *statement* is the right theorem (the deleted `GoCompile` was axiom-free and still wrong).
 
 ## RED / NEXT — pour the roots before any floor (do NOT add features)
 

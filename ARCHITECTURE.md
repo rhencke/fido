@@ -60,10 +60,11 @@ one tiny transparent output glue file, and the Go toolchain (Go's parse of the b
 Go-subset recognition theorem is the grammar-adequacy goal above). No handwritten semantic OCaml exists
 (`tools/ocaml-origin-gate.sh`).
 
-Proved: the surviving syntax layer's *declared* `Print Assumptions` surfaces print no assumptions — that is
-what the axiom gate establishes, NOT that every definition is globally assumption-free (the precise
-public-surface gate is a build-trust task). "No assumptions" is never evidence that a theorem's *statement*
-is the right correctness theorem — the deleted `GoCompile` was axiom-free and still wrong.
+Proved by the live build gate: only **GoPrint's declared `Print Assumptions` surfaces** print no assumptions
+(`digits`/`GoAst` declare none, so their axiom-freedom is by inspection, not build-gated; the axiom-
+declaration scan is pre-commit-hook-only, not in `make check`/CI). The precise public-surface gate is a
+build-trust task (see `PROGRESS.md`). "No assumptions" is never evidence that a theorem's *statement* is the
+right correctness theorem — the deleted `GoCompile` was axiom-free and still wrong.
 
 ## What must never come back
 

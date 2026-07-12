@@ -3,7 +3,7 @@
 #
 # Fido is a proof repository under a foundation reset: there is NO handwritten OCaml, NO plugin, and NO
 # emitted Go this round.  On any proof / build change we run the verify (make check) — the surviving Rocq
-# must compile with its Print-Assumptions surfaces axiom-free — so a broken proof or a reintroduced backend hallmark aborts the commit.
+# must compile with GoPrint's declared Print-Assumptions surfaces axiom-free — so a broken proof or a reintroduced backend hallmark aborts the commit.
 set -e
 
 # (1) OCaml-origin gate: zero tracked OCaml (the backend is deleted; there is no emission glue this round).
@@ -62,4 +62,4 @@ if git diff --cached --name-only | grep -qE '\.v$|^tools/|^Makefile$|^Dockerfile
   make check
 fi
 
-echo "fido: OK — surviving Rocq compiles, its Print-Assumptions surfaces axiom-free, zero tracked OCaml."
+echo "fido: OK — surviving Rocq compiles, GoPrint's declared Print-Assumptions surfaces axiom-free, zero tracked OCaml."

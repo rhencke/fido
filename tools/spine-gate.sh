@@ -1,10 +1,12 @@
 #!/bin/sh
-# THE ONE spine-gate authority: compile the surviving module set standalone and assert its DECLARED
-# Print-Assumptions surfaces are axiom-free (grep '^Axioms:' over the compile log — this gates the theorems
-# with an explicit `Print Assumptions`, NOT every definition globally; the pre-commit anti-axiom scan +
-# Stdlib-only imports cover the rest by construction).  Called by BOTH the Dockerfile prover stage and the
-# Makefile local mirror — a single definition, no drift path.  EVERY failure path cleans the generated
-# artifacts (vo/glob/aux of the ACTIVE file set); on SUCCESS the .vo are left for the caller.
+# THE ONE spine-gate authority: compile the surviving module set standalone and grep '^Axioms:' over the
+# compile log.  EXACTLY what this enforces: the three files type-check, and the theorems with an explicit
+# `Print Assumptions` print no axioms — that is only GoPrint (123 surfaces); digits.v and GoAst.v declare
+# NONE, so this gate says NOTHING about their axiom-freedom, and it does NOT run the axiom-DECLARATION scan
+# (that is the pre-commit hook, commit-time only) nor verify import axiom-freedom.  A precise gate — one
+# public-surface module `Print Assumptions`-ing every root theorem, as the sole target — is a build-trust
+# task.  Called by BOTH the Dockerfile prover stage and the Makefile local mirror — a single definition, no
+# drift path.  EVERY failure path cleans the generated artifacts (vo/glob/aux); on SUCCESS the .vo survive.
 #   modes: printer | selftest (no other mode exists — the gate is not a general runner)
 set -eu
 

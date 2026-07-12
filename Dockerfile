@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # Fido under a FOUNDATION RESET (checkpoint 65): the pinned Rocq toolchain compiles the surviving syntax
-# layer (digits, GoAst, GoPrint) and asserts its Print-Assumptions surfaces axiom-free.  There is NO emitted Go and NO Go toolchain this
+# layer (digits, GoAst, GoPrint) and asserts GoPrint's declared Print-Assumptions surfaces axiom-free.  There is NO emitted Go and NO Go toolchain this
 # round — the false compile/emit authority was deleted (a smaller root-only repo beats a green demo on a
 # false compile certificate).  The Go stage returns only when a proof-backed typed emission path exists.
 
@@ -43,7 +43,7 @@ RUN mkdir -p /workspace && chown opam:opam /workspace
 WORKDIR /workspace
 USER opam
 
-# ── Stage 3: prove — compile the surviving modules, assert its Print-Assumptions surfaces axiom-free ────────
+# ── Stage 3: prove — compile the surviving modules, assert GoPrint's declared Print-Assumptions surfaces axiom-free ────────
 FROM rocq-base AS prover
 ARG TARGETARCH
 COPY --chown=opam:opam dune-project dune ./
