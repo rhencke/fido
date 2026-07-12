@@ -1,21 +1,20 @@
 (** ============================================================================
-    GoSafe — the exact operational semantics of the admitted fragment, and the safety
-    certificate over a [CompiledProgram].
+    GoSafe — the exact ABSTRACT println-trace semantics of the admitted fragment, and [SafeProgram],
+    the permanent safety capability boundary over a [CompilableProgram].
 
-    Values are REAL Go values, not source spelling: a printed integer is a signed [Z], so a
-    literal and its negation observe the same value when they denote the same integer — in
-    particular [EInt 0] and [ENeg 0] both evaluate to [VInt 0] ([eval_zero_sign_agnostic]).
-    (This is the accurate foundation user/LLM theorems layer over: they must not be able to
-    "prove" a distinction the target program does not make.)
+    This is NOT a full Go operational semantics — it is a deterministic abstract-trace mapping for the
+    current tiny fragment: values are REAL Go values ([VBool]/[VInt : Z], not source spelling — so
+    [EInt 0] and [ENeg 0] evaluate equal), and [eval_file] is the ordered sequence of a file's
+    [println] calls, each the list of its argument VALUES.  There is no panic/blocking/scheduler/heap
+    algebra: no admitted operation can panic or diverge, so predeclaring one would be scaffolding for
+    constructs that do not exist.  A richer semantics arrives only when its constructs enter the AST.
 
-    [run] is the exact print-event behaviour: the ordered sequence of [println] calls, each the
-    list of its argument VALUES.  It is a total function (evaluation terminates by structure),
-    and the admitted operations (println of primitive literals) have NO panic, division,
-    indexing, nil-deref, blocking, or nontermination source — so there is no [Panicked]/
-    [Outcome] algebra here (that would be future scaffolding for constructors that do not yet
-    exist).  [GoSafe] is therefore the honest, currently-trivial universal obligation over this
-    fragment; it gains real premises the moment a partial/unsafe constructor is added — at which
-    point the exact distinction is introduced together with that constructor, not predeclared.
+    [SafeProgram] is the PERMANENT home for guarantees BEYOND compiler acceptance (nil-deref / bounds /
+    panic-freedom / happens-before / race- or deadlock-freedom subsets / termination classification /
+    protocol invariants / user- or LLM-added refinements).  It is trivial TODAY only because every
+    compilable program representable in this fragment satisfies the current safety contract — NOT by
+    circular reference to compilation.  Stronger proofs REFINE it over the same [CompilableProgram];
+    they never fork the compiler, AST, renderer, or semantics.
     ============================================================================ *)
 From Stdlib Require Import ZArith List.
 From Fido Require Import GoAST GoCompile.
@@ -32,34 +31,30 @@ Definition eval_expr (e : GoExpr) : GoValue :=
   | ENeg n  => VInt (Z.opp (Z.of_N n))
   end.
 
-(** The exact value semantics is by VALUE: a zero literal and a negated zero agree. *)
+(** By VALUE, not spelling: a zero literal and a negated zero agree. *)
 Lemma eval_zero_sign_agnostic : eval_expr (EInt 0) = eval_expr (ENeg 0).
 Proof. reflexivity. Qed.
 
 Definition eval_stmt (s : GoStmt) : list GoValue :=
   match s with SPrintln args => map eval_expr args end.
 
-(** The observable behaviour: one entry per println call, in program order. *)
-Definition run (f : GoFile) : list (list GoValue) :=
+(** A file's exact abstract behaviour: one entry per println call, in program order. *)
+Definition eval_file (f : GoFileAST) : list (list GoValue) :=
   match f with MainFile body => map eval_stmt body end.
 
 (** ---- the safety certificate ---- *)
 
-(** The universal safety obligation over the admitted fragment.  It is currently trivial BY
-    CONSTRUCTION (no admitted operation can panic, block, or diverge — [run] is total and
-    effect-only) — NOT by circular reference to compilation.  A real premise appears here when
-    the first partial/unsafe constructor enters. *)
-Definition GoSafe (cp : CompiledProgram) : Prop := True.
+(** Trivial TODAY (the fragment has no unsafe operation), kept as the permanent extension point. *)
+Definition GoSafe (cp : CompilableProgram) : Prop := True.
 
 Record SafeProgram : Type := mkSafe {
-  sp_cp   : CompiledProgram;
-  sp_safe : GoSafe sp_cp
+  sp_compiled : CompilableProgram;
+  sp_safe     : GoSafe sp_compiled
 }.
 
-(** Build a certificate from a compilation (the fragment's safety obligation is discharged by
-    construction; [sp_cp] carries the genuine compile proof, so nothing uncompilable is
-    certified). *)
-Definition certify (cp : CompiledProgram) : SafeProgram := mkSafe cp I.
+(** A compilation certificate suffices for the current fragment; [sp_compiled] carries the genuine
+    whole-program compile proof, so nothing uncompilable is certified. *)
+Definition certify (cp : CompilableProgram) : SafeProgram := mkSafe cp I.
 
-(** The certified program's AST (what the renderer/emitter consume). *)
-Definition sp_ast (sp : SafeProgram) : GoFile := cp_ast (sp_cp sp).
+(** The certified program (what the public renderer/emitter traverse — only through SafeProgram). *)
+Definition sp_program (sp : SafeProgram) : GoProgram := cp_program (sp_compiled sp).

@@ -7,7 +7,7 @@
 # hallmark, or a broken emission aborts the commit.
 set -e
 
-# (1) OCaml-origin gate: at most the ONE tiny I/O writer (e2e/writer.ml) is tracked OCaml.
+# (1) OCaml-origin gate: at most the ONE dirty-directory filesystem sink (e2e/writer.ml) is tracked OCaml.
 sh tools/ocaml-origin-gate.sh
 
 # (2) SEAL: no generated Go is tracked.  The emitted main.go is produced in the build and stays gitignored;
@@ -19,50 +19,18 @@ if [ -n "$tracked_go" ]; then
   exit 1
 fi
 
-# (3) Anti-axiom DECLARATION tripwire over ALL tracked .v.  This is DEFENSE-IN-DEPTH, not the authority: the
+# (3) Anti-axiom DECLARATION scan over ALL tracked .v (Axiom/Parameter/Conjecture/Admitted/admit anywhere;
+#     top-level Variable/Hypothesis/Context; Sections permitted).  DEFENSE-IN-DEPTH, not the authority: the
 #     authority is Rocq's own `Print Assumptions`, asserted by `make check` (gate/axiom_gate.v — compiled
-#     fresh every build, count-checked so a warm cache cannot skip it).  This cheap
-#     scan catches a casual Axiom/Parameter/Conjecture/Admitted, or a top-level Hypothesis/Variable in a
-#     no-Section file, before commit.  Comments are stripped first, so prose may use these words freely.
-strip_comments() {
-  awk 'BEGIN{d=0} {
-    n=length($0); out=""; i=1;
-    while(i<=n){
-      two=substr($0,i,2);
-      if(two=="(*"){d++; out=out"  "; i+=2; continue}
-      if(two=="*)"&&d>0){d--; out=out"  "; i+=2; continue}
-      c=substr($0,i,1); if(d>0){out=out" "}else{out=out c}; i++;
-    }
-    print out;
-  }' "$1"
-}
-cb='(^|[.][[:space:]])[[:space:]]*'
-amod='((#\[[^]]*\]|Local|Global|Polymorphic|Monomorphic)[[:space:]]+)*'
-scanned_v=$(git ls-files '*.v')
-axiom_hit=""
-for f in $scanned_v; do
-  if strip_comments "$f" | grep -qE "${cb}${amod}(Axiom|Axioms|Parameter|Parameters|Conjecture)[[:space:]]|Admitted"; then
-    axiom_hit="$f (Axiom/Parameter/Conjecture/Admitted)"; break
-  fi
-  # every surviving module is Section-free by design → a top-level Hypothesis/Variable would be a global assumption
-  if strip_comments "$f" | grep -qE "${cb}Section[[:space:]]"; then
-    axiom_hit="$f (Section — the surviving modules carry none; a Section-local Variable would need review)"; break
-  fi
-  if strip_comments "$f" | grep -qE "${cb}${amod}(Hypothesis|Hypotheses|Variable|Variables)[[:space:]]"; then
-    axiom_hit="$f (top-level Hypothesis/Variable)"; break
-  fi
-done
-if [ -n "$axiom_hit" ]; then
-  echo "fido: ERROR — a Fido axiom-shaped declaration was introduced: $axiom_hit."
-  echo "fido: the 0-axiom guarantee forbids this; model the construct as a Definition."
-  exit 1
-fi
+#     fresh every build, count-checked so a warm cache cannot skip it).  Shared with `make check` so the
+#     hook and the build run the same scanner (with its own positive+negative self-tests).
+sh tools/axiom-scan.sh
 
-# (4) On any proof / build / plugin / e2e change, run the verify so a broken proof, a reintroduced backend
+# (4) On any proof / build / e2e change, run the verify so a broken proof, a reintroduced backend
 #     hallmark, or a broken emission aborts the commit.
 if git diff --cached --name-only | grep -qE '\.v$|\.ml$|^tools/|^e2e/|^Makefile$|^Dockerfile$|^dune$|^dune-project$'; then
   echo "fido: proof/build/e2e input staged — running the verify (make check)..."
   make check
 fi
 
-echo "fido: OK — pinned-Rocq core compiles axiom-free, the e2e witness emits+builds+runs vs goldens, at most one I/O writer."
+echo "fido: OK — pinned-Rocq core compiles axiom-free, the e2e witness emits+syncs+builds+runs vs goldens, one filesystem sink."

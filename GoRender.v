@@ -1,19 +1,18 @@
 (** ============================================================================
-    GoRender — the DIRECT renderer: it traverses the ONE [GoFile] (via a [CompiledProgram])
-    and emits Go source bytes.  No tokenizer/lexer/parser/round-trip/second tree.  package
-    [main] and [func main()] are the fixed structure of [MainFile]; the builtin [println] is
-    the fixed spelling of [SPrintln]; there are no identifiers to render.
+    GoRender — the DIRECT renderer of one file's raw AST to Go source bytes.  No tokenizer/lexer/
+    parser/round-trip/second tree.  package [main] and [func main()] are the fixed structure of
+    [MainFile]; the builtin [println] is the fixed spelling of [SPrintln]; there are no identifiers.
 
-    Proved here, over the intrinsically-grammatical AST:
-    - all output is ASCII ([render_all_ascii]);
-    - the emitted decimal spelling denotes EXACTLY the intended value ([print_Z_dec_faithful])
-      and never has an illegal leading zero (no octal reinterpretation — [print_Z_no_leading_zero]);
-    - the rendered file has the fixed legal Go shape (structural).
-    Decimal digits come from the one authority [digits]; a magnitude is an [N] rendered via
-    [Z.of_N] (nonnegative — [ENeg]'s sign is the explicit leading [-]).
+    Every rendered file begins with the exact generated header (part of the Rocq-rendered bytes — the
+    filesystem sink never adds or alters it).
+
+    [render_file] etc. are INTERNAL helpers over the raw AST; the PUBLIC capability is
+    [GoEmit.render_program : SafeProgram -> DirectoryImage].  Proved here, over the intrinsically-
+    grammatical AST: all output is ASCII; the emitted decimal denotes EXACTLY the value and never has
+    an illegal leading zero; the rendered literal denotes exactly [GoSafe.eval_expr].
     ============================================================================ *)
 From Stdlib Require Import String Ascii NArith ZArith List Bool Lia.
-From Fido Require Import digits GoAST GoCompile GoSafe.
+From Fido Require Import digits Ints GoAST GoCompile GoSafe.
 Import ListNotations.
 Open Scope string_scope.
 
@@ -22,7 +21,8 @@ Definition tab_c : ascii := ascii_of_nat 9.
 Definition nl : string := String nl_c EmptyString.
 Definition tab : string := String tab_c EmptyString.
 
-(** ---- the renderer ---- *)
+(** The exact first line of every generated .go file (two spaces after the period). *)
+Definition header : string := "// fido generated.  do not edit.".
 
 Definition render_expr (e : GoExpr) : string :=
   match e with
@@ -45,16 +45,19 @@ Definition render_stmt (s : GoStmt) : string :=
 Fixpoint render_stmts (ss : list GoStmt) : string :=
   match ss with [] => "" | s :: ss' => render_stmt s ++ render_stmts ss' end.
 
-Definition render_file (f : GoFile) : string :=
+Definition render_file (f : GoFileAST) : string :=
   match f with
   | MainFile body =>
-      "package main" ++ nl ++ nl
+      header ++ nl ++ nl
+      ++ "package main" ++ nl ++ nl
       ++ "func main() {" ++ nl
       ++ render_stmts body
       ++ "}" ++ nl
   end.
 
-Definition render (cp : CompiledProgram) : string := render_file (cp_ast cp).
+(** Every rendered file begins with the exact generated header. *)
+Lemma render_file_header : forall f, exists rest, render_file f = header ++ rest.
+Proof. intros [ body ]; eexists; reflexivity. Qed.
 
 (** ---- all-ASCII output ---- *)
 
@@ -121,9 +124,7 @@ Proof.
 Qed.
 
 Lemma render_stmt_ascii : forall s, str_ascii (render_stmt s) = true.
-Proof.
-  intros [ args ]. cbn [render_stmt]. rewrite !str_ascii_app, render_args_ascii. reflexivity.
-Qed.
+Proof. intros [ args ]. cbn [render_stmt]. rewrite !str_ascii_app, render_args_ascii. reflexivity. Qed.
 
 Lemma render_stmts_ascii : forall ss, str_ascii (render_stmts ss) = true.
 Proof.
@@ -131,23 +132,17 @@ Proof.
   cbn [render_stmts]. rewrite str_ascii_app, render_stmt_ascii, IH. reflexivity.
 Qed.
 
-Theorem render_all_ascii : forall cp, str_ascii (render cp) = true.
+Theorem render_file_ascii : forall f, str_ascii (render_file f) = true.
 Proof.
-  intros [[body] Hok]. unfold render; cbn [cp_ast render_file].
-  rewrite !str_ascii_app, render_stmts_ascii. reflexivity.
+  intros [ body ]. cbn [render_file]. rewrite !str_ascii_app, render_stmts_ascii. reflexivity.
 Qed.
 
-(** ---- decimal faithfulness: the emitted spelling denotes EXACTLY the value, with no illegal
-        leading zero (so Go reads it as decimal, not octal).  [dval] is the value of a decimal
-        numeral read MSB-first (Horner) — a numeral denotation, NOT a Go-grammar parser. ---- *)
+(** ---- decimal faithfulness: emitted decimal denotes EXACTLY the value, no leading zero ---- *)
 
 Definition ascii_digit (c : ascii) : nat := nat_of_ascii c - 48.
 
 Fixpoint dval (s : string) (acc : Z) : Z :=
-  match s with
-  | EmptyString => acc
-  | String c s' => dval s' (acc * 10 + Z.of_nat (ascii_digit c))
-  end.
+  match s with EmptyString => acc | String c s' => dval s' (acc * 10 + Z.of_nat (ascii_digit c)) end.
 Definition dval0 (s : string) : Z := dval s 0.
 
 Lemma ascii_digit_dec_digit : forall d, (d < 10)%nat -> ascii_digit (dec_digit d) = d.
@@ -173,8 +168,6 @@ Proof.
     rewrite Forall_forall in Hb. apply Hb; exact Hd.
 Qed.
 
-(** The emitted decimal denotes exactly the (nonnegative) magnitude — the sign of [ENeg] is the
-    explicit leading [-], applied by [render_expr] over this faithful magnitude. *)
 Theorem print_Z_dec_faithful : forall z, (0 <= z)%Z -> dval0 (print_Z z) = z.
 Proof.
   intros [ | p | p ] H.
@@ -207,3 +200,30 @@ Proof.
   rewrite (nat_ascii_embedding (48 + 0)) in Hn by lia.
   lia.
 Qed.
+
+(** ---- the rendered literal denotes EXACTLY the semantic value (parser-free) ----
+    Out-of-range forms are rejected by GoCompile (see its reject facts), never reaching the renderer. *)
+
+Lemma render_bool_faithful : forall b,
+  render_expr (EBool b) = (if b then "true" else "false") /\ eval_expr (EBool b) = VBool b.
+Proof. intros [ | ]; split; reflexivity. Qed.
+
+Lemma render_int_faithful : forall n,
+  dval0 (render_expr (EInt n)) = Z.of_N n /\ eval_expr (EInt n) = VInt (Z.of_N n).
+Proof. intro n. split; [ cbn [render_expr]; apply print_Z_dec_faithful, N2Z.is_nonneg | reflexivity ]. Qed.
+
+Lemma render_neg_faithful : forall n,
+  render_expr (ENeg n) = String "-"%char (print_Z (Z.of_N n))
+  /\ dval0 (print_Z (Z.of_N n)) = Z.of_N n
+  /\ eval_expr (ENeg n) = VInt (Z.opp (Z.of_N n)).
+Proof.
+  intro n. split; [ reflexivity | split; [ apply print_Z_dec_faithful, N2Z.is_nonneg | reflexivity ] ].
+Qed.
+
+Lemma render_boundary_max :
+  eval_expr (EInt (Z.to_N int_max)) = VInt int_max /\ ExprOk (EInt (Z.to_N int_max)).
+Proof. split; [ reflexivity | constructor; apply Z.le_refl ]. Qed.
+
+Lemma render_boundary_min :
+  eval_expr (ENeg (Z.to_N (- int_min))) = VInt int_min /\ ExprOk (ENeg (Z.to_N (- int_min))).
+Proof. split; [ reflexivity | constructor; apply Z.le_refl ]. Qed.

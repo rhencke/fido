@@ -1,5 +1,5 @@
 (rocq.theory
  (name Fido)
- (synopsis "Fido — one structural GoAST; GoCompile/GoSafe evidence over it; direct GoRender; GoEmit pairs; extraction to a tiny writer")
+ (synopsis "Fido — GoProgram (finite map of paths to raw file ASTs) -> GoCompile -> GoSafe -> direct GoRender -> finite-map DirectoryImage -> dirty-directory sink")
  (theories Stdlib)
- (modules digits TargetConfig GoAST GoCompile GoSafe GoRender GoEmit))
+ (modules digits Ints FMap GoAST GoCompile GoSafe GoRender GoEmit))

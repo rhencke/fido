@@ -1,23 +1,26 @@
 (** ============================================================================
-    GoCompile — static/compiler admissibility as EVIDENCE over the ONE [GoAST], never a
-    second syntax tree.  Because package/function/println/bool are structural (GoAST), the
-    ONLY thing the Go compiler could still reject in a representable program is an integer
-    literal that does not fit the target [int].  So:
+    GoCompile — whole-PROGRAM static/compiler admissibility as EVIDENCE over the ONE raw AST (the
+    finite-map [GoProgram]), never a second syntax tree.
 
-      GoCompile f  ==  every integer literal in f is representable for the pinned target.
+    Responsibilities: accept/reject exactly as the Go compiler would for every program the current
+    subset can represent, and (as the AST grows) derive the static meaning the compiler resolves —
+    package grouping, imports, symbols, types, calls, entry point — as facts over the same program.
+    Today the fragment is one file (structurally package main + func main) of admissible println
+    statements, so [CompilationFacts] is empty (no symbol/type/package/entry table is needed yet) and
+    the only obligation is integer representability for the 64-bit target.
 
-    This is EXACT for the representable domain: every representable program the pinned Go
-    compiler accepts is accepted here (all bool/in-range-int programs), and every program
-    rejected here (an out-of-range magnitude) is a genuine Go constant-overflow error — not a
-    supported-but-refused program.  [-(2^63)] is admitted (via [ENeg]); a bare [2^63] is not.
+    HONESTY — two distinct claims:
+    A. KERNEL-internal exactness (PROVED): the executable checker succeeds exactly for the formal
+       [GoCompile] judgment ([prog_ok_iff]; [go_compile] returns a [CompilableProgram] iff it holds).
+    B. EXTERNAL Go-compiler adequacy (the GOAL, NOT a kernel theorem): every successful
+       [CompilableProgram], rendered, is accepted by the real Go compiler (and eventually the converse).
+       Exercised by the pinned e2e toolchain, not a proof about cmd/compile.  Do not overclaim
+       "equivalent to go build".
 
-    A declarative judgment ([GoCompile]) plus an executable decision ([go_compile]) proved
-    SOUND and COMPLETE against it — never a bare boolean, never completeness against a
-    mirror-relation instead of the compiler.  [CompiledProgram] is a proof-bearing wrapper
-    over the SAME [GoFile] (no copy, no erasure).
+    [CompilableProgram] wraps the SAME [GoProgram] + its facts + the compile proof — no copy.
     ============================================================================ *)
-From Stdlib Require Import NArith ZArith List Bool.
-From Fido Require Import TargetConfig GoAST.
+From Stdlib Require Import NArith ZArith List Bool String.
+From Fido Require Import Ints FMap GoAST.
 Import ListNotations.
 Open Scope Z_scope.
 
@@ -31,10 +34,7 @@ Inductive ExprOk : GoExpr -> Prop :=
 Inductive StmtOk : GoStmt -> Prop :=
 | OkPrintln : forall args, Forall ExprOk args -> StmtOk (SPrintln args).
 
-Definition GoCompile (f : GoFile) : Prop :=
-  match f with MainFile body => Forall StmtOk body end.
-
-(** ---- executable decision ---- *)
+(** ---- executable checker ---- *)
 
 Definition expr_ok (e : GoExpr) : bool :=
   match e with
@@ -46,10 +46,12 @@ Definition expr_ok (e : GoExpr) : bool :=
 Definition stmt_ok (s : GoStmt) : bool :=
   match s with SPrintln args => forallb expr_ok args end.
 
-Definition go_compile (f : GoFile) : bool :=
+Definition file_ok (f : GoFileAST) : bool :=
   match f with MainFile body => forallb stmt_ok body end.
 
-(** ---- soundness + completeness (checker ⇔ judgment) ---- *)
+(** The MVP closed-world checker: exactly one file, and it is admissible. *)
+Definition prog_ok (p : GoProgram) : bool :=
+  match fm_list p with [ (_, f) ] => file_ok f | _ => false end.
 
 Lemma expr_ok_iff : forall e, expr_ok e = true <-> ExprOk e.
 Proof.
@@ -86,25 +88,95 @@ Proof.
            | intro H; inversion H; subst; split; assumption ].
 Qed.
 
-Theorem go_compile_sound : forall f, go_compile f = true -> GoCompile f.
-Proof. intros [body] H; simpl in *. apply forallb_stmt_ok_iff; exact H. Qed.
+(** ---- the certificate: facts + proof over the SAME program ---- *)
 
-Theorem go_compile_complete : forall f, GoCompile f -> go_compile f = true.
-Proof. intros [body] H; simpl in *. apply forallb_stmt_ok_iff; exact H. Qed.
+(** The static facts GoCompile derives about a program.  EMPTY today — the one-file println fragment
+    needs no symbol/type/package/entry table.  The permanent home for those facts when the AST grows;
+    they will decorate this same [GoProgram], never a copied tree. *)
+Inductive CompilationFacts (p : GoProgram) : Type := mkFacts.
+Arguments mkFacts {p}.
 
-Corollary go_compile_iff : forall f, go_compile f = true <-> GoCompile f.
-Proof. intro f; split; [ apply go_compile_sound | apply go_compile_complete ]. Qed.
+(** MVP: exactly one file, at some path, a main file whose statements are all admissible. *)
+Definition GoCompile (p : GoProgram) (_ : CompilationFacts p) : Prop :=
+  exists path body,
+    fm_keys p = [path]
+    /\ fm_find path p = Some (MainFile body)
+    /\ Forall StmtOk body.
 
-Corollary GoCompile_dec : forall f, {GoCompile f} + {~ GoCompile f}.
+Record CompilableProgram : Type := mkCompilable {
+  cp_program : GoProgram;
+  cp_facts   : CompilationFacts cp_program;
+  cp_ok      : GoCompile cp_program cp_facts
+}.
+
+(** ---- (A) internal checker exactness ---- *)
+
+Lemma prog_ok_iff : forall p, prog_ok p = true <-> GoCompile p mkFacts.
 Proof.
-  intro f; destruct (go_compile f) eqn:E.
-  - left; apply go_compile_sound; exact E.
-  - right; intro H; apply go_compile_complete in H; rewrite H in E; discriminate.
+  intro p. unfold prog_ok, GoCompile, fm_keys, fm_find.
+  destruct (fm_list p) as [ | [k f] [ | e l ] ] eqn:E; simpl.
+  - split; [ discriminate | intros [path [body [Hk _]]]; discriminate Hk ].
+  - destruct f as [ body ]. split.
+    + intro Hf. exists k, body. split; [ reflexivity | split ].
+      * simpl. rewrite String.eqb_refl. reflexivity.
+      * apply forallb_stmt_ok_iff; exact Hf.
+    + intros [path [body' [Hk [Hfind Hbody]]]].
+      injection Hk as Hkp; subst path.
+      simpl in Hfind. rewrite String.eqb_refl in Hfind. injection Hfind as Hf; subst body'.
+      apply forallb_stmt_ok_iff; exact Hbody.
+  - split; [ discriminate | intros [path [body [Hk _]]]; discriminate Hk ].
 Qed.
 
-(** ---- the certificate: a proof-bearing wrapper over the SAME AST ---- *)
+(** A boolean, reflected as a decision that remembers the witnessing equation. *)
+Definition bool_sumbool (b : bool) : {b = true} + {b = false} :=
+  match b with true => left eq_refl | false => right eq_refl end.
 
-Record CompiledProgram : Type := mkCompiled {
-  cp_ast : GoFile;
-  cp_ok  : GoCompile cp_ast
-}.
+(** The executable compiler is proof-producing: it returns a CompilableProgram exactly when the
+    program is admissible. *)
+Definition go_compile (p : GoProgram) : option CompilableProgram :=
+  match bool_sumbool (prog_ok p) with
+  | left H  => Some (mkCompilable p mkFacts (proj1 (prog_ok_iff p) H))
+  | right _ => None
+  end.
+
+Theorem go_compile_sound : forall p cp, go_compile p = Some cp -> cp_program cp = p.
+Proof.
+  intros p cp. unfold go_compile.
+  destruct (bool_sumbool (prog_ok p)) as [ H | H ]; intro Heq;
+    [ injection Heq as <-; reflexivity | discriminate ].
+Qed.
+
+Theorem go_compile_complete : forall p, GoCompile p mkFacts -> exists cp, go_compile p = Some cp.
+Proof.
+  intros p H. apply prog_ok_iff in H. unfold go_compile.
+  destruct (bool_sumbool (prog_ok p)) as [ H' | H' ];
+    [ eexists; reflexivity | rewrite H in H'; discriminate ].
+Qed.
+
+(** A rejected program yields no CompilableProgram (and hence no SafeProgram). *)
+Lemma reject_no_compile : forall p, prog_ok p = false -> ~ GoCompile p mkFacts.
+Proof. intros p E H; apply prog_ok_iff in H; rewrite H in E; discriminate. Qed.
+
+(** ---- kernel-checked boundary + rejection facts ---- *)
+
+Example accept_max_int :
+  prog_ok (fm_singleton "main.go" (MainFile [SPrintln [EInt (Z.to_N int_max)]])) = true.
+Proof. reflexivity. Qed.
+
+Example accept_min_int :
+  prog_ok (fm_singleton "main.go" (MainFile [SPrintln [ENeg (Z.to_N (- int_min))]])) = true.
+Proof. reflexivity. Qed.
+
+Example reject_pos_overflow :
+  prog_ok (fm_singleton "main.go" (MainFile [SPrintln [EInt (Z.to_N (int_max + 1))]])) = false.
+Proof. reflexivity. Qed.
+
+Example reject_neg_overflow :
+  prog_ok (fm_singleton "main.go" (MainFile [SPrintln [ENeg (Z.to_N (- int_min + 1))]])) = false.
+Proof. reflexivity. Qed.
+
+(** Duplicate relative paths are unrepresentable: lookup is a function, so a path never maps to two
+    files ([FMap.fm_MapsTo_fun]); the finite map carries a NoDup-keys proof by construction. *)
+Definition path_unique : forall (p : GoProgram) k f1 f2,
+  fm_MapsTo k f1 p -> fm_MapsTo k f2 p -> f1 = f2 :=
+  fun p k f1 f2 => fm_MapsTo_fun k f1 f2 p.

@@ -1,18 +1,21 @@
 BUILDER := fido-builder
-# The pinned target is linux/amd64 (TargetConfig.tc_goos/tc_goarch).  SEALED — the build architecture and
-# the proof's target authority are mechanically identical; `override` makes any command-line/env change inert.
+# The build platform is pinned to linux/amd64 — the 64-bit target the theory assumes (Ints: int/uint are
+# 64-bit).  SEALED: `override` makes any command-line/env change inert (the e2e also asserts the running
+# toolchain's GOOS/GOARCH/word size).  This is an operational pin, not a certified TargetConfig.
 override PLATFORM := linux/amd64
 
-.PHONY: check prove emit e2e ocaml-origin-gate go-uncommittable-seal builder install-hooks prover-log
+.PHONY: check prove emit e2e ocaml-origin-gate go-uncommittable-seal axiom-scan builder install-hooks prover-log
 .DEFAULT_GOAL := check
 
-# Fido — ONE AST (ARCHITECTURE.md): an LLM proposes a GoAST; emission is available only after Rocq proves
-# GoCompile (exact static admissibility) and GoSafe.  Chain:
-#   GoAST -> GoCompile -> GoSafe -> direct GoRender -> GoEmit pairs -> extraction -> tiny I/O writer.
+# Fido — ONE AST (ARCHITECTURE.md): an LLM proposes a GoProgram (a finite map of relative paths to raw
+# file ASTs); emission is available only after Rocq proves GoCompile (exact whole-program admissibility)
+# and GoSafe.  Chain:
+#   GoProgram -> GoCompile -> GoSafe -> direct GoRender -> GoEmit (finite-map DirectoryImage)
+#     -> extraction -> one dirty-directory filesystem sink.
 # ALL Rocq/Go work runs in the PINNED container via buildx — host Rocq is NOT supported.
 
-check: ocaml-origin-gate go-uncommittable-seal prove e2e
-	@echo "fido: check OK — proved the core (GoAST/GoCompile/GoSafe/GoRender/GoEmit) axiom-free AND emitted+ran the e2e witness through the pinned Go toolchain; one tiny I/O writer, no tracked *.go ✓"
+check: ocaml-origin-gate go-uncommittable-seal axiom-scan prove e2e
+	@echo "fido: check OK — proved the core (FMap/Ints/GoAST/GoCompile/GoSafe/GoRender/GoEmit) axiom-free AND emitted+synced the e2e witness through the pinned Go toolchain; one filesystem sink, no tracked *.go ✓"
 
 # The reproducible container proof: dune compiles the modules + the always-run assumptions gate.
 prove: builder
@@ -33,6 +36,12 @@ e2e: builder
 
 ocaml-origin-gate:
 	@sh tools/ocaml-origin-gate.sh
+
+# Anti-axiom DECLARATION scan (defense-in-depth; the AUTHORITY is gate/axiom_gate.v's Print Assumptions).
+# Rejects Axiom/Parameter/Conjecture/Admitted/admit anywhere and top-level Variable/Hypothesis/Context;
+# Sections are permitted.  Has positive+negative self-tests.
+axiom-scan:
+	@sh tools/axiom-scan.sh
 
 # SEAL: no generated Go is tracked (emission output lives under _build / is gitignored when it returns).
 go-uncommittable-seal:

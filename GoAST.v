@@ -1,29 +1,37 @@
 (** ============================================================================
-    GoAST — the ONE program representation.  Everything the current slice does NOT model
-    exactly is STRUCTURAL, not an identifier the compiler could reject: the program is a
-    [MainFile] (package [main] + one [func main()] are the datatype, not names), whose body
-    is a list of [SPrintln] (the builtin [println] is the statement, not a callee identifier),
-    whose arguments are the exact admitted primitives.  There is no package/function/call/
-    expression identifier — those Go features are UNREPRESENTABLE until their full compiler
-    behaviour is modelled, so a non-[main] package or a [print] call is not "rejected as
-    invalid Go", it simply cannot be proposed.
+    GoAST — the ONE raw program representation.  The permanent root is a PROGRAM, not a file:
 
-    [GoCompile] adds only the remaining static obligation (integer representability) over this
-    SAME tree; there is no second "compiled" syntax hierarchy, no erasure.
+      GoProgram := fmap GoFileAST        (a verified finite map: unique relative path -> raw file AST)
 
-    Admitted primitives: booleans, and integers as an UNSIGNED magnitude ([EInt]) or its unary
-    negation ([ENeg]) — Go has no signed integer literal.  (Strings are deferred until their
-    independent literal-denotation proofs exist.)
+    A [GoFileAST] is the raw syntax proposed for ONE file — nothing compiled.  Package grouping,
+    package identifiers, imports, entry point, resolved symbols/types/calls, and the package graph are
+    COMPILATION RESULTS derived by GoCompile over the whole path-indexed program; they are NOT baked
+    into the raw file value, and there is no raw GoPackage hierarchy.
+
+    The current admitted fragment is deliberately tiny: a file is structurally a [MainFile] (package
+    main + func main STRUCTURAL — the MVP constructor "is a main-package file"; no identifiers, no
+    imports, no other file shapes yet), whose body is [SPrintln] statements (the builtin println is
+    the statement, not a callee name) over primitive literals: bool ([EBool]) and integers as an
+    unsigned magnitude ([EInt]) or its negation ([ENeg]).  Anything else is UNREPRESENTABLE.  The MVP
+    is exactly one program -> one main package -> one file, expressed as a proved subset over this
+    general finite-map program structure — never by making a single file the root.
     ============================================================================ *)
-From Stdlib Require Import NArith List.
+From Stdlib Require Import NArith List String.
+From Fido Require Import FMap.
 
 Inductive GoExpr : Type :=
-| EBool : bool -> GoExpr        (* the predeclared [true]/[false] *)
-| EInt  : N -> GoExpr           (* unsigned decimal magnitude *)
-| ENeg  : N -> GoExpr.          (* unary minus over a magnitude; denotes -[N] *)
+| EBool : bool -> GoExpr
+| EInt  : N -> GoExpr
+| ENeg  : N -> GoExpr.
 
 Inductive GoStmt : Type :=
-| SPrintln : list GoExpr -> GoStmt.   (* the builtin println is the statement, not a callee name *)
+| SPrintln : list GoExpr -> GoStmt.
 
-Inductive GoFile : Type :=
-| MainFile : list GoStmt -> GoFile.   (* package main + func main() are structural *)
+(** The raw AST of one source file (currently only the main-file shape). *)
+Inductive GoFileAST : Type :=
+| MainFile : list GoStmt -> GoFileAST.
+
+Definition RelativePath := string.
+
+(** The raw program: a finite map from unique relative paths to raw file ASTs. *)
+Definition GoProgram := fmap GoFileAST.
