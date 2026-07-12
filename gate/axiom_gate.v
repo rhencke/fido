@@ -27,6 +27,10 @@ Print Assumptions GoCompile.GoCompile_dec.
 Print Assumptions GoSafe.fragment_never_panics.
 Print Assumptions GoSafe.sp_erases.
 
+(* GoRender: the direct printer is faithful (string escaping is invertible) and all-ASCII *)
+Print Assumptions GoRender.escape_faithful.
+Print Assumptions GoRender.render_all_ascii.
+
 (* GoEmit: the DirectoryImage is path-safe (relative, no traversal, .go, unique) and complete *)
 Print Assumptions GoEmit.path_ok_main_go.
 Print Assumptions GoEmit.emit_paths_ok.
