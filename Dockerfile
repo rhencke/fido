@@ -1,22 +1,21 @@
 # syntax=docker/dockerfile:1
 
-# ── Stage 1: build the Rocq/OCaml toolchain ──────────────────────────────────
-# The Go-toolchain image comes ONLY from the Makefile's digest-pinned GOIMAGE, passed as
-# --build-arg by every make target. DELIBERATELY default-less: a build that bypasses make
-# fails loudly here instead of running an unpinned toolchain.
+# The certified pipeline, reproducibly: pinned Rocq builds the spine + proves the bytes, standard extraction
+# emits the closed certified output, a build-generated one-line writer prints it to a .go, and the pinned Go
+# toolchain accepts it.  NO handwritten OCaml backend; NO custom extraction plugin.
+
+# The Go-toolchain image comes ONLY from the Makefile's digest-pinned GOIMAGE (--build-arg by every make
+# target).  DELIBERATELY default-less: a build that bypasses make fails loudly here, not on an unpinned Go.
 ARG GOIMAGE
 
+# ── Stage 1: Rocq/OCaml toolchain ─────────────────────────────────────────────
 FROM ocaml/opam:debian-12-ocaml-5.3 AS rocq-builder
-
 RUN --mount=type=cache,id=fido-apt-builder,target=/var/cache/apt,sharing=locked \
     sudo apt-get update \
     && sudo apt-get install -y --no-install-recommends \
         make build-essential pkg-config libgmp-dev linux-libc-dev ca-certificates \
     && sudo rm -rf /var/lib/apt/lists/*
-
 WORKDIR /workspace
-COPY --chown=opam:opam rocq-go-extraction.opam dune-project ./
-
 RUN --mount=type=cache,id=fido-opam,uid=1000,gid=1000,target=/home/opam/.opam/download-cache \
     opam repo add rocq-released https://rocq-prover.org/opam/released \
     && for attempt in 1 2 3; do \
@@ -25,135 +24,53 @@ RUN --mount=type=cache,id=fido-opam,uid=1000,gid=1000,target=/home/opam/.opam/do
        done \
     && opam clean --all
 
-# ── Stage 2: minimal Rocq runtime ────────────────────────────────────────────
+# ── Stage 2: minimal Rocq runtime ─────────────────────────────────────────────
 FROM debian:12-slim AS rocq-base
-
 RUN --mount=type=cache,id=fido-apt-base,target=/var/cache/apt,sharing=locked \
     apt-get update \
     && apt-get install -y --no-install-recommends \
-        bash ca-certificates gcc libc6-dev libgmp-dev linux-libc-dev \
-        make pkg-config tar \
+        bash ca-certificates gcc libc6-dev libgmp-dev linux-libc-dev make pkg-config tar \
     && rm -rf /var/lib/apt/lists/* \
        /usr/share/doc/* /usr/share/info/* /usr/share/locale/* /usr/share/man/* \
     && useradd -m -s /bin/bash opam
-
 COPY --from=rocq-builder --chown=opam:opam /home/opam/.opam/5.3 /home/opam/.opam/5.3
-
 ENV OPAM_SWITCH_PREFIX="/home/opam/.opam/5.3"
 ENV CAML_LD_LIBRARY_PATH="/home/opam/.opam/5.3/lib/stublibs"
 ENV OCAML_TOPLEVEL_PATH="/home/opam/.opam/5.3/lib/toplevel"
 ENV OCAMLTOP_INCLUDE_PATH="/home/opam/.opam/5.3/lib/toplevel"
 ENV PATH="/home/opam/.opam/5.3/bin:${PATH}"
-
-# Minimal opam shim so `opam exec -- cmd` still works in scripts.
-RUN printf '%s\n' \
-      '#!/bin/sh' 'set -eu' \
-      'if [ "$#" -ge 1 ] && [ "$1" = "exec" ]; then' \
-      '  shift; [ "$#" -ge 1 ] && [ "$1" = "--" ] && shift; exec "$@"' \
-      'fi' \
-      'echo "opam shim: only exec -- supported" >&2; exit 2' \
-      > /usr/local/bin/opam \
-    && chmod +x /usr/local/bin/opam
-
 RUN mkdir -p /workspace && chown opam:opam /workspace
 WORKDIR /workspace
 USER opam
 
-# ── Stage 3: prove and extract ────────────────────────────────────────────────
+# ── Stage 3: prove the spine + emit the certified bytes ───────────────────────
+# spine-gate compiles digits..GoEmit STANDALONE and asserts ZERO axioms (Rocq's own Print Assumptions).
+# Then standard extraction turns GoEmit.demo_emit into OCaml, and a build-generated one-line writer prints
+# the certified bytes to spine_demo.go.  The writer is generated here, never tracked.
 FROM rocq-base AS prover
+ARG TARGETARCH
+COPY --chown=opam:opam dune-project dune ./
+COPY --chown=opam:opam tools/ tools/
+COPY --chown=opam:opam *.v ./
+COPY --chown=opam:opam emitdemo/ emitdemo/
+RUN --mount=type=cache,id=fido-dune-rocq-9.2.0-${TARGETARCH},uid=1000,gid=1000,target=/workspace/_build,sharing=locked \
+    sh tools/spine-gate.sh emit /tmp/spine.log \
+    && rocq c -Q . Fido emitdemo/emit_demo.v \
+    && printf 'let () = print_string Emit_demo.demo_emit\n' > emitdemo/gen_write.ml \
+    && ocamlc -I emitdemo emitdemo/emit_demo.mli emitdemo/emit_demo.ml emitdemo/gen_write.ml -o /tmp/emit_writer \
+    && /tmp/emit_writer > /tmp/spine_demo.go \
+    && test -s /tmp/spine_demo.go
 
-COPY --chown=opam:opam dune-project dune-project
-COPY --chown=opam:opam rocq-go-extraction.opam rocq-go-extraction.opam
-COPY --chown=opam:opam plugin/ plugin/
-COPY --chown=opam:opam dune  ./
-COPY --chown=opam:opam *.v   ./
-COPY --chown=opam:opam EXPECTED_ASSUMPTIONS.txt ./
-COPY --chown=opam:opam negtests/ negtests/
-
-# The extracted *.go are produced as a SIDE EFFECT of compiling the extraction-driver
-# theories (the `Go Main Extraction` vernac); dune does NOT track them as build outputs.
-# In a warm _build cache that breaks BOTH ways, so we counter both:
-#  (1) REMOVAL — if a driver .v is deleted/renamed, its stale *.go orphan lingers in the
-#      cached _build and would be shipped.  So nuke ALL generated *.go up front; only the
-#      drivers that still exist will recreate theirs.
-#  (2) STALENESS — dune skips recompiling an unchanged driver, so its *.go is never
-#      regenerated.  So force every current driver's .vo out, making it recompile and
-#      re-extract afresh.  (Drivers auto-detected; the heavy proof libraries stay cached.)
-# Then a `test -n` guard fails LOUD rather than shipping nothing.
-#  (3) AXIOM-MANIFEST GATE: the MANIFEST flow of the trust-boundary ledger (the full split
-#      is single-sourced in PROGRESS.md "Current gates"; the spine digits..GoEmit is gated by
-#      plugin/spine-gate.sh — the ONE compile+scan authority, shared with the Makefile mirrors).  `dune build` runs the manifest surfaces' `Print Assumptions`
-#      (the surfaces are enumerated ONLY in PROGRESS.md "Current gates" — not duplicated here; each bundling
-#      constant's report is the UNION of its whole transitive cone) into the build log.  Capture each `Axioms:`
-#      report (plugin/manifest-axioms.sh
-#      — the SAME extractor the self-test uses — no longer stops at `Extracted to`, so a surface that prints
-#      after extraction is still caught) and assert the union EXACTLY equals the committed
-#      EXPECTED_ASSUMPTIONS.txt (currently EMPTY — rule 3, zero axioms).  A NEW axiom in a manifest cone — a
-#      stray `Require` pulling in funext/Classical, a `Local Axiom`/`Polymorphic Axiom`/`Admitted` a source
-#      regex would miss, a transitive one — FAILS the build here.  Being Rocq's OWN assumption output over
-#      each whole cone, this is the complete AUTHORITY for these printed surfaces (NOT a module-wide claim —
-#      a theorem outside its module's surface tuple is not certified); the pre-commit source scan is only a coarse
-#      declaration tripwire.  Step (0) below self-tests that this authority catches every tabled form.
-#  (4) NEGTEST HARNESS: `negtests/run.sh` compiles each negative fixture and
-#      asserts extraction ABORTS with its declared message.  A fixture that EXTRACTS instead =
-#      a reopened fail-closed site (plausible-but-wrong Go where rule 2 demands `unsupported`),
-#      the defect class the happy-path golden cannot see.  Now NON-bypassable (runs every build).
-#  (5) PRINTER GENERATION GATE: the plugin LINKS the committed plugin/printer.ml, but that file MUST be
-#      exactly GoPrint.v's extraction or the EXECUTED printer drifts from the PROVED one (the verified-
-#      printer guarantee is vacuous if they differ).  Regenerate it from GoPrint.v here, FAIL on drift,
-#      and assert GoPrint.v's `Print Assumptions` show no "Axioms:" (GoPrint.v is part of the trust gate,
-#      not just main_effect).  Then COPY the fresh (proved) copy over so the plugin is built from it.
-#  (6) CODE-DISCIPLINE GATE (smart-ctor-gate.sh — the structural checks enumerated in that file): e.g. the
-#      smart-ctor ban (the live proof-carrying Printer constructors GTNamed/EId erase their Rocq validity proof
-#      to a bare OCaml string, so a DIRECT call would bypass the verified invariant — assert plugin/go.ml builds
-#      them ONLY via the re-checking mk_named_ty / mk_goexpr_id), plus dead-name / emission / bridge-recognizer /
-#      selector-bridge scoping — a pure static scan, run FIRST so a side-door construction fails fast.
-#  (0) AXIOM-AUTHORITY SELF-TEST (axiom-authority-selftest.sh): pin that gate (3)'s authority — Rocq's own
-#      `Print Assumptions` output, parsed by the shared plugin/manifest-axioms.sh — catches an axiom introduced
-#      by every declaration form in its TABLE (plain/Local/Global/Polymorphic/Monomorphic Axiom, Parameter,
-#      plurals, Conjecture, attribute stacks) and that the kernel rejects the rest (Private Axiom, top-level
-#      Context); plus a tuple surface-mirror of GoSem's gosem_trust_surface.  This is what makes the manifest
-#      axiom gate a real seal rather than a bypassable regex; it compiles tiny snippets, so it runs in the prover stage.
-RUN --mount=type=cache,id=fido-dune,uid=1000,gid=1000,target=/workspace/_build \
-    sh plugin/smart-ctor-gate.sh \
-    && sh plugin/axiom-authority-selftest.sh \
-    && sh plugin/fuel-gate.sh selftest \
-    && sh plugin/fuel-gate.sh \
-    && sh plugin/spine-gate.sh selftest \
-    && sh plugin/spine-gate.sh printer /tmp/printer.log \
-    && if ! diff plugin/printer.ml printer.ml; then \
-         echo "fido: PRINTER DRIFT — committed plugin/printer.ml != GoPrint.v's extraction; run 'make printer' and commit it."; \
-         exit 1; \
-       fi \
-    && cp printer.ml plugin/printer.ml \
-    && sh plugin/spine-gate.sh emit /tmp/emit.log \
-    && rm -f digits.vo digits.glob .digits.aux GoAst.vo GoAst.glob .GoAst.aux GoPrint.vo GoPrint.glob .GoPrint.aux GoTypes.vo GoTypes.glob .GoTypes.aux GoCompile.vo GoCompile.glob .GoCompile.aux GoEmit.vo GoEmit.glob .GoEmit.aux printer.ml \
-    && rm -f _build/default/*.go \
-    && for v in $(grep -l 'Go Main Extraction' *.v); do rm -f "_build/default/${v%.v}.vo"; done \
-    && (dune build > /tmp/build.log 2>&1; rc=$?; cat /tmp/build.log; exit $rc) \
-    && sh plugin/manifest-axioms.sh < /tmp/build.log | LC_ALL=C sort -u > /tmp/got_axioms.txt \
-    && if ! diff EXPECTED_ASSUMPTIONS.txt /tmp/got_axioms.txt; then \
-         echo "fido: AXIOM-MANIFEST DRIFT ('<' = expected, '>' = actual) — a manifest-surface cone's trust base changed (the surfaces are single-sourced in PROGRESS.md 'Current gates')."; \
-         echo "fido: a NEW axiom reaching any gated theorem is a trust-base regression (rule 3); if the change is intended, regenerate EXPECTED_ASSUMPTIONS.txt."; \
-         exit 1; \
-       fi \
-    && sh negtests/run.sh \
-    && test -n "$(ls _build/default/*.go 2>/dev/null)" \
-    && cp -r _build/default/*.go /tmp/
-
-# ── Stage 4: export generated Go sources back to the host ────────────────────
-FROM scratch AS go-src
-COPY --from=prover /tmp/*.go ./
-
-# ── Stage 5: compile extracted Go into a static binary ───────────────────────
+# ── Stage 4: the pinned Go toolchain ACCEPTS the certified bytes ───────────────
+# gofmt -l is a NO-OP check (the canonical printer is already gofmt-stable — we never rewrite certified bytes),
+# then go build + go vet.
 FROM ${GOIMAGE} AS builder
+WORKDIR /check
+COPY --from=prover /tmp/spine_demo.go ./
+RUN test -z "$(gofmt -l spine_demo.go)" \
+    && go build -o /dev/null spine_demo.go \
+    && go vet spine_demo.go
 
-WORKDIR /fido
-COPY go.mod ./
-COPY --from=prover /tmp/*.go ./
-RUN CGO_ENABLED=0 go build -o /out/fido .
-
-# ── Stage 5: minimal runtime image ───────────────────────────────────────────
-FROM gcr.io/distroless/static:nonroot
-COPY --from=builder /out/fido /fido
-ENTRYPOINT ["/fido"]
+# ── Stage 5: export the certified .go back to the host (make build) ───────────
+FROM scratch AS go-src
+COPY --from=builder /check/spine_demo.go ./

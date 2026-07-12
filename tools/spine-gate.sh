@@ -29,7 +29,7 @@ clean_artifacts() {
 
 case "$1" in
   printer) run_gate "$2" digits.v GoAst.v GoPrint.v ;;
-  emit)    run_gate "$2" digits.v GoAst.v GoPrint.v GoTypes.v GoCompile.v GoEmit.v ;;
+  emit)    run_gate "$2" digits.v GoNumeric.v GoRuntimeTypes.v GoPanic.v GoEffects.v GoSlice.v GoAst.v GoPrint.v GoTypes.v GoCompile.v GoEmit.v ;;
   selftest)
     # The gate REQUIRES rocq: without it every [run_gate] would "fail" for the WRONG reason (a missing
     # compiler, not a rejected spine), so both failure branches would pass VACUOUSLY and print a misleading

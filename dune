@@ -1,6 +1,5 @@
 (rocq.theory
  (name Fido)
- (synopsis "Fido verified theories — extracted to Go via rocq-go-extraction")
- (plugins rocq-go-extraction)
+ (synopsis "Fido — a proved Go generator: certified AST, printer, type checker, and emitter in Rocq")
  (theories Stdlib)
- (modules digits GoNumeric GoRuntimeTypes GoEffects GoPanic GoSlice GoMap GoChan GoHeap GoSession GoString GoSwitch GoComplex GoCFG GoExtractionHooks preamble main concurrency cmd unified cmd_unified GoAst GoPrint GoTypes GoCompile GoEmit GoSemCore GoSemDenote GoSem GoSemSafe))
+ (modules digits GoNumeric GoRuntimeTypes GoPanic GoEffects GoSlice GoAst GoPrint GoTypes GoCompile GoEmit))

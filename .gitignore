@@ -1,40 +1,30 @@
-# Go build output
+# Go: EVERY .go is GENERATED (the certified output) — none is ever checked in (the uncommittable-Go seal +
+# ocaml-origin gate are the backstops).  `make emit` writes emitdemo/spine_demo.go; `make build` exports
+# spine_demo.go to the repo root.
+*.go
 /fido
 *.test
 *.out
 vendor/
 
-# The extracted program is GENERATED from the .v by `make extract` (a side effect of compiling main.v),
-# canonicalised with gofmt, and its runtime behaviour is pinned by expected_output.txt.  It is NOT committed:
-# `make check` regenerates + verifies it, so it can never go stale unnoticed, and there is no 58 KB generated
-# artifact tracked in source.  Root-anchored so it only matches the repo-root program file.
-/main.go
-
 # Environment
 .env
 
-# Negtest harness scratch output (a negtest that wrongly EXTRACTS leaves this; run.sh cleans it)
-/neg_out.go
+# The certified Go output: emitdemo/spine_demo.go is GENERATED on demand by `make emit` (its exact bytes are
+# pinned + machine-checked by GoEmit.demo_emit_bytes) and NEVER committed — `make check` regenerates + verifies
+# it, so it can never go stale.  The extraction intermediates + the build-generated one-line writer are transient.
+/emitdemo/emit_demo.ml
+/emitdemo/emit_demo.mli
+/emitdemo/gen_write.ml
+/emitdemo/*.cmi
+/emitdemo/*.cmo
+/emitdemo/spine_demo.go
 
-# GoPrint.v's [Extraction "printer.ml"] drops these in the repo ROOT as a side effect of
-# `rocq c -Q . Fido GoPrint.v`; the COMMITTED copy is plugin/printer.ml (moved there by `make printer`).
-# Root-anchored so plugin/printer.ml stays tracked.
+# A stray printer.ml from an old standalone extraction — never tracked
 /printer.ml
 /printer.mli
 
-# `make emit-demo` intermediates: emitdemo/emit_demo.{ml,mli} are extracted from emitdemo/emit_demo.v; the
-# OCaml build files + writer executable are transient.  The COMMITTED emit-demo files are
-# emitdemo/emit_demo.v, emitdemo/write_emit.ml, and the certificate-gated output emitdemo/spine_demo.go.
-/emitdemo/emit_demo.ml
-/emitdemo/emit_demo.mli
-/emitdemo/*.cmi
-/emitdemo/*.cmo
-/_emit_writer
-# spine_demo.go is GENERATED on demand by `make emit-demo` (its exact bytes are already pinned + gate-checked
-# by GoEmit.demo_emit_bytes); not committed, so it can never go stale unnoticed.
-/emitdemo/spine_demo.go
-
-# Rocq build artifacts — .v and .go sources are checked in, these are not
+# Rocq build artifacts — .v sources are checked in, these are not
 *.glob
 *.vo
 *.vok

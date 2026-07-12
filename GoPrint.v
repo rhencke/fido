@@ -4,14 +4,9 @@
     [GoAst] owns the SYNTAX ([GExpr]/[GoTy]/operators).  This file owns everything that turns that syntax
     into text and reasons about it: the printers ([print_ty], the literal printers, [gprint] for
     expressions, [print_stmt]/[print_program]), a [lex] + recursive-descent/precedence [parse] (used ONLY
-    by the proofs), and the round-trip + injectivity THEOREMS.  [Extraction "printer.ml"] emits the OCaml
-    the plugin calls, so the plugin runs the SAME printer Rocq reasons about.
-
-    LIVE WIRING: the extracted [gprint] is called by the plugin for a SMALL expression class today (the exact
-    live-bridged list is single-sourced in PROGRESS.md, not re-enumerated here); every other expression shape
-    is still printed by the trusted OCaml [pp_expr] in [plugin/go.ml].  So this file does NOT make the live Go
-    "verified" — and even for the bridged class only the PRINTING is verified, NOT the trusted MiniML->[GExpr]
-    CONSTRUCTION in [plugin/go.ml] that chooses the AST.
+    by the proofs), and the round-trip + injectivity THEOREMS.  Standard Rocq extraction turns this printer
+    into the OCaml that produces the certified bytes ([GoEmit.demo_emit]), so the EMITTED text is exactly the
+    text Rocq reasons about here.
 
     WHAT IS PROVEN: printer injectivity is PARSER-FREE — EXPRESSION [gprint_inj] rests on [gtokens_inj]
     + [gtokens_lex] ([canon_expr_unique] is a SIBLING corollary of [gtokens_inj], not a dependency of
@@ -51,9 +46,8 @@
     [print_stmt_inj] / [print_program_inj] remain the weaker STRING-injectivity siblings.
     Nothing here is Go-compiler acceptance.  There is NO theorem that Go's compiler reads the
     emitted text as the same AST (that Go-subset RECOGNITION theorem — emitted grammar ⊆ Go grammar — is
-    UNPROVEN, a SEPARATE Go-syntax recognition gap; Go's toolchain is TRUSTED, ARCHITECTURE §2a item 3 —
-    NOT the plugin's source→term gap #10), and the plugin → emitted-bytes path also has a trusted [gofmt]
-    post-step (see the Makefile).
+    UNPROVEN; Go's toolchain is TRUSTED).  gofmt is a NO-OP CHECK outside the byte theorem: the printer is
+    gofmt-stable, so `gofmt -l` reporting nothing is the assertion (never a rewrite).
     This file proves NO behavioral safety. *)
 
 From Stdlib Require Import String List Ascii ZArith Lia Bool Eqdep_dec Floats.SpecFloat.
@@ -681,11 +675,9 @@ Proof.
   - cbn [esc_string]. rewrite esc_byte_app, scan_quote_esc_byte, IH. reflexivity.
 Qed.
 
-(** ---- HEX LITERALS ---- [0x]-prefixed lowercase hex.  LIVE in the plugin: [print_hex] renders the
-    fixed-width mask / sign-bit constants and the [spec_float] hex-literal mantissa, and the [EHex] GExpr
-    LEAF lets the fixed-width arithmetic bridge build the WHOLE masked / sign-extended expression for the
-    verified [gprint].  STILL on the trusted [fw_wrap]: the fixed-width CONVERSIONS [uint8(x)], shifts,
-    div/mod, and standalone fw ops. *)
+(** ---- HEX LITERALS ---- [0x]-prefixed lowercase hex.  [print_hex] renders fixed-width mask / sign-bit
+    constants and the [spec_float] hex-literal mantissa; the [EHex] GExpr LEAF carries a hex literal in the
+    AST for [gprint]. *)
 Definition print_hex_body (n : N) : string :=
   match n with
   | N0 => "0"
@@ -733,9 +725,8 @@ Qed.
     [±0x<m>p<e>], assembling the verified mantissa/exponent printers ([print_hex] / [print_Z]).
     [sign] = sign, [mant] = mantissa (rendered hex), [exp] = exponent (signed decimal). *)
 (** binary64 VALIDITY of a finite (mantissa, exponent) — SpecFloat's own [bounded] (canonical
-    mantissa + exponent bound), extracted so the trusted plugin gates a raw [S754_finite]
-    literal against the MODEL's canonical-carrier invariant with the VERIFIED checker (one
-    authority — no hand-rolled approximation in OCaml). *)
+    mantissa + exponent bound): the VERIFIED checker gating a raw [S754_finite] literal against the
+    model's canonical-carrier invariant (one authority — no hand-rolled approximation). *)
 Definition f64_bounded (m : positive) (e : Z) : bool := bounded 53 1024 m e.
 
 Definition print_float_hex (sign : bool) (mant : N) (exp : Z) : string :=
@@ -875,8 +866,8 @@ Definition binop_text (o : BinOp) : string :=
   end.
 
 (** UNARY operators: not / bitwise-complement / dereference / address-of / negate.  Single-char prefixes
-    (Go: [!b] [^x] [*p] [&x] [-x]), binding TIGHTER than every binary operator.  ([+] unary is omitted — the
-    plugin never emits it.)  [unop_text] gives the surface text; consumed by [GoPrint]'s [gprint].
+    (Go: [!b] [^x] [*p] [&x] [-x]), binding TIGHTER than every binary operator.  ([+] unary is omitted.)
+    [unop_text] gives the surface text; consumed by [GoPrint]'s [gprint].
     [UNeg] (unary [-]) prints PARENTHESISED — [-(x)] — because a bare [-x] would collide with the [-5]
     negative literal, and [GoPrint]'s parser dispatches the unambiguous two-char prefix [-(] to it (the other
     four print bare). *)
@@ -8564,7 +8555,7 @@ Qed.
     depends on it (the statement/program disjointness lemmas are also parser-free — LEXICAL).  HONEST
     SCOPE: still the clean Rocq grammar, NOT a
     theorem about Go's own parser (a SEPARATE unproven Go-syntax recognition gap; Go's toolchain is
-    trusted — NOT the plugin's gap #10). *)
+    trusted). *)
 Theorem parse_print_roundtrip : forall e, parse_str (gprint 0 e) = Some (e, nil).
 Proof.
   intro e. unfold parse_str. rewrite (gtokens_lex e 0). apply gtokens_parse.
@@ -9756,8 +9747,3 @@ Print Assumptions lex_gprint_stmt_supported.
 Print Assumptions lex_gprint_stmt_unsupported.
 Print Assumptions stmt_lex_supported_iff.
 
-(** Extract the Rocq printers to the OCaml the plugin calls. *)
-Require Import Extraction.
-Extraction Language OCaml.
-Set Extraction Output Directory ".".
-Extraction "printer.ml" print_ty print_Z print_string_lit print_hex print_float_hex f64_bounded print_sep nominal_type_ident go_ident hexz_ok binop_prec binop_text gprint.

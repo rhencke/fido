@@ -268,9 +268,7 @@ Qed.
     OUTPUT + BLOCK-SCOPED DEFER — [print]/[println] as RECORDED effects on the world's [w_output]
     trace (programs that print differently are not [run_io]-equal — [output_distinguishes_programs]),
     and the panic/recover layer's block-scoped [with_defer] (cleanup runs EXACTLY ONCE on both the
-    normal and the panic path — proved).  The func-scoped [defer_call] is NOT here: its shallow
-    [run_io] meaning is a loud-panic plugin-hook guard, so it lives in GoExtractionHooks.v; the
-    faithful func-scoped defer is cmd.v's [CDfr].
+    normal and the panic path — proved).
     ================================================================================================ *)
 
 (** [print]/[println] write to stdout — a RECORDED effect: each call appends an event
