@@ -25,7 +25,7 @@ print-goimage:
 # runs: dune compiles digits/GoAst/GoPrint (axiom-free surfaces) THEN the e2e prints one known program and
 # the pinned Go toolchain accepts it.
 check: ocaml-origin-gate go-uncommittable-seal build
-	@echo "fido: check OK — pinned container: theory compiles (GoPrint's Print-Assumptions surfaces axiom-free) + e2e printed program accepted by the Go toolchain; zero tracked OCaml, no tracked *.go ✓"
+	@echo "fido: check OK — pinned container: theory compiles (assumptions gate: all declared surfaces closed) + e2e printed program accepted by the Go toolchain; zero tracked OCaml, no tracked *.go ✓"
 
 ocaml-origin-gate:
 	@sh tools/ocaml-origin-gate.sh

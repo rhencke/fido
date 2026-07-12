@@ -1,9 +1,41 @@
 # Fido — status
 
-A foundation reset (checkpoint 65) is in progress. The live frontier only; `ARCHITECTURE.md` is the charter,
+A foundation reset (checkpoint 65) is in progress; checkpoint 66 is pouring the first FINAL-quality vertical
+slice (no imports, builtin `println` only). The live frontier only; `ARCHITECTURE.md` is the charter,
 `git log` is the history.
 
-## Where we are
+## The checkpoint-66 slice (in progress)
+
+The admitted language: `package main` + one `func main()` + straight-line builtin `println` over primitive
+literals (bool / string / nonneg int; negatives ONLY as unary minus over a nonneg literal). Imports, user
+functions, variables, and control flow are UNREPRESENTABLE (no constructors). Negatives die in Rocq —
+**zero expected Go compile failures**, ever.
+
+GREEN (proved, in the pinned container):
+- **`TargetConfig`** — the one authority for pinned target facts (int width 64 → exact `int_min`/`int_max`;
+  the bootstrapping `println` exists on this target).
+- **`CoreType`** — the closed primitive descriptor (`PBool|PInt|PString`) deriving literal validity
+  (`str_ok` charset; `int_lit_ok`/`neg_lit_ok` with exact constant-overflow bounds — `-(2^63)` admitted,
+  `2^63` bare rejected) and `println` admissibility.
+- **`Surface` → `TypedIR`** — raw candidate syntax vs. an IR where static invalidity is unrepresentable
+  (evidence-carrying literal nodes; `TPrintln` is the RESOLVED builtin — no string names in the IR).
+- **`CompileEnv` + `Elaborate`** — the declarative compile authority (`ElabProgram`, NOT a boolean) with an
+  executable elaborator proved **sound AND complete** (`elab_program_sound`/`_complete`); 12 rejection
+  theorems pin the invalid classes (unresolved/qualified callee, wrong package, value-statement, call
+  argument, nested/typed-wrong negation, negative literal node, constant overflow both signs, bad string
+  bytes) + the `-(2^63)` boundary acceptance.
+- **`Semantics`** — structured events (`EPrintln` over `PrimValue`), total evaluation; determinism,
+  totality, type preservation, and value-in-int-range proved. `println` FORMATTING is deliberately not
+  modelled (implementation-specific — a pinned-toolchain integration fact only).
+
+RED / NEXT (in order): the independent Go grammar + token stream (`GoToken`/`GoLex`/`GoGrammar`), the one
+verified renderer (`GoRender`: typed IR → canonical tokens → bytes; render/lex inverse; exact byte
+theorems), `CertifiedArtifact` (bytes reachable only through the proved chain), the 5 positive witnesses +
+the Rocq-compile-fail negative harness, and the per-witness e2e (emit → pinned `go build` → run → separate
+stdout/stderr goldens). **e2e is RED until at least one theorem-backed witness emits, compiles, runs, and
+matches its goldens. No MVP 1.0 while red.**
+
+## Where we are (the resets that got here)
 
 The handwritten OCaml backend and extraction plugin are gone (checkpoint 64). Checkpoint 65 then deleted the
 **false compile/emit authority** and the **disconnected runtime island**, because both rested on rejected

@@ -126,3 +126,31 @@ Print Assumptions lex_print_stmt_returnval.
 Print Assumptions lex_gprint_stmt_supported.
 Print Assumptions lex_gprint_stmt_unsupported.
 Print Assumptions stmt_lex_supported_iff.
+
+(** ---- checkpoint-66 slice roots (TargetConfig..Elaborate) — the compile authority and
+    semantics surfaces. *)
+From Fido Require Import TargetConfig CoreType Surface TypedIR Semantics CompileEnv Elaborate.
+Print Assumptions Elaborate.elab_program_sound.
+Print Assumptions Elaborate.elab_program_complete.
+Print Assumptions Semantics.eval_deterministic.
+Print Assumptions Semantics.eval_total.
+Print Assumptions Semantics.eval_expr_type.
+Print Assumptions Semantics.eval_int_in_range.
+Print Assumptions CoreType.int_lit_ok_in_range.
+Print Assumptions CoreType.neg_lit_ok_in_range.
+Print Assumptions CoreType.println_arg_ok_all.
+Print Assumptions TypedIR.type_of_println_ok.
+Print Assumptions CompileEnv.lookup_predeclared_inv.
+Print Assumptions Elaborate.reject_unresolved_callee.
+Print Assumptions Elaborate.reject_qualified_callee.
+Print Assumptions Elaborate.reject_wrong_package.
+Print Assumptions Elaborate.reject_value_statement.
+Print Assumptions Elaborate.reject_call_argument.
+Print Assumptions Elaborate.reject_nested_negation.
+Print Assumptions Elaborate.reject_negated_bool.
+Print Assumptions Elaborate.reject_negative_literal_node.
+Print Assumptions Elaborate.reject_int_overflow.
+Print Assumptions Elaborate.reject_neg_overflow.
+Print Assumptions Elaborate.accept_min_int.
+Print Assumptions Elaborate.reject_control_byte_string.
+Print Assumptions Elaborate.reject_high_byte_string.
