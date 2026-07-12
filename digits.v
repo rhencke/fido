@@ -74,6 +74,47 @@ Proof.
     [ exact (dds_double_nonnil B _ 1 IH) | exact (dds_double_nonnil B _ 0 IH) | discriminate ].
 Qed.
 
+(** The MOST significant digit (the LAST of the LSB-first list) is never 0 — so the printed
+    decimal has no leading zero (a leading zero would be Go's octal form).  Invariant through
+    [dds_double]: doubling keeps the last digit >= 1, or carries out a new last digit 1. *)
+Lemma dds_double_last : forall B ds carry, (2 <= B)%nat -> (carry <= 1)%nat ->
+  Forall (fun d => (d < B)%nat) ds ->
+  ds <> nil -> (1 <= last ds O)%nat ->
+  (1 <= last (dds_double B ds carry) O)%nat.
+Proof.
+  intros B ds; induction ds as [| d tl IH]; intros carry HB Hc Hall Hnil Hlast.
+  - contradiction.
+  - inversion Hall; subst. cbn [dds_double].
+    destruct tl as [| d' tl'].
+    + (* d is the last digit; result = (2d+c) mod B :: dds_double [] carry' *)
+      cbn [dds_double last] in *.
+      destruct ((2 * d + carry) / B) eqn:Hq.
+      * (* no carry out: last = (2d+c) mod B = 2d+c >= 2 *)
+        cbn [last]. rewrite Nat.mod_small; [ lia | ].
+        apply Nat.div_small_iff in Hq; lia.
+      * (* carry out: new last digit = the carry, which is 1 *)
+        cbn [last]. lia.
+    + (* the last digit lives in tl *)
+      assert (Htl : (1 <= last (dds_double B (d' :: tl') ((2 * d + carry) / B)) O)%nat).
+      { apply IH; [ lia | | assumption | discriminate | ].
+        - assert (((2 * d + carry) / B < 2)%nat)
+            by (apply Nat.Div0.div_lt_upper_bound; lia). lia.
+        - cbn [last] in Hlast. exact Hlast. }
+      cbn [last] in *.
+      destruct (dds_double B (d' :: tl') ((2 * d + carry) / B)) eqn:Hdd.
+      * exfalso. eapply dds_double_nonnil; [ | exact Hdd ]. discriminate.
+      * exact Htl.
+Qed.
+Lemma pos_digits_last : forall B p, (2 <= B)%nat -> (1 <= last (pos_digits B p) O)%nat.
+Proof.
+  intros B p HB; induction p as [p IH | p IH | ]; cbn [pos_digits].
+  - apply dds_double_last; [ lia | lia | apply pos_digits_bound; lia
+    | apply pos_digits_nonnil | exact IH ].
+  - apply dds_double_last; [ lia | lia | apply pos_digits_bound; lia
+    | apply pos_digits_nonnil | exact IH ].
+  - cbn [last]. lia.
+Qed.
+
 (** Render an LSB-first digit list onto a suffix: the fold prepends, so the MOST significant
     digit ends up first — the printed order. *)
 Definition render_digits (dig : nat -> ascii) (ds : list nat) (s : string) : string :=

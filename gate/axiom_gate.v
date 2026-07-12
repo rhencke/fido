@@ -154,3 +154,9 @@ Print Assumptions Elaborate.reject_neg_overflow.
 Print Assumptions Elaborate.accept_min_int.
 Print Assumptions Elaborate.reject_control_byte_string.
 Print Assumptions Elaborate.reject_high_byte_string.
+
+(** ---- checkpoint-66 slice roots (GoToken..GoRender) — grammar + renderer surfaces. *)
+From Fido Require Import GoToken GoLex GoGrammar GoRender.
+Print Assumptions GoRender.program_tokens_grammar.
+Print Assumptions GoRender.render_lex_inverse.
+Print Assumptions digits.pos_digits_last.

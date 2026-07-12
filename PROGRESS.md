@@ -28,10 +28,21 @@ GREEN (proved, in the pinned container):
   totality, type preservation, and value-in-int-range proved. `println` FORMATTING is deliberately not
   modelled (implementation-specific — a pinned-toolchain integration fact only).
 
-RED / NEXT (in order): the independent Go grammar + token stream (`GoToken`/`GoLex`/`GoGrammar`), the one
-verified renderer (`GoRender`: typed IR → canonical tokens → bytes; render/lex inverse; exact byte
-theorems), `CertifiedArtifact` (bytes reachable only through the proved chain), the 5 positive witnesses +
-the Rocq-compile-fail negative harness, and the per-witness e2e (emit → pinned `go build` → run → separate
+- **`GoToken` + `GoLex` + `GoGrammar`** — the subset token universe; a fuel-free structural lexer faithful
+  to Go's rules on the subset (keywords/identifiers, nonneg decimals with the leading-zero rejection,
+  interpreted strings with exactly the four escapes, ASI at line ends per the spec rule); the admitted
+  grammar over post-ASI tokens, written INDEPENDENTLY of the renderer (no renderer function appears in it).
+- **`GoRender`** — canonical tokens + the ONE token renderer (all layout: blank line after package, tab
+  indents, statement-per-line). Proved: `program_tokens_grammar` (the canonical stream derives every typed
+  program in the independent grammar) and **`render_lex_inverse`** (`lex (render_program p) = Some
+  (program_tokens p)` for ALL typed programs — every canonical semicolon really comes back via ASI, and no
+  rendered lexemes fuse). Decimal digits come from the one authority (`digits.v`, extended with
+  `pos_digits_last`: no leading zero). HONEST SCOPE: grammar adequacy to the REAL Go parser is the pinned
+  toolchain e2e's integration claim, not a theorem.
+
+RED / NEXT (in order): `CertifiedArtifact` (bytes reachable only through the proved chain: elaboration +
+trace + grammar + tokens + render), the 5 positive witnesses with exact byte theorems, the
+Rocq-compile-fail negative harness, and the per-witness e2e (emit → pinned `go build` → run → separate
 stdout/stderr goldens). **e2e is RED until at least one theorem-backed witness emits, compiles, runs, and
 matches its goldens. No MVP 1.0 while red.**
 
@@ -84,11 +95,12 @@ a residual build-trust task). No handwritten OCaml exists (`tools/ocaml-origin-g
 
 Exactly what the LIVE build gate enforces: `dune build` type-checks the modules, then `gate/axiom_gate.v` —
 **the sole Print-Assumptions target, compiled fresh EVERY build** against the dune-built `.vo` (so a warm or
-gate-poisoned `_build` cache can never skip it) — runs `Print Assumptions` on GoPrint's 122 public surfaces.
+gate-poisoned `_build` cache can never skip it) — runs `Print Assumptions` on every declared public surface
+(GoPrint's 122 + the cp66 slice's compile/semantics/grammar/renderer theorems; count-checked, so the list
+is the authority).
 The build fails on any `^Axioms:` line AND unless exactly as many `Closed under the global context` lines
-appear as the gate file declares (a vacuous/partial gate log is a FAILURE, fail-closed both ways). `digits.v`
-and `GoAst.v` declare no surfaces, so the gate says NOTHING about their axiom-freedom (it holds by
-inspection — no `Axiom`/`Parameter`/`Admitted`, Stdlib-only imports — but is not build-gated). The
+appear as the gate file declares (a vacuous/partial gate log is a FAILURE, fail-closed both ways). Modules with no
+declared surface are NOT gated (axiom-freedom there holds by inspection — no `Axiom`/`Parameter`/`Admitted`, Stdlib-only imports — but is not build-gated). The
 axiom-DECLARATION scan (no `Axiom`/`Parameter`/`Admitted`/top-level `Variable` in any `.v`) runs ONLY in the
 **pre-commit hook**, not in `make check` or the container build, so it is bypassable (`--no-verify`) and
 absent in CI — moving it into `make check` is a build-trust task. Never read "no assumptions" as proof that a

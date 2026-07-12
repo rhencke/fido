@@ -2,4 +2,4 @@
  (name Fido)
  (synopsis "Fido — a proof repository under a foundation reset: the cp66 println slice roots + the surviving syntax layer (pending the syntax-root reset)")
  (theories Stdlib)
- (modules digits GoAst GoPrint TargetConfig CoreType Surface TypedIR Semantics CompileEnv Elaborate))
+ (modules digits GoAst GoPrint TargetConfig CoreType Surface TypedIR Semantics CompileEnv Elaborate GoToken GoLex GoGrammar GoRender))
