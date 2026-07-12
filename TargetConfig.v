@@ -1,16 +1,21 @@
 (** ============================================================================
     TargetConfig — the ONE authority for pinned target facts (checkpoint-66 root 1).
 
-    Every target-dependent fact the slice uses (int width, target identity, whether the
-    bootstrapping builtin [println] exists) is a field HERE and is consumed by derivation —
-    never restated in the printer, the elaborator, or a test.  The Go toolchain IMAGE
-    (digest) is a build pin and lives in the Makefile; [tc_go_version]/[tc_goos]/[tc_goarch]
-    name the language/target the integration goldens are facts ABOUT.
+    Every target-dependent fact is a field HERE, consumed by derivation, never restated in
+    the elaborator, the renderer, or a test.  What is consumed TODAY, mechanically:
+      - [tc_int_bits] derives [int_min]/[int_max] (below), which [GoCompile.CInt]/[CNeg]
+        carry as intrinsic representability evidence — a different width changes what compiles;
+      - [tc_println_builtin] is a required premise of [GoCompile]'s [println] rule — a target
+        without the builtin compiles no program.
+    [tc_go_version]/[tc_goos]/[tc_goarch] name the language/target that the FUTURE e2e's
+    integration goldens will be facts about; the pinned Go toolchain image (a build pin)
+    returns to the Makefile with that e2e milestone.  They are not consumed by a proof (there
+    is no proof about the real toolchain — that is the last-mile integration boundary).
 
     [println] is Go's BOOTSTRAPPING builtin: the spec does not guarantee it stays in the
     language and its exact output formatting is implementation-specific.  [tc_println_builtin]
     records that the pinned target provides it; no portable text-formatting theorem is ever
-    claimed (the runtime golden is pinned-toolchain integration evidence only).
+    claimed (a runtime golden would be pinned-toolchain integration evidence only).
     ============================================================================ *)
 From Stdlib Require Import String ZArith.
 Open Scope Z_scope.

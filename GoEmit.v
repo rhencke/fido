@@ -1,15 +1,19 @@
 (** ============================================================================
     GoEmit — the emission gate: a [SafeProgram] becomes a Rocq-defined [DirectoryImage]
-    (a list of files with relative paths and exact byte contents).  A [GoFile] may
-    eventually be a package of several files, so emission returns a DIRECTORY, not one
-    string.  All paths and bytes are decided in Rocq; the tiny plugin writes the image
-    unchanged and atomically.  A rejected/uncertified candidate has no [SafeProgram], so
-    it produces NO image and NO files — rejection is never mapped to an empty file.
+    (a list of files with relative paths and exact byte contents).  A package may eventually
+    span several files, so emission returns a DIRECTORY, not one string.  All paths and
+    bytes are decided in Rocq, by rendering the certificate's DECORATED tree ([sp_compiled]).
+    A rejected/uncertified candidate has no [SafeProgram], so it produces NO image and NO
+    files — rejection is never mapped to an empty file.
 
     Path safety is proved here: every emitted path is relative, contains no separator or
     [..] traversal, is not [.]/[..], carries the [.go] extension, and the file names are
-    unique — so the external writer cannot be steered outside its destination root.
-    ============================================================================ *)
+    unique — so any future external writer cannot be steered outside its destination root.
+
+    STATUS: there is no writer/plugin yet, and therefore no pinned-Go execution — this
+    module computes the [DirectoryImage] in Rocq only.  The tiny transparent [Fido Emit]
+    transport plugin and the pinned-toolchain e2e (build/run/goldens) are the next milestone;
+    until they exist this is a Rocq-side artifact, not proof of what the Go toolchain does. *)
 From Stdlib Require Import String Ascii NArith List Bool.
 From Fido Require Import GoAST GoSafe GoRender.
 Import ListNotations.
@@ -51,7 +55,7 @@ Proof. reflexivity. Qed.
 (** ---- the emitter ---- *)
 
 Definition emit_directory (sp : SafeProgram) : DirectoryImage :=
-  [ mkOutputFile main_go (render_file (sp_file sp)) ].
+  [ mkOutputFile main_go (render_cfile (sp_compiled sp)) ].
 
 (** Every emitted file has a safe relative path. *)
 Theorem emit_paths_ok : forall sp, Forall (fun f => path_ok (of_path f) = true) (emit_directory sp).

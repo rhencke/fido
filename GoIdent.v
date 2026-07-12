@@ -1,11 +1,14 @@
 (** ============================================================================
     GoIdent — a VALIDATED Go identifier: a nonempty ASCII identifier that is not one of
     Go's 25 reserved words.  The validity is IN THE TYPE (a [sig]), so a keyword-as-name
-    or an empty/ill-formed name is unrepresentable — the target AST and the token layer
-    both carry [GoIdent], never a raw [string].  [true]/[false]/[println]/[main] are
-    ordinary identifiers here, exactly as Go's lexer classifies them (only [package] and
-    [func] are keywords in this subset; the full keyword set is rejected for completeness).
-    Unicode-letter identifiers are an explicit unsupported frontier (unrepresentable).
+    or an empty/ill-formed name is unrepresentable — [GoAST] carries [GoIdent], never a raw
+    [string].  [true]/[false]/[println]/[main] are ordinary identifiers here, exactly as Go's
+    lexer classifies them (the full keyword set is rejected for completeness).  Unicode-letter
+    identifiers are an explicit unsupported frontier (unrepresentable).
+
+    The one theorem downstream needs is [goident_payload_eq]: identifier equality reduces to
+    string equality (the validity evidence is unique), which is how [GoCompile] reconstructs
+    the canonical "main"/"println"/"true"/"false" identifiers during erasure.
     ============================================================================ *)
 From Stdlib Require Import String Ascii Bool List Eqdep_dec.
 Import ListNotations.
@@ -40,19 +43,4 @@ Lemma goident_payload_eq : forall (i j : GoIdent), ident_str i = ident_str j -> 
 Proof.
   intros [a Ha] [b Hb] E. cbn in E. subst b. f_equal.
   apply UIP_dec. apply Bool.bool_dec.
-Qed.
-
-(** A validated identifier's characters, unpacked — used by the lexer-faithfulness proofs. *)
-Lemma goident_facts : forall (i : GoIdent),
-  exists c w', ident_str i = String c w'
-    /\ ident_start_ok c = true
-    /\ ident_chars_ok (String c w') = true
-    /\ go_keyword (String c w') = false.
-Proof.
-  intros [w Hw]. destruct w as [ | c w' ]; [ discriminate Hw | ].
-  exists c, w'. cbn [ident_str proj1_sig].
-  cbn [go_ident_ok] in Hw.
-  apply andb_true_iff in Hw as [Hw1 Hkw].
-  apply andb_true_iff in Hw1 as [Hstart Hchars].
-  repeat split; try assumption. apply negb_true_iff in Hkw. exact Hkw.
 Qed.
