@@ -76,8 +76,9 @@ main in a package) is rejected IN Rocq before any bytes — **zero expected Go b
   a recordless lookalike is preserved. Handled-failure cleanup is immediate + error-aggregating. Fault seams
   are `rand_hex`/`checkpoint`/`unlink` PARAMETERS (nonce collisions, real `Unix._exit` crashes at each
   staging point, unlink failures) through the real algorithm — no ambient env. Honest: normal completion
-  releases the lock; a crash (or lock-release failure) leaves the lock and the next run refuses until it is
-  removed, then recovers the record-owned residue. See `ARCHITECTURE.md` for the full contract. NOT
+  releases the lock; a crash (or a lock-UNLINK failure) leaves the lock and the next run refuses until it is
+  removed, then recovers the record-owned residue (a lock-close failure is reported but still unlinks the
+  lock). See `ARCHITECTURE.md` for the full contract. NOT
   transactional, NOT a concurrent-adversary guard; Linux/amd64 operational scope.
 - **Pinned Go** (`golang:1.23-alpine`, `GOWORK=off GOTOOLCHAIN=local GOPROXY=off`): `go build ./...` over
   the WHOLE tree using the RENDERED `go.mod` (no handwritten shell) + gofmt-clean, with `go vet`

@@ -11,12 +11,20 @@ Import ListNotations.
 
 Declare ML Module "fido.emit".
 
-(* a raw empty transport list — type list (string*string), NOT a DirectoryImage: rejected *)
-Fail Fido Emit (@nil (string * string)) To "/workspace/e2e-neg".
+(* THE decisive case: a raw transport of the EXACT decodable final shape — a (go.mod bytes, entries) pair
+   with generated-looking bytes — that never came from render_program.  If the TYPE guard were bypassed,
+   [decode_transport] would happily decode this and install forged content; the guard rejects it because it
+   is not a DirectoryImage (di_transport expects one), BEFORE any filesystem effect. *)
+Fail Fido Emit
+  (("// fido generated.  do not edit."%string,
+    cons ("main.go"%string, "// fido generated.  do not edit."%string) (@nil (string * string)))
+   : string * list (string * string))
+  To "/workspace/e2e-neg".
 
-(* a raw singleton with arbitrary bytes — would install forged content if accepted: rejected *)
+(* a raw entries list of the wrong (non-pair) shape — type list (string*string), NOT a DirectoryImage *)
+Fail Fido Emit (@nil (string * string)) To "/workspace/e2e-neg".
 Fail Fido Emit (cons ("main.go"%string, "evil bytes"%string) (@nil (string * string)))
   To "/workspace/e2e-neg".
 
-(* a bare string — not even list-shaped: rejected *)
+(* a bare string — not even transport-shaped *)
 Fail Fido Emit "not an image"%string To "/workspace/e2e-neg".

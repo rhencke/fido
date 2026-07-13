@@ -2,7 +2,7 @@
     executable, no extraction).  A proved [SafeProgram] is rendered to a [DirectoryImage] via
     [render_program], so its provenance proof is CLOSED (assumption-free); the command typechecks the
     image and finds its assumption closure empty (even though it descends the Qed lemma [demo_valid]),
-    then decodes only the final (path, bytes) data and synchronizes the tree.  A candidate that is not
+    then decodes only the final (go.mod bytes, entries) transport and synchronizes the tree.  A candidate that is not
     compile-admissible has no [SafeProgram] and so cannot even be built into an image.
 
     This file is compiled EXPLICITLY (rocq c) after the cached theory/plugin build — the emission is not

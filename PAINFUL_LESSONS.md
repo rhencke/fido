@@ -34,8 +34,8 @@ stop. When an entry stops being a live temptation, delete it.
    accepted an arbitrary `constr` and decoded it by application ARITY — term inspection masquerading as a
    transport. The permitted boundary is four steps: typecheck the image type, reject a non-empty assumption
    closure (a kernel provenance query — NOT decoding proofs or programs), decode ONLY the final
-   `(path, bytes)` transport with EXACT constructors (fail loud otherwise), then call the filesystem-only
-   sink. It inspects no program/AST/behaviour/semantics. If that boundary cannot be met, delete the e2e — a
+   `(go.mod bytes, (path, bytes) list)` transport with EXACT constructors (fail loud otherwise), then call
+   the filesystem-only sink. It inspects no program/AST/behaviour/semantics. If that boundary cannot be met, delete the e2e — a
    false transport foundation is worse than no integration. (And emission is an EXPLICIT command, not a
    cached `.vo` side effect a warm cache would silently skip, nor a per-witness extracted executable.)
 
@@ -72,8 +72,9 @@ stop. When an entry stops being a live temptation, delete it.
    isolated or modeled — NOT preserved-and-merged into a tree we then claim compiles. Inject faults (nonce
    collision, real crash via `Unix._exit`, unlink failure) through operation PARAMETERS, never an ambient env
    branch or a real `chmod` in the production sink. Honest guarantee: NOT transactional, Linux/amd64 scope;
-   normal completion releases the lock; a crash or lock-release failure leaves the lock and the next run
-   refuses until it is deliberately removed.
+   normal completion releases the lock; a crash or a lock-UNLINK failure leaves the lock and the next run
+   refuses until it is deliberately removed (a lock descriptor-close failure is reported but still unlinks
+   the lock).
 
 7. **Source-text scanning is not a sound zero-axiom gate — audit the compiled environment's CLOSURE.** Every
    text scanner leaked (a comment stripper missed an `Axiom` behind a `"(*"` string; a lexical scanner missed
