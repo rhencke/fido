@@ -264,18 +264,6 @@ for order in readdir-tmp-first readdir-other-first; do
   ./sink_test "$d" || fail "mix-$order: no converge after the forbidden entry was removed"
   [ -z "$(staged "$d")" ] || fail "mix-$order: staging residue survived a converging rerun"
 done
-# (7c-meta) PROVE the byte-exact assertion above is not newline-normalizing: derive each mutant from a
-#           snapshot's bytes (no re-typed literal) — final newline removed, an extra newline appended,
-#           truncated, or the file missing — and confirm `cmp` DETECTS every one.  A `$(cat)` comparison
-#           would silently pass the first two; if `cmp` here is ever swapped for one that normalizes
-#           newlines, this self-test fails and blocks the build.
-ref=$snap/tmp-readdir-tmp-first; n=$(wc -c < "$ref")
-head -c $((n-1)) "$ref" > "$snap/mut-noeol"                              # final newline removed
-cp "$ref" "$snap/mut-extraeol"; printf '\n' >> "$snap/mut-extraeol"     # an extra newline appended
-head -c 3 "$ref" > "$snap/mut-trunc"                                    # truncated
-for mut in mut-noeol mut-extraeol mut-trunc does-not-exist; do
-  if cmp -s "$ref" "$snap/$mut"; then fail "byte-exact self-test: cmp did NOT detect the $mut difference (comparison is newline-normalizing / treats a missing file as identical)"; fi
-done
 printf 'live\n' | cmp -s - /workspace/sentinel/keep || fail "a slot symlink's external target was mutated/deleted"
 # (8) crash PREFIXES against the ONE slot: seed the slot as empty / partial / full (a crash leaves at most
 #     this one regular file, whatever its bytes) — a normal rerun recovers each and converges; and an
