@@ -54,10 +54,15 @@ stop. When an entry stops being a live temptation, delete it.
    generic over raw strings, so it cannot trust the caller) and stage inside `.fido/staging/`. Location is a
    NAMESPACE POLICY, not provenance: it works only because `.fido/` is reserved AND recovery accepts ONLY
    the exact flat form the builder emits. ⚠ "everything under staging is ours" is NOT a license to
-   recursively delete: `stage_temp` makes only flat regular `O_EXCL` temps with canonical decimal names, so
-   recovery must REFUSE (fail-loud, never traverse or delete) any directory / symlink / special file /
-   non-canonical name — otherwise a nested tree or a mount under staging gets recursively removed. Create
-   each temp `O_CREAT|O_EXCL` then atomically rename (reject a cross-filesystem target first). Recovery
+   recursively delete: `stage_temp` makes only flat regular `O_EXCL` temps whose names are `string_of_int`
+   of a nonnegative index, so recovery must REFUSE (fail-loud, never traverse or delete) any directory /
+   symlink / special file / non-canonical name — otherwise a nested tree or a mount under staging gets
+   recursively removed. "Exact form" must be EXACT: recovery checked-PARSES the name and RESERIALIZES it for
+   equality (a digit-shaped superset admits an oversized decimal the generator overflows on), and the
+   generator and recognizer share ONE name abstraction. ⚠ Also validate the ROOT itself: `lstat` spares only
+   the final component, so a symlink in ANY prefix of `root` is followed by ordinary resolution and
+   redirects every effect into the referent — reject a non-real-directory in the whole ancestor chain before
+   any effect. Create each temp `O_CREAT|O_EXCL` then atomically rename (reject a cross-filesystem target first). Recovery
    inspects that ONE directory, recover-all-or-REJECT and fail-CLOSED (any readdir/lstat/removal error but a
    confirmed `ENOENT` aborts before any effect); it NEVER scans the tree, so a header-forging foreign file is
    untouched. Keep installed-`.go` ownership (header first line, lstat S_REG) SEPARATE. Inject cleanup/

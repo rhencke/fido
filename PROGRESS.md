@@ -48,9 +48,10 @@ is rejected IN Rocq before any bytes — **zero expected Go build failures, ever
   empty-file tree; `WitnessForge{,Opaque,Var,VarIndirect}.v` are the direct-axiom / opaque-Qed-axiom /
   direct- and transitive-section-variable forged images each rejected (reason-checked) before any effect.
 - **The dirty-directory sink** (`plugin/fido_sink.ml`): persistent `<root>/.fido/` control dir + marker +
-  git-style `index.lock`; `.fido/` is a RESERVED namespace (a desired path inside it is refused before any
-  effect; foreign preservation is scoped OUTSIDE it). Installed `.go` is owned by its header first line
-  (rechecked before overwrite/delete, lstat S_REG so symlinks are never followed). Transient staging goes
+  git-style `index.lock`. Before any effect it validates the `root` (every ancestor must be a real dir — a
+  symlink in ANY prefix component is rejected) and reserves `.fido/` (a desired path inside it is refused;
+  foreign preservation is scoped OUTSIDE it). Installed `.go` is owned by its header first line (rechecked
+  before overwrite/delete, lstat S_REG so symlinks are never followed). Transient staging goes
   into `.fido/staging/`, a reserved location: each target → an `O_CREAT|O_EXCL` `.fido/staging/<seq>` then
   atomic rename (the preflight rejects a cross-filesystem target). Recovery runs FIRST, recover-all-or-
   REJECT and fail-CLOSED: `staging/` must hold ONLY flat canonical regular temps — a dir/symlink/special/

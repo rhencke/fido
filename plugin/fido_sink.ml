@@ -5,10 +5,12 @@
    reserved control namespace.  It understands ONLY the filesystem: it decodes no program, renders nothing,
    parses no Go, walks no Rocq terms.
 
-   RESERVED NAMESPACE: `<root>/.fido/` is Fido-controlled, NOT part of the preserved foreign area.  Before
-   any filesystem effect, the sink REJECTS any desired path that lands inside `.fido/` (it is generic over
-   raw strings, so it enforces this itself rather than trusting the caller).  Foreign preservation is scoped
-   to the tree OUTSIDE `.fido/`.
+   VALIDATED ROOT + RESERVED NAMESPACE (both before ANY filesystem effect, since the sink is generic over
+   raw strings and cannot trust the caller): (a) every proper ancestor of `root` must be an existing REAL
+   directory — a symlink in ANY prefix component is rejected, because ordinary pathname resolution would
+   otherwise follow it and redirect every subsequent effect (lstat only spares the FINAL component); and
+   (b) `<root>/.fido/` is Fido-controlled, NOT part of the preserved foreign area — a desired path inside
+   `.fido/` is rejected.  Foreign preservation is scoped to the tree OUTSIDE `.fido/`.
 
    TWO DISTINCT ownership authorities, for two distinct concerns:
    - INSTALLED `.go` (in the tree): a regular file is Fido-owned iff its first line is the exact generated
@@ -101,6 +103,22 @@ let rec walk_real_dirs root f =
     if is_real_dir p && not (List.mem name skip_dirs) then walk_real_dirs p f)
     (try Sys.readdir root with Sys_error _ -> [||])
 
+(* validate that EVERY proper ancestor of [root] (from the filesystem root or cwd down to root's parent)
+   is an existing REAL directory — reject a symlink or non-directory in ANY prefix component.  Otherwise
+   ordinary pathname resolution follows a prefix symlink and redirects every subsequent effect into the
+   referent tree (lstat only spares the FINAL component).  [root] itself may be absent (A.1 creates it);
+   its parent chain must be real. *)
+let validate_root_chain root =
+  let rec chain p acc = let d = Filename.dirname p in if d = p then p :: acc else chain d (p :: acc) in
+  let rec go = function
+    | [] | [ _ ] -> ()                             (* the last element is root itself, checked by A.1 *)
+    | a :: rest ->
+      (match lstat_opt a with
+       | Some st when st.Unix.st_kind = Unix.S_DIR -> go rest
+       | Some _ -> fail "a component of the target root is a symlink or non-directory: %s" a
+       | None -> fail "a parent directory of the target root does not exist: %s" a)
+  in go (chain root [])
+
 let ensure_real_dir_parents root parts =
   let rec go cur = function
     | [] | [ _ ] -> ()
@@ -123,21 +141,27 @@ let ancestor_device root parts =
       (match kind_opt nxt with Some Unix.S_DIR -> go nxt rest | _ -> (Unix.stat cur).Unix.st_dev)
   in go root parts
 
-(* the EXACT flat representation stage_temp emits: a decimal sequence name with no leading zeros.  Recovery
-   accepts nothing else, so it never traverses or removes a directory / mount / symlink / special file. *)
-let is_canonical_temp_name n =
-  String.length n > 0
-  && (n = "0" || n.[0] <> '0')
-  && String.for_all (fun c -> c >= '0' && c <= '9') n
+(* ONE temp-name abstraction shared by the generator and recovery: a name is a NONNEGATIVE index in the
+   generator's OCaml-int range, serialized by string_of_int.  Recovery checked-PARSES a name and
+   RESERIALIZES it for EXACT equality, so an oversized/overflowing all-decimal string (which stage_temp
+   cannot emit) is rejected — the accepted language is exactly what the builder emits, no superset. *)
+let temp_name_of_index i = string_of_int i
+let index_of_temp_name n =
+  match int_of_string_opt n with
+  | Some i when i >= 0 && temp_name_of_index i = n -> Some i
+  | _ -> None
+let is_canonical_temp_name n = index_of_temp_name n <> None
 
 let () = Random.self_init ()
 
 (* write [bytes] to a fresh O_CREAT|O_EXCL temp inside the owned staging dir and return its path.  A
-   collision (the sequence is fresh after recovery empties staging, so only a race) just advances. *)
+   collision (the sequence is fresh after recovery empties staging, so only a race) just advances.  The
+   index stays a valid nonnegative int (guarded against overflow), so its name round-trips through recovery. *)
 let stage_temp staging seq bytes =
   let rec go tries =
     if tries <= 0 then fail "could not create a unique staging temp in %s" staging;
-    let tmp = Filename.concat staging (string_of_int !seq) in incr seq;
+    if !seq < 0 then fail "staging index overflow in %s" staging;
+    let tmp = Filename.concat staging (temp_name_of_index !seq) in incr seq;
     match (try Some (Unix.openfile tmp [ Unix.O_CREAT; Unix.O_EXCL; Unix.O_WRONLY ] 0o644)
            with Unix.Unix_error (Unix.EEXIST, _, _) -> None) with
     | None -> go (tries - 1)
@@ -154,10 +178,13 @@ let sync ?(unlink = Unix.unlink) ?(after_stage = fun _ -> ()) root entries =
     Filename.check_suffix path ".go"
     && (match lstat_opt path with Some st -> st.Unix.st_kind = Unix.S_REG | None -> false)
     && first_line path = Some gen_header in
-  (* (A.0) RESERVE the control namespace: validate every desired path (rejecting unsafe ones) and refuse
-     any that lands inside <root>/.fido, BEFORE any filesystem effect or recovery.  The plugin's FilePath
-     excludes hidden components, but the sink is generic over raw strings, so it enforces this itself —
-     otherwise a desired `.fido/staging/<x>` could be installed and then deleted by the next recovery. *)
+  (* (A.-1) validate the ROOT's whole existing path chain (no prefix symlink may redirect effects) and
+     (A.0) RESERVE the control namespace: refuse any desired path inside <root>/.fido (and reject unsafe
+     ones).  BOTH run BEFORE any filesystem effect or recovery.  The plugin's FilePath excludes hidden
+     components and its root is fixed, but the sink is generic over raw strings, so it enforces both itself
+     — otherwise a prefix-symlinked root would redirect all effects, or a desired `.fido/staging/<x>` could
+     be installed and then deleted by the next recovery. *)
+  validate_root_chain root;
   List.iter (fun (rel, _) ->
     match components rel with
     | c :: _ when c = control_dir -> fail "refusing a desired path inside the reserved %s namespace: %s" control_dir rel

@@ -171,6 +171,15 @@ if ./sink_test /workspace/adv-b; then fail "wrote through a symlinked root"; fi
 mkdir -p /workspace/adv-c/.fido; printf 'not the marker\n' > /workspace/adv-c/.fido/marker
 if ./sink_test /workspace/adv-c; then fail "touched a foreign .fido control dir"; fi
 [ "$(cat /workspace/adv-c/.fido/marker)" = "not the marker" ] || fail "altered a foreign control dir"
+# (3b) a symlink in an ANCESTOR of root (not just the final component) must be rejected BEFORE any effect,
+#      for both an existing and a missing leaf; the referent tree stays byte-identical.
+mkdir -p /workspace/sym-real/existing; printf 'referent\n' > /workspace/sym-real/existing/keep
+ln -s /workspace/sym-real /workspace/sym-link
+if ./sink_test /workspace/sym-link/existing; then fail "wrote through a prefix symlink (existing leaf)"; fi
+[ ! -e /workspace/sym-real/existing/.fido ] || fail "a prefix-symlinked root created .fido in the referent"
+[ "$(cat /workspace/sym-real/existing/keep)" = "referent" ] || fail "a prefix-symlinked root mutated the referent"
+if ./sink_test /workspace/sym-link/newleaf; then fail "wrote through a prefix symlink (missing leaf)"; fi
+[ ! -e /workspace/sym-real/newleaf ] || fail "a prefix-symlinked root created a missing leaf in the referent"
 # (4) a REAL crash mid-staging: the driver TERMINATES the process (Unix._exit) after the real staging code
 #     creates a real temp — NO finalizer runs — so the lock stays HELD and a real temp stays in staging.
 #     The immediate rerun REFUSES on the held lock WITHOUT touching the temp; after the stale lock is
@@ -192,14 +201,19 @@ mkdir -p /workspace/adv-f; ./sink_test /workspace/adv-f || fail "foreign-preserv
 printf '%s\nforged\n' "$hdr" > /workspace/adv-f/notes.keep   # header first line, not a .go, in the tree
 ./sink_test /workspace/adv-f || fail "foreign-preserve re-sync aborted"
 [ -f /workspace/adv-f/notes.keep ] || fail "a header-forging foreign tree file was deleted"
-# (6) the .fido/ control namespace is RESERVED: a desired path inside it is refused BEFORE any effect (no
-#     target created); a pre-existing marked .fido/ is accepted and its foreign content is left untouched.
+# (6) the .fido/ control namespace is RESERVED: a desired path inside it is refused BEFORE any effect,
+#     proven two ways — (a) against a NONEXISTENT root the rejection must not even create the root, and
+#     (b) against a MARKED root with seeded canonical residue the rejection must NOT run recovery.  A
+#     pre-existing marked .fido/ is accepted and its foreign content is left untouched.
+if ./sink_test /workspace/adv-ns-new reserved-path; then fail "ns: a reserved path against a new root was NOT refused"; fi
+[ ! -e /workspace/adv-ns-new ] || fail "ns: a reserved-path rejection created the root (effect before validation)"
 mkdir -p /workspace/adv-ns; ./sink_test /workspace/adv-ns || fail "reserved-ns initial sync failed"
 printf 'keep\n' > /workspace/adv-ns/.fido/keep         # foreign content in the reserved dir
-if out=$(./sink_test /workspace/adv-ns reserved-path 2>&1); then rc=0; else rc=$?; fi
-[ "$rc" -ne 0 ] || { echo "$out"; fail "ns: a desired path inside .fido was NOT refused"; }
+: > /workspace/adv-ns/.fido/staging/0                  # canonical residue a real run WOULD recover
+if out=$(./sink_test /workspace/adv-ns reserved-path 2>&1); then fail "ns: a desired path inside .fido was NOT refused"; fi
 echo "$out" | grep -q 'reserved' || { echo "$out"; fail "ns: not refused as a reserved-namespace violation"; }
 [ ! -e /workspace/adv-ns/.fido/staging/foo.go ] || fail "ns: a reserved desired path was installed"
+[ -e /workspace/adv-ns/.fido/staging/0 ] || fail "ns: reserved-path rejection ran recovery (removed residue before validation)"
 ./sink_test /workspace/adv-ns || fail "ns: a pre-existing marked .fido was not accepted"
 [ -f /workspace/adv-ns/.fido/keep ] || fail "ns: foreign content in the reserved dir was removed"
 # (7) recovery accepts ONLY flat canonical regular temps: a nested directory, a symlink (name "0") to an
@@ -213,11 +227,23 @@ for bad in nested link weird; do
     link)   ln -s /workspace/sentinel "$d/.fido/staging/0";;
     weird)  : > "$d/.fido/staging/notcanonical";;
   esac
-  if out=$(./sink_test "$d" 2>&1); then rc=0; else rc=$?; fi
-  [ "$rc" -ne 0 ] || { echo "$out"; fail "flat-$bad: an impossible staging state was NOT refused"; }
+  if out=$(./sink_test "$d" 2>&1); then fail "flat-$bad: an impossible staging state was NOT refused"; fi
   echo "$out" | grep -q 'recovery FAILED' || { echo "$out"; fail "flat-$bad: not a recovery rejection"; }
+  # the offending entry itself must survive UNCHANGED (refused, never deleted)
+  case "$bad" in
+    nested) { [ -d "$d/.fido/staging/0" ] && [ "$(cat "$d/.fido/staging/0/sub/f")" = "x" ]; } || fail "flat-nested: the nested tree was altered/removed";;
+    link)   [ -L "$d/.fido/staging/0" ] || fail "flat-link: the staging symlink was removed/followed";;
+    weird)  [ -f "$d/.fido/staging/notcanonical" ] || fail "flat-weird: the non-canonical entry was removed";;
+  esac
 done
 [ "$(cat /workspace/sentinel/keep)" = "live" ] || fail "a staging symlink's external target was mutated/deleted"
+# (7b) an OVERSIZED all-decimal staging name (which stage_temp cannot emit — it overflows int) must be
+#      REFUSED and left present: the recognizer is exactly the generator's range, not a digit-shaped superset.
+mkdir -p /workspace/adv-big; ./sink_test /workspace/adv-big || fail "big-name initial sync failed"
+: > /workspace/adv-big/.fido/staging/99999999999999999999999999
+if out=$(./sink_test /workspace/adv-big 2>&1); then fail "big-name: an oversized decimal staging name was NOT refused"; fi
+echo "$out" | grep -q 'recovery FAILED' || { echo "$out"; fail "big-name: not a recovery rejection"; }
+[ -e /workspace/adv-big/.fido/staging/99999999999999999999999999 ] || fail "big-name: an unrecognized entry was deleted"
 # (8) INJECTED recovery-unlink failure (an `unlink` PARAMETER through the real algorithm): seed canonical
 #     residue of every crash prefix (empty / partial / full), a run whose recovery cannot remove it must
 #     fail loud BEFORE any effect, keep the residue, release the lock; a normal rerun recovers ALL of it

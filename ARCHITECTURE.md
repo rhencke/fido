@@ -127,9 +127,11 @@ transport foundation is worse than no integration.
 
 `GoCompile`, `GoSafe`, and DirectoryImage production are whole-program ALL-OR-NOTHING. Installation into an
 existing dirty tree is locked (a persistent `<root>/.fido/` control dir with an exact marker + a git-style
-`index.lock`). `<root>/.fido/` is a RESERVED namespace, not part of the preserved foreign area: before any
-effect the sink REJECTS any desired path inside it (it is generic over raw strings, so it enforces this
-itself). Foreign preservation is scoped to the tree OUTSIDE `.fido/`. There are TWO DISTINCT ownership
+`index.lock`). Before any effect the sink (generic over raw strings, so it trusts no caller) VALIDATES the
+`root`: every proper ancestor must be an existing real directory — a symlink in ANY prefix component is
+rejected, else ordinary pathname resolution would follow it and redirect all effects (lstat spares only the
+final component). `<root>/.fido/` is then a RESERVED namespace, not part of the preserved foreign area: a
+desired path inside it is REJECTED. Foreign preservation is scoped to the tree OUTSIDE `.fido/`. There are TWO DISTINCT ownership
 authorities. INSTALLED `.go`: a regular tree file is Fido-owned iff its first line is the exact header;
 ownership is rechecked immediately before every overwrite/delete via lstat (a symlink is S_LNK, never
 S_REG, so it is never followed/read/removed); a foreign `.go` forging the header is the accepted limit
