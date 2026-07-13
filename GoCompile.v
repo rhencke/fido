@@ -1,6 +1,7 @@
 (** ============================================================================
     GoCompile — EXACT whole-PROGRAM static/compiler admissibility as EVIDENCE over the ONE raw program
-    (the nonempty finite map [GoProgram]), plus the derived [CompilationFacts] over that same program.
+    (the [GoProgram]: a [ModuleSpec] + a possibly-EMPTY finite map of files), plus the derived
+    [CompilationFacts] over that same program.  The empty program is accepted (no packages, one go.mod).
 
     Whole-program package policy (a deliberate exact GENERATOR-language subset — not a model of arbitrary
     human package clauses).  Because raw package clauses and imports are absent:

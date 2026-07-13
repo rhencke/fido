@@ -13,13 +13,17 @@ stop. When an entry stops being a live temptation, delete it.
    "unsupported syntax." (This is why `GoCompile` proves sound + complete against a declarative judgment and
    is attacked by differential experiments against real Go; a green boolean is not the authority.)
 
-2. **The compile unit is the WHOLE program tree, and paths + package identity are semantic inputs.** Go
-   groups files by directory into packages; one-main-per-package is a whole-program property; a raw `string`
-   key is not a file path (package discovery depends on the extension, `_test`/GOOS suffixes, hidden dirs,
-   directory identity). Single-file compiler semantics with `string` keys cannot model this. So: `GoProgram`
-   is a nonempty finite map keyed by an INTRINSIC `FilePath`; `GoCompile` consumes it all at once,
-   all-or-nothing; package grouping / package name / entry-point status are COMPILATION RESULTS
-   (`CompilationFacts`), never collapsed into a raw node like the deleted `MainFile`.
+2. **The compile unit is the WHOLE program tree; paths, module identity, and the module file are semantic
+   inputs.** Go groups files by directory into packages; one-main-per-package is a whole-program property; a
+   raw `string` key is not a file path (package discovery depends on the extension, `_test`/GOOS suffixes,
+   hidden dirs, directory identity). Single-file compiler semantics with `string` keys cannot model this.
+   So: `GoProgram` pairs an intrinsic `ModuleSpec` (module path + Go version — the generated module's facts,
+   NOT a target config) with a POSSIBLY-EMPTY finite map keyed by an INTRINSIC `FilePath` (the empty map is a
+   valid module-only program — a nonemptiness restriction was a false narrowing); `GoCompile` consumes it all
+   at once, all-or-nothing; package grouping / package name / entry-point status are COMPILATION RESULTS
+   (`CompilationFacts`), never collapsed into a raw node like the deleted `MainFile`. The `go.mod` is PART of
+   the generated program and is RENDERED in Rocq from the `ModuleSpec` (proved exact bytes) — never injected
+   by hand in the build, and never smuggled into the `FilePath` map (it is not a `.go` path).
 
 3. **Gate the invariant you advertise.** A functional first-match lookup theorem (`fm_MapsTo_fun`) holds even
    over a duplicate-keyed list, so it is NOT evidence of key uniqueness — that is `fm_keys_nodup` (the carried
@@ -42,45 +46,46 @@ stop. When an entry stops being a live temptation, delete it.
    the gate. The gate is the emit command's assumption-closure check (it rejects any image whose proof
    depends on an assumption, descending Qed bodies), so a forged image cannot cross into filesystem effects.
 
-6. **A directory sink SYNCHRONIZES a dirty tree; put TRANSIENT ownership in a structured namespace, distinct
-   from installed-file ownership.** A filesystem lock only coordinates cooperating emitters — it is not
-   ownership. ⚠ Every attempt to mark a scattered per-file staging object failed: an inner marker is deleted
-   before its directory (a failed `rmdir` leaves an unrecognizable husk); a control-dir record is forgeable
-   (a symlink record followed on read, a truncating non-exclusive create, a stage that outlives a crash
-   before its record); and reusing the INSTALLED-file header for a temp is BOTH non-atomic (the header is
-   written after the file appears, so a crash orphans an empty temp) and forgeable (a public header cannot
-   tell our crashed temp from a foreign lookalike). The fix is a RESERVED, mechanically-quarantined
-   NAMESPACE: reserve `<root>/.fido/` (reject any desired path inside it BEFORE any effect — the sink is
-   generic over raw strings, so it cannot trust the caller) and stage inside `.fido/staging/`. Location is a
-   NAMESPACE POLICY, not provenance: it works only because `.fido/` is reserved AND recovery accepts ONLY
-   the exact form the builder emits. ⚠ "everything under staging is ours" is NOT a license to recursively
-   delete: recovery must REFUSE (fail-loud, never traverse or delete) any directory / symlink / special file
-   — otherwise a nested tree or a mount under staging gets recursively removed. ⚠ And do NOT invent a state
-   space the algorithm does not need: a per-file counter/allocator (with its own name grammar, overflow, and
-   builder-vs-recovery superset bugs) was pure fat — the sync loop stages a target and RENAMES it out before
-   the next, so at most ONE temp ever exists.  Use ONE fixed slot `.fido/staging/tmp` (`O_CREAT|O_EXCL`,
-   fails closed if occupied); then the filesystem itself makes the reachable state empty-or-one, and recovery
-   accepts EXACTLY that one basename — no numeric grammar, no builder/recovery language mismatch.  ⚠ Also
-   validate the ROOT itself: `lstat` spares only
-   the final component, so a symlink in ANY prefix of `root` is followed by ordinary resolution and
-   redirects every effect into the referent — reject a non-real-directory in the whole ancestor chain before
-   any effect. Create each temp `O_CREAT|O_EXCL` then atomically rename (reject a cross-filesystem target first). Recovery
-   inspects that ONE directory, recover-all-or-REJECT and fail-CLOSED (any readdir/lstat/removal error but a
-   confirmed `ENOENT` aborts before any effect); it NEVER scans the tree, so a header-forging foreign file is
-   untouched. Keep installed-`.go` ownership (header first line, lstat S_REG) SEPARATE. Inject cleanup/
-   recovery failure — and a REAL crash (`Unix._exit`, no finalizer, lock stays held) — via `unlink`/
-   `after_stage` PARAMETERS through the real algorithm, never an ambient env branch or a real `chmod` in the
-   production sink (a caught exception is not a crash; a `chmod` makes destructive behaviour reachable and
-   mutates foreign metadata). State the guarantee honestly: NOT transactional; normal completion (success or a handled
-   failure) releases the lock so an immediate rerun proceeds, but a crash — or a lock-release failure —
-   leaves the lock and the next run refuses until it is deliberately removed.
+6. **A directory sink SYNCHRONIZES a dirty tree; transient stages need durable root-owned RECORDS, and a
+   review must not silently drop an agreed capability.** ⚠ A reviewer can identify a real defect (a
+   forgeable staging protocol) WITHOUT owning the replacement architecture — and a central
+   `<root>/.fido/staging/` "fix" silently DROPPED the agreed capability that generated files may live under
+   nested mount points inside the target root (a same-parent rename is atomic; a central cross-device rename
+   is not). Never trade a required capability for a simpler review; when a fix needs an architecture choice,
+   escalate it, don't quietly redesign. The correct shape: one root-owned control namespace
+   (`<root>/.fido/`: exact marker + lock + a `stage-records/` namespace holding RECORDS ONLY) plus RANDOM
+   per-destination-parent local stage dirs (`<parent>/.fido-stage-<nonce>`, an OS `/dev/urandom` nonce —
+   never OCaml `Random`). ⚠ Transient-stage ownership is a durable ROOT-OWNED RECORD, never a name, an inner
+   marker, or the public installed-file header (none can tell our crashed stage from a foreign lookalike):
+   the record is created atomically (`O_CREAT|O_EXCL`) and fully written BEFORE its stage dir, and removed
+   only AFTER the stage dir is gone; recovery is RECORD-DRIVEN (never a name scan), validates every field,
+   and fail-CLOSED refuses a malformed/escaping/mismatched/symlinked record (a recordless lookalike is
+   preserved). ⚠ STAGE THE COMPLETE IMAGE before any install — else an ordinary staging failure (disk,
+   permissions) leaves a MIXED generation. ⚠ Handled-failure cleanup (immediate; this run's
+   stages/records/empty parents; error-aggregating) is DIFFERENT from crash recovery (record-driven, next
+   run) — a handled failure must not leave residue "for the next run". ⚠ Filesystem discovery must
+   distinguish MISSING (a confirmed `ENOENT`) from an operational error (EACCES/EIO/ELOOP/…) — never turn a
+   readdir/lstat failure into "empty" or "no header"; that is fail-OPEN. ⚠ Validate the ROOT chain (a prefix
+   symlink redirects every effect), reserve `.fido/`, and reject a cross-device rename fail-loud (no copy
+   fallback). ⚠ Dirty FOREIGN Go contradicts a closed-world compile guarantee: a foreign `.go` anywhere, or
+   a foreign/nested `go.mod`, must REJECT the whole emission (fail-closed scan) until foreign source is
+   isolated or modeled — NOT preserved-and-merged into a tree we then claim compiles. Inject faults (nonce
+   collision, real crash via `Unix._exit`, unlink failure) through operation PARAMETERS, never an ambient env
+   branch or a real `chmod` in the production sink. Honest guarantee: NOT transactional, Linux/amd64 scope;
+   normal completion releases the lock; a crash or lock-release failure leaves the lock and the next run
+   refuses until it is deliberately removed.
 
-7. **Source-text scanning is not a sound zero-axiom gate — audit the compiled environment instead.** Every
-   text scanner leaked: a naive comment stripper missed an `Axiom` behind a `"(*"` string; a smarter lexical
-   scanner still missed `Time Axiom …`, a no-space `#[global]Axiom`, and module ALIASES that look like scopes.
-   Text always has another escape. The sound gate enumerates the compiled global environment and rejects any
-   Fido constant with an axiomatic body (Undef) — catching UNUSED axioms too, immune to lexical tricks.
-   `Print Assumptions` on the public surfaces stays the complementary check for EXTERNAL axioms in a closure.
+7. **Source-text scanning is not a sound zero-axiom gate — audit the compiled environment's CLOSURE.** Every
+   text scanner leaked (a comment stripper missed an `Axiom` behind a `"(*"` string; a lexical scanner missed
+   `Time Axiom …`, a no-space `#[global]Axiom`, module ALIASES). Text always has another escape. But checking
+   each Fido constant's OWN body (Undef) is ALSO insufficient: a retained internal theorem can carry an
+   opaque Qed body depending on an EXTERNAL axiom (functional extensionality) and escape unless it happens to
+   be a selected public surface. Zero-axiom enforcement means the assumption CLOSURE over EVERY certified
+   constant: the sound gate computes the union of every Fido constant's assumption closure (descending opaque
+   Qed bodies) and rejects any axiom/parameter/variable — catching a TRANSITIVE external axiom AND unused
+   Fido axioms, immune to lexical tricks. `Print Assumptions` on the public surfaces stays the complementary
+   per-surface check; a coverage gate ties the audited module set to dune's `(modules …)`. And do NOT keep
+   tracked axiom-bearing fixtures "to test the gate" — generate them transiently in the pinned environment.
 
 8. **No raw/string-rescue escape hatch — the single most expensive mistake this project has paid for.** A
    structured-or-fail AST must never gain a raw/opaque/text fallback constructor. Unrepresentable ⇒ absent
@@ -95,7 +100,10 @@ stop. When an entry stops being a live temptation, delete it.
 10. **Integration is the last-mile alarm, and differential experiments discover semantics but do not replace
     proofs.** The pinned-Go `go build ./...` over the WHOLE tree (never a hard-coded file copy) demonstrates
     wiring; a build failure after emission is always a Fido correctness failure, never a known issue. Real-Go
-    experiments falsify model/real discrepancies; they are specification discovery, not kernel theorems.
+    experiments falsify model/real discrepancies; they are specification discovery, not kernel theorems. ⚠
+    The formal compiler contract is `go build ./...` ACCEPTANCE, not `go vet` — a nonblocking diagnostic
+    (vet's policy checks, which can false-positive) must stay DIAGNOSTIC-only, never a silent extra
+    acceptance criterion the model does not claim.
 
 11. **Foundations before floors — the meta-lesson under all the others.** Do not build features or proof
     families above an unsettled root; when many leaf proofs/guards compensate for one missing abstraction, the

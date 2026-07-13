@@ -1,7 +1,7 @@
 ; The ONE handwritten OCaml boundary: the Fido Emit transport plugin.  The library bundles the generic
 ; dirty-directory filesystem sink (fido_sink.ml) and the transport bridge + vernac (g_fido.mlg).  The
 ; bridge's boundary is four steps — typecheck the image, reject a non-empty assumption closure (a kernel
-; provenance query), decode only the final (path, bytes) transport, call the sink; it walks no program/AST
+; provenance query), decode only the final (go.mod, entries) transport, call the sink; it walks no program/AST
 ; and does no semantic inspection.  The Fido Emit command is run EXPLICITLY (rocq c on the witness), never
 ; as a cached dune .vo side effect.
 (library

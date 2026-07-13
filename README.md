@@ -28,9 +28,11 @@ its stdout/stderr/exit compared byte-for-byte to reviewed goldens — alongside 
 fixtures (a multi-package tree accepted; no-main and duplicate-main trees rejected; `go list ./...` matches
 the emitted package set) that exercise the whole-program rules against real Go.
 
-- **One program representation.** A `GoProgram` is a **nonempty** verified finite map from intrinsic
-  `FilePath` keys to one raw file AST per file (a raw string is **not** a path — Go package discovery
-  depends on it, so only a narrow canonical grammar is representable). A raw file is just top-level
+- **One program representation.** A `GoProgram` is an intrinsic `ModuleSpec` (a narrow canonical module
+  path + a singleton Go version — the facts of the generated module, **not** a target config) paired with a
+  **possibly-empty** verified finite map from intrinsic `FilePath` keys to one raw file AST per file (a raw
+  string is **not** a path — Go package discovery depends on it, so only a narrow canonical grammar is
+  representable). The empty file map is a valid module-only program. A raw file is just top-level
   declarations; **package clauses, package names, and entry-point status are compilation results**, not raw
   metadata. There is no second tree and no separate IR.
 - **Exact, whole-program compilation.** `GoCompile` consumes the whole map: it groups files by directory
@@ -41,20 +43,21 @@ the emitted package set) that exercise the whole-program rules against real Go.
   differentially, never a kernel theorem about `cmd/go`.
 - **Real semantics + faithful rendering.** `GoSafe` evaluates to real Go values (`VInt : Z`, so `0` and
   `-0` agree). `GoRender` proves `render_expr_denotes` — the rendered spelling denotes exactly the value —
-  plus all-ASCII, no illegal leading zero, and the header as the exact first line. Every layer is proved
-  **axiom-free** in a pinned Rocq 9.2.0 container.
-- **A transport boundary, not a backend.** The image is an abstract `DirectoryImage` carrying a proof it
-  came from rendering a `SafeProgram`. One general Rocq command, `Fido Emit <image> To "<dir>"`, guards
-  provenance before any effect — it typechecks the image type and rejects a non-empty assumption closure
-  (kernel queries, so a postulated axiom/variable proof cannot cross), then decodes only the final
-  (path, bytes) data and hands it to a generic **ownership-aware dirty-directory synchronizer** (a
-  persistent control dir + lock; the root path is validated against prefix symlinks; `.fido/` is a reserved
-  namespace; installed `.go` owned by its header first line, transient staging through ONE fixed slot
-  `.fido/staging/tmp` — atomically `O_EXCL`-created then renamed, with fail-closed recover-all-or-reject
-  that accepts only the empty-or-one-slot state; foreign entries OUTSIDE `.fido/` are preserved — except a
-  `.go` forging the exact header, which is indistinguishable from a stale generated file and is the one
-  accepted limit; symlinks
-  never followed). No handwritten OCaml walks a program.
+  plus all-ASCII, no illegal leading zero, and the header as the exact first line, and renders the `go.mod`
+  directly from the `ModuleSpec` (exact bytes, header first line, ASCII). Every layer is proved
+  **axiom-free** in a pinned Rocq 9.2.0 container — asserted by a whole-certified-theory assumption-closure
+  audit, not just per-surface `Print Assumptions`.
+- **A transport boundary, not a backend.** The image is an abstract `DirectoryImage` — the exact `go.mod`
+  bytes plus a (possibly-empty) map of `.go` bytes — carrying a proof both came from rendering one
+  `SafeProgram`. One general Rocq command, `Fido Emit <image> To "<dir>"`, guards provenance before any
+  effect — it typechecks the image type and rejects a non-empty assumption closure (kernel queries, so a
+  postulated axiom/variable proof cannot cross), then decodes only the final `(go.mod, entries)` transport
+  and hands it to a generic **ownership-aware dirty-directory synchronizer**. The sink **rejects foreign
+  Go/module inputs** (a foreign `.go` anywhere, a foreign/nested `go.mod`) rather than merge them, then
+  stages the complete image into random per-parent local dirs owned by root-owned records and installs by
+  atomic rename (nested mounts supported; EXDEV fails loud). It validates the root against prefix symlinks,
+  reserves `.fido/`, owns installed `.go`/`go.mod` by their header first line, never follows symlinks, and
+  recovers record-owned residue fail-closed. No handwritten OCaml walks a program.
 
 The admitted fragment is deliberately tiny; anything else is **unrepresentable**, not stubbed. Imports are
 absent and unrepresentable — a permanent closed-world contract governs their eventual introduction.

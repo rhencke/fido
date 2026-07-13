@@ -7,15 +7,16 @@ override PLATFORM := linux/amd64
 .PHONY: check prove emit e2e ocaml-origin-gate go-uncommittable-seal builder install-hooks prover-log
 .DEFAULT_GOAL := check
 
-# Fido (ARCHITECTURE.md): an LLM proposes a GoProgram (a nonempty finite map of intrinsic FilePath keys
-# to raw file ASTs); emission is available only after Rocq proves GoCompile (exact whole-program
-# admissibility, matching `go build ./...`) and GoSafe.  Chain:
-#   GoProgram -> GoCompile (+CompilationFacts) -> GoSafe -> direct GoRender -> abstract DirectoryImage
-#     -> the general `Fido Emit` transport command -> one dirty-directory filesystem sink -> go build ./...
+# Fido (ARCHITECTURE.md): an LLM proposes a GoProgram (a ModuleSpec + a possibly-empty finite map of
+# intrinsic FilePath keys to raw file ASTs); emission is available only after Rocq proves GoCompile (exact
+# whole-program admissibility, matching `go build ./...`) and GoSafe.  Chain:
+#   GoProgram -> GoCompile (+CompilationFacts) -> GoSafe -> direct GoRender (incl. go.mod) -> complete
+#     DirectoryImage -> the general `Fido Emit` transport command -> foreign-Go-rejecting local-staging
+#     sink -> go build ./...
 # ALL Rocq/Go work runs in the PINNED container via buildx — host Rocq is NOT supported.
 
 check: ocaml-origin-gate go-uncommittable-seal prove e2e
-	@echo "fido: check OK — proved the core (FilePath/FMap/Ints/GoAST/GoCompile/GoSafe/GoRender/GoEmit) axiom-free AND emitted the whole tree via the Fido Emit transport + dirty-directory sink through go build ./... vs goldens; transport-only OCaml, no tracked *.go ✓"
+	@echo "fido: check OK — proved the core (Ints/ModulePath/GoVersion/FilePath/FMap/GoAST/GoCompile/GoSafe/GoRender/GoEmit) axiom-free (whole-theory closure) AND emitted the whole tree (rendered go.mod + witness/multi/empty) via the Fido Emit transport + foreign-Go-rejecting local-staging sink through go build ./... vs goldens; transport-only OCaml, no tracked *.go ✓"
 
 # The reproducible container proof: dune compiles the modules + the always-run assumptions gate.
 prove: builder
