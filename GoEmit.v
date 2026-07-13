@@ -3,15 +3,15 @@
 
     [DirectoryImage] is a TRUE finite map from unique intrinsic paths to exact final file bytes
     ([di_map : fmap FilePath string]) PLUS an intrinsic PROVENANCE proof ([di_prov]) that the map was
-    produced by rendering a [SafeProgram].  So a value of type [DirectoryImage] cannot exist unless its
-    contents ARE a certified rendered program — the guarantee comes from the PROVENANCE PROOF, not from
-    hiding a constructor (the map stays reducible, so the Fido Emit command can evaluate it; no opaque
-    module).  [mkImage] is a public constructor, but it demands [pf : exists sp, m = render_map sp] —
-    exactly "m is a rendered safe program" — so it is NOT an arbitrary-map escape; [render_program] is the
-    canonical construction.  The Fido Emit vernac guards emission two ways before any effect: it typechecks
-    its argument AS a [DirectoryImage] (rejecting a wrong-typed raw transport), and — because [pf] could be
-    discharged by an [Axiom]/[Admitted] — it rejects any argument whose assumption closure contains an
-    axiom (so a same-typed image built from a forged proof cannot emit either).
+    produced by rendering a [SafeProgram].  A CLOSED (assumption-free) proof does witness "these contents
+    are a certified rendered program"; but a proof can also be POSTULATED — [di_prov] may be discharged by
+    an [Axiom]/[Admitted] or a section [Variable] — so the TYPE alone is NOT sufficient: an arbitrary map
+    can be given a well-typed but axiomatic image.  The real gate is therefore the LIVE Fido Emit boundary,
+    which before any effect (i) typechecks its argument AS a [DirectoryImage] (rejecting a wrong-typed raw
+    transport) and (ii) rejects any argument whose assumption closure is non-empty (rejecting an
+    axiom/variable-backed proof).  [mkImage] is a public constructor demanding [pf : exists sp, m =
+    render_map sp]; [render_program] is the canonical, closed construction.  The map stays reducible (no
+    opaque module) so the command can evaluate it after the guards pass.
 
     [directory_entries] is the transport projection the filesystem sink consumes: the intrinsic keys are
     denoted to on-disk relative-path strings ([fp_string], injective).  EVERY DirectoryImage's entries

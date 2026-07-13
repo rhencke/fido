@@ -28,16 +28,19 @@ stop. When an entry stops being a live temptation, delete it.
 
 4. **Handwritten OCaml is a TRANSPORT boundary, never a program decoder.** The deleted 82-line backend
    accepted an arbitrary `constr` and decoded it by application ARITY — term inspection masquerading as a
-   transport. The permitted boundary decodes ONLY the final `(path, bytes)` transport with EXACT expected
-   constructors, fails loud on anything else, and inspects no program/AST/certificate/proof; the sink is
-   filesystem-only. If that boundary cannot be met, delete the e2e — a false transport foundation is worse
-   than no integration. (And emission is an EXPLICIT command, not a cached `.vo` side effect a warm cache
-   would silently skip, nor a per-witness extracted executable.)
+   transport. The permitted boundary is four steps: typecheck the image type, reject a non-empty assumption
+   closure (a kernel provenance query — NOT decoding proofs or programs), decode ONLY the final
+   `(path, bytes)` transport with EXACT constructors (fail loud otherwise), then call the filesystem-only
+   sink. It inspects no program/AST/behaviour/semantics. If that boundary cannot be met, delete the e2e — a
+   false transport foundation is worse than no integration. (And emission is an EXPLICIT command, not a
+   cached `.vo` side effect a warm cache would silently skip, nor a per-witness extracted executable.)
 
-5. **The image must be provenance-gated but still reducible.** A `DirectoryImage` carries a proof it came from
-   rendering a `SafeProgram`, so there is no arbitrary-map → image escape that would emit uncertified bytes.
-   Opaque Rocq modules would give that abstraction but break the reduction the transport command needs — the
-   provenance proof is the right gate (abstraction without opacity).
+5. **Provenance is gated at the LIVE boundary, not by the type alone.** A `DirectoryImage` carries a proof
+   ([di_prov]) it came from rendering a `SafeProgram`, and the map stays reducible (opaque Rocq modules
+   would abstract it but break the reduction the transport command needs). But a proof can be POSTULATED —
+   an `Axiom`/`Admitted`/section `Variable` gives a well-typed but uncertified image — so the type is not
+   the gate. The gate is the emit command's assumption-closure check (it rejects any image whose proof
+   depends on an assumption, descending Qed bodies), so a forged image cannot cross into filesystem effects.
 
 6. **A directory sink SYNCHRONIZES a dirty tree; ownership is positive, marked, and rechecked.** A filesystem
    lock only coordinates cooperating emitters — it is not ownership. A `.go` is Fido-owned iff its first line

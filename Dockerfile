@@ -74,7 +74,8 @@ RUN --mount=type=cache,id=fido-dune-rocq-9.2.0-${TARGETARCH},uid=1000,gid=1000,t
 #    SYNCHRONIZES the whole tree; and a standalone driver exercises the dirty-directory sink against a
 #    dirty tree (marked control dir, stale generated files cleaned, foreign preserved) and ADVERSARIAL
 #    foreign entries it must refuse-and-preserve (foreign at target, symlinked root, foreign control
-#    dir, foreign stage dir).  The plugin decodes only final (path, bytes) data; it walks no program.
+#    dir, foreign stage dir).  The plugin guards provenance (typecheck + assumption-closure) then decodes
+#    only final (path, bytes) data; it walks no program.
 FROM rocq-base AS emit
 ARG TARGETARCH
 COPY --chown=opam:opam dune-project dune ./
@@ -103,15 +104,20 @@ echo "fido: multi-package tree:"; ( cd /workspace/e2e-multi && find . -name '*.g
 # provenance (1): a forged raw transport (not a DirectoryImage) is rejected BEFORE any effect (Fail fixtures)
 if ! rocq c -Q _build/default/. Fido e2e/WitnessNeg.v > /tmp/emit-neg.log 2>&1; then cat /tmp/emit-neg.log; fail "a forged raw transport was NOT rejected"; fi
 [ ! -e /workspace/e2e-neg ] || fail "a rejected Fido Emit still created its target directory"
-# provenance (2): a FORGED image — the right TYPE but an AXIOMATIC di_prov proof — is rejected by the
-# emit-time assumption-closure check BEFORE any effect (namespace-independent; the type boundary alone
-# would accept it, so this proves the closure check, not just the type, guards emission).  It runs WITHOUT
-# `Fail` (which absorbs the message silently in batch mode), so `rocq c` errors and we assert BOTH the
-# rejection REASON (the printed message) and that the target was never created.
-if rocq c -Q _build/default/. Fido e2e/WitnessForge.v > /tmp/emit-forge.log 2>&1; then cat /tmp/emit-forge.log; fail "a forged (axiomatic-provenance) image was NOT rejected"; fi
-grep -q 'provenance depends on an axiom' /tmp/emit-forge.log || { cat /tmp/emit-forge.log; fail "the forged image was rejected, but NOT by the assumption-closure check (wrong reason)"; }
-[ ! -e /workspace/e2e-forge ] || fail "a rejected forged-provenance Fido Emit still created its target directory"
-echo "fido: provenance enforced — forged raw transports AND axiomatic-provenance images rejected before any effect"
+# provenance (2): a FORGED image — the right TYPE but a non-empty assumption closure — is rejected by the
+# emit-time closure check BEFORE any effect.  Three cases: a DIRECT axiom, an axiom behind an opaque Qed
+# proof (proves opaque descent), and a section variable (the Variable arm).  Each runs WITHOUT `Fail`
+# (which absorbs the message silently in batch mode), so `rocq c` errors and we assert BOTH the rejection
+# REASON (the printed message) and that the target was never created.
+forge_reject() {   # <witness.v> <target-dir> <label>
+  if rocq c -Q _build/default/. Fido "$1" > /tmp/emit-forge.log 2>&1; then cat /tmp/emit-forge.log; fail "$3: a forged image was NOT rejected"; fi
+  grep -q 'provenance depends on an axiom' /tmp/emit-forge.log || { cat /tmp/emit-forge.log; fail "$3: rejected, but NOT by the assumption-closure check (wrong reason)"; }
+  [ ! -e "$2" ] || fail "$3: a rejected forged emit still created its target directory"
+  echo "fido: provenance enforced — $3 rejected before any effect"
+}
+forge_reject e2e/WitnessForge.v       /workspace/e2e-forge        "direct axiom"
+forge_reject e2e/WitnessForgeOpaque.v /workspace/e2e-forge-opaque "axiom behind an opaque Qed proof"
+forge_reject e2e/WitnessForgeVar.v    /workspace/e2e-forge-var    "section variable"
 
 # --- SOUND zero-project-axiom audit: enumerate the compiled global env (not a text scanner).  The set of
 #     modules loaded (hence audited) is DERIVED from dune's authoritative (modules ...) list, so a new
@@ -168,7 +174,20 @@ mkdir -p /workspace/adv-lock; ./sink_test /workspace/adv-lock || fail "initial l
 if ./sink_test /workspace/adv-lock; then fail "synced despite a held index.lock"; fi
 [ -e /workspace/adv-lock/.fido/index.lock ] || fail "the sink removed a lock it did not create"
 [ -z "$(stages /workspace/adv-lock)" ] || fail "a stage dir leaked after a lock-refused run"
-echo "fido: emit OK — general Fido Emit synced the tree; sink dirty/adversarial + lock cases all pass"
+# (5) FAULT INJECTION: the body fails AFTER a stage exists AND that stage's cleanup also fails.  The
+#     finalizer must run ONCE, return no success, and report BOTH the original and the cleanup error; the
+#     un-removable stage must survive (matching the report), and the removable lock must NOT be reported
+#     (a second finalizer pass would spuriously report the already-removed lock).
+mkdir -p /workspace/adv-fault; ./sink_test /workspace/adv-fault || fail "fault-test initial sync failed"
+if out=$(FIDO_SINK_FAULT=stage-then-cleanup-fails ./sink_test /workspace/adv-fault 2>&1); then rc=0; else rc=$?; fi
+[ "$rc" -ne 0 ] || { echo "$out"; fail "fault-injected sync reported success"; }
+echo "$out" | grep -q 'injected post-stage fault' || { echo "$out"; fail "fault: the ORIGINAL error was not reported"; }
+echo "$out" | grep -q 'cleanup FAILED' || { echo "$out"; fail "fault: the CLEANUP failure was not reported"; }
+if echo "$out" | grep -qi 'index.lock'; then echo "$out"; fail "fault: finalizer ran twice (spurious already-removed-lock error)"; fi
+[ -n "$(stages /workspace/adv-fault)" ] || fail "fault: an un-removable stage was reported but none survives"
+[ ! -e /workspace/adv-fault/.fido/index.lock ] || fail "fault: the removable lock was not released"
+chmod -R u+w /workspace/adv-fault   # undo the seam's read-only sabotage so later steps can clean up
+echo "fido: emit OK — general Fido Emit synced the tree; sink dirty/adversarial + lock + fault-injection cases all pass"
 SH
 
 # ── Stage 5: go-e2e — the LAST-MILE integration check (never a proof).  The pinned Go toolchain builds

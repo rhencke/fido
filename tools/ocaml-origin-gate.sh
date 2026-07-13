@@ -4,14 +4,19 @@
 # transport boundary:
 #   - plugin/fido_sink.ml  — the generic dirty-directory filesystem sink (filesystem ONLY);
 #   - e2e/sink_test.ml      — a standalone driver that exercises the sink (filesystem ONLY);
-#   - plugin/g_fido.mlg     — the transport bridge: it decodes ONLY the final (path, bytes) transport
-#                             data of a DirectoryImage, then calls the sink (no program/AST inspection).
+#   - plugin/g_fido.mlg     — the transport bridge.  Its boundary is EXACTLY four ordered steps: (1)
+#                             typecheck the image type; (2) reject a non-empty assumption closure (a kernel
+#                             provenance query that descends Qed proof bodies — NOT program/AST inspection);
+#                             (3) decode ONLY the final (path, bytes) transport; (4) call the sink.  It does
+#                             no semantic program/AST/behaviour inspection.
 # This gate is literal and fail-closed:
 #   (1) the set of tracked *.ml / *.mli / *.mlg is AT MOST those three;
 #   (2) the two filesystem files must NOT walk Rocq terms (no EConstr / Constr / Nametab / interp / Evd /
 #       Reductionops / Global) and stay bounded;
-#   (3) the transport bridge decodes the transport ONLY: it must NOT mention any Fido program/AST type
-#       (GoProgram / GoFileAST / GoDecl / CompilableProgram / SafeProgram / CompilationFacts / render);
+#   (3) the transport bridge must NOT mention any Fido program/AST type (GoProgram / GoFileAST / GoDecl /
+#       CompilableProgram / SafeProgram / CompilationFacts / render), AND must KEEP both provenance guards
+#       (the certified image-type projection + the kernel assumption-closure check) so the boundary cannot
+#       be silently weakened to decode-and-emit;
 #   (4) no tracked source contains a hallmark NAME of the deleted OCaml backend / lowering / renderer.
 set -eu
 
@@ -40,7 +45,8 @@ for f in $fs_files; do
   fi
 done
 
-# (3) the transport bridge decodes the transport only — never a Fido program/AST type.
+# (3) the transport bridge decodes the transport only — never a Fido program/AST type — and KEEPS both
+#     provenance guards, so the boundary cannot silently regress to decode-and-emit.
 if git ls-files --error-unmatch "$bridge" >/dev/null 2>&1; then
   lines=$(wc -l < "$bridge")
   if [ "$lines" -gt 200 ]; then
@@ -49,6 +55,10 @@ if git ls-files --error-unmatch "$bridge" >/dev/null 2>&1; then
   if grep -nE 'GoProgram|GoFileAST|GoDecl|GoStmt|GoExpr|CompilableProgram|SafeProgram|CompilationFacts|render_|eval_|GoCompile' "$bridge"; then
     echo "fido: OCAML-ORIGIN GATE — $bridge must decode ONLY the final transport; it names a program/AST type."; exit 1
   fi
+  grep -q 'directory_entries' "$bridge" || {
+    echo "fido: OCAML-ORIGIN GATE — $bridge dropped the certified image-type projection (step-1 provenance guard)."; exit 1; }
+  grep -q 'Assumptions.assumptions' "$bridge" || {
+    echo "fido: OCAML-ORIGIN GATE — $bridge dropped the assumption-closure check (step-2 provenance guard)."; exit 1; }
 fi
 
 # (4) no deleted-backend hallmark NAME reappears.

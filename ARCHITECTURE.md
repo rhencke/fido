@@ -56,9 +56,10 @@ of key uniqueness; regex source scanning is not a sound zero-axiom gate; axiom-f
                  decimal-faithful, no leading zero, header-first-line.
 
   DirectoryImage a complete finite map from FilePath to exact final bytes, PROVENANCE-GATED: a value
-                 carries a proof it came from rendering a SafeProgram (di_prov), so it cannot exist unless
-                 its contents ARE a certified rendered program.  mkImage is a public constructor but
-                 demands that proof (not an arbitrary-map escape); render_program is the canonical
+                 carries a proof it came from rendering a SafeProgram (di_prov).  A CLOSED proof witnesses
+                 that; but a proof can be POSTULATED (axiom/variable), so the type alone is not sufficient —
+                 the live Fido Emit boundary is the real gate (it rejects an assumption-dependent proof).
+                 mkImage is public but demands the proof; render_program is the canonical closed
                  construction.  directory_entries projects it to the (on-disk path, bytes) transport list.
 
   Fido Emit      the ONE general transport command (a Rocq vernac): `Fido Emit <image-term> To "<root>"`.
@@ -101,14 +102,16 @@ AST->output->AST round-trip authority, no copied compiled AST, no handwritten OC
 | **GoSafe** | real `GoValue`; abstract `eval_file`; `SafeProgram` (0 = -0); honest `GoSafe := True` | observe spelling as value; keep an unused panic placeholder; circularly reference compilation |
 | **GoRender** | render decls + the derived package clause; header exact first line; `render_expr_denotes` | tokenize/lex/parse/round-trip; deduce packages/entry; invoke a formatter |
 | **DirectoryImage** | complete finite map, provenance-gated (`di_prov` proves it came from `render_program`; `mkImage` demands that proof); `Fido Emit` typechecks its argument as a `DirectoryImage` AND rejects any argument with an axiomatic assumption closure | be an arbitrary-map escape that bypasses SafeProgram; accept a raw transport list, or a same-typed image built from a forged (axiomatic) proof, at the emit boundary |
-| **Fido Emit + sink** | decode ONLY final (path, bytes) with exact constructors; ownership-aware dirty-directory sync | inspect any program/AST/proof/semantics; delete/overwrite/follow foreign state |
+| **Fido Emit + sink** | a four-step boundary — typecheck the image, reject a non-empty assumption closure (kernel provenance queries), decode ONLY final (path, bytes) with exact constructors, then ownership-aware dirty-directory sync | inspect the program/AST/behaviour/semantics; emit without both provenance guards; delete/overwrite/follow foreign state |
 
 ## The handwritten-OCaml boundary (hard)
 
 **All semantic work is proved Rocq.** The ONLY handwritten OCaml is the Fido Emit TRANSPORT boundary:
-- `plugin/g_fido.mlg` — the transport bridge: reduces the given term to the final `list (string*string)`
-  and STRUCTURALLY decodes only that (exact expected constructors, fail-loud), then calls the sink. It
-  inspects no program/AST/certificate/proof/semantics.
+- `plugin/g_fido.mlg` — the transport bridge, a four-step boundary: (1) typecheck the argument as the
+  certified image type; (2) reject a non-empty assumption closure (a kernel provenance query that descends
+  Qed proof bodies); (3) reduce and STRUCTURALLY decode ONLY the final `list (string*string)` (exact
+  constructors, fail-loud); (4) call the sink. It does no semantic program/AST/behaviour inspection; the
+  origin gate keeps both provenance guards present.
 - `plugin/fido_sink.ml` + `e2e/sink_test.ml` — the generic dirty-directory synchronizer + its driver.
   Filesystem ONLY: they walk no Rocq terms.
 

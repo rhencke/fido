@@ -1,8 +1,9 @@
-(** Negative fixtures: the `Fido Emit` command enforces DirectoryImage PROVENANCE at the boundary.  It
-    applies the exact GoEmit.directory_entries projection to its argument and typechecks the result, so a
-    forged transport (a raw list that never came from render_program of a SafeProgram) is rejected BEFORE
-    any filesystem effect.  Each `Fail` below asserts the command errors; the emit stage additionally
-    asserts the target directory was never created. *)
+(** Negative fixtures for the TYPE guard (step 1 of the emit boundary).  `Fido Emit` applies the exact
+    GoEmit.directory_entries projection to its argument and typechecks the result, so a forged transport
+    (a raw list that never came from render_program of a SafeProgram) has the wrong type and is rejected
+    BEFORE any filesystem effect.  Each `Fail` below asserts the command errors.  The COMPLEMENTARY guard —
+    a same-typed image whose provenance proof is an axiom/variable — is covered by WitnessForge{,Opaque,
+    Var}.v, which additionally reason-check the rejection and that no target directory is created. *)
 From Stdlib Require Import List String.
 From Fido Require Import GoEmit.
 Import ListNotations.

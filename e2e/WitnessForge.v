@@ -1,8 +1,10 @@
-(** Negative fixture for the PROVENANCE closure check.  A forged image: an arbitrary map paired with an
-    AXIOMATIC provenance proof.  It typechecks as a DirectoryImage ([di_prov] is discharged by the
-    axiom), so the type boundary alone would accept it — but `Fido Emit` inspects the term's assumption
-    closure and refuses to emit anything that depends on an axiom/assumption.  So this forged, otherwise-
-    reducible image is rejected BEFORE any filesystem effect, and its target is never created. *)
+(** Negative fixture for the PROVENANCE closure check — the DIRECT-axiom case.  A forged image: an
+    arbitrary map paired with a DIRECT [Axiom] provenance proof.  It typechecks as a DirectoryImage
+    ([di_prov] is discharged by the axiom), so the type boundary alone would accept it — but `Fido Emit`
+    inspects the term's assumption closure and refuses to emit anything that depends on an axiom.  So this
+    forged, otherwise-reducible image is rejected BEFORE any filesystem effect, and its target is never
+    created.  See WitnessForgeOpaque.v (axiom behind a Qed proof) and WitnessForgeVar.v (section variable)
+    for the second-order cases. *)
 From Stdlib Require Import List String.
 From Fido Require Import FilePath FMap GoAST GoCompile GoSafe GoRender GoEmit.
 Import ListNotations.

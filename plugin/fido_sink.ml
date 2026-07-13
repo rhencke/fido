@@ -9,9 +9,12 @@
    `.go`; a persistent <root>/.fido/ control dir and per-parent .fido-stage-<rand>/ stages carry exact
    markers; a `.go`/control/stage entry is only touched/removed when its marker is present, and no
    symlink is followed (lstat everywhere; symlinked dirs are never descended, stage dirs hold only flat
-   files, cleanup is by marker).  All files stage before any install; cleanup is FAIL-LOUD — success is
-   never reported while an invocation stage or the index.lock remains, and if cleanup during error
-   handling itself fails it is reported alongside the original error (never swallowed).
+   files, cleanup is by marker).  All files stage before any install; the body runs to an outcome and a
+   SINGLE finalizer then runs exactly once.  That finalizer is FAIL-LOUD on its correctness obligations —
+   every invocation stage, the lock descriptor, and the lock pathname — aggregating all their failures, so
+   success is never reported while any of them survives, and a body error is combined with (never replaced
+   or hidden by) a cleanup error.  Removing an EMPTY new parent directory is the one deliberately
+   best-effort step (a leftover empty dir is not stale state).
 
    HONEST GUARANTEE (threat model): a git-style index.lock coordinates COOPERATING Fido emitters, and
    every PRE-EXISTING foreign entry (file/dir/symlink) is preserved.  It is NOT a transactional whole-tree
@@ -138,75 +141,87 @@ let sync root entries =
     with Unix.Unix_error (Unix.EEXIST, _, _) ->
       fail "%s already exists — another Fido emission holds it, or a crashed run left it (remove it to proceed)" lock_path in
   let created_parents = ref [] and created_stages = ref [] in
-  (* FAIL-LOUD cleanup: remove every invocation stage and the lock; if either cannot be removed, raise
-     (so success is NEVER reported with a leftover stage or a leftover index.lock that would wedge a
-     retry).  Empty new parent dirs are best-effort (a leftover empty dir is not stale state). *)
-  let release () =
-    let errs = ref [] in
-    List.iter (fun d -> try rm_rf d with ex ->
-      errs := Printf.sprintf "stage %s: %s" d (Printexc.to_string ex) :: !errs) !created_stages;
-    List.iter (fun d -> match (try Sys.readdir d with _ -> [||]) with
-      | [||] -> (try Unix.rmdir d with _ -> ()) | _ -> ()) !created_parents;
-    (try Unix.close lock_fd with _ -> ());
-    (try Unix.unlink lock_path with ex ->
-      errs := Printf.sprintf "lock %s: %s" lock_path (Printexc.to_string ex) :: !errs);
-    (match !errs with [] -> () | l -> fail "cleanup FAILED (retry may be blocked): %s" (String.concat "; " l)) in
-  (try
-    (* (A.3-6) remove only MARKED, non-symlink stale stage directories left by a crashed run *)
-    let stale = ref [] in
-    walk_real_dirs root (fun p name ->
-      if has_stage_prefix name && is_real_dir p && dir_has_marker p stage_marker stage_bytes && not (is_symlink p)
-      then stale := p :: !stale);
-    List.iter (fun d -> try rm_rf d with _ -> fail "could not remove stale stage %s" d) !stale;
-    (* (B) desired set + existing generated .go files *)
-    let targets = List.map (fun (rel, bytes) ->
-      let parts = components rel in (Filename.concat root rel, parts, bytes)) entries in
-    let desired = List.map (fun (t, _, _) -> t) targets in
-    let existing_go = ref [] in
-    walk_real_dirs root (fun p _ -> if is_generated_go p then existing_go := p :: !existing_go);
-    (* (C) preflight every desired path (symlinks/foreign/collisions) BEFORE any change *)
-    List.iter (fun (target, parts, _) ->
-      let rec no_symlink cur = function
-        | [] -> () | c :: rest ->
-          let nxt = Filename.concat cur c in
-          if is_symlink nxt then fail "refusing a symlink in path: %s" nxt else
-          if kind_opt nxt = None then () else no_symlink nxt rest in
-      no_symlink root parts;
-      (match lstat_opt target with
-       | None -> ()
-       | Some st when st.Unix.st_kind = Unix.S_REG && first_line target = Some gen_header -> ()
-       | Some _ -> fail "refusing to overwrite a foreign entry: %s" target))
-      targets;
-    (* (D) stage every file completely into a per-parent owned stage before any install *)
-    let stage_of = Hashtbl.create 8 in
-    let staged = List.map (fun (target, parts, bytes) ->
-      ensure_real_dir_parents root parts created_parents;
-      let parent = Filename.dirname target in
-      let stage = match Hashtbl.find_opt stage_of parent with
-        | Some s -> s
-        | None -> let s = make_stage parent created_stages 64 in Hashtbl.add stage_of parent s; s in
-      let sp = Filename.concat stage (Filename.basename target) in
-      write_exact sp bytes; (sp, target)) targets in
-    (* (E) install by per-file atomic rename, rechecking ownership immediately before replacement *)
-    List.iter (fun (sp, target) ->
-      (match lstat_opt target with
-       | None -> ()
-       | Some st when st.Unix.st_kind = Unix.S_REG && first_line target = Some gen_header -> ()
-       | Some _ -> fail "ownership/type of %s changed under us — aborting" target);
-      Sys.rename sp target) staged;
-    (* (F) stale cleanup: delete previously-generated .go no longer desired, rechecking ownership *)
-    List.iter (fun p ->
-      if not (List.mem p desired) then
-        (match lstat_opt p with
-         | Some st when st.Unix.st_kind = Unix.S_REG && first_line p = Some gen_header -> Unix.unlink p
-         | _ -> ()))
-      !existing_go;
-    (* (G) release: remove invocation stages + empty new parents, release lock (fail-loud) *)
-    release ();
-    List.length targets
-  with e ->
-    (* on a handled failure, clean up too; if cleanup ALSO fails, report both, never swallow either *)
-    (try release () with Fail cm ->
-       let em = (match e with Fail m -> m | _ -> Printexc.to_string e) in
-       raise (Fail (em ^ " — AND " ^ cm)));
-    raise e)
+  (* Run the body to an OUTCOME (never finalizing inside it), then finalize EXACTLY ONCE, then combine.
+     This avoids a second, non-idempotent cleanup pass on a cleanup failure. *)
+  let body =
+    try
+      (* (A.3-6) remove only MARKED, non-symlink stale stage directories left by a crashed run *)
+      let stale = ref [] in
+      walk_real_dirs root (fun p name ->
+        if has_stage_prefix name && is_real_dir p && dir_has_marker p stage_marker stage_bytes && not (is_symlink p)
+        then stale := p :: !stale);
+      List.iter (fun d -> try rm_rf d with _ -> fail "could not remove stale stage %s" d) !stale;
+      (* (B) desired set + existing generated .go files *)
+      let targets = List.map (fun (rel, bytes) ->
+        let parts = components rel in (Filename.concat root rel, parts, bytes)) entries in
+      let desired = List.map (fun (t, _, _) -> t) targets in
+      let existing_go = ref [] in
+      walk_real_dirs root (fun p _ -> if is_generated_go p then existing_go := p :: !existing_go);
+      (* (C) preflight every desired path (symlinks/foreign/collisions) BEFORE any change *)
+      List.iter (fun (target, parts, _) ->
+        let rec no_symlink cur = function
+          | [] -> () | c :: rest ->
+            let nxt = Filename.concat cur c in
+            if is_symlink nxt then fail "refusing a symlink in path: %s" nxt else
+            if kind_opt nxt = None then () else no_symlink nxt rest in
+        no_symlink root parts;
+        (match lstat_opt target with
+         | None -> ()
+         | Some st when st.Unix.st_kind = Unix.S_REG && first_line target = Some gen_header -> ()
+         | Some _ -> fail "refusing to overwrite a foreign entry: %s" target))
+        targets;
+      (* (D) stage every file completely into a per-parent owned stage before any install *)
+      let stage_of = Hashtbl.create 8 in
+      let staged = List.map (fun (target, parts, bytes) ->
+        ensure_real_dir_parents root parts created_parents;
+        let parent = Filename.dirname target in
+        let stage = match Hashtbl.find_opt stage_of parent with
+          | Some s -> s
+          | None -> let s = make_stage parent created_stages 64 in Hashtbl.add stage_of parent s; s in
+        let sp = Filename.concat stage (Filename.basename target) in
+        write_exact sp bytes; (sp, target)) targets in
+      (* TEST-ONLY fault seam (inert unless FIDO_SINK_FAULT is set — the env var is set ONLY by the sink
+         adversarial driver, never in production): now that a stage exists but before any install, break
+         stage cleanup (make each stage's parent read-only, so removing the stage fails) and raise — so the
+         suite can exercise the single-run, combined-error finalizer on a genuine post-stage failure. *)
+      (match (try Some (Sys.getenv "FIDO_SINK_FAULT") with Not_found -> None) with
+       | Some "stage-then-cleanup-fails" ->
+         List.iter (fun d -> (try Unix.chmod (Filename.dirname d) 0o555 with _ -> ())) !created_stages;
+         fail "injected post-stage fault"
+       | _ -> ());
+      (* (E) install by per-file atomic rename, rechecking ownership immediately before replacement *)
+      List.iter (fun (sp, target) ->
+        (match lstat_opt target with
+         | None -> ()
+         | Some st when st.Unix.st_kind = Unix.S_REG && first_line target = Some gen_header -> ()
+         | Some _ -> fail "ownership/type of %s changed under us — aborting" target);
+        Sys.rename sp target) staged;
+      (* (F) stale cleanup: delete previously-generated .go no longer desired, rechecking ownership *)
+      List.iter (fun p ->
+        if not (List.mem p desired) then
+          (match lstat_opt p with
+           | Some st when st.Unix.st_kind = Unix.S_REG && first_line p = Some gen_header -> Unix.unlink p
+           | _ -> ()))
+        !existing_go;
+      Ok (List.length targets)
+    with e -> Error e in
+  (* (G) FINALIZE ONCE.  Fail-loud on the correctness obligations — every invocation stage, the lock
+     descriptor, and the lock pathname — aggregating ALL their failures.  Empty NEW parent directories are
+     the one deliberately best-effort case (a leftover empty dir is not stale state, and is not reported). *)
+  let cleanup_errs = ref [] in
+  List.iter (fun d -> try rm_rf d with ex ->
+    cleanup_errs := Printf.sprintf "stage %s: %s" d (Printexc.to_string ex) :: !cleanup_errs) !created_stages;
+  List.iter (fun d -> match (try Sys.readdir d with _ -> [||]) with       (* best-effort empty-parent tidy *)
+    | [||] -> (try Unix.rmdir d with _ -> ()) | _ -> ()) !created_parents;
+  (try Unix.close lock_fd with ex ->
+    cleanup_errs := Printf.sprintf "close lock fd: %s" (Printexc.to_string ex) :: !cleanup_errs);
+  (try Unix.unlink lock_path with ex ->
+    cleanup_errs := Printf.sprintf "unlink %s: %s" lock_path (Printexc.to_string ex) :: !cleanup_errs);
+  let cleanup = match !cleanup_errs with [] -> None | l -> Some (String.concat "; " l) in
+  (match body, cleanup with
+   | Ok n, None -> n
+   | Ok _, Some cm -> fail "installed the tree but cleanup FAILED (a retry may be blocked): %s" cm
+   | Error e, None -> raise e
+   | Error e, Some cm ->
+     let em = (match e with Fail m -> m | _ -> Printexc.to_string e) in
+     raise (Fail (em ^ " — AND cleanup FAILED: " ^ cm)))

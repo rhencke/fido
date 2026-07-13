@@ -1,8 +1,9 @@
 (** The e2e witness, emitted by the GENERAL Fido Emit transport command (no witness-specific
-    executable, no extraction).  A proved [SafeProgram] is rendered to a [DirectoryImage]; its
-    [directory_entries] are handed at runtime to the transport plugin, which decodes only the final
-    (path, bytes) data and synchronizes the tree.  A candidate that is not compile-admissible has no
-    [SafeProgram] and so cannot reach the command.
+    executable, no extraction).  A proved [SafeProgram] is rendered to a [DirectoryImage] via
+    [render_program], so its provenance proof is CLOSED (assumption-free); the command typechecks the
+    image and finds its assumption closure empty (even though it descends the Qed lemma [demo_valid]),
+    then decodes only the final (path, bytes) data and synchronizes the tree.  A candidate that is not
+    compile-admissible has no [SafeProgram] and so cannot even be built into an image.
 
     This file is compiled EXPLICITLY (rocq c) after the cached theory/plugin build — the emission is not
     a dune .vo side effect.  It exercises every admitted primitive: bool, positive int, negative int,

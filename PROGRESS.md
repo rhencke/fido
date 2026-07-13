@@ -33,16 +33,20 @@ is rejected IN Rocq before any bytes — **zero expected Go build failures, ever
 - **`GoRender`** — direct renderer; the ROOT theorem `render_expr_denotes` (rendered spelling denotes exactly
   the value); `render_file_ascii`/`print_Z_dec_faithful`/`print_Z_pos_no_leading_zero`/`render_file_first_
   line`/boundaries. The package clause comes from `CompilationFacts`.
-- **`GoEmit`** — abstract `DirectoryImage` provably from rendering a `SafeProgram` (no arbitrary-map escape);
-  `render_program`/`directory_entries`; every image begins with the header first line, is ASCII, nonempty,
-  unique paths (`render_image_keys_nodup`).
+- **`GoEmit`** — abstract `DirectoryImage` carrying a provenance proof it came from rendering a `SafeProgram`
+  (a closed proof witnesses that; a postulated axiom/variable proof does not — the live emit boundary is the
+  gate, not the type); `render_program`/`directory_entries`; every image begins with the header first line,
+  is ASCII, nonempty, unique paths (`render_image_keys_nodup`).
 
 ## GREEN — executed (integration evidence, never proof)
 
-- **General `Fido Emit` transport** (`plugin/g_fido.mlg`): `Fido Emit <image> To "<root>"` decodes only the
-  final (path, bytes) transport (exact constructors, fail-loud) and calls the sink. Run EXPLICITLY (`rocq c`
-  on `e2e/Witness.v`) after the cached theory+plugin build — not a `.vo` side effect; no per-witness
-  recompile. `e2e/WitnessMulti.v` emits a two-package + empty-file tree.
+- **General `Fido Emit` transport** (`plugin/g_fido.mlg`): `Fido Emit <image> To "<root>"` is a four-step
+  boundary — (1) typecheck the image type, (2) reject a non-empty assumption closure (a kernel provenance
+  query descending Qed bodies), (3) decode only the final (path, bytes) transport (exact constructors,
+  fail-loud), (4) call the sink. Run EXPLICITLY (`rocq c` on `e2e/Witness.v`) after the cached theory+plugin
+  build — not a `.vo` side effect; no per-witness recompile. `e2e/WitnessMulti.v` emits a two-package +
+  empty-file tree; `WitnessForge{,Opaque,Var}.v` are the direct-axiom / opaque-Qed-axiom / section-variable
+  forged images each rejected (reason-checked) before any effect.
 - **The dirty-directory sink** (`plugin/fido_sink.ml`): persistent `<root>/.fido/` control dir + marker +
   git-style `index.lock`; per-parent random `.fido-stage-<rand>/` stages (registered for cleanup the instant
   they are created; all files staged before install); per-file atomic rename with ownership rechecked
@@ -72,5 +76,6 @@ is rejected IN Rocq before any bytes — **zero expected Go build failures, ever
 Done: base + Go images digest-pinned; the opam retry loop fails closed; one shared Dune cache builds theory +
 plugin; zero project axioms enforced two ways — the count-checked `gate/axiom_gate.v` (Print Assumptions on
 public surfaces, for external axioms) AND the Rocq-native `Fido Audit Assumptions` global-environment audit
-(`gate/assumptions_audit.v`, catching unused Fido axioms, with a planted-axiom self-test) — replacing the
-fail-open source-text scanner. Still open: pin/snapshot the opam repo + verify installed package versions.
+(over a module list derived from dune's `(modules …)`, catching unused Fido axioms, with a planted-axiom
+self-test) — replacing the fail-open source-text scanner. Still open: pin/snapshot the opam repo + verify
+installed package versions.

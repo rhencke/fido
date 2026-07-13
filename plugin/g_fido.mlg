@@ -107,26 +107,28 @@ let do_audit () =
   | l -> CErrors.user_err
            (str ("fido: PROJECT AXIOMS found (Fido constants with no body): " ^ String.concat ", " l))
 
+(* The emit boundary is exactly four ordered steps, and NOTHING else touches the term.  Steps 1-2 are
+   provenance guards (kernel queries — a typecheck and an assumption-closure check, NOT program/AST/
+   semantic inspection); steps 3-4 are the transport.  No effect happens before both guards pass. *)
 let do_emit t dir =
   let env = Global.env () in
   let sigma = Evd.from_env env in
   let (tc, _) = Constrintern.interp_constr env sigma t in
-  (* PROVENANCE ENFORCED AT THE BOUNDARY, two ways, before ANY effect:
-     (1) the bridge ITSELF applies the exact certified projection (resolved by qualified name), so
-         typechecking [projection tc] fails unless [tc] has the certified image type — a raw
-         (path,bytes) list has type list (string*string), not the image type, and is rejected; and
-     (2) the certified image type is proof-carrying, but a proof can be AXIOMATIC — so we reject any
-         [tc] whose assumption closure contains ANY axiom/assumption (namespace-independent).  A forged
-         image built with an [Axiom]/[Admitted] provenance proof is thus refused before it can emit. *)
+  (* STEP 1 — TYPECHECK: apply the certified projection (resolved by qualified name) and typecheck it, so
+     [tc] must have the proved image type.  A raw (path,bytes) list has type list (string*string), not the
+     image type, and is rejected here. *)
   let de_ref = Nametab.locate (Libnames.qualid_of_string "Fido.GoEmit.directory_entries") in
   let (sigma, de) = Evd.fresh_global env sigma de_ref in
   let app = EConstr.mkApp (de, [| tc |]) in
-  let (sigma, _ty) = Typing.type_of env sigma app in   (* raises unless tc : DirectoryImage *)
-  (* compute the assumption closure of the image term exactly as `Print Assumptions` does (descending
-     opaque proof bodies), and refuse if it contains ANY axiom or section variable. *)
+  let (sigma, _ty) = Typing.type_of env sigma app in
+  (* STEP 2 — ASSUMPTION-CLOSURE: the image type is proof-carrying, but a proof can be an [Axiom]/
+     [Admitted]/section [Variable].  Compute the term's assumption closure exactly as `Print Assumptions`
+     does — the union over every global reference it mentions, DESCENDING opaque (Qed) proof bodies via the
+     indirect accessor — and refuse if it contains any axiom or section variable.  This is a kernel query
+     about the proof's dependencies, not an inspection of the program/AST. *)
+  let forged () = CErrors.user_err
+    (str "fido emit: the image's provenance depends on an axiom/assumption — refusing to emit a forged (uncertified) image") in
   let st = Conv_oracle.get_transp_state (Environ.oracle env) in
-  (* the assumption closure of a TERM = the union of the closures of every global reference it mentions;
-     collect those grefs (constants/inductives/constructors/section-variables) and ask the kernel. *)
   let grefs =
     let acc = ref Names.GlobRef.Set.empty in
     let rec go c =
@@ -138,15 +140,20 @@ let do_emit t dir =
        | _ -> ());
       Constr.iter go c
     in go (EConstr.to_constr sigma tc); Names.GlobRef.Set.elements !acc in
+  (* a section variable appearing directly in the term is itself an assumption — reject up front (the
+     [Assumptions] pass below also reports axioms/variables reached transitively through constant bodies,
+     including behind opaque Qed proofs). *)
+  List.iter (function Names.GlobRef.VarRef _ -> forged () | _ -> ()) grefs;
   let assums = Assumptions.assumptions Library.indirect_accessor st grefs in
   Printer.ContextObjectMap.iter (fun ctx _ ->
     match ctx with
-    | Printer.Axiom _ | Printer.Variable _ ->
-      CErrors.user_err (str "fido emit: the image's provenance depends on an axiom/assumption — refusing to emit a forged (uncertified) image")
+    | Printer.Axiom _ | Printer.Variable _ -> forged ()
     | _ -> ())
     assums;
+  (* STEP 3 — DECODE the final transport ONLY: reduce and structurally decode the (path, bytes) list. *)
   let nf = Reductionops.nf_all env sigma app in
   let entries = decode_entries sigma nf in
+  (* STEP 4 — SINK: hand the decoded transport to the filesystem synchronizer. *)
   let n = (try Fido_sink.sync dir entries
            with Fido_sink.Fail m -> CErrors.user_err (str ("fido emit: " ^ m))) in
   Feedback.msg_notice (str (Printf.sprintf "fido emit: synced %d file(s) into %s" n dir))
