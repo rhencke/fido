@@ -385,6 +385,16 @@ ln -s /etc adv-slrec/.fido-stage-$N
 printf 'fido-stage-record v1\n%s\n\n.fido-stage-%s\n' "$N" "$N" > adv-slrec/.fido/stage-records/$N
 if ./sink_test adv-slrec; then fail "slrec: a symlinked stage did not fail closed"; fi
 [ -L adv-slrec/.fido-stage-$N ] || fail "slrec: the symlink stage was removed/followed"
+#   a valid nested record whose recorded PARENT component is a symlink OUT of root → fail closed; recovery
+#   must NOT follow it, and the OUTSIDE directory + its contents are byte-preserved (traversal escape).
+mkdir -p /workspace/outside/.fido-stage-$N; printf 'outside-keep\n' > /workspace/outside/.fido-stage-$N/keep
+mkdir -p adv-esc; ./sink_test adv-esc || fail "esc: init"
+ln -s /workspace/outside adv-esc/sub                       # the recorded parent `sub` is now a symlink out of root
+printf 'fido-stage-record v1\n%s\nsub\nsub/.fido-stage-%s\n' "$N" "$N" > adv-esc/.fido/stage-records/$N
+if ./sink_test adv-esc; then fail "esc: recovery followed a symlinked recorded parent OUT of root"; fi
+[ -L adv-esc/sub ] || fail "esc: the parent symlink was removed/followed"
+[ -d /workspace/outside/.fido-stage-$N ] || fail "esc: the OUTSIDE stage dir was removed (symlink traversed)"
+printf 'outside-keep\n' | cmp -s - /workspace/outside/.fido-stage-$N/keep || fail "esc: the outside stage content was altered"
 
 # (7b) an EXISTING marked .fido with the wrong SHAPE is refused WITHOUT modification (§12):
 #   an unexpected top-level entry → refuse and preserve;

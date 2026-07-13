@@ -189,6 +189,21 @@ let parse_record p =
 
 let valid_nonce n = is_hex n && String.length n = nonce_hexlen
 
+(* validate that every RECORDED-PARENT component of a stage rel path is a REAL non-symlink directory (lstat
+   per component under root).  Otherwise a symlinked ancestor (e.g. a crash record naming sub/.fido-stage-N
+   where sub later became a symlink out of root) would let the final lstat/rm_rf follow it OUTSIDE the root.
+   The final component (the stage dir itself) is validated by its own lstat at the call site. *)
+let validate_stage_ancestors root stage_rel =
+  let rec go cur = function
+    | [] | [ _ ] -> ()
+    | c :: rest ->
+      let nxt = Filename.concat cur c in
+      (match lstat_obs nxt with
+       | Present st when st.Unix.st_kind = Unix.S_DIR -> go nxt rest
+       | Present _ -> fail "recovery FAILED: recorded-stage parent %s is a symlink or non-directory — refusing" nxt
+       | Missing -> ())   (* a missing parent ⇒ the stage is missing too ⇒ handled as a stale record below *)
+  in go root (String.split_on_char '/' stage_rel)
+
 let recover_stages unlink root records_abs =
   match lstat_obs records_abs with
   | Missing -> ()
@@ -210,6 +225,7 @@ let recover_stages unlink root records_abs =
         if not (safe_rel parent_rel) then fail "recovery FAILED: record %s parent escapes root" record_abs;
         let expected = (if parent_rel = "" then "" else parent_rel ^ "/") ^ stage_prefix ^ nonce in
         if stage_rel <> expected then fail "recovery FAILED: record %s stage path inconsistent" record_abs;
+        validate_stage_ancestors root stage_rel;   (* no symlinked parent may redirect rm_rf out of root *)
         let stage_abs = Filename.concat root stage_rel in
         (match lstat_obs stage_abs with
          | Missing ->
