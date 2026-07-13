@@ -2,8 +2,7 @@
    synchronizer.  It receives an already-final directory image ((on-disk relative path * exact bytes)
    list, decoded from a proved-Rocq DirectoryImage whose provenance the vernac bridge typechecks) and
    makes a target tree's Fido-generated files EQUAL that image, preserving foreign files OUTSIDE the
-   reserved control namespace.  It understands ONLY the filesystem: it decodes no program, renders nothing,
-   parses no Go, walks no Rocq terms.
+   reserved control namespace.  It understands ONLY the filesystem — no program, no Go, no Rocq terms.
 
    VALIDATED ROOT + RESERVED NAMESPACE (both before ANY filesystem effect, since the sink is generic over
    raw strings and cannot trust the caller): (a) every proper ancestor of `root` must be an existing REAL
@@ -17,45 +16,37 @@
      header (DERIVED from the image bytes, never hardcoded).  Ownership is rechecked immediately before
      every overwrite/delete, via lstat (a symlink is S_LNK, never S_REG, so it is never followed).  A
      foreign `.go` forging the header is the accepted limit of this authority (a header is public).
-   - TRANSIENT staging: the sink stages into `<root>/.fido/staging/`, a RESERVED location it alone manages.
-     A partially written temp there is already recoverable (ATOMIC by location), so no crash prefix orphans
-     it.  This is a namespace policy, not provenance: the guarantee rests on `.fido/` being reserved (above)
-     and on recovery accepting ONLY the exact flat form the builder emits (below), not on the location being
-     unforgeable.
+   - TRANSIENT staging: the sink stages into `<root>/.fido/staging/`, a RESERVED location it alone manages;
+     ownership there is a NAMESPACE POLICY (it rests on `.fido/` being reserved and on recovery accepting
+     ONLY the exact form the allocator emits — see [Alloc]), not the location being unforgeable.
 
-   STAGING: each target's bytes are written to a fresh `<root>/.fido/staging/<seq>` (a decimal name)
-   created O_CREAT|O_EXCL, then atomically renamed into place.  Because a rename is atomic only within one
-   filesystem, the preflight REJECTS (before any effect) a target whose nearest existing ancestor is on a
-   different device than `staging/`.  RECOVERY runs FIRST and is recover-all-or-REJECT: `staging/` must
-   contain ONLY the flat, canonical, regular temp files stage_temp emits; a directory, symlink, special
-   file, or non-canonical name (a state the builder cannot create) is REJECTED fail-loud, never traversed
-   or deleted — so a nested tree or a mount under `staging/` is refused, not recursively removed.  Removing
-   a canonical temp is a single unlink; recovery is fail-CLOSED (any enumeration/lstat/removal error other
-   than a confirmed ENOENT aborts before any synchronization effect) and never scans the tree, so a foreign
-   file (even one forging the header) is untouched.
+   STAGING: each target's bytes go to a fresh `.fido/staging/<i>` (a sealed allocator's decimal name; see
+   [Alloc]) created O_CREAT|O_EXCL then atomically renamed; the preflight rejects a cross-filesystem target
+   (a rename can't be atomic across devices).  RECOVERY runs FIRST, recover-all-or-REJECT and fail-CLOSED:
+   `staging/` must contain ONLY the flat canonical regular temps the allocator emits — any other entry
+   (directory, symlink, special file, non-canonical name — a state the builder cannot create) is REFUSED,
+   never traversed or deleted (so a nested tree or a mount is refused, not recursively removed), and any
+   enumeration/lstat/removal error but a confirmed ENOENT aborts before any effect; it never scans the tree,
+   so a foreign file (even one forging the header) is untouched.
 
    The FINALIZER's sole obligation is releasing the lock (close + unlink), fail-loud and once, combining a
    body error with a lock-release error (never hiding either).
 
-   The fallible operations are PARAMETERS (`?unlink`, default the real Unix.unlink; `?after_stage`, default
-   a no-op) so the standalone test driver can inject a recovery failure or terminate the process mid-staging
-   (via the real algorithm) — no ambient environment branch, no destructive behaviour, in the production
-   call graph; the plugin always uses the defaults.
+   The fallible ops are PARAMETERS (`?unlink`/`?after_stage`, default real/no-op) so the test driver can
+   inject a recovery failure or a mid-staging crash through the real algorithm — no ambient branch, no
+   destructive default in the production call graph; the plugin always uses the defaults.
 
    HONEST GUARANTEE (threat model): a git-style index.lock coordinates COOPERATING Fido emitters.  Every
-   pre-existing foreign entry OUTSIDE `.fido/` is preserved, WITH ONE ACCEPTED LIMIT: a `.go` file forging
-   the exact header is indistinguishable from a stale generated file, so it is overwritten (at a target) or
-   deleted (when not desired) — the header is public and IS the ownership.  `.fido/` itself is reserved and
-   accepted only when it carries the exact marker (a foreign `.fido/` forging the marker is the same
-   accepted limit).  It is NOT a transactional whole-tree commit (a partial run may install some targets and
-   leave temps in `staging/`, which the next run removes).
-   NORMAL completion — success or a handled body failure (including a recovery failure) — runs the finalizer
-   and releases the lock, so an immediate rerun can proceed; but a CRASH (the process killed, finalizer not
-   run) or a failure of the lock release itself leaves the index.lock, and the next run REFUSES until it is
+   pre-existing foreign entry OUTSIDE `.fido/` is preserved, WITH ONE ACCEPTED LIMIT: a `.go` forging the
+   exact header is indistinguishable from a stale generated file, so it is overwritten (at a target) or
+   deleted (when not desired) — the header is public and IS the ownership; likewise a `.fido/` forging the
+   marker.  It is NOT a transactional whole-tree commit (a partial run may leave temps in `staging/`, which
+   the next run removes).  NORMAL completion (success or a handled body failure, incl. a recovery failure)
+   runs the finalizer and releases the lock, so an immediate rerun can proceed; a CRASH (process killed,
+   finalizer not run) or a lock-release failure leaves the index.lock and the next run REFUSES until it is
    deliberately removed.  Like git's index.lock, and because this OCaml `Unix` exposes no
    openat/renameat/O_NOFOLLOW, it is NOT hardened against a concurrent NON-cooperating process racing
-   symlink swaps between check and use; the intended use (a single emit process writing a build tree) has
-   no such adversary. *)
+   symlink swaps between check and use; the intended single-emit-process use has no such adversary. *)
 
 let control_dir  = ".fido"
 let marker_name  = "marker"
@@ -143,34 +134,45 @@ let ancestor_device root parts =
       (match kind_opt nxt with Some Unix.S_DIR -> go nxt rest | _ -> (Unix.stat cur).Unix.st_dev)
   in go root parts
 
-(* the SEALED staging-index boundary shared by the generator and recovery: an index is a NONNEGATIVE OCaml
-   int.  name_of_index FAILS on a negative (a checked constructor — it cannot serialize an invalid index),
-   succ_index FAILS at max_int rather than wrapping to a negative (a checked successor — the counter can
-   never hold an out-of-range state), and index_of_name recognizes EXACTLY the range name_of_index emits
-   (checked-parse then reserialize for equality — an oversized/overflowing decimal is rejected). *)
-let name_of_index i = if i < 0 then fail "invalid staging index %d" i else string_of_int i
-let succ_index i = if i >= max_int then fail "staging index exhausted (max_int reached) in staging" else i + 1
-let index_of_name n =
-  match int_of_string_opt n with
-  | Some i when i >= 0 && name_of_index i = n -> Some i
-  | _ -> None
+(* the SEALED staging allocator.  A cursor's representation is HIDDEN, so the ONLY way to obtain one is
+   [start], the checked [of_index] (rejects a negative), or [next] (advances or FAILS at max_int — never
+   wraps); an out-of-range or negative cursor is thus UNCONSTRUCTIBLE, not merely rejected.  [name] serves
+   a valid cursor's filename and [recognize] accepts EXACTLY the names [name] serves over reachable cursors
+   [0, max_int] — so the live builder's language and recovery's grammar are identical, with max_int the
+   deliberate top of BOTH (emit-capable, then the successor is exhausted). *)
+module Alloc : sig
+  type t
+  val start : t
+  val of_index : int -> t option
+  val name : t -> string
+  val next : t -> t
+  val recognize : string -> bool
+end = struct
+  type t = int   (* invariant 0 <= t <= max_int, upheld by the constructors above *)
+  let start = 0
+  let of_index i = if i >= 0 then Some i else None
+  let name = string_of_int
+  let next i = if i >= max_int then fail "staging index exhausted (max_int reached)" else i + 1
+  let recognize n = match int_of_string_opt n with Some i -> i >= 0 && string_of_int i = n | None -> false
+end
 
 let () = Random.self_init ()
 
-(* write [bytes] to a fresh O_CREAT|O_EXCL temp inside the owned staging dir and return its path.  A
-   collision (the sequence is fresh after recovery empties staging, so only a race) just advances.  The
-   index advances through succ_index only, which fails at max_int rather than wrapping, so every name is a
-   valid one recovery recognizes. *)
-let stage_temp staging seq bytes =
+(* write [bytes] to a fresh O_CREAT|O_EXCL temp inside the owned staging dir and return its path.  The
+   file at the current cursor is created and fully written BEFORE the cursor advances, so max_int is
+   emit-capable exactly as recovery recognizes it; [Alloc.next] then fails at exhaustion rather than
+   wrapping.  A collision (the namespace is empty after recovery, so only a race) advances and retries. *)
+let stage_temp staging cursor bytes =
   let rec go tries =
     if tries <= 0 then fail "could not create a unique staging temp in %s" staging;
-    let tmp = Filename.concat staging (name_of_index !seq) in seq := succ_index !seq;
-    match (try Some (Unix.openfile tmp [ Unix.O_CREAT; Unix.O_EXCL; Unix.O_WRONLY ] 0o644)
-           with Unix.Unix_error (Unix.EEXIST, _, _) -> None) with
-    | None -> go (tries - 1)
-    | Some fd ->
+    let tmp = Filename.concat staging (Alloc.name !cursor) in
+    match (try `Fd (Unix.openfile tmp [ Unix.O_CREAT; Unix.O_EXCL; Unix.O_WRONLY ] 0o644)
+           with Unix.Unix_error (Unix.EEXIST, _, _) -> `Exists) with
+    | `Exists -> cursor := Alloc.next !cursor; go (tries - 1)
+    | `Fd fd ->
       let oc = Unix.out_channel_of_descr fd in
       (try output_string oc bytes; close_out oc with e -> (try close_out oc with _ -> ()); raise e);
+      cursor := Alloc.next !cursor;   (* advance for the next target; exhaustion fails AFTER this file *)
       tmp
   in go 64
 
@@ -231,7 +233,7 @@ let sync ?(unlink = Unix.unlink) ?(after_stage = fun _ -> ()) root entries =
         with ex -> fail "recovery FAILED: cannot enumerate %s: %s" staging (Printexc.to_string ex) in
       Array.iter (fun n ->
         let p = Filename.concat staging n in
-        if index_of_name n = None then
+        if not (Alloc.recognize n) then
           fail "recovery FAILED: %s is not a canonical staging temp — refusing an impossible staging state" p;
         let st =
           try Some (Unix.lstat p)
@@ -268,10 +270,10 @@ let sync ?(unlink = Unix.unlink) ?(after_stage = fun _ -> ()) root entries =
       (* (D) stage each target into the owned namespace, then (E) install by atomic rename, rechecking
          ownership immediately before replacement (a foreign/type change since preflight aborts, leaving
          the temp in staging for recovery). *)
-      let seq = ref 0 in
+      let cursor = ref Alloc.start in
       List.iter (fun (target, parts, bytes) ->
         ensure_real_dir_parents root parts;
-        let tmp = stage_temp staging seq bytes in
+        let tmp = stage_temp staging cursor bytes in
         after_stage tmp;
         (match lstat_opt target with
          | None -> ()

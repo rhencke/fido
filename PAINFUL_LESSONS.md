@@ -53,15 +53,15 @@ stop. When an entry stops being a live temptation, delete it.
    NAMESPACE: reserve `<root>/.fido/` (reject any desired path inside it BEFORE any effect — the sink is
    generic over raw strings, so it cannot trust the caller) and stage inside `.fido/staging/`. Location is a
    NAMESPACE POLICY, not provenance: it works only because `.fido/` is reserved AND recovery accepts ONLY
-   the exact flat form the builder emits. ⚠ "everything under staging is ours" is NOT a license to
-   recursively delete: `stage_temp` makes only flat regular `O_EXCL` temps whose names are `string_of_int`
-   of a nonnegative index, so recovery must REFUSE (fail-loud, never traverse or delete) any directory /
-   symlink / special file / non-canonical name — otherwise a nested tree or a mount under staging gets
-   recursively removed. "Exact form" must be EXACT and SEALED: recovery checked-PARSES the name and
-   RESERIALIZES it for equality (a digit-shaped superset admits an oversized decimal the generator overflows
-   on), the constructor cannot serialize an invalid index, and the successor FAILS at max_int rather than
-   wrapping negative — so the counter can never hold an out-of-range state (validity is structural, not a
-   caller side condition). ⚠ Also validate the ROOT itself: `lstat` spares only
+   the exact form the builder emits. ⚠ "everything under staging is ours" is NOT a license to recursively
+   delete: staging holds only flat regular `O_EXCL` temps, so recovery must REFUSE (fail-loud, never
+   traverse or delete) any directory / symlink / special file / non-canonical name — otherwise a nested tree
+   or a mount under staging gets recursively removed. And "exact form" must be a SEALED ABSTRACTION, not a
+   checked helper over a raw `int ref`: a naming abstraction with a HIDDEN representation (an invalid/negative
+   cursor is UNCONSTRUCTIBLE, the successor FAILS at max_int instead of wrapping) whose recovery grammar
+   EQUALS the live builder's emitted language exactly — the same abstraction serves the generator and
+   recovery, and a boundary test drives the REAL allocation transition (max_int emit-capable, then
+   exhausted), not the parser alone. ⚠ Also validate the ROOT itself: `lstat` spares only
    the final component, so a symlink in ANY prefix of `root` is followed by ordinary resolution and
    redirects every effect into the referent — reject a non-real-directory in the whole ancestor chain before
    any effect. Create each temp `O_CREAT|O_EXCL` then atomically rename (reject a cross-filesystem target first). Recovery

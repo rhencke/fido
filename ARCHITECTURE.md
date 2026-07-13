@@ -138,8 +138,10 @@ S_REG, so it is never followed/read/removed); a foreign `.go` forging the header
 (a header is public). TRANSIENT staging: the sink stages into `<root>/.fido/staging/`, a reserved location
 it alone manages — a partial temp there is already recoverable (ATOMIC by location), so no crash prefix
 orphans it. This is a namespace policy, not provenance: it rests on `.fido/` being reserved and on recovery
-accepting ONLY the exact flat form the builder emits. Staging writes each target's bytes to a fresh
-`.fido/staging/<seq>` (a decimal name) created O_CREAT|O_EXCL, then atomically renames it; the preflight
+accepting ONLY the exact form the builder emits, via a SEALED allocator whose cursor representation is
+hidden (an invalid/negative index is unconstructible; the successor fails at max_int instead of wrapping)
+and whose recovery grammar EQUALS the emitted name language exactly. Staging writes each target's bytes to
+a fresh `.fido/staging/<i>` created O_CREAT|O_EXCL, then atomically renames it; the preflight
 REJECTS (before any effect) a target whose nearest existing ancestor is on a different device than
 `staging/` (a rename can't be atomic across filesystems). RECOVERY runs FIRST and is recover-all-or-
 **REJECT**: `staging/` must contain ONLY flat, canonical, regular temp files — a directory, symlink,

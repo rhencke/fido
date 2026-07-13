@@ -148,9 +148,10 @@ cp plugin/fido_sink.ml e2e/sink_test.ml /tmp/
 if ! ( cd /tmp && ocamlfind ocamlopt -package unix -linkpkg fido_sink.ml sink_test.ml -o /workspace/sink_test ) > /tmp/sink.log 2>&1; then cat /tmp/sink.log; fail "sink_test compile FAILED"; fi
 hdr=$(head -1 "$O/main.go")   # DERIVE the ownership header from actual output (no hardcoded literal)
 staged() { find "$1/.fido/staging" -mindepth 1 2>/dev/null; }   # transient residue in the owned namespace
-# (0) sealed temp-index boundary: negative / leading-zero / oversized names are not recognized, max_int
-#     round-trips, and the successor fails at max_int rather than wrapping — through the real functions.
-./sink_test _ selftest || fail "temp-index selftest failed"
+# (0) sealed staging allocator: a negative cursor is unconstructible; negative / leading-zero / oversized
+#     names are not recognized; and the REAL stage_temp allocation at max_int EMITS the file then the next
+#     allocation fails (exhaustion, no wrap) — recovery recognizes exactly that boundary name.
+mkdir -p /workspace/adv-self; ./sink_test /workspace/adv-self selftest || fail "allocator selftest failed"
 # (1) clean-dir sync produces a marked control dir + main.go; no staging residue after success
 mkdir -p /workspace/adv-1; ./sink_test /workspace/adv-1 || fail "clean sync failed"
 [ -f /workspace/adv-1/main.go ] && [ -f /workspace/adv-1/.fido/marker ] || fail "no main.go/control marker"
