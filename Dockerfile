@@ -296,37 +296,59 @@ crash_recover crash-after-mkdir         mkdir
 crash_recover crash-after-first-payload payload
 crash_recover crash-after-staging       staging
 
-# (7) RECOVERY is record-driven and fail-closed:
+# (7) RECOVERY is record-driven and fail-closed.  Records carry an exact 32-hex-char nonce (16 bytes).
+N=abcdabcdabcdabcdabcdabcdabcdabcd   # a valid 32-char hex nonce
+M=deadbeefdeadbeefdeadbeefdeadbeef   # a DIFFERENT valid 32-char hex nonce
 #   a valid record + its real stage dir → BOTH removed;
 mkdir -p adv-rec2; ./sink_test adv-rec2 || fail "rec2: init"
-mkdir -p adv-rec2/.fido-stage-abcd; printf 'x\n' > adv-rec2/.fido-stage-abcd/f
-printf 'fido-stage-record v1\nabcd\n\n.fido-stage-abcd\n' > adv-rec2/.fido/stage-records/abcd
+mkdir -p adv-rec2/.fido-stage-$N; printf 'x\n' > adv-rec2/.fido-stage-$N/f
+printf 'fido-stage-record v1\n%s\n\n.fido-stage-%s\n' "$N" "$N" > adv-rec2/.fido/stage-records/$N
 ./sink_test adv-rec2 || fail "rec2: sync failed with a valid abandoned record"
-{ [ ! -e adv-rec2/.fido-stage-abcd ] && [ ! -e adv-rec2/.fido/stage-records/abcd ]; } || fail "rec2: recovery did not remove the record-owned stage + record"
+{ [ ! -e adv-rec2/.fido-stage-$N ] && [ ! -e adv-rec2/.fido/stage-records/$N ]; } || fail "rec2: recovery did not remove the record-owned stage + record"
 #   a recordless .fido-stage-* lookalike → PRESERVED;
 mkdir -p adv-look; ./sink_test adv-look || fail "look: init"
-mkdir -p adv-look/.fido-stage-deadbeef; printf 'x\n' > adv-look/.fido-stage-deadbeef/f
+mkdir -p adv-look/.fido-stage-$M; printf 'x\n' > adv-look/.fido-stage-$M/f
 ./sink_test adv-look || fail "look: sync failed with a recordless lookalike present"
-[ -d adv-look/.fido-stage-deadbeef ] || fail "look: a recordless lookalike stage was removed"
+[ -d adv-look/.fido-stage-$M ] || fail "look: a recordless lookalike stage was removed"
 #   a malformed record → fail closed (preserved);
 mkdir -p adv-badrec; ./sink_test adv-badrec || fail "badrec: init"
-printf 'garbage\n' > adv-badrec/.fido/stage-records/abcd
+printf 'garbage\n' > adv-badrec/.fido/stage-records/$N
 if ./sink_test adv-badrec; then fail "badrec: a malformed record did not fail closed"; fi
-[ -f adv-badrec/.fido/stage-records/abcd ] || fail "badrec: the malformed record was removed"
+[ -f adv-badrec/.fido/stage-records/$N ] || fail "badrec: the malformed record was removed"
+#   a record with TRAILING data → strict parse fails closed (preserved);
+mkdir -p adv-junkrec; ./sink_test adv-junkrec || fail "junkrec: init"
+printf 'fido-stage-record v1\n%s\n\n.fido-stage-%s\nEXTRA\n' "$N" "$N" > adv-junkrec/.fido/stage-records/$N
+if ./sink_test adv-junkrec; then fail "junkrec: a record with trailing data was not rejected"; fi
+[ -f adv-junkrec/.fido/stage-records/$N ] || fail "junkrec: the malformed record was removed"
 #   a record whose parent escapes root → fail closed;
 mkdir -p adv-outrec; ./sink_test adv-outrec || fail "outrec: init"
-printf 'fido-stage-record v1\nabcd\n..\n../.fido-stage-abcd\n' > adv-outrec/.fido/stage-records/abcd
+printf 'fido-stage-record v1\n%s\n..\n../.fido-stage-%s\n' "$N" "$N" > adv-outrec/.fido/stage-records/$N
 if ./sink_test adv-outrec; then fail "outrec: an escaping record did not fail closed"; fi
 #   a nonce/filename mismatch → fail closed;
 mkdir -p adv-mmrec; ./sink_test adv-mmrec || fail "mmrec: init"
-printf 'fido-stage-record v1\nWRONG\n\n.fido-stage-WRONG\n' > adv-mmrec/.fido/stage-records/abcd
+printf 'fido-stage-record v1\n%s\n\n.fido-stage-%s\n' "$M" "$M" > adv-mmrec/.fido/stage-records/$N
 if ./sink_test adv-mmrec; then fail "mmrec: a nonce/filename mismatch did not fail closed"; fi
+#   an invalid (short) nonce → fail closed;
+mkdir -p adv-shortrec; ./sink_test adv-shortrec || fail "shortrec: init"
+printf 'fido-stage-record v1\nabcd\n\n.fido-stage-abcd\n' > adv-shortrec/.fido/stage-records/abcd
+if ./sink_test adv-shortrec; then fail "shortrec: an invalid-length nonce did not fail closed"; fi
 #   a recorded stage that is a symlink (not a directory) → fail closed, symlink preserved.
 mkdir -p adv-slrec; ./sink_test adv-slrec || fail "slrec: init"
-ln -s /etc adv-slrec/.fido-stage-abcd
-printf 'fido-stage-record v1\nabcd\n\n.fido-stage-abcd\n' > adv-slrec/.fido/stage-records/abcd
+ln -s /etc adv-slrec/.fido-stage-$N
+printf 'fido-stage-record v1\n%s\n\n.fido-stage-%s\n' "$N" "$N" > adv-slrec/.fido/stage-records/$N
 if ./sink_test adv-slrec; then fail "slrec: a symlinked stage did not fail closed"; fi
-[ -L adv-slrec/.fido-stage-abcd ] || fail "slrec: the symlink stage was removed/followed"
+[ -L adv-slrec/.fido-stage-$N ] || fail "slrec: the symlink stage was removed/followed"
+
+# (7b) an EXISTING marked .fido with the wrong SHAPE is refused WITHOUT modification (§12):
+#   an unexpected top-level entry → refuse and preserve;
+mkdir -p adv-shape; ./sink_test adv-shape || fail "shape: init"
+printf 'surprise\n' > adv-shape/.fido/surprise
+if ./sink_test adv-shape; then fail "shape: an unexpected .fido entry was not refused"; fi
+[ -f adv-shape/.fido/surprise ] || fail "shape: the unexpected entry was removed"
+#   a marked .fido MISSING its stage-records/ directory → refuse.
+mkdir -p adv-shape2; ./sink_test adv-shape2 || fail "shape2: init"
+rm -rf adv-shape2/.fido/stage-records
+if ./sink_test adv-shape2; then fail "shape2: a marked .fido without stage-records/ was not refused"; fi
 
 # (8) a fixed-nonce COLLISION with a pre-existing stage aborts (retry exhausted), preserving the entry
 mkdir -p adv-coll; ./sink_test adv-coll || fail "coll: init"
@@ -339,18 +361,42 @@ if ./sink_test adv-coll collide; then fail "coll: a fixed-nonce collision did no
 #     rerun converges; and an [unlink] failure in the cleanup phase surfaces the failure, leaves the record,
 #     and a clean rerun recovers it.
 mkdir -p adv-ruf; ./sink_test adv-ruf || fail "ruf: init"
-mkdir -p adv-ruf/.fido-stage-abcd; printf 'x\n' > adv-ruf/.fido-stage-abcd/f
-printf 'fido-stage-record v1\nabcd\n\n.fido-stage-abcd\n' > adv-ruf/.fido/stage-records/abcd
+mkdir -p adv-ruf/.fido-stage-$N; printf 'x\n' > adv-ruf/.fido-stage-$N/f
+printf 'fido-stage-record v1\n%s\n\n.fido-stage-%s\n' "$N" "$N" > adv-ruf/.fido/stage-records/$N
 if ./sink_test adv-ruf unlink-fail; then fail "ruf: a recovery unlink failure did not abort"; fi
-[ -d adv-ruf/.fido-stage-abcd ] || fail "ruf: the stage was removed despite the unlink failure"
+[ -d adv-ruf/.fido-stage-$N ] || fail "ruf: the stage was removed despite the unlink failure"
 [ ! -e adv-ruf/.fido/index.lock ] || fail "ruf: the lock was not released after a recovery abort"
 ./sink_test adv-ruf || fail "ruf: did not converge on a clean rerun"
 [ -z "$(residue adv-ruf)" ] || fail "ruf: residue survived convergence"
 mkdir -p adv-cuf
-if ./sink_test adv-cuf unlink-fail; then fail "cuf: an unlink failure in the cleanup phase was not surfaced"; fi
+if out=$(./sink_test adv-cuf unlink-fail 2>&1); then fail "cuf: an unlink failure in the cleanup phase was not surfaced"; fi
+echo "$out" | grep -q 'cleanup FAILED' || { echo "$out"; fail "cuf: the cleanup failure was not reported alongside the body result"; }
 [ ! -e adv-cuf/.fido/index.lock ] || fail "cuf: the lock was not released after a cleanup failure"
 ./sink_test adv-cuf || fail "cuf: did not converge on a clean rerun"
 [ -z "$(residue adv-cuf)" ] || fail "cuf: residue survived convergence"
+
+# (10) EXDEV on a local rename fails LOUD with no copy fallback (nothing installed)
+mkdir -p adv-exdev
+if out=$(./sink_test adv-exdev exdev 2>&1); then fail "exdev: a cross-device rename did not fail"; fi
+echo "$out" | grep -q 'cross-device' || { echo "$out"; fail "exdev: not the cross-device failure"; }
+{ [ ! -e adv-exdev/go.mod ] && [ ! -e adv-exdev/main.go ]; } || fail "exdev: a file was installed despite EXDEV (copy fallback?)"
+[ ! -e adv-exdev/.fido/index.lock ] || fail "exdev: the lock was not released"
+
+# (11) IMMEDIATE ownership recheck: a target that becomes foreign right before its overwrite is NOT clobbered
+mkdir -p adv-race; ./sink_test adv-race || fail "race: init"
+if ./sink_test adv-race foreign-before-install; then fail "race: overwrote a target that became foreign"; fi
+printf 'FOREIGN not a fido file\n' | cmp -s - adv-race/main.go || fail "race: the now-foreign main.go was overwritten by generated bytes"
+
+# (12) COMPLETE-image staging precedes install: a handled failure after the first staged file leaves ALL
+#      prior final generated files byte-identical, cleans residue, releases the lock, and reruns converge.
+mkdir -p adv-late; ./sink_test adv-late || fail "late: init"
+cp adv-late/go.mod /tmp/late-go.mod; cp adv-late/main.go /tmp/late-main.go   # byte snapshots of the prior finals
+if ./sink_test adv-late fail-after-first-payload 2>/dev/null; then fail "late: a handled staging failure was not surfaced"; fi
+cmp -s /tmp/late-go.mod adv-late/go.mod  || fail "late: a prior final go.mod changed after a later-stage failure"
+cmp -s /tmp/late-main.go adv-late/main.go || fail "late: a prior final main.go changed after a later-stage failure"
+[ -z "$(residue adv-late)" ] || fail "late: residue survived a handled failure"
+[ ! -e adv-late/.fido/index.lock ] || fail "late: the lock was not released after a handled failure"
+./sink_test adv-late || fail "late: did not converge on a clean rerun"
 
 echo "fido: emit OK — general Fido Emit synced the witness / multi-package / EMPTY trees (rendered go.mod); forged images rejected; sink foreign-Go rejection + local-staging + record-driven recovery (crash points, malformed/escaping/mismatched/symlinked records, collision, unlink-failure) all pass"
 SH

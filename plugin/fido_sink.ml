@@ -58,6 +58,8 @@ let records_dir  = "stage-records"             (* <root>/.fido/stage-records/ �
 let stage_prefix = ".fido-stage-"              (* <parent>/.fido-stage-<nonce> local stage dirs *)
 let gomod_name   = "go.mod"
 let record_tag   = "fido-stage-record v1"
+let nonce_bytes  = 16                          (* /dev/urandom bytes per stage nonce *)
+let nonce_hexlen = 2 * nonce_bytes             (* its exact hex length (a strict record field) *)
 
 exception Fail of string
 let fail fmt = Printf.ksprintf (fun s -> raise (Fail s)) fmt
@@ -179,10 +181,14 @@ let safe_rel r =
 
 (* ---- record-driven recovery of abandoned local stages (fail-closed) ---- *)
 
+(* STRICT: exactly the versioned tag line + nonce + parent + stage + a single trailing newline — any
+   missing field, extra trailing data, or wrong tag is a malformed record (fail-closed, never accepted). *)
 let parse_record p =
   match String.split_on_char '\n' (read_whole p) with
-  | tag :: nonce :: parent :: stage :: _ when tag = record_tag -> (nonce, parent, stage)
+  | [tag; nonce; parent; stage; ""] when tag = record_tag -> (nonce, parent, stage)
   | _ -> fail "recovery FAILED: malformed record %s" p
+
+let valid_nonce n = is_hex n && String.length n = nonce_hexlen
 
 let recover_stages unlink root records_abs =
   match lstat_obs records_abs with
@@ -201,7 +207,7 @@ let recover_stages unlink root records_abs =
           fail "recovery FAILED: %s is not a regular record file — refusing" record_abs;
         let (nonce, parent_rel, stage_rel) = parse_record record_abs in
         if nonce <> recname then fail "recovery FAILED: record %s nonce mismatch" record_abs;
-        if not (is_hex nonce) then fail "recovery FAILED: record %s has a non-hex nonce" record_abs;
+        if not (valid_nonce nonce) then fail "recovery FAILED: record %s has an invalid nonce" record_abs;
         if not (safe_rel parent_rel) then fail "recovery FAILED: record %s parent escapes root" record_abs;
         let expected = (if parent_rel = "" then "" else parent_rel ^ "/") ^ stage_prefix ^ nonce in
         if stage_rel <> expected then fail "recovery FAILED: record %s stage path inconsistent" record_abs;
@@ -252,12 +258,15 @@ let make_stage rand_hex unlink checkpoint root records_abs parent_rel =
   let parent_abs = if parent_rel = "" then root else Filename.concat root parent_rel in
   let rec attempt tries =
     if tries <= 0 then fail "could not create a unique local stage under %s" parent_abs;
-    let nonce = rand_hex 16 in
-    if not (is_hex nonce) then fail "the nonce source did not return hex";
+    let nonce = rand_hex nonce_bytes in
+    if not (valid_nonce nonce) then fail "the nonce source did not return a %d-char hex nonce" nonce_hexlen;
     let stage_name = stage_prefix ^ nonce in
     let stage_abs = Filename.concat parent_abs stage_name in
     let stage_rel = (if parent_rel = "" then "" else parent_rel ^ "/") ^ stage_name in
     let record_abs = Filename.concat records_abs nonce in
+    (* remove OUR just-created record, fail-loud if that removal itself fails (never silently orphan it). *)
+    let rm_record () = match (try unlink record_abs; None with Unix.Unix_error (e,_,_) -> Some (Unix.error_message e)) with
+      | None -> () | Some m -> fail "cannot remove stage record %s: %s" record_abs m in
     match lstat_obs stage_abs with
     | Present _ -> attempt (tries - 1)          (* a pre-existing lookalike occupies the path: new nonce *)
     | Missing ->
@@ -268,15 +277,22 @@ let make_stage rand_hex unlink checkpoint root records_abs parent_rel =
        | `Fd fd ->
          let content = Printf.sprintf "%s\n%s\n%s\n%s\n" record_tag nonce parent_rel stage_rel in
          (try write_all fd content; Unix.close fd
-          with e -> (try Unix.close fd with _ -> ()); (try unlink record_abs with _ -> ());
-                    (match e with Fail m -> fail "cannot write stage record %s: %s" record_abs m | _ -> raise e));
+          with e -> (try Unix.close fd with _ -> ());
+                    let base = match e with Fail m -> m | _ -> Printexc.to_string e in
+                    (match (try unlink record_abs; None with Unix.Unix_error (er,_,_) -> Some (Unix.error_message er)) with
+                     | None -> fail "cannot write stage record %s: %s" record_abs base
+                     | Some rm -> fail "cannot write stage record %s: %s | record cleanup also failed: %s" record_abs base rm));
+         (* §13.6 validate the CLOSED record (re-read + exact fields) BEFORE creating the stage directory. *)
+         (let (n', p', s') = parse_record record_abs in
+          if not (n' = nonce && p' = parent_rel && s' = stage_rel)
+          then (rm_record (); fail "stage record %s did not validate after write" record_abs));
          checkpoint "after-record";
          (match (try `Ok (Unix.mkdir stage_abs 0o755)
                  with Unix.Unix_error (Unix.EEXIST, _, _) -> `Collide
                     | Unix.Unix_error (e, _, _) -> `Err (Unix.error_message e)) with
           | `Ok () -> checkpoint "after-mkdir"; (nonce, stage_abs, record_abs)
-          | `Collide -> (try unlink record_abs with _ -> ()); attempt (tries - 1)
-          | `Err m -> (try unlink record_abs with _ -> ()); fail "cannot create local stage %s: %s" stage_abs m))
+          | `Collide -> rm_record (); attempt (tries - 1)
+          | `Err m -> rm_record (); fail "cannot create local stage %s: %s" stage_abs m))
   in attempt 8
 
 let ensure_dir_chain root parent_rel created =
@@ -319,25 +335,37 @@ let ensure_root_and_control root control_abs records_abs =
    | Present st -> if st.Unix.st_kind <> Unix.S_DIR then fail "target root is not a real directory: %s" root
    | Missing -> (try Unix.mkdir root 0o755
                  with Unix.Unix_error (e,_,_) -> fail "cannot create root %s: %s" root (Unix.error_message e)));
-  (match lstat_obs control_abs with
-   | Missing ->
-     (try Unix.mkdir control_abs 0o755
-      with Unix.Unix_error (e,_,_) -> fail "cannot create %s: %s" control_abs (Unix.error_message e));
-     write_new (Filename.concat control_abs marker_name) marker_bytes
-   | Present st ->
-     if st.Unix.st_kind <> Unix.S_DIR then fail "%s exists but is not a directory — refusing" control_abs;
-     let mk = Filename.concat control_abs marker_name in
-     (match lstat_obs mk with
-      | Present mst when mst.Unix.st_kind = Unix.S_REG && read_whole mk = marker_bytes -> ()
-      | _ -> fail "%s exists without the exact Fido control marker — refusing to touch it" control_abs));
-  (match lstat_obs records_abs with
-   | Missing -> (try Unix.mkdir records_abs 0o755
-                 with Unix.Unix_error (e,_,_) -> fail "cannot create %s: %s" records_abs (Unix.error_message e))
-   | Present st -> if st.Unix.st_kind <> Unix.S_DIR then fail "%s is not a directory — refusing" records_abs)
+  match lstat_obs control_abs with
+  | Missing ->
+    (* FIRST-TIME: create the whole owned control namespace (marker + records dir) *)
+    (try Unix.mkdir control_abs 0o755
+     with Unix.Unix_error (e,_,_) -> fail "cannot create %s: %s" control_abs (Unix.error_message e));
+    write_new (Filename.concat control_abs marker_name) marker_bytes;
+    (try Unix.mkdir records_abs 0o755
+     with Unix.Unix_error (e,_,_) -> fail "cannot create %s: %s" records_abs (Unix.error_message e))
+  | Present st ->
+    (* EXISTING: VALIDATE the exact ownership marker AND directory shape; abort WITHOUT modifying on any
+       deviation (§12 — an existing .fido is Fido-owned by location; it must be marker + stage-records/ (+ a
+       transient index.lock), nothing else). *)
+    if st.Unix.st_kind <> Unix.S_DIR then fail "%s exists but is not a directory — refusing" control_abs;
+    let mk = Filename.concat control_abs marker_name in
+    (match lstat_obs mk with
+     | Present mst when mst.Unix.st_kind = Unix.S_REG && read_whole mk = marker_bytes -> ()
+     | _ -> fail "%s exists without the exact Fido control marker — refusing to touch it" control_abs);
+    (match lstat_obs records_abs with
+     | Present rst when rst.Unix.st_kind = Unix.S_DIR -> ()
+     | _ -> fail "%s lacks the expected %s/ directory — refusing to touch it" control_abs records_dir);
+    let names = try Sys.readdir control_abs
+                with Sys_error m -> fail "cannot inspect %s: %s — refusing" control_abs m in
+    Array.iter (fun n ->
+      if not (n = marker_name || n = records_dir || n = lock_name)
+      then fail "%s contains an unexpected entry %s — refusing to touch it" control_abs n)
+      names
 
 let uniq l = List.rev (List.fold_left (fun acc x -> if List.mem x acc then acc else x :: acc) [] l)
 
 let sync ?(rand_hex = default_rand_hex) ?(checkpoint = fun _ -> ()) ?(unlink = Unix.unlink)
+         ?(rename = Unix.rename) ?(before_install = fun _ -> ())
          dir go_mod entries =
   let header = first_line_of_string go_mod in
   let control_abs = Filename.concat dir control_dir in
@@ -379,16 +407,18 @@ let sync ?(rand_hex = default_rand_hex) ?(checkpoint = fun _ -> ()) ?(unlink = U
       write_new (Filename.concat (Hashtbl.find stage_of pr) base) bytes;
       if i = 0 then checkpoint "after-first-payload") desired;
     checkpoint "after-staging";
-    (* I. install each file: recheck ownership, then rename (sibling; atomic; EXDEV fails loud) *)
+    (* I. install each file: recheck ownership IMMEDIATELY before overwrite, then rename (sibling; atomic;
+          EXDEV fails loud with NO copy fallback) *)
     List.iter (fun (target, pr, base, _) ->
+      before_install target;                       (* test seam: a race can mutate the target here *)
       (match lstat_obs target with
        | Missing -> ()
        | Present _ -> if not (owned_regular target header)
                       then fail "%s changed and is no longer Fido-owned — refusing to overwrite" target);
       let src = Filename.concat (Hashtbl.find stage_of pr) base in
-      (try Unix.rename src target
+      (try rename src target
        with Unix.Unix_error (Unix.EXDEV, _, _) ->
-              fail "cross-device install %s -> %s (a local stage must be on the target filesystem)" src target
+              fail "cross-device install %s -> %s (a local stage must be on the target filesystem; no copy fallback)" src target
           | Unix.Unix_error (e, _, _) -> fail "cannot install %s: %s" target (Unix.error_message e)))
       desired;
     (* J. remove stale Fido-owned .go not in the desired set (empty program removes them all) *)
@@ -402,11 +432,23 @@ let sync ?(rand_hex = default_rand_hex) ?(checkpoint = fun _ -> ()) ?(unlink = U
       !stages;
     stages := [];
     List.length desired in
-  (* handled-failure cleanup: remove this run's stages + records + newly-empty parents (best-effort). *)
+  (* handled-failure cleanup (§15): remove this run's stages then their records + newly-empty parents.  The
+     record is removed ONLY when its stage is CONFIRMED gone — a failed stage removal keeps the record so the
+     stage stays RECOVERABLE (never orphaned).  Every cleanup error is collected, not hidden. *)
+  let cleanup_errors = ref [] in
   let cleanup_on_failure () =
     List.iter (fun (_, stage_abs, record_abs) ->
-      (try rm_rf_no_follow unlink stage_abs with _ -> ());
-      (try unlink record_abs with _ -> ())) !stages;
+      let stage_gone =
+        (try rm_rf_no_follow unlink stage_abs; (match lstat_obs stage_abs with Missing -> true | _ -> false)
+         with Fail m -> cleanup_errors := m :: !cleanup_errors; false
+            | e -> cleanup_errors := Printexc.to_string e :: !cleanup_errors; false) in
+      if stage_gone then
+        (match (try unlink record_abs; None with Unix.Unix_error (e,_,_) -> Some (Unix.error_message e)) with
+         | None -> ()
+         | Some m -> cleanup_errors := Printf.sprintf "cannot remove record %s: %s" record_abs m :: !cleanup_errors)
+      else
+        cleanup_errors := Printf.sprintf "stage %s not removed — preserving record %s for recovery" stage_abs record_abs :: !cleanup_errors)
+      !stages;
     List.iter (fun d -> try Unix.rmdir d with _ -> ()) !created_dirs in
   let release_lock () =
     (try Unix.close lockfd with _ -> ());
@@ -417,6 +459,10 @@ let sync ?(rand_hex = default_rand_hex) ?(checkpoint = fun _ -> ()) ?(unlink = U
   | `Err e ->
     let body_msg = match e with Fail m -> m | _ -> Printexc.to_string e in
     (try cleanup_on_failure () with _ -> ());
-    (match (try release_lock (); None with Fail m -> Some m | _ -> Some "unknown lock-release error") with
-     | None -> raise (Fail body_msg)
-     | Some lm -> raise (Fail (body_msg ^ " | additionally, lock release failed: " ^ lm)))
+    let lock_msg = (try release_lock (); None with Fail m -> Some m | _ -> Some "unknown lock-release error") in
+    let parts = body_msg
+                :: (List.rev_map (fun m -> "cleanup FAILED: " ^ m) !cleanup_errors
+                    @ (match lock_msg with Some m -> [ "lock release FAILED: " ^ m ] | None -> [])) in
+    (match parts with
+     | [ single ] -> raise (Fail single)
+     | _ -> raise (Fail (String.concat " | " parts)))

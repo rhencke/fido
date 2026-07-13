@@ -10,6 +10,11 @@
      "reserved" — a desired .go inside the reserved .fido/ namespace (rejected before any effect);
      "collide"  — a FIXED nonce, so a pre-seeded record/stage forces the collision/retry path;
      "unlink-fail"           — [unlink] always fails (recovery / cleanup / stale-removal failure);
+     "exdev"                 — [rename] raises EXDEV (a cross-device install must fail loud, no copy fallback);
+     "foreign-before-install" — [before_install] makes the target foreign right before its ownership recheck
+                  (a race): the recheck must abort rather than overwrite;
+     "fail-after-first-payload" — [checkpoint] raises a HANDLED failure after the first staged file: cleanup
+                  must run immediately and leave prior FINAL files untouched;
      "crash-after-record" / "crash-after-mkdir" / "crash-after-first-payload" / "crash-after-staging"
                 — [checkpoint] TERMINATES the process (Unix._exit) at that exact point: a true crash, no
                   finalizer, the lock stays held, and record/stage residue is left for the next run. *)
@@ -37,11 +42,18 @@ let () =
     else Fido_sink.default_rand_hex in
   let checkpoint label =
     if mode = "crash-" ^ label then
-      (Printf.eprintf "sink_test: crashing at %s\n%!" label; Unix._exit 137) in
+      (Printf.eprintf "sink_test: crashing at %s\n%!" label; Unix._exit 137)
+    else if mode = "fail-" ^ label then
+      raise (Fido_sink.Fail ("injected handled failure at " ^ label)) in
   let unlink =
     if mode = "unlink-fail" then (fun p -> raise (Unix.Unix_error (Unix.EACCES, "unlink", p)))
     else Unix.unlink in
-  match (try `Ok (Fido_sink.sync ~rand_hex ~checkpoint ~unlink root go_mod entries)
+  let rename src dst =
+    if mode = "exdev" then raise (Unix.Unix_error (Unix.EXDEV, "rename", dst)) else Unix.rename src dst in
+  let before_install target =
+    if mode = "foreign-before-install" && Filename.basename target = "main.go" then
+      (let oc = open_out_bin target in output_string oc "FOREIGN not a fido file\n"; close_out oc) in
+  match (try `Ok (Fido_sink.sync ~rand_hex ~checkpoint ~unlink ~rename ~before_install root go_mod entries)
          with Fido_sink.Fail m -> `Fail m) with
   | `Ok n ->
     let check rel bytes =

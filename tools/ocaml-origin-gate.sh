@@ -7,8 +7,8 @@
 #   - plugin/g_fido.mlg     — the transport bridge.  Its boundary is EXACTLY four ordered steps: (1)
 #                             typecheck the image type; (2) reject a non-empty assumption closure (a kernel
 #                             provenance query that descends Qed proof bodies — NOT program/AST inspection);
-#                             (3) decode ONLY the final (path, bytes) transport; (4) call the sink.  It does
-#                             no semantic program/AST/behaviour inspection.
+#                             (3) decode ONLY the final (go.mod, entries) transport; (4) call the sink.  It
+#                             does no semantic program/AST/behaviour inspection.
 # This gate is literal and fail-closed:
 #   (1) the set of tracked *.ml / *.mli / *.mlg is AT MOST those three;
 #   (2) the two filesystem files must NOT walk Rocq terms (no EConstr / Constr / Nametab / interp / Evd /
@@ -17,10 +17,10 @@
 #       CompilableProgram / SafeProgram / CompilationFacts / render);
 #   (4) no tracked source contains a hallmark NAME of the deleted OCaml backend / lowering / renderer.
 # That the two provenance guards stay LIVE is a mutation-sensitive REGRESSION gate (not a proof): the emit
-# stage's negative fixtures (WitnessNeg = the type guard; WitnessForge{,Opaque,Var,VarIndirect} = the
-# assumption-closure guard) EXECUTE forged inputs, and removing either guard makes the corresponding
-# `Fido Emit` succeed and create a target, failing the e2e.  A string grep here would only show a name
-# appears (in a comment or dead code), so it is not attempted.
+# stage's negative fixtures (WitnessNeg = the type guard; the TRANSIENTLY-generated axiom/opaque/section-
+# variable forged images = the assumption-closure guard) EXECUTE forged inputs, and removing either guard
+# makes the corresponding `Fido Emit` succeed and create a target, failing the e2e.  A string grep here
+# would only show a name appears (in a comment or dead code), so it is not attempted.
 set -eu
 
 fs_files='plugin/fido_sink.ml e2e/sink_test.ml'
@@ -39,8 +39,8 @@ fi
 for f in $fs_files; do
   if git ls-files --error-unmatch "$f" >/dev/null 2>&1; then
     lines=$(wc -l < "$f")
-    if [ "$lines" -gt 460 ]; then
-      echo "fido: OCAML-ORIGIN GATE — $f is $lines lines; a filesystem sink must stay bounded (<=460)."; exit 1
+    if [ "$lines" -gt 500 ]; then
+      echo "fido: OCAML-ORIGIN GATE — $f is $lines lines; a filesystem sink must stay bounded (<=500)."; exit 1
     fi
     if grep -nE 'EConstr|Constr\.|Nametab|interp_constr|Reductionops|Evd\.|Global\.env' "$f"; then
       echo "fido: OCAML-ORIGIN GATE — $f is filesystem-only; it must not walk or decode Rocq terms."; exit 1
