@@ -96,16 +96,32 @@ Definition modpath_char (c : ascii) : bool := seg_char c || Ascii.eqb c "/"%char
 Fixpoint all_modpath_chars (s : string) : bool :=
   match s with EmptyString => true | String c s' => modpath_char c && all_modpath_chars s' end.
 
-(** the whole module path: all characters are module-path characters (so every byte is ASCII), and every
-    `/`-separated segment is admissible (an empty segment from a leading/trailing/repeated slash, or the
-    empty string, fails [segment_ok]); with a total-length bound. *)
+(** the leading path element, and whether it contains a `.`: Go treats a path whose FIRST element has NO dot
+    as a STANDARD-LIBRARY candidate (e.g. `go/ast`, `fmt`), so requiring a dot there keeps every represented
+    path safely OUTSIDE the stdlib namespace — a safe prefix for future closed-world owned packages. *)
+Fixpoint before_slash (s : string) : string :=
+  match s with
+  | EmptyString => EmptyString
+  | String c s' => if Ascii.eqb c "/"%char then EmptyString else String c (before_slash s')
+  end.
+
+Fixpoint contains_dot (s : string) : bool :=
+  match s with EmptyString => false | String c s' => Ascii.eqb c "."%char || contains_dot s' end.
+
+(** the whole module path: all characters are module-path characters (so every byte is ASCII); the FIRST
+    element contains a `.` (never a stdlib-colliding dotless prefix); every `/`-separated segment is
+    admissible (an empty segment from a leading/trailing/repeated slash, or the empty string, fails
+    [segment_ok]); with a total-length bound. *)
 Definition modpath_ok (s : string) : bool :=
-  (String.length s <=? 200)%nat && all_modpath_chars s && forallb segment_ok (split_slash s).
+  (String.length s <=? 200)%nat && all_modpath_chars s
+  && contains_dot (before_slash s) && forallb segment_ok (split_slash s).
 
 Lemma modpath_ok_all_chars : forall s, modpath_ok s = true -> all_modpath_chars s = true.
 Proof.
   intros s H; unfold modpath_ok in H.
-  apply Bool.andb_true_iff in H as [H _]; apply Bool.andb_true_iff in H as [_ H]; exact H.
+  apply Bool.andb_true_iff in H as [H _].            (* drop forallb segment_ok *)
+  apply Bool.andb_true_iff in H as [H _].            (* drop contains_dot (before_slash s) *)
+  apply Bool.andb_true_iff in H as [_ H]; exact H.   (* drop the length bound; keep all_modpath_chars *)
 Qed.
 
 (** every module-path character is ASCII (the go.mod ASCII proof rests on this). *)
@@ -143,28 +159,32 @@ Qed.
 
 (** ---- positive / negative fixtures (the grammar, kernel-checked) ---- *)
 
+(* every representable path has a dotted FIRST element (a safe, non-stdlib prefix) *)
 Example ok_generated : modpath_ok "fido.local/generated" = true.       Proof. reflexivity. Qed.
-Example ok_bare      : modpath_ok "fidoe2e" = true.                    Proof. reflexivity. Qed.
 Example ok_nested    : modpath_ok "fido.local/generated/sub" = true.   Proof. reflexivity. Qed.
-Example ok_digits    : modpath_ok "fido2/pkg9" = true.                 Proof. reflexivity. Qed.
-Example ok_console   : modpath_ok "console" = true.                    Proof. reflexivity. Qed.  (* base not reserved *)
-Example ok_common    : modpath_ok "fido.local/common" = true.         Proof. reflexivity. Qed.
-Example ok_com       : modpath_ok "com" = true.                        Proof. reflexivity. Qed.   (* 3 chars, not com<d> *)
+Example ok_common    : modpath_ok "fido.local/common" = true.          Proof. reflexivity. Qed.
+Example ok_dothost   : modpath_ok "example.com" = true.                Proof. reflexivity. Qed.
+Example ok_digits    : modpath_ok "fido2.dev/pkg9" = true.             Proof. reflexivity. Qed.
 
 Example no_empty         : modpath_ok "" = false.               Proof. reflexivity. Qed.
 Example no_leading_slash : modpath_ok "/x" = false.             Proof. reflexivity. Qed.
 Example no_trailing_slash : modpath_ok "x/" = false.            Proof. reflexivity. Qed.
 Example no_double_slash  : modpath_ok "a//b" = false.           Proof. reflexivity. Qed.
-Example no_upper         : modpath_ok "Fido" = false.           Proof. reflexivity. Qed.
+Example no_upper         : modpath_ok "Fido.dev" = false.       Proof. reflexivity. Qed.
 Example no_dotdot        : modpath_ok "a..b" = false.           Proof. reflexivity. Qed.
 Example no_leading_dot   : modpath_ok ".fido" = false.          Proof. reflexivity. Qed.
 Example no_trailing_dot  : modpath_ok "fido." = false.          Proof. reflexivity. Qed.
-Example no_at            : modpath_ok "fido@v1" = false.        Proof. reflexivity. Qed.
-Example no_space         : modpath_ok "fido local" = false.     Proof. reflexivity. Qed.
-Example no_digit_start    : modpath_ok "9fido" = false.         Proof. reflexivity. Qed.
-(* Windows-reserved device names Go rejects as a path element (even on Linux), with or without extension: *)
+Example no_at            : modpath_ok "fido.dev@v1" = false.    Proof. reflexivity. Qed.
+Example no_space         : modpath_ok "fido dev.x" = false.     Proof. reflexivity. Qed.
+Example no_digit_start    : modpath_ok "9fido.dev" = false.     Proof. reflexivity. Qed.
+(* dotless first elements are STDLIB-colliding and UNREPRESENTABLE (`go/ast`, `fmt`, a bare vanity name): *)
+Example no_dotless_go   : modpath_ok "go" = false.             Proof. reflexivity. Qed.
+Example no_dotless_fmt  : modpath_ok "fmt" = false.            Proof. reflexivity. Qed.
+Example no_dotless_bare : modpath_ok "fidoe2e" = false.        Proof. reflexivity. Qed.
+Example no_dotless_pkg  : modpath_ok "fido2/pkg9" = false.     Proof. reflexivity. Qed.  (* first elem "fido2" has no dot *)
+(* Windows-reserved device names Go rejects as a path ELEMENT (even on Linux), with or without extension: *)
 Example no_reserved_con   : modpath_ok "fido.local/con" = false. Proof. reflexivity. Qed.
-Example no_reserved_nul   : modpath_ok "nul" = false.          Proof. reflexivity. Qed.
-Example no_reserved_com1  : modpath_ok "com1" = false.         Proof. reflexivity. Qed.
-Example no_reserved_lpt9  : modpath_ok "a/lpt9" = false.       Proof. reflexivity. Qed.
-Example no_reserved_conext : modpath_ok "con.js" = false.     Proof. reflexivity. Qed.
+Example no_reserved_nul   : modpath_ok "fido.dev/nul" = false.  Proof. reflexivity. Qed.
+Example no_reserved_com1  : modpath_ok "fido.dev/com1" = false. Proof. reflexivity. Qed.
+Example no_reserved_lpt9  : modpath_ok "fido.dev/lpt9" = false. Proof. reflexivity. Qed.
+Example no_reserved_conext : modpath_ok "con.js" = false.      Proof. reflexivity. Qed.  (* base "con" reserved *)

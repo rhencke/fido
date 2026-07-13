@@ -26,6 +26,7 @@ Print Assumptions ModulePath.no_dotdot.
 Print Assumptions ModulePath.no_leading_slash.
 Print Assumptions ModulePath.no_at.
 Print Assumptions ModulePath.no_reserved_con.
+Print Assumptions ModulePath.no_dotless_go.
 
 (* intrinsic GoVersion: the singleton Go1_23 renders EXACTLY "1.23"; decidable equality *)
 Print Assumptions GoVersion.render_goversion_go1_23.

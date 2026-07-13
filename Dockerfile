@@ -199,12 +199,22 @@ echo "fido: certified-module coverage OK — tracked root .v modules == dune (mo
 echo "fido: assumption audit covers (from dune): $mods"
 if ! rocq c -Q _build/default/. Fido /tmp/assumptions_audit.v > /tmp/audit.log 2>&1; then cat /tmp/audit.log; fail "assumption audit FAILED"; fi
 grep -q 'assumption audit OK' /tmp/audit.log || { cat /tmp/audit.log; fail "audit did not confirm zero Fido axioms"; }
-# audit self-test: a planted axiom in a Fido-namespaced module MUST be caught (not fail-open)
+# audit self-test 1: a DIRECT planted axiom in a Fido-namespaced module MUST be caught (not fail-open)
 mkdir -p /tmp/fa; printf 'Axiom planted_axiom : True.\n' > /tmp/fa/Planted.v
 rocq c -R /tmp/fa Fido /tmp/fa/Planted.v > /tmp/fa/plant.log 2>&1 || { cat /tmp/fa/plant.log; fail "could not compile the audit self-test module"; }
 printf 'From Fido Require Import Planted.\nDeclare ML Module "fido.emit".\nFido Audit Assumptions.\n' > /tmp/fa/Check.v
 if rocq c -R /tmp/fa Fido -Q _build/default/. Fido /tmp/fa/Check.v > /tmp/fa/check.log 2>&1; then fail "the audit did NOT catch a planted Fido axiom (fail-open)"; fi
-echo "fido: assumption audit OK — zero Fido axioms; self-test confirms a planted Fido axiom is caught"
+# audit self-test 2 (§31): an EXTERNAL (non-Fido) axiom reached TRANSITIVELY through a Fido-namespaced OPAQUE
+#   (Qed) theorem MUST be caught by the WHOLE-THEORY closure audit — the case a Undef-body-only check misses.
+mkdir -p /tmp/extax /tmp/fop
+printf 'Axiom ext_ax : True.\n' > /tmp/extax/E.v
+rocq c -R /tmp/extax Ext /tmp/extax/E.v > /tmp/extax/e.log 2>&1 || { cat /tmp/extax/e.log; fail "could not compile the external-axiom module"; }
+printf 'From Ext Require Import E.\nLemma opaque_thm : True. Proof. exact E.ext_ax. Qed.\n' > /tmp/fop/O.v
+rocq c -R /tmp/extax Ext -R /tmp/fop Fido /tmp/fop/O.v > /tmp/fop/o.log 2>&1 || { cat /tmp/fop/o.log; fail "could not compile the Fido opaque theorem"; }
+printf 'From Fido Require Import O.\nDeclare ML Module "fido.emit".\nFido Audit Assumptions.\n' > /tmp/fop/Check.v
+if rocq c -R /tmp/extax Ext -R /tmp/fop Fido -Q _build/default/. Fido /tmp/fop/Check.v > /tmp/fop/c.log 2>&1; then cat /tmp/fop/c.log; fail "the whole-theory audit did NOT catch an external axiom behind a Fido opaque theorem"; fi
+grep -q 'PROJECT AXIOMS' /tmp/fop/c.log || { cat /tmp/fop/c.log; fail "opaque-audit self-test: rejected but NOT by the closure audit"; }
+echo "fido: assumption audit OK — zero Fido axioms; self-tests confirm a direct planted axiom AND an external axiom behind a Fido opaque Qed theorem are both caught"
 
 # --- exercise the dirty-directory sink directly (local per-parent staging + records + foreign rejection) ---
 cp plugin/fido_sink.ml e2e/sink_test.ml /tmp/
