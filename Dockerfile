@@ -183,6 +183,13 @@ forge_reject /tmp/forge/VarIndirect.v /workspace/e2e-forge-vi  "transitive secti
 #     theory module cannot silently escape the audit. ---
 mods=$(sed -n 's/.*(modules \([^)]*\)).*/\1/p' dune)
 [ -n "$mods" ] || fail "could not read the (modules ...) list from dune"
+# §20 certified-module coverage: every tracked ROOT .v module must be in dune's (modules ...) and vice
+# versa, so a new certified module cannot escape the audit merely because dune was not updated.  (Test/gate
+# .v live under e2e/ and gate/ and are deliberately outside the certified theory.)
+tracked_mods=$(ls *.v | sed 's/\.v$//' | sort | tr '\n' ' ')
+declared_mods=$(printf '%s\n' $mods | sort | tr '\n' ' ')
+[ "$tracked_mods" = "$declared_mods" ] || fail "certified-module coverage mismatch — tracked root .v=[$tracked_mods] dune (modules)=[$declared_mods]"
+echo "fido: certified-module coverage OK — tracked root .v modules == dune (modules ...)"
 { printf 'From Fido Require Import %s.\n' "$mods"
   printf 'Declare ML Module "fido.emit".\n'
   printf 'Fido Audit Assumptions.\n'; } > /tmp/assumptions_audit.v
