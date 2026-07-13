@@ -54,14 +54,14 @@ stop. When an entry stops being a live temptation, delete it.
    generic over raw strings, so it cannot trust the caller) and stage inside `.fido/staging/`. Location is a
    NAMESPACE POLICY, not provenance: it works only because `.fido/` is reserved AND recovery accepts ONLY
    the exact form the builder emits. ⚠ "everything under staging is ours" is NOT a license to recursively
-   delete: staging holds only flat regular `O_EXCL` temps, so recovery must REFUSE (fail-loud, never
-   traverse or delete) any directory / symlink / special file / non-canonical name — otherwise a nested tree
-   or a mount under staging gets recursively removed. And "exact form" must be a SEALED ABSTRACTION, not a
-   checked helper over a raw `int ref`: a naming abstraction with a HIDDEN representation (an invalid/negative
-   cursor is UNCONSTRUCTIBLE, the successor FAILS at max_int instead of wrapping) whose recovery grammar
-   EQUALS the live builder's emitted language exactly — the same abstraction serves the generator and
-   recovery, and a boundary test drives the REAL allocation transition (max_int emit-capable, then
-   exhausted), not the parser alone. ⚠ Also validate the ROOT itself: `lstat` spares only
+   delete: recovery must REFUSE (fail-loud, never traverse or delete) any directory / symlink / special file
+   — otherwise a nested tree or a mount under staging gets recursively removed. ⚠ And do NOT invent a state
+   space the algorithm does not need: a per-file counter/allocator (with its own name grammar, overflow, and
+   builder-vs-recovery superset bugs) was pure fat — the sync loop stages a target and RENAMES it out before
+   the next, so at most ONE temp ever exists.  Use ONE fixed slot `.fido/staging/tmp` (`O_CREAT|O_EXCL`,
+   fails closed if occupied); then the filesystem itself makes the reachable state empty-or-one, and recovery
+   accepts EXACTLY that one basename — no numeric grammar, no builder/recovery language mismatch.  ⚠ Also
+   validate the ROOT itself: `lstat` spares only
    the final component, so a symlink in ANY prefix of `root` is followed by ordinary resolution and
    redirects every effect into the referent — reject a non-real-directory in the whole ancestor chain before
    any effect. Create each temp `O_CREAT|O_EXCL` then atomically rename (reject a cross-filesystem target first). Recovery

@@ -136,20 +136,18 @@ authorities. INSTALLED `.go`: a regular tree file is Fido-owned iff its first li
 ownership is rechecked immediately before every overwrite/delete via lstat (a symlink is S_LNK, never
 S_REG, so it is never followed/read/removed); a foreign `.go` forging the header is the accepted limit
 (a header is public). TRANSIENT staging: the sink stages into `<root>/.fido/staging/`, a reserved location
-it alone manages — a partial temp there is already recoverable (ATOMIC by location), so no crash prefix
-orphans it. This is a namespace policy, not provenance: it rests on `.fido/` being reserved and on recovery
-accepting ONLY the exact form the builder emits, via a SEALED allocator whose cursor representation is
-hidden (an invalid/negative index is unconstructible; the successor fails at max_int instead of wrapping)
-and whose recovery grammar EQUALS the emitted name language exactly. Staging writes each target's bytes to
-a fresh `.fido/staging/<i>` created O_CREAT|O_EXCL, then atomically renames it; the preflight
-REJECTS (before any effect) a target whose nearest existing ancestor is on a different device than
-`staging/` (a rename can't be atomic across filesystems). RECOVERY runs FIRST and is recover-all-or-
-**REJECT**: `staging/` must contain ONLY flat, canonical, regular temp files — a directory, symlink,
-special file, or non-canonical name (a state the builder cannot create) is REFUSED fail-loud, never
-traversed or deleted (so a nested tree or a mount is refused, not recursively removed); removing a
-canonical temp is a single unlink. It is fail-CLOSED (any enumeration/lstat/removal error but a confirmed
-`ENOENT` aborts before any effect) and never scans the tree, so a foreign file (even one forging the
-header) is untouched. The FINALIZER's sole obligation is releasing the lock (close + unlink), fail-loud
+it alone manages; ownership there is a namespace policy (it rests on `.fido/` being reserved), not
+provenance. The sync loop stages a target and RENAMES it out before staging the next, so there is never
+more than ONE staging temp — a single fixed slot `.fido/staging/tmp`, no counter or allocator. Each
+target's bytes go to that slot (O_CREAT|O_EXCL, fails closed if occupied), which is then atomically
+renamed; the preflight REJECTS (before any effect) a target whose nearest existing ancestor is on a
+different device than `staging/` (a rename can't be atomic across filesystems). RECOVERY runs FIRST and is
+recover-all-or-**REJECT**: `staging/` must be empty or the ONE regular slot; any other basename, or a
+non-regular entry at the slot (directory, symlink, special file — a state the builder cannot create), is
+REFUSED fail-loud, never traversed or deleted (so a nested tree or a mount is refused, not recursively
+removed); removing the slot is a single unlink. It is fail-CLOSED (any enumeration/lstat/removal error but
+a confirmed `ENOENT` aborts before any effect) and never scans the tree, so a foreign file (even one
+forging the header) is untouched. The FINALIZER's sole obligation is releasing the lock (close + unlink), fail-loud
 and exactly once, combining a body error with a lock-release error (never hiding either). It is **NOT** a
 transactional whole-tree commit — a partial run may install some targets and leave temps in `staging/`,
 which the next run removes. NORMAL completion (success or a handled body failure, including a recovery

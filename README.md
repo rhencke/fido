@@ -49,10 +49,11 @@ the emitted package set) that exercise the whole-program rules against real Go.
   (kernel queries, so a postulated axiom/variable proof cannot cross), then decodes only the final
   (path, bytes) data and hands it to a generic **ownership-aware dirty-directory synchronizer** (a
   persistent control dir + lock; the root path is validated against prefix symlinks; `.fido/` is a reserved
-  namespace; installed `.go` owned by its header first line, transient staging in a reserved `.fido/staging/`
-  — atomically `O_EXCL`-created then renamed, with fail-closed recover-all-or-reject that accepts only the
-  exact flat temp form; foreign entries OUTSIDE `.fido/` are preserved — except a `.go` forging the exact
-  header, which is indistinguishable from a stale generated file and is the one accepted limit; symlinks
+  namespace; installed `.go` owned by its header first line, transient staging through ONE fixed slot
+  `.fido/staging/tmp` — atomically `O_EXCL`-created then renamed, with fail-closed recover-all-or-reject
+  that accepts only the empty-or-one-slot state; foreign entries OUTSIDE `.fido/` are preserved — except a
+  `.go` forging the exact header, which is indistinguishable from a stale generated file and is the one
+  accepted limit; symlinks
   never followed). No handwritten OCaml walks a program.
 
 The admitted fragment is deliberately tiny; anything else is **unrepresentable**, not stubbed. Imports are

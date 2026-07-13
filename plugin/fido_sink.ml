@@ -17,17 +17,19 @@
      every overwrite/delete, via lstat (a symlink is S_LNK, never S_REG, so it is never followed).  A
      foreign `.go` forging the header is the accepted limit of this authority (a header is public).
    - TRANSIENT staging: the sink stages into `<root>/.fido/staging/`, a RESERVED location it alone manages;
-     ownership there is a NAMESPACE POLICY (it rests on `.fido/` being reserved and on recovery accepting
-     ONLY the exact form the allocator emits — see [Alloc]), not the location being unforgeable.
+     ownership there is a NAMESPACE POLICY (it rests on `.fido/` being reserved), not the location being
+     unforgeable.
 
-   STAGING: each target's bytes go to a fresh `.fido/staging/<i>` (a sealed allocator's decimal name; see
-   [Alloc]) created O_CREAT|O_EXCL then atomically renamed; the preflight rejects a cross-filesystem target
-   (a rename can't be atomic across devices).  RECOVERY runs FIRST, recover-all-or-REJECT and fail-CLOSED:
-   `staging/` must contain ONLY the flat canonical regular temps the allocator emits — any other entry
-   (directory, symlink, special file, non-canonical name — a state the builder cannot create) is REFUSED,
-   never traversed or deleted (so a nested tree or a mount is refused, not recursively removed), and any
-   enumeration/lstat/removal error but a confirmed ENOENT aborts before any effect; it never scans the tree,
-   so a foreign file (even one forging the header) is untouched.
+   STAGING: the sync loop stages each target and RENAMES it out before staging the next, so there is never
+   more than ONE staging temp — a single fixed slot `.fido/staging/tmp`, no counter or allocator.  Each
+   target's bytes go to that slot (O_CREAT|O_EXCL, fails closed if occupied), which is then atomically
+   renamed into place; the preflight rejects a cross-filesystem target (a rename can't be atomic across
+   devices).  RECOVERY runs FIRST, recover-all-or-REJECT and fail-CLOSED: staging must be empty or the ONE
+   regular slot; any other basename, or a non-regular entry at the slot (directory, symlink, special file —
+   a state the builder cannot create), is REFUSED, never traversed or deleted (so a nested tree or a mount
+   is refused, not recursively removed), and any enumeration/lstat/removal error but a confirmed ENOENT
+   aborts before any effect; it never scans the tree, so a foreign file (even one forging the header) is
+   untouched.
 
    The FINALIZER's sole obligation is releasing the lock (close + unlink), fail-loud and once, combining a
    body error with a lock-release error (never hiding either).
@@ -52,7 +54,8 @@ let control_dir  = ".fido"
 let marker_name  = "marker"
 let marker_bytes = "fido-control-directory.  do not edit.\n"
 let lock_name    = "index.lock"       (* git-style: created O_EXCL, removed at end *)
-let staging_name = "staging"          (* <root>/.fido/staging/ — the structured owned staging namespace *)
+let staging_name = "staging"          (* <root>/.fido/staging/ — the reserved staging namespace *)
+let temp_name    = "tmp"              (* the ONE staging slot: <root>/.fido/staging/tmp *)
 let skip_dirs    = [ ".git"; ".hg"; ".svn"; control_dir ]
 
 exception Fail of string
@@ -134,47 +137,16 @@ let ancestor_device root parts =
       (match kind_opt nxt with Some Unix.S_DIR -> go nxt rest | _ -> (Unix.stat cur).Unix.st_dev)
   in go root parts
 
-(* the SEALED staging allocator.  A cursor's representation is HIDDEN, so the ONLY way to obtain one is
-   [start], the checked [of_index] (rejects a negative), or [next] (advances or FAILS at max_int — never
-   wraps); an out-of-range or negative cursor is thus UNCONSTRUCTIBLE, not merely rejected.  [name] serves
-   a valid cursor's filename and [recognize] accepts EXACTLY the names [name] serves over reachable cursors
-   [0, max_int] — so the live builder's language and recovery's grammar are identical, with max_int the
-   deliberate top of BOTH (emit-capable, then the successor is exhausted). *)
-module Alloc : sig
-  type t
-  val start : t
-  val of_index : int -> t option
-  val name : t -> string
-  val next : t -> t
-  val recognize : string -> bool
-end = struct
-  type t = int   (* invariant 0 <= t <= max_int, upheld by the constructors above *)
-  let start = 0
-  let of_index i = if i >= 0 then Some i else None
-  let name = string_of_int
-  let next i = if i >= max_int then fail "staging index exhausted (max_int reached)" else i + 1
-  let recognize n = match int_of_string_opt n with Some i -> i >= 0 && string_of_int i = n | None -> false
-end
-
-let () = Random.self_init ()
-
-(* write [bytes] to a fresh O_CREAT|O_EXCL temp inside the owned staging dir and return its path.  The
-   file at the current cursor is created and fully written BEFORE the cursor advances, so max_int is
-   emit-capable exactly as recovery recognizes it; [Alloc.next] then fails at exhaustion rather than
-   wrapping.  A collision (the namespace is empty after recovery, so only a race) advances and retries. *)
-let stage_temp staging cursor bytes =
-  let rec go tries =
-    if tries <= 0 then fail "could not create a unique staging temp in %s" staging;
-    let tmp = Filename.concat staging (Alloc.name !cursor) in
-    match (try `Fd (Unix.openfile tmp [ Unix.O_CREAT; Unix.O_EXCL; Unix.O_WRONLY ] 0o644)
-           with Unix.Unix_error (Unix.EEXIST, _, _) -> `Exists) with
-    | `Exists -> cursor := Alloc.next !cursor; go (tries - 1)
-    | `Fd fd ->
-      let oc = Unix.out_channel_of_descr fd in
-      (try output_string oc bytes; close_out oc with e -> (try close_out oc with _ -> ()); raise e);
-      cursor := Alloc.next !cursor;   (* advance for the next target; exhaustion fails AFTER this file *)
-      tmp
-  in go 64
+(* write [bytes] to THE staging slot (one fixed basename) and return its path.  The sync loop stages a
+   target and renames it OUT before staging the next, so there is never more than one staging temp — no
+   counter, no allocator.  O_CREAT|O_EXCL fails CLOSED if the slot is already occupied (recovery empties it
+   first, so in normal operation it is not). *)
+let stage_temp staging bytes =
+  let tmp = Filename.concat staging temp_name in
+  let fd = Unix.openfile tmp [ Unix.O_CREAT; Unix.O_EXCL; Unix.O_WRONLY ] 0o644 in
+  let oc = Unix.out_channel_of_descr fd in
+  (try output_string oc bytes; close_out oc with e -> (try close_out oc with _ -> ()); raise e);
+  tmp
 
 (* ---- the synchronization (algorithm §17) ---- *)
 let sync ?(unlink = Unix.unlink) ?(after_stage = fun _ -> ()) root entries =
@@ -222,19 +194,19 @@ let sync ?(unlink = Unix.unlink) ?(after_stage = fun _ -> ()) root entries =
       fail "%s already exists — another Fido emission holds it, or a crashed run left it (remove it to proceed)" lock_path in
   let body =
     try
-      (* (R) RECOVER — the staging namespace must contain ONLY the flat, canonical, regular temp files that
-         stage_temp emits.  Any other entry (a non-canonical name, a directory, symlink, or special file —
-         a state the builder cannot create) is REJECTED (fail-loud), never traversed or deleted, so a
-         nested tree or a mount under staging cannot be recursively removed.  Removing a canonical temp is a
-         single unlink.  Fail-CLOSED: enumeration / lstat / removal errors (other than a confirmed ENOENT)
-         abort before any synchronization effect. *)
+      (* (R) RECOVER — staging holds AT MOST the ONE fixed slot (a regular file): the sync renames each
+         staged file out before the next, so no other state is reachable.  Any OTHER basename, or a
+         non-regular entry at the slot (a directory, symlink, or special file — a state the builder cannot
+         create), is REJECTED (fail-loud), never traversed or deleted, so a nested tree or a mount cannot be
+         recursively removed.  Removing the slot is a single unlink.  Fail-CLOSED: enumeration / lstat /
+         removal errors (other than a confirmed ENOENT) abort before any synchronization effect. *)
       let residue =
         try Sys.readdir staging
         with ex -> fail "recovery FAILED: cannot enumerate %s: %s" staging (Printexc.to_string ex) in
       Array.iter (fun n ->
         let p = Filename.concat staging n in
-        if not (Alloc.recognize n) then
-          fail "recovery FAILED: %s is not a canonical staging temp — refusing an impossible staging state" p;
+        if n <> temp_name then
+          fail "recovery FAILED: %s is not the Fido staging slot — refusing an impossible staging state" p;
         let st =
           try Some (Unix.lstat p)
           with Unix.Unix_error (Unix.ENOENT, _, _) -> None                (* raced away: fine *)
@@ -267,13 +239,12 @@ let sync ?(unlink = Unix.unlink) ?(after_stage = fun _ -> ()) root entries =
          | Some st when st.Unix.st_kind = Unix.S_REG && first_line target = Some gen_header -> ()
          | Some _ -> fail "refusing to overwrite a foreign entry: %s" target))
         targets;
-      (* (D) stage each target into the owned namespace, then (E) install by atomic rename, rechecking
-         ownership immediately before replacement (a foreign/type change since preflight aborts, leaving
-         the temp in staging for recovery). *)
-      let cursor = ref Alloc.start in
+      (* (D) stage each target through the ONE slot, then (E) install by atomic rename, rechecking ownership
+         immediately before replacement (a foreign/type change since preflight aborts, leaving the slot in
+         staging for recovery).  The rename empties the slot before the next target stages. *)
       List.iter (fun (target, parts, bytes) ->
         ensure_real_dir_parents root parts;
-        let tmp = stage_temp staging cursor bytes in
+        let tmp = stage_temp staging bytes in
         after_stage tmp;
         (match lstat_opt target with
          | None -> ()

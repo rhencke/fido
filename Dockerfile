@@ -74,10 +74,11 @@ RUN --mount=type=cache,id=fido-dune-rocq-9.2.0-${TARGETARCH},uid=1000,gid=1000,t
 #    SYNCHRONIZES the whole tree; and a standalone driver exercises the dirty-directory sink against a
 #    dirty tree (marked control dir, stale generated files cleaned, foreign preserved), ADVERSARIAL entries
 #    it must refuse-and-preserve (foreign at target, symlinked root, foreign control dir, a held lock, a
-#    header-forging foreign tree file, a desired path inside the reserved .fido/ namespace, and a non-flat
-#    staging entry — nested dir / symlink / non-canonical name), and — via injected operation parameters
-#    through the real algorithm — a REAL mid-staging crash (Unix._exit, lock stays held), a recovery-unlink
-#    failure, and unreadable/unsearchable staging (discovery failure), each fail-closed then converging.
+#    header-forging foreign tree file, a desired path inside the reserved .fido/ namespace, and a non-slot
+#    staging entry — a directory / symlink at the slot, or any other basename), and — via injected operation
+#    parameters through the real algorithm — a REAL mid-staging crash (Unix._exit, lock stays held), crash
+#    prefixes at the one slot, a recovery-unlink failure, and unreadable/unsearchable staging (discovery
+#    failure), each fail-closed then converging.
 #    The plugin guards provenance (typecheck + assumption-closure) then
 #    decodes only final (path, bytes) data; it walks no program.
 FROM rocq-base AS emit
@@ -148,13 +149,11 @@ cp plugin/fido_sink.ml e2e/sink_test.ml /tmp/
 if ! ( cd /tmp && ocamlfind ocamlopt -package unix -linkpkg fido_sink.ml sink_test.ml -o /workspace/sink_test ) > /tmp/sink.log 2>&1; then cat /tmp/sink.log; fail "sink_test compile FAILED"; fi
 hdr=$(head -1 "$O/main.go")   # DERIVE the ownership header from actual output (no hardcoded literal)
 staged() { find "$1/.fido/staging" -mindepth 1 2>/dev/null; }   # transient residue in the owned namespace
-# (0) sealed staging allocator: a negative cursor is unconstructible; negative / leading-zero / oversized
-#     names are not recognized; and the REAL stage_temp allocation at max_int EMITS the file then the next
-#     allocation fails (exhaustion, no wrap) — recovery recognizes exactly that boundary name.
-mkdir -p /workspace/adv-self; ./sink_test /workspace/adv-self selftest || fail "allocator selftest failed"
-# (1) clean-dir sync produces a marked control dir + main.go; no staging residue after success
+# (1) clean-dir sync produces a marked control dir + main.go with the EXACT staged bytes; no staging residue
 mkdir -p /workspace/adv-1; ./sink_test /workspace/adv-1 || fail "clean sync failed"
 [ -f /workspace/adv-1/main.go ] && [ -f /workspace/adv-1/.fido/marker ] || fail "no main.go/control marker"
+printf '%s\n\npackage main\n\nfunc main() {}\n' "$hdr" > /tmp/expected-main   # the sink driver's staged bytes
+diff /tmp/expected-main /workspace/adv-1/main.go || fail "installed main.go bytes differ from the staged image"
 [ -z "$(staged /workspace/adv-1)" ] || fail "staging residue leaked after a successful sync"
 # (2) dirty re-sync: a stale generated .go is cleaned; foreign files/dirs preserved
 printf '%s\n\npackage main\n' "$hdr" > /workspace/adv-1/stale.go
@@ -216,56 +215,49 @@ if ./sink_test /workspace/adv-ns-new reserved-path; then fail "ns: a reserved pa
 [ ! -e /workspace/adv-ns-new ] || fail "ns: a reserved-path rejection created the root (effect before validation)"
 mkdir -p /workspace/adv-ns; ./sink_test /workspace/adv-ns || fail "reserved-ns initial sync failed"
 printf 'keep\n' > /workspace/adv-ns/.fido/keep         # foreign content in the reserved dir
-: > /workspace/adv-ns/.fido/staging/0                  # canonical residue a real run WOULD recover
+: > /workspace/adv-ns/.fido/staging/tmp                # slot residue a real run WOULD recover
 if out=$(./sink_test /workspace/adv-ns reserved-path 2>&1); then fail "ns: a desired path inside .fido was NOT refused"; fi
 echo "$out" | grep -q 'reserved' || { echo "$out"; fail "ns: not refused as a reserved-namespace violation"; }
 [ ! -e /workspace/adv-ns/.fido/staging/foo.go ] || fail "ns: a reserved desired path was installed"
-[ -e /workspace/adv-ns/.fido/staging/0 ] || fail "ns: reserved-path rejection ran recovery (removed residue before validation)"
+[ -e /workspace/adv-ns/.fido/staging/tmp ] || fail "ns: reserved-path rejection ran recovery (removed residue before validation)"
 ./sink_test /workspace/adv-ns || fail "ns: a pre-existing marked .fido was not accepted"
 [ -f /workspace/adv-ns/.fido/keep ] || fail "ns: foreign content in the reserved dir was removed"
-# (7) recovery accepts ONLY flat canonical regular temps: a nested directory, a symlink (name "0") to an
-#     external sentinel, and a non-canonical name in staging must each be REFUSED fail-loud (never
-#     traversed or deleted), and the external sentinel must survive.
+# (7) recovery accepts ONLY the ONE regular slot: a DIRECTORY at the slot, a SYMLINK at the slot (to an
+#     external sentinel), and ANY OTHER basename must each be REFUSED fail-loud (never traversed, followed,
+#     or deleted), and each offending entry plus the external sentinel must survive unchanged.
 mkdir -p /workspace/sentinel; printf 'live\n' > /workspace/sentinel/keep
-for bad in nested link weird; do
+for bad in slotdir slotlink other; do
   d=/workspace/adv-flat-$bad; mkdir -p "$d"; ./sink_test "$d" || fail "flat-$bad initial sync failed"
   case "$bad" in
-    nested) mkdir -p "$d/.fido/staging/0/sub"; printf 'x\n' > "$d/.fido/staging/0/sub/f";;
-    link)   ln -s /workspace/sentinel "$d/.fido/staging/0";;
-    weird)  : > "$d/.fido/staging/notcanonical";;
+    slotdir)  mkdir -p "$d/.fido/staging/tmp/sub"; printf 'x\n' > "$d/.fido/staging/tmp/sub/f";;
+    slotlink) ln -s /workspace/sentinel "$d/.fido/staging/tmp";;
+    other)    : > "$d/.fido/staging/other";;
   esac
   if out=$(./sink_test "$d" 2>&1); then fail "flat-$bad: an impossible staging state was NOT refused"; fi
   echo "$out" | grep -q 'recovery FAILED' || { echo "$out"; fail "flat-$bad: not a recovery rejection"; }
-  # the offending entry itself must survive UNCHANGED (refused, never deleted)
   case "$bad" in
-    nested) { [ -d "$d/.fido/staging/0" ] && [ "$(cat "$d/.fido/staging/0/sub/f")" = "x" ]; } || fail "flat-nested: the nested tree was altered/removed";;
-    link)   [ -L "$d/.fido/staging/0" ] || fail "flat-link: the staging symlink was removed/followed";;
-    weird)  [ -f "$d/.fido/staging/notcanonical" ] || fail "flat-weird: the non-canonical entry was removed";;
+    slotdir)  { [ -d "$d/.fido/staging/tmp" ] && [ "$(cat "$d/.fido/staging/tmp/sub/f")" = "x" ]; } || fail "flat-slotdir: the slot directory was altered/removed";;
+    slotlink) [ -L "$d/.fido/staging/tmp" ] || fail "flat-slotlink: the slot symlink was removed/followed";;
+    other)    [ -f "$d/.fido/staging/other" ] || fail "flat-other: the foreign basename was removed";;
   esac
 done
-[ "$(cat /workspace/sentinel/keep)" = "live" ] || fail "a staging symlink's external target was mutated/deleted"
-# (7b) staging-NAME boundaries at recovery: an OVERSIZED decimal and a NEGATIVE name (neither of which
-#      stage_temp can emit) are REFUSED and left present.  (The max_int / max_int-1 / succ boundaries are
-#      exercised through the real functions by the selftest above; test 8 covers recovery of valid names.)
-mkdir -p /workspace/adv-big; ./sink_test /workspace/adv-big || fail "big-name initial sync failed"
-: > /workspace/adv-big/.fido/staging/99999999999999999999999999
-if out=$(./sink_test /workspace/adv-big 2>&1); then fail "big-name: an oversized decimal staging name was NOT refused"; fi
-echo "$out" | grep -q 'recovery FAILED' || { echo "$out"; fail "big-name: not a recovery rejection"; }
-[ -e /workspace/adv-big/.fido/staging/99999999999999999999999999 ] || fail "big-name: an unrecognized entry was deleted"
-rm -f /workspace/adv-big/.fido/staging/99999999999999999999999999
-: > /workspace/adv-big/.fido/staging/-1
-if out=$(./sink_test /workspace/adv-big 2>&1); then fail "neg-name: a negative staging name was NOT refused"; fi
-echo "$out" | grep -q 'recovery FAILED' || { echo "$out"; fail "neg-name: not a recovery rejection"; }
-[ -e /workspace/adv-big/.fido/staging/-1 ] || fail "neg-name: an unrecognized entry was deleted"
-# (8) INJECTED recovery-unlink failure (an `unlink` PARAMETER through the real algorithm): seed canonical
-#     residue of every crash prefix (empty / partial / full), a run whose recovery cannot remove it must
-#     fail loud BEFORE any effect, keep the residue, release the lock; a normal rerun recovers ALL of it
-#     (content-independent) and converges, target mode UNCHANGED.
+[ "$(cat /workspace/sentinel/keep)" = "live" ] || fail "a slot symlink's external target was mutated/deleted"
+# (8) crash PREFIXES against the ONE slot: seed the slot as empty / partial / full (a crash leaves at most
+#     this one regular file, whatever its bytes) — a normal rerun recovers each and converges; and an
+#     INJECTED recovery-unlink failure against a seeded slot must fail loud BEFORE any effect, keep the
+#     slot, release the lock, then converge on a clean rerun.
 mkdir -p /workspace/adv-rec; ./sink_test /workspace/adv-rec || fail "recovery-test initial sync failed"
+for body in '' 'partial' 'full'; do
+  case "$body" in
+    '')      : > /workspace/adv-rec/.fido/staging/tmp;;
+    partial) printf '%s' "$hdr" > /workspace/adv-rec/.fido/staging/tmp;;
+    full)    printf '%s\n\npackage main\n' "$hdr" > /workspace/adv-rec/.fido/staging/tmp;;
+  esac
+  ./sink_test /workspace/adv-rec || fail "crash-prefix '$body': a normal rerun did not converge"
+  [ -z "$(staged /workspace/adv-rec)" ] || fail "crash-prefix '$body': slot residue survived a converging rerun"
+done
 mode_before=$(stat -c '%a' /workspace/adv-rec)
-: > /workspace/adv-rec/.fido/staging/0                              # empty (crash before any byte)
-printf '%s' "$hdr" > /workspace/adv-rec/.fido/staging/1             # partial header, no newline
-printf '%s\n\npackage main\n' "$hdr" > /workspace/adv-rec/.fido/staging/2   # full
+: > /workspace/adv-rec/.fido/staging/tmp
 if out=$(./sink_test /workspace/adv-rec fail-recovery-unlink 2>&1); then rc=0; else rc=$?; fi
 [ "$rc" -ne 0 ] || { echo "$out"; fail "recovery: a run that cannot recover owned residue reported success"; }
 echo "$out" | grep -q 'recovery FAILED' || { echo "$out"; fail "recovery: the failure reason was not the recovery abort"; }
@@ -281,7 +273,7 @@ echo "$out" | grep -q 'recovery FAILED' || { echo "$out"; fail "recovery: the fa
 #     residue; restoring access + rerun converges.
 for m in 0000 0444; do
   d=/workspace/adv-disc-$m; mkdir -p "$d"; ./sink_test "$d" || fail "disc-$m initial sync failed"
-  : > "$d/.fido/staging/0"; chmod "$m" "$d/.fido/staging"
+  : > "$d/.fido/staging/tmp"; chmod "$m" "$d/.fido/staging"
   if out=$(./sink_test "$d" 2>&1); then rc=0; else rc=$?; fi
   [ "$rc" -ne 0 ] || { echo "$out"; fail "disc-$m: an uninspectable staging dir did not abort recovery"; }
   echo "$out" | grep -q 'recovery FAILED' || { echo "$out"; fail "disc-$m: not a recovery abort"; }
@@ -290,7 +282,7 @@ for m in 0000 0444; do
   ./sink_test "$d" || fail "disc-$m: no converge after access restored"
   [ -z "$(staged "$d")" ] || fail "disc-$m: residue survived a converging rerun"
 done
-echo "fido: emit OK — general Fido Emit synced the tree; sink dirty/adversarial + real-crash + reserved-namespace + non-flat-staging-rejection + injected-recovery + discovery-failure + convergence cases all pass"
+echo "fido: emit OK — general Fido Emit synced the tree; sink dirty/adversarial + prefix-symlink + exact-bytes + real-crash + reserved-namespace + one-slot-rejection + crash-prefix + injected-recovery + discovery-failure + convergence cases all pass"
 SH
 
 # ── Stage 5: go-e2e — the LAST-MILE integration check (never a proof).  The pinned Go toolchain builds

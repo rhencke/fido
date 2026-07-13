@@ -52,11 +52,13 @@ is rejected IN Rocq before any bytes — **zero expected Go build failures, ever
   symlink in ANY prefix component is rejected) and reserves `.fido/` (a desired path inside it is refused;
   foreign preservation is scoped OUTSIDE it). Installed `.go` is owned by its header first line (rechecked
   before overwrite/delete, lstat S_REG so symlinks are never followed). Transient staging goes
-  into `.fido/staging/`, a reserved location: each target → an `O_CREAT|O_EXCL` `.fido/staging/<seq>` then
-  atomic rename (the preflight rejects a cross-filesystem target). Recovery runs FIRST, recover-all-or-
-  REJECT and fail-CLOSED: `staging/` must hold ONLY flat canonical regular temps — a dir/symlink/special/
-  non-canonical entry is REFUSED (never traversed or deleted, so a nested tree or mount is not recursively
-  removed); any readdir/lstat/removal error but a confirmed ENOENT aborts; it never scans the tree. The
+  into `.fido/staging/`, a reserved location: the loop renames each staged file out before the next, so
+  there is ONE fixed slot `.fido/staging/tmp` (no counter/allocator) — bytes → the `O_CREAT|O_EXCL` slot
+  then atomic rename (the preflight rejects a cross-filesystem target). Recovery runs FIRST, recover-all-or-
+  REJECT and fail-CLOSED: `staging/` must be empty or the ONE regular slot — any other basename, or a
+  dir/symlink/special entry at the slot, is REFUSED (never traversed or deleted, so a nested tree or mount
+  is not recursively removed); any readdir/lstat/removal error but a confirmed ENOENT aborts; it never
+  scans the tree. The
   finalizer's sole obligation is releasing the lock (fail-loud once, combining body+lock errors). Fault
   seams are `unlink`/`after_stage` PARAMETERS (a real `Unix._exit` crash, a recovery-unlink failure) through
   the real algorithm — no ambient env. Honest: normal completion releases the lock (immediate rerun
