@@ -149,11 +149,10 @@ cp plugin/fido_sink.ml e2e/sink_test.ml /tmp/
 if ! ( cd /tmp && ocamlfind ocamlopt -package unix -linkpkg fido_sink.ml sink_test.ml -o /workspace/sink_test ) > /tmp/sink.log 2>&1; then cat /tmp/sink.log; fail "sink_test compile FAILED"; fi
 hdr=$(head -1 "$O/main.go")   # DERIVE the ownership header from actual output (no hardcoded literal)
 staged() { find "$1/.fido/staging" -mindepth 1 2>/dev/null; }   # transient residue in the owned namespace
-# (1) clean-dir sync produces a marked control dir + main.go with the EXACT staged bytes; no staging residue
+# (1) clean-dir sync produces a marked control dir + main.go; no staging residue.  (sink_test itself
+#     verifies the installed file equals its own staged bytes, byte-for-byte, on every successful sync.)
 mkdir -p /workspace/adv-1; ./sink_test /workspace/adv-1 || fail "clean sync failed"
 [ -f /workspace/adv-1/main.go ] && [ -f /workspace/adv-1/.fido/marker ] || fail "no main.go/control marker"
-printf '%s\n\npackage main\n\nfunc main() {}\n' "$hdr" > /tmp/expected-main   # the sink driver's staged bytes
-diff /tmp/expected-main /workspace/adv-1/main.go || fail "installed main.go bytes differ from the staged image"
 [ -z "$(staged /workspace/adv-1)" ] || fail "staging residue leaked after a successful sync"
 # (2) dirty re-sync: a stale generated .go is cleaned; foreign files/dirs preserved
 printf '%s\n\npackage main\n' "$hdr" > /workspace/adv-1/stale.go
@@ -240,6 +239,22 @@ for bad in slotdir slotlink other; do
     slotlink) [ -L "$d/.fido/staging/tmp" ] || fail "flat-slotlink: the slot symlink was removed/followed";;
     other)    [ -f "$d/.fido/staging/other" ] || fail "flat-other: the foreign basename was removed";;
   esac
+done
+# (7c) a MIXED state — the regular slot AND a forbidden basename — must be rejected with NOTHING removed
+#      (recovery validates the whole state before it removes the slot), regardless of creation order.
+for order in slot-first other-first; do
+  d=/workspace/adv-mix-$order; mkdir -p "$d"; ./sink_test "$d" || fail "mix-$order initial sync failed"
+  case "$order" in
+    slot-first)  : > "$d/.fido/staging/tmp"; printf 'keep\n' > "$d/.fido/staging/other";;
+    other-first) printf 'keep\n' > "$d/.fido/staging/other"; : > "$d/.fido/staging/tmp";;
+  esac
+  if out=$(./sink_test "$d" 2>&1); then fail "mix-$order: a mixed staging state was NOT refused"; fi
+  echo "$out" | grep -q 'recovery FAILED' || { echo "$out"; fail "mix-$order: not a recovery rejection"; }
+  [ -f "$d/.fido/staging/tmp" ] || fail "mix-$order: the valid slot was removed before the mixed state was rejected"
+  [ "$(cat "$d/.fido/staging/other")" = "keep" ] || fail "mix-$order: the forbidden entry was altered/removed"
+  rm -f "$d/.fido/staging/other"                 # remove the forbidden entry; the rerun must converge
+  ./sink_test "$d" || fail "mix-$order: no converge after the forbidden entry was removed"
+  [ -z "$(staged "$d")" ] || fail "mix-$order: staging residue survived a converging rerun"
 done
 [ "$(cat /workspace/sentinel/keep)" = "live" ] || fail "a slot symlink's external target was mutated/deleted"
 # (8) crash PREFIXES against the ONE slot: seed the slot as empty / partial / full (a crash leaves at most

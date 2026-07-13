@@ -45,12 +45,12 @@ for f in $fs_files; do
     if grep -nE 'EConstr|Constr\.|Nametab|interp_constr|Reductionops|Evd\.|Global\.env' "$f"; then
       echo "fido: OCAML-ORIGIN GATE — $f is filesystem-only; it must not walk or decode Rocq terms."; exit 1
     fi
-    # staging is ONE fixed slot (`.fido/staging/tmp`): the sync renames each staged file out before the
-    # next, so there is never more than one temp.  Forbidding Unix.rmdir keeps recursive staging cleanup
-    # from returning; forbidding an index allocator / numeric name parsing keeps the counter, cursor, and
-    # numeric-name grammar (a state space the sequential loop does not need) from returning.
-    if grep -nE 'Unix\.rmdir|int_of_string|string_of_int|max_int|module Alloc' "$f"; then
-      echo "fido: OCAML-ORIGIN GATE — $f must use the single fixed staging slot (no directory removal, no index allocator / numeric-name grammar)."; exit 1
+    # staging is ONE fixed slot (`.fido/staging/tmp`): recovery removes only a regular file (unlink), never
+    # a directory.  Forbidding Unix.rmdir keeps recursive staging cleanup from returning (a recursive
+    # remover could traverse and delete a nested tree or a mount).  One-slot staging itself is enforced
+    # behaviorally by the multi-target emit + the recovery/mixed-state gates, not by a token blacklist.
+    if grep -nE 'Unix\.rmdir' "$f"; then
+      echo "fido: OCAML-ORIGIN GATE — $f must not remove directories (recursive staging cleanup is forbidden; recovery unlinks only the one regular slot)."; exit 1
     fi
   fi
 done

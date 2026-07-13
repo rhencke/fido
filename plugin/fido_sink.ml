@@ -195,28 +195,37 @@ let sync ?(unlink = Unix.unlink) ?(after_stage = fun _ -> ()) root entries =
   let body =
     try
       (* (R) RECOVER — staging holds AT MOST the ONE fixed slot (a regular file): the sync renames each
-         staged file out before the next, so no other state is reachable.  Any OTHER basename, or a
-         non-regular entry at the slot (a directory, symlink, or special file — a state the builder cannot
-         create), is REJECTED (fail-loud), never traversed or deleted, so a nested tree or a mount cannot be
-         recursively removed.  Removing the slot is a single unlink.  Fail-CLOSED: enumeration / lstat /
-         removal errors (other than a confirmed ENOENT) abort before any synchronization effect. *)
+         staged file out before the next, so no other state is reachable.  Recovery is TWO-PHASE so that no
+         effect precedes a rejection: it first validates the COMPLETE state (every entry must be the slot,
+         absent or regular), then removes the slot only if validation fully passed — so a mixed state (the
+         slot plus a foreign basename, in any order) is refused with NOTHING removed.  Any other basename or
+         a non-regular entry at the slot (directory, symlink, special file — a state the builder cannot
+         create) is REJECTED (fail-loud), never traversed or deleted, so a nested tree or a mount cannot be
+         recursively removed.  Fail-CLOSED: enumeration / lstat / removal errors (other than a confirmed
+         ENOENT) abort before any synchronization effect. *)
       let residue =
         try Sys.readdir staging
         with ex -> fail "recovery FAILED: cannot enumerate %s: %s" staging (Printexc.to_string ex) in
+      (* PHASE 1 — validate the COMPLETE staging state with NO effect: every entry must be the ONE slot,
+         absent or a regular file; record whether the regular slot is present.  A forbidden basename or a
+         non-regular slot aborts here, so a mixed state (e.g. the slot plus a foreign name, in any readdir
+         order) is rejected BEFORE anything is removed. *)
+      let slot_present = ref false in
       Array.iter (fun n ->
         let p = Filename.concat staging n in
         if n <> temp_name then
           fail "recovery FAILED: %s is not the Fido staging slot — refusing an impossible staging state" p;
-        let st =
-          try Some (Unix.lstat p)
-          with Unix.Unix_error (Unix.ENOENT, _, _) -> None                (* raced away: fine *)
-             | ex -> fail "recovery FAILED: cannot lstat %s: %s" p (Printexc.to_string ex) in
-        (match st with
-         | None -> ()
-         | Some s when s.Unix.st_kind = Unix.S_REG ->
-           (try unlink p with ex -> fail "recovery FAILED: cannot remove %s: %s" p (Printexc.to_string ex))
-         | Some _ -> fail "recovery FAILED: %s is not a regular file — refusing to remove a non-file staging entry" p))
+        match (try Some (Unix.lstat p)
+               with Unix.Unix_error (Unix.ENOENT, _, _) -> None            (* raced away: fine *)
+                  | ex -> fail "recovery FAILED: cannot lstat %s: %s" p (Printexc.to_string ex)) with
+        | None -> ()
+        | Some s when s.Unix.st_kind = Unix.S_REG -> slot_present := true
+        | Some _ -> fail "recovery FAILED: %s is not a regular file — refusing to remove a non-file staging entry" p)
         residue;
+      (* PHASE 2 — validation passed: NOW remove the one slot (if present). *)
+      if !slot_present then
+        (let p = Filename.concat staging temp_name in
+         try unlink p with ex -> fail "recovery FAILED: cannot remove %s: %s" p (Printexc.to_string ex));
       (* (B) desired set + existing generated .go files *)
       let targets = List.map (fun (rel, bytes) ->
         let parts = components rel in (Filename.concat root rel, parts, bytes)) entries in
