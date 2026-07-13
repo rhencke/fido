@@ -47,7 +47,9 @@ Print Assumptions GoCompile.reject_no_compile.
 Print Assumptions GoSafe.eval_zero_sign_agnostic.
 
 (* GoRender: all output ASCII; the ROOT correspondence (rendered spelling denotes exactly the value);
-   decimal faithfulness + no leading zero; int boundaries; the header is the EXACT first line *)
+   decimal faithfulness + no leading zero; int boundaries; the header is the EXACT first line of a .go
+   file; go.mod is rendered from the ModuleSpec — exact bytes (module path + go version in place), header
+   first line, all ASCII *)
 Print Assumptions GoRender.render_file_ascii.
 Print Assumptions GoRender.render_expr_denotes.
 Print Assumptions GoRender.print_Z_dec_faithful.
@@ -55,10 +57,15 @@ Print Assumptions GoRender.print_Z_pos_no_leading_zero.
 Print Assumptions GoRender.render_boundary_max.
 Print Assumptions GoRender.render_boundary_min.
 Print Assumptions GoRender.render_file_first_line.
+Print Assumptions GoRender.render_go_mod_exact.
+Print Assumptions GoRender.render_go_mod_first_line.
+Print Assumptions GoRender.render_go_mod_ascii.
 
-(* GoEmit: the public emitter requires SafeProgram; every emitted file begins with the header first line
-   and is ASCII; the image is nonempty; on-disk paths are unique (duplicate paths impossible) *)
+(* GoEmit: the public emitter requires SafeProgram; the complete image is go.mod + the (possibly empty)
+   .go map; the go.mod and every .go file begin with the header first line and are ASCII; on-disk .go
+   paths are unique (duplicate paths impossible).  NO nonemptiness claim — the empty program is valid. *)
+Print Assumptions GoEmit.render_program_go_mod_header.
+Print Assumptions GoEmit.render_program_go_mod_ascii.
 Print Assumptions GoEmit.render_program_header.
 Print Assumptions GoEmit.render_program_ascii.
-Print Assumptions GoEmit.render_program_nonempty.
 Print Assumptions GoEmit.render_image_keys_nodup.

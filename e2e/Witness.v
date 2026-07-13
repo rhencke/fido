@@ -7,9 +7,10 @@
 
     This file is compiled EXPLICITLY (rocq c) after the cached theory/plugin build — the emission is not
     a dune .vo side effect.  It exercises every admitted primitive: bool, positive int, negative int,
-    the exact min-int boundary [-(2^63)], the empty argument list, and multiple statements. *)
+    the exact min-int boundary [-(2^63)], the empty argument list, and multiple statements.  The rendered
+    tree now includes the certified [go.mod] (from the module spec) alongside the .go files. *)
 From Stdlib Require Import List NArith String.
-From Fido Require Import FilePath FMap GoAST GoCompile GoSafe GoRender GoEmit.
+From Fido Require Import FilePath FMap ModulePath GoVersion GoAST GoCompile GoSafe GoRender GoEmit.
 Import ListNotations.
 
 Definition demo_file : GoFileAST :=
@@ -17,8 +18,9 @@ Definition demo_file : GoFileAST :=
           ; SPrintln []
           ; SPrintln [ EBool false ] ] ].
 
+Definition demo_module : ModuleSpec := mkModuleSpec (mkMP "fido.local/generated" eq_refl) Go1_23.
 Definition main_go : FilePath := mkFP "main.go" eq_refl.
-Definition demo_program : GoProgram := singleton_program main_go demo_file.
+Definition demo_program : GoProgram := singleton_program demo_module main_go demo_file.
 
 Lemma demo_valid : ProgValid demo_program.
 Proof. apply prog_ok_iff. reflexivity. Qed.

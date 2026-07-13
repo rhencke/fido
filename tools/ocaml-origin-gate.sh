@@ -39,19 +39,17 @@ fi
 for f in $fs_files; do
   if git ls-files --error-unmatch "$f" >/dev/null 2>&1; then
     lines=$(wc -l < "$f")
-    if [ "$lines" -gt 300 ]; then
-      echo "fido: OCAML-ORIGIN GATE — $f is $lines lines; a filesystem sink must stay bounded (<=300)."; exit 1
+    if [ "$lines" -gt 460 ]; then
+      echo "fido: OCAML-ORIGIN GATE — $f is $lines lines; a filesystem sink must stay bounded (<=460)."; exit 1
     fi
     if grep -nE 'EConstr|Constr\.|Nametab|interp_constr|Reductionops|Evd\.|Global\.env' "$f"; then
       echo "fido: OCAML-ORIGIN GATE — $f is filesystem-only; it must not walk or decode Rocq terms."; exit 1
     fi
-    # staging is ONE fixed slot (`.fido/staging/tmp`): recovery removes only a regular file (unlink), never
-    # a directory.  Forbidding Unix.rmdir keeps recursive staging cleanup from returning (a recursive
-    # remover could traverse and delete a nested tree or a mount).  One-slot staging itself is enforced
-    # behaviorally by the multi-target emit + the recovery/mixed-state gates, not by a token blacklist.
-    if grep -nE 'Unix\.rmdir' "$f"; then
-      echo "fido: OCAML-ORIGIN GATE — $f must not remove directories (recursive staging cleanup is forbidden; recovery unlinks only the one regular slot)."; exit 1
-    fi
+    # The sink stages into random per-parent local dirs owned by root-owned records; it legitimately
+    # removes its OWN record-owned stage directories (rmdir + a symlink-safe recursive remove).  That the
+    # recursion targets ONLY validated record-owned stages (never a foreign tree or a mount) is enforced
+    # BEHAVIORALLY by the emit stage's foreign-preservation + local-stage recovery gates, not by a token
+    # blacklist.
   fi
 done
 

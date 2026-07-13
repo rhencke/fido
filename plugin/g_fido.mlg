@@ -1,16 +1,16 @@
 DECLARE PLUGIN "fido.emit"
 
 (* The ONE handwritten transport bridge.  It decides NOTHING about programs.  Provenance is enforced at
-   the boundary two ways, BEFORE any effect: (1) the bridge itself applies the certified directory_entries
+   the boundary two ways, BEFORE any effect: (1) the bridge itself applies the certified di_transport
    projection and typechecks it, so the argument must have the proved directory-image type (a raw
-   (path,bytes) list is rejected); and (2) since that type is proof-carrying and a proof can be an axiom,
-   the bridge rejects any argument whose assumption closure contains an axiom/assumption — a forged image
-   built with an [Axiom]/[Admitted] provenance proof cannot emit.  Only then does it reduce the term and
-   STRUCTURALLY decode the final (path, bytes) data — exact expected constructors of list / prod / string /
-   ascii / bool, failing LOUD on any other shape — and hand it to the generic dirty-directory filesystem
-   sink.  It inspects no program, no syntax tree, no compilation certificate, no safety certificate, no
-   derived facts, no semantics — only the certified image's type, its assumption closure, and the final
-   transport list. *)
+   (go.mod, entries) transport is rejected); and (2) since that type is proof-carrying and a proof can be an
+   axiom, the bridge rejects any argument whose assumption closure contains an axiom/assumption — a forged
+   image built with an [Axiom]/[Admitted] provenance proof cannot emit.  Only then does it reduce the term
+   and STRUCTURALLY decode the final (go.mod bytes, (path, bytes) list) transport — exact expected
+   constructors of prod / list / string / ascii / bool, failing LOUD on any other shape — and hand it to
+   the generic dirty-directory filesystem sink.  It inspects no program, no syntax tree, no compilation
+   certificate, no safety certificate, no derived facts, no semantics — only the certified image's type,
+   its assumption closure, and the final transport. *)
 
 {
 open Pp
@@ -83,6 +83,15 @@ let decode_entries sigma l =
     | _ -> CErrors.user_err (str "fido emit: expected a directory-entries list")
   in go l []
 
+(* the transport [string * list (string * string)] = [pair _ _ go_mod entries]: the exact go.mod bytes and
+   the list of (relative .go path, contents). *)
+let decode_transport sigma f =
+  match EConstr.kind sigma f with
+  | Constr.App (h, a) when Array.length a = 4 ->
+     check_ctor sigma h ind_prod 1 "the (go.mod, entries) transport";
+     (decode_string sigma a.(2), decode_entries sigma a.(3))
+  | _ -> CErrors.user_err (str "fido emit: expected the (go.mod, entries) transport")
+
 (* A SOUND zero-axiom audit: enumerate the compiled global environment and reject any constant declared
    under a Fido module whose body is axiomatic (Undef = Axiom/Parameter/Admitted).  Unlike a source-text
    scanner this cannot be fooled by comments/strings/command prefixes/attributes/module aliases, and it
@@ -114,10 +123,10 @@ let do_emit t dir =
   let env = Global.env () in
   let sigma = Evd.from_env env in
   let (tc, _) = Constrintern.interp_constr env sigma t in
-  (* STEP 1 — TYPECHECK: apply the certified projection (resolved by qualified name) and typecheck it, so
-     [tc] must have the proved image type.  A raw (path,bytes) list has type list (string*string), not the
-     image type, and is rejected here. *)
-  let de_ref = Nametab.locate (Libnames.qualid_of_string "Fido.GoEmit.directory_entries") in
+  (* STEP 1 — TYPECHECK: apply the certified transport projection (resolved by qualified name) and
+     typecheck it, so [tc] must have the proved image type.  A raw (go.mod, entries) transport has type
+     string * list (string*string), not the image type, and is rejected here. *)
+  let de_ref = Nametab.locate (Libnames.qualid_of_string "Fido.GoEmit.di_transport") in
   let (sigma, de) = Evd.fresh_global env sigma de_ref in
   let app = EConstr.mkApp (de, [| tc |]) in
   let (sigma, _ty) = Typing.type_of env sigma app in
@@ -150,11 +159,11 @@ let do_emit t dir =
     | Printer.Axiom _ | Printer.Variable _ -> forged ()
     | _ -> ())
     assums;
-  (* STEP 3 — DECODE the final transport ONLY: reduce and structurally decode the (path, bytes) list. *)
+  (* STEP 3 — DECODE the final transport ONLY: reduce and structurally decode the (go.mod, entries) pair. *)
   let nf = Reductionops.nf_all env sigma app in
-  let entries = decode_entries sigma nf in
-  (* STEP 4 — SINK: hand the decoded transport to the filesystem synchronizer. *)
-  let n = (try Fido_sink.sync dir entries
+  let (go_mod, entries) = decode_transport sigma nf in
+  (* STEP 4 — SINK: hand the decoded transport (exact go.mod bytes + .go entries) to the synchronizer. *)
+  let n = (try Fido_sink.sync dir go_mod entries
            with Fido_sink.Fail m -> CErrors.user_err (str ("fido emit: " ^ m))) in
   Feedback.msg_notice (str (Printf.sprintf "fido emit: synced %d file(s) into %s" n dir))
 }

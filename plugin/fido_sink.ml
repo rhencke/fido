@@ -1,281 +1,422 @@
 (* fido_sink — the ONLY handwritten filesystem logic: a GENERIC ownership-aware dirty-directory
-   synchronizer.  It receives an already-final directory image ((on-disk relative path * exact bytes)
-   list, decoded from a proved-Rocq DirectoryImage whose provenance the vernac bridge typechecks) and
-   makes a target tree's Fido-generated files EQUAL that image, preserving foreign files OUTSIDE the
-   reserved control namespace.  It understands ONLY the filesystem — no program, no Go, no Rocq terms.
+   synchronizer.  It receives an already-final directory image — the exact root [go.mod] bytes plus an
+   ((on-disk relative .go path * exact bytes) list), decoded from a proved-Rocq DirectoryImage whose
+   provenance the vernac bridge typechecks — and makes a target tree's Fido-generated module EQUAL that
+   image, while REFUSING to run in the presence of any foreign Go/module input.  It understands ONLY the
+   filesystem — no program, no Go, no Rocq terms.
 
-   VALIDATED ROOT + RESERVED NAMESPACE (both before ANY filesystem effect, since the sink is generic over
-   raw strings and cannot trust the caller): (a) every proper ancestor of `root` must be an existing REAL
-   directory — a symlink in ANY prefix component is rejected, because ordinary pathname resolution would
-   otherwise follow it and redirect every subsequent effect (lstat only spares the FINAL component); and
-   (b) `<root>/.fido/` is Fido-controlled, NOT part of the preserved foreign area — a desired path inside
-   `.fido/` is rejected.  Foreign preservation is scoped to the tree OUTSIDE `.fido/`.
+   OWNERSHIP.  Installed `.go` files and the root `go.mod` are Fido-owned iff their first line is the exact
+   generated header (DERIVED from the go.mod bytes, never hardcoded) AND they are regular non-symlink files
+   — rechecked immediately before every overwrite/delete.  A foreign `.go` (anywhere beneath root) or a
+   foreign/nested `go.mod` is NOT preserved-and-merged: it REJECTS the whole emission before any generated-
+   file mutation, because a dirty foreign Go input would silently change what `go build ./...` compiles.
 
-   TWO DISTINCT ownership authorities, for two distinct concerns:
-   - INSTALLED `.go` (in the tree): a regular file is Fido-owned iff its first line is the exact generated
-     header (DERIVED from the image bytes, never hardcoded).  Ownership is rechecked immediately before
-     every overwrite/delete, via lstat (a symlink is S_LNK, never S_REG, so it is never followed).  A
-     foreign `.go` forging the header is the accepted limit of this authority (a header is public).
-   - TRANSIENT staging: the sink stages into `<root>/.fido/staging/`, a RESERVED location it alone manages;
-     ownership there is a NAMESPACE POLICY (it rests on `.fido/` being reserved), not the location being
-     unforgeable.
+   LOCAL STAGING (no central staging dir).  One persistent owned control directory `<root>/.fido/` holds an
+   exact ownership marker, one emission lock (git-style O_EXCL), and a record namespace
+   `<root>/.fido/stage-records/` (ownership/recovery records ONLY — never payloads).  For each distinct
+   final PARENT directory receiving desired files (root for `go.mod` and root-level `.go`; a subdir for a
+   nested `.go`), one local stage directory `<parent>/.fido-stage-<nonce>` is created, with a high-entropy
+   OS nonce (/dev/urandom).  A local stage is owned by a ROOT-OWNED RECORD, never by name/marker/header
+   alone.  Because stage and target are SIBLINGS under one parent, per-file install is an atomic rename on
+   the same filesystem and nested mount points inside root are supported (no central cross-device compare);
+   EXDEV fails loud with no copy fallback.
 
-   STAGING: the sync loop stages each target and RENAMES it out before staging the next, so there is never
-   more than ONE staging temp — a single fixed slot `.fido/staging/tmp`, no counter or allocator.  Each
-   target's bytes go to that slot (O_CREAT|O_EXCL, fails closed if occupied), which is then atomically
-   renamed into place; the preflight rejects a cross-filesystem target (a rename can't be atomic across
-   devices).  RECOVERY runs FIRST, recover-all-or-REJECT and fail-CLOSED: staging must be empty or the ONE
-   regular slot; any other basename, or a non-regular entry at the slot (directory, symlink, special file —
-   a state the builder cannot create), is REFUSED, never traversed or deleted (so a nested tree or a mount
-   is refused, not recursively removed), and any enumeration/lstat/removal error but a confirmed ENOENT
-   aborts before any effect; it never scans the tree, so a foreign file (even one forging the header) is
-   untouched.
+   PROTOCOL (binding order): validate the root chain and reject reserved/foreign inputs BEFORE any effect;
+   acquire the lock; record-driven recovery of abandoned stages; foreign-Go/module scan (fail-closed);
+   create parent dirs + one recorded local stage per parent; STAGE THE COMPLETE IMAGE; only then install
+   each file by rename; remove stale owned `.go`; remove each stage then its record; release the lock.  A
+   record is created (atomic O_CREAT|O_EXCL) and completely written BEFORE its stage directory, and removed
+   only AFTER its stage directory is gone.
 
-   The FINALIZER's sole obligation is releasing the lock (close + unlink), fail-loud and once, combining a
-   body error with a lock-release error (never hiding either).
+   FAIL-CLOSED.  Only a confirmed ENOENT means "missing"; every other filesystem error (EACCES/EIO/ELOOP/
+   ENOTDIR/…) aborts.  Recursive discovery never turns a readdir failure into an empty directory; reading an
+   ownership header fails closed.  On a handled failure the run cleans up its own stages/records/newly-empty
+   parents immediately, aggregates body + cleanup + lock-release errors, and releases the lock.  Residue
+   remains only after an uncatchable crash or a cleanup/lock-release failure — the next run recovers it
+   (record-driven) before any generated-file mutation.
 
-   The fallible ops are PARAMETERS (`?unlink`/`?after_stage`, default real/no-op) so the test driver can
-   inject a recovery failure or a mid-staging crash through the real algorithm — no ambient branch, no
-   destructive default in the production call graph; the plugin always uses the defaults.
+   HONEST GUARANTEE (Linux/amd64 operational scope).  GoProgram acceptance, SafeProgram certification, and
+   DirectoryImage creation are semantically all-or-nothing.  Installation is locked for COOPERATING
+   emitters, rejects foreign Go/module inputs, stages the complete image locally beside target parents
+   before installation, uses per-file atomic rename in the ordinary same-filesystem case, cleans handled-
+   failure residue immediately, recovers record-owned abandoned stages before future mutation, and
+   converges on rerun.  It is NOT a portable transactional multi-file filesystem commit, NOT crash-proof
+   against SIGKILL/power loss, and — because this OCaml `Unix` exposes no openat/O_NOFOLLOW — NOT hardened
+   against a malicious concurrent process racing symlink swaps; the intended single-emit-process use has no
+   such adversary.  High-entropy stage names prevent ordinary accidental collisions; a foreign lookalike
+   without a valid root-owned record is never treated as owned.
 
-   HONEST GUARANTEE (threat model): a git-style index.lock coordinates COOPERATING Fido emitters.  Every
-   pre-existing foreign entry OUTSIDE `.fido/` is preserved, WITH ONE ACCEPTED LIMIT: a `.go` forging the
-   exact header is indistinguishable from a stale generated file, so it is overwritten (at a target) or
-   deleted (when not desired) — the header is public and IS the ownership; likewise a `.fido/` forging the
-   marker.  It is NOT a transactional whole-tree commit (a partial run may leave temps in `staging/`, which
-   the next run removes).  NORMAL completion (success or a handled body failure, incl. a recovery failure)
-   runs the finalizer and releases the lock, so an immediate rerun can proceed; a CRASH (process killed,
-   finalizer not run) or a lock-release failure leaves the index.lock and the next run REFUSES until it is
-   deliberately removed.  Like git's index.lock, and because this OCaml `Unix` exposes no
-   openat/renameat/O_NOFOLLOW, it is NOT hardened against a concurrent NON-cooperating process racing
-   symlink swaps between check and use; the intended single-emit-process use has no such adversary. *)
+   The fallible/nondeterministic operations are PARAMETERS ([rand_hex] nonce source, [checkpoint] crash
+   points, [unlink] removal) so the test driver can inject faults through the REAL algorithm — no ambient
+   env branch, no destructive default in the production call graph; the plugin always uses the defaults. *)
 
 let control_dir  = ".fido"
 let marker_name  = "marker"
 let marker_bytes = "fido-control-directory.  do not edit.\n"
-let lock_name    = "index.lock"       (* git-style: created O_EXCL, removed at end *)
-let staging_name = "staging"          (* <root>/.fido/staging/ — the reserved staging namespace *)
-let temp_name    = "tmp"              (* the ONE staging slot: <root>/.fido/staging/tmp *)
-let skip_dirs    = [ ".git"; ".hg"; ".svn"; control_dir ]
+let lock_name    = "index.lock"                (* git-style: created O_EXCL, removed at end *)
+let records_dir  = "stage-records"             (* <root>/.fido/stage-records/ — records ONLY, no payloads *)
+let stage_prefix = ".fido-stage-"              (* <parent>/.fido-stage-<nonce> local stage dirs *)
+let gomod_name   = "go.mod"
+let record_tag   = "fido-stage-record v1"
 
 exception Fail of string
 let fail fmt = Printf.ksprintf (fun s -> raise (Fail s)) fmt
 
-(* ---- lstat-based helpers (never follow a symlink implicitly) ---- *)
-let lstat_opt p = try Some (Unix.lstat p) with Unix.Unix_error _ -> None
-let kind_opt p = match lstat_opt p with Some st -> Some st.Unix.st_kind | None -> None
-let is_real_dir p = kind_opt p = Some Unix.S_DIR
-let is_symlink p = kind_opt p = Some Unix.S_LNK
+(* ---- fail-closed filesystem observation: only a confirmed ENOENT is "missing" ---- *)
+type obs = Missing | Present of Unix.stats
 
-let first_line path =
-  match (try Some (open_in_bin path) with Sys_error _ -> None) with
-  | None -> None
-  | Some ic -> let l = (try Some (input_line ic) with End_of_file -> None) in close_in ic; l
+let lstat_obs p =
+  try Present (Unix.lstat p)
+  with Unix.Unix_error (Unix.ENOENT, _, _) -> Missing
+     | Unix.Unix_error (e, _, _) -> fail "cannot lstat %s: %s" p (Unix.error_message e)
 
-let first_line_of s = match String.index_opt s '\n' with Some i -> String.sub s 0 i | None -> s
+let is_kind p k = match lstat_obs p with Present st -> st.Unix.st_kind = k | Missing -> false
 
-let dir_has_marker dir name bytes =
-  is_real_dir dir &&
-  (let m = Filename.concat dir name in
-   kind_opt m = Some Unix.S_REG && (try
-     let ic = open_in_bin m in let n = in_channel_length ic in
-     let s = really_input_string ic n in close_in ic; s = bytes
-   with _ -> false))
+let ends_with suf s =
+  let ls = String.length s and lf = String.length suf in
+  ls >= lf && String.sub s (ls - lf) lf = suf
 
-let write_exact path bytes =
-  let oc = open_out_bin path in output_string oc bytes; close_out oc
+(* first line of a regular file, FAIL-CLOSED (a read error is never "no header"). *)
+let read_first_line p =
+  let ic = try open_in_bin p with Sys_error m -> fail "cannot open %s: %s" p m in
+  (try let l = (try input_line ic with End_of_file -> "") in close_in ic; l
+   with Sys_error m -> close_in_noerr ic; fail "cannot read %s: %s" p m)
+
+let read_whole p =
+  let ic = try open_in_bin p with Sys_error m -> fail "cannot open %s: %s" p m in
+  (try let n = in_channel_length ic in let s = really_input_string ic n in close_in ic; s
+   with Sys_error m -> close_in_noerr ic; fail "cannot read %s: %s" p m)
+
+let first_line_of_string s =
+  match String.index_opt s '\n' with Some i -> String.sub s 0 i | None -> s
+
+(* a path is a Fido-owned regular file with the exact header first line (rechecked before every mutation). *)
+let owned_regular p header = match lstat_obs p with
+  | Present st -> st.Unix.st_kind = Unix.S_REG && read_first_line p = header
+  | Missing -> false
+
+let write_all fd bytes =
+  let len = String.length bytes in
+  let rec loop off =
+    if off < len then
+      let w = Unix.write_substring fd bytes off (len - off) in
+      if w <= 0 then fail "short write" else loop (off + w) in
+  loop 0
+
+(* create a NEW file exclusively and write it completely (fails closed if the path is occupied). *)
+let write_new p bytes =
+  let fd = try Unix.openfile p [Unix.O_CREAT; Unix.O_EXCL; Unix.O_WRONLY] 0o644
+           with Unix.Unix_error (e, _, _) -> fail "cannot create %s: %s" p (Unix.error_message e) in
+  (try write_all fd bytes; Unix.close fd
+   with e -> (try Unix.close fd with _ -> ());
+             (match e with Fail m -> fail "cannot write %s: %s" p m | _ -> raise e))
+
+(* ---- path safety + the reserved control namespace ---- *)
 
 let components rel =
   if not (Filename.is_relative rel) then fail "unsafe absolute path from image: %s" rel;
   let parts = String.split_on_char '/' rel in
   if parts = [] || List.exists (fun c -> c = "" || c = "." || c = ".." || String.contains c '\000') parts
   then fail "unsafe path from image: %s" rel;
+  (match parts with
+   | c :: _ when c = control_dir ->
+       fail "refusing a desired path inside the reserved %s namespace: %s" control_dir rel
+   | _ -> ());
   parts
 
-let rec walk_real_dirs root f =
-  Array.iter (fun name ->
-    let p = Filename.concat root name in
-    f p name;
-    if is_real_dir p && not (List.mem name skip_dirs) then walk_real_dirs p f)
-    (try Sys.readdir root with Sys_error _ -> [||])
+let split_parent parts =
+  match List.rev parts with
+  | base :: rrest -> (String.concat "/" (List.rev rrest), base)
+  | [] -> fail "empty path"
 
-(* validate that EVERY proper ancestor of [root] (from the filesystem root or cwd down to root's parent)
-   is an existing REAL directory — reject a symlink or non-directory in ANY prefix component.  Otherwise
-   ordinary pathname resolution follows a prefix symlink and redirects every subsequent effect into the
-   referent tree (lstat only spares the FINAL component).  [root] itself may be absent (A.1 creates it);
-   its parent chain must be real. *)
+(* validate that EVERY proper ancestor of [root] is an existing REAL directory — reject a symlink or
+   non-directory in ANY prefix component (ordinary resolution would otherwise follow it and redirect every
+   effect into the referent; lstat only spares the FINAL component). *)
 let validate_root_chain root =
   let rec chain p acc = let d = Filename.dirname p in if d = p then p :: acc else chain d (p :: acc) in
   let rec go = function
-    | [] | [ _ ] -> ()                             (* the last element is root itself, checked by A.1 *)
+    | [] | [ _ ] -> ()
     | a :: rest ->
-      (match lstat_opt a with
-       | Some st when st.Unix.st_kind = Unix.S_DIR -> go rest
-       | Some _ -> fail "a component of the target root is a symlink or non-directory: %s" a
-       | None -> fail "a parent directory of the target root does not exist: %s" a)
+      (match lstat_obs a with
+       | Present st when st.Unix.st_kind = Unix.S_DIR -> go rest
+       | Present _ -> fail "a component of the target root is a symlink or non-directory: %s" a
+       | Missing -> fail "a parent directory of the target root does not exist: %s" a)
   in go (chain root [])
 
-let ensure_real_dir_parents root parts =
-  let rec go cur = function
-    | [] | [ _ ] -> ()
-    | c :: rest ->
-      let nxt = Filename.concat cur c in
-      (match kind_opt nxt with
-       | None -> Unix.mkdir nxt 0o755; go nxt rest
-       | Some Unix.S_DIR -> go nxt rest
-       | Some _ -> fail "a path component is not a real directory: %s" nxt)
-  in go root parts
+(* ---- recursive removal that never follows a symlink (unlink removes the link itself) ---- *)
+let rec rm_rf_no_follow unlink p =
+  match lstat_obs p with
+  | Missing -> ()
+  | Present st ->
+    (match st.Unix.st_kind with
+     | Unix.S_DIR ->
+        let names =
+          try Sys.readdir p
+          with Sys_error m -> fail "recovery FAILED: cannot read %s: %s" p m in
+        Array.iter (fun n -> rm_rf_no_follow unlink (Filename.concat p n)) names;
+        (try Unix.rmdir p with Unix.Unix_error (e,_,_) -> fail "recovery FAILED: cannot rmdir %s: %s" p (Unix.error_message e))
+     | _ ->
+        (try unlink p with Unix.Unix_error (e,_,_) -> fail "recovery FAILED: cannot unlink %s: %s" p (Unix.error_message e)))
 
-(* the device of the nearest EXISTING ancestor of a target (its eventual parent inherits that device); a
-   later component created under it is on the same filesystem, so this decides whether an atomic rename
-   into the target is possible.  All ancestors are real dirs (the preflight rejects a symlink in the path). *)
-let ancestor_device root parts =
-  let rec go cur = function
-    | [] | [ _ ] -> (Unix.stat cur).Unix.st_dev
-    | c :: rest ->
-      let nxt = Filename.concat cur c in
-      (match kind_opt nxt with Some Unix.S_DIR -> go nxt rest | _ -> (Unix.stat cur).Unix.st_dev)
-  in go root parts
+(* ---- default OS nonce: high-entropy hex from /dev/urandom (never OCaml Random) ---- *)
+let default_rand_hex n =
+  let ic = try open_in_bin "/dev/urandom" with Sys_error m -> fail "cannot open /dev/urandom: %s" m in
+  let b = Bytes.create n in
+  (try really_input ic b 0 n with End_of_file -> close_in_noerr ic; fail "short read from /dev/urandom");
+  close_in ic;
+  let buf = Buffer.create (2 * n) in
+  Bytes.iter (fun c -> Buffer.add_string buf (Printf.sprintf "%02x" (Char.code c))) b;
+  Buffer.contents buf
 
-(* write [bytes] to THE staging slot (one fixed basename) and return its path.  The sync loop stages a
-   target and renames it OUT before staging the next, so there is never more than one staging temp — no
-   counter, no allocator.  O_CREAT|O_EXCL fails CLOSED if the slot is already occupied (recovery empties it
-   first, so in normal operation it is not). *)
-let stage_temp staging bytes =
-  let tmp = Filename.concat staging temp_name in
-  let fd = Unix.openfile tmp [ Unix.O_CREAT; Unix.O_EXCL; Unix.O_WRONLY ] 0o644 in
-  let oc = Unix.out_channel_of_descr fd in
-  (try output_string oc bytes; close_out oc with e -> (try close_out oc with _ -> ()); raise e);
-  tmp
+let is_hex s = s <> "" &&
+  String.for_all (fun c -> (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) s
 
-(* ---- the synchronization (algorithm §17) ---- *)
-let sync ?(unlink = Unix.unlink) ?(after_stage = fun _ -> ()) ?(readdir = Sys.readdir) root entries =
-  let gen_header = match entries with (_, b) :: _ -> first_line_of b | [] -> "" in
-  let is_generated_go path =
-    Filename.check_suffix path ".go"
-    && (match lstat_opt path with Some st -> st.Unix.st_kind = Unix.S_REG | None -> false)
-    && first_line path = Some gen_header in
-  (* (A.-1) validate the ROOT's whole existing path chain (no prefix symlink may redirect effects) and
-     (A.0) RESERVE the control namespace: refuse any desired path inside <root>/.fido (and reject unsafe
-     ones).  BOTH run BEFORE any filesystem effect or recovery.  The plugin's FilePath excludes hidden
-     components and its root is fixed, but the sink is generic over raw strings, so it enforces both itself
-     — otherwise a prefix-symlinked root would redirect all effects, or a desired `.fido/staging/<x>` could
-     be installed and then deleted by the next recovery. *)
-  validate_root_chain root;
-  List.iter (fun (rel, _) ->
-    match components rel with
-    | c :: _ when c = control_dir -> fail "refusing a desired path inside the reserved %s namespace: %s" control_dir rel
-    | _ -> ())
-    entries;
-  (* (A.1) validate / create the marked control directory *)
-  (match kind_opt root with
-   | None -> Unix.mkdir root 0o755
-   | Some Unix.S_DIR -> ()
-   | Some _ -> fail "target root is not a real directory: %s" root);
-  let ctrl = Filename.concat root control_dir in
-  (match kind_opt ctrl with
-   | None -> Unix.mkdir ctrl 0o755; write_exact (Filename.concat ctrl marker_name) marker_bytes
-   | Some Unix.S_DIR ->
-     if not (dir_has_marker ctrl marker_name marker_bytes)
-     then fail "%s exists without the exact Fido control marker — refusing to touch it" ctrl
-   | Some _ -> fail "%s exists and is not a directory — refusing to touch it" ctrl);
-  (* (A.1b) the structured staging namespace, inside the marked control dir *)
-  let staging = Filename.concat ctrl staging_name in
-  (match kind_opt staging with
-   | None -> Unix.mkdir staging 0o755
-   | Some Unix.S_DIR -> ()
-   | Some _ -> fail "%s exists and is not a directory — refusing to touch it" staging);
-  (* (A.2) exclusive lock — a git-style index.lock created ATOMICALLY with O_EXCL; a crashed run leaves it
-     and the next run REFUSES (like git), rather than racing. *)
-  let lock_path = Filename.concat ctrl lock_name in
-  let lock_fd =
-    try Unix.openfile lock_path [ Unix.O_CREAT; Unix.O_EXCL; Unix.O_WRONLY ] 0o644
+(* a recorded stage's parent-relative path must be safe and stay under root. *)
+let safe_rel r =
+  r = "" ||
+  (let parts = String.split_on_char '/' r in
+   not (List.exists (fun c -> c = "" || c = "." || c = ".." || String.contains c '\000') parts))
+
+(* ---- record-driven recovery of abandoned local stages (fail-closed) ---- *)
+
+let parse_record p =
+  match String.split_on_char '\n' (read_whole p) with
+  | tag :: nonce :: parent :: stage :: _ when tag = record_tag -> (nonce, parent, stage)
+  | _ -> fail "recovery FAILED: malformed record %s" p
+
+let recover_stages unlink root records_abs =
+  match lstat_obs records_abs with
+  | Missing -> ()
+  | Present st ->
+    if st.Unix.st_kind <> Unix.S_DIR then fail "recovery FAILED: %s is not a directory" records_abs;
+    let names =
+      try Sys.readdir records_abs
+      with Sys_error m -> fail "recovery FAILED: cannot enumerate %s: %s" records_abs m in
+    Array.iter (fun recname ->
+      let record_abs = Filename.concat records_abs recname in
+      match lstat_obs record_abs with
+      | Missing -> ()
+      | Present rst ->
+        if rst.Unix.st_kind <> Unix.S_REG then
+          fail "recovery FAILED: %s is not a regular record file — refusing" record_abs;
+        let (nonce, parent_rel, stage_rel) = parse_record record_abs in
+        if nonce <> recname then fail "recovery FAILED: record %s nonce mismatch" record_abs;
+        if not (is_hex nonce) then fail "recovery FAILED: record %s has a non-hex nonce" record_abs;
+        if not (safe_rel parent_rel) then fail "recovery FAILED: record %s parent escapes root" record_abs;
+        let expected = (if parent_rel = "" then "" else parent_rel ^ "/") ^ stage_prefix ^ nonce in
+        if stage_rel <> expected then fail "recovery FAILED: record %s stage path inconsistent" record_abs;
+        let stage_abs = Filename.concat root stage_rel in
+        (match lstat_obs stage_abs with
+         | Missing ->
+            (try unlink record_abs
+             with Unix.Unix_error (e,_,_) -> fail "recovery FAILED: cannot remove stale record %s: %s" record_abs (Unix.error_message e))
+         | Present sst ->
+            if sst.Unix.st_kind = Unix.S_DIR then begin
+              rm_rf_no_follow unlink stage_abs;
+              (try unlink record_abs
+               with Unix.Unix_error (e,_,_) -> fail "recovery FAILED: cannot remove record %s: %s" record_abs (Unix.error_message e))
+            end else
+              fail "recovery FAILED: recorded stage %s is not a directory — refusing" stage_abs))
+      names
+
+(* ---- foreign-Go / foreign-or-nested-go.mod scan (fail-closed): prove no foreign build input ---- *)
+let rec scan_foreign root header rel =
+  let dir = if rel = "" then root else Filename.concat root rel in
+  let names =
+    try Sys.readdir dir
+    with Sys_error m -> fail "cannot inspect %s: %s — refusing without proving absence of foreign Go" dir m in
+  Array.iter (fun name ->
+    if not (rel = "" && name = control_dir) then begin       (* the owned root control dir is not scanned *)
+      let child_rel = if rel = "" then name else rel ^ "/" ^ name in
+      let p = Filename.concat dir name in
+      match lstat_obs p with
+      | Missing -> ()
+      | Present st ->
+        let k = st.Unix.st_kind in
+        if name = gomod_name then begin
+          if rel <> "" then fail "a nested go.mod is present (%s) — refusing" child_rel
+          else if not (k = Unix.S_REG && read_first_line p = header)
+          then fail "a foreign root go.mod is present — refusing to touch it"
+        end
+        else if ends_with ".go" name then begin
+          if not (k = Unix.S_REG && read_first_line p = header)
+          then fail "a foreign .go file is present (%s) — refusing" child_rel
+        end
+        else if k = Unix.S_DIR then scan_foreign root header child_rel
+        (* other (non-.go, non-go.mod) regular files, symlinks, specials: foreign but harmless — preserved *)
+    end)
+    names
+
+(* ---- one recorded local stage per parent (record BEFORE stage dir; retry on collision) ---- *)
+let make_stage rand_hex unlink checkpoint root records_abs parent_rel =
+  let parent_abs = if parent_rel = "" then root else Filename.concat root parent_rel in
+  let rec attempt tries =
+    if tries <= 0 then fail "could not create a unique local stage under %s" parent_abs;
+    let nonce = rand_hex 16 in
+    if not (is_hex nonce) then fail "the nonce source did not return hex";
+    let stage_name = stage_prefix ^ nonce in
+    let stage_abs = Filename.concat parent_abs stage_name in
+    let stage_rel = (if parent_rel = "" then "" else parent_rel ^ "/") ^ stage_name in
+    let record_abs = Filename.concat records_abs nonce in
+    match lstat_obs stage_abs with
+    | Present _ -> attempt (tries - 1)          (* a pre-existing lookalike occupies the path: new nonce *)
+    | Missing ->
+      (match (try `Fd (Unix.openfile record_abs [Unix.O_CREAT; Unix.O_EXCL; Unix.O_WRONLY] 0o644)
+              with Unix.Unix_error (Unix.EEXIST, _, _) -> `Collide
+                 | Unix.Unix_error (e, _, _) -> fail "cannot create stage record %s: %s" record_abs (Unix.error_message e)) with
+       | `Collide -> attempt (tries - 1)
+       | `Fd fd ->
+         let content = Printf.sprintf "%s\n%s\n%s\n%s\n" record_tag nonce parent_rel stage_rel in
+         (try write_all fd content; Unix.close fd
+          with e -> (try Unix.close fd with _ -> ()); (try unlink record_abs with _ -> ());
+                    (match e with Fail m -> fail "cannot write stage record %s: %s" record_abs m | _ -> raise e));
+         checkpoint "after-record";
+         (match (try `Ok (Unix.mkdir stage_abs 0o755)
+                 with Unix.Unix_error (Unix.EEXIST, _, _) -> `Collide
+                    | Unix.Unix_error (e, _, _) -> `Err (Unix.error_message e)) with
+          | `Ok () -> checkpoint "after-mkdir"; (nonce, stage_abs, record_abs)
+          | `Collide -> (try unlink record_abs with _ -> ()); attempt (tries - 1)
+          | `Err m -> (try unlink record_abs with _ -> ()); fail "cannot create local stage %s: %s" stage_abs m))
+  in attempt 8
+
+let ensure_dir_chain root parent_rel created =
+  if parent_rel = "" then ()
+  else
+    let cur = ref root in
+    List.iter (fun c ->
+      cur := Filename.concat !cur c;
+      match lstat_obs !cur with
+      | Present st -> if st.Unix.st_kind <> Unix.S_DIR then fail "%s is not a directory" !cur
+      | Missing ->
+        (try Unix.mkdir !cur 0o755
+         with Unix.Unix_error (e,_,_) -> fail "cannot create directory %s: %s" !cur (Unix.error_message e));
+        created := !cur :: !created)
+      (String.split_on_char '/' parent_rel)
+
+(* ---- remove stale Fido-owned .go NOT in the desired set (ownership rechecked immediately) ---- *)
+let rec remove_stale_go unlink root header desired rel =
+  let dir = if rel = "" then root else Filename.concat root rel in
+  let names =
+    try Sys.readdir dir
+    with Sys_error m -> fail "cannot scan %s for stale generated files: %s" dir m in
+  Array.iter (fun name ->
+    if not (rel = "" && name = control_dir) then begin
+      let child_rel = if rel = "" then name else rel ^ "/" ^ name in
+      let p = Filename.concat dir name in
+      match lstat_obs p with
+      | Missing -> ()
+      | Present st ->
+        if st.Unix.st_kind = Unix.S_DIR then remove_stale_go unlink root header desired child_rel
+        else if ends_with ".go" name && st.Unix.st_kind = Unix.S_REG
+                && read_first_line p = header && not (List.mem p desired)
+        then (try unlink p
+              with Unix.Unix_error (e,_,_) -> fail "cannot remove stale generated %s: %s" p (Unix.error_message e))
+    end)
+    names
+
+let ensure_root_and_control root control_abs records_abs =
+  (match lstat_obs root with
+   | Present st -> if st.Unix.st_kind <> Unix.S_DIR then fail "target root is not a real directory: %s" root
+   | Missing -> (try Unix.mkdir root 0o755
+                 with Unix.Unix_error (e,_,_) -> fail "cannot create root %s: %s" root (Unix.error_message e)));
+  (match lstat_obs control_abs with
+   | Missing ->
+     (try Unix.mkdir control_abs 0o755
+      with Unix.Unix_error (e,_,_) -> fail "cannot create %s: %s" control_abs (Unix.error_message e));
+     write_new (Filename.concat control_abs marker_name) marker_bytes
+   | Present st ->
+     if st.Unix.st_kind <> Unix.S_DIR then fail "%s exists but is not a directory — refusing" control_abs;
+     let mk = Filename.concat control_abs marker_name in
+     (match lstat_obs mk with
+      | Present mst when mst.Unix.st_kind = Unix.S_REG && read_whole mk = marker_bytes -> ()
+      | _ -> fail "%s exists without the exact Fido control marker — refusing to touch it" control_abs));
+  (match lstat_obs records_abs with
+   | Missing -> (try Unix.mkdir records_abs 0o755
+                 with Unix.Unix_error (e,_,_) -> fail "cannot create %s: %s" records_abs (Unix.error_message e))
+   | Present st -> if st.Unix.st_kind <> Unix.S_DIR then fail "%s is not a directory — refusing" records_abs)
+
+let uniq l = List.rev (List.fold_left (fun acc x -> if List.mem x acc then acc else x :: acc) [] l)
+
+let sync ?(rand_hex = default_rand_hex) ?(checkpoint = fun _ -> ()) ?(unlink = Unix.unlink)
+         dir go_mod entries =
+  let header = first_line_of_string go_mod in
+  let control_abs = Filename.concat dir control_dir in
+  let lock_abs    = Filename.concat control_abs lock_name in
+  let records_abs = Filename.concat control_abs records_dir in
+  (* A. validate the root chain (prefix symlinks) — before any effect *)
+  validate_root_chain dir;
+  (* B. compute the desired outputs (go.mod at root + every .go); the reserved-namespace check in
+        [components] rejects a desired path inside .fido BEFORE any effect *)
+  let desired =
+    (Filename.concat dir gomod_name, "", gomod_name, go_mod)
+    :: List.map (fun (rel, bytes) ->
+         let (parent_rel, base) = split_parent (components rel) in
+         (Filename.concat dir rel, parent_rel, base, bytes)) entries in
+  (* C. ensure root + the owned control namespace (marker/records) *)
+  ensure_root_and_control dir control_abs records_abs;
+  (* D. acquire the emission lock (git-style O_EXCL) *)
+  let lockfd =
+    try Unix.openfile lock_abs [Unix.O_CREAT; Unix.O_EXCL; Unix.O_WRONLY] 0o644
     with Unix.Unix_error (Unix.EEXIST, _, _) ->
-      fail "%s already exists — another Fido emission holds it, or a crashed run left it (remove it to proceed)" lock_path in
-  let body =
-    try
-      (* (R) RECOVER — staging holds AT MOST the ONE fixed slot (a regular file): the sync renames each
-         staged file out before the next, so no other state is reachable.  Recovery is TWO-PHASE so that no
-         effect precedes a rejection: it first validates the COMPLETE state (every entry must be the slot,
-         absent or regular), then removes the slot only if validation fully passed — so a mixed state (the
-         slot plus a foreign basename, in any order) is refused with NOTHING removed.  Any other basename or
-         a non-regular entry at the slot (directory, symlink, special file — a state the builder cannot
-         create) is REJECTED (fail-loud), never traversed or deleted, so a nested tree or a mount cannot be
-         recursively removed.  Fail-CLOSED: enumeration / lstat / removal errors (other than a confirmed
-         ENOENT) abort before any synchronization effect. *)
-      let residue =
-        try readdir staging               (* the enumeration order is an injectable seam (default Sys.readdir)
-                                             so a test can force either order through the REAL two-phase path *)
-        with ex -> fail "recovery FAILED: cannot enumerate %s: %s" staging (Printexc.to_string ex) in
-      (* PHASE 1 — validate the COMPLETE staging state with NO effect: every entry must be the ONE slot,
-         absent or a regular file; record whether the regular slot is present.  A forbidden basename or a
-         non-regular slot aborts here, so a mixed state (e.g. the slot plus a foreign name, in any readdir
-         order) is rejected BEFORE anything is removed. *)
-      let slot_present = ref false in
-      Array.iter (fun n ->
-        let p = Filename.concat staging n in
-        if n <> temp_name then
-          fail "recovery FAILED: %s is not the Fido staging slot — refusing an impossible staging state" p;
-        match (try Some (Unix.lstat p)
-               with Unix.Unix_error (Unix.ENOENT, _, _) -> None            (* raced away: fine *)
-                  | ex -> fail "recovery FAILED: cannot lstat %s: %s" p (Printexc.to_string ex)) with
-        | None -> ()
-        | Some s when s.Unix.st_kind = Unix.S_REG -> slot_present := true
-        | Some _ -> fail "recovery FAILED: %s is not a regular file — refusing to remove a non-file staging entry" p)
-        residue;
-      (* PHASE 2 — validation passed: NOW remove the one slot (if present). *)
-      if !slot_present then
-        (let p = Filename.concat staging temp_name in
-         try unlink p with ex -> fail "recovery FAILED: cannot remove %s: %s" p (Printexc.to_string ex));
-      (* (B) desired set + existing generated .go files *)
-      let targets = List.map (fun (rel, bytes) ->
-        let parts = components rel in (Filename.concat root rel, parts, bytes)) entries in
-      let desired = List.map (fun (t, _, _) -> t) targets in
-      let existing_go = ref [] in
-      walk_real_dirs root (fun p _ -> if is_generated_go p then existing_go := p :: !existing_go);
-      (* (C) preflight every desired path (symlinks/foreign/cross-filesystem) BEFORE any change *)
-      let staging_dev = (Unix.stat staging).Unix.st_dev in
-      List.iter (fun (target, parts, _) ->
-        let rec no_symlink cur = function
-          | [] -> () | c :: rest ->
-            let nxt = Filename.concat cur c in
-            if is_symlink nxt then fail "refusing a symlink in path: %s" nxt else
-            if kind_opt nxt = None then () else no_symlink nxt rest in
-        no_symlink root parts;
-        if ancestor_device root parts <> staging_dev then
-          fail "%s is on a different filesystem than the staging area — atomic rename unsupported" target;
-        (match lstat_opt target with
-         | None -> ()
-         | Some st when st.Unix.st_kind = Unix.S_REG && first_line target = Some gen_header -> ()
-         | Some _ -> fail "refusing to overwrite a foreign entry: %s" target))
-        targets;
-      (* (D) stage each target through the ONE slot, then (E) install by atomic rename, rechecking ownership
-         immediately before replacement (a foreign/type change since preflight aborts, leaving the slot in
-         staging for recovery).  The rename empties the slot before the next target stages. *)
-      List.iter (fun (target, parts, bytes) ->
-        ensure_real_dir_parents root parts;
-        let tmp = stage_temp staging bytes in
-        after_stage tmp;
-        (match lstat_opt target with
-         | None -> ()
-         | Some st when st.Unix.st_kind = Unix.S_REG && first_line target = Some gen_header -> ()
-         | Some _ -> fail "ownership/type of %s changed under us — aborting" target);
-        Sys.rename tmp target)
-        targets;
-      (* (F) stale cleanup: remove owned generated .go no longer desired, rechecking ownership *)
-      List.iter (fun p -> if not (List.mem p desired) && is_generated_go p then unlink p) !existing_go;
-      Ok (List.length targets)
-    with e -> Error e in
-  (* FINALIZE ONCE: release the lock — its sole obligation — fail-loud, aggregating close + unlink, and
-     combining a body error with (never hiding it behind) a lock-release error. *)
-  let lerr = ref [] in
-  let add fmt = Printf.ksprintf (fun s -> lerr := s :: !lerr) fmt in
-  (try Unix.close lock_fd with ex -> add "close lock fd: %s" (Printexc.to_string ex));
-  (try Unix.unlink lock_path with ex -> add "unlink %s: %s" lock_path (Printexc.to_string ex));
-  (match body, (match !lerr with [] -> None | l -> Some (String.concat "; " l)) with
-   | Ok n, None -> n
-   | Ok _, Some cm -> fail "installed the tree but releasing the lock FAILED: %s" cm
-   | Error e, None -> raise e
-   | Error e, Some cm ->
-     let em = (match e with Fail m -> m | _ -> Printexc.to_string e) in
-     raise (Fail (em ^ " — AND releasing the lock FAILED: " ^ cm)))
+           fail "%s already exists — another Fido emission holds it, or a crashed run left it (remove it to proceed)" lock_abs
+       | Unix.Unix_error (e, _, _) -> fail "cannot create lock %s: %s" lock_abs (Unix.error_message e) in
+  let created_dirs = ref [] and stages = ref [] in
+  let body () =
+    (* E. record-driven recovery of abandoned stages (fail-closed) *)
+    recover_stages unlink dir records_abs;
+    (* F. foreign-Go / foreign-or-nested go.mod scan (fail-closed) *)
+    scan_foreign dir header "";
+    (* G. one recorded local stage per distinct final parent (creating parent dirs as needed) *)
+    let stage_of = Hashtbl.create 8 in
+    List.iter (fun pr ->
+      ensure_dir_chain dir pr created_dirs;
+      let (nonce, stage_abs, record_abs) = make_stage rand_hex unlink checkpoint dir records_abs pr in
+      stages := (nonce, stage_abs, record_abs) :: !stages;
+      Hashtbl.replace stage_of pr stage_abs)
+      (uniq (List.map (fun (_,pr,_,_) -> pr) desired));
+    (* H. STAGE THE COMPLETE IMAGE before any install *)
+    List.iteri (fun i (_, pr, base, bytes) ->
+      write_new (Filename.concat (Hashtbl.find stage_of pr) base) bytes;
+      if i = 0 then checkpoint "after-first-payload") desired;
+    checkpoint "after-staging";
+    (* I. install each file: recheck ownership, then rename (sibling; atomic; EXDEV fails loud) *)
+    List.iter (fun (target, pr, base, _) ->
+      (match lstat_obs target with
+       | Missing -> ()
+       | Present _ -> if not (owned_regular target header)
+                      then fail "%s changed and is no longer Fido-owned — refusing to overwrite" target);
+      let src = Filename.concat (Hashtbl.find stage_of pr) base in
+      (try Unix.rename src target
+       with Unix.Unix_error (Unix.EXDEV, _, _) ->
+              fail "cross-device install %s -> %s (a local stage must be on the target filesystem)" src target
+          | Unix.Unix_error (e, _, _) -> fail "cannot install %s: %s" target (Unix.error_message e)))
+      desired;
+    (* J. remove stale Fido-owned .go not in the desired set (empty program removes them all) *)
+    remove_stale_go unlink dir header (List.map (fun (t,_,_,_) -> t) desired) "";
+    (* K. cleanup: remove each now-empty stage, then its record *)
+    List.iter (fun (_, stage_abs, record_abs) ->
+      (try Unix.rmdir stage_abs
+       with Unix.Unix_error (e,_,_) -> fail "cannot remove local stage %s: %s" stage_abs (Unix.error_message e));
+      (try unlink record_abs
+       with Unix.Unix_error (e,_,_) -> fail "cannot remove stage record %s: %s" record_abs (Unix.error_message e)))
+      !stages;
+    stages := [];
+    List.length desired in
+  (* handled-failure cleanup: remove this run's stages + records + newly-empty parents (best-effort). *)
+  let cleanup_on_failure () =
+    List.iter (fun (_, stage_abs, record_abs) ->
+      (try rm_rf_no_follow unlink stage_abs with _ -> ());
+      (try unlink record_abs with _ -> ())) !stages;
+    List.iter (fun d -> try Unix.rmdir d with _ -> ()) !created_dirs in
+  let release_lock () =
+    (try Unix.close lockfd with _ -> ());
+    (try Unix.unlink lock_abs
+     with Unix.Unix_error (e,_,_) -> fail "cannot release lock %s: %s" lock_abs (Unix.error_message e)) in
+  match (try `Ok (body ()) with e -> `Err e) with
+  | `Ok n -> release_lock (); n
+  | `Err e ->
+    let body_msg = match e with Fail m -> m | _ -> Printexc.to_string e in
+    (try cleanup_on_failure () with _ -> ());
+    (match (try release_lock (); None with Fail m -> Some m | _ -> Some "unknown lock-release error") with
+     | None -> raise (Fail body_msg)
+     | Some lm -> raise (Fail (body_msg ^ " | additionally, lock release failed: " ^ lm)))

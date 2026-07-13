@@ -4,9 +4,10 @@
     GoCompile accepts it (prog_ok = true, checked below); the emitted tree must be accepted by
     `go build ./...` — the differential alarm that the whole-program directory/package rules match Go. *)
 From Stdlib Require Import List NArith String.
-From Fido Require Import FilePath FMap GoAST GoCompile GoSafe GoRender GoEmit.
+From Fido Require Import FilePath FMap ModulePath GoVersion GoAST GoCompile GoSafe GoRender GoEmit.
 Import ListNotations.
 
+Definition multi_module : ModuleSpec := mkModuleSpec (mkMP "fido.local/generated" eq_refl) Go1_23.
 Definition m_root  : FilePath := mkFP "main.go" eq_refl.
 Definition m_extra : FilePath := mkFP "extra.go" eq_refl.          (* same (root) package, no main *)
 Definition m_sub   : FilePath := mkFP "sub/main.go" eq_refl.       (* a second main package *)
@@ -17,7 +18,7 @@ Definition multi_entries : list (FilePath * GoFileAST) :=
   ; (m_sub,   [ DMain [ SPrintln [ ENeg 5 ] ] ]) ].
 
 Definition multi_program : GoProgram :=
-  match build_program multi_entries with Some p => p | None => singleton_program m_root [] end.
+  match build_program multi_module multi_entries with Some p => p | None => empty_program multi_module end.
 
 Lemma multi_valid : ProgValid multi_program.
 Proof. apply prog_ok_iff. vm_compute. reflexivity. Qed.

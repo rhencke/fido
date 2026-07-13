@@ -15,7 +15,7 @@
     path; equality is decidable and reduces to string equality (bool UIP).  Invalid module paths are
     UNREPRESENTABLE — never preserved-then-rejected.
     ============================================================================ *)
-From Stdlib Require Import String Ascii List Bool Eqdep_dec Arith.
+From Stdlib Require Import String Ascii List Bool Eqdep_dec Arith Lia.
 Import ListNotations.
 
 (** ---- character classes ---- *)
@@ -66,10 +66,34 @@ Fixpoint split_slash (s : string) : list string :=
            end
   end.
 
-(** the whole module path: every `/`-separated segment is admissible (an empty segment from a
-    leading/trailing/repeated slash, or the empty string, fails [segment_ok]); with a total-length bound. *)
+(** every character of a module path is a segment char or the separator `/` — all ASCII (< 128). *)
+Definition modpath_char (c : ascii) : bool := seg_char c || Ascii.eqb c "/"%char.
+
+Fixpoint all_modpath_chars (s : string) : bool :=
+  match s with EmptyString => true | String c s' => modpath_char c && all_modpath_chars s' end.
+
+(** the whole module path: all characters are module-path characters (so every byte is ASCII), and every
+    `/`-separated segment is admissible (an empty segment from a leading/trailing/repeated slash, or the
+    empty string, fails [segment_ok]); with a total-length bound. *)
 Definition modpath_ok (s : string) : bool :=
-  (String.length s <=? 200)%nat && forallb segment_ok (split_slash s).
+  (String.length s <=? 200)%nat && all_modpath_chars s && forallb segment_ok (split_slash s).
+
+Lemma modpath_ok_all_chars : forall s, modpath_ok s = true -> all_modpath_chars s = true.
+Proof.
+  intros s H; unfold modpath_ok in H.
+  apply Bool.andb_true_iff in H as [H _]; apply Bool.andb_true_iff in H as [_ H]; exact H.
+Qed.
+
+(** every module-path character is ASCII (the go.mod ASCII proof rests on this). *)
+Lemma modpath_char_lt_128 : forall c, modpath_char c = true -> (nat_of_ascii c < 128)%nat.
+Proof.
+  intros c H; unfold modpath_char in H; apply Bool.orb_true_iff in H as [H | H].
+  - unfold seg_char in H; apply Bool.orb_true_iff in H as [H | H].
+    + unfold is_lower_digit in H; cbv zeta in H; apply Bool.orb_true_iff in H as [H | H];
+        apply Bool.andb_true_iff in H as [_ H]; apply Nat.leb_le in H; lia.
+    + apply Ascii.eqb_eq in H; subst c; apply Nat.ltb_lt; reflexivity.
+  - apply Ascii.eqb_eq in H; subst c; apply Nat.ltb_lt; reflexivity.
+Qed.
 
 (** ---- the intrinsic type ---- *)
 

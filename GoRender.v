@@ -14,7 +14,7 @@
     claim (B) — external adequacy — exercised by the differential e2e, not a kernel theorem here.
     ============================================================================ *)
 From Stdlib Require Import String Ascii NArith ZArith List Bool Lia.
-From Fido Require Import digits Ints GoAST GoCompile GoSafe.
+From Fido Require Import digits Ints ModulePath GoVersion GoAST GoCompile GoSafe.
 Import ListNotations.
 Open Scope string_scope.
 
@@ -64,6 +64,28 @@ Definition render_file (pkg : string) (f : GoFileAST) : string :=
 Lemma render_file_first_line : forall pkg f, exists rest, render_file pkg f = header ++ String nl_c rest.
 Proof. intros pkg f. unfold render_file. eexists. reflexivity. Qed.
 
+(** ---- the generated module file (go.mod), rendered directly from the ModuleSpec ---- *)
+
+(** The canonical `go.mod`: the exact header first line, then `module <path>` and `go <version>` (each on
+    its own line, gofmt-spaced).  Derived SOLELY from the [ModuleSpec] — no require/replace/toolchain/etc. *)
+Definition render_go_mod (ms : ModuleSpec) : string :=
+  header ++ String nl_c
+    (nl ++ "module " ++ mp_string (module_path ms) ++ nl ++ nl
+        ++ "go " ++ render_goversion (module_go_version ms) ++ nl).
+
+(** The header is EXACTLY the first line of go.mod (the same ownership contract the sink reads). *)
+Lemma render_go_mod_first_line : forall ms, exists rest, render_go_mod ms = header ++ String nl_c rest.
+Proof. intro ms. unfold render_go_mod. eexists. reflexivity. Qed.
+
+(** The EXACT bytes: header, then `module <mp_string>`, then `go <render_goversion>` — a pure function of
+    the two [ModuleSpec] fields (so rendering depends only on the ModuleSpec), pinning the module-path and
+    Go-version spellings in their exact positions. *)
+Lemma render_go_mod_exact : forall ms,
+  render_go_mod ms = header ++ String nl_c
+    (nl ++ "module " ++ mp_string (module_path ms) ++ nl ++ nl
+        ++ "go " ++ render_goversion (module_go_version ms) ++ nl).
+Proof. reflexivity. Qed.
+
 (** ---- all-ASCII output ---- *)
 
 Definition is_ascii (c : ascii) : bool := Nat.ltb (nat_of_ascii c) 128.
@@ -75,6 +97,9 @@ Lemma str_ascii_app : forall a b, str_ascii (a ++ b) = str_ascii a && str_ascii 
 Proof.
   induction a as [ | c a' IH ]; intro b; simpl; [ reflexivity | rewrite IH, andb_assoc; reflexivity ].
 Qed.
+
+Lemma str_ascii_cons : forall c s, str_ascii (String c s) = is_ascii c && str_ascii s.
+Proof. reflexivity. Qed.
 
 Lemma dec_digit_ascii : forall d, (d < 10)%nat -> is_ascii (dec_digit d) = true.
 Proof. intros d Hd. do 10 (destruct d as [ | d ]; [ reflexivity | ]). lia. Qed.
@@ -151,6 +176,27 @@ Theorem render_file_ascii : forall pkg f, str_ascii pkg = true -> str_ascii (ren
 Proof.
   intros pkg f Hpkg. unfold render_file. rewrite str_ascii_app. cbn [str_ascii].
   rewrite !str_ascii_app, Hpkg, render_decls_ascii. reflexivity.
+Qed.
+
+(** ---- go.mod is all-ASCII (the module path is ASCII by its grammar; the version renders `1.23`) ---- *)
+
+Lemma all_modpath_chars_ascii : forall s, all_modpath_chars s = true -> str_ascii s = true.
+Proof.
+  induction s as [ | c s' IH ]; intro H; [ reflexivity | ].
+  cbn [all_modpath_chars] in H; apply Bool.andb_true_iff in H as [Hc Hs].
+  cbn [str_ascii]; unfold is_ascii.
+  rewrite (proj2 (Nat.ltb_lt _ _) (modpath_char_lt_128 c Hc)); cbn [andb].
+  apply IH; exact Hs.
+Qed.
+
+Lemma mp_string_ascii : forall p, str_ascii (mp_string p) = true.
+Proof. intro p. apply all_modpath_chars_ascii, modpath_ok_all_chars. exact (mp_ok p). Qed.
+
+Theorem render_go_mod_ascii : forall ms, str_ascii (render_go_mod ms) = true.
+Proof.
+  intro ms. unfold render_go_mod.
+  rewrite str_ascii_app, str_ascii_cons, !str_ascii_app, mp_string_ascii.
+  destruct (module_go_version ms); reflexivity.
 Qed.
 
 (** ---- decimal faithfulness: emitted decimal denotes EXACTLY the value, no leading zero ---- *)
