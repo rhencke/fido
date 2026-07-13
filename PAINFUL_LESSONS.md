@@ -57,9 +57,11 @@ stop. When an entry stops being a live temptation, delete it.
    recursively delete: `stage_temp` makes only flat regular `O_EXCL` temps whose names are `string_of_int`
    of a nonnegative index, so recovery must REFUSE (fail-loud, never traverse or delete) any directory /
    symlink / special file / non-canonical name — otherwise a nested tree or a mount under staging gets
-   recursively removed. "Exact form" must be EXACT: recovery checked-PARSES the name and RESERIALIZES it for
-   equality (a digit-shaped superset admits an oversized decimal the generator overflows on), and the
-   generator and recognizer share ONE name abstraction. ⚠ Also validate the ROOT itself: `lstat` spares only
+   recursively removed. "Exact form" must be EXACT and SEALED: recovery checked-PARSES the name and
+   RESERIALIZES it for equality (a digit-shaped superset admits an oversized decimal the generator overflows
+   on), the constructor cannot serialize an invalid index, and the successor FAILS at max_int rather than
+   wrapping negative — so the counter can never hold an out-of-range state (validity is structural, not a
+   caller side condition). ⚠ Also validate the ROOT itself: `lstat` spares only
    the final component, so a symlink in ANY prefix of `root` is followed by ordinary resolution and
    redirects every effect into the referent — reject a non-real-directory in the whole ancestor chain before
    any effect. Create each temp `O_CREAT|O_EXCL` then atomically rename (reject a cross-filesystem target first). Recovery

@@ -148,6 +148,9 @@ cp plugin/fido_sink.ml e2e/sink_test.ml /tmp/
 if ! ( cd /tmp && ocamlfind ocamlopt -package unix -linkpkg fido_sink.ml sink_test.ml -o /workspace/sink_test ) > /tmp/sink.log 2>&1; then cat /tmp/sink.log; fail "sink_test compile FAILED"; fi
 hdr=$(head -1 "$O/main.go")   # DERIVE the ownership header from actual output (no hardcoded literal)
 staged() { find "$1/.fido/staging" -mindepth 1 2>/dev/null; }   # transient residue in the owned namespace
+# (0) sealed temp-index boundary: negative / leading-zero / oversized names are not recognized, max_int
+#     round-trips, and the successor fails at max_int rather than wrapping — through the real functions.
+./sink_test _ selftest || fail "temp-index selftest failed"
 # (1) clean-dir sync produces a marked control dir + main.go; no staging residue after success
 mkdir -p /workspace/adv-1; ./sink_test /workspace/adv-1 || fail "clean sync failed"
 [ -f /workspace/adv-1/main.go ] && [ -f /workspace/adv-1/.fido/marker ] || fail "no main.go/control marker"
@@ -195,12 +198,15 @@ rm -f /workspace/adv-crash/.fido/index.lock            # the operator clears the
 ./sink_test /workspace/adv-crash || fail "did not converge after the stale lock was removed"
 [ -z "$(staged /workspace/adv-crash)" ] || fail "the crash temp survived convergence"
 [ -f /workspace/adv-crash/main.go ] || fail "main.go missing after crash convergence"
-# (5) a FOREIGN header-forging file IN THE TREE (not in the staging namespace) is preserved — recovery
-#     never scans the tree.
+# (5) foreign tree files: a NON-.go file forging the header is preserved (recovery never scans the tree,
+#     and header ownership only classifies `.go`).  But a `.go` forging the exact header IS the ONE ACCEPTED
+#     LIMIT — it is indistinguishable from a stale generated file, so an undesired one is DELETED.
 mkdir -p /workspace/adv-f; ./sink_test /workspace/adv-f || fail "foreign-preserve initial sync failed"
-printf '%s\nforged\n' "$hdr" > /workspace/adv-f/notes.keep   # header first line, not a .go, in the tree
+printf '%s\nforged\n' "$hdr" > /workspace/adv-f/notes.keep                          # non-.go: preserved
+printf '%s\n\npackage main\n\nfunc x() {}\n' "$hdr" > /workspace/adv-f/forged.go    # .go forging the header
 ./sink_test /workspace/adv-f || fail "foreign-preserve re-sync aborted"
-[ -f /workspace/adv-f/notes.keep ] || fail "a header-forging foreign tree file was deleted"
+[ -f /workspace/adv-f/notes.keep ] || fail "a header-forging NON-.go foreign tree file was deleted"
+[ ! -e /workspace/adv-f/forged.go ] || fail "an undesired exact-header .go was NOT deleted (the accepted limit is deletion)"
 # (6) the .fido/ control namespace is RESERVED: a desired path inside it is refused BEFORE any effect,
 #     proven two ways — (a) against a NONEXISTENT root the rejection must not even create the root, and
 #     (b) against a MARKED root with seeded canonical residue the rejection must NOT run recovery.  A
@@ -237,13 +243,19 @@ for bad in nested link weird; do
   esac
 done
 [ "$(cat /workspace/sentinel/keep)" = "live" ] || fail "a staging symlink's external target was mutated/deleted"
-# (7b) an OVERSIZED all-decimal staging name (which stage_temp cannot emit — it overflows int) must be
-#      REFUSED and left present: the recognizer is exactly the generator's range, not a digit-shaped superset.
+# (7b) staging-NAME boundaries at recovery: an OVERSIZED decimal and a NEGATIVE name (neither of which
+#      stage_temp can emit) are REFUSED and left present.  (The max_int / max_int-1 / succ boundaries are
+#      exercised through the real functions by the selftest above; test 8 covers recovery of valid names.)
 mkdir -p /workspace/adv-big; ./sink_test /workspace/adv-big || fail "big-name initial sync failed"
 : > /workspace/adv-big/.fido/staging/99999999999999999999999999
 if out=$(./sink_test /workspace/adv-big 2>&1); then fail "big-name: an oversized decimal staging name was NOT refused"; fi
 echo "$out" | grep -q 'recovery FAILED' || { echo "$out"; fail "big-name: not a recovery rejection"; }
 [ -e /workspace/adv-big/.fido/staging/99999999999999999999999999 ] || fail "big-name: an unrecognized entry was deleted"
+rm -f /workspace/adv-big/.fido/staging/99999999999999999999999999
+: > /workspace/adv-big/.fido/staging/-1
+if out=$(./sink_test /workspace/adv-big 2>&1); then fail "neg-name: a negative staging name was NOT refused"; fi
+echo "$out" | grep -q 'recovery FAILED' || { echo "$out"; fail "neg-name: not a recovery rejection"; }
+[ -e /workspace/adv-big/.fido/staging/-1 ] || fail "neg-name: an unrecognized entry was deleted"
 # (8) INJECTED recovery-unlink failure (an `unlink` PARAMETER through the real algorithm): seed canonical
 #     residue of every crash prefix (empty / partial / full), a run whose recovery cannot remove it must
 #     fail loud BEFORE any effect, keep the residue, release the lock; a normal rerun recovers ALL of it

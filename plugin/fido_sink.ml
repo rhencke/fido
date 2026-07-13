@@ -42,11 +42,13 @@
    (via the real algorithm) — no ambient environment branch, no destructive behaviour, in the production
    call graph; the plugin always uses the defaults.
 
-   HONEST GUARANTEE (threat model): a git-style index.lock coordinates COOPERATING Fido emitters, and every
-   pre-existing foreign entry OUTSIDE `.fido/` is preserved.  `.fido/` itself is reserved: it is accepted
-   only when it carries the exact marker (a foreign `.fido/` forging the marker is a non-cooperating
-   adversary, out of scope, like a foreign `.go` forging the header).  It is NOT a transactional whole-tree
-   commit (a partial run may install some targets and leave temps in `staging/`, which the next run removes).
+   HONEST GUARANTEE (threat model): a git-style index.lock coordinates COOPERATING Fido emitters.  Every
+   pre-existing foreign entry OUTSIDE `.fido/` is preserved, WITH ONE ACCEPTED LIMIT: a `.go` file forging
+   the exact header is indistinguishable from a stale generated file, so it is overwritten (at a target) or
+   deleted (when not desired) — the header is public and IS the ownership.  `.fido/` itself is reserved and
+   accepted only when it carries the exact marker (a foreign `.fido/` forging the marker is the same
+   accepted limit).  It is NOT a transactional whole-tree commit (a partial run may install some targets and
+   leave temps in `staging/`, which the next run removes).
    NORMAL completion — success or a handled body failure (including a recovery failure) — runs the finalizer
    and releases the lock, so an immediate rerun can proceed; but a CRASH (the process killed, finalizer not
    run) or a failure of the lock release itself leaves the index.lock, and the next run REFUSES until it is
@@ -141,27 +143,28 @@ let ancestor_device root parts =
       (match kind_opt nxt with Some Unix.S_DIR -> go nxt rest | _ -> (Unix.stat cur).Unix.st_dev)
   in go root parts
 
-(* ONE temp-name abstraction shared by the generator and recovery: a name is a NONNEGATIVE index in the
-   generator's OCaml-int range, serialized by string_of_int.  Recovery checked-PARSES a name and
-   RESERIALIZES it for EXACT equality, so an oversized/overflowing all-decimal string (which stage_temp
-   cannot emit) is rejected — the accepted language is exactly what the builder emits, no superset. *)
-let temp_name_of_index i = string_of_int i
-let index_of_temp_name n =
+(* the SEALED staging-index boundary shared by the generator and recovery: an index is a NONNEGATIVE OCaml
+   int.  name_of_index FAILS on a negative (a checked constructor — it cannot serialize an invalid index),
+   succ_index FAILS at max_int rather than wrapping to a negative (a checked successor — the counter can
+   never hold an out-of-range state), and index_of_name recognizes EXACTLY the range name_of_index emits
+   (checked-parse then reserialize for equality — an oversized/overflowing decimal is rejected). *)
+let name_of_index i = if i < 0 then fail "invalid staging index %d" i else string_of_int i
+let succ_index i = if i >= max_int then fail "staging index exhausted (max_int reached) in staging" else i + 1
+let index_of_name n =
   match int_of_string_opt n with
-  | Some i when i >= 0 && temp_name_of_index i = n -> Some i
+  | Some i when i >= 0 && name_of_index i = n -> Some i
   | _ -> None
-let is_canonical_temp_name n = index_of_temp_name n <> None
 
 let () = Random.self_init ()
 
 (* write [bytes] to a fresh O_CREAT|O_EXCL temp inside the owned staging dir and return its path.  A
    collision (the sequence is fresh after recovery empties staging, so only a race) just advances.  The
-   index stays a valid nonnegative int (guarded against overflow), so its name round-trips through recovery. *)
+   index advances through succ_index only, which fails at max_int rather than wrapping, so every name is a
+   valid one recovery recognizes. *)
 let stage_temp staging seq bytes =
   let rec go tries =
     if tries <= 0 then fail "could not create a unique staging temp in %s" staging;
-    if !seq < 0 then fail "staging index overflow in %s" staging;
-    let tmp = Filename.concat staging (temp_name_of_index !seq) in incr seq;
+    let tmp = Filename.concat staging (name_of_index !seq) in seq := succ_index !seq;
     match (try Some (Unix.openfile tmp [ Unix.O_CREAT; Unix.O_EXCL; Unix.O_WRONLY ] 0o644)
            with Unix.Unix_error (Unix.EEXIST, _, _) -> None) with
     | None -> go (tries - 1)
@@ -228,7 +231,7 @@ let sync ?(unlink = Unix.unlink) ?(after_stage = fun _ -> ()) root entries =
         with ex -> fail "recovery FAILED: cannot enumerate %s: %s" staging (Printexc.to_string ex) in
       Array.iter (fun n ->
         let p = Filename.concat staging n in
-        if not (is_canonical_temp_name n) then
+        if index_of_name n = None then
           fail "recovery FAILED: %s is not a canonical staging temp — refusing an impossible staging state" p;
         let st =
           try Some (Unix.lstat p)

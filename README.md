@@ -51,8 +51,9 @@ the emitted package set) that exercise the whole-program rules against real Go.
   persistent control dir + lock; the root path is validated against prefix symlinks; `.fido/` is a reserved
   namespace; installed `.go` owned by its header first line, transient staging in a reserved `.fido/staging/`
   — atomically `O_EXCL`-created then renamed, with fail-closed recover-all-or-reject that accepts only the
-  exact flat temp form; every foreign entry OUTSIDE `.fido/` is preserved, symlinks never followed). No
-  handwritten OCaml walks a program.
+  exact flat temp form; foreign entries OUTSIDE `.fido/` are preserved — except a `.go` forging the exact
+  header, which is indistinguishable from a stale generated file and is the one accepted limit; symlinks
+  never followed). No handwritten OCaml walks a program.
 
 The admitted fragment is deliberately tiny; anything else is **unrepresentable**, not stubbed. Imports are
 absent and unrepresentable — a permanent closed-world contract governs their eventual introduction.
