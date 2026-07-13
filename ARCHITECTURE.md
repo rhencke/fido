@@ -127,27 +127,31 @@ transport foundation is worse than no integration.
 
 `GoCompile`, `GoSafe`, and DirectoryImage production are whole-program ALL-OR-NOTHING. Installation into an
 existing dirty tree is locked (a persistent `<root>/.fido/` control dir with an exact marker + a git-style
-`index.lock`) and has ONE ownership authority: a regular file is Fido-owned iff its first line is the exact
-header. That single rule covers both installed `.go` files AND the temp files used to stage them — there is
-no separate marker or record. Ownership is rechecked immediately before every overwrite/delete, always via
-lstat (a symlink is S_LNK, never S_REG, so it is never followed, read, or removed); foreign files, dirs,
-and symlinks are preserved. Staging is per-file and marker-free: each target's bytes are written to a fresh
-`<target>.fido-tmp-<rand>` created O_CREAT|O_EXCL (so it never clobbers or follows an existing file/symlink;
-a collision just retries), then atomically renamed into place — no staging directories, no inner markers,
-no control-dir records, hence no marker-deleted-before-its-directory husk and no forgeable record path.
-RECOVERY runs FIRST, before any synchronization effect, and is recover-all-or-**REJECT**: it unlinks every
-owned stale temp (an owned regular file whose basename carries the temp infix), aggregates failures, and
-aborts before staging if any cannot be removed; a foreign temp-named file (no header), a symlink, or a
-directory is preserved. The FINALIZER's sole obligation is releasing the lock (close + unlink), fail-loud
-and exactly once, combining a body error with a lock-release error (never hiding either). It is **NOT** a
-transactional whole-tree commit — a partial run may install some targets and leave owned temps, which the
-next run's recovery removes. A CRASH (not a handled failure) leaves the `index.lock`, and the next run
-REFUSES until that stale lock is deliberately removed, then recovers; only a HANDLED cleanup failure (lock
-already released) permits an immediately converging rerun. It is **NOT** hardened against a concurrent
-non-cooperating process (this OCaml `Unix` exposes no `openat`/`O_NOFOLLOW`); the honest model is
-cooperating emitters that preserve pre-existing foreign state (a foreign file forging the exact header is
-indistinguishable — the accepted limit of header ownership, identical for `.go` and temps). Ownership is by
-header + desired-key-set, never timestamps or a manifest.
+`index.lock`). There are TWO DISTINCT ownership authorities for two distinct concerns. INSTALLED `.go`:
+a regular file in the tree is Fido-owned iff its first line is the exact header; ownership is rechecked
+immediately before every overwrite/delete, always via lstat (a symlink is S_LNK, never S_REG, so it is
+never followed/read/removed); foreign files/dirs/symlinks are preserved. TRANSIENT staging: everything
+inside the STRUCTURED namespace `<root>/.fido/staging/` is Fido-owned BY LOCATION (it lives inside the
+marked control dir), which is unforgeable (a foreign lookalike anywhere in the tree is never in that
+namespace) and ATOMIC (a partially written temp is already owned by being there, so no crash prefix can
+orphan it). Staging writes each target's bytes to a fresh `<root>/.fido/staging/<seq>` created
+O_CREAT|O_EXCL, then atomically renames it into place; because a rename is atomic only within one
+filesystem, the preflight REJECTS (before any effect) a target whose nearest existing ancestor is on a
+different device than `staging/`. RECOVERY runs FIRST and is recover-all-or-**REJECT**: it removes every
+entry in `staging/` (all ours, by location, whatever the bytes) and is fail-CLOSED — any enumeration/lstat/
+removal error other than a confirmed `ENOENT` aborts before any synchronization effect; it never scans the
+tree, so a foreign file (even one forging the header) is untouched. The FINALIZER's sole obligation is
+releasing the lock (close + unlink), fail-loud and exactly once, combining a body error with a lock-release
+error (never hiding either). It is **NOT** a transactional whole-tree commit — a partial run may install
+some targets and leave owned temps in `staging/`, which the next run removes. NORMAL completion (success or
+a handled body failure, including a recovery failure) runs the finalizer and releases the lock, so an
+immediate rerun can proceed; a CRASH (process killed, finalizer not run) or a failure of the lock release
+itself leaves the `index.lock`, and the next run REFUSES until it is deliberately removed. It is **NOT**
+hardened against a concurrent non-cooperating process (this OCaml `Unix` exposes no `openat`/`O_NOFOLLOW`);
+the honest model is cooperating emitters that preserve pre-existing foreign state (a foreign `.go` forging
+the exact header is indistinguishable — the accepted limit of header ownership, which is why transient
+staging uses location, not the header). Installed-`.go` ownership is by header + desired-key-set, never
+timestamps or a manifest.
 Git is a recovery backstop, not the primary safety mechanism.
 
 ## Closed world

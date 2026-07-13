@@ -48,9 +48,10 @@ the emitted package set) that exercise the whole-program rules against real Go.
   provenance before any effect — it typechecks the image type and rejects a non-empty assumption closure
   (kernel queries, so a postulated axiom/variable proof cannot cross), then decodes only the final
   (path, bytes) data and hands it to a generic **ownership-aware dirty-directory synchronizer** (a
-  persistent control dir + lock; one ownership authority — a file is Fido-owned iff its first line is the
-  header — for both installed `.go` and the `O_EXCL` temp files that stage them; recover-owned-residue,
-  refuse-and-preserve every foreign entry, symlinks never followed). No handwritten OCaml walks a program.
+  persistent control dir + lock; installed `.go` owned by its header first line, transient staging owned by
+  LOCATION in a `.fido/staging/` namespace — atomically `O_EXCL`-created then renamed; fail-closed
+  recover-all-or-reject, refuse-and-preserve every foreign entry, symlinks never followed). No handwritten
+  OCaml walks a program.
 
 The admitted fragment is deliberately tiny; anything else is **unrepresentable**, not stubbed. Imports are
 absent and unrepresentable — a permanent closed-world contract governs their eventual introduction.

@@ -42,23 +42,26 @@ stop. When an entry stops being a live temptation, delete it.
    the gate. The gate is the emit command's assumption-closure check (it rejects any image whose proof
    depends on an assumption, descending Qed bodies), so a forged image cannot cross into filesystem effects.
 
-6. **A directory sink SYNCHRONIZES a dirty tree; make ownership INTRINSIC, so partial cleanup cannot orphan
-   it.** A filesystem lock only coordinates cooperating emitters — it is not ownership. ⚠ A separate ownership
-   marker/record is a trap: an inner marker is deleted before its directory (a failed `rmdir` leaves an
-   unrecognizable husk); a control-dir record is itself forgeable (a symlink record followed on read, a
-   truncating non-exclusive create, a stage that outlives a crash before its record). BOTH break the
-   "recover-owned-residue, preserve-foreign" contract. The fix is to carry NO separate ownership token: a
-   regular file is Fido-owned iff its first line is the exact header — the SAME rule for installed `.go` and
-   for the temp files that stage them (`<target>.fido-tmp-<rand>`, created `O_CREAT|O_EXCL` so it never
-   clobbers or follows an existing file/symlink, then atomically renamed). Unlinking a file is atomic, so a
-   failed cleanup leaves a fully-owned temp the next run's recovery removes — no husk, no record. Ownership is
-   rechecked immediately before every overwrite/delete via lstat (S_REG required, so a symlink is never
-   followed/read/removed). Recovery is recover-all-or-REJECT BEFORE any effect (abort loud if an owned temp
-   can't be removed); the finalizer's sole obligation is releasing the lock. Test cleanup failure by injecting
-   a failing `unlink` PARAMETER through the real algorithm — never an ambient env branch or a real `chmod` in
-   the production sink (that makes destructive behaviour reachable and mutates foreign metadata). State the
-   guarantee honestly: NOT transactional; a crash leaves the lock (the next run refuses until it is removed,
-   then recovers), and only a handled failure — lock already released — permits an immediately converging rerun.
+6. **A directory sink SYNCHRONIZES a dirty tree; put TRANSIENT ownership in a structured namespace, distinct
+   from installed-file ownership.** A filesystem lock only coordinates cooperating emitters — it is not
+   ownership. ⚠ Every attempt to mark a scattered per-file staging object failed: an inner marker is deleted
+   before its directory (a failed `rmdir` leaves an unrecognizable husk); a control-dir record is forgeable
+   (a symlink record followed on read, a truncating non-exclusive create, a stage that outlives a crash
+   before its record); and reusing the INSTALLED-file header for a temp is BOTH non-atomic (the header is
+   written after the file appears, so a crash orphans an empty temp) and forgeable (a public header cannot
+   tell our crashed temp from a foreign lookalike). The fix is a STRUCTURED OWNED NAMESPACE: stage inside
+   `<root>/.fido/staging/`, so a staging object is ours BY LOCATION (inside the marked control dir) — atomic
+   (a partial temp is already owned) and unforgeable (foreign tree files are never in it). Create each temp
+   `O_CREAT|O_EXCL` then atomically rename (reject a cross-filesystem target first, since rename can't be
+   atomic across devices). Recovery empties that ONE directory, recover-all-or-REJECT and fail-CLOSED (any
+   readdir/lstat/removal error but a confirmed `ENOENT` aborts before any effect); it NEVER scans the tree,
+   so a header-forging foreign file is untouched. Keep installed-`.go` ownership (header first line, lstat
+   S_REG) SEPARATE — the two have different crash and authenticity requirements. Inject cleanup/recovery
+   failure via `unlink`/`after_stage` PARAMETERS through the real algorithm — never an ambient env branch or
+   a real `chmod` in the production sink (that makes destructive behaviour reachable and mutates foreign
+   metadata). State the guarantee honestly: NOT transactional; normal completion (success or a handled
+   failure) releases the lock so an immediate rerun proceeds, but a crash — or a lock-release failure —
+   leaves the lock and the next run refuses until it is deliberately removed.
 
 7. **Source-text scanning is not a sound zero-axiom gate — audit the compiled environment instead.** Every
    text scanner leaked: a naive comment stripper missed an `Axiom` behind a `"(*"` string; a smarter lexical
