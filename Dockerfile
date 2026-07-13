@@ -32,7 +32,7 @@ FROM debian:12-slim@sha256:60eac759739651111db372c07be67863818726f754804b8707c90
 RUN --mount=type=cache,id=fido-apt-base,target=/var/cache/apt,sharing=locked \
     apt-get update \
     && apt-get install -y --no-install-recommends \
-        bash ca-certificates gcc libc6-dev libgmp-dev linux-libc-dev make pkg-config tar \
+        bash ca-certificates diffutils gcc libc6-dev libgmp-dev linux-libc-dev make pkg-config tar \
     && rm -rf /var/lib/apt/lists/* \
        /usr/share/doc/* /usr/share/info/* /usr/share/locale/* /usr/share/man/* \
     && useradd -m -s /bin/bash opam
@@ -165,21 +165,21 @@ mkdir -p /workspace/adv-1/handwritten; printf 'package hand\n' > /workspace/adv-
 # (3) adversarial refuse-and-preserve; a handled failure leaves no staging residue
 mkdir -p /workspace/adv-a; printf 'FOREIGN\n' > /workspace/adv-a/main.go
 if ./sink_test /workspace/adv-a; then fail "overwrote a foreign main.go"; fi
-[ "$(cat /workspace/adv-a/main.go)" = "FOREIGN" ] || fail "a foreign main.go was altered"
+printf 'FOREIGN\n' | cmp -s - /workspace/adv-a/main.go || fail "a foreign main.go was altered (not byte-identical)"
 [ -z "$(staged /workspace/adv-a)" ] || fail "staging residue leaked after a handled failure"
 mkdir -p /workspace/adv-b-real; printf 'sentinel\n' > /workspace/adv-b-real/keep; ln -s /workspace/adv-b-real /workspace/adv-b
 if ./sink_test /workspace/adv-b; then fail "wrote through a symlinked root"; fi
-[ ! -e /workspace/adv-b-real/main.go ] && [ "$(cat /workspace/adv-b-real/keep)" = "sentinel" ] || fail "disturbed a symlinked root"
+{ [ ! -e /workspace/adv-b-real/main.go ] && printf 'sentinel\n' | cmp -s - /workspace/adv-b-real/keep; } || fail "disturbed a symlinked root"
 mkdir -p /workspace/adv-c/.fido; printf 'not the marker\n' > /workspace/adv-c/.fido/marker
 if ./sink_test /workspace/adv-c; then fail "touched a foreign .fido control dir"; fi
-[ "$(cat /workspace/adv-c/.fido/marker)" = "not the marker" ] || fail "altered a foreign control dir"
+printf 'not the marker\n' | cmp -s - /workspace/adv-c/.fido/marker || fail "altered a foreign control dir"
 # (3b) a symlink in an ANCESTOR of root (not just the final component) must be rejected BEFORE any effect,
 #      for both an existing and a missing leaf; the referent tree stays byte-identical.
 mkdir -p /workspace/sym-real/existing; printf 'referent\n' > /workspace/sym-real/existing/keep
 ln -s /workspace/sym-real /workspace/sym-link
 if ./sink_test /workspace/sym-link/existing; then fail "wrote through a prefix symlink (existing leaf)"; fi
 [ ! -e /workspace/sym-real/existing/.fido ] || fail "a prefix-symlinked root created .fido in the referent"
-[ "$(cat /workspace/sym-real/existing/keep)" = "referent" ] || fail "a prefix-symlinked root mutated the referent"
+printf 'referent\n' | cmp -s - /workspace/sym-real/existing/keep || fail "a prefix-symlinked root mutated the referent"
 if ./sink_test /workspace/sym-link/newleaf; then fail "wrote through a prefix symlink (missing leaf)"; fi
 [ ! -e /workspace/sym-real/newleaf ] || fail "a prefix-symlinked root created a missing leaf in the referent"
 # (4) a REAL crash mid-staging: the driver TERMINATES the process (Unix._exit) after the real staging code
@@ -235,7 +235,7 @@ for bad in slotdir slotlink other; do
   if out=$(./sink_test "$d" 2>&1); then fail "flat-$bad: an impossible staging state was NOT refused"; fi
   echo "$out" | grep -q 'recovery FAILED' || { echo "$out"; fail "flat-$bad: not a recovery rejection"; }
   case "$bad" in
-    slotdir)  { [ -d "$d/.fido/staging/tmp" ] && [ "$(cat "$d/.fido/staging/tmp/sub/f")" = "x" ]; } || fail "flat-slotdir: the slot directory was altered/removed";;
+    slotdir)  { [ -d "$d/.fido/staging/tmp" ] && printf 'x\n' | cmp -s - "$d/.fido/staging/tmp/sub/f"; } || fail "flat-slotdir: the slot directory was altered/removed";;
     slotlink) [ -L "$d/.fido/staging/tmp" ] || fail "flat-slotlink: the slot symlink was removed/followed";;
     other)    [ -f "$d/.fido/staging/other" ] || fail "flat-other: the foreign basename was removed";;
   esac
@@ -244,20 +244,39 @@ done
 #      (recovery validates the WHOLE state before removing the slot).  The enumeration order is FORCED
 #      through the real recovery via the injectable readdir seam, so BOTH `[tmp;other]` and `[other;tmp]`
 #      are exercised deterministically; the tmp-first case is exactly the one the old one-pass code would
-#      have destroyed.  Both entries carry distinctive bytes and are asserted byte-identical after rejection.
+#      have destroyed.  Each entry is SNAPSHOTTED before recovery and asserted BYTE-EXACT with `cmp` after
+#      (never `$(cat)`, which strips trailing newlines and could not detect a mutation), and must remain a
+#      regular file (not followed/replaced).  The literal bytes live only in the setup `printf`; the
+#      assertions compare against the snapshot copy, so there is no duplicated expected-byte authority.
+snap=/workspace/mix-snap; mkdir -p "$snap"
 for order in readdir-tmp-first readdir-other-first; do
   d=/workspace/adv-mix-$order; mkdir -p "$d"; ./sink_test "$d" || fail "mix-$order initial sync failed"
   printf 'SLOT-bytes-42\n'  > "$d/.fido/staging/tmp"
   printf 'OTHER-bytes-99\n' > "$d/.fido/staging/other"
+  cp "$d/.fido/staging/tmp" "$snap/tmp-$order"; cp "$d/.fido/staging/other" "$snap/other-$order"
   if out=$(./sink_test "$d" "$order" 2>&1); then fail "mix-$order: a mixed staging state was NOT refused"; fi
   echo "$out" | grep -q 'recovery FAILED' || { echo "$out"; fail "mix-$order: not a recovery rejection"; }
-  [ "$(cat "$d/.fido/staging/tmp")"   = "SLOT-bytes-42" ]  || fail "mix-$order: the valid slot was removed/altered before the mixed state was rejected"
-  [ "$(cat "$d/.fido/staging/other")" = "OTHER-bytes-99" ] || fail "mix-$order: the forbidden entry was altered/removed"
+  for e in tmp other; do
+    { [ -f "$d/.fido/staging/$e" ] && [ ! -h "$d/.fido/staging/$e" ]; } || fail "mix-$order: $e is no longer a regular file after rejection"
+    cmp -s "$d/.fido/staging/$e" "$snap/$e-$order" || fail "mix-$order: $e was altered (not byte-identical) before the mixed state was rejected"
+  done
   rm -f "$d/.fido/staging/other"                 # remove the forbidden entry; the rerun must converge
   ./sink_test "$d" || fail "mix-$order: no converge after the forbidden entry was removed"
   [ -z "$(staged "$d")" ] || fail "mix-$order: staging residue survived a converging rerun"
 done
-[ "$(cat /workspace/sentinel/keep)" = "live" ] || fail "a slot symlink's external target was mutated/deleted"
+# (7c-meta) PROVE the byte-exact assertion above is not newline-normalizing: derive each mutant from a
+#           snapshot's bytes (no re-typed literal) — final newline removed, an extra newline appended,
+#           truncated, or the file missing — and confirm `cmp` DETECTS every one.  A `$(cat)` comparison
+#           would silently pass the first two; if `cmp` here is ever swapped for one that normalizes
+#           newlines, this self-test fails and blocks the build.
+ref=$snap/tmp-readdir-tmp-first; n=$(wc -c < "$ref")
+head -c $((n-1)) "$ref" > "$snap/mut-noeol"                              # final newline removed
+cp "$ref" "$snap/mut-extraeol"; printf '\n' >> "$snap/mut-extraeol"     # an extra newline appended
+head -c 3 "$ref" > "$snap/mut-trunc"                                    # truncated
+for mut in mut-noeol mut-extraeol mut-trunc does-not-exist; do
+  if cmp -s "$ref" "$snap/$mut"; then fail "byte-exact self-test: cmp did NOT detect the $mut difference (comparison is newline-normalizing / treats a missing file as identical)"; fi
+done
+printf 'live\n' | cmp -s - /workspace/sentinel/keep || fail "a slot symlink's external target was mutated/deleted"
 # (8) crash PREFIXES against the ONE slot: seed the slot as empty / partial / full (a crash leaves at most
 #     this one regular file, whatever its bytes) — a normal rerun recovers each and converges; and an
 #     INJECTED recovery-unlink failure against a seeded slot must fail loud BEFORE any effect, keep the
