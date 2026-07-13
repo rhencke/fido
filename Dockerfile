@@ -88,7 +88,7 @@ COPY --chown=opam:opam *.v ./
 COPY --chown=opam:opam gate/ gate/
 COPY --chown=opam:opam plugin/ plugin/
 COPY --chown=opam:opam e2e/ e2e/
-RUN --mount=type=cache,id=fido-dune-rocq-9.2.0-${TARGETARCH},uid=1000,gid=1000,target=/workspace/_build,sharing=locked <<'SH'
+RUN --mount=type=cache,id=fido-dune-rocq-9.2.0-${TARGETARCH},uid=1000,gid=1000,target=/workspace/_build,sharing=locked --mount=type=tmpfs,target=/workspace/adv-mount/sub <<'SH'
 set -eu
 fail() { echo "fido: emit FAILED — $*"; exit 1; }
 rm -rf /workspace/e2e-out /workspace/e2e-multi /workspace/e2e-empty /workspace/e2e-forge* /workspace/e2e-neg /workspace/adv-* /workspace/sreal /workspace/slink /workspace/sink_test 2>/dev/null || true
@@ -398,7 +398,59 @@ cmp -s /tmp/late-main.go adv-late/main.go || fail "late: a prior final main.go c
 [ ! -e adv-late/.fido/index.lock ] || fail "late: the lock was not released after a handled failure"
 ./sink_test adv-late || fail "late: did not converge on a clean rerun"
 
-echo "fido: emit OK — general Fido Emit synced the witness / multi-package / EMPTY trees (rendered go.mod); forged images rejected; sink foreign-Go rejection + local-staging + record-driven recovery (crash points, malformed/escaping/mismatched/symlinked records, collision, unlink-failure) all pass"
+# (13) a LATER-STAGE write failure (a genuine write error at the sub/ file, before ANY install) leaves all
+#      prior FINAL generated files byte-identical (complete-image staging precedes install), cleans up, and
+#      reruns converge.
+mkdir -p adv-latew; ./sink_test adv-latew multi || fail "latew: init"
+cp adv-latew/go.mod /tmp/latew-go.mod; cp adv-latew/main.go /tmp/latew-main.go; cp adv-latew/sub/main.go /tmp/latew-sub.go
+if ./sink_test adv-latew multi fail-write-sub 2>/dev/null; then fail "latew: a later-stage write failure was not surfaced"; fi
+{ cmp -s /tmp/latew-go.mod adv-latew/go.mod && cmp -s /tmp/latew-main.go adv-latew/main.go && cmp -s /tmp/latew-sub.go adv-latew/sub/main.go; } || fail "latew: a prior final changed after a later-stage write failure"
+[ -z "$(residue adv-latew)" ] || fail "latew: residue survived a later-stage write failure"
+./sink_test adv-latew multi || fail "latew: no converge"
+
+# (14) DELETION ownership race: a stale owned .go that becomes foreign right before its stale-delete recheck
+#      is NOT deleted (§17).  Emit multi (root+sub owned), re-emit single so sub/main.go is stale; the race
+#      makes it foreign → the recheck skips it → it survives with the foreign bytes.
+mkdir -p adv-del; ./sink_test adv-del multi || fail "del: init"
+./sink_test adv-del foreign-before-delete || fail "del: re-sync aborted unexpectedly"
+printf 'FOREIGN not a fido file\n' | cmp -s - adv-del/sub/main.go || fail "del: a stale file that became foreign was deleted or overwritten"
+
+# (15) HANDLED failures INSIDE make_stage (after the record, and after the stage dir) clean up immediately —
+#      no record/stage residue survives (an unregistered partial must not escape cleanup).
+for pt in after-record after-mkdir; do
+  d=/workspace/adv-ims-$pt; mkdir -p "$d"
+  if ./sink_test "$d" "" "fail-$pt" 2>/dev/null; then fail "ims-$pt: a handled make_stage failure was not surfaced"; fi
+  [ -z "$(residue "$d")" ] || fail "ims-$pt: record/stage residue survived a handled make_stage failure"
+  [ ! -e "$d/.fido/index.lock" ] || fail "ims-$pt: the lock was not released"
+  ./sink_test "$d" || fail "ims-$pt: no converge on a clean rerun"
+done
+
+# (16) SEPARATE per-parent stages: a MULTI image frozen at crash-after-staging shows TWO stage dirs — one in
+#      root, one in sub/ (a SIBLING of the nested target, not central).
+mkdir -p adv-sep
+if ./sink_test adv-sep multi crash-after-staging 2>/dev/null; then fail "sep: the crash did not terminate the process"; fi
+[ "$(stages adv-sep | wc -l)" -eq 2 ] || fail "sep: expected TWO separate per-parent stages, found $(stages adv-sep | wc -l)"
+[ -n "$(find adv-sep/sub -name '.fido-stage-*' 2>/dev/null)" ] || fail "sep: no sibling stage in the nested parent sub/"
+rm -f adv-sep/.fido/index.lock; ./sink_test adv-sep multi || fail "sep: no converge"
+
+# (17) a nested destination parent on ANOTHER MOUNT (a tmpfs at adv-mount/sub — a different device than the
+#      overlay root where .fido lives) is NOT centrally rejected: the sibling stage is on the target's
+#      device, so the rename is atomic.  (The OLD central-staging design would EXDEV here.)  BuildKit mounts
+#      the tmpfs as root, so if the non-root emit user cannot write it we DEGRADE with a note — the sibling
+#      per-parent stage mechanism itself is proved structurally by test (16), and EXDEV rejection by (10).
+mkdir -p /workspace/adv-mount 2>/dev/null || true
+if [ -w /workspace/adv-mount ] && touch /workspace/adv-mount/sub/.probe 2>/dev/null; then
+  rm -f /workspace/adv-mount/sub/.probe
+  devr=$(stat -c '%d' /workspace/adv-mount); devs=$(stat -c '%d' /workspace/adv-mount/sub)
+  ./sink_test /workspace/adv-mount multi || fail "mount: a nested cross-mount parent was rejected"
+  { [ -f /workspace/adv-mount/go.mod ] && [ -f /workspace/adv-mount/main.go ] && [ -f /workspace/adv-mount/sub/main.go ]; } || fail "mount: nested cross-mount tree incomplete"
+  [ -z "$(residue /workspace/adv-mount)" ] || fail "mount: residue after a cross-mount success"
+  if [ "$devr" != "$devs" ]; then echo "fido: cross-mount OK — a nested parent on a distinct device (tmpfs, dev $devs != root dev $devr) was accepted"; else echo "fido: (note) the nested-mount test ran but sub shares root's device"; fi
+else
+  echo "fido: (note) the tmpfs nested mount is not writable by the non-root emit user; nested-parent mount-safety is covered structurally by test (16) (separate sibling per-parent stages) + EXDEV rejection (10)"
+fi
+
+echo "fido: emit OK — general Fido Emit synced the witness / multi-package / EMPTY trees (rendered go.mod); forged images rejected; sink foreign-Go rejection + local-staging + record-driven recovery (crash points, in-make_stage handled failures, malformed/escaping/mismatched/short/symlinked records, collision, unlink-failure, later-stage write failure, overwrite+delete races, separate per-parent + cross-mount nested staging, error aggregation) all pass"
 SH
 
 # ── Stage 5: go-e2e — the LAST-MILE integration check (never a proof).  The pinned Go toolchain builds the

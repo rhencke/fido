@@ -5,50 +5,43 @@
    image, while REFUSING to run in the presence of any foreign Go/module input.  It understands ONLY the
    filesystem — no program, no Go, no Rocq terms.
 
-   OWNERSHIP.  Installed `.go` files and the root `go.mod` are Fido-owned iff their first line is the exact
-   generated header (DERIVED from the go.mod bytes, never hardcoded) AND they are regular non-symlink files
-   — rechecked immediately before every overwrite/delete.  A foreign `.go` (anywhere beneath root) or a
-   foreign/nested `go.mod` is NOT preserved-and-merged: it REJECTS the whole emission before any generated-
-   file mutation, because a dirty foreign Go input would silently change what `go build ./...` compiles.
+   OWNERSHIP + FOREIGN REJECTION.  Installed `.go` files and the root `go.mod` are Fido-owned iff their
+   first line is the exact generated header (DERIVED from the go.mod bytes) AND they are regular non-symlink
+   files — RE-checked immediately before every overwrite/delete.  A foreign `.go` (anywhere beneath root) or
+   a foreign/nested `go.mod` REJECTS the whole emission before any generated-file mutation (a dirty foreign
+   Go input would silently change what `go build ./...` compiles); foreign NON-Go files are preserved.
 
-   LOCAL STAGING (no central staging dir).  One persistent owned control directory `<root>/.fido/` holds an
-   exact ownership marker, one emission lock (git-style O_EXCL), and a record namespace
-   `<root>/.fido/stage-records/` (ownership/recovery records ONLY — never payloads).  For each distinct
-   final PARENT directory receiving desired files (root for `go.mod` and root-level `.go`; a subdir for a
-   nested `.go`), one local stage directory `<parent>/.fido-stage-<nonce>` is created, with a high-entropy
-   OS nonce (/dev/urandom).  A local stage is owned by a ROOT-OWNED RECORD, never by name/marker/header
-   alone.  Because stage and target are SIBLINGS under one parent, per-file install is an atomic rename on
-   the same filesystem and nested mount points inside root are supported (no central cross-device compare);
-   EXDEV fails loud with no copy fallback.
+   LOCAL STAGING (no central staging dir).  `<root>/.fido/` holds the exact marker, one git-style O_EXCL
+   lock, and `stage-records/` (records ONLY, never payloads).  For each distinct final PARENT (root for
+   `go.mod`/root-level `.go`; a subdir for a nested `.go`) one local stage `<parent>/.fido-stage-<nonce>`
+   (OS /dev/urandom nonce) is created, OWNED BY A ROOT-OWNED RECORD — never a name/marker/header: the record
+   is created atomic O_CREAT|O_EXCL and fully written+validated BEFORE its stage dir, and removed only AFTER
+   the stage dir is gone.  Because stage and target are SIBLINGS, per-file install is an atomic same-device
+   rename (nested mounts inside root work; no central cross-device compare; EXDEV fails loud, no copy).
+   Binding order: validate root chain + reject reserved/foreign BEFORE any effect; lock; record-driven
+   recovery; foreign scan; stage the COMPLETE image; install each by rename; remove stale owned `.go`;
+   remove each stage then its record; release the lock.
 
-   PROTOCOL (binding order): validate the root chain and reject reserved/foreign inputs BEFORE any effect;
-   acquire the lock; record-driven recovery of abandoned stages; foreign-Go/module scan (fail-closed);
-   create parent dirs + one recorded local stage per parent; STAGE THE COMPLETE IMAGE; only then install
-   each file by rename; remove stale owned `.go`; remove each stage then its record; release the lock.  A
-   record is created (atomic O_CREAT|O_EXCL) and completely written BEFORE its stage directory, and removed
-   only AFTER its stage directory is gone.
+   FAIL-CLOSED.  Only a confirmed ENOENT is "missing"; every other fs error (EACCES/EIO/ELOOP/ENOTDIR/…)
+   aborts; discovery never turns a readdir/lstat failure into "empty"/"no header".  On a handled failure the
+   run cleans its OWN stages/records/newly-empty parents immediately and AGGREGATES body + cleanup +
+   lock-release errors (a record is removed only once its stage is CONFIRMED gone — never orphaned).  An
+   existing `.fido` is validated (marker + stage-records/ + a transient lock, nothing else) and NEVER
+   modified; a failed first-time init rolls back what it created.
 
-   FAIL-CLOSED.  Only a confirmed ENOENT means "missing"; every other filesystem error (EACCES/EIO/ELOOP/
-   ENOTDIR/…) aborts.  Recursive discovery never turns a readdir failure into an empty directory; reading an
-   ownership header fails closed.  On a handled failure the run cleans up its own stages/records/newly-empty
-   parents immediately, aggregates body + cleanup + lock-release errors, and releases the lock.  Residue
-   remains only after an uncatchable crash or a cleanup/lock-release failure — the next run recovers it
-   (record-driven) before any generated-file mutation.
+   HONEST GUARANTEE (Linux/amd64 scope).  GoProgram acceptance, SafeProgram certification, and DirectoryImage
+   creation are semantically all-or-nothing.  Installation is locked for COOPERATING emitters, rejects
+   foreign Go/module inputs, stages the complete image locally beside target parents before installation,
+   uses per-file atomic rename in the ordinary same-filesystem case, cleans handled-failure residue
+   immediately, recovers record-owned abandoned stages before future mutation, and converges on rerun.  It
+   is NOT a portable transactional multi-file filesystem commit, NOT crash-proof against SIGKILL/power loss,
+   and — no openat/O_NOFOLLOW in this OCaml Unix — NOT hardened against a malicious concurrent process; the
+   single-emit-process use has no such adversary.  A foreign lookalike without a valid root-owned record is
+   never treated as owned.
 
-   HONEST GUARANTEE (Linux/amd64 operational scope).  GoProgram acceptance, SafeProgram certification, and
-   DirectoryImage creation are semantically all-or-nothing.  Installation is locked for COOPERATING
-   emitters, rejects foreign Go/module inputs, stages the complete image locally beside target parents
-   before installation, uses per-file atomic rename in the ordinary same-filesystem case, cleans handled-
-   failure residue immediately, recovers record-owned abandoned stages before future mutation, and
-   converges on rerun.  It is NOT a portable transactional multi-file filesystem commit, NOT crash-proof
-   against SIGKILL/power loss, and — because this OCaml `Unix` exposes no openat/O_NOFOLLOW — NOT hardened
-   against a malicious concurrent process racing symlink swaps; the intended single-emit-process use has no
-   such adversary.  High-entropy stage names prevent ordinary accidental collisions; a foreign lookalike
-   without a valid root-owned record is never treated as owned.
-
-   The fallible/nondeterministic operations are PARAMETERS ([rand_hex] nonce source, [checkpoint] crash
-   points, [unlink] removal) so the test driver can inject faults through the REAL algorithm — no ambient
-   env branch, no destructive default in the production call graph; the plugin always uses the defaults. *)
+   Fallible/nondeterministic ops are PARAMETERS (rand_hex/checkpoint/unlink/rename/before_install/
+   before_write/before_delete) so the driver injects faults through the REAL algorithm — no ambient env, no
+   destructive default in the production call graph; the plugin always uses the defaults. *)
 
 let control_dir  = ".fido"
 let marker_name  = "marker"
@@ -105,13 +98,16 @@ let write_all fd bytes =
       if w <= 0 then fail "short write" else loop (off + w) in
   loop 0
 
-(* create a NEW file exclusively and write it completely (fails closed if the path is occupied). *)
+(* create a NEW file exclusively and write it completely (fails closed if the path is occupied); a
+   descriptor-close error on the failure path is surfaced, not swallowed. *)
 let write_new p bytes =
   let fd = try Unix.openfile p [Unix.O_CREAT; Unix.O_EXCL; Unix.O_WRONLY] 0o644
            with Unix.Unix_error (e, _, _) -> fail "cannot create %s: %s" p (Unix.error_message e) in
   (try write_all fd bytes; Unix.close fd
-   with e -> (try Unix.close fd with _ -> ());
-             (match e with Fail m -> fail "cannot write %s: %s" p m | _ -> raise e))
+   with e ->
+     let close_msg = (try Unix.close fd; None with Unix.Unix_error (ce,_,_) -> Some (Unix.error_message ce)) in
+     let base = match e with Fail m -> m | _ -> Printexc.to_string e in
+     fail "cannot write %s: %s%s" p base (match close_msg with Some c -> " | fd close failed: " ^ c | None -> ""))
 
 (* ---- path safety + the reserved control namespace ---- *)
 
@@ -277,22 +273,35 @@ let make_stage rand_hex unlink checkpoint root records_abs parent_rel =
        | `Fd fd ->
          let content = Printf.sprintf "%s\n%s\n%s\n%s\n" record_tag nonce parent_rel stage_rel in
          (try write_all fd content; Unix.close fd
-          with e -> (try Unix.close fd with _ -> ());
-                    let base = match e with Fail m -> m | _ -> Printexc.to_string e in
-                    (match (try unlink record_abs; None with Unix.Unix_error (er,_,_) -> Some (Unix.error_message er)) with
-                     | None -> fail "cannot write stage record %s: %s" record_abs base
-                     | Some rm -> fail "cannot write stage record %s: %s | record cleanup also failed: %s" record_abs base rm));
-         (* §13.6 validate the CLOSED record (re-read + exact fields) BEFORE creating the stage directory. *)
-         (let (n', p', s') = parse_record record_abs in
-          if not (n' = nonce && p' = parent_rel && s' = stage_rel)
-          then (rm_record (); fail "stage record %s did not validate after write" record_abs));
-         checkpoint "after-record";
-         (match (try `Ok (Unix.mkdir stage_abs 0o755)
-                 with Unix.Unix_error (Unix.EEXIST, _, _) -> `Collide
-                    | Unix.Unix_error (e, _, _) -> `Err (Unix.error_message e)) with
-          | `Ok () -> checkpoint "after-mkdir"; (nonce, stage_abs, record_abs)
-          | `Collide -> rm_record (); attempt (tries - 1)
-          | `Err m -> rm_record (); fail "cannot create local stage %s: %s" stage_abs m))
+          with e ->
+            let close_msg = (try Unix.close fd; None with Unix.Unix_error (ce,_,_) -> Some (Unix.error_message ce)) in
+            let base = match e with Fail m -> m | _ -> Printexc.to_string e in
+            let rm_msg = (try unlink record_abs; None with Unix.Unix_error (re,_,_) -> Some (Unix.error_message re)) in
+            fail "cannot write stage record %s: %s%s%s" record_abs base
+              (match close_msg with Some c -> " | fd close failed: " ^ c | None -> "")
+              (match rm_msg with Some r -> " | record cleanup failed: " ^ r | None -> ""));
+         (* From here the record (and, once created, the stage) exist.  Guard so that ANY failure —
+            record re-validation, an injected checkpoint, or a stage-creation error — IMMEDIATELY removes
+            our partial artifacts before propagating (§15: handled-failure cleanup is immediate; a partial
+            make_stage never leaves an unregistered record/stage). *)
+         let result =
+           (try
+              (let (n', p', s') = parse_record record_abs in    (* §13.6 validate the CLOSED record *)
+               if not (n' = nonce && p' = parent_rel && s' = stage_rel)
+               then fail "stage record %s did not validate after write" record_abs);
+              checkpoint "after-record";
+              (match (try `Ok (Unix.mkdir stage_abs 0o755)
+                      with Unix.Unix_error (Unix.EEXIST, _, _) -> `Collide
+                         | Unix.Unix_error (e, _, _) -> fail "cannot create local stage %s: %s" stage_abs (Unix.error_message e)) with
+               | `Ok () -> checkpoint "after-mkdir"; `Made
+               | `Collide -> `Collide)
+            with e ->
+              (try (match lstat_obs stage_abs with Present _ -> rm_rf_no_follow unlink stage_abs | Missing -> ()) with _ -> ());
+              (try unlink record_abs with _ -> ());
+              raise e) in
+         (match result with
+          | `Collide -> rm_record (); attempt (tries - 1)   (* a raced foreign entry at the slot: our record only *)
+          | `Made -> (nonce, stage_abs, record_abs)))
   in attempt 8
 
 let ensure_dir_chain root parent_rel created =
@@ -309,8 +318,8 @@ let ensure_dir_chain root parent_rel created =
         created := !cur :: !created)
       (String.split_on_char '/' parent_rel)
 
-(* ---- remove stale Fido-owned .go NOT in the desired set (ownership rechecked immediately) ---- *)
-let rec remove_stale_go unlink root header desired rel =
+(* ---- remove stale Fido-owned .go NOT in the desired set (ownership RE-checked immediately before delete) ---- *)
+let rec remove_stale_go unlink before_delete root header desired rel =
   let dir = if rel = "" then root else Filename.concat root rel in
   let names =
     try Sys.readdir dir
@@ -322,11 +331,16 @@ let rec remove_stale_go unlink root header desired rel =
       match lstat_obs p with
       | Missing -> ()
       | Present st ->
-        if st.Unix.st_kind = Unix.S_DIR then remove_stale_go unlink root header desired child_rel
+        if st.Unix.st_kind = Unix.S_DIR then remove_stale_go unlink before_delete root header desired child_rel
         else if ends_with ".go" name && st.Unix.st_kind = Unix.S_REG
                 && read_first_line p = header && not (List.mem p desired)
-        then (try unlink p
-              with Unix.Unix_error (e,_,_) -> fail "cannot remove stale generated %s: %s" p (Unix.error_message e))
+        then begin
+          before_delete p;                          (* test seam: a race can mutate p here *)
+          (* §17 recheck ownership IMMEDIATELY before delete — a file that became foreign is NOT deleted *)
+          if owned_regular p header then
+            (try unlink p
+             with Unix.Unix_error (e,_,_) -> fail "cannot remove stale generated %s: %s" p (Unix.error_message e))
+        end
     end)
     names
 
@@ -337,12 +351,21 @@ let ensure_root_and_control root control_abs records_abs =
                  with Unix.Unix_error (e,_,_) -> fail "cannot create root %s: %s" root (Unix.error_message e)));
   match lstat_obs control_abs with
   | Missing ->
-    (* FIRST-TIME: create the whole owned control namespace (marker + records dir) *)
+    (* FIRST-TIME: create the whole owned control namespace (marker + records dir).  If any step after the
+       control dir fails, ROLL BACK exactly the entries this invocation created, so a partial .fido never
+       strands the target (the next run starts fresh and converges — §12,15). *)
     (try Unix.mkdir control_abs 0o755
      with Unix.Unix_error (e,_,_) -> fail "cannot create %s: %s" control_abs (Unix.error_message e));
-    write_new (Filename.concat control_abs marker_name) marker_bytes;
-    (try Unix.mkdir records_abs 0o755
-     with Unix.Unix_error (e,_,_) -> fail "cannot create %s: %s" records_abs (Unix.error_message e))
+    let mk = Filename.concat control_abs marker_name in
+    (try
+       write_new mk marker_bytes;
+       (try Unix.mkdir records_abs 0o755
+        with Unix.Unix_error (e,_,_) -> fail "cannot create %s: %s" records_abs (Unix.error_message e))
+     with e ->
+       (try (match lstat_obs records_abs with Present _ -> Unix.rmdir records_abs | Missing -> ()) with _ -> ());
+       (try (match lstat_obs mk with Present _ -> Unix.unlink mk | Missing -> ()) with _ -> ());
+       (try Unix.rmdir control_abs with _ -> ());
+       raise e)
   | Present st ->
     (* EXISTING: VALIDATE the exact ownership marker AND directory shape; abort WITHOUT modifying on any
        deviation (§12 — an existing .fido is Fido-owned by location; it must be marker + stage-records/ (+ a
@@ -365,7 +388,8 @@ let ensure_root_and_control root control_abs records_abs =
 let uniq l = List.rev (List.fold_left (fun acc x -> if List.mem x acc then acc else x :: acc) [] l)
 
 let sync ?(rand_hex = default_rand_hex) ?(checkpoint = fun _ -> ()) ?(unlink = Unix.unlink)
-         ?(rename = Unix.rename) ?(before_install = fun _ -> ())
+         ?(rename = Unix.rename) ?(before_install = fun _ -> ()) ?(before_write = fun _ -> ())
+         ?(before_delete = fun _ -> ())
          dir go_mod entries =
   let header = first_line_of_string go_mod in
   let control_abs = Filename.concat dir control_dir in
@@ -404,7 +428,9 @@ let sync ?(rand_hex = default_rand_hex) ?(checkpoint = fun _ -> ()) ?(unlink = U
       (uniq (List.map (fun (_,pr,_,_) -> pr) desired));
     (* H. STAGE THE COMPLETE IMAGE before any install *)
     List.iteri (fun i (_, pr, base, bytes) ->
-      write_new (Filename.concat (Hashtbl.find stage_of pr) base) bytes;
+      let sp = Filename.concat (Hashtbl.find stage_of pr) base in
+      before_write sp;                               (* test seam: a later-stage write can fail here *)
+      write_new sp bytes;
       if i = 0 then checkpoint "after-first-payload") desired;
     checkpoint "after-staging";
     (* I. install each file: recheck ownership IMMEDIATELY before overwrite, then rename (sibling; atomic;
@@ -422,7 +448,7 @@ let sync ?(rand_hex = default_rand_hex) ?(checkpoint = fun _ -> ()) ?(unlink = U
           | Unix.Unix_error (e, _, _) -> fail "cannot install %s: %s" target (Unix.error_message e)))
       desired;
     (* J. remove stale Fido-owned .go not in the desired set (empty program removes them all) *)
-    remove_stale_go unlink dir header (List.map (fun (t,_,_,_) -> t) desired) "";
+    remove_stale_go unlink before_delete dir header (List.map (fun (t,_,_,_) -> t) desired) "";
     (* K. cleanup: remove each now-empty stage, then its record *)
     List.iter (fun (_, stage_abs, record_abs) ->
       (try Unix.rmdir stage_abs
@@ -449,20 +475,34 @@ let sync ?(rand_hex = default_rand_hex) ?(checkpoint = fun _ -> ()) ?(unlink = U
       else
         cleanup_errors := Printf.sprintf "stage %s not removed — preserving record %s for recovery" stage_abs record_abs :: !cleanup_errors)
       !stages;
-    List.iter (fun d -> try Unix.rmdir d with _ -> ()) !created_dirs in
+    (* newly-created empty parents: a non-empty dir (ENOTEMPTY/EEXIST) is benign (preserve it); any OTHER
+       removal error is an operational failure and is reported. *)
+    List.iter (fun d ->
+      match (try Unix.rmdir d; None
+             with Unix.Unix_error ((Unix.ENOTEMPTY | Unix.EEXIST | Unix.ENOENT), _, _) -> None
+                | Unix.Unix_error (e,_,_) -> Some (Unix.error_message e)) with
+      | None -> () | Some m -> cleanup_errors := Printf.sprintf "cannot remove created dir %s: %s" d m :: !cleanup_errors)
+      !created_dirs in
+  (* releasing the lock collects (never hides) both a descriptor-close error and the unlink error. *)
+  let lock_errors = ref [] in
   let release_lock () =
-    (try Unix.close lockfd with _ -> ());
-    (try Unix.unlink lock_abs
-     with Unix.Unix_error (e,_,_) -> fail "cannot release lock %s: %s" lock_abs (Unix.error_message e)) in
+    (match (try Unix.close lockfd; None with Unix.Unix_error (e,_,_) -> Some (Unix.error_message e)) with
+     | None -> () | Some m -> lock_errors := ("close: " ^ m) :: !lock_errors);
+    (match (try Unix.unlink lock_abs; None with Unix.Unix_error (e,_,_) -> Some (Unix.error_message e)) with
+     | None -> () | Some m -> lock_errors := ("unlink: " ^ m) :: !lock_errors) in
   match (try `Ok (body ()) with e -> `Err e) with
-  | `Ok n -> release_lock (); n
+  | `Ok n ->
+    release_lock ();
+    (match !lock_errors with [] -> n
+     | es -> raise (Fail ("lock release FAILED: " ^ String.concat "; " (List.rev es))))
   | `Err e ->
     let body_msg = match e with Fail m -> m | _ -> Printexc.to_string e in
-    (try cleanup_on_failure () with _ -> ());
-    let lock_msg = (try release_lock (); None with Fail m -> Some m | _ -> Some "unknown lock-release error") in
+    (try cleanup_on_failure ()
+     with ex -> cleanup_errors := ("cleanup routine raised: " ^ Printexc.to_string ex) :: !cleanup_errors);
+    release_lock ();
     let parts = body_msg
                 :: (List.rev_map (fun m -> "cleanup FAILED: " ^ m) !cleanup_errors
-                    @ (match lock_msg with Some m -> [ "lock release FAILED: " ^ m ] | None -> [])) in
+                    @ List.rev_map (fun m -> "lock release FAILED: " ^ m) !lock_errors) in
     (match parts with
      | [ single ] -> raise (Fail single)
      | _ -> raise (Fail (String.concat " | " parts)))

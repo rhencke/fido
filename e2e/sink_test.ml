@@ -12,7 +12,11 @@
      "unlink-fail"           — [unlink] always fails (recovery / cleanup / stale-removal failure);
      "exdev"                 — [rename] raises EXDEV (a cross-device install must fail loud, no copy fallback);
      "foreign-before-install" — [before_install] makes the target foreign right before its ownership recheck
-                  (a race): the recheck must abort rather than overwrite;
+                  (an overwrite race): the recheck must abort rather than overwrite;
+     "foreign-before-delete" — [before_delete] makes a stale owned .go foreign right before its stale-delete
+                  recheck (a deletion race): the recheck must NOT delete the now-foreign file;
+     "fail-write-sub"        — [before_write] raises a HANDLED failure at a LATER stage (the sub/ file):
+                  cleanup must run immediately and leave prior FINAL files untouched;
      "fail-after-first-payload" — [checkpoint] raises a HANDLED failure after the first staged file: cleanup
                   must run immediately and leave prior FINAL files untouched;
      "crash-after-record" / "crash-after-mkdir" / "crash-after-first-payload" / "crash-after-staging"
@@ -31,29 +35,40 @@ let read_all path =
 
 let () =
   let root = Sys.argv.(1) in
-  let mode = if Array.length Sys.argv > 2 then Sys.argv.(2) else "" in
-  let entries = match mode with
+  (* argv.(2) = the image selector; argv.(3) (if present) = the fault selector, else the same token does
+     both — so `sink_test dir multi crash-after-staging` freezes a multi image at a fault point. *)
+  let image = if Array.length Sys.argv > 2 then Sys.argv.(2) else "" in
+  let fault = if Array.length Sys.argv > 3 then Sys.argv.(3) else image in
+  let entries = match image with
     | "empty"    -> []
     | "multi"    -> [ ("main.go", mk "ROOT"); ("sub/main.go", mk "SUB") ]
     | "reserved" -> [ (".fido/x.go", mk "X") ]
     | _          -> [ ("main.go", mk "ROOT") ] in
   let rand_hex =
-    if mode = "collide" then (fun _ -> "00112233445566778899aabbccddeeff")   (* fixed → forces collision *)
+    if fault = "collide" then (fun _ -> "00112233445566778899aabbccddeeff")   (* fixed → forces collision *)
     else Fido_sink.default_rand_hex in
   let checkpoint label =
-    if mode = "crash-" ^ label then
+    if fault = "crash-" ^ label then
       (Printf.eprintf "sink_test: crashing at %s\n%!" label; Unix._exit 137)
-    else if mode = "fail-" ^ label then
+    else if fault = "fail-" ^ label then
       raise (Fido_sink.Fail ("injected handled failure at " ^ label)) in
   let unlink =
-    if mode = "unlink-fail" then (fun p -> raise (Unix.Unix_error (Unix.EACCES, "unlink", p)))
+    if fault = "unlink-fail" then (fun p -> raise (Unix.Unix_error (Unix.EACCES, "unlink", p)))
     else Unix.unlink in
   let rename src dst =
-    if mode = "exdev" then raise (Unix.Unix_error (Unix.EXDEV, "rename", dst)) else Unix.rename src dst in
+    if fault = "exdev" then raise (Unix.Unix_error (Unix.EXDEV, "rename", dst)) else Unix.rename src dst in
+  let make_foreign p = let oc = open_out_bin p in output_string oc "FOREIGN not a fido file\n"; close_out oc in
+  let has_sub p =                                (* plain substring search for "/sub/" — no Str dependency *)
+    let n = String.length p and m = 5 in
+    let rec go i = i + m <= n && (String.sub p i m = "/sub/" || go (i + 1)) in go 0 in
   let before_install target =
-    if mode = "foreign-before-install" && Filename.basename target = "main.go" then
-      (let oc = open_out_bin target in output_string oc "FOREIGN not a fido file\n"; close_out oc) in
-  match (try `Ok (Fido_sink.sync ~rand_hex ~checkpoint ~unlink ~rename ~before_install root go_mod entries)
+    if fault = "foreign-before-install" && Filename.basename target = "main.go" then make_foreign target in
+  let before_write sp =
+    if fault = "fail-write-sub" && has_sub sp then raise (Fido_sink.Fail "injected later-stage write failure") in
+  let before_delete p =
+    if fault = "foreign-before-delete" && has_sub p then make_foreign p in
+  match (try `Ok (Fido_sink.sync ~rand_hex ~checkpoint ~unlink ~rename ~before_install ~before_write
+                    ~before_delete root go_mod entries)
          with Fido_sink.Fail m -> `Fail m) with
   | `Ok n ->
     let check rel bytes =

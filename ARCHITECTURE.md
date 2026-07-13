@@ -188,6 +188,14 @@ generated-file mutation. It is **NOT** hardened against a concurrent non-coopera
 in the Linux/amd64 operational scope. Ownership is by header + regular-file + desired-key-set, never
 timestamps or a manifest. Git is a recovery backstop, not the primary safety mechanism.
 
+**The exact guarantee.** *GoProgram acceptance, SafeProgram certification, and DirectoryImage creation are
+semantically all-or-nothing. Dirty-directory installation is locked for cooperating emitters, rejects
+foreign Go/module inputs, stages the complete image locally beside target parents before installation, uses
+per-file atomic rename in the ordinary same-filesystem case, cleans handled-failure residue immediately,
+recovers record-owned abandoned local stages before future mutation, and converges on rerun. It is not a
+portable transactional multi-file filesystem commit and is not hardened against malicious concurrent
+filesystem mutation.*
+
 ## Closed world
 
 Imports are absent now, so the derived import set is empty for every file, and import syntax is
