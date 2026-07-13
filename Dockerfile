@@ -443,6 +443,18 @@ echo "$out" | grep -q 'cleanup FAILED' || { echo "$out"; fail "mscl: the cleanup
 ./sink_test adv-mscl || fail "mscl: no converge after recovery"
 [ -z "$(residue adv-mscl)" ] || fail "mscl: residue survived recovery"
 
+# (15c) a failed FIRST-TIME .fido init (umask 0777 → .fido is created mode 000 → marker creation EACCES, and
+#       the rollback's own lstat of the mode-000 dir also EACCES) must still ROLL BACK, keep the INITIATING
+#       error visible, aggregate the rollback errors, and leave nothing that strands the target — a normal
+#       rerun converges.
+mkdir -p adv-umask
+if out=$( umask 0777; ./sink_test adv-umask 2>&1 ); then fail "umask: a failed first-time .fido init did not surface"; fi
+echo "$out" | grep -q 'init failed' || { echo "$out"; fail "umask: the init failure was not reported"; }
+echo "$out" | grep -q 'Permission denied' || { echo "$out"; fail "umask: the INITIATING (marker EACCES) error was hidden"; }
+[ ! -e adv-umask/.fido ] || fail "umask: the partial mode-000 .fido was not rolled back (would strand the target)"
+./sink_test adv-umask || fail "umask: a normal rerun did not converge after rollback"
+[ -z "$(residue adv-umask)" ] || fail "umask: residue after convergence"
+
 # (16) SEPARATE per-parent stages: a MULTI image frozen at crash-after-staging shows TWO stage dirs — one in
 #      root, one in sub/ (a SIBLING of the nested target, not central).
 mkdir -p adv-sep

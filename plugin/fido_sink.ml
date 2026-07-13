@@ -39,9 +39,8 @@
    single-emit-process use has no such adversary.  A foreign lookalike without a valid root-owned record is
    never treated as owned.
 
-   Fallible/nondeterministic ops are PARAMETERS (rand_hex/checkpoint/unlink/rename/before_install/
-   before_write/before_delete) so the driver injects faults through the REAL algorithm — no ambient env, no
-   destructive default in the production call graph; the plugin always uses the defaults. *)
+   Fallible/nondeterministic ops are PARAMETERS (rand_hex/checkpoint/unlink/rename/before_install/before_write/
+   before_delete) so the driver injects faults through the REAL algorithm; the plugin always uses defaults. *)
 
 let control_dir  = ".fido"
 let marker_name  = "marker"
@@ -363,7 +362,9 @@ let ensure_root_and_control root control_abs records_abs =
      with e ->
        let base = match e with Fail m -> m | _ -> Printexc.to_string e in
        let errs = ref [] in
-       let step what f = match (try f (); None with Unix.Unix_error (er,_,_) -> Some (Unix.error_message er)) with
+       (* each step catches ANY exception (incl. the [Fail] lstat_obs raises) so all steps run and aggregate. *)
+       let step what f =
+         match (try f (); None with Fail m -> Some m | Unix.Unix_error (er,_,_) -> Some (Unix.error_message er) | ex -> Some (Printexc.to_string ex)) with
          | None -> () | Some m -> errs := (what ^ ": " ^ m) :: !errs in
        step "records dir" (fun () -> match lstat_obs records_abs with Present _ -> Unix.rmdir records_abs | Missing -> ());
        step "marker" (fun () -> match lstat_obs mk with Present _ -> Unix.unlink mk | Missing -> ());
