@@ -3,7 +3,7 @@
     exactly as many 'Closed under the global context' lines as there are 'Print Assumptions' commands here
     (an empty/partial log FAILS — fail-closed both ways).  These are the public surfaces of the
     program-rooted GoProgram -> GoCompile -> GoSafe -> GoRender -> GoEmit architecture. *)
-From Fido Require Import Ints FilePath FMap GoAST GoCompile GoSafe GoRender GoEmit.
+From Fido Require Import Ints FilePath FMap ModulePath GoVersion GoAST GoCompile GoSafe GoRender GoEmit.
 
 (* the 64-bit integer authority (only the constants an admitted construct uses) *)
 Print Assumptions Ints.int_min_val.
@@ -17,6 +17,18 @@ Print Assumptions FilePath.no_dotdot.
 Print Assumptions FilePath.no_test.
 Print Assumptions FilePath.no_testdata.
 Print Assumptions FilePath.no_vendor.
+
+(* intrinsic ModulePath: decidable equality; a representable canonical module path; rejected
+   (unrepresentable) module paths.  Invalid module paths have no ModulePath value at all. *)
+Print Assumptions ModulePath.mp_eqb_eq.
+Print Assumptions ModulePath.ok_generated.
+Print Assumptions ModulePath.no_dotdot.
+Print Assumptions ModulePath.no_leading_slash.
+Print Assumptions ModulePath.no_at.
+
+(* intrinsic GoVersion: the singleton Go1_23 renders EXACTLY "1.23"; decidable equality *)
+Print Assumptions GoVersion.render_goversion_go1_23.
+Print Assumptions GoVersion.goversion_eqb_eq.
 
 (* the finite map: KEYS ARE NODUP (duplicate keys unrepresentable — the real structural invariant), a
    key-colliding list cannot satisfy the constructor obligation, and lookup is deterministic *)
