@@ -31,8 +31,11 @@ of key uniqueness; regex source scanning is not a sound zero-axiom gate; axiom-f
   ModuleSpec     an intrinsic fact about the GENERATED module (NOT environment config, NOT a TargetConfig):
                  { module_path : ModulePath ; module_go_version : GoVersion }.  ModulePath is an INTRINSIC
                  narrow canonical module path (slash-separated lowercase segments [a-z][a-z0-9.]* ending
-                 a-z0-9, no `..`/leading-trailing/repeated slash, length-bounded; accepted by go 1.23 as a
-                 `module` directive; invalid paths UNREPRESENTABLE).  GoVersion is a SINGLETON today
+                 a-z0-9, no `..`/leading-trailing/repeated slash, length-bounded; FIRST element dotted (no
+                 stdlib-colliding dotless prefix), NO `/vN` version-suffix tail, NO `gopkg.in/` — the two
+                 Go-1.23 semantic-import-versioning reject classes; accepted by go 1.23 as a `module`
+                 directive, exact one-way (valid `/v2`/gopkg modules are out of scope, excluded not narrowed);
+                 invalid paths UNREPRESENTABLE).  GoVersion is a SINGLETON today
                  (Go1_23, renders exactly "1.23"); adding a later constructor is a reviewed semantic
                  milestone.  The exact compiler binary/toolchain pin is operational, off the theorems.
 

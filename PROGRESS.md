@@ -25,9 +25,11 @@ main in a package) is rejected IN Rocq before any bytes — **zero expected Go b
   `dup_key_unrepresentable`; the DISTINCT `fm_MapsTo_fun` (deterministic first-match lookup, weaker);
   `fm_Equal` (semantic eq, distinct from record `=`); `fm_of_list` rejects duplicate keys.
 - **`Ints`** — the ONE 64-bit width authority (`int_min`/`int_max`); no `uint`, no `TargetConfig`.
-- **`ModulePath`** — intrinsic narrow canonical module path; decidable eq (`mp_eqb_eq`); representable/
-  unrepresentable fixtures (`ok_generated`/`no_dotdot`/`no_leading_slash`/`no_at`). Invalid paths
-  unrepresentable.
+- **`ModulePath`** — intrinsic narrow canonical module path; decidable eq (`mp_eqb_eq`); the FIRST element
+  is dotted (no stdlib-colliding dotless prefix), there is no `/vN` version-suffix tail and no `gopkg.in/`
+  path (Go 1.23's two semantic-import-versioning reject classes — excluded, not admitted-then-narrowed);
+  representable/unrepresentable fixtures (`ok_generated`/`no_dotless_go`/`no_ver_v1`/`no_gopkg_bare`/`no_at`).
+  Invalid paths unrepresentable; `representable ⇒ Go-accepts` is exact one-way.
 - **`GoVersion`** — singleton `Go1_23`; `render_goversion_go1_23` pins the exact "1.23"; decidable eq.
 - **`GoAST`** — `ModuleSpec` (`ModulePath` + `GoVersion`) + `GoProgram := { prog_module ; prog_files : fmap
   FilePath GoFileAST }` (the file map MAY be empty); raw `GoDecl` (`DMain`)/`SPrintln`/`EBool`/`EInt`/`ENeg`;
