@@ -14,7 +14,7 @@ RESULTS, not raw. Anything else — other decls, calls, params, imports, package
 paths — is UNREPRESENTABLE. A compiler-invalid candidate (out-of-range int, zero/duplicate main in a package)
 is rejected IN Rocq before any bytes — **zero expected Go build failures, ever.**
 
-## GREEN — proved axiom-free in the pinned container (25 gated `Print Assumptions` surfaces)
+## GREEN — proved axiom-free in the pinned container (every gated `Print Assumptions` surface)
 
 - **`FilePath`** — intrinsic canonical relative paths; decidable eq (`fp_eqb_eq`); representable/
   unrepresentable fixtures (`ok_main`/`no_dotdot`/`no_test`); `fp_parent` groups files into packages.
@@ -44,17 +44,20 @@ is rejected IN Rocq before any bytes — **zero expected Go build failures, ever
   on `e2e/Witness.v`) after the cached theory+plugin build — not a `.vo` side effect; no per-witness
   recompile. `e2e/WitnessMulti.v` emits a two-package + empty-file tree.
 - **The dirty-directory sink** (`plugin/fido_sink.ml`): persistent `<root>/.fido/` control dir + marker +
-  lock; per-parent random `.fido-stage-<rand>/` stages (marker; all files staged before install; handled
-  failure removes stages); per-file atomic rename with ownership rechecked immediately before overwrite/
-  delete; foreign files/dirs/symlinks never touched, symlinks never followed; stale generated `.go` cleaned
-  by header + desired-key-set (no timestamps/manifest). Honest: convergent on rerun, NOT transactional.
+  git-style `index.lock`; per-parent random `.fido-stage-<rand>/` stages (registered for cleanup the instant
+  they are created; all files staged before install); per-file atomic rename with ownership rechecked
+  immediately before overwrite/delete; foreign files/dirs/symlinks never touched, symlinks never followed;
+  stale generated `.go` cleaned by header + desired-key-set (no timestamps/manifest). Cleanup is FAIL-LOUD —
+  success is never reported while a stage or the lock survives, and a cleanup error during failure handling
+  is reported with the original. Honest: convergent on rerun, NOT transactional, NOT a concurrent-adversary
+  guard (cooperating emitters + preserve pre-existing foreign).
 - **Pinned Go** (`golang:1.23-alpine`): `go build ./...` over the WHOLE tree + `go vet` + gofmt-clean; the
   witness runs vs reviewed goldens (`e2e/golden.*`); representative differential fixtures — a multi-package
   tree ACCEPTED, no-main/duplicate-main trees REJECTED, and `go list ./...` matching the emitted package
   set — exercise the whole-program rules against real `go build ./...` (discovering discrepancies, not
   proving universal agreement).
-- `make check` = host gates (transport-only OCaml, lexical axiom scan, no tracked `*.go`) + prove + e2e,
-  green. One shared Dune cache builds the theory + plugin.
+- `make check` = host gates (transport-only OCaml, no tracked `*.go`) + prove + e2e, green. Axioms are
+  checked INSIDE the pinned build (not by any host text scan). One shared Dune cache builds theory + plugin.
 
 ## NEXT — the frontier (pour roots before floors; do NOT add breadth for its own sake)
 

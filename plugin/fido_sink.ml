@@ -9,8 +9,9 @@
    `.go`; a persistent <root>/.fido/ control dir and per-parent .fido-stage-<rand>/ stages carry exact
    markers; a `.go`/control/stage entry is only touched/removed when its marker is present, and no
    symlink is followed (lstat everywhere; symlinked dirs are never descended, stage dirs hold only flat
-   files, cleanup is by marker).  All files stage before any install; every invocation stage is removed
-   on success AND on any handled failure; the lock is always released.
+   files, cleanup is by marker).  All files stage before any install; cleanup is FAIL-LOUD — success is
+   never reported while an invocation stage or the index.lock remains, and if cleanup during error
+   handling itself fails it is reported alongside the original error (never swallowed).
 
    HONEST GUARANTEE (threat model): a git-style index.lock coordinates COOPERATING Fido emitters, and
    every PRE-EXISTING foreign entry (file/dir/symlink) is preserved.  It is NOT a transactional whole-tree
@@ -87,13 +88,15 @@ let rec walk_real_dirs root f =
 
 let () = Random.self_init ()
 
-let rec make_stage parent tries =
+(* create a unique stage dir and REGISTER it (for cleanup) IMMEDIATELY after mkdir — before writing the
+   marker — so a marker-write failure cannot leak an untracked stage. *)
+let rec make_stage parent created tries =
   if tries <= 0 then fail "could not create a unique stage directory in %s" parent;
   let name = Printf.sprintf "%s%06x" stage_prefix (Random.int 0xffffff) in
   let dir = Filename.concat parent name in
   match (try Unix.mkdir dir 0o755; Some dir with Unix.Unix_error (Unix.EEXIST, _, _) -> None) with
-  | Some d -> write_exact (Filename.concat d stage_marker) stage_bytes; d
-  | None -> make_stage parent (tries - 1)
+  | Some d -> created := d :: !created; write_exact (Filename.concat d stage_marker) stage_bytes; d
+  | None -> make_stage parent created (tries - 1)
 
 let ensure_real_dir_parents root parts created =
   let rec go cur = function
@@ -135,11 +138,19 @@ let sync root entries =
     with Unix.Unix_error (Unix.EEXIST, _, _) ->
       fail "%s already exists — another Fido emission holds it, or a crashed run left it (remove it to proceed)" lock_path in
   let created_parents = ref [] and created_stages = ref [] in
+  (* FAIL-LOUD cleanup: remove every invocation stage and the lock; if either cannot be removed, raise
+     (so success is NEVER reported with a leftover stage or a leftover index.lock that would wedge a
+     retry).  Empty new parent dirs are best-effort (a leftover empty dir is not stale state). *)
   let release () =
-    List.iter (fun d -> try rm_rf d with _ -> ()) !created_stages;   (* remove EVERY invocation stage *)
+    let errs = ref [] in
+    List.iter (fun d -> try rm_rf d with ex ->
+      errs := Printf.sprintf "stage %s: %s" d (Printexc.to_string ex) :: !errs) !created_stages;
     List.iter (fun d -> match (try Sys.readdir d with _ -> [||]) with
       | [||] -> (try Unix.rmdir d with _ -> ()) | _ -> ()) !created_parents;
-    (try Unix.close lock_fd with _ -> ()); (try Unix.unlink lock_path with _ -> ()) in
+    (try Unix.close lock_fd with _ -> ());
+    (try Unix.unlink lock_path with ex ->
+      errs := Printf.sprintf "lock %s: %s" lock_path (Printexc.to_string ex) :: !errs);
+    (match !errs with [] -> () | l -> fail "cleanup FAILED (retry may be blocked): %s" (String.concat "; " l)) in
   (try
     (* (A.3-6) remove only MARKED, non-symlink stale stage directories left by a crashed run *)
     let stale = ref [] in
@@ -173,8 +184,7 @@ let sync root entries =
       let parent = Filename.dirname target in
       let stage = match Hashtbl.find_opt stage_of parent with
         | Some s -> s
-        | None -> let s = make_stage parent 64 in
-                  created_stages := s :: !created_stages; Hashtbl.add stage_of parent s; s in
+        | None -> let s = make_stage parent created_stages 64 in Hashtbl.add stage_of parent s; s in
       let sp = Filename.concat stage (Filename.basename target) in
       write_exact sp bytes; (sp, target)) targets in
     (* (E) install by per-file atomic rename, rechecking ownership immediately before replacement *)
@@ -191,7 +201,12 @@ let sync root entries =
          | Some st when st.Unix.st_kind = Unix.S_REG && first_line p = Some gen_header -> Unix.unlink p
          | _ -> ()))
       !existing_go;
-    (* (G) release: remove invocation stages + empty new parents, release lock *)
+    (* (G) release: remove invocation stages + empty new parents, release lock (fail-loud) *)
     release ();
     List.length targets
-  with e -> release (); raise e)
+  with e ->
+    (* on a handled failure, clean up too; if cleanup ALSO fails, report both, never swallow either *)
+    (try release () with Fail cm ->
+       let em = (match e with Fail m -> m | _ -> Printexc.to_string e) in
+       raise (Fail (em ^ " — AND " ^ cm)));
+    raise e)

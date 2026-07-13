@@ -62,8 +62,11 @@ of key uniqueness; regex source scanning is not a sound zero-axiom gate; axiom-f
                  construction.  directory_entries projects it to the (on-disk path, bytes) transport list.
 
   Fido Emit      the ONE general transport command (a Rocq vernac): `Fido Emit <image-term> To "<root>"`.
-                 It decodes ONLY the final (path, bytes) transport data (exact constructors of
-                 list/prod/string/ascii/bool, fail-loud otherwise) and hands it to the sink.  Not
+                 Before ANY effect it guards provenance two ways: it typechecks its argument as a
+                 DirectoryImage (rejecting a raw transport), and it rejects any argument whose assumption
+                 closure contains an axiom (rejecting a same-typed image built from a forged proof).  Only
+                 then does it decode ONLY the final (path, bytes) transport data (exact constructors of
+                 list/prod/string/ascii/bool, fail-loud otherwise) and hand it to the sink.  Not
                  witness-specific; no recompile for a different SafeProgram.
 
   sink           the generic ownership-aware dirty-directory filesystem synchronizer.  Filesystem ONLY.
@@ -97,7 +100,7 @@ AST->output->AST round-trip authority, no copied compiled AST, no handwritten OC
 | **GoCompile** | whole-program directory→package + exactly-one-main + int-representability; `go_compile` sound/complete; populated `CompilationFacts` | be a boolean; accept per-file partially; hide package grouping / entry status in a raw node |
 | **GoSafe** | real `GoValue`; abstract `eval_file`; `SafeProgram` (0 = -0); honest `GoSafe := True` | observe spelling as value; keep an unused panic placeholder; circularly reference compilation |
 | **GoRender** | render decls + the derived package clause; header exact first line; `render_expr_denotes` | tokenize/lex/parse/round-trip; deduce packages/entry; invoke a formatter |
-| **DirectoryImage** | complete finite map, provenance-gated (`di_prov` proves it came from `render_program`; `mkImage` demands that proof); `Fido Emit` typechecks its argument as a `DirectoryImage` | be an arbitrary-map escape that bypasses SafeProgram; accept a raw transport list at the emit boundary |
+| **DirectoryImage** | complete finite map, provenance-gated (`di_prov` proves it came from `render_program`; `mkImage` demands that proof); `Fido Emit` typechecks its argument as a `DirectoryImage` AND rejects any argument with an axiomatic assumption closure | be an arbitrary-map escape that bypasses SafeProgram; accept a raw transport list, or a same-typed image built from a forged (axiomatic) proof, at the emit boundary |
 | **Fido Emit + sink** | decode ONLY final (path, bytes) with exact constructors; ownership-aware dirty-directory sync | inspect any program/AST/proof/semantics; delete/overwrite/follow foreign state |
 
 ## The handwritten-OCaml boundary (hard)
@@ -122,10 +125,14 @@ existing dirty tree is locked (a persistent `<root>/.fido/` control dir with an 
 ownership-aware (a `.go` file is Fido-owned iff its first line is the exact header; ownership is rechecked
 immediately before every overwrite/delete), collision-safe (foreign files/dirs/symlinks are never touched,
 symlinks never followed), staged in per-parent random `.fido-stage-<rand>/` directories with an exact
-marker (all files stage before any install; a handled failure removes every invocation stage and leaves
-existing generated files untouched), per-file atomic in the normal same-filesystem case, and convergent on
-rerun. It is **NOT** a transactional whole-tree commit — a crash during install/delete may leave a mixed
-generation; the next run converges after removing marked stale stages. Ownership is by header marker +
+marker (each stage is registered for cleanup the instant it is created; all files stage before any
+install), per-file atomic in the normal same-filesystem case, and convergent on rerun. Cleanup is
+**fail-loud**: success is never reported while an invocation stage or the `index.lock` remains, and a
+cleanup failure during error handling is reported alongside the original error (never swallowed). It is
+**NOT** a transactional whole-tree commit — a crash during install/delete may leave a mixed generation;
+the next run converges after removing marked stale stages. It is **NOT** hardened against a concurrent
+non-cooperating process (this OCaml `Unix` exposes no `openat`/`O_NOFOLLOW`); the honest model is
+cooperating emitters that preserve pre-existing foreign state. Ownership is by header marker +
 desired-key-set, never timestamps or a manifest. Git is a recovery backstop, not the primary safety
 mechanism.
 
@@ -150,9 +157,10 @@ there is no `TargetConfig`.
 ## Trust base (say it exactly)
 
 Trusted: Rocq and its kernel; the digest-pinned Docker/Go images plus the opam-repo state and apt packages;
-the Fido Emit **transport boundary** (the bridge decodes only the final transport constructors; the sink is
-filesystem-only — both trusted-not-proved); and the Go toolchain (claim (B), the `go build ./...` adequacy,
-is exercised differentially by the e2e, not proved). Proved (axiom-free, asserted every build by
+the Fido Emit **transport boundary** (the bridge typechecks the image type and rejects an axiomatic
+assumption closure — both via Rocq's own kernel/assumptions machinery — then decodes only the final
+transport constructors; the sink is filesystem-only — all trusted-not-proved); and the Go toolchain
+(claim (B), the `go build ./...` adequacy, is exercised differentially by the e2e, not proved). Proved (axiom-free, asserted every build by
 `gate/axiom_gate.v`): the Ints boundary values; FilePath decidable eq + representable/unrepresentable path
 fixtures; FMap's key-NoDup invariant + duplicate-key unconstructibility + deterministic lookup; GoCompile
 claim (A) — `prog_ok_iff`, `go_compile` sound + complete, rejection ⇒ no CompilableProgram; GoSafe's

@@ -8,8 +8,10 @@
     hiding a constructor (the map stays reducible, so the Fido Emit command can evaluate it; no opaque
     module).  [mkImage] is a public constructor, but it demands [pf : exists sp, m = render_map sp] —
     exactly "m is a rendered safe program" — so it is NOT an arbitrary-map escape; [render_program] is the
-    canonical construction, and the Fido Emit vernac typechecks its argument AS a [DirectoryImage] before
-    any effect, so a forged raw transport is rejected at the boundary.
+    canonical construction.  The Fido Emit vernac guards emission two ways before any effect: it typechecks
+    its argument AS a [DirectoryImage] (rejecting a wrong-typed raw transport), and — because [pf] could be
+    discharged by an [Axiom]/[Admitted] — it rejects any argument whose assumption closure contains an
+    axiom (so a same-typed image built from a forged proof cannot emit either).
 
     [directory_entries] is the transport projection the filesystem sink consumes: the intrinsic keys are
     denoted to on-disk relative-path strings ([fp_string], injective).  EVERY DirectoryImage's entries
@@ -30,7 +32,9 @@ Record DirectoryImage : Type := mkImage {
   di_prov : exists sp, di_map = render_map sp
 }.
 
-(** The ONLY public construction of an image (SafeProgram-gated by the provenance proof). *)
+(** The canonical construction of an image (SafeProgram-gated by the provenance proof).  [mkImage] is
+    also public but demands the provenance proof; the Fido Emit command additionally rejects any image
+    whose proof is axiomatic, so neither is a forgery escape. *)
 Definition render_program (sp : SafeProgram) : DirectoryImage :=
   mkImage (render_map sp) (ex_intro _ sp eq_refl).
 

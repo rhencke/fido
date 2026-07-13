@@ -40,7 +40,8 @@ ocaml-origin-gate:
 
 # Zero project axioms are enforced two ways in the pinned build: gate/axiom_gate.v (Print Assumptions on
 # the public surfaces, in `prove`) + the Rocq-native `Fido Audit Assumptions` global-environment audit
-# (gate/assumptions_audit.v, in `emit`, with a planted-axiom self-test).  No source-text scanner.
+# (in `emit`; the audited module set is DERIVED from dune's (modules ...) list so nothing escapes, plus a
+# planted-axiom self-test).  No source-text scanner.
 
 # SEAL: no generated Go is tracked (emission output lives under _build / is gitignored when it returns).
 go-uncommittable-seal:

@@ -100,13 +100,29 @@ echo "fido: emitted tree:"; echo ----; ( cd "$O" && find . -type f | sort ); ech
 if ! rocq c -Q _build/default/. Fido e2e/WitnessMulti.v > /tmp/emit-multi.log 2>&1; then cat /tmp/emit-multi.log; fail "Fido Emit (multi-package) FAILED"; fi
 { [ -f /workspace/e2e-multi/main.go ] && [ -f /workspace/e2e-multi/extra.go ] && [ -f /workspace/e2e-multi/sub/main.go ]; } || fail "multi-package tree incomplete"
 echo "fido: multi-package tree:"; ( cd /workspace/e2e-multi && find . -name '*.go' | sort )
-# provenance: a forged raw transport (not a DirectoryImage) is rejected BEFORE any effect (Fail fixtures)
+# provenance (1): a forged raw transport (not a DirectoryImage) is rejected BEFORE any effect (Fail fixtures)
 if ! rocq c -Q _build/default/. Fido e2e/WitnessNeg.v > /tmp/emit-neg.log 2>&1; then cat /tmp/emit-neg.log; fail "a forged raw transport was NOT rejected"; fi
 [ ! -e /workspace/e2e-neg ] || fail "a rejected Fido Emit still created its target directory"
-echo "fido: provenance enforced — forged raw transports rejected before any effect"
+# provenance (2): a FORGED image — the right TYPE but an AXIOMATIC di_prov proof — is rejected by the
+# emit-time assumption-closure check BEFORE any effect (namespace-independent; the type boundary alone
+# would accept it, so this proves the closure check, not just the type, guards emission).  It runs WITHOUT
+# `Fail` (which absorbs the message silently in batch mode), so `rocq c` errors and we assert BOTH the
+# rejection REASON (the printed message) and that the target was never created.
+if rocq c -Q _build/default/. Fido e2e/WitnessForge.v > /tmp/emit-forge.log 2>&1; then cat /tmp/emit-forge.log; fail "a forged (axiomatic-provenance) image was NOT rejected"; fi
+grep -q 'provenance depends on an axiom' /tmp/emit-forge.log || { cat /tmp/emit-forge.log; fail "the forged image was rejected, but NOT by the assumption-closure check (wrong reason)"; }
+[ ! -e /workspace/e2e-forge ] || fail "a rejected forged-provenance Fido Emit still created its target directory"
+echo "fido: provenance enforced — forged raw transports AND axiomatic-provenance images rejected before any effect"
 
-# --- SOUND zero-project-axiom audit: enumerate the compiled global env (not a text scanner) ---
-if ! rocq c -Q _build/default/. Fido gate/assumptions_audit.v > /tmp/audit.log 2>&1; then cat /tmp/audit.log; fail "assumption audit FAILED"; fi
+# --- SOUND zero-project-axiom audit: enumerate the compiled global env (not a text scanner).  The set of
+#     modules loaded (hence audited) is DERIVED from dune's authoritative (modules ...) list, so a new
+#     theory module cannot silently escape the audit. ---
+mods=$(sed -n 's/.*(modules \([^)]*\)).*/\1/p' dune)
+[ -n "$mods" ] || fail "could not read the (modules ...) list from dune"
+{ printf 'From Fido Require Import %s.\n' "$mods"
+  printf 'Declare ML Module "fido.emit".\n'
+  printf 'Fido Audit Assumptions.\n'; } > /tmp/assumptions_audit.v
+echo "fido: assumption audit covers (from dune): $mods"
+if ! rocq c -Q _build/default/. Fido /tmp/assumptions_audit.v > /tmp/audit.log 2>&1; then cat /tmp/audit.log; fail "assumption audit FAILED"; fi
 grep -q 'assumption audit OK' /tmp/audit.log || { cat /tmp/audit.log; fail "audit did not confirm zero Fido axioms"; }
 # audit self-test: a planted axiom in a Fido-namespaced module MUST be caught (not fail-open)
 mkdir -p /tmp/fa; printf 'Axiom planted_axiom : True.\n' > /tmp/fa/Planted.v
@@ -146,7 +162,13 @@ if ./sink_test /workspace/adv-c; then fail "touched a foreign .fido control dir"
 mkdir -p /workspace/adv-d/.fido-stage-deadbeef/sub; printf 'nested\n' > /workspace/adv-d/.fido-stage-deadbeef/sub/s
 ./sink_test /workspace/adv-d || fail "a foreign (unmarked) stage dir must be left alone, not abort"
 [ "$(cat /workspace/adv-d/.fido-stage-deadbeef/sub/s)" = "nested" ] || fail "removed an unmarked stage lookalike"
-echo "fido: emit OK — general Fido Emit synced the tree; sink dirty/adversarial cases all pass"
+# (4) a held index.lock (a crashed run left it) must make the next sync REFUSE — not race — and preserve it
+mkdir -p /workspace/adv-lock; ./sink_test /workspace/adv-lock || fail "initial lock-test sync failed"
+: > /workspace/adv-lock/.fido/index.lock
+if ./sink_test /workspace/adv-lock; then fail "synced despite a held index.lock"; fi
+[ -e /workspace/adv-lock/.fido/index.lock ] || fail "the sink removed a lock it did not create"
+[ -z "$(stages /workspace/adv-lock)" ] || fail "a stage dir leaked after a lock-refused run"
+echo "fido: emit OK — general Fido Emit synced the tree; sink dirty/adversarial + lock cases all pass"
 SH
 
 # ── Stage 5: go-e2e — the LAST-MILE integration check (never a proof).  The pinned Go toolchain builds

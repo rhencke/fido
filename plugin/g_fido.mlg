@@ -1,12 +1,16 @@
 DECLARE PLUGIN "fido.emit"
 
-(* The ONE handwritten transport bridge.  It decides NOTHING about programs: it reduces the given Rocq
-   term (a [list (string * string)] — the transport projection of a proved directory image, which only
-   typechecks when that image came from rendering a certified safe program), then STRUCTURALLY decodes
-   only the final (path, bytes) data — exact expected constructors of list / prod / string / ascii /
-   bool, failing LOUD on any other shape — and hands it to the generic dirty-directory filesystem sink.
-   It inspects no program, no syntax tree, no compilation certificate, no safety certificate, no derived
-   facts, no proof, no semantics — only the final transport list. *)
+(* The ONE handwritten transport bridge.  It decides NOTHING about programs.  Provenance is enforced at
+   the boundary two ways, BEFORE any effect: (1) the bridge itself applies the certified directory_entries
+   projection and typechecks it, so the argument must have the proved directory-image type (a raw
+   (path,bytes) list is rejected); and (2) since that type is proof-carrying and a proof can be an axiom,
+   the bridge rejects any argument whose assumption closure contains an axiom/assumption — a forged image
+   built with an [Axiom]/[Admitted] provenance proof cannot emit.  Only then does it reduce the term and
+   STRUCTURALLY decode the final (path, bytes) data — exact expected constructors of list / prod / string /
+   ascii / bool, failing LOUD on any other shape — and hand it to the generic dirty-directory filesystem
+   sink.  It inspects no program, no syntax tree, no compilation certificate, no safety certificate, no
+   derived facts, no semantics — only the certified image's type, its assumption closure, and the final
+   transport list. *)
 
 {
 open Pp
@@ -107,15 +111,40 @@ let do_emit t dir =
   let env = Global.env () in
   let sigma = Evd.from_env env in
   let (tc, _) = Constrintern.interp_constr env sigma t in
-  (* PROVENANCE ENFORCED AT THE BOUNDARY: the command receives a proved directory-image term, and the
-     bridge ITSELF applies the exact certified projection resolved by qualified name below.  Typechecking
-     [projection tc] fails unless [tc] has the certified image type — a proof-carrying value that cannot
-     exist unless its contents were certified.  A raw (path,bytes) list has type list (string*string),
-     not the image type, so it is rejected here, before any effect. *)
+  (* PROVENANCE ENFORCED AT THE BOUNDARY, two ways, before ANY effect:
+     (1) the bridge ITSELF applies the exact certified projection (resolved by qualified name), so
+         typechecking [projection tc] fails unless [tc] has the certified image type — a raw
+         (path,bytes) list has type list (string*string), not the image type, and is rejected; and
+     (2) the certified image type is proof-carrying, but a proof can be AXIOMATIC — so we reject any
+         [tc] whose assumption closure contains ANY axiom/assumption (namespace-independent).  A forged
+         image built with an [Axiom]/[Admitted] provenance proof is thus refused before it can emit. *)
   let de_ref = Nametab.locate (Libnames.qualid_of_string "Fido.GoEmit.directory_entries") in
   let (sigma, de) = Evd.fresh_global env sigma de_ref in
   let app = EConstr.mkApp (de, [| tc |]) in
   let (sigma, _ty) = Typing.type_of env sigma app in   (* raises unless tc : DirectoryImage *)
+  (* compute the assumption closure of the image term exactly as `Print Assumptions` does (descending
+     opaque proof bodies), and refuse if it contains ANY axiom or section variable. *)
+  let st = Conv_oracle.get_transp_state (Environ.oracle env) in
+  (* the assumption closure of a TERM = the union of the closures of every global reference it mentions;
+     collect those grefs (constants/inductives/constructors/section-variables) and ask the kernel. *)
+  let grefs =
+    let acc = ref Names.GlobRef.Set.empty in
+    let rec go c =
+      (match Constr.kind c with
+       | Constr.Const (cst, _)    -> acc := Names.GlobRef.Set.add (Names.GlobRef.ConstRef cst) !acc
+       | Constr.Ind (ind, _)      -> acc := Names.GlobRef.Set.add (Names.GlobRef.IndRef ind) !acc
+       | Constr.Construct (cs, _) -> acc := Names.GlobRef.Set.add (Names.GlobRef.ConstructRef cs) !acc
+       | Constr.Var id            -> acc := Names.GlobRef.Set.add (Names.GlobRef.VarRef id) !acc
+       | _ -> ());
+      Constr.iter go c
+    in go (EConstr.to_constr sigma tc); Names.GlobRef.Set.elements !acc in
+  let assums = Assumptions.assumptions Library.indirect_accessor st grefs in
+  Printer.ContextObjectMap.iter (fun ctx _ ->
+    match ctx with
+    | Printer.Axiom _ | Printer.Variable _ ->
+      CErrors.user_err (str "fido emit: the image's provenance depends on an axiom/assumption — refusing to emit a forged (uncertified) image")
+    | _ -> ())
+    assums;
   let nf = Reductionops.nf_all env sigma app in
   let entries = decode_entries sigma nf in
   let n = (try Fido_sink.sync dir entries

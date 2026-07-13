@@ -58,8 +58,10 @@ path and surface the divergence.
 
 1. **Handwritten OCaml is the transport boundary, and understands filesystems/transport — not programs.**
    All semantic work — paths, compile, safety, rendering, and the final image — is proved Rocq. The ONLY
-   handwritten OCaml is the Fido Emit transport: `plugin/g_fido.mlg` (the bridge — decodes ONLY the final
-   `(path, bytes)` transport via exact constructors, fail-loud; inspects no program/AST/proof) and
+   handwritten OCaml is the Fido Emit transport: `plugin/g_fido.mlg` (the bridge — guards provenance by
+   two kernel queries, typechecking the image type and rejecting an axiomatic assumption closure, then
+   decodes ONLY the final `(path, bytes)` transport via exact constructors, fail-loud; it understands no
+   program/AST/semantics) and
    `plugin/fido_sink.ml` + `e2e/sink_test.ml` (the generic dirty-directory sink + driver — filesystem
    ONLY, walk no Rocq terms). `tools/ocaml-origin-gate.sh` enforces exactly these, bounded, with those
    boundaries. NEVER reintroduce a handwritten backend/lowering/renderer/semantic decoder, or a bridge
@@ -74,10 +76,12 @@ path and surface the divergence.
    `Record`s / `Inductive`s over concrete data. Never `Axiom`/`Parameter`/`Admitted`, a kernel primitive,
    or `FunctionalExtensionality`. `make check` asserts the public surfaces axiom-free via `gate/axiom_gate.v`
    (the sole `Print Assumptions` target, compiled fresh + count-checked — catches EXTERNAL axioms in a
-   public surface's closure) PLUS the Rocq-native `Fido Audit Assumptions` command
-   (`gate/assumptions_audit.v`) that enumerates the compiled global environment and rejects ANY Fido
-   constant with an axiomatic body — including UNUSED ones — which a source-text scanner cannot do
-   soundly. A planted-axiom self-test proves the audit is not fail-open. NO source-text axiom scanner.
+   public surface's closure) PLUS the Rocq-native `Fido Audit Assumptions` command that enumerates the
+   compiled global environment and rejects ANY Fido constant with an axiomatic body — including UNUSED
+   ones — which a source-text scanner cannot do soundly. The audit's module coverage is GENERATED from
+   dune's `(modules …)` list (so a new module cannot escape it) and a planted-axiom self-test proves it is
+   not fail-open. The emit command additionally rejects any image whose assumption closure is non-empty.
+   NO source-text axiom scanner.
 5. **No fuel, ever.** Totality comes from decreasing structure.
 6. **SafeProgram is the permanent safety boundary.** `GoSafe cp := True` is honest TODAY (the fragment has
    no unsafe op); it is the extension point for guarantees beyond compiler acceptance, not circular. No
@@ -114,7 +118,8 @@ Verify after any change: **`make check`** — the host gates (transport-only OCa
 pinned-container **proof** (Rocq 9.2.0: `dune build` + `gate/axiom_gate.v` axiom-free, count-checked) + the
 **e2e** (Dune-cached theory+plugin; then EXPLICIT `Fido Emit` synchronizes the whole tree, the Rocq-native
 `Fido Audit Assumptions` gate confirms zero Fido axioms with a planted-axiom self-test, the provenance
-boundary is exercised (a forged raw transport is rejected before any effect), the sink is exercised on
+boundary is exercised (a forged raw transport AND a same-typed image with an axiomatic provenance proof are
+both rejected before any effect), the sink is exercised on
 dirty/adversarial trees, and the digest-pinned `golang:1.23-alpine` runs `go build ./...` over the whole
 tree + `go list ./...` discovery + a multi-package differential + no-main/dup-main rejection fixtures, and
 runs the witness vs reviewed goldens). **Local host Rocq is NOT supported** — all compilation goes through
@@ -138,9 +143,11 @@ kill stale `docker buildx build` processes first; run long builds detached and p
   `GoSafe.v`, `GoRender.v`, `GoEmit.v`.
 - `plugin/g_fido.mlg` — the Fido Emit transport bridge; `plugin/fido_sink.ml` — the dirty-directory sink;
   `plugin/dune` — the plugin library. `e2e/Witness.v` — the witness (emitted explicitly); `e2e/WitnessMulti.v`
-  — the multi-package differential; `e2e/sink_test.ml` — the sink driver; `e2e/golden.*` — reviewed goldens.
-- `gate/axiom_gate.v` — the `Print Assumptions` target; `gate/assumptions_audit.v` — the Rocq-native
-  `Fido Audit Assumptions` global-env axiom audit. `tools/ocaml-origin-gate.sh` — the host origin gate.
+  — the multi-package differential; `e2e/WitnessNeg.v` / `e2e/WitnessForge.v` — the raw-transport and
+  forged-provenance rejection fixtures; `e2e/sink_test.ml` — the sink driver; `e2e/golden.*` — reviewed goldens.
+- `gate/axiom_gate.v` — the `Print Assumptions` target. The Rocq-native `Fido Audit Assumptions` global-env
+  axiom audit is run over a module list GENERATED from dune's `(modules …)` in the emit stage (no static
+  file). `tools/ocaml-origin-gate.sh` — the host origin gate.
 - `Makefile` / `Dockerfile` / `.githooks/pre-commit` — the buildx proof + whole-tree e2e (host Rocq
   unsupported).
 
