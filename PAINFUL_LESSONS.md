@@ -49,17 +49,22 @@ stop. When an entry stops being a live temptation, delete it.
    (a symlink record followed on read, a truncating non-exclusive create, a stage that outlives a crash
    before its record); and reusing the INSTALLED-file header for a temp is BOTH non-atomic (the header is
    written after the file appears, so a crash orphans an empty temp) and forgeable (a public header cannot
-   tell our crashed temp from a foreign lookalike). The fix is a STRUCTURED OWNED NAMESPACE: stage inside
-   `<root>/.fido/staging/`, so a staging object is ours BY LOCATION (inside the marked control dir) — atomic
-   (a partial temp is already owned) and unforgeable (foreign tree files are never in it). Create each temp
-   `O_CREAT|O_EXCL` then atomically rename (reject a cross-filesystem target first, since rename can't be
-   atomic across devices). Recovery empties that ONE directory, recover-all-or-REJECT and fail-CLOSED (any
-   readdir/lstat/removal error but a confirmed `ENOENT` aborts before any effect); it NEVER scans the tree,
-   so a header-forging foreign file is untouched. Keep installed-`.go` ownership (header first line, lstat
-   S_REG) SEPARATE — the two have different crash and authenticity requirements. Inject cleanup/recovery
-   failure via `unlink`/`after_stage` PARAMETERS through the real algorithm — never an ambient env branch or
-   a real `chmod` in the production sink (that makes destructive behaviour reachable and mutates foreign
-   metadata). State the guarantee honestly: NOT transactional; normal completion (success or a handled
+   tell our crashed temp from a foreign lookalike). The fix is a RESERVED, mechanically-quarantined
+   NAMESPACE: reserve `<root>/.fido/` (reject any desired path inside it BEFORE any effect — the sink is
+   generic over raw strings, so it cannot trust the caller) and stage inside `.fido/staging/`. Location is a
+   NAMESPACE POLICY, not provenance: it works only because `.fido/` is reserved AND recovery accepts ONLY
+   the exact flat form the builder emits. ⚠ "everything under staging is ours" is NOT a license to
+   recursively delete: `stage_temp` makes only flat regular `O_EXCL` temps with canonical decimal names, so
+   recovery must REFUSE (fail-loud, never traverse or delete) any directory / symlink / special file /
+   non-canonical name — otherwise a nested tree or a mount under staging gets recursively removed. Create
+   each temp `O_CREAT|O_EXCL` then atomically rename (reject a cross-filesystem target first). Recovery
+   inspects that ONE directory, recover-all-or-REJECT and fail-CLOSED (any readdir/lstat/removal error but a
+   confirmed `ENOENT` aborts before any effect); it NEVER scans the tree, so a header-forging foreign file is
+   untouched. Keep installed-`.go` ownership (header first line, lstat S_REG) SEPARATE. Inject cleanup/
+   recovery failure — and a REAL crash (`Unix._exit`, no finalizer, lock stays held) — via `unlink`/
+   `after_stage` PARAMETERS through the real algorithm, never an ambient env branch or a real `chmod` in the
+   production sink (a caught exception is not a crash; a `chmod` makes destructive behaviour reachable and
+   mutates foreign metadata). State the guarantee honestly: NOT transactional; normal completion (success or a handled
    failure) releases the lock so an immediate rerun proceeds, but a crash — or a lock-release failure —
    leaves the lock and the next run refuses until it is deliberately removed.
 

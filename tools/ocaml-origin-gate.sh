@@ -45,6 +45,12 @@ for f in $fs_files; do
     if grep -nE 'EConstr|Constr\.|Nametab|interp_constr|Reductionops|Evd\.|Global\.env' "$f"; then
       echo "fido: OCAML-ORIGIN GATE — $f is filesystem-only; it must not walk or decode Rocq terms."; exit 1
     fi
+    # staging cleanup is FLAT: recovery removes only canonical regular temp files (unlink), never a
+    # directory.  Forbidding Unix.rmdir keeps recursive staging cleanup from returning (a recursive
+    # remover could traverse and delete a nested tree or a mount under staging).
+    if grep -nE 'Unix\.rmdir' "$f"; then
+      echo "fido: OCAML-ORIGIN GATE — $f must not remove directories (recursive staging cleanup is forbidden; recovery unlinks only flat canonical temps)."; exit 1
+    fi
   fi
 done
 

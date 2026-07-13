@@ -48,20 +48,19 @@ is rejected IN Rocq before any bytes — **zero expected Go build failures, ever
   empty-file tree; `WitnessForge{,Opaque,Var,VarIndirect}.v` are the direct-axiom / opaque-Qed-axiom /
   direct- and transitive-section-variable forged images each rejected (reason-checked) before any effect.
 - **The dirty-directory sink** (`plugin/fido_sink.ml`): persistent `<root>/.fido/` control dir + marker +
-  git-style `index.lock`. TWO distinct ownership authorities: installed `.go` by header first line (rechecked
-  before every overwrite/delete, lstat S_REG so symlinks are never followed); TRANSIENT staging by LOCATION —
-  everything in the structured namespace `<root>/.fido/staging/` is ours because it is inside the marked
-  control dir (unforgeable; a partial temp there is already owned, so no crash prefix orphans it). Staging
-  writes each target to an `O_CREAT|O_EXCL` `.fido/staging/<seq>` then atomic-renames it; the preflight
-  rejects a target on a different filesystem than staging (rename can't be atomic). Recovery runs FIRST,
-  recover-all-or-REJECT: it empties `staging/` and is fail-CLOSED (any readdir/lstat/removal error but a
-  confirmed ENOENT aborts before any effect); it never scans the tree, so a header-forging foreign tree file
-  is untouched. The finalizer's sole obligation is releasing the lock, fail-loud once, combining body+lock
-  errors; the fallible `unlink`/`after_stage` are parameters so tests inject a recovery failure or a real
-  mid-staging abort through the real algorithm (no ambient env). Honest: normal completion (success or a
-  handled failure) releases the lock so an immediate rerun proceeds; a crash (or a lock-release failure)
-  leaves the lock and the next run refuses until it is removed. NOT transactional, NOT a concurrent-adversary
-  guard.
+  git-style `index.lock`; `.fido/` is a RESERVED namespace (a desired path inside it is refused before any
+  effect; foreign preservation is scoped OUTSIDE it). Installed `.go` is owned by its header first line
+  (rechecked before overwrite/delete, lstat S_REG so symlinks are never followed). Transient staging goes
+  into `.fido/staging/`, a reserved location: each target → an `O_CREAT|O_EXCL` `.fido/staging/<seq>` then
+  atomic rename (the preflight rejects a cross-filesystem target). Recovery runs FIRST, recover-all-or-
+  REJECT and fail-CLOSED: `staging/` must hold ONLY flat canonical regular temps — a dir/symlink/special/
+  non-canonical entry is REFUSED (never traversed or deleted, so a nested tree or mount is not recursively
+  removed); any readdir/lstat/removal error but a confirmed ENOENT aborts; it never scans the tree. The
+  finalizer's sole obligation is releasing the lock (fail-loud once, combining body+lock errors). Fault
+  seams are `unlink`/`after_stage` PARAMETERS (a real `Unix._exit` crash, a recovery-unlink failure) through
+  the real algorithm — no ambient env. Honest: normal completion releases the lock (immediate rerun
+  proceeds); a crash (or lock-release failure) leaves the lock and the next run refuses until it is removed.
+  See `ARCHITECTURE.md` for the full contract. NOT transactional, NOT a concurrent-adversary guard.
 - **Pinned Go** (`golang:1.23-alpine`): `go build ./...` over the WHOLE tree + `go vet` + gofmt-clean; the
   witness runs vs reviewed goldens (`e2e/golden.*`); representative differential fixtures — a multi-package
   tree ACCEPTED, no-main/duplicate-main trees REJECTED, and `go list ./...` matching the emitted package

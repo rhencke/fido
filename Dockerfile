@@ -74,9 +74,11 @@ RUN --mount=type=cache,id=fido-dune-rocq-9.2.0-${TARGETARCH},uid=1000,gid=1000,t
 #    SYNCHRONIZES the whole tree; and a standalone driver exercises the dirty-directory sink against a
 #    dirty tree (marked control dir, stale generated files cleaned, foreign preserved), ADVERSARIAL entries
 #    it must refuse-and-preserve (foreign at target, symlinked root, foreign control dir, a held lock, a
-#    header-forging foreign tree file), and — via injected operation parameters through the real algorithm —
-#    a mid-staging crash, a recovery-unlink failure, and unreadable/unsearchable staging (discovery failure),
-#    each fail-closed then converging.  The plugin guards provenance (typecheck + assumption-closure) then
+#    header-forging foreign tree file, a desired path inside the reserved .fido/ namespace, and a non-flat
+#    staging entry — nested dir / symlink / non-canonical name), and — via injected operation parameters
+#    through the real algorithm — a REAL mid-staging crash (Unix._exit, lock stays held), a recovery-unlink
+#    failure, and unreadable/unsearchable staging (discovery failure), each fail-closed then converging.
+#    The plugin guards provenance (typecheck + assumption-closure) then
 #    decodes only final (path, bytes) data; it walks no program.
 FROM rocq-base AS emit
 ARG TARGETARCH
@@ -169,39 +171,57 @@ if ./sink_test /workspace/adv-b; then fail "wrote through a symlinked root"; fi
 mkdir -p /workspace/adv-c/.fido; printf 'not the marker\n' > /workspace/adv-c/.fido/marker
 if ./sink_test /workspace/adv-c; then fail "touched a foreign .fido control dir"; fi
 [ "$(cat /workspace/adv-c/.fido/marker)" = "not the marker" ] || fail "altered a foreign control dir"
-# (4) a crash leaves a held index.lock AND owned staging residue: the next run must REFUSE on the lock
-#     WITHOUT touching the residue; after the stale lock is deliberately removed, the rerun recovers the
-#     residue and converges.  (The residue is EMPTY — a crash before any payload byte — proving that
-#     staging ownership is by LOCATION, not content.)
-mkdir -p /workspace/adv-lock; ./sink_test /workspace/adv-lock || fail "initial lock-test sync failed"
-: > /workspace/adv-lock/.fido/index.lock
-: > /workspace/adv-lock/.fido/staging/crashed          # owned-by-location residue, zero bytes
-if ./sink_test /workspace/adv-lock; then fail "synced despite a held index.lock"; fi
-[ -e /workspace/adv-lock/.fido/index.lock ] || fail "the sink removed a lock it did not create"
-[ -e /workspace/adv-lock/.fido/staging/crashed ] || fail "the lock-refused run touched owned staging residue"
-rm -f /workspace/adv-lock/.fido/index.lock            # the operator clears the stale lock
-./sink_test /workspace/adv-lock || fail "did not converge after the stale lock was removed"
-[ -z "$(staged /workspace/adv-lock)" ] || fail "owned staging residue survived after lock removal + rerun"
-# (5) a FOREIGN temp-like file WITH the exact header, IN THE TREE (not in the staging namespace), is
-#     preserved — recovery never scans the tree, so a forged header cannot cause deletion.
-mkdir -p /workspace/adv-f; ./sink_test /workspace/adv-f || fail "foreign-preserve initial sync failed"
-printf '%s\nforged\n' "$hdr" > /workspace/adv-f/notes.fido-tmp-forged   # header first line, not a .go
-./sink_test /workspace/adv-f || fail "foreign-preserve re-sync aborted"
-[ -f /workspace/adv-f/notes.fido-tmp-forged ] || fail "a header-forging foreign tree file was deleted"
-# (6) crash MID-STAGING through the REAL staging code (after_stage aborts once a real temp exists): a real
-#     temp is left in the staging namespace, the lock is released (handled failure), and a normal rerun
-#     recovers it and converges.
+# (4) a REAL crash mid-staging: the driver TERMINATES the process (Unix._exit) after the real staging code
+#     creates a real temp — NO finalizer runs — so the lock stays HELD and a real temp stays in staging.
+#     The immediate rerun REFUSES on the held lock WITHOUT touching the temp; after the stale lock is
+#     deliberately removed, the rerun recovers the temp and converges.
 mkdir -p /workspace/adv-crash; ./sink_test /workspace/adv-crash || fail "crash-test initial sync failed"
-if ./sink_test /workspace/adv-crash crash-mid-staging; then fail "crash-mid-staging reported success"; fi
-[ -n "$(staged /workspace/adv-crash)" ] || fail "crash-mid-staging left no real temp in staging"
-[ ! -e /workspace/adv-crash/.fido/index.lock ] || fail "crash-mid-staging (handled) left the lock held"
-./sink_test /workspace/adv-crash || fail "no converge after a mid-staging crash"
-[ -z "$(staged /workspace/adv-crash)" ] || fail "staging residue survived a converging rerun"
-[ -f /workspace/adv-crash/main.go ] || fail "main.go missing after mid-staging-crash convergence"
-# (7) INJECTED recovery-unlink failure (an `unlink` PARAMETER through the real algorithm): seed owned
-#     residue of every crash prefix (empty / partial header / full), a run whose recovery cannot remove it
-#     must fail loud BEFORE any effect, keep the residue, release the lock; a normal rerun recovers ALL of
-#     it (content-independent) and converges, target mode UNCHANGED.
+if ./sink_test /workspace/adv-crash crash-mid-staging; then rc=0; else rc=$?; fi
+[ "$rc" -ne 0 ] || fail "crash-mid-staging did not terminate the process"
+[ -e /workspace/adv-crash/.fido/index.lock ] || fail "a real crash must leave the lock held (no finalizer ran)"
+[ -n "$(staged /workspace/adv-crash)" ] || fail "the real mid-staging temp was not left in staging"
+if ./sink_test /workspace/adv-crash; then fail "ran despite the crash-held lock"; fi
+[ -n "$(staged /workspace/adv-crash)" ] || fail "the lock-refused rerun touched the crash temp"
+rm -f /workspace/adv-crash/.fido/index.lock            # the operator clears the stale lock
+./sink_test /workspace/adv-crash || fail "did not converge after the stale lock was removed"
+[ -z "$(staged /workspace/adv-crash)" ] || fail "the crash temp survived convergence"
+[ -f /workspace/adv-crash/main.go ] || fail "main.go missing after crash convergence"
+# (5) a FOREIGN header-forging file IN THE TREE (not in the staging namespace) is preserved — recovery
+#     never scans the tree.
+mkdir -p /workspace/adv-f; ./sink_test /workspace/adv-f || fail "foreign-preserve initial sync failed"
+printf '%s\nforged\n' "$hdr" > /workspace/adv-f/notes.keep   # header first line, not a .go, in the tree
+./sink_test /workspace/adv-f || fail "foreign-preserve re-sync aborted"
+[ -f /workspace/adv-f/notes.keep ] || fail "a header-forging foreign tree file was deleted"
+# (6) the .fido/ control namespace is RESERVED: a desired path inside it is refused BEFORE any effect (no
+#     target created); a pre-existing marked .fido/ is accepted and its foreign content is left untouched.
+mkdir -p /workspace/adv-ns; ./sink_test /workspace/adv-ns || fail "reserved-ns initial sync failed"
+printf 'keep\n' > /workspace/adv-ns/.fido/keep         # foreign content in the reserved dir
+if out=$(./sink_test /workspace/adv-ns reserved-path 2>&1); then rc=0; else rc=$?; fi
+[ "$rc" -ne 0 ] || { echo "$out"; fail "ns: a desired path inside .fido was NOT refused"; }
+echo "$out" | grep -q 'reserved' || { echo "$out"; fail "ns: not refused as a reserved-namespace violation"; }
+[ ! -e /workspace/adv-ns/.fido/staging/foo.go ] || fail "ns: a reserved desired path was installed"
+./sink_test /workspace/adv-ns || fail "ns: a pre-existing marked .fido was not accepted"
+[ -f /workspace/adv-ns/.fido/keep ] || fail "ns: foreign content in the reserved dir was removed"
+# (7) recovery accepts ONLY flat canonical regular temps: a nested directory, a symlink (name "0") to an
+#     external sentinel, and a non-canonical name in staging must each be REFUSED fail-loud (never
+#     traversed or deleted), and the external sentinel must survive.
+mkdir -p /workspace/sentinel; printf 'live\n' > /workspace/sentinel/keep
+for bad in nested link weird; do
+  d=/workspace/adv-flat-$bad; mkdir -p "$d"; ./sink_test "$d" || fail "flat-$bad initial sync failed"
+  case "$bad" in
+    nested) mkdir -p "$d/.fido/staging/0/sub"; printf 'x\n' > "$d/.fido/staging/0/sub/f";;
+    link)   ln -s /workspace/sentinel "$d/.fido/staging/0";;
+    weird)  : > "$d/.fido/staging/notcanonical";;
+  esac
+  if out=$(./sink_test "$d" 2>&1); then rc=0; else rc=$?; fi
+  [ "$rc" -ne 0 ] || { echo "$out"; fail "flat-$bad: an impossible staging state was NOT refused"; }
+  echo "$out" | grep -q 'recovery FAILED' || { echo "$out"; fail "flat-$bad: not a recovery rejection"; }
+done
+[ "$(cat /workspace/sentinel/keep)" = "live" ] || fail "a staging symlink's external target was mutated/deleted"
+# (8) INJECTED recovery-unlink failure (an `unlink` PARAMETER through the real algorithm): seed canonical
+#     residue of every crash prefix (empty / partial / full), a run whose recovery cannot remove it must
+#     fail loud BEFORE any effect, keep the residue, release the lock; a normal rerun recovers ALL of it
+#     (content-independent) and converges, target mode UNCHANGED.
 mkdir -p /workspace/adv-rec; ./sink_test /workspace/adv-rec || fail "recovery-test initial sync failed"
 mode_before=$(stat -c '%a' /workspace/adv-rec)
 : > /workspace/adv-rec/.fido/staging/0                              # empty (crash before any byte)
@@ -217,7 +237,7 @@ echo "$out" | grep -q 'recovery FAILED' || { echo "$out"; fail "recovery: the fa
 [ -f /workspace/adv-rec/main.go ] || fail "recovery: main.go missing after convergence"
 [ ! -e /workspace/adv-rec/.fido/index.lock ] || fail "recovery: the lock was left after a converging rerun"
 [ "$mode_before" = "$(stat -c '%a' /workspace/adv-rec)" ] || fail "recovery: the target directory mode changed"
-# (8) DISCOVERY failure is fail-CLOSED: an unreadable staging dir (readdir fails) and an unsearchable one
+# (9) DISCOVERY failure is fail-CLOSED: an unreadable staging dir (readdir fails) and an unsearchable one
 #     (lstat of an entry fails) must each abort recovery loud BEFORE any effect, release the lock, keep the
 #     residue; restoring access + rerun converges.
 for m in 0000 0444; do
@@ -231,7 +251,7 @@ for m in 0000 0444; do
   ./sink_test "$d" || fail "disc-$m: no converge after access restored"
   [ -z "$(staged "$d")" ] || fail "disc-$m: residue survived a converging rerun"
 done
-echo "fido: emit OK — general Fido Emit synced the tree; sink dirty/adversarial + lock + foreign-tree-preservation + mid-staging-crash + injected-recovery + discovery-failure + convergence cases all pass"
+echo "fido: emit OK — general Fido Emit synced the tree; sink dirty/adversarial + real-crash + reserved-namespace + non-flat-staging-rejection + injected-recovery + discovery-failure + convergence cases all pass"
 SH
 
 # ── Stage 5: go-e2e — the LAST-MILE integration check (never a proof).  The pinned Go toolchain builds

@@ -1,38 +1,50 @@
 (* fido_sink — the ONLY handwritten filesystem logic: a GENERIC ownership-aware dirty-directory
    synchronizer.  It receives an already-final directory image ((on-disk relative path * exact bytes)
    list, decoded from a proved-Rocq DirectoryImage whose provenance the vernac bridge typechecks) and
-   makes a target tree's Fido-generated files EQUAL that image, preserving foreign files.  It understands
-   ONLY the filesystem: it decodes no program, renders nothing, parses no Go, walks no Rocq terms.
+   makes a target tree's Fido-generated files EQUAL that image, preserving foreign files OUTSIDE the
+   reserved control namespace.  It understands ONLY the filesystem: it decodes no program, renders nothing,
+   parses no Go, walks no Rocq terms.
+
+   RESERVED NAMESPACE: `<root>/.fido/` is Fido-controlled, NOT part of the preserved foreign area.  Before
+   any filesystem effect, the sink REJECTS any desired path that lands inside `.fido/` (it is generic over
+   raw strings, so it enforces this itself rather than trusting the caller).  Foreign preservation is scoped
+   to the tree OUTSIDE `.fido/`.
 
    TWO DISTINCT ownership authorities, for two distinct concerns:
-   - INSTALLED `.go`: a regular file in the tree is Fido-owned iff its first line is the exact generated
+   - INSTALLED `.go` (in the tree): a regular file is Fido-owned iff its first line is the exact generated
      header (DERIVED from the image bytes, never hardcoded).  Ownership is rechecked immediately before
-     every overwrite/delete, via lstat (a symlink is S_LNK, never S_REG, so it is never followed).
-   - TRANSIENT staging: everything inside the STRUCTURED namespace `<root>/.fido/staging/` is Fido-owned
-     BY LOCATION — it lives inside the marked control dir, so it is ours whatever its bytes.  This is
-     unforgeable (a foreign lookalike in the tree is never in our namespace) and ATOMIC (a partially
-     written temp is already owned by being in `staging/`), so no crash prefix can orphan it.
+     every overwrite/delete, via lstat (a symlink is S_LNK, never S_REG, so it is never followed).  A
+     foreign `.go` forging the header is the accepted limit of this authority (a header is public).
+   - TRANSIENT staging: the sink stages into `<root>/.fido/staging/`, a RESERVED location it alone manages.
+     A partially written temp there is already recoverable (ATOMIC by location), so no crash prefix orphans
+     it.  This is a namespace policy, not provenance: the guarantee rests on `.fido/` being reserved (above)
+     and on recovery accepting ONLY the exact flat form the builder emits (below), not on the location being
+     unforgeable.
 
-   STAGING: each target's bytes are written to a fresh `<root>/.fido/staging/<seq>` created O_CREAT|O_EXCL,
-   then atomically renamed into place.  Because a rename is atomic only within one filesystem, the
-   preflight REJECTS (before any effect) a target whose nearest existing ancestor is on a different device
-   than `staging/`.  RECOVERY runs FIRST and is recover-all-or-REJECT: it removes EVERY entry in
-   `staging/` (all ours, by location) and is fail-CLOSED — any enumeration/lstat/removal error other than a
-   confirmed ENOENT aborts before any synchronization effect.  It never scans the tree for temps, so a
-   foreign file anywhere in the tree (even one forging the header) is untouched.  A temp left by a failed
-   run stays in `staging/` and is removed by the next run's recovery.
+   STAGING: each target's bytes are written to a fresh `<root>/.fido/staging/<seq>` (a decimal name)
+   created O_CREAT|O_EXCL, then atomically renamed into place.  Because a rename is atomic only within one
+   filesystem, the preflight REJECTS (before any effect) a target whose nearest existing ancestor is on a
+   different device than `staging/`.  RECOVERY runs FIRST and is recover-all-or-REJECT: `staging/` must
+   contain ONLY the flat, canonical, regular temp files stage_temp emits; a directory, symlink, special
+   file, or non-canonical name (a state the builder cannot create) is REJECTED fail-loud, never traversed
+   or deleted — so a nested tree or a mount under `staging/` is refused, not recursively removed.  Removing
+   a canonical temp is a single unlink; recovery is fail-CLOSED (any enumeration/lstat/removal error other
+   than a confirmed ENOENT aborts before any synchronization effect) and never scans the tree, so a foreign
+   file (even one forging the header) is untouched.
 
    The FINALIZER's sole obligation is releasing the lock (close + unlink), fail-loud and once, combining a
    body error with a lock-release error (never hiding either).
 
    The fallible operations are PARAMETERS (`?unlink`, default the real Unix.unlink; `?after_stage`, default
-   a no-op) so the standalone test driver can inject a recovery failure or an in-real-staging abort through
-   the real algorithm — no ambient environment branch, no destructive behaviour, in the production call
-   graph; the plugin always uses the defaults.
+   a no-op) so the standalone test driver can inject a recovery failure or terminate the process mid-staging
+   (via the real algorithm) — no ambient environment branch, no destructive behaviour, in the production
+   call graph; the plugin always uses the defaults.
 
    HONEST GUARANTEE (threat model): a git-style index.lock coordinates COOPERATING Fido emitters, and every
-   PRE-EXISTING foreign entry (file/dir/symlink) is preserved.  It is NOT a transactional whole-tree commit
-   (a partial run may install some targets and leave owned temps in `staging/`, which the next run removes).
+   pre-existing foreign entry OUTSIDE `.fido/` is preserved.  `.fido/` itself is reserved: it is accepted
+   only when it carries the exact marker (a foreign `.fido/` forging the marker is a non-cooperating
+   adversary, out of scope, like a foreign `.go` forging the header).  It is NOT a transactional whole-tree
+   commit (a partial run may install some targets and leave temps in `staging/`, which the next run removes).
    NORMAL completion — success or a handled body failure (including a recovery failure) — runs the finalizer
    and releases the lock, so an immediate rerun can proceed; but a CRASH (the process killed, finalizer not
    run) or a failure of the lock release itself leaves the index.lock, and the next run REFUSES until it is
@@ -111,17 +123,12 @@ let ancestor_device root parts =
       (match kind_opt nxt with Some Unix.S_DIR -> go nxt rest | _ -> (Unix.stat cur).Unix.st_dev)
   in go root parts
 
-(* remove a staging entry (owned by LOCATION).  Fail-CLOSED: only a confirmed ENOENT means "already gone";
-   any other lstat / readdir / removal error propagates so recovery aborts.  A symlink is unlinked (never
-   followed); a directory is removed recursively (staging normally holds flat regular files). *)
-let rec remove_staged unlink p =
-  match (try Some (Unix.lstat p) with Unix.Unix_error (Unix.ENOENT, _, _) -> None) with
-  | None -> ()
-  | Some st ->
-    if st.Unix.st_kind = Unix.S_DIR then begin
-      Array.iter (fun n -> remove_staged unlink (Filename.concat p n)) (Sys.readdir p);
-      Unix.rmdir p
-    end else unlink p
+(* the EXACT flat representation stage_temp emits: a decimal sequence name with no leading zeros.  Recovery
+   accepts nothing else, so it never traverses or removes a directory / mount / symlink / special file. *)
+let is_canonical_temp_name n =
+  String.length n > 0
+  && (n = "0" || n.[0] <> '0')
+  && String.for_all (fun c -> c >= '0' && c <= '9') n
 
 let () = Random.self_init ()
 
@@ -147,6 +154,15 @@ let sync ?(unlink = Unix.unlink) ?(after_stage = fun _ -> ()) root entries =
     Filename.check_suffix path ".go"
     && (match lstat_opt path with Some st -> st.Unix.st_kind = Unix.S_REG | None -> false)
     && first_line path = Some gen_header in
+  (* (A.0) RESERVE the control namespace: validate every desired path (rejecting unsafe ones) and refuse
+     any that lands inside <root>/.fido, BEFORE any filesystem effect or recovery.  The plugin's FilePath
+     excludes hidden components, but the sink is generic over raw strings, so it enforces this itself —
+     otherwise a desired `.fido/staging/<x>` could be installed and then deleted by the next recovery. *)
+  List.iter (fun (rel, _) ->
+    match components rel with
+    | c :: _ when c = control_dir -> fail "refusing a desired path inside the reserved %s namespace: %s" control_dir rel
+    | _ -> ())
+    entries;
   (* (A.1) validate / create the marked control directory *)
   (match kind_opt root with
    | None -> Unix.mkdir root 0o755
@@ -174,15 +190,28 @@ let sync ?(unlink = Unix.unlink) ?(after_stage = fun _ -> ()) root entries =
       fail "%s already exists — another Fido emission holds it, or a crashed run left it (remove it to proceed)" lock_path in
   let body =
     try
-      (* (R) RECOVER — empty the staging namespace (every entry is ours, by location, whatever its bytes),
-         fail-CLOSED before any synchronization effect: enumeration or removal errors abort. *)
+      (* (R) RECOVER — the staging namespace must contain ONLY the flat, canonical, regular temp files that
+         stage_temp emits.  Any other entry (a non-canonical name, a directory, symlink, or special file —
+         a state the builder cannot create) is REJECTED (fail-loud), never traversed or deleted, so a
+         nested tree or a mount under staging cannot be recursively removed.  Removing a canonical temp is a
+         single unlink.  Fail-CLOSED: enumeration / lstat / removal errors (other than a confirmed ENOENT)
+         abort before any synchronization effect. *)
       let residue =
         try Sys.readdir staging
         with ex -> fail "recovery FAILED: cannot enumerate %s: %s" staging (Printexc.to_string ex) in
       Array.iter (fun n ->
         let p = Filename.concat staging n in
-        try remove_staged unlink p
-        with ex -> fail "recovery FAILED: cannot remove staging residue %s: %s" p (Printexc.to_string ex))
+        if not (is_canonical_temp_name n) then
+          fail "recovery FAILED: %s is not a canonical staging temp — refusing an impossible staging state" p;
+        let st =
+          try Some (Unix.lstat p)
+          with Unix.Unix_error (Unix.ENOENT, _, _) -> None                (* raced away: fine *)
+             | ex -> fail "recovery FAILED: cannot lstat %s: %s" p (Printexc.to_string ex) in
+        (match st with
+         | None -> ()
+         | Some s when s.Unix.st_kind = Unix.S_REG ->
+           (try unlink p with ex -> fail "recovery FAILED: cannot remove %s: %s" p (Printexc.to_string ex))
+         | Some _ -> fail "recovery FAILED: %s is not a regular file — refusing to remove a non-file staging entry" p))
         residue;
       (* (B) desired set + existing generated .go files *)
       let targets = List.map (fun (rel, bytes) ->
