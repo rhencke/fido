@@ -48,16 +48,16 @@ is rejected IN Rocq before any bytes — **zero expected Go build failures, ever
   empty-file tree; `WitnessForge{,Opaque,Var,VarIndirect}.v` are the direct-axiom / opaque-Qed-axiom /
   direct- and transitive-section-variable forged images each rejected (reason-checked) before any effect.
 - **The dirty-directory sink** (`plugin/fido_sink.ml`): persistent `<root>/.fido/` control dir + marker +
-  git-style `index.lock`; per-parent random `.fido-stage-<rand>/` stages owned by a DURABLE control-dir
-  record `<root>/.fido/stage-<rand>` (not a file inside the stage), so a partially removed stage stays
-  recognizable and is recovered on rerun and a foreign `.fido-stage-*` is never touched; per-file atomic
-  rename with ownership rechecked immediately before overwrite/delete; foreign files/dirs/symlinks never
-  touched, symlinks never followed; stale generated `.go` cleaned by header + desired-key-set (no `.go`
-  timestamps/manifest). The body runs to an outcome, then a SINGLE fail-loud finalizer runs once,
-  aggregating every obligation (each stage+record, the lock fd, the lock path) and combining body+cleanup
-  errors; the fallible `rmdir` is a parameter so tests inject cleanup failures through the real algorithm
-  (no ambient env). Honest: convergent on rerun, NOT transactional, NOT a concurrent-adversary guard
-  (cooperating emitters + preserve pre-existing foreign).
+  git-style `index.lock`; ONE ownership authority — a regular file is Fido-owned iff its first line is the
+  header — covering both installed `.go` and the temp files that stage them (no separate marker/record).
+  Staging is marker-free: each target's bytes go to an `O_CREAT|O_EXCL` `<target>.fido-tmp-<rand>` (never
+  clobbers/follows an existing file/symlink; collision retries), then atomic rename. Recovery runs FIRST,
+  recover-all-or-REJECT: it unlinks owned stale temps and aborts before any effect if any can't be removed;
+  a foreign temp-named file/symlink/dir is preserved (lstat S_REG, symlinks never followed). The finalizer's
+  sole obligation is releasing the lock, fail-loud once, combining body+lock errors; the fallible `unlink`
+  is a parameter so tests inject a recovery failure through the real algorithm (no ambient env). Honest: a
+  crash leaves the lock (next run refuses until it is removed, then recovers); a handled failure releases
+  the lock so an immediate rerun converges. NOT transactional, NOT a concurrent-adversary guard.
 - **Pinned Go** (`golang:1.23-alpine`): `go build ./...` over the WHOLE tree + `go vet` + gofmt-clean; the
   witness runs vs reviewed goldens (`e2e/golden.*`); representative differential fixtures — a multi-package
   tree ACCEPTED, no-main/duplicate-main trees REJECTED, and `go list ./...` matching the emitted package

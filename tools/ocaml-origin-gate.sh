@@ -16,10 +16,11 @@
 #   (3) the transport bridge must NOT mention any Fido program/AST type (GoProgram / GoFileAST / GoDecl /
 #       CompilableProgram / SafeProgram / CompilationFacts / render);
 #   (4) no tracked source contains a hallmark NAME of the deleted OCaml backend / lowering / renderer.
-# That the two provenance guards stay LIVE is proved behaviorally by the emit stage's negative fixtures
-# (WitnessNeg = the type guard; WitnessForge{,Opaque,Var,VarIndirect} = the assumption-closure guard):
-# removing either guard makes those `Fido Emit`s SUCCEED and create a target, failing the e2e.  A string
-# grep here would only prove a name appears (in a comment or dead code), so it is not attempted.
+# That the two provenance guards stay LIVE is a mutation-sensitive REGRESSION gate (not a proof): the emit
+# stage's negative fixtures (WitnessNeg = the type guard; WitnessForge{,Opaque,Var,VarIndirect} = the
+# assumption-closure guard) EXECUTE forged inputs, and removing either guard makes the corresponding
+# `Fido Emit` succeed and create a target, failing the e2e.  A string grep here would only show a name
+# appears (in a comment or dead code), so it is not attempted.
 set -eu
 
 fs_files='plugin/fido_sink.ml e2e/sink_test.ml'
@@ -48,7 +49,8 @@ for f in $fs_files; do
 done
 
 # (3) the transport bridge decodes the transport only — never a Fido program/AST type.  (That the live
-#     provenance guards remain is proved by the emit stage's negative fixtures, not by a spoofable grep.)
+#     provenance guards remain is a mutation-sensitive regression gate — the emit fixtures — not a proof
+#     and not a spoofable grep.)
 if git ls-files --error-unmatch "$bridge" >/dev/null 2>&1; then
   lines=$(wc -l < "$bridge")
   if [ "$lines" -gt 200 ]; then

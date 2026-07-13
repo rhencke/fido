@@ -42,20 +42,23 @@ stop. When an entry stops being a live temptation, delete it.
    the gate. The gate is the emit command's assumption-closure check (it rejects any image whose proof
    depends on an assumption, descending Qed bodies), so a forged image cannot cross into filesystem effects.
 
-6. **A directory sink SYNCHRONIZES a dirty tree; ownership is positive, rechecked, and DURABLE across partial
-   removal.** A filesystem lock only coordinates cooperating emitters — it is not ownership. A `.go` is
-   Fido-owned iff its first line is the exact header; ownership is rechecked immediately before every
-   overwrite/delete (lstat, never follow a symlink). ⚠ An ownership marker placed INSIDE the entry it guards
-   is a trap: recursive removal deletes the marker before it deletes the directory, so a `rmdir` that then
-   fails leaves an unmarked husk the next run can no longer recognize as its own (and must preserve as
-   foreign) — convergence silently breaks. So a transient staging dir is owned by a DURABLE record in the
-   persistent control dir, OUTSIDE the dir being removed; a partial removal keeps the record and is recovered
-   later, while a foreign lookalike (no record) is never touched. Test cleanup failure by injecting a failing
-   `rmdir` PARAMETER through the real algorithm — never an ambient env branch or a real `chmod` in the
-   production sink, which would make destructive behaviour reachable and mutate foreign metadata. State the
-   guarantee honestly: convergent on rerun (a single fail-loud finalizer that runs once and combines
-   body+cleanup errors), NOT a transactional whole-directory commit (a crash may leave a mixed generation;
-   the next run converges by recovering recorded stale stages).
+6. **A directory sink SYNCHRONIZES a dirty tree; make ownership INTRINSIC, so partial cleanup cannot orphan
+   it.** A filesystem lock only coordinates cooperating emitters — it is not ownership. ⚠ A separate ownership
+   marker/record is a trap: an inner marker is deleted before its directory (a failed `rmdir` leaves an
+   unrecognizable husk); a control-dir record is itself forgeable (a symlink record followed on read, a
+   truncating non-exclusive create, a stage that outlives a crash before its record). BOTH break the
+   "recover-owned-residue, preserve-foreign" contract. The fix is to carry NO separate ownership token: a
+   regular file is Fido-owned iff its first line is the exact header — the SAME rule for installed `.go` and
+   for the temp files that stage them (`<target>.fido-tmp-<rand>`, created `O_CREAT|O_EXCL` so it never
+   clobbers or follows an existing file/symlink, then atomically renamed). Unlinking a file is atomic, so a
+   failed cleanup leaves a fully-owned temp the next run's recovery removes — no husk, no record. Ownership is
+   rechecked immediately before every overwrite/delete via lstat (S_REG required, so a symlink is never
+   followed/read/removed). Recovery is recover-all-or-REJECT BEFORE any effect (abort loud if an owned temp
+   can't be removed); the finalizer's sole obligation is releasing the lock. Test cleanup failure by injecting
+   a failing `unlink` PARAMETER through the real algorithm — never an ambient env branch or a real `chmod` in
+   the production sink (that makes destructive behaviour reachable and mutates foreign metadata). State the
+   guarantee honestly: NOT transactional; a crash leaves the lock (the next run refuses until it is removed,
+   then recovers), and only a handled failure — lock already released — permits an immediately converging rerun.
 
 7. **Source-text scanning is not a sound zero-axiom gate — audit the compiled environment instead.** Every
    text scanner leaked: a naive comment stripper missed an `Axiom` behind a `"(*"` string; a smarter lexical
