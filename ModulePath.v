@@ -7,8 +7,9 @@
     A [ModulePath] is one or more `/`-separated segments; each segment is nonempty, starts with a
     lowercase letter, ends with a lowercase letter or digit, and contains only lowercase letters, digits,
     or `.` with no `..`.  The FIRST element must contain a `.` (never a stdlib-colliding dotless prefix like
-    `go`/`fmt`); the FINAL element must NOT be a version-suffix shape (`v` + digit + digits/dots — Go's
-    semantic-import-versioning reject class); and the path must NOT be a `gopkg.in/` path (Go's `.vN`-suffix
+    `go`/`fmt`); the FINAL element must NOT be a version-suffix shape (`v` + one-or-more digits/dots, dot-led
+    runs like `v.2.3` included — Go's semantic-import-versioning reject class, scanned as the trailing
+    `[0-9.]` run after `v`); and the path must NOT be a `gopkg.in/` path (Go's `.vN`-suffix
     special case).  Hence NO whitespace/control byte, NO backslash/NUL/`@`, NO query/fragment, NO
     empty/`.`/`..` component, NO leading/trailing/repeated slash, NO leading/trailing dot, NO `/vN` tail, and
     NO `gopkg.in/`; a total length bound keeps it safe.  Every representable path is accepted by the pinned
@@ -113,22 +114,26 @@ Fixpoint before_slash (s : string) : string :=
 Fixpoint contains_dot (s : string) : bool :=
   match s with EmptyString => false | String c s' => Ascii.eqb c "."%char || contains_dot s' end.
 
-(** Go's semantic-import-versioning rules (`golang.org/x/mod/module.SplitPathVersion`, pinned 1.23) reject a
-    module path whose FINAL `/`-separated element is a version-suffix shape `v<digits/dots>` UNLESS it is a
-    valid major version `/vN` (N >= 2, no leading zero, no interior dot): so `/v1`, `/v0`, `/v01`, `/v1.2`
-    are all rejected, while `/v2`, `/v10` are accepted.  Rather than model the accept/reject split (which
-    would let a subtly-wrong rule admit a Go-rejected path), we EXCLUDE the whole version-suffix-shaped last
-    element — [version_suffix_shape] holds of ANY `v` followed by a digit then digits/dots — so every such
-    element is UNREPRESENTABLE.  A genuinely-valid `/v2` module is out of scope (there is no import support
-    yet), not admitted-then-narrowed; this keeps "representable ⇒ Go-accepts" exact. *)
+(** Go's semantic-import-versioning rules (`golang.org/x/mod/module.SplitPathVersion`, pinned 1.23) treat the
+    FINAL `/`-separated element as a version suffix when it is `v` immediately followed by a NONEMPTY maximal
+    run of `[0-9.]` (Go scans the trailing digit/dot run, then checks the preceding char is `v` after a `/`).
+    Such a suffix is REJECTED unless it is a valid major version `/vN` (N >= 2, no leading zero, no dot): so
+    `/v1`, `/v0`, `/v01`, `/v1.2`, and `/v.2.3` (Go's own `mod_init_invalid_major` regression rejects
+    `.../v.2.3`) are all rejected, while `/v2`, `/v10` are accepted.  Rather than model the accept/reject
+    split (which would let a subtly-wrong rule admit a Go-rejected path), we EXCLUDE the WHOLE version-suffix
+    shape — [version_suffix_shape] holds of ANY `v` followed by one-or-more `[0-9.]` (matching Go's trailing
+    run exactly, dot-led runs like `v.2.3` INCLUDED) — so every such element is UNREPRESENTABLE.  A
+    genuinely-valid `/v2` module is out of scope (there is no import support yet), not admitted-then-narrowed;
+    this keeps "representable ⇒ Go-accepts" exact. *)
 Definition is_dot_or_digit (c : ascii) : bool := is_digit c || Ascii.eqb c "."%char.
 
 Fixpoint all_dot_or_digit (s : string) : bool :=
   match s with EmptyString => true | String c s' => is_dot_or_digit c && all_dot_or_digit s' end.
 
+(** `v` then a NONEMPTY run of digits/dots (the char after `v` may itself be a `.`, as in `v.2.3`). *)
 Definition version_suffix_shape (seg : string) : bool :=
   match seg with
-  | String v (String d rest) => Ascii.eqb v "v"%char && is_digit d && all_dot_or_digit rest
+  | String v (String c rest) => Ascii.eqb v "v"%char && is_dot_or_digit c && all_dot_or_digit rest
   | _ => false
   end.
 
@@ -224,6 +229,7 @@ Example no_dotless_pkg  : modpath_ok "fido2/pkg9" = false.     Proof. reflexivit
 Example no_ver_v1     : modpath_ok "example.com/pkg/v1" = false.   Proof. reflexivity. Qed.
 Example no_ver_v01    : modpath_ok "example.com/pkg/v01" = false.  Proof. reflexivity. Qed.
 Example no_ver_v1dot2 : modpath_ok "example.com/pkg/v1.2" = false. Proof. reflexivity. Qed.
+Example no_ver_vdot   : modpath_ok "example.com/pkg/v.2.3" = false. Proof. reflexivity. Qed.  (* dot-led run *)
 Example no_ver_v2     : modpath_ok "example.com/pkg/v2" = false.   Proof. reflexivity. Qed.  (* Go-valid, but out of scope *)
 Example ok_vlike_mid  : modpath_ok "example.com/v2/pkg" = true.    Proof. reflexivity. Qed.  (* v2 NOT the last element *)
 Example ok_vword      : modpath_ok "example.com/verify" = true.    Proof. reflexivity. Qed.  (* not a version shape *)

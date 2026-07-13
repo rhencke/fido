@@ -18,8 +18,10 @@
    is created atomic O_CREAT|O_EXCL and fully written+validated BEFORE its stage dir, and removed only AFTER
    the stage dir is gone.  Because stage and target are SIBLINGS, per-file install is an atomic same-device
    rename (nested mounts inside root work; no central cross-device compare; EXDEV fails loud, no copy).
-   Binding order: validate root chain + reject reserved/foreign BEFORE any effect; lock; record-driven
-   recovery; foreign scan; stage the COMPLETE image; install each by rename; remove stale owned `.go`;
+   Binding order: validate the root chain and reject a reserved-namespace desired path (a target inside
+   .fido) BEFORE any effect; then ensure/roll-back .fido; acquire the lock; record-driven recovery; reject
+   foreign Go/module inputs — after the lock/recovery but BEFORE any generated-file MUTATION (no stage or
+   install has happened yet); stage the COMPLETE image; install each by rename; remove stale owned `.go`;
    remove each stage then its record; release the lock.
 
    FAIL-CLOSED.  Only a confirmed ENOENT is "missing"; every other fs error (EACCES/EIO/ELOOP/ENOTDIR/…)
