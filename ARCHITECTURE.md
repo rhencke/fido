@@ -110,8 +110,9 @@ AST->output->AST round-trip authority, no copied compiled AST, no handwritten OC
 - `plugin/g_fido.mlg` — the transport bridge, a four-step boundary: (1) typecheck the argument as the
   certified image type; (2) reject a non-empty assumption closure (a kernel provenance query that descends
   Qed proof bodies); (3) reduce and STRUCTURALLY decode ONLY the final `list (string*string)` (exact
-  constructors, fail-loud); (4) call the sink. It does no semantic program/AST/behaviour inspection; the
-  origin gate keeps both provenance guards present.
+  constructors, fail-loud); (4) call the sink. It does no semantic program/AST/behaviour inspection; that
+  both provenance guards stay live is proved behaviorally by the emit stage's negative fixtures (removing
+  either makes a forged `Fido Emit` succeed and create a target), not by a spoofable source grep.
 - `plugin/fido_sink.ml` + `e2e/sink_test.ml` — the generic dirty-directory synchronizer + its driver.
   Filesystem ONLY: they walk no Rocq terms.
 
@@ -127,17 +128,21 @@ transport foundation is worse than no integration.
 existing dirty tree is locked (a persistent `<root>/.fido/` control dir with an exact marker + lock),
 ownership-aware (a `.go` file is Fido-owned iff its first line is the exact header; ownership is rechecked
 immediately before every overwrite/delete), collision-safe (foreign files/dirs/symlinks are never touched,
-symlinks never followed), staged in per-parent random `.fido-stage-<rand>/` directories with an exact
-marker (each stage is registered for cleanup the instant it is created; all files stage before any
-install), per-file atomic in the normal same-filesystem case, and convergent on rerun. Cleanup is
-**fail-loud**: success is never reported while an invocation stage or the `index.lock` remains, and a
-cleanup failure during error handling is reported alongside the original error (never swallowed). It is
-**NOT** a transactional whole-tree commit — a crash during install/delete may leave a mixed generation;
-the next run converges after removing marked stale stages. It is **NOT** hardened against a concurrent
-non-cooperating process (this OCaml `Unix` exposes no `openat`/`O_NOFOLLOW`); the honest model is
-cooperating emitters that preserve pre-existing foreign state. Ownership is by header marker +
-desired-key-set, never timestamps or a manifest. Git is a recovery backstop, not the primary safety
-mechanism.
+symlinks never followed), staged in per-parent random `.fido-stage-<rand>/` directories whose ownership is
+a DURABLE record `<root>/.fido/stage-<rand>` in the control dir — NOT a file inside the stage — so a
+partially removed stage (contents gone, `rmdir` failed) stays mechanically recognizable and is recovered
+on a later run, while a foreign `.fido-stage-*` (no record) is never touched. All files stage before any
+install; installation is per-file atomic in the normal same-filesystem case, and convergent on rerun.
+Cleanup is **fail-loud**: the body runs to an outcome, then a SINGLE finalizer runs once and aggregates
+every correctness-obligation failure (each invocation stage and its record, the lock descriptor, the lock
+pathname), combining a body error with a cleanup error (never hiding either); an un-removable stage keeps
+its record. It is **NOT** a transactional whole-tree commit — a crash during install/delete may leave a
+mixed generation; the next run converges by recovering recorded stale stages. It is **NOT** hardened
+against a concurrent non-cooperating process (this OCaml `Unix` exposes no `openat`/`O_NOFOLLOW`); the honest model is
+cooperating emitters that preserve pre-existing foreign state. GENERATED-FILE ownership is by header
+marker + desired-key-set (never timestamps or a `.go` manifest); STAGE ownership is a per-stage
+control-dir record (durable crash-recovery bookkeeping for transient staging dirs, a distinct concern).
+Git is a recovery backstop, not the primary safety mechanism.
 
 ## Closed world
 

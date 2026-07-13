@@ -14,10 +14,12 @@
 #   (2) the two filesystem files must NOT walk Rocq terms (no EConstr / Constr / Nametab / interp / Evd /
 #       Reductionops / Global) and stay bounded;
 #   (3) the transport bridge must NOT mention any Fido program/AST type (GoProgram / GoFileAST / GoDecl /
-#       CompilableProgram / SafeProgram / CompilationFacts / render), AND must KEEP both provenance guards
-#       (the certified image-type projection + the kernel assumption-closure check) so the boundary cannot
-#       be silently weakened to decode-and-emit;
+#       CompilableProgram / SafeProgram / CompilationFacts / render);
 #   (4) no tracked source contains a hallmark NAME of the deleted OCaml backend / lowering / renderer.
+# That the two provenance guards stay LIVE is proved behaviorally by the emit stage's negative fixtures
+# (WitnessNeg = the type guard; WitnessForge{,Opaque,Var,VarIndirect} = the assumption-closure guard):
+# removing either guard makes those `Fido Emit`s SUCCEED and create a target, failing the e2e.  A string
+# grep here would only prove a name appears (in a comment or dead code), so it is not attempted.
 set -eu
 
 fs_files='plugin/fido_sink.ml e2e/sink_test.ml'
@@ -45,8 +47,8 @@ for f in $fs_files; do
   fi
 done
 
-# (3) the transport bridge decodes the transport only — never a Fido program/AST type — and KEEPS both
-#     provenance guards, so the boundary cannot silently regress to decode-and-emit.
+# (3) the transport bridge decodes the transport only — never a Fido program/AST type.  (That the live
+#     provenance guards remain is proved by the emit stage's negative fixtures, not by a spoofable grep.)
 if git ls-files --error-unmatch "$bridge" >/dev/null 2>&1; then
   lines=$(wc -l < "$bridge")
   if [ "$lines" -gt 200 ]; then
@@ -55,10 +57,6 @@ if git ls-files --error-unmatch "$bridge" >/dev/null 2>&1; then
   if grep -nE 'GoProgram|GoFileAST|GoDecl|GoStmt|GoExpr|CompilableProgram|SafeProgram|CompilationFacts|render_|eval_|GoCompile' "$bridge"; then
     echo "fido: OCAML-ORIGIN GATE — $bridge must decode ONLY the final transport; it names a program/AST type."; exit 1
   fi
-  grep -q 'directory_entries' "$bridge" || {
-    echo "fido: OCAML-ORIGIN GATE — $bridge dropped the certified image-type projection (step-1 provenance guard)."; exit 1; }
-  grep -q 'Assumptions.assumptions' "$bridge" || {
-    echo "fido: OCAML-ORIGIN GATE — $bridge dropped the assumption-closure check (step-2 provenance guard)."; exit 1; }
 fi
 
 # (4) no deleted-backend hallmark NAME reappears.

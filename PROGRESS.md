@@ -45,16 +45,19 @@ is rejected IN Rocq before any bytes — **zero expected Go build failures, ever
   query descending Qed bodies), (3) decode only the final (path, bytes) transport (exact constructors,
   fail-loud), (4) call the sink. Run EXPLICITLY (`rocq c` on `e2e/Witness.v`) after the cached theory+plugin
   build — not a `.vo` side effect; no per-witness recompile. `e2e/WitnessMulti.v` emits a two-package +
-  empty-file tree; `WitnessForge{,Opaque,Var}.v` are the direct-axiom / opaque-Qed-axiom / section-variable
-  forged images each rejected (reason-checked) before any effect.
+  empty-file tree; `WitnessForge{,Opaque,Var,VarIndirect}.v` are the direct-axiom / opaque-Qed-axiom /
+  direct- and transitive-section-variable forged images each rejected (reason-checked) before any effect.
 - **The dirty-directory sink** (`plugin/fido_sink.ml`): persistent `<root>/.fido/` control dir + marker +
-  git-style `index.lock`; per-parent random `.fido-stage-<rand>/` stages (registered for cleanup the instant
-  they are created; all files staged before install); per-file atomic rename with ownership rechecked
-  immediately before overwrite/delete; foreign files/dirs/symlinks never touched, symlinks never followed;
-  stale generated `.go` cleaned by header + desired-key-set (no timestamps/manifest). Cleanup is FAIL-LOUD —
-  success is never reported while a stage or the lock survives, and a cleanup error during failure handling
-  is reported with the original. Honest: convergent on rerun, NOT transactional, NOT a concurrent-adversary
-  guard (cooperating emitters + preserve pre-existing foreign).
+  git-style `index.lock`; per-parent random `.fido-stage-<rand>/` stages owned by a DURABLE control-dir
+  record `<root>/.fido/stage-<rand>` (not a file inside the stage), so a partially removed stage stays
+  recognizable and is recovered on rerun and a foreign `.fido-stage-*` is never touched; per-file atomic
+  rename with ownership rechecked immediately before overwrite/delete; foreign files/dirs/symlinks never
+  touched, symlinks never followed; stale generated `.go` cleaned by header + desired-key-set (no `.go`
+  timestamps/manifest). The body runs to an outcome, then a SINGLE fail-loud finalizer runs once,
+  aggregating every obligation (each stage+record, the lock fd, the lock path) and combining body+cleanup
+  errors; the fallible `rmdir` is a parameter so tests inject cleanup failures through the real algorithm
+  (no ambient env). Honest: convergent on rerun, NOT transactional, NOT a concurrent-adversary guard
+  (cooperating emitters + preserve pre-existing foreign).
 - **Pinned Go** (`golang:1.23-alpine`): `go build ./...` over the WHOLE tree + `go vet` + gofmt-clean; the
   witness runs vs reviewed goldens (`e2e/golden.*`); representative differential fixtures — a multi-package
   tree ACCEPTED, no-main/duplicate-main trees REJECTED, and `go list ./...` matching the emitted package

@@ -105,19 +105,21 @@ echo "fido: multi-package tree:"; ( cd /workspace/e2e-multi && find . -name '*.g
 if ! rocq c -Q _build/default/. Fido e2e/WitnessNeg.v > /tmp/emit-neg.log 2>&1; then cat /tmp/emit-neg.log; fail "a forged raw transport was NOT rejected"; fi
 [ ! -e /workspace/e2e-neg ] || fail "a rejected Fido Emit still created its target directory"
 # provenance (2): a FORGED image — the right TYPE but a non-empty assumption closure — is rejected by the
-# emit-time closure check BEFORE any effect.  Three cases: a DIRECT axiom, an axiom behind an opaque Qed
-# proof (proves opaque descent), and a section variable (the Variable arm).  Each runs WITHOUT `Fail`
-# (which absorbs the message silently in batch mode), so `rocq c` errors and we assert BOTH the rejection
-# REASON (the printed message) and that the target was never created.
+# emit-time closure check BEFORE any effect.  Cases: a DIRECT axiom, an axiom behind an opaque Qed proof
+# (proves opaque descent), a DIRECT section variable (the up-front direct-variable check), and a TRANSITIVE
+# section variable reached only through a section-local def (the Printer.Variable arm of the closure pass).
+# Each runs WITHOUT `Fail` (which absorbs the message silently in batch mode), so `rocq c` errors and we
+# assert BOTH the rejection REASON (the printed message) and that the target was never created.
 forge_reject() {   # <witness.v> <target-dir> <label>
   if rocq c -Q _build/default/. Fido "$1" > /tmp/emit-forge.log 2>&1; then cat /tmp/emit-forge.log; fail "$3: a forged image was NOT rejected"; fi
   grep -q 'provenance depends on an axiom' /tmp/emit-forge.log || { cat /tmp/emit-forge.log; fail "$3: rejected, but NOT by the assumption-closure check (wrong reason)"; }
   [ ! -e "$2" ] || fail "$3: a rejected forged emit still created its target directory"
   echo "fido: provenance enforced — $3 rejected before any effect"
 }
-forge_reject e2e/WitnessForge.v       /workspace/e2e-forge        "direct axiom"
-forge_reject e2e/WitnessForgeOpaque.v /workspace/e2e-forge-opaque "axiom behind an opaque Qed proof"
-forge_reject e2e/WitnessForgeVar.v    /workspace/e2e-forge-var    "section variable"
+forge_reject e2e/WitnessForge.v            /workspace/e2e-forge            "direct axiom"
+forge_reject e2e/WitnessForgeOpaque.v      /workspace/e2e-forge-opaque     "axiom behind an opaque Qed proof"
+forge_reject e2e/WitnessForgeVar.v         /workspace/e2e-forge-var        "direct section variable"
+forge_reject e2e/WitnessForgeVarIndirect.v /workspace/e2e-forge-var-indirect "transitive section variable"
 
 # --- SOUND zero-project-axiom audit: enumerate the compiled global env (not a text scanner).  The set of
 #     modules loaded (hence audited) is DERIVED from dune's authoritative (modules ...) list, so a new
@@ -174,20 +176,30 @@ mkdir -p /workspace/adv-lock; ./sink_test /workspace/adv-lock || fail "initial l
 if ./sink_test /workspace/adv-lock; then fail "synced despite a held index.lock"; fi
 [ -e /workspace/adv-lock/.fido/index.lock ] || fail "the sink removed a lock it did not create"
 [ -z "$(stages /workspace/adv-lock)" ] || fail "a stage dir leaked after a lock-refused run"
-# (5) FAULT INJECTION: the body fails AFTER a stage exists AND that stage's cleanup also fails.  The
-#     finalizer must run ONCE, return no success, and report BOTH the original and the cleanup error; the
-#     un-removable stage must survive (matching the report), and the removable lock must NOT be reported
-#     (a second finalizer pass would spuriously report the already-removed lock).
-mkdir -p /workspace/adv-fault; ./sink_test /workspace/adv-fault || fail "fault-test initial sync failed"
-if out=$(FIDO_SINK_FAULT=stage-then-cleanup-fails ./sink_test /workspace/adv-fault 2>&1); then rc=0; else rc=$?; fi
-[ "$rc" -ne 0 ] || { echo "$out"; fail "fault-injected sync reported success"; }
-echo "$out" | grep -q 'injected post-stage fault' || { echo "$out"; fail "fault: the ORIGINAL error was not reported"; }
-echo "$out" | grep -q 'cleanup FAILED' || { echo "$out"; fail "fault: the CLEANUP failure was not reported"; }
+# (5) INJECTED cleanup failure (a failing `rmdir` PARAMETER through the real algorithm — no ambient env, no
+#     chmod, so foreign metadata is untouched): the body installs main.go, but every stage's rmdir fails.
+#     The single finalizer must fail loud (no success), report the cleanup failure with NO spurious lock
+#     error, leave main.go installed, and leave the stage DURABLY OWNED (a control-dir record).  Then a
+#     NORMAL rerun must CONVERGE: recover the owned residue, leave no stage/record, keep correct output,
+#     release the lock — with the parent's mode UNCHANGED throughout.
+records() { find "$1/.fido" -name 'stage-*' 2>/dev/null; }
+mkdir -p /workspace/adv-fault
+mode_before=$(stat -c '%a' /workspace/adv-fault)
+if out=$(./sink_test /workspace/adv-fault fail-stage-rmdir 2>&1); then rc=0; else rc=$?; fi
+[ "$rc" -ne 0 ] || { echo "$out"; fail "fault: injected cleanup failure reported success"; }
+echo "$out" | grep -q 'cleanup FAILED' || { echo "$out"; fail "fault: the cleanup failure was not reported"; }
 if echo "$out" | grep -qi 'index.lock'; then echo "$out"; fail "fault: finalizer ran twice (spurious already-removed-lock error)"; fi
-[ -n "$(stages /workspace/adv-fault)" ] || fail "fault: an un-removable stage was reported but none survives"
-[ ! -e /workspace/adv-fault/.fido/index.lock ] || fail "fault: the removable lock was not released"
-chmod -R u+w /workspace/adv-fault   # undo the seam's read-only sabotage so later steps can clean up
-echo "fido: emit OK — general Fido Emit synced the tree; sink dirty/adversarial + lock + fault-injection cases all pass"
+[ -f /workspace/adv-fault/main.go ] || fail "fault: the body did not install main.go"
+[ -n "$(stages /workspace/adv-fault)" ] || fail "fault: the un-removable stage did not survive"
+[ -n "$(records /workspace/adv-fault)" ] || fail "fault: the surviving stage is not durably owned (no control-dir record)"
+[ ! -e /workspace/adv-fault/.fido/index.lock ] || fail "fault: the lock was not released"
+./sink_test /workspace/adv-fault || fail "fault: a normal rerun did not converge"
+[ -z "$(stages /workspace/adv-fault)" ] || fail "fault: a stage residue survived a converging rerun"
+[ -z "$(records /workspace/adv-fault)" ] || fail "fault: an ownership record survived convergence"
+[ -f /workspace/adv-fault/main.go ] || fail "fault: main.go missing after convergence"
+[ ! -e /workspace/adv-fault/.fido/index.lock ] || fail "fault: the lock was left after a converging rerun"
+[ "$mode_before" = "$(stat -c '%a' /workspace/adv-fault)" ] || fail "fault: the target directory mode changed"
+echo "fido: emit OK — general Fido Emit synced the tree; sink dirty/adversarial + lock + injected-cleanup-failure + recovery cases all pass"
 SH
 
 # ── Stage 5: go-e2e — the LAST-MILE integration check (never a proof).  The pinned Go toolchain builds

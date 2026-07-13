@@ -4,22 +4,33 @@
    makes a target tree's Fido-generated files EQUAL that image, preserving foreign files.  It understands
    ONLY the filesystem: it decodes no program, renders nothing, parses no Go, walks no Rocq terms.
 
-   OWNERSHIP is positive and rechecked immediately before every overwrite/delete: the generated header
-   (the FIRST LINE of the Rocq-rendered bytes — DERIVED from the image, never hardcoded) marks a Fido
-   `.go`; a persistent <root>/.fido/ control dir and per-parent .fido-stage-<rand>/ stages carry exact
-   markers; a `.go`/control/stage entry is only touched/removed when its marker is present, and no
-   symlink is followed (lstat everywhere; symlinked dirs are never descended, stage dirs hold only flat
-   files, cleanup is by marker).  All files stage before any install; the body runs to an outcome and a
-   SINGLE finalizer then runs exactly once.  That finalizer is FAIL-LOUD on its correctness obligations —
-   every invocation stage, the lock descriptor, and the lock pathname — aggregating all their failures, so
-   success is never reported while any of them survives, and a body error is combined with (never replaced
-   or hidden by) a cleanup error.  Removing an EMPTY new parent directory is the one deliberately
-   best-effort step (a leftover empty dir is not stale state).
+   OWNERSHIP is positive and rechecked immediately before every overwrite/delete.  A generated `.go` is
+   Fido-owned iff its FIRST LINE is the exact header (DERIVED from the image bytes, never hardcoded); it
+   is only touched/removed when that header is present.  A per-parent staging directory
+   `.fido-stage-<rand>/` is owned via a DURABLE record `<root>/.fido/stage-<rand>` in the persistent
+   control dir — the record, NOT any file inside the stage, is the ownership authority.  Because the
+   record lives outside the stage it is removing, even a PARTIALLY removed stage (contents gone, `rmdir`
+   failed) stays mechanically recognizable and is recovered on a later run; a foreign `.fido-stage-*`
+   directory (no record) is never touched.  No symlink is followed (lstat everywhere; symlinked dirs are
+   never descended).
+
+   All files stage before any install; the body runs to an OUTCOME and a SINGLE finalizer then runs
+   exactly once.  That finalizer is FAIL-LOUD on its correctness obligations — every invocation stage
+   (and its record), the lock descriptor, and the lock pathname — aggregating all their failures, so
+   success is never reported while any of them survives, and a body error is combined with (never
+   replaced or hidden by) a cleanup error.  A stage whose removal fails keeps its record, so ownership
+   is preserved for recovery.  Removing an EMPTY new parent directory is the one deliberately best-effort
+   step (a leftover empty dir is not stale state).
+
+   The fallible directory-removal operation is a PARAMETER (`?rmdir`, default the real `Unix.rmdir`), so
+   the standalone test driver can inject a cleanup failure through the real algorithm without any ambient
+   environment branch or destructive behaviour in the production call graph; the plugin always links the
+   real operation.
 
    HONEST GUARANTEE (threat model): a git-style index.lock coordinates COOPERATING Fido emitters, and
    every PRE-EXISTING foreign entry (file/dir/symlink) is preserved.  It is NOT a transactional whole-tree
-   commit (a crash mid-install may leave a mixed generation; the next run converges after clearing marked
-   stale stages), and — like git's index.lock, and because this OCaml `Unix` exposes no
+   commit (a crash mid-install may leave a mixed generation; the next run converges after recovering
+   recorded stale stages), and — like git's index.lock, and because this OCaml `Unix` exposes no
    openat/renameat/O_NOFOLLOW — it is NOT hardened against a concurrent NON-cooperating process racing
    symlink swaps into the target between check and use; the intended use (a single emit process writing a
    build tree) has no such adversary. *)
@@ -28,9 +39,8 @@ let control_dir   = ".fido"
 let marker_name   = "marker"
 let marker_bytes  = "fido-control-directory.  do not edit.\n"
 let lock_name     = "index.lock"      (* git-style: created O_EXCL, removed at end *)
-let stage_prefix  = ".fido-stage-"
-let stage_marker  = ".fido-stage-marker"
-let stage_bytes   = "fido-stage-directory.  do not edit.\n"
+let stage_prefix  = ".fido-stage-"    (* a per-parent staging directory *)
+let record_prefix = "stage-"          (* its durable ownership record, in the control dir *)
 let skip_dirs     = [ ".git"; ".hg"; ".svn"; control_dir ]
 
 exception Fail of string
@@ -41,9 +51,9 @@ let lstat_opt p = try Some (Unix.lstat p) with Unix.Unix_error _ -> None
 let kind_opt p = match lstat_opt p with Some st -> Some st.Unix.st_kind | None -> None
 let is_real_dir p = kind_opt p = Some Unix.S_DIR
 let is_symlink p = kind_opt p = Some Unix.S_LNK
-let has_stage_prefix name =
-  String.length name >= String.length stage_prefix
-  && String.sub name 0 (String.length stage_prefix) = stage_prefix
+let has_prefix pfx name =
+  String.length name >= String.length pfx && String.sub name 0 (String.length pfx) = pfx
+let has_stage_prefix name = has_prefix stage_prefix name
 
 let first_line path =
   match (try Some (open_in_bin path) with Sys_error _ -> None) with
@@ -63,15 +73,16 @@ let dir_has_marker dir name bytes =
 let write_exact path bytes =
   let oc = open_out_bin path in output_string oc bytes; close_out oc
 
-(* recursively remove OUR OWN directory (created this run): flat stage files + rmdir; never follows a
-   symlink (lstat + unlink drops the link itself). *)
-let rec rm_rf path =
+(* recursively remove OUR OWN directory: flat contents via unlink + rmdir (the fallible rmdir is a
+   parameter so tests can inject a cleanup failure through the real algorithm); never follows a symlink
+   (lstat + unlink drops the link itself). *)
+let rec rm_rf rmdir path =
   match lstat_opt path with
   | None -> ()
   | Some st ->
     if st.Unix.st_kind = Unix.S_DIR then begin
-      Array.iter (fun n -> rm_rf (Filename.concat path n)) (Sys.readdir path);
-      Unix.rmdir path
+      Array.iter (fun n -> rm_rf rmdir (Filename.concat path n)) (Sys.readdir path);
+      rmdir path
     end else Unix.unlink path
 
 let components rel =
@@ -80,6 +91,22 @@ let components rel =
   if parts = [] || List.exists (fun c -> c = "" || c = "." || c = ".." || String.contains c '\000') parts
   then fail "unsafe path from image: %s" rel;
   parts
+
+(* a stage's root-relative path, as recorded in the control dir, is safe to remove: relative, no
+   traversal, and its basename is a stage directory. *)
+let valid_stage_rel rel =
+  match String.split_on_char '/' rel with
+  | [] -> false
+  | parts ->
+    List.for_all (fun c -> c <> "" && c <> "." && c <> ".." && not (String.contains c '\000')) parts
+    && has_stage_prefix (List.nth parts (List.length parts - 1))
+
+let strip_root root p =                       (* the path of p (under root) relative to root *)
+  let rl = String.length root in
+  if String.length p > rl && String.sub p 0 rl = root then
+    let rest = String.sub p rl (String.length p - rl) in
+    if String.length rest > 0 && rest.[0] = '/' then String.sub rest 1 (String.length rest - 1) else rest
+  else p
 
 let rec walk_real_dirs root f =
   Array.iter (fun name ->
@@ -91,15 +118,20 @@ let rec walk_real_dirs root f =
 
 let () = Random.self_init ()
 
-(* create a unique stage dir and REGISTER it (for cleanup) IMMEDIATELY after mkdir — before writing the
-   marker — so a marker-write failure cannot leak an untracked stage. *)
-let rec make_stage parent created tries =
+(* create a fresh per-parent stage dir AND a DURABLE ownership record (root/.fido/stage-<rand>, naming the
+   stage's root-relative path) in the control dir.  Register (stage, record) for cleanup immediately after
+   mkdir, then write the record; the record — living OUTSIDE the stage — is the ownership authority. *)
+let rec make_stage root ctrl parent created tries =
   if tries <= 0 then fail "could not create a unique stage directory in %s" parent;
-  let name = Printf.sprintf "%s%06x" stage_prefix (Random.int 0xffffff) in
-  let dir = Filename.concat parent name in
-  match (try Unix.mkdir dir 0o755; Some dir with Unix.Unix_error (Unix.EEXIST, _, _) -> None) with
-  | Some d -> created := d :: !created; write_exact (Filename.concat d stage_marker) stage_bytes; d
-  | None -> make_stage parent created (tries - 1)
+  let rand = Printf.sprintf "%06x" (Random.int 0xffffff) in
+  let dir = Filename.concat parent (stage_prefix ^ rand) in
+  match (try Unix.mkdir dir 0o755; true with Unix.Unix_error (Unix.EEXIST, _, _) -> false) with
+  | false -> make_stage root ctrl parent created (tries - 1)
+  | true ->
+    let record = Filename.concat ctrl (record_prefix ^ rand) in
+    created := (dir, record) :: !created;
+    write_exact record (strip_root root dir ^ "\n");
+    dir
 
 let ensure_real_dir_parents root parts created =
   let rec go cur = function
@@ -113,7 +145,7 @@ let ensure_real_dir_parents root parts created =
   in go root parts
 
 (* ---- the synchronization (algorithm §17 A..G) ---- *)
-let sync root entries =
+let sync ?(rmdir = Unix.rmdir) root entries =
   (* the ownership header is DERIVED from the Rocq-rendered bytes (the first line of every generated
      file), not hardcoded — one authority (GoRender). *)
   let gen_header = match entries with (_, b) :: _ -> first_line_of b | [] -> "" in
@@ -141,16 +173,24 @@ let sync root entries =
     with Unix.Unix_error (Unix.EEXIST, _, _) ->
       fail "%s already exists — another Fido emission holds it, or a crashed run left it (remove it to proceed)" lock_path in
   let created_parents = ref [] and created_stages = ref [] in
-  (* Run the body to an OUTCOME (never finalizing inside it), then finalize EXACTLY ONCE, then combine.
-     This avoids a second, non-idempotent cleanup pass on a cleanup failure. *)
+  (* Run the body to an OUTCOME (never finalizing inside it), then finalize EXACTLY ONCE, then combine. *)
   let body =
     try
-      (* (A.3-6) remove only MARKED, non-symlink stale stage directories left by a crashed run *)
-      let stale = ref [] in
-      walk_real_dirs root (fun p name ->
-        if has_stage_prefix name && is_real_dir p && dir_has_marker p stage_marker stage_bytes && not (is_symlink p)
-        then stale := p :: !stale);
-      List.iter (fun d -> try rm_rf d with _ -> fail "could not remove stale stage %s" d) !stale;
+      (* (A.3) recover stale stages left by a crashed run: read each control-dir ownership record, remove
+         the stage it names (record = authority), then the record.  Best-effort: a record whose stage
+         cannot be removed now is LEFT for a later run (convergence); a foreign .fido-stage-* has no
+         record and is never touched. *)
+      Array.iter (fun rn ->
+        if has_prefix record_prefix rn then begin
+          let record = Filename.concat ctrl rn in
+          match first_line record with
+          | Some rel when valid_stage_rel (String.trim rel) ->
+            let stage = Filename.concat root (String.trim rel) in
+            if not (is_symlink stage) then
+              (try rm_rf rmdir stage; Unix.unlink record with _ -> ())
+          | _ -> ()   (* malformed/foreign-looking record: leave it (we never write such) *)
+        end)
+        (try Sys.readdir ctrl with _ -> [||]);
       (* (B) desired set + existing generated .go files *)
       let targets = List.map (fun (rel, bytes) ->
         let parts = components rel in (Filename.concat root rel, parts, bytes)) entries in
@@ -177,18 +217,9 @@ let sync root entries =
         let parent = Filename.dirname target in
         let stage = match Hashtbl.find_opt stage_of parent with
           | Some s -> s
-          | None -> let s = make_stage parent created_stages 64 in Hashtbl.add stage_of parent s; s in
+          | None -> let s = make_stage root ctrl parent created_stages 64 in Hashtbl.add stage_of parent s; s in
         let sp = Filename.concat stage (Filename.basename target) in
         write_exact sp bytes; (sp, target)) targets in
-      (* TEST-ONLY fault seam (inert unless FIDO_SINK_FAULT is set — the env var is set ONLY by the sink
-         adversarial driver, never in production): now that a stage exists but before any install, break
-         stage cleanup (make each stage's parent read-only, so removing the stage fails) and raise — so the
-         suite can exercise the single-run, combined-error finalizer on a genuine post-stage failure. *)
-      (match (try Some (Sys.getenv "FIDO_SINK_FAULT") with Not_found -> None) with
-       | Some "stage-then-cleanup-fails" ->
-         List.iter (fun d -> (try Unix.chmod (Filename.dirname d) 0o555 with _ -> ())) !created_stages;
-         fail "injected post-stage fault"
-       | _ -> ());
       (* (E) install by per-file atomic rename, rechecking ownership immediately before replacement *)
       List.iter (fun (sp, target) ->
         (match lstat_opt target with
@@ -205,22 +236,27 @@ let sync root entries =
         !existing_go;
       Ok (List.length targets)
     with e -> Error e in
-  (* (G) FINALIZE ONCE.  Fail-loud on the correctness obligations — every invocation stage, the lock
-     descriptor, and the lock pathname — aggregating ALL their failures.  Empty NEW parent directories are
-     the one deliberately best-effort case (a leftover empty dir is not stale state, and is not reported). *)
+  (* (G) FINALIZE ONCE.  Fail-loud on the correctness obligations — every invocation stage (removed via the
+     injectable rmdir; its record is deleted ONLY after the stage is gone, so a failed removal keeps the
+     stage durably owned), the lock descriptor, and the lock pathname — aggregating ALL their failures.
+     Removing an EMPTY new parent is the one deliberately best-effort step. *)
   let cleanup_errs = ref [] in
-  List.iter (fun d -> try rm_rf d with ex ->
-    cleanup_errs := Printf.sprintf "stage %s: %s" d (Printexc.to_string ex) :: !cleanup_errs) !created_stages;
+  let add fmt = Printf.ksprintf (fun s -> cleanup_errs := s :: !cleanup_errs) fmt in
+  List.iter (fun (stage, record) ->
+    match (try rm_rf rmdir stage; None with ex -> Some (Printexc.to_string ex)) with
+    | Some e -> add "stage %s: %s" stage e            (* keep the record: durable ownership for recovery *)
+    | None -> (try Unix.unlink record with
+               | Unix.Unix_error (Unix.ENOENT, _, _) -> ()   (* already gone / never written: fine *)
+               | ex -> add "record %s: %s" record (Printexc.to_string ex)))
+    !created_stages;
   List.iter (fun d -> match (try Sys.readdir d with _ -> [||]) with       (* best-effort empty-parent tidy *)
     | [||] -> (try Unix.rmdir d with _ -> ()) | _ -> ()) !created_parents;
-  (try Unix.close lock_fd with ex ->
-    cleanup_errs := Printf.sprintf "close lock fd: %s" (Printexc.to_string ex) :: !cleanup_errs);
-  (try Unix.unlink lock_path with ex ->
-    cleanup_errs := Printf.sprintf "unlink %s: %s" lock_path (Printexc.to_string ex) :: !cleanup_errs);
+  (try Unix.close lock_fd with ex -> add "close lock fd: %s" (Printexc.to_string ex));
+  (try Unix.unlink lock_path with ex -> add "unlink %s: %s" lock_path (Printexc.to_string ex));
   let cleanup = match !cleanup_errs with [] -> None | l -> Some (String.concat "; " l) in
   (match body, cleanup with
    | Ok n, None -> n
-   | Ok _, Some cm -> fail "installed the tree but cleanup FAILED (a retry may be blocked): %s" cm
+   | Ok _, Some cm -> fail "installed the tree but cleanup FAILED (a retry recovers it): %s" cm
    | Error e, None -> raise e
    | Error e, Some cm ->
      let em = (match e with Fail m -> m | _ -> Printexc.to_string e) in

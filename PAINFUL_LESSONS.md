@@ -42,13 +42,20 @@ stop. When an entry stops being a live temptation, delete it.
    the gate. The gate is the emit command's assumption-closure check (it rejects any image whose proof
    depends on an assumption, descending Qed bodies), so a forged image cannot cross into filesystem effects.
 
-6. **A directory sink SYNCHRONIZES a dirty tree; ownership is positive, marked, and rechecked.** A filesystem
-   lock only coordinates cooperating emitters — it is not ownership. A `.go` is Fido-owned iff its first line
-   is the exact header; a control/stage directory is owned iff it carries the exact marker; ownership is
-   rechecked immediately before every overwrite/delete (lstat, never follow a symlink). Foreign files, dirs,
-   symlinks, and unmarked control/stage lookalikes are never touched; stale cleanup is by header +
-   desired-key-set, never timestamps or a manifest. State the guarantee honestly: convergent on rerun, NOT a
-   transactional whole-directory commit (a crash may leave a mixed generation; the next run converges).
+6. **A directory sink SYNCHRONIZES a dirty tree; ownership is positive, rechecked, and DURABLE across partial
+   removal.** A filesystem lock only coordinates cooperating emitters — it is not ownership. A `.go` is
+   Fido-owned iff its first line is the exact header; ownership is rechecked immediately before every
+   overwrite/delete (lstat, never follow a symlink). ⚠ An ownership marker placed INSIDE the entry it guards
+   is a trap: recursive removal deletes the marker before it deletes the directory, so a `rmdir` that then
+   fails leaves an unmarked husk the next run can no longer recognize as its own (and must preserve as
+   foreign) — convergence silently breaks. So a transient staging dir is owned by a DURABLE record in the
+   persistent control dir, OUTSIDE the dir being removed; a partial removal keeps the record and is recovered
+   later, while a foreign lookalike (no record) is never touched. Test cleanup failure by injecting a failing
+   `rmdir` PARAMETER through the real algorithm — never an ambient env branch or a real `chmod` in the
+   production sink, which would make destructive behaviour reachable and mutate foreign metadata. State the
+   guarantee honestly: convergent on rerun (a single fail-loud finalizer that runs once and combines
+   body+cleanup errors), NOT a transactional whole-directory commit (a crash may leave a mixed generation;
+   the next run converges by recovering recorded stale stages).
 
 7. **Source-text scanning is not a sound zero-axiom gate — audit the compiled environment instead.** Every
    text scanner leaked: a naive comment stripper missed an `Axiom` behind a `"(*"` string; a smarter lexical
