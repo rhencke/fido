@@ -38,35 +38,37 @@ let () =
   (* argv.(2) = the image selector; argv.(3) (if present) = the fault selector, else the same token does
      both — so `sink_test dir multi crash-after-staging` freezes a multi image at a fault point. *)
   let image = if Array.length Sys.argv > 2 then Sys.argv.(2) else "" in
-  let fault = if Array.length Sys.argv > 3 then Sys.argv.(3) else image in
+  (* argv.(3) may be a '+'-separated set of faults (e.g. "fail-after-staging+unlink-fail") applied together *)
+  let faults = String.split_on_char '+' (if Array.length Sys.argv > 3 then Sys.argv.(3) else image) in
+  let has f = List.mem f faults in
   let entries = match image with
     | "empty"    -> []
     | "multi"    -> [ ("main.go", mk "ROOT"); ("sub/main.go", mk "SUB") ]
     | "reserved" -> [ (".fido/x.go", mk "X") ]
     | _          -> [ ("main.go", mk "ROOT") ] in
   let rand_hex =
-    if fault = "collide" then (fun _ -> "00112233445566778899aabbccddeeff")   (* fixed → forces collision *)
+    if has "collide" then (fun _ -> "00112233445566778899aabbccddeeff")   (* fixed → forces collision *)
     else Fido_sink.default_rand_hex in
   let checkpoint label =
-    if fault = "crash-" ^ label then
+    if has ("crash-" ^ label) then
       (Printf.eprintf "sink_test: crashing at %s\n%!" label; Unix._exit 137)
-    else if fault = "fail-" ^ label then
+    else if has ("fail-" ^ label) then
       raise (Fido_sink.Fail ("injected handled failure at " ^ label)) in
   let unlink =
-    if fault = "unlink-fail" then (fun p -> raise (Unix.Unix_error (Unix.EACCES, "unlink", p)))
+    if has "unlink-fail" then (fun p -> raise (Unix.Unix_error (Unix.EACCES, "unlink", p)))
     else Unix.unlink in
   let rename src dst =
-    if fault = "exdev" then raise (Unix.Unix_error (Unix.EXDEV, "rename", dst)) else Unix.rename src dst in
+    if has "exdev" then raise (Unix.Unix_error (Unix.EXDEV, "rename", dst)) else Unix.rename src dst in
   let make_foreign p = let oc = open_out_bin p in output_string oc "FOREIGN not a fido file\n"; close_out oc in
   let has_sub p =                                (* plain substring search for "/sub/" — no Str dependency *)
     let n = String.length p and m = 5 in
     let rec go i = i + m <= n && (String.sub p i m = "/sub/" || go (i + 1)) in go 0 in
   let before_install target =
-    if fault = "foreign-before-install" && Filename.basename target = "main.go" then make_foreign target in
+    if has "foreign-before-install" && Filename.basename target = "main.go" then make_foreign target in
   let before_write sp =
-    if fault = "fail-write-sub" && has_sub sp then raise (Fido_sink.Fail "injected later-stage write failure") in
+    if has "fail-write-sub" && has_sub sp then raise (Fido_sink.Fail "injected later-stage write failure") in
   let before_delete p =
-    if fault = "foreign-before-delete" && has_sub p then make_foreign p in
+    if has "foreign-before-delete" && has_sub p then make_foreign p in
   match (try `Ok (Fido_sink.sync ~rand_hex ~checkpoint ~unlink ~rename ~before_install ~before_write
                     ~before_delete root go_mod entries)
          with Fido_sink.Fail m -> `Fail m) with

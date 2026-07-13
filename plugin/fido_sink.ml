@@ -57,6 +57,10 @@ let nonce_hexlen = 2 * nonce_bytes             (* its exact hex length (a strict
 exception Fail of string
 let fail fmt = Printf.ksprintf (fun s -> raise (Fail s)) fmt
 
+(* a local stage tracked for cleanup: its durable record (created first) + its stage dir once created.
+   Registered the moment the record exists, so any later failure routes to the one aggregating cleanup. *)
+type tracked = { record : string; mutable dir : string option }
+
 (* ---- fail-closed filesystem observation: only a confirmed ENOENT is "missing" ---- *)
 type obs = Missing | Present of Unix.stats
 
@@ -249,8 +253,10 @@ let rec scan_foreign root header rel =
     end)
     names
 
-(* ---- one recorded local stage per parent (record BEFORE stage dir; retry on collision) ---- *)
-let make_stage rand_hex unlink checkpoint root records_abs parent_rel =
+(* ---- one recorded local stage per parent (record BEFORE stage dir; retry on collision).  [stages] is the
+   shared cleanup registry (tracked added when the record exists, dir set when the stage exists), so any
+   later failure routes to the single aggregating cleanup — make_stage never self-cleans nor orphans. *)
+let make_stage rand_hex unlink checkpoint stages root records_abs parent_rel =
   let parent_abs = if parent_rel = "" then root else Filename.concat root parent_rel in
   let rec attempt tries =
     if tries <= 0 then fail "could not create a unique local stage under %s" parent_abs;
@@ -260,9 +266,6 @@ let make_stage rand_hex unlink checkpoint root records_abs parent_rel =
     let stage_abs = Filename.concat parent_abs stage_name in
     let stage_rel = (if parent_rel = "" then "" else parent_rel ^ "/") ^ stage_name in
     let record_abs = Filename.concat records_abs nonce in
-    (* remove OUR just-created record, fail-loud if that removal itself fails (never silently orphan it). *)
-    let rm_record () = match (try unlink record_abs; None with Unix.Unix_error (e,_,_) -> Some (Unix.error_message e)) with
-      | None -> () | Some m -> fail "cannot remove stage record %s: %s" record_abs m in
     match lstat_obs stage_abs with
     | Present _ -> attempt (tries - 1)          (* a pre-existing lookalike occupies the path: new nonce *)
     | Missing ->
@@ -280,28 +283,21 @@ let make_stage rand_hex unlink checkpoint root records_abs parent_rel =
             fail "cannot write stage record %s: %s%s%s" record_abs base
               (match close_msg with Some c -> " | fd close failed: " ^ c | None -> "")
               (match rm_msg with Some r -> " | record cleanup failed: " ^ r | None -> ""));
-         (* From here the record (and, once created, the stage) exist.  Guard so that ANY failure —
-            record re-validation, an injected checkpoint, or a stage-creation error — IMMEDIATELY removes
-            our partial artifacts before propagating (§15: handled-failure cleanup is immediate; a partial
-            make_stage never leaves an unregistered record/stage). *)
-         let result =
-           (try
-              (let (n', p', s') = parse_record record_abs in    (* §13.6 validate the CLOSED record *)
-               if not (n' = nonce && p' = parent_rel && s' = stage_rel)
-               then fail "stage record %s did not validate after write" record_abs);
-              checkpoint "after-record";
-              (match (try `Ok (Unix.mkdir stage_abs 0o755)
-                      with Unix.Unix_error (Unix.EEXIST, _, _) -> `Collide
-                         | Unix.Unix_error (e, _, _) -> fail "cannot create local stage %s: %s" stage_abs (Unix.error_message e)) with
-               | `Ok () -> checkpoint "after-mkdir"; `Made
-               | `Collide -> `Collide)
-            with e ->
-              (try (match lstat_obs stage_abs with Present _ -> rm_rf_no_follow unlink stage_abs | Missing -> ()) with _ -> ());
-              (try unlink record_abs with _ -> ());
-              raise e) in
-         (match result with
-          | `Collide -> rm_record (); attempt (tries - 1)   (* a raced foreign entry at the slot: our record only *)
-          | `Made -> (nonce, stage_abs, record_abs)))
+         (* the record now exists on disk — REGISTER it before anything else can fail *)
+         let t = { record = record_abs; dir = None } in
+         stages := t :: !stages;
+         (let (n', p', s') = parse_record record_abs in    (* §13.6 validate the CLOSED record *)
+          if not (n' = nonce && p' = parent_rel && s' = stage_rel)
+          then fail "stage record %s did not validate after write" record_abs);
+         checkpoint "after-record";
+         (match (try `Ok (Unix.mkdir stage_abs 0o755)
+                 with Unix.Unix_error (Unix.EEXIST, _, _) -> `Collide
+                    | Unix.Unix_error (e, _, _) -> fail "cannot create local stage %s: %s" stage_abs (Unix.error_message e)) with
+          | `Ok () -> t.dir <- Some stage_abs; checkpoint "after-mkdir"; stage_abs
+          | `Collide ->                          (* a raced foreign entry at the slot: drop OUR record, retry *)
+            (match (try unlink record_abs; None with Unix.Unix_error (e,_,_) -> Some (Unix.error_message e)) with
+             | None -> stages := List.filter (fun x -> x != t) !stages; attempt (tries - 1)
+             | Some m -> fail "cannot remove stage record %s after a slot collision: %s" record_abs m)))
   in attempt 8
 
 let ensure_dir_chain root parent_rel created =
@@ -336,10 +332,13 @@ let rec remove_stale_go unlink before_delete root header desired rel =
                 && read_first_line p = header && not (List.mem p desired)
         then begin
           before_delete p;                          (* test seam: a race can mutate p here *)
-          (* §17 recheck ownership IMMEDIATELY before delete — a file that became foreign is NOT deleted *)
+          (* §17 recheck ownership IMMEDIATELY before delete and ABORT fail-closed on ANY mismatch/error
+             (the target became missing, nonregular, symlinked, unreadable, or no longer Fido-headed) —
+             never delete a file that is no longer provably ours; preserve it. *)
           if owned_regular p header then
             (try unlink p
              with Unix.Unix_error (e,_,_) -> fail "cannot remove stale generated %s: %s" p (Unix.error_message e))
+          else fail "stale generated %s changed and is no longer Fido-owned — refusing to touch it" p
         end
     end)
     names
@@ -362,10 +361,16 @@ let ensure_root_and_control root control_abs records_abs =
        (try Unix.mkdir records_abs 0o755
         with Unix.Unix_error (e,_,_) -> fail "cannot create %s: %s" records_abs (Unix.error_message e))
      with e ->
-       (try (match lstat_obs records_abs with Present _ -> Unix.rmdir records_abs | Missing -> ()) with _ -> ());
-       (try (match lstat_obs mk with Present _ -> Unix.unlink mk | Missing -> ()) with _ -> ());
-       (try Unix.rmdir control_abs with _ -> ());
-       raise e)
+       let base = match e with Fail m -> m | _ -> Printexc.to_string e in
+       let errs = ref [] in
+       let step what f = match (try f (); None with Unix.Unix_error (er,_,_) -> Some (Unix.error_message er)) with
+         | None -> () | Some m -> errs := (what ^ ": " ^ m) :: !errs in
+       step "records dir" (fun () -> match lstat_obs records_abs with Present _ -> Unix.rmdir records_abs | Missing -> ());
+       step "marker" (fun () -> match lstat_obs mk with Present _ -> Unix.unlink mk | Missing -> ());
+       step "control dir" (fun () -> Unix.rmdir control_abs);
+       (match !errs with
+        | [] -> fail "first-time %s init failed and was rolled back: %s" control_abs base
+        | es -> fail "first-time %s init failed: %s | rollback also failed: %s" control_abs base (String.concat "; " (List.rev es))))
   | Present st ->
     (* EXISTING: VALIDATE the exact ownership marker AND directory shape; abort WITHOUT modifying on any
        deviation (§12 — an existing .fido is Fido-owned by location; it must be marker + stage-records/ (+ a
@@ -422,8 +427,7 @@ let sync ?(rand_hex = default_rand_hex) ?(checkpoint = fun _ -> ()) ?(unlink = U
     let stage_of = Hashtbl.create 8 in
     List.iter (fun pr ->
       ensure_dir_chain dir pr created_dirs;
-      let (nonce, stage_abs, record_abs) = make_stage rand_hex unlink checkpoint dir records_abs pr in
-      stages := (nonce, stage_abs, record_abs) :: !stages;
+      let stage_abs = make_stage rand_hex unlink checkpoint stages dir records_abs pr in
       Hashtbl.replace stage_of pr stage_abs)
       (uniq (List.map (fun (_,pr,_,_) -> pr) desired));
     (* H. STAGE THE COMPLETE IMAGE before any install *)
@@ -450,11 +454,14 @@ let sync ?(rand_hex = default_rand_hex) ?(checkpoint = fun _ -> ()) ?(unlink = U
     (* J. remove stale Fido-owned .go not in the desired set (empty program removes them all) *)
     remove_stale_go unlink before_delete dir header (List.map (fun (t,_,_,_) -> t) desired) "";
     (* K. cleanup: remove each now-empty stage, then its record *)
-    List.iter (fun (_, stage_abs, record_abs) ->
-      (try Unix.rmdir stage_abs
-       with Unix.Unix_error (e,_,_) -> fail "cannot remove local stage %s: %s" stage_abs (Unix.error_message e));
-      (try unlink record_abs
-       with Unix.Unix_error (e,_,_) -> fail "cannot remove stage record %s: %s" record_abs (Unix.error_message e)))
+    List.iter (fun t ->
+      (match t.dir with
+       | Some stage_abs ->
+         (try Unix.rmdir stage_abs
+          with Unix.Unix_error (e,_,_) -> fail "cannot remove local stage %s: %s" stage_abs (Unix.error_message e))
+       | None -> ());
+      (try unlink t.record
+       with Unix.Unix_error (e,_,_) -> fail "cannot remove stage record %s: %s" t.record (Unix.error_message e)))
       !stages;
     stages := [];
     List.length desired in
@@ -463,17 +470,21 @@ let sync ?(rand_hex = default_rand_hex) ?(checkpoint = fun _ -> ()) ?(unlink = U
      stage stays RECOVERABLE (never orphaned).  Every cleanup error is collected, not hidden. *)
   let cleanup_errors = ref [] in
   let cleanup_on_failure () =
-    List.iter (fun (_, stage_abs, record_abs) ->
-      let stage_gone =
-        (try rm_rf_no_follow unlink stage_abs; (match lstat_obs stage_abs with Missing -> true | _ -> false)
-         with Fail m -> cleanup_errors := m :: !cleanup_errors; false
-            | e -> cleanup_errors := Printexc.to_string e :: !cleanup_errors; false) in
-      if stage_gone then
-        (match (try unlink record_abs; None with Unix.Unix_error (e,_,_) -> Some (Unix.error_message e)) with
-         | None -> ()
-         | Some m -> cleanup_errors := Printf.sprintf "cannot remove record %s: %s" record_abs m :: !cleanup_errors)
-      else
-        cleanup_errors := Printf.sprintf "stage %s not removed — preserving record %s for recovery" stage_abs record_abs :: !cleanup_errors)
+    List.iter (fun t ->
+      (* a stage that could not be removed keeps its record (recoverable); a record with no stage yet is
+         removed directly.  Both cases collect any removal error rather than hiding it. *)
+      let rm_record () =
+        match (try unlink t.record; None with Unix.Unix_error (e,_,_) -> Some (Unix.error_message e)) with
+        | None -> () | Some m -> cleanup_errors := Printf.sprintf "cannot remove record %s: %s" t.record m :: !cleanup_errors in
+      match t.dir with
+      | None -> rm_record ()
+      | Some stage_abs ->
+        let stage_gone =
+          (try rm_rf_no_follow unlink stage_abs; (match lstat_obs stage_abs with Missing -> true | _ -> false)
+           with Fail m -> cleanup_errors := m :: !cleanup_errors; false
+              | e -> cleanup_errors := Printexc.to_string e :: !cleanup_errors; false) in
+        if stage_gone then rm_record ()
+        else cleanup_errors := Printf.sprintf "stage %s not removed — preserving record %s for recovery" stage_abs t.record :: !cleanup_errors)
       !stages;
     (* newly-created empty parents: a non-empty dir (ENOTEMPTY/EEXIST) is benign (preserve it); any OTHER
        removal error is an operational failure and is reported. *)
