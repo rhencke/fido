@@ -241,17 +241,18 @@ for bad in slotdir slotlink other; do
   esac
 done
 # (7c) a MIXED state — the regular slot AND a forbidden basename — must be rejected with NOTHING removed
-#      (recovery validates the whole state before it removes the slot), regardless of creation order.
-for order in slot-first other-first; do
+#      (recovery validates the WHOLE state before removing the slot).  The enumeration order is FORCED
+#      through the real recovery via the injectable readdir seam, so BOTH `[tmp;other]` and `[other;tmp]`
+#      are exercised deterministically; the tmp-first case is exactly the one the old one-pass code would
+#      have destroyed.  Both entries carry distinctive bytes and are asserted byte-identical after rejection.
+for order in readdir-tmp-first readdir-other-first; do
   d=/workspace/adv-mix-$order; mkdir -p "$d"; ./sink_test "$d" || fail "mix-$order initial sync failed"
-  case "$order" in
-    slot-first)  : > "$d/.fido/staging/tmp"; printf 'keep\n' > "$d/.fido/staging/other";;
-    other-first) printf 'keep\n' > "$d/.fido/staging/other"; : > "$d/.fido/staging/tmp";;
-  esac
-  if out=$(./sink_test "$d" 2>&1); then fail "mix-$order: a mixed staging state was NOT refused"; fi
+  printf 'SLOT-bytes-42\n'  > "$d/.fido/staging/tmp"
+  printf 'OTHER-bytes-99\n' > "$d/.fido/staging/other"
+  if out=$(./sink_test "$d" "$order" 2>&1); then fail "mix-$order: a mixed staging state was NOT refused"; fi
   echo "$out" | grep -q 'recovery FAILED' || { echo "$out"; fail "mix-$order: not a recovery rejection"; }
-  [ -f "$d/.fido/staging/tmp" ] || fail "mix-$order: the valid slot was removed before the mixed state was rejected"
-  [ "$(cat "$d/.fido/staging/other")" = "keep" ] || fail "mix-$order: the forbidden entry was altered/removed"
+  [ "$(cat "$d/.fido/staging/tmp")"   = "SLOT-bytes-42" ]  || fail "mix-$order: the valid slot was removed/altered before the mixed state was rejected"
+  [ "$(cat "$d/.fido/staging/other")" = "OTHER-bytes-99" ] || fail "mix-$order: the forbidden entry was altered/removed"
   rm -f "$d/.fido/staging/other"                 # remove the forbidden entry; the rerun must converge
   ./sink_test "$d" || fail "mix-$order: no converge after the forbidden entry was removed"
   [ -z "$(staged "$d")" ] || fail "mix-$order: staging residue survived a converging rerun"

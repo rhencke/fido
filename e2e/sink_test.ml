@@ -7,7 +7,10 @@
      "fail-recovery-unlink" — [unlink] always fails, so recovery (its first unlink caller) aborts fail-loud;
      "crash-mid-staging"    — [after_stage] TERMINATES the process (Unix._exit) after the real staging code
                               creates the staging slot: a true crash, no finalizer, the lock stays held;
-     "reserved-path"        — the desired image targets a path inside the reserved .fido/ namespace. *)
+     "reserved-path"        — the desired image targets a path inside the reserved .fido/ namespace;
+     "readdir-tmp-first" /
+     "readdir-other-first"  — force recovery's staging enumeration order (to exercise BOTH orders of a
+                              mixed slot+forbidden state through the real two-phase recovery). *)
 let header = "// fido generated.  do not edit."
 (* distinctive, binary-sensitive bytes (control chars + tab, no final newline) so the byte-equality check
    catches any transformation.  This file is never compiled — the sink test dirs are not go-built. *)
@@ -29,7 +32,11 @@ let () =
     else Unix.unlink p in
   let after_stage _ =
     if mode = "crash-mid-staging" then Unix._exit 137 in
-  match (try `Ok (Fido_sink.sync ~unlink ~after_stage root image) with Fido_sink.Fail m -> `Fail m) with
+  let readdir d = match mode with
+    | "readdir-tmp-first"   -> [| "tmp"; "other" |]      (* force this order into the real recovery scan *)
+    | "readdir-other-first" -> [| "other"; "tmp" |]
+    | _ -> Sys.readdir d in
+  match (try `Ok (Fido_sink.sync ~unlink ~after_stage ~readdir root image) with Fido_sink.Fail m -> `Fail m) with
   | `Ok n ->
     let rel = match image with (r, _) :: _ -> r | [] -> "" in
     let installed = read_all (Filename.concat root rel) in

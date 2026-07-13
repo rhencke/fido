@@ -149,7 +149,7 @@ let stage_temp staging bytes =
   tmp
 
 (* ---- the synchronization (algorithm §17) ---- *)
-let sync ?(unlink = Unix.unlink) ?(after_stage = fun _ -> ()) root entries =
+let sync ?(unlink = Unix.unlink) ?(after_stage = fun _ -> ()) ?(readdir = Sys.readdir) root entries =
   let gen_header = match entries with (_, b) :: _ -> first_line_of b | [] -> "" in
   let is_generated_go path =
     Filename.check_suffix path ".go"
@@ -204,7 +204,8 @@ let sync ?(unlink = Unix.unlink) ?(after_stage = fun _ -> ()) root entries =
          recursively removed.  Fail-CLOSED: enumeration / lstat / removal errors (other than a confirmed
          ENOENT) abort before any synchronization effect. *)
       let residue =
-        try Sys.readdir staging
+        try readdir staging               (* the enumeration order is an injectable seam (default Sys.readdir)
+                                             so a test can force either order through the REAL two-phase path *)
         with ex -> fail "recovery FAILED: cannot enumerate %s: %s" staging (Printexc.to_string ex) in
       (* PHASE 1 — validate the COMPLETE staging state with NO effect: every entry must be the ONE slot,
          absent or a regular file; record whether the regular slot is present.  A forbidden basename or a
