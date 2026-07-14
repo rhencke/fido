@@ -1,16 +1,15 @@
 #!/bin/sh
-# Generated-output policy gate — STAGED-TREE AUTHORITATIVE.  Operate on a ROOT directory (arg 1, default
-# ".") that is a PLAIN tree — for the pre-commit hook and `make check` this is the Git index materialized by
-# `git checkout-index`, so it contains exactly the tracked files and NO `.git`.  find-based, inspecting
-# EVERY tracked `.go` at EVERY depth (only `.git` metadata is pruned).  This is a REPOSITORY-CONTENT gate,
-# NOT the runtime sink: it must NOT adopt the sink's Go-discovery directory skipping — a rogue unheaded /
-# executable / symlinked `.go` under `.hidden`/`_priv`/`testdata`/`vendor` would otherwise escape, and
-# `.dockerignore` hides tracked `.go` from Buildx, so only this host gate can catch it.  Generated Go is a
-# TRACKED, reviewed derived artifact; this enforces the standing policy over its header and shape (the
-# byte/path equality vs the pristine layer is the separate `verify-generated` compare's job; the
-# AUTHORITATIVE exact-Git-mode-100644 check is the separate index-reading `generated-mode-gate` — the
-# exported-object `-L`/`-f`/`-x` tests below are a best-effort complement that a `core.symlinks=false` export
-# can defeat, so they are not relied on for the mode decision — all run by BOTH `make check` and the hook):
+# Generated-output policy gate.  Operates on a ROOT directory (arg 1, default ".") that is a PLAIN tree — the
+# WORKING TREE for `make check`, or the Git index materialized by `git checkout-index` for the pre-commit
+# hook (exactly the tracked files, no `.git`).  find-based, inspecting EVERY `.go` at EVERY depth (only `.git`
+# metadata is pruned).  This is a REPOSITORY-CONTENT gate, NOT the runtime sink: it must NOT adopt the sink's
+# Go-discovery directory skipping — a rogue unheaded / executable / symlinked `.go` under
+# `.hidden`/`_priv`/`testdata`/`vendor` would otherwise escape, and `.dockerignore` hides tracked `.go` from
+# Buildx, so only this host gate can catch it.  Generated Go is a TRACKED, reviewed derived artifact; this
+# enforces the standing policy over its header and shape (the byte/path equality vs the pristine layer is the
+# separate `verify-generated` compare's job).  On the WORKING TREE the `-L`/`-f`/`-x` file-type tests below
+# are authoritative for mode; on the exported index a `core.symlinks=false` export can flatten a symlink, so
+# the pre-commit hook additionally runs the index-reading `generated-mode-gate` for the exact-100644 decision:
 #   - every generated .go and the root go.mod is a REGULAR, non-symlink, non-executable file (mode 100644 —
 #     authoritatively via generated-mode-gate) whose first line is the exact Fido header;
 #   - no NESTED go.mod (only the root go.mod is generated);

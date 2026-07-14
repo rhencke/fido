@@ -70,8 +70,10 @@ the emitted package set) that exercise the whole-program rules against real Go.
 - **The generated module is a tracked, reviewed artifact.** One pristine content-addressed Buildx
   `generated-module` layer is the output authority; the canonical `go.mod` + `main.go` are committed
   (Fido-headed) so the example builds/runs without Rocq or Docker, while the `.v`/proof sources stay
-  authoritative. `make regenerate` rewrites them through the same sink, and a pre-commit hook verifies the
-  STAGED tree byte-exact against the pristine layer (a prototype boundary; `--no-verify` bypasses it).
+  authoritative. `make regenerate` rewrites them through the same sink; `make check` verifies the WORKING TREE
+  byte-exact against the pristine layer, and a pre-commit hook verifies the proposed STAGED commit the same way
+  (a prototype boundary offering reasonable assurance for a cooperating developer, not tamper resistance;
+  `--no-verify` bypasses it).
 
 The admitted fragment is deliberately tiny; anything else is **unrepresentable**, not stubbed. Imports are
 absent and unrepresentable — a permanent closed-world contract governs their eventual introduction.

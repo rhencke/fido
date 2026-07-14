@@ -4,7 +4,7 @@ BUILDER := fido-builder
 # toolchain's GOOS/GOARCH/word size).  This is an operational pin, not a certified TargetConfig.
 override PLATFORM := linux/amd64
 
-.PHONY: check prove emit e2e regenerate ocaml-origin-gate generated-output-gate generated-mode-gate precommit-selftest verify-generated builder install-hooks prover-log
+.PHONY: check prove emit e2e regenerate builder install-hooks prover-log
 .DEFAULT_GOAL := check
 
 # Fido (ARCHITECTURE.md): an LLM proposes a GoProgram (a ModuleSpec + a possibly-empty finite map of
@@ -17,8 +17,28 @@ override PLATFORM := linux/amd64
 #     sink -> go build ./...
 # ALL Rocq/Go work runs in the PINNED container via buildx — host Rocq is NOT supported.
 
-check: ocaml-origin-gate generated-output-gate generated-mode-gate precommit-selftest prove e2e verify-generated
-	@echo "fido: check OK — proved the core axiom-free (whole-theory audit: constants+inductives+named, run in prove) AND emitted the pristine generated-module (rendered go.mod + witness/multi/empty) via the Fido Emit transport + sibling-temp dirty-directory sink through go build ./... vs goldens; the tracked generated go.mod + recursive .go byte-match the pristine artifact (exact path set + bytes); transport-only OCaml, tracked Go is Fido-headed generated output; staged-index gates self-tested unbypassable ✓"
+# `make check` verifies the WORKING TREE, coherently and in ONE place.  It materializes the tracked files'
+# WORKING-TREE content — `git ls-files` piped through tar, so it reflects uncommitted edits to tracked files
+# and excludes untracked local residue (.fido/, *.fido-tmp-v1, *.vo) that a raw `find .` would wrongly flag —
+# into a temp tree, runs the lightweight repository-policy gates over THAT tree (transport-only OCaml; tracked
+# Go/go.mod Fido-headed, no nested go.mod), and byte-compares its generated go.mod + recursive .go against a
+# pristine `generated-module` layer built from the SAME working-tree proof inputs (`.dockerignore` excludes the
+# committed go.mod/.go, so the pristine is independent of the tracked bytes — this closes the byte-drift hole
+# a header-preserving `main.go` edit would otherwise slip through).  `prove`/`e2e` build from the working-tree
+# Buildx context.  It does NOT export or compare the staged INDEX snapshot — that is the pre-commit hook's
+# coherent, separate job.  (The exact-Git-mode-100644 gate is a committed-policy check and runs ONLY in the
+# hook; on the working tree the generated-output gate's own -L/-f/-x file-type tests are authoritative.)
+check: prove e2e builder
+	@tmp=$$(mktemp -d); tree="$$tmp/tree"; mkdir -p "$$tree"; \
+	  git ls-files -z | tar --null -T - -cf - | tar -xf - -C "$$tree" && \
+	  sh tools/ocaml-origin-gate.sh    "$$tree" && \
+	  sh tools/generated-output-gate.sh "$$tree" && \
+	  docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --target generated-artifact \
+	    --output "type=local,dest=$$tmp/pristine" . && \
+	  sh tools/staged-generated-compare.sh "$$tree" "$$tmp/pristine"; \
+	  rc=$$?; rm -rf "$$tmp"; \
+	  if [ $$rc -eq 0 ]; then echo "fido: check OK (working tree) — proved the core axiom-free (whole-theory audit run in prove) AND emitted the pristine generated-module via the Fido Emit transport + sibling-temp sink through go build ./... vs goldens; the working-tree generated go.mod + recursive .go byte-match the pristine artifact (exact path set + bytes); transport-only OCaml, tracked Go is Fido-headed generated output ✓"; fi; \
+	  exit $$rc
 
 # The reproducible container proof: dune compiles the modules + the always-run assumptions gate.
 prove: builder
@@ -50,53 +70,20 @@ regenerate: builder
 	@echo "fido: regenerate OK — the pristine canonical module was synced into the repo root via Fido_sink."
 	@echo "      Stage + commit:  git add -A -- go.mod ':(top,glob)**/*.go' && git commit"
 
-ocaml-origin-gate:
-	@tmp=$$(mktemp -d) && git checkout-index --ignore-skip-worktree-bits --all --prefix="$$tmp/" && sh "$$tmp/tools/ocaml-origin-gate.sh" "$$tmp"; rc=$$?; rm -rf "$$tmp"; exit $$rc
-
 # Zero project axioms are enforced inside the pinned `prove` stage: gate/axiom_gate.v (Print Assumptions on
 # the public surfaces) + the Rocq-native `Fido Audit Assumptions` WHOLE-certified-theory audit over
 # constants + inductives + surviving named assumptions (module set DERIVED from dune's (modules ...) list so
 # nothing escapes) + adversarial self-tests A-E.  No source-text scanner.
+#
+# The generated-output POLICY GATE (tools/generated-output-gate.sh, run over the working tree by `check` and
+# over the exported index by the hook): tracked Go IS the reviewed canonical generated module — every tracked
+# .go / root go.mod is Fido-headed, no nested go.mod, no tracked .fido/temp.
 
-# GENERATED-OUTPUT POLICY GATE (replaces the deleted no-tracked-Go seal): tracked Go IS the reviewed
-# canonical generated module — every tracked .go / root go.mod is Fido-headed, no nested go.mod, no tracked
-# .fido/temp.  The byte-exact-vs-pristine check is the separate `verify-generated` Buildx job (in `check` and
-# the pre-commit staged-index hook), not this gate.
-generated-output-gate:
-	@tmp=$$(mktemp -d) && git checkout-index --ignore-skip-worktree-bits --all --prefix="$$tmp/" && sh "$$tmp/tools/generated-output-gate.sh" "$$tmp"; rc=$$?; rm -rf "$$tmp"; exit $$rc
-
-# INDEX-authoritative Git-mode gate: every tracked generated go.mod + .go must have EXACT stage-0 index mode
-# 100644.  Reads the mode from `git ls-files -s` (the proposed commit's index), NOT an exported filesystem
-# object — so a mode-120000 symlink entry that `core.symlinks=false` would materialize as a plain file is
-# still caught.  Runs the STAGED copy of the script, but from the repo cwd so git reads the repo index.
-generated-mode-gate:
-	@tmp=$$(mktemp -d) && git checkout-index --ignore-skip-worktree-bits --all --prefix="$$tmp/" && sh "$$tmp/tools/generated-mode-gate.sh"; rc=$$?; rm -rf "$$tmp"; exit $$rc
-
-# STAGED-TREE-GATE SELF-TEST (contract §27): a Buildx-free host demonstration that the staged-index gates
-# CANNOT be bypassed.  It builds synthetic exported-snapshot trees with the REAL gate scripts and asserts:
-# staged bad OCaml/Go under ANY directory name (incl. hidden/underscore/testdata/vendor) is rejected — the
-# gates are repository-content gates over the staged snapshot, NOT the runtime sink, so no directory is
-# opaque; the STAGED gate implementation is the one executed; stale/modified/missing/extra generated files
-# are rejected at every depth; a docs-only commit is fully verified; and the hook never mutates the
-# index/working tree.  It walks no Rocq terms and needs no Docker.
-precommit-selftest:
-	sh tools/precommit-selftest.sh
-
-# TRACKED GENERATED-BYTE VERIFICATION (contract §27 "no generated-byte delta"): export the Git INDEX, then
-# materialize the PRISTINE generated-module (Buildx `generated-artifact`, built from the exported staged
-# proof inputs — `.dockerignore` excludes the committed go.mod/.go, so the pristine is independent of the
-# tracked bytes), and byte-compare the exported tracked go.mod + recursive .go against it (exact path set +
-# bytes, both directions).  This is the SAME comparison the pre-commit staged-index hook runs; wiring it into
-# `check` closes the generated-byte-drift hole — a header-preserving edit to `main.go` (or an extra
-# Fido-headed `.go`) passes the output-policy gate and is invisible to proof/e2e (excluded from Buildx), so
-# ONLY this check catches it.
-verify-generated: builder
-	@tmp=$$(mktemp -d); ctx="$$tmp/ctx"; \
-	  git checkout-index --ignore-skip-worktree-bits --all --prefix="$$ctx/" && \
-	  docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --target generated-artifact \
-	    --output "type=local,dest=$$tmp/pristine" "$$ctx" && \
-	  sh "$$ctx/tools/staged-generated-compare.sh" "$$ctx" "$$tmp/pristine"; \
-	  rc=$$?; rm -rf "$$tmp"; exit $$rc
+# The INDEX-authoritative Git-mode gate (tools/generated-mode-gate.sh — every tracked generated go.mod + .go
+# has EXACT stage-0 index mode 100644, read from `git ls-files -s`, catching a mode-120000/100755 entry a
+# `core.symlinks=false` export would hide) is a STAGED/committed-policy check, so it runs ONLY in the
+# pre-commit hook.  `make check` verifies the WORKING TREE, where the generated-output gate's own
+# `-L`/`-f`/`-x` file-type tests on the real files are authoritative for mode.
 
 builder:
 	@docker buildx inspect $(BUILDER) > /dev/null 2>&1 || \

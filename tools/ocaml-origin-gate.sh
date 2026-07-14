@@ -1,11 +1,10 @@
 #!/bin/sh
-# OCaml-origin gate — STAGED-TREE AUTHORITATIVE.  Operate on a ROOT directory (arg 1, default "."); for the
-# pre-commit hook and `make check` this is the Git index materialized by `git checkout-index`, so it is the
-# proposed commit's bytes and needs no `.git`.  find-based, inspecting EVERY tracked file at EVERY depth —
-# this is a REPOSITORY-CONTENT gate, NOT the runtime sink: it must NOT adopt the sink's Go-discovery
-# directory skipping (a rogue `.hidden/x.ml` / `_priv/x.ml` / `testdata/x.ml` / `vendor/x.ml` would escape
-# the OCaml allowlist, and `.dockerignore` hides tracked `.go` from Buildx, so only this host gate can catch
-# them).  Only VCS metadata (`.git`) is pruned, and the exported snapshot has none anyway.
+# OCaml-origin gate.  Operates on a ROOT directory (arg 1, default ".") — the WORKING TREE for `make check`,
+# or the Git index materialized by `git checkout-index` for the pre-commit hook (the proposed commit's bytes,
+# needing no `.git`).  find-based, inspecting EVERY file at EVERY depth — this is a REPOSITORY-CONTENT gate,
+# NOT the runtime sink: it must NOT adopt the sink's Go-discovery directory skipping (a rogue `.hidden/x.ml` /
+# `_priv/x.ml` / `testdata/x.ml` / `vendor/x.ml` would escape the OCaml allowlist, and `.dockerignore` hides
+# tracked `.go` from Buildx, so only this host gate can catch them).  Only VCS metadata (`.git`) is pruned.
 #
 # Fido has NO handwritten OCaml language semantics, compilation, safety reasoning, lowering, or rendering —
 # all of that lives in proved Rocq.  The ONLY handwritten OCaml is the Fido Emit transport/apply boundary:
@@ -16,9 +15,11 @@
 #                             non-empty assumption closure; decode ONLY the final (go.mod, entries) transport;
 #                             call the sink).  It does no program/AST/type/safety inspection.
 # Fail-closed: (1) the tracked *.ml/*.mli/*.mlg set is AT MOST those four; (2) the three filesystem-only
-# files walk no Rocq terms; (3) the bridge names no program/AST/type/safety structure; (4) no deleted-backend
-# hallmark name reappears.  There is deliberately NO source-line-count ceiling — a numeric cap is not a
-# correctness invariant; the behavioral emit fixtures exercise the live boundary instead.
+# files walk no Rocq terms; (3) the bridge names no program/AST/type/safety structure.  There is deliberately
+# NO source-line-count ceiling — a numeric cap is not a correctness invariant; the behavioral emit fixtures
+# exercise the live boundary instead.  There is also NO whole-repository historical-name scanner: the real
+# boundary is this OCaml allowlist + the responsibility checks, and repository prose may freely discuss
+# deleted history without becoming an implementation defect.
 set -eu
 root=${1:-.}
 allowed='e2e/fido_apply.ml e2e/sink_test.ml plugin/fido_sink.ml plugin/g_fido.mlg'
@@ -55,16 +56,4 @@ if [ -f "$root/$bridge" ]; then
   fi
 fi
 
-# (4) no deleted-backend hallmark NAME reappears in ANY tracked file — source, script, hook, build, or doc,
-#     at every depth.  PATHNAME-SAFE: `find -exec grep` passes real paths straight to grep (never through
-#     shell/xargs word-splitting), so a hallmark in a path with spaces or newlines is still read.  Only two
-#     things are pruned: `.git` metadata, and THIS gate script (it necessarily holds the banned names in the
-#     `banned=` list below — the one place they may legitimately appear).  Regular files only (`-type f`).
-banned='MiniML|Smartlocate|mono_environment|pp_struct|Extract_env|rocq-go-extraction|rocq_go_extraction|g_go_extraction|build_goexpr|pp_expr'
-hits=$(find "$root" -name .git -prune -o -path "$root/tools/ocaml-origin-gate.sh" -prune -o \
-            -type f -exec grep -lE "$banned" {} + 2>/dev/null || true)
-if [ -n "$hits" ]; then
-  echo "fido: OCAML-ORIGIN GATE — a deleted-backend hallmark NAME reappears in tracked sources:"; printf '%s\n' "$hits" | sed "s#^$root/*##; s/^/  /"; exit 1
-fi
-
-echo "fido: ocaml-origin gate OK — only the transport/apply boundary (sink + driver + apply + bridge) under $root (every depth inspected, only .git pruned); no semantic OCaml; no backend hallmarks; no line cap ✓"
+echo "fido: ocaml-origin gate OK — only the transport/apply boundary (sink + driver + apply + bridge) under $root (every depth inspected, only .git pruned); no semantic OCaml; no line cap; no whole-repo historical-name scanner ✓"

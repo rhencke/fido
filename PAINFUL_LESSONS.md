@@ -80,11 +80,13 @@ stop. When an entry stops being a live temptation, delete it.
    slips past the foreign-Go rejection; and a `.git`-metadata blob merely NAMED like a `.go`/temp is preserved
    and ignored, never touched. ⚠ But that RUNTIME-sink skip is the OPPOSITE requirement from the STAGED-TREE
    VERIFICATION GATES: a repository-content gate (the OCaml-origin / generated-output / staged-generated-
-   compare scripts over the exported index) must inspect EVERY tracked file at EVERY depth, pruning ONLY
-   `.git` — never the sink's opaque dirs.  Reusing the sink's Go-discovery skip in a gate is a FAIL-OPEN: a
-   rogue `.hidden/x.ml` escapes the OCaml allowlist and an unheaded/exec/symlink `.hidden/x.go` escapes the
-   output policy, and since `.dockerignore` also hides tracked `.go` from Buildx, NO check would ever see it.
-   A Buildx-free `precommit-selftest` demonstrates the gates reject these at every depth.  ⚠ A public temp
+   compare scripts, over the working-tree tracked content for `make check` or the exported index for the hook)
+   must inspect EVERY file at EVERY depth, pruning ONLY `.git` — never the sink's opaque dirs.  Reusing the
+   sink's Go-discovery skip in a gate is a FAIL-OPEN: a rogue `.hidden/x.ml` escapes the OCaml allowlist and an
+   unheaded/exec/symlink `.hidden/x.go` escapes the output policy, and since `.dockerignore` also hides tracked
+   `.go` from Buildx, NO check would ever see it.  (A deliberate developer edit to the verifier ITSELF is a
+   different matter — explicitly OUT OF SCOPE per `.review/CODEX_REVIEW_POLICY.md`; no self-test fortress
+   guards it, and none should be built.)  ⚠ A public temp
    suffix (`<final>.fido-tmp-v1`) is a forgeable convention, but
    ownership still requires the suffix-stripped path to map to a possible Fido final path (root `go.mod` or a
    valid intrinsic `.go`) before deletion — a non-mappable suffixed entry is preserved and refuses. ⚠ Opaque

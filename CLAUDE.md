@@ -84,8 +84,9 @@ algorithm, report an architectural conflict and stop. Do not implement an altern
    type, a central `.fido/staging/` design, or the deleted stage-record/nonce subsystem.
 2. **The canonical generated module is a TRACKED, reviewed artifact; emission is not a `.vo` side effect.**
    Root `go.mod` + recursive `.go` are committed (Fido-headed) and verified byte-exact against the pristine
-   `generated-module` Buildx layer by `make check`'s `verify-generated` step AND the pre-commit staged-index
-   check (the same staged-vs-pristine compare); `make regenerate` rewrites them
+   `generated-module` Buildx layer by `make check` on the WORKING TREE (vs a pristine built from the same
+   working-tree inputs) AND the pre-commit hook on the STAGED snapshot (vs a pristine built from the staged
+   inputs — the SAME shared compare); `make regenerate` rewrites them
    through the SAME `Fido_sink`. The `Fido Emit` command is an EXPLICIT always-run step (`rocq c` on the
    witness) after the cached theory/plugin build, never a `.vo` side effect. The header is Rocq's bytes
    (`GoRender.header`), proved the exact first line; the sink recognizes it as an ownership marker but
@@ -157,10 +158,10 @@ leaf authority.
 
 ## Workflow & commands
 
-Verify after any change: **`make check`** — the host gates (transport-only OCaml; the generated-output policy
-gate: tracked Go/go.mod Fido-headed, no nested go.mod, no tracked `.fido`/temp — both inspecting EVERY tracked
-file at EVERY depth, pruning only `.git`; and the Buildx-free `precommit-selftest` proving the staged-index
-gates cannot be bypassed) + the pinned-container
+Verify after any change: **`make check`** — verifies the WORKING TREE: the host policy gates (transport-only
+OCaml, no whole-repo historical-name scanner; the generated-output policy gate: tracked Go/go.mod Fido-headed,
+no nested go.mod, no tracked `.fido`/temp — both inspecting EVERY file at EVERY depth, pruning only `.git`) +
+the pinned-container
 **proof** (`make prove`, the COMPLETE gate: `dune build` + `gate/axiom_gate.v` axiom-free count-checked +
 certified-module coverage + the whole-certified-theory `Fido Audit Assumptions` over constants + inductives +
 named assumptions + adversarial self-tests A-E) + the **e2e** (Dune-cached theory+plugin; then EXPLICIT
@@ -205,21 +206,24 @@ kill stale `docker buildx build` processes first; run long builds detached and p
   tracked axioms); `e2e/sink_test.ml` — the sink driver; `e2e/fido_apply.ml` — the filesystem-only
   `make regenerate` apply CLI; `e2e/golden.*` — reviewed goldens.
 - **Tracked canonical generated module**: `go.mod` + `main.go` at the repo root (Fido-headed; the reviewed
-  derived artifact, verified byte-exact against the pristine `generated-module` Buildx layer by the
-  staged-index pre-commit).
+  derived artifact, verified byte-exact against the pristine `generated-module` Buildx layer by `make check`
+  on the working tree AND the pre-commit hook on the staged snapshot).
 - `gate/axiom_gate.v` — the `Print Assumptions` target. The Rocq-native `Fido Audit Assumptions`
   whole-certified-theory closure audit (constants + inductives + named assumptions) runs in the **prove**
   stage over a module list GENERATED from dune's `(modules …)` (no static file), with a coverage check
   (tracked root `.v` == that list) and adversarial self-tests A-E. `tools/ocaml-origin-gate.sh` — the host
-  origin gate; `tools/generated-output-gate.sh` — the tracked-generated-output policy gate;
-  `tools/staged-generated-compare.sh` — the staged-vs-pristine byte/path compare; `tools/precommit-selftest.sh`
-  — the Buildx-free self-test proving the staged-index gates reject bad OCaml/Go at every depth and the hook
-  never mutates the index (all three gates inspect every tracked file at every depth, pruning only `.git`).
+  origin gate (transport-only OCaml allowlist + responsibility checks; NO whole-repo historical-name scanner);
+  `tools/generated-output-gate.sh` — the tracked-generated-output policy gate; `tools/generated-mode-gate.sh`
+  — the index-authoritative exact-mode-100644 gate (hook only); `tools/staged-generated-compare.sh` — the
+  SHARED byte/path compare (working tree for `make check`, exported index for the hook) (the policy gates
+  inspect every file at every depth, pruning only `.git`).
 - `Makefile` / `Dockerfile` / `.githooks/pre-commit` — the buildx proof + whole-tree e2e + the pristine
-  `generated-module`/`sync`/`generated-artifact` stages (host Rocq unsupported). `make check`'s
-  `verify-generated` step AND the pre-commit hook both export the Git INDEX and verify the STAGED tree
-  (byte-compare vs the pristine artifact; never the working tree); the hook is bypassable with `--no-verify`
-  (a documented prototype-stage escape).
+  `generated-module`/`sync`/`generated-artifact` stages (host Rocq unsupported). `make check` verifies the
+  WORKING TREE (byte-compare working-tree generated files vs the pristine); the pre-commit hook verifies the
+  proposed STAGED snapshot (exports the Git INDEX once, runs the same shared compare over it, and never
+  mutates the index or working tree). The hook is bypassable with `--no-verify` (a documented prototype-stage
+  escape); it provides reasonable assurance against accidental stale generated output for a cooperating
+  developer, NOT resistance to deliberate modification of its own verifier.
 
 ## Where the detail lives
 

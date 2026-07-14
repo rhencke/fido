@@ -81,7 +81,11 @@ IN Rocq before any bytes — **zero expected Go build failures, ever.**
   rejects a raw transport; the direct-axiom / opaque-Qed / direct- and transitive-section-variable forged
   images are GENERATED TRANSIENTLY in the emit stage (no tracked axioms) and each rejected (reason-checked)
   before any effect.
-- **The foreign-Go-rejecting sibling-temp sink** (`plugin/fido_sink.ml`): persistent
+- **The foreign-Go-rejecting sibling-temp sink** (`plugin/fido_sink.ml`) — FROZEN after the ignored-directory
+  classification-order correction (in the per-entry `inspect`, an opaque Go-ignored DIRECTORY tree is skipped
+  BEFORE reserved-suffix/`go.mod`/`.go` classification; see `PAINFUL_LESSONS.md`), reviewed only against its
+  declared practical threat model (single owner, cooperating emitters serialized by one lock, ordinary
+  filesystems + crashes; NOT a malicious-concurrent-filesystem-adversary guard): persistent
   `<root>/.fido/` control dir = marker + git-style `index.lock` ONLY (no records, no nonce, no stage dir, no
   parser — the deleted subsystem). Before any generated-file mutation it validates the `root` (a symlink in
   ANY prefix component is rejected), reserves `.fido/`, and REJECTS foreign Go/module inputs + nested `.fido`
@@ -105,14 +109,17 @@ IN Rocq before any bytes — **zero expected Go build failures, ever.**
   layer holds exactly the canonical witness `go.mod` + recursive `.go` (no `.fido`/temp/proof/fixture),
   built from the authoritative generation inputs (never the committed bytes, never a cache mount). Root
   `go.mod` + `main.go` are TRACKED, Fido-headed derived artifacts; `make regenerate` rewrites them via the
-  same `Fido_sink`; BOTH `make check` (the `verify-generated` step) and the pre-commit hook export the Git
-  index and verify the STAGED tree byte-exact against the pristine artifact (path set + bytes, both
-  directions) — the ONLY check that catches generated-byte drift, since `.dockerignore` hides the committed
-  `go.mod`/`.go` from Buildx (pre-commit bypassable with `--no-verify` — prototype policy).
-  `tools/generated-output-gate.sh` (Fido-header + no-nested-go.mod policy) and `tools/generated-mode-gate.sh`
-  (the AUTHORITATIVE exact-Git-mode-100644 check, read from the index via `git ls-files -s` so a
-  `core.symlinks=false` export cannot hide a symlink-mode entry) are separate from this byte-compare;
-  together they replace the old no-tracked-Go seal.
+  same `Fido_sink`. Verification is SPLIT coherently: `make check` verifies the WORKING TREE (it materializes
+  the tracked files' working-tree content and byte-compares its `go.mod` + recursive `.go` against a pristine
+  built from the same working-tree inputs); the pre-commit hook verifies the proposed STAGED commit (exports
+  the Git index once, runs the SAME shared compare over it, never reads the unstaged working tree or
+  auto-stages) — the ONLY check that catches generated-byte drift, since `.dockerignore` hides the committed
+  `go.mod`/`.go` from Buildx (pre-commit bypassable with `--no-verify`; it provides reasonable assurance for a
+  cooperating developer, NOT tamper resistance — prototype policy). `tools/generated-output-gate.sh`
+  (Fido-header + no-nested-go.mod policy, run over the working tree by `check` and the exported index by the
+  hook) is separate; the index-authoritative exact-mode-100644 check `tools/generated-mode-gate.sh` (read from
+  `git ls-files -s`, so a `core.symlinks=false` export cannot hide a symlink-mode entry) is a committed-policy
+  check run ONLY in the hook. Together they replace the old no-tracked-Go seal.
 - **Pinned Go** (`golang:1.23-alpine`, `GOWORK=off GOTOOLCHAIN=local GOPROXY=off`): `go build ./...` over
   the WHOLE tree using the RENDERED `go.mod` (no handwritten shell) + gofmt-clean, with `go vet`
   DIAGNOSTIC-only (nonblocking); the witness runs vs reviewed goldens (`e2e/golden.*`); the EMPTY module
@@ -120,11 +127,14 @@ IN Rocq before any bytes — **zero expected Go build failures, ever.**
   no-main/duplicate-main trees REJECTED, and `go list ./...` matching the emitted package set — exercise the
   whole-program rules against real `go build ./...` (discovering discrepancies, not proving universal
   agreement).
-- `make check` = host gates (transport-only OCaml; the generated-output policy gate; the Buildx-free staged-
-  gate `precommit-selftest`) + prove + e2e + `verify-generated` (the staged-vs-pristine byte/path compare —
-  the "no generated-byte delta" gate), green.
-  The COMPLETE assumption audit (constants + inductives + named) + self-tests A-E run in **prove** (not
-  emit). One shared Dune cache builds theory + plugin.
+- `make check` verifies the WORKING TREE = host policy gates (transport-only OCaml, no whole-repo
+  historical-name scanner; the generated-output Fido-header policy gate) + prove + e2e + the working-tree
+  generated-byte compare (the "no generated-byte delta" check), green. The pre-commit hook runs the same
+  verification over the STAGED snapshot (plus the index-mode gate). There is NO pre-commit self-test fortress:
+  the sink and hook are reviewed against their DECLARED practical threat models (single owner, cooperating
+  emitters, ordinary Git commands), not a deliberate-verifier-attack model. The COMPLETE assumption audit
+  (constants + inductives + named) + self-tests A-E run in **prove** (not emit). One shared Dune cache builds
+  theory + plugin.
 
 ## NEXT — the frontier (pour roots before floors; do NOT add breadth for its own sake)
 
