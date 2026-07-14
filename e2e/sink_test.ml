@@ -7,7 +7,10 @@
    algorithm via the sink's operation PARAMETERS (no ambient env branch):
      "empty"    — an EMPTY source map (go.mod only): the module-only program;
      "multi"    — files in two parents (root main.go + sub/main.go): two sibling temps;
-     "reserved" — a desired .go inside the reserved .fido/ namespace (rejected before any effect);
+     "reserved"/"p-nestedfido"/"p-vendor"/"p-testdata"/"p-upper"/"p-underscore"/"p-dotdot"/"p-nongo"/"p-long"
+                — desired paths OUTSIDE the intrinsic FilePath `.go` domain (nested/first `.fido`, a
+                  `go build`-ignored dir, upper-case/underscore/`..`/non-`.go`/over-length): each must be
+                  rejected before any effect, materializing nothing;
      "unlink-fail"           — [unlink] always fails (temp-delete / cleanup / stale-removal failure);
      "exdev"                 — [rename] raises EXDEV (a cross-device install must fail loud, no copy fallback);
      "foreign-before-install" — [before_install] makes the target foreign right before its ownership recheck
@@ -16,11 +19,14 @@
                   recheck (a deletion race): the recheck must NOT delete the now-foreign file;
      "fail-write-sub"        — [before_write] raises a HANDLED failure at a LATER stage (the sub/ file):
                   cleanup must run immediately and leave prior FINAL files untouched;
-     "fail-after-first-payload" / "fail-after-staging" — [checkpoint] raises a HANDLED failure at that point:
-                  cleanup must run immediately and leave prior FINAL files untouched;
-     "crash-after-first-payload" / "crash-after-staging" / "crash-after-first-install"
+     "fail-after-create" / "fail-after-first-payload" / "fail-after-staging" — [checkpoint] raises a HANDLED
+                  failure at that point (fail-after-create fires right after a temp is exclusively created,
+                  before its bytes are written): cleanup must remove EVERY created temp and leave prior FINAL
+                  files untouched;
+     "crash-after-create" / "crash-after-first-payload" / "crash-after-staging" / "crash-after-first-install"
                 — [checkpoint] TERMINATES the process (Unix._exit) at that exact point: a true crash, no
-                  finalizer, the lock stays held, and sibling-temp residue is left for the next run. *)
+                  finalizer, the lock stays held, and sibling-temp residue is left for the next run
+                  (crash-after-create leaves a created-but-empty PARTIAL temp). *)
 let header = "// fido generated.  do not edit."
 let go_mod = header ^ "\n\nmodule fido.local/generated\n\ngo 1.23\n"
 (* distinctive, binary-sensitive .go bytes (control chars + tab, no final newline) with the header first
@@ -41,10 +47,18 @@ let () =
   let faults = String.split_on_char '+' (if Array.length Sys.argv > 3 then Sys.argv.(3) else image) in
   let has f = List.mem f faults in
   let entries = match image with
-    | "empty"    -> []
-    | "multi"    -> [ ("main.go", mk "ROOT"); ("sub/main.go", mk "SUB") ]
-    | "reserved" -> [ (".fido/x.go", mk "X") ]
-    | _          -> [ ("main.go", mk "ROOT") ] in
+    | "empty"        -> []
+    | "multi"        -> [ ("main.go", mk "ROOT"); ("sub/main.go", mk "SUB") ]
+    | "reserved"     -> [ (".fido/x.go", mk "X") ]         (* .fido as first component *)
+    | "p-nestedfido" -> [ ("sub/.fido/x.go", mk "X") ]     (* .fido as a NESTED component *)
+    | "p-vendor"     -> [ ("vendor/main.go", mk "V") ]     (* a `go build`-ignored dir *)
+    | "p-testdata"   -> [ ("testdata/main.go", mk "T") ]   (* a `go build`-ignored dir *)
+    | "p-upper"      -> [ ("Main.go", mk "U") ]            (* upper-case component *)
+    | "p-underscore" -> [ ("a_b.go", mk "UN") ]            (* underscore (build-suffix collision) *)
+    | "p-dotdot"     -> [ ("../escape.go", mk "E") ]       (* `..` escape *)
+    | "p-nongo"      -> [ ("main.txt", mk "N") ]           (* non-`.go` basename *)
+    | "p-long"       -> [ ((String.make 205 'a') ^ ".go", mk "L") ]  (* > 200-byte bound *)
+    | _              -> [ ("main.go", mk "ROOT") ] in
   let checkpoint label =
     if has ("crash-" ^ label) then
       (Printf.eprintf "sink_test: crashing at %s\n%!" label; Unix._exit 137)

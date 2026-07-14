@@ -11,7 +11,7 @@ override PLATFORM := linux/amd64
 # intrinsic FilePath keys to raw file ASTs); emission is available only after Rocq proves GoCompile (exact
 # whole-program admissibility, matching `go build ./...`) and GoSafe.  Chain:
 #   GoProgram -> GoCompile (+CompilationFacts) -> GoSafe -> direct GoRender (incl. go.mod) -> complete
-#     DirectoryImage -> the general `Fido Emit` transport command -> foreign-Go-rejecting local-staging
+#     DirectoryImage -> the general `Fido Emit` transport command -> foreign-Go-rejecting sibling-temp
 #     sink -> go build ./...
 # ALL Rocq/Go work runs in the PINNED container via buildx — host Rocq is NOT supported.
 

@@ -102,17 +102,30 @@ let write_new p bytes =
      let base = match e with Fail m -> m | _ -> Printexc.to_string e in
      fail "cannot write %s: %s%s" p base (match close_msg with Some c -> " | fd close failed: " ^ c | None -> ""))
 
-(* ---- path safety + the reserved control namespace + the formal output domain ---- *)
-let components rel =
-  if not (Filename.is_relative rel) then fail "unsafe absolute path from image: %s" rel;
-  let parts = String.split_on_char '/' rel in
-  if parts = [] || List.exists (fun c -> c = "" || c = "." || c = ".." || String.contains c '\000') parts
-  then fail "unsafe path from image: %s" rel;
-  (match parts with
-   | c :: _ when c = control_dir ->
-       fail "refusing a desired path inside the reserved %s namespace: %s" control_dir rel
-   | _ -> ());
-  parts
+(* ---- the formal output domain: the sink's defensive path validator accepts EXACTLY the canonical strings
+   emitted from the intrinsic [FilePath] for a `.go` file (it does not broaden the domain, and it faithfully
+   MIRRORS `FilePath.path_ok` — a weaker check would let a noncanonical path, a `go build`-ignored dir, or a
+   nested control name through, and `ensure_dir_chain` would then materialize it).  Kept in exact
+   correspondence with `FilePath.v`: `is_lower`/`is_lower_digit`/`component_ok`/`reserved_dir`/
+   `dir_component_ok`/`filename_ok`/`path_ok`. ---- *)
+let is_lower c = c >= 'a' && c <= 'z'
+let is_lower_digit c = (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')
+let component_ok s =
+  String.length s > 0 && is_lower s.[0]
+  && (let ok = ref true in String.iteri (fun i c -> if i > 0 && not (is_lower_digit c) then ok := false) s; !ok)
+let reserved_dir s = s = "testdata" || s = "vendor"            (* dirs `go build ./...` IGNORES *)
+let dir_component_ok s = component_ok s && not (reserved_dir s)
+let filename_ok s =
+  let n = String.length s in
+  n >= 3 && String.sub s (n - 3) 3 = ".go" && component_ok (String.sub s 0 (n - 3))
+(* the whole `.go` path: <=200 bytes; every directory component admissible and not `go build`-ignored; the
+   last segment an admissible `.go` filename.  A leading dot (`.fido`), `..`, `_`, upper-case, `vendor`/
+   `testdata`, a NUL, an empty/absolute/repeated-slash segment, or a non-`.go` basename all FAIL here. *)
+let filepath_ok rel =
+  String.length rel <= 200 &&
+  (match List.rev (String.split_on_char '/' rel) with
+   | last :: rdirs -> List.for_all dir_component_ok rdirs && filename_ok last
+   | [] -> false)
 
 let split_parent parts =
   match List.rev parts with
@@ -267,13 +280,15 @@ let sync ?(checkpoint = fun _ -> ()) ?(unlink = Unix.unlink) ?(rename = Unix.ren
   let lock_abs    = Filename.concat control_abs lock_name in
   (* A. validate the root chain (prefix symlinks) — before any effect *)
   validate_root_chain dir;
-  (* B. compute the desired outputs (go.mod at root + every .go); [components] rejects a desired path inside
-        .fido, and each source entry must be a `.go` in the formal output domain — all before any effect *)
+  (* B. compute the desired outputs (go.mod at root + every .go); [filepath_ok] enforces the EXACT intrinsic
+        FilePath `.go` domain (lowercase canonical components, no `.fido`/`..`/`_`/upper, no `vendor`/
+        `testdata` dir, `.go` basename, <=200 bytes) — so a noncanonical path or a nested control name is
+        rejected BEFORE any effect and can never be materialized by [ensure_dir_chain] *)
   let desired =
     (Filename.concat dir gomod_name, "", gomod_name, go_mod)
     :: List.map (fun (rel, bytes) ->
-         let (parent_rel, base) = split_parent (components rel) in
-         if not (ends_with ".go" base) then fail "refusing a non-.go output path (outside the formal domain): %s" rel;
+         if not (filepath_ok rel) then fail "refusing a path outside the intrinsic FilePath `.go` domain: %s" rel;
+         let (parent_rel, base) = split_parent (String.split_on_char '/' rel) in
          (Filename.concat dir rel, parent_rel, base, bytes)) entries in
   (* C. ensure root + the owned control directory (marker only — NO records/stage dirs) *)
   ensure_root_and_control dir control_abs;
@@ -302,12 +317,21 @@ let sync ?(checkpoint = fun _ -> ()) ?(unlink = Unix.unlink) ?(rename = Unix.ren
        | Missing -> ()
        | Present _ -> fail "the sibling temp path %s is occupied after recovery — refusing" (temp_of d));
       ensure_dir_chain dir parent_rel created_dirs) desired;
-    (* H. STAGE the complete image into sibling temps BEFORE any install *)
+    (* H. STAGE the complete image into sibling temps BEFORE any install.  Create each temp EXCLUSIVELY, then
+          REGISTER it for cleanup IMMEDIATELY (before writing), so an ENOSPC/short-write/close failure OR a
+          crash after creation leaves a temp the handled-failure path still removes. *)
     List.iteri (fun i ((_, _, _, bytes) as d) ->
       let tp = temp_of d in
-      before_write tp;                               (* test seam: a later-stage write can fail here *)
-      write_new tp bytes;
-      created_temps := tp :: !created_temps;
+      before_write tp;                               (* test seam: a later-stage failure can fire here *)
+      let fd = try Unix.openfile tp [Unix.O_CREAT; Unix.O_EXCL; Unix.O_WRONLY] 0o644
+               with Unix.Unix_error (e, _, _) -> fail "cannot create %s: %s" tp (Unix.error_message e) in
+      created_temps := tp :: !created_temps;         (* registered the instant it exists on disk *)
+      checkpoint "after-create";                     (* a crash here leaves a created-but-empty (partial) temp *)
+      (try write_all fd bytes; Unix.close fd
+       with e ->
+         let close_msg = (try Unix.close fd; None with Unix.Unix_error (ce,_,_) -> Some (Unix.error_message ce)) in
+         let base = match e with Fail m -> m | _ -> Printexc.to_string e in
+         fail "cannot write %s: %s%s" tp base (match close_msg with Some c -> " | fd close failed: " ^ c | None -> ""));
       if i = 0 then checkpoint "after-first-payload") desired;
     checkpoint "after-staging";
     (* I. install each file by SIBLING RENAME: recheck ownership immediately before overwrite, then rename
@@ -333,12 +357,15 @@ let sync ?(checkpoint = fun _ -> ()) ?(unlink = Unix.unlink) ?(rename = Unix.ren
   let cleanup_errors = ref [] in
   let cleanup_on_failure () =
     List.iter (fun tp ->
-      match lstat_obs tp with
-      | Missing -> ()
-      | Present st when st.Unix.st_kind = Unix.S_REG && ends_with temp_suffix tp ->
+      (* observe each temp under its OWN error guard so an lstat failure on one collects an error and does
+         NOT abort cleanup of the remaining temps/dirs (§14 attempts every temp). *)
+      match (try `Obs (lstat_obs tp) with Fail m -> `Err m) with
+      | `Err m -> cleanup_errors := Printf.sprintf "cannot observe temp %s: %s" tp m :: !cleanup_errors
+      | `Obs Missing -> ()
+      | `Obs (Present st) when st.Unix.st_kind = Unix.S_REG && ends_with temp_suffix tp ->
         (match (try unlink tp; None with Unix.Unix_error (e,_,_) -> Some (Unix.error_message e)) with
          | None -> () | Some m -> cleanup_errors := Printf.sprintf "cannot remove temp %s: %s" tp m :: !cleanup_errors)
-      | Present _ -> cleanup_errors := Printf.sprintf "temp %s changed type — preserving it" tp :: !cleanup_errors)
+      | `Obs (Present _) -> cleanup_errors := Printf.sprintf "temp %s changed type — preserving it" tp :: !cleanup_errors)
       !created_temps;
     (* newly-created parents (deepest first): a non-empty dir (ENOTEMPTY/EEXIST) is benign (preserve it);
        any OTHER removal error is an operational failure and is reported. *)

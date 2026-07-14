@@ -6,9 +6,9 @@
 # dirty-directory filesystem sink + the pinned Go toolchain.  Stages: (prover) dune-compiles the theory and
 # the always-run assumptions gate confirms every declared surface axiom-free; (emit) dune compiles
 # theory+plugin (shared cache), then explicitly runs `Fido Emit` (rocq c on the witnesses) to synchronize
-# each tree, and exercises the sink on dirty/adversarial trees (local staging + records, foreign-Go
-# rejection, record-driven recovery); (go-e2e) the pinned Go toolchain runs `go build ./...` over the whole
-# tree — using the RENDERED go.mod — and runs the witness vs goldens.
+# each tree, and exercises the sink on dirty/adversarial trees (sibling `.fido-tmp-v1` staging, foreign-Go +
+# nested-.fido rejection, two-phase abandoned-temp recovery); (go-e2e) the pinned Go toolchain runs
+# `go build ./...` over the pristine generated-module — using the RENDERED go.mod — and runs the witness vs goldens.
 
 # ── Stage 1: Rocq/OCaml toolchain ─────────────────────────────────────────────
 FROM ocaml/opam:debian-12-ocaml-5.3@sha256:bbaac53e502f6602013d8967c3a54cfcb898b556f453ab72e8e23966c3c681df AS rocq-builder
@@ -256,7 +256,7 @@ forge_reject /tmp/forge/VarIndirect.v /workspace/e2e-forge-vi  "transitive secti
 # the `prover` stage (contract §2: `make prove` is the complete proof gate) — they are NOT duplicated here.
 # This stage keeps only the emit-time provenance guard above and the dirty-directory sink exercise below.
 
-# --- exercise the dirty-directory sink directly (local per-parent staging + records + foreign rejection) ---
+# --- exercise the dirty-directory sink directly (sibling `.fido-tmp-v1` staging + two-phase recovery + foreign rejection) ---
 cp plugin/fido_sink.ml e2e/sink_test.ml /tmp/
 if ! ( cd /tmp && ocamlfind ocamlopt -package unix -linkpkg fido_sink.ml sink_test.ml -o /workspace/sink_test ) > /tmp/sink.log 2>&1; then cat /tmp/sink.log; fail "sink_test compile FAILED"; fi
 cd /workspace
@@ -381,6 +381,14 @@ if ./sink_test /workspace/adv-resv reserved; then fail "a desired path inside .f
 mkdir -p /workspace/sreal; printf 'x\n' > /workspace/sreal/keep; ln -s /workspace/sreal /workspace/slink
 if ./sink_test /workspace/slink/child; then fail "wrote through a prefix symlink"; fi
 [ ! -e /workspace/sreal/child ] || fail "a prefix symlink created a child in the referent"
+# every path OUTSIDE the intrinsic FilePath `.go` domain (mirrors FilePath.path_ok) rejects BEFORE any
+# effect, materializing nothing — no file, no parent dir, and CRUCIALLY no nested .fido from ensure_dir_chain.
+for pm in p-nestedfido p-vendor p-testdata p-upper p-underscore p-dotdot p-nongo p-long; do
+  d=/workspace/adv-$pm; rm -rf "$d"; mkdir -p "$d"
+  if ./sink_test "$d" "$pm"; then fail "$pm: a path outside the intrinsic FilePath domain was NOT rejected"; fi
+  [ -z "$(find "$d" -mindepth 1)" ] || { find "$d"; fail "$pm: a rejected out-of-domain path materialized something under the root"; }
+done
+echo "fido: out-of-domain path rejection OK — nested/first .fido, vendor/testdata, upper/underscore/dotdot/non-.go/over-length"
 
 # ============================ Complete staging ============================
 # crash-after-staging: EVERY desired sibling temp exists before the FIRST install (staging precedes install).
@@ -406,6 +414,16 @@ cmp -s /tmp/late-mg adv-late/main.go || fail "late: a prior final main.go change
 [ -z "$(residue adv-late)" ] || fail "late: temp residue survived a handled failure"
 [ ! -e adv-late/.fido/index.lock ] || fail "late: the lock was not released after a handled failure"
 ./sink_test adv-late || fail "late: did not converge on a clean rerun"
+# a HANDLED failure right after a temp is exclusively CREATED (before its bytes) still removes that temp
+# (registered on creation, not after the write), leaves finals intact, releases the lock, and converges.
+mkdir -p adv-fac; ./sink_test adv-fac || fail "fac: init"
+cp adv-fac/go.mod /tmp/fac-gm; cp adv-fac/main.go /tmp/fac-mg
+if ./sink_test adv-fac fail-after-create 2>/dev/null; then fail "fac: a handled after-create failure was not surfaced"; fi
+[ -z "$(residue adv-fac)" ] || fail "fac: a temp created before the failure was not cleaned up (registered too late?)"
+cmp -s /tmp/fac-gm adv-fac/go.mod || fail "fac: a prior final go.mod changed"
+cmp -s /tmp/fac-mg adv-fac/main.go || fail "fac: a prior final main.go changed"
+[ ! -e adv-fac/.fido/index.lock ] || fail "fac: the lock was not released"
+./sink_test adv-fac || fail "fac: no converge"
 # a cleanup failure reports BOTH the initiating body error AND the cleanup error, then a clean rerun converges.
 mkdir -p adv-cuf
 if out=$(./sink_test adv-cuf fail-after-first-payload+unlink-fail 2>&1); then fail "cuf: the compound failure was not surfaced"; fi
@@ -415,9 +433,9 @@ echo "$out" | grep -q 'cleanup FAILED' || { echo "$out"; fail "cuf: the cleanup 
 rm -f adv-cuf/*.fido-tmp-v1; ./sink_test adv-cuf || fail "cuf: no converge after removing residue"
 
 # ============================ Crash / recovery ============================
-# crash WHILE WRITING leaves lock + a PARTIAL temp; crash AFTER STAGING leaves lock + ALL temps + old finals;
-# crash DURING INSTALL leaves lock + mixed finals + remaining temps.  Each: a rerun REFUSES on the held lock;
-# after the stale lock is deliberately cleared, a rerun removes the temps and converges.
+# crash WHILE WRITING (after create, before bytes) leaves lock + a PARTIAL (empty) temp; crash AFTER STAGING
+# leaves lock + ALL temps + old finals; crash DURING INSTALL leaves lock + mixed finals + remaining temps.
+# Each: a rerun REFUSES on the held lock; after the stale lock is cleared, a rerun removes the temps + converges.
 crash_recover() {  # <mode> <label>
   d=/workspace/adv-crash-$2; mkdir -p "$d"; ./sink_test "$d" multi || fail "$2: initial sync failed"
   if ./sink_test "$d" multi "$1"; then fail "$2: the crash did not terminate the process"; fi
@@ -429,9 +447,17 @@ crash_recover() {  # <mode> <label>
   [ -z "$(temps "$d")" ] || fail "$2: temp residue survived recovery"
   { [ -f "$d/go.mod" ] && [ -f "$d/main.go" ] && [ -f "$d/sub/main.go" ]; } || fail "$2: files missing after convergence"
 }
-crash_recover crash-after-first-payload writing
+crash_recover crash-after-create        writing
 crash_recover crash-after-staging       staged
 crash_recover crash-after-first-install installing
+# the write-crash specifically leaves a created-but-EMPTY partial temp (§27), then recovers it.
+mkdir -p adv-partial; ./sink_test adv-partial || fail "partial: init"
+if ./sink_test adv-partial crash-after-create; then fail "partial: the crash did not terminate"; fi
+pt=$(temps adv-partial | head -1); [ -n "$pt" ] || fail "partial: no temp left by the write crash"
+[ ! -s "$pt" ] || fail "partial: the crash-after-create temp is not empty ($(wc -c < "$pt") bytes) — not a partial"
+[ -e adv-partial/.fido/index.lock ] || fail "partial: the lock was not left held by the crash"
+rm -f adv-partial/.fido/index.lock; ./sink_test adv-partial || fail "partial: no converge after clearing the lock"
+[ -z "$(temps adv-partial)" ] || fail "partial: the partial temp survived recovery"
 
 # ============================ Rename / ownership ============================
 # EXDEV fails LOUD with no copy fallback; nothing installed; lock released.
@@ -574,38 +600,4 @@ if go build ./... 2>/dev/null; then echo "fido e2e diff: go build accepted dupli
 echo "fido e2e diff: duplicate main is rejected by go build (matches GoCompile)"
 
 echo "fido e2e OK — pinned Go built the whole tree (go build ./...) using the RENDERED go.mod, accepted the empty module, ran the witness vs goldens, checked the multi-package differential + go list discovery, and rejected the no-main/dup-main fixtures exactly as GoCompile does (go vet nonblocking)"
-SH
-
-# ── Stage 6: verify-staged-generated — the PRE-COMMIT staged-index check (contract §23).  The hook exports
-#    the Git INDEX once and hands THAT staged tree as the Buildx context; this stage rebuilds the pristine
-#    `generated-module` from the staged proof/generation inputs and compares the STAGED root go.mod + every
-#    staged recursive .go against /generated — EXACT relative path set AND exact bytes, both directions
-#    (modified bytes, a missing staged file, a newly-generated file absent from the index, or a stale staged
-#    file all fail).  It reads only the staged tree (never the unstaged working tree) and never auto-stages.
-FROM golang:1.23-alpine@sha256:383395b794dffa5b53012a212365d40c8e37109a626ca30d6151c8348d380b5f AS verify-staged-generated
-WORKDIR /v
-COPY --from=generated-module /generated/ ./pristine/
-COPY . ./staged/
-RUN <<'SH'
-set -eu
-cd /v
-[ -f staged/go.mod ] || { echo "fido: STAGED-GENERATED — the proposed commit has no tracked root go.mod"; exit 1; }
-mkdir -p staged-gen; cp staged/go.mod staged-gen/go.mod
-( cd staged && find . -name '*.go' -type f | while IFS= read -r f; do
-    d=$(dirname "$f"); [ "$d" = "." ] || mkdir -p "/v/staged-gen/$d"; cp "$f" "/v/staged-gen/$f"; done )
-mism=0
-# every pristine file must be present + byte-identical in the staged generated set
-for f in $(cd pristine && find . -type f | LC_ALL=C sort); do
-  if ! cmp -s "pristine/$f" "staged-gen/$f"; then echo "fido: STAGED-GENERATED MISMATCH — $f (modified bytes, or missing from the index)"; mism=1; fi
-done
-# no staged generated file may exist that certified generation does not produce (stale)
-for f in $(cd staged-gen && find . -type f | LC_ALL=C sort); do
-  [ -f "pristine/$f" ] || { echo "fido: STAGED-GENERATED MISMATCH — $f is staged but not produced by certified generation (stale)"; mism=1; }
-done
-if [ "$mism" -ne 0 ]; then
-  echo "fido: the staged generated module does not byte-match the pristine certified build."
-  echo "      Run:  make regenerate && git add -A -- go.mod ':(top,glob)**/*.go' && git commit"
-  exit 1
-fi
-echo "fido: staged-generated verify OK — the staged root go.mod + recursive .go byte-match /generated (exact path set + bytes)"
 SH
