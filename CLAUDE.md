@@ -31,9 +31,11 @@ singleton `GoVersion` (Go1_23), NOT a `TargetConfig`; the `go.mod` is RENDERED i
 is a valid module-only program. A `FilePath` is a narrow canonical relative path (lowercase components + a
 `.go` basename); anything else — other decls, calls, params, imports, package clauses in raw syntax,
 strange paths, invalid module paths — is UNREPRESENTABLE, not rejected. Every layer is proved axiom-free; a
-witness exercising bool + int + the `-(2^63)` boundary + empty/multiple `println` is emitted to a real tree
-(each file's first line `// fido generated.  do not edit.`) and built by `go build ./...` + run vs reviewed
-goldens, alongside a multi-package differential and an empty-program fixture. **State, frontier:
+witness exercising bool + int + the `-(2^63)` boundary + readable strings (empty/ASCII/quote/backslash/tab/
+CR/NL) + empty/multiple `println` is emitted to a real tree (each file's first line `// fido generated.  do
+not edit.`) and built by `go build ./...` + run vs reviewed goldens, alongside a boundary-byte string witness
+(0x00/0x1f/0x7f/0x80/0xff — a byte-exact hex oracle over real Go output), a multi-package differential, and an
+empty-program fixture. **State, frontier:
 `PROGRESS.md`. Charter (binding): `ARCHITECTURE.md`. Rejected shapes: `PAINFUL_LESSONS.md`.**
 
 ## The law

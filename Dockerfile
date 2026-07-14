@@ -157,7 +157,7 @@ RUN mkdir -p /workspace/adv-mount
 RUN --mount=type=cache,id=fido-dune-rocq-9.2.0-${TARGETARCH},uid=1000,gid=1000,target=/workspace/_build,sharing=locked --mount=type=cache,id=fido-crossmnt-${TARGETARCH},uid=1000,gid=1000,sharing=private,target=/workspace/adv-mount/sub <<'SH'
 set -eu
 fail() { echo "fido: emit FAILED — $*"; exit 1; }
-rm -rf /workspace/e2e-out /workspace/e2e-multi /workspace/e2e-empty /workspace/e2e-forge* /workspace/e2e-neg /workspace/adv-* /workspace/sreal /workspace/slink /workspace/sink_test 2>/dev/null || true
+rm -rf /workspace/e2e-out /workspace/e2e-multi /workspace/e2e-empty /workspace/e2e-bytes /workspace/e2e-forge* /workspace/e2e-neg /workspace/adv-* /workspace/sreal /workspace/slink /workspace/sink_test 2>/dev/null || true
 O=/workspace/e2e-out
 # cached: Dune compiles the proved theory + the transport plugin (shared cache id)
 if ! dune build @install @all > /tmp/emit-build.log 2>&1; then cat /tmp/emit-build.log; fail "theory/plugin build FAILED"; fi
@@ -198,6 +198,12 @@ if ! rocq c -Q _build/default/. Fido e2e/WitnessEmpty.v > /tmp/emit-empty.log 2>
 [ -f /workspace/e2e-empty/go.mod ] || fail "empty program emitted no go.mod"
 [ -z "$(find /workspace/e2e-empty -name '*.go')" ] || fail "empty program emitted a .go file"
 echo "fido: empty-program tree:"; ( cd /workspace/e2e-empty && find . -type f | sort )
+
+# boundary-byte string witness (§22): a println of a string with bytes 0x00/0x1f/0x7f/0x80/0xff → a separate
+# tree the go-e2e byte-exact oracle builds, runs, and compares (od hex) against the reviewed golden.
+if ! rocq c -Q _build/default/. Fido e2e/WitnessBytes.v > /tmp/emit-bytes.log 2>&1; then cat /tmp/emit-bytes.log; fail "Fido Emit (boundary bytes) FAILED"; fi
+[ -f /workspace/e2e-bytes/main.go ] || fail "boundary-byte witness emitted no main.go"
+echo "fido: boundary-byte tree:"; ( cd /workspace/e2e-bytes && find . -type f | sort ); cat /workspace/e2e-bytes/main.go
 
 # provenance (1): a forged raw transport (not a DirectoryImage) is rejected BEFORE any effect (Fail fixtures)
 if ! rocq c -Q _build/default/. Fido e2e/WitnessNeg.v > /tmp/emit-neg.log 2>&1; then cat /tmp/emit-neg.log; fail "a forged raw transport was NOT rejected"; fi
@@ -606,7 +612,8 @@ WORKDIR /e2e
 COPY --from=generated-module /generated/ ./tree/
 COPY --from=emit /workspace/e2e-multi/ ./multi/
 COPY --from=emit /workspace/e2e-empty/ ./empty/
-COPY e2e/golden.stdout e2e/golden.stderr e2e/golden.exit ./
+COPY --from=emit /workspace/e2e-bytes/ ./bytes/
+COPY e2e/golden.stdout e2e/golden.stderr e2e/golden.exit e2e/golden.bytes.hex ./
 RUN <<'SH'
 set -u
 # closed-world integration: force the local pinned toolchain, no workspace, no network proxy
@@ -635,9 +642,25 @@ if ! go build -o prog .; then echo "fido e2e: go build of the witness package FA
 ./prog > out.stdout 2> out.stderr; ec=$?
 echo "fido e2e: exit=$ec stdout=[$(cat out.stdout)] stderr=[$(cat out.stderr)]"
 printf '%s\n' "$ec" > out.exit
+echo "fido e2e: out.stderr hex (for golden review):"; od -An -v -tx1 out.stderr | tr -s ' '
 diff ../golden.exit   out.exit   || { echo "fido e2e: EXIT mismatch";   exit 1; }
 diff ../golden.stdout out.stdout || { echo "fido e2e: STDOUT mismatch"; exit 1; }
 diff ../golden.stderr out.stderr || { echo "fido e2e: STDERR mismatch"; exit 1; }
+
+# --- BYTE-EXACT boundary-byte oracle (§22): a `println` of a string with bytes 0x00/0x1f/0x7f/0x80/0xff must
+#     emit those exact five bytes (+ the println newline) to stderr.  Compared as HEX (od, non-hex stripped)
+#     against the reviewed golden `golden.bytes.hex` — a byte-safe oracle, never binary through shell $(...). ---
+cd /e2e/bytes
+[ -f main.go ] || { echo "fido e2e bytes: no boundary-byte main.go"; exit 1; }
+if [ -n "$(gofmt -l .)" ]; then echo "fido e2e bytes: boundary-byte Go is not gofmt-clean"; gofmt -l .; exit 1; fi
+go build -o probe . || { echo "fido e2e bytes: go build of the boundary-byte witness FAILED"; exit 1; }
+./probe > bytes.out 2> bytes.err; bec=$?
+[ "$bec" = 0 ] || { echo "fido e2e bytes: boundary-byte witness exited $bec"; exit 1; }
+b_actual=$(od -An -v -tx1 bytes.err | tr -dc '0-9a-f')
+b_want=$(tr -dc '0-9a-f' < /e2e/golden.bytes.hex)
+echo "fido e2e bytes: actual stderr hex=[$b_actual] golden=[$b_want]"
+[ "$b_actual" = "$b_want" ] || { echo "fido e2e bytes: BYTE MISMATCH — the boundary-byte string did not round-trip through Go"; exit 1; }
+echo "fido e2e bytes: boundary-byte string round-trips EXACTLY through pinned Go (0x00/0x1f/0x7f/0x80/0xff + newline)"
 
 # --- EMPTY program: a rendered go.mod and ZERO .go files → `go build ./...` accepts (zero packages) ---
 cd /e2e/empty

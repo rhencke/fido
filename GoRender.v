@@ -692,3 +692,16 @@ Lemma render_boundary_min :
   eval_expr (ENeg (Z.to_N (- int_min))) = VInt int_min
   /\ ResolveExpr UsePrintlnArg (ENeg (Z.to_N (- int_min))) TInt.
 Proof. split; [ reflexivity | apply resolve_expr_sound; reflexivity ]. Qed.
+
+(** ---- string denotation surfaces (§25): a rendered string literal denotes exactly its runtime bytes (its
+    canonical spelling decodes back to the value), and a RESOLVED string argument renders to a spelling that
+    decodes to the exact runtime [VString] AND has resolved type — the string instances of the two roots. ---- *)
+Lemma render_string_denotes : forall s,
+  RenderedPrimitiveDenotes (render_expr (EString s)) (eval_expr (EString s)).
+Proof. intro s; apply render_expr_denotes. Qed.
+
+Lemma render_resolved_string_denotes : forall s t,
+  ResolveExpr UsePrintlnArg (EString s) t ->
+  RenderedPrimitiveDenotes (render_expr (EString s)) (eval_expr (EString s))
+  /\ value_type (eval_expr (EString s)) = t.
+Proof. intros s t H; apply render_resolved_expr_denotes; exact H. Qed.

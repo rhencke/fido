@@ -1,3 +1,12 @@
 true 42 -1 -9223372036854775808
 
 false
+hello, world
+
+true 7 mix
+"
+\
+a	b
+ab
+a
+b

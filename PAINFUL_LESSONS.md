@@ -167,3 +167,10 @@ stop. When an entry stops being a live temptation, delete it.
     one constant interpretation mapped to a value — never a second evaluator. (Git history holds a deleted
     `CoreType.v` and much else: mine it for ideas, but a type constructor re-enters ONLY with the syntax and
     complete semantic obligations that need it — history is a quarry, not a branch to resurrect wholesale.)
+    ⚠ STRINGS specifically: a string VALUE is an EXACT BYTE SEQUENCE (`string`/`ascii`), and its source
+    SPELLING is a SEPARATE PROVED ENCODING — ONE canonical interpreted literal (never a choice of equivalent
+    spellings) with an INDEPENDENT decoder proving `decode_string_literal (render_string_literal s) = Some s`
+    for every byte string. The decoder is a DENOTATION tool, NOT a general Go parser (real-Go parse acceptance
+    is external adequacy, exercised by the differential + boundary-byte e2e). No UTF-8/code-point/rune
+    abstraction is claimed, and no string operations (concat/index/slice/len/conversion) exist yet — bytes in,
+    canonical ASCII literal out (bytes ≥ 128 only via `\xhh`).

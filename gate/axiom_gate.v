@@ -71,6 +71,8 @@ Print Assumptions GoTypes.str_not_resolve_int.
 Print Assumptions GoTypes.cstr_not_bool.
 Print Assumptions GoTypes.cstr_not_int.
 Print Assumptions GoTypes.stmt_mixed_str_typed.
+Print Assumptions GoTypes.str_representable.
+Print Assumptions GoTypes.str_representableb.
 
 (* GoCompile (A) internal exactness: whole-program prog_ok reflects the declarative judgment (now rooted
    in the GoTypes typing authority); go_compile sound + complete against it; a rejected program yields no
@@ -93,6 +95,7 @@ Print Assumptions GoSafe.eval_expr_resolved_type.
 (* the string value type: a string literal evaluates to the EXACT runtime byte sequence, of type TString *)
 Print Assumptions GoSafe.eval_string_value.
 Print Assumptions GoSafe.eval_string_type.
+Print Assumptions GoSafe.eval_string_resolved_type.
 
 (* GoRender: all output ASCII; the ROOT correspondence (rendered spelling denotes exactly the value);
    decimal faithfulness + no leading zero; int boundaries; the header is the EXACT first line of a .go
@@ -117,6 +120,10 @@ Print Assumptions GoRender.render_string_literal_ascii.
 Print Assumptions GoRender.render_string_literal_no_nl_cr.
 Print Assumptions GoRender.render_hex_escape_exact.
 Print Assumptions GoRender.rb_ff.
+Print Assumptions GoRender.rb_nul.
+Print Assumptions GoRender.rb_quote.
+Print Assumptions GoRender.render_string_denotes.
+Print Assumptions GoRender.render_resolved_string_denotes.
 
 (* GoEmit: the public emitter requires SafeProgram; the complete image is go.mod + the (possibly empty)
    .go map; the go.mod and every .go file begin with the header first line and are ASCII; on-disk .go

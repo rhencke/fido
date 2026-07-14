@@ -3,7 +3,8 @@
     permanent safety capability boundary over a [CompilableProgram].
 
     This is NOT a full Go operational semantics — it is a deterministic abstract-trace mapping for the
-    current tiny fragment: values are REAL Go values ([VBool]/[VInt : Z], not source spelling — so
+    current tiny fragment: values are REAL Go values ([VBool]/[VInt : Z]/[VString : exact bytes], not source
+    spelling — so
     [EInt 0] and [ENeg 0] evaluate equal), and a file's behaviour is the ordered sequence of its
     [println] calls (each the list of its argument VALUES).  Runtime values carry the SAME [GoType]
     authority as the compiler/type system ([value_type]; there is no separate runtime type universe);
@@ -67,6 +68,11 @@ Lemma eval_string_value : forall s, eval_expr (EString s) = VString s.
 Proof. reflexivity. Qed.
 Lemma eval_string_type : forall s, value_type (eval_expr (EString s)) = TString.
 Proof. reflexivity. Qed.
+(** a RESOLVED string argument evaluates to a value of its resolved type (the string instance of the generic
+    [eval_expr_resolved_type]). *)
+Lemma eval_string_resolved_type : forall s t,
+  ResolveExpr UsePrintlnArg (EString s) t -> value_type (eval_expr (EString s)) = t.
+Proof. intros s t H; exact (eval_expr_resolved_type UsePrintlnArg (EString s) t H). Qed.
 
 Definition eval_stmt (s : GoStmt) : list GoValue :=
   match s with SPrintln args => map eval_expr args end.

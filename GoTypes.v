@@ -1,18 +1,19 @@
 (** ============================================================================
-    GoTypes — the ONE Go type-system authority for the current bool/int fragment.  It is EVIDENCE over the
-    ONE raw [GoAST], never a second (typed) AST: raw [GoExpr] stays untyped syntax, and typing is a judgment
-    over that same syntax.
+    GoTypes — the ONE Go type-system authority for the current bool/int/string fragment.  It is EVIDENCE
+    over the ONE raw [GoAST], never a second (typed) AST: raw [GoExpr] stays untyped syntax, and typing is a
+    judgment over that same syntax.
 
-    The permanent type universe here is EXACTLY [TBool] and [TInt] — the two types the admitted fragment
-    already needs.  A future type constructor is a reviewed semantic milestone (static typing +
-    representability + compiler facts + safety + rendering + tests + docs together); there are no placeholder
-    constructors.
+    The permanent type universe here is EXACTLY [TBool], [TInt], and [TString] — the three types the admitted
+    fragment needs.  Each landed TOGETHER with its syntax and complete semantics (static typing +
+    representability + compiler facts + safety + rendering + tests + docs); there are no placeholder
+    constructors ahead of the syntax that needs them.
 
     The foundational distinction (Go's own): a raw literal denotes an EXACT UNTYPED CONSTANT value
-    ([GoConst], arbitrary-precision), independent of any width.  Only in a USE CONTEXT that requires a typed
-    value is a DEFAULT TYPE chosen and REPRESENTABILITY checked (int constants have a contextual range
-    obligation; the untyped constant itself is exact).  This is the single authority every later feature
-    (assignments, variables, arguments, conversions, typed constants, more numeric types) will build on.
+    ([GoConst] — ints arbitrary-precision, strings exact byte sequences), independent of any width.  Only in
+    a USE CONTEXT that requires a typed value is a DEFAULT TYPE chosen and REPRESENTABILITY checked (int
+    constants have a contextual 64-bit range obligation; every string constant is representable as [TString];
+    the untyped constant itself is exact).  This is the single authority every later feature (assignments,
+    variables, arguments, conversions, typed constants, more numeric types) will build on.
     ============================================================================ *)
 From Stdlib Require Import NArith ZArith List Bool String Ascii.
 From Fido Require Import Ints GoAST.
@@ -283,6 +284,11 @@ Example res_str_bytes :
              (String (ascii_of_nat 128) (String (ascii_of_nat 255) EmptyString)))))
   = Some TString. Proof. reflexivity. Qed.
 Example str_default_type : const_default_type (CString "abc") = TString. Proof. reflexivity. Qed.
+(* POSITIVE string representability: every string constant is representable as TString (no length limit). *)
+Lemma str_representable : forall s, ConstRepresentable TString (CString s).
+Proof. intro s; constructor. Qed.
+Lemma str_representableb : forall s, const_representableb TString (CString s) = true.
+Proof. reflexivity. Qed.
 Example stmt_mixed_str_typed : stmt_typedb (SPrintln [EBool true; EInt 42; EString "hello"]) = true. Proof. reflexivity. Qed.
 Example stmt_str_empty_typed : stmt_typedb (SPrintln [EString ""]) = true. Proof. reflexivity. Qed.
 Example file_str_typed : file_typedb [ DMain [ SPrintln [EString "hi"] ] ] = true. Proof. reflexivity. Qed.
