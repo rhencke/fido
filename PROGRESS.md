@@ -64,24 +64,30 @@ main in a package) is rejected IN Rocq before any bytes — **zero expected Go b
   rejects a raw transport; the direct-axiom / opaque-Qed / direct- and transitive-section-variable forged
   images are GENERATED TRANSIENTLY in the emit stage (no tracked axioms) and each rejected (reason-checked)
   before any effect.
-- **The foreign-Go-rejecting local-staging sink** (`plugin/fido_sink.ml`): persistent `<root>/.fido/`
-  control dir + marker + git-style `index.lock` + a `stage-records/` namespace (records only, no payloads).
-  Before any generated-file mutation it validates the `root` (a symlink in ANY prefix component is
-  rejected), reserves `.fido/`, and REJECTS foreign Go/module inputs fail-closed (any foreign `.go`, a `.go`
-  symlink/nonregular, a foreign root `go.mod`, a `go.mod` symlink, any nested `go.mod`). Installed
-  `.go`/`go.mod` are owned by their header first line + regular-non-symlink (rechecked before
-  overwrite/delete). Staging is LOCAL: one `<parent>/.fido-stage-<nonce>` per final parent (OS
-  `/dev/urandom` nonce), each owned by a root-owned record created atomically (`O_CREAT|O_EXCL`) and
-  written BEFORE its stage dir; the COMPLETE image stages before any install; per-file atomic rename
-  (sibling → nested mounts OK; EXDEV fails loud, no copy). Record-driven recovery (never a name scan) is
-  fail-closed: a valid record's stage is removed, a malformed/escaping/mismatched/symlinked record aborts,
-  a recordless lookalike is preserved. Handled-failure cleanup is immediate + error-aggregating. Fault seams
-  are `rand_hex`/`checkpoint`/`unlink` PARAMETERS (nonce collisions, real `Unix._exit` crashes at each
-  staging point, unlink failures) through the real algorithm — no ambient env. Honest: normal completion
-  releases the lock; a crash (or a lock-UNLINK failure) leaves the lock and the next run refuses until it is
-  removed, then recovers the record-owned residue (a lock-close failure is reported but still unlinks the
-  lock). See `ARCHITECTURE.md` for the full contract. NOT
+- **The foreign-Go-rejecting sibling-temp sink** (`plugin/fido_sink.ml`, 373 lines): persistent
+  `<root>/.fido/` control dir = marker + git-style `index.lock` ONLY (no records, no nonce, no stage dir, no
+  parser — the deleted subsystem). Before any generated-file mutation it validates the `root` (a symlink in
+  ANY prefix component is rejected), reserves `.fido/`, and REJECTS foreign Go/module inputs + nested `.fido`
+  fail-closed. Installed `.go`/`go.mod` are owned by their header first line + regular-non-symlink (rechecked
+  before overwrite/delete). Each output stages into its RESERVED sibling temp `<final>.fido-tmp-v1` (the lock
+  serializes cooperating emitters, so no nonce/record is needed); the COMPLETE image stages before any
+  install; per-file atomic rename (sibling → nested mounts OK; EXDEV fails loud, no copy). Recovery is
+  TWO-PHASE: phase 1 inspects the whole tree once (foreign rules + collect regular reserved-suffix temps,
+  delete nothing), phase 2 deletes the validated temps; a symlink/dir/special reserved-suffix entry aborts +
+  is preserved, a regular one (forgeable public convention) is removed. Handled-failure cleanup is immediate
+  + error-aggregating. Fault seams are `checkpoint`/`unlink`/`rename`/`before_*` PARAMETERS (real
+  `Unix._exit` crashes at writing/staged/installing, unlink failures, EXDEV) through the real algorithm — no
+  ambient env. Honest: normal completion releases the lock; a crash (or a lock-UNLINK failure) leaves the
+  lock + temps and the next run refuses until the stale lock is cleared, then removes the temps and
+  converges; install is nontransactional across the tree. See `ARCHITECTURE.md` for the full contract. NOT
   transactional, NOT a concurrent-adversary guard; Linux/amd64 operational scope.
+- **Pristine generated-module + tracked artifact**: one ordinary content-addressed Buildx `generated-module`
+  layer holds exactly the canonical witness `go.mod` + recursive `.go` (no `.fido`/temp/proof/fixture),
+  built from the authoritative generation inputs (never the committed bytes, never a cache mount). Root
+  `go.mod` + `main.go` are TRACKED, Fido-headed derived artifacts; `make regenerate` rewrites them via the
+  same `Fido_sink`; the pre-commit hook exports the Git index and verifies the STAGED tree byte-exact against
+  `/generated` (bypassable with `--no-verify` — prototype policy). `tools/generated-output-gate.sh` replaces
+  the old no-tracked-Go seal.
 - **Pinned Go** (`golang:1.23-alpine`, `GOWORK=off GOTOOLCHAIN=local GOPROXY=off`): `go build ./...` over
   the WHOLE tree using the RENDERED `go.mod` (no handwritten shell) + gofmt-clean, with `go vet`
   DIAGNOSTIC-only (nonblocking); the witness runs vs reviewed goldens (`e2e/golden.*`); the EMPTY module
@@ -89,8 +95,9 @@ main in a package) is rejected IN Rocq before any bytes — **zero expected Go b
   no-main/duplicate-main trees REJECTED, and `go list ./...` matching the emitted package set — exercise the
   whole-program rules against real `go build ./...` (discovering discrepancies, not proving universal
   agreement).
-- `make check` = host gates (transport-only OCaml, no tracked `*.go`) + prove + e2e, green. Axioms are
-  checked INSIDE the pinned build (not by any host text scan). One shared Dune cache builds theory + plugin.
+- `make check` = host gates (transport-only OCaml; the generated-output policy gate) + prove + e2e, green.
+  The COMPLETE assumption audit (constants + inductives + named) + self-tests A-E run in **prove** (not
+  emit). One shared Dune cache builds theory + plugin.
 
 ## NEXT — the frontier (pour roots before floors; do NOT add breadth for its own sake)
 
@@ -103,10 +110,13 @@ main in a package) is rejected IN Rocq before any bytes — **zero expected Go b
 ## Build-trust tasks
 
 Done: base + Go images digest-pinned; the opam retry loop fails closed; one shared Dune cache builds theory +
-plugin; zero project axioms enforced two ways — the count-checked `gate/axiom_gate.v` (Print Assumptions on
-public surfaces, for external axioms) AND the Rocq-native `Fido Audit Assumptions` WHOLE-CERTIFIED-THEORY
-assumption-closure audit (the union of every Fido constant's closure, descending opaque Qed bodies —
-catching an external axiom reached transitively through any internal/opaque lemma AND unused Fido axioms),
-with a coverage gate (tracked root `.v` == dune's `(modules …)`) and a planted-axiom self-test — replacing
-both the fail-open source-text scanner and the weaker Undef-body-only audit. Still open: pin/snapshot the
-opam repo + verify installed package versions.
+plugin; zero project axioms enforced two ways, both in **prove** — the count-checked `gate/axiom_gate.v`
+(Print Assumptions on public surfaces, for external axioms) AND the Rocq-native `Fido Audit Assumptions`
+WHOLE-CERTIFIED-THEORY assumption-closure audit seeded from every Fido CONSTANT + every Fido mutual INDUCTIVE
+(via `IndRef`) + every surviving named assumption, computing the union of their closures (descending opaque
+Qed bodies) and rejecting every `Printer.Axiom` category (incl. assumed positivity/guardedness/type-in-type/
+UIP) AND `Printer.Variable` — catching an external axiom reached transitively through any internal/opaque
+lemma, an unused Fido axiom, AND an unreferenced assumption-bearing inductive, with a coverage gate (tracked
+root `.v` == dune's `(modules …)`) and adversarial self-tests A-E — replacing the fail-open source-text
+scanner, the weaker Undef-body-only audit, and the constant-only seeding. Still open: pin/snapshot the opam
+repo + verify installed package versions.

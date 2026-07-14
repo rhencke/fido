@@ -11,8 +11,10 @@ PROOFS/EVIDENCE + derived facts over that one program, never new trees:
 GoProgram (ModuleSpec + a possibly-empty fmap FilePath -> GoFileAST) -> GoCompile (whole-program
       admissibility + CompilationFacts over the SAME program) -> GoSafe (SafeProgram) -> direct GoRender
       (incl. the go.mod) -> complete DirectoryImage (exact go.mod bytes + the .go map)
-      -> the general `Fido Emit` transport command -> foreign-Go-rejecting local-staging dirty-directory sink
-      -> pinned Go `GOWORK=off GOTOOLCHAIN=local go build ./...` over the whole tree   [integration only]
+      -> the general `Fido Emit` transport command -> foreign-Go-rejecting sibling-temp dirty-directory sink
+      -> one pristine `generated-module` Buildx layer (tracked go.mod + recursive .go, verified byte-exact by
+         the staged-index pre-commit) -> pinned Go `GOWORK=off GOTOOLCHAIN=local go build ./...` over the
+         whole tree   [integration only]
 ```
 
 The admitted fragment: files grouped by directory into `package main` packages; each `GoFileAST` is raw
@@ -37,9 +39,10 @@ correct foundations. **Cut representable scope before weakening a proof:** if a 
 exactly, remove it from the AST (or make it unrepresentable); never admit it with a conservative narrowing.
 
 Nobody depends on this repository. No backwards-compatibility, migration, or transition artifact. **Cost is
-not a constraint; incorrectness is fatal** — take the harder/more-general/more-correct path. Plans are
-guidance; when a plan conflicts with a stronger proof or a more correct formulation, follow the stronger
-path and surface the divergence.
+not a constraint; incorrectness is fatal** — take the harder/more-general/more-correct path. **The current
+`.review/NEXT_STEPS.md` is binding for the active milestone. If an objective defect cannot be repaired
+without changing its architecture, scope, guarantees, threat model, responsibility boundaries, or selected
+algorithm, report an architectural conflict and stop. Do not implement an alternative autonomously.**
 
 - Expressiveness expands by proof principles, never by lists of examples.
 - Integration checks (the pinned-Go `go build ./...` e2e) catch regressions; they never certify
@@ -66,31 +69,39 @@ path and surface the divergence.
    provenance by two kernel queries, typechecking the image type and rejecting an axiomatic assumption
    closure, then decodes ONLY the final `(go.mod bytes, (path, bytes) list)` transport via exact
    constructors, fail-loud; it understands no program/AST/semantics) and
-   `plugin/fido_sink.ml` + `e2e/sink_test.ml` (the generic dirty-directory sink + driver — filesystem
-   ONLY, walk no Rocq terms — it REJECTS foreign Go/module inputs, stages the complete image into random
-   per-parent local dirs owned by root-owned records, installs by atomic rename, and recovers record-owned
-   residue fail-closed). `tools/ocaml-origin-gate.sh` enforces exactly these, bounded, with those
-   boundaries. NEVER reintroduce a handwritten backend/lowering/renderer/semantic decoder, a bridge
-   decoding anything but the final transport type, or a central `.fido/staging/` design.
-2. **Generated `*.go` is never committed; emission is not a `.vo` side effect.** The `Fido Emit` command is
-   an EXPLICIT always-run step (`rocq c` on the witness) after the cached theory/plugin build. `make check`
-   regenerates + re-runs it so it cannot drift. The header is Rocq's bytes (`GoRender.header`), proved the
-   exact first line; the sink recognizes it as an ownership marker but adds/alters no bytes.
+   `plugin/fido_sink.ml` + `e2e/sink_test.ml` + `e2e/fido_apply.ml` (the generic dirty-directory sink, its
+   test driver, and the `make regenerate` apply CLI — filesystem ONLY, walk no Rocq terms — the sink REJECTS
+   foreign Go/module inputs and nested `.fido`, stages the complete image into RESERVED sibling temps
+   `<final>.fido-tmp-v1`, installs by atomic rename, and two-phase-recovers abandoned temps fail-closed).
+   `tools/ocaml-origin-gate.sh` enforces exactly these four, bounded, with those boundaries. NEVER
+   reintroduce a handwritten backend/lowering/renderer/semantic decoder, a bridge decoding anything but the
+   final transport type, a central `.fido/staging/` design, or the deleted stage-record/nonce subsystem.
+2. **The canonical generated module is a TRACKED, reviewed artifact; emission is not a `.vo` side effect.**
+   Root `go.mod` + recursive `.go` are committed (Fido-headed) and verified byte-exact against the pristine
+   `generated-module` Buildx layer by the pre-commit staged-index check; `make regenerate` rewrites them
+   through the SAME `Fido_sink`. The `Fido Emit` command is an EXPLICIT always-run step (`rocq c` on the
+   witness) after the cached theory/plugin build, never a `.vo` side effect. The header is Rocq's bytes
+   (`GoRender.header`), proved the exact first line; the sink recognizes it as an ownership marker but
+   adds/alters no bytes. (There is NO no-tracked-Go seal; nested `go.mod`, tracked `.fido`/temp, and
+   non-Fido-headed tracked Go are forbidden by `tools/generated-output-gate.sh`.)
 3. **Model honestly — faithful or fail-loud, never plausible-but-wrong.** Unrepresentable ⇒ absent from the
    AST (or rejected in Rocq). ⚠ NEVER a raw/opaque/string-rescue escape hatch (`PAINFUL_LESSONS.md`).
 4. **Zero project axioms — every `Print Assumptions` surface is EMPTY; preserve it.** `Definition`s /
    `Record`s / `Inductive`s over concrete data. Never `Axiom`/`Parameter`/`Admitted`, a kernel primitive,
-   or `FunctionalExtensionality`. `make check` asserts the public surfaces axiom-free via `gate/axiom_gate.v`
-   (the sole `Print Assumptions` target, compiled fresh + count-checked — catches EXTERNAL axioms in a
-   public surface's closure) PLUS the Rocq-native `Fido Audit Assumptions` command — a WHOLE-CERTIFIED-
-   THEORY assumption-closure audit that computes the union of the assumption closures of every Fido
-   constant (descending opaque Qed bodies), catching an external axiom reached transitively through any
-   internal/opaque lemma AND any unused Fido axiom — which a source-text scanner cannot do soundly. A
-   coverage gate requires every tracked root `.v` to equal dune's `(modules …)` (so a new module cannot
-   escape the audit), and a planted-axiom self-test proves it is not fail-open. The emit command reuses the
-   SAME closure mechanism to reject any image whose assumption closure is non-empty. Tracked
-   axiom-bearing fixtures are FORBIDDEN — forged-image negatives are generated transiently. NO
-   source-text axiom scanner.
+   or `FunctionalExtensionality`. `make prove` (the complete proof gate) asserts the public surfaces
+   axiom-free via `gate/axiom_gate.v` (the sole `Print Assumptions` target, compiled fresh + count-checked)
+   PLUS the Rocq-native `Fido Audit Assumptions` command — a WHOLE-CERTIFIED-THEORY assumption-closure audit
+   seeded from every Fido CONSTANT **and every Fido mutual INDUCTIVE (via `IndRef`) and every surviving
+   named assumption**, computing the union of their closures (descending opaque Qed bodies) and rejecting
+   every `Printer.Axiom` category (incl. assumed positivity / disabled guardedness / type-in-type / UIP) AND
+   every `Printer.Variable` — catching an external axiom reached transitively through any internal/opaque
+   lemma, an unused Fido axiom, AND an unreferenced assumption-bearing inductive, which a source-text scanner
+   cannot do soundly. A coverage gate requires every tracked root `.v` to equal dune's `(modules …)`, and
+   adversarial self-tests A-E (unused axiom / opaque-transitive external axiom / unused assumed-positive
+   inductive / surviving section Variable rejected, closed Section theorem accepted) prove it is not
+   fail-open. The emit command reuses the SAME closure mechanism to reject any image whose assumption closure
+   is non-empty. Tracked axiom-bearing fixtures are FORBIDDEN — forged-image and audit negatives are
+   generated transiently. NO source-text axiom scanner.
 5. **No fuel, ever.** Totality comes from decreasing structure.
 6. **SafeProgram is the permanent safety boundary.** `GoSafe cp := True` is honest TODAY (the fragment has
    no unsafe op); it is the extension point for guarantees beyond compiler acceptance, not circular. No
@@ -124,31 +135,36 @@ sound/complete (`prog_ok_iff`); populated `CompilationFacts`. · `GoSafe` — re
 `SafeProgram`. · `GoRender` — render decls + derived package clause + the go.mod from the `ModuleSpec`;
 header exact first line; `render_expr_denotes`. · `GoEmit` — provenance-gated `DirectoryImage` (go.mod +
 .go map); `render_program`; `di_transport`. · `plugin/g_fido.mlg` — the `Fido Emit` transport command +
-whole-theory audit. · `plugin/fido_sink.ml` — the foreign-Go-rejecting local-staging sink. · `digits` —
+whole-theory audit. · `plugin/fido_sink.ml` — the foreign-Go-rejecting sibling-temp sink. · `digits` —
 leaf authority.
 
 ## Workflow & commands
 
-Verify after any change: **`make check`** — the host gates (transport-only OCaml, no tracked `*.go`) + the
-pinned-container **proof** (Rocq 9.2.0: `dune build` + `gate/axiom_gate.v` axiom-free, count-checked) + the
-**e2e** (Dune-cached theory+plugin; then EXPLICIT `Fido Emit` synchronizes each tree — witness,
-multi-package, and the EMPTY module (rendered go.mod + zero .go); the whole-certified-theory
-`Fido Audit Assumptions` gate confirms zero Fido axioms with a coverage check + planted-axiom self-test;
-the provenance boundary is exercised (a forged raw transport AND transiently-generated axiom/variable-backed
-images are all rejected before any effect); the sink is exercised on dirty/adversarial trees (foreign-Go
-rejection, local staging + records, crash-point recovery, malformed/escaping/mismatched/symlinked-record
-fail-closed, collision abort, unlink-failure); and the digest-pinned `golang:1.23-alpine` runs
-`GOWORK=off GOTOOLCHAIN=local GOPROXY=off go build ./...` over the whole tree using the RENDERED go.mod +
-the empty module + `go list ./...` discovery + a multi-package differential + no-main/dup-main rejection
-fixtures, runs the witness vs reviewed goldens, with `go vet` DIAGNOSTIC-only). **Local host Rocq is NOT
+Verify after any change: **`make check`** — the host gates (transport-only OCaml; the generated-output policy
+gate: tracked Go/go.mod Fido-headed, no nested go.mod, no tracked `.fido`/temp) + the pinned-container
+**proof** (`make prove`, the COMPLETE gate: `dune build` + `gate/axiom_gate.v` axiom-free count-checked +
+certified-module coverage + the whole-certified-theory `Fido Audit Assumptions` over constants + inductives +
+named assumptions + adversarial self-tests A-E) + the **e2e** (Dune-cached theory+plugin; then EXPLICIT
+`Fido Emit` synchronizes each tree — witness, multi-package, and the EMPTY module (rendered go.mod + zero
+.go); the provenance boundary is exercised (a forged raw transport AND transiently-generated
+axiom/variable-backed images are all rejected before any effect); the sink is exercised on dirty/adversarial
+trees (foreign-Go/module + nested-.fido rejection, sibling-temp two-phase recovery, complete-image staging,
+crash points writing/staged/installing, cleanup-failure aggregation, EXDEV no-copy, overwrite/delete-time
+ownership rechecks); the pristine `generated-module` layer feeds the digest-pinned `golang:1.23-alpine`,
+which runs `GOWORK=off GOTOOLCHAIN=local GOPROXY=off go build ./...` over the whole tree using the RENDERED
+go.mod + the empty module + `go list ./...` discovery + a multi-package differential + no-main/dup-main
+rejection fixtures, runs the witness vs reviewed goldens, with `go vet` DIAGNOSTIC-only). The pre-commit hook
+verifies the STAGED tree (exports the Git index, rebuilds `generated-module` from the staged inputs, and
+compares the staged go.mod + recursive .go byte-exact against `/generated`). **Local host Rocq is NOT
 supported** — all compilation goes through the pinned toolchain via buildx.
 
 ```
-make check   # gates + pinned-Rocq proof + pinned-Go whole-tree e2e (all buildx)
-make prove   # the proof alone (dune build + axiom gate)
-make emit    # theory+plugin build + Fido Emit witness/multi/empty sync + whole-theory audit + sink tests
-make e2e     # emit + go build ./... over the rendered-go.mod tree + empty + differential + witness vs goldens
-make prover-log   # stream the plain Rocq log
+make check       # gates + pinned-Rocq proof + pinned-Go whole-tree e2e (all buildx)
+make prove       # the COMPLETE proof gate (dune build + readable gate + coverage + whole-theory audit + self-tests A-E)
+make emit        # theory+plugin build + Fido Emit witness/multi/empty sync + provenance + sink tests
+make e2e         # emit + pristine generated-module + go build ./... + empty + differential + witness vs goldens
+make regenerate  # rebuild + apply the pristine canonical module into the repo via Fido_sink (then git add + commit)
+make prover-log  # stream the plain Rocq log
 make install-hooks
 ```
 
@@ -160,17 +176,24 @@ kill stale `docker buildx build` processes first; run long builds detached and p
 - **Certified theory** (`dune`): `digits.v`, `Ints.v`, `FilePath.v`, `FMap.v`, `ModulePath.v`,
   `GoVersion.v`, `GoAST.v`, `GoCompile.v`, `GoSafe.v`, `GoRender.v`, `GoEmit.v`.
 - `plugin/g_fido.mlg` — the Fido Emit transport bridge + the whole-theory audit; `plugin/fido_sink.ml` —
-  the foreign-Go-rejecting local-staging sink; `plugin/dune` — the plugin library. `e2e/Witness.v` — the
-  witness (emitted explicitly); `e2e/WitnessMulti.v` — the multi-package differential; `e2e/WitnessEmpty.v`
-  — the empty-program witness; `e2e/WitnessNeg.v` — the raw-transport rejection fixture (the forged-image
-  provenance fixtures are GENERATED TRANSIENTLY in the emit stage — no tracked axioms); `e2e/sink_test.ml`
-  — the sink driver; `e2e/golden.*` — reviewed goldens.
+  the foreign-Go-rejecting sibling-temp sink; `plugin/dune` — the plugin library. `e2e/Witness.v` — the
+  witness (emitted explicitly, and the canonical tracked module); `e2e/WitnessMulti.v` — the multi-package
+  differential; `e2e/WitnessEmpty.v` — the empty-program witness; `e2e/WitnessNeg.v` — the raw-transport
+  rejection fixture (the forged-image provenance fixtures are GENERATED TRANSIENTLY in the emit stage — no
+  tracked axioms); `e2e/sink_test.ml` — the sink driver; `e2e/fido_apply.ml` — the filesystem-only
+  `make regenerate` apply CLI; `e2e/golden.*` — reviewed goldens.
+- **Tracked canonical generated module**: `go.mod` + `main.go` at the repo root (Fido-headed; the reviewed
+  derived artifact, verified byte-exact against the pristine `generated-module` Buildx layer by the
+  staged-index pre-commit).
 - `gate/axiom_gate.v` — the `Print Assumptions` target. The Rocq-native `Fido Audit Assumptions`
-  whole-certified-theory closure audit is run over a module list GENERATED from dune's `(modules …)` in the
-  emit stage (no static file), with a coverage check that tracked root `.v` == that list.
-  `tools/ocaml-origin-gate.sh` — the host origin gate.
-- `Makefile` / `Dockerfile` / `.githooks/pre-commit` — the buildx proof + whole-tree e2e (host Rocq
-  unsupported).
+  whole-certified-theory closure audit (constants + inductives + named assumptions) runs in the **prove**
+  stage over a module list GENERATED from dune's `(modules …)` (no static file), with a coverage check
+  (tracked root `.v` == that list) and adversarial self-tests A-E. `tools/ocaml-origin-gate.sh` — the host
+  origin gate; `tools/generated-output-gate.sh` — the tracked-generated-output policy gate.
+- `Makefile` / `Dockerfile` / `.githooks/pre-commit` — the buildx proof + whole-tree e2e + the pristine
+  `generated-module`/`sync`/`verify-staged-generated` stages (host Rocq unsupported). The pre-commit hook
+  exports the Git INDEX and verifies the STAGED tree (never the working tree); bypassable with
+  `--no-verify` (a documented prototype-stage escape).
 
 ## Where the detail lives
 

@@ -53,11 +53,17 @@ the emitted package set) that exercise the whole-program rules against real Go.
   effect — it typechecks the image type and rejects a non-empty assumption closure (kernel queries, so a
   postulated axiom/variable proof cannot cross), then decodes only the final `(go.mod, entries)` transport
   and hands it to a generic **ownership-aware dirty-directory synchronizer**. The sink **rejects foreign
-  Go/module inputs** (a foreign `.go` anywhere, a foreign/nested `go.mod`) rather than merge them, then
-  stages the complete image into random per-parent local dirs owned by root-owned records and installs by
-  atomic rename (nested mounts supported; EXDEV fails loud). It validates the root against prefix symlinks,
-  reserves `.fido/`, owns installed `.go`/`go.mod` by their header first line, never follows symlinks, and
-  recovers record-owned residue fail-closed. No handwritten OCaml walks a program.
+  Go/module inputs** (a foreign `.go` anywhere, a foreign/nested `go.mod`, a nested `.fido`) rather than
+  merge them, then stages the complete image into RESERVED sibling temps `<final>.fido-tmp-v1` and installs
+  by atomic rename (nested mounts supported; EXDEV fails loud). It validates the root against prefix
+  symlinks, reserves `.fido/` (marker + a git-style lock only — no records, no nonce), owns installed
+  `.go`/`go.mod` by their header first line, never follows symlinks, and two-phase-recovers abandoned temps
+  fail-closed. No handwritten OCaml walks a program.
+- **The generated module is a tracked, reviewed artifact.** One pristine content-addressed Buildx
+  `generated-module` layer is the output authority; the canonical `go.mod` + `main.go` are committed
+  (Fido-headed) so the example builds/runs without Rocq or Docker, while the `.v`/proof sources stay
+  authoritative. `make regenerate` rewrites them through the same sink, and a pre-commit hook verifies the
+  STAGED tree byte-exact against the pristine layer (a prototype boundary; `--no-verify` bypasses it).
 
 The admitted fragment is deliberately tiny; anything else is **unrepresentable**, not stubbed. Imports are
 absent and unrepresentable — a permanent closed-world contract governs their eventual introduction.
@@ -67,7 +73,8 @@ absent and unrepresentable — a permanent closed-world contract governs their e
 All Rocq/Go runs go through the pinned toolchain via `buildx` (host Rocq is unsupported):
 
 ```
-make check   # gates + pinned-Rocq proof (axiom-free) + pinned-Go whole-tree e2e (go build ./... + goldens)
+make check       # gates + pinned-Rocq proof (complete whole-theory audit) + pinned-Go whole-tree e2e vs goldens
+make regenerate  # rebuild + re-apply the tracked canonical module into the repo via the same sink
 ```
 
 ## Where to read next

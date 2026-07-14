@@ -16,6 +16,11 @@ and correct. Cut representable scope before weakening a proof. A green boolean c
 authority; a printer's own inverse is not a Go-semantics theorem; a functional-lookup theorem is not proof
 of key uniqueness; regex source scanning is not a sound zero-axiom gate; axiom-free is not correct.
 
+**Binding contract, not advisory plan.** The current `.review/NEXT_STEPS.md` is binding for the active
+milestone. If an objective defect cannot be repaired without changing its architecture, scope, guarantees,
+threat model, responsibility boundaries, or selected algorithm, report an architectural conflict and stop.
+Do not implement an alternative autonomously.
+
 ## The pipeline
 
 ```
@@ -89,10 +94,11 @@ of key uniqueness; regex source scanning is not a sound zero-axiom gate; axiom-f
                  it to the sink.  Not witness-specific; no recompile for a different SafeProgram.
 
   sink           the generic ownership-aware dirty-directory synchronizer: it REJECTS foreign Go/module
-                 inputs, then stages the complete image into random per-parent local dirs owned by
-                 root-owned records and installs by atomic rename.  Filesystem ONLY.
+                 inputs + nested .fido, then stages the complete image into reserved sibling temps
+                 `<final>.fido-tmp-v1` and installs by atomic rename (two-phase recovery).  Filesystem ONLY.
 
-  pinned Go      `go build ./...` over the WHOLE emitted tree + witness run.  Integration only.
+  pinned Go      `go build ./...` over the WHOLE canonical `generated-module` tree + witness run.
+                 Integration only.
 ```
 
 **There is no second tree, no separate/typed/target/text IR, no tokenizer/lexer/parser, no
@@ -123,7 +129,7 @@ AST->output->AST round-trip authority, no copied compiled AST, no handwritten OC
 | **GoSafe** | real `GoValue`; abstract `eval_file`; `SafeProgram` (0 = -0); honest `GoSafe := True` | observe spelling as value; keep an unused panic placeholder; circularly reference compilation |
 | **GoRender** | render decls + the derived package clause; render go.mod from the ModuleSpec; header exact first line (go.mod and .go); `render_expr_denotes` | tokenize/lex/parse/round-trip; deduce packages/entry; invoke a formatter; add require/replace/toolchain to go.mod |
 | **DirectoryImage** | the complete module (exact go.mod bytes + a possibly-empty .go map), provenance-gated (`di_prov` proves BOTH came from `render_program`; `mkImage` demands that proof); `Fido Emit` typechecks its argument's `di_transport` AND rejects any argument with an axiomatic assumption closure | be an arbitrary-map escape that bypasses SafeProgram; invent go.mod in the sink; make a nonemptiness claim; accept a raw transport, or a same-typed image built from a forged (axiomatic) proof, at the emit boundary |
-| **Fido Emit + sink** | a four-step boundary — typecheck the image, reject a non-empty assumption closure (kernel provenance queries), decode ONLY the final (go.mod, entries) transport with exact constructors, then a foreign-Go-rejecting local-staging dirty-directory sync | inspect the program/AST/behaviour/semantics; emit without both provenance guards; merge/preserve a foreign `.go`/`go.mod`; delete/overwrite/follow foreign state |
+| **Fido Emit + sink** | a four-step boundary — typecheck the image, reject a non-empty assumption closure (kernel provenance queries), decode ONLY the final (go.mod, entries) transport with exact constructors, then a foreign-Go-rejecting sibling-temp dirty-directory sync | inspect the program/AST/behaviour/semantics; emit without both provenance guards; merge/preserve a foreign `.go`/`go.mod`; delete/overwrite/follow foreign state; keep a stage-record/nonce/central-staging design |
 
 ## The handwritten-OCaml boundary (hard)
 
@@ -138,10 +144,11 @@ AST->output->AST round-trip authority, no copied compiled AST, no handwritten OC
   (a raw transport + TRANSIENTLY-generated axiom/variable-backed images) execute forged inputs and, if
   either guard were removed, the corresponding `Fido Emit` would succeed and create a target — failing the
   e2e (a spoofable source grep would not).
-- `plugin/fido_sink.ml` + `e2e/sink_test.ml` — the generic dirty-directory synchronizer + its driver.
-  Filesystem ONLY: they walk no Rocq terms.
+- `plugin/fido_sink.ml` + `e2e/sink_test.ml` + `e2e/fido_apply.ml` — the generic dirty-directory
+  synchronizer, its driver, and the `make regenerate` apply CLI (enumerate a pristine `/generated` tree and
+  hand it to the sink). Filesystem ONLY: they walk no Rocq terms.
 
-`tools/ocaml-origin-gate.sh` enforces exactly these three files, filesystem-only for the sink,
+`tools/ocaml-origin-gate.sh` enforces exactly these four files, filesystem-only for the sink/driver/apply,
 transport-only for the bridge, bounded sizes, and no deleted-backend hallmarks. **Never reintroduce a
 handwritten OCaml backend / lowering / renderer / semantic decoder, or a bridge that decodes anything but
 the final transport type.** If the transport boundary cannot be met correctly, delete the e2e — a false
@@ -165,39 +172,58 @@ are Fido-owned iff their first line is the exact header AND they are regular non
 by lstat immediately before every overwrite/delete; a symlink is S_LNK, never S_REG, so never followed); a
 foreign `.go`/`go.mod` forging the header is the accepted limit (a header is public).
 
-**Local staging (no central staging dir).** `<root>/.fido/` holds the marker, the lock, and
-`stage-records/` (durable ownership records ONLY, never payloads). For each distinct final PARENT directory
-receiving desired files (root for `go.mod` and root-level `.go`; a subdir for a nested `.go`) the sink
-creates ONE local stage `<parent>/.fido-stage-<nonce>` with a high-entropy OS nonce (`/dev/urandom`, never
-OCaml `Random`). A stage is owned by a ROOT-OWNED RECORD, never by name/marker/header: the record is
-created atomically (`O_CREAT|O_EXCL`) and completely written BEFORE its stage directory, and removed only
-AFTER the stage directory is gone. The sink stages the COMPLETE image (go.mod + every .go) before any
-install, then installs each file by rename from its sibling stage — same filesystem, so nested mount points
-inside root are supported without a central cross-device compare; EXDEV fails loud with no copy fallback.
-Only then are stale Fido-owned `.go` files (owned, not desired) removed (the empty program removes them
-all, keeping/updating the owned go.mod).
+**Sibling-temp staging (no records, no nonce, no stage directory, no parser).** `<root>/.fido/` holds
+EXACTLY the marker and, during an active run or after a crash, the git-style `index.lock` — nothing else;
+any other root-control entry rejects without modification. Each final output stages into its RESERVED
+sibling temporary `<final>.fido-tmp-v1`; because the lock serializes cooperating emitters, the name needs no
+nonce and recovery needs no record — the final path is already known to the live sync. The sink stages the
+COMPLETE image (go.mod + every .go) before any install, then installs each file by rename from its sibling
+temp — same filesystem, so nested mount points inside root are supported; EXDEV fails loud with no copy
+fallback. Only then are stale Fido-owned `.go` files (owned, not desired) removed (the empty program removes
+them all, keeping/updating the owned go.mod). A **regular non-symlink** file ending in `.fido-tmp-v1` is, by
+PUBLIC (and forgeable) CONVENTION, an abandoned Fido temp; a symlink/directory/special with that suffix is
+NOT owned (refuse + preserve). A nested `.fido` (any type, anywhere below root) is an emission error and
+aborts. Forgeability of the suffix convention is an accepted tradeoff under the single-owner threat model —
+no transaction log is built to avoid it.
 
-**Fail-closed.** Only a confirmed `ENOENT` means "missing"; every other filesystem error aborts. RECOVERY
-runs first and is RECORD-DRIVEN (never a name scan): each record is parsed strictly and validated (version,
-nonce = filename, canonical stage path under root, matching parent); a confirmed-missing stage → the stale
-record is removed; a real non-symlink stage dir → removed recursively without following symlinks, then the
-record; a symlink/file/inconsistent recorded stage → abort and preserve. A foreign lookalike
-`.fido-stage-*` without a valid record is never treated as owned. A handled failure cleans this run's
-stages/records/newly-empty parents immediately, aggregates body + cleanup + lock-release errors, and
-releases the lock. It is **NOT** a transactional whole-tree commit; residue remains only after an
-uncatchable CRASH or a cleanup/lock-release failure — the next run recovers it (record-driven) before any
-generated-file mutation. It is **NOT** hardened against a concurrent non-cooperating process (this OCaml
-`Unix` exposes no `openat`/`O_NOFOLLOW`); the honest model is COOPERATING emitters serialized by the lock,
-in the Linux/amd64 operational scope. Ownership is by header + regular-file + desired-key-set, never
-timestamps or a manifest. Git is a recovery backstop, not the primary safety mechanism.
+**Fail-closed, two-phase.** Only a confirmed `ENOENT` means "missing"; every other filesystem error aborts.
+After the lock: PHASE 1 inspects the WHOLE target tree once (validating foreign-Go/module/control rules and
+COLLECTING every regular reserved-suffix temp), deleting nothing; if any path is invalid or uninspectable
+the run rejects before any mutation, preserving every collected temp. PHASE 2 (only after the complete scan
+succeeds) re-`lstat`s each collected temp, requires it is still a regular reserved-suffix file, and deletes
+it (fail-loud on any mismatch). A handled failure removes this run's created temps + newly-empty parents,
+aggregates body + cleanup + lock-release errors, and releases the lock. It is **NOT** a transactional
+whole-tree commit — install is a sequential rename loop, so a mid-install failure may leave earlier files
+installed (nontransactional, stated honestly); residue remains only after an uncatchable CRASH or a
+cleanup/lock-release failure — a rerun, after the stale lock is cleared, removes the temps and converges. It
+is **NOT** hardened against a concurrent non-cooperating process (this OCaml `Unix` exposes no
+`openat`/`O_NOFOLLOW`); the honest model is COOPERATING emitters serialized by the lock, in the Linux/amd64
+operational scope. Ownership is by header + regular-file + desired-key-set (or the reserved suffix for
+temps), never timestamps, a manifest, records, or device/inode identity.
 
 **The exact guarantee.** *GoProgram acceptance, SafeProgram certification, and DirectoryImage creation are
 semantically all-or-nothing. Dirty-directory installation is locked for cooperating emitters, rejects
-foreign Go/module inputs, stages the complete image locally beside target parents before installation, uses
-per-file atomic rename in the ordinary same-filesystem case, cleans handled-failure residue immediately,
-recovers record-owned abandoned local stages before future mutation, and converges on rerun. It is not a
-portable transactional multi-file filesystem commit and is not hardened against malicious concurrent
-filesystem mutation.*
+foreign Go/module inputs and nested `.fido`, inspects the complete tree fail-closed, stages the complete
+image into reserved sibling temporary files before installation, uses per-file rename in the ordinary
+same-filesystem case, cleans handled-failure temps immediately, removes validated abandoned suffix-owned
+temps on a later run, and converges when the directory namespace remains stable. It is not a portable
+transactional multi-file filesystem commit, not hardened against malicious concurrent mutation, and does not
+model arbitrary unmount/remount/backing-store replacement between runs.*
+
+### Pristine generated-module layer + tracked artifact (prototype pre-commit)
+
+One ordinary content-addressed Buildx stage, `generated-module`, holds EXACTLY the canonical generated
+module (`/generated/go.mod` + recursive `.go` — the primary witness), assembled from the authoritative
+generation inputs (certified `.v`, dune, plugin, pinned toolchain, canonical witness) and never from the
+committed generated bytes, never a mutable cache mount. Every canonical-output workflow — the Go e2e,
+`make regenerate`, and the pre-commit staged-index verification — consumes THAT one layer. The canonical
+generated module (root `go.mod` + recursive `.go`) is a **tracked, reviewed derived artifact** (Fido-headed;
+`.v`/proof sources remain authoritative; no `dist/`, no handwritten Go in the module, no nested `go.mod`).
+`make regenerate` rewrites it into the repo through the SAME `Fido_sink`. The pre-commit hook exports the
+Git INDEX once and verifies the STAGED tree: it rebuilds `generated-module` from the staged inputs and
+compares the staged `go.mod` + recursive `.go` byte-exact against `/generated` (path set + bytes, both
+directions) — never reading the unstaged working tree, never auto-staging. This is a PROTOTYPE boundary,
+bypassable with `git commit --no-verify`; a future PR CI runs the same comparison server-side.
 
 ## Closed world
 
@@ -223,10 +249,13 @@ Trusted: Rocq and its kernel; the digest-pinned Docker/Go images plus the opam-r
 the Fido Emit **transport boundary** (the bridge typechecks the image type and rejects an axiomatic
 assumption closure — both via Rocq's own kernel/assumptions machinery — then decodes only the final
 transport constructors; the sink is filesystem-only — all trusted-not-proved); and the Go toolchain
-(claim (B), the `go build ./...` adequacy, is exercised differentially by the e2e, not proved). Proved (axiom-free, asserted every build by
+(claim (B), the `go build ./...` adequacy, is exercised differentially by the e2e, not proved). Proved (axiom-free, asserted every build in the **prove** stage by
 `gate/axiom_gate.v` PLUS the Rocq-native `Fido Audit Assumptions` command — a whole-certified-theory
-assumption-closure audit that catches an external axiom reached transitively through any internal/opaque
-lemma, and any unused Fido axiom): the Ints boundary values; ModulePath decidable eq + representable/
+assumption-closure audit seeded from every Fido CONSTANT, every Fido mutual INDUCTIVE (via `IndRef`), and
+every surviving named assumption, that rejects every `Printer.Axiom` category (incl. assumed positivity /
+guardedness / type-in-type / UIP) and `Printer.Variable` — catching an external axiom reached transitively
+through any internal/opaque lemma, an unused Fido axiom, and an unreferenced assumption-bearing inductive,
+with a module-coverage gate and adversarial self-tests A-E): the Ints boundary values; ModulePath decidable eq + representable/
 unrepresentable module-path fixtures; GoVersion's exact "1.23" rendering; FilePath decidable eq +
 representable/unrepresentable path fixtures; FMap's key-NoDup invariant + duplicate-key unconstructibility +
 deterministic lookup; GoCompile claim (A) — `prog_ok_iff`, `go_compile` sound + complete, rejection ⇒ no
@@ -242,13 +271,18 @@ A handwritten OCaml backend / lowering / renderer / semantic decoder, or a bridg
 final transport type; a SECOND program-AST hierarchy, a raw `GoPackage` tree, or a copied compiled AST;
 package/import metadata in raw file values; `MainFile` (package/main/entry collapsed into one raw node);
 raw `string` map keys; a nonemptiness restriction on the program/image; a handwritten `go.mod` (it is
-RENDERED in Rocq) or `go.mod` smuggled into the FilePath map; central `<root>/.fido/staging/` or a
-central cross-device rejection (staging is LOCAL, per-parent, record-owned); a foreign `.go`/`go.mod`
-preserved-and-merged into the built tree; handled-failure residue left deliberately for the next run;
-a `Undef`-body-only axiom check posing as a whole-theory audit; tracked axiom-bearing fixtures; `go vet`
-as a blocking acceptance gate; single-file compiler semantics or a subset filter posing as compiler
+RENDERED in Rocq) or `go.mod` smuggled into the FilePath map; central `<root>/.fido/staging/`, a central
+cross-device rejection, or the deleted stage-record / nonce / local-stage-directory / record-driven-recovery
+subsystem (staging is a RESERVED sibling temp `<final>.fido-tmp-v1`, the lock serializes so no nonce/record
+is needed); device/inode/mount-identity ownership records; a foreign `.go`/`go.mod` preserved-and-merged
+into the built tree, or a nested `.fido` skipped instead of rejected; handled-failure residue left
+deliberately for the next run; a constant-only audit that skips certified inductives or surviving named
+assumptions; a `Undef`-body-only axiom check posing as a whole-theory audit; tracked axiom-bearing fixtures;
+`go vet` as a blocking acceptance gate; single-file compiler semantics or a subset filter posing as compiler
 admissibility; a witness-specific extracted emit executable or a hard-coded `main.go` Docker copy; a
-fail-open regex axiom scanner; timestamps/manifests as ownership authority; a claimed transactional
-whole-directory guarantee; a `TargetConfig`; a lexer/parser/tokenizer/round-trip/text-IR/target-IR in the
-certified path; fuel. Git carries the history; re-admit a feature only when the roots make its proof
+fail-open regex axiom scanner; a no-tracked-Go seal (the canonical generated module IS tracked and verified
+byte-exact against the pristine Buildx layer); a `dist/` directory; handwritten Go in the canonical module;
+a pre-commit that reads the unstaged working tree or auto-stages; timestamps/manifests as ownership
+authority; a claimed transactional whole-directory guarantee; a `TargetConfig`; a
+lexer/parser/tokenizer/round-trip/text-IR/target-IR in the certified path; fuel. Git carries the history; re-admit a feature only when the roots make its proof
 obligations natural.
