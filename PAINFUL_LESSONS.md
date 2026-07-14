@@ -87,7 +87,15 @@ stop. When an entry stops being a live temptation, delete it.
    A Buildx-free `precommit-selftest` demonstrates the gates reject these at every depth.  ⚠ A public temp
    suffix (`<final>.fido-tmp-v1`) is a forgeable convention, but
    ownership still requires the suffix-stripped path to map to a possible Fido final path (root `go.mod` or a
-   valid intrinsic `.go`) before deletion — a non-mappable suffixed entry is preserved and refuses. ⚠ A
+   valid intrinsic `.go`) before deletion — a non-mappable suffixed entry is preserved and refuses. ⚠ Opaque
+   applies to Go-ignored DIRECTORY TREES only — NOT to Go-ignored FILES.  In the per-entry `inspect` the order
+   is load-bearing and cost me two ping-pong rounds: (1) skip an S_DIR with a Go-ignored name (its whole tree
+   is opaque, even if the dir's own name ends in `.fido-tmp-v1`/`.go`); (2) THEN classify reserved-suffix /
+   `go.mod` / `.go` — so a dot/underscore reserved-suffix FILE at a TRAVERSED level (e.g. root
+   `_notes.fido-tmp-v1`, not beneath a skipped dir) is non-mappable and still REFUSES fail-closed; (3) ONLY
+   AFTER that skip a remaining Go-ignored dot/underscore NON-dir name (a `.gitignore`/dot-`.go` file).  Put the
+   suffix check before the dir skip → an opaque suffix-named dir wrongly aborts; put the dot/underscore-name
+   skip before the suffix check → a non-mappable dot/underscore temp file wrongly survives.  ⚠ A
    source-LINE cap on the OCaml boundary is not a correctness invariant (the boundary is enforced by the
    allowlist + no-Rocq-terms + transport-only greps, not a byte budget) — do not gate on line count.
 
