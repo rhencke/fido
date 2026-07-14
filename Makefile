@@ -18,10 +18,13 @@ override PLATFORM := linux/amd64
 # ALL Rocq/Go work runs in the PINNED container via buildx — host Rocq is NOT supported.
 
 # `make check` verifies the WORKING TREE, coherently and in ONE place.  It materializes the working-tree
-# content of every relevant file — `git ls-files --cached --others --exclude-standard` (tracked files WITH
-# their uncommitted edits, PLUS untracked files that are not gitignored, so a rogue untracked `foreign.go` /
-# `.ml` is caught; the gitignored local residue .fido/, *.fido-tmp-v1, *.vo, _build/ is excluded, which a raw
-# `find .` would instead wrongly flag) piped through tar into a temp tree — runs the lightweight
+# content of every relevant file — `git ls-files --cached --others --exclude-standard` enumerates candidate
+# paths (tracked files WITH their uncommitted edits, PLUS untracked files that are not gitignored, so a rogue
+# untracked `foreign.go` / `.ml` is caught; the gitignored local residue .fido/, *.fido-tmp-v1, *.vo, _build/
+# is excluded, which a raw `find .` would instead wrongly flag), and `tar --ignore-failed-read` archives ONLY
+# the paths that ACTUALLY EXIST ON DISK — so a tracked file DELETED in the working tree is NOT reintroduced
+# from the index (its absence then surfaces in the byte-compare): PRESENCE is disk-determined, not index
+# membership.  Piped through tar into a temp tree, it runs the lightweight
 # repository-policy gates over THAT tree (transport-only OCaml; tracked Go/go.mod Fido-headed, no nested
 # go.mod), and byte-compares its generated go.mod + recursive .go against a pristine `generated-module` layer
 # built from the SAME working-tree proof inputs (`.dockerignore` excludes the committed go.mod/.go, so the
@@ -32,7 +35,7 @@ override PLATFORM := linux/amd64
 # generated-output gate's own -L/-f/-x file-type tests are authoritative.)
 check: prove e2e builder
 	@tmp=$$(mktemp -d); tree="$$tmp/tree"; mkdir -p "$$tree"; \
-	  git ls-files -z --cached --others --exclude-standard | tar --null -T - -cf - | tar -xf - -C "$$tree" && \
+	  git ls-files -z --cached --others --exclude-standard | tar --null -T - --ignore-failed-read -cf - | tar -xf - -C "$$tree" && \
 	  sh tools/ocaml-origin-gate.sh    "$$tree" && \
 	  sh tools/generated-output-gate.sh "$$tree" && \
 	  docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --target generated-artifact \
