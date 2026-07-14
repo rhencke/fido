@@ -21,10 +21,12 @@ override PLATFORM := linux/amd64
 # content of every relevant file — `git ls-files --cached --others --exclude-standard` enumerates candidate
 # paths (tracked files WITH their uncommitted edits, PLUS untracked files that are not gitignored, so a rogue
 # untracked `foreign.go` / `.ml` is caught; the gitignored local residue .fido/, *.fido-tmp-v1, *.vo, _build/
-# is excluded, which a raw `find .` would instead wrongly flag), and `tar --ignore-failed-read` archives ONLY
-# the paths that ACTUALLY EXIST ON DISK — so a tracked file DELETED in the working tree is NOT reintroduced
-# from the index (its absence then surfaces in the byte-compare): PRESENCE is disk-determined, not index
-# membership.  Piped through tar into a temp tree, it runs the lightweight
+# is excluded, which a raw `find .` would instead wrongly flag); a `python3` filter keeps ONLY the candidate
+# paths that EXIST ON DISK (so a tracked file DELETED in the working tree is NOT reintroduced from the index —
+# its absence then surfaces in the byte-compare; PRESENCE is disk-determined, not index membership), and then
+# PLAIN `tar` (NO --ignore-failed-read) archives them into a temp tree — so an existing-but-UNREADABLE `.go`
+# makes tar FAIL loudly rather than being silently omitted (a rogue that would otherwise pass).  Over that
+# temp tree it runs the lightweight
 # repository-policy gates over THAT tree (transport-only OCaml; tracked Go/go.mod Fido-headed, no nested
 # go.mod), and byte-compares its generated go.mod + recursive .go against a pristine `generated-module` layer
 # built from the SAME working-tree proof inputs (`.dockerignore` excludes the committed go.mod/.go, so the
@@ -35,7 +37,10 @@ override PLATFORM := linux/amd64
 # generated-output gate's own -L/-f/-x file-type tests are authoritative.)
 check: prove e2e builder
 	@tmp=$$(mktemp -d); tree="$$tmp/tree"; mkdir -p "$$tree"; \
-	  git ls-files -z --cached --others --exclude-standard | tar --null -T - --ignore-failed-read -cf - | tar -xf - -C "$$tree" && \
+	  git ls-files -z --cached --others --exclude-standard \
+	    | python3 -c 'import sys,os;d=sys.stdin.buffer.read().split(b"\x00");sys.stdout.buffer.write(b"\x00".join(p for p in d if p and os.path.lexists(p)))' > "$$tmp/list.nul" && \
+	  tar --null -T "$$tmp/list.nul" -cf "$$tmp/tree.tar" && \
+	  tar -xf "$$tmp/tree.tar" -C "$$tree" && \
 	  sh tools/ocaml-origin-gate.sh    "$$tree" && \
 	  sh tools/generated-output-gate.sh "$$tree" && \
 	  docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --target generated-artifact \
