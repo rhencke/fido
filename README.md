@@ -9,7 +9,8 @@ integration check against `go build ./...`.
 ## What actually works today
 
 One complete vertical slice, proved **and** executed end to end. A witness exercising every admitted
-primitive:
+primitive — bool, int (incl. the `-(2^63)` boundary), and byte-sequence strings (empty, ASCII, quote,
+backslash, tab, CR, NL):
 
 ```go
 // fido generated.  do not edit.
@@ -20,13 +21,22 @@ func main() {
 	println(true, 42, -1, -9223372036854775808)
 	println()
 	println(false)
+	println("hello, world")
+	println("")
+	println(true, 7, "mix")
+	println("\"")
+	println("\\")
+	println("a\tb")
+	println("a\rb")
+	println("a\nb")
 }
 ```
 
 is produced from proved bytes, synchronized into a directory tree, built by `go build ./...`, and run with
-its stdout/stderr/exit compared byte-for-byte to reviewed goldens — alongside representative differential
-fixtures (a multi-package tree accepted; no-main and duplicate-main trees rejected; `go list ./...` matches
-the emitted package set) that exercise the whole-program rules against real Go.
+its stdout/stderr/exit compared byte-for-byte to reviewed goldens — alongside a boundary-byte string witness
+(bytes `0x00`/`0x1f`/`0x7f`/`0x80`/`0xff`, checked byte-exact via an `od` hex oracle) and representative
+differential fixtures (a multi-package tree accepted; no-main and duplicate-main trees rejected; `go list
+./...` matches the emitted package set) that exercise the whole-program rules against real Go.
 
 - **One program representation.** A `GoProgram` is an intrinsic `ModuleSpec` (a narrow canonical module
   path + a singleton Go version — the facts of the generated module, **not** a target config) paired with a
@@ -48,7 +58,7 @@ the emitted package set) that exercise the whole-program rules against real Go.
   program. Two claims stay distinct: (A) the checker matches the formal judgment — PROVED; (B) it matches
   `go build ./...` — the GOAL, exercised differentially, never a kernel theorem about `cmd/go`.
 - **Real semantics + faithful rendering.** `GoSafe` evaluates to real Go values (`VInt : Z`, so `0` and
-  `-0` agree) that carry the **same** `GoType`, and evaluation is that one constant interpretation mapped to
+  `-0` agree; `VString` exact bytes) that carry the **same** `GoType`, and evaluation is that one constant interpretation mapped to
   a value — a resolved expression provably evaluates to a value of its resolved type. `GoRender` proves
   `render_expr_denotes` — the rendered spelling denotes exactly the value — and `render_resolved_expr_denotes`
   (that value also has the resolved type), plus all-ASCII, no illegal leading zero, and the header as the

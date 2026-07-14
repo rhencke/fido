@@ -3,7 +3,7 @@
     exactly as many 'Closed under the global context' lines as there are 'Print Assumptions' commands here
     (an empty/partial log FAILS — fail-closed both ways).  These are the public surfaces of the
     program-rooted GoProgram -> GoTypes (the one type authority: untyped GoConst resolved through
-    {TBool,TInt} to ProgramTyped over the same AST) -> GoCompile -> GoSafe -> GoRender -> GoEmit
+    {TBool,TInt,TString} to ProgramTyped over the same AST) -> GoCompile -> GoSafe -> GoRender -> GoEmit
     architecture. *)
 From Fido Require Import Ints FilePath FMap ModulePath GoVersion GoAST GoTypes GoCompile GoSafe GoRender GoEmit.
 

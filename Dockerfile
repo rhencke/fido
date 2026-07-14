@@ -2,7 +2,7 @@
 
 # Fido — GoProgram (ModuleSpec + a possibly-empty finite map of intrinsic FilePath keys to raw file ASTs)
 # -> GoTypes (the one type authority: each raw literal is an exact untyped GoConst resolved through the one
-# GoType {TBool,TInt} to ProgramTyped evidence over the SAME AST) -> GoCompile (whole-program admissibility =
+# GoType {TBool,TInt,TString} to ProgramTyped evidence over the SAME AST) -> GoCompile (whole-program admissibility =
 # ProgramTyped + one-main-per-package, +CompilationFacts) -> GoSafe (values carry the SAME GoType) ->
 # GoRender (incl. the go.mod) -> the complete
 # DirectoryImage (exact go.mod bytes + the .go map), then the general `Fido Emit` transport command + a

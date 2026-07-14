@@ -36,10 +36,10 @@ IN Rocq before any bytes — **zero expected Go build failures, ever.**
   Invalid paths unrepresentable; `representable ⇒ Go-accepts` is exact one-way.
 - **`GoVersion`** — singleton `Go1_23`; `render_goversion_go1_23` pins the exact "1.23"; decidable eq.
 - **`GoAST`** — `ModuleSpec` (`ModulePath` + `GoVersion`) + `GoProgram := { prog_module ; prog_files : fmap
-  FilePath GoFileAST }` (the file map MAY be empty); raw `GoDecl` (`DMain`)/`SPrintln`/`EBool`/`EInt`/`ENeg`;
-  no package/entry/import/TYPE metadata in raw. `prog_nonempty`/`MainFile` deleted.
+  FilePath GoFileAST }` (the file map MAY be empty); raw `GoDecl` (`DMain`)/`SPrintln`/`EBool`/`EInt`/`ENeg`/
+  `EString` (exact bytes); no package/entry/import/TYPE metadata in raw. `prog_nonempty`/`MainFile` deleted.
 - **`GoTypes`** — the ONE type authority, EVIDENCE over the raw AST (no typed AST): `GoType` = {`TBool`,
-  `TInt`}; exact untyped `GoConst` (`CBool`/`CInt Z`) via one `const_value` (`EInt 0` = `ENeg 0`); one
+  `TInt`, `TString`}; exact untyped `GoConst` (`CBool`/`CInt Z`/`CString` bytes) via one `const_value` (`EInt 0` = `ENeg 0`); one
   `const_default_type`; one representability decision `ConstRepresentable`/`const_representableb` over the
   `Ints` authority (`const_representableb_iff`); reflected `ResolveExpr`/`resolve_expr` (sound + complete +
   deterministic + resolved-type-is-default); `StmtTyped`/`DeclTyped`/`FileTyped`/`ProgramTyped` +

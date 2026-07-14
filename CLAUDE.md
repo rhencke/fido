@@ -118,7 +118,7 @@ algorithm, report an architectural conflict and stop. Do not implement an altern
 6. **SafeProgram is the permanent safety boundary.** `GoSafe cp := True` is honest TODAY (the fragment has
    no unsafe op); it is the extension point for guarantees beyond compiler acceptance, not circular. No
    unused panic/control placeholder.
-7. **Naming is a correctness claim.** `GoSafe` uses REAL Go values (`VInt : Z`) — `EInt 0` and `ENeg 0`
+7. **Naming is a correctness claim.** `GoSafe` uses REAL Go values (`VInt : Z`, `VString` exact bytes) — `EInt 0` and `ENeg 0`
    evaluate equal; runtime values carry the SAME `GoType` (`value_type`), evaluation IS the one constant
    interpretation mapped to a value (`eval_expr := const_to_value ∘ const_value`), and a resolved expression
    evaluates to a value of its resolved type (`eval_expr_resolved_type`); `render_expr_denotes` /
@@ -182,12 +182,14 @@ crash points writing/staged/installing, cleanup-failure aggregation, EXDEV no-co
 ownership rechecks); the pristine `generated-module` layer feeds the digest-pinned `golang:1.23-alpine`,
 which runs `GOWORK=off GOTOOLCHAIN=local GOPROXY=off go build ./...` over the whole tree using the RENDERED
 go.mod + the empty module + `go list ./...` discovery + a multi-package differential + no-main/dup-main
-rejection fixtures, runs the witness vs reviewed goldens, with `go vet` DIAGNOSTIC-only) + `verify-generated`
-(the "no generated-byte delta" gate: export the Git index, materialize the pristine `generated-artifact`
-from the staged proof inputs, and byte-compare the tracked go.mod + recursive .go against it — since
-`.dockerignore` hides the committed bytes from Buildx, this is the ONLY thing that catches a header-preserving
-edit to a tracked `.go`). The pre-commit hook verifies the STAGED tree (exports the Git index, rebuilds
-`generated-module` from the staged inputs, and runs the SAME staged-vs-pristine byte compare). **Local host
+rejection fixtures, runs the witness vs reviewed goldens, with `go vet` DIAGNOSTIC-only) + a WORKING-TREE
+generated-byte compare (the "no generated-byte delta" check: materialize the tracked files' working-tree
+content — tracked PLUS untracked-non-gitignored via `git ls-files --cached --others --exclude-standard` — and
+the pristine `generated-artifact` from the SAME working-tree proof inputs, then byte-compare the working-tree
+go.mod + recursive .go against it — since `.dockerignore` hides the committed bytes from Buildx, this is the
+ONLY thing that catches a header-preserving edit to a tracked `.go`). The pre-commit hook verifies the STAGED
+tree instead (exports the Git index once, rebuilds `generated-module` from the staged inputs, and runs the
+SAME shared byte compare over that snapshot). **Local host
 Rocq is NOT supported** — all compilation goes through the pinned toolchain via buildx.
 
 ```
