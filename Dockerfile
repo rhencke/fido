@@ -395,6 +395,15 @@ for bad in notes.fido-tmp-v1 hand-written.fido-tmp-v1 UPPER.go.fido-tmp-v1 a_b.g
   if ./sink_test "$d"; then fail "tng: a non-mappable reserved-suffix entry ($bad) was NOT refused"; fi
   printf 'keep me\n' | cmp -s - "$d/$bad" || fail "tng: a non-mappable reserved-suffix entry ($bad) was altered/removed"
 done
+# DOT/UNDERSCORE-prefixed non-mappable reserved-suffix FILES at the traversed root are NOT beneath a skipped
+# directory TREE (only ignored dir TREES are opaque), so they must still REFUSE fail-closed + stay byte-exact
+# — the reserved-suffix classification runs before the dot/underscore-name skip.
+for bad in .notes.fido-tmp-v1 _draft.fido-tmp-v1; do
+  d=/workspace/adv-osf-$(echo "$bad" | tr './' '__'); mkdir -p "$d"; ./sink_test "$d" || fail "osf: init $bad"
+  printf 'keep me\n' > "$d/$bad"
+  if ./sink_test "$d"; then fail "osf: a dot/underscore non-mappable reserved-suffix file ($bad) was NOT refused"; fi
+  printf 'keep me\n' | cmp -s - "$d/$bad" || fail "osf: a dot/underscore reserved-suffix file ($bad) was altered/removed"
+done
 # a non-mappable suffix entry in a VISIBLE (Go-discoverable) subdir also refuses + is preserved.
 mkdir -p adv-tngv/visible-dir; ./sink_test adv-tngv || fail "tngv: init"
 printf 'bin\n' > adv-tngv/visible-dir/arbitrary.bin.fido-tmp-v1

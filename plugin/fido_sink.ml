@@ -203,19 +203,18 @@ let rec inspect root header rel temps =
       | Present st ->
         let k = st.Unix.st_kind in
         if k = Unix.S_DIR && go_ignored_dir name then ()
-          (* an OPAQUE Go-ignored directory tree (.git/dot/underscore/testdata/vendor): never entered,
-             classified, or rejected — this is what keeps Fido out of `.git`.  Checked FIRST, BEFORE any
-             reserved-suffix / go.mod / `.go` classification, so a Go-ignored directory whose name ALSO ends
-             in the reserved suffix (`.cache.fido-tmp-v1`/`_x.fido-tmp-v1`) or in `.go` is skipped, not
-             rejected. *)
-        else if go_ignored_name name then ()
-          (* a Go-ignored dot/underscore NAME that is not a directory handled above (a dot/underscore
-             file/symlink/special — including a dot/underscore reserved-suffix or `.go` file): `go build ./...`
-             ignores it, so it is opaque FOREIGN state — preserved, never classified as a Fido temp/go.mod/.go
-             (Fido's own final paths are never dot/underscore, so such a suffix entry is never a Fido temp). *)
+          (* an OPAQUE Go-ignored DIRECTORY tree (.git/dot/underscore/testdata/vendor): never entered,
+             classified, or rejected — this keeps Fido out of `.git`.  Checked FIRST so a Go-ignored directory
+             whose name ALSO ends in the reserved suffix (`.cache.fido-tmp-v1`/`_x.fido-tmp-v1`) or `.go` is
+             skipped, not rejected.  (Only DIRECTORY TREES are opaque — a dot/underscore FILE in the traversed
+             namespace is still classified below.) *)
         else if ends_with temp_suffix name then begin
-          (* a VISIBLE reserved-suffix entry: owned (collected) only as a REGULAR file whose suffix-stripped
-             path is a possible Fido final path; a non-mappable or non-regular one is preserved and refuses. *)
+          (* a reserved-suffix entry IN THE TRAVERSED NAMESPACE (an ignored dir TREE was already skipped above,
+             so anything here is NOT beneath a skipped directory) — classified BEFORE the dot/underscore-name
+             skip below, so a non-mappable dot/underscore file/symlink/special (e.g. root `_notes.fido-tmp-v1`)
+             still REFUSES fail-closed.  Owned (collected) only as a REGULAR file whose suffix-stripped path is
+             a possible Fido final path; Fido's own final paths are never dot/underscore, so a dot/underscore
+             suffix entry is never mappable → refuses. *)
           let final = String.sub child_rel 0 (String.length child_rel - String.length temp_suffix) in
           if not (temp_maps_to_final final) then
             fail "a reserved-suffix entry %s does not map to a Fido final path (root go.mod or an intrinsic FilePath .go) — refusing (preserved)" child_rel
@@ -229,13 +228,17 @@ let rec inspect root header rel temps =
           (if rel <> "" then fail "a nested go.mod is present (%s) — refusing" child_rel
            else if not (k = Unix.S_REG && read_first_line p = header)
            then fail "a foreign root go.mod is present — refusing to touch it")
-        else if ends_with ".go" name then
-          (* a VISIBLE `*.go` (dot/underscore `.go` was preserved above) of ANY filesystem kind is classified
-             BEFORE recursion — otherwise a DIRECTORY named `foreign.go` would be traversed instead of
-             rejected: it must be a regular Fido-headed file, else it is foreign (a `.go` DIRECTORY / symlink /
-             special all reject here). *)
+        else if ends_with ".go" name && not (go_ignored_name name) then
+          (* a VISIBLE `*.go` of ANY filesystem kind is classified BEFORE recursion — otherwise a DIRECTORY
+             named `foreign.go` would be traversed instead of rejected: it must be a regular Fido-headed file,
+             else it is foreign (a `.go` DIRECTORY / symlink / special all reject here).  A dot/underscore `.go`
+             file is Go-ignored and falls through to the skip below. *)
           (if not (k = Unix.S_REG && read_first_line p = header)
            then fail "a foreign .go file is present (%s) — refusing" child_rel)
+        else if go_ignored_name name then ()
+          (* a remaining Go-ignored dot/underscore NON-directory name that is NOT a reserved-suffix / go.mod /
+             `.go` (e.g. `.gitignore`, a dot/underscore `.go` file): `go build ./...` ignores it, so it is
+             opaque foreign state — preserved. *)
         else if k = Unix.S_DIR then inspect root header child_rel temps
           (* a visible directory NOT named `go.mod` or `*.go`: recurse into the Go-discovered namespace *)
         (* other foreign non-Go files/symlinks/specials: preserved *))
