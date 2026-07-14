@@ -93,6 +93,24 @@ s="$work/s1b-gospoof"; mk_snapshot "$s"; printf 'package x\n' > "$s/main.go main
 reject "an unheaded 'main.go main.go' is caught (not hidden by word-splitting into two valid main.go)" \
   sh -c 'cd "$1" && sh tools/generated-output-gate.sh "$1"' _ "$s"
 
+# ---- (1c) INDEX-mode gate BEHAVIOUR, validated on a throwaway git repo.  This is an ALWAYS-run test (not
+# gated by FIDO_SELFTEST_NESTED), so when the hook runs the STAGED self-test it re-derives the STAGED mode
+# gate's behaviour — a staged WEAKENED generated-mode-gate.sh (strict working-tree copy) is caught HERE, not
+# only by removing its hook invocation.  `$here/tools/generated-mode-gate.sh` is the staged copy when nested. ----
+mg="$here/tools/generated-mode-gate.sh"
+mrepo="$work/moderepo"; mkdir -p "$mrepo"
+( cd "$mrepo"; git init -q; git config user.email t@fido.test; git config user.name fido-selftest
+  git config commit.gpgsign false
+  printf '%s\nmodule m\ngo 1.23\n' "$hdr" > go.mod; printf '%s\npackage main\nfunc main(){}\n' "$hdr" > main.go
+  git add -A ) >/dev/null 2>&1 || true
+if ( cd "$mrepo" && sh "$mg" >/dev/null 2>&1 ); then ok "the STAGED generated-mode gate accepts a clean mode-100644 repo"
+else bad "the generated-mode gate rejected a clean mode-100644 repo"; fi
+( cd "$mrepo"; blob=$(git hash-object -w go.mod); git update-index --cacheinfo 120000,"$blob",go.mod ) >/dev/null 2>&1 || true
+if ( cd "$mrepo" && sh "$mg" >/dev/null 2>&1 ); then bad "the STAGED generated-mode gate ACCEPTED a mode-120000 go.mod (staged weakening bypass?)"
+else ok "the STAGED generated-mode gate rejects a mode-120000 go.mod index entry (staged-authoritative; a weakened staged gate is caught here)"; fi
+if ( cd "$mrepo" && GIT_INDEX_FILE=/dev/null sh "$mg" >/dev/null 2>&1 ); then bad "the generated-mode gate certified OK on an unreadable index (fail-open)"
+else ok "the generated-mode gate FAILS CLOSED when the Git index cannot be read"; fi
+
 # ---- (2) drive the ACTUAL hook under REAL staged/worktree divergence (Buildx-free via a fake docker) ----
 # This creates a throwaway Git repo, diverges its index from its working tree, and runs the real
 # .githooks/pre-commit — proving the hook checks the STAGED index (not the working tree) and executes the
@@ -208,6 +226,23 @@ else
   else
     bad "the index-mode-gate mutation did not bypass (rc=$rc) — the symlink-mode test lacks teeth"
   fi
+
+  # a staged WEAKENED mode gate (strict working-tree copy) + a mode-120000 main.go: the STAGED mode-gate
+  # implementation is the one executed AND its behaviour is re-derived by the hook's always-run staged
+  # self-test (scenario 1c), so weakening the staged mode gate does NOT bypass — Codex's exact regression.
+  ( cd "$repo"
+    git reset -q --hard HEAD; rm -f .githooks/pre-commit-mut .githooks/pre-commit-sw .githooks/pre-commit-mode
+    git config core.symlinks false
+    blob=$(git hash-object -w main.go); git update-index --cacheinfo 120000,"$blob",main.go
+    cp tools/generated-mode-gate.sh "$work/strict-mode.bak"
+    printf '#!/bin/sh\nexit 0\n' > tools/generated-mode-gate.sh; git add tools/generated-mode-gate.sh   # index = weakened
+    cp "$work/strict-mode.bak" tools/generated-mode-gate.sh ) >/dev/null 2>&1                            # worktree = strict
+  out=$(run_hook "$repo/.githooks/pre-commit"); rc=$?
+  if [ "$rc" -ne 0 ] && [ "$rc" -ne 7 ] && printf '%s\n' "$out" | grep -q 'PRECOMMIT-SELFTEST FAILED'; then
+    ok "a staged WEAKENED mode gate + mode-120000 main.go is caught by the hook's staged self-test (staged mode-gate weakening cannot bypass)"
+  else
+    bad "a staged weakened mode gate + mode-120000 main.go was not caught (rc=$rc)"
+  fi
   set -e
 fi
 
@@ -263,4 +298,4 @@ fi
 
 printf 'fido: precommit-selftest — %d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ] || { echo "fido: PRECOMMIT-SELFTEST FAILED"; exit 1; }
-echo "fido: precommit-selftest OK — staged-tree gates reject hidden/underscore/testdata/vendor foreign OCaml and stale/modified/missing/extra/deep/symlink/executable generated Go at every depth; the staged gate implementation is authoritative; the hook runs full verification every commit and never mutates the index or working tree."
+echo "fido: precommit-selftest OK — staged-tree gates reject hidden/underscore/testdata/vendor foreign OCaml and stale/modified/missing/extra/deep/symlink/executable generated Go at every depth, enforce exact Git index mode 100644 authoritatively (index-read, fail-closed), and export skip-worktree entries; the STAGED gate implementations (incl. the mode gate) are authoritative and self-validated so a staged weakening cannot bypass; the hook runs full verification every commit and never mutates the index or working tree."

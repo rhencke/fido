@@ -109,8 +109,10 @@ IN Rocq before any bytes — **zero expected Go build failures, ever.**
   index and verify the STAGED tree byte-exact against the pristine artifact (path set + bytes, both
   directions) — the ONLY check that catches generated-byte drift, since `.dockerignore` hides the committed
   `go.mod`/`.go` from Buildx (pre-commit bypassable with `--no-verify` — prototype policy).
-  `tools/generated-output-gate.sh` (Fido-header/mode/no-nested-go.mod policy) is separate from this
-  byte-compare; together they replace the old no-tracked-Go seal.
+  `tools/generated-output-gate.sh` (Fido-header + no-nested-go.mod policy) and `tools/generated-mode-gate.sh`
+  (the AUTHORITATIVE exact-Git-mode-100644 check, read from the index via `git ls-files -s` so a
+  `core.symlinks=false` export cannot hide a symlink-mode entry) are separate from this byte-compare;
+  together they replace the old no-tracked-Go seal.
 - **Pinned Go** (`golang:1.23-alpine`, `GOWORK=off GOTOOLCHAIN=local GOPROXY=off`): `go build ./...` over
   the WHOLE tree using the RENDERED `go.mod` (no handwritten shell) + gofmt-clean, with `go vet`
   DIAGNOSTIC-only (nonblocking); the witness runs vs reviewed goldens (`e2e/golden.*`); the EMPTY module

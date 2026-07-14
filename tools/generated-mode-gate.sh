@@ -14,7 +14,14 @@
 # never the working tree.  `git ls-files -s` prints "<mode> <object> <stage>\t<path>"; generated paths are
 # canonical FilePaths (no spaces), so the first field is the mode.
 set -eu
-bad=$(git ls-files -s -- '*.go' 'go.mod' | awk '$1 != "100644" { print }')
+# Read the index FIRST and check git's OWN exit status — a pipeline's status is the LAST stage's (awk), so
+# `git ls-files | awk` would mask a git failure (not a repo / unreadable index) and certify everything as
+# 100644.  FAIL-CLOSED: if the index cannot be read, refuse.
+if ! entries=$(git ls-files -s -- '*.go' 'go.mod'); then
+  echo "fido: GENERATED-MODE GATE — cannot read the Git index (git ls-files failed) — refusing (fail-closed)"
+  exit 1
+fi
+bad=$(printf '%s\n' "$entries" | awk 'NF && $1 != "100644" { print }')
 if [ -n "$bad" ]; then
   echo "fido: GENERATED-MODE GATE — a tracked generated file has a non-100644 Git index mode (must be EXACTLY 100644 — reject symlink 120000 / exec 100755 / gitlink 160000):"
   printf '%s\n' "$bad" | sed 's/^/  /'

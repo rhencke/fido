@@ -53,4 +53,4 @@ if ! find "$root" -name .git -prune -o \( -name '*.go' -o -path "$root/go.mod" \
 fi
 
 [ "$fail" -eq 0 ] || exit 1
-echo "fido: generated-output gate OK — tracked Go/go.mod under $root are Fido-headed regular (mode 100644) generated artifacts; no nested go.mod; no .fido/temp ✓"
+echo "fido: generated-output gate OK — tracked Go/go.mod under $root are Fido-headed regular generated artifacts (exact Git mode 100644 is enforced authoritatively by generated-mode-gate, not here); no nested go.mod; no .fido/temp ✓"
