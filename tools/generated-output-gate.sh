@@ -30,19 +30,24 @@ if [ -n "$nested" ]; then
 fi
 
 # every tracked .go + the root go.mod (EVERY depth, only .git pruned): a regular non-symlink non-exec file
-# (Git mode 100644) with the exact Fido header.  No -type f — a symlink/special named *.go is still surfaced
-# and rejected below (fail-closed).
-gofiles=$(find "$root" -name .git -prune -o \
-              \( -name '*.go' -o -path "$root/go.mod" \) -print 2>/dev/null || true)
-for f in $gofiles; do
-  rel=$(printf '%s' "$f" | sed "s#^$root/*##")
-  if [ -L "$f" ]; then echo "fido: GENERATED-OUTPUT GATE — tracked $rel is a symlink — generated Go/go.mod must be a regular file (Git mode 100644)"; fail=1; continue; fi
-  if [ ! -f "$f" ]; then echo "fido: GENERATED-OUTPUT GATE — tracked $rel is not a regular file (gitlink/special?) — must be Git mode 100644"; fail=1; continue; fi
-  if [ -x "$f" ]; then echo "fido: GENERATED-OUTPUT GATE — tracked $rel is executable — generated Go/go.mod must be Git mode 100644, not 100755"; fail=1; continue; fi
-  if [ "$(head -n 1 "$f")" != "$header" ]; then
-    echo "fido: GENERATED-OUTPUT GATE — tracked $rel lacks the exact Fido header first line — handwritten/unowned Go is forbidden in the canonical module"; fail=1
-  fi
-done
+# (Git mode 100644) with the exact Fido header.  PATHNAME-SAFE: `find -exec sh -c` passes real paths as "$@"
+# to the inner shell — never through `for f in $var` word-splitting (a `main.go main.go` would otherwise
+# split into two valid-looking paths and the rogue itself go uninspected).  No -type f — a symlink/special
+# named *.go is still surfaced and rejected below (fail-closed).
+if ! find "$root" -name .git -prune -o \( -name '*.go' -o -path "$root/go.mod" \) -exec sh -c '
+  header=$1; root=$2; shift 2; rc=0
+  for f do
+    rel=${f#"$root"/}
+    if   [ -L "$f" ]; then echo "  $rel — symlink (generated Go/go.mod must be a regular Git-mode-100644 file)"; rc=1
+    elif [ ! -f "$f" ]; then echo "  $rel — not a regular file (gitlink/special?); must be Git mode 100644"; rc=1
+    elif [ -x "$f" ]; then echo "  $rel — executable; generated Go/go.mod must be Git mode 100644, not 100755"; rc=1
+    elif [ "$(head -n 1 "$f")" != "$header" ]; then echo "  $rel — lacks the exact Fido header first line (handwritten/unowned Go is forbidden)"; rc=1
+    fi
+  done
+  exit $rc
+' _ "$header" "$root" {} + 2>/dev/null; then
+  echo "fido: GENERATED-OUTPUT GATE — a tracked .go / root go.mod is not a Fido-headed regular (mode 100644) file (offenders above)"; fail=1
+fi
 
 [ "$fail" -eq 0 ] || exit 1
 echo "fido: generated-output gate OK — tracked Go/go.mod under $root are Fido-headed regular (mode 100644) generated artifacts; no nested go.mod; no .fido/temp ✓"

@@ -62,18 +62,36 @@ s="$work/s1-clean"; mk_snapshot "$s"
 accept "a clean staged snapshot passes the ocaml-origin gate"     sh "$s/tools/ocaml-origin-gate.sh" "$s"
 accept "a clean staged snapshot passes the generated-output gate" sh "$s/tools/generated-output-gate.sh" "$s"
 
-# ---- (1b) PATHNAME SAFETY: hallmark scan + allowlist must be robust to spaces / newlines in tracked paths ----
-# (the old `find | xargs grep` word-split a `nested/bad file.v` into two args, so a hallmark there was never
-# read — a fail-open; `find -exec grep` / `-path -prune` fix it.)
+# ---- (1b) PATHNAME SAFETY + FULL COVERAGE of the deleted-backend hallmark scan ----
+# (the old `find | xargs grep` word-split `nested/bad file.v` into two args, so a hallmark there was never
+# read — a fail-open; `find -exec grep` fixes it.  And the scan must cover EVERY tracked file — scripts and
+# the hook too, not only code extensions.)  The hallmark is ASSEMBLED at runtime so this tracked self-test
+# never itself contains the banned literal.
 nlc=$(printf '\nX'); nlc=${nlc%X}   # a single bare newline
-s="$work/s1b-hspace"; mk_snapshot "$s"; mkdir -p "$s/nested"; printf 'let x = MiniML\n' > "$s/nested/bad file.v"
+hm=Mini; hm=${hm}ML                 # the banned hallmark, assembled (never a contiguous literal in this file)
+s="$work/s1b-hspace"; mk_snapshot "$s"; mkdir -p "$s/nested"; printf 'let x = %s\n' "$hm" > "$s/nested/bad file.v"
 reject "a deleted-backend hallmark in a .v path WITH A SPACE is caught (find -exec, not xargs)" sh "$s/tools/ocaml-origin-gate.sh" "$s"
-s="$work/s1b-hnl"; mk_snapshot "$s"; mkdir -p "$s/nested"; printf 'let x = MiniML\n' > "$s/nested/bad${nlc}name.v"
+s="$work/s1b-hnl"; mk_snapshot "$s"; mkdir -p "$s/nested"; printf 'let x = %s\n' "$hm" > "$s/nested/bad${nlc}name.v"
 reject "a deleted-backend hallmark in a .v path WITH A NEWLINE is caught" sh "$s/tools/ocaml-origin-gate.sh" "$s"
+s="$work/s1b-sh"; mk_snapshot "$s"; mkdir -p "$s/nested"; printf '#!/bin/sh\n# %s\n' "$hm" > "$s/nested/evil helper.sh"
+reject "a deleted-backend hallmark in a tracked .sh (space in path) is caught (full-coverage scan)" sh "$s/tools/ocaml-origin-gate.sh" "$s"
+s="$work/s1b-hook"; mk_snapshot "$s"; mkdir -p "$s/.githooks"; printf '#!/bin/sh\n# %s\n' "$hm" > "$s/.githooks/pre-commit"
+reject "a deleted-backend hallmark in the tracked hook is caught (full-coverage scan)" sh "$s/tools/ocaml-origin-gate.sh" "$s"
 s="$work/s1b-alsp"; mk_snapshot "$s"; mkdir -p "$s/nested"; printf 'let () = ()\n' > "$s/nested/rogue file.ml"
 reject "a rogue tracked .ml with a SPACE in its path is surfaced by the allowlist" sh "$s/tools/ocaml-origin-gate.sh" "$s"
 s="$work/s1b-alnl"; mk_snapshot "$s"; mkdir -p "$s/nested"; printf 'let () = ()\n' > "$s/nested/rogue${nlc}name.ml"
 reject "a rogue tracked .ml with a NEWLINE in its path is surfaced by the allowlist" sh "$s/tools/ocaml-origin-gate.sh" "$s"
+# generated-output policy on .go names with a SPACE / NEWLINE (the `for f in $gofiles` word-split fail-open):
+s="$work/s1b-gosp"; mk_snapshot "$s"; mkdir -p "$s/sub"; printf 'package sub\n' > "$s/sub/rogue file.go"
+reject "an unheaded staged .go with a SPACE in its name is caught by the generated-output gate" sh "$s/tools/generated-output-gate.sh" "$s"
+s="$work/s1b-gonl"; mk_snapshot "$s"; mkdir -p "$s/sub"; printf 'package sub\n' > "$s/sub/rogue${nlc}name.go"
+reject "an unheaded staged .go with a NEWLINE in its name is caught by the generated-output gate" sh "$s/tools/generated-output-gate.sh" "$s"
+# Codex's exact spoof: an unheaded file literally named "main.go main.go" — the old `for f in $gofiles` split
+# it into two valid-looking "main.go" and never inspected the rogue.  Run from a cwd holding a headered
+# main.go (as the hook does) so the split would have resolved; -exec must still reject.
+s="$work/s1b-gospoof"; mk_snapshot "$s"; printf 'package x\n' > "$s/main.go main.go"
+reject "an unheaded 'main.go main.go' is caught (not hidden by word-splitting into two valid main.go)" \
+  sh -c 'cd "$1" && sh tools/generated-output-gate.sh "$1"' _ "$s"
 
 # ---- (2) drive the ACTUAL hook under REAL staged/worktree divergence (Buildx-free via a fake docker) ----
 # This creates a throwaway Git repo, diverges its index from its working tree, and runs the real
@@ -155,6 +173,12 @@ s="$work/s3-deep";  mk_snapshot "$s"; mkdir -p "$s/pkg/deep"; printf '%s\npackag
 reject "EXTRA deep staged generated file rejected (recursive path set)"   sh "$s/tools/staged-generated-compare.sh" "$s" "$P"
 s="$work/s3-hid";   mk_snapshot "$s"; mkdir -p "$s/.hidden"; printf '%s\npackage x\n' "$hdr" > "$s/.hidden/x.go"
 reject "EXTRA staged .go under .hidden/ rejected (no opaque-dir skip)"     sh "$s/tools/staged-generated-compare.sh" "$s" "$P"
+s="$work/s3-spgo";  mk_snapshot "$s"; mkdir -p "$s/sub"; printf '%s\npackage sub\n' "$hdr" > "$s/sub/extra file.go"
+reject "EXTRA staged .go with a SPACE in its name rejected (pathname-safe compare)" sh "$s/tools/staged-generated-compare.sh" "$s" "$P"
+# newline-spoof: a single staged file named "go.mod<newline>main.go" must NOT be accepted as {go.mod, main.go}
+s="$work/s3-spoof"; mkdir -p "$s/tools"; cp "$here/tools/staged-generated-compare.sh" "$s/tools/"
+printf '%s\nmodule m\n' "$hdr" > "$s/go.mod${nlc}main.go"
+reject "a single staged file named go.mod<newline>main.go is NOT accepted as two files (no path-set serialization)" sh "$s/tools/staged-generated-compare.sh" "$s" "$P"
 s="$work/s3-good";  mk_snapshot "$s"
 accept "a byte-identical staged tree matches the pristine build"          sh "$s/tools/staged-generated-compare.sh" "$s" "$P"
 

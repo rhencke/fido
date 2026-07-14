@@ -55,14 +55,14 @@ if [ -f "$root/$bridge" ]; then
   fi
 fi
 
-# (4) no deleted-backend hallmark NAME reappears in tracked sources.  PATHNAME-SAFE: `find -exec grep` passes
-#     real paths straight to grep (never through the shell/xargs word-splitting), so a hallmark in a path
-#     containing spaces or newlines is still read.  This gate script is pruned (it holds the banned names in
-#     `banned=` below; it is a .sh and thus already outside the scanned name set, but the prune is explicit).
+# (4) no deleted-backend hallmark NAME reappears in ANY tracked file — source, script, hook, build, or doc,
+#     at every depth.  PATHNAME-SAFE: `find -exec grep` passes real paths straight to grep (never through
+#     shell/xargs word-splitting), so a hallmark in a path with spaces or newlines is still read.  Only two
+#     things are pruned: `.git` metadata, and THIS gate script (it necessarily holds the banned names in the
+#     `banned=` list below — the one place they may legitimately appear).  Regular files only (`-type f`).
 banned='MiniML|Smartlocate|mono_environment|pp_struct|Extract_env|rocq-go-extraction|rocq_go_extraction|g_go_extraction|build_goexpr|pp_expr'
 hits=$(find "$root" -name .git -prune -o -path "$root/tools/ocaml-origin-gate.sh" -prune -o \
-            \( -name '*.v' -o -name '*.ml' -o -name '*.mlg' -o -name 'Makefile' -o -name 'Dockerfile' -o -name 'dune' -o -name 'dune-project' \) -type f \
-            -exec grep -lE "$banned" {} + 2>/dev/null || true)
+            -type f -exec grep -lE "$banned" {} + 2>/dev/null || true)
 if [ -n "$hits" ]; then
   echo "fido: OCAML-ORIGIN GATE — a deleted-backend hallmark NAME reappears in tracked sources:"; printf '%s\n' "$hits" | sed "s#^$root/*##; s/^/  /"; exit 1
 fi

@@ -11,33 +11,41 @@
 #
 # Fails on: modified staged bytes, a staged generated file absent from the pristine build (stale/extra), a
 # pristine file absent from the staged tree (a newly-generated path not staged), and any nested mismatch.
+# PATHNAME-SAFE: paths are processed via `find -exec sh -c` (real paths as "$@"), NEVER serialized into
+# newline-delimited shell variables (a single staged file named `go.mod<newline>main.go` would otherwise
+# serialize to the same two apparent paths as a pristine `go.mod` + `main.go`).  Exact equality is two
+# directions: EVERY pristine file must be present in staged AND byte-identical (a missing one is a FAILURE,
+# never a silent skip), and NO staged generated file may be absent from the pristine build.
 set -eu
 root=$1; pristine=$2
 [ -d "$root" ]     || { echo "fido: STAGED-GENERATED — exported staged tree $root is missing"; exit 1; }
 [ -d "$pristine" ] || { echo "fido: STAGED-GENERATED — pristine tree $pristine is missing"; exit 1; }
 rc=0
 
-staged_rel=$(find "$root" -name .git -prune -o \
-                  \( -name '*.go' -o -path "$root/go.mod" \) -print 2>/dev/null \
-             | sed "s#^$root/*##" | LC_ALL=C sort)
-pristine_rel=$( cd "$pristine" && find . -name .git -prune -o -type f -print | sed 's#^\./##' | LC_ALL=C sort )
+# (1) every pristine file is present in staged AND byte-identical (absent ⇒ FAIL, not skip).
+if ! find "$pristine" -name .git -prune -o -type f -exec sh -c '
+  root=$1; pristine=$2; shift 2; irc=0
+  for f do
+    rel=${f#"$pristine"/}
+    if   [ ! -f "$root/$rel" ]; then echo "  MISSING in staged: $rel (the pristine certified build has it)"; irc=1
+    elif ! cmp -s "$f" "$root/$rel"; then echo "  BYTES differ: $rel"; irc=1
+    fi
+  done
+  exit $irc
+' _ "$root" "$pristine" {} +; then rc=1; fi
 
-# (1) exact relative path set, both directions
-if [ "$staged_rel" != "$pristine_rel" ]; then
-  echo "fido: STAGED-GENERATED MISMATCH — the generated path set differs from the pristine certified build:"
-  echo "  staged:   $(echo $staged_rel)"
-  echo "  pristine: $(echo $pristine_rel)"
-  rc=1
-fi
-# (2) exact bytes for every pristine path present in the staged tree
-for rel in $pristine_rel; do
-  if [ -f "$root/$rel" ]; then
-    cmp -s "$root/$rel" "$pristine/$rel" || { echo "fido: STAGED-GENERATED MISMATCH — $rel bytes differ from the pristine certified build"; rc=1; }
-  fi
-done
+# (2) no EXTRA staged generated file: every staged .go / root go.mod exists in the pristine build.
+if ! find "$root" -name .git -prune -o \( -name '*.go' -o -path "$root/go.mod" \) -exec sh -c '
+  root=$1; pristine=$2; shift 2; irc=0
+  for f do
+    rel=${f#"$root"/}
+    if [ ! -e "$pristine/$rel" ]; then echo "  EXTRA staged generated file (absent from the pristine build): $rel"; irc=1; fi
+  done
+  exit $irc
+' _ "$root" "$pristine" {} +; then rc=1; fi
 
 if [ "$rc" -ne 0 ]; then
-  echo "fido: the staged generated module does not byte-match the pristine certified build."
+  echo "fido: the staged generated module does not match the pristine certified build (exact path set + bytes)."
   echo "      Run:  make regenerate && git add -A -- go.mod ':(top,glob)**/*.go' && git commit"
   exit 1
 fi
