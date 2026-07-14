@@ -12,27 +12,28 @@
 # are authoritative for mode; on the exported index a `core.symlinks=false` export can flatten a symlink, so
 # the pre-commit hook additionally runs the index-reading `generated-mode-gate` for the exact-100644 decision:
 #   - every generated .go and the root go.mod is a REGULAR, non-symlink, non-executable file (mode 100644 —
-#     authoritatively via generated-mode-gate) whose first line is the exact Fido header;
+#     on the WORKING TREE the -L/-f/-x tests below are authoritative for mode; the exact-Git-index-mode check
+#     is the hook-only generated-mode-gate) whose first line is the exact Fido header;
 #   - no NESTED go.mod (only the root go.mod is generated);
-#   - no .fido control entry or *.fido-tmp-v1 temp anywhere in the tracked tree.
+#   - no .fido control entry or *.fido-tmp-v1 temp anywhere in the checked tree.
 set -eu
 root=${1:-.}
 header='// fido generated.  do not edit.'
 fail=0
 
-# tracked control/temp residue anywhere in the tracked-only tree (never source artifacts)
+# control/temp residue anywhere in the checked tree (never source artifacts)
 ctl=$(find "$root" \( -name '.fido' -o -name '*.fido-tmp-v1' \) -print 2>/dev/null || true)
 if [ -n "$ctl" ]; then
-  echo "fido: GENERATED-OUTPUT GATE — tracked control/temp residue must never be committed:"; printf '%s\n' "$ctl" | sed "s#^$root/*##; s/^/  /"; fail=1
+  echo "fido: GENERATED-OUTPUT GATE — control/temp residue must never be committed:"; printf '%s\n' "$ctl" | sed "s#^$root/*##; s/^/  /"; fail=1
 fi
 
 # a NESTED go.mod (depth >= 2) is never generated
 nested=$(find "$root" -mindepth 2 -name go.mod -print 2>/dev/null || true)
 if [ -n "$nested" ]; then
-  echo "fido: GENERATED-OUTPUT GATE — a nested go.mod is never generated (only the root go.mod is tracked):"; printf '%s\n' "$nested" | sed "s#^$root/*##; s/^/  /"; fail=1
+  echo "fido: GENERATED-OUTPUT GATE — a nested go.mod is never generated (only the root go.mod is a generated artifact):"; printf '%s\n' "$nested" | sed "s#^$root/*##; s/^/  /"; fail=1
 fi
 
-# every tracked .go + the root go.mod (EVERY depth, only .git pruned): a regular non-symlink non-exec file
+# every .go + the root go.mod in the checked tree (EVERY depth, only .git pruned): a regular non-symlink non-exec file
 # (Git mode 100644) with the exact Fido header.  PATHNAME-SAFE: `find -exec sh -c` passes real paths as "$@"
 # to the inner shell — never through `for f in $var` word-splitting (a `main.go main.go` would otherwise
 # split into two valid-looking paths and the rogue itself go uninspected).  No -type f — a symlink/special
@@ -49,8 +50,8 @@ if ! find "$root" -name .git -prune -o \( -name '*.go' -o -path "$root/go.mod" \
   done
   exit $rc
 ' _ "$header" "$root" {} + 2>/dev/null; then
-  echo "fido: GENERATED-OUTPUT GATE — a tracked .go / root go.mod is not a Fido-headed regular (mode 100644) file (offenders above)"; fail=1
+  echo "fido: GENERATED-OUTPUT GATE — a .go / root go.mod is not a Fido-headed regular (mode 100644) file (offenders above)"; fail=1
 fi
 
 [ "$fail" -eq 0 ] || exit 1
-echo "fido: generated-output gate OK — tracked Go/go.mod under $root are Fido-headed regular generated artifacts (exact Git mode 100644 is enforced authoritatively by generated-mode-gate, not here); no nested go.mod; no .fido/temp ✓"
+echo "fido: generated-output gate OK — Go/go.mod under $root are Fido-headed regular generated artifacts (mode: the -L/-f/-x file-type tests here are authoritative on the working tree; the exact-Git-index-mode-100644 check is the hook-only generated-mode-gate); no nested go.mod; no .fido/temp ✓"

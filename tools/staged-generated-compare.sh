@@ -11,20 +11,20 @@
 # the pristine build) must surface as a path-set mismatch here.  No -type f, so a symlink/special named *.go
 # is surfaced too.  Args: $1 = the tree to check (working tree or exported index), $2 = pristine dir.
 #
-# Fails on: modified staged bytes, a staged generated file absent from the pristine build (stale/extra), a
-# pristine file absent from the staged tree (a newly-generated path not staged), and any nested mismatch.
+# Fails on: modified bytes, a generated file in the checked tree absent from the pristine build (stale/extra),
+# a pristine file absent from the checked tree (a newly-generated path not present), and any nested mismatch.
 # PATHNAME-SAFE: paths are processed via `find -exec sh -c` (real paths as "$@"), NEVER serialized into
-# newline-delimited shell variables (a single staged file named `go.mod<newline>main.go` would otherwise
+# newline-delimited shell variables (a single file named `go.mod<newline>main.go` would otherwise
 # serialize to the same two apparent paths as a pristine `go.mod` + `main.go`).  Exact equality is two
-# directions: EVERY pristine file must be present in staged AND byte-identical (a missing one is a FAILURE,
-# never a silent skip), and NO staged generated file may be absent from the pristine build.
+# directions: EVERY pristine file must be present in the checked tree AND byte-identical (a missing one is a
+# FAILURE, never a silent skip), and NO generated file in the checked tree may be absent from the pristine build.
 set -eu
 root=$1; pristine=$2
 [ -d "$root" ]     || { echo "fido: GENERATED-COMPARE — the tree to check ($root) is missing"; exit 1; }
 [ -d "$pristine" ] || { echo "fido: GENERATED-COMPARE — pristine tree $pristine is missing"; exit 1; }
 rc=0
 
-# (1) every pristine file is present in staged AND byte-identical (absent ⇒ FAIL, not skip).
+# (1) every pristine file is present in the checked tree AND byte-identical (absent ⇒ FAIL, not skip).
 if ! find "$pristine" -name .git -prune -o -type f -exec sh -c '
   root=$1; pristine=$2; shift 2; irc=0
   for f do
@@ -36,7 +36,7 @@ if ! find "$pristine" -name .git -prune -o -type f -exec sh -c '
   exit $irc
 ' _ "$root" "$pristine" {} +; then rc=1; fi
 
-# (2) no EXTRA staged generated file: every staged .go / root go.mod exists in the pristine build.
+# (2) no EXTRA generated file: every .go / root go.mod in the checked tree exists in the pristine build.
 if ! find "$root" -name .git -prune -o \( -name '*.go' -o -path "$root/go.mod" \) -exec sh -c '
   root=$1; pristine=$2; shift 2; irc=0
   for f do
