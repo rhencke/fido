@@ -418,6 +418,17 @@ before=$(find adv-git/.git adv-git/_private adv-git/.hidden adv-git/testdata adv
 after=$(find adv-git/.git adv-git/_private adv-git/.hidden adv-git/testdata adv-git/vendor -type f -exec sha256sum {} \; | sort)
 [ "$before" = "$after" ] || { echo "$before"; echo '---'; echo "$after"; fail "git: a byte under an opaque skipped tree was altered/removed"; }
 [ -f adv-git/.git/refs/heads/release.fido-tmp-v1 ] || fail "git: a .git suffix-named file was adopted/removed as Fido temp"
+# a Go-ignored DIRECTORY whose OWN name ends in the reserved suffix (`.cache.fido-tmp-v1`/`_priv.fido-tmp-v1`)
+# is OPAQUE (dot/underscore prefix) — the opaque-dir skip must run BEFORE reserved-suffix classification, so
+# it is SKIPPED + preserved, NOT stripped-and-rejected as a non-mappable temp.
+mkdir -p adv-osd/.cache.fido-tmp-v1 adv-osd/_priv.fido-tmp-v1
+printf 'DOTDIR\n' > adv-osd/.cache.fido-tmp-v1/data; printf 'UNDDIR\n' > adv-osd/_priv.fido-tmp-v1/data
+osd_before=$(find adv-osd/.cache.fido-tmp-v1 adv-osd/_priv.fido-tmp-v1 -type f -exec sha256sum {} \; | sort)
+./sink_test adv-osd || fail "osd: a clean sync was rejected because of an opaque suffix-named directory"
+{ [ -f adv-osd/go.mod ] && [ -f adv-osd/main.go ]; } || fail "osd: the clean sync did not install the generated files"
+osd_after=$(find adv-osd/.cache.fido-tmp-v1 adv-osd/_priv.fido-tmp-v1 -type f -exec sha256sum {} \; | sort)
+[ "$osd_before" = "$osd_after" ] || fail "osd: a byte under an opaque suffix-named directory was altered/removed"
+{ [ -d adv-osd/.cache.fido-tmp-v1 ] && [ -d adv-osd/_priv.fido-tmp-v1 ]; } || fail "osd: an opaque suffix-named directory was removed"
 # but a VISIBLE ordinary directory (uppercase/hyphenated name Go may still discover) IS scanned: a foreign
 # .go there still rejects.
 mkdir -p adv-vis/My-Pkg; printf 'package foreign\n' > adv-vis/My-Pkg/f.go
