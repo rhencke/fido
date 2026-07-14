@@ -3,7 +3,7 @@
     exactly as many 'Closed under the global context' lines as there are 'Print Assumptions' commands here
     (an empty/partial log FAILS — fail-closed both ways).  These are the public surfaces of the
     program-rooted GoProgram -> GoCompile -> GoSafe -> GoRender -> GoEmit architecture. *)
-From Fido Require Import Ints FilePath FMap ModulePath GoVersion GoAST GoCompile GoSafe GoRender GoEmit.
+From Fido Require Import Ints FilePath FMap ModulePath GoVersion GoAST GoTypes GoCompile GoSafe GoRender GoEmit.
 
 (* the 64-bit integer authority (only the constants an admitted construct uses) *)
 Print Assumptions Ints.int_min_val.
@@ -40,15 +40,38 @@ Print Assumptions FMap.fm_keys_nodup.
 Print Assumptions FMap.dup_key_unrepresentable.
 Print Assumptions FMap.fm_MapsTo_fun.
 
-(* GoCompile (A) internal exactness: whole-program prog_ok reflects the declarative judgment; go_compile
-   sound + complete against it; a rejected program yields no CompilableProgram *)
+(* GoTypes — the ONE Go type authority (EVIDENCE over the raw AST): zero-sign constant equality; default-
+   type exactness; representability reflection (the single 64-bit range decision); expression resolution
+   sound + complete + deterministic; statement + program typing reflection; int max/min accepted;
+   overflow/underflow rejected. *)
+Print Assumptions GoTypes.const_value_zero_sign.
+Print Assumptions GoTypes.const_default_type_int.
+Print Assumptions GoTypes.const_representableb_iff.
+Print Assumptions GoTypes.resolve_expr_sound.
+Print Assumptions GoTypes.resolve_expr_complete.
+Print Assumptions GoTypes.resolve_expr_deterministic.
+Print Assumptions GoTypes.stmt_typedb_iff.
+Print Assumptions GoTypes.program_typedb_iff.
+Print Assumptions GoTypes.res_int_max.
+Print Assumptions GoTypes.res_int_min.
+Print Assumptions GoTypes.res_over.
+Print Assumptions GoTypes.res_under.
+
+(* GoCompile (A) internal exactness: whole-program prog_ok reflects the declarative judgment (now rooted
+   in the GoTypes typing authority); go_compile sound + complete against it; a rejected program yields no
+   CompilableProgram; the compiled evidence exposes that the same program is typed; the empty program is
+   accepted under the new typing authority *)
 Print Assumptions GoCompile.prog_ok_iff.
 Print Assumptions GoCompile.go_compile_sound.
 Print Assumptions GoCompile.go_compile_complete.
 Print Assumptions GoCompile.reject_no_compile.
+Print Assumptions GoCompile.compilable_program_typed.
+Print Assumptions GoCompile.prog_ok_empty.
 
-(* GoSafe: exact VALUE semantics — a zero literal and a negated zero agree *)
+(* GoSafe: exact VALUE semantics — a zero literal and a negated zero agree; a resolved expression
+   evaluates to a value of the resolved GoType (one type authority across compiler and runtime) *)
 Print Assumptions GoSafe.eval_zero_sign_agnostic.
+Print Assumptions GoSafe.eval_expr_resolved_type.
 
 (* GoRender: all output ASCII; the ROOT correspondence (rendered spelling denotes exactly the value);
    decimal faithfulness + no leading zero; int boundaries; the header is the EXACT first line of a .go
@@ -56,6 +79,7 @@ Print Assumptions GoSafe.eval_zero_sign_agnostic.
    first line, all ASCII *)
 Print Assumptions GoRender.render_file_ascii.
 Print Assumptions GoRender.render_expr_denotes.
+Print Assumptions GoRender.render_resolved_expr_denotes.
 Print Assumptions GoRender.print_Z_dec_faithful.
 Print Assumptions GoRender.print_Z_pos_no_leading_zero.
 Print Assumptions GoRender.render_boundary_max.

@@ -8,8 +8,10 @@ finite map from intrinsic `FilePath` keys to one raw `GoFileAST` per file; "comp
 PROOFS/EVIDENCE + derived facts over that one program, never new trees:
 
 ```
-GoProgram (ModuleSpec + a possibly-empty fmap FilePath -> GoFileAST) -> GoCompile (whole-program
-      admissibility + CompilationFacts over the SAME program) -> GoSafe (SafeProgram) -> direct GoRender
+GoProgram (ModuleSpec + a possibly-empty fmap FilePath -> GoFileAST) -> GoTypes (each raw literal is an
+      exact UNTYPED GoConst; a use context resolves it through the ONE GoType authority {TBool,TInt} to
+      ProgramTyped evidence over the SAME AST) -> GoCompile (whole-program admissibility = ProgramTyped +
+      exactly-one-main + CompilationFacts over the SAME program) -> GoSafe (SafeProgram) -> direct GoRender
       (incl. the go.mod) -> complete DirectoryImage (exact go.mod bytes + the .go map)
       -> the general `Fido Emit` transport command -> foreign-Go-rejecting sibling-temp dirty-directory sink
       -> one pristine `generated-module` Buildx layer (tracked go.mod + recursive .go, verified byte-exact by
@@ -20,7 +22,9 @@ GoProgram (ModuleSpec + a possibly-empty fmap FilePath -> GoFileAST) -> GoCompil
 The admitted fragment: files grouped by directory into `package main` packages; each `GoFileAST` is raw
 top-level declarations (today only `DMain` — a `func main()` declaration; package clause / entry status are
 COMPILATION RESULTS, not raw); statements are `SPrintln` over primitive literals (`EBool`/`EInt`/`ENeg` —
-unsigned magnitude, negatives via `ENeg`). The `ModuleSpec` is an intrinsic narrow `ModulePath` + a
+unsigned magnitude, negatives via `ENeg`). Each raw literal denotes an EXACT UNTYPED constant (`GoConst`);
+the ONE type authority `GoTypes` (universe exactly `TBool`/`TInt`) resolves it in a use context (defaulting
++ 64-bit representability) — a literal is NOT a typed value, and there is no typed AST. The `ModuleSpec` is an intrinsic narrow `ModulePath` + a
 singleton `GoVersion` (Go1_23), NOT a `TargetConfig`; the `go.mod` is RENDERED in Rocq. The EMPTY file map
 is a valid module-only program. A `FilePath` is a narrow canonical relative path (lowercase components + a
 `.go` basename); anything else — other decls, calls, params, imports, package clauses in raw syntax,
@@ -107,15 +111,20 @@ algorithm, report an architectural conflict and stop. Do not implement an altern
    no unsafe op); it is the extension point for guarantees beyond compiler acceptance, not circular. No
    unused panic/control placeholder.
 7. **Naming is a correctness claim.** `GoSafe` uses REAL Go values (`VInt : Z`) — `EInt 0` and `ENeg 0`
-   evaluate equal; `render_expr_denotes` ties the rendered spelling to the value. Every admitted primitive
-   has its complete value/render/syntax proofs NOW.
-8. **The program is a `ModuleSpec` + a WHOLE-PROGRAM map with intrinsic paths, and integer width has one
-   authority.** `GoProgram` is `{ prog_module : ModuleSpec ; prog_files : fmap FilePath GoFileAST }`; the
-   file map MAY be EMPTY (a module-only program); keys are intrinsic canonical paths (raw strings are NOT
-   paths — package discovery depends on them). Files group by directory into packages; package name and
-   entry point are compilation results. `ModuleSpec` (intrinsic `ModulePath` + singleton `GoVersion`)
-   describes the GENERATED module, NOT the environment — it is NOT a `TargetConfig`; `go.mod` is not a
-   `FilePath`. The one width authority is `Ints` (64-bit); there is NO `TargetConfig`.
+   evaluate equal; runtime values carry the SAME `GoType` (`value_type`), evaluation IS the one constant
+   interpretation mapped to a value (`eval_expr := const_to_value ∘ const_value`), and a resolved expression
+   evaluates to a value of its resolved type (`eval_expr_resolved_type`); `render_expr_denotes` /
+   `render_resolved_expr_denotes` tie the rendered spelling to that value and its type. Every admitted
+   primitive has its complete type/value/render/syntax proofs NOW.
+8. **The program is a `ModuleSpec` + a WHOLE-PROGRAM map with intrinsic paths, and integer width AND the
+   type universe each have one authority.** `GoProgram` is `{ prog_module : ModuleSpec ; prog_files : fmap
+   FilePath GoFileAST }`; the file map MAY be EMPTY (a module-only program); keys are intrinsic canonical
+   paths (raw strings are NOT paths — package discovery depends on them). Files group by directory into
+   packages; package name and entry point are compilation results. `ModuleSpec` (intrinsic `ModulePath` +
+   singleton `GoVersion`) describes the GENERATED module, NOT the environment — it is NOT a `TargetConfig`;
+   `go.mod` is not a `FilePath`. The one width authority is `Ints` (64-bit) and the one type authority is
+   `GoTypes` (`TBool`/`TInt`); there is NO `TargetConfig`, no second width/type authority, no `TString`/
+   `unknown`/`opaque`/`raw` type ahead of its syntax, and no typed AST beside the one raw `GoAST`.
 9. **Closed world; imports on hold.** No import syntax is representable. When imports arrive, every import
    must resolve to an owned package in the SAME program or reject the whole program — no stdlib / cache /
    network / vendor / workspace / ambient escape. Adding imports needs explicit sign-off.
@@ -129,11 +138,16 @@ record `=`); `fm_of_list` rejects duplicate keys. · `Ints` — 64-bit `int_min`
 the intrinsic narrow canonical module-path domain (decidable eq; invalid paths unrepresentable). ·
 `GoVersion` — singleton `Go1_23`, renders "1.23". · `GoAST` — `ModuleSpec` + `GoProgram := { prog_module ;
 prog_files : fmap FilePath GoFileAST }` (the map MAY be empty); raw `GoDecl` (`DMain`), `SPrintln`,
-`EBool`/`EInt`/`ENeg`; no package clause / entry / imports in raw. · `GoCompile` — whole-program
-directory→package + exactly-one-main + int-representability (empty program accepted); `go_compile`
-sound/complete (`prog_ok_iff`); populated `CompilationFacts`. · `GoSafe` — real `GoValue`, `eval_file`,
-`SafeProgram`. · `GoRender` — render decls + derived package clause + the go.mod from the `ModuleSpec`;
-header exact first line; `render_expr_denotes`. · `GoEmit` — provenance-gated `DirectoryImage` (go.mod +
+`EBool`/`EInt`/`ENeg`; no package clause / entry / imports / TYPES in raw. · `GoTypes` — the ONE type
+authority (EVIDENCE over the raw AST): `GoType` {`TBool`,`TInt`}, exact untyped `GoConst`, one `const_value`
++ `const_default_type` + `ConstRepresentable` (the single 64-bit range decision), reflected `ResolveExpr`,
+`Stmt/Decl/File/ProgramTyped` (empty map typed vacuously). · `GoCompile` — whole-program directory→package +
+exactly-one-main + whole-program typing (`ProgramTyped` via GoTypes; empty program accepted); `go_compile`
+sound/complete (`prog_ok_iff`); `CompilationFacts` exposing typing by canonical projection. · `GoSafe` —
+real `GoValue`, `value_type` over the same `GoType`, `eval_expr := const_to_value ∘ const_value`,
+resolved-type preservation, `eval_file`, `SafeProgram`. · `GoRender` — render decls + derived package clause
++ the go.mod from the `ModuleSpec`; header exact first line; `render_expr_denotes` /
+`render_resolved_expr_denotes`. · `GoEmit` — provenance-gated `DirectoryImage` (go.mod +
 .go map); `render_program`; `di_transport`. · `plugin/g_fido.mlg` — the `Fido Emit` transport command +
 whole-theory audit. · `plugin/fido_sink.ml` — the foreign-Go-rejecting sibling-temp sink. · `digits` —
 leaf authority.
@@ -174,7 +188,7 @@ kill stale `docker buildx build` processes first; run long builds detached and p
 ## Files
 
 - **Certified theory** (`dune`): `digits.v`, `Ints.v`, `FilePath.v`, `FMap.v`, `ModulePath.v`,
-  `GoVersion.v`, `GoAST.v`, `GoCompile.v`, `GoSafe.v`, `GoRender.v`, `GoEmit.v`.
+  `GoVersion.v`, `GoAST.v`, `GoTypes.v`, `GoCompile.v`, `GoSafe.v`, `GoRender.v`, `GoEmit.v`.
 - `plugin/g_fido.mlg` — the Fido Emit transport bridge + the whole-theory audit; `plugin/fido_sink.ml` —
   the foreign-Go-rejecting sibling-temp sink; `plugin/dune` — the plugin library. `e2e/Witness.v` — the
   witness (emitted explicitly, and the canonical tracked module); `e2e/WitnessMulti.v` — the multi-package

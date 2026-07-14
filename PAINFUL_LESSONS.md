@@ -71,7 +71,17 @@ stop. When an entry stops being a live temptation, delete it.
    contradicts a closed-world compile guarantee: a foreign `.go` anywhere, or a foreign/nested `go.mod`, must
    REJECT the whole emission (fail-closed scan) — NOT preserved-and-merged into a tree we then claim
    compiles. Inject faults (real crash via `Unix._exit`, unlink failure, EXDEV) through operation
-   PARAMETERS, never an ambient env branch or a real `chmod` in the production sink.
+   PARAMETERS, never an ambient env branch or a real `chmod` in the production sink. ⚠ The GENERATED
+   `FilePath` domain (what Fido would write — lowercase, no dotfiles/`_`/`testdata`/`vendor`) and the FOREIGN
+   Go-discovery scan (what `go build ./...` would compile) have DIFFERENT responsibilities: the dirty-tree
+   scan must skip only the directory trees Go itself ignores (`.`-prefixed incl. `.git`, `_`-prefixed,
+   `testdata`, `vendor`) — NOT every path Fido would not generate — or a visible foreign package Go compiles
+   slips past the foreign-Go rejection; and a `.git`-metadata blob merely NAMED like a `.go`/temp is preserved
+   and ignored, never touched. ⚠ A public temp suffix (`<final>.fido-tmp-v1`) is a forgeable convention, but
+   ownership still requires the suffix-stripped path to map to a possible Fido final path (root `go.mod` or a
+   valid intrinsic `.go`) before deletion — a non-mappable suffixed entry is preserved and refuses. ⚠ A
+   source-LINE cap on the OCaml boundary is not a correctness invariant (the boundary is enforced by the
+   allowlist + no-Rocq-terms + transport-only greps, not a byte budget) — do not gate on line count.
 
 7. **Source-text scanning is not a sound zero-axiom gate — audit the compiled environment's CLOSURE.** Every
    text scanner leaked (a comment stripper missed an `Axiom` behind a `"(*"` string; a lexical scanner missed
@@ -119,6 +129,22 @@ stop. When an entry stops being a live temptation, delete it.
     without Rocq/Docker, BUT the `.v`/proof sources stay authoritative: one pristine content-addressed Buildx
     `generated-module` layer is the output authority (built from generation inputs, never from the committed
     bytes, never a mutable cache mount), and the pre-commit hook exports the Git INDEX and verifies the STAGED
-    tree byte-exact against it (never the unstaged working tree, never auto-staging). ⚠ Pre-commit is a
-    PROTOTYPE boundary — `--no-verify` bypasses it; the mandatory server-side PR CI comes later, and saying so
-    is part of the honest guarantee. ⚠ Do NOT keep both a no-tracked-Go seal and the tracked-output model.
+    tree byte-exact against it (never the unstaged working tree, never auto-staging). ⚠ A staged-tree verifier
+    is only STAGED-AUTHORITATIVE when the gate IMPLEMENTATIONS themselves come from the staged export — running
+    the working-tree copy of a gate/script against staged inputs lets a staged bad gate hide behind a safe
+    working-tree one. ⚠ Pre-commit is a PROTOTYPE boundary — `--no-verify` bypasses it; the mandatory
+    server-side PR CI comes later, and saying so is part of the honest guarantee. ⚠ Do NOT keep both a
+    no-tracked-Go seal and the tracked-output model.
+
+13. **A raw literal is an UNTYPED constant; a type system is EVIDENCE over the one AST, never a `TypedIR`.**
+    The tempting shortcut is to bake a type into the literal (`EInt : … TInt`) or to build a parallel typed
+    tree the "checked" program flows through. Both are wrong. Go's own model: a literal denotes an exact
+    UNTYPED constant (arbitrary precision, no width), and only a USE CONTEXT chooses a default type and checks
+    representability — so `const_value` stays exact (no range check), and defaulting/`ConstRepresentable` live
+    in the resolution judgment. `GoTypes` is one authority whose `ResolveExpr`/`ProgramTyped` are relations
+    over the SAME raw `GoAST`; there is NO typed AST, NO copied "resolved expression," NO second numeric-width
+    or type authority, and NO placeholder/`unknown`/`opaque`/`raw`/`TString` type admitted ahead of the syntax
+    that needs it. The one runtime type universe is the same `GoType` (`value_type`), and evaluation is that
+    one constant interpretation mapped to a value — never a second evaluator. (Git history holds a deleted
+    `CoreType.v` and much else: mine it for ideas, but a type constructor re-enters ONLY with the syntax and
+    complete semantic obligations that need it — history is a quarry, not a branch to resurrect wholesale.)

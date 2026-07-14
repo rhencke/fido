@@ -23,35 +23,17 @@
        program.  We do NOT invoke cmd/go from Rocq and claim no kernel theorem about it.
     ============================================================================ *)
 From Stdlib Require Import NArith ZArith List Bool String Arith.
-From Fido Require Import Ints FilePath FMap GoAST.
+From Fido Require Import Ints FilePath FMap GoAST GoTypes.
 Import ListNotations.
 Open Scope Z_scope.
 
-(** ---- statement/expression admissibility (integer representability) ---- *)
+(** ---- static admissibility is TYPING (GoTypes, the one type authority) ----
 
-Inductive ExprOk : GoExpr -> Prop :=
-| OkBool : forall b, ExprOk (EBool b)
-| OkInt  : forall n, Z.of_N n <= int_max     -> ExprOk (EInt n)
-| OkNeg  : forall n, Z.of_N n <= - int_min   -> ExprOk (ENeg n).
-
-Inductive StmtOk : GoStmt -> Prop :=
-| OkPrintln : forall args, Forall ExprOk args -> StmtOk (SPrintln args).
-
-Inductive DeclOk : GoDecl -> Prop :=
-| OkDMain : forall body, Forall StmtOk body -> DeclOk (DMain body).
-
-Definition FileOk (f : GoFileAST) : Prop := Forall DeclOk f.
-
-Definition expr_ok (e : GoExpr) : bool :=
-  match e with
-  | EBool _ => true
-  | EInt n  => Z.of_N n <=? int_max
-  | ENeg n  => Z.of_N n <=? - int_min
-  end.
-
-Definition stmt_ok (s : GoStmt) : bool := match s with SPrintln args => forallb expr_ok args end.
-Definition decl_ok (d : GoDecl) : bool := match d with DMain body => forallb stmt_ok body end.
-Definition file_ok (f : GoFileAST) : bool := forallb decl_ok f.
+    Per-file/decl/statement/expression admissibility is [GoTypes.ProgramTyped]/[program_typedb] over the
+    SAME raw AST: every [println] argument must RESOLVE under [UsePrintlnArg] to a [GoType] (the current
+    fragment's only failure is an integer literal outside the 64-bit range — bools always resolve).  There
+    is no separate GoCompile static-admissibility family; the deleted [ExprOk]/[StmtOk]/[DeclOk]/[FileOk]
+    are subsumed by the type judgment. *)
 
 (** ---- main-declaration counting (entry-point status is a compilation result) ---- *)
 
@@ -64,67 +46,26 @@ Definition main_count_in_dir (dir : string) (entries : list (FilePath * GoFileAS
     ((if String.eqb (fp_parent (fst e)) dir then file_main_count (snd e) else 0) + acc)%nat)
     0%nat entries.
 
-(** ---- reflection helpers ---- *)
-
-Lemma forallb_Forall {X} : forall (f : X -> bool) (P : X -> Prop) (l : list X),
-  (forall x, f x = true <-> P x) -> (forallb f l = true <-> Forall P l).
-Proof.
-  intros f P l Hpt; induction l as [ | x l' IH ]; simpl.
-  - split; [ constructor | reflexivity ].
-  - rewrite Bool.andb_true_iff, Hpt, IH.
-    split; [ intros [Hx Hl]; constructor; assumption
-           | intro H; inversion H; subst; split; assumption ].
-Qed.
-
-Lemma expr_ok_iff : forall e, expr_ok e = true <-> ExprOk e.
-Proof.
-  intro e; destruct e as [ b | n | n ]; simpl; split.
-  - intros _; constructor.
-  - reflexivity.
-  - intro H; apply Z.leb_le in H; constructor; exact H.
-  - intro H; inversion H; subst; apply Z.leb_le; assumption.
-  - intro H; apply Z.leb_le in H; constructor; exact H.
-  - intro H; inversion H; subst; apply Z.leb_le; assumption.
-Qed.
-
-Lemma stmt_ok_iff : forall s, stmt_ok s = true <-> StmtOk s.
-Proof.
-  intros [args]; simpl. rewrite (forallb_Forall expr_ok ExprOk args expr_ok_iff).
-  split; [ intro H; constructor; exact H | intro H; inversion H; subst; assumption ].
-Qed.
-
-Lemma decl_ok_iff : forall d, decl_ok d = true <-> DeclOk d.
-Proof.
-  intros [body]; simpl. rewrite (forallb_Forall stmt_ok StmtOk body stmt_ok_iff).
-  split; [ intro H; constructor; exact H | intro H; inversion H; subst; assumption ].
-Qed.
-
-Lemma file_ok_iff : forall f, file_ok f = true <-> FileOk f.
-Proof. intro f; unfold file_ok, FileOk; apply forallb_Forall; exact decl_ok_iff. Qed.
-
 (** ---- the declarative validity of the whole program ---- *)
-
-(** Every file's declarations are admissible. *)
-Definition AllFilesOk (p : GoProgram) : Prop :=
-  Forall (fun e => FileOk (snd e)) (prog_entries p).
 
 (** Every package (directory) has exactly one `main` declaration. *)
 Definition AllPackagesOneMain (p : GoProgram) : Prop :=
   Forall (fun e => main_count_in_dir (fp_parent (fst e)) (prog_entries p) = 1%nat) (prog_entries p).
 
-Definition ProgValid (p : GoProgram) : Prop := AllFilesOk p /\ AllPackagesOneMain p.
+(** A program is valid iff it is TYPED (every argument resolves through [GoTypes]) AND every package has
+    exactly one `main`.  [ProgramTyped] is the one static-typing foundation; there is no parallel
+    admissibility family. *)
+Definition ProgValid (p : GoProgram) : Prop := ProgramTyped p /\ AllPackagesOneMain p.
 
 Definition prog_ok (p : GoProgram) : bool :=
-  forallb (fun e => file_ok (snd e)) (prog_entries p)
+  program_typedb p
   && forallb (fun e => Nat.eqb (main_count_in_dir (fp_parent (fst e)) (prog_entries p)) 1%nat)
              (prog_entries p).
 
 Lemma prog_ok_iff : forall p, prog_ok p = true <-> ProgValid p.
 Proof.
-  intro p; unfold prog_ok, ProgValid, AllFilesOk, AllPackagesOneMain.
-  rewrite Bool.andb_true_iff.
-  rewrite (forallb_Forall (fun e => file_ok (snd e)) (fun e => FileOk (snd e)) (prog_entries p)
-             (fun e => file_ok_iff (snd e))).
+  intro p; unfold prog_ok, ProgValid, AllPackagesOneMain.
+  rewrite Bool.andb_true_iff, program_typedb_iff.
   rewrite (forallb_Forall
              (fun e => Nat.eqb (main_count_in_dir (fp_parent (fst e)) (prog_entries p)) 1%nat)
              (fun e => main_count_in_dir (fp_parent (fst e)) (prog_entries p) = 1%nat)
@@ -138,7 +79,10 @@ Qed.
 (** The compiler-derived facts a downstream stage consumes.  Today: the derived package clause name the
     renderer emits (uniformly `main` under the current policy — a compilation RESULT, not raw metadata,
     since raw files carry no package clause).  Indexed by [p] so richer per-program facts (symbol/type
-    tables) decorate this same program later without a second AST. *)
+    tables) decorate this same program later without a second AST.  The static TYPING evidence over the
+    same [p] is NOT stored as a redundant field — it is a canonical projection from the compiled evidence
+    ([compile_program_typed]/[compilable_program_typed] below), since [GoCompile] already carries
+    [ProgValid p] whose first conjunct is [ProgramTyped p]. *)
 Record CompilationFacts (p : GoProgram) : Type := mkFacts {
   cf_pkg_name : string
 }.
@@ -153,6 +97,14 @@ Record CompilableProgram : Type := mkCompilable {
   cp_facts   : CompilationFacts cp_program;
   cp_ok      : GoCompile cp_program cp_facts
 }.
+
+(** The compiled evidence EXPOSES that the same program is typed through [GoTypes] (§17): an immediate
+    canonical projection, not a stored second copy of the typing proof. *)
+Theorem compile_program_typed : forall p facts, GoCompile p facts -> ProgramTyped p.
+Proof. intros p facts H; exact (proj1 (proj2 H)). Qed.
+
+Theorem compilable_program_typed : forall cp : CompilableProgram, ProgramTyped (cp_program cp).
+Proof. intro cp; exact (compile_program_typed _ _ (cp_ok cp)). Qed.
 
 (** ---- the proof-producing executable compiler ---- *)
 
@@ -170,8 +122,9 @@ Definition go_compile (p : GoProgram) : result CompileError CompilableProgram :=
   match bool_sumbool (prog_ok p) with
   | left H  => Ok (mkCompilable p (mkFacts "main"%string) (conj eq_refl (proj1 (prog_ok_iff p) H)))
   | right _ =>
-      if forallb (fun e => file_ok (snd e)) (prog_entries p)
-      then Err ErrPackageMainCount else Err ErrIntOverflow
+      (* the whole program is typed but some package's `main` count is wrong, vs. a typing failure
+         (today the only typing failure is an integer literal outside the 64-bit range). *)
+      if program_typedb p then Err ErrPackageMainCount else Err ErrIntOverflow
   end.
 
 (** (A) internal exactness: [go_compile] accepts exactly the admissible programs, whole-program. *)
@@ -182,7 +135,7 @@ Proof.
   revert Heq. unfold go_compile.
   destruct (bool_sumbool (prog_ok p)) as [ H | H ].
   - intro Heq; injection Heq as <-; reflexivity.
-  - destruct (forallb (fun e => file_ok (snd e)) (prog_entries p)); discriminate.
+  - destruct (program_typedb p); discriminate.
 Qed.
 
 Theorem go_compile_complete : forall p facts,
@@ -199,3 +152,8 @@ Proof.
   intros p facts E [ _ Hvalid ]. apply (proj2 (prog_ok_iff p)) in Hvalid.
   rewrite Hvalid in E; discriminate.
 Qed.
+
+(** The empty program (empty file map) is accepted under the new typing authority: no package to type
+    and no `main` to count, so [prog_ok] holds vacuously. *)
+Lemma prog_ok_empty : forall p, prog_entries p = [] -> prog_ok p = true.
+Proof. intros p H; unfold prog_ok, program_typedb; rewrite H; reflexivity. Qed.

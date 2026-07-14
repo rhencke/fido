@@ -10,12 +10,15 @@ A `GoProgram` is a `ModuleSpec` (a narrow intrinsic `ModulePath` + a singleton `
 generated module's facts, rendered as `go.mod`; NOT a target config) plus a possibly-EMPTY map of files.
 Files group by directory into `package main` packages; each raw `GoFileAST` is top-level declarations (today
 only `DMain` — a `func main()` declaration); statements are `SPrintln` over bool (`EBool`) and 64-bit
-integers (`EInt` magnitude / `ENeg` negation). `FilePath` is a narrow canonical relative path (lowercase
-dir components + a `.go` basename); `go.mod` is a distinct root field, not a FilePath. The EMPTY file map is
-a valid module-only program. Package clauses, package names, and entry-point status are compilation RESULTS,
-not raw. Anything else — other decls, calls, params, imports, package clauses in raw syntax, strange paths,
-invalid module paths — is UNREPRESENTABLE. A compiler-invalid candidate (out-of-range int, zero/duplicate
-main in a package) is rejected IN Rocq before any bytes — **zero expected Go build failures, ever.**
+integers (`EInt` magnitude / `ENeg` negation). Each raw literal denotes an EXACT UNTYPED constant; the ONE
+type authority `GoTypes` (universe `TBool`/`TInt`) resolves it in a use context (defaulting + 64-bit
+representability) — a literal is NOT a typed value and there is no typed AST. `FilePath` is a narrow
+canonical relative path (lowercase dir components + a `.go` basename); `go.mod` is a distinct root field, not
+a FilePath. The EMPTY file map is a valid module-only program. Package clauses, package names, entry-point
+status, and TYPES are compilation/typing RESULTS, not raw. Anything else — other decls, calls, params,
+imports, package clauses in raw syntax, strange paths, invalid module paths — is UNREPRESENTABLE. A
+compiler-invalid candidate (a literal outside the 64-bit range, zero/duplicate main in a package) is rejected
+IN Rocq before any bytes — **zero expected Go build failures, ever.**
 
 ## GREEN — proved axiom-free in the pinned container (every gated `Print Assumptions` surface)
 
@@ -33,18 +36,32 @@ main in a package) is rejected IN Rocq before any bytes — **zero expected Go b
 - **`GoVersion`** — singleton `Go1_23`; `render_goversion_go1_23` pins the exact "1.23"; decidable eq.
 - **`GoAST`** — `ModuleSpec` (`ModulePath` + `GoVersion`) + `GoProgram := { prog_module ; prog_files : fmap
   FilePath GoFileAST }` (the file map MAY be empty); raw `GoDecl` (`DMain`)/`SPrintln`/`EBool`/`EInt`/`ENeg`;
-  no package/entry/import metadata in raw. `prog_nonempty`/`MainFile` deleted.
+  no package/entry/import/TYPE metadata in raw. `prog_nonempty`/`MainFile` deleted.
+- **`GoTypes`** — the ONE type authority, EVIDENCE over the raw AST (no typed AST): `GoType` = {`TBool`,
+  `TInt`}; exact untyped `GoConst` (`CBool`/`CInt Z`) via one `const_value` (`EInt 0` = `ENeg 0`); one
+  `const_default_type`; one representability decision `ConstRepresentable`/`const_representableb` over the
+  `Ints` authority (`const_representableb_iff`); reflected `ResolveExpr`/`resolve_expr` (sound + complete +
+  deterministic + resolved-type-is-default); `StmtTyped`/`DeclTyped`/`FileTyped`/`ProgramTyped` +
+  `program_typedb` (exact reflection; the empty file/program typed vacuously). Boundary/range fixtures: bool/
+  int/max/min resolve, mixed + empty println typed, overflow/underflow/cross-type rejected. Replaced the old
+  `ExprOk`/`StmtOk`/`DeclOk`/`FileOk` family.
 - **`GoCompile`** — EXACT WHOLE-PROGRAM: files group by parent directory; each package has exactly one `main`
-  (0 or ≥2 reject the whole program); every decl int-representable; one invalid package rejects all. `go_
-  compile : GoProgram -> result CompileError CompilableProgram` sound + complete (`prog_ok_iff`); rejection
-  ⇒ no `CompilableProgram` (`reject_no_compile`). Populated `CompilationFacts` (the derived package name).
-- **`GoSafe`** — real values (`GoValue`), `eval_file`, `eval_zero_sign_agnostic`; `GoSafe := True` (honest
-  permanent `SafeProgram` boundary).
-- **`GoRender`** — direct renderer; the ROOT theorem `render_expr_denotes` (rendered spelling denotes exactly
-  the value); `render_file_ascii`/`print_Z_dec_faithful`/`print_Z_pos_no_leading_zero`/`render_file_first_
-  line`/boundaries. The package clause comes from `CompilationFacts`. `render_go_mod` renders the `go.mod`
-  from the `ModuleSpec` — `render_go_mod_exact` (exact bytes: module path + go version in place),
-  `render_go_mod_first_line` (header), `render_go_mod_ascii`.
+  (0 or ≥2 reject the whole program); the whole program is TYPED through `GoTypes` (`ProgramTyped`; the only
+  typing failure today is a literal outside the 64-bit range); one invalid package rejects all. `go_compile :
+  GoProgram -> result CompileError CompilableProgram` sound + complete (`prog_ok_iff`); rejection ⇒ no
+  `CompilableProgram` (`reject_no_compile`); the empty program accepted (`prog_ok_empty`). `CompilationFacts`
+  carries the derived package name and EXPOSES that the same program is typed via a canonical projection
+  (`compilable_program_typed`), not a stored typed copy.
+- **`GoSafe`** — real values (`GoValue`) carrying the SAME `GoType` (`value_type`); `eval_expr :=
+  const_to_value ∘ const_value` (no second evaluator), `eval_zero_sign_agnostic`, and resolved-type
+  preservation (`eval_expr_resolved_type`: a resolved expression evaluates to a value of its resolved type);
+  `eval_file`; `GoSafe := True` (honest permanent `SafeProgram` boundary).
+- **`GoRender`** — direct renderer; `render_expr_denotes` (rendered spelling denotes exactly the value) and
+  `render_resolved_expr_denotes` (a resolved argument's spelling denotes the exact value AND that value has
+  the resolved `GoType` — tying GoTypes ↔ GoSafe ↔ GoRender); `render_file_ascii`/`print_Z_dec_faithful`/
+  `print_Z_pos_no_leading_zero`/`render_file_first_line`/boundaries. The package clause comes from
+  `CompilationFacts`. `render_go_mod` renders the `go.mod` from the `ModuleSpec` — `render_go_mod_exact`
+  (exact bytes: module path + go version in place), `render_go_mod_first_line` (header), `render_go_mod_ascii`.
 - **`GoEmit`** — `DirectoryImage` = exact `go.mod` bytes + a `.go` map, carrying a provenance proof BOTH came
   from rendering ONE `SafeProgram` (a closed proof witnesses that; a postulated axiom/variable proof does
   not — the live emit boundary is the gate, not the type); `render_program`/`di_transport`; the go.mod and
@@ -64,7 +81,7 @@ main in a package) is rejected IN Rocq before any bytes — **zero expected Go b
   rejects a raw transport; the direct-axiom / opaque-Qed / direct- and transitive-section-variable forged
   images are GENERATED TRANSIENTLY in the emit stage (no tracked axioms) and each rejected (reason-checked)
   before any effect.
-- **The foreign-Go-rejecting sibling-temp sink** (`plugin/fido_sink.ml`, 373 lines): persistent
+- **The foreign-Go-rejecting sibling-temp sink** (`plugin/fido_sink.ml`): persistent
   `<root>/.fido/` control dir = marker + git-style `index.lock` ONLY (no records, no nonce, no stage dir, no
   parser — the deleted subsystem). Before any generated-file mutation it validates the `root` (a symlink in
   ANY prefix component is rejected), reserves `.fido/`, and REJECTS foreign Go/module inputs + nested `.fido`

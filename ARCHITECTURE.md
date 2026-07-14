@@ -52,18 +52,34 @@ Do not implement an alternative autonomously.
                  by `go build ./...`.  Validity is a carried proof; equality is decidable.  (`go.mod` is
                  NOT a FilePath — a distinct root field carries it.)
 
+  GoTypes        the ONE Go type-system authority — EVIDENCE over the raw GoAST, never a typed AST.  The
+                 permanent type universe is EXACTLY { TBool, TInt }.  A raw literal denotes an EXACT UNTYPED
+                 constant (GoConst := CBool bool | CInt Z, arbitrary-precision) via the one const_value;
+                 only a USE CONTEXT (today UsePrintlnArg) chooses a DEFAULT TYPE (const_default_type) and
+                 checks REPRESENTABILITY (ConstRepresentable — the SINGLE 64-bit range decision, over the
+                 Ints authority).  ResolveExpr u e t (reflected by resolve_expr, sound + complete +
+                 deterministic) is the resolved typing of one expression; StmtTyped/DeclTyped/FileTyped/
+                 ProgramTyped lift it to the whole program (the EMPTY file map is typed vacuously).  There
+                 is NO placeholder/unknown/raw type and NO second numeric-width authority.
+
   GoCompile      EXACT WHOLE-PROGRAM admissibility over the whole map, plus derived CompilationFacts.
                  Files are grouped by parent directory ([fp_parent]); each directory is one package; the
                  derived package name is `main`; every package has EXACTLY ONE `main` declaration (zero or
-                 more than one rejects the WHOLE program); every declaration is integer-representable; one
-                 invalid package rejects the whole program (all-or-nothing).  go_compile : GoProgram ->
-                 result CompileError CompilableProgram, proved sound + complete against the declarative
-                 judgment (prog_ok_iff).  CompilationFacts p carries the compiler-derived facts the
-                 renderer consumes (today: the package clause name) — decorating the SAME program.
+                 more than one rejects the WHOLE program); the whole program is TYPED through GoTypes
+                 (ProgramTyped — every println argument resolves; today the only typing failure is an
+                 integer literal outside the 64-bit range); one invalid package rejects the whole program
+                 (all-or-nothing).  go_compile : GoProgram -> result CompileError CompilableProgram, proved
+                 sound + complete against the declarative judgment (prog_ok_iff).  CompilationFacts p
+                 carries the compiler-derived facts the renderer consumes (today: the package clause name)
+                 and EXPOSES that the same p is typed via a canonical projection (compilable_program_typed),
+                 not a stored typed copy — decorating the SAME program.
 
   GoSafe         the safety capability SafeProgram over CompilableProgram, plus a PER-FILE abstract
-                 println-trace with REAL values (VBool/VInt Z).  GoSafe := True TODAY (the fragment has no
-                 unsafe op), documented honestly; the PERMANENT extension point for guarantees beyond
+                 println-trace with REAL values (VBool/VInt Z).  Runtime values use the SAME GoType
+                 authority (value_type); evaluation IS the one constant interpretation mapped to a value
+                 (eval_expr := const_to_value ∘ const_value), and a resolved expression evaluates to a value
+                 of its resolved GoType (eval_expr_resolved_type).  GoSafe := True TODAY (the fragment has
+                 no unsafe op), documented honestly; the PERMANENT extension point for guarantees beyond
                  compiler acceptance.  There is no whole-PROGRAM execution semantics yet (multi-package is
                  a compile-time concept — go build ./... — and only the witness package is executed vs
                  goldens); a per-package program semantics arrives when a construct needs it.
@@ -73,8 +89,9 @@ Do not implement an alternative autonomously.
                  the ModuleSpec (`module <path>` + `go <version>`).  Every rendered file — go.mod and every
                  .go — begins with the exact header `// fido generated.  do not edit.` as its FIRST LINE.
                  Proved: all-ASCII; render_expr_denotes (the rendered primitive spelling denotes exactly its
-                 value); decimal-faithful, no leading zero, header-first-line; go.mod exact bytes / header
-                 first line / ASCII.
+                 value); render_resolved_expr_denotes (a resolved argument's spelling denotes the exact value
+                 AND that value has the resolved GoType — tying the three authorities); decimal-faithful, no
+                 leading zero, header-first-line; go.mod exact bytes / header first line / ASCII.
 
   DirectoryImage the COMPLETE module: exact root go.mod bytes (di_go_mod) + a finite map from FilePath to
                  exact final .go bytes (di_go_files), PROVENANCE-GATED: a value carries a proof BOTH came
@@ -124,10 +141,11 @@ AST->output->AST round-trip authority, no copied compiled AST, no handwritten OC
 | **FilePath** | the intrinsic canonical relative-path domain; decidable eq; `fp_parent` (package key); safe + `go build ./...`-discoverable by construction | admit raw strings, absolute/`..`/hidden/`_test`/GOOS-suffixed/non-`.go` paths |
 | **FMap** | key-generic finite map; THE invariant `fm_keys_nodup`; `dup_key_unrepresentable`; deterministic `fm_MapsTo_fun` (distinct, weaker); `fm_Equal` (semantic eq ≠ record `=`) | present `fm_MapsTo_fun` as the uniqueness invariant; impose order; list+dedup |
 | **ModuleSpec** | intrinsic module facts: narrow `ModulePath` (decidable eq, canonical render) + singleton `GoVersion` (Go1_23 → "1.23") | be a `TargetConfig`; carry GOOS/GOARCH/ABI/scheduler/point-release; admit an invalid module path (unrepresentable) |
-| **GoAST** | `ModuleSpec` + a possibly-EMPTY program map + raw `GoDecl` (a `func main` form); key-uniqueness intrinsic | carry a package clause / entry flag / imports / a raw path in the file; a nonemptiness restriction; a second tree |
-| **GoCompile** | whole-program directory→package + exactly-one-main + int-representability; `go_compile` sound/complete; populated `CompilationFacts` | be a boolean; accept per-file partially; hide package grouping / entry status in a raw node |
-| **GoSafe** | real `GoValue`; abstract `eval_file`; `SafeProgram` (0 = -0); honest `GoSafe := True` | observe spelling as value; keep an unused panic placeholder; circularly reference compilation |
-| **GoRender** | render decls + the derived package clause; render go.mod from the ModuleSpec; header exact first line (go.mod and .go); `render_expr_denotes` | tokenize/lex/parse/round-trip; deduce packages/entry; invoke a formatter; add require/replace/toolchain to go.mod |
+| **GoAST** | `ModuleSpec` + a possibly-EMPTY program map + raw `GoDecl` (a `func main` form); key-uniqueness intrinsic | carry a package clause / entry flag / imports / a raw path in the file; a nonemptiness restriction; a second tree; a type on a raw literal |
+| **GoTypes** | the ONE type authority — EVIDENCE over the raw AST: `GoType` = {`TBool`,`TInt`}; exact untyped `GoConst`; one `const_value`; one default-type; one representability decision (over `Ints`); reflected `ResolveExpr`; `Stmt/Decl/File/ProgramTyped` | a typed AST / `TypedIR` / copied "resolved expression"; a placeholder/unknown/raw/opaque type; a second numeric-width authority; typing a literal outside a use context |
+| **GoCompile** | whole-program directory→package + exactly-one-main + whole-program typing (`ProgramTyped` via GoTypes); `go_compile` sound/complete; `CompilationFacts` exposing typing by canonical projection | be a boolean; accept per-file partially; hide package grouping / entry status in a raw node; store a typed copy of the program |
+| **GoSafe** | real `GoValue`; `value_type` over the SAME `GoType`; `eval_expr := const_to_value ∘ const_value`; resolved-type preservation; abstract `eval_file`; `SafeProgram` (0 = -0); honest `GoSafe := True` | observe spelling as value; a separate runtime type universe; keep an unused panic placeholder; circularly reference compilation |
+| **GoRender** | render decls + the derived package clause; render go.mod from the ModuleSpec; header exact first line (go.mod and .go); `render_expr_denotes`; `render_resolved_expr_denotes` (spelling ↔ value ↔ resolved type) | tokenize/lex/parse/round-trip; deduce packages/entry; invoke a formatter; add require/replace/toolchain to go.mod |
 | **DirectoryImage** | the complete module (exact go.mod bytes + a possibly-empty .go map), provenance-gated (`di_prov` proves BOTH came from `render_program`; `mkImage` demands that proof); `Fido Emit` typechecks its argument's `di_transport` AND rejects any argument with an axiomatic assumption closure | be an arbitrary-map escape that bypasses SafeProgram; invent go.mod in the sink; make a nonemptiness claim; accept a raw transport, or a same-typed image built from a forged (axiomatic) proof, at the emit boundary |
 | **Fido Emit + sink** | a four-step boundary — typecheck the image, reject a non-empty assumption closure (kernel provenance queries), decode ONLY the final (go.mod, entries) transport with exact constructors, then a foreign-Go-rejecting sibling-temp dirty-directory sync | inspect the program/AST/behaviour/semantics; emit without both provenance guards; merge/preserve a foreign `.go`/`go.mod`; delete/overwrite/follow foreign state; keep a stage-record/nonce/central-staging design |
 
@@ -240,8 +258,11 @@ Every new AST constructor enters only when it has, COMPLETE at that time: exact 
 rules matching `go build ./...` (constructor absent otherwise), exact operational meaning in `GoSafe`,
 renderer support with its value/syntax proofs, and — where observable — a differential fixture + e2e
 witness. Shrink the representable language before weakening `GoCompile`. Package clauses / entry status /
-imports are compilation results, never raw metadata. Integer width has one authority (`Ints`, 64-bit);
-there is no `TargetConfig`.
+imports are compilation results, never raw metadata. Integer width has one authority (`Ints`, 64-bit) and
+the type universe has one authority (`GoTypes` — `TBool`/`TInt` today); there is no `TargetConfig`. A new
+type constructor arrives ONLY with the syntax and complete semantic obligations that need it — never a
+speculative `TString`/`unknown`/`opaque`/`raw` type, and never a typed AST. Raw literals stay UNTYPED
+syntax: they denote exact untyped constants, and defaulting/representability happen in a use context.
 
 ## Trust base (say it exactly)
 
@@ -258,17 +279,24 @@ through any internal/opaque lemma, an unused Fido axiom, and an unreferenced ass
 with a module-coverage gate and adversarial self-tests A-E): the Ints boundary values; ModulePath decidable eq + representable/
 unrepresentable module-path fixtures; GoVersion's exact "1.23" rendering; FilePath decidable eq +
 representable/unrepresentable path fixtures; FMap's key-NoDup invariant + duplicate-key unconstructibility +
-deterministic lookup; GoCompile claim (A) — `prog_ok_iff`, `go_compile` sound + complete, rejection ⇒ no
-CompilableProgram; GoSafe's zero-sign-agnostic fact; GoRender's `render_expr_denotes` + all-ASCII +
-decimal-faithful + no-leading-zero + header-first-line + boundaries + the exact go.mod render (bytes /
-header first line / ASCII); DirectoryImage's go.mod-and-.go header-first-line / ASCII / unique-paths over
+deterministic lookup; GoTypes — the one type authority: zero-sign constant equality, default-type
+exactness, representability reflection, expression resolution sound + complete + deterministic, statement +
+program typing reflection, int max/min accepted, overflow/underflow rejected; GoCompile claim (A) —
+`prog_ok_iff`, `go_compile` sound + complete, rejection ⇒ no CompilableProgram, the compiled evidence
+exposes `ProgramTyped`, the empty program accepted; GoSafe's zero-sign-agnostic fact + resolved-type
+preservation (`eval_expr_resolved_type`); GoRender's `render_expr_denotes` + `render_resolved_expr_denotes`
++ all-ASCII + decimal-faithful + no-leading-zero + header-first-line + boundaries + the exact go.mod render
+(bytes / header first line / ASCII); DirectoryImage's go.mod-and-.go header-first-line / ASCII / unique-paths over
 EVERY image (NO nonemptiness claim — the empty program is valid). "No assumptions" is never evidence a
 theorem's STATEMENT is right — the gated invariant must be the one advertised.
 
 ## What must never come back
 
 A handwritten OCaml backend / lowering / renderer / semantic decoder, or a bridge decoding anything but the
-final transport type; a SECOND program-AST hierarchy, a raw `GoPackage` tree, or a copied compiled AST;
+final transport type; a SECOND program-AST hierarchy, a raw `GoPackage` tree, a copied compiled AST, or a
+typed AST / `TypedIR` / copied "resolved-expression" tree beside the one raw `GoAST`; a type attached to a
+raw literal, or a placeholder/unknown/opaque/raw/`TString` type constructor added ahead of the syntax that
+needs it; a second numeric-width or type authority beside `Ints`/`GoTypes`;
 package/import metadata in raw file values; `MainFile` (package/main/entry collapsed into one raw node);
 raw `string` map keys; a nonemptiness restriction on the program/image; a handwritten `go.mod` (it is
 RENDERED in Rocq) or `go.mod` smuggled into the FilePath map; central `<root>/.fido/staging/`, a central

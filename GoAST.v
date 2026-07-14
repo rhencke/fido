@@ -10,8 +10,10 @@
     is NOT a TargetConfig.
 
     A [GoFileAST] is RAW top-level declarations only — nothing compiled.  It does NOT carry a package
-    clause, a package identity, an entry-point flag, imports, symbols, or types: those are COMPILATION
-    RESULTS derived by GoCompile over the whole path-indexed program.  There is no raw GoPackage tree.
+    clause, a package identity, an entry-point flag, imports, symbols, or types: those are COMPILATION /
+    TYPING RESULTS — package grouping and entry status by GoCompile, types by GoTypes (the one type
+    authority) — derived over the whole path-indexed program.  There is no raw GoPackage tree and no typed
+    AST: raw literals stay UNTYPED syntax.
 
     The one raw declaration today is [DMain body]: syntactically a `func main() { body }` declaration
     (zero parameters, no results) whose body is the existing [SPrintln] statements.  Whether that
@@ -27,6 +29,9 @@ From Stdlib Require Import NArith List.
 From Fido Require Import FilePath FMap ModulePath GoVersion.
 Import ListNotations.
 
+(** A raw expression is UNTYPED syntax: a boolean literal, or an integer literal as an unsigned magnitude
+    ([EInt]) optionally negated ([ENeg]).  No type is attached here — the exact untyped-constant meaning and
+    the context-directed typing/representability of these literals are the concern of [GoTypes]. *)
 Inductive GoExpr : Type :=
 | EBool : bool -> GoExpr
 | EInt  : N -> GoExpr

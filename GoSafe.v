@@ -16,23 +16,43 @@
     they never fork the compiler, AST, renderer, or semantics.
     ============================================================================ *)
 From Stdlib Require Import ZArith List String.
-From Fido Require Import GoAST GoCompile.
+From Fido Require Import GoAST GoTypes GoCompile.
 Import ListNotations.
 
 Inductive GoValue : Type :=
 | VBool : bool -> GoValue
 | VInt  : Z -> GoValue.
 
-Definition eval_expr (e : GoExpr) : GoValue :=
-  match e with
-  | EBool b => VBool b
-  | EInt n  => VInt (Z.of_N n)
-  | ENeg n  => VInt (Z.opp (Z.of_N n))
-  end.
+(** The runtime type of a value — the SAME [GoType] authority ([GoTypes]) the compiler/type system uses.
+    There is NOT a separate compiler type universe and safety/runtime type universe. *)
+Definition value_type (v : GoValue) : GoType :=
+  match v with VBool _ => TBool | VInt _ => TInt end.
+
+(** The one bridge from an exact untyped constant ([GoTypes.GoConst]) to a runtime value. *)
+Definition const_to_value (c : GoConst) : GoValue :=
+  match c with CBool b => VBool b | CInt z => VInt z end.
+
+(** Evaluation IS the single exact constant interpretation ([GoTypes.const_value]) mapped to a value — no
+    second case analysis over the raw syntax.  By VALUE, not spelling: a zero literal and a negated zero
+    denote the same value (both via [const_value]). *)
+Definition eval_expr (e : GoExpr) : GoValue := const_to_value (const_value e).
 
 (** By VALUE, not spelling: a zero literal and a negated zero agree. *)
 Lemma eval_zero_sign_agnostic : eval_expr (EInt 0) = eval_expr (ENeg 0).
 Proof. reflexivity. Qed.
+
+(** The runtime type of a value built from a constant is that constant's default type. *)
+Lemma value_type_const_to_value : forall c, value_type (const_to_value c) = const_default_type c.
+Proof. intros [b | z]; reflexivity. Qed.
+
+(** A resolved expression evaluates to a value whose runtime type is EXACTLY the resolved [GoType] — the
+    compiler's static resolution and the runtime value agree on type (one [GoType] authority). *)
+Lemma eval_expr_resolved_type : forall u e t,
+  ResolveExpr u e t -> value_type (eval_expr e) = t.
+Proof.
+  intros u e t H. unfold eval_expr. rewrite value_type_const_to_value.
+  symmetry; exact (resolve_expr_default u e t H).
+Qed.
 
 Definition eval_stmt (s : GoStmt) : list GoValue :=
   match s with SPrintln args => map eval_expr args end.

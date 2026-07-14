@@ -14,7 +14,7 @@
     claim (B) — external adequacy — exercised by the differential e2e, not a kernel theorem here.
     ============================================================================ *)
 From Stdlib Require Import String Ascii NArith ZArith List Bool Lia.
-From Fido Require Import digits Ints ModulePath GoVersion GoAST GoCompile GoSafe.
+From Fido Require Import digits Ints ModulePath GoVersion GoAST GoTypes GoCompile GoSafe.
 Import ListNotations.
 Open Scope string_scope.
 
@@ -305,13 +305,15 @@ Proof.
   - exfalso; lia.
 Qed.
 
-(** The one root theorem tying AST expression, admissibility, semantic value, and rendered spelling:
-    a rendered admissible primitive denotes exactly its [eval_expr] value.  Booleans get their canonical
-    spellings; nonnegative decimals denote exactly; a negative is unary minus over the magnitude
-    (so `-0` denotes `0`, agreeing with [eval_zero_sign_agnostic]). *)
-Theorem render_expr_denotes : forall e, ExprOk e -> RenderedPrimitiveDenotes (render_expr e) (eval_expr e).
+(** The root correspondence tying AST expression, semantic value, and rendered spelling: a rendered
+    primitive denotes exactly its [eval_expr] value — unconditionally (the denotation correspondence does
+    not depend on representability; even an out-of-range magnitude renders to its exact decimal value).
+    Booleans get their canonical spellings; nonnegative decimals denote exactly; a negative is unary minus
+    over the magnitude (so `-0` denotes `0`, agreeing with [eval_zero_sign_agnostic]). *)
+Theorem render_expr_denotes : forall e, RenderedPrimitiveDenotes (render_expr e) (eval_expr e).
 Proof.
-  intros e _. destruct e as [ [] | n | n ]; cbn [render_expr eval_expr RenderedPrimitiveDenotes].
+  intros e. destruct e as [ [] | n | n ];
+    cbn [render_expr eval_expr const_value const_to_value RenderedPrimitiveDenotes].
   - reflexivity.
   - reflexivity.
   - rewrite read_go_int_nonneg by apply N2Z.is_nonneg.
@@ -320,10 +322,27 @@ Proof.
     rewrite print_Z_dec_faithful by apply N2Z.is_nonneg. reflexivity.
 Qed.
 
+(** The one root theorem connecting the three authorities (GoTypes resolution, GoSafe value, GoRender
+    spelling): a resolved [println] argument RENDERS to a spelling that denotes exactly the runtime value,
+    AND that value has the statically-resolved [GoType].  This is NOT a claim about the real Go parser —
+    real-Go acceptance is external adequacy, exercised differentially by the e2e. *)
+Theorem render_resolved_expr_denotes : forall e t,
+  ResolveExpr UsePrintlnArg e t ->
+  RenderedPrimitiveDenotes (render_expr e) (eval_expr e) /\ value_type (eval_expr e) = t.
+Proof.
+  intros e t H; split.
+  - apply render_expr_denotes.
+  - exact (eval_expr_resolved_type UsePrintlnArg e t H).
+Qed.
+
+(** The int boundaries: the max/min literals evaluate to the exact 64-bit extremes AND resolve as [TInt]
+    (the boundary is representable — the range check uses the one [Ints] authority). *)
 Lemma render_boundary_max :
-  eval_expr (EInt (Z.to_N int_max)) = VInt int_max /\ ExprOk (EInt (Z.to_N int_max)).
-Proof. split; [ reflexivity | constructor; apply Z.le_refl ]. Qed.
+  eval_expr (EInt (Z.to_N int_max)) = VInt int_max
+  /\ ResolveExpr UsePrintlnArg (EInt (Z.to_N int_max)) TInt.
+Proof. split; [ reflexivity | apply resolve_expr_sound; reflexivity ]. Qed.
 
 Lemma render_boundary_min :
-  eval_expr (ENeg (Z.to_N (- int_min))) = VInt int_min /\ ExprOk (ENeg (Z.to_N (- int_min))).
-Proof. split; [ reflexivity | constructor; apply Z.le_refl ]. Qed.
+  eval_expr (ENeg (Z.to_N (- int_min))) = VInt int_min
+  /\ ResolveExpr UsePrintlnArg (ENeg (Z.to_N (- int_min))) TInt.
+Proof. split; [ reflexivity | apply resolve_expr_sound; reflexivity ]. Qed.
