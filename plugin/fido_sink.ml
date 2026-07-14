@@ -211,16 +211,25 @@ let rec inspect root header rel temps =
           else if k = Unix.S_REG then temps := p :: !temps
           else fail "a reserved-suffix entry %s is a symlink/directory/special, not a regular temp — refusing" child_rel
         end
-        else if k = Unix.S_DIR then
-          (if go_ignored_dir name then ()      (* opaque Go-ignored tree (.git/dot/underscore/testdata/vendor) *)
-           else inspect root header child_rel temps)
+        else if k = Unix.S_DIR && go_ignored_dir name then ()
+          (* an OPAQUE Go-ignored directory tree (.git/dot/underscore/testdata/vendor): never entered,
+             classified, or rejected — this is what keeps Fido out of `.git`.  Checked FIRST so a Go-ignored
+             directory whose name happens to end in `.go` (e.g. `.cache.go`/`_x.go`) is skipped, not rejected. *)
         else if name = gomod_name then
+          (* a `go.mod` of ANY filesystem kind (regular/dir/symlink/special) is classified BEFORE generic
+             directory recursion — otherwise a DIRECTORY named `go.mod` would be traversed instead of rejected:
+             a nested one rejects; a root one must be a regular Fido-headed file. *)
           (if rel <> "" then fail "a nested go.mod is present (%s) — refusing" child_rel
            else if not (k = Unix.S_REG && read_first_line p = header)
            then fail "a foreign root go.mod is present — refusing to touch it")
         else if ends_with ".go" name && not (go_ignored_name name) then
+          (* a visible `*.go` of ANY filesystem kind is classified BEFORE recursion — otherwise a DIRECTORY
+             named `foreign.go` would be traversed instead of rejected: it must be a regular Fido-headed file,
+             else it is foreign (a `.go` DIRECTORY / symlink / special all reject here). *)
           (if not (k = Unix.S_REG && read_first_line p = header)
            then fail "a foreign .go file is present (%s) — refusing" child_rel)
+        else if k = Unix.S_DIR then inspect root header child_rel temps
+          (* a visible directory NOT named `go.mod` or `*.go`: recurse into the Go-discovered namespace *)
         (* other foreign non-Go files/symlinks/specials, and Go-ignored dot/underscore `.go` files: preserved *))
     names
 

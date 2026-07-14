@@ -315,6 +315,14 @@ if ./sink_test adv-gms; then fail "a go.mod symlink was NOT rejected"; fi
 mkdir -p adv-ngm/sub; printf 'module x\n' > adv-ngm/sub/go.mod
 if ./sink_test adv-ngm; then fail "a nested go.mod was NOT rejected"; fi
 [ -f adv-ngm/sub/go.mod ] || fail "a nested go.mod was removed"
+# DIRECTORY-shaped Go inputs must reject too (not be traversed as ordinary directories): a directory named
+# `foreign.go`, and a nested `go.mod` DIRECTORY — each rejects before any generated mutation and is preserved.
+mkdir -p adv-dgo/foreign.go
+if ./sink_test adv-dgo; then fail "a directory named foreign.go was NOT rejected"; fi
+[ -d adv-dgo/foreign.go ] && [ ! -e adv-dgo/main.go ] || fail "foreign .go dir: input removed or generated file written"
+mkdir -p adv-dgm/sub/go.mod
+if ./sink_test adv-dgm; then fail "a nested go.mod directory was NOT rejected"; fi
+[ -d adv-dgm/sub/go.mod ] && [ ! -e adv-dgm/main.go ] || fail "nested go.mod dir: input removed or generated file written"
 mkdir -p adv-ur/locked; chmod 000 adv-ur/locked
 if ./sink_test adv-ur; then chmod 755 adv-ur/locked; fail "an unreadable directory did NOT fail closed"; fi
 chmod 755 adv-ur/locked
