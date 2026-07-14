@@ -236,4 +236,6 @@ Example res_over  : resolve_expr UsePrintlnArg (EInt 9223372036854775808) = None
 Example res_under : resolve_expr UsePrintlnArg (ENeg 9223372036854775809) = None. Proof. reflexivity. Qed.
 Example bool_not_int  : const_representableb TInt  (CBool true) = false. Proof. reflexivity. Qed.
 Example int_not_bool  : const_representableb TBool (CInt 3)     = false. Proof. reflexivity. Qed.
+(* an out-of-range argument makes its statement AND its enclosing declaration/file fail typing. *)
 Example over_stmt_untyped : stmt_typedb (SPrintln [EInt 9223372036854775808]) = false. Proof. reflexivity. Qed.
+Example over_file_untyped : file_typedb [ DMain [ SPrintln [EInt 9223372036854775808] ] ] = false. Proof. reflexivity. Qed.

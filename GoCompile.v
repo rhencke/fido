@@ -157,3 +157,22 @@ Qed.
     and no `main` to count, so [prog_ok] holds vacuously. *)
 Lemma prog_ok_empty : forall p, prog_entries p = [] -> prog_ok p = true.
 Proof. intros p H; unfold prog_ok, program_typedb; rewrite H; reflexivity. Qed.
+
+(** ---- boundary fixture: an out-of-range argument rejects the WHOLE program BEFORE any emission ---- *)
+
+(** A single-file program whose only `println` argument is [int_max + 1] = 2^63 — unrepresentable as
+    [TInt] through the one [GoTypes] range authority. *)
+Definition over_program : GoProgram :=
+  singleton_program
+    (mkModuleSpec (ModulePath.mkMP "fido.local/generated" eq_refl) GoVersion.Go1_23)
+    (mkFP "main.go" eq_refl)
+    [ DMain [ SPrintln [ EInt (2 ^ 63)%N ] ] ].
+
+(* the whole program fails typing, so [prog_ok] rejects it and [go_compile] returns the EXACT integer
+   error — and there is NO [CompilableProgram] for it (hence no [SafeProgram], no [DirectoryImage], no
+   rendering/emission): rejection happens strictly in Rocq, before any bytes. *)
+Example over_program_untyped   : program_typedb over_program = false.        Proof. reflexivity. Qed.
+Example over_program_not_ok    : prog_ok over_program = false.               Proof. reflexivity. Qed.
+Example over_program_rejected  : go_compile over_program = Err ErrIntOverflow. Proof. reflexivity. Qed.
+Example over_program_no_compile : forall facts, ~ GoCompile over_program facts.
+Proof. intro facts; exact (reject_no_compile over_program facts over_program_not_ok). Qed.
