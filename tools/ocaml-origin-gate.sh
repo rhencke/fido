@@ -39,17 +39,16 @@ fi
 for f in $fs_files; do
   if git ls-files --error-unmatch "$f" >/dev/null 2>&1; then
     lines=$(wc -l < "$f")
-    if [ "$lines" -gt 560 ]; then
-      echo "fido: OCAML-ORIGIN GATE — $f is $lines lines; a filesystem sink must stay bounded (<=560)."; exit 1
+    if [ "$lines" -gt 400 ]; then
+      echo "fido: OCAML-ORIGIN GATE — $f is $lines lines; the simplified filesystem sink must stay bounded (<=400)."; exit 1
     fi
     if grep -nE 'EConstr|Constr\.|Nametab|interp_constr|Reductionops|Evd\.|Global\.env' "$f"; then
       echo "fido: OCAML-ORIGIN GATE — $f is filesystem-only; it must not walk or decode Rocq terms."; exit 1
     fi
-    # The sink stages into random per-parent local dirs owned by root-owned records; it legitimately
-    # removes its OWN record-owned stage directories (rmdir + a symlink-safe recursive remove).  That the
-    # recursion targets ONLY validated record-owned stages (never a foreign tree or a mount) is enforced
-    # BEHAVIORALLY by the emit stage's foreign-preservation + local-stage recovery gates, not by a token
-    # blacklist.
+    # The sink stages each output into its reserved sibling temp `<final>.fido-tmp-v1` and installs by
+    # rename; it removes ONLY files it validates (regular reserved-suffix temps, or Fido-headed .go/go.mod).
+    # That it never deletes a foreign tree or a mount is enforced BEHAVIORALLY by the emit stage's
+    # foreign-preservation + two-phase-recovery gates, not by a token blacklist.
   fi
 done
 

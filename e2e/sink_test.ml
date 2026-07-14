@@ -1,15 +1,14 @@
 (* A tiny standalone driver that exercises the dirty-directory sink (plugin/fido_sink.ml) directly, so the
-   local-staging / record-recovery / foreign-rejection algorithm can be tested against dirty/adversarial
-   trees without the Rocq layer.  It syncs a fixed module image (a go.mod whose first line is the exact
-   ownership header, plus zero or more .go files) into argv.(1) and, on success, verifies each installed
-   file equals — byte for byte — the very bytes it handed the sink (no duplicate expected-bytes authority).
-   An optional argv.(2) selects the image shape and/or a fault, injected through the REAL algorithm via the
-   sink's operation PARAMETERS (no ambient env branch):
+   sibling-temp staging / two-phase recovery / foreign-rejection algorithm can be tested against
+   dirty/adversarial trees without the Rocq layer.  It syncs a fixed module image (a go.mod whose first line
+   is the exact ownership header, plus zero or more .go files) into argv.(1) and, on success, verifies each
+   installed file equals — byte for byte — the very bytes it handed the sink (no duplicate expected-bytes
+   authority).  An optional argv.(2) selects the image shape and/or a fault, injected through the REAL
+   algorithm via the sink's operation PARAMETERS (no ambient env branch):
      "empty"    — an EMPTY source map (go.mod only): the module-only program;
-     "multi"    — files in two parents (root main.go + sub/main.go): two local stages;
+     "multi"    — files in two parents (root main.go + sub/main.go): two sibling temps;
      "reserved" — a desired .go inside the reserved .fido/ namespace (rejected before any effect);
-     "collide"  — a FIXED nonce, so a pre-seeded record/stage forces the collision/retry path;
-     "unlink-fail"           — [unlink] always fails (recovery / cleanup / stale-removal failure);
+     "unlink-fail"           — [unlink] always fails (temp-delete / cleanup / stale-removal failure);
      "exdev"                 — [rename] raises EXDEV (a cross-device install must fail loud, no copy fallback);
      "foreign-before-install" — [before_install] makes the target foreign right before its ownership recheck
                   (an overwrite race): the recheck must abort rather than overwrite;
@@ -17,11 +16,11 @@
                   recheck (a deletion race): the recheck must NOT delete the now-foreign file;
      "fail-write-sub"        — [before_write] raises a HANDLED failure at a LATER stage (the sub/ file):
                   cleanup must run immediately and leave prior FINAL files untouched;
-     "fail-after-first-payload" — [checkpoint] raises a HANDLED failure after the first staged file: cleanup
-                  must run immediately and leave prior FINAL files untouched;
-     "crash-after-record" / "crash-after-mkdir" / "crash-after-first-payload" / "crash-after-staging"
+     "fail-after-first-payload" / "fail-after-staging" — [checkpoint] raises a HANDLED failure at that point:
+                  cleanup must run immediately and leave prior FINAL files untouched;
+     "crash-after-first-payload" / "crash-after-staging" / "crash-after-first-install"
                 — [checkpoint] TERMINATES the process (Unix._exit) at that exact point: a true crash, no
-                  finalizer, the lock stays held, and record/stage residue is left for the next run. *)
+                  finalizer, the lock stays held, and sibling-temp residue is left for the next run. *)
 let header = "// fido generated.  do not edit."
 let go_mod = header ^ "\n\nmodule fido.local/generated\n\ngo 1.23\n"
 (* distinctive, binary-sensitive .go bytes (control chars + tab, no final newline) with the header first
@@ -46,9 +45,6 @@ let () =
     | "multi"    -> [ ("main.go", mk "ROOT"); ("sub/main.go", mk "SUB") ]
     | "reserved" -> [ (".fido/x.go", mk "X") ]
     | _          -> [ ("main.go", mk "ROOT") ] in
-  let rand_hex =
-    if has "collide" then (fun _ -> "00112233445566778899aabbccddeeff")   (* fixed → forces collision *)
-    else Fido_sink.default_rand_hex in
   let checkpoint label =
     if has ("crash-" ^ label) then
       (Printf.eprintf "sink_test: crashing at %s\n%!" label; Unix._exit 137)
@@ -69,7 +65,7 @@ let () =
     if has "fail-write-sub" && has_sub sp then raise (Fido_sink.Fail "injected later-stage write failure") in
   let before_delete p =
     if has "foreign-before-delete" && has_sub p then make_foreign p in
-  match (try `Ok (Fido_sink.sync ~rand_hex ~checkpoint ~unlink ~rename ~before_install ~before_write
+  match (try `Ok (Fido_sink.sync ~checkpoint ~unlink ~rename ~before_install ~before_write
                     ~before_delete root go_mod entries)
          with Fido_sink.Fail m -> `Fail m) with
   | `Ok n ->

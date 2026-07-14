@@ -132,12 +132,13 @@ SH
 #    `Fido Emit` command (rocq c on the witnesses) decodes a proved DirectoryImage — the exact go.mod bytes
 #    plus the .go map — and the sink SYNCHRONIZES each tree (witness, multi-package, and the EMPTY module);
 #    the emit-time assumption-closure guard rejects TRANSIENTLY-generated forged images (never tracked);
-#    and a standalone driver exercises the dirty-directory sink: clean/dirty sync, foreign-Go/module
-#    REJECTION (§9), local per-parent staging with root-owned records, record-driven recovery of crashed
-#    residue at every point, malformed/escaping/mismatched/symlinked-stage records fail-closed, a nonce
-#    collision aborts preserving the colliding entry, and a cleanup/recovery unlink failure is surfaced then
-#    converges.  The plugin guards provenance (typecheck + assumption-closure) then decodes only the final
-#    (go.mod, entries) transport; it walks no program.
+#    and a standalone driver exercises the dirty-directory sink: clean/dirty sync, foreign-Go/module and
+#    nested-.fido REJECTION (§8), sibling `.fido-tmp-v1` staging with two-phase (inspect-then-delete)
+#    abandoned-temp recovery (regular/forged temps removed; symlink/dir/special temps fail-closed and
+#    preserved), complete-image staging before install, crash points (writing / staged / installing) that
+#    leave the lock + temps for a rerun, handled-failure + cleanup-failure aggregation, EXDEV no-copy, and
+#    overwrite + delete-time ownership rechecks.  The plugin guards provenance (typecheck +
+#    assumption-closure) then decodes only the final (go.mod, entries) transport; it walks no program.
 FROM rocq-base AS emit
 ARG TARGETARCH
 COPY --chown=opam:opam dune-project dune ./
@@ -247,30 +248,40 @@ cp plugin/fido_sink.ml e2e/sink_test.ml /tmp/
 if ! ( cd /tmp && ocamlfind ocamlopt -package unix -linkpkg fido_sink.ml sink_test.ml -o /workspace/sink_test ) > /tmp/sink.log 2>&1; then cat /tmp/sink.log; fail "sink_test compile FAILED"; fi
 cd /workspace
 hdr=$(head -1 "$O/go.mod")     # DERIVE the ownership header from actual emitted output (no hardcoded literal)
-records() { find "$1/.fido/stage-records" -mindepth 1 2>/dev/null; }
-stages()  { find "$1" -name '.fido-stage-*' 2>/dev/null; }
-residue() { records "$1"; stages "$1"; }
+temps() { find "$1" -name '*.fido-tmp-v1' 2>/dev/null; }   # any reserved sibling temp = residue
+residue() { temps "$1"; }
 
-# (1) clean sync → rendered go.mod + main.go + control marker; no stage/record residue.  (sink_test itself
-#     byte-verifies each installed file against its own staged bytes on every successful sync.)
+# ============================ Clean / dirty sync ============================
+# clean sync → rendered go.mod + main.go + control marker (marker + optional lock only); no temp residue.
+# (sink_test itself byte-verifies each installed file against its own staged bytes on every successful sync.)
 mkdir -p adv-1; ./sink_test adv-1 || fail "clean sync failed"
 { [ -f adv-1/go.mod ] && [ -f adv-1/main.go ] && [ -f adv-1/.fido/marker ]; } || fail "missing go.mod/main.go/marker"
-[ -z "$(residue adv-1)" ] || fail "stage/record residue leaked after a successful sync"
-# (2) re-sync: a stale OWNED .go (owned, not desired) is removed; foreign non-Go is preserved
+[ "$(ls adv-1/.fido)" = "marker" ] || fail "control dir holds more than the marker after a released run"
+[ -z "$(residue adv-1)" ] || fail "sibling-temp residue leaked after a successful sync"
+# Fido-owned files UPDATE, a stale owned .go is REMOVED, foreign non-Go is PRESERVED
 ./sink_test adv-1 multi || fail "multi re-sync failed"
 [ -f adv-1/sub/main.go ] || fail "multi re-sync did not create sub/main.go"
 printf 'keep\n' > adv-1/notes.txt
 ./sink_test adv-1 || fail "single re-sync failed"
 [ ! -e adv-1/sub/main.go ] || fail "a stale owned .go was not removed on re-sync"
 [ -f adv-1/notes.txt ] || fail "a foreign non-Go file was removed on re-sync"
-# (2b) empty re-sync removes ALL owned .go, keeps the owned go.mod + foreign files
+# empty program removes ALL owned .go, keeps the owned go.mod + foreign files
 ./sink_test adv-1 empty || fail "empty re-sync failed"
 [ ! -e adv-1/main.go ] || fail "empty program did not remove the owned main.go"
 [ -f adv-1/go.mod ] || fail "empty program removed the owned go.mod"
 [ -f adv-1/notes.txt ] || fail "empty program removed a foreign file"
 [ -z "$(residue adv-1)" ] || fail "residue after empty re-sync"
+# byte-distinct OWNED replacement: an owned go.mod/.go with DIFFERENT bytes is replaced (ownership = header)
+mkdir -p adv-repl
+printf '%s\n\nmodule stale/old\n\ngo 1.23\n' "$hdr" > adv-repl/go.mod
+printf '%s\n// STALE — replace me\npackage main\n\nfunc main() {}\n' "$hdr" > adv-repl/main.go
+cp adv-repl/go.mod /tmp/repl-gm; cp adv-repl/main.go /tmp/repl-mg
+./sink_test adv-repl || fail "repl: sync failed replacing byte-distinct owned files"
+if cmp -s /tmp/repl-gm adv-repl/go.mod;  then fail "repl: the owned go.mod was NOT replaced"; fi
+if cmp -s /tmp/repl-mg adv-repl/main.go; then fail "repl: the owned main.go was NOT replaced"; fi
 
-# (3) FOREIGN Go/module inputs REJECT before any generated-file mutation (§9); the foreign input survives
+# ============================ Foreign inputs ============================
+# each foreign class REJECTS before any generated-file mutation; the foreign input survives byte-unchanged.
 mkdir -p adv-fr; printf 'package main\nfunc main(){}\n' > adv-fr/foreign.go
 if ./sink_test adv-fr; then fail "a foreign root .go was NOT rejected"; fi
 [ -f adv-fr/foreign.go ] && [ ! -e adv-fr/main.go ] || fail "foreign root .go: input removed or generated file written"
@@ -292,282 +303,164 @@ if ./sink_test adv-ngm; then fail "a nested go.mod was NOT rejected"; fi
 mkdir -p adv-ur/locked; chmod 000 adv-ur/locked
 if ./sink_test adv-ur; then chmod 755 adv-ur/locked; fail "an unreadable directory did NOT fail closed"; fi
 chmod 755 adv-ur/locked
-# foreign .fido (no exact marker) → refuse and preserve
+# foreign rejection PRESERVES pre-existing generated finals (the scan precedes any generated-file mutation)
+mkdir -p adv-p1; ./sink_test adv-p1 || fail "p1: seed sync failed"
+cp adv-p1/go.mod /tmp/p1-gm; cp adv-p1/main.go /tmp/p1-mg
+printf 'package foreign\nfunc F(){}\n' > adv-p1/foreign.go
+if ./sink_test adv-p1; then fail "p1: a foreign .go was not rejected with prior finals present"; fi
+cmp -s /tmp/p1-gm adv-p1/go.mod || fail "p1: the prior go.mod was mutated before the refusal"
+cmp -s /tmp/p1-mg adv-p1/main.go || fail "p1: the prior main.go was mutated before the refusal"
+
+# ============================ Control namespace ============================
+# exact root .fido (marker + optional lock) accepted; a foreign/unexpected/nested .fido rejects + preserves.
 mkdir -p adv-ffido/.fido; printf 'nope\n' > adv-ffido/.fido/marker
 if ./sink_test adv-ffido; then fail "a foreign .fido control dir was NOT refused"; fi
 printf 'nope\n' | cmp -s - adv-ffido/.fido/marker || fail "a foreign .fido marker was altered"
+mkdir -p adv-shape; ./sink_test adv-shape || fail "shape: init"
+printf 'surprise\n' > adv-shape/.fido/surprise
+if ./sink_test adv-shape; then fail "shape: an unexpected .fido entry was not refused"; fi
+[ -f adv-shape/.fido/surprise ] || fail "shape: the unexpected entry was removed"
+# nested .fido of ANY type below root rejects + preserves (directory / symlink / regular file)
+mkdir -p adv-nfd/sub/.fido
+if ./sink_test adv-nfd; then fail "nfd: a nested .fido directory was not rejected"; fi
+[ -d adv-nfd/sub/.fido ] || fail "nfd: the nested .fido directory was removed"
+mkdir -p adv-nfl/sub; ln -s /etc adv-nfl/sub/.fido
+if ./sink_test adv-nfl; then fail "nfl: a nested .fido symlink was not rejected"; fi
+[ -L adv-nfl/sub/.fido ] || fail "nfl: the nested .fido symlink was removed/followed"
+mkdir -p adv-nfr/sub; printf 'x\n' > adv-nfr/sub/.fido
+if ./sink_test adv-nfr; then fail "nfr: a nested .fido regular file was not rejected"; fi
+[ -f adv-nfr/sub/.fido ] || fail "nfr: the nested .fido file was removed"
 
-# (3b) OWNED replacement (§25): an existing Fido-headed go.mod and .go with DIFFERENT bytes are REPLACED
-#      (ownership is the header first line, not the content).  Seed byte-distinct owned files, then sync —
-#      sink_test's own byte-check confirms the installed files equal the driver's (byte-distinct) bytes.
-mkdir -p adv-repl
-printf '%s\n\nmodule stale/old\n\ngo 1.23\n' "$hdr" > adv-repl/go.mod          # owned (header) but stale bytes
-printf '%s\n// STALE — replace me\npackage main\n\nfunc main() {}\n' "$hdr" > adv-repl/main.go
-cp adv-repl/go.mod /tmp/repl-gomod-old; cp adv-repl/main.go /tmp/repl-main-old
-./sink_test adv-repl || fail "repl: sync failed replacing byte-distinct owned files"
-if cmp -s /tmp/repl-gomod-old adv-repl/go.mod; then fail "repl: the owned go.mod was NOT replaced with the generated bytes"; fi
-if cmp -s /tmp/repl-main-old adv-repl/main.go; then fail "repl: the owned main.go was NOT replaced with the generated bytes"; fi
+# ============================ Reserved temp suffix ============================
+# an abandoned REGULAR reserved-suffix temp (root and nested) is removed after a complete successful scan.
+mkdir -p adv-t1; ./sink_test adv-t1 || fail "t1: init"
+printf 'junk\n' > adv-t1/go.mod.fido-tmp-v1
+mkdir -p adv-t1/sub; printf 'junk\n' > adv-t1/sub/leftover.go.fido-tmp-v1
+./sink_test adv-t1 || fail "t1: sync failed with abandoned temps present"
+[ -z "$(temps adv-t1)" ] || fail "t1: abandoned regular temps were not removed"
+# MULTIPLE temps are collected before deletion: an INVALID path elsewhere refuses BEFORE any temp is deleted.
+mkdir -p adv-t2; ./sink_test adv-t2 || fail "t2: init"
+printf 'a\n' > adv-t2/x.go.fido-tmp-v1; printf 'b\n' > adv-t2/y.go.fido-tmp-v1
+printf 'package foreign\n' > adv-t2/foreign.go            # invalid (foreign .go) elsewhere in the tree
+if ./sink_test adv-t2; then fail "t2: a foreign .go did not refuse the run"; fi
+{ [ -f adv-t2/x.go.fido-tmp-v1 ] && [ -f adv-t2/y.go.fido-tmp-v1 ]; } || fail "t2: a collected temp was deleted before the complete scan succeeded (two-phase violated)"
+rm -f adv-t2/foreign.go
+# a temp that is a SYMLINK / DIRECTORY / special is NOT owned → refuse + preserve.
+mkdir -p adv-tsl; ./sink_test adv-tsl || fail "tsl: init"; ln -s /etc/hostname adv-tsl/main.go.fido-tmp-v1
+if ./sink_test adv-tsl; then fail "tsl: a reserved-suffix symlink was not rejected"; fi
+[ -L adv-tsl/main.go.fido-tmp-v1 ] || fail "tsl: the reserved-suffix symlink was removed/followed"
+mkdir -p adv-tdir; ./sink_test adv-tdir || fail "tdir: init"; mkdir -p adv-tdir/main.go.fido-tmp-v1
+if ./sink_test adv-tdir; then fail "tdir: a reserved-suffix directory was not rejected"; fi
+[ -d adv-tdir/main.go.fido-tmp-v1 ] || fail "tdir: the reserved-suffix directory was removed"
+mkdir -p adv-tsp; ./sink_test adv-tsp || fail "tsp: init"; mkfifo adv-tsp/main.go.fido-tmp-v1
+if ./sink_test adv-tsp; then fail "tsp: a reserved-suffix special (fifo) was not rejected"; fi
+[ -p adv-tsp/main.go.fido-tmp-v1 ] || fail "tsp: the reserved-suffix fifo was removed"
+# a REGULAR foreign file using the reserved suffix is INTENTIONALLY classified Fido-owned and removed
+# (public, forgeable convention — an accepted tradeoff under the single-owner threat model).
+mkdir -p adv-tforge; ./sink_test adv-tforge || fail "tforge: init"
+printf 'not really fido\n' > adv-tforge/hand-written.fido-tmp-v1
+./sink_test adv-tforge || fail "tforge: sync failed with a forged reserved-suffix temp"
+[ ! -e adv-tforge/hand-written.fido-tmp-v1 ] || fail "tforge: a regular reserved-suffix file was not collected+removed"
 
-# (3c) FOREIGN rejection preserves PRE-EXISTING generated finals (§25): with owned go.mod + main.go already
-#      installed, each foreign-input class must REFUSE with the prior generated finals byte-UNCHANGED (the
-#      scan runs before any generated-file mutation) and the foreign input untouched.
-pre_seed() { d=$1; mkdir -p "$d"; ./sink_test "$d" || fail "$2: seed sync failed"; cp "$d/go.mod" /tmp/pre-gm; cp "$d/main.go" /tmp/pre-mg; }
-pre_check() { d=$1; cmp -s /tmp/pre-gm "$d/go.mod" || fail "$2: prior go.mod mutated before the refusal"; cmp -s /tmp/pre-mg "$d/main.go" || fail "$2: prior main.go mutated before the refusal"; }
-#   foreign .go (root) with priors
-pre_seed adv-p1 p1; printf 'package foreign\nfunc F(){}\n' > adv-p1/foreign.go
-if ./sink_test adv-p1; then fail "p1: a foreign .go was not rejected with prior finals present"; fi
-pre_check adv-p1 p1; printf 'package foreign\nfunc F(){}\n' | cmp -s - adv-p1/foreign.go || fail "p1: the foreign .go was altered"
-#   foreign nested .go with priors
-pre_seed adv-p2 p2; mkdir -p adv-p2/pkg; printf 'package pkg\n' > adv-p2/pkg/f.go
-if ./sink_test adv-p2; then fail "p2: a foreign nested .go was not rejected with prior finals present"; fi
-pre_check adv-p2 p2
-#   .go symlink with priors
-pre_seed adv-p3 p3; ln -s /etc/hostname adv-p3/link.go
-if ./sink_test adv-p3; then fail "p3: a .go symlink was not rejected with prior finals present"; fi
-pre_check adv-p3 p3; [ -L adv-p3/link.go ] || fail "p3: the .go symlink was removed/followed"
-#   nested go.mod with priors
-pre_seed adv-p4 p4; mkdir -p adv-p4/sub; printf 'module x\n' > adv-p4/sub/go.mod
-if ./sink_test adv-p4; then fail "p4: a nested go.mod was not rejected with prior finals present"; fi
-pre_check adv-p4 p4
-#   an unreadable directory with priors → fail closed, priors preserved
-pre_seed adv-p5 p5; mkdir -p adv-p5/locked; chmod 000 adv-p5/locked
-if ./sink_test adv-p5; then chmod 755 adv-p5/locked; fail "p5: an unreadable dir did not fail closed with priors"; fi
-chmod 755 adv-p5/locked; pre_check adv-p5 p5
-#   a FOREIGN root go.mod (replacing the owned one) with a prior owned main.go → refuse, main.go preserved
-mkdir -p adv-p6; ./sink_test adv-p6 || fail "p6: seed"; cp adv-p6/main.go /tmp/p6-mg
-printf 'module foreign\n' > adv-p6/go.mod
-if ./sink_test adv-p6; then fail "p6: a foreign root go.mod was not rejected with a prior owned main.go"; fi
-cmp -s /tmp/p6-mg adv-p6/main.go || fail "p6: the prior main.go was mutated before the foreign-go.mod refusal"
-printf 'module foreign\n' | cmp -s - adv-p6/go.mod || fail "p6: the foreign go.mod was altered"
-
-# (4) reserved namespace + prefix symlink: rejected BEFORE any effect
+# ============================ Reserved path + prefix symlink (rejected before any effect) ============================
 if ./sink_test /workspace/adv-resv reserved; then fail "a desired path inside .fido was NOT rejected"; fi
 [ ! -e /workspace/adv-resv ] || fail "a reserved-path rejection created the root (effect before validation)"
 mkdir -p /workspace/sreal; printf 'x\n' > /workspace/sreal/keep; ln -s /workspace/sreal /workspace/slink
 if ./sink_test /workspace/slink/child; then fail "wrote through a prefix symlink"; fi
 [ ! -e /workspace/sreal/child ] || fail "a prefix symlink created a child in the referent"
-printf 'x\n' | cmp -s - /workspace/sreal/keep || fail "a prefix symlink mutated the referent"
 
-# (5) MULTI-parent staging: root + sub each get a separate local stage; success installs both, no residue
-mkdir -p adv-multi; ./sink_test adv-multi multi || fail "multi-parent sync failed"
-{ [ -f adv-multi/go.mod ] && [ -f adv-multi/main.go ] && [ -f adv-multi/sub/main.go ]; } || fail "multi-parent tree incomplete"
-[ -z "$(residue adv-multi)" ] || fail "multi-parent residue after success"
-# SAME-parent sharing: go.mod + main.go share ONE root stage (crash-after-staging freezes the complete image)
-mkdir -p adv-share
-if ./sink_test adv-share crash-after-staging; then fail "share: the crash did not terminate the process"; fi
-nst=$(stages adv-share | wc -l); [ "$nst" -eq 1 ] || fail "share: expected ONE root stage, found $nst"
-nin=$(find $(stages adv-share) -type f | wc -l); [ "$nin" -eq 2 ] || fail "share: the shared stage should hold go.mod + main.go, found $nin"
-[ ! -e adv-share/main.go ] && [ ! -e adv-share/go.mod ] || fail "share: a file was installed before staging completed (staging must precede install)"
-rm -f adv-share/.fido/index.lock; ./sink_test adv-share || fail "share: no converge after clearing the stale lock"
-[ -z "$(residue adv-share)" ] || fail "share: residue survived recovery"
-
-# (6) CRASH at each staging point → the lock stays held, residue is left, a rerun REFUSES on the lock, and
-#     after the stale lock is cleared the record-driven recovery cleans the residue and converges.
-crash_recover() {  # <mode> <label>
-  d=/workspace/adv-crash-$2; mkdir -p "$d"; ./sink_test "$d" || fail "$2: initial sync failed"
-  if ./sink_test "$d" "$1"; then fail "$2: the crash mode did not terminate the process"; fi
-  [ -e "$d/.fido/index.lock" ] || fail "$2: a crash must leave the lock held (no finalizer ran)"
-  [ -n "$(residue "$d")" ] || fail "$2: the crash left no record/stage residue to recover"
-  if ./sink_test "$d"; then fail "$2: ran despite the crash-held lock"; fi
-  rm -f "$d/.fido/index.lock"
-  ./sink_test "$d" || fail "$2: did not converge after clearing the stale lock"
-  [ -z "$(residue "$d")" ] || fail "$2: residue survived recovery"
-  { [ -f "$d/go.mod" ] && [ -f "$d/main.go" ]; } || fail "$2: files missing after convergence"
-}
-crash_recover crash-after-record        record
-crash_recover crash-after-mkdir         mkdir
-crash_recover crash-after-first-payload payload
-crash_recover crash-after-staging       staging
-
-# (7) RECOVERY is record-driven and fail-closed.  Records carry an exact 32-hex-char nonce (16 bytes).
-N=abcdabcdabcdabcdabcdabcdabcdabcd   # a valid 32-char hex nonce
-M=deadbeefdeadbeefdeadbeefdeadbeef   # a DIFFERENT valid 32-char hex nonce
-#   a valid record + its real stage dir → BOTH removed;
-mkdir -p adv-rec2; ./sink_test adv-rec2 || fail "rec2: init"
-mkdir -p adv-rec2/.fido-stage-$N; printf 'x\n' > adv-rec2/.fido-stage-$N/f
-printf 'fido-stage-record v1\n%s\n\n.fido-stage-%s\n' "$N" "$N" > adv-rec2/.fido/stage-records/$N
-./sink_test adv-rec2 || fail "rec2: sync failed with a valid abandoned record"
-{ [ ! -e adv-rec2/.fido-stage-$N ] && [ ! -e adv-rec2/.fido/stage-records/$N ]; } || fail "rec2: recovery did not remove the record-owned stage + record"
-#   a recordless .fido-stage-* lookalike → PRESERVED;
-mkdir -p adv-look; ./sink_test adv-look || fail "look: init"
-mkdir -p adv-look/.fido-stage-$M; printf 'x\n' > adv-look/.fido-stage-$M/f
-./sink_test adv-look || fail "look: sync failed with a recordless lookalike present"
-[ -d adv-look/.fido-stage-$M ] || fail "look: a recordless lookalike stage was removed"
-#   a malformed record → fail closed (preserved);
-mkdir -p adv-badrec; ./sink_test adv-badrec || fail "badrec: init"
-printf 'garbage\n' > adv-badrec/.fido/stage-records/$N
-if ./sink_test adv-badrec; then fail "badrec: a malformed record did not fail closed"; fi
-[ -f adv-badrec/.fido/stage-records/$N ] || fail "badrec: the malformed record was removed"
-#   a record with TRAILING data → strict parse fails closed (preserved);
-mkdir -p adv-junkrec; ./sink_test adv-junkrec || fail "junkrec: init"
-printf 'fido-stage-record v1\n%s\n\n.fido-stage-%s\nEXTRA\n' "$N" "$N" > adv-junkrec/.fido/stage-records/$N
-if ./sink_test adv-junkrec; then fail "junkrec: a record with trailing data was not rejected"; fi
-[ -f adv-junkrec/.fido/stage-records/$N ] || fail "junkrec: the malformed record was removed"
-#   a record whose parent escapes root → fail closed;
-mkdir -p adv-outrec; ./sink_test adv-outrec || fail "outrec: init"
-printf 'fido-stage-record v1\n%s\n..\n../.fido-stage-%s\n' "$N" "$N" > adv-outrec/.fido/stage-records/$N
-if ./sink_test adv-outrec; then fail "outrec: an escaping record did not fail closed"; fi
-#   a nonce/filename mismatch → fail closed;
-mkdir -p adv-mmrec; ./sink_test adv-mmrec || fail "mmrec: init"
-printf 'fido-stage-record v1\n%s\n\n.fido-stage-%s\n' "$M" "$M" > adv-mmrec/.fido/stage-records/$N
-if ./sink_test adv-mmrec; then fail "mmrec: a nonce/filename mismatch did not fail closed"; fi
-#   an invalid (short) nonce → fail closed;
-mkdir -p adv-shortrec; ./sink_test adv-shortrec || fail "shortrec: init"
-printf 'fido-stage-record v1\nabcd\n\n.fido-stage-abcd\n' > adv-shortrec/.fido/stage-records/abcd
-if ./sink_test adv-shortrec; then fail "shortrec: an invalid-length nonce did not fail closed"; fi
-#   a recorded stage that is a symlink (not a directory) → fail closed, symlink preserved.
-mkdir -p adv-slrec; ./sink_test adv-slrec || fail "slrec: init"
-ln -s /etc adv-slrec/.fido-stage-$N
-printf 'fido-stage-record v1\n%s\n\n.fido-stage-%s\n' "$N" "$N" > adv-slrec/.fido/stage-records/$N
-if ./sink_test adv-slrec; then fail "slrec: a symlinked stage did not fail closed"; fi
-[ -L adv-slrec/.fido-stage-$N ] || fail "slrec: the symlink stage was removed/followed"
-#   a valid nested record whose recorded PARENT component is a symlink OUT of root → fail closed; recovery
-#   must NOT follow it, and the OUTSIDE directory + its contents are byte-preserved (traversal escape).
-mkdir -p /workspace/outside/.fido-stage-$N; printf 'outside-keep\n' > /workspace/outside/.fido-stage-$N/keep
-mkdir -p adv-esc; ./sink_test adv-esc || fail "esc: init"
-ln -s /workspace/outside adv-esc/sub                       # the recorded parent `sub` is now a symlink out of root
-printf 'fido-stage-record v1\n%s\nsub\nsub/.fido-stage-%s\n' "$N" "$N" > adv-esc/.fido/stage-records/$N
-if ./sink_test adv-esc; then fail "esc: recovery followed a symlinked recorded parent OUT of root"; fi
-[ -L adv-esc/sub ] || fail "esc: the parent symlink was removed/followed"
-[ -d /workspace/outside/.fido-stage-$N ] || fail "esc: the OUTSIDE stage dir was removed (symlink traversed)"
-printf 'outside-keep\n' | cmp -s - /workspace/outside/.fido-stage-$N/keep || fail "esc: the outside stage content was altered"
-
-# (7b) an EXISTING marked .fido with the wrong SHAPE is refused WITHOUT modification (§12):
-#   an unexpected top-level entry → refuse and preserve;
-mkdir -p adv-shape; ./sink_test adv-shape || fail "shape: init"
-printf 'surprise\n' > adv-shape/.fido/surprise
-if ./sink_test adv-shape; then fail "shape: an unexpected .fido entry was not refused"; fi
-[ -f adv-shape/.fido/surprise ] || fail "shape: the unexpected entry was removed"
-#   a marked .fido MISSING its stage-records/ directory → refuse.
-mkdir -p adv-shape2; ./sink_test adv-shape2 || fail "shape2: init"
-rm -rf adv-shape2/.fido/stage-records
-if ./sink_test adv-shape2; then fail "shape2: a marked .fido without stage-records/ was not refused"; fi
-
-# (8) a fixed-nonce COLLISION with a pre-existing stage aborts (retry exhausted), preserving the entry
-mkdir -p adv-coll; ./sink_test adv-coll || fail "coll: init"
-mkdir -p adv-coll/.fido-stage-00112233445566778899aabbccddeeff
-if ./sink_test adv-coll collide; then fail "coll: a fixed-nonce collision did not abort"; fi
-[ -d adv-coll/.fido-stage-00112233445566778899aabbccddeeff ] || fail "coll: the colliding entry was removed"
-[ -z "$(records adv-coll)" ] || fail "coll: a record leaked from the aborted collision"
-
-# (9) an [unlink] failure during recovery aborts fail-loud (residue preserved, lock released), then a clean
-#     rerun converges; and an [unlink] failure in the cleanup phase surfaces the failure, leaves the record,
-#     and a clean rerun recovers it.
-mkdir -p adv-ruf; ./sink_test adv-ruf || fail "ruf: init"
-mkdir -p adv-ruf/.fido-stage-$N; printf 'x\n' > adv-ruf/.fido-stage-$N/f
-printf 'fido-stage-record v1\n%s\n\n.fido-stage-%s\n' "$N" "$N" > adv-ruf/.fido/stage-records/$N
-if ./sink_test adv-ruf unlink-fail; then fail "ruf: a recovery unlink failure did not abort"; fi
-[ -d adv-ruf/.fido-stage-$N ] || fail "ruf: the stage was removed despite the unlink failure"
-[ ! -e adv-ruf/.fido/index.lock ] || fail "ruf: the lock was not released after a recovery abort"
-./sink_test adv-ruf || fail "ruf: did not converge on a clean rerun"
-[ -z "$(residue adv-ruf)" ] || fail "ruf: residue survived convergence"
+# ============================ Complete staging ============================
+# crash-after-staging: EVERY desired sibling temp exists before the FIRST install (staging precedes install).
+mkdir -p adv-stage
+if ./sink_test adv-stage multi crash-after-staging; then fail "stage: the crash did not terminate the process"; fi
+{ [ -f adv-stage/go.mod.fido-tmp-v1 ] && [ -f adv-stage/main.go.fido-tmp-v1 ] && [ -f adv-stage/sub/main.go.fido-tmp-v1 ]; } || fail "stage: not every sibling temp was staged before install"
+{ [ ! -e adv-stage/go.mod ] && [ ! -e adv-stage/main.go ] && [ ! -e adv-stage/sub/main.go ]; } || fail "stage: a file was installed before staging completed"
+rm -f adv-stage/.fido/index.lock; ./sink_test adv-stage multi || fail "stage: no converge after clearing the stale lock"
+[ -z "$(residue adv-stage)" ] || fail "stage: residue survived recovery"
+# a later-stage WRITE failure (sub/) changes NO prior FINAL and, once cleanup succeeds, leaves no residue.
+mkdir -p adv-latew; ./sink_test adv-latew multi || fail "latew: init"
+cp adv-latew/go.mod /tmp/lw-gm; cp adv-latew/main.go /tmp/lw-mg; cp adv-latew/sub/main.go /tmp/lw-sg
+if ./sink_test adv-latew multi fail-write-sub 2>/dev/null; then fail "latew: a later-stage write failure was not surfaced"; fi
+{ cmp -s /tmp/lw-gm adv-latew/go.mod && cmp -s /tmp/lw-mg adv-latew/main.go && cmp -s /tmp/lw-sg adv-latew/sub/main.go; } || fail "latew: a prior final changed after a later-stage write failure"
+[ -z "$(residue adv-latew)" ] || fail "latew: temp residue survived a handled write failure (cleanup succeeded)"
+./sink_test adv-latew multi || fail "latew: no converge"
+# a handled failure after the first staged file removes EVERY created temp (cleanup succeeds); finals intact.
+mkdir -p adv-late; ./sink_test adv-late || fail "late: init"
+cp adv-late/go.mod /tmp/late-gm; cp adv-late/main.go /tmp/late-mg
+if ./sink_test adv-late fail-after-first-payload 2>/dev/null; then fail "late: a handled staging failure was not surfaced"; fi
+cmp -s /tmp/late-gm adv-late/go.mod || fail "late: a prior final go.mod changed"
+cmp -s /tmp/late-mg adv-late/main.go || fail "late: a prior final main.go changed"
+[ -z "$(residue adv-late)" ] || fail "late: temp residue survived a handled failure"
+[ ! -e adv-late/.fido/index.lock ] || fail "late: the lock was not released after a handled failure"
+./sink_test adv-late || fail "late: did not converge on a clean rerun"
+# a cleanup failure reports BOTH the initiating body error AND the cleanup error, then a clean rerun converges.
 mkdir -p adv-cuf
-if out=$(./sink_test adv-cuf unlink-fail 2>&1); then fail "cuf: an unlink failure in the cleanup phase was not surfaced"; fi
-echo "$out" | grep -q 'cleanup FAILED' || { echo "$out"; fail "cuf: the cleanup failure was not reported alongside the body result"; }
+if out=$(./sink_test adv-cuf fail-after-first-payload+unlink-fail 2>&1); then fail "cuf: the compound failure was not surfaced"; fi
+echo "$out" | grep -q 'injected handled failure' || { echo "$out"; fail "cuf: the initiating body error was hidden"; }
+echo "$out" | grep -q 'cleanup FAILED' || { echo "$out"; fail "cuf: the cleanup failure was not reported"; }
 [ ! -e adv-cuf/.fido/index.lock ] || fail "cuf: the lock was not released after a cleanup failure"
-./sink_test adv-cuf || fail "cuf: did not converge on a clean rerun"
-[ -z "$(residue adv-cuf)" ] || fail "cuf: residue survived convergence"
+rm -f adv-cuf/*.fido-tmp-v1; ./sink_test adv-cuf || fail "cuf: no converge after removing residue"
 
-# (10) EXDEV on a local rename fails LOUD with no copy fallback (nothing installed)
+# ============================ Crash / recovery ============================
+# crash WHILE WRITING leaves lock + a PARTIAL temp; crash AFTER STAGING leaves lock + ALL temps + old finals;
+# crash DURING INSTALL leaves lock + mixed finals + remaining temps.  Each: a rerun REFUSES on the held lock;
+# after the stale lock is deliberately cleared, a rerun removes the temps and converges.
+crash_recover() {  # <mode> <label>
+  d=/workspace/adv-crash-$2; mkdir -p "$d"; ./sink_test "$d" multi || fail "$2: initial sync failed"
+  if ./sink_test "$d" multi "$1"; then fail "$2: the crash did not terminate the process"; fi
+  [ -e "$d/.fido/index.lock" ] || fail "$2: a crash must leave the lock held (no finalizer ran)"
+  [ -n "$(temps "$d")" ] || fail "$2: the crash left no sibling-temp residue to recover"
+  if ./sink_test "$d" multi; then fail "$2: ran despite the crash-held lock"; fi
+  rm -f "$d/.fido/index.lock"
+  ./sink_test "$d" multi || fail "$2: did not converge after clearing the stale lock"
+  [ -z "$(temps "$d")" ] || fail "$2: temp residue survived recovery"
+  { [ -f "$d/go.mod" ] && [ -f "$d/main.go" ] && [ -f "$d/sub/main.go" ]; } || fail "$2: files missing after convergence"
+}
+crash_recover crash-after-first-payload writing
+crash_recover crash-after-staging       staged
+crash_recover crash-after-first-install installing
+
+# ============================ Rename / ownership ============================
+# EXDEV fails LOUD with no copy fallback; nothing installed; lock released.
 mkdir -p adv-exdev
 if out=$(./sink_test adv-exdev exdev 2>&1); then fail "exdev: a cross-device rename did not fail"; fi
 echo "$out" | grep -q 'cross-device' || { echo "$out"; fail "exdev: not the cross-device failure"; }
 { [ ! -e adv-exdev/go.mod ] && [ ! -e adv-exdev/main.go ]; } || fail "exdev: a file was installed despite EXDEV (copy fallback?)"
 [ ! -e adv-exdev/.fido/index.lock ] || fail "exdev: the lock was not released"
-
-# (11) IMMEDIATE ownership recheck: a target that becomes foreign right before its overwrite is NOT clobbered
+# OVERWRITE ownership rechecked immediately: a target that becomes foreign right before its overwrite aborts.
 mkdir -p adv-race; ./sink_test adv-race || fail "race: init"
 if ./sink_test adv-race foreign-before-install; then fail "race: overwrote a target that became foreign"; fi
-printf 'FOREIGN not a fido file\n' | cmp -s - adv-race/main.go || fail "race: the now-foreign main.go was overwritten by generated bytes"
-
-# (12) COMPLETE-image staging precedes install: a handled failure after the first staged file leaves ALL
-#      prior final generated files byte-identical, cleans residue, releases the lock, and reruns converge.
-mkdir -p adv-late; ./sink_test adv-late || fail "late: init"
-cp adv-late/go.mod /tmp/late-go.mod; cp adv-late/main.go /tmp/late-main.go   # byte snapshots of the prior finals
-if ./sink_test adv-late fail-after-first-payload 2>/dev/null; then fail "late: a handled staging failure was not surfaced"; fi
-cmp -s /tmp/late-go.mod adv-late/go.mod  || fail "late: a prior final go.mod changed after a later-stage failure"
-cmp -s /tmp/late-main.go adv-late/main.go || fail "late: a prior final main.go changed after a later-stage failure"
-[ -z "$(residue adv-late)" ] || fail "late: residue survived a handled failure"
-[ ! -e adv-late/.fido/index.lock ] || fail "late: the lock was not released after a handled failure"
-./sink_test adv-late || fail "late: did not converge on a clean rerun"
-
-# (13) a LATER-STAGE write failure (a genuine write error at the sub/ file, before ANY install) leaves all
-#      prior FINAL generated files byte-identical (complete-image staging precedes install), cleans up, and
-#      reruns converge.
-mkdir -p adv-latew; ./sink_test adv-latew multi || fail "latew: init"
-cp adv-latew/go.mod /tmp/latew-go.mod; cp adv-latew/main.go /tmp/latew-main.go; cp adv-latew/sub/main.go /tmp/latew-sub.go
-if ./sink_test adv-latew multi fail-write-sub 2>/dev/null; then fail "latew: a later-stage write failure was not surfaced"; fi
-{ cmp -s /tmp/latew-go.mod adv-latew/go.mod && cmp -s /tmp/latew-main.go adv-latew/main.go && cmp -s /tmp/latew-sub.go adv-latew/sub/main.go; } || fail "latew: a prior final changed after a later-stage write failure"
-[ -z "$(residue adv-latew)" ] || fail "latew: residue survived a later-stage write failure"
-./sink_test adv-latew multi || fail "latew: no converge"
-
-# (14) DELETION ownership race (§17): a stale owned .go that becomes foreign right before its stale-delete
-#      recheck ABORTS the emission fail-closed (never deletes a file that is no longer provably ours), and
-#      the file survives with its foreign bytes.  Emit multi (root+sub owned), then re-emit single so
-#      sub/main.go is stale; the race makes it foreign → the recheck fails the run.
+printf 'FOREIGN not a fido file\n' | cmp -s - adv-race/main.go || fail "race: the now-foreign main.go was overwritten"
+# STALE-DELETE ownership rechecked immediately: a stale owned .go that becomes foreign right before its
+# stale-delete recheck ABORTS fail-closed and survives with its foreign bytes.
 mkdir -p adv-del; ./sink_test adv-del multi || fail "del: init"
-if out=$(./sink_test adv-del foreign-before-delete 2>&1); then fail "del: a delete-time ownership mismatch did not abort"; fi
+if out=$(./sink_test adv-del foreign-before-delete 2>&1); then fail "del: a delete-time mismatch did not abort"; fi
 echo "$out" | grep -q 'no longer Fido-owned' || { echo "$out"; fail "del: not the delete-time ownership abort"; }
-printf 'FOREIGN not a fido file\n' | cmp -s - adv-del/sub/main.go || fail "del: a stale file that became foreign was deleted or overwritten"
+printf 'FOREIGN not a fido file\n' | cmp -s - adv-del/sub/main.go || fail "del: a stale file that became foreign was deleted"
 [ ! -e adv-del/.fido/index.lock ] || fail "del: the lock was not released after the delete-time abort"
+# a sibling temp resides BESIDE each nested final, and a REAL nested mount (distinct device) is supported: the
+# sub/ temp is a sibling on the mount device, so its rename is atomic (a central-staging design would EXDEV).
+rm -rf /workspace/adv-mount/sub/* /workspace/adv-mount/sub/.[!.]* 2>/dev/null || true
+[ -w /workspace/adv-mount ] || fail "mount: the cross-mount test root is not writable by the emit user"
+[ -w /workspace/adv-mount/sub ] || fail "mount: the nested mount is not writable by the emit user"
+devr=$(stat -c '%d' /workspace/adv-mount); devs=$(stat -c '%d' /workspace/adv-mount/sub)
+[ "$devr" != "$devs" ] || fail "mount: adv-mount/sub (dev $devs) is not a distinct device from root (dev $devr)"
+./sink_test /workspace/adv-mount multi || fail "mount: a nested cross-mount parent was rejected"
+{ [ -f /workspace/adv-mount/go.mod ] && [ -f /workspace/adv-mount/main.go ] && [ -f /workspace/adv-mount/sub/main.go ]; } || fail "mount: nested cross-mount tree incomplete"
+[ -z "$(residue /workspace/adv-mount)" ] || fail "mount: residue after a cross-mount success"
+echo "fido: cross-mount OK — a nested sibling temp on a distinct device (dev $devs != root dev $devr) renamed atomically"
 
-# (15) HANDLED failures INSIDE make_stage (after the record, and after the stage dir) clean up immediately —
-#      no record/stage residue survives (an unregistered partial must not escape cleanup).
-for pt in after-record after-mkdir; do
-  d=/workspace/adv-ims-$pt; mkdir -p "$d"
-  if ./sink_test "$d" "" "fail-$pt" 2>/dev/null; then fail "ims-$pt: a handled make_stage failure was not surfaced"; fi
-  [ -z "$(residue "$d")" ] || fail "ims-$pt: record/stage residue survived a handled make_stage failure"
-  [ ! -e "$d/.fido/index.lock" ] || fail "ims-$pt: the lock was not released"
-  ./sink_test "$d" || fail "ims-$pt: no converge on a clean rerun"
-done
-
-# (15b) a body failure WITH a concurrent cleanup failure: a handled failure after staging AND an injected
-#       unlink failure — the stage cannot be removed, so its record is PRESERVED (recoverable), BOTH the
-#       body error and the cleanup failure are reported, and a clean rerun's recovery converges.
-mkdir -p adv-mscl; ./sink_test adv-mscl || fail "mscl: init"
-if out=$(./sink_test adv-mscl "" fail-after-staging+unlink-fail 2>&1); then fail "mscl: the compound failure was not surfaced"; fi
-echo "$out" | grep -q 'injected handled failure' || { echo "$out"; fail "mscl: the body failure was not reported"; }
-echo "$out" | grep -q 'cleanup FAILED' || { echo "$out"; fail "mscl: the cleanup failure was not reported alongside the body failure"; }
-[ -n "$(records adv-mscl)" ] || fail "mscl: the record was removed even though its stage could not be"
-[ ! -e adv-mscl/.fido/index.lock ] || fail "mscl: the lock was not released"
-./sink_test adv-mscl || fail "mscl: no converge after recovery"
-[ -z "$(residue adv-mscl)" ] || fail "mscl: residue survived recovery"
-
-# (15c) a failed FIRST-TIME .fido init (umask 0777 → .fido is created mode 000 → marker creation EACCES, and
-#       the rollback's own lstat of the mode-000 dir also EACCES) must still ROLL BACK, keep the INITIATING
-#       error visible, aggregate the rollback errors, and leave nothing that strands the target — a normal
-#       rerun converges.
+# ============================ First-time init rollback ============================
+# a failed FIRST-TIME .fido init (umask 0777 → .fido mode 000 → marker EACCES, and the rollback lstat also
+# EACCES) still ROLLS BACK, keeps the INITIATING error visible, aggregates, and a normal rerun converges.
 mkdir -p adv-umask
 if out=$( umask 0777; ./sink_test adv-umask 2>&1 ); then fail "umask: a failed first-time .fido init did not surface"; fi
 echo "$out" | grep -q 'init failed' || { echo "$out"; fail "umask: the init failure was not reported"; }
 echo "$out" | grep -q 'Permission denied' || { echo "$out"; fail "umask: the INITIATING (marker EACCES) error was hidden"; }
-[ ! -e adv-umask/.fido ] || fail "umask: the partial mode-000 .fido was not rolled back (would strand the target)"
+[ ! -e adv-umask/.fido ] || fail "umask: the partial mode-000 .fido was not rolled back"
 ./sink_test adv-umask || fail "umask: a normal rerun did not converge after rollback"
-[ -z "$(residue adv-umask)" ] || fail "umask: residue after convergence"
 
-# (16) SEPARATE per-parent stages: a MULTI image frozen at crash-after-staging shows TWO stage dirs — one in
-#      root, one in sub/ (a SIBLING of the nested target, not central).
-mkdir -p adv-sep
-if ./sink_test adv-sep multi crash-after-staging 2>/dev/null; then fail "sep: the crash did not terminate the process"; fi
-[ "$(stages adv-sep | wc -l)" -eq 2 ] || fail "sep: expected TWO separate per-parent stages, found $(stages adv-sep | wc -l)"
-[ -n "$(find adv-sep/sub -name '.fido-stage-*' 2>/dev/null)" ] || fail "sep: no sibling stage in the nested parent sub/"
-rm -f adv-sep/.fido/index.lock; ./sink_test adv-sep multi || fail "sep: no converge"
-
-# (17) a nested destination parent on ANOTHER MOUNT (an opam-owned cache mount at adv-mount/sub — a DISTINCT
-#      device from the overlay root where .fido lives) is NOT centrally rejected: the sibling stage is on the
-#      target's device, so the rename is atomic.  (The OLD central-staging design would EXDEV here.)  This is
-#      a BLOCKING gate — a setup that is not writable or not genuinely cross-device FAILS, never degrades.
-rm -rf /workspace/adv-mount/sub/* /workspace/adv-mount/sub/.[!.]* 2>/dev/null || true   # clean the persistent cache
-[ -w /workspace/adv-mount ] || fail "mount: the cross-mount test root is not writable by the emit user"
-[ -w /workspace/adv-mount/sub ] || fail "mount: the nested mount is not writable by the emit user"
-devr=$(stat -c '%d' /workspace/adv-mount); devs=$(stat -c '%d' /workspace/adv-mount/sub)
-[ "$devr" != "$devs" ] || fail "mount: adv-mount/sub (dev $devs) is not a distinct device from root (dev $devr) — the cross-mount gate needs a real different mount"
-./sink_test /workspace/adv-mount multi || fail "mount: a nested cross-mount parent was rejected"
-{ [ -f /workspace/adv-mount/go.mod ] && [ -f /workspace/adv-mount/main.go ] && [ -f /workspace/adv-mount/sub/main.go ]; } || fail "mount: nested cross-mount tree incomplete"
-[ -z "$(residue /workspace/adv-mount)" ] || fail "mount: residue after a cross-mount success"
-echo "fido: cross-mount OK — a nested parent on a distinct device (cache mount dev $devs != root dev $devr) was accepted"
-
-echo "fido: emit OK — general Fido Emit synced the witness / multi-package / EMPTY trees (rendered go.mod); forged images rejected; sink foreign-Go rejection + local-staging + record-driven recovery (crash points, in-make_stage handled failures, body+cleanup failure aggregation with record preservation, malformed/escaping/mismatched/short/symlinked records, collision, unlink-failure, later-stage write failure, overwrite race + delete-time abort, separate per-parent + REAL cross-mount nested staging) all pass"
+echo "fido: emit OK — general Fido Emit synced the witness / multi-package / EMPTY trees (rendered go.mod); forged images rejected; sink foreign-Go/module + nested-.fido rejection, sibling-temp two-phase recovery (abandoned/forged/symlink/dir/special temps), complete-image staging, crash points (writing/staged/installing), handled-failure + cleanup-failure aggregation, EXDEV no-copy, overwrite + delete-time ownership rechecks, first-time rollback, and REAL cross-mount nested staging all pass"
 SH
 
 # ── Stage 5: go-e2e — the LAST-MILE integration check (never a proof).  The pinned Go toolchain builds the
