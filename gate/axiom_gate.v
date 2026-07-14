@@ -56,6 +56,9 @@ Print Assumptions GoTypes.res_int_max.
 Print Assumptions GoTypes.res_int_min.
 Print Assumptions GoTypes.res_over.
 Print Assumptions GoTypes.res_under.
+Print Assumptions GoTypes.empty_program_typed.
+Print Assumptions GoTypes.bool_not_resolve_int.
+Print Assumptions GoTypes.int_not_resolve_bool.
 
 (* GoCompile (A) internal exactness: whole-program prog_ok reflects the declarative judgment (now rooted
    in the GoTypes typing authority); go_compile sound + complete against it; a rejected program yields no

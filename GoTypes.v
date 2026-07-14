@@ -223,19 +223,28 @@ Example res_bool_false : resolve_expr UsePrintlnArg (EBool false) = Some TBool. 
 Example res_int_zero   : resolve_expr UsePrintlnArg (EInt 0)      = Some TInt.  Proof. reflexivity. Qed.
 Example res_neg_zero   : resolve_expr UsePrintlnArg (ENeg 0)      = Some TInt.  Proof. reflexivity. Qed.
 Example const_zero_eq  : const_value (EInt 0) = const_value (ENeg 0). Proof. reflexivity. Qed.
-(* max int = 2^63-1 = 9223372036854775807 as EInt magnitude; min int = -(2^63) as ENeg magnitude. *)
-Example res_int_max    : resolve_expr UsePrintlnArg (EInt 9223372036854775807) = Some TInt. Proof. reflexivity. Qed.
-Example res_int_min    : resolve_expr UsePrintlnArg (ENeg 9223372036854775808) = Some TInt. Proof. reflexivity. Qed.
-(* a mixed statement, empty println, empty file, empty program are all typed. *)
-Example stmt_mixed_typed : stmt_typedb (SPrintln [EBool true; EInt 42; ENeg 1]) = true. Proof. reflexivity. Qed.
-Example stmt_empty_typed : stmt_typedb (SPrintln []) = true. Proof. reflexivity. Qed.
-Example file_empty_typed : file_typedb [] = true. Proof. reflexivity. Qed.
+(* the int boundaries, expressed THROUGH the one [Ints] authority (int_min/int_max) — never duplicating the
+   numeric bounds: the max/min literals resolve as [TInt]. *)
+Example res_int_max : resolve_expr UsePrintlnArg (EInt (Z.to_N int_max))     = Some TInt. Proof. reflexivity. Qed.
+Example res_int_min : resolve_expr UsePrintlnArg (ENeg (Z.to_N (- int_min))) = Some TInt. Proof. reflexivity. Qed.
+(* a mixed statement, empty println, empty file, and the empty PROGRAM are all typed. *)
+Example stmt_mixed_typed    : stmt_typedb (SPrintln [EBool true; EInt 42; ENeg 1]) = true. Proof. reflexivity. Qed.
+Example stmt_empty_typed    : stmt_typedb (SPrintln []) = true. Proof. reflexivity. Qed.
+Example file_empty_typed    : file_typedb [] = true. Proof. reflexivity. Qed.
+Example empty_program_typed : forall ms, program_typedb (empty_program ms) = true. Proof. intro ms; reflexivity. Qed.
 
-(* negatives: overflow / underflow / cross-type do NOT resolve. *)
-Example res_over  : resolve_expr UsePrintlnArg (EInt 9223372036854775808) = None. Proof. reflexivity. Qed.
-Example res_under : resolve_expr UsePrintlnArg (ENeg 9223372036854775809) = None. Proof. reflexivity. Qed.
+(* negatives: one past each Ints bound does NOT resolve (overflow/underflow). *)
+Example res_over  : resolve_expr UsePrintlnArg (EInt (Z.to_N (int_max + 1)))   = None. Proof. reflexivity. Qed.
+Example res_under : resolve_expr UsePrintlnArg (ENeg (Z.to_N (- int_min + 1))) = None. Proof. reflexivity. Qed.
+(* wrong-type representability is false ... *)
 Example bool_not_int  : const_representableb TInt  (CBool true) = false. Proof. reflexivity. Qed.
 Example int_not_bool  : const_representableb TBool (CInt 3)     = false. Proof. reflexivity. Qed.
+(* ... and at the RESOLUTION level a boolean does NOT resolve as TInt, nor an integer as TBool (resolution
+   only ever yields the constant's DEFAULT type). *)
+Example bool_not_resolve_int : ~ ResolveExpr UsePrintlnArg (EBool true) TInt.
+Proof. intro H; apply resolve_expr_complete in H; cbn in H; discriminate H. Qed.
+Example int_not_resolve_bool : ~ ResolveExpr UsePrintlnArg (EInt 3) TBool.
+Proof. intro H; apply resolve_expr_complete in H; cbn in H; discriminate H. Qed.
 (* an out-of-range argument makes its statement AND its enclosing declaration/file fail typing. *)
-Example over_stmt_untyped : stmt_typedb (SPrintln [EInt 9223372036854775808]) = false. Proof. reflexivity. Qed.
-Example over_file_untyped : file_typedb [ DMain [ SPrintln [EInt 9223372036854775808] ] ] = false. Proof. reflexivity. Qed.
+Example over_stmt_untyped : stmt_typedb (SPrintln [EInt (Z.to_N (int_max + 1))]) = false. Proof. reflexivity. Qed.
+Example over_file_untyped : file_typedb [ DMain [ SPrintln [EInt (Z.to_N (int_max + 1))] ] ] = false. Proof. reflexivity. Qed.

@@ -25,14 +25,18 @@ allowed='e2e/fido_apply.ml e2e/sink_test.ml plugin/fido_sink.ml plugin/g_fido.ml
 fs_files='plugin/fido_sink.ml e2e/sink_test.ml e2e/fido_apply.ml'
 bridge='plugin/g_fido.mlg'
 
-# (1) only the four transport/apply files may be tracked OCaml (every depth; only .git metadata pruned; no
-#     -type f, so a tracked symlink or directory named *.ml/*.mli/*.mlg is still surfaced, fail-closed).
-found=$(find "$root" -name .git -prune -o \
-             \( -name '*.ml' -o -name '*.mli' -o -name '*.mlg' \) -print 2>/dev/null \
-        | sed "s#^$root/*##" | LC_ALL=C sort)
-extra=$(printf '%s\n' "$found" | grep -vxF -e e2e/sink_test.ml -e plugin/fido_sink.ml -e e2e/fido_apply.ml -e plugin/g_fido.mlg || true)
+# (1) only the four transport/apply files may be tracked OCaml (every depth; only .git metadata pruned).
+#     PATHNAME-SAFE: the four allowed paths are PRUNED, so `find -print` emits exactly the OCaml files that
+#     are NOT allowed — no shell word-splitting of paths (a rogue name with spaces/newlines is still
+#     surfaced).  No -type f, so a tracked symlink or directory named *.ml/*.mli/*.mlg is surfaced too.
+extra=$(find "$root" -name .git -prune -o \
+             -path "$root/e2e/fido_apply.ml"  -prune -o \
+             -path "$root/e2e/sink_test.ml"   -prune -o \
+             -path "$root/plugin/fido_sink.ml" -prune -o \
+             -path "$root/plugin/g_fido.mlg"  -prune -o \
+             \( -name '*.ml' -o -name '*.mli' -o -name '*.mlg' \) -print 2>/dev/null)
 if [ -n "$extra" ]; then
-  echo "fido: OCAML-ORIGIN GATE — only the transport/apply files ($allowed) may be tracked OCaml.  Offending:"; printf '%s\n' "$extra" | sed 's/^/  /'; exit 1
+  echo "fido: OCAML-ORIGIN GATE — only the transport/apply files ($allowed) may be tracked OCaml.  Offending:"; printf '%s\n' "$extra" | sed "s#^$root/*##; s/^/  /"; exit 1
 fi
 
 # (2) the filesystem-only files walk no Rocq terms (no source-line ceiling — a cap is not a correctness invariant).
@@ -51,12 +55,14 @@ if [ -f "$root/$bridge" ]; then
   fi
 fi
 
-# (4) no deleted-backend hallmark NAME reappears in tracked sources.
+# (4) no deleted-backend hallmark NAME reappears in tracked sources.  PATHNAME-SAFE: `find -exec grep` passes
+#     real paths straight to grep (never through the shell/xargs word-splitting), so a hallmark in a path
+#     containing spaces or newlines is still read.  This gate script is pruned (it holds the banned names in
+#     `banned=` below; it is a .sh and thus already outside the scanned name set, but the prune is explicit).
 banned='MiniML|Smartlocate|mono_environment|pp_struct|Extract_env|rocq-go-extraction|rocq_go_extraction|g_go_extraction|build_goexpr|pp_expr'
-hits=$(find "$root" -name .git -prune -o \
-            \( -name '*.v' -o -name '*.ml' -o -name '*.mlg' -o -name 'Makefile' -o -name 'Dockerfile' -o -name 'dune' -o -name 'dune-project' \) -type f -print 2>/dev/null \
-       | grep -v "/tools/ocaml-origin-gate.sh$" \
-       | xargs grep -lE "$banned" 2>/dev/null || true)
+hits=$(find "$root" -name .git -prune -o -path "$root/tools/ocaml-origin-gate.sh" -prune -o \
+            \( -name '*.v' -o -name '*.ml' -o -name '*.mlg' -o -name 'Makefile' -o -name 'Dockerfile' -o -name 'dune' -o -name 'dune-project' \) -type f \
+            -exec grep -lE "$banned" {} + 2>/dev/null || true)
 if [ -n "$hits" ]; then
   echo "fido: OCAML-ORIGIN GATE — a deleted-backend hallmark NAME reappears in tracked sources:"; printf '%s\n' "$hits" | sed "s#^$root/*##; s/^/  /"; exit 1
 fi

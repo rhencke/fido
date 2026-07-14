@@ -62,6 +62,19 @@ s="$work/s1-clean"; mk_snapshot "$s"
 accept "a clean staged snapshot passes the ocaml-origin gate"     sh "$s/tools/ocaml-origin-gate.sh" "$s"
 accept "a clean staged snapshot passes the generated-output gate" sh "$s/tools/generated-output-gate.sh" "$s"
 
+# ---- (1b) PATHNAME SAFETY: hallmark scan + allowlist must be robust to spaces / newlines in tracked paths ----
+# (the old `find | xargs grep` word-split a `nested/bad file.v` into two args, so a hallmark there was never
+# read — a fail-open; `find -exec grep` / `-path -prune` fix it.)
+nlc=$(printf '\nX'); nlc=${nlc%X}   # a single bare newline
+s="$work/s1b-hspace"; mk_snapshot "$s"; mkdir -p "$s/nested"; printf 'let x = MiniML\n' > "$s/nested/bad file.v"
+reject "a deleted-backend hallmark in a .v path WITH A SPACE is caught (find -exec, not xargs)" sh "$s/tools/ocaml-origin-gate.sh" "$s"
+s="$work/s1b-hnl"; mk_snapshot "$s"; mkdir -p "$s/nested"; printf 'let x = MiniML\n' > "$s/nested/bad${nlc}name.v"
+reject "a deleted-backend hallmark in a .v path WITH A NEWLINE is caught" sh "$s/tools/ocaml-origin-gate.sh" "$s"
+s="$work/s1b-alsp"; mk_snapshot "$s"; mkdir -p "$s/nested"; printf 'let () = ()\n' > "$s/nested/rogue file.ml"
+reject "a rogue tracked .ml with a SPACE in its path is surfaced by the allowlist" sh "$s/tools/ocaml-origin-gate.sh" "$s"
+s="$work/s1b-alnl"; mk_snapshot "$s"; mkdir -p "$s/nested"; printf 'let () = ()\n' > "$s/nested/rogue${nlc}name.ml"
+reject "a rogue tracked .ml with a NEWLINE in its path is surfaced by the allowlist" sh "$s/tools/ocaml-origin-gate.sh" "$s"
+
 # ---- (2) drive the ACTUAL hook under REAL staged/worktree divergence (Buildx-free via a fake docker) ----
 # This creates a throwaway Git repo, diverges its index from its working tree, and runs the real
 # .githooks/pre-commit — proving the hook checks the STAGED index (not the working tree) and executes the

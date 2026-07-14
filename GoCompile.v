@@ -161,13 +161,13 @@ Proof. intros p H; unfold prog_ok, program_typedb; rewrite H; reflexivity. Qed.
 
 (** ---- boundary fixture: an out-of-range argument rejects the WHOLE program BEFORE any emission ---- *)
 
-(** A single-file program whose only `println` argument is [int_max + 1] = 2^63 — unrepresentable as
-    [TInt] through the one [GoTypes] range authority. *)
+(** A single-file program whose only `println` argument is [int_max + 1] (one past the one [Ints] upper
+    bound; NOT a duplicated numeric literal) — unrepresentable as [TInt] through the [GoTypes] authority. *)
 Definition over_program : GoProgram :=
   singleton_program
     (mkModuleSpec (ModulePath.mkMP "fido.local/generated" eq_refl) GoVersion.Go1_23)
     (mkFP "main.go" eq_refl)
-    [ DMain [ SPrintln [ EInt (2 ^ 63)%N ] ] ].
+    [ DMain [ SPrintln [ EInt (Z.to_N (int_max + 1)) ] ] ].
 
 (* the whole program fails typing, so [prog_ok] rejects it and [go_compile] returns the EXACT integer
    error — and there is NO [CompilableProgram] for it (hence no [SafeProgram], no [DirectoryImage], no
