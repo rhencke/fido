@@ -9,10 +9,11 @@ paired with a (possibly-empty) verified finite map from intrinsic `FilePath` key
 A `GoProgram` is a `ModuleSpec` (a narrow intrinsic `ModulePath` + a singleton `GoVersion` = Go1_23 — the
 generated module's facts, rendered as `go.mod`; NOT a target config) plus a possibly-EMPTY map of files.
 Files group by directory into `package main` packages; each raw `GoFileAST` is top-level declarations (today
-only `DMain` — a `func main()` declaration); statements are `SPrintln` over bool (`EBool`) and 64-bit
-integers (`EInt` magnitude / `ENeg` negation). Each raw literal denotes an EXACT UNTYPED constant; the ONE
-type authority `GoTypes` (universe `TBool`/`TInt`) resolves it in a use context (defaulting + 64-bit
-representability) — a literal is NOT a typed value and there is no typed AST. `FilePath` is a narrow
+only `DMain` — a `func main()` declaration); statements are `SPrintln` over bool (`EBool`), 64-bit
+integers (`EInt` magnitude / `ENeg` negation), and byte-sequence strings (`EString` — exact bytes, not
+spelling). Each raw literal denotes an EXACT UNTYPED constant; the ONE type authority `GoTypes` (universe
+`TBool`/`TInt`/`TString`) resolves it in a use context (int defaulting + 64-bit representability; every
+string constant is representable as `TString`) — a literal is NOT a typed value and there is no typed AST. `FilePath` is a narrow
 canonical relative path (lowercase dir components + a `.go` basename); `go.mod` is a distinct root field, not
 a FilePath. The EMPTY file map is a valid module-only program. Package clauses, package names, entry-point
 status, and TYPES are compilation/typing RESULTS, not raw. Anything else — other decls, calls, params,
@@ -144,7 +145,8 @@ IN Rocq before any bytes — **zero expected Go build failures, ever.**
   distinction, introduced together with the constructor (`GoSafe` stops being `True`).
 - Imports — needs a complete closed-world resolution model (every import resolves to an owned package in the
   same `GoProgram`, or reject the whole program). The one change needing explicit sign-off.
-- Strings — `EStr` only WITH an independent Go string-literal denotation.
+  (Strings LANDED: `EString`/`CString`/`VString`/`TString` — exact byte values, a canonical interpreted
+  literal, and an INDEPENDENT decoder round-trip; string operations remain out of scope.)
 
 ## Build-trust tasks
 

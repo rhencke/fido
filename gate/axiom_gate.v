@@ -61,6 +61,16 @@ Print Assumptions GoTypes.res_under.
 Print Assumptions GoTypes.empty_program_typed.
 Print Assumptions GoTypes.bool_not_resolve_int.
 Print Assumptions GoTypes.int_not_resolve_bool.
+(* strings: default type TString; an arbitrary-byte string resolves as TString; a string does NOT resolve as
+   bool/int and no bool/int const is representable as TString (cross-type rejection); a mixed bool/int/string
+   println statement is typed *)
+Print Assumptions GoTypes.const_default_type_string.
+Print Assumptions GoTypes.res_str_bytes.
+Print Assumptions GoTypes.str_not_resolve_bool.
+Print Assumptions GoTypes.str_not_resolve_int.
+Print Assumptions GoTypes.cstr_not_bool.
+Print Assumptions GoTypes.cstr_not_int.
+Print Assumptions GoTypes.stmt_mixed_str_typed.
 
 (* GoCompile (A) internal exactness: whole-program prog_ok reflects the declarative judgment (now rooted
    in the GoTypes typing authority); go_compile sound + complete against it; a rejected program yields no
@@ -72,11 +82,17 @@ Print Assumptions GoCompile.go_compile_complete.
 Print Assumptions GoCompile.reject_no_compile.
 Print Assumptions GoCompile.compilable_program_typed.
 Print Assumptions GoCompile.prog_ok_empty.
+(* a concrete string program is whole-program admissible (typed + compiles to a CompilableProgram) *)
+Print Assumptions GoCompile.str_program_ok.
+Print Assumptions GoCompile.str_program_compiles.
 
 (* GoSafe: exact VALUE semantics — a zero literal and a negated zero agree; a resolved expression
    evaluates to a value of the resolved GoType (one type authority across compiler and runtime) *)
 Print Assumptions GoSafe.eval_zero_sign_agnostic.
 Print Assumptions GoSafe.eval_expr_resolved_type.
+(* the string value type: a string literal evaluates to the EXACT runtime byte sequence, of type TString *)
+Print Assumptions GoSafe.eval_string_value.
+Print Assumptions GoSafe.eval_string_type.
 
 (* GoRender: all output ASCII; the ROOT correspondence (rendered spelling denotes exactly the value);
    decimal faithfulness + no leading zero; int boundaries; the header is the EXACT first line of a .go
@@ -93,6 +109,14 @@ Print Assumptions GoRender.render_file_first_line.
 Print Assumptions GoRender.render_go_mod_exact.
 Print Assumptions GoRender.render_go_mod_first_line.
 Print Assumptions GoRender.render_go_mod_ascii.
+(* strings: the encoder/decoder round trip (an INDEPENDENT decoder inverts the canonical encoder); the
+   rendered literal is all-ASCII even for bytes >= 128 and contains no raw newline/CR (quoting shape); every
+   `\xhh` byte round-trips exactly (hex exactness); a boundary-byte escape spelling is pinned exactly *)
+Print Assumptions GoRender.render_string_roundtrip.
+Print Assumptions GoRender.render_string_literal_ascii.
+Print Assumptions GoRender.render_string_literal_no_nl_cr.
+Print Assumptions GoRender.render_hex_escape_exact.
+Print Assumptions GoRender.rb_ff.
 
 (* GoEmit: the public emitter requires SafeProgram; the complete image is go.mod + the (possibly empty)
    .go map; the go.mod and every .go file begin with the header first line and are ASCII; on-disk .go

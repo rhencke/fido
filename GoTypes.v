@@ -14,34 +14,47 @@
     obligation; the untyped constant itself is exact).  This is the single authority every later feature
     (assignments, variables, arguments, conversions, typed constants, more numeric types) will build on.
     ============================================================================ *)
-From Stdlib Require Import NArith ZArith List Bool.
+From Stdlib Require Import NArith ZArith List Bool String Ascii.
 From Fido Require Import Ints GoAST.
 Import ListNotations.
 Open Scope Z_scope.
 
-(** ---- the one type universe (exactly the two types the current fragment needs) ---- *)
+(** The semantic value of a Go string is an EXACT BYTE SEQUENCE.  We use Rocq [string] directly (a sequence
+    of [ascii] bytes) as that value, with exactly that meaning — it is NOT Unicode scalar values / code
+    points / UTF-8-decoded characters / source-literal spelling (the canonical source spelling is a separate
+    proved encoding in [GoRender]).  No wrapper and no invariant are needed: every finite byte sequence is a
+    valid Go string value in represented scope (no length limit, no well-formedness side condition). *)
+
+(** ---- the one type universe (exactly the three types the current fragment needs) ---- *)
 Inductive GoType : Type :=
 | TBool
-| TInt.
+| TInt
+| TString.
 
 Definition gotype_eqb (a b : GoType) : bool :=
-  match a, b with TBool, TBool => true | TInt, TInt => true | _, _ => false end.
+  match a, b with
+  | TBool, TBool => true | TInt, TInt => true | TString, TString => true
+  | _, _ => false
+  end.
 
 Lemma gotype_eqb_eq : forall a b, gotype_eqb a b = true <-> a = b.
 Proof. intros [] []; simpl; split; congruence. Qed.
 
 (** ---- exact untyped constant values of the current raw literals ---- *)
 Inductive GoConst : Type :=
-| CBool : bool -> GoConst
-| CInt  : Z -> GoConst.
+| CBool   : bool -> GoConst
+| CInt    : Z -> GoConst
+| CString : string -> GoConst.
 
 (** the ONE constant interpretation of the raw expressions.  Total by construction; a raw int literal is an
-    EXACT value (no range check here — representability is a separate contextual obligation). *)
+    EXACT value (no range check here — representability is a separate contextual obligation); a raw string
+    literal denotes its EXACT byte sequence (no escaping/rendering happens here — that is [GoRender]). *)
 Definition const_value (e : GoExpr) : GoConst :=
   match e with
-  | EBool b => CBool b
-  | EInt n  => CInt (Z.of_N n)
-  | ENeg n  => CInt (- Z.of_N n)
+  | EBool b   => CBool b
+  | EInt n    => CInt (Z.of_N n)
+  | ENeg n    => CInt (- Z.of_N n)
+  | EString s => CString s
   end.
 
 (** determinism + totality are structural (a function of the syntax). *)
@@ -56,48 +69,59 @@ Proof. reflexivity. Qed.
 (** the DEFAULT type — the type chosen for a constant in a context that requires a typed value.  It is NOT a
     property of the raw literal (the literal stays untyped); [TInt] is not baked into [EInt]/[ENeg]. *)
 Definition const_default_type (c : GoConst) : GoType :=
-  match c with CBool _ => TBool | CInt _ => TInt end.
+  match c with CBool _ => TBool | CInt _ => TInt | CString _ => TString end.
 
 Lemma const_default_type_bool : forall b, const_default_type (CBool b) = TBool.
 Proof. reflexivity. Qed.
 Lemma const_default_type_int : forall z, const_default_type (CInt z) = TInt.
 Proof. reflexivity. Qed.
+Lemma const_default_type_string : forall s, const_default_type (CString s) = TString.
+Proof. reflexivity. Qed.
 
 (** ---- representability: one type-directed authority (the SINGLE integer-range decision) ---- *)
 Inductive ConstRepresentable : GoType -> GoConst -> Prop :=
-| RBool : forall b, ConstRepresentable TBool (CBool b)
-| RInt  : forall z, int_min <= z <= int_max -> ConstRepresentable TInt (CInt z).
+| RBool   : forall b, ConstRepresentable TBool (CBool b)
+| RInt    : forall z, int_min <= z <= int_max -> ConstRepresentable TInt (CInt z)
+| RString : forall s, ConstRepresentable TString (CString s).
 
+(** every string constant is representable as [TString] (no length limit); no [CString] is representable
+    as [TBool]/[TInt], and no bool/int constant as [TString] — the cross-type cases fall to [false]. *)
 Definition const_representableb (t : GoType) (c : GoConst) : bool :=
   match t, c with
-  | TBool, CBool _ => true
-  | TInt,  CInt z  => (int_min <=? z) && (z <=? int_max)
+  | TBool,   CBool _   => true
+  | TInt,    CInt z    => (int_min <=? z) && (z <=? int_max)
+  | TString, CString _ => true
   | _, _ => false
   end.
 
 Lemma const_representableb_iff : forall t c, const_representableb t c = true <-> ConstRepresentable t c.
 Proof.
   intros t c; split.
-  - destruct t; destruct c as [ b | z ]; simpl; intro H; try discriminate.
+  - destruct t; destruct c as [ b | z | s ]; simpl; intro H; try discriminate.
     + constructor.
     + apply Bool.andb_true_iff in H as [Hl Hr]; apply Z.leb_le in Hl; apply Z.leb_le in Hr;
         constructor; split; assumption.
-  - intro H; destruct H as [ b | z [Hl Hr] ]; simpl.
+    + constructor.
+  - intro H; destruct H as [ b | z [Hl Hr] | s ]; simpl.
     + reflexivity.
     + apply Bool.andb_true_iff; split; apply Z.leb_le; assumption.
+    + reflexivity.
 Qed.
 
 (** ---- use-context resolution: one expression-use context and its per-type policy ---- *)
 Inductive ExprUse : Type :=
 | UsePrintlnArg.
 
-(** the exhaustive per-type use policy.  A `println` argument accepts BOTH current types. *)
+(** the exhaustive per-type use policy.  A `println` argument accepts ALL current types (bool/int/string). *)
 Inductive UseAllows : ExprUse -> GoType -> Prop :=
-| UAPrintlnBool : UseAllows UsePrintlnArg TBool
-| UAPrintlnInt  : UseAllows UsePrintlnArg TInt.
+| UAPrintlnBool   : UseAllows UsePrintlnArg TBool
+| UAPrintlnInt    : UseAllows UsePrintlnArg TInt
+| UAPrintlnString : UseAllows UsePrintlnArg TString.
 
 Definition use_allowsb (u : ExprUse) (t : GoType) : bool :=
-  match u, t with UsePrintlnArg, TBool => true | UsePrintlnArg, TInt => true end.
+  match u, t with
+  | UsePrintlnArg, TBool => true | UsePrintlnArg, TInt => true | UsePrintlnArg, TString => true
+  end.
 
 Lemma use_allowsb_iff : forall u t, use_allowsb u t = true <-> UseAllows u t.
 Proof.
@@ -248,3 +272,27 @@ Proof. intro H; apply resolve_expr_complete in H; cbn in H; discriminate H. Qed.
 (* an out-of-range argument makes its statement AND its enclosing declaration/file fail typing. *)
 Example over_stmt_untyped : stmt_typedb (SPrintln [EInt (Z.to_N (int_max + 1))]) = false. Proof. reflexivity. Qed.
 Example over_file_untyped : file_typedb [ DMain [ SPrintln [EInt (Z.to_N (int_max + 1))] ] ] = false. Proof. reflexivity. Qed.
+
+(* ---- strings: every string literal resolves to [TString], for ARBITRARY finite byte sequences (no length
+   limit; NUL/DEL/0x80/0xff are ordinary bytes) — a string constant is exact bytes, not spelling. *)
+Example res_str_empty : resolve_expr UsePrintlnArg (EString "") = Some TString. Proof. reflexivity. Qed.
+Example res_str_ascii : resolve_expr UsePrintlnArg (EString "hello") = Some TString. Proof. reflexivity. Qed.
+Example res_str_bytes :
+  resolve_expr UsePrintlnArg
+    (EString (String (ascii_of_nat 0) (String (ascii_of_nat 127)
+             (String (ascii_of_nat 128) (String (ascii_of_nat 255) EmptyString)))))
+  = Some TString. Proof. reflexivity. Qed.
+Example str_default_type : const_default_type (CString "abc") = TString. Proof. reflexivity. Qed.
+Example stmt_mixed_str_typed : stmt_typedb (SPrintln [EBool true; EInt 42; EString "hello"]) = true. Proof. reflexivity. Qed.
+Example stmt_str_empty_typed : stmt_typedb (SPrintln [EString ""]) = true. Proof. reflexivity. Qed.
+Example file_str_typed : file_typedb [ DMain [ SPrintln [EString "hi"] ] ] = true. Proof. reflexivity. Qed.
+(* cross-type negatives: [CString] is not representable as [TBool]/[TInt]; no bool/int const as [TString];
+   and a string expression does NOT resolve as [TBool]/[TInt] (resolution only yields the default type). *)
+Example cstr_not_bool : const_representableb TBool   (CString "x") = false. Proof. reflexivity. Qed.
+Example cstr_not_int  : const_representableb TInt    (CString "x") = false. Proof. reflexivity. Qed.
+Example bool_not_str  : const_representableb TString (CBool true)  = false. Proof. reflexivity. Qed.
+Example int_not_str   : const_representableb TString (CInt 3)      = false. Proof. reflexivity. Qed.
+Example str_not_resolve_bool : ~ ResolveExpr UsePrintlnArg (EString "x") TBool.
+Proof. intro H; apply resolve_expr_complete in H; cbn in H; discriminate H. Qed.
+Example str_not_resolve_int  : ~ ResolveExpr UsePrintlnArg (EString "x") TInt.
+Proof. intro H; apply resolve_expr_complete in H; cbn in H; discriminate H. Qed.

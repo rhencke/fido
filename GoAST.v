@@ -25,17 +25,23 @@
     No identifiers, calls, parameters, results, imports, arbitrary expressions/statements, user types,
     concurrency, or package clauses.  Anything else is UNREPRESENTABLE.
     ============================================================================ *)
-From Stdlib Require Import NArith List.
+From Stdlib Require Import NArith List String.
 From Fido Require Import FilePath FMap ModulePath GoVersion.
 Import ListNotations.
 
-(** A raw expression is UNTYPED syntax: a boolean literal, or an integer literal as an unsigned magnitude
-    ([EInt]) optionally negated ([ENeg]).  No type is attached here — the exact untyped-constant meaning and
-    the context-directed typing/representability of these literals are the concern of [GoTypes]. *)
+(** A raw expression is UNTYPED syntax: a boolean literal, an integer literal as an unsigned magnitude
+    ([EInt]) optionally negated ([ENeg]), or a STRING literal whose argument is the EXACT SEMANTIC BYTE
+    SEQUENCE ([EString], a Rocq [string] = a list of [ascii] bytes — NOT source spelling, NOT an
+    already-escaped literal, NOT Unicode scalars/code points).  No type is attached here — the exact
+    untyped-constant meaning and the context-directed typing/representability of these literals are the
+    concern of [GoTypes]; the canonical source spelling of a string is a separate proved encoding in
+    [GoRender].  No string operations (concat / index / slice / len / conversions / runes / byte slices)
+    and no raw-string syntax are representable. *)
 Inductive GoExpr : Type :=
-| EBool : bool -> GoExpr
-| EInt  : N -> GoExpr
-| ENeg  : N -> GoExpr.
+| EBool   : bool -> GoExpr
+| EInt    : N -> GoExpr
+| ENeg    : N -> GoExpr
+| EString : string -> GoExpr.
 
 Inductive GoStmt : Type :=
 | SPrintln : list GoExpr -> GoStmt.

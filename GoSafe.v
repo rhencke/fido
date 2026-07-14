@@ -24,17 +24,19 @@ From Fido Require Import GoAST GoTypes GoCompile.
 Import ListNotations.
 
 Inductive GoValue : Type :=
-| VBool : bool -> GoValue
-| VInt  : Z -> GoValue.
+| VBool   : bool -> GoValue
+| VInt    : Z -> GoValue
+| VString : string -> GoValue.
 
 (** The runtime type of a value — the SAME [GoType] authority ([GoTypes]) the compiler/type system uses.
-    There is NOT a separate compiler type universe and safety/runtime type universe. *)
+    There is NOT a separate compiler type universe and safety/runtime type universe.  A [VString] is the
+    EXACT runtime byte sequence (the same [string] the constant carries — no re-decoding). *)
 Definition value_type (v : GoValue) : GoType :=
-  match v with VBool _ => TBool | VInt _ => TInt end.
+  match v with VBool _ => TBool | VInt _ => TInt | VString _ => TString end.
 
 (** The one bridge from an exact untyped constant ([GoTypes.GoConst]) to a runtime value. *)
 Definition const_to_value (c : GoConst) : GoValue :=
-  match c with CBool b => VBool b | CInt z => VInt z end.
+  match c with CBool b => VBool b | CInt z => VInt z | CString s => VString s end.
 
 (** Evaluation IS the single exact constant interpretation ([GoTypes.const_value]) mapped to a value — no
     second case analysis over the raw syntax.  By VALUE, not spelling: a zero literal and a negated zero
@@ -47,7 +49,7 @@ Proof. reflexivity. Qed.
 
 (** The runtime type of a value built from a constant is that constant's default type. *)
 Lemma value_type_const_to_value : forall c, value_type (const_to_value c) = const_default_type c.
-Proof. intros [b | z]; reflexivity. Qed.
+Proof. intros [b | z | s]; reflexivity. Qed.
 
 (** A resolved expression evaluates to a value whose runtime type is EXACTLY the resolved [GoType] — the
     compiler's static resolution and the runtime value agree on type (one [GoType] authority). *)
@@ -57,6 +59,14 @@ Proof.
   intros u e t H. unfold eval_expr. rewrite value_type_const_to_value.
   symmetry; exact (resolve_expr_default u e t H).
 Qed.
+
+(** the string VALUE: a string literal evaluates to the EXACT runtime byte sequence ([VString] of the same
+    [string]), whose runtime type is [TString].  (The resolved-type agreement for a string argument is the
+    generic [eval_expr_resolved_type] applied to a string resolution.) *)
+Lemma eval_string_value : forall s, eval_expr (EString s) = VString s.
+Proof. reflexivity. Qed.
+Lemma eval_string_type : forall s, value_type (eval_expr (EString s)) = TString.
+Proof. reflexivity. Qed.
 
 Definition eval_stmt (s : GoStmt) : list GoValue :=
   match s with SPrintln args => map eval_expr args end.

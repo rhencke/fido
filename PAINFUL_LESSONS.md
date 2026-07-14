@@ -161,8 +161,9 @@ stop. When an entry stops being a live temptation, delete it.
     representability — so `const_value` stays exact (no range check), and defaulting/`ConstRepresentable` live
     in the resolution judgment. `GoTypes` is one authority whose `ResolveExpr`/`ProgramTyped` are relations
     over the SAME raw `GoAST`; there is NO typed AST, NO copied "resolved expression," NO second numeric-width
-    or type authority, and NO placeholder/`unknown`/`opaque`/`raw`/`TString` type admitted ahead of the syntax
-    that needs it. The one runtime type universe is the same `GoType` (`value_type`), and evaluation is that
+    or type authority, and NO placeholder/`unknown`/`opaque`/`raw` type admitted ahead of the syntax that
+    needs it (the live types `TBool`/`TInt`/`TString` each landed TOGETHER with their syntax, value, and
+    rendering — `TString` with `EString` + `CString` + `VString` + the canonical literal encoder/decoder). The one runtime type universe is the same `GoType` (`value_type`), and evaluation is that
     one constant interpretation mapped to a value — never a second evaluator. (Git history holds a deleted
     `CoreType.v` and much else: mine it for ideas, but a type constructor re-enters ONLY with the syntax and
     complete semantic obligations that need it — history is a quarry, not a branch to resurrect wholesale.)

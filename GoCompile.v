@@ -177,3 +177,15 @@ Example over_program_not_ok    : prog_ok over_program = false.               Pro
 Example over_program_rejected  : go_compile over_program = Err ErrIntOverflow. Proof. reflexivity. Qed.
 Example over_program_no_compile : forall facts, ~ GoCompile over_program facts.
 Proof. intro facts; exact (reject_no_compile over_program facts over_program_not_ok). Qed.
+
+(** ---- a concrete STRING program is whole-program admissible (§25): a single `main` whose `println`
+    mixes a string literal with a bool and an int is typed and compiles to a [CompilableProgram]. ---- *)
+Definition str_program : GoProgram :=
+  singleton_program
+    (mkModuleSpec (ModulePath.mkMP "fido.local/generated" eq_refl) GoVersion.Go1_23)
+    (mkFP "main.go" eq_refl)
+    [ DMain [ SPrintln [ EString "hello"; EBool true; EInt 7 ] ] ].
+Example str_program_typed    : program_typedb str_program = true. Proof. reflexivity. Qed.
+Example str_program_ok       : prog_ok str_program = true.        Proof. reflexivity. Qed.
+Example str_program_compiles : exists cp, go_compile str_program = Ok cp.
+Proof. eexists; reflexivity. Qed.

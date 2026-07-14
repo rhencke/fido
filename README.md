@@ -36,8 +36,9 @@ the emitted package set) that exercise the whole-program rules against real Go.
   declarations; **package clauses, package names, and entry-point status are compilation results**, not raw
   metadata. There is no second tree and no separate IR.
 - **One type authority.** Each raw literal denotes an exact **untyped** constant (`GoConst`); `GoTypes` —
-  the single type authority, evidence over the same AST, universe exactly `TBool`/`TInt` — resolves it in a
-  use context (choosing a default type and checking 64-bit representability). A literal is not a typed
+  the single type authority, evidence over the same AST, universe exactly `TBool`/`TInt`/`TString` — resolves
+  it in a use context (choosing a default type and checking 64-bit representability for ints; a string
+  literal carries its exact bytes and is always representable as `TString`). A literal is not a typed
   value, and there is no typed AST or second IR: `ResolveExpr` is a judgment over the raw syntax, reflected
   by a decision proved sound, complete, and deterministic.
 - **Exact, whole-program compilation.** `GoCompile` consumes the whole map: it groups files by directory

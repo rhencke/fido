@@ -53,8 +53,9 @@ Do not implement an alternative autonomously.
                  NOT a FilePath — a distinct root field carries it.)
 
   GoTypes        the ONE Go type-system authority — EVIDENCE over the raw GoAST, never a typed AST.  The
-                 permanent type universe is EXACTLY { TBool, TInt }.  A raw literal denotes an EXACT UNTYPED
-                 constant (GoConst := CBool bool | CInt Z, arbitrary-precision) via the one const_value;
+                 permanent type universe is EXACTLY { TBool, TInt, TString }.  A raw literal denotes an EXACT
+                 UNTYPED constant (GoConst := CBool bool | CInt Z | CString string — ints arbitrary-precision,
+                 strings exact byte sequences) via the one const_value;
                  only a USE CONTEXT (today UsePrintlnArg) chooses a DEFAULT TYPE (const_default_type) and
                  checks REPRESENTABILITY (ConstRepresentable — the SINGLE 64-bit range decision, over the
                  Ints authority).  ResolveExpr u e t (reflected by resolve_expr, sound + complete +
@@ -280,9 +281,10 @@ rules matching `go build ./...` (constructor absent otherwise), exact operationa
 renderer support with its value/syntax proofs, and — where observable — a differential fixture + e2e
 witness. Shrink the representable language before weakening `GoCompile`. Package clauses / entry status /
 imports are compilation results, never raw metadata. Integer width has one authority (`Ints`, 64-bit) and
-the type universe has one authority (`GoTypes` — `TBool`/`TInt` today); there is no `TargetConfig`. A new
-type constructor arrives ONLY with the syntax and complete semantic obligations that need it — never a
-speculative `TString`/`unknown`/`opaque`/`raw` type, and never a typed AST. Raw literals stay UNTYPED
+the type universe has one authority (`GoTypes` — `TBool`/`TInt`/`TString` today); there is no `TargetConfig`.
+A new type constructor arrives ONLY with the syntax and complete semantic obligations that need it (as
+`TString` did — together with `EString` + its value + canonical rendering + independent decoder), never a
+speculative `unknown`/`opaque`/`raw` type, and never a typed AST. Raw literals stay UNTYPED
 syntax: they denote exact untyped constants, and defaulting/representability happen in a use context.
 
 ## Trust base (say it exactly)
