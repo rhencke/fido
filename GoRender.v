@@ -9,8 +9,10 @@
     PUBLIC capability is [GoEmit.render_program : SafeProgram -> DirectoryImage].  Proved here: all
     output ASCII; the ROOT correspondence [render_expr_denotes] — the rendered primitive spelling
     denotes EXACTLY the semantic value under an INDEPENDENT decimal reader (parser-free; the milestone
-    forbids a lexer/parser/round-trip in the certified path) — plus decimal faithfulness / no-leading-
-    zero and the int boundary facts.  Whether the REAL Go compiler parses these bytes to that value is
+    forbids a lexer/parser/round-trip in the certified path); and [render_resolved_expr_denotes], tying the
+    three authorities — a resolved [println] argument's spelling denotes the exact runtime value AND that
+    value has the statically-resolved [GoType] — plus decimal faithfulness / no-leading-zero and the int
+    boundary facts.  Whether the REAL Go compiler parses these bytes to that value is
     claim (B) — external adequacy — exercised by the differential e2e, not a kernel theorem here.
     ============================================================================ *)
 From Stdlib Require Import String Ascii NArith ZArith List Bool Lia.

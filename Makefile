@@ -51,7 +51,7 @@ regenerate: builder
 	@echo "      Stage + commit:  git add -A -- go.mod ':(top,glob)**/*.go' && git commit"
 
 ocaml-origin-gate:
-	@tmp=$$(mktemp -d) && git checkout-index --all --prefix="$$tmp/" && sh "$$tmp/tools/ocaml-origin-gate.sh" "$$tmp"; rc=$$?; rm -rf "$$tmp"; exit $$rc
+	@tmp=$$(mktemp -d) && git checkout-index --ignore-skip-worktree-bits --all --prefix="$$tmp/" && sh "$$tmp/tools/ocaml-origin-gate.sh" "$$tmp"; rc=$$?; rm -rf "$$tmp"; exit $$rc
 
 # Zero project axioms are enforced inside the pinned `prove` stage: gate/axiom_gate.v (Print Assumptions on
 # the public surfaces) + the Rocq-native `Fido Audit Assumptions` WHOLE-certified-theory audit over
@@ -63,7 +63,7 @@ ocaml-origin-gate:
 # .fido/temp.  The byte-exact-vs-pristine check is the separate `verify-generated` Buildx job (in `check` and
 # the pre-commit staged-index hook), not this gate.
 generated-output-gate:
-	@tmp=$$(mktemp -d) && git checkout-index --all --prefix="$$tmp/" && sh "$$tmp/tools/generated-output-gate.sh" "$$tmp"; rc=$$?; rm -rf "$$tmp"; exit $$rc
+	@tmp=$$(mktemp -d) && git checkout-index --ignore-skip-worktree-bits --all --prefix="$$tmp/" && sh "$$tmp/tools/generated-output-gate.sh" "$$tmp"; rc=$$?; rm -rf "$$tmp"; exit $$rc
 
 # STAGED-TREE-GATE SELF-TEST (contract §27): a Buildx-free host demonstration that the staged-index gates
 # CANNOT be bypassed.  It builds synthetic exported-snapshot trees with the REAL gate scripts and asserts:
@@ -85,7 +85,7 @@ precommit-selftest:
 # ONLY this check catches it.
 verify-generated: builder
 	@tmp=$$(mktemp -d); ctx="$$tmp/ctx"; \
-	  git checkout-index --all --prefix="$$ctx/" && \
+	  git checkout-index --ignore-skip-worktree-bits --all --prefix="$$ctx/" && \
 	  docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --target generated-artifact \
 	    --output "type=local,dest=$$tmp/pristine" "$$ctx" && \
 	  sh "$$ctx/tools/staged-generated-compare.sh" "$$ctx" "$$tmp/pristine"; \

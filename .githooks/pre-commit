@@ -12,10 +12,12 @@ command -v docker >/dev/null 2>&1 || { echo "fido: pre-commit needs docker for t
 docker buildx inspect fido-builder >/dev/null 2>&1 || docker buildx create --name fido-builder --driver docker-container --bootstrap >/dev/null
 
 # (1) export the Git INDEX exactly once into a temp dir; this exported tree is the proposed commit and needs
-#     no .git to inspect source contents.
+#     no .git to inspect source contents.  --ignore-skip-worktree-bits is MANDATORY: `--all` alone silently
+#     omits index entries carrying the skip-worktree bit, so without it a rogue staged file marked
+#     skip-worktree (its working-tree copy removed) would stay in the proposed commit yet escape every gate.
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
 ctx="$tmp/context"
-git checkout-index --all --prefix="$ctx/"
+git checkout-index --ignore-skip-worktree-bits --all --prefix="$ctx/"
 
 # (2) run the STAGED COPIES of the structural gates on the exported staged tree (never the working-tree
 #     copies), then the STAGED staged-tree-gate self-test — which exercises the staged gate scripts + staged

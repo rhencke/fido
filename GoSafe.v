@@ -5,8 +5,12 @@
     This is NOT a full Go operational semantics — it is a deterministic abstract-trace mapping for the
     current tiny fragment: values are REAL Go values ([VBool]/[VInt : Z], not source spelling — so
     [EInt 0] and [ENeg 0] evaluate equal), and a file's behaviour is the ordered sequence of its
-    [println] calls (each the list of its argument VALUES).  There is no panic/blocking/scheduler/heap
-    algebra: no admitted operation can panic or diverge, so predeclaring one would be scaffolding.
+    [println] calls (each the list of its argument VALUES).  Runtime values carry the SAME [GoType]
+    authority as the compiler/type system ([value_type]; there is no separate runtime type universe);
+    evaluation IS the one constant interpretation mapped to a value ([eval_expr := const_to_value ∘
+    GoTypes.const_value]), and a resolved expression evaluates to a value of its RESOLVED [GoType]
+    ([eval_expr_resolved_type]).  There is no panic/blocking/scheduler/heap algebra: no admitted operation
+    can panic or diverge, so predeclaring one would be scaffolding.
 
     [SafeProgram] is the PERMANENT home for guarantees BEYOND compiler acceptance (nil-deref / bounds /
     panic-freedom / happens-before / race- or deadlock-freedom subsets / termination / protocol

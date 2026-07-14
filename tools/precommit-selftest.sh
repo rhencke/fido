@@ -160,6 +160,29 @@ else
   else
     bad "a staged weakened gate was not caught by the hook's staged self-test (rc=$rc)"
   fi
+
+  # SKIP-WORKTREE bypass: a rogue staged and marked skip-worktree (its worktree copy removed) stays in the
+  # proposed commit, but `checkout-index --all` OMITS it unless --ignore-skip-worktree-bits is given.  The
+  # real hook (which uses that flag) must still reject it.
+  ( cd "$repo"
+    git reset -q --hard HEAD; rm -f .githooks/pre-commit-mut .githooks/pre-commit-sw
+    mkdir -p .hidden; printf 'let () = ()\n' > .hidden/rogue.ml
+    git add .hidden/rogue.ml; git update-index --skip-worktree .hidden/rogue.ml
+    rm -rf .hidden ) >/dev/null 2>&1                       # index has the rogue (skip-worktree); worktree does not
+  out=$(run_hook "$repo/.githooks/pre-commit"); rc=$?
+  if [ "$rc" -ne 0 ] && [ "$rc" -ne 7 ] && printf '%s\n' "$out" | grep -q 'OCAML-ORIGIN GATE'; then
+    ok "the REAL hook rejects a SKIP-WORKTREE staged rogue with a clean working tree (--ignore-skip-worktree-bits exports it)"
+  else
+    bad "the real hook did not reject a skip-worktree staged rogue (rc=$rc) — --ignore-skip-worktree-bits missing?"
+  fi
+  # mutation: an export with plain `--all` (no --ignore-skip-worktree-bits) omits the skipped entry → bypass.
+  sed 's/--ignore-skip-worktree-bits //' "$repo/.githooks/pre-commit" > "$repo/.githooks/pre-commit-sw"
+  out=$(run_hook "$repo/.githooks/pre-commit-sw"); rc=$?
+  if [ "$rc" -eq 7 ] && ! printf '%s\n' "$out" | grep -q 'OCAML-ORIGIN GATE'; then
+    ok "dropping --ignore-skip-worktree-bits lets the skip-worktree rogue bypass — proving the flag is load-bearing (has teeth)"
+  else
+    bad "the --ignore-skip-worktree-bits mutation did not bypass (rc=$rc) — the skip-worktree test lacks teeth"
+  fi
   set -e
 fi
 
@@ -207,10 +230,10 @@ if printf '%s\n' "$hookcode" | grep -Eq 'git[[:space:]]+(add|commit|update-index
 else
   ok "pre-commit never mutates the index or working tree (only reads via checkout-index --prefix to a temp)"
 fi
-if printf '%s\n' "$hookcode" | grep -q 'checkout-index --all --prefix'; then
-  ok "pre-commit exports the Git index read-only to a temp dir (checkout-index --prefix)"
+if printf '%s\n' "$hookcode" | grep -q 'checkout-index --ignore-skip-worktree-bits --all --prefix'; then
+  ok "pre-commit exports the FULL Git index read-only to a temp (checkout-index --ignore-skip-worktree-bits --all --prefix — skip-worktree entries included)"
 else
-  bad "pre-commit does not export the index via checkout-index --prefix"
+  bad "pre-commit export is missing --ignore-skip-worktree-bits (a skip-worktree staged entry would escape the gates)"
 fi
 
 printf 'fido: precommit-selftest — %d passed, %d failed\n' "$pass" "$fail"
