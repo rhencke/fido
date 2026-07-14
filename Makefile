@@ -4,7 +4,7 @@ BUILDER := fido-builder
 # toolchain's GOOS/GOARCH/word size).  This is an operational pin, not a certified TargetConfig.
 override PLATFORM := linux/amd64
 
-.PHONY: check prove emit e2e regenerate ocaml-origin-gate generated-output-gate precommit-selftest verify-generated builder install-hooks prover-log
+.PHONY: check prove emit e2e regenerate ocaml-origin-gate generated-output-gate generated-mode-gate precommit-selftest verify-generated builder install-hooks prover-log
 .DEFAULT_GOAL := check
 
 # Fido (ARCHITECTURE.md): an LLM proposes a GoProgram (a ModuleSpec + a possibly-empty finite map of
@@ -17,7 +17,7 @@ override PLATFORM := linux/amd64
 #     sink -> go build ./...
 # ALL Rocq/Go work runs in the PINNED container via buildx — host Rocq is NOT supported.
 
-check: ocaml-origin-gate generated-output-gate precommit-selftest prove e2e verify-generated
+check: ocaml-origin-gate generated-output-gate generated-mode-gate precommit-selftest prove e2e verify-generated
 	@echo "fido: check OK — proved the core axiom-free (whole-theory audit: constants+inductives+named, run in prove) AND emitted the pristine generated-module (rendered go.mod + witness/multi/empty) via the Fido Emit transport + sibling-temp dirty-directory sink through go build ./... vs goldens; the tracked generated go.mod + recursive .go byte-match the pristine artifact (exact path set + bytes); transport-only OCaml, tracked Go is Fido-headed generated output; staged-index gates self-tested unbypassable ✓"
 
 # The reproducible container proof: dune compiles the modules + the always-run assumptions gate.
@@ -64,6 +64,13 @@ ocaml-origin-gate:
 # the pre-commit staged-index hook), not this gate.
 generated-output-gate:
 	@tmp=$$(mktemp -d) && git checkout-index --ignore-skip-worktree-bits --all --prefix="$$tmp/" && sh "$$tmp/tools/generated-output-gate.sh" "$$tmp"; rc=$$?; rm -rf "$$tmp"; exit $$rc
+
+# INDEX-authoritative Git-mode gate: every tracked generated go.mod + .go must have EXACT stage-0 index mode
+# 100644.  Reads the mode from `git ls-files -s` (the proposed commit's index), NOT an exported filesystem
+# object — so a mode-120000 symlink entry that `core.symlinks=false` would materialize as a plain file is
+# still caught.  Runs the STAGED copy of the script, but from the repo cwd so git reads the repo index.
+generated-mode-gate:
+	@tmp=$$(mktemp -d) && git checkout-index --ignore-skip-worktree-bits --all --prefix="$$tmp/" && sh "$$tmp/tools/generated-mode-gate.sh"; rc=$$?; rm -rf "$$tmp"; exit $$rc
 
 # STAGED-TREE-GATE SELF-TEST (contract §27): a Buildx-free host demonstration that the staged-index gates
 # CANNOT be bypassed.  It builds synthetic exported-snapshot trees with the REAL gate scripts and asserts:

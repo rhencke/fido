@@ -24,6 +24,10 @@ git checkout-index --ignore-skip-worktree-bits --all --prefix="$ctx/"
 #     hook against synthetic adversarial snapshots, so a staged weakening of a gate is caught here.
 sh "$ctx/tools/ocaml-origin-gate.sh"    "$ctx"
 sh "$ctx/tools/generated-output-gate.sh" "$ctx"
+# the index-authoritative Git-mode gate reads the PROPOSED COMMIT's index (`git ls-files -s`) from the repo,
+# so it catches a mode-120000/100755 generated entry that a `core.symlinks=false` export would hide from the
+# exported-object checks above.  Run the STAGED copy, but from the repo cwd so `git` reads the repo index.
+sh "$ctx/tools/generated-mode-gate.sh"
 FIDO_SELFTEST_NESTED=1 sh "$ctx/tools/precommit-selftest.sh"
 
 # (3) full cached verification on EVERY ordinary commit: the complete proof gate + the whole-tree Go e2e,
