@@ -1,8 +1,10 @@
 #!/bin/sh
 # Compare a canonical generated module tree against a pristine `generated-module` tree, EXACT relative path
 # set AND exact bytes, both directions.  SHARED (contract §5) by two callers over different ROOT trees (arg
-# 1): `make check`'s `verify-generated` passes the WORKING TREE (`.`); the pre-commit hook passes the Git
-# index materialized by `git checkout-index` (the PROPOSED COMMIT).  The tree is read find-based so every
+# 1): `make check` passes a temp tree materialized from the working-tree content (tracked PLUS
+# untracked-non-gitignored, via `git ls-files --cached --others --exclude-standard | tar`); the pre-commit
+# hook passes the Git index materialized by `git checkout-index` (the PROPOSED COMMIT).  The tree is read
+# find-based so every
 # go.mod + recursive .go at EVERY depth is compared, immune to .dockerignore / file-type filtering.  Only
 # `.git` metadata is pruned — this is a REPOSITORY-CONTENT comparison, NOT the runtime sink, so it must NOT
 # skip the sink's opaque directories: a rogue `.go` under `.hidden`/`_priv`/`testdata`/`vendor` (absent from

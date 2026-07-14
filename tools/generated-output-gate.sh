@@ -7,7 +7,8 @@
 # `.hidden`/`_priv`/`testdata`/`vendor` would otherwise escape, and `.dockerignore` hides tracked `.go` from
 # Buildx, so only this host gate can catch it.  Generated Go is a TRACKED, reviewed derived artifact; this
 # enforces the standing policy over its header and shape (the byte/path equality vs the pristine layer is the
-# separate `verify-generated` compare's job).  On the WORKING TREE the `-L`/`-f`/`-x` file-type tests below
+# separate generated-byte compare's job — the working-tree compare in `make check`, the staged compare in the
+# hook).  On the WORKING TREE the `-L`/`-f`/`-x` file-type tests below
 # are authoritative for mode; on the exported index a `core.symlinks=false` export can flatten a symlink, so
 # the pre-commit hook additionally runs the index-reading `generated-mode-gate` for the exact-100644 decision:
 #   - every generated .go and the root go.mod is a REGULAR, non-symlink, non-executable file (mode 100644 —
