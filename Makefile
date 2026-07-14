@@ -17,20 +17,22 @@ override PLATFORM := linux/amd64
 #     sink -> go build ./...
 # ALL Rocq/Go work runs in the PINNED container via buildx — host Rocq is NOT supported.
 
-# `make check` verifies the WORKING TREE, coherently and in ONE place.  It materializes the tracked files'
-# WORKING-TREE content — `git ls-files` piped through tar, so it reflects uncommitted edits to tracked files
-# and excludes untracked local residue (.fido/, *.fido-tmp-v1, *.vo) that a raw `find .` would wrongly flag —
-# into a temp tree, runs the lightweight repository-policy gates over THAT tree (transport-only OCaml; tracked
-# Go/go.mod Fido-headed, no nested go.mod), and byte-compares its generated go.mod + recursive .go against a
-# pristine `generated-module` layer built from the SAME working-tree proof inputs (`.dockerignore` excludes the
-# committed go.mod/.go, so the pristine is independent of the tracked bytes — this closes the byte-drift hole
-# a header-preserving `main.go` edit would otherwise slip through).  `prove`/`e2e` build from the working-tree
-# Buildx context.  It does NOT export or compare the staged INDEX snapshot — that is the pre-commit hook's
-# coherent, separate job.  (The exact-Git-mode-100644 gate is a committed-policy check and runs ONLY in the
-# hook; on the working tree the generated-output gate's own -L/-f/-x file-type tests are authoritative.)
+# `make check` verifies the WORKING TREE, coherently and in ONE place.  It materializes the working-tree
+# content of every relevant file — `git ls-files --cached --others --exclude-standard` (tracked files WITH
+# their uncommitted edits, PLUS untracked files that are not gitignored, so a rogue untracked `foreign.go` /
+# `.ml` is caught; the gitignored local residue .fido/, *.fido-tmp-v1, *.vo, _build/ is excluded, which a raw
+# `find .` would instead wrongly flag) piped through tar into a temp tree — runs the lightweight
+# repository-policy gates over THAT tree (transport-only OCaml; tracked Go/go.mod Fido-headed, no nested
+# go.mod), and byte-compares its generated go.mod + recursive .go against a pristine `generated-module` layer
+# built from the SAME working-tree proof inputs (`.dockerignore` excludes the committed go.mod/.go, so the
+# pristine is independent of the tracked bytes — this closes the byte-drift hole a header-preserving `main.go`
+# edit would otherwise slip through).  `prove`/`e2e` build from the working-tree Buildx context.  It does NOT
+# export or compare the staged INDEX snapshot — that is the pre-commit hook's coherent, separate job.  (The
+# exact-Git-mode-100644 gate is a committed-policy check and runs ONLY in the hook; on the working tree the
+# generated-output gate's own -L/-f/-x file-type tests are authoritative.)
 check: prove e2e builder
 	@tmp=$$(mktemp -d); tree="$$tmp/tree"; mkdir -p "$$tree"; \
-	  git ls-files -z | tar --null -T - -cf - | tar -xf - -C "$$tree" && \
+	  git ls-files -z --cached --others --exclude-standard | tar --null -T - -cf - | tar -xf - -C "$$tree" && \
 	  sh tools/ocaml-origin-gate.sh    "$$tree" && \
 	  sh tools/generated-output-gate.sh "$$tree" && \
 	  docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --target generated-artifact \

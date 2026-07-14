@@ -110,8 +110,10 @@ IN Rocq before any bytes — **zero expected Go build failures, ever.**
   built from the authoritative generation inputs (never the committed bytes, never a cache mount). Root
   `go.mod` + `main.go` are TRACKED, Fido-headed derived artifacts; `make regenerate` rewrites them via the
   same `Fido_sink`. Verification is SPLIT coherently: `make check` verifies the WORKING TREE (it materializes
-  the tracked files' working-tree content and byte-compares its `go.mod` + recursive `.go` against a pristine
-  built from the same working-tree inputs); the pre-commit hook verifies the proposed STAGED commit (exports
+  the working-tree content of tracked-plus-untracked-non-gitignored files — `git ls-files --cached --others
+  --exclude-standard`, so a rogue untracked `.go`/`.ml` is caught and only the gitignored `.fido`/`.vo`
+  residue is excluded — and byte-compares its `go.mod` + recursive `.go` against a pristine built from the
+  same working-tree inputs); the pre-commit hook verifies the proposed STAGED commit (exports
   the Git index once, runs the SAME shared compare over it, never reads the unstaged working tree or
   auto-stages) — the ONLY check that catches generated-byte drift, since `.dockerignore` hides the committed
   `go.mod`/`.go` from Buildx (pre-commit bypassable with `--no-verify`; it provides reasonable assurance for a
