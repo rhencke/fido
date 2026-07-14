@@ -84,7 +84,8 @@ algorithm, report an architectural conflict and stop. Do not implement an altern
    type, a central `.fido/staging/` design, or the deleted stage-record/nonce subsystem.
 2. **The canonical generated module is a TRACKED, reviewed artifact; emission is not a `.vo` side effect.**
    Root `go.mod` + recursive `.go` are committed (Fido-headed) and verified byte-exact against the pristine
-   `generated-module` Buildx layer by the pre-commit staged-index check; `make regenerate` rewrites them
+   `generated-module` Buildx layer by `make check`'s `verify-generated` step AND the pre-commit staged-index
+   check (the same staged-vs-pristine compare); `make regenerate` rewrites them
    through the SAME `Fido_sink`. The `Fido Emit` command is an EXPLICIT always-run step (`rocq c` on the
    witness) after the cached theory/plugin build, never a `.vo` side effect. The header is Rocq's bytes
    (`GoRender.header`), proved the exact first line; the sink recognizes it as an ownership marker but
@@ -171,10 +172,13 @@ crash points writing/staged/installing, cleanup-failure aggregation, EXDEV no-co
 ownership rechecks); the pristine `generated-module` layer feeds the digest-pinned `golang:1.23-alpine`,
 which runs `GOWORK=off GOTOOLCHAIN=local GOPROXY=off go build ./...` over the whole tree using the RENDERED
 go.mod + the empty module + `go list ./...` discovery + a multi-package differential + no-main/dup-main
-rejection fixtures, runs the witness vs reviewed goldens, with `go vet` DIAGNOSTIC-only). The pre-commit hook
-verifies the STAGED tree (exports the Git index, rebuilds `generated-module` from the staged inputs, and
-compares the staged go.mod + recursive .go byte-exact against `/generated`). **Local host Rocq is NOT
-supported** — all compilation goes through the pinned toolchain via buildx.
+rejection fixtures, runs the witness vs reviewed goldens, with `go vet` DIAGNOSTIC-only) + `verify-generated`
+(the "no generated-byte delta" gate: export the Git index, materialize the pristine `generated-artifact`
+from the staged proof inputs, and byte-compare the tracked go.mod + recursive .go against it — since
+`.dockerignore` hides the committed bytes from Buildx, this is the ONLY thing that catches a header-preserving
+edit to a tracked `.go`). The pre-commit hook verifies the STAGED tree (exports the Git index, rebuilds
+`generated-module` from the staged inputs, and runs the SAME staged-vs-pristine byte compare). **Local host
+Rocq is NOT supported** — all compilation goes through the pinned toolchain via buildx.
 
 ```
 make check       # gates + pinned-Rocq proof + pinned-Go whole-tree e2e (all buildx)

@@ -105,9 +105,12 @@ IN Rocq before any bytes — **zero expected Go build failures, ever.**
   layer holds exactly the canonical witness `go.mod` + recursive `.go` (no `.fido`/temp/proof/fixture),
   built from the authoritative generation inputs (never the committed bytes, never a cache mount). Root
   `go.mod` + `main.go` are TRACKED, Fido-headed derived artifacts; `make regenerate` rewrites them via the
-  same `Fido_sink`; the pre-commit hook exports the Git index and verifies the STAGED tree byte-exact against
-  `/generated` (bypassable with `--no-verify` — prototype policy). `tools/generated-output-gate.sh` replaces
-  the old no-tracked-Go seal.
+  same `Fido_sink`; BOTH `make check` (the `verify-generated` step) and the pre-commit hook export the Git
+  index and verify the STAGED tree byte-exact against the pristine artifact (path set + bytes, both
+  directions) — the ONLY check that catches generated-byte drift, since `.dockerignore` hides the committed
+  `go.mod`/`.go` from Buildx (pre-commit bypassable with `--no-verify` — prototype policy).
+  `tools/generated-output-gate.sh` (Fido-header/mode/no-nested-go.mod policy) is separate from this
+  byte-compare; together they replace the old no-tracked-Go seal.
 - **Pinned Go** (`golang:1.23-alpine`, `GOWORK=off GOTOOLCHAIN=local GOPROXY=off`): `go build ./...` over
   the WHOLE tree using the RENDERED `go.mod` (no handwritten shell) + gofmt-clean, with `go vet`
   DIAGNOSTIC-only (nonblocking); the witness runs vs reviewed goldens (`e2e/golden.*`); the EMPTY module

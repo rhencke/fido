@@ -4,7 +4,7 @@ BUILDER := fido-builder
 # toolchain's GOOS/GOARCH/word size).  This is an operational pin, not a certified TargetConfig.
 override PLATFORM := linux/amd64
 
-.PHONY: check prove emit e2e regenerate ocaml-origin-gate generated-output-gate precommit-selftest builder install-hooks prover-log
+.PHONY: check prove emit e2e regenerate ocaml-origin-gate generated-output-gate precommit-selftest verify-generated builder install-hooks prover-log
 .DEFAULT_GOAL := check
 
 # Fido (ARCHITECTURE.md): an LLM proposes a GoProgram (a ModuleSpec + a possibly-empty finite map of
@@ -17,8 +17,8 @@ override PLATFORM := linux/amd64
 #     sink -> go build ./...
 # ALL Rocq/Go work runs in the PINNED container via buildx — host Rocq is NOT supported.
 
-check: ocaml-origin-gate generated-output-gate precommit-selftest prove e2e
-	@echo "fido: check OK — proved the core axiom-free (whole-theory audit: constants+inductives+named, run in prove) AND emitted the pristine generated-module (rendered go.mod + witness/multi/empty) via the Fido Emit transport + sibling-temp dirty-directory sink through go build ./... vs goldens; transport-only OCaml, tracked Go is Fido-headed generated output; staged-index gates self-tested unbypassable ✓"
+check: ocaml-origin-gate generated-output-gate precommit-selftest prove e2e verify-generated
+	@echo "fido: check OK — proved the core axiom-free (whole-theory audit: constants+inductives+named, run in prove) AND emitted the pristine generated-module (rendered go.mod + witness/multi/empty) via the Fido Emit transport + sibling-temp dirty-directory sink through go build ./... vs goldens; the tracked generated go.mod + recursive .go byte-match the pristine artifact (exact path set + bytes); transport-only OCaml, tracked Go is Fido-headed generated output; staged-index gates self-tested unbypassable ✓"
 
 # The reproducible container proof: dune compiles the modules + the always-run assumptions gate.
 prove: builder
@@ -60,7 +60,8 @@ ocaml-origin-gate:
 
 # GENERATED-OUTPUT POLICY GATE (replaces the deleted no-tracked-Go seal): tracked Go IS the reviewed
 # canonical generated module — every tracked .go / root go.mod is Fido-headed, no nested go.mod, no tracked
-# .fido/temp.  The byte-exact-vs-pristine check is the pre-commit staged-index Buildx job, not this gate.
+# .fido/temp.  The byte-exact-vs-pristine check is the separate `verify-generated` Buildx job (in `check` and
+# the pre-commit staged-index hook), not this gate.
 generated-output-gate:
 	@tmp=$$(mktemp -d) && git checkout-index --all --prefix="$$tmp/" && sh "$$tmp/tools/generated-output-gate.sh" "$$tmp"; rc=$$?; rm -rf "$$tmp"; exit $$rc
 
@@ -73,6 +74,22 @@ generated-output-gate:
 # index/working tree.  It walks no Rocq terms and needs no Docker.
 precommit-selftest:
 	sh tools/precommit-selftest.sh
+
+# TRACKED GENERATED-BYTE VERIFICATION (contract §27 "no generated-byte delta"): export the Git INDEX, then
+# materialize the PRISTINE generated-module (Buildx `generated-artifact`, built from the exported staged
+# proof inputs — `.dockerignore` excludes the committed go.mod/.go, so the pristine is independent of the
+# tracked bytes), and byte-compare the exported tracked go.mod + recursive .go against it (exact path set +
+# bytes, both directions).  This is the SAME comparison the pre-commit staged-index hook runs; wiring it into
+# `check` closes the generated-byte-drift hole — a header-preserving edit to `main.go` (or an extra
+# Fido-headed `.go`) passes the output-policy gate and is invisible to proof/e2e (excluded from Buildx), so
+# ONLY this check catches it.
+verify-generated: builder
+	@tmp=$$(mktemp -d); ctx="$$tmp/ctx"; \
+	  git checkout-index --all --prefix="$$ctx/" && \
+	  docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --target generated-artifact \
+	    --output "type=local,dest=$$tmp/pristine" "$$ctx" && \
+	  sh "$$ctx/tools/staged-generated-compare.sh" "$$ctx" "$$tmp/pristine"; \
+	  rc=$$?; rm -rf "$$tmp"; exit $$rc
 
 builder:
 	@docker buildx inspect $(BUILDER) > /dev/null 2>&1 || \
