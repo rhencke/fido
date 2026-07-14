@@ -1,4 +1,4 @@
-Claude Code milestone: complete proof audit, delete record staging, simplify dirty emission, and track generated Go from one pristine Buildx layer
+Claude Code milestone: close the remaining boundary gaps, then land the first Go type-system foundation
 
 THIS FILE IS THE BINDING MILESTONE CONTRACT.
 
@@ -8,973 +8,866 @@ Before making any implementation change:
    - Do not summarize it.
    - Do not rewrite it.
    - Do not omit sections.
-   - Do not “improve” or reinterpret the architecture while copying it.
+   - Do not “improve” its architecture while copying it.
 2. Commit `.review/NEXT_STEPS.md` as the opening commit of this milestone, before implementation.
 3. Record that contract commit SHA.
-4. Treat `.review/NEXT_STEPS.md` as the binding scope, architecture, threat model, and acceptance contract for every implementation change and Codex stop-review in this milestone.
+4. Treat `.review/NEXT_STEPS.md` as the binding scope, architecture, threat model, algorithm, and acceptance contract for every implementation change and Codex review in this milestone.
+5. After the contract commit, issue this exact Claude Code command:
 
-The Codex stop review must judge whether the implementation is airtight against `.review/NEXT_STEPS.md`.
+   /loop 5m completing NEXT_STEPS until codex review is green and then notify me and stop the loop.
 
-Codex may identify objective defects. It may not:
+The loop is intentionally authorized for this milestone.
 
-- broaden scope;
-- strengthen the threat model;
-- remove an explicitly required capability;
-- move responsibility between layers;
-- select another architecture;
-- demand feature completeness beyond this milestone;
-- redesign the sink into a filesystem database;
-- reintroduce staging records, parsers, mount identity tracking, or a central staging directory.
+The loop must:
 
-If a real defect cannot be fixed while preserving this contract, classify it as an ARCHITECTURAL CONFLICT, notify the user, and stop. Do not redesign autonomously.
+- work only toward the current `.review/NEXT_STEPS.md`;
+- run the Codex stop review against that binding contract;
+- repair objective implementation defects that preserve the contract;
+- never broaden scope or redesign a selected architecture merely to satisfy Codex;
+- stop immediately on an architectural conflict, notify the user, and wait;
+- stop when Codex is green;
+- after Codex is green, run the complete final verification, commit the final checkpoint, notify the user, stop the loop, and wait.
 
-After one structural repair attempt in the same subsystem, any second proposed structural redesign is automatically an architectural conflict requiring human review.
+“Codex green” means the implementation is airtight against this contract. It does not mean “the repository is maximally complete” or “Codex can imagine no future feature.”
 
-This is one bounded, fixes-only milestone.
+If a real defect cannot be fixed without changing this milestone’s architecture, scope, guarantees, threat model, responsibility boundaries, type model, or selected algorithm:
 
-Stop every Ralph-style, autonomous, recursive, background, or iterative development loop before beginning.
+- classify it as an ARCHITECTURAL CONFLICT;
+- do not implement an alternative autonomously;
+- notify the user;
+- stop the loop;
+- wait for review.
 
-After completing this milestone:
+Milestone purpose
 
-1. Run every required proof, audit, build, artifact, sink, staged-index, and end-to-end check.
-2. Commit the completed checkpoint.
-3. Notify the user through the configured phone/completion-notification channel that the checkpoint is ready for review.
-4. Stop.
-5. Do not infer or begin a next milestone.
-6. Wait for joint review.
+This is one bounded milestone with two ordered parts:
+
+A. Close the remaining review findings in the sink and staged-index verification boundary.
+B. Introduce the first permanent Go type-system foundation for the already-admitted bool/int fragment.
+
+Part B must not begin by preserving a known defect from Part A. Both parts belong to this one milestone and one final review checkpoint.
+
+No imports.
+
+No new emitted language syntax.
+
+The committed generated `go.mod` and every committed generated `.go` file must remain byte-identical throughout the type-foundation work.
 
 Standing project law
 
 Ruthless correctness or ruthless deletion.
 
-Incomplete scope is acceptable. Incorrect, approximate, duplicated, transitional, fail-open, or half-built foundations are not.
+Incomplete representable scope is acceptable.
 
-Every retained component must be complete and correct in itself and may build only on foundations that are already complete and correct.
+Incorrect, approximate, duplicated, transitional, fail-open, or half-built foundations are not.
 
 The AST is the IR.
 
 There is:
 
 - one raw AST per `.go` file;
-- one whole-program value;
+- one `GoProgram`;
 - no copied compiled AST;
-- no separate typed/target/text IR;
+- no typed AST;
+- no target AST;
+- no text IR;
+- no separate lowering tree;
 - no tokenizer;
-- no token encoder;
 - no lexer;
 - no parser;
 - no AST -> output -> AST round trip;
-- no handwritten OCaml semantics, compiler, safety layer, lowering, or renderer.
+- no handwritten OCaml compiler semantics;
+- no handwritten OCaml typechecker;
+- no handwritten OCaml safety reasoning;
+- no handwritten OCaml renderer.
 
-No Go-language feature growth in this milestone.
+The current `.review/NEXT_STEPS.md` is binding. Codex is an implementation auditor, not the architect.
+
+No feature growth beyond the type foundation described here.
 
 Do not add:
 
 - imports;
-- standard-library access;
-- `fmt`;
+- identifiers;
+- variables;
+- constants declarations;
+- type declarations;
+- user-defined ordinary functions;
+- calls;
+- parameters or results;
 - strings;
-- new builtins;
-- new primitive types;
-- new operators;
-- user-defined functions beyond the existing raw declaration shape;
-- parameters/results;
-- control flow;
+- floats;
+- runes;
+- fixed-width integer types;
+- unsigned integer types;
 - pointers;
+- arrays;
 - slices;
 - maps;
 - structs;
 - interfaces;
+- channels;
 - concurrency;
-- package clauses in raw AST;
-- another AST or IR;
-- workspaces;
-- module dependencies;
-- `require`, `replace`, `exclude`, `retract`, `toolchain`, or `godebug` directives.
-
-Current permanent roots to preserve
-
-Preserve the current formal program architecture:
-
-  GoProgram {
-    ModuleSpec {
-      intrinsic ModulePath,
-      Go1_23
-    },
-    fmap FilePath GoFileAST
-  }
-  -> exact whole-program GoCompile
-  -> SafeProgram
-  -> direct Rocq renderer
-  -> DirectoryImage {
-       exact generated go.mod,
-       fmap FilePath exact Go bytes
-     }
-  -> general Fido Emit transport
-  -> filesystem-only dirty-directory sink
-  -> pinned Go `go build ./...`
+- control flow;
+- conversions;
+- assignments;
+- another AST or IR.
 
-Preserve:
+The type foundation initially contains exactly the types already needed by the current fragment:
 
-- intrinsic `ModulePath`;
-- singleton `GoVersion := Go1_23`;
-- intrinsic `FilePath`;
-- key-generic immutable finite maps;
-- empty programs;
-- one AST;
-- whole-program `GoCompile`;
-- `SafeProgram` as the permanent safety capability;
-- direct parser-free renderer;
-- exact rendered `go.mod`;
-- complete `DirectoryImage`;
-- general `Fido Emit`;
-- foreign-Go/module refusal;
-- `go vet` as diagnostic only;
-- `go build ./...` as the blocking external compiler alarm;
-- distinction between proof and integration evidence.
+- bool;
+- int.
 
-Milestone purpose
+PART A — close the remaining review findings
 
-This milestone seals four remaining roots:
+1. Scope recursive dirty-tree inspection to the Go-discovered namespace
 
-1. `make prove` must enforce the complete whole-certified-theory assumption policy, including inductive assumptions.
-2. Delete the stage-record/local-stage-directory subsystem and replace it with a fixed reserved sibling-temporary suffix.
-3. Make one normal content-addressed Buildx stage the pristine authority for the canonical generated Go module.
-4. Track the canonical generated `go.mod` and recursive `.go` files, and make pre-commit verify the exact staged Git snapshot against that pristine Buildx artifact.
+The sink must not recurse indiscriminately into every foreign directory.
 
-The dirty-directory sink is not a hostile-filesystem package manager.
+The current use case is generation into a Git repository root. The sink must never inspect, classify, reject because of, or delete metadata inside `.git` or equivalent ignored directory trees.
 
-The intended threat model is:
+Use one directory-recursion policy aligned with the current Go `./...` discovery model and the existing intrinsic `FilePath` directory exclusions.
 
-- one project owner;
-- cooperating Fido emitters serialized by one lock;
-- stable directory namespace between runs;
-- ordinary crashes;
-- disk exhaustion;
-- permission errors;
-- interrupted writes;
-- nested mount points that remain mounted;
-- no malicious concurrent namespace mutation;
-- no arbitrary unmount/remount/backing-store replacement between a crash and recovery.
+While recursively inspecting for:
 
-Mount disappearance, remounting, parent replacement, and hostile concurrent mutation are explicitly outside the guarantee.
+- foreign `.go`;
+- foreign or nested `go.mod`;
+- nested `.fido`;
+- abandoned `.fido-tmp-v1` files;
+- stale generated `.go`;
 
-Do not add Linux-specific device/inode ownership records.
+apply these rules to a directory basename:
 
-Do not add a general transaction log.
+A. Exact root `.fido`
 
-1. Complete the whole-certified-theory assumption audit
+- `<root>/.fido` is the one control namespace.
+- Validate its exact shape separately.
+- Never recurse through it as ordinary tree content.
 
-Current defect
+B. Nested `.fido`
 
-The whole-theory audit seeds assumption closure from certified constants only.
+- A `.fido` encountered in a directory that is otherwise inside the traversed Go-discovered namespace is an error, regardless of filesystem type.
+- Reject and preserve it.
+- Do not recurse into it.
 
-That misses assumption categories attached directly to certified mutual inductive declarations when no retained constant references them, including categories represented by Rocq as `Printer.Axiom` variants such as:
+C. Go-ignored directory names
 
-- assumed positivity;
-- disabled guardedness;
-- type-in-type;
-- UIP-related reduction;
-- indices-not-mattering.
+Do not recurse into a directory whose basename:
 
-Required authority
+- begins with `.`;
+- begins with `_`;
+- is exactly `testdata`;
+- is exactly `vendor`.
 
-Define one assumption-policy function over the complete certified declaration root set:
+Treat those trees as opaque foreign non-Go state.
 
-  CertifiedDeclarations
-  -> union of Rocq assumption closures
-  -> reject every disallowed assumption category
+Do not inspect, classify, clean, or reject because of files beneath those skipped directories.
 
-The root set must include at least:
+This is the catchall that keeps Fido out of:
 
-- every certified Fido constant;
-- every certified Fido mutual inductive, seeded through an `IndRef`;
-- every surviving global/named assumption in the environment supported by the pinned Rocq API.
+- `.git`;
+- `.hg`;
+- `.svn`;
+- editor caches;
+- hidden tool directories;
+- underscore-private directories;
+- Go-ignored `testdata`;
+- Go-ignored `vendor`.
 
-Use Rocq’s own assumptions machinery with the opaque-body indirect accessor.
+D. Do not over-skip ordinary directories
 
-Descend opaque `Qed` bodies.
+Do not skip a directory merely because its name is outside Fido’s deliberately narrow generated `FilePath` grammar if Go may still discover it.
 
-Reject:
+For example, an ordinary visible foreign directory with an uppercase, hyphenated, or otherwise non-Fido-generated name may still contain Go input selected by `go build ./...`.
 
-- every `Printer.Axiom _` category, not only ordinary constant axioms;
-- every `Printer.Variable`;
-- any project-disallowed primitive/assumption category exposed by the pinned Rocq assumptions API.
+The foreign-Go scan must continue to detect applicable foreign `.go` and nested `go.mod` in ordinary visible directories.
 
-Do not write a source-text scanner.
+Do not confuse:
 
-Do not duplicate the definition of “disallowed assumption” between proof auditing and emit-time provenance.
+- the narrow domain Fido may generate into; with
+- the broader visible tree Go may compile.
 
-Use one shared implementation.
+2. Scope the reserved temporary suffix to possible Fido final paths
 
-Implementation organization
-
-Prefer the smallest implementation that preserves one authority.
-
-It is acceptable to keep the shared assumptions code in the current plugin if `make prove` can invoke it cleanly.
-
-Do not split a new plugin merely for aesthetic purity.
-
-If code must be factored to avoid duplication, introduce one tiny shared OCaml assumptions module with one permanent responsibility:
-
-> compute and enforce Fido’s assumption policy over supplied Rocq global references.
-
-No filesystem logic belongs in that module.
-
-2. `make prove` is the complete proof gate
-
-`make prove` must run all of:
-
-- Dune theory build;
-- certified-module coverage check;
-- selected readable `Print Assumptions` surfaces;
-- whole-certified-theory assumption-closure audit over constants, inductives, and surviving named assumptions;
-- adversarial self-tests for the audit.
-
-A retained internal declaration that depends on an assumption must fail `make prove`, even when it is not a selected public theorem and emission is never run.
-
-`make check` may depend on `make prove`, but the complete proof policy must not exist only in `emit` or `e2e`.
-
-The certified-module coverage gate must remain exact:
-
-  tracked certified root `.v` modules
-  =
-  Dune `(modules ...)`
-
-Test/gate/e2e `.v` files remain explicitly outside the certified theory.
-
-3. Adversarial proof-audit tests
-
-Generate all assumption-bearing negative fixtures transiently inside the pinned build.
-
-Do not track project `Axiom`, `Parameter`, or `Admitted` fixtures.
-
-At minimum exercise:
-
-A. An unused Fido axiom.
-
-B. An internal theorem whose opaque `Qed` body depends transitively on an external axiom.
-
-C. An unused certified mutual inductive admitted only because positivity checking was disabled, with automatically generated elimination constants suppressed where necessary so the audit must seed the inductive itself.
-
-D. A surviving global/named assumption if the pinned Rocq environment permits one to reach the compiled audit context.
-
-E. A normal `Section` theorem whose variables are correctly generalized and whose closed theorem must be accepted.
-
-The tests must prove:
-
-- constants are audited;
-- opaque bodies are descended;
-- inductives are audited even when no constant references them;
-- ordinary closed Section generalization is not falsely rejected.
-
-Fail closed on Rocq audit/query errors.
-
-Keep the readable selected `gate/axiom_gate.v` surfaces.
-
-4. Replace the operating-law escape hatch
-
-Current active prose still permits Claude to override a plan in favor of what it considers “more correct.”
-
-Delete or replace wording equivalent to:
-
-> Plans are guidance; when a plan conflicts with a stronger proof or more correct formulation, follow the stronger path.
-
-Permanent replacement:
-
-> The current `.review/NEXT_STEPS.md` is binding for the active milestone. If an objective defect cannot be repaired without changing its architecture, scope, guarantees, threat model, responsibility boundaries, or selected algorithm, report an architectural conflict and stop. Do not implement an alternative autonomously.
-
-Apply this consistently in:
-
-- `CLAUDE.md`;
-- `ARCHITECTURE.md`;
-- review workflow documentation;
-- completion/reporting instructions.
-
-5. Delete the entire stage-record subsystem
-
-Delete rather than wrap:
-
-- `.fido/stage-records/`;
-- record files;
-- record versions;
-- record parsing;
-- record validation;
-- nonce generation;
-- OS randomness for stage names;
-- local stage directories;
-- record-driven recovery;
-- record/path consistency checks;
-- record-specific fault seams;
-- record-specific tests;
-- record-specific documentation;
-- device/inode/mount-identity ideas;
-- central staging remnants.
-
-The current record system was a disproportionate answer to a simple single-owner generation problem.
-
-Do not preserve it as “future scaffolding.”
-
-The permanent control directory becomes exactly:
-
-  <root>/.fido/
-    marker
-    index.lock   # present only during an active run or after a crash
-
-An existing root `.fido` must have exactly:
-
-- the exact marker;
-- optionally `index.lock`;
-- no other entries.
-
-Any unexpected root-control entry rejects without modification.
-
-6. Reserve one sibling temporary suffix
-
-Use this exact reserved suffix unless an existing reviewed constant already names an equivalent versioned suffix:
+The reserved suffix remains:
 
   .fido-tmp-v1
 
-For each final output:
+The simple sibling-temp architecture remains binding.
 
-  go.mod
-  main.go
-  sub/main.go
+A suffix-bearing regular file is Fido-owned as an abandoned temporary only if removing the suffix yields a path Fido could actually have staged:
 
-the sibling temporary is:
+- exactly the root `go.mod`; or
+- a relative `.go` path accepted by the sink’s defensive `filepath_ok`, which must remain equivalent to the intrinsic `FilePath` output domain.
+
+Examples of owned temporary forms:
 
   go.mod.fido-tmp-v1
   main.go.fido-tmp-v1
   sub/main.go.fido-tmp-v1
 
-No nonce is needed because the lock serializes cooperating emitters.
+A suffix-bearing entry that does not map to one of those final forms is not Fido-owned.
 
-No temporary directory is needed.
+For example:
 
-No record is needed.
+  notes.fido-tmp-v1
+  .git/refs/heads/release.fido-tmp-v1
+  visible-dir/arbitrary.bin.fido-tmp-v1
 
-The final path is already known by the live synchronization operation; recovery does not need to parse a record.
+must not be deleted.
 
-Ownership convention
+Within the traversed namespace, a reserved-looking but non-mappable suffix entry should be preserved and should make the run refuse clearly rather than being silently adopted as Fido state.
 
-A regular non-symlink file whose basename ends in `.fido-tmp-v1` is considered an abandoned Fido temporary.
+A suffix entry under a skipped/opaque directory is not inspected at all.
 
-This convention is public and forgeable.
+Keep two-phase recovery:
 
-That is an accepted tradeoff under the actual single-owner/cooperating-process threat model.
+1. complete fail-closed scan and collect valid abandoned Fido temps, deleting nothing;
+2. only after the whole scan succeeds, re-lstat and remove those collected regular temps.
 
-A symlink, directory, or special entry with the reserved suffix is not treated as owned:
+Do not reintroduce:
 
-- refuse;
-- preserve it;
-- make no generated-file mutation.
+- stage records;
+- nonces;
+- stage directories;
+- record parsing;
+- manifests;
+- device/inode identity;
+- mount identity;
+- a central staging directory.
 
-Document the convention honestly.
+3. Add repository-metadata regression gates
 
-7. Reject nested `.fido` everywhere
+Add a regression tree containing at least:
 
-The exact root `<root>/.fido/` is the only permitted control namespace.
+  .git/refs/heads/release.go
+  .git/refs/heads/release.fido-tmp-v1
+  .git/logs/refs/heads/release.fido-tmp-v1
 
-During recursive inspection, any entry named `.fido` below the root is an error, regardless of type:
+Use distinctive byte contents.
 
-- directory;
-- symlink;
-- regular file;
-- special entry.
+A sink run must:
 
-Reject before generated-file mutation.
+- succeed when no visible foreign Go/module input exists;
+- not reject because of `.go` metadata under `.git`;
+- not classify the suffix-bearing Git metadata as Fido temp state;
+- not alter or remove any byte beneath `.git`.
 
-Do not skip or descend through nested `.fido`.
+Add equivalent coverage for at least one generic hidden directory and one underscore directory.
 
-Add tests for nested `.fido` as:
+Retain the existing nested-visible-`.fido` rejection tests.
 
-- directory;
-- symlink;
-- regular file.
+Clarify in documentation:
 
-Preserve each entry on refusal.
+- nested `.fido` is rejected in the traversed Go-discovered namespace;
+- skipped Go-ignored/hidden directory trees are opaque and are not inspected.
 
-8. Keep foreign-Go/module refusal
+4. Make the entire pre-commit path staged-tree authoritative
 
-Before generated-file mutation, recursively inspect the complete target tree fail-closed.
+The pre-commit hook must verify the proposed commit—the Git index—and must not trust ordinary working-tree source bytes, gate scripts, build files, or generated files.
 
-Allowed:
-
-- Fido-owned root `go.mod` (regular, non-symlink, exact header);
-- Fido-owned `.go` files (regular, non-symlink, exact header);
-- foreign non-Go files/directories that are not reserved control/temp names;
-- the exact root `.fido` control directory;
-- regular reserved-suffix temporary files, which are collected as abandoned Fido temporaries.
-
-Reject:
-
-- foreign `.go` anywhere;
-- `.go` symlink/nonregular entries;
-- foreign root `go.mod`;
-- root `go.mod` symlink/nonregular entry;
-- nested `go.mod`;
-- nested `.fido` of any type;
-- nonregular reserved-suffix temp entries;
-- unreadable/unsearchable directories;
-- any filesystem error preventing a complete classification.
-
-Only a confirmed `ENOENT` means missing.
-
-Do not treat permission, I/O, symlink-loop, or non-directory errors as absence.
-
-9. Two-phase abandoned-temp recovery
-
-After acquiring the lock:
-
-Phase 1 — inspect only
-
-- recursively inspect the entire relevant target tree;
-- validate foreign-Go/module/control rules;
-- collect every regular non-symlink file ending in `.fido-tmp-v1`;
-- perform no deletion during traversal.
-
-If any path is invalid or uninspectable:
-
-- reject;
-- preserve every collected temp;
-- perform no generated-file mutation.
-
-Phase 2 — delete validated abandoned temps
-
-Only after the complete scan succeeds:
-
-- re-`lstat` each collected temp;
-- require it is still a regular non-symlink file with the exact reserved suffix;
-- delete it;
-- fail loud on any mismatch or deletion error.
-
-The lock prevents cooperating emitters from creating new Fido temps concurrently.
-
-No record parsing exists.
-
-10. Preflight the complete desired image
-
-The desired image consists of:
-
-- root `go.mod`;
-- zero or more recursive `.go` files from `DirectoryImage`.
-
-Before writing the first temp:
-
-- validate every relative final path;
-- reject desired paths inside `.fido`;
-- derive every sibling temp path mechanically by suffix append;
-- verify every existing final target is either absent or Fido-owned;
-- verify every sibling temp path is absent after recovery;
-- reject a symlink/nonregular/foreign collision;
-- create required parent directories carefully;
-- record only parent directories created by this invocation for handled-failure cleanup.
-
-Do not introduce a second weaker path grammar.
-
-The sink’s defensive path validator must accept exactly the canonical path strings emitted from intrinsic `FilePath` for `.go`, plus the distinguished root `go.mod`.
-
-Canonical transport uses forward slashes.
-
-Do not broaden accepted sink paths beyond the formal output domain.
-
-11. Stage the complete image before installation
-
-This requirement remains absolute.
-
-For every desired final file:
-
-1. Create the sibling temp with exclusive creation.
-2. Write exact bytes unchanged.
-3. Close successfully.
-4. Track the temp as created by this invocation.
-
-Do not install any final file until every desired file has staged successfully.
-
-Ordinary staging failures such as disk exhaustion or permissions must leave all previous final generated files unchanged.
-
-No formatter, header mutation, or content repair occurs in the sink.
-
-12. Install by sibling rename
-
-Only after complete staging:
-
-For each desired final target:
-
-- invoke any test seam before the final recheck;
-- immediately re-`lstat` the final;
-- if present, require regular/non-symlink and exact Fido header;
-- rename the sibling temp to the final path;
-- fail loudly on cross-device behavior;
-- do not copy-and-delete.
-
-Current operational support remains pinned Linux/amd64.
-
-Do not add Linux-specific mount identity tracking.
-
-The algorithm shape is intentionally portable:
-
-- forward-slash transport;
-- sibling temp;
-- lock;
-- rename.
-
-Exact replacement semantics on future operating systems are a future porting milestone.
-
-13. Remove stale generated Go
-
-After every desired file is installed:
-
-- identify prior Fido-owned `.go` files not in the desired path set;
-- immediately re-`lstat`;
-- require regular/non-symlink;
-- re-read the exact header;
-- delete only when still provably Fido-owned;
-- abort and preserve on any ownership/type/read mismatch.
-
-The empty program removes every Fido-owned `.go` while keeping/updating the generated `go.mod`.
-
-Never delete foreign files or ordinary directories.
-
-14. Handled failure cleanup
-
-On every handled failure:
-
-- attempt to remove every sibling temp created by this invocation;
-- recheck that each is a regular non-symlink reserved-suffix file before deletion;
-- remove newly-created parent directories only when still empty and known to have been created by this invocation;
-- aggregate body, temp-cleanup, parent-cleanup, and lock-release errors;
-- never hide the initiating error;
-- release the lock when possible.
-
-A handled staging failure must not intentionally leave temp residue for the next run.
-
-A crash, process kill, power failure, disk failure during cleanup, permission failure during cleanup, or lock-release failure may leave:
-
-- `index.lock`;
-- sibling temp files.
-
-After the stale lock is deliberately removed, the next run performs two-phase temp recovery and converges.
-
-15. Honest filesystem guarantee
-
-Use this exact meaning:
-
-> GoProgram acceptance, SafeProgram certification, and DirectoryImage creation are semantically all-or-nothing. Dirty-directory installation is locked for cooperating emitters, rejects foreign Go/module inputs and nested `.fido`, inspects the complete tree fail-closed, stages the complete image into reserved sibling temporary files before installation, uses per-file rename in the ordinary same-filesystem case, cleans handled-failure temps immediately, removes validated abandoned suffix-owned temps on a later run, and converges when the directory namespace remains stable. It is not a portable transactional multi-file filesystem commit, not hardened against malicious concurrent mutation, and does not model arbitrary unmount/remount/backing-store replacement between runs.
-
-Do not claim:
-
-- whole-tree atomicity;
-- hostile-filesystem safety;
-- unforgeable temp ownership;
-- recovery after arbitrary mount replacement;
-- no possible residue after SIGKILL/power loss;
-- portability to every current operating system without a future porting review.
-
-16. Simplify the sink aggressively
-
-The record subsystem deletion should materially reduce code.
-
-Remove dead helpers, datatypes, fault seams, tests, and prose.
-
-The sink should return to a small, auditable filesystem synchronizer.
-
-Do not preserve a high line cap merely because the old record implementation needed it.
-
-Reduce the OCaml-origin gate’s sink size bound to a reviewed value appropriate to the simplified implementation.
-
-Do not optimize for an arbitrary seven-line target; retain only irreducible dirty-directory logic.
-
-17. One pristine generated-module Buildx stage
-
-Create one explicit normal content-addressed Buildx stage whose contract is:
-
-  generated-module
-    /generated/go.mod
-    /generated/**/*.go
-
-It contains exactly the canonical certified generated module.
-
-It contains no:
-
-- `.fido`;
-- lock;
-- temp files;
-- proof sources;
-- test fixtures;
-- unrelated repository files.
-
-The canonical module is the current primary witness program, not the multi-package or empty differential fixture.
-
-The stage must be built from authoritative generation inputs:
-
-- certified `.v` sources;
-- Dune/project files;
-- plugin/transport sources needed to generate;
-- pinned toolchain/build inputs;
-- canonical witness source.
-
-Committed generated `go.mod` and `.go` files must not be semantic inputs to the generation stage.
-
-Use specific `COPY` instructions so changing only tracked generated outputs invalidates comparison stages but does not force the proof/generation layer to treat those bytes as authority.
-
-Mutable BuildKit cache mounts may accelerate:
-
-- opam downloads;
-- Dune `_build`;
-- compiler caches.
-
-The authoritative generated module must live in an ordinary image layer, never in a mutable cache mount.
-
-18. Buildx stage reuse
-
-Every canonical-output workflow consumes the same `generated-module` layer:
-
-- Go e2e;
-- staged-index verification;
-- working-tree regeneration;
-- artifact inspection;
-- future CI.
-
-Do not regenerate the canonical module independently in each path.
-
-The existing multi-package and empty witnesses remain differential/e2e fixtures and may use related cached proof layers, but they are not the canonical tracked artifact.
-
-Add an artifact target conceptually equivalent to:
-
-  FROM scratch AS generated-artifact
-  COPY --from=generated-module /generated/ /
-
-The local exporter may expose that exact tree when needed.
-
-19. Track the canonical generated module at the repository root
-
-Do not introduce `dist/`.
-
-Track:
-
-- root `go.mod`;
-- root and recursive generated `.go` files at their natural `FilePath` locations.
-
-The repository should support:
-
-  go build ./...
-  go run .
-
-without requiring Rocq, Docker, or Fido merely to inspect/run the already-generated canonical example.
-
-The proof sources remain authoritative.
-
-The tracked Go module is a reviewed derived artifact.
-
-Current repository policy becomes:
-
-- every tracked `.go` belongs to the canonical generated module;
-- root `go.mod` is generated and tracked;
-- every tracked generated file begins with the exact Fido header;
-- handwritten Go inside the generated module is forbidden for now;
-- nested `go.mod` remains forbidden.
-
-Delete the old policy:
-
-- `*.go` globally ignored;
-- tracked Go prohibited;
-- “generated Go is uncommittable.”
-
-20. Git ignore policy
-
-Update `.gitignore`:
-
-Remove:
-
-  *.go
-
-Do not ignore:
-
-- root `go.mod`;
-- generated `.go` files.
-
-Ignore only transient control/residue for this repository:
-
-  /.fido/
-  **/*.fido-tmp-v1
-
-Do not globally ignore nested `.fido` directories; nested `.fido` is an emission error and should remain visible if it somehow appears.
-
-The exact root `.fido/` is ignored because it is local control state.
-
-Abandoned sibling temps are ignored because they are crash residue and never meaningful source artifacts.
-
-21. Generated-output repository gate
-
-Replace the old no-tracked-Go seal with a generated-output policy gate.
-
-At minimum it must reject:
-
-- tracked `.go` without the exact Fido header;
-- tracked root `go.mod` without the exact Fido header;
-- tracked nested `go.mod`;
-- tracked `.fido` control entries;
-- tracked `*.fido-tmp-v1`;
-- handwritten/unowned tracked Go.
-
-The exact path/byte equality with fresh certified generation is enforced by the staged-index pre-commit Buildx check below.
-
-Do not preserve both the old prohibition and the new tracked-output model.
-
-22. Working-tree regeneration command
-
-Add one clear command, for example:
-
-  make regenerate
-
-Its job:
-
-- build/reuse the exact `generated-module` Buildx layer from the current working-tree proof inputs;
-- synchronize that pristine artifact into the repository root using the same simplified dirty-directory sink;
-- never invoke an independent renderer;
-- never copy directly over the repository without the sink;
-- preserve foreign non-Go files;
-- reject foreign Go/module inputs and nested `.fido`;
-- update tracked `go.mod` and recursive `.go`;
-- remove stale Fido-owned `.go`.
-
-A small production filesystem-only CLI may be added if necessary to apply `/generated` to a destination through `Fido_sink`.
-
-That CLI may:
-
-- read `/generated/go.mod`;
-- recursively enumerate `/generated/**/*.go`;
-- convert paths to canonical forward-slash relative paths;
-- call the same sink.
-
-It may not:
-
-- inspect Rocq terms;
-- understand ASTs;
-- compile;
-- render;
-- alter bytes;
-- choose semantic paths.
-
-Keep it tiny.
-
-A practical Buildx/Docker flow may be:
-
-- build/load a small sync image that copies `/generated` from `generated-module`;
-- run it with the repository root bind-mounted;
-- the CLI invokes the same sink against the bind mount.
-
-Do not use a second generation.
-
-23. Pre-commit verifies the exact staged Git snapshot
-
-The hook must verify the proposed commit, not the ordinary working tree.
+The current staged generated-byte comparison is not enough if the hook executes gate implementations from the unstaged working tree.
 
 Required flow:
 
-1. Create one temporary directory.
-2. Export the Git index exactly once:
+1. Locate the repository root.
+2. Create one temporary directory.
+3. Export the Git index exactly once into that directory using `git checkout-index`.
+4. From that point onward, use the exported staged snapshot as the authoritative source tree.
+5. Execute the staged copies of:
+   - the OCaml-origin gate;
+   - the generated-output policy gate;
+   - the staged/generated comparison implementation;
+   - any helper scripts.
+6. Use the exported staged tree as the complete Buildx context.
+7. Run the complete proof gate.
+8. Run the complete Go e2e.
+9. materialize the pristine `generated-artifact` built from that staged context;
+10. recursively compare the staged snapshot’s generated root `go.mod` and every staged `.go` at every depth against the pristine artifact:
+    - exact relative path set, both directions;
+    - exact bytes;
+    - regular-file shape;
+    - canonical generated file mode.
 
-     git checkout-index --all --prefix="$tmp/context/"
+Do not execute a working-tree script merely because the data it reads comes from the index.
 
-3. Use that exported staged tree as the entire Buildx context.
-4. Build a `verify-staged-generated` target.
-5. That target reuses the `generated-module` layer built from the staged proof/generation inputs.
-6. Inside Buildx, compare the staged generated artifacts against `/generated`.
+A staged bad gate script or staged bad OCaml boundary must be the version the hook evaluates.
 
-The hook must not:
+Implementation may parameterize the staged scripts with the exported root path. It must not require a `.git` directory inside the exported tree to inspect source contents.
 
-- read unstaged working-tree source as authority;
-- mutate the working tree;
-- auto-stage files;
-- regenerate twice;
-- compare only root-level `*.go`;
-- silently pass on a missing generated file.
+5. Run the full staged verification on every ordinary commit
 
-The comparison is recursive.
+Delete the manually maintained conditional path list that decides whether Buildx verification is needed.
 
-Compare:
+Every ordinary commit that does not use `--no-verify` must:
 
-- staged root `go.mod`;
-- every staged `**/*.go` at every depth;
+- export the staged tree;
+- run the full cached proof gate;
+- run the full cached Go e2e;
+- compare staged generated output against the pristine generated layer.
 
-against:
+Buildx caching is the optimization.
 
-- `/generated/go.mod`;
-- every `/generated/**/*.go`.
+A manually maintained “relevant input path” list is not an authority.
 
-Verify both:
+This also ensures that the first normal commit after a prior `--no-verify` bypass re-establishes the generated-output invariant.
 
-A. Exact relative path sets.
+The prototype escape remains honest:
 
-B. Exact byte contents for every path.
+  git commit --no-verify
 
-Catch:
+may bypass the hook.
 
-- modified generated bytes;
-- missing staged generated file;
-- newly generated file absent from the index;
-- stale staged generated file removed by generation;
-- nested generated path mismatch;
-- stale `go.mod`.
+Do not hide or remove that documented limitation. Future PR CI is still future work and is not part of this milestone.
 
-Report every differing path where practical.
+6. Do not auto-stage or mutate the working tree from pre-commit
 
-The hook should abort with instructions equivalent to:
+The staged verification hook must:
+
+- not regenerate into the working tree;
+- not alter the index;
+- not run `git add`;
+- not auto-fix generated files.
+
+On mismatch it must fail with a clear command such as:
 
   make regenerate
   git add -A -- go.mod ':(top,glob)**/*.go'
   git commit
 
-Do not auto-stage.
+`make regenerate` remains the explicit working-tree update command and continues to use the pristine generated Buildx layer plus the same sink.
 
-24. Buildx cache correctness
+7. Delete the OCaml line-count cap
 
-The staged verification is only valid when the generated layer cache key depends on the exact staged authoritative inputs.
+Delete the hard-coded line-count ceiling from `tools/ocaml-origin-gate.sh`.
 
-Ensure the generation stage copies all and only required authoritative inputs.
+Delete documentation and status prose that advertises the current sink’s line count.
 
-The generated result must be an ordinary layer.
+Retain the useful gates:
 
-Do not compare against:
+- exact allowlist of handwritten OCaml files;
+- filesystem-only files may not inspect Rocq terms;
+- the bridge may not inspect program/AST/type/safety structures;
+- deleted-backend hallmark names remain forbidden;
+- behavioral tests exercise the live boundary.
 
-- mutable Dune cache contents;
-- an old exported directory;
-- the ordinary working tree;
-- a “latest successful generation” path;
-- a cache mount used as output authority.
+A numeric source-line ceiling is not a correctness invariant.
 
-Buildx may reuse the generated layer only when its inputs and instructions match the staged snapshot.
+Do not replace it with another arbitrary size metric.
 
-25. Prototype guarantee and future CI
+8. Make the generated layer independent of committed generated bytes by construction
 
-Current guarantee:
+The pristine `generated-module` Buildx layer must not depend on committed `go.mod` or committed `.go` files.
 
-> A normal Git commit is refused unless the exact staged proof/generation inputs regenerate the exact staged root `go.mod` and recursive staged `.go` path set and bytes through the pinned Buildx certified pipeline.
+Update `.dockerignore` so the ordinary build context excludes:
 
-This is intentionally a prototype-stage guarantee.
+- the tracked root `go.mod`;
+- tracked generated `.go` files recursively.
 
-`git commit --no-verify` can bypass it.
+The generation stage must derive the pristine module only from:
 
-That limitation must be documented honestly.
+- certified `.v` sources;
+- Dune/project files;
+- the transport plugin/sink;
+- witness definitions;
+- pinned toolchains;
+- other genuine generation inputs.
 
-Do not add a GitHub Actions/PR CI workflow in this milestone.
+Do not copy committed generated bytes into any generation/proof authority.
 
-Future PR review will run the same staged/generated comparison as a mandatory server-side check.
+The committed generated files remain reviewed derived artifacts verified against the pristine layer.
 
-26. Go e2e consumes the same generated layer
+9. Canonical tracked generated file mode
 
-The pinned Go e2e must copy the canonical module from `generated-module`.
+Require tracked generated `go.mod` and generated `.go` files to be regular files with canonical non-executable mode.
 
-It must not independently regenerate or hand-create `go.mod`.
+Use exact Git mode:
 
-Keep:
+  100644
 
-  GOWORK=off
-  GOTOOLCHAIN=local
-  GOPROXY=off
+Reject:
 
-Blocking:
+- executable generated Go;
+- symlinks;
+- gitlinks;
+- special/nonregular representations.
 
-- `go build ./...`;
-- canonical witness execution vs reviewed stdout/stderr/exit;
-- required path/module discovery checks.
+The pristine comparison remains primarily path-set + byte equality, but the repository policy gate must also enforce the canonical staged Git mode.
 
-Nonblocking:
+PART B — first permanent Go type-system foundation
 
-- `go vet ./...`.
+10. Mine Git history as a quarry, not as code to resurrect wholesale
 
-The e2e should also verify the generated layer contains no `.fido` or temp residue.
+Before implementing the new type foundation, inspect the pre-deletion history for semantic knowledge and counterexamples.
 
-27. Simplified sink regression tests
+Useful reference points include:
 
-Delete record-specific tests and replace them with tests of the actual suffix design.
+  git show e1954d3f84878d844a382dbdea621e4c69d32fd5:CoreType.v
+  git show d5646d646fc5046b54eb04b664bed7035b763786:GoTypes.v
+  git show d5646d646fc5046b54eb04b664bed7035b763786:GoAst.v
 
-At minimum cover:
+Use them to recover:
 
-Clean/dirty sync
+- exact range lemmas;
+- the distinction between untyped constants, typed values, and runtime values;
+- exhaustive per-type policies;
+- useful Go-accept/Go-reject counterexamples;
+- proof techniques that still fit the current architecture.
 
-- clean sync writes generated go.mod + `.go`;
-- Fido-owned files update;
-- stale Fido-owned `.go` removes;
-- foreign non-Go preserves;
-- empty program removes every Fido-owned `.go` and keeps go.mod.
+Do not cherry-pick or restore those files wholesale.
 
-Foreign inputs
+Do not resurrect:
 
-- foreign root `.go` rejects;
-- foreign nested `.go` rejects;
-- `.go` symlink/nonregular rejects;
-- foreign root `go.mod` rejects;
-- root go.mod symlink/nonregular rejects;
-- nested go.mod rejects;
-- unreadable directory fails closed.
+- `Surface`;
+- `TypedIR`;
+- elaboration into a copied program;
+- a second expression/declaration hierarchy;
+- the old broad `PTy`/`ptype` supported-subset classifier;
+- `TargetConfig`;
+- portable-32-bit restrictions;
+- raw/string rescue constructors;
+- old printer/parser machinery;
+- historical proof scaffolding disconnected from the live compiler.
 
-Control namespace
+No historical code is trusted merely because it once existed.
 
-- exact root `.fido` marker + optional lock accepted;
-- foreign root `.fido` rejected;
-- unexpected root `.fido` entry rejected;
-- nested `.fido` directory rejected and preserved;
-- nested `.fido` symlink rejected and preserved;
-- nested `.fido` regular file rejected and preserved.
+Restate every retained idea in the current one-AST architecture.
 
-Reserved temp suffix
+11. Create one Go type authority
 
-- abandoned regular root temp is removed after complete successful scan;
-- abandoned regular nested temp is removed;
-- multiple temps are collected before deletion;
-- invalid path elsewhere causes refusal before any collected temp is deleted;
-- temp symlink rejected/preserved;
-- temp directory rejected/preserved;
-- temp special entry rejected/preserved;
-- regular foreign file using the reserved suffix is intentionally classified Fido-owned and removed; document this accepted convention.
+Introduce a fresh certified module, preferably `GoTypes.v`, with exactly one permanent type universe:
 
-Complete staging
+  Inductive GoType : Type :=
+  | TBool
+  | TInt.
 
-- every desired sibling temp exists before first install;
-- later-stage write failure changes no prior final generated file;
-- handled staging failure removes every created temp when cleanup succeeds;
-- cleanup failure reports both initiating and cleanup errors;
-- crash while writing leaves lock + partial temp;
-- crash after complete staging leaves lock + all temps and old finals;
-- crash during install may leave mixed finals + remaining temps;
-- after stale lock removal, next run removes temps and converges.
+No other type constructor in this milestone.
 
-Rename/ownership
+Do not add placeholder constructors for future types.
 
-- sibling temp resides beside each nested final;
-- a real nested mount remains supported;
-- EXDEV fails with no copy fallback;
-- overwrite ownership is rechecked immediately;
-- stale-delete ownership is rechecked immediately;
-- file becoming foreign before overwrite/delete is preserved and aborts.
+Adding a future constructor must be a reviewed semantic milestone that updates:
 
-Repository artifact
+- static typing;
+- representability;
+- compiler facts;
+- safety/value semantics;
+- rendering correspondence;
+- tests;
+- documentation.
 
-- `generated-module` path set exactly matches tracked generated module after regeneration;
-- generated layer has no control/temp files.
+`GoType` is not raw AST syntax.
 
-28. Proof/build test placement
+Current literal expressions remain untyped raw syntax in `GoAST`.
 
-The complete whole-theory audit and module coverage run in `make prove`.
+12. Represent exact untyped constant values
 
-The staged-index generated comparison runs in pre-commit.
+Introduce one exact constant-value domain for the current raw literal fragment:
 
-The ordinary full `make check` continues to run:
+  Inductive GoConst : Type :=
+  | CBool : bool -> GoConst
+  | CInt  : Z -> GoConst.
 
-- complete proof gate;
-- transport/sink tests;
-- canonical generated-module creation;
-- Go e2e;
-- existing current-fragment differential tests.
+Names may differ if the responsibilities remain exact.
 
-Do not claim `make check` proves external Go adequacy.
+Define one total constant interpretation of the current expressions:
 
-29. Documentation rewrite
+  const_value : GoExpr -> GoConst
 
-Update all active documentation and source headers:
+with exact behavior:
+
+  EBool b -> CBool b
+  EInt n  -> CInt (Z.of_N n)
+  ENeg n  -> CInt (- Z.of_N n)
+
+This is untyped constant meaning.
+
+Do not range-check integer constants here.
+
+Go integer constants are exact values; representability is a separate contextual obligation.
+
+Prove at minimum:
+
+- totality by construction;
+- determinism;
+- `EInt 0` and `ENeg 0` have the same constant value;
+- positive and negative values are exact.
+
+Do not create a duplicate constant evaluator in `GoCompile`, `GoSafe`, or `GoRender`.
+
+13. Define default types separately from constant values
+
+Define:
+
+  const_default_type : GoConst -> GoType
+
+with:
+
+  CBool _ -> TBool
+  CInt  _ -> TInt
+
+The raw literal remains an untyped constant.
+
+The default type is the type chosen in a context that requires a typed value.
+
+Do not bake `TInt` directly into the raw `EInt`/`ENeg` constructors.
+
+Do not claim the raw expression itself was syntactically typed.
+
+This distinction is foundational for future:
+
+- assignments;
+- variables;
+- function arguments;
+- conversions;
+- typed constants;
+- additional numeric types.
+
+14. Define representability as one type-directed authority
+
+Define one declarative relation or proposition:
+
+  ConstRepresentable : GoType -> GoConst -> Prop
+
+with exact current rules:
+
+- every `CBool b` is representable as `TBool`;
+- no integer constant is representable as `TBool`;
+- no boolean constant is representable as `TInt`;
+- `CInt z` is representable as `TInt` iff:
+
+    int_min <= z <= int_max
+
+using the existing single `Ints` authority.
+
+Define an executable reflector/checker:
+
+  const_representableb : GoType -> GoConst -> bool
+
+and prove exact reflection:
+
+  const_representableb t c = true <-> ConstRepresentable t c
+
+Do not leave a second integer-range checker elsewhere.
+
+Delete or route every current int-literal admissibility decision through this authority.
+
+15. Define use-context resolution
+
+Introduce one current expression-use context:
+
+  Inductive ExprUse : Type :=
+  | UsePrintlnArg.
+
+Define one exhaustive per-type use policy:
+
+  UseAllows : ExprUse -> GoType -> Prop
+
+or an equivalent reflected boolean.
+
+For this milestone:
+
+- `UsePrintlnArg` allows `TBool`;
+- `UsePrintlnArg` allows `TInt`.
+
+No other type exists.
+
+Define the declarative resolved-typing relation:
+
+  ResolveExpr : ExprUse -> GoExpr -> GoType -> Prop
+
+It must express:
+
+1. the expression denotes one exact untyped constant;
+2. the constant’s default type is `t`;
+3. the use context allows `t`;
+4. the constant is representable as `t`.
+
+Provide an executable resolver, for example:
+
+  resolve_expr : ExprUse -> GoExpr -> option GoType
+
+and prove:
+
+- soundness;
+- completeness;
+- determinism;
+- no successful resolution at the wrong type.
+
+Equivalent formulations are acceptable if they preserve one authority and the untyped-constant/defaulting distinction.
+
+Do not create a typed-expression AST.
+
+Do not copy the original expression into a “resolved expression” record.
+
+16. Replace the old ExprOk hierarchy
+
+Delete the old parallel static-admissibility family after the new type authority is live:
+
+- `ExprOk`;
+- `StmtOk`;
+- `DeclOk`;
+- `FileOk`;
+- `expr_ok`;
+- `stmt_ok`;
+- `decl_ok`;
+- `file_ok`;
+- their reflection lemmas, except reusable proof lemmas moved under the new authority.
+
+Introduce whole-current-fragment typing judgments:
+
+  StmtTyped
+  DeclTyped
+  FileTyped
+  ProgramTyped
+
+Exact current rules:
+
+- `SPrintln args` is typed iff every argument resolves under `UsePrintlnArg`;
+- `DMain body` is typed iff every statement is typed;
+- a file is typed iff every declaration is typed;
+- a program is typed iff every mapped file is typed;
+- the empty file map is typed vacuously.
+
+Provide executable reflected checkers and prove exact equivalence.
+
+There must be one live static type path.
+
+Do not keep the old `ExprOk` system “temporarily” beside the new one.
+
+17. Integrate typing into GoCompile over the same AST
+
+`GoCompile` remains the one whole-program compiler authority.
+
+It must now consume the `ProgramTyped` judgment as the static typing foundation.
+
+The whole program remains valid iff:
+
+- every represented file/declaration/statement/expression is typed through the new type system;
+- every package directory has exactly one `main`;
+- all existing whole-program structural rules hold;
+- the empty program remains valid.
+
+`CompilationFacts p` must expose that the same `p` is typed.
+
+Acceptable shapes include:
+
+- a `cf_program_typed : ProgramTyped p` field; or
+- an immediate canonical theorem/projection from the compiled evidence.
+
+Do not store:
+
+- a typed AST;
+- a copied file map;
+- per-node syntax duplicates;
+- a second program;
+- a target tree.
+
+Because all current expressions are closed constants, do not introduce a large expression-annotation map merely to cache results that are directly computable.
+
+Future symbols/types may enrich `CompilationFacts` when a construct actually requires them.
+
+18. Preserve exact executable compiler proofs
+
+Update the executable compiler so it succeeds exactly for the revised declarative `GoCompile`.
+
+Retain or re-prove:
+
+- `prog_ok_iff`;
+- compiler soundness;
+- compiler completeness;
+- rejected program yields no `CompilableProgram`;
+- all-or-nothing whole-program behavior;
+- empty-program acceptance;
+- exact package-main-count rejection.
+
+The current type failure is still only integer default-type representability failure.
+
+Do not invent a broad error taxonomy.
+
+`ErrIntOverflow` may remain if it stays exact.
+
+A narrowly named type error is also acceptable if it reflects only the current live failure and does not pretend future completeness.
+
+19. Make GoSafe consume the same GoType authority
+
+There must not be one compiler type universe and a separate safety/runtime type universe.
+
+Retain the current runtime values:
+
+  Inductive GoValue :=
+  | VBool : bool -> GoValue
+  | VInt  : Z -> GoValue.
+
+Define:
+
+  value_type : GoValue -> GoType
+
+with:
+
+  VBool _ -> TBool
+  VInt  _ -> TInt
+
+Prefer defining runtime expression evaluation from the single exact constant interpretation, for example through one conversion:
+
+  const_to_value : GoConst -> GoValue
+  eval_expr e := const_to_value (const_value e)
+
+or an equivalent nonduplicating formulation.
+
+Prove:
+
+  eval_expr_resolved_type :
+    forall use e t,
+      ResolveExpr use e t ->
+      value_type (eval_expr e) = t.
+
+Also preserve:
+
+- exact integer values;
+- boolean values;
+- zero-sign agnosticism;
+- `EInt 0` and `ENeg 0` evaluate identically.
+
+Do not index `GoValue` by `GoType` in this milestone unless it demonstrably makes the complete implementation and heterogeneous `println` traces smaller and clearer.
+
+Do not introduce existential packaging merely for aesthetic type indexing.
+
+Use taste and proof ergonomics, but keep one `GoType` authority.
+
+20. Preserve the direct renderer and connect it to resolved typing
+
+Do not change emitted bytes.
+
+Do not add a parser, lexer, token layer, or round-trip theorem.
+
+Keep the existing direct renderer and `render_expr_denotes`.
+
+Add a root theorem connecting the current three authorities, for example:
+
+  render_resolved_expr_denotes :
+    forall e t,
+      ResolveExpr UsePrintlnArg e t ->
+      RenderedPrimitiveDenotes (render_expr e) (eval_expr e)
+      /\ value_type (eval_expr e) = t.
+
+An equivalent theorem split into smaller load-bearing theorems is acceptable.
+
+The theorem must establish:
+
+- the rendered spelling denotes the exact runtime value;
+- that value has the statically resolved type.
+
+Do not claim this is a theorem about the real Go parser.
+
+Real-Go acceptance remains external adequacy, exercised differentially.
+
+21. Required boundary and range fixtures
+
+Add kernel-checked positive fixtures for:
+
+- `EBool true` resolves to `TBool`;
+- `EBool false` resolves to `TBool`;
+- `EInt 0` resolves to `TInt`;
+- `ENeg 0` resolves to `TInt`;
+- `EInt 0` and `ENeg 0` have equal constant values;
+- maximum `int` resolves;
+- minimum `int` resolves;
+- a mixed `println(true, 42, -1)` statement is typed;
+- `println()` is typed;
+- an empty file is typed;
+- an empty program is typed.
+
+Add negative fixtures for:
+
+- `int_max + 1` fails resolution as `TInt`;
+- `int_min - 1` fails resolution as `TInt`;
+- boolean constants do not resolve as `TInt`;
+- integer constants do not resolve as `TBool`;
+- an out-of-range argument makes its statement/file/program fail typing;
+- the whole program is rejected before rendering/emission.
+
+Use the existing `Ints` constants. Do not duplicate numeric bounds.
+
+22. Required theorem surfaces
+
+Add or update the axiom-free public gate for the load-bearing new statements.
+
+At minimum, gate meaningful representatives of:
+
+GoTypes
+
+- `const_value` zero-sign equality;
+- default type exactness;
+- representability reflection;
+- expression-resolution soundness;
+- expression-resolution completeness;
+- resolution determinism;
+- statement/program typing reflection;
+- max/min accepted;
+- overflow/underflow rejected.
+
+GoCompile
+
+- revised `prog_ok_iff`;
+- compiler soundness;
+- compiler completeness;
+- rejection implies no compilation;
+- empty program accepted under the new typing authority.
+
+GoSafe
+
+- resolved expression evaluates to a value of the resolved `GoType`;
+- zero-sign-agnostic value theorem.
+
+GoRender
+
+- rendered resolved expression denotes the exact value and has the resolved type;
+- existing decimal/header/ASCII facts remain.
+
+The complete whole-certified-theory assumption audit must cover the new module automatically through exact Dune/module coverage.
+
+No axiom, parameter, admitted proof, functional extensionality, or unchecked primitive.
+
+23. No generated output delta
+
+This milestone introduces a type foundation only.
+
+It must not change:
+
+- rendered `go.mod`;
+- rendered `main.go`;
+- generated relative path set;
+- stdout;
+- stderr;
+- exit status;
+- gofmt output.
+
+The tracked generated module must remain byte-identical to its pre-milestone bytes.
+
+The staged-index verification should enforce this naturally.
+
+If the type foundation appears to require an output change, stop and classify the issue. Do not hide an output delta inside this milestone.
+
+24. No language-growth escape hatch
+
+Do not add `TString` because `println` will eventually support strings.
+
+Do not add other type constructors from history.
+
+Do not add generic “unknown,” “unsupported,” “opaque,” or “raw” types.
+
+Do not add an untyped AST constructor or fallback.
+
+The next type constructor must arrive only with the syntax and complete semantic obligations that need it.
+
+This milestone’s permanent type universe is exactly:
+
+  TBool
+  TInt
+
+25. Documentation updates
+
+Update all active documentation and source headers to match the resulting architecture:
 
 - `.review/NEXT_STEPS.md`;
 - `ARCHITECTURE.md`;
@@ -982,328 +875,264 @@ Update all active documentation and source headers:
 - `README.md`;
 - `PROGRESS.md`;
 - `PAINFUL_LESSONS.md`;
-- `.gitignore`;
-- `.githooks/pre-commit`;
 - `Makefile`;
 - `Dockerfile`;
+- `dune`;
+- `GoAST.v`;
+- new `GoTypes.v`;
+- `GoCompile.v`;
+- `GoSafe.v`;
+- `GoRender.v`;
+- `GoEmit.v` if its comments name the compile facts;
 - plugin/sink headers;
-- origin gates;
-- e2e comments.
+- pre-commit/gate scripts.
 
 Required truths:
 
-A. Proof authority
+A. One AST
 
-  Whole-certified-theory auditing includes constants, inductives, and surviving named assumptions.
-  It runs in `make prove`.
-  Selected public Print Assumptions surfaces remain.
+Raw `GoExpr` remains untyped syntax.
+There is no typed AST or copied program.
 
-B. Active contract
+B. One type authority
 
-  `.review/NEXT_STEPS.md` is binding.
-  Architectural conflicts stop rather than trigger autonomous redesign.
+`GoType` initially contains exactly `TBool` and `TInt`.
 
-C. Sink
+C. Untyped constants
 
-  One lock + one reserved sibling suffix.
-  No records.
-  No stage directories.
-  No nonce.
-  No parser.
-  No central staging.
-  No mount identity tracking.
+Current literals denote exact untyped `GoConst` values.
+Defaulting and representability happen in a use context.
 
-D. Threat model
+D. Compilation
 
-  Cooperating emitters and stable namespace.
-  Ordinary crash/disk/permission handling.
-  Arbitrary remount/backing-store replacement and malicious concurrent mutation are outside scope.
+`ProgramTyped` is part of whole-program `GoCompile`.
+`CompilationFacts` exposes typing evidence over the same program.
 
-E. Ownership
+E. Safety
 
-  Installed `.go`/go.mod owned by exact header + regular/non-symlink.
-  Regular `.fido-tmp-v1` files owned by naming convention.
-  Nested `.fido` always rejects.
+Runtime values use the same `GoType` authority.
+Evaluation preserves resolved type.
 
-F. Generated artifact
+F. Rendering
 
-  One normal Buildx `generated-module` layer is the pristine canonical output authority.
+The direct renderer is unchanged.
+Rendered resolved expressions denote the exact value and agree with the static type.
+No parser or round trip exists.
 
-G. Tracked Go
+G. Filesystem
 
-  Root go.mod and recursive generated `.go` are tracked derived artifacts.
-  `.v`/proof sources are authoritative.
-  No `dist/`.
-  No handwritten Go in the canonical module for now.
+Hidden/underscore/testdata/vendor directory trees are opaque to scanning.
+Visible nested `.fido` is rejected.
+Temporary ownership is limited to suffixes that map to root `go.mod` or an intrinsic `FilePath`.
 
 H. Pre-commit
 
-  Exports the Git index once.
-  Builds from the staged snapshot.
-  Compares root go.mod + recursive `.go` exact path set and bytes.
-  Does not inspect unstaged files or auto-stage.
-  Bypassable during prototype stage.
+The complete verifier runs on every ordinary commit.
+Every gate implementation and input comes from the exported staged snapshot.
+No working-tree source is trusted.
+`--no-verify` remains an explicit prototype bypass.
 
-I. Git ignore
+I. Trusted OCaml
 
-  Ignore root `.fido/` and recursive `.fido-tmp-v1`.
-  Do not ignore generated Go/go.mod.
+Remove numeric line-count claims.
+Keep semantic responsibility boundaries.
 
-J. Future CI
-
-  Explicitly deferred.
-  Future PR gate will reuse the same verification target.
-
-Delete stale claims about:
-
-- stage records;
-- record-driven recovery;
-- nonces;
-- local stage directories;
-- central staging;
-- unforgeable transient ownership;
-- device/inode mount identity;
-- generated Go being forbidden from Git;
-- no tracked `.go`;
-- handwritten go.mod injection;
-- pre-commit checking the working tree;
-- plans being merely advisory;
-- arbitrary mount/replacement recovery.
-
-30. Painful lessons update
+26. Painful lessons update
 
 Keep `PAINFUL_LESSONS.md` concise.
 
-Add/replace the durable lesson:
+Add or amend only durable lessons:
 
-- File emission became overdesigned when the reviewer’s hostile-filesystem concerns replaced the project’s real single-owner threat model.
-- A reserved sibling suffix plus a lock is enough for crash-friendly dirty generation here.
-- Public naming-convention ownership is an accepted tradeoff; do not build a transaction log to avoid it.
-- Complete-image staging before install handles the practical disk/permission failure class.
-- Stable path namespace is an explicit operational assumption.
-- The proof gate must seed every certified declaration class, not only constants.
-- Generated Go can be tracked safely as a derived artifact when the proposed Git index is regenerated and compared through one pristine Buildx layer.
-- Pre-commit is a prototype boundary; mandatory PR CI comes later.
-- The binding milestone contract outranks an automated reviewer’s preferred architecture.
+- Literal constants are not immediately typed values. Preserve exact untyped constant meaning, then default/resolve in context.
+- A type system is evidence over the one AST, not permission to recreate `TypedIR`.
+- Git history is a semantic quarry, not a branch to resurrect wholesale.
+- The generated `FilePath` domain and the foreign Go-discovery scan have different responsibilities: do not skip visible directories Go may compile merely because Fido would not generate their names.
+- A public temp suffix is acceptable under the chosen threat model, but ownership must still map to a possible Fido final path.
+- A staged-tree verifier is only staged-authoritative when the gate implementations themselves come from the staged tree.
+- A source-line cap is not a correctness invariant.
 
-Delete record-protocol archaeology that no longer protects against a live temptation.
+Do not turn the file into a commit diary.
 
-Git history preserves the details.
+27. Required build and regression behavior
 
-31. No unrelated refactoring
+The final `make check` must cover:
 
-Do not:
+- complete proof gate;
+- whole-theory assumption audit;
+- existing Fido Emit provenance tests;
+- existing sink crash/recovery/foreign-file tests;
+- hidden/VCS metadata traversal regression;
+- scoped temp-suffix ownership;
+- visible nested `.fido` rejection;
+- complete-image staging;
+- exact Buildx generated-module;
+- tracked generated-output policy;
+- Go e2e;
+- empty program;
+- multi-package differential;
+- no-main/duplicate-main rejection;
+- nonblocking vet;
+- type-system positive/negative kernel fixtures;
+- no generated-byte delta.
 
-- grow language breadth;
-- redesign ModuleSpec;
-- redesign CompilationFacts;
-- add imports;
-- alter the direct renderer;
-- add tokens/parsers/IR;
-- generalize beyond Go1_23;
-- add external module semantics;
-- add CI workflows;
-- add hostile-filesystem defenses;
-- add mount identity tracking;
-- add random temporary naming;
-- introduce `dist/`;
-- add automatic Git staging.
+The pre-commit self-test or documented reproducible gate must demonstrate:
 
-32. Required proof/gate surfaces
+- staged bad OCaml + safe working-tree OCaml is rejected;
+- staged bad gate script + safe working-tree script cannot bypass;
+- a stale/missing/modified recursive staged generated file is rejected;
+- a docs-only normal commit still runs the complete cached verification;
+- the hook never mutates the working tree or index.
 
-Add or update axiom-free/public gate surfaces only where they state real project invariants.
+Do not add flaky timing-dependent tests.
 
-The whole-theory audit itself is an executable trust gate, not a Rocq theorem.
-
-Required executable proof-audit gates:
-
-- certified constants included;
-- certified mutual inductives included;
-- surviving named assumptions rejected;
-- all `Printer.Axiom` categories rejected;
-- all `Printer.Variable` rejected;
-- opaque bodies descended;
-- unused Fido axiom caught;
-- external axiom through opaque internal theorem caught;
-- unused assumed-positive inductive caught;
-- closed Section theorem accepted;
-- certified module coverage exact.
-
-Do not add weak theorem statements merely to increase the gate count.
-
-33. Acceptance criteria
+28. Acceptance criteria
 
 The milestone is complete only if all applicable conditions hold.
 
-Binding contract
+Workflow
 
-- This directive is copied verbatim into `.review/NEXT_STEPS.md`.
-- Contract committed before implementation.
-- Completion report gives contract commit SHA.
-- Codex reviews against it.
-- No architectural conflict is silently implemented.
+- This directive was copied verbatim to `.review/NEXT_STEPS.md`.
+- The contract was committed before implementation.
+- The exact `/loop 5m ...` command was started after the contract commit.
+- Codex reviewed against `.review/NEXT_STEPS.md`.
+- Codex is green.
+- No architectural conflict was silently implemented.
+- The loop stopped after notification.
 
-Proof audit
+Sink boundary
 
-- Whole-certified-theory roots include constants and inductives.
-- Surviving named assumptions are checked.
-- All disallowed assumption categories reject.
-- Audit descends opaque bodies.
-- `make prove` runs the complete audit.
-- Module coverage runs in `make prove`.
-- Transient adversarial tests cover axiom, opaque dependency, unused inductive assumption, variable, and closed Section.
-- No tracked axiom-bearing fixtures.
-
-Sink simplification
-
-- Stage-record subsystem is deleted.
-- No records, parser, nonce, local stage directory, or central stage remains.
-- Root `.fido` contains exact marker + optional lock only.
-- Sibling suffix is `.fido-tmp-v1`.
-- Complete tree scan is fail-closed and two-phase.
-- Nested `.fido` of any type rejects.
-- Foreign Go/module rules remain.
-- Complete desired image stages before first install.
-- Handled failures clean created temps immediately.
-- Crash residue converges after stale lock removal.
-- EXDEV has no copy fallback.
-- Sink is materially smaller and simpler.
-
-Generated Buildx artifact
-
-- One `generated-module` ordinary layer contains exactly canonical go.mod + recursive `.go`.
-- No `.fido` or temp residue in the layer.
-- Generated outputs are not stored as mutable cache authority.
-- Go e2e consumes this layer.
-- Working-tree regeneration consumes this layer.
-- Staged verification consumes this layer.
-
-Tracked output
-
-- Root go.mod is tracked.
-- Canonical recursive `.go` files are tracked.
-- No dist directory.
-- All tracked Go/module bytes have exact Fido header.
-- Old no-tracked-Go seal deleted.
-- Generated-output policy gate replaces it.
-- `.gitignore` ignores only root `.fido/` and recursive temp suffix for this concern.
-
-Regeneration
-
-- `make regenerate` uses the cached generated layer once.
-- It applies the pristine artifact through the same sink.
-- It preserves dirty non-Go files.
-- It rejects foreign Go/module/nested `.fido`.
-- It does not independently render.
+- No recursion into hidden, underscore, testdata, or vendor directory trees.
+- `.git` metadata with `.go` or `.fido-tmp-v1` names is preserved and ignored.
+- Visible nested `.fido` rejects.
+- Visible foreign Go/module inputs still reject.
+- A temp is owned only when stripping the suffix yields root `go.mod` or a valid intrinsic `.go` path.
+- Non-mappable suffix entries are preserved and refuse in traversed scope.
+- Two-phase recovery remains.
+- No records/nonces/stage dirs/parser returned.
+- Complete image stages before install.
+- Existing crash/cleanup semantics remain honest.
 
 Pre-commit
 
-- Exports Git index once.
-- Uses exported staged tree as Buildx context.
-- Does not use unstaged working tree as authority.
-- Compares root go.mod and recursive `.go`.
-- Compares exact path sets and exact bytes.
-- Missing/new/stale/nested outputs all fail.
-- Does not auto-stage.
-- Leaves working tree unchanged.
-- Gives actionable regeneration/staging instructions.
-- Bypassability is documented as prototype policy.
+- The Git index is exported exactly once.
+- The exported staged tree is the source for every gate implementation and source byte.
+- Full cached prove + e2e + generated comparison runs on every ordinary commit.
+- No conditional relevance path list remains.
+- Recursive generated path set and bytes match exactly.
+- Generated Git modes are exactly `100644`.
+- No working-tree mutation or auto-stage.
+- `--no-verify` remains documented.
+- The OCaml line cap is deleted.
+- Committed generated files are excluded from Buildx generation inputs.
 
-Build/e2e
+Type foundation
 
-- `make prove` is complete.
-- `make check` remains green.
-- Canonical generated module builds/runs directly.
-- `go build ./...` blocks on failure.
-- `go vet` remains nonblocking.
-- Empty and multi-package differential fixtures remain.
-- Current witness output/goldens remain correct.
+- Fresh one-authority `GoType` with exactly `TBool` and `TInt`.
+- Exact `GoConst` with bool and arbitrary-precision integer values.
+- One `const_value`.
+- One default-type authority.
+- One type-directed representability authority.
+- One reflected `ResolveExpr`.
+- One `StmtTyped`/`DeclTyped`/`FileTyped`/`ProgramTyped` path.
+- Old `ExprOk` hierarchy deleted.
+- `GoCompile` consumes the new typing evidence.
+- `CompilationFacts` exposes typing evidence over the same program.
+- No typed AST, copied map, or annotation tree.
+- `GoSafe` uses the same `GoType`.
+- Evaluation preserves resolved type.
+- Rendering correspondence includes resolved type.
+- Empty program remains valid.
+- Boundaries are exact.
+- No new type or syntax constructor.
+- No generated byte/path/behavior change.
+
+Proof
+
+- All new theorem surfaces are closed.
+- Whole-theory audit remains green.
+- Module coverage includes the new type module.
+- No tracked axiom fixture.
+- No source-text axiom scanner.
 
 Documentation
 
-- All active docs match implementation.
-- `NEXT_STEPS` binding rule is stated.
-- Record/staging-directory architecture is gone.
-- Threat model is honest and narrow.
-- Tracked generated-output policy is clear.
+- Every active document matches implementation.
+- No stale line count.
+- No claim that hidden/VCS trees are recursively inspected.
+- No claim that raw literals are immediately typed.
+- No old `TypedIR`/second-tree architecture returned.
 - PROGRESS remains compact.
-- PAINFUL_LESSONS remains architectural.
 
-34. Completion report
+29. Completion report
 
-When complete, report:
+When Codex is green and all criteria pass, report:
 
 - contract commit SHA;
 - final implementation commit SHA;
-- files added, changed, and deleted;
-- exact whole-theory audit root set;
-- all assumption categories rejected;
-- every transient audit fixture and result;
-- confirmation `make prove` runs the complete audit;
-- sink line-count/code deletion;
-- exact suffix ownership rule;
-- nested `.fido` behavior;
-- complete sink algorithm and threat model;
-- every sink crash/failure/recovery test;
-- generated-module Docker stage structure;
-- exact files in `/generated`;
-- how generation inputs exclude committed generated output as authority;
-- `make regenerate` implementation;
-- tracked generated files added;
-- `.gitignore` changes;
-- pre-commit staged-index export command;
-- exact recursive comparison algorithm;
-- proof that comparison checks path set and bytes;
-- all proof/build/e2e/precommit commands and results;
-- code deleted because it belonged to stage records;
-- every new handwritten OCaml file and why it is irreducible/filesystem-only;
-- every new/materially modified Section and dependency review;
+- complete commit range;
+- files added, changed, deleted;
+- exact directory-recursion policy;
+- exact reserved-temp ownership predicate;
+- `.git` metadata regression results;
+- final staged-index hook algorithm;
+- proof that gate implementations come from staged export;
+- confirmation full verification runs every normal commit;
+- line-cap deletion;
+- `.dockerignore` generated-input exclusion;
+- generated Git mode policy;
+- historical files inspected and which ideas were retained/rejected;
+- final `GoType` definition;
+- final `GoConst` definition;
+- constant interpretation;
+- defaulting rule;
+- representability relation/checker and reflection theorem;
+- expression-use and resolution rules;
+- old `ExprOk` code deleted;
+- final `ProgramTyped` integration;
+- `CompilationFacts` shape;
+- GoSafe type-preservation theorem;
+- render/type/value correspondence theorem;
+- every theorem added or materially changed;
+- complete `Print Assumptions` and whole-theory audit results;
+- exact generated-module path/byte comparison;
+- confirmation generated `go.mod`/`.go` bytes did not change;
+- all proof/build/e2e commands and results;
 - Codex dispositions;
-- confirmation all autonomous loops stopped.
+- confirmation notification sent;
+- confirmation loop stopped.
 
-Do not retain a correctness flaw as a known limitation.
+Do not list a retained correctness flaw as a known limitation.
 
-If this contract cannot be implemented correctly, stop, classify the obstacle as an architectural conflict, notify the user, and wait.
+If the contract cannot be implemented correctly, stop the loop, classify the obstacle as an architectural conflict, notify the user, and wait.
 
-35. Hard stop
+30. Hard stop
 
-After all criteria pass:
+When Codex is green and final verification passes:
 
-1. Stop every autonomous/Ralph/background/iterative loop.
-2. Do not infer or begin a next milestone.
-3. Commit the checkpoint.
-4. Notify the user through the configured phone/completion-notification channel that the checkpoint is ready for review.
+1. Commit the completed checkpoint.
+2. Notify the user through the configured phone/completion-notification channel that the checkpoint is ready for review.
+3. Stop the `/loop`.
+4. Do not infer or begin another milestone.
 5. Wait.
 
 Bottom line
 
-The permanent repaired boundary is:
+The permanent path after this milestone is:
 
-  complete whole-theory proof audit
-    over constants + inductives + surviving assumptions
-  +
-  GoProgram / SafeProgram / direct renderer unchanged
-  +
-  one pristine content-addressed Buildx generated-module layer
-  +
-  tracked root go.mod + recursive generated .go
-  +
-  staged-index pre-commit comparison
-  +
-  simple dirty-directory synchronization:
+  raw GoExpr
+    -> exact untyped GoConst
+    -> context resolution/defaulting through one GoType authority
+    -> ProgramTyped evidence over the SAME GoProgram
+    -> GoCompile / CompilationFacts over that same program
+    -> GoSafe values whose type agrees with resolution
+    -> unchanged direct renderer whose spelling denotes that value
+    -> unchanged certified DirectoryImage
+    -> simple sibling-temp dirty-directory sink
+    -> pristine generated-module Buildx layer
+    -> tracked generated Go verified from the exact staged Git tree
 
-    .fido/marker
-    .fido/index.lock
-
-    final-file.fido-tmp-v1
-      -> rename to final-file
-
-One lock.
-One reserved suffix.
-No records.
-No parser.
-No nonce.
-No stage directory.
-No mount database.
-No dist directory.
-No invisible architecture changes.
+No imports.
+No typed AST.
+No second IR.
+No new emitted syntax.
+No generated-byte delta.
