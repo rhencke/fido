@@ -85,13 +85,16 @@ IN Rocq before any bytes — **zero expected Go build failures, ever.**
   `<root>/.fido/` control dir = marker + git-style `index.lock` ONLY (no records, no nonce, no stage dir, no
   parser — the deleted subsystem). Before any generated-file mutation it validates the `root` (a symlink in
   ANY prefix component is rejected), reserves `.fido/`, and REJECTS foreign Go/module inputs + nested `.fido`
-  fail-closed. Installed `.go`/`go.mod` are owned by their header first line + regular-non-symlink (rechecked
-  before overwrite/delete). Each output stages into its RESERVED sibling temp `<final>.fido-tmp-v1` (the lock
-  serializes cooperating emitters, so no nonce/record is needed); the COMPLETE image stages before any
-  install; per-file atomic rename (sibling → nested mounts OK; EXDEV fails loud, no copy). Recovery is
-  TWO-PHASE: phase 1 inspects the whole tree once (foreign rules + collect regular reserved-suffix temps,
-  delete nothing), phase 2 deletes the validated temps; a symlink/dir/special reserved-suffix entry aborts +
-  is preserved, a regular one (forgeable public convention) is removed. Handled-failure cleanup is immediate
+  fail-closed — over the Go-DISCOVERED namespace, SKIPPING the opaque dot/underscore/`testdata`/`vendor` trees
+  `go build ./...` ignores (so it never touches `.git` or rejects because of anything beneath them). Installed
+  `.go`/`go.mod` are owned by their header first line + regular-non-symlink (rechecked before overwrite/
+  delete). Each output stages into its RESERVED sibling temp `<final>.fido-tmp-v1` (the lock serializes
+  cooperating emitters, so no nonce/record is needed); the COMPLETE image stages before any install; per-file
+  atomic rename (sibling → nested mounts OK; EXDEV fails loud, no copy). Recovery is TWO-PHASE: phase 1
+  inspects that namespace once (foreign rules + collect regular reserved-suffix temps, delete nothing), phase
+  2 deletes the validated temps; a symlink/dir/special reserved-suffix entry, OR one whose suffix-stripped
+  path does NOT map to a Fido final path (root `go.mod` or an intrinsic `.go`), aborts + is preserved, while a
+  regular MAPPED one (forgeable public convention) is removed. Handled-failure cleanup is immediate
   + error-aggregating. Fault seams are `checkpoint`/`unlink`/`rename`/`before_*` PARAMETERS (real
   `Unix._exit` crashes at writing/staged/installing, unlink failures, EXDEV) through the real algorithm — no
   ambient env. Honest: normal completion releases the lock; a crash (or a lock-UNLINK failure) leaves the

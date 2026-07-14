@@ -60,12 +60,13 @@ the emitted package set) that exercise the whole-program rules against real Go.
   effect — it typechecks the image type and rejects a non-empty assumption closure (kernel queries, so a
   postulated axiom/variable proof cannot cross), then decodes only the final `(go.mod, entries)` transport
   and hands it to a generic **ownership-aware dirty-directory synchronizer**. The sink **rejects foreign
-  Go/module inputs** (a foreign `.go` anywhere, a foreign/nested `go.mod`, a nested `.fido`) rather than
-  merge them, then stages the complete image into RESERVED sibling temps `<final>.fido-tmp-v1` and installs
-  by atomic rename (nested mounts supported; EXDEV fails loud). It validates the root against prefix
-  symlinks, reserves `.fido/` (marker + a git-style lock only — no records, no nonce), owns installed
+  Go/module inputs** (a foreign `.go` in the Go-discovered namespace, a foreign/nested `go.mod`, a nested
+  `.fido`) rather than merge them — skipping the opaque dot/underscore/`testdata`/`vendor` trees `go build
+  ./...` itself ignores — then stages the complete image into RESERVED sibling temps `<final>.fido-tmp-v1`
+  and installs by atomic rename (nested mounts supported; EXDEV fails loud). It validates the root against
+  prefix symlinks, reserves `.fido/` (marker + a git-style lock only — no records, no nonce), owns installed
   `.go`/`go.mod` by their header first line, never follows symlinks, and two-phase-recovers abandoned temps
-  fail-closed. No handwritten OCaml walks a program.
+  (whose suffix-stripped path maps to a Fido final path) fail-closed. No handwritten OCaml walks a program.
 - **The generated module is a tracked, reviewed artifact.** One pristine content-addressed Buildx
   `generated-module` layer is the output authority; the canonical `go.mod` + `main.go` are committed
   (Fido-headed) so the example builds/runs without Rocq or Docker, while the `.v`/proof sources stay

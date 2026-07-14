@@ -17,9 +17,12 @@ tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
 ctx="$tmp/context"
 git checkout-index --all --prefix="$ctx/"
 
-# (2) run the STAGED COPIES of the structural gates on the exported staged tree (never the working-tree copies).
+# (2) run the STAGED COPIES of the structural gates on the exported staged tree (never the working-tree
+#     copies), then the STAGED staged-tree-gate self-test — which exercises the staged gate scripts + staged
+#     hook against synthetic adversarial snapshots, so a staged weakening of a gate is caught here.
 sh "$ctx/tools/ocaml-origin-gate.sh"    "$ctx"
 sh "$ctx/tools/generated-output-gate.sh" "$ctx"
+sh "$ctx/tools/precommit-selftest.sh"
 
 # (3) full cached verification on EVERY ordinary commit: the complete proof gate + the whole-tree Go e2e,
 #     built from the exported staged context (Buildx caching is the optimization).

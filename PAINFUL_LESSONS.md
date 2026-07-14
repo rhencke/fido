@@ -54,8 +54,9 @@ stop. When an entry stops being a live temptation, delete it.
    deleted. The durable shape: `<root>/.fido/` = exact marker + git-style `index.lock` ONLY, and each output
    stages into its RESERVED sibling temp `<final>.fido-tmp-v1` — because the lock serializes, the name needs
    NO nonce and recovery needs NO record (the final path is already known to the live sync). A regular
-   reserved-suffix file is, by PUBLIC (forgeable) CONVENTION, an abandoned Fido temp — an ACCEPTED tradeoff
-   under this threat model; do NOT build a transaction log to make ownership unforgeable. The still-live
+   reserved-suffix file WHOSE SUFFIX-STRIPPED PATH MAPS TO A FIDO FINAL PATH (root `go.mod` or an intrinsic
+   `.go`) is, by PUBLIC (forgeable) CONVENTION, an abandoned Fido temp — an ACCEPTED tradeoff under this
+   threat model; do NOT build a transaction log to make ownership unforgeable. The still-live
    sub-lessons: ⚠ a reviewer can name a real defect WITHOUT owning the replacement, and the current
    `.review/NEXT_STEPS.md` — not the reviewer's preferred architecture — is binding; a defect unfixable
    within it is an ARCHITECTURAL CONFLICT to escalate, never a quiet redesign. ⚠ STAGE THE COMPLETE IMAGE
@@ -67,17 +68,24 @@ stop. When an entry stops being a live temptation, delete it.
    Filesystem discovery must distinguish MISSING (a confirmed `ENOENT`) from an operational error
    (EACCES/EIO/ELOOP/…) — never turn a readdir/lstat failure into "empty" or "no header"; that is fail-OPEN.
    ⚠ Validate the ROOT chain (a prefix symlink redirects every effect), reserve `.fido/`, reject a nested
-   `.fido` of any type, and reject a cross-device rename fail-loud (no copy fallback). ⚠ Dirty FOREIGN Go
-   contradicts a closed-world compile guarantee: a foreign `.go` anywhere, or a foreign/nested `go.mod`, must
-   REJECT the whole emission (fail-closed scan) — NOT preserved-and-merged into a tree we then claim
-   compiles. Inject faults (real crash via `Unix._exit`, unlink failure, EXDEV) through operation
+   `.fido` of any type in the traversed namespace, and reject a cross-device rename fail-loud (no copy
+   fallback). ⚠ Dirty FOREIGN Go contradicts a closed-world compile guarantee: a foreign `.go` in the
+   Go-discovered namespace, or a foreign/nested `go.mod`, must REJECT the whole emission (fail-closed scan) —
+   NOT preserved-and-merged into a tree we then claim compiles. Inject faults (real crash via `Unix._exit`, unlink failure, EXDEV) through operation
    PARAMETERS, never an ambient env branch or a real `chmod` in the production sink. ⚠ The GENERATED
    `FilePath` domain (what Fido would write — lowercase, no dotfiles/`_`/`testdata`/`vendor`) and the FOREIGN
    Go-discovery scan (what `go build ./...` would compile) have DIFFERENT responsibilities: the dirty-tree
    scan must skip only the directory trees Go itself ignores (`.`-prefixed incl. `.git`, `_`-prefixed,
    `testdata`, `vendor`) — NOT every path Fido would not generate — or a visible foreign package Go compiles
    slips past the foreign-Go rejection; and a `.git`-metadata blob merely NAMED like a `.go`/temp is preserved
-   and ignored, never touched. ⚠ A public temp suffix (`<final>.fido-tmp-v1`) is a forgeable convention, but
+   and ignored, never touched. ⚠ But that RUNTIME-sink skip is the OPPOSITE requirement from the STAGED-TREE
+   VERIFICATION GATES: a repository-content gate (the OCaml-origin / generated-output / staged-generated-
+   compare scripts over the exported index) must inspect EVERY tracked file at EVERY depth, pruning ONLY
+   `.git` — never the sink's opaque dirs.  Reusing the sink's Go-discovery skip in a gate is a FAIL-OPEN: a
+   rogue `.hidden/x.ml` escapes the OCaml allowlist and an unheaded/exec/symlink `.hidden/x.go` escapes the
+   output policy, and since `.dockerignore` also hides tracked `.go` from Buildx, NO check would ever see it.
+   A Buildx-free `precommit-selftest` demonstrates the gates reject these at every depth.  ⚠ A public temp
+   suffix (`<final>.fido-tmp-v1`) is a forgeable convention, but
    ownership still requires the suffix-stripped path to map to a possible Fido final path (root `go.mod` or a
    valid intrinsic `.go`) before deletion — a non-mappable suffixed entry is preserved and refuses. ⚠ A
    source-LINE cap on the OCaml boundary is not a correctness invariant (the boundary is enforced by the

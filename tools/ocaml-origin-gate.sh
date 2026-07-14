@@ -1,8 +1,11 @@
 #!/bin/sh
 # OCaml-origin gate — STAGED-TREE AUTHORITATIVE.  Operate on a ROOT directory (arg 1, default "."); for the
 # pre-commit hook and `make check` this is the Git index materialized by `git checkout-index`, so it is the
-# proposed commit's bytes and needs no `.git`.  find-based, skipping the opaque dot/underscore/testdata/
-# vendor trees.
+# proposed commit's bytes and needs no `.git`.  find-based, inspecting EVERY tracked file at EVERY depth —
+# this is a REPOSITORY-CONTENT gate, NOT the runtime sink: it must NOT adopt the sink's Go-discovery
+# directory skipping (a rogue `.hidden/x.ml` / `_priv/x.ml` / `testdata/x.ml` / `vendor/x.ml` would escape
+# the OCaml allowlist, and `.dockerignore` hides tracked `.go` from Buildx, so only this host gate can catch
+# them).  Only VCS metadata (`.git`) is pruned, and the exported snapshot has none anyway.
 #
 # Fido has NO handwritten OCaml language semantics, compilation, safety reasoning, lowering, or rendering —
 # all of that lives in proved Rocq.  The ONLY handwritten OCaml is the Fido Emit transport/apply boundary:
@@ -22,8 +25,9 @@ allowed='e2e/fido_apply.ml e2e/sink_test.ml plugin/fido_sink.ml plugin/g_fido.ml
 fs_files='plugin/fido_sink.ml e2e/sink_test.ml e2e/fido_apply.ml'
 bridge='plugin/g_fido.mlg'
 
-# (1) only the four transport/apply files may be tracked OCaml.
-found=$(find "$root" \( -name '.*' -o -name '_*' -o -name testdata -o -name vendor \) -prune -o \
+# (1) only the four transport/apply files may be tracked OCaml (every depth; only .git metadata pruned; no
+#     -type f, so a tracked symlink or directory named *.ml/*.mli/*.mlg is still surfaced, fail-closed).
+found=$(find "$root" -name .git -prune -o \
              \( -name '*.ml' -o -name '*.mli' -o -name '*.mlg' \) -print 2>/dev/null \
         | sed "s#^$root/*##" | LC_ALL=C sort)
 extra=$(printf '%s\n' "$found" | grep -vxF -e e2e/sink_test.ml -e plugin/fido_sink.ml -e e2e/fido_apply.ml -e plugin/g_fido.mlg || true)
@@ -49,7 +53,7 @@ fi
 
 # (4) no deleted-backend hallmark NAME reappears in tracked sources.
 banned='MiniML|Smartlocate|mono_environment|pp_struct|Extract_env|rocq-go-extraction|rocq_go_extraction|g_go_extraction|build_goexpr|pp_expr'
-hits=$(find "$root" \( -name '.*' -o -name '_*' -o -name testdata -o -name vendor \) -prune -o \
+hits=$(find "$root" -name .git -prune -o \
             \( -name '*.v' -o -name '*.ml' -o -name '*.mlg' -o -name 'Makefile' -o -name 'Dockerfile' -o -name 'dune' -o -name 'dune-project' \) -type f -print 2>/dev/null \
        | grep -v "/tools/ocaml-origin-gate.sh$" \
        | xargs grep -lE "$banned" 2>/dev/null || true)
@@ -57,4 +61,4 @@ if [ -n "$hits" ]; then
   echo "fido: OCAML-ORIGIN GATE — a deleted-backend hallmark NAME reappears in tracked sources:"; printf '%s\n' "$hits" | sed "s#^$root/*##; s/^/  /"; exit 1
 fi
 
-echo "fido: ocaml-origin gate OK — only the transport/apply boundary (sink + driver + apply + bridge) under $root; no semantic OCaml; no backend hallmarks; no line cap ✓"
+echo "fido: ocaml-origin gate OK — only the transport/apply boundary (sink + driver + apply + bridge) under $root (every depth inspected, only .git pruned); no semantic OCaml; no backend hallmarks; no line cap ✓"

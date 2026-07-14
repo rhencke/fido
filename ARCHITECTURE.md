@@ -166,8 +166,10 @@ AST->output->AST round-trip authority, no copied compiled AST, no handwritten OC
   synchronizer, its driver, and the `make regenerate` apply CLI (enumerate a pristine `/generated` tree and
   hand it to the sink). Filesystem ONLY: they walk no Rocq terms.
 
-`tools/ocaml-origin-gate.sh` enforces exactly these four files, filesystem-only for the sink/driver/apply,
-transport-only for the bridge, bounded sizes, and no deleted-backend hallmarks. **Never reintroduce a
+`tools/ocaml-origin-gate.sh` enforces exactly these four files (inspecting every tracked source at every
+depth — a repository-content gate, not the runtime sink, so it prunes only `.git`), filesystem-only for the
+sink/driver/apply, transport-only for the bridge, and no deleted-backend hallmarks — there is NO source-line
+size cap (a numeric cap is not a correctness invariant). **Never reintroduce a
 handwritten OCaml backend / lowering / renderer / semantic decoder, or a bridge that decodes anything but
 the final transport type.** If the transport boundary cannot be met correctly, delete the e2e — a false
 transport foundation is worse than no integration.
@@ -182,10 +184,13 @@ rejected, else ordinary resolution would follow it and redirect all effects) and
 inside the RESERVED `<root>/.fido/` namespace.
 
 **Foreign Go/module inputs REJECT the whole emission** (fail-closed scan, before any generated-file
-mutation): any foreign `.go` anywhere beneath root (a regular file whose first line is not the header, or a
-`.go` symlink/nonregular entry), a foreign root `go.mod`, a `go.mod` symlink, or any nested `go.mod`. A
-dirty foreign Go input would silently change what `go build ./...` compiles, so it is not preserved-and-
-merged — it aborts. Foreign NON-Go files/dirs are preserved. Installed `.go` files and the root `go.mod`
+mutation): any foreign `.go` anywhere in the Go-DISCOVERED namespace (a regular file whose first line is not
+the header, or a `.go` symlink/nonregular entry), a foreign root `go.mod`, a `go.mod` symlink, or any nested
+`go.mod`. The traversal SKIPS the opaque dot/underscore/`testdata`/`vendor` directory trees `go build ./...`
+itself ignores — it neither inspects nor rejects because of anything beneath them (so a foreign `.go` there
+cannot corrupt the build, and `.git` stays untouched); everything under those trees is preserved. A dirty
+foreign Go input in the discovered namespace would silently change what `go build ./...` compiles, so it is
+not preserved-and-merged — it aborts. Foreign NON-Go files/dirs are preserved. Installed `.go` files and the root `go.mod`
 are Fido-owned iff their first line is the exact header AND they are regular non-symlink files (rechecked
 by lstat immediately before every overwrite/delete; a symlink is S_LNK, never S_REG, so never followed); a
 foreign `.go`/`go.mod` forging the header is the accepted limit (a header is public).
@@ -199,13 +204,15 @@ COMPLETE image (go.mod + every .go) before any install, then installs each file 
 temp — same filesystem, so nested mount points inside root are supported; EXDEV fails loud with no copy
 fallback. Only then are stale Fido-owned `.go` files (owned, not desired) removed (the empty program removes
 them all, keeping/updating the owned go.mod). A **regular non-symlink** file ending in `.fido-tmp-v1` is, by
-PUBLIC (and forgeable) CONVENTION, an abandoned Fido temp; a symlink/directory/special with that suffix is
-NOT owned (refuse + preserve). A nested `.fido` (any type, anywhere below root) is an emission error and
-aborts. Forgeability of the suffix convention is an accepted tradeoff under the single-owner threat model —
-no transaction log is built to avoid it.
+PUBLIC (and forgeable) CONVENTION, an abandoned Fido temp ONLY IF its suffix-stripped path maps to a Fido
+FINAL path (the root `go.mod` or an intrinsic FilePath `.go`); a non-mappable suffixed entry, or a
+symlink/directory/special with that suffix, is NOT owned (refuse + preserve). A nested `.fido` (any type) in
+the traversed Go-discovered namespace is an emission error and aborts. Forgeability of the mapped-suffix
+convention is an accepted tradeoff under the single-owner threat model — no transaction log is built to avoid
+it.
 
 **Fail-closed, two-phase.** Only a confirmed `ENOENT` means "missing"; every other filesystem error aborts.
-After the lock: PHASE 1 inspects the WHOLE target tree once (validating foreign-Go/module/control rules and
+After the lock: PHASE 1 inspects the whole Go-discovered namespace once (validating foreign-Go/module/control rules and
 COLLECTING every regular reserved-suffix temp), deleting nothing; if any path is invalid or uninspectable
 the run rejects before any mutation, preserving every collected temp. PHASE 2 (only after the complete scan
 succeeds) re-`lstat`s each collected temp, requires it is still a regular reserved-suffix file, and deletes
@@ -216,15 +223,17 @@ installed (nontransactional, stated honestly); residue remains only after an unc
 cleanup/lock-release failure — a rerun, after the stale lock is cleared, removes the temps and converges. It
 is **NOT** hardened against a concurrent non-cooperating process (this OCaml `Unix` exposes no
 `openat`/`O_NOFOLLOW`); the honest model is COOPERATING emitters serialized by the lock, in the Linux/amd64
-operational scope. Ownership is by header + regular-file + desired-key-set (or the reserved suffix for
-temps), never timestamps, a manifest, records, or device/inode identity.
+operational scope. Ownership is by header + regular-file + desired-key-set (or the reserved suffix MAPPING to
+a Fido final path, for temps), never timestamps, a manifest, records, or device/inode identity.
 
 **The exact guarantee.** *GoProgram acceptance, SafeProgram certification, and DirectoryImage creation are
 semantically all-or-nothing. Dirty-directory installation is locked for cooperating emitters, rejects
-foreign Go/module inputs and nested `.fido`, inspects the complete tree fail-closed, stages the complete
-image into reserved sibling temporary files before installation, uses per-file rename in the ordinary
-same-filesystem case, cleans handled-failure temps immediately, removes validated abandoned suffix-owned
-temps on a later run, and converges when the directory namespace remains stable. It is not a portable
+foreign Go/module inputs and nested `.fido` in the Go-discovered namespace (skipping the opaque
+dot/underscore/testdata/vendor trees `go build ./...` ignores), inspects that namespace fail-closed, stages
+the complete image into reserved sibling temporary files before installation, uses per-file rename in the
+ordinary same-filesystem case, cleans handled-failure temps immediately, removes validated abandoned
+suffix-owned temps (whose suffix-stripped path maps to a Fido final path) on a later run, and converges when
+the directory namespace remains stable. It is not a portable
 transactional multi-file filesystem commit, not hardened against malicious concurrent mutation, and does not
 model arbitrary unmount/remount/backing-store replacement between runs.*
 

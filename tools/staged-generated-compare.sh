@@ -2,9 +2,12 @@
 # Compare the STAGED canonical generated module against a pristine `generated-module` tree, EXACT relative
 # path set AND exact bytes, both directions.  The staged side is the exported staged tree ROOT (arg 1; the
 # Git index materialized by `git checkout-index`, so it is the PROPOSED COMMIT — never the unstaged working
-# tree — and is read find-based so every generated go.mod + recursive .go at every depth is compared, immune
-# to .dockerignore / file-type filtering).  Opaque dot/underscore/testdata/vendor trees hold no generated
-# output and are skipped.  Args: $1 = exported staged tree, $2 = pristine dir.
+# tree — and is read find-based so every staged go.mod + recursive .go at EVERY depth is compared, immune
+# to .dockerignore / file-type filtering).  Only `.git` metadata is pruned — this is a REPOSITORY-CONTENT
+# comparison, NOT the runtime sink, so it must NOT skip the sink's opaque directories: a rogue staged `.go`
+# under `.hidden`/`_priv`/`testdata`/`vendor` (absent from the pristine build) must surface as a path-set
+# mismatch here.  No -type f, so a symlink/special named *.go is surfaced too.  Args: $1 = exported staged
+# tree, $2 = pristine dir.
 #
 # Fails on: modified staged bytes, a staged generated file absent from the pristine build (stale/extra), a
 # pristine file absent from the staged tree (a newly-generated path not staged), and any nested mismatch.
@@ -14,10 +17,10 @@ root=$1; pristine=$2
 [ -d "$pristine" ] || { echo "fido: STAGED-GENERATED — pristine tree $pristine is missing"; exit 1; }
 rc=0
 
-staged_rel=$(find "$root" \( -name '.*' -o -name '_*' -o -name testdata -o -name vendor \) -prune -o \
-                  \( -name '*.go' -o -path "$root/go.mod" \) -type f -print 2>/dev/null \
+staged_rel=$(find "$root" -name .git -prune -o \
+                  \( -name '*.go' -o -path "$root/go.mod" \) -print 2>/dev/null \
              | sed "s#^$root/*##" | LC_ALL=C sort)
-pristine_rel=$( cd "$pristine" && find . -type f | sed 's#^\./##' | LC_ALL=C sort )
+pristine_rel=$( cd "$pristine" && find . -name .git -prune -o -type f -print | sed 's#^\./##' | LC_ALL=C sort )
 
 # (1) exact relative path set, both directions
 if [ "$staged_rel" != "$pristine_rel" ]; then

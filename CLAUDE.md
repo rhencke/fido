@@ -77,9 +77,11 @@ algorithm, report an architectural conflict and stop. Do not implement an altern
    test driver, and the `make regenerate` apply CLI — filesystem ONLY, walk no Rocq terms — the sink REJECTS
    foreign Go/module inputs and nested `.fido`, stages the complete image into RESERVED sibling temps
    `<final>.fido-tmp-v1`, installs by atomic rename, and two-phase-recovers abandoned temps fail-closed).
-   `tools/ocaml-origin-gate.sh` enforces exactly these four, bounded, with those boundaries. NEVER
-   reintroduce a handwritten backend/lowering/renderer/semantic decoder, a bridge decoding anything but the
-   final transport type, a central `.fido/staging/` design, or the deleted stage-record/nonce subsystem.
+   `tools/ocaml-origin-gate.sh` enforces exactly these four with those boundaries — inspecting every tracked
+   source at every depth (a repository-content gate, pruning only `.git`; NOT the runtime sink's opaque-dir
+   skip), with NO source-line size cap (a numeric cap is not a correctness invariant). NEVER reintroduce a
+   handwritten backend/lowering/renderer/semantic decoder, a bridge decoding anything but the final transport
+   type, a central `.fido/staging/` design, or the deleted stage-record/nonce subsystem.
 2. **The canonical generated module is a TRACKED, reviewed artifact; emission is not a `.vo` side effect.**
    Root `go.mod` + recursive `.go` are committed (Fido-headed) and verified byte-exact against the pristine
    `generated-module` Buildx layer by the pre-commit staged-index check; `make regenerate` rewrites them
@@ -155,7 +157,9 @@ leaf authority.
 ## Workflow & commands
 
 Verify after any change: **`make check`** — the host gates (transport-only OCaml; the generated-output policy
-gate: tracked Go/go.mod Fido-headed, no nested go.mod, no tracked `.fido`/temp) + the pinned-container
+gate: tracked Go/go.mod Fido-headed, no nested go.mod, no tracked `.fido`/temp — both inspecting EVERY tracked
+file at EVERY depth, pruning only `.git`; and the Buildx-free `precommit-selftest` proving the staged-index
+gates cannot be bypassed) + the pinned-container
 **proof** (`make prove`, the COMPLETE gate: `dune build` + `gate/axiom_gate.v` axiom-free count-checked +
 certified-module coverage + the whole-certified-theory `Fido Audit Assumptions` over constants + inductives +
 named assumptions + adversarial self-tests A-E) + the **e2e** (Dune-cached theory+plugin; then EXPLICIT
@@ -203,7 +207,10 @@ kill stale `docker buildx build` processes first; run long builds detached and p
   whole-certified-theory closure audit (constants + inductives + named assumptions) runs in the **prove**
   stage over a module list GENERATED from dune's `(modules …)` (no static file), with a coverage check
   (tracked root `.v` == that list) and adversarial self-tests A-E. `tools/ocaml-origin-gate.sh` — the host
-  origin gate; `tools/generated-output-gate.sh` — the tracked-generated-output policy gate.
+  origin gate; `tools/generated-output-gate.sh` — the tracked-generated-output policy gate;
+  `tools/staged-generated-compare.sh` — the staged-vs-pristine byte/path compare; `tools/precommit-selftest.sh`
+  — the Buildx-free self-test proving the staged-index gates reject bad OCaml/Go at every depth and the hook
+  never mutates the index (all three gates inspect every tracked file at every depth, pruning only `.git`).
 - `Makefile` / `Dockerfile` / `.githooks/pre-commit` — the buildx proof + whole-tree e2e + the pristine
   `generated-module`/`sync`/`verify-staged-generated` stages (host Rocq unsupported). The pre-commit hook
   exports the Git INDEX and verifies the STAGED tree (never the working tree); bypassable with

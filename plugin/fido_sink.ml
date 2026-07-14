@@ -7,9 +7,11 @@
 
    OWNERSHIP + FOREIGN REJECTION.  Installed `.go` files and the root `go.mod` are Fido-owned iff their
    first line is the exact generated header (DERIVED from the go.mod bytes) AND they are regular non-symlink
-   files — RE-checked immediately before every overwrite/delete.  A foreign `.go` (anywhere beneath root), a
+   files — RE-checked immediately before every overwrite/delete.  A foreign `.go` (anywhere in the
+   Go-DISCOVERED namespace — the traversal skips the opaque dot/underscore/testdata/vendor directory trees
+   `go build ./...` itself ignores, so it neither inspects nor rejects because of anything beneath them), a
    foreign/nested `go.mod`, or a nested `.fido` REJECTS the whole emission before any generated-file
-   mutation; foreign NON-Go files are preserved.
+   mutation; foreign NON-Go files, and everything under the skipped opaque trees, are preserved untouched.
 
    SIBLING-TEMP STAGING (no records, no nonce, no stage directory, no parser).  `<root>/.fido/` holds the
    exact marker and, during an active run or after a crash, one git-style O_EXCL `index.lock` — nothing else.
@@ -17,12 +19,13 @@
    serializes cooperating emitters, the name needs no nonce and recovery needs no record — the final path is
    already known to the live sync.  Since temp and target are SIBLINGS, install is an atomic same-device
    rename (nested mounts inside root work; EXDEV fails loud, no copy).  A regular non-symlink file whose
-   basename ends in `.fido-tmp-v1` is, by PUBLIC (and forgeable) CONVENTION, an abandoned Fido temp; a
-   symlink/directory/special with that suffix is NOT owned (refuse + preserve).  Forgeability is an accepted
-   tradeoff under the single-owner / cooperating-process threat model — no transaction log is built to avoid
-   it.
+   basename ends in `.fido-tmp-v1` is, by PUBLIC (and forgeable) CONVENTION, an abandoned Fido temp ONLY IF
+   its suffix-stripped path maps to a Fido FINAL path (the root `go.mod` or an intrinsic FilePath `.go`); a
+   non-mappable suffixed entry, or a symlink/directory/special with that suffix, is NOT owned (refuse +
+   preserve).  Forgeability of the mapped suffix is an accepted tradeoff under the single-owner /
+   cooperating-process threat model — no transaction log is built to avoid it.
 
-   TWO-PHASE, FAIL-CLOSED.  After acquiring the lock: PHASE 1 inspects the WHOLE target tree once (validating
+   TWO-PHASE, FAIL-CLOSED.  After acquiring the lock: PHASE 1 inspects the whole Go-discovered namespace once (validating
    foreign-Go/module/control rules and COLLECTING every regular reserved-suffix temp) and deletes nothing;
    only a confirmed ENOENT is "missing" — every other fs error aborts and preserves.  If any path is invalid
    or uninspectable the run rejects before any mutation.  PHASE 2 deletes each collected temp after re-lstat
