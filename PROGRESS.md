@@ -118,7 +118,9 @@ IN Rocq before any bytes — **zero expected Go build failures, ever.**
   no-main/duplicate-main trees REJECTED, and `go list ./...` matching the emitted package set — exercise the
   whole-program rules against real `go build ./...` (discovering discrepancies, not proving universal
   agreement).
-- `make check` = host gates (transport-only OCaml; the generated-output policy gate) + prove + e2e, green.
+- `make check` = host gates (transport-only OCaml; the generated-output policy gate; the Buildx-free staged-
+  gate `precommit-selftest`) + prove + e2e + `verify-generated` (the staged-vs-pristine byte/path compare —
+  the "no generated-byte delta" gate), green.
   The COMPLETE assumption audit (constants + inductives + named) + self-tests A-E run in **prove** (not
   emit). One shared Dune cache builds theory + plugin.
 

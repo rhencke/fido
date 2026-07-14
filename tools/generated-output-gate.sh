@@ -6,8 +6,9 @@
 # NOT the runtime sink: it must NOT adopt the sink's Go-discovery directory skipping — a rogue unheaded /
 # executable / symlinked `.go` under `.hidden`/`_priv`/`testdata`/`vendor` would otherwise escape, and
 # `.dockerignore` hides tracked `.go` from Buildx, so only this host gate can catch it.  Generated Go is a
-# TRACKED, reviewed derived artifact; this enforces the standing policy over its bytes and Git mode (the
-# byte/path equality vs the pristine layer is the hook's separate job):
+# TRACKED, reviewed derived artifact; this enforces the standing policy over its header and Git mode (the
+# byte/path equality vs the pristine layer is the separate `verify-generated` compare's job, run by BOTH
+# `make check` and the pre-commit hook):
 #   - every generated .go and the root go.mod is a REGULAR, non-symlink, non-executable file (Git mode
 #     100644) whose first line is the exact Fido header;
 #   - no NESTED go.mod (only the root go.mod is generated);
