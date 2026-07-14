@@ -2,4 +2,4 @@
  (name Fido)
  (synopsis "Fido — GoProgram (ModuleSpec + a possibly-empty map of paths to raw file ASTs) -> GoCompile -> GoSafe -> direct GoRender (incl. go.mod) -> complete DirectoryImage (go.mod + .go map) -> foreign-Go-rejecting sibling-temp sink")
  (theories Stdlib)
- (modules digits Ints FilePath FMap ModulePath GoVersion GoAST GoCompile GoSafe GoRender GoEmit))
+ (modules digits Ints FilePath FMap ModulePath GoVersion GoAST GoTypes GoCompile GoSafe GoRender GoEmit))

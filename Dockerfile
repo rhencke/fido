@@ -65,7 +65,7 @@ RUN --mount=type=cache,id=fido-dune-rocq-9.2.0-${TARGETARCH},uid=1000,gid=1000,t
 set -eu
 fail() { echo "fido: prove FAILED — $*"; exit 1; }
 # (a) Dune builds the certified theory AND the audit/transport plugin (one shared cache id with emit/e2e)
-if ! dune build @install > /tmp/build.log 2>&1; then cat /tmp/build.log; fail "dune build FAILED"; fi
+if ! dune build @install @all > /tmp/build.log 2>&1; then cat /tmp/build.log; fail "dune build FAILED"; fi
 cat /tmp/build.log
 export OCAMLPATH=/workspace/_build/install/default/lib:${OCAMLPATH:-}
 # (b) readable Print-Assumptions surfaces, fresh against the dune-built .vo, fail-closed both ways
@@ -155,7 +155,7 @@ fail() { echo "fido: emit FAILED — $*"; exit 1; }
 rm -rf /workspace/e2e-out /workspace/e2e-multi /workspace/e2e-empty /workspace/e2e-forge* /workspace/e2e-neg /workspace/adv-* /workspace/sreal /workspace/slink /workspace/sink_test 2>/dev/null || true
 O=/workspace/e2e-out
 # cached: Dune compiles the proved theory + the transport plugin (shared cache id)
-if ! dune build @install > /tmp/emit-build.log 2>&1; then cat /tmp/emit-build.log; fail "theory/plugin build FAILED"; fi
+if ! dune build @install @all > /tmp/emit-build.log 2>&1; then cat /tmp/emit-build.log; fail "theory/plugin build FAILED"; fi
 export OCAMLPATH=/workspace/_build/install/default/lib:${OCAMLPATH:-}
 
 # --- the general Fido Emit transport synchronizes each witness tree (go.mod + .go files) ---
