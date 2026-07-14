@@ -1,6 +1,13 @@
 .git/
 .gitignore
 
+# The committed generated module (root go.mod + recursive .go) is a REVIEWED derived artifact, NOT a
+# generation/proof input: exclude it from the ordinary Buildx context so the pristine `generated-module`
+# layer is derived ONLY from certified .v + dune + plugin/sink + witnesses (never the committed bytes).
+# (The staged-index pre-commit reads the committed bytes host-side from the exported git index, not Buildx.)
+/go.mod
+**/*.go
+
 # Local build output + transient control/crash residue (never a build input)
 /.fido/
 **/*.fido-tmp-v1

@@ -160,9 +160,26 @@ let ensure_dir_chain root parent_rel created =
         created := !cur :: !created)
       (String.split_on_char '/' parent_rel)
 
-(* ---- PHASE 1: ONE fail-closed inspection of the whole target tree.  Validate foreign-Go/module/control
-   rules and COLLECT (never delete) every regular reserved-suffix temp; any invalid/uninspectable path
-   rejects the whole run before any generated-file mutation. ---- *)
+(* ---- the Go-discovered namespace: `go build ./...` IGNORES a directory (and a file) whose basename begins
+   with `.` or `_`, and the directories `testdata`/`vendor`.  Those trees — `.git`/`.hg`/`.svn`, editor
+   caches, underscore-private dirs, Go-ignored testdata/vendor — are OPAQUE foreign non-Go state: the sink
+   neither recurses into, inspects, classifies, cleans, nor rejects because of anything beneath them (this is
+   what keeps Fido out of `.git`).  It does NOT over-skip an ordinary visible directory merely because its
+   name is outside Fido's narrow generated grammar (an uppercase/hyphenated foreign dir may still hold Go
+   input `go build ./...` discovers).  The control name `.fido` is handled separately by the caller (root =
+   control, nested = error), BEFORE this test. ---- *)
+let go_ignored_name name = name <> "" && (name.[0] = '.' || name.[0] = '_')
+let go_ignored_dir name = go_ignored_name name || name = "testdata" || name = "vendor"
+
+(* a reserved-suffix regular file is Fido-owned as an abandoned temp ONLY if removing the suffix yields a
+   path Fido could actually have STAGED: exactly the root `go.mod`, or a `.go` path in the intrinsic FilePath
+   output domain (the SAME [filepath_ok]).  A suffix entry that maps to neither is NOT Fido state — it is
+   preserved and makes the run refuse clearly rather than being silently adopted or deleted. *)
+let temp_maps_to_final final = final = gomod_name || filepath_ok final
+
+(* ---- PHASE 1: ONE fail-closed inspection of the Go-discovered namespace.  Validate foreign-Go/module/
+   control rules and COLLECT (never delete) every VALID abandoned Fido temp; any invalid/uninspectable path
+   rejects the whole run before any generated-file mutation.  Opaque Go-ignored trees are not entered. ---- *)
 let rec inspect root header rel temps =
   let dir = if rel = "" then root else Filename.concat root rel in
   let names =
@@ -172,24 +189,33 @@ let rec inspect root header rel temps =
     let child_rel = if rel = "" then name else rel ^ "/" ^ name in
     let p = Filename.concat dir name in
     if name = control_dir then
-      (* the EXACT root .fido is the owned control dir (not descended); a NESTED .fido is an error of any type *)
+      (* the EXACT root .fido is the owned control dir (validated separately by [ensure_root_and_control],
+         not descended); a NESTED .fido in the traversed namespace is an error of any filesystem type *)
       (if rel <> "" then fail "a nested %s control name is present (%s) — refusing" control_dir child_rel)
     else match lstat_obs p with
       | Missing -> ()
       | Present st ->
         let k = st.Unix.st_kind in
-        if ends_with temp_suffix name then
-          (if k = Unix.S_REG then temps := p :: !temps
-           else fail "a reserved-suffix entry %s is a symlink/directory/special, not a regular temp — refusing" child_rel)
+        if ends_with temp_suffix name then begin
+          (* a reserved-suffix entry: owned (collected) only as a REGULAR file whose suffix-stripped path is a
+             possible Fido final path; a non-mappable or non-regular one is preserved and refuses. *)
+          let final = String.sub child_rel 0 (String.length child_rel - String.length temp_suffix) in
+          if not (temp_maps_to_final final) then
+            fail "a reserved-suffix entry %s does not map to a Fido final path (root go.mod or an intrinsic FilePath .go) — refusing (preserved)" child_rel
+          else if k = Unix.S_REG then temps := p :: !temps
+          else fail "a reserved-suffix entry %s is a symlink/directory/special, not a regular temp — refusing" child_rel
+        end
+        else if k = Unix.S_DIR then
+          (if go_ignored_dir name then ()      (* opaque Go-ignored tree (.git/dot/underscore/testdata/vendor) *)
+           else inspect root header child_rel temps)
         else if name = gomod_name then
           (if rel <> "" then fail "a nested go.mod is present (%s) — refusing" child_rel
            else if not (k = Unix.S_REG && read_first_line p = header)
            then fail "a foreign root go.mod is present — refusing to touch it")
-        else if ends_with ".go" name then
+        else if ends_with ".go" name && not (go_ignored_name name) then
           (if not (k = Unix.S_REG && read_first_line p = header)
            then fail "a foreign .go file is present (%s) — refusing" child_rel)
-        else if k = Unix.S_DIR then inspect root header child_rel temps
-        (* other foreign non-Go files / symlinks / specials: preserved *))
+        (* other foreign non-Go files/symlinks/specials, and Go-ignored dot/underscore `.go` files: preserved *))
     names
 
 (* ---- PHASE 2: after the COMPLETE scan succeeds, delete each validated abandoned temp (re-lstat: still a
@@ -203,21 +229,24 @@ let delete_temps unlink temps =
     | Missing -> fail "abandoned temp %s vanished before removal — refusing" p)
     temps
 
-(* ---- remove stale Fido-owned .go NOT in the desired set (ownership RE-checked immediately before delete) ---- *)
+(* ---- remove stale Fido-owned .go NOT in the desired set (ownership RE-checked immediately before delete),
+   over the SAME Go-discovered namespace: opaque Go-ignored trees (.git/dot/underscore/testdata/vendor) and
+   Go-ignored `.go` files are never entered or touched. ---- *)
 let rec remove_stale_go unlink before_delete root header desired rel =
   let dir = if rel = "" then root else Filename.concat root rel in
   let names =
     try Sys.readdir dir
     with Sys_error m -> fail "cannot scan %s for stale generated files: %s" dir m in
   Array.iter (fun name ->
-    if not (rel = "" && name = control_dir) then begin
+    begin
       let child_rel = if rel = "" then name else rel ^ "/" ^ name in
       let p = Filename.concat dir name in
       match lstat_obs p with
       | Missing -> ()
       | Present st ->
-        if st.Unix.st_kind = Unix.S_DIR then remove_stale_go unlink before_delete root header desired child_rel
-        else if ends_with ".go" name && st.Unix.st_kind = Unix.S_REG
+        if st.Unix.st_kind = Unix.S_DIR then
+          (if go_ignored_dir name then () else remove_stale_go unlink before_delete root header desired child_rel)
+        else if ends_with ".go" name && not (go_ignored_name name) && st.Unix.st_kind = Unix.S_REG
                 && read_first_line p = header && not (List.mem p desired)
         then begin
           before_delete p;                          (* test seam: a race can mutate p here *)

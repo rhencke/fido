@@ -368,12 +368,48 @@ if ./sink_test adv-tdir; then fail "tdir: a reserved-suffix directory was not re
 mkdir -p adv-tsp; ./sink_test adv-tsp || fail "tsp: init"; mkfifo adv-tsp/main.go.fido-tmp-v1
 if ./sink_test adv-tsp; then fail "tsp: a reserved-suffix special (fifo) was not rejected"; fi
 [ -p adv-tsp/main.go.fido-tmp-v1 ] || fail "tsp: the reserved-suffix fifo was removed"
-# a REGULAR foreign file using the reserved suffix is INTENTIONALLY classified Fido-owned and removed
-# (public, forgeable convention — an accepted tradeoff under the single-owner threat model).
-mkdir -p adv-tforge; ./sink_test adv-tforge || fail "tforge: init"
-printf 'not really fido\n' > adv-tforge/hand-written.fido-tmp-v1
-./sink_test adv-tforge || fail "tforge: sync failed with a forged reserved-suffix temp"
-[ ! -e adv-tforge/hand-written.fido-tmp-v1 ] || fail "tforge: a regular reserved-suffix file was not collected+removed"
+# a REGULAR reserved-suffix file whose suffix-stripped path MAPS to a Fido final path (root go.mod or a
+# filepath_ok .go) is Fido-owned (forgeable public convention) and removed; a NON-MAPPABLE one is NOT owned
+# and is PRESERVED while the run refuses clearly (never silently adopted or deleted).
+mkdir -p adv-town; ./sink_test adv-town || fail "town: init"
+printf 'x\n' > adv-town/notused.go.fido-tmp-v1                 # notused.go is filepath_ok → mappable → owned
+mkdir -p adv-town/sub; printf 'x\n' > adv-town/sub/leftover.go.fido-tmp-v1
+./sink_test adv-town || fail "town: sync failed with mappable abandoned temps present"
+[ -z "$(temps adv-town)" ] || fail "town: mappable reserved-suffix temps were not collected+removed"
+for bad in notes.fido-tmp-v1 hand-written.fido-tmp-v1 UPPER.go.fido-tmp-v1 a_b.go.fido-tmp-v1; do
+  d=/workspace/adv-tng-$(echo "$bad" | tr './' '__'); mkdir -p "$d"; ./sink_test "$d" || fail "tng: init $bad"
+  printf 'keep me\n' > "$d/$bad"
+  if ./sink_test "$d"; then fail "tng: a non-mappable reserved-suffix entry ($bad) was NOT refused"; fi
+  printf 'keep me\n' | cmp -s - "$d/$bad" || fail "tng: a non-mappable reserved-suffix entry ($bad) was altered/removed"
+done
+# a non-mappable suffix entry in a VISIBLE (Go-discoverable) subdir also refuses + is preserved.
+mkdir -p adv-tngv/visible-dir; ./sink_test adv-tngv || fail "tngv: init"
+printf 'bin\n' > adv-tngv/visible-dir/arbitrary.bin.fido-tmp-v1
+if ./sink_test adv-tngv; then fail "tngv: a non-mappable suffix entry under a visible dir was NOT refused"; fi
+printf 'bin\n' | cmp -s - adv-tngv/visible-dir/arbitrary.bin.fido-tmp-v1 || fail "tngv: the visible-dir suffix entry was altered/removed"
+
+# ============================ Go-discovered namespace scoping (VCS / hidden / underscore / testdata / vendor) ============================
+# hidden/underscore/testdata/vendor trees are OPAQUE: never inspected, classified, cleaned, or rejected —
+# so a repo's .git metadata (incl. .go and .fido-tmp-v1 NAMES) is untouched and never blocks a clean sync.
+mkdir -p adv-git/.git/refs/heads adv-git/.git/logs/refs/heads
+printf 'GITHEAD-A\n'  > adv-git/.git/refs/heads/release.go
+printf 'GITHEAD-B\n'  > adv-git/.git/refs/heads/release.fido-tmp-v1
+printf 'GITHEAD-C\n'  > adv-git/.git/logs/refs/heads/release.fido-tmp-v1
+mkdir -p adv-git/_private; printf 'UND-A\n' > adv-git/_private/x.go; printf 'UND-B\n' > adv-git/_private/y.fido-tmp-v1
+mkdir -p adv-git/.hidden; printf 'HID-A\n' > adv-git/.hidden/z.go
+mkdir -p adv-git/testdata; printf 'TD-A\n' > adv-git/testdata/t.go
+mkdir -p adv-git/vendor/pkg; printf 'VN-A\n' > adv-git/vendor/pkg/v.go
+before=$(find adv-git/.git adv-git/_private adv-git/.hidden adv-git/testdata adv-git/vendor -type f -exec sha256sum {} \; | sort)
+./sink_test adv-git || fail "git: a clean sync was rejected because of hidden/VCS metadata"
+{ [ -f adv-git/go.mod ] && [ -f adv-git/main.go ]; } || fail "git: the clean sync did not install the generated files"
+after=$(find adv-git/.git adv-git/_private adv-git/.hidden adv-git/testdata adv-git/vendor -type f -exec sha256sum {} \; | sort)
+[ "$before" = "$after" ] || { echo "$before"; echo '---'; echo "$after"; fail "git: a byte under an opaque skipped tree was altered/removed"; }
+[ -f adv-git/.git/refs/heads/release.fido-tmp-v1 ] || fail "git: a .git suffix-named file was adopted/removed as Fido temp"
+# but a VISIBLE ordinary directory (uppercase/hyphenated name Go may still discover) IS scanned: a foreign
+# .go there still rejects.
+mkdir -p adv-vis/My-Pkg; printf 'package foreign\n' > adv-vis/My-Pkg/f.go
+if ./sink_test adv-vis; then fail "vis: a foreign .go in a visible non-Fido-named dir was NOT rejected"; fi
+[ -f adv-vis/My-Pkg/f.go ] || fail "vis: the visible foreign .go was removed"
 
 # ============================ Reserved path + prefix symlink (rejected before any effect) ============================
 if ./sink_test /workspace/adv-resv reserved; then fail "a desired path inside .fido was NOT rejected"; fi
