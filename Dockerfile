@@ -54,21 +54,78 @@ ARG TARGETARCH
 COPY --chown=opam:opam dune-project dune ./
 COPY --chown=opam:opam *.v ./
 COPY --chown=opam:opam gate/ gate/
-RUN --mount=type=cache,id=fido-dune-rocq-9.2.0-${TARGETARCH},uid=1000,gid=1000,target=/workspace/_build,sharing=locked \
-    if dune build > /tmp/build.log 2>&1; then cat /tmp/build.log; else cat /tmp/build.log; echo "fido: dune build FAILED"; exit 1; fi \
-    && rm -f gate/*.vo gate/*.glob gate/.*.aux \
-    && if ! rocq c -Q _build/default Fido gate/axiom_gate.v > /tmp/gate.log 2>&1; then \
-         cat /tmp/gate.log; echo "fido: ASSUMPTIONS GATE failed to compile"; exit 1; \
-       fi \
-    && if grep -q '^Axioms:' /tmp/gate.log; then \
-         echo "fido: AXIOM — a gated surface depends on an assumption:"; grep -A3 '^Axioms:' /tmp/gate.log; exit 1; \
-       fi \
-    && want=$(grep -c '^Print Assumptions' gate/axiom_gate.v) \
-    && got=$(grep -c '^Closed under the global context' /tmp/gate.log) \
-    && if [ "$want" -ne "$got" ]; then \
-         echo "fido: ASSUMPTIONS GATE INCOMPLETE — $want surfaces declared, only $got confirmed closed"; exit 1; \
-       fi \
-    && echo "fido: prove OK — dune compiled the theory (cached in _build); assumptions gate confirmed $got/$want surfaces closed"
+COPY --chown=opam:opam plugin/ plugin/
+# `make prove` is the COMPLETE proof gate (contract §2): Dune builds the theory AND the audit/transport
+# plugin; then the readable Print-Assumptions surfaces, the certified-module coverage check, the WHOLE-
+# certified-theory assumption-closure audit (over constants + mutual INDUCTIVES + surviving named
+# assumptions, descending opaque Qed bodies, rejecting every Printer.Axiom category AND Printer.Variable),
+# and the adversarial audit self-tests A-E all run HERE — so a retained internal declaration that depends on
+# an assumption fails `make prove` even when it is not a selected public theorem and emission never runs.
+RUN --mount=type=cache,id=fido-dune-rocq-9.2.0-${TARGETARCH},uid=1000,gid=1000,target=/workspace/_build,sharing=locked <<'SH'
+set -eu
+fail() { echo "fido: prove FAILED — $*"; exit 1; }
+# (a) Dune builds the certified theory AND the audit/transport plugin (one shared cache id with emit/e2e)
+if ! dune build @install > /tmp/build.log 2>&1; then cat /tmp/build.log; fail "dune build FAILED"; fi
+cat /tmp/build.log
+export OCAMLPATH=/workspace/_build/install/default/lib:${OCAMLPATH:-}
+# (b) readable Print-Assumptions surfaces, fresh against the dune-built .vo, fail-closed both ways
+rm -f gate/*.vo gate/*.glob gate/.*.aux
+if ! rocq c -Q _build/default Fido gate/axiom_gate.v > /tmp/gate.log 2>&1; then cat /tmp/gate.log; fail "assumptions gate failed to compile"; fi
+if grep -q '^Axioms:' /tmp/gate.log; then grep -A3 '^Axioms:' /tmp/gate.log; fail "a gated surface depends on an assumption"; fi
+want=$(grep -c '^Print Assumptions' gate/axiom_gate.v); got=$(grep -c '^Closed under the global context' /tmp/gate.log)
+[ "$want" -eq "$got" ] || fail "readable gate incomplete — $want surfaces declared, $got closed"
+echo "fido: readable Print-Assumptions gate OK — $got/$want surfaces closed"
+# (c) certified-module coverage: tracked root .v == dune (modules ...) (test/gate/e2e .v are outside)
+mods=$(sed -n 's/.*(modules \([^)]*\)).*/\1/p' dune); [ -n "$mods" ] || fail "no (modules ...) in dune"
+tracked_mods=$(ls *.v | sed 's/\.v$//' | sort | tr '\n' ' ')
+declared_mods=$(printf '%s\n' $mods | sort | tr '\n' ' ')
+[ "$tracked_mods" = "$declared_mods" ] || fail "certified-module coverage mismatch — tracked=[$tracked_mods] dune=[$declared_mods]"
+echo "fido: certified-module coverage OK — tracked root .v == dune (modules ...)"
+# (d) the WHOLE-certified-theory assumption audit over constants + inductives + surviving named assumptions
+{ printf 'From Fido Require Import %s.\n' "$mods"; printf 'Declare ML Module "fido.emit".\nFido Audit Assumptions.\n'; } > /tmp/audit.v
+if ! rocq c -Q _build/default/. Fido /tmp/audit.v > /tmp/audit.log 2>&1; then cat /tmp/audit.log; fail "whole-theory audit FAILED"; fi
+grep -q 'assumption audit OK' /tmp/audit.log || { cat /tmp/audit.log; fail "audit did not confirm zero assumptions"; }
+echo "fido: whole-certified-theory audit OK — constants + inductives + named ($mods)"
+# (e) adversarial self-tests — the audit must REJECT A-D and ACCEPT E (all fixtures transient, none tracked)
+reject() { # <dir> <label>: the audit over module in <dir> must fail with the PROJECT AXIOMS reason
+  printf 'From Fido Require Import T.\nDeclare ML Module "fido.emit".\nFido Audit Assumptions.\n' > "$1/Check.v"
+  if rocq c -R "$1" Fido -Q _build/default/. Fido "$1/Check.v" > "$1/c.log" 2>&1; then cat "$1/c.log"; fail "self-test $2: audit did NOT reject"; fi
+  grep -q 'PROJECT AXIOMS' "$1/c.log" || { cat "$1/c.log"; fail "self-test $2: rejected but NOT by the closure audit"; }
+  echo "fido: audit self-test $2 — rejected (as required)"; }
+compile() { rocq c "$@" || { fail "self-test fixture compile FAILED: $*"; }; }
+# A — an UNUSED Fido axiom
+mkdir -p /tmp/tA; printf 'Axiom unused_ax : True.\n' > /tmp/tA/T.v
+compile -R /tmp/tA Fido /tmp/tA/T.v > /dev/null 2>&1; reject /tmp/tA A
+# B — an EXTERNAL axiom reached through a Fido-namespaced OPAQUE (Qed) theorem
+mkdir -p /tmp/extB /tmp/tB; printf 'Axiom ext_ax : True.\n' > /tmp/extB/E.v
+compile -R /tmp/extB Ext /tmp/extB/E.v > /dev/null 2>&1
+printf 'From Ext Require Import E.\nLemma opaque_thm : True. Proof. exact E.ext_ax. Qed.\n' > /tmp/tB/T.v
+compile -R /tmp/extB Ext -R /tmp/tB Fido /tmp/tB/T.v > /dev/null 2>&1
+printf 'From Fido Require Import T.\nDeclare ML Module "fido.emit".\nFido Audit Assumptions.\n' > /tmp/tB/Check.v
+if rocq c -R /tmp/extB Ext -R /tmp/tB Fido -Q _build/default/. Fido /tmp/tB/Check.v > /tmp/tB/c.log 2>&1; then cat /tmp/tB/c.log; fail "self-test B: audit did NOT reject"; fi
+grep -q 'PROJECT AXIOMS' /tmp/tB/c.log || { cat /tmp/tB/c.log; fail "self-test B: rejected but NOT by the closure audit"; }
+echo "fido: audit self-test B — rejected (as required)"
+# C — an UNUSED certified inductive admitted with positivity DISABLED and elimination schemes SUPPRESSED, so
+#     no constant references it and the audit MUST seed the inductive itself (via IndRef) to catch it
+mkdir -p /tmp/tC
+printf 'Unset Positivity Checking.\nUnset Elimination Schemes.\nInductive Bad : Type := mkBad : (Bad -> False) -> Bad.\n' > /tmp/tC/T.v
+compile -R /tmp/tC Fido /tmp/tC/T.v > /dev/null 2>&1; reject /tmp/tC C
+# D — a surviving NAMED assumption reachable in the audit context (a section Variable, audit run in-section)
+mkdir -p /tmp/tD
+{ printf 'From Fido Require Import %s.\n' "$mods"; printf 'Declare ML Module "fido.emit".\nSection S.\nVariable surviving : True.\nFido Audit Assumptions.\nEnd S.\n'; } > /tmp/tD/Check.v
+if rocq c -Q _build/default/. Fido /tmp/tD/Check.v > /tmp/tD/c.log 2>&1; then cat /tmp/tD/c.log; fail "self-test D: audit did NOT reject a surviving section Variable"; fi
+grep -q 'PROJECT AXIOMS' /tmp/tD/c.log || { cat /tmp/tD/c.log; fail "self-test D: rejected but NOT by the closure audit"; }
+echo "fido: audit self-test D — surviving named assumption rejected (as required)"
+# E — a normal closed Section theorem (variable correctly generalized) must be ACCEPTED, not falsely rejected
+mkdir -p /tmp/tE
+printf 'Section S.\nVariable x : nat.\nLemma triv : x = x. Proof. reflexivity. Qed.\nEnd S.\n' > /tmp/tE/T.v
+compile -R /tmp/tE Fido /tmp/tE/T.v > /dev/null 2>&1
+printf 'From Fido Require Import T.\nDeclare ML Module "fido.emit".\nFido Audit Assumptions.\n' > /tmp/tE/Check.v
+if ! rocq c -R /tmp/tE Fido -Q _build/default/. Fido /tmp/tE/Check.v > /tmp/tE/c.log 2>&1; then cat /tmp/tE/c.log; fail "self-test E: a closed Section theorem was FALSELY rejected"; fi
+grep -q 'assumption audit OK' /tmp/tE/c.log || { cat /tmp/tE/c.log; fail "self-test E: closed Section theorem not accepted"; }
+echo "fido: audit self-test E — closed Section theorem accepted (as required)"
+echo "fido: prove OK — dune build; readable gate $got/$want; module coverage; whole-theory audit (constants+inductives+named); self-tests A-E"
+SH
 
 # ── Stage 4: emit — Dune compiles the theory AND the Fido Emit transport plugin (one shared cache id with
 #    the prover stage).  Then, in EXPLICIT always-run steps (never Dune .vo side effects): the general
@@ -181,40 +238,9 @@ forge_reject /tmp/forge/Opaque.v      /workspace/e2e-forge-op  "axiom behind an 
 forge_reject /tmp/forge/Var.v         /workspace/e2e-forge-var "direct section variable"
 forge_reject /tmp/forge/VarIndirect.v /workspace/e2e-forge-vi  "transitive section variable"
 
-# --- SOUND zero-project-axiom audit: enumerate the compiled global env (not a text scanner).  The set of
-#     modules loaded (hence audited) is DERIVED from dune's authoritative (modules ...) list, so a new
-#     theory module cannot silently escape the audit. ---
-mods=$(sed -n 's/.*(modules \([^)]*\)).*/\1/p' dune)
-[ -n "$mods" ] || fail "could not read the (modules ...) list from dune"
-# §20 certified-module coverage: every tracked ROOT .v module must be in dune's (modules ...) and vice
-# versa, so a new certified module cannot escape the audit merely because dune was not updated.  (Test/gate
-# .v live under e2e/ and gate/ and are deliberately outside the certified theory.)
-tracked_mods=$(ls *.v | sed 's/\.v$//' | sort | tr '\n' ' ')
-declared_mods=$(printf '%s\n' $mods | sort | tr '\n' ' ')
-[ "$tracked_mods" = "$declared_mods" ] || fail "certified-module coverage mismatch — tracked root .v=[$tracked_mods] dune (modules)=[$declared_mods]"
-echo "fido: certified-module coverage OK — tracked root .v modules == dune (modules ...)"
-{ printf 'From Fido Require Import %s.\n' "$mods"
-  printf 'Declare ML Module "fido.emit".\n'
-  printf 'Fido Audit Assumptions.\n'; } > /tmp/assumptions_audit.v
-echo "fido: assumption audit covers (from dune): $mods"
-if ! rocq c -Q _build/default/. Fido /tmp/assumptions_audit.v > /tmp/audit.log 2>&1; then cat /tmp/audit.log; fail "assumption audit FAILED"; fi
-grep -q 'assumption audit OK' /tmp/audit.log || { cat /tmp/audit.log; fail "audit did not confirm zero Fido axioms"; }
-# audit self-test 1: a DIRECT planted axiom in a Fido-namespaced module MUST be caught (not fail-open)
-mkdir -p /tmp/fa; printf 'Axiom planted_axiom : True.\n' > /tmp/fa/Planted.v
-rocq c -R /tmp/fa Fido /tmp/fa/Planted.v > /tmp/fa/plant.log 2>&1 || { cat /tmp/fa/plant.log; fail "could not compile the audit self-test module"; }
-printf 'From Fido Require Import Planted.\nDeclare ML Module "fido.emit".\nFido Audit Assumptions.\n' > /tmp/fa/Check.v
-if rocq c -R /tmp/fa Fido -Q _build/default/. Fido /tmp/fa/Check.v > /tmp/fa/check.log 2>&1; then fail "the audit did NOT catch a planted Fido axiom (fail-open)"; fi
-# audit self-test 2 (§31): an EXTERNAL (non-Fido) axiom reached TRANSITIVELY through a Fido-namespaced OPAQUE
-#   (Qed) theorem MUST be caught by the WHOLE-THEORY closure audit — the case a Undef-body-only check misses.
-mkdir -p /tmp/extax /tmp/fop
-printf 'Axiom ext_ax : True.\n' > /tmp/extax/E.v
-rocq c -R /tmp/extax Ext /tmp/extax/E.v > /tmp/extax/e.log 2>&1 || { cat /tmp/extax/e.log; fail "could not compile the external-axiom module"; }
-printf 'From Ext Require Import E.\nLemma opaque_thm : True. Proof. exact E.ext_ax. Qed.\n' > /tmp/fop/O.v
-rocq c -R /tmp/extax Ext -R /tmp/fop Fido /tmp/fop/O.v > /tmp/fop/o.log 2>&1 || { cat /tmp/fop/o.log; fail "could not compile the Fido opaque theorem"; }
-printf 'From Fido Require Import O.\nDeclare ML Module "fido.emit".\nFido Audit Assumptions.\n' > /tmp/fop/Check.v
-if rocq c -R /tmp/extax Ext -R /tmp/fop Fido -Q _build/default/. Fido /tmp/fop/Check.v > /tmp/fop/c.log 2>&1; then cat /tmp/fop/c.log; fail "the whole-theory audit did NOT catch an external axiom behind a Fido opaque theorem"; fi
-grep -q 'PROJECT AXIOMS' /tmp/fop/c.log || { cat /tmp/fop/c.log; fail "opaque-audit self-test: rejected but NOT by the closure audit"; }
-echo "fido: assumption audit OK — zero Fido axioms; self-tests confirm a direct planted axiom AND an external axiom behind a Fido opaque Qed theorem are both caught"
+# The complete whole-certified-theory assumption audit + coverage + adversarial self-tests A-E now run in
+# the `prover` stage (contract §2: `make prove` is the complete proof gate) — they are NOT duplicated here.
+# This stage keeps only the emit-time provenance guard above and the dirty-directory sink exercise below.
 
 # --- exercise the dirty-directory sink directly (local per-parent staging + records + foreign rejection) ---
 cp plugin/fido_sink.ml e2e/sink_test.ml /tmp/

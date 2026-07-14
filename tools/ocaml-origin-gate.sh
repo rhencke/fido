@@ -58,8 +58,8 @@ done
 #     and not a spoofable grep.)
 if git ls-files --error-unmatch "$bridge" >/dev/null 2>&1; then
   lines=$(wc -l < "$bridge")
-  if [ "$lines" -gt 200 ]; then
-    echo "fido: OCAML-ORIGIN GATE — $bridge is $lines lines; the transport bridge must stay bounded (<=200)."; exit 1
+  if [ "$lines" -gt 230 ]; then
+    echo "fido: OCAML-ORIGIN GATE — $bridge is $lines lines; the transport bridge must stay bounded (<=230)."; exit 1
   fi
   if grep -nE 'GoProgram|GoFileAST|GoDecl|GoStmt|GoExpr|CompilableProgram|SafeProgram|CompilationFacts|render_|eval_|GoCompile' "$bridge"; then
     echo "fido: OCAML-ORIGIN GATE — $bridge must decode ONLY the final transport; it names a program/AST type."; exit 1

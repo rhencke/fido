@@ -108,25 +108,50 @@ let modpath_is_fido mp =
   let s = Names.ModPath.to_string mp in
   String.length s >= 4 && String.sub s 0 4 = "Fido"
 
-(* A SOUND whole-certified-theory zero-axiom audit: collect EVERY constant declared under a Fido module
-   (the authoritative set derives from Dune's (modules ...) via the caller's Require list), compute the
-   UNION of their assumption closures, and reject any Axiom/Parameter/Variable in it.  This is strictly
-   stronger than checking each Fido constant's own body: it catches an EXTERNAL axiom (e.g. functional
-   extensionality) reached TRANSITIVELY through an internal non-public lemma — even one behind an opaque Qed
-   — and it still catches UNUSED Fido axioms (each is its own closure entry).  Unlike a source-text scanner
+(* A SOUND whole-certified-theory zero-assumption audit.  Seed the assumption closure from EVERY certified
+   Fido declaration ROOT — not only constants but also mutual INDUCTIVES (each inductive type of the block,
+   via IndRef) and any surviving named/section assumption (VarRef).  Then compute the UNION of their
+   assumption closures (descending opaque Qed bodies) and reject every disallowed category.
+
+   Seeding the inductives is essential: an assumption category attached DIRECTLY to a certified inductive —
+   assumed positivity, disabled guardedness, type-in-type, a UIP-related reduction, indices-not-mattering —
+   is represented by Rocq as a `Printer.Axiom` variant on that IndRef, and would be MISSED if no retained
+   constant happened to reference the inductive.  This is strictly stronger than a per-constant-body check:
+   it catches an EXTERNAL axiom reached transitively through an internal opaque lemma, an UNUSED Fido axiom
+   (its own closure entry), AND an unreferenced assumption-bearing inductive.  Unlike a source-text scanner
    it cannot be fooled by comments/strings/attributes/module aliases.  `Print Assumptions` on the public
    surfaces stays the complementary readable per-surface check. *)
 let do_audit () =
   let env = Global.env () in
   let sigma = Evd.from_env env in
+  (* (1) every certified Fido constant *)
   let grefs =
     Environ.fold_constants (fun c _ acc ->
       if modpath_is_fido (Names.Constant.modpath c)
       then Names.GlobRef.ConstRef c :: acc else acc) env [] in
+  (* (2) every certified Fido mutual inductive, seeded through an IndRef for each inductive type of the
+     block — so an assumption on the inductive itself is reached even when no constant references it *)
+  let grefs =
+    Environ.fold_inductives (fun mind mib acc ->
+      if modpath_is_fido (Names.MutInd.modpath mind) then begin
+        let n = Array.length mib.Declarations.mind_packets in
+        let r = ref acc in
+        for i = 0 to n - 1 do r := Names.GlobRef.IndRef (mind, i) :: !r done;
+        !r
+      end else acc) env grefs in
+  (* (3) any surviving global/named assumption in the environment (a section Variable that outlived its
+     section); usually empty at top level, included so a reachable one cannot escape *)
+  let grefs =
+    Context.Named.fold_outside (fun d acc ->
+      match d with
+      | Context.Named.Declaration.LocalAssum (bnd, _) ->
+          Names.GlobRef.VarRef bnd.Context.binder_name :: acc
+      | Context.Named.Declaration.LocalDef _ -> acc)
+      (Environ.named_context env) ~init:grefs in
   let assums = closure_assums env grefs in
   match assums_disallowed assums with
   | [] -> Feedback.msg_notice
-            (str "fido: assumption audit OK — the whole certified-theory assumption closure is empty (no axiom/parameter/variable, incl. transitive, opaque-Qed, and unused)")
+            (str "fido: assumption audit OK — the whole certified-theory assumption closure is empty (no axiom/variable of any category — incl. transitive, opaque-Qed, unused, and inductive positivity/guardedness/type-in-type/UIP)")
   | _ -> CErrors.user_err
            Pp.(str "fido: PROJECT AXIOMS in the certified-theory assumption closure:" ++ fnl ()
                ++ Printer.pr_assumptionset env sigma assums)
