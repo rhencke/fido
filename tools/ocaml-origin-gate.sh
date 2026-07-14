@@ -4,15 +4,17 @@
 # transport boundary:
 #   - plugin/fido_sink.ml  — the generic dirty-directory filesystem sink (filesystem ONLY);
 #   - e2e/sink_test.ml      — a standalone driver that exercises the sink (filesystem ONLY);
+#   - e2e/fido_apply.ml  — the `make regenerate` CLI: enumerate a pristine /generated tree and hand it to
+#                             the sink (filesystem ONLY — no Rocq term, no AST, no render, no byte change);
 #   - plugin/g_fido.mlg     — the transport bridge.  Its boundary is EXACTLY four ordered steps: (1)
 #                             typecheck the image type; (2) reject a non-empty assumption closure (a kernel
 #                             provenance query that descends Qed proof bodies — NOT program/AST inspection);
 #                             (3) decode ONLY the final (go.mod, entries) transport; (4) call the sink.  It
 #                             does no semantic program/AST/behaviour inspection.
 # This gate is literal and fail-closed:
-#   (1) the set of tracked *.ml / *.mli / *.mlg is AT MOST those three;
-#   (2) the two filesystem files must NOT walk Rocq terms (no EConstr / Constr / Nametab / interp / Evd /
-#       Reductionops / Global) and stay bounded;
+#   (1) the set of tracked *.ml / *.mli / *.mlg is AT MOST those four;
+#   (2) the three filesystem-only files (sink + driver + apply CLI) must NOT walk Rocq terms (no EConstr /
+#       Constr / Nametab / interp / Evd / Reductionops / Global) and stay bounded;
 #   (3) the transport bridge must NOT mention any Fido program/AST type (GoProgram / GoFileAST / GoDecl /
 #       CompilableProgram / SafeProgram / CompilationFacts / render);
 #   (4) no tracked source contains a hallmark NAME of the deleted OCaml backend / lowering / renderer.
@@ -23,12 +25,13 @@
 # would only show a name appears (in a comment or dead code), so it is not attempted.
 set -eu
 
-fs_files='plugin/fido_sink.ml e2e/sink_test.ml'
+fs_files='plugin/fido_sink.ml e2e/sink_test.ml e2e/fido_apply.ml'
 bridge='plugin/g_fido.mlg'
-allowed='e2e/sink_test.ml plugin/fido_sink.ml plugin/g_fido.mlg'
+allowed='e2e/sink_test.ml plugin/fido_sink.ml e2e/fido_apply.ml plugin/g_fido.mlg'
 
-# (1) only the three transport files may be tracked OCaml.
-extra_ocaml=$(git ls-files '*.ml' '*.mli' '*.mlg' | grep -vxF -e e2e/sink_test.ml -e plugin/fido_sink.ml -e plugin/g_fido.mlg || true)
+# (1) only the transport/apply files may be tracked OCaml: the sink, its test driver, the filesystem-only
+#     `make regenerate` apply CLI, and the transport bridge.
+extra_ocaml=$(git ls-files '*.ml' '*.mli' '*.mlg' | grep -vxF -e e2e/sink_test.ml -e plugin/fido_sink.ml -e e2e/fido_apply.ml -e plugin/g_fido.mlg || true)
 if [ -n "$extra_ocaml" ]; then
   echo "fido: OCAML-ORIGIN GATE — only the transport files ($allowed) may be tracked OCaml.  Offending:"
   echo "$extra_ocaml" | sed 's/^/  /'
@@ -40,7 +43,7 @@ for f in $fs_files; do
   if git ls-files --error-unmatch "$f" >/dev/null 2>&1; then
     lines=$(wc -l < "$f")
     if [ "$lines" -gt 400 ]; then
-      echo "fido: OCAML-ORIGIN GATE — $f is $lines lines; the simplified filesystem sink must stay bounded (<=400)."; exit 1
+      echo "fido: OCAML-ORIGIN GATE — $f is $lines lines; a filesystem-only transport file must stay bounded (<=400)."; exit 1
     fi
     if grep -nE 'EConstr|Constr\.|Nametab|interp_constr|Reductionops|Evd\.|Global\.env' "$f"; then
       echo "fido: OCAML-ORIGIN GATE — $f is filesystem-only; it must not walk or decode Rocq terms."; exit 1

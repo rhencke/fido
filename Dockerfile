@@ -488,6 +488,18 @@ COPY --from=emit /workspace/generated/ /generated/
 FROM scratch AS generated-artifact
 COPY --from=generated-module /generated/ /
 
+# ── Stage 4d: sync — the `make regenerate` image.  It compiles the filesystem-only apply CLI (linking the
+#    SAME Fido_sink) and bakes in the pristine `generated-module` layer; run with the repository root
+#    bind-mounted at /dest, its ENTRYPOINT synchronizes /generated into /dest through the sink (preserving
+#    foreign non-Go files, rejecting foreign Go/module + nested .fido, updating tracked go.mod + .go,
+#    removing stale Fido-owned .go).  It never re-generates and never renders.
+FROM emit AS sync
+RUN cp /workspace/plugin/fido_sink.ml /workspace/e2e/fido_apply.ml /tmp/ \
+    && ( cd /tmp && ocamlfind ocamlopt -package unix -linkpkg fido_sink.ml fido_apply.ml -o /workspace/fido-apply ) \
+    && chmod 0755 /workspace/fido-apply
+COPY --from=generated-module /generated/ /generated/
+ENTRYPOINT ["/workspace/fido-apply", "/generated", "/dest"]
+
 # ── Stage 5: go-e2e — the LAST-MILE integration check (never a proof).  The pinned Go toolchain builds the
 #    canonical generated module (consumed from the `generated-module` layer, NOT re-generated here) with
 #    `go build ./...` using the Rocq-RENDERED go.mod, and runs the witness package; stdout/stderr/exit must
@@ -562,4 +574,38 @@ if go build ./... 2>/dev/null; then echo "fido e2e diff: go build accepted dupli
 echo "fido e2e diff: duplicate main is rejected by go build (matches GoCompile)"
 
 echo "fido e2e OK — pinned Go built the whole tree (go build ./...) using the RENDERED go.mod, accepted the empty module, ran the witness vs goldens, checked the multi-package differential + go list discovery, and rejected the no-main/dup-main fixtures exactly as GoCompile does (go vet nonblocking)"
+SH
+
+# ── Stage 6: verify-staged-generated — the PRE-COMMIT staged-index check (contract §23).  The hook exports
+#    the Git INDEX once and hands THAT staged tree as the Buildx context; this stage rebuilds the pristine
+#    `generated-module` from the staged proof/generation inputs and compares the STAGED root go.mod + every
+#    staged recursive .go against /generated — EXACT relative path set AND exact bytes, both directions
+#    (modified bytes, a missing staged file, a newly-generated file absent from the index, or a stale staged
+#    file all fail).  It reads only the staged tree (never the unstaged working tree) and never auto-stages.
+FROM golang:1.23-alpine@sha256:383395b794dffa5b53012a212365d40c8e37109a626ca30d6151c8348d380b5f AS verify-staged-generated
+WORKDIR /v
+COPY --from=generated-module /generated/ ./pristine/
+COPY . ./staged/
+RUN <<'SH'
+set -eu
+cd /v
+[ -f staged/go.mod ] || { echo "fido: STAGED-GENERATED — the proposed commit has no tracked root go.mod"; exit 1; }
+mkdir -p staged-gen; cp staged/go.mod staged-gen/go.mod
+( cd staged && find . -name '*.go' -type f | while IFS= read -r f; do
+    d=$(dirname "$f"); [ "$d" = "." ] || mkdir -p "/v/staged-gen/$d"; cp "$f" "/v/staged-gen/$f"; done )
+mism=0
+# every pristine file must be present + byte-identical in the staged generated set
+for f in $(cd pristine && find . -type f | LC_ALL=C sort); do
+  if ! cmp -s "pristine/$f" "staged-gen/$f"; then echo "fido: STAGED-GENERATED MISMATCH — $f (modified bytes, or missing from the index)"; mism=1; fi
+done
+# no staged generated file may exist that certified generation does not produce (stale)
+for f in $(cd staged-gen && find . -type f | LC_ALL=C sort); do
+  [ -f "pristine/$f" ] || { echo "fido: STAGED-GENERATED MISMATCH — $f is staged but not produced by certified generation (stale)"; mism=1; }
+done
+if [ "$mism" -ne 0 ]; then
+  echo "fido: the staged generated module does not byte-match the pristine certified build."
+  echo "      Run:  make regenerate && git add -A -- go.mod ':(top,glob)**/*.go' && git commit"
+  exit 1
+fi
+echo "fido: staged-generated verify OK — the staged root go.mod + recursive .go byte-match /generated (exact path set + bytes)"
 SH

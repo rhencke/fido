@@ -1,7 +1,9 @@
 .git/
 .gitignore
 
-# Local build output (not needed in build context)
+# Local build output + transient control/crash residue (never a build input)
+/.fido/
+**/*.fido-tmp-v1
 /fido
 *.test
 *.out
