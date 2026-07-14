@@ -9,7 +9,8 @@
       - the compiler-derived package name is `main`;
       - every package must contain EXACTLY ONE admissible `main` declaration across all its files
         (zero rejects the whole program; more than one rejects the whole program);
-      - every declaration's statements must be integer-representable;
+      - the whole program is TYPED through [GoTypes] ([ProgramTyped] — every `println` argument resolves to a
+        [GoType]; today the only typing failure is an integer literal outside the 64-bit range);
       - one invalid package rejects the WHOLE program (all-or-nothing; no per-file partial acceptance);
       - multiple valid main packages in different directories are accepted, matching `go build ./...`;
       - an empty file is accepted when its package's single `main` is elsewhere;

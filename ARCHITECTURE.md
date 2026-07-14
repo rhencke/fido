@@ -213,10 +213,11 @@ it.
 
 **Fail-closed, two-phase.** Only a confirmed `ENOENT` means "missing"; every other filesystem error aborts.
 After the lock: PHASE 1 inspects the whole Go-discovered namespace once (validating foreign-Go/module/control rules and
-COLLECTING every regular reserved-suffix temp), deleting nothing; if any path is invalid or uninspectable
-the run rejects before any mutation, preserving every collected temp. PHASE 2 (only after the complete scan
-succeeds) re-`lstat`s each collected temp, requires it is still a regular reserved-suffix file, and deletes
-it (fail-loud on any mismatch). A handled failure removes this run's created temps + newly-empty parents,
+COLLECTING every VALID abandoned temp — a regular reserved-suffix file whose suffix-stripped path maps to a
+Fido final path), deleting nothing; if any path is invalid or uninspectable the run rejects before any
+mutation, preserving every collected temp. PHASE 2 (only after the complete scan succeeds) re-`lstat`s each
+collected temp, requires it is still a regular reserved-suffix file mapping to a final path, and deletes it
+(fail-loud on any mismatch). A handled failure removes this run's created temps + newly-empty parents,
 aggregates body + cleanup + lock-release errors, and releases the lock. It is **NOT** a transactional
 whole-tree commit — install is a sequential rename loop, so a mid-install failure may leave earlier files
 installed (nontransactional, stated honestly); residue remains only after an uncatchable CRASH or a

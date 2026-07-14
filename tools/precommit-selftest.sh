@@ -62,17 +62,75 @@ s="$work/s1-clean"; mk_snapshot "$s"
 accept "a clean staged snapshot passes the ocaml-origin gate"     sh "$s/tools/ocaml-origin-gate.sh" "$s"
 accept "a clean staged snapshot passes the generated-output gate" sh "$s/tools/generated-output-gate.sh" "$s"
 
-# ---- (2) staged bad gate script + safe working-tree script cannot bypass ----
-s="$work/s2"; mk_snapshot "$s"
-printf '#!/bin/sh\necho STAGED-WEAKENED-GATE-RAN\nexit 0\n' > "$s/tools/ocaml-origin-gate.sh"
-mkdir -p "$s/.hidden"; printf 'let () = ()\n' > "$s/.hidden/rogue.ml"; printf 'package x\n' > "$s/.hidden/rogue.go"
-if sh "$s/tools/ocaml-origin-gate.sh" "$s" 2>&1 | grep -q STAGED-WEAKENED-GATE-RAN; then
-  ok "the STAGED gate implementation is the one executed (a safe working-tree copy cannot cover for it)"
+# ---- (2) drive the ACTUAL hook under REAL staged/worktree divergence (Buildx-free via a fake docker) ----
+# This creates a throwaway Git repo, diverges its index from its working tree, and runs the real
+# .githooks/pre-commit — proving the hook checks the STAGED index (not the working tree) and executes the
+# STAGED gate implementations.  A fake `docker` makes `buildx build` a sentinel (exit 7), so a run that gets
+# PAST the staged structural gates into the Buildx phase is distinguishable from one rejected at a gate.
+# Skipped when THIS run is itself nested under a hook (the commit-time hook runs the self-test with
+# FIDO_SELFTEST_NESTED=1) — that both avoids infinite recursion and keeps commits fast, while scenarios
+# 1/3/4/5 still run on the staged tree at commit time; the hook-driven divergence test runs under `make
+# check` / the standalone `make precommit-selftest`.
+if [ "${FIDO_SELFTEST_NESTED:-0}" = 1 ]; then
+  ok "nested under a hook — hook-driven divergence test skipped to avoid recursion (scenarios 1/3/4/5 still ran on the staged tree)"
 else
-  bad "the staged gate implementation was NOT the executed one"
+  set +e   # the raw git/hook commands below manage their own exit codes (a rejecting hook returns nonzero)
+  repo="$work/hookrepo"; mkdir -p "$repo/tools" "$repo/.githooks"
+  cp "$here/tools/ocaml-origin-gate.sh" "$here/tools/generated-output-gate.sh" \
+     "$here/tools/staged-generated-compare.sh" "$here/tools/precommit-selftest.sh" "$repo/tools/"
+  cp "$here/.githooks/pre-commit" "$repo/.githooks/pre-commit"
+  printf '%s\nmodule fido.local/generated\n\ngo 1.23\n' "$hdr" > "$repo/go.mod"
+  printf '%s\npackage main\n\nfunc main() {}\n'        "$hdr" > "$repo/main.go"
+  ( cd "$repo"
+    git init -q
+    git config user.email t@fido.test; git config user.name fido-selftest; git config commit.gpgsign false
+    git add -A && git commit -qm init ) >/dev/null 2>&1
+
+  fakebin="$work/fakebin"; mkdir -p "$fakebin"
+  { echo '#!/bin/sh'; echo 'case "$*" in'; echo '  *"buildx build"*) exit 7 ;;'; echo '  *) exit 0 ;;'; echo 'esac'; } > "$fakebin/docker"
+  chmod +x "$fakebin/docker"
+  # run a hook inside $repo with the fake docker; FIDO_SELFTEST_NESTED=1 stops the hook's own self-test from
+  # re-entering this divergence test.  Combined stdout+stderr is captured; the caller reads $? for the code.
+  run_hook() { ( cd "$repo"; PATH="$fakebin:$PATH" FIDO_SELFTEST_NESTED=1 sh "$1" ) 2>&1; }
+
+  # divergence: stage bad OCaml under a hidden dir, then REMOVE it from the working tree (index != worktree).
+  ( cd "$repo"; mkdir -p .hidden; printf 'let () = ()\n' > .hidden/rogue.ml; git add .hidden/rogue.ml; rm -rf .hidden )
+  out=$(run_hook "$repo/.githooks/pre-commit"); rc=$?
+  if [ "$rc" -ne 0 ] && [ "$rc" -ne 7 ] && printf '%s\n' "$out" | grep -q 'OCAML-ORIGIN GATE'; then
+    ok "the REAL hook rejects staged bad OCaml with a CLEAN working tree (staged index authoritative; caught before Buildx)"
+  else
+    bad "the real hook did not reject staged bad OCaml with a clean working tree (rc=$rc)"
+  fi
+
+  # MUTATION (Codex's exact case): make the hook run the WORKING-TREE gate against '.' instead of staged $ctx.
+  sed -E 's#^sh "\$ctx/tools/ocaml-origin-gate\.sh".*#sh "tools/ocaml-origin-gate.sh" "."#' \
+      "$repo/.githooks/pre-commit" > "$repo/.githooks/pre-commit-mut"
+  if ! grep -q 'ocaml-origin-gate.sh" "\."' "$repo/.githooks/pre-commit-mut"; then
+    bad "self-test could not construct the working-tree-gate mutation (hook text changed?)"
+  else
+    out=$(run_hook "$repo/.githooks/pre-commit-mut"); rc=$?
+    if [ "$rc" -eq 7 ] && ! printf '%s\n' "$out" | grep -q 'OCAML-ORIGIN GATE'; then
+      ok "the working-tree-gate MUTATION lets the staged bad OCaml through to Buildx — the divergence test is load-bearing (has teeth)"
+    else
+      bad "the working-tree-gate mutation did NOT bypass — the divergence test lacks teeth (rc=$rc)"
+    fi
+  fi
+
+  # a staged WEAKENED gate script (working-tree copy stays strict): the hook's STAGED self-test re-derives
+  # gate behaviour and catches it — a bad staged gate cannot hide behind its safe working-tree copy.
+  ( cd "$repo"
+    git reset -q --hard HEAD; rm -f .githooks/pre-commit-mut
+    cp tools/ocaml-origin-gate.sh "$work/strict-gate.bak"
+    printf '#!/bin/sh\nexit 0\n' > tools/ocaml-origin-gate.sh; git add tools/ocaml-origin-gate.sh   # index = weakened
+    cp "$work/strict-gate.bak" tools/ocaml-origin-gate.sh ) >/dev/null 2>&1                          # worktree = strict
+  out=$(run_hook "$repo/.githooks/pre-commit"); rc=$?
+  if [ "$rc" -ne 0 ] && [ "$rc" -ne 7 ] && printf '%s\n' "$out" | grep -q 'PRECOMMIT-SELFTEST FAILED'; then
+    ok "a staged WEAKENED gate is caught by the hook's own staged self-test (a bad staged gate cannot hide behind its working-tree copy)"
+  else
+    bad "a staged weakened gate was not caught by the hook's staged self-test (rc=$rc)"
+  fi
+  set -e
 fi
-reject "an independent staged gate still rejects bad content when another gate is weakened" \
-  sh "$s/tools/generated-output-gate.sh" "$s"
 
 # ---- (3) stale / missing / modified / extra / deep / hidden staged generated files rejected ----
 P="$work/pristine"; mk_pristine "$P"

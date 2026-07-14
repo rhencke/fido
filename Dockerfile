@@ -133,9 +133,11 @@ SH
 #    plus the .go map — and the sink SYNCHRONIZES each tree (witness, multi-package, and the EMPTY module);
 #    the emit-time assumption-closure guard rejects TRANSIENTLY-generated forged images (never tracked);
 #    and a standalone driver exercises the dirty-directory sink: clean/dirty sync, foreign-Go/module and
-#    nested-.fido REJECTION (§8), sibling `.fido-tmp-v1` staging with two-phase (inspect-then-delete)
-#    abandoned-temp recovery (regular/forged temps removed; symlink/dir/special temps fail-closed and
-#    preserved), complete-image staging before install, crash points (writing / staged / installing) that
+#    nested-.fido REJECTION (§8) over the Go-discovered namespace (opaque dot/underscore/testdata/vendor
+#    trees skipped), sibling `.fido-tmp-v1` staging with two-phase (inspect-then-delete) abandoned-temp
+#    recovery (regular/forged temps whose suffix-stripped path MAPS to a Fido final path are removed;
+#    non-mappable, symlink/dir/special temps fail-closed and preserved), complete-image staging before
+#    install, crash points (writing / staged / installing) that
 #    leave the lock + temps for a rerun, handled-failure + cleanup-failure aggregation, EXDEV no-copy, and
 #    overwrite + delete-time ownership rechecks.  The plugin guards provenance (typecheck +
 #    assumption-closure) then decodes only the final (go.mod, entries) transport; it walks no program.

@@ -26,20 +26,23 @@
    cooperating-process threat model — no transaction log is built to avoid it.
 
    TWO-PHASE, FAIL-CLOSED.  After acquiring the lock: PHASE 1 inspects the whole Go-discovered namespace once (validating
-   foreign-Go/module/control rules and COLLECTING every regular reserved-suffix temp) and deletes nothing;
-   only a confirmed ENOENT is "missing" — every other fs error aborts and preserves.  If any path is invalid
-   or uninspectable the run rejects before any mutation.  PHASE 2 deletes each collected temp after re-lstat
-   (must still be a regular reserved-suffix file).  Then the complete image stages into sibling temps before
+   foreign-Go/module/control rules and COLLECTING every VALID abandoned temp — a regular reserved-suffix file
+   whose suffix-stripped path maps to a Fido final path) and deletes nothing; only a confirmed ENOENT is
+   "missing" — every other fs error aborts and preserves.  If any path is invalid or uninspectable the run
+   rejects before any mutation.  PHASE 2 deletes each collected temp after re-lstat (must still be a regular
+   reserved-suffix file mapping to a final path).  Then the complete image stages into sibling temps before
    any install; each final installs by rename; stale owned `.go` is removed.  Binding order: validate the
    root chain and reject a reserved-namespace desired path BEFORE any effect; ensure/roll-back .fido; lock;
    inspect; delete abandoned temps; preflight; stage complete; install by rename; remove stale; release.
 
    HONEST GUARANTEE (Linux/amd64 scope).  GoProgram acceptance, SafeProgram certification, and DirectoryImage
    creation are semantically all-or-nothing.  Dirty-directory installation is locked for cooperating
-   emitters, rejects foreign Go/module inputs and nested `.fido`, inspects the complete tree fail-closed,
+   emitters, rejects foreign Go/module inputs and nested `.fido` in the Go-discovered namespace (skipping the
+   opaque dot/underscore/testdata/vendor trees `go build ./...` ignores), inspects that namespace fail-closed,
    stages the complete image into reserved sibling temporary files before installation, uses per-file rename
    in the ordinary same-filesystem case, cleans handled-failure temps immediately, removes validated
-   abandoned suffix-owned temps on a later run, and converges when the directory namespace remains stable.
+   abandoned suffix-owned temps (whose suffix-stripped path maps to a Fido final path) on a later run, and
+   converges when the directory namespace remains stable.
    It is NOT a portable transactional multi-file filesystem commit, NOT hardened against malicious concurrent
    mutation, and does NOT model arbitrary unmount/remount/backing-store replacement between runs.
 
@@ -333,7 +336,7 @@ let sync ?(checkpoint = fun _ -> ()) ?(unlink = Unix.unlink) ?(rename = Unix.ren
   let created_dirs = ref [] and created_temps = ref [] in
   let temp_of (target,_,_,_) = target ^ temp_suffix in
   let body () =
-    (* E. PHASE 1 — inspect the whole tree fail-closed, collecting abandoned temps (no deletion) *)
+    (* E. PHASE 1 — inspect the Go-discovered namespace fail-closed, collecting VALID mapped abandoned temps (no deletion) *)
     let temps = ref [] in
     inspect dir header "" temps;
     (* F. PHASE 2 — delete the validated abandoned temps *)
