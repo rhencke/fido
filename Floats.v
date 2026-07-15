@@ -366,3 +366,56 @@ Proof. reflexivity. Qed.
 Example decimal_value_neg :
   decimal_value (mkDecimal (-15) (-1) eq_refl) = mkFC (-3) 2.  (* -1.5 *)
 Proof. reflexivity. Qed.
+
+(** ============================================================================
+    The runtime float value — a FORMAT-CANONICAL [spec_float] tied to one [FloatType], with a PROOF-CARRYING
+    canonical invariant.  A value is canonical for [ft] when it is in the IMAGE of the format normalizer
+    [round_float_sf ft] (finite / +/-inf on overflow / +/-0 on underflow — the only source today), OR is NaN
+    or an infinity (future runtime ops).  This is future-compatible with every IEEE case (finite, +/-0, inf,
+    NaN) and is NOT a "values-from-constants-only" invariant.  Construction from a constant is [eq_refl].
+    ============================================================================ *)
+
+Definition sf_is_finite_or_zero (v : spec_float) : bool :=
+  match v with S754_finite _ _ _ | S754_zero _ => true | _ => false end.
+
+Definition FloatCanonical (ft : FloatType) (v : spec_float) : Prop :=
+  (exists q, v = round_float_sf ft q) \/ v = S754_nan \/ (exists s, v = S754_infinity s).
+
+Record FloatValue (ft : FloatType) : Type := mkFV {
+  fv_sf : spec_float ;
+  fv_ok : FloatCanonical ft fv_sf
+}.
+Arguments mkFV {ft} _ _.
+Arguments fv_sf {ft} _.
+
+(** the ONE way a constant enters the runtime: round its exact rational once at [ft].  The canonical
+    invariant is discharged by [eq_refl] — the carrier IS [round_float_sf ft q]. *)
+Definition float_value_of_const (ft : FloatType) (q : FloatConst) : FloatValue ft :=
+  mkFV (round_float_sf ft q) (or_introl (ex_intro _ q eq_refl)).
+
+(** rounding an unsigned-zero constant yields +0 (never -0) — the constant zero has no sign. *)
+Lemma round_float_sf_zero : forall ft, round_float_sf ft fc_zero = S754_zero false.
+Proof. intro ft; destruct ft; reflexivity. Qed.
+
+(** a REPRESENTABLE constant rounds to a finite/zero value — never NaN or infinity (so constant evaluation
+    produces no NaN/Inf).  Direct from [sf_to_FloatConst] returning [None] exactly on inf/nan. *)
+Lemma representable_finite_or_zero : forall ft q,
+  FloatConstRepresentable ft q -> sf_is_finite_or_zero (round_float_sf ft q) = true.
+Proof.
+  intros ft q [r Hr]. unfold round_float_const in Hr.
+  destruct (round_float_sf ft q) as [sb|sb| |sb m e] eqn:E; cbn in Hr; try discriminate; reflexivity.
+Qed.
+
+Lemma representable_not_nan : forall ft q,
+  FloatConstRepresentable ft q -> round_float_sf ft q <> S754_nan.
+Proof.
+  intros ft q H HN. pose proof (representable_finite_or_zero ft q H) as Hf.
+  rewrite HN in Hf; discriminate.
+Qed.
+
+Lemma representable_not_inf : forall ft q s,
+  FloatConstRepresentable ft q -> round_float_sf ft q <> S754_infinity s.
+Proof.
+  intros ft q s H HI. pose proof (representable_finite_or_zero ft q H) as Hf.
+  rewrite HI in Hf; discriminate.
+Qed.

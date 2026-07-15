@@ -65,6 +65,12 @@ Print Assumptions Floats.decimal_zero_unique.
 Print Assumptions Floats.decimal_wfb_max_ok.
 Print Assumptions Floats.decimal_wfb_coeff_over.
 Print Assumptions Floats.decimal_value_1p5.
+(* the runtime float value's format-canonical invariant + constant evaluation produces only finite/+0
+   (never NaN/Inf/-0): an unsigned-zero constant rounds to +0; a representable constant rounds finite/zero. *)
+Print Assumptions Floats.round_float_sf_zero.
+Print Assumptions Floats.representable_finite_or_zero.
+Print Assumptions Floats.representable_not_nan.
+Print Assumptions Floats.representable_not_inf.
 
 (* intrinsic FilePath: decidable equality; a representable canonical path; a rejected (unrepresentable)
    path.  Non-canonical paths have no FilePath value at all — this is unrepresentability, not rejection. *)
