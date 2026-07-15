@@ -10,7 +10,8 @@
       - every package must contain EXACTLY ONE admissible `main` declaration across all its files
         (zero rejects the whole program; more than one rejects the whole program);
       - the whole program is TYPED through [GoTypes] ([ProgramTyped] — every `println` argument resolves to a
-        [GoType]; today the only typing failure is an integer literal outside the 64-bit range);
+        [GoType]: a constant fits its resolved integer type and every explicit conversion is a valid integer
+        conversion);
       - one invalid package rejects the WHOLE program (all-or-nothing; no per-file partial acceptance);
       - multiple valid main packages in different directories are accepted, matching `go build ./...`;
       - an empty file is accepted when its package's single `main` is elsewhere;
@@ -110,7 +111,9 @@ Proof. intro cp; exact (compile_program_typed _ _ (cp_ok cp)). Qed.
 (** ---- the proof-producing executable compiler ---- *)
 
 Inductive CompileError : Type :=
-| ErrIntOverflow      (* some declaration has an out-of-range integer literal *)
+| ErrTyping           (* some declaration fails typing: a constant outside every representable range, a
+                         conversion whose operand is not an integer constant, or an invalid (nested) integer
+                         conversion — the one honest typing error now that typing can fail for several reasons *)
 | ErrPackageMainCount (* some package has zero or multiple `main` declarations *).
 
 Inductive result (E A : Type) : Type := Ok : A -> result E A | Err : E -> result E A.
@@ -124,8 +127,9 @@ Definition go_compile (p : GoProgram) : result CompileError CompilableProgram :=
   | left H  => Ok (mkCompilable p (mkFacts "main"%string) (conj eq_refl (proj1 (prog_ok_iff p) H)))
   | right _ =>
       (* the whole program is typed but some package's `main` count is wrong, vs. a typing failure
-         (today the only typing failure is an integer literal outside the 64-bit range). *)
-      if program_typedb p then Err ErrPackageMainCount else Err ErrIntOverflow
+         (a constant fitting no integer type, a non-integer conversion operand, or an invalid nested
+         conversion). *)
+      if program_typedb p then Err ErrPackageMainCount else Err ErrTyping
   end.
 
 (** (A) internal exactness: [go_compile] accepts exactly the admissible programs, whole-program. *)
@@ -162,21 +166,48 @@ Proof. intros p H; unfold prog_ok, program_typedb; rewrite H; reflexivity. Qed.
 (** ---- boundary fixture: an out-of-range argument rejects the WHOLE program BEFORE any emission ---- *)
 
 (** A single-file program whose only `println` argument is [int_max + 1] (one past the one [Ints] upper
-    bound; NOT a duplicated numeric literal) — unrepresentable as [TInt] through the [GoTypes] authority. *)
+    bound; NOT a duplicated numeric literal) — unrepresentable as the default [TInteger IInt] through the
+    [GoTypes] authority. *)
 Definition over_program : GoProgram :=
   singleton_program
     (mkModuleSpec (ModulePath.mkMP "fido.local/generated" eq_refl) GoVersion.Go1_23)
     (mkFP "main.go" eq_refl)
     [ DMain [ SPrintln [ EInt (Z.to_N (int_max + 1)) ] ] ].
 
-(* the whole program fails typing, so [prog_ok] rejects it and [go_compile] returns the EXACT integer
+(* the whole program fails typing, so [prog_ok] rejects it and [go_compile] returns the honest typing
    error — and there is NO [CompilableProgram] for it (hence no [SafeProgram], no [DirectoryImage], no
    rendering/emission): rejection happens strictly in Rocq, before any bytes. *)
 Example over_program_untyped   : program_typedb over_program = false.        Proof. reflexivity. Qed.
 Example over_program_not_ok    : prog_ok over_program = false.               Proof. reflexivity. Qed.
-Example over_program_rejected  : go_compile over_program = Err ErrIntOverflow. Proof. reflexivity. Qed.
+Example over_program_rejected  : go_compile over_program = Err ErrTyping.    Proof. reflexivity. Qed.
 Example over_program_no_compile : forall facts, ~ GoCompile over_program facts.
 Proof. intro facts; exact (reject_no_compile over_program facts over_program_not_ok). Qed.
+
+(** ---- integer-family programs (§12/§20): a concrete accepted integer program compiles; an invalid nested
+    conversion rejects the WHOLE program with the same honest typing error, before any bytes. ---- *)
+Definition int_program : GoProgram :=
+  singleton_program
+    (mkModuleSpec (ModulePath.mkMP "fido.local/generated" eq_refl) GoVersion.Go1_23)
+    (mkFP "main.go" eq_refl)
+    [ DMain [ SPrintln [ EIntConvert IInt8 (EInt 127)
+                       ; EIntConvert IUint64 (EInt 18446744073709551615)
+                       ; EIntConvert IInt8 (EIntConvert IInt16 (EInt 127)) ] ] ].
+Example int_program_typed    : program_typedb int_program = true. Proof. reflexivity. Qed.
+Example int_program_ok       : prog_ok int_program = true.        Proof. reflexivity. Qed.
+Example int_program_compiles : exists cp, go_compile int_program = Ok cp.
+Proof. eexists; reflexivity. Qed.
+
+(** A program whose only argument is [uint8(int(300))] — a valid inner [int(300)] whose value does NOT fit
+    the outer [uint8]; the invalid nested conversion cannot be revived, so the whole program is rejected. *)
+Definition bad_convert_program : GoProgram :=
+  singleton_program
+    (mkModuleSpec (ModulePath.mkMP "fido.local/generated" eq_refl) GoVersion.Go1_23)
+    (mkFP "main.go" eq_refl)
+    [ DMain [ SPrintln [ EIntConvert IUint8 (EIntConvert IInt (EInt 300)) ] ] ].
+Example bad_convert_untyped     : program_typedb bad_convert_program = false. Proof. reflexivity. Qed.
+Example bad_convert_rejected    : go_compile bad_convert_program = Err ErrTyping. Proof. reflexivity. Qed.
+Example bad_convert_no_compile  : forall facts, ~ GoCompile bad_convert_program facts.
+Proof. intro facts; exact (reject_no_compile bad_convert_program facts eq_refl). Qed.
 
 (** ---- a concrete STRING program is whole-program admissible (§25): a single `main` whose `println`
     mixes a string literal with a bool and an int is typed and compiles to a [CompilableProgram]. ---- *)

@@ -70,13 +70,14 @@ Fixpoint render_string_body (s : string) : string :=
 Definition render_string_literal (s : string) : string :=
   String dquote_c (render_string_body s ++ String dquote_c EmptyString).
 
-Definition render_expr (e : GoExpr) : string :=
+Fixpoint render_expr (e : GoExpr) : string :=
   match e with
   | EBool true  => "true"
   | EBool false => "false"
   | EInt n => print_Z (Z.of_N n)
   | ENeg n => String "-"%char (print_Z (Z.of_N n))
   | EString s => render_string_literal s
+  | EIntConvert it e' => integer_keyword it ++ "(" ++ render_expr e' ++ ")"
   end.
 
 Fixpoint render_args (es : list GoExpr) : string :=
@@ -233,14 +234,18 @@ Proof.
   rewrite str_ascii_app, render_string_body_ascii. reflexivity.
 Qed.
 
+Lemma integer_keyword_ascii : forall it, str_ascii (integer_keyword it) = true.
+Proof. intros []; reflexivity. Qed.
+
 Lemma render_expr_ascii : forall e, str_ascii (render_expr e) = true.
 Proof.
-  intros [ [] | n | n | s ]; cbn [render_expr].
+  induction e as [ [] | n | n | s | it e' IHe' ]; cbn [render_expr].
   - reflexivity.
   - reflexivity.
   - apply print_Z_ascii.
   - cbn [str_ascii]. rewrite print_Z_ascii. reflexivity.
   - apply render_string_literal_ascii.
+  - rewrite !str_ascii_app, integer_keyword_ascii, IHe'; reflexivity.
 Qed.
 
 Lemma render_args_ascii : forall es, str_ascii (render_args es) = true.
@@ -620,10 +625,24 @@ Example rl_ascii : render_string_literal "hi"
   = String dquote_c (String "h"%char (String "i"%char (String dquote_c EmptyString))).
 Proof. reflexivity. Qed.
 
+(** ---- integer denotation (§16): the rendered spelling of an integer expression denotes an exact value at a
+    type.  A bare canonical decimal (optionally unary-minus) denotes the DEFAULT [int]; an explicit conversion
+    is the canonical keyword, `(`, a recursively-denoting inner integer spelling, `)`, and REQUIRES the value
+    to be representable at the destination (the outer type).  This relation MAY admit semantically equivalent
+    spellings; it is a DENOTATION tool, NOT a general Go parser (real-Go acceptance is external adequacy). ---- *)
+Inductive RenderedIntegerDenotes : string -> IntegerType -> Z -> Prop :=
+| RIDBare : forall s z,
+    read_go_int s = z ->
+    RenderedIntegerDenotes s IInt z
+| RIDConvert : forall it src inner z,
+    RenderedIntegerDenotes inner src z ->
+    IntRepresentable it z ->
+    RenderedIntegerDenotes (integer_keyword it ++ "(" ++ inner ++ ")") it z.
+
 Definition RenderedPrimitiveDenotes (s : string) (v : GoValue) : Prop :=
   match v with
-  | VBool b   => s = (if b then "true" else "false")
-  | VInt z    => read_go_int s = z
+  | VBool b       => s = (if b then "true" else "false")
+  | VInteger it z => RenderedIntegerDenotes s it z
   | VString bytes => decode_string_literal s = Some bytes
   end.
 
@@ -654,58 +673,157 @@ Proof.
   - exfalso; lia.
 Qed.
 
-(** The root correspondence tying AST expression, semantic value, and rendered spelling: a rendered
-    primitive denotes exactly its [eval_expr] value — unconditionally (the denotation correspondence does
-    not depend on representability; even an out-of-range magnitude renders to its exact decimal value).
-    Booleans get their canonical spellings; nonnegative decimals denote exactly; a negative is unary minus
-    over the magnitude (so `-0` denotes `0`, agreeing with [eval_zero_sign_agnostic]). *)
-Theorem render_expr_denotes : forall e, RenderedPrimitiveDenotes (render_expr e) (eval_expr e).
+(** read a rendered bare integer literal: the decimal reader restores the exact magnitude (nonnegative for
+    [EInt], negated for [ENeg]) — the parser-free denotation of the two bare literal spellings. *)
+Lemma read_go_int_EInt : forall n, read_go_int (render_expr (EInt n)) = Z.of_N n.
 Proof.
-  intros e. destruct e as [ [] | n | n | s ];
-    cbn [render_expr eval_expr const_value const_to_value RenderedPrimitiveDenotes].
-  - reflexivity.
-  - reflexivity.
-  - rewrite read_go_int_nonneg by apply N2Z.is_nonneg.
-    apply print_Z_dec_faithful, N2Z.is_nonneg.
-  - unfold read_go_int; cbn [Ascii.eqb].
-    rewrite print_Z_dec_faithful by apply N2Z.is_nonneg. reflexivity.
-  - apply render_string_roundtrip.
+  intro n. cbn [render_expr]. rewrite read_go_int_nonneg by apply N2Z.is_nonneg.
+  apply print_Z_dec_faithful, N2Z.is_nonneg.
+Qed.
+
+Lemma read_go_int_ENeg : forall n, read_go_int (render_expr (ENeg n)) = - Z.of_N n.
+Proof.
+  intro n. cbn [render_expr]. unfold read_go_int; cbn [Ascii.eqb].
+  rewrite print_Z_dec_faithful by apply N2Z.is_nonneg. reflexivity.
+Qed.
+
+(** a bare integer literal (the only [UntypedConst (CInt _)] expressions) renders to a spelling denoting its
+    exact value at the DEFAULT [int]. *)
+Lemma bare_int_denotes : forall e z,
+  const_info e = Some (UntypedConst (CInt z)) -> RenderedIntegerDenotes (render_expr e) IInt z.
+Proof.
+  intros e z H; destruct e as [ b | n | n | s | it' e' ]; simpl in H; try discriminate.
+  - injection H as <-; apply RIDBare, read_go_int_EInt.
+  - injection H as <-; apply RIDBare, read_go_int_ENeg.
+  - destruct (const_info e') as [ci'|]; [| discriminate].
+    destruct ci' as [ c' | t' c' ].
+    + destruct c' as [ b | z' | s ]; try discriminate.
+      destruct (integer_representableb it' z'); discriminate.
+    + destruct t' as [| itx |]; try discriminate;
+        destruct c' as [ b | z' | s ]; try discriminate;
+        destruct (integer_representableb it' z'); discriminate.
+Qed.
+
+(** [const_info] of a conversion, when it succeeds, is a typed integer constant of the destination type. *)
+Lemma const_info_convert_shape : forall it e ci,
+  const_info (EIntConvert it e) = Some ci -> exists z, ci = TypedConst (TInteger it) (CInt z).
+Proof.
+  intros it e ci H; simpl in H.
+  destruct (const_info e) as [ci'|] eqn:Hce'; [| discriminate].
+  destruct ci' as [ c' | t' c' ].
+  - destruct c' as [ b | z' | s ]; try discriminate.
+    destruct (integer_representableb it z'); [| discriminate]; injection H as <-; exists z'; reflexivity.
+  - destruct t' as [| it'' |]; try discriminate; destruct c' as [ b | z' | s ]; try discriminate;
+      destruct (integer_representableb it z'); try discriminate; injection H as <-; exists z'; reflexivity.
+Qed.
+
+(** the core §16 correspondence for an explicit conversion: a typed integer constant renders to a spelling
+    that denotes exactly its value at its type (recursively through the conversion nesting). *)
+Lemma render_int_denotes : forall e it z,
+  const_info e = Some (TypedConst (TInteger it) (CInt z)) ->
+  RenderedIntegerDenotes (render_expr e) it z.
+Proof.
+  induction e as [ b | n | n | s | it' e' IHe' ]; intros it z H; simpl in H; try discriminate.
+  destruct (const_info e') as [ci'|] eqn:Hce'; [| discriminate].
+  destruct ci' as [ c' | t' c' ].
+  - destruct c' as [ b | z' | s ]; try discriminate.
+    destruct (integer_representableb it' z') eqn:Hrep; [| discriminate].
+    injection H as <- <-. cbn [render_expr].
+    apply RIDConvert with (src := IInt).
+    + apply bare_int_denotes; exact Hce'.
+    + apply integer_representableb_spec; exact Hrep.
+  - destruct t' as [| srcty |]; try discriminate; destruct c' as [ b | z' | s ]; try discriminate;
+      destruct (integer_representableb it' z') eqn:Hrep; try discriminate.
+    injection H as <- <-. cbn [render_expr].
+    apply RIDConvert with (src := srcty).
+    + apply IHe'; reflexivity.
+    + apply integer_representableb_spec; exact Hrep.
+Qed.
+
+(** The root correspondence tying AST expression, semantic value, and rendered spelling: a (RESOLVED)
+    evaluating expression renders to a spelling that denotes exactly its runtime value.  Booleans get their
+    canonical spellings; integers denote at their exact type (bare literals as [int], conversions through the
+    keyword nesting); strings decode back to their exact bytes. *)
+(** inversion of a successful evaluation: it comes from a representable analyzed constant. *)
+Lemma eval_some_inv : forall e v,
+  eval_expr e = Some v ->
+  exists ci, const_info e = Some ci
+          /\ const_to_value (info_type ci) (ci_const ci) = Some v.
+Proof.
+  intros e v H; unfold eval_expr in H.
+  destruct (const_info e) as [ci|] eqn:Hci; [| discriminate].
+  unfold info_to_value in H.
+  destruct (const_representableb (info_type ci) (ci_const ci)); [| discriminate].
+  exists ci; split; [ reflexivity | exact H ].
+Qed.
+
+Theorem render_expr_denotes : forall e v,
+  eval_expr e = Some v -> RenderedPrimitiveDenotes (render_expr e) v.
+Proof.
+  intros e v H; destruct (eval_some_inv e v H) as [ ci [ Hci Hv ] ]; destruct e as [ b | n | n | s | it' e' ].
+  - cbn [const_info] in Hci; injection Hci as <-; cbn [info_type ci_const const_default_type const_to_value] in Hv;
+      injection Hv as <-; cbn [render_expr RenderedPrimitiveDenotes]; destruct b; reflexivity.
+  - cbn [const_info] in Hci; injection Hci as <-; cbn [info_type ci_const const_default_type const_to_value] in Hv;
+      injection Hv as <-; cbn [RenderedPrimitiveDenotes]; apply RIDBare, read_go_int_EInt.
+  - cbn [const_info] in Hci; injection Hci as <-; cbn [info_type ci_const const_default_type const_to_value] in Hv;
+      injection Hv as <-; cbn [RenderedPrimitiveDenotes]; apply RIDBare, read_go_int_ENeg.
+  - cbn [const_info] in Hci; injection Hci as <-; cbn [info_type ci_const const_default_type const_to_value] in Hv;
+      injection Hv as <-; cbn [RenderedPrimitiveDenotes]; apply render_string_roundtrip.
+  - destruct (const_info_convert_shape it' e' ci Hci) as [ z Hz ]; subst ci.
+    cbn [info_type ci_const const_to_value] in Hv; injection Hv as <-.
+    cbn [RenderedPrimitiveDenotes]; apply render_int_denotes; exact Hci.
 Qed.
 
 (** The one root theorem connecting the three authorities (GoTypes resolution, GoSafe value, GoRender
-    spelling): a resolved [println] argument RENDERS to a spelling that denotes exactly the runtime value,
-    AND that value has the statically-resolved [GoType].  This is NOT a claim about the real Go parser —
-    real-Go acceptance is external adequacy, exercised differentially by the e2e. *)
+    spelling): a resolved [println] argument EVALUATES to a well-formed value of its resolved [GoType] whose
+    rendered spelling denotes it exactly.  This is NOT a claim about the real Go parser — real-Go acceptance
+    is external adequacy, exercised differentially by the e2e. *)
 Theorem render_resolved_expr_denotes : forall e t,
   ResolveExpr UsePrintlnArg e t ->
-  RenderedPrimitiveDenotes (render_expr e) (eval_expr e) /\ value_type (eval_expr e) = t.
+  exists v, eval_expr e = Some v /\ value_type v = t /\ ValueWF v
+         /\ RenderedPrimitiveDenotes (render_expr e) v.
 Proof.
-  intros e t H; split.
-  - apply render_expr_denotes.
-  - exact (eval_expr_resolved_type UsePrintlnArg e t H).
+  intros e t H; destruct (eval_expr_resolved UsePrintlnArg e t H) as [ v [ Hev [ Hvt Hwf ] ] ].
+  exists v; repeat split; try assumption. apply render_expr_denotes; exact Hev.
 Qed.
 
-(** The int boundaries: the max/min literals evaluate to the exact 64-bit extremes AND resolve as [TInt]
-    (the boundary is representable — the range check uses the one [Ints] authority). *)
+(** The int boundaries: the max/min literals evaluate to well-formed [int] values AND resolve as
+    [TInteger IInt] (the boundary is representable — the range check uses the one [Ints] authority). *)
 Lemma render_boundary_max :
-  eval_expr (EInt (Z.to_N int_max)) = VInt int_max
-  /\ ResolveExpr UsePrintlnArg (EInt (Z.to_N int_max)) TInt.
+  eval_expr (EInt (Z.to_N int_max)) = Some (VInteger IInt int_max)
+  /\ ResolveExpr UsePrintlnArg (EInt (Z.to_N int_max)) (TInteger IInt).
 Proof. split; [ reflexivity | apply resolve_expr_sound; reflexivity ]. Qed.
 
 Lemma render_boundary_min :
-  eval_expr (ENeg (Z.to_N (- int_min))) = VInt int_min
-  /\ ResolveExpr UsePrintlnArg (ENeg (Z.to_N (- int_min))) TInt.
+  eval_expr (ENeg (Z.to_N (- int_min))) = Some (VInteger IInt int_min)
+  /\ ResolveExpr UsePrintlnArg (ENeg (Z.to_N (- int_min))) (TInteger IInt).
 Proof. split; [ reflexivity | apply resolve_expr_sound; reflexivity ]. Qed.
 
-(** ---- string denotation surfaces (§25): a rendered string literal denotes exactly its runtime bytes (its
-    canonical spelling decodes back to the value), and a RESOLVED string argument renders to a spelling that
-    decodes to the exact runtime [VString] AND has resolved type — the string instances of the two roots. ---- *)
+(** ---- explicit-conversion rendering fixtures (§15): the exact keyword spelling of each of the ten integer
+    types, and the exact rendered spelling of a (possibly nested) conversion. ---- *)
+Example kw_int    : integer_keyword IInt    = "int".    Proof. reflexivity. Qed.
+Example kw_int8   : integer_keyword IInt8   = "int8".   Proof. reflexivity. Qed.
+Example kw_int16  : integer_keyword IInt16  = "int16".  Proof. reflexivity. Qed.
+Example kw_int32  : integer_keyword IInt32  = "int32".  Proof. reflexivity. Qed.
+Example kw_int64  : integer_keyword IInt64  = "int64".  Proof. reflexivity. Qed.
+Example kw_uint   : integer_keyword IUint   = "uint".   Proof. reflexivity. Qed.
+Example kw_uint8  : integer_keyword IUint8  = "uint8".  Proof. reflexivity. Qed.
+Example kw_uint16 : integer_keyword IUint16 = "uint16". Proof. reflexivity. Qed.
+Example kw_uint32 : integer_keyword IUint32 = "uint32". Proof. reflexivity. Qed.
+Example kw_uint64 : integer_keyword IUint64 = "uint64". Proof. reflexivity. Qed.
+Example render_int8_127 : render_expr (EIntConvert IInt8 (EInt 127)) = "int8(127)". Proof. reflexivity. Qed.
+Example render_uint64_big : render_expr (EIntConvert IUint64 (EInt 18446744073709551615)) = "uint64(18446744073709551615)". Proof. reflexivity. Qed.
+Example render_nested : render_expr (EIntConvert IInt8 (EIntConvert IInt16 (EInt 127))) = "int8(int16(127))". Proof. reflexivity. Qed.
+
+(** ---- string denotation surfaces (§25): a rendered string literal denotes exactly its runtime bytes; a
+    RESOLVED string argument evaluates to the exact runtime [VString] of its resolved type whose spelling
+    decodes back to it — the string instances of the two roots. ---- *)
 Lemma render_string_denotes : forall s,
-  RenderedPrimitiveDenotes (render_expr (EString s)) (eval_expr (EString s)).
-Proof. intro s; apply render_expr_denotes. Qed.
+  RenderedPrimitiveDenotes (render_expr (EString s)) (VString s).
+Proof. intro s; apply render_expr_denotes, eval_string_value. Qed.
 
 Lemma render_resolved_string_denotes : forall s t,
   ResolveExpr UsePrintlnArg (EString s) t ->
-  RenderedPrimitiveDenotes (render_expr (EString s)) (eval_expr (EString s))
-  /\ value_type (eval_expr (EString s)) = t.
+  exists v, eval_expr (EString s) = Some v /\ value_type v = t /\ ValueWF v
+         /\ RenderedPrimitiveDenotes (render_expr (EString s)) v.
 Proof. intros s t H; apply render_resolved_expr_denotes; exact H. Qed.

@@ -3,13 +3,28 @@
     exactly as many 'Closed under the global context' lines as there are 'Print Assumptions' commands here
     (an empty/partial log FAILS — fail-closed both ways).  These are the public surfaces of the
     program-rooted GoProgram -> GoTypes (the one type authority: untyped GoConst resolved through
-    {TBool,TInt,TString} to ProgramTyped over the same AST) -> GoCompile -> GoSafe -> GoRender -> GoEmit
-    architecture. *)
+    {TBool, the integer family TInteger over IntegerType, TString} to ProgramTyped over the same AST) ->
+    GoCompile -> GoSafe -> GoRender -> GoEmit architecture. *)
 From Fido Require Import Ints FilePath FMap ModulePath GoVersion GoAST GoTypes GoCompile GoSafe GoRender GoEmit.
 
-(* the 64-bit integer authority (only the constants an admitted construct uses) *)
+(* the ONE integer-family authority: type-equality reflection; the single representability reflection;
+   exact 64-bit int/uint; generic min/max accepted and below-min/above-max rejected; keyword exactness +
+   injectivity; int<>int64 and uint<>uint64 distinct despite equal ranges; the derived default-int bounds. *)
+Print Assumptions Ints.integer_type_eqb_eq.
+Print Assumptions Ints.integer_representableb_spec.
+Print Assumptions Ints.IInt_bits_64.
+Print Assumptions Ints.IUint_bits_64.
+Print Assumptions Ints.integer_min_representable.
+Print Assumptions Ints.integer_max_representable.
+Print Assumptions Ints.integer_min_pred_not_representable.
+Print Assumptions Ints.integer_max_succ_not_representable.
+Print Assumptions Ints.integer_keyword_exact.
+Print Assumptions Ints.integer_keyword_inj.
+Print Assumptions Ints.IInt_neq_IInt64.
+Print Assumptions Ints.IUint_neq_IUint64.
 Print Assumptions Ints.int_min_val.
 Print Assumptions Ints.int_max_val.
+Print Assumptions Ints.uint_max_val.
 
 (* intrinsic FilePath: decidable equality; a representable canonical path; a rejected (unrepresentable)
    path.  Non-canonical paths have no FilePath value at all — this is unrepresentability, not rejection. *)
@@ -42,68 +57,107 @@ Print Assumptions FMap.fm_keys_nodup.
 Print Assumptions FMap.dup_key_unrepresentable.
 Print Assumptions FMap.fm_MapsTo_fun.
 
-(* GoTypes — the ONE Go type authority (EVIDENCE over the raw AST): zero-sign constant equality; default-
-   type exactness; representability reflection (the single 64-bit range decision); expression resolution
-   sound + complete + deterministic; statement + program typing reflection; int max/min accepted;
-   overflow/underflow rejected. *)
+(* GoTypes — the ONE type authority (EVIDENCE over the raw AST): zero-sign constant equality; a conversion
+   preserves the exact constant value; default-type exactness; representability reflection; the constant-
+   status analysis carries the exact value + a representable typed value; resolution sound + complete +
+   deterministic; statement + program typing reflection. *)
 Print Assumptions GoTypes.const_value_zero_sign.
+Print Assumptions GoTypes.const_value_convert.
 Print Assumptions GoTypes.const_default_type_int.
+Print Assumptions GoTypes.const_default_type_string.
 Print Assumptions GoTypes.const_representableb_iff.
+Print Assumptions GoTypes.const_info_value.
+Print Assumptions GoTypes.const_info_typed_representable.
 Print Assumptions GoTypes.resolve_expr_sound.
 Print Assumptions GoTypes.resolve_expr_complete.
 Print Assumptions GoTypes.resolve_expr_deterministic.
 Print Assumptions GoTypes.stmt_typedb_iff.
 Print Assumptions GoTypes.program_typedb_iff.
+Print Assumptions GoTypes.empty_program_typed.
+(* type-at-use: a bare literal defaults to int; the int boundaries resolve, one past does not; a huge
+   (>2^64) constant is exact but resolves to no integer type; explicit uint64/int64 type-at-use behaviour *)
+Print Assumptions GoTypes.res_int_default.
 Print Assumptions GoTypes.res_int_max.
 Print Assumptions GoTypes.res_int_min.
 Print Assumptions GoTypes.res_over.
 Print Assumptions GoTypes.res_under.
-Print Assumptions GoTypes.empty_program_typed.
+Print Assumptions GoTypes.res_huge_no_resolve.
+Print Assumptions GoTypes.res_uint64_2p63.
+Print Assumptions GoTypes.res_int64_2p63_reject.
+(* per-type conversion boundaries (int8/uint8/uint64 min/max +/-1) and transitive nested-conversion cases *)
+Print Assumptions GoTypes.res_int8_min.
+Print Assumptions GoTypes.res_int8_max.
+Print Assumptions GoTypes.res_int8_under.
+Print Assumptions GoTypes.res_int8_over.
+Print Assumptions GoTypes.res_uint8_0.
+Print Assumptions GoTypes.res_uint8_255.
+Print Assumptions GoTypes.res_uint8_m1.
+Print Assumptions GoTypes.res_uint8_256.
+Print Assumptions GoTypes.res_uint64_max.
+Print Assumptions GoTypes.res_uint64_over.
+Print Assumptions GoTypes.const_int8_int16_127.
+Print Assumptions GoTypes.const_int8_int16_128_reject.
+Print Assumptions GoTypes.const_uint8_int_300_reject.
+Print Assumptions GoTypes.conv_bool_reject.
+Print Assumptions GoTypes.conv_str_reject.
+(* type identity: int<>int64 and uint<>uint64 as distinct STATIC types *)
+Print Assumptions GoTypes.tint_neq_tint64.
+Print Assumptions GoTypes.tuint_neq_tuint64.
+(* cross-kind non-resolution: a bool does not resolve as an integer, an integer not as bool, a string not as
+   an integer; no string const is representable as an integer; an arbitrary-byte string resolves as TString;
+   a mixed bool/int/string println statement is typed *)
 Print Assumptions GoTypes.bool_not_resolve_int.
 Print Assumptions GoTypes.int_not_resolve_bool.
-(* strings: default type TString; an arbitrary-byte string resolves as TString; a string does NOT resolve as
-   bool/int and no bool/int const is representable as TString (cross-type rejection); a mixed bool/int/string
-   println statement is typed *)
-Print Assumptions GoTypes.const_default_type_string.
-Print Assumptions GoTypes.res_str_bytes.
-Print Assumptions GoTypes.str_not_resolve_bool.
 Print Assumptions GoTypes.str_not_resolve_int.
-Print Assumptions GoTypes.cstr_not_bool.
 Print Assumptions GoTypes.cstr_not_int.
-Print Assumptions GoTypes.stmt_mixed_str_typed.
+Print Assumptions GoTypes.res_str_bytes.
 Print Assumptions GoTypes.str_representable.
 Print Assumptions GoTypes.str_representableb.
+Print Assumptions GoTypes.stmt_mixed_str_typed.
 
-(* GoCompile (A) internal exactness: whole-program prog_ok reflects the declarative judgment (now rooted
-   in the GoTypes typing authority); go_compile sound + complete against it; a rejected program yields no
-   CompilableProgram; the compiled evidence exposes that the same program is typed; the empty program is
-   accepted under the new typing authority *)
+(* GoCompile (A) internal exactness: whole-program prog_ok reflects the declarative judgment; go_compile
+   sound + complete against it; a rejected program yields no CompilableProgram; the compiled evidence exposes
+   that the same program is typed; the empty program is accepted; a concrete integer-family program compiles;
+   an out-of-range and an invalid-nested-conversion program are rejected with the honest typing error (and
+   have no CompilableProgram); a concrete string program compiles. *)
 Print Assumptions GoCompile.prog_ok_iff.
 Print Assumptions GoCompile.go_compile_sound.
 Print Assumptions GoCompile.go_compile_complete.
 Print Assumptions GoCompile.reject_no_compile.
 Print Assumptions GoCompile.compilable_program_typed.
 Print Assumptions GoCompile.prog_ok_empty.
-(* a concrete string program is whole-program admissible (typed + compiles to a CompilableProgram) *)
+Print Assumptions GoCompile.int_program_ok.
+Print Assumptions GoCompile.int_program_compiles.
+Print Assumptions GoCompile.over_program_rejected.
+Print Assumptions GoCompile.bad_convert_rejected.
+Print Assumptions GoCompile.bad_convert_no_compile.
 Print Assumptions GoCompile.str_program_ok.
 Print Assumptions GoCompile.str_program_compiles.
 
-(* GoSafe: exact VALUE semantics — a zero literal and a negated zero agree; a resolved expression
-   evaluates to a value of the resolved GoType (one type authority across compiler and runtime) *)
+(* GoSafe: exact VALUE semantics — a zero literal and a negated zero agree; a resolved expression evaluates
+   to a well-formed value of the resolved GoType (one type authority across compiler and runtime); value
+   well-formedness reflection; an explicit conversion preserves the exact constant value; a string literal
+   evaluates to the EXACT runtime byte sequence of its resolved type. *)
 Print Assumptions GoSafe.eval_zero_sign_agnostic.
+Print Assumptions GoSafe.eval_expr_resolved.
 Print Assumptions GoSafe.eval_expr_resolved_type.
-(* the string value type: a string literal evaluates to the EXACT runtime byte sequence, of type TString *)
+Print Assumptions GoSafe.value_wfb_iff.
+Print Assumptions GoSafe.eval_convert_preserves_value.
 Print Assumptions GoSafe.eval_string_value.
-Print Assumptions GoSafe.eval_string_type.
 Print Assumptions GoSafe.eval_string_resolved_type.
 
-(* GoRender: all output ASCII; the ROOT correspondence (rendered spelling denotes exactly the value);
-   decimal faithfulness + no leading zero; int boundaries; the header is the EXACT first line of a .go
-   file; go.mod is rendered from the ModuleSpec — exact bytes (module path + go version in place), header
-   first line, all ASCII *)
+(* GoRender: all output ASCII (including conversions); the ROOT correspondence (a resolved argument's
+   spelling denotes exactly the runtime value of its resolved type); the ten integer keywords are ASCII; the
+   exact conversion spellings; decimal faithfulness + no leading zero; int boundaries; the header is the
+   EXACT first line of a .go file; go.mod is rendered from the ModuleSpec — exact bytes, header first line,
+   all ASCII. *)
 Print Assumptions GoRender.render_file_ascii.
+Print Assumptions GoRender.render_expr_ascii.
 Print Assumptions GoRender.render_expr_denotes.
 Print Assumptions GoRender.render_resolved_expr_denotes.
+Print Assumptions GoRender.integer_keyword_ascii.
+Print Assumptions GoRender.render_int8_127.
+Print Assumptions GoRender.render_nested.
 Print Assumptions GoRender.print_Z_dec_faithful.
 Print Assumptions GoRender.print_Z_pos_no_leading_zero.
 Print Assumptions GoRender.render_boundary_max.

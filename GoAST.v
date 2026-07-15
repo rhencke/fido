@@ -26,22 +26,29 @@
     concurrency, or package clauses.  Anything else is UNREPRESENTABLE.
     ============================================================================ *)
 From Stdlib Require Import NArith List String.
-From Fido Require Import FilePath FMap ModulePath GoVersion.
+From Fido Require Import FilePath FMap ModulePath GoVersion Ints.
 Import ListNotations.
 
 (** A raw expression is UNTYPED syntax: a boolean literal, an integer literal as an unsigned magnitude
-    ([EInt]) optionally negated ([ENeg]), or a STRING literal whose argument is the EXACT SEMANTIC BYTE
+    ([EInt]) optionally negated ([ENeg]), a STRING literal whose argument is the EXACT SEMANTIC BYTE
     SEQUENCE ([EString], a Rocq [string] = a list of [ascii] bytes — NOT source spelling, NOT an
-    already-escaped literal, NOT Unicode scalars/code points).  No type is attached here — the exact
-    untyped-constant meaning and the context-directed typing/representability of these literals are the
-    concern of [GoTypes]; the canonical source spelling of a string is a separate proved encoding in
-    [GoRender].  No string operations (concat / index / slice / len / conversions / runes / byte slices)
-    and no raw-string syntax are representable. *)
+    already-escaped literal, NOT Unicode scalars/code points), or an EXPLICIT integer conversion
+    ([EIntConvert it e], the source spelling `<keyword it>(e)`, e.g. `int8(42)` / `uint64(...)` /
+    `uint8(int(300))`).  [EIntConvert]'s target is the INTRINSIC [IntegerType] — never a raw type-name
+    string; the ONLY new expression form this milestone.  Nesting is representable syntax that may be
+    compiler-invalid (`uint8(int(300))`, `int8(int16(128))`) — such a program is REJECTED by GoTypes/
+    GoCompile, not unrepresentable.  No type is attached here — the exact untyped-constant meaning and the
+    context-directed typing/representability of these literals (and the representability check a conversion
+    imposes) are the concern of [GoTypes]; the canonical source spelling of a string is a separate proved
+    encoding in [GoRender].  [EInt]/[ENeg] remain exact untyped integer-literal syntax.  No arithmetic,
+    comparison, bitwise, shift, division, general named conversion, parenthesis node, variables, calls, or
+    string operations are representable. *)
 Inductive GoExpr : Type :=
-| EBool   : bool -> GoExpr
-| EInt    : N -> GoExpr
-| ENeg    : N -> GoExpr
-| EString : string -> GoExpr.
+| EBool       : bool -> GoExpr
+| EInt        : N -> GoExpr
+| ENeg        : N -> GoExpr
+| EString     : string -> GoExpr
+| EIntConvert : IntegerType -> GoExpr -> GoExpr.
 
 Inductive GoStmt : Type :=
 | SPrintln : list GoExpr -> GoStmt.
