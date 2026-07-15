@@ -37,10 +37,24 @@ Lemma float_prec_F64 : float_prec F64 = 53.   Proof. reflexivity. Qed.
 Lemma float_emax_F32 : float_emax F32 = 128.  Proof. reflexivity. Qed.
 Lemma float_emax_F64 : float_emax F64 = 1024. Proof. reflexivity. Qed.
 
-(** ---- the exact untyped floating constant: an exact rational ---- *)
-Record FloatConst := mkFC { fc_num : Z ; fc_den : positive }.
+(** ---- the exact untyped floating constant: an exact rational, INTRINSICALLY canonical ----
+    A [FloatConst] is a numerator over a POSITIVE denominator that are COPRIME by construction ([fc_wf] — a
+    proof-irrelevant [bool] equality, axiom-free), so every value is already in lowest terms: a non-reduced
+    fraction like 2/4 has NO [FloatConst] value.  Canonical zero is [fc_of_Z 0 = 0/1].  Equality by canonical
+    representation is therefore Leibniz equality ([fc_eqb_eq]). *)
+Record FloatConst := mkFC {
+  fc_num : Z ;
+  fc_den : positive ;
+  fc_wf  : (Z.gcd fc_num (Zpos fc_den) =? 1) = true
+}.
 
-Definition fc_zero : FloatConst := mkFC 0 1.
+Lemma gcd_z_1 : forall z, (Z.gcd z 1 =? 1) = true.
+Proof. intro z; apply Z.eqb_eq; apply Z.gcd_1_r. Qed.
+
+(** the exact integer [z] as the canonical rational [z/1]. *)
+Definition fc_of_Z (z : Z) : FloatConst := mkFC z 1 (gcd_z_1 z).
+
+Definition fc_zero : FloatConst := fc_of_Z 0.
 
 (** ---- exact rational -> spec_float, then a single direct round at the destination format ----
     [sf_of_Z] embeds an exact integer as a (deliberately non-canonical) [spec_float] mantissa fed only to
@@ -75,7 +89,7 @@ Definition sf_to_Z (v : spec_float) : option Z :=
     input x = 2305843146652647425 = 2^61 + 2^37 + 1.  Direct binary32 rounds UP (strictly above the midpoint)
     to 2^61 + 2^38 = 2305843284091600896; rounding to binary64 first drops the +1 to the exact midpoint
     2^61 + 2^37, which binary32 then rounds to even DOWN to 2^61 = 2305843009213693952.  Both pinned. *)
-Definition scar_x : FloatConst := mkFC 2305843146652647425 1.
+Definition scar_x : FloatConst := fc_of_Z 2305843146652647425.
 
 Example scar_direct_f32 :
   sf_to_Z (round_float_sf F32 scar_x) = Some 2305843284091600896.
@@ -91,16 +105,16 @@ Proof. discriminate. Qed.
 
 (** ---- §31 precision boundaries: 2^24+1 rounds to 2^24 at binary32; 2^53+1 rounds to 2^53 at binary64 ---- *)
 Example round_f32_2p24_plus1 :
-  sf_to_Z (round_float_sf F32 (mkFC 16777217 1)) = Some 16777216.
+  sf_to_Z (round_float_sf F32 (fc_of_Z 16777217)) = Some 16777216.
 Proof. reflexivity. Qed.
 
 Example round_f64_2p53_plus1 :
-  sf_to_Z (round_float_sf F64 (mkFC 9007199254740993 1)) = Some 9007199254740992.
+  sf_to_Z (round_float_sf F64 (fc_of_Z 9007199254740993)) = Some 9007199254740992.
 Proof. reflexivity. Qed.
 
 (** small exact values are unchanged. *)
-Example round_f32_exact_small : sf_to_Z (round_float_sf F32 (mkFC 3 1)) = Some 3. Proof. reflexivity. Qed.
-Example round_f64_exact_small : sf_to_Z (round_float_sf F64 (mkFC 42 1)) = Some 42. Proof. reflexivity. Qed.
+Example round_f32_exact_small : sf_to_Z (round_float_sf F32 (fc_of_Z 3)) = Some 3. Proof. reflexivity. Qed.
+Example round_f64_exact_small : sf_to_Z (round_float_sf F64 (fc_of_Z 42)) = Some 42. Proof. reflexivity. Qed.
 
 (** ============================================================================
     Canonical exact-rational equality + reduction, and the ONE target-directed constant-conversion /
@@ -124,13 +138,23 @@ Definition fc_eqb (a b : FloatConst) : bool :=
 Lemma fc_eqb_spec : forall a b, fc_eqb a b = true <-> fc_eq a b.
 Proof. intros a b; unfold fc_eqb, fc_eq; apply Z.eqb_eq. Qed.
 
-Definition fc_of_Z (z : Z) : FloatConst := mkFC z 1.
-
 Lemma fc_of_Z_canonical : forall z, fc_canonical (fc_of_Z z).
 Proof. intro z; unfold fc_canonical, fc_of_Z; cbn [fc_num fc_den]; apply Z.gcd_1_r. Qed.
 
 Lemma fc_zero_canonical : fc_canonical fc_zero.
-Proof. unfold fc_canonical, fc_zero; cbn [fc_num fc_den]; reflexivity. Qed.
+Proof. apply fc_of_Z_canonical. Qed.
+
+(** every [FloatConst] is canonical BY CONSTRUCTION — the coprimality [fc_wf] is a stored proof. *)
+Lemma fc_canonical_intrinsic : forall a, fc_canonical a.
+Proof. intro a; unfold fc_canonical; apply Z.eqb_eq; exact (fc_wf a). Qed.
+
+(** two [FloatConst]s with the same numerator + denominator ARE equal — the coprimality witness is
+    proof-irrelevant (UIP over decidable [bool] equality, axiom-free). *)
+Lemma fc_num_den_eq : forall a b, fc_num a = fc_num b -> fc_den a = fc_den b -> a = b.
+Proof.
+  intros [na da wa] [nb db wb] Hn Hd; cbn in Hn, Hd; subst nb db.
+  f_equal. apply (UIP_dec Bool.bool_dec).
+Qed.
 
 (** the gcd of a numerator and a POSITIVE denominator is itself positive (never 0). *)
 Lemma gcd_den_pos : forall (n : Z) (d : positive), 0 < Z.gcd n (Zpos d).
@@ -153,20 +177,26 @@ Lemma reduce_zpos : forall (n : Z) (d : positive),
   Zpos (Z.to_pos (Zpos d / Z.gcd n (Zpos d))) = Zpos d / Z.gcd n (Zpos d).
 Proof. intros; apply Z2Pos.id; apply reduce_den_pos. Qed.
 
-(** normalize (num, den) to coprime canonical form. *)
-Definition reduce_fc (n : Z) (d : positive) : FloatConst :=
-  mkFC (n / Z.gcd n (Zpos d)) (Z.to_pos (Zpos d / Z.gcd n (Zpos d))).
-
-Lemma reduce_fc_canonical : forall n d, fc_canonical (reduce_fc n d).
+(** the reduced form is coprime — the intrinsic [fc_wf] obligation. *)
+Lemma reduce_fc_wf : forall n d,
+  (Z.gcd (n / Z.gcd n (Zpos d)) (Zpos (Z.to_pos (Zpos d / Z.gcd n (Zpos d)))) =? 1) = true.
 Proof.
-  intros n d. unfold fc_canonical, reduce_fc; cbn [fc_num fc_den].
-  rewrite reduce_zpos.
+  intros n d; apply Z.eqb_eq. rewrite reduce_zpos.
   apply Z.gcd_div_gcd; [ pose proof (gcd_den_pos n d); lia | reflexivity ].
 Qed.
 
-Lemma reduce_fc_eq : forall n d, fc_eq (reduce_fc n d) (mkFC n d).
+(** normalize (num, den) to coprime canonical form. *)
+Definition reduce_fc (n : Z) (d : positive) : FloatConst :=
+  mkFC (n / Z.gcd n (Zpos d)) (Z.to_pos (Zpos d / Z.gcd n (Zpos d))) (reduce_fc_wf n d).
+
+Lemma reduce_fc_canonical : forall n d, fc_canonical (reduce_fc n d).
+Proof. intros; apply fc_canonical_intrinsic. Qed.
+
+(** reduction preserves the exact rational value: [reduce_fc n d] cross-multiplies equal to [n/d]. *)
+Lemma reduce_fc_eq : forall n d,
+  fc_num (reduce_fc n d) * Zpos d = n * Zpos (fc_den (reduce_fc n d)).
 Proof.
-  intros n d. unfold fc_eq, reduce_fc; cbn [fc_num fc_den].
+  intros n d. cbn [fc_num fc_den reduce_fc].
   rewrite reduce_zpos.
   remember (Z.gcd n (Zpos d)) as g eqn:Hgdef.
   assert (Hgpos : 0 < g) by (rewrite Hgdef; apply gcd_den_pos).
@@ -177,12 +207,13 @@ Proof.
   rewrite Hn at 2. rewrite Hd at 1. ring.
 Qed.
 
-(** on canonical representatives, rational equality is Leibniz equality (uniqueness of lowest terms). *)
-Lemma fc_canonical_unique : forall a b,
-  fc_canonical a -> fc_canonical b -> fc_eq a b -> a = b.
+(** EQUALITY BY CANONICAL REPRESENTATION: since every [FloatConst] is in lowest terms, rational equality is
+    Leibniz equality (uniqueness of the reduced fraction). *)
+Lemma fc_canonical_unique : forall a b, fc_eq a b -> a = b.
 Proof.
-  intros [na da] [nb db] Ha Hb Heq.
-  unfold fc_canonical in Ha, Hb; cbn [fc_num fc_den] in Ha, Hb.
+  intros [na da wa] [nb db wb] Heq.
+  assert (Ha : Z.gcd na (Zpos da) = 1) by (apply Z.eqb_eq; exact wa).
+  assert (Hb : Z.gcd nb (Zpos db) = 1) by (apply Z.eqb_eq; exact wb).
   unfold fc_eq in Heq; cbn [fc_num fc_den] in Heq.
   (* [fc_canonical] IS [Z.coprime]; a coprime divisor of a product divides the other factor (Gauss). *)
   assert (Hcpa : Z.coprime (Zpos da) na) by (apply Z.Symmetric_coprime; exact Ha).
@@ -196,7 +227,15 @@ Proof.
   assert (Hdeq : da = db) by (apply Pos2Z.inj; lia).
   subst db.
   assert (na = nb) by (pose proof (Pos2Z.is_pos da); nia).
-  subst nb. reflexivity.
+  subst nb. f_equal. apply (UIP_dec Bool.bool_dec).
+Qed.
+
+(** [fc_eqb] decides Leibniz equality (via the canonical uniqueness above). *)
+Lemma fc_eqb_eq : forall a b, fc_eqb a b = true <-> a = b.
+Proof.
+  intros a b; split.
+  - intro H; apply fc_canonical_unique, fc_eqb_spec; exact H.
+  - intro H; subst b; unfold fc_eqb; apply Z.eqb_eq; reflexivity.
 Qed.
 
 (** ---- rounded spec_float back to an exact canonical constant ----
@@ -253,11 +292,11 @@ Example round_const_overflow_f32 :
 Proof. vm_compute. reflexivity. Qed.
 
 Example round_const_underflow_f64 :
-  round_float_const F64 (mkFC 1 (10 ^ 330)%positive) = Some fc_zero.
+  round_float_const F64 (reduce_fc 1 (10 ^ 330)%positive) = Some fc_zero.
 Proof. vm_compute. reflexivity. Qed.
 
 Example round_const_source_zero_f64 :
-  round_float_const F64 (mkFC 0 5) = Some fc_zero.
+  round_float_const F64 fc_zero = Some fc_zero.   (* the canonical zero rounds to +0 *)
 Proof. reflexivity. Qed.
 
 Example float_representableb_scar_f32 : float_representableb F32 scar_x = true.
@@ -358,15 +397,23 @@ Proof. reflexivity. Qed.
 Example decimal_wfb_trailing_zero_noncanon :
   decimal_wfb 250 0 = false.               (* 250 has a removable factor of ten -> not canonical *)
 Proof. reflexivity. Qed.
-Example decimal_value_1p5 :
-  decimal_value (mkDecimal 15 (-1) eq_refl) = mkFC 3 2.   (* 15 * 10^-1 = 3/2 *)
-Proof. reflexivity. Qed.
+(* the exact rational value, compared by numerator/denominator (the coprimality witness is proof-irrelevant,
+   so record equality is by num/den). *)
+Example decimal_value_1p5 :                                        (* 15 * 10^-1 = 3/2 *)
+  fc_num (decimal_value (mkDecimal 15 (-1) eq_refl)) = 3
+  /\ fc_den (decimal_value (mkDecimal 15 (-1) eq_refl)) = 2%positive.
+Proof. split; reflexivity. Qed.
 Example decimal_value_1e6 :
   decimal_value (mkDecimal 1 6 eq_refl) = fc_of_Z 1000000.
 Proof. reflexivity. Qed.
-Example decimal_value_neg :
-  decimal_value (mkDecimal (-15) (-1) eq_refl) = mkFC (-3) 2.  (* -1.5 *)
-Proof. reflexivity. Qed.
+Example decimal_value_neg :                                       (* -15 * 10^-1 = -3/2 *)
+  fc_num (decimal_value (mkDecimal (-15) (-1) eq_refl)) = -3
+  /\ fc_den (decimal_value (mkDecimal (-15) (-1) eq_refl)) = 2%positive.
+Proof. split; reflexivity. Qed.
+Example decimal_value_tenth :                                     (* 1 * 10^-1 = 1/10 (the §29 example) *)
+  fc_num (decimal_value (mkDecimal 1 (-1) eq_refl)) = 1
+  /\ fc_den (decimal_value (mkDecimal 1 (-1) eq_refl)) = 10%positive.
+Proof. split; reflexivity. Qed.
 
 (** ============================================================================
     The runtime float value — a FORMAT-CANONICAL [spec_float] tied to one [FloatType], with a PROOF-CARRYING
@@ -389,14 +436,38 @@ Record FloatValue (ft : FloatType) : Type := mkFV {
 Arguments mkFV {ft} _ _.
 Arguments fv_sf {ft} _.
 
-(** the ONE way a constant enters the runtime: round its exact rational once at [ft].  The canonical
-    invariant is discharged by [eq_refl] — the carrier IS [round_float_sf ft q]. *)
-Definition float_value_of_const (ft : FloatType) (q : FloatConst) : FloatValue ft :=
-  mkFV (round_float_sf ft q) (or_introl (ex_intro _ q eq_refl)).
-
 (** rounding an unsigned-zero constant yields +0 (never -0) — the constant zero has no sign. *)
 Lemma round_float_sf_zero : forall ft, round_float_sf ft fc_zero = S754_zero false.
 Proof. intro ft; destruct ft; reflexivity. Qed.
+
+(** normalize a ZERO result to +0 (a negative underflow rounds to -0, but a CONSTANT has no signed zero — see
+    §33; the FloatValue TYPE still admits -0 for future runtime ops). *)
+Definition strip_neg_zero (v : spec_float) : spec_float :=
+  match v with S754_zero _ => S754_zero false | x => x end.
+
+Lemma float_value_of_const_canonical : forall ft q,
+  FloatCanonical ft (strip_neg_zero (round_float_sf ft q)).
+Proof.
+  intros ft q; unfold FloatCanonical, strip_neg_zero.
+  destruct (round_float_sf ft q) as [sb|sb| |sb m e] eqn:E.
+  - left; exists fc_zero; rewrite round_float_sf_zero; reflexivity.
+  - right; right; exists sb; reflexivity.
+  - right; left; reflexivity.
+  - left; exists q; rewrite E; reflexivity.
+Qed.
+
+(** the ONE way a constant enters the runtime: round its exact rational once at [ft], then normalize a zero
+    result to +0 (constant evaluation never yields -0). *)
+Definition float_value_of_const (ft : FloatType) (q : FloatConst) : FloatValue ft :=
+  mkFV (strip_neg_zero (round_float_sf ft q)) (float_value_of_const_canonical ft q).
+
+(** a CONSTANT never evaluates to negative zero: a zero result (either sign) is normalized to +0. *)
+Lemma float_value_of_const_no_neg_zero : forall ft q,
+  fv_sf (float_value_of_const ft q) <> S754_zero true.
+Proof.
+  intros ft q; cbn [fv_sf float_value_of_const strip_neg_zero].
+  destruct (round_float_sf ft q); discriminate.
+Qed.
 
 (** a REPRESENTABLE constant rounds to a finite/zero value — never NaN or infinity (so constant evaluation
     produces no NaN/Inf).  Direct from [sf_to_FloatConst] returning [None] exactly on inf/nan. *)

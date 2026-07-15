@@ -39,14 +39,17 @@ is rejected IN Rocq before any bytes — **zero expected Go build failures, ever
   `int_min`/`int_max`/`uint_max` derived; no `TargetConfig`, no `PrimInt63`/`Sint63`.
 - **`Floats`** — the ONE float-family authority (axiom-free over Stdlib `SpecFloat.spec_float` + computable
   `Z`; NO `PrimFloat`/`Prim2SF`/`SF2Prim`, NO Flocq): `FloatType` = {`F32`,`F64`} with single-sourced keyword/
-  precision (24/53)/exponent bound (128/1024); exact canonical rational `FloatConst` (coprime `num`/`den`,
-  canonical zero, decidable eq); `round_float_sf` = `SFdiv prec emax` — F32 rounds DIRECTLY at binary32,
+  precision (24/53)/exponent bound (128/1024); exact canonical rational `FloatConst` INTRINSICALLY canonical
+  (coprime `num`/`den` is a record well-formedness FIELD — `fc_canonical_intrinsic`, so a `FloatConst` is fixed
+  by its num/den `fc_num_den_eq` and reflected `fc_eqb` IS Leibniz equality `fc_eqb_eq`), canonical zero,
+  decidable eq; `round_float_sf` = `SFdiv prec emax` — F32 rounds DIRECTLY at binary32,
   NEVER through F64 (the double-rounding scar: `float32(2^61+2^37+1)` = 2^61+2^38 ≠ `float32(float64(…))` =
   2^61, both pinned); `round_float_const`/`FloatConstRepresentable` (round once at destination — reject
   overflow, underflow → +0, never NaN); the intrinsic bounded-canonical `DecimalFloat` raw literal
   (`coeff`·10^`exp`, |coeff|<10^40, |exp|≤4096 from pinned-Go-1.23 experiments) + `decimal_value`; the
   proof-carrying canonical runtime `FloatValue ft` (a `spec_float` in the image of the format normalizer —
-  future-compatible with finite/±0/inf/NaN).
+  future-compatible with finite/±0/inf/NaN) whose constant construction strips a zero's sign so a constant
+  NEVER evaluates to negative zero (`float_value_of_const_no_neg_zero`, incl. the bare-negative-underflow path).
 - **`ModulePath`** — intrinsic narrow canonical module path; decidable eq (`mp_eqb_eq`); the FIRST element
   is dotted (no stdlib-colliding dotless prefix), there is no `/vN` version-suffix tail and no `gopkg.in/`
   path (Go 1.23's two semantic-import-versioning reject classes — excluded, not admitted-then-narrowed);
@@ -99,7 +102,9 @@ is rejected IN Rocq before any bytes — **zero expected Go build failures, ever
   `0.0`; nonzero → `<signed-coeff>.0e<explicit-signed-exp>`) with an INDEPENDENT decoder proving the §27
   semantic round trip `decode_decimal (render_decimal d) = Some (decimal_value d)`; `render_const_info_denotes`
   (rendering denotes exactly the ConstInfo GoTypes computes — a bare integer/float stays UNTYPED, a conversion
-  is typed through `convert_const` — the ONE `RenderedConstInfoDenotes` root, with float cases) and
+  is typed through `convert_const` — the ONE `RenderedConstInfoDenotes` root, with float cases; FUNCTIONAL by
+  `render_const_info_denotes_functional`, so a spelling denotes AT MOST ONE ConstInfo — the six recognisers are
+  pairwise disjoint, no spelling carries two conflicting statuses) and
   `render_resolved_expr_denotes` (a resolved argument EVALUATES to a well-formed value of its resolved
   `GoType` whose spelling denotes it — tying GoTypes ↔ GoSafe ↔ GoRender); `render_file_ascii`/`print_Z_dec_faithful`/
   `print_Z_pos_no_leading_zero`/`render_file_first_line`/boundaries. The package clause comes from

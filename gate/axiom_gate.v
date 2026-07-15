@@ -42,8 +42,13 @@ Print Assumptions Floats.scar_double_f32_via_f64.
 Print Assumptions Floats.scar_direct_differs_double.
 Print Assumptions Floats.round_f32_2p24_plus1.
 Print Assumptions Floats.round_f64_2p53_plus1.
-(* exact-rational canonicality + equality: cross-multiplication decides value equality; reduction yields a
-   coprime form of the same value; on canonical forms value equality IS Leibniz equality (lowest terms). *)
+(* exact-rational canonicality + equality: every FloatConst is INTRINSICALLY canonical (coprime by the record's
+   own well-formedness field), so it is fixed by its numerator/denominator (fc_num_den_eq) and reflected equality
+   IS Leibniz equality (fc_eqb_eq); cross-multiplication decides value equality; reduction yields a coprime form
+   of the same value; on canonical forms value equality IS Leibniz equality (lowest terms). *)
+Print Assumptions Floats.fc_canonical_intrinsic.
+Print Assumptions Floats.fc_num_den_eq.
+Print Assumptions Floats.fc_eqb_eq.
 Print Assumptions Floats.fc_eqb_spec.
 Print Assumptions Floats.fc_of_Z_canonical.
 Print Assumptions Floats.reduce_fc_canonical.
@@ -72,6 +77,9 @@ Print Assumptions Floats.round_float_sf_zero.
 Print Assumptions Floats.representable_finite_or_zero.
 Print Assumptions Floats.representable_not_nan.
 Print Assumptions Floats.representable_not_inf.
+(* a constant NEVER evaluates to negative zero (the bare-negative-underflow scar): the constructed runtime
+   value strips the sign of a zero, so it is never -0. *)
+Print Assumptions Floats.float_value_of_const_no_neg_zero.
 
 (* intrinsic FilePath: decidable equality; a representable canonical path; a rejected (unrepresentable)
    path.  Non-canonical paths have no FilePath value at all — this is unrepresentability, not rejection. *)
@@ -220,9 +228,13 @@ Print Assumptions GoSafe.eval_scar_direct.
 Print Assumptions GoSafe.eval_scar_nested.
 Print Assumptions GoSafe.eval_scar_differ.
 Print Assumptions GoSafe.eval_underflow_pos_zero.
+Print Assumptions GoSafe.eval_neg_underflow_pos_zero.
 
 (* GoRender: all output ASCII (including conversions); the ONE ConstInfo render-status root
-   (render_const_info_denotes: rendering denotes exactly the const_info GoTypes computes) and the final
+   (render_const_info_denotes: rendering denotes exactly the const_info GoTypes computes) which is FUNCTIONAL
+   (render_const_info_denotes_functional: a rendered spelling denotes at most ONE ConstInfo — the bool / bare
+   integer / string / integer-conversion / bare float / float-conversion recognisers are pairwise disjoint, so
+   no spelling admits two conflicting constant statuses) and the final
    resolved root (resolved argument -> const-status + well-formed value of its resolved type carrying the same
    constant); the §4 integer-repair regressions (a bare integer above int_max stays UNTYPED, does NOT denote a
    typed int, and only an explicit uint64 conversion assigns the type); the ten integer keywords are ASCII;
@@ -232,6 +244,7 @@ Print Assumptions GoSafe.eval_underflow_pos_zero.
 Print Assumptions GoRender.render_file_ascii.
 Print Assumptions GoRender.render_expr_ascii.
 Print Assumptions GoRender.render_const_info_denotes.
+Print Assumptions GoRender.render_const_info_denotes_functional.
 Print Assumptions GoRender.render_resolved_expr_denotes.
 Print Assumptions GoRender.repair_bare_untyped.
 Print Assumptions GoRender.repair_bare_not_typed_int.

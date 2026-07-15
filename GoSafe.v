@@ -238,6 +238,12 @@ Example eval_underflow_pos_zero :
              (eval_expr (EFloatConvert F64 (EFloat (mkDecimal 1 (-330) eq_refl))))
     = Some (S754_zero false).
 Proof. vm_compute. reflexivity. Qed.
+(* ★ a bare NEGATIVE underflow also produces +0 (never -0) — the constant zero has no sign (§33). *)
+Example eval_neg_underflow_pos_zero :
+  option_map (fun v => match v with VFloat _ fv => fv_sf fv | _ => S754_nan end)
+             (eval_expr (EFloat (mkDecimal (-1) (-330) eq_refl)))
+    = Some (S754_zero false).
+Proof. vm_compute. reflexivity. Qed.
 
 (** ---- the safety certificate ---- *)
 

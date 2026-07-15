@@ -202,7 +202,8 @@ package clause + the go.mod from the `ModuleSpec`; strings via ONE canonical int
 (`render_string_literal`) with an INDEPENDENT decoder (`decode_string_literal` / `render_string_roundtrip`);
 floats via ONE canonical decimal spelling (`render_decimal`) with an INDEPENDENT decoder (`decode_decimal` /
 `decode_render_decimal`); header exact first line; all-ASCII (bytes ≥ 128 only via `\xhh`); the ONE
-constant-status render root `render_const_info_denotes` / `render_resolved_expr_denotes`. · `GoEmit` — provenance-gated `DirectoryImage` (go.mod +
+constant-status render root `render_const_info_denotes` (FUNCTIONAL — `render_const_info_denotes_functional`:
+one spelling, at most one ConstInfo) / `render_resolved_expr_denotes`. · `GoEmit` — provenance-gated `DirectoryImage` (go.mod +
 .go map); `render_program`; `di_transport`. · `plugin/g_fido.mlg` — the `Fido Emit` transport command +
 whole-theory audit. · `plugin/fido_sink.ml` — the foreign-Go-rejecting sibling-temp sink. · `digits` —
 leaf authority.

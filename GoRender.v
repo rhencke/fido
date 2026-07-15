@@ -11,7 +11,12 @@
     EXACTLY the [GoTypes.ConstInfo] it computes (a bare integer/float is an UNTYPED constant, not a typed
     [int]/[float64] — the §1 repair; an explicit conversion is a TYPED constant through [convert_const]), in
     the ONE [ConstInfo] vocabulary, under an INDEPENDENT decimal reader / float decoder / string decoder
-    (parser-free; the milestone forbids a lexer/parser/round-trip in the certified path).  A bare float
+    (parser-free; the milestone forbids a lexer/parser/round-trip in the certified path).  That denotation is
+    FUNCTIONAL ([render_const_info_denotes_functional]): a rendered spelling denotes AT MOST ONE [ConstInfo], as
+    the six recognisers (bool / bare integer / string / integer conversion / bare float / float conversion) are
+    pairwise disjoint — a canonical bare-integer spelling (the guard [go_int_lit]) is neither the word `true`,
+    a dotted float, a quoted string, nor a keyword-led conversion — so no spelling admits two conflicting
+    constant statuses.  A bare float
     renders through ONE canonical decimal spelling with the §27 decode/render semantic round trip; a float
     conversion renders `float32`/`float64(...)`.  And [render_resolved_expr_denotes] ties the three
     authorities — a resolved [println] argument analyzes to a ConstInfo whose spelling denotes it and
@@ -855,6 +860,55 @@ Qed.
 Lemma head_not_digit_dot0e : forall s, head_not_digit (".0e" ++ s)%string.
 Proof. reflexivity. Qed.
 
+(** ---- §30 CANONICAL BARE-INTEGER RECOGNISER: a spelling is a bare Go integer literal iff it is an optional
+    leading `-` over a NONEMPTY run of decimal digits (no `.`, no letters, no quote).  This is the shape guard
+    that makes the [RCDInt] denotation constructor DISJOINT from the bool / float / string / conversion
+    constructors — without it, [read_go_int] (a total prefix reader) would let a dotted float spelling or the
+    word `true` ALSO denote an integer, so the rendered-constant denotation would admit conflicting statuses.
+    It is defined by its own structural recursion (via [str_all_digits] / [dec_digit_val]); it does NOT consult
+    the encoder. ---- *)
+Definition go_int_lit (s : string) : bool :=
+  match s with
+  | EmptyString => false
+  | String c s' =>
+      if Ascii.eqb c "-"%char
+      then match s' with EmptyString => false | _ => str_all_digits s' end
+      else match dec_digit_val c with Some _ => str_all_digits s' | None => false end
+  end.
+
+(** a nonempty all-digit magnitude is a bare integer literal (no sign). *)
+Lemma go_int_lit_all_digits_nonempty : forall s,
+  str_all_digits s = true -> s <> EmptyString -> go_int_lit s = true.
+Proof.
+  intros [ | c s' ] Hdig Hne; [ contradiction | ].
+  pose proof Hdig as Hdig'. cbn [str_all_digits] in Hdig.
+  destruct (dec_digit_val c) as [d|] eqn:Hc; [| discriminate].
+  unfold go_int_lit. rewrite (proj1 (char_digit_not c d Hc)). rewrite Hc.
+  cbn [str_all_digits] in Hdig'; rewrite Hc in Hdig'; exact Hdig'.
+Qed.
+
+(** a `-`-prefixed nonempty all-digit magnitude is a bare integer literal. *)
+Lemma go_int_lit_neg : forall s,
+  str_all_digits s = true -> s <> EmptyString -> go_int_lit (String "-"%char s) = true.
+Proof.
+  intros [ | c s' ] Hdig Hne; [ contradiction | ].
+  unfold go_int_lit. rewrite Ascii.eqb_refl. exact Hdig.
+Qed.
+
+Lemma go_int_lit_EInt : forall n, go_int_lit (print_Z (Z.of_N n)) = true.
+Proof.
+  intro n. apply go_int_lit_all_digits_nonempty;
+    [ apply str_all_digits_print_Z; apply N2Z.is_nonneg
+    | apply print_Z_nonempty; apply N2Z.is_nonneg ].
+Qed.
+
+Lemma go_int_lit_ENeg : forall n, go_int_lit (String "-"%char (print_Z (Z.of_N n))) = true.
+Proof.
+  intro n. apply go_int_lit_neg;
+    [ apply str_all_digits_print_Z; apply N2Z.is_nonneg
+    | apply print_Z_nonempty; apply N2Z.is_nonneg ].
+Qed.
+
 (** ★§27 SEMANTIC ROUND TRIP: decoding the canonical spelling recovers the EXACT untyped rational value. *)
 Theorem decode_render_decimal : forall d, decode_decimal (render_decimal d) = Some (decimal_value d).
 Proof.
@@ -875,6 +929,7 @@ Inductive RenderedConstInfoDenotes : string -> ConstInfo -> Prop :=
 | RCDBool : forall (b : bool),
     RenderedConstInfoDenotes (if b then "true"%string else "false"%string) (UntypedConst (CBool b))
 | RCDInt : forall s z,
+    go_int_lit s = true ->
     read_go_int s = z ->
     RenderedConstInfoDenotes s (UntypedConst (CInt z))
 | RCDString : forall s bytes,
@@ -976,14 +1031,214 @@ Theorem render_const_info_denotes : forall e ci,
 Proof.
   induction e as [ b | n | n | s | it' e' IHe' | d | ft e' IHe' ]; intros ci H.
   - simpl in H; injection H as <-; cbn [render_expr]; destruct b; [ exact (RCDBool true) | exact (RCDBool false) ].
-  - simpl in H; injection H as <-; cbn [render_expr]; apply RCDInt, read_go_int_EInt.
-  - simpl in H; injection H as <-; cbn [render_expr]; apply RCDInt, read_go_int_ENeg.
+  - simpl in H; injection H as <-; cbn [render_expr]; apply RCDInt; [ apply go_int_lit_EInt | apply read_go_int_EInt ].
+  - simpl in H; injection H as <-; cbn [render_expr]; apply RCDInt; [ apply go_int_lit_ENeg | apply read_go_int_ENeg ].
   - simpl in H; injection H as <-; cbn [render_expr]; apply RCDString, render_string_roundtrip.
   - destruct (const_info_convert_inner it' e' ci H) as [ ci' [ z [ Hce' [ Hconv -> ] ] ] ].
     cbn [render_expr]. apply RCDIntConvert with (ci := ci'); [ apply IHe'; exact Hce' | exact Hconv ].
   - cbn [const_info] in H; injection H as <-; cbn [render_expr]. apply RCDFloat, decode_render_decimal.
   - destruct (const_info_float_convert_inner ft e' ci H) as [ ci' [ q [ Hce' [ Hconv -> ] ] ] ].
     cbn [render_expr]. apply RCDFloatConvert with (ci := ci'); [ apply IHe'; exact Hce' | exact Hconv ].
+Qed.
+
+(** ---- §30 DETERMINISM foundation: the leaf recognisers of [RenderedConstInfoDenotes] are pairwise disjoint,
+    so a given rendered spelling denotes AT MOST ONE [ConstInfo].  These small head/shape lemmas isolate each
+    constructor's spelling class; [render_const_info_denotes_functional] below assembles them. ---- *)
+
+(** a bare integer literal starts with `-` or a decimal digit. *)
+Lemma go_int_lit_cons : forall s, go_int_lit s = true ->
+  exists c s', s = String c s' /\ (c = "-"%char \/ dec_digit_val c <> None).
+Proof.
+  intros [ | c s' ] H; [ discriminate | ].
+  unfold go_int_lit in H. destruct (Ascii.eqb c "-"%char) eqn:E.
+  - apply Ascii.eqb_eq in E. exists c, s'; split; [ reflexivity | left; exact E ].
+  - destruct (dec_digit_val c) as [d|] eqn:Hc; [| discriminate].
+    exists c, s'; split; [ reflexivity | right; rewrite Hc; discriminate ].
+Qed.
+
+(** a decoded string literal starts with the double-quote byte. *)
+Lemma decode_string_literal_head : forall s b,
+  decode_string_literal s = Some b -> exists rest, s = String dquote_c rest.
+Proof.
+  intros [ | c rest ] b H; cbn [decode_string_literal] in H; [ discriminate | ].
+  destruct (Ascii.eqb c dquote_c) eqn:E; [ apply Ascii.eqb_eq in E; subst c; eauto | discriminate ].
+Qed.
+
+(** a spelling whose head is not a digit / sign / `.` / `0` is not a decoded decimal float (the coefficient
+    reader stalls with an empty magnitude and no `.0e` body, and the `0.0` fallback cannot fire). *)
+Lemma decode_decimal_nonnumeric_head : forall c s',
+  dec_digit_val c = None ->
+  Ascii.eqb c "-"%char = false -> Ascii.eqb c "+"%char = false ->
+  Ascii.eqb c "."%char = false -> Ascii.eqb c "0"%char = false ->
+  decode_decimal (String c s') = None.
+Proof.
+  intros c s' Hnd Hm Hp Hdot Hz.
+  unfold decode_decimal.
+  assert (Hb : decode_decimal_body (String c s') = None).
+  { unfold decode_decimal_body.
+    replace (read_signed_dec (String c s')) with (Some (0%Z, String c s'))
+      by (unfold read_signed_dec; rewrite Hm, Hp; cbn [read_nat]; rewrite Hnd; reflexivity).
+    destruct s' as [ | b [ | c0 r2 ] ]; try reflexivity.
+    rewrite Hdot. reflexivity. }
+  rewrite Hb.
+  destruct (String.eqb (String c s') "0.0") eqn:E; [ | reflexivity ].
+  apply String.eqb_eq in E. injection E as Ec _. rewrite Ec in Hz. discriminate Hz.
+Qed.
+
+(** a double-quote-led spelling (a string literal) is not a decoded decimal float — [vm_compute] cannot see
+    this directly (the float body inspects three remainder bytes but only the lead quote is concrete), so it
+    routes through [decode_decimal_nonnumeric_head]. *)
+Lemma decode_decimal_dquote : forall rest, decode_decimal (String dquote_c rest) = None.
+Proof. intro rest; apply decode_decimal_nonnumeric_head; reflexivity. Qed.
+
+(** a bare integer literal is consumed WHOLE by the signed-decimal reader (empty remainder). *)
+Lemma go_int_lit_read_signed_dec : forall s, go_int_lit s = true ->
+  exists v, read_signed_dec s = Some (v, ""%string).
+Proof.
+  intros [ | c s' ] H; [ discriminate | ]. unfold go_int_lit in H.
+  destruct (Ascii.eqb c "-"%char) eqn:Em.
+  - apply Ascii.eqb_eq in Em; subst c.
+    destruct s' as [ | c0 s0 ]; [ discriminate | ].
+    eexists. replace (String "-"%char (String c0 s0)) with (String "-"%char (String c0 s0 ++ ""))%string
+      by (rewrite str_app_nil; reflexivity).
+    apply (read_signed_dec_sign "-"%char (String c0 s0) "" (or_introl eq_refl) H I).
+  - destruct (dec_digit_val c) as [d|] eqn:Hc; [| discriminate].
+    assert (Hall : str_all_digits (String c s') = true)
+      by (cbn [str_all_digits]; rewrite Hc; exact H).
+    eexists. replace (String c s') with (String c s' ++ "")%string
+      by (rewrite str_app_nil; reflexivity).
+    apply (read_signed_dec_all_digits (String c s') "" Hall ltac:(discriminate) I).
+Qed.
+
+(** a bare integer literal is not a decoded decimal float (empty `.0e` remainder; the `0.0` fallback fails on
+    the all-digit head). *)
+Lemma go_int_lit_decode_decimal_None : forall s, go_int_lit s = true -> decode_decimal s = None.
+Proof.
+  intros s H. destruct (go_int_lit_read_signed_dec s H) as [v Hrsd].
+  assert (Hb : decode_decimal_body s = None)
+    by (unfold decode_decimal_body; rewrite Hrsd; reflexivity).
+  unfold decode_decimal. rewrite Hb.
+  destruct (String.eqb s "0.0") eqn:Es0; [ | reflexivity ].
+  apply String.eqb_eq in Es0; subst s. vm_compute in H; discriminate H.
+Qed.
+
+(** single-character suffix cancellation over [string]. *)
+Lemma str_snoc_inj : forall (ch : ascii) a b,
+  (a ++ String ch "")%string = (b ++ String ch "")%string -> a = b.
+Proof.
+  intros ch a; induction a as [ | x a' IH ]; intros [ | y b' ] Heq; cbn [append] in Heq.
+  - reflexivity.
+  - injection Heq as _ H2; destruct b'; discriminate.
+  - injection Heq as _ H2; destruct a'; discriminate.
+  - injection Heq as Hxy H2; f_equal; [ exact Hxy | apply IH; exact H2 ].
+Qed.
+
+(** the integer-conversion spelling `<int-keyword>(<body>` determines its keyword and body: every integer
+    keyword is `(`-free, so the leading `(` splits the spelling uniquely. *)
+Lemma int_kw_paren_inj : forall t1 t2 r1 r2,
+  (integer_keyword t1 ++ String "("%char r1)%string = (integer_keyword t2 ++ String "("%char r2)%string ->
+  t1 = t2 /\ r1 = r2.
+Proof.
+  intros t1 t2 r1 r2 H; destruct t1, t2; cbn in H;
+    solve [ discriminate H | injection H; intros; subst; split; reflexivity ].
+Qed.
+
+Lemma float_kw_paren_inj : forall t1 t2 r1 r2,
+  (float_keyword t1 ++ String "("%char r1)%string = (float_keyword t2 ++ String "("%char r2)%string ->
+  t1 = t2 /\ r1 = r2.
+Proof.
+  intros t1 t2 r1 r2 H; destruct t1, t2; cbn in H;
+    solve [ discriminate H | injection H; intros; subst; split; reflexivity ].
+Qed.
+
+(** an integer-conversion spelling and a float-conversion spelling never coincide (keyword lead char i/u vs f). *)
+Lemma int_float_kw_paren_disjoint : forall t1 t2 r1 r2,
+  (integer_keyword t1 ++ String "("%char r1)%string <> (float_keyword t2 ++ String "("%char r2)%string.
+Proof. intros t1 t2 r1 r2 H; destruct t1, t2; cbn in H; discriminate H. Qed.
+
+(** ★§30 DETERMINISM: a rendered spelling denotes AT MOST ONE [ConstInfo] — the rendered-constant denotation
+    is FUNCTIONAL, so it never assigns a spelling two conflicting constant statuses.  Together with
+    [render_const_info_denotes] (which exhibits the const_info a spelling denotes) this pins the
+    spelling<->status correspondence to a genuine bijection on the rendered image: the recognisers for bool,
+    bare integer, string, integer conversion, bare float, and float conversion are pairwise disjoint. *)
+Theorem render_const_info_denotes_functional : forall s ci1 ci2,
+  RenderedConstInfoDenotes s ci1 -> RenderedConstInfoDenotes s ci2 -> ci1 = ci2.
+Proof.
+  intros s ci1 ci2 H1; revert ci2; induction H1 as
+    [ b
+    | s z Hint Hread
+    | s bytes Hstr
+    | ti inner ci z Hinner IH Hconv
+    | s q Hdec
+    | tf inner ci q Hinner IH Hconv ]; intros ci2 H2.
+  - (* H1 = RCDBool : the spelling is the concrete "true"/"false" *)
+    destruct b; inversion H2 as
+      [ b0 Hs0 | s0 z0 Hint0 Hread0 Hs0 | s0 by0 Hstr0 Hs0
+      | t0 in0 cc0 z0 Hin0 Hcv0 Hs0 | s0 q0 Hdec0 Hs0 | t0 in0 cc0 q0 Hin0 Hcv0 Hs0 ]; subst;
+      solve
+        [ destruct b0; cbn in *; congruence
+        | vm_compute in Hint0; discriminate Hint0
+        | vm_compute in Hstr0; discriminate Hstr0
+        | vm_compute in Hdec0; discriminate Hdec0
+        | destruct t0; cbn in Hs0; discriminate Hs0 ].
+  - (* H1 = RCDInt : subst eliminates the string var into the outer [Hint] *)
+    inversion H2 as
+      [ b0 Hs0 | s0 z0 Hint0 Hread0 Hs0 | s0 by0 Hstr0 Hs0
+      | t0 in0 cc0 z0 Hin0 Hcv0 Hs0 | s0 q0 Hdec0 Hs0 | t0 in0 cc0 q0 Hin0 Hcv0 Hs0 ]; subst;
+      solve
+        [ destruct b0; vm_compute in Hint; discriminate Hint
+        | congruence
+        | destruct (decode_string_literal_head _ _ Hstr0) as [rest Hrs];
+            rewrite Hrs in Hint; vm_compute in Hint; discriminate Hint
+        | destruct t0; vm_compute in Hint; discriminate Hint
+        | rewrite (go_int_lit_decode_decimal_None _ Hint) in Hdec0; discriminate Hdec0 ].
+  - (* H1 = RCDString *)
+    inversion H2 as
+      [ b0 Hs0 | s0 z0 Hint0 Hread0 Hs0 | s0 by0 Hstr0 Hs0
+      | t0 in0 cc0 z0 Hin0 Hcv0 Hs0 | s0 q0 Hdec0 Hs0 | t0 in0 cc0 q0 Hin0 Hcv0 Hs0 ]; subst;
+      solve
+        [ destruct b0; vm_compute in Hstr; discriminate Hstr
+        | congruence
+        | destruct (decode_string_literal_head _ _ Hstr) as [rest Hrs];
+            rewrite Hrs in Hint0; vm_compute in Hint0; discriminate Hint0
+        | destruct (decode_string_literal_head _ _ Hstr) as [rest Hrs];
+            rewrite Hrs in Hdec0; rewrite decode_decimal_dquote in Hdec0; discriminate Hdec0
+        | destruct t0; vm_compute in Hstr; discriminate Hstr ].
+  - (* H1 = RCDIntConvert : the compound spelling survives subst as [Hs0] *)
+    inversion H2 as
+      [ b0 Hs0 | s0 z0 Hint0 Hread0 Hs0 | s0 by0 Hstr0 Hs0
+      | t0 in0 cc0 z0 Hin0 Hcv0 Hs0 | s0 q0 Hdec0 Hs0 | t0 in0 cc0 q0 Hin0 Hcv0 Hs0 ]; subst.
+    + destruct b0; destruct ti; cbn in Hs0; discriminate Hs0.
+    + destruct ti; vm_compute in Hint0; discriminate Hint0.
+    + destruct ti; vm_compute in Hstr0; discriminate Hstr0.
+    + destruct (int_kw_paren_inj t0 ti (in0 ++ ")") (inner ++ ")") Hs0) as [-> Htl];
+        apply str_snoc_inj in Htl; subst in0;
+        specialize (IH cc0 Hin0); subst cc0; congruence.
+    + destruct ti; vm_compute in Hdec0; discriminate Hdec0.
+    + exfalso; apply (int_float_kw_paren_disjoint ti t0 (inner ++ ")") (in0 ++ ")")); symmetry; exact Hs0.
+  - (* H1 = RCDFloat *)
+    inversion H2 as
+      [ b0 Hs0 | s0 z0 Hint0 Hread0 Hs0 | s0 by0 Hstr0 Hs0
+      | t0 in0 cc0 z0 Hin0 Hcv0 Hs0 | s0 q0 Hdec0 Hs0 | t0 in0 cc0 q0 Hin0 Hcv0 Hs0 ]; subst;
+      solve
+        [ destruct b0; vm_compute in Hdec; discriminate Hdec
+        | rewrite (go_int_lit_decode_decimal_None _ Hint0) in Hdec; discriminate Hdec
+        | destruct (decode_string_literal_head _ _ Hstr0) as [rest Hrs];
+            rewrite Hrs in Hdec; rewrite decode_decimal_dquote in Hdec; discriminate Hdec
+        | destruct t0; vm_compute in Hdec; discriminate Hdec
+        | congruence ].
+  - (* H1 = RCDFloatConvert *)
+    inversion H2 as
+      [ b0 Hs0 | s0 z0 Hint0 Hread0 Hs0 | s0 by0 Hstr0 Hs0
+      | t0 in0 cc0 z0 Hin0 Hcv0 Hs0 | s0 q0 Hdec0 Hs0 | t0 in0 cc0 q0 Hin0 Hcv0 Hs0 ]; subst.
+    + destruct b0; destruct tf; cbn in Hs0; discriminate Hs0.
+    + destruct tf; vm_compute in Hint0; discriminate Hint0.
+    + destruct tf; vm_compute in Hstr0; discriminate Hstr0.
+    + exfalso; apply (int_float_kw_paren_disjoint t0 tf (in0 ++ ")") (inner ++ ")")); exact Hs0.
+    + destruct tf; vm_compute in Hdec0; discriminate Hdec0.
+    + destruct (float_kw_paren_inj t0 tf (in0 ++ ")") (inner ++ ")") Hs0) as [-> Htl];
+        apply str_snoc_inj in Htl; subst in0;
+        specialize (IH cc0 Hin0); subst cc0; congruence.
 Qed.
 
 (** The one root theorem connecting the three authorities (GoTypes constant-status, GoSafe value, GoRender
@@ -1116,9 +1371,10 @@ Lemma render_float_denotes : forall d,
   RenderedConstInfoDenotes (render_expr (EFloat d)) (UntypedConst (CFloat (decimal_value d))).
 Proof. intro d; apply render_const_info_denotes; reflexivity. Qed.
 
-(* the bare float denotes its EXACT (unrounded) rational; the F32 conversion denotes the rounded dyadic *)
+(* the bare float denotes its EXACT (unrounded) rational (= 3/2 for d_15em1, by GoTypes.decimal_value_1p5);
+   the F32 conversion denotes the rounded dyadic *)
 Example render_float_untyped_denotes :
-  RenderedConstInfoDenotes (render_expr (EFloat d_15em1)) (UntypedConst (CFloat (mkFC 3 2))).
+  RenderedConstInfoDenotes (render_expr (EFloat d_15em1)) (UntypedConst (CFloat (decimal_value d_15em1))).
 Proof. apply render_const_info_denotes; reflexivity. Qed.
 Example render_conv_f32_typed_denotes :
   RenderedConstInfoDenotes (render_expr (EFloatConvert F32 (EFloat d_scar)))
@@ -1130,7 +1386,7 @@ Proof. apply render_const_info_denotes; reflexivity. Qed.
    round_float_const authority. *)
 Example render_float_untyped_tenth :
   RenderedConstInfoDenotes (render_expr (EFloat (mkDecimal 1 (-1) eq_refl)))
-                           (UntypedConst (CFloat (mkFC 1 10))).
+                           (UntypedConst (CFloat (decimal_value (mkDecimal 1 (-1) eq_refl)))).
 Proof. apply render_const_info_denotes; reflexivity. Qed.
 Example render_conv_f64_underflow_zero :
   RenderedConstInfoDenotes (render_expr (EFloatConvert F64 (EFloat (mkDecimal (-1) (-330) eq_refl))))

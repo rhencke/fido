@@ -113,7 +113,9 @@ Do not implement an alternative autonomously.
                  (the exact rational round trip).  Proved: all-ASCII (keywords + conversions included);
                  render_const_info_denotes (rendering an expression denotes exactly the ConstInfo GoTypes computes — a bare
                  integer/float is UNTYPED, an explicit conversion is a typed constant routed through convert_const —
-                 via the ONE RenderedConstInfoDenotes relation, now with float cases);
+                 via the ONE RenderedConstInfoDenotes relation, now with float cases), and that relation is FUNCTIONAL
+                 (render_const_info_denotes_functional: a spelling denotes AT MOST ONE ConstInfo — the six recognisers
+                 are pairwise disjoint, so no spelling carries two conflicting constant statuses);
                  render_resolved_expr_denotes (a resolved argument EVALUATES to a well-formed value of its
                  resolved GoType whose spelling denotes it — tying the three authorities); decimal-faithful, no
                  leading zero, header-first-line; go.mod exact bytes / header first line / ASCII.
