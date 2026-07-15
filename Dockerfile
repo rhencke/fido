@@ -690,6 +690,23 @@ mkdir -p /tmp/rej-dup && cd /tmp/rej-dup && printf 'module rej\n\ngo 1.23\n' > g
 printf '// fido generated.  do not edit.\n\npackage main\n\nfunc main() {}\nfunc main() {}\n' > x.go   # duplicate main
 if go build ./... 2>/dev/null; then echo "fido e2e diff: go build accepted duplicate main (GoCompile rejects this)"; exit 1; fi
 echo "fido e2e diff: duplicate main is rejected by go build (matches GoCompile)"
+# hand-written REJECTED integer-conversion fixtures (§18): a constant conversion that overflows its
+# destination, or converts a non-integer constant, is rejected by `go build` EXACTLY as GoTypes/GoCompile
+# make impossible (const_info returns None -> no CompilableProgram -> no bytes).  A disagreement is a MODEL BUG.
+rej_conv() { # <label> <main-body>
+  d="/tmp/rej-conv-$1"; mkdir -p "$d"; ( cd "$d"; printf 'module rej\n\ngo 1.23\n' > go.mod; \
+    printf '// fido generated.  do not edit.\n\npackage main\n\nfunc main() {\n\t%s\n}\n' "$2" > x.go; \
+    if go build ./... 2>/dev/null; then echo "fido e2e diff: go build ACCEPTED an invalid conversion [$1: $2] that GoTypes rejects (MODEL BUG)"; exit 1; fi ); \
+    rc=$?; [ "$rc" = 0 ] || exit 1; echo "fido e2e diff: go build rejects [$1] $2 — matches GoTypes"; }
+rej_conv int8-over   'println(int8(128))'
+rej_conv int8-under  'println(int8(-129))'
+rej_conv uint8-neg   'println(uint8(-1))'
+rej_conv uint8-over  'println(uint8(256))'
+rej_conv int64-over  'println(int64(9223372036854775808))'
+rej_conv uint64-over 'println(uint64(18446744073709551616))'
+rej_conv nested-over 'println(uint8(int(300)))'
+rej_conv conv-bool   'println(int8(true))'
+rej_conv conv-str    'println(uint64("x"))'
 
-echo "fido e2e OK — pinned Go built the whole tree (go build ./...) using the RENDERED go.mod, accepted the empty module, ran the witness vs goldens, checked the multi-package differential + go list discovery, and rejected the no-main/dup-main fixtures exactly as GoCompile does (go vet nonblocking)"
+echo "fido e2e OK — pinned Go built the whole tree (go build ./...) using the RENDERED go.mod, accepted the empty module, ran the witness vs goldens (incl. the ten integer-type conversions), checked the multi-package differential + go list discovery, and rejected the no-main/dup-main + out-of-range/non-integer conversion fixtures exactly as GoCompile does (go vet nonblocking)"
 SH

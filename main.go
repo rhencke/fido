@@ -14,4 +14,13 @@ func main() {
 	println("a\tb")
 	println("a\rb")
 	println("a\nb")
+	println(int8(-128), int8(127))
+	println(int16(-32768), int16(32767))
+	println(int32(-2147483648), int32(2147483647))
+	println(int64(-9223372036854775808), int64(9223372036854775807))
+	println(int(-9223372036854775808), int(9223372036854775807))
+	println(uint8(255), uint16(65535), uint32(4294967295))
+	println(uint64(9223372036854775808), uint64(18446744073709551615))
+	println(uint(18446744073709551615))
+	println(int8(int16(127)))
 }
