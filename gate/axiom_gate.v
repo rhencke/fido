@@ -5,7 +5,7 @@
     program-rooted GoProgram -> GoTypes (the one type authority: untyped GoConst resolved through
     {TBool, the integer family TInteger over IntegerType, TString} to ProgramTyped over the same AST) ->
     GoCompile -> GoSafe -> GoRender -> GoEmit architecture. *)
-From Fido Require Import Ints FilePath FMap ModulePath GoVersion GoAST GoTypes GoCompile GoSafe GoRender GoEmit.
+From Fido Require Import Ints Floats FilePath FMap ModulePath GoVersion GoAST GoTypes GoCompile GoSafe GoRender GoEmit.
 
 (* the ONE integer-family authority: type-equality reflection; the single representability reflection;
    exact 64-bit int/uint; generic min/max accepted and below-min/above-max rejected; keyword exactness +
@@ -25,6 +25,22 @@ Print Assumptions Ints.IUint_neq_IUint64.
 Print Assumptions Ints.int_min_val.
 Print Assumptions Ints.int_max_val.
 Print Assumptions Ints.uint_max_val.
+
+(* the ONE float-family authority (Floats.v, axiom-free over SpecFloat): FloatType equality; exact keywords;
+   precision/exponent settings; direct binary32/binary64 rounding of exact rationals; the double-rounding
+   counterexample (direct F32 differs from binary64-then-binary32); precision boundaries 2^24+1 / 2^53+1. *)
+Print Assumptions Floats.float_type_eqb_eq.
+Print Assumptions Floats.float_keyword_F32.
+Print Assumptions Floats.float_keyword_F64.
+Print Assumptions Floats.float_prec_F32.
+Print Assumptions Floats.float_prec_F64.
+Print Assumptions Floats.float_emax_F32.
+Print Assumptions Floats.float_emax_F64.
+Print Assumptions Floats.scar_direct_f32.
+Print Assumptions Floats.scar_double_f32_via_f64.
+Print Assumptions Floats.scar_direct_differs_double.
+Print Assumptions Floats.round_f32_2p24_plus1.
+Print Assumptions Floats.round_f64_2p53_plus1.
 
 (* intrinsic FilePath: decidable equality; a representable canonical path; a rejected (unrepresentable)
    path.  Non-canonical paths have no FilePath value at all — this is unrepresentability, not rejection. *)
