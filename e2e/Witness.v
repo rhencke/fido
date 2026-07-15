@@ -11,19 +11,31 @@
     strings — empty, ordinary ASCII, a lone double-quote, a lone backslash, and embedded tab / carriage
     return / newline bytes (the renderer emits each as its canonical escape; Go prints the exact bytes) —
     AND accepted explicit integer conversions across all ten integer types (signed/unsigned narrow +
-    64-bit boundaries, platform int/uint, uint64(2^63), and a nested int8(int16(127))).  The pinned Go
-    toolchain accepts every one and prints its exact value; the corresponding out-of-range / non-integer
-    conversions are rejected by hand-written differential fixtures (Dockerfile go-e2e), exactly as
-    GoTypes/GoCompile make impossible.  The rendered tree includes the certified [go.mod] (from the
-    module spec) alongside the .go files. *)
-From Stdlib Require Import List NArith String Ascii.
-From Fido Require Import Ints FilePath FMap ModulePath GoVersion GoAST GoCompile GoSafe GoRender GoEmit.
+    64-bit boundaries, platform int/uint, uint64(2^63), and a nested int8(int16(127))), AND a readable
+    FLOAT section — a bare default-float64 constant with its float32 conversion, an explicit float64, an
+    exact float->int constant, an int->float constant, ★the direct-vs-nested double-rounding scar as an
+    EXACT uint64 integer observation (uint64(float32(big)) vs uint64(float32(float64(big))), whose printed
+    decimals differ), and an underflow to +0.  The pinned Go toolchain accepts every one and prints its
+    exact value (floats in Go's runtime %e format, integration evidence only); the corresponding
+    out-of-range / non-integer / wrong-type conversions are rejected by hand-written differential fixtures
+    (Dockerfile go-e2e), exactly as GoTypes/GoCompile make impossible.  The rendered tree includes the
+    certified [go.mod] (from the module spec) alongside the .go files. *)
+From Stdlib Require Import List NArith ZArith String Ascii.
+From Fido Require Import Ints Floats FilePath FMap ModulePath GoVersion GoAST GoCompile GoSafe GoRender GoEmit.
 Import ListNotations.
 
 (* control-byte strings built by exact ascii code (0x09 TAB, 0x0d CR, 0x0a NL) between two letters. *)
 Definition s_tab : string := String "a"%char (String (ascii_of_nat 9)  (String "b"%char EmptyString)).
 Definition s_cr  : string := String "a"%char (String (ascii_of_nat 13) (String "b"%char EmptyString)).
 Definition s_nl  : string := String "a"%char (String (ascii_of_nat 10) (String "b"%char EmptyString)).
+
+(* the readable float literals (§40) — DecimalFloat carries exact Z coefficient/exponent, so build under
+   Z_scope; the rest of the witness uses N integer literals. *)
+Definition dm_1p5  : DecimalFloat := mkDecimal 15 (-1) eq_refl.                    (* 1.5  -> 15.0e-1  *)
+Definition dm_0p5  : DecimalFloat := mkDecimal 5 (-1) eq_refl.                     (* 0.5  -> 5.0e-1   *)
+Definition dm_3    : DecimalFloat := mkDecimal 3 0 eq_refl.                        (* 3.0  -> 3.0e+0   *)
+Definition dm_scar : DecimalFloat := mkDecimal 2305843146652647425 0 eq_refl.      (* 2^61+2^37+1      *)
+Definition dm_tiny : DecimalFloat := mkDecimal 1 (-330) eq_refl.                   (* 1e-330 (underflow)*)
 
 Definition demo_file : GoFileAST :=
   [ DMain [ SPrintln [ EBool true; EInt 42; ENeg 1; ENeg ((2 ^ 63)%N) ]
@@ -48,7 +60,17 @@ Definition demo_file : GoFileAST :=
                      ; EIntConvert IUint32 (EInt 4294967295) ]
           ; SPrintln [ EIntConvert IUint64 (EInt ((2 ^ 63)%N)); EIntConvert IUint64 (EInt 18446744073709551615) ]
           ; SPrintln [ EIntConvert IUint (EInt 18446744073709551615) ]
-          ; SPrintln [ EIntConvert IInt8 (EIntConvert IInt16 (EInt 127)) ] ] ].
+          ; SPrintln [ EIntConvert IInt8 (EIntConvert IInt16 (EInt 127)) ]
+          (* floats (§40): a bare default-float64 constant + its float32 conversion; explicit float64; an
+             exact float->int constant; an int->float constant; ★the direct-vs-nested double-round scar as an
+             EXACT uint64 integer observation (2^61+2^38 vs 2^61); and an underflow to +0. *)
+          ; SPrintln [ EFloat dm_1p5; EFloatConvert F32 (EFloat dm_1p5) ]
+          ; SPrintln [ EFloatConvert F64 (EFloat dm_0p5) ]
+          ; SPrintln [ EIntConvert IInt (EFloat dm_3) ]
+          ; SPrintln [ EFloatConvert F64 (EInt 7) ]
+          ; SPrintln [ EIntConvert IUint64 (EFloatConvert F32 (EFloat dm_scar)) ]
+          ; SPrintln [ EIntConvert IUint64 (EFloatConvert F32 (EFloatConvert F64 (EFloat dm_scar))) ]
+          ; SPrintln [ EFloatConvert F64 (EFloat dm_tiny) ] ] ].
 
 Definition demo_module : ModuleSpec := mkModuleSpec (mkMP "fido.local/generated" eq_refl) Go1_23.
 Definition main_go : FilePath := mkFP "main.go" eq_refl.
