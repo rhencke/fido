@@ -320,6 +320,16 @@ Lemma const_info_deterministic : forall e ci1 ci2,
   const_info e = Some ci1 -> const_info e = Some ci2 -> ci1 = ci2.
 Proof. intros e ci1 ci2 H1 H2; rewrite H1 in H2; injection H2 as <-; reflexivity. Qed.
 
+(** §14 SAME-FORMAT FLOAT IDENTITY (LOAD-BEARING): converting a typed float constant to its OWN format
+    returns the EXISTING [TypedFloatConst] unchanged — no reround, no reconstruction.  This is exactly what
+    makes nested same-type conversions [float32(float32 q)] / [float64(float64 q)] identities at the typed-
+    constant level, so evaluation never rounds a typed float constant a second time. *)
+Lemma convert_const_same_float : forall ft (tc : TypedConst (TFloat ft)),
+  convert_const (TFloat ft) (CITyped (TFloat ft) tc) = Some tc.
+Proof. intros ft tc; destruct ft; reflexivity. Qed.
+(* The integer same-type identity holds up to the dependent range-proof (proof-irrelevant); it is covered
+   concretely by the §34 nested-conversion fixtures ([const_int8_int16_127] etc.). *)
+
 (** an invalid inner conversion propagates: it cannot be revived by an outer conversion (either kind). *)
 Lemma const_info_int_none : forall target e,
   const_info e = None -> const_info (EIntConvert target e) = None.
