@@ -131,9 +131,9 @@ algorithm, report an architectural conflict and stop. Do not implement an altern
    runtime integer value is range-well-formed (`ValueWF`); runtime values carry the SAME `GoType`
    (`value_type`). Evaluation is DERIVED from the one constant-status analysis (`const_info`) and is PARTIAL
    (a compiler-invalid conversion has no value — never a wrap), so a RESOLVED expression evaluates to a
-   well-formed value of its resolved type (`eval_expr_resolved`); `render_expr_denotes` /
-   `render_resolved_expr_denotes` (via `RenderedIntegerDenotes`) tie the rendered spelling to that value and
-   its type. Every admitted primitive has its complete type/value/render/syntax proofs NOW.
+   well-formed value of its resolved type (`eval_expr_resolved`); `render_const_info_denotes` /
+   `render_resolved_expr_denotes` (via the ONE `RenderedConstInfoDenotes`) tie the rendered spelling to the
+   analyzed `ConstInfo` — a bare integer UNTYPED, a conversion typed — and to that value and its type. Every admitted primitive has its complete type/value/render/syntax proofs NOW.
 8. **The program is a `ModuleSpec` + a WHOLE-PROGRAM map with intrinsic paths, and integer width AND the
    type universe each have one authority.** `GoProgram` is `{ prog_module : ModuleSpec ; prog_files : fmap
    FilePath GoFileAST }`; the file map MAY be EMPTY (a module-only program); keys are intrinsic canonical
@@ -177,8 +177,8 @@ exposing typing by canonical projection. · `GoSafe` — real `GoValue` (`VBool`
 render decls + derived
 package clause + the go.mod from the `ModuleSpec`; strings via ONE canonical interpreted literal
 (`render_string_literal`) with an INDEPENDENT decoder (`decode_string_literal` / `render_string_roundtrip`);
-header exact first line; all-ASCII (bytes ≥ 128 only via `\xhh`); `render_expr_denotes` /
-`render_resolved_expr_denotes`. · `GoEmit` — provenance-gated `DirectoryImage` (go.mod +
+header exact first line; all-ASCII (bytes ≥ 128 only via `\xhh`); the ONE constant-status render root
+`render_const_info_denotes` / `render_resolved_expr_denotes`. · `GoEmit` — provenance-gated `DirectoryImage` (go.mod +
 .go map); `render_program`; `di_transport`. · `plugin/g_fido.mlg` — the `Fido Emit` transport command +
 whole-theory audit. · `plugin/fido_sink.ml` — the foreign-Go-rejecting sibling-temp sink. · `digits` —
 leaf authority.

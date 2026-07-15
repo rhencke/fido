@@ -146,15 +146,22 @@ Print Assumptions GoSafe.eval_convert_preserves_value.
 Print Assumptions GoSafe.eval_string_value.
 Print Assumptions GoSafe.eval_string_resolved_type.
 
-(* GoRender: all output ASCII (including conversions); the ROOT correspondence (a resolved argument's
-   spelling denotes exactly the runtime value of its resolved type); the ten integer keywords are ASCII; the
-   exact conversion spellings; decimal faithfulness + no leading zero; int boundaries; the header is the
+(* GoRender: all output ASCII (including conversions); the ONE ConstInfo render-status root
+   (render_const_info_denotes: rendering denotes exactly the const_info GoTypes computes) and the final
+   resolved root (resolved argument -> const-status + well-formed value of its resolved type carrying the same
+   constant); the §4 integer-repair regressions (a bare integer above int_max stays UNTYPED, does NOT denote a
+   typed int, and only an explicit uint64 conversion assigns the type); the ten integer keywords are ASCII;
+   the exact conversion spellings; decimal faithfulness + no leading zero; int boundaries; the header is the
    EXACT first line of a .go file; go.mod is rendered from the ModuleSpec — exact bytes, header first line,
    all ASCII. *)
 Print Assumptions GoRender.render_file_ascii.
 Print Assumptions GoRender.render_expr_ascii.
-Print Assumptions GoRender.render_expr_denotes.
+Print Assumptions GoRender.render_const_info_denotes.
 Print Assumptions GoRender.render_resolved_expr_denotes.
+Print Assumptions GoRender.repair_bare_untyped.
+Print Assumptions GoRender.repair_bare_not_typed_int.
+Print Assumptions GoRender.repair_uint64_typed.
+Print Assumptions GoRender.repair_uint64_max_typed.
 Print Assumptions GoRender.integer_keyword_ascii.
 Print Assumptions GoRender.render_int8_127.
 Print Assumptions GoRender.render_nested.

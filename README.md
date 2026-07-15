@@ -63,8 +63,9 @@ differential fixtures (a multi-package tree accepted; no-main and duplicate-main
   `-0` agree; `VString` exact bytes) that carry the **same** `GoType` and are range-well-formed; evaluation is
   derived from the one constant-status analysis and is partial (a compiler-invalid conversion has no value) —
   a resolved expression provably evaluates to a well-formed value of its resolved type. `GoRender` proves
-  `render_expr_denotes` — the rendered spelling denotes exactly the value — and `render_resolved_expr_denotes`
-  (that value also has the resolved type), plus all-ASCII, no illegal leading zero, and the header as the
+  `render_const_info_denotes` — rendering denotes exactly the ConstInfo GoTypes computes (a bare integer stays
+  UNTYPED, a conversion is typed) — and `render_resolved_expr_denotes` (that also evaluates to a well-formed
+  value of the resolved type), plus all-ASCII, no illegal leading zero, and the header as the
   exact first line, and renders the `go.mod` directly from the `ModuleSpec` (exact bytes, header first line,
   ASCII). Every layer is proved **axiom-free** in a pinned Rocq 9.2.0 container — asserted by a
   whole-certified-theory assumption-closure audit, not just per-surface `Print Assumptions`.

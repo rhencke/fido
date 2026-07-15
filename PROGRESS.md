@@ -63,8 +63,9 @@ IN Rocq before any bytes — **zero expected Go build failures, ever.**
   (`value_type`) + the `ValueWF` range invariant; PARTIAL `eval_expr` DERIVED from `const_info` (no second
   evaluator), `eval_zero_sign_agnostic`, a conversion preserves the exact value, and resolved-eval
   well-formedness + type preservation (`eval_expr_resolved`); `eval_file`; `GoSafe := True` (honest permanent `SafeProgram` boundary).
-- **`GoRender`** — direct renderer; a conversion renders as `<integer_keyword it>(<inner>)` (the ten exact keywords); `render_expr_denotes`
-  (an evaluating expression's spelling denotes exactly its value, integers via `RenderedIntegerDenotes`) and
+- **`GoRender`** — direct renderer; a conversion renders as `<integer_keyword it>(<inner>)` (the ten exact keywords); `render_const_info_denotes`
+  (rendering denotes exactly the ConstInfo GoTypes computes — a bare integer stays UNTYPED, a conversion is
+  typed — the ONE `RenderedConstInfoDenotes` root) and
   `render_resolved_expr_denotes` (a resolved argument EVALUATES to a well-formed value of its resolved
   `GoType` whose spelling denotes it — tying GoTypes ↔ GoSafe ↔ GoRender); `render_file_ascii`/`print_Z_dec_faithful`/
   `print_Z_pos_no_leading_zero`/`render_file_first_line`/boundaries. The package clause comes from

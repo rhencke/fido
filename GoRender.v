@@ -7,13 +7,15 @@
     Every rendered file begins with the exact generated header as its FIRST LINE (part of the
     Rocq-rendered bytes — the sink never adds or alters it).  [render_file] is an INTERNAL helper; the
     PUBLIC capability is [GoEmit.render_program : SafeProgram -> DirectoryImage].  Proved here: all
-    output ASCII; the ROOT correspondence [render_expr_denotes] — the rendered primitive spelling
-    denotes EXACTLY the semantic value under an INDEPENDENT decimal reader (parser-free; the milestone
-    forbids a lexer/parser/round-trip in the certified path); and [render_resolved_expr_denotes], tying the
-    three authorities — a resolved [println] argument's spelling denotes the exact runtime value AND that
-    value has the statically-resolved [GoType] — plus decimal faithfulness / no-leading-zero and the int
-    boundary facts.  Whether the REAL Go compiler parses these bytes to that value is
-    claim (B) — external adequacy — exercised by the differential e2e, not a kernel theorem here.
+    output ASCII; the ONE constant-status root [render_const_info_denotes] — rendering an expression denotes
+    EXACTLY the [GoTypes.ConstInfo] it computes (a bare integer is an UNTYPED constant, not a typed [int] —
+    the §1 repair; an explicit conversion is a TYPED constant), in the ONE [ConstInfo] vocabulary, under an
+    INDEPENDENT decimal reader / string decoder (parser-free; the milestone forbids a lexer/parser/round-trip
+    in the certified path); and [render_resolved_expr_denotes], tying the three authorities — a resolved
+    [println] argument analyzes to a ConstInfo whose spelling denotes it and evaluates to a well-formed value
+    of its resolved [GoType] carrying the same constant — plus decimal faithfulness / no-leading-zero and the
+    int boundary facts.  Whether the REAL Go compiler parses these bytes to that value is claim (B) — external
+    adequacy — exercised by the differential e2e, not a kernel theorem here.
     ============================================================================ *)
 From Stdlib Require Import String Ascii NArith ZArith List Bool Lia.
 From Fido Require Import digits Ints ModulePath GoVersion GoAST GoTypes GoCompile GoSafe.
@@ -625,26 +627,29 @@ Example rl_ascii : render_string_literal "hi"
   = String dquote_c (String "h"%char (String "i"%char (String dquote_c EmptyString))).
 Proof. reflexivity. Qed.
 
-(** ---- integer denotation (§16): the rendered spelling of an integer expression denotes an exact value at a
-    type.  A bare canonical decimal (optionally unary-minus) denotes the DEFAULT [int]; an explicit conversion
-    is the canonical keyword, `(`, a recursively-denoting inner integer spelling, `)`, and REQUIRES the value
-    to be representable at the destination (the outer type).  This relation MAY admit semantically equivalent
-    spellings; it is a DENOTATION tool, NOT a general Go parser (real-Go acceptance is external adequacy). ---- *)
-Inductive RenderedIntegerDenotes : string -> IntegerType -> Z -> Prop :=
-| RIDBare : forall s z,
+(** ---- the ONE render-time constant-status authority (§2): a rendered spelling denotes an exact [ConstInfo]
+    — the SAME untyped/typed vocabulary [GoTypes] owns, never a per-family status relation that can drift.  A
+    bare literal denotes an UNTYPED constant (a bare integer stays UNTYPED — it is NOT labelled [int]; that
+    false premise was the §1 defect, which wrongly rejected a valid inner like the `2^63` of
+    `uint64(2^63)`).  An explicit integer conversion denotes a TYPED constant of the destination type after
+    the representability check, over a recursively-denoting inner spelling.  It reuses the exact GoTypes
+    values and [integer_representableb], reimplementing no representability; it is a DENOTATION tool, NOT a
+    general Go parser (real-Go acceptance is external adequacy).  Float cases are added in Part B. ---- *)
+Inductive RenderedConstInfoDenotes : string -> ConstInfo -> Prop :=
+| RCDBool : forall (b : bool),
+    RenderedConstInfoDenotes (if b then "true"%string else "false"%string) (UntypedConst (CBool b))
+| RCDInt : forall s z,
     read_go_int s = z ->
-    RenderedIntegerDenotes s IInt z
-| RIDConvert : forall it src inner z,
-    RenderedIntegerDenotes inner src z ->
-    IntRepresentable it z ->
-    RenderedIntegerDenotes (integer_keyword it ++ "(" ++ inner ++ ")") it z.
-
-Definition RenderedPrimitiveDenotes (s : string) (v : GoValue) : Prop :=
-  match v with
-  | VBool b       => s = (if b then "true" else "false")
-  | VInteger it z => RenderedIntegerDenotes s it z
-  | VString bytes => decode_string_literal s = Some bytes
-  end.
+    RenderedConstInfoDenotes s (UntypedConst (CInt z))
+| RCDString : forall s bytes,
+    decode_string_literal s = Some bytes ->
+    RenderedConstInfoDenotes s (UntypedConst (CString bytes))
+| RCDIntConvert : forall target inner ci z,
+    RenderedConstInfoDenotes inner ci ->
+    ci_const ci = CInt z ->
+    IntRepresentable target z ->
+    RenderedConstInfoDenotes (integer_keyword target ++ "(" ++ inner ++ ")")
+                             (TypedConst (TInteger target) (CInt z)).
 
 (** print_Z of a nonnegative is nonempty and its first character is a decimal digit, not '-'. *)
 Lemma print_Z_pos_head_not_minus : forall p,
@@ -687,104 +692,77 @@ Proof.
   rewrite print_Z_dec_faithful by apply N2Z.is_nonneg. reflexivity.
 Qed.
 
-(** a bare integer literal (the only [UntypedConst (CInt _)] expressions) renders to a spelling denoting its
-    exact value at the DEFAULT [int]. *)
-Lemma bare_int_denotes : forall e z,
-  const_info e = Some (UntypedConst (CInt z)) -> RenderedIntegerDenotes (render_expr e) IInt z.
-Proof.
-  intros e z H; destruct e as [ b | n | n | s | it' e' ]; simpl in H; try discriminate.
-  - injection H as <-; apply RIDBare, read_go_int_EInt.
-  - injection H as <-; apply RIDBare, read_go_int_ENeg.
-  - destruct (const_info e') as [ci'|]; [| discriminate].
-    destruct ci' as [ c' | t' c' ].
-    + destruct c' as [ b | z' | s ]; try discriminate.
-      destruct (integer_representableb it' z'); discriminate.
-    + destruct t' as [| itx |]; try discriminate;
-        destruct c' as [ b | z' | s ]; try discriminate;
-        destruct (integer_representableb it' z'); discriminate.
-Qed.
-
-(** [const_info] of a conversion, when it succeeds, is a typed integer constant of the destination type. *)
-Lemma const_info_convert_shape : forall it e ci,
-  const_info (EIntConvert it e) = Some ci -> exists z, ci = TypedConst (TInteger it) (CInt z).
+(** [const_info] of a conversion, when it succeeds, extracts the inner constant-status [ci'], its exact
+    integer value [z], the destination representability, and the outer TYPED shape — without touching the
+    caller's induction hypothesis (a separate lemma so [const_info e'] is not abstracted in the IH). *)
+Lemma const_info_convert_inner : forall it e ci,
+  const_info (EIntConvert it e) = Some ci ->
+  exists ci' z, const_info e = Some ci'
+             /\ ci_const ci' = CInt z
+             /\ integer_representableb it z = true
+             /\ ci = TypedConst (TInteger it) (CInt z).
 Proof.
   intros it e ci H; simpl in H.
   destruct (const_info e) as [ci'|] eqn:Hce'; [| discriminate].
-  destruct ci' as [ c' | t' c' ].
+  exists ci'; destruct ci' as [ c' | t' c' ].
   - destruct c' as [ b | z' | s ]; try discriminate.
-    destruct (integer_representableb it z'); [| discriminate]; injection H as <-; exists z'; reflexivity.
-  - destruct t' as [| it'' |]; try discriminate; destruct c' as [ b | z' | s ]; try discriminate;
-      destruct (integer_representableb it z'); try discriminate; injection H as <-; exists z'; reflexivity.
-Qed.
-
-(** the core §16 correspondence for an explicit conversion: a typed integer constant renders to a spelling
-    that denotes exactly its value at its type (recursively through the conversion nesting). *)
-Lemma render_int_denotes : forall e it z,
-  const_info e = Some (TypedConst (TInteger it) (CInt z)) ->
-  RenderedIntegerDenotes (render_expr e) it z.
-Proof.
-  induction e as [ b | n | n | s | it' e' IHe' ]; intros it z H; simpl in H; try discriminate.
-  destruct (const_info e') as [ci'|] eqn:Hce'; [| discriminate].
-  destruct ci' as [ c' | t' c' ].
-  - destruct c' as [ b | z' | s ]; try discriminate.
-    destruct (integer_representableb it' z') eqn:Hrep; [| discriminate].
-    injection H as <- <-. cbn [render_expr].
-    apply RIDConvert with (src := IInt).
-    + apply bare_int_denotes; exact Hce'.
-    + apply integer_representableb_spec; exact Hrep.
+    destruct (integer_representableb it z') eqn:Hrep; [| discriminate].
+    injection H as <-; exists z'; repeat split; first [ reflexivity | exact Hce' | exact Hrep ].
   - destruct t' as [| srcty |]; try discriminate; destruct c' as [ b | z' | s ]; try discriminate;
-      destruct (integer_representableb it' z') eqn:Hrep; try discriminate.
-    injection H as <- <-. cbn [render_expr].
-    apply RIDConvert with (src := srcty).
-    + apply IHe'; reflexivity.
+      destruct (integer_representableb it z') eqn:Hrep; try discriminate;
+      injection H as <-; exists z'; repeat split; first [ reflexivity | exact Hce' | exact Hrep ].
+Qed.
+
+(** ★§2-3 ROOT: rendering an expression denotes EXACTLY the [const_info] GoTypes computes for it — the
+    source-spelling / constant-status correspondence, in the ONE ConstInfo vocabulary.  A bare integer
+    denotes an UNTYPED constant (the §1 repair: NO false [int] label); an explicit conversion denotes a
+    TYPED constant of the destination type.  Reuses the exact GoTypes values + representability. *)
+Theorem render_const_info_denotes : forall e ci,
+  const_info e = Some ci -> RenderedConstInfoDenotes (render_expr e) ci.
+Proof.
+  induction e as [ b | n | n | s | it' e' IHe' ]; intros ci H.
+  - simpl in H; injection H as <-; cbn [render_expr]; destruct b; [ exact (RCDBool true) | exact (RCDBool false) ].
+  - simpl in H; injection H as <-; cbn [render_expr]; apply RCDInt, read_go_int_EInt.
+  - simpl in H; injection H as <-; cbn [render_expr]; apply RCDInt, read_go_int_ENeg.
+  - simpl in H; injection H as <-; cbn [render_expr]; apply RCDString, render_string_roundtrip.
+  - destruct (const_info_convert_inner it' e' ci H) as [ ci' [ z [ Hce' [ Hval [ Hrep -> ] ] ] ] ].
+    cbn [render_expr]. apply RCDIntConvert with (ci := ci').
+    + apply IHe'; exact Hce'.
+    + exact Hval.
     + apply integer_representableb_spec; exact Hrep.
 Qed.
 
-(** The root correspondence tying AST expression, semantic value, and rendered spelling: a (RESOLVED)
-    evaluating expression renders to a spelling that denotes exactly its runtime value.  Booleans get their
-    canonical spellings; integers denote at their exact type (bare literals as [int], conversions through the
-    keyword nesting); strings decode back to their exact bytes. *)
-(** inversion of a successful evaluation: it comes from a representable analyzed constant. *)
-Lemma eval_some_inv : forall e v,
-  eval_expr e = Some v ->
-  exists ci, const_info e = Some ci
-          /\ const_to_value (info_type ci) (ci_const ci) = Some v.
-Proof.
-  intros e v H; unfold eval_expr in H.
-  destruct (const_info e) as [ci|] eqn:Hci; [| discriminate].
-  unfold info_to_value in H.
-  destruct (const_representableb (info_type ci) (ci_const ci)); [| discriminate].
-  exists ci; split; [ reflexivity | exact H ].
-Qed.
-
-Theorem render_expr_denotes : forall e v,
-  eval_expr e = Some v -> RenderedPrimitiveDenotes (render_expr e) v.
-Proof.
-  intros e v H; destruct (eval_some_inv e v H) as [ ci [ Hci Hv ] ]; destruct e as [ b | n | n | s | it' e' ].
-  - cbn [const_info] in Hci; injection Hci as <-; cbn [info_type ci_const const_default_type const_to_value] in Hv;
-      injection Hv as <-; cbn [render_expr RenderedPrimitiveDenotes]; destruct b; reflexivity.
-  - cbn [const_info] in Hci; injection Hci as <-; cbn [info_type ci_const const_default_type const_to_value] in Hv;
-      injection Hv as <-; cbn [RenderedPrimitiveDenotes]; apply RIDBare, read_go_int_EInt.
-  - cbn [const_info] in Hci; injection Hci as <-; cbn [info_type ci_const const_default_type const_to_value] in Hv;
-      injection Hv as <-; cbn [RenderedPrimitiveDenotes]; apply RIDBare, read_go_int_ENeg.
-  - cbn [const_info] in Hci; injection Hci as <-; cbn [info_type ci_const const_default_type const_to_value] in Hv;
-      injection Hv as <-; cbn [RenderedPrimitiveDenotes]; apply render_string_roundtrip.
-  - destruct (const_info_convert_shape it' e' ci Hci) as [ z Hz ]; subst ci.
-    cbn [info_type ci_const const_to_value] in Hv; injection Hv as <-.
-    cbn [RenderedPrimitiveDenotes]; apply render_int_denotes; exact Hci.
-Qed.
-
-(** The one root theorem connecting the three authorities (GoTypes resolution, GoSafe value, GoRender
-    spelling): a resolved [println] argument EVALUATES to a well-formed value of its resolved [GoType] whose
-    rendered spelling denotes it exactly.  This is NOT a claim about the real Go parser — real-Go acceptance
-    is external adequacy, exercised differentially by the e2e. *)
+(** The one root theorem connecting the three authorities (GoTypes constant-status, GoSafe value, GoRender
+    spelling): a resolved [println] argument ANALYZES to a [ConstInfo] whose rendered spelling denotes it (the
+    §3 render/ConstInfo root), its resolved type IS that ConstInfo's type, and it EVALUATES to a well-formed
+    value of that type carrying the SAME exact constant.  NOT a claim about the real Go parser — real-Go
+    acceptance is external adequacy, exercised differentially by the e2e. *)
 Theorem render_resolved_expr_denotes : forall e t,
   ResolveExpr UsePrintlnArg e t ->
-  exists v, eval_expr e = Some v /\ value_type v = t /\ ValueWF v
-         /\ RenderedPrimitiveDenotes (render_expr e) v.
+  exists ci v,
+       const_info e = Some ci
+    /\ info_type ci = t
+    /\ RenderedConstInfoDenotes (render_expr e) ci
+    /\ eval_expr e = Some v
+    /\ value_type v = t
+    /\ ValueWF v
+    /\ value_const v = ci_const ci.
 Proof.
-  intros e t H; destruct (eval_expr_resolved UsePrintlnArg e t H) as [ v [ Hev [ Hvt Hwf ] ] ].
-  exists v; repeat split; try assumption. apply render_expr_denotes; exact Hev.
+  intros e t H; pose proof H as HR.
+  apply resolve_expr_complete in H; unfold resolve_expr in H.
+  destruct (const_info e) as [ci|] eqn:Hci; [| discriminate].
+  destruct (use_allowsb UsePrintlnArg (info_type ci) && const_representableb (info_type ci) (ci_const ci));
+    [| discriminate].
+  injection H as Ht.
+  destruct (eval_expr_resolved UsePrintlnArg e t HR) as [ v [ Hev [ Hvt Hwf ] ] ].
+  exists ci, v.
+  split; [ reflexivity | ].
+  split; [ exact Ht | ].
+  split; [ apply render_const_info_denotes; exact Hci | ].
+  split; [ exact Hev | ].
+  split; [ exact Hvt | ].
+  split; [ exact Hwf | ].
+  rewrite (eval_expr_value_const e v Hev); symmetry; apply (const_info_value e ci Hci).
 Qed.
 
 (** The int boundaries: the max/min literals evaluate to well-formed [int] values AND resolve as
@@ -815,15 +793,56 @@ Example render_int8_127 : render_expr (EIntConvert IInt8 (EInt 127)) = "int8(127
 Example render_uint64_big : render_expr (EIntConvert IUint64 (EInt 18446744073709551615)) = "uint64(18446744073709551615)". Proof. reflexivity. Qed.
 Example render_nested : render_expr (EIntConvert IInt8 (EIntConvert IInt16 (EInt 127))) = "int8(int16(127))". Proof. reflexivity. Qed.
 
-(** ---- string denotation surfaces (§25): a rendered string literal denotes exactly its runtime bytes; a
-    RESOLVED string argument evaluates to the exact runtime [VString] of its resolved type whose spelling
-    decodes back to it — the string instances of the two roots. ---- *)
+(** ---- string denotation surfaces: a rendered string literal denotes its exact untyped byte-constant; a
+    RESOLVED string argument is the string instance of the two roots. ---- *)
 Lemma render_string_denotes : forall s,
-  RenderedPrimitiveDenotes (render_expr (EString s)) (VString s).
-Proof. intro s; apply render_expr_denotes, eval_string_value. Qed.
+  RenderedConstInfoDenotes (render_expr (EString s)) (UntypedConst (CString s)).
+Proof. intro s; apply render_const_info_denotes; reflexivity. Qed.
 
 Lemma render_resolved_string_denotes : forall s t,
   ResolveExpr UsePrintlnArg (EString s) t ->
-  exists v, eval_expr (EString s) = Some v /\ value_type v = t /\ ValueWF v
-         /\ RenderedPrimitiveDenotes (render_expr (EString s)) v.
+  exists ci v, const_info (EString s) = Some ci /\ info_type ci = t
+            /\ RenderedConstInfoDenotes (render_expr (EString s)) ci
+            /\ eval_expr (EString s) = Some v /\ value_type v = t /\ ValueWF v
+            /\ value_const v = ci_const ci.
 Proof. intros s t H; apply render_resolved_expr_denotes; exact H. Qed.
+
+(** ---- §4 integer-repair regressions: a bare integer stays UNTYPED (NO false [int] label) even far above
+    [int_max]; only an explicit conversion assigns a type, DIRECTLY, after the representability check.  This
+    is exactly why `uint64(2^63)` is valid though the bare `2^63` does not fit [int]. ---- *)
+Example repair_bare_render : render_expr (EInt 9223372036854775808) = "9223372036854775808".
+Proof. reflexivity. Qed.
+
+Example repair_bare_untyped :
+  RenderedConstInfoDenotes (render_expr (EInt 9223372036854775808))
+                           (UntypedConst (CInt 9223372036854775808)).
+Proof. apply render_const_info_denotes; reflexivity. Qed.
+
+(** a TYPED-constant denotation is always a conversion spelling, so it starts with an integer keyword's
+    first letter (i / u) — proved by inversion on a GENERAL string (never the big rendered constant). *)
+Lemma rcd_typed_starts_letter : forall s t c,
+  RenderedConstInfoDenotes s (TypedConst t c) ->
+  exists rest, s = String "i"%char rest \/ s = String "u"%char rest.
+Proof.
+  intros s t c H; inversion H as [ | | | target inner ci z Hinner Hval Hrep Hs Hci ]; subst.
+  destruct target; cbn; (eexists; ((left; reflexivity) || (right; reflexivity))).
+Qed.
+
+Example repair_bare_not_typed_int :
+  ~ RenderedConstInfoDenotes (render_expr (EInt 9223372036854775808))
+                             (TypedConst (TInteger IInt) (CInt 9223372036854775808)).
+Proof.
+  intro H; apply rcd_typed_starts_letter in H; rewrite repair_bare_render in H.
+  destruct H as [ rest [ Hi | Hu ] ]; discriminate.
+Qed.
+
+Example repair_uint64_typed :
+  RenderedConstInfoDenotes (render_expr (EIntConvert IUint64 (EInt 9223372036854775808)))
+                           (TypedConst (TInteger IUint64) (CInt 9223372036854775808)).
+Proof. apply render_const_info_denotes; reflexivity. Qed.
+
+Example repair_uint64_max_typed :
+  RenderedConstInfoDenotes (render_expr (EIntConvert IUint64 (EInt 18446744073709551615)))
+                           (TypedConst (TInteger IUint64) (CInt 18446744073709551615)).
+Proof. apply render_const_info_denotes; reflexivity. Qed.
+
