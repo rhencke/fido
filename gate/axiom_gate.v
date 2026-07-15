@@ -160,6 +160,25 @@ Print Assumptions GoTypes.res_str_bytes.
 Print Assumptions GoTypes.str_representable.
 Print Assumptions GoTypes.str_representableb.
 Print Assumptions GoTypes.stmt_mixed_str_typed.
+(* floats: a bare float defaults to float64; explicit F32/F64 conversions type at use; float->integer
+   constant conversions (integral+in-range accept, fraction/overflow reject); wrong-type reject; TFloat F32
+   and F64 are distinct; ★the direct-vs-nested double-round scar analyzes to DIFFERENT typed constants;
+   a default-overflowing bare float does not type. *)
+Print Assumptions GoTypes.res_float_default.
+Print Assumptions GoTypes.res_float32_conv.
+Print Assumptions GoTypes.res_float64_conv.
+Print Assumptions GoTypes.res_int_of_3_0.
+Print Assumptions GoTypes.res_int_of_3_5_rej.
+Print Assumptions GoTypes.res_int8_128_0_rej.
+Print Assumptions GoTypes.res_uint8_m1_0_rej.
+Print Assumptions GoTypes.res_float32_true_rej.
+Print Assumptions GoTypes.res_float64_str_rej.
+Print Assumptions GoTypes.tfloat32_neq_tfloat64.
+Print Assumptions GoTypes.const_scar_direct.
+Print Assumptions GoTypes.const_scar_nested.
+Print Assumptions GoTypes.const_scar_direct_differs_nested.
+Print Assumptions GoTypes.stmt_float_mixed.
+Print Assumptions GoTypes.stmt_float_overflow_untyped.
 
 (* GoCompile (A) internal exactness: whole-program prog_ok reflects the declarative judgment; go_compile
    sound + complete against it; a rejected program yields no CompilableProgram; the compiled evidence exposes
@@ -191,6 +210,14 @@ Print Assumptions GoSafe.value_wfb_iff.
 Print Assumptions GoSafe.eval_convert_preserves_value.
 Print Assumptions GoSafe.eval_string_value.
 Print Assumptions GoSafe.eval_string_resolved_type.
+(* float runtime values: a bare float evaluates to a float64 value; an exact float->int constant to that
+   integer; ★the direct-vs-nested scar as an EXACT uint64 integer observation; constant underflow -> +0. *)
+Print Assumptions GoSafe.eval_float_type.
+Print Assumptions GoSafe.eval_int_of_3_0.
+Print Assumptions GoSafe.eval_scar_direct.
+Print Assumptions GoSafe.eval_scar_nested.
+Print Assumptions GoSafe.eval_scar_differ.
+Print Assumptions GoSafe.eval_underflow_pos_zero.
 
 (* GoRender: all output ASCII (including conversions); the ONE ConstInfo render-status root
    (render_const_info_denotes: rendering denotes exactly the const_info GoTypes computes) and the final
@@ -208,6 +235,16 @@ Print Assumptions GoRender.repair_bare_untyped.
 Print Assumptions GoRender.repair_bare_not_typed_int.
 Print Assumptions GoRender.repair_uint64_typed.
 Print Assumptions GoRender.repair_uint64_max_typed.
+(* float rendering: the canonical decimal spelling + conversion spellings; ASCII; the §27 decoder/renderer
+   semantic round trip; a bare float denotes its exact rational, a conversion the rounded typed constant. *)
+Print Assumptions GoRender.render_float_1p5.
+Print Assumptions GoRender.render_float_zero.
+Print Assumptions GoRender.render_conv_f32.
+Print Assumptions GoRender.render_decimal_ascii.
+Print Assumptions GoRender.decode_render_decimal.
+Print Assumptions GoRender.render_float_denotes.
+Print Assumptions GoRender.render_float_untyped_denotes.
+Print Assumptions GoRender.render_conv_f32_typed_denotes.
 Print Assumptions GoRender.integer_keyword_ascii.
 Print Assumptions GoRender.render_int8_127.
 Print Assumptions GoRender.render_nested.

@@ -651,3 +651,52 @@ Example bool_not_str  : const_representableb TString (CBool true)  = false. Proo
 Example int_not_str   : const_representableb TString (CInt 3)      = false. Proof. reflexivity. Qed.
 Example str_not_resolve_int : ~ ResolveExpr UsePrintlnArg (EString "x") (TInteger IInt).
 Proof. intro H; apply resolve_expr_complete in H; cbn in H; discriminate H. Qed.
+
+(* ---- floats: bare literal defaults to float64; explicit conversions type at use; cross-family and
+   float->integer constant conversions match Go's constant rules (§22/§34/§35). ---- *)
+Definition d_15em1 : DecimalFloat := mkDecimal 15 (-1) eq_refl.   (* 1.5 *)
+Definition d_3    : DecimalFloat := mkDecimal 3 0 eq_refl.        (* 3.0 *)
+Definition d_35em1 : DecimalFloat := mkDecimal 35 (-1) eq_refl.   (* 3.5 *)
+Definition d_128  : DecimalFloat := mkDecimal 128 0 eq_refl.      (* 128.0 *)
+Definition d_m1   : DecimalFloat := mkDecimal (-1) 0 eq_refl.     (* -1.0 *)
+Definition d_scar : DecimalFloat := mkDecimal 2305843146652647425 0 eq_refl.
+
+Example res_float_default : resolve_expr UsePrintlnArg (EFloat d_15em1) = Some (TFloat F64). Proof. reflexivity. Qed.
+Example res_float32_conv  : resolve_expr UsePrintlnArg (EFloatConvert F32 (EFloat d_15em1)) = Some (TFloat F32). Proof. reflexivity. Qed.
+Example res_float64_conv  : resolve_expr UsePrintlnArg (EFloatConvert F64 (EFloat d_15em1)) = Some (TFloat F64). Proof. reflexivity. Qed.
+Example float_default_type : const_default_type (CFloat fc_zero) = TFloat F64. Proof. reflexivity. Qed.
+
+(* §34 float->integer CONSTANT conversions: integral value + range required; a fraction / overflow rejects. *)
+Example res_int_of_3_0     : resolve_expr UsePrintlnArg (EIntConvert IInt  (EFloat d_3))    = Some (TInteger IInt).  Proof. reflexivity. Qed.
+Example res_int_of_3_5_rej : resolve_expr UsePrintlnArg (EIntConvert IInt  (EFloat d_35em1)) = None.                Proof. reflexivity. Qed.
+Example res_int8_127_0     : resolve_expr UsePrintlnArg (EIntConvert IInt8 (EFloat (mkDecimal 127 0 eq_refl))) = Some (TInteger IInt8). Proof. reflexivity. Qed.
+Example res_int8_128_0_rej : resolve_expr UsePrintlnArg (EIntConvert IInt8 (EFloat d_128))  = None.                Proof. reflexivity. Qed.
+Example res_uint8_m1_0_rej : resolve_expr UsePrintlnArg (EIntConvert IUint8 (EFloat d_m1))  = None.                Proof. reflexivity. Qed.
+
+(* §35 wrong-type conversions reject; a float typed constant and float64 are DISTINCT static types. *)
+Example res_float32_true_rej : resolve_expr UsePrintlnArg (EFloatConvert F32 (EBool true))   = None. Proof. reflexivity. Qed.
+Example res_float64_str_rej  : resolve_expr UsePrintlnArg (EFloatConvert F64 (EString "x"))  = None. Proof. reflexivity. Qed.
+Example res_int_of_true_rej  : resolve_expr UsePrintlnArg (EIntConvert IInt (EBool true))    = None. Proof. reflexivity. Qed.
+Example tfloat32_neq_tfloat64 : TFloat F32 <> TFloat F64.
+Proof. intro H; injection H as H; discriminate. Qed.
+
+(* ★§30 the DOUBLE-ROUNDING SCAR at the conversion-syntax level: direct float32(big) and nested
+   float32(float64(big)) analyze to DIFFERENT exact typed constants. *)
+Example const_scar_direct :
+  const_info (EFloatConvert F32 (EFloat d_scar))
+    = Some (TypedConst (TFloat F32) (CFloat (fc_of_Z 2305843284091600896))).
+Proof. reflexivity. Qed.
+Example const_scar_nested :
+  const_info (EFloatConvert F32 (EFloatConvert F64 (EFloat d_scar)))
+    = Some (TypedConst (TFloat F32) (CFloat (fc_of_Z 2305843009213693952))).
+Proof. reflexivity. Qed.
+Example const_scar_direct_differs_nested :
+  const_info (EFloatConvert F32 (EFloat d_scar))
+    <> const_info (EFloatConvert F32 (EFloatConvert F64 (EFloat d_scar))).
+Proof. rewrite const_scar_direct, const_scar_nested; discriminate. Qed.
+
+(* a mixed float statement types; a default-overflowing bare float does NOT type. *)
+Example stmt_float_mixed : stmt_typedb (SPrintln [EBool true; EFloat d_15em1; EFloatConvert F32 (EFloat d_3)]) = true. Proof. reflexivity. Qed.
+Example stmt_float_overflow_untyped :
+  stmt_typedb (SPrintln [EFloat (mkDecimal 1 4096 eq_refl)]) = false.   (* 1e4096 overflows default float64 *)
+Proof. vm_compute. reflexivity. Qed.

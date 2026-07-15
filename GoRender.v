@@ -1100,3 +1100,25 @@ Example repair_uint64_max_typed :
                            (TypedConst (TInteger IUint64) (CInt 18446744073709551615)).
 Proof. apply render_const_info_denotes; reflexivity. Qed.
 
+(** ---- §26/§28/§29 float rendering: the ONE canonical decimal spelling, direct conversion spellings, and
+    denotation surfaces (a bare float denotes its exact rational; the decoder round-trips it). ---- *)
+Example render_float_1p5   : render_expr (EFloat d_15em1) = "15.0e-1". Proof. reflexivity. Qed.
+Example render_float_zero  : render_expr (EFloat (mkDecimal 0 0 eq_refl)) = "0.0". Proof. reflexivity. Qed.
+Example render_float_1e6   : render_expr (EFloat (mkDecimal 1 6 eq_refl)) = "1.0e+6". Proof. reflexivity. Qed.
+Example render_float_neg   : render_expr (EFloat (mkDecimal (-15) (-1) eq_refl)) = "-15.0e-1". Proof. reflexivity. Qed.
+Example render_conv_f32    : render_expr (EFloatConvert F32 (EFloat d_15em1)) = "float32(15.0e-1)". Proof. reflexivity. Qed.
+Example render_conv_f64    : render_expr (EFloatConvert F64 (EFloat d_3)) = "float64(3.0e+0)". Proof. reflexivity. Qed.
+
+Lemma render_float_denotes : forall d,
+  RenderedConstInfoDenotes (render_expr (EFloat d)) (UntypedConst (CFloat (decimal_value d))).
+Proof. intro d; apply render_const_info_denotes; reflexivity. Qed.
+
+(* the bare float denotes its EXACT (unrounded) rational; the F32 conversion denotes the rounded dyadic *)
+Example render_float_untyped_denotes :
+  RenderedConstInfoDenotes (render_expr (EFloat d_15em1)) (UntypedConst (CFloat (mkFC 3 2))).
+Proof. apply render_const_info_denotes; reflexivity. Qed.
+Example render_conv_f32_typed_denotes :
+  RenderedConstInfoDenotes (render_expr (EFloatConvert F32 (EFloat d_scar)))
+                           (TypedConst (TFloat F32) (CFloat (fc_of_Z 2305843284091600896))).
+Proof. apply render_const_info_denotes; reflexivity. Qed.
+

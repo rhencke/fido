@@ -24,6 +24,7 @@
     the compiler, AST, renderer, or semantics.
     ============================================================================ *)
 From Stdlib Require Import ZArith List Bool String.
+From Stdlib Require Import Floats.SpecFloat.
 From Fido Require Import Ints Floats GoAST GoTypes GoCompile.
 Import ListNotations.
 
@@ -208,6 +209,32 @@ Example eval_int8_over_none : eval_expr (EIntConvert IInt8 (EInt 128)) = None. P
 Example eval_bare_default : eval_expr (EInt 42) = Some (VInteger IInt 42). Proof. reflexivity. Qed.
 Example eval_2p63_none : eval_expr (EInt 9223372036854775808) = None. Proof. reflexivity. Qed.
 Example wf_int8_127 : ValueWF (VInteger IInt8 127). Proof. simpl; apply integer_representableb_spec; reflexivity. Qed.
+
+(* ---- float evaluation (§25/§34/§38) ---- *)
+(* a bare float evaluates to a float64 runtime value; an exact float->int constant to that integer *)
+Example eval_float_type : option_map value_type (eval_expr (EFloat d_15em1)) = Some (TFloat F64).
+Proof. reflexivity. Qed.
+Example eval_int_of_3_0 : eval_expr (EIntConvert IInt (EFloat d_3)) = Some (VInteger IInt 3).
+Proof. reflexivity. Qed.
+(* ★§38 the direct-vs-nested double-round scar as an EXACT integer observation (no float printing): both
+   rounded float32 constants are integer-valued, so uint64(...) yields exact decimal evidence. *)
+Example eval_scar_direct :
+  eval_expr (EIntConvert IUint64 (EFloatConvert F32 (EFloat d_scar))) = Some (VInteger IUint64 2305843284091600896).
+Proof. reflexivity. Qed.
+Example eval_scar_nested :
+  eval_expr (EIntConvert IUint64 (EFloatConvert F32 (EFloatConvert F64 (EFloat d_scar))))
+    = Some (VInteger IUint64 2305843009213693952).
+Proof. reflexivity. Qed.
+Example eval_scar_differ :
+  eval_expr (EIntConvert IUint64 (EFloatConvert F32 (EFloat d_scar)))
+    <> eval_expr (EIntConvert IUint64 (EFloatConvert F32 (EFloatConvert F64 (EFloat d_scar)))).
+Proof. rewrite eval_scar_direct, eval_scar_nested; discriminate. Qed.
+(* §25 constant underflow produces POSITIVE zero at runtime (never -0) *)
+Example eval_underflow_pos_zero :
+  option_map (fun v => match v with VFloat _ fv => fv_sf fv | _ => S754_nan end)
+             (eval_expr (EFloatConvert F64 (EFloat (mkDecimal 1 (-330) eq_refl))))
+    = Some (S754_zero false).
+Proof. vm_compute. reflexivity. Qed.
 
 (** ---- the safety certificate ---- *)
 
