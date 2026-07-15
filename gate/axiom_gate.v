@@ -55,6 +55,16 @@ Print Assumptions Floats.round_const_scar_direct_f32.
 Print Assumptions Floats.round_const_overflow_f32.
 Print Assumptions Floats.round_const_underflow_f64.
 Print Assumptions Floats.round_const_source_zero_f64.
+(* the intrinsic finite-decimal raw literal domain: equality by canonical representation (proof-irrelevant
+   well-formedness); the exact rational value is canonical; the unique (0,0) zero -> unsigned zero; a bound /
+   non-canonical fixture rejects. *)
+Print Assumptions Floats.dm_eqb_eq.
+Print Assumptions Floats.decimal_value_canonical.
+Print Assumptions Floats.decimal_value_zero.
+Print Assumptions Floats.decimal_zero_unique.
+Print Assumptions Floats.decimal_wfb_max_ok.
+Print Assumptions Floats.decimal_wfb_coeff_over.
+Print Assumptions Floats.decimal_value_1p5.
 
 (* intrinsic FilePath: decidable equality; a representable canonical path; a rejected (unrepresentable)
    path.  Non-canonical paths have no FilePath value at all — this is unrepresentability, not rejection. *)
