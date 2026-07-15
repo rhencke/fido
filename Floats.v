@@ -491,3 +491,119 @@ Proof.
   intros ft q s H HI. pose proof (representable_finite_or_zero ft q H) as Hf.
   rewrite HI in Hf; discriminate.
 Qed.
+
+(** ============================================================================
+    §5-8 INTRINSIC TYPED FLOAT CONSTANTS — one package that carries BOTH the exact
+    rounded rational AND its canonical runtime IEEE value, plus a proof they denote
+    the same value.  Constructed by the ONE authority [round_typed_float], which
+    rounds ONCE at the destination format (F32 directly at binary32); the exact and
+    runtime representations come from that single rounding event, so evaluation never
+    rounds a typed float constant again.
+    ============================================================================ *)
+
+(** the constant-origin runtime shape (contract §5.D): a typed float constant's runtime is exactly +0 or a
+    finite value — never -0, infinity, or NaN.  (Those inhabit the general [FloatValue] domain, but are not
+    constants.) *)
+Definition float_constant_runtimeb (v : spec_float) : bool :=
+  match v with
+  | S754_zero false   => true
+  | S754_finite _ _ _ => true
+  | _                 => false
+  end.
+
+Record TypedFloatConst (ft : FloatType) : Type := mkTFC {
+  tfc_exact   : FloatConst ;                                            (* A: exact rounded rational *)
+  tfc_runtime : FloatValue ft ;                                         (* B: canonical runtime IEEE value *)
+  tfc_coh     : sf_to_FloatConst (fv_sf tfc_runtime) = Some tfc_exact ; (* C: exact/runtime coherence *)
+  tfc_shape   : float_constant_runtimeb (fv_sf tfc_runtime) = true      (* D: +0 or finite only *)
+}.
+Arguments mkTFC {ft} _ _ _ _.
+Arguments tfc_exact {ft} _.
+Arguments tfc_runtime {ft} _.
+Arguments tfc_coh {ft} _.
+Arguments tfc_shape {ft} _.
+
+(** [sf_to_FloatConst] ignores a zero's sign, so stripping it does not change the read-back constant. *)
+Lemma sf_to_FloatConst_strip : forall w, sf_to_FloatConst (strip_neg_zero w) = sf_to_FloatConst w.
+Proof. intro w; destruct w; reflexivity. Qed.
+
+(** the runtime built by [float_value_of_const] is never -0, so once it reads back as an exact constant it is
+    necessarily +0 or finite — establishing shape field D from coherence field C. *)
+Lemma float_value_of_const_constant_shape : forall ft q r,
+  sf_to_FloatConst (fv_sf (float_value_of_const ft q)) = Some r ->
+  float_constant_runtimeb (fv_sf (float_value_of_const ft q)) = true.
+Proof.
+  intros ft q r H. cbn [fv_sf float_value_of_const] in *.
+  destruct (round_float_sf ft q) as [sb|sb| |sb m e]; cbn [strip_neg_zero] in *;
+    cbn [sf_to_FloatConst float_constant_runtimeb] in *; try reflexivity; discriminate.
+Qed.
+
+(** decide the runtime read-back once, CARRYING the proof — a [sumor] value (not a dependent [option] match),
+    so downstream reasoning destructs a plain value and never re-abstracts a convoy motive. *)
+Definition float_repr_dec (ft : FloatType) (q : FloatConst) :
+  {r : FloatConst | sf_to_FloatConst (fv_sf (float_value_of_const ft q)) = Some r}
+  + {sf_to_FloatConst (fv_sf (float_value_of_const ft q)) = None} :=
+  match sf_to_FloatConst (fv_sf (float_value_of_const ft q)) as o
+    return (sf_to_FloatConst (fv_sf (float_value_of_const ft q)) = o ->
+            {r : FloatConst | sf_to_FloatConst (fv_sf (float_value_of_const ft q)) = Some r}
+            + {sf_to_FloatConst (fv_sf (float_value_of_const ft q)) = None})
+  with
+  | Some r => fun H => inleft (exist _ r H)
+  | None   => fun H => inright H
+  end eq_refl.
+
+(** the read-back decision agrees with [sf_to_FloatConst] — immediate from the carried proof. *)
+Lemma float_repr_dec_spec : forall ft q,
+  match float_repr_dec ft q with
+  | inleft (exist _ r _) => sf_to_FloatConst (fv_sf (float_value_of_const ft q)) = Some r
+  | inright _            => sf_to_FloatConst (fv_sf (float_value_of_const ft q)) = None
+  end.
+Proof. intros ft q; destruct (float_repr_dec ft q) as [[r Hr]|Hn]; assumption. Qed.
+
+(** the ONE typed-float-constant construction authority (contract §6): round the exact rational ONCE at [ft]
+    (via [float_value_of_const]), normalize a zero result to +0, reject overflow (infinity) and NaN, and
+    package the exact rounded rational, the canonical runtime value, and their coherence — all from that
+    single rounding. *)
+Definition round_typed_float (ft : FloatType) (q : FloatConst) : option (TypedFloatConst ft) :=
+  match float_repr_dec ft q with
+  | inleft (exist _ r Hr) =>
+      Some (mkTFC r (float_value_of_const ft q) Hr (float_value_of_const_constant_shape ft q r Hr))
+  | inright _ => None
+  end.
+
+(** the runtime of a typed float constant is exactly the single-rounding [float_value_of_const] result. *)
+Lemma round_typed_float_runtime : forall ft q tc,
+  round_typed_float ft q = Some tc -> tfc_runtime tc = float_value_of_const ft q.
+Proof.
+  intros ft q tc H. unfold round_typed_float in H.
+  destruct (float_repr_dec ft q) as [[r Hr]|Hn];
+    [ injection H as <-; reflexivity | discriminate ].
+Qed.
+
+(** §7: [round_float_const] is EXACTLY the exact-rational projection of [round_typed_float] — no second
+    rounding authority. *)
+Lemma round_float_const_typed : forall ft q,
+  round_float_const ft q = option_map tfc_exact (round_typed_float ft q).
+Proof.
+  intros ft q. unfold round_float_const.
+  rewrite <- (sf_to_FloatConst_strip (round_float_sf ft q)).
+  change (strip_neg_zero (round_float_sf ft q)) with (fv_sf (float_value_of_const ft q)).
+  pose proof (float_repr_dec_spec ft q) as Hspec.
+  unfold round_typed_float.
+  destruct (float_repr_dec ft q) as [[r Hr]|Hn]; cbn [option_map tfc_exact]; exact Hspec.
+Qed.
+
+(** §8: representability is EXACTLY existence of a typed result (reflected through [round_typed_float], not a
+    second overflow checker). *)
+Lemma round_typed_float_representable : forall ft q,
+  float_representableb ft q = true <-> exists tc, round_typed_float ft q = Some tc.
+Proof.
+  intros ft q. unfold float_representableb, round_float_const.
+  rewrite <- (sf_to_FloatConst_strip (round_float_sf ft q)).
+  change (strip_neg_zero (round_float_sf ft q)) with (fv_sf (float_value_of_const ft q)).
+  pose proof (float_repr_dec_spec ft q) as Hspec.
+  unfold round_typed_float.
+  destruct (float_repr_dec ft q) as [[r Hr]|Hn]; rewrite Hspec.
+  - split; intro; [ eexists; reflexivity | reflexivity ].
+  - split; [ discriminate | intros [tc HH]; discriminate ].
+Qed.
