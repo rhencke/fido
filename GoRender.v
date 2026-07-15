@@ -927,27 +927,27 @@ Qed.
 
 Inductive RenderedConstInfoDenotes : string -> ConstInfo -> Prop :=
 | RCDBool : forall (b : bool),
-    RenderedConstInfoDenotes (if b then "true"%string else "false"%string) (UntypedConst (CBool b))
+    RenderedConstInfoDenotes (if b then "true"%string else "false"%string) (CIUntyped (CBool b))
 | RCDInt : forall s z,
     go_int_lit s = true ->
     read_go_int s = z ->
-    RenderedConstInfoDenotes s (UntypedConst (CInt z))
+    RenderedConstInfoDenotes s (CIUntyped (CInt z))
 | RCDString : forall s bytes,
     decode_string_literal s = Some bytes ->
-    RenderedConstInfoDenotes s (UntypedConst (CString bytes))
-| RCDIntConvert : forall target inner ci z,
+    RenderedConstInfoDenotes s (CIUntyped (CString bytes))
+| RCDIntConvert : forall target inner ci (tc : TypedConst (TInteger target)),
     RenderedConstInfoDenotes inner ci ->
-    convert_const (TInteger target) (ci_const ci) = Some (CInt z) ->
+    convert_const (TInteger target) ci = Some tc ->
     RenderedConstInfoDenotes (integer_keyword target ++ "(" ++ inner ++ ")")
-                             (TypedConst (TInteger target) (CInt z))
+                             (CITyped (TInteger target) tc)
 | RCDFloat : forall s q,
     decode_decimal s = Some q ->
-    RenderedConstInfoDenotes s (UntypedConst (CFloat q))
-| RCDFloatConvert : forall target inner ci q,
+    RenderedConstInfoDenotes s (CIUntyped (CFloat q))
+| RCDFloatConvert : forall target inner ci (tc : TypedConst (TFloat target)),
     RenderedConstInfoDenotes inner ci ->
-    convert_const (TFloat target) (ci_const ci) = Some (CFloat q) ->
+    convert_const (TFloat target) ci = Some tc ->
     RenderedConstInfoDenotes (float_keyword target ++ "(" ++ inner ++ ")")
-                             (TypedConst (TFloat target) (CFloat q)).
+                             (CITyped (TFloat target) tc).
 
 (** print_Z of a nonnegative is nonempty and its first character is a decimal digit, not '-'. *)
 Lemma print_Z_pos_head_not_minus : forall p,
@@ -995,30 +995,28 @@ Qed.
     caller's induction hypothesis (a separate lemma so [const_info e'] is not abstracted in the IH). *)
 Lemma const_info_convert_inner : forall it e ci,
   const_info (EIntConvert it e) = Some ci ->
-  exists ci' z, const_info e = Some ci'
-             /\ convert_const (TInteger it) (ci_const ci') = Some (CInt z)
-             /\ ci = TypedConst (TInteger it) (CInt z).
+  exists ci' (tc : TypedConst (TInteger it)), const_info e = Some ci'
+             /\ convert_const (TInteger it) ci' = Some tc
+             /\ ci = CITyped (TInteger it) tc.
 Proof.
   intros it e ci H; cbn [const_info] in H.
   destruct (const_info e) as [ci'|] eqn:Hce'; [| discriminate].
-  destruct (convert_const (TInteger it) (ci_const ci')) as [c|] eqn:Hconv; [| discriminate].
+  destruct (convert_const (TInteger it) ci') as [tc|] eqn:Hconv; cbn [option_map] in H; [| discriminate].
   injection H as <-.
-  destruct (convert_const_int_shape it (ci_const ci') c Hconv) as [z [-> Hz]].
-  exists ci', z. split; [ reflexivity | split; [ exact Hconv | reflexivity ] ].
+  exists ci', tc. split; [ reflexivity | split; [ exact Hconv | reflexivity ] ].
 Qed.
 
 Lemma const_info_float_convert_inner : forall ft e ci,
   const_info (EFloatConvert ft e) = Some ci ->
-  exists ci' q, const_info e = Some ci'
-             /\ convert_const (TFloat ft) (ci_const ci') = Some (CFloat q)
-             /\ ci = TypedConst (TFloat ft) (CFloat q).
+  exists ci' (tc : TypedConst (TFloat ft)), const_info e = Some ci'
+             /\ convert_const (TFloat ft) ci' = Some tc
+             /\ ci = CITyped (TFloat ft) tc.
 Proof.
   intros ft e ci H; cbn [const_info] in H.
   destruct (const_info e) as [ci'|] eqn:Hce'; [| discriminate].
-  destruct (convert_const (TFloat ft) (ci_const ci')) as [c|] eqn:Hconv; [| discriminate].
+  destruct (convert_const (TFloat ft) ci') as [tc|] eqn:Hconv; cbn [option_map] in H; [| discriminate].
   injection H as <-.
-  destruct (convert_const_float_shape ft (ci_const ci') c Hconv) as [q ->].
-  exists ci', q. split; [ reflexivity | split; [ exact Hconv | reflexivity ] ].
+  exists ci', tc. split; [ reflexivity | split; [ exact Hconv | reflexivity ] ].
 Qed.
 
 (** ★§2-3/§29 ROOT: rendering an expression denotes EXACTLY the [const_info] GoTypes computes for it — the
@@ -1034,10 +1032,10 @@ Proof.
   - simpl in H; injection H as <-; cbn [render_expr]; apply RCDInt; [ apply go_int_lit_EInt | apply read_go_int_EInt ].
   - simpl in H; injection H as <-; cbn [render_expr]; apply RCDInt; [ apply go_int_lit_ENeg | apply read_go_int_ENeg ].
   - simpl in H; injection H as <-; cbn [render_expr]; apply RCDString, render_string_roundtrip.
-  - destruct (const_info_convert_inner it' e' ci H) as [ ci' [ z [ Hce' [ Hconv -> ] ] ] ].
+  - destruct (const_info_convert_inner it' e' ci H) as [ ci' [ tc [ Hce' [ Hconv -> ] ] ] ].
     cbn [render_expr]. apply RCDIntConvert with (ci := ci'); [ apply IHe'; exact Hce' | exact Hconv ].
   - cbn [const_info] in H; injection H as <-; cbn [render_expr]. apply RCDFloat, decode_render_decimal.
-  - destruct (const_info_float_convert_inner ft e' ci H) as [ ci' [ q [ Hce' [ Hconv -> ] ] ] ].
+  - destruct (const_info_float_convert_inner ft e' ci H) as [ ci' [ tc [ Hce' [ Hconv -> ] ] ] ].
     cbn [render_expr]. apply RCDFloatConvert with (ci := ci'); [ apply IHe'; exact Hce' | exact Hconv ].
 Qed.
 
@@ -1168,13 +1166,13 @@ Proof.
     [ b
     | s z Hint Hread
     | s bytes Hstr
-    | ti inner ci z Hinner IH Hconv
+    | ti inner ci tc Hinner IH Hconv
     | s q Hdec
-    | tf inner ci q Hinner IH Hconv ]; intros ci2 H2.
+    | tf inner ci tc Hinner IH Hconv ]; intros ci2 H2.
   - (* H1 = RCDBool : the spelling is the concrete "true"/"false" *)
     destruct b; inversion H2 as
       [ b0 Hs0 | s0 z0 Hint0 Hread0 Hs0 | s0 by0 Hstr0 Hs0
-      | t0 in0 cc0 z0 Hin0 Hcv0 Hs0 | s0 q0 Hdec0 Hs0 | t0 in0 cc0 q0 Hin0 Hcv0 Hs0 ]; subst;
+      | t0 in0 cc0 tc0 Hin0 Hcv0 Hs0 | s0 q0 Hdec0 Hs0 | t0 in0 cc0 tc0 Hin0 Hcv0 Hs0 ]; subst;
       solve
         [ destruct b0; cbn in *; congruence
         | vm_compute in Hint0; discriminate Hint0
@@ -1184,7 +1182,7 @@ Proof.
   - (* H1 = RCDInt : subst eliminates the string var into the outer [Hint] *)
     inversion H2 as
       [ b0 Hs0 | s0 z0 Hint0 Hread0 Hs0 | s0 by0 Hstr0 Hs0
-      | t0 in0 cc0 z0 Hin0 Hcv0 Hs0 | s0 q0 Hdec0 Hs0 | t0 in0 cc0 q0 Hin0 Hcv0 Hs0 ]; subst;
+      | t0 in0 cc0 tc0 Hin0 Hcv0 Hs0 | s0 q0 Hdec0 Hs0 | t0 in0 cc0 tc0 Hin0 Hcv0 Hs0 ]; subst;
       solve
         [ destruct b0; vm_compute in Hint; discriminate Hint
         | congruence
@@ -1195,7 +1193,7 @@ Proof.
   - (* H1 = RCDString *)
     inversion H2 as
       [ b0 Hs0 | s0 z0 Hint0 Hread0 Hs0 | s0 by0 Hstr0 Hs0
-      | t0 in0 cc0 z0 Hin0 Hcv0 Hs0 | s0 q0 Hdec0 Hs0 | t0 in0 cc0 q0 Hin0 Hcv0 Hs0 ]; subst;
+      | t0 in0 cc0 tc0 Hin0 Hcv0 Hs0 | s0 q0 Hdec0 Hs0 | t0 in0 cc0 tc0 Hin0 Hcv0 Hs0 ]; subst;
       solve
         [ destruct b0; vm_compute in Hstr; discriminate Hstr
         | congruence
@@ -1204,22 +1202,24 @@ Proof.
         | destruct (decode_string_literal_head _ _ Hstr) as [rest Hrs];
             rewrite Hrs in Hdec0; rewrite decode_decimal_dquote in Hdec0; discriminate Hdec0
         | destruct t0; vm_compute in Hstr; discriminate Hstr ].
-  - (* H1 = RCDIntConvert : the compound spelling survives subst as [Hs0] *)
+  - (* H1 = RCDIntConvert : the compound spelling survives subst as [Hs0]; the diagonal proves tc = tc0 by
+       [convert_const] being a function *)
     inversion H2 as
       [ b0 Hs0 | s0 z0 Hint0 Hread0 Hs0 | s0 by0 Hstr0 Hs0
-      | t0 in0 cc0 z0 Hin0 Hcv0 Hs0 | s0 q0 Hdec0 Hs0 | t0 in0 cc0 q0 Hin0 Hcv0 Hs0 ]; subst.
+      | t0 in0 cc0 tc0 Hin0 Hcv0 Hs0 | s0 q0 Hdec0 Hs0 | t0 in0 cc0 tc0 Hin0 Hcv0 Hs0 ]; subst.
     + destruct b0; destruct ti; cbn in Hs0; discriminate Hs0.
     + destruct ti; vm_compute in Hint0; discriminate Hint0.
     + destruct ti; vm_compute in Hstr0; discriminate Hstr0.
     + destruct (int_kw_paren_inj t0 ti (in0 ++ ")") (inner ++ ")") Hs0) as [-> Htl];
         apply str_snoc_inj in Htl; subst in0;
-        specialize (IH cc0 Hin0); subst cc0; congruence.
+        specialize (IH cc0 Hin0); subst cc0;
+        assert (Heq : tc = tc0) by congruence; rewrite Heq; reflexivity.
     + destruct ti; vm_compute in Hdec0; discriminate Hdec0.
     + exfalso; apply (int_float_kw_paren_disjoint ti t0 (inner ++ ")") (in0 ++ ")")); symmetry; exact Hs0.
   - (* H1 = RCDFloat *)
     inversion H2 as
       [ b0 Hs0 | s0 z0 Hint0 Hread0 Hs0 | s0 by0 Hstr0 Hs0
-      | t0 in0 cc0 z0 Hin0 Hcv0 Hs0 | s0 q0 Hdec0 Hs0 | t0 in0 cc0 q0 Hin0 Hcv0 Hs0 ]; subst;
+      | t0 in0 cc0 tc0 Hin0 Hcv0 Hs0 | s0 q0 Hdec0 Hs0 | t0 in0 cc0 tc0 Hin0 Hcv0 Hs0 ]; subst;
       solve
         [ destruct b0; vm_compute in Hdec; discriminate Hdec
         | rewrite (go_int_lit_decode_decimal_None _ Hint0) in Hdec; discriminate Hdec
@@ -1230,7 +1230,7 @@ Proof.
   - (* H1 = RCDFloatConvert *)
     inversion H2 as
       [ b0 Hs0 | s0 z0 Hint0 Hread0 Hs0 | s0 by0 Hstr0 Hs0
-      | t0 in0 cc0 z0 Hin0 Hcv0 Hs0 | s0 q0 Hdec0 Hs0 | t0 in0 cc0 q0 Hin0 Hcv0 Hs0 ]; subst.
+      | t0 in0 cc0 tc0 Hin0 Hcv0 Hs0 | s0 q0 Hdec0 Hs0 | t0 in0 cc0 tc0 Hin0 Hcv0 Hs0 ]; subst.
     + destruct b0; destruct tf; cbn in Hs0; discriminate Hs0.
     + destruct tf; vm_compute in Hint0; discriminate Hint0.
     + destruct tf; vm_compute in Hstr0; discriminate Hstr0.
@@ -1238,7 +1238,8 @@ Proof.
     + destruct tf; vm_compute in Hdec0; discriminate Hdec0.
     + destruct (float_kw_paren_inj t0 tf (in0 ++ ")") (inner ++ ")") Hs0) as [-> Htl];
         apply str_snoc_inj in Htl; subst in0;
-        specialize (IH cc0 Hin0); subst cc0; congruence.
+        specialize (IH cc0 Hin0); subst cc0;
+        assert (Heq : tc = tc0) by congruence; rewrite Heq; reflexivity.
 Qed.
 
 (** The one root theorem connecting the three authorities (GoTypes constant-status, GoSafe value, GoRender
@@ -1248,29 +1249,31 @@ Qed.
     acceptance is external adequacy, exercised differentially by the e2e. *)
 Theorem render_resolved_expr_denotes : forall e t,
   ResolveExpr UsePrintlnArg e t ->
-  exists ci v,
+  exists ci rc v,
        const_info e = Some ci
-    /\ info_type ci = t
+    /\ resolve_const_info ci = Some rc
+    /\ resolved_const_type rc = t
     /\ RenderedConstInfoDenotes (render_expr e) ci
     /\ eval_expr e = Some v
     /\ value_type v = t
     /\ ValueWF v
-    /\ const_to_value (info_type ci) (ci_const ci) = Some v.
+    /\ ValueDenotesConst v (resolved_const_exact rc).
 Proof.
-  intros e t H; pose proof H as HR.
-  apply resolve_expr_complete in H; unfold resolve_expr in H.
-  destruct (const_info e) as [ci|] eqn:Hci; [| discriminate].
-  destruct (use_allowsb UsePrintlnArg (info_type ci) && ci_okb ci); [| discriminate].
-  injection H as Ht.
-  destruct (eval_expr_resolved UsePrintlnArg e t HR) as [ v [ Hev [ Hvt Hwf ] ] ].
-  exists ci, v.
+  intros e t H.
+  destruct (eval_expr_denotes UsePrintlnArg e t H)
+    as [ rc [ v [ Hrec [ Hev [ Hvt [ Hwf Hden ] ] ] ] ] ].
+  destruct (resolve_expr_const_sound UsePrintlnArg e rc Hrec) as [ ci [ Hci [ Hri Hua ] ] ].
+  assert (Hteq : resolved_const_type rc = t).
+  { apply resolve_expr_complete in H; unfold resolve_expr in H; rewrite Hrec in H;
+    cbn [option_map] in H; injection H as H'; exact H'. }
+  exists ci, rc, v; subst t.
+  split; [ exact Hci | ].
+  split; [ exact Hri | ].
   split; [ reflexivity | ].
-  split; [ exact Ht | ].
   split; [ apply render_const_info_denotes; exact Hci | ].
   split; [ exact Hev | ].
   split; [ exact Hvt | ].
-  split; [ exact Hwf | ].
-  apply (eval_const_to_value e ci v Hci Hev).
+  split; [ exact Hwf | exact Hden ].
 Qed.
 
 (** The int boundaries: the max/min literals evaluate to well-formed [int] values AND resolve as
@@ -1304,15 +1307,16 @@ Example render_nested : render_expr (EIntConvert IInt8 (EIntConvert IInt16 (EInt
 (** ---- string denotation surfaces: a rendered string literal denotes its exact untyped byte-constant; a
     RESOLVED string argument is the string instance of the two roots. ---- *)
 Lemma render_string_denotes : forall s,
-  RenderedConstInfoDenotes (render_expr (EString s)) (UntypedConst (CString s)).
+  RenderedConstInfoDenotes (render_expr (EString s)) (CIUntyped (CString s)).
 Proof. intro s; apply render_const_info_denotes; reflexivity. Qed.
 
 Lemma render_resolved_string_denotes : forall s t,
   ResolveExpr UsePrintlnArg (EString s) t ->
-  exists ci v, const_info (EString s) = Some ci /\ info_type ci = t
+  exists ci rc v, const_info (EString s) = Some ci /\ resolve_const_info ci = Some rc
+            /\ resolved_const_type rc = t
             /\ RenderedConstInfoDenotes (render_expr (EString s)) ci
             /\ eval_expr (EString s) = Some v /\ value_type v = t /\ ValueWF v
-            /\ const_to_value (info_type ci) (ci_const ci) = Some v.
+            /\ ValueDenotesConst v (resolved_const_exact rc).
 Proof. intros s t H; apply render_resolved_expr_denotes; exact H. Qed.
 
 (** ---- §4 integer-repair regressions: a bare integer stays UNTYPED (NO false [int] label) even far above
@@ -1323,39 +1327,38 @@ Proof. reflexivity. Qed.
 
 Example repair_bare_untyped :
   RenderedConstInfoDenotes (render_expr (EInt 9223372036854775808))
-                           (UntypedConst (CInt 9223372036854775808)).
+                           (CIUntyped (CInt 9223372036854775808)).
 Proof. apply render_const_info_denotes; reflexivity. Qed.
 
 (** a TYPED-constant denotation is always a conversion spelling, so it starts with a conversion keyword's
     first letter (i / u for integers, f for floats) — proved by inversion on a GENERAL string (never the big
     rendered constant). *)
-Lemma rcd_typed_starts_letter : forall s t c,
-  RenderedConstInfoDenotes s (TypedConst t c) ->
+Lemma rcd_typed_starts_letter : forall s t (tc : TypedConst t),
+  RenderedConstInfoDenotes s (CITyped t tc) ->
   exists rest, s = String "i"%char rest \/ s = String "u"%char rest \/ s = String "f"%char rest.
 Proof.
-  intros s t c H;
-    inversion H as [ | | | target inner ci z Hinner Hconv Hs Hci
-                    | | target inner ci q Hinner Hconv Hs Hci ]; subst.
+  intros s t tc H;
+    inversion H as [ | | | target inner ci tc0 Hinner Hconv Hs Hci
+                    | | target inner ci tc0 Hinner Hconv Hs Hci ]; subst.
   - destruct target; cbn; eexists; ((left; reflexivity) || (right; left; reflexivity)).
   - destruct target; cbn; eexists; right; right; reflexivity.
 Qed.
 
-Example repair_bare_not_typed_int :
-  ~ RenderedConstInfoDenotes (render_expr (EInt 9223372036854775808))
-                             (TypedConst (TInteger IInt) (CInt 9223372036854775808)).
+Example repair_bare_not_typed : forall t (tc : TypedConst t),
+  ~ RenderedConstInfoDenotes (render_expr (EInt 9223372036854775808)) (CITyped t tc).
 Proof.
-  intro H; apply rcd_typed_starts_letter in H; rewrite repair_bare_render in H.
+  intros t tc H; apply rcd_typed_starts_letter in H; rewrite repair_bare_render in H.
   destruct H as [ rest [ Hi | [ Hu | Hf ] ] ]; discriminate.
 Qed.
 
 Example repair_uint64_typed :
   RenderedConstInfoDenotes (render_expr (EIntConvert IUint64 (EInt 9223372036854775808)))
-                           (TypedConst (TInteger IUint64) (CInt 9223372036854775808)).
+                           (CITyped (TInteger IUint64) (TCInteger IUint64 9223372036854775808 eq_refl)).
 Proof. apply render_const_info_denotes; reflexivity. Qed.
 
 Example repair_uint64_max_typed :
   RenderedConstInfoDenotes (render_expr (EIntConvert IUint64 (EInt 18446744073709551615)))
-                           (TypedConst (TInteger IUint64) (CInt 18446744073709551615)).
+                           (CITyped (TInteger IUint64) (TCInteger IUint64 18446744073709551615 eq_refl)).
 Proof. apply render_const_info_denotes; reflexivity. Qed.
 
 (** ---- §26/§28/§29 float rendering: the ONE canonical decimal spelling, direct conversion spellings, and
@@ -1368,28 +1371,28 @@ Example render_conv_f32    : render_expr (EFloatConvert F32 (EFloat d_15em1)) = 
 Example render_conv_f64    : render_expr (EFloatConvert F64 (EFloat d_3)) = "float64(3.0e+0)". Proof. reflexivity. Qed.
 
 Lemma render_float_denotes : forall d,
-  RenderedConstInfoDenotes (render_expr (EFloat d)) (UntypedConst (CFloat (decimal_value d))).
+  RenderedConstInfoDenotes (render_expr (EFloat d)) (CIUntyped (CFloat (decimal_value d))).
 Proof. intro d; apply render_const_info_denotes; reflexivity. Qed.
 
 (* the bare float denotes its EXACT (unrounded) rational (= 3/2 for d_15em1, by GoTypes.decimal_value_1p5);
    the F32 conversion denotes the rounded dyadic *)
 Example render_float_untyped_denotes :
-  RenderedConstInfoDenotes (render_expr (EFloat d_15em1)) (UntypedConst (CFloat (decimal_value d_15em1))).
+  RenderedConstInfoDenotes (render_expr (EFloat d_15em1)) (CIUntyped (CFloat (decimal_value d_15em1))).
 Proof. apply render_const_info_denotes; reflexivity. Qed.
 Example render_conv_f32_typed_denotes :
-  RenderedConstInfoDenotes (render_expr (EFloatConvert F32 (EFloat d_scar)))
-                           (TypedConst (TFloat F32) (CFloat (fc_of_Z 2305843284091600896))).
-Proof. apply render_const_info_denotes; reflexivity. Qed.
+  option_map const_info_exact (const_info (EFloatConvert F32 (EFloat d_scar)))
+    = Some (CFloat (fc_of_Z 2305843284091600896)).
+Proof. vm_compute. reflexivity. Qed.
 
 (* §29 required examples: bare 1.0e-1 denotes the UNTYPED exact rational 1/10; a float64 conversion of a tiny
    negative value denotes a TYPED float64 exact (unsigned) zero — no intermediate status, exact via the ONE
    round_float_const authority. *)
 Example render_float_untyped_tenth :
   RenderedConstInfoDenotes (render_expr (EFloat (mkDecimal 1 (-1) eq_refl)))
-                           (UntypedConst (CFloat (decimal_value (mkDecimal 1 (-1) eq_refl)))).
+                           (CIUntyped (CFloat (decimal_value (mkDecimal 1 (-1) eq_refl)))).
 Proof. apply render_const_info_denotes; reflexivity. Qed.
 Example render_conv_f64_underflow_zero :
-  RenderedConstInfoDenotes (render_expr (EFloatConvert F64 (EFloat (mkDecimal (-1) (-330) eq_refl))))
-                           (TypedConst (TFloat F64) (CFloat fc_zero)).
-Proof. apply render_const_info_denotes; vm_compute; reflexivity. Qed.
+  option_map const_info_exact (const_info (EFloatConvert F64 (EFloat (mkDecimal (-1) (-330) eq_refl))))
+    = Some (CFloat fc_zero).
+Proof. vm_compute. reflexivity. Qed.
 

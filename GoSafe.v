@@ -65,88 +65,86 @@ Proof.
   - split; [ intros _; exact I | intros _; reflexivity ].
 Qed.
 
-(** the exact untyped constant carried by a runtime value (its data, forgetting the integer/float type).  A
-    float value's exact rational is read back from its canonical [spec_float]. *)
-Definition fv_to_const {ft : FloatType} (fv : FloatValue ft) : FloatConst :=
-  match sf_to_FloatConst (fv_sf fv) with Some q => q | None => fc_zero end.
-Definition value_const (v : GoValue) : GoConst :=
-  match v with
-  | VBool b => CBool b | VInteger _ z => CInt z | VFloat _ fv => CFloat (fv_to_const fv) | VString s => CString s
+(** ============================================================================
+    §20-24 the intrinsic typed constant PROJECTS to a runtime value.  There is NO total runtime->constant
+    fallback: NaN / infinity / negative-zero runtime values are not constants (an honest RELATION describes
+    when a value denotes a constant).
+    ============================================================================ *)
+
+(** §20 the ONE total typed-constant-to-runtime map: bool/int/string are direct; a FLOAT PROJECTS its stored
+    [tfc_runtime] — it does NOT round again (no [round_float_sf]/[round_float_const]/[round_typed_float]).  A
+    typed integer's carried range proof makes the value well-formed by construction. *)
+Definition typed_const_to_value {t : GoType} (tc : TypedConst t) : GoValue :=
+  match tc with
+  | TCBool b         => VBool b
+  | TCInteger it z _ => VInteger it z
+  | TCFloat ft tfc   => VFloat ft (tfc_runtime tfc)
+  | TCString s       => VString s
   end.
 
-(** The one bridge from a RESOLVED type + exact untyped constant ([GoTypes.GoConst]) to a runtime value.  The
-    integer/float type comes from the resolution/conversion result — never invented here.  A float constant
-    ROUNDS ONCE at its format into a canonical [FloatValue]; a type/constant mismatch is [None]. *)
-Definition const_to_value (t : GoType) (c : GoConst) : option GoValue :=
-  match t, c with
-  | TBool,       CBool b   => Some (VBool b)
-  | TInteger it, CInt z    => Some (VInteger it z)
-  | TFloat ft,   CFloat q  => Some (VFloat ft (float_value_of_const ft q))
-  | TString,     CString s => Some (VString s)
-  | _, _ => None
-  end.
+(** §24 the projection has the intrinsic type and is well-formed by construction (short projections). *)
+Lemma typed_const_to_value_type : forall t (tc : TypedConst t), value_type (typed_const_to_value tc) = t.
+Proof. intros t tc; destruct tc; reflexivity. Qed.
 
-Lemma const_to_value_representable : forall t c,
-  ConstRepresentable t c -> exists v, const_to_value t c = Some v /\ value_type v = t /\ ValueWF v.
+Lemma typed_const_to_value_wf : forall t (tc : TypedConst t), ValueWF (typed_const_to_value tc).
 Proof.
-  intros t c H; destruct H as [ b | it z Hir | ft q Hfr | s ]; simpl.
-  - exists (VBool b);      split; [ reflexivity | split; [ reflexivity | exact I ] ].
-  - exists (VInteger it z); split; [ reflexivity | split; [ reflexivity | exact Hir ] ].
-  - exists (VFloat ft (float_value_of_const ft q));
-      split; [ reflexivity | split; [ reflexivity | exact I ] ].
-  - exists (VString s);    split; [ reflexivity | split; [ reflexivity | exact I ] ].
+  intros t tc; destruct tc as [ b | it z Hpf | ft tfc | s ]; cbn [typed_const_to_value ValueWF].
+  - exact I.
+  - apply integer_representableb_spec; exact Hpf.
+  - exact I.
+  - exact I.
 Qed.
 
-(** evaluation of the one constant-status result: an UNTYPED constant is given its default type and must be
-    representable there (a bare [2^63] has no [int] value; a bare overflowing float has no [float64] value);
-    a TYPED constant is already validated at its format by [const_info]/[convert_const] and maps directly (its
-    value is [None] only on a bool/string target, which no conversion produces). *)
-Definition info_to_value (ci : ConstInfo) : option GoValue :=
-  match ci with
-  | UntypedConst c => if const_representableb (const_default_type c) c
-                      then const_to_value (const_default_type c) c else None
-  | TypedConst t c => const_to_value t c
-  end.
+(** §37 no second rounding: evaluating a typed float constant PROJECTS its stored runtime, reflexively. *)
+Lemma typed_const_to_value_float : forall ft (tfc : TypedFloatConst ft),
+  typed_const_to_value (TCFloat ft tfc) = VFloat ft (tfc_runtime tfc).
+Proof. reflexivity. Qed.
 
-(** for any successfully-evaluated constant status, the value IS the resolved-type interpretation of its
-    carried constant ([const_to_value] of [info_type]/[ci_const]) — the uniform runtime/analysis bridge. *)
-Lemma info_to_value_const_to_value : forall ci v,
-  info_to_value ci = Some v -> const_to_value (info_type ci) (ci_const ci) = Some v.
+(** §23 an HONEST value/constant denotation relation.  The float case is phrased through [TypedFloatConst]
+    coherence: a typed-float-constant runtime denotes its exact [tfc_exact].  A standalone NaN / infinity /
+    negative-zero runtime value has NO constructor here, so it denotes NO constant. *)
+Inductive ValueDenotesConst : GoValue -> GoConst -> Prop :=
+| VDBool   : forall b, ValueDenotesConst (VBool b) (CBool b)
+| VDInt    : forall it z, IntRepresentable it z -> ValueDenotesConst (VInteger it z) (CInt z)
+| VDFloat  : forall ft (tfc : TypedFloatConst ft),
+    ValueDenotesConst (VFloat ft (tfc_runtime tfc)) (CFloat (tfc_exact tfc))
+| VDString : forall s, ValueDenotesConst (VString s) (CString s).
+
+(** §24 the projected runtime value denotes the typed constant's exact value, by construction. *)
+Lemma typed_const_to_value_denotes : forall t (tc : TypedConst t),
+  ValueDenotesConst (typed_const_to_value tc) (typed_const_exact tc).
 Proof.
-  intros [c | t c] v H; simpl in H |- *.
-  - destruct (const_representableb (const_default_type c) c); [ exact H | discriminate ].
-  - exact H.
+  intros t tc; destruct tc as [ b | it z Hpf | ft tfc | s ]; cbn [typed_const_to_value typed_const_exact].
+  - constructor.
+  - constructor; apply integer_representableb_spec; exact Hpf.
+  - constructor.
+  - constructor.
 Qed.
 
-(** Evaluation IS the one constant-status analysis mapped to a value — no second case analysis over the raw
-    syntax, no second conversion/representability authority.  Partial: an invalid (nested) conversion or an
-    out-of-range/overflowing default constant has NO value. *)
+(** §21 Evaluation IS the one constant-status analysis RESOLVED to a validated typed constant and PROJECTED —
+    no second case analysis over the raw syntax, no second conversion/representability decision, no second
+    float rounding.  Partial: an invalid (nested) conversion or an out-of-range/overflowing default constant
+    has NO value. *)
 Definition eval_expr (e : GoExpr) : option GoValue :=
-  match const_info e with Some ci => info_to_value ci | None => None end.
+  match const_info e with
+  | None => None
+  | Some ci =>
+      match resolve_const_info ci with
+      | None => None
+      | Some (pack_resolved _ tc) => Some (typed_const_to_value tc)
+      end
+  end.
 
 (** A RESOLVED expression always evaluates to a well-formed value whose runtime type is EXACTLY the resolved
     [GoType] — the compiler's static resolution and the runtime value agree (one [GoType] authority). *)
 Lemma eval_expr_resolved : forall u e t,
   ResolveExpr u e t -> exists v, eval_expr e = Some v /\ value_type v = t /\ ValueWF v.
 Proof.
-  intros u e t H; induction H as [ u0 e0 ci t0 Hci Htype Hu Hok ].
-  unfold eval_expr; rewrite Hci.
-  destruct ci as [ c | ty c ]; cbn [info_type] in Htype; subst t0.
-  - (* untyped: use-ready = representable at the default type *)
-    cbn [ci_ok] in Hok. unfold info_to_value.
-    apply const_representableb_iff in Hok as Hokb. rewrite Hokb.
-    apply const_to_value_representable; exact Hok.
-  - (* typed: already validated at its NUMERIC format by const_info *)
-    unfold info_to_value.
-    destruct ty as [| it | ft |].
-    + destruct (const_info_typed_numeric _ _ _ Hci) as [[it Hc]|[ft Hc]]; discriminate Hc.
-    + destruct (const_info_typed_int_representable _ _ _ Hci) as [z [-> Hz]].
-      exists (VInteger it z); cbn [const_to_value value_type ValueWF].
-      split; [ reflexivity | split; [ reflexivity | apply integer_representableb_spec; exact Hz ] ].
-    + destruct (const_info_typed_float_shape _ _ _ Hci) as [q ->].
-      exists (VFloat ft (float_value_of_const ft q)); cbn [const_to_value value_type ValueWF].
-      split; [ reflexivity | split; [ reflexivity | exact I ] ].
-    + destruct (const_info_typed_numeric _ _ _ Hci) as [[it Hc]|[ft Hc]]; discriminate Hc.
+  intros u e t H; destruct H as [ u0 e0 ci rc Hci Hrc Hua ].
+  unfold eval_expr; rewrite Hci, Hrc.
+  destruct rc as [ t' tc ]; cbn [resolved_const_type].
+  exists (typed_const_to_value tc).
+  split; [ reflexivity | split; [ apply typed_const_to_value_type | apply typed_const_to_value_wf ] ].
 Qed.
 
 (** the resolved value has exactly the resolved type (gate-named corollary of [eval_expr_resolved]). *)
@@ -157,31 +155,24 @@ Proof.
     exists v; split; assumption.
 Qed.
 
-(** the evaluated runtime value IS the resolved-type interpretation of the analyzed constant — for an
-    integer/bool/string that is the exact carried constant; for a float it is the value ROUNDED once at its
-    format (so a bare float rounds to its default, a conversion to its target).  This is the ONE bridge; the
-    exact "value preserved" story holds for the non-float constants (a float value is the rounding, never the
-    exact rational — [const_to_value] rounds). *)
-Lemma eval_const_to_value : forall e ci v,
-  const_info e = Some ci -> eval_expr e = Some v -> const_to_value (info_type ci) (ci_const ci) = Some v.
+(** §24/§29 the resolved runtime value DENOTES the resolved exact constant — the runtime/constant tie, phrased
+    through the honest relation (never a total fallback). *)
+Lemma eval_expr_denotes : forall u e t,
+  ResolveExpr u e t ->
+  exists rc v, resolve_expr_const u e = Some rc /\ eval_expr e = Some v
+            /\ value_type v = resolved_const_type rc /\ ValueWF v
+            /\ ValueDenotesConst v (resolved_const_exact rc).
 Proof.
-  intros e ci v Hci H; unfold eval_expr in H; rewrite Hci in H.
-  apply info_to_value_const_to_value; exact H.
-Qed.
-
-(** an explicit INTEGER conversion evaluates to a [VInteger] carrying exactly the conversion's constant value
-    (§14): [const_value] of the conversion is [Some (value_const v)] — the integer value the (possibly float)
-    operand converts to, kept exact through nesting.  (A float operand truncates; an int operand is
-    value-preserving — both captured by [convert_const].) *)
-Lemma eval_convert_preserves_value : forall it e v,
-  eval_expr (EIntConvert it e) = Some v -> const_value (EIntConvert it e) = Some (value_const v).
-Proof.
-  intros it e v H; unfold eval_expr in H.
-  destruct (const_info (EIntConvert it e)) as [ci|] eqn:Hci; [| discriminate].
-  destruct (const_info_int_convert_shape it e ci Hci) as [z [-> Hz]].
-  cbn [info_to_value const_to_value] in H. injection H as <-.
-  cbn [value_const].
-  rewrite (const_info_value _ _ Hci); reflexivity.
+  intros u e t H; destruct H as [ u0 e0 ci rc Hci Hrc Hua ].
+  apply use_allowsb_iff in Hua.
+  destruct rc as [ t' tc ]; cbn [resolved_const_type resolved_const_exact] in *.
+  exists (pack_resolved t' tc), (typed_const_to_value tc).
+  assert (Hrec : resolve_expr_const u0 e0 = Some (pack_resolved t' tc)).
+  { unfold resolve_expr_const; rewrite Hci, Hrc; cbn [resolved_const_type]; rewrite Hua; reflexivity. }
+  unfold eval_expr; rewrite Hci, Hrc.
+  split; [ exact Hrec | split; [ reflexivity |
+    split; [ apply typed_const_to_value_type |
+    split; [ apply typed_const_to_value_wf | apply typed_const_to_value_denotes ] ] ] ].
 Qed.
 
 (** By VALUE, not spelling: a zero literal and a negated zero evaluate to the SAME value. *)

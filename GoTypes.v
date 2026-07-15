@@ -69,30 +69,49 @@ Definition fc_to_int (q : FloatConst) : option Z :=
   if Z.eqb (Z.rem (fc_num q) (Zpos (fc_den q))) 0
   then Some (fc_num q / Zpos (fc_den q)) else None.
 
-(** the ONE target-directed exact constant-conversion authority (shared by [EIntConvert]/[EFloatConvert],
-    typing, evaluation, and rendering — never duplicated).  A conversion of a CONSTANT is a typed CONSTANT:
-      - integer target from an integer constant: exact value, representability required;
-      - integer target from a floating constant: the exact rational must be integral AND representable
-        (fractional / out-of-range reject) — no runtime truncation of a constant;
-      - float target from an integer constant: embed exact, round ONCE at the destination (reject overflow);
-      - float target from a floating constant: round the exact value ONCE at the destination (reject
-        overflow) — a nested explicit conversion rounds at EACH boundary;
-      - bool/string source, or a bool/string target: reject. *)
-Definition convert_const (t : GoType) (c : GoConst) : option GoConst :=
-  match t, c with
-  | TInteger it, CInt z =>
-      if integer_representableb it z then Some (CInt z) else None
-  | TInteger it, CFloat q =>
-      match fc_to_int q with
-      | Some z => if integer_representableb it z then Some (CInt z) else None
-      | None => None
-      end
-  | TFloat ft, CInt z =>
-      match round_float_const ft (fc_of_Z z) with Some q => Some (CFloat q) | None => None end
-  | TFloat ft, CFloat q =>
-      match round_float_const ft q with Some q' => Some (CFloat q') | None => None end
-  | _, _ => None
+(** decidable equality of float formats — reduces to [left eq_refl] on equal concrete formats, so a same-format
+    conversion computes to the identity (see [same_ft_identity]). *)
+Definition float_type_eq_dec (a b : FloatType) : {a = b} + {a <> b}.
+Proof. decide equality. Defined.
+
+(** ============================================================================
+    §2-3 INTRINSIC TYPED CONSTANTS — a genuinely [GoType]-indexed family.  A typed constant cannot exist
+    without the structural evidence its type requires: an integer carries a proof it is representable at its
+    type, a float carries a [TypedFloatConst] (exact rounded rational + canonical runtime value + coherence).
+    The loose [(GoType, GoConst)] pair is GONE — a mismatched or out-of-range typed constant is
+    UNREPRESENTABLE, not merely rejected, and no [ci_ok := True] convention is needed.
+    ============================================================================ *)
+Inductive TypedConst : GoType -> Type :=
+| TCBool    : bool -> TypedConst TBool
+| TCInteger : forall (it : IntegerType) (z : Z), integer_representableb it z = true -> TypedConst (TInteger it)
+| TCFloat   : forall (ft : FloatType), TypedFloatConst ft -> TypedConst (TFloat ft)
+| TCString  : string -> TypedConst TString.
+
+(** §3 exact-value erasure: forget the type, keep the exact mathematical constant.  It reads the stored data —
+    it NEVER inspects source syntax and NEVER re-rounds a float (a float's exact value is the already-rounded
+    [tfc_exact]). *)
+Definition typed_const_exact {t : GoType} (tc : TypedConst t) : GoConst :=
+  match tc with
+  | TCBool b        => CBool b
+  | TCInteger _ z _ => CInt z
+  | TCFloat _ tfc   => CFloat (tfc_exact tfc)
+  | TCString s      => CString s
   end.
+
+(** a decidable bool guard carrying its own proof — avoids a dependent [if]-convoy in [typed_integer_of_Z]. *)
+Definition bool_true_dec (b : bool) : {b = true} + {b = false} :=
+  match b with true => left eq_refl | false => right eq_refl end.
+
+(** construct a typed integer constant at [it] iff [z] is representable there (§13.A) — carries the range proof. *)
+Definition typed_integer_of_Z (it : IntegerType) (z : Z) : option (TypedConst (TInteger it)) :=
+  match bool_true_dec (integer_representableb it z) with
+  | left H  => Some (TCInteger it z H)
+  | right _ => None
+  end.
+
+(** construct a typed float constant at [ft] by the ONE [round_typed_float] authority (§13.C/D). *)
+Definition typed_float_of_const (ft : FloatType) (q : FloatConst) : option (TypedConst (TFloat ft)) :=
+  option_map (TCFloat ft) (round_typed_float ft q).
 
 (** the ONE constant interpretation of the raw expressions — PARTIAL, because an explicit conversion may be
     compiler-invalid (out-of-range / fractional-to-integer / float overflow) and thus denote NO value.  A raw
@@ -106,8 +125,20 @@ Fixpoint const_value (e : GoExpr) : option GoConst :=
   | ENeg n             => Some (CInt (- Z.of_N n))
   | EString s          => Some (CString s)
   | EFloat d           => Some (CFloat (decimal_value d))
-  | EIntConvert it e'  => match const_value e' with Some c => convert_const (TInteger it) c | None => None end
-  | EFloatConvert ft e' => match const_value e' with Some c => convert_const (TFloat ft) c | None => None end
+  | EIntConvert it e'  =>
+      match const_value e' with
+      | Some (CInt z)   => if integer_representableb it z then Some (CInt z) else None
+      | Some (CFloat q) => match fc_to_int q with
+                           | Some z => if integer_representableb it z then Some (CInt z) else None
+                           | None => None end
+      | _ => None
+      end
+  | EFloatConvert ft e' =>
+      match const_value e' with
+      | Some (CInt z)   => option_map CFloat (round_float_const ft (fc_of_Z z))
+      | Some (CFloat q) => option_map CFloat (round_float_const ft q)
+      | _ => None
+      end
   end.
 
 (** determinism is structural (a function of the syntax). *)
@@ -173,150 +204,121 @@ Proof.
     + reflexivity.
 Qed.
 
-(** ---- one constant-status analysis: untyped vs typed constants over the same raw AST (Go's own lattice) ----
-    A raw literal is an UNTYPED constant; an explicit integer conversion of a constant is a TYPED constant of
-    the destination type, carrying the exact pre-conversion value RANGE-CHECKED against the destination.  A
-    conversion of a bool/string constant is rejected; an invalid inner conversion returns [None] and cannot be
-    revived by an outer conversion (the value is checked at EVERY layer). *)
+(** ============================================================================
+    §9-11 one constant-status analysis over the same raw AST (Go's own lattice): a raw literal is an UNTYPED
+    constant ([CIUntyped]); an explicit conversion is a TYPED constant ([CITyped] carrying the INTRINSIC
+    [TypedConst] — its validity is in its type, so no [ci_ok] convention).  A conversion of a bool/string
+    constant is unrepresentable; an invalid inner conversion returns [None] and cannot be revived (the value
+    is checked at EVERY layer).
+    ============================================================================ *)
 Inductive ConstInfo : Type :=
-| UntypedConst : GoConst -> ConstInfo
-| TypedConst   : GoType -> GoConst -> ConstInfo.
+| CIUntyped : GoConst -> ConstInfo
+| CITyped   : forall (t : GoType), TypedConst t -> ConstInfo.
 
-Definition ci_const (ci : ConstInfo) : GoConst :=
-  match ci with UntypedConst c => c | TypedConst _ c => c end.
+(** §10 exact-value projection: an untyped constant is its own exact value; a typed constant's is its
+    intrinsic [typed_const_exact].  There is no "type of an untyped constant" here — an untyped status has no
+    assigned type yet (a DEFAULT is a separate query, [default_const]). *)
+Definition const_info_exact (ci : ConstInfo) : GoConst :=
+  match ci with CIUntyped c => c | CITyped _ tc => typed_const_exact tc end.
 
-Definition info_type (ci : ConstInfo) : GoType :=
-  match ci with UntypedConst c => const_default_type c | TypedConst t _ => t end.
+(** §11 the packed typed result of resolving ONE expression: existential semantic evidence, NOT a typed AST
+    and NOT a copy of the raw expression. *)
+Inductive ResolvedConst : Type :=
+| pack_resolved : forall (t : GoType), TypedConst t -> ResolvedConst.
+
+Definition resolved_const_type (rc : ResolvedConst) : GoType :=
+  match rc with pack_resolved t _ => t end.
+Definition resolved_const_exact (rc : ResolvedConst) : GoConst :=
+  match rc with pack_resolved _ tc => typed_const_exact tc end.
+
+(** §13.E same-format float identity: converting a typed float constant to its OWN format returns the existing
+    [TypedFloatConst] unchanged (no reround) — the transport is trivial because [float_type_eq_dec ft ft]
+    reduces to [left eq_refl]. *)
+Definition same_ft_identity (ft : FloatType) (ci : ConstInfo) : option (TypedConst (TFloat ft)) :=
+  match ci with
+  | CITyped (TFloat ft') tc =>
+      match float_type_eq_dec ft' ft with
+      | left Heq => Some (eq_rect (TFloat ft') (fun T => TypedConst T) tc (TFloat ft) (f_equal TFloat Heq))
+      | right _  => None
+      end
+  | _ => None
+  end.
+
+(** §13.C/D/E/F float-target conversion: same-format returns the identity; otherwise round the exact source
+    value ONCE at the destination (a different-format typed source rounds its [tfc_exact], preserving the
+    explicit conversion boundary — this is exactly the double-rounding scar). *)
+Definition convert_to_float (ft : FloatType) (ci : ConstInfo) : option (TypedConst (TFloat ft)) :=
+  match same_ft_identity ft ci with
+  | Some tc => Some tc
+  | None =>
+      match const_info_exact ci with
+      | CInt z   => typed_float_of_const ft (fc_of_Z z)
+      | CFloat q => typed_float_of_const ft q
+      | _        => None
+      end
+  end.
+
+(** §12-13 the ONE target-directed constant-conversion authority: it CONSUMES the source constant status and
+    produces an INTRINSIC typed constant at the destination.  Integer target: the exact source (integer, or a
+    float's integral exact value) must be representable.  Float target: [convert_to_float].  bool/string
+    target: unrepresentable. *)
+Definition convert_const (target : GoType) (ci : ConstInfo) : option (TypedConst target) :=
+  match target with
+  | TBool    => None
+  | TString  => None
+  | TInteger it =>
+      match const_info_exact ci with
+      | CInt z   => typed_integer_of_Z it z
+      | CFloat q => match fc_to_int q with
+                    | Some z => typed_integer_of_Z it z
+                    | None => None end
+      | _ => None
+      end
+  | TFloat ft => convert_to_float ft ci
+  end.
 
 Fixpoint const_info (e : GoExpr) : option ConstInfo :=
   match e with
-  | EBool b   => Some (UntypedConst (CBool b))
-  | EInt n    => Some (UntypedConst (CInt (Z.of_N n)))
-  | ENeg n    => Some (UntypedConst (CInt (- Z.of_N n)))
-  | EString s => Some (UntypedConst (CString s))
-  | EFloat d  => Some (UntypedConst (CFloat (decimal_value d)))
+  | EBool b   => Some (CIUntyped (CBool b))
+  | EInt n    => Some (CIUntyped (CInt (Z.of_N n)))
+  | ENeg n    => Some (CIUntyped (CInt (- Z.of_N n)))
+  | EString s => Some (CIUntyped (CString s))
+  | EFloat d  => Some (CIUntyped (CFloat (decimal_value d)))
   | EIntConvert target e' =>
       match const_info e' with
-      | Some ci => match convert_const (TInteger target) (ci_const ci) with
-                   | Some c => Some (TypedConst (TInteger target) c) | None => None end
+      | Some ci => option_map (CITyped (TInteger target)) (convert_const (TInteger target) ci)
       | None => None
       end
   | EFloatConvert target e' =>
       match const_info e' with
-      | Some ci => match convert_const (TFloat target) (ci_const ci) with
-                   | Some c => Some (TypedConst (TFloat target) c) | None => None end
+      | Some ci => option_map (CITyped (TFloat target)) (convert_const (TFloat target) ci)
       | None => None
       end
   end.
 
-(** an INTEGER-target conversion yields a representable integer constant (the range check is [convert_const]'s
-    own; a typed integer constant thus carries a value in range — used for runtime well-formedness).  (A
-    float-target conversion yields a value ALREADY rounded at its format; re-deciding its representability is
-    redundant and is never asked of a typed constant — see [ci_ok].) *)
-Lemma convert_const_int_shape : forall it c c',
-  convert_const (TInteger it) c = Some c' -> exists z, c' = CInt z /\ integer_representableb it z = true.
-Proof.
-  intros it c c' H; destruct c as [ b | z0 | q | s ]; simpl in H; try discriminate.
-  - destruct (integer_representableb it z0) eqn:E; [| discriminate].
-    injection H as <-; exists z0; split; [ reflexivity | exact E ].
-  - destruct (fc_to_int q) as [z0|]; [| discriminate].
-    destruct (integer_representableb it z0) eqn:E; [| discriminate].
-    injection H as <-; exists z0; split; [ reflexivity | exact E ].
-Qed.
+(** §16 defaulting: an UNTYPED constant becomes a validated typed constant in a use context — bool/string
+    always; an int defaults to platform [int] iff representable; a bare float performs its ONE F64 rounding
+    (via [round_typed_float]).  A bare overflowing float has no default typed constant. *)
+Definition default_const (c : GoConst) : option ResolvedConst :=
+  match c with
+  | CBool b   => Some (pack_resolved TBool (TCBool b))
+  | CInt z    => option_map (pack_resolved (TInteger IInt)) (typed_integer_of_Z IInt z)
+  | CFloat q  => option_map (pack_resolved (TFloat F64)) (typed_float_of_const F64 q)
+  | CString s => Some (pack_resolved TString (TCString s))
+  end.
 
-(** [const_info] carries EXACTLY the [const_value] of the expression (the ONE [convert_const] authority drives
-    both, so they agree). *)
-Lemma const_info_value : forall e ci, const_info e = Some ci -> const_value e = Some (ci_const ci).
-Proof.
-  induction e as [ b | n | n | s | it e IHe | d | ft e IHe ]; intros ci H; cbn [const_info] in H.
-  - injection H as <-; reflexivity.
-  - injection H as <-; reflexivity.
-  - injection H as <-; reflexivity.
-  - injection H as <-; reflexivity.
-  - destruct (const_info e) as [ci'|] eqn:Hce; [| discriminate].
-    destruct (convert_const (TInteger it) (ci_const ci')) as [c|] eqn:Hconv; [| discriminate].
-    injection H as <-. cbn [const_value ci_const]. rewrite (IHe ci' eq_refl). exact Hconv.
-  - injection H as <-; reflexivity.
-  - destruct (const_info e) as [ci'|] eqn:Hce; [| discriminate].
-    destruct (convert_const (TFloat ft) (ci_const ci')) as [c|] eqn:Hconv; [| discriminate].
-    injection H as <-. cbn [const_value ci_const]. rewrite (IHe ci' eq_refl). exact Hconv.
-Qed.
+(** §17 resolve a constant status to a validated typed constant: an untyped status defaults; a typed status is
+    packed unchanged (its validity is intrinsic — no [ci_ok], no "typed constants are trusted" branch). *)
+Definition resolve_const_info (ci : ConstInfo) : option ResolvedConst :=
+  match ci with
+  | CIUntyped c  => default_const c
+  | CITyped t tc => Some (pack_resolved t tc)
+  end.
 
 (** successful analysis is deterministic (a function of the syntax). *)
 Lemma const_info_deterministic : forall e ci1 ci2,
   const_info e = Some ci1 -> const_info e = Some ci2 -> ci1 = ci2.
 Proof. intros e ci1 ci2 H1 H2; rewrite H1 in H2; injection H2 as <-; reflexivity. Qed.
-
-(** a typed INTEGER constant produced by the analyzer carries a value REPRESENTABLE at its type (its
-    runtime well-formedness).  A typed FLOAT constant needs no such re-check — it is already rounded at its
-    format ([convert_const]), and its runtime value is canonical by construction. *)
-Lemma const_info_typed_int_representable : forall e it c,
-  const_info e = Some (TypedConst (TInteger it) c) ->
-  exists z, c = CInt z /\ integer_representableb it z = true.
-Proof.
-  intros e it c H. destruct e as [ b | n | n | s | it' e' | d | ft e' ]; cbn [const_info] in H;
-    try discriminate.
-  - destruct (const_info e') as [ci'|] eqn:Hce; [| discriminate].
-    destruct (convert_const (TInteger it') (ci_const ci')) as [c0|] eqn:Hconv; [| discriminate].
-    injection H as <- <-. eapply convert_const_int_shape; exact Hconv.
-  - destruct (const_info e') as [ci'|] eqn:Hce; [| discriminate].
-    destruct (convert_const (TFloat ft) (ci_const ci')) as [c0|] eqn:Hconv; [| discriminate].
-    discriminate H.
-Qed.
-
-(** a FLOAT-target conversion yields a [CFloat] constant (its shape). *)
-Lemma convert_const_float_shape : forall ft c c',
-  convert_const (TFloat ft) c = Some c' -> exists q, c' = CFloat q.
-Proof.
-  intros ft c c' H; destruct c as [ b | z | q0 | s ]; simpl in H; try discriminate.
-  - destruct (round_float_const ft (fc_of_Z z)) as [q|]; [| discriminate].
-    injection H as <-; exists q; reflexivity.
-  - destruct (round_float_const ft q0) as [q|]; [| discriminate].
-    injection H as <-; exists q; reflexivity.
-Qed.
-
-(** a typed constant produced by [const_info] carries a NUMERIC type (integer or float — never bool/string:
-    only [EIntConvert]/[EFloatConvert] produce a [TypedConst]). *)
-Lemma const_info_typed_numeric : forall e ty c,
-  const_info e = Some (TypedConst ty c) ->
-  (exists it, ty = TInteger it) \/ (exists ft, ty = TFloat ft).
-Proof.
-  intros e ty c H; destruct e as [ b | n | n | s | it' e' | d | ft' e' ];
-    cbn [const_info] in H; try discriminate.
-  - destruct (const_info e') as [ci'|]; [| discriminate].
-    destruct (convert_const (TInteger it') (ci_const ci')); [| discriminate].
-    injection H as <- <-; left; exists it'; reflexivity.
-  - destruct (const_info e') as [ci'|]; [| discriminate].
-    destruct (convert_const (TFloat ft') (ci_const ci')); [| discriminate].
-    injection H as <- <-; right; exists ft'; reflexivity.
-Qed.
-
-Lemma const_info_typed_float_shape : forall e ft c,
-  const_info e = Some (TypedConst (TFloat ft) c) -> exists q, c = CFloat q.
-Proof.
-  intros e ft c H; destruct e as [ b | n | n | s | it' e' | d | ft' e' ];
-    cbn [const_info] in H; try discriminate.
-  - destruct (const_info e') as [ci'|]; [| discriminate].
-    destruct (convert_const (TInteger it') (ci_const ci')); [| discriminate]. discriminate H.
-  - destruct (const_info e') as [ci'|] eqn:Hce; [| discriminate].
-    destruct (convert_const (TFloat ft') (ci_const ci')) as [c0|] eqn:Hconv; [| discriminate].
-    injection H as <- <-.
-    destruct (convert_const_float_shape ft' (ci_const ci') c0 Hconv) as [q ->]; exists q; reflexivity.
-Qed.
-
-(** an integer conversion's typed shape: the destination type is exactly [TInteger it] and the value a
-    representable [CInt z] (drives the integer value-preservation surface). *)
-Lemma const_info_int_convert_shape : forall it e ci,
-  const_info (EIntConvert it e) = Some ci ->
-  exists z, ci = TypedConst (TInteger it) (CInt z) /\ integer_representableb it z = true.
-Proof.
-  intros it e ci H; cbn [const_info] in H.
-  destruct (const_info e) as [ci'|] eqn:Hce; [| discriminate].
-  destruct (convert_const (TInteger it) (ci_const ci')) as [c|] eqn:Hconv; [| discriminate].
-  injection H as <-.
-  destruct (convert_const_int_shape it (ci_const ci') c Hconv) as [z [-> Hz]].
-  exists z; split; [ reflexivity | exact Hz ].
-Qed.
 
 (** an invalid inner conversion propagates: it cannot be revived by an outer conversion (either kind). *)
 Lemma const_info_int_none : forall target e,
@@ -351,75 +353,58 @@ Proof.
   intros [] [| it | ft |]; simpl; split; intro H; try constructor; try reflexivity; inversion H.
 Qed.
 
-(** a constant-status result is USE-READY when: an UNTYPED constant is REPRESENTABLE at its default type
-    (the defaulting range check — e.g. bare [2^63] has no [int], bare [1.0e5000] no default [float64]); a
-    TYPED constant is already validated at its format by [const_info]/[convert_const], so nothing is
-    re-checked (this is the integer/float-uniform reason it is NOT re-decided — and for floats a re-decision
-    would redundantly re-round). *)
-Definition ci_ok (ci : ConstInfo) : Prop :=
-  match ci with
-  | UntypedConst c => ConstRepresentable (const_default_type c) c
-  | TypedConst _ _ => True
-  end.
-Definition ci_okb (ci : ConstInfo) : bool :=
-  match ci with
-  | UntypedConst c => const_representableb (const_default_type c) c
-  | TypedConst _ _ => true
-  end.
-Lemma ci_okb_iff : forall ci, ci_okb ci = true <-> ci_ok ci.
-Proof.
-  intros [c | t c]; simpl.
-  - apply const_representableb_iff.
-  - split; [ intros _; exact I | intros _; reflexivity ].
-Qed.
-
-(** the declarative resolved typing of ONE expression in a use context: the expression analyzes to one
-    constant-status [ci] (untyped or typed), whose RESOLVED type [t] is [info_type ci] (an untyped constant's
-    default type, or a typed constant's OWN type — a typed constant is NOT defaulted), the context ALLOWS [t],
-    and [ci] is use-ready ([ci_ok]).  (No typed-expression AST, no copied "resolved expression" — this is a
-    relation over the raw syntax, driven by [const_info].) *)
+(** §18 the declarative resolved typing of ONE expression in a use context: the expression analyzes to a
+    constant-status [ci], which RESOLVES ([resolve_const_info]) to a validated typed constant [rc] — a bare
+    literal defaults, a typed constant packs unchanged — whose INTRINSIC type [resolved_const_type rc] the
+    context ALLOWS.  There is NO [ci_ok]: validity is carried by the typed constant itself.  No
+    typed-expression AST, no copied "resolved expression" — a relation over the raw syntax driven by
+    [const_info]/[resolve_const_info]. *)
 Inductive ResolveExpr : ExprUse -> GoExpr -> GoType -> Prop :=
-| Resolve : forall u e ci t,
+| Resolve : forall u e ci rc,
     const_info e = Some ci ->
-    info_type ci = t ->
-    UseAllows u t ->
-    ci_ok ci ->
-    ResolveExpr u e t.
+    resolve_const_info ci = Some rc ->
+    UseAllows u (resolved_const_type rc) ->
+    ResolveExpr u e (resolved_const_type rc).
 
-Definition resolve_expr (u : ExprUse) (e : GoExpr) : option GoType :=
+(** the resolution that EXPOSES the [ResolvedConst] witness (evaluation and the root theorem consume this). *)
+Definition resolve_expr_const (u : ExprUse) (e : GoExpr) : option ResolvedConst :=
   match const_info e with
   | None => None
   | Some ci =>
-      let t := info_type ci in
-      if use_allowsb u t && ci_okb ci then Some t else None
+      match resolve_const_info ci with
+      | None => None
+      | Some rc => if use_allowsb u (resolved_const_type rc) then Some rc else None
+      end
   end.
+
+Definition resolve_expr (u : ExprUse) (e : GoExpr) : option GoType :=
+  option_map resolved_const_type (resolve_expr_const u e).
+
+Lemma resolve_expr_const_sound : forall u e rc,
+  resolve_expr_const u e = Some rc ->
+  exists ci, const_info e = Some ci /\ resolve_const_info ci = Some rc
+             /\ UseAllows u (resolved_const_type rc).
+Proof.
+  intros u e rc H; unfold resolve_expr_const in H.
+  destruct (const_info e) as [ci|] eqn:Hci; [| discriminate].
+  destruct (resolve_const_info ci) as [rc'|] eqn:Hrc; [| discriminate].
+  destruct (use_allowsb u (resolved_const_type rc')) eqn:Hua; [| discriminate].
+  injection H as ->. exists ci; split; [ reflexivity | split; [ exact Hrc | apply use_allowsb_iff; exact Hua ] ].
+Qed.
 
 Lemma resolve_expr_sound : forall u e t, resolve_expr u e = Some t -> ResolveExpr u e t.
 Proof.
-  intros u e t; unfold resolve_expr.
-  destruct (const_info e) as [ci|] eqn:Hci; [| intro H; discriminate].
-  destruct (use_allowsb u (info_type ci) && ci_okb ci) eqn:Hcond; [| intro H; discriminate].
-  intro H; injection H as <-.
-  apply Bool.andb_true_iff in Hcond as [Hu Hr].
-  apply use_allowsb_iff in Hu; apply ci_okb_iff in Hr.
-  econstructor; [ exact Hci | reflexivity | exact Hu | exact Hr ].
+  intros u e t H. unfold resolve_expr in H.
+  destruct (resolve_expr_const u e) as [rc|] eqn:Hrc; cbn [option_map] in H; [| discriminate].
+  injection H as <-. destruct (resolve_expr_const_sound u e rc Hrc) as [ci [Hci [Hri Hua]]].
+  eapply Resolve; [ exact Hci | exact Hri | exact Hua ].
 Qed.
 
 Lemma resolve_expr_complete : forall u e t, ResolveExpr u e t -> resolve_expr u e = Some t.
 Proof.
-  intros u e t H; induction H as [ u0 e0 ci t0 Hci Htype Hu Hr ].
-  apply use_allowsb_iff in Hu; apply ci_okb_iff in Hr.
-  unfold resolve_expr; rewrite Hci, Htype, Hu, Hr; reflexivity.
-Qed.
-
-(** the resolved type, when it exists, is EXACTLY [info_type] of the analyzed constant — never the wrong type. *)
-Lemma resolve_expr_info_type : forall u e t ci,
-  const_info e = Some ci -> ResolveExpr u e t -> t = info_type ci.
-Proof.
-  intros u e t ci Hci H; apply resolve_expr_complete in H.
-  unfold resolve_expr in H; rewrite Hci in H.
-  destruct (use_allowsb u (info_type ci) && ci_okb ci);
-    [ injection H as H'; symmetry; exact H' | discriminate ].
+  intros u e t H; destruct H as [ u0 e0 ci rc Hci Hrc Hua ].
+  apply use_allowsb_iff in Hua.
+  unfold resolve_expr, resolve_expr_const; rewrite Hci, Hrc, Hua; reflexivity.
 Qed.
 
 Lemma resolve_expr_deterministic : forall u e t1 t2, ResolveExpr u e t1 -> ResolveExpr u e t2 -> t1 = t2.
@@ -511,7 +496,7 @@ Proof.
   - apply Z.leb_gt in E; rewrite Z2N.id by lia; do 2 f_equal; lia.
 Qed.
 
-Lemma const_info_int_lit : forall z, const_info (int_lit z) = Some (UntypedConst (CInt z)).
+Lemma const_info_int_lit : forall z, const_info (int_lit z) = Some (CIUntyped (CInt z)).
 Proof.
   intro z; unfold int_lit; destruct (Z.leb 0 z) eqn:E; cbn [const_info].
   - apply Z.leb_le in E; rewrite Z2N.id by exact E; reflexivity.
@@ -525,9 +510,13 @@ Lemma resolve_convert_representable : forall it z,
   resolve_expr UsePrintlnArg (EIntConvert it (int_lit z)) = Some (TInteger it).
 Proof.
   intros it z Hz. apply integer_representableb_spec in Hz.
-  assert (Hci : const_info (EIntConvert it (int_lit z)) = Some (TypedConst (TInteger it) (CInt z))).
-  { cbn [const_info]. rewrite const_info_int_lit. cbn [ci_const convert_const]. rewrite Hz. reflexivity. }
-  unfold resolve_expr. rewrite Hci. cbn [info_type ci_okb use_allowsb]. reflexivity.
+  unfold resolve_expr, resolve_expr_const.
+  cbn [const_info]. rewrite const_info_int_lit.
+  cbn [option_map convert_const const_info_exact].
+  unfold typed_integer_of_Z.
+  destruct (bool_true_dec (integer_representableb it z)) as [H'|H'].
+  - reflexivity.
+  - congruence.
 Qed.
 
 Lemma resolve_convert_unrepresentable : forall it z,
@@ -535,9 +524,13 @@ Lemma resolve_convert_unrepresentable : forall it z,
   resolve_expr UsePrintlnArg (EIntConvert it (int_lit z)) = None.
 Proof.
   intros it z Hz.
-  assert (Hci : const_info (EIntConvert it (int_lit z)) = None).
-  { cbn [const_info]. rewrite const_info_int_lit. cbn [ci_const convert_const]. rewrite Hz. reflexivity. }
-  unfold resolve_expr. rewrite Hci. reflexivity.
+  unfold resolve_expr, resolve_expr_const.
+  cbn [const_info]. rewrite const_info_int_lit.
+  cbn [option_map convert_const const_info_exact].
+  unfold typed_integer_of_Z.
+  destruct (bool_true_dec (integer_representableb it z)) as [H'|H'].
+  - congruence.
+  - reflexivity.
 Qed.
 
 Theorem resolve_convert_min : forall it,
@@ -593,14 +586,16 @@ Example res_uint64_over : resolve_expr UsePrintlnArg (EIntConvert IUint64 (EInt 
 
 (* nested (transitive) conversions recheck the carried value at EACH layer. *)
 Example const_int8_int16_127 :
-  const_info (EIntConvert IInt8 (EIntConvert IInt16 (EInt 127))) = Some (TypedConst (TInteger IInt8) (CInt 127)).
+  const_info (EIntConvert IInt8 (EIntConvert IInt16 (EInt 127)))
+    = Some (CITyped (TInteger IInt8) (TCInteger IInt8 127 eq_refl)).
 Proof. reflexivity. Qed.
 Example const_int8_int16_128_reject :
   const_info (EIntConvert IInt8 (EIntConvert IInt16 (EInt 128))) = None. Proof. reflexivity. Qed.
 Example const_uint8_int_300_reject :
   const_info (EIntConvert IUint8 (EIntConvert IInt (EInt 300))) = None. Proof. reflexivity. Qed.
 Example const_uint8_int_255_accept :
-  const_info (EIntConvert IUint8 (EIntConvert IInt (EInt 255))) = Some (TypedConst (TInteger IUint8) (CInt 255)).
+  const_info (EIntConvert IUint8 (EIntConvert IInt (EInt 255)))
+    = Some (CITyped (TInteger IUint8) (TCInteger IUint8 255 eq_refl)).
 Proof. reflexivity. Qed.
 
 (* a conversion of a bool/string constant is rejected. *)
@@ -684,18 +679,18 @@ Example tfloat32_neq_tfloat64 : TFloat F32 <> TFloat F64.
 Proof. intro H; injection H as H; discriminate. Qed.
 
 (* ★§30 the DOUBLE-ROUNDING SCAR at the conversion-syntax level: direct float32(big) and nested
-   float32(float64(big)) analyze to DIFFERENT exact typed constants. *)
+   float32(float64(big)) analyze to typed float32 constants with DIFFERENT exact rounded values. *)
 Example const_scar_direct :
-  const_info (EFloatConvert F32 (EFloat d_scar))
-    = Some (TypedConst (TFloat F32) (CFloat (fc_of_Z 2305843284091600896))).
-Proof. reflexivity. Qed.
+  option_map const_info_exact (const_info (EFloatConvert F32 (EFloat d_scar)))
+    = Some (CFloat (fc_of_Z 2305843284091600896)).
+Proof. vm_compute. reflexivity. Qed.
 Example const_scar_nested :
-  const_info (EFloatConvert F32 (EFloatConvert F64 (EFloat d_scar)))
-    = Some (TypedConst (TFloat F32) (CFloat (fc_of_Z 2305843009213693952))).
-Proof. reflexivity. Qed.
+  option_map const_info_exact (const_info (EFloatConvert F32 (EFloatConvert F64 (EFloat d_scar))))
+    = Some (CFloat (fc_of_Z 2305843009213693952)).
+Proof. vm_compute. reflexivity. Qed.
 Example const_scar_direct_differs_nested :
-  const_info (EFloatConvert F32 (EFloat d_scar))
-    <> const_info (EFloatConvert F32 (EFloatConvert F64 (EFloat d_scar))).
+  option_map const_info_exact (const_info (EFloatConvert F32 (EFloat d_scar)))
+    <> option_map const_info_exact (const_info (EFloatConvert F32 (EFloatConvert F64 (EFloat d_scar)))).
 Proof. rewrite const_scar_direct, const_scar_nested; discriminate. Qed.
 
 (* a mixed float statement types; a default-overflowing bare float does NOT type. *)

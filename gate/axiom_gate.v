@@ -121,8 +121,8 @@ Print Assumptions GoTypes.const_default_type_int.
 Print Assumptions GoTypes.const_default_type_float.
 Print Assumptions GoTypes.const_default_type_string.
 Print Assumptions GoTypes.const_representableb_iff.
-Print Assumptions GoTypes.const_info_value.
-Print Assumptions GoTypes.const_info_typed_int_representable.
+Print Assumptions GoTypes.const_scar_direct.
+Print Assumptions GoTypes.const_int8_int16_127.
 Print Assumptions GoTypes.resolve_expr_sound.
 Print Assumptions GoTypes.resolve_expr_complete.
 Print Assumptions GoTypes.resolve_expr_deterministic.
@@ -217,7 +217,7 @@ Print Assumptions GoSafe.eval_zero_sign_agnostic.
 Print Assumptions GoSafe.eval_expr_resolved.
 Print Assumptions GoSafe.eval_expr_resolved_type.
 Print Assumptions GoSafe.value_wfb_iff.
-Print Assumptions GoSafe.eval_convert_preserves_value.
+Print Assumptions GoSafe.typed_const_to_value_denotes.
 Print Assumptions GoSafe.eval_string_value.
 Print Assumptions GoSafe.eval_string_resolved_type.
 (* float runtime values: a bare float evaluates to a float64 value; an exact float->int constant to that
@@ -247,7 +247,7 @@ Print Assumptions GoRender.render_const_info_denotes.
 Print Assumptions GoRender.render_const_info_denotes_functional.
 Print Assumptions GoRender.render_resolved_expr_denotes.
 Print Assumptions GoRender.repair_bare_untyped.
-Print Assumptions GoRender.repair_bare_not_typed_int.
+Print Assumptions GoRender.repair_bare_not_typed.
 Print Assumptions GoRender.repair_uint64_typed.
 Print Assumptions GoRender.repair_uint64_max_typed.
 (* float rendering: the canonical decimal spelling + conversion spellings; ASCII; the §27 decoder/renderer
