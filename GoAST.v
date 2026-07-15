@@ -26,7 +26,7 @@
     concurrency, or package clauses.  Anything else is UNREPRESENTABLE.
     ============================================================================ *)
 From Stdlib Require Import NArith List String.
-From Fido Require Import FilePath FMap ModulePath GoVersion Ints.
+From Fido Require Import FilePath FMap ModulePath GoVersion Ints Floats.
 Import ListNotations.
 
 (** A raw expression is UNTYPED syntax: a boolean literal, an integer literal as an unsigned magnitude
@@ -34,21 +34,27 @@ Import ListNotations.
     SEQUENCE ([EString], a Rocq [string] = a list of [ascii] bytes — NOT source spelling, NOT an
     already-escaped literal, NOT Unicode scalars/code points), or an EXPLICIT integer conversion
     ([EIntConvert it e], the source spelling `<keyword it>(e)`, e.g. `int8(42)` / `uint64(...)` /
-    `uint8(int(300))`).  [EIntConvert]'s target is the INTRINSIC [IntegerType] — never a raw type-name
-    string; the ONLY new expression form this milestone.  Nesting is representable syntax that may be
-    compiler-invalid (`uint8(int(300))`, `int8(int16(128))`) — such a program is REJECTED by GoTypes/
-    GoCompile, not unrepresentable.  No type is attached here — the exact untyped-constant meaning and the
-    context-directed typing/representability of these literals (and the representability check a conversion
-    imposes) are the concern of [GoTypes]; the canonical source spelling of a string is a separate proved
-    encoding in [GoRender].  [EInt]/[ENeg] remain exact untyped integer-literal syntax.  No arithmetic,
-    comparison, bitwise, shift, division, general named conversion, parenthesis node, variables, calls, or
-    string operations are representable. *)
+    `uint8(int(300))`), a FLOATING literal carrying an INTRINSIC finite-decimal semantic value ([EFloat d],
+    a bounded canonical [DecimalFloat] — NOT source spelling / underscores / hex / capitalization / a rounded
+    value), or an EXPLICIT float conversion ([EFloatConvert ft e], the source spelling `float32(e)` /
+    `float64(e)`).  [EIntConvert]'s target is the INTRINSIC [IntegerType] and [EFloatConvert]'s the intrinsic
+    [FloatType] — never a raw type-name string.  Nesting is representable syntax that may be compiler-invalid
+    (`uint8(int(300))`, `int8(int16(128))`, `int(3.5)`, `float32(true)`) — such a program is REJECTED by
+    GoTypes/GoCompile, not unrepresentable.  No type is attached here — the exact untyped-constant meaning
+    (a bare float denotes its EXACT rational value; a conversion rounds ONCE at the destination format) and
+    the context-directed typing/representability of these literals are the concern of [GoTypes]; the canonical
+    source spelling is a separate proved encoding in [GoRender].  [EInt]/[ENeg] remain exact untyped
+    integer-literal syntax.  No arithmetic, comparison, bitwise, shift, division, general named conversion,
+    imaginary/complex literals, NaN/Inf constructors, parenthesis node, variables, calls, or string
+    operations are representable. *)
 Inductive GoExpr : Type :=
-| EBool       : bool -> GoExpr
-| EInt        : N -> GoExpr
-| ENeg        : N -> GoExpr
-| EString     : string -> GoExpr
-| EIntConvert : IntegerType -> GoExpr -> GoExpr.
+| EBool         : bool -> GoExpr
+| EInt          : N -> GoExpr
+| ENeg          : N -> GoExpr
+| EString       : string -> GoExpr
+| EIntConvert   : IntegerType -> GoExpr -> GoExpr
+| EFloat        : DecimalFloat -> GoExpr
+| EFloatConvert : FloatType -> GoExpr -> GoExpr.
 
 Inductive GoStmt : Type :=
 | SPrintln : list GoExpr -> GoStmt.

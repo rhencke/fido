@@ -316,15 +316,16 @@ Qed.
 (** the exact rational value of the literal, as a canonical [FloatConst] (NO rounding — raw interpretation is
     exact).  Nonnegative exponent -> the exact integer coeff*10^e; negative exponent -> the reduced dyadic-
     free rational coeff / 10^(-e). *)
+Definition decimal_to_fc (coeff exp : Z) : FloatConst :=
+  if 0 <=? exp then fc_of_Z (coeff * 10 ^ exp)
+  else reduce_fc coeff (Z.to_pos (10 ^ (- exp))).
+
 Definition decimal_value (d : DecimalFloat) : FloatConst :=
-  let c := dm_coeff d in
-  let e := dm_exp10 d in
-  if 0 <=? e then fc_of_Z (c * 10 ^ e)
-  else reduce_fc c (Z.to_pos (10 ^ (- e))).
+  decimal_to_fc (dm_coeff d) (dm_exp10 d).
 
 Lemma decimal_value_canonical : forall d, fc_canonical (decimal_value d).
 Proof.
-  intro d; unfold decimal_value.
+  intro d; unfold decimal_value, decimal_to_fc.
   destruct (0 <=? dm_exp10 d); [ apply fc_of_Z_canonical | apply reduce_fc_canonical ].
 Qed.
 

@@ -18,7 +18,7 @@
     adequacy — exercised by the differential e2e, not a kernel theorem here.
     ============================================================================ *)
 From Stdlib Require Import String Ascii NArith ZArith List Bool Lia.
-From Fido Require Import digits Ints ModulePath GoVersion GoAST GoTypes GoCompile GoSafe.
+From Fido Require Import digits Ints Floats ModulePath GoVersion GoAST GoTypes GoCompile GoSafe.
 Import ListNotations.
 Open Scope string_scope.
 
@@ -72,6 +72,23 @@ Fixpoint render_string_body (s : string) : string :=
 Definition render_string_literal (s : string) : string :=
   String dquote_c (render_string_body s ++ String dquote_c EmptyString).
 
+(** a signed decimal integer: a nonnegative magnitude, or a leading unary minus over the magnitude. *)
+Definition render_signed_Z (z : Z) : string :=
+  if Z.ltb z 0 then String "-"%char (print_Z (Z.opp z)) else print_Z z.
+
+(** the exponent field carries an EXPLICIT sign (`+6` / `-1`), so every canonical float spelling is
+    self-delimiting. *)
+Definition render_signed_exp (e : Z) : string :=
+  if Z.ltb e 0 then String "-"%char (print_Z (Z.opp e)) else String "+"%char (print_Z e).
+
+(** the ONE canonical decimal float spelling (§26): zero is `0.0`; a nonzero value
+    [dm_coeff * 10 ^ dm_exp10] renders as `<signed-coefficient>.0e<explicit-signed-exponent>`
+    (e.g. 15*10^-1 -> `15.0e-1`, 1*10^6 -> `1.0e+6`).  One spelling per intrinsic literal value, all ASCII,
+    no host float formatting. *)
+Definition render_decimal (d : DecimalFloat) : string :=
+  if Z.eqb (dm_coeff d) 0 then "0.0"
+  else render_signed_Z (dm_coeff d) ++ ".0e" ++ render_signed_exp (dm_exp10 d).
+
 Fixpoint render_expr (e : GoExpr) : string :=
   match e with
   | EBool true  => "true"
@@ -80,6 +97,8 @@ Fixpoint render_expr (e : GoExpr) : string :=
   | ENeg n => String "-"%char (print_Z (Z.of_N n))
   | EString s => render_string_literal s
   | EIntConvert it e' => integer_keyword it ++ "(" ++ render_expr e' ++ ")"
+  | EFloat d => render_decimal d
+  | EFloatConvert ft e' => float_keyword ft ++ "(" ++ render_expr e' ++ ")"
   end.
 
 Fixpoint render_args (es : list GoExpr) : string :=
@@ -239,15 +258,34 @@ Qed.
 Lemma integer_keyword_ascii : forall it, str_ascii (integer_keyword it) = true.
 Proof. intros []; reflexivity. Qed.
 
+Lemma render_signed_Z_ascii : forall z, str_ascii (render_signed_Z z) = true.
+Proof.
+  intro z; unfold render_signed_Z; destruct (Z.ltb z 0).
+  - cbn [str_ascii]; rewrite print_Z_ascii; reflexivity.
+  - apply print_Z_ascii.
+Qed.
+Lemma render_signed_exp_ascii : forall e, str_ascii (render_signed_exp e) = true.
+Proof. intro e; unfold render_signed_exp; destruct (Z.ltb e 0); cbn [str_ascii]; rewrite print_Z_ascii; reflexivity. Qed.
+Lemma render_decimal_ascii : forall d, str_ascii (render_decimal d) = true.
+Proof.
+  intro d; unfold render_decimal; destruct (Z.eqb (dm_coeff d) 0).
+  - reflexivity.
+  - rewrite !str_ascii_app, render_signed_Z_ascii, render_signed_exp_ascii; reflexivity.
+Qed.
+Lemma float_keyword_ascii : forall ft, str_ascii (float_keyword ft) = true.
+Proof. intro ft; destruct ft; reflexivity. Qed.
+
 Lemma render_expr_ascii : forall e, str_ascii (render_expr e) = true.
 Proof.
-  induction e as [ [] | n | n | s | it e' IHe' ]; cbn [render_expr].
+  induction e as [ [] | n | n | s | it e' IHe' | d | ft e' IHe' ]; cbn [render_expr].
   - reflexivity.
   - reflexivity.
   - apply print_Z_ascii.
   - cbn [str_ascii]. rewrite print_Z_ascii. reflexivity.
   - apply render_string_literal_ascii.
   - rewrite !str_ascii_app, integer_keyword_ascii, IHe'; reflexivity.
+  - apply render_decimal_ascii.
+  - rewrite !str_ascii_app, float_keyword_ascii, IHe'; reflexivity.
 Qed.
 
 Lemma render_args_ascii : forall es, str_ascii (render_args es) = true.
@@ -635,6 +673,201 @@ Proof. reflexivity. Qed.
     the representability check, over a recursively-denoting inner spelling.  It reuses the exact GoTypes
     values and [integer_representableb], reimplementing no representability; it is a DENOTATION tool, NOT a
     general Go parser (real-Go acceptance is external adequacy).  Float cases are added in Part B. ---- *)
+(** ---- an INDEPENDENT decoder for the canonical Fido decimal-float subset (§27): it recovers the EXACT
+    untyped rational value of a canonical spelling.  It is NOT a general Go float parser; the proved property
+    is the SEMANTIC round trip [decode_decimal (render_decimal d) = Some (decimal_value d)] (NOT a
+    source-spelling inverse) — it reads an optional signed coefficient, the exact ".0e" body, and a signed
+    exponent, and interprets them through the SAME [decimal_to_fc] the encoder uses (no reimplemented
+    rounding). ---- *)
+Definition dec_digit_val (c : ascii) : option nat :=
+  let n := nat_of_ascii c in
+  if andb (Nat.leb 48 n) (Nat.leb n 57) then Some (n - 48)%nat else None.
+
+Definition head_not_digit (s : string) : Prop :=
+  match s with EmptyString => True | String c _ => dec_digit_val c = None end.
+
+Fixpoint read_nat (s : string) (acc : Z) : Z * string :=
+  match s with
+  | EmptyString => (acc, s)
+  | String c s' => match dec_digit_val c with
+                   | Some d => read_nat s' (acc * 10 + Z.of_nat d)
+                   | None => (acc, s)
+                   end
+  end.
+
+Definition read_signed_dec (s : string) : option (Z * string) :=
+  match s with
+  | EmptyString => None
+  | String c s' =>
+      if Ascii.eqb c "-"%char then let (m, r) := read_nat s' 0 in Some (Z.opp m, r)
+      else if Ascii.eqb c "+"%char then let (m, r) := read_nat s' 0 in Some (m, r)
+      else let (m, r) := read_nat s 0 in Some (m, r)
+  end.
+
+Definition decode_decimal_body (s : string) : option FloatConst :=
+  match read_signed_dec s with
+  | Some (coeff, String a (String b (String c r2))) =>
+      if andb (Ascii.eqb a "."%char) (andb (Ascii.eqb b "0"%char) (Ascii.eqb c "e"%char)) then
+        match read_signed_dec r2 with
+        | Some (exp, EmptyString) => Some (decimal_to_fc coeff exp)
+        | _ => None
+        end
+      else None
+  | _ => None
+  end.
+
+Definition decode_decimal (s : string) : option FloatConst :=
+  match decode_decimal_body s with
+  | Some q => Some q
+  | None => if String.eqb s "0.0" then Some fc_zero else None
+  end.
+
+Fixpoint str_all_digits (s : string) : bool :=
+  match s with
+  | EmptyString => true
+  | String c s' => match dec_digit_val c with Some _ => str_all_digits s' | None => false end
+  end.
+
+Lemma str_app_nil : forall s, (s ++ "")%string = s.
+Proof. induction s as [ | c s' IH ]; simpl; [ reflexivity | rewrite IH; reflexivity ]. Qed.
+
+Lemma dec_digit_val_dec_digit : forall d, (d < 10)%nat -> dec_digit_val (dec_digit d) = Some d.
+Proof.
+  intros d Hd. unfold dec_digit_val, dec_digit. rewrite nat_ascii_embedding by lia.
+  rewrite (proj2 (Nat.leb_le 48 (48 + d))) by lia.
+  rewrite (proj2 (Nat.leb_le (48 + d) 57)) by lia.
+  cbn [andb]. f_equal. lia.
+Qed.
+
+Lemma str_all_digits_render_digits : forall ds acc,
+  (forall d, In d ds -> (d < 10)%nat) -> str_all_digits acc = true ->
+  str_all_digits (render_digits dec_digit ds acc) = true.
+Proof.
+  induction ds as [ | a ds' IH ]; intros acc Hall Hacc; [ exact Hacc | ].
+  rewrite render_digits_step. apply IH; [ intros d Hd; apply Hall; right; exact Hd | ].
+  cbn [str_all_digits]. rewrite dec_digit_val_dec_digit by (apply Hall; left; reflexivity). exact Hacc.
+Qed.
+
+Lemma str_all_digits_print_Z_pos : forall p, str_all_digits (print_Z_pos p) = true.
+Proof.
+  intro p; unfold print_Z_pos. apply str_all_digits_render_digits; [ | reflexivity ].
+  intros d Hd. pose proof (pos_digits_bound 10 p ltac:(lia)) as Hb. rewrite Forall_forall in Hb.
+  apply Hb; exact Hd.
+Qed.
+
+Lemma str_all_digits_print_Z : forall z, (0 <= z)%Z -> str_all_digits (print_Z z) = true.
+Proof. intros [ | p | p ] H; [ reflexivity | apply str_all_digits_print_Z_pos | exfalso; lia ]. Qed.
+
+Lemma read_nat_all_digits : forall s rest acc,
+  str_all_digits s = true -> head_not_digit rest -> read_nat (s ++ rest) acc = (dval s acc, rest).
+Proof.
+  induction s as [ | c s' IH ]; intros rest acc Hdig Hrest.
+  - destruct rest as [ | rc rr ]; cbn [append read_nat dval].
+    + reflexivity.
+    + cbn [head_not_digit] in Hrest. rewrite Hrest. reflexivity.
+  - cbn [str_all_digits] in Hdig. destruct (dec_digit_val c) as [d|] eqn:Hc; [| discriminate].
+    cbn [append read_nat]. rewrite Hc.
+    rewrite (IH rest (acc * 10 + Z.of_nat d) Hdig Hrest). cbn [dval].
+    replace (ascii_digit c) with d; [ reflexivity | ].
+    unfold ascii_digit; unfold dec_digit_val in Hc.
+    destruct (andb (Nat.leb 48 (nat_of_ascii c)) (Nat.leb (nat_of_ascii c) 57)); [| discriminate].
+    injection Hc as <-; reflexivity.
+Qed.
+
+Lemma char_digit_not : forall c d,
+  dec_digit_val c = Some d -> Ascii.eqb c "-"%char = false /\ Ascii.eqb c "+"%char = false.
+Proof.
+  intros c d Hc; split; destruct (Ascii.eqb c _) eqn:E; try reflexivity;
+    apply Ascii.eqb_eq in E; subst c; cbn in Hc; discriminate.
+Qed.
+
+Lemma print_Z_nonempty : forall z, (0 <= z)%Z -> print_Z z <> EmptyString.
+Proof.
+  intros [ | p | p ] H Hc.
+  - cbn [print_Z] in Hc; discriminate.
+  - pose proof (print_Z_dec_faithful (Zpos p) ltac:(lia)) as Hf.
+    rewrite Hc in Hf; cbn in Hf; discriminate Hf.
+  - exfalso; lia.
+Qed.
+
+(** the reader inverts an all-digit NONEMPTY magnitude (no sign) up to a non-digit remainder. *)
+Lemma read_signed_dec_all_digits : forall s rest,
+  str_all_digits s = true -> s <> EmptyString -> head_not_digit rest ->
+  read_signed_dec (s ++ rest) = Some (dval0 s, rest).
+Proof.
+  intros [ | c s' ] rest Hdig Hne Hrest; [ contradiction | ].
+  pose proof Hdig as Hdig'. cbn [str_all_digits] in Hdig.
+  destruct (dec_digit_val c) as [d|] eqn:Hc; [| discriminate].
+  destruct (char_digit_not c d Hc) as [Hnd Hnp].
+  cbn [append]. unfold read_signed_dec. rewrite Hnd, Hnp.
+  change (String c (s' ++ rest)) with ((String c s') ++ rest).
+  destruct (read_nat ((String c s') ++ rest) 0) as [m r] eqn:E.
+  rewrite (read_nat_all_digits (String c s') rest 0 Hdig' Hrest) in E.
+  injection E as <- <-. reflexivity.
+Qed.
+
+(** the reader inverts a "-"- / "+"-prefixed all-digit magnitude (negating for "-"). *)
+Lemma read_signed_dec_sign : forall sgn mag rest,
+  (sgn = "-"%char \/ sgn = "+"%char) -> str_all_digits mag = true -> head_not_digit rest ->
+  read_signed_dec (String sgn (mag ++ rest))
+  = Some ((if Ascii.eqb sgn "-"%char then Z.opp (dval0 mag) else dval0 mag), rest).
+Proof.
+  intros sgn mag rest Hsgn Hdig Hrest. unfold read_signed_dec.
+  destruct (read_nat (mag ++ rest) 0) as [m r] eqn:E.
+  rewrite (read_nat_all_digits mag rest 0 Hdig Hrest) in E. injection E as <- <-.
+  destruct Hsgn as [-> | ->]; reflexivity.
+Qed.
+
+Lemma read_signed_dec_render_signed_Z : forall z rest, head_not_digit rest ->
+  read_signed_dec (render_signed_Z z ++ rest) = Some (z, rest).
+Proof.
+  intros z rest Hrest. unfold render_signed_Z. destruct (Z.ltb z 0) eqn:Hlt.
+  - apply Z.ltb_lt in Hlt. cbn [append].
+    rewrite (read_signed_dec_sign "-"%char (print_Z (- z)) rest (or_introl eq_refl)
+               (str_all_digits_print_Z (- z) ltac:(lia)) Hrest).
+    cbn [Ascii.eqb]. rewrite (print_Z_dec_faithful (- z) ltac:(lia)). rewrite Z.opp_involutive; reflexivity.
+  - apply Z.ltb_ge in Hlt.
+    rewrite (read_signed_dec_all_digits (print_Z z) rest (str_all_digits_print_Z z Hlt)
+               (print_Z_nonempty z Hlt) Hrest).
+    rewrite (print_Z_dec_faithful z Hlt); reflexivity.
+Qed.
+
+Lemma read_signed_dec_render_signed_exp : forall z, read_signed_dec (render_signed_exp z) = Some (z, EmptyString).
+Proof.
+  intro z. unfold render_signed_exp. destruct (Z.ltb z 0) eqn:Hlt.
+  - apply Z.ltb_lt in Hlt.
+    replace (String "-"%char (print_Z (- z))) with (String "-"%char (print_Z (- z) ++ ""))
+      by (rewrite str_app_nil; reflexivity).
+    rewrite (read_signed_dec_sign "-"%char (print_Z (- z)) "" (or_introl eq_refl)
+               (str_all_digits_print_Z (- z) ltac:(lia)) I).
+    cbn [Ascii.eqb]. rewrite (print_Z_dec_faithful (- z) ltac:(lia)); rewrite Z.opp_involutive; reflexivity.
+  - apply Z.ltb_ge in Hlt.
+    replace (String "+"%char (print_Z z)) with (String "+"%char (print_Z z ++ ""))
+      by (rewrite str_app_nil; reflexivity).
+    rewrite (read_signed_dec_sign "+"%char (print_Z z) "" (or_intror eq_refl)
+               (str_all_digits_print_Z z Hlt) I).
+    cbn [Ascii.eqb]. rewrite (print_Z_dec_faithful z Hlt); reflexivity.
+Qed.
+
+Lemma head_not_digit_dot0e : forall s, head_not_digit (".0e" ++ s)%string.
+Proof. reflexivity. Qed.
+
+(** ★§27 SEMANTIC ROUND TRIP: decoding the canonical spelling recovers the EXACT untyped rational value. *)
+Theorem decode_render_decimal : forall d, decode_decimal (render_decimal d) = Some (decimal_value d).
+Proof.
+  intro d. unfold render_decimal. destruct (Z.eqb (dm_coeff d) 0) eqn:Hc0.
+  - apply Z.eqb_eq in Hc0.
+    replace (decimal_value d) with fc_zero
+      by (rewrite (decimal_zero_unique d Hc0); symmetry; apply decimal_value_zero).
+    reflexivity.
+  - unfold decode_decimal, decode_decimal_body.
+    rewrite (read_signed_dec_render_signed_Z (dm_coeff d) (".0e" ++ render_signed_exp (dm_exp10 d))
+               (head_not_digit_dot0e _)).
+    cbn [append Ascii.eqb andb].
+    rewrite (read_signed_dec_render_signed_exp (dm_exp10 d)).
+    reflexivity.
+Qed.
+
 Inductive RenderedConstInfoDenotes : string -> ConstInfo -> Prop :=
 | RCDBool : forall (b : bool),
     RenderedConstInfoDenotes (if b then "true"%string else "false"%string) (UntypedConst (CBool b))
@@ -646,10 +879,17 @@ Inductive RenderedConstInfoDenotes : string -> ConstInfo -> Prop :=
     RenderedConstInfoDenotes s (UntypedConst (CString bytes))
 | RCDIntConvert : forall target inner ci z,
     RenderedConstInfoDenotes inner ci ->
-    ci_const ci = CInt z ->
-    IntRepresentable target z ->
+    convert_const (TInteger target) (ci_const ci) = Some (CInt z) ->
     RenderedConstInfoDenotes (integer_keyword target ++ "(" ++ inner ++ ")")
-                             (TypedConst (TInteger target) (CInt z)).
+                             (TypedConst (TInteger target) (CInt z))
+| RCDFloat : forall s q,
+    decode_decimal s = Some q ->
+    RenderedConstInfoDenotes s (UntypedConst (CFloat q))
+| RCDFloatConvert : forall target inner ci q,
+    RenderedConstInfoDenotes inner ci ->
+    convert_const (TFloat target) (ci_const ci) = Some (CFloat q) ->
+    RenderedConstInfoDenotes (float_keyword target ++ "(" ++ inner ++ ")")
+                             (TypedConst (TFloat target) (CFloat q)).
 
 (** print_Z of a nonnegative is nonempty and its first character is a decimal digit, not '-'. *)
 Lemma print_Z_pos_head_not_minus : forall p,
@@ -698,38 +938,49 @@ Qed.
 Lemma const_info_convert_inner : forall it e ci,
   const_info (EIntConvert it e) = Some ci ->
   exists ci' z, const_info e = Some ci'
-             /\ ci_const ci' = CInt z
-             /\ integer_representableb it z = true
+             /\ convert_const (TInteger it) (ci_const ci') = Some (CInt z)
              /\ ci = TypedConst (TInteger it) (CInt z).
 Proof.
-  intros it e ci H; simpl in H.
+  intros it e ci H; cbn [const_info] in H.
   destruct (const_info e) as [ci'|] eqn:Hce'; [| discriminate].
-  exists ci'; destruct ci' as [ c' | t' c' ].
-  - destruct c' as [ b | z' | s ]; try discriminate.
-    destruct (integer_representableb it z') eqn:Hrep; [| discriminate].
-    injection H as <-; exists z'; repeat split; first [ reflexivity | exact Hce' | exact Hrep ].
-  - destruct t' as [| srcty |]; try discriminate; destruct c' as [ b | z' | s ]; try discriminate;
-      destruct (integer_representableb it z') eqn:Hrep; try discriminate;
-      injection H as <-; exists z'; repeat split; first [ reflexivity | exact Hce' | exact Hrep ].
+  destruct (convert_const (TInteger it) (ci_const ci')) as [c|] eqn:Hconv; [| discriminate].
+  injection H as <-.
+  destruct (convert_const_int_shape it (ci_const ci') c Hconv) as [z [-> Hz]].
+  exists ci', z. split; [ reflexivity | split; [ exact Hconv | reflexivity ] ].
 Qed.
 
-(** ★§2-3 ROOT: rendering an expression denotes EXACTLY the [const_info] GoTypes computes for it — the
-    source-spelling / constant-status correspondence, in the ONE ConstInfo vocabulary.  A bare integer
-    denotes an UNTYPED constant (the §1 repair: NO false [int] label); an explicit conversion denotes a
-    TYPED constant of the destination type.  Reuses the exact GoTypes values + representability. *)
+Lemma const_info_float_convert_inner : forall ft e ci,
+  const_info (EFloatConvert ft e) = Some ci ->
+  exists ci' q, const_info e = Some ci'
+             /\ convert_const (TFloat ft) (ci_const ci') = Some (CFloat q)
+             /\ ci = TypedConst (TFloat ft) (CFloat q).
+Proof.
+  intros ft e ci H; cbn [const_info] in H.
+  destruct (const_info e) as [ci'|] eqn:Hce'; [| discriminate].
+  destruct (convert_const (TFloat ft) (ci_const ci')) as [c|] eqn:Hconv; [| discriminate].
+  injection H as <-.
+  destruct (convert_const_float_shape ft (ci_const ci') c Hconv) as [q ->].
+  exists ci', q. split; [ reflexivity | split; [ exact Hconv | reflexivity ] ].
+Qed.
+
+(** ★§2-3/§29 ROOT: rendering an expression denotes EXACTLY the [const_info] GoTypes computes for it — the
+    source-spelling / constant-status correspondence, in the ONE ConstInfo vocabulary.  A bare integer/float
+    denotes an UNTYPED constant (the §1 repair: NO false [int] label; a bare float its exact rational); an
+    explicit conversion denotes a TYPED constant of the destination type, through the ONE [convert_const]
+    authority.  It reuses the exact GoTypes/[Floats] values, reimplementing no representability/rounding. *)
 Theorem render_const_info_denotes : forall e ci,
   const_info e = Some ci -> RenderedConstInfoDenotes (render_expr e) ci.
 Proof.
-  induction e as [ b | n | n | s | it' e' IHe' ]; intros ci H.
+  induction e as [ b | n | n | s | it' e' IHe' | d | ft e' IHe' ]; intros ci H.
   - simpl in H; injection H as <-; cbn [render_expr]; destruct b; [ exact (RCDBool true) | exact (RCDBool false) ].
   - simpl in H; injection H as <-; cbn [render_expr]; apply RCDInt, read_go_int_EInt.
   - simpl in H; injection H as <-; cbn [render_expr]; apply RCDInt, read_go_int_ENeg.
   - simpl in H; injection H as <-; cbn [render_expr]; apply RCDString, render_string_roundtrip.
-  - destruct (const_info_convert_inner it' e' ci H) as [ ci' [ z [ Hce' [ Hval [ Hrep -> ] ] ] ] ].
-    cbn [render_expr]. apply RCDIntConvert with (ci := ci').
-    + apply IHe'; exact Hce'.
-    + exact Hval.
-    + apply integer_representableb_spec; exact Hrep.
+  - destruct (const_info_convert_inner it' e' ci H) as [ ci' [ z [ Hce' [ Hconv -> ] ] ] ].
+    cbn [render_expr]. apply RCDIntConvert with (ci := ci'); [ apply IHe'; exact Hce' | exact Hconv ].
+  - cbn [const_info] in H; injection H as <-; cbn [render_expr]. apply RCDFloat, decode_render_decimal.
+  - destruct (const_info_float_convert_inner ft e' ci H) as [ ci' [ q [ Hce' [ Hconv -> ] ] ] ].
+    cbn [render_expr]. apply RCDFloatConvert with (ci := ci'); [ apply IHe'; exact Hce' | exact Hconv ].
 Qed.
 
 (** The one root theorem connecting the three authorities (GoTypes constant-status, GoSafe value, GoRender
@@ -746,13 +997,12 @@ Theorem render_resolved_expr_denotes : forall e t,
     /\ eval_expr e = Some v
     /\ value_type v = t
     /\ ValueWF v
-    /\ value_const v = ci_const ci.
+    /\ const_to_value (info_type ci) (ci_const ci) = Some v.
 Proof.
   intros e t H; pose proof H as HR.
   apply resolve_expr_complete in H; unfold resolve_expr in H.
   destruct (const_info e) as [ci|] eqn:Hci; [| discriminate].
-  destruct (use_allowsb UsePrintlnArg (info_type ci) && const_representableb (info_type ci) (ci_const ci));
-    [| discriminate].
+  destruct (use_allowsb UsePrintlnArg (info_type ci) && ci_okb ci); [| discriminate].
   injection H as Ht.
   destruct (eval_expr_resolved UsePrintlnArg e t HR) as [ v [ Hev [ Hvt Hwf ] ] ].
   exists ci, v.
@@ -762,7 +1012,7 @@ Proof.
   split; [ exact Hev | ].
   split; [ exact Hvt | ].
   split; [ exact Hwf | ].
-  rewrite (eval_expr_value_const e v Hev); symmetry; apply (const_info_value e ci Hci).
+  apply (eval_const_to_value e ci v Hci Hev).
 Qed.
 
 (** The int boundaries: the max/min literals evaluate to well-formed [int] values AND resolve as
@@ -804,7 +1054,7 @@ Lemma render_resolved_string_denotes : forall s t,
   exists ci v, const_info (EString s) = Some ci /\ info_type ci = t
             /\ RenderedConstInfoDenotes (render_expr (EString s)) ci
             /\ eval_expr (EString s) = Some v /\ value_type v = t /\ ValueWF v
-            /\ value_const v = ci_const ci.
+            /\ const_to_value (info_type ci) (ci_const ci) = Some v.
 Proof. intros s t H; apply render_resolved_expr_denotes; exact H. Qed.
 
 (** ---- §4 integer-repair regressions: a bare integer stays UNTYPED (NO false [int] label) even far above
@@ -818,14 +1068,18 @@ Example repair_bare_untyped :
                            (UntypedConst (CInt 9223372036854775808)).
 Proof. apply render_const_info_denotes; reflexivity. Qed.
 
-(** a TYPED-constant denotation is always a conversion spelling, so it starts with an integer keyword's
-    first letter (i / u) — proved by inversion on a GENERAL string (never the big rendered constant). *)
+(** a TYPED-constant denotation is always a conversion spelling, so it starts with a conversion keyword's
+    first letter (i / u for integers, f for floats) — proved by inversion on a GENERAL string (never the big
+    rendered constant). *)
 Lemma rcd_typed_starts_letter : forall s t c,
   RenderedConstInfoDenotes s (TypedConst t c) ->
-  exists rest, s = String "i"%char rest \/ s = String "u"%char rest.
+  exists rest, s = String "i"%char rest \/ s = String "u"%char rest \/ s = String "f"%char rest.
 Proof.
-  intros s t c H; inversion H as [ | | | target inner ci z Hinner Hval Hrep Hs Hci ]; subst.
-  destruct target; cbn; (eexists; ((left; reflexivity) || (right; reflexivity))).
+  intros s t c H;
+    inversion H as [ | | | target inner ci z Hinner Hconv Hs Hci
+                    | | target inner ci q Hinner Hconv Hs Hci ]; subst.
+  - destruct target; cbn; eexists; ((left; reflexivity) || (right; left; reflexivity)).
+  - destruct target; cbn; eexists; right; right; reflexivity.
 Qed.
 
 Example repair_bare_not_typed_int :
@@ -833,7 +1087,7 @@ Example repair_bare_not_typed_int :
                              (TypedConst (TInteger IInt) (CInt 9223372036854775808)).
 Proof.
   intro H; apply rcd_typed_starts_letter in H; rewrite repair_bare_render in H.
-  destruct H as [ rest [ Hi | Hu ] ]; discriminate.
+  destruct H as [ rest [ Hi | [ Hu | Hf ] ] ]; discriminate.
 Qed.
 
 Example repair_uint64_typed :

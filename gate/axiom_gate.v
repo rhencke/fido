@@ -103,17 +103,17 @@ Print Assumptions FMap.fm_keys_nodup.
 Print Assumptions FMap.dup_key_unrepresentable.
 Print Assumptions FMap.fm_MapsTo_fun.
 
-(* GoTypes — the ONE type authority (EVIDENCE over the raw AST): zero-sign constant equality; a conversion
-   preserves the exact constant value; default-type exactness; representability reflection; the constant-
-   status analysis carries the exact value + a representable typed value; resolution sound + complete +
-   deterministic; statement + program typing reflection. *)
+(* GoTypes — the ONE type authority (EVIDENCE over the raw AST): zero-sign constant equality; default-type
+   exactness (int / FLOAT->float64); representability reflection; the constant-status analysis carries the
+   exact value (partial [const_value], routed through the ONE [convert_const]) + a representable typed
+   integer value; resolution sound + complete + deterministic; statement + program typing reflection. *)
 Print Assumptions GoTypes.const_value_zero_sign.
-Print Assumptions GoTypes.const_value_convert.
 Print Assumptions GoTypes.const_default_type_int.
+Print Assumptions GoTypes.const_default_type_float.
 Print Assumptions GoTypes.const_default_type_string.
 Print Assumptions GoTypes.const_representableb_iff.
 Print Assumptions GoTypes.const_info_value.
-Print Assumptions GoTypes.const_info_typed_representable.
+Print Assumptions GoTypes.const_info_typed_int_representable.
 Print Assumptions GoTypes.resolve_expr_sound.
 Print Assumptions GoTypes.resolve_expr_complete.
 Print Assumptions GoTypes.resolve_expr_deterministic.
