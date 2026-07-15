@@ -10,8 +10,8 @@
       - every package must contain EXACTLY ONE admissible `main` declaration across all its files
         (zero rejects the whole program; more than one rejects the whole program);
       - the whole program is TYPED through [GoTypes] ([ProgramTyped] — every `println` argument resolves to a
-        [GoType]: a constant fits its resolved integer type and every explicit conversion is a valid integer
-        conversion);
+        [GoType]: a constant fits its resolved integer/float type and every explicit integer/float conversion
+        is valid — the one [convert_const] authority);
       - one invalid package rejects the WHOLE program (all-or-nothing; no per-file partial acceptance);
       - multiple valid main packages in different directories are accepted, matching `go build ./...`;
       - an empty file is accepted when its package's single `main` is elsewhere;
@@ -33,9 +33,10 @@ Open Scope Z_scope.
 
     Per-file/decl/statement/expression admissibility is [GoTypes.ProgramTyped]/[program_typedb] over the
     SAME raw AST: every [println] argument must RESOLVE under [UsePrintlnArg] to a [GoType] (a typing failure
-    is a constant fitting no integer type, a non-integer conversion operand, or an invalid nested
-    [EIntConvert]; bools and strings always resolve).  There is no separate GoCompile static-admissibility
-    family; the deleted [ExprOk]/[StmtOk]/[DeclOk]/[FileOk] are subsumed by the type judgment. *)
+    is a constant fitting no integer type, a bare float overflowing its default [float64], an invalid
+    [EIntConvert]/[EFloatConvert] — overflow, a fractional or out-of-range float->integer, a wrong-type or
+    nested-invalid conversion; bools and strings always resolve).  There is no separate GoCompile static-
+    admissibility family; the deleted [ExprOk]/[StmtOk]/[DeclOk]/[FileOk] are subsumed by the type judgment. *)
 
 (** ---- main-declaration counting (entry-point status is a compilation result) ---- *)
 
@@ -112,8 +113,9 @@ Proof. intro cp; exact (compile_program_typed _ _ (cp_ok cp)). Qed.
 
 Inductive CompileError : Type :=
 | ErrTyping           (* some declaration fails typing: a constant outside every representable range, a
-                         conversion whose operand is not an integer constant, or an invalid (nested) integer
-                         conversion — the one honest typing error now that typing can fail for several reasons *)
+                         float overflow / fractional-or-out-of-range float->integer, a wrong-type operand, or
+                         an invalid (nested) conversion — the one honest typing error now that typing can fail
+                         for several reasons *)
 | ErrPackageMainCount (* some package has zero or multiple `main` declarations *).
 
 Inductive result (E A : Type) : Type := Ok : A -> result E A | Err : E -> result E A.

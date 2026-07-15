@@ -8,13 +8,16 @@
     Rocq-rendered bytes — the sink never adds or alters it).  [render_file] is an INTERNAL helper; the
     PUBLIC capability is [GoEmit.render_program : SafeProgram -> DirectoryImage].  Proved here: all
     output ASCII; the ONE constant-status root [render_const_info_denotes] — rendering an expression denotes
-    EXACTLY the [GoTypes.ConstInfo] it computes (a bare integer is an UNTYPED constant, not a typed [int] —
-    the §1 repair; an explicit conversion is a TYPED constant), in the ONE [ConstInfo] vocabulary, under an
-    INDEPENDENT decimal reader / string decoder (parser-free; the milestone forbids a lexer/parser/round-trip
-    in the certified path); and [render_resolved_expr_denotes], tying the three authorities — a resolved
-    [println] argument analyzes to a ConstInfo whose spelling denotes it and evaluates to a well-formed value
-    of its resolved [GoType] carrying the same constant — plus decimal faithfulness / no-leading-zero and the
-    int boundary facts.  Whether the REAL Go compiler parses these bytes to that value is claim (B) — external
+    EXACTLY the [GoTypes.ConstInfo] it computes (a bare integer/float is an UNTYPED constant, not a typed
+    [int]/[float64] — the §1 repair; an explicit conversion is a TYPED constant through [convert_const]), in
+    the ONE [ConstInfo] vocabulary, under an INDEPENDENT decimal reader / float decoder / string decoder
+    (parser-free; the milestone forbids a lexer/parser/round-trip in the certified path).  A bare float
+    renders through ONE canonical decimal spelling with the §27 decode/render semantic round trip; a float
+    conversion renders `float32`/`float64(...)`.  And [render_resolved_expr_denotes] ties the three
+    authorities — a resolved [println] argument analyzes to a ConstInfo whose spelling denotes it and
+    evaluates to a well-formed value of its resolved [GoType] (the runtime value being that constant's
+    resolved-type interpretation — floats round) — plus decimal faithfulness / no-leading-zero and the int
+    boundary facts.  Whether the REAL Go compiler parses these bytes to that value is claim (B) — external
     adequacy — exercised by the differential e2e, not a kernel theorem here.
     ============================================================================ *)
 From Stdlib Require Import String Ascii NArith ZArith List Bool Lia.

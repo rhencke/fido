@@ -2,8 +2,9 @@
 
 # Fido — GoProgram (ModuleSpec + a possibly-empty finite map of intrinsic FilePath keys to raw file ASTs)
 # -> GoTypes (the one type authority: each raw literal is an exact untyped GoConst resolved through the one
-# GoType {TBool, the integer family TInteger over the ten-member IntegerType, TString}; an EIntConvert is a typed
-# constant) to ProgramTyped evidence over the SAME AST) -> GoCompile (whole-program admissibility =
+# GoType {TBool, the integer family TInteger over the ten-member IntegerType, the float family TFloat over
+# FloatType, TString}; an EIntConvert/EFloatConvert is a typed constant via the one convert_const authority)
+# to ProgramTyped evidence over the SAME AST) -> GoCompile (whole-program admissibility =
 # ProgramTyped + one-main-per-package, +CompilationFacts) -> GoSafe (values carry the SAME GoType) ->
 # GoRender (incl. the go.mod) -> the complete
 # DirectoryImage (exact go.mod bytes + the .go map), then the general `Fido Emit` transport command + a
@@ -708,6 +709,16 @@ rej_conv uint64-over 'println(uint64(18446744073709551616))'
 rej_conv nested-over 'println(uint8(int(300)))'
 rej_conv conv-bool   'println(int8(true))'
 rej_conv conv-str    'println(uint64("x"))'
+# hand-written REJECTED float-conversion fixtures (§37): F32/F64 overflow, a fractional or out-of-range
+# float->integer constant, and wrong-type conversions — all rejected by `go build` EXACTLY as GoTypes/
+# GoCompile make impossible (round_float_const overflow / fc_to_int fraction / cross-family reject).
+rej_conv f32-over    'println(float32(1e39))'
+rej_conv f64-over    'println(float64(1e309))'
+rej_conv int-frac    'println(int(3.5))'
+rej_conv int8-fl-over 'println(int8(128.0))'
+rej_conv uint8-fl-neg 'println(uint8(-1.0))'
+rej_conv f32-bool    'println(float32(true))'
+rej_conv f64-str     'println(float64("x"))'
 
-echo "fido e2e OK — pinned Go built the whole tree (go build ./...) using the RENDERED go.mod, accepted the empty module, ran the witness vs goldens (incl. the ten integer-type conversions), checked the multi-package differential + go list discovery, and rejected the no-main/dup-main + out-of-range/non-integer conversion fixtures exactly as GoCompile does (go vet nonblocking)"
+echo "fido e2e OK — pinned Go built the whole tree (go build ./...) using the RENDERED go.mod, accepted the empty module, ran the witness vs goldens (incl. the ten integer-type conversions AND the float section: bare float64, float32/float64 conversions, exact float<->int, the direct-vs-nested double-round scar as uint64 evidence, underflow to +0), checked the multi-package differential + go list discovery, and rejected the no-main/dup-main + out-of-range/non-integer/float-overflow/fractional/wrong-type conversion fixtures exactly as GoCompile does (go vet nonblocking)"
 SH

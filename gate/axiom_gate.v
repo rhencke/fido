@@ -3,7 +3,8 @@
     exactly as many 'Closed under the global context' lines as there are 'Print Assumptions' commands here
     (an empty/partial log FAILS — fail-closed both ways).  These are the public surfaces of the
     program-rooted GoProgram -> GoTypes (the one type authority: untyped GoConst resolved through
-    {TBool, the integer family TInteger over IntegerType, TString} to ProgramTyped over the same AST) ->
+    {TBool, the integer family TInteger over IntegerType, the float family TFloat over FloatType, TString} to
+    ProgramTyped over the same AST) ->
     GoCompile -> GoSafe -> GoRender -> GoEmit architecture. *)
 From Fido Require Import Ints Floats FilePath FMap ModulePath GoVersion GoAST GoTypes GoCompile GoSafe GoRender GoEmit.
 
@@ -201,8 +202,9 @@ Print Assumptions GoCompile.str_program_compiles.
 
 (* GoSafe: exact VALUE semantics — a zero literal and a negated zero agree; a resolved expression evaluates
    to a well-formed value of the resolved GoType (one type authority across compiler and runtime); value
-   well-formedness reflection; an explicit conversion preserves the exact constant value; a string literal
-   evaluates to the EXACT runtime byte sequence of its resolved type. *)
+   well-formedness reflection; an explicit INTEGER conversion carries its exact converted value (a float
+   conversion rounds once); a string literal evaluates to the EXACT runtime byte sequence of its resolved
+   type. *)
 Print Assumptions GoSafe.eval_zero_sign_agnostic.
 Print Assumptions GoSafe.eval_expr_resolved.
 Print Assumptions GoSafe.eval_expr_resolved_type.
