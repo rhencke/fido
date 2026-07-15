@@ -1,4 +1,4 @@
-Claude Code milestone: transplant the mature historical integer foundation into the current one-AST architecture
+Claude Code milestone: open the Static Type Universe Arc, repair integer constant denotation, and add exact float32/float64 constants
 
 THIS FILE IS THE BINDING MILESTONE CONTRACT.
 
@@ -6,18 +6,26 @@ Before implementation
 
 1. Stop any currently running `/loop`.
 
-2. Replace the tracked repository file `.review/NEXT_STEPS.md` with this directive VERBATIM.
+2. Replace the tracked repository file:
+
+   .review/NEXT_STEPS.md
+
+   with this directive VERBATIM.
+
    - Do not summarize it.
    - Do not rewrite it.
    - Do not omit sections.
    - Do not “improve” the selected architecture while copying it.
 
-3. Do not modify `.review/CODEX_REVIEW_POLICY.md` in this milestone unless the user explicitly directs it.
-   The current permanent review policy remains binding.
+3. Commit `.review/NEXT_STEPS.md` as the opening commit of this milestone, before implementation.
 
-4. Commit `.review/NEXT_STEPS.md` as the opening commit of this milestone, before implementation.
+4. Record the contract commit SHA.
 
-5. Record the contract commit SHA.
+5. Read:
+
+   .review/CODEX_REVIEW_POLICY.md
+
+   before implementation and before every Codex stop review.
 
 6. After the contract commit, issue this exact Claude Code command:
 
@@ -27,153 +35,207 @@ The loop is authorized only for this milestone.
 
 The loop must:
 
-- work only toward `.review/NEXT_STEPS.md`;
-- use `.review/CODEX_REVIEW_POLICY.md`;
+- implement only this binding milestone;
+- use the permanent Codex review policy;
 - repair blocking implementation defects within the declared scope;
-- never broaden the milestone merely because historical code contains more features;
-- never restore a rejected historical architecture merely because its local definitions are useful;
-- classify any necessary architecture change as an ARCHITECTURAL CONFLICT;
-- notify the user and stop on an architectural conflict;
-- stop when Codex is GREEN under the permanent review policy;
-- after GREEN, run final verification, commit the checkpoint, notify the user, stop the loop, and wait.
+- stop and notify the user on an architectural conflict;
+- return GREEN when no blocking implementation defect or architectural conflict remains;
+- not keep running because a future type, operation, or hostile scenario could be added;
+- after GREEN, run final verification, commit the completed checkpoint, notify the user, stop the loop, and wait.
 
 Milestone purpose
 
-This milestone has two ordered parts:
+This milestone opens a longer architectural campaign:
 
-A. Perform a small documentation cleanup:
-   - state the string theorem honestly as a semantic byte round trip, not a source-spelling round trip;
-   - cull `PAINFUL_LESSONS.md` down to durable future-facing lessons.
+  STATIC TYPE UNIVERSE ARC
 
-B. Transplant the mature historical integer foundation into the CURRENT architecture:
-   - one integer-type descriptor;
-   - exact `Z` constant values;
-   - generic representability;
-   - typed constants that retain value and type;
-   - explicit integer constant conversions;
-   - one runtime integer value shape using the same type authority;
-   - canonical direct rendering and real-Go differential evidence.
+The campaign’s goal is:
 
-No arithmetic operators in this milestone.
+> Complete and accurate static representation of Fido’s non-generic, no-import Go 1.23 type universe before building the operational foundations that consume those types.
 
-No imports.
+The long-term campaign includes, in reviewed phases:
 
-No identifiers, variables, assignments, user-defined functions, parameters, results, or control flow.
+1. integer types and constant conversions;
+2. float32/float64;
+3. complex64/complex128;
+4. remaining predeclared scalar identities and aliases, including uintptr, byte = uint8, and rune = int32;
+5. unnamed structural types:
+   - arrays;
+   - slices;
+   - structs;
+   - pointers;
+   - function signatures;
+   - maps;
+   - channels;
+6. type aliases and defined named types;
+7. type-name resolution, identity, underlying types, and valid recursive definitions;
+8. method signatures and method sets as type-level facts;
+9. non-generic value interfaces.
 
-No second AST or IR.
+Operations come after the type roots they consume.
 
-History is the technical quarry.
+This milestone implements only:
 
-The current architecture is the authority.
+A. the surgical integer-render-denotation repair identified by review;
+B. the first new phase of the arc: exact float32/float64 constants, conversions, values, typing, rendering, and external adequacy.
 
-Standing project law
+Do not implement later phases in this loop.
+
+Scope
+
+The operational target remains:
+
+- Go language version 1.23;
+- linux/amd64;
+- 64-bit `int`, `uint`, and eventually `uintptr`;
+- no imports;
+- no generics;
+- no workspaces;
+- no ambient packages.
+
+The static language remains tiny:
+
+- `func main`;
+- builtin `println`;
+- primitive constant expressions already represented;
+- integer conversions;
+- new float constants and float conversions.
+
+No arithmetic operators are added.
+
+No variables, assignments, functions, calls, control flow, field access, indexing, sends, receives, pointers, slices, maps, channels, structs, interfaces, or type declarations are added in this milestone.
+
+Standing law
 
 Ruthless correctness or ruthless deletion.
+
+History is a technical quarry.
+
+The current architecture is the authority.
 
 The AST is the IR.
 
 There is:
 
-- one raw `GoProgram`;
-- one raw `GoExpr` tree per expression;
-- one `GoType` authority;
+- one raw AST per `.go` file;
+- one `GoProgram`;
+- one static type authority;
 - one exact constant-value authority;
-- one whole-program `GoCompile`;
-- one `GoSafe` value semantics using the same types;
-- one direct Rocq renderer;
+- one runtime-value type authority derived from the same static types;
 - no typed AST;
-- no copied compiled AST;
+- no copied compiled program;
 - no target AST;
-- no `Surface`;
-- no `TypedIR`;
-- no `GoTypeTag` parallel universe;
-- no handwritten OCaml typechecker, compiler, numeric semantics, conversion logic, or renderer;
-- no name-based extraction/lowering plugin;
-- no general Go lexer or parser;
-- no raw/opaque/text fallback constructor.
+- no text IR;
+- no separate lowering tree;
+- no parser authority;
+- no handwritten OCaml language semantics;
+- no name-based OCaml lowering;
+- no extraction-driven semantic wrapper tricks.
 
-PART A — documentation cleanup
+PART A — repair integer constant denotation at the source
 
-1. State the string result precisely
+1. Delete the false “bare integer denotes typed int” premise
 
-The current string implementation is correct.
+The current renderer relation labels every bare rendered integer constant as `IInt`, including a bare constant that is not representable as `int` but is valid inside an explicit conversion such as:
 
-Do not change the string encoder or decoder merely to force a source-spelling inverse.
+  uint64(9223372036854775808)
 
-Replace wording that says the decoder accepts “exactly the canonical subset” when that wording implies that equivalent noncanonical source spellings must be rejected.
+That semantic story is wrong.
 
-Use this durable statement throughout active documentation and relevant source comments:
+The inner bare integer remains an untyped integer constant.
 
-> Fido emits one canonical source spelling for every semantic string byte sequence. Its certified decoder assigns exact byte meaning to that spelling and may also accept semantically equivalent noncanonical spellings. The proved round trip is `decode(render(bytes)) = Some bytes`; no source-spelling round trip `render(decode(source)) = source` is claimed.
+The outer explicit conversion directly assigns `uint64` after checking the exact value’s representability.
 
-Examples:
+Do not patch this with an extra representability premise on the bare integer constructor. That would reject valid conversions.
 
-- `"A"` and `"\x41"` may denote the same byte sequence.
-- Fido always emits the canonical direct-printable spelling `"A"`.
-- The theorem recovers the bytes, not the historical source spelling.
+Do not special-case `uint64`.
 
-Keep:
+Correct the status model.
 
-  decode_string_literal (render_string_literal s) = Some s
+2. Reuse `ConstInfo` as the one render-time constant-status authority
 
-Do not add a reverse theorem.
+Do not create:
 
-Do not narrow the decoder merely to make prose easier.
+- `IntegerConstStatus`;
+- `FloatConstStatus`;
+- a second parallel typed/untyped status universe;
+- one denotation relation per numeric family that can drift.
 
-2. Cull `PAINFUL_LESSONS.md`
+The live type layer already owns the exact distinction:
 
-Rewrite `PAINFUL_LESSONS.md` as a concise set of durable architectural lessons likely to change future decisions.
+  UntypedConst : GoConst -> ConstInfo
+  TypedConst   : GoType -> GoConst -> ConstInfo
 
-Keep, in compact form:
+Make renderer denotation speak in that same vocabulary.
 
-1. A subset filter is not exact compiler admissibility.
-2. The Go compilation unit is the whole module tree.
-3. Gate the invariant actually advertised.
-4. Handwritten OCaml is transport, never language semantics.
-5. Proof-carrying provenance still requires a live assumption-closure gate.
-6. Review rigor must match the component’s declared guarantee and threat model.
-7. Audit compiled assumption closure, not source text.
-8. No raw escape hatch, typed AST, copied program, or parallel semantic authority.
-9. Untyped constants, typed constants, and runtime values are distinct.
-10. Integration/differential tests are alarms, not proofs.
-11. Foundations before feature breadth.
-12. Generated Go may be tracked only as a derived artifact checked against the certified output.
-13. String value is bytes; source spelling is a separate canonical proved encoding.
+Preferred root:
 
-Compress the filesystem lesson to the durable points only:
+  RenderedConstInfoDenotes : string -> ConstInfo -> Prop
 
-- practical single-owner/cooperating-emitter threat model;
-- one lock;
-- sibling temporary files;
-- complete image staged before installation;
-- fail-closed ordinary filesystem observation;
-- foreign Go/module rejection;
-- no transaction-log/stage-record architecture.
+Equivalent naming is acceptable.
 
-Delete from `PAINFUL_LESSONS.md`:
+It must represent at least:
 
-- exact branch-ordering implementation manuals;
-- review-round ping-pong;
-- lists of every historical sink bug;
-- commit-specific narratives;
-- detailed Git-path attack cases;
-- detailed shell-gate mechanics;
-- stale implementation line counts;
-- material that is already better located in `ARCHITECTURE.md`, source comments, tests, or Git history.
+- bare bool -> `UntypedConst (CBool b)`;
+- bare integer -> `UntypedConst (CInt z)`;
+- bare string -> `UntypedConst (CString bytes)`;
+- integer conversion -> `TypedConst (TInteger target) (CInt z)`;
+- later in this milestone, bare float -> `UntypedConst (CFloat q)`;
+- float conversion -> `TypedConst (TFloat target) (CFloat rounded_q)`.
 
-Do not turn the culled file into another status ledger.
+The relation must reuse the same conversion functions and exact values as `GoTypes`.
 
-PART B — historical integer transplant
+It must not independently reimplement representability or rounding.
 
-3. Required historical reconnaissance
+3. Prove rendering preserves `const_info`
 
-Before writing integer implementation code, inspect the mature historical work.
+Add a theorem of the form:
 
-Primary mature snapshot immediately before the Great Culling:
+  const_info e = Some ci ->
+  RenderedConstInfoDenotes (render_expr e) ci
+
+or an equivalent exact statement.
+
+This becomes the source-spelling/constant-status root.
+
+Then retain a final resolved theorem tying together:
+
+- `ResolveExpr`;
+- `eval_expr`;
+- runtime `GoValue`;
+- resolved `GoType`;
+- `ValueWF`;
+- rendered denotation.
+
+Delete or demote `RenderedIntegerDenotes` if it remains a competing authority.
+
+A convenience theorem may project integer facts from the generic relation, but it must not own another status model.
+
+4. Required integer repair regressions
+
+Kernel-check at least:
+
+- rendered bare `9223372036854775808` denotes:
+  `UntypedConst (CInt 9223372036854775808)`;
+- it does not denote:
+  `TypedConst (TInteger IInt) (CInt 9223372036854775808)`;
+- rendered `uint64(9223372036854775808)` denotes:
+  `TypedConst (TInteger IUint64) (CInt 9223372036854775808)`;
+- rendered `uint64(18446744073709551615)` has final typed `IUint64` status and exact value;
+- defaulting a bare value above `int_max` still fails in `println`;
+- the same exact bare value succeeds inside `uint64(...)`.
+
+Keep all existing generated bytes and integer e2e behavior unchanged for this repair.
+
+PART B — historical float quarry
+
+5. Read the mature historical float work before designing
+
+Primary mature snapshot:
 
   7f4da96e72168d425d3e06c467448bd2a9979cc5
 
-Read these files at that snapshot:
+Read at least:
 
   git show 7f4da96e72168d425d3e06c467448bd2a9979cc5:GoNumeric.v
   git show 7f4da96e72168d425d3e06c467448bd2a9979cc5:GoTypes.v
@@ -181,1038 +243,1176 @@ Read these files at that snapshot:
   git show 7f4da96e72168d425d3e06c467448bd2a9979cc5:GoRuntimeTypes.v
   git show 7f4da96e72168d425d3e06c467448bd2a9979cc5:GoCompile.v
 
-Use targeted historical searches rather than reading only the final monolith:
-
-  git log -S 'PtTIntConst' --all --oneline
-  git log -S 'int_const_repr' --all --oneline
-  git log -S 'wrap64' --all --oneline
-  git log -S 'i64_no_overflow' --all --oneline
-  git log -S 'assignable_to_ty' --all --oneline
-  git log -S 'untyped INTEGER constants' --all --oneline
-
-Read the deletion decision:
+Read the Great Culling rationale:
 
   git show 33c8df0f2273adae8eed15ec0e45a7b000fb7235
 
-The deletion rationale is binding context:
+The float mathematics was not disproved.
 
-- the old numeric mathematics was not disproved;
-- the old compiler authority was unsound;
-- the old runtime/type-tag world was disconnected from certified emission;
-- the extraction/plugin architecture and duplicated semantic universes were rejected.
+The old compiler authority, parallel runtime type universe, extraction architecture, and disconnected runtime island were rejected.
 
-Read these focused commits and their diffs:
+6. Read the focused float commits
 
-A. Full-width signed int64 over `Z`
+Read the commit messages and diffs for:
 
-  86dce7fc72bee4f0c887fd8839d9f006fde576ab
+  d76829aca5476cbb48210cadc4226ee086caa3e6
 
-B. Signed int64 division/remainder/bitwise/shifts
+The original identification of the untyped-float-constant problem:
+exact arbitrary-precision constants differ from runtime IEEE values.
 
-  65fdc312cb6040656613cf1cf8e83fcd78f17390
+  20f3a6172fc763aa618f38f2dc9894a7fded4de8
 
-C. Full-width unsigned uint64 over `Z`
+Exact-rational floating constants and the distinction between exact constant arithmetic and runtime per-step rounding.
 
-  2e90be356f556fe2b7b5739ebe10daac1e10a095
+  e6abddc1b69da54ab22f8255556b724be133dbc8
 
-D. Arbitrary-precision untyped integer constants, type at use
+Exact rational constant division.
 
-  866fb86bf6830a8ba272facc4828615312224e0e
+Arithmetic itself remains deferred, but the exact-rational representation and examples are relevant.
 
-E. Constant-aware static categories; constness survives conversions and folds
+  16269a397486669d04ae42ba7f72436f7f5928cc
 
-  4317b56aa42ae59c6e507b84e21b13b9068ce7fc
+Direct exact-rational-to-binary32 rounding.
 
-F. No-overflow obligations imply exact mathematical arithmetic
+This contains the critical double-rounding counterexample and the rule that direct float32 conversion must not pass through float64.
 
-  509e7c925c0e3c3caeb4710ded3fc014a7986810
+  bcf066adac66bcb0c0e8129425886dae044bdcf8
 
-G. Final removal of PrimInt63/Sint63 dependencies; zero-axiom numeric base
+Direct exact-rational-to-binary64 rounding and the corresponding double-rounding correction.
 
   445aca38ef5a043f69e088be27a21713e822381f
 
-Optional earlier context:
+The axiom-free migration from primitive floats/integers to `SpecFloat.spec_float` and computable `Z` arithmetic.
 
-  fa07722696ce22772167f3cd88e38df23c7e1992
+  48aa47bdd03cf87ac63ce3e9e13687e888e8bed9
 
-This milestone may reuse definitions or proof ideas only after translating them into the current architecture.
+The historical discovery that `SpecFloat` already supplies precision-parameterized binary32 behavior.
 
-Do not cherry-pick those commits.
+Do not restore its arithmetic in this milestone.
 
-Do not restore whole deleted files.
+  c72b62dd501bd116466cd57fd56bc463f5be4f87
 
-4. Historical transplant ledger
+Constant zero versus runtime signed zero.
 
-Use this disposition table as the binding transplant map.
+Constant values never carry negative zero, NaN, or infinity.
+
+Runtime float values may eventually carry all IEEE cases.
+
+Useful history searches:
+
+  git log -S 'FConst' --all
+  git log -S 'f32_of_fconst' --all
+  git log -S 'f64_of_fconst' --all
+  git log -S 'sf_of_Z' --all
+  git log -S 'binary_normalize' --all
+  git log -S 'signed zero' --all
+  git log -S 'double-round' --all
+
+7. Required transplant ledger
+
+Before implementation, write a concise transplant ledger in the opening implementation commit message or a temporary review note.
+
+It must classify at least:
 
 | Historical item | Current destination | Disposition |
 |---|---|---|
-| `Z` integer carrier | `GoConst`, integer runtime values | Retain |
-| `in_i8`…`in_u64` range mathematics | generic `IntegerType` range authority | Generalize |
-| `int_ty_range` / `int_const_repr` | one reflected representability relation | Rebuild exactly |
-| `wrap64`, `wrapU64`, `iN_norm_z` | future runtime arithmetic/conversion milestone | Mine proofs now, do not expose unused live ops |
-| distinct `GoI8`…`GoUint` identities | one `IntegerType` descriptor | Retain identity, replace per-type records |
-| `PtIntConst z` | untyped `ConstInfo` | Retain concept |
-| `PtTIntConst t z` | typed `ConstInfo` | Retain concept |
-| `PtRunInt t` | future runtime-expression static category | Do not add before a runtime expression needs it |
-| constantness through nested conversions | current constant analyzer | Retain exactly |
-| `conv_to_scalar` integer-constant arm | explicit integer conversion typing | Rebuild |
-| `assignable_to_ty` | future assignment/argument/composite-literal milestone | Defer |
-| `num_arith`, comparisons, shifts, div/rem | next integer-arithmetic milestone | Defer |
-| no-overflow exactness theorems | next integer-arithmetic milestone | Preserve as reference |
-| per-type `SProp` wrappers used to survive extraction | none | Do not restore for extraction reasons |
-| `GoTypeTag` | none | Do not restore |
-| conservative `ptype` subset classifier | none | Do not restore as compiler authority |
-| 32-bit portable `int`/`uint` accept-set | none | Reject; current `int`/`uint` are pinned 64-bit |
-| `i64c`/`u64c` tactic/Number Notation as compiler | none | Do not restore |
-| name-based plugin folds/lowering | none | Do not restore |
-| floats, maps, channels, heap, concurrency | none in this milestone | Do not restore |
+| exact rational `FConst` concept | new exact `FloatConst` | retain/generalize |
+| `sf_of_Z` | direct rational-to-SpecFloat rounding root | retain mathematics |
+| direct `SFdiv 24 128` | float32 conversion | retain |
+| direct `SFdiv 53 1024` | float64 conversion | retain |
+| `renorm` / canonical SpecFloat concept | runtime `FloatValue` invariant | retain/generalize |
+| constant/runtime signed-zero split | GoTypes/GoSafe | retain |
+| double-rounding witnesses | kernel + real-Go fixtures | retain |
+| `PrimFloat`, `Prim2SF`, `SF2Prim` | none | reject |
+| old `GoFloat32` extraction wrapper shape | none | replace shape, retain invariant |
+| `ptype` / `PTy` | none | reject |
+| `GoTypeTag` | none | reject |
+| plugin name-recognition/lowering | none | reject |
+| old float arithmetic | future operational milestone | defer |
+| complex arithmetic | future | defer |
 
-5. Expand the one integer authority
+Do not copy whole historical files.
 
-Expand the existing `Ints.v` into the sole integer-family descriptor and range authority.
+PART C — one float type authority
 
-Do not create a second numeric-range module beside it.
+8. Add `FloatType`
 
-Required type:
+Create a certified low-level module, preferably:
 
-  Inductive IntegerType : Type :=
-  | IInt
-  | IInt8
-  | IInt16
-  | IInt32
-  | IInt64
-  | IUint
-  | IUint8
-  | IUint16
-  | IUint32
-  | IUint64.
+  Floats.v
 
-Do not add:
+Define exactly:
 
-- `uintptr`;
-- `byte` as a distinct type;
-- `rune` as a distinct type;
-- floats;
-- complex numbers;
-- arbitrary user-defined integer types.
+  Inductive FloatType :=
+  | F32
+  | F64.
 
-`byte` is an alias of `uint8`; `rune` is an alias of `int32`. They can receive source-name support only in a later reviewed milestone if syntax needs those aliases.
+Provide one authority for:
 
-Define one authority for:
+- decidable equality;
+- keyword:
+  - F32 -> `"float32"`;
+  - F64 -> `"float64"`;
+- precision:
+  - F32 -> 24;
+  - F64 -> 53;
+- exponent bound:
+  - F32 -> 128;
+  - F64 -> 1024.
 
-  integer_type_eqb
-  integer_signed
-  integer_bits
-  integer_min
-  integer_max
-  integer_keyword
+Names may differ.
 
-Required widths:
-
-- `IInt` = signed 64-bit;
-- `IUint` = unsigned 64-bit;
-- fixed-width names match their suffix.
-
-This is the existing pinned linux/amd64 semantic choice.
-
-Do not reintroduce `TargetConfig`.
-
-Define:
-
-  IntRepresentable : IntegerType -> Z -> Prop
-  integer_representableb : IntegerType -> Z -> bool
-
-with exact inclusive ranges:
-
-- signed W: `[-2^(W-1), 2^(W-1)-1]`;
-- unsigned W: `[0, 2^W-1]`.
-
-Prove at minimum:
-
-- `integer_type_eqb it1 it2 = true <-> it1 = it2`;
-- `integer_representableb it z = true <-> IntRepresentable it z`;
-- every `integer_min it` is representable;
-- every `integer_max it` is representable;
-- `integer_min it - 1` is not representable;
-- `integer_max it + 1` is not representable;
-- `integer_keyword` is exact for all ten constructors;
-- integer keywords are injective;
-- `IInt` and `IInt64` are distinct types despite equal ranges;
-- `IUint` and `IUint64` are distinct types despite equal ranges;
-- `IInt`/`IUint` are exactly 64-bit.
-
-Existing names such as `int_min`, `int_max`, and `uint_max` may remain only as definitions derived from this generic authority:
-
-  int_min  := integer_min IInt
-  int_max  := integer_max IInt
-  uint_max := integer_max IUint
-
-No duplicated numeric literals may become a second authority.
-
-6. Grow the single `GoType`
-
-Replace the old scalar `TInt` constructor with one parameterized integer family:
-
-  Inductive GoType : Type :=
-  | TBool
-  | TInteger : IntegerType -> GoType
-  | TString.
-
-Update the one `GoType` equality authority.
-
-The type of an ordinary defaulted integer literal is:
-
-  TInteger IInt
-
-Do not keep a second live `TInt` constructor.
-
-A notation for `TInteger IInt` is permissible only if it is purely notation and does not become another semantic case.
-
-Every exhaustive type consumer must handle the integer descriptor structurally.
-
-7. Grow the raw AST only as needed
-
-Add exactly one integer conversion constructor:
-
-  EIntConvert : IntegerType -> GoExpr -> GoExpr
-
-Its target is the intrinsic `IntegerType`, not a raw string keyword.
-
-Examples represented by the AST:
-
-  int8(42)
-  uint64(18446744073709551615)
-  uint8(int(300))
-  int8(int16(127))
-
-The last two are representable syntax but may be compiler-invalid.
+The semantics must derive from the one descriptor.
 
 Do not add:
 
-- general named conversions;
-- a raw type-name string;
-- arithmetic;
-- comparison;
-- bitwise operations;
-- shifts;
-- division/remainder;
-- variables;
-- calls;
-- a parenthesis node.
+- complex types;
+- float operations;
+- target configuration;
+- a second runtime float-type tag.
 
-`EInt`/`ENeg` remain exact untyped integer literal syntax.
+9. Extend the one `GoType`
 
-8. Keep one exact constant-value authority
+Extend:
 
-Retain and extend the exact value meaning over the same raw AST.
-
-A conversion does not change the mathematical constant value.
-
-The value domain remains:
-
-  GoConst :=
-  | CBool bool
-  | CInt Z
-  | CString string.
-
-Define or retain one total exact constant-value function over the current constant-only expression grammar:
-
-  const_value : GoExpr -> GoConst
-
-Required conversion rule:
-
-  const_value (EIntConvert it e) = const_value e
-
-No range check occurs in `const_value`.
-
-No wrap occurs in `const_value`.
-
-A raw integer constant remains arbitrary-precision `Z`, including values far outside every runtime integer range.
-
-9. Add one constant-status analysis
-
-Introduce one static constant result over the same AST, conceptually:
-
-  Inductive ConstInfo : Type :=
-  | UntypedConst : GoConst -> ConstInfo
-  | TypedConst   : GoType -> GoConst -> ConstInfo.
-
-Names may vary if responsibility remains exact.
-
-Define one executable analyzer:
-
-  const_info : GoExpr -> option ConstInfo
-
-Required rules:
-
-A. Raw literals
-
-- `EBool b` -> `UntypedConst (CBool b)`;
-- `EInt n` -> `UntypedConst (CInt (Z.of_N n))`;
-- `ENeg n` -> `UntypedConst (CInt (- Z.of_N n))`;
-- `EString s` -> `UntypedConst (CString s)`.
-
-B. Integer constant conversion
-
-For:
-
-  EIntConvert target e
-
-first analyze `e`.
-
-The operand must be either:
-
-- `UntypedConst (CInt z)`; or
-- `TypedConst (TInteger source) (CInt z)`.
-
-Then:
-
-- if `integer_representableb target z = true`,
-  return `TypedConst (TInteger target) (CInt z)`;
-- otherwise reject with `None`.
-
-Reject conversion operands that are bool/string constants.
-
-A conversion of a constant remains a constant.
-
-A typed constant retains:
-
-- its exact `Z` value;
-- its exact integer type.
-
-Never silently convert a constant category into a runtime category merely to forget a failed obligation.
-
-Required transitive behavior:
-
-- `uint8(int(300))` rejects;
-- `int8(int16(127))` accepts as typed `int8` constant value 127;
-- `int8(int16(128))` rejects at the outer conversion;
-- converting a typed constant to another integer type rechecks the exact value against the destination.
-
-Prove:
-
-- `const_info` agrees with `const_value` on the carried value;
-- successful analysis is deterministic;
-- typed integer constants carry a representable value;
-- conversion preserves the exact mathematical `Z`;
-- invalid nested conversion cannot be revived by an outer conversion.
-
-Do not add a `RuntimeValue` static category in this milestone. There is no runtime expression source yet.
-
-10. Generalize representability and defaulting
-
-Update the one `ConstRepresentable` authority.
-
-Required rules:
-
-- `CBool b` is representable as `TBool`;
-- `CString s` is representable as `TString`;
-- `CInt z` is representable as `TInteger it` iff `IntRepresentable it z`;
-- all cross-kind cases reject.
-
-Update the reflected checker and its exact theorem.
-
-Default types:
-
-- bool constant -> `TBool`;
-- untyped integer constant -> `TInteger IInt`;
-- string constant -> `TString`.
-
-Typed constants do not default again.
-
-11. Generalize contextual expression resolution
-
-`UsePrintlnArg` allows:
-
-- `TBool`;
-- every `TInteger it`;
-- `TString`.
-
-Update `ResolveExpr` and its executable reflection so:
-
-A. Untyped constant
-
-- choose `const_default_type`;
-- require use-context allowance;
-- require representability.
-
-B. Typed constant
-
-- retain its explicit type;
-- require use-context allowance;
-- require the carried value remains representable;
-- do not default it to `int`;
-- do not allow it to adapt as though untyped.
-
-Required examples:
-
-- bare `42` resolves as `TInteger IInt`;
-- bare `2^63` does not resolve for `println` because it does not fit `int`;
-- `uint64(2^63)` resolves as `TInteger IUint64`;
-- `int64(2^63)` rejects;
-- `uint8(255)` resolves;
-- `uint8(256)` rejects;
-- `int8(-128)` resolves;
-- `int8(-129)` rejects.
-
-Retain exact proofs:
-
-- soundness;
-- completeness;
-- determinism;
-- no successful resolution at the wrong type;
-- reflected statement/file/program typing;
-- empty program remains typed.
-
-There must still be one live static typing path.
-
-No `ptype`.
-
-No typed AST.
-
-12. Integrate with whole-program `GoCompile`
-
-`GoCompile` remains:
-
-  ProgramTyped
-  +
-  exactly one main declaration per package.
-
-Update it to use the generalized integer type system.
-
-Retain:
-
-- whole-program all-or-nothing behavior;
-- empty-program acceptance;
-- package grouping by file path;
-- one-main-per-package;
-- soundness/completeness of executable compilation against the declarative judgment;
-- rejection before rendering/emission.
-
-The existing `ErrIntOverflow` name is no longer complete once typing can fail because:
-
-- a constant does not fit any of ten integer types;
-- a conversion operand is not integer;
-- nested typed conversion is invalid.
-
-Use one honest typing error, for example:
-
-  ErrTyping
-
-plus:
-
-  ErrPackageMainCount
-
-unless a finer error taxonomy is completely reflected and remains small.
-
-Do not preserve an inaccurate error name merely for compatibility.
-
-`CompilationFacts` remains evidence/facts over the same program.
-
-Do not add a typed program.
-
-13. Runtime integer values use the same type authority
-
-Replace the old single `VInt Z` runtime case with one integer-family case.
-
-Preferred minimal shape:
-
-  Inductive GoValue : Type :=
-  | VBool    : bool -> GoValue
-  | VInteger : IntegerType -> Z -> GoValue
-  | VString  : string -> GoValue.
-
-Define:
-
-  value_type (VInteger it z) = TInteger it.
-
-Define one value well-formedness authority:
-
-  ValueWF : GoValue -> Prop
-  value_wfb : GoValue -> bool
+  GoType
 
 with:
 
-- every bool/string value well formed;
-- `VInteger it z` well formed iff `IntRepresentable it z`.
+  TFloat : FloatType -> GoType
 
-A single generic proof-carrying `IntegerValue it` wrapper is acceptable only if it makes the complete proof surface smaller.
+The complete live universe after this milestone is:
 
-Do not create one Rocq record type per Go integer type.
+- `TBool`;
+- `TInteger IntegerType`;
+- `TFloat FloatType`;
+- `TString`.
 
-Do not reintroduce `GoTypeTag`.
+No placeholder composite type constructors.
 
-Do not make record shape serve an extraction plugin; there is no semantic extraction backend.
+No `TUnknown`, `TRaw`, or `TOpaque`.
 
-14. Evaluation must reuse constant analysis
+PART D — exact untyped floating constants
 
-Refactor expression evaluation so it does not invent another conversion/type/value authority.
+10. Add one exact rational `FloatConst`
 
-Because raw syntax can now contain compiler-invalid conversions, evaluation may be partial:
+Add one exact, canonical, axiom-free rational value type for floating constants.
 
-  eval_expr : GoExpr -> option GoValue
+Preferred semantic shape:
 
-or an equivalent resolved-evaluation function.
+  numerator   : Z
+  denominator : positive
 
-Required behavior under `UsePrintlnArg`:
+with:
 
-- untyped bool -> `VBool`;
-- untyped string -> `VString`;
-- untyped integer -> `VInteger IInt z`, only if default-int representable;
-- typed integer constant -> `VInteger target z`, only if its conversion chain is valid;
-- invalid conversion -> `None`.
+- positive denominator;
+- canonical reduction;
+- canonical zero;
+- decidable equality by canonical representation.
 
-Evaluation must derive from the same `ConstInfo`/resolution result.
+Using a standard-library canonical rational is acceptable only if:
 
-Do not duplicate constant folding or conversion representability in `GoSafe`.
+- reduction is computational and transparent enough for the required proofs;
+- no axiom enters the assumption closure;
+- equality and rendering proofs remain tractable.
 
-Prove:
+Do not use:
 
-- `ResolveExpr use e t` implies evaluation succeeds;
-- the resulting value has type `t`;
-- the resulting value is `ValueWF`;
-- explicit integer conversion preserves the exact `Z` value;
-- `EInt 0` and `ENeg 0` remain semantically equal after default resolution;
-- nested typed conversions preserve the exact value when accepted.
+- `float`;
+- `spec_float`;
+- a decimal source string;
+- a rounded float32/float64 value
 
-`GoSafe` may remain logically `True` in this milestone:
+as the semantic untyped constant.
 
-- constant conversion failure is a compile-time typing failure;
-- no new runtime panic, blocking, heap, or nontermination source is introduced.
+`FloatConst` is exact mathematics.
 
-Do not add a panic/outcome model merely because future arithmetic division will need one.
+11. Add an intrinsic finite-decimal literal value
 
-15. Canonical direct rendering of integer conversions
+The raw source constructor must carry semantic value, not arbitrary source spelling.
 
-Render every integer type using its exact Go keyword:
+Add a small intrinsic finite-decimal domain, for example:
 
-  int
-  int8
-  int16
-  int32
-  int64
-  uint
-  uint8
-  uint16
-  uint32
-  uint64
+  coefficient : Z
+  exponent10  : Z
 
-Render:
+with semantic value:
 
-  EIntConvert it e
+  coefficient * 10^exponent10
 
-as:
+and canonicality such as:
 
-  <integer_keyword it>(<render_expr e>)
+- zero has one representation;
+- a nonzero coefficient has no removable factor of ten;
+- any declared magnitude/exponent bounds are intrinsic.
+
+Equivalent finite-decimal representation is acceptable.
+
+Call it, for example:
+
+  DecimalFloat
+  FloatLiteralValue
+  DecimalConst
+
+Do not use raw source text.
+
+Do not preserve:
+
+- underscore placement;
+- decimal versus hexadecimal spelling;
+- capitalization;
+- leading-zero choices;
+- negative zero spelling.
+
+One semantic value has one canonical Fido spelling.
+
+12. Bound the raw literal domain honestly
+
+Fido’s `GoCompile` aims to agree with the pinned Go toolchain for every representable program.
+
+The Go specification permits compiler implementation limits for arbitrary-precision floating constants.
+
+Do not silently make every mathematical coefficient/exponent pair representable if the pinned Go compiler may refuse its source spelling for implementation-limit reasons.
+
+Before finalizing the intrinsic literal domain:
+
+- run focused experiments against pinned Go 1.23;
+- choose a deliberately bounded coefficient/exponent domain that the pinned toolchain accepts reliably;
+- state the exact bounds;
+- carry them intrinsically;
+- add boundary fixtures.
+
+A smaller proven domain is acceptable.
+
+A representable value that the pinned compiler rejects is not.
+
+The internal `FloatConst` mathematics may be wider than the raw literal domain.
+
+13. Extend `GoConst`
+
+Extend:
+
+  GoConst
+
+with:
+
+  CFloat : FloatConst -> GoConst
+
+Then:
+
+- a raw decimal float expression denotes `UntypedConst (CFloat exact_q)`;
+- there is no rounding in raw constant interpretation;
+- the exact value has no signed zero, NaN, or infinity.
+
+Prove zero-sign agnosticism at the exact constant layer.
+
+PART E — raw float syntax
+
+14. Grow the raw AST minimally
+
+Add exactly:
+
+  EFloat : DecimalFloat -> GoExpr
+  EFloatConvert : FloatType -> GoExpr -> GoExpr
+
+Names may differ.
+
+`EFloat` carries semantic finite-decimal value.
+
+`EFloatConvert` is explicit Go conversion syntax.
+
+Do not add:
+
+- float arithmetic;
+- a general conversion target;
+- a raw type-expression universe prematurely;
+- imaginary literals;
+- complex literals;
+- NaN/Inf constructors;
+- runtime float variables;
+- unary arithmetic operators beyond what the literal representation itself needs.
+
+Keep `EIntConvert`.
+
+A future raw type-expression milestone may consolidate conversion syntax when named and composite type expressions exist.
+
+Do not conflate resolved `GoType` with future unresolved raw type syntax now.
+
+PART F — direct single-round conversion semantics
+
+15. Rebuild the historical direct rounding root
+
+Use `SpecFloat.spec_float`, not primitive float operations.
+
+Define an exact integer-to-SpecFloat embedding equivalent in responsibility to historical:
+
+  sf_of_Z : Z -> spec_float
+
+Define target-directed direct rounding of exact rational constants:
+
+  round_float_sf : FloatType -> FloatConst -> spec_float
+
+Conceptually:
+
+  SFdiv precision emax
+    (sf_of_Z numerator)
+    (sf_of_Z denominator)
+
+The denominator is nonzero by construction.
+
+The conversion to F32 must directly use binary32 precision.
+
+It must not:
+
+- convert through F64;
+- first round numerator and denominator independently to F64;
+- use host OCaml floats;
+- use primitive Rocq floats.
+
+16. Convert the rounded SpecFloat back to exact constant meaning
+
+Typed constants remain constants.
+
+They carry an exact mathematical value after target rounding.
+
+Define an exact denotation of a rounded finite/zero `spec_float` back into `FloatConst`:
+
+- `S754_zero _` -> exact rational zero;
+- `S754_finite sign mantissa exponent` -> exact dyadic rational;
+- infinity -> not representable;
+- NaN -> not representable.
+
+Define:
+
+  round_float_const : FloatType -> FloatConst -> option FloatConst
+
+or an equivalent function.
+
+It must:
+
+1. round the exact source rational once at the destination precision;
+2. reject overflow that produces infinity;
+3. accept underflow that rounds to zero;
+4. simplify any negative zero result to exact unsigned zero;
+5. never produce NaN for a valid rational denominator.
+
+17. One float representability authority
+
+Define:
+
+  FloatConstRepresentable : FloatType -> FloatConst -> Prop
+
+and a reflected executable decision.
+
+Exact intended rule:
+
+- representable iff direct destination rounding succeeds without overflow;
+- underflow to zero is representable;
+- constant negative zero is simplified to zero;
+- no constant NaN or infinity.
+
+Prove exact reflection.
+
+Do not create another float-overflow checker in `GoCompile` or `GoRender`.
+
+PART G — target-directed constant conversion
+
+18. Create one constant-conversion authority
+
+Do not duplicate conversion semantics between:
+
+- `EIntConvert`;
+- `EFloatConvert`;
+- typing;
+- evaluation;
+- rendering.
+
+Introduce one target-directed exact conversion authority, conceptually:
+
+  convert_const : GoType -> GoConst -> option GoConst
+
+It may be split into small typed helpers, but there must be one semantic root.
+
+Current rules:
+
+A. Integer target from integer constant
+
+- exact current behavior;
+- destination representability required;
+- result is exact `CInt z`.
+
+B. Integer target from floating constant
+
+- the exact rational must be an integer value;
+- its exact integer must be representable by the destination integer type;
+- result is exact `CInt z`;
+- fractional constants reject;
+- no runtime truncation rule applies to constants.
 
 Examples:
 
-  int8(42)
-  uint64(18446744073709551615)
-  uint8(int(300))
+  int(3.0)       accepts as typed integer constant 3
+  int(3.5)       rejects
+  int8(127.0)    accepts
+  int8(128.0)    rejects
+  uint8(-1.0)    rejects
 
-The renderer renders raw syntax even when the program is invalid, but certified emission remains impossible without `SafeProgram`.
+C. Float target from integer constant
 
-No general parser.
+- embed exact integer as exact rational;
+- round directly once to destination;
+- reject overflow;
+- result carries the exact rounded `CFloat`.
 
-No token layer.
+D. Float target from floating constant
 
-No formatter rewrite.
+- round exact current constant value directly to destination;
+- a nested explicit conversion rounds at each explicit boundary;
+- result carries the exact rounded `CFloat`.
 
-No name-based OCaml lowering.
+E. bool/string sources to numeric targets
 
-Prove:
+- reject.
 
-- integer keywords are ASCII;
-- converted expressions are ASCII;
-- exact spelling fixtures for every integer keyword;
-- nested conversion rendering is exact;
-- existing literal rendering remains unchanged.
+19. Preserve constantness transitively
 
-16. Honest rendered integer denotation
+A conversion of a constant is a typed constant.
 
-The old unconditional `render_expr_denotes` theorem must not remain falsely unconditional if a raw expression can now contain an invalid conversion.
+Never turn it into a runtime category.
 
-Use a resolved-expression theorem.
+Required nested behavior:
 
-Introduce a small certified denotation relation for the emitted integer-expression subset, conceptually:
+- `float32(float64(q))` rounds first to F64, then rounds that exact typed constant value to F32;
+- direct `float32(q)` rounds once directly to F32;
+- the two may differ;
+- `int(float32(q))` sees the rounded float32 constant value;
+- an invalid inner conversion cannot be revived by an outer conversion.
 
-  RenderedIntegerDenotes : string -> IntegerType -> Z -> Prop
+This is the float analogue of the historical `PtTIntConst` lesson.
 
-It should cover:
+PART H — type resolution and compilation
 
-A. Bare default-int literal
+20. Default types
 
-- canonical decimal or unary-minus decimal;
-- denotes `IInt` and exact `Z`.
+Extend:
 
-B. Explicit integer conversion
+  const_default_type
 
-- canonical integer keyword;
-- opening parenthesis;
-- a recursively denoting inner integer expression;
-- closing parenthesis;
-- exact value preserved;
-- destination representability required;
-- outer result type is the destination type.
+with:
 
-This relation may admit semantically equivalent spellings.
+  CFloat _ -> TFloat F64
 
-It is a denotation tool, not a general Go parser.
+Bare floating constants default to float64 only in a context requiring a typed value.
 
-Extend `RenderedPrimitiveDenotes` so:
+They remain untyped before that point.
 
-  VInteger it z
+21. Representability and `ResolveExpr`
 
-is denoted through `RenderedIntegerDenotes`.
+Extend the one `ConstRepresentable` authority:
 
-Prove a root theorem such as:
-
-  ResolveExpr UsePrintlnArg e t ->
-  exists v,
-    eval_expr e = Some v
-    /\ value_type v = t
-    /\ ValueWF v
-    /\ RenderedPrimitiveDenotes (render_expr e) v.
-
-Equivalent decomposition into smaller load-bearing theorems is acceptable.
-
-Retain string byte-denotation and bool denotation.
-
-Real Go parsing remains external adequacy.
-
-17. Historical boundary fixtures to resurrect now
-
-Add kernel-checked fixtures for every integer type’s exact boundaries.
-
-Generic theorem surface:
-
-- min accepted;
-- max accepted;
-- min - 1 rejected;
-- max + 1 rejected.
-
-Concrete fixtures must include at least:
-
-Signed:
-
-- `int8(-128)` accepted;
-- `int8(127)` accepted;
-- `int8(-129)` rejected;
-- `int8(128)` rejected;
-- `int16` min/max accepted;
-- `int32` min/max accepted;
-- `int64` min/max accepted;
-- platform `int` min/max accepted.
-
-Unsigned:
-
-- `uint8(0)` accepted;
-- `uint8(255)` accepted;
-- `uint8(-1)` rejected;
-- `uint8(256)` rejected;
-- `uint16` max accepted;
-- `uint32` max accepted;
-- `uint64(18446744073709551615)` accepted;
-- `uint64(18446744073709551616)` rejected;
-- platform `uint` max accepted.
-
-Type-at-use:
-
-- bare `9223372036854775808` rejects as default `int`;
-- `uint64(9223372036854775808)` accepts;
-- `int64(9223372036854775808)` rejects.
-
-Transitive typed-constant cases:
-
-- `uint8(int(300))` rejects;
-- `uint8(int(255))` accepts;
-- `int8(int16(127))` accepts;
-- `int8(int16(128))` rejects;
-- `int8(true)` rejects;
-- `uint64("x")` rejects.
-
-Type identity:
-
-- `IInt <> IInt64`;
-- `IUint <> IUint64`;
-- their keywords differ;
-- their static types differ.
-
-Arbitrary precision:
-
-- a raw `CInt`/literal with a value above `2^64` remains exactly representable in the constant domain;
-- it simply fails typed resolution to every current integer type.
-
-Do not add arithmetic solely to recreate the historical `(1 << 70) >> 8` fixture.
-
-Record that fixture as mandatory for the next arithmetic milestone.
-
-18. Real-Go differential and generated witness
-
-Grow the canonical witness to exercise accepted integer conversions.
-
-Include readable coverage of all ten integer types.
-
-At minimum print:
-
-- signed minima/maxima for representative narrow and 64-bit types;
-- unsigned maxima;
-- platform `int` and `uint`;
-- `uint64(2^63)`;
-- nested accepted conversion such as `int8(int16(127))`.
-
-Use exact reviewed goldens.
-
-Add hand-written real-Go rejection fixtures for:
-
-- `int8(128)`;
-- `int8(-129)`;
-- `uint8(-1)`;
-- `uint8(256)`;
-- `int64(9223372036854775808)`;
-- `uint64(18446744073709551616)`;
-- `uint8(int(300))`;
-- integer conversion of bool/string.
-
-The pinned Go 1.23 linux/amd64 toolchain must:
-
-- accept every Fido-accepted rendered fixture;
-- reject the representative Fido-rejected fixtures.
-
-A disagreement is a model bug.
-
-Regenerate tracked `main.go` only through:
-
-  make regenerate
-
-Do not hand-edit generated Go.
-
-19. What is explicitly deferred
-
-Do not implement in this milestone:
-
-- binary arithmetic;
-- unary complement;
-- general unary minus over expressions;
-- comparison;
-- shifts;
-- division;
-- remainder;
-- runtime wrapping operations;
-- runtime integer-to-integer conversions;
-- no-overflow arithmetic APIs;
-- assignment;
-- variables;
-- function parameters/results;
-- composite literals;
-- aliases `byte`/`rune`;
-- `uintptr`;
-- floats;
-- imports.
-
-The historical arithmetic and wrap work is the required quarry for the next integer milestone.
-
-The next milestone may add:
-
-- exact untyped constant arithmetic over `Z`;
-- typed constant arithmetic with result representability;
-- runtime arithmetic with width normalization;
-- no-overflow evidence and exactness theorems.
-
-Do not begin it now.
-
-20. Public theorem and assumption gate
-
-Update `gate/axiom_gate.v` with meaningful public surfaces.
-
-At minimum gate:
-
-Ints
-
-- integer-type equality reflection;
-- representability reflection;
-- exact 64-bit `int`/`uint`;
-- generic min/max accepted;
-- generic below/above rejected;
-- keyword exactness/injectivity;
-- type distinctness `IInt <> IInt64`, `IUint <> IUint64`.
-
-GoTypes
-
-- constant value exactness through conversion;
-- successful conversion preserves `Z`;
-- typed conversion representability;
-- resolution soundness/completeness/determinism;
-- default-int behavior;
-- explicit uint64 type-at-use behavior;
-- transitive nested-conversion rejection;
-- program typing reflection.
-
-GoCompile
-
-- revised `prog_ok_iff`;
-- compiler soundness/completeness;
-- empty program accepted;
-- a concrete integer-family program compiles;
-- an invalid nested-conversion program has no `CompilableProgram`.
-
-GoSafe
-
-- resolved evaluation succeeds;
-- value type agrees;
-- value well-formedness;
-- exact converted integer value;
-- zero-sign agreement.
-
-GoRender
-
-- all ten keyword spellings;
-- converted expression ASCII;
-- nested conversion exact spelling;
-- resolved render/value/type correspondence.
-
-All surfaces must be closed.
-
-The whole-certified-theory assumption audit must remain GREEN.
-
-No `Axiom`, `Parameter`, `Admitted`, functional extensionality, primitive integer axiom, or source-text axiom scanner.
-
-Do not import `PrimInt63` or `Sint63`.
-
-21. Documentation reconciliation
+- `CFloat q` is representable as `TFloat ft` according to `round_float_const`;
+- an integer constant may be representable as a float target through the conversion authority only when explicit conversion syntax supplies that target;
+- cross-family wrong types reject;
+- typed float constants retain their exact explicit type.
 
 Update:
 
-- `.review/NEXT_STEPS.md`;
-- `ARCHITECTURE.md`;
-- `CLAUDE.md`;
-- `README.md`;
-- `PROGRESS.md`;
-- culled `PAINFUL_LESSONS.md`;
-- `Ints.v`;
-- `GoAST.v`;
-- `GoTypes.v`;
-- `GoCompile.v`;
-- `GoSafe.v`;
-- `GoRender.v`;
-- `GoEmit.v` comments if needed;
-- `gate/axiom_gate.v`;
-- e2e witness/goldens;
-- Makefile/Dockerfile comments only where behavior changed.
+- `const_representableb`;
+- reflection;
+- `const_info`;
+- `resolve_expr`;
+- `ResolveExpr`;
+- statement/file/program typing;
+- soundness;
+- completeness;
+- determinism.
 
-Required truths:
+A bare float in `println` defaults to F64.
 
-A. Integer values
+An explicit F32 conversion resolves to F32.
 
-- exact mathematical integer constants are `Z`;
-- runtime integer values retain their exact `IntegerType`;
-- no `Sint63`.
+22. Whole-program compiler
 
-B. Type identity
+`GoCompile` continues to consume the same `ProgramTyped` evidence.
 
-- `int` and `int64` are distinct types;
-- `uint` and `uint64` are distinct types;
-- they share ranges only because the current target is pinned 64-bit.
+No typed AST.
 
-C. Constants
+No copied program.
 
-- raw literals are untyped;
-- typed constants retain type and exact value;
-- constants do not wrap;
-- a conversion of a constant remains a typed constant;
-- representability is checked at conversion/default use.
+Float failures are static constant failures:
 
-D. Runtime
+- raw default-F64 overflow;
+- explicit F32/F64 overflow;
+- invalid constant conversion operand;
+- fractional float constant converted to integer;
+- out-of-range float-to-integer constant conversion.
 
-- runtime wrapping arithmetic is not yet present;
-- no claim is made about arithmetic or overflow execution in this milestone.
+Use a small exact error representation.
 
-E. Architecture
+Do not invent a general future type-error taxonomy.
 
-- one AST;
-- one `GoType`;
-- no `GoTypeTag`;
-- no historical `ptype`;
-- no per-width runtime record family;
-- no extraction plugin.
+The whole program remains all-or-nothing.
 
-F. Strings
+PART I — runtime float values without a second type universe
 
-- canonical spelling;
-- semantic byte round trip only;
-- decoder may accept equivalent noncanonical spelling.
+23. Add canonical runtime `FloatValue`
 
-G. History
+Runtime float values use `SpecFloat.spec_float`.
 
-- historical source was mined and translated;
-- the deleted architecture was not restored.
+They must be tied to one `FloatType`.
 
-`PROGRESS.md` must remain compact.
+Define a proof-carrying canonical runtime value, conceptually:
 
-22. Acceptance criteria
+  FloatValue : FloatType -> Type
+
+The invariant must ensure a value is in the canonical representation for its format.
+
+It must be future-compatible with:
+
+- finite values;
+- positive and negative zero;
+- infinity;
+- NaN.
+
+Do not use an invariant that only permits values originating from constants.
+
+A suitable invariant may be:
+
+- being in the image of a format normalizer;
+- being a fixed point of a proved format normalizer;
+- another exact canonical-format predicate.
+
+The historical `renorm`/`binary_normalize` work is the reference.
+
+Use proof fields for semantic validity, not to manipulate extraction.
+
+24. Extend `GoValue`
+
+Extend:
+
+  GoValue
+
+with an integer-family-parallel float constructor, conceptually:
+
+  VFloat : forall ft, FloatValue ft -> GoValue
+
+Then:
+
+  value_type (VFloat ft _) = TFloat ft
+
+There is still one `GoType`.
+
+No `GoTypeTag`.
+
+No raw untyped `spec_float` value may cross the public runtime value API.
+
+25. Evaluate constants exactly
+
+Evaluation remains derived from the one `ConstInfo`/conversion authority.
+
+Required behavior:
+
+- bare float defaults to F64 and rounds once;
+- explicit F32/F64 returns that typed rounded value;
+- nested conversions respect each explicit boundary;
+- constant underflow produces positive zero;
+- no constant evaluation produces negative zero, infinity, or NaN;
+- `ValueWF` holds;
+- resolved type equals runtime type.
+
+Prove the generic resolved-expression type-preservation theorem still holds.
+
+PART J — canonical source rendering
+
+26. One canonical decimal spelling
+
+Render `EFloat` through one canonical ASCII decimal floating-constant spelling.
+
+A deliberately simple canonical form is preferred.
+
+For a normalized `(coefficient, exponent10)` representation, an acceptable policy is:
+
+- zero -> `0.0`;
+- nonzero -> `<signed-coefficient>.0e<explicit-signed-exponent>`.
+
+Examples:
+
+  15 * 10^-1 -> `15.0e-1`
+  25 * 10^-2, normalized to 25 * 10^-2 -> `25.0e-2`
+  1 * 10^6 -> `1.0e+6`
+  zero -> `0.0`
+
+Equivalent canonical scientific notation is acceptable if it has:
+
+- one spelling per intrinsic literal value;
+- no locale dependence;
+- no raw source payload;
+- all ASCII;
+- simple independent decoding;
+- gofmt stability.
+
+Do not emit host-formatted floats.
+
+Do not use OCaml/Python floating conversion.
+
+27. Independent canonical float decoder
+
+Add a small certified decoder for exactly the canonical Fido decimal float subset.
+
+It is not a general Go parser.
+
+It must recover the exact untyped `FloatConst` meaning.
+
+It may accept a harmless superset, but document the theorem honestly:
+
+  decode(render(value)) = exact semantic value
+
+Do not claim:
+
+  render(decode(source)) = original source
+
+for equivalent alternative spellings.
+
+Prove:
+
+- decoder/renderer semantic round trip;
+- exact coefficient/exponent meaning;
+- all output ASCII;
+- no locale dependence;
+- no accidental integer-token spelling;
+- no raw NaN or Inf spelling.
+
+28. Render explicit conversions directly
+
+Render:
+
+  EFloatConvert F32 e -> `float32(<render e>)`
+  EFloatConvert F64 e -> `float64(<render e>)`
+
+Keep integer conversion rendering.
+
+No name-based OCaml lowering.
+
+No formatter rewrite.
+
+29. Generic rendered-constant denotation
+
+Extend the Part A `RenderedConstInfoDenotes` root.
+
+The rendering theorem must establish the exact `ConstInfo` produced by `GoTypes`.
+
+For float conversions, the relation must use the same `round_float_const` authority.
+
+Required source-level examples:
+
+- bare `1.0e-1` denotes an untyped exact rational 1/10;
+- `float32(1.0e-1)` denotes a typed F32 constant with the exact rounded dyadic value;
+- `float64(-1.0e-1000)` denotes typed F64 exact zero;
+- no intermediate F64 status appears in direct F32 conversion.
+
+Then extend the final render/value/type theorem.
+
+PART K — historical scars as mandatory fixtures
+
+30. Direct binary32 rounding, not float64-mediated rounding
+
+Restore the historical counterexample from:
+
+  16269a397486669d04ae42ba7f72436f7f5928cc
+
+Use the exact historical input:
+
+  2305843146652647425
+
+Prove and externally demonstrate:
+
+- direct `float32(2305843146652647425)` rounds at F32 directly;
+- explicit nested `float32(float64(2305843146652647425))` follows two explicit rounding boundaries;
+- the results differ exactly as the historical commit established.
+
+Do not merely assert “no double rounding.”
+
+Pin both values.
+
+31. Precision boundaries
+
+Kernel fixtures:
+
+- `float32(16777217)` rounds to 16777216;
+- `float64(9007199254740993)` rounds to 9007199254740992;
+- exact representable powers and small decimals remain exact where expected;
+- direct F32/F64 conversions are deterministic.
+
+32. Underflow and overflow
+
+Add exact fixtures:
+
+- a tiny negative constant representable as F64 by rounding to unsigned zero;
+- a tiny constant representable as F32 by rounding to zero;
+- an F32-overflowing constant rejects;
+- an F64-overflowing constant rejects;
+- underflow is not mislabeled as overflow.
+
+The raw literal intrinsic bounds must still permit these reviewed fixtures.
+
+33. Signed zero
+
+Prove:
+
+- exact `FloatConst` has one zero;
+- negating the source spelling of zero, if representable through the intrinsic literal value, denotes the same exact zero;
+- constant conversion to F32/F64 yields positive zero;
+- no constant produces negative zero;
+- runtime `FloatValue` remains capable of representing negative zero for future runtime operations.
+
+34. Float-to-integer constants
+
+Kernel fixtures:
+
+- `int(3.0)` accepted;
+- `int(3.5)` rejected;
+- `int8(127.0)` accepted;
+- `int8(128.0)` rejected;
+- `uint8(-1.0)` rejected;
+- `int(float32(16777217))` observes the rounded F32 constant value 16777216.
+
+35. Wrong-type and nested failures
+
+Reject:
+
+- `float32(true)`;
+- `float64("x")`;
+- `int(float32(overflowing-constant))`;
+- an outer conversion whose inner conversion failed;
+- a float constant resolving as bool/string;
+- a float32 typed constant resolving as float64 without an explicit conversion.
+
+PART L — external Go adequacy
+
+36. Canonical float spelling experiments
+
+Use pinned Go 1.23 to confirm every canonical source form emitted by Fido is accepted.
+
+Cover:
+
+- zero;
+- positive;
+- negative;
+- positive exponent;
+- negative exponent;
+- F32 conversion;
+- F64 conversion;
+- very small underflow case;
+- reviewed boundary values.
+
+A Go rejection is a blocking correctness failure.
+
+37. Compile-rejection fixtures
+
+Handwritten temporary Go fixtures must confirm pinned Go rejects:
+
+- F32 overflow;
+- F64 overflow;
+- `int(3.5)`;
+- `int8(128.0)`;
+- `uint8(-1.0)`;
+- wrong-type conversions.
+
+Check rejection reason where practical, but acceptance status is the core contract.
+
+38. Byte-/value-safe e2e evidence
+
+Add a separate float witness if that keeps the canonical example readable.
+
+The witness should include:
+
+- bare default-F64 decimal constants;
+- explicit F32;
+- explicit F64;
+- nested F64->F32;
+- integer-to-float;
+- float-to-integer exact conversion;
+- underflow to zero.
+
+For the direct-versus-nested rounding counterexample, print an exact integer observation:
+
+  uint64(float32(big))
+  uint64(float32(float64(big)))
+
+Because those rounded constants are integer-valued, converting them back to uint64 produces exact decimal evidence without imports or binary float formatting ambiguity.
+
+Use reviewed goldens.
+
+Builtin `println` formatting remains integration evidence only.
+
+Formal semantics are the exact rational, direct rounding, canonical runtime value, and rendering-denotation proofs.
+
+PART M — proof and assumption gate
+
+39. Public theorem surfaces
+
+Add axiom-free public surfaces for at least:
+
+Floats
+
+- FloatType equality;
+- exact keywords;
+- precision/exponent settings;
+- exact rational canonicality/equality;
+- direct F32 rounding;
+- direct F64 rounding;
+- representability reflection;
+- overflow rejection;
+- underflow-to-zero acceptance;
+- constant zero has no sign;
+- direct-vs-nested rounding counterexample.
+
+GoTypes
+
+- bare float is untyped exact `CFloat`;
+- default type F64;
+- explicit F32/F64 produces typed constant;
+- integer->float conversion;
+- float->integer exact conversion;
+- fractional float->integer rejection;
+- nested conversion transitivity;
+- resolution soundness/completeness/determinism;
+- program typing reflection.
+
+GoSafe
+
+- canonical `FloatValue` well-formedness;
+- constant evaluation produces no NaN/Inf/negative zero;
+- runtime type agrees with resolved F32/F64;
+- generic resolved-expression theorem remains closed.
+
+GoRender
+
+- generic `RenderedConstInfoDenotes`;
+- repaired bare-integer untyped theorem;
+- uint64-above-int rendering theorem;
+- float literal decode/render semantic round trip;
+- float literal ASCII;
+- conversion rendering exactness;
+- render preserves `const_info`;
+- final render/value/type theorem.
+
+GoCompile
+
+- existing soundness/completeness remain;
+- concrete float program compiles;
+- concrete overflow/fractional conversion programs reject;
+- empty program remains accepted.
+
+The whole-certified-theory audit must include `Floats.v` automatically through Dune coverage.
+
+No axiom, parameter, admitted proof, primitive float assumption, or source-text axiom scanner.
+
+PART N — generated artifact
+
+40. Grow the canonical witness carefully
+
+The tracked generated module may change in this feature milestone.
+
+Add a small readable float section to the canonical witness.
+
+Keep the exact direct-vs-nested large-number evidence in a separate witness if it makes `main.go` unreadable.
+
+Run:
+
+  make regenerate
+
+through the pristine generated-module layer and the same sink.
+
+Do not hand-edit generated Go.
+
+Verify:
+
+- root `go.mod` unchanged unless there is a real module-spec reason;
+- recursive generated path set as expected;
+- generated bytes match the pristine layer;
+- gofmt-clean;
+- `go build ./...` green;
+- runtime goldens green.
+
+PART O — type-universe roadmap documentation
+
+41. Record the long-term arc without implementing it
+
+Add a concise section to `ARCHITECTURE.md` and `PROGRESS.md`:
+
+  Static Type Universe Arc
+
+State the reviewed order:
+
+1. integers;
+2. floats;
+3. complex;
+4. uintptr and aliases;
+5. unnamed structural types;
+6. aliases/defined named types and recursion;
+7. method signatures/method sets;
+8. non-generic value interfaces;
+9. only then the operations consuming those roots.
+
+Do not turn `PAINFUL_LESSONS.md` into a roadmap.
+
+42. Clarify what “types before operations” means
+
+The arc permits static facts such as:
+
+- identity;
+- underlying type;
+- canonical rendering;
+- zero-value classification;
+- nilability;
+- comparability;
+- map-key admissibility;
+- recursive validity;
+- assignability;
+- constant representability;
+- function signatures;
+- method signatures and method sets.
+
+It does not yet require runtime models for:
+
+- slice backing arrays;
+- map heaps;
+- channel queues;
+- pointer heaps;
+- function closures;
+- interface dynamic values.
+
+Do not resurrect fake operational values merely to say a static type exists.
+
+43. Non-generic boundary
+
+Document:
+
+- no type parameters;
+- no generic types;
+- no generic aliases;
+- no constraint-only interface semantics;
+- no instantiation or inference;
+- no imports.
+
+The eventual `any`/`error`/ordinary interface story belongs to the non-generic interface phase.
+
+PART P — required deletions and forbidden resurrection
+
+44. Do not restore historical architecture
+
+Forbidden:
+
+- old `GoNumeric.v` wholesale;
+- old `GoTypes.ptype`;
+- `PTy`;
+- `GoTypeTag`;
+- `GoRuntimeTypes`;
+- `Surface`;
+- `TypedIR`;
+- extraction plugins;
+- plugin recognizer tables;
+- primitive float operations;
+- `PrimFloat`;
+- `PrimInt63`;
+- `Sint63`;
+- one runtime type universe beside `GoType`;
+- float64-mediated float32 conversion;
+- per-node “exact-or-reject” conservative filter as compiler authority;
+- runtime arithmetic;
+- float comparisons;
+- complex values;
+- named/composite types before their milestones.
+
+45. Delete superseded renderer status code
+
+If the generic `RenderedConstInfoDenotes` root makes old integer-only denotation machinery redundant, delete it.
+
+Do not retain two authorities “for compatibility.”
+
+PART Q — acceptance criteria
 
 Workflow
 
-- This directive was copied verbatim to `.review/NEXT_STEPS.md`.
-- The contract was committed before implementation.
-- The exact `/loop 5m ...` command was started.
+- Old loop stopped.
+- This directive copied verbatim into `.review/NEXT_STEPS.md`.
+- Contract committed before implementation.
+- Exact `/loop 5m ...` command started.
 - Codex reviewed under `.review/CODEX_REVIEW_POLICY.md`.
-- No architectural conflict was silently implemented.
-- Codex is GREEN.
-- Notification sent.
+- No out-of-scope feature kept the loop alive.
+- GREEN reached.
+- Final notification sent.
 - Loop stopped.
 
-Cleanup
+Integer repair
 
-- String documentation states semantic byte round trip, not spelling inverse.
-- No false “exactly canonical accepted language” claim remains.
-- `PAINFUL_LESSONS.md` is concise and future-facing.
-- Sink implementation detail/history was culled from the lessons file.
+- Bare rendered integer constants remain untyped.
+- Explicit conversion assigns the target type directly.
+- `uint64(2^63)` and `uint64(maxuint64)` have no false intermediate typed-int premise.
+- Default-int overflow still rejects.
+- One generic constant-status render authority uses `ConstInfo`.
+- No competing integer status universe remains.
 
-History
+Float type root
 
-- All required historical files and commits were inspected.
-- Completion report records what was retained, generalized, deferred, and rejected.
-- No historical commit/file was restored wholesale.
-- No cherry-pick of the old numeric/type/runtime subsystem.
+- Exactly F32/F64.
+- Precision and exponent parameters single-sourced.
+- `GoType` extended once.
+- No placeholder types.
+- No TargetConfig.
 
-Integer authority
+Exact constants
 
-- Exactly one `IntegerType`.
-- Exactly ten live integer types.
-- `int`/`uint` are pinned 64-bit.
-- One range/representability authority.
-- One keyword authority.
-- No `TargetConfig`.
-- No PrimInt63/Sint63.
+- Exact canonical rational `FloatConst`.
+- Intrinsic bounded finite-decimal raw literal value.
+- Raw interpretation exact, unrounded, unsigned-zero only.
+- Default type F64.
+- No NaN/Inf/negative-zero constants.
 
-AST and typing
+Conversions
 
-- `EIntConvert` is the only new expression form.
-- One exact `const_value`.
-- One `ConstInfo` analyzer.
-- Untyped and typed constants are distinct.
-- Typed constants retain exact type + value through nesting.
-- One reflected `ResolveExpr`.
-- No typed AST.
-- No `ptype`.
-- No runtime static category added prematurely.
+- Direct target rounding through SpecFloat.
+- F32 never passes through F64 unless source syntax explicitly says `float32(float64(...))`.
+- Typed constants carry exact rounded values.
+- Constantness survives nesting.
+- Float->integer constants require exact integral value.
+- Overflow rejects.
+- Underflow to zero accepts.
+- Wrong-type sources reject.
 
-Compilation
+Runtime values
 
-- Whole-program compiler remains exact against its declarative judgment.
-- Empty program remains valid.
-- Invalid conversion rejects before bytes.
-- Error names are honest.
-
-Safety/value semantics
-
-- One integer runtime value shape.
-- Same `IntegerType`/`GoType` authority.
-- Evaluation reuses constant analysis.
-- Resolved evaluation succeeds, is well typed, and is range well formed.
-- `GoSafe` does not pretend arithmetic safety was added.
+- Canonical proof-carrying FloatValue.
+- F32/F64 identity retained.
+- Runtime representation future-compatible with signed zero/Inf/NaN.
+- Constant evaluation produces only finite/+0 values.
+- ValueWF and type preservation proved.
+- No GoTypeTag.
 
 Rendering
 
-- Exact keyword + conversion spelling.
+- One canonical decimal spelling.
+- Independent decoder.
+- Semantic decode/render round trip.
 - All ASCII.
-- Nested conversions render correctly.
-- Resolved integer rendering denotes exact value and type.
-- No parser/token/IR introduced.
+- Generic renderer denotation preserves `ConstInfo`.
+- Final rendering denotes exact value and resolved type.
+- No general parser.
+- No OCaml float formatting.
 
-Tests/e2e
+Historical scars
 
-- Every type’s min/max accepted.
-- Every type’s below-min/above-max rejected.
-- `uint64(2^63)` accepted while bare `2^63` and `int64(2^63)` reject.
-- `uint8(int(300))` rejects.
-- Real Go agrees on accepted/rejected representative fixtures.
-- Canonical generated witness regenerated through certified output.
-- `make check` GREEN.
+- 2^24+1 F32 rounding pinned.
+- 2^53+1 F64 rounding pinned.
+- direct-vs-nested historical double-round case pinned.
+- underflow/overflow pinned.
+- signed-zero split pinned.
+- fractional constant-to-int rejection pinned.
+
+Compiler/e2e
+
+- Compiler soundness/completeness remain.
+- Float witness compiles and runs.
+- Rejection fixtures agree with pinned Go.
+- Empty and existing integer/string programs remain valid.
+- Generated artifact synchronized through the same sink.
+- `make check` green.
+- pre-commit staged verification green.
 
 Proof
 
-- Public surfaces closed.
-- Whole-theory audit GREEN.
-- No project assumptions.
-- No primitive integer axiom.
+- Every new public surface closed.
+- Whole-theory audit green.
+- No primitive float assumptions.
+- No tracked axiom fixture.
 
-Scope
+Roadmap
 
-- No arithmetic, comparison, shifts, division, remainder, runtime wrapping, variables, functions, imports, floats, or aliases added.
+- Static Type Universe Arc recorded.
+- Later phases not implemented.
+- No fake operational model added for a merely static type.
 
-23. Completion report
+PART R — completion report
+
+46. Completion report
 
 When complete, report:
 
 - contract commit SHA;
 - final implementation commit SHA;
 - complete commit range;
-- historical snapshot inspected;
-- every focused historical commit inspected;
-- historical files inspected;
-- transplant ledger: retained/generalized/deferred/rejected;
-- final `IntegerType`;
-- final width/sign/range/keyword functions;
-- final `GoType`;
-- final raw conversion constructor;
-- final `ConstInfo`;
-- final constant analyzer rules;
-- final defaulting and resolution rules;
-- final runtime integer value shape;
-- final value-well-formedness theorem;
-- final evaluation theorem;
-- final rendered integer denotation;
-- exact generated witness delta;
-- every boundary and nested-conversion fixture;
-- real-Go differential results;
+- Codex final result and dispositions;
+- historical files and commits inspected;
+- transplant ledger;
+- final integer denotation repair;
+- old denotation code deleted;
+- exact `FloatType`;
+- exact raw decimal-float domain and its bounds;
+- exact `FloatConst` representation;
+- exact direct rounding algorithm;
+- proof F32 does not use an implicit F64 intermediate;
+- canonical runtime `FloatValue` invariant;
+- constant zero/sign treatment;
+- `convert_const` rules;
+- float-to-integer constant rules;
+- direct-vs-nested historical values;
+- canonical source spelling;
+- independent decoder grammar;
 - every theorem added or materially changed;
-- full `Print Assumptions` result;
+- complete `Print Assumptions` results;
 - whole-theory audit result;
-- final `PAINFUL_LESSONS.md` lesson list;
-- all proof/build/e2e commands and results;
-- Codex final result and nonblocking observations;
+- real-Go acceptance/rejection fixtures;
+- generated source diff;
+- runtime golden evidence;
+- `make prove`, `make e2e`, `make check`, and pre-commit results;
+- roadmap documentation changes;
 - confirmation notification sent;
 - confirmation loop stopped.
 
-Do not list a retained correctness defect as a known limitation.
+Do not list a retained correctness flaw as a known limitation.
 
-If a real obstacle requires changing this architecture or scope, classify it as an ARCHITECTURAL CONFLICT, notify the user, stop the loop, and wait.
+If a real obstacle requires changing this contract:
 
-24. Hard stop
+- classify it as an ARCHITECTURAL CONFLICT;
+- notify the user;
+- stop the loop;
+- wait.
+
+47. Hard stop
 
 When Codex is GREEN and final verification passes:
 
 1. Commit the completed checkpoint.
 2. Notify the user through the configured completion-notification channel.
 3. Stop the `/loop`.
-4. Do not begin integer arithmetic.
-5. Do not infer another feature.
-6. Wait for joint review.
+4. Do not start complex numbers or another type phase.
+5. Wait for review.
 
 Bottom line
 
-The permanent path after this milestone is:
+This milestone produces:
 
-  raw integer literal / explicit integer conversion
-    -> exact arbitrary-precision `Z` constant value
-    -> untyped or typed constant status
-    -> one `IntegerType` family
-    -> exact destination representability
-    -> contextual `ResolveExpr`
-    -> whole-program `GoCompile`
-    -> one typed integer runtime value shape
-    -> direct canonical conversion rendering
-    -> certified DirectoryImage
-    -> real Go differential alarm
+  repaired rendered constant status
+    -> exact untyped integer/float constants
+    -> direct destination representability and rounding
+    -> typed constants retaining exact value + type
+    -> one static GoType authority
+    -> canonical runtime integer/float values
+    -> one generic render/ConstInfo denotation root
+    -> exact direct renderer
+    -> real-Go differential alarms
 
-Steal the mathematics.
+No arithmetic.
 
-Steal the semantic distinctions.
+No second AST.
 
-Steal the counterexamples.
+No parallel runtime type universe.
 
-Do not resurrect the old organism.
+No primitive float axioms.
+
+No double rounding unless the source explicitly requests two conversions.
+
+This begins the type universe.
+
+It does not skip ahead to its operations.
