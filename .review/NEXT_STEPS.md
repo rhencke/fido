@@ -1,12 +1,10 @@
-Claude Code milestone: reset Codex to the declared threat model, simplify prototype verification, and add exact Go strings
+Claude Code milestone: transplant the mature historical integer foundation into the current one-AST architecture
 
 THIS FILE IS THE BINDING MILESTONE CONTRACT.
 
 Before implementation
 
-1. Stop the currently running `/loop`.
-   - The prior loop has reached out-of-scope local-Git adversarial hardening.
-   - Do not continue addressing new Codex findings under the old review standard.
+1. Stop any currently running `/loop`.
 
 2. Replace the tracked repository file `.review/NEXT_STEPS.md` with this directive VERBATIM.
    - Do not summarize it.
@@ -14,22 +12,14 @@ Before implementation
    - Do not omit sections.
    - Do not “improve” the selected architecture while copying it.
 
-3. Create or replace the tracked file:
+3. Do not modify `.review/CODEX_REVIEW_POLICY.md` in this milestone unless the user explicitly directs it.
+   The current permanent review policy remains binding.
 
-   .review/CODEX_REVIEW_POLICY.md
-
-   with the exact policy in the section “Permanent Codex review policy” below.
-
-4. Commit both review files as the opening commit of this milestone, before implementation.
+4. Commit `.review/NEXT_STEPS.md` as the opening commit of this milestone, before implementation.
 
 5. Record the contract commit SHA.
 
-6. Replace the locally hacked Codex stop-review prompt used by the automation with the small prompt in the section “Codex stop-review launcher prompt.”
-   - Do not keep two active stop-review prompts.
-   - The local prompt must defer to the two tracked review files.
-   - Record the local prompt path in the completion report.
-
-7. After the contract commit and review-prompt replacement, issue this exact Claude Code command:
+6. After the contract commit, issue this exact Claude Code command:
 
    /loop 5m completing NEXT_STEPS until codex review is green and then notify me and stop the loop.
 
@@ -39,1224 +29,1190 @@ The loop must:
 
 - work only toward `.review/NEXT_STEPS.md`;
 - use `.review/CODEX_REVIEW_POLICY.md`;
-- repair blocking implementation defects within the declared scope and threat model;
-- never expand the threat model merely because a more adversarial scenario can be imagined;
-- never redesign an agreed architecture merely to satisfy Codex;
-- classify a real concern requiring a contract change as an ARCHITECTURAL CONFLICT;
-- stop and notify the user on an architectural conflict;
-- stop when there are no blocking findings within scope, even if nonblocking observations remain;
-- after Codex is green, run final verification, commit the completed checkpoint, notify the user, stop the loop, and wait.
+- repair blocking implementation defects within the declared scope;
+- never broaden the milestone merely because historical code contains more features;
+- never restore a rejected historical architecture merely because its local definitions are useful;
+- classify any necessary architecture change as an ARCHITECTURAL CONFLICT;
+- notify the user and stop on an architectural conflict;
+- stop when Codex is GREEN under the permanent review policy;
+- after GREEN, run final verification, commit the checkpoint, notify the user, stop the loop, and wait.
 
 Milestone purpose
 
-This milestone has three ordered parts:
+This milestone has two ordered parts:
 
-A. Permanently correct the Codex review mandate.
-B. Cull the overbuilt prototype pre-commit review fortress and close one small sink-ordering defect.
-C. Add Go string values completely across the existing one-AST pipeline.
+A. Perform a small documentation cleanup:
+   - state the string theorem honestly as a semantic byte round trip, not a source-spelling round trip;
+   - cull `PAINFUL_LESSONS.md` down to durable future-facing lessons.
 
-The goal is to resume development of a stronger Go through Rocq.
+B. Transplant the mature historical integer foundation into the CURRENT architecture:
+   - one integer-type descriptor;
+   - exact `Z` constant values;
+   - generic representability;
+   - typed constants that retain value and type;
+   - explicit integer constant conversions;
+   - one runtime integer value shape using the same type authority;
+   - canonical direct rendering and real-Go differential evidence.
 
-The goal is not to make a repository-local pre-commit hook resistant to a developer deliberately attacking their own verifier.
+No arithmetic operators in this milestone.
 
 No imports.
 
-No identifiers.
-
-No variables.
-
-No user-defined functions.
-
-No control flow.
+No identifiers, variables, assignments, user-defined functions, parameters, results, or control flow.
 
 No second AST or IR.
+
+History is the technical quarry.
+
+The current architecture is the authority.
 
 Standing project law
 
 Ruthless correctness or ruthless deletion.
 
-Apply that law to the certified language and its declared operational boundaries.
-
-Do not silently inflate a component’s guarantee.
-
 The AST is the IR.
 
 There is:
 
-- one raw AST per `.go` file;
-- one `GoProgram`;
-- one Go type authority;
+- one raw `GoProgram`;
+- one raw `GoExpr` tree per expression;
+- one `GoType` authority;
+- one exact constant-value authority;
+- one whole-program `GoCompile`;
+- one `GoSafe` value semantics using the same types;
+- one direct Rocq renderer;
 - no typed AST;
-- no copied compiled program;
+- no copied compiled AST;
 - no target AST;
-- no text IR;
-- no separate lowering tree;
-- no tokenizer;
-- no general Go lexer;
-- no general Go parser;
-- no AST -> output -> AST authority;
-- no handwritten OCaml compiler;
-- no handwritten OCaml typechecker;
-- no handwritten OCaml safety semantics;
-- no handwritten OCaml renderer.
+- no `Surface`;
+- no `TypedIR`;
+- no `GoTypeTag` parallel universe;
+- no handwritten OCaml typechecker, compiler, numeric semantics, conversion logic, or renderer;
+- no name-based extraction/lowering plugin;
+- no general Go lexer or parser;
+- no raw/opaque/text fallback constructor.
 
-Permanent Codex review policy
+PART A — documentation cleanup
 
-Copy this section VERBATIM into `.review/CODEX_REVIEW_POLICY.md`.
+1. State the string result precisely
 
----
+The current string implementation is correct.
 
-# Fido Codex Review Policy
+Do not change the string encoder or decoder merely to force a source-spelling inverse.
 
-## Purpose
+Replace wording that says the decoder accepts “exactly the canonical subset” when that wording implies that equivalent noncanonical source spellings must be rejected.
 
-Codex is an implementation auditor.
+Use this durable statement throughout active documentation and relevant source comments:
 
-Codex is not the product architect.
+> Fido emits one canonical source spelling for every semantic string byte sequence. Its certified decoder assigns exact byte meaning to that spelling and may also accept semantically equivalent noncanonical spellings. The proved round trip is `decode(render(bytes)) = Some bytes`; no source-spelling round trip `render(decode(source)) = source` is claimed.
 
-Codex reviews the current implementation against:
+Examples:
 
-1. `.review/NEXT_STEPS.md`, the binding active-milestone contract;
-2. this review policy;
-3. the standing repository architecture where the active milestone is silent.
+- `"A"` and `"\x41"` may denote the same byte sequence.
+- Fido always emits the canonical direct-printable spelling `"A"`.
+- The theorem recovers the bytes, not the historical source spelling.
 
-The active milestone wins over older prose when it explicitly changes a decision.
-
-## Review standard follows the component
-
-Different components have different guarantees and threat models.
-
-Do not apply the strongest imaginable adversarial standard to every component.
-
-### Certified language and proof boundary
-
-Review the certified path ruthlessly.
-
-Blocking defects include:
-
-- a false or materially weaker theorem than advertised;
-- an axiom, admitted dependency, unchecked assumption, or fail-open proof gate;
-- two competing semantic authorities;
-- a representable program whose modeled typing, value, safety, rendering, or compiler acceptance disagrees with the declared Go semantics;
-- a typed or compiled copy of the AST where the contract requires evidence over one AST;
-- an emitted program that the formal compiler accepts but real `go build ./...` rejects;
-- a formal compiler rejection of a representable program real Go accepts;
-- rendering that does not denote the proved value;
-- a certification or emission boundary that can be crossed without the required proof;
-- a violation of the active milestone architecture.
-
-Formal claims must be exact within represented scope.
-
-### Filesystem sink
-
-Review the sink against its declared practical threat model:
-
-- one project owner;
-- cooperating Fido emitters serialized by one lock;
-- ordinary filesystems;
-- a stable directory namespace between runs;
-- ordinary crashes;
-- disk exhaustion;
-- permission and I/O failures;
-- generation into a dirty directory;
-- foreign Go/module inputs rejected in the traversed Go-discovered namespace;
-- ignored dot/underscore/testdata/vendor directory trees treated as opaque;
-- no malicious concurrent filesystem adversary;
-- no arbitrary unmount/remount/backing-store replacement model.
-
-Blocking sink defects require a concrete ordinary supported-use counterexample that can:
-
-- overwrite or delete foreign data in the traversed namespace;
-- emit or retain foreign Go in the certified build tree;
-- treat an ordinary operational error as absence or success;
-- violate complete-image staging before installation;
-- fail to converge after a declared recoverable crash once the stale lock is cleared;
-- contradict the documented ownership or cleanup contract;
-- violate the selected sibling-temp architecture.
-
-Do not demand:
-
-- hostile-process race freedom;
-- unforgeable ownership;
-- transaction logs;
-- stage records;
-- device/inode capabilities;
-- mount-identity tracking;
-- multi-file transactional filesystem commits;
-- support for arbitrary mount replacement between runs.
-
-### Prototype pre-commit hook
-
-The pre-commit hook provides reasonable assurance against accidental stale generated output for a cooperating developer using ordinary Git commands.
-
-Its supported workflow is:
-
-- ordinary `git add`;
-- ordinary `git commit`;
-- a normal stage-0 index;
-- the hook exports the proposed staged snapshot;
-- proof/generation runs from that snapshot;
-- staged generated paths and bytes are compared recursively with the pristine Buildx artifact;
-- stale, missing, extra, or modified generated files reject;
-- the hook does not mutate or auto-stage the working tree;
-- `git commit --no-verify` is an explicit documented bypass.
-
-Blocking pre-commit defects require a concrete ordinary developer workflow where stale or incorrect generated output can be committed accidentally despite using the hook normally.
-
-The following are OUT OF SCOPE and must not block:
-
-- a developer deliberately editing the hook and every verifier together;
-- coordinated malicious edits to gate scripts, Dockerfile targets, tests, and documentation;
-- `--no-verify`;
-- hand-built index objects;
-- direct `git update-index --cacheinfo` attacks;
-- deliberate skip-worktree manipulation;
-- hostile `core.symlinks` scenarios manufactured to fool the local hook;
-- control-character or newline pathnames created to attack shell scripts;
-- attempts to prove a repository-local hook “unbypassable”;
-- mutation tests whose only purpose is to show that removing the verifier defeats the verifier.
-
-Low-cost robustness already present may remain if it stays simple.
-
-Do not grow new machinery for these scenarios.
-
-A future protected PR check may establish a stronger server-side boundary. That is not the current pre-commit contract.
-
-## Finding classifications
-
-Every review item must be exactly one of:
-
-### BLOCKING IMPLEMENTATION DEFECT
-
-Use only when:
-
-- the issue violates an explicit current guarantee;
-- it occurs within the component’s declared threat model;
-- there is a concrete reproducer or direct proof of contradiction;
-- the repair preserves the active milestone architecture.
-
-A blocking finding must state:
-
-1. the violated contract clause;
-2. the concrete supported scenario;
-3. the observed wrong behavior;
-4. the smallest architecture-preserving correction.
-
-### ARCHITECTURAL CONFLICT
-
-Use when the concern is real but repairing it would change:
-
-- architecture;
-- represented scope;
-- threat model;
-- responsibility boundaries;
-- selected algorithm;
-- public guarantees.
-
-Do not prescribe or implement a replacement architecture.
-
-Tell Claude to notify the user and stop.
-
-### NONBLOCKING OBSERVATION
-
-Use for:
-
-- future features;
-- speculative hardening;
-- hostile or deliberately malicious scenarios outside the threat model;
-- optional refactors;
-- style preferences;
-- completeness beyond the milestone;
-- documentation wording that does not materially misstate a public guarantee;
-- local verifier bypasses requiring deliberate verifier modification;
-- concerns without a concrete supported-use reproducer.
-
-Nonblocking observations do not prevent GREEN.
-
-## Green condition
-
-Return GREEN when there are:
-
-- no blocking implementation defects within scope; and
-- no unresolved architectural conflicts.
-
-Do not require the absence of nonblocking observations.
-
-Do not keep a loop alive because the system could be more general, portable, hostile-environment hardened, or feature-complete.
-
-## Scope discipline
-
-Review the full affected surface of the active milestone.
-
-Do not reopen unrelated architecture.
-
-Do not request new language features.
-
-Do not request stronger semantics than the represented language claims.
-
-After one structural repair attempt in a subsystem, a second proposed structural redesign is an ARCHITECTURAL CONFLICT unless the active milestone explicitly requires it.
-
-## Review output
-
-Use this exact top-level result:
-
-- `GREEN`
-- `BLOCKING`
-- `ARCHITECTURAL CONFLICT`
-
-When GREEN, nonblocking observations may follow under a clearly labeled optional section.
-
-Do not use “anything still worth doing” as the gate.
-
-The gate is:
-
-> Correct implementation of the binding milestone within each component’s declared guarantee and threat model.
-
----
-
-Codex stop-review launcher prompt
-
-Replace the active locally hacked stop-review prompt with this minimal prompt:
-
----
-
-Read `.review/CODEX_REVIEW_POLICY.md` and `.review/NEXT_STEPS.md` before reviewing.
-
-Review the implementation as an implementation of the binding milestone under the permanent review policy.
-
-Report only:
-
-- BLOCKING IMPLEMENTATION DEFECTS within the declared scope and threat model;
-- ARCHITECTURAL CONFLICTS whose repair would change the contract;
-- optional NONBLOCKING OBSERVATIONS that do not prevent GREEN.
-
-A finding is not blocking merely because a more adversarial, complete, portable, or generalized design can be imagined.
-
-For the prototype pre-commit hook, deliberate verifier modification, `--no-verify`, Git-plumbing attacks, hostile pathnames, and coordinated malicious index construction are out of scope.
-
-Return GREEN as soon as there are no blocking implementation defects and no architectural conflicts.
-
----
-
-PART A — simplify the prototype boundaries and freeze them
-
-1. Fix the one remaining sink classification-order defect
-
-The runtime sink’s ignored-directory policy is correct:
-
-- dot-prefixed directories are opaque;
-- underscore-prefixed directories are opaque;
-- `testdata` is opaque;
-- `vendor` is opaque;
-- ordinary visible directories remain traversed;
-- root `.fido` is the sole control directory;
-- visible nested `.fido` rejects.
-
-The current entry classifier checks the `.fido-tmp-v1` suffix before it checks whether an entry is an ignored directory.
-
-Therefore a hidden directory such as:
-
-  .cache.fido-tmp-v1/
-
-is currently treated as a nonregular reserved temp and rejected instead of being opaque.
-
-Correct the order:
-
-1. handle the special name `.fido`;
-2. `lstat`;
-3. if the entry is a directory and its basename is Go-ignored, skip it immediately;
-4. otherwise classify reserved suffix;
-5. classify `go.mod`;
-6. classify visible `*.go`;
-7. recurse into other visible directories.
-
-Requirements:
-
-- `.cache.fido-tmp-v1/` is opaque and preserved;
-- `_cache.fido-tmp-v1/` is opaque and preserved;
-- `testdata/x.go.fido-tmp-v1` is never inspected;
-- `vendor/x.go` is never inspected;
-- a visible regular `main.go.fido-tmp-v1` still recovers;
-- a visible non-mappable `notes.fido-tmp-v1` still preserves + refuses;
-- visible nested `.fido` still rejects;
-- visible foreign `.go` and nested `go.mod` still reject.
-
-After this fix, freeze the sibling-temp sink.
-
-Do not add new filesystem hardening unless a future ordinary supported-use counterexample violates the declared sink contract.
-
-2. Delete the “unbypassable pre-commit” claim
-
-Delete every active claim that the local hook or staged gates are:
-
-- unbypassable;
-- tamper-proof;
-- a security boundary;
-- resistant to coordinated verifier modification.
-
-Replace with the honest prototype guarantee:
-
-> For a cooperating developer using ordinary Git staging and commit commands, the hook verifies the proposed staged snapshot, runs the cached proof and Go checks, and rejects stale, missing, extra, or modified generated output. It is bypassable with `--no-verify` and does not defend against deliberate modification of its own verifier.
-
-3. Delete the pre-commit review fortress
-
-Delete:
-
-- `tools/precommit-selftest.sh`;
-- the `precommit-selftest` Make target;
-- mutation tests proving that deleting or weakening a gate defeats the gate;
-- synthetic malicious Git-repository tests;
-- skip-worktree bypass tests;
-- `core.symlinks=false` attack tests;
-- newline/control-character filename attack fixtures;
-- “teeth” tests that exist only to prove an isolated verifier mutation is caught;
-- status/prose enumerating those attacks.
-
-Retain the small useful production mechanisms if they remain simple:
-
-- export the staged snapshot;
-- run staged proof/generation;
-- recursively compare generated path set + bytes;
-- exact generated mode 100644;
-- no automatic staging;
-- full cached verification on ordinary commits;
-- explicit `--no-verify` bypass.
-
-Existing `--ignore-skip-worktree-bits` may remain because it is low-cost.
-
-The generated-mode gate may remain because it is small and directly states repository policy.
-
-Do not add replacement self-defense machinery.
-
-4. Simplify the OCaml-origin gate
-
-Retain:
-
-- the exact allowlist of handwritten OCaml transport/apply files;
-- the rule that filesystem-only OCaml may not inspect Rocq terms;
-- the rule that the transport bridge may not inspect program/AST/type/safety structures.
-
-Delete the whole-repository “deleted backend hallmark” scanner.
-
-Do not scan every document, shell script, and hook for historical identifier names.
-
-Repository prose may discuss deleted history without becoming an implementation defect.
-
-The real boundary is the OCaml allowlist and responsibility checks.
-
-5. Separate working-tree verification from staged-index verification
-
-`make check` must have one coherent meaning:
-
-> verify the current working tree.
-
-The pre-commit hook must have one coherent meaning:
-
-> verify the proposed staged commit.
-
-Refactor the shared mechanisms accordingly.
-
-Working-tree path:
-
-- `make check` builds/proves from the working tree;
-- `make check` compares working-tree generated `go.mod` + recursive `.go` against the pristine artifact generated from working-tree proof inputs;
-- `make check` does not compare an unrelated staged snapshot.
-
-Staged path:
-
-- the pre-commit hook exports the index once;
-- proof/e2e/generation use that exported staged snapshot;
-- staged generated output is compared against the pristine artifact built from the staged proof inputs;
-- the hook never mutates the working tree or index.
-
-Shared Buildx stages and comparison code should remain shared.
-
-Names may be:
-
-- `verify-generated` for working tree;
-- `verify-staged-generated` for the hook;
-
-or another clear split.
-
-Do not duplicate the renderer or generation path.
-
-6. Keep pre-commit simple
-
-The normal hook should do only:
-
-1. export the staged snapshot;
-2. apply lightweight repository policy checks;
-3. run cached proof;
-4. run cached Go e2e;
-5. materialize the pristine generated artifact;
-6. compare exact staged generated path set + bytes;
-7. reject on mismatch with a clear `make regenerate` instruction.
-
-Do not:
-
-- auto-stage;
-- mutate the working tree;
-- mutate the index;
-- run mutation tests of itself;
-- attempt to prove its own unbypassability;
-- inspect malicious Git plumbing.
-
-7. Documentation reconciliation
-
-Update:
-
-- `.review/CODEX_REVIEW_POLICY.md`;
-- `.review/NEXT_STEPS.md`;
-- `CLAUDE.md`;
-- `ARCHITECTURE.md`;
-- `PAINFUL_LESSONS.md`;
-- `PROGRESS.md`;
-- `README.md`;
-- Makefile comments;
-- hook and gate headers.
-
-Required truths:
-
-- formal/certified components remain reviewed ruthlessly;
-- sink review follows its practical threat model;
-- pre-commit provides reasonable assurance only;
-- `--no-verify` is an explicit bypass;
-- local verifier tamper resistance is out of scope;
-- no self-test fortress remains;
-- `make check` checks the working tree;
-- pre-commit checks the staged snapshot;
-- the sink is frozen after the ignored-directory ordering correction.
-
-PART B — add exact byte-sequence Go strings
-
-8. Historical quarry, not resurrection
-
-Inspect useful pre-deletion history for string semantics and counterexamples.
-
-At minimum inspect:
-
-  git show e1954d3f84878d844a382dbdea621e4c69d32fd5:CoreType.v
-  git show d5646d646fc5046b54eb04b664bed7035b763786:GoTypes.v
-  git log -S 'PString' --all
-  git log -S 'GoString' --all
-
-Use history to recover:
-
-- the byte-sequence meaning of Go strings;
-- useful escaping lemmas;
-- value/type distinctions;
-- counterexamples.
-
-Do not restore:
-
-- Surface;
-- TypedIR;
-- extraction-era Go type tags;
-- broad old type universes;
-- raw string fallbacks;
-- a second AST;
-- old backend code;
-- old parser/pretty-printer machinery.
-
-9. Semantic string value is an exact byte sequence
-
-Use Rocq `string` as the semantic Go string value, or a transparent alias/wrapper with exactly the same byte-sequence meaning.
-
-Rocq `string` is a sequence of `ascii` bytes.
-
-Do not model a Go string as:
-
-- Unicode scalar values;
-- Unicode code points;
-- UTF-8-decoded characters;
-- source literal spelling.
-
-A Go string value is exact bytes.
-
-Recommended name:
-
-  Definition GoString := string.
-
-A wrapper is acceptable only if it adds a genuine permanent invariant. No invariant is currently needed.
-
-10. Grow the one raw AST
-
-Add exactly one raw expression constructor:
-
-  EString : string -> GoExpr
-
-or:
-
-  EStr : string -> GoExpr
-
-Choose one name and use it consistently.
-
-Its argument is the semantic byte value.
-
-It is not raw Go source text.
-
-It is not an already-escaped literal.
-
-Do not add:
-
-- raw string literal syntax;
-- interpreted-literal source spelling;
-- an opaque text escape;
-- string concatenation;
-- indexing;
-- slicing;
-- length;
-- conversions;
-- runes;
-- byte slices.
-
-11. Grow the one type authority
-
-Extend:
-
-  GoType
-
-with exactly:
-
-  TString
-
-The complete current type universe becomes:
-
-  TBool
-  TInt
-  TString
-
-No placeholder future type constructors.
-
-Update decidable equality and every exhaustive policy.
-
-12. Grow exact untyped constants
-
-Extend:
-
-  GoConst
-
-with:
-
-  CString : string -> GoConst
-
-Update the one exact constant interpretation:
-
-  const_value (EString s) = CString s
-
-The value is exact bytes.
-
-No escaping or rendering occurs in `const_value`.
-
-13. Default type and representability
-
-Update:
-
-  const_default_type (CString s) = TString
-
-Every `CString s` is representable as `TString`.
-
-No `CString` is representable as `TBool` or `TInt`.
-
-No bool/int constant is representable as `TString`.
-
-Update:
-
-- declarative `ConstRepresentable`;
-- executable reflector;
-- exact reflection theorem;
-- cross-type negative fixtures.
-
-Do not introduce a string length limit.
-
-Go string constants may contain arbitrary finite byte sequences in represented scope.
-
-14. Use-context resolution
-
-`UsePrintlnArg` allows `TString`.
-
-Update:
-
-- `UseAllows`;
-- executable policy;
-- resolution soundness;
-- completeness;
-- determinism;
-- wrong-type rejection;
-- statement/file/program typing reflection.
-
-The existing type architecture remains evidence over the same raw AST.
-
-No typed expression tree.
-
-15. Compiler integration
-
-`ProgramTyped` continues to be the single static typing foundation consumed by `GoCompile`.
-
-String literals introduce no new compile error beyond the existing typing result.
-
-Do not add a speculative broad error taxonomy.
-
-All current string literals are representable as `TString`.
-
-Package/main rules remain unchanged.
-
-Empty programs remain accepted.
-
-Imports remain absent.
-
-16. Runtime values and safety semantics
-
-Extend:
-
-  GoValue
-
-with:
-
-  VString : string -> GoValue
-
-Update:
-
-  value_type (VString s) = TString
-
-and:
-
-  const_to_value (CString s) = VString s
-
-Evaluation remains:
-
-  eval_expr = const_to_value ∘ const_value
-
-Do not add a second string evaluator.
-
-Prove the existing root:
-
-  ResolveExpr u e t ->
-  value_type (eval_expr e) = t
-
-for strings as well.
-
-`GoSafe` remains `True` because a string literal passed to builtin `println` introduces no panic, blocking, heap, or nontermination behavior.
-
-Do not predeclare string indexing/slicing safety.
-
-17. Canonical Go interpreted string literal renderer
-
-Render every semantic byte string using exactly one canonical interpreted-string spelling.
-
-The source literal must be surrounded by double quotes.
-
-Define a per-byte encoder with this exact policy:
-
-- byte `0x22` (`"`) -> `\"`
-- byte `0x5c` (`\`) -> `\\`
-- byte `0x0a` (LF) -> `\n`
-- byte `0x09` (TAB) -> `\t`
-- byte `0x0d` (CR) -> `\r`
-- bytes `0x20` through `0x7e`, excluding quote and backslash -> emit the byte directly
-- every other byte -> `\xhh`
-
-For `\xhh`:
-
-- use exactly two hexadecimal digits;
-- use lowercase `0`-`9`, `a`-`f`;
-- represent the original byte exactly;
-- do not use variable-width escapes.
-
-Define conceptually:
-
-  render_hex_nibble
-  render_hex_byte
-  render_string_byte
-  render_string_body
-  render_string_literal
-
-Then:
-
-  render_expr (EString s) = render_string_literal s
-
-Do not emit raw-string literals.
-
-Do not choose between multiple spellings.
-
-One semantic byte string has one canonical source spelling.
-
-18. Independent canonical-literal decoder/denotation
-
-Add a small certified decoder for the exact canonical interpreted-literal subset emitted above.
-
-It is not a general Go parser.
-
-It must understand:
-
-- opening and closing double quote;
-- direct printable bytes allowed by the encoder;
-- `\"`;
-- `\\`;
-- `\n`;
-- `\t`;
-- `\r`;
-- `\xhh` with exactly two hex digits.
-
-It must reject:
-
-- malformed escapes;
-- truncated `\x`;
-- nonhex digits;
-- unescaped quote inside the body;
-- unescaped control/newline bytes;
-- trailing bytes after the closing quote.
-
-Names may be:
-
-  decode_hex_digit
-  decode_string_body
-  decode_string_literal
-
-The decoder must be structurally independent from the encoder.
-
-Do not call the encoder to decide what the decoder accepts.
-
-19. Root string proofs
-
-Prove at minimum:
-
-A. Exact value round trip
+Keep:
 
   decode_string_literal (render_string_literal s) = Some s
 
-for every finite byte string `s`.
+Do not add a reverse theorem.
 
-B. ASCII source
+Do not narrow the decoder merely to make prose easier.
 
-  str_ascii (render_string_literal s) = true
+2. Cull `PAINFUL_LESSONS.md`
 
-for every `s`, including bytes >= 128.
+Rewrite `PAINFUL_LESSONS.md` as a concise set of durable architectural lessons likely to change future decisions.
 
-C. Quoting shape
+Keep, in compact form:
 
-The rendered literal begins and ends with a double quote and contains no unescaped newline or carriage return.
+1. A subset filter is not exact compiler admissibility.
+2. The Go compilation unit is the whole module tree.
+3. Gate the invariant actually advertised.
+4. Handwritten OCaml is transport, never language semantics.
+5. Proof-carrying provenance still requires a live assumption-closure gate.
+6. Review rigor must match the component’s declared guarantee and threat model.
+7. Audit compiled assumption closure, not source text.
+8. No raw escape hatch, typed AST, copied program, or parallel semantic authority.
+9. Untyped constants, typed constants, and runtime values are distinct.
+10. Integration/differential tests are alarms, not proofs.
+11. Foundations before feature breadth.
+12. Generated Go may be tracked only as a derived artifact checked against the certified output.
+13. String value is bytes; source spelling is a separate canonical proved encoding.
 
-D. Hex exactness
+Compress the filesystem lesson to the durable points only:
 
-Encoding then decoding every byte rendered by `\xhh` yields the original byte.
+- practical single-owner/cooperating-emitter threat model;
+- one lock;
+- sibling temporary files;
+- complete image staged before installation;
+- fail-closed ordinary filesystem observation;
+- foreign Go/module rejection;
+- no transaction-log/stage-record architecture.
 
-E. Canonical common escapes
+Delete from `PAINFUL_LESSONS.md`:
 
-Kernel fixtures pin exact spellings for:
+- exact branch-ordering implementation manuals;
+- review-round ping-pong;
+- lists of every historical sink bug;
+- commit-specific narratives;
+- detailed Git-path attack cases;
+- detailed shell-gate mechanics;
+- stale implementation line counts;
+- material that is already better located in `ARCHITECTURE.md`, source comments, tests, or Git history.
 
-- empty string;
-- ordinary ASCII;
-- quote;
-- backslash;
-- newline;
-- tab;
-- carriage return;
-- NUL;
-- DEL (`0x7f`);
-- `0x80`;
-- `0xff`.
+Do not turn the culled file into another status ledger.
 
-F. Value/type/render correspondence
+PART B — historical integer transplant
 
-Extend `RenderedPrimitiveDenotes` with:
+3. Required historical reconnaissance
 
-  VString bytes =>
-    decode_string_literal rendered = Some bytes
+Before writing integer implementation code, inspect the mature historical work.
 
-Update:
+Primary mature snapshot immediately before the Great Culling:
 
-  render_expr_denotes
+  7f4da96e72168d425d3e06c467448bd2a9979cc5
 
-for strings.
+Read these files at that snapshot:
 
-Retain and extend:
+  git show 7f4da96e72168d425d3e06c467448bd2a9979cc5:GoNumeric.v
+  git show 7f4da96e72168d425d3e06c467448bd2a9979cc5:GoTypes.v
+  git show 7f4da96e72168d425d3e06c467448bd2a9979cc5:GoAst.v
+  git show 7f4da96e72168d425d3e06c467448bd2a9979cc5:GoRuntimeTypes.v
+  git show 7f4da96e72168d425d3e06c467448bd2a9979cc5:GoCompile.v
 
-  render_resolved_expr_denotes
+Use targeted historical searches rather than reading only the final monolith:
 
-so a resolved string expression:
+  git log -S 'PtTIntConst' --all --oneline
+  git log -S 'int_const_repr' --all --oneline
+  git log -S 'wrap64' --all --oneline
+  git log -S 'i64_no_overflow' --all --oneline
+  git log -S 'assignable_to_ty' --all --oneline
+  git log -S 'untyped INTEGER constants' --all --oneline
 
-- renders to a spelling decoding to the exact runtime byte value;
-- evaluates to `VString` of those bytes;
-- has resolved type `TString`.
+Read the deletion decision:
 
-This remains a theorem about Fido’s canonical literal grammar.
+  git show 33c8df0f2273adae8eed15ec0e45a7b000fb7235
 
-It is not a kernel theorem about the complete real Go parser.
+The deletion rationale is binding context:
 
-20. Renderer source remains ASCII
+- the old numeric mathematics was not disproved;
+- the old compiler authority was unsound;
+- the old runtime/type-tag world was disconnected from certified emission;
+- the extraction/plugin architecture and duplicated semantic universes were rejected.
 
-All generated `.go` source remains ASCII even when a semantic string contains arbitrary bytes.
+Read these focused commits and their diffs:
 
-Bytes outside printable ASCII must appear only through ASCII escape characters.
+A. Full-width signed int64 over `Z`
 
-Update:
+  86dce7fc72bee4f0c887fd8839d9f006fde576ab
 
-- `render_expr_ascii`;
-- argument/statement/declaration/file ASCII proofs;
-- DirectoryImage ASCII proofs if needed.
+B. Signed int64 division/remainder/bitwise/shifts
 
-Do not weaken the existing all-ASCII claim.
+  65fdc312cb6040656613cf1cf8e83fcd78f17390
 
-21. Required type fixtures
+C. Full-width unsigned uint64 over `Z`
 
-Add positive kernel fixtures:
+  2e90be356f556fe2b7b5739ebe10daac1e10a095
 
-- empty string resolves to `TString`;
-- ordinary ASCII string resolves to `TString`;
-- arbitrary byte string containing `0x00`, `0x7f`, `0x80`, `0xff` resolves to `TString`;
-- mixed `println(true, 42, "hello")` is typed;
-- `println("")` is typed;
-- a file/program containing string literals is typed and compilable.
+D. Arbitrary-precision untyped integer constants, type at use
 
-Add negative kernel fixtures:
+  866fb86bf6830a8ba272facc4828615312224e0e
 
-- `CString` is not representable as `TBool`;
-- `CString` is not representable as `TInt`;
-- bool/int constants do not resolve as `TString`;
-- a string expression does not resolve as `TBool` or `TInt`.
+E. Constant-aware static categories; constness survives conversions and folds
 
-22. Required e2e and differential coverage
+  4317b56aa42ae59c6e507b84e21b13b9068ce7fc
 
-Update the canonical primary witness to exercise readable strings.
+F. No-overflow obligations imply exact mathematical arithmetic
 
-Include at least:
+  509e7c925c0e3c3caeb4710ded3fc014a7986810
 
-- empty string;
-- ordinary ASCII text;
-- quote;
-- backslash;
-- newline;
-- tab;
-- carriage return.
+G. Final removal of PrimInt63/Sint63 dependencies; zero-axiom numeric base
 
-The tracked generated `main.go` is allowed and expected to change in this feature milestone.
+  445aca38ef5a043f69e088be27a21713e822381f
 
-Regenerate it through the pristine Buildx layer and the same sink.
+Optional earlier context:
 
-Add a separate string-byte witness for boundary bytes:
+  fa07722696ce22772167f3cd88e38df23c7e1992
 
-- `0x00`;
-- `0x1f`;
-- `0x7f`;
-- `0x80`;
-- `0xff`.
+This milestone may reuse definitions or proof ideas only after translating them into the current architecture.
 
-The separate witness must:
+Do not cherry-pick those commits.
 
-- emit valid Go;
-- be gofmt-clean;
-- compile under pinned Go 1.23;
-- execute successfully;
-- compare actual output bytes to a reviewed textual hexadecimal golden or another explicit byte-exact integration oracle.
+Do not restore whole deleted files.
 
-Do not compare binary output through shell command substitution.
+4. Historical transplant ledger
 
-Use byte-safe comparison such as:
+Use this disposition table as the binding transplant map.
 
-- `cmp`; or
-- `od -An -v -tx1` normalized to a reviewed hex file.
+| Historical item | Current destination | Disposition |
+|---|---|---|
+| `Z` integer carrier | `GoConst`, integer runtime values | Retain |
+| `in_i8`…`in_u64` range mathematics | generic `IntegerType` range authority | Generalize |
+| `int_ty_range` / `int_const_repr` | one reflected representability relation | Rebuild exactly |
+| `wrap64`, `wrapU64`, `iN_norm_z` | future runtime arithmetic/conversion milestone | Mine proofs now, do not expose unused live ops |
+| distinct `GoI8`…`GoUint` identities | one `IntegerType` descriptor | Retain identity, replace per-type records |
+| `PtIntConst z` | untyped `ConstInfo` | Retain concept |
+| `PtTIntConst t z` | typed `ConstInfo` | Retain concept |
+| `PtRunInt t` | future runtime-expression static category | Do not add before a runtime expression needs it |
+| constantness through nested conversions | current constant analyzer | Retain exactly |
+| `conv_to_scalar` integer-constant arm | explicit integer conversion typing | Rebuild |
+| `assignable_to_ty` | future assignment/argument/composite-literal milestone | Defer |
+| `num_arith`, comparisons, shifts, div/rem | next integer-arithmetic milestone | Defer |
+| no-overflow exactness theorems | next integer-arithmetic milestone | Preserve as reference |
+| per-type `SProp` wrappers used to survive extraction | none | Do not restore for extraction reasons |
+| `GoTypeTag` | none | Do not restore |
+| conservative `ptype` subset classifier | none | Do not restore as compiler authority |
+| 32-bit portable `int`/`uint` accept-set | none | Reject; current `int`/`uint` are pinned 64-bit |
+| `i64c`/`u64c` tactic/Number Notation as compiler | none | Do not restore |
+| name-based plugin folds/lowering | none | Do not restore |
+| floats, maps, channels, heap, concurrency | none in this milestone | Do not restore |
 
-Document that builtin `println` output is integration evidence, not the formal string semantics.
+5. Expand the one integer authority
 
-The formal string semantics are the exact byte value and the literal decoder theorem.
+Expand the existing `Ints.v` into the sole integer-family descriptor and range authority.
 
-23. External Go adequacy experiments
+Do not create a second numeric-range module beside it.
 
-Add focused real-Go fixtures confirming the chosen canonical literal forms are accepted:
+Required type:
 
-- direct printable body;
-- escaped quote and backslash;
-- `\n`, `\t`, `\r`;
-- `\x00`;
-- `\x7f`;
-- `\x80`;
-- `\xff`.
-
-A Go rejection of any Fido-rendered string is a hard correctness failure.
-
-Do not introduce imports to perform these checks.
-
-24. No feature creep
+  Inductive IntegerType : Type :=
+  | IInt
+  | IInt8
+  | IInt16
+  | IInt32
+  | IInt64
+  | IUint
+  | IUint8
+  | IUint16
+  | IUint32
+  | IUint64.
 
 Do not add:
 
-- string concatenation;
+- `uintptr`;
+- `byte` as a distinct type;
+- `rune` as a distinct type;
+- floats;
+- complex numbers;
+- arbitrary user-defined integer types.
+
+`byte` is an alias of `uint8`; `rune` is an alias of `int32`. They can receive source-name support only in a later reviewed milestone if syntax needs those aliases.
+
+Define one authority for:
+
+  integer_type_eqb
+  integer_signed
+  integer_bits
+  integer_min
+  integer_max
+  integer_keyword
+
+Required widths:
+
+- `IInt` = signed 64-bit;
+- `IUint` = unsigned 64-bit;
+- fixed-width names match their suffix.
+
+This is the existing pinned linux/amd64 semantic choice.
+
+Do not reintroduce `TargetConfig`.
+
+Define:
+
+  IntRepresentable : IntegerType -> Z -> Prop
+  integer_representableb : IntegerType -> Z -> bool
+
+with exact inclusive ranges:
+
+- signed W: `[-2^(W-1), 2^(W-1)-1]`;
+- unsigned W: `[0, 2^W-1]`.
+
+Prove at minimum:
+
+- `integer_type_eqb it1 it2 = true <-> it1 = it2`;
+- `integer_representableb it z = true <-> IntRepresentable it z`;
+- every `integer_min it` is representable;
+- every `integer_max it` is representable;
+- `integer_min it - 1` is not representable;
+- `integer_max it + 1` is not representable;
+- `integer_keyword` is exact for all ten constructors;
+- integer keywords are injective;
+- `IInt` and `IInt64` are distinct types despite equal ranges;
+- `IUint` and `IUint64` are distinct types despite equal ranges;
+- `IInt`/`IUint` are exactly 64-bit.
+
+Existing names such as `int_min`, `int_max`, and `uint_max` may remain only as definitions derived from this generic authority:
+
+  int_min  := integer_min IInt
+  int_max  := integer_max IInt
+  uint_max := integer_max IUint
+
+No duplicated numeric literals may become a second authority.
+
+6. Grow the single `GoType`
+
+Replace the old scalar `TInt` constructor with one parameterized integer family:
+
+  Inductive GoType : Type :=
+  | TBool
+  | TInteger : IntegerType -> GoType
+  | TString.
+
+Update the one `GoType` equality authority.
+
+The type of an ordinary defaulted integer literal is:
+
+  TInteger IInt
+
+Do not keep a second live `TInt` constructor.
+
+A notation for `TInteger IInt` is permissible only if it is purely notation and does not become another semantic case.
+
+Every exhaustive type consumer must handle the integer descriptor structurally.
+
+7. Grow the raw AST only as needed
+
+Add exactly one integer conversion constructor:
+
+  EIntConvert : IntegerType -> GoExpr -> GoExpr
+
+Its target is the intrinsic `IntegerType`, not a raw string keyword.
+
+Examples represented by the AST:
+
+  int8(42)
+  uint64(18446744073709551615)
+  uint8(int(300))
+  int8(int16(127))
+
+The last two are representable syntax but may be compiler-invalid.
+
+Do not add:
+
+- general named conversions;
+- a raw type-name string;
+- arithmetic;
 - comparison;
-- indexing;
-- slicing;
-- len;
-- conversion to or from byte/rune slices;
-- UTF-8 decoding;
-- rune literals;
-- raw strings;
-- identifiers;
+- bitwise operations;
+- shifts;
+- division/remainder;
 - variables;
 - calls;
-- functions;
-- imports.
+- a parenthesis node.
 
-This milestone adds string literal values passed to the existing builtin `println`, completely and exactly.
+`EInt`/`ENeg` remain exact untyped integer literal syntax.
 
-25. Public theorem gate
+8. Keep one exact constant-value authority
 
-Add axiom-free public surfaces for at least:
+Retain and extend the exact value meaning over the same raw AST.
 
-GoTypes
+A conversion does not change the mathematical constant value.
 
-- string default type;
-- string representability;
-- representability reflection;
-- string resolution;
-- cross-type rejection;
-- mixed statement typing.
+The value domain remains:
 
-GoSafe
+  GoConst :=
+  | CBool bool
+  | CInt Z
+  | CString string.
 
-- string value type;
-- resolved string evaluates to the resolved type.
+Define or retain one total exact constant-value function over the current constant-only expression grammar:
 
-GoRender
+  const_value : GoExpr -> GoConst
 
-- exact escape fixtures;
-- string render/decode round trip;
-- string literal ASCII;
-- string expression denotation;
-- resolved render/value/type theorem.
+Required conversion rule:
 
-GoCompile
+  const_value (EIntConvert it e) = const_value e
 
-- existing soundness/completeness remain;
-- a concrete string program compiles;
-- empty program remains accepted.
+No range check occurs in `const_value`.
 
-All surfaces must be closed.
+No wrap occurs in `const_value`.
 
-The whole-certified-theory audit must automatically cover the changed modules.
+A raw integer constant remains arbitrary-precision `Z`, including values far outside every runtime integer range.
 
-No axioms, admitted proofs, functional extensionality, or unchecked primitives.
+9. Add one constant-status analysis
 
-26. Generated artifact and repository workflow
+Introduce one static constant result over the same AST, conceptually:
 
-After string support is complete:
+  Inductive ConstInfo : Type :=
+  | UntypedConst : GoConst -> ConstInfo
+  | TypedConst   : GoType -> GoConst -> ConstInfo.
 
-- build the pristine generated-module layer;
-- run `make regenerate`;
-- update tracked root `go.mod` only if its bytes genuinely change (they should not);
-- update tracked recursive `.go` to the new canonical witness;
-- stage the generated changes;
-- verify working-tree `make check`;
-- verify staged pre-commit flow;
-- confirm exact generated path set and bytes.
+Names may vary if responsibility remains exact.
+
+Define one executable analyzer:
+
+  const_info : GoExpr -> option ConstInfo
+
+Required rules:
+
+A. Raw literals
+
+- `EBool b` -> `UntypedConst (CBool b)`;
+- `EInt n` -> `UntypedConst (CInt (Z.of_N n))`;
+- `ENeg n` -> `UntypedConst (CInt (- Z.of_N n))`;
+- `EString s` -> `UntypedConst (CString s)`.
+
+B. Integer constant conversion
+
+For:
+
+  EIntConvert target e
+
+first analyze `e`.
+
+The operand must be either:
+
+- `UntypedConst (CInt z)`; or
+- `TypedConst (TInteger source) (CInt z)`.
+
+Then:
+
+- if `integer_representableb target z = true`,
+  return `TypedConst (TInteger target) (CInt z)`;
+- otherwise reject with `None`.
+
+Reject conversion operands that are bool/string constants.
+
+A conversion of a constant remains a constant.
+
+A typed constant retains:
+
+- its exact `Z` value;
+- its exact integer type.
+
+Never silently convert a constant category into a runtime category merely to forget a failed obligation.
+
+Required transitive behavior:
+
+- `uint8(int(300))` rejects;
+- `int8(int16(127))` accepts as typed `int8` constant value 127;
+- `int8(int16(128))` rejects at the outer conversion;
+- converting a typed constant to another integer type rechecks the exact value against the destination.
+
+Prove:
+
+- `const_info` agrees with `const_value` on the carried value;
+- successful analysis is deterministic;
+- typed integer constants carry a representable value;
+- conversion preserves the exact mathematical `Z`;
+- invalid nested conversion cannot be revived by an outer conversion.
+
+Do not add a `RuntimeValue` static category in this milestone. There is no runtime expression source yet.
+
+10. Generalize representability and defaulting
+
+Update the one `ConstRepresentable` authority.
+
+Required rules:
+
+- `CBool b` is representable as `TBool`;
+- `CString s` is representable as `TString`;
+- `CInt z` is representable as `TInteger it` iff `IntRepresentable it z`;
+- all cross-kind cases reject.
+
+Update the reflected checker and its exact theorem.
+
+Default types:
+
+- bool constant -> `TBool`;
+- untyped integer constant -> `TInteger IInt`;
+- string constant -> `TString`.
+
+Typed constants do not default again.
+
+11. Generalize contextual expression resolution
+
+`UsePrintlnArg` allows:
+
+- `TBool`;
+- every `TInteger it`;
+- `TString`.
+
+Update `ResolveExpr` and its executable reflection so:
+
+A. Untyped constant
+
+- choose `const_default_type`;
+- require use-context allowance;
+- require representability.
+
+B. Typed constant
+
+- retain its explicit type;
+- require use-context allowance;
+- require the carried value remains representable;
+- do not default it to `int`;
+- do not allow it to adapt as though untyped.
+
+Required examples:
+
+- bare `42` resolves as `TInteger IInt`;
+- bare `2^63` does not resolve for `println` because it does not fit `int`;
+- `uint64(2^63)` resolves as `TInteger IUint64`;
+- `int64(2^63)` rejects;
+- `uint8(255)` resolves;
+- `uint8(256)` rejects;
+- `int8(-128)` resolves;
+- `int8(-129)` rejects.
+
+Retain exact proofs:
+
+- soundness;
+- completeness;
+- determinism;
+- no successful resolution at the wrong type;
+- reflected statement/file/program typing;
+- empty program remains typed.
+
+There must still be one live static typing path.
+
+No `ptype`.
+
+No typed AST.
+
+12. Integrate with whole-program `GoCompile`
+
+`GoCompile` remains:
+
+  ProgramTyped
+  +
+  exactly one main declaration per package.
+
+Update it to use the generalized integer type system.
+
+Retain:
+
+- whole-program all-or-nothing behavior;
+- empty-program acceptance;
+- package grouping by file path;
+- one-main-per-package;
+- soundness/completeness of executable compilation against the declarative judgment;
+- rejection before rendering/emission.
+
+The existing `ErrIntOverflow` name is no longer complete once typing can fail because:
+
+- a constant does not fit any of ten integer types;
+- a conversion operand is not integer;
+- nested typed conversion is invalid.
+
+Use one honest typing error, for example:
+
+  ErrTyping
+
+plus:
+
+  ErrPackageMainCount
+
+unless a finer error taxonomy is completely reflected and remains small.
+
+Do not preserve an inaccurate error name merely for compatibility.
+
+`CompilationFacts` remains evidence/facts over the same program.
+
+Do not add a typed program.
+
+13. Runtime integer values use the same type authority
+
+Replace the old single `VInt Z` runtime case with one integer-family case.
+
+Preferred minimal shape:
+
+  Inductive GoValue : Type :=
+  | VBool    : bool -> GoValue
+  | VInteger : IntegerType -> Z -> GoValue
+  | VString  : string -> GoValue.
+
+Define:
+
+  value_type (VInteger it z) = TInteger it.
+
+Define one value well-formedness authority:
+
+  ValueWF : GoValue -> Prop
+  value_wfb : GoValue -> bool
+
+with:
+
+- every bool/string value well formed;
+- `VInteger it z` well formed iff `IntRepresentable it z`.
+
+A single generic proof-carrying `IntegerValue it` wrapper is acceptable only if it makes the complete proof surface smaller.
+
+Do not create one Rocq record type per Go integer type.
+
+Do not reintroduce `GoTypeTag`.
+
+Do not make record shape serve an extraction plugin; there is no semantic extraction backend.
+
+14. Evaluation must reuse constant analysis
+
+Refactor expression evaluation so it does not invent another conversion/type/value authority.
+
+Because raw syntax can now contain compiler-invalid conversions, evaluation may be partial:
+
+  eval_expr : GoExpr -> option GoValue
+
+or an equivalent resolved-evaluation function.
+
+Required behavior under `UsePrintlnArg`:
+
+- untyped bool -> `VBool`;
+- untyped string -> `VString`;
+- untyped integer -> `VInteger IInt z`, only if default-int representable;
+- typed integer constant -> `VInteger target z`, only if its conversion chain is valid;
+- invalid conversion -> `None`.
+
+Evaluation must derive from the same `ConstInfo`/resolution result.
+
+Do not duplicate constant folding or conversion representability in `GoSafe`.
+
+Prove:
+
+- `ResolveExpr use e t` implies evaluation succeeds;
+- the resulting value has type `t`;
+- the resulting value is `ValueWF`;
+- explicit integer conversion preserves the exact `Z` value;
+- `EInt 0` and `ENeg 0` remain semantically equal after default resolution;
+- nested typed conversions preserve the exact value when accepted.
+
+`GoSafe` may remain logically `True` in this milestone:
+
+- constant conversion failure is a compile-time typing failure;
+- no new runtime panic, blocking, heap, or nontermination source is introduced.
+
+Do not add a panic/outcome model merely because future arithmetic division will need one.
+
+15. Canonical direct rendering of integer conversions
+
+Render every integer type using its exact Go keyword:
+
+  int
+  int8
+  int16
+  int32
+  int64
+  uint
+  uint8
+  uint16
+  uint32
+  uint64
+
+Render:
+
+  EIntConvert it e
+
+as:
+
+  <integer_keyword it>(<render_expr e>)
+
+Examples:
+
+  int8(42)
+  uint64(18446744073709551615)
+  uint8(int(300))
+
+The renderer renders raw syntax even when the program is invalid, but certified emission remains impossible without `SafeProgram`.
+
+No general parser.
+
+No token layer.
+
+No formatter rewrite.
+
+No name-based OCaml lowering.
+
+Prove:
+
+- integer keywords are ASCII;
+- converted expressions are ASCII;
+- exact spelling fixtures for every integer keyword;
+- nested conversion rendering is exact;
+- existing literal rendering remains unchanged.
+
+16. Honest rendered integer denotation
+
+The old unconditional `render_expr_denotes` theorem must not remain falsely unconditional if a raw expression can now contain an invalid conversion.
+
+Use a resolved-expression theorem.
+
+Introduce a small certified denotation relation for the emitted integer-expression subset, conceptually:
+
+  RenderedIntegerDenotes : string -> IntegerType -> Z -> Prop
+
+It should cover:
+
+A. Bare default-int literal
+
+- canonical decimal or unary-minus decimal;
+- denotes `IInt` and exact `Z`.
+
+B. Explicit integer conversion
+
+- canonical integer keyword;
+- opening parenthesis;
+- a recursively denoting inner integer expression;
+- closing parenthesis;
+- exact value preserved;
+- destination representability required;
+- outer result type is the destination type.
+
+This relation may admit semantically equivalent spellings.
+
+It is a denotation tool, not a general Go parser.
+
+Extend `RenderedPrimitiveDenotes` so:
+
+  VInteger it z
+
+is denoted through `RenderedIntegerDenotes`.
+
+Prove a root theorem such as:
+
+  ResolveExpr UsePrintlnArg e t ->
+  exists v,
+    eval_expr e = Some v
+    /\ value_type v = t
+    /\ ValueWF v
+    /\ RenderedPrimitiveDenotes (render_expr e) v.
+
+Equivalent decomposition into smaller load-bearing theorems is acceptable.
+
+Retain string byte-denotation and bool denotation.
+
+Real Go parsing remains external adequacy.
+
+17. Historical boundary fixtures to resurrect now
+
+Add kernel-checked fixtures for every integer type’s exact boundaries.
+
+Generic theorem surface:
+
+- min accepted;
+- max accepted;
+- min - 1 rejected;
+- max + 1 rejected.
+
+Concrete fixtures must include at least:
+
+Signed:
+
+- `int8(-128)` accepted;
+- `int8(127)` accepted;
+- `int8(-129)` rejected;
+- `int8(128)` rejected;
+- `int16` min/max accepted;
+- `int32` min/max accepted;
+- `int64` min/max accepted;
+- platform `int` min/max accepted.
+
+Unsigned:
+
+- `uint8(0)` accepted;
+- `uint8(255)` accepted;
+- `uint8(-1)` rejected;
+- `uint8(256)` rejected;
+- `uint16` max accepted;
+- `uint32` max accepted;
+- `uint64(18446744073709551615)` accepted;
+- `uint64(18446744073709551616)` rejected;
+- platform `uint` max accepted.
+
+Type-at-use:
+
+- bare `9223372036854775808` rejects as default `int`;
+- `uint64(9223372036854775808)` accepts;
+- `int64(9223372036854775808)` rejects.
+
+Transitive typed-constant cases:
+
+- `uint8(int(300))` rejects;
+- `uint8(int(255))` accepts;
+- `int8(int16(127))` accepts;
+- `int8(int16(128))` rejects;
+- `int8(true)` rejects;
+- `uint64("x")` rejects.
+
+Type identity:
+
+- `IInt <> IInt64`;
+- `IUint <> IUint64`;
+- their keywords differ;
+- their static types differ.
+
+Arbitrary precision:
+
+- a raw `CInt`/literal with a value above `2^64` remains exactly representable in the constant domain;
+- it simply fails typed resolution to every current integer type.
+
+Do not add arithmetic solely to recreate the historical `(1 << 70) >> 8` fixture.
+
+Record that fixture as mandatory for the next arithmetic milestone.
+
+18. Real-Go differential and generated witness
+
+Grow the canonical witness to exercise accepted integer conversions.
+
+Include readable coverage of all ten integer types.
+
+At minimum print:
+
+- signed minima/maxima for representative narrow and 64-bit types;
+- unsigned maxima;
+- platform `int` and `uint`;
+- `uint64(2^63)`;
+- nested accepted conversion such as `int8(int16(127))`.
+
+Use exact reviewed goldens.
+
+Add hand-written real-Go rejection fixtures for:
+
+- `int8(128)`;
+- `int8(-129)`;
+- `uint8(-1)`;
+- `uint8(256)`;
+- `int64(9223372036854775808)`;
+- `uint64(18446744073709551616)`;
+- `uint8(int(300))`;
+- integer conversion of bool/string.
+
+The pinned Go 1.23 linux/amd64 toolchain must:
+
+- accept every Fido-accepted rendered fixture;
+- reject the representative Fido-rejected fixtures.
+
+A disagreement is a model bug.
+
+Regenerate tracked `main.go` only through:
+
+  make regenerate
 
 Do not hand-edit generated Go.
 
-27. Documentation update
+19. What is explicitly deferred
 
-Update active documentation to say:
+Do not implement in this milestone:
 
-- Go strings are exact byte sequences;
-- raw literals carry semantic bytes, not source spelling;
-- `TString` is the third live type;
-- strings are untyped constants defaulting to `TString`;
-- every string constant is representable as `TString`;
-- the renderer uses one canonical interpreted literal;
-- source remains ASCII through escapes;
-- the decoder theorem establishes exact byte round trip;
-- real-Go parsing is external adequacy;
-- no UTF-8 abstraction is claimed;
-- no string operations exist yet;
-- the pre-commit hook provides reasonable assurance, not tamper resistance;
-- the sink is frozen under its practical threat model.
+- binary arithmetic;
+- unary complement;
+- general unary minus over expressions;
+- comparison;
+- shifts;
+- division;
+- remainder;
+- runtime wrapping operations;
+- runtime integer-to-integer conversions;
+- no-overflow arithmetic APIs;
+- assignment;
+- variables;
+- function parameters/results;
+- composite literals;
+- aliases `byte`/`rune`;
+- `uintptr`;
+- floats;
+- imports.
 
-Keep `PROGRESS.md` compact.
+The historical arithmetic and wrap work is the required quarry for the next integer milestone.
 
-Keep `PAINFUL_LESSONS.md` architectural.
+The next milestone may add:
 
-Add durable lessons only:
+- exact untyped constant arithmetic over `Z`;
+- typed constant arithmetic with result representability;
+- runtime arithmetic with width normalization;
+- no-overflow evidence and exactness theorems.
 
-- review rigor must match the component’s declared guarantee;
-- a convenience hook is not a security boundary;
-- exact string values are bytes, while source literal spelling is a separate proved encoding;
-- a canonical escape grammar is preferable to multiple equivalent spellings;
-- the decoder is a denotation tool, not a general Go parser.
+Do not begin it now.
 
-28. Required deletion/culling
+20. Public theorem and assumption gate
 
-Delete code and prose that exist only for the abandoned “unbypassable local verifier” goal.
+Update `gate/axiom_gate.v` with meaningful public surfaces.
 
-Expected deletions include:
+At minimum gate:
 
-- `tools/precommit-selftest.sh`;
-- Makefile target/wiring for it;
-- mutation-test prose;
-- skip-worktree attack regressions;
-- symlink-mode attack regressions;
-- newline-path attack regressions;
-- broad historical-name scanning across every tracked file;
-- “unbypassable” status claims.
+Ints
 
-Do not delete low-cost production checks solely because their adversarial tests are deleted.
+- integer-type equality reflection;
+- representability reflection;
+- exact 64-bit `int`/`uint`;
+- generic min/max accepted;
+- generic below/above rejected;
+- keyword exactness/injectivity;
+- type distinctness `IInt <> IInt64`, `IUint <> IUint64`.
 
-Do not reintroduce those tests during Codex review.
+GoTypes
 
-`.review/CODEX_REVIEW_POLICY.md` explicitly makes them out of scope.
+- constant value exactness through conversion;
+- successful conversion preserves `Z`;
+- typed conversion representability;
+- resolution soundness/completeness/determinism;
+- default-int behavior;
+- explicit uint64 type-at-use behavior;
+- transitive nested-conversion rejection;
+- program typing reflection.
 
-29. Acceptance criteria
+GoCompile
+
+- revised `prog_ok_iff`;
+- compiler soundness/completeness;
+- empty program accepted;
+- a concrete integer-family program compiles;
+- an invalid nested-conversion program has no `CompilableProgram`.
+
+GoSafe
+
+- resolved evaluation succeeds;
+- value type agrees;
+- value well-formedness;
+- exact converted integer value;
+- zero-sign agreement.
+
+GoRender
+
+- all ten keyword spellings;
+- converted expression ASCII;
+- nested conversion exact spelling;
+- resolved render/value/type correspondence.
+
+All surfaces must be closed.
+
+The whole-certified-theory assumption audit must remain GREEN.
+
+No `Axiom`, `Parameter`, `Admitted`, functional extensionality, primitive integer axiom, or source-text axiom scanner.
+
+Do not import `PrimInt63` or `Sint63`.
+
+21. Documentation reconciliation
+
+Update:
+
+- `.review/NEXT_STEPS.md`;
+- `ARCHITECTURE.md`;
+- `CLAUDE.md`;
+- `README.md`;
+- `PROGRESS.md`;
+- culled `PAINFUL_LESSONS.md`;
+- `Ints.v`;
+- `GoAST.v`;
+- `GoTypes.v`;
+- `GoCompile.v`;
+- `GoSafe.v`;
+- `GoRender.v`;
+- `GoEmit.v` comments if needed;
+- `gate/axiom_gate.v`;
+- e2e witness/goldens;
+- Makefile/Dockerfile comments only where behavior changed.
+
+Required truths:
+
+A. Integer values
+
+- exact mathematical integer constants are `Z`;
+- runtime integer values retain their exact `IntegerType`;
+- no `Sint63`.
+
+B. Type identity
+
+- `int` and `int64` are distinct types;
+- `uint` and `uint64` are distinct types;
+- they share ranges only because the current target is pinned 64-bit.
+
+C. Constants
+
+- raw literals are untyped;
+- typed constants retain type and exact value;
+- constants do not wrap;
+- a conversion of a constant remains a typed constant;
+- representability is checked at conversion/default use.
+
+D. Runtime
+
+- runtime wrapping arithmetic is not yet present;
+- no claim is made about arithmetic or overflow execution in this milestone.
+
+E. Architecture
+
+- one AST;
+- one `GoType`;
+- no `GoTypeTag`;
+- no historical `ptype`;
+- no per-width runtime record family;
+- no extraction plugin.
+
+F. Strings
+
+- canonical spelling;
+- semantic byte round trip only;
+- decoder may accept equivalent noncanonical spelling.
+
+G. History
+
+- historical source was mined and translated;
+- the deleted architecture was not restored.
+
+`PROGRESS.md` must remain compact.
+
+22. Acceptance criteria
 
 Workflow
 
-- Current old loop stopped.
-- This directive copied verbatim to `.review/NEXT_STEPS.md`.
-- Permanent policy copied verbatim to `.review/CODEX_REVIEW_POLICY.md`.
-- Both committed before implementation.
-- Local Codex launcher replaced with the minimal launcher prompt.
-- Exact `/loop 5m ...` command started after the contract commit.
-- Codex reviews under the new policy.
-- Nonblocking observations do not prevent GREEN.
-- No architectural conflict silently implemented.
-- Final notification sent.
+- This directive was copied verbatim to `.review/NEXT_STEPS.md`.
+- The contract was committed before implementation.
+- The exact `/loop 5m ...` command was started.
+- Codex reviewed under `.review/CODEX_REVIEW_POLICY.md`.
+- No architectural conflict was silently implemented.
+- Codex is GREEN.
+- Notification sent.
 - Loop stopped.
 
-Review policy
+Cleanup
 
-- Certified core remains ruthlessly reviewed.
-- Sink review follows its declared practical threat model.
-- Pre-commit review is ordinary-workflow reasonable assurance.
-- Deliberate verifier attacks are out of scope.
-- GREEN means no blocking findings or architectural conflicts.
-- “Anything still worth doing” is not the gate.
+- String documentation states semantic byte round trip, not spelling inverse.
+- No false “exactly canonical accepted language” claim remains.
+- `PAINFUL_LESSONS.md` is concise and future-facing.
+- Sink implementation detail/history was culled from the lessons file.
 
-Prototype boundary cleanup
+History
 
-- Hidden ignored-directory classification occurs before suffix classification.
-- Hidden suffix directories are opaque.
-- Visible valid mapped temps recover.
-- Visible non-mappable temps preserve + refuse.
-- Visible nested `.fido` rejects.
-- Precommit self-test fortress deleted.
-- No “unbypassable” claim remains.
-- Whole-repo historical hallmark scanner deleted.
-- `make check` verifies working tree coherently.
-- Pre-commit verifies staged snapshot coherently.
-- Ordinary stale/missing/extra/modified generated output rejects.
-- Hook does not mutate or auto-stage.
-- `--no-verify` remains documented.
+- All required historical files and commits were inspected.
+- Completion report records what was retained, generalized, deferred, and rejected.
+- No historical commit/file was restored wholesale.
+- No cherry-pick of the old numeric/type/runtime subsystem.
 
-String syntax and type foundation
+Integer authority
 
-- One new raw expression constructor carrying semantic bytes.
-- `GoType` contains exactly `TBool`, `TInt`, `TString`.
-- `GoConst` contains exact `CString`.
-- `GoValue` contains exact `VString`.
-- One constant interpretation.
-- One default-type authority.
-- One representability authority.
-- One resolution/typing path.
+- Exactly one `IntegerType`.
+- Exactly ten live integer types.
+- `int`/`uint` are pinned 64-bit.
+- One range/representability authority.
+- One keyword authority.
+- No `TargetConfig`.
+- No PrimInt63/Sint63.
+
+AST and typing
+
+- `EIntConvert` is the only new expression form.
+- One exact `const_value`.
+- One `ConstInfo` analyzer.
+- Untyped and typed constants are distinct.
+- Typed constants retain exact type + value through nesting.
+- One reflected `ResolveExpr`.
 - No typed AST.
-- No second IR.
-- No imports or identifiers.
+- No `ptype`.
+- No runtime static category added prematurely.
 
-String rendering
+Compilation
 
-- One canonical interpreted-literal encoder.
-- Exact escape policy implemented.
-- Independent decoder implemented.
-- Decoder rejects malformed forms.
-- Render/decode round trip proved for every byte string.
-- Source ASCII proved.
-- Exact common/boundary escape fixtures.
-- Rendered string denotes exact runtime bytes.
-- Resolved type agrees with runtime value.
-
-Compiler/safety/e2e
-
-- Existing compiler soundness/completeness remain.
-- Existing bool/int behavior remains.
-- String programs typecheck and compile.
+- Whole-program compiler remains exact against its declarative judgment.
 - Empty program remains valid.
-- SafeProgram boundary unchanged in responsibility.
-- Primary generated witness grows strings.
-- Boundary-byte witness compiles and runs.
-- Byte output compared safely.
-- `go build ./...` remains blocking.
-- `go vet` remains nonblocking.
-- No generated file hand-edited.
+- Invalid conversion rejects before bytes.
+- Error names are honest.
+
+Safety/value semantics
+
+- One integer runtime value shape.
+- Same `IntegerType`/`GoType` authority.
+- Evaluation reuses constant analysis.
+- Resolved evaluation succeeds, is well typed, and is range well formed.
+- `GoSafe` does not pretend arithmetic safety was added.
+
+Rendering
+
+- Exact keyword + conversion spelling.
+- All ASCII.
+- Nested conversions render correctly.
+- Resolved integer rendering denotes exact value and type.
+- No parser/token/IR introduced.
+
+Tests/e2e
+
+- Every type’s min/max accepted.
+- Every type’s below-min/above-max rejected.
+- `uint64(2^63)` accepted while bare `2^63` and `int64(2^63)` reject.
+- `uint8(int(300))` rejects.
+- Real Go agrees on accepted/rejected representative fixtures.
+- Canonical generated witness regenerated through certified output.
+- `make check` GREEN.
 
 Proof
 
-- New public surfaces closed.
-- Whole-theory audit green.
-- No axioms/admitted/parameters.
-- No source-text axiom scanner.
+- Public surfaces closed.
+- Whole-theory audit GREEN.
+- No project assumptions.
+- No primitive integer axiom.
 
-30. Completion report
+Scope
+
+- No arithmetic, comparison, shifts, division, remainder, runtime wrapping, variables, functions, imports, floats, or aliases added.
+
+23. Completion report
 
 When complete, report:
 
 - contract commit SHA;
 - final implementation commit SHA;
 - complete commit range;
-- local Codex prompt path;
-- final `.review/CODEX_REVIEW_POLICY.md`;
-- Codex final result and any nonblocking observations;
-- files deleted from the pre-commit fortress;
-- final pre-commit guarantee;
-- final `make check` working-tree algorithm;
-- final staged pre-commit algorithm;
-- sink ordering correction and regressions;
-- historical string sources inspected;
+- historical snapshot inspected;
+- every focused historical commit inspected;
+- historical files inspected;
+- transplant ledger: retained/generalized/deferred/rejected;
+- final `IntegerType`;
+- final width/sign/range/keyword functions;
 - final `GoType`;
-- final `GoConst`;
-- final raw string AST constructor;
-- semantic string representation;
-- exact escape policy;
-- decoder grammar;
-- round-trip theorem;
-- ASCII theorem;
-- type/value/render correspondence theorem;
-- every new or changed theorem;
-- full `Print Assumptions` results;
+- final raw conversion constructor;
+- final `ConstInfo`;
+- final constant analyzer rules;
+- final defaulting and resolution rules;
+- final runtime integer value shape;
+- final value-well-formedness theorem;
+- final evaluation theorem;
+- final rendered integer denotation;
+- exact generated witness delta;
+- every boundary and nested-conversion fixture;
+- real-Go differential results;
+- every theorem added or materially changed;
+- full `Print Assumptions` result;
 - whole-theory audit result;
-- generated source diff;
-- string e2e output-byte evidence;
+- final `PAINFUL_LESSONS.md` lesson list;
 - all proof/build/e2e commands and results;
+- Codex final result and nonblocking observations;
 - confirmation notification sent;
 - confirmation loop stopped.
 
-Do not list a retained correctness flaw as a known limitation.
+Do not list a retained correctness defect as a known limitation.
 
-If a real obstacle requires changing this contract, classify it as an ARCHITECTURAL CONFLICT, notify the user, stop the loop, and wait.
+If a real obstacle requires changing this architecture or scope, classify it as an ARCHITECTURAL CONFLICT, notify the user, stop the loop, and wait.
 
-31. Hard stop
+24. Hard stop
 
-When Codex is GREEN under the new policy and final verification passes:
+When Codex is GREEN and final verification passes:
 
 1. Commit the completed checkpoint.
-2. Notify the user through the configured phone/completion-notification channel.
+2. Notify the user through the configured completion-notification channel.
 3. Stop the `/loop`.
-4. Do not infer the next feature.
-5. Wait for review.
+4. Do not begin integer arithmetic.
+5. Do not infer another feature.
+6. Wait for joint review.
 
 Bottom line
 
 The permanent path after this milestone is:
 
-  raw GoExpr
-    -> exact untyped GoConst { bool, int, byte-string }
-    -> contextual resolution through GoType { bool, int, string }
-    -> ProgramTyped evidence over the SAME GoProgram
-    -> GoCompile
-    -> GoSafe values using the SAME GoType
-    -> direct renderer
-         string bytes -> one canonical ASCII interpreted literal
-         -> independent exact decoder theorem
+  raw integer literal / explicit integer conversion
+    -> exact arbitrary-precision `Z` constant value
+    -> untyped or typed constant status
+    -> one `IntegerType` family
+    -> exact destination representability
+    -> contextual `ResolveExpr`
+    -> whole-program `GoCompile`
+    -> one typed integer runtime value shape
+    -> direct canonical conversion rendering
     -> certified DirectoryImage
-    -> frozen practical sibling-temp sink
-    -> pristine generated-module layer
-    -> tracked generated Go
-    -> reasonable-assurance staged pre-commit check
+    -> real Go differential alarm
 
-We are building the language again.
+Steal the mathematics.
 
-We are not building a hostile-Git security product.
+Steal the semantic distinctions.
+
+Steal the counterexamples.
+
+Do not resurrect the old organism.
