@@ -41,6 +41,20 @@ Print Assumptions Floats.scar_double_f32_via_f64.
 Print Assumptions Floats.scar_direct_differs_double.
 Print Assumptions Floats.round_f32_2p24_plus1.
 Print Assumptions Floats.round_f64_2p53_plus1.
+(* exact-rational canonicality + equality: cross-multiplication decides value equality; reduction yields a
+   coprime form of the same value; on canonical forms value equality IS Leibniz equality (lowest terms). *)
+Print Assumptions Floats.fc_eqb_spec.
+Print Assumptions Floats.fc_of_Z_canonical.
+Print Assumptions Floats.reduce_fc_canonical.
+Print Assumptions Floats.reduce_fc_eq.
+Print Assumptions Floats.fc_canonical_unique.
+(* the ONE constant-conversion/representability authority: reflected decision; the double-round scar back as
+   an exact integer constant; overflow rejects; underflow rounds to canonical +0; a source zero -> +0. *)
+Print Assumptions Floats.float_representableb_spec.
+Print Assumptions Floats.round_const_scar_direct_f32.
+Print Assumptions Floats.round_const_overflow_f32.
+Print Assumptions Floats.round_const_underflow_f64.
+Print Assumptions Floats.round_const_source_zero_f64.
 
 (* intrinsic FilePath: decidable equality; a representable canonical path; a rejected (unrepresentable)
    path.  Non-canonical paths have no FilePath value at all — this is unrepresentability, not rejection. *)
