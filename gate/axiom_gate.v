@@ -133,9 +133,8 @@ Print Assumptions FMap.fm_MapsTo_fun.
    exact value (partial [const_value], routed through the ONE [convert_const]) + a representable typed
    integer value; resolution sound + complete + deterministic; statement + program typing reflection. *)
 Print Assumptions GoTypes.const_info_zero_sign.
-Print Assumptions GoTypes.const_default_type_int.
-Print Assumptions GoTypes.const_default_type_float.
-Print Assumptions GoTypes.const_default_type_string.
+Print Assumptions GoTypes.float_default_resolved.
+Print Assumptions GoTypes.str_representable.
 Print Assumptions GoTypes.const_representableb_iff.
 Print Assumptions GoTypes.const_scar_direct.
 Print Assumptions GoTypes.const_int8_int16_127.
@@ -223,6 +222,9 @@ Print Assumptions GoCompile.bad_convert_rejected.
 Print Assumptions GoCompile.bad_convert_no_compile.
 Print Assumptions GoCompile.str_program_ok.
 Print Assumptions GoCompile.str_program_compiles.
+Print Assumptions GoCompile.float_program_compiles.
+Print Assumptions GoCompile.float_reject_rejected.
+Print Assumptions GoCompile.float_reject_no_compile.
 
 (* GoSafe: exact VALUE semantics — a zero literal and a negated zero agree; a resolved expression evaluates
    to a well-formed value of the resolved GoType (one type authority across compiler and runtime); value

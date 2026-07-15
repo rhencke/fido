@@ -121,58 +121,34 @@ Definition typed_float_of_const (ft : FloatType) (q : FloatConst) : option (Type
 (** The exact value of an expression is [const_info_exact] applied to [const_info] — there is NO separate
     [const_value] construction path (which would re-do conversion/rounding and be a second authority). *)
 
-(** the DEFAULT type — the type chosen for an UNTYPED constant in a context that requires a typed value.  It
-    is NOT a property of the raw literal (the literal stays untyped); an int constant defaults to the
-    platform [int] = [TInteger IInt], a floating constant to [float64] = [TFloat F64]. *)
-Definition const_default_type (c : GoConst) : GoType :=
-  match c with
-  | CBool _   => TBool
-  | CInt _    => TInteger IInt
-  | CFloat _  => TFloat F64
-  | CString _ => TString
+(** §19/§16 the SINGLE typing/defaulting construction for an UNTYPED constant at a REQUESTED type: bool/string
+    at their own type; an integer iff it fits the requested member; a float via the ONE [round_typed_float]
+    (no second overflow checker); cross-kind [None].  There is NO standalone "type of an untyped constant"
+    function — a use context supplies the requested type, or [default_const] supplies the platform default. *)
+Definition type_untyped_const_at (t : GoType) (c : GoConst) : option (TypedConst t) :=
+  match t with
+  | TBool       => match c with CBool b   => Some (TCBool b)          | _ => None end
+  | TInteger it => match c with CInt z    => typed_integer_of_Z it z   | _ => None end
+  | TFloat ft   => match c with CFloat q  => typed_float_of_const ft q | _ => None end
+  | TString     => match c with CString s => Some (TCString s)         | _ => None end
   end.
 
-Lemma const_default_type_bool : forall b, const_default_type (CBool b) = TBool.
-Proof. reflexivity. Qed.
-Lemma const_default_type_int : forall z, const_default_type (CInt z) = TInteger IInt.
-Proof. reflexivity. Qed.
-Lemma const_default_type_float : forall q, const_default_type (CFloat q) = TFloat F64.
-Proof. reflexivity. Qed.
-Lemma const_default_type_string : forall s, const_default_type (CString s) = TString.
-Proof. reflexivity. Qed.
+(** §19 representability is DERIVED from successful typing at the requested type — not a separate looser
+    source of truth (no second integer-range or float-overflow checker). *)
+Definition ConstRepresentable (t : GoType) (c : GoConst) : Prop :=
+  exists tc : TypedConst t, type_untyped_const_at t c = Some tc.
 
-(** ---- representability: one type-directed authority (the SINGLE integer-range decision, per member) ---- *)
-Inductive ConstRepresentable : GoType -> GoConst -> Prop :=
-| RBool   : forall b, ConstRepresentable TBool (CBool b)
-| RInt    : forall it z, IntRepresentable it z -> ConstRepresentable (TInteger it) (CInt z)
-| RFloat  : forall ft q, FloatConstRepresentable ft q -> ConstRepresentable (TFloat ft) (CFloat q)
-| RString : forall s, ConstRepresentable TString (CString s).
-
-(** every string constant is representable as [TString] (no length limit); a [CInt z] is representable as
-    [TInteger it] iff [z] fits [it]; a [CFloat q] is representable as [TFloat ft] iff it rounds at [ft]
-    without overflow (the ONE [Floats] authority — no second float-overflow checker); cross-kind [false]. *)
 Definition const_representableb (t : GoType) (c : GoConst) : bool :=
-  match t, c with
-  | TBool,       CBool _   => true
-  | TInteger it, CInt z    => integer_representableb it z
-  | TFloat ft,   CFloat q  => float_representableb ft q
-  | TString,     CString _ => true
-  | _, _ => false
-  end.
+  match type_untyped_const_at t c with Some _ => true | None => false end.
 
 Lemma const_representableb_iff : forall t c, const_representableb t c = true <-> ConstRepresentable t c.
 Proof.
-  intros t c; split.
-  - destruct t as [| it | ft |]; destruct c as [ b | z | q | s ]; simpl; intro H; try discriminate.
-    + constructor.
-    + apply integer_representableb_spec in H; constructor; exact H.
-    + apply float_representableb_spec in H; constructor; exact H.
-    + constructor.
-  - intro H; destruct H as [ b | it z Hr | ft q Hr | s ]; simpl.
-    + reflexivity.
-    + apply integer_representableb_spec; exact Hr.
-    + apply float_representableb_spec; exact Hr.
-    + reflexivity.
+  intros t c; unfold const_representableb, ConstRepresentable.
+  destruct (type_untyped_const_at t c) as [tc|] eqn:E; split.
+  - intros _; exists tc; reflexivity.
+  - intros _; reflexivity.
+  - discriminate.
+  - intros [tc' H]; discriminate.
 Qed.
 
 (** ============================================================================
@@ -616,9 +592,8 @@ Example res_str_bytes :
     (EString (String (ascii_of_nat 0) (String (ascii_of_nat 127)
              (String (ascii_of_nat 128) (String (ascii_of_nat 255) EmptyString)))))
   = Some TString. Proof. reflexivity. Qed.
-Example str_default_type : const_default_type (CString "abc") = TString. Proof. reflexivity. Qed.
 Lemma str_representable : forall s, ConstRepresentable TString (CString s).
-Proof. intro s; constructor. Qed.
+Proof. intro s; exists (TCString s); reflexivity. Qed.
 Lemma str_representableb : forall s, const_representableb TString (CString s) = true.
 Proof. reflexivity. Qed.
 Example stmt_mixed_str_typed : stmt_typedb (SPrintln [EBool true; EInt 42; EString "hello"]) = true. Proof. reflexivity. Qed.
@@ -640,7 +615,9 @@ Definition d_scar : DecimalFloat := mkDecimal 2305843146652647425 0 eq_refl.
 Example res_float_default : resolve_expr UsePrintlnArg (EFloat d_15em1) = Some (TFloat F64). Proof. reflexivity. Qed.
 Example res_float32_conv  : resolve_expr UsePrintlnArg (EFloatConvert F32 (EFloat d_15em1)) = Some (TFloat F32). Proof. reflexivity. Qed.
 Example res_float64_conv  : resolve_expr UsePrintlnArg (EFloatConvert F64 (EFloat d_15em1)) = Some (TFloat F64). Proof. reflexivity. Qed.
-Example float_default_type : const_default_type (CFloat fc_zero) = TFloat F64. Proof. reflexivity. Qed.
+(* the platform default of a bare float is float64 — via [default_const], not a "type of an untyped constant". *)
+Example float_default_resolved :
+  option_map resolved_const_type (default_const (CFloat fc_zero)) = Some (TFloat F64). Proof. reflexivity. Qed.
 
 (* §34 float->integer CONSTANT conversions: integral value + range required; a fraction / overflow rejects. *)
 Example res_int_of_3_0     : resolve_expr UsePrintlnArg (EIntConvert IInt  (EFloat d_3))    = Some (TInteger IInt).  Proof. reflexivity. Qed.
@@ -670,6 +647,28 @@ Example const_scar_direct_differs_nested :
   option_map const_info_exact (const_info (EFloatConvert F32 (EFloat d_scar)))
     <> option_map const_info_exact (const_info (EFloatConvert F32 (EFloatConvert F64 (EFloat d_scar)))).
 Proof. rewrite const_scar_direct, const_scar_nested; discriminate. Qed.
+
+(** §34 SAME-TYPE conversions are identities (no reround): a nested same-format float/integer conversion
+    analyzes to the SAME exact value as the single one. *)
+Example conv_f32_f32_scar :
+  option_map const_info_exact (const_info (EFloatConvert F32 (EFloatConvert F32 (EFloat d_scar))))
+    = option_map const_info_exact (const_info (EFloatConvert F32 (EFloat d_scar))).
+Proof. vm_compute. reflexivity. Qed.
+Example conv_f64_f64_1p5 :
+  option_map const_info_exact (const_info (EFloatConvert F64 (EFloatConvert F64 (EFloat d_15em1))))
+    = option_map const_info_exact (const_info (EFloatConvert F64 (EFloat d_15em1))).
+Proof. vm_compute. reflexivity. Qed.
+Example conv_int8_int8_127 :
+  const_info (EIntConvert IInt8 (EIntConvert IInt8 (EInt 127)))
+    = Some (CITyped (TInteger IInt8) (TCInteger IInt8 127 eq_refl)).
+Proof. reflexivity. Qed.
+
+(** §36 typed MISMATCH is UNREPRESENTABLE (not merely rejected): the dependent type index and the carried
+    range proof make an ill-typed / out-of-range typed constant impossible to CONSTRUCT — [Fail] confirms the
+    term does not typecheck (no tracked axiom, nothing added to the environment). *)
+Fail Definition mismatch_string_carrying_int : TypedConst TString := TCInteger IInt 3 eq_refl.
+Fail Definition mismatch_int_out_of_range : TypedConst (TInteger IInt8) := TCInteger IInt8 128 eq_refl.
+Fail Definition mismatch_float_carrying_bool : TypedConst (TFloat F64) := TCBool true.
 
 (* a mixed float statement types; a default-overflowing bare float does NOT type. *)
 Example stmt_float_mixed : stmt_typedb (SPrintln [EBool true; EFloat d_15em1; EFloatConvert F32 (EFloat d_3)]) = true. Proof. reflexivity. Qed.

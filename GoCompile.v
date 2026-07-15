@@ -25,7 +25,7 @@
        program.  We do NOT invoke cmd/go from Rocq and claim no kernel theorem about it.
     ============================================================================ *)
 From Stdlib Require Import NArith ZArith List Bool String Arith.
-From Fido Require Import Ints FilePath FMap GoAST GoTypes.
+From Fido Require Import Ints Floats FilePath FMap GoAST GoTypes.
 Import ListNotations.
 Open Scope Z_scope.
 
@@ -222,3 +222,30 @@ Example str_program_typed    : program_typedb str_program = true. Proof. reflexi
 Example str_program_ok       : prog_ok str_program = true.        Proof. reflexivity. Qed.
 Example str_program_compiles : exists cp, go_compile str_program = Ok cp.
 Proof. eexists; reflexivity. Qed.
+
+(** ---- float programs (§38): a concrete accepted float program (a bare float64, an explicit float32
+    conversion, and an exact float->int conversion) compiles to a [CompilableProgram]; a fractional
+    float->int conversion rejects the WHOLE program with the honest typing error, before any bytes — and there
+    is NO [CompilableProgram] for it. ---- *)
+Definition float_program : GoProgram :=
+  singleton_program
+    (mkModuleSpec (ModulePath.mkMP "fido.local/generated" eq_refl) GoVersion.Go1_23)
+    (mkFP "main.go" eq_refl)
+    [ DMain [ SPrintln [ EFloat (mkDecimal 15 (-1) eq_refl)
+                       ; EFloatConvert F32 (EFloat (mkDecimal 15 (-1) eq_refl))
+                       ; EIntConvert IInt (EFloat (mkDecimal 3 0 eq_refl)) ] ] ].
+Example float_program_typed    : program_typedb float_program = true. Proof. vm_compute. reflexivity. Qed.
+Example float_program_ok       : prog_ok float_program = true.        Proof. vm_compute. reflexivity. Qed.
+Example float_program_compiles : exists cp, go_compile float_program = Ok cp.
+Proof. eexists; reflexivity. Qed.
+
+Definition float_reject_program : GoProgram :=
+  singleton_program
+    (mkModuleSpec (ModulePath.mkMP "fido.local/generated" eq_refl) GoVersion.Go1_23)
+    (mkFP "main.go" eq_refl)
+    [ DMain [ SPrintln [ EIntConvert IInt (EFloat (mkDecimal 35 (-1) eq_refl)) ] ] ].   (* int(3.5): fractional *)
+Example float_reject_untyped    : program_typedb float_reject_program = false. Proof. vm_compute. reflexivity. Qed.
+Example float_reject_rejected   : go_compile float_reject_program = Err ErrTyping.
+Proof. vm_compute. reflexivity. Qed.
+Example float_reject_no_compile : forall facts, ~ GoCompile float_reject_program facts.
+Proof. intro facts; apply (reject_no_compile float_reject_program facts); vm_compute; reflexivity. Qed.

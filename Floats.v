@@ -622,6 +622,12 @@ Lemma neg_zero_F64_canonical : FloatCanonical F64 (S754_zero true).
 Proof. left; exists (reduce_fc (-1) (10 ^ 330)%positive); vm_compute; reflexivity. Qed.
 Definition fv_neg_zero_F64 : FloatValue F64 := mkFV (S754_zero true) neg_zero_F64_canonical.
 
+(** §36 a typed float constant whose runtime is NaN / negative zero is UNREPRESENTABLE — the [tfc_coh] and
+    [tfc_shape] fields cannot be satisfied (NaN reads back as [None], -0 fails the +0-or-finite shape).  [Fail]
+    confirms the term does not typecheck (no tracked axiom, nothing added to the environment). *)
+Fail Definition tfc_nan_unrepresentable : TypedFloatConst F64 := mkTFC fc_zero (fv_nan F64) eq_refl eq_refl.
+Fail Definition tfc_neg_zero_unrepresentable : TypedFloatConst F64 := mkTFC fc_zero fv_neg_zero_F64 eq_refl eq_refl.
+
 (** §33 a negative tiny constant underflows to canonical +0: [round_typed_float] SUCCEEDS, the exact value is
     [fc_zero], and the stored runtime is +0 (never -0) — evaluation returns that +0 with no second round. *)
 Example round_typed_neg_underflow_f64 :
