@@ -372,13 +372,17 @@ Definition read_go_int (s : string) : Z :=
   | EmptyString => dval0 s
   end.
 
-(** ---- an INDEPENDENT certified decoder for EXACTLY the canonical interpreted-literal subset emitted above.
-    It is NOT a general Go parser and does NOT consult the encoder to decide what it accepts; it is defined by
-    its own structural recursion.  It understands the opening and closing double quote, a directly-emitted
-    printable byte, the five short backslash escapes (for quote, backslash, n, t, r), and a hex escape of the
-    form backslash-x with EXACTLY two lowercase hex digits.  It REJECTS a malformed / truncated / nonhex
-    escape, an unescaped quote or control byte inside the body, and any trailing bytes after the closing
-    quote. ---- *)
+(** ---- an INDEPENDENT certified decoder that assigns EXACT BYTE MEANING to the canonical spelling this
+    renderer emits.  It is NOT a general Go parser and does NOT consult the encoder to decide what it accepts;
+    it is defined by its own structural recursion.  It understands the opening and closing double quote, a
+    directly-emitted printable byte, the five short backslash escapes (for quote, backslash, n, t, r), and a
+    backslash-x hex escape of EXACTLY two lowercase hex digits.  Because a byte with a shorter canonical form
+    can still be written as a hex escape, the decoder ALSO accepts semantically equivalent NONCANONICAL
+    spellings the renderer never emits — decoding is a DENOTATION tool, not a canonical-spelling recogniser.
+    The proved property is the byte round trip [decode_string_literal (render_string_literal s) = Some s]; NO
+    source-spelling inverse [render (decode source) = source] is claimed, and the decoder is NOT narrowed to
+    make that prose easier.  It REJECTS a malformed / truncated / nonhex escape, an unescaped quote or control
+    byte inside the body, and any trailing bytes after the closing quote. ---- *)
 
 Definition decode_hex_digit (c : ascii) : option nat :=
   if andb (Nat.leb 48 (nat_of_ascii c)) (Nat.leb (nat_of_ascii c) 57) then Some ((nat_of_ascii c - 48)%nat)

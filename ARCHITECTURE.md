@@ -283,7 +283,9 @@ witness. Shrink the representable language before weakening `GoCompile`. Package
 imports are compilation results, never raw metadata. Integer width has one authority (`Ints`, 64-bit) and
 the type universe has one authority (`GoTypes` — `TBool`/`TInt`/`TString` today); there is no `TargetConfig`.
 A new type constructor arrives ONLY with the syntax and complete semantic obligations that need it (as
-`TString` did — together with `EString` + its value + canonical rendering + independent decoder), never a
+`TString` did — together with `EString` + its value + canonical rendering + an independent decoder proving
+the byte round trip `decode(render s) = Some s`, which may also accept semantically equivalent noncanonical
+spellings and claims no source-spelling inverse), never a
 speculative `unknown`/`opaque`/`raw` type, and never a typed AST. Raw literals stay UNTYPED
 syntax: they denote exact untyped constants, and defaulting/representability happen in a use context.
 

@@ -5,173 +5,100 @@ looked reasonable and we only learned by paying for it. Not a catalogue of the d
 `ARCHITECTURE.md`/`CLAUDE.md`) and not a status diary (`PROGRESS.md`). If a proposal resembles one of these,
 stop. When an entry stops being a live temptation, delete it.
 
-1. **A subset filter is not compiler admissibility — and this trap recurs in new disguises.** If the AST can
-   represent a program the real toolchain ACCEPTS, a checker that rejects it is a supported-scope decision
-   wearing a compiler-authority name (the printer-round-trip's compile analogue). The rule: model every
-   represented form's *real* acceptance, or make unsupported forms UNREPRESENTABLE — never rejected by a
-   guard. A representable program `go build ./...` accepts but GoCompile rejects is a MODEL BUG, not
-   "unsupported syntax." (This is why `GoCompile` proves sound + complete against a declarative judgment and
-   is attacked by differential experiments against real Go; a green boolean is not the authority.)
+1. **A subset filter is not exact compiler admissibility.** If the AST can represent a program the real
+   toolchain ACCEPTS, a checker that rejects it is a supported-scope decision wearing a compiler-authority
+   name. Model every represented form's real acceptance, or make unsupported forms UNREPRESENTABLE — never
+   rejected by a guard. A representable program `go build ./...` accepts but `GoCompile` rejects is a MODEL
+   BUG, not "unsupported syntax." (Hence `GoCompile` is proved sound + complete against a declarative
+   judgment and attacked by differential experiments; a green boolean is not the authority.)
 
-2. **The compile unit is the WHOLE program tree; paths, module identity, and the module file are semantic
-   inputs.** Go groups files by directory into packages; one-main-per-package is a whole-program property; a
-   raw `string` key is not a file path (package discovery depends on the extension, `_test`/GOOS suffixes,
-   hidden dirs, directory identity). Single-file compiler semantics with `string` keys cannot model this.
-   So: `GoProgram` pairs an intrinsic `ModuleSpec` (module path + Go version — the generated module's facts,
-   NOT a target config) with a POSSIBLY-EMPTY finite map keyed by an INTRINSIC `FilePath` (the empty map is a
-   valid module-only program — a nonemptiness restriction was a false narrowing); `GoCompile` consumes it all
-   at once, all-or-nothing; package grouping / package name / entry-point status are COMPILATION RESULTS
-   (`CompilationFacts`), never collapsed into a raw node like the deleted `MainFile`. The `go.mod` is PART of
-   the generated program and is RENDERED in Rocq from the `ModuleSpec` (proved exact bytes) — never injected
-   by hand in the build, and never smuggled into the `FilePath` map (it is not a `.go` path).
+2. **The Go compilation unit is the WHOLE module tree.** Go groups files by directory into packages;
+   one-main-per-package is a whole-program property; paths, module identity, and the module file are semantic
+   inputs (a raw `string` key is not a file path — discovery depends on the extension, `_test`/GOOS suffixes,
+   hidden dirs, directory identity). So `GoProgram` = an intrinsic `ModuleSpec` + a POSSIBLY-EMPTY finite map
+   keyed by intrinsic `FilePath` (the empty map is a valid module-only program); `GoCompile` consumes it all
+   at once, all-or-nothing; package grouping / name / entry status are COMPILATION RESULTS, never collapsed
+   into a raw node. The `go.mod` is part of the program, RENDERED in Rocq from the `ModuleSpec`, never a
+   `FilePath` key.
 
-3. **Gate the invariant you advertise.** A functional first-match lookup theorem (`fm_MapsTo_fun`) holds even
-   over a duplicate-keyed list, so it is NOT evidence of key uniqueness — that is `fm_keys_nodup` (the carried
-   `NoDup` field) + `dup_key_unrepresentable`. Likewise "axiom-free" is necessary, never sufficient: a
-   kernel-checked proof can still prove a weak/irrelevant/self-referential claim. Always check the STATEMENT.
+3. **Gate the invariant you actually advertise.** A functional first-match lookup theorem holds even over a
+   duplicate-keyed list, so it is NOT evidence of key uniqueness (that is the carried `NoDup` +
+   `dup_key_unrepresentable`). "Axiom-free" is necessary, never sufficient: a kernel-checked proof can still
+   prove a weak/irrelevant/self-referential claim. Always check the STATEMENT.
 
-4. **Handwritten OCaml is a TRANSPORT boundary, never a program decoder.** The deleted 82-line backend
-   accepted an arbitrary `constr` and decoded it by application ARITY — term inspection masquerading as a
-   transport. The permitted boundary is four steps: typecheck the image type, reject a non-empty assumption
-   closure (a kernel provenance query — NOT decoding proofs or programs), decode ONLY the final
-   `(go.mod bytes, (path, bytes) list)` transport with EXACT constructors (fail loud otherwise), then call
-   the filesystem-only sink. It inspects no program/AST/behaviour/semantics. If that boundary cannot be met, delete the e2e — a
-   false transport foundation is worse than no integration. (And emission is an EXPLICIT command, not a
-   cached `.vo` side effect a warm cache would silently skip, nor a per-witness extracted executable.)
+4. **Handwritten OCaml is TRANSPORT, never language semantics.** The permitted boundary typechecks the image
+   type, rejects a non-empty assumption closure (a kernel provenance query — NOT decoding proofs/programs),
+   decodes ONLY the final `(go.mod bytes, (path, bytes) list)` transport with exact constructors (fail loud),
+   then calls the filesystem-only sink. It inspects no program/AST/behaviour/semantics. If that boundary
+   cannot be met, delete the e2e — a false transport foundation is worse than none. (Emission is an EXPLICIT
+   command, not a cached `.vo` side effect a warm cache would silently skip.)
 
-5. **Provenance is gated at the LIVE boundary, not by the type alone.** A `DirectoryImage` carries a proof
-   ([di_prov]) it came from rendering a `SafeProgram`, and the map stays reducible (opaque Rocq modules
-   would abstract it but break the reduction the transport command needs). But a proof can be POSTULATED —
-   an `Axiom`/`Admitted`/section `Variable` gives a well-typed but uncertified image — so the type is not
-   the gate. The gate is the emit command's assumption-closure check (it rejects any image whose proof
-   depends on an assumption, descending Qed bodies), so a forged image cannot cross into filesystem effects.
+5. **Proof-carrying provenance still requires a LIVE assumption-closure gate.** A `DirectoryImage` carries a
+   proof it came from rendering a `SafeProgram`, but a proof can be POSTULATED (`Axiom`/`Admitted`/section
+   `Variable` → a well-typed but uncertified image), so the type is not the gate. The gate is the emit
+   command's assumption-closure check, which rejects any image whose proof depends on an assumption before any
+   filesystem effect.
 
-6. **File emission became OVER-DESIGNED when a reviewer's hostile-filesystem concerns displaced the real
-   single-owner threat model.** ⚠ The threat model here is ONE project owner + cooperating emitters
-   serialized by one lock + a stable directory namespace + ordinary crashes/disk/permissions — NOT a
-   malicious concurrent adversary or arbitrary unmount/remount. A whole stage-record / OS-nonce / local-
-   stage-directory / record-driven-recovery subsystem was a disproportionate answer to that, and it was
-   deleted. The durable shape: `<root>/.fido/` = exact marker + git-style `index.lock` ONLY, and each output
-   stages into its RESERVED sibling temp `<final>.fido-tmp-v1` — because the lock serializes, the name needs
-   NO nonce and recovery needs NO record (the final path is already known to the live sync). A regular
-   reserved-suffix file WHOSE SUFFIX-STRIPPED PATH MAPS TO A FIDO FINAL PATH (root `go.mod` or an intrinsic
-   `.go`) is, by PUBLIC (forgeable) CONVENTION, an abandoned Fido temp — an ACCEPTED tradeoff under this
-   threat model; do NOT build a transaction log to make ownership unforgeable. The still-live
-   sub-lessons: ⚠ a reviewer can name a real defect WITHOUT owning the replacement, and the current
-   `.review/NEXT_STEPS.md` — not the reviewer's preferred architecture — is binding; a defect unfixable
-   within it is an ARCHITECTURAL CONFLICT to escalate, never a quiet redesign. ⚠ STAGE THE COMPLETE IMAGE
-   before any install (else a disk/permission failure leaves a MIXED generation); install is still
-   nontransactional across the tree — say so. ⚠ Recovery is TWO-PHASE (inspect-collect, then delete) and
-   fail-CLOSED; a symlink/dir/special reserved-suffix entry aborts + is preserved. ⚠ Handled-failure cleanup
-   (immediate; this run's temps + empty parents; error-aggregating) is DIFFERENT from crash recovery (next
-   run, after the stale lock is cleared) — a handled failure must not leave residue "for the next run". ⚠
-   Filesystem discovery must distinguish MISSING (a confirmed `ENOENT`) from an operational error
-   (EACCES/EIO/ELOOP/…) — never turn a readdir/lstat failure into "empty" or "no header"; that is fail-OPEN.
-   ⚠ Validate the ROOT chain (a prefix symlink redirects every effect), reserve `.fido/`, reject a nested
-   `.fido` of any type in the traversed namespace, and reject a cross-device rename fail-loud (no copy
-   fallback). ⚠ Dirty FOREIGN Go contradicts a closed-world compile guarantee: a foreign `.go` in the
-   Go-discovered namespace, or a foreign/nested `go.mod`, must REJECT the whole emission (fail-closed scan) —
-   NOT preserved-and-merged into a tree we then claim compiles. Inject faults (real crash via `Unix._exit`, unlink failure, EXDEV) through operation
-   PARAMETERS, never an ambient env branch or a real `chmod` in the production sink. ⚠ The GENERATED
-   `FilePath` domain (what Fido would write — lowercase, no dotfiles/`_`/`testdata`/`vendor`) and the FOREIGN
-   Go-discovery scan (what `go build ./...` would compile) have DIFFERENT responsibilities: the dirty-tree
-   scan must skip only the directory trees Go itself ignores (`.`-prefixed incl. `.git`, `_`-prefixed,
-   `testdata`, `vendor`) — NOT every path Fido would not generate — or a visible foreign package Go compiles
-   slips past the foreign-Go rejection; and a `.git`-metadata blob merely NAMED like a `.go`/temp is preserved
-   and ignored, never touched. ⚠ But that RUNTIME-sink skip is the OPPOSITE requirement from the STAGED-TREE
-   VERIFICATION GATES: a repository-content gate (the OCaml-origin / generated-output / staged-generated-
-   compare scripts, over the working-tree content — tracked PLUS untracked-non-gitignored — for `make check`,
-   or the exported Git index for the hook) must inspect EVERY file at EVERY depth, pruning ONLY `.git` — never
-   the sink's opaque dirs.  Reusing the
-   sink's Go-discovery skip in a gate is a FAIL-OPEN: a rogue `.hidden/x.ml` escapes the OCaml allowlist and an
-   unheaded/exec/symlink `.hidden/x.go` escapes the output policy, and since `.dockerignore` also hides tracked
-   `.go` from Buildx, NO check would ever see it.  (A deliberate developer edit to the verifier ITSELF is a
-   different matter — explicitly OUT OF SCOPE per `.review/CODEX_REVIEW_POLICY.md`; no self-test fortress
-   guards it, and none should be built.)  ⚠ A public temp
-   suffix (`<final>.fido-tmp-v1`) is a forgeable convention, but
-   ownership still requires the suffix-stripped path to map to a possible Fido final path (root `go.mod` or a
-   valid intrinsic `.go`) before deletion — a non-mappable suffixed entry is preserved and refuses. ⚠ Opaque
-   applies to Go-ignored DIRECTORY TREES only — NOT to Go-ignored FILES.  In the per-entry `inspect` the order
-   is load-bearing and cost me two ping-pong rounds: (1) skip an S_DIR with a Go-ignored name (its whole tree
-   is opaque, even if the dir's own name ends in `.fido-tmp-v1`/`.go`); (2) THEN classify reserved-suffix /
-   `go.mod` / `.go` — so a dot/underscore reserved-suffix FILE at a TRAVERSED level (e.g. root
-   `_notes.fido-tmp-v1`, not beneath a skipped dir) is non-mappable and still REFUSES fail-closed; (3) ONLY
-   AFTER that skip a remaining Go-ignored dot/underscore NON-dir name (a `.gitignore`/dot-`.go` file).  Put the
-   suffix check before the dir skip → an opaque suffix-named dir wrongly aborts; put the dot/underscore-name
-   skip before the suffix check → a non-mappable dot/underscore temp file wrongly survives.  ⚠ A
-   source-LINE cap on the OCaml boundary is not a correctness invariant (the boundary is enforced by the
-   allowlist + no-Rocq-terms + transport-only greps, not a byte budget) — do not gate on line count.
+6. **Review rigor must match the component's DECLARED guarantee and threat model.** The sink's threat model is
+   ONE owner + cooperating emitters serialized by one lock + ordinary crashes/disk/permissions — NOT a
+   malicious concurrent adversary or arbitrary unmount/remount; a reviewer can name a real defect without
+   owning the replacement, and `.review/NEXT_STEPS.md` (not the reviewer's preferred architecture) is binding
+   — a defect unfixable within it is an ARCHITECTURAL CONFLICT to escalate, never a quiet redesign. The
+   durable sink shape: one lock (`.fido/` marker + `index.lock`); each output staged into its RESERVED sibling
+   temp; the COMPLETE image staged before any install; fail-CLOSED ordinary filesystem observation
+   (distinguish a confirmed `ENOENT` from an operational error — never turn a `readdir`/`lstat` failure into
+   "empty"); a foreign `.go` in the Go-discovered namespace or a foreign/nested `go.mod` REJECTS the whole
+   emission; and NO transaction-log / stage-record / OS-nonce / central-staging subsystem. (Deliberate edits
+   to the verifier ITSELF are OUT OF SCOPE per `.review/CODEX_REVIEW_POLICY.md` — build no self-test fortress.)
 
-7. **Source-text scanning is not a sound zero-axiom gate — audit the compiled environment's CLOSURE.** Every
-   text scanner leaked (a comment stripper missed an `Axiom` behind a `"(*"` string; a lexical scanner missed
-   `Time Axiom …`, a no-space `#[global]Axiom`, module ALIASES). Text always has another escape. But checking
-   each Fido constant's OWN body (Undef) is ALSO insufficient: a retained internal theorem can carry an
-   opaque Qed body depending on an EXTERNAL axiom (functional extensionality) and escape unless it happens to
-   be a selected public surface. Zero-axiom enforcement means the assumption CLOSURE over EVERY certified
-   declaration CLASS — not only constants: seed the closure from every Fido constant AND every mutual
-   INDUCTIVE (via `IndRef`) AND every surviving named assumption. An assumption attached DIRECTLY to a
-   certified inductive — assumed positivity, disabled guardedness, type-in-type, UIP — is a `Printer.Axiom`
-   variant on that `IndRef` that a constant-only audit MISSES when no retained constant references it. The
-   sound gate unions those closures (descending opaque Qed bodies) and rejects every `Printer.Axiom` category
-   AND `Printer.Variable` — catching a TRANSITIVE external axiom, an unused Fido axiom, AND an unreferenced
-   assumption-bearing inductive, immune to lexical tricks. `Print Assumptions` on the public surfaces stays
-   the complementary per-surface check; a coverage gate ties the audited module set to dune's `(modules …)`;
-   the whole gate runs in `make prove`. And do NOT keep tracked axiom-bearing fixtures "to test the gate" —
-   generate them transiently in the pinned environment.
+7. **Audit the compiled assumption CLOSURE, not source text.** Every text scanner leaks (an `Axiom` behind a
+   string, `Time Axiom`, a no-space `#[global]Axiom`, module aliases). Checking each constant's own body is
+   also insufficient: a retained internal lemma can carry an opaque Qed body depending on an EXTERNAL axiom
+   (functional extensionality) and escape. Sound enforcement seeds the closure from every Fido constant AND
+   every mutual INDUCTIVE (via `IndRef`) AND every surviving named assumption, unions the closures (descending
+   opaque Qed bodies), and rejects every `Printer.Axiom` category AND `Printer.Variable`. `Print Assumptions`
+   on public surfaces is the complementary per-surface check; a coverage gate ties the audited set to dune's
+   `(modules …)`. No tracked axiom-bearing fixtures — generate them transiently.
 
-8. **No raw/string-rescue escape hatch — the single most expensive mistake this project has paid for.** A
-   structured-or-fail AST must never gain a raw/opaque/text fallback constructor. Unrepresentable ⇒ absent
-   from the datatype, or rejected by the relation. (Its cousins: a copied compiled AST / second tree, and
-   package/import metadata baked into raw file values.)
+8. **No raw escape hatch, typed AST, copied program, or parallel semantic authority.** A structured-or-fail
+   AST must never gain a raw/opaque/text fallback constructor — the single most expensive mistake this project
+   has paid for. Unrepresentable ⇒ absent from the datatype, or rejected by the relation. Its cousins: a
+   copied compiled AST / second tree, package/import metadata baked into raw file values, and a second
+   numeric-width or type authority beside the one.
 
-9. **Closed world or nothing.** No import syntax is representable today. When imports arrive, every import must
-   resolve to an owned package derived from the SAME `GoProgram`, or the whole program is rejected — no
-   stdlib / module-cache / network / vendor / workspace / ambient-filesystem escape unless a later reviewed
-   foundation completely models that source. A half-modelled external escape is a fail-open foundation.
+9. **Untyped constants, typed constants, and runtime values are DISTINCT.** A raw literal denotes an exact
+   UNTYPED constant (arbitrary-precision `Z`, no width), so `const_value` stays exact — no range check, no
+   wrap. A use context or an explicit conversion yields a TYPED constant that retains its exact value AND its
+   type and does not default again. A runtime value carries the same `GoType`. Defaulting/representability
+   live in the resolution judgment, never baked into the literal (`EInt : … TInt` is wrong) and never a
+   parallel typed tree.
 
-10. **Integration is the last-mile alarm, and differential experiments discover semantics but do not replace
-    proofs.** The pinned-Go `go build ./...` over the WHOLE tree (never a hard-coded file copy) demonstrates
-    wiring; a build failure after emission is always a Fido correctness failure, never a known issue. Real-Go
-    experiments falsify model/real discrepancies; they are specification discovery, not kernel theorems. ⚠
-    The formal compiler contract is `go build ./...` ACCEPTANCE, not `go vet` — a nonblocking diagnostic
-    (vet's policy checks, which can false-positive) must stay DIAGNOSTIC-only, never a silent extra
-    acceptance criterion the model does not claim.
+10. **Integration / differential tests are ALARMS, not proofs.** The pinned-Go `go build ./...` over the whole
+    tree demonstrates wiring; a build failure after emission is always a Fido correctness failure, never a
+    known issue. Real-Go experiments falsify model/real discrepancies — specification discovery, not kernel
+    theorems. The formal contract is `go build ./...` ACCEPTANCE, not `go vet` (a nonblocking diagnostic that
+    can false-positive and must stay diagnostic-only).
 
-11. **Foundations before floors — the meta-lesson under all the others.** Do not build features or proof
-    families above an unsettled root; when many leaf proofs/guards compensate for one missing abstraction, the
-    root is missing — replace it and delete the leaves. Trusted is not proven; stable output is not
-    correctness; a printer's own inverse is not a Go-semantics theorem. Cut representable scope before
-    weakening any proof.
+11. **Foundations before feature breadth.** Do not build features or proof families above an unsettled root;
+    when many leaf proofs/guards compensate for one missing abstraction, the root is missing — replace it and
+    delete the leaves. Trusted is not proven; stable output is not correctness; a printer's own inverse is not
+    a Go-semantics theorem. Cut representable scope before weakening any proof.
 
-12. **Generated Go can be TRACKED safely — as a derived artifact regenerated and compared, never as source.**
-    The canonical generated module (root `go.mod` + recursive `.go`) is committed so the example builds/runs
-    without Rocq/Docker, BUT the `.v`/proof sources stay authoritative: one pristine content-addressed Buildx
-    `generated-module` layer is the output authority (built from generation inputs, never from the committed
-    bytes, never a mutable cache mount), and the pre-commit hook exports the Git INDEX and verifies the STAGED
-    tree byte-exact against it (never the unstaged working tree, never auto-staging). ⚠ A staged-tree verifier
-    is only STAGED-AUTHORITATIVE when the gate IMPLEMENTATIONS themselves come from the staged export — running
-    the working-tree copy of a gate/script against staged inputs lets a staged bad gate hide behind a safe
-    working-tree one. ⚠ Pre-commit is a PROTOTYPE boundary — `--no-verify` bypasses it; the mandatory
-    server-side PR CI comes later, and saying so is part of the honest guarantee. ⚠ Do NOT keep both a
-    no-tracked-Go seal and the tracked-output model.
+12. **Generated Go may be TRACKED only as a derived artifact checked against the certified output.** The
+    canonical module (root `go.mod` + recursive `.go`) is committed so the example builds without Rocq/Docker,
+    but the `.v` sources stay authoritative: one pristine content-addressed Buildx `generated-module` layer is
+    the output authority (built from generation inputs, never the committed bytes, never a mutable cache
+    mount), and the pre-commit hook verifies the STAGED tree byte-exact against it using gate implementations
+    that ALSO come from the staged export (a working-tree gate run over staged inputs lets a staged bad gate
+    hide). Pre-commit is a PROTOTYPE boundary — `--no-verify` bypasses it; the mandatory server-side PR CI
+    comes later, and saying so is part of the honest guarantee.
 
-13. **A raw literal is an UNTYPED constant; a type system is EVIDENCE over the one AST, never a `TypedIR`.**
-    The tempting shortcut is to bake a type into the literal (`EInt : … TInt`) or to build a parallel typed
-    tree the "checked" program flows through. Both are wrong. Go's own model: a literal denotes an exact
-    UNTYPED constant (arbitrary precision, no width), and only a USE CONTEXT chooses a default type and checks
-    representability — so `const_value` stays exact (no range check), and defaulting/`ConstRepresentable` live
-    in the resolution judgment. `GoTypes` is one authority whose `ResolveExpr`/`ProgramTyped` are relations
-    over the SAME raw `GoAST`; there is NO typed AST, NO copied "resolved expression," NO second numeric-width
-    or type authority, and NO placeholder/`unknown`/`opaque`/`raw` type admitted ahead of the syntax that
-    needs it (the live types `TBool`/`TInt`/`TString` each landed TOGETHER with their syntax, value, and
-    rendering — `TString` with `EString` + `CString` + `VString` + the canonical literal encoder/decoder). The one runtime type universe is the same `GoType` (`value_type`), and evaluation is that
-    one constant interpretation mapped to a value — never a second evaluator. (Git history holds a deleted
-    `CoreType.v` and much else: mine it for ideas, but a type constructor re-enters ONLY with the syntax and
-    complete semantic obligations that need it — history is a quarry, not a branch to resurrect wholesale.)
-    ⚠ STRINGS specifically: a string VALUE is an EXACT BYTE SEQUENCE (`string`/`ascii`), and its source
-    SPELLING is a SEPARATE PROVED ENCODING — ONE canonical interpreted literal (never a choice of equivalent
-    spellings) with an INDEPENDENT decoder proving `decode_string_literal (render_string_literal s) = Some s`
-    for every byte string. The decoder is a DENOTATION tool, NOT a general Go parser (real-Go parse acceptance
-    is external adequacy, exercised by the differential + boundary-byte e2e). No UTF-8/code-point/rune
-    abstraction is claimed, and no string operations (concat/index/slice/len/conversion) exist yet — bytes in,
-    canonical ASCII literal out (bytes ≥ 128 only via `\xhh`).
+13. **String value is BYTES; source spelling is a separate canonical proved encoding.** A string value is an
+    exact byte sequence (`string`/`ascii`), not UTF-8 / code-points / runes. Fido emits ONE canonical source
+    spelling per byte sequence; its INDEPENDENT certified decoder assigns exact byte meaning to that spelling
+    and MAY ALSO accept semantically equivalent noncanonical spellings. The proved property is the byte round
+    trip `decode_string_literal (render_string_literal s) = Some s`; NO source-spelling inverse
+    `render (decode source) = source` is claimed, and the decoder is not narrowed to make that prose easier.
+    The decoder is a DENOTATION tool, not a general Go parser — real-Go parse acceptance is external adequacy
+    (the differential + boundary-byte e2e). No string operations exist yet: bytes in, canonical ASCII literal
+    out (bytes ≥ 128 only via `\xhh`).
