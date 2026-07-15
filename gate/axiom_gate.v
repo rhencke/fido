@@ -247,6 +247,8 @@ Print Assumptions GoRender.decode_render_decimal.
 Print Assumptions GoRender.render_float_denotes.
 Print Assumptions GoRender.render_float_untyped_denotes.
 Print Assumptions GoRender.render_conv_f32_typed_denotes.
+Print Assumptions GoRender.render_float_untyped_tenth.
+Print Assumptions GoRender.render_conv_f64_underflow_zero.
 Print Assumptions GoRender.integer_keyword_ascii.
 Print Assumptions GoRender.render_int8_127.
 Print Assumptions GoRender.render_nested.

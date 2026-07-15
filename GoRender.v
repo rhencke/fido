@@ -1125,3 +1125,15 @@ Example render_conv_f32_typed_denotes :
                            (TypedConst (TFloat F32) (CFloat (fc_of_Z 2305843284091600896))).
 Proof. apply render_const_info_denotes; reflexivity. Qed.
 
+(* §29 required examples: bare 1.0e-1 denotes the UNTYPED exact rational 1/10; a float64 conversion of a tiny
+   negative value denotes a TYPED float64 exact (unsigned) zero — no intermediate status, exact via the ONE
+   round_float_const authority. *)
+Example render_float_untyped_tenth :
+  RenderedConstInfoDenotes (render_expr (EFloat (mkDecimal 1 (-1) eq_refl)))
+                           (UntypedConst (CFloat (mkFC 1 10))).
+Proof. apply render_const_info_denotes; reflexivity. Qed.
+Example render_conv_f64_underflow_zero :
+  RenderedConstInfoDenotes (render_expr (EFloatConvert F64 (EFloat (mkDecimal (-1) (-330) eq_refl))))
+                           (TypedConst (TFloat F64) (CFloat fc_zero)).
+Proof. apply render_const_info_denotes; vm_compute; reflexivity. Qed.
+
