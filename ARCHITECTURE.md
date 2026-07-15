@@ -56,22 +56,28 @@ Do not implement an alternative autonomously.
                  permanent type universe is EXACTLY { TBool, the integer family TInteger over the ten-member IntegerType, TFloat FloatType, TString }.  A raw literal denotes an EXACT
                  UNTYPED constant (GoConst := CBool bool | CInt Z | CFloat FloatConst | CString string — ints
                  arbitrary-precision, a bare float literal (EFloat) an EXACT canonical rational, strings exact
-                 byte sequences) via the PARTIAL const_value (option GoConst): a bare literal is exact (a bare
-                 float UNROUNDED) and a conversion routes through convert_const;
-                 convert_const : GoType -> GoConst -> option GoConst is the ONE conversion authority (int←int
-                 value-preserving + range-checked; int←float exact-integral + in-range; float←int/float rounds
-                 ONCE at the destination; bool/string reject).  An EXPLICIT integer conversion (EIntConvert it e)
+                 byte sequences).  const_info analyzes an expression's constant STATUS (ConstInfo := CIUntyped
+                 GoConst | CITyped t (TypedConst t)), where TypedConst : GoType -> Type is an INTRINSIC
+                 dependently-typed family (TCBool / TCInteger it z <proof z fits it> / TCFloat ft
+                 (TypedFloatConst ft) / TCString) — a mismatched or out-of-range typed constant is
+                 UNREPRESENTABLE, never merely rejected.  The exact value of an expression is const_info_exact of
+                 const_info (there is NO separate const_value path).  convert_const : forall target, ConstInfo ->
+                 option (TypedConst target) is the ONE conversion authority (int←int value-preserving +
+                 range-checked; int←float exact-integral + in-range; float←int/float rounds ONCE at the
+                 destination — a same-format float returns the existing TypedFloatConst unchanged; bool/string
+                 reject).  An EXPLICIT integer conversion (EIntConvert it e)
                  routes through it, yielding a value-preserving TYPED constant of the destination IntegerType,
                  repr-checked at EVERY nesting layer; a float conversion (EFloatConvert ft e) yields a TYPED
                  constant ROUNDED ONCE at the destination FloatType (F32 rounds DIRECTLY at binary32, never via
-                 F64 — the double-round scar) (const_info — the untyped/typed constant-status analyzer).  A USE
-                 CONTEXT (today UsePrintlnArg) resolves an UNTYPED constant by a DEFAULT TYPE (const_default_type
-                 — an int defaults to TInteger IInt, a float to TFloat F64) and CHECKS
-                 REPRESENTABILITY (ConstRepresentable — the PER-TYPE inclusive-range decision over the Ints
-                 authority), while a TYPED constant keeps its own type + value and is TRUSTED (already validated
-                 by convert_const, not re-defaulted).  ResolveExpr
+                 F64 — the double-round scar).  resolve_const_info : ConstInfo -> option ResolvedConst is the USE
+                 CONTEXT (today UsePrintlnArg) resolution: an UNTYPED constant DEFAULTS via default_const (an int
+                 to TInteger IInt, a float to TFloat F64), a TYPED constant PACKS unchanged (its validity is
+                 INTRINSIC — not re-defaulted, not re-checked).  ConstRepresentable is DERIVED from successful
+                 typing (exists tc, type_untyped_const_at t c = Some tc — the ONE typing/defaulting construction,
+                 no second integer-range or float-overflow checker).  ResolveExpr
                  u e t (reflected by resolve_expr, sound + complete + deterministic) is the resolved typing of
-                 one expression; StmtTyped/DeclTyped/FileTyped/ProgramTyped lift it to the whole program (the
+                 one expression; resolve_expr_const exposes its ResolvedConst witness;
+                 StmtTyped/DeclTyped/FileTyped/ProgramTyped lift it to the whole program (the
                  EMPTY file map is typed vacuously).  There is NO placeholder/unknown/raw type, NO second
                  numeric-width authority, and NO typed AST.
 
@@ -169,7 +175,7 @@ AST->output->AST round-trip authority, no copied compiled AST, no handwritten OC
 | **FMap** | key-generic finite map; THE invariant `fm_keys_nodup`; `dup_key_unrepresentable`; deterministic `fm_MapsTo_fun` (distinct, weaker); `fm_Equal` (semantic eq ≠ record `=`) | present `fm_MapsTo_fun` as the uniqueness invariant; impose order; list+dedup |
 | **ModuleSpec** | intrinsic module facts: narrow `ModulePath` (decidable eq, canonical render) + singleton `GoVersion` (Go1_23 → "1.23") | be a `TargetConfig`; carry GOOS/GOARCH/ABI/scheduler/point-release; admit an invalid module path (unrepresentable) |
 | **GoAST** | `ModuleSpec` + a possibly-EMPTY program map + raw `GoDecl` (a `func main` form) over `EBool`/`EInt`/`ENeg`/`EString`/`EIntConvert` (explicit integer conversion to an intrinsic `IntegerType`)/`EFloat` (a bare float literal carrying an INTRINSIC bounded-canonical finite decimal `coeff·10^exp`, `\|coeff\|<10^40`, `\|exp\|≤4096`)/`EFloatConvert` (explicit conversion to a `FloatType`); key-uniqueness intrinsic | carry a package clause / entry flag / imports / a raw path in the file; a nonemptiness restriction; a second tree; a type on a raw literal; a raw type-name string in a conversion; arithmetic / complex / imaginary / NaN / Inf syntax |
-| **GoTypes** | the ONE type authority — EVIDENCE over the raw AST: `GoType` = `TBool` \| `TInteger IntegerType` \| `TFloat FloatType` \| `TString`; exact untyped `GoConst` (bool / int / float / byte-string; a `CFloat` is an exact CANONICAL rational — numerator `Z` / positive coprime denominator, canonical zero, decidable eq, NOT a float/spec_float/decimal-string/rounded value); the ONE conversion authority `convert_const : GoType -> GoConst -> option GoConst`; PARTIAL `const_value` (int conversions value-preserving, float conversions ROUND ONCE at the destination — F32 direct at binary32); the `ConstInfo` analyzer (untyped vs typed constants, repr-checked at every nesting layer); one default-type (int → `TInteger IInt`, float → `TFloat F64`); the per-type inclusive-range representability decision over `Ints`; reflected `ResolveExpr` (untyped checked for representability, typed constants trusted + keep their type + value); `Stmt/Decl/File/ProgramTyped` | a typed AST / `TypedIR` / copied "resolved expression"; a placeholder/unknown/raw/opaque type ahead of its syntax; a second numeric-width or conversion authority; a `GoTypeTag`; a float stored as a rounded/spec_float/decimal-string constant; typing a literal outside a use context |
+| **GoTypes** | the ONE type authority — EVIDENCE over the raw AST: `GoType` = `TBool` \| `TInteger IntegerType` \| `TFloat FloatType` \| `TString`; exact untyped `GoConst` (bool / int / float / byte-string; a `CFloat` is an exact CANONICAL rational — numerator `Z` / positive coprime denominator, canonical zero, decidable eq, NOT a float/spec_float/decimal-string/rounded value); the intrinsic dependently-typed `TypedConst : GoType -> Type` (a mismatched/out-of-range typed constant UNREPRESENTABLE); the ONE conversion authority `convert_const : forall target, ConstInfo -> option (TypedConst target)` (int conversions value-preserving, float conversions ROUND ONCE at the destination — F32 direct at binary32, a same-format float unchanged); the `ConstInfo` analyzer (`CIUntyped`/`CITyped`, repr-checked at every nesting layer) with `const_info_exact` the exact value (no separate `const_value`); `resolve_const_info` (untyped DEFAULTS via `default_const` int → `TInteger IInt`, float → `TFloat F64`; typed PACKS unchanged, validity INTRINSIC); `ConstRepresentable` DERIVED from successful typing (`type_untyped_const_at`, no second range/overflow checker); reflected `ResolveExpr` with its `ResolvedConst` witness (`resolve_expr_const`); `Stmt/Decl/File/ProgramTyped` | a typed AST / `TypedIR` / copied "resolved expression"; a placeholder/unknown/raw/opaque type ahead of its syntax; a second numeric-width or conversion authority; a `GoTypeTag`; a float stored as a rounded/spec_float/decimal-string constant; typing a literal outside a use context |
 | **GoCompile** | whole-program directory→package + exactly-one-main + whole-program typing (`ProgramTyped` via GoTypes); `go_compile` sound/complete; `CompilationFacts` exposing typing by canonical projection | be a boolean; accept per-file partially; hide package grouping / entry status in a raw node; store a typed copy of the program |
 | **GoSafe** | real `GoValue` (`VBool`/`VInteger IntegerType Z`/`VFloat ft (FloatValue ft)`/`VString`; a `FloatValue` is a PROOF-CARRYING canonical Stdlib `SpecFloat.spec_float`, Flocq unused); `value_type` over the SAME `GoType`; `ValueWF` range invariant (`ValueWF (VFloat …) := True` — canonicality in the type; constant eval only finite/+0); PARTIAL `eval_expr` derived from `const_info`; resolved-eval well-formedness + type preservation; abstract `eval_file`; `SafeProgram` (0 = -0); honest `GoSafe := True` | observe spelling as value; a separate runtime type universe; a per-width runtime record family / `GoTypeTag`; keep an unused panic placeholder; circularly reference compilation |
 | **GoRender** | render decls + the derived package clause; render go.mod from the ModuleSpec; an integer conversion as `<integer_keyword it>(<inner>)` (the ten exact Go keywords) and a float conversion as `float32(…)`/`float64(…)`; ONE canonical float decimal spelling (`0.0`; else `<signed-coeff>.0e<±exp>`) with an INDEPENDENT decoder proving `decode(render d) = Some d`; header exact first line (go.mod and .go); `render_const_info_denotes` / `render_resolved_expr_denotes` (spelling ↔ ConstInfo ↔ value/resolved type; integer-conversion case via `convert_const`, now with float cases; all via the ONE `RenderedConstInfoDenotes`) | tokenize/lex/parse/round-trip; deduce packages/entry; invoke a formatter; add require/replace/toolchain to go.mod |
@@ -353,8 +359,8 @@ through any internal/opaque lemma, an unused Fido axiom, and an unreferenced ass
 with a module-coverage gate and adversarial self-tests A-E): the Ints boundary values; the Floats single-round `convert_const` boundary (F32 direct at binary32); ModulePath decidable eq + representable/
 unrepresentable module-path fixtures; GoVersion's exact "1.23" rendering; FilePath decidable eq +
 representable/unrepresentable path fixtures; FMap's key-NoDup invariant + duplicate-key unconstructibility +
-deterministic lookup; GoTypes — the one type authority: zero-sign constant equality, default-type
-exactness, representability reflection, expression resolution sound + complete + deterministic, statement +
+deterministic lookup; GoTypes — the one type authority: zero-sign constant equality, `default_const`
+resolution exactness, representability reflection, expression resolution sound + complete + deterministic, statement +
 program typing reflection, int max/min accepted, overflow/underflow rejected; GoCompile claim (A) —
 `prog_ok_iff`, `go_compile` sound + complete, rejection ⇒ no CompilableProgram, the compiled evidence
 exposes `ProgramTyped`, the empty program accepted; GoSafe's zero-sign-agnostic fact + resolved-type

@@ -16,8 +16,9 @@
     float conversion [EFloatConvert ft e] ROUNDS the value ONCE at the destination format [ft].  In a USE
     CONTEXT that requires a typed value, an UNTYPED constant is given a DEFAULT TYPE (int constants default to
     [TInteger IInt], floats to [TFloat F64]) and REPRESENTABILITY is checked, while a TYPED constant RETAINS
-    its type and value (it is NOT defaulted again, and — already validated by [convert_const] — is TRUSTED,
-    not re-checked).  This is the single authority every later feature (assignments, variables, arguments,
+    its type and value (it is NOT defaulted again; its validity is INTRINSIC — carried by the dependently-typed
+    [TypedConst] constructor's own proof — so there is nothing to re-check).  This is the single authority
+    every later feature (assignments, variables, arguments,
     arithmetic, more numeric types) builds on.
     ============================================================================ *)
 From Stdlib Require Import NArith ZArith List Bool String Ascii Lia.

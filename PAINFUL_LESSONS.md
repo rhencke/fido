@@ -67,9 +67,11 @@ stop. When an entry stops being a live temptation, delete it.
    numeric-width or type authority beside the one.
 
 9. **Untyped constants, typed constants, and runtime values are DISTINCT.** A raw literal denotes an exact
-   UNTYPED constant (arbitrary-precision `Z`, no width), so `const_value` stays exact — no range check, no
-   wrap. A use context or an explicit conversion yields a TYPED constant that retains its exact value AND its
-   type and does not default again. A runtime value carries the same `GoType`. Defaulting/representability
+   UNTYPED constant (arbitrary-precision `Z`, no width) — its exact value is just that `GoConst`
+   (`const_info_exact` of `const_info`), no range check, no wrap. A use context or an explicit conversion yields
+   a TYPED constant (the intrinsic dependently-typed `TypedConst` — a mismatched/out-of-range one
+   UNREPRESENTABLE) that retains its exact value AND its type and does not default again. A runtime value
+   carries the same `GoType`. Defaulting/representability
    live in the resolution judgment, never baked into the literal (`EInt : … TInteger IInt` is wrong) and never a
    parallel typed tree.
 

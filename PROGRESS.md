@@ -44,12 +44,16 @@ is rejected IN Rocq before any bytes — **zero expected Go build failures, ever
   by its num/den `fc_num_den_eq` and reflected `fc_eqb` IS Leibniz equality `fc_eqb_eq`), canonical zero,
   decidable eq; `round_float_sf` = `SFdiv prec emax` — F32 rounds DIRECTLY at binary32,
   NEVER through F64 (the double-rounding scar: `float32(2^61+2^37+1)` = 2^61+2^38 ≠ `float32(float64(…))` =
-  2^61, both pinned); `round_float_const`/`FloatConstRepresentable` (round once at destination — reject
-  overflow, underflow → +0, never NaN); the intrinsic bounded-canonical `DecimalFloat` raw literal
-  (`coeff`·10^`exp`, |coeff|<10^40, |exp|≤4096 from pinned-Go-1.23 experiments) + `decimal_value`; the
-  proof-carrying canonical runtime `FloatValue ft` (a `spec_float` in the image of the format normalizer —
-  future-compatible with finite/±0/inf/NaN) whose constant construction strips a zero's sign so a constant
-  NEVER evaluates to negative zero (`float_value_of_const_no_neg_zero`, incl. the bare-negative-underflow path).
+  2^61, both pinned); `round_typed_float` is the ONE float-constant construction authority (rounds once via
+  `round_float_sf`; rejects overflow/NaN; underflow and signed zero normalize to +0), packaging a
+  `TypedFloatConst ft` (`tfc_exact` exact rounded rational + `tfc_runtime` canonical `FloatValue` + a coherence
+  proof they denote the same value + a +0-or-finite shape proof); `round_float_const`/`FloatConstRepresentable`
+  are its exact-rational projections (`option_map tfc_exact`, single `round_float_sf` construction site); the
+  intrinsic bounded-canonical `DecimalFloat` raw literal (`coeff`·10^`exp`, |coeff|<10^40, |exp|≤4096 from
+  pinned-Go-1.23 experiments) + `decimal_value`; the proof-carrying canonical runtime `FloatValue ft` (a
+  `spec_float` in the image of the format normalizer — future-compatible with finite/±0/inf/NaN) is built ONLY
+  inside `round_typed_float` and reached only as `tfc_runtime`, so a constant NEVER evaluates to negative zero
+  (`tfc_runtime_not_neg_zero`, incl. the bare-negative-underflow path).
 - **`ModulePath`** — intrinsic narrow canonical module path; decidable eq (`mp_eqb_eq`); the FIRST element
   is dotted (no stdlib-colliding dotless prefix), there is no `/vN` version-suffix tail and no `gopkg.in/`
   path (Go 1.23's two semantic-import-versioning reject classes — excluded, not admitted-then-narrowed);
@@ -63,18 +67,21 @@ is rejected IN Rocq before any bytes — **zero expected Go build failures, ever
   TYPE metadata in raw. `prog_nonempty`/`MainFile` deleted.
 - **`GoTypes`** — the ONE type authority, EVIDENCE over the raw AST (no typed AST): `GoType` = {`TBool`,
   `TInteger IntegerType` (ten-member family), `TFloat FloatType` (F32/F64), `TString`}; exact untyped
-  `GoConst` (`CBool`/`CInt Z`/`CFloat FloatConst`/`CString` bytes). The ONE target-directed conversion
-  authority `convert_const : GoType -> GoConst -> option GoConst` (int←int value-preserving+range-checked;
-  int←float exact-integral+in-range; float←int/float rounds ONCE at the destination; bool/string reject)
-  drives both `EIntConvert` and `EFloatConvert`. `const_value` is now PARTIAL (`option GoConst`): a bare
-  literal is exact (`EInt 0` = `ENeg 0`; a bare float is its exact rational, unrounded), a conversion routes
-  through `convert_const` (integer conversions preserve the value, FLOAT conversions round once). The
-  `ConstInfo` analyzer (untyped vs typed constants); one `const_default_type` (int→`TInteger IInt`,
-  float→`TFloat F64`); the representability decision `ConstRepresentable`/`const_representableb`
-  (`const_representableb_iff`, over the `Ints`/`Floats` authorities); reflected `ResolveExpr`/`resolve_expr`
-  (sound + complete + deterministic) — representability is checked for an UNTYPED (defaulted) constant and
-  TRUSTED for a TYPED constant (already validated by `convert_const`; a `ci_ok` premise, not a redundant
-  re-round); `StmtTyped`/`DeclTyped`/`FileTyped`/`ProgramTyped` + `program_typedb` (exact reflection; the
+  `GoConst` (`CBool`/`CInt Z`/`CFloat FloatConst`/`CString` bytes); the intrinsic dependently-typed
+  `TypedConst : GoType -> Type` (`TCBool`/`TCInteger it z <proof z fits it>`/`TCFloat ft (TypedFloatConst ft)`/
+  `TCString` — a mismatched/out-of-range typed constant UNREPRESENTABLE). The ONE target-directed conversion
+  authority `convert_const : forall target, ConstInfo -> option (TypedConst target)` (int←int
+  value-preserving+range-checked; int←float exact-integral+in-range; float←int/float rounds ONCE at the
+  destination — a same-format float returns its `TypedFloatConst` unchanged; bool/string reject) drives both
+  `EIntConvert` and `EFloatConvert`. The `ConstInfo` analyzer (`CIUntyped GoConst` | `CITyped t (TypedConst t)`;
+  `EInt 0` = `ENeg 0`); the exact value of an expression is `const_info_exact` of `const_info` (no separate
+  `const_value`); `resolve_const_info : ConstInfo -> option ResolvedConst` resolves a use context — an untyped
+  constant DEFAULTS via `default_const` (int→`TInteger IInt`, float→`TFloat F64`), a typed constant PACKS
+  unchanged (validity INTRINSIC, no `ci_ok`, no re-round); the representability decision
+  `ConstRepresentable`/`const_representableb` (`const_representableb_iff`) DERIVED from successful typing
+  (`type_untyped_const_at`, the ONE typing/defaulting construction over `Ints`/`Floats`, no second checker);
+  reflected `ResolveExpr`/`resolve_expr` (sound + complete + deterministic) with its `ResolvedConst` witness
+  (`resolve_expr_const`); `StmtTyped`/`DeclTyped`/`FileTyped`/`ProgramTyped` + `program_typedb` (exact reflection; the
   empty file/program typed vacuously). Fixtures: int + float default/convert resolve; every int type's convert
   min/max accept + ±1 reject; transitive nested conversions; ★the direct-vs-nested double-round scar analyzes
   to DIFFERENT typed constants; float→int (int(3.0) accept / int(3.5) reject); type identity (int≠int64,
@@ -92,8 +99,10 @@ is rejected IN Rocq before any bytes — **zero expected Go build failures, ever
 - **`GoSafe`** — real values (`GoValue` = `VBool`/`VInteger IntegerType Z`/`VFloat (forall ft, FloatValue ft)`
   /`VString`) carrying the SAME `GoType` (`value_type`) + the `ValueWF` range invariant (`ValueWF (VFloat …)`
   = True — a float value is canonical BY CONSTRUCTION, the invariant living in `FloatValue`); PARTIAL
-  `eval_expr` DERIVED from `const_info` (no second evaluator; `const_to_value` rounds a float constant ONCE
-  into a canonical `FloatValue`, and trusts a typed constant), `eval_zero_sign_agnostic`, an integer
+  `eval_expr` (`const_info` → `resolve_const_info` → `typed_const_to_value`, which PROJECTS the stored runtime —
+  the float branch returns `tfc_runtime`, rounded ONCE at conversion and never re-rounded; no second evaluator
+  and no total runtime→constant fallback — the honest `ValueDenotesConst` relation gives a value's exact
+  constant, and a NaN/inf/−0 value has none), `eval_zero_sign_agnostic`, an integer
   conversion carries exactly its `convert_const` value, and resolved-eval well-formedness + type preservation
   (`eval_expr_resolved`); constant evaluation produces only finite/+0 (never -0/inf/NaN); `eval_file`;
   `GoSafe := True` (honest permanent `SafeProgram` boundary).

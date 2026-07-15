@@ -34,8 +34,8 @@ conversions ROUND once — representability rechecked at every nesting layer). T
 `TFloat` over `FloatType`, and `TString`) resolves it in a use
 context (an untyped int defaults to `TInteger IInt`, a bare float to `TFloat F64`; a typed constant keeps its
 type + value and is not re-defaulted; representability is CHECKED for an untyped constant — the per-type
-inclusive-range / float decision over `Ints`/`Floats` — and TRUSTED for a typed one already validated by
-`convert_const`; every string constant is representable as `TString`) — a literal is NOT a typed value, and
+inclusive-range / float decision over `Ints`/`Floats` — and INTRINSIC for a typed one (validity carried by
+its own dependently-typed constant, not re-checked); every string constant is representable as `TString`) — a literal is NOT a typed value, and
 there is no typed AST. The `ModuleSpec` is an intrinsic narrow `ModulePath` + a
 singleton `GoVersion` (Go1_23), NOT a `TargetConfig`; the `go.mod` is RENDERED in Rocq. The EMPTY file map
 is a valid module-only program. A `FilePath` is a narrow canonical relative path (lowercase components + a
@@ -138,8 +138,9 @@ algorithm, report an architectural conflict and stop. Do not implement an altern
    `spec_float` at its format, `VString` exact bytes) — `EInt 0` and `ENeg 0` evaluate equal, and every
    runtime integer value is range-well-formed (`ValueWF`; a `VFloat`'s canonicality lives in the `FloatValue`
    type, so `ValueWF` there is `True`); runtime values carry the SAME `GoType` (`value_type`). Evaluation is
-   DERIVED from the one constant-status analysis (`const_info`) and is PARTIAL (a compiler-invalid conversion
-   has no value — never a wrap; a float constant ROUNDS once into a canonical `FloatValue`, yielding only
+   DERIVED from the one constant-status analysis (`const_info` → `resolve_const_info` → `typed_const_to_value`)
+   and is PARTIAL (a compiler-invalid conversion has no value — never a wrap; a typed float PROJECTS its stored
+   canonical `FloatValue` `tfc_runtime`, rounded ONCE at conversion and never re-rounded — only
    finite/+0), so a RESOLVED expression evaluates to a
    well-formed value of its resolved type (`eval_expr_resolved`); `render_const_info_denotes` /
    `render_resolved_expr_denotes` (via the ONE `RenderedConstInfoDenotes`) tie the rendered spelling to the
@@ -181,21 +182,25 @@ prog_files : fmap FilePath GoFileAST }` (the map MAY be empty); raw `GoDecl` (`D
 finite-decimal literal)/`EFloatConvert` (float conversion); no package clause / entry / imports / TYPES in
 raw. · `GoTypes` — the ONE type
 authority (EVIDENCE over the raw AST): `GoType` = `TBool` | `TInteger IntegerType` | `TFloat FloatType` |
-`TString`, exact untyped `GoConst` (`CBool`/`CInt Z`/`CFloat FloatConst`/`CString`), the ONE target-directed
-conversion authority `convert_const` (integer←integer value-preserving + range-checked, integer←float exact
-integral in-range, float←int/float ROUND once, bool/string source-or-target reject) + PARTIAL `const_value`
-(a bare literal its exact value, a conversion via `convert_const` — integer preserves, FLOAT rounds) + the
-`ConstInfo` analyzer (untyped vs typed constants) + `const_default_type` (a bare float defaults to
-`TFloat F64`) + `ConstRepresentable` (the per-type inclusive-range / float-representability decision; every
-string representable as `TString`), reflected `ResolveExpr` (untyped int defaults to `TInteger IInt`, bare
-float to `TFloat F64`; a typed constant keeps its type + value, its representability TRUSTED),
+`TString`, exact untyped `GoConst` (`CBool`/`CInt Z`/`CFloat FloatConst`/`CString`), the intrinsic
+dependently-typed `TypedConst : GoType -> Type` (`TCBool`/`TCInteger it z <fits>`/`TCFloat ft (TypedFloatConst
+ft)`/`TCString` — a mismatched/out-of-range typed constant UNREPRESENTABLE), the ONE target-directed
+conversion authority `convert_const : forall target, ConstInfo -> option (TypedConst target)` (integer←integer
+value-preserving + range-checked, integer←float exact integral in-range, float←int/float ROUND once — a
+same-format float unchanged, bool/string source-or-target reject) + the `ConstInfo` analyzer
+(`CIUntyped`/`CITyped`) with `const_info_exact` the exact value (no separate `const_value`) +
+`resolve_const_info` (an untyped constant DEFAULTS via `default_const` — int → `TInteger IInt`, bare float →
+`TFloat F64`; a typed constant PACKS unchanged into a `ResolvedConst`, validity INTRINSIC) + `ConstRepresentable`
+DERIVED from successful typing (`type_untyped_const_at`, no second range/overflow checker; every string
+representable as `TString`), reflected `ResolveExpr` with its `ResolvedConst` witness (`resolve_expr_const`),
 `Stmt/Decl/File/ProgramTyped` (empty map typed vacuously). · `GoCompile` —
 whole-program directory→package + exactly-one-main + whole-program typing (`ProgramTyped` via GoTypes; empty
 program accepted); `go_compile` sound/complete (`prog_ok_iff`); honest `ErrTyping`; `CompilationFacts`
 exposing typing by canonical projection. · `GoSafe` — real `GoValue` (`VBool`/`VInteger IntegerType Z`/
 `VFloat ft (FloatValue ft)`/`VString`), `value_type` over the same `GoType`, `ValueWF` range invariant (a
-float's canonicality lives in `FloatValue`), PARTIAL `eval_expr` derived from `const_info` (a float rounds
-ONCE into a canonical `FloatValue`, yielding only finite/+0), resolved-eval well-formedness + type
+float's canonicality lives in `FloatValue`), PARTIAL `eval_expr` (`const_info` → `resolve_const_info` →
+`typed_const_to_value`, which PROJECTS the stored `tfc_runtime` — rounded ONCE at conversion, never
+re-rounded — only finite/+0), resolved-eval well-formedness + type
 preservation, `eval_file`, `SafeProgram`. · `GoRender` —
 render decls + derived
 package clause + the go.mod from the `ModuleSpec`; strings via ONE canonical interpreted literal
