@@ -32,10 +32,10 @@ Open Scope Z_scope.
 (** ---- static admissibility is TYPING (GoTypes, the one type authority) ----
 
     Per-file/decl/statement/expression admissibility is [GoTypes.ProgramTyped]/[program_typedb] over the
-    SAME raw AST: every [println] argument must RESOLVE under [UsePrintlnArg] to a [GoType] (the current
-    fragment's only failure is an integer literal outside the 64-bit range — bools always resolve).  There
-    is no separate GoCompile static-admissibility family; the deleted [ExprOk]/[StmtOk]/[DeclOk]/[FileOk]
-    are subsumed by the type judgment. *)
+    SAME raw AST: every [println] argument must RESOLVE under [UsePrintlnArg] to a [GoType] (a typing failure
+    is a constant fitting no integer type, a non-integer conversion operand, or an invalid nested
+    [EIntConvert]; bools and strings always resolve).  There is no separate GoCompile static-admissibility
+    family; the deleted [ExprOk]/[StmtOk]/[DeclOk]/[FileOk] are subsumed by the type judgment. *)
 
 (** ---- main-declaration counting (entry-point status is a compilation result) ---- *)
 

@@ -18,7 +18,7 @@ canonical relative path (lowercase dir components + a `.go` basename); `go.mod` 
 a FilePath. The EMPTY file map is a valid module-only program. Package clauses, package names, entry-point
 status, and TYPES are compilation/typing RESULTS, not raw. Anything else — other decls, calls, params,
 imports, package clauses in raw syntax, strange paths, invalid module paths — is UNREPRESENTABLE. A
-compiler-invalid candidate (a literal outside the 64-bit range, zero/duplicate main in a package) is rejected
+compiler-invalid candidate (a constant fitting no integer type, an invalid integer conversion, zero/duplicate main in a package) is rejected
 IN Rocq before any bytes — **zero expected Go build failures, ever.**
 
 ## GREEN — proved axiom-free in the pinned container (every gated `Print Assumptions` surface)
@@ -45,7 +45,8 @@ IN Rocq before any bytes — **zero expected Go build failures, ever.**
   `TInteger IntegerType` (ten-member family), `TString`}; exact untyped `GoConst` (`CBool`/`CInt Z`/`CString` bytes) via one `const_value` (`EInt 0` = `ENeg 0`; a conversion preserves the exact `Z`) + the `ConstInfo` analyzer (untyped vs typed constants, repr-checked at every nesting layer); one
   `const_default_type`; the per-type inclusive-range decision `ConstRepresentable`/`const_representableb` over the
   `Ints` integer-family authority (`const_representableb_iff`); reflected `ResolveExpr`/`resolve_expr` (sound + complete +
-  deterministic + resolved-type-is-default); `StmtTyped`/`DeclTyped`/`FileTyped`/`ProgramTyped` +
+  deterministic; a resolved UNTYPED constant takes its default type while a TYPED conversion keeps its own
+  destination type — `resolve_expr_info_type`); `StmtTyped`/`DeclTyped`/`FileTyped`/`ProgramTyped` +
   `program_typedb` (exact reflection; the empty file/program typed vacuously). Fixtures: bool/int/max/min resolve; every type's convert min/max accept + ±1 reject; transitive nested
   conversions (uint8(int(300)) reject, int8(int16(127/128))); type identity (int≠int64); mixed + empty
   println typed; overflow/underflow/cross-type/non-integer-conversion rejected. Replaced the old
