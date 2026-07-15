@@ -456,53 +456,54 @@ Proof.
     cbn [sf_to_FloatConst float_constant_runtimeb] in *; try reflexivity; discriminate.
 Qed.
 
-(** decide the runtime read-back once, CARRYING the proof — a [sumor] value (not a dependent [option] match),
-    so downstream reasoning destructs a plain value and never re-abstracts a convoy motive. *)
-Definition float_repr_dec (ft : FloatType) (q : FloatConst) :
-  {r : FloatConst | sf_to_FloatConst (strip_neg_zero (round_float_sf ft q)) = Some r}
-  + {sf_to_FloatConst (strip_neg_zero (round_float_sf ft q)) = None} :=
-  match sf_to_FloatConst (strip_neg_zero (round_float_sf ft q)) as o
-    return (sf_to_FloatConst (strip_neg_zero (round_float_sf ft q)) = o ->
-            {r : FloatConst | sf_to_FloatConst (strip_neg_zero (round_float_sf ft q)) = Some r}
-            + {sf_to_FloatConst (strip_neg_zero (round_float_sf ft q)) = None})
+(** decide an ALREADY-BOUND [spec_float]'s constant read-back once, CARRYING the proof — a [sumor] value
+    (not a dependent [option] match, and NOT a re-rounding: it consumes the bound value [v]), so downstream
+    reasoning destructs a plain value and never re-abstracts a convoy motive. *)
+Definition sf_repr_dec (v : spec_float) :
+  {r : FloatConst | sf_to_FloatConst v = Some r} + {sf_to_FloatConst v = None} :=
+  match sf_to_FloatConst v as o
+    return (sf_to_FloatConst v = o ->
+            {r : FloatConst | sf_to_FloatConst v = Some r} + {sf_to_FloatConst v = None})
   with
   | Some r => fun H => inleft (exist _ r H)
   | None   => fun H => inright H
   end eq_refl.
 
-(** the read-back decision agrees with [sf_to_FloatConst] — immediate from the carried proof. *)
-Lemma float_repr_dec_spec : forall ft q,
-  match float_repr_dec ft q with
-  | inleft (exist _ r _) => sf_to_FloatConst (strip_neg_zero (round_float_sf ft q)) = Some r
-  | inright _            => sf_to_FloatConst (strip_neg_zero (round_float_sf ft q)) = None
+(** package a typed float constant from ONE already-rounded canonical [spec_float] [v]: field A (the exact
+    rounded rational) is [v]'s constant read-back and field B (the runtime value) is [v] itself — BOTH
+    representations derive from the single bound [v], never a second rounding.  [round_float_sf] is NOT called
+    here; this is the sole [FloatValue]-from-a-constant construction. *)
+Definition tfc_from_canonical (ft : FloatType) (v : spec_float)
+    (Hc : FloatCanonical ft v)
+    (Hshape : forall r, sf_to_FloatConst v = Some r -> float_constant_runtimeb v = true)
+    : option (TypedFloatConst ft) :=
+  match sf_repr_dec v with
+  | inleft (exist _ r Hr) => Some (mkTFC r (mkFV v Hc) Hr (Hshape r Hr))
+  | inright _             => None
   end.
-Proof. intros ft q; destruct (float_repr_dec ft q) as [[r Hr]|Hn]; assumption. Qed.
 
-(** the ONE typed-float-constant construction authority (contract §6): round the exact rational ONCE at [ft],
-    normalize a zero result to +0, reject overflow (infinity) and NaN, and package the exact rounded rational,
-    the canonical runtime value (built INLINE here — the sole [FloatValue]-from-a-constant construction), and
-    their coherence — all from that single [round_float_sf]. *)
+(** the ONE typed-float-constant construction authority (contract §6): round the exact rational ONCE at [ft]
+    (the SINGLE [round_float_sf] call, sign-normalized to +0), bind that result, and derive BOTH the exact
+    rounded rational and the canonical runtime value from that one bound value via [tfc_from_canonical] —
+    overflow (infinity) and NaN read back as [None] and are rejected. *)
 Definition round_typed_float (ft : FloatType) (q : FloatConst) : option (TypedFloatConst ft) :=
-  match float_repr_dec ft q with
-  | inleft (exist _ r Hr) =>
-      Some (mkTFC r (mkFV (strip_neg_zero (round_float_sf ft q)) (const_runtime_canonical ft q))
-                  Hr (const_runtime_shape ft q r Hr))
-  | inright _ => None
-  end.
+  tfc_from_canonical ft (strip_neg_zero (round_float_sf ft q))
+                     (const_runtime_canonical ft q) (const_runtime_shape ft q).
 
 (** the runtime spec_float of a typed float constant is exactly the single-rounding sign-normalized result. *)
 Lemma round_typed_float_runtime_sf : forall ft q tc,
   round_typed_float ft q = Some tc -> fv_sf (tfc_runtime tc) = strip_neg_zero (round_float_sf ft q).
 Proof.
-  intros ft q tc H. unfold round_typed_float in H.
-  destruct (float_repr_dec ft q) as [[r Hr]|Hn];
+  intros ft q tc H. unfold round_typed_float, tfc_from_canonical in H.
+  destruct (sf_repr_dec (strip_neg_zero (round_float_sf ft q))) as [[r Hr]|Hn];
     [ injection H as <-; reflexivity | discriminate ].
 Qed.
 
 (** ============================================================================
-    §7 [round_typed_float] is the ONE structural root of float-constant construction; the exact-rational
-    rounding, the representability authority, and the constant-conversion fixtures below are all PROJECTIONS of
-    it — so [round_float_sf] is called from a single construction site.
+    §7 [round_typed_float] is the ONE structural root of float-constant construction: it evaluates
+    [round_float_sf] at exactly ONE site, BINDS that result, and derives both the exact rational and the
+    runtime value from it (via [tfc_from_canonical]); the exact-rational rounding, the representability
+    authority, and the constant-conversion fixtures below are all PROJECTIONS of it.
     ============================================================================ *)
 
 (** §7 the exact-rational rounding is the [tfc_exact] projection of the typed result — NOT a second
