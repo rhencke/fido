@@ -118,37 +118,8 @@ Definition typed_float_of_const (ft : FloatType) (q : FloatConst) : option (Type
     literal is an EXACT value (a bare float is its EXACT rational, unrounded — no range check here); an
     explicit conversion routes through the ONE [convert_const] authority (integer conversions preserve the
     value when it fits; float conversions round ONCE at the destination). *)
-Fixpoint const_value (e : GoExpr) : option GoConst :=
-  match e with
-  | EBool b            => Some (CBool b)
-  | EInt n             => Some (CInt (Z.of_N n))
-  | ENeg n             => Some (CInt (- Z.of_N n))
-  | EString s          => Some (CString s)
-  | EFloat d           => Some (CFloat (decimal_value d))
-  | EIntConvert it e'  =>
-      match const_value e' with
-      | Some (CInt z)   => if integer_representableb it z then Some (CInt z) else None
-      | Some (CFloat q) => match fc_to_int q with
-                           | Some z => if integer_representableb it z then Some (CInt z) else None
-                           | None => None end
-      | _ => None
-      end
-  | EFloatConvert ft e' =>
-      match const_value e' with
-      | Some (CInt z)   => option_map CFloat (round_float_const ft (fc_of_Z z))
-      | Some (CFloat q) => option_map CFloat (round_float_const ft q)
-      | _ => None
-      end
-  end.
-
-(** determinism is structural (a function of the syntax). *)
-Lemma const_value_deterministic : forall e c1 c2,
-  const_value e = c1 -> const_value e = c2 -> c1 = c2.
-Proof. intros e c1 c2 <- <-; reflexivity. Qed.
-
-(** [EInt 0] and [ENeg 0] denote the SAME untyped constant (signed zero is one value). *)
-Lemma const_value_zero_sign : const_value (EInt 0) = const_value (ENeg 0).
-Proof. reflexivity. Qed.
+(** The exact value of an expression is [const_info_exact] applied to [const_info] — there is NO separate
+    [const_value] construction path (which would re-do conversion/rounding and be a second authority). *)
 
 (** the DEFAULT type — the type chosen for an UNTYPED constant in a context that requires a typed value.  It
     is NOT a property of the raw literal (the literal stays untyped); an int constant defaults to the
@@ -319,6 +290,10 @@ Definition resolve_const_info (ci : ConstInfo) : option ResolvedConst :=
 Lemma const_info_deterministic : forall e ci1 ci2,
   const_info e = Some ci1 -> const_info e = Some ci2 -> ci1 = ci2.
 Proof. intros e ci1 ci2 H1 H2; rewrite H1 in H2; injection H2 as <-; reflexivity. Qed.
+
+(** [EInt 0] and [ENeg 0] denote the SAME untyped constant (signed zero is one value). *)
+Lemma const_info_zero_sign : const_info (EInt 0) = const_info (ENeg 0).
+Proof. reflexivity. Qed.
 
 (** §14 SAME-FORMAT FLOAT IDENTITY (LOAD-BEARING): converting a typed float constant to its OWN format
     returns the EXISTING [TypedFloatConst] unchanged — no reround, no reconstruction.  This is exactly what
@@ -499,13 +474,6 @@ Proof. constructor. Qed.
 Definition int_lit (z : Z) : GoExpr :=
   if Z.leb 0 z then EInt (Z.to_N z) else ENeg (Z.to_N (- z)).
 
-Lemma const_value_int_lit : forall z, const_value (int_lit z) = Some (CInt z).
-Proof.
-  intro z; unfold int_lit; destruct (Z.leb 0 z) eqn:E; cbn [const_value].
-  - apply Z.leb_le in E; rewrite Z2N.id by exact E; reflexivity.
-  - apply Z.leb_gt in E; rewrite Z2N.id by lia; do 2 f_equal; lia.
-Qed.
-
 Lemma const_info_int_lit : forall z, const_info (int_lit z) = Some (CIUntyped (CInt z)).
 Proof.
   intro z; unfold int_lit; destruct (Z.leb 0 z) eqn:E; cbn [const_info].
@@ -564,7 +532,7 @@ Example res_bool_true  : resolve_expr UsePrintlnArg (EBool true)  = Some TBool. 
 Example res_bool_false : resolve_expr UsePrintlnArg (EBool false) = Some TBool. Proof. reflexivity. Qed.
 Example res_int_zero   : resolve_expr UsePrintlnArg (EInt 0) = Some (TInteger IInt). Proof. reflexivity. Qed.
 Example res_neg_zero   : resolve_expr UsePrintlnArg (ENeg 0) = Some (TInteger IInt). Proof. reflexivity. Qed.
-Example const_zero_eq  : const_value (EInt 0) = const_value (ENeg 0). Proof. reflexivity. Qed.
+Example const_zero_eq  : const_info (EInt 0) = const_info (ENeg 0). Proof. reflexivity. Qed.
 
 (* a BARE integer literal defaults to [int]; the [int] boundaries resolve, one past does not. *)
 Example res_int_default : resolve_expr UsePrintlnArg (EInt 42) = Some (TInteger IInt). Proof. reflexivity. Qed.
@@ -575,7 +543,7 @@ Example res_under : resolve_expr UsePrintlnArg (ENeg (Z.to_N (- int_min + 1))) =
 (* bare 2^63 does NOT resolve (it does not fit the default [int]); as an arbitrary-precision constant it is
    still exact, and even above 2^64 the constant value is retained though it fits no integer type. *)
 Example res_2p63_no_resolve : resolve_expr UsePrintlnArg (EInt 9223372036854775808) = None. Proof. reflexivity. Qed.
-Example const_huge_exact : const_value (EInt 18446744073709551617) = Some (CInt 18446744073709551617). Proof. reflexivity. Qed.
+Example const_huge_exact : option_map const_info_exact (const_info (EInt 18446744073709551617)) = Some (CInt 18446744073709551617). Proof. reflexivity. Qed.
 Example res_huge_no_resolve : resolve_expr UsePrintlnArg (EInt 18446744073709551617) = None. Proof. reflexivity. Qed.
 
 (* explicit conversions — type at use, with a representability recheck at the destination. *)

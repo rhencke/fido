@@ -121,6 +121,34 @@ Proof.
   - constructor.
 Qed.
 
+(** §23/§30-32 a denoting float value's runtime is +0-or-finite: the ONLY float denotation is through
+    [TypedFloatConst] coherence. *)
+Lemma value_denotes_constant_runtime : forall v c,
+  ValueDenotesConst v c ->
+  match v with VFloat _ fv => float_constant_runtimeb (fv_sf fv) = true | _ => True end.
+Proof.
+  intros v c H; destruct H as [ b | it z Hr | ft tfc | s ]; try exact I; apply (tfc_shape tfc).
+Qed.
+
+(** §30-32 a NaN / infinity / negative-zero runtime value has NO typed-constant denotation (there is no total
+    runtime->constant fallback). *)
+Lemma float_nonconstant_no_denotes : forall ft (fv : FloatValue ft) c,
+  float_constant_runtimeb (fv_sf fv) = false -> ~ ValueDenotesConst (VFloat ft fv) c.
+Proof.
+  intros ft fv c Hshape H.
+  pose proof (value_denotes_constant_runtime _ _ H) as Hs; cbn in Hs.
+  rewrite Hshape in Hs; discriminate.
+Qed.
+
+(** the three concrete non-constant runtime values (canonical general-domain [FloatValue]s) that inhabit the
+    runtime domain yet denote NO constant — NaN, +infinity, negative zero. *)
+Example nan_f64_no_denotes : forall c, ~ ValueDenotesConst (VFloat F64 (fv_nan F64)) c.
+Proof. intro c; apply float_nonconstant_no_denotes; reflexivity. Qed.
+Example inf_f64_no_denotes : forall c, ~ ValueDenotesConst (VFloat F64 (fv_inf F64 false)) c.
+Proof. intro c; apply float_nonconstant_no_denotes; reflexivity. Qed.
+Example neg_zero_f64_no_denotes : forall c, ~ ValueDenotesConst (VFloat F64 fv_neg_zero_F64) c.
+Proof. intro c; apply float_nonconstant_no_denotes; reflexivity. Qed.
+
 (** §21 Evaluation IS the one constant-status analysis RESOLVED to a validated typed constant and PROJECTED —
     no second case analysis over the raw syntax, no second conversion/representability decision, no second
     float rounding.  Partial: an invalid (nested) conversion or an out-of-range/overflowing default constant

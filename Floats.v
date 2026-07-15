@@ -445,7 +445,10 @@ Proof. intro ft; destruct ft; reflexivity. Qed.
 Definition strip_neg_zero (v : spec_float) : spec_float :=
   match v with S754_zero _ => S754_zero false | x => x end.
 
-Lemma float_value_of_const_canonical : forall ft q,
+(** the canonicality of a constant's runtime spec_float — the single-rounding [round_float_sf] result with a
+    zero normalized to +0.  There is NO public [FloatConst -> FloatValue] constructor: the runtime is built
+    ONLY inside [round_typed_float] (the one authority) and reached ONLY as [tfc_runtime]. *)
+Lemma const_runtime_canonical : forall ft q,
   FloatCanonical ft (strip_neg_zero (round_float_sf ft q)).
 Proof.
   intros ft q; unfold FloatCanonical, strip_neg_zero.
@@ -454,19 +457,6 @@ Proof.
   - right; right; exists sb; reflexivity.
   - right; left; reflexivity.
   - left; exists q; rewrite E; reflexivity.
-Qed.
-
-(** the ONE way a constant enters the runtime: round its exact rational once at [ft], then normalize a zero
-    result to +0 (constant evaluation never yields -0). *)
-Definition float_value_of_const (ft : FloatType) (q : FloatConst) : FloatValue ft :=
-  mkFV (strip_neg_zero (round_float_sf ft q)) (float_value_of_const_canonical ft q).
-
-(** a CONSTANT never evaluates to negative zero: a zero result (either sign) is normalized to +0. *)
-Lemma float_value_of_const_no_neg_zero : forall ft q,
-  fv_sf (float_value_of_const ft q) <> S754_zero true.
-Proof.
-  intros ft q; cbn [fv_sf float_value_of_const strip_neg_zero].
-  destruct (round_float_sf ft q); discriminate.
 Qed.
 
 (** a REPRESENTABLE constant rounds to a finite/zero value — never NaN or infinity (so constant evaluation
@@ -527,13 +517,13 @@ Arguments tfc_shape {ft} _.
 Lemma sf_to_FloatConst_strip : forall w, sf_to_FloatConst (strip_neg_zero w) = sf_to_FloatConst w.
 Proof. intro w; destruct w; reflexivity. Qed.
 
-(** the runtime built by [float_value_of_const] is never -0, so once it reads back as an exact constant it is
-    necessarily +0 or finite — establishing shape field D from coherence field C. *)
-Lemma float_value_of_const_constant_shape : forall ft q r,
-  sf_to_FloatConst (fv_sf (float_value_of_const ft q)) = Some r ->
-  float_constant_runtimeb (fv_sf (float_value_of_const ft q)) = true.
+(** the constant runtime is never -0, so once it reads back as an exact constant it is necessarily +0 or
+    finite — establishing shape field D from coherence field C. *)
+Lemma const_runtime_shape : forall ft q r,
+  sf_to_FloatConst (strip_neg_zero (round_float_sf ft q)) = Some r ->
+  float_constant_runtimeb (strip_neg_zero (round_float_sf ft q)) = true.
 Proof.
-  intros ft q r H. cbn [fv_sf float_value_of_const] in *.
+  intros ft q r H.
   destruct (round_float_sf ft q) as [sb|sb| |sb m e]; cbn [strip_neg_zero] in *;
     cbn [sf_to_FloatConst float_constant_runtimeb] in *; try reflexivity; discriminate.
 Qed.
@@ -541,12 +531,12 @@ Qed.
 (** decide the runtime read-back once, CARRYING the proof — a [sumor] value (not a dependent [option] match),
     so downstream reasoning destructs a plain value and never re-abstracts a convoy motive. *)
 Definition float_repr_dec (ft : FloatType) (q : FloatConst) :
-  {r : FloatConst | sf_to_FloatConst (fv_sf (float_value_of_const ft q)) = Some r}
-  + {sf_to_FloatConst (fv_sf (float_value_of_const ft q)) = None} :=
-  match sf_to_FloatConst (fv_sf (float_value_of_const ft q)) as o
-    return (sf_to_FloatConst (fv_sf (float_value_of_const ft q)) = o ->
-            {r : FloatConst | sf_to_FloatConst (fv_sf (float_value_of_const ft q)) = Some r}
-            + {sf_to_FloatConst (fv_sf (float_value_of_const ft q)) = None})
+  {r : FloatConst | sf_to_FloatConst (strip_neg_zero (round_float_sf ft q)) = Some r}
+  + {sf_to_FloatConst (strip_neg_zero (round_float_sf ft q)) = None} :=
+  match sf_to_FloatConst (strip_neg_zero (round_float_sf ft q)) as o
+    return (sf_to_FloatConst (strip_neg_zero (round_float_sf ft q)) = o ->
+            {r : FloatConst | sf_to_FloatConst (strip_neg_zero (round_float_sf ft q)) = Some r}
+            + {sf_to_FloatConst (strip_neg_zero (round_float_sf ft q)) = None})
   with
   | Some r => fun H => inleft (exist _ r H)
   | None   => fun H => inright H
@@ -555,25 +545,26 @@ Definition float_repr_dec (ft : FloatType) (q : FloatConst) :
 (** the read-back decision agrees with [sf_to_FloatConst] — immediate from the carried proof. *)
 Lemma float_repr_dec_spec : forall ft q,
   match float_repr_dec ft q with
-  | inleft (exist _ r _) => sf_to_FloatConst (fv_sf (float_value_of_const ft q)) = Some r
-  | inright _            => sf_to_FloatConst (fv_sf (float_value_of_const ft q)) = None
+  | inleft (exist _ r _) => sf_to_FloatConst (strip_neg_zero (round_float_sf ft q)) = Some r
+  | inright _            => sf_to_FloatConst (strip_neg_zero (round_float_sf ft q)) = None
   end.
 Proof. intros ft q; destruct (float_repr_dec ft q) as [[r Hr]|Hn]; assumption. Qed.
 
-(** the ONE typed-float-constant construction authority (contract §6): round the exact rational ONCE at [ft]
-    (via [float_value_of_const]), normalize a zero result to +0, reject overflow (infinity) and NaN, and
-    package the exact rounded rational, the canonical runtime value, and their coherence — all from that
-    single rounding. *)
+(** the ONE typed-float-constant construction authority (contract §6): round the exact rational ONCE at [ft],
+    normalize a zero result to +0, reject overflow (infinity) and NaN, and package the exact rounded rational,
+    the canonical runtime value (built INLINE here — the sole [FloatValue]-from-a-constant construction), and
+    their coherence — all from that single [round_float_sf]. *)
 Definition round_typed_float (ft : FloatType) (q : FloatConst) : option (TypedFloatConst ft) :=
   match float_repr_dec ft q with
   | inleft (exist _ r Hr) =>
-      Some (mkTFC r (float_value_of_const ft q) Hr (float_value_of_const_constant_shape ft q r Hr))
+      Some (mkTFC r (mkFV (strip_neg_zero (round_float_sf ft q)) (const_runtime_canonical ft q))
+                  Hr (const_runtime_shape ft q r Hr))
   | inright _ => None
   end.
 
-(** the runtime of a typed float constant is exactly the single-rounding [float_value_of_const] result. *)
-Lemma round_typed_float_runtime : forall ft q tc,
-  round_typed_float ft q = Some tc -> tfc_runtime tc = float_value_of_const ft q.
+(** the runtime spec_float of a typed float constant is exactly the single-rounding sign-normalized result. *)
+Lemma round_typed_float_runtime_sf : forall ft q tc,
+  round_typed_float ft q = Some tc -> fv_sf (tfc_runtime tc) = strip_neg_zero (round_float_sf ft q).
 Proof.
   intros ft q tc H. unfold round_typed_float in H.
   destruct (float_repr_dec ft q) as [[r Hr]|Hn];
@@ -587,7 +578,6 @@ Lemma round_float_const_typed : forall ft q,
 Proof.
   intros ft q. unfold round_float_const.
   rewrite <- (sf_to_FloatConst_strip (round_float_sf ft q)).
-  change (strip_neg_zero (round_float_sf ft q)) with (fv_sf (float_value_of_const ft q)).
   pose proof (float_repr_dec_spec ft q) as Hspec.
   unfold round_typed_float.
   destruct (float_repr_dec ft q) as [[r Hr]|Hn]; cbn [option_map tfc_exact]; exact Hspec.
@@ -600,10 +590,43 @@ Lemma round_typed_float_representable : forall ft q,
 Proof.
   intros ft q. unfold float_representableb, round_float_const.
   rewrite <- (sf_to_FloatConst_strip (round_float_sf ft q)).
-  change (strip_neg_zero (round_float_sf ft q)) with (fv_sf (float_value_of_const ft q)).
   pose proof (float_repr_dec_spec ft q) as Hspec.
   unfold round_typed_float.
   destruct (float_repr_dec ft q) as [[r Hr]|Hn]; rewrite Hspec.
   - split; intro; [ eexists; reflexivity | reflexivity ].
   - split; [ discriminate | intros [tc HH]; discriminate ].
 Qed.
+
+(** §30-32 the runtime of a typed float constant is +0 or finite — NEVER negative zero, infinity, or NaN
+    (those inhabit the general [FloatValue] domain but are not constants).  Directly from the [tfc_shape]
+    field, which no forged runtime can satisfy. *)
+Lemma tfc_runtime_not_neg_zero : forall ft (tc : TypedFloatConst ft),
+  fv_sf (tfc_runtime tc) <> S754_zero true.
+Proof. intros ft tc H; pose proof (tfc_shape tc) as Hs; rewrite H in Hs; discriminate. Qed.
+Lemma tfc_runtime_not_nan : forall ft (tc : TypedFloatConst ft),
+  fv_sf (tfc_runtime tc) <> S754_nan.
+Proof. intros ft tc H; pose proof (tfc_shape tc) as Hs; rewrite H in Hs; discriminate. Qed.
+Lemma tfc_runtime_not_inf : forall ft (tc : TypedFloatConst ft) s,
+  fv_sf (tfc_runtime tc) <> S754_infinity s.
+Proof. intros ft tc s H; pose proof (tfc_shape tc) as Hs; rewrite H in Hs; discriminate. Qed.
+
+(** §30-32 canonical general-domain runtime values that are NOT constants: NaN, infinity, and negative zero
+    inhabit [FloatValue] (the domain future runtime ops need) but no [TypedFloatConst] runtime equals them. *)
+Definition fv_nan (ft : FloatType) : FloatValue ft :=
+  mkFV S754_nan (or_intror (or_introl eq_refl)).
+Definition fv_inf (ft : FloatType) (s : bool) : FloatValue ft :=
+  mkFV (S754_infinity s) (or_intror (or_intror (ex_intro _ s eq_refl))).
+(* the negative-zero image of a negative underflow (proved once via vm_compute so the Definition needs no
+   heavy kernel conversion). *)
+Lemma neg_zero_F64_canonical : FloatCanonical F64 (S754_zero true).
+Proof. left; exists (reduce_fc (-1) (10 ^ 330)%positive); vm_compute; reflexivity. Qed.
+Definition fv_neg_zero_F64 : FloatValue F64 := mkFV (S754_zero true) neg_zero_F64_canonical.
+
+(** §33 a negative tiny constant underflows to canonical +0: [round_typed_float] SUCCEEDS, the exact value is
+    [fc_zero], and the stored runtime is +0 (never -0) — evaluation returns that +0 with no second round. *)
+Example round_typed_neg_underflow_f64 :
+  match round_typed_float F64 (reduce_fc (-1) (10 ^ 330)%positive) with
+  | Some tc => tfc_exact tc = fc_zero /\ fv_sf (tfc_runtime tc) = S754_zero false
+  | None => False
+  end.
+Proof. vm_compute. split; reflexivity. Qed.

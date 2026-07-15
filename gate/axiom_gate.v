@@ -79,7 +79,23 @@ Print Assumptions Floats.representable_not_nan.
 Print Assumptions Floats.representable_not_inf.
 (* a constant NEVER evaluates to negative zero (the bare-negative-underflow scar): the constructed runtime
    value strips the sign of a zero, so it is never -0. *)
-Print Assumptions Floats.float_value_of_const_no_neg_zero.
+Print Assumptions Floats.tfc_runtime_not_neg_zero.
+Print Assumptions Floats.tfc_runtime_not_nan.
+Print Assumptions Floats.tfc_runtime_not_inf.
+Print Assumptions Floats.round_typed_float_representable.
+Print Assumptions Floats.round_float_const_typed.
+Print Assumptions Floats.round_typed_neg_underflow_f64.
+Print Assumptions GoTypes.convert_const_same_float.
+Print Assumptions GoTypes.typed_const_exact.
+Print Assumptions GoSafe.typed_const_to_value_type.
+Print Assumptions GoSafe.typed_const_to_value_wf.
+Print Assumptions GoSafe.typed_const_to_value_float.
+Print Assumptions GoSafe.eval_expr_denotes.
+Print Assumptions GoSafe.value_denotes_constant_runtime.
+Print Assumptions GoSafe.float_nonconstant_no_denotes.
+Print Assumptions GoSafe.nan_f64_no_denotes.
+Print Assumptions GoSafe.inf_f64_no_denotes.
+Print Assumptions GoSafe.neg_zero_f64_no_denotes.
 
 (* intrinsic FilePath: decidable equality; a representable canonical path; a rejected (unrepresentable)
    path.  Non-canonical paths have no FilePath value at all — this is unrepresentability, not rejection. *)
@@ -116,7 +132,7 @@ Print Assumptions FMap.fm_MapsTo_fun.
    exactness (int / FLOAT->float64); representability reflection; the constant-status analysis carries the
    exact value (partial [const_value], routed through the ONE [convert_const]) + a representable typed
    integer value; resolution sound + complete + deterministic; statement + program typing reflection. *)
-Print Assumptions GoTypes.const_value_zero_sign.
+Print Assumptions GoTypes.const_info_zero_sign.
 Print Assumptions GoTypes.const_default_type_int.
 Print Assumptions GoTypes.const_default_type_float.
 Print Assumptions GoTypes.const_default_type_string.
