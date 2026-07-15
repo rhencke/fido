@@ -46,9 +46,11 @@ differential fixtures (a multi-package tree accepted; no-main and duplicate-main
   declarations; **package clauses, package names, and entry-point status are compilation results**, not raw
   metadata. There is no second tree and no separate IR.
 - **One type authority.** Each raw literal denotes an exact **untyped** constant (`GoConst`); `GoTypes` —
-  the single type authority, evidence over the same AST, universe exactly `TBool`/`TInt`/`TString` — resolves
-  it in a use context (choosing a default type and checking 64-bit representability for ints; a string
-  literal carries its exact bytes and is always representable as `TString`). A literal is not a typed
+  the single type authority, evidence over the same AST, universe `TBool` / the integer family `TInteger` (ten `IntegerType` members) / `TString` — resolves
+  it in a use context (an untyped int defaults to `int` and its per-type inclusive range is checked; a string
+  literal carries its exact bytes and is always representable as `TString`). An explicit integer conversion
+  (`EIntConvert`) is a **typed** constant of the destination type, value-preserving and range-checked at every
+  nesting layer (`int`/`uint` are pinned 64-bit and distinct from `int64`/`uint64`). A literal is not a typed
   value, and there is no typed AST or second IR: `ResolveExpr` is a judgment over the raw syntax, reflected
   by a decision proved sound, complete, and deterministic.
 - **Exact, whole-program compilation.** `GoCompile` consumes the whole map: it groups files by directory
@@ -57,9 +59,10 @@ differential fixtures (a multi-package tree accepted; no-main and duplicate-main
   a proof-producing sound + complete decision, aimed at matching `go build ./...` for every representable
   program. Two claims stay distinct: (A) the checker matches the formal judgment — PROVED; (B) it matches
   `go build ./...` — the GOAL, exercised differentially, never a kernel theorem about `cmd/go`.
-- **Real semantics + faithful rendering.** `GoSafe` evaluates to real Go values (`VInt : Z`, so `0` and
-  `-0` agree; `VString` exact bytes) that carry the **same** `GoType`, and evaluation is that one constant interpretation mapped to
-  a value — a resolved expression provably evaluates to a value of its resolved type. `GoRender` proves
+- **Real semantics + faithful rendering.** `GoSafe` evaluates to real Go values (`VInteger : IntegerType -> Z`, so `0` and
+  `-0` agree; `VString` exact bytes) that carry the **same** `GoType` and are range-well-formed; evaluation is
+  derived from the one constant-status analysis and is partial (a compiler-invalid conversion has no value) —
+  a resolved expression provably evaluates to a well-formed value of its resolved type. `GoRender` proves
   `render_expr_denotes` — the rendered spelling denotes exactly the value — and `render_resolved_expr_denotes`
   (that value also has the resolved type), plus all-ASCII, no illegal leading zero, and the header as the
   exact first line, and renders the `go.mod` directly from the `ModuleSpec` (exact bytes, header first line,

@@ -9,10 +9,10 @@ paired with a (possibly-empty) verified finite map from intrinsic `FilePath` key
 A `GoProgram` is a `ModuleSpec` (a narrow intrinsic `ModulePath` + a singleton `GoVersion` = Go1_23 — the
 generated module's facts, rendered as `go.mod`; NOT a target config) plus a possibly-EMPTY map of files.
 Files group by directory into `package main` packages; each raw `GoFileAST` is top-level declarations (today
-only `DMain` — a `func main()` declaration); statements are `SPrintln` over bool (`EBool`), 64-bit
-integers (`EInt` magnitude / `ENeg` negation), and byte-sequence strings (`EString` — exact bytes, not
-spelling). Each raw literal denotes an EXACT UNTYPED constant; the ONE type authority `GoTypes` (universe
-`TBool`/`TInt`/`TString`) resolves it in a use context (int defaulting + 64-bit representability; every
+only `DMain` — a `func main()` declaration); statements are `SPrintln` over bool (`EBool`), untyped
+integers (`EInt` magnitude / `ENeg` negation), byte-sequence strings (`EString` — exact bytes, not
+spelling), and explicit integer conversions (`EIntConvert it e`) to any of the ten-member `IntegerType`. Each raw literal denotes an EXACT UNTYPED constant; the ONE type authority `GoTypes` (universe
+`TBool` / the integer family `TInteger` / `TString`) resolves it in a use context (untyped-int defaulting to `TInteger IInt` + per-type representability; every
 string constant is representable as `TString`) — a literal is NOT a typed value and there is no typed AST. `FilePath` is a narrow
 canonical relative path (lowercase dir components + a `.go` basename); `go.mod` is a distinct root field, not
 a FilePath. The EMPTY file map is a valid module-only program. Package clauses, package names, entry-point
@@ -28,7 +28,10 @@ IN Rocq before any bytes — **zero expected Go build failures, ever.**
 - **`FMap`** — key-generic finite map; THE invariant `fm_keys_nodup` (duplicate keys unrepresentable) +
   `dup_key_unrepresentable`; the DISTINCT `fm_MapsTo_fun` (deterministic first-match lookup, weaker);
   `fm_Equal` (semantic eq, distinct from record `=`); `fm_of_list` rejects duplicate keys.
-- **`Ints`** — the ONE 64-bit width authority (`int_min`/`int_max`); no `uint`, no `TargetConfig`.
+- **`Ints`** — the ONE integer-family authority: the ten-member `IntegerType` + `integer_signed`/`_bits`/
+  `_min`/`_max`/`_keyword` + `IntRepresentable`/`integer_representableb` (the per-type inclusive-range
+  decision); `int`/`uint` pinned 64-bit and DISTINCT from `int64`/`uint64` (equal ranges only on this target);
+  `int_min`/`int_max`/`uint_max` derived; no `TargetConfig`, no `PrimInt63`/`Sint63`.
 - **`ModulePath`** — intrinsic narrow canonical module path; decidable eq (`mp_eqb_eq`); the FIRST element
   is dotted (no stdlib-colliding dotless prefix), there is no `/vN` version-suffix tail and no `gopkg.in/`
   path (Go 1.23's two semantic-import-versioning reject classes — excluded, not admitted-then-narrowed);
@@ -37,29 +40,32 @@ IN Rocq before any bytes — **zero expected Go build failures, ever.**
 - **`GoVersion`** — singleton `Go1_23`; `render_goversion_go1_23` pins the exact "1.23"; decidable eq.
 - **`GoAST`** — `ModuleSpec` (`ModulePath` + `GoVersion`) + `GoProgram := { prog_module ; prog_files : fmap
   FilePath GoFileAST }` (the file map MAY be empty); raw `GoDecl` (`DMain`)/`SPrintln`/`EBool`/`EInt`/`ENeg`/
-  `EString` (exact bytes); no package/entry/import/TYPE metadata in raw. `prog_nonempty`/`MainFile` deleted.
+  `EString` (exact bytes)/`EIntConvert` (explicit integer conversion to an intrinsic `IntegerType`); no package/entry/import/TYPE metadata in raw. `prog_nonempty`/`MainFile` deleted.
 - **`GoTypes`** — the ONE type authority, EVIDENCE over the raw AST (no typed AST): `GoType` = {`TBool`,
-  `TInt`, `TString`}; exact untyped `GoConst` (`CBool`/`CInt Z`/`CString` bytes) via one `const_value` (`EInt 0` = `ENeg 0`); one
-  `const_default_type`; one representability decision `ConstRepresentable`/`const_representableb` over the
-  `Ints` authority (`const_representableb_iff`); reflected `ResolveExpr`/`resolve_expr` (sound + complete +
+  `TInteger IntegerType` (ten-member family), `TString`}; exact untyped `GoConst` (`CBool`/`CInt Z`/`CString` bytes) via one `const_value` (`EInt 0` = `ENeg 0`; a conversion preserves the exact `Z`) + the `ConstInfo` analyzer (untyped vs typed constants, repr-checked at every nesting layer); one
+  `const_default_type`; the per-type inclusive-range decision `ConstRepresentable`/`const_representableb` over the
+  `Ints` integer-family authority (`const_representableb_iff`); reflected `ResolveExpr`/`resolve_expr` (sound + complete +
   deterministic + resolved-type-is-default); `StmtTyped`/`DeclTyped`/`FileTyped`/`ProgramTyped` +
-  `program_typedb` (exact reflection; the empty file/program typed vacuously). Boundary/range fixtures: bool/
-  int/max/min resolve, mixed + empty println typed, overflow/underflow/cross-type rejected. Replaced the old
+  `program_typedb` (exact reflection; the empty file/program typed vacuously). Fixtures: bool/int/max/min resolve; every type's convert min/max accept + ±1 reject; transitive nested
+  conversions (uint8(int(300)) reject, int8(int16(127/128))); type identity (int≠int64); mixed + empty
+  println typed; overflow/underflow/cross-type/non-integer-conversion rejected. Replaced the old
   `ExprOk`/`StmtOk`/`DeclOk`/`FileOk` family.
 - **`GoCompile`** — EXACT WHOLE-PROGRAM: files group by parent directory; each package has exactly one `main`
-  (0 or ≥2 reject the whole program); the whole program is TYPED through `GoTypes` (`ProgramTyped`; the only
-  typing failure today is a literal outside the 64-bit range); one invalid package rejects all. `go_compile :
+  (0 or ≥2 reject the whole program); the whole program is TYPED through `GoTypes` (`ProgramTyped`; a typing
+  failure is a constant fitting no integer type, a non-integer conversion operand, or an invalid nested
+  conversion, reported by the honest `ErrTyping`); one invalid package rejects all. `go_compile :
   GoProgram -> result CompileError CompilableProgram` sound + complete (`prog_ok_iff`); rejection ⇒ no
   `CompilableProgram` (`reject_no_compile`); the empty program accepted (`prog_ok_empty`). `CompilationFacts`
   carries the derived package name and EXPOSES that the same program is typed via a canonical projection
   (`compilable_program_typed`), not a stored typed copy.
-- **`GoSafe`** — real values (`GoValue`) carrying the SAME `GoType` (`value_type`); `eval_expr :=
-  const_to_value ∘ const_value` (no second evaluator), `eval_zero_sign_agnostic`, and resolved-type
-  preservation (`eval_expr_resolved_type`: a resolved expression evaluates to a value of its resolved type);
-  `eval_file`; `GoSafe := True` (honest permanent `SafeProgram` boundary).
-- **`GoRender`** — direct renderer; `render_expr_denotes` (rendered spelling denotes exactly the value) and
-  `render_resolved_expr_denotes` (a resolved argument's spelling denotes the exact value AND that value has
-  the resolved `GoType` — tying GoTypes ↔ GoSafe ↔ GoRender); `render_file_ascii`/`print_Z_dec_faithful`/
+- **`GoSafe`** — real values (`GoValue` = `VBool`/`VInteger IntegerType Z`/`VString`) carrying the SAME `GoType`
+  (`value_type`) + the `ValueWF` range invariant; PARTIAL `eval_expr` DERIVED from `const_info` (no second
+  evaluator), `eval_zero_sign_agnostic`, a conversion preserves the exact value, and resolved-eval
+  well-formedness + type preservation (`eval_expr_resolved`); `eval_file`; `GoSafe := True` (honest permanent `SafeProgram` boundary).
+- **`GoRender`** — direct renderer; a conversion renders as `<integer_keyword it>(<inner>)` (the ten exact keywords); `render_expr_denotes`
+  (an evaluating expression's spelling denotes exactly its value, integers via `RenderedIntegerDenotes`) and
+  `render_resolved_expr_denotes` (a resolved argument EVALUATES to a well-formed value of its resolved
+  `GoType` whose spelling denotes it — tying GoTypes ↔ GoSafe ↔ GoRender); `render_file_ascii`/`print_Z_dec_faithful`/
   `print_Z_pos_no_leading_zero`/`render_file_first_line`/boundaries. The package clause comes from
   `CompilationFacts`. `render_go_mod` renders the `go.mod` from the `ModuleSpec` — `render_go_mod_exact`
   (exact bytes: module path + go version in place), `render_go_mod_first_line` (header), `render_go_mod_ascii`.
@@ -147,6 +153,10 @@ IN Rocq before any bytes — **zero expected Go build failures, ever.**
   same `GoProgram`, or reject the whole program). The one change needing explicit sign-off.
   (Strings LANDED: `EString`/`CString`/`VString`/`TString` — exact byte values, a canonical interpreted
   literal, and an INDEPENDENT decoder round-trip; string operations remain out of scope.)
+- Integer ARITHMETIC — operators, wrapping, division/remainder/bitwise/shifts, and no-overflow exactness — is
+  the next milestone; NOT started. (Integer FAMILY LANDED: the ten-member `IntegerType`, `EIntConvert` with
+  untyped/typed constant analysis, `VInteger` runtime values, canonical keyword rendering, and a real-Go
+  differential; the historical wrap/exactness proofs are the quarry for the arithmetic milestone.)
 
 ## Build-trust tasks
 
