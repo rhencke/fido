@@ -74,9 +74,9 @@ Print Assumptions Floats.decimal_value_1p5.
 (* the runtime float value's format-canonical invariant + constant evaluation produces only finite/+0
    (never NaN/Inf/-0): an unsigned-zero constant rounds to +0; a representable constant rounds finite/zero. *)
 Print Assumptions Floats.round_float_sf_zero.
-Print Assumptions Floats.representable_finite_or_zero.
-Print Assumptions Floats.representable_not_nan.
-Print Assumptions Floats.representable_not_inf.
+Print Assumptions Floats.float_representableb_spec.
+Print Assumptions GoTypes.convert_const_same_int.
+Print Assumptions GoTypes.typed_const_int_value.
 (* a constant NEVER evaluates to negative zero (the bare-negative-underflow scar): the constructed runtime
    value strips the sign of a zero, so it is never -0. *)
 Print Assumptions Floats.tfc_runtime_not_neg_zero.

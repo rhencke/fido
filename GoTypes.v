@@ -278,8 +278,37 @@ Proof. reflexivity. Qed.
 Lemma convert_const_same_float : forall ft (tc : TypedConst (TFloat ft)),
   convert_const (TFloat ft) (CITyped (TFloat ft) tc) = Some tc.
 Proof. intros ft tc; destruct ft; reflexivity. Qed.
-(* The integer same-type identity holds up to the dependent range-proof (proof-irrelevant); it is covered
-   concretely by the §34 nested-conversion fixtures ([const_int8_int16_127] etc.). *)
+
+(** the exact value of an INTEGER-typed constant is an in-range [CInt] — extracted via an index-annotated
+    match (axiom-free; no dependent destruction / UIP). *)
+Lemma typed_const_int_value : forall it (tc : TypedConst (TInteger it)),
+  exists z, typed_const_exact tc = CInt z /\ integer_representableb it z = true.
+Proof.
+  intros it tc.
+  refine (match tc as tc0 in TypedConst t
+          return (match t with
+                  | TInteger it' => exists z, typed_const_exact tc0 = CInt z /\ integer_representableb it' z = true
+                  | _ => True end)
+          with
+          | TCInteger it0 z0 Hpf => _
+          | _ => I
+          end).
+  exists z0; split; [ reflexivity | exact Hpf ].
+Qed.
+
+(** §14 the UNIVERSAL integer same-type identity: converting a typed integer constant to its OWN type
+    PRESERVES the exact value and type (an identity up to the proof-irrelevant range proof). *)
+Lemma convert_const_same_int : forall it (tc : TypedConst (TInteger it)),
+  exists tc', convert_const (TInteger it) (CITyped (TInteger it) tc) = Some tc'
+           /\ typed_const_exact tc' = typed_const_exact tc.
+Proof.
+  intros it tc.
+  destruct (typed_const_int_value it tc) as [ z [ Hexact Hz ] ].
+  cbn [convert_const const_info_exact]; rewrite Hexact.
+  unfold typed_integer_of_Z; destruct (bool_true_dec (integer_representableb it z)) as [H'|H'].
+  - exists (TCInteger it z H'); split; reflexivity.
+  - congruence.
+Qed.
 
 (** an invalid inner conversion propagates: it cannot be revived by an outer conversion (either kind). *)
 Lemma const_info_int_none : forall target e,

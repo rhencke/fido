@@ -251,59 +251,10 @@ Definition sf_to_FloatConst (v : spec_float) : option FloatConst :=
   | _ => None
   end.
 
-(** the ONE target-directed exact float-constant rounding authority: round the exact source rational ONCE at
-    the destination format, then read it back as an exact canonical constant.  Overflow (infinity) rejects;
-    underflow rounds to canonical +0; NaN never arises for a valid (nonzero-denominator) rational. *)
-Definition round_float_const (ft : FloatType) (a : FloatConst) : option FloatConst :=
-  sf_to_FloatConst (round_float_sf ft a).
-
-(** the ONE float representability authority + its reflected decision. *)
-Definition FloatConstRepresentable (ft : FloatType) (a : FloatConst) : Prop :=
-  exists r, round_float_const ft a = Some r.
-
-Definition float_representableb (ft : FloatType) (a : FloatConst) : bool :=
-  match round_float_const ft a with Some _ => true | None => false end.
-
-Lemma float_representableb_spec :
-  forall ft a, float_representableb ft a = true <-> FloatConstRepresentable ft a.
-Proof.
-  intros ft a. unfold float_representableb, FloatConstRepresentable.
-  destruct (round_float_const ft a) as [r|] eqn:E; split.
-  - intros _; exists r; reflexivity.
-  - intros _; reflexivity.
-  - discriminate.
-  - intros [r H]; discriminate.
-Qed.
-
-(** ---- constant-conversion fixtures (contract §30/§32/§33) ----
-    the direct-F32 double-round scar as an EXACT integer-valued constant; overflow rejects; underflow rounds
-    to canonical +0; a source zero (any denominator) rounds to canonical +0 (no negative-zero constant). *)
-Example round_const_scar_direct_f32 :
-  round_float_const F32 scar_x = Some (fc_of_Z 2305843284091600896).
-Proof. reflexivity. Qed.
-
-Example round_const_scar_double_f32 :
-  sf_to_FloatConst (SFdiv 24 128 (round_float_sf F64 scar_x) (sf_of_Z 1))
-    = Some (fc_of_Z 2305843009213693952).
-Proof. reflexivity. Qed.
-
-Example round_const_overflow_f32 :
-  round_float_const F32 (fc_of_Z (10 ^ 40)) = None.
-Proof. vm_compute. reflexivity. Qed.
-
-Example round_const_underflow_f64 :
-  round_float_const F64 (reduce_fc 1 (10 ^ 330)%positive) = Some fc_zero.
-Proof. vm_compute. reflexivity. Qed.
-
-Example round_const_source_zero_f64 :
-  round_float_const F64 fc_zero = Some fc_zero.   (* the canonical zero rounds to +0 *)
-Proof. reflexivity. Qed.
-
-Example float_representableb_scar_f32 : float_representableb F32 scar_x = true.
-Proof. reflexivity. Qed.
-
-Example float_representableb_overflow_f32 : float_representableb F32 (fc_of_Z (10 ^ 40)) = false.
-Proof. vm_compute. reflexivity. Qed.
+(** [round_float_const] (the exact-rational rounding), [FloatConstRepresentable]/[float_representableb], the
+    constant-conversion scar/overflow/underflow fixtures, and the representable-finite/no-nan/no-inf lemmas are
+    defined BELOW as PROJECTIONS of the ONE [round_typed_float] authority — so [round_float_sf] has a single
+    construction call site (the typed-float authority is structurally single-rooted). *)
 
 (** ============================================================================
     The intrinsic finite-decimal raw literal domain — [DecimalFloat], the exact SEMANTIC value a raw float
@@ -459,29 +410,6 @@ Proof.
   - left; exists q; rewrite E; reflexivity.
 Qed.
 
-(** a REPRESENTABLE constant rounds to a finite/zero value — never NaN or infinity (so constant evaluation
-    produces no NaN/Inf).  Direct from [sf_to_FloatConst] returning [None] exactly on inf/nan. *)
-Lemma representable_finite_or_zero : forall ft q,
-  FloatConstRepresentable ft q -> sf_is_finite_or_zero (round_float_sf ft q) = true.
-Proof.
-  intros ft q [r Hr]. unfold round_float_const in Hr.
-  destruct (round_float_sf ft q) as [sb|sb| |sb m e] eqn:E; cbn in Hr; try discriminate; reflexivity.
-Qed.
-
-Lemma representable_not_nan : forall ft q,
-  FloatConstRepresentable ft q -> round_float_sf ft q <> S754_nan.
-Proof.
-  intros ft q H HN. pose proof (representable_finite_or_zero ft q H) as Hf.
-  rewrite HN in Hf; discriminate.
-Qed.
-
-Lemma representable_not_inf : forall ft q s,
-  FloatConstRepresentable ft q -> round_float_sf ft q <> S754_infinity s.
-Proof.
-  intros ft q s H HI. pose proof (representable_finite_or_zero ft q H) as Hf.
-  rewrite HI in Hf; discriminate.
-Qed.
-
 (** ============================================================================
     §5-8 INTRINSIC TYPED FLOAT CONSTANTS — one package that carries BOTH the exact
     rounded rational AND its canonical runtime IEEE value, plus a proof they denote
@@ -571,31 +499,74 @@ Proof.
     [ injection H as <-; reflexivity | discriminate ].
 Qed.
 
-(** §7: [round_float_const] is EXACTLY the exact-rational projection of [round_typed_float] — no second
-    rounding authority. *)
+(** ============================================================================
+    §7 [round_typed_float] is the ONE structural root of float-constant construction; the exact-rational
+    rounding, the representability authority, and the constant-conversion fixtures below are all PROJECTIONS of
+    it — so [round_float_sf] is called from a single construction site.
+    ============================================================================ *)
+
+(** §7 the exact-rational rounding is the [tfc_exact] projection of the typed result — NOT a second
+    [round_float_sf] caller. *)
+Definition round_float_const (ft : FloatType) (a : FloatConst) : option FloatConst :=
+  option_map tfc_exact (round_typed_float ft a).
+
 Lemma round_float_const_typed : forall ft q,
   round_float_const ft q = option_map tfc_exact (round_typed_float ft q).
+Proof. reflexivity. Qed.
+
+(** the ONE float representability authority + its reflected decision, over the projected [round_float_const]. *)
+Definition FloatConstRepresentable (ft : FloatType) (a : FloatConst) : Prop :=
+  exists r, round_float_const ft a = Some r.
+
+Definition float_representableb (ft : FloatType) (a : FloatConst) : bool :=
+  match round_float_const ft a with Some _ => true | None => false end.
+
+Lemma float_representableb_spec :
+  forall ft a, float_representableb ft a = true <-> FloatConstRepresentable ft a.
 Proof.
-  intros ft q. unfold round_float_const.
-  rewrite <- (sf_to_FloatConst_strip (round_float_sf ft q)).
-  pose proof (float_repr_dec_spec ft q) as Hspec.
-  unfold round_typed_float.
-  destruct (float_repr_dec ft q) as [[r Hr]|Hn]; cbn [option_map tfc_exact]; exact Hspec.
+  intros ft a. unfold float_representableb, FloatConstRepresentable.
+  destruct (round_float_const ft a) as [r|] eqn:E; split.
+  - intros _; exists r; reflexivity.
+  - intros _; reflexivity.
+  - discriminate.
+  - intros [r H]; discriminate.
 Qed.
 
-(** §8: representability is EXACTLY existence of a typed result (reflected through [round_typed_float], not a
-    second overflow checker). *)
+(** §8: representability is EXACTLY existence of a typed result (reflected through [round_typed_float]). *)
 Lemma round_typed_float_representable : forall ft q,
   float_representableb ft q = true <-> exists tc, round_typed_float ft q = Some tc.
 Proof.
   intros ft q. unfold float_representableb, round_float_const.
-  rewrite <- (sf_to_FloatConst_strip (round_float_sf ft q)).
-  pose proof (float_repr_dec_spec ft q) as Hspec.
-  unfold round_typed_float.
-  destruct (float_repr_dec ft q) as [[r Hr]|Hn]; rewrite Hspec.
-  - split; intro; [ eexists; reflexivity | reflexivity ].
-  - split; [ discriminate | intros [tc HH]; discriminate ].
+  destruct (round_typed_float ft q) as [tc|] eqn:E; cbn [option_map]; split.
+  - intros _; exists tc; reflexivity.
+  - intros _; reflexivity.
+  - discriminate.
+  - intros [tc' HH]; discriminate.
 Qed.
+
+(** ---- constant-conversion fixtures (contract §30/§32/§33), over the projected [round_float_const] ----
+    the direct-F32 double-round scar as an EXACT integer-valued constant; overflow rejects; underflow rounds
+    to canonical +0; a source zero rounds to canonical +0 (no negative-zero constant). *)
+Example round_const_scar_direct_f32 :
+  round_float_const F32 scar_x = Some (fc_of_Z 2305843284091600896).
+Proof. vm_compute. reflexivity. Qed.
+Example round_const_scar_double_f32 :
+  sf_to_FloatConst (SFdiv 24 128 (round_float_sf F64 scar_x) (sf_of_Z 1))
+    = Some (fc_of_Z 2305843009213693952).
+Proof. reflexivity. Qed.
+Example round_const_overflow_f32 :
+  round_float_const F32 (fc_of_Z (10 ^ 40)) = None.
+Proof. vm_compute. reflexivity. Qed.
+Example round_const_underflow_f64 :
+  round_float_const F64 (reduce_fc 1 (10 ^ 330)%positive) = Some fc_zero.
+Proof. vm_compute. reflexivity. Qed.
+Example round_const_source_zero_f64 :
+  round_float_const F64 fc_zero = Some fc_zero.   (* the canonical zero rounds to +0 *)
+Proof. vm_compute. reflexivity. Qed.
+Example float_representableb_scar_f32 : float_representableb F32 scar_x = true.
+Proof. vm_compute. reflexivity. Qed.
+Example float_representableb_overflow_f32 : float_representableb F32 (fc_of_Z (10 ^ 40)) = false.
+Proof. vm_compute. reflexivity. Qed.
 
 (** §30-32 the runtime of a typed float constant is +0 or finite — NEVER negative zero, infinity, or NaN
     (those inhabit the general [FloatValue] domain but are not constants).  Directly from the [tfc_shape]
