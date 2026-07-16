@@ -105,13 +105,34 @@ preserved as history — not rewritten.
 - Push result: pending
 - Human disposition: **pending**
 
-### C0A decision record (filled at C0A completion)
-- Path-unique `TForest` shape: pending
-- `SyntaxIndex fs` representation + correspondence theorem: pending
-- `FileRef fs` representation + hidden-slot role: pending
-- `NodeRef fs` representation: pending
-- Outer / per-file table design: pending
-- Corrected query complexities: pending
-- Raw-key minting cost (`ref_of_key`): pending
-- Deleted fallback/option/filter branches: pending
-- Same-shaped / different-source regression + repeated-equal-leaf regression: pending
+### C0A decision record (filled at the ROOT barrier; navigation-proof family completes at FINAL)
+- Path-unique `TForest` shape: `Record TForest { forest_files : list TFile ; forest_paths_unique :
+  NoDup (map tf_path forest_files) }` — duplicate paths are unrepresentable, so a path names at most one file.
+- `SyntaxIndex fs` representation + correspondence: `Record SyntaxIndex fs { si_outer : NodeTable FileIndex ;
+  si_ok : forall slot f, forest_file_at fs slot = Some f -> NodeTable.get slot si_outer = Some (build_file f) }`
+  — the outer table carries its OWN correspondence proof (`si_ok`) to the exact snapshot; `index_forest fs`
+  is the only builder (constructor sealed).
+- `FileRef fs` representation + hidden-slot role: `Record FileRef fs { file_ref_slot : positive (HIDDEN) ;
+  file_ref_file : TFile ; file_ref_at : forest_file_at fs file_ref_slot = Some file_ref_file }`.  The slot is
+  a private optimization handle (never rendered, never the public key); the public identity is `file_ref_path`.
+- `NodeRef fs` representation: `Record NodeRef fs { node_ref_file : FileRef fs ; node_ref_local : positive ;
+  node_ref_valid : valid_localb (file_ref_file node_ref_file) node_ref_local = true }` — indexed by the EXACT
+  snapshot `fs`; `node_ref_key = (file_ref_path, local)`, slot NOT in the key.
+- Outer / per-file table design: an abstract slot-keyed outer `NodeTable FileIndex` (`outer_of`, one `set` per
+  file), each entry the built per-file index (path + trie + count).  Both `NodeTable`s are the sealed radix trie.
+- Corrected query complexities: build O(files·log files + Σ nodes·log nodes/file); containing-file O(1)
+  projection off the `NodeRef`; `ref_meta`/`node_kind`/`node_role`/`subtree_end` = ONE outer slot lookup
+  (O(log files)) + ONE per-file lookup (O(log nodes/file)) — **no file-list scan**; ancestor O(log)+O(1);
+  direct children one file-index acquisition then the list-free O(#children) `child_enum` jump.
+- Raw-key minting cost (`ref_of_key` / `file_of_path`): a SINGLE `find_slot` scan of the file list (O(files));
+  documented as the separate minting boundary — the hot path from an existing `NodeRef` never uses it.
+- Sealing: `Module Snap : SNAP_SIG` hides the raw `mkFileRef`/`mkNodeRef`/`mkSyntaxIndex` and the slot; only
+  the validated minting/navigation API + theorems are exposed.
+- Deleted fallback/option/filter branches: `node_kind`'s `KFile` fallback; `ref_meta`/`containing_file`'s
+  `option` results; `children_of`'s silent child-drop — all replaced by TOTAL functions (via `option_get` off a
+  proven-present option / `refine_children` off `child_enum` soundness).  Only `parent_of` stays `option`
+  (root has no parent).
+- Same-shaped / different-source + repeated-equal-leaf regression: `fs_a` (leaves 5) vs `fs_b` (leaves 6, same
+  paths/shape) — `Fail Definition reg_cross_snapshot : NodeRef fs_b := rleaf_a5` (type-level separation);
+  `node_at` recovers `TLeaf 5` in `fs_a` and `TLeaf 6` in `fs_b`; the two equal `TLeaf 5` leaves of `fs_a` have
+  DISTINCT references (distinct keys).  All axiom-free (gate 340/340, whole-theory audit).

@@ -432,15 +432,11 @@ Print Assumptions OccurrenceSpike.thm3_nonroot_has_parent.
 Print Assumptions OccurrenceSpike.thm3b_parent_unique.
 Print Assumptions OccurrenceSpike.thm4_child_has_parent.
 Print Assumptions OccurrenceSpike.thm4_parent_has_child.
-Print Assumptions OccurrenceSpike.thm5_parent_same_file.
-Print Assumptions OccurrenceSpike.thm6_containing_file.
 Print Assumptions OccurrenceSpike.thm7_enum_nodup.
 Print Assumptions OccurrenceSpike.thm7_enum_complete.
 Print Assumptions OccurrenceSpike.thm7_enum_sound.
 Print Assumptions OccurrenceSpike.thm8_nodekey_eq_dec.
 Print Assumptions OccurrenceSpike.thm8_nodekey_eqb_spec.
-Print Assumptions OccurrenceSpike.thm9_equal_leaves_distinct_refs.
-Print Assumptions OccurrenceSpike.thm10_containing_file_path.
 (* the interval-jump child enumeration + its tiling foundations (first-child / next-sibling, sound + reaches). *)
 Print Assumptions OccurrenceSpike.first_child.
 Print Assumptions OccurrenceSpike.next_child.
@@ -449,9 +445,27 @@ Print Assumptions OccurrenceSpike.child_enum_sound.
 Print Assumptions OccurrenceSpike.child_enum_reaches.
 Print Assumptions OccurrenceSpike.build_expr_end.
 Print Assumptions OccurrenceSpike.occ_file.
-Print Assumptions OccurrenceSpike.containing_file.
 Print Assumptions OccurrenceSpike.thm11_children_sorted.
-Print Assumptions OccurrenceSpike.thm12_deterministic.
 Print Assumptions OccurrenceSpike.thm_builder_no_structural_search.
 Print Assumptions OccurrenceSpike.thm13_interval_ancestry.
 Print Assumptions OccurrenceSpike.thm14_meta_stores_no_subtree.
+(* C0A: the SEALED, source-snapshot-indexed reference layer + TOTAL navigation.  References belong to the
+   exact source snapshot [fs]; the raw constructors are hidden behind [Snap]'s signature; metadata / kind /
+   containing-file queries are TOTAL (no option, no fallback); and the §9 regression pins that same-shape /
+   different-payload snapshots have non-interchangeable references recovering the exact per-snapshot payload. *)
+Print Assumptions OccurrenceSpike.outer_get_at.
+Print Assumptions OccurrenceSpike.Snap.index_forest.
+Print Assumptions OccurrenceSpike.Snap.ref_meta.
+Print Assumptions OccurrenceSpike.Snap.containing_file.
+Print Assumptions OccurrenceSpike.Snap.parent_of.
+Print Assumptions OccurrenceSpike.Snap.children_of.
+Print Assumptions OccurrenceSpike.Snap.node_at.
+Print Assumptions OccurrenceSpike.Snap.node_ref_ext.
+Print Assumptions OccurrenceSpike.Snap.thm_node_kind.
+Print Assumptions OccurrenceSpike.Snap.thm_ref_meta_built.
+Print Assumptions OccurrenceSpike.Snap.thm_containing_file.
+Print Assumptions OccurrenceSpike.Snap.thm_parent_root.
+Print Assumptions OccurrenceSpike.Snap.thm_parent_nonroot.
+Print Assumptions OccurrenceSpike.Snap.reg_node_at_a.
+Print Assumptions OccurrenceSpike.Snap.reg_node_at_b.
+Print Assumptions OccurrenceSpike.Snap.reg_equal_leaves_distinct.
