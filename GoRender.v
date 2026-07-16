@@ -1255,13 +1255,14 @@ Theorem render_resolved_expr_denotes : forall e t,
     /\ resolved_const_type rc = t
     /\ RenderedConstInfoDenotes (render_expr e) ci
     /\ eval_expr e = Some v
+    /\ v = resolved_const_value rc
     /\ value_type v = t
     /\ ValueWF v
     /\ ValueDenotesConst v (resolved_const_exact rc).
 Proof.
   intros e t H.
   destruct (eval_expr_denotes UsePrintlnArg e t H)
-    as [ rc [ v [ Hrec [ Hev [ Hvt [ Hwf Hden ] ] ] ] ] ].
+    as [ rc [ v [ Hrec [ Hev [ Hveq [ Hvt [ Hwf Hden ] ] ] ] ] ] ].
   destruct (resolve_expr_const_sound UsePrintlnArg e rc Hrec) as [ ci [ Hci [ Hri Hua ] ] ].
   assert (Hteq : resolved_const_type rc = t).
   { apply resolve_expr_complete in H; unfold resolve_expr in H; rewrite Hrec in H;
@@ -1272,6 +1273,7 @@ Proof.
   split; [ reflexivity | ].
   split; [ apply render_const_info_denotes; exact Hci | ].
   split; [ exact Hev | ].
+  split; [ exact Hveq | ].
   split; [ exact Hvt | ].
   split; [ exact Hwf | exact Hden ].
 Qed.
@@ -1315,7 +1317,8 @@ Lemma render_resolved_string_denotes : forall s t,
   exists ci rc v, const_info (EString s) = Some ci /\ resolve_const_info ci = Some rc
             /\ resolved_const_type rc = t
             /\ RenderedConstInfoDenotes (render_expr (EString s)) ci
-            /\ eval_expr (EString s) = Some v /\ value_type v = t /\ ValueWF v
+            /\ eval_expr (EString s) = Some v /\ v = resolved_const_value rc
+            /\ value_type v = t /\ ValueWF v
             /\ ValueDenotesConst v (resolved_const_exact rc).
 Proof. intros s t H; apply render_resolved_expr_denotes; exact H. Qed.
 

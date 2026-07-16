@@ -234,6 +234,11 @@ Print Assumptions GoCompile.float_reject_no_compile.
 Print Assumptions GoSafe.eval_zero_sign_agnostic.
 Print Assumptions GoSafe.eval_expr_resolved.
 Print Assumptions GoSafe.eval_expr_resolved_type.
+(* §29.5 evaluation returns EXACTLY the resolved typed constant's stored value — a resolved float projects its
+   packaged tfc_runtime (no second round), stated generically and as the explicit float-runtime corollary. *)
+Print Assumptions GoSafe.resolved_const_value_float.
+Print Assumptions GoSafe.eval_expr_resolved_value.
+Print Assumptions GoSafe.eval_projects_stored_float_runtime.
 Print Assumptions GoSafe.value_wfb_iff.
 Print Assumptions GoSafe.typed_const_to_value_denotes.
 Print Assumptions GoSafe.eval_string_value.

@@ -163,6 +163,15 @@ Definition eval_expr (e : GoExpr) : option GoValue :=
       end
   end.
 
+(** the runtime value STORED IN a resolved typed constant — evaluation returns EXACTLY this, no re-derivation:
+    for a float it is the packaged [tfc_runtime], never a second rounding. *)
+Definition resolved_const_value (rc : ResolvedConst) : GoValue :=
+  match rc with pack_resolved _ tc => typed_const_to_value tc end.
+
+Lemma resolved_const_value_float : forall ft (tfc : TypedFloatConst ft),
+  resolved_const_value (pack_resolved (TFloat ft) (TCFloat ft tfc)) = VFloat ft (tfc_runtime tfc).
+Proof. intros ft tfc; cbn [resolved_const_value]; apply typed_const_to_value_float. Qed.
+
 (** A RESOLVED expression always evaluates to a well-formed value whose runtime type is EXACTLY the resolved
     [GoType] — the compiler's static resolution and the runtime value agree (one [GoType] authority). *)
 Lemma eval_expr_resolved : forall u e t,
@@ -183,11 +192,36 @@ Proof.
     exists v; split; assumption.
 Qed.
 
-(** §24/§29 the resolved runtime value DENOTES the resolved exact constant — the runtime/constant tie, phrased
-    through the honest relation (never a total fallback). *)
+(** §29.5 evaluation returns EXACTLY [typed_const_to_value] of the SAME resolved typed constant that proves
+    typing: [eval_expr] and [resolve_expr_const] walk the one [const_info]->[resolve_const_info] path, so a
+    resolved value is precisely the [resolved_const_value] of the resolved constant — a resolved float projects
+    its packaged [tfc_runtime], never a re-rounded value. *)
+Lemma eval_expr_resolved_value : forall u e rc,
+  resolve_expr_const u e = Some rc -> eval_expr e = Some (resolved_const_value rc).
+Proof.
+  intros u e rc H.
+  destruct (resolve_expr_const_sound u e rc H) as [ ci [ Hci [ Hri _ ] ] ].
+  destruct rc as [ t tc ]; unfold eval_expr; rewrite Hci, Hri; reflexivity.
+Qed.
+
+(** §29 (float) evaluation projects the SAME STORED RUNTIME: a resolved typed FLOAT constant evaluates to
+    exactly its packaged [tfc_runtime] — the value built at the single construction rounding, never rounded
+    again. *)
+Corollary eval_projects_stored_float_runtime : forall u e ft (tfc : TypedFloatConst ft),
+  resolve_expr_const u e = Some (pack_resolved (TFloat ft) (TCFloat ft tfc)) ->
+  eval_expr e = Some (VFloat ft (tfc_runtime tfc)).
+Proof.
+  intros u e ft tfc H.
+  rewrite (eval_expr_resolved_value u e _ H), resolved_const_value_float; reflexivity.
+Qed.
+
+(** §24/§29 the resolved runtime value IS [resolved_const_value] of the resolved constant (point 5) AND DENOTES
+    the resolved exact constant — the runtime/constant tie, phrased through the honest relation (never a total
+    fallback). *)
 Lemma eval_expr_denotes : forall u e t,
   ResolveExpr u e t ->
   exists rc v, resolve_expr_const u e = Some rc /\ eval_expr e = Some v
+            /\ v = resolved_const_value rc
             /\ value_type v = resolved_const_type rc /\ ValueWF v
             /\ ValueDenotesConst v (resolved_const_exact rc).
 Proof.
@@ -199,8 +233,9 @@ Proof.
   { unfold resolve_expr_const; rewrite Hci, Hrc; cbn [resolved_const_type]; rewrite Hua; reflexivity. }
   unfold eval_expr; rewrite Hci, Hrc.
   split; [ exact Hrec | split; [ reflexivity |
+    split; [ reflexivity |
     split; [ apply typed_const_to_value_type |
-    split; [ apply typed_const_to_value_wf | apply typed_const_to_value_denotes ] ] ] ].
+    split; [ apply typed_const_to_value_wf | apply typed_const_to_value_denotes ] ] ] ] ].
 Qed.
 
 (** By VALUE, not spelling: a zero literal and a negated zero evaluate to the SAME value. *)
