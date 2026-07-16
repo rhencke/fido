@@ -8,71 +8,78 @@
     the theory, and will be DELETED once the production [GoIndex] lands (C2).
 
     C0.3 REPRESENTATION DECISION (recorded in .review/SOURCE_FOREST_STATUS.md):
-      A. a certified positive-key radix trie ([PTrie] below) — pure Gallina, empty assumption closure,
-         O(bits) = O(log n) lookup/insert, persistent, [vm_compute]-reducible, decidable-key ergonomics.
+      A. a certified positive-key radix trie (the [NodeTable] module below) — pure Gallina, empty assumption
+         closure, O(bits) = O(log n) lookup/insert, persistent, decidable-key ergonomics.
       B. a primitive dense array (Coq [PArray]/[Uint63]) — O(1) lookup, BUT built on KERNEL PRIMITIVES
          (Int63/PArray), which Fido's standing law rule 4 forbids ("Never ... a kernel primitive").  Its
          "assumption closure" is a kernel extension outside pure CIC, so it fails the zero-axiom/no-primitive
          policy regardless of speed.  REJECTED.
-    Selected: A.  The public [NodeTable] API ([pget]/[pset]) hides the choice, so C2 could swap the physical
-    table without disturbing callers.  A plain association [list] is deliberately NOT used: it would give a
-    forbidden O(n) list-scan node-table lookup (Master Plan 4.8).  *)
+    Selected: A.  The public [NodeTable] interface ([table]/[empty]/[get]/[set] + the three laws) HIDES the
+    trie representation, so C2 can swap the physical table without disturbing any caller.  A plain association
+    [list] is deliberately NOT used: it would give a forbidden O(n) list-scan node-table lookup (Master
+    Plan 4.8).  *)
 
 From Stdlib Require Import PArith List Bool Lia Eqdep_dec Wf_nat Sorted String.
 From Fido Require Import FilePath.
 Import ListNotations.
 
 (* ================================================================================================= *)
-(** ** The selected node table: a certified positive-key radix trie (candidate A).                    *)
+(** ** The selected node table: an ABSTRACT interface, implemented internally by a certified            *)
+(*    positive-key radix trie (candidate A).  Callers see ONLY [NodeTable.table]/[empty]/[get]/[set]     *)
+(*    and the three laws; the trie representation and its constructors are sealed inside the module, so   *)
+(*    C2 may swap the physical table without disturbing any caller (Master Plan 4.9).                     *)
 (* ================================================================================================= *)
 
-Inductive PTrie (A : Type) : Type :=
-| PLeaf : PTrie A
-| PBr   : option A -> PTrie A -> PTrie A -> PTrie A.
-Arguments PLeaf {A}.
-Arguments PBr {A} _ _ _.
+Module Type NODE_TABLE.
+  Parameter table : Type -> Type.
+  Parameter empty : forall {A}, table A.
+  Parameter get   : forall {A}, positive -> table A -> option A.
+  Parameter set   : forall {A}, positive -> A -> table A -> table A.
+  Parameter get_empty     : forall {A} (k : positive), get k (@empty A) = None.
+  Parameter get_set_same  : forall {A} (k : positive) (v : A) (t : table A), get k (set k v t) = Some v.
+  Parameter get_set_other : forall {A} (j k : positive) (v : A) (t : table A),
+    j <> k -> get k (set j v t) = get k t.
+End NODE_TABLE.
 
-Fixpoint pget {A} (k : positive) (t : PTrie A) : option A :=
-  match t with
-  | PLeaf => None
-  | PBr o l r =>
-      match k with
-      | xH    => o
-      | xO k' => pget k' l
-      | xI k' => pget k' r
-      end
-  end.
-
-Fixpoint pset {A} (k : positive) (v : A) (t : PTrie A) : PTrie A :=
-  match k, t with
-  | xH,    PLeaf      => PBr (Some v) PLeaf PLeaf
-  | xH,    PBr _ l r  => PBr (Some v) l r
-  | xO k', PLeaf      => PBr None (pset k' v PLeaf) PLeaf
-  | xO k', PBr o l r  => PBr o (pset k' v l) r
-  | xI k', PLeaf      => PBr None PLeaf (pset k' v PLeaf)
-  | xI k', PBr o l r  => PBr o l (pset k' v r)
-  end.
-
-Lemma pget_leaf {A} (k : positive) : pget k (@PLeaf A) = None.
-Proof. destruct k; reflexivity. Qed.
-
-(* the standard "get-set-same" / "get-set-other" trie laws (O(log n), persistent). *)
-Lemma pget_pset_same {A} (k : positive) (v : A) (t : PTrie A) : pget k (pset k v t) = Some v.
-Proof.
-  revert t; induction k as [k' IH|k' IH|]; intros [ | o l r ]; simpl; auto.
-Qed.
-
-Lemma pget_pset_other {A} (j k : positive) (v : A) (t : PTrie A) :
-  j <> k -> pget k (pset j v t) = pget k t.
-Proof.
-  revert k t; induction j as [j' IH|j' IH|]; intros k t Hjk;
-    destruct k as [k'|k'|]; destruct t as [ | o l r ]; simpl;
-    try reflexivity;
-    try (now rewrite pget_leaf);
-    try (rewrite IH by congruence; now rewrite ?pget_leaf);
-    try (apply IH; congruence);
-    try (exfalso; congruence).
-Qed.
+Module NodeTable : NODE_TABLE.
+  (* internal representation — a persistent positive-key radix trie; O(log n) get/set. *)
+  Inductive tr (A : Type) : Type := Lf : tr A | Nd : option A -> tr A -> tr A -> tr A.
+  Arguments Lf {A}.
+  Arguments Nd {A} _ _ _.
+  Fixpoint rd {A} (k : positive) (t : tr A) : option A :=
+    match t with
+    | Lf => None
+    | Nd o l r => match k with xH => o | xO k' => rd k' l | xI k' => rd k' r end
+    end.
+  Fixpoint wr {A} (k : positive) (v : A) (t : tr A) : tr A :=
+    match k, t with
+    | xH,    Lf        => Nd (Some v) Lf Lf
+    | xH,    Nd _ l r  => Nd (Some v) l r
+    | xO k', Lf        => Nd None (wr k' v Lf) Lf
+    | xO k', Nd o l r  => Nd o (wr k' v l) r
+    | xI k', Lf        => Nd None Lf (wr k' v Lf)
+    | xI k', Nd o l r  => Nd o l (wr k' v r)
+    end.
+  Lemma rd_leaf {A} (k : positive) : rd k (@Lf A) = None. Proof. destruct k; reflexivity. Qed.
+  Definition table := tr.
+  Definition empty {A} : table A := @Lf A.
+  Definition get {A} := @rd A.
+  Definition set {A} := @wr A.
+  Lemma get_empty {A} (k : positive) : get k (@empty A) = None. Proof. apply rd_leaf. Qed.
+  Lemma get_set_same {A} (k : positive) (v : A) (t : table A) : get k (set k v t) = Some v.
+  Proof. unfold get, set. revert t; induction k as [k' IH|k' IH|]; intros [ | o l r ]; simpl; auto. Qed.
+  Lemma get_set_other {A} (j k : positive) (v : A) (t : table A) :
+    j <> k -> get k (set j v t) = get k t.
+  Proof.
+    unfold get, set. revert k t; induction j as [j' IH|j' IH|]; intros k t Hjk;
+      destruct k as [k'|k'|]; destruct t as [ | o l r ]; simpl;
+      try reflexivity;
+      try (now rewrite rd_leaf);
+      try (rewrite IH by congruence; now rewrite ?rd_leaf);
+      try (apply IH; congruence);
+      try (exfalso; congruence).
+  Qed.
+End NodeTable.
 
 (* ================================================================================================= *)
 (** ** Occurrence kinds, roles, and metadata (Master Plan 4.4 / 4.6).                                 *)
@@ -115,34 +122,34 @@ Definition root_id : positive := 1%positive.    (* every file root's canonical l
 (* ================================================================================================= *)
 (** ** The one-pass index builder (Master Plan 4.8).                                                   *)
 (*    Each builder threads a fresh-id counter and inserts each occurrence's metadata EXACTLY ONCE via  *)
-(*    [pset] (O(log n)); it never searches, compares, or copies syntax subtrees.  A subtree builder    *)
-(*    returns the subtree's last id ([se], its [subtree_end]); a sequence builder returns the next     *)
+(*    [NodeTable.set] (O(log n)); it never searches, compares, or copies syntax subtrees.  A subtree    *)
+(*    builder returns the subtree's last id ([se], its [subtree_end]); a sequence builder returns the   *)
 (*    free id.  Meta for an internal node is inserted AFTER its children so [subtree_end] is known.     *)
 (* ================================================================================================= *)
 
-Fixpoint build_expr (parent : positive) (role : NodeRole) (me : positive) (e : TExpr) (t : PTrie NodeMeta)
-  : PTrie NodeMeta * positive (* subtree_end *) :=
+Fixpoint build_expr (parent : positive) (role : NodeRole) (me : positive) (e : TExpr) (t : NodeTable.table NodeMeta)
+  : NodeTable.table NodeMeta * positive (* subtree_end *) :=
   match e with
-  | TLeaf _ => (pset me (mkMeta KExpression (Some parent) role me) t, me)
+  | TLeaf _ => (NodeTable.set me (mkMeta KExpression (Some parent) role me) t, me)
   | TBin l r =>
       let '(t1, e1) := build_expr me (RChild 0) (Pos.succ me) l t in
       let '(t2, e2) := build_expr me (RChild 1) (Pos.succ e1) r t1 in
-      (pset me (mkMeta KExpression (Some parent) role e2) t2, e2)
+      (NodeTable.set me (mkMeta KExpression (Some parent) role e2) t2, e2)
   end.
 
-Definition build_stmt (parent : positive) (sidx : nat) (me : positive) (s : TStmt) (t : PTrie NodeMeta)
-  : PTrie NodeMeta * positive :=
+Definition build_stmt (parent : positive) (sidx : nat) (me : positive) (s : TStmt) (t : NodeTable.table NodeMeta)
+  : NodeTable.table NodeMeta * positive :=
   match s with
   | TPrint e =>
       let '(t1, e1) := build_expr me RStmtExpr (Pos.succ me) e t in
-      (pset me (mkMeta KStatement (Some parent) (RDeclStmt sidx) e1) t1, e1)
+      (NodeTable.set me (mkMeta KStatement (Some parent) (RDeclStmt sidx) e1) t1, e1)
   end.
 
 (* A generic left-to-right sibling-sequence builder: builds each element as a subtree rooted at the
    running fresh id and advances.  Returns the next free id.  [bx] is the per-element subtree builder. *)
-Fixpoint build_seq {X} (bx : positive -> nat -> positive -> X -> PTrie NodeMeta -> PTrie NodeMeta * positive)
-                   (parent : positive) (i0 : nat) (me0 : positive) (xs : list X) (t : PTrie NodeMeta)
-  : PTrie NodeMeta * positive (* next free id *) :=
+Fixpoint build_seq {X} (bx : positive -> nat -> positive -> X -> NodeTable.table NodeMeta -> NodeTable.table NodeMeta * positive)
+                   (parent : positive) (i0 : nat) (me0 : positive) (xs : list X) (t : NodeTable.table NodeMeta)
+  : NodeTable.table NodeMeta * positive (* next free id *) :=
   match xs with
   | []        => (t, me0)
   | x :: rest =>
@@ -150,24 +157,24 @@ Fixpoint build_seq {X} (bx : positive -> nat -> positive -> X -> PTrie NodeMeta 
       build_seq bx parent (S i0) (Pos.succ se) rest t1
   end.
 
-Definition build_decl (parent : positive) (didx : nat) (me : positive) (d : TDecl) (t : PTrie NodeMeta)
-  : PTrie NodeMeta * positive :=
+Definition build_decl (parent : positive) (didx : nat) (me : positive) (d : TDecl) (t : NodeTable.table NodeMeta)
+  : NodeTable.table NodeMeta * positive :=
   match d with
   | TFun body =>
       let '(t1, nx) := build_seq build_stmt me 0 (Pos.succ me) body t in
-      (pset me (mkMeta KDecl (Some parent) (RFileDecl didx) (Pos.pred nx)) t1, Pos.pred nx)
+      (NodeTable.set me (mkMeta KDecl (Some parent) (RFileDecl didx) (Pos.pred nx)) t1, Pos.pred nx)
   end.
 
 Record FileIndex := mkFI {
   fi_path  : FilePath;
-  fi_table : PTrie NodeMeta;
+  fi_table : NodeTable.table NodeMeta;
   fi_count : positive           (* number of occurrences = last local id; ids are [1 .. fi_count] *)
 }.
 
 Definition build_file (f : TFile) : FileIndex :=
-  let '(t1, nx) := build_seq build_decl root_id 0 (Pos.succ root_id) (tf_decls f) PLeaf in
+  let '(t1, nx) := build_seq build_decl root_id 0 (Pos.succ root_id) (tf_decls f) NodeTable.empty in
   let cnt := Pos.pred nx in
-  mkFI (tf_path f) (pset root_id (mkMeta KFile None RFileRoot cnt) t1) cnt.
+  mkFI (tf_path f) (NodeTable.set root_id (mkMeta KFile None RFileRoot cnt) t1) cnt.
 
 Definition SyntaxIndex := list FileIndex.
 Definition build_forest (fs : TForest) : SyntaxIndex := map build_file fs.
@@ -188,7 +195,7 @@ Definition file_of (idx : SyntaxIndex) (fp : FilePath) : option FileIndex :=
 (* a key is valid iff its file is present and its local id resolves in that file's trie. *)
 Definition valid_keyb (idx : SyntaxIndex) (k : NodeKey) : bool :=
   match file_of idx (nk_file k) with
-  | Some fi => match pget (nk_local k) (fi_table fi) with Some _ => true | None => false end
+  | Some fi => match NodeTable.get (nk_local k) (fi_table fi) with Some _ => true | None => false end
   | None    => false
   end.
 
@@ -213,15 +220,20 @@ Definition ref_of (idx : SyntaxIndex) (k : NodeKey) : option (NodeRef idx) :=
 
 Definition ref_meta {idx} (r : NodeRef idx) : option NodeMeta :=
   match file_of idx (nk_file (ref_key r)) with
-  | Some fi => pget (nk_local (ref_key r)) (fi_table fi)
+  | Some fi => NodeTable.get (nk_local (ref_key r)) (fi_table fi)
   | None    => None
   end.
 
 Definition node_kind {idx} (r : NodeRef idx) : SyntaxKind :=
   match ref_meta r with Some m => nm_kind m | None => KFile end.
 
-(* O(1) projection: an occurrence's containing file is read straight off its key (Master Plan 4.8). *)
+(* O(1) projection: an occurrence's containing file PATH is read straight off its key (Master Plan 4.8). *)
 Definition containing_file_path {idx} (r : NodeRef idx) : FilePath := nk_file (ref_key r).
+
+(* the containing file's ROOT reference (a validated [FileRef]): same file, canonical [root_id] id.  O(1)
+   key rebuild + one validated lookup — never an AST search (Master Plan 4.7). *)
+Definition containing_file {idx} (r : NodeRef idx) : option (NodeRef idx) :=
+  ref_of idx (mkKey (nk_file (ref_key r)) root_id).
 
 (* immediate parent: one trie lookup for the meta, one validated key rebuild — never an AST search. *)
 Definition parent_of {idx} (r : NodeRef idx) : option (NodeRef idx) :=
@@ -234,15 +246,15 @@ Definition parent_of {idx} (r : NodeRef idx) : option (NodeRef idx) :=
   end.
 
 (* preorder-interval ancestry: O(1) arithmetic on [subtree_end] after one trie lookup (theorem 13). *)
-Definition parent_id (t : PTrie NodeMeta) (c : positive) : option positive :=
-  match pget c t with Some m => nm_parent m | None => None end.
+Definition parent_id (t : NodeTable.table NodeMeta) (c : positive) : option positive :=
+  match NodeTable.get c t with Some m => nm_parent m | None => None end.
 
-Inductive Ancestor (t : PTrie NodeMeta) : positive -> positive -> Prop :=
+Inductive Ancestor (t : NodeTable.table NodeMeta) : positive -> positive -> Prop :=
 | Anc_dir  : forall a c, parent_id t c = Some a -> Ancestor t a c
 | Anc_step : forall a p c, Ancestor t a p -> parent_id t c = Some p -> Ancestor t a c.
 
-Definition is_ancestor_local (t : PTrie NodeMeta) (a d : positive) : bool :=
-  match pget a t with
+Definition is_ancestor_local (t : NodeTable.table NodeMeta) (a d : positive) : bool :=
+  match NodeTable.get a t with
   | Some ma => Pos.ltb a d && Pos.leb d (nm_subtree_end ma)
   | None    => false
   end.
@@ -256,13 +268,32 @@ Fixpoint pos_seq (start : positive) (len : nat) : list positive :=
   | S n  => start :: pos_seq (Pos.succ start) n
   end.
 
-Definition child_ids (t : PTrie NodeMeta) (pid : positive) : list positive :=
-  match pget pid t with
-  | Some m =>
-      filter (fun c => match pget c t with
-                       | Some mc => match nm_parent mc with Some p => Pos.eqb p pid | None => false end
-                       | None => false end)
-             (pos_seq (Pos.succ pid) (Pos.to_nat (nm_subtree_end m) - Pos.to_nat pid))
+(* direct children by INTERVAL JUMP (Master Plan 4.8/4.10): a table lookup happens ONLY at a direct child
+   root; after each child, the cursor jumps past its whole subtree to [subtree_end(child)+1], so interior
+   descendants are never looked up.  [cands] is the ordered id domain; only the element equal to the
+   advancing cursor is inspected, so the lookup count is O(#direct children), not O(#descendants). *)
+Fixpoint child_walk (t : NodeTable.table NodeMeta) (parent cursor : positive) (cands : list positive)
+  : list positive :=
+  match cands with
+  | [] => []
+  | c :: rest =>
+      if Pos.eqb c cursor then
+        match NodeTable.get c t with
+        | Some mc =>
+            let sub := child_walk t parent (Pos.succ (nm_subtree_end mc)) rest in
+            match nm_parent mc with
+            | Some p => if Pos.eqb p parent then c :: sub else sub
+            | None   => sub
+            end
+        | None => child_walk t parent (Pos.succ cursor) rest
+        end
+      else child_walk t parent cursor rest
+  end.
+
+Definition child_ids (t : NodeTable.table NodeMeta) (pid : positive) : list positive :=
+  match NodeTable.get pid t with
+  | Some m => child_walk t pid (Pos.succ pid)
+                (pos_seq (Pos.succ pid) (Pos.to_nat (nm_subtree_end m) - Pos.to_nat pid))
   | None => []
   end.
 
@@ -285,21 +316,21 @@ Definition children_of {idx} (r : NodeRef idx) : list (NodeRef idx) :=
 (*    strictly fresh ids (no clobber) — this is what makes ancestry monotone under table growth.        *)
 (* ================================================================================================= *)
 
-Definition Fresh (t : PTrie NodeMeta) (from : positive) : Prop :=
-  forall k, (from <= k)%positive -> pget k t = None.
+Definition Fresh (t : NodeTable.table NodeMeta) (from : positive) : Prop :=
+  forall k, (from <= k)%positive -> NodeTable.get k t = None.
 
-Record SubtreeWF (t0 t : PTrie NodeMeta) (oP : option positive) (me se : positive) : Prop := {
+Record SubtreeWF (t0 t : NodeTable.table NodeMeta) (oP : option positive) (me se : positive) : Prop := {
   sub_le    : (me <= se)%positive;
-  sub_out   : forall k, (k < me)%positive \/ (se < k)%positive -> pget k t = pget k t0;
-  sub_root  : exists m, pget me t = Some m /\ nm_parent m = oP /\ nm_subtree_end m = se;
-  sub_pres  : forall k, (me <= k)%positive -> (k <= se)%positive -> pget k t <> None;
-  sub_nest  : forall k m, (me <= k)%positive -> (k <= se)%positive -> pget k t = Some m ->
+  sub_out   : forall k, (k < me)%positive \/ (se < k)%positive -> NodeTable.get k t = NodeTable.get k t0;
+  sub_root  : exists m, NodeTable.get me t = Some m /\ nm_parent m = oP /\ nm_subtree_end m = se;
+  sub_pres  : forall k, (me <= k)%positive -> (k <= se)%positive -> NodeTable.get k t <> None;
+  sub_nest  : forall k m, (me <= k)%positive -> (k <= se)%positive -> NodeTable.get k t = Some m ->
                 (k <= nm_subtree_end m)%positive /\ (nm_subtree_end m <= se)%positive;
-  sub_prng  : forall k m, (me < k)%positive -> (k <= se)%positive -> pget k t = Some m ->
-                exists p mp, nm_parent m = Some p /\ pget p t = Some mp /\
+  sub_prng  : forall k m, (me < k)%positive -> (k <= se)%positive -> NodeTable.get k t = Some m ->
+                exists p mp, nm_parent m = Some p /\ NodeTable.get p t = Some mp /\
                   (me <= p)%positive /\ (p < k)%positive /\
                   (k <= nm_subtree_end mp)%positive /\ (nm_subtree_end m <= nm_subtree_end mp)%positive;
-  sub_snd   : forall a k ma, (me <= a)%positive -> (a <= se)%positive -> pget a t = Some ma ->
+  sub_snd   : forall a k ma, (me <= a)%positive -> (a <= se)%positive -> NodeTable.get a t = Some ma ->
                 (a < k)%positive -> (k <= nm_subtree_end ma)%positive -> Ancestor t a k
 }.
 
@@ -311,18 +342,18 @@ Arguments sub_nest {_ _ _ _ _}.
 Arguments sub_prng {_ _ _ _ _}.
 Arguments sub_snd  {_ _ _ _ _}.
 
-Record ForestWF (t0 t : PTrie NodeMeta) (P lo nx : positive) : Prop := {
+Record ForestWF (t0 t : NodeTable.table NodeMeta) (P lo nx : positive) : Prop := {
   for_le   : (lo <= nx)%positive;
-  for_out  : forall k, (k < lo)%positive \/ (nx <= k)%positive -> pget k t = pget k t0;
-  for_pres : forall k, (lo <= k)%positive -> (k < nx)%positive -> pget k t <> None;
-  for_nest : forall k m, (lo <= k)%positive -> (k < nx)%positive -> pget k t = Some m ->
+  for_out  : forall k, (k < lo)%positive \/ (nx <= k)%positive -> NodeTable.get k t = NodeTable.get k t0;
+  for_pres : forall k, (lo <= k)%positive -> (k < nx)%positive -> NodeTable.get k t <> None;
+  for_nest : forall k m, (lo <= k)%positive -> (k < nx)%positive -> NodeTable.get k t = Some m ->
                (k <= nm_subtree_end m)%positive /\ (nm_subtree_end m < nx)%positive;
-  for_prng : forall k m, (lo <= k)%positive -> (k < nx)%positive -> pget k t = Some m ->
+  for_prng : forall k m, (lo <= k)%positive -> (k < nx)%positive -> NodeTable.get k t = Some m ->
                exists p, nm_parent m = Some p /\
                  (p = P \/ ((lo <= p)%positive /\ (p < k)%positive /\
-                            exists mp, pget p t = Some mp /\
+                            exists mp, NodeTable.get p t = Some mp /\
                               (k <= nm_subtree_end mp)%positive /\ (nm_subtree_end m <= nm_subtree_end mp)%positive));
-  for_snd  : forall a k ma, (lo <= a)%positive -> (a < nx)%positive -> pget a t = Some ma ->
+  for_snd  : forall a k ma, (lo <= a)%positive -> (a < nx)%positive -> NodeTable.get a t = Some ma ->
                (a < k)%positive -> (k <= nm_subtree_end ma)%positive -> Ancestor t a k
 }.
 
@@ -334,52 +365,52 @@ Arguments for_prng {_ _ _ _ _}.
 Arguments for_snd  {_ _ _ _ _}.
 
 (* ancestry only reads parent links at present ids, so it survives any table growth that preserves them. *)
-Lemma ancestor_mono (t t' : PTrie NodeMeta) :
-  (forall j m, pget j t = Some m -> pget j t' = Some m) ->
+Lemma ancestor_mono (t t' : NodeTable.table NodeMeta) :
+  (forall j m, NodeTable.get j t = Some m -> NodeTable.get j t' = Some m) ->
   forall a c, Ancestor t a c -> Ancestor t' a c.
 Proof.
   intros Hmono a c H; induction H as [a c Hp | a p c Hac IH Hp].
-  - apply Anc_dir. unfold parent_id in *. destruct (pget c t) as [m|] eqn:E; try discriminate.
+  - apply Anc_dir. unfold parent_id in *. destruct (NodeTable.get c t) as [m|] eqn:E; try discriminate.
     rewrite (Hmono _ _ E). exact Hp.
   - eapply Anc_step; [exact IH|].
-    unfold parent_id in *. destruct (pget c t) as [m|] eqn:E; try discriminate.
+    unfold parent_id in *. destruct (NodeTable.get c t) as [m|] eqn:E; try discriminate.
     rewrite (Hmono _ _ E). exact Hp.
 Qed.
 
 (* the empty sibling run. *)
-Lemma forest_nil (t : PTrie NodeMeta) P lo : ForestWF t t P lo lo.
+Lemma forest_nil (t : NodeTable.table NodeMeta) P lo : ForestWF t t P lo lo.
 Proof. constructor; intros; solve [ lia | reflexivity | exfalso; lia ]. Qed.
 
 Local Open Scope positive_scope.
 
 (* a wrapped node's fresh id preserves every existing entry of its children table. *)
-Lemma pset_mono (tf : PTrie NodeMeta) me meta :
-  pget me tf = None -> forall j m, pget j tf = Some m -> pget j (pset me meta tf) = Some m.
+Lemma set_mono (tf : NodeTable.table NodeMeta) me meta :
+  NodeTable.get me tf = None -> forall j m, NodeTable.get j tf = Some m -> NodeTable.get j (NodeTable.set me meta tf) = Some m.
 Proof.
   intros Hfresh j m Hj. destruct (Pos.eq_dec j me) as [->|Hne].
   - rewrite Hfresh in Hj; discriminate.
-  - rewrite pget_pset_other by congruence. exact Hj.
+  - rewrite NodeTable.get_set_other by congruence. exact Hj.
 Qed.
 
 (* every id strictly inside a wrapped node's interval descends from the wrapped node. *)
-Lemma wrap_root_sound (t0 tf : PTrie NodeMeta) me nx meta :
+Lemma wrap_root_sound (t0 tf : NodeTable.table NodeMeta) me nx meta :
   Fresh t0 me ->
   ForestWF t0 tf me (Pos.succ me) nx ->
-  pget me tf = None ->
+  NodeTable.get me tf = None ->
   forall k, me < k -> k < nx ->
-    Ancestor (pset me meta tf) me k.
+    Ancestor (NodeTable.set me meta tf) me k.
 Proof.
   intros Hf0 HF Hfresh k.
   induction k as [k IHk] using (well_founded_induction (well_founded_ltof _ (fun p : positive => Pos.to_nat p))).
   intros Hmk Hkx.
-  set (t := pset me meta tf).
-  assert (Hget : pget k t = pget k tf).
-  { unfold t; rewrite pget_pset_other by lia; reflexivity. }
-  destruct (pget k tf) as [m|] eqn:Em.
+  set (t := NodeTable.set me meta tf).
+  assert (Hget : NodeTable.get k t = NodeTable.get k tf).
+  { unfold t; rewrite NodeTable.get_set_other by lia; reflexivity. }
+  destruct (NodeTable.get k tf) as [m|] eqn:Em.
   2:{ exfalso. exact (for_pres HF k ltac:(lia) Hkx Em). }
   destruct (for_prng HF k m ltac:(lia) Hkx Em) as [p [Hpar Hcase]].
   assert (Hpid : parent_id t k = Some p).
-  { unfold parent_id, t. rewrite pget_pset_other by lia. rewrite Em. exact Hpar. }
+  { unfold parent_id, t. rewrite NodeTable.get_set_other by lia. rewrite Em. exact Hpar. }
   destruct Hcase as [Hp | [Hlo [Hpk _]]].
   - (* k is a direct child of me *) subst p. apply Anc_dir. exact Hpid.
   - (* k's parent p is itself inside me's children; recurse *)
@@ -391,23 +422,23 @@ Proof.
 Qed.
 
 (* wrap a children forest (parent = me, over [me+1, nx)) into a single subtree rooted at me. *)
-Lemma subtree_from_forest (t0 tf : PTrie NodeMeta) oP me se nx meta :
+Lemma subtree_from_forest (t0 tf : NodeTable.table NodeMeta) oP me se nx meta :
   nx = Pos.succ se ->
   Fresh t0 me ->
   ForestWF t0 tf me (Pos.succ me) nx ->
   Fresh tf nx ->
   nm_parent meta = oP ->
   nm_subtree_end meta = se ->
-  Fresh (pset me meta tf) nx /\ SubtreeWF t0 (pset me meta tf) oP me se.
+  Fresh (NodeTable.set me meta tf) nx /\ SubtreeWF t0 (NodeTable.set me meta tf) oP me se.
 Proof.
   intros Hnx Hf0 HF Hff Hpar Hend.
   assert (Hmse : me <= se) by (generalize (for_le HF); lia).
-  assert (Hfresh_me : pget me tf = None).
+  assert (Hfresh_me : NodeTable.get me tf = None).
   { rewrite (for_out HF me) by lia. apply Hf0; lia. }
-  set (t := pset me meta tf).
-  (* pget on t: me -> meta, else -> tf *)
-  assert (Hget_me : pget me t = Some meta) by (unfold t; apply pget_pset_same).
-  assert (Hget_ne : forall k, k <> me -> pget k t = pget k tf) by (intros; unfold t; apply pget_pset_other; congruence).
+  set (t := NodeTable.set me meta tf).
+  (* NodeTable.get on t: me -> meta, else -> tf *)
+  assert (Hget_me : NodeTable.get me t = Some meta) by (unfold t; apply NodeTable.get_set_same).
+  assert (Hget_ne : forall k, k <> me -> NodeTable.get k t = NodeTable.get k tf) by (intros; unfold t; apply NodeTable.get_set_other; congruence).
   split.
   - (* Fresh t nx *) intros k Hk. rewrite Hget_ne by lia. apply Hff; exact Hk.
   - constructor.
@@ -436,16 +467,16 @@ Proof.
       * (* a = me : use wrap_root_sound *)
         rewrite Hget_me in Hget_a; injection Hget_a as <-. rewrite Hend in Hkend.
         eapply wrap_root_sound; [exact Hf0 | exact HF | exact Hfresh_me | lia | lia].
-      * (* a in children : lift children soundness through pset me *)
+      * (* a in children : lift children soundness through NodeTable.set me *)
         rewrite Hget_ne in Hget_a by exact Hne.
-        assert (Hmono : forall j mm, pget j tf = Some mm -> pget j t = Some mm)
-          by (intros; unfold t; apply pset_mono; assumption).
+        assert (Hmono : forall j mm, NodeTable.get j tf = Some mm -> NodeTable.get j t = Some mm)
+          by (intros; unfold t; apply set_mono; assumption).
         eapply ancestor_mono; [exact Hmono|].
         eapply (for_snd HF); [lia|lia|exact Hget_a|exact Hak|exact Hkend].
 Qed.
 
 (* compose a subtree with the following sibling run (built afterwards on strictly larger, fresh ids). *)
-Lemma forest_cons (t0 t1 t2 : PTrie NodeMeta) P me se nx :
+Lemma forest_cons (t0 t1 t2 : NodeTable.table NodeMeta) P me se nx :
   SubtreeWF t0 t1 (Some P) me se ->
   Fresh t1 (Pos.succ se) ->
   ForestWF t1 t2 P (Pos.succ se) nx ->
@@ -455,12 +486,12 @@ Proof.
   assert (Hmse : me <= se) by (apply (sub_le HS)).
   assert (Hsx : Pos.succ se <= nx) by (apply (for_le HF)).
   (* monotonicity t1 -> t2 : every t1 entry sits below succ se, hence is preserved by the forest *)
-  assert (Hmono : forall j m, pget j t1 = Some m -> pget j t2 = Some m).
+  assert (Hmono : forall j m, NodeTable.get j t1 = Some m -> NodeTable.get j t2 = Some m).
   { intros j m Hj. destruct (Pos.ltb j (Pos.succ se)) eqn:Hlt.
     - apply Pos.ltb_lt in Hlt. rewrite (for_out HF j) by lia. exact Hj.
     - apply Pos.ltb_ge in Hlt. rewrite (Hf1 j) in Hj by lia. discriminate. }
   (* t2 outside [succ se, nx) equals t1; and t1 outside [me,se] equals t0 *)
-  assert (Hout2 : forall k, k < Pos.succ se \/ nx <= k -> pget k t2 = pget k t1)
+  assert (Hout2 : forall k, k < Pos.succ se \/ nx <= k -> NodeTable.get k t2 = NodeTable.get k t1)
     by (intros; apply (for_out HF); lia).
   constructor.
   - lia.
@@ -501,12 +532,12 @@ Qed.
 (** ** The builders satisfy the structural invariants (each occurrence's subtree is well-formed).     *)
 (* ================================================================================================= *)
 
-Lemma Fresh_weaken (t : PTrie NodeMeta) from from' :
+Lemma Fresh_weaken (t : NodeTable.table NodeMeta) from from' :
   from <= from' -> Fresh t from -> Fresh t from'.
 Proof. intros H HF k Hk. apply HF. lia. Qed.
 
-Lemma Fresh_PLeaf (from : positive) : Fresh PLeaf from.
-Proof. intros k _; apply pget_leaf. Qed.
+Lemma Fresh_empty (from : positive) : Fresh NodeTable.empty from.
+Proof. intros k _; apply NodeTable.get_empty. Qed.
 
 Lemma build_expr_spec : forall e parent role me t0 t se,
   Fresh t0 me ->
@@ -551,7 +582,7 @@ Proof.
 Qed.
 
 Lemma build_seq_spec {X}
-  (bx : positive -> nat -> positive -> X -> PTrie NodeMeta -> PTrie NodeMeta * positive) :
+  (bx : positive -> nat -> positive -> X -> NodeTable.table NodeMeta -> NodeTable.table NodeMeta * positive) :
   (forall parent i me x t0 t se, Fresh t0 me -> bx parent i me x t0 = (t, se) ->
      Fresh t (Pos.succ se) /\ SubtreeWF t0 t (Some parent) me se) ->
   forall xs parent i0 me0 t0 t nx,
@@ -583,8 +614,8 @@ Proof.
   assert (Hge : Pos.succ me <= nx1) by (apply (for_le HF1)).
   assert (Hnx : Pos.succ (Pos.pred nx1) = nx1)
     by (destruct (Pos.succ_pred_or nx1) as [->|H]; [exfalso; lia | exact H]).
-  assert (H : Fresh (pset me (mkMeta KDecl (Some parent) (RFileDecl didx) (Pos.pred nx1)) t1) nx1 /\
-              SubtreeWF t0 (pset me (mkMeta KDecl (Some parent) (RFileDecl didx) (Pos.pred nx1)) t1)
+  assert (H : Fresh (NodeTable.set me (mkMeta KDecl (Some parent) (RFileDecl didx) (Pos.pred nx1)) t1) nx1 /\
+              SubtreeWF t0 (NodeTable.set me (mkMeta KDecl (Some parent) (RFileDecl didx) (Pos.pred nx1)) t1)
                         (Some parent) me (Pos.pred nx1)).
   { eapply subtree_from_forest;
       [ symmetry; exact Hnx | exact Hf0 | exact HF1 | exact Hfr1 | reflexivity | reflexivity ]. }
@@ -592,21 +623,21 @@ Proof.
 Qed.
 
 Lemma build_file_wf (f : TFile) :
-  SubtreeWF PLeaf (fi_table (build_file f)) None root_id (fi_count (build_file f)).
+  SubtreeWF NodeTable.empty (fi_table (build_file f)) None root_id (fi_count (build_file f)).
 Proof.
   unfold build_file.
-  destruct (build_seq build_decl root_id 0 (Pos.succ root_id) (tf_decls f) PLeaf) as [t1 nx] eqn:E.
+  destruct (build_seq build_decl root_id 0 (Pos.succ root_id) (tf_decls f) NodeTable.empty) as [t1 nx] eqn:E.
   simpl.
   destruct (build_seq_spec build_decl build_decl_spec (tf_decls f) root_id 0 (Pos.succ root_id)
-              PLeaf t1 nx (Fresh_PLeaf _) E) as [Hfr HF].
+              NodeTable.empty t1 nx (Fresh_empty _) E) as [Hfr HF].
   assert (Hge : Pos.succ root_id <= nx) by (apply (for_le HF)).
   assert (Hnx : Pos.succ (Pos.pred nx) = nx)
     by (destruct (Pos.succ_pred_or nx) as [->|H]; [exfalso; lia | exact H]).
-  assert (H : Fresh (pset root_id (mkMeta KFile None RFileRoot (Pos.pred nx)) t1) nx /\
-              SubtreeWF PLeaf (pset root_id (mkMeta KFile None RFileRoot (Pos.pred nx)) t1)
+  assert (H : Fresh (NodeTable.set root_id (mkMeta KFile None RFileRoot (Pos.pred nx)) t1) nx /\
+              SubtreeWF NodeTable.empty (NodeTable.set root_id (mkMeta KFile None RFileRoot (Pos.pred nx)) t1)
                         None root_id (Pos.pred nx)).
   { eapply subtree_from_forest;
-      [ symmetry; exact Hnx | apply Fresh_PLeaf | exact HF | exact Hfr | reflexivity | reflexivity ]. }
+      [ symmetry; exact Hnx | apply Fresh_empty | exact HF | exact Hfr | reflexivity | reflexivity ]. }
   destruct H as [_ HS]. exact HS.
 Qed.
 
@@ -660,31 +691,31 @@ Qed.
 
 (* every entry of a built file table lies in the canonical interval [root_id .. count]. *)
 Lemma in_domain (f : TFile) k m :
-  pget k (fi_table (build_file f)) = Some m ->
+  NodeTable.get k (fi_table (build_file f)) = Some m ->
   root_id <= k /\ k <= fi_count (build_file f).
 Proof.
   intros H. pose proof (build_file_wf f) as WF. split.
   - destruct (Pos.leb root_id k) eqn:E; [apply Pos.leb_le; exact E|].
     apply Pos.leb_gt in E. rewrite (sub_out WF k) in H by (left; lia).
-    rewrite pget_leaf in H; discriminate.
+    rewrite NodeTable.get_empty in H; discriminate.
   - destruct (Pos.leb k (fi_count (build_file f))) eqn:E; [apply Pos.leb_le; exact E|].
     apply Pos.leb_gt in E. rewrite (sub_out WF k) in H by (right; lia).
-    rewrite pget_leaf in H; discriminate.
+    rewrite NodeTable.get_empty in H; discriminate.
 Qed.
 
 (* THEOREM 1 — the root id is canonical: every file root occupies the SAME fixed local id [root_id]. *)
 Theorem thm1_root_id_canonical (f : TFile) :
-  exists m, pget root_id (fi_table (build_file f)) = Some m /\ nm_kind m = KFile /\ nm_role m = RFileRoot.
+  exists m, NodeTable.get root_id (fi_table (build_file f)) = Some m /\ nm_kind m = KFile /\ nm_role m = RFileRoot.
 Proof.
   unfold build_file.
-  destruct (build_seq build_decl root_id 0 (Pos.succ root_id) (tf_decls f) PLeaf) as [t1 nx] eqn:E.
+  destruct (build_seq build_decl root_id 0 (Pos.succ root_id) (tf_decls f) NodeTable.empty) as [t1 nx] eqn:E.
   exists (mkMeta KFile None RFileRoot (Pos.pred nx)).
-  cbn [fi_table]. rewrite pget_pset_same. split; [reflexivity | split; reflexivity].
+  cbn [fi_table]. rewrite NodeTable.get_set_same. split; [reflexivity | split; reflexivity].
 Qed.
 
 (* THEOREM 2 — the root has no parent. *)
 Theorem thm2_root_no_parent (f : TFile) m :
-  pget root_id (fi_table (build_file f)) = Some m -> nm_parent m = None.
+  NodeTable.get root_id (fi_table (build_file f)) = Some m -> nm_parent m = None.
 Proof.
   intros H. pose proof (build_file_wf f) as WF. destruct (sub_root WF) as [m0 [Hg [Hp _]]].
   rewrite Hg in H. injection H as <-. exact Hp.
@@ -692,7 +723,7 @@ Qed.
 
 (* THEOREM 3 — every non-root occurrence has exactly one parent. *)
 Theorem thm3_nonroot_has_parent (f : TFile) k m :
-  pget k (fi_table (build_file f)) = Some m -> k <> root_id -> exists p, nm_parent m = Some p.
+  NodeTable.get k (fi_table (build_file f)) = Some m -> k <> root_id -> exists p, nm_parent m = Some p.
 Proof.
   intros H Hne. pose proof (build_file_wf f) as WF.
   destruct (in_domain f k m H) as [Hlo Hhi].
@@ -702,21 +733,21 @@ Qed.
 
 (* the parent field is functional: an occurrence has at most one parent. *)
 Theorem thm3b_parent_unique (f : TFile) k m p1 p2 :
-  pget k (fi_table (build_file f)) = Some m -> nm_parent m = Some p1 -> nm_parent m = Some p2 -> p1 = p2.
+  NodeTable.get k (fi_table (build_file f)) = Some m -> nm_parent m = Some p1 -> nm_parent m = Some p2 -> p1 = p2.
 Proof. intros _ H1 H2. rewrite H1 in H2. injection H2 as <-. reflexivity. Qed.
 
 (* THEOREM 13 (completeness half) — ancestry implies nested preorder intervals. *)
 Lemma anc_complete (f : TFile) a d :
   Ancestor (fi_table (build_file f)) a d ->
-  exists ma md, pget a (fi_table (build_file f)) = Some ma /\
-                pget d (fi_table (build_file f)) = Some md /\
+  exists ma md, NodeTable.get a (fi_table (build_file f)) = Some ma /\
+                NodeTable.get d (fi_table (build_file f)) = Some md /\
                 a < d /\ d <= nm_subtree_end ma /\ nm_subtree_end md <= nm_subtree_end ma.
 Proof.
   pose proof (build_file_wf f) as WF.
   set (t := fi_table (build_file f)) in *.
   induction 1 as [a d Hp | a p c Hac IH Hp].
   - (* Anc_dir : d's parent is a *)
-    unfold parent_id in Hp. destruct (pget d t) as [md|] eqn:Ed; [|discriminate].
+    unfold parent_id in Hp. destruct (NodeTable.get d t) as [md|] eqn:Ed; [|discriminate].
     destruct (in_domain f d md Ed) as [Hlo Hhi].
     assert (Hdne : d <> root_id).
     { intro; subst d. destruct (sub_root WF) as [m0 [Hg [Hp0 _]]]. rewrite Hg in Ed; injection Ed as <-.
@@ -725,7 +756,7 @@ Proof.
     rewrite Hp in Hpar. injection Hpar as <-.
     exists mp, md. repeat split; try assumption; lia.
   - (* Anc_step : c's parent is p, and a is an ancestor of p *)
-    unfold parent_id in Hp. destruct (pget c t) as [mc|] eqn:Ec; [|discriminate].
+    unfold parent_id in Hp. destruct (NodeTable.get c t) as [mc|] eqn:Ec; [|discriminate].
     destruct IH as [ma [mp0 [Hga [Hgp [Hap [Hpend Hmpend]]]]]].
     destruct (in_domain f c mc Ec) as [Hlo Hhi].
     assert (Hcne : c <> root_id).
@@ -736,14 +767,298 @@ Proof.
     exists ma, mc. repeat split; try assumption; lia.
 Qed.
 
+(* ================================================================================================= *)
+(** ** Interval-jump child enumeration is correct (the tiling of a node's interval by its children).   *)
+(* ================================================================================================= *)
+
+Definition parentb (t : NodeTable.table NodeMeta) (c pid : positive) : bool :=
+  match NodeTable.get c t with
+  | Some mc => match nm_parent mc with Some p => Pos.eqb p pid | None => false end
+  | None => false
+  end.
+
+(* a descendant's immediate parent never precedes its ancestor. *)
+Lemma anc_parent_ge (f : TFile) a d p :
+  Ancestor (fi_table (build_file f)) a d ->
+  parent_id (fi_table (build_file f)) d = Some p -> (a <= p)%positive.
+Proof.
+  intros Hanc Hp. inversion Hanc; subst.
+  - rewrite H in Hp. injection Hp as <-. lia.
+  - rewrite H0 in Hp. injection Hp as <-.
+    destruct (anc_complete f a _ H) as [ma [md [_ [_ [Hlt _]]]]]. lia.
+Qed.
+
+(* every id strictly inside a node's preorder interval has that node as an ancestor, so its parent is at
+   least that node — the interval interior contains no id whose parent lies before the node. *)
+Lemma desc_parent_ge (f : TFile) a ma d p :
+  NodeTable.get a (fi_table (build_file f)) = Some ma ->
+  (a < d)%positive -> (d <= nm_subtree_end ma)%positive ->
+  parent_id (fi_table (build_file f)) d = Some p -> (a <= p)%positive.
+Proof.
+  intros Ha Hlt Hle Hp. pose proof (build_file_wf f) as WF.
+  destruct (in_domain f a ma Ha) as [Hlo Hhi].
+  eapply anc_parent_ge; [ eapply (sub_snd WF a d ma); [lia|lia|exact Ha|exact Hlt|exact Hle] | exact Hp ].
+Qed.
+
+(* a pid-child is a proper descendant of pid: pid < c and c is present. *)
+Lemma child_gt (f : TFile) pid c mc :
+  NodeTable.get c (fi_table (build_file f)) = Some mc -> nm_parent mc = Some pid ->
+  (pid < c)%positive.
+Proof.
+  intros Hc Hpar. pose proof (build_file_wf f) as WF.
+  destruct (in_domain f c mc Hc) as [Hlo Hhi].
+  assert (Hcne : c <> root_id).
+  { intro; subst c. destruct (sub_root WF) as [m0 [Hg [Hp0 _]]]. rewrite Hg in Hc; injection Hc as <-.
+    rewrite Hp0 in Hpar; discriminate. }
+  destruct (sub_prng WF c mc ltac:(lia) Hhi Hc) as [p' [mp' [Hpar' [_ [_ [Hltp' _]]]]]].
+  rewrite Hpar in Hpar'. injection Hpar' as <-. exact Hltp'.
+Qed.
+
+(* the FIRST descendant of a node is its child: parent(node+1) = node. *)
+Lemma first_child (f : TFile) pid mp :
+  NodeTable.get pid (fi_table (build_file f)) = Some mp ->
+  (pid < nm_subtree_end mp)%positive ->
+  parent_id (fi_table (build_file f)) (Pos.succ pid) = Some pid.
+Proof.
+  intros Hpid Hlt. pose proof (build_file_wf f) as WF.
+  destruct (in_domain f pid mp Hpid) as [Hlo Hhi].
+  destruct (sub_nest WF pid mp Hlo Hhi Hpid) as [_ Hmpcnt].
+  assert (Hpres : NodeTable.get (Pos.succ pid) (fi_table (build_file f)) <> None)
+    by (eapply (sub_pres WF (Pos.succ pid)); lia).
+  destruct (NodeTable.get (Pos.succ pid) (fi_table (build_file f))) as [m1|] eqn:E1; [|contradiction].
+  destruct (sub_prng WF (Pos.succ pid) m1 ltac:(lia) ltac:(lia) E1) as [p [mp2 [Hpar [_ [_ [Hltp _]]]]]].
+  assert (Hpge : (pid <= p)%positive)
+    by (eapply (desc_parent_ge f pid mp (Pos.succ pid) p Hpid); [lia|lia|unfold parent_id; rewrite E1; exact Hpar]).
+  unfold parent_id. rewrite E1. rewrite Hpar. f_equal. lia.
+Qed.
+
+(* the id just past a child's subtree, if still inside the parent's interval, is the NEXT child. *)
+Lemma next_child (f : TFile) pid mp c mc :
+  NodeTable.get pid (fi_table (build_file f)) = Some mp ->
+  NodeTable.get c (fi_table (build_file f)) = Some mc -> nm_parent mc = Some pid ->
+  (nm_subtree_end mc < nm_subtree_end mp)%positive ->
+  parent_id (fi_table (build_file f)) (Pos.succ (nm_subtree_end mc)) = Some pid.
+Proof.
+  intros Hpid Hc Hpar HEc. pose proof (build_file_wf f) as WF.
+  pose proof (child_gt f pid c mc Hc Hpar) as Hpc.
+  destruct (in_domain f pid mp Hpid) as [Hlo_pid Hhi_pid].
+  destruct (in_domain f c mc Hc) as [Hlo_c Hhi_c].
+  destruct (sub_nest WF c mc ltac:(lia) Hhi_c Hc) as [Hc_le _].
+  destruct (sub_nest WF pid mp Hlo_pid Hhi_pid Hpid) as [_ Hmpcnt].
+  set (d := Pos.succ (nm_subtree_end mc)).
+  assert (Hd1 : (pid < d)%positive) by (unfold d; lia).
+  assert (Hd2 : (d <= nm_subtree_end mp)%positive) by (unfold d; lia).
+  assert (Hpres : NodeTable.get d (fi_table (build_file f)) <> None) by (eapply (sub_pres WF d); lia).
+  destruct (NodeTable.get d (fi_table (build_file f))) as [md|] eqn:Ed; [|contradiction].
+  destruct (sub_prng WF d md ltac:(lia) ltac:(lia) Ed) as [p [mpp [Hparp [Hgetp [_ [Hltp [Hb1 _]]]]]]].
+  (* Hb1 : d <= subtree_end mpp — d is within its own parent p's subtree *)
+  assert (Hpge : (pid <= p)%positive)
+    by (eapply (desc_parent_ge f pid mp d p Hpid); [lia|lia|unfold parent_id; rewrite Ed; exact Hparp]).
+  destruct (in_domain f p mpp Hgetp) as [Hlop Hhip].
+  (* p in [pid, subtree_end mc]; show p = pid by excluding p in cur's subtree and p in (pid, c) *)
+  assert (Hp_eq : p = pid).
+  { destruct (Pos.eq_dec p pid) as [->|Hne]; [reflexivity|]. exfalso.
+    assert (Hpgt : (pid < p)%positive) by lia.
+    destruct (Pos.leb c p) eqn:Hcp.
+    - (* c <= p <= subtree_end mc : p in cur's subtree, so subtree_end p <= subtree_end mc < d <= subtree_end p *)
+      apply Pos.leb_le in Hcp.
+      assert (Hpsub : (nm_subtree_end mpp <= nm_subtree_end mc)%positive).
+      { destruct (Pos.eq_dec p c) as [->|Hpc2].
+        - rewrite Hgetp in Hc. injection Hc as <-. lia.
+        - destruct (anc_complete f c p (sub_snd WF c p mc ltac:(lia) Hhi_c Hc ltac:(lia) ltac:(lia)))
+            as [mc' [mpp' [Hgc [Hgp [_ [_ Hend]]]]]].
+          rewrite Hc in Hgc; injection Hgc as <-. rewrite Hgetp in Hgp; injection Hgp as <-. lia. }
+      unfold d in Hb1. lia.
+    - (* p < c : c is a descendant of p, so parent(c)=pid >= p, contradicting p > pid *)
+      apply Pos.leb_gt in Hcp.
+      assert (Hcanc : Ancestor (fi_table (build_file f)) p c).
+      { eapply (sub_snd WF p c mpp); [lia|exact Hhip|exact Hgetp|lia|]. unfold d in Hb1. lia. }
+      assert (p <= pid)%positive by (eapply anc_parent_ge; [exact Hcanc | unfold parent_id; rewrite Hc; exact Hpar]).
+      lia. }
+  unfold parent_id. rewrite Ed. rewrite Hparp. rewrite Hp_eq. reflexivity.
+Qed.
+
+(* the interior of a child's subtree contains no further child of the same parent. *)
+Lemma interior_not_child (f : TFile) pid cur mcur k :
+  NodeTable.get cur (fi_table (build_file f)) = Some mcur -> nm_parent mcur = Some pid ->
+  (cur < k)%positive -> (k <= nm_subtree_end mcur)%positive ->
+  parentb (fi_table (build_file f)) k pid = false.
+Proof.
+  intros Hcur Hpar Hlt Hle. pose proof (child_gt f pid cur mcur Hcur Hpar) as Hpc.
+  unfold parentb. destruct (NodeTable.get k (fi_table (build_file f))) as [mk|] eqn:Ek; [|reflexivity].
+  destruct (nm_parent mk) as [q|] eqn:Eq; [|reflexivity].
+  assert (cur <= q)%positive
+    by (eapply (desc_parent_ge f cur mcur k q Hcur); [lia|lia|unfold parent_id; rewrite Ek; exact Eq]).
+  destruct (Pos.eqb q pid) eqn:Eqp; [apply Pos.eqb_eq in Eqp; lia | reflexivity].
+Qed.
+
+(* --- child_walk correctness --- *)
+
+(* soundness: every enumerated child truly has parent [parent]. *)
+Lemma child_walk_sound : forall cands t parent cursor c,
+  In c (child_walk t parent cursor cands) -> parent_id t c = Some parent.
+Proof.
+  induction cands as [|x rest IH]; intros t parent cursor c Hin; simpl in Hin; [contradiction|].
+  destruct (Pos.eqb x cursor) eqn:Ex.
+  - destruct (NodeTable.get x t) as [mx|] eqn:Ex2.
+    + destruct (nm_parent mx) as [p|] eqn:Ep.
+      * destruct (Pos.eqb p parent) eqn:Epp.
+        -- destruct Hin as [<-|Hin]; [| eapply IH; exact Hin].
+           unfold parent_id. rewrite Ex2, Ep. apply Pos.eqb_eq in Epp. rewrite Epp. reflexivity.
+        -- eapply IH; exact Hin.
+      * eapply IH; exact Hin.
+    + eapply IH; exact Hin.
+  - eapply IH; exact Hin.
+Qed.
+
+(* every present id in the built table has [id <= subtree_end]. *)
+Lemma built_nested (f : TFile) x mx :
+  NodeTable.get x (fi_table (build_file f)) = Some mx -> (x <= nm_subtree_end mx)%positive.
+Proof.
+  intros Hx. pose proof (build_file_wf f) as WF. destruct (in_domain f x mx Hx) as [Hlo Hhi].
+  destruct (sub_nest WF x mx Hlo Hhi Hx) as [A _]. exact A.
+Qed.
+
+(* every enumerated child is >= the cursor (well-nested table), so outputs are strictly increasing. *)
+Lemma child_walk_ge : forall cands t parent cursor c,
+  (forall x mx, NodeTable.get x t = Some mx -> (x <= nm_subtree_end mx)%positive) ->
+  In c (child_walk t parent cursor cands) -> (cursor <= c)%positive.
+Proof.
+  induction cands as [|x rest IH]; intros t parent cursor c Hnest Hin; simpl in Hin; [contradiction|].
+  destruct (Pos.eqb x cursor) eqn:Ex.
+  - apply Pos.eqb_eq in Ex. subst x.
+    destruct (NodeTable.get cursor t) as [mx|] eqn:Ex2.
+    + assert (cursor <= nm_subtree_end mx)%positive by (apply Hnest in Ex2; exact Ex2).
+      destruct (nm_parent mx) as [p|] eqn:Ep.
+      * destruct (Pos.eqb p parent) eqn:Epp.
+        -- destruct Hin as [<-|Hin]; [lia|]. apply IH in Hin; [lia | exact Hnest].
+        -- apply IH in Hin; [lia | exact Hnest].
+      * apply IH in Hin; [lia | exact Hnest].
+    + apply IH in Hin; [lia | exact Hnest].
+  - apply IH in Hin; [exact Hin | exact Hnest].
+Qed.
+
+Lemma child_walk_SS : forall cands t parent cursor,
+  (forall x mx, NodeTable.get x t = Some mx -> (x <= nm_subtree_end mx)%positive) ->
+  StronglySorted Pos.lt (child_walk t parent cursor cands).
+Proof.
+  induction cands as [|x rest IH]; intros t parent cursor Hnest; simpl; [constructor|].
+  destruct (Pos.eqb x cursor) eqn:Ex.
+  - apply Pos.eqb_eq in Ex. subst x.
+    destruct (NodeTable.get cursor t) as [mx|] eqn:Ex2; [|apply IH; exact Hnest].
+    assert (Hcle : (cursor <= nm_subtree_end mx)%positive) by (apply Hnest in Ex2; exact Ex2).
+    destruct (nm_parent mx) as [p|] eqn:Ep; [|apply IH; exact Hnest].
+    destruct (Pos.eqb p parent) eqn:Epp; [|apply IH; exact Hnest].
+    constructor; [apply IH; exact Hnest|].
+    apply Forall_forall. intros y Hy.
+    apply (child_walk_ge rest t parent (Pos.succ (nm_subtree_end mx)) y Hnest) in Hy. lia.
+  - apply IH; exact Hnest.
+Qed.
+
+(* --- completeness via prefix-skip + interval tiling --- *)
+
+Fixpoint advance (lo : positive) (n : nat) : positive :=
+  match n with O => lo | S k => advance (Pos.succ lo) k end.
+
+Lemma pos_seq_app : forall n m lo, pos_seq lo (n + m) = pos_seq lo n ++ pos_seq (advance lo n) m.
+Proof.
+  induction n as [|n IH]; intros m lo; simpl; [reflexivity|]. rewrite IH. reflexivity.
+Qed.
+
+Lemma advance_lt : forall n lo, (lo <= advance lo n)%positive.
+Proof. induction n as [|n IH]; intros lo; simpl; [lia|]. specialize (IH (Pos.succ lo)). lia. Qed.
+
+Lemma advance_to_nat : forall n lo, Pos.to_nat (advance lo n) = (Pos.to_nat lo + n)%nat.
+Proof. induction n as [|n IH]; intros lo; simpl; [lia|]. rewrite IH, Pos2Nat.inj_succ. lia. Qed.
+
+(* child_walk skips a leading run all strictly below the cursor without inspecting the table. *)
+Lemma child_walk_skip : forall l1 l2 t parent cursor,
+  (forall x, In x l1 -> (x < cursor)%positive) ->
+  child_walk t parent cursor (l1 ++ l2) = child_walk t parent cursor l2.
+Proof.
+  induction l1 as [|x l1 IH]; intros l2 t parent cursor Hlt; simpl; [reflexivity|].
+  assert (x < cursor)%positive by (apply Hlt; left; reflexivity).
+  destruct (Pos.eqb x cursor) eqn:Ex; [apply Pos.eqb_eq in Ex; lia|].
+  apply IH. intros y Hy; apply Hlt; right; exact Hy.
+Qed.
+
+Lemma pos_seq_head : forall n lo, (0 < n)%nat -> exists rest, pos_seq lo n = lo :: rest.
+Proof. intros [|n] lo H; [lia|]. exists (pos_seq (Pos.succ lo) n). reflexivity. Qed.
+
+(* the interval-jump reaches every child: strong induction on the interval size above the cursor. *)
+Lemma child_walk_reaches : forall N f pid mp cur mcur c mc,
+  NodeTable.get pid (fi_table (build_file f)) = Some mp ->
+  NodeTable.get cur (fi_table (build_file f)) = Some mcur -> nm_parent mcur = Some pid ->
+  NodeTable.get c  (fi_table (build_file f)) = Some mc  -> nm_parent mc  = Some pid ->
+  (cur <= c)%positive -> (c <= nm_subtree_end mp)%positive ->
+  N = (Pos.to_nat (nm_subtree_end mp) - Pos.to_nat cur)%nat ->
+  In c (child_walk (fi_table (build_file f)) pid cur
+          (pos_seq cur (S (Pos.to_nat (nm_subtree_end mp) - Pos.to_nat cur)))).
+Proof.
+  induction N as [N IH] using (well_founded_induction lt_wf).
+  intros f pid mp cur mcur c mc Hpid Hcur Hpar Hc Hpc Hle Hcend HN.
+  set (E := nm_subtree_end mp) in *.
+  (* head of the cands list is cur *)
+  simpl. rewrite Pos.eqb_refl. rewrite Hcur, Hpar, Pos.eqb_refl.
+  destruct (Pos.eq_dec c cur) as [->|Hcne]; [left; reflexivity|].
+  right.
+  (* c > cur; c is not in cur's subtree, so subtree_end mcur < c *)
+  assert (Hcurlt : (cur < c)%positive) by lia.
+  assert (HEcur : (nm_subtree_end mcur < c)%positive).
+  { destruct (Pos.leb c (nm_subtree_end mcur)) eqn:Hb; [|apply Pos.leb_gt in Hb; lia].
+    apply Pos.leb_le in Hb. exfalso.
+    pose proof (interior_not_child f pid cur mcur c Hcur Hpar Hcurlt Hb) as Hnc.
+    assert (Htrue : parentb (fi_table (build_file f)) c pid = true)
+      by (unfold parentb; rewrite Hc; cbn; rewrite Hpc; cbn; apply Pos.eqb_refl).
+    congruence. }
+  (* the next cursor is succ(subtree_end mcur); it is the next child *)
+  assert (HEcE : (nm_subtree_end mcur < E)%positive) by lia.
+  pose proof (next_child f pid mp cur mcur Hpid Hcur Hpar HEcE) as Hnext.
+  unfold parent_id in Hnext.
+  destruct (NodeTable.get (Pos.succ (nm_subtree_end mcur)) (fi_table (build_file f))) as [mnc|] eqn:Enc; [|discriminate].
+  (* peel the skipped interior [cur+1 .. subtree_end mcur] then recurse from the next child *)
+  set (cur' := Pos.succ (nm_subtree_end mcur)).
+  assert (Hcur_le_Ecur : (cur <= nm_subtree_end mcur)%positive) by (apply built_nested in Hcur; exact Hcur).
+  (* split the tail pos_seq (succ cur) (E - cur) into interior ++ [cur' .. E] *)
+  assert (Hlen : (Pos.to_nat E - Pos.to_nat cur = (Pos.to_nat (nm_subtree_end mcur) - Pos.to_nat cur)
+                   + S (Pos.to_nat E - Pos.to_nat cur'))%nat).
+  { unfold cur'. rewrite Pos2Nat.inj_succ.
+    assert (Pos.to_nat cur <= Pos.to_nat (nm_subtree_end mcur))%nat by (apply Pos2Nat.inj_le; exact Hcur_le_Ecur).
+    assert (Pos.to_nat (nm_subtree_end mcur) < Pos.to_nat E)%nat by (apply Pos2Nat.inj_lt; exact HEcE).
+    lia. }
+  rewrite Hlen. rewrite pos_seq_app.
+  rewrite child_walk_skip.
+  2:{ intros x Hx. apply pos_seq_In in Hx. unfold cur'.
+      assert (Pos.to_nat (Pos.succ cur) <= Pos.to_nat x)%nat by lia.
+      rewrite Pos2Nat.inj_succ in *.
+      assert (Pos.to_nat x < Pos.to_nat (Pos.succ cur) + (Pos.to_nat (nm_subtree_end mcur) - Pos.to_nat cur))%nat by lia.
+      rewrite Pos2Nat.inj_succ in *.
+      apply Pos2Nat.inj_lt.
+      assert (Pos.to_nat cur <= Pos.to_nat (nm_subtree_end mcur))%nat by (apply Pos2Nat.inj_le; exact Hcur_le_Ecur).
+      rewrite Pos2Nat.inj_succ. lia. }
+  (* now recurse from cur' with the remaining interval *)
+  replace (advance (Pos.succ cur) (Pos.to_nat (nm_subtree_end mcur) - Pos.to_nat cur)) with cur'.
+  2:{ (* advance (succ cur) k = succ cur + k = succ (subtree_end mcur) when k = subtree_end mcur - cur *)
+      apply Pos2Nat.inj. rewrite advance_to_nat. unfold cur'.
+      rewrite !Pos2Nat.inj_succ.
+      assert (Pos.to_nat cur <= Pos.to_nat (nm_subtree_end mcur))%nat by (apply Pos2Nat.inj_le; exact Hcur_le_Ecur).
+      lia. }
+  eapply (IH (Pos.to_nat E - Pos.to_nat cur')%nat);
+    [ (* measure decreases: E - cur' < N = E - cur *)
+      rewrite HN; unfold cur'; rewrite Pos2Nat.inj_succ;
+      assert (Pos.to_nat cur <= Pos.to_nat (nm_subtree_end mcur))%nat by (apply Pos2Nat.inj_le; exact Hcur_le_Ecur);
+      lia
+    | exact Hpid | exact Enc | exact Hnext | exact Hc | exact Hpc | lia | exact Hcend | reflexivity ].
+Qed.
+
 (* THEOREM 13 — the O(1) preorder-interval ancestor test is sound AND complete. *)
 Theorem thm13_interval_ancestry (f : TFile) a d :
-  pget a (fi_table (build_file f)) <> None ->
+  NodeTable.get a (fi_table (build_file f)) <> None ->
   (is_ancestor_local (fi_table (build_file f)) a d = true <-> Ancestor (fi_table (build_file f)) a d).
 Proof.
   intros Ha. pose proof (build_file_wf f) as WF.
   set (t := fi_table (build_file f)) in *.
-  unfold is_ancestor_local. destruct (pget a t) as [ma|] eqn:Ea; [|congruence].
+  unfold is_ancestor_local. destruct (NodeTable.get a t) as [ma|] eqn:Ea; [|congruence].
   split.
   - (* soundness *) intros Hb. apply andb_true_iff in Hb as [H1 H2].
     apply Pos.ltb_lt in H1. apply Pos.leb_le in H2.
@@ -758,41 +1073,44 @@ Qed.
 Theorem thm11_children_sorted (f : TFile) p :
   StronglySorted Pos.lt (child_ids (fi_table (build_file f)) p).
 Proof.
-  unfold child_ids. destruct (pget p (fi_table (build_file f))) as [m|] eqn:Ep; [|constructor].
-  apply filter_SS. apply pos_seq_SS.
+  unfold child_ids. destruct (NodeTable.get p (fi_table (build_file f))) as [m|] eqn:Ep; [|constructor].
+  apply child_walk_SS. intros x mx. apply built_nested.
 Qed.
 
-(* THEOREM 4 — parent/child are inverse: a direct child appears in [child_ids] of its parent, and
-   everything in [child_ids p] has parent [p]. *)
+(* THEOREM 4 — parent/child are inverse: a direct child appears in the interval-jump [child_ids] of its
+   parent, and everything the jump enumerates has that parent. *)
 Theorem thm4_child_has_parent (f : TFile) p c :
   In c (child_ids (fi_table (build_file f)) p) -> parent_id (fi_table (build_file f)) c = Some p.
 Proof.
-  unfold child_ids, parent_id. destruct (pget p (fi_table (build_file f))) as [mp|] eqn:Ep; [|intros []].
-  intros Hin. apply filter_In in Hin as [_ Hf].
-  destruct (pget c (fi_table (build_file f))) as [mc|] eqn:Ec; [|discriminate].
-  destruct (nm_parent mc) as [q|] eqn:Eq; [|discriminate].
-  apply Pos.eqb_eq in Hf. subst q. reflexivity.
+  unfold child_ids. destruct (NodeTable.get p (fi_table (build_file f))) as [mp|] eqn:Ep; [|intros []].
+  apply child_walk_sound.
 Qed.
 
 Theorem thm4_parent_has_child (f : TFile) p c mc :
-  pget c (fi_table (build_file f)) = Some mc -> nm_parent mc = Some p ->
+  NodeTable.get c (fi_table (build_file f)) = Some mc -> nm_parent mc = Some p ->
   In c (child_ids (fi_table (build_file f)) p).
 Proof.
   intros Hc Hpar. pose proof (build_file_wf f) as WF.
+  pose proof (child_gt f p c mc Hc Hpar) as Hpc.
+  (* p is present (it is c's parent) *)
   destruct (in_domain f c mc Hc) as [Hlo Hhi].
-  assert (Hcne : c <> root_id).
-  { intro; subst c. destruct (sub_root WF) as [m0 [Hg [Hp0 _]]]. rewrite Hg in Hc; injection Hc as <-.
-    rewrite Hp0 in Hpar; discriminate. }
-  destruct (sub_prng WF c mc ltac:(lia) Hhi Hc) as [p' [mp' [Hpar' [Hmp' [Hle1 [Hlt1 [Hb1 Hb2]]]]]]].
+  assert (Hcne : c <> root_id)
+    by (intro; subst c; destruct (sub_root WF) as [m0 [Hg [Hp0 _]]]; rewrite Hg in Hc; injection Hc as <-;
+        rewrite Hp0 in Hpar; discriminate).
+  destruct (sub_prng WF c mc ltac:(lia) Hhi Hc) as [p' [mp' [Hpar' [Hgp [_ [_ [Hcbound _]]]]]]].
   rewrite Hpar in Hpar'. injection Hpar' as <-.
-  unfold child_ids. rewrite Hmp'.
-  apply filter_In. split.
-  - apply pos_seq_In. rewrite Pos2Nat.inj_succ.
-    (* c in [p+1 .. subtree_end p] : p < c <= subtree_end mp' *)
-    assert (Pos.to_nat p < Pos.to_nat c)%nat by (apply Pos2Nat.inj_lt; lia).
-    assert (Pos.to_nat c <= Pos.to_nat (nm_subtree_end mp'))%nat by (apply Pos2Nat.inj_le; lia).
-    lia.
-  - rewrite Hc, Hpar. apply Pos.eqb_eq. reflexivity.
+  (* the first child p+1 exists (p < c <= subtree_end mp'), so child_walk starts on a real child *)
+  assert (HpE : (p < nm_subtree_end mp')%positive) by lia.
+  pose proof (first_child f p mp' Hgp HpE) as Hfc. unfold parent_id in Hfc.
+  destruct (NodeTable.get (Pos.succ p) (fi_table (build_file f))) as [m1|] eqn:E1; [|discriminate].
+  unfold child_ids. rewrite Hgp.
+  (* the candidate list [p+1 .. subtree_end mp'] has the shape child_walk_reaches expects *)
+  replace (Pos.to_nat (nm_subtree_end mp') - Pos.to_nat p)%nat
+     with (S (Pos.to_nat (nm_subtree_end mp') - Pos.to_nat (Pos.succ p)))%nat.
+  2:{ rewrite Pos2Nat.inj_succ.
+      assert (Pos.to_nat p < Pos.to_nat (nm_subtree_end mp'))%nat by (apply Pos2Nat.inj_lt; lia). lia. }
+  eapply (child_walk_reaches _ f p mp' (Pos.succ p) m1 c mc);
+    [ exact Hgp | exact E1 | exact Hfc | exact Hc | exact Hpar | lia | exact Hcbound | reflexivity ].
 Qed.
 
 (* THEOREM 5 — parentage stays within one file (references carry the file, so the parent shares it). *)
@@ -811,10 +1129,69 @@ Proof.
   intros H. apply ref_of_key in H. rewrite H. reflexivity.
 Qed.
 
-(* THEOREM 6/10 — the containing file is recovered by O(1) projection and agrees with the key's file. *)
-Theorem thm6_containing_file (idx : SyntaxIndex) (r : NodeRef idx) :
+(* THEOREM 10 — the containing-file PATH is recovered by an O(1) projection agreeing with the key's file. *)
+Theorem thm10_containing_file_path (idx : SyntaxIndex) (r : NodeRef idx) :
   containing_file_path r = nk_file (ref_key r).
 Proof. reflexivity. Qed.
+
+Lemma fi_path_build (f : TFile) : fi_path (build_file f) = tf_path f.
+Proof.
+  unfold build_file.
+  destruct (build_seq build_decl root_id 0 (Pos.succ root_id) (tf_decls f) NodeTable.empty) as [t1 nx].
+  reflexivity.
+Qed.
+
+(* a file resolved in a built forest is exactly the build of some source file bearing that path. *)
+Lemma file_of_built (fs : TForest) (fp : FilePath) (fi : FileIndex) :
+  file_of (build_forest fs) fp = Some fi -> exists f, fi = build_file f /\ tf_path f = fp.
+Proof.
+  unfold file_of, build_forest. intros H. apply find_some in H as [Hin Hpred].
+  apply in_map_iff in Hin as [f [Hf _]]. subst fi.
+  exists f. split; [reflexivity|]. apply fp_eqb_eq. rewrite <- fi_path_build. exact Hpred.
+Qed.
+
+Lemma ref_of_none (idx : SyntaxIndex) (k : NodeKey) :
+  ref_of idx k = None -> valid_keyb idx k = false.
+Proof.
+  unfold ref_of. generalize (@eq_refl bool (valid_keyb idx k)).
+  destruct (valid_keyb idx k) at 2 3; intros e H; [discriminate H | exact e].
+Qed.
+
+(* validated lookup succeeds exactly when the key is valid, yielding a reference at that key. *)
+Lemma ref_of_some (idx : SyntaxIndex) (k : NodeKey) :
+  valid_keyb idx k = true -> exists r, ref_of idx k = Some r /\ ref_key r = k.
+Proof.
+  intros Hv. destruct (ref_of idx k) as [r|] eqn:E.
+  - exists r. split; [reflexivity | exact (ref_of_key _ _ _ E)].
+  - apply ref_of_none in E. rewrite E in Hv. discriminate Hv.
+Qed.
+
+Lemma valid_file_built (fs : TForest) (k : NodeKey) :
+  valid_keyb (build_forest fs) k = true ->
+  exists f, file_of (build_forest fs) (nk_file k) = Some (build_file f).
+Proof.
+  intros Hv. unfold valid_keyb in Hv.
+  destruct (file_of (build_forest fs) (nk_file k)) as [fi|] eqn:Ef; [|discriminate Hv].
+  destruct (file_of_built fs (nk_file k) fi Ef) as [f [Hfi _]]. subst fi. exists f. reflexivity.
+Qed.
+
+(* THEOREM 6 — containing-file recovery at the REFERENCE level: an occurrence's containing file resolves to
+   a VALIDATED file-root reference — same file, canonical [root_id], and [KFile] kind. *)
+Theorem thm6_containing_file (fs : TForest) (r : NodeRef (build_forest fs)) :
+  exists fr : NodeRef (build_forest fs),
+    containing_file r = Some fr /\
+    ref_key fr = mkKey (nk_file (ref_key r)) root_id /\
+    node_kind fr = KFile.
+Proof.
+  destruct (valid_file_built fs (ref_key r) (ref_ok r)) as [f Ef].
+  assert (Hv : valid_keyb (build_forest fs) (mkKey (nk_file (ref_key r)) root_id) = true).
+  { unfold valid_keyb. cbn [nk_file nk_local]. rewrite Ef.
+    destruct (thm1_root_id_canonical f) as [m [Hg _]]. rewrite Hg. reflexivity. }
+  destruct (ref_of_some _ _ Hv) as [fr [Hro Hk]].
+  exists fr. split; [exact Hro | split; [exact Hk|]].
+  unfold node_kind, ref_meta. rewrite Hk. cbn [nk_file nk_local]. rewrite Ef.
+  destruct (thm1_root_id_canonical f) as [m [Hg [Hkind _]]]. rewrite Hg. exact Hkind.
+Qed.
 
 (* THEOREM 8 — NodeKey equality decides occurrence identity. *)
 Lemma fp_eq_dec (a b : FilePath) : {a = b} + {a <> b}.
@@ -846,7 +1223,7 @@ Theorem thm7_enum_nodup (f : TFile) : NoDup (all_ids (build_file f)).
 Proof. apply pos_seq_NoDup. Qed.
 
 Theorem thm7_enum_complete (f : TFile) k m :
-  pget k (fi_table (build_file f)) = Some m -> In k (all_ids (build_file f)).
+  NodeTable.get k (fi_table (build_file f)) = Some m -> In k (all_ids (build_file f)).
 Proof.
   intros H. destruct (in_domain f k m H) as [Hlo Hhi]. unfold all_ids.
   apply pos_seq_In. unfold root_id. rewrite Pos2Nat.inj_1.
@@ -856,7 +1233,7 @@ Proof.
 Qed.
 
 Theorem thm7_enum_sound (f : TFile) k :
-  In k (all_ids (build_file f)) -> pget k (fi_table (build_file f)) <> None.
+  In k (all_ids (build_file f)) -> NodeTable.get k (fi_table (build_file f)) <> None.
 Proof.
   unfold all_ids. intros Hin. apply pos_seq_In in Hin. unfold root_id in Hin. rewrite Pos2Nat.inj_1 in Hin.
   pose proof (build_file_wf f) as WF. apply (sub_pres WF).
@@ -911,27 +1288,134 @@ Definition widx : SyntaxIndex := build_forest wforest.
 Definition wkey_left  : NodeKey := mkKey wpath_a 5.
 Definition wkey_right : NodeKey := mkKey wpath_a 6.
 
-Theorem thm9_equal_leaves_distinct_refs :
-  (* both occurrences are valid, live in the same file, and are the SAME syntactic kind with the SAME
-     leaf value (structurally equal), yet their occurrence keys differ, so they are distinct refs. *)
-  valid_keyb widx wkey_left = true /\
-  valid_keyb widx wkey_right = true /\
-  nodekey_eqb wkey_left wkey_right = false /\
-  wkey_left <> wkey_right.
+(* --- source-occurrence recovery: a TABLE-FREE preorder numbering + the occurrence it addresses, proved
+       to coincide with the builder's own id assignment (build_*_end / build_file_count).  This is what
+       formally connects a local id back to the exact source occurrence the builder indexed there. --- *)
+
+Fixpoint end_expr (me : positive) (e : TExpr) : positive :=
+  match e with
+  | TLeaf _  => me
+  | TBin l r => end_expr (Pos.succ (end_expr (Pos.succ me) l)) r
+  end.
+Definition end_stmt (me : positive) (s : TStmt) : positive :=
+  match s with TPrint e => end_expr (Pos.succ me) e end.
+Fixpoint next_stmts (me : positive) (ss : list TStmt) : positive :=
+  match ss with [] => me | s :: rest => next_stmts (Pos.succ (end_stmt me s)) rest end.
+Definition end_decl (me : positive) (d : TDecl) : positive :=
+  match d with TFun body => Pos.pred (next_stmts (Pos.succ me) body) end.
+Fixpoint next_decls (me : positive) (ds : list TDecl) : positive :=
+  match ds with [] => me | d :: rest => next_decls (Pos.succ (end_decl me d)) rest end.
+Definition count_file (f : TFile) : positive := Pos.pred (next_decls (Pos.succ root_id) (tf_decls f)).
+
+Lemma build_expr_end : forall e parent role me t,
+  snd (build_expr parent role me e t) = end_expr me e.
 Proof.
-  repeat split; try (vm_compute; reflexivity).
-  intro H. discriminate H.
+  induction e as [v|l IHl r IHr]; intros parent role me t; [reflexivity|].
+  simpl. specialize (IHl me (RChild 0) (Pos.succ me) t).
+  destruct (build_expr me (RChild 0) (Pos.succ me) l t) as [t1 e1]. simpl in IHl.
+  specialize (IHr me (RChild 1) (Pos.succ e1) t1).
+  destruct (build_expr me (RChild 1) (Pos.succ e1) r t1) as [t2 e2]. simpl in IHr.
+  simpl. rewrite IHr, IHl. reflexivity.
 Qed.
 
-(* the two equal leaves carry the SAME kind (KExpression) but DISTINCT roles (RChild 0 vs RChild 1),
-   confirming occurrence identity is positional, not structural. *)
-Theorem thm9_equal_leaves_same_kind_distinct_role :
-  match file_of widx wpath_a with
-  | Some fi =>
-      match pget 5 (fi_table fi), pget 6 (fi_table fi) with
-      | Some ml, Some mr => nm_kind ml = KExpression /\ nm_kind mr = KExpression /\ nm_role ml <> nm_role mr
-      | _, _ => False
-      end
-  | None => False
+Lemma build_stmt_end : forall s parent i me t,
+  snd (build_stmt parent i me s t) = end_stmt me s.
+Proof.
+  intros [e] parent i me t. simpl.
+  rewrite <- (build_expr_end e me RStmtExpr (Pos.succ me) t).
+  destruct (build_expr me RStmtExpr (Pos.succ me) e t) as [t1 e1]. reflexivity.
+Qed.
+
+Lemma build_seq_stmt_next : forall ss parent i me t,
+  snd (build_seq build_stmt parent i me ss t) = next_stmts me ss.
+Proof.
+  induction ss as [|s rest IH]; intros parent i me t; [reflexivity|].
+  simpl. rewrite <- (build_stmt_end s parent i me t).
+  destruct (build_stmt parent i me s t) as [t1 se]. simpl. apply IH.
+Qed.
+
+Lemma build_decl_end : forall d parent i me t,
+  snd (build_decl parent i me d t) = end_decl me d.
+Proof.
+  intros [body] parent i me t. simpl.
+  rewrite <- (build_seq_stmt_next body me 0 (Pos.succ me) t).
+  destruct (build_seq build_stmt me 0 (Pos.succ me) body t) as [t1 nx]. reflexivity.
+Qed.
+
+Lemma build_seq_decl_next : forall ds parent i me t,
+  snd (build_seq build_decl parent i me ds t) = next_decls me ds.
+Proof.
+  induction ds as [|d rest IH]; intros parent i me t; [reflexivity|].
+  simpl. rewrite <- (build_decl_end d parent i me t).
+  destruct (build_decl parent i me d t) as [t1 de]. simpl. apply IH.
+Qed.
+
+Lemma build_file_count : forall f, fi_count (build_file f) = count_file f.
+Proof.
+  intros f. unfold build_file, count_file.
+  rewrite <- (build_seq_decl_next (tf_decls f) root_id 0 (Pos.succ root_id) NodeTable.empty).
+  destruct (build_seq build_decl root_id 0 (Pos.succ root_id) (tf_decls f) NodeTable.empty) as [t1 nx].
+  reflexivity.
+Qed.
+
+(* the source occurrence addressed by a preorder id (None if the id is a non-expression node or absent). *)
+Fixpoint occ_expr (me : positive) (e : TExpr) (target : positive) : option TExpr :=
+  if Pos.eqb target me then Some e
+  else match e with
+       | TLeaf _  => None
+       | TBin l r =>
+           if Pos.leb target (end_expr (Pos.succ me) l)
+           then occ_expr (Pos.succ me) l target
+           else occ_expr (Pos.succ (end_expr (Pos.succ me) l)) r target
+       end.
+Definition occ_stmt (me : positive) (s : TStmt) (target : positive) : option TExpr :=
+  match s with TPrint e => occ_expr (Pos.succ me) e target end.
+Fixpoint occ_stmts (me : positive) (ss : list TStmt) (target : positive) : option TExpr :=
+  match ss with
+  | [] => None
+  | s :: rest =>
+      if Pos.leb target (end_stmt me s) then occ_stmt me s target
+      else occ_stmts (Pos.succ (end_stmt me s)) rest target
   end.
-Proof. vm_compute. repeat split; discriminate. Qed.
+Definition occ_decl (me : positive) (d : TDecl) (target : positive) : option TExpr :=
+  match d with TFun body => occ_stmts (Pos.succ me) body target end.
+Fixpoint occ_decls (me : positive) (ds : list TDecl) (target : positive) : option TExpr :=
+  match ds with
+  | [] => None
+  | d :: rest =>
+      if Pos.leb target (end_decl me d) then occ_decl me d target
+      else occ_decls (Pos.succ (end_decl me d)) rest target
+  end.
+Definition occ_file (f : TFile) (target : positive) : option TExpr :=
+  occ_decls (Pos.succ root_id) (tf_decls f) target.
+
+(* the witness file's occurrence index for its containing-file's table is present for any id in range. *)
+Lemma widx_file_a : file_of widx wpath_a = Some (build_file wfile_a).
+Proof. reflexivity. Qed.
+
+Lemma wkey_valid (n : positive) : (root_id <= n)%positive -> (n <= 6)%positive ->
+  valid_keyb widx (mkKey wpath_a n) = true.
+Proof.
+  intros H1 H2. unfold valid_keyb. cbn [nk_file nk_local]. rewrite widx_file_a.
+  destruct (NodeTable.get n (fi_table (build_file wfile_a))) eqn:E; [reflexivity|].
+  exfalso. pose proof (build_file_wf wfile_a) as WF.
+  assert (Hc : fi_count (build_file wfile_a) = 6) by (rewrite build_file_count; reflexivity).
+  apply (sub_pres WF n); [ exact H1 | rewrite Hc; exact H2 | exact E ].
+Qed.
+
+(* THEOREM 9 (instance) — the two structurally EQUAL leaves in different positions recover the SAME source
+   expression (TLeaf 5) yet are addressed by validated references with DISTINCT keys, hence distinct refs. *)
+Theorem thm9_equal_leaves_distinct_refs :
+  exists rl rr : NodeRef widx,
+    ref_key rl = wkey_left /\ ref_key rr = wkey_right /\
+    occ_file wfile_a (nk_local (ref_key rl)) = Some (TLeaf 5) /\
+    occ_file wfile_a (nk_local (ref_key rr)) = Some (TLeaf 5) /\
+    rl <> rr.
+Proof.
+  exists (mkRef widx wkey_left  (wkey_valid 5 ltac:(unfold root_id; lia) ltac:(lia))).
+  exists (mkRef widx wkey_right (wkey_valid 6 ltac:(unfold root_id; lia) ltac:(lia))).
+  split; [reflexivity|]. split; [reflexivity|].
+  split; [vm_compute; reflexivity|]. split; [vm_compute; reflexivity|].
+  intro Heq. apply (f_equal ref_key) in Heq. cbn [ref_key] in Heq.
+  unfold wkey_left, wkey_right in Heq. discriminate Heq.
+Qed.

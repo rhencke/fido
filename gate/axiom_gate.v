@@ -422,8 +422,9 @@ Print Assumptions GoEmit.render_image_keys_nodup.
    enumeration, decidable key identity, sound+complete preorder-interval ancestry, source-ordered children,
    deterministic construction, metadata is not a subtree copy, and equal-leaves-distinct-refs over a witness).
    The whole-theory audit already covers the entire module; these surfaces make the headline results explicit. *)
-Print Assumptions OccurrenceSpike.pget_pset_same.
-Print Assumptions OccurrenceSpike.pget_pset_other.
+Print Assumptions OccurrenceSpike.NodeTable.get_empty.
+Print Assumptions OccurrenceSpike.NodeTable.get_set_same.
+Print Assumptions OccurrenceSpike.NodeTable.get_set_other.
 Print Assumptions OccurrenceSpike.build_file_wf.
 Print Assumptions OccurrenceSpike.thm1_root_id_canonical.
 Print Assumptions OccurrenceSpike.thm2_root_no_parent.
@@ -439,7 +440,15 @@ Print Assumptions OccurrenceSpike.thm7_enum_sound.
 Print Assumptions OccurrenceSpike.thm8_nodekey_eq_dec.
 Print Assumptions OccurrenceSpike.thm8_nodekey_eqb_spec.
 Print Assumptions OccurrenceSpike.thm9_equal_leaves_distinct_refs.
-Print Assumptions OccurrenceSpike.thm9_equal_leaves_same_kind_distinct_role.
+Print Assumptions OccurrenceSpike.thm10_containing_file_path.
+(* the interval-jump child enumeration + its tiling foundations (first-child / next-sibling, sound + reaches). *)
+Print Assumptions OccurrenceSpike.first_child.
+Print Assumptions OccurrenceSpike.next_child.
+Print Assumptions OccurrenceSpike.child_walk_sound.
+Print Assumptions OccurrenceSpike.child_walk_reaches.
+Print Assumptions OccurrenceSpike.build_expr_end.
+Print Assumptions OccurrenceSpike.occ_file.
+Print Assumptions OccurrenceSpike.containing_file.
 Print Assumptions OccurrenceSpike.thm11_children_sorted.
 Print Assumptions OccurrenceSpike.thm12_deterministic.
 Print Assumptions OccurrenceSpike.thm_builder_no_structural_search.
