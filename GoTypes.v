@@ -1,25 +1,29 @@
 (** ============================================================================
-    GoTypes — the ONE Go type-system authority for the current bool/integer/float/string fragment.  It is EVIDENCE
-    over the ONE raw [GoAST], never a second (typed) AST: raw [GoExpr] stays untyped syntax, and typing is a
-    judgment over that same syntax.
+    GoTypes — the ONE Go type-system authority for the current bool/integer/float/complex/string fragment.  It
+    is EVIDENCE over the ONE raw [GoAST], never a second (typed) AST: raw [GoExpr] stays untyped syntax, and
+    typing is a judgment over that same syntax.
 
     The permanent type universe here is [TBool], the INTEGER FAMILY [TInteger it] over the one [IntegerType]
     descriptor (ten live Go integer types), the FLOAT FAMILY [TFloat ft] over the one [FloatType] descriptor
-    (float32/float64), and [TString].  Each landed TOGETHER with its syntax and complete semantics (static
-    typing + representability + compiler facts + safety + rendering + tests + docs); there are no placeholder
-    constructors ahead of the syntax that needs them.
+    (float32/float64), the COMPLEX FAMILY [TComplex ct] over the one [ComplexType] descriptor (complex64/
+    complex128, whose real/imaginary components are float32/float64 via [complex_component_type]), and
+    [TString].  Each landed TOGETHER with its syntax and complete semantics (static typing + representability +
+    compiler facts + safety + rendering + tests + docs); there are no placeholder constructors ahead of the
+    syntax that needs them.
 
     The foundational distinction (Go's own): a raw literal denotes an EXACT UNTYPED CONSTANT value
-    ([GoConst] — ints arbitrary-precision [Z], floats an exact rational [FloatConst], strings exact byte
-    sequences), independent of any width.  An explicit conversion routes through the ONE [convert_const]
-    authority: an integer conversion [EIntConvert it e] does NOT change the value (range-checked at [it]); a
-    float conversion [EFloatConvert ft e] ROUNDS the value ONCE at the destination format [ft].  In a USE
-    CONTEXT that requires a typed value, an UNTYPED constant is given a DEFAULT TYPE (int constants default to
-    [TInteger IInt], floats to [TFloat F64]) and REPRESENTABILITY is checked, while a TYPED constant RETAINS
-    its type and value (it is NOT defaulted again; its validity is INTRINSIC — carried by the dependently-typed
-    [TypedConst] constructor's own proof — so there is nothing to re-check).  This is the single authority
-    every later feature (assignments, variables, arguments,
-    arithmetic, more numeric types) builds on.
+    ([GoConst] — ints arbitrary-precision [Z], floats an exact rational [FloatConst], a complex an exact PAIR
+    of rational components [ComplexConst], strings exact byte sequences), independent of any width.  An
+    explicit conversion routes through the ONE [convert_const] authority: an integer conversion [EIntConvert
+    it e] does NOT change the value (range-checked at [it]); a float conversion [EFloatConvert ft e] ROUNDS the
+    value ONCE at the destination format [ft]; a complex conversion [EComplexConvert ct e] rounds EACH
+    component ONCE at [ct]'s component format.  In a USE CONTEXT that requires a typed value, an UNTYPED
+    constant is given a DEFAULT TYPE (int constants default to [TInteger IInt], floats to [TFloat F64], complex
+    to [TComplex C128]) and REPRESENTABILITY is checked (for a numeric target BY the SAME [convert_const], so
+    representability and conversion never disagree), while a TYPED constant RETAINS its type and value (it is
+    NOT defaulted again; its validity is INTRINSIC — carried by the dependently-typed [TypedConst]
+    constructor's own proof — so there is nothing to re-check).  This is the single authority every later
+    feature (assignments, variables, arguments, arithmetic, more numeric types) builds on.
     ============================================================================ *)
 From Stdlib Require Import NArith ZArith List Bool String Ascii Lia.
 From Fido Require Import Ints Floats Complexes GoAST.
