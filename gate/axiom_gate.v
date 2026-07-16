@@ -96,6 +96,31 @@ Print Assumptions GoSafe.nan_f64_no_denotes.
 Print Assumptions GoSafe.inf_f64_no_denotes.
 Print Assumptions GoSafe.neg_zero_f64_no_denotes.
 
+(* Complexes — the ONE complex-type authority, COMPOSED from the Floats component authority: decidable
+   ComplexType equality; the exact keywords; the ONE component mapping (C64->F32, C128->F64) sourcing all
+   precision; exact ComplexConst equality; the decimal-complex exact value projections; round_typed_complex's
+   componentwise results (each rounds ONCE) + representability reflection + component-overflow rejection;
+   underflow-to-+0 + no-NaN/Inf/-0 runtime component shape (inherited from TypedFloatConst); the runtime
+   component read-back coherence. *)
+Print Assumptions Complexes.complex_type_eqb_eq.
+Print Assumptions Complexes.complex_keyword_C64.
+Print Assumptions Complexes.complex_keyword_C128.
+Print Assumptions Complexes.complex_component_C64.
+Print Assumptions Complexes.complex_component_C128.
+Print Assumptions Complexes.complex_const_eqb_eq.
+Print Assumptions Complexes.decimal_complex_real.
+Print Assumptions Complexes.decimal_complex_imag.
+Print Assumptions Complexes.round_typed_complex_components.
+Print Assumptions Complexes.round_typed_complex_real_none.
+Print Assumptions Complexes.round_typed_complex_imag_none.
+Print Assumptions Complexes.complex_representableb_spec.
+Print Assumptions Complexes.typed_complex_runtime_real_coh.
+Print Assumptions Complexes.typed_complex_runtime_real_shape.
+Print Assumptions Complexes.typed_complex_runtime_imag_shape.
+Print Assumptions Complexes.typed_complex_runtime_real_not_neg_zero.
+Print Assumptions Complexes.typed_complex_runtime_real_not_nan.
+Print Assumptions Complexes.typed_complex_runtime_real_not_inf.
+
 (* intrinsic FilePath: decidable equality; a representable canonical path; a rejected (unrepresentable)
    path.  Non-canonical paths have no FilePath value at all — this is unrepresentability, not rejection. *)
 Print Assumptions FilePath.fp_eqb_eq.
@@ -203,6 +228,29 @@ Print Assumptions GoTypes.const_scar_nested.
 Print Assumptions GoTypes.const_scar_direct_differs_nested.
 Print Assumptions GoTypes.stmt_float_mixed.
 Print Assumptions GoTypes.stmt_float_overflow_untyped.
+(* complex: TCComplex exact-value erasure (§14 UNIVERSAL same-type complex identity convert_const_same_complex);
+   bare complex DEFAULTS to complex128; explicit complex64/complex128 resolve; C64<>C128 distinct; a matching-
+   format typed float REUSES the real component; a matching-format typed complex PROJECTS to the scalar;
+   integer/float -> complex; zero-imaginary complex -> integer/float; nonzero-imaginary / component-overflow /
+   wrong-type reject; ★the direct-vs-nested COMPONENT double-round scar analyzes to DIFFERENT typed constants. *)
+Print Assumptions GoTypes.convert_const_same_complex.
+Print Assumptions GoTypes.res_cplx_default.
+Print Assumptions GoTypes.res_cplx64.
+Print Assumptions GoTypes.res_cplx128.
+Print Assumptions GoTypes.cplx_types_distinct.
+Print Assumptions GoTypes.cplx64_from_f32_real.
+Print Assumptions GoTypes.f32_of_cplx64_real.
+Print Assumptions GoTypes.res_cplx64_int.
+Print Assumptions GoTypes.res_cplx64_float.
+Print Assumptions GoTypes.res_int_of_cplx3.
+Print Assumptions GoTypes.res_f32_of_cplx1p5.
+Print Assumptions GoTypes.res_int_of_cplx_nonzero_imag_rej.
+Print Assumptions GoTypes.res_f32_of_cplx_nonzero_imag_rej.
+Print Assumptions GoTypes.res_cplx64_real_over.
+Print Assumptions GoTypes.res_cplx64_bool_rej.
+Print Assumptions GoTypes.res_int_of_cplx3p5_rej.
+Print Assumptions GoTypes.conv_c64_c64.
+Print Assumptions GoTypes.cplx_scar_direct_vs_nested.
 
 (* GoCompile (A) internal exactness: whole-program prog_ok reflects the declarative judgment; go_compile
    sound + complete against it; a rejected program yields no CompilableProgram; the compiled evidence exposes
@@ -225,6 +273,14 @@ Print Assumptions GoCompile.str_program_compiles.
 Print Assumptions GoCompile.float_program_compiles.
 Print Assumptions GoCompile.float_reject_rejected.
 Print Assumptions GoCompile.float_reject_no_compile.
+(* §50 a whole COMPLEX program (bare default + complex64/complex128 conversions + scalar->complex +
+   zero-imaginary complex->scalar) is typed and compiles; a component-overflow and a nonzero-imaginary
+   complex->int program are honest typing rejections with no CompilableProgram. *)
+Print Assumptions GoCompile.complex_program_typed.
+Print Assumptions GoCompile.complex_program_compiles.
+Print Assumptions GoCompile.complex_overflow_rejected.
+Print Assumptions GoCompile.complex_overflow_no_compile.
+Print Assumptions GoCompile.complex_nonzero_imag_no_compile.
 
 (* GoSafe: exact VALUE semantics — a zero literal and a negated zero agree; a resolved expression evaluates
    to a well-formed value of the resolved GoType (one type authority across compiler and runtime); value
@@ -252,6 +308,15 @@ Print Assumptions GoSafe.eval_scar_nested.
 Print Assumptions GoSafe.eval_scar_differ.
 Print Assumptions GoSafe.eval_underflow_pos_zero.
 Print Assumptions GoSafe.eval_neg_underflow_pos_zero.
+(* complex runtime: the typed-complex projection preserves type; a typed-complex runtime denotes its exact
+   typed complex constant; a NaN / infinity / negative-zero component runtime value denotes NO constant;
+   evaluation returns EXACTLY the stored typed_complex_runtime (§34). *)
+Print Assumptions GoSafe.typed_const_to_value_complex.
+Print Assumptions GoSafe.value_denotes_complex_runtime.
+Print Assumptions GoSafe.complex_nan_real_no_denotes.
+Print Assumptions GoSafe.complex_inf_imag_no_denotes.
+Print Assumptions GoSafe.complex_neg_zero_no_denotes.
+Print Assumptions GoSafe.eval_projects_stored_complex_runtime.
 
 (* GoRender: all output ASCII (including conversions); the ONE ConstInfo render-status root
    (render_const_info_denotes: rendering denotes exactly the const_info GoTypes computes) which is FUNCTIONAL
@@ -308,6 +373,18 @@ Print Assumptions GoRender.rb_nul.
 Print Assumptions GoRender.rb_quote.
 Print Assumptions GoRender.render_string_denotes.
 Print Assumptions GoRender.render_resolved_string_denotes.
+(* complex rendering: the exact complex64/complex128 keywords are ASCII; the canonical complex(real, imag)
+   literal renders exactly and is ASCII; the INDEPENDENT complex decoder round-trips the canonical spelling
+   (§38); the conversion spellings; a bare complex literal denotes its exact ComplexConst (the FUNCTIONAL
+   denotation + final resolved root, gated generically above, now cover complex too). *)
+Print Assumptions GoRender.complex_keyword_ascii.
+Print Assumptions GoRender.render_complex_literal_ascii.
+Print Assumptions GoRender.render_cplx_lit.
+Print Assumptions GoRender.render_cplx_zero.
+Print Assumptions GoRender.render_conv_c64.
+Print Assumptions GoRender.render_conv_c128.
+Print Assumptions GoRender.decode_render_complex_literal.
+Print Assumptions GoRender.render_cplx_denotes.
 
 (* GoEmit: the public emitter requires SafeProgram; the complete image is go.mod + the (possibly empty)
    .go map; the go.mod and every .go file begin with the header first line and are ASCII; on-disk .go

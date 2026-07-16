@@ -1665,6 +1665,20 @@ Example render_float_neg   : render_expr (EFloat (mkDecimal (-15) (-1) eq_refl))
 Example render_conv_f32    : render_expr (EFloatConvert F32 (EFloat d_15em1)) = "float32(15.0e-1)". Proof. reflexivity. Qed.
 Example render_conv_f64    : render_expr (EFloatConvert F64 (EFloat d_3)) = "float64(3.0e+0)". Proof. reflexivity. Qed.
 
+(* §36/§37 complex rendering: the canonical complex(real, imag) literal and the complex64/complex128
+   conversion spellings; a bare complex literal denotes its exact ComplexConst. *)
+Example render_cplx_lit  : render_expr (EComplex (mkDC d_15em1 (mkDecimal (-25) (-1) eq_refl)))
+  = "complex(15.0e-1, -25.0e-1)". Proof. reflexivity. Qed.
+Example render_cplx_zero : render_expr (EComplex (mkDC (mkDecimal 0 0 eq_refl) (mkDecimal 0 0 eq_refl)))
+  = "complex(0.0, 0.0)". Proof. reflexivity. Qed.
+Example render_conv_c64  : render_expr (EComplexConvert C64 (EComplex (mkDC d_15em1 (mkDecimal 0 0 eq_refl))))
+  = "complex64(complex(15.0e-1, 0.0))". Proof. reflexivity. Qed.
+Example render_conv_c128 : render_expr (EComplexConvert C128 (EComplex (mkDC d_15em1 (mkDecimal 0 0 eq_refl))))
+  = "complex128(complex(15.0e-1, 0.0))". Proof. reflexivity. Qed.
+Lemma render_cplx_denotes : forall dc,
+  RenderedConstInfoDenotes (render_expr (EComplex dc)) (CIUntyped (CComplex (decimal_complex_value dc))).
+Proof. intro dc; apply render_const_info_denotes; reflexivity. Qed.
+
 Lemma render_float_denotes : forall d,
   RenderedConstInfoDenotes (render_expr (EFloat d)) (CIUntyped (CFloat (decimal_value d))).
 Proof. intro d; apply render_const_info_denotes; reflexivity. Qed.

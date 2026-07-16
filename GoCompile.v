@@ -25,7 +25,7 @@
        program.  We do NOT invoke cmd/go from Rocq and claim no kernel theorem about it.
     ============================================================================ *)
 From Stdlib Require Import NArith ZArith List Bool String Arith.
-From Fido Require Import Ints Floats FilePath FMap GoAST GoTypes.
+From Fido Require Import Ints Floats Complexes FilePath FMap GoAST GoTypes.
 Import ListNotations.
 Open Scope Z_scope.
 
@@ -249,3 +249,41 @@ Example float_reject_rejected   : go_compile float_reject_program = Err ErrTypin
 Proof. vm_compute. reflexivity. Qed.
 Example float_reject_no_compile : forall facts, ~ GoCompile float_reject_program facts.
 Proof. intro facts; apply (reject_no_compile float_reject_program facts); vm_compute; reflexivity. Qed.
+
+(** ---- §50 a whole COMPLEX program (bare complex default, complex64/complex128 conversions, a scalar->
+    complex conversion, and a zero-imaginary complex->scalar conversion) is typed and compiles; a component-
+    overflow program and a nonzero-imaginary complex->int program are ordinary [ErrTyping] rejections with no
+    [CompilableProgram]. ---- *)
+Definition complex_program : GoProgram :=
+  singleton_program
+    (mkModuleSpec (ModulePath.mkMP "fido.local/generated" eq_refl) GoVersion.Go1_23)
+    (mkFP "main.go" eq_refl)
+    [ DMain [ SPrintln [ EComplex (mkDC (mkDecimal 15 (-1) eq_refl) (mkDecimal (-25) (-1) eq_refl))
+                       ; EComplexConvert C64  (EComplex (mkDC (mkDecimal 15 (-1) eq_refl) (mkDecimal 0 0 eq_refl)))
+                       ; EComplexConvert C128 (EComplex (mkDC (mkDecimal 15 (-1) eq_refl) (mkDecimal 0 0 eq_refl)))
+                       ; EComplexConvert C64  (EInt 1)
+                       ; EIntConvert IInt (EComplex (mkDC (mkDecimal 3 0 eq_refl) (mkDecimal 0 0 eq_refl))) ] ] ].
+Example complex_program_typed    : program_typedb complex_program = true. Proof. vm_compute. reflexivity. Qed.
+Example complex_program_ok       : prog_ok complex_program = true.        Proof. vm_compute. reflexivity. Qed.
+Example complex_program_compiles : exists cp, go_compile complex_program = Ok cp.
+Proof. eexists; reflexivity. Qed.
+
+Definition complex_overflow_program : GoProgram :=
+  singleton_program
+    (mkModuleSpec (ModulePath.mkMP "fido.local/generated" eq_refl) GoVersion.Go1_23)
+    (mkFP "main.go" eq_refl)
+    [ DMain [ SPrintln [ EComplexConvert C64 (EComplex (mkDC (mkDecimal 1 39 eq_refl) (mkDecimal 0 0 eq_refl))) ] ] ].
+Example complex_overflow_untyped    : program_typedb complex_overflow_program = false. Proof. vm_compute. reflexivity. Qed.
+Example complex_overflow_rejected   : go_compile complex_overflow_program = Err ErrTyping. Proof. vm_compute. reflexivity. Qed.
+Example complex_overflow_no_compile : forall facts, ~ GoCompile complex_overflow_program facts.
+Proof. intro facts; apply (reject_no_compile complex_overflow_program facts); vm_compute; reflexivity. Qed.
+
+Definition complex_nonzero_imag_program : GoProgram :=
+  singleton_program
+    (mkModuleSpec (ModulePath.mkMP "fido.local/generated" eq_refl) GoVersion.Go1_23)
+    (mkFP "main.go" eq_refl)
+    [ DMain [ SPrintln [ EIntConvert IInt (EComplex (mkDC (mkDecimal 3 0 eq_refl) (mkDecimal 1 0 eq_refl))) ] ] ].
+Example complex_nonzero_imag_untyped    : program_typedb complex_nonzero_imag_program = false. Proof. vm_compute. reflexivity. Qed.
+Example complex_nonzero_imag_rejected   : go_compile complex_nonzero_imag_program = Err ErrTyping. Proof. vm_compute. reflexivity. Qed.
+Example complex_nonzero_imag_no_compile : forall facts, ~ GoCompile complex_nonzero_imag_program facts.
+Proof. intro facts; apply (reject_no_compile complex_nonzero_imag_program facts); vm_compute; reflexivity. Qed.

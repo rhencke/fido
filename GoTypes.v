@@ -871,3 +871,102 @@ Example stmt_float_mixed : stmt_typedb (SPrintln [EBool true; EFloat d_15em1; EF
 Example stmt_float_overflow_untyped :
   stmt_typedb (SPrintln [EFloat (mkDecimal 1 4096 eq_refl)]) = false.   (* 1e4096 overflows default float64 *)
 Proof. vm_compute. reflexivity. Qed.
+
+(** ---- §42-47 COMPLEX CONSTANT KERNEL CHECKS: analysis, defaulting, representability boundaries, scalar<->
+    complex conversions, same-type identity, and the different-type component double-round scar. ---- *)
+Definition d_m25em1 : DecimalFloat := mkDecimal (-25) (-1) eq_refl.  (* -2.5 *)
+Definition d_127_0  : DecimalFloat := mkDecimal 127 0 eq_refl.
+Definition d_1_0    : DecimalFloat := mkDecimal 1 0 eq_refl.
+Definition d_m1_0   : DecimalFloat := mkDecimal (-1) 0 eq_refl.
+Definition d_0_0    : DecimalFloat := mkDecimal 0 0 eq_refl.
+Definition dc_1p5_m2p5 : DecimalComplex := mkDC d_15em1 d_m25em1.
+
+(* §42 a bare complex literal analyzes to an UNTYPED exact ComplexConst; exact real = 3/2, imag = -5/2. *)
+Example cplx_untyped :
+  const_info (EComplex dc_1p5_m2p5) = Some (CIUntyped (CComplex (decimal_complex_value dc_1p5_m2p5))).
+Proof. reflexivity. Qed.
+Example cplx_real_3_2 : cc_real (decimal_complex_value dc_1p5_m2p5) = decimal_value d_15em1. Proof. reflexivity. Qed.
+Example cplx_imag_m5_2 : cc_imag (decimal_complex_value dc_1p5_m2p5) = decimal_value d_m25em1. Proof. reflexivity. Qed.
+
+(* §42 a bare complex DEFAULTS to complex128 in println; explicit complex64/complex128 resolve to their type;
+   the two complex static types are DISTINCT. *)
+Example res_cplx_default : resolve_expr UsePrintlnArg (EComplex dc_1p5_m2p5) = Some (TComplex C128).
+Proof. vm_compute. reflexivity. Qed.
+Example res_cplx64  : resolve_expr UsePrintlnArg (EComplexConvert C64  (EComplex dc_1p5_m2p5)) = Some (TComplex C64).
+Proof. vm_compute. reflexivity. Qed.
+Example res_cplx128 : resolve_expr UsePrintlnArg (EComplexConvert C128 (EComplex dc_1p5_m2p5)) = Some (TComplex C128).
+Proof. vm_compute. reflexivity. Qed.
+Example cplx_types_distinct : TComplex C64 <> TComplex C128. Proof. discriminate. Qed.
+
+(* §43 component representability boundaries: a real / imaginary F32 overflow rejects complex64; F64 overflow
+   rejects complex128. *)
+Example res_cplx64_real_over :
+  resolve_expr UsePrintlnArg (EComplexConvert C64 (EComplex (mkDC (mkDecimal 1 39 eq_refl) d_0_0))) = None.
+Proof. vm_compute. reflexivity. Qed.
+Example res_cplx64_imag_over :
+  resolve_expr UsePrintlnArg (EComplexConvert C64 (EComplex (mkDC d_0_0 (mkDecimal 1 39 eq_refl)))) = None.
+Proof. vm_compute. reflexivity. Qed.
+Example res_cplx128_over :
+  resolve_expr UsePrintlnArg (EComplexConvert C128 (EComplex (mkDC (mkDecimal 1 309 eq_refl) d_0_0))) = None.
+Proof. vm_compute. reflexivity. Qed.
+
+(* §44 scalar -> complex conversions (integer / float); bool / string reject; a matching-format typed float
+   REUSES its value as the real component with a stored positive-zero imaginary. *)
+Example res_cplx64_int   : resolve_expr UsePrintlnArg (EComplexConvert C64  (EInt 1)) = Some (TComplex C64).  Proof. vm_compute. reflexivity. Qed.
+Example res_cplx128_int  : resolve_expr UsePrintlnArg (EComplexConvert C128 (EInt 1)) = Some (TComplex C128). Proof. vm_compute. reflexivity. Qed.
+Example res_cplx64_float : resolve_expr UsePrintlnArg (EComplexConvert C64  (EFloat d_15em1)) = Some (TComplex C64).  Proof. vm_compute. reflexivity. Qed.
+Example res_cplx128_flt  : resolve_expr UsePrintlnArg (EComplexConvert C128 (EFloat d_15em1)) = Some (TComplex C128). Proof. vm_compute. reflexivity. Qed.
+Example res_cplx64_bool_rej : resolve_expr UsePrintlnArg (EComplexConvert C64  (EBool true)) = None. Proof. reflexivity. Qed.
+Example res_cplx128_str_rej : resolve_expr UsePrintlnArg (EComplexConvert C128 (EString "x")) = None. Proof. reflexivity. Qed.
+Example cplx64_from_f32_real :
+  match option_map const_info_exact (const_info (EComplexConvert C64 (EFloatConvert F32 (EFloat d_15em1)))) with
+  | Some (CComplex cc) => fc_eqb (cc_real cc) (decimal_value d_15em1) && cc_imag_is_zero cc
+  | _ => false
+  end = true.
+Proof. vm_compute. reflexivity. Qed.
+
+(* §45 zero-imaginary complex -> scalar conversions; nonzero-imaginary / fractional / out-of-range reject; a
+   matching-format typed complex PROJECTS its real component to the scalar. *)
+Example res_int_of_cplx3 :
+  resolve_expr UsePrintlnArg (EIntConvert IInt (EComplex (mkDC d_3 d_0_0))) = Some (TInteger IInt). Proof. vm_compute. reflexivity. Qed.
+Example res_int8_of_cplx127 :
+  resolve_expr UsePrintlnArg (EIntConvert IInt8 (EComplex (mkDC d_127_0 d_0_0))) = Some (TInteger IInt8). Proof. vm_compute. reflexivity. Qed.
+Example res_f32_of_cplx1p5 :
+  resolve_expr UsePrintlnArg (EFloatConvert F32 (EComplex (mkDC d_15em1 d_0_0))) = Some (TFloat F32). Proof. vm_compute. reflexivity. Qed.
+Example res_f64_of_cplx1p5 :
+  resolve_expr UsePrintlnArg (EFloatConvert F64 (EComplex (mkDC d_15em1 d_0_0))) = Some (TFloat F64). Proof. vm_compute. reflexivity. Qed.
+Example res_int_of_cplx3p5_rej :
+  resolve_expr UsePrintlnArg (EIntConvert IInt (EComplex (mkDC d_35em1 d_0_0))) = None. Proof. vm_compute. reflexivity. Qed.
+Example res_int_of_cplx_nonzero_imag_rej :
+  resolve_expr UsePrintlnArg (EIntConvert IInt (EComplex (mkDC d_3 d_1_0))) = None. Proof. vm_compute. reflexivity. Qed.
+Example res_int8_of_cplx128_rej :
+  resolve_expr UsePrintlnArg (EIntConvert IInt8 (EComplex (mkDC d_128 d_0_0))) = None. Proof. vm_compute. reflexivity. Qed.
+Example res_f32_of_cplx_nonzero_imag_rej :
+  resolve_expr UsePrintlnArg (EFloatConvert F32 (EComplex (mkDC d_15em1 d_1_0))) = None. Proof. vm_compute. reflexivity. Qed.
+Example res_f64_of_cplx_neg_imag_rej :
+  resolve_expr UsePrintlnArg (EFloatConvert F64 (EComplex (mkDC d_15em1 d_m1_0))) = None. Proof. vm_compute. reflexivity. Qed.
+Example f32_of_cplx64_real :
+  match option_map const_info_exact (const_info (EFloatConvert F32 (EComplexConvert C64 (EComplex (mkDC d_15em1 d_0_0))))) with
+  | Some (CFloat q) => fc_eqb q (decimal_value d_15em1)
+  | _ => false
+  end = true.
+Proof. vm_compute. reflexivity. Qed.
+
+(* §46 SAME-TYPE complex conversion is the IDENTITY (no reround): a nested same-format conversion equals the
+   single conversion (the concrete witness of the universal [convert_const_same_complex]). *)
+Example conv_c64_c64 :
+  const_info (EComplexConvert C64 (EComplexConvert C64 (EComplex dc_1p5_m2p5)))
+    = const_info (EComplexConvert C64 (EComplex dc_1p5_m2p5)).
+Proof. vm_compute. reflexivity. Qed.
+Example conv_c128_c128 :
+  const_info (EComplexConvert C128 (EComplexConvert C128 (EComplex dc_1p5_m2p5)))
+    = const_info (EComplexConvert C128 (EComplex dc_1p5_m2p5)).
+Proof. vm_compute. reflexivity. Qed.
+
+(* §47 DIFFERENT-TYPE conversion rounds each component ONCE at the explicit boundary: the direct complex64
+   real component (rounded at F32) DIFFERS from the nested complex64(complex128(...)) (rounded F64 then F32)
+   — the component analogue of the scalar double-round scar. *)
+Example cplx_scar_direct_vs_nested :
+  const_info (EComplexConvert C64 (EComplex (mkDC d_scar d_0_0)))
+    <> const_info (EComplexConvert C64 (EComplexConvert C128 (EComplex (mkDC d_scar d_0_0)))).
+Proof. vm_compute. discriminate. Qed.
