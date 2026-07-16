@@ -234,6 +234,11 @@ Print Assumptions GoTypes.stmt_float_overflow_untyped.
    integer/float -> complex; zero-imaginary complex -> integer/float; nonzero-imaginary / component-overflow /
    wrong-type reject; ★the direct-vs-nested COMPONENT double-round scar analyzes to DIFFERENT typed constants. *)
 Print Assumptions GoTypes.convert_const_same_complex.
+Print Assumptions GoTypes.convert_complex_reuses_float_component.
+Print Assumptions GoTypes.convert_float_reuses_complex_component.
+Print Assumptions GoTypes.type_untyped_int_convert.
+Print Assumptions GoTypes.type_untyped_float_convert.
+Print Assumptions GoTypes.type_untyped_complex_convert.
 Print Assumptions GoTypes.res_cplx_default.
 Print Assumptions GoTypes.res_cplx64.
 Print Assumptions GoTypes.res_cplx128.
@@ -251,6 +256,8 @@ Print Assumptions GoTypes.res_cplx64_bool_rej.
 Print Assumptions GoTypes.res_int_of_cplx3p5_rej.
 Print Assumptions GoTypes.conv_c64_c64.
 Print Assumptions GoTypes.cplx_scar_direct_vs_nested.
+Print Assumptions GoTypes.cplx_scar_imag_direct_vs_nested.
+Print Assumptions GoTypes.cplx_underflow_pos_zero.
 
 (* GoCompile (A) internal exactness: whole-program prog_ok reflects the declarative judgment; go_compile
    sound + complete against it; a rejected program yields no CompilableProgram; the compiled evidence exposes
@@ -317,6 +324,9 @@ Print Assumptions GoSafe.complex_nan_real_no_denotes.
 Print Assumptions GoSafe.complex_inf_imag_no_denotes.
 Print Assumptions GoSafe.complex_neg_zero_no_denotes.
 Print Assumptions GoSafe.eval_projects_stored_complex_runtime.
+Print Assumptions GoSafe.eval_cplx_scar_direct.
+Print Assumptions GoSafe.eval_cplx_scar_nested.
+Print Assumptions GoSafe.eval_cplx_scar_differ.
 
 (* GoRender: all output ASCII (including conversions); the ONE ConstInfo render-status root
    (render_const_info_denotes: rendering denotes exactly the const_info GoTypes computes) which is FUNCTIONAL

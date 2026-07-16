@@ -355,6 +355,21 @@ Example eval_scar_differ :
   eval_expr (EIntConvert IUint64 (EFloatConvert F32 (EFloat d_scar)))
     <> eval_expr (EIntConvert IUint64 (EFloatConvert F32 (EFloatConvert F64 (EFloat d_scar)))).
 Proof. rewrite eval_scar_direct, eval_scar_nested; discriminate. Qed.
+(* §47 the complex COMPONENT scar THROUGH EVALUATION: observing the stored real component of a zero-imaginary
+   complex64 as uint64, the DIRECT F32 rounding differs from the NESTED complex128-then-complex64 double round.
+   Evaluation PROJECTS the stored runtime component — no hidden reround — so the two stored runtimes differ. *)
+Example eval_cplx_scar_direct :
+  eval_expr (EIntConvert IUint64 (EComplexConvert C64 (EComplex (mkDC d_scar d_0_0))))
+    = Some (VInteger IUint64 2305843284091600896).
+Proof. vm_compute. reflexivity. Qed.
+Example eval_cplx_scar_nested :
+  eval_expr (EIntConvert IUint64 (EComplexConvert C64 (EComplexConvert C128 (EComplex (mkDC d_scar d_0_0)))))
+    = Some (VInteger IUint64 2305843009213693952).
+Proof. vm_compute. reflexivity. Qed.
+Example eval_cplx_scar_differ :
+  eval_expr (EIntConvert IUint64 (EComplexConvert C64 (EComplex (mkDC d_scar d_0_0))))
+    <> eval_expr (EIntConvert IUint64 (EComplexConvert C64 (EComplexConvert C128 (EComplex (mkDC d_scar d_0_0))))).
+Proof. rewrite eval_cplx_scar_direct, eval_cplx_scar_nested; discriminate. Qed.
 (* §25 constant underflow produces POSITIVE zero at runtime (never -0) *)
 Example eval_underflow_pos_zero :
   option_map (fun v => match v with VFloat _ fv => fv_sf fv | _ => S754_nan end)
