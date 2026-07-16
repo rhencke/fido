@@ -19,7 +19,7 @@
     [list] is deliberately NOT used: it would give a forbidden O(n) list-scan node-table lookup (Master
     Plan 4.8).  *)
 
-From Stdlib Require Import PArith List Bool Lia Eqdep_dec Wf_nat Sorted String.
+From Stdlib Require Import PArith List Bool Lia Eqdep_dec Wf_nat Sorted String Recdef.
 From Fido Require Import FilePath.
 Import ListNotations.
 
@@ -268,32 +268,37 @@ Fixpoint pos_seq (start : positive) (len : nat) : list positive :=
   | S n  => start :: pos_seq (Pos.succ start) n
   end.
 
-(* direct children by INTERVAL JUMP (Master Plan 4.8/4.10): a table lookup happens ONLY at a direct child
-   root; after each child, the cursor jumps past its whole subtree to [subtree_end(child)+1], so interior
-   descendants are never looked up.  [cands] is the ordered id domain; only the element equal to the
-   advancing cursor is inspected, so the lookup count is O(#direct children), not O(#descendants). *)
-Fixpoint child_walk (t : NodeTable.table NodeMeta) (parent cursor : positive) (cands : list positive)
-  : list positive :=
-  match cands with
-  | [] => []
-  | c :: rest =>
-      if Pos.eqb c cursor then
-        match NodeTable.get c t with
-        | Some mc =>
-            let sub := child_walk t parent (Pos.succ (nm_subtree_end mc)) rest in
-            match nm_parent mc with
-            | Some p => if Pos.eqb p parent then c :: sub else sub
-            | None   => sub
-            end
-        | None => child_walk t parent (Pos.succ cursor) rest
+(* direct children by INTERVAL JUMP (Master Plan 4.8/4.10): the cursor walks DIRECTLY from the first child
+   to the parent's interval end, looking up ONLY the id at the cursor and, after each node, jumping the cursor
+   PAST its whole subtree to [subtree_end+1] — it never constructs or traverses the skipped descendant ids.
+   So both the lookup count AND the number of recursive steps are O(#direct children), not O(#descendants).
+   Totality is by the decreasing measure [limit+1 - cursor] (no fuel); the jump takes [max (cursor+1) …] so
+   the measure strictly decreases even on a malformed table, and equals [subtree_end+1] on a built one. *)
+Function child_enum (t : NodeTable.table NodeMeta) (pid limit cursor : positive)
+    {measure (fun c => (S (Pos.to_nat limit) - Pos.to_nat c)%nat) cursor} : list positive :=
+  if Pos.leb cursor limit then
+    match NodeTable.get cursor t with
+    | Some mc =>
+        let next := Pos.max (Pos.succ cursor) (Pos.succ (nm_subtree_end mc)) in
+        match nm_parent mc with
+        | Some p => if Pos.eqb p pid then cursor :: child_enum t pid limit next else child_enum t pid limit next
+        | None   => child_enum t pid limit next
         end
-      else child_walk t parent cursor rest
-  end.
+    | None => []
+    end
+  else [].
+Proof.
+  all: intros;
+    repeat match goal with H : Pos.leb _ _ = true |- _ =>
+             apply Pos.leb_le in H; apply Pos2Nat.inj_le in H end;
+    match goal with |- context [Pos.max (Pos.succ ?a) (Pos.succ ?b)] =>
+      pose proof (Pos.le_max_l (Pos.succ a) (Pos.succ b)) as Hm end;
+    apply Pos2Nat.inj_le in Hm; rewrite Pos2Nat.inj_succ in Hm; lia.
+Defined.
 
 Definition child_ids (t : NodeTable.table NodeMeta) (pid : positive) : list positive :=
   match NodeTable.get pid t with
-  | Some m => child_walk t pid (Pos.succ pid)
-                (pos_seq (Pos.succ pid) (Pos.to_nat (nm_subtree_end m) - Pos.to_nat pid))
+  | Some m => child_enum t pid (nm_subtree_end m) (Pos.succ pid)
   | None => []
   end.
 
@@ -666,25 +671,6 @@ Proof.
   - constructor; [| apply IH]. intro H. apply pos_seq_In in H. rewrite Pos2Nat.inj_succ in H. lia.
 Qed.
 
-Lemma pos_seq_SS (start : positive) (len : nat) : StronglySorted Pos.lt (pos_seq start len).
-Proof.
-  revert start; induction len as [|n IH]; intros start; simpl.
-  - constructor.
-  - constructor; [apply IH|]. apply Forall_forall. intros x Hx. apply pos_seq_In in Hx.
-    rewrite Pos2Nat.inj_succ in Hx. lia.
-Qed.
-
-Lemma filter_SS {A} (R : A -> A -> Prop) (f : A -> bool) (l : list A) :
-  StronglySorted R l -> StronglySorted R (filter f l).
-Proof.
-  induction l as [|x xs IH]; intros HS; simpl.
-  - constructor.
-  - inversion HS as [|? ? HSS HF]; subst. destruct (f x).
-    + constructor; [apply IH; exact HSS|]. rewrite Forall_forall in *.
-      intros y Hy. apply filter_In in Hy as [Hy _]. apply HF; exact Hy.
-    + apply IH; exact HSS.
-Qed.
-
 (* ================================================================================================= *)
 (** ** The C0.4 required theorem set (over the built single-file index; instance #9 over a witness).   *)
 (* ================================================================================================= *)
@@ -892,24 +878,7 @@ Proof.
   destruct (Pos.eqb q pid) eqn:Eqp; [apply Pos.eqb_eq in Eqp; lia | reflexivity].
 Qed.
 
-(* --- child_walk correctness --- *)
-
-(* soundness: every enumerated child truly has parent [parent]. *)
-Lemma child_walk_sound : forall cands t parent cursor c,
-  In c (child_walk t parent cursor cands) -> parent_id t c = Some parent.
-Proof.
-  induction cands as [|x rest IH]; intros t parent cursor c Hin; simpl in Hin; [contradiction|].
-  destruct (Pos.eqb x cursor) eqn:Ex.
-  - destruct (NodeTable.get x t) as [mx|] eqn:Ex2.
-    + destruct (nm_parent mx) as [p|] eqn:Ep.
-      * destruct (Pos.eqb p parent) eqn:Epp.
-        -- destruct Hin as [<-|Hin]; [| eapply IH; exact Hin].
-           unfold parent_id. rewrite Ex2, Ep. apply Pos.eqb_eq in Epp. rewrite Epp. reflexivity.
-        -- eapply IH; exact Hin.
-      * eapply IH; exact Hin.
-    + eapply IH; exact Hin.
-  - eapply IH; exact Hin.
-Qed.
+(* --- child_enum correctness --- *)
 
 (* every present id in the built table has [id <= subtree_end]. *)
 Lemma built_nested (f : TFile) x mx :
@@ -919,133 +888,74 @@ Proof.
   destruct (sub_nest WF x mx Hlo Hhi Hx) as [A _]. exact A.
 Qed.
 
-(* every enumerated child is >= the cursor (well-nested table), so outputs are strictly increasing. *)
-Lemma child_walk_ge : forall cands t parent cursor c,
-  (forall x mx, NodeTable.get x t = Some mx -> (x <= nm_subtree_end mx)%positive) ->
-  In c (child_walk t parent cursor cands) -> (cursor <= c)%positive.
+(* soundness: every enumerated id truly has parent [pid]. *)
+Lemma child_enum_sound : forall t pid limit cursor c,
+  In c (child_enum t pid limit cursor) -> parent_id t c = Some pid.
 Proof.
-  induction cands as [|x rest IH]; intros t parent cursor c Hnest Hin; simpl in Hin; [contradiction|].
-  destruct (Pos.eqb x cursor) eqn:Ex.
-  - apply Pos.eqb_eq in Ex. subst x.
-    destruct (NodeTable.get cursor t) as [mx|] eqn:Ex2.
-    + assert (cursor <= nm_subtree_end mx)%positive by (apply Hnest in Ex2; exact Ex2).
-      destruct (nm_parent mx) as [p|] eqn:Ep.
-      * destruct (Pos.eqb p parent) eqn:Epp.
-        -- destruct Hin as [<-|Hin]; [lia|]. apply IH in Hin; [lia | exact Hnest].
-        -- apply IH in Hin; [lia | exact Hnest].
-      * apply IH in Hin; [lia | exact Hnest].
-    + apply IH in Hin; [lia | exact Hnest].
-  - apply IH in Hin; [exact Hin | exact Hnest].
+  intros t pid limit cursor c.
+  functional induction (child_enum t pid limit cursor); intros Hin;
+    try (exfalso; exact Hin); try (exact (IHl Hin)).
+  apply in_inv in Hin. destruct Hin as [Heq|Hin]; [|exact (IHl Hin)].
+  subst c. unfold parent_id. rewrite e0. cbn. rewrite e1. apply Pos.eqb_eq in e2. rewrite e2. reflexivity.
 Qed.
 
-Lemma child_walk_SS : forall cands t parent cursor,
-  (forall x mx, NodeTable.get x t = Some mx -> (x <= nm_subtree_end mx)%positive) ->
-  StronglySorted Pos.lt (child_walk t parent cursor cands).
+(* every enumerated id is >= the cursor (the jump only moves forward). *)
+Lemma child_enum_ge : forall t pid limit cursor c,
+  In c (child_enum t pid limit cursor) -> (cursor <= c)%positive.
 Proof.
-  induction cands as [|x rest IH]; intros t parent cursor Hnest; simpl; [constructor|].
-  destruct (Pos.eqb x cursor) eqn:Ex.
-  - apply Pos.eqb_eq in Ex. subst x.
-    destruct (NodeTable.get cursor t) as [mx|] eqn:Ex2; [|apply IH; exact Hnest].
-    assert (Hcle : (cursor <= nm_subtree_end mx)%positive) by (apply Hnest in Ex2; exact Ex2).
-    destruct (nm_parent mx) as [p|] eqn:Ep; [|apply IH; exact Hnest].
-    destruct (Pos.eqb p parent) eqn:Epp; [|apply IH; exact Hnest].
-    constructor; [apply IH; exact Hnest|].
-    apply Forall_forall. intros y Hy.
-    apply (child_walk_ge rest t parent (Pos.succ (nm_subtree_end mx)) y Hnest) in Hy. lia.
-  - apply IH; exact Hnest.
+  intros t pid limit cursor c.
+  functional induction (child_enum t pid limit cursor); intros Hin; try (exfalso; exact Hin);
+    pose proof (Pos.le_max_l (Pos.succ cursor) (Pos.succ (nm_subtree_end mc))) as Hm.
+  - apply in_inv in Hin. destruct Hin as [Heq|Hin]; [subst c; lia|]. apply IHl in Hin. lia.
+  - apply IHl in Hin. lia.
+  - apply IHl in Hin. lia.
 Qed.
 
-(* --- completeness via prefix-skip + interval tiling --- *)
-
-Fixpoint advance (lo : positive) (n : nat) : positive :=
-  match n with O => lo | S k => advance (Pos.succ lo) k end.
-
-Lemma pos_seq_app : forall n m lo, pos_seq lo (n + m) = pos_seq lo n ++ pos_seq (advance lo n) m.
+(* the enumerated children are strictly increasing (source order). *)
+Lemma child_enum_SS : forall t pid limit cursor,
+  StronglySorted Pos.lt (child_enum t pid limit cursor).
 Proof.
-  induction n as [|n IH]; intros m lo; simpl; [reflexivity|]. rewrite IH. reflexivity.
+  intros t pid limit cursor.
+  functional induction (child_enum t pid limit cursor); try (solve [constructor]); try exact IHl.
+  constructor; [exact IHl|].
+  apply Forall_forall. intros y Hy. apply child_enum_ge in Hy.
+  pose proof (Pos.le_max_l (Pos.succ cursor) (Pos.succ (nm_subtree_end mc))). lia.
 Qed.
 
-Lemma advance_lt : forall n lo, (lo <= advance lo n)%positive.
-Proof. induction n as [|n IH]; intros lo; simpl; [lia|]. specialize (IH (Pos.succ lo)). lia. Qed.
-
-Lemma advance_to_nat : forall n lo, Pos.to_nat (advance lo n) = (Pos.to_nat lo + n)%nat.
-Proof. induction n as [|n IH]; intros lo; simpl; [lia|]. rewrite IH, Pos2Nat.inj_succ. lia. Qed.
-
-(* child_walk skips a leading run all strictly below the cursor without inspecting the table. *)
-Lemma child_walk_skip : forall l1 l2 t parent cursor,
-  (forall x, In x l1 -> (x < cursor)%positive) ->
-  child_walk t parent cursor (l1 ++ l2) = child_walk t parent cursor l2.
-Proof.
-  induction l1 as [|x l1 IH]; intros l2 t parent cursor Hlt; simpl; [reflexivity|].
-  assert (x < cursor)%positive by (apply Hlt; left; reflexivity).
-  destruct (Pos.eqb x cursor) eqn:Ex; [apply Pos.eqb_eq in Ex; lia|].
-  apply IH. intros y Hy; apply Hlt; right; exact Hy.
-Qed.
-
-Lemma pos_seq_head : forall n lo, (0 < n)%nat -> exists rest, pos_seq lo n = lo :: rest.
-Proof. intros [|n] lo H; [lia|]. exists (pos_seq (Pos.succ lo) n). reflexivity. Qed.
-
-(* the interval-jump reaches every child: strong induction on the interval size above the cursor. *)
-Lemma child_walk_reaches : forall N f pid mp cur mcur c mc,
+(* completeness: the jump reaches every child; strong induction on the interval size above the cursor. *)
+Lemma child_enum_reaches : forall N f pid mp cur mcur c mc,
   NodeTable.get pid (fi_table (build_file f)) = Some mp ->
   NodeTable.get cur (fi_table (build_file f)) = Some mcur -> nm_parent mcur = Some pid ->
   NodeTable.get c  (fi_table (build_file f)) = Some mc  -> nm_parent mc  = Some pid ->
   (cur <= c)%positive -> (c <= nm_subtree_end mp)%positive ->
-  N = (Pos.to_nat (nm_subtree_end mp) - Pos.to_nat cur)%nat ->
-  In c (child_walk (fi_table (build_file f)) pid cur
-          (pos_seq cur (S (Pos.to_nat (nm_subtree_end mp) - Pos.to_nat cur)))).
+  N = (S (Pos.to_nat (nm_subtree_end mp)) - Pos.to_nat cur)%nat ->
+  In c (child_enum (fi_table (build_file f)) pid (nm_subtree_end mp) cur).
 Proof.
   induction N as [N IH] using (well_founded_induction lt_wf).
   intros f pid mp cur mcur c mc Hpid Hcur Hpar Hc Hpc Hle Hcend HN.
-  set (E := nm_subtree_end mp) in *.
-  (* head of the cands list is cur *)
-  simpl. rewrite Pos.eqb_refl. rewrite Hcur, Hpar, Pos.eqb_refl.
+  rewrite child_enum_equation.
+  destruct (Pos.leb cur (nm_subtree_end mp)) eqn:Hleb; [|apply Pos.leb_gt in Hleb; exfalso; lia].
+  rewrite Hcur. cbn iota beta zeta. rewrite Hpar. cbn iota beta zeta. rewrite Pos.eqb_refl.
   destruct (Pos.eq_dec c cur) as [->|Hcne]; [left; reflexivity|].
   right.
-  (* c > cur; c is not in cur's subtree, so subtree_end mcur < c *)
   assert (Hcurlt : (cur < c)%positive) by lia.
+  (* c is not in cur's subtree: subtree_end mcur < c *)
   assert (HEcur : (nm_subtree_end mcur < c)%positive).
   { destruct (Pos.leb c (nm_subtree_end mcur)) eqn:Hb; [|apply Pos.leb_gt in Hb; lia].
     apply Pos.leb_le in Hb. exfalso.
     pose proof (interior_not_child f pid cur mcur c Hcur Hpar Hcurlt Hb) as Hnc.
-    assert (Htrue : parentb (fi_table (build_file f)) c pid = true)
+    assert (parentb (fi_table (build_file f)) c pid = true)
       by (unfold parentb; rewrite Hc; cbn; rewrite Hpc; cbn; apply Pos.eqb_refl).
     congruence. }
-  (* the next cursor is succ(subtree_end mcur); it is the next child *)
-  assert (HEcE : (nm_subtree_end mcur < E)%positive) by lia.
-  pose proof (next_child f pid mp cur mcur Hpid Hcur Hpar HEcE) as Hnext.
-  unfold parent_id in Hnext.
-  destruct (NodeTable.get (Pos.succ (nm_subtree_end mcur)) (fi_table (build_file f))) as [mnc|] eqn:Enc; [|discriminate].
-  (* peel the skipped interior [cur+1 .. subtree_end mcur] then recurse from the next child *)
-  set (cur' := Pos.succ (nm_subtree_end mcur)).
+  (* on the built table the jump target is succ(subtree_end mcur) *)
   assert (Hcur_le_Ecur : (cur <= nm_subtree_end mcur)%positive) by (apply built_nested in Hcur; exact Hcur).
-  (* split the tail pos_seq (succ cur) (E - cur) into interior ++ [cur' .. E] *)
-  assert (Hlen : (Pos.to_nat E - Pos.to_nat cur = (Pos.to_nat (nm_subtree_end mcur) - Pos.to_nat cur)
-                   + S (Pos.to_nat E - Pos.to_nat cur'))%nat).
-  { unfold cur'. rewrite Pos2Nat.inj_succ.
-    assert (Pos.to_nat cur <= Pos.to_nat (nm_subtree_end mcur))%nat by (apply Pos2Nat.inj_le; exact Hcur_le_Ecur).
-    assert (Pos.to_nat (nm_subtree_end mcur) < Pos.to_nat E)%nat by (apply Pos2Nat.inj_lt; exact HEcE).
-    lia. }
-  rewrite Hlen. rewrite pos_seq_app.
-  rewrite child_walk_skip.
-  2:{ intros x Hx. apply pos_seq_In in Hx. unfold cur'.
-      assert (Pos.to_nat (Pos.succ cur) <= Pos.to_nat x)%nat by lia.
-      rewrite Pos2Nat.inj_succ in *.
-      assert (Pos.to_nat x < Pos.to_nat (Pos.succ cur) + (Pos.to_nat (nm_subtree_end mcur) - Pos.to_nat cur))%nat by lia.
-      rewrite Pos2Nat.inj_succ in *.
-      apply Pos2Nat.inj_lt.
-      assert (Pos.to_nat cur <= Pos.to_nat (nm_subtree_end mcur))%nat by (apply Pos2Nat.inj_le; exact Hcur_le_Ecur).
-      rewrite Pos2Nat.inj_succ. lia. }
-  (* now recurse from cur' with the remaining interval *)
-  replace (advance (Pos.succ cur) (Pos.to_nat (nm_subtree_end mcur) - Pos.to_nat cur)) with cur'.
-  2:{ (* advance (succ cur) k = succ cur + k = succ (subtree_end mcur) when k = subtree_end mcur - cur *)
-      apply Pos2Nat.inj. rewrite advance_to_nat. unfold cur'.
-      rewrite !Pos2Nat.inj_succ.
-      assert (Pos.to_nat cur <= Pos.to_nat (nm_subtree_end mcur))%nat by (apply Pos2Nat.inj_le; exact Hcur_le_Ecur).
-      lia. }
-  eapply (IH (Pos.to_nat E - Pos.to_nat cur')%nat);
-    [ (* measure decreases: E - cur' < N = E - cur *)
-      rewrite HN; unfold cur'; rewrite Pos2Nat.inj_succ;
+  rewrite (Pos.max_r (Pos.succ cur) (Pos.succ (nm_subtree_end mcur))) by lia.
+  assert (HEcE : (nm_subtree_end mcur < nm_subtree_end mp)%positive) by lia.
+  pose proof (next_child f pid mp cur mcur Hpid Hcur Hpar HEcE) as Hnext. unfold parent_id in Hnext.
+  destruct (NodeTable.get (Pos.succ (nm_subtree_end mcur)) (fi_table (build_file f))) as [mnc|] eqn:Enc;
+    [|discriminate].
+  eapply (IH (S (Pos.to_nat (nm_subtree_end mp)) - Pos.to_nat (Pos.succ (nm_subtree_end mcur)))%nat);
+    [ rewrite HN, Pos2Nat.inj_succ;
       assert (Pos.to_nat cur <= Pos.to_nat (nm_subtree_end mcur))%nat by (apply Pos2Nat.inj_le; exact Hcur_le_Ecur);
       lia
     | exact Hpid | exact Enc | exact Hnext | exact Hc | exact Hpc | lia | exact Hcend | reflexivity ].
@@ -1074,7 +984,7 @@ Theorem thm11_children_sorted (f : TFile) p :
   StronglySorted Pos.lt (child_ids (fi_table (build_file f)) p).
 Proof.
   unfold child_ids. destruct (NodeTable.get p (fi_table (build_file f))) as [m|] eqn:Ep; [|constructor].
-  apply child_walk_SS. intros x mx. apply built_nested.
+  apply child_enum_SS.
 Qed.
 
 (* THEOREM 4 — parent/child are inverse: a direct child appears in the interval-jump [child_ids] of its
@@ -1083,7 +993,7 @@ Theorem thm4_child_has_parent (f : TFile) p c :
   In c (child_ids (fi_table (build_file f)) p) -> parent_id (fi_table (build_file f)) c = Some p.
 Proof.
   unfold child_ids. destruct (NodeTable.get p (fi_table (build_file f))) as [mp|] eqn:Ep; [|intros []].
-  apply child_walk_sound.
+  apply child_enum_sound.
 Qed.
 
 Theorem thm4_parent_has_child (f : TFile) p c mc :
@@ -1099,17 +1009,12 @@ Proof.
         rewrite Hp0 in Hpar; discriminate).
   destruct (sub_prng WF c mc ltac:(lia) Hhi Hc) as [p' [mp' [Hpar' [Hgp [_ [_ [Hcbound _]]]]]]].
   rewrite Hpar in Hpar'. injection Hpar' as <-.
-  (* the first child p+1 exists (p < c <= subtree_end mp'), so child_walk starts on a real child *)
+  (* the first child p+1 exists (p < c <= subtree_end mp'), so the jump starts on a real child *)
   assert (HpE : (p < nm_subtree_end mp')%positive) by lia.
   pose proof (first_child f p mp' Hgp HpE) as Hfc. unfold parent_id in Hfc.
   destruct (NodeTable.get (Pos.succ p) (fi_table (build_file f))) as [m1|] eqn:E1; [|discriminate].
   unfold child_ids. rewrite Hgp.
-  (* the candidate list [p+1 .. subtree_end mp'] has the shape child_walk_reaches expects *)
-  replace (Pos.to_nat (nm_subtree_end mp') - Pos.to_nat p)%nat
-     with (S (Pos.to_nat (nm_subtree_end mp') - Pos.to_nat (Pos.succ p)))%nat.
-  2:{ rewrite Pos2Nat.inj_succ.
-      assert (Pos.to_nat p < Pos.to_nat (nm_subtree_end mp'))%nat by (apply Pos2Nat.inj_lt; lia). lia. }
-  eapply (child_walk_reaches _ f p mp' (Pos.succ p) m1 c mc);
+  eapply (child_enum_reaches _ f p mp' (Pos.succ p) m1 c mc);
     [ exact Hgp | exact E1 | exact Hfc | exact Hc | exact Hpar | lia | exact Hcbound | reflexivity ].
 Qed.
 

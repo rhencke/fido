@@ -444,8 +444,9 @@ Print Assumptions OccurrenceSpike.thm10_containing_file_path.
 (* the interval-jump child enumeration + its tiling foundations (first-child / next-sibling, sound + reaches). *)
 Print Assumptions OccurrenceSpike.first_child.
 Print Assumptions OccurrenceSpike.next_child.
-Print Assumptions OccurrenceSpike.child_walk_sound.
-Print Assumptions OccurrenceSpike.child_walk_reaches.
+Print Assumptions OccurrenceSpike.child_enum.
+Print Assumptions OccurrenceSpike.child_enum_sound.
+Print Assumptions OccurrenceSpike.child_enum_reaches.
 Print Assumptions OccurrenceSpike.build_expr_end.
 Print Assumptions OccurrenceSpike.occ_file.
 Print Assumptions OccurrenceSpike.containing_file.
