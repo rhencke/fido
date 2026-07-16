@@ -1242,7 +1242,7 @@ Module Type SNAP_SIG.
   Parameter SyntaxIndex : TForest -> Type.
   Parameter index_forest : forall fs, SyntaxIndex fs.
   Parameter file_of_path : forall fs, FilePath -> option (FileRef fs).
-  Parameter ref_of_key   : forall fs, NodeKey -> option (NodeRef fs).
+  Parameter ref_of_key   : forall fs, SyntaxIndex fs -> NodeKey -> option (NodeRef fs).
   Parameter file_ref_file : forall {fs}, FileRef fs -> TFile.
   Parameter file_ref_path : forall {fs}, FileRef fs -> FilePath.
   Parameter node_ref_file  : forall {fs}, NodeRef fs -> FileRef fs.
@@ -1454,12 +1454,32 @@ Definition file_of_path (fs : TForest) (fp : FilePath) : option (FileRef fs) :=
    | None           => fun _ => None
    end) eq_refl.
 
-Definition ref_of_key (fs : TForest) (k : NodeKey) : option (NodeRef fs) :=
+(* validate a local id THROUGH the snapshot's PRECOMPUTED outer table (no per-file rebuild): one outer-slot
+   lookup + one per-file lookup.  Provably agrees with [valid_localb] by the index correspondence [si_ok]. *)
+Definition valid_in_index {fs} (idx : SyntaxIndex fs) (fr : FileRef fs) (local : positive) : bool :=
+  match NodeTable.get (file_ref_slot fr) (si_outer idx) with
+  | Some fi => match NodeTable.get local (fi_table fi) with Some _ => true | None => false end
+  | None    => false
+  end.
+Lemma valid_in_index_eq {fs} (idx : SyntaxIndex fs) (fr : FileRef fs) (local : positive) :
+  valid_in_index idx fr local = valid_localb (file_ref_file fr) local.
+Proof.
+  unfold valid_in_index, valid_localb.
+  rewrite (si_ok idx (file_ref_slot fr) (file_ref_file fr) (file_ref_at fr)). reflexivity.
+Qed.
+Lemma valid_in_index_true {fs} (idx : SyntaxIndex fs) (fr : FileRef fs) (local : positive) :
+  valid_in_index idx fr local = true -> valid_localb (file_ref_file fr) local = true.
+Proof. rewrite valid_in_index_eq. exact (fun H => H). Qed.
+
+(* mint a validated reference from a raw key THROUGH the snapshot's index (§7 raw-lookup boundary): one
+   file-list scan (path -> slot) + one outer-slot lookup + one per-file lookup — NO per-file rebuild.
+   Cost O(files + log files + log nodes-per-file).  The hot path from an existing [NodeRef] never uses this. *)
+Definition ref_of_key (fs : TForest) (idx : SyntaxIndex fs) (k : NodeKey) : option (NodeRef fs) :=
   match file_of_path fs (nk_file k) with
   | Some fr =>
-      (match valid_localb (file_ref_file fr) (nk_local k) as b
-             return (valid_localb (file_ref_file fr) (nk_local k) = b -> option (NodeRef fs)) with
-       | true  => fun H => Some (mkNodeRef fs fr (nk_local k) H)
+      (match valid_in_index idx fr (nk_local k) as b
+             return (valid_in_index idx fr (nk_local k) = b -> option (NodeRef fs)) with
+       | true  => fun H => Some (mkNodeRef fs fr (nk_local k) (valid_in_index_true idx fr (nk_local k) H))
        | false => fun _ => None
        end) eq_refl
   | None => None

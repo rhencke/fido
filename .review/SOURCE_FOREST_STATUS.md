@@ -97,7 +97,7 @@ preserved as history — not rewritten.
      `NodeTable`.
 - Review cadence: at most two intentional Codex stops — ROOT barrier (`milestone(root): C0A —`, repairs
   `review(root): C0A —`) then FINAL barrier (`milestone(final): C0A —`, repairs `review(final): C0A —`).
-- Root candidate SHA: pending
+- Root candidate SHA: `0e6b739` (`milestone(root): C0A`)
 - Root Codex result / repair SHAs: pending
 - Final candidate SHA: pending
 - Final Codex result / repair SHAs: pending
@@ -124,8 +124,12 @@ preserved as history — not rewritten.
   projection off the `NodeRef`; `ref_meta`/`node_kind`/`node_role`/`subtree_end` = ONE outer slot lookup
   (O(log files)) + ONE per-file lookup (O(log nodes/file)) — **no file-list scan**; ancestor O(log)+O(1);
   direct children one file-index acquisition then the list-free O(#children) `child_enum` jump.
-- Raw-key minting cost (`ref_of_key` / `file_of_path`): a SINGLE `find_slot` scan of the file list (O(files));
-  documented as the separate minting boundary — the hot path from an existing `NodeRef` never uses it.
+- Raw-key minting cost (`ref_of_key` / `file_of_path`): `ref_of_key` takes the `SyntaxIndex fs` and validates
+  THROUGH its precomputed outer table (via `valid_in_index` + `si_ok`) — it does NOT rebuild the per-file index.
+  Cost O(files + log files + log nodes-per-file): one `find_slot` file-list scan (path -> slot) + one outer-slot
+  lookup + one per-file lookup.  This is the separate minting boundary; the hot path from an existing `NodeRef`
+  never uses it.  (ROOT review `task-mro0ytwl` found the first version rebuilt `build_file` via `valid_localb`;
+  fixed to route validity through the index.)
 - Sealing: `Module Snap : SNAP_SIG` hides the raw `mkFileRef`/`mkNodeRef`/`mkSyntaxIndex` and the slot; only
   the validated minting/navigation API + theorems are exposed.
 - Deleted fallback/option/filter branches: `node_kind`'s `KFile` fallback; `ref_meta`/`containing_file`'s
