@@ -719,6 +719,18 @@ rej_conv int8-fl-over 'println(int8(128.0))'
 rej_conv uint8-fl-neg 'println(uint8(-1.0))'
 rej_conv f32-bool    'println(float32(true))'
 rej_conv f64-str     'println(float64("x"))'
+# hand-written REJECTED complex-conversion fixtures (§54): a real / imaginary component overflow, a
+# nonzero-imaginary or fractional/out-of-range complex->scalar conversion, and wrong-type complex conversions
+# — all rejected by `go build` EXACTLY as GoTypes/GoCompile make impossible (round_typed_complex component
+# overflow / complex_real_if_imag_zero None / cross-kind reject).  A disagreement is a MODEL BUG.
+rej_conv c64-real-over  'println(complex64(complex(1e39, 0)))'
+rej_conv c64-imag-over  'println(complex64(complex(0, 1e39)))'
+rej_conv c128-over      'println(complex128(complex(1e309, 0)))'
+rej_conv int-of-cfrac   'println(int(complex(3.5, 0)))'
+rej_conv int-of-cimag   'println(int(complex(3, 1)))'
+rej_conv f32-of-cimag   'println(float32(complex(1.5, 1)))'
+rej_conv c64-bool       'println(complex64(true))'
+rej_conv c128-str       'println(complex128("x"))'
 
-echo "fido e2e OK — pinned Go built the whole tree (go build ./...) using the RENDERED go.mod, accepted the empty module, ran the witness vs goldens (incl. the ten integer-type conversions AND the float section: bare float64, float32/float64 conversions, exact float<->int, the direct-vs-nested double-round scar as uint64 evidence, underflow to +0), checked the multi-package differential + go list discovery, and rejected the no-main/dup-main + out-of-range/non-integer/float-overflow/fractional/wrong-type conversion fixtures exactly as GoCompile does (go vet nonblocking)"
+echo "fido e2e OK — pinned Go built the whole tree (go build ./...) using the RENDERED go.mod, accepted the empty module, ran the witness vs goldens (incl. the ten integer-type conversions, the float section, AND the complex section: bare complex128-default literal, complex64/complex128 conversions, zero-imaginary complex<->scalar, the direct-vs-nested component double-round scar as uint64 evidence), checked the multi-package differential + go list discovery, and rejected the no-main/dup-main + out-of-range/non-integer/float-overflow/fractional/wrong-type/complex-component-overflow/nonzero-imaginary conversion fixtures exactly as GoCompile does (go vet nonblocking)"
 SH

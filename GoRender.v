@@ -8,17 +8,21 @@
     Rocq-rendered bytes — the sink never adds or alters it).  [render_file] is an INTERNAL helper; the
     PUBLIC capability is [GoEmit.render_program : SafeProgram -> DirectoryImage].  Proved here: all
     output ASCII; the ONE constant-status root [render_const_info_denotes] — rendering an expression denotes
-    EXACTLY the [GoTypes.ConstInfo] it computes (a bare integer/float is an UNTYPED constant, not a typed
-    [int]/[float64] — the §1 repair; an explicit conversion is a TYPED constant through [convert_const]), in
+    EXACTLY the [GoTypes.ConstInfo] it computes (a bare integer/float/complex is an UNTYPED constant, not a typed
+    [int]/[float64]/[complex128] — the §1 repair; an explicit conversion is a TYPED constant through [convert_const]), in
     the ONE [ConstInfo] vocabulary, under an INDEPENDENT decimal reader / float decoder / string decoder
     (parser-free; the milestone forbids a lexer/parser/round-trip in the certified path).  That denotation is
     FUNCTIONAL ([render_const_info_denotes_functional]): a rendered spelling denotes AT MOST ONE [ConstInfo], as
-    the six recognisers (bool / bare integer / string / integer conversion / bare float / float conversion) are
+    the recognisers (bool / bare integer / string / integer conversion / bare float / float conversion /
+    complex literal / complex conversion) are
     pairwise disjoint — a canonical bare-integer spelling (the guard [go_int_lit]) is neither the word `true`,
-    a dotted float, a quoted string, nor a keyword-led conversion — so no spelling admits two conflicting
+    a dotted float, a quoted string, nor a keyword-led conversion, and `complex(` is disjoint from
+    `complex64(`/`complex128(` at index 7 — so no spelling admits two conflicting
     constant statuses.  A bare float
     renders through ONE canonical decimal spelling with the §27 decode/render semantic round trip; a float
-    conversion renders `float32`/`float64(...)`.  And [render_resolved_expr_denotes] ties the three
+    conversion renders `float32`/`float64(...)`; a complex literal renders the canonical `complex(<real>, <imag>)`
+    form (both components via that decimal spelling) with an INDEPENDENT complex decoder + semantic round trip,
+    and a complex conversion renders `complex64`/`complex128(...)`.  And [render_resolved_expr_denotes] ties the three
     authorities — a resolved [println] argument analyzes to a ConstInfo whose spelling denotes it and
     evaluates to a well-formed value of its resolved [GoType] (the runtime value being that constant's
     resolved-type interpretation — floats round) — plus decimal faithfulness / no-leading-zero and the int

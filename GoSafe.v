@@ -5,12 +5,14 @@
     This is NOT a full Go operational semantics — it is a deterministic abstract-trace mapping for the
     current fragment: values are REAL Go values ([VBool] / [VInteger : IntegerType -> Z] carrying the exact
     mathematical value at its exact integer type / [VFloat : forall ft, FloatValue ft] carrying a canonical
-    binary [spec_float] at its format / [VString : exact bytes], not source spelling — so [EInt 0] and
+    binary [spec_float] at its format / [VComplex : forall ct, ComplexValue ct] a PAIR of general
+    [FloatValue] components (so a RUNTIME complex MAY carry -0/inf/NaN, though a typed complex CONSTANT cannot)
+    / [VString : exact bytes], not source spelling — so [EInt 0] and
     [ENeg 0] evaluate equal), and a file's behaviour is the ordered sequence of its [println] calls (each the
     list of its argument VALUES).  Runtime values carry the SAME [GoType] authority as the compiler/type
     system ([value_type]; there is no separate runtime type universe), and every runtime value is
-    WELL-FORMED ([ValueWF] — [VInteger it z] iff [z] fits [it]; a [VFloat] is canonical by construction, so
-    True).  A float constant ROUNDS ONCE into its canonical [FloatValue]; constant evaluation produces only
+    WELL-FORMED ([ValueWF] — [VInteger it z] iff [z] fits [it]; a [VFloat] / [VComplex] is canonical by construction, so
+    True).  A float/complex constant ROUNDS ONCE into its canonical [FloatValue] component(s); constant evaluation produces only
     finite/+0 (never -0/inf/NaN).  Because raw syntax can now contain a compiler-invalid integer/float
     conversion, evaluation is PARTIAL ([eval_expr : GoExpr -> option GoValue]) and
     is DERIVED from the one constant-status analysis ([GoTypes.const_info]) — it invents no second

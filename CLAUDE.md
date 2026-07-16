@@ -9,9 +9,10 @@ PROOFS/EVIDENCE + derived facts over that one program, never new trees:
 
 ```
 GoProgram (ModuleSpec + a possibly-empty fmap FilePath -> GoFileAST) -> GoTypes (each raw literal is an
-      exact UNTYPED GoConst; an explicit EIntConvert/EFloatConvert is a TYPED constant; a use context resolves
-      it through the ONE GoType authority {TBool, the integer family TInteger over the ten-member IntegerType,
-      the float family TFloat over FloatType, TString} to
+      exact UNTYPED GoConst; an explicit EIntConvert/EFloatConvert/EComplexConvert is a TYPED constant; a use
+      context resolves it through the ONE GoType authority {TBool, the integer family TInteger over the
+      ten-member IntegerType, the float family TFloat over FloatType, the complex family TComplex over
+      ComplexType, TString} to
       ProgramTyped evidence over the SAME AST) -> GoCompile (whole-program admissibility = ProgramTyped +
       exactly-one-main + CompilationFacts over the SAME program) -> GoSafe (SafeProgram) -> direct GoRender
       (incl. the go.mod) -> complete DirectoryImage (exact go.mod bytes + the .go map)
@@ -26,15 +27,22 @@ top-level declarations (today only `DMain` — a `func main()` declaration; pack
 COMPILATION RESULTS, not raw); statements are `SPrintln` over primitive literals (`EBool`/`EInt`/`ENeg` —
 unsigned magnitude, negatives via `ENeg` — `EString`, whose argument is the EXACT SEMANTIC BYTE SEQUENCE,
 NOT source spelling / Unicode / an escaped literal, `EFloat` — a bounded-canonical finite DECIMAL value (NOT
-source spelling), and `EIntConvert it e` / `EFloatConvert ft e` — explicit integer / float conversions).
+source spelling), `EComplex` — a semantic complex literal (a PAIR of `DecimalFloat` components, canonical
+spelling `complex(re, im)`, NOT imaginary-literal syntax / `real`/`imag` / a general call), and
+`EIntConvert it e` / `EFloatConvert ft e` / `EComplexConvert ct e` — explicit integer / float / complex
+conversions).
 Each raw literal denotes an EXACT UNTYPED constant (`GoConst`); an explicit conversion of a constant is a
 TYPED constant of the destination type (integer conversions value-preserving + range-checked, float
-conversions ROUND once — representability rechecked at every nesting layer). The ONE type authority `GoTypes`
+conversions ROUND once, complex conversions ROUND each component once — representability rechecked at every
+nesting layer). The ONE type authority `GoTypes`
 (universe = `TBool`, the integer family `TInteger` over the ten-member `IntegerType`, the float family
-`TFloat` over `FloatType`, and `TString`) resolves it in a use
-context (an untyped int defaults to `TInteger IInt`, a bare float to `TFloat F64`; a typed constant keeps its
+`TFloat` over `FloatType`, the complex family `TComplex` over `ComplexType` (complex64/complex128, components
+float32/float64), and `TString`) resolves it in a use
+context (an untyped int defaults to `TInteger IInt`, a bare float to `TFloat F64`, a bare complex to
+`TComplex C128`; a typed constant keeps its
 type + value and is not re-defaulted; representability is CHECKED for an untyped constant — the per-type
-inclusive-range / float decision over `Ints`/`Floats` — and INTRINSIC for a typed one (validity carried by
+inclusive-range / float decision over `Ints`/`Floats`/`Complexes`, following Go's zero-imaginary rule for
+scalar↔complex — and INTRINSIC for a typed one (validity carried by
 its own dependently-typed constant, not re-checked); every string constant is representable as `TString`) — a literal is NOT a typed value, and
 there is no typed AST. The `ModuleSpec` is an intrinsic narrow `ModulePath` + a
 singleton `GoVersion` (Go1_23), NOT a `TargetConfig`; the `go.mod` is RENDERED in Rocq. The EMPTY file map
@@ -44,7 +52,9 @@ strange paths, invalid module paths — is UNREPRESENTABLE, not rejected. Every 
 witness exercising bool + int + the `-(2^63)` boundary + explicit conversions across ALL TEN integer types
 (signed/unsigned narrow + 64-bit boundaries, platform int/uint, `uint64(2^63)`, nested `int8(int16(127))`) +
 float64/float32 (an exact float->int, int->float, the direct-vs-nested double-round scar as EXACT uint64
-observations, underflow to +0) + readable strings (empty/ASCII/quote/backslash/tab/CR/NL) + empty/multiple
+observations, underflow to +0) + complex64/complex128 (a bare complex128 literal `complex(1.5, -2.5)`, its
+complex64/complex128 conversions, zero-imaginary complex->int/float32, the component double-round scar as an
+EXACT uint64 observation) + readable strings (empty/ASCII/quote/backslash/tab/CR/NL) + empty/multiple
 `println` is emitted to a real tree
 (each file's first line `// fido generated.  do not edit.`) and built by `go build ./...` + run vs reviewed
 goldens (with hand-written differential fixtures asserting real Go REJECTS the out-of-range / non-integer
@@ -135,9 +145,11 @@ algorithm, report an architectural conflict and stop. Do not implement an altern
    unused panic/control placeholder.
 7. **Naming is a correctness claim.** `GoSafe` uses REAL Go values (`VInteger : IntegerType -> Z` carrying the
    exact value at its exact type, `VFloat : forall ft, FloatValue ft -> GoValue` a proof-carrying canonical
-   `spec_float` at its format, `VString` exact bytes) — `EInt 0` and `ENeg 0` evaluate equal, and every
-   runtime integer value is range-well-formed (`ValueWF`; a `VFloat`'s canonicality lives in the `FloatValue`
-   type, so `ValueWF` there is `True`); runtime values carry the SAME `GoType` (`value_type`). Evaluation is
+   `spec_float` at its format, `VComplex : forall ct, ComplexValue ct -> GoValue` a PAIR of general
+   `FloatValue` components — so a RUNTIME complex MAY carry -0/inf/NaN though a typed complex CONSTANT cannot,
+   `VString` exact bytes) — `EInt 0` and `ENeg 0` evaluate equal, and every
+   runtime integer value is range-well-formed (`ValueWF`; a `VFloat`'s / `VComplex`'s canonicality lives in the
+   `FloatValue` type, so `ValueWF` there is `True`); runtime values carry the SAME `GoType` (`value_type`). Evaluation is
    DERIVED from the one constant-status analysis (`const_info` → `resolve_const_info` → `typed_const_to_value`)
    and is PARTIAL (a compiler-invalid conversion has no value — never a wrap; a typed float PROJECTS its stored
    canonical `FloatValue` `tfc_runtime`, rounded ONCE at conversion and never re-rounded — only
@@ -154,8 +166,11 @@ algorithm, report an architectural conflict and stop. Do not implement an altern
    `go.mod` is not a `FilePath`. The one integer-family + range authority is `Ints` (the ten-member
    `IntegerType`; `int`/`uint` pinned 64-bit and DISTINCT from `int64`/`uint64` though they share a range on
    this target), the one float-format authority is `Floats` (the two-member `FloatType` F32/F64; precision
-   24/53, exponent bound 128/1024), and the one type authority is `GoTypes` (`TBool`, the integer family
-   `TInteger`, the float family `TFloat`, and `TString` — each a LIVE type landed together with its syntax +
+   24/53, exponent bound 128/1024), the one complex authority is `Complexes` (the two-member `ComplexType`
+   C64/C128, all precision/keyword/rounding sourced from the ONE `complex_component_type` mapping C64->F32,
+   C128->F64 — no complex-specific format), and the one type authority is `GoTypes` (`TBool`, the integer
+   family `TInteger`, the float family `TFloat`, the complex family `TComplex`, and `TString` — each a LIVE
+   type landed together with its syntax +
    value + rendering + proofs, never ahead of it); there
    is NO `TargetConfig`, no second width/type authority, no per-width runtime record family, no `GoTypeTag`,
    no `unknown`/`opaque`/`raw` type ahead of its syntax, and no typed AST beside the one raw `GoAST`.
@@ -174,31 +189,42 @@ representability / range / keyword authority (`int`/`uint` pinned 64-bit, distin
 `FloatType` (F32/F64; precision 24/53, exponent bound 128/1024), the exact canonical-rational `FloatConst`
 (coprime lowest terms, canonical zero, decidable rational eq) + the single-round normalizer `round_float_sf`
 (F32 DIRECTLY at binary32, never via F64) + `FloatConstRepresentable` + the proof-carrying canonical
-`FloatValue` + the bounded finite-decimal raw-literal domain `DecimalFloat`. · `ModulePath` —
+`FloatValue` + the bounded finite-decimal raw-literal domain `DecimalFloat`. · `Complexes` — the ONE complex
+authority (over `Floats`, below `GoAST`/`GoTypes`): the two-member `ComplexType` (C64/C128) with the ONE
+`complex_component_type` mapping (C64->F32, C128->F64) sourcing all precision/keyword/rounding; the exact
+untyped `ComplexConst` (a PAIR of canonical-rational `FloatConst` components); `round_typed_complex` (rounds
+EACH component ONCE via `round_typed_float`); the intrinsic `TypedComplexConst ct` (a PAIR of coherent
+`TypedFloatConst` components — no duplicated float coherence); the general runtime `ComplexValue ct` (a PAIR
+of general `FloatValue` components — may be -0/inf/NaN); the bounded raw-literal domain `DecimalComplex`. ·
+`ModulePath` —
 the intrinsic narrow canonical module-path domain (decidable eq; invalid paths unrepresentable). ·
 `GoVersion` — singleton `Go1_23`, renders "1.23". · `GoAST` — `ModuleSpec` + `GoProgram := { prog_module ;
 prog_files : fmap FilePath GoFileAST }` (the map MAY be empty); raw `GoDecl` (`DMain`), `SPrintln`,
 `EBool`/`EInt`/`ENeg`/`EString` (string = exact bytes)/`EIntConvert` (integer conversion)/`EFloat` (a bounded
-finite-decimal literal)/`EFloatConvert` (float conversion); no package clause / entry / imports / TYPES in
+finite-decimal literal)/`EFloatConvert` (float conversion)/`EComplex` (a semantic complex literal, `complex(re,
+im)`)/`EComplexConvert` (complex conversion); no package clause / entry / imports / TYPES in
 raw. · `GoTypes` — the ONE type
 authority (EVIDENCE over the raw AST): `GoType` = `TBool` | `TInteger IntegerType` | `TFloat FloatType` |
-`TString`, exact untyped `GoConst` (`CBool`/`CInt Z`/`CFloat FloatConst`/`CString`), the intrinsic
+`TComplex ComplexType` | `TString`, exact untyped `GoConst` (`CBool`/`CInt Z`/`CFloat FloatConst`/`CComplex
+ComplexConst`/`CString`), the intrinsic
 dependently-typed `TypedConst : GoType -> Type` (`TCBool`/`TCInteger it z <fits>`/`TCFloat ft (TypedFloatConst
-ft)`/`TCString` — a mismatched/out-of-range typed constant UNREPRESENTABLE), the ONE target-directed
+ft)`/`TCComplex ct (TypedComplexConst ct)`/`TCString` — a mismatched/out-of-range typed constant UNREPRESENTABLE), the ONE target-directed
 conversion authority `convert_const : forall target, ConstInfo -> option (TypedConst target)` (integer←integer
 value-preserving + range-checked, integer←float exact integral in-range, float←int/float ROUND once — a
-same-format float unchanged, bool/string source-or-target reject) + the `ConstInfo` analyzer
+same-format float unchanged; complex←complex/scalar ROUND each component once, scalar↔complex by Go's
+zero-imaginary rule; bool/string source-or-target reject) + the `ConstInfo` analyzer
 (`CIUntyped`/`CITyped`) with `const_info_exact` the exact value (no separate `const_value`) +
 `resolve_const_info` (an untyped constant DEFAULTS via `default_const` — int → `TInteger IInt`, bare float →
-`TFloat F64`; a typed constant PACKS unchanged into a `ResolvedConst`, validity INTRINSIC) + `ConstRepresentable`
+`TFloat F64`, bare complex → `TComplex C128`; a typed constant PACKS unchanged into a `ResolvedConst`, validity INTRINSIC) + `ConstRepresentable`
 DERIVED from successful typing (`type_untyped_const_at`, no second range/overflow checker; every string
 representable as `TString`), reflected `ResolveExpr` with its `ResolvedConst` witness (`resolve_expr_const`),
 `Stmt/Decl/File/ProgramTyped` (empty map typed vacuously). · `GoCompile` —
 whole-program directory→package + exactly-one-main + whole-program typing (`ProgramTyped` via GoTypes; empty
 program accepted); `go_compile` sound/complete (`prog_ok_iff`); honest `ErrTyping`; `CompilationFacts`
 exposing typing by canonical projection. · `GoSafe` — real `GoValue` (`VBool`/`VInteger IntegerType Z`/
-`VFloat ft (FloatValue ft)`/`VString`), `value_type` over the same `GoType`, `ValueWF` range invariant (a
-float's canonicality lives in `FloatValue`), PARTIAL `eval_expr` (`const_info` → `resolve_const_info` →
+`VFloat ft (FloatValue ft)`/`VComplex ct (ComplexValue ct)`/`VString`), `value_type` over the same `GoType`,
+`ValueWF` range invariant (a float's / complex component's canonicality lives in `FloatValue`), PARTIAL
+`eval_expr` (`const_info` → `resolve_const_info` →
 `typed_const_to_value`, which PROJECTS the stored `tfc_runtime` — rounded ONCE at conversion, never
 re-rounded — only finite/+0), resolved-eval well-formedness + type
 preservation, `eval_file`, `SafeProgram`. · `GoRender` —
@@ -206,7 +232,8 @@ render decls + derived
 package clause + the go.mod from the `ModuleSpec`; strings via ONE canonical interpreted literal
 (`render_string_literal`) with an INDEPENDENT decoder (`decode_string_literal` / `render_string_roundtrip`);
 floats via ONE canonical decimal spelling (`render_decimal`) with an INDEPENDENT decoder (`decode_decimal` /
-`decode_render_decimal`); header exact first line; all-ASCII (bytes ≥ 128 only via `\xhh`); the ONE
+`decode_render_decimal`); complexes via ONE canonical `complex(<real>, <imag>)` spelling (both components via
+`render_decimal`) with an INDEPENDENT decoder + semantic round trip; header exact first line; all-ASCII (bytes ≥ 128 only via `\xhh`); the ONE
 constant-status render root `render_const_info_denotes` (FUNCTIONAL — `render_const_info_denotes_functional`:
 one spelling, at most one ConstInfo) / `render_resolved_expr_denotes`. · `GoEmit` — provenance-gated `DirectoryImage` (go.mod +
 .go map); `render_program`; `di_transport`. · `plugin/g_fido.mlg` — the `Fido Emit` transport command +
@@ -255,8 +282,8 @@ kill stale `docker buildx build` processes first; run long builds detached and p
 
 ## Files
 
-- **Certified theory** (`dune`): `digits.v`, `Ints.v`, `Floats.v`, `FilePath.v`, `FMap.v`, `ModulePath.v`,
-  `GoVersion.v`, `GoAST.v`, `GoTypes.v`, `GoCompile.v`, `GoSafe.v`, `GoRender.v`, `GoEmit.v`.
+- **Certified theory** (`dune`): `digits.v`, `Ints.v`, `Floats.v`, `Complexes.v`, `FilePath.v`, `FMap.v`,
+  `ModulePath.v`, `GoVersion.v`, `GoAST.v`, `GoTypes.v`, `GoCompile.v`, `GoSafe.v`, `GoRender.v`, `GoEmit.v`.
 - `plugin/g_fido.mlg` — the Fido Emit transport bridge + the whole-theory audit; `plugin/fido_sink.ml` —
   the foreign-Go-rejecting sibling-temp sink; `plugin/dune` — the plugin library. `e2e/Witness.v` — the
   witness (emitted explicitly, and the canonical tracked module); `e2e/WitnessMulti.v` — the multi-package

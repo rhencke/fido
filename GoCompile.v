@@ -10,8 +10,8 @@
       - every package must contain EXACTLY ONE admissible `main` declaration across all its files
         (zero rejects the whole program; more than one rejects the whole program);
       - the whole program is TYPED through [GoTypes] ([ProgramTyped] — every `println` argument resolves to a
-        [GoType]: a constant fits its resolved integer/float type and every explicit integer/float conversion
-        is valid — the one [convert_const] authority);
+        [GoType]: a constant fits its resolved integer/float/complex type and every explicit integer/float/
+        complex conversion is valid — the one [convert_const] authority);
       - one invalid package rejects the WHOLE program (all-or-nothing; no per-file partial acceptance);
       - multiple valid main packages in different directories are accepted, matching `go build ./...`;
       - an empty file is accepted when its package's single `main` is elsewhere;
@@ -34,7 +34,8 @@ Open Scope Z_scope.
     Per-file/decl/statement/expression admissibility is [GoTypes.ProgramTyped]/[program_typedb] over the
     SAME raw AST: every [println] argument must RESOLVE under [UsePrintlnArg] to a [GoType] (a typing failure
     is a constant fitting no integer type, a bare float overflowing its default [float64], an invalid
-    [EIntConvert]/[EFloatConvert] — overflow, a fractional or out-of-range float->integer, a wrong-type or
+    [EIntConvert]/[EFloatConvert]/[EComplexConvert] — a float or complex-component overflow, a fractional or
+    out-of-range float->integer, a nonzero-imaginary complex->scalar, a wrong-type or
     nested-invalid conversion; bools and strings always resolve).  There is no separate GoCompile static-
     admissibility family; the deleted [ExprOk]/[StmtOk]/[DeclOk]/[FileOk] are subsumed by the type judgment. *)
 

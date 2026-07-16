@@ -9,7 +9,8 @@ integration check against `go build ./...`.
 ## What actually works today
 
 One complete vertical slice, proved **and** executed end to end. A witness exercising every admitted
-primitive — bool, int (incl. the `-(2^63)` boundary), exact float32/float64 constants, and byte-sequence
+primitive — bool, int (incl. the `-(2^63)` boundary), exact float32/float64 constants, exact
+complex64/complex128 constants, and byte-sequence
 strings (empty, ASCII, quote, backslash, tab, CR, NL):
 
 ```go
@@ -36,6 +37,13 @@ func main() {
 	println(uint64(float32(2305843146652647425.0e+0)))
 	println(uint64(float32(float64(2305843146652647425.0e+0))))
 	println(float64(1.0e-330))
+	println(complex(15.0e-1, -25.0e-1))
+	println(complex64(complex(15.0e-1, -25.0e-1)))
+	println(complex128(complex(15.0e-1, -25.0e-1)))
+	println(int(complex(3.0e+0, 0.0)))
+	println(float32(complex(15.0e-1, 0.0)))
+	println(uint64(complex64(complex(2305843146652647425.0e+0, 0.0))))
+	println(uint64(complex64(complex128(complex(2305843146652647425.0e+0, 0.0)))))
 }
 ```
 
@@ -53,7 +61,16 @@ The float lines exercise exact float32/float64 **constants**: a bare default-`fl
 rounding differs from binary64-then-binary32), and an underflow to `+0`. A bare float denotes its **exact
 rational**; a conversion rounds **once** at the destination format (F32 directly at binary32, never through
 F64). Float printing is Go's runtime `%e` format and is integration evidence only. It is still exact float
-**constants** — no float arithmetic, no imports, no complex.
+**constants** — no float arithmetic and no imports.
+
+The complex lines exercise exact complex64/complex128 **constants**: a bare complex128-default literal
+`complex(1.5, -2.5)`, its complex64/complex128 conversions, zero-imaginary complex→int/float32 conversions,
+and the **component** double-round scar as an exact `uint64` observation (direct `complex64` vs nested
+`complex128`-then-`complex64`). An untyped complex constant is an exact **pair of rational components** (real
+and imaginary); its default type is complex128; complex64/complex128 components are float32/float64; a complex
+conversion rounds **each component once**, and a scalar↔complex conversion follows Go's zero-imaginary rule.
+Go prints a complex as `(real+imagi)` — integration evidence only. It is still exact complex **constants** —
+no complex arithmetic, no `real`/`imag`, no imports.
 
 - **One program representation.** A `GoProgram` is an intrinsic `ModuleSpec` (a narrow canonical module
   path + a singleton Go version — the facts of the generated module, **not** a target config) paired with a
@@ -64,17 +81,21 @@ F64). Float printing is Go's runtime `%e` format and is integration evidence onl
   metadata. There is no second tree and no separate IR.
 - **One type authority.** Each raw literal denotes an exact **untyped** constant (`GoConst`); `GoTypes` —
   the single type authority, evidence over the same AST, universe `TBool` / the integer family `TInteger`
-  (ten `IntegerType` members) / the float family `TFloat` (`F32`/`F64` = `float32`/`float64`) / `TString` —
+  (ten `IntegerType` members) / the float family `TFloat` (`F32`/`F64` = `float32`/`float64`) / the complex
+  family `TComplex` (`C64`/`C128` = `complex64`/`complex128`, components `float32`/`float64`) / `TString` —
   resolves
   it in a use context (an untyped int defaults to `int` and its per-type inclusive range is checked; a bare
-  float defaults to `float64`; a string
+  float defaults to `float64`; a bare complex defaults to `complex128`; a string
   literal carries its exact bytes and is always representable as `TString`). An explicit integer conversion
   (`EIntConvert`) is a **typed** constant of the destination type, value-preserving and range-checked at every
   nesting layer (`int`/`uint` are pinned 64-bit and distinct from `int64`/`uint64`); explicit float32/float64
-  conversions and float↔integer constant conversions go through one target-directed `convert_const` authority
-  (rounding once, range/integrality checked). `GoConst` now includes an exact canonical-rational float
-  constant `CFloat`, and runtime values gain a proof-carrying canonical float value `VFloat`. A literal is
-  not a typed
+  and complex64/complex128 conversions and float↔integer / scalar↔complex constant conversions go through one
+  target-directed `convert_const` authority
+  (rounding once — each complex component once, range/integrality/zero-imaginary checked). `GoConst` includes
+  an exact canonical-rational float constant `CFloat` and an exact-pair complex constant `CComplex`, and
+  runtime values gain a proof-carrying canonical float value `VFloat` and a complex value `VComplex` (a pair
+  of canonical float components that may be signed-zero/inf/NaN, though a typed complex constant cannot be). A
+  literal is not a typed
   value, and there is no typed AST or second IR: `ResolveExpr` is a judgment over the raw syntax, reflected
   by a decision proved sound, complete, and deterministic.
 - **Exact, whole-program compilation.** `GoCompile` consumes the whole map: it groups files by directory

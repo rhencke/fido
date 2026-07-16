@@ -255,7 +255,11 @@ Print Assumptions GoTypes.res_cplx64_real_over.
 Print Assumptions GoTypes.res_cplx64_bool_rej.
 Print Assumptions GoTypes.res_int_of_cplx3p5_rej.
 Print Assumptions GoTypes.conv_c64_c64.
+Print Assumptions GoTypes.cplx_real_3_2.
+Print Assumptions GoTypes.cplx_imag_m5_2.
 Print Assumptions GoTypes.cplx_scar_direct_vs_nested.
+Print Assumptions GoTypes.cplx_scar_direct_real.
+Print Assumptions GoTypes.cplx_scar_nested_real.
 Print Assumptions GoTypes.cplx_scar_imag_direct_vs_nested.
 Print Assumptions GoTypes.cplx_underflow_pos_zero.
 

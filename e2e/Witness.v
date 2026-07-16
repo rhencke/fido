@@ -15,13 +15,17 @@
     FLOAT section — a bare default-float64 constant with its float32 conversion, an explicit float64, an
     exact float->int constant, an int->float constant, ★the direct-vs-nested double-rounding scar as an
     EXACT uint64 integer observation (uint64(float32(big)) vs uint64(float32(float64(big))), whose printed
-    decimals differ), and an underflow to +0.  The pinned Go toolchain accepts every one and prints its
-    exact value (floats in Go's runtime %e format, integration evidence only); the corresponding
-    out-of-range / non-integer / wrong-type conversions are rejected by hand-written differential fixtures
-    (Dockerfile go-e2e), exactly as GoTypes/GoCompile make impossible.  The rendered tree includes the
-    certified [go.mod] (from the module spec) alongside the .go files. *)
+    decimals differ), and an underflow to +0, AND a readable COMPLEX section — a bare complex128-default
+    literal `complex(1.5, -2.5)`, its complex64/complex128 conversions, a zero-imaginary complex->int, a
+    zero-imaginary complex->float32, and ★the component double-round scar as an EXACT uint64 observation
+    through a zero-imaginary complex->uint64 (direct complex64 vs nested complex128-then-complex64).  The
+    pinned Go toolchain accepts every one and prints its exact value (floats in Go's runtime %e format,
+    complex as `(real+imagi)`, integration evidence only); the corresponding out-of-range / non-integer /
+    nonzero-imaginary / wrong-type conversions are rejected by hand-written differential fixtures (Dockerfile
+    go-e2e), exactly as GoTypes/GoCompile make impossible.  The rendered tree includes the certified [go.mod]
+    (from the module spec) alongside the .go files. *)
 From Stdlib Require Import List NArith ZArith String Ascii.
-From Fido Require Import Ints Floats FilePath FMap ModulePath GoVersion GoAST GoCompile GoSafe GoRender GoEmit.
+From Fido Require Import Ints Floats Complexes FilePath FMap ModulePath GoVersion GoAST GoCompile GoSafe GoRender GoEmit.
 Import ListNotations.
 
 (* control-byte strings built by exact ascii code (0x09 TAB, 0x0d CR, 0x0a NL) between two letters. *)
@@ -36,6 +40,14 @@ Definition dm_0p5  : DecimalFloat := mkDecimal 5 (-1) eq_refl.                  
 Definition dm_3    : DecimalFloat := mkDecimal 3 0 eq_refl.                        (* 3.0  -> 3.0e+0   *)
 Definition dm_scar : DecimalFloat := mkDecimal 2305843146652647425 0 eq_refl.      (* 2^61+2^37+1      *)
 Definition dm_tiny : DecimalFloat := mkDecimal 1 (-330) eq_refl.                   (* 1e-330 (underflow)*)
+Definition dm_m2p5 : DecimalFloat := mkDecimal (-25) (-1) eq_refl.                 (* -2.5 -> -25.0e-1 *)
+Definition dm_0    : DecimalFloat := mkDecimal 0 0 eq_refl.                        (* 0.0              *)
+
+(* the readable complex literals (§51/§52): exact PAIRS of DecimalFloat components. *)
+Definition dc_1p5_m2p5 : DecimalComplex := mkDC dm_1p5 dm_m2p5.   (* complex(1.5, -2.5) *)
+Definition dc_1p5_0    : DecimalComplex := mkDC dm_1p5 dm_0.      (* complex(1.5, 0.0)  *)
+Definition dc_3_0      : DecimalComplex := mkDC dm_3 dm_0.        (* complex(3.0, 0.0)  *)
+Definition dc_scar_0   : DecimalComplex := mkDC dm_scar dm_0.     (* complex(scar, 0.0) *)
 
 Definition demo_file : GoFileAST :=
   [ DMain [ SPrintln [ EBool true; EInt 42; ENeg 1; ENeg ((2 ^ 63)%N) ]
@@ -70,7 +82,22 @@ Definition demo_file : GoFileAST :=
           ; SPrintln [ EFloatConvert F64 (EInt 7) ]
           ; SPrintln [ EIntConvert IUint64 (EFloatConvert F32 (EFloat dm_scar)) ]
           ; SPrintln [ EIntConvert IUint64 (EFloatConvert F32 (EFloatConvert F64 (EFloat dm_scar))) ]
-          ; SPrintln [ EFloatConvert F64 (EFloat dm_tiny) ] ] ].
+          ; SPrintln [ EFloatConvert F64 (EFloat dm_tiny) ]
+          (* complex (§51/§52): a bare complex128-default literal; its complex64/complex128 conversions; a
+             zero-imaginary complex->int; a zero-imaginary complex->float32; and ★the component double-round
+             scar via a zero-imaginary complex->uint64 (direct F32 vs nested F64-then-F32, decimals differ). *)
+          ; SPrintln [ EComplex dc_1p5_m2p5 ]
+          ; SPrintln [ EComplexConvert C64  (EComplex dc_1p5_m2p5) ]
+          ; SPrintln [ EComplexConvert C128 (EComplex dc_1p5_m2p5) ]
+          ; SPrintln [ EIntConvert IInt (EComplex dc_3_0) ]
+          ; SPrintln [ EFloatConvert F32 (EComplex dc_1p5_0) ]
+          ; SPrintln [ EIntConvert IUint64 (EComplexConvert C64 (EComplex dc_scar_0)) ]
+          ; SPrintln [ EIntConvert IUint64 (EComplexConvert C64 (EComplexConvert C128 (EComplex dc_scar_0))) ]
+          (* §53 remaining acceptance cases: integer -> complex64/complex128, float -> complex64/complex128,
+             and a same-type nested complex conversion (all accepted by pinned Go). *)
+          ; SPrintln [ EComplexConvert C64 (EInt 1); EComplexConvert C128 (EInt 1) ]
+          ; SPrintln [ EComplexConvert C64 (EFloat dm_1p5); EComplexConvert C128 (EFloat dm_1p5) ]
+          ; SPrintln [ EComplexConvert C64 (EComplexConvert C64 (EComplex dc_1p5_m2p5)) ] ] ].
 
 Definition demo_module : ModuleSpec := mkModuleSpec (mkMP "fido.local/generated" eq_refl) Go1_23.
 Definition main_go : FilePath := mkFP "main.go" eq_refl.

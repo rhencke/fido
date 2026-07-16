@@ -909,8 +909,14 @@ Definition dc_1p5_m2p5 : DecimalComplex := mkDC d_15em1 d_m25em1.
 Example cplx_untyped :
   const_info (EComplex dc_1p5_m2p5) = Some (CIUntyped (CComplex (decimal_complex_value dc_1p5_m2p5))).
 Proof. reflexivity. Qed.
-Example cplx_real_3_2 : cc_real (decimal_complex_value dc_1p5_m2p5) = decimal_value d_15em1. Proof. reflexivity. Qed.
-Example cplx_imag_m5_2 : cc_imag (decimal_complex_value dc_1p5_m2p5) = decimal_value d_m25em1. Proof. reflexivity. Qed.
+(* the exact real component is the CANONICAL rational 3/2 and the exact imaginary is -5/2 (pinned as the
+   concrete lowest-terms num/den, not merely re-derived from the source decimal). *)
+Example cplx_real_3_2 : fc_num (cc_real (decimal_complex_value dc_1p5_m2p5)) = 3
+                     /\ fc_den (cc_real (decimal_complex_value dc_1p5_m2p5)) = 2%positive.
+Proof. split; reflexivity. Qed.
+Example cplx_imag_m5_2 : fc_num (cc_imag (decimal_complex_value dc_1p5_m2p5)) = -5
+                      /\ fc_den (cc_imag (decimal_complex_value dc_1p5_m2p5)) = 2%positive.
+Proof. split; reflexivity. Qed.
 
 (* §42 a bare complex DEFAULTS to complex128 in println; explicit complex64/complex128 resolve to their type;
    the two complex static types are DISTINCT. *)
@@ -944,7 +950,7 @@ Example res_cplx64_bool_rej : resolve_expr UsePrintlnArg (EComplexConvert C64  (
 Example res_cplx128_str_rej : resolve_expr UsePrintlnArg (EComplexConvert C128 (EString "x")) = None. Proof. reflexivity. Qed.
 Example cplx64_from_f32_real :
   match option_map const_info_exact (const_info (EComplexConvert C64 (EFloatConvert F32 (EFloat d_15em1)))) with
-  | Some (CComplex cc) => fc_eqb (cc_real cc) (decimal_value d_15em1) && cc_imag_is_zero cc
+  | Some (CComplex cc) => fc_eqb (cc_real cc) (reduce_fc 3 2) && cc_imag_is_zero cc   (* exact real 3/2, imag 0 *)
   | _ => false
   end = true.
 Proof. vm_compute. reflexivity. Qed.
@@ -971,7 +977,7 @@ Example res_f64_of_cplx_neg_imag_rej :
   resolve_expr UsePrintlnArg (EFloatConvert F64 (EComplex (mkDC d_15em1 d_m1_0))) = None. Proof. vm_compute. reflexivity. Qed.
 Example f32_of_cplx64_real :
   match option_map const_info_exact (const_info (EFloatConvert F32 (EComplexConvert C64 (EComplex (mkDC d_15em1 d_0_0))))) with
-  | Some (CFloat q) => fc_eqb q (decimal_value d_15em1)
+  | Some (CFloat q) => fc_eqb q (reduce_fc 3 2)   (* the projected real component is exactly 3/2 *)
   | _ => false
   end = true.
 Proof. vm_compute. reflexivity. Qed.
@@ -994,6 +1000,21 @@ Example cplx_scar_direct_vs_nested :
   const_info (EComplexConvert C64 (EComplex (mkDC d_scar d_0_0)))
     <> const_info (EComplexConvert C64 (EComplexConvert C128 (EComplex (mkDC d_scar d_0_0)))).
 Proof. vm_compute. discriminate. Qed.
+(* the EXACT direct/nested real-component values are pinned: direct complex64 rounds the scar at F32 to
+   2305843284091600896; nested complex64(complex128(...)) rounds F64-then-F32 to 2305843009213693952. *)
+Example cplx_scar_direct_real :
+  match option_map const_info_exact (const_info (EComplexConvert C64 (EComplex (mkDC d_scar d_0_0)))) with
+  | Some (CComplex cc) => fc_eqb (cc_real cc) (fc_of_Z 2305843284091600896) && cc_imag_is_zero cc
+  | _ => false
+  end = true.
+Proof. vm_compute. reflexivity. Qed.
+Example cplx_scar_nested_real :
+  match option_map const_info_exact
+          (const_info (EComplexConvert C64 (EComplexConvert C128 (EComplex (mkDC d_scar d_0_0))))) with
+  | Some (CComplex cc) => fc_eqb (cc_real cc) (fc_of_Z 2305843009213693952) && cc_imag_is_zero cc
+  | _ => false
+  end = true.
+Proof. vm_compute. reflexivity. Qed.
 (* the same scar in the IMAGINARY component rounds INDEPENDENTLY (component independence): direct-vs-nested
    differ in the imaginary part too. *)
 Example cplx_scar_imag_direct_vs_nested :
