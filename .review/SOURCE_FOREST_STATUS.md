@@ -9,7 +9,8 @@ Updated only at checkpoint boundaries._
 - Master-plan commit SHA: `e1138cf` (`milestone(contract): install the Source Forest master campaign + activate checkpoint C0`)
 - Declared baseline SHA: `5e7efd8adf38473a931a0144ede62b2caa90272a`
 - Actual base SHA: `5e7efd8adf38473a931a0144ede62b2caa90272a` (repository tip matched the declared baseline; no intervening work to preserve)
-- Active checkpoint: **C0**
+- Active checkpoint: **C0A** (a binding correction checkpoint inside C0; C1 remains forbidden until C0A is
+  human-approved)
 - Checkpoint contract commit SHA: `e1138cf` (master plan + C0 `NEXT_STEPS.md` + this ledger installed together)
 
 ## C0 — preflight cleanup and occurrence-index proof spike
@@ -70,3 +71,47 @@ Updated only at checkpoint boundaries._
 - Undecided minor choice named: whether the production C2 index keys ONE global trie by a packed
   `(file, local)` key or keeps a per-file table behind a path-keyed outer map — deferred to C2 (the ownership /
   identity architecture itself IS decided: file-local preorder ids + validated `NodeRef` + derived trie index).
+
+## C0A — exact snapshot-local occurrence identity and total navigation (ACTIVE correction checkpoint)
+
+C0 reached Codex-green at `cf91bc9`, but a subsequent human holistic review found a deeper, foundational
+architectural defect that Codex's scoped review did not surface. C0A corrects it; C1 stays forbidden until
+C0A is human-approved. The earlier C0 Codex-green result and the C0 findings/repair ledger above are
+preserved as history — not rewritten.
+
+- Correction baseline SHA: `11fd1a1`
+- Directive: installed VERBATIM as `.review/NEXT_STEPS.md`
+- The defect (three coupled parts):
+  1. **Source/index coupling** — `NodeRef` was indexed by a free-standing `SyntaxIndex` value, so two
+     different source forests with identical paths and tree shape but different literal payloads compute the
+     same index and share the same `NodeRef` type. A reference must belong to the exact immutable source
+     snapshot, not merely to index data. `SyntaxIndex`, `FileRef`, and `NodeRef` must be indexed by the exact
+     `TForest`.
+  2. **API honesty** — `ref_meta`/`containing_file` returned `option`, `node_kind` invented `KFile`, and
+     `children_of` silently dropped a child on rebuild failure. Structurally guaranteed queries must be TOTAL
+     (only `parent_of` stays optional — a root has no parent). No impossible-case fallback may manufacture a
+     plausible semantic answer.
+  3. **Complexity accounting** — ordinary navigation performed a linear `file_of` scan over
+     `SyntaxIndex := list FileIndex`, so the ledger overstated parent/kind/meta lookup as O(log n). Navigation
+     from an existing `NodeRef` must not scan the file list; it uses the `FileRef`'s hidden slot into an outer
+     `NodeTable`.
+- Review cadence: at most two intentional Codex stops — ROOT barrier (`milestone(root): C0A —`, repairs
+  `review(root): C0A —`) then FINAL barrier (`milestone(final): C0A —`, repairs `review(final): C0A —`).
+- Root candidate SHA: pending
+- Root Codex result / repair SHAs: pending
+- Final candidate SHA: pending
+- Final Codex result / repair SHAs: pending
+- Verification result (`make check`): pending
+- Push result: pending
+- Human disposition: **pending**
+
+### C0A decision record (filled at C0A completion)
+- Path-unique `TForest` shape: pending
+- `SyntaxIndex fs` representation + correspondence theorem: pending
+- `FileRef fs` representation + hidden-slot role: pending
+- `NodeRef fs` representation: pending
+- Outer / per-file table design: pending
+- Corrected query complexities: pending
+- Raw-key minting cost (`ref_of_key`): pending
+- Deleted fallback/option/filter branches: pending
+- Same-shaped / different-source regression + repeated-equal-leaf regression: pending
