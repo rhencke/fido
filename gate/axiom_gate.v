@@ -482,3 +482,15 @@ Print Assumptions OccurrenceSpike.Snap.file_ref_path_inj.
 Print Assumptions OccurrenceSpike.Snap.thm_child_parent.
 Print Assumptions OccurrenceSpike.Snap.thm_parent_child.
 Print Assumptions OccurrenceSpike.thm_builder_deterministic.
+(* C0A FINAL repair (review-driven): EXACT index/source correspondence, NON-CIRCULAR source-membership
+   minting, NodeRef-level canonical enumeration + ancestry, and the §9 erased-index/dup-path/two-file fixtures. *)
+Print Assumptions OccurrenceSpike.Snap.thm_index_describes_forest.
+Print Assumptions OccurrenceSpike.Snap.file_of_path_source.
+Print Assumptions OccurrenceSpike.Snap.ref_of_key_source.
+Print Assumptions OccurrenceSpike.Snap.thm_children_of_source_order.
+Print Assumptions OccurrenceSpike.Snap.thm_children_of_nodup.
+Print Assumptions OccurrenceSpike.Snap.is_ancestor_ref.
+Print Assumptions OccurrenceSpike.Snap.thm_ref_ancestry.
+Print Assumptions OccurrenceSpike.Snap.reg_index_data_equal.
+Print Assumptions OccurrenceSpike.Snap.reg_dup_path_rejected.
+Print Assumptions OccurrenceSpike.Snap.reg_two_file.

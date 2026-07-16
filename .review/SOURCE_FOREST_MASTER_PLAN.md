@@ -743,6 +743,12 @@ It is not a second AST.
 
 It is a certified navigation index over the original source forest.
 
+It carries (or implies) an EXACT source/index correspondence — `IndexDescribesForest` — proved BOTH ways: every
+metadata entry corresponds to exactly one canonical preorder occurrence of the snapshot, AND every occurrence
+has exactly one entry, with NO entry at a location the source does not occupy.  A one-directional "real entries
+are correct" invariant is fail-open (it admits spurious entries beside an unused proof field) and is forbidden;
+the correspondence must pin absence as well as presence, and it drives the total query API.
+
 4.6 Core metadata
 
 The selected implementation should use small structural metadata, conceptually:

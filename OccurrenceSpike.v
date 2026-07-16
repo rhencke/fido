@@ -259,6 +259,22 @@ Proof.
   rewrite Hat in HG. exact HG.
 Qed.
 
+(* EXACT correspondence (both directions): the outer table holds the build of the file at a real slot AND
+   holds NOTHING at any slot with no file — no spurious entry can satisfy the index invariant. *)
+Lemma outer_get_exact : forall fs slot,
+  NodeTable.get slot (outer_of fs) =
+  match forest_file_at fs slot with Some f => Some (build_file f) | None => None end.
+Proof.
+  intros fs slot. unfold outer_of, forest_file_at.
+  assert (Hle : (1 <= slot)%positive) by lia.
+  pose proof (build_outer_get (forest_files fs) 1 slot NodeTable.empty Hle) as HG.
+  replace (Pos.to_nat slot - Pos.to_nat 1)%nat with (Nat.pred (Pos.to_nat slot)) in HG
+    by (change (Pos.to_nat 1) with 1%nat; lia).
+  destruct (nth_error (forest_files fs) (Nat.pred (Pos.to_nat slot))) as [f|] eqn:E.
+  - exact HG.
+  - rewrite HG. apply NodeTable.get_empty.
+Qed.
+
 Lemma find_slot_at : forall files fp start slot f,
   find_slot files fp start = Some (slot, f) ->
   nth_error files (Nat.pred (Pos.to_nat slot) - Nat.pred (Pos.to_nat start))%nat = Some f
@@ -1288,6 +1304,7 @@ Module Type SNAP_SIG.
   Parameter NodeRef    : TForest -> Type.
   Parameter SyntaxIndex : TForest -> Type.
   Parameter index_forest : forall fs, SyntaxIndex fs.
+  Parameter index_at     : forall {fs}, SyntaxIndex fs -> positive -> option FileIndex.
   Parameter file_of_path : forall fs, FilePath -> option (FileRef fs).
   Parameter ref_of_key   : forall fs, SyntaxIndex fs -> NodeKey -> option (NodeRef fs).
   Parameter file_ref_file : forall {fs}, FileRef fs -> TFile.
@@ -1345,6 +1362,36 @@ Module Type SNAP_SIG.
     In cr (children_of idx r) -> parent_of idx cr = Some r.
   Parameter thm_parent_child : forall fs (idx : SyntaxIndex fs) (r pr : NodeRef fs),
     parent_of idx r = Some pr -> In r (children_of idx pr).
+  (* index exactness (§4): the index describes EXACTLY its source snapshot — no spurious/foreign entry. *)
+  Parameter thm_index_describes_forest : forall fs (idx : SyntaxIndex fs) (slot : positive),
+    index_at idx slot = match forest_file_at fs slot with Some f => Some (build_file f) | None => None end.
+  (* NON-CIRCULAR source-membership minting (§§5,10): every source file / valid occurrence yields a handle. *)
+  Parameter file_of_path_source : forall fs (slot : positive) (f : TFile),
+    forest_file_at fs slot = Some f -> exists fr, file_of_path fs (tf_path f) = Some fr /\ file_ref_file fr = f.
+  Parameter ref_of_key_source : forall fs (idx : SyntaxIndex fs) (slot : positive) (f : TFile) (local : positive),
+    forest_file_at fs slot = Some f -> valid_localb f local = true ->
+    exists r, ref_of_key fs idx (mkKey (tf_path f) local) = Some r
+              /\ node_ref_local r = local /\ file_ref_file (node_ref_file r) = f.
+  (* canonical children ENUMERATION at the NodeRef level (§10): source order + NoDup. *)
+  Parameter thm_children_of_source_order : forall fs (idx : SyntaxIndex fs) (r : NodeRef fs),
+    StronglySorted Pos.lt (map node_ref_local (children_of idx r)).
+  Parameter thm_children_of_nodup : forall fs (idx : SyntaxIndex fs) (r : NodeRef fs),
+    NoDup (children_of idx r).
+  (* NodeRef-level ANCESTRY (§10): the O(1) interval test, sound + complete vs the parent_of closure. *)
+  Parameter is_ancestor_ref : forall {fs}, SyntaxIndex fs -> NodeRef fs -> NodeRef fs -> bool.
+  Inductive RefAncestor (fs : TForest) (idx : SyntaxIndex fs) : NodeRef fs -> NodeRef fs -> Prop :=
+  | RAnc_dir  : forall a d, parent_of idx d = Some a -> RefAncestor fs idx a d
+  | RAnc_step : forall a p d, RefAncestor fs idx a p -> parent_of idx d = Some p -> RefAncestor fs idx a d.
+  Parameter thm_ref_ancestry : forall fs (idx : SyntaxIndex fs) (a d : NodeRef fs),
+    is_ancestor_ref idx a d = true <-> RefAncestor fs idx a d.
+  (* §9 fixtures: erased-index equality, duplicate-path negative, two-file forest. *)
+  Parameter reg_index_data_equal : outer_of fs_a = outer_of fs_b.
+  Parameter reg_dup_path_rejected : forall f : TFile, ~ NoDup (map tf_path [ f ; f ]).
+  Parameter reg_two_file :
+    exists (fs : TForest) (fra frb : FileRef fs),
+      file_of_path fs (file_ref_path fra) = Some fra /\
+      file_of_path fs (file_ref_path frb) = Some frb /\
+      file_ref_path fra <> file_ref_path frb.
 End SNAP_SIG.
 
 (* --- raw-key minting COMPLETENESS foundations (top-level; only over the source snapshot + file builder) --- *)
@@ -1421,23 +1468,41 @@ Definition NodeRef := NodeRef_T.
 Definition node_ref_key {fs} (r : NodeRef fs) : NodeKey :=
   mkKey (file_ref_path (node_ref_file r)) (node_ref_local r).
 
-(* the derived certified index for a snapshot: a slot-keyed outer table + the correspondence to [fs]. *)
+(* the derived certified index for a snapshot: a slot-keyed outer table PROVED EQUAL to the canonical build
+   of [fs].  This is the EXACT source/index correspondence (IndexDescribesForest): the table is not arbitrary
+   data beside an unused proof — it IS [outer_of fs], so every slot holds the build of the file there and
+   nothing at a slot with no file.  A bogus entry at an unoccupied slot cannot satisfy this invariant. *)
 Record SyntaxIndex_T (fs : TForest) := mkSyntaxIndex {
   si_outer : NodeTable.table FileIndex;
-  si_ok    : forall slot f, forest_file_at fs slot = Some f -> NodeTable.get slot si_outer = Some (build_file f)
+  si_ok    : si_outer = outer_of fs
 }.
 Arguments si_outer {fs} _.
 Arguments si_ok    {fs} _.
 Definition SyntaxIndex := SyntaxIndex_T.
 Definition index_forest (fs : TForest) : SyntaxIndex fs :=
-  mkSyntaxIndex fs (outer_of fs) (outer_get_at fs).
+  mkSyntaxIndex fs (outer_of fs) eq_refl.
+
+(* the correspondence, one direction, driving the query API: a real slot holds exactly its file's build. *)
+Lemma si_ok_at {fs} (idx : SyntaxIndex fs) slot f :
+  forest_file_at fs slot = Some f -> NodeTable.get slot (si_outer idx) = Some (build_file f).
+Proof. intros H. rewrite (si_ok idx). apply outer_get_at. exact H. Qed.
+
+(* a lookup query into the index (keeps the raw [NodeTable] representation hidden — returns the FileIndex). *)
+Definition index_at {fs} (idx : SyntaxIndex fs) (slot : positive) : option FileIndex :=
+  NodeTable.get slot (si_outer idx).
+
+(* EXACT index description (§4): every file slot holds its file's build, every non-slot holds nothing —
+   so the index describes EXACTLY [fs], with no entry belonging to another snapshot and none spurious. *)
+Theorem thm_index_describes_forest {fs} (idx : SyntaxIndex fs) (slot : positive) :
+  index_at idx slot = match forest_file_at fs slot with Some f => Some (build_file f) | None => None end.
+Proof. unfold index_at. rewrite (si_ok idx). apply outer_get_exact. Qed.
 
 (* ONE outer slot lookup gives the NodeRef's file index — no file-list scan.  Present by correspondence. *)
 Definition ref_fi_opt {fs} (idx : SyntaxIndex fs) (r : NodeRef fs) : option FileIndex :=
   NodeTable.get (file_ref_slot (node_ref_file r)) (si_outer idx).
 Lemma ref_fi_some {fs} (idx : SyntaxIndex fs) (r : NodeRef fs) :
   ref_fi_opt idx r = Some (build_file (file_ref_file (node_ref_file r))).
-Proof. unfold ref_fi_opt. apply (si_ok idx). apply (file_ref_at (node_ref_file r)). Qed.
+Proof. unfold ref_fi_opt. apply (si_ok_at idx). apply (file_ref_at (node_ref_file r)). Qed.
 Lemma ref_fi_some' {fs} (idx : SyntaxIndex fs) (r : NodeRef fs) : ref_fi_opt idx r <> None.
 Proof. rewrite ref_fi_some. discriminate. Qed.
 Definition ref_fi {fs} (idx : SyntaxIndex fs) (r : NodeRef fs) : FileIndex :=
@@ -1554,7 +1619,7 @@ Lemma valid_in_index_eq {fs} (idx : SyntaxIndex fs) (fr : FileRef fs) (local : p
   valid_in_index idx fr local = valid_localb (file_ref_file fr) local.
 Proof.
   unfold valid_in_index, valid_localb.
-  rewrite (si_ok idx (file_ref_slot fr) (file_ref_file fr) (file_ref_at fr)). reflexivity.
+  rewrite (si_ok_at idx (file_ref_slot fr) (file_ref_file fr) (file_ref_at fr)). reflexivity.
 Qed.
 Lemma valid_in_index_true {fs} (idx : SyntaxIndex fs) (fr : FileRef fs) (local : positive) :
   valid_in_index idx fr local = true -> valid_localb (file_ref_file fr) local = true.
@@ -1629,6 +1694,29 @@ Proof.
   intro H. apply (f_equal node_ref_key) in H. unfold node_ref_key in H. cbn in H.
   injection H as H. discriminate H.
 Qed.
+
+(* §9.1 — ERASED-INDEX EQUALITY: [fs_a] and [fs_b] have identical paths + tree shape and differ ONLY in leaf
+   PAYLOAD (5 vs 6), which the metadata builder discards; so their index DATA is literally equal after erasing
+   the source index.  Only the [TForest] type-parameter — never the index data — distinguishes their refs. *)
+Theorem reg_index_data_equal : outer_of fs_a = outer_of fs_b.
+Proof. reflexivity. Qed.
+
+(* DUPLICATE-PATH NEGATIVE: any two files sharing a path violate the [NoDup] path invariant, so [mkTForest]
+   cannot be built over them — duplicate paths are UNREPRESENTABLE, not rejected at runtime. *)
+Theorem reg_dup_path_rejected (f : TFile) : ~ NoDup (map tf_path [ f ; f ]).
+Proof.
+  simpl. intros Hnd. inversion Hnd as [|x l Hnin _]. apply Hnin. left. reflexivity.
+Qed.
+
+(* TWO-FILE forest: distinct paths a.go / b.go — path uniqueness holds; each path mints its own file handle
+   at its own slot with no cross-file confusion.  (The minting witnesses are below, after [file_of_path_source].) *)
+Definition rpathb : FilePath := mkFP "b.go"%string eq_refl.
+Definition rfileb (v : nat) : TFile := mkTFile rpathb [ TFun [ TPrint (TLeaf v) ] ].
+Lemma rtwo_nodup : NoDup (map tf_path [ rfile 5 ; rfileb 7 ]).
+Proof.
+  simpl. constructor; [ intros Hin; destruct Hin as [Heq|[]]; discriminate Heq | constructor; [ intros [] | constructor ] ].
+Qed.
+Definition fs_two : TForest := mkTForest [ rfile 5 ; rfileb 7 ] rtwo_nodup.
 
 (* ================================================================================================= *)
 (** ** C0A ref-level theorem family (§10): total-API correctness + snapshot-local reference identity.  *)
@@ -1781,6 +1869,38 @@ Theorem thm_children_sound (fs : TForest) (idx : SyntaxIndex fs) (r cr : NodeRef
   In cr (children_of idx r) -> In (node_ref_local cr) (child_ids (fi_table (ref_fi idx r)) (node_ref_local r)).
 Proof. unfold children_of. apply refine_children_local. Qed.
 
+(* --- canonical children ENUMERATION at the NodeRef level (§10): source order + NoDup. --- *)
+
+(* the enumerated child references project back to exactly the per-file child ids (order preserved). *)
+Lemma refine_children_map_local (fs : TForest) (fr : FileRef fs) ids
+  (H : forall c, In c ids -> valid_localb (file_ref_file fr) c = true) :
+  map node_ref_local (refine_children fr ids H) = ids.
+Proof.
+  revert H. induction ids as [|c rest IH]; intros H; simpl; [reflexivity|]. rewrite IH. reflexivity.
+Qed.
+
+Lemma sorted_lt_nodup : forall (l : list positive), StronglySorted Pos.lt l -> NoDup l.
+Proof.
+  induction l as [|x rest IH]; intros HS; [constructor|].
+  inversion HS as [|? ? HSS HF]; subst. constructor.
+  - intros Hin. rewrite Forall_forall in HF. specialize (HF x Hin). lia.
+  - apply IH. exact HSS.
+Qed.
+
+(* the direct children of an occurrence are enumerated in strictly increasing (canonical source) order. *)
+Theorem thm_children_of_source_order (fs : TForest) (idx : SyntaxIndex fs) (r : NodeRef fs) :
+  StronglySorted Pos.lt (map node_ref_local (children_of idx r)).
+Proof.
+  unfold children_of. rewrite refine_children_map_local, (ref_fi_eq idx r). apply thm11_children_sorted.
+Qed.
+
+(* the direct-children reference list has NO duplicates (distinct occurrences => distinct references). *)
+Theorem thm_children_of_nodup (fs : TForest) (idx : SyntaxIndex fs) (r : NodeRef fs) :
+  NoDup (children_of idx r).
+Proof.
+  apply (NoDup_map_inv node_ref_local). apply sorted_lt_nodup. apply thm_children_of_source_order.
+Qed.
+
 (* a minted file handle carries the queried path. *)
 Lemma file_of_path_path (fs : TForest) (fp : FilePath) (fr : FileRef fs) :
   file_of_path fs fp = Some fr -> file_ref_path fr = fp.
@@ -1823,6 +1943,76 @@ Proof.
   destruct (valid_in_index idx (node_ref_file r) (node_ref_local r)) at 2 3; intros e.
   - f_equal. apply node_ref_ext; reflexivity.
   - exfalso. rewrite valid_in_index_eq, (node_ref_valid r) in e. discriminate e.
+Qed.
+
+(* --- SOURCE-membership minting (§§5,10): every source file / valid occurrence yields a handle. --- *)
+
+(* compute the file handle produced when the scan finds a slot — needed to mint FROM source membership. *)
+Lemma file_of_path_find (fs : TForest) (fp : FilePath) (slot : positive) (f : TFile) :
+  forest_find fs fp = Some (slot, f) ->
+  exists fr, file_of_path fs fp = Some fr /\ file_ref_file fr = f /\ file_ref_slot fr = slot.
+Proof.
+  intros HC. unfold file_of_path.
+  generalize (@eq_refl (option (positive * TFile)) (forest_find fs fp)).
+  destruct (forest_find fs fp) as [[slot' f']|] at 2 3; intros e.
+  - pose proof e as e2. rewrite HC in e2. injection e2 as Es Ef.
+    eexists. split; [reflexivity | split; cbn; [ exact (eq_sym Ef) | exact (eq_sym Es) ] ].
+  - pose proof e as e2. rewrite HC in e2. discriminate e2.
+Qed.
+
+(* NON-CIRCULAR file completeness (slot-carrying helper): a source file mints a FileRef at its slot. *)
+Lemma file_of_path_source_slot {fs} (slot : positive) (f : TFile) :
+  forest_file_at fs slot = Some f ->
+  exists fr, file_of_path fs (tf_path f) = Some fr /\ file_ref_file fr = f /\ file_ref_slot fr = slot.
+Proof. intros Hat. exact (file_of_path_find fs (tf_path f) slot f (forest_find_complete fs slot f Hat)). Qed.
+
+(* NON-CIRCULAR file completeness (public, slot-free): a source file can be MINTED into a FileRef by its path. *)
+Theorem file_of_path_source {fs} (slot : positive) (f : TFile) :
+  forest_file_at fs slot = Some f ->
+  exists fr, file_of_path fs (tf_path f) = Some fr /\ file_ref_file fr = f.
+Proof. intros Hat. destruct (file_of_path_source_slot slot f Hat) as [fr [A [B _]]]. exists fr. split; [exact A|exact B]. Qed.
+
+(* NON-CIRCULAR reference completeness: a VALID source occurrence can be MINTED into a NodeRef by its key. *)
+Theorem ref_of_key_source {fs} (idx : SyntaxIndex fs) (slot : positive) (f : TFile) (local : positive) :
+  forest_file_at fs slot = Some f -> valid_localb f local = true ->
+  exists r, ref_of_key fs idx (mkKey (tf_path f) local) = Some r
+            /\ node_ref_local r = local /\ file_ref_file (node_ref_file r) = f.
+Proof.
+  intros Hat Hv.
+  destruct (file_of_path_source slot f Hat) as [fr [Hfp Hff]].
+  assert (Hvi : valid_in_index idx fr local = true) by (rewrite valid_in_index_eq, Hff; exact Hv).
+  unfold ref_of_key. cbn [nk_file nk_local]. rewrite Hfp.
+  generalize (@eq_refl bool (valid_in_index idx fr local)).
+  destruct (valid_in_index idx fr local) at 2 3; intros e.
+  - eexists. split; [reflexivity | split; [reflexivity | exact Hff]].
+  - rewrite Hvi in e. discriminate e.
+Qed.
+
+(* TWO-FILE minting witnesses: each distinct path resolves to its own file handle at its own slot. *)
+Theorem reg_two_file_a : exists fr, file_of_path fs_two rpath = Some fr /\ file_ref_slot fr = 1%positive.
+Proof.
+  destruct (file_of_path_source_slot (fs:=fs_two) 1 (rfile 5) eq_refl) as [fr [Hfp [_ Hslot]]].
+  exists fr. split; [exact Hfp | exact Hslot].
+Qed.
+Theorem reg_two_file_b : exists fr, file_of_path fs_two rpathb = Some fr /\ file_ref_slot fr = 2%positive.
+Proof.
+  destruct (file_of_path_source_slot (fs:=fs_two) 2 (rfileb 7) eq_refl) as [fr [Hfp [_ Hslot]]].
+  exists fr. split; [exact Hfp | exact Hslot].
+Qed.
+
+(* TWO-FILE fixture (slot-free, exposable): a forest with two DISTINCT-path files, both mintable to their own
+   file handles, whose public path identities differ — cross-file navigation with no path/slot confusion. *)
+Theorem reg_two_file :
+  exists (fs : TForest) (fra frb : FileRef fs),
+    file_of_path fs (file_ref_path fra) = Some fra /\
+    file_of_path fs (file_ref_path frb) = Some frb /\
+    file_ref_path fra <> file_ref_path frb.
+Proof.
+  destruct (file_of_path_source_slot (fs:=fs_two) 1 (rfile 5) eq_refl) as [fra [_ [Hfa _]]].
+  destruct (file_of_path_source_slot (fs:=fs_two) 2 (rfileb 7) eq_refl) as [frb [_ [Hfb _]]].
+  exists fs_two, fra, frb.
+  split; [apply file_of_path_complete | split; [apply file_of_path_complete|]].
+  unfold file_ref_path. rewrite Hfa, Hfb. cbn. intro Hcontra. discriminate Hcontra.
 Qed.
 
 (* FileRef path equality DECIDES file occurrence equality within one snapshot (public identity is the path). *)
@@ -1871,6 +2061,130 @@ Proof.
   assert (Hcreq : cr = r).
   { apply node_ref_ext; [ rewrite Hcrf, Hf; reflexivity | rewrite Hcl; reflexivity ]. }
   subst cr. unfold children_of. exact Hcr.
+Qed.
+
+(* --- NodeRef-level ANCESTRY (§10): the O(1) preorder-interval test, certified through the sealed API. --- *)
+
+(* same file => same per-file table (the interval test compares within one file). *)
+Lemma ref_fi_table_same_file (fs : TForest) (idx : SyntaxIndex fs) (x y : NodeRef fs) :
+  node_ref_file x = node_ref_file y -> fi_table (ref_fi idx x) = fi_table (ref_fi idx y).
+Proof. intros H. rewrite (ref_fi_eq idx x), (ref_fi_eq idx y), H. reflexivity. Qed.
+
+(* bridge: a NodeRef parent edge is exactly a per-file [parent_id] edge on the shared table, both ways. *)
+Lemma parentof_to_parentid (fs : TForest) (idx : SyntaxIndex fs) (d a : NodeRef fs) :
+  parent_of idx d = Some a ->
+  node_ref_file a = node_ref_file d /\
+  parent_id (fi_table (ref_fi idx d)) (node_ref_local d) = Some (node_ref_local a).
+Proof.
+  intros Hpar. pose proof (thm_parent_same_file fs idx d a Hpar) as Hf. split; [exact Hf|].
+  assert (Hnp : nm_parent (ref_meta idx d) = Some (node_ref_local a)).
+  { destruct (nm_parent (ref_meta idx d)) as [pid|] eqn:Hp.
+    - destruct (parent_of_some fs idx d pid Hp) as [a' [Ha' [_ Hal]]].
+      rewrite Hpar in Ha'. injection Ha' as <-. rewrite Hal. reflexivity.
+    - rewrite (parent_of_none fs idx d Hp) in Hpar. discriminate Hpar. }
+  pose proof (ref_meta_get idx d) as Hget. rewrite <- (ref_fi_eq idx d) in Hget.
+  unfold parent_id. rewrite Hget. exact Hnp.
+Qed.
+
+Lemma parentid_to_parentof (fs : TForest) (idx : SyntaxIndex fs) (d : NodeRef fs) pa :
+  parent_id (fi_table (ref_fi idx d)) (node_ref_local d) = Some pa ->
+  exists a, parent_of idx d = Some a /\ node_ref_local a = pa /\ node_ref_file a = node_ref_file d.
+Proof.
+  intros Hpid.
+  pose proof (ref_meta_get idx d) as Hget. rewrite <- (ref_fi_eq idx d) in Hget.
+  unfold parent_id in Hpid. rewrite Hget in Hpid.
+  destruct (parent_of_some fs idx d pa Hpid) as [a [Ha [Hf Hal]]].
+  exists a. split; [exact Ha | split; [exact Hal | exact Hf]].
+Qed.
+
+(* the NodeRef-level ancestor relation: transitive closure of [parent_of]. *)
+Inductive RefAncestor (fs : TForest) (idx : SyntaxIndex fs) : NodeRef fs -> NodeRef fs -> Prop :=
+| RAnc_dir  : forall a d, parent_of idx d = Some a -> RefAncestor fs idx a d
+| RAnc_step : forall a p d, RefAncestor fs idx a p -> parent_of idx d = Some p -> RefAncestor fs idx a d.
+
+Lemma refanc_same_file (fs : TForest) (idx : SyntaxIndex fs) (a d : NodeRef fs) :
+  RefAncestor fs idx a d -> node_ref_file a = node_ref_file d.
+Proof.
+  intros H. induction H as [a d Hpar | a p d Hanc IH Hpar].
+  - apply (proj1 (parentof_to_parentid fs idx d a Hpar)).
+  - rewrite IH. apply (proj1 (parentof_to_parentid fs idx d p Hpar)).
+Qed.
+
+Lemma refanc_to_anc (fs : TForest) (idx : SyntaxIndex fs) (a d : NodeRef fs) :
+  RefAncestor fs idx a d -> Ancestor (fi_table (ref_fi idx d)) (node_ref_local a) (node_ref_local d).
+Proof.
+  intros H. induction H as [a d Hpar | a p d Hanc IH Hpar].
+  - apply Anc_dir. apply (proj2 (parentof_to_parentid fs idx d a Hpar)).
+  - pose proof (proj1 (parentof_to_parentid fs idx d p Hpar)) as Hf.
+    rewrite (ref_fi_table_same_file fs idx p d Hf) in IH.
+    apply (Anc_step (fi_table (ref_fi idx d)) (node_ref_local a) (node_ref_local p) (node_ref_local d) IH).
+    apply (proj2 (parentof_to_parentid fs idx d p Hpar)).
+Qed.
+
+(* the interval-jump reconstruction: an Ancestor derivation on the file table lifts to a [RefAncestor]. *)
+Lemma anc_to_refanc_aux (fs : TForest) (idx : SyntaxIndex fs) (fr : FileRef fs) (al dl : positive)
+  (Hanc : Ancestor (fi_table (build_file (file_ref_file fr))) al dl) :
+  forall (d : NodeRef fs), node_ref_file d = fr -> node_ref_local d = dl ->
+  exists a, node_ref_file a = fr /\ node_ref_local a = al /\ RefAncestor fs idx a d.
+Proof.
+  induction Hanc as [al dl Hpid | al pl dl Hanc_ap IH Hpid_d]; intros d Hdf Hdl.
+  - assert (Hpd : parent_id (fi_table (ref_fi idx d)) (node_ref_local d) = Some al)
+      by (rewrite (ref_fi_eq idx d), Hdf, Hdl; exact Hpid).
+    destruct (parentid_to_parentof fs idx d al Hpd) as [a [Ha [Hal Haf]]].
+    exists a. split; [rewrite Haf; exact Hdf | split; [exact Hal | apply RAnc_dir; exact Ha]].
+  - assert (Hpd : parent_id (fi_table (ref_fi idx d)) (node_ref_local d) = Some pl)
+      by (rewrite (ref_fi_eq idx d), Hdf, Hdl; exact Hpid_d).
+    destruct (parentid_to_parentof fs idx d pl Hpd) as [p [Hp [Hpl Hpf]]].
+    destruct (IH p (eq_trans Hpf Hdf) Hpl) as [a [Haf [Hal Hra]]].
+    exists a. split; [exact Haf | split; [exact Hal | apply (RAnc_step fs idx a p d Hra Hp)]].
+Qed.
+
+Lemma anc_to_refanc (fs : TForest) (idx : SyntaxIndex fs) (a d : NodeRef fs) :
+  node_ref_file a = node_ref_file d ->
+  Ancestor (fi_table (build_file (file_ref_file (node_ref_file d)))) (node_ref_local a) (node_ref_local d) ->
+  RefAncestor fs idx a d.
+Proof.
+  intros Hf Hanc.
+  destruct (anc_to_refanc_aux fs idx (node_ref_file d) (node_ref_local a) (node_ref_local d) Hanc d eq_refl eq_refl)
+    as [a' [Haf [Hal Hra]]].
+  assert (a' = a) by (apply node_ref_ext; [ rewrite Haf; symmetry; exact Hf | exact Hal ]).
+  subst a'. exact Hra.
+Qed.
+
+(* the total NodeRef-level ancestor TEST — O(1) preorder-interval arithmetic after one metadata lookup. *)
+Definition is_ancestor_ref {fs} (idx : SyntaxIndex fs) (a d : NodeRef fs) : bool :=
+  Pos.eqb (file_ref_slot (node_ref_file a)) (file_ref_slot (node_ref_file d)) &&
+  is_ancestor_local (fi_table (ref_fi idx d)) (node_ref_local a) (node_ref_local d).
+
+(* the ancestor present-ness side condition thm13 needs: a valid reference's id is in its file table. *)
+Lemma ref_local_present (fs : TForest) (idx : SyntaxIndex fs) (a d : NodeRef fs) :
+  node_ref_file a = node_ref_file d ->
+  NodeTable.get (node_ref_local a) (fi_table (build_file (file_ref_file (node_ref_file d)))) <> None.
+Proof.
+  intros Hf. rewrite <- Hf. pose proof (ref_meta_get idx a) as Hg. rewrite Hg. discriminate.
+Qed.
+
+(* the O(1) interval ancestor TEST is SOUND and COMPLETE w.r.t. the [parent_of] transitive closure. *)
+Theorem thm_ref_ancestry (fs : TForest) (idx : SyntaxIndex fs) (a d : NodeRef fs) :
+  is_ancestor_ref idx a d = true <-> RefAncestor fs idx a d.
+Proof.
+  unfold is_ancestor_ref. split.
+  - intros Hb. apply andb_true_iff in Hb as [Hslot Hloc]. apply Pos.eqb_eq in Hslot.
+    assert (Hf : node_ref_file a = node_ref_file d) by (apply file_ref_ext; exact Hslot).
+    apply (anc_to_refanc fs idx a d Hf).
+    rewrite (ref_fi_eq idx d) in Hloc.
+    apply (proj1 (thm13_interval_ancestry (file_ref_file (node_ref_file d))
+                    (node_ref_local a) (node_ref_local d) (ref_local_present fs idx a d Hf))).
+    exact Hloc.
+  - intros Hra.
+    pose proof (refanc_same_file fs idx a d Hra) as Hf.
+    pose proof (refanc_to_anc fs idx a d Hra) as Hanc.
+    apply andb_true_iff. split.
+    + apply Pos.eqb_eq. rewrite Hf. reflexivity.
+    + rewrite (ref_fi_eq idx d). rewrite (ref_fi_eq idx d) in Hanc.
+      apply (proj2 (thm13_interval_ancestry (file_ref_file (node_ref_file d))
+                      (node_ref_local a) (node_ref_local d) (ref_local_present fs idx a d Hf))).
+      exact Hanc.
 Qed.
 
 End Snap.
