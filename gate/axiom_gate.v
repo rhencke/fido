@@ -3,10 +3,11 @@
     exactly as many 'Closed under the global context' lines as there are 'Print Assumptions' commands here
     (an empty/partial log FAILS — fail-closed both ways).  These are the public surfaces of the
     program-rooted GoProgram -> GoTypes (the one type authority: untyped GoConst resolved through
-    {TBool, the integer family TInteger over IntegerType, the float family TFloat over FloatType, TString} to
+    {TBool, the integer family TInteger over IntegerType, the float family TFloat over FloatType, the complex
+    family TComplex over ComplexType, TString} to
     ProgramTyped over the same AST) ->
     GoCompile -> GoSafe -> GoRender -> GoEmit architecture. *)
-From Fido Require Import Ints Floats FilePath FMap ModulePath GoVersion GoAST GoTypes GoCompile GoSafe GoRender GoEmit.
+From Fido Require Import Ints Floats Complexes FilePath FMap ModulePath GoVersion GoAST GoTypes GoCompile GoSafe GoRender GoEmit.
 
 (* the ONE integer-family authority: type-equality reflection; the single representability reflection;
    exact 64-bit int/uint; generic min/max accepted and below-min/above-max rejected; keyword exactness +
