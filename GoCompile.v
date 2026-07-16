@@ -114,9 +114,9 @@ Proof. intro cp; exact (compile_program_typed _ _ (cp_ok cp)). Qed.
 
 Inductive CompileError : Type :=
 | ErrTyping           (* some declaration fails typing: a constant outside every representable range, a
-                         float overflow / fractional-or-out-of-range float->integer, a wrong-type operand, or
-                         an invalid (nested) conversion — the one honest typing error now that typing can fail
-                         for several reasons *)
+                         float or complex-component overflow, a fractional-or-out-of-range float/complex->integer,
+                         a nonzero-imaginary complex->scalar, a wrong-type operand, or an invalid (nested)
+                         conversion — the one honest typing error now that typing can fail for several reasons *)
 | ErrPackageMainCount (* some package has zero or multiple `main` declarations *).
 
 Inductive result (E A : Type) : Type := Ok : A -> result E A | Err : E -> result E A.

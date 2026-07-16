@@ -7,7 +7,7 @@
     family TComplex over ComplexType, TString} to
     ProgramTyped over the same AST) ->
     GoCompile -> GoSafe -> GoRender -> GoEmit architecture. *)
-From Fido Require Import Ints Floats Complexes FilePath FMap ModulePath GoVersion GoAST GoTypes GoCompile GoSafe GoRender GoEmit.
+From Fido Require Import Ints Floats Complexes FilePath FMap ModulePath GoVersion GoAST GoTypes GoCompile GoSafe GoRender GoEmit OccurrenceSpike.
 
 (* the ONE integer-family authority: type-equality reflection; the single representability reflection;
    exact 64-bit int/uint; generic min/max accepted and below-min/above-max rejected; keyword exactness +
@@ -263,6 +263,11 @@ Print Assumptions GoTypes.cplx_scar_direct_real.
 Print Assumptions GoTypes.cplx_scar_nested_real.
 Print Assumptions GoTypes.cplx_scar_imag_direct_vs_nested.
 Print Assumptions GoTypes.cplx_underflow_pos_zero.
+Print Assumptions GoTypes.cplx_tiny_imag_untyped_nonzero.
+Print Assumptions GoTypes.int_of_cplx_tiny_imag_rej.
+Print Assumptions GoTypes.cplx64_tiny_imag_rounds_zero.
+Print Assumptions GoTypes.int_of_cplx64_tiny_imag_ok.
+Print Assumptions GoTypes.int_of_cplx64_tiny_imag_is_3.
 
 (* GoCompile (A) internal exactness: whole-program prog_ok reflects the declarative judgment; go_compile
    sound + complete against it; a rejected program yields no CompilableProgram; the compiled evidence exposes
@@ -336,7 +341,8 @@ Print Assumptions GoSafe.eval_cplx_scar_differ.
 (* GoRender: all output ASCII (including conversions); the ONE ConstInfo render-status root
    (render_const_info_denotes: rendering denotes exactly the const_info GoTypes computes) which is FUNCTIONAL
    (render_const_info_denotes_functional: a rendered spelling denotes at most ONE ConstInfo — the bool / bare
-   integer / string / integer-conversion / bare float / float-conversion recognisers are pairwise disjoint, so
+   integer / string / integer-conversion / bare float / float-conversion / complex-literal / complex-conversion
+   recognisers are pairwise disjoint (and `complex(` is distinct from `complex64(`/`complex128(` at index 7), so
    no spelling admits two conflicting constant statuses) and the final
    resolved root (resolved argument -> const-status + well-formed value of its resolved type carrying the same
    constant); the §4 integer-repair regressions (a bare integer above int_max stays UNTYPED, does NOT denote a
@@ -409,3 +415,33 @@ Print Assumptions GoEmit.render_program_go_mod_ascii.
 Print Assumptions GoEmit.render_program_header.
 Print Assumptions GoEmit.render_program_ascii.
 Print Assumptions GoEmit.render_image_keys_nodup.
+
+(* OccurrenceSpike (Source Forest C0): the ISOLATED occurrence-index proof spike — the certified positive-key
+   trie laws, the builder well-formedness, and the C0.4 structural theorem set (root id canonical / no parent,
+   non-root single parent, parent<->child inverse, same-file parentage, containing-file recovery, once-only
+   enumeration, decidable key identity, sound+complete preorder-interval ancestry, source-ordered children,
+   deterministic construction, metadata is not a subtree copy, and equal-leaves-distinct-refs over a witness).
+   The whole-theory audit already covers the entire module; these surfaces make the headline results explicit. *)
+Print Assumptions OccurrenceSpike.pget_pset_same.
+Print Assumptions OccurrenceSpike.pget_pset_other.
+Print Assumptions OccurrenceSpike.build_file_wf.
+Print Assumptions OccurrenceSpike.thm1_root_id_canonical.
+Print Assumptions OccurrenceSpike.thm2_root_no_parent.
+Print Assumptions OccurrenceSpike.thm3_nonroot_has_parent.
+Print Assumptions OccurrenceSpike.thm3b_parent_unique.
+Print Assumptions OccurrenceSpike.thm4_child_has_parent.
+Print Assumptions OccurrenceSpike.thm4_parent_has_child.
+Print Assumptions OccurrenceSpike.thm5_parent_same_file.
+Print Assumptions OccurrenceSpike.thm6_containing_file.
+Print Assumptions OccurrenceSpike.thm7_enum_nodup.
+Print Assumptions OccurrenceSpike.thm7_enum_complete.
+Print Assumptions OccurrenceSpike.thm7_enum_sound.
+Print Assumptions OccurrenceSpike.thm8_nodekey_eq_dec.
+Print Assumptions OccurrenceSpike.thm8_nodekey_eqb_spec.
+Print Assumptions OccurrenceSpike.thm9_equal_leaves_distinct_refs.
+Print Assumptions OccurrenceSpike.thm9_equal_leaves_same_kind_distinct_role.
+Print Assumptions OccurrenceSpike.thm11_children_sorted.
+Print Assumptions OccurrenceSpike.thm12_deterministic.
+Print Assumptions OccurrenceSpike.thm_builder_no_structural_search.
+Print Assumptions OccurrenceSpike.thm13_interval_ancestry.
+Print Assumptions OccurrenceSpike.thm14_meta_stores_no_subtree.

@@ -284,6 +284,8 @@ kill stale `docker buildx build` processes first; run long builds detached and p
 
 - **Certified theory** (`dune`): `digits.v`, `Ints.v`, `Floats.v`, `Complexes.v`, `FilePath.v`, `FMap.v`,
   `ModulePath.v`, `GoVersion.v`, `GoAST.v`, `GoTypes.v`, `GoCompile.v`, `GoSafe.v`, `GoRender.v`, `GoEmit.v`.
+  `OccurrenceSpike.v` is a TEMPORARY, isolated, axiom-free Source-Forest-C0 proof spike (imports only
+  `FilePath`; NOT imported by the pipeline; deleted when the production `GoIndex` lands at C2).
 - `plugin/g_fido.mlg` — the Fido Emit transport bridge + the whole-theory audit; `plugin/fido_sink.ml` —
   the foreign-Go-rejecting sibling-temp sink; `plugin/dune` — the plugin library. `e2e/Witness.v` — the
   witness (emitted explicitly, and the canonical tracked module); `e2e/WitnessMulti.v` — the multi-package

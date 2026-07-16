@@ -731,6 +731,19 @@ rej_conv int-of-cimag   'println(int(complex(3, 1)))'
 rej_conv f32-of-cimag   'println(float32(complex(1.5, 1)))'
 rej_conv c64-bool       'println(complex64(true))'
 rej_conv c128-str       'println(complex128("x"))'
+# §C0 complex-underflow scalar-conversion scar: 1e-50 is a nonzero exact rational that UNDERFLOWS binary32
+# to +0.  The UNTYPED complex(3, 1e-50) has a nonzero imaginary, so int(...) is rejected; but the explicit
+# complex64 boundary rounds that imaginary to exact zero, after which int(complex64(...)) is accepted as 3.
+# Pinned Go 1.23 must agree with GoTypes on BOTH sides — the reject is a rej_conv, the accept-and-value-3 is
+# an acc_conv (a standalone fixture, so the canonical witness/goldens are untouched).
+rej_conv int-of-ctinyimag 'println(int(complex(3, 1e-50)))'
+acc_conv() { # <label> <main-body> <expected-stderr>
+  d="/tmp/acc-conv-$1"; mkdir -p "$d"; ( cd "$d"; printf 'module acc\n\ngo 1.23\n' > go.mod; \
+    printf '// fido generated.  do not edit.\n\npackage main\n\nfunc main() {\n\t%s\n}\n' "$2" > x.go; \
+    if ! go build -o prog . 2>build.err; then cat build.err; echo "fido e2e diff: go build REJECTED [$1: $2] that GoTypes ACCEPTS (MODEL BUG)"; exit 1; fi; \
+    ./prog 2>run.err; if [ "$(cat run.err)" != "$3" ]; then echo "fido e2e diff: [$1] printed [$(cat run.err)] != Go-expected [$3] (MODEL/GOLDEN BUG)"; exit 1; fi ); \
+    rc=$?; [ "$rc" = 0 ] || exit 1; echo "fido e2e diff: go build accepts + runs [$1] $2 -> $3 — matches GoTypes"; }
+acc_conv int-of-c64-tinyimag 'println(int(complex64(complex(3, 1e-50))))' '3'
 
-echo "fido e2e OK — pinned Go built the whole tree (go build ./...) using the RENDERED go.mod, accepted the empty module, ran the witness vs goldens (incl. the ten integer-type conversions, the float section, AND the complex section: bare complex128-default literal, complex64/complex128 conversions, zero-imaginary complex<->scalar, the direct-vs-nested component double-round scar as uint64 evidence), checked the multi-package differential + go list discovery, and rejected the no-main/dup-main + out-of-range/non-integer/float-overflow/fractional/wrong-type/complex-component-overflow/nonzero-imaginary conversion fixtures exactly as GoCompile does (go vet nonblocking)"
+echo "fido e2e OK — pinned Go built the whole tree (go build ./...) using the RENDERED go.mod, accepted the empty module, ran the witness vs goldens (incl. the ten integer-type conversions, the float section, AND the complex section: bare complex128-default literal, complex64/complex128 conversions, zero-imaginary complex<->scalar, the direct-vs-nested component double-round scar as uint64 evidence), checked the multi-package differential + go list discovery, and rejected the no-main/dup-main + out-of-range/non-integer/float-overflow/fractional/wrong-type/complex-component-overflow/nonzero-imaginary conversion fixtures exactly as GoCompile does, and confirmed the complex-underflow scalar-conversion scar on both sides (int(complex(3,1e-50)) rejected; int(complex64(complex(3,1e-50)))=3 accepted, imaginary underflowed to zero) (go vet nonblocking)"
 SH

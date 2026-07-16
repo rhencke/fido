@@ -13,8 +13,9 @@
     system ([value_type]; there is no separate runtime type universe), and every runtime value is
     WELL-FORMED ([ValueWF] — [VInteger it z] iff [z] fits [it]; a [VFloat] / [VComplex] is canonical by construction, so
     True).  A float/complex constant ROUNDS ONCE into its canonical [FloatValue] component(s); constant evaluation produces only
-    finite/+0 (never -0/inf/NaN).  Because raw syntax can now contain a compiler-invalid integer/float
-    conversion, evaluation is PARTIAL ([eval_expr : GoExpr -> option GoValue]) and
+    finite/+0 (never -0/inf/NaN).  Because raw syntax can now contain a compiler-invalid integer/float/complex
+    conversion (a component overflow, a nonzero-imaginary complex->scalar, a fractional or out-of-range
+    float/complex->integer, or a wrong-type conversion), evaluation is PARTIAL ([eval_expr : GoExpr -> option GoValue]) and
     is DERIVED from the one constant-status analysis ([GoTypes.const_info]) — it invents no second
     conversion/type/value authority.  A resolved expression always evaluates to a well-formed value of its
     resolved [GoType] ([eval_expr_resolved]).  There is no panic/blocking/scheduler/heap algebra: no admitted

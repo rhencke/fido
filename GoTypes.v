@@ -1032,3 +1032,36 @@ Example cplx_underflow_pos_zero :
   | _ => false
   end = true.
 Proof. vm_compute. reflexivity. Qed.
+
+(* §C0 complex-underflow scalar-conversion scar.  1e-50 is a nonzero exact rational that UNDERFLOWS binary32
+   to +0.  So the UNTYPED [complex(3, 1e-50)] carries a nonzero exact imaginary and [int(...)] REJECTS; but the
+   explicit [complex64(...)] boundary rounds that imaginary to exact zero, after which [int(complex64(...))]
+   ACCEPTS as 3.  The model observes (1) the exact untyped imaginary BEFORE conversion is nonzero, (2) the
+   raw int-conversion rejects, (3) the rounded typed-complex64 imaginary AFTER conversion is exact zero,
+   (4) the int conversion of the rounded value accepts, and (5) the scalar rule reads the CURRENT typed value
+   (3), never the original nonzero imaginary.  Pinned Go 1.23 agrees (differential in the Dockerfile). *)
+Definition d_tiny_imag : DecimalFloat := mkDecimal 1 (-50) eq_refl.   (* 1e-50: nonzero, underflows binary32 -> +0 *)
+Example cplx_tiny_imag_untyped_nonzero :   (* (1) exact untyped imaginary before conversion is nonzero *)
+  match option_map const_info_exact (const_info (EComplex (mkDC d_3 d_tiny_imag))) with
+  | Some (CComplex cc) => negb (cc_imag_is_zero cc)
+  | _ => false
+  end = true.
+Proof. vm_compute. reflexivity. Qed.
+Example int_of_cplx_tiny_imag_rej :        (* (2) int(complex(3, 1e-50)) rejects: nonzero imaginary *)
+  resolve_expr UsePrintlnArg (EIntConvert IInt (EComplex (mkDC d_3 d_tiny_imag))) = None.
+Proof. vm_compute. reflexivity. Qed.
+Example cplx64_tiny_imag_rounds_zero :     (* (3) rounded typed complex64 imaginary after conversion is exact zero *)
+  match option_map const_info_exact (const_info (EComplexConvert C64 (EComplex (mkDC d_3 d_tiny_imag)))) with
+  | Some (CComplex cc) => cc_imag_is_zero cc
+  | _ => false
+  end = true.
+Proof. vm_compute. reflexivity. Qed.
+Example int_of_cplx64_tiny_imag_ok :       (* (4) int(complex64(complex(3, 1e-50))) accepts: imaginary underflowed to zero *)
+  resolve_expr UsePrintlnArg (EIntConvert IInt (EComplexConvert C64 (EComplex (mkDC d_3 d_tiny_imag)))) = Some (TInteger IInt).
+Proof. vm_compute. reflexivity. Qed.
+Example int_of_cplx64_tiny_imag_is_3 :      (* (5) ... and its exact value is 3 — the scalar rule reads the CURRENT typed value *)
+  match option_map const_info_exact (const_info (EIntConvert IInt (EComplexConvert C64 (EComplex (mkDC d_3 d_tiny_imag))))) with
+  | Some (CInt z) => Z.eqb z 3
+  | _ => false
+  end = true.
+Proof. vm_compute. reflexivity. Qed.
