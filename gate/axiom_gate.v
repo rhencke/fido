@@ -71,10 +71,9 @@ Print Assumptions Floats.decimal_zero_unique.
 Print Assumptions Floats.decimal_wfb_max_ok.
 Print Assumptions Floats.decimal_wfb_coeff_over.
 Print Assumptions Floats.decimal_value_1p5.
-(* the runtime float value's format-canonical invariant + constant evaluation produces only finite/+0
-   (never NaN/Inf/-0): an unsigned-zero constant rounds to +0; a representable constant rounds finite/zero. *)
+(* the runtime float value's format-canonical invariant: an unsigned-zero constant rounds to +0, never -0
+   (representability reflection [float_representableb_spec] is gated once, above). *)
 Print Assumptions Floats.round_float_sf_zero.
-Print Assumptions Floats.float_representableb_spec.
 Print Assumptions GoTypes.convert_const_same_int.
 Print Assumptions GoTypes.typed_const_int_value.
 (* a constant NEVER evaluates to negative zero (the bare-negative-underflow scar): the constructed runtime
@@ -129,9 +128,10 @@ Print Assumptions FMap.dup_key_unrepresentable.
 Print Assumptions FMap.fm_MapsTo_fun.
 
 (* GoTypes — the ONE type authority (EVIDENCE over the raw AST): zero-sign constant equality; default-type
-   exactness (int / FLOAT->float64); representability reflection; the constant-status analysis carries the
-   exact value (partial [const_value], routed through the ONE [convert_const]) + a representable typed
-   integer value; resolution sound + complete + deterministic; statement + program typing reflection. *)
+   exactness (int / FLOAT->float64); representability reflection; the constant-status analysis [const_info]
+   carries the exact value via [const_info_exact], routed through the ONE [convert_const] into an intrinsic
+   [TypedConst]/[ResolvedConst] + a representable typed integer value; resolution sound + complete +
+   deterministic; statement + program typing reflection. *)
 Print Assumptions GoTypes.const_info_zero_sign.
 Print Assumptions GoTypes.float_default_resolved.
 Print Assumptions GoTypes.str_representable.

@@ -1155,10 +1155,11 @@ Lemma int_float_kw_paren_disjoint : forall t1 t2 r1 r2,
 Proof. intros t1 t2 r1 r2 H; destruct t1, t2; cbn in H; discriminate H. Qed.
 
 (** ★§30 DETERMINISM: a rendered spelling denotes AT MOST ONE [ConstInfo] — the rendered-constant denotation
-    is FUNCTIONAL, so it never assigns a spelling two conflicting constant statuses.  Together with
-    [render_const_info_denotes] (which exhibits the const_info a spelling denotes) this pins the
-    spelling<->status correspondence to a genuine bijection on the rendered image: the recognisers for bool,
-    bare integer, string, integer conversion, bare float, and float conversion are pairwise disjoint. *)
+    is FUNCTIONAL, so it never assigns a spelling two conflicting constant statuses.  This is NOT a bijection:
+    distinct spellings may denote the same exact value (e.g. `0` and `-0`).  The proved facts are exactly (a)
+    every Fido-rendered expression HAS a denotation ([render_const_info_denotes]) and (b) for a fixed source
+    spelling the denotation relation yields AT MOST ONE [ConstInfo] (this lemma) — the recognisers for bool,
+    bare integer, string, integer conversion, bare float, and float conversion being pairwise disjoint. *)
 Theorem render_const_info_denotes_functional : forall s ci1 ci2,
   RenderedConstInfoDenotes s ci1 -> RenderedConstInfoDenotes s ci2 -> ci1 = ci2.
 Proof.

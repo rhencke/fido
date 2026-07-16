@@ -1,5 +1,5 @@
 (** ============================================================================
-    GoTypes — the ONE Go type-system authority for the current bool/integer/string fragment.  It is EVIDENCE
+    GoTypes — the ONE Go type-system authority for the current bool/integer/float/string fragment.  It is EVIDENCE
     over the ONE raw [GoAST], never a second (typed) AST: raw [GoExpr] stays untyped syntax, and typing is a
     judgment over that same syntax.
 
