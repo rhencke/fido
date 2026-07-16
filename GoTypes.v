@@ -22,7 +22,7 @@
     arithmetic, more numeric types) builds on.
     ============================================================================ *)
 From Stdlib Require Import NArith ZArith List Bool String Ascii Lia.
-From Fido Require Import Ints Floats GoAST.
+From Fido Require Import Ints Floats Complexes GoAST.
 Import ListNotations.
 Open Scope Z_scope.
 
@@ -32,11 +32,12 @@ Open Scope Z_scope.
     proved encoding in [GoRender]).  No wrapper and no invariant are needed: every finite byte sequence is a
     valid Go string value in represented scope (no length limit, no well-formedness side condition). *)
 
-(** ---- the one type universe: bool, the integer FAMILY, the float FAMILY, and string ---- *)
+(** ---- the one type universe: bool, the integer FAMILY, the float FAMILY, the complex FAMILY, and string ---- *)
 Inductive GoType : Type :=
 | TBool
 | TInteger : IntegerType -> GoType
 | TFloat   : FloatType -> GoType
+| TComplex : ComplexType -> GoType
 | TString.
 
 Definition gotype_eqb (a b : GoType) : bool :=
@@ -44,25 +45,30 @@ Definition gotype_eqb (a b : GoType) : bool :=
   | TBool, TBool => true
   | TInteger it1, TInteger it2 => integer_type_eqb it1 it2
   | TFloat ft1, TFloat ft2 => float_type_eqb ft1 ft2
+  | TComplex ct1, TComplex ct2 => complex_type_eqb ct1 ct2
   | TString, TString => true
   | _, _ => false
   end.
 
 Lemma gotype_eqb_eq : forall a b, gotype_eqb a b = true <-> a = b.
 Proof.
-  intros [| it1 | ft1 |] [| it2 | ft2 |]; simpl; split; intro H; try reflexivity; try discriminate.
+  intros [| it1 | ft1 | ct1 |] [| it2 | ft2 | ct2 |]; simpl; split; intro H;
+    try reflexivity; try discriminate.
   - apply integer_type_eqb_eq in H; subst; reflexivity.
   - injection H as Heq; subst; apply integer_type_eqb_eq; reflexivity.
   - apply float_type_eqb_eq in H; subst; reflexivity.
   - injection H as Heq; subst; apply float_type_eqb_eq; reflexivity.
+  - apply complex_type_eqb_eq in H; subst; reflexivity.
+  - injection H as Heq; subst; apply complex_type_eqb_eq; reflexivity.
 Qed.
 
 (** ---- exact untyped constant values of the current raw literals ---- *)
 Inductive GoConst : Type :=
-| CBool   : bool -> GoConst
-| CInt    : Z -> GoConst
-| CFloat  : FloatConst -> GoConst
-| CString : string -> GoConst.
+| CBool    : bool -> GoConst
+| CInt     : Z -> GoConst
+| CFloat   : FloatConst -> GoConst
+| CComplex : ComplexConst -> GoConst
+| CString  : string -> GoConst.
 
 (** the exact integer VALUE of a floating constant, if it denotes one exactly (a fractional constant has
     none) — the sole float->integer bridge, used by [convert_const]. *)
@@ -73,6 +79,10 @@ Definition fc_to_int (q : FloatConst) : option Z :=
 (** decidable equality of float formats — reduces to [left eq_refl] on equal concrete formats, so a same-format
     conversion computes to the identity (see [same_ft_identity]). *)
 Definition float_type_eq_dec (a b : FloatType) : {a = b} + {a <> b}.
+Proof. decide equality. Defined.
+
+(** decidable equality of complex formats — the [same_ct_identity] analogue of [float_type_eq_dec]. *)
+Definition complex_type_eq_dec (a b : ComplexType) : {a = b} + {a <> b}.
 Proof. decide equality. Defined.
 
 (** ============================================================================
@@ -86,17 +96,34 @@ Inductive TypedConst : GoType -> Type :=
 | TCBool    : bool -> TypedConst TBool
 | TCInteger : forall (it : IntegerType) (z : Z), integer_representableb it z = true -> TypedConst (TInteger it)
 | TCFloat   : forall (ft : FloatType), TypedFloatConst ft -> TypedConst (TFloat ft)
+| TCComplex : forall (ct : ComplexType), TypedComplexConst ct -> TypedConst (TComplex ct)
 | TCString  : string -> TypedConst TString.
 
 (** §3 exact-value erasure: forget the type, keep the exact mathematical constant.  It reads the stored data —
     it NEVER inspects source syntax and NEVER re-rounds a float (a float's exact value is the already-rounded
-    [tfc_exact]). *)
+    [tfc_exact]; a complex's is the pair of already-rounded component exacts, [typed_complex_exact]). *)
 Definition typed_const_exact {t : GoType} (tc : TypedConst t) : GoConst :=
   match tc with
   | TCBool b        => CBool b
   | TCInteger _ z _ => CInt z
   | TCFloat _ tfc   => CFloat (tfc_exact tfc)
+  | TCComplex _ tcc => CComplex (typed_complex_exact tcc)
   | TCString s      => CString s
+  end.
+
+(** extract the intrinsic [TypedFloatConst] / [TypedComplexConst] from a typed constant KNOWN (by its index)
+    to be at a float / complex type — an index-annotated match (axiom-free; no dependent destruction / UIP).
+    Used ONLY by the same-component reuse paths ([reuse_float_as_complex] / [reuse_complex_as_float]). *)
+Definition typed_const_float {ft : FloatType} (tc : TypedConst (TFloat ft)) : TypedFloatConst ft :=
+  match tc in TypedConst t return match t with TFloat f => TypedFloatConst f | _ => unit end with
+  | TCFloat _ tfc => tfc
+  | TCBool _ => tt | TCInteger _ _ _ => tt | TCComplex _ _ => tt | TCString _ => tt
+  end.
+
+Definition typed_const_complex {ct : ComplexType} (tc : TypedConst (TComplex ct)) : TypedComplexConst ct :=
+  match tc in TypedConst t return match t with TComplex c => TypedComplexConst c | _ => unit end with
+  | TCComplex _ tcc => tcc
+  | TCBool _ => tt | TCInteger _ _ _ => tt | TCFloat _ _ => tt | TCString _ => tt
   end.
 
 (** a decidable bool guard carrying its own proof — avoids a dependent [if]-convoy in [typed_integer_of_Z]. *)
@@ -114,6 +141,22 @@ Definition typed_integer_of_Z (it : IntegerType) (z : Z) : option (TypedConst (T
 Definition typed_float_of_const (ft : FloatType) (q : FloatConst) : option (TypedConst (TFloat ft)) :=
   option_map (TCFloat ft) (round_typed_float ft q).
 
+(** construct a typed complex constant at [ct] by the ONE [round_typed_complex] authority (each component
+    rounds ONCE at [complex_component_type ct]; either component's overflow rejects the whole). *)
+Definition typed_complex_of_const (ct : ComplexType) (c : ComplexConst) : option (TypedConst (TComplex ct)) :=
+  option_map (TCComplex ct) (round_typed_complex ct c).
+
+(** the exact NUMERIC embedding of a constant into the exact complex plane (a pure exact helper — NO rounding):
+    an integer / float embeds as a real component with exact zero imaginary; a complex is itself; bool/string
+    have none.  [convert_to_complex] rounds the result at the destination component format. *)
+Definition numeric_const_to_complex (c : GoConst) : option ComplexConst :=
+  match c with
+  | CInt z     => Some (complex_of_real (fc_of_Z z))
+  | CFloat q   => Some (complex_of_real q)
+  | CComplex c => Some c
+  | _          => None
+  end.
+
 (** the ONE constant interpretation of the raw expressions — PARTIAL, because an explicit conversion may be
     compiler-invalid (out-of-range / fractional-to-integer / float overflow) and thus denote NO value.  A raw
     literal is an EXACT value (a bare float is its EXACT rational, unrounded — no range check here); an
@@ -129,9 +172,35 @@ Definition typed_float_of_const (ft : FloatType) (q : FloatConst) : option (Type
 Definition type_untyped_const_at (t : GoType) (c : GoConst) : option (TypedConst t) :=
   match t with
   | TBool       => match c with CBool b   => Some (TCBool b)          | _ => None end
-  | TInteger it => match c with CInt z    => typed_integer_of_Z it z   | _ => None end
-  | TFloat ft   => match c with CFloat q  => typed_float_of_const ft q | _ => None end
-  | TString     => match c with CString s => Some (TCString s)         | _ => None end
+  | TString     => match c with CString s => Some (TCString s)        | _ => None end
+  | TInteger it =>
+      match c with
+      | CInt z      => typed_integer_of_Z it z
+      | CComplex cc => (* §27 a complex constant reaches an integer target iff imag is exact zero and the
+                          real component denotes an in-range integer (the exact real scalar rule). *)
+          match complex_real_if_imag_zero cc with
+          | Some q => match fc_to_int q with Some z => typed_integer_of_Z it z | None => None end
+          | None   => None
+          end
+      | _ => None
+      end
+  | TFloat ft   =>
+      match c with
+      | CFloat q    => typed_float_of_const ft q
+      | CComplex cc => (* §27 a complex constant reaches a float target iff imag is exact zero; round the
+                          exact real component once at the destination. *)
+          match complex_real_if_imag_zero cc with
+          | Some q => typed_float_of_const ft q
+          | None   => None
+          end
+      | _ => None
+      end
+  | TComplex ct => (* §27 integer / float / complex constants reach a complex target iff BOTH derived
+                      components round (representable); bool/string reject via [numeric_const_to_complex]. *)
+      match numeric_const_to_complex c with
+      | Some cc => typed_complex_of_const ct cc
+      | None    => None
+      end
   end.
 
 (** §19 representability is DERIVED from successful typing at the requested type — not a separate looser
@@ -192,23 +261,97 @@ Definition same_ft_identity (ft : FloatType) (ci : ConstInfo) : option (TypedCon
   | _ => None
   end.
 
-(** §13.C/D/E/F float-target conversion: same-format returns the identity; otherwise round the exact source
-    value ONCE at the destination (a different-format typed source rounds its [tfc_exact], preserving the
-    explicit conversion boundary — this is exactly the double-rounding scar). *)
+(** §24 same-format complex identity: converting a typed complex constant to its OWN format returns the
+    existing [TypedComplexConst] unchanged (no reround) — the [same_ft_identity] analogue. *)
+Definition same_ct_identity (ct : ComplexType) (ci : ConstInfo) : option (TypedConst (TComplex ct)) :=
+  match ci with
+  | CITyped (TComplex ct') tc =>
+      match complex_type_eq_dec ct' ct with
+      | left Heq => Some (eq_rect (TComplex ct') (fun T => TypedConst T) tc (TComplex ct) (f_equal TComplex Heq))
+      | right _  => None
+      end
+  | _ => None
+  end.
+
+(** §25 component reuse (typed float -> matching complex): a typed float constant whose format equals the
+    complex component format becomes the REAL component DIRECTLY (no reround); the imaginary component is the
+    constructed positive zero. *)
+Definition reuse_float_as_complex (ct : ComplexType) (ci : ConstInfo) : option (TypedConst (TComplex ct)) :=
+  match ci with
+  | CITyped (TFloat ft') tc =>
+      match float_type_eq_dec ft' (complex_component_type ct) with
+      | left Heq =>
+          option_map
+            (fun imz => TCComplex ct
+               (mkTCC (eq_rect ft' (fun f => TypedFloatConst f) (typed_const_float tc)
+                              (complex_component_type ct) Heq) imz))
+            (round_typed_float (complex_component_type ct) fc_zero)
+      | right _ => None
+      end
+  | _ => None
+  end.
+
+(** §23 component projection (typed complex -> matching float): a typed complex constant whose component
+    format equals the float destination AND whose EXACT imaginary component is zero projects its EXISTING real
+    [TypedFloatConst] DIRECTLY (no reround). *)
+Definition reuse_complex_as_float (ft : FloatType) (ci : ConstInfo) : option (TypedConst (TFloat ft)) :=
+  match ci with
+  | CITyped (TComplex ct') tc =>
+      match float_type_eq_dec (complex_component_type ct') ft with
+      | left Heq =>
+          if cc_imag_is_zero (typed_complex_exact (typed_const_complex tc))
+          then Some (eq_rect (complex_component_type ct') (fun f => TypedConst (TFloat f))
+                             (TCFloat (complex_component_type ct') (tcc_real (typed_const_complex tc)))
+                             ft Heq)
+          else None
+      | right _ => None
+      end
+  | _ => None
+  end.
+
+(** §13.C/D/E/F + §23 float-target conversion: same-format float returns the identity; a matching-component
+    zero-imaginary typed complex projects its real component; otherwise round the exact source value ONCE at
+    the destination (a different-format typed source rounds its [tfc_exact], preserving the explicit
+    conversion boundary — the double-rounding scar).  A complex source needs exact-zero imaginary. *)
 Definition convert_to_float (ft : FloatType) (ci : ConstInfo) : option (TypedConst (TFloat ft)) :=
   match same_ft_identity ft ci with
   | Some tc => Some tc
   | None =>
+  match reuse_complex_as_float ft ci with
+  | Some tc => Some tc
+  | None =>
       match const_info_exact ci with
-      | CInt z   => typed_float_of_const ft (fc_of_Z z)
-      | CFloat q => typed_float_of_const ft q
-      | _        => None
+      | CInt z    => typed_float_of_const ft (fc_of_Z z)
+      | CFloat q  => typed_float_of_const ft q
+      | CComplex c => match complex_real_if_imag_zero c with
+                      | Some q => typed_float_of_const ft q
+                      | None   => None end
+      | _         => None
       end
-  end.
+  end end.
 
-(** §12-13 the ONE target-directed constant-conversion authority: it CONSUMES the source constant status and
-    produces an INTRINSIC typed constant at the destination.  Integer target: the exact source (integer, or a
-    float's integral exact value) must be representable.  Float target: [convert_to_float].  bool/string
+(** §24/§25 complex-target conversion: same-format complex returns the identity; a matching-component typed
+    float reuses that float as the real component (positive-zero imaginary); otherwise embed the exact source
+    numerically ([numeric_const_to_complex]) and round each component ONCE at the destination component format
+    (a different-format complex source rounds its two [typed_complex_exact] components — the component-level
+    double-rounding boundary). *)
+Definition convert_to_complex (ct : ComplexType) (ci : ConstInfo) : option (TypedConst (TComplex ct)) :=
+  match same_ct_identity ct ci with
+  | Some tc => Some tc
+  | None =>
+  match reuse_float_as_complex ct ci with
+  | Some tc => Some tc
+  | None =>
+      match numeric_const_to_complex (const_info_exact ci) with
+      | Some c => typed_complex_of_const ct c
+      | None   => None
+      end
+  end end.
+
+(** §12-13/§22-24 the ONE target-directed constant-conversion authority: it CONSUMES the source constant
+    status and produces an INTRINSIC typed constant at the destination.  Integer target: the exact source (an
+    integer, a float's integral exact value, or a zero-imaginary complex's integral real) must be
+    representable.  Float target: [convert_to_float].  Complex target: [convert_to_complex].  bool/string
     target: unrepresentable. *)
 Definition convert_const (target : GoType) (ci : ConstInfo) : option (TypedConst target) :=
   match target with
@@ -220,9 +363,15 @@ Definition convert_const (target : GoType) (ci : ConstInfo) : option (TypedConst
       | CFloat q => match fc_to_int q with
                     | Some z => typed_integer_of_Z it z
                     | None => None end
+      | CComplex c => match complex_real_if_imag_zero c with
+                      | Some q => match fc_to_int q with
+                                  | Some z => typed_integer_of_Z it z
+                                  | None => None end
+                      | None => None end
       | _ => None
       end
   | TFloat ft => convert_to_float ft ci
+  | TComplex ct => convert_to_complex ct ci
   end.
 
 Fixpoint const_info (e : GoExpr) : option ConstInfo :=
@@ -242,6 +391,12 @@ Fixpoint const_info (e : GoExpr) : option ConstInfo :=
       | Some ci => option_map (CITyped (TFloat target)) (convert_const (TFloat target) ci)
       | None => None
       end
+  | EComplex dc => Some (CIUntyped (CComplex (decimal_complex_value dc)))
+  | EComplexConvert target e' =>
+      match const_info e' with
+      | Some ci => option_map (CITyped (TComplex target)) (convert_const (TComplex target) ci)
+      | None => None
+      end
   end.
 
 (** §16 defaulting: an UNTYPED constant becomes a validated typed constant in a use context — bool/string
@@ -249,10 +404,11 @@ Fixpoint const_info (e : GoExpr) : option ConstInfo :=
     (via [round_typed_float]).  A bare overflowing float has no default typed constant. *)
 Definition default_const (c : GoConst) : option ResolvedConst :=
   match c with
-  | CBool b   => Some (pack_resolved TBool (TCBool b))
-  | CInt z    => option_map (pack_resolved (TInteger IInt)) (typed_integer_of_Z IInt z)
-  | CFloat q  => option_map (pack_resolved (TFloat F64)) (typed_float_of_const F64 q)
-  | CString s => Some (pack_resolved TString (TCString s))
+  | CBool b    => Some (pack_resolved TBool (TCBool b))
+  | CInt z     => option_map (pack_resolved (TInteger IInt)) (typed_integer_of_Z IInt z)
+  | CFloat q   => option_map (pack_resolved (TFloat F64)) (typed_float_of_const F64 q)
+  | CComplex c => option_map (pack_resolved (TComplex C128)) (typed_complex_of_const C128 c)
+  | CString s  => Some (pack_resolved TString (TCString s))
   end.
 
 (** §17 resolve a constant status to a validated typed constant: an untyped status defaults; a typed status is
@@ -279,6 +435,14 @@ Proof. reflexivity. Qed.
 Lemma convert_const_same_float : forall ft (tc : TypedConst (TFloat ft)),
   convert_const (TFloat ft) (CITyped (TFloat ft) tc) = Some tc.
 Proof. intros ft tc; destruct ft; reflexivity. Qed.
+
+(** §24/§46 SAME-FORMAT COMPLEX IDENTITY (LOAD-BEARING, UNIVERSAL): converting a typed complex constant to its
+    OWN format returns the EXISTING [TypedComplexConst] unchanged — no reround, no component reconstruction,
+    the same stored runtime component objects.  This is what makes [complex64(complex64 ...)] /
+    [complex128(complex128 ...)] identities at the typed-constant level. *)
+Lemma convert_const_same_complex : forall ct (tc : TypedConst (TComplex ct)),
+  convert_const (TComplex ct) (CITyped (TComplex ct) tc) = Some tc.
+Proof. intros ct tc; destruct ct; reflexivity. Qed.
 
 (** the exact value of an INTEGER-typed constant is an in-range [CInt] — extracted via an index-annotated
     match (axiom-free; no dependent destruction / UIP). *)
@@ -324,24 +488,26 @@ Inductive ExprUse : Type :=
 | UsePrintlnArg.
 
 (** the exhaustive per-type use policy.  A `println` argument accepts ALL current types — bool, every integer
-    member, and string. *)
+    member, every float format, every complex format, and string. *)
 Inductive UseAllows : ExprUse -> GoType -> Prop :=
-| UAPrintlnBool   : UseAllows UsePrintlnArg TBool
-| UAPrintlnInt    : forall it, UseAllows UsePrintlnArg (TInteger it)
-| UAPrintlnFloat  : forall ft, UseAllows UsePrintlnArg (TFloat ft)
-| UAPrintlnString : UseAllows UsePrintlnArg TString.
+| UAPrintlnBool    : UseAllows UsePrintlnArg TBool
+| UAPrintlnInt     : forall it, UseAllows UsePrintlnArg (TInteger it)
+| UAPrintlnFloat   : forall ft, UseAllows UsePrintlnArg (TFloat ft)
+| UAPrintlnComplex : forall ct, UseAllows UsePrintlnArg (TComplex ct)
+| UAPrintlnString  : UseAllows UsePrintlnArg TString.
 
 Definition use_allowsb (u : ExprUse) (t : GoType) : bool :=
   match u, t with
   | UsePrintlnArg, TBool       => true
   | UsePrintlnArg, TInteger _  => true
   | UsePrintlnArg, TFloat _    => true
+  | UsePrintlnArg, TComplex _  => true
   | UsePrintlnArg, TString     => true
   end.
 
 Lemma use_allowsb_iff : forall u t, use_allowsb u t = true <-> UseAllows u t.
 Proof.
-  intros [] [| it | ft |]; simpl; split; intro H; try constructor; try reflexivity; inversion H.
+  intros [] [| it | ft | ct |]; simpl; split; intro H; try constructor; try reflexivity; inversion H.
 Qed.
 
 (** §18 the declarative resolved typing of ONE expression in a use context: the expression analyzes to a

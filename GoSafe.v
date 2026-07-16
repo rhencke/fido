@@ -28,39 +28,45 @@
     ============================================================================ *)
 From Stdlib Require Import ZArith List Bool String.
 From Stdlib Require Import Floats.SpecFloat.
-From Fido Require Import Ints Floats GoAST GoTypes GoCompile.
+From Fido Require Import Ints Floats Complexes GoAST GoTypes GoCompile.
 Import ListNotations.
 
 Inductive GoValue : Type :=
 | VBool    : bool -> GoValue
 | VInteger : IntegerType -> Z -> GoValue
 | VFloat   : forall ft, FloatValue ft -> GoValue
+| VComplex : forall ct, ComplexValue ct -> GoValue
 | VString  : string -> GoValue.
 
 (** The runtime type of a value — the SAME [GoType] authority ([GoTypes]) the compiler/type system uses; an
-    integer value carries its exact [IntegerType], a float value its [FloatType].  A [VString] is the EXACT
-    runtime byte sequence. *)
+    integer value carries its exact [IntegerType], a float value its [FloatType], a complex value its
+    [ComplexType] (same component mapping).  A [VString] is the EXACT runtime byte sequence. *)
 Definition value_type (v : GoValue) : GoType :=
   match v with
-  | VBool _ => TBool | VInteger it _ => TInteger it | VFloat ft _ => TFloat ft | VString _ => TString
+  | VBool _ => TBool | VInteger it _ => TInteger it | VFloat ft _ => TFloat ft
+  | VComplex ct _ => TComplex ct | VString _ => TString
   end.
 
-(** value well-formedness: an integer value's magnitude fits its type; a float value is canonical for its
-    format BY CONSTRUCTION (the invariant lives in [FloatValue] itself), so no extra side condition. *)
+(** value well-formedness: an integer value's magnitude fits its type; a float / complex value is canonical
+    for its format BY CONSTRUCTION (the invariant lives in [FloatValue] / its component [FloatValue]s), so no
+    extra side condition. *)
 Definition ValueWF (v : GoValue) : Prop :=
   match v with
-  | VBool _ => True | VInteger it z => IntRepresentable it z | VFloat _ _ => True | VString _ => True
+  | VBool _ => True | VInteger it z => IntRepresentable it z
+  | VFloat _ _ => True | VComplex _ _ => True | VString _ => True
   end.
 Definition value_wfb (v : GoValue) : bool :=
   match v with
-  | VBool _ => true | VInteger it z => integer_representableb it z | VFloat _ _ => true | VString _ => true
+  | VBool _ => true | VInteger it z => integer_representableb it z
+  | VFloat _ _ => true | VComplex _ _ => true | VString _ => true
   end.
 
 Lemma value_wfb_iff : forall v, value_wfb v = true <-> ValueWF v.
 Proof.
-  intros [ b | it z | ft fv | s ]; simpl.
+  intros [ b | it z | ft fv | ct cv | s ]; simpl.
   - split; [ intros _; exact I | intros _; reflexivity ].
   - apply integer_representableb_spec.
+  - split; [ intros _; exact I | intros _; reflexivity ].
   - split; [ intros _; exact I | intros _; reflexivity ].
   - split; [ intros _; exact I | intros _; reflexivity ].
 Qed.
@@ -79,6 +85,7 @@ Definition typed_const_to_value {t : GoType} (tc : TypedConst t) : GoValue :=
   | TCBool b         => VBool b
   | TCInteger it z _ => VInteger it z
   | TCFloat ft tfc   => VFloat ft (tfc_runtime tfc)
+  | TCComplex ct tcc => VComplex ct (typed_complex_runtime tcc)
   | TCString s       => VString s
   end.
 
@@ -88,35 +95,44 @@ Proof. intros t tc; destruct tc; reflexivity. Qed.
 
 Lemma typed_const_to_value_wf : forall t (tc : TypedConst t), ValueWF (typed_const_to_value tc).
 Proof.
-  intros t tc; destruct tc as [ b | it z Hpf | ft tfc | s ]; cbn [typed_const_to_value ValueWF].
+  intros t tc; destruct tc as [ b | it z Hpf | ft tfc | ct tcc | s ]; cbn [typed_const_to_value ValueWF].
   - exact I.
   - apply integer_representableb_spec; exact Hpf.
   - exact I.
   - exact I.
+  - exact I.
 Qed.
 
-(** §37 no second rounding: evaluating a typed float constant PROJECTS its stored runtime, reflexively. *)
+(** §37 no second rounding: evaluating a typed float / complex constant PROJECTS its stored runtime,
+    reflexively (a complex projects its pair of stored component runtimes). *)
 Lemma typed_const_to_value_float : forall ft (tfc : TypedFloatConst ft),
   typed_const_to_value (TCFloat ft tfc) = VFloat ft (tfc_runtime tfc).
+Proof. reflexivity. Qed.
+Lemma typed_const_to_value_complex : forall ct (tcc : TypedComplexConst ct),
+  typed_const_to_value (TCComplex ct tcc) = VComplex ct (typed_complex_runtime tcc).
 Proof. reflexivity. Qed.
 
 (** §23 an HONEST value/constant denotation relation.  The float case is phrased through [TypedFloatConst]
     coherence: a typed-float-constant runtime denotes its exact [tfc_exact].  A standalone NaN / infinity /
     negative-zero runtime value has NO constructor here, so it denotes NO constant. *)
 Inductive ValueDenotesConst : GoValue -> GoConst -> Prop :=
-| VDBool   : forall b, ValueDenotesConst (VBool b) (CBool b)
-| VDInt    : forall it z, IntRepresentable it z -> ValueDenotesConst (VInteger it z) (CInt z)
-| VDFloat  : forall ft (tfc : TypedFloatConst ft),
+| VDBool    : forall b, ValueDenotesConst (VBool b) (CBool b)
+| VDInt     : forall it z, IntRepresentable it z -> ValueDenotesConst (VInteger it z) (CInt z)
+| VDFloat   : forall ft (tfc : TypedFloatConst ft),
     ValueDenotesConst (VFloat ft (tfc_runtime tfc)) (CFloat (tfc_exact tfc))
-| VDString : forall s, ValueDenotesConst (VString s) (CString s).
+| VDComplex : forall ct (tcc : TypedComplexConst ct),
+    ValueDenotesConst (VComplex ct (typed_complex_runtime tcc)) (CComplex (typed_complex_exact tcc))
+| VDString  : forall s, ValueDenotesConst (VString s) (CString s).
 
 (** §24 the projected runtime value denotes the typed constant's exact value, by construction. *)
 Lemma typed_const_to_value_denotes : forall t (tc : TypedConst t),
   ValueDenotesConst (typed_const_to_value tc) (typed_const_exact tc).
 Proof.
-  intros t tc; destruct tc as [ b | it z Hpf | ft tfc | s ]; cbn [typed_const_to_value typed_const_exact].
+  intros t tc; destruct tc as [ b | it z Hpf | ft tfc | ct tcc | s ];
+    cbn [typed_const_to_value typed_const_exact].
   - constructor.
   - constructor; apply integer_representableb_spec; exact Hpf.
+  - constructor.
   - constructor.
   - constructor.
 Qed.
@@ -127,7 +143,7 @@ Lemma value_denotes_constant_runtime : forall v c,
   ValueDenotesConst v c ->
   match v with VFloat _ fv => float_constant_runtimeb (fv_sf fv) = true | _ => True end.
 Proof.
-  intros v c H; destruct H as [ b | it z Hr | ft tfc | s ]; try exact I; apply (tfc_shape tfc).
+  intros v c H; destruct H as [ b | it z Hr | ft tfc | ct tcc | s ]; try exact I; apply (tfc_shape tfc).
 Qed.
 
 (** §30-32 a NaN / infinity / negative-zero runtime value has NO typed-constant denotation (there is no total
@@ -148,6 +164,44 @@ Example inf_f64_no_denotes : forall c, ~ ValueDenotesConst (VFloat F64 (fv_inf F
 Proof. intro c; apply float_nonconstant_no_denotes; reflexivity. Qed.
 Example neg_zero_f64_no_denotes : forall c, ~ ValueDenotesConst (VFloat F64 fv_neg_zero_F64) c.
 Proof. intro c; apply float_nonconstant_no_denotes; reflexivity. Qed.
+
+(** §33/§48 a runtime complex value whose real OR imaginary component is not +0/finite (NaN, infinity, or
+    negative zero) denotes NO constant — the ONLY complex denotation is through [TypedComplexConst] component
+    coherence (both components +0/finite by [tfc_shape]). *)
+Lemma value_denotes_complex_runtime : forall v c,
+  ValueDenotesConst v c ->
+  match v with
+  | VComplex _ cv => float_constant_runtimeb (fv_sf (cv_real cv)) = true
+                     /\ float_constant_runtimeb (fv_sf (cv_imag cv)) = true
+  | _ => True
+  end.
+Proof.
+  intros v c H; destruct H as [ b | it z Hr | ft tfc | ct tcc | s ]; try exact I; cbn.
+  split; [ apply (typed_complex_runtime_real_shape ct tcc)
+         | apply (typed_complex_runtime_imag_shape ct tcc) ].
+Qed.
+
+Lemma complex_nonconstant_no_denotes : forall ct (cv : ComplexValue ct) c,
+  float_constant_runtimeb (fv_sf (cv_real cv)) = false
+  \/ float_constant_runtimeb (fv_sf (cv_imag cv)) = false ->
+  ~ ValueDenotesConst (VComplex ct cv) c.
+Proof.
+  intros ct cv c Hbad H.
+  pose proof (value_denotes_complex_runtime _ _ H) as Hs; cbn in Hs.
+  destruct Hs as [Hr Hi]; destruct Hbad as [Hb|Hb]; congruence.
+Qed.
+
+(** concrete general-domain complex runtime values that denote NO constant: a NaN real component, an infinity
+    imaginary component, a negative-zero component (item 48). *)
+Example complex_nan_real_no_denotes : forall c,
+  ~ ValueDenotesConst (VComplex C128 (@mkCV C128 (fv_nan F64) (fv_inf F64 false))) c.
+Proof. intro c; apply complex_nonconstant_no_denotes; left; reflexivity. Qed.
+Example complex_inf_imag_no_denotes : forall c,
+  ~ ValueDenotesConst (VComplex C128 (@mkCV C128 fv_neg_zero_F64 (fv_inf F64 true))) c.
+Proof. intro c; apply complex_nonconstant_no_denotes; right; reflexivity. Qed.
+Example complex_neg_zero_no_denotes : forall c,
+  ~ ValueDenotesConst (VComplex C128 (@mkCV C128 fv_neg_zero_F64 (fv_nan F64))) c.
+Proof. intro c; apply complex_nonconstant_no_denotes; left; reflexivity. Qed.
 
 (** §21 Evaluation IS the one constant-status analysis RESOLVED to a validated typed constant and PROJECTED —
     no second case analysis over the raw syntax, no second conversion/representability decision, no second
@@ -171,6 +225,10 @@ Definition resolved_const_value (rc : ResolvedConst) : GoValue :=
 Lemma resolved_const_value_float : forall ft (tfc : TypedFloatConst ft),
   resolved_const_value (pack_resolved (TFloat ft) (TCFloat ft tfc)) = VFloat ft (tfc_runtime tfc).
 Proof. intros ft tfc; cbn [resolved_const_value]; apply typed_const_to_value_float. Qed.
+
+Lemma resolved_const_value_complex : forall ct (tcc : TypedComplexConst ct),
+  resolved_const_value (pack_resolved (TComplex ct) (TCComplex ct tcc)) = VComplex ct (typed_complex_runtime tcc).
+Proof. intros ct tcc; cbn [resolved_const_value]; apply typed_const_to_value_complex. Qed.
 
 (** A RESOLVED expression always evaluates to a well-formed value whose runtime type is EXACTLY the resolved
     [GoType] — the compiler's static resolution and the runtime value agree (one [GoType] authority). *)
@@ -213,6 +271,17 @@ Corollary eval_projects_stored_float_runtime : forall u e ft (tfc : TypedFloatCo
 Proof.
   intros u e ft tfc H.
   rewrite (eval_expr_resolved_value u e _ H), resolved_const_value_float; reflexivity.
+Qed.
+
+(** §34 (complex) evaluation projects the SAME STORED RUNTIME: a resolved typed COMPLEX constant evaluates to
+    exactly its packaged pair of component [tfc_runtime]s ([typed_complex_runtime]) — no component is
+    reconstructed or re-rounded. *)
+Corollary eval_projects_stored_complex_runtime : forall u e ct (tcc : TypedComplexConst ct),
+  resolve_expr_const u e = Some (pack_resolved (TComplex ct) (TCComplex ct tcc)) ->
+  eval_expr e = Some (VComplex ct (typed_complex_runtime tcc)).
+Proof.
+  intros u e ct tcc H.
+  rewrite (eval_expr_resolved_value u e _ H), resolved_const_value_complex; reflexivity.
 Qed.
 
 (** §24/§29 the resolved runtime value IS [resolved_const_value] of the resolved constant (point 5) AND DENOTES

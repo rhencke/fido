@@ -26,7 +26,7 @@
     adequacy — exercised by the differential e2e, not a kernel theorem here.
     ============================================================================ *)
 From Stdlib Require Import String Ascii NArith ZArith List Bool Lia.
-From Fido Require Import digits Ints Floats ModulePath GoVersion GoAST GoTypes GoCompile GoSafe.
+From Fido Require Import digits Ints Floats Complexes ModulePath GoVersion GoAST GoTypes GoCompile GoSafe.
 Import ListNotations.
 Open Scope string_scope.
 
@@ -97,6 +97,12 @@ Definition render_decimal (d : DecimalFloat) : string :=
   if Z.eqb (dm_coeff d) 0 then "0.0"
   else render_signed_Z (dm_coeff d) ++ ".0e" ++ render_signed_exp (dm_exp10 d).
 
+(** the ONE canonical complex-literal spelling (§36): Go's predeclared `complex(<real>, <imag>)` applied to the
+    two canonical component decimals, one comma + one space.  It is a dedicated complex-literal spelling — NOT
+    a general call renderer — and does NOT preserve human source spelling. *)
+Definition render_complex_literal (dc : DecimalComplex) : string :=
+  "complex(" ++ render_decimal (dc_real dc) ++ ", " ++ render_decimal (dc_imag dc) ++ ")".
+
 Fixpoint render_expr (e : GoExpr) : string :=
   match e with
   | EBool true  => "true"
@@ -107,6 +113,8 @@ Fixpoint render_expr (e : GoExpr) : string :=
   | EIntConvert it e' => integer_keyword it ++ "(" ++ render_expr e' ++ ")"
   | EFloat d => render_decimal d
   | EFloatConvert ft e' => float_keyword ft ++ "(" ++ render_expr e' ++ ")"
+  | EComplex dc => render_complex_literal dc
+  | EComplexConvert ct e' => complex_keyword ct ++ "(" ++ render_expr e' ++ ")"
   end.
 
 Fixpoint render_args (es : list GoExpr) : string :=
@@ -282,10 +290,17 @@ Proof.
 Qed.
 Lemma float_keyword_ascii : forall ft, str_ascii (float_keyword ft) = true.
 Proof. intro ft; destruct ft; reflexivity. Qed.
+Lemma complex_keyword_ascii : forall ct, str_ascii (complex_keyword ct) = true.
+Proof. intro ct; destruct ct; reflexivity. Qed.
+Lemma render_complex_literal_ascii : forall dc, str_ascii (render_complex_literal dc) = true.
+Proof.
+  intro dc; unfold render_complex_literal.
+  rewrite !str_ascii_app, !render_decimal_ascii; reflexivity.
+Qed.
 
 Lemma render_expr_ascii : forall e, str_ascii (render_expr e) = true.
 Proof.
-  induction e as [ [] | n | n | s | it e' IHe' | d | ft e' IHe' ]; cbn [render_expr].
+  induction e as [ [] | n | n | s | it e' IHe' | d | ft e' IHe' | dc | ct e' IHe' ]; cbn [render_expr].
   - reflexivity.
   - reflexivity.
   - apply print_Z_ascii.
@@ -294,6 +309,8 @@ Proof.
   - rewrite !str_ascii_app, integer_keyword_ascii, IHe'; reflexivity.
   - apply render_decimal_ascii.
   - rewrite !str_ascii_app, float_keyword_ascii, IHe'; reflexivity.
+  - apply render_complex_literal_ascii.
+  - rewrite !str_ascii_app, complex_keyword_ascii, IHe'; reflexivity.
 Qed.
 
 Lemma render_args_ascii : forall es, str_ascii (render_args es) = true.
@@ -925,6 +942,140 @@ Proof.
     reflexivity.
 Qed.
 
+(** ---- §38 an INDEPENDENT decoder for the canonical Fido complex-literal subset: it recovers the EXACT pair
+    of untyped rational components of a canonical `complex(<real>, <imag>)` spelling, reusing the SAME
+    [read_decimal] machinery for each component (no reimplemented rounding, no call to the renderer).  It is
+    NOT a general Go parser; the proved property is the SEMANTIC round trip
+    [decode_complex_literal (render_complex_literal dc) = Some (decimal_complex_value dc)]. ---- *)
+
+(** strip a fixed literal prefix, returning the remainder (used for `complex(`, `, `, `)`). *)
+Fixpoint strip_prefix (p s : string) : option string :=
+  match p, s with
+  | EmptyString, _ => Some s
+  | String pc p', String sc s' => if Ascii.eqb pc sc then strip_prefix p' s' else None
+  | String _ _, EmptyString => None
+  end.
+
+Lemma strip_prefix_app : forall p s, strip_prefix p (p ++ s) = Some s.
+Proof. induction p as [ | c p' IH ]; intro s; [ reflexivity | cbn; rewrite Ascii.eqb_refl; apply IH ]. Qed.
+
+Lemma strip_prefix_some : forall p s r, strip_prefix p s = Some r -> s = (p ++ r)%string.
+Proof.
+  induction p as [ | c p' IH ]; intros s r H; cbn [strip_prefix] in H.
+  - injection H as <-; reflexivity.
+  - destruct s as [ | sc s' ]; [ discriminate | ].
+    destruct (Ascii.eqb c sc) eqn:E; [ | discriminate ].
+    apply Ascii.eqb_eq in E; subst sc; cbn [append]; f_equal; apply IH; exact H.
+Qed.
+
+(** a `0.0` literal at the front strips to (canonical +0, remainder) — the zero decimal has no `.0e` body. *)
+Definition strip_zero_prefix (s : string) : option (FloatConst * string) :=
+  match s with
+  | String c0 (String c1 (String c2 rem)) =>
+      if andb (Ascii.eqb c0 "0"%char) (andb (Ascii.eqb c1 "."%char) (Ascii.eqb c2 "0"%char))
+      then Some (fc_zero, rem) else None
+  | _ => None
+  end.
+
+(** read a canonical decimal (a `<coeff>.0e<exp>` body, or the `0.0` zero) from the FRONT, returning the exact
+    value and the remainder — the remainder-returning variant of [decode_decimal] for the complex components. *)
+Definition read_decimal_prefix (s : string) : option (FloatConst * string) :=
+  match read_signed_dec s with
+  | Some (coeff, String a (String b (String e r2))) =>
+      if andb (Ascii.eqb a "."%char) (andb (Ascii.eqb b "0"%char) (Ascii.eqb e "e"%char)) then
+        match read_signed_dec r2 with
+        | Some (exp, rem) => Some (decimal_to_fc coeff exp, rem)
+        | None => strip_zero_prefix s
+        end
+      else strip_zero_prefix s
+  | _ => strip_zero_prefix s
+  end.
+
+Definition decode_complex_literal (s : string) : option ComplexConst :=
+  match strip_prefix "complex(" s with
+  | Some rem =>
+      match read_decimal_prefix rem with
+      | Some (real, rem1) =>
+          match strip_prefix ", " rem1 with
+          | Some rem2 =>
+              match read_decimal_prefix rem2 with
+              | Some (imag, String p EmptyString) =>
+                  if Ascii.eqb p ")"%char then Some (mkCC real imag) else None
+              | _ => None
+              end
+          | None => None
+          end
+      | None => None
+      end
+  | None => None
+  end.
+
+(** the exp reader with a remainder (the [read_signed_dec_render_signed_exp] analogue used mid-spelling). *)
+Lemma read_signed_dec_render_signed_exp_rest : forall z rest, head_not_digit rest ->
+  read_signed_dec (render_signed_exp z ++ rest) = Some (z, rest).
+Proof.
+  intros z rest Hrest. unfold render_signed_exp. destruct (Z.ltb z 0) eqn:Hlt.
+  - apply Z.ltb_lt in Hlt. cbn [append].
+    rewrite (read_signed_dec_sign "-"%char (print_Z (- z)) rest (or_introl eq_refl)
+               (str_all_digits_print_Z (- z) ltac:(lia)) Hrest).
+    cbn [Ascii.eqb]. rewrite (print_Z_dec_faithful (- z) ltac:(lia)); rewrite Z.opp_involutive; reflexivity.
+  - apply Z.ltb_ge in Hlt. cbn [append].
+    rewrite (read_signed_dec_sign "+"%char (print_Z z) rest (or_intror eq_refl)
+               (str_all_digits_print_Z z Hlt) Hrest).
+    cbn [Ascii.eqb]. rewrite (print_Z_dec_faithful z Hlt); reflexivity.
+Qed.
+
+(** a suffix that neither extends a magnitude read (non-digit head) nor spuriously completes a `.0e` body
+    (non-`e` head) — satisfied by the `, ` and `)` separators. *)
+Definition dec_suffix_ok (suf : string) : Prop :=
+  head_not_digit suf /\ match suf with String c _ => Ascii.eqb c "e"%char = false | EmptyString => True end.
+
+(** ★ read_decimal_prefix inverts a rendered decimal up to a well-behaved suffix (the component round trip). *)
+Lemma read_decimal_prefix_render : forall d suf,
+  dec_suffix_ok suf ->
+  read_decimal_prefix (render_decimal d ++ suf) = Some (decimal_value d, suf).
+Proof.
+  intros d suf [Hnd Hne]. unfold render_decimal. destruct (Z.eqb (dm_coeff d) 0) eqn:Hc0.
+  - (* zero: render is "0.0"; the ".0e" body check fails on the suffix head, so strip_zero_prefix fires *)
+    apply Z.eqb_eq in Hc0.
+    replace (decimal_value d) with fc_zero
+      by (rewrite (decimal_zero_unique d Hc0); symmetry; apply decimal_value_zero).
+    unfold read_decimal_prefix.
+    assert (Hrsd : read_signed_dec ("0.0" ++ suf) = Some (0%Z, ".0" ++ suf)).
+    { change ("0.0" ++ suf)%string with ("0" ++ (".0" ++ suf))%string.
+      rewrite (read_signed_dec_all_digits "0" (".0" ++ suf)
+                 ltac:(reflexivity) ltac:(discriminate) ltac:(reflexivity)); reflexivity. }
+    rewrite Hrsd. destruct suf as [ | c suf' ].
+    + reflexivity.
+    + cbn [append andb Ascii.eqb] in Hne |- *. rewrite Hne. reflexivity.
+  - (* nonzero: the general `<coeff>.0e<exp>` body reads through to the suffix *)
+    unfold read_decimal_prefix. rewrite <- !str_app_assoc.
+    rewrite (read_signed_dec_render_signed_Z (dm_coeff d)
+               (".0e" ++ (render_signed_exp (dm_exp10 d) ++ suf)) (head_not_digit_dot0e _)).
+    cbn [append Ascii.eqb andb].
+    rewrite (read_signed_dec_render_signed_exp_rest (dm_exp10 d) suf Hnd).
+    reflexivity.
+Qed.
+
+Lemma dec_suffix_ok_comma : forall s, dec_suffix_ok (String ","%char s).
+Proof. intro s; split; reflexivity. Qed.
+Lemma dec_suffix_ok_rparen : forall s, dec_suffix_ok (String ")"%char s).
+Proof. intro s; split; reflexivity. Qed.
+
+(** ★§38 SEMANTIC ROUND TRIP: decoding the canonical complex spelling recovers the EXACT pair of untyped
+    rational components. *)
+Theorem decode_render_complex_literal : forall dc,
+  decode_complex_literal (render_complex_literal dc) = Some (decimal_complex_value dc).
+Proof.
+  intro dc. unfold decode_complex_literal, render_complex_literal.
+  rewrite (strip_prefix_app "complex(").
+  rewrite (read_decimal_prefix_render (dc_real dc)
+             (", " ++ render_decimal (dc_imag dc) ++ ")") (dec_suffix_ok_comma _)).
+  rewrite (strip_prefix_app ", ").
+  rewrite (read_decimal_prefix_render (dc_imag dc) ")" (dec_suffix_ok_rparen _)).
+  cbn [Ascii.eqb]. reflexivity.
+Qed.
+
 Inductive RenderedConstInfoDenotes : string -> ConstInfo -> Prop :=
 | RCDBool : forall (b : bool),
     RenderedConstInfoDenotes (if b then "true"%string else "false"%string) (CIUntyped (CBool b))
@@ -947,7 +1098,15 @@ Inductive RenderedConstInfoDenotes : string -> ConstInfo -> Prop :=
     RenderedConstInfoDenotes inner ci ->
     convert_const (TFloat target) ci = Some tc ->
     RenderedConstInfoDenotes (float_keyword target ++ "(" ++ inner ++ ")")
-                             (CITyped (TFloat target) tc).
+                             (CITyped (TFloat target) tc)
+| RCDComplex : forall s c,
+    decode_complex_literal s = Some c ->
+    RenderedConstInfoDenotes s (CIUntyped (CComplex c))
+| RCDComplexConvert : forall target inner ci (tc : TypedConst (TComplex target)),
+    RenderedConstInfoDenotes inner ci ->
+    convert_const (TComplex target) ci = Some tc ->
+    RenderedConstInfoDenotes (complex_keyword target ++ "(" ++ inner ++ ")")
+                             (CITyped (TComplex target) tc).
 
 (** print_Z of a nonnegative is nonempty and its first character is a decimal digit, not '-'. *)
 Lemma print_Z_pos_head_not_minus : forall p,
@@ -1019,6 +1178,19 @@ Proof.
   exists ci', tc. split; [ reflexivity | split; [ exact Hconv | reflexivity ] ].
 Qed.
 
+Lemma const_info_complex_convert_inner : forall ct e ci,
+  const_info (EComplexConvert ct e) = Some ci ->
+  exists ci' (tc : TypedConst (TComplex ct)), const_info e = Some ci'
+             /\ convert_const (TComplex ct) ci' = Some tc
+             /\ ci = CITyped (TComplex ct) tc.
+Proof.
+  intros ct e ci H; cbn [const_info] in H.
+  destruct (const_info e) as [ci'|] eqn:Hce'; [| discriminate].
+  destruct (convert_const (TComplex ct) ci') as [tc|] eqn:Hconv; cbn [option_map] in H; [| discriminate].
+  injection H as <-.
+  exists ci', tc. split; [ reflexivity | split; [ exact Hconv | reflexivity ] ].
+Qed.
+
 (** ★§2-3/§29 ROOT: rendering an expression denotes EXACTLY the [const_info] GoTypes computes for it — the
     source-spelling / constant-status correspondence, in the ONE ConstInfo vocabulary.  A bare integer/float
     denotes an UNTYPED constant (the §1 repair: NO false [int] label; a bare float its exact rational); an
@@ -1027,7 +1199,7 @@ Qed.
 Theorem render_const_info_denotes : forall e ci,
   const_info e = Some ci -> RenderedConstInfoDenotes (render_expr e) ci.
 Proof.
-  induction e as [ b | n | n | s | it' e' IHe' | d | ft e' IHe' ]; intros ci H.
+  induction e as [ b | n | n | s | it' e' IHe' | d | ft e' IHe' | dc | ct e' IHe' ]; intros ci H.
   - simpl in H; injection H as <-; cbn [render_expr]; destruct b; [ exact (RCDBool true) | exact (RCDBool false) ].
   - simpl in H; injection H as <-; cbn [render_expr]; apply RCDInt; [ apply go_int_lit_EInt | apply read_go_int_EInt ].
   - simpl in H; injection H as <-; cbn [render_expr]; apply RCDInt; [ apply go_int_lit_ENeg | apply read_go_int_ENeg ].
@@ -1037,6 +1209,9 @@ Proof.
   - cbn [const_info] in H; injection H as <-; cbn [render_expr]. apply RCDFloat, decode_render_decimal.
   - destruct (const_info_float_convert_inner ft e' ci H) as [ ci' [ tc [ Hce' [ Hconv -> ] ] ] ].
     cbn [render_expr]. apply RCDFloatConvert with (ci := ci'); [ apply IHe'; exact Hce' | exact Hconv ].
+  - cbn [const_info] in H; injection H as <-; cbn [render_expr]. apply RCDComplex, decode_render_complex_literal.
+  - destruct (const_info_complex_convert_inner ct e' ci H) as [ ci' [ tc [ Hce' [ Hconv -> ] ] ] ].
+    cbn [render_expr]. apply RCDComplexConvert with (ci := ci'); [ apply IHe'; exact Hce' | exact Hconv ].
 Qed.
 
 (** ---- §30 DETERMINISM foundation: the leaf recognisers of [RenderedConstInfoDenotes] are pairwise disjoint,
@@ -1154,6 +1329,67 @@ Lemma int_float_kw_paren_disjoint : forall t1 t2 r1 r2,
   (integer_keyword t1 ++ String "("%char r1)%string <> (float_keyword t2 ++ String "("%char r2)%string.
 Proof. intros t1 t2 r1 r2 H; destruct t1, t2; cbn in H; discriminate H. Qed.
 
+(** ---- §39 COMPLEX-SPELLING DISJOINTNESS: the complex-literal spelling `complex(...)` and the
+    complex-conversion spelling `complex64(...)`/`complex128(...)` are pairwise disjoint from each other and
+    from every other constructor's spelling class — the determinism foundation for the two complex RCD
+    constructors. ---- *)
+
+(** a decoded complex literal starts with the byte 'c' (the `complex(` prefix). *)
+Lemma decode_complex_literal_head_c : forall s c,
+  decode_complex_literal s = Some c -> exists rest, s = String "c"%char rest.
+Proof.
+  intros [ | c0 s0 ] c H; unfold decode_complex_literal in H.
+  - discriminate H.
+  - cbn [strip_prefix] in H.
+    destruct (Ascii.eqb "c"%char c0) eqn:E; [ apply Ascii.eqb_eq in E; subst c0; eauto | discriminate H ].
+Qed.
+
+(** a spelling whose head byte is not 'c' is not a decoded complex literal. *)
+Lemma decode_complex_literal_not_c : forall c0 s,
+  Ascii.eqb "c"%char c0 = false -> decode_complex_literal (String c0 s) = None.
+Proof. intros c0 s H; unfold decode_complex_literal; cbn [strip_prefix]; rewrite H; reflexivity. Qed.
+
+(** the complex CONVERSION spelling (`complex64(`/`complex128(`) is not a complex LITERAL: they share the
+    `complex` stem but diverge at index 7 (`(` vs `6`/`1`). *)
+Lemma decode_complex_literal_complex_convert_none : forall t X,
+  decode_complex_literal (complex_keyword t ++ String "("%char X) = None.
+Proof. intros t X; destruct t; reflexivity. Qed.
+
+(** the two complex-conversion keywords are injective through the leading `(`. *)
+Lemma complex_kw_paren_inj : forall t1 t2 r1 r2,
+  (complex_keyword t1 ++ String "("%char r1)%string = (complex_keyword t2 ++ String "("%char r2)%string ->
+  t1 = t2 /\ r1 = r2.
+Proof.
+  intros t1 t2 r1 r2 H; destruct t1, t2; cbn in H;
+    solve [ discriminate H | injection H; intros; subst; split; reflexivity ].
+Qed.
+
+(** a complex-conversion spelling never coincides with an integer- or float-conversion spelling (lead c vs i/u/f). *)
+Lemma int_complex_kw_paren_disjoint : forall t1 t2 r1 r2,
+  (integer_keyword t1 ++ String "("%char r1)%string <> (complex_keyword t2 ++ String "("%char r2)%string.
+Proof. intros t1 t2 r1 r2 H; destruct t1, t2; cbn in H; discriminate H. Qed.
+Lemma float_complex_kw_paren_disjoint : forall t1 t2 r1 r2,
+  (float_keyword t1 ++ String "("%char r1)%string <> (complex_keyword t2 ++ String "("%char r2)%string.
+Proof. intros t1 t2 r1 r2 H; destruct t1, t2; cbn in H; discriminate H. Qed.
+
+(** a complex-conversion spelling is not a bare integer / decimal / string / decoded-complex-literal (lead 'c'). *)
+Lemma complex_kw_go_int_lit_false : forall t X, go_int_lit (complex_keyword t ++ String "("%char X) = false.
+Proof. intros t X; destruct t; reflexivity. Qed.
+Lemma complex_kw_decode_decimal_none : forall t X, decode_decimal (complex_keyword t ++ String "("%char X) = None.
+Proof.
+  intros t X; destruct t;
+    apply decode_decimal_nonnumeric_head; reflexivity.
+Qed.
+Lemma complex_kw_decode_complex_none : forall t X,
+  decode_complex_literal (complex_keyword t ++ String "("%char X) = None.
+Proof. exact decode_complex_literal_complex_convert_none. Qed.
+
+(** a 'c'-led spelling (a complex literal) is not a bare integer / decimal / string. *)
+Lemma head_c_go_int_lit_false : forall rest, go_int_lit (String "c"%char rest) = false.
+Proof. reflexivity. Qed.
+Lemma head_c_decode_decimal_none : forall rest, decode_decimal (String "c"%char rest) = None.
+Proof. intro rest; apply decode_decimal_nonnumeric_head; reflexivity. Qed.
+
 (** ★§30 DETERMINISM: a rendered spelling denotes AT MOST ONE [ConstInfo] — the rendered-constant denotation
     is FUNCTIONAL, so it never assigns a spelling two conflicting constant statuses.  This is NOT a bijection:
     distinct spellings may denote the same exact value (e.g. `0` and `-0`).  The proved facts are exactly (a)
@@ -1169,32 +1405,40 @@ Proof.
     | s bytes Hstr
     | ti inner ci tc Hinner IH Hconv
     | s q Hdec
-    | tf inner ci tc Hinner IH Hconv ]; intros ci2 H2.
+    | tf inner ci tc Hinner IH Hconv
+    | s c Hdc
+    | tcc inner ci tc Hinner IH Hconv ]; intros ci2 H2.
   - (* H1 = RCDBool : the spelling is the concrete "true"/"false" *)
     destruct b; inversion H2 as
       [ b0 Hs0 | s0 z0 Hint0 Hread0 Hs0 | s0 by0 Hstr0 Hs0
-      | t0 in0 cc0 tc0 Hin0 Hcv0 Hs0 | s0 q0 Hdec0 Hs0 | t0 in0 cc0 tc0 Hin0 Hcv0 Hs0 ]; subst;
+      | t0 in0 cc0 tc0 Hin0 Hcv0 Hs0 | s0 q0 Hdec0 Hs0 | t0 in0 cc0 tc0 Hin0 Hcv0 Hs0
+      | s0 c0 Hdc0 Hs0 | t0 in0 cc0 tc0 Hin0 Hcv0 Hs0 ]; subst;
       solve
         [ destruct b0; cbn in *; congruence
         | vm_compute in Hint0; discriminate Hint0
         | vm_compute in Hstr0; discriminate Hstr0
         | vm_compute in Hdec0; discriminate Hdec0
+        | vm_compute in Hdc0; discriminate Hdc0
         | destruct t0; cbn in Hs0; discriminate Hs0 ].
   - (* H1 = RCDInt : subst eliminates the string var into the outer [Hint] *)
     inversion H2 as
       [ b0 Hs0 | s0 z0 Hint0 Hread0 Hs0 | s0 by0 Hstr0 Hs0
-      | t0 in0 cc0 tc0 Hin0 Hcv0 Hs0 | s0 q0 Hdec0 Hs0 | t0 in0 cc0 tc0 Hin0 Hcv0 Hs0 ]; subst;
+      | t0 in0 cc0 tc0 Hin0 Hcv0 Hs0 | s0 q0 Hdec0 Hs0 | t0 in0 cc0 tc0 Hin0 Hcv0 Hs0
+      | s0 c0 Hdc0 Hs0 | t0 in0 cc0 tc0 Hin0 Hcv0 Hs0 ]; subst;
       solve
         [ destruct b0; vm_compute in Hint; discriminate Hint
         | congruence
         | destruct (decode_string_literal_head _ _ Hstr0) as [rest Hrs];
             rewrite Hrs in Hint; vm_compute in Hint; discriminate Hint
         | destruct t0; vm_compute in Hint; discriminate Hint
-        | rewrite (go_int_lit_decode_decimal_None _ Hint) in Hdec0; discriminate Hdec0 ].
+        | rewrite (go_int_lit_decode_decimal_None _ Hint) in Hdec0; discriminate Hdec0
+        | destruct (decode_complex_literal_head_c _ _ Hdc0) as [rest Hrs];
+            rewrite Hrs in Hint; rewrite head_c_go_int_lit_false in Hint; discriminate Hint ].
   - (* H1 = RCDString *)
     inversion H2 as
       [ b0 Hs0 | s0 z0 Hint0 Hread0 Hs0 | s0 by0 Hstr0 Hs0
-      | t0 in0 cc0 tc0 Hin0 Hcv0 Hs0 | s0 q0 Hdec0 Hs0 | t0 in0 cc0 tc0 Hin0 Hcv0 Hs0 ]; subst;
+      | t0 in0 cc0 tc0 Hin0 Hcv0 Hs0 | s0 q0 Hdec0 Hs0 | t0 in0 cc0 tc0 Hin0 Hcv0 Hs0
+      | s0 c0 Hdc0 Hs0 | t0 in0 cc0 tc0 Hin0 Hcv0 Hs0 ]; subst;
       solve
         [ destruct b0; vm_compute in Hstr; discriminate Hstr
         | congruence
@@ -1202,12 +1446,16 @@ Proof.
             rewrite Hrs in Hint0; vm_compute in Hint0; discriminate Hint0
         | destruct (decode_string_literal_head _ _ Hstr) as [rest Hrs];
             rewrite Hrs in Hdec0; rewrite decode_decimal_dquote in Hdec0; discriminate Hdec0
-        | destruct t0; vm_compute in Hstr; discriminate Hstr ].
+        | destruct t0; vm_compute in Hstr; discriminate Hstr
+        | destruct (decode_string_literal_head _ _ Hstr) as [rest Hrs];
+            rewrite Hrs in Hdc0; rewrite (decode_complex_literal_not_c dquote_c rest ltac:(reflexivity)) in Hdc0;
+            discriminate Hdc0 ].
   - (* H1 = RCDIntConvert : the compound spelling survives subst as [Hs0]; the diagonal proves tc = tc0 by
        [convert_const] being a function *)
     inversion H2 as
       [ b0 Hs0 | s0 z0 Hint0 Hread0 Hs0 | s0 by0 Hstr0 Hs0
-      | t0 in0 cc0 tc0 Hin0 Hcv0 Hs0 | s0 q0 Hdec0 Hs0 | t0 in0 cc0 tc0 Hin0 Hcv0 Hs0 ]; subst.
+      | t0 in0 cc0 tc0 Hin0 Hcv0 Hs0 | s0 q0 Hdec0 Hs0 | t0 in0 cc0 tc0 Hin0 Hcv0 Hs0
+      | s0 c0 Hdc0 Hs0 | t0 in0 cc0 tc0 Hin0 Hcv0 Hs0 ]; subst.
     + destruct b0; destruct ti; cbn in Hs0; discriminate Hs0.
     + destruct ti; vm_compute in Hint0; discriminate Hint0.
     + destruct ti; vm_compute in Hstr0; discriminate Hstr0.
@@ -1217,27 +1465,67 @@ Proof.
         assert (Heq : tc = tc0) by congruence; rewrite Heq; reflexivity.
     + destruct ti; vm_compute in Hdec0; discriminate Hdec0.
     + exfalso; apply (int_float_kw_paren_disjoint ti t0 (inner ++ ")") (in0 ++ ")")); symmetry; exact Hs0.
+    + destruct ti; vm_compute in Hdc0; discriminate Hdc0.
+    + exfalso; apply (int_complex_kw_paren_disjoint ti t0 (inner ++ ")") (in0 ++ ")")); symmetry; exact Hs0.
   - (* H1 = RCDFloat *)
     inversion H2 as
       [ b0 Hs0 | s0 z0 Hint0 Hread0 Hs0 | s0 by0 Hstr0 Hs0
-      | t0 in0 cc0 tc0 Hin0 Hcv0 Hs0 | s0 q0 Hdec0 Hs0 | t0 in0 cc0 tc0 Hin0 Hcv0 Hs0 ]; subst;
+      | t0 in0 cc0 tc0 Hin0 Hcv0 Hs0 | s0 q0 Hdec0 Hs0 | t0 in0 cc0 tc0 Hin0 Hcv0 Hs0
+      | s0 c0 Hdc0 Hs0 | t0 in0 cc0 tc0 Hin0 Hcv0 Hs0 ]; subst;
       solve
         [ destruct b0; vm_compute in Hdec; discriminate Hdec
         | rewrite (go_int_lit_decode_decimal_None _ Hint0) in Hdec; discriminate Hdec
         | destruct (decode_string_literal_head _ _ Hstr0) as [rest Hrs];
             rewrite Hrs in Hdec; rewrite decode_decimal_dquote in Hdec; discriminate Hdec
         | destruct t0; vm_compute in Hdec; discriminate Hdec
-        | congruence ].
+        | congruence
+        | destruct (decode_complex_literal_head_c _ _ Hdc0) as [rest Hrs];
+            rewrite Hrs in Hdec; rewrite head_c_decode_decimal_none in Hdec; discriminate Hdec ].
   - (* H1 = RCDFloatConvert *)
     inversion H2 as
       [ b0 Hs0 | s0 z0 Hint0 Hread0 Hs0 | s0 by0 Hstr0 Hs0
-      | t0 in0 cc0 tc0 Hin0 Hcv0 Hs0 | s0 q0 Hdec0 Hs0 | t0 in0 cc0 tc0 Hin0 Hcv0 Hs0 ]; subst.
+      | t0 in0 cc0 tc0 Hin0 Hcv0 Hs0 | s0 q0 Hdec0 Hs0 | t0 in0 cc0 tc0 Hin0 Hcv0 Hs0
+      | s0 c0 Hdc0 Hs0 | t0 in0 cc0 tc0 Hin0 Hcv0 Hs0 ]; subst.
     + destruct b0; destruct tf; cbn in Hs0; discriminate Hs0.
     + destruct tf; vm_compute in Hint0; discriminate Hint0.
     + destruct tf; vm_compute in Hstr0; discriminate Hstr0.
     + exfalso; apply (int_float_kw_paren_disjoint t0 tf (in0 ++ ")") (inner ++ ")")); exact Hs0.
     + destruct tf; vm_compute in Hdec0; discriminate Hdec0.
     + destruct (float_kw_paren_inj t0 tf (in0 ++ ")") (inner ++ ")") Hs0) as [-> Htl];
+        apply str_snoc_inj in Htl; subst in0;
+        specialize (IH cc0 Hin0); subst cc0;
+        assert (Heq : tc = tc0) by congruence; rewrite Heq; reflexivity.
+    + destruct tf; vm_compute in Hdc0; discriminate Hdc0.
+    + exfalso; apply (float_complex_kw_paren_disjoint tf t0 (inner ++ ")") (in0 ++ ")")); symmetry; exact Hs0.
+  - (* H1 = RCDComplex : the leaf complex-literal spelling *)
+    inversion H2 as
+      [ b0 Hs0 | s0 z0 Hint0 Hread0 Hs0 | s0 by0 Hstr0 Hs0
+      | t0 in0 cc0 tc0 Hin0 Hcv0 Hs0 | s0 q0 Hdec0 Hs0 | t0 in0 cc0 tc0 Hin0 Hcv0 Hs0
+      | s0 c0 Hdc0 Hs0 | t0 in0 cc0 tc0 Hin0 Hcv0 Hs0 ]; subst;
+      solve
+        [ destruct b0; vm_compute in Hdc; discriminate Hdc
+        | destruct (decode_complex_literal_head_c _ _ Hdc) as [rest Hrs];
+            rewrite Hrs in Hint0; rewrite head_c_go_int_lit_false in Hint0; discriminate Hint0
+        | destruct (decode_string_literal_head _ _ Hstr0) as [rest Hrs];
+            rewrite Hrs in Hdc; rewrite (decode_complex_literal_not_c dquote_c rest ltac:(reflexivity)) in Hdc;
+            discriminate Hdc
+        | destruct t0; vm_compute in Hdc; discriminate Hdc
+        | destruct (decode_complex_literal_head_c _ _ Hdc) as [rest Hrs];
+            rewrite Hrs in Hdec0; rewrite head_c_decode_decimal_none in Hdec0; discriminate Hdec0
+        | congruence ].
+  - (* H1 = RCDComplexConvert : the compound complex-conversion spelling; the diagonal proves tc = tc0 *)
+    inversion H2 as
+      [ b0 Hs0 | s0 z0 Hint0 Hread0 Hs0 | s0 by0 Hstr0 Hs0
+      | t0 in0 cc0 tc0 Hin0 Hcv0 Hs0 | s0 q0 Hdec0 Hs0 | t0 in0 cc0 tc0 Hin0 Hcv0 Hs0
+      | s0 c0 Hdc0 Hs0 | t0 in0 cc0 tc0 Hin0 Hcv0 Hs0 ]; subst.
+    + destruct b0; destruct tcc; cbn in Hs0; discriminate Hs0.
+    + destruct tcc; vm_compute in Hint0; discriminate Hint0.
+    + destruct tcc; vm_compute in Hstr0; discriminate Hstr0.
+    + exfalso; apply (int_complex_kw_paren_disjoint t0 tcc (in0 ++ ")") (inner ++ ")")); exact Hs0.
+    + destruct tcc; vm_compute in Hdec0; discriminate Hdec0.
+    + exfalso; apply (float_complex_kw_paren_disjoint t0 tcc (in0 ++ ")") (inner ++ ")")); exact Hs0.
+    + destruct tcc; cbn in Hdc0; discriminate Hdc0.
+    + destruct (complex_kw_paren_inj t0 tcc (in0 ++ ")") (inner ++ ")") Hs0) as [-> Htl];
         apply str_snoc_inj in Htl; subst in0;
         specialize (IH cc0 Hin0); subst cc0;
         assert (Heq : tc = tc0) by congruence; rewrite Heq; reflexivity.
@@ -1335,24 +1623,27 @@ Example repair_bare_untyped :
 Proof. apply render_const_info_denotes; reflexivity. Qed.
 
 (** a TYPED-constant denotation is always a conversion spelling, so it starts with a conversion keyword's
-    first letter (i / u for integers, f for floats) — proved by inversion on a GENERAL string (never the big
-    rendered constant). *)
+    first letter (i / u for integers, f for floats, c for complex) — proved by inversion on a GENERAL string
+    (never the big rendered constant). *)
 Lemma rcd_typed_starts_letter : forall s t (tc : TypedConst t),
   RenderedConstInfoDenotes s (CITyped t tc) ->
-  exists rest, s = String "i"%char rest \/ s = String "u"%char rest \/ s = String "f"%char rest.
+  exists rest, s = String "i"%char rest \/ s = String "u"%char rest
+            \/ s = String "f"%char rest \/ s = String "c"%char rest.
 Proof.
   intros s t tc H;
     inversion H as [ | | | target inner ci tc0 Hinner Hconv Hs Hci
+                    | | target inner ci tc0 Hinner Hconv Hs Hci
                     | | target inner ci tc0 Hinner Hconv Hs Hci ]; subst.
   - destruct target; cbn; eexists; ((left; reflexivity) || (right; left; reflexivity)).
-  - destruct target; cbn; eexists; right; right; reflexivity.
+  - destruct target; cbn; eexists; right; right; left; reflexivity.
+  - destruct target; cbn; eexists; right; right; right; reflexivity.
 Qed.
 
 Example repair_bare_not_typed : forall t (tc : TypedConst t),
   ~ RenderedConstInfoDenotes (render_expr (EInt 9223372036854775808)) (CITyped t tc).
 Proof.
   intros t tc H; apply rcd_typed_starts_letter in H; rewrite repair_bare_render in H.
-  destruct H as [ rest [ Hi | [ Hu | Hf ] ] ]; discriminate.
+  destruct H as [ rest [ Hi | [ Hu | [ Hf | Hc ] ] ] ]; discriminate.
 Qed.
 
 Example repair_uint64_typed :

@@ -26,7 +26,7 @@
     concurrency, or package clauses.  Anything else is UNREPRESENTABLE.
     ============================================================================ *)
 From Stdlib Require Import NArith List String.
-From Fido Require Import FilePath FMap ModulePath GoVersion Ints Floats.
+From Fido Require Import FilePath FMap ModulePath GoVersion Ints Floats Complexes.
 Import ListNotations.
 
 (** A raw expression is UNTYPED syntax: a boolean literal, an integer literal as an unsigned magnitude
@@ -38,23 +38,29 @@ Import ListNotations.
     a bounded canonical [DecimalFloat] — NOT source spelling / underscores / hex / capitalization / a rounded
     value), or an EXPLICIT float conversion ([EFloatConvert ft e], the source spelling `float32(e)` /
     `float64(e)`).  [EIntConvert]'s target is the INTRINSIC [IntegerType] and [EFloatConvert]'s the intrinsic
-    [FloatType] — never a raw type-name string.  Nesting is representable syntax that may be compiler-invalid
-    (`uint8(int(300))`, `int8(int16(128))`, `int(3.5)`, `float32(true)`) — such a program is REJECTED by
-    GoTypes/GoCompile, not unrepresentable.  No type is attached here — the exact untyped-constant meaning
-    (a bare float denotes its EXACT rational value; a conversion rounds ONCE at the destination format) and
-    the context-directed typing/representability of these literals are the concern of [GoTypes]; the canonical
-    source spelling is a separate proved encoding in [GoRender].  [EInt]/[ENeg] remain exact untyped
-    integer-literal syntax.  No arithmetic, comparison, bitwise, shift, division, general named conversion,
-    imaginary/complex literals, NaN/Inf constructors, parenthesis node, variables, calls, or string
-    operations are representable. *)
+    [FloatType] — never a raw type-name string.  A COMPLEX literal ([EComplex dc], carrying two
+    [DecimalFloat] components — its canonical spelling is Go's predeclared `complex(re, im)` form, NOT
+    imaginary-literal syntax and NOT a general call), or an EXPLICIT complex conversion ([EComplexConvert ct
+    e], the source spelling `complex64(e)` / `complex128(e)`).  [EComplexConvert]'s target is the intrinsic
+    [ComplexType].  Nesting is representable syntax that may be compiler-invalid
+    (`uint8(int(300))`, `int8(int16(128))`, `int(3.5)`, `float32(true)`, `int(complex(3.5, 0.0))`) — such a
+    program is REJECTED by GoTypes/GoCompile, not unrepresentable.  No type is attached here — the exact
+    untyped-constant meaning (a bare float denotes its EXACT rational value; a conversion rounds ONCE at the
+    destination format) and the context-directed typing/representability of these literals are the concern of
+    [GoTypes]; the canonical source spelling is a separate proved encoding in [GoRender].  [EInt]/[ENeg]
+    remain exact untyped integer-literal syntax.  No arithmetic, comparison, bitwise, shift, division,
+    general named conversion, imaginary-literal syntax, `real`/`imag`, NaN/Inf constructors, parenthesis
+    node, variables, calls, or string operations are representable. *)
 Inductive GoExpr : Type :=
-| EBool         : bool -> GoExpr
-| EInt          : N -> GoExpr
-| ENeg          : N -> GoExpr
-| EString       : string -> GoExpr
-| EIntConvert   : IntegerType -> GoExpr -> GoExpr
-| EFloat        : DecimalFloat -> GoExpr
-| EFloatConvert : FloatType -> GoExpr -> GoExpr.
+| EBool           : bool -> GoExpr
+| EInt            : N -> GoExpr
+| ENeg            : N -> GoExpr
+| EString         : string -> GoExpr
+| EIntConvert     : IntegerType -> GoExpr -> GoExpr
+| EFloat          : DecimalFloat -> GoExpr
+| EFloatConvert   : FloatType -> GoExpr -> GoExpr
+| EComplex        : DecimalComplex -> GoExpr
+| EComplexConvert : ComplexType -> GoExpr -> GoExpr.
 
 Inductive GoStmt : Type :=
 | SPrintln : list GoExpr -> GoStmt.
