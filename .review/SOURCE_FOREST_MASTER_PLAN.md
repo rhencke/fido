@@ -643,9 +643,21 @@ Its implementation is selected in Checkpoint C0.
 4.3 Snapshot-indexed validated references
 
   Record NodeRef (p : GoProgram) := {
-    node_key   : NodeKey;
-    node_valid : ValidNodeKey p node_key
+    node_file  : FileRef p;          (* a validated file root of THIS p, carried — not recomputed *)
+    node_local : LocalNodeId;
+    node_valid : ValidLocal p node_file node_local
   }.
+
+`NodeRef` is indexed by the EXACT source snapshot `p`, never by free-standing index data.  Two different
+programs with identical paths and identical tree shape but different literal payloads must NOT share a
+`NodeRef` type: a reference belongs to one immutable source program, so `SyntaxIndex`, `FileRef`, and
+`NodeRef` are all parameterised by `p` and are not interchangeable across snapshots (enforced at the type
+level — a `NodeRef p1` cannot be used where a `NodeRef p2` is expected).
+
+A `NodeRef` CARRIES (directly projects) a validated `FileRef p`; the public identity is the file PATH plus
+the local id (`node_key := (file path, local)`).  The hidden per-file slot inside `FileRef` is a private
+optimization handle — never the public key, never rendered.  There is no free-standing key re-validated on
+every navigation step.
 
 The constructor is private.
 
@@ -793,6 +805,26 @@ At minimum:
 The ordinary compiler traversal must receive the original syntax fragment and its `NodeRef` together.
 
 It should not repeatedly perform random syntax lookup.
+
+API honesty (binding).  Structurally guaranteed queries are TOTAL — no `option`, no invented fallback:
+`containing_file`, `ref_meta`, `node_kind`, `node_role`, `node_subtree_end`, and `children_of` all return a
+real result for every valid `NodeRef`.  ONLY `parent_of` is optional, and its single `None` is the honest
+root case (a root has no parent).  `node_kind` returns the INDEXED kind — it never manufactures a `KFile`
+(or any other) placeholder; `children_of` enumerates every direct child and drops none.  An impossible index
+inconsistency (a validity proof contradicting the table) is discharged by the carried validity evidence via
+a total extraction from a proven-present option, NOT by a semantic default that would fabricate a plausible
+answer.
+
+Navigation from an existing `NodeRef` performs NO file-list scan: the carried `FileRef`'s hidden slot indexes
+directly into the slot-keyed outer table (one outer lookup), then one per-file metadata lookup — O(log files)
++ O(log nodes/file), never a linear `List.find` over the files.
+
+Raw `NodeKey` lookup (`ref_of_key` / `file_of_path`) is a SEPARATE minting boundary with its own separately
+stated cost.  It is the one place a path is resolved by scanning the file list once (path → slot), then
+validated THROUGH the precomputed index (outer-slot + per-file lookup) — it never rebuilds the per-file
+index.  Cost O(files + log files + log nodes/file).  The hot path from an existing `NodeRef` never uses it.
+`ref_of_key` is proved sound (a returned reference carries exactly the queried key) and complete (minting from
+any reference's own key recovers exactly that reference).
 
 4.8 Efficiency contract
 

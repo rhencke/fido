@@ -259,6 +259,53 @@ Proof.
   rewrite Hat in HG. exact HG.
 Qed.
 
+Lemma find_slot_at : forall files fp start slot f,
+  find_slot files fp start = Some (slot, f) ->
+  nth_error files (Nat.pred (Pos.to_nat slot) - Nat.pred (Pos.to_nat start))%nat = Some f
+  /\ tf_path f = fp /\ (start <= slot)%positive.
+Proof.
+  induction files as [|g rest IH]; intros fp start slot f H; simpl in H; [discriminate|].
+  destruct (fp_eqb (tf_path g) fp) eqn:Eq.
+  - injection H as <- <-. apply fp_eqb_eq in Eq. rewrite Nat.sub_diag. simpl.
+    split; [reflexivity | split; [exact Eq | lia]].
+  - apply IH in H as [Hnth [Hpath Hle]].
+    split; [| split; [exact Hpath | lia]].
+    rewrite Pos2Nat.inj_succ in Hnth.
+    replace (Nat.pred (Pos.to_nat slot) - Nat.pred (Pos.to_nat start))%nat
+       with (S (Nat.pred (Pos.to_nat slot) - Nat.pred (S (Pos.to_nat start))))%nat by lia.
+    simpl. exact Hnth.
+Qed.
+
+Lemma forest_find_at (fs : TForest) (fp : FilePath) (slot : positive) (f : TFile) :
+  forest_find fs fp = Some (slot, f) -> forest_file_at fs slot = Some f.
+Proof.
+  unfold forest_find, forest_file_at. intros H. apply find_slot_at in H as [Hnth [_ _]].
+  change (Nat.pred (Pos.to_nat 1)) with 0%nat in Hnth. rewrite Nat.sub_0_r in Hnth. exact Hnth.
+Qed.
+
+(* path uniqueness (from [forest_paths_unique]): a path names AT MOST ONE slot, so file lookup is functional
+   and two file handles with the same path are the same file at the same slot. *)
+Lemma forest_slot_unique (fs : TForest) (s1 s2 : positive) (f1 f2 : TFile) :
+  forest_file_at fs s1 = Some f1 -> forest_file_at fs s2 = Some f2 -> tf_path f1 = tf_path f2 -> s1 = s2.
+Proof.
+  unfold forest_file_at. intros H1 H2 Hp.
+  pose proof (forest_paths_unique fs) as Hnd. rewrite NoDup_nth_error in Hnd.
+  assert (Hi1 : nth_error (map tf_path (forest_files fs)) (Nat.pred (Pos.to_nat s1)) = Some (tf_path f1))
+    by (apply map_nth_error; exact H1).
+  assert (Hi2 : nth_error (map tf_path (forest_files fs)) (Nat.pred (Pos.to_nat s2)) = Some (tf_path f2))
+    by (apply map_nth_error; exact H2).
+  assert (Hlen : Nat.pred (Pos.to_nat s1) < Datatypes.length (map tf_path (forest_files fs))).
+  { apply nth_error_Some. rewrite Hi1. discriminate. }
+  assert (Heq : Nat.pred (Pos.to_nat s1) = Nat.pred (Pos.to_nat s2)).
+  { apply Hnd; [exact Hlen|]. rewrite Hi1, Hi2, Hp. reflexivity. }
+  lia.
+Qed.
+
+(* the lookup found by scanning IS a real slot occurrence with the queried path. *)
+Lemma forest_find_path (fs : TForest) (fp : FilePath) (slot : positive) (f : TFile) :
+  forest_find fs fp = Some (slot, f) -> tf_path f = fp.
+Proof. unfold forest_find. intros H. apply find_slot_at in H as [_ [Hp _]]. exact Hp. Qed.
+
 (* ================================================================================================= *)
 (** ** Occurrence keys and snapshot-validated references (Master Plan 4.2 / 4.3).                      *)
 (* ================================================================================================= *)
@@ -1277,7 +1324,73 @@ Module Type SNAP_SIG.
   Parameter reg_node_at_a : node_at rleaf_a5 = Some (TLeaf 5).
   Parameter reg_node_at_b : node_at rleaf_b5 = Some (TLeaf 6).
   Parameter reg_equal_leaves_distinct : rleaf_a5 <> rleaf_a6.
+  (* FINAL navigation/identity family *)
+  Parameter thm_node_role : forall fs (idx : SyntaxIndex fs) (r : NodeRef fs),
+    node_role idx r = nm_role (ref_meta idx r).
+  Parameter node_ref_key_inj : forall fs (r1 r2 : NodeRef fs),
+    node_ref_key r1 = node_ref_key r2 -> r1 = r2.
+  Parameter thm_parent_same_file : forall fs (idx : SyntaxIndex fs) (r pr : NodeRef fs),
+    parent_of idx r = Some pr -> node_ref_file pr = node_ref_file r.
+  Parameter thm_children_same_file : forall fs (idx : SyntaxIndex fs) (r cr : NodeRef fs),
+    In cr (children_of idx r) -> node_ref_file cr = node_ref_file r.
+  Parameter ref_of_key_sound : forall fs (idx : SyntaxIndex fs) (k : NodeKey) (r : NodeRef fs),
+    ref_of_key fs idx k = Some r -> node_ref_key r = k.
+  Parameter ref_of_key_complete : forall fs (idx : SyntaxIndex fs) (r : NodeRef fs),
+    ref_of_key fs idx (node_ref_key r) = Some r.
+  Parameter file_of_path_complete : forall fs (fr : FileRef fs),
+    file_of_path fs (file_ref_path fr) = Some fr.
+  Parameter file_ref_path_inj : forall fs (fr1 fr2 : FileRef fs),
+    file_ref_path fr1 = file_ref_path fr2 -> fr1 = fr2.
+  Parameter thm_child_parent : forall fs (idx : SyntaxIndex fs) (r cr : NodeRef fs),
+    In cr (children_of idx r) -> parent_of idx cr = Some r.
+  Parameter thm_parent_child : forall fs (idx : SyntaxIndex fs) (r pr : NodeRef fs),
+    parent_of idx r = Some pr -> In r (children_of idx pr).
 End SNAP_SIG.
+
+(* --- raw-key minting COMPLETENESS foundations (top-level; only over the source snapshot + file builder) --- *)
+
+Lemma fp_eqb_refl (a : FilePath) : fp_eqb a a = true.
+Proof. apply (proj2 (fp_eqb_eq a a)). reflexivity. Qed.
+
+(* the file scan FINDS a match whenever one exists: a path present at some index yields a path-matching hit. *)
+Lemma find_slot_complete : forall files fp start i f,
+  nth_error files i = Some f -> tf_path f = fp ->
+  exists s' g, find_slot files fp start = Some (s', g) /\ tf_path g = fp.
+Proof.
+  induction files as [|h rest IH]; intros fp start i f Hnth Hpath.
+  - destruct i; discriminate Hnth.
+  - simpl. destruct (fp_eqb (tf_path h) fp) eqn:Eq.
+    + apply fp_eqb_eq in Eq. exists start, h. split; [reflexivity | exact Eq].
+    + destruct i as [|i'].
+      * simpl in Hnth. injection Hnth as <-. rewrite Hpath, fp_eqb_refl in Eq. discriminate Eq.
+      * exact (IH fp (Pos.succ start) i' f Hnth Hpath).
+Qed.
+
+(* file lookup is COMPLETE and functional: the file at a real slot is found at exactly that slot. *)
+Lemma forest_find_complete (fs : TForest) (slot : positive) (f : TFile) :
+  forest_file_at fs slot = Some f -> forest_find fs (tf_path f) = Some (slot, f).
+Proof.
+  intros Hat.
+  destruct (find_slot_complete (forest_files fs) (tf_path f) 1 (Nat.pred (Pos.to_nat slot)) f Hat eq_refl)
+    as [s' [g [Hfind Hpath]]].
+  assert (Hff : forest_find fs (tf_path f) = Some (s', g)) by (unfold forest_find; exact Hfind).
+  pose proof (forest_find_at fs (tf_path f) s' g Hff) as Hatg.
+  assert (Hseq : s' = slot) by (apply (forest_slot_unique fs s' slot g f Hatg Hat); exact Hpath).
+  subst s'. rewrite Hatg in Hat. injection Hat as <-. exact Hff.
+Qed.
+
+(* an enumerated direct child truly has the queried parent id — the child-list soundness at the id level. *)
+Lemma child_ids_parent (t : NodeTable.table NodeMeta) (pid c : positive) :
+  In c (child_ids t pid) -> parent_id t c = Some pid.
+Proof.
+  unfold child_ids. destruct (NodeTable.get pid t) as [m|] eqn:Ep; [| intros []].
+  apply child_enum_sound.
+Qed.
+
+(* the builder is a pure total function of the source file alone: equal sources build identical indices —
+   determinism is inherent (no state, no ordering choice, no external input), stated here as congruence. *)
+Theorem thm_builder_deterministic (f1 f2 : TFile) : f1 = f2 -> build_file f1 = build_file f2.
+Proof. intros ->. reflexivity. Qed.
 
 Module Snap : SNAP_SIG.
 
@@ -1424,30 +1537,6 @@ Definition children_of {fs} (idx : SyntaxIndex fs) (r : NodeRef fs) : list (Node
     (child_ids (fi_table (ref_fi idx r)) (node_ref_local r)) (children_valid idx r).
 
 (* --- the raw-key minting boundary (§7): a path lookup that scans the file list ONCE. --- *)
-Lemma find_slot_at : forall files fp start slot f,
-  find_slot files fp start = Some (slot, f) ->
-  nth_error files (Nat.pred (Pos.to_nat slot) - Nat.pred (Pos.to_nat start))%nat = Some f
-  /\ tf_path f = fp /\ (start <= slot)%positive.
-Proof.
-  induction files as [|g rest IH]; intros fp start slot f H; simpl in H; [discriminate|].
-  destruct (fp_eqb (tf_path g) fp) eqn:Eq.
-  - injection H as <- <-. apply fp_eqb_eq in Eq. rewrite Nat.sub_diag. simpl.
-    split; [reflexivity | split; [exact Eq | lia]].
-  - apply IH in H as [Hnth [Hpath Hle]].
-    split; [| split; [exact Hpath | lia]].
-    rewrite Pos2Nat.inj_succ in Hnth.
-    replace (Nat.pred (Pos.to_nat slot) - Nat.pred (Pos.to_nat start))%nat
-       with (S (Nat.pred (Pos.to_nat slot) - Nat.pred (S (Pos.to_nat start))))%nat by lia.
-    simpl. exact Hnth.
-Qed.
-
-Lemma forest_find_at (fs : TForest) (fp : FilePath) (slot : positive) (f : TFile) :
-  forest_find fs fp = Some (slot, f) -> forest_file_at fs slot = Some f.
-Proof.
-  unfold forest_find, forest_file_at. intros H. apply find_slot_at in H as [Hnth [_ _]].
-  change (Nat.pred (Pos.to_nat 1)) with 0%nat in Hnth. rewrite Nat.sub_0_r in Hnth. exact Hnth.
-Qed.
-
 Definition file_of_path (fs : TForest) (fp : FilePath) : option (FileRef fs) :=
   (match forest_find fs fp as o return (forest_find fs fp = o -> option (FileRef fs)) with
    | Some (slot, f) => fun H => Some (mkFileRef fs slot f (forest_find_at fs fp slot f H))
@@ -1626,6 +1715,162 @@ Proof.
   destruct (in_domain (file_ref_file (node_ref_file r)) (node_ref_local r) (ref_meta idx r) Hget) as [Hlo Hhi].
   destruct (sub_prng WF (node_ref_local r) (ref_meta idx r) ltac:(lia) Hhi Hget) as [p [mp [Hpar _]]].
   destruct (parent_of_some fs idx r p Hpar) as [pr [Hpr _]]. exists pr. exact Hpr.
+Qed.
+
+Theorem thm_node_role (fs : TForest) (idx : SyntaxIndex fs) (r : NodeRef fs) :
+  node_role idx r = nm_role (ref_meta idx r).
+Proof. reflexivity. Qed.
+
+(* NodeKey equality REFLECTS reference equality within one snapshot: same path + local => same reference. *)
+Theorem node_ref_key_inj (fs : TForest) (r1 r2 : NodeRef fs) :
+  node_ref_key r1 = node_ref_key r2 -> r1 = r2.
+Proof.
+  intros H. unfold node_ref_key in H. injection H as Hpath Hlocal.
+  apply node_ref_ext; [ | exact Hlocal ].
+  apply file_ref_ext.
+  apply (forest_slot_unique fs _ _ (file_ref_file (node_ref_file r1)) (file_ref_file (node_ref_file r2)));
+    [ apply file_ref_at | apply file_ref_at | exact Hpath ].
+Qed.
+
+(* the immediate parent shares the containing file with its child. *)
+Theorem thm_parent_same_file (fs : TForest) (idx : SyntaxIndex fs) (r pr : NodeRef fs) :
+  parent_of idx r = Some pr -> node_ref_file pr = node_ref_file r.
+Proof.
+  intros H. destruct (nm_parent (ref_meta idx r)) as [pid|] eqn:Hp.
+  - destruct (parent_of_some fs idx r pid Hp) as [pr' [Hpr' [Hf _]]].
+    rewrite H in Hpr'. injection Hpr' as <-. exact Hf.
+  - rewrite (parent_of_none fs idx r Hp) in H. discriminate H.
+Qed.
+
+(* every enumerated child shares the containing file, and NO child reference is dropped or invented. *)
+Lemma refine_children_file (fs : TForest) (fr : FileRef fs) ids
+  (H : forall c, In c ids -> valid_localb (file_ref_file fr) c = true) cr :
+  In cr (refine_children fr ids H) -> node_ref_file cr = fr.
+Proof.
+  revert H. induction ids as [|c rest IH]; intros H Hin; simpl in Hin; [destruct Hin|].
+  destruct Hin as [<-|Hin]; [reflexivity | eapply IH; exact Hin].
+Qed.
+Theorem thm_children_same_file (fs : TForest) (idx : SyntaxIndex fs) (r cr : NodeRef fs) :
+  In cr (children_of idx r) -> node_ref_file cr = node_ref_file r.
+Proof. unfold children_of. apply refine_children_file. Qed.
+
+Lemma refine_children_local (fs : TForest) (fr : FileRef fs) ids
+  (H : forall c, In c ids -> valid_localb (file_ref_file fr) c = true) cr :
+  In cr (refine_children fr ids H) -> In (node_ref_local cr) ids.
+Proof.
+  revert H. induction ids as [|c rest IH]; intros H Hin; simpl in Hin; [destruct Hin|].
+  destruct Hin as [<-|Hin]; [left; reflexivity | right; eapply IH; exact Hin].
+Qed.
+Lemma refine_children_complete (fs : TForest) (fr : FileRef fs) ids
+  (H : forall c, In c ids -> valid_localb (file_ref_file fr) c = true) c :
+  In c ids -> exists cr, In cr (refine_children fr ids H) /\ node_ref_local cr = c.
+Proof.
+  revert H. induction ids as [|c0 rest IH]; intros H Hin; simpl in Hin; [destruct Hin|].
+  destruct Hin as [->|Hin].
+  - eexists. split; [left; reflexivity | reflexivity].
+  - destruct (IH (fun c' Hc' => H c' (or_intror Hc')) Hin) as [cr [Hcr Hl]].
+    exists cr. split; [right; exact Hcr | exact Hl].
+Qed.
+
+(* children ENUMERATION is exactly the per-file child ids: no child dropped, none invented. *)
+Theorem thm_children_no_drop (fs : TForest) (idx : SyntaxIndex fs) (r : NodeRef fs) c :
+  In c (child_ids (fi_table (ref_fi idx r)) (node_ref_local r)) ->
+  exists cr, In cr (children_of idx r) /\ node_ref_local cr = c.
+Proof. unfold children_of. apply refine_children_complete. Qed.
+Theorem thm_children_sound (fs : TForest) (idx : SyntaxIndex fs) (r cr : NodeRef fs) :
+  In cr (children_of idx r) -> In (node_ref_local cr) (child_ids (fi_table (ref_fi idx r)) (node_ref_local r)).
+Proof. unfold children_of. apply refine_children_local. Qed.
+
+(* a minted file handle carries the queried path. *)
+Lemma file_of_path_path (fs : TForest) (fp : FilePath) (fr : FileRef fs) :
+  file_of_path fs fp = Some fr -> file_ref_path fr = fp.
+Proof.
+  unfold file_of_path. generalize (@eq_refl (option (positive * TFile)) (forest_find fs fp)).
+  destruct (forest_find fs fp) as [[slot f]|] at 2 3; intros e H; [| discriminate H].
+  injection H as <-. unfold file_ref_path. simpl. exact (forest_find_path fs fp slot f e).
+Qed.
+
+(* raw-key minting is SOUND: a returned reference carries exactly the queried key. *)
+Theorem ref_of_key_sound (fs : TForest) (idx : SyntaxIndex fs) (k : NodeKey) (r : NodeRef fs) :
+  ref_of_key fs idx k = Some r -> node_ref_key r = k.
+Proof.
+  unfold ref_of_key. destruct (file_of_path fs (nk_file k)) as [fr|] eqn:Ef; [| discriminate].
+  generalize (@eq_refl bool (valid_in_index idx fr (nk_local k))).
+  destruct (valid_in_index idx fr (nk_local k)) at 2 3; intros e H; [| discriminate H].
+  injection H as <-. unfold node_ref_key. simpl.
+  rewrite (file_of_path_path fs (nk_file k) fr Ef). destruct k; reflexivity.
+Qed.
+
+(* file minting is COMPLETE: the handle for a file's own path is exactly that file handle. *)
+Lemma file_of_path_complete (fs : TForest) (fr : FileRef fs) :
+  file_of_path fs (file_ref_path fr) = Some fr.
+Proof.
+  pose proof (forest_find_complete fs (file_ref_slot fr) (file_ref_file fr) (file_ref_at fr)) as HC.
+  unfold file_of_path, file_ref_path.
+  generalize (@eq_refl (option (positive * TFile)) (forest_find fs (tf_path (file_ref_file fr)))).
+  destruct (forest_find fs (tf_path (file_ref_file fr))) as [[slot f]|] at 2 3; intros e.
+  - f_equal. apply file_ref_ext. cbn. rewrite HC in e. injection e as He1 He2. exact (eq_sym He1).
+  - rewrite HC in e. discriminate e.
+Qed.
+
+(* raw-key minting is COMPLETE: minting from any reference's own key recovers exactly that reference. *)
+Theorem ref_of_key_complete (fs : TForest) (idx : SyntaxIndex fs) (r : NodeRef fs) :
+  ref_of_key fs idx (node_ref_key r) = Some r.
+Proof.
+  unfold ref_of_key, node_ref_key. cbn [nk_file nk_local].
+  rewrite (file_of_path_complete fs (node_ref_file r)).
+  generalize (@eq_refl bool (valid_in_index idx (node_ref_file r) (node_ref_local r))).
+  destruct (valid_in_index idx (node_ref_file r) (node_ref_local r)) at 2 3; intros e.
+  - f_equal. apply node_ref_ext; reflexivity.
+  - exfalso. rewrite valid_in_index_eq, (node_ref_valid r) in e. discriminate e.
+Qed.
+
+(* FileRef path equality DECIDES file occurrence equality within one snapshot (public identity is the path). *)
+Theorem file_ref_path_inj (fs : TForest) (fr1 fr2 : FileRef fs) :
+  file_ref_path fr1 = file_ref_path fr2 -> fr1 = fr2.
+Proof.
+  intros Hp. apply file_ref_ext.
+  apply (forest_slot_unique fs _ _ (file_ref_file fr1) (file_ref_file fr2));
+    [ apply file_ref_at | apply file_ref_at | exact Hp ].
+Qed.
+
+(* parent/child inverse at the NodeRef level: every enumerated child's parent is exactly the queried node. *)
+Theorem thm_child_parent (fs : TForest) (idx : SyntaxIndex fs) (r cr : NodeRef fs) :
+  In cr (children_of idx r) -> parent_of idx cr = Some r.
+Proof.
+  intros Hin.
+  pose proof (thm_children_same_file fs idx r cr Hin) as Hf.
+  pose proof (thm_children_sound fs idx r cr Hin) as Hsound.
+  apply child_ids_parent in Hsound.
+  pose proof (ref_meta_get idx cr) as Hget.
+  rewrite Hf in Hget. rewrite <- (ref_fi_eq idx r) in Hget.
+  unfold parent_id in Hsound. rewrite Hget in Hsound.
+  destruct (parent_of_some fs idx cr (node_ref_local r) Hsound) as [pr [Hpr [Hpf Hpl]]].
+  rewrite Hpr. f_equal. apply node_ref_ext; [ rewrite Hpf; exact Hf | exact Hpl ].
+Qed.
+
+(* the other direction: a node with a parent is enumerated among that parent's children — a genuine inverse. *)
+Theorem thm_parent_child (fs : TForest) (idx : SyntaxIndex fs) (r pr : NodeRef fs) :
+  parent_of idx r = Some pr -> In r (children_of idx pr).
+Proof.
+  intros Hpar.
+  pose proof (thm_parent_same_file fs idx r pr Hpar) as Hf.
+  assert (Hp' : nm_parent (ref_meta idx r) = Some (node_ref_local pr)).
+  { destruct (nm_parent (ref_meta idx r)) as [pid|] eqn:Hnp.
+    - destruct (parent_of_some fs idx r pid Hnp) as [pr' [Hpr' [_ Hpl]]].
+      rewrite Hpar in Hpr'. injection Hpr' as <-. rewrite Hpl. reflexivity.
+    - rewrite (parent_of_none fs idx r Hnp) in Hpar. discriminate Hpar. }
+  pose proof (ref_meta_get idx r) as Hgetr. rewrite <- Hf in Hgetr.
+  pose proof (thm4_parent_has_child (file_ref_file (node_ref_file pr))
+                (node_ref_local pr) (node_ref_local r) (ref_meta idx r) Hgetr Hp') as Hchild.
+  rewrite <- (ref_fi_eq idx pr) in Hchild.
+  destruct (refine_children_complete fs (node_ref_file pr)
+              (child_ids (fi_table (ref_fi idx pr)) (node_ref_local pr))
+              (children_valid idx pr) (node_ref_local r) Hchild) as [cr [Hcr Hcl]].
+  pose proof (refine_children_file fs (node_ref_file pr) _ (children_valid idx pr) cr Hcr) as Hcrf.
+  assert (Hcreq : cr = r).
+  { apply node_ref_ext; [ rewrite Hcrf, Hf; reflexivity | rewrite Hcl; reflexivity ]. }
+  subst cr. unfold children_of. exact Hcr.
 Qed.
 
 End Snap.

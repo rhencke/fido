@@ -469,3 +469,16 @@ Print Assumptions OccurrenceSpike.Snap.thm_parent_nonroot.
 Print Assumptions OccurrenceSpike.Snap.reg_node_at_a.
 Print Assumptions OccurrenceSpike.Snap.reg_node_at_b.
 Print Assumptions OccurrenceSpike.Snap.reg_equal_leaves_distinct.
+(* C0A FINAL: the sealed identity + navigation theorem family — NodeKey reflects reference equality within one
+   snapshot; raw-key minting is sound; parent/child navigation stays within the containing file. *)
+Print Assumptions OccurrenceSpike.Snap.thm_node_role.
+Print Assumptions OccurrenceSpike.Snap.node_ref_key_inj.
+Print Assumptions OccurrenceSpike.Snap.thm_parent_same_file.
+Print Assumptions OccurrenceSpike.Snap.thm_children_same_file.
+Print Assumptions OccurrenceSpike.Snap.ref_of_key_sound.
+Print Assumptions OccurrenceSpike.Snap.ref_of_key_complete.
+Print Assumptions OccurrenceSpike.Snap.file_of_path_complete.
+Print Assumptions OccurrenceSpike.Snap.file_ref_path_inj.
+Print Assumptions OccurrenceSpike.Snap.thm_child_parent.
+Print Assumptions OccurrenceSpike.Snap.thm_parent_child.
+Print Assumptions OccurrenceSpike.thm_builder_deterministic.
