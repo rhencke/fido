@@ -73,10 +73,14 @@ Inductive GoDecl : Type :=
 | DMain : list GoStmt -> GoDecl.
 
 (** ============================================================================
-    C1 — the SPECIFICATION-SHAPED source file root (Master Plan 3.1–3.4).  A source file is no longer a bare
-    declaration list: it follows the Go specification's abstract source-file structure — a package clause, a
-    (currently empty) import section, and top-level declarations.  The FILE PATH is compilation-unit placement
-    metadata carried by the file-ROOT node ([GoFileNode]), NOT a child production inside the source grammar.
+    C1/C1A — the SPECIFICATION-SHAPED source file root (Master Plan 3.1–3.4).  A source file is no longer a
+    bare declaration list: it follows the Go specification's abstract source-file structure — a package clause,
+    a (currently empty) import section, and top-level declarations ([GoSourceFile]).  The whole program stores
+    these in a STANDARD `FilePath`-keyed finite map [GoFileMap] ([FMapAVL]): the FILE PATH is the MAP KEY (not a
+    child production inside the source grammar, and NOT stored in the mapped source value), so a map binding
+    `FilePath -> GoSourceFile` IS the file-root program occurrence.  [GoFileNode] (path + source) is a
+    CONSTRUCTION / derived-VIEW value only — the input to the duplicate-rejecting builder, never the stored map
+    value.
 
     The LIVE domains are intentionally narrow but shaped as the PERMANENT categories (Master Plan 3.2): the
     package clause is only the canonical `package main` ([PkgMain]); imports are INTRINSICALLY empty

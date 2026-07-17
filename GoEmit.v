@@ -2,8 +2,9 @@
     GoEmit — the FINAL directory image and the public program emitter.
 
     [DirectoryImage] is the COMPLETE generated module: the exact root `go.mod` bytes ([di_go_mod]) PLUS a
-    TRUE finite map from unique intrinsic paths to exact final `.go` bytes ([di_go_files : fmap FilePath
-    string]), together with an intrinsic PROVENANCE proof ([di_prov]) that BOTH were produced by rendering
+    STANDARD `FilePath` finite map from paths to exact final `.go` bytes ([di_go_files :
+    Collections.FileMapBase.t string] — the standard [FM.map render_file] of the source map, NOT a custom
+    `fmap`), together with an intrinsic PROVENANCE proof ([di_prov]) that BOTH were produced by rendering
     one [SafeProgram] — the go.mod from its [ModuleSpec], the files from its raw program.  A CLOSED
     (assumption-free) proof does witness "these bytes are a certified rendered module"; but a proof can also
     be POSTULATED ([di_prov] discharged by an [Axiom]/[Admitted] or a section [Variable]) — so the TYPE
@@ -15,8 +16,9 @@
 
     `go.mod` is NOT a [FilePath] (it is not a `.go` source path — [FilePath] deliberately cannot represent
     it), so it is carried as a distinguished root field, not smuggled into the file map.  [di_transport] is
-    the structured projection the filesystem sink consumes: the exact go.mod bytes plus the list of
-    (on-disk relative `.go` path, contents) with intrinsic keys denoted by [fp_string] (injective).  EVERY
+    the structured projection the filesystem sink consumes: the exact go.mod bytes plus the CANONICAL derived
+    enumeration of the standard file map ([FileMap.elements], mapping each [FilePath] to [fp_string] and its
+    contents) — a derived transport list, NOT a second identity authority.  EVERY
     image's go.mod AND every `.go` file begin with the header as their exact first line, are ASCII, and the
     on-disk `.go` paths are unique — proved for the whole type via the provenance.  The file map MAY be
     empty (a module-only program): there is NO nonemptiness claim.

@@ -15,9 +15,11 @@ stop. When an entry stops being a live temptation, delete it.
 2. **The Go compilation unit is the WHOLE module tree.** Go groups files by directory into packages;
    one-main-per-package is a whole-program property; paths, module identity, and the module file are semantic
    inputs (a raw `string` key is not a file path — discovery depends on the extension, `_test`/GOOS suffixes,
-   hidden dirs, directory identity). So `GoProgram` = an intrinsic `ModuleSpec` + a POSSIBLY-EMPTY finite map
-   keyed by intrinsic `FilePath` (the empty map is a valid module-only program); `GoCompile` consumes it all
-   at once, all-or-nothing; package grouping / name / entry status are COMPILATION RESULTS, never collapsed
+   hidden dirs, directory identity). So `GoProgram` = an intrinsic `ModuleSpec` + a POSSIBLY-EMPTY standard
+   `FilePath`-keyed finite map (`GoFileMap`; the empty map is a valid module-only program); `GoCompile`
+   consumes it all at once, all-or-nothing. The package CLAUSE / NAME is SOURCE syntax (`source_package`,
+   `PkgMain` → `main`, rendered by GoRender) — NOT a compiler-derived name; imports are intrinsically absent
+   today. Package GROUPING (files by directory) and ENTRY/main status are COMPILATION RESULTS, never collapsed
    into a raw node. The `go.mod` is part of the program, RENDERED in Rocq from the `ModuleSpec`, never a
    `FilePath` key.
 
@@ -118,3 +120,10 @@ stop. When an entry stops being a live temptation, delete it.
     implementation is not. The standard map's `add` OVERWRITES, so a source builder must DETECT a duplicate key
     before insertion (fail loud) rather than erase the evidence a diagnostic will need — the same discipline in
     OCaml transport (`Map.Make`/`Set.Make`, `GlobRef.Set`), never a raw `List.mem`/`::` identity authority.
+    **The permanent rule:** a thin domain WRAPPER is allowed; a project-authored collection IMPLEMENTATION is
+    FORBIDDEN whenever a suitable mature standard collection exists (pinned Rocq stdlib, OCaml stdlib, or Rocq
+    runtime). If none fits, document the exact mismatch and the alternatives, report an ARCHITECTURAL CONFLICT,
+    and escalate to Rob BEFORE implementing — never roll your own collection autonomously. And a failed
+    collection/program builder STAYS FAILED: never `match build … with Some c => c | None => empty/default`
+    (unless the semantics explicitly define failure as empty, which no Fido source/program builder does) — use
+    a proof-backed total extraction that FAILS TO COMPILE if the construction stops succeeding.

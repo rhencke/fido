@@ -549,6 +549,10 @@ Print Assumptions OccurrenceSpike.Snap.thm_ref_ancestry.
 Print Assumptions OccurrenceSpike.Snap.reg_index_data_equal.
 Print Assumptions OccurrenceSpike.Snap.reg_dup_path_rejected.
 Print Assumptions OccurrenceSpike.forest_of_dup_rejected.
+(* C1B §6.1: a single distinct-path node builds to EXACTLY [Some (add path source empty)] — the §9 forest
+   fixtures are the standard map constructed directly and PROVED to be [forest_of]'s successful result (NO
+   fail-soft [None => empty] default; the [forest_of_ok] extraction is deleted). *)
+Print Assumptions OccurrenceSpike.forest_of_single.
 Print Assumptions OccurrenceSpike.Snap.reg_two_file.
 (* C0B semantic root: the UNIVERSAL exact source-occurrence correspondence — the metadata the builder stores
    at each local id is exactly the metadata of the exact source occurrence there (kind/role/parent/subtree,

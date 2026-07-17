@@ -18,8 +18,22 @@ Definition multi_nodes : list GoFileNode :=
   ; main_file_node m_extra []
   ; main_file_node m_sub   [ DMain [ SPrintln [ ENeg 5 ] ] ] ].
 
+(** the three node paths are distinct, so [build_program] SUCCEEDS.  [multi_program] is a proof-backed TOTAL
+    extraction from that success — NOT a fail-soft [None => empty_program] default: if the supposedly-unique
+    construction ever stopped succeeding, [multi_builds] would fail to prove and this witness would fail to
+    COMPILE (it can never silently degrade into an empty program). *)
+Definition multi_builds : build_program multi_module multi_nodes <> None.
+Proof. vm_compute. discriminate. Qed.
+
 Definition multi_program : GoProgram :=
-  match build_program multi_module multi_nodes with Some p => p | None => empty_program multi_module end.
+  match build_program multi_module multi_nodes as o return (o <> None -> GoProgram) with
+  | Some p => fun _ => p
+  | None   => fun H => False_rect GoProgram (H eq_refl)
+  end multi_builds.
+
+(** the exact successful construction: [build_program] returns EXACTLY this program. *)
+Lemma multi_program_built : build_program multi_module multi_nodes = Some multi_program.
+Proof. vm_compute. reflexivity. Qed.
 
 Lemma multi_valid : ProgValid multi_program.
 Proof. apply prog_ok_iff. vm_compute. reflexivity. Qed.

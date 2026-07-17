@@ -193,6 +193,26 @@ algorithm, report an architectural conflict and stop. Do not implement an altern
 9. **Closed world; imports on hold.** No import syntax is representable. When imports arrive, every import
    must resolve to an owned package in the SAME program or reject the whole program — no stdlib / cache /
    network / vendor / workspace / ambient escape. Adding imports needs explicit sign-off.
+10. **Standard collections only — never roll your own (the binding COLLECTION LAW).** When a suitable mature
+   collection exists in the pinned Rocq standard library, the OCaml standard library, or the Rocq runtime,
+   Fido MUST use it. Fido may provide a THIN DOMAIN WRAPPER (instantiate a standard functor with a domain key,
+   alias/delegate operations, enforce stronger domain construction like duplicate-rejection, define domain
+   folds, prove project-specific facts, seal an interface over a standard map/set) but MUST NOT implement
+   collection STORAGE or generic collection ALGORITHMS itself — no project-authored map / set / dictionary /
+   keyed table / multimap / hash table / balanced tree / trie / membership-bag / adjacency collection, no
+   `list + NoDup` as public identity-keyed storage, no parallel association-list backing/cache, no reimplemented
+   find/mem/add/remove/balance/union. Choose by SEMANTIC ROLE: identity-keyed → a mature finite map
+   (`FMapAVL`/`FMapPositive`; future sets → `MSet*`); membership-only → a mature finite set; ordered
+   sequence / repetition / positional structure / rollback stack / transport enumeration → a `list`;
+   duplicate-invalid source → the AST sequence or a duplicate-REJECTING builder (`mem` before `add`), NEVER a
+   silent overwrite; graph → a map from vertex to a set. A map/set `elements`/`bindings` list is a DERIVED
+   enumeration (canonical order / structural recursion / API / proof), NEVER a second identity authority.
+   A failed collection builder STAYS FAILED — no `match build … with Some c => c | None => empty` (unless the
+   semantics explicitly define failure as empty, which no Fido source/program builder does). If NO standard
+   collection fits: document the exact mismatch + the alternatives considered, report an ARCHITECTURAL CONFLICT,
+   notify Rob, and STOP — never autonomously implement a collection. (`NodeTable` is acceptable ONLY because it
+   delegates its type + operations to `FMapPositive` with no Fido-authored storage.) OCaml identity/membership
+   collections likewise use `Map.Make`/`Set.Make` / `Names.GlobRef.Set`, never a raw `List.mem`/`::` authority.
 
 ## The layers (one authority each, over the ONE program)
 

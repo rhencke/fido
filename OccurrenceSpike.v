@@ -7,10 +7,12 @@
     production pipeline imports it.  It is proven axiom-free by the same whole-theory audit as the rest of
     the theory, and will be DELETED once the production [GoIndex] lands (C2).
 
-    C1A COLLECTION LAW (Master Plan / .review/SOURCE_FOREST_STATUS.md): the per-file local-node table is the
+    COLLECTION LAW (Master Plan / .review/SOURCE_FOREST_STATUS.md): the per-file local-node table is the
     STANDARD pinned-stdlib positive-key map [FMapPositive.PositiveMap] (aliased [Collections.NodeMapBase]) — a
-    certified binary-trie map from certified-compiler work, O(bits)=O(log n) lookup/insert, empty assumption
-    closure.  A primitive dense array (Coq [PArray]/[Uint63]) is REJECTED: it is built on KERNEL PRIMITIVES
+    mature positive-key map from certified-compiler work with a structural key-bit traversal shape and an empty
+    assumption closure.  (Fido relies on that structural shape; it does NOT claim a project kernel theorem for
+    machine-level lookup complexity — the semantic node-table laws are what Fido proves.)  A primitive dense
+    array (Coq [PArray]/[Uint63]) is REJECTED: it is built on KERNEL PRIMITIVES
     (Int63/PArray), which Fido's standing law rule 4 forbids ("Never ... a kernel primitive").  A project-
     authored radix trie is REJECTED by C1A: Fido authors NO collection implementation.  The thin [NodeTable]
     wrapper below stores a [Collections.NodeMapBase] and proves its three laws directly from the standard map
@@ -134,16 +136,20 @@ Proof.
   rewrite Hmem. reflexivity.
 Qed.
 
-(* the total extraction used by the §9 fixtures (all with DISTINCT paths, so [forest_of] succeeds). *)
-Definition forest_of_ok (nodes : list TFileNode) : TForest :=
-  match forest_of nodes with Some fm => fm | None => Collections.FileMapBase.empty TSourceFile end.
+(* a single distinct-path node builds to exactly [add path source empty] — the §9 fixtures are the standard
+   map constructed DIRECTLY and PROVED to be [forest_of]'s successful result (NO fail-soft [None => empty]
+   default: a rejected/duplicate source description is never silently the empty snapshot). *)
+Lemma forest_of_single (n : TFileNode) :
+  forest_of [ n ] = Some (Collections.FileMapBase.add (tfn_path n) (tfn_source n)
+                            (Collections.FileMapBase.empty TSourceFile)).
+Proof. cbn [forest_of]. rewrite mem_empty. reflexivity. Qed.
 
 Definition root_id : positive := 1%positive.    (* every file root's canonical local id (theorem 1) *)
 
 (* ================================================================================================= *)
 (** ** The one-pass index builder (Master Plan 4.8).                                                   *)
 (*    Each builder threads a fresh-id counter and inserts each occurrence's metadata EXACTLY ONCE via  *)
-(*    [NodeTable.set] (O(log n)); it never searches, compares, or copies syntax subtrees.  A subtree    *)
+(*    one standard-map [NodeTable.set]; it never searches, compares, or copies syntax subtrees.  A subtree    *)
 (*    builder returns the subtree's last id ([se], its [subtree_end]); a sequence builder returns the   *)
 (*    free id.  Meta for an internal node is inserted AFTER its children so [subtree_end] is known.     *)
 (* ================================================================================================= *)
@@ -2011,21 +2017,20 @@ Proof. reflexivity. Qed.
 Definition rpath : FilePath := mkFP "a.go"%string eq_refl.
 (* one file's SOURCE: one decl / one stmt / TBin (TLeaf v) (TLeaf v) — TWO structurally equal leaves of v. *)
 Definition rfile (v : nat) : TSourceFile := mkTSource [ TFun [ TPrint (TBin (TLeaf v) (TLeaf v)) ] ].
-(* two snapshots (standard maps): identical path + tree shape, but leaves 5 vs 6. *)
-Definition fs_a : TForest := forest_of_ok [ mkTFileNode rpath (rfile 5) ].
-Definition fs_b : TForest := forest_of_ok [ mkTFileNode rpath (rfile 6) ].
+(* two snapshots (standard maps): identical path + tree shape, but leaves 5 vs 6.  Each is the standard map
+   constructed DIRECTLY and separately PROVED to be [forest_of]'s successful result ([fs_a_built]/[fs_b_built]);
+   no fail-soft default. *)
+Definition rmap (v : nat) : TForest :=
+  Collections.FileMapBase.add rpath (rfile v) (Collections.FileMapBase.empty TSourceFile).
+Definition fs_a : TForest := rmap 5.
+Definition fs_b : TForest := rmap 6.
+Lemma fs_a_built : forest_of [ mkTFileNode rpath (rfile 5) ] = Some fs_a.
+Proof. rewrite forest_of_single. reflexivity. Qed.
+Lemma fs_b_built : forest_of [ mkTFileNode rpath (rfile 6) ] = Some fs_b.
+Proof. rewrite forest_of_single. reflexivity. Qed.
 
-(* the single-node build takes the [add] branch (not the reject branch — [mem_empty] near [forest_of]). *)
-Lemma forest_of_ok_single (n : TFileNode) :
-  forest_of_ok [ n ] = Collections.FileMapBase.add (tfn_path n) (tfn_source n) (Collections.FileMapBase.empty TSourceFile).
-Proof. unfold forest_of_ok. cbn [forest_of]. rewrite mem_empty. reflexivity. Qed.
-
-Lemma rfind (v : nat) :
-  Collections.FileMapBase.find rpath (forest_of_ok [ mkTFileNode rpath (rfile v) ]) = Some (rfile v).
-Proof.
-  rewrite forest_of_ok_single. cbn [tfn_path tfn_source].
-  apply Collections.FileMapFacts.add_eq_o. reflexivity.
-Qed.
+Lemma rfind (v : nat) : Collections.FileMapBase.find rpath (rmap v) = Some (rfile v).
+Proof. apply Collections.FileMapFacts.add_eq_o. reflexivity. Qed.
 Definition fref_a : FileRef fs_a := mkFileRef fs_a rpath (rfile 5) (rfind 5).
 Definition fref_b : FileRef fs_b := mkFileRef fs_b rpath (rfile 6) (rfind 6).
 
@@ -2082,7 +2087,7 @@ Qed.
 Theorem reg_index_data_equal : Collections.FileMapBase.Equal (outer_of fs_a) (outer_of fs_b).
 Proof.
   intro k. unfold outer_of. rewrite !Collections.FileMapFacts.map_o.
-  unfold fs_a, fs_b. rewrite !forest_of_ok_single. cbn [tfn_path tfn_source].
+  unfold fs_a, fs_b, rmap.
   rewrite !Collections.FileMapFacts.add_o.
   destruct (Collections.FilePath_OT.eq_dec rpath k) as [Heq|Hne].
   - cbn [option_map]. reflexivity.
@@ -2104,7 +2109,12 @@ Qed.
    own file handle with no cross-file confusion.  (The minting witnesses are below, after [file_of_path_source].) *)
 Definition rpathb : FilePath := mkFP "b.go"%string eq_refl.
 Definition rfileb (v : nat) : TSourceFile := mkTSource [ TFun [ TPrint (TLeaf v) ] ].
-Definition fs_two : TForest := forest_of_ok [ mkTFileNode rpath (rfile 5) ; mkTFileNode rpathb (rfileb 7) ].
+Definition fs_two : TForest :=
+  Collections.FileMapBase.add rpath (rfile 5)
+    (Collections.FileMapBase.add rpathb (rfileb 7) (Collections.FileMapBase.empty TSourceFile)).
+Lemma fs_two_built :
+  forest_of [ mkTFileNode rpath (rfile 5) ; mkTFileNode rpathb (rfileb 7) ] = Some fs_two.
+Proof. vm_compute. reflexivity. Qed.
 
 (* ================================================================================================= *)
 (** ** C0A ref-level theorem family (§10): total-API correctness + snapshot-local reference identity.  *)

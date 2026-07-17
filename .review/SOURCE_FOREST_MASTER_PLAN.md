@@ -225,12 +225,13 @@ Fido is about to grow from a small literal-and-conversion generator into a langu
 - useful diagnostics;
 - later structural and operational features.
 
-The current representation is too small to be the permanent root:
+The PRE-CAMPAIGN representation was too small to be the permanent root (this is the historical motivation for
+the campaign; C1/C1A have since replaced it with the standard `GoFileMap` described in Part 3):
 
   GoFileAST := list GoDecl
-  prog_files : fmap FilePath GoFileAST
+  prog_files : fmap FilePath GoFileAST     (* superseded: a project-authored fmap, now the standard FileMap *)
 
-It was coherent for the tiny current fragment because:
+It was coherent for the tiny early fragment because:
 
 - every file was implicitly package `main`;
 - imports were impossible;
@@ -517,56 +518,45 @@ Do not represent imports and then reject them wholesale.
 
 That would repeat the subset-filter mistake.
 
-3.3 Path-keyed file set
+3.3 Program file storage — a STANDARD FilePath map
 
->> C1A CORRECTION (see .review/SOURCE_FOREST_STATUS.md): the list-plus-`NoDup` `GoFileSet` below was the C1
->> landing but the WRONG collection foundation — an exposed association list is not a map (lookup/build
->> linear/quadratic, physical order leaks). It is REPLACED by a STANDARD pinned-stdlib map:
->>     GoFileMap := Collections.FileMapBase.t GoSourceFile   (* FMapAVL over a FilePath ordered key *)
->> where the PATH is the map KEY (not stored in the value), duplicates are unrepresentable by construction,
->> the duplicate-rejecting builder `filemap_of_nodes` is sound+complete+exact+order-independent, and semantic
->> equality is standard map `Equal`. All FUTURE collection shapes (scopes/facts/graphs) follow the same
->> collection algebra: identity-keyed = a mature finite map, membership-only = a mature finite set, ordered
->> syntax/execution = a list, and derived enumerations = `elements`. Fido authors NO map/set implementation.
->> The original C1 record is retained below only as the historical design record.
+The program's files are a STANDARD pinned-stdlib finite map keyed by `FilePath`:
 
-Replace the public `dict[path, AST]` shape with a path-keyed file set:
+  GoFileMap := Collections.FileMapBase.t GoSourceFile   (* FMapAVL over the FilePath ordered key *)
 
-  Record GoFileSet := {
-    file_members : list GoFileNode;
-    file_paths_unique :
-      NoDup (map file_path file_members)
-  }.
+A map binding
 
-This is semantically:
+  FilePath -> GoSourceFile
 
-  set[GoFileNode]
+IS the file-root program occurrence. The PATH is the map KEY; it is NOT stored in the mapped source value.
+`GoFileNode` (path + source) is ONLY a construction value and a derived view — never the stored map value.
 
-with uniqueness determined by `file_path`.
+Required meaning (all intrinsic to the standard map + its duplicate-rejecting builder):
 
-Required meaning:
-
-- same path twice: impossible;
+- same path twice: impossible (the key is unique by construction);
 - different paths with identical source: allowed;
 - same path with different source: impossible;
-- physical list order: not program semantics.
+- physical backing-tree structure / insertion order: not program semantics.
 
-Expose:
+Expose a thin domain wrapper over the standard map (instantiate the functor, alias operations, prove domain
+facts) — never a project-authored storage datatype:
 
-  find_file
-  file_member
-  file_paths
-  FilesEqual
+  find_file      := FileMapBase.find
+  file_mem       := FileMapBase.mem
+  file_bindings  := FileMapBase.elements     (* a DERIVED canonical enumeration, not an identity authority *)
+  FilesEqual     := FileMapBase.Equal        (* semantic map equality, distinct from Rocq record = *)
 
-`FilesEqual` is extensional by path lookup.
+The duplicate-rejecting builder checks `mem` before the standard `add` (never a silent overwrite) and is proved
+SOUND + COMPLETE + EXACT (each input node maps to its own source; every binding comes from an input node) +
+ORDER-INDEPENDENT (a permuted node list builds a `FilesEqual` map):
 
-The physical representation may later change without altering this public meaning.
+  filemap_of_nodes : list GoFileNode -> option GoFileMap
 
 3.4 Program root
 
   Record GoProgram := {
     prog_module : ModuleSpec;
-    prog_files  : GoFileSet
+    prog_files  : GoFileMap
   }.
 
 `ModuleSpec` remains outside source files because it renders the module's `go.mod`.
@@ -601,6 +591,29 @@ A convenience builder may construct a canonical main-package file.
 The builder creates ordinary source syntax.
 
 The renderer does not synthesize missing source syntax behind the AST's back.
+
+3.7 Binding COLLECTION LAW for all future scopes / facts / method sets / graphs
+
+The whole campaign obeys the binding collection law (CLAUDE.md / ARCHITECTURE.md): when a suitable mature
+collection exists in the pinned Rocq stdlib (`FMapAVL`/`FMapPositive`, and `MSet*` for future sets), the OCaml
+stdlib (`Map.Make`/`Set.Make`), or the Rocq runtime (`Names.GlobRef.Set`), Fido MUST use it behind a thin
+domain wrapper and MUST NOT author collection storage or generic algorithms.  Every future collection is chosen
+by SEMANTIC ROLE:
+
+- identity-keyed (identifier -> binding, `NodeRef`/`NodeKey` -> compiler fact, method name -> method,
+  package directory -> summary): a mature standard finite map;
+- membership-only (visited vertices, package dependencies, desired targets, audit roots): a mature standard
+  finite set;
+- duplicate-invalid source (multiple occurrences of one key before validation): the AST sequence, or a
+  standard map to a duplicate-preserving bucket, or a duplicate-REJECTING builder (`mem` before `add`) — NEVER
+  a silent overwrite;
+- graph (vertex -> adjacency): a standard map from vertex identity to a standard finite set;
+- ordered sequence / repetition / stack / transport enumeration: a standard `list`;
+- derived enumeration: a map/set `elements`/`bindings` list — a canonical view, never a second identity
+  authority.
+
+If no standard collection fits, document the mismatch + alternatives, report an ARCHITECTURAL CONFLICT, and
+escalate before implementing — never roll your own.
 
 ===============================================================================
 PART 4 — OCCURRENCE IDENTITY AND NAVIGATION
@@ -665,10 +678,18 @@ programs with identical paths and identical tree shape but different literal pay
 `NodeRef` are all parameterised by `p` and are not interchangeable across snapshots (enforced at the type
 level — a `NodeRef p1` cannot be used where a `NodeRef p2` is expected).
 
-A `NodeRef` CARRIES (directly projects) a validated `FileRef p`; the public identity is the file PATH plus
-the local id (`node_key := (file path, local)`).  The hidden per-file slot inside `FileRef` is a private
-optimization handle — never the public key, never rendered.  There is no free-standing key re-validated on
-every navigation step.
+A `FileRef p` is, conceptually:
+
+  FileRef p := {
+    file_path;
+    file_source;
+    proof that FileMap.find file_path p.prog_files = Some file_source
+  }
+
+— a path + its source + a STANDARD-MAP membership proof.  There is NO hidden file slot: the file's public
+identity IS its path (the map key).  A `NodeRef` CARRIES (directly projects) a validated `FileRef p`; the
+public identity is the file PATH plus the local id (`node_key := (file path, local)`).  There is no
+free-standing key re-validated on every navigation step.
 
 The constructor is private.
 
@@ -744,7 +765,14 @@ It derives:
 
   SyntaxIndex p
 
-from one `GoProgram p`.
+from one `GoProgram p`.  Concretely, the index contains (or is proved equal to) a STANDARD outer FILE map
+keyed by `FilePath`, each entry a per-file index that is a STANDARD `PositiveMap` of local ids:
+
+  SyntaxIndex p   contains / is proved equal to   FileMap FilePath FileIndex
+  FileIndex       contains                        PositiveMap LocalNodeId NodeMeta
+
+There is NO slot-keyed outer index and NO hidden file slot — the outer key is the file PATH (the same map key
+as `GoFileMap`), the inner key is the local id.  Both are standard-library maps; Fido authors neither.
 
 The index is not author-supplied.
 
@@ -832,23 +860,23 @@ inconsistency (a validity proof contradicting the table) is discharged by the ca
 a total extraction from a proven-present option, NOT by a semantic default that would fabricate a plausible
 answer.
 
-Navigation from an existing `NodeRef` performs NO file-list scan: the carried `FileRef`'s hidden slot indexes
-directly into the slot-keyed outer table (one outer lookup), then one per-file metadata lookup — O(log files)
-+ O(log nodes/file), never a linear `List.find` over the files.
+Navigation from an existing `NodeRef` performs NO file-list scan and uses NO hidden slot: the carried
+`FileRef`'s PATH indexes the outer standard FILE map directly (one standard-map lookup by path), then one
+standard `PositiveMap` metadata lookup — the structural shape of two standard-map lookups, never a linear
+`List.find` over the files.
 
-Public storage abstraction (binding).  Raw file slots are HIDDEN — an optimization handle, never a public
-semantic identity.  There is NO public arbitrary `index_at slot` (raw physical file-slot / `FileIndex`)
-lookup; internal physical-table inspection and the exact `si_outer = outer_of fs` construction remain an
-implementation/proof detail.  Exactness is exposed only through validated source references and theorem
-surfaces — chiefly `ref_meta_matches_source` (a valid reference's metadata IS its exact source occurrence's
-metadata) and its kind/role/parent/subtree projections — never through raw slot inspection.
+Public storage abstraction (binding).  There is NO public arbitrary raw index lookup by a physical handle;
+internal map inspection and the exact `si_outer = outer_of fs` construction remain an implementation/proof
+detail.  Exactness is exposed only through validated source references and theorem surfaces — chiefly
+`ref_meta_matches_source` (a valid reference's metadata IS its exact source occurrence's metadata) and its
+kind/role/parent/subtree projections.
 
-Raw `NodeKey` lookup (`ref_of_key` / `file_of_path`) is a SEPARATE minting boundary with its own separately
-stated cost.  It is the one place a path is resolved by scanning the file list once (path → slot), then
-validated THROUGH the precomputed index (outer-slot + per-file lookup) — it never rebuilds the per-file
-index.  Cost O(files + log files + log nodes/file).  The hot path from an existing `NodeRef` never uses it.
-`ref_of_key` is proved sound (a returned reference carries exactly the queried key) and complete (minting from
-any reference's own key recovers exactly that reference).
+Raw `NodeKey` lookup (`ref_of_key` / `file_of_path`) is a SEPARATE minting boundary.  It is the one place a
+path is resolved — by ONE standard outer FILE-map lookup (path -> file source), then validated THROUGH the
+precomputed index (one per-file `PositiveMap` lookup) — it never rebuilds the per-file index and never scans
+a file list.  The hot path from an existing `NodeRef` never uses it.  `ref_of_key` is proved sound (a returned
+reference carries exactly the queried key) and complete (minting from any reference's own key recovers exactly
+that reference).
 
 4.8 Efficiency contract
 
@@ -931,7 +959,7 @@ metadata — it is the SAME independent specification theorem 15 proves the buil
 
 Honest cost: this proof/inspection source recovery may be O(file size) in the worst case (it can traverse
 preceding siblings and recompute structural boundaries).  It is NOT used by ordinary parent / kind / role /
-subtree navigation — those stay index-backed (one outer-slot lookup + one local lookup).  Production
+subtree navigation — those stay index-backed (one outer file-map lookup by path + one local PositiveMap lookup).  Production
 traversal (C2) supplies the original syntax fragment and its `NodeRef` together, so no copied source cache is
 justified now.
 
@@ -1161,7 +1189,8 @@ Canonical diagnostic order:
 
 Package/program-only errors receive a documented deterministic position.
 
-Storage order of `GoFileSet` must not affect diagnostics.
+Diagnostics depend only on the `GoFileMap` up to standard map equality (`FilesEqual`): `FilesEqual` file maps
+produce equal diagnostics, and the backing-tree structure / construction order is never observable.
 
 6.4 Analysis result
 
@@ -1259,17 +1288,19 @@ Does not own:
 - parent pointers;
 - source spans.
 
-GoFileSet / GoProgram
+GoFileMap / GoProgram
 
 Owns:
 
 - module snapshot;
-- path-bearing file roots;
-- unique file paths;
-- order-independent file-set meaning.
+- the standard `FilePath`-keyed source-file map (the map KEY is the file-root identity);
+- unique file paths (intrinsic to the map key);
+- order-independent file-map meaning (`FilesEqual` = standard map equality);
+- `GoFileNode` as a construction / derived-view value only, never the stored map value.
 
 Does not own:
 
+- a project-authored collection implementation;
 - package validity;
 - import validity;
 - expression typing.
@@ -1666,8 +1697,8 @@ C1.1 Replace the file root
 Introduce:
 
   GoSourceFile
-  GoFileNode
-  GoFileSet
+  GoFileNode      (construction / view only)
+  GoFileMap       (a STANDARD FilePath-keyed map of GoSourceFile — Collections.FileMapBase.t GoSourceFile)
   GoProgram
 
 Use the specification-shaped source-file categories.
@@ -1690,15 +1721,14 @@ A list of declarations may remain as the `source_decls` field.
 
 It is no longer the entire file.
 
-C1.3 Move file path into the file-root node
+C1.3 The file path is the standard-map KEY
 
-Every source file root carries its `FilePath`.
+The file `FilePath` is the KEY of the standard `GoFileMap` — it is NOT stored in the mapped `GoSourceFile`
+value.  The standard map enforces path uniqueness intrinsically (a duplicate path is unrepresentable; the
+duplicate-rejecting builder `filemap_of_nodes` fails loud rather than overwriting).
 
-`GoFileSet` enforces path uniqueness.
-
-Do not retain a parallel outer map key and inner file-path field.
-
-One path authority only.
+One path authority only: the map key.  `GoFileNode` (path + source) is a construction/view value carrying the
+path only for the builder input — never a parallel stored identity.
 
 C1.4 File-set API and laws
 
@@ -1758,10 +1788,10 @@ C1.8 Root review
 
 Use one semantic-root stop after:
 
-- GoSourceFile / GoFileNode / GoFileSet exist;
-- path uniqueness and lookup laws are proved;
+- GoSourceFile / GoFileNode (construction/view) / GoFileMap (standard map) exist;
+- path uniqueness (the map key) and the standard lookup/builder laws are proved;
 - package clause is source-owned;
-- old map[path, AST] authority is deleted;
+- old map[path, AST] / project-authored fmap authority is deleted;
 - local core compiles;
 - generated pipeline integration may still be incomplete.
 
@@ -1825,9 +1855,17 @@ Create:
 
   GoIndex.v
 
-Use the C0-selected table and ID representation.
+Land the production index over `GoProgram.prog_files : GoFileMap` (`FileMap FilePath GoSourceFile`) with the
+STANDARD-COLLECTION shape (no project-authored storage, obeying the binding collection law):
 
-The spike module should be deleted or reduced to tests once production proofs subsume it.
+- an outer STANDARD FILE map `FileMap FilePath FileIndex` (the outer key is the file PATH — the same key as
+  `GoFileMap`; NO slot-keyed outer index, NO hidden file slot);
+- each `FileIndex` a STANDARD `PositiveMap LocalNodeId NodeMeta`;
+- `FileRef` = path + source + a `FileMap.find` membership proof (NO hidden slot);
+- the canonical file-root local ID is `1` (`root_id = 1`);
+- NO list-backed forest, NO file-list scan, NO per-query index rebuild.
+
+The spike module (`OccurrenceSpike.v`) should be deleted or reduced to tests once production proofs subsume it.
 
 Do not keep a parallel spike authority.
 
@@ -2027,7 +2065,8 @@ Prove every fact key is a valid occurrence of the right kind.
 
 C3.5 Deterministic diagnostics
 
-Canonicalize diagnostic order independently of `GoFileSet` storage order.
+Canonicalize diagnostic order over the `GoFileMap`'s canonical `elements`/`NodeKey` order — a function of the
+map up to `FilesEqual`, independent of construction order.
 
 Add tests with:
 
@@ -2559,7 +2598,7 @@ Required work:
 Forbidden:
 
 - production AST migration;
-- GoFileSet;
+- production `GoFileMap` file-storage migration;
 - production GoIndex integration;
 - diagnostic redesign;
 - source type syntax;

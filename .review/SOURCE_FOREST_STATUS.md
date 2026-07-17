@@ -39,7 +39,27 @@ Updated only at checkpoint boundaries._
 - Review cadence: ONE exhaustive final Codex barrier (no semantic-root stop unless a real architectural
   conflict is discovered); commit `milestone(final): C1B — enforce standard-collection policy and reconcile
   future plans`; repairs `review(final): C1B —`.  This directive is the binding contract.
-- Contract activation SHA: pending (this commit — see git log).
+- Contract activation SHA: `06a1efa` (`milestone(contract): C1B`).
+- Scale / computation probes (§8): a TRANSIENT OCaml probe was added to the emit stage, run in the pinned
+  `ocaml/opam:debian-12-ocaml-5.3` Buildx container via `make emit`, and then REVERTED (no permanent probe
+  fixture).  It builds `Map.Make(String)` + `Set.Make(String)` from N generated `dNNNN/main.go` keys and
+  queries every key (`find`+`mem`).  Observed CPU time (`Sys.time`):
+  - n=1:    build 0.000003 s, query-all 0.000001 s
+  - n=10:   build 0.000004 s, query-all 0.000001 s
+  - n=100:  build 0.000017 s, query-all 0.000015 s
+  - n=1000: build 0.000242 s, query-all 0.000238 s
+  Total work grows ~n·log n (build + query of n keys), sub-millisecond even at 1000 — the mature standard
+  OCaml collections (the sink's desired-output `Map` / stale-target + abandoned-temp `Set`, same `FMapAVL`-shape
+  ordered structure) compute comfortably in the pinned environment.  For the ROCQ maps
+  (`filemap_of_nodes`/`FileMap.find`, `package_summaries` `FM.fold`, `PositiveMap` node lookup, canonical
+  `elements` transport): their evaluation runs under `vm_compute`/kernel reduction (not machine-native), so
+  wall-clock is dominated by the reducer and the proof build, NOT the AVL/positive-map machine cost — this is
+  NOT an asymptotic theorem (semantic proofs remain the correctness authority).  The real before/after evidence
+  is STRUCTURAL and lives in the diff from baseline `75d24b2`: the linear association-list lookup (`FMap`'s
+  first-match over a `list`) and the nested per-file O(files²) package scan (`main_count_in_dir` folding over
+  ALL entries per file) are DELETED and replaced by standard-map lookups (one AVL descent) and a single
+  `FM.fold` package aggregation (`package_summaries`, one traversal + logarithmic package-map updates), proved
+  order-independent and characterized exactly.
 - Final candidate SHA: pending.
 - Final Codex result / repair SHAs: pending.
 - Verification result (`make check`): pending.
@@ -82,8 +102,10 @@ Updated only at checkpoint boundaries._
   nm_role : NodeRole ; nm_subtree_end : positive }`.  No syntax-subtree copy (thm14); `subtree_end` powers the
   O(1) preorder-interval ancestor test and interval-scoped child enumeration.  `first_child`/`next_sibling`
   were deliberately NOT added (Master Plan 4.10 "do not add fields by reflex").
-- Build / query complexity: **build O(n · log n)** — one preorder pass, each occurrence inserted exactly once
-  by `NodeTable.set` (O(log n)), no re-scan, no append-to-end, no index reconstruction
+- Build / query complexity (STRUCTURAL SHAPE, not a proved machine-cost theorem — these describe the standard
+  positive-map operation counts and the removal of AST search/re-scan; Fido proves the semantic laws, not a
+  kernel O(log n) result): **build** — one preorder pass, each occurrence inserted exactly once
+  by one standard-map `NodeTable.set`, no re-scan, no append-to-end, no index reconstruction
   (thm_builder_no_structural_search shows the builder reads only tree SHAPE); **containing file O(1)**
   projection for the path plus a validated file-root `FileRef` (`containing_file`, thm6); **parent / kind /
   meta lookup O(log n)** `NodeTable.get`, never an AST search; **ancestor test O(log n) lookup + O(1)**
@@ -425,15 +447,19 @@ the binding completion contract.
 - Contract activation SHA: `75d24b2` (baseline).
 - Selected collection modules + reason (§2 pinned-container spike, `FMapAVL`/`FMapPositive` both confirmed
   available in the pinned rocq-stdlib 9.1.0 image):
-  - general ordered-key finite map (file/package maps): **`FSets.FMapAVL`** — the standard mature AVL finite
-    map (self-balancing, O(log n), certified).  Chosen over `FMapList` (O(n) association list — the very
-    linear-scan defect C1A removes) and `FMapFullAVL` (adds a redundant balance-invariant sig field we do not
-    need; the plain `FMapAVL.t` already carries its `bst` proof).  Keyed by `String_as_OT` (packages) and by a
-    new `FilePath_OT` ordered key (files).
-  - positive-key finite map (per-file local-node index): **`FSets.FMapPositive.PositiveMap`** — the standard
-    certified binary-trie map from certified-compiler work, O(bits) lookup/insert.  Chosen over a project
-    radix trie (C1A forbids Fido authoring any collection) and `PArray`/`Uint63` (kernel primitives, forbidden
-    by standing law rule 4).
+  - general ordered-key finite map (file/package maps): **`FSets.FMapAVL`** — Rocq's mature standard-library
+    ordered finite map; the standard implementation uses AVL-tree operations.  Fido PROVES the functional map
+    semantics it consumes; Fido does NOT claim a project kernel theorem for the AVL balance invariant or a
+    machine-level O(log n) complexity.  Chosen over `FMapList` (a standard association-list map, whose
+    linear-scan cost is the very defect C1A removes).  `FMapFullAVL` is the standard library layer that
+    packages/proves the AVL balance invariant on top — it is NOT redundant; it is the appropriate candidate IF
+    formally-packaged balance ever becomes part of Fido's proved contract (do not switch merely for wording).
+    Keyed by `String_as_OT` (packages) and by a new `FilePath_OT` ordered key (files).
+  - positive-key finite map (per-file local-node index): **`FSets.FMapPositive.PositiveMap`** — Rocq's mature
+    standard positive-key map from certified-compiler work; Fido relies on its structural key-bit traversal
+    shape and does NOT claim a new machine-cost theorem.  Chosen over a project radix trie (the collection law
+    forbids Fido authoring any collection) and `PArray`/`Uint63` (kernel primitives, forbidden by standing law
+    rule 4).
   All wrapped in `Collections.v`: `FileMapBase`/`FileMapFacts`/`FileMapProps`, `PackageMapBase`/`PackageMapFacts`,
   `NodeMapBase` — thin re-exports that instantiate standard functors and prove no tree/list-backed collection.
 - Root candidate SHA: **this commit** (`milestone(root): C1A`).

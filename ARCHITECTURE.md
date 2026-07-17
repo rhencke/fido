@@ -23,6 +23,23 @@ milestone. If an objective defect cannot be repaired without changing its archit
 threat model, responsibility boundaries, or selected algorithm, report an architectural conflict and stop.
 Do not implement an alternative autonomously.
 
+**The binding COLLECTION LAW (no roll-your-own).** When a suitable mature collection exists in the pinned Rocq
+standard library (`FMapAVL`/`FMapPositive`, and `MSet*` for future sets), the OCaml standard library
+(`Map.Make`/`Set.Make`), or the Rocq runtime (`Names.GlobRef.Set`), Fido MUST use it. A thin DOMAIN WRAPPER is
+allowed and encouraged — instantiate a standard functor with a domain key, alias/delegate operations, enforce
+stronger domain construction (e.g. duplicate-rejection), define domain folds, prove project-specific facts,
+seal an interface over a standard map/set. Fido MUST NOT implement collection storage or generic algorithms
+itself: no project-authored map/set/dictionary/table/multimap/hash/balanced-tree/trie/membership-bag/
+adjacency collection, no `list + NoDup` as public identity-keyed storage, no parallel association-list
+backing/cache, no reimplemented find/mem/add/remove/balance/union, no raw standard-tree constructor as public
+API. Choose by SEMANTIC ROLE — identity-keyed → mature map; membership-only → mature set; ordered
+sequence/repetition/stack/transport enumeration → `list`; duplicate-invalid source → the AST sequence or a
+duplicate-REJECTING builder (never a silent `add` overwrite); graph → map-to-set. A map/set `elements` list is
+a DERIVED enumeration, never a second identity authority. A failed collection builder STAYS FAILED (no
+`Some c | None => empty` default). If none fits: document the mismatch + alternatives, report an architectural
+conflict, notify Rob, and stop — never autonomously implement a collection. This is an architectural review
+law backed by explicit audit and code inspection, NOT a brittle source-scanning "collection gate."
+
 ## The pipeline
 
 ```

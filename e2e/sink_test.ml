@@ -60,9 +60,13 @@ let () =
     Printf.printf "sink_test: perm differential OK (permuted entries -> identical trees) in %s\n" dir_a;
     exit 0
   end;
-  (* argv.(3) may be a '+'-separated set of faults (e.g. "fail-after-staging+unlink-fail") applied together *)
-  let faults = String.split_on_char '+' (if Array.length Sys.argv > 3 then Sys.argv.(3) else image) in
-  let has f = List.mem f faults in
+  (* argv.(3) is a '+'-separated SET of faults (e.g. "fail-after-staging+unlink-fail") applied together —
+     order and multiplicity are irrelevant, so this is a membership-only SET (C1B §7), reusing the sink's
+     already-shared standard [Set.Make(String)] rather than a raw [List.mem]. *)
+  let faults =
+    List.fold_left (fun s t -> Fido_sink.SSet.add t s) Fido_sink.SSet.empty
+      (String.split_on_char '+' (if Array.length Sys.argv > 3 then Sys.argv.(3) else image)) in
+  let has f = Fido_sink.SSet.mem f faults in
   let entries = match image with
     | "empty"        -> []
     | "multi"        -> [ ("main.go", mk "ROOT"); ("sub/main.go", mk "SUB") ]

@@ -6,8 +6,15 @@
     map/set.  (§2 pinned-stdlib research + §4 wrapper module.)
 
     Selected implementations (pinned rocq-stdlib 9.1.0):
-    - general string/ordered-key finite map: [FMapAVL] (the standard mature AVL finite map);
-    - positive-key finite map: [FMapPositive.PositiveMap] (the standard certified binary-trie map).
+    - general string/ordered-key finite map: [FMapAVL] (Rocq's mature standard ordered map; the standard
+      implementation uses AVL-tree operations);
+    - positive-key finite map: [FMapPositive.PositiveMap] (Rocq's mature standard positive-key map).
+
+    Honest claim: Fido PROVES the functional map semantics it consumes (and the project-specific facts below);
+    Fido does NOT claim a project kernel theorem for the AVL balance invariant or a machine-level O(log n)
+    complexity.  [FMapFullAVL] is the standard layer that additionally packages/proves the balance invariant —
+    NOT redundant; it is the appropriate candidate if formally-packaged balance ever becomes a required Fido
+    theorem (do not switch merely for wording).
     ============================================================================ *)
 From Stdlib Require Import String.
 From Stdlib Require Import Structures.OrderedType Structures.OrderedTypeEx.

@@ -165,6 +165,26 @@ Use for:
 
 Nonblocking observations do not prevent GREEN.
 
+## Collection-architecture review criterion
+
+Fido has a binding collection law (CLAUDE.md / ARCHITECTURE.md): use a mature standard collection when one
+exists; a thin domain wrapper is allowed, a project-authored collection implementation is not. When reviewing:
+
+- every new identity-keyed or membership-only collection must NAME its mature standard backing (a pinned Rocq
+  stdlib map/set, an OCaml `Map`/`Set`, or a Rocq runtime set such as `Names.GlobRef.Set`);
+- a retained `list` must have a source-order / repetition / positional-structure / rollback-stack / transport-
+  enumeration reason, OR be a derived `elements`/`bindings` enumeration whose identity authority is the map/set;
+- a project-authored collection STORAGE implementation (custom map/set/tree/trie/hash/multimap/graph, or
+  `list + NoDup` as public identity-keyed storage, or a parallel association-list backing) is BLOCKING unless an
+  explicit human-approved exception is recorded;
+- a standard map `add` that OVERWRITES and erases duplicate source evidence is BLOCKING — a source builder must
+  reject duplicates before insertion;
+- a builder failure that DEFAULTS to empty/default (`match build … with Some c => c | None => empty`) is
+  BLOCKING when failure means invalid structure.
+
+This is an architectural review law backed by explicit audit and code inspection. Do NOT add a brittle
+source-scanning "collection security gate" that pretends to prove architecture by regex.
+
 ## Green condition
 
 Return GREEN when there are:

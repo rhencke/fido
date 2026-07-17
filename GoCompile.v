@@ -1,12 +1,15 @@
 (** ============================================================================
     GoCompile — EXACT whole-PROGRAM static/compiler admissibility as EVIDENCE over the ONE raw program
-    (the [GoProgram]: a [ModuleSpec] + a possibly-EMPTY finite map of files), plus the derived
-    admissibility evidence ([ProgValid]) over that same program.  The empty program is accepted (no packages, one go.mod).
+    (the [GoProgram]: a [ModuleSpec] + a possibly-EMPTY standard [FilePath] map of files [GoFileMap]), plus the
+    derived admissibility evidence ([ProgValid]) over that same program.  The empty program is accepted (no
+    packages, one go.mod).
 
-    Whole-program package policy (a deliberate exact GENERATOR-language subset — not a model of arbitrary
-    human package clauses).  Because raw package clauses and imports are absent:
-      - files are grouped by parent directory ([fp_parent]); each directory is one package;
-      - the compiler-derived package name is `main`;
+    Whole-program package policy (a deliberate exact GENERATOR-language subset).  The package CLAUSE / NAME is
+    SOURCE syntax (each file's [source_package], [PkgMain] -> `main`, rendered by GoRender) — NOT a compiler-
+    derived name; imports are INTRINSICALLY absent today ([source_imports] is `nil` by construction).  Package
+    GROUPING and main/entry validity are COMPILATION RESULTS over the whole program:
+      - files are grouped by parent directory ([fp_parent]) — via a one-pass standard [PackageMap]; each
+        directory is one package;
       - every package must contain EXACTLY ONE admissible `main` declaration across all its files
         (zero rejects the whole program; more than one rejects the whole program);
       - the whole program is TYPED through [GoTypes] ([ProgramTyped] — every `println` argument resolves to a
@@ -14,8 +17,7 @@
         complex conversion is valid — the one [convert_const] authority);
       - one invalid package rejects the WHOLE program (all-or-nothing; no per-file partial acceptance);
       - multiple valid main packages in different directories are accepted, matching `go build ./...`;
-      - an empty file is accepted when its package's single `main` is elsewhere;
-      - imports are impossible (no import syntax), so the derived import set is empty for every file.
+      - an empty file is accepted when its package's single `main` is elsewhere.
 
     HONESTY — two distinct claims:
     A. KERNEL-internal exactness (PROVED here): [go_compile] succeeds exactly for the declarative
