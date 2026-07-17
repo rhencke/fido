@@ -28,6 +28,7 @@
     types, concurrency, or non-`main` package clauses.  Anything else is UNREPRESENTABLE.
     ============================================================================ *)
 From Stdlib Require Import NArith List String.
+From Stdlib Require Import Permutation SetoidList.
 From Fido Require Import FilePath Collections ModulePath GoVersion Ints Floats Complexes.
 Import ListNotations.
 
@@ -237,6 +238,56 @@ Proof.
       exists n. split; [ right; exact Hin | split; [ exact Hp | exact Hsf ] ].
 Qed.
 
+(** the FULL find-characterization (both exactness directions in one iff): a key maps to a source in the built
+    map IFF some input node carries exactly that path and source. *)
+Lemma filemap_of_nodes_find : forall nodes fm p sf,
+  filemap_of_nodes nodes = Some fm ->
+  (find_file p fm = Some sf <-> exists n, In n nodes /\ file_path n = p /\ file_source n = sf).
+Proof.
+  intros nodes fm p sf Hbuild. unfold find_file. split.
+  - intro Hf. apply FMF.find_mapsto_iff in Hf. exact (filemap_of_nodes_mapsto_source nodes fm Hbuild p sf Hf).
+  - intros [n [Hin [Hp Hsf]]]. apply FMF.find_mapsto_iff.
+    pose proof (filemap_of_nodes_maps_to nodes fm Hbuild n Hin) as Hmt.
+    unfold maps_to_file in Hmt. rewrite Hp, Hsf in Hmt. exact Hmt.
+Qed.
+
+(** a repeated path REJECTS the build whether the two sources are EQUAL … *)
+Lemma filemap_of_nodes_duplicate_rejects : forall p sf,
+  filemap_of_nodes (mkFileNode p sf :: mkFileNode p sf :: nil) = None.
+Proof.
+  intros p sf. apply filemap_of_nodes_none_iff_duplicate. simpl.
+  intro Hnd. inversion Hnd as [ | x l Hni _ ]; subst. apply Hni. left. reflexivity.
+Qed.
+
+(** … or DIFFER — the standard-map overwrite never silently erases the earlier source. *)
+Lemma filemap_of_nodes_duplicate_different_source_rejects : forall p sf1 sf2,
+  filemap_of_nodes (mkFileNode p sf1 :: mkFileNode p sf2 :: nil) = None.
+Proof.
+  intros p sf1 sf2. apply filemap_of_nodes_none_iff_duplicate. simpl.
+  intro Hnd. inversion Hnd as [ | x l Hni _ ]; subst. apply Hni. left. reflexivity.
+Qed.
+
+(** ORDER-INDEPENDENCE (§6): permuting the input nodes yields a SEMANTICALLY EQUAL map ([FilesEqual], not
+    record [=]) — construction order never leaks into the source forest. *)
+Lemma filemap_of_nodes_permutation : forall nodes1 nodes2 fm1 fm2,
+  Permutation nodes1 nodes2 ->
+  filemap_of_nodes nodes1 = Some fm1 -> filemap_of_nodes nodes2 = Some fm2 ->
+  FilesEqual fm1 fm2.
+Proof.
+  intros nodes1 nodes2 fm1 fm2 Hperm H1 H2 p.
+  destruct (FM.find p fm1) as [sf|] eqn:E1.
+  - apply (filemap_of_nodes_find nodes1 fm1 p sf H1) in E1. destruct E1 as [n [Hin [Hp Hs]]].
+    symmetry. apply (filemap_of_nodes_find nodes2 fm2 p sf H2).
+    exists n. split; [ apply (Permutation_in _ Hperm); exact Hin | split; [ exact Hp | exact Hs ] ].
+  - destruct (FM.find p fm2) as [sf|] eqn:E2; [ | reflexivity ].
+    exfalso. apply (filemap_of_nodes_find nodes2 fm2 p sf H2) in E2. destruct E2 as [n [Hin [Hp Hs]]].
+    assert (Hbad : find_file p fm1 = Some sf).
+    { apply (filemap_of_nodes_find nodes1 fm1 p sf H1).
+      exists n. split; [ apply (Permutation_in _ (Permutation_sym Hperm)); exact Hin
+                       | split; [ exact Hp | exact Hs ] ]. }
+    unfold find_file in Hbad. rewrite E1 in Hbad. discriminate.
+Qed.
+
 
 (** ---- the module spec: intrinsic facts about the GENERATED module (not environment config) ---- *)
 
@@ -284,3 +335,13 @@ Definition build_program (ms : ModuleSpec) (nodes : list GoFileNode) : option Go
   | None => None
   | Some fm => Some (mkProgram ms fm)
   end.
+
+(** [build_program] is EXACT over the duplicate-rejecting builder: it succeeds IFF the file paths are unique
+    (it fails ONLY on a duplicate path). *)
+Theorem build_program_some_iff_unique : forall ms nodes,
+  (exists p, build_program ms nodes = Some p) <-> NoDup (List.map file_path nodes).
+Proof.
+  intros ms nodes. unfold build_program. rewrite <- filemap_of_nodes_success_iff_unique. split.
+  - intros [p Hp]. destruct (filemap_of_nodes nodes) as [fm|] eqn:E; [ eexists; reflexivity | discriminate ].
+  - intros [fm Hfm]. rewrite Hfm. eexists; reflexivity.
+Qed.

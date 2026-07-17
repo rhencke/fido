@@ -43,12 +43,30 @@ let () =
   (* argv.(2) = the image selector; argv.(3) (if present) = the fault selector, else the same token does
      both — so `sink_test dir multi crash-after-staging` freezes a multi image at a fault point. *)
   let image = if Array.length Sys.argv > 2 then Sys.argv.(2) else "" in
+  (* §11.6 PERMUTATION DIFFERENTIAL: two multi-file images whose entries are handed to the sink in DIFFERENT
+     orders must produce byte-IDENTICAL trees — the sink keys desired outputs by path in a standard map, so
+     output never depends on transport order.  (`a/x.go` sorts before `go.mod`, so this also exercises the
+     case where the module file is NOT the first staged/installed file.) *)
+  if image = "perm" then begin
+    let es1 = [ ("main.go", mk "ROOT"); ("sub/main.go", mk "SUB"); ("a/x.go", mk "AX") ] in
+    let es2 = [ ("a/x.go", mk "AX"); ("sub/main.go", mk "SUB"); ("main.go", mk "ROOT") ] in
+    let dir_a = root and dir_b = root ^ "-perm-b" in
+    let _ = Fido_sink.sync dir_a go_mod es1 in
+    let _ = Fido_sink.sync dir_b go_mod es2 in
+    List.iter (fun (rel, _) ->
+      let a = read_all (Filename.concat dir_a rel) and b = read_all (Filename.concat dir_b rel) in
+      if a <> b then (Printf.eprintf "sink_test: perm mismatch at %s\n" rel; exit 1))
+      (("go.mod", "") :: es1);
+    Printf.printf "sink_test: perm differential OK (permuted entries -> identical trees) in %s\n" dir_a;
+    exit 0
+  end;
   (* argv.(3) may be a '+'-separated set of faults (e.g. "fail-after-staging+unlink-fail") applied together *)
   let faults = String.split_on_char '+' (if Array.length Sys.argv > 3 then Sys.argv.(3) else image) in
   let has f = List.mem f faults in
   let entries = match image with
     | "empty"        -> []
     | "multi"        -> [ ("main.go", mk "ROOT"); ("sub/main.go", mk "SUB") ]
+    | "dup"          -> [ ("main.go", mk "A"); ("main.go", mk "B") ]  (* §11.6: duplicate rel path -> reject *)
     | "reserved"     -> [ (".fido/x.go", mk "X") ]         (* .fido as first component *)
     | "p-nestedfido" -> [ ("sub/.fido/x.go", mk "X") ]     (* .fido as a NESTED component *)
     | "p-vendor"     -> [ ("vendor/main.go", mk "V") ]     (* a `go build`-ignored dir *)

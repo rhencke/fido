@@ -4,12 +4,13 @@
 raw Go program and arbitrary supporting lemmas; **no Go is emitted unless Rocq first proves the whole
 program compile-admissible and safe.** There is **one** program representation — the AST *is* the IR; a
 `GoProgram` is an intrinsic `ModuleSpec` (module path + Go version) paired with a (possibly EMPTY)
-path-keyed `GoFileSet` — a source forest of specification-shaped file roots (a `GoFileNode` = a `FilePath` +
-a `GoSourceFile` = a source-owned package clause + empty imports + top-level declarations); "compiled" and
-"safe" are PROOFS/EVIDENCE + derived facts over that one program, never new trees:
+`GoFileMap` — a STANDARD pinned-stdlib `FilePath`-keyed finite map (`FMapAVL`) of specification-shaped source
+file roots, the PATH is the map KEY (never stored in the mapped value); a construction/view `GoFileNode` = a
+`FilePath` + a `GoSourceFile` (= a source-owned package clause + empty imports + top-level declarations);
+"compiled" and "safe" are PROOFS/EVIDENCE + derived facts over that one program, never new trees:
 
 ```
-GoProgram (ModuleSpec + a possibly-empty GoFileSet source forest) -> GoTypes (each raw literal is an
+GoProgram (ModuleSpec + a possibly-empty GoFileMap standard source-file map) -> GoTypes (each raw literal is an
       exact UNTYPED GoConst; an explicit EIntConvert/EFloatConvert/EComplexConvert is a TYPED constant; a use
       context resolves it through the ONE GoType authority {TBool, the integer family TInteger over the
       ten-member IntegerType, the float family TFloat over FloatType, the complex family TComplex over
@@ -108,6 +109,12 @@ algorithm, report an architectural conflict and stop. Do not implement an altern
    test driver, and the `make regenerate` apply CLI — filesystem ONLY, walk no Rocq terms — the sink REJECTS
    foreign Go/module inputs and nested `.fido`, stages the complete image into RESERVED sibling temps
    `<final>.fido-tmp-v1`, installs by atomic rename, and two-phase-recovers abandoned temps fail-closed).
+   The OCaml uses mature runtime collections for identity/membership (C1A §11): the sink keys desired outputs
+   by path in a `Map.Make(String)` (rejecting a duplicate path before any effect; canonical path-sorted
+   iteration independent of transport order) and holds stale-target / abandoned-temp membership in a
+   `Set.Make(String)`; the bridge's assumption-audit roots use `Names.GlobRef.Set`; the transport `list` stays
+   a certified enumeration validated into the map, never itself the identity authority. Lists remain ONLY for
+   the rollback stacks (order-meaningful). NEVER a raw `List.mem`/`::` identity authority or a custom hash/tree.
    `tools/ocaml-origin-gate.sh` enforces exactly these four with those boundaries — inspecting every tracked
    source at every depth (a repository-content gate, pruning only `.git`; NOT the runtime sink's opaque-dir
    skip), with NO source-line size cap (a numeric cap is not a correctness invariant). NEVER reintroduce a
@@ -159,13 +166,18 @@ algorithm, report an architectural conflict and stop. Do not implement an altern
    well-formed value of its resolved type (`eval_expr_resolved`); `render_const_info_denotes` /
    `render_resolved_expr_denotes` (via the ONE `RenderedConstInfoDenotes`) tie the rendered spelling to the
    analyzed `ConstInfo` — a bare integer UNTYPED, a conversion typed — and to that value and its type. Every admitted primitive has its complete type/value/render/syntax proofs NOW.
-8. **The program is a `ModuleSpec` + a WHOLE-PROGRAM path-keyed SOURCE FOREST with intrinsic paths, and
+8. **The program is a `ModuleSpec` + a WHOLE-PROGRAM STANDARD FilePath MAP of source files, and
    integer width, float format, AND the type universe each have one authority.** `GoProgram` is `{ prog_module
-   : ModuleSpec ; prog_files : GoFileSet }`; the source forest MAY be EMPTY (a module-only program); each
-   `GoFileNode` carries its intrinsic canonical `FilePath` (ONE path authority — raw strings are NOT paths;
-   package discovery depends on them), and `GoFileSet` is path-unique by construction (`file_paths_unique`).
-   Files group by directory into packages; the package clause is SOURCE-owned (`source_package`), entry point
-   is a compilation result. `ModuleSpec` (intrinsic `ModulePath` +
+   : ModuleSpec ; prog_files : GoFileMap }` where `GoFileMap = FileMapBase.t GoSourceFile` (the pinned-stdlib
+   `FMapAVL` over a `FilePath` ordered key); the map MAY be EMPTY (a module-only program); the PATH is the map
+   KEY (ONE path authority — raw strings are NOT paths; package discovery depends on them), so a duplicate path
+   is unrepresentable by construction and the duplicate-rejecting builder `filemap_of_nodes` is sound + complete
+   + exact (each node maps to its own source, no silent overwrite). `GoFileNode` is a construction/view value,
+   NOT the stored map value; a `GoFileMap` binding IS the file-root program occurrence; semantic file-map
+   equality is standard map `Equal` (≠ record `=`); enumerations (`file_bindings`/`prog_keys`) are CANONICAL
+   derived lists. Files group by directory into packages via a one-pass `PackageMap` aggregation (§8, no
+   O(files²) scan); the package clause is SOURCE-owned (`source_package`), entry point is a compilation result.
+   `ModuleSpec` (intrinsic `ModulePath` +
    singleton `GoVersion`) describes the GENERATED module, NOT the environment — it is NOT a `TargetConfig`;
    `go.mod` is not a `FilePath`. The one integer-family + range authority is `Ints` (the ten-member
    `IntegerType`; `int`/`uint` pinned 64-bit and DISTINCT from `int64`/`uint64` though they share a range on
@@ -185,9 +197,11 @@ algorithm, report an architectural conflict and stop. Do not implement an altern
 ## The layers (one authority each, over the ONE program)
 
 `FilePath` — the intrinsic canonical relative-path domain (decidable eq, `fp_parent` package key; strange
-paths unrepresentable). · `FMap` — key-generic finite map; `fm_keys_nodup` (THE invariant) +
-`dup_key_unrepresentable`; `fm_MapsTo_fun` (distinct deterministic-lookup fact); `fm_Equal` (semantic eq ≠
-record `=`); `fm_of_list` rejects duplicate keys. · `Ints` — the ten-member `IntegerType` family + the ONE
+paths unrepresentable). · `Collections` — the ONE standard-collection foundation: thin wrappers over pinned
+rocq-stdlib `FMapAVL` (the `FileMapBase` file map over a `FilePath` ordered key, the `PackageMapBase` map over
+the `String` key) and `FMapPositive` (`NodeMapBase`) — Fido authors NO map/set; the wrapper facts
+(`fp_str_inj`, `filemap_elements_Equal`: extensionally-equal maps have the SAME canonical `elements`) are
+axiom-free. · `Ints` — the ten-member `IntegerType` family + the ONE
 representability / range / keyword authority (`int`/`uint` pinned 64-bit, distinct from `int64`/`uint64`;
 `int_min`/`int_max`/`uint_max` derived). · `Floats` — the ONE float-format authority: the two-member
 `FloatType` (F32/F64; precision 24/53, exponent bound 128/1024), the exact canonical-rational `FloatConst`
@@ -203,9 +217,11 @@ of general `FloatValue` components — may be -0/inf/NaN); the bounded raw-liter
 `ModulePath` —
 the intrinsic narrow canonical module-path domain (decidable eq; invalid paths unrepresentable). ·
 `GoVersion` — singleton `Go1_23`, renders "1.23". · `GoAST` — `ModuleSpec` + `GoProgram := { prog_module ;
-prog_files : GoFileSet }` (the source forest MAY be empty); each `GoFileNode` = `FilePath` + `GoSourceFile`
-(source-owned `PkgMain` package clause + intrinsically-empty imports + `source_decls`); `GoFileSet`
-path-unique by construction (`find_file`/`file_paths`/`FilesEqual`, dup paths unrepresentable); raw `GoDecl`
+prog_files : GoFileMap }` (`GoFileMap = FileMapBase.t GoSourceFile`, MAY be empty); the map key is the path;
+a construction/view `GoFileNode` = `FilePath` + `GoSourceFile` (source-owned `PkgMain` package clause +
+intrinsically-empty imports + `source_decls`); the file-map API (`find_file`/`file_bindings`/`file_paths`/
+`FilesEqual`) + the sound/complete/exact/order-independent duplicate-rejecting builder (`filemap_of_nodes`
+success-iff-unique / none-iff-duplicate / maps_to / mapsto_source / permutation) + `build_program`; raw `GoDecl`
 (`DMain`), `SPrintln`,
 `EBool`/`EInt`/`ENeg`/`EString` (string = exact bytes)/`EIntConvert` (integer conversion)/`EFloat` (a bounded
 finite-decimal literal)/`EFloatConvert` (float conversion)/`EComplex` (a semantic complex literal, `complex(re,
@@ -225,11 +241,15 @@ zero-imaginary rule; bool/string source-or-target reject) + the `ConstInfo` anal
 `TFloat F64`, bare complex → `TComplex C128`; a typed constant PACKS unchanged into a `ResolvedConst`, validity INTRINSIC) + `ConstRepresentable`
 DERIVED from successful typing (`type_untyped_const_at`, no second range/overflow checker; every string
 representable as `TString`), reflected `ResolveExpr` with its `ResolvedConst` witness (`resolve_expr_const`),
-`Stmt/Decl/File/ProgramTyped` (empty forest typed vacuously). · `GoCompile` —
-whole-program directory→package + exactly-one-main + whole-program typing (`GoCompile p := ProgValid p =
+`Stmt/Decl/File/ProgramTyped` map-based (`ProgramTyped` over `maps_to_file`, respects `FilesEqual`; empty map
+typed vacuously). · `GoCompile` —
+whole-program typing + one-pass `PackageMap` grouping via a single `FM.fold` into `PackageSummary` (each file
+contributes its `main` count once to its `fp_parent` package; the fold is characterized EXACTLY —
+count = sum, no empty package — and is order-independent) + exactly-one-main (`GoCompile p := ProgValid p =
 ProgramTyped p ∧ AllPackagesOneMain p`, via GoTypes; empty program accepted); `go_compile` sound/complete
-(`prog_ok_iff`); honest `ErrTyping`; typing exposed by canonical projection (`compile_program_typed`) — NO
-`CompilationFacts`/`cf_pkg_name` (the package clause is source-owned). · `GoSafe` — real `GoValue` (`VBool`/`VInteger IntegerType Z`/
+(`prog_ok_iff`), its accept/error class invariant under file insertion order; honest `ErrTyping`; typing
+exposed by canonical projection (`compile_program_typed`) — NO `CompilationFacts`/`cf_pkg_name` (the package
+clause is source-owned). · `GoSafe` — real `GoValue` (`VBool`/`VInteger IntegerType Z`/
 `VFloat ft (FloatValue ft)`/`VComplex ct (ComplexValue ct)`/`VString`), `value_type` over the same `GoType`,
 `ValueWF` range invariant (a float's / complex component's canonicality lives in `FloatValue`), PARTIAL
 `eval_expr` (`const_info` → `resolve_const_info` →
@@ -243,8 +263,12 @@ floats via ONE canonical decimal spelling (`render_decimal`) with an INDEPENDENT
 `decode_render_decimal`); complexes via ONE canonical `complex(<real>, <imag>)` spelling (both components via
 `render_decimal`) with an INDEPENDENT decoder + semantic round trip; header exact first line; all-ASCII (bytes ≥ 128 only via `\xhh`); the ONE
 constant-status render root `render_const_info_denotes` (FUNCTIONAL — `render_const_info_denotes_functional`:
-one spelling, at most one ConstInfo) / `render_resolved_expr_denotes`. · `GoEmit` — provenance-gated `DirectoryImage` (go.mod +
-.go map); `render_program`; `di_transport`. · `plugin/g_fido.mlg` — the `Fido Emit` transport command +
+one spelling, at most one ConstInfo) / `render_resolved_expr_denotes`; `render_file` STRUCTURALLY consumes the
+(intrinsically-empty) `source_imports` so a future import forces a renderer update. · `GoEmit` —
+provenance-gated `DirectoryImage` (go.mod + `di_go_files : FileMapBase.t string`, the standard `FM.map
+render_file` of the source map; `di_go_file_entries` a CANONICAL `FileMap.elements` transport list); rendered
+map has the same key domain + exact bytes as the source, respects `FilesEqual`, and `di_transport` is
+independent of input-node order; `render_program`; `di_transport`. · `plugin/g_fido.mlg` — the `Fido Emit` transport command +
 whole-theory audit. · `plugin/fido_sink.ml` — the foreign-Go-rejecting sibling-temp sink. · `digits` —
 leaf authority.
 
@@ -290,10 +314,14 @@ kill stale `docker buildx build` processes first; run long builds detached and p
 
 ## Files
 
-- **Certified theory** (`dune`): `digits.v`, `Ints.v`, `Floats.v`, `Complexes.v`, `FilePath.v`, `FMap.v`,
-  `ModulePath.v`, `GoVersion.v`, `GoAST.v`, `GoTypes.v`, `GoCompile.v`, `GoSafe.v`, `GoRender.v`, `GoEmit.v`.
+- **Certified theory** (`dune`): `digits.v`, `Ints.v`, `Floats.v`, `Complexes.v`, `FilePath.v`,
+  `Collections.v` (the ONE standard-collection foundation — pinned `FMapAVL`/`FMapPositive` wrappers; there is
+  NO project-authored `FMap.v`, deleted at C1A), `ModulePath.v`, `GoVersion.v`, `GoAST.v`, `GoTypes.v`,
+  `GoCompile.v`, `GoSafe.v`, `GoRender.v`, `GoEmit.v`.
   `OccurrenceSpike.v` is a TEMPORARY, isolated, axiom-free Source-Forest-C0 proof spike (imports only
-  `FilePath`; NOT imported by the pipeline; deleted when the production `GoIndex` lands at C2).
+  `FilePath` + `Collections`; its per-file index is `Collections.NodeMapBase` (`FMapPositive`) and its toy
+  forest a `FileMapBase` map — no hidden slot, no custom trie; NOT imported by the pipeline; deleted when the
+  production `GoIndex` lands at C2).
 - `plugin/g_fido.mlg` — the Fido Emit transport bridge + the whole-theory audit; `plugin/fido_sink.ml` —
   the foreign-Go-rejecting sibling-temp sink; `plugin/dune` — the plugin library. `e2e/Witness.v` — the
   witness (emitted explicitly, and the canonical tracked module); `e2e/WitnessMulti.v` — the multi-package

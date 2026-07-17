@@ -49,6 +49,14 @@
    Fallible/nondeterministic ops are PARAMETERS (checkpoint/unlink/rename/before_install/before_write/
    before_delete) so the driver injects faults through the REAL algorithm; the plugin always uses defaults. *)
 
+(* C1A §11: identity-keyed / membership-only collections use the OCaml runtime's mature [Map]/[Set] — the
+   sink authors no hash/tree.  [SMap] keys the desired outputs by their relative path (rejecting a duplicate
+   before any effect; [bindings] gives a canonical path-sorted iteration independent of transport order);
+   [SSet] holds the unordered-unique desired-target set (stale-file membership) and abandoned-temp set.
+   Lists remain ONLY where order is meaningful (the [created_dirs]/[created_temps] rollback stacks). *)
+module SMap = Map.Make (String)
+module SSet = Set.Make (String)
+
 let control_dir  = ".fido"
 let marker_name  = "marker"
 let marker_bytes = "fido-control-directory.  do not edit.\n"
@@ -218,7 +226,7 @@ let rec inspect root header rel temps =
           let final = String.sub child_rel 0 (String.length child_rel - String.length temp_suffix) in
           if not (temp_maps_to_final final) then
             fail "a reserved-suffix entry %s does not map to a Fido final path (root go.mod or an intrinsic FilePath .go) — refusing (preserved)" child_rel
-          else if k = Unix.S_REG then temps := p :: !temps
+          else if k = Unix.S_REG then temps := SSet.add p !temps
           else fail "a reserved-suffix entry %s is a symlink/directory/special, not a regular temp — refusing" child_rel
         end
         else if name = gomod_name then
@@ -247,7 +255,7 @@ let rec inspect root header rel temps =
 (* ---- PHASE 2: after the COMPLETE scan succeeds, delete each validated abandoned temp (re-lstat: still a
    regular non-symlink reserved-suffix file); fail loud on any mismatch or deletion error. ---- *)
 let delete_temps unlink temps =
-  List.iter (fun p ->
+  SSet.iter (fun p ->
     match lstat_obs p with
     | Present st when st.Unix.st_kind = Unix.S_REG && ends_with temp_suffix p ->
         (try unlink p with Unix.Unix_error (e,_,_) -> fail "cannot remove abandoned temp %s: %s" p (Unix.error_message e))
@@ -273,7 +281,7 @@ let rec remove_stale_go unlink before_delete root header desired rel =
         if st.Unix.st_kind = Unix.S_DIR then
           (if go_ignored_dir name then () else remove_stale_go unlink before_delete root header desired child_rel)
         else if ends_with ".go" name && not (go_ignored_name name) && st.Unix.st_kind = Unix.S_REG
-                && read_first_line p = header && not (List.mem p desired)
+                && read_first_line p = header && not (SSet.mem p desired)
         then begin
           before_delete p;                          (* test seam: a race can mutate p here *)
           (* recheck ownership IMMEDIATELY before delete and ABORT fail-closed on ANY mismatch/error (the
@@ -339,12 +347,23 @@ let sync ?(checkpoint = fun _ -> ()) ?(unlink = Unix.unlink) ?(rename = Unix.ren
         FilePath `.go` domain (lowercase canonical components, no `.fido`/`..`/`_`/upper, no `vendor`/
         `testdata` dir, `.go` basename, <=200 bytes) — so a noncanonical path or a nested control name is
         rejected BEFORE any effect and can never be materialized by [ensure_dir_chain] *)
-  let desired =
-    (Filename.concat dir gomod_name, "", gomod_name, go_mod)
-    :: List.map (fun (rel, bytes) ->
-         if not (filepath_ok rel) then fail "refusing a path outside the intrinsic FilePath `.go` domain: %s" rel;
-         let (parent_rel, base) = split_parent (String.split_on_char '/' rel) in
-         (Filename.concat dir rel, parent_rel, base, bytes)) entries in
+  (* immediately validate the transport entries into a desired-output MAP keyed by relative path — REJECTING
+     a duplicate relative path BEFORE any filesystem effect (a standard map's [add] would silently overwrite),
+     and deriving a CANONICAL path-sorted iteration ([SMap.bindings]) that does NOT depend on transport order:
+     permuted entries produce the same map and hence the same final directory (C1A §11.1).  The transport list
+     itself stays a list — it is a certified enumeration, not the identity/membership authority. *)
+  let desired_map =
+    let add m rel v =
+      if SMap.mem rel m then fail "refusing a duplicate output path: %s" rel;
+      SMap.add rel v m in
+    let m0 = add SMap.empty gomod_name (Filename.concat dir gomod_name, "", gomod_name, go_mod) in
+    List.fold_left (fun m (rel, bytes) ->
+      if not (filepath_ok rel) then fail "refusing a path outside the intrinsic FilePath `.go` domain: %s" rel;
+      let (parent_rel, base) = split_parent (String.split_on_char '/' rel) in
+      add m rel (Filename.concat dir rel, parent_rel, base, bytes)) m0 entries in
+  let desired = List.map snd (SMap.bindings desired_map) in
+  (* the unordered-unique set of desired TARGET paths — for O(log n) stale-file membership (not List.mem). *)
+  let desired_targets = List.fold_left (fun s (t,_,_,_) -> SSet.add t s) SSet.empty desired in
   (* C. ensure root + the owned control directory (marker only — NO records/stage dirs) *)
   ensure_root_and_control dir control_abs;
   (* D. acquire the emission lock (git-style O_EXCL) *)
@@ -356,8 +375,9 @@ let sync ?(checkpoint = fun _ -> ()) ?(unlink = Unix.unlink) ?(rename = Unix.ren
   let created_dirs = ref [] and created_temps = ref [] in
   let temp_of (target,_,_,_) = target ^ temp_suffix in
   let body () =
-    (* E. PHASE 1 — inspect the Go-discovered namespace fail-closed, collecting VALID mapped abandoned temps (no deletion) *)
-    let temps = ref [] in
+    (* E. PHASE 1 — inspect the Go-discovered namespace fail-closed, collecting VALID mapped abandoned temps
+          into an unordered-unique SET (no deletion) *)
+    let temps = ref SSet.empty in
     inspect dir header "" temps;
     (* F. PHASE 2 — delete the validated abandoned temps *)
     delete_temps unlink !temps;
@@ -403,8 +423,8 @@ let sync ?(checkpoint = fun _ -> ()) ?(unlink = Unix.unlink) ?(rename = Unix.ren
               fail "cross-device install %s -> %s (a sibling temp must be on the target filesystem; no copy fallback)" tp target
           | Unix.Unix_error (e, _, _) -> fail "cannot install %s: %s" target (Unix.error_message e));
       if i = 0 then checkpoint "after-first-install") desired;
-    (* J. remove stale Fido-owned .go not in the desired set (empty program removes them all) *)
-    remove_stale_go unlink before_delete dir header (List.map (fun (t,_,_,_) -> t) desired) "";
+    (* J. remove stale Fido-owned .go not in the desired target SET (empty program removes them all) *)
+    remove_stale_go unlink before_delete dir header desired_targets "";
     List.length desired in
   (* handled-failure cleanup (§14): remove every sibling temp this invocation created that is STILL a regular
      reserved-suffix file (an already-installed one is Missing at its temp path — skip); then remove

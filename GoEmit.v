@@ -146,3 +146,43 @@ Proof.
   apply NoDup_map_inj; [ exact fp_eq | ].
   apply NoDupA_eqk_map_fst, FM.elements_3w.
 Qed.
+
+(** ---- §9 rendering EXACTNESS + ORDER-INDEPENDENCE over the standard file map ---- *)
+
+(** the rendered map has the SAME key domain as the source file map (the standard [map] preserves keys). *)
+Lemma render_map_domain : forall sp p,
+  FM.In p (render_map sp) <-> FM.In p (prog_files (sp_program sp)).
+Proof. intros sp p. unfold render_map, GoAST.map_file_values. apply FMF.map_in_iff. Qed.
+
+(** every rendered binding is EXACTLY [render_file] of the source at that path (the standard [map] law). *)
+Lemma render_map_binding : forall sp p bytes,
+  FM.MapsTo p bytes (render_map sp)
+  <-> exists sf, bytes = render_file sf /\ FM.MapsTo p sf (prog_files (sp_program sp)).
+Proof. intros sp p bytes. unfold render_map, GoAST.map_file_values. apply FMF.map_mapsto_iff. Qed.
+
+(** [FilesEqual] source maps render to [FM.Equal] rendered maps — rendering respects semantic map equality. *)
+Lemma render_map_Equal : forall fm1 fm2,
+  GoAST.FilesEqual fm1 fm2 -> FM.Equal (FM.map render_file fm1) (FM.map render_file fm2).
+Proof. intros fm1 fm2 Heq p. rewrite !FMF.map_o. rewrite (Heq p). reflexivity. Qed.
+
+(** the CANONICAL derived transport list of two extensionally-equal rendered maps is EQUAL (the standard AVL
+    [elements] is sorted, so it is a function of the map's meaning — [Collections.filemap_elements_Equal]). *)
+Lemma di_go_file_entries_Equal : forall img1 img2,
+  FM.Equal (di_go_files img1) (di_go_files img2) -> di_go_file_entries img1 = di_go_file_entries img2.
+Proof.
+  intros img1 img2 HEq. unfold di_go_file_entries.
+  rewrite (Collections.filemap_elements_Equal _ _ HEq). reflexivity.
+Qed.
+
+(** the whole transport is INDEPENDENT of the original input-node order: two safe programs over the SAME
+    module spec whose file maps are [FilesEqual] (e.g. built from permuted node lists) transport identically. *)
+Theorem di_transport_order_independent : forall sp1 sp2,
+  prog_module (sp_program sp1) = prog_module (sp_program sp2) ->
+  GoAST.FilesEqual (prog_files (sp_program sp1)) (prog_files (sp_program sp2)) ->
+  di_transport (render_program sp1) = di_transport (render_program sp2).
+Proof.
+  intros sp1 sp2 Hmod Hfiles. unfold di_transport. f_equal.
+  - cbn [render_program di_go_mod]. unfold render_go_mod_of. rewrite Hmod. reflexivity.
+  - apply di_go_file_entries_Equal. cbn [render_program di_go_files].
+    unfold render_map, GoAST.map_file_values. apply render_map_Equal. exact Hfiles.
+Qed.

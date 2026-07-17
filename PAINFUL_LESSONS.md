@@ -22,9 +22,10 @@ stop. When an entry stops being a live temptation, delete it.
    `FilePath` key.
 
 3. **Gate the invariant you actually advertise.** A functional first-match lookup theorem holds even over a
-   duplicate-keyed list, so it is NOT evidence of key uniqueness (that is the carried `NoDup` +
-   `dup_key_unrepresentable`). "Axiom-free" is necessary, never sufficient: a kernel-checked proof can still
-   prove a weak/irrelevant/self-referential claim. Always check the STATEMENT.
+   duplicate-keyed list, so it is NOT evidence of key uniqueness. (Fido once carried key uniqueness as a
+   `NoDup` field beside an exposed association list; that was the wrong foundation — see lesson 14 — and is now
+   a STANDARD finite map whose keys are unique by construction.) "Axiom-free" is necessary, never sufficient:
+   a kernel-checked proof can still prove a weak/irrelevant/self-referential claim. Always check the STATEMENT.
 
 4. **Handwritten OCaml is TRANSPORT, never language semantics.** The permitted boundary typechecks the image
    type, rejects a non-empty assumption closure (a kernel provenance query — NOT decoding proofs/programs),
@@ -104,3 +105,16 @@ stop. When an entry stops being a live temptation, delete it.
     The decoder is a DENOTATION tool, not a general Go parser — real-Go parse acceptance is external adequacy
     (the differential + boundary-byte e2e). No string operations exist yet: bytes in, canonical ASCII literal
     out (bytes ≥ 128 only via `\xhh`).
+
+14. **The collection algebra is part of the model; a list with a uniqueness proof is not a map.** Fido used
+    exposed association lists plus `NoDup` as finite maps. That looked small and proof-friendly, but lookup
+    and construction were linear/quadratic, physical order leaked into compiler definitions, and every consumer
+    needed permutation/congruence proofs to recover the semantics the datatype should have expressed.
+    Identity-keyed state uses mature Rocq finite maps (`FMapAVL` behind a `FilePath`/`String` key, `FMapPositive`
+    for positive keys); membership-only state uses mature finite sets; duplicate-invalid source bindings use
+    maps to occurrence buckets until validation; ordered syntax/execution stays a list; map/set lists are
+    DERIVED enumerations only (`elements` of an ordered map is a function of the map's meaning, so extensionally
+    equal maps enumerate identically). A thin domain wrapper is welcome. A project-authored general collection
+    implementation is not. The standard map's `add` OVERWRITES, so a source builder must DETECT a duplicate key
+    before insertion (fail loud) rather than erase the evidence a diagnostic will need — the same discipline in
+    OCaml transport (`Map.Make`/`Set.Make`, `GlobRef.Set`), never a raw `List.mem`/`::` identity authority.

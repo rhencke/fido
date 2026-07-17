@@ -149,8 +149,10 @@ Print Assumptions GoVersion.goversion_eqb_eq.
 
 (* the ONE standard-collection foundation (C1A): the [FilePath] ordered key and the standard AVL/positive
    map wrappers are backed by pinned rocq-stdlib [FMapAVL]/[FMapPositive] — Fido authors no map/set.  The
-   [FilePath] ordered-type law ([fp_str_inj]) that keys the standard file map is axiom-free. *)
+   [FilePath] ordered-type law ([fp_str_inj]) that keys the standard file map is axiom-free, and the sorted
+   AVL [elements] of extensionally-equal maps are the SAME canonical list ([filemap_elements_Equal]). *)
 Print Assumptions Collections.fp_str_inj.
+Print Assumptions Collections.filemap_elements_Equal.
 
 (* GoTypes — the ONE type authority (EVIDENCE over the raw AST): zero-sign constant equality; default-type
    exactness (int / FLOAT->float64); representability reflection; the constant-status analysis [const_info]
@@ -169,6 +171,11 @@ Print Assumptions GoTypes.resolve_expr_deterministic.
 Print Assumptions GoTypes.stmt_typedb_iff.
 Print Assumptions GoTypes.program_typedb_iff.
 Print Assumptions GoTypes.empty_program_typed.
+(* §7 map-based typing is ORDER-INDEPENDENT: it respects semantic map equality (as a Prop and reflected as a
+   bool) and is therefore invariant under reordered [build_program] construction. *)
+Print Assumptions GoTypes.ProgramTyped_Equal.
+Print Assumptions GoTypes.program_typedb_Equal.
+Print Assumptions GoTypes.program_typedb_build_permutation.
 (* type-at-use: a bare literal defaults to int; the int boundaries resolve, one past does not; a huge
    (>2^64) constant is exact but resolves to no integer type; explicit uint64/int64 type-at-use behaviour *)
 Print Assumptions GoTypes.res_int_default.
@@ -280,6 +287,11 @@ Print Assumptions GoAST.filemap_of_nodes_none_iff_duplicate.
 Print Assumptions GoAST.filemap_of_nodes_in.
 Print Assumptions GoAST.filemap_of_nodes_maps_to.
 Print Assumptions GoAST.filemap_of_nodes_mapsto_source.
+Print Assumptions GoAST.filemap_of_nodes_find.
+Print Assumptions GoAST.filemap_of_nodes_duplicate_rejects.
+Print Assumptions GoAST.filemap_of_nodes_duplicate_different_source_rejects.
+Print Assumptions GoAST.filemap_of_nodes_permutation.
+Print Assumptions GoAST.build_program_some_iff_unique.
 Print Assumptions GoAST.FilesEqual_refl.
 Print Assumptions GoAST.FilesEqual_sym.
 Print Assumptions GoAST.FilesEqual_trans.
@@ -292,6 +304,21 @@ Print Assumptions GoAST.FilesEqual_trans.
 Print Assumptions GoCompile.prog_ok_iff.
 Print Assumptions GoCompile.go_compile_sound.
 Print Assumptions GoCompile.go_compile_complete.
+(* §8 map-based PACKAGE GROUPING via a standard [PackageMap] in ONE [FM.fold]: EXACTNESS (every file
+   contributes to its own parent package; no package without a file; a summary's main count IS the sum over
+   its files; empty file map -> empty package map) and ORDER-INDEPENDENCE (map-equal file collections and
+   permuted construction yield map-equal package summaries, so [GoCompile]/[go_compile]'s accept-or-error
+   class is invariant under file insertion order). *)
+Print Assumptions GoCompile.file_in_package.
+Print Assumptions GoCompile.package_no_empty.
+Print Assumptions GoCompile.package_summary_main_count.
+Print Assumptions GoCompile.package_summaries_empty.
+Print Assumptions GoCompile.package_summaries_Equal.
+Print Assumptions GoCompile.package_summaries_build_permutation.
+Print Assumptions GoCompile.GoCompile_Equal.
+Print Assumptions GoCompile.prog_ok_Equal.
+Print Assumptions GoCompile.go_compile_class_Equal.
+Print Assumptions GoCompile.go_compile_class_build_permutation.
 Print Assumptions GoCompile.reject_no_compile.
 Print Assumptions GoCompile.compilable_program_typed.
 Print Assumptions GoCompile.prog_ok_empty.
@@ -366,6 +393,10 @@ Print Assumptions GoSafe.eval_cplx_scar_differ.
    EXACT first line of a .go file; go.mod is rendered from the ModuleSpec — exact bytes, header first line,
    all ASCII. *)
 Print Assumptions GoRender.render_file_ascii.
+(* §9: the import domain is INTRINSICALLY empty and the renderer STRUCTURALLY consumes [source_imports], so a
+   future import constructor forces a renderer update rather than being silently dropped. *)
+Print Assumptions GoRender.source_imports_nil.
+Print Assumptions GoRender.render_imports_nil_bytes.
 Print Assumptions GoRender.render_expr_ascii.
 Print Assumptions GoRender.render_const_info_denotes.
 Print Assumptions GoRender.render_const_info_denotes_functional.
@@ -430,6 +461,14 @@ Print Assumptions GoEmit.render_program_go_mod_ascii.
 Print Assumptions GoEmit.render_program_header.
 Print Assumptions GoEmit.render_program_ascii.
 Print Assumptions GoEmit.render_image_keys_nodup.
+(* §9 rendering over the standard file map: the rendered map has the SAME key domain as the source; every
+   binding is EXACTLY [render_file] of its source; [FilesEqual] sources render to [FM.Equal] maps whose
+   CANONICAL transport lists are EQUAL; and the whole [di_transport] is INDEPENDENT of input-node order. *)
+Print Assumptions GoEmit.render_map_domain.
+Print Assumptions GoEmit.render_map_binding.
+Print Assumptions GoEmit.render_map_Equal.
+Print Assumptions GoEmit.di_go_file_entries_Equal.
+Print Assumptions GoEmit.di_transport_order_independent.
 
 (* OccurrenceSpike (Source Forest C0): the ISOLATED occurrence-index proof spike — the certified positive-key
    trie laws, the builder well-formedness, and the C0.4 structural theorem set (root id canonical / no parent,

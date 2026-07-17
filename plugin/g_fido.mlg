@@ -124,11 +124,14 @@ let modpath_is_fido mp =
 let do_audit () =
   let env = Global.env () in
   let sigma = Evd.from_env env in
+  (* Collect the audit ROOTS into a [Names.GlobRef.Set] (C1A §11.4) — an identity-keyed standard set, so a
+     reference seeded through more than one path is not duplicated and the seed is order-independent.  Convert
+     to a list ONLY at the [Assumptions.assumptions] API boundary. *)
   (* (1) every certified Fido constant *)
   let grefs =
     Environ.fold_constants (fun c _ acc ->
       if modpath_is_fido (Names.Constant.modpath c)
-      then Names.GlobRef.ConstRef c :: acc else acc) env [] in
+      then Names.GlobRef.Set.add (Names.GlobRef.ConstRef c) acc else acc) env Names.GlobRef.Set.empty in
   (* (2) every certified Fido mutual inductive, seeded through an IndRef for each inductive type of the
      block — so an assumption on the inductive itself is reached even when no constant references it *)
   let grefs =
@@ -136,7 +139,7 @@ let do_audit () =
       if modpath_is_fido (Names.MutInd.modpath mind) then begin
         let n = Array.length mib.Declarations.mind_packets in
         let r = ref acc in
-        for i = 0 to n - 1 do r := Names.GlobRef.IndRef (mind, i) :: !r done;
+        for i = 0 to n - 1 do r := Names.GlobRef.Set.add (Names.GlobRef.IndRef (mind, i)) !r done;
         !r
       end else acc) env grefs in
   (* (3) any surviving global/named assumption in the environment (a section Variable that outlived its
@@ -145,10 +148,10 @@ let do_audit () =
     Context.Named.fold_outside (fun d acc ->
       match d with
       | Context.Named.Declaration.LocalAssum (bnd, _) ->
-          Names.GlobRef.VarRef bnd.Context.binder_name :: acc
+          Names.GlobRef.Set.add (Names.GlobRef.VarRef bnd.Context.binder_name) acc
       | Context.Named.Declaration.LocalDef _ -> acc)
       (Environ.named_context env) ~init:grefs in
-  let assums = closure_assums env grefs in
+  let assums = closure_assums env (Names.GlobRef.Set.elements grefs) in
   match assums_disallowed assums with
   | [] -> Feedback.msg_notice
             (str "fido: assumption audit OK — the whole certified-theory assumption closure is empty (no axiom/variable of any category — incl. transitive, opaque-Qed, unused, and inductive positivity/guardedness/type-in-type/UIP)")

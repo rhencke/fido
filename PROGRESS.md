@@ -1,13 +1,15 @@
 # Fido — status
 
 The vertical slice is **proved AND executed**, over ONE program representation: an intrinsic `ModuleSpec`
-paired with a (possibly-empty) path-keyed `GoFileSet` source forest of specification-shaped file roots.
+paired with a (possibly-empty) `GoFileMap` — a STANDARD pinned-stdlib `FilePath`-keyed finite map (`FMapAVL`)
+of specification-shaped source-file roots (the path is the map key).
 `ARCHITECTURE.md` is the charter, `PAINFUL_LESSONS.md` the postmortems, `git log` the archive.
 
 ## The admitted fragment
 
 A `GoProgram` is a `ModuleSpec` (a narrow intrinsic `ModulePath` + a singleton `GoVersion` = Go1_23 — the
-generated module's facts, rendered as `go.mod`; NOT a target config) plus a possibly-EMPTY `GoFileSet`.
+generated module's facts, rendered as `go.mod`; NOT a target config) plus a possibly-EMPTY `GoFileMap`
+(`Collections.FileMapBase.t GoSourceFile` — the pinned-stdlib `FMapAVL` over a `FilePath` ordered key).
 Files group by directory into `package main` packages; each `GoSourceFile` is a source-owned package clause
 (`PkgMain`), intrinsically-empty imports, and top-level declarations (today only `DMain` — a `func main()`
 declaration); statements are `SPrintln` over bool (`EBool`), untyped
@@ -36,9 +38,11 @@ is rejected IN Rocq before any bytes — **zero expected Go build failures, ever
 
 - **`FilePath`** — intrinsic canonical relative paths; decidable eq (`fp_eqb_eq`); representable/
   unrepresentable fixtures (`ok_main`/`no_dotdot`/`no_test`); `fp_parent` groups files into packages.
-- **`FMap`** — key-generic finite map; THE invariant `fm_keys_nodup` (duplicate keys unrepresentable) +
-  `dup_key_unrepresentable`; the DISTINCT `fm_MapsTo_fun` (deterministic first-match lookup, weaker);
-  `fm_Equal` (semantic eq, distinct from record `=`); `fm_of_list` rejects duplicate keys.
+- **`Collections`** — the ONE standard-collection foundation (C1A): thin wrappers over pinned-stdlib
+  `FMapAVL` (`FileMapBase` over a `FilePath` ordered key, `PackageMapBase` over `String`) + `FMapPositive`
+  (`NodeMapBase`) — Fido authors NO map/set. Axiom-free wrapper facts: `fp_str_inj` (the FilePath ordered-key
+  law), `filemap_elements_Equal` (extensionally-equal maps enumerate to the SAME canonical `elements`). The
+  project-authored `FMap.v` (an association list + `NoDup`) is DELETED.
 - **`Ints`** — the ONE integer-family authority: the ten-member `IntegerType` + `integer_signed`/`_bits`/
   `_min`/`_max`/`_keyword` + `IntRepresentable`/`integer_representableb` (the per-type inclusive-range
   decision); `int`/`uint` pinned 64-bit and DISTINCT from `int64`/`uint64` (equal ranges only on this target);
@@ -77,9 +81,11 @@ is rejected IN Rocq before any bytes — **zero expected Go build failures, ever
   Invalid paths unrepresentable; `representable ⇒ Go-accepts` is exact one-way.
 - **`GoVersion`** — singleton `Go1_23`; `render_goversion_go1_23` pins the exact "1.23"; decidable eq.
 - **`GoAST`** — `ModuleSpec` (`ModulePath` + `GoVersion`) + `GoProgram := { prog_module ; prog_files :
-  GoFileSet }` (the source forest MAY be empty); `GoFileNode` = `FilePath` + `GoSourceFile` (source-owned
-  `PkgMain` package clause + empty imports + `source_decls`); `GoFileSet` path-unique by construction
-  (`find_file`/`file_paths`/`FilesEqual`, dup paths unrepresentable); raw `GoDecl` (`DMain`)/`SPrintln`/`EBool`/`EInt`/`ENeg`/
+  GoFileMap }` (`GoFileMap = FileMapBase.t GoSourceFile`, the standard `FMapAVL` map keyed by path, MAY be
+  empty); a construction/view `GoFileNode` = `FilePath` + `GoSourceFile` (source-owned
+  `PkgMain` package clause + empty imports + `source_decls`); the map API
+  (`find_file`/`file_bindings`/`file_paths`/`FilesEqual`) + the duplicate-rejecting builder `filemap_of_nodes`
+  (success-iff-unique / none-iff-duplicate / maps_to / mapsto_source / permutation) + `build_program`; raw `GoDecl` (`DMain`)/`SPrintln`/`EBool`/`EInt`/`ENeg`/
   `EString` (exact bytes)/`EIntConvert` (explicit integer conversion to an intrinsic `IntegerType`)/`EFloat`
   (bare `DecimalFloat` literal)/`EFloatConvert` (explicit `FloatType` conversion)/`EComplex` (a semantic
   complex literal — a `DecimalComplex`, canonical `complex(re, im)`, NOT imaginary syntax/`real`/`imag`/a

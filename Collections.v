@@ -13,6 +13,7 @@ From Stdlib Require Import String.
 From Stdlib Require Import Structures.OrderedType Structures.OrderedTypeEx.
 From Stdlib Require Import FSets.FMapInterface FSets.FMapAVL FSets.FMapFacts.
 From Stdlib Require Import FSets.FMapPositive.
+From Stdlib Require Import SetoidList.
 From Fido Require Import FilePath.
 
 (** the standard positive-key map (a certified stdlib binary-trie map) — for per-file local-node indexes. *)
@@ -21,6 +22,7 @@ Module NodeMapBase := FMapPositive.PositiveMap.
 (** the standard AVL map over the standard String ordered key — for the package-directory map. *)
 Module PackageMapBase := FMapAVL.Make String_as_OT.
 Module PackageMapFacts := FMapFacts.WFacts_fun String_as_OT PackageMapBase.
+Module PackageMapProps := FMapFacts.WProperties_fun String_as_OT PackageMapBase.
 
 (** ---- §4.1 the [FilePath] ordered key: a total lexicographic order via [fp_string], reusing the pinned
     standard [String_as_OT].  The exposed equality is Leibniz [FilePath] equality (paths are proof-irrelevant
@@ -63,3 +65,25 @@ End FilePath_OT.
 Module FileMapBase := FMapAVL.Make FilePath_OT.
 Module FileMapFacts := FMapFacts.WFacts_fun FilePath_OT FileMapBase.
 Module FileMapProps := FMapFacts.WProperties_fun FilePath_OT FileMapBase.
+Module FileMapOrd := FMapFacts.OrdProperties FileMapBase.
+
+(** ---- §4.6 wrapper theorem: because the standard AVL map's [elements] is SORTED by key, two SEMANTICALLY
+    equal ([Equal]) file maps have the very SAME canonical [elements] list — the derived enumeration is a true
+    function of the map's meaning, not of its balancing history.  (The FilePath key equality is Leibniz, so
+    [eqlistA eq_key_elt] collapses to list equality.) ---- *)
+Lemma eqlistA_eqke_eq {A} : forall (l1 l2 : list (FilePath * A)),
+  eqlistA (@FileMapBase.eq_key_elt A) l1 l2 -> l1 = l2.
+Proof.
+  induction l1 as [|[k e] l1' IH]; intros l2 H; inversion H as [|x y l l' Hxy Htl]; subst; [ reflexivity | ].
+  destruct y as [k' e']. destruct Hxy as [Hk He]. cbn in Hk, He. subst. f_equal. apply IH; exact Htl.
+Qed.
+
+Lemma filemap_elements_Equal {A} : forall (m1 m2 : FileMapBase.t A),
+  FileMapBase.Equal m1 m2 -> FileMapBase.elements m1 = FileMapBase.elements m2.
+Proof.
+  intros m1 m2 Heq. apply eqlistA_eqke_eq.
+  apply FileMapOrd.sort_equivlistA_eqlistA;
+    [ apply FileMapBase.elements_3 | apply FileMapBase.elements_3 | ].
+  intros [k e]. rewrite <- !FileMapFacts.elements_mapsto_iff, !FileMapFacts.find_mapsto_iff, (Heq k).
+  reflexivity.
+Qed.

@@ -519,6 +519,17 @@ That would repeat the subset-filter mistake.
 
 3.3 Path-keyed file set
 
+>> C1A CORRECTION (see .review/SOURCE_FOREST_STATUS.md): the list-plus-`NoDup` `GoFileSet` below was the C1
+>> landing but the WRONG collection foundation — an exposed association list is not a map (lookup/build
+>> linear/quadratic, physical order leaks). It is REPLACED by a STANDARD pinned-stdlib map:
+>>     GoFileMap := Collections.FileMapBase.t GoSourceFile   (* FMapAVL over a FilePath ordered key *)
+>> where the PATH is the map KEY (not stored in the value), duplicates are unrepresentable by construction,
+>> the duplicate-rejecting builder `filemap_of_nodes` is sound+complete+exact+order-independent, and semantic
+>> equality is standard map `Equal`. All FUTURE collection shapes (scopes/facts/graphs) follow the same
+>> collection algebra: identity-keyed = a mature finite map, membership-only = a mature finite set, ordered
+>> syntax/execution = a list, and derived enumerations = `elements`. Fido authors NO map/set implementation.
+>> The original C1 record is retained below only as the historical design record.
+
 Replace the public `dict[path, AST]` shape with a path-keyed file set:
 
   Record GoFileSet := {

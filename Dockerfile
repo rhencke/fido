@@ -298,6 +298,15 @@ printf 'keep\n' > adv-1/notes.txt
 [ -f adv-1/go.mod ] || fail "empty program removed the owned go.mod"
 [ -f adv-1/notes.txt ] || fail "empty program removed a foreign file"
 [ -z "$(residue adv-1)" ] || fail "residue after empty re-sync"
+# C1A §11.6: a DUPLICATE desired path is REJECTED before any filesystem effect (the standard-map builder
+# refuses rather than letting `add` silently overwrite); nothing is materialized.
+mkdir -p adv-dup
+if ./sink_test adv-dup dup 2>/tmp/dup.log; then fail "a duplicate desired path was NOT rejected"; fi
+grep -q 'duplicate output path' /tmp/dup.log || { cat /tmp/dup.log; fail "dup rejected for the wrong reason"; }
+{ [ ! -e adv-dup/go.mod ] && [ ! -e adv-dup/.fido ] && [ ! -e adv-dup/main.go ]; } || fail "a rejected duplicate still materialized files"
+# C1A §11.6: PERMUTED transport entries produce a byte-IDENTICAL tree (output is keyed by path, not order).
+mkdir -p adv-perm
+./sink_test adv-perm perm || fail "permuted transport entries produced a different tree"
 # byte-distinct OWNED replacement: an owned go.mod/.go with DIFFERENT bytes is replaced (ownership = header)
 mkdir -p adv-repl
 printf '%s\n\nmodule stale/old\n\ngo 1.23\n' "$hdr" > adv-repl/go.mod

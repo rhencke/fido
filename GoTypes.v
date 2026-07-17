@@ -26,7 +26,7 @@
     feature (assignments, variables, arguments, arithmetic, more numeric types) builds on.
     ============================================================================ *)
 From Stdlib Require Import NArith ZArith List Bool String Ascii Lia.
-From Stdlib Require Import SetoidList.
+From Stdlib Require Import SetoidList Permutation.
 From Fido Require Import Ints Floats Complexes GoAST.
 Import ListNotations.
 Open Scope Z_scope.
@@ -681,6 +681,50 @@ Proof.
   - intros H. apply Forall_forall. intros [k e] Hin. cbn.
     apply (H k e), GoAST.FMF.elements_mapsto_iff, InA_alt.
     exists (k, e). split; [ split; reflexivity | exact Hin ].
+Qed.
+
+(** ---- §7 ORDER-INDEPENDENCE / EXTENSIONALITY: whole-program typing is a property of the file MAP, never
+    of a construction-order list.  It respects semantic map equality both as a [Prop] and reflected as a
+    [bool], and is therefore invariant under reordered [build_program] construction. ---- *)
+
+(** [ProgramTyped] respects [FilesEqual] (semantic map equality) — equal maps type identically. *)
+Lemma ProgramTyped_Equal : forall p1 p2,
+  GoAST.FilesEqual (prog_files p1) (prog_files p2) -> ProgramTyped p1 -> ProgramTyped p2.
+Proof.
+  intros p1 p2 Heq Ht path sf Hmt. apply (Ht path sf). unfold GoAST.maps_to_file in *.
+  apply GoAST.FMF.find_mapsto_iff. rewrite (Heq path). apply GoAST.FMF.find_mapsto_iff. exact Hmt.
+Qed.
+
+(** the reflected checker agrees on [FilesEqual] maps — no dependence on the backing tree's element order. *)
+Lemma program_typedb_Equal : forall p1 p2,
+  GoAST.FilesEqual (prog_files p1) (prog_files p2) -> program_typedb p1 = program_typedb p2.
+Proof.
+  intros p1 p2 Heq.
+  destruct (program_typedb p1) eqn:E1; destruct (program_typedb p2) eqn:E2; try reflexivity.
+  - exfalso. apply program_typedb_iff in E1.
+    assert (program_typedb p2 = true)
+      by (apply program_typedb_iff; exact (ProgramTyped_Equal p1 p2 Heq E1)).
+    rewrite E2 in H; discriminate.
+  - exfalso. apply program_typedb_iff in E2.
+    assert (program_typedb p1 = true)
+      by (apply program_typedb_iff;
+          exact (ProgramTyped_Equal p2 p1 (GoAST.FilesEqual_sym _ _ Heq) E2)).
+    rewrite E1 in H; discriminate.
+Qed.
+
+(** reordered construction types identically: a permuted node list builds a [FilesEqual] map (§6), so its
+    whole-program typing result is the same. *)
+Theorem program_typedb_build_permutation : forall ms nodes1 nodes2 p1 p2,
+  Permutation nodes1 nodes2 ->
+  build_program ms nodes1 = Some p1 -> build_program ms nodes2 = Some p2 ->
+  program_typedb p1 = program_typedb p2.
+Proof.
+  intros ms nodes1 nodes2 p1 p2 Hperm Hb1 Hb2. apply program_typedb_Equal.
+  unfold build_program in *.
+  destruct (filemap_of_nodes nodes1) as [fm1|] eqn:F1; [ | discriminate ].
+  destruct (filemap_of_nodes nodes2) as [fm2|] eqn:F2; [ | discriminate ].
+  injection Hb1 as <-. injection Hb2 as <-. cbn [prog_files].
+  exact (filemap_of_nodes_permutation nodes1 nodes2 fm1 fm2 Hperm F1 F2).
 Qed.
 
 (** the empty file is typed vacuously; so is the empty program. *)

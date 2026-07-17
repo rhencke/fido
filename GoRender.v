@@ -145,10 +145,30 @@ Fixpoint render_decls (ds : list GoDecl) : string :=
 Definition render_package_clause (pc : PackageClauseSyntax) : string :=
   match pc with PkgMain => "main" end.
 
-(** [render_file] is literally [header], the newline, then the file's OWN package clause + declarations — so
-    "the header is the exact first line" is definitional.  The package name comes from the SOURCE. *)
+(** The import section rendered from SOURCE (§9): [render_file] STRUCTURALLY consumes [source_imports], so a
+    future import constructor forces a renderer update rather than being silently dropped.  [ImportSpecSyntax]
+    is EMPTY today, so [render_imports] is always the empty string (proved [render_imports_nil_bytes]) and the
+    emitted bytes are definitionally unchanged. *)
+Definition render_import_spec (i : ImportSpecSyntax) : string := match i with end.
+Fixpoint render_imports (xs : list ImportSpecSyntax) : string :=
+  match xs with [] => "" | i :: rest => render_import_spec i ++ render_imports rest end.
+
+(** [ImportSpecSyntax] is EMPTY, so any [list ImportSpecSyntax] is intrinsically [nil]. *)
+Lemma import_list_nil : forall (l : list ImportSpecSyntax), l = [].
+Proof. intros [|i rest]; [ reflexivity | destruct i ]. Qed.
+Lemma render_imports_nil_bytes : forall xs, render_imports xs = ""%string.
+Proof. intros xs; rewrite (import_list_nil xs); reflexivity. Qed.
+
+(** The import domain is INTRINSICALLY empty — every file's source imports are [nil] (a permanent category,
+    not a filtered subset). *)
+Lemma source_imports_nil : forall f, source_imports f = [].
+Proof. intro f; apply import_list_nil. Qed.
+
+(** [render_file] is literally [header], the newline, then the file's OWN package clause + (empty) imports +
+    declarations — so "the header is the exact first line" is definitional.  Names come from the SOURCE. *)
 Definition render_file (f : GoSourceFile) : string :=
   header ++ String nl_c (nl ++ "package " ++ render_package_clause (source_package f) ++ nl
+                            ++ render_imports (source_imports f)
                             ++ render_decls (source_decls f)).
 
 (** The header is EXACTLY the first line (header, then the newline [nl_c]) — the ownership contract the
@@ -351,10 +371,14 @@ Proof.
 Qed.
 
 (** The whole file is ASCII — the source-owned package clause renders the all-ASCII `main`. *)
+Lemma render_imports_ascii : forall xs, str_ascii (render_imports xs) = true.
+Proof. intros xs; rewrite render_imports_nil_bytes; reflexivity. Qed.
+
 Theorem render_file_ascii : forall f, str_ascii (render_file f) = true.
 Proof.
   intros f. unfold render_file. rewrite str_ascii_app. cbn [str_ascii].
-  rewrite !str_ascii_app, render_decls_ascii. destruct (source_package f); reflexivity.
+  rewrite !str_ascii_app, render_decls_ascii, render_imports_ascii.
+  destruct (source_package f); reflexivity.
 Qed.
 
 (** ---- go.mod is all-ASCII (the module path is ASCII by its grammar; the version renders `1.23`) ---- *)
