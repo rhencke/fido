@@ -516,6 +516,17 @@ Print Assumptions OccurrenceSpike.Snap.node_kind_matches_source.
 Print Assumptions OccurrenceSpike.Snap.node_role_matches_source.
 Print Assumptions OccurrenceSpike.Snap.node_parent_matches_source.
 Print Assumptions OccurrenceSpike.Snap.node_subtree_end_matches_source.
+(* C0B final-review repair: the reference's occurrence IS the independent spec's occurrence (pins the VIEW,
+   not just the metadata); universal node_at source-view agreement; parent_of returns the EXACT source parent;
+   and the per-kind source-VIEW surfaces (file/decl/statement/binary/leaf). *)
+Print Assumptions OccurrenceSpike.Snap.source_occ_of_ref_eq.
+Print Assumptions OccurrenceSpike.Snap.node_at_matches_source_view.
+Print Assumptions OccurrenceSpike.Snap.node_parent_ref_matches_source.
+Print Assumptions OccurrenceSpike.wf_src_root.
+Print Assumptions OccurrenceSpike.wf_src_decl0.
+Print Assumptions OccurrenceSpike.wf_src_stmt0.
+Print Assumptions OccurrenceSpike.wf_src_bin.
+Print Assumptions OccurrenceSpike.wf_src_leaf.
 (* C0B §8 mutation-sensitive fixtures: exact per-occurrence kind/role/parent/subtree over the nested
    two-decl witness (each derived from build_file_source_exact, never by unfolding the builder) + the
    sealed-API leaf-reference recovery of fs_a. *)

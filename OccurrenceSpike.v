@@ -1659,6 +1659,23 @@ Example wf_meta_leaf2 : NodeTable.get 11 (fi_table (build_file wf)) = Some (mkMe
 (* absence past the last occurrence — the universal theorem pins both directions. *)
 Example wf_meta_absent : NodeTable.get 12 (fi_table (build_file wf)) = None. Proof. wf_meta. Qed.
 
+(* §10.1 source-VIEW surfaces: the INDEPENDENT spec recovers the exact original fragment (the [occurrence_view]
+   that [occurrence_meta] erases) for EACH occurrence kind — file / decl / statement / binary / leaf. *)
+Example wf_src_root : source_occurrence_at wf 1 = Some (mkOcc KFile (ViewFile wf) None RFileRoot 11).
+Proof. vm_compute. reflexivity. Qed.
+Example wf_src_decl0 : source_occurrence_at wf 2 =
+  Some (mkOcc KDecl (ViewDecl (TFun [ TPrint (TBin (TLeaf 10) (TLeaf 20)) ; TPrint (TLeaf 30) ])) (Some 1) (RFileDecl 0) 8).
+Proof. vm_compute. reflexivity. Qed.
+Example wf_src_stmt0 : source_occurrence_at wf 3 =
+  Some (mkOcc KStatement (ViewStatement (TPrint (TBin (TLeaf 10) (TLeaf 20)))) (Some 2) (RDeclStmt 0) 6).
+Proof. vm_compute. reflexivity. Qed.
+Example wf_src_bin : source_occurrence_at wf 4 =
+  Some (mkOcc KExpression (ViewExpression (TBin (TLeaf 10) (TLeaf 20))) (Some 3) RStmtExpr 6).
+Proof. vm_compute. reflexivity. Qed.
+Example wf_src_leaf : source_occurrence_at wf 5 =
+  Some (mkOcc KExpression (ViewExpression (TLeaf 10)) (Some 4) (RChild 0) 5).
+Proof. vm_compute. reflexivity. Qed.
+
 
 (* ================================================================================================= *)
 (** ** C0A: source-snapshot-local references and TOTAL navigation.                                     *)
@@ -1780,6 +1797,18 @@ Module Type SNAP_SIG.
     nm_parent (ref_meta idx r) = occurrence_parent (source_occurrence_of_ref r).
   Parameter node_subtree_end_matches_source : forall fs (idx : SyntaxIndex fs) (r : NodeRef fs),
     node_subtree_end idx r = occurrence_subtree_end (source_occurrence_of_ref r).
+  (* the reference's source occurrence IS the independent spec's occurrence (ties the exposed occurrence — and
+     hence its VIEW, which [occurrence_meta] erases — to [source_occurrence_at], so the recovered fragment is
+     not free); UNIVERSAL [node_at] source-view agreement; and [parent_of] returns the EXACT source parent. *)
+  Parameter source_occ_of_ref_eq : forall {fs} (r : NodeRef fs),
+    source_occurrence_at (file_ref_file (node_ref_file r)) (node_ref_local r) = Some (source_occurrence_of_ref r).
+  Parameter node_at_matches_source_view : forall {fs} (r : NodeRef fs),
+    node_at r = view_expr (source_occurrence_of_ref r).
+  Parameter node_parent_ref_matches_source : forall fs (idx : SyntaxIndex fs) (r : NodeRef fs),
+    match occurrence_parent (source_occurrence_of_ref r) with
+    | None     => parent_of idx r = None
+    | Some pid => exists pr, parent_of idx r = Some pr /\ node_ref_local pr = pid
+    end.
   (* §8 sealed-API leaf-reference fixtures (fs_a id 5 = left RChild 0 leaf). *)
   Parameter reg_ref_kind_a5 : node_kind (index_forest fs_a) rleaf_a5 = KExpression.
   Parameter reg_ref_role_a5 : node_role (index_forest fs_a) rleaf_a5 = RChild 0.
@@ -2082,6 +2111,14 @@ Proof. unfold node_subtree_end. rewrite ref_meta_matches_source. reflexivity. Qe
    view — no second recovery authority. *)
 Definition node_at {fs} (r : NodeRef fs) : option TExpr := view_expr (source_occurrence_of_ref r).
 
+(* UNIVERSAL source-view agreement (§6.4): [node_at] recovers exactly the expression fragment carried by the
+   reference's ONE source occurrence — the public view is pinned to the source occurrence, not free.  With
+   [source_occ_of_ref_eq] tying that occurrence to the independent [source_occurrence_at] spec, the recovered
+   fragment cannot be an unrelated syntax value carrying the right structural metadata. *)
+Theorem node_at_matches_source_view {fs} (r : NodeRef fs) :
+  node_at r = view_expr (source_occurrence_of_ref r).
+Proof. reflexivity. Qed.
+
 (* ================================================================================================= *)
 (** ** C0A §9 regression — same paths + tree shape, DIFFERENT payloads => non-interchangeable refs.     *)
 (* ================================================================================================= *)
@@ -2254,6 +2291,22 @@ Proof.
   destruct (in_domain (file_ref_file (node_ref_file r)) (node_ref_local r) (ref_meta idx r) Hget) as [Hlo Hhi].
   destruct (sub_prng WF (node_ref_local r) (ref_meta idx r) ltac:(lia) Hhi Hget) as [p [mp [Hpar _]]].
   destruct (parent_of_some fs idx r p Hpar) as [pr [Hpr _]]. exists pr. exact Hpr.
+Qed.
+
+(* §6.3: [parent_of] returns EXACTLY the source parent — its optionality and the parent reference's local id
+   both agree with [occurrence_parent].  A root's [None] parent matches [occurrence_parent = None]; a non-root's
+   [Some pid] yields a parent reference whose [node_ref_local] IS [pid].  This connects the metadata parent
+   (which [node_parent_matches_source] pins) to the actual navigated parent reference. *)
+Theorem node_parent_ref_matches_source (fs : TForest) (idx : SyntaxIndex fs) (r : NodeRef fs) :
+  match occurrence_parent (source_occurrence_of_ref r) with
+  | None     => parent_of idx r = None
+  | Some pid => exists pr, parent_of idx r = Some pr /\ node_ref_local pr = pid
+  end.
+Proof.
+  rewrite <- (node_parent_matches_source idx r).
+  destruct (nm_parent (ref_meta idx r)) as [pid|] eqn:Hp.
+  - destruct (parent_of_some fs idx r pid Hp) as [pr [Hpr [_ Hpl]]]. exists pr. split; [exact Hpr | exact Hpl].
+  - apply (parent_of_none fs idx r Hp).
 Qed.
 
 Theorem thm_node_role (fs : TForest) (idx : SyntaxIndex fs) (r : NodeRef fs) :
