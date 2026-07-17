@@ -1281,6 +1281,379 @@ Fixpoint occ_decls (me : positive) (ds : list TDecl) (target : positive) : optio
 Definition occ_file (f : TFile) (target : positive) : option TExpr :=
   occ_decls (Pos.succ root_id) (tf_decls f) target.
 
+(* ================================================================================================= *)
+(** ** C0B: an INDEPENDENT source-occurrence specification (table-free, builder-independent).           *)
+(*    For a source file and a local preorder id, this states — purely from the source syntax and the    *)
+(*    boundary functions above ([end_expr]/[end_stmt]/[end_decl]/[count_file]) — the EXACT occurrence    *)
+(*    that id designates and the metadata it SHOULD carry (kind, parent, role, subtree end).  It never   *)
+(*    consults [NodeTable], [build_*], [FileIndex], or any query; it is the semantic yardstick against   *)
+(*    which [build_file] is proved correct in [build_file_source_exact].                                 *)
+(* ================================================================================================= *)
+
+(* a kind-indexed view onto the ORIGINAL syntax fragment (no copied/parallel grammar). *)
+Inductive SyntaxView : SyntaxKind -> Type :=
+| ViewFile       : TFile -> SyntaxView KFile
+| ViewDecl       : TDecl -> SyntaxView KDecl
+| ViewStatement  : TStmt -> SyntaxView KStatement
+| ViewExpression : TExpr -> SyntaxView KExpression.
+
+Record SourceOccurrence := mkOcc {
+  occurrence_kind        : SyntaxKind;
+  occurrence_view        : SyntaxView occurrence_kind;
+  occurrence_parent      : option positive;
+  occurrence_role        : NodeRole;
+  occurrence_subtree_end : positive
+}.
+
+(* the metadata an occurrence SHOULD carry — derived only from the occurrence, NEVER from the builder. *)
+Definition occurrence_meta (o : SourceOccurrence) : NodeMeta :=
+  mkMeta (occurrence_kind o) (occurrence_parent o) (occurrence_role o) (occurrence_subtree_end o).
+
+(* the occurrence a preorder id designates inside one expression subtree rooted at [me]. *)
+Fixpoint occ_expr' (parent : positive) (role : NodeRole) (me : positive) (e : TExpr) (target : positive)
+  : option SourceOccurrence :=
+  match e with
+  | TLeaf _ =>
+      if Pos.eqb target me
+      then Some (mkOcc KExpression (ViewExpression e) (Some parent) role me)
+      else None
+  | TBin l r =>
+      if Pos.eqb target me
+      then Some (mkOcc KExpression (ViewExpression e) (Some parent) role (end_expr me e))
+      else if Pos.leb target (end_expr (Pos.succ me) l)
+           then occ_expr' me (RChild 0) (Pos.succ me) l target
+           else occ_expr' me (RChild 1) (Pos.succ (end_expr (Pos.succ me) l)) r target
+  end.
+Definition occ_stmt' (parent : positive) (sidx : nat) (me : positive) (s : TStmt) (target : positive)
+  : option SourceOccurrence :=
+  match s with
+  | TPrint e =>
+      if Pos.eqb target me
+      then Some (mkOcc KStatement (ViewStatement s) (Some parent) (RDeclStmt sidx) (end_stmt me s))
+      else occ_expr' me RStmtExpr (Pos.succ me) e target
+  end.
+Fixpoint occ_stmts' (parent : positive) (sidx : nat) (me : positive) (ss : list TStmt) (target : positive)
+  : option SourceOccurrence :=
+  match ss with
+  | [] => None
+  | s :: rest =>
+      if Pos.leb target (end_stmt me s)
+      then occ_stmt' parent sidx me s target
+      else occ_stmts' parent (S sidx) (Pos.succ (end_stmt me s)) rest target
+  end.
+Definition occ_decl' (parent : positive) (didx : nat) (me : positive) (d : TDecl) (target : positive)
+  : option SourceOccurrence :=
+  match d with
+  | TFun body =>
+      if Pos.eqb target me
+      then Some (mkOcc KDecl (ViewDecl d) (Some parent) (RFileDecl didx) (end_decl me d))
+      else occ_stmts' me 0 (Pos.succ me) body target
+  end.
+Fixpoint occ_decls' (parent : positive) (didx : nat) (me : positive) (ds : list TDecl) (target : positive)
+  : option SourceOccurrence :=
+  match ds with
+  | [] => None
+  | d :: rest =>
+      if Pos.leb target (end_decl me d)
+      then occ_decl' parent didx me d target
+      else occ_decls' parent (S didx) (Pos.succ (end_decl me d)) rest target
+  end.
+Definition source_occurrence_at (f : TFile) (target : positive) : option SourceOccurrence :=
+  if Pos.eqb target root_id
+  then Some (mkOcc KFile (ViewFile f) None RFileRoot (count_file f))
+  else occ_decls' root_id 0 (Pos.succ root_id) (tf_decls f) target.
+
+(* --- interval frame lemmas: an occurrence lookup outside a subtree's [me .. end] window is [None]. --- *)
+
+Lemma end_expr_ge : forall e me, (me <= end_expr me e)%positive.
+Proof.
+  induction e as [v|l IHl r IHr]; intros me; simpl; [lia|].
+  specialize (IHl (Pos.succ me)). specialize (IHr (Pos.succ (end_expr (Pos.succ me) l))). lia.
+Qed.
+
+Lemma occ_expr'_below : forall e parent role me target,
+  (target < me)%positive -> occ_expr' parent role me e target = None.
+Proof.
+  induction e as [v|l IHl r IHr]; intros parent role me target Hlt; simpl.
+  - destruct (Pos.eqb_spec target me); [lia|reflexivity].
+  - destruct (Pos.eqb_spec target me); [lia|].
+    pose proof (end_expr_ge l (Pos.succ me)) as Hl.
+    destruct (Pos.leb_spec target (end_expr (Pos.succ me) l)) as [Hle|Hgt].
+    + apply IHl. lia.
+    + lia.
+Qed.
+
+Lemma occ_expr'_above : forall e parent role me target,
+  (end_expr me e < target)%positive -> occ_expr' parent role me e target = None.
+Proof.
+  induction e as [v|l IHl r IHr]; intros parent role me target Hgt; simpl in *.
+  - destruct (Pos.eqb_spec target me); [lia|reflexivity].
+  - pose proof (end_expr_ge l (Pos.succ me)) as Hl.
+    pose proof (end_expr_ge r (Pos.succ (end_expr (Pos.succ me) l))) as Hr.
+    destruct (Pos.eqb_spec target me); [lia|].
+    destruct (Pos.leb_spec target (end_expr (Pos.succ me) l)) as [Hle|Hgt2].
+    + lia.
+    + apply IHr. lia.
+Qed.
+
+Lemma end_stmt_ge : forall s me, (Pos.succ me <= end_stmt me s)%positive.
+Proof. intros [e] me. simpl. apply end_expr_ge. Qed.
+
+Lemma occ_stmt'_below : forall s parent sidx me target,
+  (target < me)%positive -> occ_stmt' parent sidx me s target = None.
+Proof.
+  intros [e] parent sidx me target Hlt. simpl.
+  destruct (Pos.eqb_spec target me); [lia|]. apply occ_expr'_below. lia.
+Qed.
+
+Lemma occ_stmt'_above : forall s parent sidx me target,
+  (end_stmt me s < target)%positive -> occ_stmt' parent sidx me s target = None.
+Proof.
+  intros [e] parent sidx me target Hgt. simpl in *.
+  pose proof (end_expr_ge e (Pos.succ me)) as He.
+  destruct (Pos.eqb_spec target me); [lia|]. apply occ_expr'_above. exact Hgt.
+Qed.
+
+Lemma next_stmts_ge : forall ss me, (me <= next_stmts me ss)%positive.
+Proof.
+  induction ss as [|s rest IH]; intros me; simpl; [lia|].
+  specialize (IH (Pos.succ (end_stmt me s))). pose proof (end_stmt_ge s me) as Hs. lia.
+Qed.
+
+Lemma occ_stmts'_below : forall ss parent sidx me target,
+  (target < me)%positive -> occ_stmts' parent sidx me ss target = None.
+Proof.
+  induction ss as [|s rest IH]; intros parent sidx me target Hlt; simpl; [reflexivity|].
+  pose proof (end_stmt_ge s me) as Hs.
+  destruct (Pos.leb_spec target (end_stmt me s)) as [Hle|Hgt].
+  - apply occ_stmt'_below. exact Hlt.
+  - lia.
+Qed.
+
+Lemma occ_stmts'_above : forall ss parent sidx me target,
+  (next_stmts me ss <= target)%positive -> occ_stmts' parent sidx me ss target = None.
+Proof.
+  induction ss as [|s rest IH]; intros parent sidx me target Hge; simpl in *; [reflexivity|].
+  pose proof (next_stmts_ge rest (Pos.succ (end_stmt me s))) as Hn.
+  destruct (Pos.leb_spec target (end_stmt me s)) as [Hle|Hgt].
+  - lia.
+  - apply IH. lia.
+Qed.
+
+Lemma end_decl_ge : forall d me, (me <= end_decl me d)%positive.
+Proof.
+  intros [body] me. unfold end_decl. pose proof (next_stmts_ge body (Pos.succ me)) as Hn. lia.
+Qed.
+
+Lemma occ_decl'_below : forall d parent didx me target,
+  (target < me)%positive -> occ_decl' parent didx me d target = None.
+Proof.
+  intros [body] parent didx me target Hlt. simpl.
+  destruct (Pos.eqb_spec target me); [lia|]. apply occ_stmts'_below. lia.
+Qed.
+
+Lemma occ_decl'_above : forall d parent didx me target,
+  (end_decl me d < target)%positive -> occ_decl' parent didx me d target = None.
+Proof.
+  intros [body] parent didx me target Hgt. simpl in *.
+  pose proof (next_stmts_ge body (Pos.succ me)) as Hn. unfold end_decl in Hgt.
+  destruct (Pos.eqb_spec target me); [lia|].
+  apply occ_stmts'_above. lia.
+Qed.
+
+Lemma occ_decls'_below : forall ds parent didx me target,
+  (target < me)%positive -> occ_decls' parent didx me ds target = None.
+Proof.
+  induction ds as [|d rest IH]; intros parent didx me target Hlt; simpl; [reflexivity|].
+  pose proof (end_decl_ge d me) as Hd.
+  destruct (Pos.leb_spec target (end_decl me d)) as [Hle|Hgt].
+  - apply occ_decl'_below. exact Hlt.
+  - lia.
+Qed.
+
+(* --- the builder AGREES with the independent spec: the table built for a subtree holds exactly the
+       source occurrence's metadata at every id in its window, and leaves every id outside untouched. --- *)
+
+Lemma build_expr_get : forall e parent role me t target,
+  NodeTable.get target (fst (build_expr parent role me e t)) =
+    match occ_expr' parent role me e target with
+    | Some o => Some (occurrence_meta o)
+    | None   => NodeTable.get target t
+    end.
+Proof.
+  induction e as [v|l IHl r IHr]; intros parent role me t target; cbn [build_expr occ_expr'].
+  - cbn [fst]. destruct (Pos.eqb_spec target me).
+    + subst. rewrite NodeTable.get_set_same. reflexivity.
+    + rewrite NodeTable.get_set_other by congruence. reflexivity.
+  - pose proof (build_expr_end l me (RChild 0) (Pos.succ me) t) as He1.
+    destruct (build_expr me (RChild 0) (Pos.succ me) l t) as [t1 e1] eqn:E1. cbn [snd] in He1. subst e1.
+    pose proof (build_expr_end r me (RChild 1) (Pos.succ (end_expr (Pos.succ me) l)) t1) as He2.
+    destruct (build_expr me (RChild 1) (Pos.succ (end_expr (Pos.succ me) l)) r t1) as [t2 e2] eqn:E2.
+    cbn [snd] in He2. subst e2. cbn [fst].
+    destruct (Pos.eqb_spec target me).
+    + subst. rewrite NodeTable.get_set_same. reflexivity.
+    + rewrite NodeTable.get_set_other by congruence.
+      specialize (IHr me (RChild 1) (Pos.succ (end_expr (Pos.succ me) l)) t1 target).
+      rewrite E2 in IHr. cbn [fst] in IHr. rewrite IHr.
+      specialize (IHl me (RChild 0) (Pos.succ me) t target).
+      rewrite E1 in IHl. cbn [fst] in IHl. rewrite IHl.
+      destruct (Pos.leb_spec target (end_expr (Pos.succ me) l)) as [Hle|Hgt].
+      * rewrite (occ_expr'_below r me (RChild 1) (Pos.succ (end_expr (Pos.succ me) l)) target ltac:(lia)).
+        reflexivity.
+      * rewrite (occ_expr'_above l me (RChild 0) (Pos.succ me) target ltac:(lia)). reflexivity.
+Qed.
+
+Lemma build_stmt_get : forall s parent sidx me t target,
+  NodeTable.get target (fst (build_stmt parent sidx me s t)) =
+    match occ_stmt' parent sidx me s target with
+    | Some o => Some (occurrence_meta o)
+    | None   => NodeTable.get target t
+    end.
+Proof.
+  intros [e] parent sidx me t target. cbn [build_stmt occ_stmt'].
+  pose proof (build_expr_end e me RStmtExpr (Pos.succ me) t) as He.
+  destruct (build_expr me RStmtExpr (Pos.succ me) e t) as [t1 e1] eqn:E1. cbn [snd] in He. subst e1. cbn [fst].
+  destruct (Pos.eqb_spec target me).
+  - subst. rewrite NodeTable.get_set_same. reflexivity.
+  - rewrite NodeTable.get_set_other by congruence.
+    specialize (build_expr_get e me RStmtExpr (Pos.succ me) t target) as HG.
+    rewrite E1 in HG. cbn [fst] in HG. exact HG.
+Qed.
+
+Lemma build_seq_stmt_get : forall ss parent sidx me t target,
+  NodeTable.get target (fst (build_seq build_stmt parent sidx me ss t)) =
+    match occ_stmts' parent sidx me ss target with
+    | Some o => Some (occurrence_meta o)
+    | None   => NodeTable.get target t
+    end.
+Proof.
+  induction ss as [|s rest IH]; intros parent sidx me t target; cbn [build_seq occ_stmts'].
+  - reflexivity.
+  - pose proof (build_stmt_end s parent sidx me t) as Hse.
+    destruct (build_stmt parent sidx me s t) as [t1 se] eqn:E1. cbn [snd] in Hse. subst se. cbn [fst].
+    specialize (IH parent (S sidx) (Pos.succ (end_stmt me s)) t1 target). rewrite IH.
+    specialize (build_stmt_get s parent sidx me t target) as HG.
+    rewrite E1 in HG. cbn [fst] in HG. rewrite HG.
+    destruct (Pos.leb_spec target (end_stmt me s)) as [Hle|Hgt].
+    + rewrite (occ_stmts'_below rest parent (S sidx) (Pos.succ (end_stmt me s)) target ltac:(lia)). reflexivity.
+    + rewrite (occ_stmt'_above s parent sidx me target ltac:(lia)). reflexivity.
+Qed.
+
+Lemma build_decl_get : forall d parent didx me t target,
+  NodeTable.get target (fst (build_decl parent didx me d t)) =
+    match occ_decl' parent didx me d target with
+    | Some o => Some (occurrence_meta o)
+    | None   => NodeTable.get target t
+    end.
+Proof.
+  intros [body] parent didx me t target. cbn [build_decl occ_decl'].
+  pose proof (build_seq_stmt_next body me 0 (Pos.succ me) t) as Hnx.
+  destruct (build_seq build_stmt me 0 (Pos.succ me) body t) as [t1 nx] eqn:E1. cbn [snd] in Hnx. subst nx.
+  cbn [fst].
+  destruct (Pos.eqb_spec target me).
+  - subst. rewrite NodeTable.get_set_same. reflexivity.
+  - rewrite NodeTable.get_set_other by congruence.
+    specialize (build_seq_stmt_get body me 0 (Pos.succ me) t target) as HG.
+    rewrite E1 in HG. cbn [fst] in HG. exact HG.
+Qed.
+
+Lemma build_seq_decl_get : forall ds parent didx me t target,
+  NodeTable.get target (fst (build_seq build_decl parent didx me ds t)) =
+    match occ_decls' parent didx me ds target with
+    | Some o => Some (occurrence_meta o)
+    | None   => NodeTable.get target t
+    end.
+Proof.
+  induction ds as [|d rest IH]; intros parent didx me t target; cbn [build_seq occ_decls'].
+  - reflexivity.
+  - pose proof (build_decl_end d parent didx me t) as Hde.
+    destruct (build_decl parent didx me d t) as [t1 de] eqn:E1. cbn [snd] in Hde. subst de. cbn [fst].
+    specialize (IH parent (S didx) (Pos.succ (end_decl me d)) t1 target). rewrite IH.
+    specialize (build_decl_get d parent didx me t target) as HG.
+    rewrite E1 in HG. cbn [fst] in HG. rewrite HG.
+    destruct (Pos.leb_spec target (end_decl me d)) as [Hle|Hgt].
+    + rewrite (occ_decls'_below rest parent (S didx) (Pos.succ (end_decl me d)) target ltac:(lia)). reflexivity.
+    + rewrite (occ_decl'_above d parent didx me target ltac:(lia)). reflexivity.
+Qed.
+
+(* ============ the load-bearing UNIVERSAL exactness theorem (Master Plan / C0B §4). ============ *)
+
+(* the metadata the builder stores at EVERY local id is EXACTLY the metadata of the source occurrence that
+   id designates — both presence (a real occurrence -> its meta) and absence (no occurrence -> no entry).
+   It ranges over every positive id, needs no pre-existing NodeRef, and never assumes the id is valid.
+   A structurally-coherent MISLABELING (leaf as KDecl, swapped RChild, shifted index, wrong parent/subtree)
+   makes the two sides disagree, so it CANNOT satisfy this equality. *)
+Theorem build_file_source_exact : forall f local,
+  NodeTable.get local (fi_table (build_file f)) = option_map occurrence_meta (source_occurrence_at f local).
+Proof.
+  intros f local. unfold build_file, source_occurrence_at.
+  pose proof (build_seq_decl_next (tf_decls f) root_id 0 (Pos.succ root_id) NodeTable.empty) as Hnx.
+  destruct (build_seq build_decl root_id 0 (Pos.succ root_id) (tf_decls f) NodeTable.empty) as [t1 nx] eqn:E1.
+  cbn [snd] in Hnx. subst nx. cbn [fi_table].
+  destruct (Pos.eqb_spec local root_id).
+  - subst. rewrite NodeTable.get_set_same.
+    cbn [option_map occurrence_meta occurrence_kind occurrence_parent occurrence_role occurrence_subtree_end].
+    unfold count_file. reflexivity.
+  - rewrite NodeTable.get_set_other by congruence.
+    specialize (build_seq_decl_get (tf_decls f) root_id 0 (Pos.succ root_id) NodeTable.empty local) as HG.
+    rewrite E1 in HG. cbn [fst] in HG. rewrite HG.
+    destruct (occ_decls' root_id 0 (Pos.succ root_id) (tf_decls f) local) as [o|] eqn:Eo;
+      cbn [option_map]; [reflexivity | apply NodeTable.get_empty].
+Qed.
+
+(* --- the C0B §4.2 consequences (A..H), all derived from the one universal theorem. --- *)
+
+(* A: a real source occurrence -> its metadata is stored. *)
+Theorem source_occurrence_meta : forall f local o,
+  source_occurrence_at f local = Some o ->
+  NodeTable.get local (fi_table (build_file f)) = Some (occurrence_meta o).
+Proof. intros f local o H. rewrite build_file_source_exact, H. reflexivity. Qed.
+
+(* B: a stored entry -> exactly one source occurrence whose metadata it is. *)
+Theorem meta_source_occurrence : forall f local m,
+  NodeTable.get local (fi_table (build_file f)) = Some m ->
+  exists o, source_occurrence_at f local = Some o /\ m = occurrence_meta o.
+Proof.
+  intros f local m H. rewrite build_file_source_exact in H.
+  destruct (source_occurrence_at f local) as [o|] eqn:Eo; cbn [option_map] in H; [|discriminate].
+  injection H as <-. exists o. split; reflexivity.
+Qed.
+
+(* C: absence both directions. *)
+Theorem source_absence : forall f local,
+  source_occurrence_at f local = None <->
+  NodeTable.get local (fi_table (build_file f)) = None.
+Proof.
+  intros f local. rewrite build_file_source_exact.
+  destruct (source_occurrence_at f local); cbn [option_map]; split; intro H; congruence.
+Qed.
+
+(* D: the source occurrence at a local id is unique (the lookup is a function). *)
+Theorem source_occurrence_unique : forall f local o1 o2,
+  source_occurrence_at f local = Some o1 -> source_occurrence_at f local = Some o2 -> o1 = o2.
+Proof. intros f local o1 o2 H1 H2. rewrite H1 in H2. injection H2 as <-. reflexivity. Qed.
+
+(* E..H: the stored kind / role / parent / subtree-end are EXACTLY the source occurrence's. *)
+Theorem source_kind_exact : forall f local o,
+  source_occurrence_at f local = Some o ->
+  exists m, NodeTable.get local (fi_table (build_file f)) = Some m /\ nm_kind m = occurrence_kind o.
+Proof. intros f local o H. exists (occurrence_meta o). split; [apply source_occurrence_meta; exact H | reflexivity]. Qed.
+
+Theorem source_role_exact : forall f local o,
+  source_occurrence_at f local = Some o ->
+  exists m, NodeTable.get local (fi_table (build_file f)) = Some m /\ nm_role m = occurrence_role o.
+Proof. intros f local o H. exists (occurrence_meta o). split; [apply source_occurrence_meta; exact H | reflexivity]. Qed.
+
+Theorem source_parent_exact : forall f local o,
+  source_occurrence_at f local = Some o ->
+  exists m, NodeTable.get local (fi_table (build_file f)) = Some m /\ nm_parent m = occurrence_parent o.
+Proof. intros f local o H. exists (occurrence_meta o). split; [apply source_occurrence_meta; exact H | reflexivity]. Qed.
+
+Theorem source_subtree_end_exact : forall f local o,
+  source_occurrence_at f local = Some o ->
+  exists m, NodeTable.get local (fi_table (build_file f)) = Some m /\ nm_subtree_end m = occurrence_subtree_end o.
+Proof. intros f local o H. exists (occurrence_meta o). split; [apply source_occurrence_meta; exact H | reflexivity]. Qed.
+
 
 (* ================================================================================================= *)
 (** ** C0A: source-snapshot-local references and TOTAL navigation.                                     *)

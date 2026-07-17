@@ -494,3 +494,15 @@ Print Assumptions OccurrenceSpike.Snap.thm_ref_ancestry.
 Print Assumptions OccurrenceSpike.Snap.reg_index_data_equal.
 Print Assumptions OccurrenceSpike.Snap.reg_dup_path_rejected.
 Print Assumptions OccurrenceSpike.Snap.reg_two_file.
+(* C0B semantic root: the UNIVERSAL exact source-occurrence correspondence — the metadata the builder stores
+   at each local id is exactly the metadata of the exact source occurrence there (kind/role/parent/subtree,
+   presence AND absence), against an INDEPENDENT table-free, builder-independent source specification. *)
+Print Assumptions OccurrenceSpike.build_file_source_exact.
+Print Assumptions OccurrenceSpike.source_occurrence_meta.
+Print Assumptions OccurrenceSpike.meta_source_occurrence.
+Print Assumptions OccurrenceSpike.source_absence.
+Print Assumptions OccurrenceSpike.source_occurrence_unique.
+Print Assumptions OccurrenceSpike.source_kind_exact.
+Print Assumptions OccurrenceSpike.source_role_exact.
+Print Assumptions OccurrenceSpike.source_parent_exact.
+Print Assumptions OccurrenceSpike.source_subtree_end_exact.
