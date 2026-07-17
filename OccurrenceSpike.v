@@ -99,12 +99,44 @@ Record TFileNode := mkTFileNode { tfn_path : FilePath ; tfn_source : TSourceFile
    names at most one source root INTRINSICALLY (no [NoDup] side condition, no list scan, no hidden slot). *)
 Definition TForest := Collections.FileMapBase.t TSourceFile.
 
-(* place a list of construction nodes into the standard file map (view -> forest); the map key enforces one
-   source per path.  (The production pipeline additionally REJECTS duplicate paths via [filemap_of_nodes];
-   this toy snapshot only needs the map's intrinsic key-functionality, exercised by the §9 fixtures.) *)
-Definition forest_of (nodes : list TFileNode) : TForest :=
-  fold_right (fun n acc => Collections.FileMapBase.add (tfn_path n) (tfn_source n) acc)
-             (Collections.FileMapBase.empty TSourceFile) nodes.
+(* place a list of construction nodes into the standard file map (view -> forest).  This DUPLICATE-REJECTS
+   exactly like production's [filemap_of_nodes]: a repeated path makes the build FAIL ([None]) rather than
+   letting [add]'s overwrite SILENTLY ERASE the earlier source occurrence (C1A §6 — never let a standard
+   map's overwrite behavior drop a duplicate source). *)
+Fixpoint forest_of (nodes : list TFileNode) : option TForest :=
+  match nodes with
+  | [] => Some (Collections.FileMapBase.empty TSourceFile)
+  | n :: rest =>
+      match forest_of rest with
+      | None => None
+      | Some fm => if Collections.FileMapBase.mem (tfn_path n) fm then None
+                   else Some (Collections.FileMapBase.add (tfn_path n) (tfn_source n) fm)
+      end
+  end.
+
+(* the empty map has no member, so a single-node build takes the [add] branch (not the reject branch). *)
+Lemma mem_empty (k : FilePath) :
+  Collections.FileMapBase.mem k (Collections.FileMapBase.empty TSourceFile) = false.
+Proof.
+  destruct (Collections.FileMapBase.mem k (Collections.FileMapBase.empty TSourceFile)) eqn:E; [ | reflexivity ].
+  apply Collections.FileMapBase.mem_2 in E. destruct E as [v Hv].
+  exfalso. revert Hv. apply Collections.FileMapBase.empty_1.
+Qed.
+
+(* a same-path pair is REJECTED at construction, so no earlier source is silently overwritten. *)
+Lemma forest_of_dup_rejected (p : FilePath) (s1 s2 : TSourceFile) :
+  forest_of [ mkTFileNode p s1 ; mkTFileNode p s2 ] = None.
+Proof.
+  cbn [forest_of tfn_path tfn_source]. rewrite mem_empty. cbv beta iota.
+  assert (Hmem : Collections.FileMapBase.mem p
+                   (Collections.FileMapBase.add p s2 (Collections.FileMapBase.empty TSourceFile)) = true).
+  { apply Collections.FileMapBase.mem_1. exists s2. apply Collections.FileMapBase.add_1. reflexivity. }
+  rewrite Hmem. reflexivity.
+Qed.
+
+(* the total extraction used by the §9 fixtures (all with DISTINCT paths, so [forest_of] succeeds). *)
+Definition forest_of_ok (nodes : list TFileNode) : TForest :=
+  match forest_of nodes with Some fm => fm | None => Collections.FileMapBase.empty TSourceFile end.
 
 Definition root_id : positive := 1%positive.    (* every file root's canonical local id (theorem 1) *)
 
@@ -1980,13 +2012,19 @@ Definition rpath : FilePath := mkFP "a.go"%string eq_refl.
 (* one file's SOURCE: one decl / one stmt / TBin (TLeaf v) (TLeaf v) — TWO structurally equal leaves of v. *)
 Definition rfile (v : nat) : TSourceFile := mkTSource [ TFun [ TPrint (TBin (TLeaf v) (TLeaf v)) ] ].
 (* two snapshots (standard maps): identical path + tree shape, but leaves 5 vs 6. *)
-Definition fs_a : TForest := forest_of [ mkTFileNode rpath (rfile 5) ].
-Definition fs_b : TForest := forest_of [ mkTFileNode rpath (rfile 6) ].
+Definition fs_a : TForest := forest_of_ok [ mkTFileNode rpath (rfile 5) ].
+Definition fs_b : TForest := forest_of_ok [ mkTFileNode rpath (rfile 6) ].
+
+(* the single-node build takes the [add] branch (not the reject branch — [mem_empty] near [forest_of]). *)
+Lemma forest_of_ok_single (n : TFileNode) :
+  forest_of_ok [ n ] = Collections.FileMapBase.add (tfn_path n) (tfn_source n) (Collections.FileMapBase.empty TSourceFile).
+Proof. unfold forest_of_ok. cbn [forest_of]. rewrite mem_empty. reflexivity. Qed.
 
 Lemma rfind (v : nat) :
-  Collections.FileMapBase.find rpath (forest_of [ mkTFileNode rpath (rfile v) ]) = Some (rfile v).
+  Collections.FileMapBase.find rpath (forest_of_ok [ mkTFileNode rpath (rfile v) ]) = Some (rfile v).
 Proof.
-  unfold forest_of. cbn [fold_right tfn_path tfn_source]. apply Collections.FileMapFacts.add_eq_o. reflexivity.
+  rewrite forest_of_ok_single. cbn [tfn_path tfn_source].
+  apply Collections.FileMapFacts.add_eq_o. reflexivity.
 Qed.
 Definition fref_a : FileRef fs_a := mkFileRef fs_a rpath (rfile 5) (rfind 5).
 Definition fref_b : FileRef fs_b := mkFileRef fs_b rpath (rfile 6) (rfind 6).
@@ -2044,7 +2082,7 @@ Qed.
 Theorem reg_index_data_equal : Collections.FileMapBase.Equal (outer_of fs_a) (outer_of fs_b).
 Proof.
   intro k. unfold outer_of. rewrite !Collections.FileMapFacts.map_o.
-  unfold fs_a, fs_b, forest_of. cbn [fold_right tfn_path tfn_source].
+  unfold fs_a, fs_b. rewrite !forest_of_ok_single. cbn [tfn_path tfn_source].
   rewrite !Collections.FileMapFacts.add_o.
   destruct (Collections.FilePath_OT.eq_dec rpath k) as [Heq|Hne].
   - cbn [option_map]. reflexivity.
@@ -2066,7 +2104,7 @@ Qed.
    own file handle with no cross-file confusion.  (The minting witnesses are below, after [file_of_path_source].) *)
 Definition rpathb : FilePath := mkFP "b.go"%string eq_refl.
 Definition rfileb (v : nat) : TSourceFile := mkTSource [ TFun [ TPrint (TLeaf v) ] ].
-Definition fs_two : TForest := forest_of [ mkTFileNode rpath (rfile 5) ; mkTFileNode rpathb (rfileb 7) ].
+Definition fs_two : TForest := forest_of_ok [ mkTFileNode rpath (rfile 5) ; mkTFileNode rpathb (rfileb 7) ].
 
 (* ================================================================================================= *)
 (** ** C0A ref-level theorem family (§10): total-API correctness + snapshot-local reference identity.  *)
@@ -2345,18 +2383,9 @@ Proof. intro H. apply (f_equal fp_str) in H. discriminate H. Qed.
 
 (* the two-file forest's map bindings, by path (standard [add]/[find] — no scan). *)
 Lemma rfind_two_a : Collections.FileMapBase.find rpath fs_two = Some (rfile 5).
-Proof.
-  unfold fs_two, forest_of. cbn [fold_right tfn_path tfn_source].
-  apply Collections.FileMapFacts.add_eq_o. reflexivity.
-Qed.
+Proof. vm_compute. reflexivity. Qed.
 Lemma rfind_two_b : Collections.FileMapBase.find rpathb fs_two = Some (rfileb 7).
-Proof.
-  unfold fs_two, forest_of. cbn [fold_right tfn_path tfn_source].
-  rewrite Collections.FileMapFacts.add_o.
-  destruct (Collections.FilePath_OT.eq_dec rpath rpathb) as [Heq|_].
-  - exfalso. exact (rpath_neq Heq).
-  - apply Collections.FileMapFacts.add_eq_o. reflexivity.
-Qed.
+Proof. vm_compute. reflexivity. Qed.
 
 (* TWO-FILE minting witnesses: each distinct path resolves to its own file handle (keyed by that path). *)
 Theorem reg_two_file_a : exists fr, file_of_path fs_two rpath = Some fr /\ file_ref_path fr = rpath.

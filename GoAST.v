@@ -200,6 +200,43 @@ Proof.
     exfalso. apply Hnd. apply (filemap_of_nodes_success_iff_unique nodes). eexists; exact E.
 Qed.
 
+(** POSITIVE EXACTNESS (§6): on success, EVERY input node's path maps to ITS OWN source — the builder
+    actually populates each binding; because it rejects a duplicate before adding, no source is ever silently
+    overwritten (a later same-path node makes the build FAIL, it does not clobber the earlier binding). *)
+Lemma filemap_of_nodes_maps_to : forall nodes fm,
+  filemap_of_nodes nodes = Some fm ->
+  forall n, In n nodes -> maps_to_file (file_path n) (file_source n) fm.
+Proof.
+  induction nodes as [ | h rest IH ]; simpl; intros fm Hbuild n Hin; [ contradiction | ].
+  destruct (filemap_of_nodes rest) as [fm'|] eqn:Erest; [ | discriminate ].
+  destruct (file_mem (file_path h) fm') eqn:Emem; [ discriminate | ].
+  injection Hbuild as <-. unfold maps_to_file. destruct Hin as [ -> | Hin ].
+  - apply FM.add_1. reflexivity.
+  - assert (Hin' : FM.In (file_path n) fm')
+      by (apply (filemap_of_nodes_in rest fm' Erest); apply in_map; exact Hin).
+    assert (Hne : file_path h <> file_path n).
+    { intro Heq. rewrite Heq in Emem. apply FM.mem_1 in Hin'. unfold file_mem in Emem.
+      rewrite Hin' in Emem. discriminate. }
+    apply FM.add_2; [ exact Hne | apply (IH fm' eq_refl n Hin) ].
+Qed.
+
+(** REVERSE EXACTNESS (§6): every binding of the built map comes from an input node — the map invents no
+    binding.  Together with [filemap_of_nodes_maps_to] this pins the built map EXACTLY to the input forest. *)
+Lemma filemap_of_nodes_mapsto_source : forall nodes fm,
+  filemap_of_nodes nodes = Some fm ->
+  forall p sf, maps_to_file p sf fm -> exists n, In n nodes /\ file_path n = p /\ file_source n = sf.
+Proof.
+  induction nodes as [ | h rest IH ]; simpl; intros fm Hbuild p sf Hmt.
+  - injection Hbuild as <-. unfold maps_to_file in Hmt. exfalso. apply (FM.empty_1 Hmt).
+  - destruct (filemap_of_nodes rest) as [fm'|] eqn:Erest; [ | discriminate ].
+    destruct (file_mem (file_path h) fm') eqn:Emem; [ discriminate | ].
+    injection Hbuild as <-. unfold maps_to_file in Hmt.
+    apply FMF.add_mapsto_iff in Hmt. destruct Hmt as [ [Heq Hsf] | [Hne Hmt'] ].
+    + exists h. split; [ left; reflexivity | split; [ exact Heq | exact Hsf ] ].
+    + destruct (IH fm' eq_refl p sf Hmt') as [ n [Hin [Hp Hsf]] ].
+      exists n. split; [ right; exact Hin | split; [ exact Hp | exact Hsf ] ].
+Qed.
+
 
 (** ---- the module spec: intrinsic facts about the GENERATED module (not environment config) ---- *)
 

@@ -270,11 +270,16 @@ Print Assumptions GoTypes.int_of_cplx64_tiny_imag_is_3.
 
 (* C1A: the map-backed SOURCE FOREST — [GoProgram]'s files are a STANDARD FilePath map ([GoFileMap]).  The
    duplicate-rejecting builder [filemap_of_nodes] is SOUND and COMPLETE (success iff the node paths are
-   unique; failure iff a path repeats), its domain is exactly the input paths, and the semantic file-map
-   equality is an equivalence.  ONE path authority (the map key); [GoFileNode] is construction/view only. *)
+   unique; failure iff a path repeats), its domain is exactly the input paths, and — the EXACTNESS pair — on
+   success every input node maps to ITS OWN source ([filemap_of_nodes_maps_to]; a duplicate FAILS the build,
+   it never silently overwrites) and every built binding comes from an input node
+   ([filemap_of_nodes_mapsto_source]).  The semantic file-map equality is an equivalence.  ONE path authority
+   (the map key); [GoFileNode] is construction/view only. *)
 Print Assumptions GoAST.filemap_of_nodes_success_iff_unique.
 Print Assumptions GoAST.filemap_of_nodes_none_iff_duplicate.
 Print Assumptions GoAST.filemap_of_nodes_in.
+Print Assumptions GoAST.filemap_of_nodes_maps_to.
+Print Assumptions GoAST.filemap_of_nodes_mapsto_source.
 Print Assumptions GoAST.FilesEqual_refl.
 Print Assumptions GoAST.FilesEqual_sym.
 Print Assumptions GoAST.FilesEqual_trans.
@@ -504,6 +509,7 @@ Print Assumptions OccurrenceSpike.Snap.is_ancestor_ref.
 Print Assumptions OccurrenceSpike.Snap.thm_ref_ancestry.
 Print Assumptions OccurrenceSpike.Snap.reg_index_data_equal.
 Print Assumptions OccurrenceSpike.Snap.reg_dup_path_rejected.
+Print Assumptions OccurrenceSpike.forest_of_dup_rejected.
 Print Assumptions OccurrenceSpike.Snap.reg_two_file.
 (* C0B semantic root: the UNIVERSAL exact source-occurrence correspondence — the metadata the builder stores
    at each local id is exactly the metadata of the exact source occurrence there (kind/role/parent/subtree,
