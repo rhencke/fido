@@ -12,13 +12,14 @@ Definition m_root  : FilePath := mkFP "main.go" eq_refl.
 Definition m_extra : FilePath := mkFP "extra.go" eq_refl.          (* same (root) package, no main *)
 Definition m_sub   : FilePath := mkFP "sub/main.go" eq_refl.       (* a second main package *)
 
-Definition multi_entries : list (FilePath * list GoDecl) :=
-  [ (m_root,  [ DMain [ SPrintln [ EBool true; EInt 1 ] ] ])
-  ; (m_extra, [])
-  ; (m_sub,   [ DMain [ SPrintln [ ENeg 5 ] ] ]) ].
+(** specification-shaped file roots (the construction API takes [GoFileNode]s, not path/decl pairs). *)
+Definition multi_nodes : list GoFileNode :=
+  [ main_file_node m_root  [ DMain [ SPrintln [ EBool true; EInt 1 ] ] ]
+  ; main_file_node m_extra []
+  ; main_file_node m_sub   [ DMain [ SPrintln [ ENeg 5 ] ] ] ].
 
 Definition multi_program : GoProgram :=
-  match build_program multi_module multi_entries with Some p => p | None => empty_program multi_module end.
+  match build_program multi_module multi_nodes with Some p => p | None => empty_program multi_module end.
 
 Lemma multi_valid : ProgValid multi_program.
 Proof. apply prog_ok_iff. vm_compute. reflexivity. Qed.

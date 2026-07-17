@@ -261,21 +261,27 @@ Definition fileset_fmap {A} (r : GoSourceFile -> A) (fs : GoFileSet) : fmap File
 
 (** ---- builders (paths unique, intrinsic; the source forest MAY be empty) ---- *)
 
-(** the canonical `package main` source file holding a declaration list. *)
+(** the canonical `package main` source file holding a declaration list (a CONVENIENCE that creates ordinary
+    source syntax — the renderer never synthesizes source behind the AST's back). *)
 Definition main_source (decls : list GoDecl) : GoSourceFile := mkSourceFile PkgMain [] decls.
+
+(** the canonical `package main` file ROOT at a path (convenience node builder). *)
+Definition main_file_node (path : FilePath) (decls : list GoDecl) : GoFileNode :=
+  mkFileNode path (main_source decls).
 
 (** A single-file program under a module spec. *)
 Definition singleton_program (ms : ModuleSpec) (path : FilePath) (decls : list GoDecl) : GoProgram :=
-  mkProgram ms (fs_singleton (mkFileNode path (main_source decls))).
+  mkProgram ms (fs_singleton (main_file_node path decls)).
 
 (** A module-only program: a valid [ModuleSpec] with NO source files. *)
 Definition empty_program (ms : ModuleSpec) : GoProgram :=
   mkProgram ms fs_empty.
 
-(** From a module spec + a list of (path, declarations): [None] ONLY on duplicate paths; the EMPTY list
-    yields a valid module-only program (path-uniqueness is intrinsic). *)
-Definition build_program (ms : ModuleSpec) (l : list (FilePath * list GoDecl)) : option GoProgram :=
-  match fileset_of_list (List.map (fun pe => mkFileNode (fst pe) (main_source (snd pe))) l) with
+(** The construction API (Master Plan 3.5): from a module spec + a list of specification-shaped file roots,
+    [None] ONLY when the collection cannot describe one source tree (chiefly duplicate paths); the EMPTY list
+    yields a valid module-only program.  Semantic invalidity remains a compiler result. *)
+Definition build_program (ms : ModuleSpec) (nodes : list GoFileNode) : option GoProgram :=
+  match fileset_of_list nodes with
   | None => None
   | Some fs => Some (mkProgram ms fs)
   end.
