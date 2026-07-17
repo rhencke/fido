@@ -1824,7 +1824,9 @@ C1.10 C1 acceptance
 PART 14 — CHECKPOINT C2
 ===============================================================================
 
-C2 is activated only after human approval of C1.
+C2 is activated only after explicit human approval of C1B (the collection-policy / plan-reconciliation
+correction that supersedes C1's file-storage design).  C1 and C1A being complete is NOT sufficient — C2
+remains FORBIDDEN until Rob explicitly authorizes it after C1B is accepted.
 
 C2.1 Land production GoIndex
 

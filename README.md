@@ -76,9 +76,11 @@ no complex arithmetic, no `real`/`imag`, no imports.
   path + a singleton Go version — the facts of the generated module, **not** a target config) paired with a
   **possibly-empty** verified finite map from intrinsic `FilePath` keys to one raw file AST per file (a raw
   string is **not** a path — Go package discovery depends on it, so only a narrow canonical grammar is
-  representable). The empty file map is a valid module-only program. A raw file is just top-level
-  declarations; **package clauses, package names, and entry-point status are compilation results**, not raw
-  metadata. There is no second tree and no separate IR.
+  representable). The empty file map is a valid module-only program. A raw file is a source-shaped
+  `GoSourceFile` — a **source-owned package clause** (`PkgMain` → `package main`), an intrinsically-empty
+  import section, and its top-level declarations; the package clause (and future import declarations) is
+  **source syntax**, while package **grouping**, entry-point status, and import **resolution** are
+  compilation results. There is no second tree and no separate IR.
 - **One type authority.** Each raw literal denotes an exact **untyped** constant (`GoConst`); `GoTypes` —
   the single type authority, evidence over the same AST, universe `TBool` / the integer family `TInteger`
   (ten `IntegerType` members) / the float family `TFloat` (`F32`/`F64` = `float32`/`float64`) / the complex

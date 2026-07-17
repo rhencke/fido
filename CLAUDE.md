@@ -50,8 +50,9 @@ its own dependently-typed constant, not re-checked); every string constant is re
 there is no typed AST. The `ModuleSpec` is an intrinsic narrow `ModulePath` + a
 singleton `GoVersion` (Go1_23), NOT a `TargetConfig`; the `go.mod` is RENDERED in Rocq. The EMPTY file map
 is a valid module-only program. A `FilePath` is a narrow canonical relative path (lowercase components + a
-`.go` basename); anything else — other decls, calls, params, imports, package clauses in raw syntax,
-strange paths, invalid module paths — is UNREPRESENTABLE, not rejected. Every layer is proved axiom-free; a
+`.go` basename); the package clause is SOURCE-owned (`PkgMain` → `package main`) and the import section is
+intrinsically empty — anything else — other decls, calls, params, non-empty imports, arbitrary (non-`main`)
+package clauses, strange paths, invalid module paths — is UNREPRESENTABLE, not rejected. Every layer is proved axiom-free; a
 witness exercising bool + int + the `-(2^63)` boundary + explicit conversions across ALL TEN integer types
 (signed/unsigned narrow + 64-bit boundaries, platform int/uint, `uint64(2^63)`, nested `int8(int16(127))`) +
 float64/float32 (an exact float->int, int->float, the direct-vs-nested double-round scar as EXACT uint64
