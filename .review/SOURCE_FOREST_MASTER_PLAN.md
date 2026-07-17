@@ -638,11 +638,11 @@ Fido's program is an immutable compilation snapshot.
 
 Each semantically addressable occurrence in one file receives a deterministic local ID from one canonical preorder traversal.
 
-Conceptually:
+Conceptually (the canonical file-root local ID is `1`, NOT `0`):
 
-  0 = file root
-  1 = first indexed child
-  2 = next preorder occurrence
+  1 = file root
+  2 = first indexed child
+  3 = next preorder occurrence
   ...
 
 The public raw key is:
@@ -652,9 +652,8 @@ The public raw key is:
     node_local : LocalNodeId
   }.
 
-`LocalNodeId` should be abstract to callers.
-
-Its implementation is selected in Checkpoint C0.
+`LocalNodeId` is `positive` (the key type of the selected standard `FMapPositive` node map), abstract to
+callers.  The canonical file-root local ID is `1%positive` (`root_id = 1`).
 
 4.3 Snapshot-indexed validated references
 
