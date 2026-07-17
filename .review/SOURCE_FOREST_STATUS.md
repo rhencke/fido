@@ -261,9 +261,13 @@ Codex-green history and their findings/repair ledgers above are preserved — no
   isolated from the emit pipeline).  The pre-commit hook re-ran the SAME full gate on the STAGED `92a910b`
   snapshot and passed.
 - Push result: fast-forward pushed to `main` (`46a9d65..92a910b` C0B range: `milestone(contract)` →
-  `milestone(root)` → `milestone(final)` → `review(final)`).
-- Human disposition: **pending Rob's review** (Codex green; loop stopped and Rob notified — do NOT begin C1
-  without explicit authorization).
+  `milestone(root)` → `milestone(final)` → `review(final)`; ledger `305d6cb`).
+- Human disposition: **ACCEPTED by Rob (2026-07-17, review disposition GREEN).**  C0, C0A, and C0B are all
+  accepted; the occurrence architecture is considered foundationally correct and its decisions frozen (see the
+  master plan).  Rob authorized activating **C1** exactly as defined in the master plan.  Two non-blocking
+  cleanups folded into the first C1 commit (no separate checkpoint): (1) refresh any doc still on an older
+  proof-surface count / campaign state; (2) state that proof-only source recovery is not a hot-path guarantee
+  (ordinary compilation receives syntax + `NodeRef` together — already in master plan §4.11).
 
 ### C0B decision record
 - Independent source specification: `SyntaxView : SyntaxKind -> Type` (`ViewFile`/`ViewDecl`/`ViewStatement`/
