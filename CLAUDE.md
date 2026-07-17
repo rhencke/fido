@@ -3,28 +3,30 @@
 **A proof project whose vertical slice is proved AND executed.** An untrusted proposer (an LLM) may write a
 raw Go program and arbitrary supporting lemmas; **no Go is emitted unless Rocq first proves the whole
 program compile-admissible and safe.** There is **one** program representation — the AST *is* the IR; a
-`GoProgram` is an intrinsic `ModuleSpec` (module path + Go version) paired with a (possibly EMPTY) verified
-finite map from intrinsic `FilePath` keys to one raw `GoFileAST` per file; "compiled" and "safe" are
-PROOFS/EVIDENCE + derived facts over that one program, never new trees:
+`GoProgram` is an intrinsic `ModuleSpec` (module path + Go version) paired with a (possibly EMPTY)
+path-keyed `GoFileSet` — a source forest of specification-shaped file roots (a `GoFileNode` = a `FilePath` +
+a `GoSourceFile` = a source-owned package clause + empty imports + top-level declarations); "compiled" and
+"safe" are PROOFS/EVIDENCE + derived facts over that one program, never new trees:
 
 ```
-GoProgram (ModuleSpec + a possibly-empty fmap FilePath -> GoFileAST) -> GoTypes (each raw literal is an
+GoProgram (ModuleSpec + a possibly-empty GoFileSet source forest) -> GoTypes (each raw literal is an
       exact UNTYPED GoConst; an explicit EIntConvert/EFloatConvert/EComplexConvert is a TYPED constant; a use
       context resolves it through the ONE GoType authority {TBool, the integer family TInteger over the
       ten-member IntegerType, the float family TFloat over FloatType, the complex family TComplex over
       ComplexType, TString} to
-      ProgramTyped evidence over the SAME AST) -> GoCompile (whole-program admissibility = ProgramTyped +
-      exactly-one-main + CompilationFacts over the SAME program) -> GoSafe (SafeProgram) -> direct GoRender
-      (incl. the go.mod) -> complete DirectoryImage (exact go.mod bytes + the .go map)
+      ProgramTyped evidence over the SAME AST) -> GoCompile (whole-program admissibility = ProgValid =
+      ProgramTyped + exactly-one-main over the SAME program) -> GoSafe (SafeProgram) -> direct GoRender
+      (source-owned package clause + the go.mod) -> complete DirectoryImage (exact go.mod bytes + the .go map)
       -> the general `Fido Emit` transport command -> foreign-Go-rejecting sibling-temp dirty-directory sink
       -> one pristine `generated-module` Buildx layer (tracked go.mod + recursive .go, verified byte-exact by
          the staged-index pre-commit) -> pinned Go `GOWORK=off GOTOOLCHAIN=local go build ./...` over the
          whole tree   [integration only]
 ```
 
-The admitted fragment: files grouped by directory into `package main` packages; each `GoFileAST` is raw
-top-level declarations (today only `DMain` — a `func main()` declaration; package clause / entry status are
-COMPILATION RESULTS, not raw); statements are `SPrintln` over primitive literals (`EBool`/`EInt`/`ENeg` —
+The admitted fragment: files grouped by directory into `package main` packages; each `GoSourceFile` is a
+source-owned package clause (`PkgMain` → `package main`), intrinsically-empty imports, and top-level
+declarations (today only `DMain` — a `func main()` declaration; entry status is a COMPILATION RESULT, the
+package clause is SOURCE syntax rendered by GoRender); statements are `SPrintln` over primitive literals (`EBool`/`EInt`/`ENeg` —
 unsigned magnitude, negatives via `ENeg` — `EString`, whose argument is the EXACT SEMANTIC BYTE SEQUENCE,
 NOT source spelling / Unicode / an escaped literal, `EFloat` — a bounded-canonical finite DECIMAL value (NOT
 source spelling), `EComplex` — a semantic complex literal (a PAIR of `DecimalFloat` components, canonical
@@ -157,11 +159,13 @@ algorithm, report an architectural conflict and stop. Do not implement an altern
    well-formed value of its resolved type (`eval_expr_resolved`); `render_const_info_denotes` /
    `render_resolved_expr_denotes` (via the ONE `RenderedConstInfoDenotes`) tie the rendered spelling to the
    analyzed `ConstInfo` — a bare integer UNTYPED, a conversion typed — and to that value and its type. Every admitted primitive has its complete type/value/render/syntax proofs NOW.
-8. **The program is a `ModuleSpec` + a WHOLE-PROGRAM map with intrinsic paths, and integer width, float
-   format, AND the type universe each have one authority.** `GoProgram` is `{ prog_module : ModuleSpec ; prog_files : fmap
-   FilePath GoFileAST }`; the file map MAY be EMPTY (a module-only program); keys are intrinsic canonical
-   paths (raw strings are NOT paths — package discovery depends on them). Files group by directory into
-   packages; package name and entry point are compilation results. `ModuleSpec` (intrinsic `ModulePath` +
+8. **The program is a `ModuleSpec` + a WHOLE-PROGRAM path-keyed SOURCE FOREST with intrinsic paths, and
+   integer width, float format, AND the type universe each have one authority.** `GoProgram` is `{ prog_module
+   : ModuleSpec ; prog_files : GoFileSet }`; the source forest MAY be EMPTY (a module-only program); each
+   `GoFileNode` carries its intrinsic canonical `FilePath` (ONE path authority — raw strings are NOT paths;
+   package discovery depends on them), and `GoFileSet` is path-unique by construction (`file_paths_unique`).
+   Files group by directory into packages; the package clause is SOURCE-owned (`source_package`), entry point
+   is a compilation result. `ModuleSpec` (intrinsic `ModulePath` +
    singleton `GoVersion`) describes the GENERATED module, NOT the environment — it is NOT a `TargetConfig`;
    `go.mod` is not a `FilePath`. The one integer-family + range authority is `Ints` (the ten-member
    `IntegerType`; `int`/`uint` pinned 64-bit and DISTINCT from `int64`/`uint64` though they share a range on
@@ -199,10 +203,13 @@ of general `FloatValue` components — may be -0/inf/NaN); the bounded raw-liter
 `ModulePath` —
 the intrinsic narrow canonical module-path domain (decidable eq; invalid paths unrepresentable). ·
 `GoVersion` — singleton `Go1_23`, renders "1.23". · `GoAST` — `ModuleSpec` + `GoProgram := { prog_module ;
-prog_files : fmap FilePath GoFileAST }` (the map MAY be empty); raw `GoDecl` (`DMain`), `SPrintln`,
+prog_files : GoFileSet }` (the source forest MAY be empty); each `GoFileNode` = `FilePath` + `GoSourceFile`
+(source-owned `PkgMain` package clause + intrinsically-empty imports + `source_decls`); `GoFileSet`
+path-unique by construction (`find_file`/`file_paths`/`FilesEqual`, dup paths unrepresentable); raw `GoDecl`
+(`DMain`), `SPrintln`,
 `EBool`/`EInt`/`ENeg`/`EString` (string = exact bytes)/`EIntConvert` (integer conversion)/`EFloat` (a bounded
 finite-decimal literal)/`EFloatConvert` (float conversion)/`EComplex` (a semantic complex literal, `complex(re,
-im)`)/`EComplexConvert` (complex conversion); no package clause / entry / imports / TYPES in
+im)`)/`EComplexConvert` (complex conversion); no entry / non-empty imports / non-`main` package / TYPES in
 raw. · `GoTypes` — the ONE type
 authority (EVIDENCE over the raw AST): `GoType` = `TBool` | `TInteger IntegerType` | `TFloat FloatType` |
 `TComplex ComplexType` | `TString`, exact untyped `GoConst` (`CBool`/`CInt Z`/`CFloat FloatConst`/`CComplex
@@ -218,18 +225,19 @@ zero-imaginary rule; bool/string source-or-target reject) + the `ConstInfo` anal
 `TFloat F64`, bare complex → `TComplex C128`; a typed constant PACKS unchanged into a `ResolvedConst`, validity INTRINSIC) + `ConstRepresentable`
 DERIVED from successful typing (`type_untyped_const_at`, no second range/overflow checker; every string
 representable as `TString`), reflected `ResolveExpr` with its `ResolvedConst` witness (`resolve_expr_const`),
-`Stmt/Decl/File/ProgramTyped` (empty map typed vacuously). · `GoCompile` —
-whole-program directory→package + exactly-one-main + whole-program typing (`ProgramTyped` via GoTypes; empty
-program accepted); `go_compile` sound/complete (`prog_ok_iff`); honest `ErrTyping`; `CompilationFacts`
-exposing typing by canonical projection. · `GoSafe` — real `GoValue` (`VBool`/`VInteger IntegerType Z`/
+`Stmt/Decl/File/ProgramTyped` (empty forest typed vacuously). · `GoCompile` —
+whole-program directory→package + exactly-one-main + whole-program typing (`GoCompile p := ProgValid p =
+ProgramTyped p ∧ AllPackagesOneMain p`, via GoTypes; empty program accepted); `go_compile` sound/complete
+(`prog_ok_iff`); honest `ErrTyping`; typing exposed by canonical projection (`compile_program_typed`) — NO
+`CompilationFacts`/`cf_pkg_name` (the package clause is source-owned). · `GoSafe` — real `GoValue` (`VBool`/`VInteger IntegerType Z`/
 `VFloat ft (FloatValue ft)`/`VComplex ct (ComplexValue ct)`/`VString`), `value_type` over the same `GoType`,
 `ValueWF` range invariant (a float's / complex component's canonicality lives in `FloatValue`), PARTIAL
 `eval_expr` (`const_info` → `resolve_const_info` →
 `typed_const_to_value`, which PROJECTS the stored `tfc_runtime` — rounded ONCE at conversion, never
 re-rounded — only finite/+0), resolved-eval well-formedness + type
 preservation, `eval_file`, `SafeProgram`. · `GoRender` —
-render decls + derived
-package clause + the go.mod from the `ModuleSpec`; strings via ONE canonical interpreted literal
+render decls + the SOURCE-owned
+package clause (`render_package_clause`, `PkgMain` → `main`) + the go.mod from the `ModuleSpec`; strings via ONE canonical interpreted literal
 (`render_string_literal`) with an INDEPENDENT decoder (`decode_string_literal` / `render_string_roundtrip`);
 floats via ONE canonical decimal spelling (`render_decimal`) with an INDEPENDENT decoder (`decode_decimal` /
 `decode_render_decimal`); complexes via ONE canonical `complex(<real>, <imag>)` spelling (both components via

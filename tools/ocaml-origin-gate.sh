@@ -51,7 +51,7 @@ done
 
 # (3) the transport bridge decodes the final transport only — never a Fido program/AST/type/safety structure.
 if [ -f "$root/$bridge" ]; then
-  if grep -nE 'GoProgram|GoFileAST|GoDecl|GoStmt|GoExpr|GoType|GoConst|CompilableProgram|SafeProgram|CompilationFacts|ProgramTyped|ResolveExpr|render_|eval_|GoCompile' "$root/$bridge"; then
+  if grep -nE 'GoProgram|GoFileSet|GoSourceFile|GoFileNode|GoDecl|GoStmt|GoExpr|GoType|GoConst|CompilableProgram|SafeProgram|ProgramTyped|ResolveExpr|render_|eval_|GoCompile' "$root/$bridge"; then
     echo "fido: OCAML-ORIGIN GATE — $bridge must decode ONLY the final transport; it names a program/AST/type structure."; exit 1
   fi
 fi

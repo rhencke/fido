@@ -5,8 +5,8 @@
 # GoType {TBool, the integer family TInteger over the ten-member IntegerType, the float family TFloat over
 # FloatType, TString}; an EIntConvert/EFloatConvert is a typed constant via the one convert_const authority)
 # to ProgramTyped evidence over the SAME AST) -> GoCompile (whole-program admissibility =
-# ProgramTyped + one-main-per-package, +CompilationFacts) -> GoSafe (values carry the SAME GoType) ->
-# GoRender (incl. the go.mod) -> the complete
+# ProgValid = ProgramTyped + one-main-per-package) -> GoSafe (values carry the SAME GoType) ->
+# GoRender (source-owned package clause + the go.mod) -> the complete
 # DirectoryImage (exact go.mod bytes + the .go map), then the general `Fido Emit` transport command + a
 # dirty-directory filesystem sink + the pinned Go toolchain.  Stages: (prover) dune-compiles the theory and
 # the always-run assumptions gate confirms every declared surface axiom-free; (emit) dune compiles

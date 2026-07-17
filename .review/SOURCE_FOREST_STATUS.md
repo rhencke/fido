@@ -320,9 +320,13 @@ plan (Part 3 + Part 8 + Part 13).  C2 stays forbidden until C1 is human-approved
 - Review cadence: two intentional Codex stops — ROOT (`milestone(root): C1 —`, repairs `review(root): C1 —`)
   then FINAL (`milestone(final): C1 —`, repairs `review(final): C1 —`).
 - Contract activation SHA: `7fd8c09` (`milestone(contract): C1`)
-- Root candidate SHA: `milestone(root): C1` (this commit — see git log)
-- Root Codex result / repair SHAs: pending
-- Final candidate SHA: pending
+- Root candidate SHA: `de1909a` (`milestone(root): C1`)
+- Root Codex result / repair SHAs: Codex **ALLOW / GREEN** on `de1909a` (review `task-mroiibf1`,
+  2026-07-17T05:43Z — "C1 ROOT has no blocking implementation defects or architectural conflicts within the
+  declared scope", non-stale; no root repair needed).  After root GREEN, continued directly to final
+  integration (no progress stop): the pipeline migration was already complete, so FINAL is the docs/gate
+  reconciliation + final byte-verify.
+- Final candidate SHA: `milestone(final): C1` (see git log)
 - Final Codex result / repair SHAs: pending
 - Verification result (`make check`): PASS on the working tree — theory + gate 403/403 axiom-free (whole-theory
   audit); e2e emitted the witness/multi/EMPTY trees + `go build ./...` vs goldens; working-tree generated

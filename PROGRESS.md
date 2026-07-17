@@ -1,15 +1,16 @@
 # Fido — status
 
 The vertical slice is **proved AND executed**, over ONE program representation: an intrinsic `ModuleSpec`
-paired with a (possibly-empty) verified finite map from intrinsic `FilePath` keys to raw file ASTs.
+paired with a (possibly-empty) path-keyed `GoFileSet` source forest of specification-shaped file roots.
 `ARCHITECTURE.md` is the charter, `PAINFUL_LESSONS.md` the postmortems, `git log` the archive.
 
 ## The admitted fragment
 
 A `GoProgram` is a `ModuleSpec` (a narrow intrinsic `ModulePath` + a singleton `GoVersion` = Go1_23 — the
-generated module's facts, rendered as `go.mod`; NOT a target config) plus a possibly-EMPTY map of files.
-Files group by directory into `package main` packages; each raw `GoFileAST` is top-level declarations (today
-only `DMain` — a `func main()` declaration); statements are `SPrintln` over bool (`EBool`), untyped
+generated module's facts, rendered as `go.mod`; NOT a target config) plus a possibly-EMPTY `GoFileSet`.
+Files group by directory into `package main` packages; each `GoSourceFile` is a source-owned package clause
+(`PkgMain`), intrinsically-empty imports, and top-level declarations (today only `DMain` — a `func main()`
+declaration); statements are `SPrintln` over bool (`EBool`), untyped
 integers (`EInt` magnitude / `ENeg` negation), byte-sequence strings (`EString` — exact bytes, not
 spelling), explicit integer conversions (`EIntConvert it e`) to any of the ten-member `IntegerType`, bare
 floating literals (`EFloat d`, an intrinsic bounded-canonical finite-decimal value), explicit float
@@ -22,9 +23,10 @@ bare float to `TFloat F64`, bare complex to `TComplex C128` + representability, 
 zero-imaginary rule; every string constant is representable as `TString`) — a
 literal is NOT a typed value and there is no typed AST. `FilePath` is a narrow
 canonical relative path (lowercase dir components + a `.go` basename); `go.mod` is a distinct root field, not
-a FilePath. The EMPTY file map is a valid module-only program. Package clauses, package names, entry-point
-status, and TYPES are compilation/typing RESULTS, not raw. Anything else — other decls, calls, params,
-imports, package clauses in raw syntax, strange paths, invalid module paths — is UNREPRESENTABLE. A
+a FilePath. The EMPTY source forest is a valid module-only program. The package clause is SOURCE syntax
+(`PkgMain`); package grouping, entry-point status, and TYPES are compilation/typing RESULTS, not raw.
+Anything else — other decls, calls, params, non-empty imports, non-`main` packages, strange paths, invalid
+module paths — is UNREPRESENTABLE. A
 compiler-invalid candidate (a constant fitting no integer type, an invalid integer/float/complex conversion —
 float/complex-component overflow, a fractional or out-of-range float→int, a nonzero-imaginary complex→scalar,
 a wrong-type conversion — zero/duplicate main in a package)
@@ -74,8 +76,10 @@ is rejected IN Rocq before any bytes — **zero expected Go build failures, ever
   representable/unrepresentable fixtures (`ok_generated`/`no_dotless_go`/`no_ver_v1`/`no_gopkg_bare`/`no_at`).
   Invalid paths unrepresentable; `representable ⇒ Go-accepts` is exact one-way.
 - **`GoVersion`** — singleton `Go1_23`; `render_goversion_go1_23` pins the exact "1.23"; decidable eq.
-- **`GoAST`** — `ModuleSpec` (`ModulePath` + `GoVersion`) + `GoProgram := { prog_module ; prog_files : fmap
-  FilePath GoFileAST }` (the file map MAY be empty); raw `GoDecl` (`DMain`)/`SPrintln`/`EBool`/`EInt`/`ENeg`/
+- **`GoAST`** — `ModuleSpec` (`ModulePath` + `GoVersion`) + `GoProgram := { prog_module ; prog_files :
+  GoFileSet }` (the source forest MAY be empty); `GoFileNode` = `FilePath` + `GoSourceFile` (source-owned
+  `PkgMain` package clause + empty imports + `source_decls`); `GoFileSet` path-unique by construction
+  (`find_file`/`file_paths`/`FilesEqual`, dup paths unrepresentable); raw `GoDecl` (`DMain`)/`SPrintln`/`EBool`/`EInt`/`ENeg`/
   `EString` (exact bytes)/`EIntConvert` (explicit integer conversion to an intrinsic `IntegerType`)/`EFloat`
   (bare `DecimalFloat` literal)/`EFloatConvert` (explicit `FloatType` conversion)/`EComplex` (a semantic
   complex literal — a `DecimalComplex`, canonical `complex(re, im)`, NOT imaginary syntax/`real`/`imag`/a
@@ -114,9 +118,10 @@ is rejected IN Rocq before any bytes — **zero expected Go build failures, ever
   a wrong-type or invalid nested conversion — reported by the honest
   `ErrTyping`); one invalid package rejects all. `go_compile :
   GoProgram -> result CompileError CompilableProgram` sound + complete (`prog_ok_iff`); rejection ⇒ no
-  `CompilableProgram` (`reject_no_compile`); the empty program accepted (`prog_ok_empty`). `CompilationFacts`
-  carries the derived package name and EXPOSES that the same program is typed via a canonical projection
-  (`compilable_program_typed`), not a stored typed copy.
+  `CompilableProgram` (`reject_no_compile`); the empty program accepted (`prog_ok_empty`).  `GoCompile p :=
+  ProgValid p` — NO `CompilationFacts`/`cf_pkg_name` (the package clause is source-owned); the compiled
+  evidence EXPOSES that the same program is typed via a canonical projection (`compilable_program_typed`),
+  not a stored typed copy.
 - **`GoSafe`** — real values (`GoValue` = `VBool`/`VInteger IntegerType Z`/`VFloat (forall ft, FloatValue ft)`
   /`VComplex (forall ct, ComplexValue ct)`/`VString`) carrying the SAME `GoType` (`value_type`) + the `ValueWF` range invariant (`ValueWF (VFloat …)`
   = `ValueWF (VComplex …)` = True — a float/complex value is canonical BY CONSTRUCTION, the invariant living in `FloatValue`; a general runtime
@@ -141,8 +146,9 @@ is rejected IN Rocq before any bytes — **zero expected Go build failures, ever
   pairwise disjoint (`complex(` is disjoint from `complex64(`/`complex128(` at index 7), no spelling carries two conflicting statuses) and
   `render_resolved_expr_denotes` (a resolved argument EVALUATES to a well-formed value of its resolved
   `GoType` whose spelling denotes it — tying GoTypes ↔ GoSafe ↔ GoRender); `render_file_ascii`/`print_Z_dec_faithful`/
-  `print_Z_pos_no_leading_zero`/`render_file_first_line`/boundaries. The package clause comes from
-  `CompilationFacts`. `render_go_mod` renders the `go.mod` from the `ModuleSpec` — `render_go_mod_exact`
+  `print_Z_pos_no_leading_zero`/`render_file_first_line`/boundaries. The package clause is rendered from the
+  file's SOURCE-owned `source_package` (`render_package_clause`, `PkgMain` → `main`). `render_go_mod` renders
+  the `go.mod` from the `ModuleSpec` — `render_go_mod_exact`
   (exact bytes: module path + go version in place), `render_go_mod_first_line` (header), `render_go_mod_ascii`.
 - **`GoEmit`** — `DirectoryImage` = exact `go.mod` bytes + a `.go` map, carrying a provenance proof BOTH came
   from rendering ONE `SafeProgram` (a closed proof witnesses that; a postulated axiom/variable proof does

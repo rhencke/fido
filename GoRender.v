@@ -1,8 +1,8 @@
 (** ============================================================================
-    GoRender — the DIRECT renderer of one file's raw declarations to Go source bytes.  No tokenizer/
-    lexer/parser/round-trip/second tree.  The package CLAUSE is emitted from the compiler-derived package
-    name (a CompilationFacts result, passed in — not raw metadata); each [DMain] renders as a
-    `func main()` declaration; the builtin [println] is the fixed spelling of [SPrintln].
+    GoRender — the DIRECT renderer of one source file to Go source bytes.  No tokenizer/lexer/parser/
+    round-trip/second tree.  The package CLAUSE is rendered from the file's OWN source-owned
+    [source_package] ([render_package_clause]; `PkgMain` -> `main`) — not a compiler-derived fact; each
+    [DMain] renders as a `func main()` declaration; the builtin [println] is the fixed spelling of [SPrintln].
 
     Every rendered file begins with the exact generated header as its FIRST LINE (part of the
     Rocq-rendered bytes — the sink never adds or alters it).  [render_file] is an INTERNAL helper; the
