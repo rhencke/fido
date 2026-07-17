@@ -26,6 +26,7 @@ Columns: **file / symbol** · **contents** · **identity key** · **order matter
 | `OccurrenceSpike.TForest` | path → TSourceFile | `FilePath` | no | rejected | by path | **`FMapAVL`** | retained | toy source snapshot; the C1A slot machinery is deleted |
 | `OccurrenceSpike.child_ids` / `all_ids` / `children_of` | occurrence ids / refs | — | source order | no (NoDup proved) | interval-jump / enumerate | `list` | retained | ordered canonical children / preorder enumeration; `NoDup` is a theorem ABOUT a derived list, not a stored-map invariant |
 | `source_decls` / `SPrintln` args / `TFun` body / `list ImportSpecSyntax` | source syntax | — | yes (as written) | yes (positional) | positional | `list` | retained | ordered source grammar — repetition and position are semantic |
+| `GoSafe.eval_stmt` / `eval_decl` / `eval_file` | ordered runtime `println`-argument evaluation results (`option GoValue`) | — | **yes (output order)** | yes (a repeated argument evaluates again) | `map` / `flat_map` | `list` | retained | the abstract runtime TRACE — argument/statement order is the observable output order; not identity/membership storage |
 
 ## OCaml — plugin + e2e
 
@@ -41,6 +42,8 @@ Columns: **file / symbol** · **contents** · **identity key** · **order matter
 | `g_fido.mlg` `decode_entries` result | (path, bytes) | — | canonical | n/a | fold-decode | `list` | retained | list decoder of the certified transport enumeration; validated into the sink map |
 | `e2e/sink_test.ml` `faults` | fault tokens | `string` | no | no | membership | **`Fido_sink.SSet`** (`Set.Make(String)`) | **changed (C1B §7)** | membership-only fault flags — was `List.mem` over a `list`, now the sink's shared standard set |
 | `Sys.readdir` results (`inspect` / `remove_stale_go`) | directory names | — | OS order | n/a | iterate | `array` (OS) | retained | filesystem enumeration returned by the OS; iterated once, no identity/membership storage |
+| `fido_apply.ml` `Sys.readdir` (`go_files`) | directory names | — | OS order | n/a | iterate | `array` (OS) | retained | filesystem enumeration; iterated once during the source-tree walk |
+| `fido_apply.ml` `go_files` accumulator / `entries` | (rel `.go` path, bytes) | — | walk order → `List.rev` | n/a (source tree has distinct paths; sink re-validates) | accumulate → validated into sink map | `list` | retained | a transport-ENUMERATION accumulator built by the recursive tree walk, `List.rev`-ed and handed to `Fido_sink.sync` (which validates it into its `Map.Make(String)`); the identity authority is the sink map, not this list |
 
 ## Notable false positives (searched, NOT collection defects)
 

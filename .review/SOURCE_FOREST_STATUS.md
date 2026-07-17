@@ -40,26 +40,31 @@ Updated only at checkpoint boundaries._
   conflict is discovered); commit `milestone(final): C1B — enforce standard-collection policy and reconcile
   future plans`; repairs `review(final): C1B —`.  This directive is the binding contract.
 - Contract activation SHA: `06a1efa` (`milestone(contract): C1B`).
-- Scale / computation probes (§8): a TRANSIENT OCaml probe was added to the emit stage, run in the pinned
-  `ocaml/opam:debian-12-ocaml-5.3` Buildx container via `make emit`, and then REVERTED (no permanent probe
-  fixture).  It builds `Map.Make(String)` + `Set.Make(String)` from N generated `dNNNN/main.go` keys and
-  queries every key (`find`+`mem`).  Observed CPU time (`Sys.time`):
-  - n=1:    build 0.000003 s, query-all 0.000001 s
-  - n=10:   build 0.000004 s, query-all 0.000001 s
-  - n=100:  build 0.000017 s, query-all 0.000015 s
-  - n=1000: build 0.000242 s, query-all 0.000238 s
-  Total work grows ~n·log n (build + query of n keys), sub-millisecond even at 1000 — the mature standard
-  OCaml collections (the sink's desired-output `Map` / stale-target + abandoned-temp `Set`, same `FMapAVL`-shape
-  ordered structure) compute comfortably in the pinned environment.  For the ROCQ maps
-  (`filemap_of_nodes`/`FileMap.find`, `package_summaries` `FM.fold`, `PositiveMap` node lookup, canonical
-  `elements` transport): their evaluation runs under `vm_compute`/kernel reduction (not machine-native), so
-  wall-clock is dominated by the reducer and the proof build, NOT the AVL/positive-map machine cost — this is
-  NOT an asymptotic theorem (semantic proofs remain the correctness authority).  The real before/after evidence
-  is STRUCTURAL and lives in the diff from baseline `75d24b2`: the linear association-list lookup (`FMap`'s
-  first-match over a `list`) and the nested per-file O(files²) package scan (`main_count_in_dir` folding over
-  ALL entries per file) are DELETED and replaced by standard-map lookups (one AVL descent) and a single
-  `FM.fold` package aggregation (`package_summaries`, one traversal + logarithmic package-map updates), proved
-  order-independent and characterized exactly.
+- Scale / computation probes (§8): TRANSIENT probes were added to the emit stage, RUN in the pinned Buildx
+  container (`ocaml/opam:debian-12-ocaml-5.3`; `rocq-core 9.2.0` / `rocq-stdlib 9.1.0`) via `make emit`, and
+  then REVERTED (no permanent fixture).  Method: for N ∈ {1, 10, 100, 1000} a generator emits N distinct
+  `dNNNN/main.go` file roots; the OCaml probe (`ocamlfind ocamlopt probe.ml`) builds `Map.Make(String)` +
+  `Set.Make(String)` and queries every key (`Sys.time`); the Rocq probe (`rocq c -Q _build/default Fido`)
+  `Time`s five `Eval vm_compute in` transactions — `build_program` (FileMap build), `find_file` (FileMap find),
+  `package_summaries` (PackageMap aggregation), `file_bindings` (canonical `elements` transport enumeration),
+  and `NodeMapBase.find` over an N-entry `PositiveMap`.
+  - OCaml Map+Set (machine-native), build / query-all(find+mem):
+    n=1 0.000002/0.000001 s · n=10 0.000004/0.000002 s · n=100 0.000017/0.000015 s · n=1000 0.000238/0.000205 s
+  - Rocq under `vm_compute` (secs), FileMap-build / FileMap-find / PackageMap-agg / elements-enum / PositiveMap-find:
+    n=1    0.024 / 0.001 / 0.000 / 0.001 / 0.000
+    n=10   0.029 / 0.001 / 0.006 / 0.011 / 0.000
+    n=100  0.879 / 0.011 / 0.360 / 0.100 / 0.000
+    n=1000 75.24 / 0.136 / 26.556 / 1.075 / 0.018
+  Observations (honest): the OCaml standard collections are near-linear and sub-millisecond even at 1000.
+  Single Rocq lookups (`find_file`, `PositiveMap.find`) stay fast at every size (≤0.14 s).  The WHOLE-MAP Rocq
+  build/aggregation grows SUPERLINEARLY under `vm_compute` (build 0.024→75 s, agg 0→27 s) — this is NOT the
+  AVL/positive-map machine cost and NOT an asymptotic theorem: `vm_compute` reduces the map operations
+  SYMBOLICALLY over proof-carrying terms (each `FilePath` key carries a `path_ok` proof), so the wall-clock is
+  dominated by the reducer building/traversing large syntactic terms, not by O(log n) machine steps (the
+  machine-native OCaml numbers show the true shape).  Semantic proofs remain the correctness authority; the
+  before/after STRUCTURAL evidence (baseline `75d24b2`): the linear association-list first-match (`FMap`) and
+  the nested per-file O(files²) package scan (`main_count_in_dir`) are DELETED and replaced by standard-map
+  lookups and a single `FM.fold` package aggregation (`package_summaries`), proved order-independent + exact.
 - Final candidate SHA: `cfc7e45` (`milestone(final): C1B`).  Delivered: collection LAW in CLAUDE.md rule 10 +
   ARCHITECTURE.md + Codex review criterion (§1/§10.6/§10.7); `.review/COLLECTION_AUDIT.md` classifying every
   current Rocq/OCaml collection (§4); `SOURCE_FOREST_MASTER_PLAN.md` rewritten to the current map architecture

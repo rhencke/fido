@@ -1,8 +1,13 @@
 (** ============================================================================
     GoAST — the ONE raw program representation.  The permanent root pairs an intrinsic module spec with a
-    path-keyed SOURCE FOREST (a [GoFileSet] of specification-shaped file roots; it MAY be empty):
+    STANDARD `FilePath`-keyed finite map of specification-shaped source-file roots (a [GoFileMap] =
+    [Collections.FileMapBase.t GoSourceFile], the pinned-stdlib [FMapAVL] over the [FilePath] ordered key; it
+    MAY be empty):
 
-      GoProgram := { prog_module : ModuleSpec ; prog_files : GoFileSet }
+      GoProgram := { prog_module : ModuleSpec ; prog_files : GoFileMap }
+
+    The PATH is the map KEY, so a map binding `FilePath -> GoSourceFile` IS the file-root program occurrence;
+    the path is NOT stored in the mapped source value.
 
     [ModuleSpec] describes the GENERATED Go module itself — its import-path prefix ([ModulePath]) and its
     module-declared language version ([GoVersion]) — NOT ambient execution details (no GOOS/GOARCH/ABI/
@@ -14,8 +19,9 @@
     clause is SOURCE-owned (rendered by GoRender); package GROUPING, entry status, and types are COMPILATION /
     TYPING RESULTS — grouping and entry status by GoCompile, types by GoTypes (the one type authority) —
     derived over the whole path-keyed source forest.  There is no raw GoPackage tree and no typed AST: raw
-    literals stay UNTYPED syntax.  The file's placement PATH lives on its [GoFileNode] root (one path
-    authority), never as a child production inside the source grammar.
+    literals stay UNTYPED syntax.  The file's placement PATH is the standard-map KEY (one path authority),
+    never a child production inside the source grammar; [GoFileNode] (path + source) is a construction / view
+    value only — the builder input, never the stored map value.
 
     The one raw declaration today is [DMain body]: syntactically a `func main() { body }` declaration
     (zero parameters, no results) whose body is the existing [SPrintln] statements.  Whether that
@@ -300,7 +306,7 @@ Record ModuleSpec : Type := mkModuleSpec {
   module_go_version : GoVersion
 }.
 
-(** ---- the program: a module spec + a (possibly empty) path-keyed SOURCE FOREST ([GoFileSet]) ---- *)
+(** ---- the program: a module spec + a (possibly empty) standard `FilePath`-keyed source map ([GoFileMap]) ---- *)
 
 Record GoProgram : Type := mkProgram {
   prog_module : ModuleSpec;

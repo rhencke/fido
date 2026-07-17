@@ -225,22 +225,12 @@ Fido is about to grow from a small literal-and-conversion generator into a langu
 - useful diagnostics;
 - later structural and operational features.
 
-The PRE-CAMPAIGN representation was too small to be the permanent root (this is the historical motivation for
-the campaign; C1/C1A have since replaced it with the standard `GoFileMap` described in Part 3):
-
-  GoFileAST := list GoDecl
-  prog_files : fmap FilePath GoFileAST     (* superseded: a project-authored fmap, now the standard FileMap *)
-
-It was coherent for the tiny early fragment because:
-
-- every file was implicitly package `main`;
-- imports were impossible;
-- the only varying source-file content was a declaration list;
-- the renderer synthesized the package clause from compiler facts.
-
-That is no longer the right direction.
-
-This campaign replaces that shortcut before more language features make it expensive to unwind.
+The current representation is the standard `GoFileMap` (Part 3): a program is a `ModuleSpec` plus a standard
+`FilePath`-keyed finite map of specification-shaped `GoSourceFile` roots, the file's package clause is source
+syntax, and the source file is the full specification-shaped record — not a bare declaration list.  This
+already covers the current tiny fragment (every file is `package main`, imports are intrinsically empty, the
+only varying source content is the declaration list) and is shaped as the permanent category so more language
+features do not force an expensive unwind later.
 
 1.2 Final architectural outcome
 
@@ -897,10 +887,10 @@ Required asymptotic shape:
 - containing file:
   - O(1) projection from the reference;
 - immediate parent:
-  - O(1) with an audited dense table, or
-  - O(log n) with a certified trie/map;
+  - one standard positive-map metadata lookup (the structural key-bit-traversal shape of `FMapPositive`),
+    never a whole-file search;
 - walk upward d levels:
-  - O(d) or O(d log n);
+  - d such metadata lookups;
 - direct children:
   - proportional to the number of direct children, modulo table lookup;
 - ancestor test:
@@ -918,23 +908,18 @@ Use:
 - a certified table builder;
 - or another asymptotically honest construction.
 
-4.9 Candidate node-table implementations
+4.9 Node-table implementation (SELECTED)
 
-Checkpoint C0 must compare at least:
+The per-file local-node table is the pinned Rocq standard-library positive-key map
+`FMapPositive.PositiveMap` (aliased `Collections.NodeMapBase`); `NodeTable` is a thin sealed API that
+delegates its type and operations to it and proves the three node-table laws from the standard map facts —
+Fido authors no storage tree.  This obeys the binding collection law: a dense primitive array
+(`PArray`/`Uint63`) is rejected (kernel primitives, forbidden by the zero-axiom / no-kernel-primitive policy)
+and a project-authored radix trie is rejected (Fido authors no collection).  A plain association list is
+likewise forbidden (an O(n) list-scan node-table lookup).
 
-A. a certified positive-key trie / Patricia-style table;
-
-B. a dense primitive array or equivalent, only if:
-   - its assumption closure is empty;
-   - its kernel/trust story is acceptable under Fido's zero-axiom policy;
-   - its executable behavior is reliable under the pinned Rocq toolchain;
-   - its proofs remain maintainable.
-
-Do not select a list table merely because it is easy to prove.
-
-The proof spike chooses the physical representation.
-
-The public `NodeTable` API must hide that choice.
+The public `NodeTable` API hides the standard-map choice, so C2 may swap the physical table (still a standard
+library map) without disturbing any caller.
 
 4.10 Children from preorder intervals
 
@@ -1456,8 +1441,8 @@ C0 — Preflight cleanup and occurrence-index proof spike
 Purpose:
 
 - close small residue from the complex review;
-- select the physical NodeTable / LocalNodeId representation;
-- prove the occurrence/index idea in isolation.
+- prove the occurrence/index idea in isolation over the SELECTED standard positive-key map
+  (`NodeTable` over `FMapPositive`; `LocalNodeId := positive`, `root_id = 1`).
 
 No production AST migration.
 
@@ -1590,28 +1575,15 @@ Prototype:
 
 Do not integrate this spike into production GoAST yet.
 
-C0.3 Representation comparison
+C0.3 Node-table representation (SELECTED — standard positive-key map)
 
-Compare at least:
+The node table is the pinned Rocq standard-library positive-key map `FMapPositive.PositiveMap`
+(`Collections.NodeMapBase`), behind a thin sealed `NodeTable` API that delegates storage and operations and
+proves the node-table laws from the standard map facts (obeying the binding collection law: no project-authored
+storage).  A `PArray`/`Uint63` dense array is rejected (kernel primitives, forbidden by the zero-axiom policy);
+a project radix/Patricia trie is rejected (Fido authors no collection); a list table is rejected (O(n) scan).
 
-A. positive-key trie / Patricia-style persistent table;
-
-B. primitive/dense array support available in the pinned Rocq version.
-
-For each candidate record:
-
-- assumption closure;
-- trust implications;
-- lookup complexity;
-- construction complexity;
-- proof ergonomics;
-- computation behavior under `vm_compute` / native evaluation as appropriate;
-- extraction/runtime implications if any;
-- equality/proof irrelevance ergonomics.
-
-Choose one.
-
-Do not leave two production candidates live.
+There is exactly one production candidate — the standard map — so no comparison "choose one" step remains.
 
 C0.4 Required spike proofs
 
@@ -2588,9 +2560,8 @@ Required work:
 
 - fix the three stale complex-era comments described in C0.1;
 - add the exact complex-underflow scalar-conversion scar described in C0.1;
-- build the isolated occurrence-index proof spike;
-- compare certified positive-trie and dense/primitive-array candidates;
-- select one NodeTable/LocalNodeId representation;
+- build the isolated occurrence-index proof spike over the SELECTED standard positive-key map
+  (`FMapPositive.PositiveMap` behind the sealed `NodeTable`; `LocalNodeId := positive`, `root_id = 1`);
 - prove the C0 structural theorem set;
 - record the decision in `.review/SOURCE_FOREST_STATUS.md`;
 - preserve current generated bytes and all existing behavior.
