@@ -7,7 +7,7 @@
     family TComplex over ComplexType, TString} to
     ProgramTyped over the same AST) ->
     GoCompile -> GoSafe -> GoRender -> GoEmit architecture. *)
-From Fido Require Import Ints Floats Complexes FilePath FMap ModulePath GoVersion GoAST GoTypes GoCompile GoSafe GoRender GoEmit OccurrenceSpike.
+From Fido Require Import Ints Floats Complexes FilePath Collections ModulePath GoVersion GoAST GoTypes GoCompile GoSafe GoRender GoEmit OccurrenceSpike.
 
 (* the ONE integer-family authority: type-equality reflection; the single representability reflection;
    exact 64-bit int/uint; generic min/max accepted and below-min/above-max rejected; keyword exactness +
@@ -147,11 +147,10 @@ Print Assumptions ModulePath.no_gopkg_bare.
 Print Assumptions GoVersion.render_goversion_go1_23.
 Print Assumptions GoVersion.goversion_eqb_eq.
 
-(* the finite map: KEYS ARE NODUP (duplicate keys unrepresentable — the real structural invariant), a
-   key-colliding list cannot satisfy the constructor obligation, and lookup is deterministic *)
-Print Assumptions FMap.fm_keys_nodup.
-Print Assumptions FMap.dup_key_unrepresentable.
-Print Assumptions FMap.fm_MapsTo_fun.
+(* the ONE standard-collection foundation (C1A): the [FilePath] ordered key and the standard AVL/positive
+   map wrappers are backed by pinned rocq-stdlib [FMapAVL]/[FMapPositive] — Fido authors no map/set.  The
+   [FilePath] ordered-type law ([fp_str_inj]) that keys the standard file map is axiom-free. *)
+Print Assumptions Collections.fp_str_inj.
 
 (* GoTypes — the ONE type authority (EVIDENCE over the raw AST): zero-sign constant equality; default-type
    exactness (int / FLOAT->float64); representability reflection; the constant-status analysis [const_info]
@@ -269,18 +268,16 @@ Print Assumptions GoTypes.cplx64_tiny_imag_rounds_zero.
 Print Assumptions GoTypes.int_of_cplx64_tiny_imag_ok.
 Print Assumptions GoTypes.int_of_cplx64_tiny_imag_is_3.
 
-(* C1: the path-keyed SOURCE FOREST ([GoFileSet]) — path uniqueness (duplicate paths UNREPRESENTABLE) and the
-   lookup laws (find sound/complete/functional), the semantic file-set equality equivalence, and the
-   duplicate-rejecting builder.  ONE path authority; the package clause is source-owned. *)
-Print Assumptions GoAST.dup_path_unrepresentable.
-Print Assumptions GoAST.find_file_sound.
-Print Assumptions GoAST.find_file_complete.
-Print Assumptions GoAST.find_file_fun.
+(* C1A: the map-backed SOURCE FOREST — [GoProgram]'s files are a STANDARD FilePath map ([GoFileMap]).  The
+   duplicate-rejecting builder [filemap_of_nodes] is SOUND and COMPLETE (success iff the node paths are
+   unique; failure iff a path repeats), its domain is exactly the input paths, and the semantic file-map
+   equality is an equivalence.  ONE path authority (the map key); [GoFileNode] is construction/view only. *)
+Print Assumptions GoAST.filemap_of_nodes_success_iff_unique.
+Print Assumptions GoAST.filemap_of_nodes_none_iff_duplicate.
+Print Assumptions GoAST.filemap_of_nodes_in.
 Print Assumptions GoAST.FilesEqual_refl.
 Print Assumptions GoAST.FilesEqual_sym.
 Print Assumptions GoAST.FilesEqual_trans.
-Print Assumptions GoAST.fileset_of_list_members.
-Print Assumptions GoAST.fileset_entries_keys.
 
 (* GoCompile (A) internal exactness: whole-program prog_ok reflects the declarative judgment; go_compile
    sound + complete against it; a rejected program yields no CompilableProgram; the compiled evidence exposes

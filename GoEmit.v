@@ -22,13 +22,18 @@
     empty (a module-only program): there is NO nonemptiness claim.
     ============================================================================ *)
 From Stdlib Require Import String List.
-From Fido Require Import FilePath FMap ModulePath GoVersion GoAST GoCompile GoSafe GoRender.
+From Stdlib Require Import SetoidList.
+From Fido Require Import FilePath Collections ModulePath GoVersion GoAST GoCompile GoSafe GoRender.
 Import ListNotations.
 
+Module FM := GoAST.FM.
+Module FMF := GoAST.FMF.
+
 (** The raw rendered `.go` map of a safe program (internal): each source file rendered (package clause from
-    its own [source_package]), keyed by its path — paths unique by construction. *)
-Definition render_map (sp : SafeProgram) : fmap FilePath string :=
-  fileset_fmap render_file (prog_files (sp_program sp)).
+    its own [source_package]), keyed by its path — the standard FileMap [map] of [render_file] over the one
+    source forest, so paths stay unique by construction (no re-keying). *)
+Definition render_map (sp : SafeProgram) : FM.t string :=
+  GoAST.map_file_values render_file (prog_files (sp_program sp)).
 
 (** The rendered go.mod of a safe program (from its module spec). *)
 Definition render_go_mod_of (sp : SafeProgram) : string :=
@@ -37,7 +42,7 @@ Definition render_go_mod_of (sp : SafeProgram) : string :=
 (** The abstract image: the complete module (go.mod + `.go` map) that PROVABLY came from one SafeProgram. *)
 Record DirectoryImage : Type := mkImage {
   di_go_mod   : string;
-  di_go_files : fmap FilePath string;
+  di_go_files : FM.t string;
   di_prov     : exists sp, di_go_mod = render_go_mod_of sp /\ di_go_files = render_map sp
 }.
 
@@ -46,9 +51,10 @@ Record DirectoryImage : Type := mkImage {
 Definition render_program (sp : SafeProgram) : DirectoryImage :=
   mkImage (render_go_mod_of sp) (render_map sp) (ex_intro _ sp (conj eq_refl eq_refl)).
 
-(** The transport projection: the exact go.mod bytes and the list of (on-disk `.go` path, contents). *)
+(** The transport projection: the exact go.mod bytes and the CANONICAL derived list of (on-disk `.go` path,
+    contents) enumerated from the standard [FileMap.elements] (the ONE ordered enumeration, not a stored list). *)
 Definition di_go_file_entries (img : DirectoryImage) : list (string * string) :=
-  List.map (fun kv => (fp_string (fst kv), snd kv)) (fm_list (di_go_files img)).
+  List.map (fun kv => (fp_string (fst kv), snd kv)) (FM.elements (di_go_files img)).
 
 Definition di_transport (img : DirectoryImage) : string * list (string * string) :=
   (di_go_mod img, di_go_file_entries img).
@@ -72,21 +78,25 @@ Qed.
 
 (** ---- `.go` file facts (over EVERY DirectoryImage, via provenance) ---- *)
 
-Lemma render_map_list : forall sp,
-  fm_list (render_map sp)
-  = List.map (fun n => (file_path n, render_file (file_source n)))
-             (file_members (prog_files (sp_program sp))).
-Proof. reflexivity. Qed.
+(** Every rendered map binding's bytes ARE [render_file] of some source file (the standard-map [map] law). *)
+Lemma render_entry_source : forall sp k b,
+  In (k, b) (FM.elements (render_map sp)) -> exists sf, b = render_file sf.
+Proof.
+  intros sp k b Hin.
+  assert (Hmt : FM.MapsTo k b (render_map sp)).
+  { apply FMF.elements_mapsto_iff, InA_alt. exists (k, b). split; [ split; reflexivity | exact Hin ]. }
+  unfold render_map, GoAST.map_file_values in Hmt.
+  apply FMF.map_mapsto_iff in Hmt. destruct Hmt as [ sf [ Hb _ ] ]. exists sf; exact Hb.
+Qed.
 
 (** Every emitted `.go` file's bytes begin with the exact header AS THE FIRST LINE. *)
 Lemma render_program_header : forall img path bytes,
   In (path, bytes) (di_go_file_entries img) -> exists rest, bytes = header ++ String nl_c rest.
 Proof.
   intros img path bytes H. destruct (di_prov img) as [ sp [ _ Hm ] ].
-  unfold di_go_file_entries in H; rewrite Hm in H.
-  rewrite render_map_list, List.map_map in H. apply List.in_map_iff in H.
-  destruct H as [ n [Heq _] ]. simpl in Heq. injection Heq as _ Hb. subst bytes.
-  apply render_file_first_line.
+  unfold di_go_file_entries in H; rewrite Hm in H. apply List.in_map_iff in H.
+  destruct H as [ [k b] [Heq Hin] ]. cbn in Heq. injection Heq as _ Hb. subst bytes.
+  destruct (render_entry_source sp k b Hin) as [ sf -> ]. apply render_file_first_line.
 Qed.
 
 (** Every emitted `.go` file's bytes are ASCII (the source-owned package clause renders the ASCII `main`). *)
@@ -94,10 +104,9 @@ Lemma render_program_ascii : forall img path bytes,
   In (path, bytes) (di_go_file_entries img) -> str_ascii bytes = true.
 Proof.
   intros img path bytes H. destruct (di_prov img) as [ sp [ _ Hm ] ].
-  unfold di_go_file_entries in H; rewrite Hm in H.
-  rewrite render_map_list, List.map_map in H. apply List.in_map_iff in H.
-  destruct H as [ n [Heq _] ]. simpl in Heq. injection Heq as _ Hb. subst bytes.
-  apply render_file_ascii.
+  unfold di_go_file_entries in H; rewrite Hm in H. apply List.in_map_iff in H.
+  destruct H as [ [k b] [Heq Hin] ]. cbn in Heq. injection Heq as _ Hb. subst bytes.
+  destruct (render_entry_source sp k b Hin) as [ sf -> ]. apply render_file_ascii.
 Qed.
 
 (** Duplicate on-disk `.go` paths are impossible in any image. *)
@@ -112,13 +121,28 @@ Proof.
     + apply IH; exact Hnd'.
 Qed.
 
-Lemma map_fst_di_go_file_entries : forall img,
-  List.map fst (di_go_file_entries img) = List.map fp_string (fm_keys (di_go_files img)).
-Proof. intro img; unfold di_go_file_entries, fm_keys; rewrite !List.map_map; reflexivity. Qed.
+(** The standard-map [elements] have key-distinct bindings ([elements_3w]), so their key list is [NoDup]. *)
+Lemma NoDupA_eqk_map_fst {A} : forall l : list (FM.key * A),
+  NoDupA (@FM.eq_key A) l -> NoDup (List.map fst l).
+Proof.
+  induction l as [ | [k v] l' IH ]; simpl; intro H.
+  - constructor.
+  - inversion H as [ | a m Hni Hnd ]; subst. constructor.
+    + intro Hin. apply List.in_map_iff in Hin. destruct Hin as [ [k' v'] [Hk Hin'] ].
+      simpl in Hk; subst k'. apply Hni. apply InA_alt. exists (k, v').
+      split; [ reflexivity | exact Hin' ].
+    + apply IH; exact Hnd.
+Qed.
 
 Lemma render_image_keys_nodup : forall img,
   NoDup (List.map fst (di_go_file_entries img)).
 Proof.
-  intro img. rewrite map_fst_di_go_file_entries.
-  apply NoDup_map_inj; [ exact fp_eq | apply fm_keys_nodup ].
+  intro img.
+  assert (Hrw : forall l : list (FM.key * string),
+    List.map fst (List.map (fun kv => (fp_string (fst kv), snd kv)) l)
+    = List.map fp_string (List.map fst l)).
+  { induction l as [ | [k v] l' IH ]; simpl; [ reflexivity | rewrite IH; reflexivity ]. }
+  unfold di_go_file_entries. rewrite Hrw.
+  apply NoDup_map_inj; [ exact fp_eq | ].
+  apply NoDupA_eqk_map_fst, FM.elements_3w.
 Qed.

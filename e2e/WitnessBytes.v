@@ -9,7 +9,7 @@
     real-Go byte fidelity, NOT the formal string semantics — the formal semantics are the exact byte value
     ([const_value]/[eval_expr]) and the independent canonical-literal decoder round-trip ([GoRender]). *)
 From Stdlib Require Import List NArith String Ascii.
-From Fido Require Import FilePath FMap ModulePath GoVersion GoAST GoCompile GoSafe GoRender GoEmit.
+From Fido Require Import FilePath ModulePath GoVersion GoAST GoCompile GoSafe GoRender GoEmit.
 Import ListNotations.
 
 Definition boundary_bytes : string :=

@@ -26,6 +26,7 @@
     feature (assignments, variables, arguments, arithmetic, more numeric types) builds on.
     ============================================================================ *)
 From Stdlib Require Import NArith ZArith List Bool String Ascii Lia.
+From Stdlib Require Import SetoidList.
 From Fido Require Import Ints Floats Complexes GoAST.
 Import ListNotations.
 Open Scope Z_scope.
@@ -618,16 +619,22 @@ Inductive DeclTyped : GoDecl -> Prop :=
 | DTMain : forall body, Forall StmtTyped body -> DeclTyped (DMain body).
 
 Definition FileTyped (decls : list GoDecl) : Prop := Forall DeclTyped decls.
+Definition SourceFileTyped (sf : GoSourceFile) : Prop := FileTyped (source_decls sf).
 
-Definition ProgramTyped (p : GoProgram) : Prop := Forall (fun e => FileTyped (snd e)) (prog_entries p).
+(** C1A: whole-program typing is MAP-BASED — quantified over the standard map's [MapsTo], NOT over an
+    input-order list.  Every source file bound in the forest is typed. *)
+Definition ProgramTyped (p : GoProgram) : Prop :=
+  forall path sf, GoAST.maps_to_file path sf (prog_files p) -> SourceFileTyped sf.
 
 Definition stmt_typedb (s : GoStmt) : bool :=
   match s with SPrintln args => forallb (expr_typedb UsePrintlnArg) args end.
 Definition decl_typedb (d : GoDecl) : bool :=
   match d with DMain body => forallb stmt_typedb body end.
 Definition file_typedb (decls : list GoDecl) : bool := forallb decl_typedb decls.
+Definition source_file_typedb (sf : GoSourceFile) : bool := file_typedb (source_decls sf).
+(** the executable checker traverses the standard map's CANONICAL derived enumeration ([elements]). *)
 Definition program_typedb (p : GoProgram) : bool :=
-  forallb (fun e => file_typedb (snd e)) (prog_entries p).
+  forallb (fun b => source_file_typedb (snd b)) (GoAST.file_bindings (prog_files p)).
 
 Lemma forallb_Forall {X} : forall (f : X -> bool) (P : X -> Prop) (l : list X),
   (forall x, f x = true <-> P x) -> (forallb f l = true <-> Forall P l).
@@ -656,10 +663,24 @@ Qed.
 Lemma file_typedb_iff : forall f, file_typedb f = true <-> FileTyped f.
 Proof. intro f; unfold file_typedb, FileTyped; apply forallb_Forall; exact decl_typedb_iff. Qed.
 
+Lemma source_file_typedb_iff : forall sf, source_file_typedb sf = true <-> SourceFileTyped sf.
+Proof. intro sf; apply file_typedb_iff. Qed.
+
+(** the map-based judgment reflects the executable checker: [forallb] over the canonical [elements] is
+    exactly the [MapsTo]-quantified typing (the standard map bridges [elements] and [MapsTo]). *)
 Lemma program_typedb_iff : forall p, program_typedb p = true <-> ProgramTyped p.
 Proof.
-  intro p; unfold program_typedb, ProgramTyped.
-  apply forallb_Forall; intro e; apply file_typedb_iff.
+  intro p. unfold program_typedb, ProgramTyped.
+  rewrite (forallb_Forall (fun b => source_file_typedb (snd b)) (fun b => SourceFileTyped (snd b))
+             (GoAST.file_bindings (prog_files p)) (fun b => source_file_typedb_iff (snd b))).
+  unfold GoAST.maps_to_file, GoAST.file_bindings. split.
+  - intros H path sf Hmt.
+    apply GoAST.FMF.elements_mapsto_iff, InA_alt in Hmt.
+    destruct Hmt as [[k' e'] [Heq Hin]]. destruct Heq as [_ He]. cbn in *.
+    rewrite Forall_forall in H. specialize (H (k', e') Hin). cbn in H. rewrite He. exact H.
+  - intros H. apply Forall_forall. intros [k e] Hin. cbn.
+    apply (H k e), GoAST.FMF.elements_mapsto_iff, InA_alt.
+    exists (k, e). split; [ split; reflexivity | exact Hin ].
 Qed.
 
 (** the empty file is typed vacuously; so is the empty program. *)

@@ -28,7 +28,7 @@
     types, concurrency, or non-`main` package clauses.  Anything else is UNREPRESENTABLE.
     ============================================================================ *)
 From Stdlib Require Import NArith List String.
-From Fido Require Import FilePath FMap ModulePath GoVersion Ints Floats Complexes.
+From Fido Require Import FilePath Collections ModulePath GoVersion Ints Floats Complexes.
 Import ListNotations.
 
 (** A raw expression is UNTYPED syntax: a boolean literal, an integer literal as an unsigned magnitude
@@ -107,124 +107,99 @@ Record GoFileNode : Type := mkFileNode {
   file_source : GoSourceFile
 }.
 
-(** A path-keyed source forest: a set of file roots, unique BY CONSTRUCTION on [file_path].  Semantically
-    [set[GoFileNode]] with uniqueness by path; physical list order is NOT program semantics. *)
-Record GoFileSet : Type := mkFileSet {
-  file_members      : list GoFileNode;
-  file_paths_unique : NoDup (List.map file_path file_members)
-}.
+(** ---- C1A: the path-keyed source forest is a STANDARD finite map (FilePath -> GoSourceFile).  The path is
+    the map KEY (the ONE path authority), NOT stored in the mapped value; [GoFileNode] is a construction/view
+    value only.  Backed by [Collections.FileMapBase] (the pinned-stdlib AVL map) — Fido authors no map. ---- *)
 
-(** ---- the path-keyed file-set API + laws (Master Plan C1.4) ---- *)
+Module FM := Collections.FileMapBase.
+Module FMF := Collections.FileMapFacts.
 
-Definition file_paths (fs : GoFileSet) : list FilePath := List.map file_path (file_members fs).
+Definition GoFileMap : Type := FM.t GoSourceFile.
 
-(** THE structural invariant: file paths are duplicate-free — same path twice is UNREPRESENTABLE. *)
-Definition file_paths_nodup (fs : GoFileSet) : NoDup (file_paths fs) := file_paths_unique fs.
+Definition empty_files : GoFileMap := FM.empty GoSourceFile.
+Definition find_file (p : FilePath) (fm : GoFileMap) : option GoSourceFile := FM.find p fm.
+Definition maps_to_file (p : FilePath) (sf : GoSourceFile) (fm : GoFileMap) : Prop := FM.MapsTo p sf fm.
+Definition file_mem (p : FilePath) (fm : GoFileMap) : bool := FM.mem p fm.
+Definition file_count (fm : GoFileMap) : nat := FM.cardinal fm.
+(** DERIVED canonical (FilePath-ordered) enumerations — never a second semantic authority. *)
+Definition file_bindings (fm : GoFileMap) : list (FilePath * GoSourceFile) := FM.elements fm.
+Definition file_paths (fm : GoFileMap) : list FilePath := List.map fst (file_bindings fm).
+Definition file_nodes (fm : GoFileMap) : list GoFileNode :=
+  List.map (fun b => mkFileNode (fst b) (snd b)) (file_bindings fm).
+Definition map_file_values {B} (f : GoSourceFile -> B) (fm : GoFileMap) : FM.t B := FM.map f fm.
+(** SEMANTIC file-map equality — the standard map [Equal]. *)
+Definition FilesEqual (fm1 fm2 : GoFileMap) : Prop := FM.Equal fm1 fm2.
 
-Lemma dup_path_unrepresentable : forall (n1 n2 : GoFileNode),
-  file_path n1 = file_path n2 -> ~ NoDup (List.map file_path [n1; n2]).
-Proof.
-  intros n1 n2 Heq H; simpl in H; inversion H as [ | h t Hni Hnd ]; subst.
-  apply Hni. left. symmetry. exact Heq.
-Qed.
+Lemma FilesEqual_refl : forall fm, FilesEqual fm fm.
+Proof. intros fm p. reflexivity. Qed.
+Lemma FilesEqual_sym : forall fm1 fm2, FilesEqual fm1 fm2 -> FilesEqual fm2 fm1.
+Proof. intros fm1 fm2 H p. symmetry. apply H. Qed.
+Lemma FilesEqual_trans : forall fm1 fm2 fm3, FilesEqual fm1 fm2 -> FilesEqual fm2 fm3 -> FilesEqual fm1 fm3.
+Proof. intros fm1 fm2 fm3 H12 H23 p. rewrite H12. apply H23. Qed.
 
-(** lookup by path — the first (hence, by uniqueness, the ONLY) file root with that path. *)
-Definition find_file (p : FilePath) (fs : GoFileSet) : option GoFileNode :=
-  List.find (fun n => fp_eqb (file_path n) p) (file_members fs).
+(** ---- §6 the duplicate-rejecting map builder: standard [mem]/[add], reject a duplicate path before add. ---- *)
 
-(** membership. *)
-Definition file_member (n : GoFileNode) (fs : GoFileSet) : Prop := In n (file_members fs).
-
-(** SEMANTIC file-set equality — extensional by path lookup; order/representation-independent (distinct from
-    Rocq record [=]). *)
-Definition FilesEqual (fs1 fs2 : GoFileSet) : Prop := forall p, find_file p fs1 = find_file p fs2.
-
-(** find is SOUND: a found node is a member carrying exactly the queried path. *)
-Lemma find_file_sound : forall p fs n,
-  find_file p fs = Some n -> file_member n fs /\ file_path n = p.
-Proof.
-  intros p fs n H. unfold find_file in H. apply List.find_some in H as [Hin Hpred].
-  apply fp_eqb_eq in Hpred. split; [ exact Hin | exact Hpred ].
-Qed.
-
-(** find is COMPLETE: a member with the queried path IS found (and, by uniqueness, it is that exact node). *)
-Lemma find_file_complete : forall p fs n,
-  file_member n fs -> file_path n = p -> find_file p fs = Some n.
-Proof.
-  intros p fs n. unfold file_member, find_file. destruct fs as [members Hnd]. simpl.
-  induction members as [ | h t IH ]; simpl; [ intros [] | ].
-  simpl in Hnd. inversion Hnd as [ | hh tt Hni Hnd' ]; subst.
-  intros [Hhn | Hin] Hpath.
-  - subst h. rewrite (proj2 (fp_eqb_eq (file_path n) p) Hpath). reflexivity.
-  - destruct (fp_eqb (file_path h) p) eqn:E.
-    + exfalso. apply fp_eqb_eq in E. apply Hni. rewrite E, <- Hpath.
-      apply List.in_map. exact Hin.
-    + apply IH; [ exact Hnd' | exact Hin | exact Hpath ].
-Qed.
-
-(** find is FUNCTIONAL and DETERMINISTIC: a path locates at most one file root. *)
-Lemma find_file_fun : forall p fs n1 n2,
-  find_file p fs = Some n1 -> find_file p fs = Some n2 -> n1 = n2.
-Proof. intros p fs n1 n2 H1 H2. rewrite H1 in H2. injection H2 as <-. reflexivity. Qed.
-
-(** [FilesEqual] is an equivalence — the semantic identity of file sets. *)
-Lemma FilesEqual_refl : forall fs, FilesEqual fs fs.
-Proof. intros fs p. reflexivity. Qed.
-Lemma FilesEqual_sym : forall fs1 fs2, FilesEqual fs1 fs2 -> FilesEqual fs2 fs1.
-Proof. intros fs1 fs2 H p. symmetry. apply H. Qed.
-Lemma FilesEqual_trans : forall fs1 fs2 fs3, FilesEqual fs1 fs2 -> FilesEqual fs2 fs3 -> FilesEqual fs1 fs3.
-Proof. intros fs1 fs2 fs3 H12 H23 p. rewrite H12. apply H23. Qed.
-
-(** ---- the empty file set, a singleton, and a duplicate-rejecting list builder ---- *)
-
-Lemma nodup_nil_path : NoDup (List.map file_path (@nil GoFileNode)).
-Proof. constructor. Qed.
-Definition fs_empty : GoFileSet := mkFileSet [] nodup_nil_path.
-
-Lemma nodup_singleton_path : forall n : GoFileNode, NoDup (List.map file_path [n]).
-Proof. intro n; simpl; constructor; [ intro H; inversion H | constructor ]. Qed.
-Definition fs_singleton (n : GoFileNode) : GoFileSet := mkFileSet [n] (nodup_singleton_path n).
-
-Fixpoint no_dup_pathsb (l : list GoFileNode) : bool :=
-  match l with
-  | [] => true
-  | n :: l' => negb (existsb (fun m => fp_eqb (file_path n) (file_path m)) l') && no_dup_pathsb l'
+Fixpoint filemap_of_nodes (nodes : list GoFileNode) : option GoFileMap :=
+  match nodes with
+  | [] => Some empty_files
+  | n :: rest =>
+      match filemap_of_nodes rest with
+      | None => None
+      | Some fm => if file_mem (file_path n) fm then None
+                   else Some (FM.add (file_path n) (file_source n) fm)
+      end
   end.
 
-Lemma existsb_path_In : forall (p : FilePath) (l : list GoFileNode),
-  existsb (fun m => fp_eqb p (file_path m)) l = true <-> In p (List.map file_path l).
+(** the key domain of a successfully built map is exactly the input node paths. *)
+Lemma filemap_of_nodes_in : forall nodes fm,
+  filemap_of_nodes nodes = Some fm ->
+  forall p, FM.In p fm <-> In p (List.map file_path nodes).
 Proof.
-  intros p l; induction l as [ | m l' IH ]; simpl.
-  - split; [ discriminate | intros [] ].
-  - rewrite Bool.orb_true_iff, IH. split.
-    + intros [He | Hin]; [ left; symmetry; apply fp_eqb_eq; exact He | right; exact Hin ].
-    + intros [He | Hin]; [ left; apply fp_eqb_eq; symmetry; exact He | right; exact Hin ].
+  induction nodes as [ | n rest IH ]; simpl; intros fm Hbuild p.
+  - injection Hbuild as <-. split.
+    + intros [sf Hsf]. exfalso. apply (FM.empty_1 (elt:=GoSourceFile) Hsf).
+    + intros [].
+  - destruct (filemap_of_nodes rest) as [fm'|] eqn:Erest; [ | discriminate ].
+    destruct (file_mem (file_path n) fm') eqn:Emem; [ discriminate | ].
+    injection Hbuild as <-. specialize (IH fm' eq_refl).
+    rewrite FMF.add_in_iff, IH. split.
+    + intros [Heq | Hin]; [ left; exact Heq | right; exact Hin ].
+    + intros [Heq | Hin]; [ left; exact Heq | right; exact Hin ].
 Qed.
 
-Lemma no_dup_pathsb_correct : forall l, no_dup_pathsb l = true -> NoDup (List.map file_path l).
+(** SUCCESS iff the input paths are duplicate-free. *)
+Theorem filemap_of_nodes_success_iff_unique : forall nodes,
+  (exists fm, filemap_of_nodes nodes = Some fm) <-> NoDup (List.map file_path nodes).
 Proof.
-  induction l as [ | n l' IH ]; simpl; intro H.
-  - constructor.
-  - apply Bool.andb_true_iff in H; destruct H as [Hne Hrest].
-    constructor.
-    + rewrite <- existsb_path_In. rewrite Bool.negb_true_iff in Hne. rewrite Hne. discriminate.
-    + apply IH; exact Hrest.
+  induction nodes as [ | n rest IH ]; simpl.
+  - split; [ intros _; constructor | intros _; eexists; reflexivity ].
+  - split.
+    + intros [fm Hbuild]. destruct (filemap_of_nodes rest) as [fm'|] eqn:Erest; [ | discriminate ].
+      destruct (file_mem (file_path n) fm') eqn:Emem; [ discriminate | ].
+      constructor.
+      * intro Hin. assert (Hbad : FM.In (file_path n) fm').
+        { apply (filemap_of_nodes_in rest fm' Erest). exact Hin. }
+        apply FM.mem_1 in Hbad. unfold file_mem in Emem. rewrite Hbad in Emem. discriminate.
+      * apply IH. exists fm'; reflexivity.
+    + intro Hnd. inversion Hnd as [ | h t Hni Hnd' ]; subst.
+      destruct (proj2 IH Hnd') as [fm' Hrest]. rewrite Hrest.
+      destruct (file_mem (file_path n) fm') eqn:Emem.
+      * exfalso. unfold file_mem in Emem. apply FM.mem_2 in Emem.
+        apply (filemap_of_nodes_in rest fm' Hrest) in Emem. contradiction.
+      * eexists; reflexivity.
 Qed.
 
-(** From a list of file roots: [None] ONLY on a duplicate path; the EMPTY list yields the empty file set. *)
-Definition fileset_of_list (l : list GoFileNode) : option GoFileSet :=
-  (match no_dup_pathsb l as b return no_dup_pathsb l = b -> option GoFileSet with
-   | true  => fun H => Some (mkFileSet l (no_dup_pathsb_correct l H))
-   | false => fun _ => None
-   end) eq_refl.
-
-Lemma fileset_of_list_members : forall l fs, fileset_of_list l = Some fs -> file_members fs = l.
+(** NONE iff a duplicate path. *)
+Theorem filemap_of_nodes_none_iff_duplicate : forall nodes,
+  filemap_of_nodes nodes = None <-> ~ NoDup (List.map file_path nodes).
 Proof.
-  intros l fs. unfold fileset_of_list.
-  generalize (@eq_refl bool (no_dup_pathsb l)).
-  destruct (no_dup_pathsb l) at 2 3; intro H; [ | discriminate ].
-  intro Heq; injection Heq as <-; reflexivity.
+  intro nodes. split.
+  - intros Hnone Hnd. destruct (proj2 (filemap_of_nodes_success_iff_unique nodes) Hnd) as [fm Hfm].
+    rewrite Hfm in Hnone. discriminate.
+  - intro Hnd. destruct (filemap_of_nodes nodes) as [fm|] eqn:E; [ | reflexivity ].
+    exfalso. apply Hnd. apply (filemap_of_nodes_success_iff_unique nodes). eexists; exact E.
 Qed.
+
 
 (** ---- the module spec: intrinsic facts about the GENERATED module (not environment config) ---- *)
 
@@ -237,29 +212,16 @@ Record ModuleSpec : Type := mkModuleSpec {
 
 Record GoProgram : Type := mkProgram {
   prog_module : ModuleSpec;
-  prog_files  : GoFileSet
+  prog_files  : GoFileMap
 }.
 
-(** the (path, declarations) enumeration — a DERIVED view of the source forest for the semantic layers
-    (typing / main-counting) that read only declarations; [prog_files] remains the ONE file authority. *)
-Definition prog_entries (p : GoProgram) : list (FilePath * list GoDecl) :=
-  List.map (fun n => (file_path n, source_decls (file_source n))) (file_members (prog_files p)).
+(** the canonical (FilePath-ordered) DERIVED enumeration of (path, source) bindings — used by the executable
+    checkers only; [prog_files] (the map) remains the ONE file authority (typing quantifies over [MapsTo]). *)
+Definition prog_bindings (p : GoProgram) : list (FilePath * GoSourceFile) := file_bindings (prog_files p).
 Definition prog_keys (p : GoProgram) : list FilePath := file_paths (prog_files p).
-Definition prog_find (path : FilePath) (p : GoProgram) : option GoSourceFile :=
-  option_map file_source (find_file path (prog_files p)).
+Definition prog_find (path : FilePath) (p : GoProgram) : option GoSourceFile := find_file path (prog_files p).
 
-(** render each source file into a value, keyed by its path — a TRUE finite map (paths unique by
-    construction).  This is how the emitter enumerates the rendered forest without a second authority. *)
-Definition fileset_entries {A} (r : GoSourceFile -> A) (fs : GoFileSet) : list (FilePath * A) :=
-  List.map (fun n => (file_path n, r (file_source n))) (file_members fs).
-Lemma fileset_entries_keys {A} (r : GoSourceFile -> A) (fs : GoFileSet) :
-  List.map fst (fileset_entries r fs) = file_paths fs.
-Proof. unfold fileset_entries, file_paths. rewrite List.map_map. reflexivity. Qed.
-Definition fileset_fmap {A} (r : GoSourceFile -> A) (fs : GoFileSet) : fmap FilePath A :=
-  mkFMap (fileset_entries r fs)
-         (eq_ind_r (fun ks => NoDup ks) (file_paths_unique fs) (fileset_entries_keys r fs)).
-
-(** ---- builders (paths unique, intrinsic; the source forest MAY be empty) ---- *)
+(** ---- builders (the source forest MAY be empty) ---- *)
 
 (** the canonical `package main` source file holding a declaration list (a CONVENIENCE that creates ordinary
     source syntax — the renderer never synthesizes source behind the AST's back). *)
@@ -271,17 +233,17 @@ Definition main_file_node (path : FilePath) (decls : list GoDecl) : GoFileNode :
 
 (** A single-file program under a module spec. *)
 Definition singleton_program (ms : ModuleSpec) (path : FilePath) (decls : list GoDecl) : GoProgram :=
-  mkProgram ms (fs_singleton (main_file_node path decls)).
+  mkProgram ms (FM.add path (main_source decls) empty_files).
 
 (** A module-only program: a valid [ModuleSpec] with NO source files. *)
 Definition empty_program (ms : ModuleSpec) : GoProgram :=
-  mkProgram ms fs_empty.
+  mkProgram ms empty_files.
 
 (** The construction API (Master Plan 3.5): from a module spec + a list of specification-shaped file roots,
     [None] ONLY when the collection cannot describe one source tree (chiefly duplicate paths); the EMPTY list
     yields a valid module-only program.  Semantic invalidity remains a compiler result. *)
 Definition build_program (ms : ModuleSpec) (nodes : list GoFileNode) : option GoProgram :=
-  match fileset_of_list nodes with
+  match filemap_of_nodes nodes with
   | None => None
-  | Some fs => Some (mkProgram ms fs)
+  | Some fm => Some (mkProgram ms fm)
   end.

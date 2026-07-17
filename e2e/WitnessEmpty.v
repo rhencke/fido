@@ -5,7 +5,7 @@
     GENERAL Fido Emit transport; the e2e then runs `go build ./...` over the module (zero packages is
     accepted). *)
 From Stdlib Require Import List NArith String.
-From Fido Require Import FilePath FMap ModulePath GoVersion GoAST GoCompile GoSafe GoRender GoEmit.
+From Fido Require Import FilePath ModulePath GoVersion GoAST GoCompile GoSafe GoRender GoEmit.
 Import ListNotations.
 
 Definition empty_module : ModuleSpec := mkModuleSpec (mkMP "fido.local/generated" eq_refl) Go1_23.

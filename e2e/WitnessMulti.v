@@ -4,7 +4,7 @@
     GoCompile accepts it (prog_ok = true, checked below); the emitted tree must be accepted by
     `go build ./...` — the differential alarm that the whole-program directory/package rules match Go. *)
 From Stdlib Require Import List NArith String.
-From Fido Require Import FilePath FMap ModulePath GoVersion GoAST GoCompile GoSafe GoRender GoEmit.
+From Fido Require Import FilePath ModulePath GoVersion GoAST GoCompile GoSafe GoRender GoEmit.
 Import ListNotations.
 
 Definition multi_module : ModuleSpec := mkModuleSpec (mkMP "fido.local/generated" eq_refl) Go1_23.

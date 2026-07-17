@@ -219,10 +219,11 @@ if ! rocq c -Q _build/default/. Fido e2e/WitnessNeg.v > /tmp/emit-neg.log 2>&1; 
 mkdir -p /tmp/forge
 cat > /tmp/forge/preamble <<'EOF'
 From Stdlib Require Import List String.
-From Fido Require Import FilePath FMap ModulePath GoVersion GoAST GoCompile GoSafe GoRender GoEmit.
+From Fido Require Import FilePath Collections ModulePath GoVersion GoAST GoCompile GoSafe GoRender GoEmit.
 Import ListNotations.
 Definition fgm : string := "forged"%string.
-Definition ff : fmap FilePath string := fm_singleton (mkFP "main.go" eq_refl) "forged"%string.
+Definition ff : Collections.FileMapBase.t string :=
+  Collections.FileMapBase.add (mkFP "main.go" eq_refl) "forged"%string (Collections.FileMapBase.empty string).
 EOF
 cat /tmp/forge/preamble - > /tmp/forge/Direct.v <<'EOF'
 Axiom p : exists sp, fgm = render_go_mod_of sp /\ ff = render_map sp.

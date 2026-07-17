@@ -25,7 +25,8 @@
        program.  We do NOT invoke cmd/go from Rocq and claim no kernel theorem about it.
     ============================================================================ *)
 From Stdlib Require Import NArith ZArith List Bool String Arith.
-From Fido Require Import Ints Floats Complexes FilePath FMap GoAST GoTypes.
+From Stdlib Require Import SetoidList.
+From Fido Require Import Ints Floats Complexes FilePath Collections GoAST GoTypes.
 Import ListNotations.
 Open Scope Z_scope.
 
@@ -44,17 +45,24 @@ Open Scope Z_scope.
 Definition decl_is_main (d : GoDecl) : bool := match d with DMain _ => true end.
 Definition file_main_count (decls : list GoDecl) : nat := List.length (List.filter decl_is_main decls).
 
-(** total `main` declarations in one package (directory) across all its files. *)
-Definition main_count_in_dir (dir : string) (entries : list (FilePath * list GoDecl)) : nat :=
-  fold_right (fun e acc =>
-    ((if String.eqb (fp_parent (fst e)) dir then file_main_count (snd e) else 0) + acc)%nat)
-    0%nat entries.
+Module PM := Collections.PackageMapBase.
+Module PMF := Collections.PackageMapFacts.
+
+(** accumulate a file's `main` count into its parent-directory package. *)
+Definition pm_add_main (dir : string) (n : nat) (acc : PM.t nat) : PM.t nat :=
+  PM.add dir (n + match PM.find dir acc with Some c => c | None => 0 end)%nat acc.
+
+(** ONE pass over the file MAP (C1A §8): each source file contributes its `main` count exactly once to its
+    parent-directory package — a standard [PackageMap], not a repeated O(files²) file scan. *)
+Definition package_main_counts (fm : GoFileMap) : PM.t nat :=
+  GoAST.FM.fold (fun path sf acc => pm_add_main (fp_parent path) (file_main_count (source_decls sf)) acc)
+                fm (PM.empty nat).
 
 (** ---- the declarative validity of the whole program ---- *)
 
-(** Every package (directory) has exactly one `main` declaration. *)
+(** Every package (directory) has exactly one `main` declaration — quantified over the PACKAGE-MAP bindings. *)
 Definition AllPackagesOneMain (p : GoProgram) : Prop :=
-  Forall (fun e => main_count_in_dir (fp_parent (fst e)) (prog_entries p) = 1%nat) (prog_entries p).
+  forall dir c, PM.MapsTo dir c (package_main_counts (prog_files p)) -> c = 1%nat.
 
 (** A program is valid iff it is TYPED (every argument resolves through [GoTypes]) AND every package has
     exactly one `main`.  [ProgramTyped] is the one static-typing foundation; there is no parallel
@@ -63,19 +71,22 @@ Definition ProgValid (p : GoProgram) : Prop := ProgramTyped p /\ AllPackagesOneM
 
 Definition prog_ok (p : GoProgram) : bool :=
   program_typedb p
-  && forallb (fun e => Nat.eqb (main_count_in_dir (fp_parent (fst e)) (prog_entries p)) 1%nat)
-             (prog_entries p).
+  && forallb (fun b => Nat.eqb (snd b) 1) (PM.elements (package_main_counts (prog_files p))).
 
 Lemma prog_ok_iff : forall p, prog_ok p = true <-> ProgValid p.
 Proof.
-  intro p; unfold prog_ok, ProgValid, AllPackagesOneMain.
+  intro p. unfold prog_ok, ProgValid, AllPackagesOneMain.
   rewrite Bool.andb_true_iff, program_typedb_iff.
-  rewrite (forallb_Forall
-             (fun e => Nat.eqb (main_count_in_dir (fp_parent (fst e)) (prog_entries p)) 1%nat)
-             (fun e => main_count_in_dir (fp_parent (fst e)) (prog_entries p) = 1%nat)
-             (prog_entries p)
-             (fun e => Nat.eqb_eq _ 1%nat)).
-  reflexivity.
+  rewrite (forallb_Forall (fun b => Nat.eqb (snd b) 1%nat) (fun b => snd b = 1%nat)
+             (PM.elements (package_main_counts (prog_files p))) (fun b => Nat.eqb_eq (snd b) 1%nat)).
+  split.
+  - intros [Ht Hf]. split; [ exact Ht | ]. intros dir c Hmt.
+    apply PMF.elements_mapsto_iff, InA_alt in Hmt. destruct Hmt as [[k' c'] [Heq Hin]].
+    destruct Heq as [_ Hc]. cbn in *. rewrite Forall_forall in Hf. specialize (Hf (k', c') Hin).
+    cbn in Hf. rewrite Hc. exact Hf.
+  - intros [Ht Hall]. split; [ exact Ht | ]. apply Forall_forall. intros [dir c] Hin. cbn.
+    apply (Hall dir c), PMF.elements_mapsto_iff, InA_alt.
+    exists (dir, c). split; [ split; reflexivity | exact Hin ].
 Qed.
 
 (** ---- whole-program admissibility over the SAME program ---- *)
@@ -151,10 +162,10 @@ Proof.
   rewrite Hvalid in E; discriminate.
 Qed.
 
-(** The empty program (empty file map) is accepted under the new typing authority: no package to type
-    and no `main` to count, so [prog_ok] holds vacuously. *)
-Lemma prog_ok_empty : forall p, prog_entries p = [] -> prog_ok p = true.
-Proof. intros p H; unfold prog_ok, program_typedb; rewrite H; reflexivity. Qed.
+(** The empty program (empty file MAP) is accepted: no package to type and no `main` to count, so [prog_ok]
+    holds vacuously (the file map's elements and the package map are both empty). *)
+Lemma prog_ok_empty : forall ms, prog_ok (empty_program ms) = true.
+Proof. intro ms. vm_compute. reflexivity. Qed.
 
 (** ---- boundary fixture: an out-of-range argument rejects the WHOLE program BEFORE any emission ---- *)
 
@@ -170,9 +181,9 @@ Definition over_program : GoProgram :=
 (* the whole program fails typing, so [prog_ok] rejects it and [go_compile] returns the honest typing
    error — and there is NO [CompilableProgram] for it (hence no [SafeProgram], no [DirectoryImage], no
    rendering/emission): rejection happens strictly in Rocq, before any bytes. *)
-Example over_program_untyped   : program_typedb over_program = false.        Proof. reflexivity. Qed.
-Example over_program_not_ok    : prog_ok over_program = false.               Proof. reflexivity. Qed.
-Example over_program_rejected  : go_compile over_program = Err ErrTyping.    Proof. reflexivity. Qed.
+Example over_program_untyped   : program_typedb over_program = false.        Proof. vm_compute; reflexivity. Qed.
+Example over_program_not_ok    : prog_ok over_program = false.               Proof. vm_compute; reflexivity. Qed.
+Example over_program_rejected  : go_compile over_program = Err ErrTyping.    Proof. vm_compute; reflexivity. Qed.
 Example over_program_no_compile : ~ GoCompile over_program.
 Proof. exact (reject_no_compile over_program over_program_not_ok). Qed.
 
@@ -185,8 +196,8 @@ Definition int_program : GoProgram :=
     [ DMain [ SPrintln [ EIntConvert IInt8 (EInt 127)
                        ; EIntConvert IUint64 (EInt 18446744073709551615)
                        ; EIntConvert IInt8 (EIntConvert IInt16 (EInt 127)) ] ] ].
-Example int_program_typed    : program_typedb int_program = true. Proof. reflexivity. Qed.
-Example int_program_ok       : prog_ok int_program = true.        Proof. reflexivity. Qed.
+Example int_program_typed    : program_typedb int_program = true. Proof. vm_compute; reflexivity. Qed.
+Example int_program_ok       : prog_ok int_program = true.        Proof. vm_compute; reflexivity. Qed.
 Example int_program_compiles : exists cp, go_compile int_program = Ok cp.
 Proof. eexists; reflexivity. Qed.
 
@@ -197,8 +208,8 @@ Definition bad_convert_program : GoProgram :=
     (mkModuleSpec (ModulePath.mkMP "fido.local/generated" eq_refl) GoVersion.Go1_23)
     (mkFP "main.go" eq_refl)
     [ DMain [ SPrintln [ EIntConvert IUint8 (EIntConvert IInt (EInt 300)) ] ] ].
-Example bad_convert_untyped     : program_typedb bad_convert_program = false. Proof. reflexivity. Qed.
-Example bad_convert_rejected    : go_compile bad_convert_program = Err ErrTyping. Proof. reflexivity. Qed.
+Example bad_convert_untyped     : program_typedb bad_convert_program = false. Proof. vm_compute; reflexivity. Qed.
+Example bad_convert_rejected    : go_compile bad_convert_program = Err ErrTyping. Proof. vm_compute; reflexivity. Qed.
 Example bad_convert_no_compile  : ~ GoCompile bad_convert_program.
 Proof. exact (reject_no_compile bad_convert_program eq_refl). Qed.
 
@@ -209,8 +220,8 @@ Definition str_program : GoProgram :=
     (mkModuleSpec (ModulePath.mkMP "fido.local/generated" eq_refl) GoVersion.Go1_23)
     (mkFP "main.go" eq_refl)
     [ DMain [ SPrintln [ EString "hello"; EBool true; EInt 7 ] ] ].
-Example str_program_typed    : program_typedb str_program = true. Proof. reflexivity. Qed.
-Example str_program_ok       : prog_ok str_program = true.        Proof. reflexivity. Qed.
+Example str_program_typed    : program_typedb str_program = true. Proof. vm_compute; reflexivity. Qed.
+Example str_program_ok       : prog_ok str_program = true.        Proof. vm_compute; reflexivity. Qed.
 Example str_program_compiles : exists cp, go_compile str_program = Ok cp.
 Proof. eexists; reflexivity. Qed.
 

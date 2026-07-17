@@ -25,7 +25,7 @@
     go-e2e), exactly as GoTypes/GoCompile make impossible.  The rendered tree includes the certified [go.mod]
     (from the module spec) alongside the .go files. *)
 From Stdlib Require Import List NArith ZArith String Ascii.
-From Fido Require Import Ints Floats Complexes FilePath FMap ModulePath GoVersion GoAST GoCompile GoSafe GoRender GoEmit.
+From Fido Require Import Ints Floats Complexes FilePath ModulePath GoVersion GoAST GoCompile GoSafe GoRender GoEmit.
 Import ListNotations.
 
 (* control-byte strings built by exact ascii code (0x09 TAB, 0x0d CR, 0x0a NL) between two letters. *)

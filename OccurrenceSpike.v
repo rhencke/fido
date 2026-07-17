@@ -7,27 +7,26 @@
     production pipeline imports it.  It is proven axiom-free by the same whole-theory audit as the rest of
     the theory, and will be DELETED once the production [GoIndex] lands (C2).
 
-    C0.3 REPRESENTATION DECISION (recorded in .review/SOURCE_FOREST_STATUS.md):
-      A. a certified positive-key radix trie (the [NodeTable] module below) — pure Gallina, empty assumption
-         closure, O(bits) = O(log n) lookup/insert, persistent, decidable-key ergonomics.
-      B. a primitive dense array (Coq [PArray]/[Uint63]) — O(1) lookup, BUT built on KERNEL PRIMITIVES
-         (Int63/PArray), which Fido's standing law rule 4 forbids ("Never ... a kernel primitive").  Its
-         "assumption closure" is a kernel extension outside pure CIC, so it fails the zero-axiom/no-primitive
-         policy regardless of speed.  REJECTED.
-    Selected: A.  The public [NodeTable] interface ([table]/[empty]/[get]/[set] + the three laws) HIDES the
-    trie representation, so C2 can swap the physical table without disturbing any caller.  A plain association
-    [list] is deliberately NOT used: it would give a forbidden O(n) list-scan node-table lookup (Master
-    Plan 4.8).  *)
+    C1A COLLECTION LAW (Master Plan / .review/SOURCE_FOREST_STATUS.md): the per-file local-node table is the
+    STANDARD pinned-stdlib positive-key map [FMapPositive.PositiveMap] (aliased [Collections.NodeMapBase]) — a
+    certified binary-trie map from certified-compiler work, O(bits)=O(log n) lookup/insert, empty assumption
+    closure.  A primitive dense array (Coq [PArray]/[Uint63]) is REJECTED: it is built on KERNEL PRIMITIVES
+    (Int63/PArray), which Fido's standing law rule 4 forbids ("Never ... a kernel primitive").  A project-
+    authored radix trie is REJECTED by C1A: Fido authors NO collection implementation.  The thin [NodeTable]
+    wrapper below stores a [Collections.NodeMapBase] and proves its three laws directly from the standard map
+    facts — it contains no custom tree constructor; the sealed interface lets C2 swap it without disturbing any
+    caller.  A plain association [list] is likewise forbidden (an O(n) list-scan node-table lookup). *)
 
 From Stdlib Require Import PArith List Bool Lia Eqdep_dec Wf_nat Sorted String Recdef Arith.
-From Fido Require Import FilePath.
+From Stdlib Require Import SetoidList.
+From Fido Require Import FilePath Collections.
 Import ListNotations.
 
 (* ================================================================================================= *)
-(** ** The selected node table: an ABSTRACT interface, implemented internally by a certified            *)
-(*    positive-key radix trie (candidate A).  Callers see ONLY [NodeTable.table]/[empty]/[get]/[set]     *)
-(*    and the three laws; the trie representation and its constructors are sealed inside the module, so   *)
-(*    C2 may swap the physical table without disturbing any caller (Master Plan 4.9).                     *)
+(** ** The selected node table: an ABSTRACT interface, implemented internally by the STANDARD pinned-stdlib *)
+(*    positive-key map [Collections.NodeMapBase] ([FMapPositive]).  Callers see ONLY                       *)
+(*    [NodeTable.table]/[empty]/[get]/[set] and the three laws; the standard-map representation is sealed  *)
+(*    inside the module, so C2 may swap the physical table without disturbing any caller (Master Plan 4.9). *)
 (* ================================================================================================= *)
 
 Module Type NODE_TABLE.
@@ -42,43 +41,19 @@ Module Type NODE_TABLE.
 End NODE_TABLE.
 
 Module NodeTable : NODE_TABLE.
-  (* internal representation — a persistent positive-key radix trie; O(log n) get/set. *)
-  Inductive tr (A : Type) : Type := Lf : tr A | Nd : option A -> tr A -> tr A -> tr A.
-  Arguments Lf {A}.
-  Arguments Nd {A} _ _ _.
-  Fixpoint rd {A} (k : positive) (t : tr A) : option A :=
-    match t with
-    | Lf => None
-    | Nd o l r => match k with xH => o | xO k' => rd k' l | xI k' => rd k' r end
-    end.
-  Fixpoint wr {A} (k : positive) (v : A) (t : tr A) : tr A :=
-    match k, t with
-    | xH,    Lf        => Nd (Some v) Lf Lf
-    | xH,    Nd _ l r  => Nd (Some v) l r
-    | xO k', Lf        => Nd None (wr k' v Lf) Lf
-    | xO k', Nd o l r  => Nd o (wr k' v l) r
-    | xI k', Lf        => Nd None Lf (wr k' v Lf)
-    | xI k', Nd o l r  => Nd o l (wr k' v r)
-    end.
-  Lemma rd_leaf {A} (k : positive) : rd k (@Lf A) = None. Proof. destruct k; reflexivity. Qed.
-  Definition table := tr.
-  Definition empty {A} : table A := @Lf A.
-  Definition get {A} := @rd A.
-  Definition set {A} := @wr A.
-  Lemma get_empty {A} (k : positive) : get k (@empty A) = None. Proof. apply rd_leaf. Qed.
+  (* internal representation — the STANDARD positive-key map [Collections.NodeMapBase] (FMapPositive); the
+     three laws are proved directly from the standard [find]/[add]/[empty] facts (no custom tree). *)
+  Definition table := Collections.NodeMapBase.t.
+  Definition empty {A} : table A := Collections.NodeMapBase.empty A.
+  Definition get {A} (k : positive) (t : table A) : option A := Collections.NodeMapBase.find k t.
+  Definition set {A} (k : positive) (v : A) (t : table A) : table A := Collections.NodeMapBase.add k v t.
+  Lemma get_empty {A} (k : positive) : get k (@empty A) = None.
+  Proof. apply Collections.NodeMapBase.gempty. Qed.
   Lemma get_set_same {A} (k : positive) (v : A) (t : table A) : get k (set k v t) = Some v.
-  Proof. unfold get, set. revert t; induction k as [k' IH|k' IH|]; intros [ | o l r ]; simpl; auto. Qed.
+  Proof. apply Collections.NodeMapBase.gss. Qed.
   Lemma get_set_other {A} (j k : positive) (v : A) (t : table A) :
     j <> k -> get k (set j v t) = get k t.
-  Proof.
-    unfold get, set. revert k t; induction j as [j' IH|j' IH|]; intros k t Hjk;
-      destruct k as [k'|k'|]; destruct t as [ | o l r ]; simpl;
-      try reflexivity;
-      try (now rewrite rd_leaf);
-      try (rewrite IH by congruence; now rewrite ?rd_leaf);
-      try (apply IH; congruence);
-      try (exfalso; congruence).
-  Qed.
+  Proof. intro H. apply Collections.NodeMapBase.gso. congruence. Qed.
 End NodeTable.
 
 (* ================================================================================================= *)
@@ -114,13 +89,22 @@ Inductive TExpr :=
 
 Inductive TStmt := TPrint (e : TExpr).          (* a statement wrapping one expression *)
 Inductive TDecl := TFun (body : list TStmt).    (* a declaration with a statement body *)
-Record   TFile := mkTFile { tf_path : FilePath ; tf_decls : list TDecl }.
-(* An immutable toy SOURCE SNAPSHOT: a file sequence whose paths are unique by construction, so one path
-   names at most one file root and a raw [NodeKey] cannot ambiguously name two roots (C0A §3). *)
-Record TForest := mkTForest {
-  forest_files        : list TFile;
-  forest_paths_unique : NoDup (map tf_path forest_files)
-}.
+
+(* The toy SOURCE VALUE — the file's syntax ALONE (its path is NOT stored here; the path is the map key,
+   exactly as production separates [GoSourceFile] from its [FilePath] key: no second file identity). *)
+Record TSourceFile := mkTSource { ts_decls : list TDecl }.
+(* The toy construction/view record — a path paired with its source, mirroring production's [GoFileNode]. *)
+Record TFileNode := mkTFileNode { tfn_path : FilePath ; tfn_source : TSourceFile }.
+(* An immutable toy SOURCE SNAPSHOT is a STANDARD FilePath map (C1A §10.2): the path IS the key, so one path
+   names at most one source root INTRINSICALLY (no [NoDup] side condition, no list scan, no hidden slot). *)
+Definition TForest := Collections.FileMapBase.t TSourceFile.
+
+(* place a list of construction nodes into the standard file map (view -> forest); the map key enforces one
+   source per path.  (The production pipeline additionally REJECTS duplicate paths via [filemap_of_nodes];
+   this toy snapshot only needs the map's intrinsic key-functionality, exercised by the §9 fixtures.) *)
+Definition forest_of (nodes : list TFileNode) : TForest :=
+  fold_right (fun n acc => Collections.FileMapBase.add (tfn_path n) (tfn_source n) acc)
+             (Collections.FileMapBase.empty TSourceFile) nodes.
 
 Definition root_id : positive := 1%positive.    (* every file root's canonical local id (theorem 1) *)
 
@@ -170,19 +154,19 @@ Definition build_decl (parent : positive) (didx : nat) (me : positive) (d : TDec
       (NodeTable.set me (mkMeta KDecl (Some parent) (RFileDecl didx) (Pos.pred nx)) t1, Pos.pred nx)
   end.
 
+(* The per-file index carries NO path (the path is the outer map key — no second file identity, C1A §10.3). *)
 Record FileIndex := mkFI {
-  fi_path  : FilePath;
   fi_table : NodeTable.table NodeMeta;
   fi_count : positive           (* number of occurrences = last local id; ids are [1 .. fi_count] *)
 }.
 
-Definition build_file (f : TFile) : FileIndex :=
-  let '(t1, nx) := build_seq build_decl root_id 0 (Pos.succ root_id) (tf_decls f) NodeTable.empty in
+Definition build_file (f : TSourceFile) : FileIndex :=
+  let '(t1, nx) := build_seq build_decl root_id 0 (Pos.succ root_id) (ts_decls f) NodeTable.empty in
   let cnt := Pos.pred nx in
-  mkFI (tf_path f) (NodeTable.set root_id (mkMeta KFile None RFileRoot cnt) t1) cnt.
+  mkFI (NodeTable.set root_id (mkMeta KFile None RFileRoot cnt) t1) cnt.
 
 (* ================================================================================================= *)
-(** ** C0A source snapshot: path-unique file lookup, hidden per-file slots, and a slot-keyed outer table. *)
+(** ** C0A source snapshot: standard FilePath-map file lookup and a path-keyed outer index (no hidden slot). *)
 (* ================================================================================================= *)
 
 (* total extraction from a provably-present option — the key to a total validated-reference API. *)
@@ -193,136 +177,28 @@ Proof. intros Heq. subst o. reflexivity. Qed.
 Lemma option_get_some {A} (o : option A) : forall (H : o <> None), o = Some (option_get o H).
 Proof. destruct o as [a|]; intro H; [reflexivity | exfalso; exact (H eq_refl)]. Qed.
 
-(* the file occupying a 1-based slot in the snapshot; slots are the hidden structural handle. *)
-Definition forest_file_at (fs : TForest) (slot : positive) : option TFile :=
-  nth_error (forest_files fs) (Nat.pred (Pos.to_nat slot)).
+(* ---- the outer index: a STANDARD FilePath map [FileMap.t FileIndex] keyed DIRECTLY by path (C1A §10.3);
+        [outer_of] is the standard [map] of [build_file] over the source forest, so ONE map lookup reaches a
+        file's index — NO hidden slot, NO list scan, NO second file identity. ---- *)
+Module OFM := Collections.FileMapBase.
+Module OFMF := Collections.FileMapFacts.
 
-(* path -> (slot, file), scanning the file list ONCE (this is the raw-key minting boundary, §7). *)
-Fixpoint find_slot (files : list TFile) (fp : FilePath) (slot : positive) : option (positive * TFile) :=
-  match files with
-  | [] => None
-  | f :: rest => if fp_eqb (tf_path f) fp then Some (slot, f) else find_slot rest fp (Pos.succ slot)
-  end.
-Definition forest_find (fs : TForest) (fp : FilePath) : option (positive * TFile) :=
-  find_slot (forest_files fs) fp 1.
+Definition outer_of (fs : TForest) : OFM.t FileIndex := OFM.map build_file fs.
 
-(* the outer index: an abstract [NodeTable] keyed by the hidden slot, each entry the built per-file index.
-   Navigation from a NodeRef reaches its file's index by ONE slot lookup here — no file-list scan. *)
-Fixpoint build_outer (files : list TFile) (slot : positive) (t : NodeTable.table FileIndex)
-  : NodeTable.table FileIndex :=
-  match files with
-  | [] => t
-  | f :: rest => build_outer rest (Pos.succ slot) (NodeTable.set slot (build_file f) t)
-  end.
-Definition outer_of (fs : TForest) : NodeTable.table FileIndex :=
-  build_outer (forest_files fs) 1 NodeTable.empty.
-
-(* the outer builder only writes slots >= start, so it preserves any lookup strictly below start. *)
-Lemma build_outer_below : forall files start slot t,
-  (slot < start)%positive -> NodeTable.get slot (build_outer files start t) = NodeTable.get slot t.
+(* EXACT correspondence (both directions): the outer map holds the build of the file at a real path AND holds
+   NOTHING at any path with no file — the standard [map] law, so no spurious entry can satisfy the invariant. *)
+Lemma outer_get_exact : forall fs path,
+  OFM.find path (outer_of fs)
+  = match OFM.find path fs with Some f => Some (build_file f) | None => None end.
 Proof.
-  induction files as [|f rest IH]; intros start slot t Hlt; simpl; [reflexivity|].
-  rewrite IH by lia. apply NodeTable.get_set_other. lia.
+  intros fs path. unfold outer_of. rewrite OFMF.map_o.
+  destruct (OFM.find path fs); reflexivity.
 Qed.
 
-(* outer correspondence: slot [start + i] holds the build of the i-th file, else the base table. *)
-Lemma build_outer_get : forall files start slot t,
-  (start <= slot)%positive ->
-  match nth_error files (Pos.to_nat slot - Pos.to_nat start)%nat with
-  | Some f => NodeTable.get slot (build_outer files start t) = Some (build_file f)
-  | None   => NodeTable.get slot (build_outer files start t) = NodeTable.get slot t
-  end.
-Proof.
-  induction files as [|f rest IH]; intros start slot t Hle; simpl.
-  - destruct (Pos.to_nat slot - Pos.to_nat start)%nat; reflexivity.
-  - destruct (Pos.eq_dec slot start) as [Heq|Hne].
-    + subst slot.
-      replace (Pos.to_nat start - Pos.to_nat start)%nat with 0%nat by lia. simpl.
-      rewrite build_outer_below by lia. apply NodeTable.get_set_same.
-    + assert (Hlt : (start < slot)%positive) by lia.
-      assert (Hstep : (Pos.to_nat slot - Pos.to_nat start = S (Pos.to_nat slot - Pos.to_nat (Pos.succ start)))%nat)
-        by (rewrite Pos2Nat.inj_succ; lia).
-      rewrite Hstep. simpl.
-      specialize (IH (Pos.succ start) slot (NodeTable.set start (build_file f) t) ltac:(lia)).
-      destruct (nth_error rest (Pos.to_nat slot - Pos.to_nat (Pos.succ start))%nat) eqn:Hnth.
-      * exact IH.
-      * rewrite IH. apply NodeTable.get_set_other. lia.
-Qed.
-
-(* the fact ref_meta needs: a real slot holds exactly the build of the file at that slot. *)
-Lemma outer_get_at : forall fs slot f,
-  forest_file_at fs slot = Some f -> NodeTable.get slot (outer_of fs) = Some (build_file f).
-Proof.
-  intros fs slot f Hat. unfold outer_of, forest_file_at in *.
-  assert (Hle : (1 <= slot)%positive) by lia.
-  pose proof (build_outer_get (forest_files fs) 1 slot NodeTable.empty Hle) as HG.
-  replace (Pos.to_nat slot - Pos.to_nat 1)%nat with (Nat.pred (Pos.to_nat slot)) in HG
-    by (change (Pos.to_nat 1) with 1%nat; lia).
-  rewrite Hat in HG. exact HG.
-Qed.
-
-(* EXACT correspondence (both directions): the outer table holds the build of the file at a real slot AND
-   holds NOTHING at any slot with no file — no spurious entry can satisfy the index invariant. *)
-Lemma outer_get_exact : forall fs slot,
-  NodeTable.get slot (outer_of fs) =
-  match forest_file_at fs slot with Some f => Some (build_file f) | None => None end.
-Proof.
-  intros fs slot. unfold outer_of, forest_file_at.
-  assert (Hle : (1 <= slot)%positive) by lia.
-  pose proof (build_outer_get (forest_files fs) 1 slot NodeTable.empty Hle) as HG.
-  replace (Pos.to_nat slot - Pos.to_nat 1)%nat with (Nat.pred (Pos.to_nat slot)) in HG
-    by (change (Pos.to_nat 1) with 1%nat; lia).
-  destruct (nth_error (forest_files fs) (Nat.pred (Pos.to_nat slot))) as [f|] eqn:E.
-  - exact HG.
-  - rewrite HG. apply NodeTable.get_empty.
-Qed.
-
-Lemma find_slot_at : forall files fp start slot f,
-  find_slot files fp start = Some (slot, f) ->
-  nth_error files (Nat.pred (Pos.to_nat slot) - Nat.pred (Pos.to_nat start))%nat = Some f
-  /\ tf_path f = fp /\ (start <= slot)%positive.
-Proof.
-  induction files as [|g rest IH]; intros fp start slot f H; simpl in H; [discriminate|].
-  destruct (fp_eqb (tf_path g) fp) eqn:Eq.
-  - injection H as <- <-. apply fp_eqb_eq in Eq. rewrite Nat.sub_diag. simpl.
-    split; [reflexivity | split; [exact Eq | lia]].
-  - apply IH in H as [Hnth [Hpath Hle]].
-    split; [| split; [exact Hpath | lia]].
-    rewrite Pos2Nat.inj_succ in Hnth.
-    replace (Nat.pred (Pos.to_nat slot) - Nat.pred (Pos.to_nat start))%nat
-       with (S (Nat.pred (Pos.to_nat slot) - Nat.pred (S (Pos.to_nat start))))%nat by lia.
-    simpl. exact Hnth.
-Qed.
-
-Lemma forest_find_at (fs : TForest) (fp : FilePath) (slot : positive) (f : TFile) :
-  forest_find fs fp = Some (slot, f) -> forest_file_at fs slot = Some f.
-Proof.
-  unfold forest_find, forest_file_at. intros H. apply find_slot_at in H as [Hnth [_ _]].
-  change (Nat.pred (Pos.to_nat 1)) with 0%nat in Hnth. rewrite Nat.sub_0_r in Hnth. exact Hnth.
-Qed.
-
-(* path uniqueness (from [forest_paths_unique]): a path names AT MOST ONE slot, so file lookup is functional
-   and two file handles with the same path are the same file at the same slot. *)
-Lemma forest_slot_unique (fs : TForest) (s1 s2 : positive) (f1 f2 : TFile) :
-  forest_file_at fs s1 = Some f1 -> forest_file_at fs s2 = Some f2 -> tf_path f1 = tf_path f2 -> s1 = s2.
-Proof.
-  unfold forest_file_at. intros H1 H2 Hp.
-  pose proof (forest_paths_unique fs) as Hnd. rewrite NoDup_nth_error in Hnd.
-  assert (Hi1 : nth_error (map tf_path (forest_files fs)) (Nat.pred (Pos.to_nat s1)) = Some (tf_path f1))
-    by (apply map_nth_error; exact H1).
-  assert (Hi2 : nth_error (map tf_path (forest_files fs)) (Nat.pred (Pos.to_nat s2)) = Some (tf_path f2))
-    by (apply map_nth_error; exact H2).
-  assert (Hlen : Nat.pred (Pos.to_nat s1) < Datatypes.length (map tf_path (forest_files fs))).
-  { apply nth_error_Some. rewrite Hi1. discriminate. }
-  assert (Heq : Nat.pred (Pos.to_nat s1) = Nat.pred (Pos.to_nat s2)).
-  { apply Hnd; [exact Hlen|]. rewrite Hi1, Hi2, Hp. reflexivity. }
-  lia.
-Qed.
-
-(* the lookup found by scanning IS a real slot occurrence with the queried path. *)
-Lemma forest_find_path (fs : TForest) (fp : FilePath) (slot : positive) (f : TFile) :
-  forest_find fs fp = Some (slot, f) -> tf_path f = fp.
-Proof. unfold forest_find. intros H. apply find_slot_at in H as [_ [Hp _]]. exact Hp. Qed.
+(* a real path holds exactly its file's build (the one direction driving the query API). *)
+Lemma outer_get_at : forall fs path f,
+  OFM.find path fs = Some f -> OFM.find path (outer_of fs) = Some (build_file f).
+Proof. intros fs path f H. rewrite outer_get_exact, H. reflexivity. Qed.
 
 (* ================================================================================================= *)
 (** ** Occurrence keys and snapshot-validated references (Master Plan 4.2 / 4.3).                      *)
@@ -707,13 +583,13 @@ Proof.
   rewrite Hnx. exact H.
 Qed.
 
-Lemma build_file_wf (f : TFile) :
+Lemma build_file_wf (f : TSourceFile) :
   SubtreeWF NodeTable.empty (fi_table (build_file f)) None root_id (fi_count (build_file f)).
 Proof.
   unfold build_file.
-  destruct (build_seq build_decl root_id 0 (Pos.succ root_id) (tf_decls f) NodeTable.empty) as [t1 nx] eqn:E.
+  destruct (build_seq build_decl root_id 0 (Pos.succ root_id) (ts_decls f) NodeTable.empty) as [t1 nx] eqn:E.
   simpl.
-  destruct (build_seq_spec build_decl build_decl_spec (tf_decls f) root_id 0 (Pos.succ root_id)
+  destruct (build_seq_spec build_decl build_decl_spec (ts_decls f) root_id 0 (Pos.succ root_id)
               NodeTable.empty t1 nx (Fresh_empty _) E) as [Hfr HF].
   assert (Hge : Pos.succ root_id <= nx) by (apply (for_le HF)).
   assert (Hnx : Pos.succ (Pos.pred nx) = nx)
@@ -756,7 +632,7 @@ Qed.
 (* ================================================================================================= *)
 
 (* every entry of a built file table lies in the canonical interval [root_id .. count]. *)
-Lemma in_domain (f : TFile) k m :
+Lemma in_domain (f : TSourceFile) k m :
   NodeTable.get k (fi_table (build_file f)) = Some m ->
   root_id <= k /\ k <= fi_count (build_file f).
 Proof.
@@ -770,17 +646,17 @@ Proof.
 Qed.
 
 (* THEOREM 1 — the root id is canonical: every file root occupies the SAME fixed local id [root_id]. *)
-Theorem thm1_root_id_canonical (f : TFile) :
+Theorem thm1_root_id_canonical (f : TSourceFile) :
   exists m, NodeTable.get root_id (fi_table (build_file f)) = Some m /\ nm_kind m = KFile /\ nm_role m = RFileRoot.
 Proof.
   unfold build_file.
-  destruct (build_seq build_decl root_id 0 (Pos.succ root_id) (tf_decls f) NodeTable.empty) as [t1 nx] eqn:E.
+  destruct (build_seq build_decl root_id 0 (Pos.succ root_id) (ts_decls f) NodeTable.empty) as [t1 nx] eqn:E.
   exists (mkMeta KFile None RFileRoot (Pos.pred nx)).
   cbn [fi_table]. rewrite NodeTable.get_set_same. split; [reflexivity | split; reflexivity].
 Qed.
 
 (* THEOREM 2 — the root has no parent. *)
-Theorem thm2_root_no_parent (f : TFile) m :
+Theorem thm2_root_no_parent (f : TSourceFile) m :
   NodeTable.get root_id (fi_table (build_file f)) = Some m -> nm_parent m = None.
 Proof.
   intros H. pose proof (build_file_wf f) as WF. destruct (sub_root WF) as [m0 [Hg [Hp _]]].
@@ -788,7 +664,7 @@ Proof.
 Qed.
 
 (* THEOREM 3 — every non-root occurrence has exactly one parent. *)
-Theorem thm3_nonroot_has_parent (f : TFile) k m :
+Theorem thm3_nonroot_has_parent (f : TSourceFile) k m :
   NodeTable.get k (fi_table (build_file f)) = Some m -> k <> root_id -> exists p, nm_parent m = Some p.
 Proof.
   intros H Hne. pose proof (build_file_wf f) as WF.
@@ -798,12 +674,12 @@ Proof.
 Qed.
 
 (* the parent field is functional: an occurrence has at most one parent. *)
-Theorem thm3b_parent_unique (f : TFile) k m p1 p2 :
+Theorem thm3b_parent_unique (f : TSourceFile) k m p1 p2 :
   NodeTable.get k (fi_table (build_file f)) = Some m -> nm_parent m = Some p1 -> nm_parent m = Some p2 -> p1 = p2.
 Proof. intros _ H1 H2. rewrite H1 in H2. injection H2 as <-. reflexivity. Qed.
 
 (* THEOREM 13 (completeness half) — ancestry implies nested preorder intervals. *)
-Lemma anc_complete (f : TFile) a d :
+Lemma anc_complete (f : TSourceFile) a d :
   Ancestor (fi_table (build_file f)) a d ->
   exists ma md, NodeTable.get a (fi_table (build_file f)) = Some ma /\
                 NodeTable.get d (fi_table (build_file f)) = Some md /\
@@ -844,7 +720,7 @@ Definition parentb (t : NodeTable.table NodeMeta) (c pid : positive) : bool :=
   end.
 
 (* a descendant's immediate parent never precedes its ancestor. *)
-Lemma anc_parent_ge (f : TFile) a d p :
+Lemma anc_parent_ge (f : TSourceFile) a d p :
   Ancestor (fi_table (build_file f)) a d ->
   parent_id (fi_table (build_file f)) d = Some p -> (a <= p)%positive.
 Proof.
@@ -856,7 +732,7 @@ Qed.
 
 (* every id strictly inside a node's preorder interval has that node as an ancestor, so its parent is at
    least that node — the interval interior contains no id whose parent lies before the node. *)
-Lemma desc_parent_ge (f : TFile) a ma d p :
+Lemma desc_parent_ge (f : TSourceFile) a ma d p :
   NodeTable.get a (fi_table (build_file f)) = Some ma ->
   (a < d)%positive -> (d <= nm_subtree_end ma)%positive ->
   parent_id (fi_table (build_file f)) d = Some p -> (a <= p)%positive.
@@ -867,7 +743,7 @@ Proof.
 Qed.
 
 (* a pid-child is a proper descendant of pid: pid < c and c is present. *)
-Lemma child_gt (f : TFile) pid c mc :
+Lemma child_gt (f : TSourceFile) pid c mc :
   NodeTable.get c (fi_table (build_file f)) = Some mc -> nm_parent mc = Some pid ->
   (pid < c)%positive.
 Proof.
@@ -881,7 +757,7 @@ Proof.
 Qed.
 
 (* the FIRST descendant of a node is its child: parent(node+1) = node. *)
-Lemma first_child (f : TFile) pid mp :
+Lemma first_child (f : TSourceFile) pid mp :
   NodeTable.get pid (fi_table (build_file f)) = Some mp ->
   (pid < nm_subtree_end mp)%positive ->
   parent_id (fi_table (build_file f)) (Pos.succ pid) = Some pid.
@@ -899,7 +775,7 @@ Proof.
 Qed.
 
 (* the id just past a child's subtree, if still inside the parent's interval, is the NEXT child. *)
-Lemma next_child (f : TFile) pid mp c mc :
+Lemma next_child (f : TSourceFile) pid mp c mc :
   NodeTable.get pid (fi_table (build_file f)) = Some mp ->
   NodeTable.get c (fi_table (build_file f)) = Some mc -> nm_parent mc = Some pid ->
   (nm_subtree_end mc < nm_subtree_end mp)%positive ->
@@ -945,7 +821,7 @@ Proof.
 Qed.
 
 (* the interior of a child's subtree contains no further child of the same parent. *)
-Lemma interior_not_child (f : TFile) pid cur mcur k :
+Lemma interior_not_child (f : TSourceFile) pid cur mcur k :
   NodeTable.get cur (fi_table (build_file f)) = Some mcur -> nm_parent mcur = Some pid ->
   (cur < k)%positive -> (k <= nm_subtree_end mcur)%positive ->
   parentb (fi_table (build_file f)) k pid = false.
@@ -961,7 +837,7 @@ Qed.
 (* --- child_enum correctness --- *)
 
 (* every present id in the built table has [id <= subtree_end]. *)
-Lemma built_nested (f : TFile) x mx :
+Lemma built_nested (f : TSourceFile) x mx :
   NodeTable.get x (fi_table (build_file f)) = Some mx -> (x <= nm_subtree_end mx)%positive.
 Proof.
   intros Hx. pose proof (build_file_wf f) as WF. destruct (in_domain f x mx Hx) as [Hlo Hhi].
@@ -1042,7 +918,7 @@ Proof.
 Qed.
 
 (* THEOREM 13 — the O(1) preorder-interval ancestor test is sound AND complete. *)
-Theorem thm13_interval_ancestry (f : TFile) a d :
+Theorem thm13_interval_ancestry (f : TSourceFile) a d :
   NodeTable.get a (fi_table (build_file f)) <> None ->
   (is_ancestor_local (fi_table (build_file f)) a d = true <-> Ancestor (fi_table (build_file f)) a d).
 Proof.
@@ -1060,7 +936,7 @@ Proof.
 Qed.
 
 (* THEOREM 11 (children source order) — the direct children of an occurrence are strictly increasing. *)
-Theorem thm11_children_sorted (f : TFile) p :
+Theorem thm11_children_sorted (f : TSourceFile) p :
   StronglySorted Pos.lt (child_ids (fi_table (build_file f)) p).
 Proof.
   unfold child_ids. destruct (NodeTable.get p (fi_table (build_file f))) as [m|] eqn:Ep; [|constructor].
@@ -1069,14 +945,14 @@ Qed.
 
 (* THEOREM 4 — parent/child are inverse: a direct child appears in the interval-jump [child_ids] of its
    parent, and everything the jump enumerates has that parent. *)
-Theorem thm4_child_has_parent (f : TFile) p c :
+Theorem thm4_child_has_parent (f : TSourceFile) p c :
   In c (child_ids (fi_table (build_file f)) p) -> parent_id (fi_table (build_file f)) c = Some p.
 Proof.
   unfold child_ids. destruct (NodeTable.get p (fi_table (build_file f))) as [mp|] eqn:Ep; [|intros []].
   apply child_enum_sound.
 Qed.
 
-Theorem thm4_parent_has_child (f : TFile) p c mc :
+Theorem thm4_parent_has_child (f : TSourceFile) p c mc :
   NodeTable.get c (fi_table (build_file f)) = Some mc -> nm_parent mc = Some p ->
   In c (child_ids (fi_table (build_file f)) p).
 Proof.
@@ -1098,13 +974,10 @@ Proof.
     [ exact Hgp | exact E1 | exact Hfc | exact Hc | exact Hpar | lia | exact Hcbound | reflexivity ].
 Qed.
 
-(* THEOREM 5 — parentage stays within one file (references carry the file, so the parent shares it). *)
-Lemma fi_path_build (f : TFile) : fi_path (build_file f) = tf_path f.
-Proof.
-  unfold build_file.
-  destruct (build_seq build_decl root_id 0 (Pos.succ root_id) (tf_decls f) NodeTable.empty) as [t1 nx].
-  reflexivity.
-Qed.
+(* THEOREM 5 — parentage stays within one file: a reference carries its file PATH (the map key), so the
+   parent shares it.  (The former [fi_path] field of [FileIndex] is DELETED — the path is the outer map key,
+   never a second identity stored beside the table; file/parent sharing is proved at the reference level by
+   [thm_parent_same_file] / [thm_children_same_file] in the sealed [Snap] module.) *)
 
 (* THEOREM 8 — NodeKey equality decides occurrence identity. *)
 Lemma fp_eq_dec (a b : FilePath) : {a = b} + {a <> b}.
@@ -1132,10 +1005,10 @@ Qed.
 (* THEOREM 7 — every occurrence appears EXACTLY ONCE in canonical enumeration (no dup + complete + sound). *)
 Definition all_ids (fi : FileIndex) : list positive := pos_seq root_id (Pos.to_nat (fi_count fi)).
 
-Theorem thm7_enum_nodup (f : TFile) : NoDup (all_ids (build_file f)).
+Theorem thm7_enum_nodup (f : TSourceFile) : NoDup (all_ids (build_file f)).
 Proof. apply pos_seq_NoDup. Qed.
 
-Theorem thm7_enum_complete (f : TFile) k m :
+Theorem thm7_enum_complete (f : TSourceFile) k m :
   NodeTable.get k (fi_table (build_file f)) = Some m -> In k (all_ids (build_file f)).
 Proof.
   intros H. destruct (in_domain f k m H) as [Hlo Hhi]. unfold all_ids.
@@ -1145,7 +1018,7 @@ Proof.
   lia.
 Qed.
 
-Theorem thm7_enum_sound (f : TFile) k :
+Theorem thm7_enum_sound (f : TSourceFile) k :
   In k (all_ids (build_file f)) -> NodeTable.get k (fi_table (build_file f)) <> None.
 Proof.
   unfold all_ids. intros Hin. apply pos_seq_In in Hin. unfold root_id in Hin. rewrite Pos2Nat.inj_1 in Hin.
@@ -1199,7 +1072,7 @@ Definition end_decl (me : positive) (d : TDecl) : positive :=
   match d with TFun body => Pos.pred (next_stmts (Pos.succ me) body) end.
 Fixpoint next_decls (me : positive) (ds : list TDecl) : positive :=
   match ds with [] => me | d :: rest => next_decls (Pos.succ (end_decl me d)) rest end.
-Definition count_file (f : TFile) : positive := Pos.pred (next_decls (Pos.succ root_id) (tf_decls f)).
+Definition count_file (f : TSourceFile) : positive := Pos.pred (next_decls (Pos.succ root_id) (ts_decls f)).
 
 Lemma build_expr_end : forall e parent role me t,
   snd (build_expr parent role me e t) = end_expr me e.
@@ -1247,8 +1120,8 @@ Qed.
 Lemma build_file_count : forall f, fi_count (build_file f) = count_file f.
 Proof.
   intros f. unfold build_file, count_file.
-  rewrite <- (build_seq_decl_next (tf_decls f) root_id 0 (Pos.succ root_id) NodeTable.empty).
-  destruct (build_seq build_decl root_id 0 (Pos.succ root_id) (tf_decls f) NodeTable.empty) as [t1 nx].
+  rewrite <- (build_seq_decl_next (ts_decls f) root_id 0 (Pos.succ root_id) NodeTable.empty).
+  destruct (build_seq build_decl root_id 0 (Pos.succ root_id) (ts_decls f) NodeTable.empty) as [t1 nx].
   reflexivity.
 Qed.
 
@@ -1267,7 +1140,7 @@ Qed.
 
 (* a kind-indexed view onto the ORIGINAL syntax fragment (no copied/parallel grammar). *)
 Inductive SyntaxView : SyntaxKind -> Type :=
-| ViewFile       : TFile -> SyntaxView KFile
+| ViewFile       : TSourceFile -> SyntaxView KFile
 | ViewDecl       : TDecl -> SyntaxView KDecl
 | ViewStatement  : TStmt -> SyntaxView KStatement
 | ViewExpression : TExpr -> SyntaxView KExpression.
@@ -1337,10 +1210,10 @@ Fixpoint occ_decls' (parent : positive) (didx : nat) (me : positive) (ds : list 
       then occ_decl' parent didx me d target
       else occ_decls' parent (S didx) (Pos.succ (end_decl me d)) rest target
   end.
-Definition source_occurrence_at (f : TFile) (target : positive) : option SourceOccurrence :=
+Definition source_occurrence_at (f : TSourceFile) (target : positive) : option SourceOccurrence :=
   if Pos.eqb target root_id
   then Some (mkOcc KFile (ViewFile f) None RFileRoot (count_file f))
-  else occ_decls' root_id 0 (Pos.succ root_id) (tf_decls f) target.
+  else occ_decls' root_id 0 (Pos.succ root_id) (ts_decls f) target.
 
 (* --- interval frame lemmas: an occurrence lookup outside a subtree's [me .. end] window is [None]. --- *)
 
@@ -1566,17 +1439,17 @@ Theorem build_file_source_exact : forall f local,
   NodeTable.get local (fi_table (build_file f)) = option_map occurrence_meta (source_occurrence_at f local).
 Proof.
   intros f local. unfold build_file, source_occurrence_at.
-  pose proof (build_seq_decl_next (tf_decls f) root_id 0 (Pos.succ root_id) NodeTable.empty) as Hnx.
-  destruct (build_seq build_decl root_id 0 (Pos.succ root_id) (tf_decls f) NodeTable.empty) as [t1 nx] eqn:E1.
+  pose proof (build_seq_decl_next (ts_decls f) root_id 0 (Pos.succ root_id) NodeTable.empty) as Hnx.
+  destruct (build_seq build_decl root_id 0 (Pos.succ root_id) (ts_decls f) NodeTable.empty) as [t1 nx] eqn:E1.
   cbn [snd] in Hnx. subst nx. cbn [fi_table].
   destruct (Pos.eqb_spec local root_id).
   - subst. rewrite NodeTable.get_set_same.
     cbn [option_map occurrence_meta occurrence_kind occurrence_parent occurrence_role occurrence_subtree_end].
     unfold count_file. reflexivity.
   - rewrite NodeTable.get_set_other by congruence.
-    specialize (build_seq_decl_get (tf_decls f) root_id 0 (Pos.succ root_id) NodeTable.empty local) as HG.
+    specialize (build_seq_decl_get (ts_decls f) root_id 0 (Pos.succ root_id) NodeTable.empty local) as HG.
     rewrite E1 in HG. cbn [fst] in HG. rewrite HG.
-    destruct (occ_decls' root_id 0 (Pos.succ root_id) (tf_decls f) local) as [o|] eqn:Eo;
+    destruct (occ_decls' root_id 0 (Pos.succ root_id) (ts_decls f) local) as [o|] eqn:Eo;
       cbn [option_map]; [reflexivity | apply NodeTable.get_empty].
 Qed.
 
@@ -1636,10 +1509,9 @@ Proof. intros f local o H. exists (occurrence_meta o). split; [apply source_occu
 (* ============ C0B §8: mutation-sensitive fixtures over a nested two-declaration witness. ============ *)
 (* wf: decl0 = { println(10+20); println(30) }, decl1 = { println(40) }.  Preorder ids 1..11:
    1 file / 2 decl0 / 3 stmt0 / 4 bin / 5 left-leaf / 6 right-leaf / 7 stmt1 / 8 leaf / 9 decl1 / 10 stmt / 11 leaf. *)
-Definition wpath : FilePath := mkFP "w.go"%string eq_refl.
-Definition wf : TFile :=
-  mkTFile wpath [ TFun [ TPrint (TBin (TLeaf 10) (TLeaf 20)) ; TPrint (TLeaf 30) ]
-                ; TFun [ TPrint (TLeaf 40) ] ].
+Definition wf : TSourceFile :=
+  mkTSource [ TFun [ TPrint (TBin (TLeaf 10) (TLeaf 20)) ; TPrint (TLeaf 30) ]
+            ; TFun [ TPrint (TLeaf 40) ] ].
 
 (* Each stored metadatum is derived from the UNIVERSAL theorem — rewrite by build_file_source_exact, then
    compute the INDEPENDENT source spec — NEVER by unfolding the builder.  A wrong builder kind/role/parent/
@@ -1686,13 +1558,13 @@ Proof. vm_compute. reflexivity. Qed.
 (* ================================================================================================= *)
 
 (* a local id is a real occurrence of file [f] iff it resolves in [f]'s built per-file table. *)
-Definition valid_localb (f : TFile) (local : positive) : bool :=
+Definition valid_localb (f : TSourceFile) (local : positive) : bool :=
   match NodeTable.get local (fi_table (build_file f)) with Some _ => true | None => false end.
 
 (* The public interface of the reference layer.  It exposes the abstract snapshot-indexed types, the
    validated MINTING boundaries, the projections, the TOTAL navigation API, and the theorem/regression
-   surfaces — but NOT the raw record constructors ([mkFileRef]/[mkNodeRef]/[mkSyntaxIndex]) nor the hidden
-   file slot.  Sealing the module against this signature makes "the only way to mint a reference is a
+   surfaces — but NOT the raw record constructors ([mkFileRef]/[mkNodeRef]/[mkSyntaxIndex]) nor the raw
+   index map.  Sealing the module against this signature makes "the only way to mint a reference is a
    validated function" TRUE rather than aspirational (C0A §6/§11). *)
 Module Type SNAP_SIG.
   Parameter FileRef    : TForest -> Type.
@@ -1701,12 +1573,12 @@ Module Type SNAP_SIG.
   Parameter index_forest : forall fs, SyntaxIndex fs.
   Parameter file_of_path : forall fs, FilePath -> option (FileRef fs).
   Parameter ref_of_key   : forall fs, SyntaxIndex fs -> NodeKey -> option (NodeRef fs).
-  Parameter file_ref_file : forall {fs}, FileRef fs -> TFile.
+  Parameter file_ref_source : forall {fs}, FileRef fs -> TSourceFile.
   Parameter file_ref_path : forall {fs}, FileRef fs -> FilePath.
   Parameter node_ref_file  : forall {fs}, NodeRef fs -> FileRef fs.
   Parameter node_ref_local : forall {fs}, NodeRef fs -> positive.
   Parameter node_ref_valid : forall {fs} (r : NodeRef fs),
-    valid_localb (file_ref_file (node_ref_file r)) (node_ref_local r) = true.
+    valid_localb (file_ref_source (node_ref_file r)) (node_ref_local r) = true.
   Parameter node_ref_key   : forall {fs}, NodeRef fs -> NodeKey.
   Parameter ref_meta         : forall {fs}, SyntaxIndex fs -> NodeRef fs -> NodeMeta.
   Parameter node_kind        : forall {fs}, SyntaxIndex fs -> NodeRef fs -> SyntaxKind.
@@ -1722,7 +1594,7 @@ Module Type SNAP_SIG.
   Parameter thm_node_kind : forall fs (idx : SyntaxIndex fs) (r : NodeRef fs),
     node_kind idx r = nm_kind (ref_meta idx r).
   Parameter thm_ref_meta_built : forall fs (idx : SyntaxIndex fs) (r : NodeRef fs),
-    NodeTable.get (node_ref_local r) (fi_table (build_file (file_ref_file (node_ref_file r)))) = Some (ref_meta idx r).
+    NodeTable.get (node_ref_local r) (fi_table (build_file (file_ref_source (node_ref_file r)))) = Some (ref_meta idx r).
   Parameter thm_containing_file : forall fs (r : NodeRef fs),
     containing_file r = node_ref_file r /\ file_ref_path (containing_file r) = nk_file (node_ref_key r).
   Parameter thm_parent_root : forall fs (idx : SyntaxIndex fs) (r : NodeRef fs),
@@ -1756,13 +1628,15 @@ Module Type SNAP_SIG.
     In cr (children_of idx r) -> parent_of idx cr = Some r.
   Parameter thm_parent_child : forall fs (idx : SyntaxIndex fs) (r pr : NodeRef fs),
     parent_of idx r = Some pr -> In r (children_of idx pr).
-  (* NON-CIRCULAR source-membership minting (§§5,10): every source file / valid occurrence yields a handle. *)
-  Parameter file_of_path_source : forall fs (slot : positive) (f : TFile),
-    forest_file_at fs slot = Some f -> exists fr, file_of_path fs (tf_path f) = Some fr /\ file_ref_file fr = f.
-  Parameter ref_of_key_source : forall fs (idx : SyntaxIndex fs) (slot : positive) (f : TFile) (local : positive),
-    forest_file_at fs slot = Some f -> valid_localb f local = true ->
-    exists r, ref_of_key fs idx (mkKey (tf_path f) local) = Some r
-              /\ node_ref_local r = local /\ file_ref_file (node_ref_file r) = f.
+  (* NON-CIRCULAR source-membership minting (§§5,10): every source file / valid occurrence yields a handle.
+     Membership is now a STANDARD map binding ([find path fs = Some f]), not a hidden slot. *)
+  Parameter file_of_path_source : forall fs (path : FilePath) (f : TSourceFile),
+    Collections.FileMapBase.find path fs = Some f ->
+    exists fr, file_of_path fs path = Some fr /\ file_ref_path fr = path /\ file_ref_source fr = f.
+  Parameter ref_of_key_source : forall fs (idx : SyntaxIndex fs) (path : FilePath) (f : TSourceFile) (local : positive),
+    Collections.FileMapBase.find path fs = Some f -> valid_localb f local = true ->
+    exists r, ref_of_key fs idx (mkKey path local) = Some r
+              /\ node_ref_local r = local /\ file_ref_source (node_ref_file r) = f.
   (* canonical children ENUMERATION at the NodeRef level (§10): source order + NoDup. *)
   Parameter thm_children_of_source_order : forall fs (idx : SyntaxIndex fs) (r : NodeRef fs),
     StronglySorted Pos.lt (map node_ref_local (children_of idx r)).
@@ -1775,9 +1649,11 @@ Module Type SNAP_SIG.
   | RAnc_step : forall a p d, RefAncestor fs idx a p -> parent_of idx d = Some p -> RefAncestor fs idx a d.
   Parameter thm_ref_ancestry : forall fs (idx : SyntaxIndex fs) (a d : NodeRef fs),
     is_ancestor_ref idx a d = true <-> RefAncestor fs idx a d.
-  (* §9 fixtures: erased-index equality, duplicate-path negative, two-file forest. *)
-  Parameter reg_index_data_equal : outer_of fs_a = outer_of fs_b.
-  Parameter reg_dup_path_rejected : forall f : TFile, ~ NoDup (map tf_path [ f ; f ]).
+  (* §9 fixtures: erased-index equality (SEMANTIC map equality, not record [=]), a functional-key negative
+     (a path names at most one source — duplicate paths unrepresentable in the map), two-file forest. *)
+  Parameter reg_index_data_equal : Collections.FileMapBase.Equal (outer_of fs_a) (outer_of fs_b).
+  Parameter reg_dup_path_rejected : forall (fs : TForest) (p : FilePath) (s1 s2 : TSourceFile),
+    Collections.FileMapBase.MapsTo p s1 fs -> Collections.FileMapBase.MapsTo p s2 fs -> s1 = s2.
   Parameter reg_two_file :
     exists (fs : TForest) (fra frb : FileRef fs),
       file_of_path fs (file_ref_path fra) = Some fra /\
@@ -1801,7 +1677,7 @@ Module Type SNAP_SIG.
      hence its VIEW, which [occurrence_meta] erases — to [source_occurrence_at], so the recovered fragment is
      not free); UNIVERSAL [node_at] source-view agreement; and [parent_of] returns the EXACT source parent. *)
   Parameter source_occ_of_ref_eq : forall {fs} (r : NodeRef fs),
-    source_occurrence_at (file_ref_file (node_ref_file r)) (node_ref_local r) = Some (source_occurrence_of_ref r).
+    source_occurrence_at (file_ref_source (node_ref_file r)) (node_ref_local r) = Some (source_occurrence_of_ref r).
   Parameter node_at_matches_source_view : forall {fs} (r : NodeRef fs),
     node_at r = view_expr (source_occurrence_of_ref r).
   Parameter node_parent_ref_matches_source : forall fs (idx : SyntaxIndex fs) (r : NodeRef fs),
@@ -1815,37 +1691,12 @@ Module Type SNAP_SIG.
   Parameter reg_ref_parent_a5 : nm_parent (ref_meta (index_forest fs_a) rleaf_a5) = Some 4%positive.
 End SNAP_SIG.
 
-(* --- raw-key minting COMPLETENESS foundations (top-level; only over the source snapshot + file builder) --- *)
+(* --- raw-key minting COMPLETENESS foundations (top-level; only over the source snapshot + file builder) ---
+   In the standard-map snapshot, file lookup IS [FileMapBase.find]: complete + functional by the map facts,
+   with no list scan and no hidden slot (the former [find_slot]/[forest_find] scan is deleted). *)
 
 Lemma fp_eqb_refl (a : FilePath) : fp_eqb a a = true.
 Proof. apply (proj2 (fp_eqb_eq a a)). reflexivity. Qed.
-
-(* the file scan FINDS a match whenever one exists: a path present at some index yields a path-matching hit. *)
-Lemma find_slot_complete : forall files fp start i f,
-  nth_error files i = Some f -> tf_path f = fp ->
-  exists s' g, find_slot files fp start = Some (s', g) /\ tf_path g = fp.
-Proof.
-  induction files as [|h rest IH]; intros fp start i f Hnth Hpath.
-  - destruct i; discriminate Hnth.
-  - simpl. destruct (fp_eqb (tf_path h) fp) eqn:Eq.
-    + apply fp_eqb_eq in Eq. exists start, h. split; [reflexivity | exact Eq].
-    + destruct i as [|i'].
-      * simpl in Hnth. injection Hnth as <-. rewrite Hpath, fp_eqb_refl in Eq. discriminate Eq.
-      * exact (IH fp (Pos.succ start) i' f Hnth Hpath).
-Qed.
-
-(* file lookup is COMPLETE and functional: the file at a real slot is found at exactly that slot. *)
-Lemma forest_find_complete (fs : TForest) (slot : positive) (f : TFile) :
-  forest_file_at fs slot = Some f -> forest_find fs (tf_path f) = Some (slot, f).
-Proof.
-  intros Hat.
-  destruct (find_slot_complete (forest_files fs) (tf_path f) 1 (Nat.pred (Pos.to_nat slot)) f Hat eq_refl)
-    as [s' [g [Hfind Hpath]]].
-  assert (Hff : forest_find fs (tf_path f) = Some (s', g)) by (unfold forest_find; exact Hfind).
-  pose proof (forest_find_at fs (tf_path f) s' g Hff) as Hatg.
-  assert (Hseq : s' = slot) by (apply (forest_slot_unique fs s' slot g f Hatg Hat); exact Hpath).
-  subst s'. rewrite Hatg in Hat. injection Hat as <-. exact Hff.
-Qed.
 
 (* an enumerated direct child truly has the queried parent id — the child-list soundness at the id level. *)
 Lemma child_ids_parent (t : NodeTable.table NodeMeta) (pid c : positive) :
@@ -1857,44 +1708,44 @@ Qed.
 
 (* the builder is a pure total function of the source file alone: equal sources build identical indices —
    determinism is inherent (no state, no ordering choice, no external input), stated here as congruence. *)
-Theorem thm_builder_deterministic (f1 f2 : TFile) : f1 = f2 -> build_file f1 = build_file f2.
+Theorem thm_builder_deterministic (f1 f2 : TSourceFile) : f1 = f2 -> build_file f1 = build_file f2.
 Proof. intros ->. reflexivity. Qed.
 
 Module Snap : SNAP_SIG.
 
-(* a file-root handle for ONE file occurrence of [fs]: a hidden structural slot + the exact file + proof. *)
+(* a file-root handle for ONE file occurrence of [fs] (C1A §10.3): the file's PATH (its public identity) +
+   its source + a STANDARD-MAP membership proof.  No hidden slot: the path IS the map key. *)
 Record FileRef_T (fs : TForest) := mkFileRef {
-  file_ref_slot : positive;          (* hidden optimization handle; NOT source identity, NOT rendered *)
-  file_ref_file : TFile;
-  file_ref_at   : forest_file_at fs file_ref_slot = Some file_ref_file
+  file_ref_path   : FilePath;
+  file_ref_source : TSourceFile;
+  file_ref_at     : Collections.FileMapBase.find file_ref_path fs = Some file_ref_source
 }.
-Arguments file_ref_slot {fs} _.
-Arguments file_ref_file {fs} _.
-Arguments file_ref_at   {fs} _.
+Arguments file_ref_path   {fs} _.
+Arguments file_ref_source {fs} _.
+Arguments file_ref_at     {fs} _.
 Definition FileRef := FileRef_T.
-Definition file_ref_path {fs} (fr : FileRef fs) : FilePath := tf_path (file_ref_file fr).
 
 (* a reference to ONE occurrence in ONE exact file of ONE exact source snapshot [fs]. *)
 Record NodeRef_T (fs : TForest) := mkNodeRef {
   node_ref_file  : FileRef fs;
   node_ref_local : positive;
-  node_ref_valid : valid_localb (file_ref_file node_ref_file) node_ref_local = true
+  node_ref_valid : valid_localb (file_ref_source node_ref_file) node_ref_local = true
 }.
 Arguments node_ref_file  {fs} _.
 Arguments node_ref_local {fs} _.
 Arguments node_ref_valid {fs} _.
 Definition NodeRef := NodeRef_T.
 
-(* the public raw key: file PATH (the identity) + local id — the hidden slot is NOT part of it. *)
+(* the public raw key: file PATH (the identity = the map key) + local id — no hidden handle beside it. *)
 Definition node_ref_key {fs} (r : NodeRef fs) : NodeKey :=
   mkKey (file_ref_path (node_ref_file r)) (node_ref_local r).
 
-(* the derived certified index for a snapshot: a slot-keyed outer table PROVED EQUAL to the canonical build
-   of [fs].  This is the EXACT source/index correspondence (IndexDescribesForest): the table is not arbitrary
-   data beside an unused proof — it IS [outer_of fs], so every slot holds the build of the file there and
-   nothing at a slot with no file.  A bogus entry at an unoccupied slot cannot satisfy this invariant. *)
+(* the derived certified index for a snapshot: a PATH-keyed standard outer map PROVED EQUAL to the canonical
+   build of [fs].  This is the EXACT source/index correspondence (IndexDescribesForest): the map is not
+   arbitrary data beside an unused proof — it IS [outer_of fs], so every path holds the build of the file
+   there and nothing at a path with no file.  A bogus entry at an unoccupied path cannot satisfy this. *)
 Record SyntaxIndex_T (fs : TForest) := mkSyntaxIndex {
-  si_outer : NodeTable.table FileIndex;
+  si_outer : Collections.FileMapBase.t FileIndex;
   si_ok    : si_outer = outer_of fs
 }.
 Arguments si_outer {fs} _.
@@ -1903,43 +1754,44 @@ Definition SyntaxIndex := SyntaxIndex_T.
 Definition index_forest (fs : TForest) : SyntaxIndex fs :=
   mkSyntaxIndex fs (outer_of fs) eq_refl.
 
-(* the correspondence, one direction, driving the query API: a real slot holds exactly its file's build. *)
-Lemma si_ok_at {fs} (idx : SyntaxIndex fs) slot f :
-  forest_file_at fs slot = Some f -> NodeTable.get slot (si_outer idx) = Some (build_file f).
+(* the correspondence, one direction, driving the query API: a real path holds exactly its file's build. *)
+Lemma si_ok_at {fs} (idx : SyntaxIndex fs) path f :
+  Collections.FileMapBase.find path fs = Some f ->
+  Collections.FileMapBase.find path (si_outer idx) = Some (build_file f).
 Proof. intros H. rewrite (si_ok idx). apply outer_get_at. exact H. Qed.
 
-(* a lookup query into the index (keeps the raw [NodeTable] representation hidden — returns the FileIndex). *)
-Definition index_at {fs} (idx : SyntaxIndex fs) (slot : positive) : option FileIndex :=
-  NodeTable.get slot (si_outer idx).
+(* a lookup query into the index (keeps the raw map representation hidden — returns the FileIndex). *)
+Definition index_at {fs} (idx : SyntaxIndex fs) (path : FilePath) : option FileIndex :=
+  Collections.FileMapBase.find path (si_outer idx).
 
-(* EXACT index description (§4): every file slot holds its file's build, every non-slot holds nothing —
+(* EXACT index description (§4): every file path holds its file's build, every non-file path holds nothing —
    so the index describes EXACTLY [fs], with no entry belonging to another snapshot and none spurious. *)
-Theorem thm_index_describes_forest {fs} (idx : SyntaxIndex fs) (slot : positive) :
-  index_at idx slot = match forest_file_at fs slot with Some f => Some (build_file f) | None => None end.
+Theorem thm_index_describes_forest {fs} (idx : SyntaxIndex fs) (path : FilePath) :
+  index_at idx path = match Collections.FileMapBase.find path fs with Some f => Some (build_file f) | None => None end.
 Proof. unfold index_at. rewrite (si_ok idx). apply outer_get_exact. Qed.
 
-(* ONE outer slot lookup gives the NodeRef's file index — no file-list scan.  Present by correspondence. *)
+(* ONE outer map lookup gives the NodeRef's file index — no file-list scan.  Present by correspondence. *)
 Definition ref_fi_opt {fs} (idx : SyntaxIndex fs) (r : NodeRef fs) : option FileIndex :=
-  NodeTable.get (file_ref_slot (node_ref_file r)) (si_outer idx).
+  Collections.FileMapBase.find (file_ref_path (node_ref_file r)) (si_outer idx).
 Lemma ref_fi_some {fs} (idx : SyntaxIndex fs) (r : NodeRef fs) :
-  ref_fi_opt idx r = Some (build_file (file_ref_file (node_ref_file r))).
+  ref_fi_opt idx r = Some (build_file (file_ref_source (node_ref_file r))).
 Proof. unfold ref_fi_opt. apply (si_ok_at idx). apply (file_ref_at (node_ref_file r)). Qed.
 Lemma ref_fi_some' {fs} (idx : SyntaxIndex fs) (r : NodeRef fs) : ref_fi_opt idx r <> None.
 Proof. rewrite ref_fi_some. discriminate. Qed.
 Definition ref_fi {fs} (idx : SyntaxIndex fs) (r : NodeRef fs) : FileIndex :=
   option_get (ref_fi_opt idx r) (ref_fi_some' idx r).
 Lemma ref_fi_eq {fs} (idx : SyntaxIndex fs) (r : NodeRef fs) :
-  ref_fi idx r = build_file (file_ref_file (node_ref_file r)).
+  ref_fi idx r = build_file (file_ref_source (node_ref_file r)).
 Proof. unfold ref_fi. apply option_get_eq, ref_fi_some. Qed.
 
-(* the metadata option: one per-file local lookup in the file index reached via the slot. *)
+(* the metadata option: one per-file local lookup in the file index reached via the path. *)
 Definition ref_meta_opt {fs} (idx : SyntaxIndex fs) (r : NodeRef fs) : option NodeMeta :=
   NodeTable.get (node_ref_local r) (fi_table (ref_fi idx r)).
 Lemma ref_meta_some {fs} (idx : SyntaxIndex fs) (r : NodeRef fs) : ref_meta_opt idx r <> None.
 Proof.
   unfold ref_meta_opt. rewrite ref_fi_eq.
   pose proof (node_ref_valid r) as Hv. unfold valid_localb in Hv.
-  destruct (NodeTable.get (node_ref_local r) (fi_table (build_file (file_ref_file (node_ref_file r)))));
+  destruct (NodeTable.get (node_ref_local r) (fi_table (build_file (file_ref_source (node_ref_file r)))));
     [discriminate | discriminate Hv].
 Qed.
 
@@ -1949,7 +1801,7 @@ Definition ref_meta {fs} (idx : SyntaxIndex fs) (r : NodeRef fs) : NodeMeta :=
 
 (* the metadata is exactly the per-file built meta for the occurrence — ties navigation to the builder. *)
 Lemma ref_meta_spec {fs} (idx : SyntaxIndex fs) (r : NodeRef fs) m :
-  NodeTable.get (node_ref_local r) (fi_table (build_file (file_ref_file (node_ref_file r)))) = Some m ->
+  NodeTable.get (node_ref_local r) (fi_table (build_file (file_ref_source (node_ref_file r)))) = Some m ->
   ref_meta idx r = m.
 Proof. intros H. unfold ref_meta. apply option_get_eq. unfold ref_meta_opt. rewrite ref_fi_eq. exact H. Qed.
 
@@ -1962,22 +1814,22 @@ Definition containing_file {fs} (r : NodeRef fs) : FileRef fs := node_ref_file r
 
 (* the meta at a valid ref's local id IS [ref_meta] — connects the total query to the per-file table. *)
 Lemma ref_meta_get {fs} (idx : SyntaxIndex fs) (r : NodeRef fs) :
-  NodeTable.get (node_ref_local r) (fi_table (build_file (file_ref_file (node_ref_file r)))) = Some (ref_meta idx r).
+  NodeTable.get (node_ref_local r) (fi_table (build_file (file_ref_source (node_ref_file r)))) = Some (ref_meta idx r).
 Proof.
   pose proof (node_ref_valid r) as Hv. unfold valid_localb in Hv.
-  destruct (NodeTable.get (node_ref_local r) (fi_table (build_file (file_ref_file (node_ref_file r))))) as [m|] eqn:E;
+  destruct (NodeTable.get (node_ref_local r) (fi_table (build_file (file_ref_source (node_ref_file r))))) as [m|] eqn:E;
     [| discriminate Hv].
   rewrite (ref_meta_spec idx r m E). reflexivity.
 Qed.
 
 (* the parent of a valid occurrence is itself a valid occurrence of the same file (so parent_of is total-when-Some). *)
 Lemma parent_valid {fs} (idx : SyntaxIndex fs) (r : NodeRef fs) pid :
-  nm_parent (ref_meta idx r) = Some pid -> valid_localb (file_ref_file (node_ref_file r)) pid = true.
+  nm_parent (ref_meta idx r) = Some pid -> valid_localb (file_ref_source (node_ref_file r)) pid = true.
 Proof.
   intros Hpar.
-  pose proof (build_file_wf (file_ref_file (node_ref_file r))) as WF.
+  pose proof (build_file_wf (file_ref_source (node_ref_file r))) as WF.
   pose proof (ref_meta_get idx r) as Hget.
-  destruct (in_domain (file_ref_file (node_ref_file r)) (node_ref_local r) (ref_meta idx r) Hget) as [Hlo Hhi].
+  destruct (in_domain (file_ref_source (node_ref_file r)) (node_ref_local r) (ref_meta idx r) Hget) as [Hlo Hhi].
   assert (Hne : node_ref_local r <> root_id).
   { intro Hr. rewrite Hr in Hget. destruct (sub_root WF) as [m0 [Hg [Hp0 _]]].
     rewrite Hg in Hget. injection Hget as Heq. rewrite <- Heq in Hpar. rewrite Hp0 in Hpar. discriminate Hpar. }
@@ -1994,7 +1846,7 @@ Definition parent_of {fs} (idx : SyntaxIndex fs) (r : NodeRef fs) : option (Node
    end) eq_refl.
 
 (* every enumerated child id is a real occurrence of the file — so no child reference is ever dropped. *)
-Lemma child_valid (f : TFile) local c :
+Lemma child_valid (f : TSourceFile) local c :
   In c (child_ids (fi_table (build_file f)) local) -> valid_localb f c = true.
 Proof.
   intros Hin. unfold child_ids in Hin.
@@ -2005,7 +1857,7 @@ Qed.
 
 (* build a validated reference for EVERY id in a list of proven-valid ids (no filtering, no drops). *)
 Fixpoint refine_children {fs} (fr : FileRef fs) (ids : list positive)
-  : (forall c, In c ids -> valid_localb (file_ref_file fr) c = true) -> list (NodeRef fs) :=
+  : (forall c, In c ids -> valid_localb (file_ref_source fr) c = true) -> list (NodeRef fs) :=
   match ids with
   | []        => fun _    => []
   | c :: rest => fun Hall =>
@@ -2014,41 +1866,42 @@ Fixpoint refine_children {fs} (fr : FileRef fs) (ids : list positive)
 
 Lemma children_valid {fs} (idx : SyntaxIndex fs) (r : NodeRef fs) c :
   In c (child_ids (fi_table (ref_fi idx r)) (node_ref_local r)) ->
-  valid_localb (file_ref_file (node_ref_file r)) c = true.
+  valid_localb (file_ref_source (node_ref_file r)) c = true.
 Proof. rewrite ref_fi_eq. apply child_valid. Qed.
 
-(* TOTAL direct children — one outer slot lookup, then the file's interval-jump enumeration; no drops. *)
+(* TOTAL direct children — one outer map lookup by path, then the file's interval-jump enumeration; no drops. *)
 Definition children_of {fs} (idx : SyntaxIndex fs) (r : NodeRef fs) : list (NodeRef fs) :=
   refine_children (node_ref_file r)
     (child_ids (fi_table (ref_fi idx r)) (node_ref_local r)) (children_valid idx r).
 
-(* --- the raw-key minting boundary (§7): a path lookup that scans the file list ONCE. --- *)
+(* --- the raw-key minting boundary (§7): ONE standard-map [find] by path (no list scan, no hidden slot). --- *)
 Definition file_of_path (fs : TForest) (fp : FilePath) : option (FileRef fs) :=
-  (match forest_find fs fp as o return (forest_find fs fp = o -> option (FileRef fs)) with
-   | Some (slot, f) => fun H => Some (mkFileRef fs slot f (forest_find_at fs fp slot f H))
-   | None           => fun _ => None
+  (match Collections.FileMapBase.find fp fs as o
+         return (Collections.FileMapBase.find fp fs = o -> option (FileRef fs)) with
+   | Some f => fun H => Some (mkFileRef fs fp f H)
+   | None   => fun _ => None
    end) eq_refl.
 
-(* validate a local id THROUGH the snapshot's PRECOMPUTED outer table (no per-file rebuild): one outer-slot
-   lookup + one per-file lookup.  Provably agrees with [valid_localb] by the index correspondence [si_ok]. *)
+(* validate a local id THROUGH the snapshot's PRECOMPUTED outer map (no per-file rebuild): one outer-map
+   lookup by path + one per-file lookup.  Provably agrees with [valid_localb] by the correspondence [si_ok]. *)
 Definition valid_in_index {fs} (idx : SyntaxIndex fs) (fr : FileRef fs) (local : positive) : bool :=
-  match NodeTable.get (file_ref_slot fr) (si_outer idx) with
+  match Collections.FileMapBase.find (file_ref_path fr) (si_outer idx) with
   | Some fi => match NodeTable.get local (fi_table fi) with Some _ => true | None => false end
   | None    => false
   end.
 Lemma valid_in_index_eq {fs} (idx : SyntaxIndex fs) (fr : FileRef fs) (local : positive) :
-  valid_in_index idx fr local = valid_localb (file_ref_file fr) local.
+  valid_in_index idx fr local = valid_localb (file_ref_source fr) local.
 Proof.
   unfold valid_in_index, valid_localb.
-  rewrite (si_ok_at idx (file_ref_slot fr) (file_ref_file fr) (file_ref_at fr)). reflexivity.
+  rewrite (si_ok_at idx (file_ref_path fr) (file_ref_source fr) (file_ref_at fr)). reflexivity.
 Qed.
 Lemma valid_in_index_true {fs} (idx : SyntaxIndex fs) (fr : FileRef fs) (local : positive) :
-  valid_in_index idx fr local = true -> valid_localb (file_ref_file fr) local = true.
+  valid_in_index idx fr local = true -> valid_localb (file_ref_source fr) local = true.
 Proof. rewrite valid_in_index_eq. exact (fun H => H). Qed.
 
 (* mint a validated reference from a raw key THROUGH the snapshot's index (§7 raw-lookup boundary): one
-   file-list scan (path -> slot) + one outer-slot lookup + one per-file lookup — NO per-file rebuild.
-   Cost O(files + log files + log nodes-per-file).  The hot path from an existing [NodeRef] never uses this. *)
+   outer-map lookup by path + one per-file lookup — NO list scan, NO per-file rebuild.
+   Cost O(log files + log nodes-per-file).  The hot path from an existing [NodeRef] never uses this. *)
 Definition ref_of_key (fs : TForest) (idx : SyntaxIndex fs) (k : NodeKey) : option (NodeRef fs) :=
   match file_of_path fs (nk_file k) with
   | Some fr =>
@@ -2064,21 +1917,21 @@ Definition ref_of_key (fs : TForest) (idx : SyntaxIndex fs) (k : NodeKey) : opti
 
 (* a valid reference's occurrence EXISTS: validity means the id is populated, hence a source occurrence. *)
 Lemma source_occ_of_ref_some {fs} (r : NodeRef fs) :
-  source_occurrence_at (file_ref_file (node_ref_file r)) (node_ref_local r) <> None.
+  source_occurrence_at (file_ref_source (node_ref_file r)) (node_ref_local r) <> None.
 Proof.
   pose proof (node_ref_valid r) as Hv. unfold valid_localb in Hv.
-  destruct (NodeTable.get (node_ref_local r) (fi_table (build_file (file_ref_file (node_ref_file r))))) as [m|] eqn:E;
+  destruct (NodeTable.get (node_ref_local r) (fi_table (build_file (file_ref_source (node_ref_file r))))) as [m|] eqn:E;
     [|discriminate Hv].
   destruct (meta_source_occurrence _ _ _ E) as [o [Ho _]]. rewrite Ho. discriminate.
 Qed.
 
 (* TOTAL source-occurrence recovery for a valid reference — no option, no semantic fallback (§6.1). *)
 Definition source_occurrence_of_ref {fs} (r : NodeRef fs) : SourceOccurrence :=
-  option_get (source_occurrence_at (file_ref_file (node_ref_file r)) (node_ref_local r))
+  option_get (source_occurrence_at (file_ref_source (node_ref_file r)) (node_ref_local r))
              (source_occ_of_ref_some r).
 
 Lemma source_occ_of_ref_eq {fs} (r : NodeRef fs) :
-  source_occurrence_at (file_ref_file (node_ref_file r)) (node_ref_local r)
+  source_occurrence_at (file_ref_source (node_ref_file r)) (node_ref_local r)
     = Some (source_occurrence_of_ref r).
 Proof. unfold source_occurrence_of_ref. apply option_get_some. Qed.
 
@@ -2088,7 +1941,7 @@ Theorem ref_meta_matches_source {fs} (idx : SyntaxIndex fs) (r : NodeRef fs) :
   ref_meta idx r = occurrence_meta (source_occurrence_of_ref r).
 Proof.
   pose proof (ref_meta_get idx r) as Hget.
-  pose proof (build_file_source_exact (file_ref_file (node_ref_file r)) (node_ref_local r)) as HE.
+  pose proof (build_file_source_exact (file_ref_source (node_ref_file r)) (node_ref_local r)) as HE.
   rewrite (source_occ_of_ref_eq r) in HE. cbn [option_map] in HE.
   rewrite Hget in HE. injection HE as HEq. exact HEq.
 Qed.
@@ -2124,18 +1977,19 @@ Proof. reflexivity. Qed.
 (* ================================================================================================= *)
 
 Definition rpath : FilePath := mkFP "a.go"%string eq_refl.
-(* one file: one decl / one stmt / TBin (TLeaf v) (TLeaf v) — TWO structurally equal leaves of value v. *)
-Definition rfile (v : nat) : TFile := mkTFile rpath [ TFun [ TPrint (TBin (TLeaf v) (TLeaf v)) ] ].
-Lemma rnodup (v : nat) : NoDup (map tf_path [ rfile v ]).
-Proof. simpl. constructor; [ intros H; exact H | constructor ]. Qed.
-(* two snapshots: identical paths and identical tree shape, but leaves 5 vs 6. *)
-Definition fs_a : TForest := mkTForest [ rfile 5 ] (rnodup 5).
-Definition fs_b : TForest := mkTForest [ rfile 6 ] (rnodup 6).
+(* one file's SOURCE: one decl / one stmt / TBin (TLeaf v) (TLeaf v) — TWO structurally equal leaves of v. *)
+Definition rfile (v : nat) : TSourceFile := mkTSource [ TFun [ TPrint (TBin (TLeaf v) (TLeaf v)) ] ].
+(* two snapshots (standard maps): identical path + tree shape, but leaves 5 vs 6. *)
+Definition fs_a : TForest := forest_of [ mkTFileNode rpath (rfile 5) ].
+Definition fs_b : TForest := forest_of [ mkTFileNode rpath (rfile 6) ].
 
-Lemma rfile_at (v : nat) : forest_file_at (mkTForest [ rfile v ] (rnodup v)) 1 = Some (rfile v).
-Proof. reflexivity. Qed.
-Definition fref_a : FileRef fs_a := mkFileRef fs_a 1 (rfile 5) (rfile_at 5).
-Definition fref_b : FileRef fs_b := mkFileRef fs_b 1 (rfile 6) (rfile_at 6).
+Lemma rfind (v : nat) :
+  Collections.FileMapBase.find rpath (forest_of [ mkTFileNode rpath (rfile v) ]) = Some (rfile v).
+Proof.
+  unfold forest_of. cbn [fold_right tfn_path tfn_source]. apply Collections.FileMapFacts.add_eq_o. reflexivity.
+Qed.
+Definition fref_a : FileRef fs_a := mkFileRef fs_a rpath (rfile 5) (rfind 5).
+Definition fref_b : FileRef fs_b := mkFileRef fs_b rpath (rfile 6) (rfind 6).
 
 (* every id in [1..6] is a real occurrence of the single file (root=1, decl=2, stmt=3, TBin=4, leaves=5,6). *)
 Lemma rvalid (v : nat) (n : positive) : (root_id <= n)%positive -> (n <= 6)%positive -> valid_localb (rfile v) n = true.
@@ -2184,27 +2038,35 @@ Proof.
 Qed.
 
 (* §9.1 — ERASED-INDEX EQUALITY: [fs_a] and [fs_b] have identical paths + tree shape and differ ONLY in leaf
-   PAYLOAD (5 vs 6), which the metadata builder discards; so their index DATA is literally equal after erasing
-   the source index.  Only the [TForest] type-parameter — never the index data — distinguishes their refs. *)
-Theorem reg_index_data_equal : outer_of fs_a = outer_of fs_b.
-Proof. reflexivity. Qed.
-
-(* DUPLICATE-PATH NEGATIVE: any two files sharing a path violate the [NoDup] path invariant, so [mkTForest]
-   cannot be built over them — duplicate paths are UNREPRESENTABLE, not rejected at runtime. *)
-Theorem reg_dup_path_rejected (f : TFile) : ~ NoDup (map tf_path [ f ; f ]).
+   PAYLOAD (5 vs 6), which the metadata builder discards; so their index maps are SEMANTICALLY EQUAL (standard
+   [FileMap.Equal], NOT record [=]) after erasing the source payload.  Only the [TForest] value distinguishes
+   their reference TYPES; the index DATA is interchangeable. *)
+Theorem reg_index_data_equal : Collections.FileMapBase.Equal (outer_of fs_a) (outer_of fs_b).
 Proof.
-  simpl. intros Hnd. inversion Hnd as [|x l Hnin _]. apply Hnin. left. reflexivity.
+  intro k. unfold outer_of. rewrite !Collections.FileMapFacts.map_o.
+  unfold fs_a, fs_b, forest_of. cbn [fold_right tfn_path tfn_source].
+  rewrite !Collections.FileMapFacts.add_o.
+  destruct (Collections.FilePath_OT.eq_dec rpath k) as [Heq|Hne].
+  - cbn [option_map]. reflexivity.
+  - rewrite !Collections.FileMapFacts.empty_o. reflexivity.
 Qed.
 
-(* TWO-FILE forest: distinct paths a.go / b.go — path uniqueness holds; each path mints its own file handle
-   at its own slot with no cross-file confusion.  (The minting witnesses are below, after [file_of_path_source].) *)
+(* DUPLICATE-PATH NEGATIVE (map form): a path names AT MOST ONE source in the standard file map — two bindings
+   at the same path are the SAME source (key-functionality), so duplicate paths are UNREPRESENTABLE. *)
+Theorem reg_dup_path_rejected (fs : TForest) (p : FilePath) (s1 s2 : TSourceFile) :
+  Collections.FileMapBase.MapsTo p s1 fs -> Collections.FileMapBase.MapsTo p s2 fs -> s1 = s2.
+Proof.
+  intros H1 H2.
+  apply Collections.FileMapFacts.find_mapsto_iff in H1.
+  apply Collections.FileMapFacts.find_mapsto_iff in H2.
+  rewrite H1 in H2. injection H2 as ->. reflexivity.
+Qed.
+
+(* TWO-FILE forest: distinct paths a.go / b.go — path uniqueness is intrinsic to the map; each path mints its
+   own file handle with no cross-file confusion.  (The minting witnesses are below, after [file_of_path_source].) *)
 Definition rpathb : FilePath := mkFP "b.go"%string eq_refl.
-Definition rfileb (v : nat) : TFile := mkTFile rpathb [ TFun [ TPrint (TLeaf v) ] ].
-Lemma rtwo_nodup : NoDup (map tf_path [ rfile 5 ; rfileb 7 ]).
-Proof.
-  simpl. constructor; [ intros Hin; destruct Hin as [Heq|[]]; discriminate Heq | constructor; [ intros [] | constructor ] ].
-Qed.
-Definition fs_two : TForest := mkTForest [ rfile 5 ; rfileb 7 ] rtwo_nodup.
+Definition rfileb (v : nat) : TSourceFile := mkTSource [ TFun [ TPrint (TLeaf v) ] ].
+Definition fs_two : TForest := forest_of [ mkTFileNode rpath (rfile 5) ; mkTFileNode rpathb (rfileb 7) ].
 
 (* ================================================================================================= *)
 (** ** C0A ref-level theorem family (§10): total-API correctness + snapshot-local reference identity.  *)
@@ -2217,9 +2079,9 @@ Definition tstmt_eq_dec (a b : TStmt) : {a = b} + {a <> b}.
 Proof. decide equality; apply texpr_eq_dec. Defined.
 Definition tdecl_eq_dec (a b : TDecl) : {a = b} + {a <> b}.
 Proof. decide equality; apply (list_eq_dec tstmt_eq_dec). Defined.
-Definition tfile_eq_dec (a b : TFile) : {a = b} + {a <> b}.
-Proof. decide equality; [ apply (list_eq_dec tdecl_eq_dec) | apply fp_eq_dec ]. Defined.
-Definition option_tfile_eq_dec (a b : option TFile) : {a = b} + {a <> b}.
+Definition tfile_eq_dec (a b : TSourceFile) : {a = b} + {a <> b}.
+Proof. decide equality; apply (list_eq_dec tdecl_eq_dec). Defined.
+Definition option_tfile_eq_dec (a b : option TSourceFile) : {a = b} + {a <> b}.
 Proof. decide equality; apply tfile_eq_dec. Defined.
 
 (* reference extensionality: a NodeRef is fixed by its file handle and local id (validity is proof-irrelevant). *)
@@ -2230,12 +2092,13 @@ Proof.
   f_equal. apply (UIP_dec Bool.bool_dec).
 Qed.
 
-(* a FileRef is fixed by its hidden slot (the [forest_file_at] witness is proof-irrelevant). *)
+(* a FileRef is fixed by its PATH (the map-membership witness is proof-irrelevant, and the source it maps to
+   is functionally determined by the path — standard-map key functionality). *)
 Lemma file_ref_ext (fs : TForest) (fr1 fr2 : FileRef fs) :
-  file_ref_slot fr1 = file_ref_slot fr2 -> fr1 = fr2.
+  file_ref_path fr1 = file_ref_path fr2 -> fr1 = fr2.
 Proof.
-  destruct fr1 as [s1 f1 p1], fr2 as [s2 f2 p2]; simpl; intros Hs. subst s2.
-  assert (f1 = f2) by (pose proof p1 as q; rewrite p2 in q; injection q as <-; reflexivity).
+  destruct fr1 as [p1 f1 h1], fr2 as [p2 f2 h2]; simpl; intros Hp. subst p2.
+  assert (f1 = f2) by (pose proof h1 as q; rewrite h2 in q; injection q as <-; reflexivity).
   subst f2. f_equal. apply (UIP_dec option_tfile_eq_dec).
 Qed.
 
@@ -2246,7 +2109,7 @@ Theorem thm_node_kind (fs : TForest) (idx : SyntaxIndex fs) (r : NodeRef fs) :
 Proof. reflexivity. Qed.
 
 Theorem thm_ref_meta_built (fs : TForest) (idx : SyntaxIndex fs) (r : NodeRef fs) :
-  NodeTable.get (node_ref_local r) (fi_table (build_file (file_ref_file (node_ref_file r)))) = Some (ref_meta idx r).
+  NodeTable.get (node_ref_local r) (fi_table (build_file (file_ref_source (node_ref_file r)))) = Some (ref_meta idx r).
 Proof. apply ref_meta_get. Qed.
 
 Theorem thm_containing_file (fs : TForest) (r : NodeRef fs) :
@@ -2277,7 +2140,7 @@ Theorem thm_parent_root (fs : TForest) (idx : SyntaxIndex fs) (r : NodeRef fs) :
   node_ref_local r = root_id -> parent_of idx r = None.
 Proof.
   intros Hr. apply parent_of_none.
-  pose proof (build_file_wf (file_ref_file (node_ref_file r))) as WF.
+  pose proof (build_file_wf (file_ref_source (node_ref_file r))) as WF.
   destruct (sub_root WF) as [m0 [Hg [Hp0 _]]]. pose proof (ref_meta_get idx r) as Hget.
   rewrite Hr, Hg in Hget. injection Hget as Heq. rewrite <- Heq. exact Hp0.
 Qed.
@@ -2286,9 +2149,9 @@ Theorem thm_parent_nonroot (fs : TForest) (idx : SyntaxIndex fs) (r : NodeRef fs
   node_ref_local r <> root_id -> exists pr, parent_of idx r = Some pr.
 Proof.
   intros Hne.
-  pose proof (build_file_wf (file_ref_file (node_ref_file r))) as WF.
+  pose proof (build_file_wf (file_ref_source (node_ref_file r))) as WF.
   pose proof (ref_meta_get idx r) as Hget.
-  destruct (in_domain (file_ref_file (node_ref_file r)) (node_ref_local r) (ref_meta idx r) Hget) as [Hlo Hhi].
+  destruct (in_domain (file_ref_source (node_ref_file r)) (node_ref_local r) (ref_meta idx r) Hget) as [Hlo Hhi].
   destruct (sub_prng WF (node_ref_local r) (ref_meta idx r) ltac:(lia) Hhi Hget) as [p [mp [Hpar _]]].
   destruct (parent_of_some fs idx r p Hpar) as [pr [Hpr _]]. exists pr. exact Hpr.
 Qed.
@@ -2318,10 +2181,7 @@ Theorem node_ref_key_inj (fs : TForest) (r1 r2 : NodeRef fs) :
   node_ref_key r1 = node_ref_key r2 -> r1 = r2.
 Proof.
   intros H. unfold node_ref_key in H. injection H as Hpath Hlocal.
-  apply node_ref_ext; [ | exact Hlocal ].
-  apply file_ref_ext.
-  apply (forest_slot_unique fs _ _ (file_ref_file (node_ref_file r1)) (file_ref_file (node_ref_file r2)));
-    [ apply file_ref_at | apply file_ref_at | exact Hpath ].
+  apply node_ref_ext; [ apply file_ref_ext; exact Hpath | exact Hlocal ].
 Qed.
 
 (* the immediate parent shares the containing file with its child. *)
@@ -2336,7 +2196,7 @@ Qed.
 
 (* every enumerated child shares the containing file, and NO child reference is dropped or invented. *)
 Lemma refine_children_file (fs : TForest) (fr : FileRef fs) ids
-  (H : forall c, In c ids -> valid_localb (file_ref_file fr) c = true) cr :
+  (H : forall c, In c ids -> valid_localb (file_ref_source fr) c = true) cr :
   In cr (refine_children fr ids H) -> node_ref_file cr = fr.
 Proof.
   revert H. induction ids as [|c rest IH]; intros H Hin; simpl in Hin; [destruct Hin|].
@@ -2347,14 +2207,14 @@ Theorem thm_children_same_file (fs : TForest) (idx : SyntaxIndex fs) (r cr : Nod
 Proof. unfold children_of. apply refine_children_file. Qed.
 
 Lemma refine_children_local (fs : TForest) (fr : FileRef fs) ids
-  (H : forall c, In c ids -> valid_localb (file_ref_file fr) c = true) cr :
+  (H : forall c, In c ids -> valid_localb (file_ref_source fr) c = true) cr :
   In cr (refine_children fr ids H) -> In (node_ref_local cr) ids.
 Proof.
   revert H. induction ids as [|c rest IH]; intros H Hin; simpl in Hin; [destruct Hin|].
   destruct Hin as [<-|Hin]; [left; reflexivity | right; eapply IH; exact Hin].
 Qed.
 Lemma refine_children_complete (fs : TForest) (fr : FileRef fs) ids
-  (H : forall c, In c ids -> valid_localb (file_ref_file fr) c = true) c :
+  (H : forall c, In c ids -> valid_localb (file_ref_source fr) c = true) c :
   In c ids -> exists cr, In cr (refine_children fr ids H) /\ node_ref_local cr = c.
 Proof.
   revert H. induction ids as [|c0 rest IH]; intros H Hin; simpl in Hin; [destruct Hin|].
@@ -2377,7 +2237,7 @@ Proof. unfold children_of. apply refine_children_local. Qed.
 
 (* the enumerated child references project back to exactly the per-file child ids (order preserved). *)
 Lemma refine_children_map_local (fs : TForest) (fr : FileRef fs) ids
-  (H : forall c, In c ids -> valid_localb (file_ref_file fr) c = true) :
+  (H : forall c, In c ids -> valid_localb (file_ref_source fr) c = true) :
   map node_ref_local (refine_children fr ids H) = ids.
 Proof.
   revert H. induction ids as [|c rest IH]; intros H; simpl; [reflexivity|]. rewrite IH. reflexivity.
@@ -2409,9 +2269,9 @@ Qed.
 Lemma file_of_path_path (fs : TForest) (fp : FilePath) (fr : FileRef fs) :
   file_of_path fs fp = Some fr -> file_ref_path fr = fp.
 Proof.
-  unfold file_of_path. generalize (@eq_refl (option (positive * TFile)) (forest_find fs fp)).
-  destruct (forest_find fs fp) as [[slot f]|] at 2 3; intros e H; [| discriminate H].
-  injection H as <-. unfold file_ref_path. simpl. exact (forest_find_path fs fp slot f e).
+  unfold file_of_path. generalize (@eq_refl (option TSourceFile) (Collections.FileMapBase.find fp fs)).
+  destruct (Collections.FileMapBase.find fp fs) as [f|] at 2 3; intros e H; [| discriminate H].
+  injection H as <-. reflexivity.
 Qed.
 
 (* raw-key minting is SOUND: a returned reference carries exactly the queried key. *)
@@ -2429,12 +2289,11 @@ Qed.
 Lemma file_of_path_complete (fs : TForest) (fr : FileRef fs) :
   file_of_path fs (file_ref_path fr) = Some fr.
 Proof.
-  pose proof (forest_find_complete fs (file_ref_slot fr) (file_ref_file fr) (file_ref_at fr)) as HC.
-  unfold file_of_path, file_ref_path.
-  generalize (@eq_refl (option (positive * TFile)) (forest_find fs (tf_path (file_ref_file fr)))).
-  destruct (forest_find fs (tf_path (file_ref_file fr))) as [[slot f]|] at 2 3; intros e.
-  - f_equal. apply file_ref_ext. cbn. rewrite HC in e. injection e as He1 He2. exact (eq_sym He1).
-  - rewrite HC in e. discriminate e.
+  unfold file_of_path.
+  generalize (@eq_refl (option TSourceFile) (Collections.FileMapBase.find (file_ref_path fr) fs)).
+  destruct (Collections.FileMapBase.find (file_ref_path fr) fs) as [f|] at 2 3; intros e.
+  - f_equal. apply file_ref_ext. reflexivity.
+  - exfalso. rewrite (file_ref_at fr) in e. discriminate e.
 Qed.
 
 (* raw-key minting is COMPLETE: minting from any reference's own key recovers exactly that reference. *)
@@ -2449,41 +2308,29 @@ Proof.
   - exfalso. rewrite valid_in_index_eq, (node_ref_valid r) in e. discriminate e.
 Qed.
 
-(* --- SOURCE-membership minting (§§5,10): every source file / valid occurrence yields a handle. --- *)
+(* --- SOURCE-membership minting (§§5,10): every source binding / valid occurrence yields a handle. --- *)
 
-(* compute the file handle produced when the scan finds a slot — needed to mint FROM source membership. *)
-Lemma file_of_path_find (fs : TForest) (fp : FilePath) (slot : positive) (f : TFile) :
-  forest_find fs fp = Some (slot, f) ->
-  exists fr, file_of_path fs fp = Some fr /\ file_ref_file fr = f /\ file_ref_slot fr = slot.
+(* NON-CIRCULAR file completeness: a source binding [find path fs = Some f] can be MINTED into a FileRef. *)
+Theorem file_of_path_source {fs} (path : FilePath) (f : TSourceFile) :
+  Collections.FileMapBase.find path fs = Some f ->
+  exists fr, file_of_path fs path = Some fr /\ file_ref_path fr = path /\ file_ref_source fr = f.
 Proof.
-  intros HC. unfold file_of_path.
-  generalize (@eq_refl (option (positive * TFile)) (forest_find fs fp)).
-  destruct (forest_find fs fp) as [[slot' f']|] at 2 3; intros e.
-  - pose proof e as e2. rewrite HC in e2. injection e2 as Es Ef.
-    eexists. split; [reflexivity | split; cbn; [ exact (eq_sym Ef) | exact (eq_sym Es) ] ].
-  - pose proof e as e2. rewrite HC in e2. discriminate e2.
+  intros Hfind. exists (mkFileRef fs path f Hfind). split; [| split; reflexivity].
+  unfold file_of_path.
+  generalize (@eq_refl (option TSourceFile) (Collections.FileMapBase.find path fs)).
+  destruct (Collections.FileMapBase.find path fs) as [f'|] at 2 3; intros e.
+  - f_equal. apply file_ref_ext. reflexivity.
+  - rewrite Hfind in e. discriminate e.
 Qed.
 
-(* NON-CIRCULAR file completeness (slot-carrying helper): a source file mints a FileRef at its slot. *)
-Lemma file_of_path_source_slot {fs} (slot : positive) (f : TFile) :
-  forest_file_at fs slot = Some f ->
-  exists fr, file_of_path fs (tf_path f) = Some fr /\ file_ref_file fr = f /\ file_ref_slot fr = slot.
-Proof. intros Hat. exact (file_of_path_find fs (tf_path f) slot f (forest_find_complete fs slot f Hat)). Qed.
-
-(* NON-CIRCULAR file completeness (public, slot-free): a source file can be MINTED into a FileRef by its path. *)
-Theorem file_of_path_source {fs} (slot : positive) (f : TFile) :
-  forest_file_at fs slot = Some f ->
-  exists fr, file_of_path fs (tf_path f) = Some fr /\ file_ref_file fr = f.
-Proof. intros Hat. destruct (file_of_path_source_slot slot f Hat) as [fr [A [B _]]]. exists fr. split; [exact A|exact B]. Qed.
-
 (* NON-CIRCULAR reference completeness: a VALID source occurrence can be MINTED into a NodeRef by its key. *)
-Theorem ref_of_key_source {fs} (idx : SyntaxIndex fs) (slot : positive) (f : TFile) (local : positive) :
-  forest_file_at fs slot = Some f -> valid_localb f local = true ->
-  exists r, ref_of_key fs idx (mkKey (tf_path f) local) = Some r
-            /\ node_ref_local r = local /\ file_ref_file (node_ref_file r) = f.
+Theorem ref_of_key_source {fs} (idx : SyntaxIndex fs) (path : FilePath) (f : TSourceFile) (local : positive) :
+  Collections.FileMapBase.find path fs = Some f -> valid_localb f local = true ->
+  exists r, ref_of_key fs idx (mkKey path local) = Some r
+            /\ node_ref_local r = local /\ file_ref_source (node_ref_file r) = f.
 Proof.
-  intros Hat Hv.
-  destruct (file_of_path_source slot f Hat) as [fr [Hfp Hff]].
+  intros Hfind Hv.
+  destruct (file_of_path_source path f Hfind) as [fr [Hfp [_ Hff]]].
   assert (Hvi : valid_in_index idx fr local = true) by (rewrite valid_in_index_eq, Hff; exact Hv).
   unfold ref_of_key. cbn [nk_file nk_local]. rewrite Hfp.
   generalize (@eq_refl bool (valid_in_index idx fr local)).
@@ -2492,41 +2339,56 @@ Proof.
   - rewrite Hvi in e. discriminate e.
 Qed.
 
-(* TWO-FILE minting witnesses: each distinct path resolves to its own file handle at its own slot. *)
-Theorem reg_two_file_a : exists fr, file_of_path fs_two rpath = Some fr /\ file_ref_slot fr = 1%positive.
+(* the two toy paths are distinct (their exact byte strings differ). *)
+Lemma rpath_neq : rpath <> rpathb.
+Proof. intro H. apply (f_equal fp_str) in H. discriminate H. Qed.
+
+(* the two-file forest's map bindings, by path (standard [add]/[find] — no scan). *)
+Lemma rfind_two_a : Collections.FileMapBase.find rpath fs_two = Some (rfile 5).
 Proof.
-  destruct (file_of_path_source_slot (fs:=fs_two) 1 (rfile 5) eq_refl) as [fr [Hfp [_ Hslot]]].
-  exists fr. split; [exact Hfp | exact Hslot].
+  unfold fs_two, forest_of. cbn [fold_right tfn_path tfn_source].
+  apply Collections.FileMapFacts.add_eq_o. reflexivity.
 Qed.
-Theorem reg_two_file_b : exists fr, file_of_path fs_two rpathb = Some fr /\ file_ref_slot fr = 2%positive.
+Lemma rfind_two_b : Collections.FileMapBase.find rpathb fs_two = Some (rfileb 7).
 Proof.
-  destruct (file_of_path_source_slot (fs:=fs_two) 2 (rfileb 7) eq_refl) as [fr [Hfp [_ Hslot]]].
-  exists fr. split; [exact Hfp | exact Hslot].
+  unfold fs_two, forest_of. cbn [fold_right tfn_path tfn_source].
+  rewrite Collections.FileMapFacts.add_o.
+  destruct (Collections.FilePath_OT.eq_dec rpath rpathb) as [Heq|_].
+  - exfalso. exact (rpath_neq Heq).
+  - apply Collections.FileMapFacts.add_eq_o. reflexivity.
 Qed.
 
-(* TWO-FILE fixture (slot-free, exposable): a forest with two DISTINCT-path files, both mintable to their own
-   file handles, whose public path identities differ — cross-file navigation with no path/slot confusion. *)
+(* TWO-FILE minting witnesses: each distinct path resolves to its own file handle (keyed by that path). *)
+Theorem reg_two_file_a : exists fr, file_of_path fs_two rpath = Some fr /\ file_ref_path fr = rpath.
+Proof.
+  destruct (file_of_path_source rpath (rfile 5) rfind_two_a) as [fr [Hfp [Hpath _]]].
+  exists fr. split; [exact Hfp | exact Hpath].
+Qed.
+Theorem reg_two_file_b : exists fr, file_of_path fs_two rpathb = Some fr /\ file_ref_path fr = rpathb.
+Proof.
+  destruct (file_of_path_source rpathb (rfileb 7) rfind_two_b) as [fr [Hfp [Hpath _]]].
+  exists fr. split; [exact Hfp | exact Hpath].
+Qed.
+
+(* TWO-FILE fixture (exposable): a forest with two DISTINCT-path files, both mintable to their own file
+   handles, whose public path identities differ — cross-file navigation with no path confusion. *)
 Theorem reg_two_file :
   exists (fs : TForest) (fra frb : FileRef fs),
     file_of_path fs (file_ref_path fra) = Some fra /\
     file_of_path fs (file_ref_path frb) = Some frb /\
     file_ref_path fra <> file_ref_path frb.
 Proof.
-  destruct (file_of_path_source_slot (fs:=fs_two) 1 (rfile 5) eq_refl) as [fra [_ [Hfa _]]].
-  destruct (file_of_path_source_slot (fs:=fs_two) 2 (rfileb 7) eq_refl) as [frb [_ [Hfb _]]].
+  destruct (file_of_path_source rpath (rfile 5) rfind_two_a) as [fra [_ [Hpa _]]].
+  destruct (file_of_path_source rpathb (rfileb 7) rfind_two_b) as [frb [_ [Hpb _]]].
   exists fs_two, fra, frb.
   split; [apply file_of_path_complete | split; [apply file_of_path_complete|]].
-  unfold file_ref_path. rewrite Hfa, Hfb. cbn. intro Hcontra. discriminate Hcontra.
+  rewrite Hpa, Hpb. exact rpath_neq.
 Qed.
 
 (* FileRef path equality DECIDES file occurrence equality within one snapshot (public identity is the path). *)
 Theorem file_ref_path_inj (fs : TForest) (fr1 fr2 : FileRef fs) :
   file_ref_path fr1 = file_ref_path fr2 -> fr1 = fr2.
-Proof.
-  intros Hp. apply file_ref_ext.
-  apply (forest_slot_unique fs _ _ (file_ref_file fr1) (file_ref_file fr2));
-    [ apply file_ref_at | apply file_ref_at | exact Hp ].
-Qed.
+Proof. apply file_ref_ext. Qed.
 
 (* parent/child inverse at the NodeRef level: every enumerated child's parent is exactly the queried node. *)
 Theorem thm_child_parent (fs : TForest) (idx : SyntaxIndex fs) (r cr : NodeRef fs) :
@@ -2555,7 +2417,7 @@ Proof.
       rewrite Hpar in Hpr'. injection Hpr' as <-. rewrite Hpl. reflexivity.
     - rewrite (parent_of_none fs idx r Hnp) in Hpar. discriminate Hpar. }
   pose proof (ref_meta_get idx r) as Hgetr. rewrite <- Hf in Hgetr.
-  pose proof (thm4_parent_has_child (file_ref_file (node_ref_file pr))
+  pose proof (thm4_parent_has_child (file_ref_source (node_ref_file pr))
                 (node_ref_local pr) (node_ref_local r) (ref_meta idx r) Hgetr Hp') as Hchild.
   rewrite <- (ref_fi_eq idx pr) in Hchild.
   destruct (refine_children_complete fs (node_ref_file pr)
@@ -2627,7 +2489,7 @@ Qed.
 
 (* the interval-jump reconstruction: an Ancestor derivation on the file table lifts to a [RefAncestor]. *)
 Lemma anc_to_refanc_aux (fs : TForest) (idx : SyntaxIndex fs) (fr : FileRef fs) (al dl : positive)
-  (Hanc : Ancestor (fi_table (build_file (file_ref_file fr))) al dl) :
+  (Hanc : Ancestor (fi_table (build_file (file_ref_source fr))) al dl) :
   forall (d : NodeRef fs), node_ref_file d = fr -> node_ref_local d = dl ->
   exists a, node_ref_file a = fr /\ node_ref_local a = al /\ RefAncestor fs idx a d.
 Proof.
@@ -2645,7 +2507,7 @@ Qed.
 
 Lemma anc_to_refanc (fs : TForest) (idx : SyntaxIndex fs) (a d : NodeRef fs) :
   node_ref_file a = node_ref_file d ->
-  Ancestor (fi_table (build_file (file_ref_file (node_ref_file d)))) (node_ref_local a) (node_ref_local d) ->
+  Ancestor (fi_table (build_file (file_ref_source (node_ref_file d)))) (node_ref_local a) (node_ref_local d) ->
   RefAncestor fs idx a d.
 Proof.
   intros Hf Hanc.
@@ -2655,15 +2517,16 @@ Proof.
   subst a'. exact Hra.
 Qed.
 
-(* the total NodeRef-level ancestor TEST — O(1) preorder-interval arithmetic after one metadata lookup. *)
+(* the total NodeRef-level ancestor TEST — O(1) preorder-interval arithmetic after one metadata lookup.
+   The same-file guard compares the public file PATH (the identity), not a hidden slot. *)
 Definition is_ancestor_ref {fs} (idx : SyntaxIndex fs) (a d : NodeRef fs) : bool :=
-  Pos.eqb (file_ref_slot (node_ref_file a)) (file_ref_slot (node_ref_file d)) &&
+  fp_eqb (file_ref_path (node_ref_file a)) (file_ref_path (node_ref_file d)) &&
   is_ancestor_local (fi_table (ref_fi idx d)) (node_ref_local a) (node_ref_local d).
 
 (* the ancestor present-ness side condition thm13 needs: a valid reference's id is in its file table. *)
 Lemma ref_local_present (fs : TForest) (idx : SyntaxIndex fs) (a d : NodeRef fs) :
   node_ref_file a = node_ref_file d ->
-  NodeTable.get (node_ref_local a) (fi_table (build_file (file_ref_file (node_ref_file d)))) <> None.
+  NodeTable.get (node_ref_local a) (fi_table (build_file (file_ref_source (node_ref_file d)))) <> None.
 Proof.
   intros Hf. rewrite <- Hf. pose proof (ref_meta_get idx a) as Hg. rewrite Hg. discriminate.
 Qed.
@@ -2673,32 +2536,31 @@ Theorem thm_ref_ancestry (fs : TForest) (idx : SyntaxIndex fs) (a d : NodeRef fs
   is_ancestor_ref idx a d = true <-> RefAncestor fs idx a d.
 Proof.
   unfold is_ancestor_ref. split.
-  - intros Hb. apply andb_true_iff in Hb as [Hslot Hloc]. apply Pos.eqb_eq in Hslot.
-    assert (Hf : node_ref_file a = node_ref_file d) by (apply file_ref_ext; exact Hslot).
+  - intros Hb. apply andb_true_iff in Hb as [Hpath Hloc]. apply fp_eqb_eq in Hpath.
+    assert (Hf : node_ref_file a = node_ref_file d) by (apply file_ref_ext; exact Hpath).
     apply (anc_to_refanc fs idx a d Hf).
     rewrite (ref_fi_eq idx d) in Hloc.
-    apply (proj1 (thm13_interval_ancestry (file_ref_file (node_ref_file d))
+    apply (proj1 (thm13_interval_ancestry (file_ref_source (node_ref_file d))
                     (node_ref_local a) (node_ref_local d) (ref_local_present fs idx a d Hf))).
     exact Hloc.
   - intros Hra.
     pose proof (refanc_same_file fs idx a d Hra) as Hf.
     pose proof (refanc_to_anc fs idx a d Hra) as Hanc.
     apply andb_true_iff. split.
-    + apply Pos.eqb_eq. rewrite Hf. reflexivity.
+    + apply fp_eqb_eq. rewrite Hf. reflexivity.
     + rewrite (ref_fi_eq idx d). rewrite (ref_fi_eq idx d) in Hanc.
-      apply (proj2 (thm13_interval_ancestry (file_ref_file (node_ref_file d))
+      apply (proj2 (thm13_interval_ancestry (file_ref_source (node_ref_file d))
                       (node_ref_local a) (node_ref_local d) (ref_local_present fs idx a d Hf))).
       exact Hanc.
 Qed.
 
 End Snap.
 
-(* C0B §7 / §10.3 — negative ABSTRACTION checks: the raw physical storage handle and the raw record
-   constructors are NOT reachable through the sealed [Snap] interface (each [Check] FAILS, so [Fail Check]
-   succeeds).  The public API exposes exactness only through validated source references + theorem surfaces. *)
-Fail Check Snap.index_at.        (* removed public raw-slot lookup — internal only *)
+(* C0B §7 / §10.3 — negative ABSTRACTION checks: the raw index map and the raw record constructors are NOT
+   reachable through the sealed [Snap] interface (each [Check] FAILS, so [Fail Check] succeeds).  The public
+   API exposes exactness only through validated source references + theorem surfaces. *)
+Fail Check Snap.index_at.        (* removed public raw path lookup — internal only *)
 Fail Check Snap.mkSyntaxIndex.   (* raw index constructor hidden *)
 Fail Check Snap.mkFileRef.       (* raw file-ref constructor hidden *)
 Fail Check Snap.mkNodeRef.       (* raw node-ref constructor hidden *)
-Fail Check Snap.si_outer.        (* raw outer-table projection hidden *)
-Fail Check Snap.file_ref_slot.   (* hidden optimization slot not public *)
+Fail Check Snap.si_outer.        (* raw outer-map projection hidden *)
