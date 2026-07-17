@@ -1,4 +1,4 @@
-Claude Code correction checkpoint: C0A — exact snapshot-local occurrence identity and total navigation
+Claude Code correction checkpoint: C0B — exact source-occurrence correspondence
 
 THIS IS A BINDING CORRECTION CHECKPOINT INSIDE THE EXISTING SOURCE FOREST CAMPAIGN.
 
@@ -10,144 +10,207 @@ The persistent campaign architecture remains in:
 
 The current repository baseline for this correction is:
 
-  11fd1a131d4b659065c0b3eafd277eb5aafd0645
+  46a9d65092a58dacb805f34acd2ad1269886a54e
 
-Keep all existing C0 commits. Do not rewrite, squash, reset, or force-push history.
+That baseline contains the completed, Codex-green C0 and C0A proof spikes.
+
+Keep all existing C0 and C0A commits.
+
+Do not rewrite, squash, reset, rebase, or force-push their history.
 
 ===============================================================================
 0. BEFORE IMPLEMENTATION
 ===============================================================================
 
-1. Stop any current `/loop`.
+1. Stop any currently running `/loop`.
 
 2. Read, in full:
 
    - `.review/SOURCE_FOREST_MASTER_PLAN.md`
    - `.review/SOURCE_FOREST_STATUS.md`
    - `.review/CODEX_REVIEW_POLICY.md`
+   - `.review/NEXT_STEPS.md`
    - `OccurrenceSpike.v`
-   - the C0 commits:
-       a3a4d5320c470c17bc7319c0d6f6e31bdfbf5af2
-       9a2e85ee96bc8cfbc0fbd614482158cd41934d15
-       cf91bc971bf1fa8363fd517c56802b55740925cc
-       11fd1a131d4b659065c0b3eafd277eb5aafd0645
 
-3. Replace `.review/NEXT_STEPS.md` with this correction directive VERBATIM.
+3. Read the C0A commit sequence:
 
-4. Update `.review/SOURCE_FOREST_STATUS.md` to say:
+   30d0d51c71b01dded1c60f8fff6cace955a34621
+   0e6b7397d2e4bdc9835cc8e828b1c7a597500ffa
+   5176e7b8e078a17025d93f5e703b0899d968ed38
+   357430b38db94358c6a43db9647c01039cc0eda4
+   c74cb0aac8746e86a1fa798ab27fa9ba8e5cd7a7
+   46a9d65092a58dacb805f34acd2ad1269886a54e
 
-   - active checkpoint: C0A;
-   - C0 was Codex-green but human review found a foundational source/index coupling defect;
-   - C1 remains forbidden until C0A is human-approved;
-   - preserve the earlier Codex findings and repair ledger rather than rewriting history.
+4. Replace:
 
-5. Commit the contract/status activation before implementation.
+   .review/NEXT_STEPS.md
+
+   with this directive VERBATIM.
+
+   - Do not summarize it.
+   - Do not rewrite it.
+   - Do not omit sections.
+   - Do not weaken its theorem statements.
+   - Do not broaden its feature scope.
+
+5. Update:
+
+   .review/SOURCE_FOREST_STATUS.md
+
+   to record:
+
+   - active checkpoint: C0B;
+   - correction baseline SHA: `46a9d65092a58dacb805f34acd2ad1269886a54e`;
+   - C0A remains Codex-green history;
+   - human review found one remaining under-specification:
+     the index is proved structurally consistent with `build_file`, but `build_file`
+     is not yet proved universally to label each exact source occurrence with the
+     correct kind, role, parent, and subtree boundary;
+   - C1 remains forbidden until C0B is human-approved.
+
+6. Commit the C0B contract/status activation before implementation.
 
    Commit message prefix:
 
-     milestone(contract): C0A —
+     milestone(contract): C0B —
 
-6. Then run exactly:
+7. Then run exactly:
 
    /loop 5m completing NEXT_STEPS until codex review is green and then notify me and stop the loop.
 
-The loop is authorized only for C0A.
+The loop is authorized only for C0B.
+
+C0B uses two intentional Codex barriers:
+
+1. semantic-root review;
+2. final exhaustive review.
+
+Do not intentionally stop for progress narration, routine proof work, ordinary
+compilation, fixtures, gate updates, or documentation.
+
+The final notification and loop stop happen only after the FINAL barrier is GREEN.
 
 ===============================================================================
-1. WHY C0A EXISTS
+1. WHY C0B EXISTS
 ===============================================================================
 
-The C0 spike successfully established:
+C0 and C0A established a strong occurrence-navigation design:
 
+- immutable downward-owned syntax trees;
+- path-unique source snapshots;
 - file-local positive preorder IDs;
-- an abstract pure-Gallina positive-key radix trie;
-- parent/role/subtree-end metadata;
-- one-pass insertion;
-- interval ancestry;
-- list-free O(number-of-direct-children) child enumeration;
-- structural equality does not determine occurrence identity;
-- the theorem family is axiom-free.
+- root local ID = 1;
+- abstract pure-Gallina positive-key radix tries;
+- `SyntaxIndex fs`, `FileRef fs`, and `NodeRef fs` indexed by the exact source
+  snapshot;
+- exact outer index construction;
+- total metadata, kind, role, containing-file, and children queries;
+- only `parent_of` optional;
+- no file-list scan during ordinary navigation;
+- list-free direct-child interval jumps;
+- parent/child inversion;
+- source-ordered children;
+- source-snapshot-local identity;
+- no typed AST;
+- zero axioms.
 
 Keep those decisions.
 
-The remaining defect is conceptual:
+The remaining defect is not a bad data structure.
 
-  the current `NodeRef` belongs to a free-standing `SyntaxIndex` value,
-  not to the exact source snapshot that index describes.
+It is an under-specified theorem boundary.
 
-Current shape:
+Today, the implementation proves that:
 
-  SyntaxIndex := list FileIndex
+  SyntaxIndex fs
 
-  NodeRef (idx : SyntaxIndex)
+contains exactly:
 
-That permits two different source forests with identical paths and tree shape but
-different literal payloads to compute the same structural index value and therefore
-share the same `NodeRef` type.
+  outer_of fs
 
-That is not the intended architecture.
+and that each file slot contains:
 
-A diagnostic, declaration identity, resolution fact, or nominal type identity must
-refer to an occurrence in one exact immutable source snapshot.
+  build_file f
 
-The corrected root is:
+It also proves that the tables produced by `build_file` are structurally
+well-formed:
 
-  source snapshot
-      -> one certified derived SyntaxIndex for that snapshot
-      -> FileRef snapshot
-      -> NodeRef snapshot
+- entries occupy canonical intervals;
+- non-roots have parents;
+- parent links are nested;
+- subtree intervals are valid;
+- ancestry and child enumeration are correct.
 
-The reference belongs to the source snapshot, never merely to the index data.
+But the universal theorem family does not yet prove:
 
-The second defect is API honesty:
+> The metadata stored at local ID N is the metadata of the exact source
+> occurrence at local ID N.
 
-- `ref_meta` currently returns `option`;
-- `node_kind` invents `KFile` if metadata is missing;
-- `containing_file` returns `option`;
-- `children_of` silently drops a child if rebuilding its reference fails.
+In particular, the existing theorem family would not necessarily fail if the
+builder were changed to make a structurally consistent but semantically wrong
+labeling such as:
 
-A validated source occurrence must make structurally guaranteed queries total.
-No impossible-case fallback may manufacture a plausible semantic answer.
+- a leaf expression marked `KDecl`;
+- a binary expression marked `KStatement`;
+- the left child marked `RChild 1`;
+- the right child marked `RChild 0`;
+- declaration indexes shifted by one;
+- statement indexes shifted by one.
 
-The third defect is complexity accounting:
+The table could remain navigable and interval-correct while diagnostics,
+typed-reference refinement, declaration identity, and compiler facts attach to
+the wrong source occurrence.
 
-- current metadata navigation first performs a linear `file_of` scan over
-  `SyntaxIndex := list FileIndex`;
-- the ledger therefore overstates parent/kind/meta lookup as merely O(log n).
+C0B closes that exact gap.
 
-C0A must remove the hidden file-list scan from ordinary navigation.
+The new permanent root is:
+
+  exact source occurrence
+      -> independently specified source metadata
+      -> canonical builder metadata
+      -> sealed NodeRef query
+
+The source specification must be independent of the metadata builder.
+
+The proof must be universal.
+
+Concrete fixtures supplement that theorem but do not replace it.
 
 ===============================================================================
 2. NON-NEGOTIABLE ARCHITECTURE
 ===============================================================================
 
-Keep:
+Keep unchanged:
 
-- recursive immutable source trees;
-- downward ownership only;
-- derived parent navigation;
-- one canonical preorder per file;
-- file-local positive IDs;
-- root local ID = 1;
-- `NodeMeta` containing:
-    kind;
-    parent local ID;
-    role;
-    subtree end;
+- `TForest` path uniqueness;
+- exact source-snapshot indexing;
+- `SyntaxIndex fs`;
+- `FileRef fs`;
+- `NodeRef fs`;
+- public `NodeKey = (FilePath, local ID)`;
+- hidden file slots;
+- file-local positive preorder IDs;
+- `root_id = 1`;
+- `NodeMeta` fields:
+  - kind;
+  - parent local ID;
+  - role;
+  - subtree end;
 - abstract `NodeTable`;
 - positive-key radix-trie implementation;
-- interval-jump direct-child enumeration;
-- no syntax subtree copied into metadata;
+- exact outer table equality:
+  - `si_outer = outer_of fs`;
+- total validated-reference queries;
+- list-free `child_enum`;
+- no syntax subtree in `NodeMeta`;
 - no production AST migration yet.
 
 Correct:
 
-- source/index dependence;
-- file-root identity;
-- validated-reference totality;
-- outer file lookup on the navigation path;
-- complexity claims;
-- constructor abstraction.
+- the missing per-occurrence source/metadata specification;
+- the public source-recovery API;
+- the raw slot abstraction leak;
+- three stale documentation statements.
 
 Do not add:
 
@@ -158,710 +221,1097 @@ Do not add:
 - source type syntax;
 - numeric types;
 - structural types;
+- imports;
+- functions beyond the toy grammar;
 - parent pointers;
 - author-supplied IDs;
 - typed AST;
-- flattened syntax cache;
+- flattened syntax caches;
+- a second recursive source tree;
 - primitive arrays;
 - list-backed node lookup;
 - new Go behavior.
 
-===============================================================================
-3. MAKE THE TOY SOURCE SNAPSHOT PATH-UNIQUE
-===============================================================================
+The spike remains isolated and temporary.
 
-Replace the unconstrained alias:
-
-  TForest := list TFile
-
-with an intrinsic toy source set/snapshot, conceptually:
-
-  Record TForest := {
-    forest_files : list TFile;
-    forest_paths_unique :
-      NoDup (map tf_path forest_files)
-  }.
-
-Equivalent shape is acceptable.
-
-The exact source snapshot still includes its concrete file sequence for C0A.
-C1 will establish the permanent `GoFileSet` abstraction and its extensional/order-
-independent semantics.
-
-For C0A, the required fact is simpler:
-
-- one path names at most one toy file root;
-- `FileRef` by path is unambiguous;
-- duplicate file paths are unrepresentable;
-- raw `NodeKey = (FilePath, LocalNodeId)` cannot ambiguously name two roots.
-
-Add:
-
-- reflected/decidable file lookup;
-- lookup functionality from path uniqueness;
-- duplicate-path negative construction fixture;
-- two-file witness using the intrinsic forest constructor.
-
-Do not turn the toy forest into the production file-set implementation.
+Generated Go bytes must remain unchanged.
 
 ===============================================================================
-4. SOURCE-INDEXED `SyntaxIndex`
+3. DEFINE AN INDEPENDENT SOURCE-OCCURRENCE SPECIFICATION
 ===============================================================================
 
-Change the index from free-standing data into a source-indexed certified value.
+3.1 Purpose
 
-Required public shape:
+Add one table-free source-occurrence specification for the toy grammar.
 
-  SyntaxIndex (fs : TForest) : Type
+It must answer:
 
-  index_forest :
-    forall fs : TForest,
-      SyntaxIndex fs
+  For source file f and local preorder ID n,
+  what exact source occurrence does n designate,
+  and what metadata should that occurrence have?
 
-The constructor of `SyntaxIndex` must be private.
+This is the semantic specification against which `build_file` is proved correct.
 
-A `SyntaxIndex fs` must carry or imply a theorem equivalent to:
+It is not:
 
-  IndexDescribesForest fs index_data
+- a second mutable AST;
+- a replacement source tree;
+- a navigation cache;
+- a NodeTable;
+- a production compiler structure;
+- a hot-path random-access promise.
 
-The proof must establish that every metadata entry corresponds to the canonical
-preorder occurrence of `fs`, and every indexed occurrence in `fs` has exactly one
-metadata entry.
+3.2 Preferred typed source view
 
-Do not satisfy the type parameter merely by storing arbitrary tables beside an
-unused proof field.
+Prefer a kind-indexed view that reuses the original syntax fragments:
 
-The index exactness theorem must drive the total query API in Part 7.
+  Inductive SyntaxView : SyntaxKind -> Type :=
+  | ViewFile :
+      TFile ->
+      SyntaxView KFile
 
-The physical metadata of two same-shaped source snapshots may compute identically.
-That is acceptable.
+  | ViewDecl :
+      TDecl ->
+      SyntaxView KDecl
 
-Their `SyntaxIndex fs1` and `SyntaxIndex fs2` types remain distinct because they are
-indexed by different source values.
+  | ViewStatement :
+      TStmt ->
+      SyntaxView KStatement
 
-===============================================================================
-5. `FileRef` IS A SOURCE-SNAPSHOT FILE-ROOT HANDLE
-===============================================================================
-
-Introduce:
-
-  FileRef (fs : TForest) : Type
-
-A `FileRef fs` identifies exactly one file-root occurrence in `fs`.
-
-It must provide, directly or by total projection:
-
-- the exact `TFile`;
-- its `FilePath`;
-- a hidden structural handle suitable for efficient access to that file's index;
-- proof that the file is an actual member/root of `fs`.
-
-Recommended spike representation:
-
-  Record FileRef (fs : TForest) := {
-    file_ref_slot : positive;
-    file_ref_file : TFile;
-    file_ref_at_slot :
-      forest_file_at fs file_ref_slot = Some file_ref_file
-  }.
+  | ViewExpression :
+      TExpr ->
+      SyntaxView KExpression.
 
 Names may differ.
 
-The slot is:
+Equivalent sigma/record encoding is acceptable.
 
-- derived by the canonical forest traversal;
-- private implementation metadata;
-- not author supplied;
-- not source identity;
-- not rendered;
-- not serialized as the public key.
+The view must refer to the original syntax value.
 
-The public identity of a file occurrence remains its unique `FilePath`.
+Do not invent a parallel recursive grammar with independently copied children.
 
-Prove:
+3.3 Source occurrence
 
-- every source file has one `FileRef`;
-- two `FileRef fs` values with the same path identify the same source file;
-- file-reference equality is decidable by path;
-- the hidden slot does not create a second identity authority.
+Define a source occurrence carrying the exact independently derived structural
+facts, conceptually:
 
-Hide the raw `FileRef` constructor behind a module signature or equivalent private
-construction boundary.
-
-===============================================================================
-6. `NodeRef` BELONGS TO THE EXACT SOURCE SNAPSHOT
-===============================================================================
-
-Replace:
-
-  NodeRef (idx : SyntaxIndex)
-
-with:
-
-  NodeRef (fs : TForest)
-
-Conceptually:
-
-  Record NodeRef (fs : TForest) := {
-    node_ref_file  : FileRef fs;
-    node_ref_local : positive;
-    node_ref_valid :
-      ValidLocalOccurrence fs node_ref_file node_ref_local
+  Record SourceOccurrence := {
+    occurrence_kind        : SyntaxKind;
+    occurrence_view        : SyntaxView occurrence_kind;
+    occurrence_parent      : option positive;
+    occurrence_role        : NodeRole;
+    occurrence_subtree_end : positive
   }.
 
-The validity proposition may be reflected through the canonical index, but its
-meaning must be:
+The local ID may be:
 
-  this local ID names an actual occurrence in this exact file of this exact source
-  snapshot.
+- an input to the lookup function; or
+- an additional field.
 
-It must not merely mean:
+Either is acceptable.
 
-  a key happens to be present in some free-standing table.
+Define:
 
-A public raw key remains:
-
-  Record NodeKey := {
-    node_file  : FilePath;
-    node_local : positive
-  }.
-
-Provide:
-
-  node_ref_key :
-    NodeRef fs -> NodeKey
-
-The hidden file slot is not part of `NodeKey`.
-
-Node-reference equality is exactly `NodeKey` equality within one source snapshot.
-
-Prove:
-
-- decidable `NodeKey` equality;
-- key equality implies `NodeRef fs` equality;
-- `NodeRef` proof fields do not create multiple identities;
-- different local IDs in one file give different references;
-- equal syntax fragments in different positions have different references.
-
-Hide the raw `NodeRef` constructor.
-
-The comment claiming one function is the only way to mint a reference must become
-true, not merely aspirational.
-
-===============================================================================
-7. ORDINARY NAVIGATION MUST NOT SCAN THE FILE LIST
-===============================================================================
-
-Ordinary navigation begins with an existing validated `NodeRef fs`.
-
-It must not:
-
-- call `file_of` over a list of file indexes;
-- search by `FilePath`;
-- reconstruct the whole source index;
-- recover a file by structural equality.
-
-Use the `FileRef`'s hidden structural handle to access the correct per-file index.
-
-Recommended index data:
-
-- one abstract outer `NodeTable` keyed by the hidden file slot;
-- each outer entry contains the corresponding per-file index/table;
-- each per-file table remains keyed by local positive ID.
-
-Equivalent efficient representation is acceptable only if:
-
-- ordinary metadata navigation has no O(number-of-files) scan;
-- containing file is a projection;
-- the exact complexity is documented;
-- no second file identity is introduced.
-
-The preferred complexity is:
-
-  index build:
-    O(files log files + nodes log nodes-per-file)
-
-  containing file:
-    O(1) projection from NodeRef
-
-  metadata / kind / role / immediate parent:
-    O(log files + log nodes-per-file)
-
-  ancestor:
-    metadata lookup above + O(1) interval arithmetic
-
-  direct children:
-    one file-index acquisition;
-    then O(k log nodes-per-file) for k direct children;
-    never O(descendants)
-
-A raw lookup:
-
-  ref_of_key :
-    SyntaxIndex fs -> NodeKey -> option (NodeRef fs)
-
-may perform a path lookup once when converting an external/raw key into a handle.
-Document that cost honestly.
-
-The hot compiler traversal and all navigation from an existing `NodeRef` must not
-use that raw path lookup.
-
-===============================================================================
-8. TOTAL VALIDATED-REFERENCE API
-===============================================================================
-
-For a valid source-indexed reference and certified index, provide total functions:
-
-  ref_meta :
-    SyntaxIndex fs ->
-    NodeRef fs ->
+  occurrence_meta :
+    SourceOccurrence ->
     NodeMeta
 
-  node_kind :
-    SyntaxIndex fs ->
-    NodeRef fs ->
-    SyntaxKind
+as exactly:
 
-  node_role :
-    SyntaxIndex fs ->
-    NodeRef fs ->
-    NodeRole
+  mkMeta
+    occurrence_kind
+    occurrence_parent
+    occurrence_role
+    occurrence_subtree_end
 
-  subtree_end :
-    SyntaxIndex fs ->
-    NodeRef fs ->
-    positive
+Do not let `occurrence_meta` consult the builder or NodeTable.
 
-  containing_file :
-    NodeRef fs ->
-    FileRef fs
+3.4 Table-free lookup
 
-Only structurally optional answers remain optional:
+Define:
 
-  parent_of :
-    SyntaxIndex fs ->
-    NodeRef fs ->
-    option (NodeRef fs)
+  source_occurrence_at :
+    TFile ->
+    positive ->
+    option SourceOccurrence
 
-because a file root has no parent.
+or an equivalent declarative relation plus reflected executable lookup.
 
-Provide total:
+The implementation must derive its answer directly from the source tree.
 
-  children_of :
-    SyntaxIndex fs ->
-    NodeRef fs ->
-    list (NodeRef fs)
+It must not call or inspect:
 
-`children_of` must not:
+- `NodeTable.get`;
+- `NodeTable.set`;
+- `build_expr`;
+- `build_stmt`;
+- `build_decl`;
+- `build_seq`;
+- `build_file`;
+- `FileIndex`;
+- `SyntaxIndex`;
+- `ref_meta`;
+- `node_kind`;
+- `node_role`;
+- `parent_of`;
+- `children_of`;
+- `child_enum`.
 
-- call `ref_of` and discard `None`;
-- filter supposedly invalid children;
-- silently truncate on a missing table entry.
+The source specification may use table-free structural helpers such as:
 
-The child-enumeration correctness theorem already proves each local child ID is a
-real occurrence.
+- `end_expr`;
+- `end_stmt`;
+- `end_decl`;
+- `next_stmts`;
+- `next_decls`;
+- independently defined source sizes or boundaries.
 
-Use that proof to construct each child reference directly.
+Those helpers must themselves be functions only of the source syntax and the
+starting local ID.
 
-Likewise, `parent_of` must construct the parent reference directly from the parent-
-validity theorem. It must not use a fail-soft raw lookup.
+3.5 Coverage of the complete toy grammar
 
-Delete:
+The specification must cover every currently indexed toy occurrence:
 
-- `node_kind` fallback to `KFile`;
-- total-query `option` results whose `None` case contradicts `NodeRef` validity;
-- silent child filtering.
+- file root;
+- each declaration;
+- each statement;
+- each expression;
+- every nested expression occurrence.
 
-If an impossible index inconsistency cannot be eliminated by the type/proof design,
-that is an architectural failure, not a branch to paper over.
+It must derive the exact current roles:
 
-===============================================================================
-9. SOURCE RECOVERY AND EXACT SNAPSHOT BINDING
-===============================================================================
+- file root:
+  - `RFileRoot`;
 
-Retain the source-recovery relation/helper used by the equal-leaf theorem, but make
-its role explicit:
+- declaration N:
+  - `RFileDecl N`;
 
-- proof/diagnostic inspection helper;
-- not parent navigation;
-- not the hot compiler path;
-- not a second AST;
-- no copied subtree cache.
+- statement N in a declaration:
+  - `RDeclStmt N`;
 
-Strengthen the exactness story:
+- expression directly held by a print statement:
+  - `RStmtExpr`;
 
-  node_at / occurrence_at
-    connects one `NodeRef fs` to the exact source occurrence in `fs`.
+- expression child N:
+  - `RChild N`.
 
-It may remain a relation or kind-indexed view in the toy spike.
+It must derive exact parent IDs.
 
-Required witness pair:
+It must derive exact subtree ends.
 
-  fs_a:
-    file a contains two leaves with value 5
+It must preserve source order.
 
-  fs_b:
-    identical paths and identical tree shape,
-    but the corresponding leaves have value 6
+3.6 Independence audit
 
-Prove or pin:
+At the semantic-root barrier, include an explicit audit in the commit message:
 
-1. The structural metadata/index data may be equal after erasing its source index.
+- functions used by `source_occurrence_at`;
+- confirmation none call the metadata builder or NodeTable;
+- confirmation the builder does not call `source_occurrence_at`;
+- confirmation the two sides share only ordinary source datatypes and
+  independently acceptable table-free arithmetic helpers;
+- confirmation no theorem is proved merely by unfolding two aliases of the same
+  implementation.
 
-2. A reference of type:
-
-     NodeRef fs_a
-
-   is not directly usable as:
-
-     NodeRef fs_b
-
-   Add an axiom-free `Fail Definition`/`Fail Check` or a stronger typed theorem.
-
-3. `node_at` for the left leaf in `fs_a` recovers `TLeaf 5`.
-
-4. `node_at` for the corresponding leaf in `fs_b` recovers `TLeaf 6`.
-
-5. The two equal `TLeaf 5` occurrences inside `fs_a` still have distinct `NodeRef fs_a`
-   values.
-
-This is the decisive regression for the source-snapshot-local identity design.
+If the source specification is merely `build_file` translated into another
+name or projected back out of its table, classify that as an architectural
+failure and stop.
 
 ===============================================================================
-10. REQUIRED THEOREM SURFACES
+4. PROVE EXACT PER-FILE SOURCE/METADATA CORRESPONDENCE
 ===============================================================================
 
-Preserve and restate the existing structural theorem family over the corrected
-source-indexed API.
+4.1 Load-bearing theorem
+
+Prove one universal theorem equivalent to:
+
+  Theorem build_file_source_exact :
+    forall (f : TFile) (local : positive),
+
+      NodeTable.get local (fi_table (build_file f))
+
+      =
+
+      option_map occurrence_meta
+        (source_occurrence_at f local).
+
+Names may differ.
+
+The equality direction may be reversed.
+
+A logically equivalent iff theorem is acceptable:
+
+  NodeTable.get local ... = Some meta
+  <->
+  exists occurrence,
+    source_occurrence_at f local = Some occurrence
+    /\ meta = occurrence_meta occurrence.
+
+The theorem must prove both presence and absence.
+
+It must not require an already-existing `NodeRef`.
+
+It must not assume the queried local ID is valid.
+
+It must range over every positive local ID.
+
+4.2 Consequences that must be explicit
+
+Derive and gate:
+
+A. Source occurrence -> metadata
+
+  source_occurrence_at f local = Some occurrence
+  ->
+  NodeTable.get local (fi_table (build_file f))
+    = Some (occurrence_meta occurrence).
+
+B. Metadata -> source occurrence
+
+  NodeTable.get local (fi_table (build_file f)) = Some meta
+  ->
+  exists occurrence,
+    source_occurrence_at f local = Some occurrence
+    /\ meta = occurrence_meta occurrence.
+
+C. Absence equivalence
+
+  source_occurrence_at f local = None
+  <->
+  NodeTable.get local (fi_table (build_file f)) = None.
+
+D. Unique occurrence
+
+  source_occurrence_at f local = Some o1
+  ->
+  source_occurrence_at f local = Some o2
+  ->
+  o1 = o2.
+
+E. Kind exactness
+
+  a source occurrence's kind is exactly the stored `nm_kind`.
+
+F. Role exactness
+
+  a source occurrence's role is exactly the stored `nm_role`.
+
+G. Parent exactness
+
+  a source occurrence's parent is exactly the stored `nm_parent`.
+
+H. Subtree-boundary exactness
+
+  a source occurrence's subtree end is exactly the stored `nm_subtree_end`.
+
+4.3 Exactness is stronger than structural well-formedness
+
+Keep `SubtreeWF`, `ForestWF`, parent/child, ancestry, and interval theorems.
+
+Do not delete them.
+
+But document the distinction:
+
+  structural theorem:
+    the table forms a coherent occurrence tree;
+
+  source-correspondence theorem:
+    that coherent occurrence tree describes the exact source tree.
+
+Neither subsumes the other.
+
+4.4 No proof by concrete evaluation alone
+
+`vm_compute` fixtures are useful.
+
+They do not satisfy this section.
+
+The universal theorem must be closed axiom-free.
+
+===============================================================================
+5. SEMANTIC-ROOT REVIEW BARRIER
+===============================================================================
+
+Stop for the ROOT review only after all of the following are true:
+
+- `SourceOccurrence` or an equivalent independent source specification exists;
+- `source_occurrence_at` covers the complete toy grammar;
+- it is table-free and builder-independent;
+- the universal exact per-file theorem is proved;
+- presence and absence are both pinned;
+- kind, role, parent, and subtree end are all included in the equality;
+- no second AST or persistent flattened source cache exists;
+- all root theorem assumptions are closed;
+- generated bytes remain unchanged;
+- C1 has not begun.
+
+Commit:
+
+  milestone(root): C0B — independent source occurrence specification and exact builder correspondence
+
+Any Codex-driven root repair must use:
+
+  review(root): C0B —
+
+After root review becomes GREEN, continue directly to final integration.
+
+Do not stop again until the final barrier.
+
+If Codex finds that the source specification is circular, builder-derived, or
+too weak to detect wrong kind/role labels, repair the root before continuing.
+
+===============================================================================
+6. LIFT EXACTNESS THROUGH THE SEALED SNAPSHOT API
+===============================================================================
+
+6.1 Total occurrence recovery from a NodeRef
+
+For every valid:
+
+  r : NodeRef fs
+
+provide a total source-occurrence view, conceptually:
+
+  source_occurrence_of_ref :
+    NodeRef fs ->
+    SourceOccurrence.
+
+It may internally use:
+
+  source_occurrence_at
+    (file_ref_file (node_ref_file r))
+    (node_ref_local r)
+
+plus a proof that this option is `Some`.
+
+No semantic fallback is permitted.
+
+No `option` should remain at the public valid-reference layer if `NodeRef`
+validity proves the occurrence exists.
+
+Names may differ.
+
+6.2 Load-bearing sealed theorem
+
+Expose through `SNAP_SIG` a theorem equivalent to:
+
+  ref_meta_matches_source :
+    forall fs
+           (idx : SyntaxIndex fs)
+           (r : NodeRef fs),
+
+      ref_meta idx r
+
+      =
+
+      occurrence_meta (source_occurrence_of_ref r).
+
+This is the permanent public theorem.
+
+It says:
+
+> The metadata returned for this valid source reference is the metadata of this
+> exact source occurrence.
+
+6.3 Public projections
+
+Derive and expose:
+
+  node_kind_matches_source
+
+  node_role_matches_source
+
+  node_parent_matches_source
+
+  node_subtree_end_matches_source.
+
+The parent theorem may be phrased through metadata or `parent_of`.
+
+At minimum, pin:
+
+  nm_parent (ref_meta idx r)
+  =
+  occurrence_parent (source_occurrence_of_ref r).
+
+For non-root occurrences, connect the parent local ID to the returned
+`parent_of` reference.
+
+6.4 Exact source fragment view
+
+The source-occurrence view must recover the original syntax fragment.
+
+For example:
+
+  ViewExpression (TLeaf 5)
+
+not merely:
+
+  KExpression.
+
+The existing expression-only `node_at` helper must be handled in one of these
+ways:
+
+Preferred:
+
+- delete it and replace it with the general total source-occurrence/source-view
+  API;
+
+Acceptable:
+
+- retain it only as a convenience projection from the new general occurrence
+  specification;
+- prove it agrees with `source_occurrence_of_ref`;
+- do not leave it as an independent recursive source locator.
+
+Do not keep two separate source-recovery authorities.
+
+6.5 No hot-path claim
+
+The table-free source-occurrence lookup is a proof and occasional inspection
+facility.
+
+It may cost proportional to a source prefix or, in the worst case, the file
+size.
+
+State that honestly.
+
+Ordinary compiler traversal in production C2 will receive:
+
+  original syntax fragment + canonical NodeRef
+
+together.
+
+Ordinary metadata navigation continues to use the index.
+
+Do not optimize proof-only source recovery by storing a copied syntax tree in
+metadata.
+
+===============================================================================
+7. REMOVE THE PUBLIC RAW-SLOT ABSTRACTION LEAK
+===============================================================================
+
+`SNAP_SIG` currently exposes:
+
+  index_at :
+    SyntaxIndex fs ->
+    positive ->
+    option FileIndex.
+
+That exposes arbitrary physical file-slot inspection and the raw `FileIndex`
+representation.
+
+The hidden file slot is an optimization handle, not a public semantic identity.
+
+Remove `index_at` from `SNAP_SIG`.
+
+It may remain:
+
+- private inside `Snap`; or
+- as a local/internal definition used to prove outer-table exactness.
+
+Do not expose arbitrary slot lookup as a public navigation API.
+
+Retain internal exact outer-index construction:
+
+  si_outer = outer_of fs.
+
+Retain internal absence/presence proofs.
+
+Replace the public raw-slot theorem with the stronger validated-reference
+theorem:
+
+  ref_meta_matches_source.
+
+After sealing, add a negative abstraction fixture such as:
+
+  Fail Check OccurrenceSpike.Snap.index_at.
+
+Equivalent module-abstraction evidence is acceptable.
+
+Also keep negative fixtures confirming raw constructors remain hidden:
+
+  mkSyntaxIndex
+  mkFileRef
+  mkNodeRef.
+
+===============================================================================
+8. MUTATION-SENSITIVE REGRESSIONS
+===============================================================================
+
+8.1 Purpose
+
+Concrete regressions should make the universal theorem's consequences obvious.
+
+They are not substitutes for the universal theorem.
+
+8.2 Existing same-shape snapshots
+
+Keep:
+
+- `fs_a` with leaf payload 5;
+- `fs_b` with leaf payload 6;
+- erased index data equal;
+- reference types non-interchangeable;
+- exact source view differs by payload;
+- repeated equal leaves in `fs_a` have distinct references.
+
+Restate the payload recovery through the new general source-occurrence API.
+
+8.3 Kind fixtures
+
+Pin at least:
+
+- file root -> `KFile`;
+- function declaration -> `KDecl`;
+- print statement -> `KStatement`;
+- leaf expression -> `KExpression`;
+- binary expression -> `KExpression`.
+
+Each fixture must derive from:
+
+  ref_meta_matches_source
+
+or the universal per-file exact theorem.
+
+Do not prove them by independently unfolding the builder.
+
+8.4 Role fixtures
+
+Use a witness that covers:
+
+- at least two declarations;
+- at least two statements in one declaration;
+- a nested binary expression.
+
+Pin:
+
+- declaration 0 -> `RFileDecl 0`;
+- declaration 1 -> `RFileDecl 1`;
+- statement 0 -> `RDeclStmt 0`;
+- statement 1 -> `RDeclStmt 1`;
+- print-held expression -> `RStmtExpr`;
+- left binary child -> `RChild 0`;
+- right binary child -> `RChild 1`.
+
+8.5 Parent fixtures
+
+Pin exact parent local IDs for the same witness:
+
+- declarations parented by file root;
+- statements parented by their declaration;
+- print expression parented by its statement;
+- binary children parented by the binary expression.
+
+8.6 Subtree fixtures
+
+Pin representative subtree ends:
+
+- leaf end = own ID;
+- binary end = rightmost descendant;
+- statement end = expression end;
+- declaration end = final statement descendant;
+- file root end = final occurrence.
+
+8.7 Mutation criterion
+
+The new universal theorem or its gated corollaries must fail if any of these
+hypothetical mutations is made:
+
+- `TLeaf` metadata kind changed to `KDecl`;
+- `TBin` metadata kind changed to `KStatement`;
+- left and right `RChild` indexes swapped;
+- declaration index incremented incorrectly;
+- statement index incremented incorrectly;
+- parent ID changed while intervals remain nested;
+- subtree end changed while the table remains populated.
+
+Record in the completion report which theorem statements are mutation-sensitive
+to each category.
+
+Do not add deliberately broken tracked code or axiom fixtures.
+
+===============================================================================
+9. RECONCILE THE MASTER PLAN AND STATUS
+===============================================================================
+
+9.1 Root ID
+
+The master plan still contains conceptual/public text saying:
+
+  file root local ID = 0
+
+or:
+
+  every file root has local ID zero.
+
+C0 selected positive IDs with:
+
+  root_id = 1.
+
+Update every active architectural statement to say:
+
+  file root local ID = 1
+
+or, where representation independence is intended:
+
+  one fixed canonical root local ID
+  (currently positive 1).
+
+Do not leave contradictory root-ID laws in the active plan.
+
+9.2 Final SyntaxIndex invariant
+
+The C0A decision record has an earlier paragraph describing the superseded
+one-directional invariant:
+
+  real slots hold their file build.
+
+Rewrite the headline decision record to the final invariant:
+
+  si_outer = outer_of fs
+
+with exact presence and absence.
+
+Keep the historical review ledger explaining how Codex found and repaired the
+earlier fail-open version.
+
+Do not rewrite history.
+
+9.3 Source-recovery complexity
+
+The master plan currently suggests occasional source recovery may cost O(depth).
+
+The toy `source_occurrence_at`/`occ_file` style lookup can traverse preceding
+siblings and recompute structural boundaries.
+
+State the honest bound:
+
+- proof/inspection source recovery may be O(file size) in the worst case;
+- it is not used by ordinary parent/kind/role navigation;
+- production traversal supplies syntax and NodeRef together;
+- no copied source cache is justified now.
+
+9.4 Exact source correspondence
+
+Add the new permanent law to the master plan:
+
+> The production GoIndex must prove not only structural tree validity and exact
+> outer-table construction, but exact per-occurrence correspondence between the
+> source occurrence and its metadata: kind, role, parent, and subtree boundary.
+
+Add it to the production C2 acceptance criteria.
+
+9.5 Public storage abstraction
+
+Update the master plan to say:
+
+- raw file slots are hidden;
+- no public arbitrary `index_at slot` operation;
+- exactness is exposed through validated source references and theorem surfaces;
+- internal physical-table inspection remains an implementation/proof detail.
+
+9.6 Status ledger
+
+Preserve:
+
+- C0 history;
+- C0A history;
+- all prior Codex findings;
+- all prior repair SHAs.
+
+Add a C0B section recording:
+
+- baseline;
+- contract SHA;
+- root candidate/reviews;
+- final candidate/reviews;
+- exact theorem names;
+- mutation fixtures;
+- gate count;
+- verification;
+- push;
+- human disposition pending.
+
+===============================================================================
+10. PROOF AND ASSUMPTION GATE
+===============================================================================
+
+10.1 Required public surfaces
 
 Gate at least:
 
-Source snapshot / file roots
+Independent source specification
 
-- path uniqueness;
-- file lookup functionality;
-- duplicate-path unrepresentability;
-- every file has one FileRef;
-- FileRef path equality decides file occurrence equality.
+- source-occurrence lookup is deterministic;
+- source view recovers the original fragment;
+- file root source occurrence;
+- declaration source occurrence;
+- statement source occurrence;
+- leaf source occurrence;
+- binary source occurrence.
 
-Index/source exactness
+Exact per-file correspondence
 
-- `index_forest` describes exactly its `fs`;
-- every source occurrence has one metadata entry;
-- every metadata entry corresponds to one source occurrence;
-- no index entry belongs to another source snapshot.
+- universal `build_file_source_exact`;
+- source -> metadata;
+- metadata -> source;
+- absence equivalence;
+- occurrence uniqueness;
+- kind exactness;
+- role exactness;
+- parent exactness;
+- subtree-end exactness.
 
-Node references
+Sealed reference layer
 
-- raw constructor hidden;
-- `ref_of_key` sound and complete;
-- `node_ref_key` injective;
-- NodeRef equality reflected by NodeKey equality;
-- same-shaped/different-source references are non-interchangeable;
-- repeated equal fragments in one source have distinct refs.
+- total `source_occurrence_of_ref`;
+- `ref_meta_matches_source`;
+- `node_kind_matches_source`;
+- `node_role_matches_source`;
+- parent metadata matches source;
+- subtree end matches source;
+- exact source fragment recovery for `fs_a` and `fs_b`;
+- equal leaves remain distinct references.
 
-Total queries
+Existing foundations remain gated
 
-- `ref_meta` total;
-- `node_kind` is the indexed kind, with no fallback;
-- `node_role` total;
-- `containing_file` is the carried FileRef;
-- parent root = None;
-- every non-root parent is Some valid reference;
-- children contain no dropped/invalid reference.
+- NodeTable laws;
+- builder structural well-formedness;
+- parent/child inverse;
+- same-file navigation;
+- ordered/NoDup children;
+- interval ancestry;
+- snapshot-local references;
+- exact outer index;
+- non-circular minting;
+- no copied subtree metadata;
+- no structural-equality deduplication.
 
-Navigation
+10.2 Assumption closure
 
-- parent/child inverse at the NodeRef level;
-- parent and child carry the same FileRef;
-- containing-file recovery;
-- canonical enumeration exact and NoDup;
-- children source-ordered;
-- interval ancestry sound and complete;
-- direct-child interval-jump sound and complete;
-- builder deterministic;
-- builder does not perform structural-equality search;
-- metadata stores no recursive syntax subtree.
+Every new public surface must print:
 
-Performance-shape surfaces
+  Closed under the global context
 
-Rocq need not prove a machine-cost model, but the code structure and abstraction
-must expose:
+with no axiom lines.
 
-- no `List.find`/linear file scan in navigation from NodeRef;
-- no `pos_seq` or descendant-list materialization in direct-child enumeration;
-- no repeated `index_forest` call inside query functions;
-- no list-backed NodeTable;
-- one outer slot lookup plus one local metadata lookup;
-- one index construction per snapshot.
+No:
 
-===============================================================================
-11. MODULE ABSTRACTION
-===============================================================================
+- `Admitted`;
+- `Axiom`;
+- `Parameter` escape outside ordinary sealed module signatures implemented by
+  closed definitions;
+- primitive array assumptions;
+- source-text axiom scanner.
 
-Keep `NodeTable` sealed.
+The whole-theory audit must include the complete spike.
 
-Also seal:
+10.3 Abstraction checks
 
-- `SyntaxIndex` constructors;
-- `FileRef` constructors;
-- `NodeRef` constructors.
+Add compile-time negative checks confirming these are not publicly accessible:
 
-Expose only:
+- raw `SyntaxIndex` constructor;
+- raw `FileRef` constructor;
+- raw `NodeRef` constructor;
+- public raw-slot `index_at`.
 
-- source/index builder;
-- canonical traversal;
-- validated raw lookup;
-- total navigation;
-- key/equality observations;
-- theorem surfaces.
-
-Do not expose a record constructor and simultaneously claim invalid or cross-snapshot
-references cannot be minted.
-
-Use proof-irrelevant validity evidence where it simplifies reference equality.
-
-Do not use kernel primitives.
+Do not expose an equivalent raw storage escape under another name.
 
 ===============================================================================
-12. MASTER PLAN AND STATUS RECONCILIATION
+11. PERFORMANCE AND RESPONSIBILITY AUDIT
 ===============================================================================
 
-Make targeted edits to `.review/SOURCE_FOREST_MASTER_PLAN.md` so the persistent
-architecture explicitly states:
+C0B must not regress the C0A performance shape.
 
-- `NodeRef` is indexed by the exact source snapshot, not by index data;
-- a NodeRef carries or directly projects a validated FileRef;
-- `containing_file`, `ref_meta`, `node_kind`, and `children_of` are total;
-- only `parent_of` is optional;
-- navigation from an existing NodeRef performs no file-list scan;
-- raw NodeKey lookup is a separate minting boundary with separately stated cost;
-- impossible index inconsistency has no semantic fallback.
+Ordinary navigation from an existing `NodeRef` remains:
 
-Do not rewrite the entire master plan.
+- containing file:
+  - O(1) projection;
 
-Update `.review/SOURCE_FOREST_STATUS.md` with:
+- metadata/kind/role/subtree end:
+  - one outer slot lookup;
+  - one per-file local lookup;
 
-- C0A commit range;
-- selected outer file-index access design;
-- exact corrected complexities;
-- source-snapshot regression;
-- total-query API;
-- Codex findings and repair SHAs;
-- final push;
-- human disposition pending.
+- parent:
+  - same metadata lookup plus direct construction;
 
-Do not erase the historical C0 Codex-green result.
-Record that human holistic review found a deeper architectural defect afterward.
+- children:
+  - one file-index acquisition;
+  - list-free interval jump proportional to direct children;
+
+- ancestry:
+  - same-file check;
+  - metadata lookup;
+  - constant arithmetic after lookup.
+
+Raw-key minting remains a separate boundary:
+
+- one path scan;
+- one outer lookup;
+- one local lookup;
+- no per-file index rebuild.
+
+The new source specification:
+
+- is table-free;
+- is not used by ordinary navigation;
+- may be linear in source size;
+- exists to specify and occasionally inspect exact source occurrences.
+
+Responsibility audit:
+
+- source syntax owns source fragments;
+- source occurrence specification states what local IDs mean;
+- builder constructs metadata;
+- exact theorem connects them;
+- index owns efficient navigation;
+- NodeRef owns snapshot-local occurrence identity;
+- no layer invents source semantics from a plausible fallback.
 
 ===============================================================================
-13. CODEX REVIEW CADENCE
+12. FINAL REVIEW BARRIER
 ===============================================================================
 
-This is a foundational correction, so use at most two intentional stops.
+After ROOT GREEN, complete:
 
-ROOT BARRIER
-
-Stop only after:
-
-- path-unique toy source snapshot exists;
-- `SyntaxIndex fs` exists;
-- `FileRef fs` exists;
-- `NodeRef fs` exists;
-- constructors are hidden;
-- ordinary navigation has no file-list scan;
-- total metadata/kind/file API exists;
-- same-shaped/different-source reference separation is pinned;
-- local proof gate is green.
+- lift through `Snap`;
+- total source occurrence recovery;
+- public exactness theorem;
+- delete/replace independent `node_at`;
+- remove public `index_at`;
+- mutation-sensitive fixtures;
+- master-plan reconciliation;
+- status update;
+- assumption gate;
+- complete verification.
 
 Commit:
 
-  milestone(root): C0A — source-indexed references and total navigation root
+  milestone(final): C0B — seal exact source-occurrence correspondence through NodeRef
 
-Codex-driven repairs:
+Any Codex-driven final repair must use:
 
-  review(root): C0A —
+  review(final): C0B —
 
-After root GREEN, continue without another progress stop.
+The final Codex review must inspect the complete C0B range.
 
-FINAL BARRIER
+The final review should specifically answer:
 
-Complete:
+1. Is the source occurrence specification independent of `build_file` and
+   NodeTable?
 
-- full theorem restatement;
-- NodeRef-level parent/child proofs;
-- source recovery fixtures;
-- master-plan/status reconciliation;
-- assumptions gate;
-- whole-theory audit;
-- complete repository checks;
-- generated-byte identity.
+2. Does the universal theorem pin kind, role, parent, and subtree end?
 
-Commit:
+3. Does it prove absence as well as presence?
 
-  milestone(final): C0A — close exact snapshot-local occurrence foundation
+4. Can a valid NodeRef recover one exact source occurrence without fallback?
 
-Final Codex repairs:
+5. Is `ref_meta` universally proved equal to that occurrence's metadata?
 
-  review(final): C0A —
+6. Would wrong kind/role/index assignments break the theorem?
+
+7. Is raw slot inspection absent from the public API?
+
+8. Did any second AST, copied syntax cache, parent pointer, or typed AST appear?
+
+9. Did ordinary navigation retain its established complexity?
+
+10. Did C1 remain untouched?
 
 After final GREEN:
 
-- run final verification;
-- commit any review/status completion;
+- run complete verification again;
+- run the staged-tree pre-commit gate;
+- commit any ledger-only final GREEN record without changing code/proofs;
 - fast-forward push;
 - notify Rob;
 - stop the loop;
-- do not activate C1.
+- do not begin C1.
 
 ===============================================================================
-14. FORBIDDEN SHORTCUTS
+13. ACCEPTANCE CRITERIA
 ===============================================================================
 
-Do not “fix” source binding by:
+Workflow
 
-- adding source payload hashes to NodeKey;
-- making syntax value equality part of occurrence identity;
-- copying syntax into NodeMeta;
-- indexing NodeRef by both source and an arbitrary index value;
-- packaging a free-standing index and merely storing the source beside it without a
-  correspondence theorem;
-- keeping partial queries and proving callers never see None;
-- mapping missing metadata to KFile or another default;
-- silently dropping invalid children;
-- carrying raw parent pointers in AST nodes;
-- adding a typed AST;
-- using a list outer table and relabeling its scan as constant/logarithmic;
-- selecting PArray/Uint63;
-- beginning C1 migration while C0A is incomplete.
+- C0B directive copied verbatim into `.review/NEXT_STEPS.md`.
+- Contract/status activation committed before implementation.
+- Exact `/loop 5m ...` command started.
+- At most two intentional Codex barriers used.
+- Root and review repairs have distinct commit prefixes.
+- Final and review repairs have distinct commit prefixes.
+- No progress stops.
+- C1 not started.
+- Final GREEN reached.
+- Verification green.
+- Fast-forward push complete.
+- Notification sent.
+- Loop stopped.
 
-===============================================================================
-15. ACCEPTANCE CRITERIA
-===============================================================================
+Source occurrence specification
 
-C0A is GREEN only when all are true:
+- Independent of NodeTable and builder.
+- Covers every toy occurrence.
+- Recovers exact original syntax fragments.
+- Derives correct kind.
+- Derives correct role.
+- Derives correct parent.
+- Derives correct subtree end.
+- No persistent second AST.
+- No copied syntax in metadata.
 
-Source coupling
+Exactness
 
-- `SyntaxIndex` is indexed by exact source snapshot.
-- `NodeRef` is indexed by exact source snapshot.
-- `FileRef` is indexed by exact source snapshot.
-- references from same-shaped but different-payload snapshots are non-interchangeable.
-- index/source correspondence is proved.
+- Universal per-file source/table equality.
+- Presence both directions.
+- Absence both directions.
+- Unique source occurrence per local ID.
+- Wrong metadata kind cannot satisfy theorem.
+- Wrong role cannot satisfy theorem.
+- Wrong parent cannot satisfy theorem.
+- Wrong subtree end cannot satisfy theorem.
+- Exact theorem is not merely concrete computation.
 
-File identity
+Sealed reference layer
 
-- toy source paths are unique by construction.
-- FileRef identity is path identity.
-- hidden file slots are optimization handles only.
-- containing file is O(1) projection from NodeRef.
+- Every valid NodeRef has a total exact source occurrence.
+- `ref_meta` equals source occurrence metadata.
+- `node_kind` equals source occurrence kind.
+- `node_role` equals source occurrence role.
+- parent metadata equals source occurrence parent.
+- subtree end equals source occurrence boundary.
+- Existing snapshot-local identity remains.
+- Existing total navigation remains.
+- Existing child/parent/ancestry proofs remain.
+- No fallback or silent filtering.
 
-Totality
+Abstraction
 
-- `ref_meta` total.
-- `node_kind` total, no KFile fallback.
-- `node_role` total.
-- `containing_file` total.
-- `children_of` total, no option filtering.
-- only root-parent absence remains a real `None`.
+- `index_at` removed from public `SNAP_SIG`.
+- Hidden slots remain private.
+- Raw constructors remain private.
+- No equivalent raw table escape.
+- Public facts are phrased through validated source references.
 
-Efficiency
+Documentation
 
-- no file-list scan in navigation from NodeRef.
-- parent/kind/meta use efficient table lookup.
-- direct children remain list-free interval jumps.
-- one index build per snapshot.
-- exact complexity claims match implementation.
-- raw key lookup cost is stated separately.
+- Root ID corrected to 1/current canonical ID.
+- Final exact `si_ok` design stated in headline record.
+- Historical fail-open repair remains in ledger.
+- Source recovery complexity stated honestly.
+- Exact source/metadata law added to C2 architecture.
+- C0B history recorded without rewriting C0/C0A history.
 
-Identity
+Proof and behavior
 
-- NodeRef equality is NodeKey equality.
-- proof/index handles do not create second identity.
-- equal fragments in different positions have distinct refs.
-- same key within one snapshot identifies one occurrence.
-- source recovery returns the exact source payload.
-
-Architecture
-
-- no parent pointer in AST.
-- no copied syntax authority.
-- no typed AST.
-- no kernel primitive.
-- no C1 work.
-- OccurrenceSpike remains temporary and isolated.
-
-Proof / integration
-
-- every new public theorem axiom-free.
-- whole-theory audit green.
-- no Admitted/Parameter/Axiom.
-- full `make check` green.
-- generated Go bytes unchanged.
-- pushed fast-forward.
-- loop stopped.
-- human disposition pending.
+- Every new public theorem axiom-free.
+- Whole-theory audit green.
+- Full `make check` green.
+- Existing generated bytes unchanged.
+- Existing Go e2e unchanged and green.
+- Staged-tree verification green.
 
 ===============================================================================
-16. COMPLETION REPORT
+14. COMPLETION REPORT
 ===============================================================================
 
-Report:
+When complete, report:
 
-- contract activation SHA;
+- C0B contract commit SHA;
 - root candidate SHA;
-- root Codex findings and repair SHAs;
+- every `review(root): C0B` SHA;
+- root Codex final result;
 - final candidate SHA;
-- final Codex findings and repair SHAs;
-- final pushed SHA/range;
-- exact `TForest` path-uniqueness shape;
-- exact `SyntaxIndex fs` representation;
-- exact `FileRef fs` representation;
-- exact `NodeRef fs` representation;
-- hidden file-slot role;
-- outer/per-file table design;
-- query complexities;
-- raw-key minting complexity;
-- total API signatures;
-- deleted fallback/option/filter branches;
-- same-shaped/different-source regression;
-- repeated-equal-leaf regression;
-- source recovery theorem;
-- parent/child NodeRef theorem;
-- complete Print Assumptions result;
+- every `review(final): C0B` SHA;
+- final Codex result;
+- complete C0B commit range;
+- exact independent source specification shape;
+- every function used by the source specification;
+- independence audit;
+- exact universal source/table theorem statement;
+- presence theorem;
+- absence theorem;
+- uniqueness theorem;
+- kind theorem;
+- role theorem;
+- parent theorem;
+- subtree-end theorem;
+- total NodeRef source-occurrence function;
+- sealed `ref_meta` source theorem;
+- handling/deletion of old `node_at`;
+- removal of public `index_at`;
+- negative abstraction checks;
+- mutation-sensitive witness layout;
+- exact kind fixtures;
+- exact role fixtures;
+- exact parent fixtures;
+- exact subtree fixtures;
+- theorem that would fail for each mutation category;
+- all new/changed assumption surfaces;
+- full `Print Assumptions` result;
 - whole-theory audit result;
-- full check result;
-- generated-byte identity result;
-- master-plan/status edits;
+- gate count;
+- generated-byte comparison;
+- e2e result;
+- staged pre-commit result;
+- master-plan corrections;
+- status-ledger corrections;
 - push result;
-- notification sent;
-- loop stopped;
-- explicit confirmation that C1 did not begin.
+- notification result;
+- confirmation loop stopped;
+- confirmation C1 not started.
+
+Do not list a retained correctness flaw as a known limitation.
+
+If a real obstacle requires changing the ownership, identity, or exactness design:
+
+- classify it as an ARCHITECTURAL CONFLICT;
+- notify Rob;
+- stop the loop;
+- wait.
 
 ===============================================================================
-17. HARD STOP
+15. HARD STOP
 ===============================================================================
 
-When C0A is Codex-green and final verification passes:
+When final Codex review is GREEN and final verification passes:
 
-1. Commit.
-2. Fast-forward push.
-3. Notify Rob.
-4. Stop the loop.
-5. Do not activate C1.
-6. Wait for human review.
+1. Commit the completed C0B checkpoint.
+2. Record the final GREEN result in the status ledger.
+3. Fast-forward push.
+4. Notify Rob.
+5. Stop the `/loop`.
+6. Do not activate C1.
+7. Wait for human review.
 
-Bottom line:
+===============================================================================
+BOTTOM LINE
+===============================================================================
 
-  The structural index may be reusable data.
+C0 proved that efficient occurrence indexing is feasible.
 
-  The occurrence reference is not reusable across source snapshots.
+C0A proved that references belong to the exact source snapshot and navigation is
+total and efficient.
 
-  A NodeRef means:
+C0B proves that the metadata behind each reference describes the exact source
+occurrence it claims to describe.
 
-    this exact occurrence
-    in this exact file
-    in this exact immutable source snapshot.
+The complete root becomes:
 
-  Once that proposition is carried intrinsically, structural navigation is total,
-  efficient, and honest.
+  exact immutable source snapshot
+      -> canonical source occurrence meaning
+      -> exact metadata builder correspondence
+      -> snapshot-local NodeRef
+      -> total efficient navigation
+      -> future compiler facts and diagnostics
+
+No source ambiguity.
+
+No structurally coherent mislabeling.
+
+No public raw storage escape.
+
+No second AST.
+
+No C1 work until this theorem boundary is human-approved.
