@@ -112,9 +112,11 @@ Updated only at checkpoint boundaries._
   `1 .. fi_count` by one canonical preorder pass.
 - Selected `NodeTable` representation: **a certified positive-key radix trie**, candidate A — but sealed
   behind an ABSTRACT `NodeTable` module (`Module Type NODE_TABLE` + opaque ascription): callers see only
-  `table`/`empty`/`get`/`set` and the three laws (`get_empty`/`get_set_same`/`get_set_other`); the trie
-  representation and its constructors are internal, so C2 can swap the physical table without disturbing any
-  caller.  Pure Gallina, EMPTY assumption closure, persistent, decidable-key ergonomics.
+  `table`/`empty`/`get`/`set` and the three laws (`get_empty`/`get_set_same`/`get_set_other`).  (C1A replaced
+  the original C0 project-authored trie with the STANDARD `FMapPositive.PositiveMap` (`Collections.NodeMapBase`);
+  the sealing hides the standard map's CONSTRUCTORS and RAW operations — NOT the choice of collection — so C2
+  RETAINS this selected standard positive map and does not swap it for another representation.)  EMPTY
+  assumption closure, decidable-key ergonomics.
 - Selected metadata fields: `NodeMeta { nm_kind : SyntaxKind ; nm_parent : option positive ;
   nm_role : NodeRole ; nm_subtree_end : positive }`.  No syntax-subtree copy (thm14); `subtree_end` powers the
   O(1) preorder-interval ancestor test and interval-scoped child enumeration.  `first_child`/`next_sibling`

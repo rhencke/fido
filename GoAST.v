@@ -111,8 +111,9 @@ Record GoSourceFile : Type := mkSourceFile {
   source_decls   : list TopLevelDeclSyntax
 }.
 
-(** A source file ROOT node: its placement path + its source.  ONE path authority — the path lives here, not
-    in a parallel outer-map key. *)
+(** A CONSTRUCTION / VIEW value pairing a placement path with its source — the input to the duplicate-rejecting
+    builder and a derived view of a map binding, NEVER the stored map value.  The ONE path authority is the
+    [GoFileMap] KEY (below), not this node's [file_path] field. *)
 Record GoFileNode : Type := mkFileNode {
   file_path   : FilePath;
   file_source : GoSourceFile

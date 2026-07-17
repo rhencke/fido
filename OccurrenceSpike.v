@@ -16,8 +16,10 @@
     (Int63/PArray), which Fido's standing law rule 4 forbids ("Never ... a kernel primitive").  A project-
     authored radix trie is REJECTED by C1A: Fido authors NO collection implementation.  The thin [NodeTable]
     wrapper below stores a [Collections.NodeMapBase] and proves its three laws directly from the standard map
-    facts — it contains no custom tree constructor; the sealed interface lets C2 swap it without disturbing any
-    caller.  A plain association [list] is likewise forbidden (an O(n) list-scan node-table lookup). *)
+    facts — it contains no custom tree constructor; the sealed interface hides the standard map's CONSTRUCTORS
+    and RAW operations (NOT the choice of collection) so callers cannot depend on internals, while C2 RETAINS
+    this selected standard positive map.  A plain association [list] is likewise forbidden (an O(n) list-scan
+    node-table lookup). *)
 
 From Stdlib Require Import PArith List Bool Lia Eqdep_dec Wf_nat Sorted String Recdef Arith.
 From Stdlib Require Import SetoidList.
@@ -25,10 +27,11 @@ From Fido Require Import FilePath Collections.
 Import ListNotations.
 
 (* ================================================================================================= *)
-(** ** The selected node table: an ABSTRACT interface, implemented internally by the STANDARD pinned-stdlib *)
+(** ** The SELECTED node table: an ABSTRACT interface, implemented internally by the STANDARD pinned-stdlib *)
 (*    positive-key map [Collections.NodeMapBase] ([FMapPositive]).  Callers see ONLY                       *)
-(*    [NodeTable.table]/[empty]/[get]/[set] and the three laws; the standard-map representation is sealed  *)
-(*    inside the module, so C2 may swap the physical table without disturbing any caller (Master Plan 4.9). *)
+(*    [NodeTable.table]/[empty]/[get]/[set] and the three laws; the sealing hides the standard map's        *)
+(*    CONSTRUCTORS and RAW operations, NOT the choice of collection — C2 RETAINS this selected standard      *)
+(*    positive map (it does not swap it for another representation; Master Plan 4.9). *)
 (* ================================================================================================= *)
 
 Module Type NODE_TABLE.
