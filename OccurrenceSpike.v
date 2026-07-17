@@ -190,6 +190,8 @@ Definition option_get {A} (o : option A) : o <> None -> A :=
   match o with Some a => fun _ => a | None => fun H => False_rect A (H eq_refl) end.
 Lemma option_get_eq {A} (o : option A) (H : o <> None) (a : A) : o = Some a -> option_get o H = a.
 Proof. intros Heq. subst o. reflexivity. Qed.
+Lemma option_get_some {A} (o : option A) : forall (H : o <> None), o = Some (option_get o H).
+Proof. destruct o as [a|]; intro H; [reflexivity | exfalso; exact (H eq_refl)]. Qed.
 
 (* the file occupying a 1-based slot in the snapshot; slots are the hidden structural handle. *)
 Definition forest_file_at (fs : TForest) (slot : positive) : option TFile :=
@@ -1250,36 +1252,9 @@ Proof.
   reflexivity.
 Qed.
 
-(* the source occurrence addressed by a preorder id (None if the id is a non-expression node or absent). *)
-Fixpoint occ_expr (me : positive) (e : TExpr) (target : positive) : option TExpr :=
-  if Pos.eqb target me then Some e
-  else match e with
-       | TLeaf _  => None
-       | TBin l r =>
-           if Pos.leb target (end_expr (Pos.succ me) l)
-           then occ_expr (Pos.succ me) l target
-           else occ_expr (Pos.succ (end_expr (Pos.succ me) l)) r target
-       end.
-Definition occ_stmt (me : positive) (s : TStmt) (target : positive) : option TExpr :=
-  match s with TPrint e => occ_expr (Pos.succ me) e target end.
-Fixpoint occ_stmts (me : positive) (ss : list TStmt) (target : positive) : option TExpr :=
-  match ss with
-  | [] => None
-  | s :: rest =>
-      if Pos.leb target (end_stmt me s) then occ_stmt me s target
-      else occ_stmts (Pos.succ (end_stmt me s)) rest target
-  end.
-Definition occ_decl (me : positive) (d : TDecl) (target : positive) : option TExpr :=
-  match d with TFun body => occ_stmts (Pos.succ me) body target end.
-Fixpoint occ_decls (me : positive) (ds : list TDecl) (target : positive) : option TExpr :=
-  match ds with
-  | [] => None
-  | d :: rest =>
-      if Pos.leb target (end_decl me d) then occ_decl me d target
-      else occ_decls (Pos.succ (end_decl me d)) rest target
-  end.
-Definition occ_file (f : TFile) (target : positive) : option TExpr :=
-  occ_decls (Pos.succ root_id) (tf_decls f) target.
+(* (The old expression-only [occ_*]/[occ_file] recovery locator is REMOVED in C0B: it was a second,
+   independent source-recovery authority.  Source recovery now goes through the ONE general
+   [source_occurrence_at] specification below, projected to an expression by [view_expr].) *)
 
 (* ================================================================================================= *)
 (** ** C0B: an INDEPENDENT source-occurrence specification (table-free, builder-independent).           *)
@@ -1308,6 +1283,10 @@ Record SourceOccurrence := mkOcc {
 (* the metadata an occurrence SHOULD carry — derived only from the occurrence, NEVER from the builder. *)
 Definition occurrence_meta (o : SourceOccurrence) : NodeMeta :=
   mkMeta (occurrence_kind o) (occurrence_parent o) (occurrence_role o) (occurrence_subtree_end o).
+
+(* the original expression fragment an occurrence's view carries (Some only for expression occurrences). *)
+Definition view_expr (o : SourceOccurrence) : option TExpr :=
+  match occurrence_view o with ViewExpression e => Some e | _ => None end.
 
 (* the occurrence a preorder id designates inside one expression subtree rooted at [me]. *)
 Fixpoint occ_expr' (parent : positive) (role : NodeRole) (me : positive) (e : TExpr) (target : positive)
@@ -1654,6 +1633,32 @@ Theorem source_subtree_end_exact : forall f local o,
   exists m, NodeTable.get local (fi_table (build_file f)) = Some m /\ nm_subtree_end m = occurrence_subtree_end o.
 Proof. intros f local o H. exists (occurrence_meta o). split; [apply source_occurrence_meta; exact H | reflexivity]. Qed.
 
+(* ============ C0B §8: mutation-sensitive fixtures over a nested two-declaration witness. ============ *)
+(* wf: decl0 = { println(10+20); println(30) }, decl1 = { println(40) }.  Preorder ids 1..11:
+   1 file / 2 decl0 / 3 stmt0 / 4 bin / 5 left-leaf / 6 right-leaf / 7 stmt1 / 8 leaf / 9 decl1 / 10 stmt / 11 leaf. *)
+Definition wpath : FilePath := mkFP "w.go"%string eq_refl.
+Definition wf : TFile :=
+  mkTFile wpath [ TFun [ TPrint (TBin (TLeaf 10) (TLeaf 20)) ; TPrint (TLeaf 30) ]
+                ; TFun [ TPrint (TLeaf 40) ] ].
+
+(* Each stored metadatum is derived from the UNIVERSAL theorem — rewrite by build_file_source_exact, then
+   compute the INDEPENDENT source spec — NEVER by unfolding the builder.  A wrong builder kind/role/parent/
+   index/subtree would make build_file_source_exact unprovable, so these pin exact per-occurrence labels. *)
+Ltac wf_meta := rewrite build_file_source_exact; vm_compute; reflexivity.
+Example wf_meta_root  : NodeTable.get 1  (fi_table (build_file wf)) = Some (mkMeta KFile       None    RFileRoot     11). Proof. wf_meta. Qed.
+Example wf_meta_decl0 : NodeTable.get 2  (fi_table (build_file wf)) = Some (mkMeta KDecl      (Some 1) (RFileDecl 0)  8). Proof. wf_meta. Qed.
+Example wf_meta_stmt0 : NodeTable.get 3  (fi_table (build_file wf)) = Some (mkMeta KStatement (Some 2) (RDeclStmt 0)  6). Proof. wf_meta. Qed.
+Example wf_meta_bin   : NodeTable.get 4  (fi_table (build_file wf)) = Some (mkMeta KExpression (Some 3) RStmtExpr      6). Proof. wf_meta. Qed.
+Example wf_meta_left  : NodeTable.get 5  (fi_table (build_file wf)) = Some (mkMeta KExpression (Some 4) (RChild 0)     5). Proof. wf_meta. Qed.
+Example wf_meta_right : NodeTable.get 6  (fi_table (build_file wf)) = Some (mkMeta KExpression (Some 4) (RChild 1)     6). Proof. wf_meta. Qed.
+Example wf_meta_stmt1 : NodeTable.get 7  (fi_table (build_file wf)) = Some (mkMeta KStatement (Some 2) (RDeclStmt 1)  8). Proof. wf_meta. Qed.
+Example wf_meta_leaf1 : NodeTable.get 8  (fi_table (build_file wf)) = Some (mkMeta KExpression (Some 7) RStmtExpr      8). Proof. wf_meta. Qed.
+Example wf_meta_decl1 : NodeTable.get 9  (fi_table (build_file wf)) = Some (mkMeta KDecl      (Some 1) (RFileDecl 1) 11). Proof. wf_meta. Qed.
+Example wf_meta_stmt2 : NodeTable.get 10 (fi_table (build_file wf)) = Some (mkMeta KStatement (Some 9) (RDeclStmt 0) 11). Proof. wf_meta. Qed.
+Example wf_meta_leaf2 : NodeTable.get 11 (fi_table (build_file wf)) = Some (mkMeta KExpression (Some 10) RStmtExpr    11). Proof. wf_meta. Qed.
+(* absence past the last occurrence — the universal theorem pins both directions. *)
+Example wf_meta_absent : NodeTable.get 12 (fi_table (build_file wf)) = None. Proof. wf_meta. Qed.
+
 
 (* ================================================================================================= *)
 (** ** C0A: source-snapshot-local references and TOTAL navigation.                                     *)
@@ -1677,7 +1682,6 @@ Module Type SNAP_SIG.
   Parameter NodeRef    : TForest -> Type.
   Parameter SyntaxIndex : TForest -> Type.
   Parameter index_forest : forall fs, SyntaxIndex fs.
-  Parameter index_at     : forall {fs}, SyntaxIndex fs -> positive -> option FileIndex.
   Parameter file_of_path : forall fs, FilePath -> option (FileRef fs).
   Parameter ref_of_key   : forall fs, SyntaxIndex fs -> NodeKey -> option (NodeRef fs).
   Parameter file_ref_file : forall {fs}, FileRef fs -> TFile.
@@ -1735,9 +1739,6 @@ Module Type SNAP_SIG.
     In cr (children_of idx r) -> parent_of idx cr = Some r.
   Parameter thm_parent_child : forall fs (idx : SyntaxIndex fs) (r pr : NodeRef fs),
     parent_of idx r = Some pr -> In r (children_of idx pr).
-  (* index exactness (§4): the index describes EXACTLY its source snapshot — no spurious/foreign entry. *)
-  Parameter thm_index_describes_forest : forall fs (idx : SyntaxIndex fs) (slot : positive),
-    index_at idx slot = match forest_file_at fs slot with Some f => Some (build_file f) | None => None end.
   (* NON-CIRCULAR source-membership minting (§§5,10): every source file / valid occurrence yields a handle. *)
   Parameter file_of_path_source : forall fs (slot : positive) (f : TFile),
     forest_file_at fs slot = Some f -> exists fr, file_of_path fs (tf_path f) = Some fr /\ file_ref_file fr = f.
@@ -1765,6 +1766,24 @@ Module Type SNAP_SIG.
       file_of_path fs (file_ref_path fra) = Some fra /\
       file_of_path fs (file_ref_path frb) = Some frb /\
       file_ref_path fra <> file_ref_path frb.
+  (* C0B: EXACT source-occurrence correspondence lifted through the sealed reference API (§6).  Every valid
+     reference has a TOTAL source occurrence whose metadata IS the metadata the reference returns — kind,
+     role, parent, and subtree end all pinned to the exact source occurrence, no fallback. *)
+  Parameter source_occurrence_of_ref : forall {fs}, NodeRef fs -> SourceOccurrence.
+  Parameter ref_meta_matches_source : forall fs (idx : SyntaxIndex fs) (r : NodeRef fs),
+    ref_meta idx r = occurrence_meta (source_occurrence_of_ref r).
+  Parameter node_kind_matches_source : forall fs (idx : SyntaxIndex fs) (r : NodeRef fs),
+    node_kind idx r = occurrence_kind (source_occurrence_of_ref r).
+  Parameter node_role_matches_source : forall fs (idx : SyntaxIndex fs) (r : NodeRef fs),
+    node_role idx r = occurrence_role (source_occurrence_of_ref r).
+  Parameter node_parent_matches_source : forall fs (idx : SyntaxIndex fs) (r : NodeRef fs),
+    nm_parent (ref_meta idx r) = occurrence_parent (source_occurrence_of_ref r).
+  Parameter node_subtree_end_matches_source : forall fs (idx : SyntaxIndex fs) (r : NodeRef fs),
+    node_subtree_end idx r = occurrence_subtree_end (source_occurrence_of_ref r).
+  (* §8 sealed-API leaf-reference fixtures (fs_a id 5 = left RChild 0 leaf). *)
+  Parameter reg_ref_kind_a5 : node_kind (index_forest fs_a) rleaf_a5 = KExpression.
+  Parameter reg_ref_role_a5 : node_role (index_forest fs_a) rleaf_a5 = RChild 0.
+  Parameter reg_ref_parent_a5 : nm_parent (ref_meta (index_forest fs_a) rleaf_a5) = Some 4%positive.
 End SNAP_SIG.
 
 (* --- raw-key minting COMPLETENESS foundations (top-level; only over the source snapshot + file builder) --- *)
@@ -2012,9 +2031,56 @@ Definition ref_of_key (fs : TForest) (idx : SyntaxIndex fs) (k : NodeKey) : opti
   | None => None
   end.
 
-(* source recovery: the exact source occurrence a reference addresses (proof/diagnostic view, table-free). *)
-Definition node_at {fs} (r : NodeRef fs) : option TExpr :=
-  occ_file (file_ref_file (node_ref_file r)) (node_ref_local r).
+(* --- C0B: lift EXACT source-occurrence correspondence through the sealed reference API (§6). --- *)
+
+(* a valid reference's occurrence EXISTS: validity means the id is populated, hence a source occurrence. *)
+Lemma source_occ_of_ref_some {fs} (r : NodeRef fs) :
+  source_occurrence_at (file_ref_file (node_ref_file r)) (node_ref_local r) <> None.
+Proof.
+  pose proof (node_ref_valid r) as Hv. unfold valid_localb in Hv.
+  destruct (NodeTable.get (node_ref_local r) (fi_table (build_file (file_ref_file (node_ref_file r))))) as [m|] eqn:E;
+    [|discriminate Hv].
+  destruct (meta_source_occurrence _ _ _ E) as [o [Ho _]]. rewrite Ho. discriminate.
+Qed.
+
+(* TOTAL source-occurrence recovery for a valid reference — no option, no semantic fallback (§6.1). *)
+Definition source_occurrence_of_ref {fs} (r : NodeRef fs) : SourceOccurrence :=
+  option_get (source_occurrence_at (file_ref_file (node_ref_file r)) (node_ref_local r))
+             (source_occ_of_ref_some r).
+
+Lemma source_occ_of_ref_eq {fs} (r : NodeRef fs) :
+  source_occurrence_at (file_ref_file (node_ref_file r)) (node_ref_local r)
+    = Some (source_occurrence_of_ref r).
+Proof. unfold source_occurrence_of_ref. apply option_get_some. Qed.
+
+(* THE permanent public theorem (§6.2): the metadata a valid reference returns IS this exact source
+   occurrence's metadata.  A structurally-coherent mislabeling would break it. *)
+Theorem ref_meta_matches_source {fs} (idx : SyntaxIndex fs) (r : NodeRef fs) :
+  ref_meta idx r = occurrence_meta (source_occurrence_of_ref r).
+Proof.
+  pose proof (ref_meta_get idx r) as Hget.
+  pose proof (build_file_source_exact (file_ref_file (node_ref_file r)) (node_ref_local r)) as HE.
+  rewrite (source_occ_of_ref_eq r) in HE. cbn [option_map] in HE.
+  rewrite Hget in HE. injection HE as HEq. exact HEq.
+Qed.
+
+(* §6.3 public projections — kind / role / parent / subtree end all equal the source occurrence's. *)
+Theorem node_kind_matches_source {fs} (idx : SyntaxIndex fs) (r : NodeRef fs) :
+  node_kind idx r = occurrence_kind (source_occurrence_of_ref r).
+Proof. unfold node_kind. rewrite ref_meta_matches_source. reflexivity. Qed.
+Theorem node_role_matches_source {fs} (idx : SyntaxIndex fs) (r : NodeRef fs) :
+  node_role idx r = occurrence_role (source_occurrence_of_ref r).
+Proof. unfold node_role. rewrite ref_meta_matches_source. reflexivity. Qed.
+Theorem node_parent_matches_source {fs} (idx : SyntaxIndex fs) (r : NodeRef fs) :
+  nm_parent (ref_meta idx r) = occurrence_parent (source_occurrence_of_ref r).
+Proof. rewrite ref_meta_matches_source. reflexivity. Qed.
+Theorem node_subtree_end_matches_source {fs} (idx : SyntaxIndex fs) (r : NodeRef fs) :
+  node_subtree_end idx r = occurrence_subtree_end (source_occurrence_of_ref r).
+Proof. unfold node_subtree_end. rewrite ref_meta_matches_source. reflexivity. Qed.
+
+(* source recovery (§6.4): the exact original expression fragment, projected from the ONE source-occurrence
+   view — no second recovery authority. *)
+Definition node_at {fs} (r : NodeRef fs) : option TExpr := view_expr (source_occurrence_of_ref r).
 
 (* ================================================================================================= *)
 (** ** C0A §9 regression — same paths + tree shape, DIFFERENT payloads => non-interchangeable refs.     *)
@@ -2055,10 +2121,22 @@ Definition rleaf_b5 : NodeRef fs_b :=
 (* §9.2 — a reference of fs_a is NOT usable as a reference of fs_b: type-level snapshot separation. *)
 Fail Definition reg_cross_snapshot : NodeRef fs_b := rleaf_a5.
 
-(* §9.3 / §9.4 — the SAME id recovers the exact per-snapshot source payload: TLeaf 5 in fs_a, TLeaf 6 in fs_b. *)
+(* §9.3 / §9.4 — the SAME id recovers the exact per-snapshot source payload: TLeaf 5 in fs_a, TLeaf 6 in fs_b.
+   node_at now projects the ONE general source-occurrence view (§6.4), not a second recovery authority. *)
 Theorem reg_node_at_a : node_at rleaf_a5 = Some (TLeaf 5).
 Proof. vm_compute. reflexivity. Qed.
 Theorem reg_node_at_b : node_at rleaf_b5 = Some (TLeaf 6).
+Proof. vm_compute. reflexivity. Qed.
+
+(* C0B §8 sealed-API fixtures: the validated left-leaf reference of fs_a recovers its EXACT kind / role /
+   parent / subtree end / source fragment THROUGH the sealed [*_matches_source] theorems (id 5 = RChild 0). *)
+Example reg_ref_kind_a5 : node_kind (index_forest fs_a) rleaf_a5 = KExpression.
+Proof. rewrite node_kind_matches_source. vm_compute. reflexivity. Qed.
+Example reg_ref_role_a5 : node_role (index_forest fs_a) rleaf_a5 = RChild 0.
+Proof. rewrite node_role_matches_source. vm_compute. reflexivity. Qed.
+Example reg_ref_parent_a5 : nm_parent (ref_meta (index_forest fs_a) rleaf_a5) = Some 4%positive.
+Proof. rewrite node_parent_matches_source. vm_compute. reflexivity. Qed.
+Example reg_ref_view_a5 : occurrence_view (source_occurrence_of_ref rleaf_a5) = ViewExpression (TLeaf 5).
 Proof. vm_compute. reflexivity. Qed.
 
 (* §9.5 — the two structurally EQUAL leaves inside fs_a are STILL distinct references (distinct keys). *)
@@ -2561,3 +2639,13 @@ Proof.
 Qed.
 
 End Snap.
+
+(* C0B §7 / §10.3 — negative ABSTRACTION checks: the raw physical storage handle and the raw record
+   constructors are NOT reachable through the sealed [Snap] interface (each [Check] FAILS, so [Fail Check]
+   succeeds).  The public API exposes exactness only through validated source references + theorem surfaces. *)
+Fail Check Snap.index_at.        (* removed public raw-slot lookup — internal only *)
+Fail Check Snap.mkSyntaxIndex.   (* raw index constructor hidden *)
+Fail Check Snap.mkFileRef.       (* raw file-ref constructor hidden *)
+Fail Check Snap.mkNodeRef.       (* raw node-ref constructor hidden *)
+Fail Check Snap.si_outer.        (* raw outer-table projection hidden *)
+Fail Check Snap.file_ref_slot.   (* hidden optimization slot not public *)

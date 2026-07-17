@@ -444,7 +444,7 @@ Print Assumptions OccurrenceSpike.child_enum.
 Print Assumptions OccurrenceSpike.child_enum_sound.
 Print Assumptions OccurrenceSpike.child_enum_reaches.
 Print Assumptions OccurrenceSpike.build_expr_end.
-Print Assumptions OccurrenceSpike.occ_file.
+Print Assumptions OccurrenceSpike.source_occurrence_at.
 Print Assumptions OccurrenceSpike.thm11_children_sorted.
 Print Assumptions OccurrenceSpike.thm_builder_no_structural_search.
 Print Assumptions OccurrenceSpike.thm13_interval_ancestry.
@@ -482,9 +482,10 @@ Print Assumptions OccurrenceSpike.Snap.file_ref_path_inj.
 Print Assumptions OccurrenceSpike.Snap.thm_child_parent.
 Print Assumptions OccurrenceSpike.Snap.thm_parent_child.
 Print Assumptions OccurrenceSpike.thm_builder_deterministic.
-(* C0A FINAL repair (review-driven): EXACT index/source correspondence, NON-CIRCULAR source-membership
-   minting, NodeRef-level canonical enumeration + ancestry, and the §9 erased-index/dup-path/two-file fixtures. *)
-Print Assumptions OccurrenceSpike.Snap.thm_index_describes_forest.
+(* C0A FINAL repair (review-driven): NON-CIRCULAR source-membership minting, NodeRef-level canonical
+   enumeration + ancestry, and the §9 erased-index/dup-path/two-file fixtures.  (The C0B FINAL barrier
+   removed the public raw-slot [Snap.thm_index_describes_forest] surface — index exactness is retained
+   INTERNAL to Snap and superseded on the public API by the stronger [Snap.ref_meta_matches_source] below.) *)
 Print Assumptions OccurrenceSpike.Snap.file_of_path_source.
 Print Assumptions OccurrenceSpike.Snap.ref_of_key_source.
 Print Assumptions OccurrenceSpike.Snap.thm_children_of_source_order.
@@ -506,3 +507,26 @@ Print Assumptions OccurrenceSpike.source_kind_exact.
 Print Assumptions OccurrenceSpike.source_role_exact.
 Print Assumptions OccurrenceSpike.source_parent_exact.
 Print Assumptions OccurrenceSpike.source_subtree_end_exact.
+(* C0B final: exact source correspondence lifted through the SEALED reference API — a valid NodeRef's
+   metadata IS its exact source occurrence's metadata (kind/role/parent/subtree), plus the mutation-sensitive
+   kind/role/parent/subtree fixtures over a nested-two-decl witness. *)
+Print Assumptions OccurrenceSpike.Snap.source_occurrence_of_ref.
+Print Assumptions OccurrenceSpike.Snap.ref_meta_matches_source.
+Print Assumptions OccurrenceSpike.Snap.node_kind_matches_source.
+Print Assumptions OccurrenceSpike.Snap.node_role_matches_source.
+Print Assumptions OccurrenceSpike.Snap.node_parent_matches_source.
+Print Assumptions OccurrenceSpike.Snap.node_subtree_end_matches_source.
+(* C0B §8 mutation-sensitive fixtures: exact per-occurrence kind/role/parent/subtree over the nested
+   two-decl witness (each derived from build_file_source_exact, never by unfolding the builder) + the
+   sealed-API leaf-reference recovery of fs_a. *)
+Print Assumptions OccurrenceSpike.wf_meta_root.
+Print Assumptions OccurrenceSpike.wf_meta_decl0.
+Print Assumptions OccurrenceSpike.wf_meta_stmt0.
+Print Assumptions OccurrenceSpike.wf_meta_bin.
+Print Assumptions OccurrenceSpike.wf_meta_left.
+Print Assumptions OccurrenceSpike.wf_meta_right.
+Print Assumptions OccurrenceSpike.wf_meta_decl1.
+Print Assumptions OccurrenceSpike.wf_meta_absent.
+Print Assumptions OccurrenceSpike.Snap.reg_ref_kind_a5.
+Print Assumptions OccurrenceSpike.Snap.reg_ref_role_a5.
+Print Assumptions OccurrenceSpike.Snap.reg_ref_parent_a5.

@@ -825,6 +825,13 @@ Navigation from an existing `NodeRef` performs NO file-list scan: the carried `F
 directly into the slot-keyed outer table (one outer lookup), then one per-file metadata lookup — O(log files)
 + O(log nodes/file), never a linear `List.find` over the files.
 
+Public storage abstraction (binding).  Raw file slots are HIDDEN — an optimization handle, never a public
+semantic identity.  There is NO public arbitrary `index_at slot` (raw physical file-slot / `FileIndex`)
+lookup; internal physical-table inspection and the exact `si_outer = outer_of fs` construction remain an
+implementation/proof detail.  Exactness is exposed only through validated source references and theorem
+surfaces — chiefly `ref_meta_matches_source` (a valid reference's metadata IS its exact source occurrence's
+metadata) and its kind/role/parent/subtree projections — never through raw slot inspection.
+
 Raw `NodeKey` lookup (`ref_of_key` / `file_of_path`) is a SEPARATE minting boundary with its own separately
 stated cost.  It is the one place a path is resolved by scanning the file list once (path → slot), then
 validated THROUGH the precomputed index (outer-slot + per-file lookup) — it never rebuilds the per-file
@@ -907,13 +914,15 @@ Do not add fields by reflex.
 
 The hot compiler path gets syntax and reference together during traversal.
 
-For occasional diagnostic inspection, a helper may recover a syntax occurrence by:
+For occasional diagnostic inspection, a helper recovers a syntax occurrence by re-traversing the source tree
+from the file root (a table-free preorder walk), which also carries the exact kind / role / parent / subtree
+metadata — it is the SAME independent specification theorem 15 proves the builder correct against.
 
-- following the parent chain;
-- using stored roles;
-- descending from the file root.
-
-That may cost O(depth), not O(file size).
+Honest cost: this proof/inspection source recovery may be O(file size) in the worst case (it can traverse
+preceding siblings and recompute structural boundaries).  It is NOT used by ordinary parent / kind / role /
+subtree navigation — those stay index-backed (one outer-slot lookup + one local lookup).  Production
+traversal (C2) supplies the original syntax fragment and its `NodeRef` together, so no copied source cache is
+justified now.
 
 Do not flatten and duplicate the entire AST merely to make rare random syntax inspection constant-time.
 
@@ -925,7 +934,7 @@ That must not become a second syntax authority.
 
 Prove at least:
 
-1. every file root has local ID zero;
+1. every file root has the one fixed canonical root local ID (currently positive `1`, `root_id = 1`);
 2. every file root has no parent;
 3. every non-root occurrence has exactly one parent;
 4. parent/child are inverse:
@@ -940,7 +949,16 @@ Prove at least:
 11. children are in source order;
 12. index construction is deterministic;
 13. preorder interval ancestry is sound and complete;
-14. metadata describes the original AST, not a copied invented tree.
+14. metadata describes the original AST, not a copied invented tree;
+15. EXACT per-occurrence source/metadata correspondence — proved against an INDEPENDENT, table-free,
+    builder-independent source-occurrence specification (never the builder projected back out): the metadata
+    stored at each local ID is exactly the metadata of the exact source occurrence that ID designates —
+    kind, role, parent, and subtree boundary — for every ID, in both presence and absence.  Structural tree
+    validity (theorems 1-14) does NOT subsume this: a structurally-coherent MISLABELING (a leaf marked as a
+    declaration, swapped child indexes, shifted declaration/statement indexes, a wrong parent or subtree end)
+    stays interval-correct yet attaches diagnostics and typed refinement to the WRONG source occurrence, and
+    only theorem 15 rejects it.  The production `GoIndex` (C2) must carry this exactness, and it is a C2
+    acceptance criterion.  Concrete fixtures supplement theorem 15 but never replace the universal proof.
 
 ===============================================================================
 PART 5 — RESOLUTION, TYPES, AND COMPILATION FACTS
