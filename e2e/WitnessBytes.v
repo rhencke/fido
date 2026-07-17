@@ -17,7 +17,7 @@ Definition boundary_bytes : string :=
  (String (ascii_of_nat 127) (String (ascii_of_nat 128)
  (String (ascii_of_nat 255) EmptyString)))).
 
-Definition bytes_file : GoFileAST := [ DMain [ SPrintln [ EString boundary_bytes ] ] ].
+Definition bytes_file (*decls*) : list GoDecl := [ DMain [ SPrintln [ EString boundary_bytes ] ] ].
 Definition bytes_module : ModuleSpec := mkModuleSpec (mkMP "fido.local/generated" eq_refl) Go1_23.
 Definition bytes_program : GoProgram := singleton_program bytes_module (mkFP "main.go" eq_refl) bytes_file.
 
@@ -25,7 +25,7 @@ Lemma bytes_valid : ProgValid bytes_program.
 Proof. apply prog_ok_iff. reflexivity. Qed.
 
 Definition bytes_compiled : CompilableProgram :=
-  mkCompilable bytes_program (mkFacts "main"%string) (conj eq_refl bytes_valid).
+  mkCompilable bytes_program bytes_valid.
 Definition bytes_safe : SafeProgram := certify bytes_compiled.
 
 Declare ML Module "fido.emit".

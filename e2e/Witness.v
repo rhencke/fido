@@ -49,7 +49,7 @@ Definition dc_1p5_0    : DecimalComplex := mkDC dm_1p5 dm_0.      (* complex(1.5
 Definition dc_3_0      : DecimalComplex := mkDC dm_3 dm_0.        (* complex(3.0, 0.0)  *)
 Definition dc_scar_0   : DecimalComplex := mkDC dm_scar dm_0.     (* complex(scar, 0.0) *)
 
-Definition demo_file : GoFileAST :=
+Definition demo_file (*decls*) : list GoDecl :=
   [ DMain [ SPrintln [ EBool true; EInt 42; ENeg 1; ENeg ((2 ^ 63)%N) ]
           ; SPrintln []
           ; SPrintln [ EBool false ]
@@ -107,7 +107,7 @@ Lemma demo_valid : ProgValid demo_program.
 Proof. apply prog_ok_iff. reflexivity. Qed.
 
 Definition demo_compiled : CompilableProgram :=
-  mkCompilable demo_program (mkFacts "main"%string) (conj eq_refl demo_valid).
+  mkCompilable demo_program demo_valid.
 Definition demo_safe : SafeProgram := certify demo_compiled.
 
 Declare ML Module "fido.emit".

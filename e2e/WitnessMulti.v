@@ -12,7 +12,7 @@ Definition m_root  : FilePath := mkFP "main.go" eq_refl.
 Definition m_extra : FilePath := mkFP "extra.go" eq_refl.          (* same (root) package, no main *)
 Definition m_sub   : FilePath := mkFP "sub/main.go" eq_refl.       (* a second main package *)
 
-Definition multi_entries : list (FilePath * GoFileAST) :=
+Definition multi_entries : list (FilePath * list GoDecl) :=
   [ (m_root,  [ DMain [ SPrintln [ EBool true; EInt 1 ] ] ])
   ; (m_extra, [])
   ; (m_sub,   [ DMain [ SPrintln [ ENeg 5 ] ] ]) ].
@@ -24,7 +24,7 @@ Lemma multi_valid : ProgValid multi_program.
 Proof. apply prog_ok_iff. vm_compute. reflexivity. Qed.
 
 Definition multi_compiled : CompilableProgram :=
-  mkCompilable multi_program (mkFacts "main"%string) (conj eq_refl multi_valid).
+  mkCompilable multi_program multi_valid.
 Definition multi_safe : SafeProgram := certify multi_compiled.
 
 Declare ML Module "fido.emit".

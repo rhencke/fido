@@ -1,7 +1,7 @@
 (** ============================================================================
     GoCompile — EXACT whole-PROGRAM static/compiler admissibility as EVIDENCE over the ONE raw program
     (the [GoProgram]: a [ModuleSpec] + a possibly-EMPTY finite map of files), plus the derived
-    [CompilationFacts] over that same program.  The empty program is accepted (no packages, one go.mod).
+    admissibility evidence ([ProgValid]) over that same program.  The empty program is accepted (no packages, one go.mod).
 
     Whole-program package policy (a deliberate exact GENERATOR-language subset — not a model of arbitrary
     human package clauses).  Because raw package clauses and imports are absent:
@@ -42,10 +42,10 @@ Open Scope Z_scope.
 (** ---- main-declaration counting (entry-point status is a compilation result) ---- *)
 
 Definition decl_is_main (d : GoDecl) : bool := match d with DMain _ => true end.
-Definition file_main_count (f : GoFileAST) : nat := List.length (List.filter decl_is_main f).
+Definition file_main_count (decls : list GoDecl) : nat := List.length (List.filter decl_is_main decls).
 
 (** total `main` declarations in one package (directory) across all its files. *)
-Definition main_count_in_dir (dir : string) (entries : list (FilePath * GoFileAST)) : nat :=
+Definition main_count_in_dir (dir : string) (entries : list (FilePath * list GoDecl)) : nat :=
   fold_right (fun e acc =>
     ((if String.eqb (fp_parent (fst e)) dir then file_main_count (snd e) else 0) + acc)%nat)
     0%nat entries.
@@ -78,37 +78,27 @@ Proof.
   reflexivity.
 Qed.
 
-(** ---- compilation facts over the SAME program ---- *)
+(** ---- whole-program admissibility over the SAME program ---- *)
 
-(** The compiler-derived facts a downstream stage consumes.  Today: the derived package clause name the
-    renderer emits (uniformly `main` under the current policy — a compilation RESULT, not raw metadata,
-    since raw files carry no package clause).  Indexed by [p] so richer per-program facts (symbol/type
-    tables) decorate this same program later without a second AST.  The static TYPING evidence over the
-    same [p] is NOT stored as a redundant field — it is a canonical projection from the compiled evidence
-    ([compile_program_typed]/[compilable_program_typed] below), since [GoCompile] already carries
-    [ProgValid p] whose first conjunct is [ProgramTyped p]. *)
-Record CompilationFacts (p : GoProgram) : Type := mkFacts {
-  cf_pkg_name : string
-}.
-Arguments mkFacts {p}.
-Arguments cf_pkg_name {p}.
-
-Definition GoCompile (p : GoProgram) (facts : CompilationFacts p) : Prop :=
-  cf_pkg_name facts = "main"%string /\ ProgValid p.
+(** [GoCompile p] IS whole-program admissibility: the program is typed through [GoTypes] AND every package
+    has exactly one `main`.  The package clause is now SOURCE-owned (each file's [source_package]), rendered
+    by [GoRender] — it is no longer a compiler-derived fact, so there is no [cf_pkg_name] / [CompilationFacts]
+    record: the compiled evidence is exactly [ProgValid p].  Richer per-program facts (symbol/type tables)
+    will decorate this same program later without a second AST; there is no unused placeholder now. *)
+Definition GoCompile (p : GoProgram) : Prop := ProgValid p.
 
 Record CompilableProgram : Type := mkCompilable {
   cp_program : GoProgram;
-  cp_facts   : CompilationFacts cp_program;
-  cp_ok      : GoCompile cp_program cp_facts
+  cp_ok      : GoCompile cp_program
 }.
 
 (** The compiled evidence EXPOSES that the same program is typed through [GoTypes] (§17): an immediate
     canonical projection, not a stored second copy of the typing proof. *)
-Theorem compile_program_typed : forall p facts, GoCompile p facts -> ProgramTyped p.
-Proof. intros p facts H; exact (proj1 (proj2 H)). Qed.
+Theorem compile_program_typed : forall p, GoCompile p -> ProgramTyped p.
+Proof. intros p H; exact (proj1 H). Qed.
 
 Theorem compilable_program_typed : forall cp : CompilableProgram, ProgramTyped (cp_program cp).
-Proof. intro cp; exact (compile_program_typed _ _ (cp_ok cp)). Qed.
+Proof. intro cp; exact (compile_program_typed _ (cp_ok cp)). Qed.
 
 (** ---- the proof-producing executable compiler ---- *)
 
@@ -127,7 +117,7 @@ Definition bool_sumbool (b : bool) : {b = true} + {b = false} :=
 
 Definition go_compile (p : GoProgram) : result CompileError CompilableProgram :=
   match bool_sumbool (prog_ok p) with
-  | left H  => Ok (mkCompilable p (mkFacts "main"%string) (conj eq_refl (proj1 (prog_ok_iff p) H)))
+  | left H  => Ok (mkCompilable p (proj1 (prog_ok_iff p) H))
   | right _ =>
       (* the whole program is typed but some package's `main` count is wrong, vs. a typing failure
          (a constant fitting no integer type, a non-integer conversion operand, or an invalid nested
@@ -137,7 +127,7 @@ Definition go_compile (p : GoProgram) : result CompileError CompilableProgram :=
 
 (** (A) internal exactness: [go_compile] accepts exactly the admissible programs, whole-program. *)
 Theorem go_compile_sound : forall p cp,
-  go_compile p = Ok cp -> cp_program cp = p /\ GoCompile (cp_program cp) (cp_facts cp).
+  go_compile p = Ok cp -> cp_program cp = p /\ GoCompile (cp_program cp).
 Proof.
   intros p cp Heq. split; [ | exact (cp_ok cp) ].
   revert Heq. unfold go_compile.
@@ -146,18 +136,18 @@ Proof.
   - destruct (program_typedb p); discriminate.
 Qed.
 
-Theorem go_compile_complete : forall p facts,
-  GoCompile p facts -> exists cp, go_compile p = Ok cp.
+Theorem go_compile_complete : forall p,
+  GoCompile p -> exists cp, go_compile p = Ok cp.
 Proof.
-  intros p facts [ _ Hvalid ]. apply (proj2 (prog_ok_iff p)) in Hvalid. unfold go_compile.
+  intros p Hvalid. apply (proj2 (prog_ok_iff p)) in Hvalid. unfold go_compile.
   destruct (bool_sumbool (prog_ok p)) as [ H' | H' ]; [ eexists; reflexivity | ].
   rewrite Hvalid in H'; discriminate.
 Qed.
 
 (** A rejected program yields no CompilableProgram (and hence no SafeProgram, no image). *)
-Lemma reject_no_compile : forall p facts, prog_ok p = false -> ~ GoCompile p facts.
+Lemma reject_no_compile : forall p, prog_ok p = false -> ~ GoCompile p.
 Proof.
-  intros p facts E [ _ Hvalid ]. apply (proj2 (prog_ok_iff p)) in Hvalid.
+  intros p E Hvalid. apply (proj2 (prog_ok_iff p)) in Hvalid.
   rewrite Hvalid in E; discriminate.
 Qed.
 
@@ -183,8 +173,8 @@ Definition over_program : GoProgram :=
 Example over_program_untyped   : program_typedb over_program = false.        Proof. reflexivity. Qed.
 Example over_program_not_ok    : prog_ok over_program = false.               Proof. reflexivity. Qed.
 Example over_program_rejected  : go_compile over_program = Err ErrTyping.    Proof. reflexivity. Qed.
-Example over_program_no_compile : forall facts, ~ GoCompile over_program facts.
-Proof. intro facts; exact (reject_no_compile over_program facts over_program_not_ok). Qed.
+Example over_program_no_compile : ~ GoCompile over_program.
+Proof. exact (reject_no_compile over_program over_program_not_ok). Qed.
 
 (** ---- integer-family programs (§12/§20): a concrete accepted integer program compiles; an invalid nested
     conversion rejects the WHOLE program with the same honest typing error, before any bytes. ---- *)
@@ -209,8 +199,8 @@ Definition bad_convert_program : GoProgram :=
     [ DMain [ SPrintln [ EIntConvert IUint8 (EIntConvert IInt (EInt 300)) ] ] ].
 Example bad_convert_untyped     : program_typedb bad_convert_program = false. Proof. reflexivity. Qed.
 Example bad_convert_rejected    : go_compile bad_convert_program = Err ErrTyping. Proof. reflexivity. Qed.
-Example bad_convert_no_compile  : forall facts, ~ GoCompile bad_convert_program facts.
-Proof. intro facts; exact (reject_no_compile bad_convert_program facts eq_refl). Qed.
+Example bad_convert_no_compile  : ~ GoCompile bad_convert_program.
+Proof. exact (reject_no_compile bad_convert_program eq_refl). Qed.
 
 (** ---- a concrete STRING program is whole-program admissible (§25): a single `main` whose `println`
     mixes a string literal with a bool and an int is typed and compiles to a [CompilableProgram]. ---- *)
@@ -248,8 +238,8 @@ Definition float_reject_program : GoProgram :=
 Example float_reject_untyped    : program_typedb float_reject_program = false. Proof. vm_compute. reflexivity. Qed.
 Example float_reject_rejected   : go_compile float_reject_program = Err ErrTyping.
 Proof. vm_compute. reflexivity. Qed.
-Example float_reject_no_compile : forall facts, ~ GoCompile float_reject_program facts.
-Proof. intro facts; apply (reject_no_compile float_reject_program facts); vm_compute; reflexivity. Qed.
+Example float_reject_no_compile : ~ GoCompile float_reject_program.
+Proof. apply (reject_no_compile float_reject_program); vm_compute; reflexivity. Qed.
 
 (** ---- §50 a whole COMPLEX program (bare complex default, complex64/complex128 conversions, a scalar->
     complex conversion, and a zero-imaginary complex->scalar conversion) is typed and compiles; a component-
@@ -276,8 +266,8 @@ Definition complex_overflow_program : GoProgram :=
     [ DMain [ SPrintln [ EComplexConvert C64 (EComplex (mkDC (mkDecimal 1 39 eq_refl) (mkDecimal 0 0 eq_refl))) ] ] ].
 Example complex_overflow_untyped    : program_typedb complex_overflow_program = false. Proof. vm_compute. reflexivity. Qed.
 Example complex_overflow_rejected   : go_compile complex_overflow_program = Err ErrTyping. Proof. vm_compute. reflexivity. Qed.
-Example complex_overflow_no_compile : forall facts, ~ GoCompile complex_overflow_program facts.
-Proof. intro facts; apply (reject_no_compile complex_overflow_program facts); vm_compute; reflexivity. Qed.
+Example complex_overflow_no_compile : ~ GoCompile complex_overflow_program.
+Proof. apply (reject_no_compile complex_overflow_program); vm_compute; reflexivity. Qed.
 
 Definition complex_nonzero_imag_program : GoProgram :=
   singleton_program
@@ -286,5 +276,5 @@ Definition complex_nonzero_imag_program : GoProgram :=
     [ DMain [ SPrintln [ EIntConvert IInt (EComplex (mkDC (mkDecimal 3 0 eq_refl) (mkDecimal 1 0 eq_refl))) ] ] ].
 Example complex_nonzero_imag_untyped    : program_typedb complex_nonzero_imag_program = false. Proof. vm_compute. reflexivity. Qed.
 Example complex_nonzero_imag_rejected   : go_compile complex_nonzero_imag_program = Err ErrTyping. Proof. vm_compute. reflexivity. Qed.
-Example complex_nonzero_imag_no_compile : forall facts, ~ GoCompile complex_nonzero_imag_program facts.
-Proof. intro facts; apply (reject_no_compile complex_nonzero_imag_program facts); vm_compute; reflexivity. Qed.
+Example complex_nonzero_imag_no_compile : ~ GoCompile complex_nonzero_imag_program.
+Proof. apply (reject_no_compile complex_nonzero_imag_program); vm_compute; reflexivity. Qed.

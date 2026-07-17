@@ -328,7 +328,7 @@ Definition eval_stmt (s : GoStmt) : list (option GoValue) :=
   match s with SPrintln args => map eval_expr args end.
 Definition eval_decl (d : GoDecl) : list (list (option GoValue)) :=
   match d with DMain body => map eval_stmt body end.
-Definition eval_file (f : GoFileAST) : list (list (option GoValue)) := flat_map eval_decl f.
+Definition eval_file (decls : list GoDecl) : list (list (option GoValue)) := flat_map eval_decl decls.
 
 (** ---- concrete evaluation fixtures ---- *)
 Example eval_int8_127  : eval_expr (EIntConvert IInt8 (EInt 127)) = Some (VInteger IInt8 127). Proof. reflexivity. Qed.
@@ -403,5 +403,5 @@ Definition certify (cp : CompilableProgram) : SafeProgram := mkSafe cp I.
 (** The certified program (what the public renderer/emitter traverse — only through SafeProgram). *)
 Definition sp_program (sp : SafeProgram) : GoProgram := cp_program (sp_compiled sp).
 
-(** The compiler-derived package name the renderer emits for this program's files. *)
-Definition sp_pkg_name (sp : SafeProgram) : string := cf_pkg_name (cp_facts (sp_compiled sp)).
+(** (The package name is no longer a compiler-derived fact: each file's package clause is SOURCE-owned
+    ([source_package]) and rendered by [GoRender].  There is no [sp_pkg_name]/[cf_pkg_name].) *)

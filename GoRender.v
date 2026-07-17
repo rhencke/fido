@@ -141,15 +141,20 @@ Definition render_decl (d : GoDecl) : string :=
 Fixpoint render_decls (ds : list GoDecl) : string :=
   match ds with [] => "" | d :: ds' => nl ++ render_decl d ++ render_decls ds' end.
 
-(** [render_file] is literally [header], the newline, then the package clause + declarations — so "the
-    header is the exact first line" is definitional.  The package NAME comes from CompilationFacts. *)
-Definition render_file (pkg : string) (f : GoFileAST) : string :=
-  header ++ String nl_c (nl ++ "package " ++ pkg ++ nl ++ render_decls f).
+(** The package clause as rendered bytes — SOURCE-owned ([source_package]).  Today only `package main`. *)
+Definition render_package_clause (pc : PackageClauseSyntax) : string :=
+  match pc with PkgMain => "main" end.
+
+(** [render_file] is literally [header], the newline, then the file's OWN package clause + declarations — so
+    "the header is the exact first line" is definitional.  The package name comes from the SOURCE. *)
+Definition render_file (f : GoSourceFile) : string :=
+  header ++ String nl_c (nl ++ "package " ++ render_package_clause (source_package f) ++ nl
+                            ++ render_decls (source_decls f)).
 
 (** The header is EXACTLY the first line (header, then the newline [nl_c]) — the ownership contract the
     sink reads with `input_line`, strictly stronger than "header is a prefix". *)
-Lemma render_file_first_line : forall pkg f, exists rest, render_file pkg f = header ++ String nl_c rest.
-Proof. intros pkg f. unfold render_file. eexists. reflexivity. Qed.
+Lemma render_file_first_line : forall f, exists rest, render_file f = header ++ String nl_c rest.
+Proof. intros f. unfold render_file. eexists. reflexivity. Qed.
 
 (** ---- the generated module file (go.mod), rendered directly from the ModuleSpec ---- *)
 
@@ -345,11 +350,11 @@ Proof.
   cbn [render_decls]. rewrite !str_ascii_app, render_decl_ascii, IH. reflexivity.
 Qed.
 
-(** The whole file is ASCII when the (compiler-derived) package name is. *)
-Theorem render_file_ascii : forall pkg f, str_ascii pkg = true -> str_ascii (render_file pkg f) = true.
+(** The whole file is ASCII — the source-owned package clause renders the all-ASCII `main`. *)
+Theorem render_file_ascii : forall f, str_ascii (render_file f) = true.
 Proof.
-  intros pkg f Hpkg. unfold render_file. rewrite str_ascii_app. cbn [str_ascii].
-  rewrite !str_ascii_app, Hpkg, render_decls_ascii. reflexivity.
+  intros f. unfold render_file. rewrite str_ascii_app. cbn [str_ascii].
+  rewrite !str_ascii_app, render_decls_ascii. destruct (source_package f); reflexivity.
 Qed.
 
 (** ---- go.mod is all-ASCII (the module path is ASCII by its grammar; the version renders `1.23`) ---- *)

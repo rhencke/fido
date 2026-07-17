@@ -617,7 +617,7 @@ Inductive StmtTyped : GoStmt -> Prop :=
 Inductive DeclTyped : GoDecl -> Prop :=
 | DTMain : forall body, Forall StmtTyped body -> DeclTyped (DMain body).
 
-Definition FileTyped (f : GoFileAST) : Prop := Forall DeclTyped f.
+Definition FileTyped (decls : list GoDecl) : Prop := Forall DeclTyped decls.
 
 Definition ProgramTyped (p : GoProgram) : Prop := Forall (fun e => FileTyped (snd e)) (prog_entries p).
 
@@ -625,7 +625,7 @@ Definition stmt_typedb (s : GoStmt) : bool :=
   match s with SPrintln args => forallb (expr_typedb UsePrintlnArg) args end.
 Definition decl_typedb (d : GoDecl) : bool :=
   match d with DMain body => forallb stmt_typedb body end.
-Definition file_typedb (f : GoFileAST) : bool := forallb decl_typedb f.
+Definition file_typedb (decls : list GoDecl) : bool := forallb decl_typedb decls.
 Definition program_typedb (p : GoProgram) : bool :=
   forallb (fun e => file_typedb (snd e)) (prog_entries p).
 

@@ -25,9 +25,10 @@ From Stdlib Require Import String List.
 From Fido Require Import FilePath FMap ModulePath GoVersion GoAST GoCompile GoSafe GoRender.
 Import ListNotations.
 
-(** The raw rendered `.go` map of a safe program (internal). *)
+(** The raw rendered `.go` map of a safe program (internal): each source file rendered (package clause from
+    its own [source_package]), keyed by its path — paths unique by construction. *)
 Definition render_map (sp : SafeProgram) : fmap FilePath string :=
-  fm_map (render_file (sp_pkg_name sp)) (prog_files (sp_program sp)).
+  fileset_fmap render_file (prog_files (sp_program sp)).
 
 (** The rendered go.mod of a safe program (from its module spec). *)
 Definition render_go_mod_of (sp : SafeProgram) : string :=
@@ -52,11 +53,6 @@ Definition di_go_file_entries (img : DirectoryImage) : list (string * string) :=
 Definition di_transport (img : DirectoryImage) : string * list (string * string) :=
   (di_go_mod img, di_go_file_entries img).
 
-(** ---- the compiler-derived package name is `main` (from the compile proof) ---- *)
-
-Lemma sp_pkg_name_main : forall sp, sp_pkg_name sp = "main"%string.
-Proof. intro sp; unfold sp_pkg_name; exact (proj1 (cp_ok (sp_compiled sp))). Qed.
-
 (** ---- go.mod facts (over EVERY DirectoryImage, via provenance) ---- *)
 
 (** The go.mod begins with the exact header AS THE FIRST LINE. *)
@@ -78,7 +74,8 @@ Qed.
 
 Lemma render_map_list : forall sp,
   fm_list (render_map sp)
-  = List.map (fun kv => (fst kv, render_file (sp_pkg_name sp) (snd kv))) (prog_entries (sp_program sp)).
+  = List.map (fun n => (file_path n, render_file (file_source n)))
+             (file_members (prog_files (sp_program sp))).
 Proof. reflexivity. Qed.
 
 (** Every emitted `.go` file's bytes begin with the exact header AS THE FIRST LINE. *)
@@ -88,19 +85,19 @@ Proof.
   intros img path bytes H. destruct (di_prov img) as [ sp [ _ Hm ] ].
   unfold di_go_file_entries in H; rewrite Hm in H.
   rewrite render_map_list, List.map_map in H. apply List.in_map_iff in H.
-  destruct H as [ [k f] [Heq _] ]. simpl in Heq. injection Heq as _ Hb. subst bytes.
+  destruct H as [ n [Heq _] ]. simpl in Heq. injection Heq as _ Hb. subst bytes.
   apply render_file_first_line.
 Qed.
 
-(** Every emitted `.go` file's bytes are ASCII (the derived package name `main` is ASCII). *)
+(** Every emitted `.go` file's bytes are ASCII (the source-owned package clause renders the ASCII `main`). *)
 Lemma render_program_ascii : forall img path bytes,
   In (path, bytes) (di_go_file_entries img) -> str_ascii bytes = true.
 Proof.
   intros img path bytes H. destruct (di_prov img) as [ sp [ _ Hm ] ].
   unfold di_go_file_entries in H; rewrite Hm in H.
   rewrite render_map_list, List.map_map in H. apply List.in_map_iff in H.
-  destruct H as [ [k f] [Heq _] ]. simpl in Heq. injection Heq as _ Hb. subst bytes.
-  apply render_file_ascii. rewrite sp_pkg_name_main. reflexivity.
+  destruct H as [ n [Heq _] ]. simpl in Heq. injection Heq as _ Hb. subst bytes.
+  apply render_file_ascii.
 Qed.
 
 (** Duplicate on-disk `.go` paths are impossible in any image. *)

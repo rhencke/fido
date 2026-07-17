@@ -269,6 +269,19 @@ Print Assumptions GoTypes.cplx64_tiny_imag_rounds_zero.
 Print Assumptions GoTypes.int_of_cplx64_tiny_imag_ok.
 Print Assumptions GoTypes.int_of_cplx64_tiny_imag_is_3.
 
+(* C1: the path-keyed SOURCE FOREST ([GoFileSet]) — path uniqueness (duplicate paths UNREPRESENTABLE) and the
+   lookup laws (find sound/complete/functional), the semantic file-set equality equivalence, and the
+   duplicate-rejecting builder.  ONE path authority; the package clause is source-owned. *)
+Print Assumptions GoAST.dup_path_unrepresentable.
+Print Assumptions GoAST.find_file_sound.
+Print Assumptions GoAST.find_file_complete.
+Print Assumptions GoAST.find_file_fun.
+Print Assumptions GoAST.FilesEqual_refl.
+Print Assumptions GoAST.FilesEqual_sym.
+Print Assumptions GoAST.FilesEqual_trans.
+Print Assumptions GoAST.fileset_of_list_members.
+Print Assumptions GoAST.fileset_entries_keys.
+
 (* GoCompile (A) internal exactness: whole-program prog_ok reflects the declarative judgment; go_compile
    sound + complete against it; a rejected program yields no CompilableProgram; the compiled evidence exposes
    that the same program is typed; the empty program is accepted; a concrete integer-family program compiles;

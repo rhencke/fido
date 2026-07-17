@@ -15,7 +15,7 @@ Lemma empty_valid : ProgValid empty_prog.
 Proof. apply prog_ok_iff. reflexivity. Qed.
 
 Definition empty_compiled : CompilableProgram :=
-  mkCompilable empty_prog (mkFacts "main"%string) (conj eq_refl empty_valid).
+  mkCompilable empty_prog empty_valid.
 Definition empty_safe : SafeProgram := certify empty_compiled.
 
 (* the empty source map builds, compiles, and renders NO .go files *)
