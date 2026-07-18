@@ -823,6 +823,108 @@ Proof.
        | cbn [andb option_map]; rewrite IHx; reflexivity ].
 Qed.
 
+Lemma forallb_andb {A} (f g : A -> bool) (l : list A) :
+  forallb (fun x => f x && g x) l = forallb f l && forallb g l.
+Proof.
+  induction l as [|a l IH]; simpl; [reflexivity|]. rewrite IH.
+  destruct (f a), (g a), (forallb f l), (forallb g l); reflexivity.
+Qed.
+
+(** a conversion-operand occurrence is always default-OK (only a println-arg root can default-fail). *)
+Lemma occ_default_ok_operand : forall e par sub,
+  occ_default_ok (GoIndex.mkOcc GoIndex.KExpression (GoIndex.ViewExpression e) (Some par) GoIndex.RConversionOperand sub) = true.
+Proof. reflexivity. Qed.
+
+Lemma occ_default_ok_operand_true : forall e parent me,
+  forallb (fun x => occ_default_ok (snd x)) (GoIndex.occs_expr parent GoIndex.RConversionOperand me e) = true.
+Proof.
+  induction e as [ b|n1|n2|s| it x IHx | df | ft x IHx | dcx | ct x IHx ];
+    intros parent me; cbn [GoIndex.occs_expr forallb snd]; rewrite occ_default_ok_operand.
+  1,2,3,4,6,8: reflexivity.
+  all: rewrite Bool.andb_true_l; apply IHx.
+Qed.
+
+(** a println-argument root occurrence is default-OK IFF its untyped constant defaults (typed / failed = OK). *)
+Lemma occ_default_ok_printlnarg : forall e par aidx sub,
+  occ_default_ok (GoIndex.mkOcc GoIndex.KExpression (GoIndex.ViewExpression e) (Some par) (GoIndex.RPrintlnArg aidx) sub)
+  = match const_info e with Some (CIUntyped c) => match default_const c with Some _ => true | None => false end | _ => true end.
+Proof.
+  intros e par aidx sub. unfold occ_default_ok.
+  cbn [GoIndex.view_expr GoIndex.occurrence_view arg_default_failure GoIndex.occurrence_role].
+  destruct (const_info e) as [[c|t tc]|]; [ destruct (default_const c) | | ]; reflexivity.
+Qed.
+
+Lemma occ_default_fold_arg : forall e parent aidx me,
+  forallb (fun x => occ_default_ok (snd x)) (GoIndex.occs_expr parent (GoIndex.RPrintlnArg aidx) me e)
+  = match const_info e with Some (CIUntyped c) => match default_const c with Some _ => true | None => false end | _ => true end.
+Proof.
+  intros e parent aidx me. destruct e as [ b|n1|n2|s| it x|df|ft x|dcx|ct x ];
+    cbn [GoIndex.occs_expr forallb snd].
+  1,2,3,4,6,8: rewrite Bool.andb_true_r; apply occ_default_ok_printlnarg.
+  all: rewrite occ_default_ok_operand_true, Bool.andb_true_r; apply occ_default_ok_printlnarg.
+Qed.
+
+(** ONE println argument's occurrence stream emits nothing IFF the argument resolves ([expr_typedb]). *)
+Lemma occ_emits_arg : forall e parent aidx me,
+  forallb (fun x => occ_emits_none_pure (snd x)) (GoIndex.occs_arg parent aidx me e) = expr_typedb UsePrintlnArg e.
+Proof.
+  intros e parent aidx me. unfold GoIndex.occs_arg, occ_emits_none_pure.
+  rewrite forallb_andb, conv_ok_fold, occ_default_fold_arg.
+  unfold expr_typedb, resolve_expr, resolve_expr_const.
+  destruct (const_info e) as [[c|t tc]|]; cbn [resolve_const_info].
+  - destruct (default_const c) as [rc|]; cbn [option_map]; [ rewrite use_allowsb_println_true |]; reflexivity.
+  - cbn [option_map]. rewrite use_allowsb_println_true. reflexivity.
+  - cbn [option_map]. reflexivity.
+Qed.
+
+Lemma occ_emits_args : forall es parent aidx me,
+  forallb (fun x => occ_emits_none_pure (snd x)) (GoIndex.occs_args parent aidx me es)
+  = forallb (expr_typedb UsePrintlnArg) es.
+Proof.
+  induction es as [|e rest IH]; intros parent aidx me; [reflexivity|].
+  cbn [GoIndex.occs_args]. rewrite forallb_app, occ_emits_arg, IH. reflexivity.
+Qed.
+
+Lemma occ_emits_stmt : forall s parent sidx me,
+  forallb (fun x => occ_emits_none_pure (snd x)) (GoIndex.occs_stmt parent sidx me s) = stmt_typedb s.
+Proof.
+  intros [args] parent sidx me.
+  cbn [GoIndex.occs_stmt forallb occ_emits_none_pure occ_local_ok occ_default_ok snd
+       GoIndex.view_expr GoIndex.occurrence_view].
+  rewrite occ_emits_args. reflexivity.
+Qed.
+
+Lemma occ_emits_stmts : forall ss parent sidx me,
+  forallb (fun x => occ_emits_none_pure (snd x)) (GoIndex.occs_stmts parent sidx me ss) = forallb stmt_typedb ss.
+Proof.
+  induction ss as [|s rest IH]; intros parent sidx me; [reflexivity|].
+  cbn [GoIndex.occs_stmts]. rewrite forallb_app, occ_emits_stmt, IH. reflexivity.
+Qed.
+
+Lemma occ_emits_decl : forall d parent didx me,
+  forallb (fun x => occ_emits_none_pure (snd x)) (GoIndex.occs_decl parent didx me d) = decl_typedb d.
+Proof.
+  intros [body] parent didx me.
+  cbn [GoIndex.occs_decl forallb occ_emits_none_pure occ_local_ok occ_default_ok snd
+       GoIndex.view_expr GoIndex.occurrence_view].
+  rewrite occ_emits_stmts. reflexivity.
+Qed.
+
+Lemma occ_emits_decls : forall ds parent didx me,
+  forallb (fun x => occ_emits_none_pure (snd x)) (GoIndex.occs_decls parent didx me ds) = forallb decl_typedb ds.
+Proof.
+  induction ds as [|d rest IH]; intros parent didx me; [reflexivity|].
+  cbn [GoIndex.occs_decls]. rewrite forallb_app, occ_emits_decl, IH. reflexivity.
+Qed.
+
+Lemma occ_emits_file : forall f,
+  forallb (fun x => occ_emits_none_pure (snd x)) (GoIndex.occs_file f) = source_file_typedb f.
+Proof.
+  intros f. unfold GoIndex.occs_file. destruct (source_imports f) as [|i tl]; [| destruct i].
+  cbn [forallb occ_emits_none_pure occ_local_ok occ_default_ok snd GoIndex.view_expr GoIndex.occurrence_view].
+  rewrite occ_emits_decls. unfold source_file_typedb, file_typedb. reflexivity.
+Qed.
+
 (** [GoCompile p] IS whole-program admissibility: the program is typed through [GoTypes] AND every package
     has exactly one `main`.  The package clause is now SOURCE-owned (each file's [source_package]), rendered
     by [GoRender] — it is no longer a compiler-derived fact, so there is no [cf_pkg_name] / [CompilationFacts]
