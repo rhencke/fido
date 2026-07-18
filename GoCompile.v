@@ -426,6 +426,54 @@ Lemma diagnostic_code_primary_consistent : forall p (d : DiagnosticReason p),
   end.
 Proof. intros p [pr o t s|pr c dt|l e|pk]; cbn; exact I. Qed.
 
+(* ============================================================================================================
+   §10 (C3) — occurrence-keyed expression facts.  ONE fact value per expression occurrence: its exact constant
+   status ([const_info]) plus, ONLY for a use-context (println-argument) occurrence, its resolved constant
+   ([resolve_expr_const UsePrintlnArg]).  Type and resolved exact value are PROJECTIONS from the one
+   [ResolvedConst] — no parallel type map that could disagree.  Facts store semantic values only (never a
+   GoExpr / SourceOccurrence / rewritten syntax).
+   ============================================================================================================ *)
+
+Record ExprFact : Type := mkExprFact {
+  ef_const_status : ConstInfo ;
+  ef_use_resolved : option ResolvedConst
+}.
+
+Definition resolved_type_at (f : ExprFact) : option GoType :=
+  option_map resolved_const_type (ef_use_resolved f).
+Definition resolved_constant_at (f : ExprFact) : option GoConst :=
+  option_map resolved_const_exact (ef_use_resolved f).
+
+(** the use-context resolution an occurrence carries: [Some rc] EXACTLY for a println-argument expression that
+    resolves, else [None] (a conversion operand / internal expression, or a non-resolving argument). *)
+Definition occ_use_resolved (o : GoIndex.SourceOccurrence) : option ResolvedConst :=
+  match GoIndex.occurrence_role o with
+  | GoIndex.RPrintlnArg _ =>
+      match GoIndex.view_expr o with Some e => resolve_expr_const UsePrintlnArg e | None => None end
+  | _ => None
+  end.
+
+(** the fact of a single occurrence: [Some] exactly for an expression occurrence whose [const_info] succeeds. *)
+Definition occ_expr_fact (o : GoIndex.SourceOccurrence) : option ExprFact :=
+  match GoIndex.view_expr o with
+  | Some e => match const_info e with
+              | Some ci => Some (mkExprFact ci (occ_use_resolved o))
+              | None => None
+              end
+  | None => None
+  end.
+
+(** an occurrence has a fact IFF it is an expression whose const_info succeeds; the fact's status is exactly
+    that [const_info], and its resolved field is exactly the occurrence's use-context resolution. *)
+Lemma occ_expr_fact_status : forall o e ci,
+  GoIndex.view_expr o = Some e -> const_info e = Some ci ->
+  occ_expr_fact o = Some (mkExprFact ci (occ_use_resolved o)).
+Proof. intros o e ci Hv Hc. unfold occ_expr_fact. rewrite Hv, Hc. reflexivity. Qed.
+
+Lemma occ_expr_fact_none_nonexpr : forall o,
+  GoIndex.view_expr o = None -> occ_expr_fact o = None.
+Proof. intros o Hv. unfold occ_expr_fact. rewrite Hv. reflexivity. Qed.
+
 (** [GoCompile p] IS whole-program admissibility: the program is typed through [GoTypes] AND every package
     has exactly one `main`.  The package clause is now SOURCE-owned (each file's [source_package]), rendered
     by [GoRender] — it is no longer a compiler-derived fact, so there is no [cf_pkg_name] / [CompilationFacts]
