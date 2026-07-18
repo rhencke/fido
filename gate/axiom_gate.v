@@ -490,6 +490,32 @@ Print Assumptions GoIndex.source_kind_exact.
 Print Assumptions GoIndex.source_role_exact.
 Print Assumptions GoIndex.source_parent_exact.
 Print Assumptions GoIndex.source_subtree_end_exact.
+(* GoIndex Pillar 2 — the structural navigation invariants over the built per-file index: the file index is
+   well-formed; root id canonical / no parent, only the root has no parent, every non-root has a unique
+   parent; the interval-jump direct-child enumeration is sound + complete (parent/child inverse) and source-
+   ordered; the O(1) preorder-interval ancestor test is sound + complete; canonical enumeration is
+   sound/complete/NoDup; the builder branches only on SHAPE (no structural-equality dedup); metadata stores no
+   subtree copy. *)
+Print Assumptions GoIndex.build_file_wf.
+Print Assumptions GoIndex.thm1_root_id_canonical.
+Print Assumptions GoIndex.thm2_root_no_parent.
+Print Assumptions GoIndex.thm3_nonroot_has_parent.
+Print Assumptions GoIndex.thm3b_parent_unique.
+Print Assumptions GoIndex.first_child.
+Print Assumptions GoIndex.next_child.
+Print Assumptions GoIndex.child_enum.
+Print Assumptions GoIndex.child_enum_sound.
+Print Assumptions GoIndex.child_enum_reaches.
+Print Assumptions GoIndex.thm4_child_has_parent.
+Print Assumptions GoIndex.thm4_parent_has_child.
+Print Assumptions GoIndex.thm11_children_sorted.
+Print Assumptions GoIndex.anc_complete.
+Print Assumptions GoIndex.thm13_interval_ancestry.
+Print Assumptions GoIndex.thm7_enum_nodup.
+Print Assumptions GoIndex.thm7_enum_complete.
+Print Assumptions GoIndex.thm7_enum_sound.
+Print Assumptions GoIndex.thm_builder_no_structural_search.
+Print Assumptions GoIndex.thm14_meta_stores_no_subtree.
 
 (* OccurrenceSpike (Source Forest C0): the ISOLATED occurrence-index proof spike — the certified positive-key
    trie laws, the builder well-formedness, and the C0.4 structural theorem set (root id canonical / no parent,
