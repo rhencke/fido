@@ -1468,28 +1468,42 @@ Proof.
   unfold list_dir_mem. apply existsb_exists. exists b. split; [ exact Hb | apply String.eqb_eq; exact Hpar ].
 Qed.
 
-Definition pkg_diag_of (p : GoProgram) (b : string * PackageSummary) : list (DiagnosticReason p) :=
+(* A non-conforming package is diagnosed with a STRUCTURED reason anchored in the exact snapshot:
+   - two or more mains -> [DRDuplicateMain] over the FIRST two canonical main [DeclRef]s of the bucket
+     ([later_primary] = the second/first-redundant main; [earlier_related] = the first main);
+   - zero mains -> [DRMissingMain] anchored at the validated [PackageRef].
+   The canonical bucket order (FileMap-path then local NodeKey) makes the duplicate anchors deterministic;
+   evidence is never overwritten (the bucket preserves every main). *)
+Definition pkg_diag_of {p} (idx : GoIndex.Snap.SyntaxIndex p) (b : string * PackageSummary)
+  : list (DiagnosticReason p) :=
   if Nat.eqb (ps_main_count (snd b)) 1 then []
-  else match bool_sb (package_present_b p (fst b)) with
-       | left H  => [ DRMissingMain (mkPackageRef p (fst b) H) ]
-       | right _ => []
+  else match PM.find (fst b) (package_main_refs idx) with
+       | Some (d1 :: d2 :: _) => [ DRDuplicateMain d2 d1 ]
+       | _ => match bool_sb (package_present_b p (fst b)) with
+              | left H  => [ DRMissingMain (mkPackageRef p (fst b) H) ]
+              | right _ => []
+              end
        end.
 
-Definition pkg_diags (p : GoProgram) : list (DiagnosticReason p) :=
-  flat_map (pkg_diag_of p) (PM.elements (package_summaries (prog_files p))).
+Definition pkg_diags {p} (idx : GoIndex.Snap.SyntaxIndex p) : list (DiagnosticReason p) :=
+  flat_map (pkg_diag_of idx) (PM.elements (package_summaries (prog_files p))).
 
-(** THE PACKAGE COMPLETENESS: no package diagnostic IFF every package has exactly one main ([pkg_all_ok]). *)
-Lemma pkg_diags_empty_iff (p : GoProgram) : pkg_diags p = nil <-> pkg_all_ok p = true.
+(** THE PACKAGE COMPLETENESS: no package diagnostic IFF every package has exactly one main ([pkg_all_ok]).
+    (A non-conforming package always emits — [DRDuplicateMain] when the bucket has >=2 refs, else
+    [DRMissingMain], since a summary element's package is always represented.) *)
+Lemma pkg_diags_empty_iff {p} (idx : GoIndex.Snap.SyntaxIndex p) : pkg_diags idx = nil <-> pkg_all_ok p = true.
 Proof.
   unfold pkg_diags, pkg_all_ok. rewrite flat_map_nil_forallb.
-  assert (Heq : forallb (fun x => match pkg_diag_of p x with nil => true | _ => false end)
+  assert (Heq : forallb (fun x => match pkg_diag_of idx x with nil => true | _ => false end)
                         (PM.elements (package_summaries (prog_files p)))
               = forallb (fun b => Nat.eqb (ps_main_count (snd b)) 1)
                         (PM.elements (package_summaries (prog_files p)))).
   { apply GoTypes.forallb_ext_in. intros [dir s] Hin. unfold pkg_diag_of. cbn [fst snd].
     destruct (Nat.eqb (ps_main_count s) 1) eqn:E; [ reflexivity |].
-    destruct (bool_sb (package_present_b p dir)) as [H|H]; [ reflexivity |].
-    rewrite (summary_elem_present p dir s Hin) in H. discriminate H. }
+    destruct (PM.find dir (package_main_refs idx)) as [[|d1 [|d2 rest]]|] eqn:Eb;
+      try reflexivity;
+      (destruct (bool_sb (package_present_b p dir)) as [H|H]; [ reflexivity |];
+       rewrite (summary_elem_present p dir s Hin) in H; discriminate H). }
   rewrite Heq. reflexivity.
 Qed.
 
@@ -1501,7 +1515,7 @@ Qed.
    ============================================================================================================ *)
 
 Definition collect_diagnostics (p : GoProgram) (idx : GoIndex.Snap.SyntaxIndex p) : list (DiagnosticReason p) :=
-  expr_diags idx ++ pkg_diags p.
+  expr_diags idx ++ pkg_diags idx.
 
 Lemma app_nil_iff {A} (l1 l2 : list A) : l1 ++ l2 = nil <-> l1 = nil /\ l2 = nil.
 Proof. split; [ apply app_eq_nil | intros [-> ->]; reflexivity ]. Qed.
