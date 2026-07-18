@@ -314,6 +314,26 @@ Definition occurrence_meta (o : SourceOccurrence) : NodeMeta :=
 Definition view_expr (o : SourceOccurrence) : option GoExpr :=
   match occurrence_view o with ViewExpression e => Some e | _ => None end.
 
+(* [view_expr] is [Some] EXACTLY for a [KExpression] occurrence (the dependent [SyntaxView] forces the kind). *)
+Lemma view_expr_kind : forall o e, view_expr o = Some e -> occurrence_kind o = KExpression.
+Proof.
+  intros [k v par role sub] e H. cbn [view_expr occurrence_view occurrence_kind] in *.
+  destruct v; try discriminate H. reflexivity.
+Qed.
+Lemma kind_view_expr : forall o, occurrence_kind o = KExpression -> exists e, view_expr o = Some e.
+Proof.
+  intros [k v par role sub] H. cbn [occurrence_kind] in H. subst k.
+  cbn [view_expr occurrence_view].
+  refine (match v as v0 in SyntaxView k0
+          return (match k0 return Prop with
+                  | KExpression => exists ex, (match v0 with ViewExpression e => Some e | _ => None end) = Some ex
+                  | _ => True end)
+          with
+          | ViewExpression e => ex_intro _ e eq_refl
+          | ViewFile _ => I | ViewPackageClause _ => I | ViewTopLevelDecl _ => I | ViewStatement _ => I
+          end).
+Qed.
+
 (* the occurrence a preorder id designates inside one expression subtree rooted at [me]. *)
 Fixpoint occ_expr' (parent : positive) (role : NodeRole) (me : positive) (e : GoExpr) (target : positive)
   : option SourceOccurrence :=

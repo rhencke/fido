@@ -925,6 +925,78 @@ Proof.
   rewrite occ_emits_decls. unfold source_file_typedb, file_typedb. reflexivity.
 Qed.
 
+(** lift the file-level emit fold to the whole program (via the §19 traversal projection). *)
+Lemma visit_file_emits {p} (fr : GoIndex.Snap.FileRef p) :
+  forallb (fun x => occ_emits_none_pure (snd x)) (GoIndex.Snap.visit_file fr)
+  = source_file_typedb (GoIndex.Snap.file_ref_source fr).
+Proof.
+  rewrite GoTypes.forallb_map_snd, GoIndex.Snap.visit_file_snd, <- GoTypes.forallb_map_snd.
+  apply occ_emits_file.
+Qed.
+
+Lemma emits_none_program_typedb (p : GoProgram) :
+  forallb (fun x => occ_emits_none_pure (snd x)) (prog_visit p) = program_typedb p.
+Proof.
+  unfold prog_visit. rewrite forallb_flat_map. unfold program_typedb.
+  apply GoTypes.forallb_ext_in. intros b Hb. unfold binding_visit.
+  pose proof (GoAST.file_bindings_find (prog_files p) b Hb) as Hfind.
+  destruct (GoIndex.Snap.file_of_path_source p (fst b) (snd b) Hfind) as [fr [Hfop [Hpath Hsrc]]].
+  rewrite Hfop, visit_file_emits, Hsrc. reflexivity.
+Qed.
+
+(** every program-visited occurrence IS its reference's exact source occurrence. *)
+Lemma prog_visit_view (p : GoProgram) (r : GoIndex.Snap.NodeRef p) occ :
+  In (r, occ) (prog_visit p) -> occ = GoIndex.Snap.source_occurrence_of_ref r.
+Proof.
+  unfold prog_visit. intro Hin. apply in_flat_map in Hin. destruct Hin as [b [Hb Hin]].
+  unfold binding_visit in Hin. destruct (GoIndex.Snap.file_of_path p (fst b)) as [fr|]; [| destruct Hin].
+  destruct (GoIndex.Snap.visit_file_view p fr r occ Hin) as [Hocc _]. exact Hocc.
+Qed.
+
+(** per-occurrence: the emitted diagnostics are empty IFF the occurrence emits nothing (pure). *)
+Lemma occ_expr_diags_empty {p} (idx : GoIndex.Snap.SyntaxIndex p) (r : GoIndex.Snap.NodeRef p) occ :
+  In (r, occ) (prog_visit p) ->
+  (occ_expr_diags idx (r, occ) = nil <-> occ_emits_none_pure occ = true).
+Proof.
+  intro Hin. pose proof (prog_visit_view p r occ Hin) as Hocc.
+  unfold occ_expr_diags, occ_emits_none_pure, occ_local_ok, occ_default_ok, GoIndex.as_expr, GoIndex.as_kind.
+  cbn [fst snd].
+  destruct (GoIndex.syntaxkind_eq_dec (GoIndex.Snap.node_kind idx r) GoIndex.KExpression) as [Hk|Hk].
+  - assert (Hke : GoIndex.occurrence_kind occ = GoIndex.KExpression).
+    { rewrite Hocc, <- (GoIndex.Snap.node_kind_matches_source p idx r). exact Hk. }
+    destruct (GoIndex.kind_view_expr occ Hke) as [e Hve]. rewrite Hve.
+    destruct (local_conv_failure e) as [[t ci]|]; cbn [andb];
+      [ | destruct (arg_default_failure occ e) as [[c dt]|]; cbn [andb] ];
+      split; intro H; try discriminate H; reflexivity.
+  - assert (Hkne : GoIndex.occurrence_kind occ <> GoIndex.KExpression).
+    { intro Hc. apply Hk. rewrite (GoIndex.Snap.node_kind_matches_source p idx r), <- Hocc. exact Hc. }
+    assert (Hve : GoIndex.view_expr occ = None).
+    { destruct (GoIndex.view_expr occ) as [e|] eqn:E; [| reflexivity].
+      exfalso. apply Hkne. exact (GoIndex.view_expr_kind occ e E). }
+    rewrite Hve. split; intro H; try discriminate H; reflexivity.
+Qed.
+
+Lemma flat_map_nil_forallb {A B} (g : A -> list B) (l : list A) :
+  flat_map g l = nil <-> forallb (fun x => match g x with nil => true | _ => false end) l = true.
+Proof.
+  induction l as [|a l IH]; [split; reflexivity|].
+  simpl. destruct (g a) as [|b gb] eqn:Ega; simpl.
+  - exact IH.
+  - split; intro H; discriminate H.
+Qed.
+
+(** THE EXPRESSION COMPLETENESS: [expr_diags] is empty IFF the program types ([ProgramTyped]). *)
+Lemma expr_diags_empty_iff {p} (idx : GoIndex.Snap.SyntaxIndex p) :
+  expr_diags idx = nil <-> program_typedb p = true.
+Proof.
+  unfold expr_diags. rewrite flat_map_nil_forallb, <- emits_none_program_typedb.
+  rewrite !forallb_forall. split; intros H [r occ] Hin.
+  - cbn [snd]. apply (occ_expr_diags_empty idx r occ Hin).
+    specialize (H (r, occ) Hin). destruct (occ_expr_diags idx (r, occ)); [reflexivity | discriminate H].
+  - specialize (H (r, occ) Hin). cbn [snd] in H.
+    apply (occ_expr_diags_empty idx r occ Hin) in H. rewrite H. reflexivity.
+Qed.
+
 (** [GoCompile p] IS whole-program admissibility: the program is typed through [GoTypes] AND every package
     has exactly one `main`.  The package clause is now SOURCE-owned (each file's [source_package]), rendered
     by [GoRender] — it is no longer a compiler-derived fact, so there is no [cf_pkg_name] / [CompilationFacts]

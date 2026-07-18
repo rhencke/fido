@@ -368,6 +368,10 @@ Print Assumptions GoCompile.prog_expr_facts_find.
 (* C3 decision (expression half): every println argument resolves IFF program_typedb / ProgramTyped. *)
 Print Assumptions GoCompile.expr_all_ok_program_typedb.
 Print Assumptions GoCompile.expr_all_ok_ProgramTyped.
+(* C3 EXPRESSION COMPLETENESS: no expression diagnostic IFF the program types (the diagnostics<->decision
+   equivalence for the expression half). *)
+Print Assumptions GoCompile.emits_none_program_typedb.
+Print Assumptions GoCompile.expr_diags_empty_iff.
 (* C3 decision (package half + combined): every package has one main IFF AllPackagesOneMain; the combined
    analysis decision equals ProgValid (= GoCompile) — the AnalysisOK<->GoCompile decision core. *)
 Print Assumptions GoCompile.pkg_all_ok_AllPackagesOneMain.
@@ -656,6 +660,9 @@ Print Assumptions GoIndex.Snap.visit_file_complete.
 Print Assumptions GoIndex.Snap.visit_file_order.
 Print Assumptions GoIndex.Snap.visit_file_nodup.
 Print Assumptions GoIndex.Snap.node_ref_key_eq.
+(* C3 §10 support: [view_expr] is Some exactly for a KExpression occurrence (the dependent SyntaxView). *)
+Print Assumptions GoIndex.view_expr_kind.
+Print Assumptions GoIndex.kind_view_expr.
 (* C3 §4 — the retained IndexedProgram phase boundary: canonical construction reuses exactly the one
    Snap.index_program, and the retained index is the projected field. *)
 Print Assumptions GoIndex.index_program_syntax.
