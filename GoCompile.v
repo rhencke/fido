@@ -997,6 +997,88 @@ Proof.
     apply (occ_expr_diags_empty idx r occ Hin) in H. rewrite H. reflexivity.
 Qed.
 
+(* ---- PACKAGE main-count relation: # of top-level-decl occurrences per file = [file_main_count] ---- *)
+
+Definition occ_main_count (occ : GoIndex.SourceOccurrence) : nat :=
+  match GoIndex.occurrence_role occ with GoIndex.RFileDecl _ => 1 | _ => 0 end.
+Definition sum_main {A} (l : list (A * GoIndex.SourceOccurrence)) : nat :=
+  fold_right (fun (ro : A * GoIndex.SourceOccurrence) (acc : nat) => (occ_main_count (snd ro) + acc)%nat) 0%nat l.
+
+Lemma sum_main_cons {A} (x : A * GoIndex.SourceOccurrence) (l : list (A * GoIndex.SourceOccurrence)) :
+  sum_main (x :: l) = (occ_main_count (snd x) + sum_main l)%nat.
+Proof. reflexivity. Qed.
+
+Lemma sum_main_app {A} (a b : list (A * GoIndex.SourceOccurrence)) :
+  sum_main (a ++ b) = (sum_main a + sum_main b)%nat.
+Proof.
+  induction a as [|x a IH]; [reflexivity|].
+  rewrite <- app_comm_cons, (sum_main_cons x (a ++ b)), (sum_main_cons x a), IH. lia.
+Qed.
+
+Lemma sum_main_operand : forall e parent me,
+  sum_main (GoIndex.occs_expr parent GoIndex.RConversionOperand me e) = 0%nat.
+Proof.
+  induction e as [ b|n1|n2|s| it x IHx | df | ft x IHx | dcx | ct x IHx ]; intros parent me;
+    cbn [GoIndex.occs_expr]; rewrite sum_main_cons; cbn [occ_main_count GoIndex.occurrence_role snd].
+  1,2,3,4,6,8: reflexivity.
+  all: rewrite Nat.add_0_l; apply IHx.
+Qed.
+
+Lemma sum_main_arg : forall e parent aidx me, sum_main (GoIndex.occs_arg parent aidx me e) = 0%nat.
+Proof.
+  intros e parent aidx me. unfold GoIndex.occs_arg.
+  destruct e as [ b|n1|n2|s| it x|df|ft x|dcx|ct x ];
+    cbn [GoIndex.occs_expr]; rewrite sum_main_cons; cbn [occ_main_count GoIndex.occurrence_role snd].
+  1,2,3,4,6,8: reflexivity.
+  all: rewrite Nat.add_0_l; apply sum_main_operand.
+Qed.
+
+Lemma sum_main_args : forall es parent aidx me, sum_main (GoIndex.occs_args parent aidx me es) = 0%nat.
+Proof.
+  induction es as [|e rest IH]; intros parent aidx me; [reflexivity|].
+  cbn [GoIndex.occs_args]. rewrite sum_main_app, sum_main_arg, IH. reflexivity.
+Qed.
+
+Lemma sum_main_stmt : forall s parent sidx me, sum_main (GoIndex.occs_stmt parent sidx me s) = 0%nat.
+Proof.
+  intros [args] parent sidx me. cbn [GoIndex.occs_stmt].
+  rewrite sum_main_cons; cbn [occ_main_count GoIndex.occurrence_role snd].
+  rewrite Nat.add_0_l. apply sum_main_args.
+Qed.
+
+Lemma sum_main_stmts : forall ss parent sidx me, sum_main (GoIndex.occs_stmts parent sidx me ss) = 0%nat.
+Proof.
+  induction ss as [|s rest IH]; intros parent sidx me; [reflexivity|].
+  cbn [GoIndex.occs_stmts]. rewrite sum_main_app, sum_main_stmt, IH. reflexivity.
+Qed.
+
+Lemma sum_main_decl : forall d parent didx me, sum_main (GoIndex.occs_decl parent didx me d) = 1%nat.
+Proof.
+  intros [body] parent didx me. cbn [GoIndex.occs_decl].
+  rewrite sum_main_cons; cbn [occ_main_count GoIndex.occurrence_role snd].
+  rewrite sum_main_stmts. reflexivity.
+Qed.
+
+Lemma sum_main_decls : forall ds parent didx me, sum_main (GoIndex.occs_decls parent didx me ds) = length ds.
+Proof.
+  induction ds as [|d rest IH]; intros parent didx me; [reflexivity|].
+  cbn [GoIndex.occs_decls length]. rewrite sum_main_app, sum_main_decl, IH. reflexivity.
+Qed.
+
+Lemma file_main_count_length : forall decls, file_main_count decls = length decls.
+Proof.
+  intro decls. unfold file_main_count.
+  induction decls as [|[body] rest IH]; simpl; [reflexivity | rewrite IH; reflexivity].
+Qed.
+
+Lemma sum_main_file : forall f, sum_main (GoIndex.occs_file f) = file_main_count (source_decls f).
+Proof.
+  intros f. unfold GoIndex.occs_file. destruct (source_imports f) as [|i tl]; [| destruct i].
+  rewrite sum_main_cons; cbn [occ_main_count GoIndex.occurrence_role snd].
+  rewrite sum_main_cons; cbn [occ_main_count GoIndex.occurrence_role snd].
+  rewrite sum_main_decls, file_main_count_length. reflexivity.
+Qed.
+
 (** [GoCompile p] IS whole-program admissibility: the program is typed through [GoTypes] AND every package
     has exactly one `main`.  The package clause is now SOURCE-owned (each file's [source_package]), rendered
     by [GoRender] — it is no longer a compiler-derived fact, so there is no [cf_pkg_name] / [CompilationFacts]
