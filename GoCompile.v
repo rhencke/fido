@@ -642,6 +642,40 @@ Proof.
   intro Hin. unfold prog_expr_facts. apply fold_facts_find; [ apply prog_visit_key_nodup | exact Hin ].
 Qed.
 
+(* ---- the EXPRESSION DECISION: every println argument resolves IFF the program is [ProgramTyped] ---- *)
+
+Lemma forallb_flat_map {A B} (f : B -> bool) (g : A -> list B) (l : list A) :
+  forallb f (flat_map g l) = forallb (fun x => forallb f (g x)) l.
+Proof. induction l as [|a l IH]; simpl; [reflexivity | rewrite forallb_app, IH; reflexivity]. Qed.
+
+(** one file's argument occurrences resolve iff the file types (the §19 traversal projects [occs_file], reusing
+    the C2 [occ_arg_typedb] = [source_file_typedb] bridge). *)
+Lemma visit_file_arg_typedb {p} (fr : GoIndex.Snap.FileRef p) :
+  forallb (fun x => GoTypes.occ_arg_typedb (snd x)) (GoIndex.Snap.visit_file fr)
+  = source_file_typedb (GoIndex.Snap.file_ref_source fr).
+Proof.
+  rewrite GoTypes.forallb_map_snd, GoIndex.Snap.visit_file_snd, <- GoTypes.forallb_map_snd.
+  apply GoTypes.occs_file_typedb_eq.
+Qed.
+
+(** the per-occurrence "argument resolves" check folded over the whole program. *)
+Definition expr_all_ok (p : GoProgram) : bool :=
+  forallb (fun x => GoTypes.occ_arg_typedb (snd x)) (prog_visit p).
+
+(** DECISION EXACTNESS: [expr_all_ok] is EXACTLY [program_typedb] (hence [ProgramTyped]).  This is the
+    expression half of [AnalysisOK <-> GoCompile]: no expression diagnostic <-> every argument resolves. *)
+Lemma expr_all_ok_program_typedb (p : GoProgram) : expr_all_ok p = program_typedb p.
+Proof.
+  unfold expr_all_ok, prog_visit. rewrite forallb_flat_map. unfold program_typedb.
+  apply GoTypes.forallb_ext_in. intros b Hb. unfold binding_visit.
+  pose proof (GoAST.file_bindings_find (prog_files p) b Hb) as Hfind.
+  destruct (GoIndex.Snap.file_of_path_source p (fst b) (snd b) Hfind) as [fr [Hfop [Hpath Hsrc]]].
+  rewrite Hfop, visit_file_arg_typedb, Hsrc. reflexivity.
+Qed.
+
+Lemma expr_all_ok_ProgramTyped (p : GoProgram) : expr_all_ok p = true <-> GoTypes.ProgramTyped p.
+Proof. rewrite expr_all_ok_program_typedb. apply GoTypes.program_typedb_iff. Qed.
+
 (** [GoCompile p] IS whole-program admissibility: the program is typed through [GoTypes] AND every package
     has exactly one `main`.  The package clause is now SOURCE-owned (each file's [source_package]), rendered
     by [GoRender] — it is no longer a compiler-derived fact, so there is no [cf_pkg_name] / [CompilationFacts]

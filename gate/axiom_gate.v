@@ -365,6 +365,9 @@ Print Assumptions GoCompile.visit_file_key_nodup.
 Print Assumptions GoCompile.file_expr_facts_find.
 Print Assumptions GoCompile.prog_visit_key_nodup.
 Print Assumptions GoCompile.prog_expr_facts_find.
+(* C3 decision (expression half): every println argument resolves IFF program_typedb / ProgramTyped. *)
+Print Assumptions GoCompile.expr_all_ok_program_typedb.
+Print Assumptions GoCompile.expr_all_ok_ProgramTyped.
 
 (* GoSafe: exact VALUE semantics — a zero literal and a negated zero agree; a resolved expression evaluates
    to a well-formed value of the resolved GoType (one type authority across compiler and runtime); value
