@@ -784,6 +784,45 @@ Definition occ_expr_diags {p} (idx : GoIndex.Snap.SyntaxIndex p)
 Definition expr_diags {p} (idx : GoIndex.Snap.SyntaxIndex p) : list (DiagnosticReason p) :=
   flat_map (occ_expr_diags idx) (prog_visit p).
 
+(* ---- COMPLETENESS: [expr_diags] is empty IFF every argument resolves (= [program_typedb]) ---- *)
+
+(** the PURE (index-free) per-occurrence "emits nothing" predicate: no locally-failing conversion here, and no
+    defaulting-argument failure here. *)
+Definition occ_local_ok (occ : GoIndex.SourceOccurrence) : bool :=
+  match GoIndex.view_expr occ with
+  | Some e => match local_conv_failure e with Some _ => false | None => true end
+  | None => true
+  end.
+Definition occ_default_ok (occ : GoIndex.SourceOccurrence) : bool :=
+  match GoIndex.view_expr occ with
+  | Some e => match arg_default_failure occ e with Some _ => false | None => true end
+  | None => true
+  end.
+Definition occ_emits_none_pure (occ : GoIndex.SourceOccurrence) : bool :=
+  occ_local_ok occ && occ_default_ok occ.
+
+(** every use-context type is allowed for a println argument (the type universe is exactly the allowed set). *)
+Lemma use_allowsb_println_true : forall t, use_allowsb UsePrintlnArg t = true.
+Proof. intro t; destruct t; reflexivity. Qed.
+
+(** KEY: no conversion in a subtree locally fails IFF the subtree's [const_info] succeeds. *)
+Lemma conv_ok_fold : forall e parent role me,
+  forallb (fun x => occ_local_ok (snd x)) (GoIndex.occs_expr parent role me e)
+  = match const_info e with Some _ => true | None => false end.
+Proof.
+  induction e as [ b|n1|n2|s| it x IHx | df | ft x IHx | dcx | ct x IHx ]; intros parent role me.
+  1,2,3,4,6,8: reflexivity.
+  all: cbn [GoIndex.occs_expr forallb];
+       unfold occ_local_ok at 1; cbn [snd GoIndex.view_expr GoIndex.occurrence_view];
+       cbn [local_conv_failure]; cbn [const_info];
+       specialize (IHx me GoIndex.RConversionOperand (Pos.succ me));
+       destruct (const_info x) as [ci|] eqn:Ex;
+       [ destruct (convert_const _ ci) as [ci'|] eqn:Ec;
+         [ cbn [andb]; rewrite IHx; reflexivity
+         | cbn [andb option_map]; reflexivity ]
+       | cbn [andb option_map]; rewrite IHx; reflexivity ].
+Qed.
+
 (** [GoCompile p] IS whole-program admissibility: the program is typed through [GoTypes] AND every package
     has exactly one `main`.  The package clause is now SOURCE-owned (each file's [source_package]), rendered
     by [GoRender] — it is no longer a compiler-derived fact, so there is no [cf_pkg_name] / [CompilationFacts]
