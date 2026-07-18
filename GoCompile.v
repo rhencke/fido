@@ -712,6 +712,78 @@ Lemma analysis_ok_b_split (p : GoProgram) :
   analysis_ok_b p = true <-> expr_all_ok p = true /\ pkg_all_ok p = true.
 Proof. unfold analysis_ok_b. rewrite Bool.andb_true_iff. reflexivity. Qed.
 
+(* ============================================================================================================
+   §8/§9 (C3) — the EXPRESSION diagnostic construction, per occurrence, with §9-SOUND anchors.
+
+   The key move (no descent, no ref minting): the primary is the OCCURRENCE'S OWN reference.
+   - a LOCALLY-failing conversion (its operand's [const_info] succeeds but its own [convert_const] fails) IS the
+     innermost failing conversion — anchor [DRInvalidConversion] at its own ExprRef;
+   - a println-argument occurrence whose [const_info] is an UNTYPED constant that does not default — anchor
+     [DRDefaultNotRepresentable] at its own ExprRef.
+   ([outer_context] is [] here — sound (vacuously) for §9; FINAL enriches it with the enclosing conversions.)
+   ============================================================================================================ *)
+
+Definition default_target_of (c : GoConst) : GoType :=
+  match c with
+  | CBool _    => TBool
+  | CInt _     => TInteger IInt
+  | CFloat _   => TFloat F64
+  | CComplex _ => TComplex C128
+  | CString _  => TString
+  end.
+
+(** a conversion whose operand succeeds but whose own conversion step fails — returns (target, operand status). *)
+Definition local_conv_failure (e : GoExpr) : option (GoType * ConstInfo) :=
+  match e with
+  | EIntConvert t x =>
+      match const_info x with
+      | Some ci => match convert_const (TInteger t) ci with None => Some (TInteger t, ci) | Some _ => None end
+      | None => None end
+  | EFloatConvert t x =>
+      match const_info x with
+      | Some ci => match convert_const (TFloat t) ci with None => Some (TFloat t, ci) | Some _ => None end
+      | None => None end
+  | EComplexConvert t x =>
+      match const_info x with
+      | Some ci => match convert_const (TComplex t) ci with None => Some (TComplex t, ci) | Some _ => None end
+      | None => None end
+  | _ => None
+  end.
+
+(** a println-argument occurrence whose exact untyped constant does not default — returns (constant, default). *)
+Definition arg_default_failure (occ : GoIndex.SourceOccurrence) (e : GoExpr) : option (GoConst * GoType) :=
+  match GoIndex.occurrence_role occ with
+  | GoIndex.RPrintlnArg _ =>
+      match const_info e with
+      | Some (CIUntyped c) => match default_const c with None => Some (c, default_target_of c) | Some _ => None end
+      | _ => None
+      end
+  | _ => None
+  end.
+
+(** the diagnostic(s) an occurrence emits (a singleton or nothing), anchored at its OWN validated ExprRef. *)
+Definition occ_expr_diags {p} (idx : GoIndex.Snap.SyntaxIndex p)
+    (ro : GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence) : list (DiagnosticReason p) :=
+  match GoIndex.as_expr idx (fst ro) with
+  | None => []
+  | Some er =>
+      match GoIndex.view_expr (snd ro) with
+      | None => []
+      | Some e =>
+          match local_conv_failure e with
+          | Some (t, ci) => [ DRInvalidConversion er [] t ci ]
+          | None =>
+              match arg_default_failure (snd ro) e with
+              | Some (c, dt) => [ DRDefaultNotRepresentable er c dt ]
+              | None => []
+              end
+          end
+      end
+  end.
+
+Definition expr_diags {p} (idx : GoIndex.Snap.SyntaxIndex p) : list (DiagnosticReason p) :=
+  flat_map (occ_expr_diags idx) (prog_visit p).
+
 (** [GoCompile p] IS whole-program admissibility: the program is typed through [GoTypes] AND every package
     has exactly one `main`.  The package clause is now SOURCE-owned (each file's [source_package]), rendered
     by [GoRender] — it is no longer a compiler-derived fact, so there is no [cf_pkg_name] / [CompilationFacts]
