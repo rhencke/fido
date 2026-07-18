@@ -526,6 +526,10 @@ Print Assumptions GoIndex.thm14_meta_stores_no_subtree.
    role / parent / subtree / source view all pinned to the exact source occurrence). *)
 Print Assumptions GoIndex.thm8_nodekey_eq_dec.
 Print Assumptions GoIndex.thm8_nodekey_eqb_spec.
+(* §10 outer-index exactness: the derived outer index [outer_of] (which the sealed [SyntaxIndex]'s internal
+   map IS) holds, at every path, EXACTLY the per-file build of the program's file there and nothing at a path
+   with no file — presence AND absence, so no entry can belong to another snapshot and none is spurious. *)
+Print Assumptions GoIndex.outer_get_exact.
 Print Assumptions GoIndex.Snap.index_program.
 Print Assumptions GoIndex.Snap.file_of_path.
 Print Assumptions GoIndex.Snap.ref_of_key.

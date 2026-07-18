@@ -28,7 +28,11 @@
     and the mutation-sensitive / snapshot-locality fixtures. *)
 
 From Stdlib Require Import PArith NArith List Bool Lia Sorted Recdef Wf_nat Arith Eqdep_dec String.
-From Fido Require Import FilePath Collections Ints Floats Complexes ModulePath GoVersion GoAST.
+(* The binding import boundary (directive §3): GoIndex imports ONLY [GoAST] / [Collections] / [FilePath] +
+   axiom-free stdlib.  The raw-syntax payload types ([Ints.IntegerType] / [Floats.DecimalFloat] / … / the
+   [ModulePath] / [GoVersion] used only in the regression fixtures) are reached by QUALIFIED name through the
+   modules [GoAST] already loads — NEVER a direct import of a semantic module. *)
+From Fido Require Import FilePath Collections GoAST.
 Import ListNotations.
 Local Open Scope positive_scope.
 
@@ -1523,18 +1527,18 @@ Proof. intros [k op r e]. exists k, op, r, e. split; [reflexivity|]. intros e' H
 (* ================================================================================================= *)
 
 (* decidable equality for the raw syntax (for UIP over the reference proof fields). *)
-Definition decimalfloat_eq_dec (a b : DecimalFloat) : {a = b} + {a <> b}.
+Definition decimalfloat_eq_dec (a b : Floats.DecimalFloat) : {a = b} + {a <> b}.
 Proof.
   destruct (Floats.dm_eqb a b) eqn:E; [ left; apply Floats.dm_eqb_eq; exact E | right ].
   intro H; subst; rewrite (proj2 (Floats.dm_eqb_eq b b) eq_refl) in E; discriminate.
 Defined.
-Definition decimalcomplex_eq_dec (a b : DecimalComplex) : {a = b} + {a <> b}.
+Definition decimalcomplex_eq_dec (a b : Complexes.DecimalComplex) : {a = b} + {a <> b}.
 Proof. decide equality; apply decimalfloat_eq_dec. Defined.
-Definition integertype_eq_dec (a b : IntegerType) : {a = b} + {a <> b}.
+Definition integertype_eq_dec (a b : Ints.IntegerType) : {a = b} + {a <> b}.
 Proof. decide equality. Defined.
-Definition floattype_eq_dec (a b : FloatType) : {a = b} + {a <> b}.
+Definition floattype_eq_dec (a b : Floats.FloatType) : {a = b} + {a <> b}.
 Proof. decide equality. Defined.
-Definition complextype_eq_dec (a b : ComplexType) : {a = b} + {a <> b}.
+Definition complextype_eq_dec (a b : Complexes.ComplexType) : {a = b} + {a <> b}.
 Proof. decide equality. Defined.
 Definition goexpr_eq_dec (a b : GoExpr) : {a = b} + {a <> b}.
 Proof.
@@ -2589,8 +2593,8 @@ Qed.
 (* ================================================================================================= *)
 
 Definition fp_main : FilePath := mkFP "main.go"%string eq_refl.
-Definition ms_gen : ModuleSpec := mkModuleSpec (mkMP "fido.local/generated"%string eq_refl) Go1_23.
-Definition ms_com : ModuleSpec := mkModuleSpec (mkMP "fido.local/common"%string eq_refl) Go1_23.
+Definition ms_gen : ModuleSpec := mkModuleSpec (ModulePath.mkMP "fido.local/generated"%string eq_refl) GoVersion.Go1_23.
+Definition ms_com : ModuleSpec := mkModuleSpec (ModulePath.mkMP "fido.local/common"%string eq_refl) GoVersion.Go1_23.
 
 (* --- helper: recover a minted reference's exact source occurrence by computing the source spec. --- *)
 Lemma soor_compute {p} (r : Snap.NodeRef p) (f : GoSourceFile) (local : positive) (occ0 : SourceOccurrence) :
@@ -2724,7 +2728,7 @@ Fail Definition reg_cross_module (r : Snap.NodeRef prog_gen) : Snap.NodeRef prog
    pins the RConversionOperand relationship. ---------- *)
 Definition wf : GoSourceFile := main_source
   [ DMain [ SPrintln [ EInt 1%N ; EInt 1%N ] ; SPrintln [ EBool true ] ]
-  ; DMain [ SPrintln [ EIntConvert IInt (EIntConvert IInt8 (EInt 5%N)) ] ] ].
+  ; DMain [ SPrintln [ EIntConvert Ints.IInt (EIntConvert Ints.IInt8 (EInt 5%N)) ] ] ].
 
 Ltac wf_meta := rewrite build_file_source_exact; vm_compute; reflexivity.
 Example wf_meta_file  : NodeTable.get 1%positive  (fi_table (build_file wf)) = Some (mkMeta KFile         None      RFileRoot        13). Proof. wf_meta. Qed.
