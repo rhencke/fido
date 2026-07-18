@@ -638,9 +638,6 @@ Definition add_occ_fact {p} (ro : GoIndex.Snap.NodeRef p * GoIndex.SourceOccurre
   | None => m
   end.
 
-Definition file_expr_facts {p} (fr : GoIndex.Snap.FileRef p) : GoIndex.NodeKeyMapBase.t ExprFact :=
-  fold_right add_occ_fact (GoIndex.NodeKeyMapBase.empty ExprFact) (GoIndex.Snap.visit_file fr).
-
 Lemma NoDup_map_inj {A B} (f : A -> B) (l : list A) :
   (forall x y, f x = f y -> x = y) -> NoDup l -> NoDup (map f l).
 Proof.
@@ -702,13 +699,6 @@ Proof.
     + exact (IH Hnd' Hin).
 Qed.
 
-(** MAP-LEVEL EXACTNESS: the fact stored at a visited ref's key is EXACTLY that occurrence's fact. *)
-Lemma file_expr_facts_find {p} (fr : GoIndex.Snap.FileRef p) (r : GoIndex.Snap.NodeRef p) occ :
-  In (r, occ) (GoIndex.Snap.visit_file fr) ->
-  GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key r) (file_expr_facts fr) = occ_expr_fact occ.
-Proof.
-  intro Hin. unfold file_expr_facts. apply fold_facts_find; [ apply visit_file_key_nodup | exact Hin ].
-Qed.
 
 (* ---- program-wide visit stream + fact map (§10 lifted to the whole program) ---- *)
 

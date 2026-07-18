@@ -359,12 +359,29 @@ Print Assumptions GoCompile.package_ref_of_fileref_key.
 (* C3 §8 — structured diagnostic core: the primary anchor is an exact-snapshot handle whose kind matches the
    reason's code (invalid anchor/category combinations are unrepresentable). *)
 Print Assumptions GoCompile.diagnostic_code_primary_consistent.
-(* C3 §10 — occurrence-keyed expression facts: visit_file refs have distinct NodeKeys, and the fact stored at a
-   visited ref's key is EXACTLY that occurrence's fact (no overwrite; map-level exactness). *)
+(* C3 §10/§14 — occurrence-keyed expression facts, built by the SINGLE bottom-up pass: visit_file refs have
+   distinct NodeKeys, and the fact stored at a visited ref's key is EXACTLY that occurrence's fact (no
+   overwrite; map-level exactness) — the single-pass fact map agrees with the per-node specification. *)
 Print Assumptions GoCompile.visit_file_key_nodup.
-Print Assumptions GoCompile.file_expr_facts_find.
 Print Assumptions GoCompile.prog_visit_key_nodup.
 Print Assumptions GoCompile.prog_expr_facts_find.
+Print Assumptions GoCompile.prog_expr_facts_eq_spec.
+(* C3 §14 — the SINGLE bottom-up const_info_step pass: computes every occurrence's exact const_info (impl = the
+   per-node spec); the whole-file statuses match occs_file; the occurrence-keyed status map holds each visited
+   occurrence's (and each conversion operand's) exact const_info — read O(1), no per-occurrence rescan. *)
+Print Assumptions GoCompile.occ_statuses_spec.
+Print Assumptions GoCompile.file_statuses_occs.
+Print Assumptions GoCompile.occs_file_operand.
+Print Assumptions GoCompile.prog_status_map_find.
+Print Assumptions GoCompile.prog_status_map_find_operand.
+Print Assumptions GoCompile.expr_diags_eq_spec.
+(* C3 §11 — package main-ref buckets: a per-file main DeclRef list whose length is file_main_count; the
+   whole-program buckets have the represented-package domain and each present bucket's length is the package's
+   main count; on a valid program every bucket is a singleton (the one canonical main). *)
+Print Assumptions GoCompile.file_main_refs_length.
+Print Assumptions GoCompile.package_main_refs_present.
+Print Assumptions GoCompile.package_main_refs_bucket_len.
+Print Assumptions GoCompile.package_main_refs_singleton_on_success.
 (* C3 decision (expression half): every println argument resolves IFF program_typedb / ProgramTyped. *)
 Print Assumptions GoCompile.expr_all_ok_program_typedb.
 Print Assumptions GoCompile.expr_all_ok_ProgramTyped.
