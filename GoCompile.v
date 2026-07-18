@@ -1055,6 +1055,26 @@ Qed.
    NodeKey, taking its constant status from the precomputed [prog_status_map] (O(1), never a [const_info]
    rescan).  Its per-node fact is EXACTLY the specification [occ_expr_fact]. ---- *)
 
+(* the use-context resolution DERIVED from an already-computed ConstInfo (no [const_info] / [resolve_expr_const]
+   rescan): a println-argument root resolves its status, everything else has no use resolution. *)
+Definition resolve_ci (ci : ConstInfo) : option ResolvedConst :=
+  match resolve_const_info ci with
+  | Some rc => if use_allowsb UsePrintlnArg (resolved_const_type rc) then Some rc else None
+  | None => None
+  end.
+Definition occ_use_resolved_ci (o : GoIndex.SourceOccurrence) (ci : ConstInfo) : option ResolvedConst :=
+  match GoIndex.occurrence_role o with GoIndex.RPrintlnArg _ => resolve_ci ci | _ => None end.
+
+(* the status-map version reads the ConstInfo from [ci] (the occurrence's own status); [occ_use_resolved_ci]
+   AGREES with the [occ_use_resolved] spec when [ci] is the occurrence's [const_info]. *)
+Lemma occ_use_resolved_ci_eq : forall o e ci,
+  GoIndex.view_expr o = Some e -> const_info e = Some ci -> occ_use_resolved_ci o ci = occ_use_resolved o.
+Proof.
+  intros o e ci Hv Hc. unfold occ_use_resolved_ci, occ_use_resolved, resolve_ci.
+  destruct (GoIndex.occurrence_role o); try reflexivity.
+  rewrite Hv. unfold resolve_expr_const. rewrite Hc. reflexivity.
+Qed.
+
 Definition add_occ_fact_sm {p} (smap : GoIndex.NodeKeyMapBase.t (option ConstInfo))
     (ro : GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence) (m : GoIndex.NodeKeyMapBase.t ExprFact)
   : GoIndex.NodeKeyMapBase.t ExprFact :=
@@ -1062,7 +1082,7 @@ Definition add_occ_fact_sm {p} (smap : GoIndex.NodeKeyMapBase.t (option ConstInf
   | Some _ =>
       match GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key (fst ro)) smap with
       | Some (Some ci) => GoIndex.NodeKeyMapBase.add (GoIndex.Snap.node_ref_key (fst ro))
-                                                     (mkExprFact ci (occ_use_resolved (snd ro))) m
+                                                     (mkExprFact ci (occ_use_resolved_ci (snd ro) ci)) m
       | _ => m
       end
   | None => m
@@ -1087,7 +1107,8 @@ Proof.
   intro Hin. destruct ro as [r occ]. unfold add_occ_fact_sm, add_occ_fact, occ_expr_fact. cbn [snd fst].
   destruct (GoIndex.view_expr occ) as [e|] eqn:Hv; [|reflexivity].
   rewrite (prog_status_map_find p r occ e Hin Hv).
-  destruct (const_info e) as [ci|]; reflexivity.
+  destruct (const_info e) as [ci|] eqn:Hc; [| reflexivity].
+  rewrite (occ_use_resolved_ci_eq occ e ci Hv Hc). reflexivity.
 Qed.
 
 Lemma prog_expr_facts_eq_spec (p : GoProgram) :
@@ -2149,7 +2170,8 @@ Definition analyze_indexed (p : GoProgram) (ip : GoIndex.IndexedProgram p) : Ana
   end.
 
 Definition analyze (p : GoProgram) : ProgramAnalysis p :=
-  mkProgramAnalysis (GoIndex.index_program p) (analyze_indexed p (GoIndex.index_program p)).
+  let ip := GoIndex.index_program p in
+  mkProgramAnalysis ip (analyze_indexed p ip).
 
 (** ANALYSIS EXACTNESS: analysis succeeds (exposes facts) IFF the program is valid ([ProgValid] = [GoCompile]);
     it fails (exposes nonempty diagnostics) IFF the program is invalid.  Success and failure are exclusive. *)
