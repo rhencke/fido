@@ -2118,6 +2118,89 @@ Proof.
   intros H Hc. apply (collect_diagnostics_empty_iff p idx) in Hc. rewrite Hc in H. discriminate H.
 Qed.
 
+(* ---- the TWO disjoint diagnostic families (typing / package), used to PROJECT a legacy compile class from
+   the diagnostics (never a second check).  Expression diagnostics are typing-class; package diagnostics are
+   package-class; the two are disjoint. ---- *)
+
+Definition diag_is_typing {p} (d : DiagnosticReason p) : bool :=
+  match diagnostic_code d with DCInvalidConversion | DCDefaultNotRepresentable => true | _ => false end.
+Definition diag_is_package {p} (d : DiagnosticReason p) : bool :=
+  match diagnostic_code d with DCDuplicateMain | DCMissingMain => true | _ => false end.
+
+Lemma existsb_all_true {A} (f : A -> bool) (l : list A) :
+  (forall x, In x l -> f x = true) -> existsb f l = match l with [] => false | _ => true end.
+Proof. destruct l as [|x xs]; [reflexivity|]. intro H. cbn [existsb]. rewrite (H x (or_introl eq_refl)). reflexivity. Qed.
+
+Lemma existsb_all_false {A} (f : A -> bool) (l : list A) :
+  (forall x, In x l -> f x = false) -> existsb f l = false.
+Proof.
+  induction l as [|x xs IH]; [reflexivity|]. intro H. cbn [existsb].
+  rewrite (H x (or_introl eq_refl)), IH by (intros y Hy; apply H; right; exact Hy). reflexivity.
+Qed.
+
+Lemma occ_expr_diags_family {p} (idx : GoIndex.Snap.SyntaxIndex p) ro : forall d,
+  In d (occ_expr_diags idx ro) -> diag_is_typing d = true /\ diag_is_package d = false.
+Proof.
+  intros d Hin. unfold occ_expr_diags in Hin.
+  destruct (GoIndex.as_expr idx (fst ro)) as [er|]; [| destruct Hin].
+  destruct (GoIndex.view_expr (snd ro)) as [e|]; [| destruct Hin].
+  destruct (local_conv_failure e) as [[t ci]|].
+  - destruct Hin as [<-|[]]. split; reflexivity.
+  - destruct (arg_default_failure (snd ro) e) as [[c dt]|]; [ destruct Hin as [<-|[]]; split; reflexivity | destruct Hin ].
+Qed.
+
+Lemma expr_diags_typing {p} (idx : GoIndex.Snap.SyntaxIndex p) : forall d, In d (expr_diags idx) -> diag_is_typing d = true.
+Proof.
+  intros d Hin. rewrite expr_diags_eq_spec in Hin. apply in_flat_map in Hin. destruct Hin as [ro [_ Hd]].
+  apply (occ_expr_diags_family idx ro d Hd).
+Qed.
+Lemma expr_diags_not_package {p} (idx : GoIndex.Snap.SyntaxIndex p) : forall d, In d (expr_diags idx) -> diag_is_package d = false.
+Proof.
+  intros d Hin. rewrite expr_diags_eq_spec in Hin. apply in_flat_map in Hin. destruct Hin as [ro [_ Hd]].
+  apply (occ_expr_diags_family idx ro d Hd).
+Qed.
+
+Lemma pkg_diags_family {p} (idx : GoIndex.Snap.SyntaxIndex p) : forall d,
+  In d (pkg_diags idx) -> diag_is_package d = true /\ diag_is_typing d = false.
+Proof.
+  intros d Hin. unfold pkg_diags in Hin. apply in_flat_map in Hin. destruct Hin as [b [_ Hd]].
+  unfold pkg_diag_of in Hd. destruct (Nat.eqb (ps_main_count (snd b)) 1); [destruct Hd|].
+  destruct (PM.find (fst b) (package_main_refs idx)) as [[|d1 [|d2 rest]]|].
+  - destruct (bool_sb (package_present_b p (fst b))) as [H|H]; [ destruct Hd as [<-|[]]; split; reflexivity | destruct Hd ].
+  - destruct (bool_sb (package_present_b p (fst b))) as [H|H]; [ destruct Hd as [<-|[]]; split; reflexivity | destruct Hd ].
+  - destruct Hd as [<-|[]]; split; reflexivity.
+  - destruct (bool_sb (package_present_b p (fst b))) as [H|H]; [ destruct Hd as [<-|[]]; split; reflexivity | destruct Hd ].
+Qed.
+Lemma pkg_diags_package {p} (idx : GoIndex.Snap.SyntaxIndex p) : forall d, In d (pkg_diags idx) -> diag_is_package d = true.
+Proof. intros d Hin; apply (pkg_diags_family idx d Hin). Qed.
+Lemma pkg_diags_not_typing {p} (idx : GoIndex.Snap.SyntaxIndex p) : forall d, In d (pkg_diags idx) -> diag_is_typing d = false.
+Proof. intros d Hin; apply (pkg_diags_family idx d Hin). Qed.
+
+(** the diagnostic-derived TYPING flag is exactly "not program-typed"; the PACKAGE flag (when typed) is exactly
+    "not one-main-per-package".  So the legacy class is a PROJECTION of the diagnostics, matching the decision. *)
+Lemma existsb_typing_collect (p : GoProgram) (idx : GoIndex.Snap.SyntaxIndex p) :
+  existsb diag_is_typing (collect_diagnostics p idx) = negb (program_typedb p).
+Proof.
+  unfold collect_diagnostics. rewrite existsb_app.
+  rewrite (existsb_all_false diag_is_typing (pkg_diags idx) (pkg_diags_not_typing idx)), Bool.orb_false_r.
+  rewrite (existsb_all_true diag_is_typing (expr_diags idx) (expr_diags_typing idx)).
+  destruct (expr_diags idx) as [|d ds] eqn:E.
+  - rewrite (proj1 (expr_diags_empty_iff idx) E). reflexivity.
+  - destruct (program_typedb p) eqn:Ht; [ | reflexivity ].
+    exfalso. pose proof (proj2 (expr_diags_empty_iff idx) Ht) as Hc. rewrite Hc in E; discriminate E.
+Qed.
+Lemma existsb_package_collect (p : GoProgram) (idx : GoIndex.Snap.SyntaxIndex p) :
+  existsb diag_is_package (collect_diagnostics p idx) = negb (pkg_all_ok p).
+Proof.
+  unfold collect_diagnostics. rewrite existsb_app.
+  rewrite (existsb_all_false diag_is_package (expr_diags idx) (expr_diags_not_package idx)), Bool.orb_false_l.
+  rewrite (existsb_all_true diag_is_package (pkg_diags idx) (pkg_diags_package idx)).
+  destruct (pkg_diags idx) as [|d ds] eqn:E.
+  - rewrite (proj1 (pkg_diags_empty_iff idx) E). reflexivity.
+  - destruct (pkg_all_ok p) eqn:Ht; [ | reflexivity ].
+    exfalso. pose proof (proj2 (pkg_diags_empty_iff idx) Ht) as Hc. rewrite Hc in E; discriminate E.
+Qed.
+
 (** §12 (C3) — the SUCCESSFUL analysis facts, retained over the SAME [IndexedProgram] the analysis ran on:
     the occurrence-keyed [ExprFactTable] (standard NodeKey map) + the package main-ref buckets (standard
     PackageMap), each with its EXACTNESS proof, plus the compiled validity.  Facts are exposed ONLY on
@@ -2156,17 +2239,27 @@ Arguments mkProgramAnalysis {p} _ _.
 Arguments pa_indexed {p} _.
 Arguments pa_result {p} _.
 
+Definition list_is_nil {A} (l : list A) : {l = nil} + {l <> nil}.
+Proof. destruct l; [left; reflexivity | right; discriminate]. Defined.
+
+(** validity is DERIVED from an empty diagnostic list (the decision IS the diagnostic pass) — not a peer check. *)
+Definition analyze_valid_of_no_diags (p : GoProgram) (ip : GoIndex.IndexedProgram p) :
+  collect_diagnostics p (GoIndex.indexed_syntax ip) = nil -> ProgValid p :=
+  fun He => proj1 (analysis_ok_b_ProgValid p) (proj1 (collect_diagnostics_empty_iff p (GoIndex.indexed_syntax ip)) He).
+
+(** §14 — the ONE analysis: the DECISION is exactly "the diagnostic pass produced nothing".  On success the
+    facts (occurrence-keyed status map + package buckets) are exposed with the derived validity; on failure the
+    EXACT diagnostic list is exposed.  No separate accept/reject computation. *)
 Definition analyze_indexed (p : GoProgram) (ip : GoIndex.IndexedProgram p) : AnalysisResult p ip :=
-  match bool_sb (analysis_ok_b p) with
-  | left H  => AnalysisOK (mkCompilationFacts
+  match list_is_nil (collect_diagnostics p (GoIndex.indexed_syntax ip)) with
+  | left He  => AnalysisOK (mkCompilationFacts
                              (prog_expr_facts p)
                              (package_main_refs (GoIndex.indexed_syntax ip))
                              (prog_expr_facts_find p)
                              (package_main_refs_present (GoIndex.indexed_syntax ip))
                              (package_main_refs_bucket_len (GoIndex.indexed_syntax ip))
-                             (proj1 (analysis_ok_b_ProgValid p) H))
-  | right H => AnalysisFailed (collect_diagnostics p (GoIndex.indexed_syntax ip))
-                              (collect_diagnostics_nonempty p (GoIndex.indexed_syntax ip) H)
+                             (analyze_valid_of_no_diags p ip He))
+  | right Hne => AnalysisFailed (collect_diagnostics p (GoIndex.indexed_syntax ip)) Hne
   end.
 
 Definition analyze (p : GoProgram) : ProgramAnalysis p :=
@@ -2179,24 +2272,35 @@ Theorem analyze_ok_iff_ProgValid (p : GoProgram) :
   (exists facts, pa_result (analyze p) = AnalysisOK facts) <-> ProgValid p.
 Proof.
   unfold analyze, analyze_indexed; cbn [pa_result].
-  destruct (bool_sb (analysis_ok_b p)) as [H|H].
-  - split; intro Hx; [ apply (analysis_ok_b_ProgValid p); exact H | eexists; reflexivity ].
+  destruct (list_is_nil (collect_diagnostics p (GoIndex.indexed_syntax (GoIndex.index_program p)))) as [He|Hne].
+  - split; intro Hx; [ apply (analyze_valid_of_no_diags p (GoIndex.index_program p) He) | eexists; reflexivity ].
   - split; intro Hx.
     + destruct Hx as [facts Hf]; discriminate Hf.
-    + apply (analysis_ok_b_ProgValid p) in Hx. congruence.
+    + exfalso. apply Hne, (collect_diagnostics_empty_iff p _), (analysis_ok_b_ProgValid p); exact Hx.
 Qed.
 
 Theorem analyze_failed_iff_not_ProgValid (p : GoProgram) :
   (exists ds Hne, pa_result (analyze p) = AnalysisFailed ds Hne) <-> ~ ProgValid p.
 Proof.
   unfold analyze, analyze_indexed; cbn [pa_result].
-  destruct (bool_sb (analysis_ok_b p)) as [H|H].
+  destruct (list_is_nil (collect_diagnostics p (GoIndex.indexed_syntax (GoIndex.index_program p)))) as [He|Hne].
   - split; intro Hx.
     + destruct Hx as [ds [Hne Hf]]; discriminate Hf.
-    + exfalso. apply Hx, (analysis_ok_b_ProgValid p); exact H.
+    + exfalso. apply Hx, (analyze_valid_of_no_diags p (GoIndex.index_program p) He).
   - split; intro Hx.
-    + intro Hv. apply (analysis_ok_b_ProgValid p) in Hv. congruence.
+    + intro Hv. apply Hne, (collect_diagnostics_empty_iff p _), (analysis_ok_b_ProgValid p); exact Hv.
     + eexists; eexists; reflexivity.
+Qed.
+
+(** on failure the exposed diagnostics ARE the canonical [collect_diagnostics] (used to project the legacy class). *)
+Lemma analyze_failed_ds (p : GoProgram) ds Hne :
+  pa_result (analyze p) = AnalysisFailed ds Hne ->
+  ds = collect_diagnostics p (GoIndex.indexed_syntax (GoIndex.index_program p)).
+Proof.
+  unfold analyze, analyze_indexed; cbn [pa_result].
+  destruct (list_is_nil (collect_diagnostics p (GoIndex.indexed_syntax (GoIndex.index_program p)))) as [He|Hn].
+  - intro H; discriminate H.
+  - intro H. inversion H. reflexivity.
 Qed.
 
 (** [GoCompile p] IS whole-program admissibility: the program is typed through [GoTypes] AND every package
@@ -2218,17 +2322,6 @@ Record CompilableProgram : Type := mkCompilable {
 
 Definition cp_ok (cp : CompilableProgram) : GoCompile (cp_program cp) := cf_valid (cp_facts cp).
 
-(** build the retained [CompilableProgram] from a validity witness — the SAME index + facts [analyze] retains
-    on success (used by the witnesses; [go_compile] produces an equal value on any valid program). *)
-Definition compilable_of_valid (p : GoProgram) (H : GoCompile p) : CompilableProgram :=
-  mkCompilable p (GoIndex.index_program p)
-    (mkCompilationFacts (prog_expr_facts p)
-       (package_main_refs (GoIndex.indexed_syntax (GoIndex.index_program p)))
-       (prog_expr_facts_find p)
-       (package_main_refs_present (GoIndex.indexed_syntax (GoIndex.index_program p)))
-       (package_main_refs_bucket_len (GoIndex.indexed_syntax (GoIndex.index_program p)))
-       H).
-
 (** The compiled evidence EXPOSES that the same program is typed through [GoTypes] (§17): an immediate
     canonical projection, not a stored second copy of the typing proof. *)
 Theorem compile_program_typed : forall p, GoCompile p -> ProgramTyped p.
@@ -2239,58 +2332,91 @@ Proof. intro cp; exact (compile_program_typed _ (cp_ok cp)). Qed.
 
 (** ---- the proof-producing executable compiler ---- *)
 
-Inductive CompileError : Type :=
-| ErrTyping           (* some declaration fails typing: a constant outside every representable range, a
-                         float or complex-component overflow, a fractional-or-out-of-range float/complex->integer,
-                         a nonzero-imaginary complex->scalar, a wrong-type operand, or an invalid (nested)
-                         conversion — the one honest typing error now that typing can fail for several reasons *)
-| ErrPackageMainCount (* some package has zero or multiple `main` declarations *).
-
 Inductive result (E A : Type) : Type := Ok : A -> result E A | Err : E -> result E A.
 Arguments Ok {E A}. Arguments Err {E A}.
 
 Definition bool_sumbool (b : bool) : {b = true} + {b = false} :=
   match b with true => left eq_refl | false => right eq_refl end.
 
-(** §18 — the production compiler is a PROJECTION of the retained [analyze]: it consumes the SAME analysis
-    root (never an independent [prog_ok]).  On success it exposes the [CompilableProgram] built from the
-    analysis facts' validity; on failure a legacy coarse error class (regression-compatible). *)
-Definition go_compile (p : GoProgram) : result CompileError CompilableProgram :=
-  match pa_result (analyze p) with
-  | AnalysisOK facts   => Ok (mkCompilable p (pa_indexed (analyze p)) facts)
-  | AnalysisFailed _ _ => if program_typedb p then Err ErrPackageMainCount else Err ErrTyping
+(** §18 — a structured failure bundle: the EXACT analysis diagnostics + their nonempty proof. *)
+Record CompileFailure (p : GoProgram) : Type := mkCompileFailure {
+  cfail_diags    : list (DiagnosticReason p) ;
+  cfail_nonempty : cfail_diags <> nil
+}.
+Arguments mkCompileFailure {p} _ _.
+Arguments cfail_diags {p} _.
+Arguments cfail_nonempty {p} _.
+
+Inductive CompileOutcome (p : GoProgram) : Type :=
+| CompiledOk    (cp : CompilableProgram) (Hcp : cp_program cp = p)
+| CompileFailed (fail : CompileFailure p).
+Arguments CompiledOk {p} _ _.
+Arguments CompileFailed {p} _.
+
+(** the LEGACY coarse class, a PROJECTION of the analysis diagnostics (never a separate check): a typing-class
+    diagnostic dominates, else a package-class diagnostic, else success. *)
+Inductive LegacyCompileClass : Type := LCOk | LCTyping | LCPackageMainCount.
+Definition legacy_class_of_diags {p} (ds : list (DiagnosticReason p)) : LegacyCompileClass :=
+  if existsb diag_is_typing ds then LCTyping
+  else if existsb diag_is_package ds then LCPackageMainCount else LCOk.
+Definition legacy_compile_class {p} (o : CompileOutcome p) : LegacyCompileClass :=
+  match o with CompiledOk _ _ => LCOk | CompileFailed fail => legacy_class_of_diags (cfail_diags fail) end.
+
+(** §18 — the production compiler PROJECTS the ONE retained [analyze] (a single let-bound [pa]: same index,
+    same analysis result).  Success exposes the [CompilableProgram] from [AnalysisOK]; failure CARRIES the
+    exact analysis diagnostics — never a second checker or a coarse recomputation. *)
+Definition go_compile (p : GoProgram) : CompileOutcome p :=
+  let pa := analyze p in
+  match pa_result pa with
+  | AnalysisOK facts      => CompiledOk (mkCompilable p (pa_indexed pa) facts) eq_refl
+  | AnalysisFailed ds Hne => CompileFailed (mkCompileFailure ds Hne)
   end.
 
-(** (A) internal exactness: [go_compile] accepts exactly the admissible programs, whole-program. *)
-Theorem go_compile_sound : forall p cp,
-  go_compile p = Ok cp -> cp_program cp = p /\ GoCompile (cp_program cp).
+(** (A) internal exactness: [go_compile] succeeds exactly on admissible programs, whole-program. *)
+Theorem go_compile_ok_valid : forall p cp Hcp,
+  go_compile p = CompiledOk cp Hcp -> cp_program cp = p /\ GoCompile (cp_program cp).
 Proof.
-  intros p cp Heq. revert Heq. unfold go_compile.
-  destruct (pa_result (analyze p)) as [ facts | ds Hne ].
-  - intro Heq; injection Heq as <-; cbn [cp_program]. split; [ reflexivity | exact (cf_valid facts) ].
-  - destruct (program_typedb p); discriminate.
+  intros p cp Hcp Heq. revert Heq. unfold go_compile; cbv zeta.
+  destruct (pa_result (analyze p)) as [ facts | ds Hne ]; intro Heq; [| discriminate Heq].
+  injection Heq as <-. cbn [cp_program]. split; [ reflexivity | exact (cf_valid facts) ].
 Qed.
 
 Theorem go_compile_complete : forall p,
-  GoCompile p -> exists cp, go_compile p = Ok cp.
+  GoCompile p -> exists cp Hcp, go_compile p = CompiledOk cp Hcp.
 Proof.
-  intros p Hvalid. unfold go_compile.
+  intros p Hvalid. unfold go_compile; cbv zeta.
   destruct (analyze_ok_iff_ProgValid p) as [ _ Hok ].
-  destruct (Hok Hvalid) as [ facts Hf ]. rewrite Hf. eexists; reflexivity.
+  destruct (Hok Hvalid) as [ facts Hf ]. rewrite Hf. eexists; eexists; reflexivity.
 Qed.
 
-(** fixture helpers: prove acceptance/rejection through the theorems (never by reducing [go_compile], which
-    would build the whole index). *)
-Lemma go_compile_ok_of_prog_ok : forall p, prog_ok p = true -> exists cp, go_compile p = Ok cp.
+(** fixture helper: acceptance through the theorems. *)
+Lemma go_compile_ok_of_prog_ok : forall p, prog_ok p = true -> exists cp Hcp, go_compile p = CompiledOk cp Hcp.
 Proof. intros p H; apply go_compile_complete, (proj1 (prog_ok_iff p)); exact H. Qed.
 
-Lemma go_compile_untyped : forall p, program_typedb p = false -> go_compile p = Err ErrTyping.
+(** the CHEAP witness builder: the SAME [CompilationFacts] [analyze]'s [AnalysisOK] builds (identical
+    [prog_expr_facts] / [package_main_refs] / retained index), with [cp_program] a direct projection so
+    rendering never reduces the (opaque, vm-compute-unfriendly) index analysis.  [go_compile]'s success value
+    agrees observationally (only the erased validity proof differs) — [go_compile p = CompiledOk cp _ ->
+    cp_program cp = p] is the shared observable. *)
+Definition compilable_of_valid (p : GoProgram) (H : GoCompile p) : CompilableProgram :=
+  mkCompilable p (GoIndex.index_program p)
+    (mkCompilationFacts (prog_expr_facts p)
+       (package_main_refs (GoIndex.indexed_syntax (GoIndex.index_program p)))
+       (prog_expr_facts_find p)
+       (package_main_refs_present (GoIndex.indexed_syntax (GoIndex.index_program p)))
+       (package_main_refs_bucket_len (GoIndex.indexed_syntax (GoIndex.index_program p)))
+       H).
+
+(** fixture helper: a non-typed program is REJECTED at the TYPING legacy class — a projection of the carried
+    diagnostics, never a [program_typedb] rerun. *)
+Lemma go_compile_untyped : forall p, program_typedb p = false -> legacy_compile_class (go_compile p) = LCTyping.
 Proof.
-  intros p Hf. unfold go_compile.
+  intros p Hf. unfold go_compile; cbv zeta.
   destruct (pa_result (analyze p)) as [ facts | ds Hne ] eqn:E.
   - exfalso. assert (Hv : ProgValid p) by (apply (analyze_ok_iff_ProgValid p); exists facts; exact E).
     pose proof (proj2 (program_typedb_iff p) (proj1 Hv)) as Ht. rewrite Ht in Hf; discriminate Hf.
-  - rewrite Hf; reflexivity.
+  - cbn [legacy_compile_class cfail_diags]. unfold legacy_class_of_diags.
+    rewrite (analyze_failed_ds p ds Hne E), existsb_typing_collect, Hf. reflexivity.
 Qed.
 
 (** A rejected program yields no CompilableProgram (and hence no SafeProgram, no image). *)
@@ -2325,22 +2451,32 @@ Proof.
     apply (proj2 (prog_ok_iff p1)) in E2. rewrite E2 in E1; discriminate.
 Qed.
 
-(** the [go_compile] RESULT CLASS (accept vs. which error) — invariant under file insertion order. *)
-Definition go_compile_class (p : GoProgram) : result CompileError unit :=
-  match go_compile p with Ok _ => Ok tt | Err e => Err e end.
+(* [prog_ok] is exactly the conjunction of the two decision halves. *)
+Lemma prog_ok_eq : forall p, prog_ok p = program_typedb p && pkg_all_ok p.
+Proof. reflexivity. Qed.
+
+(** the [go_compile] LEGACY CLASS (a projection of the carried diagnostics) — invariant under file insertion
+    order.  It matches the decision: success -> [LCOk]; not typed -> [LCTyping]; typed but bad package -> [LCPackageMainCount]. *)
+Definition go_compile_class (p : GoProgram) : LegacyCompileClass := legacy_compile_class (go_compile p).
 
 Lemma go_compile_class_spec : forall p,
   go_compile_class p
-  = (if prog_ok p then Ok tt else if program_typedb p then Err ErrPackageMainCount else Err ErrTyping).
+  = (if prog_ok p then LCOk else if program_typedb p then LCPackageMainCount else LCTyping).
 Proof.
-  intro p. unfold go_compile_class, go_compile.
+  intro p. unfold go_compile_class, go_compile; cbv zeta.
   destruct (pa_result (analyze p)) as [facts | ds Hne] eqn:E.
   - assert (Hpv : ProgValid p) by (apply (analyze_ok_iff_ProgValid p); exists facts; exact E).
-    apply (proj2 (prog_ok_iff p)) in Hpv. rewrite Hpv. reflexivity.
+    cbn [legacy_compile_class]. rewrite (proj2 (prog_ok_iff p) Hpv). reflexivity.
   - assert (Hnv : ~ ProgValid p)
       by (apply (analyze_failed_iff_not_ProgValid p); exists ds; exists Hne; exact E).
-    destruct (prog_ok p) eqn:Ep;
-      [ exfalso; apply Hnv, (proj1 (prog_ok_iff p)); exact Ep | destruct (program_typedb p); reflexivity ].
+    assert (Hpf : prog_ok p = false)
+      by (destruct (prog_ok p) eqn:Ep; [ exfalso; apply Hnv, (proj1 (prog_ok_iff p)); exact Ep | reflexivity ]).
+    rewrite Hpf. cbn [legacy_compile_class cfail_diags]. unfold legacy_class_of_diags.
+    rewrite (analyze_failed_ds p ds Hne E), existsb_typing_collect, existsb_package_collect.
+    destruct (program_typedb p) eqn:Ht; cbn [negb].
+    + assert (Hpk : pkg_all_ok p = false) by (rewrite prog_ok_eq, Ht, Bool.andb_true_l in Hpf; exact Hpf).
+      rewrite Hpk. reflexivity.
+    + reflexivity.
 Qed.
 
 Theorem go_compile_class_Equal : forall p1 p2,
@@ -2384,7 +2520,7 @@ Definition over_program : GoProgram :=
    rendering/emission): rejection happens strictly in Rocq, before any bytes. *)
 Example over_program_untyped   : program_typedb over_program = false.        Proof. vm_compute; reflexivity. Qed.
 Example over_program_not_ok    : prog_ok over_program = false.               Proof. vm_compute; reflexivity. Qed.
-Example over_program_rejected  : go_compile over_program = Err ErrTyping.    Proof. exact (go_compile_untyped _ over_program_untyped). Qed.
+Example over_program_rejected  : legacy_compile_class (go_compile over_program) = LCTyping.    Proof. exact (go_compile_untyped _ over_program_untyped). Qed.
 Example over_program_no_compile : ~ GoCompile over_program.
 Proof. exact (reject_no_compile over_program over_program_not_ok). Qed.
 
@@ -2399,7 +2535,7 @@ Definition int_program : GoProgram :=
                        ; EIntConvert IInt8 (EIntConvert IInt16 (EInt 127)) ] ] ].
 Example int_program_typed    : program_typedb int_program = true. Proof. vm_compute; reflexivity. Qed.
 Example int_program_ok       : prog_ok int_program = true.        Proof. vm_compute; reflexivity. Qed.
-Example int_program_compiles : exists cp, go_compile int_program = Ok cp.
+Example int_program_compiles : exists cp Hcp, go_compile int_program = CompiledOk cp Hcp.
 Proof. exact (go_compile_ok_of_prog_ok _ int_program_ok). Qed.
 
 (** A program whose only argument is [uint8(int(300))] — a valid inner [int(300)] whose value does NOT fit
@@ -2410,7 +2546,7 @@ Definition bad_convert_program : GoProgram :=
     (mkFP "main.go" eq_refl)
     [ DMain [ SPrintln [ EIntConvert IUint8 (EIntConvert IInt (EInt 300)) ] ] ].
 Example bad_convert_untyped     : program_typedb bad_convert_program = false. Proof. vm_compute; reflexivity. Qed.
-Example bad_convert_rejected    : go_compile bad_convert_program = Err ErrTyping. Proof. exact (go_compile_untyped _ bad_convert_untyped). Qed.
+Example bad_convert_rejected    : legacy_compile_class (go_compile bad_convert_program) = LCTyping. Proof. exact (go_compile_untyped _ bad_convert_untyped). Qed.
 Example bad_convert_no_compile  : ~ GoCompile bad_convert_program.
 Proof. exact (reject_no_compile bad_convert_program eq_refl). Qed.
 
@@ -2423,7 +2559,7 @@ Definition str_program : GoProgram :=
     [ DMain [ SPrintln [ EString "hello"; EBool true; EInt 7 ] ] ].
 Example str_program_typed    : program_typedb str_program = true. Proof. vm_compute; reflexivity. Qed.
 Example str_program_ok       : prog_ok str_program = true.        Proof. vm_compute; reflexivity. Qed.
-Example str_program_compiles : exists cp, go_compile str_program = Ok cp.
+Example str_program_compiles : exists cp Hcp, go_compile str_program = CompiledOk cp Hcp.
 Proof. exact (go_compile_ok_of_prog_ok _ str_program_ok). Qed.
 
 (** ---- float programs (§38): a concrete accepted float program (a bare float64, an explicit float32
@@ -2439,7 +2575,7 @@ Definition float_program : GoProgram :=
                        ; EIntConvert IInt (EFloat (mkDecimal 3 0 eq_refl)) ] ] ].
 Example float_program_typed    : program_typedb float_program = true. Proof. vm_compute. reflexivity. Qed.
 Example float_program_ok       : prog_ok float_program = true.        Proof. vm_compute. reflexivity. Qed.
-Example float_program_compiles : exists cp, go_compile float_program = Ok cp.
+Example float_program_compiles : exists cp Hcp, go_compile float_program = CompiledOk cp Hcp.
 Proof. exact (go_compile_ok_of_prog_ok _ float_program_ok). Qed.
 
 Definition float_reject_program : GoProgram :=
@@ -2448,7 +2584,7 @@ Definition float_reject_program : GoProgram :=
     (mkFP "main.go" eq_refl)
     [ DMain [ SPrintln [ EIntConvert IInt (EFloat (mkDecimal 35 (-1) eq_refl)) ] ] ].   (* int(3.5): fractional *)
 Example float_reject_untyped    : program_typedb float_reject_program = false. Proof. vm_compute. reflexivity. Qed.
-Example float_reject_rejected   : go_compile float_reject_program = Err ErrTyping.
+Example float_reject_rejected   : legacy_compile_class (go_compile float_reject_program) = LCTyping.
 Proof. exact (go_compile_untyped _ float_reject_untyped). Qed.
 Example float_reject_no_compile : ~ GoCompile float_reject_program.
 Proof. apply (reject_no_compile float_reject_program); vm_compute; reflexivity. Qed.
@@ -2468,7 +2604,7 @@ Definition complex_program : GoProgram :=
                        ; EIntConvert IInt (EComplex (mkDC (mkDecimal 3 0 eq_refl) (mkDecimal 0 0 eq_refl))) ] ] ].
 Example complex_program_typed    : program_typedb complex_program = true. Proof. vm_compute. reflexivity. Qed.
 Example complex_program_ok       : prog_ok complex_program = true.        Proof. vm_compute. reflexivity. Qed.
-Example complex_program_compiles : exists cp, go_compile complex_program = Ok cp.
+Example complex_program_compiles : exists cp Hcp, go_compile complex_program = CompiledOk cp Hcp.
 Proof. exact (go_compile_ok_of_prog_ok _ complex_program_ok). Qed.
 
 Definition complex_overflow_program : GoProgram :=
@@ -2477,7 +2613,7 @@ Definition complex_overflow_program : GoProgram :=
     (mkFP "main.go" eq_refl)
     [ DMain [ SPrintln [ EComplexConvert C64 (EComplex (mkDC (mkDecimal 1 39 eq_refl) (mkDecimal 0 0 eq_refl))) ] ] ].
 Example complex_overflow_untyped    : program_typedb complex_overflow_program = false. Proof. vm_compute. reflexivity. Qed.
-Example complex_overflow_rejected   : go_compile complex_overflow_program = Err ErrTyping. Proof. exact (go_compile_untyped _ complex_overflow_untyped). Qed.
+Example complex_overflow_rejected   : legacy_compile_class (go_compile complex_overflow_program) = LCTyping. Proof. exact (go_compile_untyped _ complex_overflow_untyped). Qed.
 Example complex_overflow_no_compile : ~ GoCompile complex_overflow_program.
 Proof. apply (reject_no_compile complex_overflow_program); vm_compute; reflexivity. Qed.
 
@@ -2487,6 +2623,6 @@ Definition complex_nonzero_imag_program : GoProgram :=
     (mkFP "main.go" eq_refl)
     [ DMain [ SPrintln [ EIntConvert IInt (EComplex (mkDC (mkDecimal 3 0 eq_refl) (mkDecimal 1 0 eq_refl))) ] ] ].
 Example complex_nonzero_imag_untyped    : program_typedb complex_nonzero_imag_program = false. Proof. vm_compute. reflexivity. Qed.
-Example complex_nonzero_imag_rejected   : go_compile complex_nonzero_imag_program = Err ErrTyping. Proof. exact (go_compile_untyped _ complex_nonzero_imag_untyped). Qed.
+Example complex_nonzero_imag_rejected   : legacy_compile_class (go_compile complex_nonzero_imag_program) = LCTyping. Proof. exact (go_compile_untyped _ complex_nonzero_imag_untyped). Qed.
 Example complex_nonzero_imag_no_compile : ~ GoCompile complex_nonzero_imag_program.
 Proof. apply (reject_no_compile complex_nonzero_imag_program); vm_compute; reflexivity. Qed.

@@ -21,8 +21,8 @@ Definition empty_safe : SafeProgram := certify empty_compiled.
 (* the empty source map builds, compiles, and renders NO .go files *)
 Example empty_builds : exists p, build_program empty_module [] = Some p.
 Proof. eexists; reflexivity. Qed.
-Example empty_compiles : exists cp, go_compile empty_prog = Ok cp.
-Proof. eexists; reflexivity. Qed.
+Example empty_compiles : exists cp Hcp, go_compile empty_prog = CompiledOk cp Hcp.
+Proof. exact (go_compile_complete empty_prog empty_valid). Qed.
 Example empty_no_go_files : di_go_file_entries (render_program empty_safe) = [].
 Proof. reflexivity. Qed.
 

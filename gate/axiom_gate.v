@@ -311,7 +311,7 @@ Print Assumptions GoAST.FilesEqual_trans.
    an out-of-range and an invalid-nested-conversion program are rejected with the honest typing error (and
    have no CompilableProgram); a concrete string program compiles. *)
 Print Assumptions GoCompile.prog_ok_iff.
-Print Assumptions GoCompile.go_compile_sound.
+Print Assumptions GoCompile.go_compile_ok_valid.
 Print Assumptions GoCompile.go_compile_complete.
 (* §8 map-based PACKAGE GROUPING via a standard [PackageMap] in ONE [FM.fold]: EXACTNESS (every file
    contributes to its own parent package; no package without a file; a summary's main count IS the sum over
