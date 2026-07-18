@@ -908,6 +908,159 @@ Proof.
   apply fold_kv_find; [ apply status_kvs_nodup | exact (status_kvs_in p r occ e Hin Hv) ].
 Qed.
 
+(* ---- OPERAND ADJACENCY: a conversion occurrence at [me] has its operand occurrence at [Pos.succ me] (the
+   index's canonical child id), so a conversion's operand status is read from [prog_status_map] at the operand
+   key — no [const_info] rescan of the operand subtree. ---- *)
+
+Lemma occs_expr_head_ex : forall e parent role start,
+  exists occ, In (start, occ) (GoIndex.occs_expr parent role start e) /\ GoIndex.view_expr occ = Some e.
+Proof. intros e parent role start; destruct e; cbn [GoIndex.occs_expr]; eexists; (split; [left; reflexivity|reflexivity]). Qed.
+
+Lemma occs_expr_operand : forall e parent role start me occ ce x,
+  In (me, occ) (GoIndex.occs_expr parent role start e) ->
+  GoIndex.view_expr occ = Some ce -> expr_child ce = Some x ->
+  exists occ', In (Pos.succ me, occ') (GoIndex.occs_expr parent role start e) /\ GoIndex.view_expr occ' = Some x.
+Proof.
+  induction e as [ b|n1|n2|s| it y IHy | df | ft y IHy | dcx | ct y IHy ]; intros parent role start me occ ce x Hin Hv Hc.
+  (* leaves: the only occurrence is the leaf, whose view has no expr_child *)
+  1,2,3,4,6,8: cbn [GoIndex.occs_expr] in Hin; destruct Hin as [Heq|Hf]; [| destruct Hf];
+               injection Heq as <- <-; cbn [GoIndex.view_expr GoIndex.occurrence_view] in Hv;
+               injection Hv as Hce; subst ce; cbn [expr_child] in Hc; discriminate Hc.
+  (* conversions: head is the conversion (operand at [Pos.succ me]); tail is the operand subtree (IH) *)
+  all: cbn [GoIndex.occs_expr] in Hin; destruct Hin as [Heq|Hin];
+    [ injection Heq as Hid Hocc; rewrite <- Hid; rewrite <- Hocc in Hv;
+      cbn [GoIndex.view_expr GoIndex.occurrence_view] in Hv; injection Hv as Hce; subst ce;
+      cbn [expr_child] in Hc; injection Hc as Hx; subst x;
+      destruct (occs_expr_head_ex y start GoIndex.RConversionOperand (Pos.succ start)) as [occ' [Hin' Hv']];
+      exists occ'; split; [right; exact Hin' | exact Hv']
+    | destruct (IHy start GoIndex.RConversionOperand (Pos.succ start) me occ ce x Hin Hv Hc) as [occ' [Hin' Hv']];
+      exists occ'; split; [right; exact Hin' | exact Hv'] ].
+Qed.
+
+Lemma in_app_operand {L1 L2 : list (positive * GoIndex.SourceOccurrence)} me occ x :
+  (forall M O ce X, In (M, O) L1 -> GoIndex.view_expr O = Some ce -> expr_child ce = Some X ->
+     exists O', In (Pos.succ M, O') L1 /\ GoIndex.view_expr O' = Some X) ->
+  (forall M O ce X, In (M, O) L2 -> GoIndex.view_expr O = Some ce -> expr_child ce = Some X ->
+     exists O', In (Pos.succ M, O') L2 /\ GoIndex.view_expr O' = Some X) ->
+  forall ce, In (me, occ) (L1 ++ L2) -> GoIndex.view_expr occ = Some ce -> expr_child ce = Some x ->
+  exists occ', In (Pos.succ me, occ') (L1 ++ L2) /\ GoIndex.view_expr occ' = Some x.
+Proof.
+  intros H1 H2 ce Hin Hv Hc. apply in_app_or in Hin. destruct Hin as [Hin|Hin].
+  - destruct (H1 me occ ce x Hin Hv Hc) as [occ' [Hin' Hv']]. exists occ'. split; [apply in_or_app; left; exact Hin' | exact Hv'].
+  - destruct (H2 me occ ce x Hin Hv Hc) as [occ' [Hin' Hv']]. exists occ'. split; [apply in_or_app; right; exact Hin' | exact Hv'].
+Qed.
+
+Lemma occs_args_operand : forall es parent aidx start me occ ce x,
+  In (me, occ) (GoIndex.occs_args parent aidx start es) ->
+  GoIndex.view_expr occ = Some ce -> expr_child ce = Some x ->
+  exists occ', In (Pos.succ me, occ') (GoIndex.occs_args parent aidx start es) /\ GoIndex.view_expr occ' = Some x.
+Proof.
+  induction es as [|e rest IH]; intros parent aidx start me occ ce x Hin Hv Hc; cbn [GoIndex.occs_args] in *; [destruct Hin|].
+  eapply in_app_operand; [ | | exact Hin | exact Hv | exact Hc ].
+  - intros M O ce0 X HinM HvM HcM. unfold GoIndex.occs_arg. eapply occs_expr_operand; eauto.
+  - intros M O ce0 X HinM HvM HcM. eapply IH; eauto.
+Qed.
+
+Lemma occs_stmt_operand : forall s parent sidx start me occ ce x,
+  In (me, occ) (GoIndex.occs_stmt parent sidx start s) ->
+  GoIndex.view_expr occ = Some ce -> expr_child ce = Some x ->
+  exists occ', In (Pos.succ me, occ') (GoIndex.occs_stmt parent sidx start s) /\ GoIndex.view_expr occ' = Some x.
+Proof.
+  intros [args] parent sidx start me occ ce x Hin Hv Hc. cbn [GoIndex.occs_stmt] in *.
+  destruct Hin as [Heq|Hin].
+  - injection Heq as <- <-. cbn [GoIndex.view_expr GoIndex.occurrence_view] in Hv. discriminate Hv.
+  - destruct (occs_args_operand args start 0 (Pos.succ start) me occ ce x Hin Hv Hc) as [occ' [Hin' Hv']].
+    exists occ'. split; [right; exact Hin' | exact Hv'].
+Qed.
+
+Lemma occs_stmts_operand : forall ss parent sidx start me occ ce x,
+  In (me, occ) (GoIndex.occs_stmts parent sidx start ss) ->
+  GoIndex.view_expr occ = Some ce -> expr_child ce = Some x ->
+  exists occ', In (Pos.succ me, occ') (GoIndex.occs_stmts parent sidx start ss) /\ GoIndex.view_expr occ' = Some x.
+Proof.
+  induction ss as [|s rest IH]; intros parent sidx start me occ ce x Hin Hv Hc; cbn [GoIndex.occs_stmts] in *; [destruct Hin|].
+  eapply in_app_operand; [ | | exact Hin | exact Hv | exact Hc ].
+  - intros M O ce0 X HinM HvM HcM. eapply occs_stmt_operand; eauto.
+  - intros M O ce0 X HinM HvM HcM. eapply IH; eauto.
+Qed.
+
+Lemma occs_decl_operand : forall d parent didx start me occ ce x,
+  In (me, occ) (GoIndex.occs_decl parent didx start d) ->
+  GoIndex.view_expr occ = Some ce -> expr_child ce = Some x ->
+  exists occ', In (Pos.succ me, occ') (GoIndex.occs_decl parent didx start d) /\ GoIndex.view_expr occ' = Some x.
+Proof.
+  intros [body] parent didx start me occ ce x Hin Hv Hc. cbn [GoIndex.occs_decl] in *.
+  destruct Hin as [Heq|Hin].
+  - injection Heq as <- <-. cbn [GoIndex.view_expr GoIndex.occurrence_view] in Hv. discriminate Hv.
+  - destruct (occs_stmts_operand body start 0 (Pos.succ start) me occ ce x Hin Hv Hc) as [occ' [Hin' Hv']].
+    exists occ'. split; [right; exact Hin' | exact Hv'].
+Qed.
+
+Lemma occs_decls_operand : forall ds parent didx start me occ ce x,
+  In (me, occ) (GoIndex.occs_decls parent didx start ds) ->
+  GoIndex.view_expr occ = Some ce -> expr_child ce = Some x ->
+  exists occ', In (Pos.succ me, occ') (GoIndex.occs_decls parent didx start ds) /\ GoIndex.view_expr occ' = Some x.
+Proof.
+  induction ds as [|d rest IH]; intros parent didx start me occ ce x Hin Hv Hc; cbn [GoIndex.occs_decls] in *; [destruct Hin|].
+  eapply in_app_operand; [ | | exact Hin | exact Hv | exact Hc ].
+  - intros M O ce0 X HinM HvM HcM. eapply occs_decl_operand; eauto.
+  - intros M O ce0 X HinM HvM HcM. eapply IH; eauto.
+Qed.
+
+Lemma occs_file_operand : forall f me occ ce x,
+  In (me, occ) (GoIndex.occs_file f) ->
+  GoIndex.view_expr occ = Some ce -> expr_child ce = Some x ->
+  exists occ', In (Pos.succ me, occ') (GoIndex.occs_file f) /\ GoIndex.view_expr occ' = Some x.
+Proof.
+  intros f me occ ce x Hin Hv Hc. unfold GoIndex.occs_file in *.
+  destruct (source_imports f) as [|i tl]; [| destruct i].
+  destruct Hin as [Heq|[Heq|Hin]].
+  - injection Heq as <- <-. cbn [GoIndex.view_expr GoIndex.occurrence_view] in Hv. discriminate Hv.
+  - injection Heq as <- <-. cbn [GoIndex.view_expr GoIndex.occurrence_view] in Hv. discriminate Hv.
+  - destruct (occs_decls_operand (source_decls f) GoIndex.root_id 0 (Pos.succ GoIndex.pkg_id) me occ ce x Hin Hv Hc)
+      as [occ' [Hin' Hv']].
+    exists occ'. split; [right; right; exact Hin' | exact Hv'].
+Qed.
+
+(** the OPERAND of a visited conversion contributes its [const_info] to [status_kvs] at the operand key. *)
+Lemma status_kvs_in_operand (p : GoProgram) (r : GoIndex.Snap.NodeRef p) occ e x :
+  In (r, occ) (prog_visit p) -> GoIndex.view_expr occ = Some e -> expr_child e = Some x ->
+  In (GoIndex.mkKey (GoIndex.nk_file (GoIndex.Snap.node_ref_key r)) (Pos.succ (GoIndex.Snap.node_ref_local r)), const_info x)
+     (status_kvs p).
+Proof.
+  intros Hin Hv Hc. unfold prog_visit in Hin. apply in_flat_map in Hin. destruct Hin as [b [Hb Hrb]].
+  unfold status_kvs. apply in_flat_map. exists b. split; [exact Hb|].
+  unfold binding_visit in Hrb.
+  destruct (GoIndex.Snap.file_of_path p (fst b)) as [fr|] eqn:Ef; [|destruct Hrb].
+  pose proof (GoIndex.Snap.visit_file_view p fr r occ Hrb) as [Hocc Hfile].
+  assert (Hsrc_at : GoIndex.source_occurrence_at (GoIndex.Snap.file_ref_source fr) (GoIndex.Snap.node_ref_local r) = Some occ).
+  { pose proof (GoIndex.Snap.source_occ_of_ref_eq r) as Hso. rewrite Hfile in Hso. rewrite Hso, Hocc. reflexivity. }
+  apply GoIndex.occs_file_exact in Hsrc_at.
+  destruct (occs_file_operand (GoIndex.Snap.file_ref_source fr) (GoIndex.Snap.node_ref_local r) occ e x Hsrc_at Hv Hc)
+    as [occ' [Hin' Hv']].
+  assert (Hfs : In (Pos.succ (GoIndex.Snap.node_ref_local r), const_info x) (file_statuses (GoIndex.Snap.file_ref_source fr))).
+  { rewrite file_statuses_occs. exact (expr_statuses_of_occs_in _ _ occ' x Hin' Hv'). }
+  pose proof (GoAST.file_bindings_find (prog_files p) b Hb) as Hfind.
+  destruct (GoIndex.Snap.file_of_path_source p (fst b) (snd b) Hfind) as [fr' [Hfop' [Hpath' Hsrc']]].
+  rewrite Ef in Hfop'. injection Hfop' as <-.
+  unfold binding_statuses. apply in_map_iff.
+  exists (Pos.succ (GoIndex.Snap.node_ref_local r), const_info x). split; cbn [fst snd].
+  - rewrite GoIndex.Snap.node_ref_key_eq; cbn [GoIndex.nk_file]. rewrite Hfile, Hpath'. reflexivity.
+  - rewrite <- Hsrc'; exact Hfs.
+Qed.
+
+(** STATUS-MAP OPERAND EXACTNESS: the operand key of a visited conversion holds the operand's exact
+    [const_info] — so [local_conv_failure]'s operand status is a map read, not a subtree rescan. *)
+Lemma prog_status_map_find_operand (p : GoProgram) (r : GoIndex.Snap.NodeRef p) occ e x :
+  In (r, occ) (prog_visit p) -> GoIndex.view_expr occ = Some e -> expr_child e = Some x ->
+  GoIndex.NodeKeyMapBase.find
+    (GoIndex.mkKey (GoIndex.nk_file (GoIndex.Snap.node_ref_key r)) (Pos.succ (GoIndex.Snap.node_ref_local r)))
+    (prog_status_map p) = Some (const_info x).
+Proof.
+  intros Hin Hv Hc. unfold prog_status_map.
+  apply fold_kv_find; [ apply status_kvs_nodup | exact (status_kvs_in_operand p r occ e x Hin Hv Hc) ].
+Qed.
+
 (* ---- the SINGLE-PASS expression-fact map: fold the visit stream, keying each occurrence's fact by its
    NodeKey, taking its constant status from the precomputed [prog_status_map] (O(1), never a [const_info]
    rescan).  Its per-node fact is EXACTLY the specification [occ_expr_fact]. ---- *)
