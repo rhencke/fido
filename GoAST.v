@@ -145,6 +145,17 @@ Proof.
   apply FMF.find_mapsto_iff, FMF.elements_mapsto_iff, SetoidList.InA_alt.
   exists (k, e). split; [ split; reflexivity | exact Hin ].
 Qed.
+
+(** the dual: a key that [find]s a value occurs as that binding in the canonical enumeration (used to build a
+    package anchor from a validated file reference). *)
+Lemma find_file_bindings : forall (fm : GoFileMap) k e,
+  find_file k fm = Some e -> List.In (k, e) (file_bindings fm).
+Proof.
+  intros fm k e H. unfold file_bindings, find_file in *.
+  apply FMF.find_mapsto_iff, FMF.elements_mapsto_iff, SetoidList.InA_alt in H.
+  destruct H as [[k' e'] [[Hk He] Hin]]. cbn in Hk, He.
+  unfold Collections.FilePath_OT.eq in Hk. subst. exact Hin.
+Qed.
 Definition file_nodes (fm : GoFileMap) : list GoFileNode :=
   List.map (fun b => mkFileNode (fst b) (snd b)) (file_bindings fm).
 Definition map_file_values {B} (f : GoSourceFile -> B) (fm : GoFileMap) : FM.t B := FM.map f fm.

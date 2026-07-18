@@ -28,7 +28,8 @@
     ============================================================================ *)
 From Stdlib Require Import NArith ZArith List Bool String Arith Lia.
 From Stdlib Require Import SetoidList Permutation.
-From Fido Require Import Ints Floats Complexes FilePath Collections GoAST GoTypes.
+From Fido Require Import Ints Floats Complexes FilePath Collections GoAST GoIndex GoTypes.
+From Stdlib Require Import Eqdep_dec.
 Import ListNotations.
 Open Scope Z_scope.
 
@@ -275,6 +276,79 @@ Proof.
 Qed.
 
 (** ---- whole-program admissibility over the SAME program ---- *)
+
+(* ============================================================================================================
+   §7 (C3) — PackageRef: a VALIDATED absence anchor for package-level diagnostics.  A package spans files and is
+   not one AST node, so a missing-main diagnostic anchors at a proof-backed package handle, never a fake source
+   node.  Identity is the package KEY (parent-directory string); the proof field is a BOOLEAN membership
+   equation (UIP over bool), so key equality determines the ref AND a PackageRef cannot name a package with no
+   represented file.
+   ============================================================================================================ *)
+
+Definition package_present_b (p : GoProgram) (key : string) : bool :=
+  list_dir_mem key (GoAST.file_bindings (prog_files p)).
+
+Record PackageRef (p : GoProgram) : Type := mkPackageRef {
+  package_ref_key : string ;
+  package_ref_ok  : package_present_b p package_ref_key = true
+}.
+Arguments package_ref_key {p} _.
+Arguments package_ref_ok {p} _.
+
+(** represented-package witness: a PackageRef's key names a real file in [p] (the directive's §7 exists form). *)
+Lemma package_ref_present : forall p (r : PackageRef p),
+  exists path sf, GoAST.maps_to_file path sf (prog_files p) /\ fp_parent path = package_ref_key r.
+Proof.
+  intros p [k ok]; cbn. unfold package_present_b, list_dir_mem in ok.
+  apply existsb_exists in ok. destruct ok as [b [Hin Heqb]]. apply String.eqb_eq in Heqb.
+  exists (fst b), (snd b). split; [ | exact Heqb ].
+  unfold GoAST.maps_to_file. apply GoAST.FMF.find_mapsto_iff.
+  exact (GoAST.file_bindings_find (prog_files p) b Hin).
+Qed.
+
+(** identity IS key identity (the boolean proof field is irrelevant by UIP over bool — no axiom). *)
+Lemma package_ref_key_inj : forall p (r1 r2 : PackageRef p),
+  package_ref_key r1 = package_ref_key r2 -> r1 = r2.
+Proof.
+  intros p [k1 ok1] [k2 ok2] Heq; cbn in Heq; subst k2.
+  f_equal. apply (Eqdep_dec.UIP_dec Bool.bool_dec).
+Qed.
+
+Definition package_ref_eq_dec : forall p (r1 r2 : PackageRef p), {r1 = r2} + {r1 <> r2}.
+Proof.
+  intros p r1 r2. destruct (string_dec (package_ref_key r1) (package_ref_key r2)) as [He|Hne].
+  - left. apply package_ref_key_inj; exact He.
+  - right. intro H; apply Hne; rewrite H; reflexivity.
+Defined.
+
+(** construction from a real file binding: its package (parent directory) is present (the binding witnesses it). *)
+Definition package_ref_of_binding (p : GoProgram) (b : FilePath * GoSourceFile)
+  (Hin : In b (GoAST.file_bindings (prog_files p))) : PackageRef p.
+Proof.
+  refine (mkPackageRef p (fp_parent (fst b)) _).
+  unfold package_present_b, list_dir_mem. apply existsb_exists.
+  exists b. split; [ exact Hin | apply String.eqb_refl ].
+Defined.
+
+Lemma package_ref_of_binding_key : forall p b Hin,
+  package_ref_key (package_ref_of_binding p b Hin) = fp_parent (fst b).
+Proof. reflexivity. Qed.
+
+(** construction from a validated file reference: the ref's own path witnesses its package. *)
+Definition package_ref_of_fileref {p} (fr : GoIndex.Snap.FileRef p) : PackageRef p.
+Proof.
+  refine (mkPackageRef p (fp_parent (GoIndex.Snap.file_ref_path fr)) _).
+  unfold package_present_b, list_dir_mem. apply existsb_exists.
+  exists (GoIndex.Snap.file_ref_path fr, GoIndex.Snap.file_ref_source fr). split.
+  - apply GoAST.find_file_bindings.
+    apply (GoIndex.Snap.file_of_path_source_exact p (GoIndex.Snap.file_ref_path fr) fr).
+    apply GoIndex.Snap.file_of_path_complete.
+  - apply String.eqb_refl.
+Defined.
+
+Lemma package_ref_of_fileref_key : forall p (fr : GoIndex.Snap.FileRef p),
+  package_ref_key (package_ref_of_fileref fr) = fp_parent (GoIndex.Snap.file_ref_path fr).
+Proof. reflexivity. Qed.
 
 (** [GoCompile p] IS whole-program admissibility: the program is typed through [GoTypes] AND every package
     has exactly one `main`.  The package clause is now SOURCE-owned (each file's [source_package]), rendered

@@ -349,6 +349,13 @@ Print Assumptions GoCompile.complex_program_compiles.
 Print Assumptions GoCompile.complex_overflow_rejected.
 Print Assumptions GoCompile.complex_overflow_no_compile.
 Print Assumptions GoCompile.complex_nonzero_imag_no_compile.
+(* C3 §7 — PackageRef: a validated package-key absence anchor.  Key identity determines the ref (UIP over the
+   boolean membership proof), the key names a represented package, and construction from a binding / file
+   reference yields the right key. *)
+Print Assumptions GoCompile.package_ref_present.
+Print Assumptions GoCompile.package_ref_key_inj.
+Print Assumptions GoCompile.package_ref_of_binding_key.
+Print Assumptions GoCompile.package_ref_of_fileref_key.
 
 (* GoSafe: exact VALUE semantics — a zero literal and a negated zero agree; a resolved expression evaluates
    to a well-formed value of the resolved GoType (one type authority across compiler and runtime); value
