@@ -28,7 +28,7 @@
     and the mutation-sensitive / snapshot-locality fixtures. *)
 
 From Stdlib Require Import PArith NArith List Bool Lia Sorted Recdef Wf_nat Arith Eqdep_dec String.
-From Fido Require Import FilePath Collections Ints Floats Complexes GoAST.
+From Fido Require Import FilePath Collections Ints Floats Complexes ModulePath GoVersion GoAST.
 Import ListNotations.
 Local Open Scope positive_scope.
 
@@ -2320,3 +2320,238 @@ Fail Check Snap.mkFileRef.
 Fail Check Snap.mkNodeRef.
 Fail Check Snap.si_outer.
 Fail Check Snap.ref_fi.
+
+(* ================================================================================================= *)
+(** ** §13 — typed / kind-refined references.  A [NodeRefOf p k] is a [NodeRef p] whose EXACT source        *)
+(*    occurrence has kind [k] — the kind proof is tied to [source_occurrence_of_ref] (via                   *)
+(*    [node_kind_matches_source]), NOT an author-supplied boolean.  Erasure recovers the underlying ref;    *)
+(*    the erased NodeKey determines the typed-ref identity (no second identity system).                     *)
+(* ================================================================================================= *)
+
+Definition NodeRefOf (p : GoProgram) (k : SyntaxKind) : Type :=
+  { r : Snap.NodeRef p | occurrence_kind (Snap.source_occurrence_of_ref r) = k }.
+Definition erase_ref {p k} (tr : NodeRefOf p k) : Snap.NodeRef p := proj1_sig tr.
+Definition FileNodeRef      (p : GoProgram) := NodeRefOf p KFile.
+Definition PackageClauseRef (p : GoProgram) := NodeRefOf p KPackageClause.
+Definition DeclRef          (p : GoProgram) := NodeRefOf p KTopLevelDecl.
+Definition StmtRef          (p : GoProgram) := NodeRefOf p KStatement.
+Definition ExprRef          (p : GoProgram) := NodeRefOf p KExpression.
+
+Definition syntaxkind_eq_dec (a b : SyntaxKind) : {a = b} + {a <> b}.
+Proof. decide equality. Defined.
+
+(* the generic kind-refiner: refine a reference to kind [k] iff its source occurrence has kind [k] — the
+   kind proof comes from [node_kind_matches_source], so it cannot be forged. *)
+Definition as_kind {p} (idx : Snap.SyntaxIndex p) (r : Snap.NodeRef p) (k : SyntaxKind) : option (NodeRefOf p k) :=
+  match syntaxkind_eq_dec (Snap.node_kind idx r) k with
+  | left H  => Some (exist _ r (eq_trans (eq_sym (Snap.node_kind_matches_source p idx r)) H))
+  | right _ => None
+  end.
+Definition as_file_node {p} (idx : Snap.SyntaxIndex p) (r : Snap.NodeRef p) : option (FileNodeRef p) := as_kind idx r KFile.
+Definition as_package_clause {p} (idx : Snap.SyntaxIndex p) (r : Snap.NodeRef p) : option (PackageClauseRef p) := as_kind idx r KPackageClause.
+Definition as_decl {p} (idx : Snap.SyntaxIndex p) (r : Snap.NodeRef p) : option (DeclRef p) := as_kind idx r KTopLevelDecl.
+Definition as_stmt {p} (idx : Snap.SyntaxIndex p) (r : Snap.NodeRef p) : option (StmtRef p) := as_kind idx r KStatement.
+Definition as_expr {p} (idx : Snap.SyntaxIndex p) (r : Snap.NodeRef p) : option (ExprRef p) := as_kind idx r KExpression.
+
+(* refinement soundness: erasure recovers exactly the refined reference. *)
+Lemma erase_as_kind {p} (idx : Snap.SyntaxIndex p) (r : Snap.NodeRef p) (k : SyntaxKind) (tr : NodeRefOf p k) :
+  as_kind idx r k = Some tr -> erase_ref tr = r.
+Proof.
+  unfold as_kind. destruct (syntaxkind_eq_dec (Snap.node_kind idx r) k); [|discriminate].
+  intros H; injection H as <-. reflexivity.
+Qed.
+(* refinement completeness: a reference whose kind matches refines (and erases back to itself). *)
+Lemma as_kind_complete {p} (idx : Snap.SyntaxIndex p) (r : Snap.NodeRef p) (k : SyntaxKind) :
+  Snap.node_kind idx r = k -> exists tr, as_kind idx r k = Some tr /\ erase_ref tr = r.
+Proof.
+  intros H. unfold as_kind. destruct (syntaxkind_eq_dec (Snap.node_kind idx r) k) as [Heq|Hne]; [|contradiction].
+  eexists. split; reflexivity.
+Qed.
+(* mismatch rejects — no fallback. *)
+Lemma as_kind_mismatch {p} (idx : Snap.SyntaxIndex p) (r : Snap.NodeRef p) (k : SyntaxKind) :
+  Snap.node_kind idx r <> k -> as_kind idx r k = None.
+Proof.
+  intros H. unfold as_kind. destruct (syntaxkind_eq_dec (Snap.node_kind idx r) k); [contradiction|reflexivity].
+Qed.
+(* the refined kind IS the exact source occurrence's kind (tied to the source, not free). *)
+Lemma noderefof_kind {p k} (tr : NodeRefOf p k) :
+  occurrence_kind (Snap.source_occurrence_of_ref (erase_ref tr)) = k.
+Proof. destruct tr as [r Hk]. exact Hk. Qed.
+(* erased NodeKey determines typed-reference identity — no new identity system. *)
+Lemma noderefof_key_inj {p k} (tr1 tr2 : NodeRefOf p k) :
+  Snap.node_ref_key (erase_ref tr1) = Snap.node_ref_key (erase_ref tr2) -> tr1 = tr2.
+Proof.
+  intros H. destruct tr1 as [r1 H1], tr2 as [r2 H2]. cbn [erase_ref proj1_sig] in *.
+  assert (r1 = r2) by (apply Snap.node_ref_key_inj; exact H). subst r2.
+  f_equal. apply (UIP_dec syntaxkind_eq_dec).
+Qed.
+
+(* ================================================================================================= *)
+(** ** §21/§22 — snapshot-locality + mutation-sensitive regressions over the REAL grammar.               *)
+(* ================================================================================================= *)
+
+Definition fp_main : FilePath := mkFP "main.go"%string eq_refl.
+Definition ms_gen : ModuleSpec := mkModuleSpec (mkMP "fido.local/generated"%string eq_refl) Go1_23.
+Definition ms_com : ModuleSpec := mkModuleSpec (mkMP "fido.local/common"%string eq_refl) Go1_23.
+
+(* --- helper: recover a minted reference's exact source occurrence by computing the source spec. --- *)
+Lemma soor_compute {p} (r : Snap.NodeRef p) (f : GoSourceFile) (local : positive) (occ0 : SourceOccurrence) :
+  Snap.file_ref_source (Snap.node_ref_file r) = f -> Snap.node_ref_local r = local ->
+  source_occurrence_at f local = Some occ0 ->
+  Snap.source_occurrence_of_ref r = occ0.
+Proof.
+  intros Hf Hl Hs. pose proof (Snap.source_occ_of_ref_eq r) as He.
+  rewrite Hf, Hl, Hs in He. injection He as <-. reflexivity.
+Qed.
+
+(* ---------- §21.3 REQUIRED: println(1, 1) — two structurally EQUAL args are DISTINCT occurrences. ---------- *)
+(* preorder ids: 1 file / 2 package / 3 decl / 4 stmt / 5 arg0 (EInt 1) / 6 arg1 (EInt 1). *)
+Definition sf11 : GoSourceFile := main_source [ DMain [ SPrintln [ EInt 1%N ; EInt 1%N ] ] ].
+Definition prog11 : GoProgram := singleton_program ms_gen fp_main [ DMain [ SPrintln [ EInt 1%N ; EInt 1%N ] ] ].
+
+Lemma find11 : find_file fp_main (prog_files prog11) = Some sf11.
+Proof. unfold find_file, prog11, sf11, singleton_program, prog_files. apply Collections.FileMapFacts.add_eq_o. reflexivity. Qed.
+(* validity is proved through the source spec: NodeTable is SEALED, so [valid_localb] cannot be computed
+   directly; [build_file_source_exact] replaces the opaque [NodeTable.get] with the computable table-free
+   [source_occurrence_at]. *)
+Ltac valid_via_source := unfold valid_localb; rewrite build_file_source_exact; vm_compute; reflexivity.
+Lemma valid11_5 : valid_localb sf11 5%positive = true. Proof. valid_via_source. Qed.
+Lemma valid11_6 : valid_localb sf11 6%positive = true. Proof. valid_via_source. Qed.
+Lemma src11_5 : source_occurrence_at sf11 5%positive
+  = Some (mkOcc KExpression (ViewExpression (EInt 1%N)) (Some 4%positive) (RPrintlnArg 0) 5%positive).
+Proof. vm_compute. reflexivity. Qed.
+Lemma src11_6 : source_occurrence_at sf11 6%positive
+  = Some (mkOcc KExpression (ViewExpression (EInt 1%N)) (Some 4%positive) (RPrintlnArg 1) 6%positive).
+Proof. vm_compute. reflexivity. Qed.
+
+(* the two args, minted as validated ExprRefs through the sealed key-minting boundary. *)
+Theorem reg_println_1_1 :
+  exists (r5 r6 : Snap.NodeRef prog11),
+    Snap.ref_of_key prog11 (Snap.index_program prog11) (mkKey fp_main 5%positive) = Some r5 /\
+    Snap.ref_of_key prog11 (Snap.index_program prog11) (mkKey fp_main 6%positive) = Some r6 /\
+    (* both source fragments are EQUAL... *)
+    Snap.node_at r5 = Some (EInt 1%N) /\ Snap.node_at r6 = Some (EInt 1%N) /\
+    (* ...yet the two references are DISTINCT (distinct keys / local ids), NOT deduplicated... *)
+    r5 <> r6 /\
+    Snap.node_ref_key r5 = mkKey fp_main 5%positive /\ Snap.node_ref_key r6 = mkKey fp_main 6%positive /\
+    (* ...with the correct per-argument role. *)
+    Snap.node_role (Snap.index_program prog11) r5 = RPrintlnArg 0 /\
+    Snap.node_role (Snap.index_program prog11) r6 = RPrintlnArg 1.
+Proof.
+  destruct (Snap.ref_of_key_source prog11 (Snap.index_program prog11) fp_main sf11 5%positive find11 valid11_5)
+    as [r5 [Hk5 [Hl5 Hf5]]].
+  destruct (Snap.ref_of_key_source prog11 (Snap.index_program prog11) fp_main sf11 6%positive find11 valid11_6)
+    as [r6 [Hk6 [Hl6 Hf6]]].
+  pose proof (soor_compute r5 sf11 5%positive _ Hf5 Hl5 src11_5) as Ho5.
+  pose proof (soor_compute r6 sf11 6%positive _ Hf6 Hl6 src11_6) as Ho6.
+  pose proof (Snap.ref_of_key_sound prog11 (Snap.index_program prog11) (mkKey fp_main 5%positive) r5 Hk5) as Hkey5.
+  pose proof (Snap.ref_of_key_sound prog11 (Snap.index_program prog11) (mkKey fp_main 6%positive) r6 Hk6) as Hkey6.
+  exists r5, r6. repeat split; try assumption.
+  - rewrite (Snap.node_at_matches_source_view r5), Ho5. reflexivity.
+  - rewrite (Snap.node_at_matches_source_view r6), Ho6. reflexivity.
+  - intro Hbad. rewrite Hbad, Hkey6 in Hkey5. injection Hkey5 as Hkey5. discriminate Hkey5.
+  - rewrite (Snap.node_role_matches_source prog11 (Snap.index_program prog11) r5), Ho5. reflexivity.
+  - rewrite (Snap.node_role_matches_source prog11 (Snap.index_program prog11) r6), Ho6. reflexivity.
+Qed.
+
+(* ---------- §21.1 — same path + shape, DIFFERENT payload => non-interchangeable ref TYPES + per-snapshot
+   payload recovery; erased index DATA is extensionally equal (metadata discards the payload). ---------- *)
+Definition prog_a : GoProgram := singleton_program ms_gen fp_main [ DMain [ SPrintln [ EInt 5%N ] ] ].
+Definition prog_b : GoProgram := singleton_program ms_gen fp_main [ DMain [ SPrintln [ EInt 6%N ] ] ].
+Definition sf_a : GoSourceFile := main_source [ DMain [ SPrintln [ EInt 5%N ] ] ].
+Definition sf_b : GoSourceFile := main_source [ DMain [ SPrintln [ EInt 6%N ] ] ].
+
+Lemma find_a : find_file fp_main (prog_files prog_a) = Some sf_a.
+Proof. unfold find_file, prog_a, sf_a, singleton_program, prog_files. apply Collections.FileMapFacts.add_eq_o. reflexivity. Qed.
+Lemma find_b : find_file fp_main (prog_files prog_b) = Some sf_b.
+Proof. unfold find_file, prog_b, sf_b, singleton_program, prog_files. apply Collections.FileMapFacts.add_eq_o. reflexivity. Qed.
+Lemma valid_a5 : valid_localb sf_a 5%positive = true. Proof. valid_via_source. Qed.
+Lemma valid_b5 : valid_localb sf_b 5%positive = true. Proof. valid_via_source. Qed.
+Lemma src_a5 : source_occurrence_at sf_a 5%positive
+  = Some (mkOcc KExpression (ViewExpression (EInt 5%N)) (Some 4%positive) (RPrintlnArg 0) 5%positive).
+Proof. vm_compute. reflexivity. Qed.
+Lemma src_b5 : source_occurrence_at sf_b 5%positive
+  = Some (mkOcc KExpression (ViewExpression (EInt 6%N)) (Some 4%positive) (RPrintlnArg 0) 5%positive).
+Proof. vm_compute. reflexivity. Qed.
+
+(* the SAME NodeKey recovers each snapshot's OWN payload: EInt 5 in prog_a, EInt 6 in prog_b. *)
+Theorem reg_payload_a : exists r, Snap.ref_of_key prog_a (Snap.index_program prog_a) (mkKey fp_main 5%positive) = Some r
+                                  /\ Snap.node_at r = Some (EInt 5%N).
+Proof.
+  destruct (Snap.ref_of_key_source prog_a (Snap.index_program prog_a) fp_main sf_a 5%positive find_a valid_a5)
+    as [r [Hk [Hl Hf]]].
+  exists r. split; [exact Hk|].
+  rewrite (Snap.node_at_matches_source_view r), (soor_compute r sf_a 5%positive _ Hf Hl src_a5). reflexivity.
+Qed.
+Theorem reg_payload_b : exists r, Snap.ref_of_key prog_b (Snap.index_program prog_b) (mkKey fp_main 5%positive) = Some r
+                                  /\ Snap.node_at r = Some (EInt 6%N).
+Proof.
+  destruct (Snap.ref_of_key_source prog_b (Snap.index_program prog_b) fp_main sf_b 5%positive find_b valid_b5)
+    as [r [Hk [Hl Hf]]].
+  exists r. split; [exact Hk|].
+  rewrite (Snap.node_at_matches_source_view r), (soor_compute r sf_b 5%positive _ Hf Hl src_b5). reflexivity.
+Qed.
+
+(* §21.1 non-interchangeability at the TYPE level: a reference of [prog_a] is NOT a reference of [prog_b]. *)
+Fail Definition reg_cross_snapshot (r : Snap.NodeRef prog_a) : Snap.NodeRef prog_b := r.
+
+(* the ERASED index data is extensionally equal — the metadata builder discards the leaf payload (5 vs 6),
+   so [outer_of] of the two snapshots are [FileMap.Equal]; only the [GoProgram] distinguishes the ref TYPES. *)
+Theorem reg_index_data_equal : OFM.Equal (outer_of (prog_files prog_a)) (outer_of (prog_files prog_b)).
+Proof.
+  intro k. unfold outer_of, prog_a, prog_b, singleton_program, prog_files.
+  rewrite !OFMF.map_o, !OFMF.add_o.
+  destruct (Collections.FilePath_OT.eq_dec fp_main k) as [Heq|Hne].
+  - cbn [option_map]. reflexivity.
+  - rewrite !OFMF.empty_o. reflexivity.
+Qed.
+
+(* ---------- §21.2 — same FILE MAP, DIFFERENT ModuleSpec => non-interchangeable ref TYPES even though the
+   erased index data is IDENTICAL: references are indexed by the exact [GoProgram], not by index data. ---------- *)
+Definition prog_gen : GoProgram := singleton_program ms_gen fp_main [ DMain [ SPrintln [ EInt 5%N ] ] ].
+Definition prog_com : GoProgram := singleton_program ms_com fp_main [ DMain [ SPrintln [ EInt 5%N ] ] ].
+(* their file maps are identical, hence their outer index maps are equal... *)
+Theorem reg_module_index_equal : OFM.Equal (outer_of (prog_files prog_gen)) (outer_of (prog_files prog_com)).
+Proof. intro k. reflexivity. Qed.
+(* ...yet a reference of one is NOT a reference of the other (distinct GoProgram snapshots). *)
+Fail Definition reg_cross_module (r : Snap.NodeRef prog_gen) : Snap.NodeRef prog_com := r.
+
+(* ---------- §22 — a compact, structurally rich mutation-sensitive fixture.  Preorder ids 1..13:
+   1 file / 2 package / 3 decl0 / 4 stmt0 / 5 arg0 (EInt 1) / 6 arg1 (EInt 1) / 7 stmt1 / 8 arg (EBool true)
+   / 9 decl1 / 10 stmt0 / 11 arg0 = outer conversion / 12 inner conversion operand / 13 leaf (EInt 5).
+   Each stored metadatum is derived from the UNIVERSAL exactness theorem (rewrite by build_file_source_exact,
+   then compute the INDEPENDENT source spec) — NEVER by unfolding the builder.  A wrong builder kind / role /
+   parent / index / subtree makes [build_file_source_exact] unprovable, so these pin exact per-occurrence
+   labels; the repeated EInt 1 args (ids 5,6) are NOT collapsed, and the nested conversion chain (11->12->13)
+   pins the RConversionOperand relationship. ---------- *)
+Definition wf : GoSourceFile := main_source
+  [ DMain [ SPrintln [ EInt 1%N ; EInt 1%N ] ; SPrintln [ EBool true ] ]
+  ; DMain [ SPrintln [ EIntConvert IInt (EIntConvert IInt8 (EInt 5%N)) ] ] ].
+
+Ltac wf_meta := rewrite build_file_source_exact; vm_compute; reflexivity.
+Example wf_meta_file  : NodeTable.get 1%positive  (fi_table (build_file wf)) = Some (mkMeta KFile         None      RFileRoot        13). Proof. wf_meta. Qed.
+Example wf_meta_pkg   : NodeTable.get 2%positive  (fi_table (build_file wf)) = Some (mkMeta KPackageClause (Some 1)  RFilePackage      2). Proof. wf_meta. Qed.
+Example wf_meta_decl0 : NodeTable.get 3%positive  (fi_table (build_file wf)) = Some (mkMeta KTopLevelDecl  (Some 1)  (RFileDecl 0)     8). Proof. wf_meta. Qed.
+Example wf_meta_stmt0 : NodeTable.get 4%positive  (fi_table (build_file wf)) = Some (mkMeta KStatement     (Some 3)  (RDeclStmt 0)     6). Proof. wf_meta. Qed.
+Example wf_meta_arg0  : NodeTable.get 5%positive  (fi_table (build_file wf)) = Some (mkMeta KExpression    (Some 4)  (RPrintlnArg 0)   5). Proof. wf_meta. Qed.
+Example wf_meta_arg1  : NodeTable.get 6%positive  (fi_table (build_file wf)) = Some (mkMeta KExpression    (Some 4)  (RPrintlnArg 1)   6). Proof. wf_meta. Qed.
+Example wf_meta_stmt1 : NodeTable.get 7%positive  (fi_table (build_file wf)) = Some (mkMeta KStatement     (Some 3)  (RDeclStmt 1)     8). Proof. wf_meta. Qed.
+Example wf_meta_bool  : NodeTable.get 8%positive  (fi_table (build_file wf)) = Some (mkMeta KExpression    (Some 7)  (RPrintlnArg 0)   8). Proof. wf_meta. Qed.
+Example wf_meta_decl1 : NodeTable.get 9%positive  (fi_table (build_file wf)) = Some (mkMeta KTopLevelDecl  (Some 1)  (RFileDecl 1)    13). Proof. wf_meta. Qed.
+Example wf_meta_stmt2 : NodeTable.get 10%positive (fi_table (build_file wf)) = Some (mkMeta KStatement     (Some 9)  (RDeclStmt 0)    13). Proof. wf_meta. Qed.
+Example wf_meta_conv0 : NodeTable.get 11%positive (fi_table (build_file wf)) = Some (mkMeta KExpression    (Some 10) (RPrintlnArg 0)  13). Proof. wf_meta. Qed.
+Example wf_meta_conv1 : NodeTable.get 12%positive (fi_table (build_file wf)) = Some (mkMeta KExpression    (Some 11) RConversionOperand 13). Proof. wf_meta. Qed.
+Example wf_meta_leaf  : NodeTable.get 13%positive (fi_table (build_file wf)) = Some (mkMeta KExpression    (Some 12) RConversionOperand 13). Proof. wf_meta. Qed.
+Example wf_meta_absent : NodeTable.get 14%positive (fi_table (build_file wf)) = None. Proof. wf_meta. Qed.
+
+(* source-VIEW recovery: the INDEPENDENT spec recovers the exact original fragment (the [occurrence_view] that
+   [occurrence_meta] erases) for each occurrence kind — package clause / an argument / the innermost leaf. *)
+Example wf_view_pkg  : source_occurrence_at wf 2%positive
+  = Some (mkOcc KPackageClause (ViewPackageClause PkgMain) (Some 1%positive) RFilePackage 2%positive).
+Proof. vm_compute. reflexivity. Qed.
+Example wf_view_arg0 : source_occurrence_at wf 5%positive
+  = Some (mkOcc KExpression (ViewExpression (EInt 1%N)) (Some 4%positive) (RPrintlnArg 0) 5%positive).
+Proof. vm_compute. reflexivity. Qed.
+Example wf_view_leaf : source_occurrence_at wf 13%positive
+  = Some (mkOcc KExpression (ViewExpression (EInt 5%N)) (Some 12%positive) RConversionOperand 13%positive).
+Proof. vm_compute. reflexivity. Qed.

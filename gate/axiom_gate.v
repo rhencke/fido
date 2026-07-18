@@ -565,6 +565,32 @@ Print Assumptions GoIndex.Snap.node_subtree_end_matches_source.
 Print Assumptions GoIndex.Snap.source_occ_of_ref_eq.
 Print Assumptions GoIndex.Snap.node_at_matches_source_view.
 Print Assumptions GoIndex.Snap.node_parent_ref_matches_source.
+(* GoIndex §13 typed/kind-refined references: the kind-refiner is sound + complete + mismatch-rejecting, the
+   refined kind is the EXACT source occurrence's kind (not a free boolean), and the erased NodeKey determines
+   the typed-reference identity. *)
+Print Assumptions GoIndex.erase_as_kind.
+Print Assumptions GoIndex.as_kind_complete.
+Print Assumptions GoIndex.as_kind_mismatch.
+Print Assumptions GoIndex.noderefof_kind.
+Print Assumptions GoIndex.noderefof_key_inj.
+(* GoIndex §21/§22 regressions over the real grammar: println(1,1) — two EQUAL args are DISTINCT occurrences
+   (distinct keys/local ids, correct per-arg roles, both recover EInt 1, no dedup); same-shape different-payload
+   snapshots have per-snapshot payload recovery yet EQUAL erased index data and NON-interchangeable ref types;
+   same-file different-ModuleSpec snapshots have IDENTICAL index data yet NON-interchangeable ref types; and the
+   mutation-sensitive fixture pins exact per-occurrence metadata + source views through the UNIVERSAL theorem. *)
+Print Assumptions GoIndex.reg_println_1_1.
+Print Assumptions GoIndex.reg_payload_a.
+Print Assumptions GoIndex.reg_payload_b.
+Print Assumptions GoIndex.reg_index_data_equal.
+Print Assumptions GoIndex.reg_module_index_equal.
+Print Assumptions GoIndex.wf_meta_pkg.
+Print Assumptions GoIndex.wf_meta_arg0.
+Print Assumptions GoIndex.wf_meta_arg1.
+Print Assumptions GoIndex.wf_meta_conv1.
+Print Assumptions GoIndex.wf_meta_leaf.
+Print Assumptions GoIndex.wf_meta_absent.
+Print Assumptions GoIndex.wf_view_pkg.
+Print Assumptions GoIndex.wf_view_leaf.
 
 (* OccurrenceSpike (Source Forest C0): the ISOLATED occurrence-index proof spike — the certified positive-key
    trie laws, the builder well-formedness, and the C0.4 structural theorem set (root id canonical / no parent,
