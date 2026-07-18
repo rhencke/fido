@@ -591,6 +591,21 @@ Print Assumptions GoIndex.wf_meta_leaf.
 Print Assumptions GoIndex.wf_meta_absent.
 Print Assumptions GoIndex.wf_view_pkg.
 Print Assumptions GoIndex.wf_view_leaf.
+(* GoIndex ROOT-completeness surfaces (§11/§12/§18/§23): FileRef minting soundness + the invalid-path /
+   invalid-local rejection cases; decidable NodeRef equality; and the CANONICAL preorder enumeration of ALL a
+   file's references (same-file / complete / NoDup / source-ordered) with reachability of every occurrence from
+   its file root by repeated parent links. *)
+Print Assumptions GoIndex.Snap.file_of_path_sound.
+Print Assumptions GoIndex.Snap.ref_of_key_invalid_path.
+Print Assumptions GoIndex.Snap.ref_of_key_invalid_local.
+Print Assumptions GoIndex.Snap.noderef_eq_dec.
+Print Assumptions GoIndex.Snap.file_root_ref_local.
+Print Assumptions GoIndex.Snap.file_root_ref_file.
+Print Assumptions GoIndex.Snap.file_refs_same_file.
+Print Assumptions GoIndex.Snap.file_refs_complete.
+Print Assumptions GoIndex.Snap.file_refs_nodup.
+Print Assumptions GoIndex.Snap.file_refs_source_order.
+Print Assumptions GoIndex.Snap.thm_reachable_from_root.
 
 (* OccurrenceSpike (Source Forest C0): the ISOLATED occurrence-index proof spike — the certified positive-key
    trie laws, the builder well-formedness, and the C0.4 structural theorem set (root id canonical / no parent,
