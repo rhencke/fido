@@ -1533,12 +1533,28 @@ Proof.
   intros H Hc. apply (collect_diagnostics_empty_iff p idx) in Hc. rewrite Hc in H. discriminate H.
 Qed.
 
+(** §12 (C3) — the SUCCESSFUL analysis facts, retained over the SAME [IndexedProgram] the analysis ran on:
+    the occurrence-keyed [ExprFactTable] (standard NodeKey map) + the package main-ref buckets (standard
+    PackageMap), each with its EXACTNESS proof, plus the compiled validity.  Facts are exposed ONLY on
+    success. *)
 Record CompilationFacts (p : GoProgram) (ip : GoIndex.IndexedProgram p) : Type := mkCompilationFacts {
-  cf_expr_facts : GoIndex.NodeKeyMapBase.t ExprFact;
-  cf_valid      : ProgValid p
+  cf_expr_facts     : GoIndex.NodeKeyMapBase.t ExprFact ;
+  cf_package_refs   : PM.t (list (GoIndex.DeclRef p)) ;
+  (* the fact at each program-visited occurrence's key IS exactly that occurrence's fact (no copied syntax). *)
+  cf_expr_exact     : forall r occ, In (r, occ) (prog_visit p) ->
+                        GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key r) cf_expr_facts = occ_expr_fact occ ;
+  (* the bucket map's domain is exactly the represented package set... *)
+  cf_package_present : forall dir, PM.In dir cf_package_refs <-> list_dir_mem dir (GoAST.file_bindings (prog_files p)) = true ;
+  (* ...and each present bucket's length is the package's declarative main count. *)
+  cf_package_len    : forall dir l, PM.find dir cf_package_refs = Some l -> length l = pkg_main_count dir (prog_files p) ;
+  cf_valid          : ProgValid p
 }.
-Arguments mkCompilationFacts {p ip} _ _.
+Arguments mkCompilationFacts {p ip} _ _ _ _ _ _.
 Arguments cf_expr_facts {p ip} _.
+Arguments cf_package_refs {p ip} _.
+Arguments cf_expr_exact {p ip} _.
+Arguments cf_package_present {p ip} _.
+Arguments cf_package_len {p ip} _.
 Arguments cf_valid {p ip} _.
 
 Inductive AnalysisResult (p : GoProgram) (ip : GoIndex.IndexedProgram p) : Type :=
@@ -1557,7 +1573,13 @@ Arguments pa_result {p} _.
 
 Definition analyze_indexed (p : GoProgram) (ip : GoIndex.IndexedProgram p) : AnalysisResult p ip :=
   match bool_sb (analysis_ok_b p) with
-  | left H  => AnalysisOK (mkCompilationFacts (prog_expr_facts p) (proj1 (analysis_ok_b_ProgValid p) H))
+  | left H  => AnalysisOK (mkCompilationFacts
+                             (prog_expr_facts p)
+                             (package_main_refs (GoIndex.indexed_syntax ip))
+                             (prog_expr_facts_find p)
+                             (package_main_refs_present (GoIndex.indexed_syntax ip))
+                             (package_main_refs_bucket_len (GoIndex.indexed_syntax ip))
+                             (proj1 (analysis_ok_b_ProgValid p) H))
   | right H => AnalysisFailed (collect_diagnostics p (GoIndex.indexed_syntax ip))
                               (collect_diagnostics_nonempty p (GoIndex.indexed_syntax ip) H)
   end.
@@ -1598,10 +1620,28 @@ Qed.
     will decorate this same program later without a second AST; there is no unused placeholder now. *)
 Definition GoCompile (p : GoProgram) : Prop := ProgValid p.
 
+(** §16 (C3) — a compiled program RETAINS the whole successful analysis: the program, the SAME
+    [IndexedProgram] the analysis ran on, and its [CompilationFacts] (occurrence-keyed facts + package
+    buckets + validity).  [cp_ok] is a projection of the retained facts' validity — the compiled evidence is
+    NOT constructible from a parallel path (only [analyze]'s [AnalysisOK] facts build it). *)
 Record CompilableProgram : Type := mkCompilable {
   cp_program : GoProgram;
-  cp_ok      : GoCompile cp_program
+  cp_index   : GoIndex.IndexedProgram cp_program;
+  cp_facts   : CompilationFacts cp_program cp_index
 }.
+
+Definition cp_ok (cp : CompilableProgram) : GoCompile (cp_program cp) := cf_valid (cp_facts cp).
+
+(** build the retained [CompilableProgram] from a validity witness — the SAME index + facts [analyze] retains
+    on success (used by the witnesses; [go_compile] produces an equal value on any valid program). *)
+Definition compilable_of_valid (p : GoProgram) (H : GoCompile p) : CompilableProgram :=
+  mkCompilable p (GoIndex.index_program p)
+    (mkCompilationFacts (prog_expr_facts p)
+       (package_main_refs (GoIndex.indexed_syntax (GoIndex.index_program p)))
+       (prog_expr_facts_find p)
+       (package_main_refs_present (GoIndex.indexed_syntax (GoIndex.index_program p)))
+       (package_main_refs_bucket_len (GoIndex.indexed_syntax (GoIndex.index_program p)))
+       H).
 
 (** The compiled evidence EXPOSES that the same program is typed through [GoTypes] (§17): an immediate
     canonical projection, not a stored second copy of the typing proof. *)
@@ -1631,7 +1671,7 @@ Definition bool_sumbool (b : bool) : {b = true} + {b = false} :=
     analysis facts' validity; on failure a legacy coarse error class (regression-compatible). *)
 Definition go_compile (p : GoProgram) : result CompileError CompilableProgram :=
   match pa_result (analyze p) with
-  | AnalysisOK facts   => Ok (mkCompilable p (cf_valid facts))
+  | AnalysisOK facts   => Ok (mkCompilable p (pa_indexed (analyze p)) facts)
   | AnalysisFailed _ _ => if program_typedb p then Err ErrPackageMainCount else Err ErrTyping
   end.
 
@@ -1639,10 +1679,9 @@ Definition go_compile (p : GoProgram) : result CompileError CompilableProgram :=
 Theorem go_compile_sound : forall p cp,
   go_compile p = Ok cp -> cp_program cp = p /\ GoCompile (cp_program cp).
 Proof.
-  intros p cp Heq. split; [ | exact (cp_ok cp) ].
-  revert Heq. unfold go_compile.
+  intros p cp Heq. revert Heq. unfold go_compile.
   destruct (pa_result (analyze p)) as [ facts | ds Hne ].
-  - intro Heq; injection Heq as <-; reflexivity.
+  - intro Heq; injection Heq as <-; cbn [cp_program]. split; [ reflexivity | exact (cf_valid facts) ].
   - destruct (program_typedb p); discriminate.
 Qed.
 

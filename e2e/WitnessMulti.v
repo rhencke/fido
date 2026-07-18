@@ -39,7 +39,7 @@ Lemma multi_valid : ProgValid multi_program.
 Proof. apply prog_ok_iff. vm_compute. reflexivity. Qed.
 
 Definition multi_compiled : CompilableProgram :=
-  mkCompilable multi_program multi_valid.
+  compilable_of_valid multi_program multi_valid.
 Definition multi_safe : SafeProgram := certify multi_compiled.
 
 Declare ML Module "fido.emit".

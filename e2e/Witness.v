@@ -107,7 +107,7 @@ Lemma demo_valid : ProgValid demo_program.
 Proof. apply prog_ok_iff. reflexivity. Qed.
 
 Definition demo_compiled : CompilableProgram :=
-  mkCompilable demo_program demo_valid.
+  compilable_of_valid demo_program demo_valid.
 Definition demo_safe : SafeProgram := certify demo_compiled.
 
 Declare ML Module "fido.emit".

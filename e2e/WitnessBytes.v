@@ -25,7 +25,7 @@ Lemma bytes_valid : ProgValid bytes_program.
 Proof. apply prog_ok_iff. reflexivity. Qed.
 
 Definition bytes_compiled : CompilableProgram :=
-  mkCompilable bytes_program bytes_valid.
+  compilable_of_valid bytes_program bytes_valid.
 Definition bytes_safe : SafeProgram := certify bytes_compiled.
 
 Declare ML Module "fido.emit".
