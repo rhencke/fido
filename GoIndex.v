@@ -27,8 +27,8 @@
     snapshot-indexed sealed reference layer over [GoProgram], the total query API, the canonical enumeration,
     and the mutation-sensitive / snapshot-locality fixtures. *)
 
-From Stdlib Require Import PArith List Bool Lia Sorted Recdef Wf_nat Arith.
-From Fido Require Import FilePath Collections GoAST.
+From Stdlib Require Import PArith NArith List Bool Lia Sorted Recdef Wf_nat Arith Eqdep_dec String.
+From Fido Require Import FilePath Collections Ints Floats Complexes GoAST.
 Import ListNotations.
 Local Open Scope positive_scope.
 
@@ -1513,3 +1513,810 @@ Theorem thm14_meta_stores_no_subtree :
   forall m : NodeMeta, exists k op r e,
     m = mkMeta k op r e /\ (forall e', mkMeta k op r e = mkMeta k op r e' -> e = e').
 Proof. intros [k op r e]. exists k, op, r, e. split; [reflexivity|]. intros e' H; injection H as <-; reflexivity. Qed.
+
+(* ================================================================================================= *)
+(** ** PILLAR 3 — snapshot-indexed references over the exact [GoProgram] (directive §10-§17).           *)
+(*    A reference belongs to the EXACT immutable program snapshot [p] (it is indexed by [p]), never to  *)
+(*    free-standing index data — so two programs sharing a file map but differing in [ModuleSpec], or    *)
+(*    sharing a shape but differing in payload, have NON-INTERCHANGEABLE reference types.  Structurally  *)
+(*    guaranteed queries are TOTAL; only [parent_of] is optional (a file root has no parent).            *)
+(* ================================================================================================= *)
+
+(* decidable equality for the raw syntax (for UIP over the reference proof fields). *)
+Definition decimalfloat_eq_dec (a b : DecimalFloat) : {a = b} + {a <> b}.
+Proof.
+  destruct (Floats.dm_eqb a b) eqn:E; [ left; apply Floats.dm_eqb_eq; exact E | right ].
+  intro H; subst; rewrite (proj2 (Floats.dm_eqb_eq b b) eq_refl) in E; discriminate.
+Defined.
+Definition decimalcomplex_eq_dec (a b : DecimalComplex) : {a = b} + {a <> b}.
+Proof. decide equality; apply decimalfloat_eq_dec. Defined.
+Definition integertype_eq_dec (a b : IntegerType) : {a = b} + {a <> b}.
+Proof. decide equality. Defined.
+Definition floattype_eq_dec (a b : FloatType) : {a = b} + {a <> b}.
+Proof. decide equality. Defined.
+Definition complextype_eq_dec (a b : ComplexType) : {a = b} + {a <> b}.
+Proof. decide equality. Defined.
+Definition goexpr_eq_dec (a b : GoExpr) : {a = b} + {a <> b}.
+Proof.
+  decide equality;
+    first [ apply Bool.bool_dec | apply N.eq_dec | apply string_dec
+          | apply integertype_eq_dec | apply floattype_eq_dec | apply complextype_eq_dec
+          | apply decimalfloat_eq_dec | apply decimalcomplex_eq_dec ].
+Defined.
+Definition gostmt_eq_dec (a b : GoStmt) : {a = b} + {a <> b}.
+Proof. decide equality; apply (list_eq_dec goexpr_eq_dec). Defined.
+Definition godecl_eq_dec (a b : GoDecl) : {a = b} + {a <> b}.
+Proof. decide equality; apply (list_eq_dec gostmt_eq_dec). Defined.
+Definition packageclause_eq_dec (a b : PackageClauseSyntax) : {a = b} + {a <> b}.
+Proof. decide equality. Defined.
+Definition importspec_eq_dec (a b : ImportSpecSyntax) : {a = b} + {a <> b}.
+Proof. destruct a. Defined.
+Definition gosourcefile_eq_dec (a b : GoSourceFile) : {a = b} + {a <> b}.
+Proof.
+  decide equality;
+    first [ apply (list_eq_dec godecl_eq_dec) | apply (list_eq_dec importspec_eq_dec)
+          | apply packageclause_eq_dec ].
+Defined.
+Definition option_gosourcefile_eq_dec (a b : option GoSourceFile) : {a = b} + {a <> b}.
+Proof. decide equality; apply gosourcefile_eq_dec. Defined.
+
+Lemma fp_eq_dec (a b : FilePath) : {a = b} + {a <> b}.
+Proof.
+  destruct (fp_eqb a b) eqn:E; [left; apply fp_eqb_eq; exact E|].
+  right; intro Heq; subst; rewrite (proj2 (fp_eqb_eq b b) eq_refl) in E; discriminate.
+Qed.
+
+(* the outer program index: a STANDARD FilePath map [FileMap.t FileIndex] keyed DIRECTLY by path — the
+   standard [map] of [build_file] over the program's source files, so ONE map lookup reaches a file's index. *)
+Module OFM := Collections.FileMapBase.
+Module OFMF := Collections.FileMapFacts.
+Definition outer_of (fm : GoFileMap) : OFM.t FileIndex := OFM.map build_file fm.
+Lemma outer_get_exact : forall fm path,
+  OFM.find path (outer_of fm)
+  = match OFM.find path fm with Some f => Some (build_file f) | None => None end.
+Proof. intros fm path. unfold outer_of. rewrite OFMF.map_o. destruct (OFM.find path fm); reflexivity. Qed.
+Lemma outer_get_at : forall fm path f,
+  OFM.find path fm = Some f -> OFM.find path (outer_of fm) = Some (build_file f).
+Proof. intros fm path f H. rewrite outer_get_exact, H. reflexivity. Qed.
+
+(* a local id is a real occurrence of file [f] iff it resolves in [f]'s built per-file table. *)
+Definition valid_localb (f : GoSourceFile) (local : positive) : bool :=
+  match NodeTable.get local (fi_table (build_file f)) with Some _ => true | None => false end.
+
+(* the public raw occurrence key: file PATH (the map-key identity) + file-local preorder id. *)
+Record NodeKey := mkKey { nk_file : FilePath ; nk_local : positive }.
+Definition nodekey_eqb (a b : NodeKey) : bool :=
+  fp_eqb (nk_file a) (nk_file b) && Pos.eqb (nk_local a) (nk_local b).
+
+Theorem thm8_nodekey_eq_dec (a b : NodeKey) : {a = b} + {a <> b}.
+Proof.
+  destruct a as [fa la], b as [fb lb].
+  destruct (fp_eq_dec fa fb) as [->|Hf]; [| right; intro H; injection H as <- <-; apply Hf; reflexivity].
+  destruct (Pos.eq_dec la lb) as [->|Hl]; [left; reflexivity|].
+  right; intro H; injection H as <-; apply Hl; reflexivity.
+Qed.
+
+Theorem thm8_nodekey_eqb_spec (a b : NodeKey) : nodekey_eqb a b = true <-> a = b.
+Proof.
+  unfold nodekey_eqb. rewrite andb_true_iff. split.
+  - intros [Hf Hl]. apply fp_eqb_eq in Hf. apply Pos.eqb_eq in Hl.
+    destruct a, b; simpl in *; subst; reflexivity.
+  - intros ->. split; [apply fp_eqb_eq; reflexivity | apply Pos.eqb_eq; reflexivity].
+Qed.
+
+(* a child id of any node is a real occurrence — used to build validated child references without drops. *)
+Lemma child_ids_parent (t : NodeTable.table NodeMeta) (pid c : positive) :
+  In c (child_ids t pid) -> parent_id t c = Some pid.
+Proof. unfold child_ids. destruct (NodeTable.get pid t) as [m|]; [|intros []]. apply child_enum_sound. Qed.
+
+(* The public interface of the reference layer.  It exposes the abstract PROGRAM-indexed types, the validated
+   MINTING boundaries, the projections, the TOTAL navigation API, and the theorem surfaces — but NOT the raw
+   record constructors nor the raw index map.  Sealing the module against this signature makes "the only way
+   to mint a reference is a validated function" TRUE rather than aspirational.  Every reference is indexed by
+   the EXACT [GoProgram] snapshot. *)
+Module Type SNAP_SIG.
+  Parameter FileRef     : GoProgram -> Type.
+  Parameter NodeRef     : GoProgram -> Type.
+  Parameter SyntaxIndex : GoProgram -> Type.
+  Parameter index_program : forall p, SyntaxIndex p.
+  Parameter file_of_path : forall p, FilePath -> option (FileRef p).
+  Parameter ref_of_key   : forall p, SyntaxIndex p -> NodeKey -> option (NodeRef p).
+  Parameter file_ref_source : forall {p}, FileRef p -> GoSourceFile.
+  Parameter file_ref_path : forall {p}, FileRef p -> FilePath.
+  Parameter node_ref_file  : forall {p}, NodeRef p -> FileRef p.
+  Parameter node_ref_local : forall {p}, NodeRef p -> positive.
+  Parameter node_ref_valid : forall {p} (r : NodeRef p),
+    valid_localb (file_ref_source (node_ref_file r)) (node_ref_local r) = true.
+  Parameter node_ref_key   : forall {p}, NodeRef p -> NodeKey.
+  Parameter ref_meta         : forall {p}, SyntaxIndex p -> NodeRef p -> NodeMeta.
+  Parameter node_kind        : forall {p}, SyntaxIndex p -> NodeRef p -> SyntaxKind.
+  Parameter node_role        : forall {p}, SyntaxIndex p -> NodeRef p -> NodeRole.
+  Parameter node_subtree_end : forall {p}, SyntaxIndex p -> NodeRef p -> positive.
+  Parameter containing_file  : forall {p}, NodeRef p -> FileRef p.
+  Parameter parent_of        : forall {p}, SyntaxIndex p -> NodeRef p -> option (NodeRef p).
+  Parameter children_of      : forall {p}, SyntaxIndex p -> NodeRef p -> list (NodeRef p).
+  Parameter node_at          : forall {p}, NodeRef p -> option GoExpr.
+  Parameter source_occurrence_of_ref : forall {p}, NodeRef p -> SourceOccurrence.
+  Parameter is_ancestor_ref  : forall {p}, SyntaxIndex p -> NodeRef p -> NodeRef p -> bool.
+  (* identity + total-API correctness *)
+  Parameter node_ref_ext : forall p (r1 r2 : NodeRef p),
+    node_ref_file r1 = node_ref_file r2 -> node_ref_local r1 = node_ref_local r2 -> r1 = r2.
+  Parameter thm_node_kind : forall p (idx : SyntaxIndex p) (r : NodeRef p),
+    node_kind idx r = nm_kind (ref_meta idx r).
+  Parameter thm_node_role : forall p (idx : SyntaxIndex p) (r : NodeRef p),
+    node_role idx r = nm_role (ref_meta idx r).
+  Parameter thm_ref_meta_built : forall p (idx : SyntaxIndex p) (r : NodeRef p),
+    NodeTable.get (node_ref_local r) (fi_table (build_file (file_ref_source (node_ref_file r)))) = Some (ref_meta idx r).
+  Parameter thm_containing_file : forall p (r : NodeRef p),
+    containing_file r = node_ref_file r /\ file_ref_path (containing_file r) = nk_file (node_ref_key r).
+  Parameter node_ref_key_inj : forall p (r1 r2 : NodeRef p),
+    node_ref_key r1 = node_ref_key r2 -> r1 = r2.
+  Parameter file_ref_path_inj : forall p (fr1 fr2 : FileRef p),
+    file_ref_path fr1 = file_ref_path fr2 -> fr1 = fr2.
+  (* navigation *)
+  Parameter thm_parent_root : forall p (idx : SyntaxIndex p) (r : NodeRef p),
+    node_ref_local r = root_id -> parent_of idx r = None.
+  Parameter thm_parent_nonroot : forall p (idx : SyntaxIndex p) (r : NodeRef p),
+    node_ref_local r <> root_id -> exists pr, parent_of idx r = Some pr.
+  Parameter thm_parent_same_file : forall p (idx : SyntaxIndex p) (r pr : NodeRef p),
+    parent_of idx r = Some pr -> node_ref_file pr = node_ref_file r.
+  Parameter thm_children_same_file : forall p (idx : SyntaxIndex p) (r cr : NodeRef p),
+    In cr (children_of idx r) -> node_ref_file cr = node_ref_file r.
+  Parameter thm_child_parent : forall p (idx : SyntaxIndex p) (r cr : NodeRef p),
+    In cr (children_of idx r) -> parent_of idx cr = Some r.
+  Parameter thm_parent_child : forall p (idx : SyntaxIndex p) (r pr : NodeRef p),
+    parent_of idx r = Some pr -> In r (children_of idx pr).
+  Parameter thm_children_of_source_order : forall p (idx : SyntaxIndex p) (r : NodeRef p),
+    StronglySorted Pos.lt (map node_ref_local (children_of idx r)).
+  Parameter thm_children_of_nodup : forall p (idx : SyntaxIndex p) (r : NodeRef p),
+    NoDup (children_of idx r).
+  (* minting boundaries: sound + complete, non-circular source membership *)
+  Parameter ref_of_key_sound : forall p (idx : SyntaxIndex p) (k : NodeKey) (r : NodeRef p),
+    ref_of_key p idx k = Some r -> node_ref_key r = k.
+  Parameter ref_of_key_complete : forall p (idx : SyntaxIndex p) (r : NodeRef p),
+    ref_of_key p idx (node_ref_key r) = Some r.
+  Parameter file_of_path_complete : forall p (fr : FileRef p),
+    file_of_path p (file_ref_path fr) = Some fr.
+  Parameter file_of_path_source : forall p (path : FilePath) (f : GoSourceFile),
+    find_file path (prog_files p) = Some f ->
+    exists fr, file_of_path p path = Some fr /\ file_ref_path fr = path /\ file_ref_source fr = f.
+  Parameter ref_of_key_source : forall p (idx : SyntaxIndex p) (path : FilePath) (f : GoSourceFile) (local : positive),
+    find_file path (prog_files p) = Some f -> valid_localb f local = true ->
+    exists r, ref_of_key p idx (mkKey path local) = Some r
+              /\ node_ref_local r = local /\ file_ref_source (node_ref_file r) = f.
+  (* ref-level ancestry: the O(1) interval test, sound + complete vs the parent_of closure. *)
+  Inductive RefAncestor (p : GoProgram) (idx : SyntaxIndex p) : NodeRef p -> NodeRef p -> Prop :=
+  | RAnc_dir  : forall a d, parent_of idx d = Some a -> RefAncestor p idx a d
+  | RAnc_step : forall a q d, RefAncestor p idx a q -> parent_of idx d = Some q -> RefAncestor p idx a d.
+  Parameter thm_ref_ancestry : forall p (idx : SyntaxIndex p) (a d : NodeRef p),
+    is_ancestor_ref idx a d = true <-> RefAncestor p idx a d.
+  (* EXACT source-occurrence correspondence lifted through the sealed API: a valid reference's metadata IS
+     its exact source occurrence's metadata (kind/role/parent/subtree), the reference's occurrence IS the
+     independent spec's occurrence (pinning the VIEW), node_at agrees with the source view, and parent_of
+     returns the EXACT source parent. *)
+  Parameter ref_meta_matches_source : forall p (idx : SyntaxIndex p) (r : NodeRef p),
+    ref_meta idx r = occurrence_meta (source_occurrence_of_ref r).
+  Parameter node_kind_matches_source : forall p (idx : SyntaxIndex p) (r : NodeRef p),
+    node_kind idx r = occurrence_kind (source_occurrence_of_ref r).
+  Parameter node_role_matches_source : forall p (idx : SyntaxIndex p) (r : NodeRef p),
+    node_role idx r = occurrence_role (source_occurrence_of_ref r).
+  Parameter node_parent_matches_source : forall p (idx : SyntaxIndex p) (r : NodeRef p),
+    nm_parent (ref_meta idx r) = occurrence_parent (source_occurrence_of_ref r).
+  Parameter node_subtree_end_matches_source : forall p (idx : SyntaxIndex p) (r : NodeRef p),
+    node_subtree_end idx r = occurrence_subtree_end (source_occurrence_of_ref r).
+  Parameter source_occ_of_ref_eq : forall {p} (r : NodeRef p),
+    source_occurrence_at (file_ref_source (node_ref_file r)) (node_ref_local r) = Some (source_occurrence_of_ref r).
+  Parameter node_at_matches_source_view : forall {p} (r : NodeRef p),
+    node_at r = view_expr (source_occurrence_of_ref r).
+  Parameter node_parent_ref_matches_source : forall p (idx : SyntaxIndex p) (r : NodeRef p),
+    match occurrence_parent (source_occurrence_of_ref r) with
+    | None     => parent_of idx r = None
+    | Some pid => exists pr, parent_of idx r = Some pr /\ node_ref_local pr = pid
+    end.
+End SNAP_SIG.
+
+Module Snap : SNAP_SIG.
+
+(* a file-root handle for ONE file occurrence of program [p]: the file's PATH (its public identity) + its
+   source + a STANDARD-MAP membership proof.  No hidden slot: the path IS the map key. *)
+Record FileRef_T (p : GoProgram) := mkFileRef {
+  file_ref_path   : FilePath;
+  file_ref_source : GoSourceFile;
+  file_ref_at     : OFM.find file_ref_path (prog_files p) = Some file_ref_source
+}.
+Arguments file_ref_path   {p} _.
+Arguments file_ref_source {p} _.
+Arguments file_ref_at     {p} _.
+Definition FileRef := FileRef_T.
+
+Record NodeRef_T (p : GoProgram) := mkNodeRef {
+  node_ref_file  : FileRef p;
+  node_ref_local : positive;
+  node_ref_valid : valid_localb (file_ref_source node_ref_file) node_ref_local = true
+}.
+Arguments node_ref_file  {p} _.
+Arguments node_ref_local {p} _.
+Arguments node_ref_valid {p} _.
+Definition NodeRef := NodeRef_T.
+
+Definition node_ref_key {p} (r : NodeRef p) : NodeKey :=
+  mkKey (file_ref_path (node_ref_file r)) (node_ref_local r).
+
+Record SyntaxIndex_T (p : GoProgram) := mkSyntaxIndex {
+  si_outer : OFM.t FileIndex;
+  si_ok    : si_outer = outer_of (prog_files p)
+}.
+Arguments si_outer {p} _.
+Arguments si_ok    {p} _.
+Definition SyntaxIndex := SyntaxIndex_T.
+Definition index_program (p : GoProgram) : SyntaxIndex p :=
+  mkSyntaxIndex p (outer_of (prog_files p)) eq_refl.
+
+Lemma si_ok_at {p} (idx : SyntaxIndex p) path f :
+  OFM.find path (prog_files p) = Some f ->
+  OFM.find path (si_outer idx) = Some (build_file f).
+Proof. intros H. rewrite (si_ok idx). apply outer_get_at. exact H. Qed.
+
+Definition ref_fi_opt {p} (idx : SyntaxIndex p) (r : NodeRef p) : option FileIndex :=
+  OFM.find (file_ref_path (node_ref_file r)) (si_outer idx).
+Lemma ref_fi_some {p} (idx : SyntaxIndex p) (r : NodeRef p) :
+  ref_fi_opt idx r = Some (build_file (file_ref_source (node_ref_file r))).
+Proof. unfold ref_fi_opt. apply (si_ok_at idx). apply (file_ref_at (node_ref_file r)). Qed.
+Lemma ref_fi_some' {p} (idx : SyntaxIndex p) (r : NodeRef p) : ref_fi_opt idx r <> None.
+Proof. rewrite ref_fi_some. discriminate. Qed.
+Definition ref_fi {p} (idx : SyntaxIndex p) (r : NodeRef p) : FileIndex :=
+  option_get (ref_fi_opt idx r) (ref_fi_some' idx r).
+Lemma ref_fi_eq {p} (idx : SyntaxIndex p) (r : NodeRef p) :
+  ref_fi idx r = build_file (file_ref_source (node_ref_file r)).
+Proof. unfold ref_fi. apply option_get_eq, ref_fi_some. Qed.
+
+Definition ref_meta_opt {p} (idx : SyntaxIndex p) (r : NodeRef p) : option NodeMeta :=
+  NodeTable.get (node_ref_local r) (fi_table (ref_fi idx r)).
+Lemma ref_meta_some {p} (idx : SyntaxIndex p) (r : NodeRef p) : ref_meta_opt idx r <> None.
+Proof.
+  unfold ref_meta_opt. rewrite ref_fi_eq.
+  pose proof (node_ref_valid r) as Hv. unfold valid_localb in Hv.
+  destruct (NodeTable.get (node_ref_local r) (fi_table (build_file (file_ref_source (node_ref_file r)))));
+    [discriminate | discriminate Hv].
+Qed.
+
+Definition ref_meta {p} (idx : SyntaxIndex p) (r : NodeRef p) : NodeMeta :=
+  option_get (ref_meta_opt idx r) (ref_meta_some idx r).
+
+Lemma ref_meta_spec {p} (idx : SyntaxIndex p) (r : NodeRef p) m :
+  NodeTable.get (node_ref_local r) (fi_table (build_file (file_ref_source (node_ref_file r)))) = Some m ->
+  ref_meta idx r = m.
+Proof. intros H. unfold ref_meta. apply option_get_eq. unfold ref_meta_opt. rewrite ref_fi_eq. exact H. Qed.
+
+Definition node_kind        {p} (idx : SyntaxIndex p) (r : NodeRef p) : SyntaxKind := nm_kind (ref_meta idx r).
+Definition node_role        {p} (idx : SyntaxIndex p) (r : NodeRef p) : NodeRole   := nm_role (ref_meta idx r).
+Definition node_subtree_end {p} (idx : SyntaxIndex p) (r : NodeRef p) : positive   := nm_subtree_end (ref_meta idx r).
+Definition containing_file {p} (r : NodeRef p) : FileRef p := node_ref_file r.
+
+Lemma ref_meta_get {p} (idx : SyntaxIndex p) (r : NodeRef p) :
+  NodeTable.get (node_ref_local r) (fi_table (build_file (file_ref_source (node_ref_file r)))) = Some (ref_meta idx r).
+Proof.
+  pose proof (node_ref_valid r) as Hv. unfold valid_localb in Hv.
+  destruct (NodeTable.get (node_ref_local r) (fi_table (build_file (file_ref_source (node_ref_file r))))) as [m|] eqn:E;
+    [| discriminate Hv].
+  rewrite (ref_meta_spec idx r m E). reflexivity.
+Qed.
+
+Lemma parent_valid {p} (idx : SyntaxIndex p) (r : NodeRef p) pid :
+  nm_parent (ref_meta idx r) = Some pid -> valid_localb (file_ref_source (node_ref_file r)) pid = true.
+Proof.
+  intros Hpar.
+  pose proof (build_file_wf (file_ref_source (node_ref_file r))) as WF.
+  pose proof (ref_meta_get idx r) as Hget.
+  destruct (in_domain (file_ref_source (node_ref_file r)) (node_ref_local r) (ref_meta idx r) Hget) as [Hlo Hhi].
+  assert (Hne : node_ref_local r <> root_id).
+  { intro Hr. rewrite Hr in Hget. destruct (sub_root WF) as [m0 [Hg [Hp0 _]]].
+    rewrite Hg in Hget. injection Hget as Heq. rewrite <- Heq in Hpar. rewrite Hp0 in Hpar. discriminate Hpar. }
+  destruct (sub_prng WF (node_ref_local r) (ref_meta idx r) ltac:(lia) Hhi Hget) as [q [mq [Hpar' [Hgq _]]]].
+  rewrite Hpar in Hpar'. injection Hpar' as <-.
+  unfold valid_localb. rewrite Hgq. reflexivity.
+Qed.
+
+Definition parent_of {p} (idx : SyntaxIndex p) (r : NodeRef p) : option (NodeRef p) :=
+  (match nm_parent (ref_meta idx r) as o return (nm_parent (ref_meta idx r) = o -> option (NodeRef p)) with
+   | Some pid => fun H => Some (mkNodeRef p (node_ref_file r) pid (parent_valid idx r pid H))
+   | None     => fun _ => None
+   end) eq_refl.
+
+Lemma child_valid (f : GoSourceFile) local c :
+  In c (child_ids (fi_table (build_file f)) local) -> valid_localb f c = true.
+Proof.
+  intros Hin. unfold child_ids in Hin.
+  destruct (NodeTable.get local (fi_table (build_file f))) as [m|] eqn:El; [|destruct Hin].
+  apply child_enum_sound in Hin. unfold parent_id in Hin.
+  unfold valid_localb. destruct (NodeTable.get c (fi_table (build_file f))); [reflexivity | discriminate Hin].
+Qed.
+
+Fixpoint refine_children {p} (fr : FileRef p) (ids : list positive)
+  : (forall c, In c ids -> valid_localb (file_ref_source fr) c = true) -> list (NodeRef p) :=
+  match ids with
+  | []        => fun _    => []
+  | c :: rest => fun Hall =>
+      mkNodeRef p fr c (Hall c (or_introl eq_refl)) :: refine_children fr rest (fun c' H => Hall c' (or_intror H))
+  end.
+
+Lemma children_valid {p} (idx : SyntaxIndex p) (r : NodeRef p) c :
+  In c (child_ids (fi_table (ref_fi idx r)) (node_ref_local r)) ->
+  valid_localb (file_ref_source (node_ref_file r)) c = true.
+Proof. rewrite ref_fi_eq. apply child_valid. Qed.
+
+Definition children_of {p} (idx : SyntaxIndex p) (r : NodeRef p) : list (NodeRef p) :=
+  refine_children (node_ref_file r)
+    (child_ids (fi_table (ref_fi idx r)) (node_ref_local r)) (children_valid idx r).
+
+Definition file_of_path (p : GoProgram) (fp : FilePath) : option (FileRef p) :=
+  (match OFM.find fp (prog_files p) as o
+         return (OFM.find fp (prog_files p) = o -> option (FileRef p)) with
+   | Some f => fun H => Some (mkFileRef p fp f H)
+   | None   => fun _ => None
+   end) eq_refl.
+
+Definition valid_in_index {p} (idx : SyntaxIndex p) (fr : FileRef p) (local : positive) : bool :=
+  match OFM.find (file_ref_path fr) (si_outer idx) with
+  | Some fi => match NodeTable.get local (fi_table fi) with Some _ => true | None => false end
+  | None    => false
+  end.
+Lemma valid_in_index_eq {p} (idx : SyntaxIndex p) (fr : FileRef p) (local : positive) :
+  valid_in_index idx fr local = valid_localb (file_ref_source fr) local.
+Proof.
+  unfold valid_in_index, valid_localb.
+  rewrite (si_ok_at idx (file_ref_path fr) (file_ref_source fr) (file_ref_at fr)). reflexivity.
+Qed.
+Lemma valid_in_index_true {p} (idx : SyntaxIndex p) (fr : FileRef p) (local : positive) :
+  valid_in_index idx fr local = true -> valid_localb (file_ref_source fr) local = true.
+Proof. rewrite valid_in_index_eq. exact (fun H => H). Qed.
+
+Definition ref_of_key (p : GoProgram) (idx : SyntaxIndex p) (k : NodeKey) : option (NodeRef p) :=
+  match file_of_path p (nk_file k) with
+  | Some fr =>
+      (match valid_in_index idx fr (nk_local k) as b
+             return (valid_in_index idx fr (nk_local k) = b -> option (NodeRef p)) with
+       | true  => fun H => Some (mkNodeRef p fr (nk_local k) (valid_in_index_true idx fr (nk_local k) H))
+       | false => fun _ => None
+       end) eq_refl
+  | None => None
+  end.
+
+(* --- lift EXACT source-occurrence correspondence through the sealed reference API. --- *)
+
+Lemma source_occ_of_ref_some {p} (r : NodeRef p) :
+  source_occurrence_at (file_ref_source (node_ref_file r)) (node_ref_local r) <> None.
+Proof.
+  pose proof (node_ref_valid r) as Hv. unfold valid_localb in Hv.
+  destruct (NodeTable.get (node_ref_local r) (fi_table (build_file (file_ref_source (node_ref_file r))))) as [m|] eqn:E;
+    [|discriminate Hv].
+  destruct (meta_source_occurrence _ _ _ E) as [o [Ho _]]. rewrite Ho. discriminate.
+Qed.
+
+Definition source_occurrence_of_ref {p} (r : NodeRef p) : SourceOccurrence :=
+  option_get (source_occurrence_at (file_ref_source (node_ref_file r)) (node_ref_local r))
+             (source_occ_of_ref_some r).
+
+Lemma source_occ_of_ref_eq {p} (r : NodeRef p) :
+  source_occurrence_at (file_ref_source (node_ref_file r)) (node_ref_local r)
+    = Some (source_occurrence_of_ref r).
+Proof. unfold source_occurrence_of_ref. apply option_get_some. Qed.
+
+Theorem ref_meta_matches_source {p} (idx : SyntaxIndex p) (r : NodeRef p) :
+  ref_meta idx r = occurrence_meta (source_occurrence_of_ref r).
+Proof.
+  pose proof (ref_meta_get idx r) as Hget.
+  pose proof (build_file_source_exact (file_ref_source (node_ref_file r)) (node_ref_local r)) as HE.
+  rewrite (source_occ_of_ref_eq r) in HE. cbn [option_map] in HE.
+  rewrite Hget in HE. injection HE as HEq. exact HEq.
+Qed.
+
+Theorem node_kind_matches_source {p} (idx : SyntaxIndex p) (r : NodeRef p) :
+  node_kind idx r = occurrence_kind (source_occurrence_of_ref r).
+Proof. unfold node_kind. rewrite ref_meta_matches_source. reflexivity. Qed.
+Theorem node_role_matches_source {p} (idx : SyntaxIndex p) (r : NodeRef p) :
+  node_role idx r = occurrence_role (source_occurrence_of_ref r).
+Proof. unfold node_role. rewrite ref_meta_matches_source. reflexivity. Qed.
+Theorem node_parent_matches_source {p} (idx : SyntaxIndex p) (r : NodeRef p) :
+  nm_parent (ref_meta idx r) = occurrence_parent (source_occurrence_of_ref r).
+Proof. rewrite ref_meta_matches_source. reflexivity. Qed.
+Theorem node_subtree_end_matches_source {p} (idx : SyntaxIndex p) (r : NodeRef p) :
+  node_subtree_end idx r = occurrence_subtree_end (source_occurrence_of_ref r).
+Proof. unfold node_subtree_end. rewrite ref_meta_matches_source. reflexivity. Qed.
+
+Definition node_at {p} (r : NodeRef p) : option GoExpr := view_expr (source_occurrence_of_ref r).
+Theorem node_at_matches_source_view {p} (r : NodeRef p) :
+  node_at r = view_expr (source_occurrence_of_ref r).
+Proof. reflexivity. Qed.
+
+(* --- reference extensionality (validity + membership proofs are irrelevant). --- *)
+
+Lemma node_ref_ext (p : GoProgram) (r1 r2 : NodeRef p) :
+  node_ref_file r1 = node_ref_file r2 -> node_ref_local r1 = node_ref_local r2 -> r1 = r2.
+Proof.
+  destruct r1 as [f1 l1 v1], r2 as [f2 l2 v2]; simpl; intros -> ->.
+  f_equal. apply (UIP_dec Bool.bool_dec).
+Qed.
+
+Lemma file_ref_ext (p : GoProgram) (fr1 fr2 : FileRef p) :
+  file_ref_path fr1 = file_ref_path fr2 -> fr1 = fr2.
+Proof.
+  destruct fr1 as [p1 f1 h1], fr2 as [p2 f2 h2]; simpl; intros Hp. subst p2.
+  assert (f1 = f2) by (pose proof h1 as q; rewrite h2 in q; injection q as <-; reflexivity).
+  subst f2. f_equal. apply (UIP_dec option_gosourcefile_eq_dec).
+Qed.
+
+(* --- total-API correctness. --- *)
+
+Theorem thm_node_kind (p : GoProgram) (idx : SyntaxIndex p) (r : NodeRef p) :
+  node_kind idx r = nm_kind (ref_meta idx r).
+Proof. reflexivity. Qed.
+Theorem thm_node_role (p : GoProgram) (idx : SyntaxIndex p) (r : NodeRef p) :
+  node_role idx r = nm_role (ref_meta idx r).
+Proof. reflexivity. Qed.
+Theorem thm_ref_meta_built (p : GoProgram) (idx : SyntaxIndex p) (r : NodeRef p) :
+  NodeTable.get (node_ref_local r) (fi_table (build_file (file_ref_source (node_ref_file r)))) = Some (ref_meta idx r).
+Proof. apply ref_meta_get. Qed.
+Theorem thm_containing_file (p : GoProgram) (r : NodeRef p) :
+  containing_file r = node_ref_file r /\ file_ref_path (containing_file r) = nk_file (node_ref_key r).
+Proof. split; reflexivity. Qed.
+
+Lemma parent_of_none (p : GoProgram) (idx : SyntaxIndex p) (r : NodeRef p) :
+  nm_parent (ref_meta idx r) = None -> parent_of idx r = None.
+Proof.
+  intros Hn. unfold parent_of. generalize (@eq_refl (option positive) (nm_parent (ref_meta idx r))).
+  destruct (nm_parent (ref_meta idx r)) at 2 3; intros e; [ congruence | reflexivity ].
+Qed.
+
+Lemma parent_of_some (p : GoProgram) (idx : SyntaxIndex p) (r : NodeRef p) pid :
+  nm_parent (ref_meta idx r) = Some pid ->
+  exists pr, parent_of idx r = Some pr
+             /\ node_ref_file pr = node_ref_file r /\ node_ref_local pr = pid.
+Proof.
+  intros Hs. unfold parent_of. generalize (@eq_refl (option positive) (nm_parent (ref_meta idx r))).
+  destruct (nm_parent (ref_meta idx r)) at 2 3; intros e.
+  - eexists. split; [reflexivity | split; [reflexivity | cbn; congruence]].
+  - congruence.
+Qed.
+
+Theorem thm_parent_root (p : GoProgram) (idx : SyntaxIndex p) (r : NodeRef p) :
+  node_ref_local r = root_id -> parent_of idx r = None.
+Proof.
+  intros Hr. apply parent_of_none.
+  pose proof (build_file_wf (file_ref_source (node_ref_file r))) as WF.
+  destruct (sub_root WF) as [m0 [Hg [Hp0 _]]]. pose proof (ref_meta_get idx r) as Hget.
+  rewrite Hr, Hg in Hget. injection Hget as Heq. rewrite <- Heq. exact Hp0.
+Qed.
+
+Theorem thm_parent_nonroot (p : GoProgram) (idx : SyntaxIndex p) (r : NodeRef p) :
+  node_ref_local r <> root_id -> exists pr, parent_of idx r = Some pr.
+Proof.
+  intros Hne.
+  pose proof (build_file_wf (file_ref_source (node_ref_file r))) as WF.
+  pose proof (ref_meta_get idx r) as Hget.
+  destruct (in_domain (file_ref_source (node_ref_file r)) (node_ref_local r) (ref_meta idx r) Hget) as [Hlo Hhi].
+  destruct (sub_prng WF (node_ref_local r) (ref_meta idx r) ltac:(lia) Hhi Hget) as [q [mq [Hpar _]]].
+  destruct (parent_of_some p idx r q Hpar) as [pr [Hpr _]]. exists pr. exact Hpr.
+Qed.
+
+Theorem node_parent_ref_matches_source (p : GoProgram) (idx : SyntaxIndex p) (r : NodeRef p) :
+  match occurrence_parent (source_occurrence_of_ref r) with
+  | None     => parent_of idx r = None
+  | Some pid => exists pr, parent_of idx r = Some pr /\ node_ref_local pr = pid
+  end.
+Proof.
+  rewrite <- (node_parent_matches_source idx r).
+  destruct (nm_parent (ref_meta idx r)) as [pid|] eqn:Hp.
+  - destruct (parent_of_some p idx r pid Hp) as [pr [Hpr [_ Hpl]]]. exists pr. split; [exact Hpr | exact Hpl].
+  - apply (parent_of_none p idx r Hp).
+Qed.
+
+Theorem node_ref_key_inj (p : GoProgram) (r1 r2 : NodeRef p) :
+  node_ref_key r1 = node_ref_key r2 -> r1 = r2.
+Proof.
+  intros H. unfold node_ref_key in H. injection H as Hpath Hlocal.
+  apply node_ref_ext; [ apply file_ref_ext; exact Hpath | exact Hlocal ].
+Qed.
+
+Theorem thm_parent_same_file (p : GoProgram) (idx : SyntaxIndex p) (r pr : NodeRef p) :
+  parent_of idx r = Some pr -> node_ref_file pr = node_ref_file r.
+Proof.
+  intros H. destruct (nm_parent (ref_meta idx r)) as [pid|] eqn:Hp.
+  - destruct (parent_of_some p idx r pid Hp) as [pr' [Hpr' [Hf _]]].
+    rewrite H in Hpr'. injection Hpr' as <-. exact Hf.
+  - rewrite (parent_of_none p idx r Hp) in H. discriminate H.
+Qed.
+
+Lemma refine_children_file (p : GoProgram) (fr : FileRef p) ids
+  (H : forall c, In c ids -> valid_localb (file_ref_source fr) c = true) cr :
+  In cr (refine_children fr ids H) -> node_ref_file cr = fr.
+Proof.
+  revert H. induction ids as [|c rest IH]; intros H Hin; simpl in Hin; [destruct Hin|].
+  destruct Hin as [<-|Hin]; [reflexivity | eapply IH; exact Hin].
+Qed.
+Theorem thm_children_same_file (p : GoProgram) (idx : SyntaxIndex p) (r cr : NodeRef p) :
+  In cr (children_of idx r) -> node_ref_file cr = node_ref_file r.
+Proof. unfold children_of. apply refine_children_file. Qed.
+
+Lemma refine_children_local (p : GoProgram) (fr : FileRef p) ids
+  (H : forall c, In c ids -> valid_localb (file_ref_source fr) c = true) cr :
+  In cr (refine_children fr ids H) -> In (node_ref_local cr) ids.
+Proof.
+  revert H. induction ids as [|c rest IH]; intros H Hin; simpl in Hin; [destruct Hin|].
+  destruct Hin as [<-|Hin]; [left; reflexivity | right; eapply IH; exact Hin].
+Qed.
+Lemma refine_children_complete (p : GoProgram) (fr : FileRef p) ids
+  (H : forall c, In c ids -> valid_localb (file_ref_source fr) c = true) c :
+  In c ids -> exists cr, In cr (refine_children fr ids H) /\ node_ref_local cr = c.
+Proof.
+  revert H. induction ids as [|c0 rest IH]; intros H Hin; simpl in Hin; [destruct Hin|].
+  destruct Hin as [->|Hin].
+  - eexists. split; [left; reflexivity | reflexivity].
+  - destruct (IH (fun c' Hc' => H c' (or_intror Hc')) Hin) as [cr [Hcr Hl]].
+    exists cr. split; [right; exact Hcr | exact Hl].
+Qed.
+
+Theorem thm_children_sound (p : GoProgram) (idx : SyntaxIndex p) (r cr : NodeRef p) :
+  In cr (children_of idx r) -> In (node_ref_local cr) (child_ids (fi_table (ref_fi idx r)) (node_ref_local r)).
+Proof. unfold children_of. apply refine_children_local. Qed.
+
+Lemma refine_children_map_local (p : GoProgram) (fr : FileRef p) ids
+  (H : forall c, In c ids -> valid_localb (file_ref_source fr) c = true) :
+  map node_ref_local (refine_children fr ids H) = ids.
+Proof.
+  revert H. induction ids as [|c rest IH]; intros H; simpl; [reflexivity|]. rewrite IH. reflexivity.
+Qed.
+
+Lemma sorted_lt_nodup : forall (l : list positive), StronglySorted Pos.lt l -> NoDup l.
+Proof.
+  induction l as [|x rest IH]; intros HS; [constructor|].
+  inversion HS as [|? ? HSS HF]; subst. constructor.
+  - intros Hin. rewrite Forall_forall in HF. specialize (HF x Hin). lia.
+  - apply IH. exact HSS.
+Qed.
+
+Theorem thm_children_of_source_order (p : GoProgram) (idx : SyntaxIndex p) (r : NodeRef p) :
+  StronglySorted Pos.lt (map node_ref_local (children_of idx r)).
+Proof.
+  unfold children_of. rewrite refine_children_map_local, (ref_fi_eq idx r). apply thm11_children_sorted.
+Qed.
+
+Theorem thm_children_of_nodup (p : GoProgram) (idx : SyntaxIndex p) (r : NodeRef p) :
+  NoDup (children_of idx r).
+Proof.
+  apply (NoDup_map_inv node_ref_local). apply sorted_lt_nodup. apply thm_children_of_source_order.
+Qed.
+
+Lemma file_of_path_path (p : GoProgram) (fp : FilePath) (fr : FileRef p) :
+  file_of_path p fp = Some fr -> file_ref_path fr = fp.
+Proof.
+  unfold file_of_path. generalize (@eq_refl (option GoSourceFile) (OFM.find fp (prog_files p))).
+  destruct (OFM.find fp (prog_files p)) as [f|] at 2 3; intros e H; [| discriminate H].
+  injection H as <-. reflexivity.
+Qed.
+
+Theorem ref_of_key_sound (p : GoProgram) (idx : SyntaxIndex p) (k : NodeKey) (r : NodeRef p) :
+  ref_of_key p idx k = Some r -> node_ref_key r = k.
+Proof.
+  unfold ref_of_key. destruct (file_of_path p (nk_file k)) as [fr|] eqn:Ef; [| discriminate].
+  generalize (@eq_refl bool (valid_in_index idx fr (nk_local k))).
+  destruct (valid_in_index idx fr (nk_local k)) at 2 3; intros e H; [| discriminate H].
+  injection H as <-. unfold node_ref_key. simpl.
+  rewrite (file_of_path_path p (nk_file k) fr Ef). destruct k; reflexivity.
+Qed.
+
+Lemma file_of_path_complete (p : GoProgram) (fr : FileRef p) :
+  file_of_path p (file_ref_path fr) = Some fr.
+Proof.
+  unfold file_of_path.
+  generalize (@eq_refl (option GoSourceFile) (OFM.find (file_ref_path fr) (prog_files p))).
+  destruct (OFM.find (file_ref_path fr) (prog_files p)) as [f|] at 2 3; intros e.
+  - f_equal. apply file_ref_ext. reflexivity.
+  - exfalso. rewrite (file_ref_at fr) in e. discriminate e.
+Qed.
+
+Theorem ref_of_key_complete (p : GoProgram) (idx : SyntaxIndex p) (r : NodeRef p) :
+  ref_of_key p idx (node_ref_key r) = Some r.
+Proof.
+  unfold ref_of_key, node_ref_key. cbn [nk_file nk_local].
+  rewrite (file_of_path_complete p (node_ref_file r)).
+  generalize (@eq_refl bool (valid_in_index idx (node_ref_file r) (node_ref_local r))).
+  destruct (valid_in_index idx (node_ref_file r) (node_ref_local r)) at 2 3; intros e.
+  - f_equal. apply node_ref_ext; reflexivity.
+  - exfalso. rewrite valid_in_index_eq, (node_ref_valid r) in e. discriminate e.
+Qed.
+
+Theorem file_of_path_source (p : GoProgram) (path : FilePath) (f : GoSourceFile) :
+  find_file path (prog_files p) = Some f ->
+  exists fr, file_of_path p path = Some fr /\ file_ref_path fr = path /\ file_ref_source fr = f.
+Proof.
+  intros Hfind. exists (mkFileRef p path f Hfind). split; [| split; reflexivity].
+  unfold file_of_path.
+  generalize (@eq_refl (option GoSourceFile) (OFM.find path (prog_files p))).
+  destruct (OFM.find path (prog_files p)) as [f'|] at 2 3; intros e.
+  - f_equal. apply file_ref_ext. reflexivity.
+  - unfold find_file in Hfind. rewrite Hfind in e. discriminate e.
+Qed.
+
+Theorem ref_of_key_source (p : GoProgram) (idx : SyntaxIndex p) (path : FilePath) (f : GoSourceFile) (local : positive) :
+  find_file path (prog_files p) = Some f -> valid_localb f local = true ->
+  exists r, ref_of_key p idx (mkKey path local) = Some r
+            /\ node_ref_local r = local /\ file_ref_source (node_ref_file r) = f.
+Proof.
+  intros Hfind Hv.
+  destruct (file_of_path_source p path f Hfind) as [fr [Hfp [_ Hff]]].
+  assert (Hvi : valid_in_index idx fr local = true) by (rewrite valid_in_index_eq, Hff; exact Hv).
+  unfold ref_of_key. cbn [nk_file nk_local]. rewrite Hfp.
+  generalize (@eq_refl bool (valid_in_index idx fr local)).
+  destruct (valid_in_index idx fr local) at 2 3; intros e.
+  - eexists. split; [reflexivity | split; [reflexivity | exact Hff]].
+  - rewrite Hvi in e. discriminate e.
+Qed.
+
+Theorem file_ref_path_inj (p : GoProgram) (fr1 fr2 : FileRef p) :
+  file_ref_path fr1 = file_ref_path fr2 -> fr1 = fr2.
+Proof. apply file_ref_ext. Qed.
+
+Theorem thm_child_parent (p : GoProgram) (idx : SyntaxIndex p) (r cr : NodeRef p) :
+  In cr (children_of idx r) -> parent_of idx cr = Some r.
+Proof.
+  intros Hin.
+  pose proof (thm_children_same_file p idx r cr Hin) as Hf.
+  pose proof (thm_children_sound p idx r cr Hin) as Hsound.
+  apply child_ids_parent in Hsound.
+  pose proof (ref_meta_get idx cr) as Hget.
+  rewrite Hf in Hget. rewrite <- (ref_fi_eq idx r) in Hget.
+  unfold parent_id in Hsound. rewrite Hget in Hsound.
+  destruct (parent_of_some p idx cr (node_ref_local r) Hsound) as [pr [Hpr [Hpf Hpl]]].
+  rewrite Hpr. f_equal. apply node_ref_ext; [ rewrite Hpf; exact Hf | exact Hpl ].
+Qed.
+
+Theorem thm_parent_child (p : GoProgram) (idx : SyntaxIndex p) (r pr : NodeRef p) :
+  parent_of idx r = Some pr -> In r (children_of idx pr).
+Proof.
+  intros Hpar.
+  pose proof (thm_parent_same_file p idx r pr Hpar) as Hf.
+  assert (Hp' : nm_parent (ref_meta idx r) = Some (node_ref_local pr)).
+  { destruct (nm_parent (ref_meta idx r)) as [pid|] eqn:Hnp.
+    - destruct (parent_of_some p idx r pid Hnp) as [pr' [Hpr' [_ Hpl]]].
+      rewrite Hpar in Hpr'. injection Hpr' as <-. rewrite Hpl. reflexivity.
+    - rewrite (parent_of_none p idx r Hnp) in Hpar. discriminate Hpar. }
+  pose proof (ref_meta_get idx r) as Hgetr. rewrite <- Hf in Hgetr.
+  pose proof (thm4_parent_has_child (file_ref_source (node_ref_file pr))
+                (node_ref_local pr) (node_ref_local r) (ref_meta idx r) Hgetr Hp') as Hchild.
+  rewrite <- (ref_fi_eq idx pr) in Hchild.
+  destruct (refine_children_complete p (node_ref_file pr)
+              (child_ids (fi_table (ref_fi idx pr)) (node_ref_local pr))
+              (children_valid idx pr) (node_ref_local r) Hchild) as [cr [Hcr Hcl]].
+  pose proof (refine_children_file p (node_ref_file pr) _ (children_valid idx pr) cr Hcr) as Hcrf.
+  assert (Hcreq : cr = r).
+  { apply node_ref_ext; [ rewrite Hcrf, Hf; reflexivity | rewrite Hcl; reflexivity ]. }
+  subst cr. unfold children_of. exact Hcr.
+Qed.
+
+(* --- NodeRef-level ancestry: the O(1) interval test, certified through the sealed API. --- *)
+
+Lemma ref_fi_table_same_file (p : GoProgram) (idx : SyntaxIndex p) (x y : NodeRef p) :
+  node_ref_file x = node_ref_file y -> fi_table (ref_fi idx x) = fi_table (ref_fi idx y).
+Proof. intros H. rewrite (ref_fi_eq idx x), (ref_fi_eq idx y), H. reflexivity. Qed.
+
+Lemma parentof_to_parentid (p : GoProgram) (idx : SyntaxIndex p) (d a : NodeRef p) :
+  parent_of idx d = Some a ->
+  node_ref_file a = node_ref_file d /\
+  parent_id (fi_table (ref_fi idx d)) (node_ref_local d) = Some (node_ref_local a).
+Proof.
+  intros Hpar. pose proof (thm_parent_same_file p idx d a Hpar) as Hf. split; [exact Hf|].
+  assert (Hnp : nm_parent (ref_meta idx d) = Some (node_ref_local a)).
+  { destruct (nm_parent (ref_meta idx d)) as [pid|] eqn:Hp.
+    - destruct (parent_of_some p idx d pid Hp) as [a' [Ha' [_ Hal]]].
+      rewrite Hpar in Ha'. injection Ha' as <-. rewrite Hal. reflexivity.
+    - rewrite (parent_of_none p idx d Hp) in Hpar. discriminate Hpar. }
+  pose proof (ref_meta_get idx d) as Hget. rewrite <- (ref_fi_eq idx d) in Hget.
+  unfold parent_id. rewrite Hget. exact Hnp.
+Qed.
+
+Lemma parentid_to_parentof (p : GoProgram) (idx : SyntaxIndex p) (d : NodeRef p) pa :
+  parent_id (fi_table (ref_fi idx d)) (node_ref_local d) = Some pa ->
+  exists a, parent_of idx d = Some a /\ node_ref_local a = pa /\ node_ref_file a = node_ref_file d.
+Proof.
+  intros Hpid.
+  pose proof (ref_meta_get idx d) as Hget. rewrite <- (ref_fi_eq idx d) in Hget.
+  unfold parent_id in Hpid. rewrite Hget in Hpid.
+  destruct (parent_of_some p idx d pa Hpid) as [a [Ha [Hf Hal]]].
+  exists a. split; [exact Ha | split; [exact Hal | exact Hf]].
+Qed.
+
+Inductive RefAncestor (p : GoProgram) (idx : SyntaxIndex p) : NodeRef p -> NodeRef p -> Prop :=
+| RAnc_dir  : forall a d, parent_of idx d = Some a -> RefAncestor p idx a d
+| RAnc_step : forall a q d, RefAncestor p idx a q -> parent_of idx d = Some q -> RefAncestor p idx a d.
+
+Lemma refanc_same_file (p : GoProgram) (idx : SyntaxIndex p) (a d : NodeRef p) :
+  RefAncestor p idx a d -> node_ref_file a = node_ref_file d.
+Proof.
+  intros H. induction H as [a d Hpar | a q d Hanc IH Hpar].
+  - apply (proj1 (parentof_to_parentid p idx d a Hpar)).
+  - rewrite IH. apply (proj1 (parentof_to_parentid p idx d q Hpar)).
+Qed.
+
+Lemma refanc_to_anc (p : GoProgram) (idx : SyntaxIndex p) (a d : NodeRef p) :
+  RefAncestor p idx a d -> Ancestor (fi_table (ref_fi idx d)) (node_ref_local a) (node_ref_local d).
+Proof.
+  intros H. induction H as [a d Hpar | a q d Hanc IH Hpar].
+  - apply Anc_dir. apply (proj2 (parentof_to_parentid p idx d a Hpar)).
+  - pose proof (proj1 (parentof_to_parentid p idx d q Hpar)) as Hf.
+    rewrite (ref_fi_table_same_file p idx q d Hf) in IH.
+    apply (Anc_step (fi_table (ref_fi idx d)) (node_ref_local a) (node_ref_local q) (node_ref_local d) IH).
+    apply (proj2 (parentof_to_parentid p idx d q Hpar)).
+Qed.
+
+Lemma anc_to_refanc_aux (p : GoProgram) (idx : SyntaxIndex p) (fr : FileRef p) (al dl : positive)
+  (Hanc : Ancestor (fi_table (build_file (file_ref_source fr))) al dl) :
+  forall (d : NodeRef p), node_ref_file d = fr -> node_ref_local d = dl ->
+  exists a, node_ref_file a = fr /\ node_ref_local a = al /\ RefAncestor p idx a d.
+Proof.
+  induction Hanc as [al dl Hpid | al pl dl Hanc_ap IH Hpid_d]; intros d Hdf Hdl.
+  - assert (Hpd : parent_id (fi_table (ref_fi idx d)) (node_ref_local d) = Some al)
+      by (rewrite (ref_fi_eq idx d), Hdf, Hdl; exact Hpid).
+    destruct (parentid_to_parentof p idx d al Hpd) as [a [Ha [Hal Haf]]].
+    exists a. split; [rewrite Haf; exact Hdf | split; [exact Hal | apply RAnc_dir; exact Ha]].
+  - assert (Hpd : parent_id (fi_table (ref_fi idx d)) (node_ref_local d) = Some pl)
+      by (rewrite (ref_fi_eq idx d), Hdf, Hdl; exact Hpid_d).
+    destruct (parentid_to_parentof p idx d pl Hpd) as [pr [Hp [Hpl Hpf]]].
+    destruct (IH pr (eq_trans Hpf Hdf) Hpl) as [a [Haf [Hal Hra]]].
+    exists a. split; [exact Haf | split; [exact Hal | apply (RAnc_step p idx a pr d Hra Hp)]].
+Qed.
+
+Lemma anc_to_refanc (p : GoProgram) (idx : SyntaxIndex p) (a d : NodeRef p) :
+  node_ref_file a = node_ref_file d ->
+  Ancestor (fi_table (build_file (file_ref_source (node_ref_file d)))) (node_ref_local a) (node_ref_local d) ->
+  RefAncestor p idx a d.
+Proof.
+  intros Hf Hanc.
+  destruct (anc_to_refanc_aux p idx (node_ref_file d) (node_ref_local a) (node_ref_local d) Hanc d eq_refl eq_refl)
+    as [a' [Haf [Hal Hra]]].
+  assert (a' = a) by (apply node_ref_ext; [ rewrite Haf; symmetry; exact Hf | exact Hal ]).
+  subst a'. exact Hra.
+Qed.
+
+Definition is_ancestor_ref {p} (idx : SyntaxIndex p) (a d : NodeRef p) : bool :=
+  fp_eqb (file_ref_path (node_ref_file a)) (file_ref_path (node_ref_file d)) &&
+  is_ancestor_local (fi_table (ref_fi idx d)) (node_ref_local a) (node_ref_local d).
+
+Lemma ref_local_present (p : GoProgram) (idx : SyntaxIndex p) (a d : NodeRef p) :
+  node_ref_file a = node_ref_file d ->
+  NodeTable.get (node_ref_local a) (fi_table (build_file (file_ref_source (node_ref_file d)))) <> None.
+Proof.
+  intros Hf. rewrite <- Hf. pose proof (ref_meta_get idx a) as Hg. rewrite Hg. discriminate.
+Qed.
+
+Theorem thm_ref_ancestry (p : GoProgram) (idx : SyntaxIndex p) (a d : NodeRef p) :
+  is_ancestor_ref idx a d = true <-> RefAncestor p idx a d.
+Proof.
+  unfold is_ancestor_ref. split.
+  - intros Hb. apply andb_true_iff in Hb as [Hpath Hloc]. apply fp_eqb_eq in Hpath.
+    assert (Hf : node_ref_file a = node_ref_file d) by (apply file_ref_ext; exact Hpath).
+    apply (anc_to_refanc p idx a d Hf).
+    rewrite (ref_fi_eq idx d) in Hloc.
+    apply (proj1 (thm13_interval_ancestry (file_ref_source (node_ref_file d))
+                    (node_ref_local a) (node_ref_local d) (ref_local_present p idx a d Hf))).
+    exact Hloc.
+  - intros Hra.
+    pose proof (refanc_same_file p idx a d Hra) as Hf.
+    pose proof (refanc_to_anc p idx a d Hra) as Hanc.
+    apply andb_true_iff. split.
+    + apply fp_eqb_eq. rewrite Hf. reflexivity.
+    + rewrite (ref_fi_eq idx d). rewrite (ref_fi_eq idx d) in Hanc.
+      apply (proj2 (thm13_interval_ancestry (file_ref_source (node_ref_file d))
+                      (node_ref_local a) (node_ref_local d) (ref_local_present p idx a d Hf))).
+      exact Hanc.
+Qed.
+
+End Snap.
+
+(* negative ABSTRACTION checks: the raw index map and raw record constructors are NOT reachable through the
+   sealed [Snap] interface (each [Check] FAILS, so [Fail Check] succeeds). *)
+Fail Check Snap.mkSyntaxIndex.
+Fail Check Snap.mkFileRef.
+Fail Check Snap.mkNodeRef.
+Fail Check Snap.si_outer.
+Fail Check Snap.ref_fi.

@@ -516,6 +516,55 @@ Print Assumptions GoIndex.thm7_enum_complete.
 Print Assumptions GoIndex.thm7_enum_sound.
 Print Assumptions GoIndex.thm_builder_no_structural_search.
 Print Assumptions GoIndex.thm14_meta_stores_no_subtree.
+(* GoIndex Pillar 3 — the SEALED reference layer indexed by the exact GoProgram: decidable NodeKey identity;
+   the sealed Snap API (index_program / file_of_path / ref_of_key / total ref_meta/kind/role/subtree/
+   containing_file/parent_of/children_of/node_at/source_occurrence_of_ref/is_ancestor_ref) whose raw
+   constructors are hidden; reference/file extensionality + NodeKey injectivity; total navigation (root has no
+   parent / only root / parent same file / children same file / parent-child inverse both ways / source-ordered
+   NoDup children / ref-level ancestry sound+complete); minting sound + complete + non-circular source
+   membership; and the EXACT source-occurrence correspondence lifted through the sealed API (metadata / kind /
+   role / parent / subtree / source view all pinned to the exact source occurrence). *)
+Print Assumptions GoIndex.thm8_nodekey_eq_dec.
+Print Assumptions GoIndex.thm8_nodekey_eqb_spec.
+Print Assumptions GoIndex.Snap.index_program.
+Print Assumptions GoIndex.Snap.file_of_path.
+Print Assumptions GoIndex.Snap.ref_of_key.
+Print Assumptions GoIndex.Snap.ref_meta.
+Print Assumptions GoIndex.Snap.node_kind.
+Print Assumptions GoIndex.Snap.parent_of.
+Print Assumptions GoIndex.Snap.children_of.
+Print Assumptions GoIndex.Snap.node_at.
+Print Assumptions GoIndex.Snap.source_occurrence_of_ref.
+Print Assumptions GoIndex.Snap.node_ref_ext.
+Print Assumptions GoIndex.Snap.thm_node_kind.
+Print Assumptions GoIndex.Snap.thm_node_role.
+Print Assumptions GoIndex.Snap.thm_ref_meta_built.
+Print Assumptions GoIndex.Snap.thm_containing_file.
+Print Assumptions GoIndex.Snap.node_ref_key_inj.
+Print Assumptions GoIndex.Snap.file_ref_path_inj.
+Print Assumptions GoIndex.Snap.thm_parent_root.
+Print Assumptions GoIndex.Snap.thm_parent_nonroot.
+Print Assumptions GoIndex.Snap.thm_parent_same_file.
+Print Assumptions GoIndex.Snap.thm_children_same_file.
+Print Assumptions GoIndex.Snap.thm_child_parent.
+Print Assumptions GoIndex.Snap.thm_parent_child.
+Print Assumptions GoIndex.Snap.thm_children_of_source_order.
+Print Assumptions GoIndex.Snap.thm_children_of_nodup.
+Print Assumptions GoIndex.Snap.ref_of_key_sound.
+Print Assumptions GoIndex.Snap.ref_of_key_complete.
+Print Assumptions GoIndex.Snap.file_of_path_complete.
+Print Assumptions GoIndex.Snap.file_of_path_source.
+Print Assumptions GoIndex.Snap.ref_of_key_source.
+Print Assumptions GoIndex.Snap.is_ancestor_ref.
+Print Assumptions GoIndex.Snap.thm_ref_ancestry.
+Print Assumptions GoIndex.Snap.ref_meta_matches_source.
+Print Assumptions GoIndex.Snap.node_kind_matches_source.
+Print Assumptions GoIndex.Snap.node_role_matches_source.
+Print Assumptions GoIndex.Snap.node_parent_matches_source.
+Print Assumptions GoIndex.Snap.node_subtree_end_matches_source.
+Print Assumptions GoIndex.Snap.source_occ_of_ref_eq.
+Print Assumptions GoIndex.Snap.node_at_matches_source_view.
+Print Assumptions GoIndex.Snap.node_parent_ref_matches_source.
 
 (* OccurrenceSpike (Source Forest C0): the ISOLATED occurrence-index proof spike — the certified positive-key
    trie laws, the builder well-formedness, and the C0.4 structural theorem set (root id canonical / no parent,
