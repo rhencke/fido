@@ -1080,6 +1080,170 @@ Proof.
 Qed.
 
 (* ============================================================================================================
+   §11 (C3) — PACKAGE MAIN-REF BUCKETS.  The per-file/per-package collection of the top-level-decl (main)
+   occurrences as validated [DeclRef]s, in canonical order.  Its length is the declarative [file_main_count]
+   (hence, aggregated, [ps_main_count]) — so the reference collection AGREES with the package count judgment,
+   without a second production package decision.
+
+   [decl_kind_count] counts an occurrence by its KIND (KTopLevelDecl); [occ_main_count] counts by its ROLE
+   (RFileDecl).  Over a real occurrence stream ([occs_file]) the two coincide (a decl head is the ONLY
+   KTopLevelDecl and the ONLY RFileDecl), so a DeclRef minted on kind counts exactly the main declarations.
+   ============================================================================================================ *)
+
+Definition decl_kind_count (o : GoIndex.SourceOccurrence) : nat :=
+  match GoIndex.occurrence_kind o with GoIndex.KTopLevelDecl => 1%nat | _ => 0%nat end.
+
+Definition decl_count_list {A} (l : list (A * GoIndex.SourceOccurrence)) : nat :=
+  fold_right (fun (ro : A * GoIndex.SourceOccurrence) (acc : nat) => (decl_kind_count (snd ro) + acc)%nat) 0%nat l.
+
+Lemma decl_count_list_cons {A} (x : A * GoIndex.SourceOccurrence) (l : list (A * GoIndex.SourceOccurrence)) :
+  decl_count_list (x :: l) = (decl_kind_count (snd x) + decl_count_list l)%nat.
+Proof. reflexivity. Qed.
+
+Lemma decl_count_list_app {A} (a b : list (A * GoIndex.SourceOccurrence)) :
+  decl_count_list (a ++ b) = (decl_count_list a + decl_count_list b)%nat.
+Proof.
+  induction a as [|x a IH]; [reflexivity|].
+  rewrite <- app_comm_cons, (decl_count_list_cons x (a ++ b)), (decl_count_list_cons x a), IH. lia.
+Qed.
+
+(** [decl_count_list] depends only on the OCCURRENCE component (the [snd]-projection). *)
+Lemma decl_count_list_snd {A B} (l1 : list (A * GoIndex.SourceOccurrence)) (l2 : list (B * GoIndex.SourceOccurrence)) :
+  map snd l1 = map snd l2 -> decl_count_list l1 = decl_count_list l2.
+Proof.
+  revert l2. induction l1 as [|x l1 IH]; intros [|y l2] Hm; cbn [map] in Hm; try discriminate; [reflexivity|].
+  injection Hm as Hsnd Hrest.
+  rewrite (decl_count_list_cons x l1), (decl_count_list_cons y l2), Hsnd, (IH l2 Hrest). reflexivity.
+Qed.
+
+(* ---- kind/role COHERENCE over a real occurrence stream: [decl_kind_count o = occ_main_count o]. ---- *)
+
+Definition coh (o : GoIndex.SourceOccurrence) : Prop := decl_kind_count o = occ_main_count o.
+
+Lemma coh_operand : forall e parent me,
+  Forall (fun ro => coh (snd ro)) (GoIndex.occs_expr parent GoIndex.RConversionOperand me e).
+Proof.
+  induction e as [ b|n1|n2|s| it x IHx | df | ft x IHx | dcx | ct x IHx ]; intros parent me; cbn [GoIndex.occs_expr].
+  1,2,3,4,6,8: constructor; [ reflexivity | constructor ].
+  all: constructor; [ reflexivity | apply IHx ].
+Qed.
+
+Lemma coh_arg : forall e parent aidx me,
+  Forall (fun ro => coh (snd ro)) (GoIndex.occs_arg parent aidx me e).
+Proof.
+  intros e parent aidx me. unfold GoIndex.occs_arg.
+  destruct e as [ b|n1|n2|s| it x|df|ft x|dcx|ct x ]; cbn [GoIndex.occs_expr].
+  1,2,3,4,6,8: constructor; [ reflexivity | constructor ].
+  all: constructor; [ reflexivity | apply coh_operand ].
+Qed.
+
+Lemma coh_args : forall es parent aidx me,
+  Forall (fun ro => coh (snd ro)) (GoIndex.occs_args parent aidx me es).
+Proof.
+  induction es as [|e rest IH]; intros parent aidx me; [constructor|].
+  cbn [GoIndex.occs_args]. apply Forall_app. split; [ apply coh_arg | apply IH ].
+Qed.
+
+Lemma coh_stmt : forall s parent sidx me,
+  Forall (fun ro => coh (snd ro)) (GoIndex.occs_stmt parent sidx me s).
+Proof.
+  intros [args] parent sidx me. cbn [GoIndex.occs_stmt].
+  constructor; [ reflexivity | apply coh_args ].
+Qed.
+
+Lemma coh_stmts : forall ss parent sidx me,
+  Forall (fun ro => coh (snd ro)) (GoIndex.occs_stmts parent sidx me ss).
+Proof.
+  induction ss as [|s rest IH]; intros parent sidx me; [constructor|].
+  cbn [GoIndex.occs_stmts]. apply Forall_app. split; [ apply coh_stmt | apply IH ].
+Qed.
+
+Lemma coh_decl : forall d parent didx me,
+  Forall (fun ro => coh (snd ro)) (GoIndex.occs_decl parent didx me d).
+Proof.
+  intros [body] parent didx me. cbn [GoIndex.occs_decl].
+  constructor; [ reflexivity | apply coh_stmts ].
+Qed.
+
+Lemma coh_decls : forall ds parent didx me,
+  Forall (fun ro => coh (snd ro)) (GoIndex.occs_decls parent didx me ds).
+Proof.
+  induction ds as [|d rest IH]; intros parent didx me; [constructor|].
+  cbn [GoIndex.occs_decls]. apply Forall_app. split; [ apply coh_decl | apply IH ].
+Qed.
+
+Lemma coh_file : forall f, Forall (fun ro => coh (snd ro)) (GoIndex.occs_file f).
+Proof.
+  intro f. unfold GoIndex.occs_file. destruct (source_imports f) as [|i tl]; [| destruct i].
+  constructor; [ reflexivity | ]. constructor; [ reflexivity | apply coh_decls ].
+Qed.
+
+(** the COHERENCE, transported to the [snd]-count identity: [decl_count_list = sum_main] over a file's occurrences. *)
+Lemma decl_count_sum_main_file : forall f, decl_count_list (GoIndex.occs_file f) = sum_main (GoIndex.occs_file f).
+Proof.
+  intro f. pose proof (coh_file f) as Hcoh.
+  induction (GoIndex.occs_file f) as [|x l IH]; [reflexivity|].
+  inversion Hcoh as [|? ? Hx Hl]; subst.
+  rewrite (decl_count_list_cons x l), (sum_main_cons x l), (IH Hl). unfold coh in Hx. rewrite Hx. reflexivity.
+Qed.
+
+(* ---- the per-file main-ref bucket: the DeclRefs of a file's decl occurrences, in canonical stream order. ---- *)
+
+Definition file_main_refs {p} (idx : GoIndex.Snap.SyntaxIndex p) (fr : GoIndex.Snap.FileRef p)
+  : list (GoIndex.DeclRef p) :=
+  fold_right (fun (ro : GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence) (acc : list (GoIndex.DeclRef p)) =>
+    match GoIndex.as_decl idx (fst ro) with Some dr => dr :: acc | None => acc end)
+    [] (GoIndex.Snap.visit_file fr).
+
+(** GENERIC: if each occurrence's DeclRef-mint agrees with its [decl_kind_count] (1 when minted, 0 otherwise),
+    the collected bucket's length is the [decl_count_list]. *)
+Lemma decl_collect_length_gen {p} (idx : GoIndex.Snap.SyntaxIndex p)
+  (l : list (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence)) :
+  (forall ro, In ro l -> match GoIndex.as_decl idx (fst ro) with
+                         | Some _ => decl_kind_count (snd ro) = 1%nat
+                         | None => decl_kind_count (snd ro) = 0%nat end) ->
+  length (fold_right (fun ro acc =>
+            match GoIndex.as_decl idx (fst ro) with Some dr => dr :: acc | None => acc end) [] l)
+  = decl_count_list l.
+Proof.
+  induction l as [|ro l IH]; intros Hall; [reflexivity|].
+  rewrite (decl_count_list_cons ro l). cbn [fold_right].
+  pose proof (Hall ro (or_introl eq_refl)) as Hro.
+  assert (Hrest : forall x, In x l -> match GoIndex.as_decl idx (fst x) with
+             | Some _ => decl_kind_count (snd x) = 1%nat | None => decl_kind_count (snd x) = 0%nat end)
+    by (intros x Hx; apply Hall; right; exact Hx).
+  destruct (GoIndex.as_decl idx (fst ro)) as [dr|] eqn:Ed.
+  - cbn [length]. rewrite (IH Hrest), Hro. reflexivity.
+  - rewrite (IH Hrest), Hro. reflexivity.
+Qed.
+
+(** the per-element count contribution of the DeclRef collector is EXACTLY the occurrence's [decl_kind_count]:
+    a DeclRef is minted iff the node's KIND is KTopLevelDecl, which (for a visited occurrence) is its kind. *)
+Lemma file_main_refs_length_decl_count {p} (idx : GoIndex.Snap.SyntaxIndex p) (fr : GoIndex.Snap.FileRef p) :
+  length (file_main_refs idx fr) = decl_count_list (GoIndex.Snap.visit_file fr).
+Proof.
+  unfold file_main_refs. apply decl_collect_length_gen.
+  intros [r occ] Hin. cbn [fst snd].
+  pose proof (GoIndex.Snap.visit_file_view p fr r occ Hin) as [Hocc _].
+  assert (Hk : GoIndex.Snap.node_kind idx r = GoIndex.occurrence_kind occ).
+  { rewrite (GoIndex.Snap.node_kind_matches_source p idx r), Hocc. reflexivity. }
+  unfold GoIndex.as_decl, GoIndex.as_kind, decl_kind_count.
+  destruct (GoIndex.syntaxkind_eq_dec (GoIndex.Snap.node_kind idx r) GoIndex.KTopLevelDecl) as [He|Hne].
+  - rewrite Hk in He. rewrite He. reflexivity.
+  - rewrite Hk in Hne. destruct (GoIndex.occurrence_kind occ); try reflexivity. exfalso; apply Hne; reflexivity.
+Qed.
+
+(** the per-file bucket length IS the declarative [file_main_count] (via the coherence + the [snd]-only counts). *)
+Lemma file_main_refs_length {p} (idx : GoIndex.Snap.SyntaxIndex p) (fr : GoIndex.Snap.FileRef p) :
+  length (file_main_refs idx fr) = file_main_count (source_decls (GoIndex.Snap.file_ref_source fr)).
+Proof.
+  rewrite file_main_refs_length_decl_count.
+  rewrite (decl_count_list_snd (GoIndex.Snap.visit_file fr) (GoIndex.occs_file (GoIndex.Snap.file_ref_source fr))
+             (GoIndex.Snap.visit_file_snd p fr)).
+  rewrite decl_count_sum_main_file. apply sum_main_file.
+Qed.
+
+(* ============================================================================================================
    §8 (C3) — the PACKAGE diagnostics.  Every package with a main count other than one is a failure; the anchor
    is a validated [PackageRef] (each package in [package_summaries] is represented, so the reference is real).
    Emptiness is tied DIRECTLY to [pkg_all_ok] (the package half of the decision).
