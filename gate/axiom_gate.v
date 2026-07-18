@@ -7,7 +7,7 @@
     family TComplex over ComplexType, TString} to
     ProgramTyped over the same AST) ->
     GoCompile -> GoSafe -> GoRender -> GoEmit architecture. *)
-From Fido Require Import Ints Floats Complexes FilePath Collections ModulePath GoVersion GoAST GoTypes GoCompile GoSafe GoRender GoEmit OccurrenceSpike.
+From Fido Require Import Ints Floats Complexes FilePath Collections ModulePath GoVersion GoAST GoIndex GoTypes GoCompile GoSafe GoRender GoEmit OccurrenceSpike.
 
 (* the ONE integer-family authority: type-equality reflection; the single representability reflection;
    exact 64-bit int/uint; generic min/max accepted and below-min/above-max rejected; keyword exactness +
@@ -469,6 +469,27 @@ Print Assumptions GoEmit.render_map_binding.
 Print Assumptions GoEmit.render_map_Equal.
 Print Assumptions GoEmit.di_go_file_entries_Equal.
 Print Assumptions GoEmit.di_transport_order_independent.
+
+(* GoIndex (Source Forest C2): the PRODUCTION occurrence index over the ONE raw GoProgram grammar — Pillar 1
+   (source/index exactness).  The sealed standard positive-key node-table laws; the per-file occurrence-count
+   equals the table-free boundary function; and the load-bearing UNIVERSAL per-file source/index exactness
+   theorem — the metadata the one-pass builder stores at every local id is EXACTLY the metadata of the exact
+   source occurrence there (kind/role/parent/subtree, presence AND absence), against an INDEPENDENT table-free,
+   builder-independent source-occurrence specification over the real grammar (file root / package clause /
+   declarations / statements / println arguments / conversion operands) — plus its §9 consequences (A..H). *)
+Print Assumptions GoIndex.NodeTable.get_empty.
+Print Assumptions GoIndex.NodeTable.get_set_same.
+Print Assumptions GoIndex.NodeTable.get_set_other.
+Print Assumptions GoIndex.build_file_count.
+Print Assumptions GoIndex.build_file_source_exact.
+Print Assumptions GoIndex.source_occurrence_meta.
+Print Assumptions GoIndex.meta_source_occurrence.
+Print Assumptions GoIndex.source_absence.
+Print Assumptions GoIndex.source_occurrence_unique.
+Print Assumptions GoIndex.source_kind_exact.
+Print Assumptions GoIndex.source_role_exact.
+Print Assumptions GoIndex.source_parent_exact.
+Print Assumptions GoIndex.source_subtree_end_exact.
 
 (* OccurrenceSpike (Source Forest C0): the ISOLATED occurrence-index proof spike — the certified positive-key
    trie laws, the builder well-formedness, and the C0.4 structural theorem set (root id canonical / no parent,
