@@ -368,6 +368,10 @@ Print Assumptions GoCompile.prog_expr_facts_find.
 (* C3 decision (expression half): every println argument resolves IFF program_typedb / ProgramTyped. *)
 Print Assumptions GoCompile.expr_all_ok_program_typedb.
 Print Assumptions GoCompile.expr_all_ok_ProgramTyped.
+(* C3 decision (package half + combined): every package has one main IFF AllPackagesOneMain; the combined
+   analysis decision equals ProgValid (= GoCompile) — the AnalysisOK<->GoCompile decision core. *)
+Print Assumptions GoCompile.pkg_all_ok_AllPackagesOneMain.
+Print Assumptions GoCompile.analysis_ok_b_ProgValid.
 
 (* GoSafe: exact VALUE semantics — a zero literal and a negated zero agree; a resolved expression evaluates
    to a well-formed value of the resolved GoType (one type authority across compiler and runtime); value

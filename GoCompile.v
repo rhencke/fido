@@ -676,6 +676,42 @@ Qed.
 Lemma expr_all_ok_ProgramTyped (p : GoProgram) : expr_all_ok p = true <-> GoTypes.ProgramTyped p.
 Proof. rewrite expr_all_ok_program_typedb. apply GoTypes.program_typedb_iff. Qed.
 
+(* ---- the PACKAGE DECISION: every package has exactly one main IFF [AllPackagesOneMain] ---- *)
+
+(** the per-package "exactly one main" check over the canonical package enumeration. *)
+Definition pkg_all_ok (p : GoProgram) : bool :=
+  forallb (fun b => Nat.eqb (ps_main_count (snd b)) 1) (PM.elements (package_summaries (prog_files p))).
+
+Lemma pkg_all_ok_AllPackagesOneMain (p : GoProgram) : pkg_all_ok p = true <-> AllPackagesOneMain p.
+Proof.
+  unfold pkg_all_ok, AllPackagesOneMain.
+  rewrite (forallb_Forall (fun b => Nat.eqb (ps_main_count (snd b)) 1%nat) (fun b => ps_main_count (snd b) = 1%nat)
+             (PM.elements (package_summaries (prog_files p))) (fun b => Nat.eqb_eq (ps_main_count (snd b)) 1%nat)).
+  split.
+  - intros Hf dir s Hmt.
+    apply PMF.elements_mapsto_iff, InA_alt in Hmt. destruct Hmt as [[k' s'] [Heq Hin]].
+    destruct Heq as [_ Hs]. cbn in *. rewrite Forall_forall in Hf. specialize (Hf (k', s') Hin).
+    cbn in Hf. rewrite Hs. exact Hf.
+  - intros Hall. apply Forall_forall. intros [dir s] Hin. cbn.
+    apply (Hall dir s), PMF.elements_mapsto_iff, InA_alt.
+    exists (dir, s). split; [ split; reflexivity | exact Hin ].
+Qed.
+
+(* ---- the COMBINED analysis DECISION: an analysis-native boolean (NOT [prog_ok]) proved EXACTLY [GoCompile] ---- *)
+
+Definition analysis_ok_b (p : GoProgram) : bool := expr_all_ok p && pkg_all_ok p.
+
+Lemma analysis_ok_b_prog_ok (p : GoProgram) : analysis_ok_b p = prog_ok p.
+Proof. unfold analysis_ok_b, prog_ok. rewrite expr_all_ok_program_typedb. reflexivity. Qed.
+
+(* [GoCompile p] is defined below as exactly [ProgValid p]; the analysis decision equals it. *)
+Lemma analysis_ok_b_ProgValid (p : GoProgram) : analysis_ok_b p = true <-> ProgValid p.
+Proof. rewrite analysis_ok_b_prog_ok. apply prog_ok_iff. Qed.
+
+Lemma analysis_ok_b_split (p : GoProgram) :
+  analysis_ok_b p = true <-> expr_all_ok p = true /\ pkg_all_ok p = true.
+Proof. unfold analysis_ok_b. rewrite Bool.andb_true_iff. reflexivity. Qed.
+
 (** [GoCompile p] IS whole-program admissibility: the program is typed through [GoTypes] AND every package
     has exactly one `main`.  The package clause is now SOURCE-owned (each file's [source_package]), rendered
     by [GoRender] — it is no longer a compiler-derived fact, so there is no [cf_pkg_name] / [CompilationFacts]
