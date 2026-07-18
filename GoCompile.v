@@ -1407,6 +1407,45 @@ Proof.
     apply (mref_foldl_none idx) in Hn. destruct Hn as [Hm _]. rewrite Hm in Hmem; discriminate Hmem.
 Qed.
 
+(* ---- SUCCESS-side PACKAGE FACTS (§11): on a valid program every present bucket is a SINGLETON (its length
+   is the package's main count, which is exactly one), so each package has ONE canonical main [DeclRef]. ---- *)
+
+Lemma package_main_refs_singleton_on_success {p} (idx : GoIndex.Snap.SyntaxIndex p) :
+  AllPackagesOneMain p -> forall dir l,
+  PM.find dir (package_main_refs idx) = Some l -> exists d, l = [d].
+Proof.
+  intros Hall dir l Hfind.
+  pose proof (package_main_refs_bucket_len idx dir l Hfind) as Hlen.
+  assert (Hmem : list_dir_mem dir (GoAST.file_bindings (prog_files p)) = true).
+  { apply (package_main_refs_present idx dir). apply PMF.in_find_iff. rewrite Hfind. discriminate. }
+  assert (Hmt : PM.MapsTo dir (mkPkgSummary (pkg_main_count dir (prog_files p))) (package_summaries (prog_files p))).
+  { apply PMF.find_mapsto_iff. rewrite package_summaries_find, Hmem. reflexivity. }
+  pose proof (Hall dir _ Hmt) as Hone. cbn [ps_main_count] in Hone.
+  rewrite Hone in Hlen.
+  destruct l as [|d [|d2 rest]]; cbn [length] in Hlen; try discriminate.
+  exists d; reflexivity.
+Qed.
+
+Record PackageFact (p : GoProgram) : Type := mkPackageFact { pf_main : GoIndex.DeclRef p }.
+Arguments mkPackageFact {p} _.
+Arguments pf_main {p} _.
+
+(** the ONE canonical main of a represented package, TOTAL on a valid program: the singleton bucket's head.
+    The absent / empty / multiple cases are impossible (package present by [PackageRef]; singleton by validity),
+    so this is a genuine total function, not a fallback. *)
+Definition package_main_at {p} (idx : GoIndex.Snap.SyntaxIndex p) (H : AllPackagesOneMain p) (r : PackageRef p)
+  : GoIndex.DeclRef p.
+Proof.
+  destruct (PM.find (package_ref_key r) (package_main_refs idx)) as [l|] eqn:E.
+  - destruct l as [|d rest].
+    + exfalso. destruct (package_main_refs_singleton_on_success idx H (package_ref_key r) [] E) as [d Hd]; discriminate Hd.
+    + exact d.
+  - exfalso.
+    assert (Hin : PM.In (package_ref_key r) (package_main_refs idx)).
+    { apply (package_main_refs_present idx). exact (package_ref_ok r). }
+    apply PMF.in_find_iff in Hin. rewrite E in Hin. exact (Hin eq_refl).
+Defined.
+
 (* ============================================================================================================
    §8 (C3) — the PACKAGE diagnostics.  Every package with a main count other than one is a failure; the anchor
    is a validated [PackageRef] (each package in [package_summaries] is represented, so the reference is real).
