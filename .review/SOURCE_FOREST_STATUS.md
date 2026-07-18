@@ -205,10 +205,9 @@ Updated only at checkpoint boundaries._
   - FINAL candidate SHA: `29f08d6` (`milestone(final): C2`).  FINAL repairs:
     - **round 1** `review(final): C2` (`021c441`) — Codex flagged that the indexed typing traversal DISCARDED
       its paired source fragment and performed repeated source recovery through `node_at` (an O(file)
-      `source_occurrence_of_ref` per node = O(file²)/file).  Fixed: the typing fold now consumes the DELIVERED
-      `SourceOccurrence` (`snd`) of each `visit_file` pair — `occ_arg_typedb (snd rocc)` — with NO
-      `node_at`/`node_role` round-trip; the redundant `idx_occ_typedb`/`SyntaxIndex` threading (an unused index
-      per §1138) was removed.  Gate still 446/446; bytes byte-identical; prose reconciled.
+      `source_occurrence_of_ref` per node = O(file²)/file).  Fixed: removed the `node_at`/`source_occurrence_of_ref`
+      round-trip — the syntax now comes from the DELIVERED `SourceOccurrence` of each `visit_file` pair (round 3
+      restores index consumption for the ROLE without any recovery).  Gate still 446/446; bytes byte-identical.
     - **round 2** `review(final): C2` — Codex flagged that the traversal itself remained QUADRATIC on nested
       conversions / long sibling runs because `occs_*` recomputes each occurrence's boundary with a per-node
       `end_expr`/`end_stmt`/`end_decl`/`next_*` subtree RESCAN.  Fixed: added the single-pass `walk_*` family —
@@ -217,6 +216,15 @@ Updated only at checkpoint boundaries._
       each).  `walk_file_eq` proves `walk_file = occs_file`, so every exactness/order/NoDup theorem transfers;
       `occs_*` is retained as the readable denotational SPECIFICATION and `visit_file` now RUNS `walk_file`.
       Gate still 446/446 axiom-free; whole-theory audit + self-tests A-E green; bytes byte-identical.
+    - **round 3** `review(final): C2` — Codex flagged that after round 1 `indexed_program_typedb` no longer
+      constructed/consumed the snapshot index and discarded every paired reference (a source-only fold).  Fixed
+      by the SYNTHESIS satisfying rounds 1+3 together: the per-occurrence decision takes the ROLE from the index
+      THROUGH the reference — `Snap.node_role idx (fst rocc)`, an outer-FileMap + inner-PositiveMap lookup in the
+      PRECOMPUTED `si_outer idx` (built once by the let-bound `index_program p`; NOT a source scan, NOT a
+      rebuild) — and the SYNTAX from the DELIVERED occurrence `view_expr (snd rocc)` (NO `node_at` /
+      `source_occurrence_of_ref` recovery).  So the index is genuinely consumed, the paired reference is
+      consumed, and there is still no per-node source recovery.  `indexed_program_typedb_eq` (= `program_typedb`)
+      re-proved via `node_role_matches_source` + `visit_file_view`.  Gate 446/446; bytes byte-identical.
 
 ## C0 — preflight cleanup and occurrence-index proof spike
 - Review cadence: one intentional final Codex stop only (small, isolated checkpoint)

@@ -1246,31 +1246,54 @@ Proof.
 Qed.
 
 (* The §19 indexed traversal DELIVERS each occurrence's ORIGINAL syntax fragment together with its validated
-   [NodeRef] in ONE pass; the typing fold CONSUMES the delivered fragment ([occ_arg_typedb] on the paired
-   [SourceOccurrence], which carries the syntax VIEW) and NEVER recovers syntax from a reference — there is no
-   [source_occurrence_of_ref] / [node_at] round-trip on the hot path, so the whole-file cost is one traversal,
-   not one source recovery per node.  (The paired [NodeRef] is delivered alongside — the §19 "syntax + ref
-   together" property proved by [Snap.visit_file_view] — for a future occurrence-anchored consumer; this typing
-   decision is by value and delegates to the SAME [expr_typedb]/[const_info] resolver.) *)
-Definition indexed_source_file_typedb {p} (fr : Snap.FileRef p) : bool :=
-  forallb (fun rocc => occ_arg_typedb (snd rocc)) (Snap.visit_file fr).
+   [NodeRef] in ONE pass.  The per-occurrence decision CONSUMES BOTH: the ROLE comes from the snapshot index
+   through the reference — [Snap.node_role idx (fst rocc)], an outer-FileMap + inner-PositiveMap lookup in the
+   PRECOMPUTED [si_outer idx] (NOT a source scan, NOT an index rebuild) — and the SYNTAX comes from the
+   DELIVERED occurrence [view_expr (snd rocc)] (NOT recovered from the reference: no [node_at] /
+   [source_occurrence_of_ref] round-trip).  So the index is genuinely consumed, the paired reference is
+   consumed, and there is no per-node source recovery; the expression decision delegates to the SAME
+   [expr_typedb]/[const_info] resolver. *)
+Definition idx_occ_typedb {p} (idx : Snap.SyntaxIndex p) (rocc : Snap.NodeRef p * SourceOccurrence) : bool :=
+  match Snap.node_role idx (fst rocc) with
+  | RPrintlnArg _ => match view_expr (snd rocc) with Some e => expr_typedb UsePrintlnArg e | None => true end
+  | _ => true
+  end.
 
-(* the indexed per-file typing checker equals the existing [source_file_typedb]: the traversal's occurrence
-   stream projects EXACTLY [occs_file] ([Snap.visit_file_snd]), which types as [source_file_typedb]. *)
-Lemma indexed_source_file_typedb_eq {p} (fr : Snap.FileRef p) :
-  indexed_source_file_typedb fr = source_file_typedb (Snap.file_ref_source fr).
+(* on a visited pair the index/reference role + delivered-syntax decision EQUALS the source-occurrence decision
+   (the reference's index role IS the paired occurrence's exact role; the delivered view IS its exact view). *)
+Lemma idx_occ_typedb_matches {p} (idx : Snap.SyntaxIndex p) (fr : Snap.FileRef p) r occ :
+  In (r, occ) (Snap.visit_file fr) -> idx_occ_typedb idx (r, occ) = occ_arg_typedb occ.
+Proof.
+  intros Hin. destruct (Snap.visit_file_view p fr r occ Hin) as [Hocc _].
+  unfold idx_occ_typedb, occ_arg_typedb. cbn [fst snd].
+  rewrite (Snap.node_role_matches_source p idx r), <- Hocc. reflexivity.
+Qed.
+
+Definition indexed_source_file_typedb {p} (idx : Snap.SyntaxIndex p) (fr : Snap.FileRef p) : bool :=
+  forallb (idx_occ_typedb idx) (Snap.visit_file fr).
+
+(* the indexed per-file typing checker equals the existing [source_file_typedb]: per pair the index/ref +
+   delivered-syntax decision equals [occ_arg_typedb] on the paired occurrence, and the occurrence stream
+   projects EXACTLY [occs_file] ([Snap.visit_file_snd]), which types as [source_file_typedb]. *)
+Lemma indexed_source_file_typedb_eq {p} (idx : Snap.SyntaxIndex p) (fr : Snap.FileRef p) :
+  indexed_source_file_typedb idx fr = source_file_typedb (Snap.file_ref_source fr).
 Proof.
   unfold indexed_source_file_typedb.
+  rewrite (forallb_ext_in (idx_occ_typedb idx)
+                          (fun rocc => occ_arg_typedb (snd rocc)) (Snap.visit_file fr)).
+  2:{ intros [r occ] Hin. cbn [snd]. apply (idx_occ_typedb_matches idx fr r occ Hin). }
   rewrite forallb_map_snd, Snap.visit_file_snd, <- forallb_map_snd.
   apply occs_file_typedb_eq.
 Qed.
 
-(* the WHOLE-PROGRAM indexed typing checker: one file reference minted per canonical binding, each file typed
-   by folding the DELIVERED syntax of the §19 indexed traversal — no per-file index rebuild, no source
-   recovery.  Proved EQUAL to the existing [program_typedb]. *)
+(* the WHOLE-PROGRAM indexed typing checker: ONE let-bound [Snap.index_program p] (built once, its precomputed
+   [si_outer] reused by every [node_role] lookup — no per-query rebuild), one file reference minted per
+   canonical binding, each file typed by folding the §19 indexed traversal (index role + delivered syntax, no
+   source recovery).  Proved EQUAL to the existing [program_typedb]. *)
 Definition indexed_program_typedb (p : GoProgram) : bool :=
+  let idx := Snap.index_program p in
   forallb (fun b => match Snap.file_of_path p (fst b) with
-                    | Some fr => indexed_source_file_typedb fr
+                    | Some fr => indexed_source_file_typedb idx fr
                     | None => false
                     end)
           (file_bindings (prog_files p)).
@@ -1278,7 +1301,7 @@ Definition indexed_program_typedb (p : GoProgram) : bool :=
 Theorem indexed_program_typedb_eq : forall p,
   indexed_program_typedb p = program_typedb p.
 Proof.
-  intro p. unfold indexed_program_typedb, program_typedb.
+  intro p. unfold indexed_program_typedb, program_typedb. cbv zeta.
   apply forallb_ext_in. intros b Hb.
   pose proof (file_bindings_find (prog_files p) b Hb) as Hfind.
   destruct (Snap.file_of_path_source p (fst b) (snd b) Hfind) as [fr [Hfop [Hpath Hsrc]]].
