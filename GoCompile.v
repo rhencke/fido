@@ -474,6 +474,88 @@ Lemma occ_expr_fact_none_nonexpr : forall o,
   GoIndex.view_expr o = None -> occ_expr_fact o = None.
 Proof. intros o Hv. unfold occ_expr_fact. rewrite Hv. reflexivity. Qed.
 
+(** the per-file expression-fact map: fold the §19 visit stream, keying each occurrence's fact by its NodeKey.
+    Non-expression / const_info-failed occurrences contribute nothing.  Because [visit_file] keys are DISTINCT
+    (NoDup), the fold never overwrites, and the stored fact at each ref's key is EXACTLY that occurrence's fact. *)
+Definition add_occ_fact {p} (ro : GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence)
+    (m : GoIndex.NodeKeyMapBase.t ExprFact) : GoIndex.NodeKeyMapBase.t ExprFact :=
+  match occ_expr_fact (snd ro) with
+  | Some f => GoIndex.NodeKeyMapBase.add (GoIndex.Snap.node_ref_key (fst ro)) f m
+  | None => m
+  end.
+
+Definition file_expr_facts {p} (fr : GoIndex.Snap.FileRef p) : GoIndex.NodeKeyMapBase.t ExprFact :=
+  fold_right add_occ_fact (GoIndex.NodeKeyMapBase.empty ExprFact) (GoIndex.Snap.visit_file fr).
+
+Lemma NoDup_map_inj {A B} (f : A -> B) (l : list A) :
+  (forall x y, f x = f y -> x = y) -> NoDup l -> NoDup (map f l).
+Proof.
+  intros Hinj H. induction H as [|x l Hx Hnd IH]; simpl; constructor.
+  - intro Hin. apply in_map_iff in Hin. destruct Hin as [y [Hfy Hiny]]. apply Hinj in Hfy. subst y. contradiction.
+  - exact IH.
+Qed.
+
+(** the [visit_file] refs have DISTINCT NodeKeys (same file, distinct local ids). *)
+Lemma visit_file_key_nodup {p} (fr : GoIndex.Snap.FileRef p) :
+  NoDup (map (fun ro => GoIndex.Snap.node_ref_key (fst ro)) (GoIndex.Snap.visit_file fr)).
+Proof.
+  assert (Hmap : map (fun ro => GoIndex.Snap.node_ref_key (fst ro)) (GoIndex.Snap.visit_file fr)
+    = map (fun ro => GoIndex.mkKey (GoIndex.Snap.file_ref_path fr) (GoIndex.Snap.node_ref_local (fst ro)))
+          (GoIndex.Snap.visit_file fr)).
+  { apply map_ext_in. intros [r occ] Hin. cbn [fst]. rewrite GoIndex.Snap.node_ref_key_eq.
+    destruct (GoIndex.Snap.visit_file_view p fr r occ Hin) as [_ Hf]. rewrite Hf. reflexivity. }
+  rewrite Hmap, <- (map_map (fun ro => GoIndex.Snap.node_ref_local (fst ro))
+                            (GoIndex.mkKey (GoIndex.Snap.file_ref_path fr))).
+  apply NoDup_map_inj; [ intros x y H; injection H as H; exact H | apply GoIndex.Snap.visit_file_nodup ].
+Qed.
+
+Lemma facts_not_in_domain {p} (l : list (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence)) (k : GoIndex.NodeKey) :
+  ~ In k (map (fun ro => GoIndex.Snap.node_ref_key (fst ro)) l) ->
+  GoIndex.NodeKeyMapBase.find k (fold_right add_occ_fact (GoIndex.NodeKeyMapBase.empty ExprFact) l) = None.
+Proof.
+  induction l as [|[r0 occ0] rest IH]; intros Hni; simpl.
+  - apply GoIndex.NodeKeyMapFacts.empty_o.
+  - simpl in Hni.
+    assert (Hne : GoIndex.Snap.node_ref_key r0 <> k) by (intro H; apply Hni; left; exact H).
+    assert (Hrest : ~ In k (map (fun ro => GoIndex.Snap.node_ref_key (fst ro)) rest))
+      by (intro H; apply Hni; right; exact H).
+    unfold add_occ_fact; cbn [snd fst]. destruct (occ_expr_fact occ0) as [f|].
+    + rewrite GoIndex.nodekeymap_add_neq by exact Hne. exact (IH Hrest).
+    + exact (IH Hrest).
+Qed.
+
+Lemma fold_facts_find {p} (l : list (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence)) r occ :
+  NoDup (map (fun ro => GoIndex.Snap.node_ref_key (fst ro)) l) ->
+  In (r, occ) l ->
+  GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key r)
+    (fold_right add_occ_fact (GoIndex.NodeKeyMapBase.empty ExprFact) l) = occ_expr_fact occ.
+Proof.
+  induction l as [|[r0 occ0] rest IH]; intros Hnd Hin; [ destruct Hin |].
+  simpl in Hnd. apply NoDup_cons_iff in Hnd. destruct Hnd as [Hni Hnd'].
+  simpl. destruct Hin as [Heq | Hin].
+  - injection Heq as <- <-. unfold add_occ_fact; cbn [snd fst].
+    destruct (occ_expr_fact occ0) as [f|] eqn:Ef.
+    + rewrite GoIndex.nodekeymap_add_eq. reflexivity.
+    + apply facts_not_in_domain. exact Hni.
+  - assert (Hin' : In (GoIndex.Snap.node_ref_key r)
+             (map (fun ro => GoIndex.Snap.node_ref_key (fst ro)) rest)).
+    { apply in_map_iff. exists (r, occ). split; [reflexivity | exact Hin]. }
+    assert (Hkr : GoIndex.Snap.node_ref_key r <> GoIndex.Snap.node_ref_key r0)
+      by (intro Hk; apply Hni; rewrite <- Hk; exact Hin').
+    unfold add_occ_fact; cbn [snd fst]. destruct (occ_expr_fact occ0) as [f0|].
+    + rewrite GoIndex.nodekeymap_add_neq by (intro Hk; apply Hkr; symmetry; exact Hk).
+      exact (IH Hnd' Hin).
+    + exact (IH Hnd' Hin).
+Qed.
+
+(** MAP-LEVEL EXACTNESS: the fact stored at a visited ref's key is EXACTLY that occurrence's fact. *)
+Lemma file_expr_facts_find {p} (fr : GoIndex.Snap.FileRef p) (r : GoIndex.Snap.NodeRef p) occ :
+  In (r, occ) (GoIndex.Snap.visit_file fr) ->
+  GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key r) (file_expr_facts fr) = occ_expr_fact occ.
+Proof.
+  intro Hin. unfold file_expr_facts. apply fold_facts_find; [ apply visit_file_key_nodup | exact Hin ].
+Qed.
+
 (** [GoCompile p] IS whole-program admissibility: the program is typed through [GoTypes] AND every package
     has exactly one `main`.  The package clause is now SOURCE-owned (each file's [source_package]), rendered
     by [GoRender] — it is no longer a compiler-derived fact, so there is no [cf_pkg_name] / [CompilationFacts]

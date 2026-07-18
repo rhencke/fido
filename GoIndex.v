@@ -2357,6 +2357,8 @@ Module Type SNAP_SIG.
   Parameter node_ref_valid : forall {p} (r : NodeRef p),
     valid_localb (file_ref_source (node_ref_file r)) (node_ref_local r) = true.
   Parameter node_ref_key   : forall {p}, NodeRef p -> NodeKey.
+  Parameter node_ref_key_eq : forall {p} (r : NodeRef p),
+    node_ref_key r = mkKey (file_ref_path (node_ref_file r)) (node_ref_local r).
   Parameter ref_meta         : forall {p}, SyntaxIndex p -> NodeRef p -> NodeMeta.
   Parameter node_kind        : forall {p}, SyntaxIndex p -> NodeRef p -> SyntaxKind.
   Parameter node_role        : forall {p}, SyntaxIndex p -> NodeRef p -> NodeRole.
@@ -2523,6 +2525,9 @@ Definition NodeRef := NodeRef_T.
 
 Definition node_ref_key {p} (r : NodeRef p) : NodeKey :=
   mkKey (file_ref_path (node_ref_file r)) (node_ref_local r).
+Theorem node_ref_key_eq {p} (r : NodeRef p) :
+  node_ref_key r = mkKey (file_ref_path (node_ref_file r)) (node_ref_local r).
+Proof. reflexivity. Qed.
 
 Record SyntaxIndex_T (p : GoProgram) := mkSyntaxIndex {
   si_outer : OFM.t FileIndex;

@@ -359,6 +359,10 @@ Print Assumptions GoCompile.package_ref_of_fileref_key.
 (* C3 §8 — structured diagnostic core: the primary anchor is an exact-snapshot handle whose kind matches the
    reason's code (invalid anchor/category combinations are unrepresentable). *)
 Print Assumptions GoCompile.diagnostic_code_primary_consistent.
+(* C3 §10 — occurrence-keyed expression facts: visit_file refs have distinct NodeKeys, and the fact stored at a
+   visited ref's key is EXACTLY that occurrence's fact (no overwrite; map-level exactness). *)
+Print Assumptions GoCompile.visit_file_key_nodup.
+Print Assumptions GoCompile.file_expr_facts_find.
 
 (* GoSafe: exact VALUE semantics — a zero literal and a negated zero agree; a resolved expression evaluates
    to a well-formed value of the resolved GoType (one type authority across compiler and runtime); value
@@ -642,6 +646,7 @@ Print Assumptions GoIndex.Snap.visit_file_view.
 Print Assumptions GoIndex.Snap.visit_file_complete.
 Print Assumptions GoIndex.Snap.visit_file_order.
 Print Assumptions GoIndex.Snap.visit_file_nodup.
+Print Assumptions GoIndex.Snap.node_ref_key_eq.
 (* C3 §4 — the retained IndexedProgram phase boundary: canonical construction reuses exactly the one
    Snap.index_program, and the retained index is the projected field. *)
 Print Assumptions GoIndex.index_program_syntax.
