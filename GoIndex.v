@@ -2123,6 +2123,220 @@ Qed.
 Theorem occs_file_nodup : forall f, NoDup (map fst (occs_file f)).
 Proof. intros f. apply SS_nodup, occs_file_sorted. Qed.
 
+(* ============================================================================================================
+   SINGLE-PASS TRAVERSAL — the honest hot-path implementation of the occurrence stream.
+
+   [occs_*] above is the readable denotational SPECIFICATION of the stream: its per-node [end_expr]/[end_stmt]/
+   [end_decl]/[next_*] boundary calls RESCAN each subtree, so evaluating it would be QUADRATIC on nested
+   conversions / long sibling runs.  The [walk_*] family computes the SAME stream in ONE structural pass — each
+   function RETURNS the next-free local id, so a parent reads its child's subtree end from the returned cursor
+   ([Pos.pred] of it) and a sibling starts at it, with NO boundary rescan.  [walk_file_eq] proves
+   [walk_file f = occs_file f], so every exactness / order / NoDup theorem proved for the spec transfers to the
+   pass, and [visit_file] runs the single-pass [walk_file] (one traversal per file, one occurrence each). *)
+
+Fixpoint walk_expr (parent : positive) (role : NodeRole) (me : positive) (e : GoExpr)
+  : list (positive * SourceOccurrence) * positive :=
+  match e with
+  | EBool _ | EInt _ | ENeg _ | EString _ | EFloat _ | EComplex _ =>
+      ([(me, mkOcc KExpression (ViewExpression e) (Some parent) role me)], Pos.succ me)
+  | EIntConvert _ x =>
+      let '(sub, nxt) := walk_expr me RConversionOperand (Pos.succ me) x in
+      ((me, mkOcc KExpression (ViewExpression e) (Some parent) role (Pos.pred nxt)) :: sub, nxt)
+  | EFloatConvert _ x =>
+      let '(sub, nxt) := walk_expr me RConversionOperand (Pos.succ me) x in
+      ((me, mkOcc KExpression (ViewExpression e) (Some parent) role (Pos.pred nxt)) :: sub, nxt)
+  | EComplexConvert _ x =>
+      let '(sub, nxt) := walk_expr me RConversionOperand (Pos.succ me) x in
+      ((me, mkOcc KExpression (ViewExpression e) (Some parent) role (Pos.pred nxt)) :: sub, nxt)
+  end.
+
+Lemma walk_expr_snd : forall e parent role me, snd (walk_expr parent role me e) = Pos.succ (end_expr me e).
+Proof.
+  induction e as [ b|n1|n2|s| it x IHx | df | ft x IHx | dcx | ct x IHx ];
+    intros parent role me; try reflexivity;
+    cbn [walk_expr end_expr]; specialize (IHx me RConversionOperand (Pos.succ me));
+    destruct (walk_expr me RConversionOperand (Pos.succ me) x) as [sub nxt]; cbn [snd] in *; exact IHx.
+Qed.
+
+Lemma walk_expr_eq : forall e parent role me, fst (walk_expr parent role me e) = occs_expr parent role me e.
+Proof.
+  induction e as [ b|n1|n2|s| it x IHx | df | ft x IHx | dcx | ct x IHx ];
+    intros parent role me; try reflexivity;
+    cbn [walk_expr occs_expr end_expr];
+    pose proof (walk_expr_snd x me RConversionOperand (Pos.succ me)) as Hs;
+    specialize (IHx me RConversionOperand (Pos.succ me));
+    destruct (walk_expr me RConversionOperand (Pos.succ me) x) as [sub nxt]; cbn [fst snd] in Hs, IHx |- *;
+    subst nxt; rewrite Pos.pred_succ, IHx; reflexivity.
+Qed.
+
+Fixpoint walk_args (parent : positive) (aidx : nat) (me : positive) (es : list GoExpr)
+  : list (positive * SourceOccurrence) * positive :=
+  match es with
+  | [] => ([], me)
+  | e :: rest =>
+      let '(h, nxt) := walk_expr parent (RPrintlnArg aidx) me e in
+      let '(t, nxt2) := walk_args parent (S aidx) nxt rest in
+      (h ++ t, nxt2)
+  end.
+
+Lemma walk_args_snd : forall es parent aidx me, snd (walk_args parent aidx me es) = next_exprs me es.
+Proof.
+  induction es as [|e rest IH]; intros parent aidx me; [reflexivity|].
+  cbn [walk_args next_exprs].
+  pose proof (walk_expr_snd e parent (RPrintlnArg aidx) me) as He.
+  destruct (walk_expr parent (RPrintlnArg aidx) me e) as [h nxt]; cbn [snd] in He.
+  specialize (IH parent (S aidx) nxt).
+  destruct (walk_args parent (S aidx) nxt rest) as [t nxt2]; cbn [snd] in *.
+  rewrite IH, He. reflexivity.
+Qed.
+
+Lemma walk_args_eq : forall es parent aidx me, fst (walk_args parent aidx me es) = occs_args parent aidx me es.
+Proof.
+  induction es as [|e rest IH]; intros parent aidx me; [reflexivity|].
+  cbn [walk_args occs_args occs_arg].
+  pose proof (walk_expr_snd e parent (RPrintlnArg aidx) me) as He.
+  pose proof (walk_expr_eq e parent (RPrintlnArg aidx) me) as Hee.
+  destruct (walk_expr parent (RPrintlnArg aidx) me e) as [h nxt]; cbn [fst snd] in He, Hee.
+  specialize (IH parent (S aidx) nxt).
+  destruct (walk_args parent (S aidx) nxt rest) as [t nxt2]; cbn [fst] in IH |- *.
+  subst nxt. rewrite Hee, IH. reflexivity.
+Qed.
+
+Definition walk_stmt (parent : positive) (sidx : nat) (me : positive) (s : GoStmt)
+  : list (positive * SourceOccurrence) * positive :=
+  match s with
+  | SPrintln args =>
+      let '(a, nxt) := walk_args me 0 (Pos.succ me) args in
+      ((me, mkOcc KStatement (ViewStatement s) (Some parent) (RDeclStmt sidx) (Pos.pred nxt)) :: a, nxt)
+  end.
+
+Lemma walk_stmt_snd : forall s parent sidx me, snd (walk_stmt parent sidx me s) = Pos.succ (end_stmt me s).
+Proof.
+  intros [args] parent sidx me. cbn [walk_stmt end_stmt].
+  pose proof (walk_args_snd args me 0 (Pos.succ me)) as Ha.
+  destruct (walk_args me 0 (Pos.succ me) args) as [a nxt]; cbn [snd] in *.
+  rewrite Ha, Pos.succ_pred; [ reflexivity | pose proof (next_exprs_ge args (Pos.succ me)); lia ].
+Qed.
+
+Lemma walk_stmt_eq : forall s parent sidx me, fst (walk_stmt parent sidx me s) = occs_stmt parent sidx me s.
+Proof.
+  intros [args] parent sidx me. cbn [walk_stmt occs_stmt end_stmt].
+  pose proof (walk_args_snd args me 0 (Pos.succ me)) as Hs.
+  pose proof (walk_args_eq args me 0 (Pos.succ me)) as Ha.
+  destruct (walk_args me 0 (Pos.succ me) args) as [a nxt]; cbn [fst snd] in Hs, Ha |- *.
+  subst nxt. rewrite Ha. reflexivity.
+Qed.
+
+Fixpoint walk_stmts (parent : positive) (sidx : nat) (me : positive) (ss : list GoStmt)
+  : list (positive * SourceOccurrence) * positive :=
+  match ss with
+  | [] => ([], me)
+  | s :: rest =>
+      let '(h, nxt) := walk_stmt parent sidx me s in
+      let '(t, nxt2) := walk_stmts parent (S sidx) nxt rest in
+      (h ++ t, nxt2)
+  end.
+
+Lemma walk_stmts_snd : forall ss parent sidx me, snd (walk_stmts parent sidx me ss) = next_stmts me ss.
+Proof.
+  induction ss as [|s rest IH]; intros parent sidx me; [reflexivity|].
+  cbn [walk_stmts next_stmts].
+  pose proof (walk_stmt_snd s parent sidx me) as Hs.
+  destruct (walk_stmt parent sidx me s) as [h nxt]; cbn [snd] in Hs.
+  specialize (IH parent (S sidx) nxt).
+  destruct (walk_stmts parent (S sidx) nxt rest) as [t nxt2]; cbn [snd] in *.
+  rewrite IH, Hs. reflexivity.
+Qed.
+
+Lemma walk_stmts_eq : forall ss parent sidx me, fst (walk_stmts parent sidx me ss) = occs_stmts parent sidx me ss.
+Proof.
+  induction ss as [|s rest IH]; intros parent sidx me; [reflexivity|].
+  cbn [walk_stmts occs_stmts].
+  pose proof (walk_stmt_snd s parent sidx me) as Hs.
+  pose proof (walk_stmt_eq s parent sidx me) as Hse.
+  destruct (walk_stmt parent sidx me s) as [h nxt]; cbn [fst snd] in Hs, Hse.
+  specialize (IH parent (S sidx) nxt).
+  destruct (walk_stmts parent (S sidx) nxt rest) as [t nxt2]; cbn [fst] in IH |- *.
+  subst nxt. rewrite Hse, IH. reflexivity.
+Qed.
+
+Definition walk_decl (parent : positive) (didx : nat) (me : positive) (d : GoDecl)
+  : list (positive * SourceOccurrence) * positive :=
+  match d with
+  | DMain body =>
+      let '(b, nxt) := walk_stmts me 0 (Pos.succ me) body in
+      ((me, mkOcc KTopLevelDecl (ViewTopLevelDecl d) (Some parent) (RFileDecl didx) (Pos.pred nxt)) :: b, nxt)
+  end.
+
+Lemma walk_decl_snd : forall d parent didx me, snd (walk_decl parent didx me d) = Pos.succ (end_decl me d).
+Proof.
+  intros [body] parent didx me. cbn [walk_decl end_decl].
+  pose proof (walk_stmts_snd body me 0 (Pos.succ me)) as Hb.
+  destruct (walk_stmts me 0 (Pos.succ me) body) as [b nxt]; cbn [snd] in *.
+  rewrite Hb, Pos.succ_pred; [ reflexivity | pose proof (next_stmts_ge body (Pos.succ me)); lia ].
+Qed.
+
+Lemma walk_decl_eq : forall d parent didx me, fst (walk_decl parent didx me d) = occs_decl parent didx me d.
+Proof.
+  intros [body] parent didx me. cbn [walk_decl occs_decl end_decl].
+  pose proof (walk_stmts_snd body me 0 (Pos.succ me)) as Hs.
+  pose proof (walk_stmts_eq body me 0 (Pos.succ me)) as Hb.
+  destruct (walk_stmts me 0 (Pos.succ me) body) as [b nxt]; cbn [fst snd] in Hs, Hb |- *.
+  subst nxt. rewrite Hb. reflexivity.
+Qed.
+
+Fixpoint walk_decls (parent : positive) (didx : nat) (me : positive) (ds : list GoDecl)
+  : list (positive * SourceOccurrence) * positive :=
+  match ds with
+  | [] => ([], me)
+  | d :: rest =>
+      let '(h, nxt) := walk_decl parent didx me d in
+      let '(t, nxt2) := walk_decls parent (S didx) nxt rest in
+      (h ++ t, nxt2)
+  end.
+
+Lemma walk_decls_snd : forall ds parent didx me, snd (walk_decls parent didx me ds) = next_decls me ds.
+Proof.
+  induction ds as [|d rest IH]; intros parent didx me; [reflexivity|].
+  cbn [walk_decls next_decls].
+  pose proof (walk_decl_snd d parent didx me) as Hs.
+  destruct (walk_decl parent didx me d) as [h nxt]; cbn [snd] in Hs.
+  specialize (IH parent (S didx) nxt).
+  destruct (walk_decls parent (S didx) nxt rest) as [t nxt2]; cbn [snd] in *.
+  rewrite IH, Hs. reflexivity.
+Qed.
+
+Lemma walk_decls_eq : forall ds parent didx me, fst (walk_decls parent didx me ds) = occs_decls parent didx me ds.
+Proof.
+  induction ds as [|d rest IH]; intros parent didx me; [reflexivity|].
+  cbn [walk_decls occs_decls].
+  pose proof (walk_decl_snd d parent didx me) as Hs.
+  pose proof (walk_decl_eq d parent didx me) as Hde.
+  destruct (walk_decl parent didx me d) as [h nxt]; cbn [fst snd] in Hs, Hde.
+  specialize (IH parent (S didx) nxt).
+  destruct (walk_decls parent (S didx) nxt rest) as [t nxt2]; cbn [fst] in IH |- *.
+  subst nxt. rewrite Hde, IH. reflexivity.
+Qed.
+
+Definition walk_file (f : GoSourceFile) : list (positive * SourceOccurrence) :=
+  match source_imports f with
+  | i :: _ => match i with end
+  | [] =>
+      let '(ds, nxt) := walk_decls root_id 0 (Pos.succ pkg_id) (source_decls f) in
+      (root_id, mkOcc KFile (ViewFile f) None RFileRoot (Pos.pred nxt))
+        :: (pkg_id, mkOcc KPackageClause (ViewPackageClause (source_package f)) (Some root_id) RFilePackage pkg_id)
+        :: ds
+  end.
+
+Lemma walk_file_eq : forall f, walk_file f = occs_file f.
+Proof.
+  intros f. unfold walk_file, occs_file. destruct (source_imports f) as [|i tl]; [| destruct i].
+  pose proof (walk_decls_snd (source_decls f) root_id 0 (Pos.succ pkg_id)) as Hs.
+  pose proof (walk_decls_eq (source_decls f) root_id 0 (Pos.succ pkg_id)) as Hd.
+  destruct (walk_decls root_id 0 (Pos.succ pkg_id) (source_decls f)) as [ds nxt]; cbn [fst snd] in Hs, Hd.
+  subst nxt. rewrite Hd. reflexivity.
+Qed.
+
 (* The public interface of the reference layer.  It exposes the abstract PROGRAM-indexed types, the validated
    MINTING boundaries, the projections, the TOTAL navigation API, and the theorem surfaces — but NOT the raw
    record constructors nor the raw index map.  Sealing the module against this signature makes "the only way
@@ -3038,8 +3252,14 @@ Fixpoint visit_lift {p} (fr : FileRef p) (l : list (positive * SourceOccurrence)
         :: visit_lift fr rest (fun i o Hin => H i o (or_intror Hin))
   end.
 
+(* the single-pass [walk_file] stream is valid (it IS [occs_file], which is valid). *)
+Lemma walk_file_valid {p} (fr : FileRef p) :
+  forall id occ, In (id, occ) (walk_file (file_ref_source fr)) -> valid_localb (file_ref_source fr) id = true.
+Proof. intros id occ Hin. rewrite walk_file_eq in Hin. exact (occs_file_valid fr id occ Hin). Qed.
+
+(* the indexed traversal RUNS the single-pass [walk_file] (one traversal per file, no boundary rescan). *)
 Definition visit_file {p} (fr : FileRef p) : list (NodeRef p * SourceOccurrence) :=
-  visit_lift fr (occs_file (file_ref_source fr)) (occs_file_valid fr).
+  visit_lift fr (walk_file (file_ref_source fr)) (walk_file_valid fr).
 
 Lemma visit_lift_in {p} (fr : FileRef p) l H (r : NodeRef p) occ :
   In (r, occ) (visit_lift fr l H) -> node_ref_file r = fr /\ In (node_ref_local r, occ) l.
@@ -3077,13 +3297,14 @@ Qed.
 
 Lemma visit_file_snd {p} (fr : FileRef p) :
   map snd (visit_file fr) = map snd (occs_file (file_ref_source fr)).
-Proof. unfold visit_file. apply visit_lift_snd. Qed.
+Proof. unfold visit_file. rewrite visit_lift_snd, walk_file_eq. reflexivity. Qed.
 
 Theorem visit_file_view (p : GoProgram) (fr : FileRef p) (r : NodeRef p) (occ : SourceOccurrence) :
   In (r, occ) (visit_file fr) -> occ = source_occurrence_of_ref r /\ node_ref_file r = fr.
 Proof.
-  intros Hin. destruct (visit_lift_in fr (occs_file (file_ref_source fr)) (occs_file_valid fr) r occ Hin) as [Hf Hl].
+  intros Hin. destruct (visit_lift_in fr (walk_file (file_ref_source fr)) (walk_file_valid fr) r occ Hin) as [Hf Hl].
   split; [| exact Hf].
+  rewrite walk_file_eq in Hl.
   pose proof (occs_file_sound (file_ref_source fr) (node_ref_local r) occ Hl) as Hs.
   pose proof (source_occ_of_ref_eq r) as He. rewrite Hf in He. rewrite Hs in He.
   injection He as He2. exact He2.
@@ -3095,7 +3316,8 @@ Proof.
   intros Hf.
   pose proof (source_occ_of_ref_eq r) as He. rewrite Hf in He.
   pose proof (occs_file_complete (file_ref_source fr) (node_ref_local r) (source_occurrence_of_ref r) He) as Hin.
-  destruct (visit_lift_mem fr (occs_file (file_ref_source fr)) (occs_file_valid fr)
+  rewrite <- walk_file_eq in Hin.
+  destruct (visit_lift_mem fr (walk_file (file_ref_source fr)) (walk_file_valid fr)
               (node_ref_local r) (source_occurrence_of_ref r) Hin) as [r' [Hf' [Hl' Hin']]].
   assert (Hr : r' = r) by (apply node_ref_ext; [ rewrite Hf', Hf; reflexivity | exact Hl' ]).
   subst r'. exact Hin'.
@@ -3104,15 +3326,15 @@ Qed.
 Theorem visit_file_order (p : GoProgram) (fr : FileRef p) :
   StronglySorted Pos.lt (map (fun rc => node_ref_local (fst rc)) (visit_file fr)).
 Proof.
-  unfold visit_file. rewrite (visit_lift_local fr (occs_file (file_ref_source fr)) (occs_file_valid fr)).
-  apply occs_file_sorted.
+  unfold visit_file. rewrite (visit_lift_local fr (walk_file (file_ref_source fr)) (walk_file_valid fr)).
+  rewrite walk_file_eq. apply occs_file_sorted.
 Qed.
 
 Theorem visit_file_nodup (p : GoProgram) (fr : FileRef p) :
   NoDup (map (fun rc => node_ref_local (fst rc)) (visit_file fr)).
 Proof.
-  unfold visit_file. rewrite (visit_lift_local fr (occs_file (file_ref_source fr)) (occs_file_valid fr)).
-  apply occs_file_nodup.
+  unfold visit_file. rewrite (visit_lift_local fr (walk_file (file_ref_source fr)) (walk_file_valid fr)).
+  rewrite walk_file_eq. apply occs_file_nodup.
 Qed.
 
 End Snap.

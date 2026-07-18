@@ -100,8 +100,10 @@ law backed by explicit audit and code inspection, NOT a brittle source-scanning 
                  carried validity, never a semantic fallback.  Navigation is exact: parent via metadata,
                  direct children by preorder interval-jumps (work ∝ direct-child count, never a descendant
                  scan), ancestry by preorder intervals, a canonical preorder reference enumeration, and a §19
-                 INDEXED TRAVERSAL (visit_file) that supplies each ORIGINAL syntax fragment together with its
-                 validated NodeRef in one pass — no per-node search, no copied/located AST, no second tree.
+                 INDEXED TRAVERSAL (visit_file runs the SINGLE-PASS walk_file — a next-free-id cursor, no
+                 per-node boundary rescan; occs_file is its readable spec, walk_file = occs_file) that supplies
+                 each ORIGINAL syntax fragment together with its validated NodeRef in one structural pass — no
+                 per-node search, no copied/located AST, no second tree.
                  The GoTypes typing layer consumes it MINIMALLY: `indexed_program_typedb` folds visit_file's
                  DELIVERED (NodeRef, syntax) pairs, taking each decision from the delivered syntax fragment
                  (NEVER recovering it from a reference — no node_at/source_occurrence_of_ref round-trip on the

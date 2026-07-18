@@ -359,8 +359,9 @@ kill stale `docker buildx build` processes first; run long builds detached and p
   interval-jump children / preorder-interval ancestry / canonical enumeration + reachability), and a SEALED
   reference layer indexed by the exact `GoProgram` (`SyntaxIndex`/`FileRef`/`NodeRef`/`NodeKey` + kind-refined
   `NodeRefOf`, validated minting, a total query API, and the exact source-occurrence correspondence lifted
-  through the sealed API), plus the §19 indexed traversal (`visit_file` — each ORIGINAL syntax fragment + its
-  validated `NodeRef` in ONE pass, proved exact / source-ordered / NoDup).  `GoTypes` CONSUMES it minimally:
+  through the sealed API), plus the §19 indexed traversal (`visit_file` runs the SINGLE-PASS `walk_file` —
+  a next-free-id cursor, no per-node boundary rescan; `occs_file` is its readable spec, `walk_file = occs_file`
+  — pairing each ORIGINAL syntax fragment with its validated `NodeRef`, proved exact / source-ordered / NoDup).  `GoTypes` CONSUMES it minimally:
   `indexed_program_typedb` folds `visit_file`'s DELIVERED `(NodeRef, syntax)` pairs, taking each decision from
   the delivered syntax fragment (NEVER recovering it from a reference — no `node_at`/`source_occurrence_of_ref`
   round-trip on the hot path) and delegating to the SAME `expr_typedb`/`const_info` resolver, and is proved

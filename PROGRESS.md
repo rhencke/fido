@@ -295,8 +295,9 @@ checkpoint is activated only by explicit sign-off.
   SEALED `FileRef p`/`NodeRef p`/`NodeKey`/kind-refined `NodeRefOf p k` (identity = NodeKey identity; minted
   only via validated `file_of_path`/`ref_of_key`; cross-snapshot non-interchangeable; the `println(1,1)`
   distinct-ref regression); a TOTAL query API (only `parent_of` optional); exact parent / interval-jump direct
-  children / interval ancestry / canonical enumeration; and the §19 `visit_file` indexed traversal (each
-  ORIGINAL syntax fragment + its validated `NodeRef` in ONE pass).  The GoTypes typing layer consumes it
+  children / interval ancestry / canonical enumeration; and the §19 `visit_file` indexed traversal (running
+  the SINGLE-PASS `walk_file` — a next-free-id cursor, no per-node boundary rescan; `occs_file` is its readable
+  spec, `walk_file = occs_file` — pairing each ORIGINAL syntax fragment with its validated `NodeRef`).  The GoTypes typing layer consumes it
   MINIMALLY: `indexed_program_typedb` folds `visit_file`'s DELIVERED `(NodeRef, syntax)` pairs, taking each
   decision from the delivered syntax fragment (NEVER recovering it from a reference — no
   `node_at`/`source_occurrence_of_ref` round-trip) and delegating to the SAME `expr_typedb`/`const_info`
