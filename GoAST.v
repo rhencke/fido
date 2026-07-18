@@ -156,6 +156,19 @@ Proof.
   destruct H as [[k' e'] [[Hk He] Hin]]. cbn in Hk, He.
   unfold Collections.FilePath_OT.eq in Hk. subst. exact Hin.
 Qed.
+
+(** the canonical enumeration has DISTINCT keys (the map's keys are unique) — used to prove program-wide
+    occurrence keys are distinct across files. *)
+Lemma file_bindings_nodup_keys : forall fm, List.NoDup (List.map fst (file_bindings fm)).
+Proof.
+  intro fm. unfold file_bindings. pose proof (FM.elements_3w fm) as H.
+  generalize dependent (FM.elements fm). clear fm. intro l.
+  induction l as [|[k e] l IH]; simpl; intro H; [constructor|].
+  inversion H as [|x xs Hni Hnd Heq]; subst. constructor.
+  - intro Hin. apply in_map_iff in Hin. destruct Hin as [[k' e'] [Hk Hin']]. cbn in Hk; subst k'.
+    apply Hni, SetoidList.InA_alt. exists (k, e'). split; [ reflexivity | exact Hin' ].
+  - apply IH; exact Hnd.
+Qed.
 Definition file_nodes (fm : GoFileMap) : list GoFileNode :=
   List.map (fun b => mkFileNode (fst b) (snd b)) (file_bindings fm).
 Definition map_file_values {B} (f : GoSourceFile -> B) (fm : GoFileMap) : FM.t B := FM.map f fm.

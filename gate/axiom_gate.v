@@ -363,6 +363,8 @@ Print Assumptions GoCompile.diagnostic_code_primary_consistent.
    visited ref's key is EXACTLY that occurrence's fact (no overwrite; map-level exactness). *)
 Print Assumptions GoCompile.visit_file_key_nodup.
 Print Assumptions GoCompile.file_expr_facts_find.
+Print Assumptions GoCompile.prog_visit_key_nodup.
+Print Assumptions GoCompile.prog_expr_facts_find.
 
 (* GoSafe: exact VALUE semantics — a zero literal and a negated zero agree; a resolved expression evaluates
    to a well-formed value of the resolved GoType (one type authority across compiler and runtime); value
