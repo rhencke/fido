@@ -520,6 +520,114 @@ Qed.
 Lemma occ_statuses_head : forall me e, hd_status (occ_statuses me e) = const_info e.
 Proof. intros me e. rewrite occ_statuses_spec. apply hd_status_spec. Qed.
 
+(* ---- lift the single pass to the whole file, matching [occs_file]'s expression occurrences ---- *)
+
+(* the per-node [const_info] SPEC over an occurrence stream: keep each EXPRESSION occurrence's (id, const_info),
+   drop non-expression occurrences (file / package clause / statement / declaration have no const status). *)
+Definition expr_statuses_of_occs (l : list (positive * GoIndex.SourceOccurrence)) : list (positive * option ConstInfo) :=
+  fold_right (fun idocc acc =>
+    match GoIndex.view_expr (snd idocc) with
+    | Some e => (fst idocc, const_info e) :: acc
+    | None => acc
+    end) [] l.
+
+Lemma expr_statuses_of_occs_cons : forall x l,
+  expr_statuses_of_occs (x :: l)
+  = match GoIndex.view_expr (snd x) with
+    | Some e => (fst x, const_info e) :: expr_statuses_of_occs l
+    | None => expr_statuses_of_occs l end.
+Proof. reflexivity. Qed.
+
+Lemma expr_statuses_of_occs_app : forall a b,
+  expr_statuses_of_occs (a ++ b) = expr_statuses_of_occs a ++ expr_statuses_of_occs b.
+Proof.
+  induction a as [|x a IH]; intro b; [reflexivity|].
+  rewrite <- app_comm_cons, !expr_statuses_of_occs_cons, IH.
+  destruct (GoIndex.view_expr (snd x)); reflexivity.
+Qed.
+
+(* the single-pass expression status list mirrors [occs_expr]'s (all-expression) occurrences exactly. *)
+Lemma statuses_spec_expr_occs : forall e parent role me,
+  statuses_spec me e = expr_statuses_of_occs (GoIndex.occs_expr parent role me e).
+Proof.
+  induction e as [ b|n1|n2|s| it x IHx | df | ft x IHx | dcx | ct x IHx ]; intros parent role me;
+    try reflexivity;
+    (cbn [statuses_spec GoIndex.occs_expr expr_statuses_of_occs GoIndex.view_expr GoIndex.occurrence_view snd fst];
+     rewrite (IHx me GoIndex.RConversionOperand (Pos.succ me)); reflexivity).
+Qed.
+
+(* the whole-file single pass, mirroring [occs_file] (statements / declarations contribute only their args). *)
+Fixpoint status_args (me : positive) (es : list GoExpr) : list (positive * option ConstInfo) :=
+  match es with
+  | [] => []
+  | e :: rest => occ_statuses me e ++ status_args (Pos.succ (GoIndex.end_expr me e)) rest
+  end.
+Definition status_stmt (me : positive) (s : GoStmt) : list (positive * option ConstInfo) :=
+  match s with SPrintln args => status_args (Pos.succ me) args end.
+Fixpoint status_stmts (me : positive) (ss : list GoStmt) : list (positive * option ConstInfo) :=
+  match ss with
+  | [] => []
+  | s :: rest => status_stmt me s ++ status_stmts (Pos.succ (GoIndex.end_stmt me s)) rest
+  end.
+Definition status_decl (me : positive) (d : GoDecl) : list (positive * option ConstInfo) :=
+  match d with DMain body => status_stmts (Pos.succ me) body end.
+Fixpoint status_decls (me : positive) (ds : list GoDecl) : list (positive * option ConstInfo) :=
+  match ds with
+  | [] => []
+  | d :: rest => status_decl me d ++ status_decls (Pos.succ (GoIndex.end_decl me d)) rest
+  end.
+Definition file_statuses (f : GoSourceFile) : list (positive * option ConstInfo) :=
+  status_decls (Pos.succ GoIndex.pkg_id) (source_decls f).
+
+Lemma status_args_occs : forall es parent aidx me,
+  status_args me es = expr_statuses_of_occs (GoIndex.occs_args parent aidx me es).
+Proof.
+  induction es as [|e rest IH]; intros parent aidx me; [reflexivity|].
+  cbn [status_args GoIndex.occs_args]. rewrite expr_statuses_of_occs_app. f_equal.
+  - unfold GoIndex.occs_arg. rewrite occ_statuses_spec. apply statuses_spec_expr_occs.
+  - apply IH.
+Qed.
+
+Lemma status_stmt_occs : forall s parent sidx me,
+  status_stmt me s = expr_statuses_of_occs (GoIndex.occs_stmt parent sidx me s).
+Proof.
+  intros [args] parent sidx me.
+  cbn [status_stmt GoIndex.occs_stmt expr_statuses_of_occs GoIndex.view_expr GoIndex.occurrence_view snd].
+  apply status_args_occs.
+Qed.
+
+Lemma status_stmts_occs : forall ss parent sidx me,
+  status_stmts me ss = expr_statuses_of_occs (GoIndex.occs_stmts parent sidx me ss).
+Proof.
+  induction ss as [|s rest IH]; intros parent sidx me; [reflexivity|].
+  cbn [status_stmts GoIndex.occs_stmts]. rewrite expr_statuses_of_occs_app. f_equal;
+    [ apply status_stmt_occs | apply IH ].
+Qed.
+
+Lemma status_decl_occs : forall d parent didx me,
+  status_decl me d = expr_statuses_of_occs (GoIndex.occs_decl parent didx me d).
+Proof.
+  intros [body] parent didx me.
+  cbn [status_decl GoIndex.occs_decl expr_statuses_of_occs GoIndex.view_expr GoIndex.occurrence_view snd].
+  apply status_stmts_occs.
+Qed.
+
+Lemma status_decls_occs : forall ds parent didx me,
+  status_decls me ds = expr_statuses_of_occs (GoIndex.occs_decls parent didx me ds).
+Proof.
+  induction ds as [|d rest IH]; intros parent didx me; [reflexivity|].
+  cbn [status_decls GoIndex.occs_decls]. rewrite expr_statuses_of_occs_app. f_equal;
+    [ apply status_decl_occs | apply IH ].
+Qed.
+
+(** the file's single-pass statuses ARE the per-node [const_info] of its expression occurrences (IMPL = SPEC). *)
+Lemma file_statuses_occs : forall f, file_statuses f = expr_statuses_of_occs (GoIndex.occs_file f).
+Proof.
+  intro f. unfold file_statuses, GoIndex.occs_file. destruct (source_imports f) as [|i tl]; [| destruct i].
+  cbn [expr_statuses_of_occs GoIndex.view_expr GoIndex.occurrence_view snd].
+  apply status_decls_occs.
+Qed.
+
 (** the per-file expression-fact map: fold the §19 visit stream, keying each occurrence's fact by its NodeKey.
     Non-expression / const_info-failed occurrences contribute nothing.  Because [visit_file] keys are DISTINCT
     (NoDup), the fold never overwrites, and the stored fact at each ref's key is EXACTLY that occurrence's fact. *)
