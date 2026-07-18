@@ -182,6 +182,9 @@ Print Assumptions GoTypes.program_typedb_build_permutation.
 Print Assumptions GoTypes.occs_file_typedb_eq.
 Print Assumptions GoTypes.indexed_source_file_typedb_eq.
 Print Assumptions GoTypes.indexed_program_typedb_eq.
+(* C3 §6 — the one-node semantic step: [const_info] reflects [const_info_step] applied to its child's status
+   (the reusable one-pass leaf authority; convert_const stays the sole conversion authority). *)
+Print Assumptions GoTypes.const_info_step_reflect.
 (* type-at-use: a bare literal defaults to int; the int boundaries resolve, one past does not; a huge
    (>2^64) constant is exact but resolves to no integer type; explicit uint64/int64 type-at-use behaviour *)
 Print Assumptions GoTypes.res_int_default.

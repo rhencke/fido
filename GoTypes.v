@@ -392,6 +392,41 @@ Fixpoint const_info (e : GoExpr) : option ConstInfo :=
       end
   end.
 
+(** §6 (C3) the ONE-NODE semantic layer: the constant status of a SINGLE expression node, given the ALREADY
+    COMPUTED status of its one current expression child (None for a leaf, or a conversion whose child failed).
+    A leaf constructs its exact untyped value (the child input is irrelevant); a conversion consumes the child
+    status and calls the SAME [convert_const] — no duplicated conversion/range/rounding logic, no second
+    classifier.  A bottom-up C3 analysis applies this once per occurrence, reading the child status from a map
+    instead of recomputing [const_info] over the whole subtree. *)
+Definition const_info_step (e : GoExpr) (child : option ConstInfo) : option ConstInfo :=
+  match e with
+  | EBool b     => Some (CIUntyped (CBool b))
+  | EInt n      => Some (CIUntyped (CInt (Z.of_N n)))
+  | ENeg n      => Some (CIUntyped (CInt (- Z.of_N n)))
+  | EString s   => Some (CIUntyped (CString s))
+  | EFloat d    => Some (CIUntyped (CFloat (decimal_value d)))
+  | EComplex dc => Some (CIUntyped (CComplex (decimal_complex_value dc)))
+  | EIntConvert target _ =>
+      match child with Some ci => option_map (CITyped (TInteger target)) (convert_const (TInteger target) ci) | None => None end
+  | EFloatConvert target _ =>
+      match child with Some ci => option_map (CITyped (TFloat target)) (convert_const (TFloat target) ci) | None => None end
+  | EComplexConvert target _ =>
+      match child with Some ci => option_map (CITyped (TComplex target)) (convert_const (TComplex target) ci) | None => None end
+  end.
+
+(** the one current expression child of a node (the conversion operand); [None] for leaves. *)
+Definition expr_child (e : GoExpr) : option GoExpr :=
+  match e with
+  | EIntConvert _ e' | EFloatConvert _ e' | EComplexConvert _ e' => Some e'
+  | _ => None
+  end.
+
+(** the ONE recursive authority reflects the one-node step: [const_info] of a node is [const_info_step] applied
+    to the status of its current child.  So [const_info] and the C3 bottom-up analysis use the SAME step. *)
+Lemma const_info_step_reflect : forall e,
+  const_info e = const_info_step e (match expr_child e with Some c => const_info c | None => None end).
+Proof. intro e; destruct e; reflexivity. Qed.
+
 (** §16 defaulting: an UNTYPED constant becomes a validated typed constant in a use context — bool/string
     always; an int defaults to platform [int] iff representable; a bare float performs its ONE F64 rounding
     (via [round_typed_float]).  A bare overflowing float has no default typed constant. *)
