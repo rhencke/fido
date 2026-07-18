@@ -356,6 +356,9 @@ Print Assumptions GoCompile.package_ref_present.
 Print Assumptions GoCompile.package_ref_key_inj.
 Print Assumptions GoCompile.package_ref_of_binding_key.
 Print Assumptions GoCompile.package_ref_of_fileref_key.
+(* C3 §8 — structured diagnostic core: the primary anchor is an exact-snapshot handle whose kind matches the
+   reason's code (invalid anchor/category combinations are unrepresentable). *)
+Print Assumptions GoCompile.diagnostic_code_primary_consistent.
 
 (* GoSafe: exact VALUE semantics — a zero literal and a negated zero agree; a resolved expression evaluates
    to a well-formed value of the resolved GoType (one type authority across compiler and runtime); value

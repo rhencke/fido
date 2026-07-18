@@ -350,6 +350,82 @@ Lemma package_ref_of_fileref_key : forall p (fr : GoIndex.Snap.FileRef p),
   package_ref_key (package_ref_of_fileref fr) = fp_parent (GoIndex.Snap.file_ref_path fr).
 Proof. reflexivity. Qed.
 
+(* ============================================================================================================
+   §8 (C3) — the structured diagnostic core.  Every anchor is an EXACT-SNAPSHOT handle (a NodeRef / FileRef /
+   PackageRef of [p], or the whole program); the four current diagnostic reasons carry TYPED references
+   (ExprRef / DeclRef) and structured values, so an invalid anchor/category combination is unrepresentable.
+   The core carries codes + valid anchors + structured values — NO authoritative English prose (a pure report
+   projection produces readable text later, §24).
+   ============================================================================================================ *)
+
+Inductive DiagnosticAnchor (p : GoProgram) : Type :=
+| AtNode    : GoIndex.Snap.NodeRef p -> DiagnosticAnchor p
+| AtFile    : GoIndex.Snap.FileRef p -> DiagnosticAnchor p
+| AtPackage : PackageRef p -> DiagnosticAnchor p
+| AtProgram : DiagnosticAnchor p.
+Arguments AtNode {p} _.  Arguments AtFile {p} _.  Arguments AtPackage {p} _.  Arguments AtProgram {p}.
+
+(* the four current C3 diagnostic reasons.  Nested invalid conversions: [primary] is the INNERMOST failing
+   conversion, [outer_context] the enclosing conversions (nearest first).  Duplicate main: [later_primary]
+   the later declaration, [earlier_related] the first (canonical-order) main. *)
+Inductive DiagnosticReason (p : GoProgram) : Type :=
+| DRInvalidConversion
+    (primary : GoIndex.ExprRef p) (outer_context : list (GoIndex.ExprRef p))
+    (target : GoType) (operand_status : ConstInfo)
+| DRDefaultNotRepresentable
+    (primary : GoIndex.ExprRef p) (exact_constant : GoConst) (default_target : GoType)
+| DRDuplicateMain
+    (later_primary : GoIndex.DeclRef p) (earlier_related : GoIndex.DeclRef p)
+| DRMissingMain
+    (package_primary : PackageRef p).
+Arguments DRInvalidConversion {p} _ _ _ _.  Arguments DRDefaultNotRepresentable {p} _ _ _.
+Arguments DRDuplicateMain {p} _ _.  Arguments DRMissingMain {p} _.
+
+Inductive DiagnosticCode : Type :=
+| DCInvalidConversion | DCDefaultNotRepresentable | DCDuplicateMain | DCMissingMain.
+
+Definition diagnostic_code_eq_dec (a b : DiagnosticCode) : {a = b} + {a <> b}.
+Proof. decide equality. Defined.
+
+(* a stable finite ordering of the codes (for canonical per-anchor bucket order, §16). *)
+Definition diagnostic_code_index (c : DiagnosticCode) : nat :=
+  match c with
+  | DCInvalidConversion => 0 | DCDefaultNotRepresentable => 1 | DCDuplicateMain => 2 | DCMissingMain => 3
+  end.
+
+Definition diagnostic_code {p} (d : DiagnosticReason p) : DiagnosticCode :=
+  match d with
+  | DRInvalidConversion _ _ _ _   => DCInvalidConversion
+  | DRDefaultNotRepresentable _ _ _ => DCDefaultNotRepresentable
+  | DRDuplicateMain _ _           => DCDuplicateMain
+  | DRMissingMain _               => DCMissingMain
+  end.
+
+Definition diagnostic_primary {p} (d : DiagnosticReason p) : DiagnosticAnchor p :=
+  match d with
+  | DRInvalidConversion pr _ _ _      => AtNode (GoIndex.erase_ref pr)
+  | DRDefaultNotRepresentable pr _ _  => AtNode (GoIndex.erase_ref pr)
+  | DRDuplicateMain later _           => AtNode (GoIndex.erase_ref later)
+  | DRMissingMain pk                  => AtPackage pk
+  end.
+
+Definition diagnostic_related {p} (d : DiagnosticReason p) : list (DiagnosticAnchor p) :=
+  match d with
+  | DRInvalidConversion _ outer _ _   => map (fun r => AtNode (GoIndex.erase_ref r)) outer
+  | DRDefaultNotRepresentable _ _ _   => []
+  | DRDuplicateMain _ earlier         => [AtNode (GoIndex.erase_ref earlier)]
+  | DRMissingMain _                   => []
+  end.
+
+(** the primary anchor is always an exact-snapshot handle whose CODE matches the reason. *)
+Lemma diagnostic_code_primary_consistent : forall p (d : DiagnosticReason p),
+  match diagnostic_code d, diagnostic_primary d with
+  | DCMissingMain, AtPackage _ => True
+  | DCInvalidConversion, AtNode _ | DCDefaultNotRepresentable, AtNode _ | DCDuplicateMain, AtNode _ => True
+  | _, _ => False
+  end.
+Proof. intros p [pr o t s|pr c dt|l e|pk]; cbn; exact I. Qed.
+
 (** [GoCompile p] IS whole-program admissibility: the program is typed through [GoTypes] AND every package
     has exactly one `main`.  The package clause is now SOURCE-owned (each file's [source_package]), rendered
     by [GoRender] — it is no longer a compiler-derived fact, so there is no [cf_pkg_name] / [CompilationFacts]
