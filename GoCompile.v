@@ -2350,6 +2350,18 @@ Proof.
     apply PMF.in_find_iff in Hin. exact (Hin (eq_sym E)).
 Defined.
 
+(** the ONE [CompilationFacts] builder — the SAME occurrence-keyed [ExprFactTable] + package buckets given a
+    validity proof.  BOTH [analyze]'s [AnalysisOK] and the witness compilation path use exactly this, so there
+    is ONE fact construction (no parallel authority that could disagree; they differ only in the erased
+    validity proof). *)
+Definition analysis_facts (p : GoProgram) (ip : GoIndex.IndexedProgram p) (H : ProgValid p) : CompilationFacts p ip :=
+  mkCompilationFacts (prog_expr_fact_table p ip)
+    (package_main_refs (GoIndex.indexed_syntax ip))
+    (package_main_refs_present (GoIndex.indexed_syntax ip))
+    (package_main_refs_bucket_len (GoIndex.indexed_syntax ip))
+    (package_main_refs_belongs (GoIndex.indexed_syntax ip))
+    H.
+
 Inductive AnalysisResult (p : GoProgram) (ip : GoIndex.IndexedProgram p) : Type :=
 | AnalysisOK     (facts : CompilationFacts p ip)
 | AnalysisFailed (ds : list (DiagnosticReason p)) (Hne : ds <> nil).
@@ -2377,13 +2389,7 @@ Definition analyze_valid_of_no_diags (p : GoProgram) (ip : GoIndex.IndexedProgra
     EXACT diagnostic list is exposed.  No separate accept/reject computation. *)
 Definition analyze_indexed (p : GoProgram) (ip : GoIndex.IndexedProgram p) : AnalysisResult p ip :=
   match list_is_nil (collect_diagnostics p (GoIndex.indexed_syntax ip)) with
-  | left He  => AnalysisOK (mkCompilationFacts
-                             (prog_expr_fact_table p ip)
-                             (package_main_refs (GoIndex.indexed_syntax ip))
-                             (package_main_refs_present (GoIndex.indexed_syntax ip))
-                             (package_main_refs_bucket_len (GoIndex.indexed_syntax ip))
-                             (package_main_refs_belongs (GoIndex.indexed_syntax ip))
-                             (analyze_valid_of_no_diags p ip He))
+  | left He  => AnalysisOK (analysis_facts p ip (analyze_valid_of_no_diags p ip He))
   | right Hne => AnalysisFailed (collect_diagnostics p (GoIndex.indexed_syntax ip)) Hne
   end.
 
@@ -2524,13 +2530,7 @@ Proof. intros p H; apply go_compile_complete, (proj1 (prog_ok_iff p)); exact H. 
     agrees observationally (only the erased validity proof differs) — [go_compile p = CompiledOk cp _ ->
     cp_program cp = p] is the shared observable. *)
 Definition compilable_of_valid (p : GoProgram) (H : GoCompile p) : CompilableProgram :=
-  mkCompilable p (GoIndex.index_program p)
-    (mkCompilationFacts (prog_expr_fact_table p (GoIndex.index_program p))
-       (package_main_refs (GoIndex.indexed_syntax (GoIndex.index_program p)))
-       (package_main_refs_present (GoIndex.indexed_syntax (GoIndex.index_program p)))
-       (package_main_refs_bucket_len (GoIndex.indexed_syntax (GoIndex.index_program p)))
-       (package_main_refs_belongs (GoIndex.indexed_syntax (GoIndex.index_program p)))
-       H).
+  mkCompilable p (GoIndex.index_program p) (analysis_facts p (GoIndex.index_program p) H).
 
 (** fixture helper: a non-typed program is REJECTED at the TYPING legacy class — a projection of the carried
     diagnostics, never a [program_typedb] rerun. *)
