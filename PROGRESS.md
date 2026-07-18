@@ -254,10 +254,11 @@ The binding multi-checkpoint plan is `.review/SOURCE_FOREST_MASTER_PLAN.md` (led
 `.review/SOURCE_FOREST_STATUS.md`); only the ONE active checkpoint lives in `.review/NEXT_STEPS.md`, and each
 checkpoint is activated only by explicit sign-off.
 
-- **C0 / C0A / C0B — occurrence architecture (ACCEPTED by Rob; foundation frozen):** `OccurrenceSpike.v` is
-  an ISOLATED, TEMPORARY, axiom-free spike (NOT wired into the certified pipeline; nothing in it is imported by
-  `GoAST`/`GoTypes`/…; deleted when the production `GoIndex` lands at C2) that validates snapshot-local
-  occurrence identity on a toy `file → decls → stmts → nested-exprs` grammar.  **C0** built the spike (file-local
+- **C0 / C0A / C0B — occurrence architecture (ACCEPTED by Rob; foundation frozen; spike now DELETED):** the
+  isolated, axiom-free `OccurrenceSpike.v` spike validated snapshot-local occurrence identity on a toy
+  `file → decls → stmts → nested-exprs` grammar; the production `GoIndex.v` (C2) GENERALIZES and SUBSUMES it
+  over the real `GoAST` grammar, so the spike has been DELETED (no parallel authority remains).  **C0** built
+  the spike (file-local
   `positive` preorder ids, `NodeKey`, validated `NodeRef`, a SELECTED certified positive-key radix-trie
   `NodeTable` over rejected primitive-array/list candidates, a one-pass builder, and the C0.4 structural theorem
   set) + the preflight residue (three stale complex-era comments + the complex-underflow scalar-conversion

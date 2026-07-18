@@ -8,11 +8,11 @@ authors NO collection storage or generic **collection** algorithm. (Fido owns ma
 algorithms — traversal, typing, rendering, occurrence indexing; the prohibition is only against reimplementing
 generic COLLECTION machinery — map/set/dictionary/trie/balanced-tree storage and its find/insert/balance/union.)
 
-**This is a LIVING current-state inventory, maintained at every checkpoint — not a frozen record.** When C2
-deletes `OccurrenceSpike.v` and makes `GoIndex.v` the production occurrence/index authority, the
-`OccurrenceSpike.*` rows below are REPLACED by the `GoIndex.*` rows (outer `FMapAVL FilePath FileIndex`, inner
-`FMapPositive positive NodeMeta`, derived traversal/enumeration `list`s classified as ordered/derived), with
-the strict standard-collection law retained.
+**This is a LIVING current-state inventory, maintained at every checkpoint — not a frozen record.** C2 has
+deleted `OccurrenceSpike.v` and made `GoIndex.v` the production occurrence/index authority; the
+`OccurrenceSpike.*` rows have been REPLACED by the `GoIndex.*` rows below (outer `FMapAVL FilePath FileIndex`,
+inner sealed `FMapPositive positive NodeMeta`, derived enumeration `list`s classified as ordered/derived),
+with the strict standard-collection law retained.
 
 Columns: **file / symbol** · **contents** · **identity key** · **order matters?** · **duplicates matter?** ·
 **lookup pattern** · **selected backing** · **retained / change** · **reason**.
@@ -29,10 +29,9 @@ Columns: **file / symbol** · **contents** · **identity key** · **order matter
 | `GoCompile.list_dir_count` / `PM.elements` in `prog_ok` | package proof enumerations | — | canonical | n/a | proof fold / forallb | derived `elements` / spec `list` | retained | proof/spec views over the canonical package-map enumeration, not storage |
 | `GoEmit.DirectoryImage.di_go_files` | path → rendered bytes | `FilePath` | no | n/a | by path | **`FMapAVL`** (`FM.map render_file`) | retained | identity-keyed rendered `.go` map (the standard `map` of the source map) |
 | `GoEmit.di_go_file_entries` | (path-string, bytes) transport | — | canonical | n/a | enumerate | `FileMap.elements` (derived) | retained | DERIVED canonical transport list; identity authority is `di_go_files` |
-| `OccurrenceSpike.NodeTable` (`Collections.NodeMapBase`) | local id → NodeMeta | `positive` | no | n/a | by id | **`FMapPositive`** | retained | per-file local-node index; a thin sealed API delegating storage + ops to the standard positive map |
-| `OccurrenceSpike.outer_of` | path → FileIndex | `FilePath` | no | n/a | by path | **`FMapAVL`** (`FileMapBase.map`) | retained | outer occurrence index keyed by path; no hidden slot |
-| `OccurrenceSpike.TForest` | path → TSourceFile | `FilePath` | no | rejected | by path | **`FMapAVL`** | retained | toy source snapshot; the C1A slot machinery is deleted |
-| `OccurrenceSpike.child_ids` / `all_ids` / `children_of` | occurrence ids / refs | — | source order | no (NoDup proved) | interval-jump / enumerate | `list` | retained | ordered canonical children / preorder enumeration; `NoDup` is a theorem ABOUT a derived list, not a stored-map invariant |
+| `GoIndex.NodeTable` (`Collections.NodeMapBase`) | local id → NodeMeta | `positive` | no | n/a | by id | **`FMapPositive`** | retained | per-file local-node index; a thin SEALED API (`Module NodeTable : NODE_TABLE`) delegating storage + the three laws to the standard positive map — no Fido-authored storage; C2 RETAINS `FMapPositive` |
+| `GoIndex.outer_of` / `Snap.SyntaxIndex.si_outer` | path → FileIndex | `FilePath` | no | n/a | by path | **`FMapAVL`** (`FileMapBase.map build_file`) | retained | outer program index keyed by path (the sealed `SyntaxIndex`'s internal map IS `outer_of (prog_files p)`); one map lookup reaches a file's index — no hidden slot |
+| `GoIndex.child_ids` / `all_ids` / `Snap.children_of` / `Snap.file_refs` | occurrence ids / refs | — | source order | no (`NoDup` proved) | interval-jump / enumerate | `list` | retained | ordered canonical children / preorder reference enumeration; `NoDup` is a theorem ABOUT a derived list, not a stored-map invariant |
 | `source_decls` / `SPrintln` args / `TFun` body / `list ImportSpecSyntax` | source syntax | — | yes (as written) | yes (positional) | positional | `list` | retained | ordered source grammar — repetition and position are semantic |
 | `GoSafe.eval_stmt` / `eval_decl` / `eval_file` | ordered runtime `println`-argument evaluation results (`option GoValue`) | — | **yes (output order)** | yes (a repeated argument evaluates again) | `map` / `flat_map` | `list` | retained | the abstract runtime TRACE — argument/statement order is the observable output order; not identity/membership storage |
 
