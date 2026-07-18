@@ -4,7 +4,15 @@ A CURRENT-STATE classification of every persistent or repeatedly-queried collect
 the notable false positives. The binding collection law (CLAUDE.md rule 10 / ARCHITECTURE.md): a mature
 standard collection is used for every identity-keyed or membership-only role; a `list` is retained only for
 order / repetition / positional structure / stack / transport enumeration / derived map-set enumeration; Fido
-authors NO collection storage or generic algorithm.
+authors NO collection storage or generic **collection** algorithm. (Fido owns many legitimate compiler
+algorithms — traversal, typing, rendering, occurrence indexing; the prohibition is only against reimplementing
+generic COLLECTION machinery — map/set/dictionary/trie/balanced-tree storage and its find/insert/balance/union.)
+
+**This is a LIVING current-state inventory, maintained at every checkpoint — not a frozen record.** When C2
+deletes `OccurrenceSpike.v` and makes `GoIndex.v` the production occurrence/index authority, the
+`OccurrenceSpike.*` rows below are REPLACED by the `GoIndex.*` rows (outer `FMapAVL FilePath FileIndex`, inner
+`FMapPositive positive NodeMeta`, derived traversal/enumeration `list`s classified as ordered/derived), with
+the strict standard-collection law retained.
 
 Columns: **file / symbol** · **contents** · **identity key** · **order matters?** · **duplicates matter?** ·
 **lookup pattern** · **selected backing** · **retained / change** · **reason**.
