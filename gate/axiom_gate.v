@@ -629,3 +629,13 @@ Print Assumptions GoIndex.Snap.visit_file_view.
 Print Assumptions GoIndex.Snap.visit_file_complete.
 Print Assumptions GoIndex.Snap.visit_file_order.
 Print Assumptions GoIndex.Snap.visit_file_nodup.
+(* C3 §4 — the retained IndexedProgram phase boundary: canonical construction reuses exactly the one
+   Snap.index_program, and the retained index is the projected field. *)
+Print Assumptions GoIndex.index_program_syntax.
+Print Assumptions GoIndex.indexed_syntax_proj.
+(* C3 §5 — the canonical NodeKey ordered key + standard AVL map: ordered equality, add/find laws, and canonical
+   elements as a function of the map's meaning (Equal maps enumerate identically). *)
+Print Assumptions GoIndex.nodekey_compare_eq.
+Print Assumptions GoIndex.nodekeymap_add_eq.
+Print Assumptions GoIndex.nodekeymap_add_neq.
+Print Assumptions GoIndex.nodekeymap_elements_Equal.

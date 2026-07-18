@@ -28,6 +28,7 @@
     and the mutation-sensitive / snapshot-locality fixtures. *)
 
 From Stdlib Require Import PArith NArith List Bool Lia Sorted Recdef Wf_nat Arith Eqdep_dec String.
+From Stdlib Require Import Structures.OrderedType FSets.FMapAVL FSets.FMapFacts SetoidList.
 (* The binding import boundary (directive §3): GoIndex imports ONLY [GoAST] / [Collections] / [FilePath] +
    axiom-free stdlib.  The raw-syntax payload types ([Ints.IntegerType] / [Floats.DecimalFloat] / … / the
    [ModulePath] / [GoVersion] used only in the regression fixtures) are reached by QUALIFIED name through the
@@ -3582,3 +3583,115 @@ Proof. vm_compute. reflexivity. Qed.
 Example wf_view_leaf : source_occurrence_at wf 13%positive
   = Some (mkOcc KExpression (ViewExpression (EInt 5%N)) (Some 12%positive) RConversionOperand 13%positive).
 Proof. vm_compute. reflexivity. Qed.
+
+(* ============================================================================================================
+   §4 (C3) — the retained IndexedProgram phase boundary.
+
+   ONE immutable [GoProgram] elaborates EXACTLY ONCE into one retained structural index.  The exact program is
+   the TYPE PARAMETER (no second source copy, no equality transport); the one retained [Snap.SyntaxIndex p] is
+   the sole field.  Every downstream query works through [indexed_syntax]; nothing reconstructs
+   [Snap.index_program p].  Semantic-free, axiom-free.
+   ============================================================================================================ *)
+
+Record IndexedProgram (p : GoProgram) : Type := mkIndexedProgram { ip_index : Snap.SyntaxIndex p }.
+Arguments mkIndexedProgram {p} _.
+Arguments ip_index {p} _.
+
+Definition index_program (p : GoProgram) : IndexedProgram p := mkIndexedProgram (Snap.index_program p).
+
+Definition indexed_syntax {p} (ip : IndexedProgram p) : Snap.SyntaxIndex p := ip_index ip.
+
+(* [index_program] uses EXACTLY [Snap.index_program p] (one canonical elaboration), and the retained index is
+   the projected field — no query rebuilds the per-program index. *)
+Lemma index_program_syntax : forall p, indexed_syntax (index_program p) = Snap.index_program p.
+Proof. reflexivity. Qed.
+
+Lemma indexed_syntax_proj : forall p (ip : IndexedProgram p), indexed_syntax ip = ip_index ip.
+Proof. reflexivity. Qed.
+
+(* ============================================================================================================
+   §5 (C3) — the canonical occurrence-identity ordered key + its standard AVL map.
+
+   [NodeKey] = FilePath + local positive id.  Its total order is LEXICOGRAPHIC: the [FilePath] order first, the
+   local positive id second — the permanent source-occurrence order used by fact enumeration, node-diagnostic
+   enumeration, and deterministic reports.  Storage delegates ENTIRELY to the pinned-stdlib [FMapAVL]; Fido
+   authors no map.
+   ============================================================================================================ *)
+
+Module NodeKey_OT <: OrderedType.OrderedType.
+  Definition t := NodeKey.
+  Definition eq (a b : t) := a = b.
+  Definition lt (a b : t) :=
+    Collections.FilePath_OT.lt (nk_file a) (nk_file b) \/
+    (nk_file a = nk_file b /\ (nk_local a < nk_local b)%positive).
+  Lemma eq_refl : forall x, eq x x. Proof. reflexivity. Qed.
+  Lemma eq_sym : forall x y, eq x y -> eq y x. Proof. unfold eq; intros x y H; symmetry; exact H. Qed.
+  Lemma eq_trans : forall x y z, eq x y -> eq y z -> eq x z.
+  Proof. unfold eq; intros x y z Hxy Hyz; rewrite Hxy; exact Hyz. Qed.
+  Lemma lt_trans : forall x y z, lt x y -> lt y z -> lt x z.
+  Proof.
+    unfold lt; intros x y z [H1|[H1 H1']] [H2|[H2 H2']].
+    - left. eapply Collections.FilePath_OT.lt_trans; eauto.
+    - left. rewrite <- H2. exact H1.
+    - left. rewrite H1. exact H2.
+    - right. split; [ rewrite H1; exact H2 | eapply Pos.lt_trans; eauto ].
+  Qed.
+  Lemma lt_not_eq : forall x y, lt x y -> ~ eq x y.
+  Proof.
+    unfold lt, eq; intros x y [H|[H H']] Heq; subst y.
+    - apply (Collections.FilePath_OT.lt_not_eq H); reflexivity.
+    - eapply Pos.lt_irrefl; exact H'.
+  Qed.
+  Definition compare (a b : t) : OrderedType.Compare lt eq a b.
+  Proof.
+    destruct (Collections.FilePath_OT.compare (nk_file a) (nk_file b)) as [Hlt|Heq|Hgt].
+    - apply OrderedType.LT. left. exact Hlt.
+    - unfold Collections.FilePath_OT.eq in Heq.
+      destruct (nk_local a ?= nk_local b)%positive eqn:E.
+      + apply OrderedType.EQ. apply Pos.compare_eq in E. unfold eq.
+        destruct a as [fa la], b as [fb lb]; cbn in *; subst; reflexivity.
+      + apply OrderedType.LT. right. split; [ exact Heq | apply Pos.compare_lt_iff in E; exact E ].
+      + apply OrderedType.GT. right. split; [ symmetry; exact Heq | apply Pos.compare_gt_iff in E; exact E ].
+    - apply OrderedType.GT. left. exact Hgt.
+  Defined.
+  Definition eq_dec (a b : t) : {eq a b} + {~ eq a b}.
+  Proof. unfold eq. apply thm8_nodekey_eq_dec. Defined.
+End NodeKey_OT.
+
+Module NodeKeyMapBase  := FMapAVL.Make NodeKey_OT.
+Module NodeKeyMapFacts := FMapFacts.WFacts_fun NodeKey_OT NodeKeyMapBase.
+Module NodeKeyMapProps := FMapFacts.WProperties_fun NodeKey_OT NodeKeyMapBase.
+Module NodeKeyMapOrd   := FMapFacts.OrdProperties NodeKeyMapBase.
+
+(* the ordered-key laws Fido depends on (all delegate to the standard map). *)
+Lemma nodekey_compare_eq : forall a b, NodeKey_OT.eq a b <-> a = b.
+Proof. reflexivity. Qed.
+
+Lemma nodekeymap_add_eq {A} : forall (m : NodeKeyMapBase.t A) k v,
+  NodeKeyMapBase.find k (NodeKeyMapBase.add k v m) = Some v.
+Proof. intros; apply NodeKeyMapFacts.add_eq_o; reflexivity. Qed.
+
+Lemma nodekeymap_add_neq {A} : forall (m : NodeKeyMapBase.t A) k k' v,
+  k <> k' -> NodeKeyMapBase.find k' (NodeKeyMapBase.add k v m) = NodeKeyMapBase.find k' m.
+Proof. intros m k k' v Hne; apply NodeKeyMapFacts.add_neq_o; intro H; apply Hne; exact H. Qed.
+
+(* canonical elements: key-sorted, and a FUNCTION of the map's meaning ([Equal] maps have equal [elements]) —
+   the permanent basis for deterministic fact/diagnostic enumeration.  (NodeKey equality is Leibniz, so
+   [eqlistA eq_key_elt] collapses to list equality.) *)
+Lemma nodekey_eqlistA_eqke_eq {A} : forall (l1 l2 : list (NodeKey * A)),
+  eqlistA (@NodeKeyMapBase.eq_key_elt A) l1 l2 -> l1 = l2.
+Proof.
+  induction l1 as [|[k e] l1' IH]; intros l2 H; inversion H as [|x y l l' Hxy Htl]; subst; [ reflexivity | ].
+  destruct y as [k' e']. destruct Hxy as [Hk He]. cbn in Hk, He.
+  unfold NodeKey_OT.eq in Hk. subst. f_equal. apply IH; exact Htl.
+Qed.
+
+Lemma nodekeymap_elements_Equal {A} : forall (m1 m2 : NodeKeyMapBase.t A),
+  NodeKeyMapBase.Equal m1 m2 -> NodeKeyMapBase.elements m1 = NodeKeyMapBase.elements m2.
+Proof.
+  intros m1 m2 Heq. apply nodekey_eqlistA_eqke_eq.
+  apply NodeKeyMapOrd.sort_equivlistA_eqlistA;
+    [ apply NodeKeyMapBase.elements_3 | apply NodeKeyMapBase.elements_3 | ].
+  intros [k e]. rewrite <- !NodeKeyMapFacts.elements_mapsto_iff, !NodeKeyMapFacts.find_mapsto_iff, (Heq k).
+  reflexivity.
+Qed.
