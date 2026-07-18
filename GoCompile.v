@@ -1245,14 +1245,13 @@ Arguments Ok {E A}. Arguments Err {E A}.
 Definition bool_sumbool (b : bool) : {b = true} + {b = false} :=
   match b with true => left eq_refl | false => right eq_refl end.
 
+(** §18 — the production compiler is a PROJECTION of the retained [analyze]: it consumes the SAME analysis
+    root (never an independent [prog_ok]).  On success it exposes the [CompilableProgram] built from the
+    analysis facts' validity; on failure a legacy coarse error class (regression-compatible). *)
 Definition go_compile (p : GoProgram) : result CompileError CompilableProgram :=
-  match bool_sumbool (prog_ok p) with
-  | left H  => Ok (mkCompilable p (proj1 (prog_ok_iff p) H))
-  | right _ =>
-      (* the whole program is typed but some package's `main` count is wrong, vs. a typing failure
-         (a constant fitting no integer type, a non-integer conversion operand, or an invalid nested
-         conversion). *)
-      if program_typedb p then Err ErrPackageMainCount else Err ErrTyping
+  match pa_result (analyze p) with
+  | AnalysisOK facts   => Ok (mkCompilable p (cf_valid facts))
+  | AnalysisFailed _ _ => if program_typedb p then Err ErrPackageMainCount else Err ErrTyping
   end.
 
 (** (A) internal exactness: [go_compile] accepts exactly the admissible programs, whole-program. *)
@@ -1261,7 +1260,7 @@ Theorem go_compile_sound : forall p cp,
 Proof.
   intros p cp Heq. split; [ | exact (cp_ok cp) ].
   revert Heq. unfold go_compile.
-  destruct (bool_sumbool (prog_ok p)) as [ H | H ].
+  destruct (pa_result (analyze p)) as [ facts | ds Hne ].
   - intro Heq; injection Heq as <-; reflexivity.
   - destruct (program_typedb p); discriminate.
 Qed.
@@ -1269,9 +1268,23 @@ Qed.
 Theorem go_compile_complete : forall p,
   GoCompile p -> exists cp, go_compile p = Ok cp.
 Proof.
-  intros p Hvalid. apply (proj2 (prog_ok_iff p)) in Hvalid. unfold go_compile.
-  destruct (bool_sumbool (prog_ok p)) as [ H' | H' ]; [ eexists; reflexivity | ].
-  rewrite Hvalid in H'; discriminate.
+  intros p Hvalid. unfold go_compile.
+  destruct (analyze_ok_iff_ProgValid p) as [ _ Hok ].
+  destruct (Hok Hvalid) as [ facts Hf ]. rewrite Hf. eexists; reflexivity.
+Qed.
+
+(** fixture helpers: prove acceptance/rejection through the theorems (never by reducing [go_compile], which
+    would build the whole index). *)
+Lemma go_compile_ok_of_prog_ok : forall p, prog_ok p = true -> exists cp, go_compile p = Ok cp.
+Proof. intros p H; apply go_compile_complete, (proj1 (prog_ok_iff p)); exact H. Qed.
+
+Lemma go_compile_untyped : forall p, program_typedb p = false -> go_compile p = Err ErrTyping.
+Proof.
+  intros p Hf. unfold go_compile.
+  destruct (pa_result (analyze p)) as [ facts | ds Hne ] eqn:E.
+  - exfalso. assert (Hv : ProgValid p) by (apply (analyze_ok_iff_ProgValid p); exists facts; exact E).
+    pose proof (proj2 (program_typedb_iff p) (proj1 Hv)) as Ht. rewrite Ht in Hf; discriminate Hf.
+  - rewrite Hf; reflexivity.
 Qed.
 
 (** A rejected program yields no CompilableProgram (and hence no SafeProgram, no image). *)
@@ -1315,8 +1328,13 @@ Lemma go_compile_class_spec : forall p,
   = (if prog_ok p then Ok tt else if program_typedb p then Err ErrPackageMainCount else Err ErrTyping).
 Proof.
   intro p. unfold go_compile_class, go_compile.
-  destruct (bool_sumbool (prog_ok p)) as [H|H]; rewrite H; [ reflexivity | ].
-  destruct (program_typedb p); reflexivity.
+  destruct (pa_result (analyze p)) as [facts | ds Hne] eqn:E.
+  - assert (Hpv : ProgValid p) by (apply (analyze_ok_iff_ProgValid p); exists facts; exact E).
+    apply (proj2 (prog_ok_iff p)) in Hpv. rewrite Hpv. reflexivity.
+  - assert (Hnv : ~ ProgValid p)
+      by (apply (analyze_failed_iff_not_ProgValid p); exists ds; exists Hne; exact E).
+    destruct (prog_ok p) eqn:Ep;
+      [ exfalso; apply Hnv, (proj1 (prog_ok_iff p)); exact Ep | destruct (program_typedb p); reflexivity ].
 Qed.
 
 Theorem go_compile_class_Equal : forall p1 p2,
@@ -1360,7 +1378,7 @@ Definition over_program : GoProgram :=
    rendering/emission): rejection happens strictly in Rocq, before any bytes. *)
 Example over_program_untyped   : program_typedb over_program = false.        Proof. vm_compute; reflexivity. Qed.
 Example over_program_not_ok    : prog_ok over_program = false.               Proof. vm_compute; reflexivity. Qed.
-Example over_program_rejected  : go_compile over_program = Err ErrTyping.    Proof. vm_compute; reflexivity. Qed.
+Example over_program_rejected  : go_compile over_program = Err ErrTyping.    Proof. exact (go_compile_untyped _ over_program_untyped). Qed.
 Example over_program_no_compile : ~ GoCompile over_program.
 Proof. exact (reject_no_compile over_program over_program_not_ok). Qed.
 
@@ -1376,7 +1394,7 @@ Definition int_program : GoProgram :=
 Example int_program_typed    : program_typedb int_program = true. Proof. vm_compute; reflexivity. Qed.
 Example int_program_ok       : prog_ok int_program = true.        Proof. vm_compute; reflexivity. Qed.
 Example int_program_compiles : exists cp, go_compile int_program = Ok cp.
-Proof. eexists; reflexivity. Qed.
+Proof. exact (go_compile_ok_of_prog_ok _ int_program_ok). Qed.
 
 (** A program whose only argument is [uint8(int(300))] — a valid inner [int(300)] whose value does NOT fit
     the outer [uint8]; the invalid nested conversion cannot be revived, so the whole program is rejected. *)
@@ -1386,7 +1404,7 @@ Definition bad_convert_program : GoProgram :=
     (mkFP "main.go" eq_refl)
     [ DMain [ SPrintln [ EIntConvert IUint8 (EIntConvert IInt (EInt 300)) ] ] ].
 Example bad_convert_untyped     : program_typedb bad_convert_program = false. Proof. vm_compute; reflexivity. Qed.
-Example bad_convert_rejected    : go_compile bad_convert_program = Err ErrTyping. Proof. vm_compute; reflexivity. Qed.
+Example bad_convert_rejected    : go_compile bad_convert_program = Err ErrTyping. Proof. exact (go_compile_untyped _ bad_convert_untyped). Qed.
 Example bad_convert_no_compile  : ~ GoCompile bad_convert_program.
 Proof. exact (reject_no_compile bad_convert_program eq_refl). Qed.
 
@@ -1400,7 +1418,7 @@ Definition str_program : GoProgram :=
 Example str_program_typed    : program_typedb str_program = true. Proof. vm_compute; reflexivity. Qed.
 Example str_program_ok       : prog_ok str_program = true.        Proof. vm_compute; reflexivity. Qed.
 Example str_program_compiles : exists cp, go_compile str_program = Ok cp.
-Proof. eexists; reflexivity. Qed.
+Proof. exact (go_compile_ok_of_prog_ok _ str_program_ok). Qed.
 
 (** ---- float programs (§38): a concrete accepted float program (a bare float64, an explicit float32
     conversion, and an exact float->int conversion) compiles to a [CompilableProgram]; a fractional
@@ -1416,7 +1434,7 @@ Definition float_program : GoProgram :=
 Example float_program_typed    : program_typedb float_program = true. Proof. vm_compute. reflexivity. Qed.
 Example float_program_ok       : prog_ok float_program = true.        Proof. vm_compute. reflexivity. Qed.
 Example float_program_compiles : exists cp, go_compile float_program = Ok cp.
-Proof. eexists; reflexivity. Qed.
+Proof. exact (go_compile_ok_of_prog_ok _ float_program_ok). Qed.
 
 Definition float_reject_program : GoProgram :=
   singleton_program
@@ -1425,7 +1443,7 @@ Definition float_reject_program : GoProgram :=
     [ DMain [ SPrintln [ EIntConvert IInt (EFloat (mkDecimal 35 (-1) eq_refl)) ] ] ].   (* int(3.5): fractional *)
 Example float_reject_untyped    : program_typedb float_reject_program = false. Proof. vm_compute. reflexivity. Qed.
 Example float_reject_rejected   : go_compile float_reject_program = Err ErrTyping.
-Proof. vm_compute. reflexivity. Qed.
+Proof. exact (go_compile_untyped _ float_reject_untyped). Qed.
 Example float_reject_no_compile : ~ GoCompile float_reject_program.
 Proof. apply (reject_no_compile float_reject_program); vm_compute; reflexivity. Qed.
 
@@ -1445,7 +1463,7 @@ Definition complex_program : GoProgram :=
 Example complex_program_typed    : program_typedb complex_program = true. Proof. vm_compute. reflexivity. Qed.
 Example complex_program_ok       : prog_ok complex_program = true.        Proof. vm_compute. reflexivity. Qed.
 Example complex_program_compiles : exists cp, go_compile complex_program = Ok cp.
-Proof. eexists; reflexivity. Qed.
+Proof. exact (go_compile_ok_of_prog_ok _ complex_program_ok). Qed.
 
 Definition complex_overflow_program : GoProgram :=
   singleton_program
@@ -1453,7 +1471,7 @@ Definition complex_overflow_program : GoProgram :=
     (mkFP "main.go" eq_refl)
     [ DMain [ SPrintln [ EComplexConvert C64 (EComplex (mkDC (mkDecimal 1 39 eq_refl) (mkDecimal 0 0 eq_refl))) ] ] ].
 Example complex_overflow_untyped    : program_typedb complex_overflow_program = false. Proof. vm_compute. reflexivity. Qed.
-Example complex_overflow_rejected   : go_compile complex_overflow_program = Err ErrTyping. Proof. vm_compute. reflexivity. Qed.
+Example complex_overflow_rejected   : go_compile complex_overflow_program = Err ErrTyping. Proof. exact (go_compile_untyped _ complex_overflow_untyped). Qed.
 Example complex_overflow_no_compile : ~ GoCompile complex_overflow_program.
 Proof. apply (reject_no_compile complex_overflow_program); vm_compute; reflexivity. Qed.
 
@@ -1463,6 +1481,6 @@ Definition complex_nonzero_imag_program : GoProgram :=
     (mkFP "main.go" eq_refl)
     [ DMain [ SPrintln [ EIntConvert IInt (EComplex (mkDC (mkDecimal 3 0 eq_refl) (mkDecimal 1 0 eq_refl))) ] ] ].
 Example complex_nonzero_imag_untyped    : program_typedb complex_nonzero_imag_program = false. Proof. vm_compute. reflexivity. Qed.
-Example complex_nonzero_imag_rejected   : go_compile complex_nonzero_imag_program = Err ErrTyping. Proof. vm_compute. reflexivity. Qed.
+Example complex_nonzero_imag_rejected   : go_compile complex_nonzero_imag_program = Err ErrTyping. Proof. exact (go_compile_untyped _ complex_nonzero_imag_untyped). Qed.
 Example complex_nonzero_imag_no_compile : ~ GoCompile complex_nonzero_imag_program.
 Proof. apply (reject_no_compile complex_nonzero_imag_program); vm_compute; reflexivity. Qed.
