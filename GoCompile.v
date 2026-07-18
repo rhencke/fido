@@ -474,6 +474,52 @@ Lemma occ_expr_fact_none_nonexpr : forall o,
   GoIndex.view_expr o = None -> occ_expr_fact o = None.
 Proof. intros o Hv. unfold occ_expr_fact. rewrite Hv. reflexivity. Qed.
 
+(* ============================================================================================================
+   §14 (C3) — SINGLE BOTTOM-UP PASS.  [occ_statuses me e] computes the [const_info] of EVERY sub-occurrence of
+   [e] (keyed by its canonical local id, matching [occs_expr]) in ONE pass, each node's status derived from its
+   ONE child's already-computed status via [const_info_step] (never re-descending a subtree).  It is proved
+   EQUAL to the per-node [const_info] specification [statuses_spec], so the analysis reads each occurrence's
+   status in O(1) — no recursive [const_info] rescan per occurrence.
+   ============================================================================================================ *)
+
+Definition hd_status (l : list (positive * option ConstInfo)) : option ConstInfo :=
+  match l with (_, cs) :: _ => cs | [] => None end.
+
+Fixpoint occ_statuses (me : positive) (e : GoExpr) : list (positive * option ConstInfo) :=
+  match e with
+  | EIntConvert _ x     => let subs := occ_statuses (Pos.succ me) x in (me, const_info_step e (hd_status subs)) :: subs
+  | EFloatConvert _ x   => let subs := occ_statuses (Pos.succ me) x in (me, const_info_step e (hd_status subs)) :: subs
+  | EComplexConvert _ x => let subs := occ_statuses (Pos.succ me) x in (me, const_info_step e (hd_status subs)) :: subs
+  | _ => [(me, const_info_step e None)]
+  end.
+
+(* the per-node SPECIFICATION: each occurrence's status is its subexpression's [const_info] (the existing
+   recursive authority), one entry per occurrence in canonical [occs_expr] order. *)
+Fixpoint statuses_spec (me : positive) (e : GoExpr) : list (positive * option ConstInfo) :=
+  match e with
+  | EIntConvert _ x     => (me, const_info e) :: statuses_spec (Pos.succ me) x
+  | EFloatConvert _ x   => (me, const_info e) :: statuses_spec (Pos.succ me) x
+  | EComplexConvert _ x => (me, const_info e) :: statuses_spec (Pos.succ me) x
+  | _ => [(me, const_info e)]
+  end.
+
+Lemma hd_status_spec : forall me e, hd_status (statuses_spec me e) = const_info e.
+Proof. intros me e; destruct e; reflexivity. Qed.
+
+(** the single bottom-up [const_info_step] pass computes EXACTLY the per-node [const_info] — the impl equals
+    the spec, so no per-occurrence recursion is needed to obtain any occurrence's status. *)
+Lemma occ_statuses_spec : forall e me, occ_statuses me e = statuses_spec me e.
+Proof.
+  intros e; induction e as [ b|n1|n2|s| it x IHx | df | ft x IHx | dcx | ct x IHx ]; intro me;
+    try reflexivity;
+    (cbn [occ_statuses statuses_spec]; rewrite !(IHx (Pos.succ me)); do 2 f_equal;
+     rewrite hd_status_spec; symmetry; apply const_info_step_reflect).
+Qed.
+
+(** hence each entry carries its subexpression's exact [const_info] (the head is the whole node's). *)
+Lemma occ_statuses_head : forall me e, hd_status (occ_statuses me e) = const_info e.
+Proof. intros me e. rewrite occ_statuses_spec. apply hd_status_spec. Qed.
+
 (** the per-file expression-fact map: fold the §19 visit stream, keying each occurrence's fact by its NodeKey.
     Non-expression / const_info-failed occurrences contribute nothing.  Because [visit_file] keys are DISTINCT
     (NoDup), the fold never overwrites, and the stored fact at each ref's key is EXACTLY that occurrence's fact. *)
