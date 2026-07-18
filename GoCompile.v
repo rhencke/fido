@@ -1254,8 +1254,109 @@ Definition occ_expr_diags {p} (idx : GoIndex.Snap.SyntaxIndex p)
       end
   end.
 
+(* ---- the SINGLE-PASS diagnostic step: reads each occurrence's own status and (for a conversion) its
+   OPERAND's status from the precomputed [prog_status_map] — never recomputing [const_info].  Proved to agree
+   with the [occ_expr_diags] specification on the visit stream. ---- *)
+
+Definition operand_key {p} (r : GoIndex.Snap.NodeRef p) : GoIndex.NodeKey :=
+  GoIndex.mkKey (GoIndex.nk_file (GoIndex.Snap.node_ref_key r)) (Pos.succ (GoIndex.Snap.node_ref_local r)).
+
+Definition local_conv_failure_sm {p} (smap : GoIndex.NodeKeyMapBase.t (option ConstInfo))
+    (ro : GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence) : option (GoType * ConstInfo) :=
+  match GoIndex.view_expr (snd ro) with
+  | Some (EIntConvert t _) =>
+      match GoIndex.NodeKeyMapBase.find (operand_key (fst ro)) smap with
+      | Some (Some ci) => match convert_const (TInteger t) ci with None => Some (TInteger t, ci) | Some _ => None end
+      | _ => None end
+  | Some (EFloatConvert t _) =>
+      match GoIndex.NodeKeyMapBase.find (operand_key (fst ro)) smap with
+      | Some (Some ci) => match convert_const (TFloat t) ci with None => Some (TFloat t, ci) | Some _ => None end
+      | _ => None end
+  | Some (EComplexConvert t _) =>
+      match GoIndex.NodeKeyMapBase.find (operand_key (fst ro)) smap with
+      | Some (Some ci) => match convert_const (TComplex t) ci with None => Some (TComplex t, ci) | Some _ => None end
+      | _ => None end
+  | _ => None
+  end.
+
+Definition arg_default_failure_sm {p} (smap : GoIndex.NodeKeyMapBase.t (option ConstInfo))
+    (ro : GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence) : option (GoConst * GoType) :=
+  match GoIndex.occurrence_role (snd ro) with
+  | GoIndex.RPrintlnArg _ =>
+      match GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key (fst ro)) smap with
+      | Some (Some (CIUntyped c)) => match default_const c with None => Some (c, default_target_of c) | Some _ => None end
+      | _ => None end
+  | _ => None
+  end.
+
+Definition occ_expr_diags_sm {p} (smap : GoIndex.NodeKeyMapBase.t (option ConstInfo))
+    (idx : GoIndex.Snap.SyntaxIndex p) (ro : GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence)
+  : list (DiagnosticReason p) :=
+  match GoIndex.as_expr idx (fst ro) with
+  | None => []
+  | Some er =>
+      match local_conv_failure_sm smap ro with
+      | Some (t, ci) => [ DRInvalidConversion er [] t ci ]
+      | None =>
+          match arg_default_failure_sm smap ro with
+          | Some (c, dt) => [ DRDefaultNotRepresentable er c dt ]
+          | None => []
+          end
+      end
+  end.
+
+Lemma local_conv_failure_sm_eq {p} (r : GoIndex.Snap.NodeRef p) occ e :
+  In (r, occ) (prog_visit p) -> GoIndex.view_expr occ = Some e ->
+  local_conv_failure_sm (prog_status_map p) (r, occ) = local_conv_failure e.
+Proof.
+  intros Hin Hv. unfold local_conv_failure_sm, local_conv_failure, operand_key; cbn [fst snd]; rewrite Hv.
+  destruct e as [ b|n1|n2|s| it x|df|ft x|dcx|ct x ]; try reflexivity.
+  - rewrite (prog_status_map_find_operand p r occ (EIntConvert it x) x Hin Hv eq_refl); destruct (const_info x); reflexivity.
+  - rewrite (prog_status_map_find_operand p r occ (EFloatConvert ft x) x Hin Hv eq_refl); destruct (const_info x); reflexivity.
+  - rewrite (prog_status_map_find_operand p r occ (EComplexConvert ct x) x Hin Hv eq_refl); destruct (const_info x); reflexivity.
+Qed.
+
+Lemma arg_default_failure_sm_eq {p} (r : GoIndex.Snap.NodeRef p) occ e :
+  In (r, occ) (prog_visit p) -> GoIndex.view_expr occ = Some e ->
+  arg_default_failure_sm (prog_status_map p) (r, occ) = arg_default_failure occ e.
+Proof.
+  intros Hin Hv. unfold arg_default_failure_sm, arg_default_failure; cbn [fst snd].
+  destruct (GoIndex.occurrence_role occ); try reflexivity.
+  rewrite (prog_status_map_find p r occ e Hin Hv). destruct (const_info e) as [[c|t tc]|]; reflexivity.
+Qed.
+
+Lemma occ_expr_diags_sm_eq {p} (idx : GoIndex.Snap.SyntaxIndex p) (ro : GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence) :
+  In ro (prog_visit p) -> occ_expr_diags_sm (prog_status_map p) idx ro = occ_expr_diags idx ro.
+Proof.
+  intro Hin. destruct ro as [r occ]. unfold occ_expr_diags_sm, occ_expr_diags; cbn [fst snd].
+  destruct (GoIndex.as_expr idx r) as [er|] eqn:Ea; [|reflexivity].
+  assert (Hk : GoIndex.Snap.node_kind idx r = GoIndex.KExpression).
+  { unfold GoIndex.as_expr, GoIndex.as_kind in Ea.
+    destruct (GoIndex.syntaxkind_eq_dec (GoIndex.Snap.node_kind idx r) GoIndex.KExpression) as [He|]; [exact He|discriminate Ea]. }
+  assert (Hocc : occ = GoIndex.Snap.source_occurrence_of_ref r).
+  { pose proof Hin as HinC. unfold prog_visit in HinC. apply in_flat_map in HinC. destruct HinC as [b [_ Hrb]].
+    unfold binding_visit in Hrb. destruct (GoIndex.Snap.file_of_path p (fst b)) as [fr|]; [|destruct Hrb].
+    destruct (GoIndex.Snap.visit_file_view p fr r occ Hrb) as [Ho _]. exact Ho. }
+  assert (Hkind : GoIndex.occurrence_kind occ = GoIndex.KExpression).
+  { rewrite Hocc, <- (GoIndex.Snap.node_kind_matches_source p idx r). exact Hk. }
+  destruct (GoIndex.kind_view_expr occ Hkind) as [e Hv]. rewrite Hv.
+  rewrite (local_conv_failure_sm_eq r occ e Hin Hv), (arg_default_failure_sm_eq r occ e Hin Hv). reflexivity.
+Qed.
+
+Lemma flat_map_ext_in {A B} (f g : A -> list B) (l : list A) :
+  (forall a, In a l -> f a = g a) -> flat_map f l = flat_map g l.
+Proof.
+  induction l as [|a l IH]; intro H; [reflexivity|].
+  cbn [flat_map]. rewrite (H a (or_introl eq_refl)), IH by (intros a' Ha'; apply H; right; exact Ha'). reflexivity.
+Qed.
+
+(* the production expression diagnostics: the SINGLE-PASS step over the visit stream (status-map reads). *)
 Definition expr_diags {p} (idx : GoIndex.Snap.SyntaxIndex p) : list (DiagnosticReason p) :=
-  flat_map (occ_expr_diags idx) (prog_visit p).
+  flat_map (occ_expr_diags_sm (prog_status_map p) idx) (prog_visit p).
+
+Lemma expr_diags_eq_spec {p} (idx : GoIndex.Snap.SyntaxIndex p) :
+  expr_diags idx = flat_map (occ_expr_diags idx) (prog_visit p).
+Proof. unfold expr_diags. apply flat_map_ext_in. intros ro Hin. apply occ_expr_diags_sm_eq; exact Hin. Qed.
 
 (* ---- COMPLETENESS: [expr_diags] is empty IFF every argument resolves (= [program_typedb]) ---- *)
 
@@ -1462,7 +1563,7 @@ Qed.
 Lemma expr_diags_empty_iff {p} (idx : GoIndex.Snap.SyntaxIndex p) :
   expr_diags idx = nil <-> program_typedb p = true.
 Proof.
-  unfold expr_diags. rewrite flat_map_nil_forallb, <- emits_none_program_typedb.
+  rewrite expr_diags_eq_spec. rewrite flat_map_nil_forallb, <- emits_none_program_typedb.
   rewrite !forallb_forall. split; intros H [r occ] Hin.
   - cbn [snd]. apply (occ_expr_diags_empty idx r occ Hin).
     specialize (H (r, occ) Hin). destruct (occ_expr_diags idx (r, occ)); [reflexivity | discriminate H].
