@@ -2275,6 +2275,11 @@ Module Type SNAP_SIG.
     StronglySorted Pos.lt (map (fun rc => node_ref_local (fst rc)) (visit_file fr)).
   Parameter visit_file_nodup : forall p (fr : FileRef p),
     NoDup (map (fun rc => node_ref_local (fst rc)) (visit_file fr)).
+  (* the visited syntax fragments ARE the file's canonical source occurrences, in canonical order — the
+     traversal projects exactly [occs_file] on the second component (a downstream indexed analysis folds the
+     paired syntax without a per-node search). *)
+  Parameter visit_file_snd : forall p (fr : FileRef p),
+    map snd (visit_file fr) = map snd (occs_file (file_ref_source fr)).
 End SNAP_SIG.
 
 Module Snap : SNAP_SIG.
@@ -3062,6 +3067,17 @@ Proof.
   revert H. induction l as [|[id0 occ0] rest IH]; intros H; simpl; [reflexivity|].
   cbn [node_ref_local fst]. rewrite IH. reflexivity.
 Qed.
+
+Lemma visit_lift_snd {p} (fr : FileRef p) l H :
+  map snd (visit_lift fr l H) = map snd l.
+Proof.
+  revert H. induction l as [|[id0 occ0] rest IH]; intros H; simpl; [reflexivity|].
+  cbn [snd]. rewrite IH. reflexivity.
+Qed.
+
+Lemma visit_file_snd {p} (fr : FileRef p) :
+  map snd (visit_file fr) = map snd (occs_file (file_ref_source fr)).
+Proof. unfold visit_file. apply visit_lift_snd. Qed.
 
 Theorem visit_file_view (p : GoProgram) (fr : FileRef p) (r : NodeRef p) (occ : SourceOccurrence) :
   In (r, occ) (visit_file fr) -> occ = source_occurrence_of_ref r /\ node_ref_file r = fr.

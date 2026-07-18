@@ -176,6 +176,12 @@ Print Assumptions GoTypes.empty_program_typed.
 Print Assumptions GoTypes.ProgramTyped_Equal.
 Print Assumptions GoTypes.program_typedb_Equal.
 Print Assumptions GoTypes.program_typedb_build_permutation.
+(* §20/§25 minimal indexed-traversal integration: the indexed per-file / whole-program typing checkers
+   (one let-bound SyntaxIndex, delegating through the total query API to the SAME resolver) equal the
+   existing [source_file_typedb] / [program_typedb]. *)
+Print Assumptions GoTypes.occs_file_typedb_eq.
+Print Assumptions GoTypes.indexed_source_file_typedb_eq.
+Print Assumptions GoTypes.indexed_program_typedb_eq.
 (* type-at-use: a bare literal defaults to int; the int boundaries resolve, one past does not; a huge
    (>2^64) constant is exact but resolves to no integer type; explicit uint64/int64 type-at-use behaviour *)
 Print Assumptions GoTypes.res_int_default.

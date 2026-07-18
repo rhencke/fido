@@ -136,6 +136,15 @@ Definition file_count (fm : GoFileMap) : nat := FM.cardinal fm.
 (** DERIVED canonical (FilePath-ordered) enumerations — never a second semantic authority. *)
 Definition file_bindings (fm : GoFileMap) : list (FilePath * GoSourceFile) := FM.elements fm.
 Definition file_paths (fm : GoFileMap) : list FilePath := List.map fst (file_bindings fm).
+(** Each canonical binding's key maps to its value (the standard [elements]->[find] bridge, used by an
+    indexed whole-program traversal to mint a file reference per binding). *)
+Lemma file_bindings_find : forall (fm : GoFileMap) (b : FilePath * GoSourceFile),
+  List.In b (file_bindings fm) -> find_file (fst b) fm = Some (snd b).
+Proof.
+  intros fm [k e] Hin. unfold file_bindings, find_file in *. simpl in *.
+  apply FMF.find_mapsto_iff, FMF.elements_mapsto_iff, SetoidList.InA_alt.
+  exists (k, e). split; [ split; reflexivity | exact Hin ].
+Qed.
 Definition file_nodes (fm : GoFileMap) : list GoFileNode :=
   List.map (fun b => mkFileNode (fst b) (snd b)) (file_bindings fm).
 Definition map_file_values {B} (f : GoSourceFile -> B) (fm : GoFileMap) : FM.t B := FM.map f fm.
