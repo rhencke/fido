@@ -372,6 +372,13 @@ Print Assumptions GoCompile.expr_all_ok_ProgramTyped.
    equivalence for the expression half). *)
 Print Assumptions GoCompile.emits_none_program_typedb.
 Print Assumptions GoCompile.expr_diags_empty_iff.
+(* C3 PACKAGE COMPLETENESS + the retained ANALYSIS ROOT: no package diagnostic IFF every package has one main;
+   no diagnostic at all IFF the analysis decision holds; and analysis succeeds/fails IFF ProgValid/not. *)
+Print Assumptions GoCompile.sum_main_file.
+Print Assumptions GoCompile.pkg_diags_empty_iff.
+Print Assumptions GoCompile.collect_diagnostics_empty_iff.
+Print Assumptions GoCompile.analyze_ok_iff_ProgValid.
+Print Assumptions GoCompile.analyze_failed_iff_not_ProgValid.
 (* C3 decision (package half + combined): every package has one main IFF AllPackagesOneMain; the combined
    analysis decision equals ProgValid (= GoCompile) — the AnalysisOK<->GoCompile decision core. *)
 Print Assumptions GoCompile.pkg_all_ok_AllPackagesOneMain.

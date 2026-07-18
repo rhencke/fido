@@ -1079,6 +1079,137 @@ Proof.
   rewrite sum_main_decls, file_main_count_length. reflexivity.
 Qed.
 
+(* ============================================================================================================
+   §8 (C3) — the PACKAGE diagnostics.  Every package with a main count other than one is a failure; the anchor
+   is a validated [PackageRef] (each package in [package_summaries] is represented, so the reference is real).
+   Emptiness is tied DIRECTLY to [pkg_all_ok] (the package half of the decision).
+   (ROOT emits [DRMissingMain] for every non-conforming package; a later refinement distinguishes the duplicate
+   case with [DRDuplicateMain] over the collected main [DeclRef]s.)
+   ============================================================================================================ *)
+
+Definition bool_sb (b : bool) : {b = true} + {b = false} :=
+  match b with true => left eq_refl | false => right eq_refl end.
+
+(** every package appearing in [package_summaries] names a represented package. *)
+Lemma summary_elem_present (p : GoProgram) dir s :
+  In (dir, s) (PM.elements (package_summaries (prog_files p))) -> package_present_b p dir = true.
+Proof.
+  intro Hin. unfold package_present_b.
+  assert (Hmt : PM.MapsTo dir s (package_summaries (prog_files p))).
+  { apply PMF.elements_mapsto_iff, InA_alt. exists (dir, s). split; [ split; reflexivity | exact Hin ]. }
+  destruct (package_no_empty (prog_files p) dir (ex_intro _ s Hmt)) as [b [Hb Hpar]].
+  unfold list_dir_mem. apply existsb_exists. exists b. split; [ exact Hb | apply String.eqb_eq; exact Hpar ].
+Qed.
+
+Definition pkg_diag_of (p : GoProgram) (b : string * PackageSummary) : list (DiagnosticReason p) :=
+  if Nat.eqb (ps_main_count (snd b)) 1 then []
+  else match bool_sb (package_present_b p (fst b)) with
+       | left H  => [ DRMissingMain (mkPackageRef p (fst b) H) ]
+       | right _ => []
+       end.
+
+Definition pkg_diags (p : GoProgram) : list (DiagnosticReason p) :=
+  flat_map (pkg_diag_of p) (PM.elements (package_summaries (prog_files p))).
+
+(** THE PACKAGE COMPLETENESS: no package diagnostic IFF every package has exactly one main ([pkg_all_ok]). *)
+Lemma pkg_diags_empty_iff (p : GoProgram) : pkg_diags p = nil <-> pkg_all_ok p = true.
+Proof.
+  unfold pkg_diags, pkg_all_ok. rewrite flat_map_nil_forallb.
+  assert (Heq : forallb (fun x => match pkg_diag_of p x with nil => true | _ => false end)
+                        (PM.elements (package_summaries (prog_files p)))
+              = forallb (fun b => Nat.eqb (ps_main_count (snd b)) 1)
+                        (PM.elements (package_summaries (prog_files p)))).
+  { apply GoTypes.forallb_ext_in. intros [dir s] Hin. unfold pkg_diag_of. cbn [fst snd].
+    destruct (Nat.eqb (ps_main_count s) 1) eqn:E; [ reflexivity |].
+    destruct (bool_sb (package_present_b p dir)) as [H|H]; [ reflexivity |].
+    rewrite (summary_elem_present p dir s Hin) in H. discriminate H. }
+  rewrite Heq. reflexivity.
+Qed.
+
+(* ============================================================================================================
+   §12/§13/§14 (C3) — the ONE retained indexed-analysis root.  [analyze] builds ONE [IndexedProgram] and returns
+   either exact facts (on success) or a NONEMPTY structured diagnostic list (on failure).  The success/failure
+   decision is the analysis-native [analysis_ok_b] (proved [= GoCompile]); [collect_diagnostics] gives the
+   structured failure payload, nonempty exactly when the decision fails.
+   ============================================================================================================ *)
+
+Definition collect_diagnostics (p : GoProgram) (idx : GoIndex.Snap.SyntaxIndex p) : list (DiagnosticReason p) :=
+  expr_diags idx ++ pkg_diags p.
+
+Lemma app_nil_iff {A} (l1 l2 : list A) : l1 ++ l2 = nil <-> l1 = nil /\ l2 = nil.
+Proof. split; [ apply app_eq_nil | intros [-> ->]; reflexivity ]. Qed.
+
+Lemma collect_diagnostics_empty_iff (p : GoProgram) (idx : GoIndex.Snap.SyntaxIndex p) :
+  collect_diagnostics p idx = nil <-> analysis_ok_b p = true.
+Proof.
+  unfold collect_diagnostics. rewrite app_nil_iff, expr_diags_empty_iff, pkg_diags_empty_iff.
+  unfold analysis_ok_b. rewrite Bool.andb_true_iff, expr_all_ok_program_typedb. reflexivity.
+Qed.
+
+Lemma collect_diagnostics_nonempty (p : GoProgram) (idx : GoIndex.Snap.SyntaxIndex p) :
+  analysis_ok_b p = false -> collect_diagnostics p idx <> nil.
+Proof.
+  intros H Hc. apply (collect_diagnostics_empty_iff p idx) in Hc. rewrite Hc in H. discriminate H.
+Qed.
+
+Record CompilationFacts (p : GoProgram) (ip : GoIndex.IndexedProgram p) : Type := mkCompilationFacts {
+  cf_expr_facts : GoIndex.NodeKeyMapBase.t ExprFact;
+  cf_valid      : ProgValid p
+}.
+Arguments mkCompilationFacts {p ip} _ _.
+Arguments cf_expr_facts {p ip} _.
+Arguments cf_valid {p ip} _.
+
+Inductive AnalysisResult (p : GoProgram) (ip : GoIndex.IndexedProgram p) : Type :=
+| AnalysisOK     (facts : CompilationFacts p ip)
+| AnalysisFailed (ds : list (DiagnosticReason p)) (Hne : ds <> nil).
+Arguments AnalysisOK {p ip} _.
+Arguments AnalysisFailed {p ip} _ _.
+
+Record ProgramAnalysis (p : GoProgram) : Type := mkProgramAnalysis {
+  pa_indexed : GoIndex.IndexedProgram p;
+  pa_result  : AnalysisResult p pa_indexed
+}.
+Arguments mkProgramAnalysis {p} _ _.
+Arguments pa_indexed {p} _.
+Arguments pa_result {p} _.
+
+Definition analyze_indexed (p : GoProgram) (ip : GoIndex.IndexedProgram p) : AnalysisResult p ip :=
+  match bool_sb (analysis_ok_b p) with
+  | left H  => AnalysisOK (mkCompilationFacts (prog_expr_facts p) (proj1 (analysis_ok_b_ProgValid p) H))
+  | right H => AnalysisFailed (collect_diagnostics p (GoIndex.indexed_syntax ip))
+                              (collect_diagnostics_nonempty p (GoIndex.indexed_syntax ip) H)
+  end.
+
+Definition analyze (p : GoProgram) : ProgramAnalysis p :=
+  mkProgramAnalysis (GoIndex.index_program p) (analyze_indexed p (GoIndex.index_program p)).
+
+(** ANALYSIS EXACTNESS: analysis succeeds (exposes facts) IFF the program is valid ([ProgValid] = [GoCompile]);
+    it fails (exposes nonempty diagnostics) IFF the program is invalid.  Success and failure are exclusive. *)
+Theorem analyze_ok_iff_ProgValid (p : GoProgram) :
+  (exists facts, pa_result (analyze p) = AnalysisOK facts) <-> ProgValid p.
+Proof.
+  unfold analyze, analyze_indexed; cbn [pa_result].
+  destruct (bool_sb (analysis_ok_b p)) as [H|H].
+  - split; intro Hx; [ apply (analysis_ok_b_ProgValid p); exact H | eexists; reflexivity ].
+  - split; intro Hx.
+    + destruct Hx as [facts Hf]; discriminate Hf.
+    + apply (analysis_ok_b_ProgValid p) in Hx. congruence.
+Qed.
+
+Theorem analyze_failed_iff_not_ProgValid (p : GoProgram) :
+  (exists ds Hne, pa_result (analyze p) = AnalysisFailed ds Hne) <-> ~ ProgValid p.
+Proof.
+  unfold analyze, analyze_indexed; cbn [pa_result].
+  destruct (bool_sb (analysis_ok_b p)) as [H|H].
+  - split; intro Hx.
+    + destruct Hx as [ds [Hne Hf]]; discriminate Hf.
+    + exfalso. apply Hx, (analysis_ok_b_ProgValid p); exact H.
+  - split; intro Hx.
+    + intro Hv. apply (analysis_ok_b_ProgValid p) in Hv. congruence.
+    + eexists; eexists; reflexivity.
+Qed.
+
 (** [GoCompile p] IS whole-program admissibility: the program is typed through [GoTypes] AND every package
     has exactly one `main`.  The package clause is now SOURCE-owned (each file's [source_package]), rendered
     by [GoRender] — it is no longer a compiler-derived fact, so there is no [cf_pkg_name] / [CompilationFacts]
