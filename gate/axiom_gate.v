@@ -613,3 +613,13 @@ Print Assumptions GoIndex.Snap.file_refs_source_order.
 Print Assumptions GoIndex.Snap.file_root_ref_in_refs.
 Print Assumptions GoIndex.Snap.thm_reachable_from_root.
 Print Assumptions GoIndex.Snap.thm_refs_reachable.
+(* §19 the canonical INDEXED TRAVERSAL: the structural one-pass occurrence fold is EXACT (lists exactly the
+   graph of source_occurrence_at) and canonically ORDERED; lifted to the reference level, [visit_file] supplies
+   each occurrence's validated NodeRef paired with its ORIGINAL syntax view TOGETHER — exact, same-file,
+   complete over the file, in canonical source preorder order, NoDup (no per-node source recovery). *)
+Print Assumptions GoIndex.occs_file_exact.
+Print Assumptions GoIndex.occs_file_sorted.
+Print Assumptions GoIndex.Snap.visit_file_view.
+Print Assumptions GoIndex.Snap.visit_file_complete.
+Print Assumptions GoIndex.Snap.visit_file_order.
+Print Assumptions GoIndex.Snap.visit_file_nodup.

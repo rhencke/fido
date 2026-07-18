@@ -1634,6 +1634,495 @@ Proof.
   exfalso. exact (thm7_enum_sound f c Hin E).
 Qed.
 
+Lemma next_decls_ge : forall ds me, (me <= next_decls me ds)%positive.
+Proof.
+  induction ds as [|d rest IH]; intros me; cbn [next_decls]; [lia|].
+  specialize (IH (Pos.succ (end_decl me d))). pose proof (end_decl_ge d me) as Hd. lia.
+Qed.
+
+(* ================================================================================================= *)
+(** ** §19 — the canonical INDEXED TRAVERSAL foundation: a structural, one-pass occurrence-emitting fold. *)
+(*    [occs_file] walks the ORIGINAL source forest in canonical preorder and emits, for every occurrence, *)
+(*    its local id paired with its exact [SourceOccurrence] (which carries the original syntax VIEW) — the *)
+(*    fragment is produced by the ONE structural pass, never recovered per node.  It is proved EXACT       *)
+(*    against the independent [source_occurrence_at] spec (a listed pair IS that spec's occurrence, and    *)
+(*    every occurrence is listed), and its ids are strictly increasing (canonical source order).  The      *)
+(*    reference-level traversal (which mints the validated [NodeRef] at each position) is in [Snap] below. *)
+(* ================================================================================================= *)
+
+Fixpoint occs_expr (parent : positive) (role : NodeRole) (me : positive) (e : GoExpr)
+  : list (positive * SourceOccurrence) :=
+  match e with
+  | EBool _ | EInt _ | ENeg _ | EString _ | EFloat _ | EComplex _ =>
+      [(me, mkOcc KExpression (ViewExpression e) (Some parent) role me)]
+  | EIntConvert _ x =>
+      (me, mkOcc KExpression (ViewExpression e) (Some parent) role (end_expr me e))
+        :: occs_expr me RConversionOperand (Pos.succ me) x
+  | EFloatConvert _ x =>
+      (me, mkOcc KExpression (ViewExpression e) (Some parent) role (end_expr me e))
+        :: occs_expr me RConversionOperand (Pos.succ me) x
+  | EComplexConvert _ x =>
+      (me, mkOcc KExpression (ViewExpression e) (Some parent) role (end_expr me e))
+        :: occs_expr me RConversionOperand (Pos.succ me) x
+  end.
+Definition occs_arg (parent : positive) (aidx : nat) (me : positive) (e : GoExpr) : list (positive * SourceOccurrence) :=
+  occs_expr parent (RPrintlnArg aidx) me e.
+Fixpoint occs_args (parent : positive) (aidx : nat) (me : positive) (es : list GoExpr) : list (positive * SourceOccurrence) :=
+  match es with
+  | [] => []
+  | e :: rest => occs_arg parent aidx me e ++ occs_args parent (S aidx) (Pos.succ (end_expr me e)) rest
+  end.
+Definition occs_stmt (parent : positive) (sidx : nat) (me : positive) (s : GoStmt) : list (positive * SourceOccurrence) :=
+  match s with
+  | SPrintln args =>
+      (me, mkOcc KStatement (ViewStatement s) (Some parent) (RDeclStmt sidx) (end_stmt me s))
+        :: occs_args me 0 (Pos.succ me) args
+  end.
+Fixpoint occs_stmts (parent : positive) (sidx : nat) (me : positive) (ss : list GoStmt) : list (positive * SourceOccurrence) :=
+  match ss with
+  | [] => []
+  | s :: rest => occs_stmt parent sidx me s ++ occs_stmts parent (S sidx) (Pos.succ (end_stmt me s)) rest
+  end.
+Definition occs_decl (parent : positive) (didx : nat) (me : positive) (d : GoDecl) : list (positive * SourceOccurrence) :=
+  match d with
+  | DMain body =>
+      (me, mkOcc KTopLevelDecl (ViewTopLevelDecl d) (Some parent) (RFileDecl didx) (end_decl me d))
+        :: occs_stmts me 0 (Pos.succ me) body
+  end.
+Fixpoint occs_decls (parent : positive) (didx : nat) (me : positive) (ds : list GoDecl) : list (positive * SourceOccurrence) :=
+  match ds with
+  | [] => []
+  | d :: rest => occs_decl parent didx me d ++ occs_decls parent (S didx) (Pos.succ (end_decl me d)) rest
+  end.
+Definition occs_file (f : GoSourceFile) : list (positive * SourceOccurrence) :=
+  match source_imports f with
+  | i :: _ => match i with end
+  | [] =>
+      (root_id, mkOcc KFile (ViewFile f) None RFileRoot (count_file f))
+        :: (pkg_id, mkOcc KPackageClause (ViewPackageClause (source_package f)) (Some root_id) RFilePackage pkg_id)
+        :: occs_decls root_id 0 (Pos.succ pkg_id) (source_decls f)
+  end.
+
+(* --- interval-bound lemmas: an emitted id lies within its subtree / run window. --- *)
+
+Lemma occs_expr_ge : forall e parent role me id occ,
+  In (id, occ) (occs_expr parent role me e) -> (me <= id)%positive.
+Proof.
+  induction e as [ b | n1 | n2 | s | it x IHx | df | ft x IHx | dcx | ct x IHx ];
+    intros parent role me id occ Hin; cbn [occs_expr] in Hin;
+    try (destruct Hin as [Heq|[]]; injection Heq as <- <-; lia);
+    (destruct Hin as [Heq|Hin]; [injection Heq as <- <-; lia|];
+     specialize (IHx me RConversionOperand (Pos.succ me) id occ Hin); lia).
+Qed.
+
+Lemma occs_expr_le : forall e parent role me id occ,
+  In (id, occ) (occs_expr parent role me e) -> (id <= end_expr me e)%positive.
+Proof.
+  induction e as [ b | n1 | n2 | s | it x IHx | df | ft x IHx | dcx | ct x IHx ];
+    intros parent role me id occ Hin; cbn [occs_expr end_expr] in *;
+    try (destruct Hin as [Heq|[]]; injection Heq as <- <-; lia);
+    (pose proof (end_expr_ge x (Pos.succ me)) as Hx;
+     destruct Hin as [Heq|Hin]; [injection Heq as <- <-; lia|];
+     apply (IHx me RConversionOperand (Pos.succ me) id occ Hin)).
+Qed.
+
+Lemma occs_args_ge : forall es parent aidx me id occ,
+  In (id, occ) (occs_args parent aidx me es) -> (me <= id)%positive.
+Proof.
+  induction es as [|e rest IH]; intros parent aidx me id occ Hin; cbn [occs_args] in Hin; [destruct Hin|].
+  apply in_app_or in Hin. destruct Hin as [Hin|Hin].
+  - apply (occs_expr_ge e parent (RPrintlnArg aidx) me id occ Hin).
+  - specialize (IH parent (S aidx) (Pos.succ (end_expr me e)) id occ Hin).
+    pose proof (end_expr_ge e me). lia.
+Qed.
+
+Lemma occs_args_lt : forall es parent aidx me id occ,
+  In (id, occ) (occs_args parent aidx me es) -> (id < next_exprs me es)%positive.
+Proof.
+  induction es as [|e rest IH]; intros parent aidx me id occ Hin; cbn [occs_args next_exprs] in *; [destruct Hin|].
+  apply in_app_or in Hin. destruct Hin as [Hin|Hin].
+  - pose proof (occs_expr_le e parent (RPrintlnArg aidx) me id occ Hin) as Hle.
+    pose proof (next_exprs_ge rest (Pos.succ (end_expr me e))). lia.
+  - apply (IH parent (S aidx) (Pos.succ (end_expr me e)) id occ Hin).
+Qed.
+
+Lemma occs_stmt_ge : forall s parent sidx me id occ,
+  In (id, occ) (occs_stmt parent sidx me s) -> (me <= id)%positive.
+Proof.
+  intros [args] parent sidx me id occ Hin. cbn [occs_stmt] in Hin.
+  destruct Hin as [Heq|Hin]; [injection Heq as <- <-; lia|].
+  apply (occs_args_ge args me 0 (Pos.succ me) id occ) in Hin. lia.
+Qed.
+
+Lemma occs_stmt_le : forall s parent sidx me id occ,
+  In (id, occ) (occs_stmt parent sidx me s) -> (id <= end_stmt me s)%positive.
+Proof.
+  intros [args] parent sidx me id occ Hin. cbn [occs_stmt end_stmt] in *.
+  destruct Hin as [Heq|Hin].
+  - injection Heq as <- <-. pose proof (next_exprs_ge args (Pos.succ me)). lia.
+  - apply (occs_args_lt args me 0 (Pos.succ me) id occ) in Hin. lia.
+Qed.
+
+Lemma occs_stmts_ge : forall ss parent sidx me id occ,
+  In (id, occ) (occs_stmts parent sidx me ss) -> (me <= id)%positive.
+Proof.
+  induction ss as [|s rest IH]; intros parent sidx me id occ Hin; cbn [occs_stmts] in Hin; [destruct Hin|].
+  apply in_app_or in Hin. destruct Hin as [Hin|Hin].
+  - apply (occs_stmt_ge s parent sidx me id occ Hin).
+  - specialize (IH parent (S sidx) (Pos.succ (end_stmt me s)) id occ Hin).
+    pose proof (end_stmt_ge s me). lia.
+Qed.
+
+Lemma occs_stmts_lt : forall ss parent sidx me id occ,
+  In (id, occ) (occs_stmts parent sidx me ss) -> (id < next_stmts me ss)%positive.
+Proof.
+  induction ss as [|s rest IH]; intros parent sidx me id occ Hin; cbn [occs_stmts next_stmts] in *; [destruct Hin|].
+  apply in_app_or in Hin. destruct Hin as [Hin|Hin].
+  - pose proof (occs_stmt_le s parent sidx me id occ Hin) as Hle.
+    pose proof (next_stmts_ge rest (Pos.succ (end_stmt me s))). lia.
+  - apply (IH parent (S sidx) (Pos.succ (end_stmt me s)) id occ Hin).
+Qed.
+
+Lemma occs_decl_ge : forall d parent didx me id occ,
+  In (id, occ) (occs_decl parent didx me d) -> (me <= id)%positive.
+Proof.
+  intros [body] parent didx me id occ Hin. cbn [occs_decl] in Hin.
+  destruct Hin as [Heq|Hin]; [injection Heq as <- <-; lia|].
+  apply (occs_stmts_ge body me 0 (Pos.succ me) id occ) in Hin. lia.
+Qed.
+
+Lemma occs_decl_le : forall d parent didx me id occ,
+  In (id, occ) (occs_decl parent didx me d) -> (id <= end_decl me d)%positive.
+Proof.
+  intros [body] parent didx me id occ Hin. cbn [occs_decl end_decl] in *.
+  destruct Hin as [Heq|Hin].
+  - injection Heq as <- <-. pose proof (next_stmts_ge body (Pos.succ me)). lia.
+  - apply (occs_stmts_lt body me 0 (Pos.succ me) id occ) in Hin. lia.
+Qed.
+
+Lemma occs_decls_ge : forall ds parent didx me id occ,
+  In (id, occ) (occs_decls parent didx me ds) -> (me <= id)%positive.
+Proof.
+  induction ds as [|d rest IH]; intros parent didx me id occ Hin; cbn [occs_decls] in Hin; [destruct Hin|].
+  apply in_app_or in Hin. destruct Hin as [Hin|Hin].
+  - apply (occs_decl_ge d parent didx me id occ Hin).
+  - specialize (IH parent (S didx) (Pos.succ (end_decl me d)) id occ Hin).
+    pose proof (end_decl_ge d me). lia.
+Qed.
+
+Lemma occs_decls_lt : forall ds parent didx me id occ,
+  In (id, occ) (occs_decls parent didx me ds) -> (id < next_decls me ds)%positive.
+Proof.
+  induction ds as [|d rest IH]; intros parent didx me id occ Hin; cbn [occs_decls next_decls] in *; [destruct Hin|].
+  apply in_app_or in Hin. destruct Hin as [Hin|Hin].
+  - pose proof (occs_decl_le d parent didx me id occ Hin) as Hle.
+    pose proof (next_decls_ge rest (Pos.succ (end_decl me d))). lia.
+  - apply (IH parent (S didx) (Pos.succ (end_decl me d)) id occ Hin).
+Qed.
+
+(* --- SOUNDNESS: every emitted (id, occ) IS the exact source occurrence [source_occurrence_at] designates. --- *)
+
+Lemma occs_expr_sound : forall e parent role me id occ,
+  In (id, occ) (occs_expr parent role me e) -> occ_expr' parent role me e id = Some occ.
+Proof.
+  induction e as [ b | n1 | n2 | s | it x IHx | df | ft x IHx | dcx | ct x IHx ];
+    intros parent role me id occ Hin; cbn [occs_expr occ_expr'] in *;
+    try (destruct Hin as [Heq|[]]; injection Heq as <- <-; rewrite Pos.eqb_refl; reflexivity);
+    (destruct Hin as [Heq|Hin];
+     [ injection Heq as <- <-; rewrite Pos.eqb_refl; reflexivity
+     | pose proof (occs_expr_ge x me RConversionOperand (Pos.succ me) id occ Hin) as Hge;
+       destruct (Pos.eqb_spec id me); [lia|]; apply (IHx me RConversionOperand (Pos.succ me) id occ Hin) ]).
+Qed.
+
+Lemma occs_args_sound : forall es parent aidx me id occ,
+  In (id, occ) (occs_args parent aidx me es) -> occ_exprs' parent aidx me es id = Some occ.
+Proof.
+  induction es as [|e rest IH]; intros parent aidx me id occ Hin; cbn [occs_args occ_exprs'] in *; [destruct Hin|].
+  apply in_app_or in Hin. destruct Hin as [Hin|Hin].
+  - pose proof (occs_expr_le e parent (RPrintlnArg aidx) me id occ Hin) as Hle.
+    destruct (Pos.leb_spec id (end_expr me e)); [| lia].
+    apply (occs_expr_sound e parent (RPrintlnArg aidx) me id occ Hin).
+  - pose proof (occs_args_ge rest parent (S aidx) (Pos.succ (end_expr me e)) id occ Hin) as Hge.
+    destruct (Pos.leb_spec id (end_expr me e)); [lia|].
+    apply (IH parent (S aidx) (Pos.succ (end_expr me e)) id occ Hin).
+Qed.
+
+Lemma occs_stmt_sound : forall s parent sidx me id occ,
+  In (id, occ) (occs_stmt parent sidx me s) -> occ_stmt' parent sidx me s id = Some occ.
+Proof.
+  intros [args] parent sidx me id occ Hin. cbn [occs_stmt occ_stmt'] in *.
+  destruct Hin as [Heq|Hin]; [injection Heq as <- <-; rewrite Pos.eqb_refl; reflexivity|].
+  pose proof (occs_args_ge args me 0 (Pos.succ me) id occ Hin) as Hge.
+  destruct (Pos.eqb_spec id me); [lia|].
+  apply (occs_args_sound args me 0 (Pos.succ me) id occ Hin).
+Qed.
+
+Lemma occs_stmts_sound : forall ss parent sidx me id occ,
+  In (id, occ) (occs_stmts parent sidx me ss) -> occ_stmts' parent sidx me ss id = Some occ.
+Proof.
+  induction ss as [|s rest IH]; intros parent sidx me id occ Hin; cbn [occs_stmts occ_stmts'] in *; [destruct Hin|].
+  apply in_app_or in Hin. destruct Hin as [Hin|Hin].
+  - pose proof (occs_stmt_le s parent sidx me id occ Hin) as Hle.
+    destruct (Pos.leb_spec id (end_stmt me s)); [| lia].
+    apply (occs_stmt_sound s parent sidx me id occ Hin).
+  - pose proof (occs_stmts_ge rest parent (S sidx) (Pos.succ (end_stmt me s)) id occ Hin) as Hge.
+    destruct (Pos.leb_spec id (end_stmt me s)); [lia|].
+    apply (IH parent (S sidx) (Pos.succ (end_stmt me s)) id occ Hin).
+Qed.
+
+Lemma occs_decl_sound : forall d parent didx me id occ,
+  In (id, occ) (occs_decl parent didx me d) -> occ_decl' parent didx me d id = Some occ.
+Proof.
+  intros [body] parent didx me id occ Hin. cbn [occs_decl occ_decl'] in *.
+  destruct Hin as [Heq|Hin]; [injection Heq as <- <-; rewrite Pos.eqb_refl; reflexivity|].
+  pose proof (occs_stmts_ge body me 0 (Pos.succ me) id occ Hin) as Hge.
+  destruct (Pos.eqb_spec id me); [lia|].
+  apply (occs_stmts_sound body me 0 (Pos.succ me) id occ Hin).
+Qed.
+
+Lemma occs_decls_sound : forall ds parent didx me id occ,
+  In (id, occ) (occs_decls parent didx me ds) -> occ_decls' parent didx me ds id = Some occ.
+Proof.
+  induction ds as [|d rest IH]; intros parent didx me id occ Hin; cbn [occs_decls occ_decls'] in *; [destruct Hin|].
+  apply in_app_or in Hin. destruct Hin as [Hin|Hin].
+  - pose proof (occs_decl_le d parent didx me id occ Hin) as Hle.
+    destruct (Pos.leb_spec id (end_decl me d)); [| lia].
+    apply (occs_decl_sound d parent didx me id occ Hin).
+  - pose proof (occs_decls_ge rest parent (S didx) (Pos.succ (end_decl me d)) id occ Hin) as Hge.
+    destruct (Pos.leb_spec id (end_decl me d)); [lia|].
+    apply (IH parent (S didx) (Pos.succ (end_decl me d)) id occ Hin).
+Qed.
+
+(* the whole-file traversal is EXACT: every emitted (id, occ) is the source occurrence [source_occurrence_at]
+   designates at [id] — the fragment carried by the ONE structural pass matches the independent spec. *)
+Theorem occs_file_sound : forall f id occ,
+  In (id, occ) (occs_file f) -> source_occurrence_at f id = Some occ.
+Proof.
+  intros f id occ. unfold occs_file, source_occurrence_at.
+  destruct (source_imports f) as [|i ?]; [| destruct i].
+  intros [Heq | [Heq | Hin]].
+  - injection Heq as <- <-. rewrite Pos.eqb_refl. reflexivity.
+  - injection Heq as <- <-. rewrite (proj2 (Pos.eqb_neq pkg_id root_id) ltac:(unfold pkg_id, root_id; discriminate)).
+    rewrite Pos.eqb_refl. reflexivity.
+  - pose proof (occs_decls_ge (source_decls f) root_id 0 (Pos.succ pkg_id) id occ Hin) as Hge.
+    rewrite (proj2 (Pos.eqb_neq id root_id) ltac:(unfold pkg_id, root_id in *; lia)).
+    rewrite (proj2 (Pos.eqb_neq id pkg_id) ltac:(unfold pkg_id in *; lia)).
+    apply (occs_decls_sound (source_decls f) root_id 0 (Pos.succ pkg_id) id occ Hin).
+Qed.
+
+(* --- COMPLETENESS: every source occurrence the spec designates is emitted by the traversal. --- *)
+
+Lemma occs_expr_complete : forall e parent role me id occ,
+  occ_expr' parent role me e id = Some occ -> In (id, occ) (occs_expr parent role me e).
+Proof.
+  induction e as [ b | n1 | n2 | s | it x IHx | df | ft x IHx | dcx | ct x IHx ];
+    intros parent role me id occ H; cbn [occs_expr occ_expr'] in *;
+    try (destruct (Pos.eqb_spec id me); [injection H as <-; subst id; left; reflexivity | discriminate]);
+    (destruct (Pos.eqb_spec id me);
+     [ injection H as <-; subst id; left; reflexivity
+     | right; apply (IHx me RConversionOperand (Pos.succ me) id occ H) ]).
+Qed.
+
+Lemma occs_args_complete : forall es parent aidx me id occ,
+  occ_exprs' parent aidx me es id = Some occ -> In (id, occ) (occs_args parent aidx me es).
+Proof.
+  induction es as [|e rest IH]; intros parent aidx me id occ H; cbn [occs_args occ_exprs'] in *; [discriminate|].
+  destruct (Pos.leb_spec id (end_expr me e)).
+  - apply in_or_app. left. apply (occs_expr_complete e parent (RPrintlnArg aidx) me id occ H).
+  - apply in_or_app. right. apply (IH parent (S aidx) (Pos.succ (end_expr me e)) id occ H).
+Qed.
+
+Lemma occs_stmt_complete : forall s parent sidx me id occ,
+  occ_stmt' parent sidx me s id = Some occ -> In (id, occ) (occs_stmt parent sidx me s).
+Proof.
+  intros [args] parent sidx me id occ H. cbn [occs_stmt occ_stmt'] in *.
+  destruct (Pos.eqb_spec id me).
+  - injection H as <-. subst id. left. reflexivity.
+  - right. apply (occs_args_complete args me 0 (Pos.succ me) id occ H).
+Qed.
+
+Lemma occs_stmts_complete : forall ss parent sidx me id occ,
+  occ_stmts' parent sidx me ss id = Some occ -> In (id, occ) (occs_stmts parent sidx me ss).
+Proof.
+  induction ss as [|s rest IH]; intros parent sidx me id occ H; cbn [occs_stmts occ_stmts'] in *; [discriminate|].
+  destruct (Pos.leb_spec id (end_stmt me s)).
+  - apply in_or_app. left. apply (occs_stmt_complete s parent sidx me id occ H).
+  - apply in_or_app. right. apply (IH parent (S sidx) (Pos.succ (end_stmt me s)) id occ H).
+Qed.
+
+Lemma occs_decl_complete : forall d parent didx me id occ,
+  occ_decl' parent didx me d id = Some occ -> In (id, occ) (occs_decl parent didx me d).
+Proof.
+  intros [body] parent didx me id occ H. cbn [occs_decl occ_decl'] in *.
+  destruct (Pos.eqb_spec id me).
+  - injection H as <-. subst id. left. reflexivity.
+  - right. apply (occs_stmts_complete body me 0 (Pos.succ me) id occ H).
+Qed.
+
+Lemma occs_decls_complete : forall ds parent didx me id occ,
+  occ_decls' parent didx me ds id = Some occ -> In (id, occ) (occs_decls parent didx me ds).
+Proof.
+  induction ds as [|d rest IH]; intros parent didx me id occ H; cbn [occs_decls occ_decls'] in *; [discriminate|].
+  destruct (Pos.leb_spec id (end_decl me d)).
+  - apply in_or_app. left. apply (occs_decl_complete d parent didx me id occ H).
+  - apply in_or_app. right. apply (IH parent (S didx) (Pos.succ (end_decl me d)) id occ H).
+Qed.
+
+Theorem occs_file_complete : forall f id occ,
+  source_occurrence_at f id = Some occ -> In (id, occ) (occs_file f).
+Proof.
+  intros f id occ. unfold occs_file, source_occurrence_at.
+  destruct (source_imports f) as [|i ?]; [| destruct i].
+  destruct (Pos.eqb_spec id root_id).
+  - intros Heq. injection Heq as <-. subst id. left. reflexivity.
+  - destruct (Pos.eqb_spec id pkg_id).
+    + intros Heq. injection Heq as <-. subst id. right; left. reflexivity.
+    + intros H. right; right. apply (occs_decls_complete (source_decls f) root_id 0 (Pos.succ pkg_id) id occ H).
+Qed.
+
+(* the traversal is EXACT: it lists exactly the graph of [source_occurrence_at] over the valid ids. *)
+Theorem occs_file_exact : forall f id occ,
+  In (id, occ) (occs_file f) <-> source_occurrence_at f id = Some occ.
+Proof. intros f id occ. split; [apply occs_file_sound | apply occs_file_complete]. Qed.
+
+(* --- CANONICAL PREORDER ORDER: the emitted ids are strictly increasing. --- *)
+
+Lemma SS_app_pos : forall (l1 l2 : list positive),
+  StronglySorted Pos.lt l1 -> StronglySorted Pos.lt l2 ->
+  (forall x y, In x l1 -> In y l2 -> (x < y)%positive) ->
+  StronglySorted Pos.lt (l1 ++ l2).
+Proof.
+  induction l1 as [|a l1 IH]; intros l2 H1 H2 Hcross; cbn [app]; [exact H2|].
+  inversion H1 as [|a0 l0 HSS1 HF1]; subst.
+  constructor.
+  - apply IH; [exact HSS1 | exact H2 | intros x y Hx Hy; apply Hcross; [right; exact Hx | exact Hy]].
+  - apply Forall_forall. intros y Hy. apply in_app_or in Hy. destruct Hy as [Hy|Hy].
+    + rewrite Forall_forall in HF1. apply HF1; exact Hy.
+    + apply Hcross; [left; reflexivity | exact Hy].
+Qed.
+
+Lemma occs_expr_fst : forall e parent role me y,
+  In y (map fst (occs_expr parent role me e)) -> (me <= y)%positive /\ (y <= end_expr me e)%positive.
+Proof.
+  intros e parent role me y H. apply in_map_iff in H. destruct H as [[id occ] [Hf Hin]]. cbn in Hf. subst y.
+  split; [ apply (occs_expr_ge e parent role me id occ Hin) | apply (occs_expr_le e parent role me id occ Hin) ].
+Qed.
+Lemma occs_args_fst : forall es parent aidx me y,
+  In y (map fst (occs_args parent aidx me es)) -> (me <= y)%positive /\ (y < next_exprs me es)%positive.
+Proof.
+  intros es parent aidx me y H. apply in_map_iff in H. destruct H as [[id occ] [Hf Hin]]. cbn in Hf. subst y.
+  split; [ apply (occs_args_ge es parent aidx me id occ Hin) | apply (occs_args_lt es parent aidx me id occ Hin) ].
+Qed.
+Lemma occs_stmt_fst : forall s parent sidx me y,
+  In y (map fst (occs_stmt parent sidx me s)) -> (me <= y)%positive /\ (y <= end_stmt me s)%positive.
+Proof.
+  intros s parent sidx me y H. apply in_map_iff in H. destruct H as [[id occ] [Hf Hin]]. cbn in Hf. subst y.
+  split; [ apply (occs_stmt_ge s parent sidx me id occ Hin) | apply (occs_stmt_le s parent sidx me id occ Hin) ].
+Qed.
+Lemma occs_stmts_fst : forall ss parent sidx me y,
+  In y (map fst (occs_stmts parent sidx me ss)) -> (me <= y)%positive /\ (y < next_stmts me ss)%positive.
+Proof.
+  intros ss parent sidx me y H. apply in_map_iff in H. destruct H as [[id occ] [Hf Hin]]. cbn in Hf. subst y.
+  split; [ apply (occs_stmts_ge ss parent sidx me id occ Hin) | apply (occs_stmts_lt ss parent sidx me id occ Hin) ].
+Qed.
+Lemma occs_decl_fst : forall d parent didx me y,
+  In y (map fst (occs_decl parent didx me d)) -> (me <= y)%positive /\ (y <= end_decl me d)%positive.
+Proof.
+  intros d parent didx me y H. apply in_map_iff in H. destruct H as [[id occ] [Hf Hin]]. cbn in Hf. subst y.
+  split; [ apply (occs_decl_ge d parent didx me id occ Hin) | apply (occs_decl_le d parent didx me id occ Hin) ].
+Qed.
+Lemma occs_decls_fst : forall ds parent didx me y,
+  In y (map fst (occs_decls parent didx me ds)) -> (me <= y)%positive /\ (y < next_decls me ds)%positive.
+Proof.
+  intros ds parent didx me y H. apply in_map_iff in H. destruct H as [[id occ] [Hf Hin]]. cbn in Hf. subst y.
+  split; [ apply (occs_decls_ge ds parent didx me id occ Hin) | apply (occs_decls_lt ds parent didx me id occ Hin) ].
+Qed.
+
+Lemma occs_expr_sorted : forall e parent role me, StronglySorted Pos.lt (map fst (occs_expr parent role me e)).
+Proof.
+  induction e as [ b | n1 | n2 | s | it x IHx | df | ft x IHx | dcx | ct x IHx ];
+    intros parent role me; cbn [occs_expr map fst];
+    try (constructor; [constructor | constructor]);
+    (constructor;
+     [ apply IHx
+     | apply Forall_forall; intros y Hy;
+       pose proof (occs_expr_fst x me RConversionOperand (Pos.succ me) y Hy) as [Hge _]; lia ]).
+Qed.
+
+Lemma occs_args_sorted : forall es parent aidx me, StronglySorted Pos.lt (map fst (occs_args parent aidx me es)).
+Proof.
+  induction es as [|e rest IH]; intros parent aidx me; cbn [occs_args]; [constructor|].
+  rewrite map_app. apply SS_app_pos.
+  - unfold occs_arg. apply occs_expr_sorted.
+  - apply IH.
+  - intros x y Hx Hy. pose proof (occs_expr_fst e parent (RPrintlnArg aidx) me x Hx) as [_ Hxle].
+    pose proof (occs_args_fst rest parent (S aidx) (Pos.succ (end_expr me e)) y Hy) as [Hyge _]. lia.
+Qed.
+
+Lemma occs_stmt_sorted : forall s parent sidx me, StronglySorted Pos.lt (map fst (occs_stmt parent sidx me s)).
+Proof.
+  intros [args] parent sidx me. cbn [occs_stmt map fst].
+  constructor.
+  - apply occs_args_sorted.
+  - apply Forall_forall. intros y Hy.
+    pose proof (occs_args_fst args me 0 (Pos.succ me) y Hy) as [Hge _]. lia.
+Qed.
+
+Lemma occs_stmts_sorted : forall ss parent sidx me, StronglySorted Pos.lt (map fst (occs_stmts parent sidx me ss)).
+Proof.
+  induction ss as [|s rest IH]; intros parent sidx me; cbn [occs_stmts]; [constructor|].
+  rewrite map_app. apply SS_app_pos.
+  - apply occs_stmt_sorted.
+  - apply IH.
+  - intros x y Hx Hy. pose proof (occs_stmt_fst s parent sidx me x Hx) as [_ Hxle].
+    pose proof (occs_stmts_fst rest parent (S sidx) (Pos.succ (end_stmt me s)) y Hy) as [Hyge _]. lia.
+Qed.
+
+Lemma occs_decl_sorted : forall d parent didx me, StronglySorted Pos.lt (map fst (occs_decl parent didx me d)).
+Proof.
+  intros [body] parent didx me. cbn [occs_decl map fst].
+  constructor.
+  - apply occs_stmts_sorted.
+  - apply Forall_forall. intros y Hy.
+    pose proof (occs_stmts_fst body me 0 (Pos.succ me) y Hy) as [Hge _]. lia.
+Qed.
+
+Lemma occs_decls_sorted : forall ds parent didx me, StronglySorted Pos.lt (map fst (occs_decls parent didx me ds)).
+Proof.
+  induction ds as [|d rest IH]; intros parent didx me; cbn [occs_decls]; [constructor|].
+  rewrite map_app. apply SS_app_pos.
+  - apply occs_decl_sorted.
+  - apply IH.
+  - intros x y Hx Hy. pose proof (occs_decl_fst d parent didx me x Hx) as [_ Hxle].
+    pose proof (occs_decls_fst rest parent (S didx) (Pos.succ (end_decl me d)) y Hy) as [Hyge _]. lia.
+Qed.
+
+Theorem occs_file_sorted : forall f, StronglySorted Pos.lt (map fst (occs_file f)).
+Proof.
+  intros f. unfold occs_file. destruct (source_imports f) as [|i ?]; [| destruct i].
+  cbn [map fst]. constructor.
+  - constructor.
+    + apply occs_decls_sorted.
+    + apply Forall_forall. intros y Hy.
+      pose proof (occs_decls_fst (source_decls f) root_id 0 (Pos.succ pkg_id) y Hy) as [Hge _].
+      unfold pkg_id in *. lia.
+  - apply Forall_forall. intros y Hy. cbn [In] in Hy. destruct Hy as [Hy|Hy].
+    + subst y. unfold pkg_id, root_id. lia.
+    + pose proof (occs_decls_fst (source_decls f) root_id 0 (Pos.succ pkg_id) y Hy) as [Hge _].
+      unfold pkg_id, root_id in *. lia.
+Qed.
+
+(* NoDup of the emitted ids follows from strict sortedness. *)
+Lemma SS_nodup : forall (l : list positive), StronglySorted Pos.lt l -> NoDup l.
+Proof.
+  induction l as [|x rest IH]; intros HS; [constructor|].
+  inversion HS as [|a0 l0 HSS HF]; subst. constructor.
+  - intros Hin. rewrite Forall_forall in HF. specialize (HF x Hin). lia.
+  - apply IH. exact HSS.
+Qed.
+Theorem occs_file_nodup : forall f, NoDup (map fst (occs_file f)).
+Proof. intros f. apply SS_nodup, occs_file_sorted. Qed.
+
 (* The public interface of the reference layer.  It exposes the abstract PROGRAM-indexed types, the validated
    MINTING boundaries, the projections, the TOTAL navigation API, and the theorem surfaces — but NOT the raw
    record constructors nor the raw index map.  Sealing the module against this signature makes "the only way
@@ -1772,6 +2261,20 @@ Module Type SNAP_SIG.
     node_ref_local r <> root_id -> RefAncestor p idx (file_root_ref (node_ref_file r)) r.
   Parameter thm_refs_reachable : forall p (idx : SyntaxIndex p) (fr : FileRef p) (r : NodeRef p),
     In r (file_refs idx fr) -> r = file_root_ref fr \/ RefAncestor p idx (file_root_ref fr) r.
+  (* §19 the canonical INDEXED TRAVERSAL: ONE structural pass over the file's source yields each occurrence's
+     validated NodeRef paired with its ORIGINAL syntax (its SourceOccurrence, which carries the syntax VIEW) —
+     the fragment comes from the pass, never a per-node search.  It is EXACT (the paired occurrence IS the
+     reference's [source_occurrence_of_ref]) and same-file, COMPLETE over the file, in canonical source
+     preorder ORDER, and NoDup. *)
+  Parameter visit_file : forall {p}, FileRef p -> list (NodeRef p * SourceOccurrence).
+  Parameter visit_file_view : forall p (fr : FileRef p) (r : NodeRef p) (occ : SourceOccurrence),
+    In (r, occ) (visit_file fr) -> occ = source_occurrence_of_ref r /\ node_ref_file r = fr.
+  Parameter visit_file_complete : forall p (fr : FileRef p) (r : NodeRef p),
+    node_ref_file r = fr -> In (r, source_occurrence_of_ref r) (visit_file fr).
+  Parameter visit_file_order : forall p (fr : FileRef p),
+    StronglySorted Pos.lt (map (fun rc => node_ref_local (fst rc)) (visit_file fr)).
+  Parameter visit_file_nodup : forall p (fr : FileRef p),
+    NoDup (map (fun rc => node_ref_local (fst rc)) (visit_file fr)).
 End SNAP_SIG.
 
 Module Snap : SNAP_SIG.
@@ -2510,6 +3013,90 @@ Proof.
   destruct (Pos.eq_dec (node_ref_local r) root_id) as [Hroot|Hnroot].
   - left. apply node_ref_ext; [ rewrite Hf; reflexivity | rewrite Hroot; reflexivity ].
   - right. rewrite <- Hf. apply thm_reachable_from_root. exact Hnroot.
+Qed.
+
+(* --- §19 the canonical indexed traversal: mint a validated NodeRef at each structural position. --- *)
+
+Lemma occs_file_valid {p} (fr : FileRef p) :
+  forall id occ, In (id, occ) (occs_file (file_ref_source fr)) -> valid_localb (file_ref_source fr) id = true.
+Proof.
+  intros id occ Hin. pose proof (occs_file_sound (file_ref_source fr) id occ Hin) as Hs.
+  unfold valid_localb. rewrite (source_occurrence_meta (file_ref_source fr) id occ Hs). reflexivity.
+Qed.
+
+Fixpoint visit_lift {p} (fr : FileRef p) (l : list (positive * SourceOccurrence))
+  : (forall id occ, In (id, occ) l -> valid_localb (file_ref_source fr) id = true) -> list (NodeRef p * SourceOccurrence) :=
+  match l with
+  | [] => fun _ => []
+  | (id, occ) :: rest => fun H =>
+      (mkNodeRef p fr id (H id occ (or_introl eq_refl)), occ)
+        :: visit_lift fr rest (fun i o Hin => H i o (or_intror Hin))
+  end.
+
+Definition visit_file {p} (fr : FileRef p) : list (NodeRef p * SourceOccurrence) :=
+  visit_lift fr (occs_file (file_ref_source fr)) (occs_file_valid fr).
+
+Lemma visit_lift_in {p} (fr : FileRef p) l H (r : NodeRef p) occ :
+  In (r, occ) (visit_lift fr l H) -> node_ref_file r = fr /\ In (node_ref_local r, occ) l.
+Proof.
+  revert H. induction l as [|[id0 occ0] rest IH]; intros H Hin; simpl in Hin; [destruct Hin|].
+  destruct Hin as [Heq|Hin].
+  - injection Heq as <- <-. cbn [node_ref_file node_ref_local]. split; [reflexivity | left; reflexivity].
+  - destruct (IH (fun i o Hi => H i o (or_intror Hi)) Hin) as [Hf Hl]. split; [exact Hf | right; exact Hl].
+Qed.
+
+Lemma visit_lift_mem {p} (fr : FileRef p) l H (id : positive) (occ : SourceOccurrence) :
+  In (id, occ) l -> exists r, node_ref_file r = fr /\ node_ref_local r = id /\ In (r, occ) (visit_lift fr l H).
+Proof.
+  revert H. induction l as [|[id0 occ0] rest IH]; intros H Hin; simpl in Hin; [destruct Hin|].
+  destruct Hin as [Heq|Hin].
+  - injection Heq as <- <-. exists (mkNodeRef p fr id0 (H id0 occ0 (or_introl eq_refl))).
+    cbn [node_ref_file node_ref_local]. split; [reflexivity | split; [reflexivity | left; reflexivity]].
+  - destruct (IH (fun i o Hi => H i o (or_intror Hi)) Hin) as [r [Hf [Hl Hin']]].
+    exists r. split; [exact Hf | split; [exact Hl | right; exact Hin']].
+Qed.
+
+Lemma visit_lift_local {p} (fr : FileRef p) l H :
+  map (fun rc => node_ref_local (fst rc)) (visit_lift fr l H) = map fst l.
+Proof.
+  revert H. induction l as [|[id0 occ0] rest IH]; intros H; simpl; [reflexivity|].
+  cbn [node_ref_local fst]. rewrite IH. reflexivity.
+Qed.
+
+Theorem visit_file_view (p : GoProgram) (fr : FileRef p) (r : NodeRef p) (occ : SourceOccurrence) :
+  In (r, occ) (visit_file fr) -> occ = source_occurrence_of_ref r /\ node_ref_file r = fr.
+Proof.
+  intros Hin. destruct (visit_lift_in fr (occs_file (file_ref_source fr)) (occs_file_valid fr) r occ Hin) as [Hf Hl].
+  split; [| exact Hf].
+  pose proof (occs_file_sound (file_ref_source fr) (node_ref_local r) occ Hl) as Hs.
+  pose proof (source_occ_of_ref_eq r) as He. rewrite Hf in He. rewrite Hs in He.
+  injection He as He2. exact He2.
+Qed.
+
+Theorem visit_file_complete (p : GoProgram) (fr : FileRef p) (r : NodeRef p) :
+  node_ref_file r = fr -> In (r, source_occurrence_of_ref r) (visit_file fr).
+Proof.
+  intros Hf.
+  pose proof (source_occ_of_ref_eq r) as He. rewrite Hf in He.
+  pose proof (occs_file_complete (file_ref_source fr) (node_ref_local r) (source_occurrence_of_ref r) He) as Hin.
+  destruct (visit_lift_mem fr (occs_file (file_ref_source fr)) (occs_file_valid fr)
+              (node_ref_local r) (source_occurrence_of_ref r) Hin) as [r' [Hf' [Hl' Hin']]].
+  assert (Hr : r' = r) by (apply node_ref_ext; [ rewrite Hf', Hf; reflexivity | exact Hl' ]).
+  subst r'. exact Hin'.
+Qed.
+
+Theorem visit_file_order (p : GoProgram) (fr : FileRef p) :
+  StronglySorted Pos.lt (map (fun rc => node_ref_local (fst rc)) (visit_file fr)).
+Proof.
+  unfold visit_file. rewrite (visit_lift_local fr (occs_file (file_ref_source fr)) (occs_file_valid fr)).
+  apply occs_file_sorted.
+Qed.
+
+Theorem visit_file_nodup (p : GoProgram) (fr : FileRef p) :
+  NoDup (map (fun rc => node_ref_local (fst rc)) (visit_file fr)).
+Proof.
+  unfold visit_file. rewrite (visit_lift_local fr (occs_file (file_ref_source fr)) (occs_file_valid fr)).
+  apply occs_file_nodup.
 Qed.
 
 End Snap.
