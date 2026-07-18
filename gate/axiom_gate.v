@@ -382,6 +382,13 @@ Print Assumptions GoCompile.file_main_refs_length.
 Print Assumptions GoCompile.package_main_refs_present.
 Print Assumptions GoCompile.package_main_refs_bucket_len.
 Print Assumptions GoCompile.package_main_refs_singleton_on_success.
+Print Assumptions GoCompile.package_main_refs_belongs.
+(* C3 §10/§12 — the SEALED fact tables (no forged/foreign key possible): every key with an entry is a visited
+   expression occurrence's key whose fact is exact; a package main BELONGS to its package (no swap). *)
+Print Assumptions GoCompile.prog_expr_facts_domain.
+Print Assumptions GoCompile.cf_package_singleton.
+(* C3 §18 — the legacy compile class projects the analysis diagnostics (matches the decision), not a rerun. *)
+Print Assumptions GoCompile.go_compile_class_spec.
 (* C3 decision (expression half): every println argument resolves IFF program_typedb / ProgramTyped. *)
 Print Assumptions GoCompile.expr_all_ok_program_typedb.
 Print Assumptions GoCompile.expr_all_ok_ProgramTyped.

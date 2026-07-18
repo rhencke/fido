@@ -1126,6 +1126,53 @@ Proof.
   intro Hin. rewrite prog_expr_facts_eq_spec. apply fold_facts_find; [ apply prog_visit_key_nodup | exact Hin ].
 Qed.
 
+(** DOMAIN EXACTNESS: EVERY key with an entry is a VISITED occurrence's key whose fact is exactly the stored
+    one — so no non-expression / file-root / foreign key can carry a fact (a forged entry is unrepresentable). *)
+Lemma fold_add_occ_fact_domain {p} (l : list (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence)) k f :
+  GoIndex.NodeKeyMapBase.find k (fold_right add_occ_fact (GoIndex.NodeKeyMapBase.empty ExprFact) l) = Some f ->
+  exists ro, In ro l /\ GoIndex.Snap.node_ref_key (fst ro) = k /\ occ_expr_fact (snd ro) = Some f.
+Proof.
+  induction l as [|ro rest IH]; intro Hf.
+  - rewrite GoIndex.NodeKeyMapFacts.empty_o in Hf; discriminate Hf.
+  - cbn [fold_right] in Hf. unfold add_occ_fact in Hf.
+    destruct (occ_expr_fact (snd ro)) as [f0|] eqn:Ef.
+    + destruct (GoIndex.thm8_nodekey_eq_dec (GoIndex.Snap.node_ref_key (fst ro)) k) as [He|Hne].
+      * subst k. rewrite GoIndex.nodekeymap_add_eq in Hf. injection Hf as <-.
+        exists ro. split; [left; reflexivity | split; [reflexivity | exact Ef]].
+      * rewrite GoIndex.nodekeymap_add_neq in Hf by exact Hne.
+        destruct (IH Hf) as [ro' [Hin [Hk Hfe]]]. exists ro'. split; [right; exact Hin | split; [exact Hk | exact Hfe]].
+    + destruct (IH Hf) as [ro' [Hin [Hk Hfe]]]. exists ro'. split; [right; exact Hin | split; [exact Hk | exact Hfe]].
+Qed.
+
+Lemma prog_expr_facts_domain (p : GoProgram) k f :
+  GoIndex.NodeKeyMapBase.find k (prog_expr_facts p) = Some f ->
+  exists (r : GoIndex.Snap.NodeRef p) occ, In (r, occ) (prog_visit p)
+    /\ GoIndex.Snap.node_ref_key r = k /\ occ_expr_fact occ = Some f.
+Proof.
+  rewrite prog_expr_facts_eq_spec. intro Hf.
+  destruct (fold_add_occ_fact_domain (prog_visit p) k f Hf) as [[r occ] [Hin [Hk Hfe]]].
+  exists r, occ. cbn [fst snd] in *. split; [exact Hin | split; [exact Hk | exact Hfe]].
+Qed.
+
+(** §10/§27 — the SEALED expression-fact table: the standard NodeKey map + its two exactness proofs (domain =
+    exactly the visited expression occurrences with a fact; each visited occurrence's fact is exact).  A forged
+    table with a foreign/file-root key is unrepresentable; the fact of any expression reference is recoverable. *)
+Record ExprFactTable (p : GoProgram) (ip : GoIndex.IndexedProgram p) : Type := mkExprFactTable {
+  eft_map      : GoIndex.NodeKeyMapBase.t ExprFact ;
+  eft_domain   : forall k f, GoIndex.NodeKeyMapBase.find k eft_map = Some f ->
+                   exists (r : GoIndex.Snap.NodeRef p) occ, In (r, occ) (prog_visit p)
+                     /\ GoIndex.Snap.node_ref_key r = k /\ occ_expr_fact occ = Some f ;
+  eft_complete : forall r occ, In (r, occ) (prog_visit p) ->
+                   GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key r) eft_map = occ_expr_fact occ
+}.
+Arguments mkExprFactTable {p ip} _ _ _.
+Arguments eft_map {p ip} _.
+Arguments eft_domain {p ip} _.
+Arguments eft_complete {p ip} _.
+
+Definition prog_expr_fact_table (p : GoProgram) (ip : GoIndex.IndexedProgram p) : ExprFactTable p ip :=
+  mkExprFactTable (prog_expr_facts p) (prog_expr_facts_domain p) (prog_expr_facts_find p).
+
 (* ---- the EXPRESSION DECISION: every println argument resolves IFF the program is [ProgramTyped] ---- *)
 
 Lemma forallb_flat_map {A B} (f : B -> bool) (g : A -> list B) (l : list A) :
@@ -2011,25 +2058,68 @@ Proof.
   exists d; reflexivity.
 Qed.
 
-Record PackageFact (p : GoProgram) : Type := mkPackageFact { pf_main : GoIndex.DeclRef p }.
-Arguments mkPackageFact {p} _.
-Arguments pf_main {p} _.
+(* ---- BELONGS: a main DeclRef in a package's bucket belongs to THAT package (its file's parent = the key) —
+   so two singleton main buckets cannot be swapped between packages. ---- *)
 
-(** the ONE canonical main of a represented package, TOTAL on a valid program: the singleton bucket's head.
-    The absent / empty / multiple cases are impossible (package present by [PackageRef]; singleton by validity),
-    so this is a genuine total function, not a fallback. *)
-Definition package_main_at {p} (idx : GoIndex.Snap.SyntaxIndex p) (H : AllPackagesOneMain p) (r : PackageRef p)
-  : GoIndex.DeclRef p.
+Lemma decl_collect_mem {p} (idx : GoIndex.Snap.SyntaxIndex p)
+  (l : list (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence)) (d : GoIndex.DeclRef p) :
+  In d (fold_right (fun ro acc => match GoIndex.as_decl idx (fst ro) with Some dr => dr :: acc | None => acc end) [] l) ->
+  exists ro, In ro l /\ GoIndex.as_decl idx (fst ro) = Some d.
 Proof.
-  destruct (PM.find (package_ref_key r) (package_main_refs idx)) as [l|] eqn:E.
-  - destruct l as [|d rest].
-    + exfalso. destruct (package_main_refs_singleton_on_success idx H (package_ref_key r) [] E) as [d Hd]; discriminate Hd.
-    + exact d.
-  - exfalso.
-    assert (Hin : PM.In (package_ref_key r) (package_main_refs idx)).
-    { apply (package_main_refs_present idx). exact (package_ref_ok r). }
-    apply PMF.in_find_iff in Hin. rewrite E in Hin. exact (Hin eq_refl).
-Defined.
+  induction l as [|ro rest IH]; intro Hin; [destruct Hin|].
+  cbn [fold_right] in Hin. destruct (GoIndex.as_decl idx (fst ro)) as [dr|] eqn:Ed.
+  - destruct Hin as [<-|Hin].
+    + exists ro. split; [left; reflexivity | exact Ed].
+    + destruct (IH Hin) as [ro' [Hin' Hd]]. exists ro'. split; [right; exact Hin' | exact Hd].
+  - destruct (IH Hin) as [ro' [Hin' Hd]]. exists ro'. split; [right; exact Hin' | exact Hd].
+Qed.
+
+Lemma file_main_refs_file {p} (idx : GoIndex.Snap.SyntaxIndex p) (fr : GoIndex.Snap.FileRef p) (d : GoIndex.DeclRef p) :
+  In d (file_main_refs idx fr) -> GoIndex.Snap.node_ref_file (GoIndex.erase_ref d) = fr.
+Proof.
+  intro Hin. unfold file_main_refs in Hin.
+  destruct (decl_collect_mem idx (GoIndex.Snap.visit_file fr) d Hin) as [[r occ] [Hro Hd]]. cbn [fst] in Hd.
+  rewrite (GoIndex.erase_as_kind idx r GoIndex.KTopLevelDecl d Hd).
+  destruct (GoIndex.Snap.visit_file_view p fr r occ Hro) as [_ Hf]. exact Hf.
+Qed.
+
+Lemma mref_foldl_mem {p} (idx : GoIndex.Snap.SyntaxIndex p) : forall l acc dir d,
+  In d (match PM.find dir (fold_left (fun a b => mref_step idx b a) l acc) with Some x => x | None => [] end) ->
+  (exists b, In b l /\ fp_parent (fst b) = dir /\ In d (binding_main_refs idx b))
+  \/ In d (match PM.find dir acc with Some x => x | None => [] end).
+Proof.
+  induction l as [|b rest IH]; intros acc dir d Hin; [right; exact Hin|].
+  cbn [fold_left] in Hin. destruct (IH (mref_step idx b acc) dir d Hin) as [[b' [Hb' [Hp' Hd']]] | Hrest].
+  - left. exists b'. split; [right; exact Hb' | split; [exact Hp' | exact Hd']].
+  - destruct (string_dec (fp_parent (fst b)) dir) as [He|Hne].
+    + rewrite (mref_step_find_eq idx b acc dir He) in Hrest. cbn [option_map] in Hrest.
+      apply in_app_or in Hrest. destruct Hrest as [Hd1|Hd2].
+      * left. exists b. split; [left; reflexivity | split; [exact He | apply in_rev; exact Hd1]].
+      * right. exact Hd2.
+    + rewrite (mref_step_find_neq idx b acc dir Hne) in Hrest. right. exact Hrest.
+Qed.
+
+Lemma package_main_refs_belongs {p} (idx : GoIndex.Snap.SyntaxIndex p) : forall dir l,
+  PM.find dir (package_main_refs idx) = Some l ->
+  forall d, In d l ->
+  fp_parent (GoIndex.Snap.file_ref_path (GoIndex.Snap.node_ref_file (GoIndex.erase_ref d))) = dir.
+Proof.
+  intros dir l Hfind d Hin.
+  unfold package_main_refs in Hfind. rewrite PMF.map_o in Hfind.
+  destruct (PM.find dir (package_main_refs_rev idx)) as [lr|] eqn:Erev; cbn [option_map] in Hfind;
+    [ injection Hfind as <- | discriminate Hfind ].
+  apply in_rev in Hin.
+  assert (Hb : In d (match PM.find dir (package_main_refs_rev idx) with Some x => x | None => [] end))
+    by (rewrite Erev; exact Hin).
+  unfold package_main_refs_rev in Hb.
+  destruct (mref_foldl_mem idx (GoAST.file_bindings (prog_files p)) (PM.empty _) dir d Hb) as [[b [_ [Hp Hd]]] | Hempty].
+  - unfold binding_main_refs in Hd. destruct (GoIndex.Snap.file_of_path p (fst b)) as [fr|] eqn:Ef; [| destruct Hd].
+    rewrite (file_main_refs_file idx fr d Hd), (GoIndex.Snap.file_of_path_sound p (fst b) fr Ef). exact Hp.
+  - rewrite PMF.empty_o in Hempty. destruct Hempty.
+Qed.
+
+(* (The per-package main is exposed as [package_main_at] over [CompilationFacts] below — a projection of the
+   retained buckets + validity, not a separate [idx]-recomputation.) *)
 
 (* ============================================================================================================
    §8 (C3) — the PACKAGE diagnostics.  Every package with a main count other than one is a failure; the anchor
@@ -2206,24 +2296,59 @@ Qed.
     PackageMap), each with its EXACTNESS proof, plus the compiled validity.  Facts are exposed ONLY on
     success. *)
 Record CompilationFacts (p : GoProgram) (ip : GoIndex.IndexedProgram p) : Type := mkCompilationFacts {
-  cf_expr_facts     : GoIndex.NodeKeyMapBase.t ExprFact ;
-  cf_package_refs   : PM.t (list (GoIndex.DeclRef p)) ;
-  (* the fact at each program-visited occurrence's key IS exactly that occurrence's fact (no copied syntax). *)
-  cf_expr_exact     : forall r occ, In (r, occ) (prog_visit p) ->
-                        GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key r) cf_expr_facts = occ_expr_fact occ ;
+  (* the SEALED expression-fact table: no non-expression/foreign key, each visited occurrence's fact exact. *)
+  cf_expr_facts      : ExprFactTable p ip ;
+  cf_package_refs    : PM.t (list (GoIndex.DeclRef p)) ;
   (* the bucket map's domain is exactly the represented package set... *)
   cf_package_present : forall dir, PM.In dir cf_package_refs <-> list_dir_mem dir (GoAST.file_bindings (prog_files p)) = true ;
-  (* ...and each present bucket's length is the package's declarative main count. *)
-  cf_package_len    : forall dir l, PM.find dir cf_package_refs = Some l -> length l = pkg_main_count dir (prog_files p) ;
-  cf_valid          : ProgValid p
+  (* ...each present bucket's length is the package's declarative main count... *)
+  cf_package_len     : forall dir l, PM.find dir cf_package_refs = Some l -> length l = pkg_main_count dir (prog_files p) ;
+  (* ...and every main in a bucket BELONGS to that package (its file's parent = the key) — no swap between packages. *)
+  cf_package_belongs : forall dir l, PM.find dir cf_package_refs = Some l ->
+                         forall d, In d l ->
+                         fp_parent (GoIndex.Snap.file_ref_path (GoIndex.Snap.node_ref_file (GoIndex.erase_ref d))) = dir ;
+  cf_valid           : ProgValid p
 }.
 Arguments mkCompilationFacts {p ip} _ _ _ _ _ _.
 Arguments cf_expr_facts {p ip} _.
 Arguments cf_package_refs {p ip} _.
-Arguments cf_expr_exact {p ip} _.
 Arguments cf_package_present {p ip} _.
 Arguments cf_package_len {p ip} _.
+Arguments cf_package_belongs {p ip} _.
 Arguments cf_valid {p ip} _.
+
+(** §10 — the public expression-fact query, through a TYPED reference (not a raw key): total function returning
+    the occurrence's fact if present.  On a valid program every expression reference has an entry. *)
+Definition expr_fact_at {p ip} (facts : CompilationFacts p ip) (er : GoIndex.ExprRef p) : option ExprFact :=
+  GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key (GoIndex.erase_ref er)) (eft_map (cf_expr_facts facts)).
+
+(** on SUCCESS each package's bucket is a singleton (length = main count = 1). *)
+Lemma cf_package_singleton {p ip} (facts : CompilationFacts p ip) dir l :
+  PM.find dir (cf_package_refs facts) = Some l -> exists d, l = [d].
+Proof.
+  intro E. pose proof (cf_package_len facts dir l E) as Hlen.
+  assert (Hmem : list_dir_mem dir (GoAST.file_bindings (prog_files p)) = true).
+  { apply (cf_package_present facts dir). apply PMF.in_find_iff. rewrite E. discriminate. }
+  assert (Hmt : PM.MapsTo dir (mkPkgSummary (pkg_main_count dir (prog_files p))) (package_summaries (prog_files p))).
+  { apply PMF.find_mapsto_iff. rewrite package_summaries_find, Hmem. reflexivity. }
+  pose proof (proj2 (cf_valid facts) dir _ Hmt) as Hone. cbn [ps_main_count] in Hone.
+  rewrite Hone in Hlen. destruct l as [|d [|d2 rest]]; cbn [length] in Hlen; try discriminate. exists d; reflexivity.
+Qed.
+
+(** the public package-main query, TOTAL on success: the package's ONE canonical main, a PROJECTION of the
+    retained facts (the singleton bucket's head) — never recomputed from a separate index. *)
+Definition package_main_at {p ip} (facts : CompilationFacts p ip) (r : PackageRef p) : GoIndex.DeclRef p.
+Proof.
+  remember (PM.find (package_ref_key r) (cf_package_refs facts)) as o eqn:E.
+  destruct o as [l|].
+  - destruct l as [|d rest].
+    + exfalso. destruct (cf_package_singleton facts (package_ref_key r) [] (eq_sym E)) as [d Hd]; discriminate Hd.
+    + exact d.
+  - exfalso.
+    assert (Hin : PM.In (package_ref_key r) (cf_package_refs facts))
+      by (apply (cf_package_present facts), (package_ref_ok r)).
+    apply PMF.in_find_iff in Hin. exact (Hin (eq_sym E)).
+Defined.
 
 Inductive AnalysisResult (p : GoProgram) (ip : GoIndex.IndexedProgram p) : Type :=
 | AnalysisOK     (facts : CompilationFacts p ip)
@@ -2253,11 +2378,11 @@ Definition analyze_valid_of_no_diags (p : GoProgram) (ip : GoIndex.IndexedProgra
 Definition analyze_indexed (p : GoProgram) (ip : GoIndex.IndexedProgram p) : AnalysisResult p ip :=
   match list_is_nil (collect_diagnostics p (GoIndex.indexed_syntax ip)) with
   | left He  => AnalysisOK (mkCompilationFacts
-                             (prog_expr_facts p)
+                             (prog_expr_fact_table p ip)
                              (package_main_refs (GoIndex.indexed_syntax ip))
-                             (prog_expr_facts_find p)
                              (package_main_refs_present (GoIndex.indexed_syntax ip))
                              (package_main_refs_bucket_len (GoIndex.indexed_syntax ip))
+                             (package_main_refs_belongs (GoIndex.indexed_syntax ip))
                              (analyze_valid_of_no_diags p ip He))
   | right Hne => AnalysisFailed (collect_diagnostics p (GoIndex.indexed_syntax ip)) Hne
   end.
@@ -2400,11 +2525,11 @@ Proof. intros p H; apply go_compile_complete, (proj1 (prog_ok_iff p)); exact H. 
     cp_program cp = p] is the shared observable. *)
 Definition compilable_of_valid (p : GoProgram) (H : GoCompile p) : CompilableProgram :=
   mkCompilable p (GoIndex.index_program p)
-    (mkCompilationFacts (prog_expr_facts p)
+    (mkCompilationFacts (prog_expr_fact_table p (GoIndex.index_program p))
        (package_main_refs (GoIndex.indexed_syntax (GoIndex.index_program p)))
-       (prog_expr_facts_find p)
        (package_main_refs_present (GoIndex.indexed_syntax (GoIndex.index_program p)))
        (package_main_refs_bucket_len (GoIndex.indexed_syntax (GoIndex.index_program p)))
+       (package_main_refs_belongs (GoIndex.indexed_syntax (GoIndex.index_program p)))
        H).
 
 (** fixture helper: a non-typed program is REJECTED at the TYPING legacy class — a projection of the carried
