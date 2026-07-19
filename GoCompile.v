@@ -26,7 +26,7 @@
        theorem): the declarative judgment matches `go build ./...` for every representable rendered
        program.  We do NOT invoke cmd/go from Rocq and claim no kernel theorem about it.
     ============================================================================ *)
-From Stdlib Require Import NArith ZArith List Bool String Arith Lia.
+From Stdlib Require Import NArith ZArith List Bool String Ascii Arith Lia.
 From Stdlib Require Import SetoidList Permutation.
 From Fido Require Import Ints Floats Complexes FilePath Collections GoAST GoIndex GoTypes.
 From Stdlib Require Import Eqdep_dec.
@@ -5538,3 +5538,126 @@ Theorem mixed_order_erased :
          ; mkErasedDiagnostic DCInvalidConversion (EANode (GoIndex.mkKey (mkFP "z/main.go" eq_refl) 5%positive))
              [] (Some (TInteger IInt8)) ].
 Proof. vm_compute. reflexivity. Qed.
+
+(** ============================================================================================
+    §C3-FRESH.1 — the pinned cmd/go DEFAULT-OUTPUT-NAME string layer.  Faithful to pinned Go 1.23.12
+    ([go env GOVERSION] = go1.23.12) [cmd/go/internal/load/pkg.go]: [isVersionElement] (1288-1298) and
+    [exeFromImportPath] (1675-1685) — the [DefaultExecName] path taken by a `go build ./...` (non-CmdlineFiles)
+    build.  Pure functions over the import-path STRING; NO filesystem path cleaning (inputs are canonical
+    import paths, per the contract).  Empirically confirmed against the pinned image (see SOURCE_FOREST_STATUS).
+    ============================================================================================ *)
+
+Local Open Scope string_scope.
+
+Definition ascii_is_digit (c : ascii) : bool :=
+  let n := nat_of_ascii c in andb (Nat.leb 48 n) (Nat.leb n 57).
+
+(* every byte of [s] is a decimal digit. *)
+Fixpoint str_all_digits (s : string) : bool :=
+  match s with
+  | EmptyString => true
+  | String c s' => andb (ascii_is_digit c) (str_all_digits s')
+  end.
+
+(* [isVersionElement] (pkg.go:1288-1298): [len>=2], [s[0]='v'], [s[1]<>'0'], not ([s[1]='1' /\ len=2]), and
+   every byte [s[1..]] is a decimal digit.  A single [andb] chain (no [if]) for a clean reflection. *)
+Definition is_version_element (s : string) : bool :=
+  match s with
+  | String c0 (String c1 rest) =>
+      andb (Ascii.eqb c0 "v"%char)
+        (andb (negb (Ascii.eqb c1 "0"%char))
+          (andb (negb (andb (Ascii.eqb c1 "1"%char)
+                            (match rest with EmptyString => true | _ => false end)))
+                (str_all_digits (String c1 rest))))
+  | _ => false
+  end.
+
+Fixpoint string_contains_slash (s : string) : bool :=
+  match s with
+  | EmptyString => false
+  | String c s' => orb (Ascii.eqb c "/"%char) (string_contains_slash s')
+  end.
+
+(* the import-path component AFTER the last '/'  (the whole string when there is no '/'). *)
+Fixpoint ip_basename (s : string) : string :=
+  match s with
+  | EmptyString => EmptyString
+  | String c s' =>
+      if Ascii.eqb c "/"%char then ip_basename s'
+      else if string_contains_slash s' then ip_basename s' else String c s'
+  end.
+
+(* the import-path prefix BEFORE the last '/'  (no trailing slash; empty when there is no '/').  This is
+   [pathpkg.Dir] for canonical (uncleaned, slash-separated, no-trailing-slash) import paths. *)
+Fixpoint ip_dirname (s : string) : string :=
+  match s with
+  | EmptyString => EmptyString
+  | String c s' => if string_contains_slash s' then String c (ip_dirname s') else EmptyString
+  end.
+
+(* [exeFromImportPath] (pkg.go:1675-1685), module-aware: the last import-path component, dropped to the
+   PREVIOUS component exactly when the last is a version element (and the path has an earlier component,
+   i.e. [elem <> importPath]). *)
+Definition default_exec_name (import_path : string) : string :=
+  let final := ip_basename import_path in
+  if andb (negb (String.eqb final import_path)) (is_version_element final)
+  then ip_basename (ip_dirname import_path)
+  else final.
+
+(** §C3-FRESH.1 reflection — [is_version_element] agrees with the pinned structural predicate. *)
+Lemma is_version_element_spec : forall s,
+  is_version_element s = true <->
+  (exists c1 rest, s = String "v"%char (String c1 rest)
+                   /\ c1 <> "0"%char
+                   /\ ~ (c1 = "1"%char /\ rest = EmptyString)
+                   /\ str_all_digits (String c1 rest) = true).
+Proof.
+  intros s. split.
+  - destruct s as [|c0 [|c1 rest]]; cbn [is_version_element]; try discriminate.
+    intro H.
+    apply andb_true_iff in H; destruct H as [Hv H].
+    apply andb_true_iff in H; destruct H as [H0 H].
+    apply andb_true_iff in H; destruct H as [H1 Hd].
+    apply Ascii.eqb_eq in Hv; subst c0.
+    exists c1, rest. split; [reflexivity | split; [ | split ] ].
+    + apply negb_true_iff, Ascii.eqb_neq in H0. exact H0.
+    + apply negb_true_iff, andb_false_iff in H1. intros [Hc1 Hre]. destruct H1 as [H1|H1].
+      * apply Ascii.eqb_neq in H1. exact (H1 Hc1).
+      * subst rest. cbn in H1. discriminate H1.
+    + exact Hd.
+  - intros [c1 [rest [Hs [H0 [H1 Hd]]]]]. subst s. cbn [is_version_element].
+    apply andb_true_iff; split; [ apply Ascii.eqb_refl |].
+    apply andb_true_iff; split.
+    + apply negb_true_iff. apply Ascii.eqb_neq. exact H0.
+    + apply andb_true_iff; split; [ | exact Hd ].
+      apply negb_true_iff, andb_false_iff.
+      destruct (Ascii.eqb c1 "1"%char) eqn:E1; [ | left; reflexivity ].
+      apply Ascii.eqb_eq in E1. subst c1. right. destruct rest as [|rc rr].
+      * exfalso. apply H1. split; reflexivity.
+      * reflexivity.
+Qed.
+
+(** §C3-FRESH.1 — is_version_element reflection FIXTURES (pinned Go 1.23.12, SOURCE_FOREST_STATUS-confirmed). *)
+Example ive_v0   : is_version_element "v0"   = false. Proof. reflexivity. Qed.
+Example ive_v00  : is_version_element "v00"  = false. Proof. reflexivity. Qed.
+Example ive_v01  : is_version_element "v01"  = false. Proof. reflexivity. Qed.
+Example ive_v05  : is_version_element "v05"  = false. Proof. reflexivity. Qed.
+Example ive_v1   : is_version_element "v1"   = false. Proof. reflexivity. Qed.
+Example ive_v2   : is_version_element "v2"   = true.  Proof. reflexivity. Qed.
+Example ive_v3   : is_version_element "v3"   = true.  Proof. reflexivity. Qed.
+Example ive_v10  : is_version_element "v10"  = true.  Proof. reflexivity. Qed.
+Example ive_v100 : is_version_element "v100" = true.  Proof. reflexivity. Qed.
+Example ive_v1x  : is_version_element "v1x"  = false. Proof. reflexivity. Qed.
+Example ive_v2x  : is_version_element "v2x"  = false. Proof. reflexivity. Qed.
+Example ive_V2   : is_version_element "V2"   = false. Proof. reflexivity. Qed.
+Example ive_v    : is_version_element "v"    = false. Proof. reflexivity. Qed.
+
+(** §C3-FRESH.1 — default_exec_name FIXTURES (the exact pinned import-path -> exe-name rule). *)
+Example den_root    : default_exec_name "example.com/m"         = "m".       Proof. reflexivity. Qed.
+Example den_sub     : default_exec_name "example.com/m/sub"     = "sub".     Proof. reflexivity. Qed.
+Example den_ab      : default_exec_name "example.com/m/a/b"     = "b".       Proof. reflexivity. Qed.
+Example den_av2     : default_exec_name "example.com/m/a/v2"    = "a".       Proof. reflexivity. Qed.
+Example den_v2      : default_exec_name "example.com/m/v2"      = "m".       Proof. reflexivity. Qed.
+Example den_maingo  : default_exec_name "example.com/main.go"   = "main.go". Proof. reflexivity. Qed.
+Example den_gomod   : default_exec_name "example.com/go.mod"    = "go.mod".  Proof. reflexivity. Qed.
+Example den_sub_v10 : default_exec_name "example.com/m/sub/v10" = "sub".     Proof. reflexivity. Qed.
