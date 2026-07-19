@@ -5752,3 +5752,63 @@ Lemma selected_one_dir : forall p b1 b2,
 Proof.
   intros p b1 b2 Hin1 _ _. apply selected_iff_file. exists b1. split; [ exact Hin1 | reflexivity ].
 Qed.
+
+(** ============================================================================================
+    §C3-FRESH.4 (§7) — the FRESH ROOT LAYOUT foundation + the conflict AUDIT.  A fresh materialization of the
+    DirectoryImage has, at its ROOT: the one [go.mod], each root-level source file, and one directory per
+    distinct first path-component of a nested source file.  [FreshRootEntryKind] tags a root entry.
+
+    THE AUDIT (§7): can one root key be BOTH a regular file and a directory?  NO — by the intrinsic FilePath
+    grammar.  A directory component is [component_ok] = [a-z][a-z0-9]* (DOT-FREE); a root source basename is
+    [filename_ok] (ends ".go", DOTTED) and the module file is "go.mod" (DOTTED).  So a directory key can never
+    equal a source-file key or "go.mod": the layout is conflict-free by construction — no rejecting validation
+    is needed (the impossibility is PROVED below, [dir_component_neq_gomod] and the dot lemmas).
+    ============================================================================================ *)
+
+Inductive FreshRootEntryKind : Type :=
+| FREGoMod
+| FRESourceFile (path : FilePath)
+| FREDirectory.
+
+(* the FIRST path component of a path string (before the first '/'); the whole name for a root-level file. *)
+Fixpoint first_component (s : string) : string :=
+  match s with
+  | EmptyString => EmptyString
+  | String c s' => if Ascii.eqb c "/"%char then EmptyString else String c (first_component s')
+  end.
+
+Fixpoint contains_dot (s : string) : bool :=
+  match s with EmptyString => false | String c s' => orb (Ascii.eqb c "."%char) (contains_dot s') end.
+
+Lemma contains_dot_app : forall a b, contains_dot (a ++ b) = orb (contains_dot a) (contains_dot b).
+Proof. induction a as [|c a IH]; intro b; simpl; [reflexivity | rewrite IH; apply Bool.orb_assoc]. Qed.
+
+(* a lowercase-or-digit byte is never '.'; a lowercase byte is never '.'. *)
+Lemma is_lower_digit_no_dot : forall c, FilePath.is_lower_digit c = true -> Ascii.eqb c "."%char = false.
+Proof.
+  intros c H. apply Bool.not_true_iff_false. intro E. apply Ascii.eqb_eq in E. subst c. vm_compute in H. discriminate H.
+Qed.
+
+Lemma tail_ok_no_dot : forall s, FilePath.tail_ok s = true -> contains_dot s = false.
+Proof.
+  induction s as [|c s' IH]; intro H; [reflexivity|].
+  cbn [FilePath.tail_ok] in H. apply andb_true_iff in H. destruct H as [Hc Hs].
+  cbn [contains_dot]. rewrite (is_lower_digit_no_dot c Hc); cbn [orb]. exact (IH Hs).
+Qed.
+
+Lemma component_ok_no_dot : forall s, FilePath.component_ok s = true -> contains_dot s = false.
+Proof.
+  intros [|c s'] H; [discriminate H|].
+  cbn [FilePath.component_ok] in H. apply andb_true_iff in H. destruct H as [Hc Hs].
+  cbn [contains_dot].
+  assert (Hne : Ascii.eqb c "."%char = false).
+  { apply Bool.not_true_iff_false. intro E. apply Ascii.eqb_eq in E. subst c. vm_compute in Hc. discriminate Hc. }
+  rewrite Hne; cbn [orb]. exact (tail_ok_no_dot s' Hs).
+Qed.
+
+(* a dot-free directory key can never equal the DOTTED module file name "go.mod". *)
+Lemma dir_component_neq_gomod : forall d, FilePath.dir_component_ok d = true -> d <> "go.mod".
+Proof.
+  intros d Hd Heq. subst d. unfold FilePath.dir_component_ok in Hd. apply andb_true_iff in Hd. destruct Hd as [Hc _].
+  pose proof (component_ok_no_dot _ Hc) as Hnd. vm_compute in Hnd. discriminate Hnd.
+Qed.
