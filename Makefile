@@ -8,9 +8,9 @@ override PLATFORM := linux/amd64
 .DEFAULT_GOAL := check
 
 # Fido (ARCHITECTURE.md): an LLM proposes a GoProgram (a ModuleSpec + a possibly-empty finite map of
-# intrinsic FilePath keys to raw file ASTs); emission is available only after Rocq proves GoCompile (exact
-# whole-program admissibility — whole-program typing via GoTypes + one-main-per-package, matching
-# `go build ./...`) and GoSafe.  Chain:
+# intrinsic FilePath keys to raw file ASTs); emission is available only after Rocq proves GoCompile — the EXACT
+# acceptance model for the pinned one-shot `go build ./...` (the fresh-build output preflight over the factored
+# source rules: whole-program typing via GoTypes + PackageDeclsUnique + MainPackagesHaveEntry) — and GoSafe.  Chain:
 #   GoProgram (GoFileMap source forest) -> GoTypes (untyped GoConst -> context-resolved GoType, ProgramTyped)
 #     -> GoCompile (fresh-build preflight + SourceProgramValid = the one-shot `go build ./...` acceptance)
 #     -> GoSafe -> direct GoRender (source-owned package clause + go.mod) -> complete
