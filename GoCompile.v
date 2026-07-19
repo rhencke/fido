@@ -4399,3 +4399,150 @@ Example complex_nonzero_imag_untyped    : program_typedb complex_nonzero_imag_pr
 Example complex_nonzero_imag_rejected   : legacy_compile_class (go_compile complex_nonzero_imag_program) = LCTyping. Proof. exact (go_compile_untyped _ complex_nonzero_imag_untyped). Qed.
 Example complex_nonzero_imag_no_compile : ~ GoCompile complex_nonzero_imag_program.
 Proof. apply (reject_no_compile complex_nonzero_imag_program); vm_compute; reflexivity. Qed.
+
+(** ============================================================================================================
+    §22/§23 (C3 FINAL) — CONCRETE STRUCTURED-DIAGNOSTIC FIXTURES.  Because the occurrence index is an OPAQUE
+    sealed module ([Snap : SNAP_SIG]), the analysis ([analyze]/[expr_diags]/[pkg_diags]/[erased_report]) does
+    NOT reduce — a fixture cannot [vm_compute] a concrete report.  So each fixture pins the REAL index
+    ([Snap.index_program] of the concrete program) and states its structured claim THROUGH the proven
+    soundness/determinism/emptiness bridges.  Non-vacuity comes from the COMPUTABLE type checker
+    ([program_typedb]/[pkg_all_ok], which DO reduce): a rejected program has a provably NON-EMPTY report
+    ([*_empty_iff] contrapositive), and every diagnostic in it is pinned by the family soundness theorem.
+    ============================================================================================================ *)
+
+Definition c3_ms : ModuleSpec := mkModuleSpec (ModulePath.mkMP "fido.local/generated" eq_refl) GoVersion.Go1_23.
+
+(** ---- §22.15 — REORDERED CONSTRUCTION: the SAME semantic file map built from PERMUTED [GoFileNode] input has
+    a byte-identical erased diagnostic report, the identical success/failure class, and the identical canonical
+    fact enumeration — construction order is not observable. ---- *)
+Definition rnode_a : GoFileNode := main_file_node (mkFP "a.go" eq_refl) [ DMain [ SPrintln [ EInt 1 ] ] ].
+Definition rnode_b : GoFileNode := main_file_node (mkFP "b.go" eq_refl) [ DMain [ SPrintln [ EInt 2 ] ] ].
+
+Example reorder_builds1 : exists p, build_program c3_ms [rnode_a; rnode_b] = Some p.
+Proof. eexists; vm_compute; reflexivity. Qed.
+Example reorder_builds2 : exists p, build_program c3_ms [rnode_b; rnode_a] = Some p.
+Proof. eexists; vm_compute; reflexivity. Qed.
+
+Theorem reorder_construction_deterministic :
+  forall p1 p2 (idx1 : GoIndex.Snap.SyntaxIndex p1) (idx2 : GoIndex.Snap.SyntaxIndex p2),
+    build_program c3_ms [rnode_a; rnode_b] = Some p1 ->
+    build_program c3_ms [rnode_b; rnode_a] = Some p2 ->
+    erased_report p1 idx1 = erased_report p2 idx2
+    /\ go_compile_class p1 = go_compile_class p2
+    /\ GoIndex.NodeKeyMapBase.elements (prog_expr_facts p1) = GoIndex.NodeKeyMapBase.elements (prog_expr_facts p2).
+Proof.
+  intros p1 p2 idx1 idx2 H1 H2.
+  assert (HFE : GoAST.FilesEqual (prog_files p1) (prog_files p2)).
+  { unfold build_program in H1, H2.
+    destruct (filemap_of_nodes [rnode_a; rnode_b]) as [fm1|] eqn:F1; [ | discriminate ].
+    destruct (filemap_of_nodes [rnode_b; rnode_a]) as [fm2|] eqn:F2; [ | discriminate ].
+    injection H1 as <-. injection H2 as <-. cbn [prog_files].
+    exact (filemap_of_nodes_permutation _ _ fm1 fm2 (perm_swap rnode_b rnode_a []) F1 F2). }
+  split; [ exact (erased_report_FilesEqual p1 p2 idx1 idx2 HFE) |].
+  split; [ exact (go_compile_class_Equal p1 p2 HFE) | exact (prog_expr_facts_enum_FilesEqual p1 p2 HFE) ].
+Qed.
+
+(** ---- §22.13 — EMPTY PROGRAM: the module-only program is ACCEPTED with an EMPTY erased report and an EMPTY
+    fact enumeration (no package to type, no `main` required). ---- *)
+Theorem empty_program_report :
+  erased_report (empty_program c3_ms) (GoIndex.Snap.index_program (empty_program c3_ms)) = nil
+  /\ GoIndex.NodeKeyMapBase.elements (prog_expr_facts (empty_program c3_ms)) = nil.
+Proof.
+  split.
+  - apply (proj2 (erased_report_empty_iff (empty_program c3_ms) _)).
+    rewrite analysis_ok_b_prog_ok. apply prog_ok_empty.
+  - vm_compute. reflexivity.
+Qed.
+
+(** ---- §22.8 — NESTED INVALID CONVERSION [float64(int8(128))]: the program is REJECTED, so its expression
+    report is genuinely NON-EMPTY, and EVERY invalid-conversion diagnostic in it carries a same-file,
+    nearest-first, duplicate-free STRICT-ANCESTOR conversion context (the outer [float64] strictly encloses the
+    primary [int8] — never fabricated syntax). ---- *)
+Definition nested_conv_program : GoProgram :=
+  singleton_program c3_ms (mkFP "main.go" eq_refl)
+    [ DMain [ SPrintln [ EFloatConvert F64 (EIntConvert IInt8 (EInt 128)) ] ] ].
+
+Example nested_conv_untyped : program_typedb nested_conv_program = false.
+Proof. vm_compute. reflexivity. Qed.
+
+Theorem nested_conv_report_nonempty :
+  expr_diags (GoIndex.Snap.index_program nested_conv_program) <> nil.
+Proof.
+  intro H. pose proof (proj1 (expr_diags_empty_iff (GoIndex.Snap.index_program nested_conv_program)) H) as Ht.
+  rewrite nested_conv_untyped in Ht. discriminate.
+Qed.
+
+Theorem nested_conv_scar_fixture :
+  forall er outer t ci,
+    In (DRInvalidConversion er outer t ci) (expr_diags (GoIndex.Snap.index_program nested_conv_program)) ->
+    (forall a, In a outer ->
+       is_conversion_occ (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref a)) = true
+       /\ Pos.lt (GoIndex.Snap.node_ref_local (GoIndex.erase_ref a)) (GoIndex.Snap.node_ref_local (GoIndex.erase_ref er))
+       /\ Pos.le (GoIndex.Snap.node_ref_local (GoIndex.erase_ref er))
+                 (GoIndex.Snap.node_subtree_end (GoIndex.Snap.index_program nested_conv_program) (GoIndex.erase_ref a)))
+    /\ Forall (fun a => GoIndex.Snap.node_ref_file (GoIndex.erase_ref a) = GoIndex.Snap.node_ref_file (GoIndex.erase_ref er)) outer
+    /\ StronglySorted (fun a b => Pos.lt (GoIndex.Snap.node_ref_local (GoIndex.erase_ref b))
+                                         (GoIndex.Snap.node_ref_local (GoIndex.erase_ref a))) outer
+    /\ NoDup outer.
+Proof.
+  intros er outer t ci Hin.
+  split; [ intros a Ha; exact (expr_diags_conv_scar_sound _ er outer t ci Hin a Ha) |].
+  exact (expr_diags_conv_scar_wf _ er outer t ci Hin).
+Qed.
+
+(** ---- §22.9/§22.11 — THREE MAINS IN ONE PACKAGE: the program is REJECTED (a package with != 1 main), so its
+    package report is genuinely NON-EMPTY, and EVERY duplicate-main diagnostic names a strictly-later,
+    genuinely-DISTINCT main in the SAME package, with the related [earlier] the unique smallest-NodeKey main. ---- *)
+Definition three_main_program : GoProgram :=
+  singleton_program c3_ms (mkFP "main.go" eq_refl)
+    [ DMain [ SPrintln [ EInt 1 ] ]; DMain [ SPrintln [ EInt 2 ] ]; DMain [ SPrintln [ EInt 3 ] ] ].
+
+Example three_main_pkg_bad : pkg_all_ok three_main_program = false.
+Proof. vm_compute. reflexivity. Qed.
+
+Theorem three_main_report_nonempty :
+  pkg_diags (GoIndex.Snap.index_program three_main_program) <> nil.
+Proof.
+  intro H. pose proof (proj1 (pkg_diags_empty_iff (GoIndex.Snap.index_program three_main_program)) H) as Hp.
+  rewrite three_main_pkg_bad in Hp. discriminate.
+Qed.
+
+Theorem three_main_dup_fixture :
+  forall later earlier,
+    In (DRDuplicateMain later earlier) (pkg_diags (GoIndex.Snap.index_program three_main_program)) ->
+    GoIndex.NodeKey_OT.lt (GoIndex.Snap.node_ref_key (GoIndex.erase_ref earlier))
+                          (GoIndex.Snap.node_ref_key (GoIndex.erase_ref later))
+    /\ earlier <> later
+    /\ fp_parent (GoIndex.Snap.file_ref_path (GoIndex.Snap.node_ref_file (GoIndex.erase_ref later)))
+       = fp_parent (GoIndex.Snap.file_ref_path (GoIndex.Snap.node_ref_file (GoIndex.erase_ref earlier))).
+Proof.
+  intros later earlier Hin.
+  destruct (pkg_diags_dup_precedence (GoIndex.Snap.index_program three_main_program) later earlier Hin) as [Hlt Hne].
+  destruct (pkg_diags_dup_sound (GoIndex.Snap.index_program three_main_program) later earlier Hin) as [Hpar _].
+  split; [ exact Hlt | split; [ exact Hne | exact Hpar ] ].
+Qed.
+
+(** ---- §22.12 — PACKAGE WITH NO MAIN: a represented package whose only file declares NO `main` is REJECTED, so
+    its package report is genuinely NON-EMPTY, and EVERY missing-main diagnostic anchors a genuinely represented
+    package that contains EXACTLY ZERO `main` declarations (no fake file/node primary). ---- *)
+Definition missing_main_program : GoProgram :=
+  singleton_program c3_ms (mkFP "main.go" eq_refl) [ ].
+
+Example missing_main_pkg_bad : pkg_all_ok missing_main_program = false.
+Proof. vm_compute. reflexivity. Qed.
+
+Theorem missing_main_report_nonempty :
+  pkg_diags (GoIndex.Snap.index_program missing_main_program) <> nil.
+Proof.
+  intro H. pose proof (proj1 (pkg_diags_empty_iff (GoIndex.Snap.index_program missing_main_program)) H) as Hp.
+  rewrite missing_main_pkg_bad in Hp. discriminate.
+Qed.
+
+Theorem missing_main_fixture :
+  forall pk,
+    In (DRMissingMain pk) (pkg_diags (GoIndex.Snap.index_program missing_main_program)) ->
+    package_present_b missing_main_program (package_ref_key pk) = true
+    /\ pkg_main_count (package_ref_key pk) (prog_files missing_main_program) = 0%nat.
+Proof.
+  intros pk Hin. exact (pkg_diags_missing_sound (GoIndex.Snap.index_program missing_main_program) pk Hin).
+Qed.

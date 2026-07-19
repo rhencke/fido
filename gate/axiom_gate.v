@@ -757,3 +757,16 @@ Print Assumptions GoIndex.nodekey_compare_eq.
 Print Assumptions GoIndex.nodekeymap_add_eq.
 Print Assumptions GoIndex.nodekeymap_add_neq.
 Print Assumptions GoIndex.nodekeymap_elements_Equal.
+(* C3 §22/§23 — CONCRETE STRUCTURED-DIAGNOSTIC FIXTURES over the REAL opaque index: reordered-construction
+   determinism (§22.15); empty-program empty report + empty facts (§22.13); the nested-conversion scar with a
+   provably NON-EMPTY report (§22.8); three-mains duplicate precedence/distinctness/same-package with a
+   NON-EMPTY report (§22.9/§22.11); and no-main package missing diagnostic with a NON-EMPTY report (§22.12).
+   Non-vacuity flows from the computable type checker; the structured claims through the gated bridges. *)
+Print Assumptions GoCompile.reorder_construction_deterministic.
+Print Assumptions GoCompile.empty_program_report.
+Print Assumptions GoCompile.nested_conv_report_nonempty.
+Print Assumptions GoCompile.nested_conv_scar_fixture.
+Print Assumptions GoCompile.three_main_report_nonempty.
+Print Assumptions GoCompile.three_main_dup_fixture.
+Print Assumptions GoCompile.missing_main_report_nonempty.
+Print Assumptions GoCompile.missing_main_fixture.
