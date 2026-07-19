@@ -2928,14 +2928,15 @@ Lemma go_compile_ok_of_prog_ok : forall p, prog_ok p = true -> exists cp Hcp, go
 Proof. intros p H; apply go_compile_complete, (proj1 (prog_ok_iff p)); exact H. Qed.
 
 (** the witness builder: from validity, [analyze_ok_full] destructures [analyze p] ONCE, delivering the bound
-    retained index [ip], its [CompilationFacts], and the whole-analysis provenance — which [mkCompilable]
-    carries directly.  [cp_program] is a direct first-field projection ([= p]) so rendering/emission never
-    reduce the (opaque, vm-compute-unfriendly) index analysis (F5).  This is the SAME single-destructuring
-    provenance [go_compile]'s success value carries — the two success artifacts are built the ONE way. *)
+    retained index [ip], its [CompilationFacts], and the whole-analysis provenance.  That single execution is
+    let-bound and all three constructor arguments PROJECT it — [cp_index], [cp_facts], and [cp_prov] come from
+    ONE analysis, never three reruns.  [cp_program] is a direct first-field projection ([= p]) so
+    rendering/emission never reduce the (opaque, vm-compute-unfriendly) index analysis (F5).  This is the SAME
+    single-destructuring provenance [go_compile]'s success value carries — the two artifacts are built ONE way. *)
 Definition compilable_of_valid (p : GoProgram) (H : GoCompile p) : CompilableProgram :=
-  mkCompilable p (projT1 (analyze_ok_full p H))
-                 (proj1_sig (projT2 (analyze_ok_full p H)))
-                 (proj2_sig (projT2 (analyze_ok_full p H))).
+  let s  := analyze_ok_full p H in
+  let fs := projT2 s in
+  mkCompilable p (projT1 s) (proj1_sig fs) (proj2_sig fs).
 
 (** fixture helper: a non-typed program is REJECTED at the TYPING legacy class — a projection of the carried
     diagnostics, never a [program_typedb] rerun. *)
