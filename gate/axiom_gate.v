@@ -177,9 +177,9 @@ Print Assumptions GoTypes.ProgramTyped_Equal.
 Print Assumptions GoTypes.program_typedb_Equal.
 Print Assumptions GoTypes.program_typedb_build_permutation.
 (* §20 — the per-occurrence typing predicate folded over the canonical source occurrence stream equals the
-   existing [source_file_typedb] (the leaf GoCompile's analysis consumes; the C2 indexed whole-program checker
-   is removed, §19/§26). *)
-Print Assumptions GoTypes.occs_file_typedb_eq.
+   existing [source_file_typedb].  This occurrence/traversal bridge lives in GoCompile (the sole GoIndex+GoTypes
+   meeting point); GoTypes owns the type/constant relation only and imports no GoIndex. *)
+Print Assumptions GoCompile.occs_file_typedb_eq.
 (* C3 §6 — the one-node semantic step: [const_info] reflects [const_info_step] applied to its child's status
    (the reusable one-pass leaf authority; convert_const stays the sole conversion authority). *)
 Print Assumptions GoTypes.const_info_step_reflect.
@@ -778,6 +778,7 @@ Print Assumptions GoCompile.fact_program_facts_exact.
 Print Assumptions GoCompile.fact_program_inner_literal.
 Print Assumptions GoCompile.fact_program_inner_conversion.
 Print Assumptions GoCompile.fact_program_outer_arg.
+Print Assumptions GoCompile.fact_program_outer_fact.
 Print Assumptions GoCompile.dup_lit_facts_exact.
 (* C3 §22.1-22.7 — single-failure scars: each concrete rejected program's EXACT one-diagnostic report (code +
    anchor + target): default int/float/complex overflow, invalid int8/fractional/nonzero-imaginary/wrong-kind

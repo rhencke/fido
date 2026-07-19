@@ -27,7 +27,7 @@
     ============================================================================ *)
 From Stdlib Require Import NArith ZArith List Bool String Ascii Lia.
 From Stdlib Require Import SetoidList Permutation.
-From Fido Require Import Ints Floats Complexes GoAST GoIndex.
+From Fido Require Import Ints Floats Complexes GoAST.
 Import ListNotations.
 Open Scope Z_scope.
 
@@ -1167,16 +1167,13 @@ Example int_of_cplx64_tiny_imag_is_3 :      (* (5) ... and its exact value is 3 
 Proof. vm_compute. reflexivity. Qed.
 
 (* =============================================================================================================
-   §20 — THE PER-OCCURRENCE TYPING PREDICATE.
+   §20 — GENERIC [forallb] HELPERS for the whole-program typing folds.
 
-   [occ_arg_typedb] is the leaf typing decision over ONE source occurrence: a println-argument occurrence is
-   typed iff its expression resolves (through the SAME [expr_typedb]/[const_info] resolver — no semantic
-   judgment is duplicated); every other occurrence is vacuously typed.  [occs_file_typedb_eq] proves that
-   folding it over the canonical source occurrence stream ([occs_file]) equals the existing
-   [source_file_typedb].  GoCompile's production analysis ([analyze]) is the ONE indexed whole-program
-   traversal that CONSUMES this predicate over its retained visit stream; GoTypes owns the type/constant
-   relation only, not the indexed executable (the former C2 [indexed_program_typedb] whole-program checker is
-   removed — §19/§26 — leaving no peer whole-program executable in GoTypes).
+   GoTypes owns the type/constant relation ONLY — never any occurrence/index traversal.  The per-occurrence
+   typing predicate ([occ_arg_typedb]) and its occurrence-stream aggregation chain ([occs_*_typedb_eq]) live in
+   GoCompile — the SOLE meeting point of GoIndex identity and GoTypes semantics — so GoTypes needs no GoIndex
+   import.  These two lemmas are index-free [forallb] plumbing reused by that chain (in GoCompile) and by the
+   whole-program folds here.
    ============================================================================================================= *)
 
 Lemma forallb_ext_in {A} (f g : A -> bool) (l : list A) :
@@ -1189,94 +1186,3 @@ Qed.
 Lemma forallb_map_snd {A B} (f : B -> bool) (l : list (A * B)) :
   forallb (fun x => f (snd x)) l = forallb f (map snd l).
 Proof. induction l as [|a l IH]; simpl; [reflexivity | rewrite IH; reflexivity]. Qed.
-
-(* the per-occurrence typing decision on the ORIGINAL syntax the traversal delivers: only a println-argument
-   expression occurrence carries a semantic obligation (delegated to [expr_typedb UsePrintlnArg]); every other
-   occurrence (file root, package clause, declaration, statement, conversion operand) is vacuously typed. *)
-Definition occ_arg_typedb (o : SourceOccurrence) : bool :=
-  match occurrence_role o with
-  | RPrintlnArg _ => match view_expr o with Some e => expr_typedb UsePrintlnArg e | None => true end
-  | _ => true
-  end.
-
-Lemma occ_arg_typedb_operand : forall e par sub,
-  occ_arg_typedb (mkOcc KExpression (ViewExpression e) (Some par) RConversionOperand sub) = true.
-Proof. reflexivity. Qed.
-
-Lemma occ_arg_typedb_printlnarg : forall e par aidx sub,
-  occ_arg_typedb (mkOcc KExpression (ViewExpression e) (Some par) (RPrintlnArg aidx) sub)
-  = expr_typedb UsePrintlnArg e.
-Proof. reflexivity. Qed.
-
-(* every occurrence inside a conversion operand carries role [RConversionOperand], hence is vacuously typed. *)
-Lemma occs_expr_operand_true : forall e parent me,
-  forallb (fun x => occ_arg_typedb (snd x)) (occs_expr parent RConversionOperand me e) = true.
-Proof.
-  induction e as [ b | n | n | s | it x IHx | df | ft x IHx | dc | ct x IHx ];
-    intros parent me; cbn [occs_expr forallb snd]; rewrite occ_arg_typedb_operand.
-  1,2,3,4,6,8: reflexivity.
-  all: rewrite Bool.andb_true_l; apply IHx.
-Qed.
-
-(* one println argument's occurrence stream types exactly as the existing [expr_typedb UsePrintlnArg]. *)
-Lemma occs_arg_typedb_eq : forall e parent aidx me,
-  forallb (fun x => occ_arg_typedb (snd x)) (occs_arg parent aidx me e) = expr_typedb UsePrintlnArg e.
-Proof.
-  intros e parent aidx me. unfold occs_arg.
-  destruct e as [ b | n | n | s | it x | df | ft x | dc | ct x ];
-    cbn [occs_expr forallb snd]; rewrite occ_arg_typedb_printlnarg.
-  1,2,3,4,6,8: apply Bool.andb_true_r.
-  all: rewrite occs_expr_operand_true; apply Bool.andb_true_r.
-Qed.
-
-Lemma occs_args_typedb_eq : forall es parent aidx me,
-  forallb (fun x => occ_arg_typedb (snd x)) (occs_args parent aidx me es)
-  = forallb (expr_typedb UsePrintlnArg) es.
-Proof.
-  induction es as [|e rest IH]; intros parent aidx me.
-  - reflexivity.
-  - cbn [occs_args]. rewrite forallb_app, occs_arg_typedb_eq, IH. reflexivity.
-Qed.
-
-Lemma occs_stmt_typedb_eq : forall s parent sidx me,
-  forallb (fun x => occ_arg_typedb (snd x)) (occs_stmt parent sidx me s) = stmt_typedb s.
-Proof.
-  intros [args] parent sidx me.
-  cbn [occs_stmt forallb snd occ_arg_typedb occurrence_role].
-  rewrite occs_args_typedb_eq. reflexivity.
-Qed.
-
-Lemma occs_stmts_typedb_eq : forall ss parent sidx me,
-  forallb (fun x => occ_arg_typedb (snd x)) (occs_stmts parent sidx me ss) = forallb stmt_typedb ss.
-Proof.
-  induction ss as [|s rest IH]; intros parent sidx me.
-  - reflexivity.
-  - cbn [occs_stmts]. rewrite forallb_app, occs_stmt_typedb_eq, IH. reflexivity.
-Qed.
-
-Lemma occs_decl_typedb_eq : forall d parent didx me,
-  forallb (fun x => occ_arg_typedb (snd x)) (occs_decl parent didx me d) = decl_typedb d.
-Proof.
-  intros [body] parent didx me.
-  cbn [occs_decl forallb snd occ_arg_typedb occurrence_role].
-  rewrite occs_stmts_typedb_eq. reflexivity.
-Qed.
-
-Lemma occs_decls_typedb_eq : forall ds parent didx me,
-  forallb (fun x => occ_arg_typedb (snd x)) (occs_decls parent didx me ds) = forallb decl_typedb ds.
-Proof.
-  induction ds as [|d rest IH]; intros parent didx me.
-  - reflexivity.
-  - cbn [occs_decls]. rewrite forallb_app, occs_decl_typedb_eq, IH. reflexivity.
-Qed.
-
-(* the WHOLE file's occurrence stream types exactly as the existing [source_file_typedb] (the file-root and
-   package-clause occurrences are vacuously typed; the body delegates to [occs_decls_typedb_eq]). *)
-Lemma occs_file_typedb_eq : forall f,
-  forallb (fun x => occ_arg_typedb (snd x)) (occs_file f) = source_file_typedb f.
-Proof.
-  intros f. unfold occs_file. destruct (source_imports f) as [|i tl] eqn:E.
-  - cbn [forallb snd occ_arg_typedb occurrence_role].
-    rewrite occs_decls_typedb_eq. unfold source_file_typedb, file_typedb. reflexivity.
-  - destruct i.
-Qed.

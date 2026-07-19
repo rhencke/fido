@@ -1354,19 +1354,121 @@ Lemma forallb_flat_map {A B} (f : B -> bool) (g : A -> list B) (l : list A) :
   forallb f (flat_map g l) = forallb (fun x => forallb f (g x)) l.
 Proof. induction l as [|a l IH]; simpl; [reflexivity | rewrite forallb_app, IH; reflexivity]. Qed.
 
+(* =============================================================================================================
+   §20 (moved from GoTypes) — THE PER-OCCURRENCE TYPING PREDICATE.  GoCompile is the SOLE meeting point of
+   GoIndex identity and GoTypes semantics, so this occurrence/traversal bridge (which needs BOTH [SourceOccurrence]
+   / [occs_file] from GoIndex and [expr_typedb] / [source_file_typedb] from GoTypes) lives HERE — GoTypes owns
+   the type/constant relation only and imports no GoIndex.  [occ_arg_typedb] is the leaf typing decision over ONE
+   source occurrence: a println-argument occurrence is typed iff its expression resolves (through the SAME
+   [GoTypes.expr_typedb] resolver — no semantic judgment duplicated); every other occurrence is vacuously typed.
+   [occs_file_typedb_eq] proves that folding it over the canonical occurrence stream ([occs_file]) equals the
+   existing [source_file_typedb].  [analyze] CONSUMES this over its retained visit stream.
+   ============================================================================================================= *)
+
+(* the per-occurrence typing decision on the ORIGINAL syntax the traversal delivers: only a println-argument
+   expression occurrence carries a semantic obligation (delegated to [expr_typedb UsePrintlnArg]); every other
+   occurrence (file root, package clause, declaration, statement, conversion operand) is vacuously typed. *)
+Definition occ_arg_typedb (o : GoIndex.SourceOccurrence) : bool :=
+  match GoIndex.occurrence_role o with
+  | GoIndex.RPrintlnArg _ => match GoIndex.view_expr o with Some e => GoTypes.expr_typedb GoTypes.UsePrintlnArg e | None => true end
+  | _ => true
+  end.
+
+Lemma occ_arg_typedb_operand : forall e par sub,
+  occ_arg_typedb (GoIndex.mkOcc GoIndex.KExpression (GoIndex.ViewExpression e) (Some par) GoIndex.RConversionOperand sub) = true.
+Proof. reflexivity. Qed.
+
+Lemma occ_arg_typedb_printlnarg : forall e par aidx sub,
+  occ_arg_typedb (GoIndex.mkOcc GoIndex.KExpression (GoIndex.ViewExpression e) (Some par) (GoIndex.RPrintlnArg aidx) sub)
+  = GoTypes.expr_typedb GoTypes.UsePrintlnArg e.
+Proof. reflexivity. Qed.
+
+(* every occurrence inside a conversion operand carries role [RConversionOperand], hence is vacuously typed. *)
+Lemma occs_expr_operand_true : forall e parent me,
+  forallb (fun x => occ_arg_typedb (snd x)) (GoIndex.occs_expr parent GoIndex.RConversionOperand me e) = true.
+Proof.
+  induction e as [ b | n | n | s | it x IHx | df | ft x IHx | dc | ct x IHx ];
+    intros parent me; cbn [GoIndex.occs_expr forallb snd]; rewrite occ_arg_typedb_operand.
+  1,2,3,4,6,8: reflexivity.
+  all: rewrite Bool.andb_true_l; apply IHx.
+Qed.
+
+(* one println argument's occurrence stream types exactly as the existing [expr_typedb UsePrintlnArg]. *)
+Lemma occs_arg_typedb_eq : forall e parent aidx me,
+  forallb (fun x => occ_arg_typedb (snd x)) (GoIndex.occs_arg parent aidx me e) = GoTypes.expr_typedb GoTypes.UsePrintlnArg e.
+Proof.
+  intros e parent aidx me. unfold GoIndex.occs_arg.
+  destruct e as [ b | n | n | s | it x | df | ft x | dc | ct x ];
+    cbn [GoIndex.occs_expr forallb snd]; rewrite occ_arg_typedb_printlnarg.
+  1,2,3,4,6,8: apply Bool.andb_true_r.
+  all: rewrite occs_expr_operand_true; apply Bool.andb_true_r.
+Qed.
+
+Lemma occs_args_typedb_eq : forall es parent aidx me,
+  forallb (fun x => occ_arg_typedb (snd x)) (GoIndex.occs_args parent aidx me es)
+  = forallb (GoTypes.expr_typedb GoTypes.UsePrintlnArg) es.
+Proof.
+  induction es as [|e rest IH]; intros parent aidx me.
+  - reflexivity.
+  - cbn [GoIndex.occs_args]. rewrite forallb_app, occs_arg_typedb_eq, IH. reflexivity.
+Qed.
+
+Lemma occs_stmt_typedb_eq : forall s parent sidx me,
+  forallb (fun x => occ_arg_typedb (snd x)) (GoIndex.occs_stmt parent sidx me s) = GoTypes.stmt_typedb s.
+Proof.
+  intros [args] parent sidx me.
+  cbn [GoIndex.occs_stmt forallb snd occ_arg_typedb GoIndex.occurrence_role].
+  rewrite occs_args_typedb_eq. reflexivity.
+Qed.
+
+Lemma occs_stmts_typedb_eq : forall ss parent sidx me,
+  forallb (fun x => occ_arg_typedb (snd x)) (GoIndex.occs_stmts parent sidx me ss) = forallb GoTypes.stmt_typedb ss.
+Proof.
+  induction ss as [|s rest IH]; intros parent sidx me.
+  - reflexivity.
+  - cbn [GoIndex.occs_stmts]. rewrite forallb_app, occs_stmt_typedb_eq, IH. reflexivity.
+Qed.
+
+Lemma occs_decl_typedb_eq : forall d parent didx me,
+  forallb (fun x => occ_arg_typedb (snd x)) (GoIndex.occs_decl parent didx me d) = GoTypes.decl_typedb d.
+Proof.
+  intros [body] parent didx me.
+  cbn [GoIndex.occs_decl forallb snd occ_arg_typedb GoIndex.occurrence_role].
+  rewrite occs_stmts_typedb_eq. reflexivity.
+Qed.
+
+Lemma occs_decls_typedb_eq : forall ds parent didx me,
+  forallb (fun x => occ_arg_typedb (snd x)) (GoIndex.occs_decls parent didx me ds) = forallb GoTypes.decl_typedb ds.
+Proof.
+  induction ds as [|d rest IH]; intros parent didx me.
+  - reflexivity.
+  - cbn [GoIndex.occs_decls]. rewrite forallb_app, occs_decl_typedb_eq, IH. reflexivity.
+Qed.
+
+(* the WHOLE file's occurrence stream types exactly as the existing [source_file_typedb] (the file-root and
+   package-clause occurrences are vacuously typed; the body delegates to [occs_decls_typedb_eq]). *)
+Lemma occs_file_typedb_eq : forall f,
+  forallb (fun x => occ_arg_typedb (snd x)) (GoIndex.occs_file f) = source_file_typedb f.
+Proof.
+  intros f. unfold GoIndex.occs_file. destruct (source_imports f) as [|i tl] eqn:E.
+  - cbn [forallb snd occ_arg_typedb GoIndex.occurrence_role].
+    rewrite occs_decls_typedb_eq. unfold source_file_typedb, file_typedb. reflexivity.
+  - destruct i.
+Qed.
+
 (** one file's argument occurrences resolve iff the file types (the §19 traversal projects [occs_file], reusing
-    the C2 [occ_arg_typedb] = [source_file_typedb] bridge). *)
+    the [occ_arg_typedb] = [source_file_typedb] bridge). *)
 Lemma visit_file_arg_typedb {p} (fr : GoIndex.Snap.FileRef p) :
-  forallb (fun x => GoTypes.occ_arg_typedb (snd x)) (GoIndex.Snap.visit_file fr)
+  forallb (fun x => occ_arg_typedb (snd x)) (GoIndex.Snap.visit_file fr)
   = source_file_typedb (GoIndex.Snap.file_ref_source fr).
 Proof.
   rewrite GoTypes.forallb_map_snd, GoIndex.Snap.visit_file_snd, <- GoTypes.forallb_map_snd.
-  apply GoTypes.occs_file_typedb_eq.
+  apply occs_file_typedb_eq.
 Qed.
 
 (** the per-occurrence "argument resolves" check folded over the whole program. *)
 Definition expr_all_ok (p : GoProgram) : bool :=
-  forallb (fun x => GoTypes.occ_arg_typedb (snd x)) (prog_visit p).
+  forallb (fun x => occ_arg_typedb (snd x)) (prog_visit p).
 
 (** DECISION EXACTNESS: [expr_all_ok] is EXACTLY [program_typedb] (hence [ProgramTyped]).  This is the
     expression half of [AnalysisOK <-> GoCompile]: no expression diagnostic <-> every argument resolves. *)
@@ -4583,11 +4685,42 @@ Theorem fact_program_inner_conversion :
   = Some (mkExprFact (CITyped (TInteger IInt) (TCInteger IInt 5 eq_refl)) None).
 Proof. rewrite prog_expr_facts_source, keyed_visit_source. vm_compute. reflexivity. Qed.
 
-(* the OUTER println argument resolves: its use-resolution is present and its resolved type is [TFloat F64]. *)
+(* the OUTER println argument [float64(int(5))]: its EXACT resolved constant is the rational [5/1] at [TFloat
+   F64] — not merely "some float64".  [ef_const_status] is [CITyped (TFloat F64)], [resolved_type_at] is [TFloat
+   F64], the resolved GoConst is [CFloat] with numerator 5 / denominator 1, and it resolves. *)
 Theorem fact_program_outer_arg :
-  option_map (fun f => (resolved_type_at f, match ef_use_resolved f with Some _ => true | None => false end))
-             (GoIndex.NodeKeyMapBase.find (GoIndex.mkKey (mkFP "main.go" eq_refl) 5%positive) (prog_expr_facts fact_program))
-  = Some (Some (TFloat F64), true).
+  option_map (fun f =>
+     (match ef_const_status f with CITyped t _ => Some t | CIUntyped _ => None end,
+      resolved_type_at f,
+      match resolved_constant_at f with Some (CFloat fc) => Some (fc_num fc, fc_den fc) | _ => None end,
+      match ef_use_resolved f with Some _ => true | None => false end))
+     (GoIndex.NodeKeyMapBase.find (GoIndex.mkKey (mkFP "main.go" eq_refl) 5%positive) (prog_expr_facts fact_program))
+  = Some (Some (TFloat F64), Some (TFloat F64), Some (5%Z, 1%positive), true).
+Proof. rewrite prog_expr_facts_source, keyed_visit_source. vm_compute. reflexivity. Qed.
+
+(* the COMPLETE exact [ExprFact] of the outer argument — the full [CITyped] status (its proof-carrying float64
+   TypedConst carrying the exact rational 5/1 and its once-rounded canonical runtime) and the exact resolved
+   constant.  Any DIFFERENT resolved float64 value fails this equation. *)
+Theorem fact_program_outer_fact :
+  GoIndex.NodeKeyMapBase.find (GoIndex.mkKey (mkFP "main.go" eq_refl) 5%positive) (prog_expr_facts fact_program)
+  = Some {| ef_const_status :=
+              CITyped (TFloat F64)
+                (TCFloat F64
+                   {| tfc_exact := {| fc_num := 5; fc_den := 1; fc_wf := reduce_fc_wf 5629499534213120 1125899906842624 |};
+                      tfc_runtime := {| fv_sf := SpecFloat.S754_finite false 5629499534213120 (-50);
+                                        fv_ok := const_runtime_canonical F64 {| fc_num := 5; fc_den := 1; fc_wf := gcd_z_1 5 |} |};
+                      tfc_coh := eq_refl;
+                      tfc_shape := const_runtime_shape F64 {| fc_num := 5; fc_den := 1; fc_wf := gcd_z_1 5 |}
+                                     {| fc_num := 5; fc_den := 1; fc_wf := reduce_fc_wf 5629499534213120 1125899906842624 |} eq_refl |}) ;
+            ef_use_resolved :=
+              Some (pack_resolved (TFloat F64)
+                      (TCFloat F64
+                         {| tfc_exact := {| fc_num := 5; fc_den := 1; fc_wf := reduce_fc_wf 5629499534213120 1125899906842624 |};
+                            tfc_runtime := {| fv_sf := SpecFloat.S754_finite false 5629499534213120 (-50);
+                                              fv_ok := const_runtime_canonical F64 {| fc_num := 5; fc_den := 1; fc_wf := gcd_z_1 5 |} |};
+                            tfc_coh := eq_refl;
+                            tfc_shape := const_runtime_shape F64 {| fc_num := 5; fc_den := 1; fc_wf := gcd_z_1 5 |}
+                                           {| fc_num := 5; fc_den := 1; fc_wf := reduce_fc_wf 5629499534213120 1125899906842624 |} eq_refl |})) |}.
 Proof. rewrite prog_expr_facts_source, keyed_visit_source. vm_compute. reflexivity. Qed.
 
 (** ---- §22.16 — REPEATED EQUAL LITERALS [println(1, 1)] are NOT deduplicated: the fact table is keyed by
