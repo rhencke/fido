@@ -794,5 +794,10 @@ Print Assumptions GoCompile.nz_c2s_erased.
 Print Assumptions GoCompile.wrongkind_erased.
 Print Assumptions GoCompile.dup_across_files_erased.
 Print Assumptions GoCompile.simultaneous_failures_erased.
+(* §16 — node-primary diagnostics (invalid-conversion + duplicate-main) are ordered by canonical NodeKey, NOT by
+   discovery phase: a duplicate-main in package `a` precedes an invalid-conversion in package `z`.  And the
+   NodeKeyMap bucketing is a REORDERING — the report has exactly the diagnostics of `expr_diags ++ pkg_diags`. *)
+Print Assumptions GoCompile.mixed_order_erased.
+Print Assumptions GoCompile.collect_diagnostics_In.
 (* the SOURCE characterization that makes the exact fixtures faithful to the real report. *)
 Print Assumptions GoCompile.erased_report_src_eq.

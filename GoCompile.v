@@ -2981,16 +2981,104 @@ Qed.
    structured failure payload, nonempty exactly when the decision fails.
    ============================================================================================================ *)
 
-Definition collect_diagnostics (p : GoProgram) (idx : GoIndex.Snap.SyntaxIndex p) : list (DiagnosticReason p) :=
-  expr_diags idx ++ pkg_diags idx.
-
 Lemma app_nil_iff {A} (l1 l2 : list A) : l1 ++ l2 = nil <-> l1 = nil /\ l2 = nil.
 Proof. split; [ apply app_eq_nil | intros [-> ->]; reflexivity ]. Qed.
+
+(* ============================================================================================================
+   §16 — DIAGNOSTIC STORAGE AND CANONICAL ORDER.  Node-primary diagnostics (invalid-conversion, defaulting,
+   duplicate-main — each anchored at an occurrence NodeKey) are accumulated into a STANDARD [NodeKeyMapBase]
+   whose bucket value is a code-ordered list (normally a singleton, but a bucket prevents a future map overwrite
+   from erasing multiple diagnostics at one occurrence).  The final report flattens the map's CANONICAL elements
+   (path then local id) with code-ordered bucket values, THEN appends the package-primary (missing-main)
+   diagnostics in PackageMap key order.  So a duplicate-main at `a/q.go:3` correctly precedes an
+   invalid-conversion at `z/main.go:5` even though the latter is discovered first.
+   ============================================================================================================ *)
+
+(* a code-ordered insertion into one occurrence's bucket (stable by the finite [DiagnosticCode] order). *)
+Fixpoint sorted_insert {X} (code : X -> nat) (x : X) (l : list X) : list X :=
+  match l with
+  | [] => [x]
+  | y :: rest => if Nat.leb (code x) (code y) then x :: l else y :: sorted_insert code x rest
+  end.
+
+Definition nkm_find {X} (k : GoIndex.NodeKey) (m : GoIndex.NodeKeyMapBase.t (list X)) : list X :=
+  match GoIndex.NodeKeyMapBase.find k m with Some l => l | None => [] end.
+
+Definition bucket_add {X} (code : X -> nat) (kx : GoIndex.NodeKey * X)
+    (m : GoIndex.NodeKeyMapBase.t (list X)) : GoIndex.NodeKeyMapBase.t (list X) :=
+  GoIndex.NodeKeyMapBase.add (fst kx) (sorted_insert code (snd kx) (nkm_find (fst kx) m)) m.
+
+(* flatten node-keyed values into the NodeKeyMap-canonical order (path/local id), code-ordered inside a bucket. *)
+Definition bucket_flatten {X} (code : X -> nat) (kxs : list (GoIndex.NodeKey * X)) : list X :=
+  flat_map snd (GoIndex.NodeKeyMapBase.elements
+    (fold_right (bucket_add code) (GoIndex.NodeKeyMapBase.empty (list X)) kxs)).
+
+Lemma sorted_insert_nonnil {X} (code : X -> nat) (x : X) (l : list X) : sorted_insert code x l <> nil.
+Proof. destruct l as [|y rest]; simpl; [discriminate | destruct (Nat.leb (code x) (code y)); discriminate]. Qed.
+
+(* if some key maps to a nonempty bucket, the whole flatten is nonempty (that bucket's elements are included). *)
+Lemma nkm_find_flat_nonempty {X} (m : GoIndex.NodeKeyMapBase.t (list X)) (k : GoIndex.NodeKey) (b : list X) :
+  GoIndex.NodeKeyMapBase.find k m = Some b -> b <> nil ->
+  flat_map snd (GoIndex.NodeKeyMapBase.elements m) <> nil.
+Proof.
+  intros Hf Hb.
+  apply GoIndex.NodeKeyMapFacts.find_mapsto_iff, GoIndex.NodeKeyMapFacts.elements_mapsto_iff, InA_alt in Hf.
+  destruct Hf as [[k' b'] [[Hk Hb'] Hin]]. cbn in Hk, Hb'.
+  intro Hnil. apply Hb. rewrite Hb'.
+  assert (Hin2 : In b' (map snd (GoIndex.NodeKeyMapBase.elements m)))
+    by (apply in_map_iff; exists (k', b'); split; [reflexivity | exact Hin]).
+  clear -Hnil Hin2. revert Hnil Hin2. generalize (GoIndex.NodeKeyMapBase.elements m) as els.
+  induction els as [|e els IH]; cbn [flat_map map]; [intros _ []|].
+  intros Hnil Hin2. apply app_eq_nil in Hnil. destruct Hnil as [He Htl].
+  destruct Hin2 as [<-|Hin2]; [exact He | apply IH; assumption].
+Qed.
+
+(* a nonempty keyed list flattens to a nonempty report: its first key holds a nonempty (sorted-inserted) bucket. *)
+Lemma bucket_flatten_cons_nonempty {X} (code : X -> nat) (kx : GoIndex.NodeKey * X) (rest : list (GoIndex.NodeKey * X)) :
+  bucket_flatten code (kx :: rest) <> nil.
+Proof.
+  unfold bucket_flatten. cbn [fold_right]. unfold bucket_add at 1.
+  set (m := fold_right (bucket_add code) (GoIndex.NodeKeyMapBase.empty (list X)) rest).
+  apply (nkm_find_flat_nonempty _ (fst kx) (sorted_insert code (snd kx) (nkm_find (fst kx) m))).
+  - apply nodekeymap_add_eq.
+  - apply sorted_insert_nonnil.
+Qed.
+
+Lemma bucket_flatten_nil_iff {X} (code : X -> nat) (kxs : list (GoIndex.NodeKey * X)) :
+  bucket_flatten code kxs = nil <-> kxs = nil.
+Proof.
+  split; [ | intros ->; reflexivity ].
+  destruct kxs as [|kx rest]; [reflexivity|].
+  intro H. exfalso. exact (bucket_flatten_cons_nonempty code kx rest H).
+Qed.
+
+(* the node-primary key of a diagnostic (Some for the three node-anchored reasons; None for missing-main). *)
+Definition diag_node_key {p} (d : DiagnosticReason p) : option GoIndex.NodeKey :=
+  match diagnostic_primary d with AtNode r => Some (GoIndex.Snap.node_ref_key r) | _ => None end.
+Definition dcode {p} (d : DiagnosticReason p) : nat := diagnostic_code_index (diagnostic_code d).
+Definition node_keyed {p} (l : list (DiagnosticReason p)) : list (GoIndex.NodeKey * DiagnosticReason p) :=
+  flat_map (fun d => match diag_node_key d with Some k => [(k, d)] | None => [] end) l.
+Definition pkg_primary {p} (l : list (DiagnosticReason p)) : list (DiagnosticReason p) :=
+  flat_map (fun d => match diag_node_key d with Some _ => [] | None => [d] end) l.
+
+Definition collect_diagnostics (p : GoProgram) (idx : GoIndex.Snap.SyntaxIndex p) : list (DiagnosticReason p) :=
+  bucket_flatten dcode (node_keyed (expr_diags idx ++ pkg_diags idx))
+  ++ pkg_primary (expr_diags idx ++ pkg_diags idx).
+
+(* node_keyed and pkg_primary partition the diagnostics, so both empty iff the whole list is empty. *)
+Lemma node_pkg_partition_nil {p} (l : list (DiagnosticReason p)) :
+  node_keyed l = nil /\ pkg_primary l = nil <-> l = nil.
+Proof.
+  split; [ | intros ->; split; reflexivity ].
+  destruct l as [|d rest]; [reflexivity|]. unfold node_keyed, pkg_primary; cbn [flat_map].
+  destruct (diag_node_key d) as [k|]; cbn [app]; intros [H1 H2]; discriminate.
+Qed.
 
 Lemma collect_diagnostics_empty_iff (p : GoProgram) (idx : GoIndex.Snap.SyntaxIndex p) :
   collect_diagnostics p idx = nil <-> analysis_ok_b p = true.
 Proof.
-  unfold collect_diagnostics. rewrite app_nil_iff, expr_diags_empty_iff, pkg_diags_empty_iff.
+  unfold collect_diagnostics. rewrite app_nil_iff, bucket_flatten_nil_iff, node_pkg_partition_nil, app_nil_iff.
+  rewrite expr_diags_empty_iff, pkg_diags_empty_iff.
   unfold analysis_ok_b. rewrite Bool.andb_true_iff, expr_all_ok_program_typedb. reflexivity.
 Qed.
 
@@ -2998,6 +3086,188 @@ Lemma collect_diagnostics_nonempty (p : GoProgram) (idx : GoIndex.Snap.SyntaxInd
   analysis_ok_b p = false -> collect_diagnostics p idx <> nil.
 Proof.
   intros H Hc. apply (collect_diagnostics_empty_iff p idx) in Hc. rewrite Hc in H. discriminate H.
+Qed.
+
+(* ---- §16/§17 — the node-bucketing COMMUTES WITH a value transform, so the ERASED report is the erased source
+   diagnostics run through the SAME bucketing.  This makes the erased report a source function (deterministic,
+   vm-computable), and it is the bridge for the exact §22 fixtures. ---- *)
+
+Lemma nodekey_sorted_map_fst {A B} (f : A -> B) : forall l,
+  Sorted (@GoIndex.NodeKeyMapBase.lt_key A) l ->
+  Sorted (@GoIndex.NodeKeyMapBase.lt_key B) (map (fun kv => (fst kv, f (snd kv))) l).
+Proof.
+  induction l as [|a l IH]; intro Hs; cbn [map]; [constructor|].
+  apply Sorted_inv in Hs. destruct Hs as [Hs Hhd]. constructor; [apply IH; exact Hs|].
+  destruct l as [|b l']; cbn [map]; [constructor|]. apply HdRel_inv in Hhd. constructor. exact Hhd.
+Qed.
+
+Lemma nodekeymap_map_elements {A B} (f : A -> B) (m : GoIndex.NodeKeyMapBase.t A) :
+  GoIndex.NodeKeyMapBase.elements (GoIndex.NodeKeyMapBase.map f m)
+  = map (fun kv => (fst kv, f (snd kv))) (GoIndex.NodeKeyMapBase.elements m).
+Proof.
+  apply GoIndex.nodekey_eqlistA_eqke_eq.
+  apply GoIndex.NodeKeyMapOrd.sort_equivlistA_eqlistA;
+    [ apply GoIndex.NodeKeyMapBase.elements_3
+    | apply nodekey_sorted_map_fst, GoIndex.NodeKeyMapBase.elements_3 | ].
+  intros [k e].
+  rewrite <- GoIndex.NodeKeyMapFacts.elements_mapsto_iff, GoIndex.NodeKeyMapFacts.map_mapsto_iff, InA_alt.
+  split.
+  - intros [a [He Hmt]]. subst e.
+    apply GoIndex.NodeKeyMapFacts.elements_mapsto_iff in Hmt. rewrite InA_alt in Hmt.
+    destruct Hmt as [[k' a'] [[Hk Ha] Hin]]. cbn in Hk, Ha. unfold GoIndex.NodeKey_OT.eq in Hk. subst k' a'.
+    exists (k, f a). split; [ split; reflexivity | ].
+    apply in_map_iff. exists (k, a). split; [reflexivity | exact Hin].
+  - intros [[k' e'] [[Hk He] Hin]]. cbn in Hk, He. unfold GoIndex.NodeKey_OT.eq in Hk. subst k' e'.
+    apply in_map_iff in Hin. destruct Hin as [[k'' a] [Heq Hin]]. injection Heq as Hk2 He2. subst k'' e.
+    exists a. split; [reflexivity | ].
+    apply GoIndex.NodeKeyMapFacts.elements_mapsto_iff. rewrite InA_alt. exists (k, a).
+    split; [ split; reflexivity | exact Hin ].
+Qed.
+
+Lemma sorted_insert_map {X Y} (g : X -> Y) (codeX : X -> nat) (codeY : Y -> nat)
+  (Hc : forall x, codeY (g x) = codeX x) (x : X) (l : list X) :
+  sorted_insert codeY (g x) (map g l) = map g (sorted_insert codeX x l).
+Proof.
+  induction l as [|y rest IH]; cbn [map sorted_insert]; [reflexivity|].
+  rewrite !Hc. destruct (Nat.leb (codeX x) (codeX y)); cbn [map]; [reflexivity | rewrite IH; reflexivity].
+Qed.
+
+Lemma nkmap_map_add {A B} (h : A -> B) (k : GoIndex.NodeKey) (v : A) (m : GoIndex.NodeKeyMapBase.t A) :
+  GoIndex.NodeKeyMapBase.Equal (GoIndex.NodeKeyMapBase.map h (GoIndex.NodeKeyMapBase.add k v m))
+                               (GoIndex.NodeKeyMapBase.add k (h v) (GoIndex.NodeKeyMapBase.map h m)).
+Proof.
+  intro k'. rewrite GoIndex.NodeKeyMapFacts.map_o.
+  destruct (GoIndex.NodeKey_OT.eq_dec k k') as [Heq|Hne].
+  - rewrite !GoIndex.NodeKeyMapFacts.add_eq_o by exact Heq. reflexivity.
+  - rewrite !GoIndex.NodeKeyMapFacts.add_neq_o by exact Hne. rewrite GoIndex.NodeKeyMapFacts.map_o. reflexivity.
+Qed.
+
+Lemma bucket_fold_map {X Y} (g : X -> Y) (codeX : X -> nat) (codeY : Y -> nat)
+  (Hc : forall x, codeY (g x) = codeX x) (kxs : list (GoIndex.NodeKey * X)) :
+  GoIndex.NodeKeyMapBase.Equal
+    (GoIndex.NodeKeyMapBase.map (map g) (fold_right (bucket_add codeX) (GoIndex.NodeKeyMapBase.empty (list X)) kxs))
+    (fold_right (bucket_add codeY) (GoIndex.NodeKeyMapBase.empty (list Y)) (map (fun kx => (fst kx, g (snd kx))) kxs)).
+Proof.
+  induction kxs as [|kx rest IH]; cbn [fold_right map].
+  - intro k. rewrite GoIndex.NodeKeyMapFacts.map_o, !GoIndex.NodeKeyMapFacts.empty_o. reflexivity.
+  - unfold bucket_add at 1 3. cbn [fst snd].
+    set (M := fold_right (bucket_add codeX) (GoIndex.NodeKeyMapBase.empty (list X)) rest) in *.
+    set (M' := fold_right (bucket_add codeY) (GoIndex.NodeKeyMapBase.empty (list Y))
+                          (map (fun kx0 => (fst kx0, g (snd kx0))) rest)) in *.
+    assert (Hfind : nkm_find (fst kx) M' = map g (nkm_find (fst kx) M)).
+    { unfold nkm_find. rewrite <- (IH (fst kx)), GoIndex.NodeKeyMapFacts.map_o.
+      destruct (GoIndex.NodeKeyMapBase.find (fst kx) M); reflexivity. }
+    rewrite Hfind, (sorted_insert_map g codeX codeY Hc).
+    transitivity (GoIndex.NodeKeyMapBase.add (fst kx)
+                    (map g (sorted_insert codeX (snd kx) (nkm_find (fst kx) M))) (GoIndex.NodeKeyMapBase.map (map g) M)).
+    + apply nkmap_map_add.
+    + apply GoIndex.NodeKeyMapFacts.add_m; [reflexivity | reflexivity | exact IH].
+Qed.
+
+Lemma bucket_flatten_map {X Y} (g : X -> Y) (codeX : X -> nat) (codeY : Y -> nat)
+  (Hc : forall x, codeY (g x) = codeX x) (kxs : list (GoIndex.NodeKey * X)) :
+  map g (bucket_flatten codeX kxs) = bucket_flatten codeY (map (fun kx => (fst kx, g (snd kx))) kxs).
+Proof.
+  unfold bucket_flatten.
+  rewrite <- (GoIndex.nodekeymap_elements_Equal _ _ (bucket_fold_map g codeX codeY Hc kxs)).
+  rewrite nodekeymap_map_elements.
+  generalize (GoIndex.NodeKeyMapBase.elements (fold_right (bucket_add codeX) (GoIndex.NodeKeyMapBase.empty (list X)) kxs)) as l.
+  induction l as [|[k b] l IH]; cbn [flat_map map]; [reflexivity|].
+  rewrite map_app, IH. reflexivity.
+Qed.
+
+(* ---- MEMBERSHIP: the bucketing preserves the multiset of values (a reordering), so the report has EXACTLY the
+   diagnostics of [expr_diags ++ pkg_diags] (needed for the order-independent legacy-class projection). ---- *)
+
+Lemma flat_map_snd_mapsto {X} (m : GoIndex.NodeKeyMapBase.t (list X)) (d : X) :
+  In d (flat_map snd (GoIndex.NodeKeyMapBase.elements m)) <->
+  exists k b, GoIndex.NodeKeyMapBase.MapsTo k b m /\ In d b.
+Proof.
+  rewrite in_flat_map. split.
+  - intros [[k b] [Hin Hd]]. cbn in Hd. exists k, b. split; [|exact Hd].
+    apply GoIndex.NodeKeyMapFacts.elements_mapsto_iff, InA_alt. exists (k, b). split; [split; reflexivity | exact Hin].
+  - intros [k [b [Hmt Hd]]].
+    apply GoIndex.NodeKeyMapFacts.elements_mapsto_iff, InA_alt in Hmt.
+    destruct Hmt as [[k' b'] [[Hk Hb] Hin]]. cbn in Hk, Hb.
+    exists (k', b'). split; [exact Hin | cbn; rewrite <- Hb; exact Hd].
+Qed.
+
+Lemma flat_map_snd_add {X} (m : GoIndex.NodeKeyMapBase.t (list X)) (k : GoIndex.NodeKey) (v : list X) (d : X) :
+  In d (flat_map snd (GoIndex.NodeKeyMapBase.elements (GoIndex.NodeKeyMapBase.add k v m))) <->
+  In d v \/ In d (flat_map snd (GoIndex.NodeKeyMapBase.elements (GoIndex.NodeKeyMapBase.remove k m))).
+Proof.
+  rewrite !flat_map_snd_mapsto. split.
+  - intros [k' [b [Hmt Hd]]]. apply GoIndex.NodeKeyMapFacts.add_mapsto_iff in Hmt.
+    destruct Hmt as [[Hk Hb]|[Hk Hmt]].
+    + subst b. left; exact Hd.
+    + right. exists k', b. split; [ apply GoIndex.NodeKeyMapFacts.remove_mapsto_iff; split; [exact Hk|exact Hmt] | exact Hd ].
+  - intros [Hd | [k' [b [Hmt Hd]]]].
+    + exists k, v. split; [ apply GoIndex.NodeKeyMapFacts.add_mapsto_iff; left; split; reflexivity | exact Hd ].
+    + apply GoIndex.NodeKeyMapFacts.remove_mapsto_iff in Hmt. destruct Hmt as [Hk Hmt].
+      exists k', b. split; [ apply GoIndex.NodeKeyMapFacts.add_mapsto_iff; right; split; [exact Hk | exact Hmt] | exact Hd ].
+Qed.
+
+Lemma flat_map_snd_find {X} (m : GoIndex.NodeKeyMapBase.t (list X)) (k : GoIndex.NodeKey) (d : X) :
+  In d (flat_map snd (GoIndex.NodeKeyMapBase.elements m)) <->
+  In d (nkm_find k m) \/ In d (flat_map snd (GoIndex.NodeKeyMapBase.elements (GoIndex.NodeKeyMapBase.remove k m))).
+Proof.
+  rewrite !flat_map_snd_mapsto. unfold nkm_find. split.
+  - intros [k' [b [Hmt Hd]]]. destruct (GoIndex.NodeKey_OT.eq_dec k k') as [Hk|Hk].
+    + left. apply GoIndex.NodeKeyMapFacts.find_mapsto_iff in Hmt.
+      rewrite (GoIndex.NodeKeyMapFacts.find_o m Hk), Hmt. exact Hd.
+    + right. exists k', b. split; [ apply GoIndex.NodeKeyMapFacts.remove_mapsto_iff; split; [exact Hk | exact Hmt] | exact Hd ].
+  - intros [Hd | [k' [b [Hmt Hd]]]].
+    + destruct (GoIndex.NodeKeyMapBase.find k m) as [b0|] eqn:Ef; [ | destruct Hd ].
+      exists k, b0. split; [ apply GoIndex.NodeKeyMapFacts.find_mapsto_iff; exact Ef | exact Hd ].
+    + apply GoIndex.NodeKeyMapFacts.remove_mapsto_iff in Hmt. destruct Hmt as [Hk Hmt].
+      exists k', b. split; [exact Hmt | exact Hd].
+Qed.
+
+Lemma sorted_insert_In {X} (code : X -> nat) (x : X) (l : list X) (d : X) :
+  In d (sorted_insert code x l) <-> x = d \/ In d l.
+Proof.
+  induction l as [|y rest IH]; cbn [sorted_insert]; [ cbn [In]; tauto |].
+  destruct (Nat.leb (code x) (code y)); cbn [In]; [ tauto | rewrite IH; tauto ].
+Qed.
+
+Lemma bucket_flatten_In {X} (code : X -> nat) (kxs : list (GoIndex.NodeKey * X)) (d : X) :
+  In d (bucket_flatten code kxs) <-> In d (map snd kxs).
+Proof.
+  unfold bucket_flatten. induction kxs as [|kx rest IH]; cbn [fold_right map].
+  - rewrite flat_map_snd_mapsto. split; [ intros [k [b [Hmt _]]]; revert Hmt; apply GoIndex.NodeKeyMapFacts.empty_mapsto_iff | intros [] ].
+  - unfold bucket_add at 1.
+    set (M := fold_right (bucket_add code) (GoIndex.NodeKeyMapBase.empty (list X)) rest) in *.
+    rewrite flat_map_snd_add, sorted_insert_In, or_assoc, <- (flat_map_snd_find M (fst kx) d), IH.
+    cbn [In]. tauto.
+Qed.
+
+Lemma existsb_In_eq {A} (f : A -> bool) (l1 l2 : list A) :
+  (forall x, In x l1 <-> In x l2) -> existsb f l1 = existsb f l2.
+Proof.
+  intro H. destruct (existsb f l1) eqn:E1; destruct (existsb f l2) eqn:E2; try reflexivity.
+  - apply existsb_exists in E1. destruct E1 as [x [Hin Hf]].
+    assert (Hc : existsb f l2 = true) by (apply existsb_exists; exists x; split; [apply H; exact Hin | exact Hf]).
+    rewrite Hc in E2; discriminate.
+  - apply existsb_exists in E2. destruct E2 as [x [Hin Hf]].
+    assert (Hc : existsb f l1 = true) by (apply existsb_exists; exists x; split; [apply H; exact Hin | exact Hf]).
+    rewrite Hc in E1; discriminate.
+Qed.
+
+Lemma node_pkg_In {p} (l : list (DiagnosticReason p)) (d : DiagnosticReason p) :
+  In d (map snd (node_keyed l)) \/ In d (pkg_primary l) <-> In d l.
+Proof.
+  induction l as [|d0 rest IH]; [cbn; tauto|].
+  replace (node_keyed (d0 :: rest))
+    with ((match diag_node_key d0 with Some k => [(k, d0)] | None => nil end) ++ node_keyed rest) by reflexivity.
+  replace (pkg_primary (d0 :: rest))
+    with ((match diag_node_key d0 with Some _ => nil | None => [d0] end) ++ pkg_primary rest) by reflexivity.
+  rewrite map_app, !in_app_iff. cbn [In]. destruct (diag_node_key d0) as [k|]; cbn [map In]; rewrite <- IH; tauto.
+Qed.
+
+Lemma collect_diagnostics_In {p} (idx : GoIndex.Snap.SyntaxIndex p) (d : DiagnosticReason p) :
+  In d (collect_diagnostics p idx) <-> In d (expr_diags idx ++ pkg_diags idx).
+Proof.
+  unfold collect_diagnostics. rewrite in_app_iff, bucket_flatten_In. apply node_pkg_In.
 Qed.
 
 (** §17 (C3 FINAL) — the ERASED analysis report: the canonical diagnostic list projected through
@@ -3406,31 +3676,94 @@ Qed.
     [annotate_source] (occurrence keys + open-conversion context) then package diagnostics via the keyed source
     buckets.  Since it mentions no [Snap] projection it [vm_compute]s to the exact [ErasedDiagnostic] list (code
     + NodeKey/package anchors + target payload) for any concrete program — the basis of the EXACT §22 fixtures. *)
-Definition erased_report_src (fm : GoAST.GoFileMap) : list ErasedDiagnostic :=
+(* the ERASED node-diagnostic key/code/partition (mirroring the dependent ones, over snapshot-free anchors). *)
+Definition ecode (e : ErasedDiagnostic) : nat := diagnostic_code_index (ed_code e).
+Definition enode_key (e : ErasedDiagnostic) : option GoIndex.NodeKey :=
+  match ed_primary e with EANode k => Some k | _ => None end.
+Definition enode_keyed (l : list ErasedDiagnostic) : list (GoIndex.NodeKey * ErasedDiagnostic) :=
+  flat_map (fun e => match enode_key e with Some k => [(k, e)] | None => [] end) l.
+Definition epkg_primary (l : list ErasedDiagnostic) : list ErasedDiagnostic :=
+  flat_map (fun e => match enode_key e with Some _ => [] | None => [e] end) l.
+
+(* the raw (unordered) erased source diagnostics — expression scars over [annotate_source], then the keyed
+   source package buckets. *)
+Definition erased_src_diags (fm : GoAST.GoFileMap) : list ErasedDiagnostic :=
   flat_map erase_occ_diags (annotate_source fm)
   ++ flat_map erase_bucket_diag (PM.elements (keyed_buckets (source_keyed_visit fm))).
+
+(** the WHOLE erased report as a PURE SOURCE function of the file map, in §16 canonical order: node-primary
+    diagnostics bucketed by NodeKey and flattened in path/local order (code-ordered inside a bucket), THEN the
+    package-primary (missing-main) diagnostics.  It mentions no [Snap] projection, so it [vm_compute]s to the
+    exact ordered [ErasedDiagnostic] list — the basis of the EXACT §22 fixtures. *)
+Definition erased_report_src (fm : GoAST.GoFileMap) : list ErasedDiagnostic :=
+  bucket_flatten ecode (enode_keyed (erased_src_diags fm)) ++ epkg_primary (erased_src_diags fm).
+
+Lemma ecode_erase {p} (d : DiagnosticReason p) : ecode (erase_diagnostic d) = dcode d.
+Proof. reflexivity. Qed.
+
+Lemma enode_key_erase {p} (d : DiagnosticReason p) : enode_key (erase_diagnostic d) = diag_node_key d.
+Proof. destruct d; reflexivity. Qed.
+
+Lemma node_keyed_erase {p} (l : list (DiagnosticReason p)) :
+  map (fun kd => (fst kd, erase_diagnostic (snd kd))) (node_keyed l) = enode_keyed (map erase_diagnostic l).
+Proof.
+  induction l as [|d rest IH]; [reflexivity|].
+  replace (node_keyed (d :: rest))
+    with ((match diag_node_key d with Some k => [(k, d)] | None => nil end) ++ node_keyed rest) by reflexivity.
+  replace (enode_keyed (map erase_diagnostic (d :: rest)))
+    with ((match enode_key (erase_diagnostic d) with Some k => [(k, erase_diagnostic d)] | None => nil end)
+          ++ enode_keyed (map erase_diagnostic rest)) by reflexivity.
+  rewrite map_app, IH, enode_key_erase. destruct (diag_node_key d) as [k|]; reflexivity.
+Qed.
+
+Lemma pkg_primary_erase {p} (l : list (DiagnosticReason p)) :
+  map erase_diagnostic (pkg_primary l) = epkg_primary (map erase_diagnostic l).
+Proof.
+  induction l as [|d rest IH]; [reflexivity|].
+  replace (pkg_primary (d :: rest))
+    with ((match diag_node_key d with Some _ => nil | None => [d] end) ++ pkg_primary rest) by reflexivity.
+  replace (epkg_primary (map erase_diagnostic (d :: rest)))
+    with ((match enode_key (erase_diagnostic d) with Some _ => nil | None => [erase_diagnostic d] end)
+          ++ epkg_primary (map erase_diagnostic rest)) by reflexivity.
+  rewrite map_app, IH, enode_key_erase. destruct (diag_node_key d) as [k|]; reflexivity.
+Qed.
+
+Lemma erased_src_diags_eq {p} (idx : GoIndex.Snap.SyntaxIndex p) :
+  map erase_diagnostic (expr_diags idx ++ pkg_diags idx) = erased_src_diags (prog_files p).
+Proof.
+  unfold erased_src_diags. rewrite map_app, erased_expr_diags_source, erased_pkg_diags_source, keyed_visit_source.
+  reflexivity.
+Qed.
 
 Lemma erased_report_src_eq {p} (idx : GoIndex.Snap.SyntaxIndex p) :
   erased_report p idx = erased_report_src (prog_files p).
 Proof.
-  unfold erased_report, collect_diagnostics, erased_report_src. rewrite map_app. f_equal.
-  - exact (erased_expr_diags_source idx).
-  - rewrite erased_pkg_diags_source, keyed_visit_source. reflexivity.
+  unfold erased_report, erased_report_src, collect_diagnostics. rewrite map_app. f_equal.
+  - rewrite (bucket_flatten_map erase_diagnostic dcode ecode (@ecode_erase p)
+              (node_keyed (expr_diags idx ++ pkg_diags idx))).
+    rewrite node_keyed_erase, erased_src_diags_eq. reflexivity.
+  - rewrite pkg_primary_erase, erased_src_diags_eq. reflexivity.
+Qed.
+
+Lemma erased_src_diags_FilesEqual (fm1 fm2 : GoAST.GoFileMap) :
+  GoAST.FilesEqual fm1 fm2 -> erased_src_diags fm1 = erased_src_diags fm2.
+Proof.
+  intro Heq. unfold erased_src_diags. rewrite (annotate_source_FilesEqual _ _ Heq). f_equal.
+  assert (Hb : GoAST.file_bindings fm1 = GoAST.file_bindings fm2)
+    by (unfold GoAST.file_bindings; apply Collections.filemap_elements_Equal; exact Heq).
+  unfold source_keyed_visit. rewrite Hb. reflexivity.
 Qed.
 
 (** §17 (C3 FINAL) — THE cross-snapshot determinism theorem: two programs with the SAME file map (their
-    diagnostics live in DIFFERENT dependent snapshot types) produce the IDENTICAL erased report.  The report
-    depends ONLY on the file map — never on the snapshot index or the backing AVL balancing history.  Both
-    halves factor through source functions of the file map: the expression report through [annotate_source]
-    (the one-pass enclosing context), the package report through the keyed source buckets. *)
+    diagnostics live in DIFFERENT dependent snapshot types) produce the IDENTICAL erased report — it depends
+    ONLY on the file map (the erased report is [erased_report_src (prog_files p)], a source function). *)
 Theorem erased_report_FilesEqual (p1 p2 : GoProgram)
     (idx1 : GoIndex.Snap.SyntaxIndex p1) (idx2 : GoIndex.Snap.SyntaxIndex p2) :
   GoAST.FilesEqual (prog_files p1) (prog_files p2) ->
   erased_report p1 idx1 = erased_report p2 idx2.
 Proof.
-  intro Heq. unfold erased_report, collect_diagnostics. rewrite !map_app. f_equal.
-  - rewrite !erased_expr_diags_source, (annotate_source_FilesEqual _ _ Heq). reflexivity.
-  - exact (erased_pkg_diags_FilesEqual p1 p2 idx1 idx2 Heq).
+  intro Heq. rewrite !erased_report_src_eq. unfold erased_report_src.
+  rewrite (erased_src_diags_FilesEqual _ _ Heq). reflexivity.
 Qed.
 
 (** §17 (C3 FINAL) — CONSTRUCTION-list permutation corollary: building the SAME module from a PERMUTED file-node
@@ -3800,7 +4133,7 @@ Proof. intros d Hin; apply (pkg_diags_family idx d Hin). Qed.
 Lemma existsb_typing_collect (p : GoProgram) (idx : GoIndex.Snap.SyntaxIndex p) :
   existsb diag_is_typing (collect_diagnostics p idx) = negb (program_typedb p).
 Proof.
-  unfold collect_diagnostics. rewrite existsb_app.
+  rewrite (existsb_In_eq _ _ _ (collect_diagnostics_In idx)), existsb_app.
   rewrite (existsb_all_false diag_is_typing (pkg_diags idx) (pkg_diags_not_typing idx)), Bool.orb_false_r.
   rewrite (existsb_all_true diag_is_typing (expr_diags idx) (expr_diags_typing idx)).
   destruct (expr_diags idx) as [|d ds] eqn:E.
@@ -3811,7 +4144,7 @@ Qed.
 Lemma existsb_package_collect (p : GoProgram) (idx : GoIndex.Snap.SyntaxIndex p) :
   existsb diag_is_package (collect_diagnostics p idx) = negb (pkg_all_ok p).
 Proof.
-  unfold collect_diagnostics. rewrite existsb_app.
+  rewrite (existsb_In_eq _ _ _ (collect_diagnostics_In idx)), existsb_app.
   rewrite (existsb_all_false diag_is_package (expr_diags idx) (expr_diags_not_package idx)), Bool.orb_false_l.
   rewrite (existsb_all_true diag_is_package (pkg_diags idx) (pkg_diags_package idx)).
   destruct (pkg_diags idx) as [|d ds] eqn:E.
@@ -3969,10 +4302,12 @@ Definition analyze_indexed (p : GoProgram) (ip : GoIndex.IndexedProgram p) : Ana
   let status  := fold_right psm_step (GoIndex.NodeKeyMapBase.empty (option ConstInfo)) visit in
   let buckets := fold_right (ppkg_step idx) (PM.empty (list (GoIndex.DeclRef p))) visit in
   let facts   := fold_right (add_occ_fact_sm status) (GoIndex.NodeKeyMapBase.empty ExprFact) visit in
-  let diags   := flat_map (fun roc => occ_expr_diags_sm status idx (snd roc) (fst roc))
+  let raw     := flat_map (fun roc => occ_expr_diags_sm status idx (snd roc) (fst roc))
                           (flat_map (annotate_encl idx []) blocks)   (* = annotate_program idx *)
                    ++ bucket_diags_elems buckets (bucket_key_present idx)
                         (PM.elements buckets) (elements_all_mapsto buckets) in
+  (* §16 canonical order: node-primary diagnostics bucketed by NodeKey + flattened, then package-primary. *)
+  let diags   := bucket_flatten dcode (node_keyed raw) ++ pkg_primary raw in
   match list_is_nil diags with
   | left He  => AnalysisOK (mkCompilationFacts
                   (mkExprFactTable facts (prog_expr_facts_domain p) (prog_expr_facts_find p))
@@ -4061,9 +4396,10 @@ Definition analyze_ok_sig (p : GoProgram) (H : ProgValid p) :
 
 (** [GoCompile p] IS whole-program admissibility: the program is typed through [GoTypes] AND every package
     has exactly one `main`.  The package clause is now SOURCE-owned (each file's [source_package]), rendered
-    by [GoRender] — it is no longer a compiler-derived fact, so there is no [cf_pkg_name] / [CompilationFacts]
-    record: the compiled evidence is exactly [ProgValid p].  Richer per-program facts (symbol/type tables)
-    will decorate this same program later without a second AST; there is no unused placeholder now. *)
+    by [GoRender] — it is no longer a compiler-derived fact, so there is no [cf_pkg_name].  The RICHER
+    per-program [CompilationFacts] record (the occurrence-keyed [ExprFactTable] + package `main`-ref buckets +
+    validity) IS retained — by a successful [analyze]/[CompilableProgram] (`cp_facts`) — decorating this same
+    program without a second AST; there is no unused placeholder. *)
 Definition GoCompile (p : GoProgram) : Prop := ProgValid p.
 
 (** ---- destructuring the ONE retained [analyze] WITHOUT re-projection: record eta re-assembles the analysis
@@ -4823,4 +5159,21 @@ Theorem simultaneous_failures_erased :
          ; mkErasedDiagnostic DCDuplicateMain (EANode (GoIndex.mkKey (mkFP "c/q.go" eq_refl) 3%positive))
              [ EANode (GoIndex.mkKey (mkFP "c/p.go" eq_refl) 3%positive) ] None
          ; mkErasedDiagnostic DCMissingMain (EAPackage "d") [] None ].
+Proof. vm_compute. reflexivity. Qed.
+
+(** ---- §16 — MIXED NODE-PRIMARY ORDER: a duplicate-main in package [a] (a later-discovered node diagnostic)
+    and an invalid-conversion in package [z] (an earlier-discovered expression diagnostic).  The canonical
+    report orders BOTH node-primary diagnostics by NodeKey — the duplicate-main at [a/q.go:3] precedes the
+    invalid-conversion at [z/main.go:5] (path [a] < [z]) — NOT by discovery phase (which would put the
+    expression scar first).  This is the §16 NodeKeyMap-canonical order the naive `expr ++ pkg` violated. ---- *)
+Theorem mixed_order_erased :
+  option_map (fun p => erased_report_src (prog_files p))
+     (build_program c3_ms
+        [ main_file_node (mkFP "a/p.go" eq_refl) [ DMain [ SPrintln [ EInt 1 ] ] ]
+        ; main_file_node (mkFP "a/q.go" eq_refl) [ DMain [ SPrintln [ EInt 2 ] ] ]
+        ; main_file_node (mkFP "z/main.go" eq_refl) [ DMain [ SPrintln [ EIntConvert IInt8 (EInt 128) ] ] ] ])
+  = Some [ mkErasedDiagnostic DCDuplicateMain (EANode (GoIndex.mkKey (mkFP "a/q.go" eq_refl) 3%positive))
+             [ EANode (GoIndex.mkKey (mkFP "a/p.go" eq_refl) 3%positive) ] None
+         ; mkErasedDiagnostic DCInvalidConversion (EANode (GoIndex.mkKey (mkFP "z/main.go" eq_refl) 5%positive))
+             [] (Some (TInteger IInt8)) ].
 Proof. vm_compute. reflexivity. Qed.
