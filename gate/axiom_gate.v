@@ -362,18 +362,18 @@ Print Assumptions GoCompile.package_ref_of_fileref_key.
 (* C3 §8 — structured diagnostic core: the primary anchor is an exact-snapshot handle whose kind matches the
    reason's code (invalid anchor/category combinations are unrepresentable). *)
 Print Assumptions GoCompile.diagnostic_code_primary_consistent.
-(* C3 §8/§9 — the NESTED SCAR: an invalid-conversion diagnostic's [outer_context] refs are ACTUAL strict
-   ancestor conversions of the innermost failing conversion (the enclosing conversions), each exactly that
-   node's ExprRef — never fabricated or copied syntax. *)
-Print Assumptions GoCompile.enclosing_conv_refs_sound.
-(* C3 §9 — code-specific diagnostic soundness: an invalid-conversion diagnostic genuinely FAILS [convert_const]
-   (with its [outer_context] = the enclosing conversions); a default-not-representable diagnostic's constant
-   does NOT default and its target is exactly the Go default; a missing-main is an EMPTY bucket at a
-   represented package key; a duplicate-main relates a strictly-later main to the first canonical main. *)
+(* C3 §9 — END-TO-END diagnostic soundness (each diagnostic DENOTES its reported code): an invalid-conversion
+   diagnostic's primary is the occurrence's OWN ExprRef, its syntax IS the explicit conversion to the reported
+   target of some operand x, the reported operand status is x's exact ConstInfo, and [convert_const] genuinely
+   REJECTS it; a default-not-representable diagnostic is a genuine println argument whose exact untyped constant
+   does NOT default and whose target is exactly the Go default; a missing-main is an EMPTY bucket at a
+   represented package key; a duplicate-main relates a strictly-later main to the first canonical main — both
+   genuine top-level (func main) declarations in the SAME package. *)
 Print Assumptions GoCompile.occ_expr_diags_conv_sound.
 Print Assumptions GoCompile.occ_expr_diags_default_sound.
 Print Assumptions GoCompile.pkg_diag_of_bucket_missing_sound.
 Print Assumptions GoCompile.pkg_diag_of_bucket_dup_sound.
+Print Assumptions GoCompile.pkg_diags_dup_sound.
 (* C3 §16/§17 — cross-snapshot determinism FOUNDATION: the KEYED visit stream (each visited reference's NodeKey
    + its source occurrence) depends ONLY on the file map, so FilesEqual programs have IDENTICAL keyed streams
    (the basis for equal erased reports / fact enumerations). *)

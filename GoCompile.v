@@ -1479,128 +1479,15 @@ Definition arg_default_failure (occ : GoIndex.SourceOccurrence) (e : GoExpr) : o
   | _ => None
   end.
 
-(** §8/§15 (C3 FINAL) — the ENCLOSING conversions of an innermost failing conversion, as an INDEX-ONLY query
-    (no status, no source recovery): a node is a conversion iff its ONE child is a conversion-operand
-    ([is_conversion_node]); the enclosing conversions of [r] are its strict ancestors that are conversion nodes
-    ([is_ancestor_ref] over the file's visit stream), reversed to NEAREST-FIRST (the file stream is preorder =
-    outermost-first).  Purely structural over the index — so the spec and single-pass diagnostic emitters
-    compute the IDENTICAL [outer_context]. *)
-Definition is_conversion_node {p} (idx : GoIndex.Snap.SyntaxIndex p) (a : GoIndex.Snap.NodeRef p) : bool :=
-  match GoIndex.Snap.node_at a with
-  | Some (EIntConvert _ _) | Some (EFloatConvert _ _) | Some (EComplexConvert _ _) => true
-  | _ => false
-  end.
-
-(** the strict-ancestor test as an EXPLICIT preorder interval on the SOURCE-DETERMINED subtree end: [a] is a
-    strict ancestor of [r] iff they share a file and [r] lies strictly inside [a]'s subtree
-    ([node_ref_local a < node_ref_local r <= node_subtree_end a]).  Unlike the opaque [is_ancestor_ref], this
-    reads only [node_ref_key] components and [node_subtree_end] (= [occurrence_subtree_end] of the source, by
-    [node_subtree_end_matches_source]), so it is snapshot-independent — the basis for cross-snapshot
-    determinism of the [outer_context]. *)
-Definition is_ancestor_of {p} (idx : GoIndex.Snap.SyntaxIndex p) (a r : GoIndex.Snap.NodeRef p) : bool :=
-  FilePath.fp_eqb (GoIndex.Snap.file_ref_path (GoIndex.Snap.node_ref_file a))
-                  (GoIndex.Snap.file_ref_path (GoIndex.Snap.node_ref_file r))
-  && Pos.ltb (GoIndex.Snap.node_ref_local a) (GoIndex.Snap.node_ref_local r)
-  && Pos.leb (GoIndex.Snap.node_ref_local r) (GoIndex.Snap.node_subtree_end idx a).
-
-Definition enclosing_conv_refs {p} (idx : GoIndex.Snap.SyntaxIndex p) (r : GoIndex.Snap.NodeRef p)
-  : list (GoIndex.ExprRef p) :=
-  flat_map (fun a => match GoIndex.as_expr idx a with Some er => [er] | None => [] end)
-    (rev (filter (fun a => is_ancestor_of idx a r && is_conversion_node idx a)
-                 (map fst (GoIndex.Snap.visit_file (GoIndex.Snap.node_ref_file r))))).
-
-(** §9 (C3 FINAL) — the NESTED SCAR soundness: every enclosing-conversion ref of the [outer_context] is an
-    ACTUAL strict ancestor of [r] (its subtree strictly contains [r] — [is_ancestor_of]) that IS a conversion
-    node ([is_conversion_node]), and it is exactly that node's [ExprRef].  So a nested invalid conversion's
-    related refs are real enclosing conversions in the same file, never fabricated or copied syntax. *)
-Lemma enclosing_conv_refs_sound {p} (idx : GoIndex.Snap.SyntaxIndex p) (r : GoIndex.Snap.NodeRef p) : forall er,
-  In er (enclosing_conv_refs idx r) ->
-  exists a, is_ancestor_of idx a r = true
-         /\ is_conversion_node idx a = true
-         /\ GoIndex.as_expr idx a = Some er.
-Proof.
-  intros er Hin. unfold enclosing_conv_refs in Hin.
-  apply in_flat_map in Hin. destruct Hin as [a [Ha Her]].
-  rewrite <- in_rev in Ha. apply filter_In in Ha. destruct Ha as [_ Hf].
-  apply andb_prop in Hf. destruct Hf as [Hanc Hconv].
-  exists a. split; [exact Hanc | split; [exact Hconv |]].
-  destruct (GoIndex.as_expr idx a) as [er'|]; [ destruct Her as [<-|[]]; reflexivity | destruct Her ].
-Qed.
-
-(** §17 (C3 FINAL) — the navigation predicates factor through the SOURCE occurrence: a node is a conversion
-    iff its occurrence's syntax is a conversion, and it is a strict ancestor iff the source-determined preorder
-    interval (over [node_ref_key] components + the occurrence's [occurrence_subtree_end]) holds.  So both
-    predicates depend only on the (key, occurrence, subtree-end) data carried by the keyed visit stream. *)
+(** §14/§15 (C3 FINAL) — the explicit-conversion SYNTAX test on a DELIVERED occurrence (consumed by the
+    one-pass [annotate_encl]): a node is a conversion iff its occurrence's OWN syntax is one of the three
+    explicit conversions.  Reads only the delivered [SourceOccurrence] — no [node_at] recovery, no
+    [visit_file] re-traversal — so it is snapshot-independent (source-determined). *)
 Definition is_conversion_occ (occ : GoIndex.SourceOccurrence) : bool :=
   match GoIndex.view_expr occ with
   | Some (EIntConvert _ _) | Some (EFloatConvert _ _) | Some (EComplexConvert _ _) => true
   | _ => false
   end.
-
-Lemma is_conversion_node_source {p} (idx : GoIndex.Snap.SyntaxIndex p) (a : GoIndex.Snap.NodeRef p) :
-  is_conversion_node idx a = is_conversion_occ (GoIndex.Snap.source_occurrence_of_ref a).
-Proof.
-  unfold is_conversion_node, is_conversion_occ.
-  rewrite (GoIndex.Snap.node_at_matches_source_view a). reflexivity.
-Qed.
-
-Lemma is_ancestor_of_source {p} (idx : GoIndex.Snap.SyntaxIndex p) (a r : GoIndex.Snap.NodeRef p) :
-  is_ancestor_of idx a r =
-  (FilePath.fp_eqb (GoIndex.nk_file (GoIndex.Snap.node_ref_key a)) (GoIndex.nk_file (GoIndex.Snap.node_ref_key r))
-   && Pos.ltb (GoIndex.nk_local (GoIndex.Snap.node_ref_key a)) (GoIndex.nk_local (GoIndex.Snap.node_ref_key r))
-   && Pos.leb (GoIndex.nk_local (GoIndex.Snap.node_ref_key r))
-              (GoIndex.occurrence_subtree_end (GoIndex.Snap.source_occurrence_of_ref a)))%bool.
-Proof.
-  unfold is_ancestor_of.
-  rewrite (GoIndex.Snap.node_ref_key_eq a), (GoIndex.Snap.node_ref_key_eq r),
-          (GoIndex.Snap.node_subtree_end_matches_source p idx a).
-  cbn [GoIndex.nk_file GoIndex.nk_local]. reflexivity.
-Qed.
-
-(** a conversion node HAS a validated [ExprRef] (its occurrence's syntax is an expression), and erasing it
-    recovers the node.  So the [outer_context] refs erase to exactly the filtered ancestor-conversions' keys. *)
-Lemma is_conversion_node_as_expr {p} (idx : GoIndex.Snap.SyntaxIndex p) (a : GoIndex.Snap.NodeRef p) :
-  is_conversion_node idx a = true ->
-  exists er, GoIndex.as_expr idx a = Some er /\ GoIndex.erase_ref er = a.
-Proof.
-  intro Hconv.
-  assert (Hk : GoIndex.Snap.node_kind idx a = GoIndex.KExpression).
-  { rewrite (GoIndex.Snap.node_kind_matches_source p idx a).
-    unfold is_conversion_node in Hconv. rewrite (GoIndex.Snap.node_at_matches_source_view a) in Hconv.
-    destruct (GoIndex.view_expr (GoIndex.Snap.source_occurrence_of_ref a)) as [e|] eqn:Ev;
-      [ exact (GoIndex.view_expr_kind _ e Ev) | discriminate Hconv ]. }
-  unfold GoIndex.as_expr. destruct (GoIndex.as_kind_complete idx a GoIndex.KExpression Hk) as [tr [Has Her]].
-  exists tr. split; [exact Has | exact Her].
-Qed.
-
-Lemma flat_map_as_expr_keys {p} (idx : GoIndex.Snap.SyntaxIndex p) (L : list (GoIndex.Snap.NodeRef p)) :
-  (forall a, In a L -> is_conversion_node idx a = true) ->
-  flat_map (fun a => map (fun er => GoIndex.Snap.node_ref_key (GoIndex.erase_ref er))
-                         (match GoIndex.as_expr idx a with Some er => [er] | None => [] end)) L
-  = map GoIndex.Snap.node_ref_key L.
-Proof.
-  induction L as [|a L IH]; intro Hall; [reflexivity|].
-  cbn [flat_map map].
-  destruct (is_conversion_node_as_expr idx a (Hall a (or_introl eq_refl))) as [er [Has Her]].
-  rewrite Has. cbn [map app]. rewrite Her. rewrite (IH (fun a' Hin => Hall a' (or_intror Hin))). reflexivity.
-Qed.
-
-Definition enclosing_conv_keys {p} (idx : GoIndex.Snap.SyntaxIndex p) (r : GoIndex.Snap.NodeRef p)
-  : list GoIndex.NodeKey :=
-  map (fun er => GoIndex.Snap.node_ref_key (GoIndex.erase_ref er)) (enclosing_conv_refs idx r).
-
-(** the erased [outer_context] keys are exactly the keys of the ancestor-conversions in the file's visit
-    stream — a filter/map over the KEYED stream (nearest-first), with NO surviving [ExprRef] dependency. *)
-Lemma enclosing_conv_keys_filter {p} (idx : GoIndex.Snap.SyntaxIndex p) (r : GoIndex.Snap.NodeRef p) :
-  enclosing_conv_keys idx r
-  = rev (map GoIndex.Snap.node_ref_key
-             (filter (fun a => is_ancestor_of idx a r && is_conversion_node idx a)
-                     (map fst (GoIndex.Snap.visit_file (GoIndex.Snap.node_ref_file r))))).
-Proof.
-  unfold enclosing_conv_keys, enclosing_conv_refs. rewrite map_flat_map, <- map_rev.
-  apply flat_map_as_expr_keys. intros a Ha. rewrite <- in_rev in Ha.
-  apply filter_In in Ha. destruct Ha as [_ Hf]. apply andb_prop in Hf. exact (proj2 Hf).
-Qed.
 
 (** §14/§15 (C3 FINAL) — the ONE-PASS enclosing-conversion context.  A single FORWARD pass over the RETAINED
     preorder file stream carries the open-conversion stack (nearest-first, push-front); each occurrence is
@@ -2863,6 +2750,43 @@ Proof.
   - destruct Hin as [Heq|[]]. discriminate Heq.
   - apply in_map_iff in Hin. destruct Hin as [dk [Heq Hdk]]. injection Heq as Hl He.
     exists rest. split; [ rewrite <- He; reflexivity | rewrite <- Hl; exact Hdk ].
+Qed.
+
+(* a diagnostic in the flattened bucket enumeration comes from SOME mapped bucket of [m]. *)
+Lemma bucket_diags_elems_in {p} (m : PM.t (list (GoIndex.DeclRef p))) Hpres es Hall : forall d,
+  In d (@bucket_diags_elems p m Hpres es Hall) ->
+  exists dir l (Hmt : PM.MapsTo dir l m), In d (@pkg_diag_of_bucket p m Hpres dir l Hmt).
+Proof.
+  revert Hall. induction es as [|kv rest IH]; intro Hall; cbn [bucket_diags_elems]; intros d Hin.
+  - destruct Hin.
+  - apply in_app_iff in Hin. destruct Hin as [Hin | Hin].
+    + exists (fst kv), (snd kv), (Hall kv (or_introl eq_refl)). exact Hin.
+    + destruct (IH (fun kv' Hin' => Hall kv' (or_intror Hin')) d Hin) as [dir [l [Hmt Hd]]].
+      exists dir, l, Hmt. exact Hd.
+Qed.
+
+(** §9 (C3 FINAL) — the WHOLE-program [DRDuplicateMain] soundness DENOTES its code: the primary [later] and the
+    related [earlier] both anchor genuine TOP-LEVEL declarations (the only [GoDecl] is [DMain] — `func main`),
+    they lie in the SAME package (equal parent directory — [prog_package_refs_belongs]), and [earlier] is the
+    FIRST canonical main of that package's bucket with [later] a strictly-later one. *)
+Lemma pkg_diags_dup_sound {p} (idx : GoIndex.Snap.SyntaxIndex p) later earlier :
+  In (DRDuplicateMain later earlier) (pkg_diags idx) ->
+  fp_parent (GoIndex.Snap.file_ref_path (GoIndex.Snap.node_ref_file (GoIndex.erase_ref later)))
+    = fp_parent (GoIndex.Snap.file_ref_path (GoIndex.Snap.node_ref_file (GoIndex.erase_ref earlier)))
+  /\ GoIndex.occurrence_kind (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref later)) = GoIndex.KTopLevelDecl
+  /\ GoIndex.occurrence_kind (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref earlier)) = GoIndex.KTopLevelDecl.
+Proof.
+  intro Hin. unfold pkg_diags in Hin.
+  destruct (bucket_diags_elems_in _ _ _ _ _ Hin) as [dir [l [Hmt Hd]]].
+  destruct (pkg_diag_of_bucket_dup_sound _ _ dir l Hmt later earlier Hd) as [rest [Hl Hlater]].
+  assert (Hfind : PM.find dir (prog_package_refs idx) = Some l) by (apply PM.find_1; exact Hmt).
+  assert (HinE : In earlier l) by (rewrite Hl; left; reflexivity).
+  assert (HinL : In later l)  by (rewrite Hl; right; exact Hlater).
+  split; [ | split ].
+  - rewrite (prog_package_refs_belongs idx dir l Hfind later HinL),
+            (prog_package_refs_belongs idx dir l Hfind earlier HinE); reflexivity.
+  - exact (GoIndex.noderefof_kind later).
+  - exact (GoIndex.noderefof_kind earlier).
 Qed.
 Lemma pkg_diags_package {p} (idx : GoIndex.Snap.SyntaxIndex p) : forall d, In d (pkg_diags idx) -> diag_is_package d = true.
 Proof. intros d Hin; apply (pkg_diags_family idx d Hin). Qed.
