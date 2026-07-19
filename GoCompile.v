@@ -3567,6 +3567,111 @@ Proof.
   apply Sorted_StronglySorted; [ intros x y z; apply Collections.FilePath_OT.lt_trans | ].
   unfold GoAST.file_bindings. apply Collections.FileMapBase.elements_3.
 Qed.
+
+(* one [ppkg_step]'s effect on ONE package bucket, as an actual list: it prepends this occurrence's DeclRef
+   (when it mints one for THIS package), else leaves the bucket unchanged.  (A file-root init adds an empty
+   bucket — presence, not a list element.)  Mirrors [ppkg_step_olen] at the list level. *)
+Lemma ppkg_step_bucket {p} (idx : GoIndex.Snap.SyntaxIndex p)
+    (ro : GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence) (acc : PM.t (list (GoIndex.DeclRef p))) (dir : string) :
+  (match PM.find dir (ppkg_step idx ro acc) with Some bk => bk | None => nil end)
+  = (if String.eqb (occ_pkg ro) dir
+     then match GoIndex.as_decl idx (fst ro) with
+          | Some dr => dr :: (match PM.find dir acc with Some bk => bk | None => nil end)
+          | None => (match PM.find dir acc with Some bk => bk | None => nil end)
+          end
+     else (match PM.find dir acc with Some bk => bk | None => nil end)).
+Proof.
+  unfold ppkg_step. destruct (GoIndex.as_decl idx (fst ro)) as [dr|] eqn:Ed.
+  - destruct (String.eqb (occ_pkg ro) dir) eqn:Edir.
+    + apply String.eqb_eq in Edir. rewrite Edir, PMF.add_eq_o by reflexivity. reflexivity.
+    + apply String.eqb_neq in Edir. rewrite PMF.add_neq_o by exact Edir. reflexivity.
+  - destruct (GoIndex.as_kind idx (fst ro) GoIndex.KFile) as [fnr|] eqn:Ef.
+    + destruct (PM.find (occ_pkg ro) acc) as [l0|] eqn:Efind.
+      * destruct (String.eqb (occ_pkg ro) dir) eqn:Edir; [ apply String.eqb_eq in Edir; subst dir | ]; reflexivity.
+      * destruct (String.eqb (occ_pkg ro) dir) eqn:Edir.
+        -- apply String.eqb_eq in Edir. rewrite Edir, PMF.add_eq_o by reflexivity.
+           rewrite <- Edir, Efind. reflexivity.
+        -- apply String.eqb_neq in Edir. rewrite PMF.add_neq_o by exact Edir. reflexivity.
+    + destruct (String.eqb (occ_pkg ro) dir) eqn:Edir; reflexivity.
+Qed.
+
+Definition bucket_of {p} (idx : GoIndex.Snap.SyntaxIndex p)
+    (l : list (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence)) (dir : string) : list (GoIndex.DeclRef p) :=
+  match PM.find dir (fold_right (ppkg_step idx) (PM.empty _) l) with Some bk => bk | None => nil end.
+
+(* the fold's action on the head occurrence, stated over [bucket_of] (a real head symbol, so [rewrite]'s keyed
+   unification finds it — a bare [match] LHS has no head to key on). *)
+Lemma ppkg_fold_bucket_cons {p} (idx : GoIndex.Snap.SyntaxIndex p)
+    (ro : GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence)
+    (l : list (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence)) (dir : string) :
+  bucket_of idx (ro :: l) dir
+  = (if String.eqb (occ_pkg ro) dir
+     then match GoIndex.as_decl idx (fst ro) with
+          | Some dr => dr :: bucket_of idx l dir
+          | None => bucket_of idx l dir
+          end
+     else bucket_of idx l dir).
+Proof. unfold bucket_of. cbn [fold_right]. apply (ppkg_step_bucket idx ro (fold_right (ppkg_step idx) (PM.empty _) l) dir). Qed.
+
+(* over a NodeKey-sorted stream, every package bucket is NodeKey-sorted, and each ref erases to an occurrence
+   in the stream (so its key is one of the stream's keys — used to establish the strict prepend order). *)
+Lemma ppkg_dir_sorted {p} (idx : GoIndex.Snap.SyntaxIndex p) (l : list (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence)) :
+  StronglySorted (fun x y => GoIndex.NodeKey_OT.lt (GoIndex.Snap.node_ref_key (fst x)) (GoIndex.Snap.node_ref_key (fst y))) l ->
+  forall dir,
+    StronglySorted (fun a b => GoIndex.NodeKey_OT.lt (GoIndex.Snap.node_ref_key (GoIndex.erase_ref a))
+                                                     (GoIndex.Snap.node_ref_key (GoIndex.erase_ref b))) (bucket_of idx l dir)
+    /\ (forall a, In a (bucket_of idx l dir) -> exists ro, In ro l /\ GoIndex.erase_ref a = fst ro).
+Proof.
+  induction l as [|ro l IH]; intro Hsort; intro dir.
+  - unfold bucket_of. rewrite PMF.empty_o. split; [constructor | intros a []].
+  - apply StronglySorted_inv in Hsort. destruct Hsort as [Hsort0 Hhd].
+    specialize (IH Hsort0). destruct (IH dir) as [IHsort IHref]. split.
+    + (* the bucket stays NodeKey-sorted *)
+      rewrite (ppkg_fold_bucket_cons idx ro l dir).
+      destruct (String.eqb (occ_pkg ro) dir) eqn:Ek; [ destruct (GoIndex.as_decl idx (fst ro)) as [dr|] eqn:Ed | ]; try exact IHsort.
+      (* prepend this file's main ref — smaller key than every later main (stream sorted) *)
+      assert (Her : GoIndex.erase_ref dr = fst ro) by exact (GoIndex.erase_as_kind idx (fst ro) GoIndex.KTopLevelDecl dr Ed).
+      constructor; [ exact IHsort |].
+      rewrite Forall_forall. intros a Ha. destruct (IHref a Ha) as [ro' [Hro' Hae]].
+      rewrite Forall_forall in Hhd. rewrite Her, Hae. exact (Hhd ro' Hro').
+    + (* every bucket ref erases to a stream occurrence *)
+      rewrite (ppkg_fold_bucket_cons idx ro l dir).
+      destruct (String.eqb (occ_pkg ro) dir) eqn:Ek; [ destruct (GoIndex.as_decl idx (fst ro)) as [dr|] eqn:Ed | ].
+      * assert (Her : GoIndex.erase_ref dr = fst ro) by exact (GoIndex.erase_as_kind idx (fst ro) GoIndex.KTopLevelDecl dr Ed).
+        intros a [Hah | Hat].
+        -- subst a. exists ro. split; [left; reflexivity | exact Her].
+        -- destruct (IHref a Hat) as [ro' [Hro' Hae]]. exists ro'. split; [right; exact Hro' | exact Hae].
+      * intros a Ha. destruct (IHref a Ha) as [ro' [Hro' Hae]]. exists ro'. split; [right; exact Hro' | exact Hae].
+      * intros a Ha. destruct (IHref a Ha) as [ro' [Hro' Hae]]. exists ro'. split; [right; exact Hro' | exact Hae].
+Qed.
+(** §9 (C3 FINAL) — the WHOLE-program [DRDuplicateMain] PRECEDENCE + DISTINCTNESS: because every package bucket
+    is the strictly-NodeKey-ascending subselection of the sorted visit stream ([ppkg_dir_sorted] over
+    [prog_visit_key_sorted]), the related [earlier] main is strictly BEFORE the primary [later] in canonical
+    occurrence order, and the two are DISTINCT.  So the canonical main a package keeps is unambiguous — the
+    unique smallest-key one — and every duplicate diagnostic names a genuinely different, strictly-later main. *)
+Lemma pkg_diags_dup_precedence {p} (idx : GoIndex.Snap.SyntaxIndex p) later earlier :
+  In (DRDuplicateMain later earlier) (pkg_diags idx) ->
+  GoIndex.NodeKey_OT.lt (GoIndex.Snap.node_ref_key (GoIndex.erase_ref earlier))
+                        (GoIndex.Snap.node_ref_key (GoIndex.erase_ref later))
+  /\ earlier <> later.
+Proof.
+  intro Hin. unfold pkg_diags in Hin.
+  destruct (bucket_diags_elems_in _ _ _ _ _ Hin) as [dir [l [Hmt Hd]]].
+  destruct (pkg_diag_of_bucket_dup_sound _ _ dir l Hmt later earlier Hd) as [rest [Hl Hlater]].
+  assert (Hfind : PM.find dir (prog_package_refs idx) = Some l) by (apply PM.find_1; exact Hmt).
+  assert (Hbeq : bucket_of idx (prog_visit p) dir = l).
+  { unfold bucket_of. unfold prog_package_refs in Hfind. rewrite Hfind. reflexivity. }
+  destruct (ppkg_dir_sorted idx (prog_visit p) (prog_visit_key_sorted p) dir) as [Hsort _].
+  rewrite Hbeq, Hl in Hsort. apply StronglySorted_inv in Hsort. destruct Hsort as [_ Hhd].
+  rewrite Forall_forall in Hhd. pose proof (Hhd later Hlater) as Hlt.
+  split; [ exact Hlt |].
+  intro Heq. subst later.
+  assert (Hne : ~ GoIndex.NodeKey_OT.eq (GoIndex.Snap.node_ref_key (GoIndex.erase_ref earlier))
+                                        (GoIndex.Snap.node_ref_key (GoIndex.erase_ref earlier)))
+    by (apply GoIndex.NodeKey_OT.lt_not_eq; exact Hlt).
+  apply Hne. apply (proj2 (GoIndex.nodekey_compare_eq _ _)). reflexivity.
+Qed.
+
 Lemma pkg_diags_package {p} (idx : GoIndex.Snap.SyntaxIndex p) : forall d, In d (pkg_diags idx) -> diag_is_package d = true.
 Proof. intros d Hin; apply (pkg_diags_family idx d Hin). Qed.
 Lemma pkg_diags_not_typing {p} (idx : GoIndex.Snap.SyntaxIndex p) : forall d, In d (pkg_diags idx) -> diag_is_typing d = false.

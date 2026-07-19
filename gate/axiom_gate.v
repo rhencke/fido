@@ -383,6 +383,7 @@ Print Assumptions GoCompile.expr_diags_conv_scar_wf.
 Print Assumptions GoCompile.pkg_diag_of_bucket_missing_sound.
 Print Assumptions GoCompile.pkg_diag_of_bucket_dup_sound.
 Print Assumptions GoCompile.pkg_diags_dup_sound.
+Print Assumptions GoCompile.pkg_diags_dup_precedence.
 Print Assumptions GoCompile.pkg_diags_missing_sound.
 (* C3 §16/§17 — cross-snapshot determinism FOUNDATION: the KEYED visit stream (each visited reference's NodeKey
    + its source occurrence) depends ONLY on the file map, so FilesEqual programs have IDENTICAL keyed streams
