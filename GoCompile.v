@@ -4608,3 +4608,86 @@ Theorem dup_lit_facts_exact :
     ; (GoIndex.mkKey (mkFP "main.go" eq_refl) 6%positive,
         mkExprFact (CIUntyped (CInt 1)) (Some (pack_resolved (TInteger IInt) (TCInteger IInt 1 eq_refl)))) ].
 Proof. rewrite prog_expr_facts_source, keyed_visit_source. vm_compute. reflexivity. Qed.
+
+(** ---- §22.1-22.7 — SINGLE-FAILURE SCARS: each concrete rejected program yields EXACTLY ONE diagnostic with
+    the required code, primary anchor (the failing literal/conversion at local 5), and target payload. ---- *)
+
+(* §22.1 default integer overflow: a bare [int_max+1] literal cannot default to [TInteger IInt]. *)
+Definition over_default_int_program := singleton_program c3_ms (mkFP "main.go" eq_refl) [ DMain [ SPrintln [ EInt 9223372036854775808 ] ] ].
+Theorem over_default_int_erased :
+  erased_report over_default_int_program (GoIndex.Snap.index_program over_default_int_program)
+  = [ mkErasedDiagnostic DCDefaultNotRepresentable (EANode (GoIndex.mkKey (mkFP "main.go" eq_refl) 5%positive)) [] (Some (TInteger IInt)) ].
+Proof. rewrite erased_report_src_eq. vm_compute. reflexivity. Qed.
+
+(* §22.2 default float overflow: a bare finite decimal outside finite [float64]. *)
+Definition over_default_float_program := singleton_program c3_ms (mkFP "main.go" eq_refl) [ DMain [ SPrintln [ EFloat (mkDecimal 1 400 eq_refl) ] ] ].
+Theorem over_default_float_erased :
+  erased_report over_default_float_program (GoIndex.Snap.index_program over_default_float_program)
+  = [ mkErasedDiagnostic DCDefaultNotRepresentable (EANode (GoIndex.mkKey (mkFP "main.go" eq_refl) 5%positive)) [] (Some (TFloat F64)) ].
+Proof. rewrite erased_report_src_eq. vm_compute. reflexivity. Qed.
+
+(* §22.3 default complex overflow: a bare complex whose component cannot default to [complex128]. *)
+Definition over_default_complex_program := singleton_program c3_ms (mkFP "main.go" eq_refl) [ DMain [ SPrintln [ EComplex (mkDC (mkDecimal 1 400 eq_refl) (mkDecimal 0 0 eq_refl)) ] ] ].
+Theorem over_default_complex_erased :
+  erased_report over_default_complex_program (GoIndex.Snap.index_program over_default_complex_program)
+  = [ mkErasedDiagnostic DCDefaultNotRepresentable (EANode (GoIndex.mkKey (mkFP "main.go" eq_refl) 5%positive)) [] (Some (TComplex C128)) ].
+Proof. rewrite erased_report_src_eq. vm_compute. reflexivity. Qed.
+
+(* §22.4 invalid explicit integer conversion [int8(128)]: anchored at the conversion, target [TInteger IInt8]. *)
+Definition bad_int8_program := singleton_program c3_ms (mkFP "main.go" eq_refl) [ DMain [ SPrintln [ EIntConvert IInt8 (EInt 128) ] ] ].
+Theorem bad_int8_erased :
+  erased_report bad_int8_program (GoIndex.Snap.index_program bad_int8_program)
+  = [ mkErasedDiagnostic DCInvalidConversion (EANode (GoIndex.mkKey (mkFP "main.go" eq_refl) 5%positive)) [] (Some (TInteger IInt8)) ].
+Proof. rewrite erased_report_src_eq. vm_compute. reflexivity. Qed.
+
+(* §22.5 fractional float -> integer [int(3.5)]: anchored at the conversion. *)
+Definition frac_f2i_program := singleton_program c3_ms (mkFP "main.go" eq_refl) [ DMain [ SPrintln [ EIntConvert IInt (EFloat (mkDecimal 35 (-1) eq_refl)) ] ] ].
+Theorem frac_f2i_erased :
+  erased_report frac_f2i_program (GoIndex.Snap.index_program frac_f2i_program)
+  = [ mkErasedDiagnostic DCInvalidConversion (EANode (GoIndex.mkKey (mkFP "main.go" eq_refl) 5%positive)) [] (Some (TInteger IInt)) ].
+Proof. rewrite erased_report_src_eq. vm_compute. reflexivity. Qed.
+
+(* §22.6 nonzero-imaginary complex -> scalar [int(complex(3,1))]: anchored at the conversion. *)
+Definition nz_c2s_program := singleton_program c3_ms (mkFP "main.go" eq_refl) [ DMain [ SPrintln [ EIntConvert IInt (EComplex (mkDC (mkDecimal 3 0 eq_refl) (mkDecimal 1 0 eq_refl))) ] ] ].
+Theorem nz_c2s_erased :
+  erased_report nz_c2s_program (GoIndex.Snap.index_program nz_c2s_program)
+  = [ mkErasedDiagnostic DCInvalidConversion (EANode (GoIndex.mkKey (mkFP "main.go" eq_refl) 5%positive)) [] (Some (TInteger IInt)) ].
+Proof. rewrite erased_report_src_eq. vm_compute. reflexivity. Qed.
+
+(* §22.7 wrong-kind conversion [int(true)]: anchored at the conversion, no generic unlocated typing error. *)
+Definition wrongkind_program := singleton_program c3_ms (mkFP "main.go" eq_refl) [ DMain [ SPrintln [ EIntConvert IInt (EBool true) ] ] ].
+Theorem wrongkind_erased :
+  erased_report wrongkind_program (GoIndex.Snap.index_program wrongkind_program)
+  = [ mkErasedDiagnostic DCInvalidConversion (EANode (GoIndex.mkKey (mkFP "main.go" eq_refl) 5%positive)) [] (Some (TInteger IInt)) ].
+Proof. rewrite erased_report_src_eq. vm_compute. reflexivity. Qed.
+
+(** ---- §22.10 — DUPLICATE MAINS ACROSS FILES: two root-package files each declaring `main`.  The report names
+    the CANONICAL later main (path order: [b.go] after [a.go]) as primary, related to the FIRST canonical main
+    ([a.go]); construction/insertion order does not change this (both files' mains are at local 3). ---- *)
+Theorem dup_across_files_erased :
+  option_map (fun p => erased_report_src (prog_files p))
+             (build_program c3_ms [ main_file_node (mkFP "a.go" eq_refl) [ DMain [ SPrintln [ EInt 1 ] ] ]
+                                  ; main_file_node (mkFP "b.go" eq_refl) [ DMain [ SPrintln [ EInt 2 ] ] ] ])
+  = Some [ mkErasedDiagnostic DCDuplicateMain (EANode (GoIndex.mkKey (mkFP "b.go" eq_refl) 3%positive))
+             [ EANode (GoIndex.mkKey (mkFP "a.go" eq_refl) 3%positive) ] None ].
+Proof. vm_compute. reflexivity. Qed.
+
+(** ---- §22.14 — MULTIPLE SIMULTANEOUS FAILURES: two invalid expressions in DIFFERENT files ([a/x.go]'s
+    [int8(128)] and [b/y.go]'s [int(3.5)]), one duplicate-main package ([c]), and one missing-main package
+    ([d]).  The whole erased report is EXACTLY these four diagnostics in CANONICAL order — expression scars by
+    file path first ([a/x.go], [b/y.go]), then package diagnostics by package key ([c] duplicate, [d] missing).
+    Construction order does not affect the result. ---- *)
+Theorem simultaneous_failures_erased :
+  option_map (fun p => erased_report_src (prog_files p))
+     (build_program c3_ms
+        [ main_file_node (mkFP "a/x.go" eq_refl) [ DMain [ SPrintln [ EIntConvert IInt8 (EInt 128) ] ] ]
+        ; main_file_node (mkFP "b/y.go" eq_refl) [ DMain [ SPrintln [ EIntConvert IInt (EFloat (mkDecimal 35 (-1) eq_refl)) ] ] ]
+        ; main_file_node (mkFP "c/p.go" eq_refl) [ DMain [ SPrintln [ EInt 1 ] ] ]
+        ; main_file_node (mkFP "c/q.go" eq_refl) [ DMain [ SPrintln [ EInt 2 ] ] ]
+        ; main_file_node (mkFP "d/z.go" eq_refl) [ ] ])
+  = Some [ mkErasedDiagnostic DCInvalidConversion (EANode (GoIndex.mkKey (mkFP "a/x.go" eq_refl) 5%positive)) [] (Some (TInteger IInt8))
+         ; mkErasedDiagnostic DCInvalidConversion (EANode (GoIndex.mkKey (mkFP "b/y.go" eq_refl) 5%positive)) [] (Some (TInteger IInt))
+         ; mkErasedDiagnostic DCDuplicateMain (EANode (GoIndex.mkKey (mkFP "c/q.go" eq_refl) 3%positive))
+             [ EANode (GoIndex.mkKey (mkFP "c/p.go" eq_refl) 3%positive) ] None
+         ; mkErasedDiagnostic DCMissingMain (EAPackage "d") [] None ].
+Proof. vm_compute. reflexivity. Qed.

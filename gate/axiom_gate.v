@@ -779,3 +779,19 @@ Print Assumptions GoCompile.fact_program_inner_literal.
 Print Assumptions GoCompile.fact_program_inner_conversion.
 Print Assumptions GoCompile.fact_program_outer_arg.
 Print Assumptions GoCompile.dup_lit_facts_exact.
+(* C3 §22.1-22.7 — single-failure scars: each concrete rejected program's EXACT one-diagnostic report (code +
+   anchor + target): default int/float/complex overflow, invalid int8/fractional/nonzero-imaginary/wrong-kind
+   conversion.  §22.10 — duplicate mains across files (canonical path order, not insertion order).  §22.14 —
+   multiple simultaneous failures (two invalid expressions + one duplicate + one missing package) in canonical
+   order. *)
+Print Assumptions GoCompile.over_default_int_erased.
+Print Assumptions GoCompile.over_default_float_erased.
+Print Assumptions GoCompile.over_default_complex_erased.
+Print Assumptions GoCompile.bad_int8_erased.
+Print Assumptions GoCompile.frac_f2i_erased.
+Print Assumptions GoCompile.nz_c2s_erased.
+Print Assumptions GoCompile.wrongkind_erased.
+Print Assumptions GoCompile.dup_across_files_erased.
+Print Assumptions GoCompile.simultaneous_failures_erased.
+(* the SOURCE characterization that makes the exact fixtures faithful to the real report. *)
+Print Assumptions GoCompile.erased_report_src_eq.
