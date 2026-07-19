@@ -5854,3 +5854,9 @@ Proof.
   pose proof (component_ok_no_dot d Hc) as Hnd. pose proof (filename_ok_has_dot d Hf) as Hyd.
   rewrite Hnd in Hyd. discriminate Hyd.
 Qed.
+
+(** the THIRD disjointness pair (completing "pairwise disjoint"): a root source basename [filename_ok] is
+    never "go.mod" — "go.mod" ends ".mod", not ".go", so [ends_go "go.mod" = false].  So FRESourceFile keys
+    and the FREGoMod key are disjoint. *)
+Lemma filename_ok_neq_gomod : forall f, FilePath.filename_ok f = true -> f <> "go.mod".
+Proof. intros f Hf Heq. subst f. vm_compute in Hf. discriminate Hf. Qed.
