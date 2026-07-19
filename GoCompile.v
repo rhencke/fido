@@ -6505,3 +6505,175 @@ Theorem mixed_order_erased :
              [] (Some (TInteger IInt8)) ].
 Proof. vm_compute. reflexivity. Qed.
 
+(* the §20 fixtures spell string keys/paths/output-names directly, so reopen the string scope (list [;] and
+   number literals are unaffected). *)
+Local Open Scope string_scope.
+
+(** ============================================================================================================
+    §20 — CURRENT REQUIRED ROCQ FIXTURES (20.1-20.16).  The fresh-build plan, preflight disposition, [prog_ok],
+    and [program_typedb] are ALL index-free, so a fixture [vm_compute]s them directly; the command-facing report
+    (which anchors into the OPAQUE sealed index) is pinned THROUGH the proven bridges ([go_compile_class_spec],
+    [elaboration_diagnostics_fresh_failure]).  Module paths are valid current [ModulePath]s; the pinned Go
+    1.23.12 default-executable / directory-collision behaviour is what these encode. ============================ *)
+
+Definition ex_ms : ModuleSpec := mkModuleSpec (ModulePath.mkMP "example.com/m" eq_refl) GoVersion.Go1_23.
+Definition ex_main : list GoDecl := [ DMain [ SPrintln [ EInt 1 ] ] ].
+(* a package-local SEMANTIC error: uint8(int(300)) — the inner int(300) is valid, the outer uint8 is not. *)
+Definition ex_bad  : list GoDecl := [ DMain [ SPrintln [ EIntConvert IUint8 (EIntConvert IInt (EInt 300)) ] ] ].
+
+(* 20.1 — EMPTY IMAGE: no packages -> FBDNoPackages, preflight succeeds vacuously, GoCompile, no diagnostics. *)
+Example fx_2001_plan      : fresh_build_plan (empty_program ex_ms) = FBDNoPackages.                    Proof. vm_compute. reflexivity. Qed.
+Example fx_2001_preflight : fresh_build_disposition_ok (fresh_build_plan (empty_program ex_ms)) = true. Proof. vm_compute. reflexivity. Qed.
+Example fx_2001_gocompile : GoCompile (empty_program ex_ms).                Proof. apply GoCompile_of_prog_ok; vm_compute; reflexivity. Qed.
+Example fx_2001_report    : forall idx, elaboration_diagnostics (empty_program ex_ms) idx = nil.
+Proof. intro idx. apply (proj2 (elaboration_diagnostics_nil_iff_GoCompile _ idx)). exact fx_2001_gocompile. Qed.
+
+(* 20.2 — ONE VALID ROOT PACKAGE, ABSENT OUTPUT: module basename "m" is neither go.mod nor a root file, so the
+   single-main plan's output target is absent; preflight succeeds; GoCompile. *)
+Definition fx_root : GoProgram := singleton_program ex_ms (mkFP "main.go" eq_refl) ex_main.
+Example fx_2002_plan      : fresh_build_plan fx_root = FBDWriteSingleMain "" "example.com/m" "m" None.   Proof. vm_compute. reflexivity. Qed.
+Example fx_2002_preflight : fresh_build_disposition_ok (fresh_build_plan fx_root) = true.               Proof. vm_compute. reflexivity. Qed.
+Example fx_2002_gocompile : GoCompile fx_root.                              Proof. apply GoCompile_of_prog_ok; vm_compute; reflexivity. Qed.
+
+(* 20.3 — SOLE IMMEDIATE CHILD sub/main.go: import path example.com/m/sub, output name "sub", the fresh root
+   HAS a directory "sub" -> preflight FAILS; final report is EXACTLY one build-output-directory diagnostic; not
+   GoCompile. *)
+Definition fx_sub : GoProgram := singleton_program ex_ms (mkFP "sub/main.go" eq_refl) ex_main.
+Example fx_2003_preflight_fails : fresh_build_disposition_ok (fresh_build_plan fx_sub) = false.   Proof. vm_compute. reflexivity. Qed.
+Example fx_2003_not_gocompile   : ~ GoCompile fx_sub.
+Proof. intros [Hpf _]. unfold fresh_build_preflight_ok in Hpf. vm_compute in Hpf. discriminate. Qed.
+Example fx_2003_report : forall idx, exists pk name, elaboration_diagnostics fx_sub idx = [DRBuildOutputIsDirectory pk name].
+Proof. intro idx. apply elaboration_diagnostics_fresh_failure. vm_compute. reflexivity. Qed.
+Example fx_2003_class  : go_compile_class fx_sub = LCBuildOutput.
+Proof. rewrite go_compile_class_spec. vm_compute. reflexivity. Qed.
+
+(* 20.4 — IMMEDIATE CHILD WITH A SEMANTIC ERROR + the same output collision: the final report REMAINS only the
+   build-output-directory diagnostic (PRECEDENCE — the sole package's typing error is hidden). *)
+Definition fx_sub_err : GoProgram := singleton_program ex_ms (mkFP "sub/main.go" eq_refl) ex_bad.
+Example fx_2004_untyped : program_typedb fx_sub_err = false.                                        Proof. vm_compute. reflexivity. Qed.
+Example fx_2004_preflight_fails : fresh_build_disposition_ok (fresh_build_plan fx_sub_err) = false. Proof. vm_compute. reflexivity. Qed.
+Example fx_2004_report_hides_semantic : forall idx, exists pk name, elaboration_diagnostics fx_sub_err idx = [DRBuildOutputIsDirectory pk name].
+Proof. intro idx. apply elaboration_diagnostics_fresh_failure. vm_compute. reflexivity. Qed.
+Example fx_2004_class : go_compile_class fx_sub_err = LCBuildOutput.
+Proof. rewrite go_compile_class_spec. vm_compute. reflexivity. Qed.
+
+(* 20.5 — SOLE DEEPER PACKAGE a/b/main.go: output name "b", but the fresh root directory is "a" (not "b"), so
+   the output target is absent; preflight succeeds; GoCompile. *)
+Definition fx_ab : GoProgram := singleton_program ex_ms (mkFP "a/b/main.go" eq_refl) ex_main.
+Example fx_2005_preflight : fresh_build_disposition_ok (fresh_build_plan fx_ab) = true. Proof. vm_compute. reflexivity. Qed.
+Example fx_2005_gocompile : GoCompile fx_ab.                Proof. apply GoCompile_of_prog_ok; vm_compute; reflexivity. Qed.
+
+(* 20.6 — FINAL v2 PACKAGE PATH a/v2/main.go: import example.com/m/a/v2, the /v2 major-version element is
+   stripped so the output name is "a"; the fresh root directory "a" EXISTS -> preflight FAILS. *)
+Definition fx_av2 : GoProgram := singleton_program ex_ms (mkFP "a/v2/main.go" eq_refl) ex_main.
+Example fx_2006_output_a       : fresh_build_plan fx_av2 = FBDWriteSingleMain "a/v2" "example.com/m/a/v2" "a" (Some FREDirectory). Proof. vm_compute. reflexivity. Qed.
+Example fx_2006_preflight_fails : fresh_build_disposition_ok (fresh_build_plan fx_av2) = false. Proof. vm_compute. reflexivity. Qed.
+Example fx_2006_not_gocompile   : ~ GoCompile fx_av2.
+Proof. intros [Hpf _]. unfold fresh_build_preflight_ok in Hpf. vm_compute in Hpf. discriminate. Qed.
+
+(* 20.7 — IMMEDIATE v2 PACKAGE v2/main.go: import example.com/m/v2 -> output name "m" (the module basename,
+   after the /v2 strip); the fresh root directory "v2" does not collide with "m" -> preflight succeeds. *)
+Definition fx_v2 : GoProgram := singleton_program ex_ms (mkFP "v2/main.go" eq_refl) ex_main.
+Example fx_2007_output_m   : fresh_build_plan fx_v2 = FBDWriteSingleMain "v2" "example.com/m/v2" "m" None. Proof. vm_compute. reflexivity. Qed.
+Example fx_2007_preflight  : fresh_build_disposition_ok (fresh_build_plan fx_v2) = true. Proof. vm_compute. reflexivity. Qed.
+Example fx_2007_gocompile  : GoCompile fx_v2.               Proof. apply GoCompile_of_prog_ok; vm_compute; reflexivity. Qed.
+
+(* 20.8 — MULTIPLE MAIN PACKAGES a/main.go + b/main.go: FBDDiscardMultiple, NO default-output preflight failure,
+   a source-valid program succeeds. *)
+Example fx_2008 : forall p,
+  build_program ex_ms [ main_file_node (mkFP "a/main.go" eq_refl) ex_main
+                      ; main_file_node (mkFP "b/main.go" eq_refl) ex_main ] = Some p ->
+  fresh_build_plan p = FBDDiscardMultiple 2
+  /\ fresh_build_disposition_ok (fresh_build_plan p) = true
+  /\ GoCompile p.
+Proof.
+  intros p H. vm_compute in H. injection H as <-.
+  split; [ vm_compute; reflexivity | split; [ vm_compute; reflexivity | apply GoCompile_of_prog_ok; vm_compute; reflexivity ] ].
+Qed.
+
+(* 20.9 — MULTIPLE PACKAGES WITH A SEMANTIC FAILURE: no default-output collision branch, so the semantic
+   diagnostics ARE exposed (the class is the typing class). *)
+Example fx_2009 : forall p,
+  build_program ex_ms [ main_file_node (mkFP "a/main.go" eq_refl) ex_main
+                      ; main_file_node (mkFP "b/main.go" eq_refl) ex_bad ] = Some p ->
+  fresh_build_disposition_ok (fresh_build_plan p) = true /\ go_compile_class p = LCTyping.
+Proof.
+  intros p H. vm_compute in H. injection H as <-.
+  split; [ vm_compute; reflexivity | rewrite go_compile_class_spec; vm_compute; reflexivity ].
+Qed.
+
+(* 20.10 — go.mod OVERWRITE: module final component "go.mod" -> output name "go.mod", whose root target is the
+   REGULAR go.mod (FREGoMod, not a directory) -> preflight succeeds; the plan RECORDS the overwrite target. *)
+Definition ex_ms_gomod : ModuleSpec := mkModuleSpec (ModulePath.mkMP "example.com/go.mod" eq_refl) GoVersion.Go1_23.
+Definition fx_gomod : GoProgram := singleton_program ex_ms_gomod (mkFP "main.go" eq_refl) ex_main.
+Example fx_2010_plan      : fresh_build_plan fx_gomod = FBDWriteSingleMain "" "example.com/go.mod" "go.mod" (Some FREGoMod). Proof. vm_compute. reflexivity. Qed.
+Example fx_2010_preflight : fresh_build_disposition_ok (fresh_build_plan fx_gomod) = true. Proof. vm_compute. reflexivity. Qed.
+Example fx_2010_gocompile : GoCompile fx_gomod.             Proof. apply GoCompile_of_prog_ok; vm_compute; reflexivity. Qed.
+
+(* 20.11 — SOURCE OVERWRITE: module final component "main.go" -> output name "main.go", whose root target is a
+   REGULAR source file (FRESourceFile, not a directory) -> preflight succeeds; GoCompile. *)
+Definition ex_ms_srcname : ModuleSpec := mkModuleSpec (ModulePath.mkMP "example.com/main.go" eq_refl) GoVersion.Go1_23.
+Definition fx_srcov : GoProgram := singleton_program ex_ms_srcname (mkFP "main.go" eq_refl) ex_main.
+Example fx_2011_preflight : fresh_build_disposition_ok (fresh_build_plan fx_srcov) = true. Proof. vm_compute. reflexivity. Qed.
+Example fx_2011_gocompile : GoCompile fx_srcov.             Proof. apply GoCompile_of_prog_ok; vm_compute; reflexivity. Qed.
+
+(* 20.12 — ROOT SOURCE NAME COLLISION WITHOUT EXACT MODULE MATCH: the output target lookup is EXACT string
+   identity — output name "m" does NOT match the root source file "main.go" (no prefix/substring match). *)
+Example fx_2012 : PM.find "m" (root_layout fx_root) = None. Proof. vm_compute. reflexivity. Qed.
+
+(* 20.13 — THREE MAINS in one package (n-1 = 2 redeclarations): with a build-output directory collision the
+   final report HIDES them (LCBuildOutput); without a collision the class exposes the package-main-count. *)
+Definition ex_3main : list GoDecl :=
+  [ DMain [ SPrintln [ EInt 1 ] ]; DMain [ SPrintln [ EInt 2 ] ]; DMain [ SPrintln [ EInt 3 ] ] ].
+Definition fx_3main_hidden : GoProgram := singleton_program ex_ms (mkFP "sub/main.go" eq_refl) ex_3main.
+Definition fx_3main_shown  : GoProgram := singleton_program ex_ms (mkFP "main.go" eq_refl)     ex_3main.
+Example fx_2013a_class  : go_compile_class fx_3main_hidden = LCBuildOutput.
+Proof. rewrite go_compile_class_spec. vm_compute. reflexivity. Qed.
+Example fx_2013a_report : forall idx, exists pk name, elaboration_diagnostics fx_3main_hidden idx = [DRBuildOutputIsDirectory pk name].
+Proof. intro idx. apply elaboration_diagnostics_fresh_failure. vm_compute. reflexivity. Qed.
+Example fx_2013b_class  : go_compile_class fx_3main_shown = LCPackageMainCount.
+Proof. rewrite go_compile_class_spec. vm_compute. reflexivity. Qed.
+
+(* 20.14 — MISSING MAIN ENTRY (a package file with no DMain): same two branches — a collision HIDES it, a
+   collision-free layout EXPOSES the missing-main (package-main-count) class. *)
+Definition fx_nomain_hidden : GoProgram := singleton_program ex_ms (mkFP "sub/main.go" eq_refl) nil.
+Definition fx_nomain_shown  : GoProgram := singleton_program ex_ms (mkFP "main.go" eq_refl)     nil.
+Example fx_2014a_class : go_compile_class fx_nomain_hidden = LCBuildOutput.
+Proof. rewrite go_compile_class_spec. vm_compute. reflexivity. Qed.
+Example fx_2014b_class : go_compile_class fx_nomain_shown = LCPackageMainCount.
+Proof. rewrite go_compile_class_spec. vm_compute. reflexivity. Qed.
+
+(* 20.15 — REORDERED CONSTRUCTION under the SAME ModuleSpec -> equal full plan, erased final report, and class
+   (permuted file-node input is [ProgramInputEqual]). *)
+Theorem fx_2015_full_determinism :
+  forall p1 p2 (idx1 : GoIndex.Snap.SyntaxIndex p1) (idx2 : GoIndex.Snap.SyntaxIndex p2),
+    build_program c3_ms [rnode_a; rnode_b] = Some p1 ->
+    build_program c3_ms [rnode_b; rnode_a] = Some p2 ->
+    fresh_build_plan p1 = fresh_build_plan p2
+    /\ erased_elaboration_report p1 idx1 = erased_elaboration_report p2 idx2
+    /\ go_compile_class p1 = go_compile_class p2.
+Proof.
+  intros p1 p2 idx1 idx2 H1 H2.
+  assert (HIE : ProgramInputEqual p1 p2).
+  { unfold build_program in H1, H2.
+    destruct (filemap_of_nodes [rnode_a; rnode_b]) as [fm1|] eqn:F1; [ | discriminate ].
+    destruct (filemap_of_nodes [rnode_b; rnode_a]) as [fm2|] eqn:F2; [ | discriminate ].
+    injection H1 as <-. injection H2 as <-. split; [ reflexivity | cbn [prog_files] ].
+    exact (filemap_of_nodes_permutation _ _ fm1 fm2 (perm_swap rnode_b rnode_a []) F1 F2). }
+  split; [ exact (fresh_build_plan_InputEqual _ _ HIE) |].
+  split; [ exact (erased_elaboration_report_InputEqual _ _ idx1 idx2 HIE)
+         | exact (go_compile_class_Equal _ _ HIE) ].
+Qed.
+
+(* 20.16 — EQUAL FILES, DIFFERENT MODULE: the source file map is identical, but the two ModuleSpecs give the
+   sole package DIFFERENT default executable names, so the FreshBuildPlans DIFFER — full-plan equality does NOT
+   follow from FilesEqual alone (this is the §19 counterexample). *)
+Definition fx_cex_1 : GoProgram := singleton_program ex_ms (mkFP "v2/main.go" eq_refl) ex_main.
+Definition fx_cex_2 : GoProgram :=
+  singleton_program (mkModuleSpec (ModulePath.mkMP "example.com/other" eq_refl) GoVersion.Go1_23) (mkFP "v2/main.go" eq_refl) ex_main.
+Example fx_2016_files_equal : GoAST.FilesEqual (prog_files fx_cex_1) (prog_files fx_cex_2).
+Proof. assert (prog_files fx_cex_1 = prog_files fx_cex_2) as Heq by (vm_compute; reflexivity).
+       rewrite Heq. apply GoAST.FilesEqual_refl. Qed.
+Example fx_2016_plans_differ : fresh_build_plan fx_cex_1 <> fresh_build_plan fx_cex_2.
+Proof. vm_compute. discriminate. Qed.
+
