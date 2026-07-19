@@ -794,13 +794,16 @@ Print Assumptions GoCompile.nz_c2s_erased.
 Print Assumptions GoCompile.wrongkind_erased.
 Print Assumptions GoCompile.dup_across_files_erased.
 Print Assumptions GoCompile.simultaneous_failures_erased.
-(* §16 — the UNIVERSAL canonical-order theorem: the report's node-primary diagnostics appear in non-decreasing
-   NodeKey order (path then local id) via the standard NodeKeyMap's key-sorted elements — NO project-authored
-   sort (a node-primary diagnostic is prepended to its occurrence's bucket; each occurrence emits at most one,
-   so no within-bucket sort is required).  The mixed-order fixture is the concrete witness (a duplicate-main in
-   package `a` precedes an invalid-conversion in package `z`); the bucketing is a REORDERING — the report has
-   exactly the diagnostics of `expr_diags ++ pkg_diags`. *)
-Print Assumptions GoCompile.collect_diagnostics_node_canonical.
+(* §16b — the UNIVERSAL STRICT canonical-order theorem: the report's node-primary diagnostics appear in
+   STRICTLY ascending NodeKey order (path then local id) via the standard NodeKeyMap's key-sorted elements —
+   NO project-authored sort.  Backed by the two supporting claims the order rests on: the node-keyed INPUT has
+   UNIQUE keys (expr keys NoDup + pkg keys NoDup + their disjointness), so every bucket is a SINGLETON — hence
+   there are NO within-bucket ties to reorder.  The mixed-order fixture is the concrete witness (a duplicate-main
+   in package `a` STRICTLY precedes an invalid-conversion in package `z`); the bucketing is a REORDERING — the
+   report has exactly the diagnostics of `expr_diags ++ pkg_diags`. *)
+Print Assumptions GoCompile.collect_node_input_nodup.
+Print Assumptions GoCompile.collect_node_buckets_singleton.
+Print Assumptions GoCompile.collect_diagnostics_node_strict.
 Print Assumptions GoCompile.mixed_order_erased.
 Print Assumptions GoCompile.collect_diagnostics_In.
 (* the SOURCE characterization that makes the exact fixtures faithful to the real report. *)

@@ -384,15 +384,6 @@ Arguments DRDuplicateMain {p} _ _.  Arguments DRMissingMain {p} _.
 Inductive DiagnosticCode : Type :=
 | DCInvalidConversion | DCDefaultNotRepresentable | DCDuplicateMain | DCMissingMain.
 
-Definition diagnostic_code_eq_dec (a b : DiagnosticCode) : {a = b} + {a <> b}.
-Proof. decide equality. Defined.
-
-(* a stable finite ordering of the codes (for canonical per-anchor bucket order, §16). *)
-Definition diagnostic_code_index (c : DiagnosticCode) : nat :=
-  match c with
-  | DCInvalidConversion => 0 | DCDefaultNotRepresentable => 1 | DCDuplicateMain => 2 | DCMissingMain => 3
-  end.
-
 Definition diagnostic_code {p} (d : DiagnosticReason p) : DiagnosticCode :=
   match d with
   | DRInvalidConversion _ _ _ _   => DCInvalidConversion
@@ -3246,21 +3237,10 @@ Proof.
   unfold collect_diagnostics. rewrite in_app_iff, bucket_flatten_In. apply node_pkg_In.
 Qed.
 
-(* ---- §16 — the UNIVERSAL CANONICAL-ORDER theorem: the node-primary diagnostics appear in non-decreasing
-   NodeKey order (path then local id).  Each occurrence emits at most one node diagnostic, so every bucket is a
-   singleton and no within-bucket code sort is needed; the order is entirely the NodeKeyMap's key-sorted
-   [elements].  (`nk_le_opt` is the NodeKey `<=`; all values here have `Some` keys.) ---- *)
-Definition nk_le_opt (oa ob : option GoIndex.NodeKey) : Prop :=
-  match oa, ob with Some ka, Some kb => GoIndex.NodeKey_OT.lt ka kb \/ ka = kb | _, _ => True end.
-
-Lemma StronglySorted_all {A} (R : A -> A -> Prop) (l : list A) :
-  (forall a b, In a l -> In b l -> R a b) -> StronglySorted R l.
-Proof.
-  induction l as [|x l IH]; intro H; [constructor|]. constructor.
-  - apply IH. intros a b Ha Hb. apply H; right; assumption.
-  - rewrite Forall_forall. intros y Hy. apply H; [left; reflexivity | right; exact Hy].
-Qed.
-
+(* ---- §16 — the UNIVERSAL STRICT CANONICAL-ORDER theorem (below, [collect_diagnostics_node_strict]): the
+   node-primary diagnostics appear in STRICTLY ascending NodeKey order (path then local id).  The input keys
+   are UNIQUE ([collect_node_input_nodup]) so every bucket is a SINGLETON ([collect_node_buckets_singleton]);
+   there are no within-bucket ties, and the order is entirely the NodeKeyMap's key-sorted [elements]. ---- *)
 Lemma node_keyed_self {p} (l : list (DiagnosticReason p)) :
   forall kd, In kd (node_keyed l) -> diag_node_key (snd kd) = Some (fst kd).
 Proof.
@@ -3362,6 +3342,38 @@ Proof.
   - intros roc k Hin. exact (occ_node_keys_val idx (snd roc) (fst roc) k Hin).
 Qed.
 
+(* the duplicate-main keys of one package bucket: the TAIL mains' occurrence keys. *)
+Definition bucket_dup_keys {p} (l : list (GoIndex.DeclRef p)) : list GoIndex.NodeKey :=
+  match l with nil => nil | _ :: rest => map (fun dk => GoIndex.Snap.node_ref_key (GoIndex.erase_ref dk)) rest end.
+
+Lemma node_keys_map_dup {p} (d1 : GoIndex.DeclRef p) (rest : list (GoIndex.DeclRef p)) :
+  node_keys (map (fun dk => DRDuplicateMain dk d1) rest)
+  = map (fun dk => GoIndex.Snap.node_ref_key (GoIndex.erase_ref dk)) rest.
+Proof.
+  induction rest as [|dk rest IH]; [reflexivity|].
+  replace (node_keys (map (fun dk => DRDuplicateMain dk d1) (dk :: rest)))
+    with ((match diag_node_key (DRDuplicateMain dk d1) with Some k => [k] | None => nil end)
+          ++ node_keys (map (fun dk => DRDuplicateMain dk d1) rest)) by reflexivity.
+  cbn [diag_node_key diagnostic_primary]. rewrite IH. reflexivity.
+Qed.
+
+Lemma pkg_diag_of_bucket_node_keys {p} (m : PM.t (list (GoIndex.DeclRef p))) Hpres dir l Hmt :
+  node_keys (@pkg_diag_of_bucket p m Hpres dir l Hmt) = bucket_dup_keys l.
+Proof.
+  unfold pkg_diag_of_bucket, bucket_dup_keys. destruct l as [|d1 rest]; [reflexivity | apply node_keys_map_dup].
+Qed.
+
+Lemma bucket_diags_elems_node_keys {p} (m : PM.t (list (GoIndex.DeclRef p))) Hpres es Hall :
+  node_keys (@bucket_diags_elems p m Hpres es Hall) = flat_map (fun kv => bucket_dup_keys (snd kv)) es.
+Proof.
+  revert Hall. induction es as [|kv rest IH]; intro Hall; cbn [bucket_diags_elems flat_map]; [reflexivity|].
+  rewrite node_keys_app, (pkg_diag_of_bucket_node_keys m Hpres (fst kv) (snd kv)), IH. reflexivity.
+Qed.
+
+Lemma pkg_node_keys_spec {p} (idx : GoIndex.Snap.SyntaxIndex p) :
+  node_keys (pkg_diags idx) = flat_map (fun kv => bucket_dup_keys (snd kv)) (PM.elements (prog_package_refs idx)).
+Proof. unfold pkg_diags. apply bucket_diags_elems_node_keys. Qed.
+
 Lemma in_nkm_find_mapsto {X} (k : GoIndex.NodeKey) (m : GoIndex.NodeKeyMapBase.t (list X)) (d : X) :
   In d (nkm_find k m) -> exists b, GoIndex.NodeKeyMapBase.MapsTo k b m /\ In d b.
 Proof.
@@ -3389,43 +3401,6 @@ Qed.
 Lemma nkmap_lt_key_trans {A} : forall (a b c : GoIndex.NodeKey * A),
   GoIndex.NodeKeyMapBase.lt_key a b -> GoIndex.NodeKeyMapBase.lt_key b c -> GoIndex.NodeKeyMapBase.lt_key a c.
 Proof. intros [k1 ?] [k2 ?] [k3 ?]; unfold GoIndex.NodeKeyMapBase.lt_key; cbn; apply GoIndex.NodeKey_OT.lt_trans. Qed.
-
-Lemma flat_map_snd_bucket_sorted {X} (key : X -> option GoIndex.NodeKey) (els : list (GoIndex.NodeKey * list X)) :
-  Sorted (@GoIndex.NodeKeyMapBase.lt_key (list X)) els ->
-  (forall k b, In (k, b) els -> forall d, In d b -> key d = Some k) ->
-  StronglySorted (fun a b => nk_le_opt (key a) (key b)) (flat_map snd els).
-Proof.
-  induction els as [|[k b] rest IH]; intro Hs; intro Hkey; cbn [flat_map snd]; [constructor|].
-  pose proof (Sorted_StronglySorted nkmap_lt_key_trans Hs) as Hss.
-  apply StronglySorted_inv in Hss. destruct Hss as [_ Hhd]. apply Sorted_inv in Hs. destruct Hs as [Hs _].
-  apply StronglySorted_app.
-  - apply StronglySorted_all. intros a a' Ha Ha'.
-    rewrite (Hkey k b (or_introl eq_refl) a Ha), (Hkey k b (or_introl eq_refl) a' Ha').
-    unfold nk_le_opt; right; reflexivity.
-  - apply IH; [exact Hs | intros k' b' Hin' d Hd; exact (Hkey k' b' (or_intror Hin') d Hd)].
-  - intros a a'' Ha Ha''.
-    rewrite (Hkey k b (or_introl eq_refl) a Ha).
-    apply in_flat_map in Ha''. destruct Ha'' as [[k'' b''] [Hin'' Ha'']]. cbn [snd] in Ha''.
-    rewrite (Hkey k'' b'' (or_intror Hin'') a'' Ha''). unfold nk_le_opt. left.
-    rewrite Forall_forall in Hhd. exact (Hhd (k'', b'') Hin'').
-Qed.
-
-Lemma bucket_flatten_key_sorted {X} (key : X -> option GoIndex.NodeKey) (kxs : list (GoIndex.NodeKey * X))
-    (Hself : forall kd, In kd kxs -> key (snd kd) = Some (fst kd)) :
-  StronglySorted (fun a b => nk_le_opt (key a) (key b)) (bucket_flatten kxs).
-Proof.
-  unfold bucket_flatten. apply flat_map_snd_bucket_sorted; [ apply GoIndex.NodeKeyMapBase.elements_3 |].
-  intros k b Hin d Hd.
-  apply (bucket_value_key key kxs Hself k b); [ apply GoIndex.NodeKeyMapFacts.elements_mapsto_iff, InA_alt;
-    exists (k, b); split; [split; reflexivity | exact Hin] | exact Hd ].
-Qed.
-
-(** §16 (C3 FINAL) — the WHOLE report's node-primary diagnostics are in canonical non-decreasing NodeKey order
-    (path then local id): the NodeKeyMap flattening IS the canonical enumeration; no project-authored sort. *)
-Theorem collect_diagnostics_node_canonical {p} (idx : GoIndex.Snap.SyntaxIndex p) :
-  StronglySorted (fun a b => nk_le_opt (diag_node_key a) (diag_node_key b))
-                 (bucket_flatten (node_keyed (expr_diags idx ++ pkg_diags idx))).
-Proof. apply bucket_flatten_key_sorted, node_keyed_self. Qed.
 
 (** §17 (C3 FINAL) — the ERASED analysis report: the canonical diagnostic list projected through
     [erase_diagnostic], so it is a snapshot-INDEPENDENT [list ErasedDiagnostic] comparable by [=].  It is empty
@@ -4273,6 +4248,240 @@ Proof.
                                         (GoIndex.Snap.node_ref_key (GoIndex.erase_ref earlier)))
     by (apply GoIndex.NodeKey_OT.lt_not_eq; exact Hlt).
   apply Hne. apply (proj2 (GoIndex.nodekey_compare_eq _ _)). reflexivity.
+Qed.
+
+(** ---- §16b (C3 FINAL, STRICT) — the node-primary diagnostic report is in STRICTLY ascending NodeKey order.
+    The chain: (1) the node-keyed INPUT keys are UNIQUE ([collect_node_input_nodup]) — proved from the expr
+    keys' NoDup, the pkg keys' NoDup, and their DISJOINTNESS (an occurrence is an expression OR a decl, never
+    both, by [node_ref_key_inj] + the kind refinement); (2) so every resulting bucket is a SINGLETON
+    ([collect_node_buckets_singleton]); (3) hence the NodeKeyMap flattening is strictly key-ascending with no
+    within-bucket ties ([collect_diagnostics_node_strict]).  No project-authored sort. ---- *)
+
+(* nodekey strict-order lift over [option]: both anchored, strictly ascending (no ties). *)
+Definition nk_lt_opt (oa ob : option GoIndex.NodeKey) : Prop :=
+  match oa, ob with Some ka, Some kb => GoIndex.NodeKey_OT.lt ka kb | _, _ => False end.
+
+Lemma nodekey_lt_irrefl : forall a, ~ GoIndex.NodeKey_OT.lt a a.
+Proof.
+  intros a H. assert (Hne : ~ GoIndex.NodeKey_OT.eq a a) by (apply GoIndex.NodeKey_OT.lt_not_eq; exact H).
+  apply Hne. apply (proj2 (GoIndex.nodekey_compare_eq a a)). reflexivity.
+Qed.
+
+Lemma pm_elements_nodup_fst {A} (m : PM.t A) : NoDup (map fst (PM.elements m)).
+Proof.
+  pose proof (PM.elements_3w m) as H. generalize dependent (PM.elements m). intro l.
+  induction l as [|[k e] l IH]; simpl; intro H; [constructor|].
+  inversion H as [|x xs Hni Hnd Heq]; subst. constructor.
+  - intro Hin. apply in_map_iff in Hin. destruct Hin as [[k' e'] [Hk Hin']]. cbn in Hk; subst k'.
+    apply Hni, SetoidList.InA_alt. exists (k, e'). split; [ reflexivity | exact Hin' ].
+  - apply IH; exact Hnd.
+Qed.
+
+(* NoDup of a disjoint append (stdlib has no direct form). *)
+Lemma NoDup_app_disjoint {A} (l1 l2 : list A) :
+  NoDup l1 -> NoDup l2 -> (forall x, In x l1 -> In x l2 -> False) -> NoDup (l1 ++ l2).
+Proof.
+  intros H1 H2 Hd. induction l1 as [|a l1 IH]; [exact H2|].
+  cbn [app]. apply NoDup_cons_iff in H1. destruct H1 as [Hni H1].
+  apply NoDup_cons_iff. split.
+  - intro Hin. apply in_app_iff in Hin. destruct Hin as [Hin|Hin].
+    + exact (Hni Hin).
+    + exact (Hd a (or_introl eq_refl) Hin).
+  - apply IH; [exact H1 | intros x Hx1 Hx2; exact (Hd x (or_intror Hx1) Hx2)].
+Qed.
+
+(* every key of the folded bucket map is one of the input keys. *)
+Lemma bucket_find_in_keys {X} (kxs : list (GoIndex.NodeKey * X)) (k : GoIndex.NodeKey) (b : list X) :
+  GoIndex.NodeKeyMapBase.MapsTo k b (fold_right bucket_add (GoIndex.NodeKeyMapBase.empty (list X)) kxs) ->
+  In k (map fst kxs).
+Proof.
+  induction kxs as [|kx rest IH]; cbn [fold_right map].
+  - intro Hmt. apply GoIndex.NodeKeyMapFacts.empty_mapsto_iff in Hmt. destruct Hmt.
+  - unfold bucket_add. intro Hmt. apply GoIndex.NodeKeyMapFacts.add_mapsto_iff in Hmt.
+    destruct Hmt as [[Hk _]|[_ Hmt]].
+    + unfold GoIndex.NodeKey_OT.eq in Hk. subst k. left; reflexivity.
+    + right. exact (IH Hmt).
+Qed.
+
+(* unique input keys => every bucket is a singleton. *)
+Lemma nodup_keys_buckets_singleton {X} (kxs : list (GoIndex.NodeKey * X)) :
+  NoDup (map fst kxs) ->
+  forall k b, GoIndex.NodeKeyMapBase.MapsTo k b (fold_right bucket_add (GoIndex.NodeKeyMapBase.empty (list X)) kxs) ->
+  length b = 1%nat.
+Proof.
+  induction kxs as [|kx rest IH]; intros Hnd k b Hmt.
+  - cbn [fold_right] in Hmt. apply GoIndex.NodeKeyMapFacts.empty_mapsto_iff in Hmt. destruct Hmt.
+  - cbn [map] in Hnd. apply NoDup_cons_iff in Hnd. destruct Hnd as [Hni Hnd].
+    cbn [fold_right] in Hmt.
+    set (M := fold_right bucket_add (GoIndex.NodeKeyMapBase.empty (list X)) rest) in *.
+    unfold bucket_add in Hmt.
+    apply GoIndex.NodeKeyMapFacts.add_mapsto_iff in Hmt. destruct Hmt as [[Hk Hb]|[_ Hmt]].
+    + subst b. unfold GoIndex.NodeKey_OT.eq in Hk. subst k.
+      assert (Hnf : nkm_find (fst kx) M = []).
+      { unfold nkm_find. destruct (GoIndex.NodeKeyMapBase.find (fst kx) M) as [b'|] eqn:Ef; [|reflexivity].
+        exfalso. apply Hni. apply GoIndex.NodeKeyMapFacts.find_mapsto_iff in Ef.
+        exact (bucket_find_in_keys rest (fst kx) b' Ef). }
+      rewrite Hnf. reflexivity.
+    + exact (IH Hnd k b Hmt).
+Qed.
+
+(* singleton buckets, key-sorted elements => the flattening is STRICTLY key-ascending. *)
+Lemma flat_map_snd_bucket_singleton_strict {X} (key : X -> option GoIndex.NodeKey)
+    (els : list (GoIndex.NodeKey * list X)) :
+  Sorted (@GoIndex.NodeKeyMapBase.lt_key (list X)) els ->
+  (forall k b, In (k, b) els -> forall d, In d b -> key d = Some k) ->
+  (forall k b, In (k, b) els -> length b = 1%nat) ->
+  StronglySorted (fun a b => nk_lt_opt (key a) (key b)) (flat_map snd els).
+Proof.
+  induction els as [|[k b] rest IH]; intro Hs; intros Hkey Hlen; cbn [flat_map snd]; [constructor|].
+  pose proof (Sorted_StronglySorted nkmap_lt_key_trans Hs) as Hss.
+  apply StronglySorted_inv in Hss. destruct Hss as [_ Hhd]. apply Sorted_inv in Hs. destruct Hs as [Hs _].
+  assert (Hb1 : length b = 1%nat) by exact (Hlen k b (or_introl eq_refl)).
+  destruct b as [|d [|d' b']]; cbn [length] in Hb1; try discriminate Hb1.
+  cbn [app]. constructor.
+  - apply IH; [ exact Hs
+    | intros k' b0 Hin' d0 Hd0; exact (Hkey k' b0 (or_intror Hin') d0 Hd0)
+    | intros k' b0 Hin'; exact (Hlen k' b0 (or_intror Hin')) ].
+  - rewrite Forall_forall. intros a'' Ha''.
+    assert (Hkd : key d = Some k) by exact (Hkey k [d] (or_introl eq_refl) d (or_introl eq_refl)).
+    apply in_flat_map in Ha''. destruct Ha'' as [[k'' b''] [Hin'' Ha'']]. cbn [snd] in Ha''.
+    assert (Hkd'' : key a'' = Some k'') by exact (Hkey k'' b'' (or_intror Hin'') a'' Ha'').
+    unfold nk_lt_opt. rewrite Hkd, Hkd''.
+    rewrite Forall_forall in Hhd. exact (Hhd (k'', b'') Hin'').
+Qed.
+
+Lemma bucket_flatten_singleton_strict {X} (key : X -> option GoIndex.NodeKey) (kxs : list (GoIndex.NodeKey * X))
+    (Hself : forall kd, In kd kxs -> key (snd kd) = Some (fst kd))
+    (Hsingle : forall k b, GoIndex.NodeKeyMapBase.MapsTo k b
+                 (fold_right bucket_add (GoIndex.NodeKeyMapBase.empty (list X)) kxs) -> length b = 1%nat) :
+  StronglySorted (fun a b => nk_lt_opt (key a) (key b)) (bucket_flatten kxs).
+Proof.
+  unfold bucket_flatten. apply flat_map_snd_bucket_singleton_strict.
+  - apply GoIndex.NodeKeyMapBase.elements_3.
+  - intros k b Hin d Hd. apply (bucket_value_key key kxs Hself k b); [
+      apply GoIndex.NodeKeyMapFacts.elements_mapsto_iff, InA_alt; exists (k, b);
+        split; [split; reflexivity | exact Hin] | exact Hd ].
+  - intros k b Hin. apply (Hsingle k b).
+    apply GoIndex.NodeKeyMapFacts.elements_mapsto_iff, InA_alt. exists (k, b);
+      split; [split; reflexivity | exact Hin].
+Qed.
+
+(* the tail duplicate-main keys of one package bucket are NoDup (the bucket is a strictly-sorted visit stream). *)
+Lemma bucket_dup_keys_nodup {p} (idx : GoIndex.Snap.SyntaxIndex p) (kv : string * list (GoIndex.DeclRef p)) :
+  PM.find (fst kv) (prog_package_refs idx) = Some (snd kv) -> NoDup (bucket_dup_keys (snd kv)).
+Proof.
+  intro Hfind.
+  destruct (ppkg_dir_sorted idx (prog_visit p) (prog_visit_key_sorted p) (fst kv)) as [Hsort _].
+  assert (Hb : bucket_of idx (prog_visit p) (fst kv) = snd kv)
+    by (unfold bucket_of; unfold prog_package_refs in Hfind; rewrite Hfind; reflexivity).
+  rewrite Hb in Hsort. destruct (snd kv) as [|d1 rest]; cbn [bucket_dup_keys]; [constructor|].
+  apply StronglySorted_inv in Hsort. destruct Hsort as [Hsort _].
+  apply (StronglySorted_NoDup GoIndex.NodeKey_OT.lt); [ exact nodekey_lt_irrefl |].
+  apply (StronglySorted_map GoIndex.NodeKey_OT.lt (fun dk => GoIndex.Snap.node_ref_key (GoIndex.erase_ref dk))).
+  exact Hsort.
+Qed.
+
+Lemma pkg_node_keys_nodup {p} (idx : GoIndex.Snap.SyntaxIndex p) : NoDup (node_keys (pkg_diags idx)).
+Proof.
+  rewrite pkg_node_keys_spec.
+  apply (nodup_flat_map_tag (fun kv => bucket_dup_keys (snd kv))
+           (fun k => fp_parent (GoIndex.nk_file k)) (fun kv => fst kv)).
+  - intros kv Hin. apply (bucket_dup_keys_nodup idx kv).
+    apply PM.find_1, PMF.elements_mapsto_iff, InA_alt. exists kv. split; [split; reflexivity | exact Hin].
+  - intros kv k Hin Hk.
+    assert (Hfind : PM.find (fst kv) (prog_package_refs idx) = Some (snd kv))
+      by (apply PM.find_1, PMF.elements_mapsto_iff, InA_alt; exists kv; split; [split; reflexivity | exact Hin]).
+    unfold bucket_dup_keys in Hk. destruct (snd kv) as [|d1 rest] eqn:Esnd; [destruct Hk|].
+    apply in_map_iff in Hk. destruct Hk as [dk [Hdk Hdkin]].
+    rewrite <- Hdk, GoIndex.Snap.node_ref_key_eq. cbn [GoIndex.nk_file].
+    apply (prog_package_refs_belongs idx (fst kv) (d1 :: rest)); [ exact Hfind | right; exact Hdkin ].
+  - apply pm_elements_nodup_fst.
+Qed.
+
+(* each expression-diagnostic key belongs to an EXPRESSION occurrence; each pkg-diagnostic key to a DECL
+   occurrence — so the two key sets are disjoint (no occurrence is both). *)
+Lemma occ_expr_diags_key_kind {p} (idx : GoIndex.Snap.SyntaxIndex p) outer ro :
+  forall d, In d (occ_expr_diags idx outer ro) ->
+  diag_node_key d = Some (GoIndex.Snap.node_ref_key (fst ro)) /\
+  GoIndex.occurrence_kind (GoIndex.Snap.source_occurrence_of_ref (fst ro)) = GoIndex.KExpression.
+Proof.
+  intros d Hin. unfold occ_expr_diags in Hin.
+  destruct (GoIndex.as_expr idx (fst ro)) as [er|] eqn:Ea; [|destruct Hin].
+  assert (Her : GoIndex.erase_ref er = fst ro) by exact (GoIndex.erase_as_kind idx (fst ro) GoIndex.KExpression er Ea).
+  assert (Hk : GoIndex.occurrence_kind (GoIndex.Snap.source_occurrence_of_ref (fst ro)) = GoIndex.KExpression)
+    by (rewrite <- Her; exact (GoIndex.noderefof_kind er)).
+  destruct (GoIndex.view_expr (snd ro)) as [e|]; [|destruct Hin].
+  destruct (local_conv_failure e) as [[t ci]|].
+  - cbn [In] in Hin. destruct Hin as [<-|[]].
+    split; [ cbn [diag_node_key diagnostic_primary]; rewrite Her; reflexivity | exact Hk ].
+  - destruct (arg_default_failure (snd ro) e) as [[c dt]|]; [|destruct Hin].
+    cbn [In] in Hin. destruct Hin as [<-|[]].
+    split; [ cbn [diag_node_key diagnostic_primary]; rewrite Her; reflexivity | exact Hk ].
+Qed.
+
+Lemma expr_node_key_has_kind {p} (idx : GoIndex.Snap.SyntaxIndex p) :
+  forall k, In k (node_keys (expr_diags idx)) ->
+  exists r : GoIndex.Snap.NodeRef p,
+    GoIndex.Snap.node_ref_key r = k /\
+    GoIndex.occurrence_kind (GoIndex.Snap.source_occurrence_of_ref r) = GoIndex.KExpression.
+Proof.
+  intros k Hin. unfold node_keys in Hin. apply in_flat_map in Hin. destruct Hin as [d [Hd Hk]].
+  destruct (diag_node_key d) as [k0|] eqn:Edk; cbn [In] in Hk; [|destruct Hk].
+  destruct Hk as [Heq|[]]. subst k0.
+  rewrite expr_diags_eq_spec in Hd. apply in_flat_map in Hd. destruct Hd as [roc [_ Hd]].
+  destruct (occ_expr_diags_key_kind idx (snd roc) (fst roc) d Hd) as [Hdk2 Hkind].
+  rewrite Edk in Hdk2. injection Hdk2 as Hkk.
+  exists (fst (fst roc)). split; [ exact (eq_sym Hkk) | exact Hkind ].
+Qed.
+
+Lemma pkg_node_key_has_kind {p} (idx : GoIndex.Snap.SyntaxIndex p) :
+  forall k, In k (node_keys (pkg_diags idx)) ->
+  exists r : GoIndex.Snap.NodeRef p,
+    GoIndex.Snap.node_ref_key r = k /\
+    GoIndex.occurrence_kind (GoIndex.Snap.source_occurrence_of_ref r) = GoIndex.KTopLevelDecl.
+Proof.
+  intros k Hin. rewrite pkg_node_keys_spec in Hin.
+  apply in_flat_map in Hin. destruct Hin as [kv [_ Hin]].
+  unfold bucket_dup_keys in Hin. destruct (snd kv) as [|d1 rest]; [destruct Hin|].
+  apply in_map_iff in Hin. destruct Hin as [dk [Hdk _]].
+  exists (GoIndex.erase_ref dk). split; [ exact Hdk | exact (GoIndex.noderefof_kind dk) ].
+Qed.
+
+Lemma expr_pkg_node_keys_disjoint {p} (idx : GoIndex.Snap.SyntaxIndex p) :
+  forall k, In k (node_keys (expr_diags idx)) -> In k (node_keys (pkg_diags idx)) -> False.
+Proof.
+  intros k He Hp.
+  destruct (expr_node_key_has_kind idx k He) as [re [Hre Hke]].
+  destruct (pkg_node_key_has_kind idx k Hp) as [rd [Hrd Hkd]].
+  assert (Hreq : re = rd) by (apply GoIndex.Snap.node_ref_key_inj; rewrite Hre, Hrd; reflexivity).
+  subst rd. rewrite Hke in Hkd. discriminate Hkd.
+Qed.
+
+(** §16b (C3 FINAL) — the node-keyed diagnostic INPUT has UNIQUE keys (expr NoDup + pkg NoDup + disjoint). *)
+Theorem collect_node_input_nodup {p} (idx : GoIndex.Snap.SyntaxIndex p) :
+  NoDup (node_keys (expr_diags idx ++ pkg_diags idx)).
+Proof.
+  rewrite node_keys_app. apply NoDup_app_disjoint;
+    [ apply expr_node_keys_nodup | apply pkg_node_keys_nodup | apply expr_pkg_node_keys_disjoint ].
+Qed.
+
+(** §16b (C3 FINAL) — every node-keyed diagnostic BUCKET is a SINGLETON (from the unique input keys). *)
+Theorem collect_node_buckets_singleton {p} (idx : GoIndex.Snap.SyntaxIndex p) :
+  forall k b, GoIndex.NodeKeyMapBase.MapsTo k b
+    (fold_right bucket_add (GoIndex.NodeKeyMapBase.empty (list (DiagnosticReason p)))
+       (node_keyed (expr_diags idx ++ pkg_diags idx))) -> length b = 1%nat.
+Proof.
+  apply nodup_keys_buckets_singleton. rewrite node_keys_eq. apply collect_node_input_nodup.
+Qed.
+
+(** §16b (C3 FINAL) — the WHOLE report's node-primary diagnostics are in STRICTLY ascending NodeKey order (path
+    then local id): the NodeKeyMap flattening IS the canonical enumeration; with unique keys / singleton buckets
+    there are NO ties.  No project-authored sort. *)
+Theorem collect_diagnostics_node_strict {p} (idx : GoIndex.Snap.SyntaxIndex p) :
+  StronglySorted (fun a b => nk_lt_opt (diag_node_key a) (diag_node_key b))
+                 (bucket_flatten (node_keyed (expr_diags idx ++ pkg_diags idx))).
+Proof.
+  apply bucket_flatten_singleton_strict; [ apply node_keyed_self | apply collect_node_buckets_singleton ].
 Qed.
 
 Lemma pkg_diags_package {p} (idx : GoIndex.Snap.SyntaxIndex p) : forall d, In d (pkg_diags idx) -> diag_is_package d = true.
