@@ -2300,18 +2300,19 @@ Qed.
    case with [DRDuplicateMain] over the collected main [DeclRef]s.)
    ============================================================================================================ *)
 
-(* A non-conforming package is diagnosed with a STRUCTURED reason anchored in the exact snapshot:
-   - two or more mains -> [DRDuplicateMain] over the FIRST two canonical main [DeclRef]s of the bucket
-     ([later_primary] = the second/first-redundant main; [earlier_related] = the first main);
+(* A non-conforming package is diagnosed with STRUCTURED reasons anchored in the exact snapshot:
+   - n >= 2 mains -> n-1 [DRDuplicateMain], one per TAIL main [d2, d3, ...] each related to the FIRST canonical
+     main [d1] ([later_primary] = the redundant tail main; [earlier_related] = the first main);
    - zero mains -> [DRMissingMain] anchored at the validated [PackageRef].
-   The canonical bucket order (FileMap-path then local NodeKey) makes the duplicate anchors deterministic;
-   evidence is never overwritten (the bucket preserves every main). *)
+   The canonical bucket order (FileMap-path then local NodeKey) makes the anchors deterministic; evidence is
+   never overwritten (the bucket preserves every main, and every redundant main after the first is reported). *)
 (** the RETAINED-bucket package classifier: decides a package PURELY from its bucket in the retained
-    [prog_package_refs] map — length >= 2 -> [DRDuplicateMain] (the first two canonical mains); length 0 ->
-    [DRMissingMain] with the [PackageRef] built from the bucket's OWN domain membership ([bucket_key_present],
-    NO [package_summaries] / [package_present_b] rescan); length 1 -> no diagnostic.  [package_summaries] (the
-    legacy FM.fold counter) is used ONLY to bridge the bucket lengths to [AllPackagesOneMain]
-    ([pkg_diags_empty_iff]), NEVER in the decision. *)
+    [prog_package_refs] map — a bucket [d1 :: rest] emits [map (DRDuplicateMain _ d1) rest] (n-1 diagnostics,
+    each redundant tail main related to the first; empty for the conforming length-1 bucket); a length-0 bucket
+    emits [DRMissingMain] with the [PackageRef] built from the bucket's OWN domain membership
+    ([bucket_key_present], NO [package_summaries] / [package_present_b] rescan).  [package_summaries] (the legacy
+    FM.fold counter) is used ONLY to bridge the bucket lengths to [AllPackagesOneMain] ([pkg_diags_empty_iff]),
+    NEVER in the decision. *)
 Lemma elements_all_mapsto {p} (m : PM.t (list (GoIndex.DeclRef p))) : forall kv,
   In kv (PM.elements m) -> PM.MapsTo (fst kv) (snd kv) m.
 Proof.
@@ -2338,15 +2339,14 @@ Definition pkg_diag_of_bucket {p} (m : PM.t (list (GoIndex.DeclRef p)))
     (dir : string) (l : list (GoIndex.DeclRef p)) (Hmt : PM.MapsTo dir l m)
     : list (DiagnosticReason p) :=
   match l with
-  | d1 :: d2 :: _ => [ DRDuplicateMain d2 d1 ]
-  | _ :: nil      => []
-  | nil           => [ DRMissingMain (mkPackageRef p dir (Hpres dir l Hmt)) ]
+  | nil        => [ DRMissingMain (mkPackageRef p dir (Hpres dir l Hmt)) ]
+  | d1 :: rest => map (fun dk => DRDuplicateMain dk d1) rest
   end.
 
 Lemma pkg_diag_of_bucket_nil_iff {p} (m : PM.t (list (GoIndex.DeclRef p))) Hpres dir l Hmt :
   @pkg_diag_of_bucket p m Hpres dir l Hmt = nil <-> length l = 1%nat.
 Proof.
-  unfold pkg_diag_of_bucket; destruct l as [|d1 [|d2 rest]]; cbn [length];
+  unfold pkg_diag_of_bucket; destruct l as [|d1 [|d2 rest]]; cbn [map length];
     split; intro H; solve [ reflexivity | discriminate H ].
 Qed.
 
@@ -2491,10 +2491,9 @@ Qed.
 Lemma pkg_diag_of_bucket_family {p} (m : PM.t (list (GoIndex.DeclRef p))) Hpres dir l Hmt : forall d,
   In d (@pkg_diag_of_bucket p m Hpres dir l Hmt) -> diag_is_package d = true /\ diag_is_typing d = false.
 Proof.
-  intros d Hin. unfold pkg_diag_of_bucket in Hin. destruct l as [|d1 [|d2 rest]].
+  intros d Hin. unfold pkg_diag_of_bucket in Hin. destruct l as [|d1 rest].
   - destruct Hin as [<-|[]]; split; reflexivity.
-  - destruct Hin.
-  - destruct Hin as [<-|[]]; split; reflexivity.
+  - apply in_map_iff in Hin. destruct Hin as [dk [<- _]]. split; reflexivity.
 Qed.
 
 Lemma bucket_diags_elems_family {p} (m : PM.t (list (GoIndex.DeclRef p))) Hpres es Hall : forall d,

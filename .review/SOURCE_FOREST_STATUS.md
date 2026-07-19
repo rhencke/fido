@@ -173,8 +173,31 @@ Updated only at checkpoint boundaries._
     theorem; §22/§23 diagnostic + fact-query e2e fixtures; §24 report formatting; §27 gate surfaces for the
     erasure; §20 exactness-surface gate audit; §29 remaining docs + collection audit; then the FINAL Codex
     barrier.
-- Status: **C3 FINAL barrier IN PROGRESS @`70c783c` (2 of ~8 deliverables done, byte-identical throughout).
-  Continuing the FINAL "Complete" list; the FINAL Codex barrier runs when the list is complete.**
+- FINAL Codex barrier RE-review #1 of `d6f8e22`: **BLOCK** (task-mrrathsz, non-stale 2026-07-19, 4 blocking
+  defects — a concrete FINAL work list):
+  1. **nested diagnostic context discarded** (§8/§15/§22.8): `float64(int8(128))` must report the inner `int8`
+     conversion as primary and the outer conversion as related; both diagnostic paths built
+     `DRInvalidConversion er [] ...` (empty `outer_context`).  Thread enclosing conversion refs + add the nested
+     scar theorem.
+  2. **three mains -> too few diagnostics** (§8): n mains require n-1 `DRDuplicateMain`, each later main related
+     to the first; `pkg_diag_of_bucket` emitted only one (`d1 :: d2 :: _ => [DRDuplicateMain d2 d1]`).
+  3. **required diagnostic/determinism proof boundary absent** (§9/§17/§20/§27): need code-specific soundness,
+     nested/duplicate/missing-main exactness, canonical ordering, `FilesEqual`/permutation erased-report
+     equality, and fact-enumeration determinism — PROVED and GATED.
+  4. **stale permanent docs + collection audit** (§29): ARCHITECTURE/CLAUDE/PROGRESS still claim coarse
+     `CompileError`/`ErrTyping` + "no CompilationFacts"; the collection audit omits the C3 NodeKey fact maps /
+     diagnostic + package buckets / report enumeration.
+- FINAL-repair progress:
+  - **Defect 2 DONE** (working tree): `pkg_diag_of_bucket` now emits `map (DRDuplicateMain _ d1) rest` for a
+    bucket `d1 :: rest` — n-1 diagnostics, each redundant tail main related to the first canonical main; the
+    emptiness (nil iff length 1) + family proofs are preserved.  Gate 489/489 green.
+  - Defect 1 (nested context) — planned: emit at the innermost failing conversion (unchanged decision, so the
+    emptiness proof is untouched) + an INDEX-ONLY `outer_context` walk (role `RConversionOperand` -> parent is
+    an enclosing conversion), shared by the spec + single-pass versions; needs a `node_ref_local`-decreasing
+    parent-walk termination fact.
+  - Defects 3 (proof/gate surfaces) + 4 (docs) follow.
+- Status: **C3 FINAL barrier IN PROGRESS @`70c783c` (+ working-tree Defect 2); the FINAL Codex re-review
+  (task-mrrathsz) BLOCKED with a concrete 4-defect list.  Working through defects 1-4, then the FINAL barrier.**
 
 ## C1B — Collection Policy Enforcement and Source Forest Plan Reconciliation (ACTIVE correction checkpoint)
 - Baseline SHA: `79e80fdb4e63d00d4e97d8638f94a05408b51ea8` (`review(final): C1A — record both-barrier Codex GREEN
