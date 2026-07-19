@@ -1534,6 +1534,51 @@ Proof.
   cbn [GoIndex.nk_file GoIndex.nk_local]. reflexivity.
 Qed.
 
+(** a conversion node HAS a validated [ExprRef] (its occurrence's syntax is an expression), and erasing it
+    recovers the node.  So the [outer_context] refs erase to exactly the filtered ancestor-conversions' keys. *)
+Lemma is_conversion_node_as_expr {p} (idx : GoIndex.Snap.SyntaxIndex p) (a : GoIndex.Snap.NodeRef p) :
+  is_conversion_node idx a = true ->
+  exists er, GoIndex.as_expr idx a = Some er /\ GoIndex.erase_ref er = a.
+Proof.
+  intro Hconv.
+  assert (Hk : GoIndex.Snap.node_kind idx a = GoIndex.KExpression).
+  { rewrite (GoIndex.Snap.node_kind_matches_source p idx a).
+    unfold is_conversion_node in Hconv. rewrite (GoIndex.Snap.node_at_matches_source_view a) in Hconv.
+    destruct (GoIndex.view_expr (GoIndex.Snap.source_occurrence_of_ref a)) as [e|] eqn:Ev;
+      [ exact (GoIndex.view_expr_kind _ e Ev) | discriminate Hconv ]. }
+  unfold GoIndex.as_expr. destruct (GoIndex.as_kind_complete idx a GoIndex.KExpression Hk) as [tr [Has Her]].
+  exists tr. split; [exact Has | exact Her].
+Qed.
+
+Lemma flat_map_as_expr_keys {p} (idx : GoIndex.Snap.SyntaxIndex p) (L : list (GoIndex.Snap.NodeRef p)) :
+  (forall a, In a L -> is_conversion_node idx a = true) ->
+  flat_map (fun a => map (fun er => GoIndex.Snap.node_ref_key (GoIndex.erase_ref er))
+                         (match GoIndex.as_expr idx a with Some er => [er] | None => [] end)) L
+  = map GoIndex.Snap.node_ref_key L.
+Proof.
+  induction L as [|a L IH]; intro Hall; [reflexivity|].
+  cbn [flat_map map].
+  destruct (is_conversion_node_as_expr idx a (Hall a (or_introl eq_refl))) as [er [Has Her]].
+  rewrite Has. cbn [map app]. rewrite Her. rewrite (IH (fun a' Hin => Hall a' (or_intror Hin))). reflexivity.
+Qed.
+
+Definition enclosing_conv_keys {p} (idx : GoIndex.Snap.SyntaxIndex p) (r : GoIndex.Snap.NodeRef p)
+  : list GoIndex.NodeKey :=
+  map (fun er => GoIndex.Snap.node_ref_key (GoIndex.erase_ref er)) (enclosing_conv_refs idx r).
+
+(** the erased [outer_context] keys are exactly the keys of the ancestor-conversions in the file's visit
+    stream — a filter/map over the KEYED stream (nearest-first), with NO surviving [ExprRef] dependency. *)
+Lemma enclosing_conv_keys_filter {p} (idx : GoIndex.Snap.SyntaxIndex p) (r : GoIndex.Snap.NodeRef p) :
+  enclosing_conv_keys idx r
+  = rev (map GoIndex.Snap.node_ref_key
+             (filter (fun a => is_ancestor_of idx a r && is_conversion_node idx a)
+                     (map fst (GoIndex.Snap.visit_file (GoIndex.Snap.node_ref_file r))))).
+Proof.
+  unfold enclosing_conv_keys, enclosing_conv_refs. rewrite map_flat_map, <- map_rev.
+  apply flat_map_as_expr_keys. intros a Ha. rewrite <- in_rev in Ha.
+  apply filter_In in Ha. destruct Ha as [_ Hf]. apply andb_prop in Hf. exact (proj2 Hf).
+Qed.
+
 (** the diagnostic(s) an occurrence emits (a singleton or nothing), anchored at its OWN validated ExprRef. *)
 Definition occ_expr_diags {p} (idx : GoIndex.Snap.SyntaxIndex p)
     (ro : GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence) : list (DiagnosticReason p) :=
