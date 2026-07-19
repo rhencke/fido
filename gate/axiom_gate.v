@@ -391,6 +391,10 @@ Print Assumptions GoCompile.erased_report_FilesEqual.
 (* C3 §17 — construction-permutation corollary: building the same module from a PERMUTED file-node list
    yields the IDENTICAL erased report (the report is invariant to the proposer's file order). *)
 Print Assumptions GoCompile.erased_report_build_permutation.
+(* C3 §17/§20/§27 — SUCCESSFUL-fact enumeration determinism: the expression fact table depends ONLY on the
+   file map (source NodeKeys + source-derived values, a fold-map fusion over the keyed stream), so FilesEqual
+   programs have the IDENTICAL canonical fact enumeration. *)
+Print Assumptions GoCompile.prog_expr_facts_enum_FilesEqual.
 (* C3 §10/§14 — occurrence-keyed expression facts, built by the SINGLE bottom-up pass: visit_file refs have
    distinct NodeKeys, and the fact stored at a visited ref's key is EXACTLY that occurrence's fact (no
    overwrite; map-level exactness) — the single-pass fact map agrees with the per-node specification. *)

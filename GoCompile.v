@@ -3032,6 +3032,41 @@ Proof.
   exact (filemap_of_nodes_permutation nodes1 nodes2 fm1 fm2 Hperm F1 F2).
 Qed.
 
+(* ---- §17/§20/§27 — SUCCESSFUL-fact enumeration determinism.  The expression fact table's keys are SOURCE
+   NodeKeys and its values source-derived, so it is a fold-map fusion over the keyed stream — a pure source
+   function of the file map, needing no erasure. ---- *)
+Definition keyed_add (ke : GoIndex.NodeKey * GoIndex.SourceOccurrence)
+    (m : GoIndex.NodeKeyMapBase.t ExprFact) : GoIndex.NodeKeyMapBase.t ExprFact :=
+  match occ_expr_fact (snd ke) with
+  | Some f => GoIndex.NodeKeyMapBase.add (fst ke) f m
+  | None => m
+  end.
+
+Definition keyed_facts (l : list (GoIndex.NodeKey * GoIndex.SourceOccurrence)) : GoIndex.NodeKeyMapBase.t ExprFact :=
+  fold_right keyed_add (GoIndex.NodeKeyMapBase.empty ExprFact) l.
+
+Lemma prog_expr_facts_source (p : GoProgram) : prog_expr_facts p = keyed_facts (keyed_visit p).
+Proof.
+  rewrite prog_expr_facts_eq_spec. unfold keyed_facts, keyed_visit.
+  induction (prog_visit p) as [|ro L IH]; [reflexivity|].
+  cbn [map fold_right]. rewrite IH. unfold add_occ_fact, keyed_add. cbn [fst snd]. reflexivity.
+Qed.
+
+(** §17/§20/§27 (C3 FINAL) — SUCCESSFUL-fact enumeration determinism: the expression fact table (each visited
+    occurrence's key -> its exact ConstInfo + println-use fact) depends ONLY on the file map — its keys are
+    source NodeKeys and its values source-derived (a fold-map fusion over the keyed stream) — so FilesEqual
+    programs have the IDENTICAL fact table, hence the IDENTICAL canonical fact enumeration. *)
+Lemma prog_expr_facts_FilesEqual (p1 p2 : GoProgram) :
+  GoAST.FilesEqual (prog_files p1) (prog_files p2) -> prog_expr_facts p1 = prog_expr_facts p2.
+Proof.
+  intro Heq. rewrite !prog_expr_facts_source, (keyed_visit_FilesEqual p1 p2 Heq). reflexivity.
+Qed.
+
+Theorem prog_expr_facts_enum_FilesEqual (p1 p2 : GoProgram) :
+  GoAST.FilesEqual (prog_files p1) (prog_files p2) ->
+  GoIndex.NodeKeyMapBase.elements (prog_expr_facts p1) = GoIndex.NodeKeyMapBase.elements (prog_expr_facts p2).
+Proof. intro Heq. rewrite (prog_expr_facts_FilesEqual p1 p2 Heq). reflexivity. Qed.
+
 (* ---- the TWO disjoint diagnostic families (typing / package), used to PROJECT a legacy compile class from
    the diagnostics (never a second check).  Expression diagnostics are typing-class; package diagnostics are
    package-class; the two are disjoint. ---- *)
