@@ -187,17 +187,22 @@ Updated only at checkpoint boundaries._
   4. **stale permanent docs + collection audit** (§29): ARCHITECTURE/CLAUDE/PROGRESS still claim coarse
      `CompileError`/`ErrTyping` + "no CompilationFacts"; the collection audit omits the C3 NodeKey fact maps /
      diagnostic + package buckets / report enumeration.
-- FINAL-repair progress:
-  - **Defect 2 DONE** (working tree): `pkg_diag_of_bucket` now emits `map (DRDuplicateMain _ d1) rest` for a
-    bucket `d1 :: rest` — n-1 diagnostics, each redundant tail main related to the first canonical main; the
-    emptiness (nil iff length 1) + family proofs are preserved.  Gate 489/489 green.
-  - Defect 1 (nested context) — planned: emit at the innermost failing conversion (unchanged decision, so the
-    emptiness proof is untouched) + an INDEX-ONLY `outer_context` walk (role `RConversionOperand` -> parent is
-    an enclosing conversion), shared by the spec + single-pass versions; needs a `node_ref_local`-decreasing
-    parent-walk termination fact.
-  - Defects 3 (proof/gate surfaces) + 4 (docs) follow.
-- Status: **C3 FINAL barrier IN PROGRESS @`70c783c` (+ working-tree Defect 2); the FINAL Codex re-review
-  (task-mrrathsz) BLOCKED with a concrete 4-defect list.  Working through defects 1-4, then the FINAL barrier.**
+- FINAL-repair progress (defects 1, 2, 4 DONE; 3 remaining):
+  - **Defect 2 DONE** (`2164d51`): `pkg_diag_of_bucket` emits `map (DRDuplicateMain _ d1) rest` — n-1
+    diagnostics, each redundant tail main related to the first; emptiness (nil iff length 1) + family preserved.
+  - **Defect 4 DONE** (`867a1d2`): reconciled ARCHITECTURE/CLAUDE/PROGRESS coarse-error prose to the C3
+    CompileOutcome/CompilationFacts/structured-diagnostics model + added the C3 rows to `COLLECTION_AUDIT.md`.
+  - **Defect 1 DONE** (`183b560`): nested-conversion `outer_context` via the INDEX-ONLY `enclosing_conv_refs`
+    (strict ancestors that are conversion nodes, over the file's visit stream, reversed to nearest-first) —
+    identical in the spec + single-pass emitters, so the sm=spec / emptiness / family proofs are untouched;
+    `float64(int8(128))` -> ONE diagnostic (inner primary + `[float64]` outer).  Nested-scar soundness gated
+    (`enclosing_conv_refs_sound`).  Gate 490/490.
+  - **Defect 3 REMAINING** (the biggest): §9 code-specific soundness (nested-scar DONE; duplicate-main /
+    missing-main / default pending), §16 canonical ordering, §17 `FilesEqual`/permutation ERASED-report
+    equality (the hard cross-snapshot theorem — likely needs a GoIndex local-id/occurrence correspondence
+    fact), §20 exactness-surface gate audit, and the §27 gate surfaces for all of these.
+- Status: **C3 FINAL barrier IN PROGRESS @`183b560`; FINAL review (task-mrrathsz) defects 1, 2, 4 CLOSED,
+  defect 3 (diagnostic/determinism proof + gate surfaces, incl. the erased cross-snapshot equality) remaining.**
 
 ## C1B — Collection Policy Enforcement and Source Forest Plan Reconciliation (ACTIVE correction checkpoint)
 - Baseline SHA: `79e80fdb4e63d00d4e97d8638f94a05408b51ea8` (`review(final): C1A — record both-barrier Codex GREEN
