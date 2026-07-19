@@ -7,10 +7,12 @@
    algorithm via the sink's operation PARAMETERS (no ambient env branch):
      "empty"    — an EMPTY source map (go.mod only): the module-only program;
      "multi"    — files in two parents (root main.go + sub/main.go): two sibling temps;
-     "reserved"/"p-nestedfido"/"p-vendor"/"p-testdata"/"p-upper"/"p-underscore"/"p-dotdot"/"p-nongo"/"p-long"
+     "reserved"/"p-nestedfido"/"p-vendor"/"p-testdata"/"p-upper"/"p-underscore"/"p-dotdot"/"p-nongo"
                 — desired paths OUTSIDE the intrinsic FilePath `.go` domain (nested/first `.fido`, a
-                  `go build`-ignored dir, upper-case/underscore/`..`/non-`.go`/over-length): each must be
+                  `go build`-ignored dir, upper-case/underscore/`..`/non-`.go`): each must be
                   rejected before any effect, materializing nothing;
+     "p-long"   — a very long (205-byte) canonical `.go` path: ARBITRARY LENGTH is IN the domain (no cap),
+                  so this must be ACCEPTED and materialized like any other path;
      "unlink-fail"           — [unlink] always fails (temp-delete / cleanup / stale-removal failure);
      "exdev"                 — [rename] raises EXDEV (a cross-device install must fail loud, no copy fallback);
      "foreign-before-install" — [before_install] makes the target foreign right before its ownership recheck
@@ -79,7 +81,7 @@ let () =
     | "p-underscore" -> [ ("a_b.go", mk "UN") ]            (* underscore (build-suffix collision) *)
     | "p-dotdot"     -> [ ("../escape.go", mk "E") ]       (* `..` escape *)
     | "p-nongo"      -> [ ("main.txt", mk "N") ]           (* non-`.go` basename *)
-    | "p-long"       -> [ ((String.make 205 'a') ^ ".go", mk "L") ]  (* > 200-byte bound *)
+    | "p-long"       -> [ ((String.make 205 'a') ^ ".go", mk "L") ]  (* arbitrary length: ACCEPTED (no cap) *)
     | _              -> [ ("main.go", mk "ROOT") ] in
   let checkpoint label =
     if has ("crash-" ^ label) then

@@ -470,12 +470,19 @@ if ./sink_test /workspace/slink/child; then fail "wrote through a prefix symlink
 [ ! -e /workspace/sreal/child ] || fail "a prefix symlink created a child in the referent"
 # every path OUTSIDE the intrinsic FilePath `.go` domain (mirrors FilePath.path_ok) rejects BEFORE any
 # effect, materializing nothing — no file, no parent dir, and CRUCIALLY no nested .fido from ensure_dir_chain.
-for pm in p-nestedfido p-vendor p-testdata p-upper p-underscore p-dotdot p-nongo p-long; do
+for pm in p-nestedfido p-vendor p-testdata p-upper p-underscore p-dotdot p-nongo; do
   d=/workspace/adv-$pm; rm -rf "$d"; mkdir -p "$d"
   if ./sink_test "$d" "$pm"; then fail "$pm: a path outside the intrinsic FilePath domain was NOT rejected"; fi
   [ -z "$(find "$d" -mindepth 1)" ] || { find "$d"; fail "$pm: a rejected out-of-domain path materialized something under the root"; }
 done
-echo "fido: out-of-domain path rejection OK — nested/first .fido, vendor/testdata, upper/underscore/dotdot/non-.go/over-length"
+echo "fido: out-of-domain path rejection OK — nested/first .fido, vendor/testdata, upper/underscore/dotdot/non-.go"
+# ARBITRARY-LENGTH PATH: a very long canonical `.go` path is IN the domain (no magic length cap) — it must be
+# ACCEPTED and materialized like any other path (a numeric bound is not a correctness invariant).
+d=/workspace/adv-long; rm -rf "$d"; mkdir -p "$d"
+./sink_test "$d" p-long || fail "long: a valid arbitrary-length .go path was rejected"
+longname="$(printf 'a%.0s' $(seq 1 205)).go"
+[ -f "$d/$longname" ] || { find "$d"; fail "long: the 205-byte .go path did not materialize"; }
+echo "fido: arbitrary-length path OK — a 205-byte canonical .go path materializes (no PATH_MAX-style cap)"
 
 # ============================ Complete staging ============================
 # crash-after-staging: EVERY desired sibling temp exists before the FIRST install (staging precedes install).

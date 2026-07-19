@@ -7,11 +7,13 @@
     an ordinary lowercase-ASCII `.go` basename, with NO empty/`.`/`..` component, NO absolute or
     trailing/leading/repeated slash, NO underscore or leading dot (so NO hidden file/dir, NO `_test.go`,
     NO `_GOOS`/`_GOARCH` build-selection suffix, NO Fido control-name collision), NO directory named
-    `testdata` or `vendor` (which `go build ./...` IGNORES), and a total length bound.  Every
-    representable path is therefore safe to materialize AND DISCOVERED by `go build ./...` (the e2e
-    additionally compares `go list ./...` to the emitted package set), independent of case-folding and
-    platform source selection.  Strange-but-filesystem-valid paths are deliberately UNREPRESENTABLE —
-    narrowness is the point, not an ambitious model of every OS path.
+    `testdata` or `vendor` (which `go build ./...` IGNORES).  A path is of ARBITRARY LENGTH — there is
+    deliberately NO magic length cap (a numeric bound is not a correctness invariant, and a fixed limit is
+    the fuel anti-pattern; if the host filesystem cannot materialize an over-long path that is a fail-loud
+    runtime error, not a grammar restriction).  Every representable path is therefore DISCOVERED by
+    `go build ./...` (the e2e additionally compares `go list ./...` to the emitted package set), independent
+    of case-folding and platform source selection.  Strange-but-filesystem-valid paths are deliberately
+    UNREPRESENTABLE — narrowness is the point, not an ambitious model of every OS path.
 
     Validity is intrinsic: [FilePath] carries the proof [path_ok fp_str = true], so a value cannot exist
     for a bad path.  Equality is decidable and reduces to string equality (the proof is unique by bool
@@ -66,10 +68,9 @@ Definition strip_go (s : string) : string := String.substring 0 (String.length s
 Definition filename_ok (s : string) : bool := ends_go s && component_ok (strip_go s).
 
 (** the whole path: directory components (all but the last segment) are admissible AND not `go build`-
-    ignored; the last segment is an admissible `.go` filename; a total-length bound keeps every path safe
-    to materialize (well under PATH_MAX).  A single segment (root-level file) is allowed. *)
+    ignored; the last segment is an admissible `.go` filename.  ARBITRARY LENGTH — no length cap (see the
+    header: a numeric bound is not a correctness invariant).  A single segment (root-level file) is allowed. *)
 Definition path_ok (s : string) : bool :=
-  (String.length s <=? 200)%nat &&
   match rev (split_slash s) with
   | last :: rdirs => forallb dir_component_ok rdirs && filename_ok last
   | [] => false

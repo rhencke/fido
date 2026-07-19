@@ -132,14 +132,14 @@ let dir_component_ok s = component_ok s && not (reserved_dir s)
 let filename_ok s =
   let n = String.length s in
   n >= 3 && String.sub s (n - 3) 3 = ".go" && component_ok (String.sub s 0 (n - 3))
-(* the whole `.go` path: <=200 bytes; every directory component admissible and not `go build`-ignored; the
-   last segment an admissible `.go` filename.  A leading dot (`.fido`), `..`, `_`, upper-case, `vendor`/
+(* the whole `.go` path: ARBITRARY LENGTH (no cap — mirrors `FilePath.path_ok`, which has none; a numeric
+   bound is not a correctness invariant); every directory component admissible and not `go build`-ignored;
+   the last segment an admissible `.go` filename.  A leading dot (`.fido`), `..`, `_`, upper-case, `vendor`/
    `testdata`, a NUL, an empty/absolute/repeated-slash segment, or a non-`.go` basename all FAIL here. *)
 let filepath_ok rel =
-  String.length rel <= 200 &&
-  (match List.rev (String.split_on_char '/' rel) with
-   | last :: rdirs -> List.for_all dir_component_ok rdirs && filename_ok last
-   | [] -> false)
+  match List.rev (String.split_on_char '/' rel) with
+  | last :: rdirs -> List.for_all dir_component_ok rdirs && filename_ok last
+  | [] -> false
 
 let split_parent parts =
   match List.rev parts with
@@ -345,7 +345,7 @@ let sync ?(checkpoint = fun _ -> ()) ?(unlink = Unix.unlink) ?(rename = Unix.ren
   validate_root_chain dir;
   (* B. compute the desired outputs (go.mod at root + every .go); [filepath_ok] enforces the EXACT intrinsic
         FilePath `.go` domain (lowercase canonical components, no `.fido`/`..`/`_`/upper, no `vendor`/
-        `testdata` dir, `.go` basename, <=200 bytes) — so a noncanonical path or a nested control name is
+        `testdata` dir, `.go` basename, arbitrary length) — so a noncanonical path or a nested control name is
         rejected BEFORE any effect and can never be materialized by [ensure_dir_chain] *)
   (* immediately validate the transport entries into a desired-output MAP keyed by relative path — REJECTING
      a duplicate relative path BEFORE any filesystem effect (a standard map's [add] would silently overwrite),

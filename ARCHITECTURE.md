@@ -61,7 +61,7 @@ law backed by explicit audit and code inspection, NOT a brittle source-scanning 
   ModuleSpec     an intrinsic fact about the GENERATED module (NOT environment config, NOT a TargetConfig):
                  { module_path : ModulePath ; module_go_version : GoVersion }.  ModulePath is an INTRINSIC
                  narrow canonical module path (slash-separated lowercase segments [a-z][a-z0-9.]* ending
-                 a-z0-9, no `..`/leading-trailing/repeated slash, length-bounded; FIRST element dotted (no
+                 a-z0-9, no `..`/leading-trailing/repeated slash, arbitrary length (no cap); FIRST element dotted (no
                  stdlib-colliding dotless prefix), NO `/vN` version-suffix tail, NO `gopkg.in/` — the two
                  Go-1.23 semantic-import-versioning reject classes; accepted by go 1.23 as a `module`
                  directive, exact one-way (valid `/v2`/gopkg modules are out of scope, excluded not narrowed);

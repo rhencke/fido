@@ -12,7 +12,8 @@
     `[0-9.]` run after `v`); and the path must NOT be a `gopkg.in/` path (Go's `.vN`-suffix
     special case).  Hence NO whitespace/control byte, NO backslash/NUL/`@`, NO query/fragment, NO
     empty/`.`/`..` component, NO leading/trailing/repeated slash, NO leading/trailing dot, NO `/vN` tail, and
-    NO `gopkg.in/`; a total length bound keeps it safe.  Every representable path is accepted by the pinned
+    NO `gopkg.in/`.  A module path is of ARBITRARY LENGTH — there is deliberately NO magic length cap (a
+    numeric bound is not a correctness invariant).  Every representable path is accepted by the pinned
     Go 1.23 toolchain as a `module` directive; the reverse does NOT hold — valid `/v2` and `gopkg.in/…v2`
     modules are deliberately out of scope (no import support yet), excluded rather than admitted-then-narrowed
     so "representable ⇒ Go-accepts" stays exact (the e2e's `go build ./...` is the differential alarm).
@@ -148,9 +149,9 @@ Definition is_gopkg_in (s : string) : bool := String.prefix "gopkg.in/" s.
     element contains a `.` (never a stdlib-colliding dotless prefix); it is NOT a `gopkg.in/` path and its
     FINAL element is NOT a version-suffix shape (the two semantic-import-versioning reject classes Go 1.23
     enforces); every `/`-separated segment is admissible (an empty segment from a leading/trailing/repeated
-    slash, or the empty string, fails [segment_ok]); with a total-length bound. *)
+    slash, or the empty string, fails [segment_ok]).  ARBITRARY LENGTH — no length cap. *)
 Definition modpath_ok (s : string) : bool :=
-  (String.length s <=? 200)%nat && all_modpath_chars s
+  all_modpath_chars s
   && contains_dot (before_slash s)
   && negb (is_gopkg_in s)
   && negb (version_suffix_shape (last_segment s))
@@ -162,8 +163,7 @@ Proof.
   apply Bool.andb_true_iff in H as [H _].            (* drop forallb segment_ok *)
   apply Bool.andb_true_iff in H as [H _].            (* drop negb (version_suffix_shape (last_segment s)) *)
   apply Bool.andb_true_iff in H as [H _].            (* drop negb (is_gopkg_in s) *)
-  apply Bool.andb_true_iff in H as [H _].            (* drop contains_dot (before_slash s) *)
-  apply Bool.andb_true_iff in H as [_ H]; exact H.   (* drop the length bound; keep all_modpath_chars *)
+  apply Bool.andb_true_iff in H as [H _]; exact H.   (* drop contains_dot (before_slash s); keep all_modpath_chars *)
 Qed.
 
 (** every module-path character is ASCII (the go.mod ASCII proof rests on this). *)
