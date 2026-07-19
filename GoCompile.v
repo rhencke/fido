@@ -2236,60 +2236,111 @@ Qed.
    case with [DRDuplicateMain] over the collected main [DeclRef]s.)
    ============================================================================================================ *)
 
-Definition bool_sb (b : bool) : {b = true} + {b = false} :=
-  match b with true => left eq_refl | false => right eq_refl end.
-
-(** every package appearing in [package_summaries] names a represented package. *)
-Lemma summary_elem_present (p : GoProgram) dir s :
-  In (dir, s) (PM.elements (package_summaries (prog_files p))) -> package_present_b p dir = true.
-Proof.
-  intro Hin. unfold package_present_b.
-  assert (Hmt : PM.MapsTo dir s (package_summaries (prog_files p))).
-  { apply PMF.elements_mapsto_iff, InA_alt. exists (dir, s). split; [ split; reflexivity | exact Hin ]. }
-  destruct (package_no_empty (prog_files p) dir (ex_intro _ s Hmt)) as [b [Hb Hpar]].
-  unfold list_dir_mem. apply existsb_exists. exists b. split; [ exact Hb | apply String.eqb_eq; exact Hpar ].
-Qed.
-
 (* A non-conforming package is diagnosed with a STRUCTURED reason anchored in the exact snapshot:
    - two or more mains -> [DRDuplicateMain] over the FIRST two canonical main [DeclRef]s of the bucket
      ([later_primary] = the second/first-redundant main; [earlier_related] = the first main);
    - zero mains -> [DRMissingMain] anchored at the validated [PackageRef].
    The canonical bucket order (FileMap-path then local NodeKey) makes the duplicate anchors deterministic;
    evidence is never overwritten (the bucket preserves every main). *)
-(** the bucket-THREADED package-diagnostic step: reads the RETAINED package buckets ([prog_package_refs],
-    folded from the ONE retained visit stream) — so the single analysis pass builds both the buckets and the
-    diagnostics from ONE bucket computation, never a second index traversal. *)
-Definition pkg_diag_of_from {p} (buckets : PM.t (list (GoIndex.DeclRef p))) (b : string * PackageSummary)
-  : list (DiagnosticReason p) :=
-  if Nat.eqb (ps_main_count (snd b)) 1 then []
-  else match PM.find (fst b) buckets with
-       | Some (d1 :: d2 :: _) => [ DRDuplicateMain d2 d1 ]
-       | _ => match bool_sb (package_present_b p (fst b)) with
-              | left H  => [ DRMissingMain (mkPackageRef p (fst b) H) ]
-              | right _ => []
-              end
-       end.
+(** the RETAINED-bucket package classifier: decides a package PURELY from its bucket in the retained
+    [prog_package_refs] map — length >= 2 -> [DRDuplicateMain] (the first two canonical mains); length 0 ->
+    [DRMissingMain] with the [PackageRef] built from the bucket's OWN domain membership ([bucket_key_present],
+    NO [package_summaries] / [package_present_b] rescan); length 1 -> no diagnostic.  [package_summaries] (the
+    legacy FM.fold counter) is used ONLY to bridge the bucket lengths to [AllPackagesOneMain]
+    ([pkg_diags_empty_iff]), NEVER in the decision. *)
+Lemma elements_all_mapsto {p} (m : PM.t (list (GoIndex.DeclRef p))) : forall kv,
+  In kv (PM.elements m) -> PM.MapsTo (fst kv) (snd kv) m.
+Proof.
+  intros [dir l] Hin. apply PMF.elements_mapsto_iff, InA_alt.
+  exists (dir, l). split; [ split; reflexivity | exact Hin ].
+Qed.
+
+Lemma mapsto_in_elements {p} (m : PM.t (list (GoIndex.DeclRef p))) : forall dir l,
+  PM.MapsTo dir l m -> In (dir, l) (PM.elements m).
+Proof.
+  intros dir l Hmt. apply PMF.elements_mapsto_iff in Hmt. apply InA_alt in Hmt.
+  destruct Hmt as [[dir' l'] [[Hk Hl] Hin]]. cbn in Hk, Hl. subst. exact Hin.
+Qed.
+
+Lemma bucket_key_present {p} (idx : GoIndex.Snap.SyntaxIndex p) : forall dir l,
+  PM.MapsTo dir l (prog_package_refs idx) -> package_present_b p dir = true.
+Proof.
+  intros dir l Hmt. unfold package_present_b.
+  apply (proj1 (prog_package_refs_present idx dir)). exists l. exact Hmt.
+Qed.
+
+Definition pkg_diag_of_bucket {p} (m : PM.t (list (GoIndex.DeclRef p)))
+    (Hpres : forall dir l, PM.MapsTo dir l m -> package_present_b p dir = true)
+    (dir : string) (l : list (GoIndex.DeclRef p)) (Hmt : PM.MapsTo dir l m)
+    : list (DiagnosticReason p) :=
+  match l with
+  | d1 :: d2 :: _ => [ DRDuplicateMain d2 d1 ]
+  | _ :: nil      => []
+  | nil           => [ DRMissingMain (mkPackageRef p dir (Hpres dir l Hmt)) ]
+  end.
+
+Lemma pkg_diag_of_bucket_nil_iff {p} (m : PM.t (list (GoIndex.DeclRef p))) Hpres dir l Hmt :
+  @pkg_diag_of_bucket p m Hpres dir l Hmt = nil <-> length l = 1%nat.
+Proof.
+  unfold pkg_diag_of_bucket; destruct l as [|d1 [|d2 rest]]; cbn [length];
+    split; intro H; solve [ reflexivity | discriminate H ].
+Qed.
+
+Fixpoint bucket_diags_elems {p} (m : PM.t (list (GoIndex.DeclRef p)))
+    (Hpres : forall dir l, PM.MapsTo dir l m -> package_present_b p dir = true)
+    (es : list (string * list (GoIndex.DeclRef p)))
+    (Hall : forall kv, In kv es -> PM.MapsTo (fst kv) (snd kv) m)
+    : list (DiagnosticReason p) :=
+  match es return (forall kv, In kv es -> PM.MapsTo (fst kv) (snd kv) m) -> list (DiagnosticReason p) with
+  | [] => fun _ => []
+  | kv :: rest => fun H =>
+      pkg_diag_of_bucket m Hpres (fst kv) (snd kv) (H kv (or_introl eq_refl))
+      ++ bucket_diags_elems m Hpres rest (fun kv' Hin => H kv' (or_intror Hin))
+  end Hall.
+
+Lemma bucket_diags_elems_nil_iff {p} (m : PM.t (list (GoIndex.DeclRef p))) Hpres es Hall :
+  @bucket_diags_elems p m Hpres es Hall = nil <-> (forall kv, In kv es -> length (snd kv) = 1%nat).
+Proof.
+  revert Hall. induction es as [|kv rest IH]; intro Hall; cbn [bucket_diags_elems].
+  - split; [ intros _ kv0 [] | reflexivity ].
+  - split.
+    + intro Hn. apply app_eq_nil in Hn. destruct Hn as [H1 H2]. intros kv0 [Heq | Hin].
+      * subst kv0. exact (proj1 (pkg_diag_of_bucket_nil_iff m Hpres (fst kv) (snd kv) (Hall kv (or_introl eq_refl))) H1).
+      * exact (proj1 (IH (fun kv' Hin' => Hall kv' (or_intror Hin'))) H2 kv0 Hin).
+    + intro Hlen.
+      assert (H1 : pkg_diag_of_bucket m Hpres (fst kv) (snd kv) (Hall kv (or_introl eq_refl)) = nil)
+        by exact (proj2 (pkg_diag_of_bucket_nil_iff m Hpres (fst kv) (snd kv) (Hall kv (or_introl eq_refl))) (Hlen kv (or_introl eq_refl))).
+      assert (H2 : bucket_diags_elems m Hpres rest (fun kv' Hin' => Hall kv' (or_intror Hin')) = nil)
+        by exact (proj2 (IH (fun kv' Hin' => Hall kv' (or_intror Hin'))) (fun kv0 Hin0 => Hlen kv0 (or_intror Hin0))).
+      rewrite H1, H2. reflexivity.
+Qed.
 
 Definition pkg_diags {p} (idx : GoIndex.Snap.SyntaxIndex p) : list (DiagnosticReason p) :=
-  flat_map (pkg_diag_of_from (prog_package_refs idx)) (PM.elements (package_summaries (prog_files p))).
+  bucket_diags_elems (prog_package_refs idx) (bucket_key_present idx)
+    (PM.elements (prog_package_refs idx)) (elements_all_mapsto (prog_package_refs idx)).
 
-(** THE PACKAGE COMPLETENESS: no package diagnostic IFF every package has exactly one main ([pkg_all_ok]).
-    (A non-conforming package always emits — [DRDuplicateMain] when the bucket has >=2 refs, else
-    [DRMissingMain], since a summary element's package is always represented.) *)
+(** THE PACKAGE COMPLETENESS: no package diagnostic IFF every package has exactly one main.  The DECISION
+    reads only the retained buckets (each bucket's LENGTH); [package_summaries] appears ONLY here, bridging
+    the bucket lengths to [AllPackagesOneMain] / [pkg_all_ok]. *)
 Lemma pkg_diags_empty_iff {p} (idx : GoIndex.Snap.SyntaxIndex p) : pkg_diags idx = nil <-> pkg_all_ok p = true.
 Proof.
-  unfold pkg_diags, pkg_all_ok. rewrite flat_map_nil_forallb.
-  assert (Heq : forallb (fun x => match pkg_diag_of_from (prog_package_refs idx) x with nil => true | _ => false end)
-                        (PM.elements (package_summaries (prog_files p)))
-              = forallb (fun b => Nat.eqb (ps_main_count (snd b)) 1)
-                        (PM.elements (package_summaries (prog_files p)))).
-  { apply GoTypes.forallb_ext_in. intros [dir s] Hin. unfold pkg_diag_of_from. cbn [fst snd].
-    destruct (Nat.eqb (ps_main_count s) 1) eqn:E; [ reflexivity |].
-    destruct (PM.find dir (prog_package_refs idx)) as [[|d1 [|d2 rest]]|] eqn:Eb;
-      try reflexivity;
-      (destruct (bool_sb (package_present_b p dir)) as [H|H]; [ reflexivity |];
-       rewrite (summary_elem_present p dir s Hin) in H; discriminate H). }
-  rewrite Heq. reflexivity.
+  unfold pkg_diags. rewrite bucket_diags_elems_nil_iff, pkg_all_ok_AllPackagesOneMain.
+  unfold AllPackagesOneMain. split.
+  - intros Hbuck dir s Hmt.
+    assert (Hpres : list_dir_mem dir (GoAST.file_bindings (prog_files p)) = true).
+    { pose proof (PM.find_1 Hmt) as Hf. rewrite package_summaries_find in Hf.
+      destruct (list_dir_mem dir (GoAST.file_bindings (prog_files p))) eqn:E; [ reflexivity | discriminate Hf ]. }
+    destruct (proj2 (prog_package_refs_present idx dir) Hpres) as [l Hbmt].
+    assert (Hlen : length l = 1%nat) by (apply (Hbuck (dir, l)); apply mapsto_in_elements; exact Hbmt).
+    rewrite (package_summary_main_count (prog_files p) dir s Hmt).
+    rewrite <- (prog_package_refs_bucket_len idx dir l (PM.find_1 Hbmt)). exact Hlen.
+  - intros Hall kv Hin.
+    pose proof (elements_all_mapsto (prog_package_refs idx) kv Hin) as Hbmt.
+    pose proof (bucket_key_present idx (fst kv) (snd kv) Hbmt) as Hpres.
+    assert (Hms : PM.MapsTo (fst kv) (mkPkgSummary (pkg_main_count (fst kv) (prog_files p))) (package_summaries (prog_files p))).
+    { apply PM.find_2. rewrite package_summaries_find. unfold package_present_b in Hpres. rewrite Hpres. reflexivity. }
+    pose proof (Hall (fst kv) _ Hms) as Hone. cbn [ps_main_count] in Hone.
+    rewrite (prog_package_refs_bucket_len idx (fst kv) (snd kv) (PM.find_1 Hbmt)). exact Hone.
 Qed.
 
 (* ============================================================================================================
@@ -2360,16 +2411,29 @@ Proof.
   apply (occ_expr_diags_family idx ro d Hd).
 Qed.
 
+Lemma pkg_diag_of_bucket_family {p} (m : PM.t (list (GoIndex.DeclRef p))) Hpres dir l Hmt : forall d,
+  In d (@pkg_diag_of_bucket p m Hpres dir l Hmt) -> diag_is_package d = true /\ diag_is_typing d = false.
+Proof.
+  intros d Hin. unfold pkg_diag_of_bucket in Hin. destruct l as [|d1 [|d2 rest]].
+  - destruct Hin as [<-|[]]; split; reflexivity.
+  - destruct Hin.
+  - destruct Hin as [<-|[]]; split; reflexivity.
+Qed.
+
+Lemma bucket_diags_elems_family {p} (m : PM.t (list (GoIndex.DeclRef p))) Hpres es Hall : forall d,
+  In d (@bucket_diags_elems p m Hpres es Hall) -> diag_is_package d = true /\ diag_is_typing d = false.
+Proof.
+  revert Hall. induction es as [|kv rest IH]; intro Hall; cbn [bucket_diags_elems]; intros d Hin.
+  - destruct Hin.
+  - apply in_app_iff in Hin. destruct Hin as [Hin | Hin].
+    + exact (pkg_diag_of_bucket_family m Hpres (fst kv) (snd kv) (Hall kv (or_introl eq_refl)) d Hin).
+    + exact (IH (fun kv' Hin' => Hall kv' (or_intror Hin')) d Hin).
+Qed.
+
 Lemma pkg_diags_family {p} (idx : GoIndex.Snap.SyntaxIndex p) : forall d,
   In d (pkg_diags idx) -> diag_is_package d = true /\ diag_is_typing d = false.
 Proof.
-  intros d Hin. unfold pkg_diags in Hin. apply in_flat_map in Hin. destruct Hin as [b [_ Hd]].
-  unfold pkg_diag_of_from in Hd. destruct (Nat.eqb (ps_main_count (snd b)) 1); [destruct Hd|].
-  destruct (PM.find (fst b) (prog_package_refs idx)) as [[|d1 [|d2 rest]]|].
-  - destruct (bool_sb (package_present_b p (fst b))) as [H|H]; [ destruct Hd as [<-|[]]; split; reflexivity | destruct Hd ].
-  - destruct (bool_sb (package_present_b p (fst b))) as [H|H]; [ destruct Hd as [<-|[]]; split; reflexivity | destruct Hd ].
-  - destruct Hd as [<-|[]]; split; reflexivity.
-  - destruct (bool_sb (package_present_b p (fst b))) as [H|H]; [ destruct Hd as [<-|[]]; split; reflexivity | destruct Hd ].
+  intros d Hin. unfold pkg_diags in Hin. exact (bucket_diags_elems_family _ _ _ _ d Hin).
 Qed.
 Lemma pkg_diags_package {p} (idx : GoIndex.Snap.SyntaxIndex p) : forall d, In d (pkg_diags idx) -> diag_is_package d = true.
 Proof. intros d Hin; apply (pkg_diags_family idx d Hin). Qed.
@@ -2537,7 +2601,8 @@ Definition analyze_valid_of_no_diags (p : GoProgram) (ip : GoIndex.IndexedProgra
 (** §14 — the ONE analysis pass.  The shared collections — the index, the visit stream, the occurrence status
     map, and the package buckets — are computed ONCE (let-bound) and feed BOTH the accept/reject decision AND
     the successful [CompilationFacts]: the expression facts and the diagnostics are two linear passes over the
-    SAME [visit]/[status], and the [buckets] serve the package diagnostics ([pkg_diag_of_from]) and the facts.
+    SAME [visit]/[status], and the [buckets] serve BOTH the package diagnostics ([bucket_diags_elems] — the
+    package acceptance is the bucket LENGTHS, never [package_summaries]) and the retained facts.
     There is no separate [analysis_facts] recomputation.  The DECISION is exactly "the diagnostic pass produced
     nothing"; on success the retained facts are exposed with the derived validity, on failure the EXACT
     diagnostic list.  ([diags] is definitionally [collect_diagnostics p idx], so the decision theorems below are
@@ -2549,7 +2614,8 @@ Definition analyze_indexed (p : GoProgram) (ip : GoIndex.IndexedProgram p) : Ana
   let buckets := fold_right (ppkg_step idx) (PM.empty (list (GoIndex.DeclRef p))) visit in
   let facts   := fold_right (add_occ_fact_sm status) (GoIndex.NodeKeyMapBase.empty ExprFact) visit in
   let diags   := flat_map (occ_expr_diags_sm status idx) visit
-                   ++ flat_map (pkg_diag_of_from buckets) (PM.elements (package_summaries (prog_files p))) in
+                   ++ bucket_diags_elems buckets (bucket_key_present idx)
+                        (PM.elements buckets) (elements_all_mapsto buckets) in
   match list_is_nil diags with
   | left He  => AnalysisOK (mkCompilationFacts
                   (mkExprFactTable facts (prog_expr_facts_domain p) (prog_expr_facts_find p))
