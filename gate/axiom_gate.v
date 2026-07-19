@@ -366,6 +366,14 @@ Print Assumptions GoCompile.diagnostic_code_primary_consistent.
    ancestor conversions of the innermost failing conversion (the enclosing conversions), each exactly that
    node's ExprRef — never fabricated or copied syntax. *)
 Print Assumptions GoCompile.enclosing_conv_refs_sound.
+(* C3 §9 — code-specific diagnostic soundness: an invalid-conversion diagnostic genuinely FAILS [convert_const]
+   (with its [outer_context] = the enclosing conversions); a default-not-representable diagnostic's constant
+   does NOT default and its target is exactly the Go default; a missing-main is an EMPTY bucket at a
+   represented package key; a duplicate-main relates a strictly-later main to the first canonical main. *)
+Print Assumptions GoCompile.occ_expr_diags_conv_sound.
+Print Assumptions GoCompile.occ_expr_diags_default_sound.
+Print Assumptions GoCompile.pkg_diag_of_bucket_missing_sound.
+Print Assumptions GoCompile.pkg_diag_of_bucket_dup_sound.
 (* C3 §10/§14 — occurrence-keyed expression facts, built by the SINGLE bottom-up pass: visit_file refs have
    distinct NodeKeys, and the fact stored at a visited ref's key is EXACTLY that occurrence's fact (no
    overwrite; map-level exactness) — the single-pass fact map agrees with the per-node specification. *)

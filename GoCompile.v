@@ -1512,6 +1512,57 @@ Definition occ_expr_diags {p} (idx : GoIndex.Snap.SyntaxIndex p)
       end
   end.
 
+(** §9 (C3 FINAL) — code-specific EXPRESSION-diagnostic soundness.  A local conversion failure genuinely
+    FAILS the shared [convert_const] for the reported target. *)
+Lemma local_conv_failure_sound : forall e t ci,
+  local_conv_failure e = Some (t, ci) -> convert_const t ci = None.
+Proof.
+  intros e t ci H. unfold local_conv_failure in H.
+  destruct e as [b|n|n0|s| it x |df| ft x |dcx| ct x ]; try discriminate H;
+    (destruct (const_info x) as [ci'|]; [| discriminate H];
+     destruct (convert_const _ ci') eqn:Ec; [ discriminate H | injection H as <- <-; exact Ec ]).
+Qed.
+
+(** an [DRInvalidConversion] diagnostic is SOUND for its code: the reported conversion genuinely FAILS the
+    shared [convert_const] on its target/operand-status, and its [outer_context] is EXACTLY the enclosing
+    conversions ([enclosing_conv_refs] — whose refs are sound strict ancestor conversions by
+    [enclosing_conv_refs_sound]). *)
+Lemma occ_expr_diags_conv_sound {p} (idx : GoIndex.Snap.SyntaxIndex p) ro er outer t ci :
+  In (DRInvalidConversion er outer t ci) (occ_expr_diags idx ro) ->
+  convert_const t ci = None /\ outer = enclosing_conv_refs idx (fst ro).
+Proof.
+  intro Hin. unfold occ_expr_diags in Hin.
+  destruct (GoIndex.as_expr idx (fst ro)) as [er'|]; [| destruct Hin].
+  destruct (GoIndex.view_expr (snd ro)) as [e|]; [| destruct Hin].
+  destruct (local_conv_failure e) as [[t' ci']|] eqn:Elc.
+  - destruct Hin as [Heq|[]]. injection Heq as He Ho Ht Hc.
+    rewrite <- Ht, <- Hc. split; [ exact (local_conv_failure_sound e t' ci' Elc) | symmetry; exact Ho ].
+  - destruct (arg_default_failure (snd ro) e) as [[c dt]|];
+      [ destruct Hin as [Heq|[]]; discriminate Heq | destruct Hin ].
+Qed.
+
+(** a [DRDefaultNotRepresentable] diagnostic is SOUND for its code: the reported untyped constant [c] does NOT
+    default ([default_const c = None]), and the reported default target is EXACTLY the Go default of [c]
+    ([default_target_of] — bool->bool, integer->int, float->float64, complex->complex128, string->string). *)
+Lemma occ_expr_diags_default_sound {p} (idx : GoIndex.Snap.SyntaxIndex p) ro er c dt :
+  In (DRDefaultNotRepresentable er c dt) (occ_expr_diags idx ro) ->
+  default_const c = None /\ dt = default_target_of c.
+Proof.
+  intro Hin. unfold occ_expr_diags in Hin.
+  destruct (GoIndex.as_expr idx (fst ro)) as [er'|]; [| destruct Hin].
+  destruct (GoIndex.view_expr (snd ro)) as [e|]; [| destruct Hin].
+  destruct (local_conv_failure e) as [[t' ci']|] eqn:Elc; [ destruct Hin as [Heq|[]]; discriminate Heq |].
+  destruct (arg_default_failure (snd ro) e) as [[c' dt']|] eqn:Ead; [| destruct Hin].
+  destruct Hin as [Heq|[]]. injection Heq as He Hc Hd.
+  unfold arg_default_failure in Ead.
+  destruct (GoIndex.occurrence_role (snd ro)) as [ | | ai | si | ain | ]; try discriminate Ead.
+  destruct (const_info e) as [cinf|]; try discriminate Ead.
+  destruct cinf as [cc | ct tc]; [| discriminate Ead].
+  destruct (default_const cc) eqn:Edc; [ discriminate Ead | injection Ead as Hcc Hdtc ].
+  assert (Hcek : c = cc) by (transitivity c'; [ symmetry; exact Hc | symmetry; exact Hcc ]).
+  split; [ rewrite Hcek; exact Edc | rewrite Hcek, <- Hd, <- Hdtc; reflexivity ].
+Qed.
+
 (* ---- the SINGLE-PASS diagnostic step: reads each occurrence's own status and (for a conversion) its
    OPERAND's status from the precomputed [prog_status_map] — never recomputing [const_info].  Proved to agree
    with the [occ_expr_diags] specification on the visit stream. ---- *)
@@ -2546,6 +2597,32 @@ Lemma pkg_diags_family {p} (idx : GoIndex.Snap.SyntaxIndex p) : forall d,
   In d (pkg_diags idx) -> diag_is_package d = true /\ diag_is_typing d = false.
 Proof.
   intros d Hin. unfold pkg_diags in Hin. exact (bucket_diags_elems_family _ _ _ _ d Hin).
+Qed.
+
+(** §9 (C3 FINAL) — code-specific PACKAGE-diagnostic soundness.  A [DRMissingMain] comes from an EMPTY bucket
+    and anchors at THAT package key (the [PackageRef] carries its own presence proof — [package_ref_ok] — so
+    the package is represented in [p]); an empty bucket length is the package's zero [main] count
+    ([prog_package_refs_bucket_len]), i.e. there is genuinely no [DMain]. *)
+Lemma pkg_diag_of_bucket_missing_sound {p} (m : PM.t (list (GoIndex.DeclRef p))) Hpres dir l Hmt pk :
+  In (DRMissingMain pk) (@pkg_diag_of_bucket p m Hpres dir l Hmt) ->
+  l = nil /\ package_ref_key pk = dir.
+Proof.
+  intro Hin. unfold pkg_diag_of_bucket in Hin. destruct l as [|d1 rest].
+  - destruct Hin as [Heq|[]]. injection Heq as Hpk. subst pk. split; reflexivity.
+  - apply in_map_iff in Hin. destruct Hin as [dk [Heq _]]. discriminate Heq.
+Qed.
+
+(** A [DRDuplicateMain later earlier] comes from a bucket [earlier :: rest] with [later] in the TAIL: the
+    related [earlier] is the FIRST canonical main and the primary [later] is a strictly-later main in the same
+    bucket (hence same package — [prog_package_refs_belongs] — and in canonical bucket order). *)
+Lemma pkg_diag_of_bucket_dup_sound {p} (m : PM.t (list (GoIndex.DeclRef p))) Hpres dir l Hmt later earlier :
+  In (DRDuplicateMain later earlier) (@pkg_diag_of_bucket p m Hpres dir l Hmt) ->
+  exists rest, l = earlier :: rest /\ In later rest.
+Proof.
+  intro Hin. unfold pkg_diag_of_bucket in Hin. destruct l as [|d1 rest].
+  - destruct Hin as [Heq|[]]. discriminate Heq.
+  - apply in_map_iff in Hin. destruct Hin as [dk [Heq Hdk]]. injection Heq as Hl He.
+    exists rest. split; [ rewrite <- He; reflexivity | rewrite <- Hl; exact Hdk ].
 Qed.
 Lemma pkg_diags_package {p} (idx : GoIndex.Snap.SyntaxIndex p) : forall d, In d (pkg_diags idx) -> diag_is_package d = true.
 Proof. intros d Hin; apply (pkg_diags_family idx d Hin). Qed.
