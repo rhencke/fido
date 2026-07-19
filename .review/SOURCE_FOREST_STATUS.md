@@ -81,10 +81,26 @@ Updated only at checkpoint boundaries._
     `DefaultExecName`: `v0 v00 v01 v05 v1 v1x v2x V2 v` KEPT, `v2 v3 v10 v100` dropped — exact `isVersionElement`.
   - Probe scripts retained in the session scratchpad (`gobehav.sh`, `overwrite.sh`); this is a one-shot
     investigation, not a repo artifact.
-- **Status:** contract installed verbatim; prior plan bannered SUPERSEDED; ledger recorded; pinned-Go behavior
-  empirically confirmed (foundation for the Rocq cmd/go model).  Rocq implementation begins next
-  (vocabulary rename → package-rule split → cmd/go plan/preflight → diagnostics → elaboration integration →
-  fixtures → runner/differential/Docker → docs → pre-Codex audit → one exhaustive Codex discovery review).
+- **ARCHITECTURAL DECISION — platform limits are OUT of scope (Rob, verbal, 2026-07-19).** During §7 I flagged
+  a conflict: paths are now UNLIMITED length (Rob's earlier directive removed the 200-byte cap @`fe36e51`), so
+  a module basename ≥256 yields a default exec name > the pinned fs `NAME_MAX` (255), and empirically
+  `go build ./...` then fails "file name too long" (exit 0 at ≤255, exit 1 at ≥256; `getconf NAME_MAX /tmp` =
+  255, `PATH_MAX` = 4096 in the pinned image).  This appeared to conflict with the contract's "GoCompile ==
+  build" + "directory-collision is the ONLY command-level failure".  **Rob resolved it: DO NOT model platform
+  limits (NAME_MAX/PATH_MAX/disk/memory) — they are platform-specific and not Fido's domain; for modeling a
+  path is unlimited length; over-long paths fail-LOUD at printing/materialization (the OS surfaces
+  ENAMETOOLONG), like disk/memory limits.**  The "GoCompile == build" invariant is therefore scoped to the
+  SEMANTIC + cmd/go PACKAGE/OUTPUT LOGIC (types, one-main, the directory-collision — deterministic from the
+  image, platform-independent) and EXCLUDES platform fs limits.  The path-cap removal STANDS; NO NAME_MAX /
+  PATH_MAX / length check is added to the grammar, GoCompile, or the sink.  Recorded as a top AMENDMENT banner
+  on the contract (`.review/C3_FRESH_IMAGE_LITERAL_BUILD_PLAN.md` = NEXT_STEPS) and in [[no-magic-numeric-caps]].
+- **Status:** contract installed verbatim (+ platform-limits amendment banner); prior plan bannered SUPERSEDED;
+  pinned-Go behavior empirically confirmed.  Additive Rocq layers landed green + byte-identical: §12
+  default_exec_name/is_version_element (`19af953`), §11 import path (`84e12ce`), §10 selection (`46b1ddb`), §7
+  layout foundation + FULL pairwise-disjointness audit (`01056e0`/`19c01c6`/`27c43e8`).  Next: §7 RootEntryMap
+  construction + exactness → §13 plan/preflight → §9 package-rule split → §15 diagnostics → §16 elaborate rename
+  → §17 integration (flips acceptance) → §18/§19 theorems → §8 bridge → §20 fixtures → runner/differential/Docker
+  → docs → pre-Codex audit → one exhaustive Codex discovery review.
 
 ## C3 — One Retained Indexed Analysis, Occurrence-Keyed Facts, and Structured Diagnostics (ACTIVE checkpoint)
 - **C2 human disposition: APPROVED by Rob** (2026-07-18, via the C3 activation directive: "Rob has now reviewed

@@ -1,3 +1,21 @@
+★ AMENDMENT (Rob, verbal decision, 2026-07-19) — PLATFORM LIMITS ARE OUT OF SCOPE.
+  Fido does NOT model platform-specific filesystem / materialization limits (NAME_MAX, PATH_MAX, disk,
+  memory).  For modeling purposes a path is UNLIMITED length.  The "GoCompile accepts EXACTLY what the pinned
+  `go build ./...` accepts" invariant, and the "the directory-collision is the ONLY command-level failure"
+  claim, are scoped to the SEMANTIC + cmd/go PACKAGE/OUTPUT LOGIC (types, one-main, the default-output
+  directory-collision — deterministic from the image, platform-independent).  A default executable name that
+  exceeds a platform's NAME_MAX (so `go build` prints "file name too long") is NOT a model bug and is NOT
+  rejected by GoCompile — it fails-LOUD during printing / materialization (the OS surfaces ENAMETOOLONG), the
+  same way disk-space and memory limits are the platform's domain, not Fido's.  Do NOT add a
+  length / NAME_MAX / PATH_MAX check to the grammar, to GoCompile, or to the sink.  This amendment OVERRIDES
+  any wording below that implies platform limits are modeled, or that over-long paths are
+  unrepresentable / rejected.  Rob's words: "Do not model platform limits because platform limits are
+  platform specific... For modeling purposes, the path is unlimited in length.  It's the same reason we're not
+  modeling memory limits or disk space limits.  It's not your domain to care about this.  Let the underlying
+  platform let you know."
+
+===============================================================================
+
 Claude Code directive: C3 final repair — exact fresh-image parity with literal pinned `go build ./...`
 
 Repository:
