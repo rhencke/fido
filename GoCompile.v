@@ -2772,6 +2772,91 @@ Proof.
   rewrite Hb. reflexivity.
 Qed.
 
+Lemma flat_map_map {A B C} (f : B -> list C) (g : A -> B) (l : list A) :
+  flat_map f (map g l) = flat_map (fun x => f (g x)) l.
+Proof. induction l as [|a l IH]; [reflexivity|]. cbn [map flat_map]. rewrite IH. reflexivity. Qed.
+
+(* the ERASED expression diagnostic an annotated KEYED occurrence emits — the same decision as [occ_expr_diags]
+   but over erased data (its NodeKey + occurrence + enclosing-context KEYS); a pure source function. *)
+Definition erase_occ_diags (kroc : (GoIndex.NodeKey * GoIndex.SourceOccurrence) * list GoIndex.NodeKey)
+  : list ErasedDiagnostic :=
+  match GoIndex.view_expr (snd (fst kroc)) with
+  | None => []
+  | Some e =>
+      match local_conv_failure e with
+      | Some (t, _) => [ mkErasedDiagnostic DCInvalidConversion (EANode (fst (fst kroc)))
+                                            (map EANode (snd kroc)) (Some t) ]
+      | None =>
+          match arg_default_failure (snd (fst kroc)) e with
+          | Some (_, dt) => [ mkErasedDiagnostic DCDefaultNotRepresentable (EANode (fst (fst kroc))) [] (Some dt) ]
+          | None => []
+          end
+      end
+  end.
+
+(* erasing the two expression diagnostics, computed explicitly (isolating the anchor/target projection). *)
+Lemma erase_diagnostic_invalid {p} (er : GoIndex.ExprRef p) outer t ci :
+  erase_diagnostic (DRInvalidConversion er outer t ci)
+  = mkErasedDiagnostic DCInvalidConversion (EANode (GoIndex.Snap.node_ref_key (GoIndex.erase_ref er)))
+      (map (fun r => EANode (GoIndex.Snap.node_ref_key (GoIndex.erase_ref r))) outer) (Some t).
+Proof.
+  unfold erase_diagnostic.
+  cbn [diagnostic_code diagnostic_primary diagnostic_related erased_target erase_anchor].
+  rewrite map_map. reflexivity.
+Qed.
+
+Lemma erase_diagnostic_default {p} (er : GoIndex.ExprRef p) c dt :
+  erase_diagnostic (DRDefaultNotRepresentable er c dt)
+  = mkErasedDiagnostic DCDefaultNotRepresentable (EANode (GoIndex.Snap.node_ref_key (GoIndex.erase_ref er))) [] (Some dt).
+Proof. reflexivity. Qed.
+
+(* per VALID occurrence: erasing the ref-emitted diagnostics equals the keyed emitter on the erased annotation. *)
+Lemma erase_occ_diags_eq {p} (idx : GoIndex.Snap.SyntaxIndex p) (r : GoIndex.Snap.NodeRef p) occ ctx :
+  occ = GoIndex.Snap.source_occurrence_of_ref r ->
+  map erase_diagnostic (occ_expr_diags idx ctx (r, occ)) = erase_occ_diags (erase_annot ((r, occ), ctx)).
+Proof.
+  intro Hval. unfold occ_expr_diags, erase_occ_diags, erase_annot. cbn [fst snd].
+  destruct (GoIndex.as_expr idx r) as [er|] eqn:Ea.
+  - assert (Hk : GoIndex.Snap.node_kind idx r = GoIndex.KExpression).
+    { unfold GoIndex.as_expr, GoIndex.as_kind in Ea.
+      destruct (GoIndex.syntaxkind_eq_dec (GoIndex.Snap.node_kind idx r) GoIndex.KExpression) as [He|]; [exact He|discriminate Ea]. }
+    assert (Hke : GoIndex.occurrence_kind occ = GoIndex.KExpression)
+      by (rewrite Hval, <- (GoIndex.Snap.node_kind_matches_source p idx r); exact Hk).
+    destruct (GoIndex.kind_view_expr occ Hke) as [e Hv]. rewrite Hv.
+    assert (Her : GoIndex.erase_ref er = r) by exact (GoIndex.erase_as_kind idx r GoIndex.KExpression er Ea).
+    destruct (local_conv_failure e) as [[t ci]|].
+    + cbn [map]. rewrite erase_diagnostic_invalid, Her, map_map. reflexivity.
+    + destruct (arg_default_failure occ e) as [[c dt]|].
+      * cbn [map]. rewrite erase_diagnostic_default, Her. reflexivity.
+      * reflexivity.
+  - assert (Hkne : GoIndex.Snap.node_kind idx r <> GoIndex.KExpression).
+    { unfold GoIndex.as_expr, GoIndex.as_kind in Ea.
+      destruct (GoIndex.syntaxkind_eq_dec (GoIndex.Snap.node_kind idx r) GoIndex.KExpression); [discriminate Ea|assumption]. }
+    assert (Hvne : GoIndex.view_expr occ = None).
+    { destruct (GoIndex.view_expr occ) as [e|] eqn:E; [|reflexivity]. exfalso. apply Hkne.
+      rewrite (GoIndex.Snap.node_kind_matches_source p idx r), <- Hval. exact (GoIndex.view_expr_kind occ e E). }
+    rewrite Hvne. reflexivity.
+Qed.
+
+(* the erased expression report over the annotated program = the keyed emitter over each occurrence. *)
+Lemma erased_expr_diags_annot {p} (idx : GoIndex.Snap.SyntaxIndex p) :
+  map erase_diagnostic (expr_diags idx)
+  = flat_map (fun roc => erase_occ_diags (erase_annot roc)) (annotate_program idx).
+Proof.
+  rewrite expr_diags_eq_spec, map_flat_map. apply flat_map_ext_in.
+  intros roc Hin. destruct roc as [[r occ] ctx]. cbn [fst snd].
+  apply erase_occ_diags_eq.
+  pose proof (in_map fst _ _ Hin) as Hin'. rewrite annotate_program_fst in Hin'. cbn [fst] in Hin'.
+  exact (prog_visit_view p r occ Hin').
+Qed.
+
+(** §17 — the erased EXPRESSION report is a SOURCE function of the file map (via [annotate_source]). *)
+Lemma erased_expr_diags_source {p} (idx : GoIndex.Snap.SyntaxIndex p) :
+  map erase_diagnostic (expr_diags idx) = flat_map erase_occ_diags (annotate_source (prog_files p)).
+Proof.
+  rewrite erased_expr_diags_annot, <- (annotate_program_erased idx), flat_map_map. reflexivity.
+Qed.
+
 (* ---- the TWO disjoint diagnostic families (typing / package), used to PROJECT a legacy compile class from
    the diagnostics (never a second check).  Expression diagnostics are typing-class; package diagnostics are
    package-class; the two are disjoint. ---- *)
