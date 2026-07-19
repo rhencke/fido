@@ -1456,6 +1456,42 @@ Definition arg_default_failure (occ : GoIndex.SourceOccurrence) (e : GoExpr) : o
   | _ => None
   end.
 
+(** §8/§15 (C3 FINAL) — the ENCLOSING conversions of an innermost failing conversion, as an INDEX-ONLY query
+    (no status, no source recovery): a node is a conversion iff its ONE child is a conversion-operand
+    ([is_conversion_node]); the enclosing conversions of [r] are its strict ancestors that are conversion nodes
+    ([is_ancestor_ref] over the file's visit stream), reversed to NEAREST-FIRST (the file stream is preorder =
+    outermost-first).  Purely structural over the index — so the spec and single-pass diagnostic emitters
+    compute the IDENTICAL [outer_context]. *)
+Definition is_conversion_node {p} (idx : GoIndex.Snap.SyntaxIndex p) (a : GoIndex.Snap.NodeRef p) : bool :=
+  match GoIndex.Snap.children_of idx a with
+  | c :: nil => match GoIndex.Snap.node_role idx c with GoIndex.RConversionOperand => true | _ => false end
+  | _ => false
+  end.
+
+Definition enclosing_conv_refs {p} (idx : GoIndex.Snap.SyntaxIndex p) (r : GoIndex.Snap.NodeRef p)
+  : list (GoIndex.ExprRef p) :=
+  flat_map (fun a => match GoIndex.as_expr idx a with Some er => [er] | None => [] end)
+    (rev (filter (fun a => GoIndex.Snap.is_ancestor_ref idx a r && is_conversion_node idx a)
+                 (map fst (GoIndex.Snap.visit_file (GoIndex.Snap.node_ref_file r))))).
+
+(** §9 (C3 FINAL) — the NESTED SCAR soundness: every enclosing-conversion ref of the [outer_context] is an
+    ACTUAL strict ancestor of [r] (via the O(1) interval test [is_ancestor_ref]) that IS a conversion node
+    ([is_conversion_node]), and it is exactly that node's [ExprRef].  So a nested invalid conversion's related
+    refs are real enclosing conversions in the same file, never fabricated or copied syntax. *)
+Lemma enclosing_conv_refs_sound {p} (idx : GoIndex.Snap.SyntaxIndex p) (r : GoIndex.Snap.NodeRef p) : forall er,
+  In er (enclosing_conv_refs idx r) ->
+  exists a, GoIndex.Snap.is_ancestor_ref idx a r = true
+         /\ is_conversion_node idx a = true
+         /\ GoIndex.as_expr idx a = Some er.
+Proof.
+  intros er Hin. unfold enclosing_conv_refs in Hin.
+  apply in_flat_map in Hin. destruct Hin as [a [Ha Her]].
+  rewrite <- in_rev in Ha. apply filter_In in Ha. destruct Ha as [_ Hf].
+  apply andb_prop in Hf. destruct Hf as [Hanc Hconv].
+  exists a. split; [exact Hanc | split; [exact Hconv |]].
+  destruct (GoIndex.as_expr idx a) as [er'|]; [ destruct Her as [<-|[]]; reflexivity | destruct Her ].
+Qed.
+
 (** the diagnostic(s) an occurrence emits (a singleton or nothing), anchored at its OWN validated ExprRef. *)
 Definition occ_expr_diags {p} (idx : GoIndex.Snap.SyntaxIndex p)
     (ro : GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence) : list (DiagnosticReason p) :=
@@ -1466,7 +1502,7 @@ Definition occ_expr_diags {p} (idx : GoIndex.Snap.SyntaxIndex p)
       | None => []
       | Some e =>
           match local_conv_failure e with
-          | Some (t, ci) => [ DRInvalidConversion er [] t ci ]
+          | Some (t, ci) => [ DRInvalidConversion er (enclosing_conv_refs idx (fst ro)) t ci ]
           | None =>
               match arg_default_failure (snd ro) e with
               | Some (c, dt) => [ DRDefaultNotRepresentable er c dt ]
@@ -1516,7 +1552,7 @@ Definition occ_expr_diags_sm {p} (smap : GoIndex.NodeKeyMapBase.t (option ConstI
   | None => []
   | Some er =>
       match local_conv_failure_sm smap ro with
-      | Some (t, ci) => [ DRInvalidConversion er [] t ci ]
+      | Some (t, ci) => [ DRInvalidConversion er (enclosing_conv_refs idx (fst ro)) t ci ]
       | None =>
           match arg_default_failure_sm smap ro with
           | Some (c, dt) => [ DRDefaultNotRepresentable er c dt ]

@@ -362,6 +362,10 @@ Print Assumptions GoCompile.package_ref_of_fileref_key.
 (* C3 §8 — structured diagnostic core: the primary anchor is an exact-snapshot handle whose kind matches the
    reason's code (invalid anchor/category combinations are unrepresentable). *)
 Print Assumptions GoCompile.diagnostic_code_primary_consistent.
+(* C3 §8/§9 — the NESTED SCAR: an invalid-conversion diagnostic's [outer_context] refs are ACTUAL strict
+   ancestor conversions of the innermost failing conversion (the enclosing conversions), each exactly that
+   node's ExprRef — never fabricated or copied syntax. *)
+Print Assumptions GoCompile.enclosing_conv_refs_sound.
 (* C3 §10/§14 — occurrence-keyed expression facts, built by the SINGLE bottom-up pass: visit_file refs have
    distinct NodeKeys, and the fact stored at a visited ref's key is EXACTLY that occurrence's fact (no
    overwrite; map-level exactness) — the single-pass fact map agrees with the per-node specification. *)
