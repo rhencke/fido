@@ -5895,3 +5895,30 @@ Proof.
   rewrite forallb_forall in Hdirs. apply Hdirs. apply in_rev.
   destruct (rev rdirs) as [|h t] eqn:Er; [contradiction | left; reflexivity].
 Qed.
+
+(** every [path_ok] path CONTAINS a dot (its last segment is a `.go` filename): splitting on '/' preserves
+    dots (a separator has none), and the last segment is [filename_ok] hence dotted.  Used for the RootEntryMap
+    disjointness (a root source-file key is dotted, a directory key is not). *)
+Lemma contains_dot_split_slash : forall s, contains_dot s = existsb contains_dot (FilePath.split_slash s).
+Proof.
+  induction s as [|c s' IH]; [reflexivity|].
+  cbn [FilePath.split_slash contains_dot].
+  destruct (Ascii.eqb c "/"%char) eqn:E.
+  - apply Ascii.eqb_eq in E. subst c. cbn [existsb contains_dot]. rewrite IH. reflexivity.
+  - cbn [existsb].
+    destruct (FilePath.split_slash s') as [|h t].
+    + rewrite IH. cbn [existsb contains_dot]. rewrite !Bool.orb_false_r. reflexivity.
+    + rewrite IH. cbn [existsb contains_dot]. rewrite Bool.orb_assoc. reflexivity.
+Qed.
+
+Lemma path_ok_has_dot : forall s, FilePath.path_ok s = true -> contains_dot s = true.
+Proof.
+  intros s Hp. rewrite contains_dot_split_slash. apply existsb_exists.
+  unfold FilePath.path_ok in Hp.
+  destruct (rev (FilePath.split_slash s)) as [|last rdirs] eqn:Erev; [discriminate Hp|].
+  apply andb_true_iff in Hp. destruct Hp as [_ Hfn].
+  exists last. split.
+  - assert (Hin : In last (rev (FilePath.split_slash s))) by (rewrite Erev; left; reflexivity).
+    rewrite <- in_rev in Hin. exact Hin.
+  - apply filename_ok_has_dot. exact Hfn.
+Qed.
