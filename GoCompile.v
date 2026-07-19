@@ -2857,6 +2857,95 @@ Proof.
   rewrite erased_expr_diags_annot, <- (annotate_program_erased idx), flat_map_map. reflexivity.
 Qed.
 
+(* ---- §17 — the PACKAGE buckets erase to a SOURCE function of the keyed stream.  [keyed_ppkg_step] runs the
+   SAME package-grouping over keyed entries (NodeKeys), and the erased ([node_ref_key . erase_ref]) buckets
+   equal it (find-wise, hence PM.Equal).  So the erased package diagnostics depend only on the file map. ---- *)
+
+Definition erase_dkey {p} (dr : GoIndex.DeclRef p) : GoIndex.NodeKey := GoIndex.Snap.node_ref_key (GoIndex.erase_ref dr).
+Definition occ_pkg_key (ke : GoIndex.NodeKey * GoIndex.SourceOccurrence) : string :=
+  fp_parent (GoIndex.nk_file (fst ke)).
+
+Definition keyed_ppkg_step (ke : GoIndex.NodeKey * GoIndex.SourceOccurrence) (acc : PM.t (list GoIndex.NodeKey))
+  : PM.t (list GoIndex.NodeKey) :=
+  match GoIndex.occurrence_kind (snd ke) with
+  | GoIndex.KTopLevelDecl =>
+      PM.add (occ_pkg_key ke) (fst ke :: match PM.find (occ_pkg_key ke) acc with Some l => l | None => [] end) acc
+  | GoIndex.KFile =>
+      match PM.find (occ_pkg_key ke) acc with Some _ => acc | None => PM.add (occ_pkg_key ke) [] acc end
+  | _ => acc
+  end.
+
+Definition keyed_buckets (l : list (GoIndex.NodeKey * GoIndex.SourceOccurrence)) : PM.t (list GoIndex.NodeKey) :=
+  fold_right keyed_ppkg_step (PM.empty (list GoIndex.NodeKey)) l.
+
+(* the keyed package of an occurrence equals its source parent directory (via [node_ref_key_eq]). *)
+Lemma occ_pkg_key_eq {p} (ro : GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence) :
+  occ_pkg_key (GoIndex.Snap.node_ref_key (fst ro), snd ro) = occ_pkg ro.
+Proof.
+  unfold occ_pkg_key, occ_pkg. cbn [fst]. rewrite GoIndex.Snap.node_ref_key_eq. reflexivity.
+Qed.
+
+Lemma ppkg_erased_find {p} (idx : GoIndex.Snap.SyntaxIndex p) (L : list (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence)) :
+  (forall ro, In ro L -> snd ro = GoIndex.Snap.source_occurrence_of_ref (fst ro)) ->
+  forall k, PM.find k (PM.map (map erase_dkey) (fold_right (ppkg_step idx) (PM.empty _) L))
+          = PM.find k (keyed_buckets (map (fun ro => (GoIndex.Snap.node_ref_key (fst ro), snd ro)) L)).
+Proof.
+  induction L as [|ro L IH]; intro Hval.
+  - intro k. rewrite PMF.map_o. cbn [fold_right map keyed_buckets]. rewrite !PMF.empty_o. reflexivity.
+  - pose proof (IH (fun ro' Hin => Hval ro' (or_intror Hin))) as IHk.
+    unfold keyed_buckets in IHk.
+    pose proof (Hval ro (or_introl eq_refl)) as Hsrc.
+    assert (Hk : GoIndex.Snap.node_kind idx (fst ro) = GoIndex.occurrence_kind (snd ro))
+      by (rewrite (GoIndex.Snap.node_kind_matches_source p idx (fst ro)), <- Hsrc; reflexivity).
+    intro k. cbn [fold_right map keyed_buckets].
+    set (acc := fold_right (ppkg_step idx) (PM.empty (list (GoIndex.DeclRef p))) L) in *.
+    set (kacc := fold_right keyed_ppkg_step (PM.empty (list GoIndex.NodeKey))
+                   (map (fun ro => (GoIndex.Snap.node_ref_key (fst ro), snd ro)) L)) in *.
+    unfold ppkg_step at 1, keyed_ppkg_step at 1. cbn [fst snd]. rewrite occ_pkg_key_eq.
+    destruct (GoIndex.occurrence_kind (snd ro)) eqn:Hok.
+    + (* KFile: as_decl = None, as_kind KFile = Some — file-root init (presence, not length) *)
+      assert (Hd : GoIndex.as_decl idx (fst ro) = None)
+        by (apply GoIndex.as_kind_mismatch; rewrite Hk; discriminate).
+      destruct (GoIndex.as_kind_complete idx (fst ro) GoIndex.KFile) as [fr [Hf _]]; [rewrite Hk; reflexivity|].
+      rewrite Hd, Hf.
+      pose proof (IHk (occ_pkg ro)) as IHo. rewrite PMF.map_o in IHo. rewrite <- IHo.
+      destruct (PM.find (occ_pkg ro) acc) as [la|] eqn:Ea; cbn [option_map].
+      * exact (IHk k).
+      * destruct (String.eqb (occ_pkg ro) k) eqn:Ek.
+        -- apply String.eqb_eq in Ek. rewrite PMF.map_o, PMF.add_eq_o, PMF.add_eq_o by exact Ek. reflexivity.
+        -- apply String.eqb_neq in Ek. rewrite PMF.map_o, PMF.add_neq_o, PMF.add_neq_o by exact Ek.
+           rewrite <- PMF.map_o. exact (IHk k).
+    + (* KPackageClause: neither *)
+      assert (Hd : GoIndex.as_decl idx (fst ro) = None)
+        by (apply GoIndex.as_kind_mismatch; rewrite Hk; discriminate).
+      assert (Hf : GoIndex.as_kind idx (fst ro) GoIndex.KFile = None)
+        by (apply GoIndex.as_kind_mismatch; rewrite Hk; discriminate).
+      rewrite Hd, Hf. exact (IHk k).
+    + (* KTopLevelDecl: as_decl = Some dr — a main is prepended; its erased key IS the occurrence's key *)
+      destruct (GoIndex.as_kind_complete idx (fst ro) GoIndex.KTopLevelDecl) as [dr [Hdr Her]];
+        [ rewrite Hk; reflexivity | ].
+      unfold GoIndex.as_decl. rewrite Hdr.
+      pose proof (IHk (occ_pkg ro)) as IHo. rewrite PMF.map_o in IHo.
+      destruct (String.eqb (occ_pkg ro) k) eqn:Ek.
+      * apply String.eqb_eq in Ek. rewrite PMF.map_o, PMF.add_eq_o, PMF.add_eq_o by exact Ek.
+        cbn [option_map map]. unfold erase_dkey. rewrite Her. f_equal. f_equal.
+        rewrite <- IHo. destruct (PM.find (occ_pkg ro) acc) as [la|]; reflexivity.
+      * apply String.eqb_neq in Ek. rewrite PMF.map_o, PMF.add_neq_o, PMF.add_neq_o by exact Ek.
+        rewrite <- PMF.map_o. exact (IHk k).
+    + (* KStatement: neither *)
+      assert (Hd : GoIndex.as_decl idx (fst ro) = None)
+        by (apply GoIndex.as_kind_mismatch; rewrite Hk; discriminate).
+      assert (Hf : GoIndex.as_kind idx (fst ro) GoIndex.KFile = None)
+        by (apply GoIndex.as_kind_mismatch; rewrite Hk; discriminate).
+      rewrite Hd, Hf. exact (IHk k).
+    + (* KExpression: neither *)
+      assert (Hd : GoIndex.as_decl idx (fst ro) = None)
+        by (apply GoIndex.as_kind_mismatch; rewrite Hk; discriminate).
+      assert (Hf : GoIndex.as_kind idx (fst ro) GoIndex.KFile = None)
+        by (apply GoIndex.as_kind_mismatch; rewrite Hk; discriminate).
+      rewrite Hd, Hf. exact (IHk k).
+Qed.
+
 (* ---- the TWO disjoint diagnostic families (typing / package), used to PROJECT a legacy compile class from
    the diagnostics (never a second check).  Expression diagnostics are typing-class; package diagnostics are
    package-class; the two are disjoint. ---- *)
