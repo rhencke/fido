@@ -373,10 +373,13 @@ Print Assumptions GoCompile.occ_expr_diags_conv_sound.
 Print Assumptions GoCompile.occ_expr_diags_default_sound.
 (* C3 §9 — the NESTED SCAR: every enclosing-conversion (outer_context) ref of an invalid-conversion diagnostic
    in the whole expression report is a genuine CONVERSION whose subtree STRICTLY contains the primary (a real
-   strict-ancestor conversion — node_ref_local < primary <= node_subtree_end), delivered by the one-pass
-   annotation and proved sound; never fabricated or copied syntax. *)
+   strict-ancestor conversion — node_ref_local < primary <= node_subtree_end), and the outer_context is
+   SAME-FILE (as the primary), NEAREST-FIRST (deepest enclosing conversion first), and DUPLICATE-FREE (NoDup);
+   delivered by the one-pass annotation and proved sound; never fabricated or copied syntax. *)
 Print Assumptions GoCompile.annotate_program_ctx_sound.
+Print Assumptions GoCompile.annotate_program_ctx_wf.
 Print Assumptions GoCompile.expr_diags_conv_scar_sound.
+Print Assumptions GoCompile.expr_diags_conv_scar_wf.
 Print Assumptions GoCompile.pkg_diag_of_bucket_missing_sound.
 Print Assumptions GoCompile.pkg_diag_of_bucket_dup_sound.
 Print Assumptions GoCompile.pkg_diags_dup_sound.

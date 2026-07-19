@@ -1530,6 +1530,14 @@ Lemma flat_map_map {A B C} (f : B -> list C) (g : A -> B) (l : list A) :
   flat_map f (map g l) = flat_map (fun x => f (g x)) l.
 Proof. induction l as [|a l IH]; [reflexivity|]. cbn [map flat_map]. rewrite IH. reflexivity. Qed.
 
+(** the annotation preserves the underlying occurrence stream (it only attaches context). *)
+Lemma annotate_encl_fst {p} (idx : GoIndex.Snap.SyntaxIndex p) stack stream :
+  map fst (annotate_encl idx stack stream) = stream.
+Proof.
+  revert stack; induction stream as [|ro rest IH]; intro stack; [reflexivity|].
+  cbn [annotate_encl map]. rewrite IH. reflexivity.
+Qed.
+
 (* §9 (C3 FINAL) — the annotation-STACK invariant: every open entry [(er, se)] is a genuine CONVERSION
    [ExprRef] (erasing to a node whose occurrence's syntax is a conversion) whose subtree end is [se]. *)
 Definition estack_ok {p} (idx : GoIndex.Snap.SyntaxIndex p) (stack : list (GoIndex.ExprRef p * positive)) : Prop :=
@@ -1598,6 +1606,105 @@ Proof.
         exact (Pos.lt_trans _ _ _ (Hbnd ro0 e s (or_introl eq_refl) (proj1 Ht')) Hlt0).
 Qed.
 
+Lemma StronglySorted_filter {A} (R : A -> A -> Prop) (P : A -> bool) l :
+  StronglySorted R l -> StronglySorted R (filter P l).
+Proof.
+  induction l as [|a l IH]; intro H; [constructor|].
+  apply StronglySorted_inv in H. destruct H as [Hs Hhd]. cbn [filter].
+  destruct (P a); [| apply IH; exact Hs].
+  constructor; [apply IH; exact Hs|]. rewrite Forall_forall in Hhd |- *.
+  intros x Hx. apply filter_In in Hx. apply Hhd. exact (proj1 Hx).
+Qed.
+
+Lemma StronglySorted_map {A B} (R : B -> B -> Prop) (f : A -> B) l :
+  StronglySorted (fun x y => R (f x) (f y)) l -> StronglySorted R (map f l).
+Proof.
+  induction l as [|a l IH]; intro H; [constructor|].
+  cbn [map]. apply StronglySorted_inv in H. destruct H as [Hs Hhd].
+  constructor; [apply IH; exact Hs|].
+  rewrite Forall_forall in Hhd |- *. intros y Hy. apply in_map_iff in Hy.
+  destruct Hy as [x [Hxy Hx]]. subst y. exact (Hhd x Hx).
+Qed.
+
+Lemma StronglySorted_NoDup {A} (R : A -> A -> Prop) l :
+  (forall a, ~ R a a) -> StronglySorted R l -> NoDup l.
+Proof.
+  intro Hirr. induction l as [|a l IH]; intro H; [constructor|].
+  apply StronglySorted_inv in H. destruct H as [Hs Hhd].
+  constructor; [| apply IH; exact Hs].
+  intro Hina. rewrite Forall_forall in Hhd. exact (Hirr a (Hhd a Hina)).
+Qed.
+
+(* the annotation-STACK is same-file and STRICTLY DESCENDING by local (front = last pushed = deepest =
+   NEAREST); its projection to the [ExprRef] context is thus same-file, nearest-first, and duplicate-free. *)
+Definition estack_wf {p} (idx : GoIndex.Snap.SyntaxIndex p) (fr : GoIndex.Snap.FileRef p)
+    (stack : list (GoIndex.ExprRef p * positive)) : Prop :=
+  Forall (fun e => GoIndex.Snap.node_ref_file (GoIndex.erase_ref (fst e)) = fr) stack
+  /\ StronglySorted (fun x y => Pos.lt (GoIndex.Snap.node_ref_local (GoIndex.erase_ref (fst y)))
+                                       (GoIndex.Snap.node_ref_local (GoIndex.erase_ref (fst x)))) stack.
+
+Lemma estack_wf_filter {p} (idx : GoIndex.Snap.SyntaxIndex p) fr P stack :
+  estack_wf idx fr stack -> estack_wf idx fr (filter P stack).
+Proof.
+  intros [Hf Hs]. split.
+  - apply Forall_forall. intros e He. apply filter_In in He. rewrite Forall_forall in Hf. exact (Hf e (proj1 He)).
+  - apply StronglySorted_filter; assumption.
+Qed.
+
+(** §9 (C3 FINAL) — the nested scar is SAME-FILE, NEAREST-FIRST, and DUPLICATE-FREE: over a per-file
+    [visit_file] block the delivered [outer_context] is all in that file, and strictly descending by local
+    (deepest/nearest enclosing conversion first) — whence [NoDup]. *)
+Lemma annotate_encl_ctx_wf {p} (idx : GoIndex.Snap.SyntaxIndex p) (fr : GoIndex.Snap.FileRef p) :
+  forall stream stack,
+  StronglySorted (fun x y => Pos.lt (GoIndex.Snap.node_ref_local (fst x)) (GoIndex.Snap.node_ref_local (fst y))) stream ->
+  (forall ro, In ro stream -> snd ro = GoIndex.Snap.source_occurrence_of_ref (fst ro) /\ GoIndex.Snap.node_ref_file (fst ro) = fr) ->
+  estack_wf idx fr stack ->
+  (forall ro er se, In ro stream -> In (er, se) stack -> Pos.lt (GoIndex.Snap.node_ref_local (GoIndex.erase_ref er)) (GoIndex.Snap.node_ref_local (fst ro))) ->
+  forall ro ctx, In (ro, ctx) (annotate_encl idx stack stream) ->
+    Forall (fun er => GoIndex.Snap.node_ref_file (GoIndex.erase_ref er) = fr) ctx
+    /\ StronglySorted (fun a b => Pos.lt (GoIndex.Snap.node_ref_local (GoIndex.erase_ref b)) (GoIndex.Snap.node_ref_local (GoIndex.erase_ref a))) ctx.
+Proof.
+  induction stream as [|ro0 rest IH]; intros stack Hsort Hval Hwf Hbnd roc ctx Hin; [destruct Hin|].
+  cbn [annotate_encl] in Hin.
+  set (open := filter (fun e => Pos.leb (GoIndex.Snap.node_ref_local (fst ro0)) (snd e)) stack) in *.
+  apply StronglySorted_inv in Hsort. destruct Hsort as [Hsort0 Hhd].
+  assert (Hwfopen : estack_wf idx fr open) by (apply estack_wf_filter; exact Hwf).
+  destruct Hin as [Heq | Hin].
+  - injection Heq as Hro Hctx. subst roc ctx. destruct Hwfopen as [Hf Hs].
+    split.
+    + rewrite Forall_forall. intros er Herin. apply in_map_iff in Herin.
+      destruct Herin as [[e s] [Hes Hin']]. cbn [fst] in Hes. subst er.
+      rewrite Forall_forall in Hf. exact (Hf (e, s) Hin').
+    + apply (StronglySorted_map (fun a b => Pos.lt (GoIndex.Snap.node_ref_local (GoIndex.erase_ref b))
+                                                   (GoIndex.Snap.node_ref_local (GoIndex.erase_ref a)))
+              fst open). exact Hs.
+  - refine (IH _ Hsort0 (fun ro' Hr => Hval ro' (or_intror Hr)) _ _ roc ctx Hin).
+    + destruct (GoIndex.as_expr idx (fst ro0)) as [er0|] eqn:Ea;
+        [ destruct (is_conversion_occ (snd ro0)) eqn:Hc0 | ]; try (exact Hwfopen).
+      destruct Hwfopen as [Hf Hs]. split.
+      * constructor; [| exact Hf]. cbn [fst].
+        rewrite (GoIndex.erase_as_kind idx (fst ro0) GoIndex.KExpression er0 Ea).
+        exact (proj2 (Hval ro0 (or_introl eq_refl))).
+      * constructor; [exact Hs|]. apply Forall_forall. intros [e s] He. cbn [fst].
+        rewrite (GoIndex.erase_as_kind idx (fst ro0) GoIndex.KExpression er0 Ea).
+        pose proof He as He'. apply filter_In in He'.
+        exact (Hbnd ro0 e s (or_introl eq_refl) (proj1 He')).
+    + intros ro' e s Hr' Hes.
+      assert (Hlt0 : Pos.lt (GoIndex.Snap.node_ref_local (fst ro0)) (GoIndex.Snap.node_ref_local (fst ro'))).
+      { rewrite Forall_forall in Hhd. exact (Hhd ro' Hr'). }
+      destruct (GoIndex.as_expr idx (fst ro0)) as [er0|] eqn:Ea;
+        [ destruct (is_conversion_occ (snd ro0)) eqn:Hc0 | ].
+      * destruct Hes as [Hh | Ht].
+        -- injection Hh as He Hs. subst e.
+           rewrite (GoIndex.erase_as_kind idx (fst ro0) GoIndex.KExpression er0 Ea). exact Hlt0.
+        -- pose proof Ht as Ht'. apply filter_In in Ht'.
+           exact (Pos.lt_trans _ _ _ (Hbnd ro0 e s (or_introl eq_refl) (proj1 Ht')) Hlt0).
+      * pose proof Hes as Ht'. apply filter_In in Ht'.
+        exact (Pos.lt_trans _ _ _ (Hbnd ro0 e s (or_introl eq_refl) (proj1 Ht')) Hlt0).
+      * pose proof Hes as Ht'. apply filter_In in Ht'.
+        exact (Pos.lt_trans _ _ _ (Hbnd ro0 e s (or_introl eq_refl) (proj1 Ht')) Hlt0).
+Qed.
+
 Lemma StronglySorted_map_inv {A B} (R : B -> B -> Prop) (f : A -> B) (l : list A) :
   StronglySorted R (map f l) -> StronglySorted (fun x y => R (f x) (f y)) l.
 Proof.
@@ -1630,12 +1737,32 @@ Proof.
   - intros ro0 er0 se _ [].
 Qed.
 
-(** the annotation preserves the underlying occurrence stream (it only attaches context). *)
-Lemma annotate_encl_fst {p} (idx : GoIndex.Snap.SyntaxIndex p) stack stream :
-  map fst (annotate_encl idx stack stream) = stream.
+(** §9 — the whole-program nested scar is SAME-FILE (as the primary), NEAREST-FIRST, and DUPLICATE-FREE. *)
+Lemma annotate_program_ctx_wf {p} (idx : GoIndex.Snap.SyntaxIndex p) : forall ro ctx,
+  In (ro, ctx) (annotate_program idx) ->
+  Forall (fun er => GoIndex.Snap.node_ref_file (GoIndex.erase_ref er) = GoIndex.Snap.node_ref_file (fst ro)) ctx
+  /\ StronglySorted (fun a b => Pos.lt (GoIndex.Snap.node_ref_local (GoIndex.erase_ref b)) (GoIndex.Snap.node_ref_local (GoIndex.erase_ref a))) ctx
+  /\ NoDup ctx.
 Proof.
-  revert stack; induction stream as [|ro rest IH]; intro stack; [reflexivity|].
-  cbn [annotate_encl map]. rewrite IH. reflexivity.
+  intros ro ctx Hin. unfold annotate_program in Hin. apply in_flat_map in Hin.
+  destruct Hin as [block [Hblock Hin]]. unfold prog_blocks in Hblock.
+  apply in_map_iff in Hblock. destruct Hblock as [b [Hbv Hb]]. subst block. unfold binding_visit in Hin.
+  destruct (GoIndex.Snap.file_of_path p (fst b)) as [fr|] eqn:Efr; [| destruct Hin].
+  assert (Hroin : In ro (GoIndex.Snap.visit_file fr))
+    by (rewrite <- (annotate_encl_fst idx [] (GoIndex.Snap.visit_file fr)); exact (in_map fst _ _ Hin)).
+  assert (Hrf : GoIndex.Snap.node_ref_file (fst ro) = fr).
+  { destruct ro as [r occ]. destruct (GoIndex.Snap.visit_file_view p fr r occ Hroin) as [_ Hf]. exact Hf. }
+  assert (Hprops : Forall (fun er => GoIndex.Snap.node_ref_file (GoIndex.erase_ref er) = fr) ctx
+                 /\ StronglySorted (fun a b => Pos.lt (GoIndex.Snap.node_ref_local (GoIndex.erase_ref b))
+                                                      (GoIndex.Snap.node_ref_local (GoIndex.erase_ref a))) ctx).
+  { refine (annotate_encl_ctx_wf idx fr (GoIndex.Snap.visit_file fr) [] _ _ _ _ ro ctx Hin).
+    - apply StronglySorted_map_inv. exact (GoIndex.Snap.visit_file_order p fr).
+    - intros [r occ] Hro. destruct (GoIndex.Snap.visit_file_view p fr r occ Hro) as [Ho Hf]. split; assumption.
+    - split; constructor.
+    - intros ro0 er0 se _ []. }
+  destruct Hprops as [Hfile Hss].
+  rewrite Hrf. split; [exact Hfile | split; [exact Hss |]].
+  exact (StronglySorted_NoDup _ ctx (fun a => Pos.lt_irrefl _) Hss).
 Qed.
 
 Lemma annotate_program_fst {p} (idx : GoIndex.Snap.SyntaxIndex p) :
@@ -1864,6 +1991,25 @@ Proof.
   assert (Her : GoIndex.erase_ref er = fst (fst roc))
     by exact (GoIndex.erase_as_kind idx (fst (fst roc)) GoIndex.KExpression er Hae).
   rewrite Her. split; [exact Hconv | split; [exact Hlt | exact Hle]].
+Qed.
+
+(** §9 (C3 FINAL) — the nested scar is SAME-FILE (as the primary), NEAREST-FIRST (deepest enclosing
+    conversion first), and DUPLICATE-FREE for every invalid-conversion diagnostic in the whole report. *)
+Lemma expr_diags_conv_scar_wf {p} (idx : GoIndex.Snap.SyntaxIndex p) er outer t ci :
+  In (DRInvalidConversion er outer t ci) (expr_diags idx) ->
+  Forall (fun a => GoIndex.Snap.node_ref_file (GoIndex.erase_ref a) = GoIndex.Snap.node_ref_file (GoIndex.erase_ref er)) outer
+  /\ StronglySorted (fun a b => Pos.lt (GoIndex.Snap.node_ref_local (GoIndex.erase_ref b)) (GoIndex.Snap.node_ref_local (GoIndex.erase_ref a))) outer
+  /\ NoDup outer.
+Proof.
+  intro Hin. rewrite expr_diags_eq_spec in Hin. apply in_flat_map in Hin.
+  destruct Hin as [roc [Hroc Hd]].
+  destruct (occ_expr_diags_conv_sound idx (fst roc) (snd roc) er outer t ci Hd) as [Hoeq [Hae _]].
+  subst outer.
+  pose proof Hroc as Hroc2. rewrite (surjective_pairing roc) in Hroc2.
+  destruct (annotate_program_ctx_wf idx (fst roc) (snd roc) Hroc2) as [Hfile [Hss Hnd]].
+  assert (Her : GoIndex.erase_ref er = fst (fst roc))
+    by exact (GoIndex.erase_as_kind idx (fst (fst roc)) GoIndex.KExpression er Hae).
+  rewrite Her. split; [exact Hfile | split; [exact Hss | exact Hnd]].
 Qed.
 
 (* ---- COMPLETENESS: [expr_diags] is empty IFF every argument resolves (= [program_typedb]) ---- *)
