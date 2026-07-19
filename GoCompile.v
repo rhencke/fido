@@ -1051,6 +1051,195 @@ Proof.
   apply fold_kv_find; [ apply status_kvs_nodup | exact (status_kvs_in_operand p r occ e x Hin Hv Hc) ].
 Qed.
 
+(* ============================================================================================================
+   §10 (C3) — EXPRESSION-FACT TOTALITY GROUNDWORK.  On a TYPED program every visited expression occurrence has a
+   successful [const_info] (hence an exact fact).  Three facts compose it: a typed println argument's
+   [const_info] SUCCEEDS ([expr_typedb_const_info]); [const_info]'s recursion propagates success DOWNWARD to
+   every conversion operand ([const_info_child_some], lifted structurally through the occurrence enumeration);
+   and the whole-file / whole-program traversal visits exactly those subexpressions.  So on [ProgramTyped]
+   every visited expression occurrence's [const_info] is [Some] — the fact query is TOTAL.
+   ============================================================================================================ *)
+
+(* a typed argument's constant status succeeds (its whole conversion chain is representable). *)
+Lemma expr_typedb_const_info : forall u e, GoTypes.expr_typedb u e = true -> exists ci, const_info e = Some ci.
+Proof.
+  intros u e H. unfold GoTypes.expr_typedb in H.
+  destruct (GoTypes.resolve_expr u e) as [t|] eqn:Hr; [|discriminate H].
+  unfold GoTypes.resolve_expr in Hr.
+  destruct (GoTypes.resolve_expr_const u e) as [rc|] eqn:Hrc; cbn [option_map] in Hr; [|discriminate Hr].
+  destruct (GoTypes.resolve_expr_const_sound u e rc Hrc) as [ci [Hci _]]. exists ci; exact Hci.
+Qed.
+
+(* one downward step: a node whose [const_info] succeeds has an expression child whose [const_info] succeeds. *)
+Lemma const_info_child_some : forall e x ci,
+  expr_child e = Some x -> const_info e = Some ci -> exists cix, const_info x = Some cix.
+Proof.
+  intros e x ci Hc Hci. rewrite const_info_step_reflect, Hc in Hci.
+  destruct e as [ b|n1|n2|s| it y | df | ft y | dcx | ct y ]; cbn [expr_child] in Hc; try discriminate Hc;
+    cbn [GoTypes.const_info_step] in Hci;
+    (destruct (const_info x) as [cix|]; [ exists cix; reflexivity | discriminate Hci ]).
+Qed.
+
+(* the const_info of EVERY occurrence in [occs_expr ... e] is [Some], given [const_info e] is: leaves view [e]
+   itself; a conversion's head is [e] (Some given), and its operand subtree inherits Some by [const_info_child_some]. *)
+Lemma occs_expr_const_info_some : forall e parent role pos me occ e' ci,
+  const_info e = Some ci ->
+  In (me, occ) (GoIndex.occs_expr parent role pos e) ->
+  GoIndex.view_expr occ = Some e' -> exists ci', const_info e' = Some ci'.
+Proof.
+  induction e as [ b|n1|n2|s| it y IHy | df | ft y IHy | dcx | ct y IHy ];
+    intros parent role pos me occ e' ci Hci Hin Hv.
+  1,2,3,4,6,8: cbn [GoIndex.occs_expr] in Hin; destruct Hin as [Heq|[]];
+    injection Heq as <- <-; cbn [GoIndex.view_expr GoIndex.occurrence_view] in Hv;
+    injection Hv as <-; exists ci; exact Hci.
+  all: (cbn [GoIndex.occs_expr] in Hin; destruct Hin as [Heq|Hin];
+    [ injection Heq as <- <-; cbn [GoIndex.view_expr GoIndex.occurrence_view] in Hv;
+      injection Hv as <-; exists ci; exact Hci
+    | assert (Hy : exists ciy, const_info y = Some ciy)
+        by (cbn [const_info] in Hci; destruct (const_info y) as [ciy|];
+            [ eexists; reflexivity | discriminate Hci ]);
+      destruct Hy as [ciy Hciy];
+      exact (IHy pos GoIndex.RConversionOperand (Pos.succ pos) me occ e' ciy Hciy Hin Hv) ]).
+Qed.
+
+Lemma in_app_const_info_some {L1 L2 : list (positive * GoIndex.SourceOccurrence)} me occ e' :
+  (forall M O E, In (M, O) L1 -> GoIndex.view_expr O = Some E -> exists ci, const_info E = Some ci) ->
+  (forall M O E, In (M, O) L2 -> GoIndex.view_expr O = Some E -> exists ci, const_info E = Some ci) ->
+  In (me, occ) (L1 ++ L2) -> GoIndex.view_expr occ = Some e' -> exists ci, const_info e' = Some ci.
+Proof.
+  intros H1 H2 Hin Hv. apply in_app_or in Hin. destruct Hin as [Hin|Hin];
+    [ exact (H1 me occ e' Hin Hv) | exact (H2 me occ e' Hin Hv) ].
+Qed.
+
+Lemma occs_arg_const_info_some : forall e parent aidx pos me occ e',
+  GoTypes.expr_typedb GoTypes.UsePrintlnArg e = true ->
+  In (me, occ) (GoIndex.occs_arg parent aidx pos e) ->
+  GoIndex.view_expr occ = Some e' -> exists ci, const_info e' = Some ci.
+Proof.
+  intros e parent aidx pos me occ e' Ht Hin Hv. unfold GoIndex.occs_arg in Hin.
+  destruct (expr_typedb_const_info GoTypes.UsePrintlnArg e Ht) as [ci Hci].
+  exact (occs_expr_const_info_some e parent (GoIndex.RPrintlnArg aidx) pos me occ e' ci Hci Hin Hv).
+Qed.
+
+Lemma occs_args_const_info_some : forall es parent aidx pos me occ e',
+  forallb (GoTypes.expr_typedb GoTypes.UsePrintlnArg) es = true ->
+  In (me, occ) (GoIndex.occs_args parent aidx pos es) ->
+  GoIndex.view_expr occ = Some e' -> exists ci, const_info e' = Some ci.
+Proof.
+  induction es as [|e rest IH]; intros parent aidx pos me occ e' Ht Hin Hv;
+    cbn [GoIndex.occs_args] in Hin; [destruct Hin|].
+  cbn [forallb] in Ht. apply Bool.andb_true_iff in Ht. destruct Ht as [Hte Htr].
+  eapply in_app_const_info_some; [ | | exact Hin | exact Hv ].
+  - intros M O E HinM HvM. exact (occs_arg_const_info_some e parent aidx pos M O E Hte HinM HvM).
+  - intros M O E HinM HvM. exact (IH parent (S aidx) (Pos.succ (GoIndex.end_expr pos e)) M O E Htr HinM HvM).
+Qed.
+
+Lemma occs_stmt_const_info_some : forall s parent sidx pos me occ e',
+  GoTypes.stmt_typedb s = true ->
+  In (me, occ) (GoIndex.occs_stmt parent sidx pos s) ->
+  GoIndex.view_expr occ = Some e' -> exists ci, const_info e' = Some ci.
+Proof.
+  intros [args] parent sidx pos me occ e' Ht Hin Hv. cbn [GoIndex.occs_stmt] in Hin.
+  destruct Hin as [Heq|Hin].
+  - injection Heq as <- <-. cbn [GoIndex.view_expr GoIndex.occurrence_view] in Hv. discriminate Hv.
+  - cbn [GoTypes.stmt_typedb] in Ht.
+    exact (occs_args_const_info_some args pos 0 (Pos.succ pos) me occ e' Ht Hin Hv).
+Qed.
+
+Lemma occs_stmts_const_info_some : forall ss parent sidx pos me occ e',
+  forallb GoTypes.stmt_typedb ss = true ->
+  In (me, occ) (GoIndex.occs_stmts parent sidx pos ss) ->
+  GoIndex.view_expr occ = Some e' -> exists ci, const_info e' = Some ci.
+Proof.
+  induction ss as [|s rest IH]; intros parent sidx pos me occ e' Ht Hin Hv;
+    cbn [GoIndex.occs_stmts] in Hin; [destruct Hin|].
+  cbn [forallb] in Ht. apply Bool.andb_true_iff in Ht. destruct Ht as [Hts Htr].
+  eapply in_app_const_info_some; [ | | exact Hin | exact Hv ].
+  - intros M O E HinM HvM. exact (occs_stmt_const_info_some s parent sidx pos M O E Hts HinM HvM).
+  - intros M O E HinM HvM. exact (IH parent (S sidx) (Pos.succ (GoIndex.end_stmt pos s)) M O E Htr HinM HvM).
+Qed.
+
+Lemma occs_decl_const_info_some : forall d parent didx pos me occ e',
+  GoTypes.decl_typedb d = true ->
+  In (me, occ) (GoIndex.occs_decl parent didx pos d) ->
+  GoIndex.view_expr occ = Some e' -> exists ci, const_info e' = Some ci.
+Proof.
+  intros [body] parent didx pos me occ e' Ht Hin Hv. cbn [GoIndex.occs_decl] in Hin.
+  destruct Hin as [Heq|Hin].
+  - injection Heq as <- <-. cbn [GoIndex.view_expr GoIndex.occurrence_view] in Hv. discriminate Hv.
+  - cbn [GoTypes.decl_typedb] in Ht.
+    exact (occs_stmts_const_info_some body pos 0 (Pos.succ pos) me occ e' Ht Hin Hv).
+Qed.
+
+Lemma occs_decls_const_info_some : forall ds parent didx pos me occ e',
+  forallb GoTypes.decl_typedb ds = true ->
+  In (me, occ) (GoIndex.occs_decls parent didx pos ds) ->
+  GoIndex.view_expr occ = Some e' -> exists ci, const_info e' = Some ci.
+Proof.
+  induction ds as [|d rest IH]; intros parent didx pos me occ e' Ht Hin Hv;
+    cbn [GoIndex.occs_decls] in Hin; [destruct Hin|].
+  cbn [forallb] in Ht. apply Bool.andb_true_iff in Ht. destruct Ht as [Htd Htr].
+  eapply in_app_const_info_some; [ | | exact Hin | exact Hv ].
+  - intros M O E HinM HvM. exact (occs_decl_const_info_some d parent didx pos M O E Htd HinM HvM).
+  - intros M O E HinM HvM. exact (IH parent (S didx) (Pos.succ (GoIndex.end_decl pos d)) M O E Htr HinM HvM).
+Qed.
+
+Lemma occs_file_const_info_some : forall f me occ e',
+  GoTypes.source_file_typedb f = true ->
+  In (me, occ) (GoIndex.occs_file f) ->
+  GoIndex.view_expr occ = Some e' -> exists ci, const_info e' = Some ci.
+Proof.
+  intros f me occ e' Ht Hin Hv. unfold GoIndex.occs_file in Hin.
+  destruct (source_imports f) as [|i tl]; [| destruct i].
+  destruct Hin as [Heq|[Heq|Hin]].
+  - injection Heq as <- <-. cbn [GoIndex.view_expr GoIndex.occurrence_view] in Hv. discriminate Hv.
+  - injection Heq as <- <-. cbn [GoIndex.view_expr GoIndex.occurrence_view] in Hv. discriminate Hv.
+  - unfold GoTypes.source_file_typedb, GoTypes.file_typedb in Ht.
+    exact (occs_decls_const_info_some (source_decls f) GoIndex.root_id 0 (Pos.succ GoIndex.pkg_id) me occ e' Ht Hin Hv).
+Qed.
+
+(* the WHOLE-PROGRAM statement: on [program_typedb] every visited expression occurrence's [const_info] is [Some]. *)
+Lemma prog_visit_const_info_some (p : GoProgram) :
+  GoTypes.program_typedb p = true ->
+  forall r occ e', In (r, occ) (prog_visit p) -> GoIndex.view_expr occ = Some e' -> exists ci, const_info e' = Some ci.
+Proof.
+  intros Hpt r occ e' Hin Hv. unfold prog_visit in Hin. apply in_flat_map in Hin.
+  destruct Hin as [b [Hb Hrb]]. unfold binding_visit in Hrb.
+  destruct (GoIndex.Snap.file_of_path p (fst b)) as [fr|] eqn:Ef; [|destruct Hrb].
+  pose proof (GoIndex.Snap.visit_file_view p fr r occ Hrb) as [Hocc Hfile].
+  assert (Hsrc_at : GoIndex.source_occurrence_at (GoIndex.Snap.file_ref_source fr) (GoIndex.Snap.node_ref_local r) = Some occ).
+  { pose proof (GoIndex.Snap.source_occ_of_ref_eq r) as Hso. rewrite Hfile in Hso. rewrite Hso, Hocc. reflexivity. }
+  apply GoIndex.occs_file_exact in Hsrc_at.
+  unfold GoTypes.program_typedb in Hpt.
+  pose proof (proj1 (forallb_forall (fun b => GoTypes.source_file_typedb (snd b))
+                (GoAST.file_bindings (prog_files p))) Hpt b Hb) as Htb.
+  cbv beta in Htb.
+  assert (Hsrceq : snd b = GoIndex.Snap.file_ref_source fr).
+  { pose proof (GoAST.file_bindings_find (prog_files p) b Hb) as Hfb.
+    pose proof (GoIndex.Snap.file_of_path_source_exact p (fst b) fr Ef) as Hfe.
+    rewrite Hfb in Hfe. injection Hfe as Heq; exact Heq. }
+  rewrite Hsrceq in Htb.
+  exact (occs_file_const_info_some (GoIndex.Snap.file_ref_source fr) (GoIndex.Snap.node_ref_local r) occ e' Htb Hsrc_at Hv).
+Qed.
+
+(* a NodeRef is ALWAYS visited (its file is represented, and [visit_file] is complete over the file). *)
+Lemma noderef_in_prog_visit (p : GoProgram) (r : GoIndex.Snap.NodeRef p) :
+  In (r, GoIndex.Snap.source_occurrence_of_ref r) (prog_visit p).
+Proof.
+  pose proof (GoIndex.Snap.file_of_path_complete p (GoIndex.Snap.node_ref_file r)) as Hcomp.
+  pose proof (GoIndex.Snap.file_of_path_source_exact p
+                (GoIndex.Snap.file_ref_path (GoIndex.Snap.node_ref_file r))
+                (GoIndex.Snap.node_ref_file r) Hcomp) as Hfind.
+  pose proof (GoAST.find_file_bindings (prog_files p)
+                (GoIndex.Snap.file_ref_path (GoIndex.Snap.node_ref_file r))
+                (GoIndex.Snap.file_ref_source (GoIndex.Snap.node_ref_file r)) Hfind) as Hin_b.
+  unfold prog_visit. apply in_flat_map.
+  exists (GoIndex.Snap.file_ref_path (GoIndex.Snap.node_ref_file r),
+          GoIndex.Snap.file_ref_source (GoIndex.Snap.node_ref_file r)).
+  split; [exact Hin_b|]. unfold binding_visit; cbn [fst].
+  rewrite Hcomp. apply GoIndex.Snap.visit_file_complete. reflexivity.
+Qed.
+
 (* ---- the SINGLE-PASS expression-fact map: fold the visit stream, keying each occurrence's fact by its
    NodeKey, taking its constant status from the precomputed [prog_status_map] (O(1), never a [const_info]
    rescan).  Its per-node fact is EXACTLY the specification [occ_expr_fact]. ---- *)
@@ -2317,10 +2506,62 @@ Arguments cf_package_len {p ip} _.
 Arguments cf_package_belongs {p ip} _.
 Arguments cf_valid {p ip} _.
 
-(** §10 — the public expression-fact query, through a TYPED reference (not a raw key): total function returning
-    the occurrence's fact if present.  On a valid program every expression reference has an entry. *)
-Definition expr_fact_at {p ip} (facts : CompilationFacts p ip) (er : GoIndex.ExprRef p) : option ExprFact :=
-  GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key (GoIndex.erase_ref er)) (eft_map (cf_expr_facts facts)).
+(** §10/§27 — the public expression-fact query is TOTAL: on a valid [CompilationFacts], EVERY typed [ExprRef]
+    has an exact entry.  The ExprRef denotes a VISITED expression occurrence ([noderef_in_prog_visit] +
+    [kind_view_expr]) whose [const_info] SUCCEEDS on a [ProgramTyped] program ([prog_visit_const_info_some],
+    from [cf_valid]); [eft_complete] equates the map lookup to that occurrence's [occ_expr_fact], which is
+    therefore [Some].  So the lookup is never [None] — the query returns an [ExprFact], not an option. *)
+Lemma expr_ref_fact_some {p ip} (facts : CompilationFacts p ip) (er : GoIndex.ExprRef p) :
+  exists f, GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key (GoIndex.erase_ref er))
+              (eft_map (cf_expr_facts facts)) = Some f.
+Proof.
+  assert (Hkind : GoIndex.occurrence_kind (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref er)) = GoIndex.KExpression)
+    by exact (proj2_sig er).
+  destruct (GoIndex.kind_view_expr _ Hkind) as [e' Hv].
+  pose proof (noderef_in_prog_visit p (GoIndex.erase_ref er)) as Hin.
+  pose proof (proj2 (GoTypes.program_typedb_iff p) (proj1 (cf_valid facts))) as HPT.
+  destruct (prog_visit_const_info_some p HPT (GoIndex.erase_ref er)
+              (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref er)) e' Hin Hv) as [ci Hci].
+  pose proof (eft_complete (cf_expr_facts facts) (GoIndex.erase_ref er)
+                (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref er)) Hin) as Hfind.
+  exists (mkExprFact ci (occ_use_resolved (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref er)))).
+  rewrite Hfind. exact (occ_expr_fact_status _ e' ci Hv Hci).
+Qed.
+
+Lemma expr_fact_at_not_none {p ip} (facts : CompilationFacts p ip) (er : GoIndex.ExprRef p) :
+  GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key (GoIndex.erase_ref er)) (eft_map (cf_expr_facts facts)) = None -> False.
+Proof. intro Hn. destruct (expr_ref_fact_some facts er) as [f Hf]. rewrite Hf in Hn; discriminate. Qed.
+
+(* the option-free lookup: a genuine match on the (variable) lookup result, discharging [None] by the totality
+   proof — so a defect-shipping [option] result is impossible. *)
+Definition fact_of_find {p ip} (facts : CompilationFacts p ip) (er : GoIndex.ExprRef p)
+  (o : option ExprFact) :
+  GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key (GoIndex.erase_ref er)) (eft_map (cf_expr_facts facts)) = o -> ExprFact :=
+  match o with
+  | Some f => fun _ => f
+  | None   => fun Hn => False_rect ExprFact (expr_fact_at_not_none facts er Hn)
+  end.
+
+Definition expr_fact_at {p ip} (facts : CompilationFacts p ip) (er : GoIndex.ExprRef p) : ExprFact :=
+  fact_of_find facts er
+    (GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key (GoIndex.erase_ref er)) (eft_map (cf_expr_facts facts)))
+    eq_refl.
+
+Lemma fact_of_find_some {p ip} (facts : CompilationFacts p ip) (er : GoIndex.ExprRef p) o Ho f :
+  o = Some f -> fact_of_find facts er o Ho = f.
+Proof. intros ->. cbn. reflexivity. Qed.
+
+(** the total query PROJECTS the underlying map: where the map holds a fact, [expr_fact_at] returns exactly it
+    (so the total function is faithful to the sealed table, not a fresh value). *)
+Lemma expr_fact_at_find {p ip} (facts : CompilationFacts p ip) (er : GoIndex.ExprRef p) f :
+  GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key (GoIndex.erase_ref er)) (eft_map (cf_expr_facts facts)) = Some f ->
+  expr_fact_at facts er = f.
+Proof.
+  intro Hf. unfold expr_fact_at.
+  exact (fact_of_find_some facts er
+    (GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key (GoIndex.erase_ref er)) (eft_map (cf_expr_facts facts)))
+    eq_refl f Hf).
+Qed.
 
 (** on SUCCESS each package's bucket is a singleton (length = main count = 1). *)
 Lemma cf_package_singleton {p ip} (facts : CompilationFacts p ip) dir l :

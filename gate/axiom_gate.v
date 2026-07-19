@@ -390,6 +390,11 @@ Print Assumptions GoCompile.package_main_refs_belongs.
    expression occurrence's key whose fact is exact; a package main BELONGS to its package (no swap). *)
 Print Assumptions GoCompile.prog_expr_facts_domain.
 Print Assumptions GoCompile.cf_package_singleton.
+(* C3 §10/§27 — the expression-fact query is TOTAL on a valid CompilationFacts: every typed ExprRef denotes a
+   visited occurrence whose const_info succeeds (so it has an exact entry), and the option-free query PROJECTS
+   the sealed table (returns exactly the stored fact — a defect-shipping option result is impossible). *)
+Print Assumptions GoCompile.expr_ref_fact_some.
+Print Assumptions GoCompile.expr_fact_at_find.
 (* C3 §18 — the legacy compile class projects the analysis diagnostics (matches the decision), not a rerun. *)
 Print Assumptions GoCompile.go_compile_class_spec.
 (* C3 decision (expression half): every println argument resolves IFF program_typedb / ProgramTyped. *)
