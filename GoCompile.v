@@ -5860,3 +5860,38 @@ Qed.
     and the FREGoMod key are disjoint. *)
 Lemma filename_ok_neq_gomod : forall f, FilePath.filename_ok f = true -> f <> "go.mod".
 Proof. intros f Hf Heq. subst f. vm_compute in Hf. discriminate Hf. Qed.
+
+(** §C3-FRESH.4 (cont.) — the first path component of a NESTED file (one with a nonempty parent directory) is
+    a valid [dir_component_ok] key: it is the first '/'-separated segment, which [path_ok] requires to be an
+    admissible directory component.  So every FREDirectory key is dot-free (feeds the disjointness above). *)
+
+Lemma first_component_hd : forall s, first_component s = List.hd EmptyString (FilePath.split_slash s).
+Proof.
+  induction s as [|c s IH]; [reflexivity|].
+  cbn [first_component FilePath.split_slash].
+  destruct (Ascii.eqb c "/"%char); [reflexivity|].
+  rewrite IH. destruct (FilePath.split_slash s) as [|h t]; reflexivity.
+Qed.
+
+Lemma hd_app_l {A} (d : A) (l1 l2 : list A) : l1 <> [] -> List.hd d (l1 ++ l2) = List.hd d l1.
+Proof. destruct l1; [contradiction | reflexivity]. Qed.
+
+Lemma first_component_dir_ok : forall s,
+  FilePath.path_ok s = true -> FilePath.parent_of s <> EmptyString ->
+  FilePath.dir_component_ok (first_component s) = true.
+Proof.
+  intros s Hp Hpar. rewrite first_component_hd.
+  unfold FilePath.path_ok in Hp.
+  destruct (rev (FilePath.split_slash s)) as [|last rdirs] eqn:Erev; [discriminate Hp|].
+  apply andb_true_iff in Hp. destruct Hp as [Hdirs _].
+  assert (Hrd : rdirs <> []).
+  { intro Hc. subst rdirs. apply Hpar. unfold FilePath.parent_of. rewrite Erev. reflexivity. }
+  assert (Hss : FilePath.split_slash s = (rev rdirs ++ [last])%list).
+  { rewrite <- (rev_involutive (FilePath.split_slash s)), Erev. reflexivity. }
+  rewrite Hss.
+  assert (Hrr : rev rdirs <> []).
+  { intro Hc. apply (f_equal (@rev _)) in Hc. rewrite rev_involutive in Hc. exact (Hrd Hc). }
+  rewrite (hd_app_l EmptyString (rev rdirs) [last] Hrr).
+  rewrite forallb_forall in Hdirs. apply Hdirs. apply in_rev.
+  destruct (rev rdirs) as [|h t] eqn:Er; [contradiction | left; reflexivity].
+Qed.
