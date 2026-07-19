@@ -121,13 +121,19 @@ is rejected IN Rocq before any bytes — **zero expected Go build failures, ever
   (0 or ≥2 reject the whole program); the whole program is TYPED through `GoTypes` (`ProgramTyped`; a typing
   failure is a constant fitting no integer type, an invalid integer/float/complex conversion — a float or
   complex-component overflow, a fractional or out-of-range float→integer, a nonzero-imaginary complex→scalar,
-  a wrong-type or invalid nested conversion — reported by the honest
-  `ErrTyping`); one invalid package rejects all. `go_compile :
-  GoProgram -> result CompileError CompilableProgram` sound + complete (`prog_ok_iff`); rejection ⇒ no
-  `CompilableProgram` (`reject_no_compile`); the empty program accepted (`prog_ok_empty`).  `GoCompile p :=
-  ProgValid p` — NO `CompilationFacts`/`cf_pkg_name` (the package clause is source-owned); the compiled
-  evidence EXPOSES that the same program is typed via a canonical projection (`compilable_program_typed`),
-  not a stored typed copy.
+  a wrong-type or invalid nested conversion); one invalid package rejects all.  The ONE analysis root
+  `analyze` builds one retained `IndexedProgram` and returns a `ProgramAnalysis`; `go_compile` PROJECTS it into
+  a `CompileOutcome` — `CompiledOk` carrying a `CompilableProgram` (retaining program + exact analyzed index +
+  `CompilationFacts` = the sealed occurrence-keyed `ExprFactTable` + package main-ref buckets), or
+  `CompileFailed` carrying the EXACT structured diagnostics; sound + complete against the declarative judgment
+  (`go_compile_ok_valid`/`go_compile_complete`, `prog_ok_iff`).  Rejection ⇒ no `CompilableProgram`
+  (`reject_no_compile`); the empty program accepted (`prog_ok_empty`).  Diagnostics are structured
+  `DiagnosticReason` (invalid conversion — innermost primary + enclosing `outer_context`;
+  default-not-representable; n-1 duplicate-main; missing-main) anchored in the exact snapshot; a snapshot-free
+  `erased_report` enables cross-snapshot comparison; the coarse `legacy_compile_class` survives ONLY as a
+  projection of the diagnostics.  `GoCompile p := ProgValid p` — NO `cf_pkg_name` (the package clause is
+  source-owned); the compiled evidence EXPOSES that the same program is typed via a canonical projection
+  (`compilable_program_typed`), not a stored typed copy.
 - **`GoSafe`** — real values (`GoValue` = `VBool`/`VInteger IntegerType Z`/`VFloat (forall ft, FloatValue ft)`
   /`VComplex (forall ct, ComplexValue ct)`/`VString`) carrying the SAME `GoType` (`value_type`) + the `ValueWF` range invariant (`ValueWF (VFloat …)`
   = `ValueWF (VComplex …)` = True — a float/complex value is canonical BY CONSTRUCTION, the invariant living in `FloatValue`; a general runtime

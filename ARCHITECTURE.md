@@ -154,12 +154,23 @@ law backed by explicit audit and code inspection, NOT a brittle source-scanning 
                  package has EXACTLY ONE `main` declaration (zero or more than one rejects the WHOLE program);
                  the whole program is TYPED through GoTypes (ProgramTyped — every println argument resolves; a
                  typing failure is a constant fitting no integer type, a non-integer conversion operand, or an
-                 invalid nested conversion, reported by the honest ErrTyping); one invalid package rejects the
-                 whole program (all-or-nothing).  go_compile : GoProgram -> result CompileError
-                 CompilableProgram, proved sound + complete against the declarative judgment (prog_ok_iff).
-                 The package clause is SOURCE-owned (source_package), NOT a compiler-derived fact — there is NO
-                 CompilationFacts / cf_pkg_name record; the compiled evidence EXPOSES that the same p is typed
-                 via a canonical projection (compilable_program_typed), not a stored typed copy.
+                 invalid nested conversion); one invalid package rejects the whole program (all-or-nothing).
+                 The ONE analysis root [analyze] builds ONE retained [IndexedProgram] and returns a
+                 [ProgramAnalysis]; [go_compile] PROJECTS it into a [CompileOutcome] — [CompiledOk] carrying a
+                 [CompilableProgram] (which RETAINS the program, its exact analyzed index, and its
+                 [CompilationFacts]: the sealed occurrence-keyed [ExprFactTable] + the package main-ref buckets),
+                 or [CompileFailed] carrying the EXACT structured diagnostics.  A rejected program yields NO
+                 [CompilableProgram] (hence no SafeProgram/image).  Diagnostics are structured [DiagnosticReason]
+                 values (invalid conversion — primary = the innermost failing conversion, with an [outer_context]
+                 field for the enclosing conversions; default-not-representable; n-1 duplicate-main — one per
+                 redundant main relative to the first; and missing-main) anchored in the
+                 EXACT snapshot ([DiagnosticAnchor]: NodeRef/FileRef/PackageRef/program); a snapshot-independent
+                 [erased_report] ([erase_diagnostic]) enables cross-snapshot comparison without a dependent
+                 transport.  There is no coarse ErrTyping/ErrPackageMainCount as the only evidence — a
+                 [legacy_compile_class] remains ONLY as a projection of the structured diagnostics.  The package
+                 clause is SOURCE-owned (source_package), NOT a compiler-derived fact — there is NO [cf_pkg_name];
+                 the compiled evidence EXPOSES that the same p is typed via a canonical projection
+                 (compilable_program_typed), not a stored typed copy.
 
   GoSafe         the safety capability SafeProgram over CompilableProgram, plus a PER-FILE abstract
                  println-trace with REAL values (VBool/VInteger IntegerType Z/VFloat ft (FloatValue ft)/

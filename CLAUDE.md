@@ -277,10 +277,17 @@ typed vacuously). · `GoCompile` —
 whole-program typing + one-pass `PackageMap` grouping via a single `FM.fold` into `PackageSummary` (each file
 contributes its `main` count once to its `fp_parent` package; the fold is characterized EXACTLY —
 count = sum, no empty package — and is order-independent) + exactly-one-main (`GoCompile p := ProgValid p =
-ProgramTyped p ∧ AllPackagesOneMain p`, via GoTypes; empty program accepted); `go_compile` sound/complete
-(`prog_ok_iff`), its accept/error class invariant under file insertion order; honest `ErrTyping`; typing
-exposed by canonical projection (`compile_program_typed`) — NO `CompilationFacts`/`cf_pkg_name` (the package
-clause is source-owned). · `GoSafe` — real `GoValue` (`VBool`/`VInteger IntegerType Z`/
+ProgramTyped p ∧ AllPackagesOneMain p`, via GoTypes; empty program accepted).  The ONE analysis root `analyze`
+builds one retained `IndexedProgram` and returns a `ProgramAnalysis`; `go_compile` PROJECTS it into a
+`CompileOutcome` (`CompiledOk` carrying a `CompilableProgram` that RETAINS program + exact analyzed index +
+`CompilationFacts` = the sealed occurrence-keyed `ExprFactTable` + package main-ref buckets, or `CompileFailed`
+carrying the EXACT structured diagnostics), sound/complete (`go_compile_ok_valid`/`go_compile_complete`,
+`prog_ok_iff`), the class invariant under file insertion order.  Diagnostics are structured `DiagnosticReason`
+(invalid conversion — innermost primary + enclosing `outer_context`; default-not-representable; n-1
+duplicate-main; missing-main) anchored in the exact snapshot; a snapshot-free `erased_report`/`erase_diagnostic`
+compares diagnostics across snapshots without a dependent transport; the coarse `legacy_compile_class` is ONLY
+a projection of the diagnostics.  Typing exposed by canonical projection (`compile_program_typed`) — NO
+`cf_pkg_name` (the package clause is source-owned). · `GoSafe` — real `GoValue` (`VBool`/`VInteger IntegerType Z`/
 `VFloat ft (FloatValue ft)`/`VComplex ct (ComplexValue ct)`/`VString`), `value_type` over the same `GoType`,
 `ValueWF` range invariant (a float's / complex component's canonicality lives in `FloatValue`), PARTIAL
 `eval_expr` (`const_info` → `resolve_const_info` →
