@@ -427,6 +427,67 @@ Lemma diagnostic_code_primary_consistent : forall p (d : DiagnosticReason p),
 Proof. intros p [pr o t s|pr c dt|l e|pk]; cbn; exact I. Qed.
 
 (* ============================================================================================================
+   §17 (C3 FINAL) — ERASED cross-snapshot reports.  A [DiagnosticReason p] is indexed by the snapshot [p], so
+   two snapshots' diagnostics have DIFFERENT dependent types.  [erase_diagnostic] projects a reason to a
+   snapshot-INDEPENDENT [ErasedDiagnostic] (code + erased anchors carrying only NodeKey / FilePath /
+   package-string identity + a STABLE payload — the conversion/default-target [GoType], NO source syntax), so
+   reports from two snapshots are compared by plain [=] on erased values, never an unsafe dependent transport.
+   The exact source expression stays reachable through the original typed anchor WHILE inside one [p].
+   ============================================================================================================ *)
+
+Inductive ErasedAnchor : Type :=
+| EANode    : GoIndex.NodeKey -> ErasedAnchor
+| EAFile    : FilePath -> ErasedAnchor
+| EAPackage : string -> ErasedAnchor
+| EAProgram : ErasedAnchor.
+
+Definition erase_anchor {p} (a : DiagnosticAnchor p) : ErasedAnchor :=
+  match a with
+  | AtNode r     => EANode (GoIndex.Snap.node_ref_key r)
+  | AtFile fr    => EAFile (GoIndex.Snap.file_ref_path fr)
+  | AtPackage pk => EAPackage (package_ref_key pk)
+  | AtProgram    => EAProgram
+  end.
+
+Record ErasedDiagnostic : Type := mkErasedDiagnostic {
+  ed_code    : DiagnosticCode ;
+  ed_primary : ErasedAnchor ;
+  ed_related : list ErasedAnchor ;
+  ed_target  : option GoType
+}.
+
+(* the STABLE erased payload: the conversion TARGET / default target [GoType] where the reason carries one —
+   NO source expression (the exact operand stays reachable through the typed anchor inside one [p]). *)
+Definition erased_target {p} (d : DiagnosticReason p) : option GoType :=
+  match d with
+  | DRInvalidConversion _ _ t _      => Some t
+  | DRDefaultNotRepresentable _ _ dt => Some dt
+  | DRDuplicateMain _ _              => None
+  | DRMissingMain _                  => None
+  end.
+
+Definition erase_diagnostic {p} (d : DiagnosticReason p) : ErasedDiagnostic :=
+  mkErasedDiagnostic (diagnostic_code d) (erase_anchor (diagnostic_primary d))
+    (map erase_anchor (diagnostic_related d)) (erased_target d).
+
+(* intra-snapshot preservation: erasing keeps the CODE, the primary anchor's KEY identity, and the related
+   anchors AS A MAP (so their canonical order is preserved). *)
+Lemma erase_diagnostic_code {p} (d : DiagnosticReason p) : ed_code (erase_diagnostic d) = diagnostic_code d.
+Proof. reflexivity. Qed.
+
+Lemma erase_diagnostic_primary {p} (d : DiagnosticReason p) :
+  ed_primary (erase_diagnostic d) = erase_anchor (diagnostic_primary d).
+Proof. reflexivity. Qed.
+
+Lemma erase_diagnostic_related {p} (d : DiagnosticReason p) :
+  ed_related (erase_diagnostic d) = map erase_anchor (diagnostic_related d).
+Proof. reflexivity. Qed.
+
+Lemma erase_diagnostic_related_length {p} (d : DiagnosticReason p) :
+  length (ed_related (erase_diagnostic d)) = length (diagnostic_related d).
+Proof. cbn. apply map_length. Qed.
+
+(* ============================================================================================================
    §10 (C3) — occurrence-keyed expression facts.  ONE fact value per expression occurrence: its exact constant
    status ([const_info]) plus, ONLY for a use-context (println-argument) occurrence, its resolved constant
    ([resolve_expr_const UsePrintlnArg]).  Type and resolved exact value are PROJECTIONS from the one
@@ -2367,6 +2428,19 @@ Lemma collect_diagnostics_nonempty (p : GoProgram) (idx : GoIndex.Snap.SyntaxInd
   analysis_ok_b p = false -> collect_diagnostics p idx <> nil.
 Proof.
   intros H Hc. apply (collect_diagnostics_empty_iff p idx) in Hc. rewrite Hc in H. discriminate H.
+Qed.
+
+(** §17 (C3 FINAL) — the ERASED analysis report: the canonical diagnostic list projected through
+    [erase_diagnostic], so it is a snapshot-INDEPENDENT [list ErasedDiagnostic] comparable by [=].  It is empty
+    exactly when the analysis accepts (same decision as [collect_diagnostics]). *)
+Definition erased_report (p : GoProgram) (idx : GoIndex.Snap.SyntaxIndex p) : list ErasedDiagnostic :=
+  map erase_diagnostic (collect_diagnostics p idx).
+
+Lemma erased_report_empty_iff (p : GoProgram) (idx : GoIndex.Snap.SyntaxIndex p) :
+  erased_report p idx = nil <-> analysis_ok_b p = true.
+Proof.
+  unfold erased_report. rewrite <- collect_diagnostics_empty_iff.
+  split; [ apply map_eq_nil | intro H; rewrite H; reflexivity ].
 Qed.
 
 (* ---- the TWO disjoint diagnostic families (typing / package), used to PROJECT a legacy compile class from

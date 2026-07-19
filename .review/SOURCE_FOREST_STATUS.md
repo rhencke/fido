@@ -157,8 +157,12 @@ Updated only at checkpoint boundaries._
   - **Defect** (this commit): `compilable_of_valid` now `let`-binds the ONE `analyze_ok_full p H` execution
     (and its `projT2`) and projects all three `mkCompilable` arguments from that single binding.  `cp_program`
     stays the direct first-field projection (F5); the architecture is unchanged.
-- Status: **C3 ROOT-repair round #5 pushed; awaiting the ROOT Codex RE-review (non-stale GREEN).
-  FINAL work is HELD until ROOT is Codex-green.**
+- ROOT Codex RE-review #5 of round #5 (`5d9bd5b`): **ALLOW / GREEN** (task-mrr9nut0, non-stale 2026-07-19
+  T03:59:09Z > HEAD `5d9bd5b` T03:58:30Z) — "no blocking implementation defects or architectural conflicts
+  within the C3 ROOT scope and declared threat model."  **The C3 ROOT barrier is Codex-GREEN.**
+- Status: **C3 ROOT is Codex-GREEN @`5d9bd5b`.  Per the cadence (ROOT then FINAL, NO human stop between
+  ROOT-GREEN and FINAL), FINAL barrier work is now ACTIVE: deterministic reporting + downstream integration +
+  residue removal + e2e + docs + byte identity, then the FINAL Codex barrier.**
 
 ## C1B — Collection Policy Enforcement and Source Forest Plan Reconciliation (ACTIVE correction checkpoint)
 - Baseline SHA: `79e80fdb4e63d00d4e97d8638f94a05408b51ea8` (`review(final): C1A — record both-barrier Codex GREEN
