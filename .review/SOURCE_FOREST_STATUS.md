@@ -50,10 +50,41 @@ Updated only at checkpoint boundaries._
   GOARCH=amd64`), invoked ONCE; the disposable build root is never the sink destination and no post-build byte is
   ever published.  Publication sinks the ORIGINAL image only.
 - **C4 remains FORBIDDEN.**  This file's completion contract is `.review/C3_FRESH_IMAGE_LITERAL_BUILD_PLAN.md`.
-- **Status:** contract installed verbatim to the plan + NEXT_STEPS, prior plan bannered SUPERSEDED; ledger
-  recorded.  Implementation NOT yet begun (this is the contract-activation commit).  Toolchain identity
-  (`go env GOVERSION GOOS GOARCH` in the pinned image) + the pinned cmd/go source line ranges to be recorded
-  during implementation.
+- **Pinned-Go behavioral confirmation (2026-07-19, NO PINNED-GO CONTRACT CONFLICT).** Probed the exact pinned
+  image `golang:1.23-alpine@sha256:383395b794dffa5b53012a212365d40c8e37109a626ca30d6151c8348d380b5f`.
+  - Toolchain identity (`go env GOVERSION GOOS GOARCH`): **`go1.23.12` / `linux` / `amd64`**.  (The directive's
+    "1.23.2" in §31 is illustrative; the pinned image is 1.23.12 — no conflict, behavior is identical to spec.)
+  - Authoritative cmd/go source (pinned `GOROOT=/usr/local/go`):
+    - `isVersionElement` — `src/cmd/go/internal/load/pkg.go:1288-1298`: `false` if `len(s)<2 || s[0]!='v' ||
+      s[1]=='0' || (s[1]=='1' && len(s)==2)`, then every byte `s[1..]` must be a decimal digit.  Byte-for-byte
+      the directive §4.4 rule.
+    - `exeFromImportPath` — `pkg.go:1675-1685`: `elem` = last import-path component; if `ModulesEnabled &&
+      elem != importPath && isVersionElement(elem)` then `elem` = last component of `Dir(importPath)` (the
+      second-to-last); return `elem`.  `DefaultExecName` (`pkg.go:1705-1710`) delegates here for `./...`
+      (non-CmdlineFiles) builds.
+    - Output preflight — `src/cmd/go/internal/work/build.go:473-545`: `explicitO=false` for `go build ./...`;
+      `if len(pkgs)==1 && pkgs[0].Name=="main" && BuildO==""` then `BuildO = DefaultExecName()+ExeSuffix`
+      (ExeSuffix="" on linux/amd64); `if BuildO!=""` then `os.Stat(BuildO)`: an existing **directory** (and
+      `!explicitO`) → `base.Fatalf("go: build output %q already exists and is a directory", BuildO)` BEFORE any
+      compile; otherwise `p.Target = BuildO` (create/overwrite).  For 0 or ≥2 packages `BuildO` stays `""` → no
+      output preflight and no default output written.
+  - Empirical `go build ./...` under the pinned env (`GOWORK=off GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off
+    GOENV=off GOFLAGS= GO111MODULE=on GOOS=linux GOARCH=amd64`), every case matching the directive:
+    root `main.go` (mod `example.com/m`) → exit 0, creates `m`; sole `sub/main.go` → exit 1 `build output "sub"
+    already exists and is a directory`; sole `sub/main.go` + undefined symbol → exit 1 **same collision message**
+    (preflight PRECEDES the compile error); `a/b/main.go` → exit 0, creates `b`; `a/v2/main.go` → exit 1
+    collision on `a`; `v2/main.go` → exit 0, creates `m`; `a/main.go`+`b/main.go` → exit 0, no default output;
+    module basename `go.mod` → exit 0, **overwrites go.mod** with a 1.5 MB ELF exe (magic `7f454c46`); module
+    basename `main.go` (root `main.go`) → exit 0, **overwrites main.go** with an ELF exe; empty module → exit 0
+    `warning: "./..." matched no packages`; root `package main` no `func main` → exit 1 link error (target `m`
+    absent → preflight passes → link fails); duplicate `func main` → exit 1 compile error.  vN via
+    `DefaultExecName`: `v0 v00 v01 v05 v1 v1x v2x V2 v` KEPT, `v2 v3 v10 v100` dropped — exact `isVersionElement`.
+  - Probe scripts retained in the session scratchpad (`gobehav.sh`, `overwrite.sh`); this is a one-shot
+    investigation, not a repo artifact.
+- **Status:** contract installed verbatim; prior plan bannered SUPERSEDED; ledger recorded; pinned-Go behavior
+  empirically confirmed (foundation for the Rocq cmd/go model).  Rocq implementation begins next
+  (vocabulary rename → package-rule split → cmd/go plan/preflight → diagnostics → elaboration integration →
+  fixtures → runner/differential/Docker → docs → pre-Codex audit → one exhaustive Codex discovery review).
 
 ## C3 — One Retained Indexed Analysis, Occurrence-Keyed Facts, and Structured Diagnostics (ACTIVE checkpoint)
 - **C2 human disposition: APPROVED by Rob** (2026-07-18, via the C3 activation directive: "Rob has now reviewed
