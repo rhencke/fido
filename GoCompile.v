@@ -3014,6 +3014,24 @@ Proof.
   - exact (erased_pkg_diags_FilesEqual p1 p2 idx1 idx2 Heq).
 Qed.
 
+(** §17 (C3 FINAL) — CONSTRUCTION-list permutation corollary: building the SAME module from a PERMUTED file-node
+    list yields the IDENTICAL erased report (permuted nodes build the same [FilesEqual] map — the standard
+    duplicate-rejecting [filemap_of_nodes] is order-independent — so the report, a function of the map, is
+    unchanged).  The report is invariant to the order in which the proposer supplies the files. *)
+Theorem erased_report_build_permutation : forall ms nodes1 nodes2 p1 p2
+    (idx1 : GoIndex.Snap.SyntaxIndex p1) (idx2 : GoIndex.Snap.SyntaxIndex p2),
+  Permutation nodes1 nodes2 ->
+  build_program ms nodes1 = Some p1 -> build_program ms nodes2 = Some p2 ->
+  erased_report p1 idx1 = erased_report p2 idx2.
+Proof.
+  intros ms nodes1 nodes2 p1 p2 idx1 idx2 Hperm Hb1 Hb2.
+  apply erased_report_FilesEqual. unfold build_program in *.
+  destruct (filemap_of_nodes nodes1) as [fm1|] eqn:F1; [ | discriminate ].
+  destruct (filemap_of_nodes nodes2) as [fm2|] eqn:F2; [ | discriminate ].
+  injection Hb1 as <-. injection Hb2 as <-. cbn [prog_files].
+  exact (filemap_of_nodes_permutation nodes1 nodes2 fm1 fm2 Hperm F1 F2).
+Qed.
+
 (* ---- the TWO disjoint diagnostic families (typing / package), used to PROJECT a legacy compile class from
    the diagnostics (never a second check).  Expression diagnostics are typing-class; package diagnostics are
    package-class; the two are disjoint. ---- *)
