@@ -188,3 +188,29 @@ Qed.
 Lemma filemap_map_fst_elements {A B} (f : A -> B) (m : FileMapBase.t A) :
   map fst (FileMapBase.elements (FileMapBase.map f m)) = map fst (FileMapBase.elements m).
 Proof. rewrite filemap_map_elements, map_map. reflexivity. Qed.
+
+Lemma packagemap_map_fst_elements {A B} (f : A -> B) (m : PackageMapBase.t A) :
+  map fst (PackageMapBase.elements (PackageMapBase.map f m)) = map fst (PackageMapBase.elements m).
+Proof. rewrite packagemap_map_elements, map_map. reflexivity. Qed.
+
+(** ---- two package maps with the SAME key DOMAIN (possibly different value types) have the SAME canonical key
+    list.  (Map each to a common unit value; equal domains give [PM.Equal] unit maps, so
+    [packagemap_elements_Equal] gives equal elements, hence equal keys.)  Used by the §18-I retention: the
+    fresh-build plan derived from the RETAINED package buckets equals the one over [package_summaries]. ---- *)
+Lemma packagemap_same_domain_keys {A B} (m1 : PackageMapBase.t A) (m2 : PackageMapBase.t B) :
+  (forall k, PackageMapBase.In k m1 <-> PackageMapBase.In k m2) ->
+  map fst (PackageMapBase.elements m1) = map fst (PackageMapBase.elements m2).
+Proof.
+  intro Hdom.
+  rewrite <- (packagemap_map_fst_elements (fun _ => tt) m1), <- (packagemap_map_fst_elements (fun _ => tt) m2).
+  f_equal. apply packagemap_elements_Equal.
+  intro k. rewrite !PackageMapFacts.map_o.
+  destruct (PackageMapBase.find k m1) as [a|] eqn:E1; destruct (PackageMapBase.find k m2) as [b|] eqn:E2;
+    cbn [option_map]; try reflexivity.
+  - exfalso. assert (PackageMapBase.In k m2) as Hin by
+      (apply Hdom; exists a; apply PackageMapFacts.find_mapsto_iff; exact E1).
+    apply PackageMapFacts.in_find_iff in Hin. rewrite E2 in Hin. exact (Hin eq_refl).
+  - exfalso. assert (PackageMapBase.In k m1) as Hin by
+      (apply Hdom; exists b; apply PackageMapFacts.find_mapsto_iff; exact E2).
+    apply PackageMapFacts.in_find_iff in Hin. rewrite E1 in Hin. exact (Hin eq_refl).
+Qed.

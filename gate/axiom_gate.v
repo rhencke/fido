@@ -485,6 +485,13 @@ Print Assumptions GoCompile.root_layout_InputEqual.
 Print Assumptions GoCompile.package_import_path_InputEqual.
 Print Assumptions GoCompile.fresh_build_plan_InputEqual.
 Print Assumptions GoCompile.erased_elaboration_report_InputEqual.
+(* C3-FRESH §18-I — the fresh BUILD PLAN and ROOT LAYOUT are RETAINED in ElaborationFacts (derived ONCE from
+   the retained package buckets, whose keys ARE the selected package set), so a CompilableProgram PROJECTS the
+   exact plan its elaboration used — never a recompute from the program. *)
+Print Assumptions GoCompile.bucket_keys_eq_selected.
+Print Assumptions GoCompile.fresh_build_plan_of_buckets.
+Print Assumptions GoCompile.cp_build_plan_retained.
+Print Assumptions GoCompile.cp_root_layout_retained.
 
 (* GoSafe: exact VALUE semantics — a zero literal and a negated zero agree; a resolved expression evaluates
    to a well-formed value of the resolved GoType (one type authority across compiler and runtime); value

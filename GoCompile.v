@@ -5069,6 +5069,20 @@ Inductive FreshBuildDisposition : Type :=
 | FBDDiscardMultiple (count : nat)
 | FBDWriteSingleMain (dir import_path output_name : string) (target : option FreshRootEntryKind).
 
+(** the plan as a PURE FUNCTION of the ModuleSpec, a package-DIR key list, and the root layout — so the ONE
+    retained package buckets (their keys) + the ONE retained root layout DERIVE the plan (§18-I retention),
+    with no second [package_summaries] fold. *)
+Definition fresh_build_plan_of (ms : ModuleSpec) (keys : list string)
+    (rl : PM.t FreshRootEntryKind) : FreshBuildDisposition :=
+  match keys with
+  | [] => FBDNoPackages
+  | dir :: nil =>
+      let ip := package_import_path ms dir in
+      let ex := default_exec_name ip in
+      FBDWriteSingleMain dir ip ex (PM.find ex rl)
+  | _ :: _ :: _ => FBDDiscardMultiple (length keys)
+  end.
+
 Definition fresh_build_plan (p : GoProgram) : FreshBuildDisposition :=
   match selected_package_keys p with
   | [] => FBDNoPackages
@@ -5078,6 +5092,39 @@ Definition fresh_build_plan (p : GoProgram) : FreshBuildDisposition :=
       FBDWriteSingleMain dir ip ex (PM.find ex (root_layout p))
   | _ :: _ :: _ => FBDDiscardMultiple (selected_package_count p)
   end.
+
+(** [fresh_build_plan] IS the general plan over the program's selected keys + root layout (so the retained
+    buckets can reproduce it once their keys are shown equal to [selected_package_keys]). *)
+Lemma fresh_build_plan_eq_of : forall p,
+  fresh_build_plan p = fresh_build_plan_of (prog_module p) (selected_package_keys p) (root_layout p).
+Proof.
+  intro p. unfold fresh_build_plan, fresh_build_plan_of.
+  destruct (selected_package_keys p) as [|dir [|d2 rest]] eqn:Ek; try reflexivity.
+  unfold selected_package_count. rewrite Ek. reflexivity.
+Qed.
+
+(** the RETAINED package buckets' keys ARE [selected_package_keys] (same DIR domain — both are exactly the
+    directories with a file), so the plan derives from the retained buckets, never a second [package_summaries]
+    fold (§18-I / §25). *)
+Lemma bucket_keys_eq_selected : forall p (idx : GoIndex.Snap.SyntaxIndex p),
+  map fst (PM.elements (prog_package_refs idx)) = selected_package_keys p.
+Proof.
+  intros p idx. unfold selected_package_keys, selected_packages.
+  apply Collections.packagemap_same_domain_keys.
+  intro dir. rewrite (prog_package_refs_present idx dir). split.
+  - intro Hmem. apply PMF.in_find_iff. rewrite package_summaries_find, Hmem. discriminate.
+  - intros [s Hmt]. apply PMF.find_mapsto_iff in Hmt. rewrite package_summaries_find in Hmt.
+    destruct (list_dir_mem dir (GoAST.file_bindings (prog_files p))) eqn:E; [ reflexivity | discriminate Hmt ].
+Qed.
+
+(** the plan DERIVED from the retained buckets + root layout IS [fresh_build_plan p] (used to store the plan in
+    [ElaborationFacts] with a real coherence proof, not a tautology). *)
+Lemma fresh_build_plan_of_buckets : forall p (idx : GoIndex.Snap.SyntaxIndex p),
+  fresh_build_plan_of (prog_module p) (map fst (PM.elements (prog_package_refs idx))) (root_layout p)
+  = fresh_build_plan p.
+Proof.
+  intros p idx. rewrite (bucket_keys_eq_selected p idx). symmetry. apply fresh_build_plan_eq_of.
+Qed.
 
 (* the preflight decision: reject ONLY a sole-main default output name that is an existing root directory. *)
 Definition fresh_build_disposition_ok (d : FreshBuildDisposition) : bool :=
@@ -5340,9 +5387,16 @@ Record ElaborationFacts (p : GoProgram) (ip : GoIndex.IndexedProgram p) : Type :
   ef_source_valid           : ProgValid p ;
   (* §17 (C3-fresh) — the retained fresh-build PREFLIGHT evidence: the pinned one-shot `go build ./...` output
      preflight passes for this program.  Together with [ef_source_valid] it witnesses [GoCompile] (see [cp_ok]). *)
-  ef_preflight       : fresh_build_preflight_ok p
+  ef_preflight       : fresh_build_preflight_ok p ;
+  (* §18-I (C3-fresh) — the RETAINED fresh ROOT LAYOUT and BUILD PLAN: computed ONCE (from the retained package
+     buckets + the file bindings) and stored here with their coherence to [root_layout]/[fresh_build_plan], so a
+     [CompilableProgram] PROJECTS the exact plan its elaboration used — never a recompute from the program. *)
+  ef_root_layout     : PM.t FreshRootEntryKind ;
+  ef_root_layout_ok  : ef_root_layout = root_layout p ;
+  ef_build_plan      : FreshBuildDisposition ;
+  ef_build_plan_ok   : ef_build_plan = fresh_build_plan p
 }.
-Arguments mkElaborationFacts {p ip} _ _ _ _ _ _ _.
+Arguments mkElaborationFacts {p ip} _ _ _ _ _ _ _ _ _ _ _.
 Arguments ef_expr_facts {p ip} _.
 Arguments ef_package_refs {p ip} _.
 Arguments ef_package_present {p ip} _.
@@ -5350,6 +5404,10 @@ Arguments ef_package_len {p ip} _.
 Arguments ef_package_belongs {p ip} _.
 Arguments ef_source_valid {p ip} _.
 Arguments ef_preflight {p ip} _.
+Arguments ef_root_layout {p ip} _.
+Arguments ef_root_layout_ok {p ip} _.
+Arguments ef_build_plan {p ip} _.
+Arguments ef_build_plan_ok {p ip} _.
 
 (** §10/§27 — the public expression-fact query is TOTAL: on a valid [ElaborationFacts], EVERY typed [ExprRef]
     has an exact entry.  The ExprRef denotes a VISITED expression occurrence ([noderef_in_prog_visit] +
@@ -5492,7 +5550,11 @@ Definition elaborate_indexed (p : GoProgram) (ip : GoIndex.IndexedProgram p) : E
                   (prog_package_refs_bucket_len idx)
                   (prog_package_refs_belongs idx)
                   (elaboration_no_diags_source_valid p idx He)
-                  (elaboration_no_diags_preflight p idx He))
+                  (elaboration_no_diags_preflight p idx He)
+                  (root_layout p)
+                  eq_refl
+                  (fresh_build_plan_of (prog_module p) (map fst (PM.elements buckets)) (root_layout p))
+                  (fresh_build_plan_of_buckets p idx))
   | right Hne => ElaborationFailed diags Hne
   end.
 
@@ -5889,10 +5951,18 @@ Proof. intro p. reflexivity. Qed.
 (** §18.I — RETENTION: [compilable_prov]/[compilable_index_retained] retain the exact program/index/facts/
     provenance; the FreshBuildPlan is retained by DERIVATION from the retained program. *)
 Definition cp_build_plan (cp : CompilableProgram) : FreshBuildDisposition :=
-  fresh_build_plan (cp_program cp).
+  ef_build_plan (cp_facts cp).
 
+Definition cp_root_layout (cp : CompilableProgram) : PM.t FreshRootEntryKind :=
+  ef_root_layout (cp_facts cp).
+
+(** §18-I — the retained plan / root layout are PROJECTIONS of the retained [ElaborationFacts], and they equal
+    the program's (the coherence is carried IN the facts by the elaboration, not recomputed at the projection). *)
 Lemma cp_build_plan_retained : forall cp, cp_build_plan cp = fresh_build_plan (cp_program cp).
-Proof. reflexivity. Qed.
+Proof. intro cp. exact (ef_build_plan_ok (cp_facts cp)). Qed.
+
+Lemma cp_root_layout_retained : forall cp, cp_root_layout cp = root_layout (cp_program cp).
+Proof. intro cp. exact (ef_root_layout_ok (cp_facts cp)). Qed.
 
 (** the witness builder: from validity, [elaboration_ok_full] destructures [elaborate p] ONCE, delivering the bound
     retained index [ip], its [ElaborationFacts], and the whole-elaboration provenance.  That single execution is

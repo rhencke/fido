@@ -207,6 +207,21 @@ if ! rocq c -Q _build/default/. Fido e2e/WitnessBytes.v > /tmp/emit-bytes.log 2>
 [ -f /workspace/e2e-bytes/main.go ] || fail "boundary-byte witness emitted no main.go"
 echo "fido: boundary-byte tree:"; ( cd /workspace/e2e-bytes && find . -type f | sort ); cat /workspace/e2e-bytes/main.go
 
+# --- PRISTINE exports for the multi / empty / bytes witnesses (§23): exactly the rendered go.mod + recursive
+#     .go, NO .fido/lock/temp — so the go-e2e fresh-build validation consumes an authoritative PRE-BUILD pristine
+#     tree, NEVER a post-sink directory.  (The main canonical module already has its pristine export in $G.) ---
+mk_pristine() {  # <sink-tree> <pristine-out>
+  rm -rf "$2"; mkdir -p "$2"
+  [ -f "$1/go.mod" ] && cp "$1/go.mod" "$2/go.mod"
+  ( cd "$1" && find . -name '*.go' -not -path './.fido/*' | while read -r f; do
+      _d=$(dirname "$f"); [ "$_d" = "." ] || mkdir -p "$2/$_d"; cp "$f" "$2/$f"; done )
+  [ -z "$(find "$2" -name '.fido*' -o -name '*.fido-tmp-v1')" ] || fail "pristine $2: control/temp residue leaked"
+}
+mk_pristine /workspace/e2e-multi /workspace/generated-multi
+mk_pristine /workspace/e2e-empty /workspace/generated-empty
+mk_pristine /workspace/e2e-bytes /workspace/generated-bytes
+echo "fido: pristine multi/empty/bytes exports assembled (no .fido)"
+
 # provenance (1): a forged raw transport (not a DirectoryImage) is rejected BEFORE any effect (Fail fixtures)
 if ! rocq c -Q _build/default/. Fido e2e/WitnessNeg.v > /tmp/emit-neg.log 2>&1; then cat /tmp/emit-neg.log; fail "a forged raw transport was NOT rejected"; fi
 [ ! -e /workspace/e2e-neg ] || fail "a rejected Fido Emit still created its target directory"
@@ -608,17 +623,8 @@ COPY --from=emit /workspace/generated/ /generated/
 FROM scratch AS generated-artifact
 COPY --from=generated-module /generated/ /
 
-# ── Stage 4d: sync — the `make regenerate` image.  It compiles the filesystem-only apply CLI (linking the
-#    SAME Fido_sink) and bakes in the pristine `generated-module` layer; run with the repository root
-#    bind-mounted at /dest, its ENTRYPOINT synchronizes /generated into /dest through the sink (preserving
-#    foreign non-Go files, rejecting foreign Go/module + nested .fido, updating tracked go.mod + .go,
-#    removing stale Fido-owned .go).  It never re-generates and never renders.
-FROM emit AS sync
-RUN cp /workspace/plugin/fido_sink.ml /workspace/e2e/fido_apply.ml /tmp/ \
-    && ( cd /tmp && ocamlfind ocamlopt -package unix -linkpkg fido_sink.ml fido_apply.ml -o /workspace/fido-apply ) \
-    && chmod 0755 /workspace/fido-apply
-COPY --from=generated-module /generated/ /generated/
-ENTRYPOINT ["/workspace/fido-apply", "/generated", "/dest"]
+# ── Stage 4d: sync (the `make regenerate` image) is defined AFTER go-e2e below, because it COPYs go-e2e's
+#    fresh-build validation marker (a stage may only COPY --from an EARLIER stage).
 
 # ── Stage 5: go-e2e — the LAST-MILE integration check (never a proof).  The pinned Go toolchain builds the
 #    canonical generated module (consumed from the `generated-module` layer, NOT re-generated here) with
@@ -629,37 +635,45 @@ ENTRYPOINT ["/workspace/fido-apply", "/generated", "/dest"]
 FROM golang:1.23-alpine@sha256:383395b794dffa5b53012a212365d40c8e37109a626ca30d6151c8348d380b5f AS go-e2e
 WORKDIR /e2e
 COPY --from=generated-module /generated/ ./tree/
-COPY --from=emit /workspace/e2e-multi/ ./multi/
-COPY --from=emit /workspace/e2e-empty/ ./empty/
-COPY --from=emit /workspace/e2e-bytes/ ./bytes/
+COPY --from=emit /workspace/generated-multi/ ./multi/
+COPY --from=emit /workspace/generated-empty/ ./empty/
+COPY --from=emit /workspace/generated-bytes/ ./bytes/
 COPY e2e/golden.stdout e2e/golden.stderr e2e/golden.exit e2e/golden.bytes.hex ./
 RUN <<'SH'
 set -u
+# fixed process modes (§5.2): a deterministic umask so every materialized file/dir gets fixed 0644/0755 modes.
+umask 022
 # closed-world integration: force the local pinned toolchain, no workspace, no network proxy, and NO ambient
-# go env / flag state (GOENV=off ignores the per-user env file; GOFLAGS empty) — every build below inherits it.
-export GOWORK=off GOTOOLCHAIN=local GOPROXY=off GOENV=off GOFLAGS=
+# go env / flag / sumdb state — export the COMPLETE pinned environment (§29-E) so no case inherits host config.
+export GOWORK=off GOTOOLCHAIN=local GOPROXY=off GOENV=off GOFLAGS= GOSUMDB=off GO111MODULE=on GOOS=linux GOARCH=amd64
 
 # ── §5/§6/§22 — the ONE reusable FRESH-BUILD RUNNER.  Materialize an AUTHORITATIVE pristine tree (go.mod +
-#    `.go` files only) into a NEW empty root, byte-verify the materialization against the input, run the
-#    literal `go build ./...` exactly ONCE, capture its exit status, and hand back the disposable root for
-#    optional post-build inspection.  It NEVER builds in place and NEVER copies a post-build byte back.  A
-#    fail-closed manifest (§6) rejects any symlink or any non-`.go`/non-root-go.mod entry (so a `.fido` control
-#    dir, a nested go.mod, or a stray file all refuse before Go runs).  Returns: 0/non-0 = `go build ./...`
-#    status; 2 = bad manifest; 3 = materialization byte mismatch.
+#    `.go` files only) into a NEW empty root with FIXED modes, byte-verify the materialization, run the literal
+#    `go build ./...` exactly ONCE, capture its exit status, and hand back the disposable root.  It NEVER builds
+#    in place and NEVER copies a post-build byte back.  The fail-closed manifest (§6) requires: exactly one
+#    REGULAR (non-symlink) root go.mod; every other entry a directory or a regular `.go` file; NO symlink / FIFO
+#    / device / socket; NO empty directory (so a `.fido` control dir — empty or with a marker — a nested go.mod,
+#    a stray file, or a special file all refuse before Go runs).  The build LOG stays OUTSIDE the root (the root
+#    is EXACTLY the image).  Returns: 0/non-0 = `go build ./...` status; 2 = bad manifest; 3 = byte mismatch.
 fido_go_build_all_fresh() {  # <authoritative-pristine-tree> <out-var-for-fresh-root>
   _src=$1; _out=${2:-_frv}
-  [ -f "$_src/go.mod" ] || { echo "runner: missing root go.mod in $_src"; return 2; }
-  _foreign=$(find "$_src" -mindepth 1 \( -type l -o \( -type f ! -name '*.go' ! -path "$_src/go.mod" \) \) -print)
-  [ -z "$_foreign" ] || { echo "runner: foreign entry in authoritative tree $_src:"; echo "$_foreign"; return 2; }
+  { [ -f "$_src/go.mod" ] && [ ! -L "$_src/go.mod" ]; } || { echo "runner: missing/irregular root go.mod in $_src"; return 2; }
+  _foreign=$(find "$_src" -mindepth 1 -not \( -type d -o \( -type f \( -name '*.go' -o -path "$_src/go.mod" \) \) \) -print 2>/dev/null)
+  [ -z "$_foreign" ] || { echo "runner: foreign entry (non-dir / non-.go / symlink / special) in $_src:"; echo "$_foreign"; return 2; }
+  _empty=$(find "$_src" -mindepth 1 -type d -empty -print 2>/dev/null)
+  [ -z "$_empty" ] || { echo "runner: empty directory in authoritative tree $_src:"; echo "$_empty"; return 2; }
   _fresh=$(mktemp -d /tmp/fido-fresh.XXXXXX); chmod 0755 "$_fresh"
-  cp "$_src/go.mod" "$_fresh/go.mod"
+  install -m 0644 "$_src/go.mod" "$_fresh/go.mod"
   ( cd "$_src" && find . -name '*.go' -type f | while IFS= read -r f; do
-      d=$(dirname "$f"); [ "$d" = . ] || mkdir -p "$_fresh/$d"; cp "$f" "$_fresh/$f"; done )
+      d=$(dirname "$f"); [ "$d" = . ] || mkdir -m 0755 -p "$_fresh/$d"; install -m 0644 "$f" "$_fresh/$f"; done )
   _vf=$( cd "$_src" && find . \( -name '*.go' -o -name go.mod \) -type f | while IFS= read -r f; do
            cmp -s "$_src/$f" "$_fresh/$f" || echo "$f"; done )
   [ -z "$_vf" ] || { echo "runner: fresh materialization byte mismatch: $_vf"; rm -rf "$_fresh"; return 3; }
-  ( cd "$_fresh" && go build ./... ) > "$_fresh/.build.out" 2> "$_fresh/.build.err"
+  _log=$(mktemp /tmp/fido-buildlog.XXXXXX)
+  ( cd "$_fresh" && go build ./... ) > "$_log" 2>&1
   _rc=$?
+  [ "$_rc" = 0 ] || { echo "runner: go build ./... exit $_rc in $_fresh:"; sed 's/^/  | /' "$_log"; }
+  rm -f "$_log"
   eval "$_out=\$_fresh"
   return $_rc
 }
@@ -701,9 +715,7 @@ rm -rf "$WFRESH"
 # --- BYTE-EXACT boundary-byte oracle (§22): a `println` of a string with bytes 0x00/0x1f/0x7f/0x80/0xff must
 #     emit those exact five bytes (+ the println newline) to stderr.  Compared as HEX (od, non-hex stripped)
 #     against the reviewed golden `golden.bytes.hex` — a byte-safe oracle, never binary through shell $(...). ---
-# strip the sink's `.fido` control dir from the disposable COPY -> a pristine authoritative tree, then route the
-# acceptance through the fresh-build runner (no build in a `.fido`-bearing tree).
-rm -rf /e2e/bytes/.fido; find /e2e/bytes -name '*.fido-tmp-v1' -delete 2>/dev/null || true
+# the bytes tree is the PRISTINE export (generated-bytes; no .fido) — route acceptance through the fresh runner.
 [ -f /e2e/bytes/main.go ] || { echo "fido e2e bytes: no boundary-byte main.go"; exit 1; }
 if [ -n "$( cd /e2e/bytes && gofmt -l . )" ]; then echo "fido e2e bytes: boundary-byte Go is not gofmt-clean"; ( cd /e2e/bytes && gofmt -l . ); exit 1; fi
 if ! fido_go_build_all_fresh /e2e/bytes BFRESH; then cat "${BFRESH:-/dev/null}/.build.err" 2>/dev/null; echo "fido e2e bytes: go build ./... FAILED in a fresh root"; exit 1; fi
@@ -720,14 +732,12 @@ echo "fido e2e bytes: boundary-byte string round-trips EXACTLY through pinned Go
 
 # --- EMPTY program: a rendered go.mod and ZERO .go files → `go build ./...` accepts (zero packages), via the
 #     fresh-build runner (a disposable materialization of the pristine tree). ---
-rm -rf /e2e/empty/.fido; find /e2e/empty -name '*.fido-tmp-v1' -delete 2>/dev/null || true
 [ -f /e2e/empty/go.mod ] || { echo "fido e2e empty: no rendered go.mod"; exit 1; }
 [ -z "$(find /e2e/empty -name '*.go')" ] || { echo "fido e2e empty: unexpected .go file"; exit 1; }
 if ! fido_go_build_all_fresh /e2e/empty EFRESH; then cat "${EFRESH:-/dev/null}/.build.err" 2>/dev/null; echo "fido e2e empty: go build ./... REJECTED a module with zero packages"; exit 1; fi
 echo "fido e2e empty: go build ./... accepted a module with zero packages via the fresh runner (rendered go.mod)"; rm -rf "$EFRESH"
 
 # --- DIFFERENTIAL: the whole-program directory/package rules must agree with `go build ./...`, via the runner ---
-rm -rf /e2e/multi/.fido; find /e2e/multi -name '*.fido-tmp-v1' -delete 2>/dev/null || true
 [ -f /e2e/multi/go.mod ] || { echo "fido e2e diff: no rendered go.mod"; exit 1; }
 echo "fido e2e diff: ACCEPTED multi-package tree (root main + sub/ main + empty file):"; ( cd /e2e/multi && find . -type f | sort )
 if [ -n "$( cd /e2e/multi && gofmt -l . )" ]; then echo "fido e2e diff: multi tree not gofmt-clean"; ( cd /e2e/multi && gofmt -l . ); exit 1; fi
@@ -739,23 +749,17 @@ listed_dirs=$( cd "$MFRESH" && go list -f '{{.Dir}}' ./... | sed "s#^$MFRESH#.#;
 echo "fido e2e diff: emitted dirs=[$(echo $emitted_dirs)] go-list dirs=[$(echo $listed_dirs)]"
 [ "$emitted_dirs" = "$listed_dirs" ] || { echo "fido e2e diff: emitted package dirs != go list ./... selection"; rm -rf "$MFRESH"; exit 1; }
 rm -rf "$MFRESH"
-# hand-written REJECTED fixtures: `go build ./...` must reject exactly what GoCompile makes impossible
-mkdir -p /tmp/rej-nomain && cd /tmp/rej-nomain && printf 'module rej\n\ngo 1.23\n' > go.mod
-printf '// fido generated.  do not edit.\n\npackage main\n' > x.go   # a main package with NO func main
-if go build ./... 2>/dev/null; then echo "fido e2e diff: go build accepted a package with no main (GoCompile rejects this)"; exit 1; fi
-echo "fido e2e diff: a no-main package is rejected by go build (matches GoCompile: exactly one main per package)"
-mkdir -p /tmp/rej-dup && cd /tmp/rej-dup && printf 'module rej\n\ngo 1.23\n' > go.mod
-printf '// fido generated.  do not edit.\n\npackage main\n\nfunc main() {}\nfunc main() {}\n' > x.go   # duplicate main
-if go build ./... 2>/dev/null; then echo "fido e2e diff: go build accepted duplicate main (GoCompile rejects this)"; exit 1; fi
-echo "fido e2e diff: duplicate main is rejected by go build (matches GoCompile)"
-# hand-written REJECTED integer-conversion fixtures (§18): a constant conversion that overflows its
+# (the no-main / duplicate-main rejections are the §21 A-AD cases C/D/E/F below, routed through the fresh runner.)
+# hand-written REJECTED integer-conversion fixtures (§18), routed through the ONE fresh runner: a constant
+#   conversion that overflows its
 # destination, or converts a non-integer constant, is rejected by `go build` EXACTLY as GoTypes/GoCompile
 # make impossible (const_info returns None -> no CompilableProgram -> no bytes).  A disagreement is a MODEL BUG.
 rej_conv() { # <label> <main-body>
-  d="/tmp/rej-conv-$1"; mkdir -p "$d"; ( cd "$d"; printf 'module rej\n\ngo 1.23\n' > go.mod; \
-    printf '// fido generated.  do not edit.\n\npackage main\n\nfunc main() {\n\t%s\n}\n' "$2" > x.go; \
-    if go build ./... 2>/dev/null; then echo "fido e2e diff: go build ACCEPTED an invalid conversion [$1: $2] that GoTypes rejects (MODEL BUG)"; exit 1; fi ); \
-    rc=$?; [ "$rc" = 0 ] || exit 1; echo "fido e2e diff: go build rejects [$1] $2 — matches GoTypes"; }
+  d="/tmp/rej-conv-$1"; rm -rf "$d"; mkdir -p "$d"
+  printf 'module rej\n\ngo 1.23\n' > "$d/go.mod"
+  printf '// fido generated.  do not edit.\n\npackage main\n\nfunc main() {\n\t%s\n}\n' "$2" > "$d/x.go"
+  if fido_go_build_all_fresh "$d" FR; then rm -rf "$FR"; echo "fido e2e diff: go build ./... ACCEPTED an invalid conversion [$1: $2] that GoTypes rejects (MODEL BUG)"; exit 1; fi
+  rm -rf "$FR" 2>/dev/null || true; echo "fido e2e diff: go build ./... rejects [$1] $2 — matches GoTypes"; }
 rej_conv int8-over   'println(int8(128))'
 rej_conv int8-under  'println(int8(-129))'
 rej_conv uint8-neg   'println(uint8(-1))'
@@ -794,11 +798,15 @@ rej_conv c128-str       'println(complex128("x"))'
 # an acc_conv (a standalone fixture, so the canonical witness/goldens are untouched).
 rej_conv int-of-ctinyimag 'println(int(complex(3, 1e-50)))'
 acc_conv() { # <label> <main-body> <expected-stderr>
-  d="/tmp/acc-conv-$1"; mkdir -p "$d"; ( cd "$d"; printf 'module acc\n\ngo 1.23\n' > go.mod; \
-    printf '// fido generated.  do not edit.\n\npackage main\n\nfunc main() {\n\t%s\n}\n' "$2" > x.go; \
-    if ! go build -o prog . 2>build.err; then cat build.err; echo "fido e2e diff: go build REJECTED [$1: $2] that GoTypes ACCEPTS (MODEL BUG)"; exit 1; fi; \
-    ./prog 2>run.err; if [ "$(cat run.err)" != "$3" ]; then echo "fido e2e diff: [$1] printed [$(cat run.err)] != Go-expected [$3] (MODEL/GOLDEN BUG)"; exit 1; fi ); \
-    rc=$?; [ "$rc" = 0 ] || exit 1; echo "fido e2e diff: go build accepts + runs [$1] $2 -> $3 — matches GoTypes"; }
+  d="/tmp/acc-conv-$1"; rm -rf "$d"; mkdir -p "$d"
+  printf 'module accm\n\ngo 1.23\n' > "$d/go.mod"
+  printf '// fido generated.  do not edit.\n\npackage main\n\nfunc main() {\n\t%s\n}\n' "$2" > "$d/x.go"
+  if ! fido_go_build_all_fresh "$d" FR; then rm -rf "$FR"; echo "fido e2e diff: go build ./... REJECTED [$1: $2] that GoTypes ACCEPTS (MODEL BUG)"; exit 1; fi
+  _e=$(find "$FR" -maxdepth 1 -type f -perm -u+x)
+  { [ -n "$_e" ] && [ "$(printf '%s\n' "$_e" | wc -l)" = 1 ]; } || { echo "fido e2e diff: acc_conv [$1] produced not-exactly-one default exe [$_e]"; rm -rf "$FR"; exit 1; }
+  _o=$("$_e" 2>&1 1>/dev/null)   # println writes to STDERR
+  [ "$_o" = "$3" ] || { echo "fido e2e diff: [$1] printed [$_o] != Go-expected [$3] (MODEL/GOLDEN BUG)"; rm -rf "$FR"; exit 1; }
+  rm -rf "$FR"; echo "fido e2e diff: go build ./... accepts + runs [$1] $2 -> $3 — matches GoTypes"; }
 acc_conv int-of-c64-tinyimag 'println(int(complex64(complex(3, 1e-50))))' '3'
 
 # ── §21 — FRESH-IMAGE DIRECTORY-COLLISION DIFFERENTIAL MATRIX.  The defining fresh-image behaviour: `go build
@@ -850,7 +858,118 @@ overwrite_accept() {  # <dir> <module-path> <output-name-that-is-a-regular-file>
 }
 mk_tree /tmp/ov-gomod example.com/go.mod  main.go; overwrite_accept /tmp/ov-gomod example.com/go.mod  go.mod  "the go.mod-overwrite tree (output go.mod = regular go.mod)"
 mk_tree /tmp/ov-src   example.com/main.go main.go; overwrite_accept /tmp/ov-src   example.com/main.go main.go "the source-overwrite tree (output main.go = regular main.go)"
+
+# ── §21 A-AD — the COMPLETE required external differential matrix, every case through the ONE fresh runner.
+#    Helpers for custom source + default-output-presence assertions.  A disagreement on a REPRESENTABLE case is
+#    a MODEL BUG; the FUTURE-ORACLE cases (constructs Fido cannot yet emit — init/methods/generics/wrong sig/
+#    var-main/mixed clauses/_test/_ignored/doc-only) pin the real pinned-go behaviour for when Fido supports them.
+mk_gomod() { rm -rf "$1"; mkdir -p "$1"; printf 'module %s\n\ngo 1.23\n' "$2" > "$1/go.mod"; }
+put()     { mkdir -p "$1/$(dirname "$2")"; printf '%b' "$3" > "$1/$2"; }   # <dir> <rel> <content-with-\n>
+expect_accept_exe() {   # <dir> <label>: accept AND exactly ONE default executable at the fresh root
+  if ! fido_go_build_all_fresh "$1" FR; then rm -rf "$FR"; echo "fido e2e diff: go build ./... REJECTED $2 (expected ACCEPT — MODEL BUG)"; exit 1; fi
+  _e=$(find "$FR" -maxdepth 1 -type f -perm -u+x)
+  { [ -n "$_e" ] && [ "$(printf '%s\n' "$_e" | wc -l)" = 1 ]; } || { echo "fido e2e diff: $2 accepted but produced not-exactly-one default exe [$_e]"; rm -rf "$FR"; exit 1; }
+  echo "fido e2e diff: go build ./... accepted $2 + wrote its default executable"; rm -rf "$FR"
+}
+expect_accept_noexe() { # <dir> <label>: accept AND NO default executable (0 or >=2 packages)
+  if ! fido_go_build_all_fresh "$1" FR; then rm -rf "$FR"; echo "fido e2e diff: go build ./... REJECTED $2 (expected ACCEPT — MODEL BUG)"; exit 1; fi
+  _e=$(find "$FR" -maxdepth 1 -type f -perm -u+x)
+  [ -z "$_e" ] || { echo "fido e2e diff: $2 wrote an UNEXPECTED default executable [$_e]"; rm -rf "$FR"; exit 1; }
+  echo "fido e2e diff: go build ./... accepted $2 with NO default executable"; rm -rf "$FR"
+}
+# A. go.mod only -> success, no packages, no executable
+mk_gomod /tmp/A example.com/m;                                        expect_accept_noexe /tmp/A "A: go.mod only (no packages)"
+# B. valid root main, absent output -> success, executable created
+mk_gomod /tmp/B example.com/m; put /tmp/B main.go 'package main\n\nfunc main() {}\n'
+expect_accept_exe /tmp/B "B: valid root main (output m absent)"
+# C. package main with no func main -> failure (output target not a directory: compile misses main)
+mk_gomod /tmp/C example.com/m; put /tmp/C main.go 'package main\n\nvar _ = 0\n'
+expect_reject /tmp/C "C: package main with no func main"
+# D. duplicate main in one file -> failure
+mk_gomod /tmp/D example.com/m; put /tmp/D main.go 'package main\n\nfunc main() {}\nfunc main() {}\n'
+expect_reject /tmp/D "D: duplicate main in one file"
+# E. duplicate main across files -> failure
+mk_gomod /tmp/E example.com/m; put /tmp/E main.go 'package main\n\nfunc main() {}\n'; put /tmp/E other.go 'package main\n\nfunc main() {}\n'
+expect_reject /tmp/E "E: duplicate main across files"
+# F. three main declarations -> failure
+mk_gomod /tmp/F example.com/m; put /tmp/F main.go 'package main\n\nfunc main() {}\nfunc main() {}\nfunc main() {}\n'
+expect_reject /tmp/F "F: three main declarations"
+# G. two valid command packages -> success, default outputs discarded (no exe)
+mk_gomod /tmp/G example.com/m; put /tmp/G a/main.go 'package main\n\nfunc main() {}\n'; put /tmp/G b/main.go 'package main\n\nfunc main() {}\n'
+expect_accept_noexe /tmp/G "G: two valid command packages"
+# H. valid and invalid package together -> failure (the invalid package fails to compile)
+mk_gomod /tmp/H example.com/m; put /tmp/H a/main.go 'package main\n\nfunc main() {}\n'; put /tmp/H b/main.go 'package main\n\nfunc main() { var x int = "s"; _ = x }\n'
+expect_reject /tmp/H "H: valid + invalid package together"
+# I. empty file plus main elsewhere -> success (one main package: main.go + an extra source file)
+mk_gomod /tmp/I example.com/m; put /tmp/I main.go 'package main\n\nfunc main() {}\n'; put /tmp/I extra.go 'package main\n'
+expect_accept_exe /tmp/I "I: empty extra file + root main"
+# Q. existing absent output -> create (== B, output name absent at root)
+mk_gomod /tmp/Q example.com/mtool; put /tmp/Q main.go 'package main\n\nfunc main() {}\n'
+expect_accept_exe /tmp/Q "Q: absent output name -> executable created"
+# S. existing directory output -> reject (== J, covered above by dc-sub; restate distinctly)
+mk_gomod /tmp/S example.com/m; put /tmp/S out/main.go 'package main\n\nfunc main() {}\n'
+expect_reject /tmp/S "S: sole out/main.go, output out = existing root directory"
+
+# --- FUTURE ORACLES (Fido cannot yet emit these constructs; pin the pinned-go behaviour). ---
+# T. two init functions plus valid main -> success
+mk_gomod /tmp/T example.com/m; put /tmp/T main.go 'package main\n\nfunc init() {}\nfunc init() {}\nfunc main() {}\n'
+expect_accept_exe /tmp/T "T (future): two init + main"
+# U. method named main without package-level main -> missing-entry failure
+mk_gomod /tmp/U example.com/m; put /tmp/U main.go 'package main\n\ntype T struct{}\nfunc (T) main() {}\n'
+expect_reject /tmp/U "U (future): method main, no package-level main"
+# V. method named main plus package-level main -> success
+mk_gomod /tmp/V example.com/m; put /tmp/V main.go 'package main\n\ntype T struct{}\nfunc (T) main() {}\nfunc main() {}\n'
+expect_accept_exe /tmp/V "V (future): method main + package main"
+# W. wrong-signature main -> failure
+mk_gomod /tmp/W example.com/m; put /tmp/W main.go 'package main\n\nfunc main(x int) {}\n'
+expect_reject /tmp/W "W (future): wrong-signature main"
+# X. generic main -> failure
+mk_gomod /tmp/X example.com/m; put /tmp/X main.go 'package main\n\nfunc main[T any]() {}\n'
+expect_reject /tmp/X "X (future): generic main"
+# Y. var named main (no func main) -> failure
+mk_gomod /tmp/Y example.com/m; put /tmp/Y main.go 'package main\n\nvar main = 0\n'
+expect_reject /tmp/Y "Y (future): var named main, no func main"
+# Z. mixed package clauses in one directory -> package-load failure (before output preflight)
+mk_gomod /tmp/Z example.com/m; put /tmp/Z a.go 'package main\n\nfunc main() {}\n'; put /tmp/Z b.go 'package other\n'
+expect_reject /tmp/Z "Z (future): mixed package clauses in one dir"
+# AA. _test.go duplicate main only -> ignored by build (the _test.go is not a build input) -> success
+mk_gomod /tmp/AA example.com/m; put /tmp/AA main.go 'package main\n\nfunc main() {}\n'; put /tmp/AA main_test.go 'package main\n\nfunc main() {}\n'
+expect_accept_exe /tmp/AA "AA (future): _test.go duplicate main ignored"
+# AB. _ignored.go duplicate main only -> ignored (leading underscore file excluded by go tooling) -> success
+mk_gomod /tmp/AB example.com/m; put /tmp/AB main.go 'package main\n\nfunc main() {}\n'; put /tmp/AB _ignored.go 'package main\n\nfunc main() {}\n'
+expect_accept_exe /tmp/AB "AB (future): _ignored.go duplicate main ignored"
+# AC. package documentation only (a non-main package with just a package clause) -> compiled, no selected main, no exe
+mk_gomod /tmp/AC example.com/m; put /tmp/AC doc/doc.go '// Package doc documents nothing.\npackage doc\n'
+expect_accept_noexe /tmp/AC "AC (future): documentation-only package (no main selected)"
+# AD. two modules, EQUAL file layout, DIFFERENT module basename -> DIFFERENT default output names / plans
+mk_gomod /tmp/AD1 example.com/aa; put /tmp/AD1 v2/main.go 'package main\n\nfunc main() {}\n'
+mk_gomod /tmp/AD2 example.com/bb; put /tmp/AD2 v2/main.go 'package main\n\nfunc main() {}\n'
+if ! fido_go_build_all_fresh /tmp/AD1 FR1; then rm -rf "$FR1"; echo "fido e2e diff: AD1 rejected (MODEL BUG)"; exit 1; fi
+if ! fido_go_build_all_fresh /tmp/AD2 FR2; then rm -rf "$FR1" "$FR2"; echo "fido e2e diff: AD2 rejected (MODEL BUG)"; exit 1; fi
+_n1=$(basename "$(find "$FR1" -maxdepth 1 -type f -perm -u+x)"); _n2=$(basename "$(find "$FR2" -maxdepth 1 -type f -perm -u+x)")
+[ "$_n1" = aa ] && [ "$_n2" = bb ] && [ "$_n1" != "$_n2" ] || { echo "fido e2e diff: AD default exe names [$_n1] [$_n2] not the distinct module basenames aa/bb"; rm -rf "$FR1" "$FR2"; exit 1; }
+echo "fido e2e diff: AD equal-layout different-module -> distinct default output names ($_n1 vs $_n2) — matches the ModuleSpec-dependent plan"; rm -rf "$FR1" "$FR2"
+echo "fido e2e diff: §21 A-AD differential matrix COMPLETE (representable cases match GoCompile; future oracles pinned)"
 cd /e2e/tree
 
 echo "fido e2e OK — pinned Go built the whole tree via the FRESH-BUILD RUNNER (a disposable materialization; go build ./...) using the RENDERED go.mod, accepted the empty module, ran the witness vs goldens (incl. the ten integer-type conversions, the float section, AND the complex section: bare complex128-default literal, complex64/complex128 conversions, zero-imaginary complex<->scalar, the direct-vs-nested component double-round scar as uint64 evidence), checked the multi-package differential + go list discovery, rejected the no-main/dup-main + out-of-range/non-integer/float-overflow/fractional/wrong-type/complex-component-overflow/nonzero-imaginary conversion fixtures exactly as GoCompile does, confirmed the complex-underflow scalar-conversion scar on both sides (int(complex(3,1e-50)) rejected; int(complex64(complex(3,1e-50)))=3 accepted, imaginary underflowed to zero), AND confirmed the fresh-image DIRECTORY-COLLISION differential matrix (sub/main.go + a/v2/main.go rejected as GoCompile rejects; root main.go + a/b/main.go + v2/main.go + two-main accepted with no default executable, as GoCompile accepts) (go vet nonblocking)"
+# §22/§23 — the FRESH-BUILD VALIDATION MARKER: written ONLY after every check above passed.  The publication
+# stages (`sync` / `make regenerate`) COPY this from go-e2e, so a FAILING fresh build PREVENTS publication.
+printf 'fido-e2e-validated\n' > /validated
 SH
+
+# ── Stage 4d (defined last, after go-e2e): sync — the `make regenerate` image.  It compiles the filesystem-only
+#    apply CLI (linking the SAME Fido_sink) and bakes in the pristine `generated-module` layer; run with the
+#    repository root bind-mounted at /dest, its ENTRYPOINT synchronizes /generated into /dest through the sink
+#    (preserving foreign non-Go files, rejecting foreign Go/module + nested .fido, updating tracked go.mod + .go,
+#    removing stale Fido-owned .go).  It never re-generates and never renders.  §22/§23 ORDERING: it COPYs the
+#    go-e2e FRESH-BUILD VALIDATION marker, so `make regenerate` CANNOT publish unless the pinned one-shot
+#    `go build ./...` over the pristine export SUCCEEDED first (a failing fresh build makes this stage unbuildable).
+FROM emit AS sync
+RUN cp /workspace/plugin/fido_sink.ml /workspace/e2e/fido_apply.ml /tmp/ \
+    && ( cd /tmp && ocamlfind ocamlopt -package unix -linkpkg fido_sink.ml fido_apply.ml -o /workspace/fido-apply ) \
+    && chmod 0755 /workspace/fido-apply
+COPY --from=generated-module /generated/ /generated/
+# publication gate: the fresh-build validation must have PASSED (this file exists only if go-e2e reached its end).
+COPY --from=go-e2e /validated /workspace/.fresh-build-validated
+ENTRYPOINT ["/workspace/fido-apply", "/generated", "/dest"]
