@@ -2352,6 +2352,20 @@ Definition pkg_diag_of {p} (idx : GoIndex.Snap.SyntaxIndex p) (b : string * Pack
 Definition pkg_diags {p} (idx : GoIndex.Snap.SyntaxIndex p) : list (DiagnosticReason p) :=
   flat_map (pkg_diag_of idx) (PM.elements (package_summaries (prog_files p))).
 
+(** the bucket-THREADED package-diagnostic step: reads the RETAINED package buckets instead of recomputing
+    [package_main_refs] — so the one analysis pass builds both the buckets and the diagnostics from ONE bucket
+    computation.  Definitionally equal to [pkg_diag_of] at [buckets = package_main_refs idx]. *)
+Definition pkg_diag_of_from {p} (buckets : PM.t (list (GoIndex.DeclRef p))) (b : string * PackageSummary)
+  : list (DiagnosticReason p) :=
+  if Nat.eqb (ps_main_count (snd b)) 1 then []
+  else match PM.find (fst b) buckets with
+       | Some (d1 :: d2 :: _) => [ DRDuplicateMain d2 d1 ]
+       | _ => match bool_sb (package_present_b p (fst b)) with
+              | left H  => [ DRMissingMain (mkPackageRef p (fst b) H) ]
+              | right _ => []
+              end
+       end.
+
 (** THE PACKAGE COMPLETENESS: no package diagnostic IFF every package has exactly one main ([pkg_all_ok]).
     (A non-conforming package always emits — [DRDuplicateMain] when the bucket has >=2 refs, else
     [DRMissingMain], since a summary element's package is always represented.) *)
@@ -2591,18 +2605,6 @@ Proof.
     apply PMF.in_find_iff in Hin. exact (Hin (eq_sym E)).
 Defined.
 
-(** the ONE [CompilationFacts] builder — the SAME occurrence-keyed [ExprFactTable] + package buckets given a
-    validity proof.  BOTH [analyze]'s [AnalysisOK] and the witness compilation path use exactly this, so there
-    is ONE fact construction (no parallel authority that could disagree; they differ only in the erased
-    validity proof). *)
-Definition analysis_facts (p : GoProgram) (ip : GoIndex.IndexedProgram p) (H : ProgValid p) : CompilationFacts p ip :=
-  mkCompilationFacts (prog_expr_fact_table p ip)
-    (package_main_refs (GoIndex.indexed_syntax ip))
-    (package_main_refs_present (GoIndex.indexed_syntax ip))
-    (package_main_refs_bucket_len (GoIndex.indexed_syntax ip))
-    (package_main_refs_belongs (GoIndex.indexed_syntax ip))
-    H.
-
 Inductive AnalysisResult (p : GoProgram) (ip : GoIndex.IndexedProgram p) : Type :=
 | AnalysisOK     (facts : CompilationFacts p ip)
 | AnalysisFailed (ds : list (DiagnosticReason p)) (Hne : ds <> nil).
@@ -2625,13 +2627,31 @@ Definition analyze_valid_of_no_diags (p : GoProgram) (ip : GoIndex.IndexedProgra
   collect_diagnostics p (GoIndex.indexed_syntax ip) = nil -> ProgValid p :=
   fun He => proj1 (analysis_ok_b_ProgValid p) (proj1 (collect_diagnostics_empty_iff p (GoIndex.indexed_syntax ip)) He).
 
-(** §14 — the ONE analysis: the DECISION is exactly "the diagnostic pass produced nothing".  On success the
-    facts (occurrence-keyed status map + package buckets) are exposed with the derived validity; on failure the
-    EXACT diagnostic list is exposed.  No separate accept/reject computation. *)
+(** §14 — the ONE analysis pass.  The shared collections — the index, the visit stream, the occurrence status
+    map, and the package buckets — are computed ONCE (let-bound) and feed BOTH the accept/reject decision AND
+    the successful [CompilationFacts]: the expression facts and the diagnostics are two linear passes over the
+    SAME [visit]/[status], and the [buckets] serve the package diagnostics ([pkg_diag_of_from]) and the facts.
+    There is no separate [analysis_facts] recomputation.  The DECISION is exactly "the diagnostic pass produced
+    nothing"; on success the retained facts are exposed with the derived validity, on failure the EXACT
+    diagnostic list.  ([diags] is definitionally [collect_diagnostics p idx], so the decision theorems below are
+    unchanged.) *)
 Definition analyze_indexed (p : GoProgram) (ip : GoIndex.IndexedProgram p) : AnalysisResult p ip :=
-  match list_is_nil (collect_diagnostics p (GoIndex.indexed_syntax ip)) with
-  | left He  => AnalysisOK (analysis_facts p ip (analyze_valid_of_no_diags p ip He))
-  | right Hne => AnalysisFailed (collect_diagnostics p (GoIndex.indexed_syntax ip)) Hne
+  let idx     := GoIndex.indexed_syntax ip in
+  let visit   := prog_visit p in
+  let status  := prog_status_map p in
+  let buckets := package_main_refs idx in
+  let facts   := fold_right (add_occ_fact_sm status) (GoIndex.NodeKeyMapBase.empty ExprFact) visit in
+  let diags   := flat_map (occ_expr_diags_sm status idx) visit
+                   ++ flat_map (pkg_diag_of_from buckets) (PM.elements (package_summaries (prog_files p))) in
+  match list_is_nil diags with
+  | left He  => AnalysisOK (mkCompilationFacts
+                  (mkExprFactTable facts (prog_expr_facts_domain p) (prog_expr_facts_find p))
+                  buckets
+                  (package_main_refs_present idx)
+                  (package_main_refs_bucket_len idx)
+                  (package_main_refs_belongs idx)
+                  (analyze_valid_of_no_diags p ip He))
+  | right Hne => AnalysisFailed diags Hne
   end.
 
 Definition analyze (p : GoProgram) : ProgramAnalysis p :=
@@ -2643,8 +2663,8 @@ Definition analyze (p : GoProgram) : ProgramAnalysis p :=
 Theorem analyze_ok_iff_ProgValid (p : GoProgram) :
   (exists facts, pa_result (analyze p) = AnalysisOK facts) <-> ProgValid p.
 Proof.
-  unfold analyze, analyze_indexed; cbn [pa_result].
-  destruct (list_is_nil (collect_diagnostics p (GoIndex.indexed_syntax (GoIndex.index_program p)))) as [He|Hne].
+  unfold analyze, analyze_indexed; cbn [pa_result]; cbv zeta.
+  match goal with |- context[list_is_nil ?d] => destruct (list_is_nil d) as [He|Hne] end.
   - split; intro Hx; [ apply (analyze_valid_of_no_diags p (GoIndex.index_program p) He) | eexists; reflexivity ].
   - split; intro Hx.
     + destruct Hx as [facts Hf]; discriminate Hf.
@@ -2654,8 +2674,8 @@ Qed.
 Theorem analyze_failed_iff_not_ProgValid (p : GoProgram) :
   (exists ds Hne, pa_result (analyze p) = AnalysisFailed ds Hne) <-> ~ ProgValid p.
 Proof.
-  unfold analyze, analyze_indexed; cbn [pa_result].
-  destruct (list_is_nil (collect_diagnostics p (GoIndex.indexed_syntax (GoIndex.index_program p)))) as [He|Hne].
+  unfold analyze, analyze_indexed; cbn [pa_result]; cbv zeta.
+  match goal with |- context[list_is_nil ?d] => destruct (list_is_nil d) as [He|Hne] end.
   - split; intro Hx.
     + destruct Hx as [ds [Hne Hf]]; discriminate Hf.
     + exfalso. apply Hx, (analyze_valid_of_no_diags p (GoIndex.index_program p) He).
@@ -2669,8 +2689,8 @@ Lemma analyze_failed_ds (p : GoProgram) ds Hne :
   pa_result (analyze p) = AnalysisFailed ds Hne ->
   ds = collect_diagnostics p (GoIndex.indexed_syntax (GoIndex.index_program p)).
 Proof.
-  unfold analyze, analyze_indexed; cbn [pa_result].
-  destruct (list_is_nil (collect_diagnostics p (GoIndex.indexed_syntax (GoIndex.index_program p)))) as [He|Hn].
+  unfold analyze, analyze_indexed; cbn [pa_result]; cbv zeta.
+  match goal with |- context[list_is_nil ?d] => destruct (list_is_nil d) as [He|Hn] end.
   - intro H; discriminate H.
   - intro H. inversion H. reflexivity.
 Qed.
