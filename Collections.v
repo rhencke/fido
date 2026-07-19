@@ -94,3 +94,57 @@ Proof.
   intros [k e]. rewrite <- !FileMapFacts.elements_mapsto_iff, !FileMapFacts.find_mapsto_iff, (Heq k).
   reflexivity.
 Qed.
+
+(** ---- the same canonical-elements facts for the PACKAGE map (String key, Leibniz eq): [Equal] maps have the
+    SAME [elements], and [map]ping a value function commutes with [elements] (keys preserved, sorted order
+    preserved).  Used by the §17 cross-snapshot determinism to compare erased package buckets. ---- *)
+Module PackageMapOrd := FMapFacts.OrdProperties PackageMapBase.
+
+Lemma eqlistA_eqke_eq_str {A} : forall (l1 l2 : list (string * A)),
+  eqlistA (@PackageMapBase.eq_key_elt A) l1 l2 -> l1 = l2.
+Proof.
+  induction l1 as [|[k e] l1' IH]; intros l2 H; inversion H as [|x y l l' Hxy Htl]; subst; [ reflexivity | ].
+  destruct y as [k' e']. destruct Hxy as [Hk He]. cbn in Hk, He. subst. f_equal. apply IH; exact Htl.
+Qed.
+
+Lemma packagemap_elements_Equal {A} : forall (m1 m2 : PackageMapBase.t A),
+  PackageMapBase.Equal m1 m2 -> PackageMapBase.elements m1 = PackageMapBase.elements m2.
+Proof.
+  intros m1 m2 Heq. apply eqlistA_eqke_eq_str.
+  apply PackageMapOrd.sort_equivlistA_eqlistA;
+    [ apply PackageMapBase.elements_3 | apply PackageMapBase.elements_3 | ].
+  intros [k e]. rewrite <- !PackageMapFacts.elements_mapsto_iff, !PackageMapFacts.find_mapsto_iff, (Heq k).
+  reflexivity.
+Qed.
+
+Lemma sorted_map_fst {A B} (f : A -> B) : forall l,
+  Sorted (@PackageMapBase.lt_key A) l ->
+  Sorted (@PackageMapBase.lt_key B) (map (fun kv => (fst kv, f (snd kv))) l).
+Proof.
+  induction l as [|a l IH]; intro Hs; cbn [map]; [constructor|].
+  apply Sorted_inv in Hs. destruct Hs as [Hs Hhd]. constructor; [apply IH; exact Hs|].
+  destruct l as [|b l']; cbn [map]; [constructor|]. apply HdRel_inv in Hhd. constructor. exact Hhd.
+Qed.
+
+Lemma packagemap_map_elements {A B} (f : A -> B) : forall (m : PackageMapBase.t A),
+  PackageMapBase.elements (PackageMapBase.map f m)
+  = map (fun kv => (fst kv, f (snd kv))) (PackageMapBase.elements m).
+Proof.
+  intro m. apply eqlistA_eqke_eq_str.
+  apply PackageMapOrd.sort_equivlistA_eqlistA;
+    [ apply PackageMapBase.elements_3
+    | apply sorted_map_fst, PackageMapBase.elements_3 | ].
+  intros [k e].
+  rewrite <- PackageMapFacts.elements_mapsto_iff, PackageMapFacts.map_mapsto_iff, InA_alt.
+  split.
+  - intros [a [He Hmt]]. subst e.
+    apply PackageMapFacts.elements_mapsto_iff in Hmt. rewrite InA_alt in Hmt.
+    destruct Hmt as [[k' a'] [[Hk Ha] Hin]]. cbn in Hk, Ha. subst k' a'.
+    exists (k, f a). split; [ split; reflexivity | ].
+    apply in_map_iff. exists (k, a). split; [reflexivity | exact Hin].
+  - intros [[k' e'] [[Hk He] Hin]]. cbn in Hk, He. subst k' e'.
+    apply in_map_iff in Hin. destruct Hin as [[k'' a] [Heq Hin]]. injection Heq as Hk2 He2. subst k'' e.
+    exists a. split; [reflexivity | ].
+    apply PackageMapFacts.elements_mapsto_iff. rewrite InA_alt. exists (k, a).
+    split; [ split; reflexivity | exact Hin ].
+Qed.
