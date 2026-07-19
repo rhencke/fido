@@ -2643,34 +2643,99 @@ Definition analyze_ok_sig (p : GoProgram) (H : ProgValid p) :
     will decorate this same program later without a second AST; there is no unused placeholder now. *)
 Definition GoCompile (p : GoProgram) : Prop := ProgValid p.
 
-(** §18/§21 (C3) — a compiled program RETAINS the whole successful analysis AND its PROVENANCE: the original
-    program, the EXACT analyzed [IndexedProgram] ([cp_index], a STORED field — projecting it returns the
-    retained value, never re-running [analyze]/[index_program]), and its [CompilationFacts].  [cp_index_ok]
-    proves the retained index IS [analyze]'s ([pa_indexed (analyze cp_program)]); the mandatory [cp_prov] field
-    PROVES the facts ARE exactly [analyze cp_program]'s [AnalysisOK] output — not a parallel rebuild that merely
-    agrees observationally.  There is therefore NO way to construct a [CompilableProgram] for a program
-    [analyze] rejects, and no parallel capability path: the sole introduction requires an exact [AnalysisOK]
-    result.  [cp_ok] projects the retained facts' validity.  [cp_program] stays a direct first-field projection,
-    so rendering/emission never reduce [analyze] (the opaque, vm-compute-unfriendly index). *)
+(** ---- destructuring the ONE retained [analyze] WITHOUT re-projection: record eta re-assembles the analysis
+    from its projections, so a component-level [pa_result] fact lifts to a WHOLE-analysis equation
+    ([analyze p = mkProgramAnalysis ip (AnalysisOK/Failed …)] — homogeneous, no index transport).  The
+    non-dependent [analysis_ok_flag] lets such a whole equation discriminate OK-vs-Failed by [rewrite] (no
+    dependent [f_equal] over the indexed [pa_result]). ---- *)
+Lemma program_analysis_eta {p} (a : ProgramAnalysis p) :
+  a = mkProgramAnalysis (pa_indexed a) (pa_result a).
+Proof. destruct a; reflexivity. Qed.
+
+Definition result_ok_b {p ip} (r : AnalysisResult p ip) : bool :=
+  match r with AnalysisOK _ => true | AnalysisFailed _ _ => false end.
+Definition analysis_ok_flag {p} (a : ProgramAnalysis p) : bool := result_ok_b (pa_result a).
+
+Lemma analysis_ok_flag_of_valid : forall p, ProgValid p -> analysis_ok_flag (analyze p) = true.
+Proof. intros p Hv. unfold analysis_ok_flag. destruct (analyze_ok_sig p Hv) as [facts Heq]. rewrite Heq. reflexivity. Qed.
+
+Lemma analyze_ok_whole : forall p facts, pa_result (analyze p) = AnalysisOK facts ->
+  analyze p = mkProgramAnalysis (pa_indexed (analyze p)) (AnalysisOK facts).
+Proof.
+  intros p facts H.
+  transitivity (mkProgramAnalysis (pa_indexed (analyze p)) (pa_result (analyze p))).
+  - apply program_analysis_eta.
+  - rewrite H. reflexivity.
+Qed.
+
+Lemma analyze_failed_whole : forall p ds Hne, pa_result (analyze p) = AnalysisFailed ds Hne ->
+  analyze p = mkProgramAnalysis (pa_indexed (analyze p)) (AnalysisFailed ds Hne).
+Proof.
+  intros p ds Hne H.
+  transitivity (mkProgramAnalysis (pa_indexed (analyze p)) (pa_result (analyze p))).
+  - apply program_analysis_eta.
+  - rewrite H. reflexivity.
+Qed.
+
+Lemma analyze_whole_failed_not_valid : forall p ip ds Hne,
+  analyze p = mkProgramAnalysis ip (AnalysisFailed ds Hne) -> ProgValid p -> False.
+Proof.
+  intros p ip ds Hne Hw Hv.
+  pose proof (analysis_ok_flag_of_valid p Hv) as Hok.
+  rewrite Hw in Hok. discriminate Hok.
+Qed.
+
+(** the witness-path destructuring: match the whole retained analysis EXACTLY ONCE, binding its retained index
+    [ip] and result; validity rules the Failed branch impossible.  [ip] and [facts] come from the SAME
+    evaluation — never a [pa_indexed (analyze p)] re-projection. *)
+Definition analyze_ok_full (p : GoProgram) (H : ProgValid p) :
+  {ip : GoIndex.IndexedProgram p & {facts : CompilationFacts p ip | analyze p = mkProgramAnalysis ip (AnalysisOK facts)}} :=
+  match analyze p as a
+    return (analyze p = a ->
+      {ip : GoIndex.IndexedProgram p & {facts : CompilationFacts p ip | analyze p = mkProgramAnalysis ip (AnalysisOK facts)}})
+  with
+  | mkProgramAnalysis ip res =>
+      fun Ha =>
+      match res as r
+        return (res = r ->
+          {ip0 : GoIndex.IndexedProgram p & {facts : CompilationFacts p ip0 | analyze p = mkProgramAnalysis ip0 (AnalysisOK facts)}})
+      with
+      | AnalysisOK facts      => fun Hr =>
+          existT _ ip (exist _ facts (eq_trans Ha (f_equal (mkProgramAnalysis ip) Hr)))
+      | AnalysisFailed ds Hne => fun Hr =>
+          False_rect _ (analyze_whole_failed_not_valid p ip ds Hne (eq_trans Ha (f_equal (mkProgramAnalysis ip) Hr)) H)
+      end eq_refl
+  end eq_refl.
+
+(** §18/§21 (C3) — a compiled program RETAINS the ONE evaluated analysis by DESTRUCTURING it: the original
+    program, the EXACT analyzed [IndexedProgram] ([cp_index]) BOUND from that analysis, and its
+    [CompilationFacts] indexed BY that retained index ([cp_facts : CompilationFacts cp_program cp_index] — no
+    [pa_indexed (analyze …)] re-projection).  The mandatory [cp_prov] field PROVES the WHOLE retained analysis
+    IS this record ([analyze cp_program = mkProgramAnalysis cp_index (AnalysisOK cp_facts)] — a HOMOGENEOUS
+    equation, no index transport, pinning index + facts + success together).  There is therefore NO way to
+    construct a [CompilableProgram] for a program [analyze] rejects, the index is never reconstructed, and
+    there is no parallel capability path.  [cp_ok] projects the retained facts' validity.  [cp_program] stays a
+    direct first-field projection, so rendering/emission never reduce [analyze] (the opaque,
+    vm-compute-unfriendly index — the F5 constraint). *)
 Record CompilableProgram : Type := mkCompilable {
-  cp_program  : GoProgram;
-  cp_index    : GoIndex.IndexedProgram cp_program;
-  cp_facts    : CompilationFacts cp_program (pa_indexed (analyze cp_program));
-  cp_prov     : pa_result (analyze cp_program) = AnalysisOK cp_facts;
-  cp_index_ok : cp_index = pa_indexed (analyze cp_program)
+  cp_program : GoProgram;
+  cp_index   : GoIndex.IndexedProgram cp_program;
+  cp_facts   : CompilationFacts cp_program cp_index;
+  cp_prov    : analyze cp_program = mkProgramAnalysis cp_index (AnalysisOK cp_facts)
 }.
 
 Definition cp_ok (cp : CompilableProgram) : GoCompile (cp_program cp) := cf_valid (cp_facts cp).
 
-(** the PROVENANCE surfaces: every [CompilableProgram]'s facts are exactly [analyze]'s [AnalysisOK] output, and
-    the RETAINED index IS [analyze]'s (the projection retains, it does not reconstruct). *)
+(** the PROVENANCE surfaces: every [CompilableProgram]'s WHOLE retained analysis IS this record — index +
+    facts + success together ([analyze cp_program = mkProgramAnalysis cp_index (AnalysisOK cp_facts)]); the
+    retained index therefore IS [analyze]'s (the projection retains, it does not reconstruct). *)
 Theorem compilable_prov : forall cp : CompilableProgram,
-  pa_result (analyze (cp_program cp)) = AnalysisOK (cp_facts cp).
+  analyze (cp_program cp) = mkProgramAnalysis (cp_index cp) (AnalysisOK (cp_facts cp)).
 Proof. intro cp; exact (cp_prov cp). Qed.
 
 Theorem compilable_index_retained : forall cp : CompilableProgram,
   cp_index cp = pa_indexed (analyze (cp_program cp)).
-Proof. intro cp; exact (cp_index_ok cp). Qed.
+Proof. intro cp. rewrite (cp_prov cp). reflexivity. Qed.
 
 (** The compiled evidence EXPOSES that the same program is typed through [GoTypes] (§17): an immediate
     canonical projection, not a stored second copy of the typing proof. *)
@@ -2712,39 +2777,68 @@ Definition legacy_class_of_diags {p} (ds : list (DiagnosticReason p)) : LegacyCo
 Definition legacy_compile_class {p} (o : CompileOutcome p) : LegacyCompileClass :=
   match o with CompiledOk _ _ => LCOk | CompileFailed fail => legacy_class_of_diags (cfail_diags fail) end.
 
-(** §18 — the production compiler PROJECTS the ONE retained [analyze].  [compile_outcome_of] matches the
-    retained result WITH its defining equation, so [AnalysisOK] mints a [CompilableProgram] carrying the exact
-    provenance ([Heq]); [go_compile] applies it to [pa_result (analyze p)] with [eq_refl].  Failure CARRIES the
-    exact analysis diagnostics — never a second checker or a coarse recomputation. *)
-Definition compile_outcome_of (p : GoProgram)
-  (r : AnalysisResult p (pa_indexed (analyze p))) : pa_result (analyze p) = r -> CompileOutcome p :=
-  match r with
-  | AnalysisOK facts      => fun Heq => CompiledOk (mkCompilable p (pa_indexed (analyze p)) facts Heq eq_refl) eq_refl
-  | AnalysisFailed ds Hne => fun _   => CompileFailed (mkCompileFailure ds Hne)
+(** §18 — the production compiler DESTRUCTURES the ONE retained [analyze] EXACTLY ONCE: [outcome_of_analysis]
+    matches the WHOLE [ProgramAnalysis] (binding its retained index [ip] and result), so [AnalysisOK] mints a
+    [CompilableProgram] whose [cp_index] IS that bound [ip] (never a [pa_indexed] re-projection) and whose
+    [cp_prov] is [analyze p = mkProgramAnalysis ip (AnalysisOK facts)] (built from the two match equations).
+    Failure CARRIES the exact analysis diagnostics — never a second checker or a coarse recomputation. *)
+Definition outcome_of_analysis (p : GoProgram) (a : ProgramAnalysis p) :
+  analyze p = a -> CompileOutcome p :=
+  match a as a0 return (analyze p = a0 -> CompileOutcome p) with
+  | mkProgramAnalysis ip res =>
+      fun Ha =>
+      match res as r return (res = r -> CompileOutcome p) with
+      | AnalysisOK facts      => fun Hr =>
+          CompiledOk (mkCompilable p ip facts (eq_trans Ha (f_equal (mkProgramAnalysis ip) Hr))) eq_refl
+      | AnalysisFailed ds Hne => fun _  => CompileFailed (mkCompileFailure ds Hne)
+      end eq_refl
   end.
 
 Definition go_compile (p : GoProgram) : CompileOutcome p :=
-  compile_outcome_of p (pa_result (analyze p)) eq_refl.
+  outcome_of_analysis p (analyze p) eq_refl.
 
-(** the two computation facts of [compile_outcome_of], stated over a genuine result VARIABLE [r] equal to a
-    constructor: [subst] collapses the match by iota — no dependent-convoy reasoning against [analyze]. *)
-Lemma compile_outcome_of_ok : forall p r (Heq : pa_result (analyze p) = r) facts,
-  r = AnalysisOK facts ->
-  exists cp Hcp, compile_outcome_of p r Heq = CompiledOk cp Hcp.
-Proof. intros p r Heq facts ->. cbn. exists (mkCompilable p (pa_indexed (analyze p)) facts Heq eq_refl); exists eq_refl; reflexivity. Qed.
+(** the two computation facts of [outcome_of_analysis], stated over the whole analysis pinned to a constructor:
+    the nested matches collapse by iota (no dependent-convoy reasoning against [analyze]). *)
+Lemma outcome_of_analysis_ok_eq : forall p ip facts (Ha : analyze p = mkProgramAnalysis ip (AnalysisOK facts)),
+  outcome_of_analysis p (mkProgramAnalysis ip (AnalysisOK facts)) Ha = CompiledOk (mkCompilable p ip facts Ha) eq_refl.
+Proof. intros p ip facts Ha. reflexivity. Qed.
 
-Lemma compile_outcome_of_failed : forall p r (Heq : pa_result (analyze p) = r) ds Hne,
-  r = AnalysisFailed ds Hne ->
-  compile_outcome_of p r Heq = CompileFailed (mkCompileFailure ds Hne).
-Proof. intros p r Heq ds Hne ->. cbn. reflexivity. Qed.
+Lemma outcome_of_analysis_failed_eq : forall p ip ds Hne (Ha : analyze p = mkProgramAnalysis ip (AnalysisFailed ds Hne)),
+  outcome_of_analysis p (mkProgramAnalysis ip (AnalysisFailed ds Hne)) Ha = CompileFailed (mkCompileFailure ds Hne).
+Proof. intros p ip ds Hne Ha. reflexivity. Qed.
 
-Lemma go_compile_ok_shape : forall p facts (Heq : pa_result (analyze p) = AnalysisOK facts),
+(** the shape facts over a genuine ANALYSIS VARIABLE [a] equal to a constructor: [subst] collapses the nested
+    matches by iota — no dependent [rewrite] against [analyze] under a binder. *)
+Lemma outcome_of_analysis_eq_ok : forall p (a : ProgramAnalysis p) (Ha : analyze p = a) ip facts,
+  a = mkProgramAnalysis ip (AnalysisOK facts) ->
+  exists cp Hcp, outcome_of_analysis p a Ha = CompiledOk cp Hcp.
+Proof.
+  intros p a Ha ip facts Heq. revert Ha. rewrite Heq. intro Ha.
+  exists (mkCompilable p ip facts Ha). exists eq_refl. apply outcome_of_analysis_ok_eq.
+Qed.
+
+Lemma outcome_of_analysis_eq_failed : forall p (a : ProgramAnalysis p) (Ha : analyze p = a) ip ds Hne,
+  a = mkProgramAnalysis ip (AnalysisFailed ds Hne) ->
+  outcome_of_analysis p a Ha = CompileFailed (mkCompileFailure ds Hne).
+Proof.
+  intros p a Ha ip ds Hne Heq. revert Ha. rewrite Heq. intro Ha. apply outcome_of_analysis_failed_eq.
+Qed.
+
+Lemma go_compile_ok_shape : forall p ip facts,
+  analyze p = mkProgramAnalysis ip (AnalysisOK facts) ->
   exists cp Hcp, go_compile p = CompiledOk cp Hcp.
-Proof. intros p facts Heq. exact (compile_outcome_of_ok p (pa_result (analyze p)) eq_refl facts Heq). Qed.
+Proof.
+  intros p ip facts Hp. unfold go_compile.
+  exact (outcome_of_analysis_eq_ok p (analyze p) eq_refl ip facts Hp).
+Qed.
 
-Lemma go_compile_failed_shape : forall p ds Hne (Heq : pa_result (analyze p) = AnalysisFailed ds Hne),
+Lemma go_compile_failed_shape : forall p ip ds Hne,
+  analyze p = mkProgramAnalysis ip (AnalysisFailed ds Hne) ->
   go_compile p = CompileFailed (mkCompileFailure ds Hne).
-Proof. intros p ds Hne Heq. exact (compile_outcome_of_failed p (pa_result (analyze p)) eq_refl ds Hne Heq). Qed.
+Proof.
+  intros p ip ds Hne Hp. unfold go_compile.
+  exact (outcome_of_analysis_eq_failed p (analyze p) eq_refl ip ds Hne Hp).
+Qed.
 
 (** (A) internal exactness: [go_compile] succeeds exactly on admissible programs, whole-program.  Success value
     carries its OWN validity (via [cf_valid (cp_facts cp)]) and program identity (via [Hcp]) — derivable from
@@ -2760,19 +2854,22 @@ Theorem go_compile_complete : forall p,
 Proof.
   intros p Hvalid.
   destruct (analyze_ok_sig p Hvalid) as [ facts Heq ].
-  exact (go_compile_ok_shape p facts Heq).
+  exact (go_compile_ok_shape p (pa_indexed (analyze p)) facts (analyze_ok_whole p facts Heq)).
 Qed.
 
 (** fixture helper: acceptance through the theorems. *)
 Lemma go_compile_ok_of_prog_ok : forall p, prog_ok p = true -> exists cp Hcp, go_compile p = CompiledOk cp Hcp.
 Proof. intros p H; apply go_compile_complete, (proj1 (prog_ok_iff p)); exact H. Qed.
 
-(** the witness builder: from validity, [analyze_ok_sig] delivers [analyze]'s EXACT [AnalysisOK] facts +
-    provenance, which [mkCompilable] carries.  [cp_program] is a direct first-field projection ([= p]) so
-    rendering/emission never reduce the (opaque, vm-compute-unfriendly) index analysis.  This is the SAME
+(** the witness builder: from validity, [analyze_ok_full] destructures [analyze p] ONCE, delivering the bound
+    retained index [ip], its [CompilationFacts], and the whole-analysis provenance — which [mkCompilable]
+    carries directly.  [cp_program] is a direct first-field projection ([= p]) so rendering/emission never
+    reduce the (opaque, vm-compute-unfriendly) index analysis (F5).  This is the SAME single-destructuring
     provenance [go_compile]'s success value carries — the two success artifacts are built the ONE way. *)
 Definition compilable_of_valid (p : GoProgram) (H : GoCompile p) : CompilableProgram :=
-  mkCompilable p (pa_indexed (analyze p)) (projT1 (analyze_ok_sig p H)) (projT2 (analyze_ok_sig p H)) eq_refl.
+  mkCompilable p (projT1 (analyze_ok_full p H))
+                 (proj1_sig (projT2 (analyze_ok_full p H)))
+                 (proj2_sig (projT2 (analyze_ok_full p H))).
 
 (** fixture helper: a non-typed program is REJECTED at the TYPING legacy class — a projection of the carried
     diagnostics, never a [program_typedb] rerun. *)
@@ -2782,7 +2879,7 @@ Proof.
   destruct (analyze_result_cases p) as [ [facts Hok] | [ds [Hne Hfail]] ].
   - exfalso. assert (Hv : ProgValid p) by (apply (analyze_ok_iff_ProgValid p); exists facts; exact Hok).
     pose proof (proj2 (program_typedb_iff p) (proj1 Hv)) as Ht. rewrite Ht in Hf; discriminate Hf.
-  - rewrite (go_compile_failed_shape p ds Hne Hfail).
+  - rewrite (go_compile_failed_shape p (pa_indexed (analyze p)) ds Hne (analyze_failed_whole p ds Hne Hfail)).
     cbn [legacy_compile_class cfail_diags]. unfold legacy_class_of_diags.
     rewrite (analyze_failed_ds p ds Hne Hfail), existsb_typing_collect, Hf. reflexivity.
 Qed.
@@ -2834,13 +2931,13 @@ Proof.
   intro p. unfold go_compile_class.
   destruct (analyze_result_cases p) as [ [facts Hok] | [ds [Hne Hfail]] ].
   - assert (Hpv : ProgValid p) by (apply (analyze_ok_iff_ProgValid p); exists facts; exact Hok).
-    destruct (go_compile_ok_shape p facts Hok) as [cp [Hcp Hgo]]. rewrite Hgo.
+    destruct (go_compile_ok_shape p (pa_indexed (analyze p)) facts (analyze_ok_whole p facts Hok)) as [cp [Hcp Hgo]]. rewrite Hgo.
     cbn [legacy_compile_class]. rewrite (proj2 (prog_ok_iff p) Hpv). reflexivity.
   - assert (Hnv : ~ ProgValid p)
       by (apply (analyze_failed_iff_not_ProgValid p); exists ds; exists Hne; exact Hfail).
     assert (Hpf : prog_ok p = false)
       by (destruct (prog_ok p) eqn:Ep; [ exfalso; apply Hnv, (proj1 (prog_ok_iff p)); exact Ep | reflexivity ]).
-    rewrite Hpf. rewrite (go_compile_failed_shape p ds Hne Hfail).
+    rewrite Hpf. rewrite (go_compile_failed_shape p (pa_indexed (analyze p)) ds Hne (analyze_failed_whole p ds Hne Hfail)).
     cbn [legacy_compile_class cfail_diags]. unfold legacy_class_of_diags.
     rewrite (analyze_failed_ds p ds Hne Hfail), existsb_typing_collect, existsb_package_collect.
     destruct (program_typedb p) eqn:Ht; cbn [negb].
