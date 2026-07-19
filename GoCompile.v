@@ -6137,3 +6137,63 @@ Proof.
   intro p. unfold SourceProgramValid, ProgValid.
   rewrite current_package_rules_exactly_one. reflexivity.
 Qed.
+
+(** §C3-FRESH.8 (§15b) — the fresh-build COMMAND-level diagnostic list: when the preflight fails (a sole main
+    package whose default exec name is an existing root directory), the ONE [DRBuildOutputIsDirectory] anchored
+    at that sole package; otherwise empty.  Emptiness is exactly "the preflight passes". *)
+
+Definition sole_package_ref (p : GoProgram) (dir : string) : option (PackageRef p) :=
+  match Bool.bool_dec (package_present_b p dir) true with
+  | left H  => Some (mkPackageRef p dir H)
+  | right _ => None
+  end.
+
+Lemma sole_package_ref_some : forall p dir,
+  package_present_b p dir = true -> exists pk, sole_package_ref p dir = Some pk.
+Proof.
+  intros p dir H. unfold sole_package_ref.
+  destruct (Bool.bool_dec (package_present_b p dir) true) as [Ht|Hf]; [ eexists; reflexivity | destruct (Hf H) ].
+Qed.
+
+(* a sole selected package is present (it is a key of the package-summary map, so a file has that parent). *)
+Lemma sole_package_present : forall p dir,
+  selected_package_keys p = [dir] -> package_present_b p dir = true.
+Proof.
+  intros p dir Hk.
+  assert (Hin : In dir (selected_package_keys p)) by (rewrite Hk; left; reflexivity).
+  unfold selected_package_keys in Hin. apply in_map_iff in Hin.
+  destruct Hin as [[k s] [Hfst Hinel]]. cbn in Hfst. subst k.
+  assert (Hmt : PM.MapsTo dir s (selected_packages p))
+    by (apply PMF.elements_mapsto_iff, InA_alt; exists (dir, s); split; [split; reflexivity | exact Hinel]).
+  unfold package_present_b. unfold selected_packages in Hmt.
+  apply PMF.find_mapsto_iff in Hmt. rewrite package_summaries_find in Hmt.
+  destruct (list_dir_mem dir (GoAST.file_bindings (prog_files p))); [ reflexivity | discriminate Hmt ].
+Qed.
+
+Definition build_output_diags (p : GoProgram) : list (DiagnosticReason p) :=
+  match fresh_build_plan p with
+  | FBDWriteSingleMain dir _ output_name (Some FREDirectory) =>
+      match sole_package_ref p dir with
+      | Some pk => [DRBuildOutputIsDirectory pk output_name]
+      | None    => []
+      end
+  | _ => []
+  end.
+
+Lemma build_output_diags_nil_iff : forall p,
+  build_output_diags p = [] <-> fresh_build_preflight_ok p.
+Proof.
+  intros p. unfold build_output_diags, fresh_build_preflight_ok, fresh_build_disposition_ok, fresh_build_plan.
+  destruct (selected_package_keys p) as [|dir [|d2 rest]] eqn:Ek; cbn.
+  - split; reflexivity.
+  - destruct (PM.find (default_exec_name (package_import_path (prog_module p) dir)) (root_layout p)) as [k|] eqn:Ef.
+    + destruct k; cbn.
+      * split; reflexivity.
+      * split; reflexivity.
+      * destruct (sole_package_ref p dir) as [pk|] eqn:Es.
+        -- split; [ discriminate | discriminate ].
+        -- exfalso. destruct (sole_package_ref_some p dir (sole_package_present p dir Ek)) as [pk Hpk].
+           rewrite Hpk in Es. discriminate Es.
+    + split; reflexivity.
+  - split; reflexivity.
+Qed.
