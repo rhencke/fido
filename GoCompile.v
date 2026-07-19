@@ -2946,6 +2946,74 @@ Proof.
       rewrite Hd, Hf. exact (IHk k).
 Qed.
 
+(* the erased buckets of the retained analysis EQUAL (find-wise, hence [PM.Equal]) the keyed source buckets. *)
+Lemma prog_package_refs_erased {p} (idx : GoIndex.Snap.SyntaxIndex p) :
+  PM.Equal (PM.map (map erase_dkey) (prog_package_refs idx)) (keyed_buckets (keyed_visit p)).
+Proof.
+  intro k. unfold prog_package_refs, keyed_visit.
+  apply (ppkg_erased_find idx (prog_visit p)).
+  intros [r occ] Hin. exact (prog_visit_view p r occ Hin).
+Qed.
+
+(* the ERASED package diagnostics of one bucket, over its erased (NodeKey) keys — a pure source function. *)
+Definition erase_bucket_diag (kv : string * list GoIndex.NodeKey) : list ErasedDiagnostic :=
+  match snd kv with
+  | nil        => [ mkErasedDiagnostic DCMissingMain (EAPackage (fst kv)) [] None ]
+  | e1 :: erest => map (fun ek => mkErasedDiagnostic DCDuplicateMain (EANode ek) [EANode e1] None) erest
+  end.
+
+Lemma pkg_diag_of_bucket_erased {p} (m : PM.t (list (GoIndex.DeclRef p))) Hpres dir l Hmt :
+  map erase_diagnostic (@pkg_diag_of_bucket p m Hpres dir l Hmt)
+  = erase_bucket_diag (dir, map erase_dkey l).
+Proof.
+  unfold pkg_diag_of_bucket, erase_bucket_diag. cbn [snd]. destruct l as [|d1 rest]; cbn [map].
+  - unfold erase_diagnostic. cbn [diagnostic_code diagnostic_primary diagnostic_related erased_target erase_anchor].
+    reflexivity.
+  - rewrite !map_map. unfold erase_diagnostic, erase_dkey.
+    cbn [diagnostic_code diagnostic_primary diagnostic_related erased_target erase_anchor map]. reflexivity.
+Qed.
+
+Lemma bucket_diags_elems_erased {p} (m : PM.t (list (GoIndex.DeclRef p))) Hpres es Hall :
+  map erase_diagnostic (@bucket_diags_elems p m Hpres es Hall)
+  = flat_map erase_bucket_diag (map (fun kv => (fst kv, map erase_dkey (snd kv))) es).
+Proof.
+  revert Hall. induction es as [|kv rest IH]; intro Hall; cbn [bucket_diags_elems map flat_map]; [reflexivity|].
+  rewrite map_app, IH. f_equal. apply pkg_diag_of_bucket_erased.
+Qed.
+
+(** §17 — the erased PACKAGE report is a SOURCE function of the file map (via the keyed source buckets). *)
+Lemma erased_pkg_diags_source {p} (idx : GoIndex.Snap.SyntaxIndex p) :
+  map erase_diagnostic (pkg_diags idx)
+  = flat_map erase_bucket_diag (PM.elements (keyed_buckets (keyed_visit p))).
+Proof.
+  unfold pkg_diags. rewrite bucket_diags_elems_erased.
+  rewrite <- Collections.packagemap_map_elements.
+  rewrite (Collections.packagemap_elements_Equal _ _ (prog_package_refs_erased idx)). reflexivity.
+Qed.
+
+Lemma erased_pkg_diags_FilesEqual (p1 p2 : GoProgram)
+    (idx1 : GoIndex.Snap.SyntaxIndex p1) (idx2 : GoIndex.Snap.SyntaxIndex p2) :
+  GoAST.FilesEqual (prog_files p1) (prog_files p2) ->
+  map erase_diagnostic (pkg_diags idx1) = map erase_diagnostic (pkg_diags idx2).
+Proof.
+  intro Heq. rewrite !erased_pkg_diags_source, (keyed_visit_FilesEqual p1 p2 Heq). reflexivity.
+Qed.
+
+(** §17 (C3 FINAL) — THE cross-snapshot determinism theorem: two programs with the SAME file map (their
+    diagnostics live in DIFFERENT dependent snapshot types) produce the IDENTICAL erased report.  The report
+    depends ONLY on the file map — never on the snapshot index or the backing AVL balancing history.  Both
+    halves factor through source functions of the file map: the expression report through [annotate_source]
+    (the one-pass enclosing context), the package report through the keyed source buckets. *)
+Theorem erased_report_FilesEqual (p1 p2 : GoProgram)
+    (idx1 : GoIndex.Snap.SyntaxIndex p1) (idx2 : GoIndex.Snap.SyntaxIndex p2) :
+  GoAST.FilesEqual (prog_files p1) (prog_files p2) ->
+  erased_report p1 idx1 = erased_report p2 idx2.
+Proof.
+  intro Heq. unfold erased_report, collect_diagnostics. rewrite !map_app. f_equal.
+  - rewrite !erased_expr_diags_source, (annotate_source_FilesEqual _ _ Heq). reflexivity.
+  - exact (erased_pkg_diags_FilesEqual p1 p2 idx1 idx2 Heq).
+Qed.
+
 (* ---- the TWO disjoint diagnostic families (typing / package), used to PROJECT a legacy compile class from
    the diagnostics (never a second check).  Expression diagnostics are typing-class; package diagnostics are
    package-class; the two are disjoint. ---- *)

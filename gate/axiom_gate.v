@@ -378,6 +378,16 @@ Print Assumptions GoCompile.pkg_diags_dup_sound.
    + its source occurrence) depends ONLY on the file map, so FilesEqual programs have IDENTICAL keyed streams
    (the basis for equal erased reports / fact enumerations). *)
 Print Assumptions GoCompile.keyed_visit_FilesEqual.
+(* C3 §17 — THE cross-snapshot determinism theorem: two programs with the SAME file map (whose diagnostics
+   live in DIFFERENT dependent snapshot types) produce the IDENTICAL erased report — it depends ONLY on the
+   file map, never on the snapshot index or the backing AVL shape.  The expression half factors through
+   [annotate_source] (the one-pass enclosing context erases to a source function of the keyed stream); the
+   package half through the keyed source buckets ([ppkg_erased_find] + PackageMap canonical elements). *)
+Print Assumptions GoCompile.annotate_encl_erased.
+Print Assumptions GoCompile.ppkg_erased_find.
+Print Assumptions GoCompile.erased_expr_diags_source.
+Print Assumptions GoCompile.erased_pkg_diags_FilesEqual.
+Print Assumptions GoCompile.erased_report_FilesEqual.
 (* C3 §10/§14 — occurrence-keyed expression facts, built by the SINGLE bottom-up pass: visit_file refs have
    distinct NodeKeys, and the fact stored at a visited ref's key is EXACTLY that occurrence's fact (no
    overwrite; map-level exactness) — the single-pass fact map agrees with the per-node specification. *)
