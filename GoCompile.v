@@ -28,7 +28,7 @@
     ============================================================================ *)
 From Stdlib Require Import NArith ZArith List Bool String Ascii Arith Lia.
 From Stdlib Require Import SetoidList Permutation.
-From Fido Require Import Ints Floats Complexes FilePath Collections GoAST GoIndex GoTypes.
+From Fido Require Import Ints Floats Complexes FilePath ModulePath Collections GoAST GoIndex GoTypes.
 From Stdlib Require Import Eqdep_dec.
 Import ListNotations.
 Open Scope Z_scope.
@@ -5661,3 +5661,49 @@ Example den_v2      : default_exec_name "example.com/m/v2"      = "m".       Pro
 Example den_maingo  : default_exec_name "example.com/main.go"   = "main.go". Proof. reflexivity. Qed.
 Example den_gomod   : default_exec_name "example.com/go.mod"    = "go.mod".  Proof. reflexivity. Qed.
 Example den_sub_v10 : default_exec_name "example.com/m/sub/v10" = "sub".     Proof. reflexivity. Qed.
+
+(** ============================================================================================
+    §C3-FRESH.2 (§11) — the exact cmd/go IMPORT PATH of a selected package in the main module.  The root
+    package (dir key "") imports as the [ModulePath]; a nested package dir key imports as
+    [ModulePath ++ "/" ++ dir].  Canonical source strings only; feeds [default_exec_name].
+    ============================================================================================ *)
+
+Definition package_import_path (ms : ModuleSpec) (dir : string) : string :=
+  if String.eqb dir "" then mp_string (module_path ms)
+  else mp_string (module_path ms) ++ "/" ++ dir.
+
+(* left-cancellation and right-identity for string append (small leaf helpers; no collection). *)
+Lemma string_app_cancel_l : forall a b c, (a ++ b)%string = (a ++ c)%string -> b = c.
+Proof. induction a as [|x a IH]; simpl; intros b c H; [exact H | injection H as H; exact (IH b c H)]. Qed.
+Lemma string_app_empty_r : forall s, (s ++ "")%string = s.
+Proof. induction s as [|c s IH]; simpl; [reflexivity | rewrite IH; reflexivity]. Qed.
+
+Lemma package_import_path_root : forall ms, package_import_path ms "" = mp_string (module_path ms).
+Proof. intro ms. reflexivity. Qed.
+
+Lemma package_import_path_nested : forall ms dir, dir <> "" ->
+  package_import_path ms dir = mp_string (module_path ms) ++ "/" ++ dir.
+Proof.
+  intros ms dir Hd. unfold package_import_path.
+  destruct (String.eqb dir "") eqn:E; [ apply String.eqb_eq in E; contradiction | reflexivity ].
+Qed.
+
+(* deterministic: a pure function of (ModuleSpec, package key). *)
+Lemma package_import_path_deterministic : forall ms1 ms2 dir1 dir2,
+  ms1 = ms2 -> dir1 = dir2 -> package_import_path ms1 dir1 = package_import_path ms2 dir2.
+Proof. intros ms1 ms2 d1 d2 -> ->. reflexivity. Qed.
+
+(* injective in the package key under a fixed ModuleSpec (distinct dirs -> distinct import paths). *)
+Lemma package_import_path_inj : forall ms dir1 dir2,
+  package_import_path ms dir1 = package_import_path ms dir2 -> dir1 = dir2.
+Proof.
+  intros ms d1 d2. unfold package_import_path.
+  set (mp := mp_string (module_path ms)).
+  destruct (String.eqb d1 "") eqn:E1; destruct (String.eqb d2 "") eqn:E2; intro H.
+  - apply String.eqb_eq in E1; apply String.eqb_eq in E2; subst d1 d2; reflexivity.
+  - exfalso. apply String.eqb_eq in E1.
+    rewrite <- (string_app_empty_r mp) in H at 1. apply string_app_cancel_l in H. discriminate H.
+  - exfalso. apply String.eqb_eq in E2.
+    rewrite <- (string_app_empty_r mp) in H at 2. apply string_app_cancel_l in H. discriminate H.
+  - apply string_app_cancel_l in H. injection H as H. exact H.
+Qed.
