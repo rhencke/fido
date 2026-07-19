@@ -369,11 +369,11 @@ Print Assumptions GoCompile.visit_file_key_nodup.
 Print Assumptions GoCompile.prog_visit_key_nodup.
 Print Assumptions GoCompile.prog_expr_facts_find.
 Print Assumptions GoCompile.prog_expr_facts_eq_spec.
-(* C3 §14 — the SINGLE bottom-up const_info_step pass: computes every occurrence's exact const_info (impl = the
-   per-node spec); the whole-file statuses match occs_file; the occurrence-keyed status map holds each visited
-   occurrence's (and each conversion operand's) exact const_info — read O(1), no per-occurrence rescan. *)
-Print Assumptions GoCompile.occ_statuses_spec.
-Print Assumptions GoCompile.file_statuses_occs.
+(* C3 §14 — the occurrence-keyed status map is ONE fold over the DELIVERED visit stream ([prog_status_map],
+   reading each conversion's operand at [operand_key] from the already-folded tail via [psm_fold_find] +
+   [prog_visit_operand_closed]): its find at a visited occurrence's key is EXACTLY that occurrence's exact
+   const_info (and each conversion operand's) — one const_info_step per occurrence, no separate source
+   recursion, read O(1). *)
 Print Assumptions GoCompile.occs_file_operand.
 Print Assumptions GoCompile.prog_status_map_find.
 Print Assumptions GoCompile.prog_status_map_find_operand.

@@ -474,159 +474,6 @@ Lemma occ_expr_fact_none_nonexpr : forall o,
   GoIndex.view_expr o = None -> occ_expr_fact o = None.
 Proof. intros o Hv. unfold occ_expr_fact. rewrite Hv. reflexivity. Qed.
 
-(* ============================================================================================================
-   §14 (C3) — SINGLE BOTTOM-UP PASS.  [occ_statuses me e] computes the [const_info] of EVERY sub-occurrence of
-   [e] (keyed by its canonical local id, matching [occs_expr]) in ONE pass, each node's status derived from its
-   ONE child's already-computed status via [const_info_step] (never re-descending a subtree).  It is proved
-   EQUAL to the per-node [const_info] specification [statuses_spec], so the analysis reads each occurrence's
-   status in O(1) — no recursive [const_info] rescan per occurrence.
-   ============================================================================================================ *)
-
-Definition hd_status (l : list (positive * option ConstInfo)) : option ConstInfo :=
-  match l with (_, cs) :: _ => cs | [] => None end.
-
-Fixpoint occ_statuses (me : positive) (e : GoExpr) : list (positive * option ConstInfo) :=
-  match e with
-  | EIntConvert _ x     => let subs := occ_statuses (Pos.succ me) x in (me, const_info_step e (hd_status subs)) :: subs
-  | EFloatConvert _ x   => let subs := occ_statuses (Pos.succ me) x in (me, const_info_step e (hd_status subs)) :: subs
-  | EComplexConvert _ x => let subs := occ_statuses (Pos.succ me) x in (me, const_info_step e (hd_status subs)) :: subs
-  | _ => [(me, const_info_step e None)]
-  end.
-
-(* the per-node SPECIFICATION: each occurrence's status is its subexpression's [const_info] (the existing
-   recursive authority), one entry per occurrence in canonical [occs_expr] order. *)
-Fixpoint statuses_spec (me : positive) (e : GoExpr) : list (positive * option ConstInfo) :=
-  match e with
-  | EIntConvert _ x     => (me, const_info e) :: statuses_spec (Pos.succ me) x
-  | EFloatConvert _ x   => (me, const_info e) :: statuses_spec (Pos.succ me) x
-  | EComplexConvert _ x => (me, const_info e) :: statuses_spec (Pos.succ me) x
-  | _ => [(me, const_info e)]
-  end.
-
-Lemma hd_status_spec : forall me e, hd_status (statuses_spec me e) = const_info e.
-Proof. intros me e; destruct e; reflexivity. Qed.
-
-(** the single bottom-up [const_info_step] pass computes EXACTLY the per-node [const_info] — the impl equals
-    the spec, so no per-occurrence recursion is needed to obtain any occurrence's status. *)
-Lemma occ_statuses_spec : forall e me, occ_statuses me e = statuses_spec me e.
-Proof.
-  intros e; induction e as [ b|n1|n2|s| it x IHx | df | ft x IHx | dcx | ct x IHx ]; intro me;
-    try reflexivity;
-    (cbn [occ_statuses statuses_spec]; rewrite !(IHx (Pos.succ me)); do 2 f_equal;
-     rewrite hd_status_spec; symmetry; apply const_info_step_reflect).
-Qed.
-
-(** hence each entry carries its subexpression's exact [const_info] (the head is the whole node's). *)
-Lemma occ_statuses_head : forall me e, hd_status (occ_statuses me e) = const_info e.
-Proof. intros me e. rewrite occ_statuses_spec. apply hd_status_spec. Qed.
-
-(* ---- lift the single pass to the whole file, matching [occs_file]'s expression occurrences ---- *)
-
-(* the per-node [const_info] SPEC over an occurrence stream: keep each EXPRESSION occurrence's (id, const_info),
-   drop non-expression occurrences (file / package clause / statement / declaration have no const status). *)
-Definition expr_statuses_of_occs (l : list (positive * GoIndex.SourceOccurrence)) : list (positive * option ConstInfo) :=
-  fold_right (fun idocc acc =>
-    match GoIndex.view_expr (snd idocc) with
-    | Some e => (fst idocc, const_info e) :: acc
-    | None => acc
-    end) [] l.
-
-Lemma expr_statuses_of_occs_cons : forall x l,
-  expr_statuses_of_occs (x :: l)
-  = match GoIndex.view_expr (snd x) with
-    | Some e => (fst x, const_info e) :: expr_statuses_of_occs l
-    | None => expr_statuses_of_occs l end.
-Proof. reflexivity. Qed.
-
-Lemma expr_statuses_of_occs_app : forall a b,
-  expr_statuses_of_occs (a ++ b) = expr_statuses_of_occs a ++ expr_statuses_of_occs b.
-Proof.
-  induction a as [|x a IH]; intro b; [reflexivity|].
-  rewrite <- app_comm_cons, !expr_statuses_of_occs_cons, IH.
-  destruct (GoIndex.view_expr (snd x)); reflexivity.
-Qed.
-
-(* the single-pass expression status list mirrors [occs_expr]'s (all-expression) occurrences exactly. *)
-Lemma statuses_spec_expr_occs : forall e parent role me,
-  statuses_spec me e = expr_statuses_of_occs (GoIndex.occs_expr parent role me e).
-Proof.
-  induction e as [ b|n1|n2|s| it x IHx | df | ft x IHx | dcx | ct x IHx ]; intros parent role me;
-    try reflexivity;
-    (cbn [statuses_spec GoIndex.occs_expr expr_statuses_of_occs GoIndex.view_expr GoIndex.occurrence_view snd fst];
-     rewrite (IHx me GoIndex.RConversionOperand (Pos.succ me)); reflexivity).
-Qed.
-
-(* the whole-file single pass, mirroring [occs_file] (statements / declarations contribute only their args). *)
-Fixpoint status_args (me : positive) (es : list GoExpr) : list (positive * option ConstInfo) :=
-  match es with
-  | [] => []
-  | e :: rest => occ_statuses me e ++ status_args (Pos.succ (GoIndex.end_expr me e)) rest
-  end.
-Definition status_stmt (me : positive) (s : GoStmt) : list (positive * option ConstInfo) :=
-  match s with SPrintln args => status_args (Pos.succ me) args end.
-Fixpoint status_stmts (me : positive) (ss : list GoStmt) : list (positive * option ConstInfo) :=
-  match ss with
-  | [] => []
-  | s :: rest => status_stmt me s ++ status_stmts (Pos.succ (GoIndex.end_stmt me s)) rest
-  end.
-Definition status_decl (me : positive) (d : GoDecl) : list (positive * option ConstInfo) :=
-  match d with DMain body => status_stmts (Pos.succ me) body end.
-Fixpoint status_decls (me : positive) (ds : list GoDecl) : list (positive * option ConstInfo) :=
-  match ds with
-  | [] => []
-  | d :: rest => status_decl me d ++ status_decls (Pos.succ (GoIndex.end_decl me d)) rest
-  end.
-Definition file_statuses (f : GoSourceFile) : list (positive * option ConstInfo) :=
-  status_decls (Pos.succ GoIndex.pkg_id) (source_decls f).
-
-Lemma status_args_occs : forall es parent aidx me,
-  status_args me es = expr_statuses_of_occs (GoIndex.occs_args parent aidx me es).
-Proof.
-  induction es as [|e rest IH]; intros parent aidx me; [reflexivity|].
-  cbn [status_args GoIndex.occs_args]. rewrite expr_statuses_of_occs_app. f_equal.
-  - unfold GoIndex.occs_arg. rewrite occ_statuses_spec. apply statuses_spec_expr_occs.
-  - apply IH.
-Qed.
-
-Lemma status_stmt_occs : forall s parent sidx me,
-  status_stmt me s = expr_statuses_of_occs (GoIndex.occs_stmt parent sidx me s).
-Proof.
-  intros [args] parent sidx me.
-  cbn [status_stmt GoIndex.occs_stmt expr_statuses_of_occs GoIndex.view_expr GoIndex.occurrence_view snd].
-  apply status_args_occs.
-Qed.
-
-Lemma status_stmts_occs : forall ss parent sidx me,
-  status_stmts me ss = expr_statuses_of_occs (GoIndex.occs_stmts parent sidx me ss).
-Proof.
-  induction ss as [|s rest IH]; intros parent sidx me; [reflexivity|].
-  cbn [status_stmts GoIndex.occs_stmts]. rewrite expr_statuses_of_occs_app. f_equal;
-    [ apply status_stmt_occs | apply IH ].
-Qed.
-
-Lemma status_decl_occs : forall d parent didx me,
-  status_decl me d = expr_statuses_of_occs (GoIndex.occs_decl parent didx me d).
-Proof.
-  intros [body] parent didx me.
-  cbn [status_decl GoIndex.occs_decl expr_statuses_of_occs GoIndex.view_expr GoIndex.occurrence_view snd].
-  apply status_stmts_occs.
-Qed.
-
-Lemma status_decls_occs : forall ds parent didx me,
-  status_decls me ds = expr_statuses_of_occs (GoIndex.occs_decls parent didx me ds).
-Proof.
-  induction ds as [|d rest IH]; intros parent didx me; [reflexivity|].
-  cbn [status_decls GoIndex.occs_decls]. rewrite expr_statuses_of_occs_app. f_equal;
-    [ apply status_decl_occs | apply IH ].
-Qed.
-
-(** the file's single-pass statuses ARE the per-node [const_info] of its expression occurrences (IMPL = SPEC). *)
-Lemma file_statuses_occs : forall f, file_statuses f = expr_statuses_of_occs (GoIndex.occs_file f).
-Proof.
-  intro f. unfold file_statuses, GoIndex.occs_file. destruct (source_imports f) as [|i tl]; [| destruct i].
-  cbn [expr_statuses_of_occs GoIndex.view_expr GoIndex.occurrence_view snd].
-  apply status_decls_occs.
-Qed.
 
 (** the per-file expression-fact map: fold the §19 visit stream, keying each occurrence's fact by its NodeKey.
     Non-expression / const_info-failed occurrences contribute nothing.  Because [visit_file] keys are DISTINCT
@@ -778,125 +625,10 @@ Qed.
 (* [prog_expr_facts] is defined below as the SINGLE-PASS fold reading [prog_status_map] (no per-occurrence
    [const_info]); [add_occ_fact] above is its per-node SPECIFICATION, used only to state exactness. *)
 
-(* ============================================================================================================
-   §14 (C3) — the OCCURRENCE-KEYED STATUS MAP.  A standard NodeKey map holding EACH expression occurrence's
-   [const_info], populated from the whole-file SINGLE PASS ([file_statuses], no per-occurrence rescan) keyed by
-   the index's canonical NodeKey.  Its find at a visited occurrence's key is EXACTLY that occurrence's
-   [const_info] — so the fact/diagnostic pass reads a status in O(1) instead of recomputing [const_info].
-   ============================================================================================================ *)
 
-(* an expression occurrence contributes its (id, const_info view) to the per-node status list. *)
-Lemma expr_statuses_of_occs_in : forall l id occ e,
-  In (id, occ) l -> GoIndex.view_expr occ = Some e -> In (id, const_info e) (expr_statuses_of_occs l).
-Proof.
-  induction l as [|[id0 occ0] rest IH]; intros id occ e Hin Hv; [destruct Hin|].
-  rewrite expr_statuses_of_occs_cons; cbn [fst snd]. destruct Hin as [Heq|Hin].
-  - injection Heq as <- <-. rewrite Hv. left; reflexivity.
-  - destruct (GoIndex.view_expr occ0); [ right | ]; apply (IH id occ e Hin Hv).
-Qed.
-
-Lemma expr_statuses_fst_sub : forall l id,
-  In id (map fst (expr_statuses_of_occs l)) -> In id (map fst l).
-Proof.
-  induction l as [|[id0 occ0] rest IH]; intros id Hin; [exact Hin|].
-  rewrite expr_statuses_of_occs_cons in Hin; cbn [fst snd] in *.
-  destruct (GoIndex.view_expr occ0) as [e|]; cbn [map fst] in Hin.
-  - destruct Hin as [->|Hin]; [left; reflexivity | right; apply IH; exact Hin].
-  - right; apply IH; exact Hin.
-Qed.
-
-Lemma nodup_expr_statuses : forall l,
-  NoDup (map fst l) -> NoDup (map fst (expr_statuses_of_occs l)).
-Proof.
-  induction l as [|[id occ] rest IH]; intro Hnd; [constructor|].
-  cbn [map fst] in Hnd. apply NoDup_cons_iff in Hnd. destruct Hnd as [Hni Hnd'].
-  rewrite expr_statuses_of_occs_cons; cbn [fst snd]. destruct (GoIndex.view_expr occ) as [e|].
-  - cbn [map fst]. constructor; [ intro Hin; apply Hni, expr_statuses_fst_sub; exact Hin | apply IH; exact Hnd' ].
-  - apply IH; exact Hnd'.
-Qed.
-
-Definition binding_statuses (b : FilePath * GoSourceFile) : list (GoIndex.NodeKey * option ConstInfo) :=
-  map (fun idst => (GoIndex.mkKey (fst b) (fst idst), snd idst)) (file_statuses (snd b)).
-
-Definition status_kvs (p : GoProgram) : list (GoIndex.NodeKey * option ConstInfo) :=
-  flat_map binding_statuses (GoAST.file_bindings (prog_files p)).
-
-Definition prog_status_map (p : GoProgram) : GoIndex.NodeKeyMapBase.t (option ConstInfo) :=
-  fold_right (fun kv m => GoIndex.NodeKeyMapBase.add (fst kv) (snd kv) m)
-    (GoIndex.NodeKeyMapBase.empty (option ConstInfo)) (status_kvs p).
-
-Lemma fold_kv_find {A} (l : list (GoIndex.NodeKey * A)) k v :
-  NoDup (map fst l) -> In (k, v) l ->
-  GoIndex.NodeKeyMapBase.find k
-    (fold_right (fun kv m => GoIndex.NodeKeyMapBase.add (fst kv) (snd kv) m) (GoIndex.NodeKeyMapBase.empty A) l) = Some v.
-Proof.
-  induction l as [|[k0 v0] rest IH]; intros Hnd Hin; [destruct Hin|].
-  cbn [map fst] in Hnd. apply NoDup_cons_iff in Hnd. destruct Hnd as [Hni Hnd'].
-  cbn [fold_right fst snd]. destruct Hin as [Heq|Hin].
-  - injection Heq as -> ->. rewrite GoIndex.nodekeymap_add_eq. reflexivity.
-  - assert (Hk : k <> k0).
-    { intro He. apply Hni. subst k0. apply in_map_iff. exists (k, v). split; [reflexivity | exact Hin]. }
-    rewrite GoIndex.nodekeymap_add_neq by (intro He; apply Hk; symmetry; exact He).
-    exact (IH Hnd' Hin).
-Qed.
-
-Lemma binding_statuses_fst_file : forall b k,
-  In k (map fst (binding_statuses b)) -> GoIndex.nk_file k = fst b.
-Proof.
-  intros b k Hin. unfold binding_statuses in Hin. rewrite map_map in Hin; cbn [fst] in Hin.
-  apply in_map_iff in Hin. destruct Hin as [idst [Hk _]]. subst k. reflexivity.
-Qed.
-
-Lemma binding_statuses_nodup : forall b, NoDup (map fst (binding_statuses b)).
-Proof.
-  intro b. unfold binding_statuses. rewrite map_map; cbn [fst].
-  rewrite <- (map_map (@fst positive (option ConstInfo)) (GoIndex.mkKey (fst b))).
-  apply NoDup_map_inj; [ intros x y H; injection H as H; exact H |].
-  rewrite file_statuses_occs. apply nodup_expr_statuses. apply GoIndex.occs_file_nodup.
-Qed.
-
-Lemma status_kvs_nodup (p : GoProgram) : NoDup (map fst (status_kvs p)).
-Proof.
-  unfold status_kvs. rewrite map_flat_map.
-  apply (nodup_flat_map_tag (fun b => map fst (binding_statuses b)) GoIndex.nk_file (fun b => fst b)
-           (GoAST.file_bindings (prog_files p))).
-  - intros b _. apply binding_statuses_nodup.
-  - intros b k _ Hin. apply binding_statuses_fst_file; exact Hin.
-  - apply GoAST.file_bindings_nodup_keys.
-Qed.
-
-Lemma status_kvs_in (p : GoProgram) (r : GoIndex.Snap.NodeRef p) occ e :
-  In (r, occ) (prog_visit p) -> GoIndex.view_expr occ = Some e ->
-  In (GoIndex.Snap.node_ref_key r, const_info e) (status_kvs p).
-Proof.
-  intros Hin Hv. unfold prog_visit in Hin. apply in_flat_map in Hin. destruct Hin as [b [Hb Hrb]].
-  unfold status_kvs. apply in_flat_map. exists b. split; [exact Hb|].
-  unfold binding_visit in Hrb.
-  destruct (GoIndex.Snap.file_of_path p (fst b)) as [fr|] eqn:Ef; [|destruct Hrb].
-  pose proof (GoIndex.Snap.visit_file_view p fr r occ Hrb) as [Hocc Hfile].
-  assert (Hsrc_at : GoIndex.source_occurrence_at (GoIndex.Snap.file_ref_source fr) (GoIndex.Snap.node_ref_local r) = Some occ).
-  { pose proof (GoIndex.Snap.source_occ_of_ref_eq r) as Hso. rewrite Hfile in Hso. rewrite Hso, Hocc. reflexivity. }
-  apply GoIndex.occs_file_exact in Hsrc_at.
-  assert (Hfs : In (GoIndex.Snap.node_ref_local r, const_info e) (file_statuses (GoIndex.Snap.file_ref_source fr))).
-  { rewrite file_statuses_occs. exact (expr_statuses_of_occs_in _ _ occ e Hsrc_at Hv). }
-  pose proof (GoAST.file_bindings_find (prog_files p) b Hb) as Hfind.
-  destruct (GoIndex.Snap.file_of_path_source p (fst b) (snd b) Hfind) as [fr' [Hfop' [Hpath' Hsrc']]].
-  rewrite Ef in Hfop'. injection Hfop' as <-.
-  unfold binding_statuses. apply in_map_iff.
-  exists (GoIndex.Snap.node_ref_local r, const_info e). split; cbn [fst snd].
-  - rewrite GoIndex.Snap.node_ref_key_eq, Hfile, Hpath'. reflexivity.
-  - rewrite <- Hsrc'; exact Hfs.
-Qed.
-
-(** STATUS-MAP EXACTNESS: at each visited expression occurrence's key, the status map holds exactly that
-    occurrence's [const_info] (obtained from ONE structural pass — no per-occurrence [const_info] rescan). *)
-Lemma prog_status_map_find (p : GoProgram) (r : GoIndex.Snap.NodeRef p) occ e :
-  In (r, occ) (prog_visit p) -> GoIndex.view_expr occ = Some e ->
-  GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key r) (prog_status_map p) = Some (const_info e).
-Proof.
-  intros Hin Hv. unfold prog_status_map.
-  apply fold_kv_find; [ apply status_kvs_nodup | exact (status_kvs_in p r occ e Hin Hv) ].
-Qed.
+(* the occurrence status map + its exactness are built below as ONE fold over the delivered visit stream
+   ([prog_status_map] / [prog_status_map_find] / [prog_status_map_find_operand]), replacing the former
+   [file_statuses] source recursion. *)
 
 (* ---- OPERAND ADJACENCY: a conversion occurrence at [me] has its operand occurrence at [Pos.succ me] (the
    index's canonical child id), so a conversion's operand status is read from [prog_status_map] at the operand
@@ -1010,45 +742,6 @@ Proof.
   - destruct (occs_decls_operand (source_decls f) GoIndex.root_id 0 (Pos.succ GoIndex.pkg_id) me occ ce x Hin Hv Hc)
       as [occ' [Hin' Hv']].
     exists occ'. split; [right; right; exact Hin' | exact Hv'].
-Qed.
-
-(** the OPERAND of a visited conversion contributes its [const_info] to [status_kvs] at the operand key. *)
-Lemma status_kvs_in_operand (p : GoProgram) (r : GoIndex.Snap.NodeRef p) occ e x :
-  In (r, occ) (prog_visit p) -> GoIndex.view_expr occ = Some e -> expr_child e = Some x ->
-  In (GoIndex.mkKey (GoIndex.nk_file (GoIndex.Snap.node_ref_key r)) (Pos.succ (GoIndex.Snap.node_ref_local r)), const_info x)
-     (status_kvs p).
-Proof.
-  intros Hin Hv Hc. unfold prog_visit in Hin. apply in_flat_map in Hin. destruct Hin as [b [Hb Hrb]].
-  unfold status_kvs. apply in_flat_map. exists b. split; [exact Hb|].
-  unfold binding_visit in Hrb.
-  destruct (GoIndex.Snap.file_of_path p (fst b)) as [fr|] eqn:Ef; [|destruct Hrb].
-  pose proof (GoIndex.Snap.visit_file_view p fr r occ Hrb) as [Hocc Hfile].
-  assert (Hsrc_at : GoIndex.source_occurrence_at (GoIndex.Snap.file_ref_source fr) (GoIndex.Snap.node_ref_local r) = Some occ).
-  { pose proof (GoIndex.Snap.source_occ_of_ref_eq r) as Hso. rewrite Hfile in Hso. rewrite Hso, Hocc. reflexivity. }
-  apply GoIndex.occs_file_exact in Hsrc_at.
-  destruct (occs_file_operand (GoIndex.Snap.file_ref_source fr) (GoIndex.Snap.node_ref_local r) occ e x Hsrc_at Hv Hc)
-    as [occ' [Hin' Hv']].
-  assert (Hfs : In (Pos.succ (GoIndex.Snap.node_ref_local r), const_info x) (file_statuses (GoIndex.Snap.file_ref_source fr))).
-  { rewrite file_statuses_occs. exact (expr_statuses_of_occs_in _ _ occ' x Hin' Hv'). }
-  pose proof (GoAST.file_bindings_find (prog_files p) b Hb) as Hfind.
-  destruct (GoIndex.Snap.file_of_path_source p (fst b) (snd b) Hfind) as [fr' [Hfop' [Hpath' Hsrc']]].
-  rewrite Ef in Hfop'. injection Hfop' as <-.
-  unfold binding_statuses. apply in_map_iff.
-  exists (Pos.succ (GoIndex.Snap.node_ref_local r), const_info x). split; cbn [fst snd].
-  - rewrite GoIndex.Snap.node_ref_key_eq; cbn [GoIndex.nk_file]. rewrite Hfile, Hpath'. reflexivity.
-  - rewrite <- Hsrc'; exact Hfs.
-Qed.
-
-(** STATUS-MAP OPERAND EXACTNESS: the operand key of a visited conversion holds the operand's exact
-    [const_info] — so [local_conv_failure]'s operand status is a map read, not a subtree rescan. *)
-Lemma prog_status_map_find_operand (p : GoProgram) (r : GoIndex.Snap.NodeRef p) occ e x :
-  In (r, occ) (prog_visit p) -> GoIndex.view_expr occ = Some e -> expr_child e = Some x ->
-  GoIndex.NodeKeyMapBase.find
-    (GoIndex.mkKey (GoIndex.nk_file (GoIndex.Snap.node_ref_key r)) (Pos.succ (GoIndex.Snap.node_ref_local r)))
-    (prog_status_map p) = Some (const_info x).
-Proof.
-  intros Hin Hv Hc. unfold prog_status_map.
-  apply fold_kv_find; [ apply status_kvs_nodup | exact (status_kvs_in_operand p r occ e x Hin Hv Hc) ].
 Qed.
 
 (* ============================================================================================================
@@ -1238,6 +931,224 @@ Proof.
           GoIndex.Snap.file_ref_source (GoIndex.Snap.node_ref_file r)).
   split; [exact Hin_b|]. unfold binding_visit; cbn [fst].
   rewrite Hcomp. apply GoIndex.Snap.visit_file_complete. reflexivity.
+Qed.
+
+(* ============================================================================================================
+   §14 (C3) — the OCCURRENCE STATUS MAP as a fold over the DELIVERED visit stream (no separate source recursion).
+   [operand_key r] is the canonical child (operand) key of a conversion at [r] (same file, [Pos.succ local]).  The one
+   bottom-up pass ([status_step], folded right-to-left over the preorder [prog_visit]) stores each expression
+   occurrence's [const_info] via ONE [const_info_step], reading its operand's status at [operand_key] from the
+   ALREADY-FOLDED tail (the operand is a LATER preorder node, so it was folded first).
+   ============================================================================================================ *)
+
+Definition operand_key {p} (r : GoIndex.Snap.NodeRef p) : GoIndex.NodeKey :=
+  GoIndex.mkKey (GoIndex.nk_file (GoIndex.Snap.node_ref_key r)) (Pos.succ (GoIndex.Snap.node_ref_local r)).
+
+(* the operand of a visited conversion is ITSELF a visited occurrence whose key is [operand_key] and whose view is the
+   operand expression (minted through the index from its exact local id). *)
+Lemma prog_visit_operand (p : GoProgram) (r : GoIndex.Snap.NodeRef p) occ e x :
+  In (r, occ) (prog_visit p) -> GoIndex.view_expr occ = Some e -> expr_child e = Some x ->
+  exists r', In (r', GoIndex.Snap.source_occurrence_of_ref r') (prog_visit p)
+    /\ GoIndex.Snap.node_ref_key r' = operand_key r
+    /\ GoIndex.view_expr (GoIndex.Snap.source_occurrence_of_ref r') = Some x.
+Proof.
+  intros Hin Hv Hc.
+  unfold prog_visit in Hin. apply in_flat_map in Hin. destruct Hin as [b [Hb Hrb]].
+  unfold binding_visit in Hrb. destruct (GoIndex.Snap.file_of_path p (fst b)) as [fr|] eqn:Ef; [|destruct Hrb].
+  pose proof (GoIndex.Snap.visit_file_view p fr r occ Hrb) as [Hocc Hfile].
+  assert (Hsrc : GoIndex.source_occurrence_at (GoIndex.Snap.file_ref_source fr) (GoIndex.Snap.node_ref_local r) = Some occ).
+  { pose proof (GoIndex.Snap.source_occ_of_ref_eq r) as Hso. rewrite Hfile in Hso. rewrite Hso, Hocc. reflexivity. }
+  apply GoIndex.occs_file_exact in Hsrc.
+  destruct (occs_file_operand (GoIndex.Snap.file_ref_source fr) (GoIndex.Snap.node_ref_local r) occ e x Hsrc Hv Hc)
+    as [occ' [Hin' Hvx]].
+  apply GoIndex.occs_file_exact in Hin'.
+  assert (Hvalid : GoIndex.valid_localb (GoIndex.Snap.file_ref_source fr) (Pos.succ (GoIndex.Snap.node_ref_local r)) = true).
+  { unfold GoIndex.valid_localb.
+    rewrite (GoIndex.source_occurrence_meta (GoIndex.Snap.file_ref_source fr)
+               (Pos.succ (GoIndex.Snap.node_ref_local r)) occ' Hin'). reflexivity. }
+  pose proof (GoIndex.Snap.file_of_path_source_exact p (fst b) fr Ef) as Hfind.
+  pose proof (GoIndex.Snap.file_of_path_sound p (fst b) fr Ef) as Hpath.
+  assert (Hfind' : GoAST.find_file (GoIndex.Snap.file_ref_path fr) (prog_files p) = Some (GoIndex.Snap.file_ref_source fr))
+    by (rewrite Hpath; exact Hfind).
+  destruct (GoIndex.Snap.ref_of_key_source p (GoIndex.indexed_syntax (GoIndex.index_program p))
+              (GoIndex.Snap.file_ref_path fr) (GoIndex.Snap.file_ref_source fr)
+              (Pos.succ (GoIndex.Snap.node_ref_local r)) Hfind' Hvalid) as [r' [Hrok [Hrlocal Hrsrc]]].
+  exists r'.
+  assert (Hkey : GoIndex.Snap.node_ref_key r' = operand_key r).
+  { pose proof (GoIndex.Snap.ref_of_key_sound p (GoIndex.indexed_syntax (GoIndex.index_program p)) _ r' Hrok) as Hk.
+    rewrite Hk. unfold operand_key. rewrite GoIndex.Snap.node_ref_key_eq. cbn [GoIndex.nk_file]. rewrite Hfile. reflexivity. }
+  assert (Hsor : GoIndex.Snap.source_occurrence_of_ref r' = occ').
+  { pose proof (GoIndex.Snap.source_occ_of_ref_eq r') as Hso'.
+    rewrite Hrlocal, Hrsrc in Hso'.
+    rewrite Hin' in Hso'. injection Hso' as ->. reflexivity. }
+  split; [ | split ].
+  - apply noderef_in_prog_visit.
+  - exact Hkey.
+  - rewrite Hsor; exact Hvx.
+Qed.
+
+(* the one bottom-up step: a non-expression occurrence contributes nothing; an expression occurrence stores its
+   [const_info] computed by ONE [const_info_step], reading its operand's status at [operand_key] from the accumulator. *)
+Definition psm_step {p} (ro : GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence)
+    (m : GoIndex.NodeKeyMapBase.t (option ConstInfo)) : GoIndex.NodeKeyMapBase.t (option ConstInfo) :=
+  match GoIndex.view_expr (snd ro) with
+  | None => m
+  | Some e =>
+      GoIndex.NodeKeyMapBase.add (GoIndex.Snap.node_ref_key (fst ro))
+        (GoTypes.const_info_step e
+           match expr_child e with
+           | Some _ => match GoIndex.NodeKeyMapBase.find (operand_key (fst ro)) m with Some s => s | None => None end
+           | None => None
+           end) m
+  end.
+
+Definition prog_status_map (p : GoProgram) : GoIndex.NodeKeyMapBase.t (option ConstInfo) :=
+  fold_right psm_step (GoIndex.NodeKeyMapBase.empty (option ConstInfo)) (prog_visit p).
+
+(* the fold's find at a visited expression occurrence's key is EXACTLY its [const_info]: for a leaf,
+   [const_info_step] ignores the (absent) child; for a conversion, the operand — a LATER preorder node, so it is
+   in the ALREADY-FOLDED tail [l2] (the [OperandClosed] hypothesis) — has its own exact status by the induction
+   hypothesis, and [const_info_step_reflect] recombines it into the node's [const_info].  Keys are distinct
+   (NoDup), so no later add disturbs an earlier occurrence's stored status. *)
+Lemma psm_fold_find {p} (L : list (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence)) :
+  NoDup (map (fun ro => GoIndex.Snap.node_ref_key (fst ro)) L) ->
+  (forall l1 r occ l2, L = l1 ++ (r, occ) :: l2 ->
+     forall e x, GoIndex.view_expr occ = Some e -> expr_child e = Some x ->
+     exists r' occ', GoIndex.Snap.node_ref_key r' = operand_key r /\ GoIndex.view_expr occ' = Some x /\ In (r', occ') l2) ->
+  forall r occ e, In (r, occ) L -> GoIndex.view_expr occ = Some e ->
+    GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key r)
+      (fold_right psm_step (GoIndex.NodeKeyMapBase.empty (option ConstInfo)) L) = Some (const_info e).
+Proof.
+  induction L as [|[r0 occ0] t IH]; intros Hnd Hoc r occ e Hin Hv; [ destruct Hin |].
+  cbn [map fst] in Hnd. apply NoDup_cons_iff in Hnd. destruct Hnd as [Hni Hnd'].
+  assert (Hoct : forall l1 r' occ' l2, t = l1 ++ (r', occ') :: l2 ->
+     forall e' x, GoIndex.view_expr occ' = Some e' -> expr_child e' = Some x ->
+     exists r'' occ'', GoIndex.Snap.node_ref_key r'' = operand_key r' /\ GoIndex.view_expr occ'' = Some x /\ In (r'', occ'') l2).
+  { intros l1 r' occ' l2 Ht e' x Hv' Hc'.
+    refine (Hoc ((r0, occ0) :: l1) r' occ' l2 _ e' x Hv' Hc').
+    cbn [app]; rewrite Ht; reflexivity. }
+  cbn [fold_right].
+  destruct Hin as [Heq|Hin].
+  - injection Heq as Hr0 Hocc0; subst r0; subst occ0.
+    unfold psm_step at 1; cbn [fst snd]. rewrite Hv, GoIndex.nodekeymap_add_eq. f_equal.
+    rewrite (GoTypes.const_info_step_reflect e).
+    destruct (expr_child e) as [x|] eqn:Ec.
+    + destruct (Hoc [] r occ t eq_refl e x Hv Ec) as [r' [occ' [Hk [Hvx Hin']]]].
+      rewrite <- Hk, (IH Hnd' Hoct r' occ' x Hin' Hvx). reflexivity.
+    + reflexivity.
+  - unfold psm_step at 1; cbn [fst snd].
+    destruct (GoIndex.view_expr occ0) as [e0|] eqn:Hv0.
+    + rewrite GoIndex.nodekeymap_add_neq; [ exact (IH Hnd' Hoct r occ e Hin Hv) |].
+      intro Hkeq. apply Hni. apply in_map_iff. exists (r, occ). split; [ cbn [fst]; congruence | exact Hin ].
+    + exact (IH Hnd' Hoct r occ e Hin Hv).
+Qed.
+
+(* ---- OPERAND-CLOSURE of the visit stream (discharges [psm_fold_find]'s side condition): a conversion's
+   operand is a LATER preorder node in the SAME file, so it lies in the ALREADY-FOLDED tail [l2]. ---- *)
+
+Lemma SS_prefix_lt {A} (R : A -> A -> Prop) (a : list A) (v : A) (b : list A) :
+  StronglySorted R (a ++ v :: b) -> Forall (fun z => R z v) a.
+Proof.
+  induction a as [|y a IH]; intro Hss; [constructor|].
+  cbn [app] in Hss. apply StronglySorted_inv in Hss. destruct Hss as [Hss Hall].
+  constructor; [ rewrite Forall_forall in Hall; apply Hall, in_or_app; right; left; reflexivity | apply IH; exact Hss ].
+Qed.
+
+Lemma ss_after_local {p} (l : list (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence)) P y S :
+  StronglySorted Pos.lt (map (fun rc => GoIndex.Snap.node_ref_local (fst rc)) l) ->
+  l = P ++ y :: S ->
+  forall z, In z l -> (GoIndex.Snap.node_ref_local (fst y) < GoIndex.Snap.node_ref_local (fst z))%positive -> In z S.
+Proof.
+  intros Hss Hsplit z Hz Hlt. subst l. rewrite map_app in Hss. cbn [map] in Hss.
+  pose proof (SS_prefix_lt _ (map (fun rc => GoIndex.Snap.node_ref_local (fst rc)) P)
+                (GoIndex.Snap.node_ref_local (fst y))
+                (map (fun rc => GoIndex.Snap.node_ref_local (fst rc)) S) Hss) as Hpre.
+  apply in_app_or in Hz. destruct Hz as [HzP | [Hzy | HzS]].
+  - exfalso. rewrite Forall_forall in Hpre.
+    assert (Hzin : In (GoIndex.Snap.node_ref_local (fst z)) (map (fun rc => GoIndex.Snap.node_ref_local (fst rc)) P))
+      by (apply in_map_iff; exists z; split; [reflexivity | exact HzP]).
+    exact (Pos.lt_irrefl _ (Pos.lt_trans _ _ _ Hlt (Hpre _ Hzin))).
+  - subst z. exact (False_ind _ (Pos.lt_irrefl _ Hlt)).
+  - exact HzS.
+Qed.
+
+Lemma split_unique {A} (x : A) (l1 l2 a b : list A) :
+  l1 ++ x :: l2 = a ++ x :: b -> ~ In x l1 -> ~ In x a -> l2 = b.
+Proof.
+  revert a; induction l1 as [|y l1 IH]; intros a Heq Hnl1 Hna.
+  - destruct a as [|z a]; cbn [app] in Heq.
+    + injection Heq as Hrest. exact Hrest.
+    + injection Heq as He Hrest. exfalso. apply Hna. left. symmetry; exact He.
+  - destruct a as [|z a]; cbn [app] in Heq.
+    + injection Heq as He Hrest. exfalso. apply Hnl1. left. exact He.
+    + injection Heq as He Hrest. apply (IH a Hrest);
+        [ intro Hbad; apply Hnl1; right; exact Hbad | intro Hbad; apply Hna; right; exact Hbad ].
+Qed.
+
+Lemma prog_visit_not_in_prefix {p} (L : list (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence)) l1 r occ l2 :
+  NoDup (map (fun ro => GoIndex.Snap.node_ref_key (fst ro)) L) -> L = l1 ++ (r, occ) :: l2 -> ~ In (r, occ) l1.
+Proof.
+  intros Hnd HL Hbad. rewrite HL, map_app in Hnd. cbn [map fst] in Hnd.
+  apply NoDup_remove_2 in Hnd. apply Hnd, in_or_app. left.
+  apply in_map_iff. exists (r, occ). split; [reflexivity | exact Hbad].
+Qed.
+
+Lemma prog_visit_operand_closed (p : GoProgram) :
+  forall l1 r occ l2, prog_visit p = l1 ++ (r, occ) :: l2 ->
+    forall e x, GoIndex.view_expr occ = Some e -> expr_child e = Some x ->
+    exists r' occ', GoIndex.Snap.node_ref_key r' = operand_key r /\ GoIndex.view_expr occ' = Some x /\ In (r', occ') l2.
+Proof.
+  intros l1 r occ l2 Hsplit e x Hv Hc.
+  assert (Hin_ro : In (r, occ) (prog_visit p)) by (rewrite Hsplit; apply in_or_app; right; left; reflexivity).
+  destruct (prog_visit_operand p r occ e x Hin_ro Hv Hc) as [r' [Hin'p [Hkey Hvx]]].
+  exists r', (GoIndex.Snap.source_occurrence_of_ref r'). split; [exact Hkey | split; [exact Hvx |]].
+  pose proof Hin_ro as Hb0. unfold prog_visit in Hb0. apply in_flat_map in Hb0. destruct Hb0 as [b [Hb Hrb]].
+  unfold binding_visit in Hrb. destruct (GoIndex.Snap.file_of_path p (fst b)) as [fr|] eqn:Ef; [|destruct Hrb].
+  pose proof (GoIndex.Snap.visit_file_view p fr r occ Hrb) as [_ Hfile].
+  pose proof (GoIndex.Snap.node_ref_key_eq r') as Hk'. rewrite Hkey in Hk'. unfold operand_key in Hk'.
+  rewrite GoIndex.Snap.node_ref_key_eq in Hk'. cbn [GoIndex.nk_file] in Hk'. rewrite Hfile in Hk'.
+  injection Hk' as Hpatheq Hloceq.
+  assert (Hfile' : GoIndex.Snap.node_ref_file r' = fr) by (apply GoIndex.Snap.file_ref_path_inj; symmetry; exact Hpatheq).
+  pose proof (GoIndex.Snap.visit_file_complete p fr r' Hfile') as Hin'block.
+  apply in_split in Hrb. destruct Hrb as [P [S Hvfsplit]].
+  assert (Hin'S : In (r', GoIndex.Snap.source_occurrence_of_ref r') S).
+  { apply (ss_after_local (GoIndex.Snap.visit_file fr) P (r, occ) S (GoIndex.Snap.visit_file_order p fr) Hvfsplit
+             (r', GoIndex.Snap.source_occurrence_of_ref r') Hin'block).
+    cbn [fst]. rewrite <- Hloceq. apply Pos.lt_succ_diag_r. }
+  apply in_split in Hb. destruct Hb as [B1 [B2 Hbsplit]].
+  assert (Hbv : binding_visit p b = GoIndex.Snap.visit_file fr) by (unfold binding_visit; rewrite Ef; reflexivity).
+  assert (Hpv : prog_visit p = (flat_map (binding_visit p) B1 ++ P) ++ (r, occ) :: (S ++ flat_map (binding_visit p) B2)).
+  { unfold prog_visit. rewrite Hbsplit, flat_map_app. cbn [flat_map]. rewrite Hbv, Hvfsplit.
+    rewrite <- !app_assoc. reflexivity. }
+  pose proof (prog_visit_key_nodup p) as Hnd.
+  assert (Hl2 : l2 = S ++ flat_map (binding_visit p) B2).
+  { apply (split_unique (r, occ) l1 l2 (flat_map (binding_visit p) B1 ++ P) (S ++ flat_map (binding_visit p) B2)).
+    - rewrite <- Hsplit. exact Hpv.
+    - exact (prog_visit_not_in_prefix (prog_visit p) l1 r occ l2 Hnd Hsplit).
+    - exact (prog_visit_not_in_prefix (prog_visit p) (flat_map (binding_visit p) B1 ++ P) r occ
+               (S ++ flat_map (binding_visit p) B2) Hnd Hpv). }
+  rewrite Hl2. apply in_or_app. left. exact Hin'S.
+Qed.
+
+(** STATUS-MAP EXACTNESS (from the ONE visit-stream fold): at each visited expression occurrence's key, the
+    status map holds exactly that occurrence's [const_info] — read O(1), one [const_info_step] per occurrence,
+    no separate source recursion. *)
+Lemma prog_status_map_find (p : GoProgram) (r : GoIndex.Snap.NodeRef p) occ e :
+  In (r, occ) (prog_visit p) -> GoIndex.view_expr occ = Some e ->
+  GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key r) (prog_status_map p) = Some (const_info e).
+Proof.
+  intros Hin Hv. unfold prog_status_map.
+  exact (psm_fold_find (prog_visit p) (prog_visit_key_nodup p) (prog_visit_operand_closed p) r occ e Hin Hv).
+Qed.
+
+(** STATUS-MAP OPERAND EXACTNESS: the operand key of a visited conversion holds the operand's exact [const_info]
+    (the operand is itself a visited occurrence — [prog_visit_operand] — read at its own key = [operand_key]). *)
+Lemma prog_status_map_find_operand (p : GoProgram) (r : GoIndex.Snap.NodeRef p) occ e x :
+  In (r, occ) (prog_visit p) -> GoIndex.view_expr occ = Some e -> expr_child e = Some x ->
+  GoIndex.NodeKeyMapBase.find (operand_key r) (prog_status_map p) = Some (const_info x).
+Proof.
+  intros Hin Hv Hc. destruct (prog_visit_operand p r occ e x Hin Hv Hc) as [r' [Hin' [Hkey Hvx]]].
+  rewrite <- Hkey. exact (prog_status_map_find p r' (GoIndex.Snap.source_occurrence_of_ref r') x Hin' Hvx).
 Qed.
 
 (* ---- the SINGLE-PASS expression-fact map: fold the visit stream, keying each occurrence's fact by its
@@ -1505,8 +1416,6 @@ Definition occ_expr_diags {p} (idx : GoIndex.Snap.SyntaxIndex p)
    OPERAND's status from the precomputed [prog_status_map] — never recomputing [const_info].  Proved to agree
    with the [occ_expr_diags] specification on the visit stream. ---- *)
 
-Definition operand_key {p} (r : GoIndex.Snap.NodeRef p) : GoIndex.NodeKey :=
-  GoIndex.mkKey (GoIndex.nk_file (GoIndex.Snap.node_ref_key r)) (Pos.succ (GoIndex.Snap.node_ref_local r)).
 
 Definition local_conv_failure_sm {p} (smap : GoIndex.NodeKeyMapBase.t (option ConstInfo))
     (ro : GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence) : option (GoType * ConstInfo) :=
@@ -1556,7 +1465,7 @@ Lemma local_conv_failure_sm_eq {p} (r : GoIndex.Snap.NodeRef p) occ e :
   In (r, occ) (prog_visit p) -> GoIndex.view_expr occ = Some e ->
   local_conv_failure_sm (prog_status_map p) (r, occ) = local_conv_failure e.
 Proof.
-  intros Hin Hv. unfold local_conv_failure_sm, local_conv_failure, operand_key; cbn [fst snd]; rewrite Hv.
+  intros Hin Hv. unfold local_conv_failure_sm, local_conv_failure; cbn [fst snd]; rewrite Hv.
   destruct e as [ b|n1|n2|s| it x|df|ft x|dcx|ct x ]; try reflexivity.
   - rewrite (prog_status_map_find_operand p r occ (EIntConvert it x) x Hin Hv eq_refl); destruct (const_info x); reflexivity.
   - rewrite (prog_status_map_find_operand p r occ (EFloatConvert ft x) x Hin Hv eq_refl); destruct (const_info x); reflexivity.
@@ -2638,7 +2547,7 @@ Definition analyze_valid_of_no_diags (p : GoProgram) (ip : GoIndex.IndexedProgra
 Definition analyze_indexed (p : GoProgram) (ip : GoIndex.IndexedProgram p) : AnalysisResult p ip :=
   let idx     := GoIndex.indexed_syntax ip in
   let visit   := prog_visit p in
-  let status  := prog_status_map p in
+  let status  := fold_right psm_step (GoIndex.NodeKeyMapBase.empty (option ConstInfo)) visit in
   let buckets := package_main_refs idx in
   let facts   := fold_right (add_occ_fact_sm status) (GoIndex.NodeKeyMapBase.empty ExprFact) visit in
   let diags   := flat_map (occ_expr_diags_sm status idx) visit
