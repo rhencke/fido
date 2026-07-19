@@ -1530,9 +1530,105 @@ Lemma flat_map_map {A B C} (f : B -> list C) (g : A -> B) (l : list A) :
   flat_map f (map g l) = flat_map (fun x => f (g x)) l.
 Proof. induction l as [|a l IH]; [reflexivity|]. cbn [map flat_map]. rewrite IH. reflexivity. Qed.
 
+(* §9 (C3 FINAL) — the annotation-STACK invariant: every open entry [(er, se)] is a genuine CONVERSION
+   [ExprRef] (erasing to a node whose occurrence's syntax is a conversion) whose subtree end is [se]. *)
+Definition estack_ok {p} (idx : GoIndex.Snap.SyntaxIndex p) (stack : list (GoIndex.ExprRef p * positive)) : Prop :=
+  forall er se, In (er, se) stack ->
+    GoIndex.as_expr idx (GoIndex.erase_ref er) = Some er
+    /\ is_conversion_occ (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref er)) = true
+    /\ GoIndex.Snap.node_subtree_end idx (GoIndex.erase_ref er) = se.
+
+(* filtering preserves the stack invariant. *)
+Lemma estack_ok_filter {p} (idx : GoIndex.Snap.SyntaxIndex p) P stack :
+  estack_ok idx stack -> estack_ok idx (filter P stack).
+Proof. intros H er se Hin. apply filter_In in Hin. exact (H er se (proj1 Hin)). Qed.
+
+(** §9 — the NESTED SCAR soundness: every enclosing-conversion ref delivered to occurrence [ro] is a genuine
+    CONVERSION whose subtree STRICTLY contains [ro] (a strict-ancestor conversion — [node_ref_local < ro <=
+    node_subtree_end]).  Requires the stream sorted by local (preorder) with the stack's entries all below the
+    stream's locals — exactly the per-file [visit_file] block. *)
+Lemma annotate_encl_ctx_sound {p} (idx : GoIndex.Snap.SyntaxIndex p) : forall stream stack,
+  StronglySorted (fun x y => Pos.lt (GoIndex.Snap.node_ref_local (fst x)) (GoIndex.Snap.node_ref_local (fst y))) stream ->
+  (forall ro, In ro stream -> snd ro = GoIndex.Snap.source_occurrence_of_ref (fst ro)) ->
+  estack_ok idx stack ->
+  (forall ro er se, In ro stream -> In (er, se) stack -> Pos.lt (GoIndex.Snap.node_ref_local (GoIndex.erase_ref er)) (GoIndex.Snap.node_ref_local (fst ro))) ->
+  forall ro ctx, In (ro, ctx) (annotate_encl idx stack stream) ->
+  forall er, In er ctx ->
+    is_conversion_occ (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref er)) = true
+    /\ Pos.lt (GoIndex.Snap.node_ref_local (GoIndex.erase_ref er)) (GoIndex.Snap.node_ref_local (fst ro))
+    /\ Pos.le (GoIndex.Snap.node_ref_local (fst ro)) (GoIndex.Snap.node_subtree_end idx (GoIndex.erase_ref er)).
+Proof.
+  induction stream as [|ro0 rest IH]; intros stack Hsort Hval Hstk Hbnd roc ctx Hin er Her; [destruct Hin|].
+  cbn [annotate_encl] in Hin.
+  set (open := filter (fun e => Pos.leb (GoIndex.Snap.node_ref_local (fst ro0)) (snd e)) stack) in *.
+  apply StronglySorted_inv in Hsort. destruct Hsort as [Hsort0 Hhd].
+  destruct Hin as [Heq | Hin].
+  - injection Heq as Hro Hctx. subst roc ctx.
+    apply in_map_iff in Her. destruct Her as [[er2 se] [Her2 Hin2]]. cbn [fst] in Her2. subst er2.
+    pose proof Hin2 as Hin2'. apply filter_In in Hin2'. destruct Hin2' as [Hstack Hle]. apply Pos.leb_le in Hle.
+    destruct (Hstk er se Hstack) as [_ [Hconv Hse]].
+    split; [ exact Hconv | split ].
+    + exact (Hbnd ro0 er se (or_introl eq_refl) Hstack).
+    + rewrite Hse. exact Hle.
+  - refine (IH _ Hsort0 (fun ro' Hr => Hval ro' (or_intror Hr)) _ _ roc ctx Hin er Her).
+    + (* estack_ok idx stack' *)
+      destruct (GoIndex.as_expr idx (fst ro0)) as [er0|] eqn:Ea.
+      * destruct (is_conversion_occ (snd ro0)) eqn:Hc0.
+        -- intros e s [Hh | Ht].
+           ++ injection Hh as He Hs. subst e s.
+              rewrite (GoIndex.erase_as_kind idx (fst ro0) GoIndex.KExpression er0 Ea).
+              split; [exact Ea | split; [ rewrite <- (Hval ro0 (or_introl eq_refl)); exact Hc0 | reflexivity ]].
+           ++ exact (estack_ok_filter idx _ stack Hstk e s Ht).
+        -- exact (estack_ok_filter idx _ stack Hstk).
+      * exact (estack_ok_filter idx _ stack Hstk).
+    + (* the bound for rest: stack' entries below rest's locals *)
+      intros ro' e s Hr' Hes.
+      assert (Hlt0 : Pos.lt (GoIndex.Snap.node_ref_local (fst ro0)) (GoIndex.Snap.node_ref_local (fst ro'))).
+      { rewrite Forall_forall in Hhd. exact (Hhd ro' Hr'). }
+      destruct (GoIndex.as_expr idx (fst ro0)) as [er0|] eqn:Ea.
+      * destruct (is_conversion_occ (snd ro0)) eqn:Hc0.
+        -- destruct Hes as [Hh | Ht].
+           ++ injection Hh as He Hs. subst e.
+              rewrite (GoIndex.erase_as_kind idx (fst ro0) GoIndex.KExpression er0 Ea). exact Hlt0.
+           ++ pose proof Ht as Ht'. apply filter_In in Ht'.
+              exact (Pos.lt_trans _ _ _ (Hbnd ro0 e s (or_introl eq_refl) (proj1 Ht')) Hlt0).
+        -- pose proof Hes as Ht'. apply filter_In in Ht'.
+           exact (Pos.lt_trans _ _ _ (Hbnd ro0 e s (or_introl eq_refl) (proj1 Ht')) Hlt0).
+      * pose proof Hes as Ht'. apply filter_In in Ht'.
+        exact (Pos.lt_trans _ _ _ (Hbnd ro0 e s (or_introl eq_refl) (proj1 Ht')) Hlt0).
+Qed.
+
+Lemma StronglySorted_map_inv {A B} (R : B -> B -> Prop) (f : A -> B) (l : list A) :
+  StronglySorted R (map f l) -> StronglySorted (fun x y => R (f x) (f y)) l.
+Proof.
+  induction l as [|a l IH]; intro H; [constructor|].
+  cbn [map] in H. apply StronglySorted_inv in H. destruct H as [Hs Hhd].
+  constructor; [apply IH; exact Hs|].
+  rewrite Forall_forall in Hhd |- *. intros x Hx. apply Hhd. exact (in_map f l x Hx).
+Qed.
+
 Definition annotate_program {p} (idx : GoIndex.Snap.SyntaxIndex p)
   : list ((GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence) * list (GoIndex.ExprRef p)) :=
   flat_map (annotate_encl idx []) (prog_blocks p).
+
+(** §9 — lift the nested-scar soundness to the whole program: every enclosing-conversion ref delivered to any
+    annotated occurrence is a strict-ancestor conversion (its subtree strictly contains the occurrence). *)
+Lemma annotate_program_ctx_sound {p} (idx : GoIndex.Snap.SyntaxIndex p) : forall ro ctx er,
+  In (ro, ctx) (annotate_program idx) -> In er ctx ->
+  is_conversion_occ (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref er)) = true
+  /\ Pos.lt (GoIndex.Snap.node_ref_local (GoIndex.erase_ref er)) (GoIndex.Snap.node_ref_local (fst ro))
+  /\ Pos.le (GoIndex.Snap.node_ref_local (fst ro)) (GoIndex.Snap.node_subtree_end idx (GoIndex.erase_ref er)).
+Proof.
+  intros ro ctx er Hin Her. unfold annotate_program in Hin. apply in_flat_map in Hin.
+  destruct Hin as [block [Hblock Hin]]. unfold prog_blocks in Hblock.
+  apply in_map_iff in Hblock. destruct Hblock as [b [Hbv Hb]]. subst block. unfold binding_visit in Hin.
+  destruct (GoIndex.Snap.file_of_path p (fst b)) as [fr|] eqn:Efr; [| destruct Hin].
+  refine (annotate_encl_ctx_sound idx (GoIndex.Snap.visit_file fr) [] _ _ _ _ ro ctx Hin er Her).
+  - apply StronglySorted_map_inv. exact (GoIndex.Snap.visit_file_order p fr).
+  - intros [r occ] Hro. destruct (GoIndex.Snap.visit_file_view p fr r occ Hro) as [Ho _]. exact Ho.
+  - intros er0 se [].
+  - intros ro0 er0 se _ [].
+Qed.
 
 (** the annotation preserves the underlying occurrence stream (it only attaches context). *)
 Lemma annotate_encl_fst {p} (idx : GoIndex.Snap.SyntaxIndex p) stack stream :
@@ -1746,6 +1842,28 @@ Lemma expr_diags_eq_spec {p} (idx : GoIndex.Snap.SyntaxIndex p) :
 Proof.
   unfold expr_diags. apply flat_map_ext_in. intros roc Hin. apply occ_expr_diags_sm_eq.
   rewrite <- (annotate_program_fst idx). exact (in_map fst _ _ Hin).
+Qed.
+
+(** §9 (C3 FINAL) — THE NESTED SCAR: every [outer_context] ref of an invalid-conversion diagnostic in the
+    whole expression report is a genuine CONVERSION whose subtree STRICTLY contains the primary — a real
+    strict-ancestor conversion, never fabricated or copied syntax.  (Delivered by the ONE-PASS annotation,
+    proved sound by [annotate_program_ctx_sound].) *)
+Lemma expr_diags_conv_scar_sound {p} (idx : GoIndex.Snap.SyntaxIndex p) er outer t ci :
+  In (DRInvalidConversion er outer t ci) (expr_diags idx) ->
+  forall a, In a outer ->
+    is_conversion_occ (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref a)) = true
+    /\ Pos.lt (GoIndex.Snap.node_ref_local (GoIndex.erase_ref a)) (GoIndex.Snap.node_ref_local (GoIndex.erase_ref er))
+    /\ Pos.le (GoIndex.Snap.node_ref_local (GoIndex.erase_ref er)) (GoIndex.Snap.node_subtree_end idx (GoIndex.erase_ref a)).
+Proof.
+  intros Hin a Ha. rewrite expr_diags_eq_spec in Hin. apply in_flat_map in Hin.
+  destruct Hin as [roc [Hroc Hd]].
+  destruct (occ_expr_diags_conv_sound idx (fst roc) (snd roc) er outer t ci Hd) as [Hoeq [Hae _]].
+  subst outer.
+  pose proof Hroc as Hroc2. rewrite (surjective_pairing roc) in Hroc2.
+  destruct (annotate_program_ctx_sound idx (fst roc) (snd roc) a Hroc2 Ha) as [Hconv [Hlt Hle]].
+  assert (Her : GoIndex.erase_ref er = fst (fst roc))
+    by exact (GoIndex.erase_as_kind idx (fst (fst roc)) GoIndex.KExpression er Hae).
+  rewrite Her. split; [exact Hconv | split; [exact Hlt | exact Hle]].
 Qed.
 
 (* ---- COMPLETENESS: [expr_diags] is empty IFF every argument resolves (= [program_typedb]) ---- *)
