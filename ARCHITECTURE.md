@@ -109,10 +109,10 @@ law backed by explicit audit and code inspection, NOT a brittle source-scanning 
                  each occurrence's ROLE from the index THROUGH the reference (node_role idx — an outer-FileMap
                  + inner-PositiveMap lookup in the PRECOMPUTED si_outer, no rebuild) and its SYNTAX from the
                  DELIVERED fragment (view_expr — no node_at/source_occurrence_of_ref recovery), delegating to
-                 the SAME expr_typedb/const_info resolver.  GoTypes owns only the type/constant relation and the
-                 per-occurrence predicate occ_arg_typedb; it runs NO peer indexed whole-program checker (the C2
-                 indexed_program_typedb demonstration is removed, §19/§26 — leaving no peer whole-program
-                 executable in GoTypes).
+                 the SAME expr_typedb/const_info resolver.  GoTypes owns only the type/constant relation and
+                 imports NO GoIndex; the per-occurrence predicate occ_arg_typedb + its occs_*_typedb_eq chain
+                 live in GoCompile (the sole GoIndex+GoTypes meeting point).  GoTypes runs NO peer indexed
+                 whole-program checker (the C2 indexed_program_typedb demonstration is removed, §19/§26).
 
   GoTypes        the ONE Go type-system authority — EVIDENCE over the raw GoAST, never a typed AST.  The
                  permanent type universe is EXACTLY { TBool, the integer family TInteger over the ten-member IntegerType, TFloat FloatType, the complex family TComplex over ComplexType, TString }.  A raw literal denotes an EXACT
