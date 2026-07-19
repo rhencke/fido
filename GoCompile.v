@@ -2660,6 +2660,118 @@ Proof.
   rewrite Hb. reflexivity.
 Qed.
 
+(* ---- §17 — the ONE-PASS enclosing context erases to a SOURCE function of the keyed stream.  [annotate_keyed]
+   runs the SAME stack discipline over keyed entries (NodeKeys + occurrences), and the erased ref-annotation
+   [annotate_encl] equals it.  So the erased [outer_context] depends only on the file map. ---- *)
+
+(* the erasure of one annotated occurrence: its NodeKey, its occurrence, and its enclosing-context KEYS. *)
+Definition erase_annot {p}
+    (roc : (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence) * list (GoIndex.ExprRef p))
+  : (GoIndex.NodeKey * GoIndex.SourceOccurrence) * list GoIndex.NodeKey :=
+  ((GoIndex.Snap.node_ref_key (fst (fst roc)), snd (fst roc)),
+   map (fun er => GoIndex.Snap.node_ref_key (GoIndex.erase_ref er)) (snd roc)).
+
+Definition erase_estack {p} (stack : list (GoIndex.ExprRef p * positive)) : list (GoIndex.NodeKey * positive) :=
+  map (fun e => (GoIndex.Snap.node_ref_key (GoIndex.erase_ref (fst e)), snd e)) stack.
+
+Fixpoint annotate_keyed (stack : list (GoIndex.NodeKey * positive))
+    (stream : list (GoIndex.NodeKey * GoIndex.SourceOccurrence))
+    : list ((GoIndex.NodeKey * GoIndex.SourceOccurrence) * list GoIndex.NodeKey) :=
+  match stream with
+  | [] => []
+  | ke :: rest =>
+      let open := filter (fun e => Pos.leb (GoIndex.nk_local (fst ke)) (snd e)) stack in
+      let stack' := if is_conversion_occ (snd ke)
+                    then (fst ke, GoIndex.occurrence_subtree_end (snd ke)) :: open else open in
+      (ke, map fst open) :: annotate_keyed stack' rest
+  end.
+
+(* a conversion occurrence (on a VALID reference whose occurrence is its source) HAS an [ExprRef] erasing to it. *)
+Lemma is_conversion_occ_as_expr {p} (idx : GoIndex.Snap.SyntaxIndex p) (r : GoIndex.Snap.NodeRef p) :
+  is_conversion_occ (GoIndex.Snap.source_occurrence_of_ref r) = true ->
+  exists er, GoIndex.as_expr idx r = Some er /\ GoIndex.erase_ref er = r.
+Proof.
+  intro Hconv.
+  assert (Hk : GoIndex.Snap.node_kind idx r = GoIndex.KExpression).
+  { rewrite (GoIndex.Snap.node_kind_matches_source p idx r). unfold is_conversion_occ in Hconv.
+    destruct (GoIndex.view_expr (GoIndex.Snap.source_occurrence_of_ref r)) as [e|] eqn:Ev;
+      [ exact (GoIndex.view_expr_kind _ e Ev) | discriminate Hconv ]. }
+  unfold GoIndex.as_expr. destruct (GoIndex.as_kind_complete idx r GoIndex.KExpression Hk) as [tr [Has Her]].
+  exists tr; split; [exact Has | exact Her].
+Qed.
+
+Lemma map_filter_comm {A B} (f : A -> B) (g : B -> bool) (h : A -> bool) (l : list A) :
+  (forall a, g (f a) = h a) -> map f (filter h l) = filter g (map f l).
+Proof.
+  intro Hgh. induction l as [|a l IH]; [reflexivity|]. cbn [filter map].
+  rewrite <- Hgh. destruct (g (f a)); cbn [map]; rewrite IH; reflexivity.
+Qed.
+
+Lemma erase_estack_filter {p} (l : positive) (stack : list (GoIndex.ExprRef p * positive)) :
+  erase_estack (filter (fun e => Pos.leb l (snd e)) stack)
+  = filter (fun e => Pos.leb l (snd e)) (erase_estack stack).
+Proof. unfold erase_estack. apply map_filter_comm. intro a. reflexivity. Qed.
+
+(* THE SIMULATION: over a stream of VALID occurrences, the erased ref-annotation equals the keyed annotation. *)
+Lemma annotate_encl_erased {p} (idx : GoIndex.Snap.SyntaxIndex p) stack stream :
+  (forall ro, In ro stream -> snd ro = GoIndex.Snap.source_occurrence_of_ref (fst ro)) ->
+  map erase_annot (annotate_encl idx stack stream)
+  = annotate_keyed (erase_estack stack) (map (fun ro => (GoIndex.Snap.node_ref_key (fst ro), snd ro)) stream).
+Proof.
+  revert stack. induction stream as [|ro rest IH]; intro stack; intro Hval; [reflexivity|].
+  pose proof (Hval ro (or_introl eq_refl)) as Hsrc.
+  cbn [annotate_encl map annotate_keyed fst snd].
+  assert (Hok : filter (fun e => Pos.leb (GoIndex.nk_local (GoIndex.Snap.node_ref_key (fst ro))) (snd e))
+                       (erase_estack stack)
+              = erase_estack (filter (fun e => Pos.leb (GoIndex.Snap.node_ref_local (fst ro)) (snd e)) stack)).
+  { rewrite erase_estack_filter, GoIndex.Snap.node_ref_key_eq. reflexivity. }
+  f_equal.
+  - unfold erase_annot. cbn [fst snd]. rewrite Hok. unfold erase_estack. rewrite !map_map. reflexivity.
+  - rewrite (IH _ (fun ro' Hin => Hval ro' (or_intror Hin))), Hok. f_equal.
+    destruct (is_conversion_occ (snd ro)) eqn:Hc.
+    + assert (Hc' : is_conversion_occ (GoIndex.Snap.source_occurrence_of_ref (fst ro)) = true)
+        by (rewrite <- Hsrc; exact Hc).
+      destruct (is_conversion_occ_as_expr idx (fst ro) Hc') as [er [Ha He]].
+      rewrite Ha. cbn [erase_estack map fst snd]. rewrite He.
+      rewrite (GoIndex.Snap.node_subtree_end_matches_source p idx (fst ro)), <- Hsrc. reflexivity.
+    + destruct (GoIndex.as_expr idx (fst ro)) as [er|]; reflexivity.
+Qed.
+
+(* each per-file visited occurrence IS its reference's exact source occurrence (the validity the simulation needs). *)
+Lemma binding_visit_valid (p : GoProgram) (b : FilePath * GoSourceFile) :
+  forall ro, In ro (binding_visit p b) -> snd ro = GoIndex.Snap.source_occurrence_of_ref (fst ro).
+Proof.
+  intros [r occ] Hin. unfold binding_visit in Hin.
+  destruct (GoIndex.Snap.file_of_path p (fst b)) as [fr|]; [| destruct Hin].
+  destruct (GoIndex.Snap.visit_file_view p fr r occ Hin) as [Ho _]. exact Ho.
+Qed.
+
+(* the SOURCE enclosing-context annotation: per file, the keyed one-pass annotation over that file's source
+   occurrence stream (keyed by the file's path).  A pure function of the file map. *)
+Definition annotate_source (fm : GoAST.GoFileMap)
+  : list ((GoIndex.NodeKey * GoIndex.SourceOccurrence) * list GoIndex.NodeKey) :=
+  flat_map (fun b => annotate_keyed []
+              (map (fun idocc => (GoIndex.mkKey (fst b) (fst idocc), snd idocc)) (GoIndex.occs_file (snd b))))
+           (GoAST.file_bindings fm).
+
+Lemma annotate_program_erased {p} (idx : GoIndex.Snap.SyntaxIndex p) :
+  map erase_annot (annotate_program idx) = annotate_source (prog_files p).
+Proof.
+  unfold annotate_program, annotate_source. rewrite map_flat_map.
+  apply flat_map_ext_in. intros b Hin.
+  rewrite (annotate_encl_erased idx [] (binding_visit p b) (binding_visit_valid p b)).
+  cbn [erase_estack]. f_equal. exact (keyed_binding_visit p b Hin).
+Qed.
+
+Lemma annotate_source_FilesEqual (fm1 fm2 : GoAST.GoFileMap) :
+  GoAST.FilesEqual fm1 fm2 -> annotate_source fm1 = annotate_source fm2.
+Proof.
+  intro Heq. unfold annotate_source.
+  assert (Hb : GoAST.file_bindings fm1 = GoAST.file_bindings fm2)
+    by (unfold GoAST.file_bindings; apply Collections.filemap_elements_Equal; exact Heq).
+  rewrite Hb. reflexivity.
+Qed.
+
 (* ---- the TWO disjoint diagnostic families (typing / package), used to PROJECT a legacy compile class from
    the diagnostics (never a second check).  Expression diagnostics are typing-class; package diagnostics are
    package-class; the two are disjoint. ---- *)
