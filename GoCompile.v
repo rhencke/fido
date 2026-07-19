@@ -3328,6 +3328,22 @@ Proof.
   - exact (GoIndex.noderefof_kind later).
   - exact (GoIndex.noderefof_kind earlier).
 Qed.
+
+(** §9 (C3 FINAL) — the WHOLE-program [DRMissingMain] soundness: a missing-main diagnostic anchors a package
+    that IS represented in the program ([package_ref_ok]) and genuinely contains ZERO [DMain] declarations (its
+    exact [pkg_main_count] is 0 — the empty bucket's length). *)
+Lemma pkg_diags_missing_sound {p} (idx : GoIndex.Snap.SyntaxIndex p) pk :
+  In (DRMissingMain pk) (pkg_diags idx) ->
+  package_present_b p (package_ref_key pk) = true
+  /\ pkg_main_count (package_ref_key pk) (prog_files p) = 0%nat.
+Proof.
+  intro Hin. unfold pkg_diags in Hin.
+  destruct (bucket_diags_elems_in _ _ _ _ _ Hin) as [dir [l [Hmt Hd]]].
+  destruct (pkg_diag_of_bucket_missing_sound _ _ dir l Hmt pk Hd) as [Hl Hkey]. subst l.
+  split.
+  - exact (package_ref_ok pk).
+  - rewrite Hkey. symmetry. exact (prog_package_refs_bucket_len idx dir nil (PM.find_1 Hmt)).
+Qed.
 Lemma pkg_diags_package {p} (idx : GoIndex.Snap.SyntaxIndex p) : forall d, In d (pkg_diags idx) -> diag_is_package d = true.
 Proof. intros d Hin; apply (pkg_diags_family idx d Hin). Qed.
 Lemma pkg_diags_not_typing {p} (idx : GoIndex.Snap.SyntaxIndex p) : forall d, In d (pkg_diags idx) -> diag_is_typing d = false.

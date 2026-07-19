@@ -366,9 +366,9 @@ Print Assumptions GoCompile.diagnostic_code_primary_consistent.
    diagnostic's primary is the occurrence's OWN ExprRef, its syntax IS the explicit conversion to the reported
    target of some operand x, the reported operand status is x's exact ConstInfo, and [convert_const] genuinely
    REJECTS it; a default-not-representable diagnostic is a genuine println argument whose exact untyped constant
-   does NOT default and whose target is exactly the Go default; a missing-main is an EMPTY bucket at a
-   represented package key; a duplicate-main relates a strictly-later main to the first canonical main — both
-   genuine top-level (func main) declarations in the SAME package. *)
+   does NOT default and whose target is exactly the Go default; a missing-main (whole report) anchors a
+   REPRESENTED package that genuinely contains ZERO DMain declarations; a duplicate-main relates a bucket-tail
+   main to the FIRST-in-bucket main, both genuine top-level (func main) declarations in the SAME package. *)
 Print Assumptions GoCompile.occ_expr_diags_conv_sound.
 Print Assumptions GoCompile.occ_expr_diags_default_sound.
 (* C3 §9 — the NESTED SCAR: every enclosing-conversion (outer_context) ref of an invalid-conversion diagnostic
@@ -380,6 +380,7 @@ Print Assumptions GoCompile.expr_diags_conv_scar_sound.
 Print Assumptions GoCompile.pkg_diag_of_bucket_missing_sound.
 Print Assumptions GoCompile.pkg_diag_of_bucket_dup_sound.
 Print Assumptions GoCompile.pkg_diags_dup_sound.
+Print Assumptions GoCompile.pkg_diags_missing_sound.
 (* C3 §16/§17 — cross-snapshot determinism FOUNDATION: the KEYED visit stream (each visited reference's NodeKey
    + its source occurrence) depends ONLY on the file map, so FilesEqual programs have IDENTICAL keyed streams
    (the basis for equal erased reports / fact enumerations). *)
