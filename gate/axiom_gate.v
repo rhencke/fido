@@ -453,7 +453,7 @@ Print Assumptions GoCompile.expr_diags_empty_iff.
    no diagnostic at all IFF the analysis decision holds; and analysis succeeds/fails IFF ProgValid/not. *)
 Print Assumptions GoCompile.sum_main_file.
 Print Assumptions GoCompile.pkg_diags_empty_iff.
-Print Assumptions GoCompile.collect_diagnostics_empty_iff.
+Print Assumptions GoCompile.semantic_diagnostics_empty_iff.
 Print Assumptions GoCompile.elaborate_ok_iff_GoCompile.
 Print Assumptions GoCompile.elaborate_failed_iff_not_GoCompile.
 (* C3 decision (package half + combined): every package has one main IFF AllPackagesOneMain; the combined
@@ -803,7 +803,7 @@ Print Assumptions GoCompile.simultaneous_failures_erased.
    report has exactly the diagnostics of `expr_diags ++ pkg_diags`. *)
 Print Assumptions GoCompile.collect_node_input_nodup.
 Print Assumptions GoCompile.collect_node_buckets_singleton.
-Print Assumptions GoCompile.collect_diagnostics_node_strict.
+Print Assumptions GoCompile.semantic_diagnostics_node_strict.
 Print Assumptions GoCompile.mixed_order_erased.
 Print Assumptions GoCompile.collect_diagnostics_In.
 (* the SOURCE characterization that makes the exact fixtures faithful to the real report. *)

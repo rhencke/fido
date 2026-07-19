@@ -2977,7 +2977,7 @@ Qed.
 (* ============================================================================================================
    §12/§13/§14 (C3) — the ONE retained indexed-elaboration root.  [elaborate] builds ONE [IndexedProgram] and returns
    either exact facts (on success) or a NONEMPTY structured diagnostic list (on failure).  The success/failure
-   decision is the elaboration-native [semantic_ok_b] (proved [= GoCompile]); [collect_diagnostics] gives the
+   decision is the elaboration-native [semantic_ok_b] (proved [= GoCompile]); [semantic_diagnostics] gives the
    structured failure payload, nonempty exactly when the decision fails.
    ============================================================================================================ *)
 
@@ -3054,7 +3054,7 @@ Definition node_keyed {p} (l : list (DiagnosticReason p)) : list (GoIndex.NodeKe
 Definition pkg_primary {p} (l : list (DiagnosticReason p)) : list (DiagnosticReason p) :=
   flat_map (fun d => match diag_node_key d with Some _ => [] | None => [d] end) l.
 
-Definition collect_diagnostics (p : GoProgram) (idx : GoIndex.Snap.SyntaxIndex p) : list (DiagnosticReason p) :=
+Definition semantic_diagnostics (p : GoProgram) (idx : GoIndex.Snap.SyntaxIndex p) : list (DiagnosticReason p) :=
   bucket_flatten (node_keyed (expr_diags idx ++ pkg_diags idx))
   ++ pkg_primary (expr_diags idx ++ pkg_diags idx).
 
@@ -3067,18 +3067,18 @@ Proof.
   destruct (diag_node_key d) as [k|]; cbn [app]; intros [H1 H2]; discriminate.
 Qed.
 
-Lemma collect_diagnostics_empty_iff (p : GoProgram) (idx : GoIndex.Snap.SyntaxIndex p) :
-  collect_diagnostics p idx = nil <-> semantic_ok_b p = true.
+Lemma semantic_diagnostics_empty_iff (p : GoProgram) (idx : GoIndex.Snap.SyntaxIndex p) :
+  semantic_diagnostics p idx = nil <-> semantic_ok_b p = true.
 Proof.
-  unfold collect_diagnostics. rewrite app_nil_iff, bucket_flatten_nil_iff, node_pkg_partition_nil, app_nil_iff.
+  unfold semantic_diagnostics. rewrite app_nil_iff, bucket_flatten_nil_iff, node_pkg_partition_nil, app_nil_iff.
   rewrite expr_diags_empty_iff, pkg_diags_empty_iff.
   unfold semantic_ok_b. rewrite Bool.andb_true_iff, expr_all_ok_program_typedb. reflexivity.
 Qed.
 
-Lemma collect_diagnostics_nonempty (p : GoProgram) (idx : GoIndex.Snap.SyntaxIndex p) :
-  semantic_ok_b p = false -> collect_diagnostics p idx <> nil.
+Lemma semantic_diagnostics_nonempty (p : GoProgram) (idx : GoIndex.Snap.SyntaxIndex p) :
+  semantic_ok_b p = false -> semantic_diagnostics p idx <> nil.
 Proof.
-  intros H Hc. apply (collect_diagnostics_empty_iff p idx) in Hc. rewrite Hc in H. discriminate H.
+  intros H Hc. apply (semantic_diagnostics_empty_iff p idx) in Hc. rewrite Hc in H. discriminate H.
 Qed.
 
 (* ---- §16/§17 — the node-bucketing COMMUTES WITH a value transform, so the ERASED report is the erased source
@@ -3241,12 +3241,12 @@ Proof.
 Qed.
 
 Lemma collect_diagnostics_In {p} (idx : GoIndex.Snap.SyntaxIndex p) (d : DiagnosticReason p) :
-  In d (collect_diagnostics p idx) <-> In d (expr_diags idx ++ pkg_diags idx).
+  In d (semantic_diagnostics p idx) <-> In d (expr_diags idx ++ pkg_diags idx).
 Proof.
-  unfold collect_diagnostics. rewrite in_app_iff, bucket_flatten_In. apply node_pkg_In.
+  unfold semantic_diagnostics. rewrite in_app_iff, bucket_flatten_In. apply node_pkg_In.
 Qed.
 
-(* ---- §16 — the UNIVERSAL STRICT CANONICAL-ORDER theorem (below, [collect_diagnostics_node_strict]): the
+(* ---- §16 — the UNIVERSAL STRICT CANONICAL-ORDER theorem (below, [semantic_diagnostics_node_strict]): the
    node-primary diagnostics appear in STRICTLY ascending NodeKey order (path then local id).  The input keys
    are UNIQUE ([collect_node_input_nodup]) so every bucket is a SINGLETON ([collect_node_buckets_singleton]);
    there are no within-bucket ties, and the order is entirely the NodeKeyMap's key-sorted [elements]. ---- *)
@@ -3413,14 +3413,14 @@ Proof. intros [k1 ?] [k2 ?] [k3 ?]; unfold GoIndex.NodeKeyMapBase.lt_key; cbn; a
 
 (** §17 (C3 FINAL) — the ERASED elaboration report: the canonical diagnostic list projected through
     [erase_diagnostic], so it is a snapshot-INDEPENDENT [list ErasedDiagnostic] comparable by [=].  It is empty
-    exactly when the elaboration accepts (same decision as [collect_diagnostics]). *)
+    exactly when the elaboration accepts (same decision as [semantic_diagnostics]). *)
 Definition erased_report (p : GoProgram) (idx : GoIndex.Snap.SyntaxIndex p) : list ErasedDiagnostic :=
-  map erase_diagnostic (collect_diagnostics p idx).
+  map erase_diagnostic (semantic_diagnostics p idx).
 
 Lemma erased_report_empty_iff (p : GoProgram) (idx : GoIndex.Snap.SyntaxIndex p) :
   erased_report p idx = nil <-> semantic_ok_b p = true.
 Proof.
-  unfold erased_report. rewrite <- collect_diagnostics_empty_iff.
+  unfold erased_report. rewrite <- semantic_diagnostics_empty_iff.
   split; [ apply map_eq_nil | intro H; rewrite H; reflexivity ].
 Qed.
 
@@ -3875,7 +3875,7 @@ Qed.
 Lemma erased_report_src_eq {p} (idx : GoIndex.Snap.SyntaxIndex p) :
   erased_report p idx = erased_report_src (prog_files p).
 Proof.
-  unfold erased_report, erased_report_src, collect_diagnostics. rewrite map_app. f_equal.
+  unfold erased_report, erased_report_src, semantic_diagnostics. rewrite map_app. f_equal.
   - rewrite (bucket_flatten_map erase_diagnostic (node_keyed (expr_diags idx ++ pkg_diags idx))).
     rewrite node_keyed_erase, erased_src_diags_eq. reflexivity.
   - rewrite pkg_primary_erase, erased_src_diags_eq. reflexivity.
@@ -4270,7 +4270,7 @@ Qed.
     keys' NoDup, the pkg keys' NoDup, and their DISJOINTNESS (an occurrence is an expression OR a decl, never
     both, by [node_ref_key_inj] + the kind refinement); (2) so every resulting bucket is a SINGLETON
     ([collect_node_buckets_singleton]); (3) hence the NodeKeyMap flattening is strictly key-ascending with no
-    within-bucket ties ([collect_diagnostics_node_strict]).  No project-authored sort. ---- *)
+    within-bucket ties ([semantic_diagnostics_node_strict]).  No project-authored sort. ---- *)
 
 (* nodekey strict-order lift over [option]: both anchored, strictly ascending (no ties). *)
 Definition nk_lt_opt (oa ob : option GoIndex.NodeKey) : Prop :=
@@ -4492,7 +4492,7 @@ Qed.
 (** §16b (C3 FINAL) — the WHOLE report's node-primary diagnostics are in STRICTLY ascending NodeKey order (path
     then local id): the NodeKeyMap flattening IS the canonical enumeration; with unique keys / singleton buckets
     there are NO ties.  No project-authored sort. *)
-Theorem collect_diagnostics_node_strict {p} (idx : GoIndex.Snap.SyntaxIndex p) :
+Theorem semantic_diagnostics_node_strict {p} (idx : GoIndex.Snap.SyntaxIndex p) :
   StronglySorted (fun a b => nk_lt_opt (diag_node_key a) (diag_node_key b))
                  (bucket_flatten (node_keyed (expr_diags idx ++ pkg_diags idx))).
 Proof.
@@ -4506,8 +4506,8 @@ Proof. intros d Hin; apply (pkg_diags_family idx d Hin). Qed.
 
 (** the diagnostic-derived TYPING flag is exactly "not program-typed"; the PACKAGE flag (when typed) is exactly
     "not one-main-per-package".  So the legacy class is a PROJECTION of the diagnostics, matching the decision. *)
-Lemma existsb_typing_collect (p : GoProgram) (idx : GoIndex.Snap.SyntaxIndex p) :
-  existsb diag_is_typing (collect_diagnostics p idx) = negb (program_typedb p).
+Lemma existsb_typing_semantic (p : GoProgram) (idx : GoIndex.Snap.SyntaxIndex p) :
+  existsb diag_is_typing (semantic_diagnostics p idx) = negb (program_typedb p).
 Proof.
   rewrite (existsb_In_eq _ _ _ (collect_diagnostics_In idx)), existsb_app.
   rewrite (existsb_all_false diag_is_typing (pkg_diags idx) (pkg_diags_not_typing idx)), Bool.orb_false_r.
@@ -4517,8 +4517,8 @@ Proof.
   - destruct (program_typedb p) eqn:Ht; [ | reflexivity ].
     exfalso. pose proof (proj2 (expr_diags_empty_iff idx) Ht) as Hc. rewrite Hc in E; discriminate E.
 Qed.
-Lemma existsb_package_collect (p : GoProgram) (idx : GoIndex.Snap.SyntaxIndex p) :
-  existsb diag_is_package (collect_diagnostics p idx) = negb (pkg_all_ok p).
+Lemma existsb_package_semantic (p : GoProgram) (idx : GoIndex.Snap.SyntaxIndex p) :
+  existsb diag_is_package (semantic_diagnostics p idx) = negb (pkg_all_ok p).
 Proof.
   rewrite (existsb_In_eq _ _ _ (collect_diagnostics_In idx)), existsb_app.
   rewrite (existsb_all_false diag_is_package (expr_diags idx) (expr_diags_not_package idx)), Bool.orb_false_l.
@@ -4530,8 +4530,8 @@ Proof.
 Qed.
 (* the SEMANTIC report never contains a build-output diagnostic (only expression / package reasons) — so the
    build-output class fires ONLY through the command-ordered preflight branch, never the semantic branch. *)
-Lemma existsb_build_output_collect (p : GoProgram) (idx : GoIndex.Snap.SyntaxIndex p) :
-  existsb diag_is_build_output (collect_diagnostics p idx) = false.
+Lemma existsb_build_output_semantic (p : GoProgram) (idx : GoIndex.Snap.SyntaxIndex p) :
+  existsb diag_is_build_output (semantic_diagnostics p idx) = false.
 Proof.
   rewrite (existsb_In_eq _ _ _ (collect_diagnostics_In idx)), existsb_app.
   rewrite (existsb_all_false diag_is_build_output (expr_diags idx)
@@ -5163,7 +5163,7 @@ Proof.
   destruct (list_dir_mem dir (GoAST.file_bindings (prog_files p))); [ reflexivity | discriminate Hmt ].
 Qed.
 
-Definition build_output_diags (p : GoProgram) : list (DiagnosticReason p) :=
+Definition fresh_build_diagnostics (p : GoProgram) : list (DiagnosticReason p) :=
   match fresh_build_plan p with
   | FBDWriteSingleMain dir _ output_name (Some FREDirectory) =>
       match sole_package_ref p dir with
@@ -5173,10 +5173,10 @@ Definition build_output_diags (p : GoProgram) : list (DiagnosticReason p) :=
   | _ => []
   end.
 
-Lemma build_output_diags_nil_iff : forall p,
-  build_output_diags p = [] <-> fresh_build_preflight_ok p.
+Lemma fresh_build_diagnostics_nil_iff : forall p,
+  fresh_build_diagnostics p = [] <-> fresh_build_preflight_ok p.
 Proof.
-  intros p. unfold build_output_diags, fresh_build_preflight_ok, fresh_build_disposition_ok, fresh_build_plan.
+  intros p. unfold fresh_build_diagnostics, fresh_build_preflight_ok, fresh_build_disposition_ok, fresh_build_plan.
   destruct (selected_package_keys p) as [|dir [|d2 rest]] eqn:Ek; cbn.
   - split; reflexivity.
   - destruct (PM.find (default_exec_name (package_import_path (prog_module p) dir)) (root_layout p)) as [k|] eqn:Ef.
@@ -5193,24 +5193,24 @@ Qed.
 
 (* every build-output diagnostic IS a build-output diagnostic; so when the preflight fails the report's
    build-output class fires. *)
-Lemma build_output_diags_is_build : forall p d, In d (build_output_diags p) -> diag_is_build_output d = true.
+Lemma fresh_build_diagnostics_is_build : forall p d, In d (fresh_build_diagnostics p) -> diag_is_build_output d = true.
 Proof.
-  intros p d Hin. unfold build_output_diags in Hin.
+  intros p d Hin. unfold fresh_build_diagnostics in Hin.
   destruct (fresh_build_plan p) as [|count|dir ip name [ [ | | ] |]]; try destruct Hin.
   destruct (sole_package_ref p dir) as [pk|]; [| destruct Hin].
   cbn [In] in Hin. destruct Hin as [<-|[]]. reflexivity.
 Qed.
 
-Lemma existsb_build_output_build_output : forall p,
+Lemma existsb_build_output_fresh : forall p,
   fresh_build_disposition_ok (fresh_build_plan p) = false ->
-  existsb diag_is_build_output (build_output_diags p) = true.
+  existsb diag_is_build_output (fresh_build_diagnostics p) = true.
 Proof.
   intros p Hpf.
-  assert (Hne : build_output_diags p <> nil).
-  { intro Hc. apply (proj1 (build_output_diags_nil_iff p)) in Hc. unfold fresh_build_preflight_ok in Hc.
+  assert (Hne : fresh_build_diagnostics p <> nil).
+  { intro Hc. apply (proj1 (fresh_build_diagnostics_nil_iff p)) in Hc. unfold fresh_build_preflight_ok in Hc.
     rewrite Hc in Hpf; discriminate Hpf. }
-  destruct (build_output_diags p) as [|d ds] eqn:E; [ exfalso; apply Hne; reflexivity |].
-  cbn [existsb]. rewrite (build_output_diags_is_build p d) by (rewrite E; left; reflexivity). reflexivity.
+  destruct (fresh_build_diagnostics p) as [|d ds] eqn:E; [ exfalso; apply Hne; reflexivity |].
+  cbn [existsb]. rewrite (fresh_build_diagnostics_is_build p d) by (rewrite E; left; reflexivity). reflexivity.
 Qed.
 
 (** §19 — FULL program-input equality: the ModuleSpec AND the file map.  The full admission / plan / report /
@@ -5249,32 +5249,32 @@ Proof. intros p1 p2 H. rewrite (fresh_build_plan_InputEqual _ _ H). reflexivity.
 
 (** §C3-FRESH.9 (§14/§17) — the COMMAND-ordered diagnostic list: if the fresh-build preflight FAILS, the report
     is EXACTLY the build-output-directory diagnostic (it takes PRECEDENCE, hiding the semantic diagnostics of
-    the sole package); otherwise it is the semantic [collect_diagnostics].  Emptiness is exactly GoCompile. *)
-Definition elab_diags (p : GoProgram) (idx : GoIndex.Snap.SyntaxIndex p) : list (DiagnosticReason p) :=
-  if fresh_build_disposition_ok (fresh_build_plan p) then collect_diagnostics p idx else build_output_diags p.
+    the sole package); otherwise it is the semantic [semantic_diagnostics].  Emptiness is exactly GoCompile. *)
+Definition elaboration_diagnostics (p : GoProgram) (idx : GoIndex.Snap.SyntaxIndex p) : list (DiagnosticReason p) :=
+  if fresh_build_disposition_ok (fresh_build_plan p) then semantic_diagnostics p idx else fresh_build_diagnostics p.
 
-Lemma elab_no_diags_valid : forall p idx, elab_diags p idx = nil -> ProgValid p.
+Lemma elaboration_no_diags_source_valid : forall p idx, elaboration_diagnostics p idx = nil -> ProgValid p.
 Proof.
-  intros p idx He. unfold elab_diags in He. destruct (fresh_build_disposition_ok (fresh_build_plan p)) eqn:Ep.
-  - exact (proj1 (semantic_ok_b_ProgValid p) (proj1 (collect_diagnostics_empty_iff p idx) He)).
-  - apply (proj1 (build_output_diags_nil_iff p)) in He. unfold fresh_build_preflight_ok in He.
+  intros p idx He. unfold elaboration_diagnostics in He. destruct (fresh_build_disposition_ok (fresh_build_plan p)) eqn:Ep.
+  - exact (proj1 (semantic_ok_b_ProgValid p) (proj1 (semantic_diagnostics_empty_iff p idx) He)).
+  - apply (proj1 (fresh_build_diagnostics_nil_iff p)) in He. unfold fresh_build_preflight_ok in He.
     rewrite He in Ep. discriminate Ep.
 Qed.
 
-Lemma elab_no_diags_preflight : forall p idx, elab_diags p idx = nil -> fresh_build_preflight_ok p.
+Lemma elaboration_no_diags_preflight : forall p idx, elaboration_diagnostics p idx = nil -> fresh_build_preflight_ok p.
 Proof.
-  intros p idx He. unfold elab_diags in He. destruct (fresh_build_disposition_ok (fresh_build_plan p)) eqn:Ep.
+  intros p idx He. unfold elaboration_diagnostics in He. destruct (fresh_build_disposition_ok (fresh_build_plan p)) eqn:Ep.
   - unfold fresh_build_preflight_ok. exact Ep.
-  - exact (proj1 (build_output_diags_nil_iff p) He).
+  - exact (proj1 (fresh_build_diagnostics_nil_iff p) He).
 Qed.
 
-Lemma elab_diags_eq_collect : forall p idx,
-  fresh_build_disposition_ok (fresh_build_plan p) = true -> elab_diags p idx = collect_diagnostics p idx.
-Proof. intros p idx H. unfold elab_diags. rewrite H. reflexivity. Qed.
+Lemma elaboration_diagnostics_eq_semantic : forall p idx,
+  fresh_build_disposition_ok (fresh_build_plan p) = true -> elaboration_diagnostics p idx = semantic_diagnostics p idx.
+Proof. intros p idx H. unfold elaboration_diagnostics. rewrite H. reflexivity. Qed.
 
-Lemma elab_diags_eq_build : forall p idx,
-  fresh_build_disposition_ok (fresh_build_plan p) = false -> elab_diags p idx = build_output_diags p.
-Proof. intros p idx H. unfold elab_diags. rewrite H. reflexivity. Qed.
+Lemma elaboration_diagnostics_eq_fresh : forall p idx,
+  fresh_build_disposition_ok (fresh_build_plan p) = false -> elaboration_diagnostics p idx = fresh_build_diagnostics p.
+Proof. intros p idx H. unfold elaboration_diagnostics. rewrite H. reflexivity. Qed.
 
 (* end of the §C3-FRESH block — restore the default scope so the elaboration machinery's list [++] is list append. *)
 Close Scope string_scope.
@@ -5284,15 +5284,15 @@ Close Scope string_scope.
     source/compiler/package part; [fresh_build_preflight_ok] is the cmd/go default-output part. *)
 Definition GoCompile (p : GoProgram) : Prop := fresh_build_preflight_ok p /\ SourceProgramValid p.
 
-(** the command-ordered report is empty EXACTLY on admissible programs.  ([elab_diags] is definitionally the
+(** the command-ordered report is empty EXACTLY on admissible programs.  ([elaboration_diagnostics] is definitionally the
     [diags] computed inside [elaborate_indexed], so the elaboration-exactness theorems below reduce to this.) *)
-Lemma elab_diags_nil_iff_GoCompile : forall p idx, elab_diags p idx = nil <-> GoCompile p.
+Lemma elaboration_diagnostics_nil_iff_GoCompile : forall p idx, elaboration_diagnostics p idx = nil <-> GoCompile p.
 Proof.
   intros p idx. unfold GoCompile. split.
-  - intro He. split; [ exact (elab_no_diags_preflight p idx He)
-                     | apply (proj2 (source_program_valid_iff p)); exact (elab_no_diags_valid p idx He) ].
-  - intros [Hpf Hsv]. unfold elab_diags. unfold fresh_build_preflight_ok in Hpf. rewrite Hpf.
-    apply (proj2 (collect_diagnostics_empty_iff p idx)), (proj2 (semantic_ok_b_ProgValid p)),
+  - intro He. split; [ exact (elaboration_no_diags_preflight p idx He)
+                     | apply (proj2 (source_program_valid_iff p)); exact (elaboration_no_diags_source_valid p idx He) ].
+  - intros [Hpf Hsv]. unfold elaboration_diagnostics. unfold fresh_build_preflight_ok in Hpf. rewrite Hpf.
+    apply (proj2 (semantic_diagnostics_empty_iff p idx)), (proj2 (semantic_ok_b_ProgValid p)),
           (proj1 (source_program_valid_iff p)). exact Hsv.
 Qed.
 
@@ -5430,8 +5430,8 @@ Proof. destruct l; [left; reflexivity | right; discriminate]. Defined.
 
 (** validity is DERIVED from an empty diagnostic list (the decision IS the diagnostic pass) — not a peer check. *)
 Definition elaborate_valid_of_no_diags (p : GoProgram) (ip : GoIndex.IndexedProgram p) :
-  collect_diagnostics p (GoIndex.indexed_syntax ip) = nil -> ProgValid p :=
-  fun He => proj1 (semantic_ok_b_ProgValid p) (proj1 (collect_diagnostics_empty_iff p (GoIndex.indexed_syntax ip)) He).
+  semantic_diagnostics p (GoIndex.indexed_syntax ip) = nil -> ProgValid p :=
+  fun He => proj1 (semantic_ok_b_ProgValid p) (proj1 (semantic_diagnostics_empty_iff p (GoIndex.indexed_syntax ip)) He).
 
 (** §14 — the ONE elaboration pass.  The shared collections — the index, the visit stream, the occurrence status
     map, and the package buckets — are computed ONCE (let-bound) and feed BOTH the accept/reject decision AND
@@ -5440,7 +5440,7 @@ Definition elaborate_valid_of_no_diags (p : GoProgram) (ip : GoIndex.IndexedProg
     package acceptance is the bucket LENGTHS, never [package_summaries]) and the retained facts.
     There is no separate [analysis_facts] recomputation.  The DECISION is exactly "the diagnostic pass produced
     nothing"; on success the retained facts are exposed with the derived validity, on failure the EXACT
-    diagnostic list.  ([diags] is definitionally [collect_diagnostics p idx], so the decision theorems below are
+    diagnostic list.  ([diags] is definitionally [semantic_diagnostics p idx], so the decision theorems below are
     unchanged.) *)
 Definition elaborate_indexed (p : GoProgram) (ip : GoIndex.IndexedProgram p) : ElaborationResult p ip :=
   let idx     := GoIndex.indexed_syntax ip in
@@ -5455,10 +5455,10 @@ Definition elaborate_indexed (p : GoProgram) (ip : GoIndex.IndexedProgram p) : E
                         (PM.elements buckets) (elements_all_mapsto buckets) in
   (* §16 canonical order: node-primary diagnostics bucketed by NodeKey + flattened, then package-primary.
      §14/§17 COMMAND order: if the fresh-build preflight FAILS the report is EXACTLY the build-output-directory
-     diagnostic (precedence), else the semantic diagnostics.  This [diags] is definitionally [elab_diags p idx]. *)
+     diagnostic (precedence), else the semantic diagnostics.  This [diags] is definitionally [elaboration_diagnostics p idx]. *)
   let diags   := if fresh_build_disposition_ok (fresh_build_plan p)
                  then bucket_flatten (node_keyed raw) ++ pkg_primary raw
-                 else build_output_diags p in
+                 else fresh_build_diagnostics p in
   match list_is_nil diags with
   | left He  => ElaborationOK (mkElaborationFacts
                   (mkExprFactTable facts (prog_expr_facts_domain p) (prog_expr_facts_find p))
@@ -5466,8 +5466,8 @@ Definition elaborate_indexed (p : GoProgram) (ip : GoIndex.IndexedProgram p) : E
                   (prog_package_refs_present idx)
                   (prog_package_refs_bucket_len idx)
                   (prog_package_refs_belongs idx)
-                  (elab_no_diags_valid p idx He)
-                  (elab_no_diags_preflight p idx He))
+                  (elaboration_no_diags_source_valid p idx He)
+                  (elaboration_no_diags_preflight p idx He))
   | right Hne => ElaborationFailed diags Hne
   end.
 
@@ -5477,20 +5477,20 @@ Definition elaborate (p : GoProgram) : ProgramElaboration p :=
 
 (** ANALYSIS EXACTNESS (§18.D/E): elaboration succeeds (exposes facts) IFF the program is admissible ([GoCompile] =
     fresh-build preflight passes AND the source is valid); it fails (exposes nonempty command-ordered
-    diagnostics) IFF it is inadmissible.  Success and failure are exclusive.  ([elab_diags] is definitionally the
-    [diags] computed inside [elaborate_indexed], so both reduce through [elab_diags_nil_iff_GoCompile].) *)
+    diagnostics) IFF it is inadmissible.  Success and failure are exclusive.  ([elaboration_diagnostics] is definitionally the
+    [diags] computed inside [elaborate_indexed], so both reduce through [elaboration_diagnostics_nil_iff_GoCompile].) *)
 Theorem elaborate_ok_iff_GoCompile (p : GoProgram) :
   (exists facts, pe_result (elaborate p) = ElaborationOK facts) <-> GoCompile p.
 Proof.
   unfold elaborate, elaborate_indexed; cbn [pe_result]; cbv zeta.
   match goal with |- context[list_is_nil ?d] => destruct (list_is_nil d) as [He|Hne] end.
   - split; intro Hx;
-      [ exact (proj1 (elab_diags_nil_iff_GoCompile p (GoIndex.indexed_syntax (GoIndex.index_program p))) He)
+      [ exact (proj1 (elaboration_diagnostics_nil_iff_GoCompile p (GoIndex.indexed_syntax (GoIndex.index_program p))) He)
       | eexists; reflexivity ].
   - split; intro Hx.
     + destruct Hx as [facts Hf]; discriminate Hf.
     + exfalso. apply Hne.
-      exact (proj2 (elab_diags_nil_iff_GoCompile p (GoIndex.indexed_syntax (GoIndex.index_program p))) Hx).
+      exact (proj2 (elaboration_diagnostics_nil_iff_GoCompile p (GoIndex.indexed_syntax (GoIndex.index_program p))) Hx).
 Qed.
 
 Theorem elaborate_failed_iff_not_GoCompile (p : GoProgram) :
@@ -5501,17 +5501,17 @@ Proof.
   - split; intro Hx.
     + destruct Hx as [ds [Hne Hf]]; discriminate Hf.
     + exfalso. apply Hx.
-      exact (proj1 (elab_diags_nil_iff_GoCompile p (GoIndex.indexed_syntax (GoIndex.index_program p))) He).
+      exact (proj1 (elaboration_diagnostics_nil_iff_GoCompile p (GoIndex.indexed_syntax (GoIndex.index_program p))) He).
   - split; intro Hx.
     + intro Hv. apply Hne.
-      exact (proj2 (elab_diags_nil_iff_GoCompile p (GoIndex.indexed_syntax (GoIndex.index_program p))) Hv).
+      exact (proj2 (elaboration_diagnostics_nil_iff_GoCompile p (GoIndex.indexed_syntax (GoIndex.index_program p))) Hv).
     + eexists; eexists; reflexivity.
 Qed.
 
-(** on failure the exposed diagnostics ARE the command-ordered [elab_diags] (used to project the legacy class). *)
+(** on failure the exposed diagnostics ARE the command-ordered [elaboration_diagnostics] (used to project the legacy class). *)
 Lemma elaborate_failed_ds (p : GoProgram) ds Hne :
   pe_result (elaborate p) = ElaborationFailed ds Hne ->
-  ds = elab_diags p (GoIndex.indexed_syntax (GoIndex.index_program p)).
+  ds = elaboration_diagnostics p (GoIndex.indexed_syntax (GoIndex.index_program p)).
 Proof.
   unfold elaborate, elaborate_indexed; cbn [pe_result]; cbv zeta.
   match goal with |- context[list_is_nil ?d] => destruct (list_is_nil d) as [He|Hn] end.
@@ -5553,7 +5553,7 @@ Definition elaboration_ok_sig (p : GoProgram) (H : GoCompile p) :
       (elaborate_failed_not_valid p (projT1 b) (projT1 (projT2 b)) (projT2 (projT2 b)) H)
   end.
 
-(* [GoCompile] and its [elab_diags]-emptiness bridge are defined earlier (before [elaborate]), since the elaboration
+(* [GoCompile] and its [elaboration_diagnostics]-emptiness bridge are defined earlier (before [elaborate]), since the elaboration
    exactness theorems below are stated over [GoCompile]. *)
 
 (** ---- destructuring the ONE retained [elaborate] WITHOUT re-projection: record eta re-assembles the elaboration
@@ -5796,6 +5796,79 @@ Proof.
   - apply (proj2 (source_program_valid_iff p)), (proj1 (prog_ok_iff p)); exact H.
 Qed.
 
+(** ============================================================================================================
+    §18 — DECLARATIVE AND EXECUTABLE EXACTNESS.  The three diagnostic layers each have an emptiness/equivalence
+    characterization, and the two-branch command structure is pinned:
+
+      A. [semantic_diagnostics_empty_iff_source_valid] : semantic report empty  <-> SourceProgramValid
+      B. [fresh_build_diagnostics_nil_iff]             : fresh report empty      <-> fresh_build_preflight_ok
+      C. [elaboration_diagnostics_nil_iff_GoCompile]   : final report empty      <-> GoCompile
+      D. [elaborate_ok_iff_GoCompile]                  : elaboration exposes facts <-> GoCompile
+      E. [elaborate_failed_iff_not_GoCompile]          : elaboration fails         <-> ~ GoCompile
+      F. [elaboration_diagnostics_fresh_failure]       : preflight fails -> final report = [one build-output dir]
+      G. [elaboration_diagnostics_eq_semantic]         : preflight succeeds -> final report = semantic report
+      H. [go_compile_projects_elaborate]               : go_compile only PROJECTS one elaboration (no re-check)
+      I. [compilable_prov]/[compilable_index_retained]/[cp_build_plan] : retention of program/index/facts/plan.
+
+    (B, C, D, E, G are proved above at their definitions.)  J — the DirectoryImage layout bridge — lives in
+    GoEmit (§8).  The final equivalence to external cmd/go stays DIFFERENTIAL evidence, not a Rocq theorem. *)
+
+(** §18.A — SOURCE SEMANTICS: the semantic (source/compiler/package) diagnostics are empty EXACTLY on a
+    source-valid program (composes [semantic_diagnostics_empty_iff] with the [ProgValid] bridges). *)
+Theorem semantic_diagnostics_empty_iff_source_valid : forall p idx,
+  semantic_diagnostics p idx = nil <-> SourceProgramValid p.
+Proof.
+  intros p idx. split.
+  - intro H. apply (proj2 (source_program_valid_iff p)), (proj1 (semantic_ok_b_ProgValid p)),
+                   (proj1 (semantic_diagnostics_empty_iff p idx)); exact H.
+  - intro H. apply (proj2 (semantic_diagnostics_empty_iff p idx)), (proj2 (semantic_ok_b_ProgValid p)),
+                   (proj1 (source_program_valid_iff p)); exact H.
+Qed.
+
+(** the sole-package plan expressed exactly (iota over the singleton [selected_package_keys]). *)
+Lemma fresh_build_plan_of_sole : forall p dir,
+  selected_package_keys p = [dir] ->
+  fresh_build_plan p = FBDWriteSingleMain dir (package_import_path (prog_module p) dir)
+                          (default_exec_name (package_import_path (prog_module p) dir))
+                          (PM.find (default_exec_name (package_import_path (prog_module p) dir)) (root_layout p)).
+Proof. intros p dir Hk. unfold fresh_build_plan. rewrite Hk. reflexivity. Qed.
+
+(** §18.F — FAILURE PRECEDENCE (fresh half): when the output preflight FAILS, the fresh-build report is EXACTLY
+    the single build-output-directory diagnostic for the sole package. *)
+Lemma fresh_build_diagnostics_fail_singleton : forall p,
+  fresh_build_disposition_ok (fresh_build_plan p) = false ->
+  exists pk name, fresh_build_diagnostics p = [DRBuildOutputIsDirectory pk name].
+Proof.
+  intros p Hpf. destruct (proj1 (preflight_fails_iff p) Hpf) as [dir [Hk Hfind]].
+  destruct (sole_package_ref_some p dir (sole_package_present p dir Hk)) as [pk Hpk].
+  exists pk. exists (default_exec_name (package_import_path (prog_module p) dir)).
+  unfold fresh_build_diagnostics. rewrite (fresh_build_plan_of_sole p dir Hk), Hfind, Hpk. reflexivity.
+Qed.
+
+(** §18.F — the COMMAND-FACING report inherits it: a failed preflight hides ALL semantic diagnostics, exposing
+    only the one build-output-directory diagnostic. *)
+Theorem elaboration_diagnostics_fresh_failure : forall p idx,
+  fresh_build_disposition_ok (fresh_build_plan p) = false ->
+  exists pk name, elaboration_diagnostics p idx = [DRBuildOutputIsDirectory pk name].
+Proof.
+  intros p idx Hpf. rewrite (elaboration_diagnostics_eq_fresh p idx Hpf).
+  apply (fresh_build_diagnostics_fail_singleton p Hpf).
+Qed.
+
+(** §18.H — the production compiler is a PROJECTION of the ONE elaboration: [go_compile] IS DEFINITIONALLY the
+    outcome of the retained [elaborate p].  It runs no [prog_ok] and no second checker. *)
+Lemma go_compile_projects_elaborate : forall p,
+  go_compile p = outcome_of_elaboration p (elaborate p) eq_refl.
+Proof. intro p. reflexivity. Qed.
+
+(** §18.I — RETENTION: [compilable_prov]/[compilable_index_retained] retain the exact program/index/facts/
+    provenance; the FreshBuildPlan is retained by DERIVATION from the retained program. *)
+Definition cp_build_plan (cp : CompilableProgram) : FreshBuildDisposition :=
+  fresh_build_plan (cp_program cp).
+
+Lemma cp_build_plan_retained : forall cp, cp_build_plan cp = fresh_build_plan (cp_program cp).
+Proof. reflexivity. Qed.
+
 (** the witness builder: from validity, [elaboration_ok_full] destructures [elaborate p] ONCE, delivering the bound
     retained index [ip], its [ElaborationFacts], and the whole-elaboration provenance.  That single execution is
     let-bound and all three constructor arguments PROJECT it — [cp_index], [cp_facts], and [cp_prov] come from
@@ -5819,8 +5892,8 @@ Proof.
     pose proof (proj2 (program_typedb_iff p) (compile_program_typed p Hgc)) as Ht. rewrite Ht in Hf; discriminate Hf.
   - rewrite (go_compile_failed_shape p (pe_indexed (elaborate p)) ds Hne (elaborate_failed_whole p ds Hne Hfail)).
     cbn [legacy_compile_class cfail_diags]. unfold legacy_class_of_diags.
-    rewrite (elaborate_failed_ds p ds Hne Hfail), (elab_diags_eq_collect p _ Hpf),
-            existsb_build_output_collect, existsb_typing_collect, Hf. reflexivity.
+    rewrite (elaborate_failed_ds p ds Hne Hfail), (elaboration_diagnostics_eq_semantic p _ Hpf),
+            existsb_build_output_semantic, existsb_typing_semantic, Hf. reflexivity.
 Qed.
 
 (** A rejected program yields no CompilableProgram (and hence no SafeProgram, no image). *)
@@ -5883,8 +5956,8 @@ Proof.
     cbn [legacy_compile_class cfail_diags]. unfold legacy_class_of_diags.
     rewrite (elaborate_failed_ds p ds Hne Hfail).
     destruct (fresh_build_disposition_ok (fresh_build_plan p)) eqn:Ep.
-    + rewrite (elab_diags_eq_collect p _ Ep), existsb_build_output_collect,
-              existsb_typing_collect, existsb_package_collect.
+    + rewrite (elaboration_diagnostics_eq_semantic p _ Ep), existsb_build_output_semantic,
+              existsb_typing_semantic, existsb_package_semantic.
       assert (Hnv : ~ GoCompile p) by (apply (elaborate_failed_iff_not_GoCompile p); exists ds; exists Hne; exact Hfail).
       assert (Hpok : prog_ok p = false).
       { destruct (prog_ok p) eqn:Epk; [ | reflexivity ]. exfalso. apply Hnv. split.
@@ -5894,7 +5967,7 @@ Proof.
       * assert (Hpk : pkg_all_ok p = false) by (rewrite prog_ok_eq, Ht, Bool.andb_true_l in Hpok; exact Hpok).
         rewrite Hpk. reflexivity.
       * reflexivity.
-    + rewrite (elab_diags_eq_build p _ Ep), (existsb_build_output_build_output p Ep). reflexivity.
+    + rewrite (elaboration_diagnostics_eq_fresh p _ Ep), (existsb_build_output_fresh p Ep). reflexivity.
 Qed.
 
 (** §19 — the legacy class is invariant under [ProgramInputEqual] (module + files); it depends on the ModuleSpec
@@ -5919,6 +5992,64 @@ Proof.
   injection Hb1 as <-. injection Hb2 as <-.
   apply go_compile_class_Equal. split; [ reflexivity | cbn [prog_files] ].
   exact (filemap_of_nodes_permutation n1 n2 fm1 fm2 Hperm F1 F2).
+Qed.
+
+(** ============================================================================================================
+    §19 — DETERMINISM, split correctly.  Source facts + the SEMANTIC report depend only on the file map (the
+    [*_FilesEqual] theorems above).  The FreshBuildPlan, the FINAL command report, and the acceptance CLASS also
+    depend on the ModuleSpec (the preflight's default exec name is a ModulePath function), so those need the FULL
+    [ProgramInputEqual].  Do NOT claim full-report equality from FilesEqual alone — see the §20.16 counterexample
+    (equal files, different module -> different plan). ============================================================ *)
+
+(** equal inputs -> equal root layout / package import path (the file-map and module halves). *)
+Theorem root_layout_InputEqual : forall p1 p2,
+  ProgramInputEqual p1 p2 -> root_layout p1 = root_layout p2.
+Proof. intros p1 p2 H. exact (root_layout_Equal _ _ (proj2 H)). Qed.
+
+Theorem package_import_path_InputEqual : forall p1 p2 dir,
+  ProgramInputEqual p1 p2 ->
+  package_import_path (prog_module p1) dir = package_import_path (prog_module p2) dir.
+Proof. intros p1 p2 dir H. rewrite (proj1 H). reflexivity. Qed.
+
+(** the ERASED final (command-facing) report: snapshot-free, comparable across programs by [=]. *)
+Definition erased_elaboration_report (p : GoProgram) (idx : GoIndex.Snap.SyntaxIndex p) : list ErasedDiagnostic :=
+  map erase_diagnostic (elaboration_diagnostics p idx).
+
+(** on a failed preflight the erased fresh report is EXACTLY the one build-output-directory diagnostic keyed by
+    the sole package DIR (the output NAME is not part of the erased payload). *)
+Lemma erased_fresh_report_of_sole : forall p dir,
+  selected_package_keys p = [dir] ->
+  fresh_build_disposition_ok (fresh_build_plan p) = false ->
+  map erase_diagnostic (fresh_build_diagnostics p)
+    = [mkErasedDiagnostic DCBuildOutputIsDirectory (EAPackage dir) [] None].
+Proof.
+  intros p dir Hk Hpf.
+  destruct (proj1 (preflight_fails_iff p) Hpf) as [dir' [Hk' Hfind]].
+  assert (dir' = dir) as -> by (rewrite Hk in Hk'; congruence).
+  unfold fresh_build_diagnostics. rewrite (fresh_build_plan_of_sole p dir Hk), Hfind.
+  unfold sole_package_ref. destruct (Bool.bool_dec (package_present_b p dir) true) as [Ht|Hcon].
+  - reflexivity.
+  - exfalso. apply Hcon. exact (sole_package_present p dir Hk).
+Qed.
+
+(** §19 — equal PROGRAM INPUTS -> equal ERASED FINAL report (module + files): the preflight branch is
+    ModuleSpec-dependent, so this needs [ProgramInputEqual], not [FilesEqual] alone. *)
+Theorem erased_elaboration_report_InputEqual : forall p1 p2 idx1 idx2,
+  ProgramInputEqual p1 p2 ->
+  erased_elaboration_report p1 idx1 = erased_elaboration_report p2 idx2.
+Proof.
+  intros p1 p2 idx1 idx2 H. pose proof (proj2 H) as Hf.
+  unfold erased_elaboration_report, elaboration_diagnostics.
+  rewrite (fresh_build_disposition_InputEqual _ _ H).
+  destruct (fresh_build_disposition_ok (fresh_build_plan p2)) eqn:Ed.
+  - exact (erased_report_FilesEqual p1 p2 idx1 idx2 Hf).
+  - assert (Ed1 : fresh_build_disposition_ok (fresh_build_plan p1) = false)
+      by (rewrite (fresh_build_disposition_InputEqual _ _ H); exact Ed).
+    destruct (proj1 (preflight_fails_iff p1) Ed1) as [dir [Hk1 _]].
+    assert (Hk2 : selected_package_keys p2 = [dir])
+      by (rewrite <- (selected_package_keys_Equal _ _ Hf); exact Hk1).
+    rewrite (erased_fresh_report_of_sole p1 dir Hk1 Ed1),
+            (erased_fresh_report_of_sole p2 dir Hk2 Ed). reflexivity.
 Qed.
 
 (** The empty program (empty file MAP) is accepted: no package to type and no `main` to count, so [prog_ok]
