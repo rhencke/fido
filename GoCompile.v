@@ -2645,29 +2645,34 @@ Definition analyze_ok_sig (p : GoProgram) (H : ProgValid p) :
     will decorate this same program later without a second AST; there is no unused placeholder now. *)
 Definition GoCompile (p : GoProgram) : Prop := ProgValid p.
 
-(** §18 (C3) — a compiled program RETAINS the whole successful analysis AND its PROVENANCE.  [cp_facts] is the
-    [CompilationFacts] at [analyze]'s OWN retained index ([pa_indexed (analyze cp_program)]), and the mandatory
-    [cp_prov] field PROVES those facts ARE exactly [analyze cp_program]'s [AnalysisOK] output — not a parallel
-    rebuild that merely agrees observationally.  There is therefore NO way to construct a [CompilableProgram]
-    for a program [analyze] rejects, and no parallel capability path: the sole introduction requires an exact
-    [AnalysisOK] result.  [cp_index] is a cheap DERIVED projection ([analyze]'s index); [cp_ok] projects the
-    retained facts' validity.  [cp_program] stays a direct first-field projection, so rendering/emission never
-    reduce [analyze] (the opaque, vm-compute-unfriendly index). *)
+(** §18/§21 (C3) — a compiled program RETAINS the whole successful analysis AND its PROVENANCE: the original
+    program, the EXACT analyzed [IndexedProgram] ([cp_index], a STORED field — projecting it returns the
+    retained value, never re-running [analyze]/[index_program]), and its [CompilationFacts].  [cp_index_ok]
+    proves the retained index IS [analyze]'s ([pa_indexed (analyze cp_program)]); the mandatory [cp_prov] field
+    PROVES the facts ARE exactly [analyze cp_program]'s [AnalysisOK] output — not a parallel rebuild that merely
+    agrees observationally.  There is therefore NO way to construct a [CompilableProgram] for a program
+    [analyze] rejects, and no parallel capability path: the sole introduction requires an exact [AnalysisOK]
+    result.  [cp_ok] projects the retained facts' validity.  [cp_program] stays a direct first-field projection,
+    so rendering/emission never reduce [analyze] (the opaque, vm-compute-unfriendly index). *)
 Record CompilableProgram : Type := mkCompilable {
-  cp_program : GoProgram;
-  cp_facts   : CompilationFacts cp_program (pa_indexed (analyze cp_program));
-  cp_prov    : pa_result (analyze cp_program) = AnalysisOK cp_facts
+  cp_program  : GoProgram;
+  cp_index    : GoIndex.IndexedProgram cp_program;
+  cp_facts    : CompilationFacts cp_program (pa_indexed (analyze cp_program));
+  cp_prov     : pa_result (analyze cp_program) = AnalysisOK cp_facts;
+  cp_index_ok : cp_index = pa_indexed (analyze cp_program)
 }.
-
-Definition cp_index (cp : CompilableProgram) : GoIndex.IndexedProgram (cp_program cp) :=
-  pa_indexed (analyze (cp_program cp)).
 
 Definition cp_ok (cp : CompilableProgram) : GoCompile (cp_program cp) := cf_valid (cp_facts cp).
 
-(** the PROVENANCE surface: every [CompilableProgram]'s facts are exactly [analyze]'s [AnalysisOK] output. *)
+(** the PROVENANCE surfaces: every [CompilableProgram]'s facts are exactly [analyze]'s [AnalysisOK] output, and
+    the RETAINED index IS [analyze]'s (the projection retains, it does not reconstruct). *)
 Theorem compilable_prov : forall cp : CompilableProgram,
   pa_result (analyze (cp_program cp)) = AnalysisOK (cp_facts cp).
 Proof. intro cp; exact (cp_prov cp). Qed.
+
+Theorem compilable_index_retained : forall cp : CompilableProgram,
+  cp_index cp = pa_indexed (analyze (cp_program cp)).
+Proof. intro cp; exact (cp_index_ok cp). Qed.
 
 (** The compiled evidence EXPOSES that the same program is typed through [GoTypes] (§17): an immediate
     canonical projection, not a stored second copy of the typing proof. *)
@@ -2716,7 +2721,7 @@ Definition legacy_compile_class {p} (o : CompileOutcome p) : LegacyCompileClass 
 Definition compile_outcome_of (p : GoProgram)
   (r : AnalysisResult p (pa_indexed (analyze p))) : pa_result (analyze p) = r -> CompileOutcome p :=
   match r with
-  | AnalysisOK facts      => fun Heq => CompiledOk (mkCompilable p facts Heq) eq_refl
+  | AnalysisOK facts      => fun Heq => CompiledOk (mkCompilable p (pa_indexed (analyze p)) facts Heq eq_refl) eq_refl
   | AnalysisFailed ds Hne => fun _   => CompileFailed (mkCompileFailure ds Hne)
   end.
 
@@ -2728,7 +2733,7 @@ Definition go_compile (p : GoProgram) : CompileOutcome p :=
 Lemma compile_outcome_of_ok : forall p r (Heq : pa_result (analyze p) = r) facts,
   r = AnalysisOK facts ->
   exists cp Hcp, compile_outcome_of p r Heq = CompiledOk cp Hcp.
-Proof. intros p r Heq facts ->. cbn. exists (mkCompilable p facts Heq); exists eq_refl; reflexivity. Qed.
+Proof. intros p r Heq facts ->. cbn. exists (mkCompilable p (pa_indexed (analyze p)) facts Heq eq_refl); exists eq_refl; reflexivity. Qed.
 
 Lemma compile_outcome_of_failed : forall p r (Heq : pa_result (analyze p) = r) ds Hne,
   r = AnalysisFailed ds Hne ->
@@ -2769,7 +2774,7 @@ Proof. intros p H; apply go_compile_complete, (proj1 (prog_ok_iff p)); exact H. 
     rendering/emission never reduce the (opaque, vm-compute-unfriendly) index analysis.  This is the SAME
     provenance [go_compile]'s success value carries — the two success artifacts are built the ONE way. *)
 Definition compilable_of_valid (p : GoProgram) (H : GoCompile p) : CompilableProgram :=
-  mkCompilable p (projT1 (analyze_ok_sig p H)) (projT2 (analyze_ok_sig p H)).
+  mkCompilable p (pa_indexed (analyze p)) (projT1 (analyze_ok_sig p H)) (projT2 (analyze_ok_sig p H)) eq_refl.
 
 (** fixture helper: a non-typed program is REJECTED at the TYPING legacy class — a projection of the carried
     diagnostics, never a [program_typedb] rerun. *)
