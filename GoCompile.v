@@ -6096,3 +6096,35 @@ Proof.
   - intros [dir [b [Hk [Hin [Hpar Hfc]]]]]. exists dir. split; [ exact Hk |].
     apply (proj2 (root_layout_dir_iff p _)). exists b. repeat split; assumption.
 Qed.
+
+(** ============================================================================================
+    §C3-FRESH.7 (§9) — SOURCE-program validity, factored into the two INDEPENDENT Go rules the old combined
+    "every package has exactly one DMain" conflated: package-block name UNIQUENESS (at most one `main`
+    declaration per package) and main-package ENTRY validity (at least one).  For the current grammar (every
+    package is `package main`; every DMain is intrinsically `func main()` with no params/results/type params)
+    the two together are EQUIVALENT to the old rule — proved below — but this is the correct factoring for
+    future non-main packages / methods / init.  SourceProgramValid is the SOURCE/compiler admission; GoCompile
+    (§17) adds the fresh-build preflight on top.
+    ============================================================================================ *)
+
+Definition PackageDeclsUnique (p : GoProgram) : Prop :=
+  forall dir s, PM.MapsTo dir s (package_summaries (prog_files p)) -> (ps_main_count s <= 1)%nat.
+Definition MainPackagesHaveEntry (p : GoProgram) : Prop :=
+  forall dir s, PM.MapsTo dir s (package_summaries (prog_files p)) -> (1 <= ps_main_count s)%nat.
+Definition PackageRulesValid (p : GoProgram) : Prop := PackageDeclsUnique p /\ MainPackagesHaveEntry p.
+Definition SourceProgramValid (p : GoProgram) : Prop := ProgramTyped p /\ PackageRulesValid p.
+
+(** the two factored rules together are exactly the old "every package has exactly one main". *)
+Lemma current_package_rules_exactly_one : forall p, PackageRulesValid p <-> AllPackagesOneMain p.
+Proof.
+  intro p. unfold PackageRulesValid, PackageDeclsUnique, MainPackagesHaveEntry, AllPackagesOneMain. split.
+  - intros [Hle Hge] dir s Hmt. pose proof (Hle dir s Hmt); pose proof (Hge dir s Hmt); lia.
+  - intros H. split; intros dir s Hmt; pose proof (H dir s Hmt); lia.
+Qed.
+
+(** so SourceProgramValid is exactly the old source-only ProgValid (the old rule survives as a consequence). *)
+Lemma source_program_valid_iff : forall p, SourceProgramValid p <-> ProgValid p.
+Proof.
+  intro p. unfold SourceProgramValid, ProgValid.
+  rewrite current_package_rules_exactly_one. reflexivity.
+Qed.
