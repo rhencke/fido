@@ -5173,6 +5173,27 @@ Proof.
   - split; reflexivity.
 Qed.
 
+(** §C3-FRESH.9 (§14/§17) — the COMMAND-ordered diagnostic list: if the fresh-build preflight FAILS, the report
+    is EXACTLY the build-output-directory diagnostic (it takes PRECEDENCE, hiding the semantic diagnostics of
+    the sole package); otherwise it is the semantic [collect_diagnostics].  Emptiness is exactly GoCompile. *)
+Definition elab_diags (p : GoProgram) (idx : GoIndex.Snap.SyntaxIndex p) : list (DiagnosticReason p) :=
+  if fresh_build_disposition_ok (fresh_build_plan p) then collect_diagnostics p idx else build_output_diags p.
+
+Lemma elab_no_diags_valid : forall p idx, elab_diags p idx = nil -> ProgValid p.
+Proof.
+  intros p idx He. unfold elab_diags in He. destruct (fresh_build_disposition_ok (fresh_build_plan p)) eqn:Ep.
+  - exact (proj1 (analysis_ok_b_ProgValid p) (proj1 (collect_diagnostics_empty_iff p idx) He)).
+  - apply (proj1 (build_output_diags_nil_iff p)) in He. unfold fresh_build_preflight_ok in He.
+    rewrite He in Ep. discriminate Ep.
+Qed.
+
+Lemma elab_no_diags_preflight : forall p idx, elab_diags p idx = nil -> fresh_build_preflight_ok p.
+Proof.
+  intros p idx He. unfold elab_diags in He. destruct (fresh_build_disposition_ok (fresh_build_plan p)) eqn:Ep.
+  - unfold fresh_build_preflight_ok. exact Ep.
+  - exact (proj1 (build_output_diags_nil_iff p) He).
+Qed.
+
 (* end of the §C3-FRESH block — restore the default scope so the analysis machinery's list [++] is list append. *)
 Close Scope string_scope.
 
