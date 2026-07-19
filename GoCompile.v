@@ -1463,8 +1463,8 @@ Definition arg_default_failure (occ : GoIndex.SourceOccurrence) (e : GoExpr) : o
     outermost-first).  Purely structural over the index — so the spec and single-pass diagnostic emitters
     compute the IDENTICAL [outer_context]. *)
 Definition is_conversion_node {p} (idx : GoIndex.Snap.SyntaxIndex p) (a : GoIndex.Snap.NodeRef p) : bool :=
-  match GoIndex.Snap.children_of idx a with
-  | c :: nil => match GoIndex.Snap.node_role idx c with GoIndex.RConversionOperand => true | _ => false end
+  match GoIndex.Snap.node_at a with
+  | Some (EIntConvert _ _) | Some (EFloatConvert _ _) | Some (EComplexConvert _ _) => true
   | _ => false
   end.
 
