@@ -187,31 +187,32 @@ Updated only at checkpoint boundaries._
   4. **stale permanent docs + collection audit** (§29): ARCHITECTURE/CLAUDE/PROGRESS still claim coarse
      `CompileError`/`ErrTyping` + "no CompilationFacts"; the collection audit omits the C3 NodeKey fact maps /
      diagnostic + package buckets / report enumeration.
-- FINAL-repair progress (defects 1, 2, 4 DONE; 3 remaining):
-  - **Defect 2 DONE** (`2164d51`): `pkg_diag_of_bucket` emits `map (DRDuplicateMain _ d1) rest` — n-1
-    diagnostics, each redundant tail main related to the first; emptiness (nil iff length 1) + family preserved.
-  - **Defect 4 DONE** (`867a1d2`): reconciled ARCHITECTURE/CLAUDE/PROGRESS coarse-error prose to the C3
-    CompileOutcome/CompilationFacts/structured-diagnostics model + added the C3 rows to `COLLECTION_AUDIT.md`.
-  - **Defect 1 DONE** (`183b560`): nested-conversion `outer_context` via the INDEX-ONLY `enclosing_conv_refs`
-    (strict ancestors that are conversion nodes, over the file's visit stream, reversed to nearest-first) —
-    identical in the spec + single-pass emitters, so the sm=spec / emptiness / family proofs are untouched;
-    `float64(int8(128))` -> ONE diagnostic (inner primary + `[float64]` outer).  Nested-scar soundness gated
-    (`enclosing_conv_refs_sound`).  Gate 490/490.
-  - **Defect 3 part 1 DONE** (`355c79a`): §9 code-specific diagnostic soundness — `occ_expr_diags_conv_sound`
-    (invalid conversion genuinely fails `convert_const`; `outer_context` = enclosing conversions),
-    `occ_expr_diags_default_sound` (constant does not default; target = the Go default),
-    `pkg_diag_of_bucket_missing_sound` (empty bucket at a represented key), `pkg_diag_of_bucket_dup_sound`
-    (later main related to the first, same bucket).  All gated; gate 490->494.
-  - **Defect 3 part 2 IN PROGRESS** (§16/§17/§22.15 cross-snapshot report + fact-enumeration determinism):
-    added the GoIndex occurrence/local-id correspondence `Snap.visit_file_idocc` (the traversal's minted local
-    ids AND syntax fragments ARE the source `occs_file` — a file's visit stream depends only on its
-    `GoSourceFile`; SNAP_SIG parameter + Snap proof, ROOT-green GoIndex surface preserved).  REMAINING: the
-    `FilesEqual` ERASED-report equality + permutation corollary (a large pipeline-wide proof — the erased
-    diagnostics must factor through the source, incl. the `enclosing_conv_refs` index navigation), the
-    canonical diagnostic/fact enumeration order, and their gate surfaces.
-- Status: **C3 FINAL barrier IN PROGRESS @`355c79a`; FINAL review (task-mrrathsz) defects 1, 2, 4 + defect-3
-  part 1 (soundness) CLOSED; defect-3 part 2 (cross-snapshot report/fact determinism) foundation laid
-  (`visit_file_idocc`), the pipeline-wide FilesEqual erased-report equality remaining.**
+- FIRST FINAL review (`task-mrrathsz`) — defects 1, 2, 4 + defect-3 part 1 CLOSED: n-1 `DRDuplicateMain`
+  (`2164d51`); coarse-error prose reconciled + `COLLECTION_AUDIT.md` rows (`867a1d2`); nested `outer_context`
+  (`183b560`); §9 code-specific soundness (`355c79a`).
+- SECOND FINAL review (`task-mrrevblb`) found THREE deeper blocking defects — ALL now CLOSED:
+  - **Defect 1 (one-pass) DONE** (`6bffa5c`, `b3a0aa6`): the FIRST fix's `enclosing_conv_refs` re-ran
+    `visit_file` + `node_at` PER diagnostic (§14/§28 violation, quadratic).  Replaced by the ONE-PASS
+    `annotate_encl`: a single forward pass carries the open-conversion stack (nearest-first) over the RETAINED
+    file stream; `occ_expr_diags`/`_sm` take the delivered `outer` context as a parameter; `analyze_indexed`'s
+    diag fold consumes `annotate_program`.  No per-diagnostic `visit_file`/`node_at`.  All dead
+    `enclosing_conv_refs`/`is_conversion_node`/`is_ancestor_of` machinery DELETED.
+  - **Defect 3 (soundness) DONE** (`c83e732`, `b3a0aa6`): the soundness surfaces now DENOTE their code
+    end-to-end — `occ_expr_diags_conv_sound` (primary is the occurrence's own ExprRef; syntax IS the explicit
+    conversion to the reported target of operand x via `conv_targets`; operand status is x's exact ConstInfo;
+    `convert_const` genuinely rejects), `occ_expr_diags_default_sound` (genuine println arg; exact `CIUntyped
+    c`; Go default), `pkg_diags_dup_sound` (same package + genuine top-level func main via `noderefof_kind`).
+  - **Defect 2 (determinism) DONE** (`2ebee01`..`8c61216`): the §17 cross-snapshot theorems, all gated —
+    `erased_report_FilesEqual` (FilesEqual programs, whose diagnostics live in DIFFERENT dependent snapshot
+    types, produce the IDENTICAL erased report; expr half factors through `annotate_source` + the pkg half
+    through the keyed source buckets via `ppkg_erased_find` + PackageMap `elements_Equal`/`map_elements`),
+    `erased_report_build_permutation` (construction-list permutation -> same report), and
+    `prog_expr_facts_enum_FilesEqual` (successful-fact enumeration determinism, a fold-map fusion over the
+    keyed stream).  Gate 494 -> **502/502**.
+- Status: **C3 FINAL barrier — all defects from BOTH FINAL reviews CLOSED @`8c61216`; one-pass hot path +
+  end-to-end diagnostic soundness + cross-snapshot determinism (FilesEqual report / permutation / fact
+  enumeration) all proved + gated (502/502); `make check` green on the working tree; generated bytes
+  byte-identical throughout.  Awaiting the FINAL Codex re-review.**
 
 ## C1B — Collection Policy Enforcement and Source Forest Plan Reconciliation (ACTIVE correction checkpoint)
 - Baseline SHA: `79e80fdb4e63d00d4e97d8638f94a05408b51ea8` (`review(final): C1A — record both-barrier Codex GREEN

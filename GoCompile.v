@@ -1495,7 +1495,9 @@ Definition is_conversion_occ (occ : GoIndex.SourceOccurrence) : bool :=
     conversion ancestors).  Entries whose subtree has closed ([node_subtree_end < node_ref_local]) are popped;
     a conversion occurrence pushes its own [ExprRef] + subtree end AFTER recording.  No per-diagnostic
     [visit_file] re-traversal and no [node_at] recovery — only retained refs, index subtree metadata, and the
-    delivered occurrence's own syntax ([is_conversion_occ]).  Proved [= enclosing_conv_refs] on the stream. *)
+    delivered occurrence's own syntax ([is_conversion_occ]).  This IS the enclosing-context authority (the
+    [outer_context] delivered to the diagnostic emitters); its erased form is a source function of the keyed
+    stream ([annotate_encl_erased]), the basis for cross-snapshot report determinism. *)
 Fixpoint annotate_encl {p} (idx : GoIndex.Snap.SyntaxIndex p)
     (stack : list (GoIndex.ExprRef p * positive))
     (stream : list (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence))

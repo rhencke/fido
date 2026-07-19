@@ -287,12 +287,11 @@ checkpoint is activated only by explicit sign-off.
   moved the package clause into source syntax, one path authority, migrated the pipeline.  **C1A/C1B** then
   made program storage a STANDARD `FilePath`-keyed map `GoFileMap` (pinned-stdlib `FMapAVL`; the path is the
   map KEY, `GoFileNode` is construction/view only), migrated the whole pipeline + package grouping onto
-  standard maps, and installed the binding collection law.  Later checkpoints (C3 occurrence-anchored
-  diagnostics; C4 source type-name syntax; C5 remaining predeclared numerics) each need explicit sign-off
-  before starting.  (Proof-only source recovery is NOT a hot-path guarantee — ordinary compilation receives
-  the syntax fragment and its `NodeRef` together.)
-- **C2 — production occurrence index, snapshot-local references, and indexed traversal (LANDED; pending the
-  FINAL Codex barrier + Rob's acceptance; C3 forbidden until then):** `GoIndex.v` is the ONE structural
+  standard maps, and installed the binding collection law.  Later checkpoints (C4 source type-name syntax; C5
+  remaining predeclared numerics) each need explicit sign-off before starting.  (Proof-only source recovery is
+  NOT a hot-path guarantee — ordinary compilation receives the syntax fragment and its `NodeRef` together.)
+- **C2 — production occurrence index, snapshot-local references, and indexed traversal (COMPLETE — Codex-GREEN
+  + Rob-APPROVED; C3 is the ACTIVE checkpoint):** `GoIndex.v` is the ONE structural
   occurrence-identity + navigation authority derived from one immutable `GoProgram` (importing only
   GoAST/Collections/FilePath).  It provides canonical file-local `positive` preorder ids (file root = 1);
   per-file `NodeMeta` in a SEALED `NodeTable` over pinned `FMapPositive`, aggregated by the outer
