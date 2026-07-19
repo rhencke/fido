@@ -770,3 +770,9 @@ Print Assumptions GoCompile.three_main_report_nonempty.
 Print Assumptions GoCompile.three_main_dup_fixture.
 Print Assumptions GoCompile.missing_main_report_nonempty.
 Print Assumptions GoCompile.missing_main_fixture.
+(* C3 §23 — the EXACT expression-fact query: every reference's fact IS its occurrence's source-derived fact
+   (const-status = const_info, resolved = use-resolution, rounded once), and resolved_type/constant project it;
+   §22.16 — repeated equal literals are occurrence-keyed, not deduplicated by syntax value. *)
+Print Assumptions GoCompile.expr_fact_at_exact.
+Print Assumptions GoCompile.fact_query_fixture.
+Print Assumptions GoCompile.dup_lit_no_dedup.

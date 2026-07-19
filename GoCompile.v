@@ -4546,3 +4546,75 @@ Theorem missing_main_fixture :
 Proof.
   intros pk Hin. exact (pkg_diags_missing_sound (GoIndex.Snap.index_program missing_main_program) pk Hin).
 Qed.
+
+(** ---- §23 — the EXACT expression-fact query: on ANY valid [CompilationFacts], EVERY expression reference's
+    queried fact is its occurrence's EXACT source-derived fact — the [ef_const_status] IS the occurrence's
+    [const_info] and the [ef_use_resolved] IS its use-context resolution ([resolve_expr_const], rounded ONCE at
+    conversion — no rerounding).  So the query PROJECTS the occurrence, never a recomputed value. ---- *)
+Lemma expr_fact_at_exact {p ip} (facts : CompilationFacts p ip) (er : GoIndex.ExprRef p) :
+  exists e ci,
+    GoIndex.view_expr (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref er)) = Some e
+    /\ const_info e = Some ci
+    /\ expr_fact_at facts er
+       = mkExprFact ci (occ_use_resolved (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref er))).
+Proof.
+  assert (Hkind : GoIndex.occurrence_kind (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref er)) = GoIndex.KExpression)
+    by exact (proj2_sig er).
+  destruct (GoIndex.kind_view_expr _ Hkind) as [e Hv].
+  pose proof (noderef_in_prog_visit p (GoIndex.erase_ref er)) as Hin.
+  pose proof (proj2 (GoTypes.program_typedb_iff p) (proj1 (cf_valid facts))) as HPT.
+  destruct (prog_visit_const_info_some p HPT (GoIndex.erase_ref er)
+              (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref er)) e Hin Hv) as [ci Hci].
+  pose proof (eft_complete (cf_expr_facts facts) (GoIndex.erase_ref er)
+                (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref er)) Hin) as Hfind.
+  rewrite (occ_expr_fact_status _ e ci Hv Hci) in Hfind.
+  exists e, ci. split; [exact Hv | split; [exact Hci | exact (expr_fact_at_find facts er _ Hfind)]].
+Qed.
+
+Definition fact_program : GoProgram :=
+  singleton_program c3_ms (mkFP "main.go" eq_refl)
+    [ DMain [ SPrintln [ EFloatConvert F64 (EIntConvert IInt (EInt 5)) ] ] ].
+Example fact_program_ok : prog_ok fact_program = true. Proof. vm_compute. reflexivity. Qed.
+
+(** §23 — the fact query on the concrete VALID nested-conversion program [float64(int(5))]: every reference's
+    fact is exact, and [resolved_type_at] / [resolved_constant_at] report EXACTLY the occurrence's GoTypes
+    use-resolution (its resolved type / exact constant) — no separate recomputation, no rerounding. *)
+Theorem fact_query_fixture {ip} (facts : CompilationFacts fact_program ip) (er : GoIndex.ExprRef fact_program) :
+  exists e ci,
+    GoIndex.view_expr (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref er)) = Some e
+    /\ const_info e = Some ci
+    /\ ef_const_status (expr_fact_at facts er) = ci
+    /\ ef_use_resolved (expr_fact_at facts er) = occ_use_resolved (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref er))
+    /\ resolved_type_at (expr_fact_at facts er)
+       = option_map resolved_const_type (occ_use_resolved (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref er)))
+    /\ resolved_constant_at (expr_fact_at facts er)
+       = option_map resolved_const_exact (occ_use_resolved (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref er))).
+Proof.
+  destruct (expr_fact_at_exact facts er) as [e [ci [Hv [Hci Hq]]]].
+  exists e, ci. split; [exact Hv | split; [exact Hci |]].
+  unfold resolved_type_at, resolved_constant_at. rewrite Hq. cbn [ef_const_status ef_use_resolved].
+  repeat split; reflexivity.
+Qed.
+
+(** ---- §22.16 — REPEATED EQUAL LITERALS [println(1, 1)] are NOT deduplicated: the fact table is keyed by
+    OCCURRENCE identity (NodeKey), so two references with DISTINCT keys carry independent facts — each query
+    projects its OWN occurrence's exact fact, even when the two expressions are syntactically equal. ---- *)
+Definition dup_lit_program : GoProgram :=
+  singleton_program c3_ms (mkFP "main.go" eq_refl)
+    [ DMain [ SPrintln [ EInt 1; EInt 1 ] ] ].
+Example dup_lit_ok : prog_ok dup_lit_program = true. Proof. vm_compute. reflexivity. Qed.
+
+Theorem dup_lit_no_dedup {ip} (facts : CompilationFacts dup_lit_program ip)
+    (er1 er2 : GoIndex.ExprRef dup_lit_program) :
+  GoIndex.Snap.node_ref_key (GoIndex.erase_ref er1) <> GoIndex.Snap.node_ref_key (GoIndex.erase_ref er2) ->
+  (exists e1 ci1,
+     GoIndex.view_expr (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref er1)) = Some e1
+     /\ const_info e1 = Some ci1
+     /\ expr_fact_at facts er1 = mkExprFact ci1 (occ_use_resolved (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref er1))))
+  /\ (exists e2 ci2,
+     GoIndex.view_expr (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref er2)) = Some e2
+     /\ const_info e2 = Some ci2
+     /\ expr_fact_at facts er2 = mkExprFact ci2 (occ_use_resolved (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref er2)))).
+Proof.
+  intro _Hne. split; [ exact (expr_fact_at_exact facts er1) | exact (expr_fact_at_exact facts er2) ].
+Qed.
