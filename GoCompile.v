@@ -3270,6 +3270,98 @@ Proof.
   - destruct Hin.
 Qed.
 
+(* the KEY list of a diagnostic list (the node-primary keys, in order). *)
+Definition node_keys {p} (l : list (DiagnosticReason p)) : list GoIndex.NodeKey :=
+  flat_map (fun d => match diag_node_key d with Some k => [k] | None => [] end) l.
+
+Lemma node_keys_eq {p} (l : list (DiagnosticReason p)) : map fst (node_keyed l) = node_keys l.
+Proof.
+  induction l as [|d l IH]; [reflexivity|].
+  replace (node_keyed (d :: l))
+    with ((match diag_node_key d with Some k => [(k, d)] | None => nil end) ++ node_keyed l) by reflexivity.
+  replace (node_keys (d :: l))
+    with ((match diag_node_key d with Some k => [k] | None => nil end) ++ node_keys l) by reflexivity.
+  rewrite map_app, IH. f_equal. destruct (diag_node_key d); reflexivity.
+Qed.
+
+Lemma node_keys_app {p} (l1 l2 : list (DiagnosticReason p)) : node_keys (l1 ++ l2) = node_keys l1 ++ node_keys l2.
+Proof. unfold node_keys. rewrite flat_map_app. reflexivity. Qed.
+
+(* GENERIC: if each source element produces at most one keyed value all carrying that element's (distinct) key,
+   the produced key list is NoDup. *)
+Lemma flat_map_le1_key_nodup {A} (key : A -> GoIndex.NodeKey) (f : A -> list GoIndex.NodeKey) (L : list A) :
+  NoDup (map key L) ->
+  (forall a, (length (f a) <= 1)%nat) ->
+  (forall a b, In b (f a) -> b = key a) ->
+  NoDup (flat_map f L).
+Proof.
+  intros Hnd Hf1 Hkey. induction L as [|a L IH]; [constructor|].
+  cbn [map] in Hnd. apply NoDup_cons_iff in Hnd. destruct Hnd as [Hnotin Hnd].
+  cbn [flat_map]. destruct (f a) as [|b [|b' rest]] eqn:Ef.
+  - cbn [app]. apply IH; assumption.
+  - cbn [app]. constructor.
+    + rewrite (Hkey a b) by (rewrite Ef; left; reflexivity). intro Hin. apply Hnotin.
+      apply in_flat_map in Hin. destruct Hin as [a0 [Ha0 Hb0]].
+      rewrite (Hkey a0 _ Hb0). apply in_map. exact Ha0.
+    + apply IH; assumption.
+  - exfalso. pose proof (Hf1 a) as Hle. rewrite Ef in Hle. cbn [length] in Hle. lia.
+Qed.
+
+Lemma occ_expr_diags_le1 {p} (idx : GoIndex.Snap.SyntaxIndex p) outer ro :
+  (length (occ_expr_diags idx outer ro) <= 1)%nat.
+Proof.
+  unfold occ_expr_diags. destruct (GoIndex.as_expr idx (fst ro)); [|cbn; lia].
+  destruct (GoIndex.view_expr (snd ro)); [|cbn; lia].
+  destruct (local_conv_failure g) as [[t ci]|]; [cbn; lia|].
+  destruct (arg_default_failure (snd ro) g) as [[c dt]|]; cbn; lia.
+Qed.
+
+Lemma occ_expr_diags_key {p} (idx : GoIndex.Snap.SyntaxIndex p) outer ro :
+  forall d, In d (occ_expr_diags idx outer ro) -> diag_node_key d = Some (GoIndex.Snap.node_ref_key (fst ro)).
+Proof.
+  intros d Hin. unfold occ_expr_diags in Hin.
+  destruct (GoIndex.as_expr idx (fst ro)) as [er|] eqn:Ea; [|destruct Hin].
+  assert (Her : GoIndex.erase_ref er = fst ro) by exact (GoIndex.erase_as_kind idx (fst ro) GoIndex.KExpression er Ea).
+  destruct (GoIndex.view_expr (snd ro)) as [e|]; [|destruct Hin].
+  destruct (local_conv_failure e) as [[t ci]|].
+  - cbn [In] in Hin. destruct Hin as [<-|[]]. cbn [diag_node_key diagnostic_primary]. rewrite Her. reflexivity.
+  - destruct (arg_default_failure (snd ro) e) as [[c dt]|]; [|destruct Hin].
+    cbn [In] in Hin. destruct Hin as [<-|[]]. cbn [diag_node_key diagnostic_primary]. rewrite Her. reflexivity.
+Qed.
+
+Lemma flat_map_flat_map {A B C} (g : B -> list C) (h : A -> list B) (L : list A) :
+  flat_map g (flat_map h L) = flat_map (fun x => flat_map g (h x)) L.
+Proof. induction L as [|a L IH]; [reflexivity|]. cbn [flat_map]. rewrite flat_map_app, IH. reflexivity. Qed.
+
+(* the per-occurrence keys of one occurrence's diagnostics: at most one, and it is the occurrence's key. *)
+Lemma occ_node_keys_le1 {p} (idx : GoIndex.Snap.SyntaxIndex p) outer ro :
+  (length (node_keys (occ_expr_diags idx outer ro)) <= 1)%nat.
+Proof.
+  unfold node_keys.
+  pose proof (occ_expr_diags_le1 idx outer ro) as Hle.
+  destruct (occ_expr_diags idx outer ro) as [|d [|d' r]]; cbn [length flat_map app] in Hle |- *; [ lia | | lia ].
+  destruct (diag_node_key d); cbn [length app]; lia.
+Qed.
+
+Lemma occ_node_keys_val {p} (idx : GoIndex.Snap.SyntaxIndex p) outer ro :
+  forall k, In k (node_keys (occ_expr_diags idx outer ro)) -> k = GoIndex.Snap.node_ref_key (fst ro).
+Proof.
+  intros k Hin. unfold node_keys in Hin. apply in_flat_map in Hin. destruct Hin as [d [Hd Hk]].
+  rewrite (occ_expr_diags_key idx outer ro d Hd) in Hk. cbn [In] in Hk. destruct Hk as [<-|[]]. reflexivity.
+Qed.
+
+Lemma expr_node_keys_nodup {p} (idx : GoIndex.Snap.SyntaxIndex p) : NoDup (node_keys (expr_diags idx)).
+Proof.
+  unfold node_keys. rewrite expr_diags_eq_spec, flat_map_flat_map.
+  apply (flat_map_le1_key_nodup (fun roc => GoIndex.Snap.node_ref_key (fst (fst roc)))).
+  - assert (H : map (fun roc => GoIndex.Snap.node_ref_key (fst (fst roc))) (annotate_program idx)
+                = map (fun ro => GoIndex.Snap.node_ref_key (fst ro)) (prog_visit p)).
+    { rewrite <- (annotate_program_fst idx), map_map. reflexivity. }
+    rewrite H. apply prog_visit_key_nodup.
+  - intro roc. exact (occ_node_keys_le1 idx (snd roc) (fst roc)).
+  - intros roc k Hin. exact (occ_node_keys_val idx (snd roc) (fst roc) k Hin).
+Qed.
+
 Lemma in_nkm_find_mapsto {X} (k : GoIndex.NodeKey) (m : GoIndex.NodeKeyMapBase.t (list X)) (d : X) :
   In d (nkm_find k m) -> exists b, GoIndex.NodeKeyMapBase.MapsTo k b m /\ In d b.
 Proof.
