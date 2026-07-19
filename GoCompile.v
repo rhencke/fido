@@ -1635,6 +1635,28 @@ Proof.
   intro Hina. rewrite Forall_forall in Hhd. exact (Hirr a (Hhd a Hina)).
 Qed.
 
+Lemma StronglySorted_impl_in {A} (R R' : A -> A -> Prop) l :
+  (forall x y, In x l -> In y l -> R x y -> R' x y) -> StronglySorted R l -> StronglySorted R' l.
+Proof.
+  intros Himp H. induction l as [|a l IH]; [constructor|].
+  apply StronglySorted_inv in H. destruct H as [Hs Hhd].
+  constructor.
+  - apply IH; [| exact Hs]. intros x y Hx Hy. apply Himp; right; assumption.
+  - rewrite Forall_forall in Hhd |- *. intros x Hx. apply Himp; [left; reflexivity | right; exact Hx | exact (Hhd x Hx)].
+Qed.
+
+Lemma StronglySorted_app {A} (R : A -> A -> Prop) l1 l2 :
+  StronglySorted R l1 -> StronglySorted R l2 -> (forall a b, In a l1 -> In b l2 -> R a b) ->
+  StronglySorted R (l1 ++ l2).
+Proof.
+  intros H1 H2 Hcross. induction l1 as [|a l1 IH]; [exact H2|].
+  apply StronglySorted_inv in H1. destruct H1 as [Hs Hhd]. cbn [app]. constructor.
+  - apply IH; [exact Hs | intros b c Hb Hc; apply Hcross; [right; exact Hb | exact Hc]].
+  - rewrite Forall_forall. intros x Hx. apply in_app_iff in Hx. destruct Hx as [Hx | Hx].
+    + rewrite Forall_forall in Hhd. exact (Hhd x Hx).
+    + apply Hcross; [left; reflexivity | exact Hx].
+Qed.
+
 (* the annotation-STACK is same-file and STRICTLY DESCENDING by local (front = last pushed = deepest =
    NEAREST); its projection to the [ExprRef] context is thus same-file, nearest-first, and duplicate-free. *)
 Definition estack_wf {p} (idx : GoIndex.Snap.SyntaxIndex p) (fr : GoIndex.Snap.FileRef p)
@@ -3489,6 +3511,61 @@ Proof.
   split.
   - exact (package_ref_ok pk).
   - rewrite Hkey. symmetry. exact (prog_package_refs_bucket_len idx dir nil (PM.find_1 Hmt)).
+Qed.
+
+(* ---- §9 — the package buckets are NodeKey-SORTED and DUPLICATE-FREE, hence duplicate-main diagnostics carry
+   strict canonical precedence + distinctness.  Foundation: the whole visit stream is NodeKey-sorted. ---- *)
+
+(* one file's block is NodeKey-sorted: same file (path constant), local strictly ascending. *)
+Lemma visit_file_key_sorted {p} (fr : GoIndex.Snap.FileRef p) :
+  StronglySorted (fun x y => GoIndex.NodeKey_OT.lt (GoIndex.Snap.node_ref_key (fst x)) (GoIndex.Snap.node_ref_key (fst y)))
+                 (GoIndex.Snap.visit_file fr).
+Proof.
+  apply (StronglySorted_impl_in (fun x y => Pos.lt (GoIndex.Snap.node_ref_local (fst x)) (GoIndex.Snap.node_ref_local (fst y)))).
+  - intros [rx ox] [ry oy] Hx Hy Hlt.
+    destruct (GoIndex.Snap.visit_file_view p fr rx ox Hx) as [_ Hfx].
+    destruct (GoIndex.Snap.visit_file_view p fr ry oy Hy) as [_ Hfy].
+    cbn [fst] in *. rewrite (GoIndex.Snap.node_ref_key_eq rx), (GoIndex.Snap.node_ref_key_eq ry).
+    right. cbn [GoIndex.nk_file GoIndex.nk_local]. split; [ rewrite Hfx, Hfy; reflexivity | exact Hlt ].
+  - apply StronglySorted_map_inv. exact (GoIndex.Snap.visit_file_order p fr).
+Qed.
+
+(* every node visited in binding [b]'s block has that binding's path as its key's file component. *)
+Lemma binding_block_key_file (p : GoProgram) (b : FilePath * GoSourceFile) :
+  forall ro, In ro (binding_visit p b) -> GoIndex.nk_file (GoIndex.Snap.node_ref_key (fst ro)) = fst b.
+Proof.
+  intros [r occ] Hin. unfold binding_visit in Hin.
+  destruct (GoIndex.Snap.file_of_path p (fst b)) as [fr|] eqn:Efr; [| destruct Hin].
+  destruct (GoIndex.Snap.visit_file_view p fr r occ Hin) as [_ Hf].
+  cbn [fst]. rewrite (GoIndex.Snap.node_ref_key_eq r). cbn [GoIndex.nk_file]. rewrite Hf.
+  exact (GoIndex.Snap.file_of_path_sound p (fst b) fr Efr).
+Qed.
+
+Lemma prog_visit_key_sorted_aux (p : GoProgram) (L : list (FilePath * GoSourceFile)) :
+  StronglySorted (fun a b => Collections.FilePath_OT.lt (fst a) (fst b)) L ->
+  StronglySorted (fun x y => GoIndex.NodeKey_OT.lt (GoIndex.Snap.node_ref_key (fst x)) (GoIndex.Snap.node_ref_key (fst y)))
+                 (concat (map (binding_visit p) L)).
+Proof.
+  induction L as [|b L IH]; intro Hbsort; [constructor|].
+  apply StronglySorted_inv in Hbsort. destruct Hbsort as [Hbs Hbhd].
+  cbn [map concat]. apply StronglySorted_app.
+  { unfold binding_visit. destruct (GoIndex.Snap.file_of_path p (fst b)) as [fr|]; [apply visit_file_key_sorted | constructor]. }
+  { apply IH; exact Hbs. }
+  intros x y Hx Hy. apply in_concat in Hy. destruct Hy as [block [Hblock Hyb]].
+  apply in_map_iff in Hblock. destruct Hblock as [b' [Hb'v Hb'L]]. subst block.
+  assert (Hxf : GoIndex.nk_file (GoIndex.Snap.node_ref_key (fst x)) = fst b) by (apply binding_block_key_file; exact Hx).
+  assert (Hyf : GoIndex.nk_file (GoIndex.Snap.node_ref_key (fst y)) = fst b') by (apply binding_block_key_file; exact Hyb).
+  rewrite Forall_forall in Hbhd. pose proof (Hbhd b' Hb'L) as Hlt.
+  unfold GoIndex.NodeKey_OT.lt. left. rewrite Hxf, Hyf. exact Hlt.
+Qed.
+
+Lemma prog_visit_key_sorted (p : GoProgram) :
+  StronglySorted (fun x y => GoIndex.NodeKey_OT.lt (GoIndex.Snap.node_ref_key (fst x)) (GoIndex.Snap.node_ref_key (fst y)))
+                 (prog_visit p).
+Proof.
+  unfold prog_visit, prog_blocks. apply prog_visit_key_sorted_aux.
+  apply Sorted_StronglySorted; [ intros x y z; apply Collections.FilePath_OT.lt_trans | ].
+  unfold GoAST.file_bindings. apply Collections.FileMapBase.elements_3.
 Qed.
 Lemma pkg_diags_package {p} (idx : GoIndex.Snap.SyntaxIndex p) : forall d, In d (pkg_diags idx) -> diag_is_package d = true.
 Proof. intros d Hin; apply (pkg_diags_family idx d Hin). Qed.
