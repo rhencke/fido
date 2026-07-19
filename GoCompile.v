@@ -5985,3 +5985,44 @@ Proof.
     rewrite <- Hk, (component_ok_no_dot _ Hc1) in Hd2. discriminate Hd2.
   - reflexivity.
 Qed.
+
+(** §C3-FRESH.5 (§7 exactness) — the ROOT-DIRECTORY characterization: a key maps to FREDirectory in the layout
+    IFF some NESTED represented file has that key as its first path component.  (This is what the fresh-build
+    preflight consults: an existing root DIRECTORY at the default exec name is the cmd/go collision.) *)
+Lemma root_layout_dir_iff : forall p e,
+  PM.find e (root_layout p) = Some FREDirectory <->
+  (exists b, In b (GoAST.file_bindings (prog_files p))
+             /\ fp_parent (fst b) <> "" /\ first_component (fp_string (fst b)) = e).
+Proof.
+  intros p e. unfold root_layout. split.
+  - intro Hfind.
+    destruct (existsb (fun b => String.eqb (fst (root_entry_of_file b)) e)
+                (GoAST.file_bindings (prog_files p))) eqn:Eex.
+    + apply existsb_exists in Eex. destruct Eex as [b [Hin Hkey]]. apply String.eqb_eq in Hkey.
+      rewrite (fold_add_find_in root_entry_of_file (PM.add "go.mod" FREGoMod (PM.empty _))
+                 (GoAST.file_bindings (prog_files p)) e b Hin Hkey
+                 (fun b1 b2 _ _ => root_entry_hval b1 b2)) in Hfind.
+      injection Hfind as Hval. exists b.
+      unfold root_entry_of_file in Hkey, Hval.
+      destruct (String.eqb (fp_parent (fst b)) "") eqn:E; cbn [fst snd] in Hkey, Hval.
+      * discriminate Hval.
+      * apply String.eqb_neq in E. split; [ exact Hin | split; [ exact E | exact Hkey ] ].
+    + assert (Hni : forall b, In b (GoAST.file_bindings (prog_files p)) -> fst (root_entry_of_file b) <> e).
+      { intros b Hin Hc. apply Bool.not_true_iff_false in Eex. apply Eex, existsb_exists.
+        exists b. split; [ exact Hin | apply String.eqb_eq; exact Hc ]. }
+      rewrite (fold_add_find_notin root_entry_of_file (PM.add "go.mod" FREGoMod (PM.empty _))
+                 (GoAST.file_bindings (prog_files p)) e Hni) in Hfind.
+      destruct (String.eqb "go.mod" e) eqn:Eg.
+      * apply String.eqb_eq in Eg. rewrite <- Eg, PMF.add_eq_o in Hfind by reflexivity. discriminate Hfind.
+      * apply String.eqb_neq in Eg. rewrite PMF.add_neq_o in Hfind by exact Eg.
+        rewrite PMF.empty_o in Hfind. discriminate Hfind.
+  - intros [b [Hin [Hpar Hfc]]].
+    assert (Hkv : root_entry_of_file b = (e, FREDirectory)).
+    { unfold root_entry_of_file. destruct (String.eqb (fp_parent (fst b)) "") eqn:E.
+      - apply String.eqb_eq in E. exfalso. exact (Hpar E).
+      - rewrite Hfc. reflexivity. }
+    rewrite (fold_add_find_in root_entry_of_file (PM.add "go.mod" FREGoMod (PM.empty _))
+               (GoAST.file_bindings (prog_files p)) e b Hin (f_equal fst Hkv)
+               (fun b1 b2 _ _ => root_entry_hval b1 b2)).
+    rewrite Hkv. reflexivity.
+Qed.
