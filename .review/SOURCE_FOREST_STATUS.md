@@ -197,12 +197,21 @@ Updated only at checkpoint boundaries._
     identical in the spec + single-pass emitters, so the sm=spec / emptiness / family proofs are untouched;
     `float64(int8(128))` -> ONE diagnostic (inner primary + `[float64]` outer).  Nested-scar soundness gated
     (`enclosing_conv_refs_sound`).  Gate 490/490.
-  - **Defect 3 REMAINING** (the biggest): §9 code-specific soundness (nested-scar DONE; duplicate-main /
-    missing-main / default pending), §16 canonical ordering, §17 `FilesEqual`/permutation ERASED-report
-    equality (the hard cross-snapshot theorem — likely needs a GoIndex local-id/occurrence correspondence
-    fact), §20 exactness-surface gate audit, and the §27 gate surfaces for all of these.
-- Status: **C3 FINAL barrier IN PROGRESS @`183b560`; FINAL review (task-mrrathsz) defects 1, 2, 4 CLOSED,
-  defect 3 (diagnostic/determinism proof + gate surfaces, incl. the erased cross-snapshot equality) remaining.**
+  - **Defect 3 part 1 DONE** (`355c79a`): §9 code-specific diagnostic soundness — `occ_expr_diags_conv_sound`
+    (invalid conversion genuinely fails `convert_const`; `outer_context` = enclosing conversions),
+    `occ_expr_diags_default_sound` (constant does not default; target = the Go default),
+    `pkg_diag_of_bucket_missing_sound` (empty bucket at a represented key), `pkg_diag_of_bucket_dup_sound`
+    (later main related to the first, same bucket).  All gated; gate 490->494.
+  - **Defect 3 part 2 IN PROGRESS** (§16/§17/§22.15 cross-snapshot report + fact-enumeration determinism):
+    added the GoIndex occurrence/local-id correspondence `Snap.visit_file_idocc` (the traversal's minted local
+    ids AND syntax fragments ARE the source `occs_file` — a file's visit stream depends only on its
+    `GoSourceFile`; SNAP_SIG parameter + Snap proof, ROOT-green GoIndex surface preserved).  REMAINING: the
+    `FilesEqual` ERASED-report equality + permutation corollary (a large pipeline-wide proof — the erased
+    diagnostics must factor through the source, incl. the `enclosing_conv_refs` index navigation), the
+    canonical diagnostic/fact enumeration order, and their gate surfaces.
+- Status: **C3 FINAL barrier IN PROGRESS @`355c79a`; FINAL review (task-mrrathsz) defects 1, 2, 4 + defect-3
+  part 1 (soundness) CLOSED; defect-3 part 2 (cross-snapshot report/fact determinism) foundation laid
+  (`visit_file_idocc`), the pipeline-wide FilesEqual erased-report equality remaining.**
 
 ## C1B — Collection Policy Enforcement and Source Forest Plan Reconciliation (ACTIVE correction checkpoint)
 - Baseline SHA: `79e80fdb4e63d00d4e97d8638f94a05408b51ea8` (`review(final): C1A — record both-barrier Codex GREEN

@@ -2517,6 +2517,11 @@ Module Type SNAP_SIG.
      paired syntax without a per-node search). *)
   Parameter visit_file_snd : forall p (fr : FileRef p),
     map snd (visit_file fr) = map snd (occs_file (file_ref_source fr)).
+  (* the FULL (local-id, occurrence) correspondence: the traversal's minted local ids AND syntax fragments ARE
+     the source's canonical occurrence enumeration [occs_file] — so a file's visit stream depends only on its
+     [GoSourceFile], the foundation for cross-snapshot report/fact determinism. *)
+  Parameter visit_file_idocc : forall p (fr : FileRef p),
+    map (fun rc => (node_ref_local (fst rc), snd rc)) (visit_file fr) = occs_file (file_ref_source fr).
 End SNAP_SIG.
 
 Module Snap : SNAP_SIG.
@@ -3324,6 +3329,19 @@ Qed.
 Lemma visit_file_snd {p} (fr : FileRef p) :
   map snd (visit_file fr) = map snd (occs_file (file_ref_source fr)).
 Proof. unfold visit_file. rewrite visit_lift_snd, walk_file_eq. reflexivity. Qed.
+
+Lemma visit_lift_idocc {p} (fr : FileRef p) l H :
+  map (fun rc => (node_ref_local (fst rc), snd rc)) (visit_lift fr l H) = l.
+Proof.
+  revert H. induction l as [|[id0 occ0] rest IH]; intros H; simpl; [reflexivity|].
+  cbn [node_ref_local fst snd]. rewrite IH. reflexivity.
+Qed.
+
+(* the FULL (local-id, occurrence) correspondence: the reference traversal's minted local ids AND syntax
+   fragments ARE the source's canonical occurrence enumeration — the pass adds only validated references. *)
+Lemma visit_file_idocc {p} (fr : FileRef p) :
+  map (fun rc => (node_ref_local (fst rc), snd rc)) (visit_file fr) = occs_file (file_ref_source fr).
+Proof. unfold visit_file. rewrite visit_lift_idocc, walk_file_eq. reflexivity. Qed.
 
 Theorem visit_file_view (p : GoProgram) (fr : FileRef p) (r : NodeRef p) (occ : SourceOccurrence) :
   In (r, occ) (visit_file fr) -> occ = source_occurrence_of_ref r /\ node_ref_file r = fr.
