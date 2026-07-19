@@ -637,6 +637,32 @@ RUN <<'SH'
 set -u
 # closed-world integration: force the local pinned toolchain, no workspace, no network proxy
 export GOWORK=off GOTOOLCHAIN=local GOPROXY=off
+
+# ── §5/§6/§22 — the ONE reusable FRESH-BUILD RUNNER.  Materialize an AUTHORITATIVE pristine tree (go.mod +
+#    `.go` files only) into a NEW empty root, byte-verify the materialization against the input, run the
+#    literal `go build ./...` exactly ONCE, capture its exit status, and hand back the disposable root for
+#    optional post-build inspection.  It NEVER builds in place and NEVER copies a post-build byte back.  A
+#    fail-closed manifest (§6) rejects any symlink or any non-`.go`/non-root-go.mod entry (so a `.fido` control
+#    dir, a nested go.mod, or a stray file all refuse before Go runs).  Returns: 0/non-0 = `go build ./...`
+#    status; 2 = bad manifest; 3 = materialization byte mismatch.
+fido_go_build_all_fresh() {  # <authoritative-pristine-tree> <out-var-for-fresh-root>
+  _src=$1; _out=${2:-_frv}
+  [ -f "$_src/go.mod" ] || { echo "runner: missing root go.mod in $_src"; return 2; }
+  _foreign=$(find "$_src" -mindepth 1 \( -type l -o \( -type f ! -name '*.go' ! -path "$_src/go.mod" \) \) -print)
+  [ -z "$_foreign" ] || { echo "runner: foreign entry in authoritative tree $_src:"; echo "$_foreign"; return 2; }
+  _fresh=$(mktemp -d /tmp/fido-fresh.XXXXXX); chmod 0755 "$_fresh"
+  cp "$_src/go.mod" "$_fresh/go.mod"
+  ( cd "$_src" && find . -name '*.go' -type f | while IFS= read -r f; do
+      d=$(dirname "$f"); [ "$d" = . ] || mkdir -p "$_fresh/$d"; cp "$f" "$_fresh/$f"; done )
+  _vf=$( cd "$_src" && find . \( -name '*.go' -o -name go.mod \) -type f | while IFS= read -r f; do
+           cmp -s "$_src/$f" "$_fresh/$f" || echo "$f"; done )
+  [ -z "$_vf" ] || { echo "runner: fresh materialization byte mismatch: $_vf"; rm -rf "$_fresh"; return 3; }
+  ( cd "$_fresh" && go build ./... ) > "$_fresh/.build.out" 2> "$_fresh/.build.err"
+  _rc=$?
+  eval "$_out=\$_fresh"
+  return $_rc
+}
+
 cd tree
 # the generated-module layer is the PRISTINE canonical module: it must carry NO .fido / lock / temp residue
 if [ -n "$(find . -name '.fido*' -o -name '*.fido-tmp-v1')" ]; then echo "fido e2e: the generated-module layer contains control/temp residue:"; find . -name '.fido*' -o -name '*.fido-tmp-v1'; exit 1; fi
@@ -654,17 +680,20 @@ grep -qx 'go 1.23' go.mod || { echo "fido e2e: unexpected go directive"; cat go.
 if [ -n "$(gofmt -l .)" ]; then echo "fido e2e: emitted Go is not gofmt-clean:"; gofmt -l .; exit 1; fi
 # go vet is DIAGNOSTIC ONLY (nonblocking); go build acceptance is the contract
 if ! go vet ./...; then echo "fido e2e: go vet reported diagnostics (nonblocking)"; fi
-# the WHOLE tree must compile
-if ! go build ./...; then echo "fido e2e: go build ./... FAILED (a certified tree must always compile)"; exit 1; fi
-# run the witness (root) package and compare to the reviewed goldens
-if ! go build -o prog .; then echo "fido e2e: go build of the witness package FAILED"; exit 1; fi
-./prog > out.stdout 2> out.stderr; ec=$?
+# the WHOLE tree must compile — routed through the FRESH-BUILD RUNNER (a disposable materialization of the
+# PRISTINE tree; §22/§24 — never build in the authoritative tree, never copy a post-build byte back)
+if ! fido_go_build_all_fresh /e2e/tree WFRESH; then cat "${WFRESH:-/dev/null}/.build.err" 2>/dev/null; echo "fido e2e: go build ./... FAILED in a fresh root (a certified tree must always compile)"; exit 1; fi
+echo "fido e2e: witness go build ./... OK in a fresh materialized root ($WFRESH)"
+# run the witness (root) package and compare to the reviewed goldens — built + run IN THE FRESH ROOT, discarded
+if ! ( cd "$WFRESH" && go build -o prog . ); then echo "fido e2e: go build of the witness package FAILED"; exit 1; fi
+"$WFRESH/prog" > out.stdout 2> out.stderr; ec=$?
 echo "fido e2e: exit=$ec stdout=[$(cat out.stdout)] stderr=[$(cat out.stderr)]"
 printf '%s\n' "$ec" > out.exit
 echo "fido e2e: out.stderr hex (for golden review):"; od -An -v -tx1 out.stderr | tr -s ' '
 diff ../golden.exit   out.exit   || { echo "fido e2e: EXIT mismatch";   exit 1; }
 diff ../golden.stdout out.stdout || { echo "fido e2e: STDOUT mismatch"; exit 1; }
 diff ../golden.stderr out.stderr || { echo "fido e2e: STDERR mismatch"; exit 1; }
+rm -rf "$WFRESH"
 
 # --- BYTE-EXACT boundary-byte oracle (§22): a `println` of a string with bytes 0x00/0x1f/0x7f/0x80/0xff must
 #     emit those exact five bytes (+ the println newline) to stderr.  Compared as HEX (od, non-hex stripped)
@@ -762,5 +791,43 @@ acc_conv() { # <label> <main-body> <expected-stderr>
     rc=$?; [ "$rc" = 0 ] || exit 1; echo "fido e2e diff: go build accepts + runs [$1] $2 -> $3 — matches GoTypes"; }
 acc_conv int-of-c64-tinyimag 'println(int(complex64(complex(3, 1e-50))))' '3'
 
-echo "fido e2e OK — pinned Go built the whole tree (go build ./...) using the RENDERED go.mod, accepted the empty module, ran the witness vs goldens (incl. the ten integer-type conversions, the float section, AND the complex section: bare complex128-default literal, complex64/complex128 conversions, zero-imaginary complex<->scalar, the direct-vs-nested component double-round scar as uint64 evidence), checked the multi-package differential + go list discovery, and rejected the no-main/dup-main + out-of-range/non-integer/float-overflow/fractional/wrong-type/complex-component-overflow/nonzero-imaginary conversion fixtures exactly as GoCompile does, and confirmed the complex-underflow scalar-conversion scar on both sides (int(complex(3,1e-50)) rejected; int(complex64(complex(3,1e-50)))=3 accepted, imaginary underflowed to zero) (go vet nonblocking)"
+# ── §21 — FRESH-IMAGE DIRECTORY-COLLISION DIFFERENTIAL MATRIX.  The defining fresh-image behaviour: `go build
+#    ./...` computes a SOLE main package's default executable name and, if that name is an EXISTING root
+#    DIRECTORY, FAILS before compiling (0 or >=2 main packages write no default output, so no collision).
+#    GoCompile models exactly this (the fresh-build output preflight); pinned go1.23.12 must AGREE.  Every build
+#    runs through the ONE reusable fresh-build runner above.  Hand-written trees (a valid module each) — a
+#    disagreement is a MODEL BUG, never a documented limitation.
+cd /e2e
+mk_tree() {  # <dir> <module-path> <rel-main.go>...
+  _d=$1; _mp=$2; shift 2; rm -rf "$_d"; mkdir -p "$_d"
+  printf 'module %s\n\ngo 1.23\n' "$_mp" > "$_d/go.mod"
+  for _f in "$@"; do mkdir -p "$_d/$(dirname "$_f")"; printf 'package main\n\nfunc main() {}\n' > "$_d/$_f"; done
+}
+expect_reject() {  # <dir> <label>
+  if fido_go_build_all_fresh "$1" FR; then rm -rf "$FR"; echo "fido e2e diff: go build ./... ACCEPTED $2 (GoCompile REJECTS — MODEL BUG)"; exit 1; fi
+  echo "fido e2e diff: go build ./... rejected $2 (matches GoCompile fresh-build preflight)"; rm -rf "$FR" 2>/dev/null || true
+}
+expect_accept() {  # <dir> <label>
+  if ! fido_go_build_all_fresh "$1" FR; then cat "${FR:-/dev/null}/.build.err" 2>/dev/null; rm -rf "$FR"; echo "fido e2e diff: go build ./... REJECTED $2 (GoCompile ACCEPTS — MODEL BUG)"; exit 1; fi
+  echo "fido e2e diff: go build ./... accepted $2 (matches GoCompile)"; rm -rf "$FR"
+}
+# 20.3 sole child sub/main.go: output "sub" collides with the root directory "sub" -> REJECT
+mk_tree /tmp/dc-sub example.com/m sub/main.go;   expect_reject /tmp/dc-sub "sub/main.go (sole-main output sub = root dir sub)"
+# 20.6 a/v2/main.go: /v2 major-version element stripped -> output "a", root dir "a" exists -> REJECT
+mk_tree /tmp/dc-av2 example.com/m a/v2/main.go;  expect_reject /tmp/dc-av2 "a/v2/main.go (output a after /v2 strip = root dir a)"
+# 20.2 root main.go: output "m" (module basename), no root dir "m" -> ACCEPT
+mk_tree /tmp/dc-root example.com/m main.go;      expect_accept /tmp/dc-root "root main.go (output m, no collision)"
+# 20.5 a/b/main.go: output "b", the root directory is "a" not "b" -> ACCEPT
+mk_tree /tmp/dc-ab example.com/m a/b/main.go;    expect_accept /tmp/dc-ab "a/b/main.go (output b, root dir a)"
+# 20.7 v2/main.go: output "m" (module basename, after /v2 strip), root dir "v2" -> ACCEPT
+mk_tree /tmp/dc-v2 example.com/m v2/main.go;     expect_accept /tmp/dc-v2 "v2/main.go (output m, root dir v2)"
+# 20.8 two main packages a/main.go + b/main.go: >=2 mains -> NO default output -> ACCEPT and write NO exe
+mk_tree /tmp/dc-multi example.com/m a/main.go b/main.go
+if ! fido_go_build_all_fresh /tmp/dc-multi FR; then cat "${FR:-/dev/null}/.build.err" 2>/dev/null; rm -rf "$FR"; echo "fido e2e diff: go build ./... REJECTED the two-main tree (MODEL BUG)"; exit 1; fi
+# a/ and b/ are the package DIRECTORIES; a default executable would be a REGULAR FILE named a or b (there is none).
+{ [ ! -f "$FR/a" ] && [ ! -f "$FR/b" ]; } || { echo "fido e2e diff: a two-main go build ./... wrote a default executable (a/b) — unexpected"; ls -la "$FR"; rm -rf "$FR"; exit 1; }
+echo "fido e2e diff: go build ./... accepted the two-main tree and wrote NO default executable (matches FBDDiscardMultiple)"; rm -rf "$FR"
+cd /e2e/tree
+
+echo "fido e2e OK — pinned Go built the whole tree via the FRESH-BUILD RUNNER (a disposable materialization; go build ./...) using the RENDERED go.mod, accepted the empty module, ran the witness vs goldens (incl. the ten integer-type conversions, the float section, AND the complex section: bare complex128-default literal, complex64/complex128 conversions, zero-imaginary complex<->scalar, the direct-vs-nested component double-round scar as uint64 evidence), checked the multi-package differential + go list discovery, rejected the no-main/dup-main + out-of-range/non-integer/float-overflow/fractional/wrong-type/complex-component-overflow/nonzero-imaginary conversion fixtures exactly as GoCompile does, confirmed the complex-underflow scalar-conversion scar on both sides (int(complex(3,1e-50)) rejected; int(complex64(complex(3,1e-50)))=3 accepted, imaginary underflowed to zero), AND confirmed the fresh-image DIRECTORY-COLLISION differential matrix (sub/main.go + a/v2/main.go rejected as GoCompile rejects; root main.go + a/b/main.go + v2/main.go + two-main accepted with no default executable, as GoCompile accepts) (go vet nonblocking)"
 SH
