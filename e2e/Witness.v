@@ -109,7 +109,7 @@ Proof. apply GoCompile_of_prog_ok; vm_compute; reflexivity. Qed.
 Definition demo_compiled : CompilableProgram :=
   compilable_of_valid demo_program demo_valid.
 
-(* the compilation artifact IS obtained from the successful analysis (AnalysisOK via go_compile). *)
+(* the compilation artifact IS obtained from the successful analysis (ElaborationOK via go_compile). *)
 Example demo_compiles : exists cp Hcp, go_compile demo_program = CompiledOk cp Hcp.
 Proof. exact (go_compile_complete demo_program demo_valid). Qed.
 Definition demo_safe : SafeProgram := certify demo_compiled.

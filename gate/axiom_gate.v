@@ -311,8 +311,8 @@ Print Assumptions GoAST.FilesEqual_trans.
 Print Assumptions GoCompile.prog_ok_iff.
 Print Assumptions GoCompile.go_compile_ok_valid.
 Print Assumptions GoCompile.go_compile_complete.
-(* C3 §18/§21 — PROVENANCE + RETENTION: every CompilableProgram's facts ARE analyze's exact AnalysisOK output
-   (no parallel capability path), and it RETAINS the exact analyzed index (the projection retains, never
+(* C3 §18/§21 — PROVENANCE + RETENTION: every CompilableProgram's facts ARE elaborate's exact ElaborationOK output
+   (no parallel capability path), and it RETAINS the exact elaborated index (the projection retains, never
    reconstructs). *)
 Print Assumptions GoCompile.compilable_prov.
 Print Assumptions GoCompile.compilable_index_retained.
@@ -432,10 +432,10 @@ Print Assumptions GoCompile.prog_package_refs_singleton_on_success.
 Print Assumptions GoCompile.prog_package_refs_belongs.
 (* C3 §10/§12 — the SEALED fact tables (no forged/foreign key possible): every key with an entry is a visited
    expression occurrence's key whose fact is exact; and on a valid program each package bucket is the one
-   canonical main (the CompilationFacts-level singleton projection). *)
+   canonical main (the ElaborationFacts-level singleton projection). *)
 Print Assumptions GoCompile.prog_expr_facts_domain.
-Print Assumptions GoCompile.cf_package_singleton.
-(* C3 §10/§27 — the expression-fact query is TOTAL on a valid CompilationFacts: every typed ExprRef denotes a
+Print Assumptions GoCompile.ef_package_singleton.
+(* C3 §10/§27 — the expression-fact query is TOTAL on a valid ElaborationFacts: every typed ExprRef denotes a
    visited occurrence whose const_info succeeds (so it has an exact entry), and the option-free query PROJECTS
    the sealed table (returns exactly the stored fact — a defect-shipping option result is impossible). *)
 Print Assumptions GoCompile.expr_ref_fact_some.
@@ -454,12 +454,12 @@ Print Assumptions GoCompile.expr_diags_empty_iff.
 Print Assumptions GoCompile.sum_main_file.
 Print Assumptions GoCompile.pkg_diags_empty_iff.
 Print Assumptions GoCompile.collect_diagnostics_empty_iff.
-Print Assumptions GoCompile.analyze_ok_iff_ProgValid.
-Print Assumptions GoCompile.analyze_failed_iff_not_ProgValid.
+Print Assumptions GoCompile.elaborate_ok_iff_GoCompile.
+Print Assumptions GoCompile.elaborate_failed_iff_not_GoCompile.
 (* C3 decision (package half + combined): every package has one main IFF AllPackagesOneMain; the combined
-   analysis decision equals ProgValid (= GoCompile) — the AnalysisOK<->GoCompile decision core. *)
+   analysis decision equals ProgValid (= GoCompile) — the ElaborationOK<->GoCompile decision core. *)
 Print Assumptions GoCompile.pkg_all_ok_AllPackagesOneMain.
-Print Assumptions GoCompile.analysis_ok_b_ProgValid.
+Print Assumptions GoCompile.semantic_ok_b_ProgValid.
 
 (* GoSafe: exact VALUE semantics — a zero literal and a negated zero agree; a resolved expression evaluates
    to a well-formed value of the resolved GoType (one type authority across compiler and runtime); value

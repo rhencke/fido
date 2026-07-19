@@ -656,7 +656,7 @@ Definition binding_visit (p : GoProgram) (b : FilePath * GoSourceFile)
   end.
 
 (** the RETAINED per-file visit blocks: each file's stream, visited ONCE, in canonical FileMap path order.
-    [analyze_indexed] retains this and derives BOTH the flattened analysis stream ([prog_visit] = [concat])
+    [elaborate_indexed] retains this and derives BOTH the flattened elaboration stream ([prog_visit] = [concat])
     AND the enclosing-context annotations ([annotate_program]) from it — one [Snap.visit_file] per file. *)
 Definition prog_blocks (p : GoProgram) : list (list (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence)) :=
   map (binding_visit p) (GoAST.file_bindings (prog_files p)).
@@ -1362,7 +1362,7 @@ Proof. induction l as [|a l IH]; simpl; [reflexivity | rewrite forallb_app, IH; 
    source occurrence: a println-argument occurrence is typed iff its expression resolves (through the SAME
    [GoTypes.expr_typedb] resolver — no semantic judgment duplicated); every other occurrence is vacuously typed.
    [occs_file_typedb_eq] proves that folding it over the canonical occurrence stream ([occs_file]) equals the
-   existing [source_file_typedb].  [analyze] CONSUMES this over its retained visit stream.
+   existing [source_file_typedb].  [elaborate] CONSUMES this over its retained visit stream.
    ============================================================================================================= *)
 
 (* the per-occurrence typing decision on the ORIGINAL syntax the traversal delivers: only a println-argument
@@ -1471,7 +1471,7 @@ Definition expr_all_ok (p : GoProgram) : bool :=
   forallb (fun x => occ_arg_typedb (snd x)) (prog_visit p).
 
 (** DECISION EXACTNESS: [expr_all_ok] is EXACTLY [program_typedb] (hence [ProgramTyped]).  This is the
-    expression half of [AnalysisOK <-> GoCompile]: no expression diagnostic <-> every argument resolves. *)
+    expression half of [ElaborationOK <-> GoCompile]: no expression diagnostic <-> every argument resolves. *)
 Lemma expr_all_ok_program_typedb (p : GoProgram) : expr_all_ok p = program_typedb p.
 Proof.
   unfold expr_all_ok. rewrite prog_visit_flat_map, forallb_flat_map. unfold program_typedb.
@@ -1505,20 +1505,20 @@ Proof.
     exists (dir, s). split; [ split; reflexivity | exact Hin ].
 Qed.
 
-(* ---- the COMBINED analysis DECISION: an analysis-native boolean (NOT [prog_ok]) proved EXACTLY [GoCompile] ---- *)
+(* ---- the COMBINED elaboration DECISION: an elaboration-native boolean (NOT [prog_ok]) proved EXACTLY [GoCompile] ---- *)
 
-Definition analysis_ok_b (p : GoProgram) : bool := expr_all_ok p && pkg_all_ok p.
+Definition semantic_ok_b (p : GoProgram) : bool := expr_all_ok p && pkg_all_ok p.
 
-Lemma analysis_ok_b_prog_ok (p : GoProgram) : analysis_ok_b p = prog_ok p.
-Proof. unfold analysis_ok_b, prog_ok. rewrite expr_all_ok_program_typedb. reflexivity. Qed.
+Lemma semantic_ok_b_prog_ok (p : GoProgram) : semantic_ok_b p = prog_ok p.
+Proof. unfold semantic_ok_b, prog_ok. rewrite expr_all_ok_program_typedb. reflexivity. Qed.
 
-(* [GoCompile p] is defined below as exactly [ProgValid p]; the analysis decision equals it. *)
-Lemma analysis_ok_b_ProgValid (p : GoProgram) : analysis_ok_b p = true <-> ProgValid p.
-Proof. rewrite analysis_ok_b_prog_ok. apply prog_ok_iff. Qed.
+(* [GoCompile p] is defined below as exactly [ProgValid p]; the elaboration decision equals it. *)
+Lemma semantic_ok_b_ProgValid (p : GoProgram) : semantic_ok_b p = true <-> ProgValid p.
+Proof. rewrite semantic_ok_b_prog_ok. apply prog_ok_iff. Qed.
 
-Lemma analysis_ok_b_split (p : GoProgram) :
-  analysis_ok_b p = true <-> expr_all_ok p = true /\ pkg_all_ok p = true.
-Proof. unfold analysis_ok_b. rewrite Bool.andb_true_iff. reflexivity. Qed.
+Lemma semantic_ok_b_split (p : GoProgram) :
+  semantic_ok_b p = true <-> expr_all_ok p = true /\ pkg_all_ok p = true.
+Proof. unfold semantic_ok_b. rewrite Bool.andb_true_iff. reflexivity. Qed.
 
 (* ============================================================================================================
    §8/§9 (C3) — the EXPRESSION diagnostic construction, per occurrence, with §9-SOUND anchors.
@@ -2975,9 +2975,9 @@ Proof.
 Qed.
 
 (* ============================================================================================================
-   §12/§13/§14 (C3) — the ONE retained indexed-analysis root.  [analyze] builds ONE [IndexedProgram] and returns
+   §12/§13/§14 (C3) — the ONE retained indexed-elaboration root.  [elaborate] builds ONE [IndexedProgram] and returns
    either exact facts (on success) or a NONEMPTY structured diagnostic list (on failure).  The success/failure
-   decision is the analysis-native [analysis_ok_b] (proved [= GoCompile]); [collect_diagnostics] gives the
+   decision is the elaboration-native [semantic_ok_b] (proved [= GoCompile]); [collect_diagnostics] gives the
    structured failure payload, nonempty exactly when the decision fails.
    ============================================================================================================ *)
 
@@ -3068,15 +3068,15 @@ Proof.
 Qed.
 
 Lemma collect_diagnostics_empty_iff (p : GoProgram) (idx : GoIndex.Snap.SyntaxIndex p) :
-  collect_diagnostics p idx = nil <-> analysis_ok_b p = true.
+  collect_diagnostics p idx = nil <-> semantic_ok_b p = true.
 Proof.
   unfold collect_diagnostics. rewrite app_nil_iff, bucket_flatten_nil_iff, node_pkg_partition_nil, app_nil_iff.
   rewrite expr_diags_empty_iff, pkg_diags_empty_iff.
-  unfold analysis_ok_b. rewrite Bool.andb_true_iff, expr_all_ok_program_typedb. reflexivity.
+  unfold semantic_ok_b. rewrite Bool.andb_true_iff, expr_all_ok_program_typedb. reflexivity.
 Qed.
 
 Lemma collect_diagnostics_nonempty (p : GoProgram) (idx : GoIndex.Snap.SyntaxIndex p) :
-  analysis_ok_b p = false -> collect_diagnostics p idx <> nil.
+  semantic_ok_b p = false -> collect_diagnostics p idx <> nil.
 Proof.
   intros H Hc. apply (collect_diagnostics_empty_iff p idx) in Hc. rewrite Hc in H. discriminate H.
 Qed.
@@ -3411,14 +3411,14 @@ Lemma nkmap_lt_key_trans {A} : forall (a b c : GoIndex.NodeKey * A),
   GoIndex.NodeKeyMapBase.lt_key a b -> GoIndex.NodeKeyMapBase.lt_key b c -> GoIndex.NodeKeyMapBase.lt_key a c.
 Proof. intros [k1 ?] [k2 ?] [k3 ?]; unfold GoIndex.NodeKeyMapBase.lt_key; cbn; apply GoIndex.NodeKey_OT.lt_trans. Qed.
 
-(** §17 (C3 FINAL) — the ERASED analysis report: the canonical diagnostic list projected through
+(** §17 (C3 FINAL) — the ERASED elaboration report: the canonical diagnostic list projected through
     [erase_diagnostic], so it is a snapshot-INDEPENDENT [list ErasedDiagnostic] comparable by [=].  It is empty
-    exactly when the analysis accepts (same decision as [collect_diagnostics]). *)
+    exactly when the elaboration accepts (same decision as [collect_diagnostics]). *)
 Definition erased_report (p : GoProgram) (idx : GoIndex.Snap.SyntaxIndex p) : list ErasedDiagnostic :=
   map erase_diagnostic (collect_diagnostics p idx).
 
 Lemma erased_report_empty_iff (p : GoProgram) (idx : GoIndex.Snap.SyntaxIndex p) :
-  erased_report p idx = nil <-> analysis_ok_b p = true.
+  erased_report p idx = nil <-> semantic_ok_b p = true.
 Proof.
   unfold erased_report. rewrite <- collect_diagnostics_empty_iff.
   split; [ apply map_eq_nil | intro H; rewrite H; reflexivity ].
@@ -3760,7 +3760,7 @@ Proof.
       rewrite Hd, Hf. exact (IHk k).
 Qed.
 
-(* the erased buckets of the retained analysis EQUAL (find-wise, hence [PM.Equal]) the keyed source buckets. *)
+(* the erased buckets of the retained elaboration EQUAL (find-wise, hence [PM.Equal]) the keyed source buckets. *)
 Lemma prog_package_refs_erased {p} (idx : GoIndex.Snap.SyntaxIndex p) :
   PM.Equal (PM.map (map erase_dkey) (prog_package_refs idx)) (keyed_buckets (keyed_visit p)).
 Proof.
@@ -5256,7 +5256,7 @@ Definition elab_diags (p : GoProgram) (idx : GoIndex.Snap.SyntaxIndex p) : list 
 Lemma elab_no_diags_valid : forall p idx, elab_diags p idx = nil -> ProgValid p.
 Proof.
   intros p idx He. unfold elab_diags in He. destruct (fresh_build_disposition_ok (fresh_build_plan p)) eqn:Ep.
-  - exact (proj1 (analysis_ok_b_ProgValid p) (proj1 (collect_diagnostics_empty_iff p idx) He)).
+  - exact (proj1 (semantic_ok_b_ProgValid p) (proj1 (collect_diagnostics_empty_iff p idx) He)).
   - apply (proj1 (build_output_diags_nil_iff p)) in He. unfold fresh_build_preflight_ok in He.
     rewrite He in Ep. discriminate Ep.
 Qed.
@@ -5276,7 +5276,7 @@ Lemma elab_diags_eq_build : forall p idx,
   fresh_build_disposition_ok (fresh_build_plan p) = false -> elab_diags p idx = build_output_diags p.
 Proof. intros p idx H. unfold elab_diags. rewrite H. reflexivity. Qed.
 
-(* end of the §C3-FRESH block — restore the default scope so the analysis machinery's list [++] is list append. *)
+(* end of the §C3-FRESH block — restore the default scope so the elaboration machinery's list [++] is list append. *)
 Close Scope string_scope.
 
 (** §17 (C3-fresh) — whole-program admissibility IS the exact fresh-build admission: the pinned one-shot
@@ -5285,167 +5285,167 @@ Close Scope string_scope.
 Definition GoCompile (p : GoProgram) : Prop := fresh_build_preflight_ok p /\ SourceProgramValid p.
 
 (** the command-ordered report is empty EXACTLY on admissible programs.  ([elab_diags] is definitionally the
-    [diags] computed inside [analyze_indexed], so the analysis-exactness theorems below reduce to this.) *)
+    [diags] computed inside [elaborate_indexed], so the elaboration-exactness theorems below reduce to this.) *)
 Lemma elab_diags_nil_iff_GoCompile : forall p idx, elab_diags p idx = nil <-> GoCompile p.
 Proof.
   intros p idx. unfold GoCompile. split.
   - intro He. split; [ exact (elab_no_diags_preflight p idx He)
                      | apply (proj2 (source_program_valid_iff p)); exact (elab_no_diags_valid p idx He) ].
   - intros [Hpf Hsv]. unfold elab_diags. unfold fresh_build_preflight_ok in Hpf. rewrite Hpf.
-    apply (proj2 (collect_diagnostics_empty_iff p idx)), (proj2 (analysis_ok_b_ProgValid p)),
+    apply (proj2 (collect_diagnostics_empty_iff p idx)), (proj2 (semantic_ok_b_ProgValid p)),
           (proj1 (source_program_valid_iff p)). exact Hsv.
 Qed.
 
-(** §12 (C3) — the SUCCESSFUL analysis facts, retained over the SAME [IndexedProgram] the analysis ran on:
+(** §12 (C3) — the SUCCESSFUL elaboration facts, retained over the SAME [IndexedProgram] the elaboration ran on:
     the occurrence-keyed [ExprFactTable] (standard NodeKey map) + the package main-ref buckets (standard
     PackageMap), each with its EXACTNESS proof, plus the compiled validity.  Facts are exposed ONLY on
     success. *)
-Record CompilationFacts (p : GoProgram) (ip : GoIndex.IndexedProgram p) : Type := mkCompilationFacts {
+Record ElaborationFacts (p : GoProgram) (ip : GoIndex.IndexedProgram p) : Type := mkElaborationFacts {
   (* the SEALED expression-fact table: no non-expression/foreign key, each visited occurrence's fact exact. *)
-  cf_expr_facts      : ExprFactTable p ip ;
-  cf_package_refs    : PM.t (list (GoIndex.DeclRef p)) ;
+  ef_expr_facts      : ExprFactTable p ip ;
+  ef_package_refs    : PM.t (list (GoIndex.DeclRef p)) ;
   (* the bucket map's domain is exactly the represented package set... *)
-  cf_package_present : forall dir, PM.In dir cf_package_refs <-> list_dir_mem dir (GoAST.file_bindings (prog_files p)) = true ;
+  ef_package_present : forall dir, PM.In dir ef_package_refs <-> list_dir_mem dir (GoAST.file_bindings (prog_files p)) = true ;
   (* ...each present bucket's length is the package's declarative main count... *)
-  cf_package_len     : forall dir l, PM.find dir cf_package_refs = Some l -> length l = pkg_main_count dir (prog_files p) ;
+  ef_package_len     : forall dir l, PM.find dir ef_package_refs = Some l -> length l = pkg_main_count dir (prog_files p) ;
   (* ...and every main in a bucket BELONGS to that package (its file's parent = the key) — no swap between packages. *)
-  cf_package_belongs : forall dir l, PM.find dir cf_package_refs = Some l ->
+  ef_package_belongs : forall dir l, PM.find dir ef_package_refs = Some l ->
                          forall d, In d l ->
                          fp_parent (GoIndex.Snap.file_ref_path (GoIndex.Snap.node_ref_file (GoIndex.erase_ref d))) = dir ;
-  cf_valid           : ProgValid p ;
+  ef_source_valid           : ProgValid p ;
   (* §17 (C3-fresh) — the retained fresh-build PREFLIGHT evidence: the pinned one-shot `go build ./...` output
-     preflight passes for this program.  Together with [cf_valid] it witnesses [GoCompile] (see [cp_ok]). *)
-  cf_preflight       : fresh_build_preflight_ok p
+     preflight passes for this program.  Together with [ef_source_valid] it witnesses [GoCompile] (see [cp_ok]). *)
+  ef_preflight       : fresh_build_preflight_ok p
 }.
-Arguments mkCompilationFacts {p ip} _ _ _ _ _ _ _.
-Arguments cf_expr_facts {p ip} _.
-Arguments cf_package_refs {p ip} _.
-Arguments cf_package_present {p ip} _.
-Arguments cf_package_len {p ip} _.
-Arguments cf_package_belongs {p ip} _.
-Arguments cf_valid {p ip} _.
-Arguments cf_preflight {p ip} _.
+Arguments mkElaborationFacts {p ip} _ _ _ _ _ _ _.
+Arguments ef_expr_facts {p ip} _.
+Arguments ef_package_refs {p ip} _.
+Arguments ef_package_present {p ip} _.
+Arguments ef_package_len {p ip} _.
+Arguments ef_package_belongs {p ip} _.
+Arguments ef_source_valid {p ip} _.
+Arguments ef_preflight {p ip} _.
 
-(** §10/§27 — the public expression-fact query is TOTAL: on a valid [CompilationFacts], EVERY typed [ExprRef]
+(** §10/§27 — the public expression-fact query is TOTAL: on a valid [ElaborationFacts], EVERY typed [ExprRef]
     has an exact entry.  The ExprRef denotes a VISITED expression occurrence ([noderef_in_prog_visit] +
     [kind_view_expr]) whose [const_info] SUCCEEDS on a [ProgramTyped] program ([prog_visit_const_info_some],
-    from [cf_valid]); [eft_complete] equates the map lookup to that occurrence's [occ_expr_fact], which is
+    from [ef_source_valid]); [eft_complete] equates the map lookup to that occurrence's [occ_expr_fact], which is
     therefore [Some].  So the lookup is never [None] — the query returns an [ExprFact], not an option. *)
-Lemma expr_ref_fact_some {p ip} (facts : CompilationFacts p ip) (er : GoIndex.ExprRef p) :
+Lemma expr_ref_fact_some {p ip} (facts : ElaborationFacts p ip) (er : GoIndex.ExprRef p) :
   exists f, GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key (GoIndex.erase_ref er))
-              (eft_map (cf_expr_facts facts)) = Some f.
+              (eft_map (ef_expr_facts facts)) = Some f.
 Proof.
   assert (Hkind : GoIndex.occurrence_kind (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref er)) = GoIndex.KExpression)
     by exact (proj2_sig er).
   destruct (GoIndex.kind_view_expr _ Hkind) as [e' Hv].
   pose proof (noderef_in_prog_visit p (GoIndex.erase_ref er)) as Hin.
-  pose proof (proj2 (GoTypes.program_typedb_iff p) (proj1 (cf_valid facts))) as HPT.
+  pose proof (proj2 (GoTypes.program_typedb_iff p) (proj1 (ef_source_valid facts))) as HPT.
   destruct (prog_visit_const_info_some p HPT (GoIndex.erase_ref er)
               (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref er)) e' Hin Hv) as [ci Hci].
-  pose proof (eft_complete (cf_expr_facts facts) (GoIndex.erase_ref er)
+  pose proof (eft_complete (ef_expr_facts facts) (GoIndex.erase_ref er)
                 (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref er)) Hin) as Hfind.
   exists (mkExprFact ci (occ_use_resolved (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref er)))).
   rewrite Hfind. exact (occ_expr_fact_status _ e' ci Hv Hci).
 Qed.
 
-Lemma expr_fact_at_not_none {p ip} (facts : CompilationFacts p ip) (er : GoIndex.ExprRef p) :
-  GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key (GoIndex.erase_ref er)) (eft_map (cf_expr_facts facts)) = None -> False.
+Lemma expr_fact_at_not_none {p ip} (facts : ElaborationFacts p ip) (er : GoIndex.ExprRef p) :
+  GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key (GoIndex.erase_ref er)) (eft_map (ef_expr_facts facts)) = None -> False.
 Proof. intro Hn. destruct (expr_ref_fact_some facts er) as [f Hf]. rewrite Hf in Hn; discriminate. Qed.
 
 (* the option-free lookup: a genuine match on the (variable) lookup result, discharging [None] by the totality
    proof — so a defect-shipping [option] result is impossible. *)
-Definition fact_of_find {p ip} (facts : CompilationFacts p ip) (er : GoIndex.ExprRef p)
+Definition fact_of_find {p ip} (facts : ElaborationFacts p ip) (er : GoIndex.ExprRef p)
   (o : option ExprFact) :
-  GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key (GoIndex.erase_ref er)) (eft_map (cf_expr_facts facts)) = o -> ExprFact :=
+  GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key (GoIndex.erase_ref er)) (eft_map (ef_expr_facts facts)) = o -> ExprFact :=
   match o with
   | Some f => fun _ => f
   | None   => fun Hn => False_rect ExprFact (expr_fact_at_not_none facts er Hn)
   end.
 
-Definition expr_fact_at {p ip} (facts : CompilationFacts p ip) (er : GoIndex.ExprRef p) : ExprFact :=
+Definition expr_fact_at {p ip} (facts : ElaborationFacts p ip) (er : GoIndex.ExprRef p) : ExprFact :=
   fact_of_find facts er
-    (GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key (GoIndex.erase_ref er)) (eft_map (cf_expr_facts facts)))
+    (GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key (GoIndex.erase_ref er)) (eft_map (ef_expr_facts facts)))
     eq_refl.
 
-Lemma fact_of_find_some {p ip} (facts : CompilationFacts p ip) (er : GoIndex.ExprRef p) o Ho f :
+Lemma fact_of_find_some {p ip} (facts : ElaborationFacts p ip) (er : GoIndex.ExprRef p) o Ho f :
   o = Some f -> fact_of_find facts er o Ho = f.
 Proof. intros ->. cbn. reflexivity. Qed.
 
 (** the total query PROJECTS the underlying map: where the map holds a fact, [expr_fact_at] returns exactly it
     (so the total function is faithful to the sealed table, not a fresh value). *)
-Lemma expr_fact_at_find {p ip} (facts : CompilationFacts p ip) (er : GoIndex.ExprRef p) f :
-  GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key (GoIndex.erase_ref er)) (eft_map (cf_expr_facts facts)) = Some f ->
+Lemma expr_fact_at_find {p ip} (facts : ElaborationFacts p ip) (er : GoIndex.ExprRef p) f :
+  GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key (GoIndex.erase_ref er)) (eft_map (ef_expr_facts facts)) = Some f ->
   expr_fact_at facts er = f.
 Proof.
   intro Hf. unfold expr_fact_at.
   exact (fact_of_find_some facts er
-    (GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key (GoIndex.erase_ref er)) (eft_map (cf_expr_facts facts)))
+    (GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key (GoIndex.erase_ref er)) (eft_map (ef_expr_facts facts)))
     eq_refl f Hf).
 Qed.
 
 (** on SUCCESS each package's bucket is a singleton (length = main count = 1). *)
-Lemma cf_package_singleton {p ip} (facts : CompilationFacts p ip) dir l :
-  PM.find dir (cf_package_refs facts) = Some l -> exists d, l = [d].
+Lemma ef_package_singleton {p ip} (facts : ElaborationFacts p ip) dir l :
+  PM.find dir (ef_package_refs facts) = Some l -> exists d, l = [d].
 Proof.
-  intro E. pose proof (cf_package_len facts dir l E) as Hlen.
+  intro E. pose proof (ef_package_len facts dir l E) as Hlen.
   assert (Hmem : list_dir_mem dir (GoAST.file_bindings (prog_files p)) = true).
-  { apply (cf_package_present facts dir). apply PMF.in_find_iff. rewrite E. discriminate. }
+  { apply (ef_package_present facts dir). apply PMF.in_find_iff. rewrite E. discriminate. }
   assert (Hmt : PM.MapsTo dir (mkPkgSummary (pkg_main_count dir (prog_files p))) (package_summaries (prog_files p))).
   { apply PMF.find_mapsto_iff. rewrite package_summaries_find, Hmem. reflexivity. }
-  pose proof (proj2 (cf_valid facts) dir _ Hmt) as Hone. cbn [ps_main_count] in Hone.
+  pose proof (proj2 (ef_source_valid facts) dir _ Hmt) as Hone. cbn [ps_main_count] in Hone.
   rewrite Hone in Hlen. destruct l as [|d [|d2 rest]]; cbn [length] in Hlen; try discriminate. exists d; reflexivity.
 Qed.
 
 (** the public package-main query, TOTAL on success: the package's ONE canonical main, a PROJECTION of the
     retained facts (the singleton bucket's head) — never recomputed from a separate index. *)
-Definition package_main_at {p ip} (facts : CompilationFacts p ip) (r : PackageRef p) : GoIndex.DeclRef p.
+Definition package_main_at {p ip} (facts : ElaborationFacts p ip) (r : PackageRef p) : GoIndex.DeclRef p.
 Proof.
-  remember (PM.find (package_ref_key r) (cf_package_refs facts)) as o eqn:E.
+  remember (PM.find (package_ref_key r) (ef_package_refs facts)) as o eqn:E.
   destruct o as [l|].
   - destruct l as [|d rest].
-    + exfalso. destruct (cf_package_singleton facts (package_ref_key r) [] (eq_sym E)) as [d Hd]; discriminate Hd.
+    + exfalso. destruct (ef_package_singleton facts (package_ref_key r) [] (eq_sym E)) as [d Hd]; discriminate Hd.
     + exact d.
   - exfalso.
-    assert (Hin : PM.In (package_ref_key r) (cf_package_refs facts))
-      by (apply (cf_package_present facts), (package_ref_ok r)).
+    assert (Hin : PM.In (package_ref_key r) (ef_package_refs facts))
+      by (apply (ef_package_present facts), (package_ref_ok r)).
     apply PMF.in_find_iff in Hin. exact (Hin (eq_sym E)).
 Defined.
 
-Inductive AnalysisResult (p : GoProgram) (ip : GoIndex.IndexedProgram p) : Type :=
-| AnalysisOK     (facts : CompilationFacts p ip)
-| AnalysisFailed (ds : list (DiagnosticReason p)) (Hne : ds <> nil).
-Arguments AnalysisOK {p ip} _.
-Arguments AnalysisFailed {p ip} _ _.
+Inductive ElaborationResult (p : GoProgram) (ip : GoIndex.IndexedProgram p) : Type :=
+| ElaborationOK     (facts : ElaborationFacts p ip)
+| ElaborationFailed (ds : list (DiagnosticReason p)) (Hne : ds <> nil).
+Arguments ElaborationOK {p ip} _.
+Arguments ElaborationFailed {p ip} _ _.
 
-Record ProgramAnalysis (p : GoProgram) : Type := mkProgramAnalysis {
-  pa_indexed : GoIndex.IndexedProgram p;
-  pa_result  : AnalysisResult p pa_indexed
+Record ProgramElaboration (p : GoProgram) : Type := mkProgramElaboration {
+  pe_indexed : GoIndex.IndexedProgram p;
+  pe_result  : ElaborationResult p pe_indexed
 }.
-Arguments mkProgramAnalysis {p} _ _.
-Arguments pa_indexed {p} _.
-Arguments pa_result {p} _.
+Arguments mkProgramElaboration {p} _ _.
+Arguments pe_indexed {p} _.
+Arguments pe_result {p} _.
 
 Definition list_is_nil {A} (l : list A) : {l = nil} + {l <> nil}.
 Proof. destruct l; [left; reflexivity | right; discriminate]. Defined.
 
 (** validity is DERIVED from an empty diagnostic list (the decision IS the diagnostic pass) — not a peer check. *)
-Definition analyze_valid_of_no_diags (p : GoProgram) (ip : GoIndex.IndexedProgram p) :
+Definition elaborate_valid_of_no_diags (p : GoProgram) (ip : GoIndex.IndexedProgram p) :
   collect_diagnostics p (GoIndex.indexed_syntax ip) = nil -> ProgValid p :=
-  fun He => proj1 (analysis_ok_b_ProgValid p) (proj1 (collect_diagnostics_empty_iff p (GoIndex.indexed_syntax ip)) He).
+  fun He => proj1 (semantic_ok_b_ProgValid p) (proj1 (collect_diagnostics_empty_iff p (GoIndex.indexed_syntax ip)) He).
 
-(** §14 — the ONE analysis pass.  The shared collections — the index, the visit stream, the occurrence status
+(** §14 — the ONE elaboration pass.  The shared collections — the index, the visit stream, the occurrence status
     map, and the package buckets — are computed ONCE (let-bound) and feed BOTH the accept/reject decision AND
-    the successful [CompilationFacts]: the expression facts and the diagnostics are two linear passes over the
+    the successful [ElaborationFacts]: the expression facts and the diagnostics are two linear passes over the
     SAME [visit]/[status], and the [buckets] serve BOTH the package diagnostics ([bucket_diags_elems] — the
     package acceptance is the bucket LENGTHS, never [package_summaries]) and the retained facts.
     There is no separate [analysis_facts] recomputation.  The DECISION is exactly "the diagnostic pass produced
     nothing"; on success the retained facts are exposed with the derived validity, on failure the EXACT
     diagnostic list.  ([diags] is definitionally [collect_diagnostics p idx], so the decision theorems below are
     unchanged.) *)
-Definition analyze_indexed (p : GoProgram) (ip : GoIndex.IndexedProgram p) : AnalysisResult p ip :=
+Definition elaborate_indexed (p : GoProgram) (ip : GoIndex.IndexedProgram p) : ElaborationResult p ip :=
   let idx     := GoIndex.indexed_syntax ip in
   let blocks  := prog_blocks p in                (* the per-file visit blocks, retained ONCE *)
-  let visit   := concat blocks in                (* = prog_visit p — the flattened analysis stream *)
+  let visit   := concat blocks in                (* = prog_visit p — the flattened elaboration stream *)
   let status  := fold_right psm_step (GoIndex.NodeKeyMapBase.empty (option ConstInfo)) visit in
   let buckets := fold_right (ppkg_step idx) (PM.empty (list (GoIndex.DeclRef p))) visit in
   let facts   := fold_right (add_occ_fact_sm status) (GoIndex.NodeKeyMapBase.empty ExprFact) visit in
@@ -5460,7 +5460,7 @@ Definition analyze_indexed (p : GoProgram) (ip : GoIndex.IndexedProgram p) : Ana
                  then bucket_flatten (node_keyed raw) ++ pkg_primary raw
                  else build_output_diags p in
   match list_is_nil diags with
-  | left He  => AnalysisOK (mkCompilationFacts
+  | left He  => ElaborationOK (mkElaborationFacts
                   (mkExprFactTable facts (prog_expr_facts_domain p) (prog_expr_facts_find p))
                   buckets
                   (prog_package_refs_present idx)
@@ -5468,21 +5468,21 @@ Definition analyze_indexed (p : GoProgram) (ip : GoIndex.IndexedProgram p) : Ana
                   (prog_package_refs_belongs idx)
                   (elab_no_diags_valid p idx He)
                   (elab_no_diags_preflight p idx He))
-  | right Hne => AnalysisFailed diags Hne
+  | right Hne => ElaborationFailed diags Hne
   end.
 
-Definition analyze (p : GoProgram) : ProgramAnalysis p :=
+Definition elaborate (p : GoProgram) : ProgramElaboration p :=
   let ip := GoIndex.index_program p in
-  mkProgramAnalysis ip (analyze_indexed p ip).
+  mkProgramElaboration ip (elaborate_indexed p ip).
 
-(** ANALYSIS EXACTNESS (§18.D/E): analysis succeeds (exposes facts) IFF the program is admissible ([GoCompile] =
+(** ANALYSIS EXACTNESS (§18.D/E): elaboration succeeds (exposes facts) IFF the program is admissible ([GoCompile] =
     fresh-build preflight passes AND the source is valid); it fails (exposes nonempty command-ordered
     diagnostics) IFF it is inadmissible.  Success and failure are exclusive.  ([elab_diags] is definitionally the
-    [diags] computed inside [analyze_indexed], so both reduce through [elab_diags_nil_iff_GoCompile].) *)
-Theorem analyze_ok_iff_ProgValid (p : GoProgram) :
-  (exists facts, pa_result (analyze p) = AnalysisOK facts) <-> GoCompile p.
+    [diags] computed inside [elaborate_indexed], so both reduce through [elab_diags_nil_iff_GoCompile].) *)
+Theorem elaborate_ok_iff_GoCompile (p : GoProgram) :
+  (exists facts, pe_result (elaborate p) = ElaborationOK facts) <-> GoCompile p.
 Proof.
-  unfold analyze, analyze_indexed; cbn [pa_result]; cbv zeta.
+  unfold elaborate, elaborate_indexed; cbn [pe_result]; cbv zeta.
   match goal with |- context[list_is_nil ?d] => destruct (list_is_nil d) as [He|Hne] end.
   - split; intro Hx;
       [ exact (proj1 (elab_diags_nil_iff_GoCompile p (GoIndex.indexed_syntax (GoIndex.index_program p))) He)
@@ -5493,10 +5493,10 @@ Proof.
       exact (proj2 (elab_diags_nil_iff_GoCompile p (GoIndex.indexed_syntax (GoIndex.index_program p))) Hx).
 Qed.
 
-Theorem analyze_failed_iff_not_ProgValid (p : GoProgram) :
-  (exists ds Hne, pa_result (analyze p) = AnalysisFailed ds Hne) <-> ~ GoCompile p.
+Theorem elaborate_failed_iff_not_GoCompile (p : GoProgram) :
+  (exists ds Hne, pe_result (elaborate p) = ElaborationFailed ds Hne) <-> ~ GoCompile p.
 Proof.
-  unfold analyze, analyze_indexed; cbn [pa_result]; cbv zeta.
+  unfold elaborate, elaborate_indexed; cbn [pe_result]; cbv zeta.
   match goal with |- context[list_is_nil ?d] => destruct (list_is_nil d) as [He|Hne] end.
   - split; intro Hx.
     + destruct Hx as [ds [Hne Hf]]; discriminate Hf.
@@ -5509,147 +5509,147 @@ Proof.
 Qed.
 
 (** on failure the exposed diagnostics ARE the command-ordered [elab_diags] (used to project the legacy class). *)
-Lemma analyze_failed_ds (p : GoProgram) ds Hne :
-  pa_result (analyze p) = AnalysisFailed ds Hne ->
+Lemma elaborate_failed_ds (p : GoProgram) ds Hne :
+  pe_result (elaborate p) = ElaborationFailed ds Hne ->
   ds = elab_diags p (GoIndex.indexed_syntax (GoIndex.index_program p)).
 Proof.
-  unfold analyze, analyze_indexed; cbn [pa_result]; cbv zeta.
+  unfold elaborate, elaborate_indexed; cbn [pe_result]; cbv zeta.
   match goal with |- context[list_is_nil ?d] => destruct (list_is_nil d) as [He|Hn] end.
   - intro H; discriminate H.
   - intro H. inversion H. reflexivity.
 Qed.
 
-(** A failed analysis result is incompatible with validity (used to discharge the impossible branch when
+(** A failed elaboration result is incompatible with validity (used to discharge the impossible branch when
     minting the provenance sigma from a validity proof). *)
-Lemma analyze_failed_not_valid (p : GoProgram) ds Hne :
-  pa_result (analyze p) = AnalysisFailed ds Hne -> GoCompile p -> False.
+Lemma elaborate_failed_not_valid (p : GoProgram) ds Hne :
+  pe_result (elaborate p) = ElaborationFailed ds Hne -> GoCompile p -> False.
 Proof.
   intros Heq Hv.
-  exact (proj1 (analyze_failed_iff_not_ProgValid p) (ex_intro _ ds (ex_intro _ Hne Heq)) Hv).
+  exact (proj1 (elaborate_failed_iff_not_GoCompile p) (ex_intro _ ds (ex_intro _ Hne Heq)) Hv).
 Qed.
 
-(** The one production analysis result, CASE-SPLIT into its OK / Failed shape WITH the defining equation
-    retained (a plain [match] on the retained [pa_result], not a proof-mode convoy fight): every downstream
-    [go_compile] fact is derived from this, so nothing re-destructs [analyze] under its dependent motive. *)
-Definition analyze_result_cases (p : GoProgram) :
-  {facts : CompilationFacts p (pa_indexed (analyze p)) & pa_result (analyze p) = AnalysisOK facts} +
-  {ds : list (DiagnosticReason p) & {Hne : ds <> nil & pa_result (analyze p) = AnalysisFailed ds Hne}} :=
-  match pa_result (analyze p) as r
-    return pa_result (analyze p) = r ->
-      {facts : CompilationFacts p (pa_indexed (analyze p)) & pa_result (analyze p) = AnalysisOK facts} +
-      {ds : list (DiagnosticReason p) & {Hne : ds <> nil & pa_result (analyze p) = AnalysisFailed ds Hne}}
+(** The one production elaboration result, CASE-SPLIT into its OK / Failed shape WITH the defining equation
+    retained (a plain [match] on the retained [pe_result], not a proof-mode convoy fight): every downstream
+    [go_compile] fact is derived from this, so nothing re-destructs [elaborate] under its dependent motive. *)
+Definition elaboration_result_cases (p : GoProgram) :
+  {facts : ElaborationFacts p (pe_indexed (elaborate p)) & pe_result (elaborate p) = ElaborationOK facts} +
+  {ds : list (DiagnosticReason p) & {Hne : ds <> nil & pe_result (elaborate p) = ElaborationFailed ds Hne}} :=
+  match pe_result (elaborate p) as r
+    return pe_result (elaborate p) = r ->
+      {facts : ElaborationFacts p (pe_indexed (elaborate p)) & pe_result (elaborate p) = ElaborationOK facts} +
+      {ds : list (DiagnosticReason p) & {Hne : ds <> nil & pe_result (elaborate p) = ElaborationFailed ds Hne}}
   with
-  | AnalysisOK facts      => fun Heq => inl (existT _ facts Heq)
-  | AnalysisFailed ds Hne => fun Heq => inr (existT _ ds (existT _ Hne Heq))
+  | ElaborationOK facts      => fun Heq => inl (existT _ facts Heq)
+  | ElaborationFailed ds Hne => fun Heq => inr (existT _ ds (existT _ Hne Heq))
   end eq_refl.
 
-(** From a validity proof, the EXACT [AnalysisOK] result + its facts (the failed branch is impossible).  This
-    is the provenance witness a [CompilableProgram] must carry: the stored facts ARE [analyze]'s output. *)
-Definition analyze_ok_sig (p : GoProgram) (H : GoCompile p) :
-  {facts : CompilationFacts p (pa_indexed (analyze p)) & pa_result (analyze p) = AnalysisOK facts} :=
-  match analyze_result_cases p with
+(** From a validity proof, the EXACT [ElaborationOK] result + its facts (the failed branch is impossible).  This
+    is the provenance witness a [CompilableProgram] must carry: the stored facts ARE [elaborate]'s output. *)
+Definition elaboration_ok_sig (p : GoProgram) (H : GoCompile p) :
+  {facts : ElaborationFacts p (pe_indexed (elaborate p)) & pe_result (elaborate p) = ElaborationOK facts} :=
+  match elaboration_result_cases p with
   | inl s => s
   | inr b => False_rect _
-      (analyze_failed_not_valid p (projT1 b) (projT1 (projT2 b)) (projT2 (projT2 b)) H)
+      (elaborate_failed_not_valid p (projT1 b) (projT1 (projT2 b)) (projT2 (projT2 b)) H)
   end.
 
-(* [GoCompile] and its [elab_diags]-emptiness bridge are defined earlier (before [analyze]), since the analysis
+(* [GoCompile] and its [elab_diags]-emptiness bridge are defined earlier (before [elaborate]), since the elaboration
    exactness theorems below are stated over [GoCompile]. *)
 
-(** ---- destructuring the ONE retained [analyze] WITHOUT re-projection: record eta re-assembles the analysis
-    from its projections, so a component-level [pa_result] fact lifts to a WHOLE-analysis equation
-    ([analyze p = mkProgramAnalysis ip (AnalysisOK/Failed …)] — homogeneous, no index transport).  The
-    non-dependent [analysis_ok_flag] lets such a whole equation discriminate OK-vs-Failed by [rewrite] (no
-    dependent [f_equal] over the indexed [pa_result]). ---- *)
-Lemma program_analysis_eta {p} (a : ProgramAnalysis p) :
-  a = mkProgramAnalysis (pa_indexed a) (pa_result a).
+(** ---- destructuring the ONE retained [elaborate] WITHOUT re-projection: record eta re-assembles the elaboration
+    from its projections, so a component-level [pe_result] fact lifts to a WHOLE-elaboration equation
+    ([elaborate p = mkProgramElaboration ip (ElaborationOK/Failed …)] — homogeneous, no index transport).  The
+    non-dependent [semantic_ok_flag] lets such a whole equation discriminate OK-vs-Failed by [rewrite] (no
+    dependent [f_equal] over the indexed [pe_result]). ---- *)
+Lemma program_elaboration_eta {p} (a : ProgramElaboration p) :
+  a = mkProgramElaboration (pe_indexed a) (pe_result a).
 Proof. destruct a; reflexivity. Qed.
 
-Definition result_ok_b {p ip} (r : AnalysisResult p ip) : bool :=
-  match r with AnalysisOK _ => true | AnalysisFailed _ _ => false end.
-Definition analysis_ok_flag {p} (a : ProgramAnalysis p) : bool := result_ok_b (pa_result a).
+Definition result_ok_b {p ip} (r : ElaborationResult p ip) : bool :=
+  match r with ElaborationOK _ => true | ElaborationFailed _ _ => false end.
+Definition semantic_ok_flag {p} (a : ProgramElaboration p) : bool := result_ok_b (pe_result a).
 
-Lemma analysis_ok_flag_of_valid : forall p, GoCompile p -> analysis_ok_flag (analyze p) = true.
-Proof. intros p Hv. unfold analysis_ok_flag. destruct (analyze_ok_sig p Hv) as [facts Heq]. rewrite Heq. reflexivity. Qed.
+Lemma semantic_ok_flag_of_valid : forall p, GoCompile p -> semantic_ok_flag (elaborate p) = true.
+Proof. intros p Hv. unfold semantic_ok_flag. destruct (elaboration_ok_sig p Hv) as [facts Heq]. rewrite Heq. reflexivity. Qed.
 
-Lemma analyze_ok_whole : forall p facts, pa_result (analyze p) = AnalysisOK facts ->
-  analyze p = mkProgramAnalysis (pa_indexed (analyze p)) (AnalysisOK facts).
+Lemma elaborate_ok_whole : forall p facts, pe_result (elaborate p) = ElaborationOK facts ->
+  elaborate p = mkProgramElaboration (pe_indexed (elaborate p)) (ElaborationOK facts).
 Proof.
   intros p facts H.
-  transitivity (mkProgramAnalysis (pa_indexed (analyze p)) (pa_result (analyze p))).
-  - apply program_analysis_eta.
+  transitivity (mkProgramElaboration (pe_indexed (elaborate p)) (pe_result (elaborate p))).
+  - apply program_elaboration_eta.
   - rewrite H. reflexivity.
 Qed.
 
-Lemma analyze_failed_whole : forall p ds Hne, pa_result (analyze p) = AnalysisFailed ds Hne ->
-  analyze p = mkProgramAnalysis (pa_indexed (analyze p)) (AnalysisFailed ds Hne).
+Lemma elaborate_failed_whole : forall p ds Hne, pe_result (elaborate p) = ElaborationFailed ds Hne ->
+  elaborate p = mkProgramElaboration (pe_indexed (elaborate p)) (ElaborationFailed ds Hne).
 Proof.
   intros p ds Hne H.
-  transitivity (mkProgramAnalysis (pa_indexed (analyze p)) (pa_result (analyze p))).
-  - apply program_analysis_eta.
+  transitivity (mkProgramElaboration (pe_indexed (elaborate p)) (pe_result (elaborate p))).
+  - apply program_elaboration_eta.
   - rewrite H. reflexivity.
 Qed.
 
-Lemma analyze_whole_failed_not_valid : forall p ip ds Hne,
-  analyze p = mkProgramAnalysis ip (AnalysisFailed ds Hne) -> GoCompile p -> False.
+Lemma elaborate_whole_failed_not_valid : forall p ip ds Hne,
+  elaborate p = mkProgramElaboration ip (ElaborationFailed ds Hne) -> GoCompile p -> False.
 Proof.
   intros p ip ds Hne Hw Hv.
-  pose proof (analysis_ok_flag_of_valid p Hv) as Hok.
+  pose proof (semantic_ok_flag_of_valid p Hv) as Hok.
   rewrite Hw in Hok. discriminate Hok.
 Qed.
 
-(** the witness-path destructuring: match the whole retained analysis EXACTLY ONCE, binding its retained index
+(** the witness-path destructuring: match the whole retained elaboration EXACTLY ONCE, binding its retained index
     [ip] and result; validity rules the Failed branch impossible.  [ip] and [facts] come from the SAME
-    evaluation — never a [pa_indexed (analyze p)] re-projection. *)
-Definition analyze_ok_full (p : GoProgram) (H : GoCompile p) :
-  {ip : GoIndex.IndexedProgram p & {facts : CompilationFacts p ip | analyze p = mkProgramAnalysis ip (AnalysisOK facts)}} :=
-  match analyze p as a
-    return (analyze p = a ->
-      {ip : GoIndex.IndexedProgram p & {facts : CompilationFacts p ip | analyze p = mkProgramAnalysis ip (AnalysisOK facts)}})
+    evaluation — never a [pe_indexed (elaborate p)] re-projection. *)
+Definition elaboration_ok_full (p : GoProgram) (H : GoCompile p) :
+  {ip : GoIndex.IndexedProgram p & {facts : ElaborationFacts p ip | elaborate p = mkProgramElaboration ip (ElaborationOK facts)}} :=
+  match elaborate p as a
+    return (elaborate p = a ->
+      {ip : GoIndex.IndexedProgram p & {facts : ElaborationFacts p ip | elaborate p = mkProgramElaboration ip (ElaborationOK facts)}})
   with
-  | mkProgramAnalysis ip res =>
+  | mkProgramElaboration ip res =>
       fun Ha =>
       match res as r
         return (res = r ->
-          {ip0 : GoIndex.IndexedProgram p & {facts : CompilationFacts p ip0 | analyze p = mkProgramAnalysis ip0 (AnalysisOK facts)}})
+          {ip0 : GoIndex.IndexedProgram p & {facts : ElaborationFacts p ip0 | elaborate p = mkProgramElaboration ip0 (ElaborationOK facts)}})
       with
-      | AnalysisOK facts      => fun Hr =>
-          existT _ ip (exist _ facts (eq_trans Ha (f_equal (mkProgramAnalysis ip) Hr)))
-      | AnalysisFailed ds Hne => fun Hr =>
-          False_rect _ (analyze_whole_failed_not_valid p ip ds Hne (eq_trans Ha (f_equal (mkProgramAnalysis ip) Hr)) H)
+      | ElaborationOK facts      => fun Hr =>
+          existT _ ip (exist _ facts (eq_trans Ha (f_equal (mkProgramElaboration ip) Hr)))
+      | ElaborationFailed ds Hne => fun Hr =>
+          False_rect _ (elaborate_whole_failed_not_valid p ip ds Hne (eq_trans Ha (f_equal (mkProgramElaboration ip) Hr)) H)
       end eq_refl
   end eq_refl.
 
-(** §18/§21 (C3) — a compiled program RETAINS the ONE evaluated analysis by DESTRUCTURING it: the original
-    program, the EXACT analyzed [IndexedProgram] ([cp_index]) BOUND from that analysis, and its
-    [CompilationFacts] indexed BY that retained index ([cp_facts : CompilationFacts cp_program cp_index] — no
-    [pa_indexed (analyze …)] re-projection).  The mandatory [cp_prov] field PROVES the WHOLE retained analysis
-    IS this record ([analyze cp_program = mkProgramAnalysis cp_index (AnalysisOK cp_facts)] — a HOMOGENEOUS
+(** §18/§21 (C3) — a compiled program RETAINS the ONE evaluated elaboration by DESTRUCTURING it: the original
+    program, the EXACT elaborated [IndexedProgram] ([cp_index]) BOUND from that elaboration, and its
+    [ElaborationFacts] indexed BY that retained index ([cp_facts : ElaborationFacts cp_program cp_index] — no
+    [pe_indexed (elaborate …)] re-projection).  The mandatory [cp_prov] field PROVES the WHOLE retained elaboration
+    IS this record ([elaborate cp_program = mkProgramElaboration cp_index (ElaborationOK cp_facts)] — a HOMOGENEOUS
     equation, no index transport, pinning index + facts + success together).  There is therefore NO way to
-    construct a [CompilableProgram] for a program [analyze] rejects, the index is never reconstructed, and
+    construct a [CompilableProgram] for a program [elaborate] rejects, the index is never reconstructed, and
     there is no parallel capability path.  [cp_ok] projects the retained facts' validity.  [cp_program] stays a
-    direct first-field projection, so rendering/emission never reduce [analyze] (the opaque,
+    direct first-field projection, so rendering/emission never reduce [elaborate] (the opaque,
     vm-compute-unfriendly index — the F5 constraint). *)
 Record CompilableProgram : Type := mkCompilable {
   cp_program : GoProgram;
   cp_index   : GoIndex.IndexedProgram cp_program;
-  cp_facts   : CompilationFacts cp_program cp_index;
-  cp_prov    : analyze cp_program = mkProgramAnalysis cp_index (AnalysisOK cp_facts)
+  cp_facts   : ElaborationFacts cp_program cp_index;
+  cp_prov    : elaborate cp_program = mkProgramElaboration cp_index (ElaborationOK cp_facts)
 }.
 
 Definition cp_ok (cp : CompilableProgram) : GoCompile (cp_program cp) :=
-  conj (cf_preflight (cp_facts cp))
-       (proj2 (source_program_valid_iff (cp_program cp)) (cf_valid (cp_facts cp))).
+  conj (ef_preflight (cp_facts cp))
+       (proj2 (source_program_valid_iff (cp_program cp)) (ef_source_valid (cp_facts cp))).
 
-(** the PROVENANCE surfaces: every [CompilableProgram]'s WHOLE retained analysis IS this record — index +
-    facts + success together ([analyze cp_program = mkProgramAnalysis cp_index (AnalysisOK cp_facts)]); the
-    retained index therefore IS [analyze]'s (the projection retains, it does not reconstruct). *)
+(** the PROVENANCE surfaces: every [CompilableProgram]'s WHOLE retained elaboration IS this record — index +
+    facts + success together ([elaborate cp_program = mkProgramElaboration cp_index (ElaborationOK cp_facts)]); the
+    retained index therefore IS [elaborate]'s (the projection retains, it does not reconstruct). *)
 Theorem compilable_prov : forall cp : CompilableProgram,
-  analyze (cp_program cp) = mkProgramAnalysis (cp_index cp) (AnalysisOK (cp_facts cp)).
+  elaborate (cp_program cp) = mkProgramElaboration (cp_index cp) (ElaborationOK (cp_facts cp)).
 Proof. intro cp; exact (cp_prov cp). Qed.
 
 Theorem compilable_index_retained : forall cp : CompilableProgram,
-  cp_index cp = pa_indexed (analyze (cp_program cp)).
+  cp_index cp = pe_indexed (elaborate (cp_program cp)).
 Proof. intro cp. rewrite (cp_prov cp). reflexivity. Qed.
 
 (** The compiled evidence EXPOSES that the same program is typed through [GoTypes] (§17): an immediate
@@ -5668,7 +5668,7 @@ Arguments Ok {E A}. Arguments Err {E A}.
 Definition bool_sumbool (b : bool) : {b = true} + {b = false} :=
   match b with true => left eq_refl | false => right eq_refl end.
 
-(** §18 — a structured failure bundle: the EXACT analysis diagnostics + their nonempty proof. *)
+(** §18 — a structured failure bundle: the EXACT elaboration diagnostics + their nonempty proof. *)
 Record CompileFailure (p : GoProgram) : Type := mkCompileFailure {
   cfail_diags    : list (DiagnosticReason p) ;
   cfail_nonempty : cfail_diags <> nil
@@ -5683,7 +5683,7 @@ Inductive CompileOutcome (p : GoProgram) : Type :=
 Arguments CompiledOk {p} _ _.
 Arguments CompileFailed {p} _.
 
-(** the LEGACY coarse class, a PROJECTION of the analysis diagnostics (never a separate check): a typing-class
+(** the LEGACY coarse class, a PROJECTION of the elaboration diagnostics (never a separate check): a typing-class
     diagnostic dominates, else a package-class diagnostic, else success. *)
 Inductive LegacyCompileClass : Type := LCOk | LCTyping | LCPackageMainCount | LCBuildOutput.
 (* §15 — the build-output failure takes PRECEDENCE (§14): a preflight failure reports ONLY the
@@ -5695,71 +5695,71 @@ Definition legacy_class_of_diags {p} (ds : list (DiagnosticReason p)) : LegacyCo
 Definition legacy_compile_class {p} (o : CompileOutcome p) : LegacyCompileClass :=
   match o with CompiledOk _ _ => LCOk | CompileFailed fail => legacy_class_of_diags (cfail_diags fail) end.
 
-(** §18 — the production compiler DESTRUCTURES the ONE retained [analyze] EXACTLY ONCE: [outcome_of_analysis]
-    matches the WHOLE [ProgramAnalysis] (binding its retained index [ip] and result), so [AnalysisOK] mints a
-    [CompilableProgram] whose [cp_index] IS that bound [ip] (never a [pa_indexed] re-projection) and whose
-    [cp_prov] is [analyze p = mkProgramAnalysis ip (AnalysisOK facts)] (built from the two match equations).
-    Failure CARRIES the exact analysis diagnostics — never a second checker or a coarse recomputation. *)
-Definition outcome_of_analysis (p : GoProgram) (a : ProgramAnalysis p) :
-  analyze p = a -> CompileOutcome p :=
-  match a as a0 return (analyze p = a0 -> CompileOutcome p) with
-  | mkProgramAnalysis ip res =>
+(** §18 — the production compiler DESTRUCTURES the ONE retained [elaborate] EXACTLY ONCE: [outcome_of_elaboration]
+    matches the WHOLE [ProgramElaboration] (binding its retained index [ip] and result), so [ElaborationOK] mints a
+    [CompilableProgram] whose [cp_index] IS that bound [ip] (never a [pe_indexed] re-projection) and whose
+    [cp_prov] is [elaborate p = mkProgramElaboration ip (ElaborationOK facts)] (built from the two match equations).
+    Failure CARRIES the exact elaboration diagnostics — never a second checker or a coarse recomputation. *)
+Definition outcome_of_elaboration (p : GoProgram) (a : ProgramElaboration p) :
+  elaborate p = a -> CompileOutcome p :=
+  match a as a0 return (elaborate p = a0 -> CompileOutcome p) with
+  | mkProgramElaboration ip res =>
       fun Ha =>
       match res as r return (res = r -> CompileOutcome p) with
-      | AnalysisOK facts      => fun Hr =>
-          CompiledOk (mkCompilable p ip facts (eq_trans Ha (f_equal (mkProgramAnalysis ip) Hr))) eq_refl
-      | AnalysisFailed ds Hne => fun _  => CompileFailed (mkCompileFailure ds Hne)
+      | ElaborationOK facts      => fun Hr =>
+          CompiledOk (mkCompilable p ip facts (eq_trans Ha (f_equal (mkProgramElaboration ip) Hr))) eq_refl
+      | ElaborationFailed ds Hne => fun _  => CompileFailed (mkCompileFailure ds Hne)
       end eq_refl
   end.
 
 Definition go_compile (p : GoProgram) : CompileOutcome p :=
-  outcome_of_analysis p (analyze p) eq_refl.
+  outcome_of_elaboration p (elaborate p) eq_refl.
 
-(** the two computation facts of [outcome_of_analysis], stated over the whole analysis pinned to a constructor:
-    the nested matches collapse by iota (no dependent-convoy reasoning against [analyze]). *)
-Lemma outcome_of_analysis_ok_eq : forall p ip facts (Ha : analyze p = mkProgramAnalysis ip (AnalysisOK facts)),
-  outcome_of_analysis p (mkProgramAnalysis ip (AnalysisOK facts)) Ha = CompiledOk (mkCompilable p ip facts Ha) eq_refl.
+(** the two computation facts of [outcome_of_elaboration], stated over the whole elaboration pinned to a constructor:
+    the nested matches collapse by iota (no dependent-convoy reasoning against [elaborate]). *)
+Lemma outcome_of_elaboration_ok_eq : forall p ip facts (Ha : elaborate p = mkProgramElaboration ip (ElaborationOK facts)),
+  outcome_of_elaboration p (mkProgramElaboration ip (ElaborationOK facts)) Ha = CompiledOk (mkCompilable p ip facts Ha) eq_refl.
 Proof. intros p ip facts Ha. reflexivity. Qed.
 
-Lemma outcome_of_analysis_failed_eq : forall p ip ds Hne (Ha : analyze p = mkProgramAnalysis ip (AnalysisFailed ds Hne)),
-  outcome_of_analysis p (mkProgramAnalysis ip (AnalysisFailed ds Hne)) Ha = CompileFailed (mkCompileFailure ds Hne).
+Lemma outcome_of_elaboration_failed_eq : forall p ip ds Hne (Ha : elaborate p = mkProgramElaboration ip (ElaborationFailed ds Hne)),
+  outcome_of_elaboration p (mkProgramElaboration ip (ElaborationFailed ds Hne)) Ha = CompileFailed (mkCompileFailure ds Hne).
 Proof. intros p ip ds Hne Ha. reflexivity. Qed.
 
 (** the shape facts over a genuine ANALYSIS VARIABLE [a] equal to a constructor: [subst] collapses the nested
-    matches by iota — no dependent [rewrite] against [analyze] under a binder. *)
-Lemma outcome_of_analysis_eq_ok : forall p (a : ProgramAnalysis p) (Ha : analyze p = a) ip facts,
-  a = mkProgramAnalysis ip (AnalysisOK facts) ->
-  exists cp Hcp, outcome_of_analysis p a Ha = CompiledOk cp Hcp.
+    matches by iota — no dependent [rewrite] against [elaborate] under a binder. *)
+Lemma outcome_of_elaboration_eq_ok : forall p (a : ProgramElaboration p) (Ha : elaborate p = a) ip facts,
+  a = mkProgramElaboration ip (ElaborationOK facts) ->
+  exists cp Hcp, outcome_of_elaboration p a Ha = CompiledOk cp Hcp.
 Proof.
   intros p a Ha ip facts Heq. revert Ha. rewrite Heq. intro Ha.
-  exists (mkCompilable p ip facts Ha). exists eq_refl. apply outcome_of_analysis_ok_eq.
+  exists (mkCompilable p ip facts Ha). exists eq_refl. apply outcome_of_elaboration_ok_eq.
 Qed.
 
-Lemma outcome_of_analysis_eq_failed : forall p (a : ProgramAnalysis p) (Ha : analyze p = a) ip ds Hne,
-  a = mkProgramAnalysis ip (AnalysisFailed ds Hne) ->
-  outcome_of_analysis p a Ha = CompileFailed (mkCompileFailure ds Hne).
+Lemma outcome_of_elaboration_eq_failed : forall p (a : ProgramElaboration p) (Ha : elaborate p = a) ip ds Hne,
+  a = mkProgramElaboration ip (ElaborationFailed ds Hne) ->
+  outcome_of_elaboration p a Ha = CompileFailed (mkCompileFailure ds Hne).
 Proof.
-  intros p a Ha ip ds Hne Heq. revert Ha. rewrite Heq. intro Ha. apply outcome_of_analysis_failed_eq.
+  intros p a Ha ip ds Hne Heq. revert Ha. rewrite Heq. intro Ha. apply outcome_of_elaboration_failed_eq.
 Qed.
 
 Lemma go_compile_ok_shape : forall p ip facts,
-  analyze p = mkProgramAnalysis ip (AnalysisOK facts) ->
+  elaborate p = mkProgramElaboration ip (ElaborationOK facts) ->
   exists cp Hcp, go_compile p = CompiledOk cp Hcp.
 Proof.
   intros p ip facts Hp. unfold go_compile.
-  exact (outcome_of_analysis_eq_ok p (analyze p) eq_refl ip facts Hp).
+  exact (outcome_of_elaboration_eq_ok p (elaborate p) eq_refl ip facts Hp).
 Qed.
 
 Lemma go_compile_failed_shape : forall p ip ds Hne,
-  analyze p = mkProgramAnalysis ip (AnalysisFailed ds Hne) ->
+  elaborate p = mkProgramElaboration ip (ElaborationFailed ds Hne) ->
   go_compile p = CompileFailed (mkCompileFailure ds Hne).
 Proof.
   intros p ip ds Hne Hp. unfold go_compile.
-  exact (outcome_of_analysis_eq_failed p (analyze p) eq_refl ip ds Hne Hp).
+  exact (outcome_of_elaboration_eq_failed p (elaborate p) eq_refl ip ds Hne Hp).
 Qed.
 
 (** (A) internal exactness: [go_compile] succeeds exactly on admissible programs, whole-program.  Success value
-    carries its OWN validity (via [cf_valid (cp_facts cp)]) and program identity (via [Hcp]) — derivable from
+    carries its OWN validity (via [ef_source_valid (cp_facts cp)]) and program identity (via [Hcp]) — derivable from
     the compiled artifact's fields regardless of HOW it was produced. *)
 Theorem go_compile_ok_valid : forall p cp Hcp,
   go_compile p = CompiledOk cp Hcp -> cp_program cp = p /\ GoCompile (cp_program cp).
@@ -5771,8 +5771,8 @@ Theorem go_compile_complete : forall p,
   GoCompile p -> exists cp Hcp, go_compile p = CompiledOk cp Hcp.
 Proof.
   intros p Hvalid.
-  destruct (analyze_ok_sig p Hvalid) as [ facts Heq ].
-  exact (go_compile_ok_shape p (pa_indexed (analyze p)) facts (analyze_ok_whole p facts Heq)).
+  destruct (elaboration_ok_sig p Hvalid) as [ facts Heq ].
+  exact (go_compile_ok_shape p (pe_indexed (elaborate p)) facts (elaborate_ok_whole p facts Heq)).
 Qed.
 
 (** fixture helper: acceptance through the theorems — the source decision ([prog_ok]) AND the fresh-build
@@ -5796,14 +5796,14 @@ Proof.
   - apply (proj2 (source_program_valid_iff p)), (proj1 (prog_ok_iff p)); exact H.
 Qed.
 
-(** the witness builder: from validity, [analyze_ok_full] destructures [analyze p] ONCE, delivering the bound
-    retained index [ip], its [CompilationFacts], and the whole-analysis provenance.  That single execution is
+(** the witness builder: from validity, [elaboration_ok_full] destructures [elaborate p] ONCE, delivering the bound
+    retained index [ip], its [ElaborationFacts], and the whole-elaboration provenance.  That single execution is
     let-bound and all three constructor arguments PROJECT it — [cp_index], [cp_facts], and [cp_prov] come from
-    ONE analysis, never three reruns.  [cp_program] is a direct first-field projection ([= p]) so
-    rendering/emission never reduce the (opaque, vm-compute-unfriendly) index analysis (F5).  This is the SAME
+    ONE elaboration, never three reruns.  [cp_program] is a direct first-field projection ([= p]) so
+    rendering/emission never reduce the (opaque, vm-compute-unfriendly) index elaboration (F5).  This is the SAME
     single-destructuring provenance [go_compile]'s success value carries — the two artifacts are built ONE way. *)
 Definition compilable_of_valid (p : GoProgram) (H : GoCompile p) : CompilableProgram :=
-  let s  := analyze_ok_full p H in
+  let s  := elaboration_ok_full p H in
   let fs := projT2 s in
   mkCompilable p (projT1 s) (proj1_sig fs) (proj2_sig fs).
 
@@ -5814,12 +5814,12 @@ Lemma go_compile_untyped : forall p, program_typedb p = false ->
   legacy_compile_class (go_compile p) = LCTyping.
 Proof.
   intros p Hf Hpf.
-  destruct (analyze_result_cases p) as [ [facts Hok] | [ds [Hne Hfail]] ].
-  - exfalso. assert (Hgc : GoCompile p) by (apply (analyze_ok_iff_ProgValid p); exists facts; exact Hok).
+  destruct (elaboration_result_cases p) as [ [facts Hok] | [ds [Hne Hfail]] ].
+  - exfalso. assert (Hgc : GoCompile p) by (apply (elaborate_ok_iff_GoCompile p); exists facts; exact Hok).
     pose proof (proj2 (program_typedb_iff p) (compile_program_typed p Hgc)) as Ht. rewrite Ht in Hf; discriminate Hf.
-  - rewrite (go_compile_failed_shape p (pa_indexed (analyze p)) ds Hne (analyze_failed_whole p ds Hne Hfail)).
+  - rewrite (go_compile_failed_shape p (pe_indexed (elaborate p)) ds Hne (elaborate_failed_whole p ds Hne Hfail)).
     cbn [legacy_compile_class cfail_diags]. unfold legacy_class_of_diags.
-    rewrite (analyze_failed_ds p ds Hne Hfail), (elab_diags_eq_collect p _ Hpf),
+    rewrite (elaborate_failed_ds p ds Hne Hfail), (elab_diags_eq_collect p _ Hpf),
             existsb_build_output_collect, existsb_typing_collect, Hf. reflexivity.
 Qed.
 
@@ -5873,19 +5873,19 @@ Lemma go_compile_class_spec : forall p,
      else LCBuildOutput).
 Proof.
   intro p. unfold go_compile_class.
-  destruct (analyze_result_cases p) as [ [facts Hok] | [ds [Hne Hfail]] ].
-  - assert (Hgc : GoCompile p) by (apply (analyze_ok_iff_ProgValid p); exists facts; exact Hok).
+  destruct (elaboration_result_cases p) as [ [facts Hok] | [ds [Hne Hfail]] ].
+  - assert (Hgc : GoCompile p) by (apply (elaborate_ok_iff_GoCompile p); exists facts; exact Hok).
     destruct Hgc as [Hpf Hsv]. unfold fresh_build_preflight_ok in Hpf. rewrite Hpf.
     assert (Hpv : ProgValid p) by (apply (proj1 (source_program_valid_iff p)); exact Hsv).
-    destruct (go_compile_ok_shape p (pa_indexed (analyze p)) facts (analyze_ok_whole p facts Hok)) as [cp [Hcp Hgo]]. rewrite Hgo.
+    destruct (go_compile_ok_shape p (pe_indexed (elaborate p)) facts (elaborate_ok_whole p facts Hok)) as [cp [Hcp Hgo]]. rewrite Hgo.
     cbn [legacy_compile_class]. rewrite (proj2 (prog_ok_iff p) Hpv). reflexivity.
-  - rewrite (go_compile_failed_shape p (pa_indexed (analyze p)) ds Hne (analyze_failed_whole p ds Hne Hfail)).
+  - rewrite (go_compile_failed_shape p (pe_indexed (elaborate p)) ds Hne (elaborate_failed_whole p ds Hne Hfail)).
     cbn [legacy_compile_class cfail_diags]. unfold legacy_class_of_diags.
-    rewrite (analyze_failed_ds p ds Hne Hfail).
+    rewrite (elaborate_failed_ds p ds Hne Hfail).
     destruct (fresh_build_disposition_ok (fresh_build_plan p)) eqn:Ep.
     + rewrite (elab_diags_eq_collect p _ Ep), existsb_build_output_collect,
               existsb_typing_collect, existsb_package_collect.
-      assert (Hnv : ~ GoCompile p) by (apply (analyze_failed_iff_not_ProgValid p); exists ds; exists Hne; exact Hfail).
+      assert (Hnv : ~ GoCompile p) by (apply (elaborate_failed_iff_not_GoCompile p); exists ds; exists Hne; exact Hfail).
       assert (Hpok : prog_ok p = false).
       { destruct (prog_ok p) eqn:Epk; [ | reflexivity ]. exfalso. apply Hnv. split.
         - unfold fresh_build_preflight_ok. exact Ep.
@@ -6051,7 +6051,7 @@ Proof. apply (reject_no_compile complex_nonzero_imag_program); vm_compute; refle
 
 (** ============================================================================================================
     §22/§23 (C3 FINAL) — CONCRETE STRUCTURED-DIAGNOSTIC FIXTURES.  Because the occurrence index is an OPAQUE
-    sealed module ([Snap : SNAP_SIG]), the analysis ([analyze]/[expr_diags]/[pkg_diags]/[erased_report]) does
+    sealed module ([Snap : SNAP_SIG]), the elaboration ([elaborate]/[expr_diags]/[pkg_diags]/[erased_report]) does
     NOT reduce — a fixture cannot [vm_compute] a concrete report.  So each fixture pins the REAL index
     ([Snap.index_program] of the concrete program) and states its structured claim THROUGH the proven
     soundness/determinism/emptiness bridges.  Non-vacuity comes from the COMPUTABLE type checker
@@ -6100,7 +6100,7 @@ Theorem empty_program_report :
 Proof.
   split.
   - apply (proj2 (erased_report_empty_iff (empty_program c3_ms) _)).
-    rewrite analysis_ok_b_prog_ok. apply prog_ok_empty.
+    rewrite semantic_ok_b_prog_ok. apply prog_ok_empty.
   - vm_compute. reflexivity.
 Qed.
 
@@ -6160,11 +6160,11 @@ Theorem missing_main_erased_report :
   = [ mkErasedDiagnostic DCMissingMain (EAPackage "") [] None ].
 Proof. rewrite erased_report_src_eq. vm_compute. reflexivity. Qed.
 
-(** ---- §23 — the EXACT expression-fact query: on ANY valid [CompilationFacts], EVERY expression reference's
+(** ---- §23 — the EXACT expression-fact query: on ANY valid [ElaborationFacts], EVERY expression reference's
     queried fact is its occurrence's EXACT source-derived fact — the [ef_const_status] IS the occurrence's
     [const_info] and the [ef_use_resolved] IS its use-context resolution ([resolve_expr_const], rounded ONCE at
     conversion — no rerounding).  So the query PROJECTS the occurrence, never a recomputed value. ---- *)
-Lemma expr_fact_at_exact {p ip} (facts : CompilationFacts p ip) (er : GoIndex.ExprRef p) :
+Lemma expr_fact_at_exact {p ip} (facts : ElaborationFacts p ip) (er : GoIndex.ExprRef p) :
   exists e ci,
     GoIndex.view_expr (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref er)) = Some e
     /\ const_info e = Some ci
@@ -6175,10 +6175,10 @@ Proof.
     by exact (proj2_sig er).
   destruct (GoIndex.kind_view_expr _ Hkind) as [e Hv].
   pose proof (noderef_in_prog_visit p (GoIndex.erase_ref er)) as Hin.
-  pose proof (proj2 (GoTypes.program_typedb_iff p) (proj1 (cf_valid facts))) as HPT.
+  pose proof (proj2 (GoTypes.program_typedb_iff p) (proj1 (ef_source_valid facts))) as HPT.
   destruct (prog_visit_const_info_some p HPT (GoIndex.erase_ref er)
               (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref er)) e Hin Hv) as [ci Hci].
-  pose proof (eft_complete (cf_expr_facts facts) (GoIndex.erase_ref er)
+  pose proof (eft_complete (ef_expr_facts facts) (GoIndex.erase_ref er)
                 (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref er)) Hin) as Hfind.
   rewrite (occ_expr_fact_status _ e ci Hv Hci) in Hfind.
   exists e, ci. split; [exact Hv | split; [exact Hci | exact (expr_fact_at_find facts er _ Hfind)]].
