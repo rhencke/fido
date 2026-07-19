@@ -1,3 +1,10 @@
+SUPERSEDED by .review/C3_FRESH_IMAGE_LITERAL_BUILD_PLAN.md
+
+(This plan's structural C3 implementation is RETAINED and accepted; its vocabulary and semantics for
+exactly-one-main, analysis naming, output-neutral builds, literal `go build ./...` output behavior, and
+dirty-tree builds are SUPERSEDED. Not a live competing authority — kept for history only. Do not combine
+its text with the active contract.)
+
 Claude Code directive: C3 — one retained indexed analysis, occurrence-keyed facts, and structured diagnostics
 
 Repository:

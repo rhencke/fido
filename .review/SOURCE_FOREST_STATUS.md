@@ -9,13 +9,51 @@ Updated only at checkpoint boundaries._
 - Master-plan commit SHA: `e1138cf` (`milestone(contract): install the Source Forest master campaign + activate checkpoint C0`)
 - Declared baseline SHA: `5e7efd8adf38473a931a0144ede62b2caa90272a`
 - Actual base SHA: `5e7efd8adf38473a931a0144ede62b2caa90272a` (repository tip matched the declared baseline; no intervening work to preserve)
-- Active checkpoint: **C3** (One Retained Indexed Analysis, Occurrence-Keyed Facts, and Structured
-  Diagnostics).  C0/C0A/C0B, C1, C1A, C1B, **and C2 all Codex-green AND human-approved by Rob**; C3 is NOW
-  AUTHORIZED by Rob (this activation directive IS Rob's approval of C2).  C4 and every later Source Forest
-  checkpoint remain FORBIDDEN until C3 is Codex-green, pushed, and explicitly approved by Rob.  The binding
-  completion contract is `.review/C3_INDEXED_ANALYSIS_DIAGNOSTICS_PLAN.md` (= `.review/NEXT_STEPS.md`,
-  installed verbatim).
+- Active checkpoint: **C3 — Fresh-Image Literal-Build Final Repair** (2026-07-19).  The structural C3
+  implementation (One Retained Indexed Analysis, Occurrence-Keyed Facts, Structured Diagnostics) went
+  Codex-GREEN @`fea6493` and is RETAINED; Rob then issued a FRESH, self-contained final-repair contract that
+  supersedes the prior C3 vocabulary/semantics for exactly-one-main, analysis→elaboration naming,
+  output-neutral builds, literal `go build ./...` output behavior, and ambient dirty-tree builds.  The binding
+  completion contract is now `.review/C3_FRESH_IMAGE_LITERAL_BUILD_PLAN.md` (= `.review/NEXT_STEPS.md`,
+  installed verbatim); the prior `.review/C3_INDEXED_ANALYSIS_DIAGNOSTICS_PLAN.md` is bannered SUPERSEDED
+  (history only, not a live authority).  C0/C0A/C0B, C1, C1A, C1B, C2 all Codex-green AND human-approved.
+  **C4 and every later Source Forest checkpoint remain FORBIDDEN.**
 - Checkpoint contract commit SHA: `e1138cf` (master plan + C0 `NEXT_STEPS.md` + this ledger installed together)
+
+## C3 — Fresh-Image Literal-Build Final Repair (ACTIVE final-repair contract, 2026-07-19)
+- **Active work:** C3 fresh-image literal-build final repair — make Fido's `GoCompile` judgment accept exactly
+  the programs for which the pinned one-shot production invocation succeeds: materialize the exact certified
+  `DirectoryImage` into a fresh, empty, pinned build root and run literal `go build ./...` exactly once.
+- **Baseline SHA:** `fea649389ee52d442373c43ea2bdb3be2eca47db` (`C3 §16 (9th FINAL review): strict canonical
+  diagnostic order via unique keys + singleton buckets`).
+- **Contract:** `.review/C3_FRESH_IMAGE_LITERAL_BUILD_PLAN.md` (= `.review/NEXT_STEPS.md`, verbatim) is the
+  binding completion contract.  All existing C3 implementation is RETAINED unless the contract says otherwise.
+- **Open defects the contract closes:**
+  - *Package-rule factorization defect:* the accepted C3 rule "every package has exactly one `DMain`" combines
+    two independent Go rules — package-block name uniqueness (`PackageDeclsUnique`) and main-package entry
+    validity (`MainPackagesHaveEntry`).  Must be split into `PackageRulesValid` / `SourceProgramValid`, with a
+    universal `current_package_rules_exactly_one` equivalence + old-rule compatibility; the old combined rule
+    must survive only as a proved consequence.
+  - *Analysis/elaboration vocabulary defect:* `analyze`/`analyze_indexed`/`AnalysisResult`/`ProgramAnalysis`/
+    `AnalysisOK`/`AnalysisFailed`/`CompilationFacts`/… must be renamed to the `elaborate`/`Elaboration*`
+    vocabulary; no live compatibility aliases (physical module rename stays C6).
+  - *No exact fresh-image cmd/go plan:* there is no model of cmd/go package selection for `./...`, package
+    import path, `default_exec_name` + the exact `isVersionElement` (vN) rule, the fresh `RootEntryMap` layout,
+    regular-file overwrite vs directory-collision preflight, or command phase order (load → default-output
+    stat → compile).  Must add `FreshBuildPlan` + `fresh_build_preflight_ok` and make
+    `GoCompile p := fresh_build_preflight_ok (fresh_build_plan p) /\ SourceProgramValid p`, with
+    `DRBuildOutputIsDirectory` taking cmd/go precedence over semantic diagnostics for a sole selected package.
+- **Fresh build-root invariant (production law 21–28):** every production `go build ./...` runs in a FRESH
+  materialization of exactly one `DirectoryImage` (go.mod + rendered `.go` + implied parent dirs, mode 0644/0755,
+  no `.fido`/lock/temp/prior-exe/symlink/special/VCS/workspace/nested-module/sink-residue), under a pinned
+  environment (`GOWORK=off GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off GOENV=off GOFLAGS= GO111MODULE=on GOOS=linux
+  GOARCH=amd64`), invoked ONCE; the disposable build root is never the sink destination and no post-build byte is
+  ever published.  Publication sinks the ORIGINAL image only.
+- **C4 remains FORBIDDEN.**  This file's completion contract is `.review/C3_FRESH_IMAGE_LITERAL_BUILD_PLAN.md`.
+- **Status:** contract installed verbatim to the plan + NEXT_STEPS, prior plan bannered SUPERSEDED; ledger
+  recorded.  Implementation NOT yet begun (this is the contract-activation commit).  Toolchain identity
+  (`go env GOVERSION GOOS GOARCH` in the pinned image) + the pinned cmd/go source line ranges to be recorded
+  during implementation.
 
 ## C3 — One Retained Indexed Analysis, Occurrence-Keyed Facts, and Structured Diagnostics (ACTIVE checkpoint)
 - **C2 human disposition: APPROVED by Rob** (2026-07-18, via the C3 activation directive: "Rob has now reviewed
