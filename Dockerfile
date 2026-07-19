@@ -635,8 +635,9 @@ COPY --from=emit /workspace/e2e-bytes/ ./bytes/
 COPY e2e/golden.stdout e2e/golden.stderr e2e/golden.exit e2e/golden.bytes.hex ./
 RUN <<'SH'
 set -u
-# closed-world integration: force the local pinned toolchain, no workspace, no network proxy
-export GOWORK=off GOTOOLCHAIN=local GOPROXY=off
+# closed-world integration: force the local pinned toolchain, no workspace, no network proxy, and NO ambient
+# go env / flag state (GOENV=off ignores the per-user env file; GOFLAGS empty) — every build below inherits it.
+export GOWORK=off GOTOOLCHAIN=local GOPROXY=off GOENV=off GOFLAGS=
 
 # ── §5/§6/§22 — the ONE reusable FRESH-BUILD RUNNER.  Materialize an AUTHORITATIVE pristine tree (go.mod +
 #    `.go` files only) into a NEW empty root, byte-verify the materialization against the input, run the
@@ -698,37 +699,42 @@ rm -rf "$WFRESH"
 # --- BYTE-EXACT boundary-byte oracle (§22): a `println` of a string with bytes 0x00/0x1f/0x7f/0x80/0xff must
 #     emit those exact five bytes (+ the println newline) to stderr.  Compared as HEX (od, non-hex stripped)
 #     against the reviewed golden `golden.bytes.hex` — a byte-safe oracle, never binary through shell $(...). ---
-cd /e2e/bytes
-[ -f main.go ] || { echo "fido e2e bytes: no boundary-byte main.go"; exit 1; }
-if [ -n "$(gofmt -l .)" ]; then echo "fido e2e bytes: boundary-byte Go is not gofmt-clean"; gofmt -l .; exit 1; fi
-go build -o probe . || { echo "fido e2e bytes: go build of the boundary-byte witness FAILED"; exit 1; }
-./probe > bytes.out 2> bytes.err; bec=$?
-[ "$bec" = 0 ] || { echo "fido e2e bytes: boundary-byte witness exited $bec"; exit 1; }
-b_actual=$(od -An -v -tx1 bytes.err | tr -dc '0-9a-f')
+# strip the sink's `.fido` control dir from the disposable COPY -> a pristine authoritative tree, then route the
+# acceptance through the fresh-build runner (no build in a `.fido`-bearing tree).
+rm -rf /e2e/bytes/.fido; find /e2e/bytes -name '*.fido-tmp-v1' -delete 2>/dev/null || true
+[ -f /e2e/bytes/main.go ] || { echo "fido e2e bytes: no boundary-byte main.go"; exit 1; }
+if [ -n "$( cd /e2e/bytes && gofmt -l . )" ]; then echo "fido e2e bytes: boundary-byte Go is not gofmt-clean"; ( cd /e2e/bytes && gofmt -l . ); exit 1; fi
+if ! fido_go_build_all_fresh /e2e/bytes BFRESH; then cat "${BFRESH:-/dev/null}/.build.err" 2>/dev/null; echo "fido e2e bytes: go build ./... FAILED in a fresh root"; exit 1; fi
+( cd "$BFRESH" && go build -o probe . ) || { echo "fido e2e bytes: go build of the boundary-byte witness FAILED"; rm -rf "$BFRESH"; exit 1; }
+"$BFRESH/probe" > /e2e/bytes.out 2> /e2e/bytes.err; bec=$?
+[ "$bec" = 0 ] || { echo "fido e2e bytes: boundary-byte witness exited $bec"; rm -rf "$BFRESH"; exit 1; }
+b_actual=$(od -An -v -tx1 /e2e/bytes.err | tr -dc '0-9a-f')
 b_want=$(tr -dc '0-9a-f' < /e2e/golden.bytes.hex)
 echo "fido e2e bytes: actual stderr hex=[$b_actual] golden=[$b_want]"
-[ "$b_actual" = "$b_want" ] || { echo "fido e2e bytes: BYTE MISMATCH — the boundary-byte string did not round-trip through Go"; exit 1; }
-echo "fido e2e bytes: boundary-byte string round-trips EXACTLY through pinned Go (0x00/0x1f/0x7f/0x80/0xff + newline)"
+[ "$b_actual" = "$b_want" ] || { echo "fido e2e bytes: BYTE MISMATCH — the boundary-byte string did not round-trip through Go"; rm -rf "$BFRESH"; exit 1; }
+echo "fido e2e bytes: boundary-byte string round-trips EXACTLY through pinned Go via the fresh runner (0x00/0x1f/0x7f/0x80/0xff + newline)"; rm -rf "$BFRESH"
 
-# --- EMPTY program: a rendered go.mod and ZERO .go files → `go build ./...` accepts (zero packages) ---
-cd /e2e/empty
-[ -f go.mod ] || { echo "fido e2e empty: no rendered go.mod"; exit 1; }
-[ -z "$(find . -name '*.go')" ] || { echo "fido e2e empty: unexpected .go file"; exit 1; }
-if ! go build ./... 2> empty.err; then cat empty.err; echo "fido e2e empty: go build ./... REJECTED a module with zero packages"; exit 1; fi
-echo "fido e2e empty: go build ./... accepted a module with zero packages (rendered go.mod)"
+# --- EMPTY program: a rendered go.mod and ZERO .go files → `go build ./...` accepts (zero packages), via the
+#     fresh-build runner (a disposable materialization of the pristine tree). ---
+rm -rf /e2e/empty/.fido; find /e2e/empty -name '*.fido-tmp-v1' -delete 2>/dev/null || true
+[ -f /e2e/empty/go.mod ] || { echo "fido e2e empty: no rendered go.mod"; exit 1; }
+[ -z "$(find /e2e/empty -name '*.go')" ] || { echo "fido e2e empty: unexpected .go file"; exit 1; }
+if ! fido_go_build_all_fresh /e2e/empty EFRESH; then cat "${EFRESH:-/dev/null}/.build.err" 2>/dev/null; echo "fido e2e empty: go build ./... REJECTED a module with zero packages"; exit 1; fi
+echo "fido e2e empty: go build ./... accepted a module with zero packages via the fresh runner (rendered go.mod)"; rm -rf "$EFRESH"
 
-# --- DIFFERENTIAL: the whole-program directory/package rules must agree with `go build ./...` ---
-cd /e2e/multi
-[ -f go.mod ] || { echo "fido e2e diff: no rendered go.mod"; exit 1; }
-echo "fido e2e diff: ACCEPTED multi-package tree (root main + sub/ main + empty file):"; find . -type f | sort
-if [ -n "$(gofmt -l .)" ]; then echo "fido e2e diff: multi tree not gofmt-clean"; gofmt -l .; exit 1; fi
-if ! go vet ./...; then echo "fido e2e diff: go vet reported diagnostics (nonblocking)"; fi
-go build ./... || { echo "fido e2e diff: go build ./... REJECTED a GoCompile-ACCEPTED multi-package tree (model bug)"; exit 1; }
-# DISCOVERY: every emitted-file directory must be a package `go list ./...` actually selects.
-emitted_dirs=$(find . -name '*.go' -exec dirname {} \; | sort -u)
-listed_dirs=$(go list -f '{{.Dir}}' ./... | sed "s#^$(pwd)#.#; s#^\.\$#.#" | sort -u)
+# --- DIFFERENTIAL: the whole-program directory/package rules must agree with `go build ./...`, via the runner ---
+rm -rf /e2e/multi/.fido; find /e2e/multi -name '*.fido-tmp-v1' -delete 2>/dev/null || true
+[ -f /e2e/multi/go.mod ] || { echo "fido e2e diff: no rendered go.mod"; exit 1; }
+echo "fido e2e diff: ACCEPTED multi-package tree (root main + sub/ main + empty file):"; ( cd /e2e/multi && find . -type f | sort )
+if [ -n "$( cd /e2e/multi && gofmt -l . )" ]; then echo "fido e2e diff: multi tree not gofmt-clean"; ( cd /e2e/multi && gofmt -l . ); exit 1; fi
+if ! fido_go_build_all_fresh /e2e/multi MFRESH; then cat "${MFRESH:-/dev/null}/.build.err" 2>/dev/null; echo "fido e2e diff: go build ./... REJECTED a GoCompile-ACCEPTED multi-package tree (model bug)"; exit 1; fi
+( cd "$MFRESH" && if ! go vet ./...; then echo "fido e2e diff: go vet reported diagnostics (nonblocking)"; fi )
+# DISCOVERY: every emitted-file directory must be a package `go list ./...` actually selects (in the fresh root).
+emitted_dirs=$( cd "$MFRESH" && find . -name '*.go' -exec dirname {} \; | sort -u )
+listed_dirs=$( cd "$MFRESH" && go list -f '{{.Dir}}' ./... | sed "s#^$MFRESH#.#; s#^\.\$#.#" | sort -u )
 echo "fido e2e diff: emitted dirs=[$(echo $emitted_dirs)] go-list dirs=[$(echo $listed_dirs)]"
-[ "$emitted_dirs" = "$listed_dirs" ] || { echo "fido e2e diff: emitted package dirs != go list ./... selection"; exit 1; }
+[ "$emitted_dirs" = "$listed_dirs" ] || { echo "fido e2e diff: emitted package dirs != go list ./... selection"; rm -rf "$MFRESH"; exit 1; }
+rm -rf "$MFRESH"
 # hand-written REJECTED fixtures: `go build ./...` must reject exactly what GoCompile makes impossible
 mkdir -p /tmp/rej-nomain && cd /tmp/rej-nomain && printf 'module rej\n\ngo 1.23\n' > go.mod
 printf '// fido generated.  do not edit.\n\npackage main\n' > x.go   # a main package with NO func main
@@ -827,6 +833,19 @@ if ! fido_go_build_all_fresh /tmp/dc-multi FR; then cat "${FR:-/dev/null}/.build
 # a/ and b/ are the package DIRECTORIES; a default executable would be a REGULAR FILE named a or b (there is none).
 { [ ! -f "$FR/a" ] && [ ! -f "$FR/b" ]; } || { echo "fido e2e diff: a two-main go build ./... wrote a default executable (a/b) — unexpected"; ls -la "$FR"; rm -rf "$FR"; exit 1; }
 echo "fido e2e diff: go build ./... accepted the two-main tree and wrote NO default executable (matches FBDDiscardMultiple)"; rm -rf "$FR"
+# 20.10 / 20.11 — REGULAR-FILE OVERWRITE: a sole-main output name that is an existing REGULAR file (the root
+#   go.mod, or the root source file) is NOT a directory collision -> ACCEPT; the sole-main build OVERWRITES that
+#   fresh file with the executable, and the AUTHORITATIVE tree stays byte-identical (the runner builds in a
+#   disposable copy — §24).  A build-in-place design would corrupt the module/source.
+overwrite_accept() {  # <dir> <module-path> <output-name-that-is-a-regular-file> <label>
+  cp "$1/$3" /tmp/ov-auth
+  if ! fido_go_build_all_fresh "$1" FR; then cat "${FR:-/dev/null}/.build.err" 2>/dev/null; rm -rf "$FR"; echo "fido e2e diff: go build ./... REJECTED $4 (GoCompile ACCEPTS — MODEL BUG)"; exit 1; fi
+  if cmp -s "$FR/$3" "$1/$3"; then echo "fido e2e diff: the fresh $3 was NOT overwritten by the sole-main build ($4)"; rm -rf "$FR"; exit 1; fi
+  cmp -s /tmp/ov-auth "$1/$3" || { echo "fido e2e diff: the AUTHORITATIVE $3 was mutated by a fresh build ($4) — isolation broken"; rm -rf "$FR"; exit 1; }
+  echo "fido e2e diff: go build ./... accepted $4, overwrote the FRESH $3, left the authoritative bytes intact (matches GoCompile + §24)"; rm -rf "$FR"
+}
+mk_tree /tmp/ov-gomod example.com/go.mod  main.go; overwrite_accept /tmp/ov-gomod example.com/go.mod  go.mod  "the go.mod-overwrite tree (output go.mod = regular go.mod)"
+mk_tree /tmp/ov-src   example.com/main.go main.go; overwrite_accept /tmp/ov-src   example.com/main.go main.go "the source-overwrite tree (output main.go = regular main.go)"
 cd /e2e/tree
 
 echo "fido e2e OK — pinned Go built the whole tree via the FRESH-BUILD RUNNER (a disposable materialization; go build ./...) using the RENDERED go.mod, accepted the empty module, ran the witness vs goldens (incl. the ten integer-type conversions, the float section, AND the complex section: bare complex128-default literal, complex64/complex128 conversions, zero-imaginary complex<->scalar, the direct-vs-nested component double-round scar as uint64 evidence), checked the multi-package differential + go list discovery, rejected the no-main/dup-main + out-of-range/non-integer/float-overflow/fractional/wrong-type/complex-component-overflow/nonzero-imaginary conversion fixtures exactly as GoCompile does, confirmed the complex-underflow scalar-conversion scar on both sides (int(complex(3,1e-50)) rejected; int(complex64(complex(3,1e-50)))=3 accepted, imaginary underflowed to zero), AND confirmed the fresh-image DIRECTORY-COLLISION differential matrix (sub/main.go + a/v2/main.go rejected as GoCompile rejects; root main.go + a/b/main.go + v2/main.go + two-main accepted with no default executable, as GoCompile accepts) (go vet nonblocking)"
