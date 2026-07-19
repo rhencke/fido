@@ -1579,8 +1579,54 @@ Proof.
   apply filter_In in Ha. destruct Ha as [_ Hf]. apply andb_prop in Hf. exact (proj2 Hf).
 Qed.
 
-(** the diagnostic(s) an occurrence emits (a singleton or nothing), anchored at its OWN validated ExprRef. *)
-Definition occ_expr_diags {p} (idx : GoIndex.Snap.SyntaxIndex p)
+(** §14/§15 (C3 FINAL) — the ONE-PASS enclosing-conversion context.  A single FORWARD pass over the RETAINED
+    preorder file stream carries the open-conversion stack (nearest-first, push-front); each occurrence is
+    annotated with its enclosing-conversion refs = [map fst] of the currently-open stack (its strict
+    conversion ancestors).  Entries whose subtree has closed ([node_subtree_end < node_ref_local]) are popped;
+    a conversion occurrence pushes its own [ExprRef] + subtree end AFTER recording.  No per-diagnostic
+    [visit_file] re-traversal and no [node_at] recovery — only retained refs, index subtree metadata, and the
+    delivered occurrence's own syntax ([is_conversion_occ]).  Proved [= enclosing_conv_refs] on the stream. *)
+Fixpoint annotate_encl {p} (idx : GoIndex.Snap.SyntaxIndex p)
+    (stack : list (GoIndex.ExprRef p * positive))
+    (stream : list (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence))
+    : list ((GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence) * list (GoIndex.ExprRef p)) :=
+  match stream with
+  | [] => []
+  | ro :: rest =>
+      let open := filter (fun e => Pos.leb (GoIndex.Snap.node_ref_local (fst ro)) (snd e)) stack in
+      let stack' := match GoIndex.as_expr idx (fst ro) with
+                    | Some er => if is_conversion_occ (snd ro)
+                                 then (er, GoIndex.Snap.node_subtree_end idx (fst ro)) :: open
+                                 else open
+                    | None => open
+                    end in
+      (ro, map fst open) :: annotate_encl idx stack' rest
+  end.
+
+Definition annotate_program {p} (idx : GoIndex.Snap.SyntaxIndex p)
+  : list ((GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence) * list (GoIndex.ExprRef p)) :=
+  flat_map (fun b => annotate_encl idx [] (binding_visit p b)) (GoAST.file_bindings (prog_files p)).
+
+(** the annotation preserves the underlying occurrence stream (it only attaches context). *)
+Lemma annotate_encl_fst {p} (idx : GoIndex.Snap.SyntaxIndex p) stack stream :
+  map fst (annotate_encl idx stack stream) = stream.
+Proof.
+  revert stack; induction stream as [|ro rest IH]; intro stack; [reflexivity|].
+  cbn [annotate_encl map]. rewrite IH. reflexivity.
+Qed.
+
+Lemma annotate_program_fst {p} (idx : GoIndex.Snap.SyntaxIndex p) :
+  map fst (annotate_program idx) = prog_visit p.
+Proof.
+  unfold annotate_program, prog_visit.
+  induction (GoAST.file_bindings (prog_files p)) as [|b L IH]; [reflexivity|].
+  cbn [flat_map]. rewrite map_app, annotate_encl_fst, IH. reflexivity.
+Qed.
+
+(** the diagnostic(s) an occurrence emits (a singleton or nothing), anchored at its OWN validated ExprRef.
+    The [outer] enclosing-conversion context is DELIVERED by the one-pass [annotate_program] annotation (§14/§15),
+    never recomputed here — so no [visit_file]/[node_at] per diagnostic. *)
+Definition occ_expr_diags {p} (idx : GoIndex.Snap.SyntaxIndex p) (outer : list (GoIndex.ExprRef p))
     (ro : GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence) : list (DiagnosticReason p) :=
   match GoIndex.as_expr idx (fst ro) with
   | None => []
@@ -1589,7 +1635,7 @@ Definition occ_expr_diags {p} (idx : GoIndex.Snap.SyntaxIndex p)
       | None => []
       | Some e =>
           match local_conv_failure e with
-          | Some (t, ci) => [ DRInvalidConversion er (enclosing_conv_refs idx (fst ro)) t ci ]
+          | Some (t, ci) => [ DRInvalidConversion er outer t ci ]
           | None =>
               match arg_default_failure (snd ro) e with
               | Some (c, dt) => [ DRDefaultNotRepresentable er c dt ]
@@ -1614,9 +1660,9 @@ Qed.
     shared [convert_const] on its target/operand-status, and its [outer_context] is EXACTLY the enclosing
     conversions ([enclosing_conv_refs] — whose refs are sound strict ancestor conversions by
     [enclosing_conv_refs_sound]). *)
-Lemma occ_expr_diags_conv_sound {p} (idx : GoIndex.Snap.SyntaxIndex p) ro er outer t ci :
-  In (DRInvalidConversion er outer t ci) (occ_expr_diags idx ro) ->
-  convert_const t ci = None /\ outer = enclosing_conv_refs idx (fst ro).
+Lemma occ_expr_diags_conv_sound {p} (idx : GoIndex.Snap.SyntaxIndex p) ro outer er outer' t ci :
+  In (DRInvalidConversion er outer' t ci) (occ_expr_diags idx outer ro) ->
+  convert_const t ci = None /\ outer' = outer.
 Proof.
   intro Hin. unfold occ_expr_diags in Hin.
   destruct (GoIndex.as_expr idx (fst ro)) as [er'|]; [| destruct Hin].
@@ -1631,8 +1677,8 @@ Qed.
 (** a [DRDefaultNotRepresentable] diagnostic is SOUND for its code: the reported untyped constant [c] does NOT
     default ([default_const c = None]), and the reported default target is EXACTLY the Go default of [c]
     ([default_target_of] — bool->bool, integer->int, float->float64, complex->complex128, string->string). *)
-Lemma occ_expr_diags_default_sound {p} (idx : GoIndex.Snap.SyntaxIndex p) ro er c dt :
-  In (DRDefaultNotRepresentable er c dt) (occ_expr_diags idx ro) ->
+Lemma occ_expr_diags_default_sound {p} (idx : GoIndex.Snap.SyntaxIndex p) ro outer er c dt :
+  In (DRDefaultNotRepresentable er c dt) (occ_expr_diags idx outer ro) ->
   default_const c = None /\ dt = default_target_of c.
 Proof.
   intro Hin. unfold occ_expr_diags in Hin.
@@ -1684,13 +1730,14 @@ Definition arg_default_failure_sm {p} (smap : GoIndex.NodeKeyMapBase.t (option C
   end.
 
 Definition occ_expr_diags_sm {p} (smap : GoIndex.NodeKeyMapBase.t (option ConstInfo))
-    (idx : GoIndex.Snap.SyntaxIndex p) (ro : GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence)
+    (idx : GoIndex.Snap.SyntaxIndex p) (outer : list (GoIndex.ExprRef p))
+    (ro : GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence)
   : list (DiagnosticReason p) :=
   match GoIndex.as_expr idx (fst ro) with
   | None => []
   | Some er =>
       match local_conv_failure_sm smap ro with
-      | Some (t, ci) => [ DRInvalidConversion er (enclosing_conv_refs idx (fst ro)) t ci ]
+      | Some (t, ci) => [ DRInvalidConversion er outer t ci ]
       | None =>
           match arg_default_failure_sm smap ro with
           | Some (c, dt) => [ DRDefaultNotRepresentable er c dt ]
@@ -1719,8 +1766,9 @@ Proof.
   rewrite (prog_status_map_find p r occ e Hin Hv). destruct (const_info e) as [[c|t tc]|]; reflexivity.
 Qed.
 
-Lemma occ_expr_diags_sm_eq {p} (idx : GoIndex.Snap.SyntaxIndex p) (ro : GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence) :
-  In ro (prog_visit p) -> occ_expr_diags_sm (prog_status_map p) idx ro = occ_expr_diags idx ro.
+Lemma occ_expr_diags_sm_eq {p} (idx : GoIndex.Snap.SyntaxIndex p) (outer : list (GoIndex.ExprRef p))
+    (ro : GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence) :
+  In ro (prog_visit p) -> occ_expr_diags_sm (prog_status_map p) idx outer ro = occ_expr_diags idx outer ro.
 Proof.
   intro Hin. destruct ro as [r occ]. unfold occ_expr_diags_sm, occ_expr_diags; cbn [fst snd].
   destruct (GoIndex.as_expr idx r) as [er|] eqn:Ea; [|reflexivity].
@@ -1744,13 +1792,18 @@ Proof.
   cbn [flat_map]. rewrite (H a (or_introl eq_refl)), IH by (intros a' Ha'; apply H; right; exact Ha'). reflexivity.
 Qed.
 
-(* the production expression diagnostics: the SINGLE-PASS step over the visit stream (status-map reads). *)
+(* the production expression diagnostics: the SINGLE-PASS status step over the ONE-PASS annotated stream —
+   each occurrence's enclosing-conversion context [snd roc] is DELIVERED by [annotate_program], its status is
+   read from [prog_status_map]; no per-diagnostic [visit_file]/[node_at]. *)
 Definition expr_diags {p} (idx : GoIndex.Snap.SyntaxIndex p) : list (DiagnosticReason p) :=
-  flat_map (occ_expr_diags_sm (prog_status_map p) idx) (prog_visit p).
+  flat_map (fun roc => occ_expr_diags_sm (prog_status_map p) idx (snd roc) (fst roc)) (annotate_program idx).
 
 Lemma expr_diags_eq_spec {p} (idx : GoIndex.Snap.SyntaxIndex p) :
-  expr_diags idx = flat_map (occ_expr_diags idx) (prog_visit p).
-Proof. unfold expr_diags. apply flat_map_ext_in. intros ro Hin. apply occ_expr_diags_sm_eq; exact Hin. Qed.
+  expr_diags idx = flat_map (fun roc => occ_expr_diags idx (snd roc) (fst roc)) (annotate_program idx).
+Proof.
+  unfold expr_diags. apply flat_map_ext_in. intros roc Hin. apply occ_expr_diags_sm_eq.
+  rewrite <- (annotate_program_fst idx). exact (in_map fst _ _ Hin).
+Qed.
 
 (* ---- COMPLETENESS: [expr_diags] is empty IFF every argument resolves (= [program_typedb]) ---- *)
 
@@ -1922,9 +1975,10 @@ Proof.
 Qed.
 
 (** per-occurrence: the emitted diagnostics are empty IFF the occurrence emits nothing (pure). *)
-Lemma occ_expr_diags_empty {p} (idx : GoIndex.Snap.SyntaxIndex p) (r : GoIndex.Snap.NodeRef p) occ :
+Lemma occ_expr_diags_empty {p} (idx : GoIndex.Snap.SyntaxIndex p) (outer : list (GoIndex.ExprRef p))
+    (r : GoIndex.Snap.NodeRef p) occ :
   In (r, occ) (prog_visit p) ->
-  (occ_expr_diags idx (r, occ) = nil <-> occ_emits_none_pure occ = true).
+  (occ_expr_diags idx outer (r, occ) = nil <-> occ_emits_none_pure occ = true).
 Proof.
   intro Hin. pose proof (prog_visit_view p r occ Hin) as Hocc.
   unfold occ_expr_diags, occ_emits_none_pure, occ_local_ok, occ_default_ok, GoIndex.as_expr, GoIndex.as_kind.
@@ -1958,11 +2012,19 @@ Lemma expr_diags_empty_iff {p} (idx : GoIndex.Snap.SyntaxIndex p) :
   expr_diags idx = nil <-> program_typedb p = true.
 Proof.
   rewrite expr_diags_eq_spec. rewrite flat_map_nil_forallb, <- emits_none_program_typedb.
-  rewrite !forallb_forall. split; intros H [r occ] Hin.
-  - cbn [snd]. apply (occ_expr_diags_empty idx r occ Hin).
-    specialize (H (r, occ) Hin). destruct (occ_expr_diags idx (r, occ)); [reflexivity | discriminate H].
-  - specialize (H (r, occ) Hin). cbn [snd] in H.
-    apply (occ_expr_diags_empty idx r occ Hin) in H. rewrite H. reflexivity.
+  rewrite !forallb_forall. split; intro H.
+  - intros [r occ] Hin.
+    assert (Hroc : exists ctx, In ((r, occ), ctx) (annotate_program idx)).
+    { rewrite <- (annotate_program_fst idx) in Hin. apply in_map_iff in Hin. destruct Hin as [[ro ctx] [Hf Hi]].
+      cbn [fst] in Hf. subst ro. exists ctx. exact Hi. }
+    destruct Hroc as [ctx Hroc]. specialize (H _ Hroc). cbn [fst snd] in H.
+    apply (occ_expr_diags_empty idx ctx r occ Hin).
+    destruct (occ_expr_diags idx ctx (r, occ)); [reflexivity | discriminate H].
+  - intros roc Hin. destruct roc as [[r occ] ctx]. cbn [fst snd].
+    assert (Hin' : In (r, occ) (prog_visit p)).
+    { rewrite <- (annotate_program_fst idx). exact (in_map fst _ _ Hin). }
+    specialize (H (r, occ) Hin'). cbn [snd] in H.
+    apply (occ_expr_diags_empty idx ctx r occ Hin') in H. rewrite H. reflexivity.
 Qed.
 
 (* ---- PACKAGE main-count relation: # of top-level-decl occurrences per file = [file_main_count] ---- *)
@@ -2692,8 +2754,8 @@ Proof.
   rewrite (H x (or_introl eq_refl)), IH by (intros y Hy; apply H; right; exact Hy). reflexivity.
 Qed.
 
-Lemma occ_expr_diags_family {p} (idx : GoIndex.Snap.SyntaxIndex p) ro : forall d,
-  In d (occ_expr_diags idx ro) -> diag_is_typing d = true /\ diag_is_package d = false.
+Lemma occ_expr_diags_family {p} (idx : GoIndex.Snap.SyntaxIndex p) outer ro : forall d,
+  In d (occ_expr_diags idx outer ro) -> diag_is_typing d = true /\ diag_is_package d = false.
 Proof.
   intros d Hin. unfold occ_expr_diags in Hin.
   destruct (GoIndex.as_expr idx (fst ro)) as [er|]; [| destruct Hin].
@@ -2705,13 +2767,13 @@ Qed.
 
 Lemma expr_diags_typing {p} (idx : GoIndex.Snap.SyntaxIndex p) : forall d, In d (expr_diags idx) -> diag_is_typing d = true.
 Proof.
-  intros d Hin. rewrite expr_diags_eq_spec in Hin. apply in_flat_map in Hin. destruct Hin as [ro [_ Hd]].
-  apply (occ_expr_diags_family idx ro d Hd).
+  intros d Hin. rewrite expr_diags_eq_spec in Hin. apply in_flat_map in Hin. destruct Hin as [roc [_ Hd]].
+  apply (occ_expr_diags_family idx (snd roc) (fst roc) d Hd).
 Qed.
 Lemma expr_diags_not_package {p} (idx : GoIndex.Snap.SyntaxIndex p) : forall d, In d (expr_diags idx) -> diag_is_package d = false.
 Proof.
-  intros d Hin. rewrite expr_diags_eq_spec in Hin. apply in_flat_map in Hin. destruct Hin as [ro [_ Hd]].
-  apply (occ_expr_diags_family idx ro d Hd).
+  intros d Hin. rewrite expr_diags_eq_spec in Hin. apply in_flat_map in Hin. destruct Hin as [roc [_ Hd]].
+  apply (occ_expr_diags_family idx (snd roc) (fst roc) d Hd).
 Qed.
 
 Lemma pkg_diag_of_bucket_family {p} (m : PM.t (list (GoIndex.DeclRef p))) Hpres dir l Hmt : forall d,
@@ -2941,7 +3003,7 @@ Definition analyze_indexed (p : GoProgram) (ip : GoIndex.IndexedProgram p) : Ana
   let status  := fold_right psm_step (GoIndex.NodeKeyMapBase.empty (option ConstInfo)) visit in
   let buckets := fold_right (ppkg_step idx) (PM.empty (list (GoIndex.DeclRef p))) visit in
   let facts   := fold_right (add_occ_fact_sm status) (GoIndex.NodeKeyMapBase.empty ExprFact) visit in
-  let diags   := flat_map (occ_expr_diags_sm status idx) visit
+  let diags   := flat_map (fun roc => occ_expr_diags_sm status idx (snd roc) (fst roc)) (annotate_program idx)
                    ++ bucket_diags_elems buckets (bucket_key_present idx)
                         (PM.elements buckets) (elements_all_mapsto buckets) in
   match list_is_nil diags with
