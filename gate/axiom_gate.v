@@ -313,6 +313,9 @@ Print Assumptions GoAST.FilesEqual_trans.
 Print Assumptions GoCompile.prog_ok_iff.
 Print Assumptions GoCompile.go_compile_ok_valid.
 Print Assumptions GoCompile.go_compile_complete.
+(* C3 §18 — PROVENANCE: every CompilableProgram's facts ARE analyze's exact AnalysisOK output (no parallel
+   capability path — the sole introduction requires an exact AnalysisOK result). *)
+Print Assumptions GoCompile.compilable_prov.
 (* §8 map-based PACKAGE GROUPING via a standard [PackageMap] in ONE [FM.fold]: EXACTNESS (every file
    contributes to its own parent package; no package without a file; a summary's main count IS the sum over
    its files; empty file map -> empty package map) and ORDER-INDEPENDENCE (map-equal file collections and
