@@ -160,9 +160,21 @@ Updated only at checkpoint boundaries._
 - ROOT Codex RE-review #5 of round #5 (`5d9bd5b`): **ALLOW / GREEN** (task-mrr9nut0, non-stale 2026-07-19
   T03:59:09Z > HEAD `5d9bd5b` T03:58:30Z) — "no blocking implementation defects or architectural conflicts
   within the C3 ROOT scope and declared threat model."  **The C3 ROOT barrier is Codex-GREEN.**
-- Status: **C3 ROOT is Codex-GREEN @`5d9bd5b`.  Per the cadence (ROOT then FINAL, NO human stop between
-  ROOT-GREEN and FINAL), FINAL barrier work is now ACTIVE: deterministic reporting + downstream integration +
-  residue removal + e2e + docs + byte identity, then the FINAL Codex barrier.**
+- FINAL barrier ACTIVE (ROOT-GREEN @`5d9bd5b`; no human stop between ROOT-GREEN and FINAL).  Progress:
+  - **FINAL 1** (`b299263`): §17 erased-diagnostic reports FOUNDATION — snapshot-independent `ErasedAnchor` /
+    `ErasedDiagnostic` + `erase_diagnostic` (code + key-only anchors + stable target-type payload, no source
+    syntax) + `erased_report` (empty iff analysis accepts) + intra-snapshot preservation lemmas.
+  - **FINAL 2** (`70c783c`): §19/§26 removed the C2 `indexed_program_typedb` PEER whole-program executable
+    from GoTypes (kept the shared leaf `occ_arg_typedb` + `occs_file_typedb_eq`); GoCompile's `analyze` is the
+    ONE indexed whole-program traversal; `prog_ok`/`program_typedb` are spec/proof-only.  Gate 491->489.  Docs
+    reconciled (CLAUDE/ARCHITECTURE/PROGRESS/COLLECTION_AUDIT).
+  - REMAINING: §17 cross-snapshot FilesEqual/permutation erased-equality theorems (feasible via `visit_file_snd`
+    + the source-occurrence/local-id correspondence; a substantial pipeline-wide proof); §16 canonical order
+    theorem; §22/§23 diagnostic + fact-query e2e fixtures; §24 report formatting; §27 gate surfaces for the
+    erasure; §20 exactness-surface gate audit; §29 remaining docs + collection audit; then the FINAL Codex
+    barrier.
+- Status: **C3 FINAL barrier IN PROGRESS @`70c783c` (2 of ~8 deliverables done, byte-identical throughout).
+  Continuing the FINAL "Complete" list; the FINAL Codex barrier runs when the list is complete.**
 
 ## C1B — Collection Policy Enforcement and Source Forest Plan Reconciliation (ACTIVE correction checkpoint)
 - Baseline SHA: `79e80fdb4e63d00d4e97d8638f94a05408b51ea8` (`review(final): C1A — record both-barrier Codex GREEN
