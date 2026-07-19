@@ -374,6 +374,10 @@ Print Assumptions GoCompile.occ_expr_diags_conv_sound.
 Print Assumptions GoCompile.occ_expr_diags_default_sound.
 Print Assumptions GoCompile.pkg_diag_of_bucket_missing_sound.
 Print Assumptions GoCompile.pkg_diag_of_bucket_dup_sound.
+(* C3 §16/§17 — cross-snapshot determinism FOUNDATION: the KEYED visit stream (each visited reference's NodeKey
+   + its source occurrence) depends ONLY on the file map, so FilesEqual programs have IDENTICAL keyed streams
+   (the basis for equal erased reports / fact enumerations). *)
+Print Assumptions GoCompile.keyed_visit_FilesEqual.
 (* C3 §10/§14 — occurrence-keyed expression facts, built by the SINGLE bottom-up pass: visit_file refs have
    distinct NodeKeys, and the fact stored at a visited ref's key is EXACTLY that occurrence's fact (no
    overwrite; map-level exactness) — the single-pass fact map agrees with the per-node specification. *)

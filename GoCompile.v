@@ -2533,6 +2533,58 @@ Proof.
   split; [ apply map_eq_nil | intro H; rewrite H; reflexivity ].
 Qed.
 
+(* ============================================================================================================
+   §16/§17 (C3 FINAL) — the KEYED visit stream is SOURCE-DETERMINED.  Erasing a visited reference to its
+   NodeKey (path + local id) and pairing it with its source occurrence yields a stream that depends ONLY on the
+   file map's canonical [file_bindings] and each file's [occs_file] — NO snapshot [p] survives.  This is the
+   foundation for cross-snapshot report/fact determinism: [FilesEqual] programs have IDENTICAL keyed streams.
+   ============================================================================================================ *)
+Lemma keyed_visit_file {p} (fr : GoIndex.Snap.FileRef p) :
+  map (fun rc => (GoIndex.Snap.node_ref_key (fst rc), snd rc)) (GoIndex.Snap.visit_file fr)
+  = map (fun idocc => (GoIndex.mkKey (GoIndex.Snap.file_ref_path fr) (fst idocc), snd idocc))
+        (GoIndex.occs_file (GoIndex.Snap.file_ref_source fr)).
+Proof.
+  rewrite <- (GoIndex.Snap.visit_file_idocc p fr), map_map.
+  apply map_ext_in. intros [r occ] Hin. cbn [fst snd].
+  rewrite GoIndex.Snap.node_ref_key_eq.
+  destruct (GoIndex.Snap.visit_file_view p fr r occ Hin) as [_ Hf]. rewrite Hf. reflexivity.
+Qed.
+
+Lemma keyed_binding_visit (p : GoProgram) (b : FilePath * GoSourceFile) :
+  In b (GoAST.file_bindings (prog_files p)) ->
+  map (fun rc => (GoIndex.Snap.node_ref_key (fst rc), snd rc)) (binding_visit p b)
+  = map (fun idocc => (GoIndex.mkKey (fst b) (fst idocc), snd idocc)) (GoIndex.occs_file (snd b)).
+Proof.
+  intro Hin. unfold binding_visit.
+  pose proof (GoAST.file_bindings_find (prog_files p) b Hin) as Hfind.
+  destruct (GoIndex.Snap.file_of_path_source p (fst b) (snd b) Hfind) as [fr [Hfop [Hpath Hsrc]]].
+  rewrite Hfop, keyed_visit_file, Hpath, Hsrc. reflexivity.
+Qed.
+
+Definition keyed_visit (p : GoProgram) : list (GoIndex.NodeKey * GoIndex.SourceOccurrence) :=
+  map (fun rc => (GoIndex.Snap.node_ref_key (fst rc), snd rc)) (prog_visit p).
+
+Definition source_keyed_visit (fm : GoAST.GoFileMap) : list (GoIndex.NodeKey * GoIndex.SourceOccurrence) :=
+  flat_map (fun b => map (fun idocc => (GoIndex.mkKey (fst b) (fst idocc), snd idocc)) (GoIndex.occs_file (snd b)))
+           (GoAST.file_bindings fm).
+
+Lemma keyed_visit_source (p : GoProgram) : keyed_visit p = source_keyed_visit (prog_files p).
+Proof.
+  unfold keyed_visit, source_keyed_visit, prog_visit. rewrite map_flat_map.
+  apply flat_map_ext_in. intros b Hin. exact (keyed_binding_visit p b Hin).
+Qed.
+
+(** §17 — the KEYED visit stream depends ONLY on the file map: [FilesEqual] programs have IDENTICAL keyed
+    streams (their canonical [file_bindings] are the same list, and each file's [occs_file] is source-only). *)
+Lemma keyed_visit_FilesEqual (p1 p2 : GoProgram) :
+  GoAST.FilesEqual (prog_files p1) (prog_files p2) -> keyed_visit p1 = keyed_visit p2.
+Proof.
+  intro Heq. rewrite !keyed_visit_source. unfold source_keyed_visit.
+  assert (Hb : GoAST.file_bindings (prog_files p1) = GoAST.file_bindings (prog_files p2)).
+  { unfold GoAST.file_bindings. apply Collections.filemap_elements_Equal. exact Heq. }
+  rewrite Hb. reflexivity.
+Qed.
+
 (* ---- the TWO disjoint diagnostic families (typing / package), used to PROJECT a legacy compile class from
    the diagnostics (never a second check).  Expression diagnostics are typing-class; package diagnostics are
    package-class; the two are disjoint. ---- *)
