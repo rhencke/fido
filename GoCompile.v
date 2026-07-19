@@ -1917,307 +1917,316 @@ Proof.
   rewrite (decl_count_list_cons x l), (sum_main_cons x l), (IH Hl). unfold coh in Hx. rewrite Hx. reflexivity.
 Qed.
 
-(* ---- the per-file main-ref bucket: the DeclRefs of a file's decl occurrences, in canonical stream order. ---- *)
-
-Definition file_main_refs {p} (idx : GoIndex.Snap.SyntaxIndex p) (fr : GoIndex.Snap.FileRef p)
-  : list (GoIndex.DeclRef p) :=
-  fold_right (fun (ro : GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence) (acc : list (GoIndex.DeclRef p)) =>
-    match GoIndex.as_decl idx (fst ro) with Some dr => dr :: acc | None => acc end)
-    [] (GoIndex.Snap.visit_file fr).
-
-(** GENERIC: if each occurrence's DeclRef-mint agrees with its [decl_kind_count] (1 when minted, 0 otherwise),
-    the collected bucket's length is the [decl_count_list]. *)
-Lemma decl_collect_length_gen {p} (idx : GoIndex.Snap.SyntaxIndex p)
-  (l : list (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence)) :
-  (forall ro, In ro l -> match GoIndex.as_decl idx (fst ro) with
-                         | Some _ => decl_kind_count (snd ro) = 1%nat
-                         | None => decl_kind_count (snd ro) = 0%nat end) ->
-  length (fold_right (fun ro acc =>
-            match GoIndex.as_decl idx (fst ro) with Some dr => dr :: acc | None => acc end) [] l)
-  = decl_count_list l.
-Proof.
-  induction l as [|ro l IH]; intros Hall; [reflexivity|].
-  rewrite (decl_count_list_cons ro l). cbn [fold_right].
-  pose proof (Hall ro (or_introl eq_refl)) as Hro.
-  assert (Hrest : forall x, In x l -> match GoIndex.as_decl idx (fst x) with
-             | Some _ => decl_kind_count (snd x) = 1%nat | None => decl_kind_count (snd x) = 0%nat end)
-    by (intros x Hx; apply Hall; right; exact Hx).
-  destruct (GoIndex.as_decl idx (fst ro)) as [dr|] eqn:Ed.
-  - cbn [length]. rewrite (IH Hrest), Hro. reflexivity.
-  - rewrite (IH Hrest), Hro. reflexivity.
-Qed.
-
-(** the per-element count contribution of the DeclRef collector is EXACTLY the occurrence's [decl_kind_count]:
-    a DeclRef is minted iff the node's KIND is KTopLevelDecl, which (for a visited occurrence) is its kind. *)
-Lemma file_main_refs_length_decl_count {p} (idx : GoIndex.Snap.SyntaxIndex p) (fr : GoIndex.Snap.FileRef p) :
-  length (file_main_refs idx fr) = decl_count_list (GoIndex.Snap.visit_file fr).
-Proof.
-  unfold file_main_refs. apply decl_collect_length_gen.
-  intros [r occ] Hin. cbn [fst snd].
-  pose proof (GoIndex.Snap.visit_file_view p fr r occ Hin) as [Hocc _].
-  assert (Hk : GoIndex.Snap.node_kind idx r = GoIndex.occurrence_kind occ).
-  { rewrite (GoIndex.Snap.node_kind_matches_source p idx r), Hocc. reflexivity. }
-  unfold GoIndex.as_decl, GoIndex.as_kind, decl_kind_count.
-  destruct (GoIndex.syntaxkind_eq_dec (GoIndex.Snap.node_kind idx r) GoIndex.KTopLevelDecl) as [He|Hne].
-  - rewrite Hk in He. rewrite He. reflexivity.
-  - rewrite Hk in Hne. destruct (GoIndex.occurrence_kind occ); try reflexivity. exfalso; apply Hne; reflexivity.
-Qed.
-
-(** the per-file bucket length IS the declarative [file_main_count] (via the coherence + the [snd]-only counts). *)
-Lemma file_main_refs_length {p} (idx : GoIndex.Snap.SyntaxIndex p) (fr : GoIndex.Snap.FileRef p) :
-  length (file_main_refs idx fr) = file_main_count (source_decls (GoIndex.Snap.file_ref_source fr)).
-Proof.
-  rewrite file_main_refs_length_decl_count.
-  rewrite (decl_count_list_snd (GoIndex.Snap.visit_file fr) (GoIndex.occs_file (GoIndex.Snap.file_ref_source fr))
-             (GoIndex.Snap.visit_file_snd p fr)).
-  rewrite decl_count_sum_main_file. apply sum_main_file.
-Qed.
-
-(* ---- the WHOLE-PROGRAM package main-ref buckets: aggregate the per-file DeclRefs by package (parent dir),
-   in canonical FileMap-path order, using reversed accumulation + one final [PM.map rev] (linear, no quadratic
-   append; a package entry is created the first time one of its files is visited, even with zero mains). ---- *)
-
-Definition binding_main_refs {p} (idx : GoIndex.Snap.SyntaxIndex p) (b : FilePath * GoSourceFile)
-  : list (GoIndex.DeclRef p) :=
-  match GoIndex.Snap.file_of_path p (fst b) with
-  | Some fr => file_main_refs idx fr
-  | None => []
-  end.
-
+(* the optional-bucket length, and its rewrite past the [Some l => l | None => []] read shape — the shared
+   arithmetic helpers the package-bucket fold characterization below reasons through. *)
 Definition olen {A} (o : option (list A)) : nat := match o with Some l => length l | None => 0%nat end.
-
-Definition mref_step {p} (idx : GoIndex.Snap.SyntaxIndex p) (b : FilePath * GoSourceFile)
-    (acc : PM.t (list (GoIndex.DeclRef p))) : PM.t (list (GoIndex.DeclRef p)) :=
-  PM.add (fp_parent (fst b))
-         (rev (binding_main_refs idx b) ++ match PM.find (fp_parent (fst b)) acc with Some l => l | None => [] end)
-         acc.
-
-Definition package_main_refs_rev {p} (idx : GoIndex.Snap.SyntaxIndex p) : PM.t (list (GoIndex.DeclRef p)) :=
-  fold_left (fun a b => mref_step idx b a) (GoAST.file_bindings (prog_files p)) (PM.empty _).
-
-Definition package_main_refs {p} (idx : GoIndex.Snap.SyntaxIndex p) : PM.t (list (GoIndex.DeclRef p)) :=
-  PM.map (@rev (GoIndex.DeclRef p)) (package_main_refs_rev idx).
-
-(* the per-package DeclRef count spec, parallel to [list_dir_count] but summing bucket lengths. *)
-Fixpoint list_dir_reflen {p} (idx : GoIndex.Snap.SyntaxIndex p) (dir : string)
-    (l : list (FilePath * GoSourceFile)) : nat :=
-  match l with
-  | [] => 0%nat
-  | b :: rest =>
-      ((if String.eqb (fp_parent (fst b)) dir then length (binding_main_refs idx b) else 0%nat)
-       + list_dir_reflen idx dir rest)%nat
-  end.
-
-Lemma list_dir_reflen_0 {p} (idx : GoIndex.Snap.SyntaxIndex p) : forall dir l,
-  list_dir_mem dir l = false -> list_dir_reflen idx dir l = 0%nat.
-Proof.
-  intros dir l; induction l as [|b rest IH]; simpl; [reflexivity|].
-  unfold list_dir_mem in *; simpl; intro H. apply Bool.orb_false_iff in H as [Hb Hr].
-  rewrite Hb; simpl; apply IH; exact Hr.
-Qed.
-
-(** each represented file's bucket length is its [file_main_count]; hence the reflen spec equals [list_dir_count]. *)
-Lemma binding_main_refs_length {p} (idx : GoIndex.Snap.SyntaxIndex p) (b : FilePath * GoSourceFile) :
-  In b (GoAST.file_bindings (prog_files p)) ->
-  length (binding_main_refs idx b) = file_main_count (source_decls (snd b)).
-Proof.
-  intro Hb. unfold binding_main_refs.
-  pose proof (GoAST.file_bindings_find (prog_files p) b Hb) as Hfind.
-  destruct (GoIndex.Snap.file_of_path_source p (fst b) (snd b) Hfind) as [fr [Hfop [_ Hsrc]]].
-  rewrite Hfop, file_main_refs_length, Hsrc. reflexivity.
-Qed.
-
-Lemma list_dir_reflen_count {p} (idx : GoIndex.Snap.SyntaxIndex p) : forall dir l,
-  (forall b, In b l -> length (binding_main_refs idx b) = file_main_count (source_decls (snd b))) ->
-  list_dir_reflen idx dir l = list_dir_count dir l.
-Proof.
-  intros dir l; induction l as [|b rest IH]; intro Hb; simpl; [reflexivity|].
-  rewrite (Hb b (or_introl eq_refl)), IH; [reflexivity | intros x Hx; apply Hb; right; exact Hx].
-Qed.
-
-(* ---- per-step + cons rewrite helpers (clean, definitional), so the fold proofs avoid inline reduction. ---- *)
 
 Lemma olen_match {A} (o : option (list A)) :
   length (match o with Some l => l | None => [] end) = olen o.
 Proof. destruct o; reflexivity. Qed.
 
-Lemma list_dir_mem_cons : forall dir b l,
-  list_dir_mem dir (b :: l) = (String.eqb (fp_parent (fst b)) dir || list_dir_mem dir l)%bool.
-Proof. reflexivity. Qed.
+(* ============================================================================================================
+   §14/§28 (C3) — the PACKAGE main-ref buckets built as ONE fold over the DELIVERED visit stream (NOT a second
+   per-file [Snap.visit_file]).  Each occurrence contributes to its file's package ([occ_pkg] = the file's
+   parent directory): a [DMain] declaration prepends its [DeclRef]; a FILE ROOT ([KFile]) INITIALIZES the
+   package entry (so a package with zero mains is still represented) without disturbing existing mains.  Since
+   [prog_visit] visits each file's root then its decls in preorder, and [fold_right] processes the stream
+   right-to-left, a package's bucket ends up its files' mains in canonical stream order.
+   ============================================================================================================ *)
 
-Lemma list_dir_reflen_cons {p} (idx : GoIndex.Snap.SyntaxIndex p) : forall dir b l,
-  list_dir_reflen idx dir (b :: l)
-  = ((if String.eqb (fp_parent (fst b)) dir then length (binding_main_refs idx b) else 0%nat)
-     + list_dir_reflen idx dir l)%nat.
-Proof. reflexivity. Qed.
+Definition occ_pkg {p} (ro : GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence) : string :=
+  fp_parent (GoIndex.Snap.file_ref_path (GoIndex.Snap.node_ref_file (fst ro))).
 
-Lemma mref_step_find_eq {p} (idx : GoIndex.Snap.SyntaxIndex p) (b : FilePath * GoSourceFile) acc dir :
-  fp_parent (fst b) = dir ->
-  PM.find dir (mref_step idx b acc)
-  = Some (rev (binding_main_refs idx b) ++ match PM.find dir acc with Some l => l | None => [] end).
-Proof. intro E. unfold mref_step. rewrite E, PMF.add_eq_o by reflexivity. reflexivity. Qed.
+Definition ppkg_step {p} (idx : GoIndex.Snap.SyntaxIndex p)
+    (ro : GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence) (acc : PM.t (list (GoIndex.DeclRef p)))
+  : PM.t (list (GoIndex.DeclRef p)) :=
+  match GoIndex.as_decl idx (fst ro) with
+  | Some dr => PM.add (occ_pkg ro) (dr :: match PM.find (occ_pkg ro) acc with Some l => l | None => [] end) acc
+  | None =>
+      match GoIndex.as_kind idx (fst ro) GoIndex.KFile with
+      | Some _ => match PM.find (occ_pkg ro) acc with Some _ => acc | None => PM.add (occ_pkg ro) [] acc end
+      | None => acc
+      end
+  end.
 
-Lemma mref_step_find_neq {p} (idx : GoIndex.Snap.SyntaxIndex p) (b : FilePath * GoSourceFile) acc dir :
-  fp_parent (fst b) <> dir -> PM.find dir (mref_step idx b acc) = PM.find dir acc.
-Proof. intro E. unfold mref_step. rewrite PMF.add_neq_o by exact E. reflexivity. Qed.
+Definition prog_package_refs {p} (idx : GoIndex.Snap.SyntaxIndex p) : PM.t (list (GoIndex.DeclRef p)) :=
+  fold_right (ppkg_step idx) (PM.empty (list (GoIndex.DeclRef p))) (prog_visit p).
 
-Lemma mref_step_olen_eq {p} (idx : GoIndex.Snap.SyntaxIndex p) (b : FilePath * GoSourceFile) acc dir :
-  fp_parent (fst b) = dir ->
-  olen (PM.find dir (mref_step idx b acc)) = (length (binding_main_refs idx b) + olen (PM.find dir acc))%nat.
+(* the per-package DMain count over an occurrence list (an occurrence contributes 1 exactly when its file's
+   package is [dir] AND it mints a DeclRef). *)
+Fixpoint pkg_declcount {p} (idx : GoIndex.Snap.SyntaxIndex p) (dir : string)
+    (l : list (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence)) : nat :=
+  match l with
+  | [] => 0%nat
+  | ro :: rest =>
+      ((if String.eqb (occ_pkg ro) dir
+        then match GoIndex.as_decl idx (fst ro) with Some _ => 1%nat | None => 0%nat end else 0%nat)
+       + pkg_declcount idx dir rest)%nat
+  end.
+
+(* the per-step bucket-length contribution: exactly the DMain-count contribution (a file-root init adds an
+   empty bucket — presence, not length). *)
+Lemma ppkg_step_olen {p} (idx : GoIndex.Snap.SyntaxIndex p) (ro : GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence)
+  (acc : PM.t (list (GoIndex.DeclRef p))) (dir : string) :
+  olen (PM.find dir (ppkg_step idx ro acc))
+  = ((if String.eqb (occ_pkg ro) dir then match GoIndex.as_decl idx (fst ro) with Some _ => 1%nat | None => 0%nat end else 0%nat)
+     + olen (PM.find dir acc))%nat.
 Proof.
-  intro E. rewrite (mref_step_find_eq idx b acc dir E). cbn [olen].
-  rewrite length_app, length_rev, olen_match. reflexivity.
+  unfold ppkg_step. destruct (GoIndex.as_decl idx (fst ro)) as [dr|] eqn:Ed.
+  - destruct (String.eqb (occ_pkg ro) dir) eqn:Edir.
+    + apply String.eqb_eq in Edir. rewrite Edir, PMF.add_eq_o by reflexivity. cbn [olen length]. rewrite <- Edir, olen_match. reflexivity.
+    + apply String.eqb_neq in Edir. rewrite PMF.add_neq_o by exact Edir. reflexivity.
+  - destruct (GoIndex.as_kind idx (fst ro) GoIndex.KFile) as [fnr|] eqn:Ef.
+    + destruct (PM.find (occ_pkg ro) acc) as [l|] eqn:Efind.
+      * destruct (String.eqb (occ_pkg ro) dir) eqn:Edir; [ apply String.eqb_eq in Edir; rewrite Edir in Efind; rewrite Efind | ]; reflexivity.
+      * destruct (String.eqb (occ_pkg ro) dir) eqn:Edir.
+        -- apply String.eqb_eq in Edir. rewrite Edir, PMF.add_eq_o by reflexivity. cbn [olen length].
+           rewrite <- Edir, Efind. reflexivity.
+        -- apply String.eqb_neq in Edir. rewrite PMF.add_neq_o by exact Edir. reflexivity.
+    + destruct (String.eqb (occ_pkg ro) dir) eqn:Edir; reflexivity.
 Qed.
 
-(* the fold LENGTH characterization (mirror of [pkg_foldl_find], tracking bucket lengths). *)
-Lemma mref_foldl_olen {p} (idx : GoIndex.Snap.SyntaxIndex p) : forall l acc dir,
-  olen (PM.find dir (fold_left (fun a b => mref_step idx b a) l acc))
-  = (if list_dir_mem dir l
-     then (list_dir_reflen idx dir l + olen (PM.find dir acc))%nat
-     else olen (PM.find dir acc)).
+Lemma ppkg_olen_char {p} (idx : GoIndex.Snap.SyntaxIndex p) : forall l acc dir,
+  olen (PM.find dir (fold_right (ppkg_step idx) acc l)) = (pkg_declcount idx dir l + olen (PM.find dir acc))%nat.
 Proof.
-  induction l as [|b rest IH]; intros acc dir; [reflexivity|].
-  cbn [fold_left]. rewrite (IH (mref_step idx b acc) dir).
-  rewrite list_dir_mem_cons, (list_dir_reflen_cons idx dir b rest).
-  destruct (String.eqb (fp_parent (fst b)) dir) eqn:E; cbn [orb].
-  - apply String.eqb_eq in E. rewrite (mref_step_olen_eq idx b acc dir E).
-    destruct (list_dir_mem dir rest) eqn:Erest;
-      [ | rewrite (list_dir_reflen_0 idx dir rest Erest) ]; lia.
-  - apply String.eqb_neq in E. rewrite (mref_step_find_neq idx b acc dir E). reflexivity.
+  induction l as [|ro rest IH]; intros acc dir; [reflexivity|].
+  cbn [fold_right pkg_declcount]. rewrite (ppkg_step_olen idx ro (fold_right (ppkg_step idx) acc rest) dir).
+  rewrite (IH acc dir). lia.
 Qed.
 
-(* the fold PRESENCE characterization: a bucket exists iff a file of that package was visited. *)
-Lemma mref_foldl_none {p} (idx : GoIndex.Snap.SyntaxIndex p) : forall l acc dir,
-  PM.find dir (fold_left (fun a b => mref_step idx b a) l acc) = None
-  <-> (list_dir_mem dir l = false /\ PM.find dir acc = None).
+(* on a VISITED occurrence the DeclRef-mint contribution equals its [decl_kind_count]. *)
+Lemma ppkg_as_decl_kind_count {p} (idx : GoIndex.Snap.SyntaxIndex p) (fr : GoIndex.Snap.FileRef p)
+  (r : GoIndex.Snap.NodeRef p) (occ : GoIndex.SourceOccurrence) :
+  In (r, occ) (GoIndex.Snap.visit_file fr) ->
+  (match GoIndex.as_decl idx r with Some _ => 1%nat | None => 0%nat end) = decl_kind_count occ.
 Proof.
-  induction l as [|b rest IH]; intros acc dir;
-    [ cbn [fold_left]; split; [ intro H; split; [reflexivity|exact H] | intros [_ H]; exact H ] |].
-  cbn [fold_left]. rewrite (IH (mref_step idx b acc) dir), list_dir_mem_cons.
-  destruct (String.eqb (fp_parent (fst b)) dir) eqn:E; cbn [orb].
-  - apply String.eqb_eq in E. rewrite (mref_step_find_eq idx b acc dir E).
-    split; [ intros [_ Hd]; discriminate Hd | intros [Hf _]; discriminate Hf ].
-  - apply String.eqb_neq in E. rewrite (mref_step_find_neq idx b acc dir E). tauto.
+  intro Hin. pose proof (GoIndex.Snap.visit_file_view p fr r occ Hin) as [Hocc _].
+  assert (Hk : GoIndex.Snap.node_kind idx r = GoIndex.occurrence_kind occ)
+    by (rewrite (GoIndex.Snap.node_kind_matches_source p idx r), Hocc; reflexivity).
+  unfold GoIndex.as_decl, GoIndex.as_kind, decl_kind_count.
+  destruct (GoIndex.syntaxkind_eq_dec (GoIndex.Snap.node_kind idx r) GoIndex.KTopLevelDecl) as [He|Hne].
+  - rewrite Hk in He; rewrite He; reflexivity.
+  - rewrite Hk in Hne. destruct (GoIndex.occurrence_kind occ); try reflexivity. exfalso; apply Hne; reflexivity.
 Qed.
 
-(** BUCKET LENGTH EXACTNESS: a present bucket's length is the package's declarative main count [pkg_main_count]
-    (= [ps_main_count]) — the reference collection AGREES with the package count judgment. *)
-Lemma package_main_refs_bucket_len {p} (idx : GoIndex.Snap.SyntaxIndex p) : forall dir l,
-  PM.find dir (package_main_refs idx) = Some l -> length l = pkg_main_count dir (prog_files p).
+(* over a list all of whose occurrences share package [D] and mint DeclRefs by kind, the DMain-count is the
+   whole [decl_count_list] when [D = dir], else 0. *)
+Lemma pkg_declcount_uniform {p} (idx : GoIndex.Snap.SyntaxIndex p) (dir D : string)
+  (L : list (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence)) :
+  (forall ro, In ro L -> occ_pkg ro = D) ->
+  (forall ro, In ro L -> match GoIndex.as_decl idx (fst ro) with Some _ => 1%nat | None => 0%nat end = decl_kind_count (snd ro)) ->
+  pkg_declcount idx dir L = (if String.eqb D dir then decl_count_list L else 0%nat).
 Proof.
-  intros dir l Hfind. unfold package_main_refs in Hfind. rewrite PMF.map_o in Hfind.
-  destruct (PM.find dir (package_main_refs_rev idx)) as [l'|] eqn:Erev; cbn [option_map] in Hfind;
-    [ injection Hfind as <- | discriminate Hfind ].
-  rewrite length_rev.
-  assert (Hmem : list_dir_mem dir (GoAST.file_bindings (prog_files p)) = true).
-  { destruct (list_dir_mem dir (GoAST.file_bindings (prog_files p))) eqn:Em; [reflexivity|].
-    exfalso. assert (Hn : PM.find dir (package_main_refs_rev idx) = None).
-    { apply (mref_foldl_none idx). split; [exact Em | apply PMF.empty_o]. }
-    rewrite Hn in Erev; discriminate Erev. }
-  pose proof (mref_foldl_olen idx (GoAST.file_bindings (prog_files p)) (PM.empty _) dir) as Hol.
-  unfold package_main_refs_rev in Erev. rewrite Erev in Hol. cbn [olen] in Hol.
-  rewrite Hmem, PMF.empty_o in Hol. cbn [olen] in Hol. rewrite Nat.add_0_r in Hol.
-  rewrite Hol, (list_dir_reflen_count idx dir (GoAST.file_bindings (prog_files p))).
-  - reflexivity.
-  - intros b Hb. apply binding_main_refs_length; exact Hb.
+  induction L as [|ro rest IH]; intros Hpkg Hkind.
+  - cbn [pkg_declcount decl_count_list]. destruct (String.eqb D dir); reflexivity.
+  - cbn [pkg_declcount]. rewrite decl_count_list_cons.
+    rewrite (Hpkg ro (or_introl eq_refl)), (Hkind ro (or_introl eq_refl)).
+    rewrite (IH (fun ro' Hr => Hpkg ro' (or_intror Hr)) (fun ro' Hr => Hkind ro' (or_intror Hr))).
+    destruct (String.eqb D dir); lia.
 Qed.
 
-(** DOMAIN EXACTNESS: the bucket map's domain is exactly the represented package set (parity with
-    [package_summaries]): a bucket is present iff a file has that parent directory. *)
-Lemma package_main_refs_present {p} (idx : GoIndex.Snap.SyntaxIndex p) : forall dir,
-  PM.In dir (package_main_refs idx) <-> list_dir_mem dir (GoAST.file_bindings (prog_files p)) = true.
+(* within a file block every occurrence has the same package ([fp_parent] of the file path); the block's
+   DMain-count is the file's [file_main_count] when the package matches, else 0. *)
+Lemma pkg_declcount_binding {p} (idx : GoIndex.Snap.SyntaxIndex p) (b : FilePath * GoSourceFile) (dir : string) :
+  In b (GoAST.file_bindings (prog_files p)) ->
+  pkg_declcount idx dir (binding_visit p b)
+  = (if String.eqb (fp_parent (fst b)) dir then file_main_count (source_decls (snd b)) else 0%nat).
 Proof.
-  intro dir. unfold package_main_refs. rewrite PMF.map_in_iff. split.
-  - intros [l Hmt]. apply PMF.find_mapsto_iff in Hmt.
-    destruct (list_dir_mem dir (GoAST.file_bindings (prog_files p))) eqn:Em; [reflexivity|].
-    exfalso. assert (Hn : PM.find dir (package_main_refs_rev idx) = None).
-    { apply (mref_foldl_none idx). split; [exact Em | apply PMF.empty_o]. }
-    rewrite Hn in Hmt; discriminate Hmt.
-  - intro Hmem. apply PMF.in_find_iff. intro Hn.
-    apply (mref_foldl_none idx) in Hn. destruct Hn as [Hm _]. rewrite Hm in Hmem; discriminate Hmem.
+  intro Hb. unfold binding_visit.
+  pose proof (GoAST.file_bindings_find (prog_files p) b Hb) as Hfind.
+  destruct (GoIndex.Snap.file_of_path_source p (fst b) (snd b) Hfind) as [fr [Hfop [Hpath Hsrc]]].
+  rewrite Hfop.
+  rewrite (pkg_declcount_uniform idx dir (fp_parent (GoIndex.Snap.file_ref_path fr)) (GoIndex.Snap.visit_file fr)).
+  - rewrite Hpath. destruct (String.eqb (fp_parent (fst b)) dir) eqn:E; [| reflexivity].
+    rewrite (decl_count_list_snd (GoIndex.Snap.visit_file fr) (GoIndex.occs_file (GoIndex.Snap.file_ref_source fr))
+               (GoIndex.Snap.visit_file_snd p fr)).
+    rewrite decl_count_sum_main_file, sum_main_file, Hsrc. reflexivity.
+  - intros [r occ] Hin. unfold occ_pkg; cbn [fst].
+    destruct (GoIndex.Snap.visit_file_view p fr r occ Hin) as [_ Hf]. rewrite Hf. reflexivity.
+  - intros [r occ] Hin. cbn [fst snd]. exact (ppkg_as_decl_kind_count idx fr r occ Hin).
 Qed.
 
-(* ---- SUCCESS-side PACKAGE FACTS (§11): on a valid program every present bucket is a SINGLETON (its length
-   is the package's main count, which is exactly one), so each package has ONE canonical main [DeclRef]. ---- *)
+Lemma pkg_declcount_app {p} (idx : GoIndex.Snap.SyntaxIndex p) (dir : string)
+  (l1 l2 : list (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence)) :
+  pkg_declcount idx dir (l1 ++ l2) = (pkg_declcount idx dir l1 + pkg_declcount idx dir l2)%nat.
+Proof. induction l1 as [|ro l1 IH]; cbn [pkg_declcount app]; [reflexivity | rewrite IH; lia]. Qed.
 
-Lemma package_main_refs_singleton_on_success {p} (idx : GoIndex.Snap.SyntaxIndex p) :
-  AllPackagesOneMain p -> forall dir l,
-  PM.find dir (package_main_refs idx) = Some l -> exists d, l = [d].
+(* the WHOLE-PROGRAM DMain count per package, over the retained visit stream, IS the declarative
+   [pkg_main_count] (= [list_dir_count] over the file bindings). *)
+Lemma pkg_declcount_prog_visit {p} (idx : GoIndex.Snap.SyntaxIndex p) (dir : string) :
+  pkg_declcount idx dir (prog_visit p) = pkg_main_count dir (prog_files p).
 Proof.
-  intros Hall dir l Hfind.
-  pose proof (package_main_refs_bucket_len idx dir l Hfind) as Hlen.
-  assert (Hmem : list_dir_mem dir (GoAST.file_bindings (prog_files p)) = true).
-  { apply (package_main_refs_present idx dir). apply PMF.in_find_iff. rewrite Hfind. discriminate. }
-  assert (Hmt : PM.MapsTo dir (mkPkgSummary (pkg_main_count dir (prog_files p))) (package_summaries (prog_files p))).
-  { apply PMF.find_mapsto_iff. rewrite package_summaries_find, Hmem. reflexivity. }
-  pose proof (Hall dir _ Hmt) as Hone. cbn [ps_main_count] in Hone.
-  rewrite Hone in Hlen.
-  destruct l as [|d [|d2 rest]]; cbn [length] in Hlen; try discriminate.
-  exists d; reflexivity.
+  unfold prog_visit, pkg_main_count.
+  assert (H : forall L, (forall b, In b L -> In b (GoAST.file_bindings (prog_files p))) ->
+             pkg_declcount idx dir (flat_map (binding_visit p) L) = list_dir_count dir L).
+  { induction L as [|b rest IHL]; intro Hsub; [reflexivity|].
+    cbn [flat_map list_dir_count]. rewrite pkg_declcount_app.
+    rewrite (pkg_declcount_binding idx b dir (Hsub b (or_introl eq_refl))).
+    rewrite (IHL (fun b' Hb' => Hsub b' (or_intror Hb'))). reflexivity. }
+  apply H; intros b Hb; exact Hb.
 Qed.
 
-(* ---- BELONGS: a main DeclRef in a package's bucket belongs to THAT package (its file's parent = the key) —
-   so two singleton main buckets cannot be swapped between packages. ---- *)
-
-Lemma decl_collect_mem {p} (idx : GoIndex.Snap.SyntaxIndex p)
-  (l : list (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence)) (d : GoIndex.DeclRef p) :
-  In d (fold_right (fun ro acc => match GoIndex.as_decl idx (fst ro) with Some dr => dr :: acc | None => acc end) [] l) ->
-  exists ro, In ro l /\ GoIndex.as_decl idx (fst ro) = Some d.
+(** BUCKET LENGTH EXACTNESS (from the ONE visit-stream fold): a present bucket's length is the package's
+    declarative main count [pkg_main_count]. *)
+Lemma prog_package_refs_bucket_len {p} (idx : GoIndex.Snap.SyntaxIndex p) : forall dir l,
+  PM.find dir (prog_package_refs idx) = Some l -> length l = pkg_main_count dir (prog_files p).
 Proof.
-  induction l as [|ro rest IH]; intro Hin; [destruct Hin|].
-  cbn [fold_right] in Hin. destruct (GoIndex.as_decl idx (fst ro)) as [dr|] eqn:Ed.
-  - destruct Hin as [<-|Hin].
-    + exists ro. split; [left; reflexivity | exact Ed].
-    + destruct (IH Hin) as [ro' [Hin' Hd]]. exists ro'. split; [right; exact Hin' | exact Hd].
-  - destruct (IH Hin) as [ro' [Hin' Hd]]. exists ro'. split; [right; exact Hin' | exact Hd].
+  intros dir l Hfind.
+  assert (Holen : olen (PM.find dir (prog_package_refs idx)) = pkg_main_count dir (prog_files p)).
+  { unfold prog_package_refs. rewrite (ppkg_olen_char idx (prog_visit p) (PM.empty _) dir).
+    rewrite PMF.empty_o. cbn [olen]. rewrite Nat.add_0_r. exact (pkg_declcount_prog_visit idx dir). }
+  rewrite Hfind in Holen. cbn [olen] in Holen. exact Holen.
 Qed.
 
-Lemma file_main_refs_file {p} (idx : GoIndex.Snap.SyntaxIndex p) (fr : GoIndex.Snap.FileRef p) (d : GoIndex.DeclRef p) :
-  In d (file_main_refs idx fr) -> GoIndex.Snap.node_ref_file (GoIndex.erase_ref d) = fr.
+(* an occurrence CONTRIBUTES its package to the bucket map iff it mints a DeclRef OR is a file root. *)
+Definition ppkg_contributes {p} (idx : GoIndex.Snap.SyntaxIndex p) (ro : GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence) : Prop :=
+  GoIndex.as_decl idx (fst ro) <> None \/ GoIndex.as_kind idx (fst ro) GoIndex.KFile <> None.
+
+Lemma ppkg_step_some {p} (idx : GoIndex.Snap.SyntaxIndex p) (ro : GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence)
+  (acc : PM.t (list (GoIndex.DeclRef p))) (dir : string) :
+  PM.find dir (ppkg_step idx ro acc) <> None
+  <-> ((occ_pkg ro = dir /\ ppkg_contributes idx ro) \/ PM.find dir acc <> None).
 Proof.
-  intro Hin. unfold file_main_refs in Hin.
-  destruct (decl_collect_mem idx (GoIndex.Snap.visit_file fr) d Hin) as [[r occ] [Hro Hd]]. cbn [fst] in Hd.
-  rewrite (GoIndex.erase_as_kind idx r GoIndex.KTopLevelDecl d Hd).
-  destruct (GoIndex.Snap.visit_file_view p fr r occ Hro) as [_ Hf]. exact Hf.
+  unfold ppkg_step, ppkg_contributes.
+  destruct (GoIndex.as_decl idx (fst ro)) as [dr|] eqn:Ed.
+  - destruct (string_dec (occ_pkg ro) dir) as [He|Hne].
+    + rewrite He, PMF.add_eq_o by reflexivity. split; [ intros _; left; split; [reflexivity | left; discriminate] | intros _; discriminate ].
+    + rewrite PMF.add_neq_o by exact Hne. split.
+      * intro H; right; exact H.
+      * intros [[He _]|H]; [ exfalso; apply Hne; exact He | exact H ].
+  - destruct (GoIndex.as_kind idx (fst ro) GoIndex.KFile) as [fnr|] eqn:Ef.
+    + destruct (PM.find (occ_pkg ro) acc) as [l|] eqn:Efind.
+      * split.
+        -- intro H; right; exact H.
+        -- intros [[He _]|H]; [ rewrite He in Efind; rewrite Efind; discriminate | exact H ].
+      * destruct (string_dec (occ_pkg ro) dir) as [He|Hne].
+        -- rewrite He, PMF.add_eq_o by reflexivity. split; [ intros _; left; split; [reflexivity | right; discriminate] | intros _; discriminate ].
+        -- rewrite PMF.add_neq_o by exact Hne. split.
+           ++ intro H; right; exact H.
+           ++ intros [[He _]|H]; [ exfalso; apply Hne; exact He | exact H ].
+    + split.
+      * intro H; right; exact H.
+      * intros [[_ [Hd|Hf]]|H]; [ exfalso; apply Hd; reflexivity | exfalso; apply Hf; reflexivity | exact H ].
 Qed.
 
-Lemma mref_foldl_mem {p} (idx : GoIndex.Snap.SyntaxIndex p) : forall l acc dir d,
-  In d (match PM.find dir (fold_left (fun a b => mref_step idx b a) l acc) with Some x => x | None => [] end) ->
-  (exists b, In b l /\ fp_parent (fst b) = dir /\ In d (binding_main_refs idx b))
+Lemma ppkg_find_some_iff {p} (idx : GoIndex.Snap.SyntaxIndex p) : forall l acc dir,
+  PM.find dir (fold_right (ppkg_step idx) acc l) <> None
+  <-> ((exists ro, In ro l /\ occ_pkg ro = dir /\ ppkg_contributes idx ro) \/ PM.find dir acc <> None).
+Proof.
+  induction l as [|ro rest IH]; intros acc dir.
+  - cbn [fold_right]. split; [ intro H; right; exact H | intros [[ro' [[] _]]|H]; exact H ].
+  - cbn [fold_right]. rewrite (ppkg_step_some idx ro (fold_right (ppkg_step idx) acc rest) dir), (IH acc dir). split.
+    + intros [Hstep|[[ro' [Hin' Hc']]|Hacc]].
+      * left; exists ro; split; [left; reflexivity | exact Hstep].
+      * left; exists ro'; split; [right; exact Hin' | exact Hc'].
+      * right; exact Hacc.
+    + intros [[ro' [[<-|Hin'] Hc']]|Hacc].
+      * left; exact Hc'.
+      * right; left; exists ro'; split; [exact Hin' | exact Hc'].
+      * right; right; exact Hacc.
+Qed.
+
+(* the file ROOT is a [KFile] occurrence (so a file always contributes its package's presence). *)
+Lemma root_node_kind {p} (idx : GoIndex.Snap.SyntaxIndex p) (fr : GoIndex.Snap.FileRef p) :
+  GoIndex.Snap.node_kind idx (GoIndex.Snap.file_root_ref fr) = GoIndex.KFile.
+Proof.
+  rewrite (GoIndex.Snap.node_kind_matches_source p idx (GoIndex.Snap.file_root_ref fr)).
+  pose proof (GoIndex.Snap.source_occ_of_ref_eq (GoIndex.Snap.file_root_ref fr)) as Hso.
+  rewrite (GoIndex.Snap.file_root_ref_file p fr), (GoIndex.Snap.file_root_ref_local p fr) in Hso.
+  assert (Hroot : In (GoIndex.root_id, GoIndex.mkOcc GoIndex.KFile (GoIndex.ViewFile (GoIndex.Snap.file_ref_source fr))
+                        None GoIndex.RFileRoot (GoIndex.count_file (GoIndex.Snap.file_ref_source fr)))
+                     (GoIndex.occs_file (GoIndex.Snap.file_ref_source fr))).
+  { unfold GoIndex.occs_file. destruct (source_imports (GoIndex.Snap.file_ref_source fr)) as [|i tl]; [| destruct i].
+    left; reflexivity. }
+  apply GoIndex.occs_file_exact in Hroot. rewrite Hso in Hroot. injection Hroot as Heq. rewrite Heq. reflexivity.
+Qed.
+
+Lemma root_ref_contributes {p} (idx : GoIndex.Snap.SyntaxIndex p) (fr : GoIndex.Snap.FileRef p) :
+  ppkg_contributes idx (GoIndex.Snap.file_root_ref fr, GoIndex.Snap.source_occurrence_of_ref (GoIndex.Snap.file_root_ref fr)).
+Proof.
+  right. cbn [fst]. unfold GoIndex.as_kind.
+  destruct (GoIndex.syntaxkind_eq_dec (GoIndex.Snap.node_kind idx (GoIndex.Snap.file_root_ref fr)) GoIndex.KFile) as [He|Hne];
+    [ discriminate | exfalso; apply Hne; apply root_node_kind ].
+Qed.
+
+(** DOMAIN EXACTNESS (from the ONE visit-stream fold): a bucket is present iff a file has that parent directory. *)
+Lemma prog_package_refs_present {p} (idx : GoIndex.Snap.SyntaxIndex p) : forall dir,
+  PM.In dir (prog_package_refs idx) <-> list_dir_mem dir (GoAST.file_bindings (prog_files p)) = true.
+Proof.
+  intro dir. rewrite PMF.in_find_iff. unfold prog_package_refs.
+  rewrite (ppkg_find_some_iff idx (prog_visit p) (PM.empty _) dir). rewrite PMF.empty_o. split.
+  - intros [[[r occ] [Hin [Hpkg _]]]|Hne]; [| exfalso; apply Hne; reflexivity].
+    (* the occurrence's file is in prog_files with parent dir *)
+    unfold prog_visit in Hin. apply in_flat_map in Hin. destruct Hin as [b [Hb Hrb]].
+    unfold binding_visit in Hrb. destruct (GoIndex.Snap.file_of_path p (fst b)) as [fr|] eqn:Ef; [|destruct Hrb].
+    destruct (GoIndex.Snap.visit_file_view p fr r occ Hrb) as [_ Hfile].
+    unfold occ_pkg in Hpkg. cbn [fst] in Hpkg. rewrite Hfile, (GoIndex.Snap.file_of_path_sound p (fst b) fr Ef) in Hpkg.
+    unfold list_dir_mem. apply existsb_exists. exists b. split; [exact Hb | apply String.eqb_eq; exact Hpkg].
+  - intro Hmem. unfold list_dir_mem in Hmem. apply existsb_exists in Hmem. destruct Hmem as [b [Hb He]].
+    apply String.eqb_eq in He.
+    left. pose proof (GoAST.file_bindings_find (prog_files p) b Hb) as Hfind.
+    destruct (GoIndex.Snap.file_of_path_source p (fst b) (snd b) Hfind) as [fr [Hfop [Hpath _]]].
+    exists (GoIndex.Snap.file_root_ref fr, GoIndex.Snap.source_occurrence_of_ref (GoIndex.Snap.file_root_ref fr)).
+    split; [ | split; [ | apply root_ref_contributes ] ].
+    + apply noderef_in_prog_visit.
+    + unfold occ_pkg. cbn [fst]. rewrite (GoIndex.Snap.file_root_ref_file p fr), Hpath. exact He.
+Qed.
+
+(** BELONGS: a main DeclRef in a package's bucket belongs to THAT package (its file's parent = the key). *)
+Lemma ppkg_mem {p} (idx : GoIndex.Snap.SyntaxIndex p) : forall l acc dir d,
+  In d (match PM.find dir (fold_right (ppkg_step idx) acc l) with Some x => x | None => [] end) ->
+  (exists ro, In ro l /\ occ_pkg ro = dir /\ GoIndex.as_decl idx (fst ro) = Some d)
   \/ In d (match PM.find dir acc with Some x => x | None => [] end).
 Proof.
-  induction l as [|b rest IH]; intros acc dir d Hin; [right; exact Hin|].
-  cbn [fold_left] in Hin. destruct (IH (mref_step idx b acc) dir d Hin) as [[b' [Hb' [Hp' Hd']]] | Hrest].
-  - left. exists b'. split; [right; exact Hb' | split; [exact Hp' | exact Hd']].
-  - destruct (string_dec (fp_parent (fst b)) dir) as [He|Hne].
-    + rewrite (mref_step_find_eq idx b acc dir He) in Hrest. cbn [option_map] in Hrest.
-      apply in_app_or in Hrest. destruct Hrest as [Hd1|Hd2].
-      * left. exists b. split; [left; reflexivity | split; [exact He | apply in_rev; exact Hd1]].
-      * right. exact Hd2.
-    + rewrite (mref_step_find_neq idx b acc dir Hne) in Hrest. right. exact Hrest.
+  induction l as [|ro rest IH]; intros acc dir d Hin; [right; exact Hin|].
+  cbn [fold_right] in Hin. unfold ppkg_step at 1 in Hin.
+  destruct (GoIndex.as_decl idx (fst ro)) as [dr|] eqn:Ed.
+  - destruct (string_dec (occ_pkg ro) dir) as [He|Hne].
+    + rewrite He, PMF.add_eq_o in Hin by reflexivity. destruct Hin as [<-|Hin].
+      * left; exists ro; split; [left; reflexivity | split; [exact He | exact Ed]].
+      * destruct (IH acc dir d Hin) as [[ro' [Hin' [Hp' Hd']]]|Hrest];
+          [ left; exists ro'; split; [right; exact Hin' | split; [exact Hp'|exact Hd']] | right; exact Hrest ].
+    + rewrite PMF.add_neq_o in Hin by exact Hne.
+      destruct (IH acc dir d Hin) as [[ro' [Hin' [Hp' Hd']]]|Hrest];
+        [ left; exists ro'; split; [right; exact Hin' | split; [exact Hp'|exact Hd']] | right; exact Hrest ].
+  - assert (Hin' : In d (match PM.find dir (fold_right (ppkg_step idx) acc rest) with Some x => x | None => [] end)).
+    { destruct (GoIndex.as_kind idx (fst ro) GoIndex.KFile) as [fnr|];
+      [ destruct (PM.find (occ_pkg ro) (fold_right (ppkg_step idx) acc rest)) eqn:Efind;
+        [ exact Hin | destruct (string_dec (occ_pkg ro) dir) as [He|Hne];
+          [ rewrite He, PMF.add_eq_o in Hin by reflexivity; rewrite <- He, Efind; exact Hin
+          | rewrite PMF.add_neq_o in Hin by exact Hne; exact Hin ] ]
+      | exact Hin ]. }
+    destruct (IH acc dir d Hin') as [[ro' [Hin2 [Hp' Hd']]]|Hrest];
+      [ left; exists ro'; split; [right; exact Hin2 | split; [exact Hp'|exact Hd']] | right; exact Hrest ].
 Qed.
 
-Lemma package_main_refs_belongs {p} (idx : GoIndex.Snap.SyntaxIndex p) : forall dir l,
-  PM.find dir (package_main_refs idx) = Some l ->
+Lemma prog_package_refs_belongs {p} (idx : GoIndex.Snap.SyntaxIndex p) : forall dir l,
+  PM.find dir (prog_package_refs idx) = Some l ->
   forall d, In d l ->
   fp_parent (GoIndex.Snap.file_ref_path (GoIndex.Snap.node_ref_file (GoIndex.erase_ref d))) = dir.
 Proof.
   intros dir l Hfind d Hin.
-  unfold package_main_refs in Hfind. rewrite PMF.map_o in Hfind.
-  destruct (PM.find dir (package_main_refs_rev idx)) as [lr|] eqn:Erev; cbn [option_map] in Hfind;
-    [ injection Hfind as <- | discriminate Hfind ].
-  apply in_rev in Hin.
-  assert (Hb : In d (match PM.find dir (package_main_refs_rev idx) with Some x => x | None => [] end))
-    by (rewrite Erev; exact Hin).
-  unfold package_main_refs_rev in Hb.
-  destruct (mref_foldl_mem idx (GoAST.file_bindings (prog_files p)) (PM.empty _) dir d Hb) as [[b [_ [Hp Hd]]] | Hempty].
-  - unfold binding_main_refs in Hd. destruct (GoIndex.Snap.file_of_path p (fst b)) as [fr|] eqn:Ef; [| destruct Hd].
-    rewrite (file_main_refs_file idx fr d Hd), (GoIndex.Snap.file_of_path_sound p (fst b) fr Ef). exact Hp.
-  - rewrite PMF.empty_o in Hempty. destruct Hempty.
+  assert (Hb : In d (match PM.find dir (prog_package_refs idx) with Some x => x | None => [] end))
+    by (rewrite Hfind; exact Hin).
+  unfold prog_package_refs in Hb.
+  destruct (ppkg_mem idx (prog_visit p) (PM.empty _) dir d Hb) as [[ro [_ [Hp Hd]]]|Hempty];
+    [ | rewrite PMF.empty_o in Hempty; destruct Hempty ].
+  rewrite (GoIndex.erase_as_kind idx (fst ro) GoIndex.KTopLevelDecl d Hd). exact Hp.
 Qed.
 
-(* (The per-package main is exposed as [package_main_at] over [CompilationFacts] below — a projection of the
-   retained buckets + validity, not a separate [idx]-recomputation.) *)
+Lemma prog_package_refs_singleton_on_success {p} (idx : GoIndex.Snap.SyntaxIndex p) :
+  AllPackagesOneMain p -> forall dir l,
+  PM.find dir (prog_package_refs idx) = Some l -> exists d, l = [d].
+Proof.
+  intros Hall dir l Hfind.
+  pose proof (prog_package_refs_bucket_len idx dir l Hfind) as Hlen.
+  assert (Hmem : list_dir_mem dir (GoAST.file_bindings (prog_files p)) = true).
+  { apply (prog_package_refs_present idx dir). apply PMF.in_find_iff. rewrite Hfind. discriminate. }
+  assert (Hmt : PM.MapsTo dir (mkPkgSummary (pkg_main_count dir (prog_files p))) (package_summaries (prog_files p))).
+  { apply PMF.find_mapsto_iff. rewrite package_summaries_find, Hmem. reflexivity. }
+  pose proof (Hall dir _ Hmt) as Hone. cbn [ps_main_count] in Hone.
+  rewrite Hone in Hlen. destruct l as [|d [|d2 rest]]; cbn [length] in Hlen; try discriminate. exists d; reflexivity.
+Qed.
 
 (* ============================================================================================================
    §8 (C3) — the PACKAGE diagnostics.  Every package with a main count other than one is a failure; the anchor
@@ -2247,23 +2256,9 @@ Qed.
    - zero mains -> [DRMissingMain] anchored at the validated [PackageRef].
    The canonical bucket order (FileMap-path then local NodeKey) makes the duplicate anchors deterministic;
    evidence is never overwritten (the bucket preserves every main). *)
-Definition pkg_diag_of {p} (idx : GoIndex.Snap.SyntaxIndex p) (b : string * PackageSummary)
-  : list (DiagnosticReason p) :=
-  if Nat.eqb (ps_main_count (snd b)) 1 then []
-  else match PM.find (fst b) (package_main_refs idx) with
-       | Some (d1 :: d2 :: _) => [ DRDuplicateMain d2 d1 ]
-       | _ => match bool_sb (package_present_b p (fst b)) with
-              | left H  => [ DRMissingMain (mkPackageRef p (fst b) H) ]
-              | right _ => []
-              end
-       end.
-
-Definition pkg_diags {p} (idx : GoIndex.Snap.SyntaxIndex p) : list (DiagnosticReason p) :=
-  flat_map (pkg_diag_of idx) (PM.elements (package_summaries (prog_files p))).
-
-(** the bucket-THREADED package-diagnostic step: reads the RETAINED package buckets instead of recomputing
-    [package_main_refs] — so the one analysis pass builds both the buckets and the diagnostics from ONE bucket
-    computation.  Definitionally equal to [pkg_diag_of] at [buckets = package_main_refs idx]. *)
+(** the bucket-THREADED package-diagnostic step: reads the RETAINED package buckets ([prog_package_refs],
+    folded from the ONE retained visit stream) — so the single analysis pass builds both the buckets and the
+    diagnostics from ONE bucket computation, never a second index traversal. *)
 Definition pkg_diag_of_from {p} (buckets : PM.t (list (GoIndex.DeclRef p))) (b : string * PackageSummary)
   : list (DiagnosticReason p) :=
   if Nat.eqb (ps_main_count (snd b)) 1 then []
@@ -2275,19 +2270,22 @@ Definition pkg_diag_of_from {p} (buckets : PM.t (list (GoIndex.DeclRef p))) (b :
               end
        end.
 
+Definition pkg_diags {p} (idx : GoIndex.Snap.SyntaxIndex p) : list (DiagnosticReason p) :=
+  flat_map (pkg_diag_of_from (prog_package_refs idx)) (PM.elements (package_summaries (prog_files p))).
+
 (** THE PACKAGE COMPLETENESS: no package diagnostic IFF every package has exactly one main ([pkg_all_ok]).
     (A non-conforming package always emits — [DRDuplicateMain] when the bucket has >=2 refs, else
     [DRMissingMain], since a summary element's package is always represented.) *)
 Lemma pkg_diags_empty_iff {p} (idx : GoIndex.Snap.SyntaxIndex p) : pkg_diags idx = nil <-> pkg_all_ok p = true.
 Proof.
   unfold pkg_diags, pkg_all_ok. rewrite flat_map_nil_forallb.
-  assert (Heq : forallb (fun x => match pkg_diag_of idx x with nil => true | _ => false end)
+  assert (Heq : forallb (fun x => match pkg_diag_of_from (prog_package_refs idx) x with nil => true | _ => false end)
                         (PM.elements (package_summaries (prog_files p)))
               = forallb (fun b => Nat.eqb (ps_main_count (snd b)) 1)
                         (PM.elements (package_summaries (prog_files p)))).
-  { apply GoTypes.forallb_ext_in. intros [dir s] Hin. unfold pkg_diag_of. cbn [fst snd].
+  { apply GoTypes.forallb_ext_in. intros [dir s] Hin. unfold pkg_diag_of_from. cbn [fst snd].
     destruct (Nat.eqb (ps_main_count s) 1) eqn:E; [ reflexivity |].
-    destruct (PM.find dir (package_main_refs idx)) as [[|d1 [|d2 rest]]|] eqn:Eb;
+    destruct (PM.find dir (prog_package_refs idx)) as [[|d1 [|d2 rest]]|] eqn:Eb;
       try reflexivity;
       (destruct (bool_sb (package_present_b p dir)) as [H|H]; [ reflexivity |];
        rewrite (summary_elem_present p dir s Hin) in H; discriminate H). }
@@ -2366,8 +2364,8 @@ Lemma pkg_diags_family {p} (idx : GoIndex.Snap.SyntaxIndex p) : forall d,
   In d (pkg_diags idx) -> diag_is_package d = true /\ diag_is_typing d = false.
 Proof.
   intros d Hin. unfold pkg_diags in Hin. apply in_flat_map in Hin. destruct Hin as [b [_ Hd]].
-  unfold pkg_diag_of in Hd. destruct (Nat.eqb (ps_main_count (snd b)) 1); [destruct Hd|].
-  destruct (PM.find (fst b) (package_main_refs idx)) as [[|d1 [|d2 rest]]|].
+  unfold pkg_diag_of_from in Hd. destruct (Nat.eqb (ps_main_count (snd b)) 1); [destruct Hd|].
+  destruct (PM.find (fst b) (prog_package_refs idx)) as [[|d1 [|d2 rest]]|].
   - destruct (bool_sb (package_present_b p (fst b))) as [H|H]; [ destruct Hd as [<-|[]]; split; reflexivity | destruct Hd ].
   - destruct (bool_sb (package_present_b p (fst b))) as [H|H]; [ destruct Hd as [<-|[]]; split; reflexivity | destruct Hd ].
   - destruct Hd as [<-|[]]; split; reflexivity.
@@ -2548,7 +2546,7 @@ Definition analyze_indexed (p : GoProgram) (ip : GoIndex.IndexedProgram p) : Ana
   let idx     := GoIndex.indexed_syntax ip in
   let visit   := prog_visit p in
   let status  := fold_right psm_step (GoIndex.NodeKeyMapBase.empty (option ConstInfo)) visit in
-  let buckets := package_main_refs idx in
+  let buckets := fold_right (ppkg_step idx) (PM.empty (list (GoIndex.DeclRef p))) visit in
   let facts   := fold_right (add_occ_fact_sm status) (GoIndex.NodeKeyMapBase.empty ExprFact) visit in
   let diags   := flat_map (occ_expr_diags_sm status idx) visit
                    ++ flat_map (pkg_diag_of_from buckets) (PM.elements (package_summaries (prog_files p))) in
@@ -2556,9 +2554,9 @@ Definition analyze_indexed (p : GoProgram) (ip : GoIndex.IndexedProgram p) : Ana
   | left He  => AnalysisOK (mkCompilationFacts
                   (mkExprFactTable facts (prog_expr_facts_domain p) (prog_expr_facts_find p))
                   buckets
-                  (package_main_refs_present idx)
-                  (package_main_refs_bucket_len idx)
-                  (package_main_refs_belongs idx)
+                  (prog_package_refs_present idx)
+                  (prog_package_refs_bucket_len idx)
+                  (prog_package_refs_belongs idx)
                   (analyze_valid_of_no_diags p ip He))
   | right Hne => AnalysisFailed diags Hne
   end.

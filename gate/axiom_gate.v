@@ -380,16 +380,17 @@ Print Assumptions GoCompile.occs_file_operand.
 Print Assumptions GoCompile.prog_status_map_find.
 Print Assumptions GoCompile.prog_status_map_find_operand.
 Print Assumptions GoCompile.expr_diags_eq_spec.
-(* C3 §11 — package main-ref buckets: a per-file main DeclRef list whose length is file_main_count; the
-   whole-program buckets have the represented-package domain and each present bucket's length is the package's
-   main count; on a valid program every bucket is a singleton (the one canonical main). *)
-Print Assumptions GoCompile.file_main_refs_length.
-Print Assumptions GoCompile.package_main_refs_present.
-Print Assumptions GoCompile.package_main_refs_bucket_len.
-Print Assumptions GoCompile.package_main_refs_singleton_on_success.
-Print Assumptions GoCompile.package_main_refs_belongs.
+(* C3 §14/§28 — package main-ref buckets built as ONE fold over the DELIVERED visit stream (no second
+   per-file traversal): the whole-program buckets have the represented-package domain, each present bucket's
+   length is the package's main count, on a valid program every bucket is a singleton (the one canonical
+   main), and every main in a bucket belongs to that package. *)
+Print Assumptions GoCompile.prog_package_refs_present.
+Print Assumptions GoCompile.prog_package_refs_bucket_len.
+Print Assumptions GoCompile.prog_package_refs_singleton_on_success.
+Print Assumptions GoCompile.prog_package_refs_belongs.
 (* C3 §10/§12 — the SEALED fact tables (no forged/foreign key possible): every key with an entry is a visited
-   expression occurrence's key whose fact is exact; a package main BELONGS to its package (no swap). *)
+   expression occurrence's key whose fact is exact; and on a valid program each package bucket is the one
+   canonical main (the CompilationFacts-level singleton projection). *)
 Print Assumptions GoCompile.prog_expr_facts_domain.
 Print Assumptions GoCompile.cf_package_singleton.
 (* C3 §10/§27 — the expression-fact query is TOTAL on a valid CompilationFacts: every typed ExprRef denotes a
