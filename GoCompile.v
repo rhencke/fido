@@ -485,7 +485,10 @@ Proof. reflexivity. Qed.
 
 Lemma erase_diagnostic_related_length {p} (d : DiagnosticReason p) :
   length (ed_related (erase_diagnostic d)) = length (diagnostic_related d).
-Proof. cbn. apply map_length. Qed.
+Proof.
+  cbn [ed_related erase_diagnostic].
+  induction (diagnostic_related d) as [|x xs IH]; cbn [map length]; [ reflexivity | rewrite IH; reflexivity ].
+Qed.
 
 (* ============================================================================================================
    §10 (C3) — occurrence-keyed expression facts.  ONE fact value per expression occurrence: its exact constant

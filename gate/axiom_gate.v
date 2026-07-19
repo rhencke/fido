@@ -176,12 +176,10 @@ Print Assumptions GoTypes.empty_program_typed.
 Print Assumptions GoTypes.ProgramTyped_Equal.
 Print Assumptions GoTypes.program_typedb_Equal.
 Print Assumptions GoTypes.program_typedb_build_permutation.
-(* §20/§25 minimal indexed-traversal integration: the indexed per-file / whole-program typing checkers
-   (one let-bound SyntaxIndex, delegating through the total query API to the SAME resolver) equal the
-   existing [source_file_typedb] / [program_typedb]. *)
+(* §20 — the per-occurrence typing predicate folded over the canonical source occurrence stream equals the
+   existing [source_file_typedb] (the leaf GoCompile's analysis consumes; the C2 indexed whole-program checker
+   is removed, §19/§26). *)
 Print Assumptions GoTypes.occs_file_typedb_eq.
-Print Assumptions GoTypes.indexed_source_file_typedb_eq.
-Print Assumptions GoTypes.indexed_program_typedb_eq.
 (* C3 §6 — the one-node semantic step: [const_info] reflects [const_info_step] applied to its child's status
    (the reusable one-pass leaf authority; convert_const stays the sole conversion authority). *)
 Print Assumptions GoTypes.const_info_step_reflect.
