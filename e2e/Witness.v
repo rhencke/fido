@@ -103,8 +103,8 @@ Definition demo_module : ModuleSpec := mkModuleSpec (mkMP "fido.local/generated"
 Definition main_go : FilePath := mkFP "main.go" eq_refl.
 Definition demo_program : GoProgram := singleton_program demo_module main_go demo_file.
 
-Lemma demo_valid : ProgValid demo_program.
-Proof. apply prog_ok_iff. reflexivity. Qed.
+Lemma demo_valid : GoCompile demo_program.
+Proof. apply GoCompile_of_prog_ok; vm_compute; reflexivity. Qed.
 
 Definition demo_compiled : CompilableProgram :=
   compilable_of_valid demo_program demo_valid.

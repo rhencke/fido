@@ -35,8 +35,8 @@ Definition multi_program : GoProgram :=
 Lemma multi_program_built : build_program multi_module multi_nodes = Some multi_program.
 Proof. vm_compute. reflexivity. Qed.
 
-Lemma multi_valid : ProgValid multi_program.
-Proof. apply prog_ok_iff. vm_compute. reflexivity. Qed.
+Lemma multi_valid : GoCompile multi_program.
+Proof. apply GoCompile_of_prog_ok; vm_compute; reflexivity. Qed.
 
 Definition multi_compiled : CompilableProgram :=
   compilable_of_valid multi_program multi_valid.

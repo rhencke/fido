@@ -327,7 +327,7 @@ Print Assumptions GoCompile.package_summary_main_count.
 Print Assumptions GoCompile.package_summaries_empty.
 Print Assumptions GoCompile.package_summaries_Equal.
 Print Assumptions GoCompile.package_summaries_build_permutation.
-Print Assumptions GoCompile.GoCompile_Equal.
+Print Assumptions GoCompile.ProgValid_Equal.
 Print Assumptions GoCompile.prog_ok_Equal.
 Print Assumptions GoCompile.go_compile_class_Equal.
 Print Assumptions GoCompile.go_compile_class_build_permutation.

@@ -21,8 +21,8 @@ Definition bytes_file (*decls*) : list GoDecl := [ DMain [ SPrintln [ EString bo
 Definition bytes_module : ModuleSpec := mkModuleSpec (mkMP "fido.local/generated" eq_refl) Go1_23.
 Definition bytes_program : GoProgram := singleton_program bytes_module (mkFP "main.go" eq_refl) bytes_file.
 
-Lemma bytes_valid : ProgValid bytes_program.
-Proof. apply prog_ok_iff. reflexivity. Qed.
+Lemma bytes_valid : GoCompile bytes_program.
+Proof. apply GoCompile_of_prog_ok; vm_compute; reflexivity. Qed.
 
 Definition bytes_compiled : CompilableProgram :=
   compilable_of_valid bytes_program bytes_valid.

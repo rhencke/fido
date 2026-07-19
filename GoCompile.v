@@ -3963,6 +3963,12 @@ Definition diag_is_typing {p} (d : DiagnosticReason p) : bool :=
   match diagnostic_code d with DCInvalidConversion | DCDefaultNotRepresentable => true | _ => false end.
 Definition diag_is_package {p} (d : DiagnosticReason p) : bool :=
   match diagnostic_code d with DCDuplicateMain | DCMissingMain => true | _ => false end.
+Definition diag_is_build_output {p} (d : DiagnosticReason p) : bool :=
+  match diagnostic_code d with DCBuildOutputIsDirectory => true | _ => false end.
+Lemma diag_typing_not_build {p} (d : DiagnosticReason p) : diag_is_typing d = true -> diag_is_build_output d = false.
+Proof. unfold diag_is_typing, diag_is_build_output; destruct (diagnostic_code d); (reflexivity || discriminate). Qed.
+Lemma diag_package_not_build {p} (d : DiagnosticReason p) : diag_is_package d = true -> diag_is_build_output d = false.
+Proof. unfold diag_is_package, diag_is_build_output; destruct (diagnostic_code d); (reflexivity || discriminate). Qed.
 
 Lemma existsb_all_true {A} (f : A -> bool) (l : list A) :
   (forall x, In x l -> f x = true) -> existsb f l = match l with [] => false | _ => true end.
@@ -4521,6 +4527,18 @@ Proof.
   - rewrite (proj1 (pkg_diags_empty_iff idx) E). reflexivity.
   - destruct (pkg_all_ok p) eqn:Ht; [ | reflexivity ].
     exfalso. pose proof (proj2 (pkg_diags_empty_iff idx) Ht) as Hc. rewrite Hc in E; discriminate E.
+Qed.
+(* the SEMANTIC report never contains a build-output diagnostic (only expression / package reasons) — so the
+   build-output class fires ONLY through the command-ordered preflight branch, never the semantic branch. *)
+Lemma existsb_build_output_collect (p : GoProgram) (idx : GoIndex.Snap.SyntaxIndex p) :
+  existsb diag_is_build_output (collect_diagnostics p idx) = false.
+Proof.
+  rewrite (existsb_In_eq _ _ _ (collect_diagnostics_In idx)), existsb_app.
+  rewrite (existsb_all_false diag_is_build_output (expr_diags idx)
+             (fun d Hin => diag_typing_not_build d (expr_diags_typing idx d Hin))),
+          (existsb_all_false diag_is_build_output (pkg_diags idx)
+             (fun d Hin => diag_package_not_build d (pkg_diags_package idx d Hin))).
+  reflexivity.
 Qed.
 
 (** ============================================================================================
@@ -5173,6 +5191,62 @@ Proof.
   - split; reflexivity.
 Qed.
 
+(* every build-output diagnostic IS a build-output diagnostic; so when the preflight fails the report's
+   build-output class fires. *)
+Lemma build_output_diags_is_build : forall p d, In d (build_output_diags p) -> diag_is_build_output d = true.
+Proof.
+  intros p d Hin. unfold build_output_diags in Hin.
+  destruct (fresh_build_plan p) as [|count|dir ip name [ [ | | ] |]]; try destruct Hin.
+  destruct (sole_package_ref p dir) as [pk|]; [| destruct Hin].
+  cbn [In] in Hin. destruct Hin as [<-|[]]. reflexivity.
+Qed.
+
+Lemma existsb_build_output_build_output : forall p,
+  fresh_build_disposition_ok (fresh_build_plan p) = false ->
+  existsb diag_is_build_output (build_output_diags p) = true.
+Proof.
+  intros p Hpf.
+  assert (Hne : build_output_diags p <> nil).
+  { intro Hc. apply (proj1 (build_output_diags_nil_iff p)) in Hc. unfold fresh_build_preflight_ok in Hc.
+    rewrite Hc in Hpf; discriminate Hpf. }
+  destruct (build_output_diags p) as [|d ds] eqn:E; [ exfalso; apply Hne; reflexivity |].
+  cbn [existsb]. rewrite (build_output_diags_is_build p d) by (rewrite E; left; reflexivity). reflexivity.
+Qed.
+
+(** §19 — FULL program-input equality: the ModuleSpec AND the file map.  The full admission / plan / report /
+    class depend on BOTH (the preflight's default exec name comes from the ModulePath), unlike the source
+    facts which depend only on the file map. *)
+Definition ProgramInputEqual (p1 p2 : GoProgram) : Prop :=
+  prog_module p1 = prog_module p2 /\ GoAST.FilesEqual (prog_files p1) (prog_files p2).
+
+(* the selected-package enumeration and the root layout depend only on the file map. *)
+Lemma selected_package_keys_Equal : forall p1 p2,
+  GoAST.FilesEqual (prog_files p1) (prog_files p2) -> selected_package_keys p1 = selected_package_keys p2.
+Proof.
+  intros p1 p2 Heq. unfold selected_package_keys, selected_packages.
+  rewrite (Collections.packagemap_elements_Equal _ _ (package_summaries_Equal _ _ Heq)). reflexivity.
+Qed.
+
+Lemma root_layout_Equal : forall p1 p2,
+  GoAST.FilesEqual (prog_files p1) (prog_files p2) -> root_layout p1 = root_layout p2.
+Proof.
+  intros p1 p2 Heq. unfold root_layout, GoAST.file_bindings.
+  rewrite (Collections.filemap_elements_Equal _ _ Heq). reflexivity.
+Qed.
+
+Lemma fresh_build_plan_InputEqual : forall p1 p2,
+  ProgramInputEqual p1 p2 -> fresh_build_plan p1 = fresh_build_plan p2.
+Proof.
+  intros p1 p2 [Hm Hf]. unfold fresh_build_plan.
+  rewrite (selected_package_keys_Equal _ _ Hf), Hm, (root_layout_Equal _ _ Hf).
+  unfold selected_package_count. rewrite (selected_package_keys_Equal _ _ Hf). reflexivity.
+Qed.
+
+Lemma fresh_build_disposition_InputEqual : forall p1 p2,
+  ProgramInputEqual p1 p2 ->
+  fresh_build_disposition_ok (fresh_build_plan p1) = fresh_build_disposition_ok (fresh_build_plan p2).
+Proof. intros p1 p2 H. rewrite (fresh_build_plan_InputEqual _ _ H). reflexivity. Qed.
+
 (** §C3-FRESH.9 (§14/§17) — the COMMAND-ordered diagnostic list: if the fresh-build preflight FAILS, the report
     is EXACTLY the build-output-directory diagnostic (it takes PRECEDENCE, hiding the semantic diagnostics of
     the sole package); otherwise it is the semantic [collect_diagnostics].  Emptiness is exactly GoCompile. *)
@@ -5194,8 +5268,33 @@ Proof.
   - exact (proj1 (build_output_diags_nil_iff p) He).
 Qed.
 
+Lemma elab_diags_eq_collect : forall p idx,
+  fresh_build_disposition_ok (fresh_build_plan p) = true -> elab_diags p idx = collect_diagnostics p idx.
+Proof. intros p idx H. unfold elab_diags. rewrite H. reflexivity. Qed.
+
+Lemma elab_diags_eq_build : forall p idx,
+  fresh_build_disposition_ok (fresh_build_plan p) = false -> elab_diags p idx = build_output_diags p.
+Proof. intros p idx H. unfold elab_diags. rewrite H. reflexivity. Qed.
+
 (* end of the §C3-FRESH block — restore the default scope so the analysis machinery's list [++] is list append. *)
 Close Scope string_scope.
+
+(** §17 (C3-fresh) — whole-program admissibility IS the exact fresh-build admission: the pinned one-shot
+    `go build ./...` output PREFLIGHT passes AND the source is valid.  [SourceProgramValid] is the
+    source/compiler/package part; [fresh_build_preflight_ok] is the cmd/go default-output part. *)
+Definition GoCompile (p : GoProgram) : Prop := fresh_build_preflight_ok p /\ SourceProgramValid p.
+
+(** the command-ordered report is empty EXACTLY on admissible programs.  ([elab_diags] is definitionally the
+    [diags] computed inside [analyze_indexed], so the analysis-exactness theorems below reduce to this.) *)
+Lemma elab_diags_nil_iff_GoCompile : forall p idx, elab_diags p idx = nil <-> GoCompile p.
+Proof.
+  intros p idx. unfold GoCompile. split.
+  - intro He. split; [ exact (elab_no_diags_preflight p idx He)
+                     | apply (proj2 (source_program_valid_iff p)); exact (elab_no_diags_valid p idx He) ].
+  - intros [Hpf Hsv]. unfold elab_diags. unfold fresh_build_preflight_ok in Hpf. rewrite Hpf.
+    apply (proj2 (collect_diagnostics_empty_iff p idx)), (proj2 (analysis_ok_b_ProgValid p)),
+          (proj1 (source_program_valid_iff p)). exact Hsv.
+Qed.
 
 (** §12 (C3) — the SUCCESSFUL analysis facts, retained over the SAME [IndexedProgram] the analysis ran on:
     the occurrence-keyed [ExprFactTable] (standard NodeKey map) + the package main-ref buckets (standard
@@ -5213,15 +5312,19 @@ Record CompilationFacts (p : GoProgram) (ip : GoIndex.IndexedProgram p) : Type :
   cf_package_belongs : forall dir l, PM.find dir cf_package_refs = Some l ->
                          forall d, In d l ->
                          fp_parent (GoIndex.Snap.file_ref_path (GoIndex.Snap.node_ref_file (GoIndex.erase_ref d))) = dir ;
-  cf_valid           : ProgValid p
+  cf_valid           : ProgValid p ;
+  (* §17 (C3-fresh) — the retained fresh-build PREFLIGHT evidence: the pinned one-shot `go build ./...` output
+     preflight passes for this program.  Together with [cf_valid] it witnesses [GoCompile] (see [cp_ok]). *)
+  cf_preflight       : fresh_build_preflight_ok p
 }.
-Arguments mkCompilationFacts {p ip} _ _ _ _ _ _.
+Arguments mkCompilationFacts {p ip} _ _ _ _ _ _ _.
 Arguments cf_expr_facts {p ip} _.
 Arguments cf_package_refs {p ip} _.
 Arguments cf_package_present {p ip} _.
 Arguments cf_package_len {p ip} _.
 Arguments cf_package_belongs {p ip} _.
 Arguments cf_valid {p ip} _.
+Arguments cf_preflight {p ip} _.
 
 (** §10/§27 — the public expression-fact query is TOTAL: on a valid [CompilationFacts], EVERY typed [ExprRef]
     has an exact entry.  The ExprRef denotes a VISITED expression occurrence ([noderef_in_prog_visit] +
@@ -5350,8 +5453,12 @@ Definition analyze_indexed (p : GoProgram) (ip : GoIndex.IndexedProgram p) : Ana
                           (flat_map (annotate_encl idx []) blocks)   (* = annotate_program idx *)
                    ++ bucket_diags_elems buckets (bucket_key_present idx)
                         (PM.elements buckets) (elements_all_mapsto buckets) in
-  (* §16 canonical order: node-primary diagnostics bucketed by NodeKey + flattened, then package-primary. *)
-  let diags   := bucket_flatten (node_keyed raw) ++ pkg_primary raw in
+  (* §16 canonical order: node-primary diagnostics bucketed by NodeKey + flattened, then package-primary.
+     §14/§17 COMMAND order: if the fresh-build preflight FAILS the report is EXACTLY the build-output-directory
+     diagnostic (precedence), else the semantic diagnostics.  This [diags] is definitionally [elab_diags p idx]. *)
+  let diags   := if fresh_build_disposition_ok (fresh_build_plan p)
+                 then bucket_flatten (node_keyed raw) ++ pkg_primary raw
+                 else build_output_diags p in
   match list_is_nil diags with
   | left He  => AnalysisOK (mkCompilationFacts
                   (mkExprFactTable facts (prog_expr_facts_domain p) (prog_expr_facts_find p))
@@ -5359,7 +5466,8 @@ Definition analyze_indexed (p : GoProgram) (ip : GoIndex.IndexedProgram p) : Ana
                   (prog_package_refs_present idx)
                   (prog_package_refs_bucket_len idx)
                   (prog_package_refs_belongs idx)
-                  (analyze_valid_of_no_diags p ip He))
+                  (elab_no_diags_valid p idx He)
+                  (elab_no_diags_preflight p idx He))
   | right Hne => AnalysisFailed diags Hne
   end.
 
@@ -5367,36 +5475,43 @@ Definition analyze (p : GoProgram) : ProgramAnalysis p :=
   let ip := GoIndex.index_program p in
   mkProgramAnalysis ip (analyze_indexed p ip).
 
-(** ANALYSIS EXACTNESS: analysis succeeds (exposes facts) IFF the program is valid ([ProgValid] = [GoCompile]);
-    it fails (exposes nonempty diagnostics) IFF the program is invalid.  Success and failure are exclusive. *)
+(** ANALYSIS EXACTNESS (§18.D/E): analysis succeeds (exposes facts) IFF the program is admissible ([GoCompile] =
+    fresh-build preflight passes AND the source is valid); it fails (exposes nonempty command-ordered
+    diagnostics) IFF it is inadmissible.  Success and failure are exclusive.  ([elab_diags] is definitionally the
+    [diags] computed inside [analyze_indexed], so both reduce through [elab_diags_nil_iff_GoCompile].) *)
 Theorem analyze_ok_iff_ProgValid (p : GoProgram) :
-  (exists facts, pa_result (analyze p) = AnalysisOK facts) <-> ProgValid p.
+  (exists facts, pa_result (analyze p) = AnalysisOK facts) <-> GoCompile p.
 Proof.
   unfold analyze, analyze_indexed; cbn [pa_result]; cbv zeta.
   match goal with |- context[list_is_nil ?d] => destruct (list_is_nil d) as [He|Hne] end.
-  - split; intro Hx; [ apply (analyze_valid_of_no_diags p (GoIndex.index_program p) He) | eexists; reflexivity ].
+  - split; intro Hx;
+      [ exact (proj1 (elab_diags_nil_iff_GoCompile p (GoIndex.indexed_syntax (GoIndex.index_program p))) He)
+      | eexists; reflexivity ].
   - split; intro Hx.
     + destruct Hx as [facts Hf]; discriminate Hf.
-    + exfalso. apply Hne, (collect_diagnostics_empty_iff p _), (analysis_ok_b_ProgValid p); exact Hx.
+    + exfalso. apply Hne.
+      exact (proj2 (elab_diags_nil_iff_GoCompile p (GoIndex.indexed_syntax (GoIndex.index_program p))) Hx).
 Qed.
 
 Theorem analyze_failed_iff_not_ProgValid (p : GoProgram) :
-  (exists ds Hne, pa_result (analyze p) = AnalysisFailed ds Hne) <-> ~ ProgValid p.
+  (exists ds Hne, pa_result (analyze p) = AnalysisFailed ds Hne) <-> ~ GoCompile p.
 Proof.
   unfold analyze, analyze_indexed; cbn [pa_result]; cbv zeta.
   match goal with |- context[list_is_nil ?d] => destruct (list_is_nil d) as [He|Hne] end.
   - split; intro Hx.
     + destruct Hx as [ds [Hne Hf]]; discriminate Hf.
-    + exfalso. apply Hx, (analyze_valid_of_no_diags p (GoIndex.index_program p) He).
+    + exfalso. apply Hx.
+      exact (proj1 (elab_diags_nil_iff_GoCompile p (GoIndex.indexed_syntax (GoIndex.index_program p))) He).
   - split; intro Hx.
-    + intro Hv. apply Hne, (collect_diagnostics_empty_iff p _), (analysis_ok_b_ProgValid p); exact Hv.
+    + intro Hv. apply Hne.
+      exact (proj2 (elab_diags_nil_iff_GoCompile p (GoIndex.indexed_syntax (GoIndex.index_program p))) Hv).
     + eexists; eexists; reflexivity.
 Qed.
 
-(** on failure the exposed diagnostics ARE the canonical [collect_diagnostics] (used to project the legacy class). *)
+(** on failure the exposed diagnostics ARE the command-ordered [elab_diags] (used to project the legacy class). *)
 Lemma analyze_failed_ds (p : GoProgram) ds Hne :
   pa_result (analyze p) = AnalysisFailed ds Hne ->
-  ds = collect_diagnostics p (GoIndex.indexed_syntax (GoIndex.index_program p)).
+  ds = elab_diags p (GoIndex.indexed_syntax (GoIndex.index_program p)).
 Proof.
   unfold analyze, analyze_indexed; cbn [pa_result]; cbv zeta.
   match goal with |- context[list_is_nil ?d] => destruct (list_is_nil d) as [He|Hn] end.
@@ -5407,7 +5522,7 @@ Qed.
 (** A failed analysis result is incompatible with validity (used to discharge the impossible branch when
     minting the provenance sigma from a validity proof). *)
 Lemma analyze_failed_not_valid (p : GoProgram) ds Hne :
-  pa_result (analyze p) = AnalysisFailed ds Hne -> ProgValid p -> False.
+  pa_result (analyze p) = AnalysisFailed ds Hne -> GoCompile p -> False.
 Proof.
   intros Heq Hv.
   exact (proj1 (analyze_failed_iff_not_ProgValid p) (ex_intro _ ds (ex_intro _ Hne Heq)) Hv).
@@ -5430,7 +5545,7 @@ Definition analyze_result_cases (p : GoProgram) :
 
 (** From a validity proof, the EXACT [AnalysisOK] result + its facts (the failed branch is impossible).  This
     is the provenance witness a [CompilableProgram] must carry: the stored facts ARE [analyze]'s output. *)
-Definition analyze_ok_sig (p : GoProgram) (H : ProgValid p) :
+Definition analyze_ok_sig (p : GoProgram) (H : GoCompile p) :
   {facts : CompilationFacts p (pa_indexed (analyze p)) & pa_result (analyze p) = AnalysisOK facts} :=
   match analyze_result_cases p with
   | inl s => s
@@ -5438,13 +5553,8 @@ Definition analyze_ok_sig (p : GoProgram) (H : ProgValid p) :
       (analyze_failed_not_valid p (projT1 b) (projT1 (projT2 b)) (projT2 (projT2 b)) H)
   end.
 
-(** [GoCompile p] IS whole-program admissibility: the program is typed through [GoTypes] AND every package
-    has exactly one `main`.  The package clause is now SOURCE-owned (each file's [source_package]), rendered
-    by [GoRender] — it is no longer a compiler-derived fact, so there is no [cf_pkg_name].  The RICHER
-    per-program [CompilationFacts] record (the occurrence-keyed [ExprFactTable] + package `main`-ref buckets +
-    validity) IS retained — by a successful [analyze]/[CompilableProgram] (`cp_facts`) — decorating this same
-    program without a second AST; there is no unused placeholder. *)
-Definition GoCompile (p : GoProgram) : Prop := ProgValid p.
+(* [GoCompile] and its [elab_diags]-emptiness bridge are defined earlier (before [analyze]), since the analysis
+   exactness theorems below are stated over [GoCompile]. *)
 
 (** ---- destructuring the ONE retained [analyze] WITHOUT re-projection: record eta re-assembles the analysis
     from its projections, so a component-level [pa_result] fact lifts to a WHOLE-analysis equation
@@ -5459,7 +5569,7 @@ Definition result_ok_b {p ip} (r : AnalysisResult p ip) : bool :=
   match r with AnalysisOK _ => true | AnalysisFailed _ _ => false end.
 Definition analysis_ok_flag {p} (a : ProgramAnalysis p) : bool := result_ok_b (pa_result a).
 
-Lemma analysis_ok_flag_of_valid : forall p, ProgValid p -> analysis_ok_flag (analyze p) = true.
+Lemma analysis_ok_flag_of_valid : forall p, GoCompile p -> analysis_ok_flag (analyze p) = true.
 Proof. intros p Hv. unfold analysis_ok_flag. destruct (analyze_ok_sig p Hv) as [facts Heq]. rewrite Heq. reflexivity. Qed.
 
 Lemma analyze_ok_whole : forall p facts, pa_result (analyze p) = AnalysisOK facts ->
@@ -5481,7 +5591,7 @@ Proof.
 Qed.
 
 Lemma analyze_whole_failed_not_valid : forall p ip ds Hne,
-  analyze p = mkProgramAnalysis ip (AnalysisFailed ds Hne) -> ProgValid p -> False.
+  analyze p = mkProgramAnalysis ip (AnalysisFailed ds Hne) -> GoCompile p -> False.
 Proof.
   intros p ip ds Hne Hw Hv.
   pose proof (analysis_ok_flag_of_valid p Hv) as Hok.
@@ -5491,7 +5601,7 @@ Qed.
 (** the witness-path destructuring: match the whole retained analysis EXACTLY ONCE, binding its retained index
     [ip] and result; validity rules the Failed branch impossible.  [ip] and [facts] come from the SAME
     evaluation — never a [pa_indexed (analyze p)] re-projection. *)
-Definition analyze_ok_full (p : GoProgram) (H : ProgValid p) :
+Definition analyze_ok_full (p : GoProgram) (H : GoCompile p) :
   {ip : GoIndex.IndexedProgram p & {facts : CompilationFacts p ip | analyze p = mkProgramAnalysis ip (AnalysisOK facts)}} :=
   match analyze p as a
     return (analyze p = a ->
@@ -5527,7 +5637,9 @@ Record CompilableProgram : Type := mkCompilable {
   cp_prov    : analyze cp_program = mkProgramAnalysis cp_index (AnalysisOK cp_facts)
 }.
 
-Definition cp_ok (cp : CompilableProgram) : GoCompile (cp_program cp) := cf_valid (cp_facts cp).
+Definition cp_ok (cp : CompilableProgram) : GoCompile (cp_program cp) :=
+  conj (cf_preflight (cp_facts cp))
+       (proj2 (source_program_valid_iff (cp_program cp)) (cf_valid (cp_facts cp))).
 
 (** the PROVENANCE surfaces: every [CompilableProgram]'s WHOLE retained analysis IS this record — index +
     facts + success together ([analyze cp_program = mkProgramAnalysis cp_index (AnalysisOK cp_facts)]); the
@@ -5543,7 +5655,7 @@ Proof. intro cp. rewrite (cp_prov cp). reflexivity. Qed.
 (** The compiled evidence EXPOSES that the same program is typed through [GoTypes] (§17): an immediate
     canonical projection, not a stored second copy of the typing proof. *)
 Theorem compile_program_typed : forall p, GoCompile p -> ProgramTyped p.
-Proof. intros p H; exact (proj1 H). Qed.
+Proof. intros p H; exact (proj1 (proj2 H)). Qed.
 
 Theorem compilable_program_typed : forall cp : CompilableProgram, ProgramTyped (cp_program cp).
 Proof. intro cp; exact (compile_program_typed _ (cp_ok cp)). Qed.
@@ -5573,9 +5685,12 @@ Arguments CompileFailed {p} _.
 
 (** the LEGACY coarse class, a PROJECTION of the analysis diagnostics (never a separate check): a typing-class
     diagnostic dominates, else a package-class diagnostic, else success. *)
-Inductive LegacyCompileClass : Type := LCOk | LCTyping | LCPackageMainCount.
+Inductive LegacyCompileClass : Type := LCOk | LCTyping | LCPackageMainCount | LCBuildOutput.
+(* §15 — the build-output failure takes PRECEDENCE (§14): a preflight failure reports ONLY the
+   build-output-directory diagnostic, so its class dominates. *)
 Definition legacy_class_of_diags {p} (ds : list (DiagnosticReason p)) : LegacyCompileClass :=
-  if existsb diag_is_typing ds then LCTyping
+  if existsb diag_is_build_output ds then LCBuildOutput
+  else if existsb diag_is_typing ds then LCTyping
   else if existsb diag_is_package ds then LCPackageMainCount else LCOk.
 Definition legacy_compile_class {p} (o : CompileOutcome p) : LegacyCompileClass :=
   match o with CompiledOk _ _ => LCOk | CompileFailed fail => legacy_class_of_diags (cfail_diags fail) end.
@@ -5649,7 +5764,7 @@ Qed.
 Theorem go_compile_ok_valid : forall p cp Hcp,
   go_compile p = CompiledOk cp Hcp -> cp_program cp = p /\ GoCompile (cp_program cp).
 Proof.
-  intros p cp Hcp _. split; [ exact Hcp | exact (cf_valid (cp_facts cp)) ].
+  intros p cp Hcp _. split; [ exact Hcp | exact (cp_ok cp) ].
 Qed.
 
 Theorem go_compile_complete : forall p,
@@ -5660,9 +5775,26 @@ Proof.
   exact (go_compile_ok_shape p (pa_indexed (analyze p)) facts (analyze_ok_whole p facts Heq)).
 Qed.
 
-(** fixture helper: acceptance through the theorems. *)
-Lemma go_compile_ok_of_prog_ok : forall p, prog_ok p = true -> exists cp Hcp, go_compile p = CompiledOk cp Hcp.
-Proof. intros p H; apply go_compile_complete, (proj1 (prog_ok_iff p)); exact H. Qed.
+(** fixture helper: acceptance through the theorems — the source decision ([prog_ok]) AND the fresh-build
+    preflight decision together are exactly [GoCompile]. *)
+Lemma go_compile_ok_of_prog_ok : forall p,
+  prog_ok p = true -> fresh_build_disposition_ok (fresh_build_plan p) = true ->
+  exists cp Hcp, go_compile p = CompiledOk cp Hcp.
+Proof.
+  intros p H Hpf. apply go_compile_complete. split.
+  - unfold fresh_build_preflight_ok. exact Hpf.
+  - apply (proj2 (source_program_valid_iff p)), (proj1 (prog_ok_iff p)); exact H.
+Qed.
+
+(** §17 witness ergonomics: [GoCompile] from the two DECIDABLE checks — the source [prog_ok] AND the
+    fresh-build output preflight (both discharge by [vm_compute]).  This is the intro the emit witnesses use. *)
+Lemma GoCompile_of_prog_ok : forall p,
+  prog_ok p = true -> fresh_build_disposition_ok (fresh_build_plan p) = true -> GoCompile p.
+Proof.
+  intros p H Hpf. split.
+  - unfold fresh_build_preflight_ok. exact Hpf.
+  - apply (proj2 (source_program_valid_iff p)), (proj1 (prog_ok_iff p)); exact H.
+Qed.
 
 (** the witness builder: from validity, [analyze_ok_full] destructures [analyze p] ONCE, delivering the bound
     retained index [ip], its [CompilationFacts], and the whole-analysis provenance.  That single execution is
@@ -5677,30 +5809,36 @@ Definition compilable_of_valid (p : GoProgram) (H : GoCompile p) : CompilablePro
 
 (** fixture helper: a non-typed program is REJECTED at the TYPING legacy class — a projection of the carried
     diagnostics, never a [program_typedb] rerun. *)
-Lemma go_compile_untyped : forall p, program_typedb p = false -> legacy_compile_class (go_compile p) = LCTyping.
+Lemma go_compile_untyped : forall p, program_typedb p = false ->
+  fresh_build_disposition_ok (fresh_build_plan p) = true ->
+  legacy_compile_class (go_compile p) = LCTyping.
 Proof.
-  intros p Hf.
+  intros p Hf Hpf.
   destruct (analyze_result_cases p) as [ [facts Hok] | [ds [Hne Hfail]] ].
-  - exfalso. assert (Hv : ProgValid p) by (apply (analyze_ok_iff_ProgValid p); exists facts; exact Hok).
-    pose proof (proj2 (program_typedb_iff p) (proj1 Hv)) as Ht. rewrite Ht in Hf; discriminate Hf.
+  - exfalso. assert (Hgc : GoCompile p) by (apply (analyze_ok_iff_ProgValid p); exists facts; exact Hok).
+    pose proof (proj2 (program_typedb_iff p) (compile_program_typed p Hgc)) as Ht. rewrite Ht in Hf; discriminate Hf.
   - rewrite (go_compile_failed_shape p (pa_indexed (analyze p)) ds Hne (analyze_failed_whole p ds Hne Hfail)).
     cbn [legacy_compile_class cfail_diags]. unfold legacy_class_of_diags.
-    rewrite (analyze_failed_ds p ds Hne Hfail), existsb_typing_collect, Hf. reflexivity.
+    rewrite (analyze_failed_ds p ds Hne Hfail), (elab_diags_eq_collect p _ Hpf),
+            existsb_build_output_collect, existsb_typing_collect, Hf. reflexivity.
 Qed.
 
 (** A rejected program yields no CompilableProgram (and hence no SafeProgram, no image). *)
 Lemma reject_no_compile : forall p, prog_ok p = false -> ~ GoCompile p.
 Proof.
-  intros p E Hvalid. apply (proj2 (prog_ok_iff p)) in Hvalid.
-  rewrite Hvalid in E; discriminate.
+  intros p E [_ Hsv].
+  pose proof (proj2 (prog_ok_iff p) (proj1 (source_program_valid_iff p) Hsv)) as Hok.
+  rewrite Hok in E; discriminate.
 Qed.
 
 (** ---- §8 ORDER-INDEPENDENCE of admissibility: [GoCompile] / [go_compile] depend only on the file MAP,
     never on construction order (typing respects the map by [ProgramTyped_Equal]; the package summaries
     respect it by [package_summaries_Equal]). ---- *)
 
-Theorem GoCompile_Equal : forall p1 p2,
-  GoAST.FilesEqual (prog_files p1) (prog_files p2) -> GoCompile p1 -> GoCompile p2.
+(* the SOURCE admission [ProgValid] depends only on the file MAP (FilesEqual).  The FULL admission [GoCompile]
+   also depends on the ModuleSpec (via the fresh-build preflight), so it needs [ProgramInputEqual] below. *)
+Theorem ProgValid_Equal : forall p1 p2,
+  GoAST.FilesEqual (prog_files p1) (prog_files p2) -> ProgValid p1 -> ProgValid p2.
 Proof.
   intros p1 p2 Heq [Ht Hall]. split.
   - exact (ProgramTyped_Equal p1 p2 Heq Ht).
@@ -5714,9 +5852,9 @@ Theorem prog_ok_Equal : forall p1 p2,
 Proof.
   intros p1 p2 Heq.
   destruct (prog_ok p1) eqn:E1; destruct (prog_ok p2) eqn:E2; try reflexivity.
-  - apply (proj1 (prog_ok_iff p1)) in E1. apply (GoCompile_Equal p1 p2 Heq) in E1.
+  - apply (proj1 (prog_ok_iff p1)) in E1. apply (ProgValid_Equal p1 p2 Heq) in E1.
     apply (proj2 (prog_ok_iff p2)) in E1. rewrite E1 in E2; discriminate.
-  - apply (proj1 (prog_ok_iff p2)) in E2. apply (GoCompile_Equal p2 p1 (GoAST.FilesEqual_sym _ _ Heq)) in E2.
+  - apply (proj1 (prog_ok_iff p2)) in E2. apply (ProgValid_Equal p2 p1 (GoAST.FilesEqual_sym _ _ Heq)) in E2.
     apply (proj2 (prog_ok_iff p1)) in E2. rewrite E2 in E1; discriminate.
 Qed.
 
@@ -5730,31 +5868,43 @@ Definition go_compile_class (p : GoProgram) : LegacyCompileClass := legacy_compi
 
 Lemma go_compile_class_spec : forall p,
   go_compile_class p
-  = (if prog_ok p then LCOk else if program_typedb p then LCPackageMainCount else LCTyping).
+  = (if fresh_build_disposition_ok (fresh_build_plan p)
+     then (if prog_ok p then LCOk else if program_typedb p then LCPackageMainCount else LCTyping)
+     else LCBuildOutput).
 Proof.
   intro p. unfold go_compile_class.
   destruct (analyze_result_cases p) as [ [facts Hok] | [ds [Hne Hfail]] ].
-  - assert (Hpv : ProgValid p) by (apply (analyze_ok_iff_ProgValid p); exists facts; exact Hok).
+  - assert (Hgc : GoCompile p) by (apply (analyze_ok_iff_ProgValid p); exists facts; exact Hok).
+    destruct Hgc as [Hpf Hsv]. unfold fresh_build_preflight_ok in Hpf. rewrite Hpf.
+    assert (Hpv : ProgValid p) by (apply (proj1 (source_program_valid_iff p)); exact Hsv).
     destruct (go_compile_ok_shape p (pa_indexed (analyze p)) facts (analyze_ok_whole p facts Hok)) as [cp [Hcp Hgo]]. rewrite Hgo.
     cbn [legacy_compile_class]. rewrite (proj2 (prog_ok_iff p) Hpv). reflexivity.
-  - assert (Hnv : ~ ProgValid p)
-      by (apply (analyze_failed_iff_not_ProgValid p); exists ds; exists Hne; exact Hfail).
-    assert (Hpf : prog_ok p = false)
-      by (destruct (prog_ok p) eqn:Ep; [ exfalso; apply Hnv, (proj1 (prog_ok_iff p)); exact Ep | reflexivity ]).
-    rewrite Hpf. rewrite (go_compile_failed_shape p (pa_indexed (analyze p)) ds Hne (analyze_failed_whole p ds Hne Hfail)).
+  - rewrite (go_compile_failed_shape p (pa_indexed (analyze p)) ds Hne (analyze_failed_whole p ds Hne Hfail)).
     cbn [legacy_compile_class cfail_diags]. unfold legacy_class_of_diags.
-    rewrite (analyze_failed_ds p ds Hne Hfail), existsb_typing_collect, existsb_package_collect.
-    destruct (program_typedb p) eqn:Ht; cbn [negb].
-    + assert (Hpk : pkg_all_ok p = false) by (rewrite prog_ok_eq, Ht, Bool.andb_true_l in Hpf; exact Hpf).
-      rewrite Hpk. reflexivity.
-    + reflexivity.
+    rewrite (analyze_failed_ds p ds Hne Hfail).
+    destruct (fresh_build_disposition_ok (fresh_build_plan p)) eqn:Ep.
+    + rewrite (elab_diags_eq_collect p _ Ep), existsb_build_output_collect,
+              existsb_typing_collect, existsb_package_collect.
+      assert (Hnv : ~ GoCompile p) by (apply (analyze_failed_iff_not_ProgValid p); exists ds; exists Hne; exact Hfail).
+      assert (Hpok : prog_ok p = false).
+      { destruct (prog_ok p) eqn:Epk; [ | reflexivity ]. exfalso. apply Hnv. split.
+        - unfold fresh_build_preflight_ok. exact Ep.
+        - apply (proj2 (source_program_valid_iff p)), (proj1 (prog_ok_iff p)); exact Epk. }
+      rewrite Hpok. destruct (program_typedb p) eqn:Ht; cbn [negb].
+      * assert (Hpk : pkg_all_ok p = false) by (rewrite prog_ok_eq, Ht, Bool.andb_true_l in Hpok; exact Hpok).
+        rewrite Hpk. reflexivity.
+      * reflexivity.
+    + rewrite (elab_diags_eq_build p _ Ep), (existsb_build_output_build_output p Ep). reflexivity.
 Qed.
 
+(** §19 — the legacy class is invariant under [ProgramInputEqual] (module + files); it depends on the ModuleSpec
+    (via the preflight), so FilesEqual ALONE is NOT enough — see [class_input_counterexample] below. *)
 Theorem go_compile_class_Equal : forall p1 p2,
-  GoAST.FilesEqual (prog_files p1) (prog_files p2) -> go_compile_class p1 = go_compile_class p2.
+  ProgramInputEqual p1 p2 -> go_compile_class p1 = go_compile_class p2.
 Proof.
-  intros p1 p2 Heq. rewrite !go_compile_class_spec.
-  rewrite (prog_ok_Equal p1 p2 Heq), (program_typedb_Equal p1 p2 Heq). reflexivity.
+  intros p1 p2 H. pose proof (proj2 H) as Hf. rewrite !go_compile_class_spec.
+  rewrite (fresh_build_disposition_InputEqual _ _ H), (prog_ok_Equal _ _ Hf), (program_typedb_Equal _ _ Hf).
+  reflexivity.
 Qed.
 
 Theorem go_compile_class_build_permutation : forall ms nodes1 nodes2 p1 p2,
@@ -5762,11 +5912,12 @@ Theorem go_compile_class_build_permutation : forall ms nodes1 nodes2 p1 p2,
   build_program ms nodes1 = Some p1 -> build_program ms nodes2 = Some p2 ->
   go_compile_class p1 = go_compile_class p2.
 Proof.
-  intros ms n1 n2 p1 p2 Hperm Hb1 Hb2. apply go_compile_class_Equal.
-  unfold build_program in *.
-  destruct (filemap_of_nodes n1) as [fm1|] eqn:F1; [ | discriminate ].
-  destruct (filemap_of_nodes n2) as [fm2|] eqn:F2; [ | discriminate ].
-  injection Hb1 as <-. injection Hb2 as <-. cbn [prog_files].
+  intros ms n1 n2 p1 p2 Hperm Hb1 Hb2.
+  unfold build_program in Hb1, Hb2.
+  destruct (filemap_of_nodes n1) as [fm1|] eqn:F1; [ | discriminate Hb1 ].
+  destruct (filemap_of_nodes n2) as [fm2|] eqn:F2; [ | discriminate Hb2 ].
+  injection Hb1 as <-. injection Hb2 as <-.
+  apply go_compile_class_Equal. split; [ reflexivity | cbn [prog_files] ].
   exact (filemap_of_nodes_permutation n1 n2 fm1 fm2 Hperm F1 F2).
 Qed.
 
@@ -5791,7 +5942,7 @@ Definition over_program : GoProgram :=
    rendering/emission): rejection happens strictly in Rocq, before any bytes. *)
 Example over_program_untyped   : program_typedb over_program = false.        Proof. vm_compute; reflexivity. Qed.
 Example over_program_not_ok    : prog_ok over_program = false.               Proof. vm_compute; reflexivity. Qed.
-Example over_program_rejected  : legacy_compile_class (go_compile over_program) = LCTyping.    Proof. exact (go_compile_untyped _ over_program_untyped). Qed.
+Example over_program_rejected  : legacy_compile_class (go_compile over_program) = LCTyping.    Proof. exact (go_compile_untyped _ over_program_untyped ltac:(vm_compute; reflexivity)). Qed.
 Example over_program_no_compile : ~ GoCompile over_program.
 Proof. exact (reject_no_compile over_program over_program_not_ok). Qed.
 
@@ -5807,7 +5958,7 @@ Definition int_program : GoProgram :=
 Example int_program_typed    : program_typedb int_program = true. Proof. vm_compute; reflexivity. Qed.
 Example int_program_ok       : prog_ok int_program = true.        Proof. vm_compute; reflexivity. Qed.
 Example int_program_compiles : exists cp Hcp, go_compile int_program = CompiledOk cp Hcp.
-Proof. exact (go_compile_ok_of_prog_ok _ int_program_ok). Qed.
+Proof. exact (go_compile_ok_of_prog_ok _ int_program_ok ltac:(vm_compute; reflexivity)). Qed.
 
 (** A program whose only argument is [uint8(int(300))] — a valid inner [int(300)] whose value does NOT fit
     the outer [uint8]; the invalid nested conversion cannot be revived, so the whole program is rejected. *)
@@ -5817,7 +5968,7 @@ Definition bad_convert_program : GoProgram :=
     (mkFP "main.go" eq_refl)
     [ DMain [ SPrintln [ EIntConvert IUint8 (EIntConvert IInt (EInt 300)) ] ] ].
 Example bad_convert_untyped     : program_typedb bad_convert_program = false. Proof. vm_compute; reflexivity. Qed.
-Example bad_convert_rejected    : legacy_compile_class (go_compile bad_convert_program) = LCTyping. Proof. exact (go_compile_untyped _ bad_convert_untyped). Qed.
+Example bad_convert_rejected    : legacy_compile_class (go_compile bad_convert_program) = LCTyping. Proof. exact (go_compile_untyped _ bad_convert_untyped ltac:(vm_compute; reflexivity)). Qed.
 Example bad_convert_no_compile  : ~ GoCompile bad_convert_program.
 Proof. exact (reject_no_compile bad_convert_program eq_refl). Qed.
 
@@ -5831,7 +5982,7 @@ Definition str_program : GoProgram :=
 Example str_program_typed    : program_typedb str_program = true. Proof. vm_compute; reflexivity. Qed.
 Example str_program_ok       : prog_ok str_program = true.        Proof. vm_compute; reflexivity. Qed.
 Example str_program_compiles : exists cp Hcp, go_compile str_program = CompiledOk cp Hcp.
-Proof. exact (go_compile_ok_of_prog_ok _ str_program_ok). Qed.
+Proof. exact (go_compile_ok_of_prog_ok _ str_program_ok ltac:(vm_compute; reflexivity)). Qed.
 
 (** ---- float programs (§38): a concrete accepted float program (a bare float64, an explicit float32
     conversion, and an exact float->int conversion) compiles to a [CompilableProgram]; a fractional
@@ -5847,7 +5998,7 @@ Definition float_program : GoProgram :=
 Example float_program_typed    : program_typedb float_program = true. Proof. vm_compute. reflexivity. Qed.
 Example float_program_ok       : prog_ok float_program = true.        Proof. vm_compute. reflexivity. Qed.
 Example float_program_compiles : exists cp Hcp, go_compile float_program = CompiledOk cp Hcp.
-Proof. exact (go_compile_ok_of_prog_ok _ float_program_ok). Qed.
+Proof. exact (go_compile_ok_of_prog_ok _ float_program_ok ltac:(vm_compute; reflexivity)). Qed.
 
 Definition float_reject_program : GoProgram :=
   singleton_program
@@ -5856,7 +6007,7 @@ Definition float_reject_program : GoProgram :=
     [ DMain [ SPrintln [ EIntConvert IInt (EFloat (mkDecimal 35 (-1) eq_refl)) ] ] ].   (* int(3.5): fractional *)
 Example float_reject_untyped    : program_typedb float_reject_program = false. Proof. vm_compute. reflexivity. Qed.
 Example float_reject_rejected   : legacy_compile_class (go_compile float_reject_program) = LCTyping.
-Proof. exact (go_compile_untyped _ float_reject_untyped). Qed.
+Proof. exact (go_compile_untyped _ float_reject_untyped ltac:(vm_compute; reflexivity)). Qed.
 Example float_reject_no_compile : ~ GoCompile float_reject_program.
 Proof. apply (reject_no_compile float_reject_program); vm_compute; reflexivity. Qed.
 
@@ -5876,7 +6027,7 @@ Definition complex_program : GoProgram :=
 Example complex_program_typed    : program_typedb complex_program = true. Proof. vm_compute. reflexivity. Qed.
 Example complex_program_ok       : prog_ok complex_program = true.        Proof. vm_compute. reflexivity. Qed.
 Example complex_program_compiles : exists cp Hcp, go_compile complex_program = CompiledOk cp Hcp.
-Proof. exact (go_compile_ok_of_prog_ok _ complex_program_ok). Qed.
+Proof. exact (go_compile_ok_of_prog_ok _ complex_program_ok ltac:(vm_compute; reflexivity)). Qed.
 
 Definition complex_overflow_program : GoProgram :=
   singleton_program
@@ -5884,7 +6035,7 @@ Definition complex_overflow_program : GoProgram :=
     (mkFP "main.go" eq_refl)
     [ DMain [ SPrintln [ EComplexConvert C64 (EComplex (mkDC (mkDecimal 1 39 eq_refl) (mkDecimal 0 0 eq_refl))) ] ] ].
 Example complex_overflow_untyped    : program_typedb complex_overflow_program = false. Proof. vm_compute. reflexivity. Qed.
-Example complex_overflow_rejected   : legacy_compile_class (go_compile complex_overflow_program) = LCTyping. Proof. exact (go_compile_untyped _ complex_overflow_untyped). Qed.
+Example complex_overflow_rejected   : legacy_compile_class (go_compile complex_overflow_program) = LCTyping. Proof. exact (go_compile_untyped _ complex_overflow_untyped ltac:(vm_compute; reflexivity)). Qed.
 Example complex_overflow_no_compile : ~ GoCompile complex_overflow_program.
 Proof. apply (reject_no_compile complex_overflow_program); vm_compute; reflexivity. Qed.
 
@@ -5894,7 +6045,7 @@ Definition complex_nonzero_imag_program : GoProgram :=
     (mkFP "main.go" eq_refl)
     [ DMain [ SPrintln [ EIntConvert IInt (EComplex (mkDC (mkDecimal 3 0 eq_refl) (mkDecimal 1 0 eq_refl))) ] ] ].
 Example complex_nonzero_imag_untyped    : program_typedb complex_nonzero_imag_program = false. Proof. vm_compute. reflexivity. Qed.
-Example complex_nonzero_imag_rejected   : legacy_compile_class (go_compile complex_nonzero_imag_program) = LCTyping. Proof. exact (go_compile_untyped _ complex_nonzero_imag_untyped). Qed.
+Example complex_nonzero_imag_rejected   : legacy_compile_class (go_compile complex_nonzero_imag_program) = LCTyping. Proof. exact (go_compile_untyped _ complex_nonzero_imag_untyped ltac:(vm_compute; reflexivity)). Qed.
 Example complex_nonzero_imag_no_compile : ~ GoCompile complex_nonzero_imag_program.
 Proof. apply (reject_no_compile complex_nonzero_imag_program); vm_compute; reflexivity. Qed.
 
@@ -5930,14 +6081,15 @@ Theorem reorder_construction_deterministic :
     /\ GoIndex.NodeKeyMapBase.elements (prog_expr_facts p1) = GoIndex.NodeKeyMapBase.elements (prog_expr_facts p2).
 Proof.
   intros p1 p2 idx1 idx2 H1 H2.
-  assert (HFE : GoAST.FilesEqual (prog_files p1) (prog_files p2)).
+  assert (HIE : ProgramInputEqual p1 p2).
   { unfold build_program in H1, H2.
     destruct (filemap_of_nodes [rnode_a; rnode_b]) as [fm1|] eqn:F1; [ | discriminate ].
     destruct (filemap_of_nodes [rnode_b; rnode_a]) as [fm2|] eqn:F2; [ | discriminate ].
-    injection H1 as <-. injection H2 as <-. cbn [prog_files].
+    injection H1 as <-. injection H2 as <-. split; [ reflexivity | cbn [prog_files] ].
     exact (filemap_of_nodes_permutation _ _ fm1 fm2 (perm_swap rnode_b rnode_a []) F1 F2). }
+  pose proof (proj2 HIE) as HFE.
   split; [ exact (erased_report_FilesEqual p1 p2 idx1 idx2 HFE) |].
-  split; [ exact (go_compile_class_Equal p1 p2 HFE) | exact (prog_expr_facts_enum_FilesEqual p1 p2 HFE) ].
+  split; [ exact (go_compile_class_Equal p1 p2 HIE) | exact (prog_expr_facts_enum_FilesEqual p1 p2 HFE) ].
 Qed.
 
 (** ---- §22.13 — EMPTY PROGRAM: the module-only program is ACCEPTED with an EMPTY erased report and an EMPTY
