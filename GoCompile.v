@@ -5922,3 +5922,66 @@ Proof.
     rewrite <- in_rev in Hin. exact Hin.
   - apply filename_ok_has_dot. exact Hfn.
 Qed.
+
+(** §C3-FRESH.5 (§7 map) — the fresh ROOT LAYOUT as a standard string-keyed [PackageMap]: "go.mod" -> FREGoMod,
+    each root-level file -> its FRESourceFile, each nested file's first component -> FREDirectory.  Built by one
+    fold over the file bindings; conflict-free by the disjointness above (proved via [root_entry_hval]). *)
+
+Definition root_entry_of_file (b : FilePath * GoSourceFile) : string * FreshRootEntryKind :=
+  if String.eqb (fp_parent (fst b)) ""
+  then (fp_string (fst b), FRESourceFile (fst b))
+  else (first_component (fp_string (fst b)), FREDirectory).
+
+Definition root_layout (p : GoProgram) : PM.t FreshRootEntryKind :=
+  fold_right (fun b acc => PM.add (fst (root_entry_of_file b)) (snd (root_entry_of_file b)) acc)
+             (PM.add "go.mod" FREGoMod (PM.empty _))
+             (GoAST.file_bindings (prog_files p)).
+
+(* GENERIC fold-of-adds find: an absent key falls through to [init]; a present key gets its (unique) value. *)
+Lemma fold_add_find_notin {A} (kv : (FilePath * GoSourceFile) -> string * A) (init : PM.t A)
+    (l : list (FilePath * GoSourceFile)) (e : string) :
+  (forall b, In b l -> fst (kv b) <> e) ->
+  PM.find e (fold_right (fun b acc => PM.add (fst (kv b)) (snd (kv b)) acc) init l) = PM.find e init.
+Proof.
+  induction l as [|b l IH]; intro Hni; [reflexivity|].
+  cbn [fold_right]. destruct (String.eqb (fst (kv b)) e) eqn:Eb.
+  - apply String.eqb_eq in Eb. exfalso. exact (Hni b (or_introl eq_refl) Eb).
+  - apply String.eqb_neq in Eb. rewrite PMF.add_neq_o by exact Eb. apply IH. intros b' Hb'. apply Hni; right; exact Hb'.
+Qed.
+
+Lemma fold_add_find_in {A} (kv : (FilePath * GoSourceFile) -> string * A) (init : PM.t A)
+    (l : list (FilePath * GoSourceFile)) (e : string) (b0 : FilePath * GoSourceFile) :
+  In b0 l -> fst (kv b0) = e ->
+  (forall b1 b2, In b1 l -> In b2 l -> fst (kv b1) = fst (kv b2) -> snd (kv b1) = snd (kv b2)) ->
+  PM.find e (fold_right (fun b acc => PM.add (fst (kv b)) (snd (kv b)) acc) init l) = Some (snd (kv b0)).
+Proof.
+  induction l as [|b l IH]; intros Hin Hk Hval; [destruct Hin|].
+  cbn [fold_right]. destruct (String.eqb (fst (kv b)) e) eqn:Eb.
+  - apply String.eqb_eq in Eb. rewrite PMF.add_eq_o by exact Eb. f_equal.
+    apply (Hval b b0); [ left; reflexivity | exact Hin | rewrite Eb; symmetry; exact Hk ].
+  - apply String.eqb_neq in Eb. rewrite PMF.add_neq_o by exact Eb.
+    destruct Hin as [Hb0|Hin]; [ subst b0; exfalso; exact (Eb Hk) |].
+    apply IH; [ exact Hin | exact Hk | intros b1 b2 H1 H2; apply Hval; right; assumption ].
+Qed.
+
+(* the root-entry key uniquely determines its value: same key => same kind (the §7 conflict audit, mapped). *)
+Lemma root_entry_hval : forall b1 b2 : FilePath * GoSourceFile,
+  fst (root_entry_of_file b1) = fst (root_entry_of_file b2) ->
+  snd (root_entry_of_file b1) = snd (root_entry_of_file b2).
+Proof.
+  intros b1 b2 Hk. unfold root_entry_of_file in *.
+  destruct (String.eqb (fp_parent (fst b1)) "") eqn:E1;
+    destruct (String.eqb (fp_parent (fst b2)) "") eqn:E2; cbn [fst snd] in *.
+  - assert (Hp : fst b1 = fst b2) by (apply fp_eq; exact Hk). rewrite Hp. reflexivity.
+  - exfalso. apply String.eqb_neq in E2.
+    pose proof (path_ok_has_dot (fp_string (fst b1)) (fp_ok (fst b1))) as Hd1.
+    pose proof (first_component_dir_ok (fp_string (fst b2)) (fp_ok (fst b2)) E2) as Hdc2.
+    unfold FilePath.dir_component_ok in Hdc2. apply andb_true_iff in Hdc2. destruct Hdc2 as [Hc2 _].
+    rewrite Hk, (component_ok_no_dot _ Hc2) in Hd1. discriminate Hd1.
+  - exfalso. apply String.eqb_neq in E1.
+    pose proof (path_ok_has_dot (fp_string (fst b2)) (fp_ok (fst b2))) as Hd2.
+    pose proof (first_component_dir_ok (fp_string (fst b1)) (fp_ok (fst b1)) E1) as Hdc1.
+    unfold FilePath.dir_component_ok in Hdc1. apply andb_true_iff in Hdc1. destruct Hdc1 as [Hc1 _].
+    rewrite <- Hk, (component_ok_no_dot _ Hc1) in Hd2. discriminate Hd2.
+  - reflexivity.
+Qed.
