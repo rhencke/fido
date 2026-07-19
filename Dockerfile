@@ -685,9 +685,11 @@ if ! go vet ./...; then echo "fido e2e: go vet reported diagnostics (nonblocking
 # PRISTINE tree; §22/§24 — never build in the authoritative tree, never copy a post-build byte back)
 if ! fido_go_build_all_fresh /e2e/tree WFRESH; then cat "${WFRESH:-/dev/null}/.build.err" 2>/dev/null; echo "fido e2e: go build ./... FAILED in a fresh root (a certified tree must always compile)"; exit 1; fi
 echo "fido e2e: witness go build ./... OK in a fresh materialized root ($WFRESH)"
-# run the witness (root) package and compare to the reviewed goldens — built + run IN THE FRESH ROOT, discarded
-if ! ( cd "$WFRESH" && go build -o prog . ); then echo "fido e2e: go build of the witness package FAILED"; exit 1; fi
-"$WFRESH/prog" > out.stdout 2> out.stderr; ec=$?
+# the sole-main `go build ./...` ALREADY wrote the default executable to the fresh root — RUN THAT and compare to
+# the reviewed goldens (NO second build in the same root; the runner runs `go build ./...` exactly once)
+WEXE=$(find "$WFRESH" -maxdepth 1 -type f -perm -u+x)
+{ [ -n "$WEXE" ] && [ "$(printf '%s\n' "$WEXE" | wc -l)" = 1 ] && [ -x "$WEXE" ]; } || { echo "fido e2e: the sole-main go build ./... produced not-exactly-one default executable [$WEXE]"; rm -rf "$WFRESH"; exit 1; }
+"$WEXE" > out.stdout 2> out.stderr; ec=$?
 echo "fido e2e: exit=$ec stdout=[$(cat out.stdout)] stderr=[$(cat out.stderr)]"
 printf '%s\n' "$ec" > out.exit
 echo "fido e2e: out.stderr hex (for golden review):"; od -An -v -tx1 out.stderr | tr -s ' '
@@ -705,8 +707,10 @@ rm -rf /e2e/bytes/.fido; find /e2e/bytes -name '*.fido-tmp-v1' -delete 2>/dev/nu
 [ -f /e2e/bytes/main.go ] || { echo "fido e2e bytes: no boundary-byte main.go"; exit 1; }
 if [ -n "$( cd /e2e/bytes && gofmt -l . )" ]; then echo "fido e2e bytes: boundary-byte Go is not gofmt-clean"; ( cd /e2e/bytes && gofmt -l . ); exit 1; fi
 if ! fido_go_build_all_fresh /e2e/bytes BFRESH; then cat "${BFRESH:-/dev/null}/.build.err" 2>/dev/null; echo "fido e2e bytes: go build ./... FAILED in a fresh root"; exit 1; fi
-( cd "$BFRESH" && go build -o probe . ) || { echo "fido e2e bytes: go build of the boundary-byte witness FAILED"; rm -rf "$BFRESH"; exit 1; }
-"$BFRESH/probe" > /e2e/bytes.out 2> /e2e/bytes.err; bec=$?
+# run the default executable the sole-main `go build ./...` already produced (NO second build in the same root)
+BEXE=$(find "$BFRESH" -maxdepth 1 -type f -perm -u+x)
+{ [ -n "$BEXE" ] && [ "$(printf '%s\n' "$BEXE" | wc -l)" = 1 ] && [ -x "$BEXE" ]; } || { echo "fido e2e bytes: the sole-main go build ./... produced not-exactly-one default executable [$BEXE]"; rm -rf "$BFRESH"; exit 1; }
+"$BEXE" > /e2e/bytes.out 2> /e2e/bytes.err; bec=$?
 [ "$bec" = 0 ] || { echo "fido e2e bytes: boundary-byte witness exited $bec"; rm -rf "$BFRESH"; exit 1; }
 b_actual=$(od -An -v -tx1 /e2e/bytes.err | tr -dc '0-9a-f')
 b_want=$(tr -dc '0-9a-f' < /e2e/golden.bytes.hex)
