@@ -5812,3 +5812,45 @@ Proof.
   intros d Hd Heq. subst d. unfold FilePath.dir_component_ok in Hd. apply andb_true_iff in Hd. destruct Hd as [Hc _].
   pose proof (component_ok_no_dot _ Hc) as Hnd. vm_compute in Hnd. discriminate Hnd.
 Qed.
+
+(** §C3-FRESH.4 (cont.) — file-vs-directory key disjointness: a root source basename is [filename_ok] (ends
+    ".go", hence DOTTED), so it can never equal a dot-free directory component key.  Completes the §7 audit. *)
+
+Lemma substring_full : forall s, String.substring 0 (String.length s) s = s.
+Proof. induction s as [|c s IH]; simpl; [reflexivity | rewrite IH; reflexivity]. Qed.
+
+Lemma substring_split : forall k s, (k <= String.length s)%nat ->
+  s = (String.substring 0 k s ++ String.substring k (String.length s - k) s)%string.
+Proof.
+  intros k s; revert k; induction s as [|c s IH]; intros [|k'] Hk.
+  - reflexivity.
+  - simpl in Hk; lia.
+  - change (String.substring 0 0 (String c s)) with EmptyString.
+    rewrite Nat.sub_0_r, substring_full. reflexivity.
+  - cbn [String.substring String.length Nat.sub String.append]. f_equal. apply IH. simpl in Hk; lia.
+Qed.
+
+Lemma ends_go_recon : forall s, FilePath.ends_go s = true -> s = (FilePath.strip_go s ++ ".go")%string.
+Proof.
+  intros s H. unfold FilePath.ends_go in H. apply andb_true_iff in H. destruct H as [Hn Heq].
+  apply Nat.leb_le in Hn. apply String.eqb_eq in Heq. unfold FilePath.strip_go.
+  pose proof (substring_split (String.length s - 3) s ltac:(lia)) as Hsp.
+  replace (String.length s - (String.length s - 3))%nat with 3%nat in Hsp by lia.
+  rewrite Heq in Hsp. exact Hsp.
+Qed.
+
+Lemma filename_ok_has_dot : forall s, FilePath.filename_ok s = true -> contains_dot s = true.
+Proof.
+  intros s H. unfold FilePath.filename_ok in H. apply andb_true_iff in H. destruct H as [Hends _].
+  rewrite (ends_go_recon s Hends), contains_dot_app.
+  replace (contains_dot ".go") with true by reflexivity. apply Bool.orb_true_r.
+Qed.
+
+Lemma dir_component_neq_filename : forall d f,
+  FilePath.dir_component_ok d = true -> FilePath.filename_ok f = true -> d <> f.
+Proof.
+  intros d f Hd Hf Heq. subst f.
+  unfold FilePath.dir_component_ok in Hd. apply andb_true_iff in Hd. destruct Hd as [Hc _].
+  pose proof (component_ok_no_dot d Hc) as Hnd. pose proof (filename_ok_has_dot d Hf) as Hyd.
+  rewrite Hnd in Hyd. discriminate Hyd.
+Qed.
