@@ -6026,3 +6026,73 @@ Proof.
                (fun b1 b2 _ _ => root_entry_hval b1 b2)).
     rewrite Hkv. reflexivity.
 Qed.
+
+(** ============================================================================================
+    §C3-FRESH.6 (§13/§14) — the retained FRESH BUILD PLAN + its preflight.  After loading packages, cmd/go
+    picks a default output ONLY for a sole selected MAIN package, then stats that name and FAILS (before
+    compiling) if it is an existing DIRECTORY.  0 or >=2 selected packages write no default output (no
+    preflight).  The current grammar makes every package `package main`, so a sole selected package is always
+    a main package.  (A future single NON-main package would take an FBDDiscardSingleLibrary branch — omitted
+    until that syntax exists.)  Derived purely from the retained PackageMap + ModuleSpec + root layout: no
+    syntax revisit, no index rebuild, no rendering, no cmd/go call, no filesystem scan.
+    ============================================================================================ *)
+
+Inductive FreshBuildDisposition : Type :=
+| FBDNoPackages
+| FBDDiscardMultiple (count : nat)
+| FBDWriteSingleMain (dir import_path output_name : string) (target : option FreshRootEntryKind).
+
+Definition fresh_build_plan (p : GoProgram) : FreshBuildDisposition :=
+  match selected_package_keys p with
+  | [] => FBDNoPackages
+  | dir :: nil =>
+      let ip := package_import_path (prog_module p) dir in
+      let ex := default_exec_name ip in
+      FBDWriteSingleMain dir ip ex (PM.find ex (root_layout p))
+  | _ :: _ :: _ => FBDDiscardMultiple (selected_package_count p)
+  end.
+
+(* the preflight decision: reject ONLY a sole-main default output name that is an existing root directory. *)
+Definition fresh_build_disposition_ok (d : FreshBuildDisposition) : bool :=
+  match d with
+  | FBDWriteSingleMain _ _ _ (Some FREDirectory) => false
+  | _ => true
+  end.
+
+Definition fresh_build_preflight_ok (p : GoProgram) : Prop :=
+  fresh_build_disposition_ok (fresh_build_plan p) = true.
+
+(* the ONLY command-level preflight failure: a sole selected package whose default exec name is a root DIR. *)
+Lemma preflight_fails_iff : forall p,
+  fresh_build_disposition_ok (fresh_build_plan p) = false <->
+  (exists dir, selected_package_keys p = [dir]
+     /\ PM.find (default_exec_name (package_import_path (prog_module p) dir)) (root_layout p) = Some FREDirectory).
+Proof.
+  intros p. unfold fresh_build_plan, fresh_build_disposition_ok.
+  destruct (selected_package_keys p) as [|dir [|d2 rest]] eqn:Ek.
+  - split; [ discriminate | intros [d [Hd _]]; discriminate Hd ].
+  - cbn.
+    destruct (PM.find (default_exec_name (package_import_path (prog_module p) dir)) (root_layout p))
+      as [k|] eqn:Ef.
+    + destruct k; cbn.
+      * split; [ discriminate | intros [d [Hd Hf]]; injection Hd as ->; rewrite Ef in Hf; discriminate Hf ].
+      * split; [ discriminate | intros [d [Hd Hf]]; injection Hd as ->; rewrite Ef in Hf; discriminate Hf ].
+      * split; [ intros _; exists dir; split; [reflexivity | exact Ef] | reflexivity ].
+    + split; [ discriminate | intros [d [Hd Hf]]; injection Hd as ->; rewrite Ef in Hf; discriminate Hf ].
+  - cbn. split; [ discriminate | intros [d [Hd _]]; discriminate Hd ].
+Qed.
+
+(* the preflight failure, in cmd/go's terms (via root_layout_dir_iff): a sole package whose default exec name
+   equals a NESTED represented file's first path component (so the fresh image has a directory at that name). *)
+Corollary preflight_fails_dir : forall p,
+  ~ fresh_build_preflight_ok p <->
+  (exists dir b, selected_package_keys p = [dir]
+     /\ In b (GoAST.file_bindings (prog_files p)) /\ fp_parent (fst b) <> ""
+     /\ first_component (fp_string (fst b)) = default_exec_name (package_import_path (prog_module p) dir)).
+Proof.
+  intros p. unfold fresh_build_preflight_ok. rewrite Bool.not_true_iff_false, preflight_fails_iff. split.
+  - intros [dir [Hk Hf]]. apply (proj1 (root_layout_dir_iff p _)) in Hf.
+    destruct Hf as [b [Hin [Hpar Hfc]]]. exists dir, b. repeat split; assumption.
+  - intros [dir [b [Hk [Hin [Hpar Hfc]]]]]. exists dir. split; [ exact Hk |].
+    apply (proj2 (root_layout_dir_iff p _)). exists b. repeat split; assumption.
+Qed.
