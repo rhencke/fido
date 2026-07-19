@@ -655,9 +655,20 @@ Definition binding_visit (p : GoProgram) (b : FilePath * GoSourceFile)
   | None => []
   end.
 
-(** the WHOLE-PROGRAM visit stream: each file visited once, in canonical FileMap path order. *)
+(** the RETAINED per-file visit blocks: each file's stream, visited ONCE, in canonical FileMap path order.
+    [analyze_indexed] retains this and derives BOTH the flattened analysis stream ([prog_visit] = [concat])
+    AND the enclosing-context annotations ([annotate_program]) from it — one [Snap.visit_file] per file. *)
+Definition prog_blocks (p : GoProgram) : list (list (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence)) :=
+  map (binding_visit p) (GoAST.file_bindings (prog_files p)).
+
+(** the WHOLE-PROGRAM visit stream: the retained blocks flattened (each file visited once, path order). *)
 Definition prog_visit (p : GoProgram) : list (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence) :=
-  flat_map (binding_visit p) (GoAST.file_bindings (prog_files p)).
+  concat (prog_blocks p).
+
+(** the flattened stream IS the per-binding flat_map (used by the existing membership/fold proofs). *)
+Lemma prog_visit_flat_map (p : GoProgram) :
+  prog_visit p = flat_map (binding_visit p) (GoAST.file_bindings (prog_files p)).
+Proof. unfold prog_visit, prog_blocks. rewrite flat_map_concat_map. reflexivity. Qed.
 
 (** every key in one binding's block has that binding's path (used for cross-file disjointness). *)
 Lemma binding_visit_key_file : forall p b k,
@@ -676,7 +687,7 @@ Qed.
 Lemma prog_visit_key_nodup (p : GoProgram) :
   NoDup (map (fun ro => GoIndex.Snap.node_ref_key (fst ro)) (prog_visit p)).
 Proof.
-  unfold prog_visit. rewrite map_flat_map.
+  rewrite prog_visit_flat_map, map_flat_map.
   apply (nodup_flat_map_tag
            (fun b => map (fun ro => GoIndex.Snap.node_ref_key (fst ro)) (binding_visit p b))
            GoIndex.nk_file (fun b => fst b) (GoAST.file_bindings (prog_files p))).
@@ -960,7 +971,7 @@ Lemma prog_visit_const_info_some (p : GoProgram) :
   GoTypes.program_typedb p = true ->
   forall r occ e', In (r, occ) (prog_visit p) -> GoIndex.view_expr occ = Some e' -> exists ci, const_info e' = Some ci.
 Proof.
-  intros Hpt r occ e' Hin Hv. unfold prog_visit in Hin. apply in_flat_map in Hin.
+  intros Hpt r occ e' Hin Hv. rewrite prog_visit_flat_map in Hin. apply in_flat_map in Hin.
   destruct Hin as [b [Hb Hrb]]. unfold binding_visit in Hrb.
   destruct (GoIndex.Snap.file_of_path p (fst b)) as [fr|] eqn:Ef; [|destruct Hrb].
   pose proof (GoIndex.Snap.visit_file_view p fr r occ Hrb) as [Hocc Hfile].
@@ -990,7 +1001,7 @@ Proof.
   pose proof (GoAST.find_file_bindings (prog_files p)
                 (GoIndex.Snap.file_ref_path (GoIndex.Snap.node_ref_file r))
                 (GoIndex.Snap.file_ref_source (GoIndex.Snap.node_ref_file r)) Hfind) as Hin_b.
-  unfold prog_visit. apply in_flat_map.
+  rewrite prog_visit_flat_map. apply in_flat_map.
   exists (GoIndex.Snap.file_ref_path (GoIndex.Snap.node_ref_file r),
           GoIndex.Snap.file_ref_source (GoIndex.Snap.node_ref_file r)).
   split; [exact Hin_b|]. unfold binding_visit; cbn [fst].
@@ -1017,7 +1028,7 @@ Lemma prog_visit_operand (p : GoProgram) (r : GoIndex.Snap.NodeRef p) occ e x :
     /\ GoIndex.view_expr (GoIndex.Snap.source_occurrence_of_ref r') = Some x.
 Proof.
   intros Hin Hv Hc.
-  unfold prog_visit in Hin. apply in_flat_map in Hin. destruct Hin as [b [Hb Hrb]].
+  rewrite prog_visit_flat_map in Hin. apply in_flat_map in Hin. destruct Hin as [b [Hb Hrb]].
   unfold binding_visit in Hrb. destruct (GoIndex.Snap.file_of_path p (fst b)) as [fr|] eqn:Ef; [|destruct Hrb].
   pose proof (GoIndex.Snap.visit_file_view p fr r occ Hrb) as [Hocc Hfile].
   assert (Hsrc : GoIndex.source_occurrence_at (GoIndex.Snap.file_ref_source fr) (GoIndex.Snap.node_ref_local r) = Some occ).
@@ -1166,7 +1177,7 @@ Proof.
   assert (Hin_ro : In (r, occ) (prog_visit p)) by (rewrite Hsplit; apply in_or_app; right; left; reflexivity).
   destruct (prog_visit_operand p r occ e x Hin_ro Hv Hc) as [r' [Hin'p [Hkey Hvx]]].
   exists r', (GoIndex.Snap.source_occurrence_of_ref r'). split; [exact Hkey | split; [exact Hvx |]].
-  pose proof Hin_ro as Hb0. unfold prog_visit in Hb0. apply in_flat_map in Hb0. destruct Hb0 as [b [Hb Hrb]].
+  pose proof Hin_ro as Hb0. rewrite prog_visit_flat_map in Hb0. apply in_flat_map in Hb0. destruct Hb0 as [b [Hb Hrb]].
   unfold binding_visit in Hrb. destruct (GoIndex.Snap.file_of_path p (fst b)) as [fr|] eqn:Ef; [|destruct Hrb].
   pose proof (GoIndex.Snap.visit_file_view p fr r occ Hrb) as [_ Hfile].
   pose proof (GoIndex.Snap.node_ref_key_eq r') as Hk'. rewrite Hkey in Hk'. unfold operand_key in Hk'.
@@ -1182,7 +1193,7 @@ Proof.
   apply in_split in Hb. destruct Hb as [B1 [B2 Hbsplit]].
   assert (Hbv : binding_visit p b = GoIndex.Snap.visit_file fr) by (unfold binding_visit; rewrite Ef; reflexivity).
   assert (Hpv : prog_visit p = (flat_map (binding_visit p) B1 ++ P) ++ (r, occ) :: (S ++ flat_map (binding_visit p) B2)).
-  { unfold prog_visit. rewrite Hbsplit, flat_map_app. cbn [flat_map]. rewrite Hbv, Hvfsplit.
+  { rewrite prog_visit_flat_map, Hbsplit, flat_map_app. cbn [flat_map]. rewrite Hbv, Hvfsplit.
     rewrite <- !app_assoc. reflexivity. }
   pose proof (prog_visit_key_nodup p) as Hnd.
   assert (Hl2 : l2 = S ++ flat_map (binding_visit p) B2).
@@ -1361,7 +1372,7 @@ Definition expr_all_ok (p : GoProgram) : bool :=
     expression half of [AnalysisOK <-> GoCompile]: no expression diagnostic <-> every argument resolves. *)
 Lemma expr_all_ok_program_typedb (p : GoProgram) : expr_all_ok p = program_typedb p.
 Proof.
-  unfold expr_all_ok, prog_visit. rewrite forallb_flat_map. unfold program_typedb.
+  unfold expr_all_ok. rewrite prog_visit_flat_map, forallb_flat_map. unfold program_typedb.
   apply GoTypes.forallb_ext_in. intros b Hb. unfold binding_visit.
   pose proof (GoAST.file_bindings_find (prog_files p) b Hb) as Hfind.
   destruct (GoIndex.Snap.file_of_path_source p (fst b) (snd b) Hfind) as [fr [Hfop [Hpath Hsrc]]].
@@ -1515,9 +1526,13 @@ Fixpoint annotate_encl {p} (idx : GoIndex.Snap.SyntaxIndex p)
       (ro, map fst open) :: annotate_encl idx stack' rest
   end.
 
+Lemma flat_map_map {A B C} (f : B -> list C) (g : A -> B) (l : list A) :
+  flat_map f (map g l) = flat_map (fun x => f (g x)) l.
+Proof. induction l as [|a l IH]; [reflexivity|]. cbn [map flat_map]. rewrite IH. reflexivity. Qed.
+
 Definition annotate_program {p} (idx : GoIndex.Snap.SyntaxIndex p)
   : list ((GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence) * list (GoIndex.ExprRef p)) :=
-  flat_map (fun b => annotate_encl idx [] (binding_visit p b)) (GoAST.file_bindings (prog_files p)).
+  flat_map (annotate_encl idx []) (prog_blocks p).
 
 (** the annotation preserves the underlying occurrence stream (it only attaches context). *)
 Lemma annotate_encl_fst {p} (idx : GoIndex.Snap.SyntaxIndex p) stack stream :
@@ -1531,8 +1546,8 @@ Lemma annotate_program_fst {p} (idx : GoIndex.Snap.SyntaxIndex p) :
   map fst (annotate_program idx) = prog_visit p.
 Proof.
   unfold annotate_program, prog_visit.
-  induction (GoAST.file_bindings (prog_files p)) as [|b L IH]; [reflexivity|].
-  cbn [flat_map]. rewrite map_app, annotate_encl_fst, IH. reflexivity.
+  induction (prog_blocks p) as [|b L IH]; [reflexivity|].
+  cbn [flat_map concat]. rewrite map_app, annotate_encl_fst, IH. reflexivity.
 Qed.
 
 (** the diagnostic(s) an occurrence emits (a singleton or nothing), anchored at its OWN validated ExprRef.
@@ -1704,7 +1719,7 @@ Proof.
   { unfold GoIndex.as_expr, GoIndex.as_kind in Ea.
     destruct (GoIndex.syntaxkind_eq_dec (GoIndex.Snap.node_kind idx r) GoIndex.KExpression) as [He|]; [exact He|discriminate Ea]. }
   assert (Hocc : occ = GoIndex.Snap.source_occurrence_of_ref r).
-  { pose proof Hin as HinC. unfold prog_visit in HinC. apply in_flat_map in HinC. destruct HinC as [b [_ Hrb]].
+  { pose proof Hin as HinC. rewrite prog_visit_flat_map in HinC. apply in_flat_map in HinC. destruct HinC as [b [_ Hrb]].
     unfold binding_visit in Hrb. destruct (GoIndex.Snap.file_of_path p (fst b)) as [fr|]; [|destruct Hrb].
     destruct (GoIndex.Snap.visit_file_view p fr r occ Hrb) as [Ho _]. exact Ho. }
   assert (Hkind : GoIndex.occurrence_kind occ = GoIndex.KExpression).
@@ -1886,7 +1901,7 @@ Qed.
 Lemma emits_none_program_typedb (p : GoProgram) :
   forallb (fun x => occ_emits_none_pure (snd x)) (prog_visit p) = program_typedb p.
 Proof.
-  unfold prog_visit. rewrite forallb_flat_map. unfold program_typedb.
+  rewrite prog_visit_flat_map, forallb_flat_map. unfold program_typedb.
   apply GoTypes.forallb_ext_in. intros b Hb. unfold binding_visit.
   pose proof (GoAST.file_bindings_find (prog_files p) b Hb) as Hfind.
   destruct (GoIndex.Snap.file_of_path_source p (fst b) (snd b) Hfind) as [fr [Hfop [Hpath Hsrc]]].
@@ -1897,7 +1912,7 @@ Qed.
 Lemma prog_visit_view (p : GoProgram) (r : GoIndex.Snap.NodeRef p) occ :
   In (r, occ) (prog_visit p) -> occ = GoIndex.Snap.source_occurrence_of_ref r.
 Proof.
-  unfold prog_visit. intro Hin. apply in_flat_map in Hin. destruct Hin as [b [Hb Hin]].
+  rewrite prog_visit_flat_map. intro Hin. apply in_flat_map in Hin. destruct Hin as [b [Hb Hin]].
   unfold binding_visit in Hin. destruct (GoIndex.Snap.file_of_path p (fst b)) as [fr|]; [| destruct Hin].
   destruct (GoIndex.Snap.visit_file_view p fr r occ Hin) as [Hocc _]. exact Hocc.
 Qed.
@@ -2284,7 +2299,7 @@ Proof. induction l1 as [|ro l1 IH]; cbn [pkg_declcount app]; [reflexivity | rewr
 Lemma pkg_declcount_prog_visit {p} (idx : GoIndex.Snap.SyntaxIndex p) (dir : string) :
   pkg_declcount idx dir (prog_visit p) = pkg_main_count dir (prog_files p).
 Proof.
-  unfold prog_visit, pkg_main_count.
+  rewrite prog_visit_flat_map. unfold pkg_main_count.
   assert (H : forall L, (forall b, In b L -> In b (GoAST.file_bindings (prog_files p))) ->
              pkg_declcount idx dir (flat_map (binding_visit p) L) = list_dir_count dir L).
   { induction L as [|b rest IHL]; intro Hsub; [reflexivity|].
@@ -2385,7 +2400,7 @@ Proof.
   rewrite (ppkg_find_some_iff idx (prog_visit p) (PM.empty _) dir). rewrite PMF.empty_o. split.
   - intros [[[r occ] [Hin [Hpkg _]]]|Hne]; [| exfalso; apply Hne; reflexivity].
     (* the occurrence's file is in prog_files with parent dir *)
-    unfold prog_visit in Hin. apply in_flat_map in Hin. destruct Hin as [b [Hb Hrb]].
+    rewrite prog_visit_flat_map in Hin. apply in_flat_map in Hin. destruct Hin as [b [Hb Hrb]].
     unfold binding_visit in Hrb. destruct (GoIndex.Snap.file_of_path p (fst b)) as [fr|] eqn:Ef; [|destruct Hrb].
     destruct (GoIndex.Snap.visit_file_view p fr r occ Hrb) as [_ Hfile].
     unfold occ_pkg in Hpkg. cbn [fst] in Hpkg. rewrite Hfile, (GoIndex.Snap.file_of_path_sound p (fst b) fr Ef) in Hpkg.
@@ -2647,7 +2662,7 @@ Definition source_keyed_visit (fm : GoAST.GoFileMap) : list (GoIndex.NodeKey * G
 
 Lemma keyed_visit_source (p : GoProgram) : keyed_visit p = source_keyed_visit (prog_files p).
 Proof.
-  unfold keyed_visit, source_keyed_visit, prog_visit. rewrite map_flat_map.
+  unfold keyed_visit, source_keyed_visit. rewrite prog_visit_flat_map, map_flat_map.
   apply flat_map_ext_in. intros b Hin. exact (keyed_binding_visit p b Hin).
 Qed.
 
@@ -2759,7 +2774,8 @@ Definition annotate_source (fm : GoAST.GoFileMap)
 Lemma annotate_program_erased {p} (idx : GoIndex.Snap.SyntaxIndex p) :
   map erase_annot (annotate_program idx) = annotate_source (prog_files p).
 Proof.
-  unfold annotate_program, annotate_source. rewrite map_flat_map.
+  unfold annotate_program, prog_blocks. rewrite flat_map_map.
+  unfold annotate_source. rewrite map_flat_map.
   apply flat_map_ext_in. intros b Hin.
   rewrite (annotate_encl_erased idx [] (binding_visit p b) (binding_visit_valid p b)).
   cbn [erase_estack]. f_equal. exact (keyed_binding_visit p b Hin).
@@ -2774,9 +2790,6 @@ Proof.
   rewrite Hb. reflexivity.
 Qed.
 
-Lemma flat_map_map {A B C} (f : B -> list C) (g : A -> B) (l : list A) :
-  flat_map f (map g l) = flat_map (fun x => f (g x)) l.
-Proof. induction l as [|a l IH]; [reflexivity|]. cbn [map flat_map]. rewrite IH. reflexivity. Qed.
 
 (* the ERASED expression diagnostic an annotated KEYED occurrence emits — the same decision as [occ_expr_diags]
    but over erased data (its NodeKey + occurrence + enclosing-context KEYS); a pure source function. *)
@@ -3371,11 +3384,13 @@ Definition analyze_valid_of_no_diags (p : GoProgram) (ip : GoIndex.IndexedProgra
     unchanged.) *)
 Definition analyze_indexed (p : GoProgram) (ip : GoIndex.IndexedProgram p) : AnalysisResult p ip :=
   let idx     := GoIndex.indexed_syntax ip in
-  let visit   := prog_visit p in
+  let blocks  := prog_blocks p in                (* the per-file visit blocks, retained ONCE *)
+  let visit   := concat blocks in                (* = prog_visit p — the flattened analysis stream *)
   let status  := fold_right psm_step (GoIndex.NodeKeyMapBase.empty (option ConstInfo)) visit in
   let buckets := fold_right (ppkg_step idx) (PM.empty (list (GoIndex.DeclRef p))) visit in
   let facts   := fold_right (add_occ_fact_sm status) (GoIndex.NodeKeyMapBase.empty ExprFact) visit in
-  let diags   := flat_map (fun roc => occ_expr_diags_sm status idx (snd roc) (fst roc)) (annotate_program idx)
+  let diags   := flat_map (fun roc => occ_expr_diags_sm status idx (snd roc) (fst roc))
+                          (flat_map (annotate_encl idx []) blocks)   (* = annotate_program idx *)
                    ++ bucket_diags_elems buckets (bucket_key_present idx)
                         (PM.elements buckets) (elements_all_mapsto buckets) in
   match list_is_nil diags with
