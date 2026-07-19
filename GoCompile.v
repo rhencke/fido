@@ -5707,3 +5707,48 @@ Proof.
     rewrite <- (string_app_empty_r mp) in H at 2. apply string_app_cancel_l in H. discriminate H.
   - apply string_app_cancel_l in H. injection H as H. exact H.
 Qed.
+
+(** ============================================================================================
+    §C3-FRESH.3 (§10) — the package set the literal `./...` pattern SELECTS: exactly the domain of the
+    one-pass [package_summaries] PackageMap (= the distinct parent directories of the represented FilePaths).
+    The canonical enumeration is the standard map's [elements] (a DERIVED list, not a second authority); NO
+    list-backed set.
+    ============================================================================================ *)
+
+Definition selected_packages (p : GoProgram) : PM.t PackageSummary := package_summaries (prog_files p).
+Definition selected_package_keys (p : GoProgram) : list string := map fst (PM.elements (selected_packages p)).
+Definition selected_package_count (p : GoProgram) : nat := length (selected_package_keys p).
+
+(** §10 domain exactness: a directory is a selected package IFF some represented file has that parent dir. *)
+Lemma selected_iff_file : forall p dir,
+  PM.In dir (selected_packages p) <->
+  (exists b, In b (GoAST.file_bindings (prog_files p)) /\ fp_parent (fst b) = dir).
+Proof.
+  intros p dir. unfold selected_packages. split.
+  - apply package_no_empty.
+  - intros [b [Hin Heq]].
+    assert (Hmem : list_dir_mem dir (GoAST.file_bindings (prog_files p)) = true).
+    { unfold list_dir_mem. apply existsb_exists. exists b. split; [ exact Hin | rewrite Heq; apply String.eqb_refl ]. }
+    exists (mkPkgSummary (pkg_main_count dir (prog_files p))).
+    apply PMF.find_mapsto_iff. rewrite package_summaries_find, Hmem. reflexivity.
+Qed.
+
+(** §10 — the empty program selects ZERO packages. *)
+Lemma selected_count_empty : forall ms, selected_package_count (empty_program ms) = 0%nat.
+Proof.
+  intro ms. unfold selected_package_count, selected_package_keys, selected_packages.
+  assert (He : PM.Empty (package_summaries (prog_files (empty_program ms)))).
+  { intros k e Hmt. apply PMF.find_mapsto_iff in Hmt.
+    cbn [prog_files empty_program] in Hmt. rewrite (package_summaries_empty k) in Hmt. discriminate. }
+  rewrite (proj1 (PMP.elements_Empty _) He). reflexivity.
+Qed.
+
+(** §10 — one directory coalesces to ONE selected package: two files sharing a parent directory land on the
+    SAME (unique) map key.  (Distinct parents land on distinct keys — intrinsic to the map's key identity.) *)
+Lemma selected_one_dir : forall p b1 b2,
+  In b1 (GoAST.file_bindings (prog_files p)) -> In b2 (GoAST.file_bindings (prog_files p)) ->
+  fp_parent (fst b1) = fp_parent (fst b2) ->
+  PM.In (fp_parent (fst b1)) (selected_packages p).
+Proof.
+  intros p b1 b2 Hin1 _ _. apply selected_iff_file. exists b1. split; [ exact Hin1 | reflexivity ].
+Qed.
