@@ -461,6 +461,31 @@ Print Assumptions GoCompile.elaborate_failed_iff_not_GoCompile.
 Print Assumptions GoCompile.pkg_all_ok_AllPackagesOneMain.
 Print Assumptions GoCompile.semantic_ok_b_ProgValid.
 
+(* C3-FRESH §9 — the source/package rule is FACTORED: package-block uniqueness AND main-package entry are
+   separate, and together they are EXACTLY the old "every package has one main"; SourceProgramValid is the old
+   source-only ProgValid (the equivalence is universal, not a narrow-grammar coincidence). *)
+Print Assumptions GoCompile.current_package_rules_exactly_one.
+Print Assumptions GoCompile.source_program_valid_iff.
+(* C3-FRESH §14/§17/§18 — GoCompile INCLUDES the pinned one-shot `go build ./...` output PREFLIGHT.  The three
+   diagnostic layers each have an emptiness/equivalence characterization (source, fresh, final); a failed
+   preflight takes PRECEDENCE (exactly one build-output-directory diagnostic, hiding the sole package's semantic
+   errors); go_compile only PROJECTS the one elaboration (no second checker). *)
+Print Assumptions GoCompile.preflight_fails_iff.
+Print Assumptions GoCompile.semantic_diagnostics_empty_iff_source_valid.
+Print Assumptions GoCompile.fresh_build_diagnostics_nil_iff.
+Print Assumptions GoCompile.fresh_build_diagnostics_fail_singleton.
+Print Assumptions GoCompile.elaboration_diagnostics_nil_iff_GoCompile.
+Print Assumptions GoCompile.elaboration_diagnostics_eq_semantic.
+Print Assumptions GoCompile.elaboration_diagnostics_fresh_failure.
+Print Assumptions GoCompile.go_compile_projects_elaborate.
+(* C3-FRESH §19 — the FreshBuildPlan / final report / acceptance class depend on the ModuleSpec (the preflight's
+   default exec name is a ModulePath function), so their determinism needs the FULL ProgramInputEqual, NOT
+   FilesEqual alone (the §20.16 counterexample: equal files, different module -> different plan). *)
+Print Assumptions GoCompile.root_layout_InputEqual.
+Print Assumptions GoCompile.package_import_path_InputEqual.
+Print Assumptions GoCompile.fresh_build_plan_InputEqual.
+Print Assumptions GoCompile.erased_elaboration_report_InputEqual.
+
 (* GoSafe: exact VALUE semantics — a zero literal and a negated zero agree; a resolved expression evaluates
    to a well-formed value of the resolved GoType (one type authority across compiler and runtime); value
    well-formedness reflection; an explicit INTEGER conversion carries its exact converted value (a float
@@ -589,6 +614,11 @@ Print Assumptions GoEmit.render_map_binding.
 Print Assumptions GoEmit.render_map_Equal.
 Print Assumptions GoEmit.di_go_file_entries_Equal.
 Print Assumptions GoEmit.di_transport_order_independent.
+(* C3-FRESH §8 — the DirectoryImage BRIDGE: the rendered image REALIZES the fresh root layout the plan is
+   computed over ([image_source_layout] over the image's own keys = [root_layout] over the source program), and
+   its `.go` file keys are EXACTLY the source FilePaths (no extra entry; go.mod is a distinguished field). *)
+Print Assumptions GoEmit.directory_image_realizes_fresh_layout.
+Print Assumptions GoEmit.image_go_files_are_source_paths.
 
 (* GoIndex (Source Forest C2): the PRODUCTION occurrence index over the ONE raw GoProgram grammar — Pillar 1
    (source/index exactness).  The sealed standard positive-key node-table laws; the per-file occurrence-count

@@ -127,3 +127,22 @@ stop. When an entry stops being a live temptation, delete it.
     collection/program builder STAYS FAILED: never `match build … with Some c => c | None => empty/default`
     (unless the semantics explicitly define failure as empty, which no Fido source/program builder does) — use
     a proof-backed total extraction that FAILS TO COMPILE if the construction stops succeeding.
+
+15. **An exact "one-shot `go build ./...`" contract includes cmd/go's STRANGE SIDE EFFECTS.** When production
+    acceptance IS the literal pinned command, its non-obvious behaviours are part of the judgment, not an
+    approximation to clean up. A SOLE main package makes cmd/go compute a default executable name (the
+    import-path basename, with a trailing `/vN` major-version element stripped) and, BEFORE compiling, FAIL if
+    that name is an existing root DIRECTORY — while 0 or ≥2 main packages write no default output and never
+    collide. So `GoCompile` carries a fresh-build output PREFLIGHT; the preflight failure takes PRECEDENCE over
+    the sole package's semantic errors (phase order: cmd/go checks the output before the compiler runs); and a
+    collision program is REJECTED though its source is perfectly valid. Never replace the command with a cleaner
+    per-package approximation — model the side effect and back it with a real-Go differential.
+
+16. **Freshness is a semantic input; never build in — or publish — the authoritative tree.** cmd/go's result
+    can depend on pre-existing filesystem entries, so the certified judgment is over a FRESH materialization of
+    the DirectoryImage (go.mod + `.go` only), not a sink-synchronized or post-build directory. A successful
+    sole-command build may OVERWRITE go.mod or a source file with the executable, so build only in a disposable
+    copy and publish the ORIGINAL image — ONE reusable fresh-build runner, never per-witness shell. And factor
+    the source rule HONESTLY: package-block name uniqueness and main-package entry are two independent Go rules
+    that merely COINCIDE on today's grammar — keep them separate (proved equivalent to the old combined rule as
+    a universal theorem) before any non-main declaration can drift them apart.

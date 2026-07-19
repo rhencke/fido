@@ -15,8 +15,9 @@ GoProgram (ModuleSpec + a possibly-empty GoFileMap standard source-file map) -> 
       context resolves it through the ONE GoType authority {TBool, the integer family TInteger over the
       ten-member IntegerType, the float family TFloat over FloatType, the complex family TComplex over
       ComplexType, TString} to
-      ProgramTyped evidence over the SAME AST) -> GoCompile (whole-program admissibility = ProgValid =
-      ProgramTyped + exactly-one-main over the SAME program) -> GoSafe (SafeProgram) -> direct GoRender
+      ProgramTyped evidence over the SAME AST) -> GoCompile (whole-program admissibility = the pinned one-shot
+      `go build ./...` acceptance = fresh-build output preflight + SourceProgramValid (ProgramTyped + the
+      factored package rules) over the SAME program) -> GoSafe (SafeProgram) -> direct GoRender
       (source-owned package clause + the go.mod) -> complete DirectoryImage (exact go.mod bytes + the .go map)
       -> the general `Fido Emit` transport command -> foreign-Go-rejecting sibling-temp dirty-directory sink
       -> one pristine `generated-module` Buildx layer (tracked go.mod + recursive .go, verified byte-exact by
@@ -256,7 +257,7 @@ absence); snapshot-indexed SEALED `FileRef p`/`NodeRef p`/`NodeKey`/kind-refined
 NodeKey identity, minted only via `file_of_path`/`ref_of_key`, cross-snapshot non-interchangeable); a TOTAL
 query API (only `parent_of` optional); exact parent / interval-jump children / interval ancestry / canonical
 enumeration; the §19 `visit_file` indexed traversal (original syntax + validated ref together, one pass);
-consumed by `GoCompile`'s production analysis (`analyze`, the ONE indexed whole-program traversal — GoTypes no
+consumed by `GoCompile`'s production elaboration (`elaborate`, the ONE indexed whole-program traversal — GoTypes no
 longer runs a peer indexed checker; the C2 `indexed_program_typedb` demonstration is removed). · `GoTypes` — the ONE type
 authority (EVIDENCE over the raw AST): `GoType` = `TBool` | `TInteger IntegerType` | `TFloat FloatType` |
 `TComplex ComplexType` | `TString`, exact untyped `GoConst` (`CBool`/`CInt Z`/`CFloat FloatConst`/`CComplex
@@ -276,15 +277,25 @@ representable as `TString`), reflected `ResolveExpr` with its `ResolvedConst` wi
 typed vacuously). · `GoCompile` —
 whole-program typing + one-pass `PackageMap` grouping via a single `FM.fold` into `PackageSummary` (each file
 contributes its `main` count once to its `fp_parent` package; the fold is characterized EXACTLY —
-count = sum, no empty package — and is order-independent) + exactly-one-main (`GoCompile p := ProgValid p =
-ProgramTyped p ∧ AllPackagesOneMain p`, via GoTypes; empty program accepted).  The ONE analysis root `analyze`
-builds one retained `IndexedProgram` and returns a `ProgramAnalysis`; `go_compile` PROJECTS it into a
-`CompileOutcome` (`CompiledOk` carrying a `CompilableProgram` that RETAINS program + exact analyzed index +
-`CompilationFacts` = the sealed occurrence-keyed `ExprFactTable` + package main-ref buckets, or `CompileFailed`
+count = sum, no empty package — and is order-independent).  `GoCompile` is the EXACT acceptance model for the
+pinned one-shot `go build ./...`: `GoCompile p := fresh_build_preflight_ok p ∧ SourceProgramValid p`, where
+`SourceProgramValid` = `ProgramTyped` ∧ `PackageRulesValid` (the FACTORED `PackageDeclsUnique` +
+`MainPackagesHaveEntry`, proved = the old one-main rule by `current_package_rules_exactly_one`) and
+`fresh_build_preflight_ok` is the cmd/go default-OUTPUT part (a SOLE main package's default executable name —
+import-path basename, a trailing `/vN` stripped — must not be an existing root DIRECTORY; 0 or ≥2 packages
+write no default output; empty program accepted).  The ONE elaboration root `elaborate`
+builds one retained `IndexedProgram` and returns a `ProgramElaboration`; `go_compile` PROJECTS it (no second
+checker — `go_compile_projects_elaborate`) into a
+`CompileOutcome` (`CompiledOk` carrying a `CompilableProgram` that RETAINS program + exact elaborated index +
+`ElaborationFacts` = the sealed occurrence-keyed `ExprFactTable` + package main-ref buckets + the fresh-build
+preflight witness, or `CompileFailed`
 carrying the EXACT structured diagnostics), sound/complete (`go_compile_ok_valid`/`go_compile_complete`,
-`prog_ok_iff`), the class invariant under file insertion order.  Diagnostics are structured `DiagnosticReason`
+`elaborate_ok_iff_GoCompile`), the class invariant under file insertion order.  Diagnostics are structured `DiagnosticReason`
 (invalid conversion — innermost primary + enclosing `outer_context`; default-not-representable; n-1
-duplicate-main; missing-main) anchored in the exact snapshot; a snapshot-free `erased_report`/`erase_diagnostic`
+duplicate-main; missing-main; build-output-directory) anchored in the exact snapshot; the three diagnostic
+LAYERS (`semantic_diagnostics` / `fresh_build_diagnostics` / the command-ordered `elaboration_diagnostics`)
+each have an emptiness characterization and a FAILED preflight takes PRECEDENCE (exactly one build-output
+diagnostic, hiding the semantic ones); a snapshot-free `erased_report`/`erase_diagnostic`
 compares diagnostics across snapshots without a dependent transport; the coarse `legacy_compile_class` is ONLY
 a projection of the diagnostics.  Typing exposed by canonical projection (`compile_program_typed`) — NO
 `cf_pkg_name` (the package clause is source-owned). · `GoSafe` — real `GoValue` (`VBool`/`VInteger IntegerType Z`/
@@ -368,8 +379,8 @@ kill stale `docker buildx build` processes first; run long builds detached and p
   `NodeRefOf`, validated minting, a total query API, and the exact source-occurrence correspondence lifted
   through the sealed API), plus the §19 indexed traversal (`visit_file` runs the SINGLE-PASS `walk_file` —
   a next-free-id cursor, no per-node boundary rescan; `occs_file` is its readable spec, `walk_file = occs_file`
-  — pairing each ORIGINAL syntax fragment with its validated `NodeRef`, proved exact / source-ordered / NoDup).  `GoCompile`'s production analysis
-  (`analyze`) CONSUMES this traversal as the ONE indexed whole-program pass: it let-binds ONE `index_program p`
+  — pairing each ORIGINAL syntax fragment with its validated `NodeRef`, proved exact / source-ordered / NoDup).  `GoCompile`'s production elaboration
+  (`elaborate`) CONSUMES this traversal as the ONE indexed whole-program pass: it let-binds ONE `index_program p`
   and folds `visit_file`'s `(NodeRef, syntax)` pairs, taking each occurrence's ROLE from the index THROUGH the
   reference (`node_role idx (fst rocc)` — an outer-FileMap + inner-PositiveMap lookup in the PRECOMPUTED
   `si_outer`, no rebuild) and its SYNTAX from the DELIVERED fragment (`view_expr (snd rocc)` — no

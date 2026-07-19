@@ -12,7 +12,8 @@ override PLATFORM := linux/amd64
 # whole-program admissibility — whole-program typing via GoTypes + one-main-per-package, matching
 # `go build ./...`) and GoSafe.  Chain:
 #   GoProgram (GoFileMap source forest) -> GoTypes (untyped GoConst -> context-resolved GoType, ProgramTyped)
-#     -> GoCompile (ProgValid) -> GoSafe -> direct GoRender (source-owned package clause + go.mod) -> complete
+#     -> GoCompile (fresh-build preflight + SourceProgramValid = the one-shot `go build ./...` acceptance)
+#     -> GoSafe -> direct GoRender (source-owned package clause + go.mod) -> complete
 #     DirectoryImage -> the general `Fido Emit` transport command -> foreign-Go-rejecting sibling-temp
 #     sink -> go build ./...
 # ALL Rocq/Go work runs in the PINNED container via buildx — host Rocq is NOT supported.

@@ -117,23 +117,34 @@ is rejected IN Rocq before any bytes — **zero expected Go build failures, ever
   complex→scalar rejected); type identity (int≠int64,
   F32≠F64, C64≠C128); mixed + empty println typed; overflow/underflow/cross-type/non-integer/wrong-type rejected.
   Replaced the old `ExprOk`/`StmtOk`/`DeclOk`/`FileOk` family.
-- **`GoCompile`** — EXACT WHOLE-PROGRAM: files group by parent directory; each package has exactly one `main`
-  (0 or ≥2 reject the whole program); the whole program is TYPED through `GoTypes` (`ProgramTyped`; a typing
-  failure is a constant fitting no integer type, an invalid integer/float/complex conversion — a float or
-  complex-component overflow, a fractional or out-of-range float→integer, a nonzero-imaginary complex→scalar,
-  a wrong-type or invalid nested conversion); one invalid package rejects all.  The ONE analysis root
-  `analyze` builds one retained `IndexedProgram` and returns a `ProgramAnalysis`; `go_compile` PROJECTS it into
-  a `CompileOutcome` — `CompiledOk` carrying a `CompilableProgram` (retaining program + exact analyzed index +
-  `CompilationFacts` = the sealed occurrence-keyed `ExprFactTable` + package main-ref buckets), or
+- **`GoCompile`** — EXACT WHOLE-PROGRAM admissibility for the pinned one-shot `go build ./...` (C3-fresh):
+  `GoCompile p := fresh_build_preflight_ok p /\ SourceProgramValid p`.  `SourceProgramValid` = `ProgramTyped`
+  (typed through `GoTypes`; a typing failure is a constant fitting no integer type, an invalid integer/float/
+  complex conversion — overflow, a fractional or out-of-range float→integer, a nonzero-imaginary complex→scalar,
+  a wrong-type or nested conversion) AND `PackageRulesValid` = the two FACTORED Go rules `PackageDeclsUnique`
+  (package-block name uniqueness) and `MainPackagesHaveEntry` (a main package has a `main`), proved EXACTLY the
+  old "every package has one main" (`current_package_rules_exactly_one`, universal).  `fresh_build_preflight_ok`
+  is the cmd/go default-OUTPUT part: a SOLE main package's default executable name (import-path basename, a
+  trailing `/vN` stripped) must not be an existing root DIRECTORY (0 or ≥2 packages write no default output).
+  The ONE elaboration root `elaborate` builds one retained `IndexedProgram` and returns a `ProgramElaboration`;
+  `go_compile` PROJECTS it (never a second checker — `go_compile_projects_elaborate`) into a `CompileOutcome` —
+  `CompiledOk` carrying a `CompilableProgram` (retaining program + exact elaborated index + `ElaborationFacts` =
+  the sealed occurrence-keyed `ExprFactTable` + package main-ref buckets + the fresh-build preflight witness), or
   `CompileFailed` carrying the EXACT structured diagnostics; sound + complete against the declarative judgment
-  (`go_compile_ok_valid`/`go_compile_complete`, `prog_ok_iff`).  Rejection ⇒ no `CompilableProgram`
-  (`reject_no_compile`); the empty program accepted (`prog_ok_empty`).  Diagnostics are structured
-  `DiagnosticReason` (invalid conversion — innermost primary + enclosing `outer_context`;
-  default-not-representable; n-1 duplicate-main; missing-main) anchored in the exact snapshot; a snapshot-free
-  `erased_report` enables cross-snapshot comparison; the coarse `legacy_compile_class` survives ONLY as a
-  projection of the diagnostics.  `GoCompile p := ProgValid p` — NO `cf_pkg_name` (the package clause is
-  source-owned); the compiled evidence EXPOSES that the same program is typed via a canonical projection
-  (`compilable_program_typed`), not a stored typed copy.
+  (`go_compile_ok_valid`/`go_compile_complete`, `elaborate_ok_iff_GoCompile`).  Rejection ⇒ no
+  `CompilableProgram` (`reject_no_compile`); the empty program accepted.  Diagnostics are structured
+  `DiagnosticReason` (invalid conversion — innermost primary + enclosing `outer_context`; default-not-
+  representable; n-1 duplicate-main; missing-main; build-output-directory).  The three diagnostic LAYERS —
+  `semantic_diagnostics` / `fresh_build_diagnostics` / the command-ordered `elaboration_diagnostics` — each have
+  an emptiness characterization; a FAILED preflight takes PRECEDENCE (exactly one `DRBuildOutputIsDirectory`,
+  hiding the sole package's semantic errors — `elaboration_diagnostics_fresh_failure`).  A snapshot-free
+  `erased_report`/`erased_elaboration_report` compares diagnostics across snapshots; the coarse
+  `legacy_compile_class` (with `LCBuildOutput`) survives ONLY as a projection.  §19 determinism is split:
+  source facts respect `FilesEqual`, the FreshBuildPlan / final report / class need the full `ProgramInputEqual`
+  (module + files — the §20.16 counterexample: equal files, different module → different plan).  The §8
+  DirectoryImage bridge proves the rendered image REALIZES the retained fresh root layout
+  (`directory_image_realizes_fresh_layout`).  NO `cf_pkg_name` (the package clause is source-owned); the
+  compiled evidence EXPOSES typing via a canonical projection (`compilable_program_typed`), not a stored copy.
 - **`GoSafe`** — real values (`GoValue` = `VBool`/`VInteger IntegerType Z`/`VFloat (forall ft, FloatValue ft)`
   /`VComplex (forall ct, ComplexValue ct)`/`VString`) carrying the SAME `GoType` (`value_type`) + the `ValueWF` range invariant (`ValueWF (VFloat …)`
   = `ValueWF (VComplex …)` = True — a float/complex value is canonical BY CONSTRUCTION, the invariant living in `FloatValue`; a general runtime
@@ -303,7 +314,7 @@ checkpoint is activated only by explicit sign-off.
   children / interval ancestry / canonical enumeration; and the §19 `visit_file` indexed traversal (running
   the SINGLE-PASS `walk_file` — a next-free-id cursor, no per-node boundary rescan; `occs_file` is its readable
   spec, `walk_file = occs_file` — pairing each ORIGINAL syntax fragment with its validated `NodeRef`).  GoCompile's
-  production analysis (`analyze`) consumes it as the ONE indexed whole-program pass: it let-binds ONE
+  production elaboration (`elaborate`) consumes it as the ONE indexed whole-program pass: it let-binds ONE
   `index_program p` and folds `visit_file`'s `(NodeRef, syntax)` pairs, taking each occurrence's ROLE from the
   index THROUGH the reference (`node_role idx` — an outer-FileMap + inner-PositiveMap lookup in the PRECOMPUTED
   `si_outer`, no rebuild) and its SYNTAX from the DELIVERED fragment (`view_expr` — no
@@ -311,8 +322,19 @@ checkpoint is activated only by explicit sign-off.
   GoTypes owns only the type/constant relation and imports NO GoIndex; the per-occurrence predicate
   `occ_arg_typedb` + its `occs_*_typedb_eq` aggregation chain live in GoCompile (the sole GoIndex+GoTypes meeting
   point); the C2 `indexed_program_typedb` peer whole-program checker is removed (§19/§26).  Every generated byte unchanged.
-  `OccurrenceSpike.v` is DELETED (no parallel authority).  Gate 446/446 axiom-free; whole-theory audit covers
+  `OccurrenceSpike.v` is DELETED (no parallel authority).  Axiom-free; whole-theory audit covers
   GoIndex + the integration.
+- **C3 — occurrence-anchored diagnostics + one elaboration + EXACT fresh-image acceptance (in progress):** the
+  ONE semantic root is `elaborate` (renamed from `analyze`; `ProgramElaboration`/`ElaborationFacts`/`Elaboration
+  OK|Failed`) producing occurrence-anchored structured diagnostics; `go_compile` PROJECTS it only.  The
+  fresh-image contract makes `GoCompile` the EXACT acceptance model for the pinned one-shot `go build ./...`:
+  the source rule is FACTORED (`PackageDeclsUnique` + `MainPackagesHaveEntry`, proved = the old one-main rule),
+  and a fresh-build OUTPUT PREFLIGHT rejects a sole main package whose default executable name is an existing
+  root directory (the `/vN` strip, `DRBuildOutputIsDirectory`, preflight PRECEDENCE over semantic errors).  §18
+  exactness (three diagnostic layers each characterized), §19 determinism split (`FilesEqual` source facts vs
+  `ProgramInputEqual` plan/report/class), §8 DirectoryImage bridge (the image realizes the fresh root layout),
+  the §20 fixtures, and a pinned-Go directory-collision differential matrix through the ONE fresh-build runner.
+  Every generated byte UNCHANGED (a stricter acceptance boundary; the accepted witnesses are unaffected).
 
 ## NEXT — the frontier (pour roots before floors; do NOT add breadth for its own sake)
 

@@ -100,12 +100,17 @@ no complex arithmetic, no `real`/`imag`, no imports.
   literal is not a typed
   value, and there is no typed AST or second IR: `ResolveExpr` is a judgment over the raw syntax, reflected
   by a decision proved sound, complete, and deterministic.
-- **Exact, whole-program compilation.** `GoCompile` consumes the whole map: it groups files by directory
-  into `package main` packages, requires exactly one `main` per package, requires the whole program is typed
-  through `GoTypes`, and rejects the whole program on any invalid package. It is a declarative judgment with
-  a proof-producing sound + complete decision, aimed at matching `go build ./...` for every representable
-  program. Two claims stay distinct: (A) the checker matches the formal judgment — PROVED; (B) it matches
-  `go build ./...` — the GOAL, exercised differentially, never a kernel theorem about `cmd/go`.
+- **Exact, whole-program compilation = the pinned one-shot `go build ./...` acceptance.** `GoCompile p :=
+  fresh_build_preflight_ok p /\ SourceProgramValid p`: it groups files by directory into `package main`
+  packages, requires the source valid (typed through `GoTypes`, plus the two FACTORED package rules —
+  package-block name uniqueness and main-package entry, proved equal to the old one-main rule), AND models
+  cmd/go's default-OUTPUT behaviour — a sole main package whose default executable name (import-path basename,
+  a trailing `/vN` stripped) is an existing root DIRECTORY is REJECTED before compiling (a "strange side
+  effect" of the literal command, part of acceptance). It is a declarative judgment with a proof-producing
+  sound + complete decision, aimed at matching `go build ./...` for every representable program. Two claims
+  stay distinct: (A) the checker matches the formal judgment — PROVED; (B) it matches `go build ./...` — the
+  GOAL, exercised by a differential matrix (incl. the directory-collision cases), never a kernel theorem about
+  `cmd/go`.
 - **Real semantics + faithful rendering.** `GoSafe` evaluates to real Go values (`VInteger : IntegerType -> Z`, so `0` and
   `-0` agree; `VString` exact bytes) that carry the **same** `GoType` and are range-well-formed; evaluation is
   derived from the one constant-status analysis and is partial (a compiler-invalid conversion has no value) —
