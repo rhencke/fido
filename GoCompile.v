@@ -4523,6 +4523,659 @@ Proof.
     exfalso. pose proof (proj2 (pkg_diags_empty_iff idx) Ht) as Hc. rewrite Hc in E; discriminate E.
 Qed.
 
+(** ============================================================================================
+    §C3-FRESH.1 — the pinned cmd/go DEFAULT-OUTPUT-NAME string layer.  Faithful to pinned Go 1.23.12
+    ([go env GOVERSION] = go1.23.12) [cmd/go/internal/load/pkg.go]: [isVersionElement] (1288-1298) and
+    [exeFromImportPath] (1675-1685) — the [DefaultExecName] path taken by a `go build ./...` (non-CmdlineFiles)
+    build.  Pure functions over the import-path STRING; NO filesystem path cleaning (inputs are canonical
+    import paths, per the contract).  Empirically confirmed against the pinned image (see SOURCE_FOREST_STATUS).
+    ============================================================================================ *)
+
+Local Open Scope string_scope.
+
+Definition ascii_is_digit (c : ascii) : bool :=
+  let n := nat_of_ascii c in andb (Nat.leb 48 n) (Nat.leb n 57).
+
+(* every byte of [s] is a decimal digit. *)
+Fixpoint str_all_digits (s : string) : bool :=
+  match s with
+  | EmptyString => true
+  | String c s' => andb (ascii_is_digit c) (str_all_digits s')
+  end.
+
+(* [isVersionElement] (pkg.go:1288-1298): [len>=2], [s[0]='v'], [s[1]<>'0'], not ([s[1]='1' /\ len=2]), and
+   every byte [s[1..]] is a decimal digit.  A single [andb] chain (no [if]) for a clean reflection. *)
+Definition is_version_element (s : string) : bool :=
+  match s with
+  | String c0 (String c1 rest) =>
+      andb (Ascii.eqb c0 "v"%char)
+        (andb (negb (Ascii.eqb c1 "0"%char))
+          (andb (negb (andb (Ascii.eqb c1 "1"%char)
+                            (match rest with EmptyString => true | _ => false end)))
+                (str_all_digits (String c1 rest))))
+  | _ => false
+  end.
+
+Fixpoint string_contains_slash (s : string) : bool :=
+  match s with
+  | EmptyString => false
+  | String c s' => orb (Ascii.eqb c "/"%char) (string_contains_slash s')
+  end.
+
+(* the import-path component AFTER the last '/'  (the whole string when there is no '/'). *)
+Fixpoint ip_basename (s : string) : string :=
+  match s with
+  | EmptyString => EmptyString
+  | String c s' =>
+      if Ascii.eqb c "/"%char then ip_basename s'
+      else if string_contains_slash s' then ip_basename s' else String c s'
+  end.
+
+(* the import-path prefix BEFORE the last '/'  (no trailing slash; empty when there is no '/').  This is
+   [pathpkg.Dir] for canonical (uncleaned, slash-separated, no-trailing-slash) import paths. *)
+Fixpoint ip_dirname (s : string) : string :=
+  match s with
+  | EmptyString => EmptyString
+  | String c s' => if string_contains_slash s' then String c (ip_dirname s') else EmptyString
+  end.
+
+(* [exeFromImportPath] (pkg.go:1675-1685), module-aware: the last import-path component, dropped to the
+   PREVIOUS component exactly when the last is a version element (and the path has an earlier component,
+   i.e. [elem <> importPath]). *)
+Definition default_exec_name (import_path : string) : string :=
+  let final := ip_basename import_path in
+  if andb (negb (String.eqb final import_path)) (is_version_element final)
+  then ip_basename (ip_dirname import_path)
+  else final.
+
+(** §C3-FRESH.1 reflection — [is_version_element] agrees with the pinned structural predicate. *)
+Lemma is_version_element_spec : forall s,
+  is_version_element s = true <->
+  (exists c1 rest, s = String "v"%char (String c1 rest)
+                   /\ c1 <> "0"%char
+                   /\ ~ (c1 = "1"%char /\ rest = EmptyString)
+                   /\ str_all_digits (String c1 rest) = true).
+Proof.
+  intros s. split.
+  - destruct s as [|c0 [|c1 rest]]; cbn [is_version_element]; try discriminate.
+    intro H.
+    apply andb_true_iff in H; destruct H as [Hv H].
+    apply andb_true_iff in H; destruct H as [H0 H].
+    apply andb_true_iff in H; destruct H as [H1 Hd].
+    apply Ascii.eqb_eq in Hv; subst c0.
+    exists c1, rest. split; [reflexivity | split; [ | split ] ].
+    + apply negb_true_iff, Ascii.eqb_neq in H0. exact H0.
+    + apply negb_true_iff, andb_false_iff in H1. intros [Hc1 Hre]. destruct H1 as [H1|H1].
+      * apply Ascii.eqb_neq in H1. exact (H1 Hc1).
+      * subst rest. cbn in H1. discriminate H1.
+    + exact Hd.
+  - intros [c1 [rest [Hs [H0 [H1 Hd]]]]]. subst s. cbn [is_version_element].
+    apply andb_true_iff; split; [ apply Ascii.eqb_refl |].
+    apply andb_true_iff; split.
+    + apply negb_true_iff. apply Ascii.eqb_neq. exact H0.
+    + apply andb_true_iff; split; [ | exact Hd ].
+      apply negb_true_iff, andb_false_iff.
+      destruct (Ascii.eqb c1 "1"%char) eqn:E1; [ | left; reflexivity ].
+      apply Ascii.eqb_eq in E1. subst c1. right. destruct rest as [|rc rr].
+      * exfalso. apply H1. split; reflexivity.
+      * reflexivity.
+Qed.
+
+(** §C3-FRESH.1 — is_version_element reflection FIXTURES (pinned Go 1.23.12, SOURCE_FOREST_STATUS-confirmed). *)
+Example ive_v0   : is_version_element "v0"   = false. Proof. reflexivity. Qed.
+Example ive_v00  : is_version_element "v00"  = false. Proof. reflexivity. Qed.
+Example ive_v01  : is_version_element "v01"  = false. Proof. reflexivity. Qed.
+Example ive_v05  : is_version_element "v05"  = false. Proof. reflexivity. Qed.
+Example ive_v1   : is_version_element "v1"   = false. Proof. reflexivity. Qed.
+Example ive_v2   : is_version_element "v2"   = true.  Proof. reflexivity. Qed.
+Example ive_v3   : is_version_element "v3"   = true.  Proof. reflexivity. Qed.
+Example ive_v10  : is_version_element "v10"  = true.  Proof. reflexivity. Qed.
+Example ive_v100 : is_version_element "v100" = true.  Proof. reflexivity. Qed.
+Example ive_v1x  : is_version_element "v1x"  = false. Proof. reflexivity. Qed.
+Example ive_v2x  : is_version_element "v2x"  = false. Proof. reflexivity. Qed.
+Example ive_V2   : is_version_element "V2"   = false. Proof. reflexivity. Qed.
+Example ive_v    : is_version_element "v"    = false. Proof. reflexivity. Qed.
+
+(** §C3-FRESH.1 — default_exec_name FIXTURES (the exact pinned import-path -> exe-name rule). *)
+Example den_root    : default_exec_name "example.com/m"         = "m".       Proof. reflexivity. Qed.
+Example den_sub     : default_exec_name "example.com/m/sub"     = "sub".     Proof. reflexivity. Qed.
+Example den_ab      : default_exec_name "example.com/m/a/b"     = "b".       Proof. reflexivity. Qed.
+Example den_av2     : default_exec_name "example.com/m/a/v2"    = "a".       Proof. reflexivity. Qed.
+Example den_v2      : default_exec_name "example.com/m/v2"      = "m".       Proof. reflexivity. Qed.
+Example den_maingo  : default_exec_name "example.com/main.go"   = "main.go". Proof. reflexivity. Qed.
+Example den_gomod   : default_exec_name "example.com/go.mod"    = "go.mod".  Proof. reflexivity. Qed.
+Example den_sub_v10 : default_exec_name "example.com/m/sub/v10" = "sub".     Proof. reflexivity. Qed.
+
+(** ============================================================================================
+    §C3-FRESH.2 (§11) — the exact cmd/go IMPORT PATH of a selected package in the main module.  The root
+    package (dir key "") imports as the [ModulePath]; a nested package dir key imports as
+    [ModulePath ++ "/" ++ dir].  Canonical source strings only; feeds [default_exec_name].
+    ============================================================================================ *)
+
+Definition package_import_path (ms : ModuleSpec) (dir : string) : string :=
+  if String.eqb dir "" then mp_string (module_path ms)
+  else mp_string (module_path ms) ++ "/" ++ dir.
+
+(* left-cancellation and right-identity for string append (small leaf helpers; no collection). *)
+Lemma string_app_cancel_l : forall a b c, (a ++ b)%string = (a ++ c)%string -> b = c.
+Proof. induction a as [|x a IH]; simpl; intros b c H; [exact H | injection H as H; exact (IH b c H)]. Qed.
+Lemma string_app_empty_r : forall s, (s ++ "")%string = s.
+Proof. induction s as [|c s IH]; simpl; [reflexivity | rewrite IH; reflexivity]. Qed.
+
+Lemma package_import_path_root : forall ms, package_import_path ms "" = mp_string (module_path ms).
+Proof. intro ms. reflexivity. Qed.
+
+Lemma package_import_path_nested : forall ms dir, dir <> "" ->
+  package_import_path ms dir = mp_string (module_path ms) ++ "/" ++ dir.
+Proof.
+  intros ms dir Hd. unfold package_import_path.
+  destruct (String.eqb dir "") eqn:E; [ apply String.eqb_eq in E; contradiction | reflexivity ].
+Qed.
+
+(* deterministic: a pure function of (ModuleSpec, package key). *)
+Lemma package_import_path_deterministic : forall ms1 ms2 dir1 dir2,
+  ms1 = ms2 -> dir1 = dir2 -> package_import_path ms1 dir1 = package_import_path ms2 dir2.
+Proof. intros ms1 ms2 d1 d2 -> ->. reflexivity. Qed.
+
+(* injective in the package key under a fixed ModuleSpec (distinct dirs -> distinct import paths). *)
+Lemma package_import_path_inj : forall ms dir1 dir2,
+  package_import_path ms dir1 = package_import_path ms dir2 -> dir1 = dir2.
+Proof.
+  intros ms d1 d2. unfold package_import_path.
+  set (mp := mp_string (module_path ms)).
+  destruct (String.eqb d1 "") eqn:E1; destruct (String.eqb d2 "") eqn:E2; intro H.
+  - apply String.eqb_eq in E1; apply String.eqb_eq in E2; subst d1 d2; reflexivity.
+  - exfalso. apply String.eqb_eq in E1.
+    rewrite <- (string_app_empty_r mp) in H at 1. apply string_app_cancel_l in H. discriminate H.
+  - exfalso. apply String.eqb_eq in E2.
+    rewrite <- (string_app_empty_r mp) in H at 2. apply string_app_cancel_l in H. discriminate H.
+  - apply string_app_cancel_l in H. injection H as H. exact H.
+Qed.
+
+(** ============================================================================================
+    §C3-FRESH.3 (§10) — the package set the literal `./...` pattern SELECTS: exactly the domain of the
+    one-pass [package_summaries] PackageMap (= the distinct parent directories of the represented FilePaths).
+    The canonical enumeration is the standard map's [elements] (a DERIVED list, not a second authority); NO
+    list-backed set.
+    ============================================================================================ *)
+
+Definition selected_packages (p : GoProgram) : PM.t PackageSummary := package_summaries (prog_files p).
+Definition selected_package_keys (p : GoProgram) : list string := map fst (PM.elements (selected_packages p)).
+Definition selected_package_count (p : GoProgram) : nat := length (selected_package_keys p).
+
+(** §10 domain exactness: a directory is a selected package IFF some represented file has that parent dir. *)
+Lemma selected_iff_file : forall p dir,
+  PM.In dir (selected_packages p) <->
+  (exists b, In b (GoAST.file_bindings (prog_files p)) /\ fp_parent (fst b) = dir).
+Proof.
+  intros p dir. unfold selected_packages. split.
+  - apply package_no_empty.
+  - intros [b [Hin Heq]].
+    assert (Hmem : list_dir_mem dir (GoAST.file_bindings (prog_files p)) = true).
+    { unfold list_dir_mem. apply existsb_exists. exists b. split; [ exact Hin | rewrite Heq; apply String.eqb_refl ]. }
+    exists (mkPkgSummary (pkg_main_count dir (prog_files p))).
+    apply PMF.find_mapsto_iff. rewrite package_summaries_find, Hmem. reflexivity.
+Qed.
+
+(** §10 — the empty program selects ZERO packages. *)
+Lemma selected_count_empty : forall ms, selected_package_count (empty_program ms) = 0%nat.
+Proof.
+  intro ms. unfold selected_package_count, selected_package_keys, selected_packages.
+  assert (He : PM.Empty (package_summaries (prog_files (empty_program ms)))).
+  { intros k e Hmt. apply PMF.find_mapsto_iff in Hmt.
+    cbn [prog_files empty_program] in Hmt. rewrite (package_summaries_empty k) in Hmt. discriminate. }
+  rewrite (proj1 (PMP.elements_Empty _) He). reflexivity.
+Qed.
+
+(** §10 — one directory coalesces to ONE selected package: two files sharing a parent directory land on the
+    SAME (unique) map key.  (Distinct parents land on distinct keys — intrinsic to the map's key identity.) *)
+Lemma selected_one_dir : forall p b1 b2,
+  In b1 (GoAST.file_bindings (prog_files p)) -> In b2 (GoAST.file_bindings (prog_files p)) ->
+  fp_parent (fst b1) = fp_parent (fst b2) ->
+  PM.In (fp_parent (fst b1)) (selected_packages p).
+Proof.
+  intros p b1 b2 Hin1 _ _. apply selected_iff_file. exists b1. split; [ exact Hin1 | reflexivity ].
+Qed.
+
+(** ============================================================================================
+    §C3-FRESH.4 (§7) — the FRESH ROOT LAYOUT foundation + the conflict AUDIT.  A fresh materialization of the
+    DirectoryImage has, at its ROOT: the one [go.mod], each root-level source file, and one directory per
+    distinct first path-component of a nested source file.  [FreshRootEntryKind] tags a root entry.
+
+    THE AUDIT (§7): can one root key be BOTH a regular file and a directory?  NO — by the intrinsic FilePath
+    grammar.  A directory component is [component_ok] = [a-z][a-z0-9]* (DOT-FREE); a root source basename is
+    [filename_ok] (ends ".go", DOTTED) and the module file is "go.mod" (DOTTED).  So a directory key can never
+    equal a source-file key or "go.mod": the layout is conflict-free by construction — no rejecting validation
+    is needed (the impossibility is PROVED below, [dir_component_neq_gomod] and the dot lemmas).
+    ============================================================================================ *)
+
+Inductive FreshRootEntryKind : Type :=
+| FREGoMod
+| FRESourceFile (path : FilePath)
+| FREDirectory.
+
+(* the FIRST path component of a path string (before the first '/'); the whole name for a root-level file. *)
+Fixpoint first_component (s : string) : string :=
+  match s with
+  | EmptyString => EmptyString
+  | String c s' => if Ascii.eqb c "/"%char then EmptyString else String c (first_component s')
+  end.
+
+Fixpoint contains_dot (s : string) : bool :=
+  match s with EmptyString => false | String c s' => orb (Ascii.eqb c "."%char) (contains_dot s') end.
+
+Lemma contains_dot_app : forall a b, contains_dot (a ++ b) = orb (contains_dot a) (contains_dot b).
+Proof. induction a as [|c a IH]; intro b; simpl; [reflexivity | rewrite IH; apply Bool.orb_assoc]. Qed.
+
+(* a lowercase-or-digit byte is never '.'; a lowercase byte is never '.'. *)
+Lemma is_lower_digit_no_dot : forall c, FilePath.is_lower_digit c = true -> Ascii.eqb c "."%char = false.
+Proof.
+  intros c H. apply Bool.not_true_iff_false. intro E. apply Ascii.eqb_eq in E. subst c. vm_compute in H. discriminate H.
+Qed.
+
+Lemma tail_ok_no_dot : forall s, FilePath.tail_ok s = true -> contains_dot s = false.
+Proof.
+  induction s as [|c s' IH]; intro H; [reflexivity|].
+  cbn [FilePath.tail_ok] in H. apply andb_true_iff in H. destruct H as [Hc Hs].
+  cbn [contains_dot]. rewrite (is_lower_digit_no_dot c Hc); cbn [orb]. exact (IH Hs).
+Qed.
+
+Lemma component_ok_no_dot : forall s, FilePath.component_ok s = true -> contains_dot s = false.
+Proof.
+  intros [|c s'] H; [discriminate H|].
+  cbn [FilePath.component_ok] in H. apply andb_true_iff in H. destruct H as [Hc Hs].
+  cbn [contains_dot].
+  assert (Hne : Ascii.eqb c "."%char = false).
+  { apply Bool.not_true_iff_false. intro E. apply Ascii.eqb_eq in E. subst c. vm_compute in Hc. discriminate Hc. }
+  rewrite Hne; cbn [orb]. exact (tail_ok_no_dot s' Hs).
+Qed.
+
+(* a dot-free directory key can never equal the DOTTED module file name "go.mod". *)
+Lemma dir_component_neq_gomod : forall d, FilePath.dir_component_ok d = true -> d <> "go.mod".
+Proof.
+  intros d Hd Heq. subst d. unfold FilePath.dir_component_ok in Hd. apply andb_true_iff in Hd. destruct Hd as [Hc _].
+  pose proof (component_ok_no_dot _ Hc) as Hnd. vm_compute in Hnd. discriminate Hnd.
+Qed.
+
+(** §C3-FRESH.4 (cont.) — file-vs-directory key disjointness: a root source basename is [filename_ok] (ends
+    ".go", hence DOTTED), so it can never equal a dot-free directory component key.  Completes the §7 audit. *)
+
+Lemma substring_full : forall s, String.substring 0 (String.length s) s = s.
+Proof. induction s as [|c s IH]; simpl; [reflexivity | rewrite IH; reflexivity]. Qed.
+
+Lemma substring_split : forall k s, (k <= String.length s)%nat ->
+  s = (String.substring 0 k s ++ String.substring k (String.length s - k) s)%string.
+Proof.
+  intros k s; revert k; induction s as [|c s IH]; intros [|k'] Hk.
+  - reflexivity.
+  - simpl in Hk; lia.
+  - change (String.substring 0 0 (String c s)) with EmptyString.
+    rewrite Nat.sub_0_r, substring_full. reflexivity.
+  - cbn [String.substring String.length Nat.sub String.append]. f_equal. apply IH. simpl in Hk; lia.
+Qed.
+
+Lemma ends_go_recon : forall s, FilePath.ends_go s = true -> s = (FilePath.strip_go s ++ ".go")%string.
+Proof.
+  intros s H. unfold FilePath.ends_go in H. apply andb_true_iff in H. destruct H as [Hn Heq].
+  apply Nat.leb_le in Hn. apply String.eqb_eq in Heq. unfold FilePath.strip_go.
+  pose proof (substring_split (String.length s - 3) s ltac:(lia)) as Hsp.
+  replace (String.length s - (String.length s - 3))%nat with 3%nat in Hsp by lia.
+  rewrite Heq in Hsp. exact Hsp.
+Qed.
+
+Lemma filename_ok_has_dot : forall s, FilePath.filename_ok s = true -> contains_dot s = true.
+Proof.
+  intros s H. unfold FilePath.filename_ok in H. apply andb_true_iff in H. destruct H as [Hends _].
+  rewrite (ends_go_recon s Hends), contains_dot_app.
+  replace (contains_dot ".go") with true by reflexivity. apply Bool.orb_true_r.
+Qed.
+
+Lemma dir_component_neq_filename : forall d f,
+  FilePath.dir_component_ok d = true -> FilePath.filename_ok f = true -> d <> f.
+Proof.
+  intros d f Hd Hf Heq. subst f.
+  unfold FilePath.dir_component_ok in Hd. apply andb_true_iff in Hd. destruct Hd as [Hc _].
+  pose proof (component_ok_no_dot d Hc) as Hnd. pose proof (filename_ok_has_dot d Hf) as Hyd.
+  rewrite Hnd in Hyd. discriminate Hyd.
+Qed.
+
+(** the THIRD disjointness pair (completing "pairwise disjoint"): a root source basename [filename_ok] is
+    never "go.mod" — "go.mod" ends ".mod", not ".go", so [ends_go "go.mod" = false].  So FRESourceFile keys
+    and the FREGoMod key are disjoint. *)
+Lemma filename_ok_neq_gomod : forall f, FilePath.filename_ok f = true -> f <> "go.mod".
+Proof. intros f Hf Heq. subst f. vm_compute in Hf. discriminate Hf. Qed.
+
+(** §C3-FRESH.4 (cont.) — the first path component of a NESTED file (one with a nonempty parent directory) is
+    a valid [dir_component_ok] key: it is the first '/'-separated segment, which [path_ok] requires to be an
+    admissible directory component.  So every FREDirectory key is dot-free (feeds the disjointness above). *)
+
+Lemma first_component_hd : forall s, first_component s = List.hd EmptyString (FilePath.split_slash s).
+Proof.
+  induction s as [|c s IH]; [reflexivity|].
+  cbn [first_component FilePath.split_slash].
+  destruct (Ascii.eqb c "/"%char); [reflexivity|].
+  rewrite IH. destruct (FilePath.split_slash s) as [|h t]; reflexivity.
+Qed.
+
+Lemma hd_app_l {A} (d : A) (l1 l2 : list A) : l1 <> [] -> List.hd d (l1 ++ l2) = List.hd d l1.
+Proof. destruct l1; [contradiction | reflexivity]. Qed.
+
+Lemma first_component_dir_ok : forall s,
+  FilePath.path_ok s = true -> FilePath.parent_of s <> EmptyString ->
+  FilePath.dir_component_ok (first_component s) = true.
+Proof.
+  intros s Hp Hpar. rewrite first_component_hd.
+  unfold FilePath.path_ok in Hp.
+  destruct (rev (FilePath.split_slash s)) as [|last rdirs] eqn:Erev; [discriminate Hp|].
+  apply andb_true_iff in Hp. destruct Hp as [Hdirs _].
+  assert (Hrd : rdirs <> []).
+  { intro Hc. subst rdirs. apply Hpar. unfold FilePath.parent_of. rewrite Erev. reflexivity. }
+  assert (Hss : FilePath.split_slash s = (rev rdirs ++ [last])%list).
+  { rewrite <- (rev_involutive (FilePath.split_slash s)), Erev. reflexivity. }
+  rewrite Hss.
+  assert (Hrr : rev rdirs <> []).
+  { intro Hc. apply (f_equal (@rev _)) in Hc. rewrite rev_involutive in Hc. exact (Hrd Hc). }
+  rewrite (hd_app_l EmptyString (rev rdirs) [last] Hrr).
+  rewrite forallb_forall in Hdirs. apply Hdirs. apply in_rev.
+  destruct (rev rdirs) as [|h t] eqn:Er; [contradiction | left; reflexivity].
+Qed.
+
+(** every [path_ok] path CONTAINS a dot (its last segment is a `.go` filename): splitting on '/' preserves
+    dots (a separator has none), and the last segment is [filename_ok] hence dotted.  Used for the RootEntryMap
+    disjointness (a root source-file key is dotted, a directory key is not). *)
+Lemma contains_dot_split_slash : forall s, contains_dot s = existsb contains_dot (FilePath.split_slash s).
+Proof.
+  induction s as [|c s' IH]; [reflexivity|].
+  cbn [FilePath.split_slash contains_dot].
+  destruct (Ascii.eqb c "/"%char) eqn:E.
+  - apply Ascii.eqb_eq in E. subst c. cbn [existsb contains_dot]. rewrite IH. reflexivity.
+  - cbn [existsb].
+    destruct (FilePath.split_slash s') as [|h t].
+    + rewrite IH. cbn [existsb contains_dot]. rewrite !Bool.orb_false_r. reflexivity.
+    + rewrite IH. cbn [existsb contains_dot]. rewrite Bool.orb_assoc. reflexivity.
+Qed.
+
+Lemma path_ok_has_dot : forall s, FilePath.path_ok s = true -> contains_dot s = true.
+Proof.
+  intros s Hp. rewrite contains_dot_split_slash. apply existsb_exists.
+  unfold FilePath.path_ok in Hp.
+  destruct (rev (FilePath.split_slash s)) as [|last rdirs] eqn:Erev; [discriminate Hp|].
+  apply andb_true_iff in Hp. destruct Hp as [_ Hfn].
+  exists last. split.
+  - assert (Hin : In last (rev (FilePath.split_slash s))) by (rewrite Erev; left; reflexivity).
+    rewrite <- in_rev in Hin. exact Hin.
+  - apply filename_ok_has_dot. exact Hfn.
+Qed.
+
+(** §C3-FRESH.5 (§7 map) — the fresh ROOT LAYOUT as a standard string-keyed [PackageMap]: "go.mod" -> FREGoMod,
+    each root-level file -> its FRESourceFile, each nested file's first component -> FREDirectory.  Built by one
+    fold over the file bindings; conflict-free by the disjointness above (proved via [root_entry_hval]). *)
+
+Definition root_entry_of_file (b : FilePath * GoSourceFile) : string * FreshRootEntryKind :=
+  if String.eqb (fp_parent (fst b)) ""
+  then (fp_string (fst b), FRESourceFile (fst b))
+  else (first_component (fp_string (fst b)), FREDirectory).
+
+Definition root_layout (p : GoProgram) : PM.t FreshRootEntryKind :=
+  fold_right (fun b acc => PM.add (fst (root_entry_of_file b)) (snd (root_entry_of_file b)) acc)
+             (PM.add "go.mod" FREGoMod (PM.empty _))
+             (GoAST.file_bindings (prog_files p)).
+
+(* GENERIC fold-of-adds find: an absent key falls through to [init]; a present key gets its (unique) value. *)
+Lemma fold_add_find_notin {A} (kv : (FilePath * GoSourceFile) -> string * A) (init : PM.t A)
+    (l : list (FilePath * GoSourceFile)) (e : string) :
+  (forall b, In b l -> fst (kv b) <> e) ->
+  PM.find e (fold_right (fun b acc => PM.add (fst (kv b)) (snd (kv b)) acc) init l) = PM.find e init.
+Proof.
+  induction l as [|b l IH]; intro Hni; [reflexivity|].
+  cbn [fold_right]. destruct (String.eqb (fst (kv b)) e) eqn:Eb.
+  - apply String.eqb_eq in Eb. exfalso. exact (Hni b (or_introl eq_refl) Eb).
+  - apply String.eqb_neq in Eb. rewrite PMF.add_neq_o by exact Eb. apply IH. intros b' Hb'. apply Hni; right; exact Hb'.
+Qed.
+
+Lemma fold_add_find_in {A} (kv : (FilePath * GoSourceFile) -> string * A) (init : PM.t A)
+    (l : list (FilePath * GoSourceFile)) (e : string) (b0 : FilePath * GoSourceFile) :
+  In b0 l -> fst (kv b0) = e ->
+  (forall b1 b2, In b1 l -> In b2 l -> fst (kv b1) = fst (kv b2) -> snd (kv b1) = snd (kv b2)) ->
+  PM.find e (fold_right (fun b acc => PM.add (fst (kv b)) (snd (kv b)) acc) init l) = Some (snd (kv b0)).
+Proof.
+  induction l as [|b l IH]; intros Hin Hk Hval; [destruct Hin|].
+  cbn [fold_right]. destruct (String.eqb (fst (kv b)) e) eqn:Eb.
+  - apply String.eqb_eq in Eb. rewrite PMF.add_eq_o by exact Eb. f_equal.
+    apply (Hval b b0); [ left; reflexivity | exact Hin | rewrite Eb; symmetry; exact Hk ].
+  - apply String.eqb_neq in Eb. rewrite PMF.add_neq_o by exact Eb.
+    destruct Hin as [Hb0|Hin]; [ subst b0; exfalso; exact (Eb Hk) |].
+    apply IH; [ exact Hin | exact Hk | intros b1 b2 H1 H2; apply Hval; right; assumption ].
+Qed.
+
+(* the root-entry key uniquely determines its value: same key => same kind (the §7 conflict audit, mapped). *)
+Lemma root_entry_hval : forall b1 b2 : FilePath * GoSourceFile,
+  fst (root_entry_of_file b1) = fst (root_entry_of_file b2) ->
+  snd (root_entry_of_file b1) = snd (root_entry_of_file b2).
+Proof.
+  intros b1 b2 Hk. unfold root_entry_of_file in *.
+  destruct (String.eqb (fp_parent (fst b1)) "") eqn:E1;
+    destruct (String.eqb (fp_parent (fst b2)) "") eqn:E2; cbn [fst snd] in *.
+  - assert (Hp : fst b1 = fst b2) by (apply fp_eq; exact Hk). rewrite Hp. reflexivity.
+  - exfalso. apply String.eqb_neq in E2.
+    pose proof (path_ok_has_dot (fp_string (fst b1)) (fp_ok (fst b1))) as Hd1.
+    pose proof (first_component_dir_ok (fp_string (fst b2)) (fp_ok (fst b2)) E2) as Hdc2.
+    unfold FilePath.dir_component_ok in Hdc2. apply andb_true_iff in Hdc2. destruct Hdc2 as [Hc2 _].
+    rewrite Hk, (component_ok_no_dot _ Hc2) in Hd1. discriminate Hd1.
+  - exfalso. apply String.eqb_neq in E1.
+    pose proof (path_ok_has_dot (fp_string (fst b2)) (fp_ok (fst b2))) as Hd2.
+    pose proof (first_component_dir_ok (fp_string (fst b1)) (fp_ok (fst b1)) E1) as Hdc1.
+    unfold FilePath.dir_component_ok in Hdc1. apply andb_true_iff in Hdc1. destruct Hdc1 as [Hc1 _].
+    rewrite <- Hk, (component_ok_no_dot _ Hc1) in Hd2. discriminate Hd2.
+  - reflexivity.
+Qed.
+
+(** §C3-FRESH.5 (§7 exactness) — the ROOT-DIRECTORY characterization: a key maps to FREDirectory in the layout
+    IFF some NESTED represented file has that key as its first path component.  (This is what the fresh-build
+    preflight consults: an existing root DIRECTORY at the default exec name is the cmd/go collision.) *)
+Lemma root_layout_dir_iff : forall p e,
+  PM.find e (root_layout p) = Some FREDirectory <->
+  (exists b, In b (GoAST.file_bindings (prog_files p))
+             /\ fp_parent (fst b) <> "" /\ first_component (fp_string (fst b)) = e).
+Proof.
+  intros p e. unfold root_layout. split.
+  - intro Hfind.
+    destruct (existsb (fun b => String.eqb (fst (root_entry_of_file b)) e)
+                (GoAST.file_bindings (prog_files p))) eqn:Eex.
+    + apply existsb_exists in Eex. destruct Eex as [b [Hin Hkey]]. apply String.eqb_eq in Hkey.
+      rewrite (fold_add_find_in root_entry_of_file (PM.add "go.mod" FREGoMod (PM.empty _))
+                 (GoAST.file_bindings (prog_files p)) e b Hin Hkey
+                 (fun b1 b2 _ _ => root_entry_hval b1 b2)) in Hfind.
+      injection Hfind as Hval. exists b.
+      unfold root_entry_of_file in Hkey, Hval.
+      destruct (String.eqb (fp_parent (fst b)) "") eqn:E; cbn [fst snd] in Hkey, Hval.
+      * discriminate Hval.
+      * apply String.eqb_neq in E. split; [ exact Hin | split; [ exact E | exact Hkey ] ].
+    + assert (Hni : forall b, In b (GoAST.file_bindings (prog_files p)) -> fst (root_entry_of_file b) <> e).
+      { intros b Hin Hc. apply Bool.not_true_iff_false in Eex. apply Eex, existsb_exists.
+        exists b. split; [ exact Hin | apply String.eqb_eq; exact Hc ]. }
+      rewrite (fold_add_find_notin root_entry_of_file (PM.add "go.mod" FREGoMod (PM.empty _))
+                 (GoAST.file_bindings (prog_files p)) e Hni) in Hfind.
+      destruct (String.eqb "go.mod" e) eqn:Eg.
+      * apply String.eqb_eq in Eg. rewrite <- Eg, PMF.add_eq_o in Hfind by reflexivity. discriminate Hfind.
+      * apply String.eqb_neq in Eg. rewrite PMF.add_neq_o in Hfind by exact Eg.
+        rewrite PMF.empty_o in Hfind. discriminate Hfind.
+  - intros [b [Hin [Hpar Hfc]]].
+    assert (Hkv : root_entry_of_file b = (e, FREDirectory)).
+    { unfold root_entry_of_file. destruct (String.eqb (fp_parent (fst b)) "") eqn:E.
+      - apply String.eqb_eq in E. exfalso. exact (Hpar E).
+      - rewrite Hfc. reflexivity. }
+    rewrite (fold_add_find_in root_entry_of_file (PM.add "go.mod" FREGoMod (PM.empty _))
+               (GoAST.file_bindings (prog_files p)) e b Hin (f_equal fst Hkv)
+               (fun b1 b2 _ _ => root_entry_hval b1 b2)).
+    rewrite Hkv. reflexivity.
+Qed.
+
+(** ============================================================================================
+    §C3-FRESH.6 (§13/§14) — the retained FRESH BUILD PLAN + its preflight.  After loading packages, cmd/go
+    picks a default output ONLY for a sole selected MAIN package, then stats that name and FAILS (before
+    compiling) if it is an existing DIRECTORY.  0 or >=2 selected packages write no default output (no
+    preflight).  The current grammar makes every package `package main`, so a sole selected package is always
+    a main package.  (A future single NON-main package would take an FBDDiscardSingleLibrary branch — omitted
+    until that syntax exists.)  Derived purely from the retained PackageMap + ModuleSpec + root layout: no
+    syntax revisit, no index rebuild, no rendering, no cmd/go call, no filesystem scan.
+    ============================================================================================ *)
+
+Inductive FreshBuildDisposition : Type :=
+| FBDNoPackages
+| FBDDiscardMultiple (count : nat)
+| FBDWriteSingleMain (dir import_path output_name : string) (target : option FreshRootEntryKind).
+
+Definition fresh_build_plan (p : GoProgram) : FreshBuildDisposition :=
+  match selected_package_keys p with
+  | [] => FBDNoPackages
+  | dir :: nil =>
+      let ip := package_import_path (prog_module p) dir in
+      let ex := default_exec_name ip in
+      FBDWriteSingleMain dir ip ex (PM.find ex (root_layout p))
+  | _ :: _ :: _ => FBDDiscardMultiple (selected_package_count p)
+  end.
+
+(* the preflight decision: reject ONLY a sole-main default output name that is an existing root directory. *)
+Definition fresh_build_disposition_ok (d : FreshBuildDisposition) : bool :=
+  match d with
+  | FBDWriteSingleMain _ _ _ (Some FREDirectory) => false
+  | _ => true
+  end.
+
+Definition fresh_build_preflight_ok (p : GoProgram) : Prop :=
+  fresh_build_disposition_ok (fresh_build_plan p) = true.
+
+(* the ONLY command-level preflight failure: a sole selected package whose default exec name is a root DIR. *)
+Lemma preflight_fails_iff : forall p,
+  fresh_build_disposition_ok (fresh_build_plan p) = false <->
+  (exists dir, selected_package_keys p = [dir]
+     /\ PM.find (default_exec_name (package_import_path (prog_module p) dir)) (root_layout p) = Some FREDirectory).
+Proof.
+  intros p. unfold fresh_build_plan, fresh_build_disposition_ok.
+  destruct (selected_package_keys p) as [|dir [|d2 rest]] eqn:Ek.
+  - split; [ discriminate | intros [d [Hd _]]; discriminate Hd ].
+  - cbn.
+    destruct (PM.find (default_exec_name (package_import_path (prog_module p) dir)) (root_layout p))
+      as [k|] eqn:Ef.
+    + destruct k; cbn.
+      * split; [ discriminate | intros [d [Hd Hf]]; injection Hd as ->; rewrite Ef in Hf; discriminate Hf ].
+      * split; [ discriminate | intros [d [Hd Hf]]; injection Hd as ->; rewrite Ef in Hf; discriminate Hf ].
+      * split; [ intros _; exists dir; split; [reflexivity | exact Ef] | reflexivity ].
+    + split; [ discriminate | intros [d [Hd Hf]]; injection Hd as ->; rewrite Ef in Hf; discriminate Hf ].
+  - cbn. split; [ discriminate | intros [d [Hd _]]; discriminate Hd ].
+Qed.
+
+(* the preflight failure, in cmd/go's terms (via root_layout_dir_iff): a sole package whose default exec name
+   equals a NESTED represented file's first path component (so the fresh image has a directory at that name). *)
+Corollary preflight_fails_dir : forall p,
+  ~ fresh_build_preflight_ok p <->
+  (exists dir b, selected_package_keys p = [dir]
+     /\ In b (GoAST.file_bindings (prog_files p)) /\ fp_parent (fst b) <> ""
+     /\ first_component (fp_string (fst b)) = default_exec_name (package_import_path (prog_module p) dir)).
+Proof.
+  intros p. unfold fresh_build_preflight_ok. rewrite Bool.not_true_iff_false, preflight_fails_iff. split.
+  - intros [dir [Hk Hf]]. apply (proj1 (root_layout_dir_iff p _)) in Hf.
+    destruct Hf as [b [Hin [Hpar Hfc]]]. exists dir, b. repeat split; assumption.
+  - intros [dir [b [Hk [Hin [Hpar Hfc]]]]]. exists dir. split; [ exact Hk |].
+    apply (proj2 (root_layout_dir_iff p _)). exists b. repeat split; assumption.
+Qed.
+
+(** ============================================================================================
+    §C3-FRESH.7 (§9) — SOURCE-program validity, factored into the two INDEPENDENT Go rules the old combined
+    "every package has exactly one DMain" conflated: package-block name UNIQUENESS (at most one `main`
+    declaration per package) and main-package ENTRY validity (at least one).  For the current grammar (every
+    package is `package main`; every DMain is intrinsically `func main()` with no params/results/type params)
+    the two together are EQUIVALENT to the old rule — proved below — but this is the correct factoring for
+    future non-main packages / methods / init.  SourceProgramValid is the SOURCE/compiler admission; GoCompile
+    (§17) adds the fresh-build preflight on top.
+    ============================================================================================ *)
+
+Definition PackageDeclsUnique (p : GoProgram) : Prop :=
+  forall dir s, PM.MapsTo dir s (package_summaries (prog_files p)) -> (ps_main_count s <= 1)%nat.
+Definition MainPackagesHaveEntry (p : GoProgram) : Prop :=
+  forall dir s, PM.MapsTo dir s (package_summaries (prog_files p)) -> (1 <= ps_main_count s)%nat.
+Definition PackageRulesValid (p : GoProgram) : Prop := PackageDeclsUnique p /\ MainPackagesHaveEntry p.
+Definition SourceProgramValid (p : GoProgram) : Prop := ProgramTyped p /\ PackageRulesValid p.
+
+(** the two factored rules together are exactly the old "every package has exactly one main". *)
+Lemma current_package_rules_exactly_one : forall p, PackageRulesValid p <-> AllPackagesOneMain p.
+Proof.
+  intro p. unfold PackageRulesValid, PackageDeclsUnique, MainPackagesHaveEntry, AllPackagesOneMain. split.
+  - intros [Hle Hge] dir s Hmt. pose proof (Hle dir s Hmt); pose proof (Hge dir s Hmt); lia.
+  - intros H. split; intros dir s Hmt; pose proof (H dir s Hmt); lia.
+Qed.
+
+(** so SourceProgramValid is exactly the old source-only ProgValid (the old rule survives as a consequence). *)
+Lemma source_program_valid_iff : forall p, SourceProgramValid p <-> ProgValid p.
+Proof.
+  intro p. unfold SourceProgramValid, ProgValid.
+  rewrite current_package_rules_exactly_one. reflexivity.
+Qed.
+
+(** §C3-FRESH.8 (§15b) — the fresh-build COMMAND-level diagnostic list: when the preflight fails (a sole main
+    package whose default exec name is an existing root directory), the ONE [DRBuildOutputIsDirectory] anchored
+    at that sole package; otherwise empty.  Emptiness is exactly "the preflight passes". *)
+
+Definition sole_package_ref (p : GoProgram) (dir : string) : option (PackageRef p) :=
+  match Bool.bool_dec (package_present_b p dir) true with
+  | left H  => Some (mkPackageRef p dir H)
+  | right _ => None
+  end.
+
+Lemma sole_package_ref_some : forall p dir,
+  package_present_b p dir = true -> exists pk, sole_package_ref p dir = Some pk.
+Proof.
+  intros p dir H. unfold sole_package_ref.
+  destruct (Bool.bool_dec (package_present_b p dir) true) as [Ht|Hf]; [ eexists; reflexivity | destruct (Hf H) ].
+Qed.
+
+(* a sole selected package is present (it is a key of the package-summary map, so a file has that parent). *)
+Lemma sole_package_present : forall p dir,
+  selected_package_keys p = [dir] -> package_present_b p dir = true.
+Proof.
+  intros p dir Hk.
+  assert (Hin : In dir (selected_package_keys p)) by (rewrite Hk; left; reflexivity).
+  unfold selected_package_keys in Hin. apply in_map_iff in Hin.
+  destruct Hin as [[k s] [Hfst Hinel]]. cbn in Hfst. subst k.
+  assert (Hmt : PM.MapsTo dir s (selected_packages p))
+    by (apply PMF.elements_mapsto_iff, InA_alt; exists (dir, s); split; [split; reflexivity | exact Hinel]).
+  unfold package_present_b. unfold selected_packages in Hmt.
+  apply PMF.find_mapsto_iff in Hmt. rewrite package_summaries_find in Hmt.
+  destruct (list_dir_mem dir (GoAST.file_bindings (prog_files p))); [ reflexivity | discriminate Hmt ].
+Qed.
+
+Definition build_output_diags (p : GoProgram) : list (DiagnosticReason p) :=
+  match fresh_build_plan p with
+  | FBDWriteSingleMain dir _ output_name (Some FREDirectory) =>
+      match sole_package_ref p dir with
+      | Some pk => [DRBuildOutputIsDirectory pk output_name]
+      | None    => []
+      end
+  | _ => []
+  end.
+
+Lemma build_output_diags_nil_iff : forall p,
+  build_output_diags p = [] <-> fresh_build_preflight_ok p.
+Proof.
+  intros p. unfold build_output_diags, fresh_build_preflight_ok, fresh_build_disposition_ok, fresh_build_plan.
+  destruct (selected_package_keys p) as [|dir [|d2 rest]] eqn:Ek; cbn.
+  - split; reflexivity.
+  - destruct (PM.find (default_exec_name (package_import_path (prog_module p) dir)) (root_layout p)) as [k|] eqn:Ef.
+    + destruct k; cbn.
+      * split; reflexivity.
+      * split; reflexivity.
+      * destruct (sole_package_ref p dir) as [pk|] eqn:Es.
+        -- split; [ discriminate | discriminate ].
+        -- exfalso. destruct (sole_package_ref_some p dir (sole_package_present p dir Ek)) as [pk Hpk].
+           rewrite Hpk in Es. discriminate Es.
+    + split; reflexivity.
+  - split; reflexivity.
+Qed.
+
+(* end of the §C3-FRESH block — restore the default scope so the analysis machinery's list [++] is list append. *)
+Close Scope string_scope.
+
 (** §12 (C3) — the SUCCESSFUL analysis facts, retained over the SAME [IndexedProgram] the analysis ran on:
     the occurrence-keyed [ExprFactTable] (standard NodeKey map) + the package main-ref buckets (standard
     PackageMap), each with its EXACTNESS proof, plus the compiled validity.  Facts are exposed ONLY on
@@ -5548,652 +6201,3 @@ Theorem mixed_order_erased :
              [] (Some (TInteger IInt8)) ].
 Proof. vm_compute. reflexivity. Qed.
 
-(** ============================================================================================
-    §C3-FRESH.1 — the pinned cmd/go DEFAULT-OUTPUT-NAME string layer.  Faithful to pinned Go 1.23.12
-    ([go env GOVERSION] = go1.23.12) [cmd/go/internal/load/pkg.go]: [isVersionElement] (1288-1298) and
-    [exeFromImportPath] (1675-1685) — the [DefaultExecName] path taken by a `go build ./...` (non-CmdlineFiles)
-    build.  Pure functions over the import-path STRING; NO filesystem path cleaning (inputs are canonical
-    import paths, per the contract).  Empirically confirmed against the pinned image (see SOURCE_FOREST_STATUS).
-    ============================================================================================ *)
-
-Local Open Scope string_scope.
-
-Definition ascii_is_digit (c : ascii) : bool :=
-  let n := nat_of_ascii c in andb (Nat.leb 48 n) (Nat.leb n 57).
-
-(* every byte of [s] is a decimal digit. *)
-Fixpoint str_all_digits (s : string) : bool :=
-  match s with
-  | EmptyString => true
-  | String c s' => andb (ascii_is_digit c) (str_all_digits s')
-  end.
-
-(* [isVersionElement] (pkg.go:1288-1298): [len>=2], [s[0]='v'], [s[1]<>'0'], not ([s[1]='1' /\ len=2]), and
-   every byte [s[1..]] is a decimal digit.  A single [andb] chain (no [if]) for a clean reflection. *)
-Definition is_version_element (s : string) : bool :=
-  match s with
-  | String c0 (String c1 rest) =>
-      andb (Ascii.eqb c0 "v"%char)
-        (andb (negb (Ascii.eqb c1 "0"%char))
-          (andb (negb (andb (Ascii.eqb c1 "1"%char)
-                            (match rest with EmptyString => true | _ => false end)))
-                (str_all_digits (String c1 rest))))
-  | _ => false
-  end.
-
-Fixpoint string_contains_slash (s : string) : bool :=
-  match s with
-  | EmptyString => false
-  | String c s' => orb (Ascii.eqb c "/"%char) (string_contains_slash s')
-  end.
-
-(* the import-path component AFTER the last '/'  (the whole string when there is no '/'). *)
-Fixpoint ip_basename (s : string) : string :=
-  match s with
-  | EmptyString => EmptyString
-  | String c s' =>
-      if Ascii.eqb c "/"%char then ip_basename s'
-      else if string_contains_slash s' then ip_basename s' else String c s'
-  end.
-
-(* the import-path prefix BEFORE the last '/'  (no trailing slash; empty when there is no '/').  This is
-   [pathpkg.Dir] for canonical (uncleaned, slash-separated, no-trailing-slash) import paths. *)
-Fixpoint ip_dirname (s : string) : string :=
-  match s with
-  | EmptyString => EmptyString
-  | String c s' => if string_contains_slash s' then String c (ip_dirname s') else EmptyString
-  end.
-
-(* [exeFromImportPath] (pkg.go:1675-1685), module-aware: the last import-path component, dropped to the
-   PREVIOUS component exactly when the last is a version element (and the path has an earlier component,
-   i.e. [elem <> importPath]). *)
-Definition default_exec_name (import_path : string) : string :=
-  let final := ip_basename import_path in
-  if andb (negb (String.eqb final import_path)) (is_version_element final)
-  then ip_basename (ip_dirname import_path)
-  else final.
-
-(** §C3-FRESH.1 reflection — [is_version_element] agrees with the pinned structural predicate. *)
-Lemma is_version_element_spec : forall s,
-  is_version_element s = true <->
-  (exists c1 rest, s = String "v"%char (String c1 rest)
-                   /\ c1 <> "0"%char
-                   /\ ~ (c1 = "1"%char /\ rest = EmptyString)
-                   /\ str_all_digits (String c1 rest) = true).
-Proof.
-  intros s. split.
-  - destruct s as [|c0 [|c1 rest]]; cbn [is_version_element]; try discriminate.
-    intro H.
-    apply andb_true_iff in H; destruct H as [Hv H].
-    apply andb_true_iff in H; destruct H as [H0 H].
-    apply andb_true_iff in H; destruct H as [H1 Hd].
-    apply Ascii.eqb_eq in Hv; subst c0.
-    exists c1, rest. split; [reflexivity | split; [ | split ] ].
-    + apply negb_true_iff, Ascii.eqb_neq in H0. exact H0.
-    + apply negb_true_iff, andb_false_iff in H1. intros [Hc1 Hre]. destruct H1 as [H1|H1].
-      * apply Ascii.eqb_neq in H1. exact (H1 Hc1).
-      * subst rest. cbn in H1. discriminate H1.
-    + exact Hd.
-  - intros [c1 [rest [Hs [H0 [H1 Hd]]]]]. subst s. cbn [is_version_element].
-    apply andb_true_iff; split; [ apply Ascii.eqb_refl |].
-    apply andb_true_iff; split.
-    + apply negb_true_iff. apply Ascii.eqb_neq. exact H0.
-    + apply andb_true_iff; split; [ | exact Hd ].
-      apply negb_true_iff, andb_false_iff.
-      destruct (Ascii.eqb c1 "1"%char) eqn:E1; [ | left; reflexivity ].
-      apply Ascii.eqb_eq in E1. subst c1. right. destruct rest as [|rc rr].
-      * exfalso. apply H1. split; reflexivity.
-      * reflexivity.
-Qed.
-
-(** §C3-FRESH.1 — is_version_element reflection FIXTURES (pinned Go 1.23.12, SOURCE_FOREST_STATUS-confirmed). *)
-Example ive_v0   : is_version_element "v0"   = false. Proof. reflexivity. Qed.
-Example ive_v00  : is_version_element "v00"  = false. Proof. reflexivity. Qed.
-Example ive_v01  : is_version_element "v01"  = false. Proof. reflexivity. Qed.
-Example ive_v05  : is_version_element "v05"  = false. Proof. reflexivity. Qed.
-Example ive_v1   : is_version_element "v1"   = false. Proof. reflexivity. Qed.
-Example ive_v2   : is_version_element "v2"   = true.  Proof. reflexivity. Qed.
-Example ive_v3   : is_version_element "v3"   = true.  Proof. reflexivity. Qed.
-Example ive_v10  : is_version_element "v10"  = true.  Proof. reflexivity. Qed.
-Example ive_v100 : is_version_element "v100" = true.  Proof. reflexivity. Qed.
-Example ive_v1x  : is_version_element "v1x"  = false. Proof. reflexivity. Qed.
-Example ive_v2x  : is_version_element "v2x"  = false. Proof. reflexivity. Qed.
-Example ive_V2   : is_version_element "V2"   = false. Proof. reflexivity. Qed.
-Example ive_v    : is_version_element "v"    = false. Proof. reflexivity. Qed.
-
-(** §C3-FRESH.1 — default_exec_name FIXTURES (the exact pinned import-path -> exe-name rule). *)
-Example den_root    : default_exec_name "example.com/m"         = "m".       Proof. reflexivity. Qed.
-Example den_sub     : default_exec_name "example.com/m/sub"     = "sub".     Proof. reflexivity. Qed.
-Example den_ab      : default_exec_name "example.com/m/a/b"     = "b".       Proof. reflexivity. Qed.
-Example den_av2     : default_exec_name "example.com/m/a/v2"    = "a".       Proof. reflexivity. Qed.
-Example den_v2      : default_exec_name "example.com/m/v2"      = "m".       Proof. reflexivity. Qed.
-Example den_maingo  : default_exec_name "example.com/main.go"   = "main.go". Proof. reflexivity. Qed.
-Example den_gomod   : default_exec_name "example.com/go.mod"    = "go.mod".  Proof. reflexivity. Qed.
-Example den_sub_v10 : default_exec_name "example.com/m/sub/v10" = "sub".     Proof. reflexivity. Qed.
-
-(** ============================================================================================
-    §C3-FRESH.2 (§11) — the exact cmd/go IMPORT PATH of a selected package in the main module.  The root
-    package (dir key "") imports as the [ModulePath]; a nested package dir key imports as
-    [ModulePath ++ "/" ++ dir].  Canonical source strings only; feeds [default_exec_name].
-    ============================================================================================ *)
-
-Definition package_import_path (ms : ModuleSpec) (dir : string) : string :=
-  if String.eqb dir "" then mp_string (module_path ms)
-  else mp_string (module_path ms) ++ "/" ++ dir.
-
-(* left-cancellation and right-identity for string append (small leaf helpers; no collection). *)
-Lemma string_app_cancel_l : forall a b c, (a ++ b)%string = (a ++ c)%string -> b = c.
-Proof. induction a as [|x a IH]; simpl; intros b c H; [exact H | injection H as H; exact (IH b c H)]. Qed.
-Lemma string_app_empty_r : forall s, (s ++ "")%string = s.
-Proof. induction s as [|c s IH]; simpl; [reflexivity | rewrite IH; reflexivity]. Qed.
-
-Lemma package_import_path_root : forall ms, package_import_path ms "" = mp_string (module_path ms).
-Proof. intro ms. reflexivity. Qed.
-
-Lemma package_import_path_nested : forall ms dir, dir <> "" ->
-  package_import_path ms dir = mp_string (module_path ms) ++ "/" ++ dir.
-Proof.
-  intros ms dir Hd. unfold package_import_path.
-  destruct (String.eqb dir "") eqn:E; [ apply String.eqb_eq in E; contradiction | reflexivity ].
-Qed.
-
-(* deterministic: a pure function of (ModuleSpec, package key). *)
-Lemma package_import_path_deterministic : forall ms1 ms2 dir1 dir2,
-  ms1 = ms2 -> dir1 = dir2 -> package_import_path ms1 dir1 = package_import_path ms2 dir2.
-Proof. intros ms1 ms2 d1 d2 -> ->. reflexivity. Qed.
-
-(* injective in the package key under a fixed ModuleSpec (distinct dirs -> distinct import paths). *)
-Lemma package_import_path_inj : forall ms dir1 dir2,
-  package_import_path ms dir1 = package_import_path ms dir2 -> dir1 = dir2.
-Proof.
-  intros ms d1 d2. unfold package_import_path.
-  set (mp := mp_string (module_path ms)).
-  destruct (String.eqb d1 "") eqn:E1; destruct (String.eqb d2 "") eqn:E2; intro H.
-  - apply String.eqb_eq in E1; apply String.eqb_eq in E2; subst d1 d2; reflexivity.
-  - exfalso. apply String.eqb_eq in E1.
-    rewrite <- (string_app_empty_r mp) in H at 1. apply string_app_cancel_l in H. discriminate H.
-  - exfalso. apply String.eqb_eq in E2.
-    rewrite <- (string_app_empty_r mp) in H at 2. apply string_app_cancel_l in H. discriminate H.
-  - apply string_app_cancel_l in H. injection H as H. exact H.
-Qed.
-
-(** ============================================================================================
-    §C3-FRESH.3 (§10) — the package set the literal `./...` pattern SELECTS: exactly the domain of the
-    one-pass [package_summaries] PackageMap (= the distinct parent directories of the represented FilePaths).
-    The canonical enumeration is the standard map's [elements] (a DERIVED list, not a second authority); NO
-    list-backed set.
-    ============================================================================================ *)
-
-Definition selected_packages (p : GoProgram) : PM.t PackageSummary := package_summaries (prog_files p).
-Definition selected_package_keys (p : GoProgram) : list string := map fst (PM.elements (selected_packages p)).
-Definition selected_package_count (p : GoProgram) : nat := length (selected_package_keys p).
-
-(** §10 domain exactness: a directory is a selected package IFF some represented file has that parent dir. *)
-Lemma selected_iff_file : forall p dir,
-  PM.In dir (selected_packages p) <->
-  (exists b, In b (GoAST.file_bindings (prog_files p)) /\ fp_parent (fst b) = dir).
-Proof.
-  intros p dir. unfold selected_packages. split.
-  - apply package_no_empty.
-  - intros [b [Hin Heq]].
-    assert (Hmem : list_dir_mem dir (GoAST.file_bindings (prog_files p)) = true).
-    { unfold list_dir_mem. apply existsb_exists. exists b. split; [ exact Hin | rewrite Heq; apply String.eqb_refl ]. }
-    exists (mkPkgSummary (pkg_main_count dir (prog_files p))).
-    apply PMF.find_mapsto_iff. rewrite package_summaries_find, Hmem. reflexivity.
-Qed.
-
-(** §10 — the empty program selects ZERO packages. *)
-Lemma selected_count_empty : forall ms, selected_package_count (empty_program ms) = 0%nat.
-Proof.
-  intro ms. unfold selected_package_count, selected_package_keys, selected_packages.
-  assert (He : PM.Empty (package_summaries (prog_files (empty_program ms)))).
-  { intros k e Hmt. apply PMF.find_mapsto_iff in Hmt.
-    cbn [prog_files empty_program] in Hmt. rewrite (package_summaries_empty k) in Hmt. discriminate. }
-  rewrite (proj1 (PMP.elements_Empty _) He). reflexivity.
-Qed.
-
-(** §10 — one directory coalesces to ONE selected package: two files sharing a parent directory land on the
-    SAME (unique) map key.  (Distinct parents land on distinct keys — intrinsic to the map's key identity.) *)
-Lemma selected_one_dir : forall p b1 b2,
-  In b1 (GoAST.file_bindings (prog_files p)) -> In b2 (GoAST.file_bindings (prog_files p)) ->
-  fp_parent (fst b1) = fp_parent (fst b2) ->
-  PM.In (fp_parent (fst b1)) (selected_packages p).
-Proof.
-  intros p b1 b2 Hin1 _ _. apply selected_iff_file. exists b1. split; [ exact Hin1 | reflexivity ].
-Qed.
-
-(** ============================================================================================
-    §C3-FRESH.4 (§7) — the FRESH ROOT LAYOUT foundation + the conflict AUDIT.  A fresh materialization of the
-    DirectoryImage has, at its ROOT: the one [go.mod], each root-level source file, and one directory per
-    distinct first path-component of a nested source file.  [FreshRootEntryKind] tags a root entry.
-
-    THE AUDIT (§7): can one root key be BOTH a regular file and a directory?  NO — by the intrinsic FilePath
-    grammar.  A directory component is [component_ok] = [a-z][a-z0-9]* (DOT-FREE); a root source basename is
-    [filename_ok] (ends ".go", DOTTED) and the module file is "go.mod" (DOTTED).  So a directory key can never
-    equal a source-file key or "go.mod": the layout is conflict-free by construction — no rejecting validation
-    is needed (the impossibility is PROVED below, [dir_component_neq_gomod] and the dot lemmas).
-    ============================================================================================ *)
-
-Inductive FreshRootEntryKind : Type :=
-| FREGoMod
-| FRESourceFile (path : FilePath)
-| FREDirectory.
-
-(* the FIRST path component of a path string (before the first '/'); the whole name for a root-level file. *)
-Fixpoint first_component (s : string) : string :=
-  match s with
-  | EmptyString => EmptyString
-  | String c s' => if Ascii.eqb c "/"%char then EmptyString else String c (first_component s')
-  end.
-
-Fixpoint contains_dot (s : string) : bool :=
-  match s with EmptyString => false | String c s' => orb (Ascii.eqb c "."%char) (contains_dot s') end.
-
-Lemma contains_dot_app : forall a b, contains_dot (a ++ b) = orb (contains_dot a) (contains_dot b).
-Proof. induction a as [|c a IH]; intro b; simpl; [reflexivity | rewrite IH; apply Bool.orb_assoc]. Qed.
-
-(* a lowercase-or-digit byte is never '.'; a lowercase byte is never '.'. *)
-Lemma is_lower_digit_no_dot : forall c, FilePath.is_lower_digit c = true -> Ascii.eqb c "."%char = false.
-Proof.
-  intros c H. apply Bool.not_true_iff_false. intro E. apply Ascii.eqb_eq in E. subst c. vm_compute in H. discriminate H.
-Qed.
-
-Lemma tail_ok_no_dot : forall s, FilePath.tail_ok s = true -> contains_dot s = false.
-Proof.
-  induction s as [|c s' IH]; intro H; [reflexivity|].
-  cbn [FilePath.tail_ok] in H. apply andb_true_iff in H. destruct H as [Hc Hs].
-  cbn [contains_dot]. rewrite (is_lower_digit_no_dot c Hc); cbn [orb]. exact (IH Hs).
-Qed.
-
-Lemma component_ok_no_dot : forall s, FilePath.component_ok s = true -> contains_dot s = false.
-Proof.
-  intros [|c s'] H; [discriminate H|].
-  cbn [FilePath.component_ok] in H. apply andb_true_iff in H. destruct H as [Hc Hs].
-  cbn [contains_dot].
-  assert (Hne : Ascii.eqb c "."%char = false).
-  { apply Bool.not_true_iff_false. intro E. apply Ascii.eqb_eq in E. subst c. vm_compute in Hc. discriminate Hc. }
-  rewrite Hne; cbn [orb]. exact (tail_ok_no_dot s' Hs).
-Qed.
-
-(* a dot-free directory key can never equal the DOTTED module file name "go.mod". *)
-Lemma dir_component_neq_gomod : forall d, FilePath.dir_component_ok d = true -> d <> "go.mod".
-Proof.
-  intros d Hd Heq. subst d. unfold FilePath.dir_component_ok in Hd. apply andb_true_iff in Hd. destruct Hd as [Hc _].
-  pose proof (component_ok_no_dot _ Hc) as Hnd. vm_compute in Hnd. discriminate Hnd.
-Qed.
-
-(** §C3-FRESH.4 (cont.) — file-vs-directory key disjointness: a root source basename is [filename_ok] (ends
-    ".go", hence DOTTED), so it can never equal a dot-free directory component key.  Completes the §7 audit. *)
-
-Lemma substring_full : forall s, String.substring 0 (String.length s) s = s.
-Proof. induction s as [|c s IH]; simpl; [reflexivity | rewrite IH; reflexivity]. Qed.
-
-Lemma substring_split : forall k s, (k <= String.length s)%nat ->
-  s = (String.substring 0 k s ++ String.substring k (String.length s - k) s)%string.
-Proof.
-  intros k s; revert k; induction s as [|c s IH]; intros [|k'] Hk.
-  - reflexivity.
-  - simpl in Hk; lia.
-  - change (String.substring 0 0 (String c s)) with EmptyString.
-    rewrite Nat.sub_0_r, substring_full. reflexivity.
-  - cbn [String.substring String.length Nat.sub String.append]. f_equal. apply IH. simpl in Hk; lia.
-Qed.
-
-Lemma ends_go_recon : forall s, FilePath.ends_go s = true -> s = (FilePath.strip_go s ++ ".go")%string.
-Proof.
-  intros s H. unfold FilePath.ends_go in H. apply andb_true_iff in H. destruct H as [Hn Heq].
-  apply Nat.leb_le in Hn. apply String.eqb_eq in Heq. unfold FilePath.strip_go.
-  pose proof (substring_split (String.length s - 3) s ltac:(lia)) as Hsp.
-  replace (String.length s - (String.length s - 3))%nat with 3%nat in Hsp by lia.
-  rewrite Heq in Hsp. exact Hsp.
-Qed.
-
-Lemma filename_ok_has_dot : forall s, FilePath.filename_ok s = true -> contains_dot s = true.
-Proof.
-  intros s H. unfold FilePath.filename_ok in H. apply andb_true_iff in H. destruct H as [Hends _].
-  rewrite (ends_go_recon s Hends), contains_dot_app.
-  replace (contains_dot ".go") with true by reflexivity. apply Bool.orb_true_r.
-Qed.
-
-Lemma dir_component_neq_filename : forall d f,
-  FilePath.dir_component_ok d = true -> FilePath.filename_ok f = true -> d <> f.
-Proof.
-  intros d f Hd Hf Heq. subst f.
-  unfold FilePath.dir_component_ok in Hd. apply andb_true_iff in Hd. destruct Hd as [Hc _].
-  pose proof (component_ok_no_dot d Hc) as Hnd. pose proof (filename_ok_has_dot d Hf) as Hyd.
-  rewrite Hnd in Hyd. discriminate Hyd.
-Qed.
-
-(** the THIRD disjointness pair (completing "pairwise disjoint"): a root source basename [filename_ok] is
-    never "go.mod" — "go.mod" ends ".mod", not ".go", so [ends_go "go.mod" = false].  So FRESourceFile keys
-    and the FREGoMod key are disjoint. *)
-Lemma filename_ok_neq_gomod : forall f, FilePath.filename_ok f = true -> f <> "go.mod".
-Proof. intros f Hf Heq. subst f. vm_compute in Hf. discriminate Hf. Qed.
-
-(** §C3-FRESH.4 (cont.) — the first path component of a NESTED file (one with a nonempty parent directory) is
-    a valid [dir_component_ok] key: it is the first '/'-separated segment, which [path_ok] requires to be an
-    admissible directory component.  So every FREDirectory key is dot-free (feeds the disjointness above). *)
-
-Lemma first_component_hd : forall s, first_component s = List.hd EmptyString (FilePath.split_slash s).
-Proof.
-  induction s as [|c s IH]; [reflexivity|].
-  cbn [first_component FilePath.split_slash].
-  destruct (Ascii.eqb c "/"%char); [reflexivity|].
-  rewrite IH. destruct (FilePath.split_slash s) as [|h t]; reflexivity.
-Qed.
-
-Lemma hd_app_l {A} (d : A) (l1 l2 : list A) : l1 <> [] -> List.hd d (l1 ++ l2) = List.hd d l1.
-Proof. destruct l1; [contradiction | reflexivity]. Qed.
-
-Lemma first_component_dir_ok : forall s,
-  FilePath.path_ok s = true -> FilePath.parent_of s <> EmptyString ->
-  FilePath.dir_component_ok (first_component s) = true.
-Proof.
-  intros s Hp Hpar. rewrite first_component_hd.
-  unfold FilePath.path_ok in Hp.
-  destruct (rev (FilePath.split_slash s)) as [|last rdirs] eqn:Erev; [discriminate Hp|].
-  apply andb_true_iff in Hp. destruct Hp as [Hdirs _].
-  assert (Hrd : rdirs <> []).
-  { intro Hc. subst rdirs. apply Hpar. unfold FilePath.parent_of. rewrite Erev. reflexivity. }
-  assert (Hss : FilePath.split_slash s = (rev rdirs ++ [last])%list).
-  { rewrite <- (rev_involutive (FilePath.split_slash s)), Erev. reflexivity. }
-  rewrite Hss.
-  assert (Hrr : rev rdirs <> []).
-  { intro Hc. apply (f_equal (@rev _)) in Hc. rewrite rev_involutive in Hc. exact (Hrd Hc). }
-  rewrite (hd_app_l EmptyString (rev rdirs) [last] Hrr).
-  rewrite forallb_forall in Hdirs. apply Hdirs. apply in_rev.
-  destruct (rev rdirs) as [|h t] eqn:Er; [contradiction | left; reflexivity].
-Qed.
-
-(** every [path_ok] path CONTAINS a dot (its last segment is a `.go` filename): splitting on '/' preserves
-    dots (a separator has none), and the last segment is [filename_ok] hence dotted.  Used for the RootEntryMap
-    disjointness (a root source-file key is dotted, a directory key is not). *)
-Lemma contains_dot_split_slash : forall s, contains_dot s = existsb contains_dot (FilePath.split_slash s).
-Proof.
-  induction s as [|c s' IH]; [reflexivity|].
-  cbn [FilePath.split_slash contains_dot].
-  destruct (Ascii.eqb c "/"%char) eqn:E.
-  - apply Ascii.eqb_eq in E. subst c. cbn [existsb contains_dot]. rewrite IH. reflexivity.
-  - cbn [existsb].
-    destruct (FilePath.split_slash s') as [|h t].
-    + rewrite IH. cbn [existsb contains_dot]. rewrite !Bool.orb_false_r. reflexivity.
-    + rewrite IH. cbn [existsb contains_dot]. rewrite Bool.orb_assoc. reflexivity.
-Qed.
-
-Lemma path_ok_has_dot : forall s, FilePath.path_ok s = true -> contains_dot s = true.
-Proof.
-  intros s Hp. rewrite contains_dot_split_slash. apply existsb_exists.
-  unfold FilePath.path_ok in Hp.
-  destruct (rev (FilePath.split_slash s)) as [|last rdirs] eqn:Erev; [discriminate Hp|].
-  apply andb_true_iff in Hp. destruct Hp as [_ Hfn].
-  exists last. split.
-  - assert (Hin : In last (rev (FilePath.split_slash s))) by (rewrite Erev; left; reflexivity).
-    rewrite <- in_rev in Hin. exact Hin.
-  - apply filename_ok_has_dot. exact Hfn.
-Qed.
-
-(** §C3-FRESH.5 (§7 map) — the fresh ROOT LAYOUT as a standard string-keyed [PackageMap]: "go.mod" -> FREGoMod,
-    each root-level file -> its FRESourceFile, each nested file's first component -> FREDirectory.  Built by one
-    fold over the file bindings; conflict-free by the disjointness above (proved via [root_entry_hval]). *)
-
-Definition root_entry_of_file (b : FilePath * GoSourceFile) : string * FreshRootEntryKind :=
-  if String.eqb (fp_parent (fst b)) ""
-  then (fp_string (fst b), FRESourceFile (fst b))
-  else (first_component (fp_string (fst b)), FREDirectory).
-
-Definition root_layout (p : GoProgram) : PM.t FreshRootEntryKind :=
-  fold_right (fun b acc => PM.add (fst (root_entry_of_file b)) (snd (root_entry_of_file b)) acc)
-             (PM.add "go.mod" FREGoMod (PM.empty _))
-             (GoAST.file_bindings (prog_files p)).
-
-(* GENERIC fold-of-adds find: an absent key falls through to [init]; a present key gets its (unique) value. *)
-Lemma fold_add_find_notin {A} (kv : (FilePath * GoSourceFile) -> string * A) (init : PM.t A)
-    (l : list (FilePath * GoSourceFile)) (e : string) :
-  (forall b, In b l -> fst (kv b) <> e) ->
-  PM.find e (fold_right (fun b acc => PM.add (fst (kv b)) (snd (kv b)) acc) init l) = PM.find e init.
-Proof.
-  induction l as [|b l IH]; intro Hni; [reflexivity|].
-  cbn [fold_right]. destruct (String.eqb (fst (kv b)) e) eqn:Eb.
-  - apply String.eqb_eq in Eb. exfalso. exact (Hni b (or_introl eq_refl) Eb).
-  - apply String.eqb_neq in Eb. rewrite PMF.add_neq_o by exact Eb. apply IH. intros b' Hb'. apply Hni; right; exact Hb'.
-Qed.
-
-Lemma fold_add_find_in {A} (kv : (FilePath * GoSourceFile) -> string * A) (init : PM.t A)
-    (l : list (FilePath * GoSourceFile)) (e : string) (b0 : FilePath * GoSourceFile) :
-  In b0 l -> fst (kv b0) = e ->
-  (forall b1 b2, In b1 l -> In b2 l -> fst (kv b1) = fst (kv b2) -> snd (kv b1) = snd (kv b2)) ->
-  PM.find e (fold_right (fun b acc => PM.add (fst (kv b)) (snd (kv b)) acc) init l) = Some (snd (kv b0)).
-Proof.
-  induction l as [|b l IH]; intros Hin Hk Hval; [destruct Hin|].
-  cbn [fold_right]. destruct (String.eqb (fst (kv b)) e) eqn:Eb.
-  - apply String.eqb_eq in Eb. rewrite PMF.add_eq_o by exact Eb. f_equal.
-    apply (Hval b b0); [ left; reflexivity | exact Hin | rewrite Eb; symmetry; exact Hk ].
-  - apply String.eqb_neq in Eb. rewrite PMF.add_neq_o by exact Eb.
-    destruct Hin as [Hb0|Hin]; [ subst b0; exfalso; exact (Eb Hk) |].
-    apply IH; [ exact Hin | exact Hk | intros b1 b2 H1 H2; apply Hval; right; assumption ].
-Qed.
-
-(* the root-entry key uniquely determines its value: same key => same kind (the §7 conflict audit, mapped). *)
-Lemma root_entry_hval : forall b1 b2 : FilePath * GoSourceFile,
-  fst (root_entry_of_file b1) = fst (root_entry_of_file b2) ->
-  snd (root_entry_of_file b1) = snd (root_entry_of_file b2).
-Proof.
-  intros b1 b2 Hk. unfold root_entry_of_file in *.
-  destruct (String.eqb (fp_parent (fst b1)) "") eqn:E1;
-    destruct (String.eqb (fp_parent (fst b2)) "") eqn:E2; cbn [fst snd] in *.
-  - assert (Hp : fst b1 = fst b2) by (apply fp_eq; exact Hk). rewrite Hp. reflexivity.
-  - exfalso. apply String.eqb_neq in E2.
-    pose proof (path_ok_has_dot (fp_string (fst b1)) (fp_ok (fst b1))) as Hd1.
-    pose proof (first_component_dir_ok (fp_string (fst b2)) (fp_ok (fst b2)) E2) as Hdc2.
-    unfold FilePath.dir_component_ok in Hdc2. apply andb_true_iff in Hdc2. destruct Hdc2 as [Hc2 _].
-    rewrite Hk, (component_ok_no_dot _ Hc2) in Hd1. discriminate Hd1.
-  - exfalso. apply String.eqb_neq in E1.
-    pose proof (path_ok_has_dot (fp_string (fst b2)) (fp_ok (fst b2))) as Hd2.
-    pose proof (first_component_dir_ok (fp_string (fst b1)) (fp_ok (fst b1)) E1) as Hdc1.
-    unfold FilePath.dir_component_ok in Hdc1. apply andb_true_iff in Hdc1. destruct Hdc1 as [Hc1 _].
-    rewrite <- Hk, (component_ok_no_dot _ Hc1) in Hd2. discriminate Hd2.
-  - reflexivity.
-Qed.
-
-(** §C3-FRESH.5 (§7 exactness) — the ROOT-DIRECTORY characterization: a key maps to FREDirectory in the layout
-    IFF some NESTED represented file has that key as its first path component.  (This is what the fresh-build
-    preflight consults: an existing root DIRECTORY at the default exec name is the cmd/go collision.) *)
-Lemma root_layout_dir_iff : forall p e,
-  PM.find e (root_layout p) = Some FREDirectory <->
-  (exists b, In b (GoAST.file_bindings (prog_files p))
-             /\ fp_parent (fst b) <> "" /\ first_component (fp_string (fst b)) = e).
-Proof.
-  intros p e. unfold root_layout. split.
-  - intro Hfind.
-    destruct (existsb (fun b => String.eqb (fst (root_entry_of_file b)) e)
-                (GoAST.file_bindings (prog_files p))) eqn:Eex.
-    + apply existsb_exists in Eex. destruct Eex as [b [Hin Hkey]]. apply String.eqb_eq in Hkey.
-      rewrite (fold_add_find_in root_entry_of_file (PM.add "go.mod" FREGoMod (PM.empty _))
-                 (GoAST.file_bindings (prog_files p)) e b Hin Hkey
-                 (fun b1 b2 _ _ => root_entry_hval b1 b2)) in Hfind.
-      injection Hfind as Hval. exists b.
-      unfold root_entry_of_file in Hkey, Hval.
-      destruct (String.eqb (fp_parent (fst b)) "") eqn:E; cbn [fst snd] in Hkey, Hval.
-      * discriminate Hval.
-      * apply String.eqb_neq in E. split; [ exact Hin | split; [ exact E | exact Hkey ] ].
-    + assert (Hni : forall b, In b (GoAST.file_bindings (prog_files p)) -> fst (root_entry_of_file b) <> e).
-      { intros b Hin Hc. apply Bool.not_true_iff_false in Eex. apply Eex, existsb_exists.
-        exists b. split; [ exact Hin | apply String.eqb_eq; exact Hc ]. }
-      rewrite (fold_add_find_notin root_entry_of_file (PM.add "go.mod" FREGoMod (PM.empty _))
-                 (GoAST.file_bindings (prog_files p)) e Hni) in Hfind.
-      destruct (String.eqb "go.mod" e) eqn:Eg.
-      * apply String.eqb_eq in Eg. rewrite <- Eg, PMF.add_eq_o in Hfind by reflexivity. discriminate Hfind.
-      * apply String.eqb_neq in Eg. rewrite PMF.add_neq_o in Hfind by exact Eg.
-        rewrite PMF.empty_o in Hfind. discriminate Hfind.
-  - intros [b [Hin [Hpar Hfc]]].
-    assert (Hkv : root_entry_of_file b = (e, FREDirectory)).
-    { unfold root_entry_of_file. destruct (String.eqb (fp_parent (fst b)) "") eqn:E.
-      - apply String.eqb_eq in E. exfalso. exact (Hpar E).
-      - rewrite Hfc. reflexivity. }
-    rewrite (fold_add_find_in root_entry_of_file (PM.add "go.mod" FREGoMod (PM.empty _))
-               (GoAST.file_bindings (prog_files p)) e b Hin (f_equal fst Hkv)
-               (fun b1 b2 _ _ => root_entry_hval b1 b2)).
-    rewrite Hkv. reflexivity.
-Qed.
-
-(** ============================================================================================
-    §C3-FRESH.6 (§13/§14) — the retained FRESH BUILD PLAN + its preflight.  After loading packages, cmd/go
-    picks a default output ONLY for a sole selected MAIN package, then stats that name and FAILS (before
-    compiling) if it is an existing DIRECTORY.  0 or >=2 selected packages write no default output (no
-    preflight).  The current grammar makes every package `package main`, so a sole selected package is always
-    a main package.  (A future single NON-main package would take an FBDDiscardSingleLibrary branch — omitted
-    until that syntax exists.)  Derived purely from the retained PackageMap + ModuleSpec + root layout: no
-    syntax revisit, no index rebuild, no rendering, no cmd/go call, no filesystem scan.
-    ============================================================================================ *)
-
-Inductive FreshBuildDisposition : Type :=
-| FBDNoPackages
-| FBDDiscardMultiple (count : nat)
-| FBDWriteSingleMain (dir import_path output_name : string) (target : option FreshRootEntryKind).
-
-Definition fresh_build_plan (p : GoProgram) : FreshBuildDisposition :=
-  match selected_package_keys p with
-  | [] => FBDNoPackages
-  | dir :: nil =>
-      let ip := package_import_path (prog_module p) dir in
-      let ex := default_exec_name ip in
-      FBDWriteSingleMain dir ip ex (PM.find ex (root_layout p))
-  | _ :: _ :: _ => FBDDiscardMultiple (selected_package_count p)
-  end.
-
-(* the preflight decision: reject ONLY a sole-main default output name that is an existing root directory. *)
-Definition fresh_build_disposition_ok (d : FreshBuildDisposition) : bool :=
-  match d with
-  | FBDWriteSingleMain _ _ _ (Some FREDirectory) => false
-  | _ => true
-  end.
-
-Definition fresh_build_preflight_ok (p : GoProgram) : Prop :=
-  fresh_build_disposition_ok (fresh_build_plan p) = true.
-
-(* the ONLY command-level preflight failure: a sole selected package whose default exec name is a root DIR. *)
-Lemma preflight_fails_iff : forall p,
-  fresh_build_disposition_ok (fresh_build_plan p) = false <->
-  (exists dir, selected_package_keys p = [dir]
-     /\ PM.find (default_exec_name (package_import_path (prog_module p) dir)) (root_layout p) = Some FREDirectory).
-Proof.
-  intros p. unfold fresh_build_plan, fresh_build_disposition_ok.
-  destruct (selected_package_keys p) as [|dir [|d2 rest]] eqn:Ek.
-  - split; [ discriminate | intros [d [Hd _]]; discriminate Hd ].
-  - cbn.
-    destruct (PM.find (default_exec_name (package_import_path (prog_module p) dir)) (root_layout p))
-      as [k|] eqn:Ef.
-    + destruct k; cbn.
-      * split; [ discriminate | intros [d [Hd Hf]]; injection Hd as ->; rewrite Ef in Hf; discriminate Hf ].
-      * split; [ discriminate | intros [d [Hd Hf]]; injection Hd as ->; rewrite Ef in Hf; discriminate Hf ].
-      * split; [ intros _; exists dir; split; [reflexivity | exact Ef] | reflexivity ].
-    + split; [ discriminate | intros [d [Hd Hf]]; injection Hd as ->; rewrite Ef in Hf; discriminate Hf ].
-  - cbn. split; [ discriminate | intros [d [Hd _]]; discriminate Hd ].
-Qed.
-
-(* the preflight failure, in cmd/go's terms (via root_layout_dir_iff): a sole package whose default exec name
-   equals a NESTED represented file's first path component (so the fresh image has a directory at that name). *)
-Corollary preflight_fails_dir : forall p,
-  ~ fresh_build_preflight_ok p <->
-  (exists dir b, selected_package_keys p = [dir]
-     /\ In b (GoAST.file_bindings (prog_files p)) /\ fp_parent (fst b) <> ""
-     /\ first_component (fp_string (fst b)) = default_exec_name (package_import_path (prog_module p) dir)).
-Proof.
-  intros p. unfold fresh_build_preflight_ok. rewrite Bool.not_true_iff_false, preflight_fails_iff. split.
-  - intros [dir [Hk Hf]]. apply (proj1 (root_layout_dir_iff p _)) in Hf.
-    destruct Hf as [b [Hin [Hpar Hfc]]]. exists dir, b. repeat split; assumption.
-  - intros [dir [b [Hk [Hin [Hpar Hfc]]]]]. exists dir. split; [ exact Hk |].
-    apply (proj2 (root_layout_dir_iff p _)). exists b. repeat split; assumption.
-Qed.
-
-(** ============================================================================================
-    §C3-FRESH.7 (§9) — SOURCE-program validity, factored into the two INDEPENDENT Go rules the old combined
-    "every package has exactly one DMain" conflated: package-block name UNIQUENESS (at most one `main`
-    declaration per package) and main-package ENTRY validity (at least one).  For the current grammar (every
-    package is `package main`; every DMain is intrinsically `func main()` with no params/results/type params)
-    the two together are EQUIVALENT to the old rule — proved below — but this is the correct factoring for
-    future non-main packages / methods / init.  SourceProgramValid is the SOURCE/compiler admission; GoCompile
-    (§17) adds the fresh-build preflight on top.
-    ============================================================================================ *)
-
-Definition PackageDeclsUnique (p : GoProgram) : Prop :=
-  forall dir s, PM.MapsTo dir s (package_summaries (prog_files p)) -> (ps_main_count s <= 1)%nat.
-Definition MainPackagesHaveEntry (p : GoProgram) : Prop :=
-  forall dir s, PM.MapsTo dir s (package_summaries (prog_files p)) -> (1 <= ps_main_count s)%nat.
-Definition PackageRulesValid (p : GoProgram) : Prop := PackageDeclsUnique p /\ MainPackagesHaveEntry p.
-Definition SourceProgramValid (p : GoProgram) : Prop := ProgramTyped p /\ PackageRulesValid p.
-
-(** the two factored rules together are exactly the old "every package has exactly one main". *)
-Lemma current_package_rules_exactly_one : forall p, PackageRulesValid p <-> AllPackagesOneMain p.
-Proof.
-  intro p. unfold PackageRulesValid, PackageDeclsUnique, MainPackagesHaveEntry, AllPackagesOneMain. split.
-  - intros [Hle Hge] dir s Hmt. pose proof (Hle dir s Hmt); pose proof (Hge dir s Hmt); lia.
-  - intros H. split; intros dir s Hmt; pose proof (H dir s Hmt); lia.
-Qed.
-
-(** so SourceProgramValid is exactly the old source-only ProgValid (the old rule survives as a consequence). *)
-Lemma source_program_valid_iff : forall p, SourceProgramValid p <-> ProgValid p.
-Proof.
-  intro p. unfold SourceProgramValid, ProgValid.
-  rewrite current_package_rules_exactly_one. reflexivity.
-Qed.
-
-(** §C3-FRESH.8 (§15b) — the fresh-build COMMAND-level diagnostic list: when the preflight fails (a sole main
-    package whose default exec name is an existing root directory), the ONE [DRBuildOutputIsDirectory] anchored
-    at that sole package; otherwise empty.  Emptiness is exactly "the preflight passes". *)
-
-Definition sole_package_ref (p : GoProgram) (dir : string) : option (PackageRef p) :=
-  match Bool.bool_dec (package_present_b p dir) true with
-  | left H  => Some (mkPackageRef p dir H)
-  | right _ => None
-  end.
-
-Lemma sole_package_ref_some : forall p dir,
-  package_present_b p dir = true -> exists pk, sole_package_ref p dir = Some pk.
-Proof.
-  intros p dir H. unfold sole_package_ref.
-  destruct (Bool.bool_dec (package_present_b p dir) true) as [Ht|Hf]; [ eexists; reflexivity | destruct (Hf H) ].
-Qed.
-
-(* a sole selected package is present (it is a key of the package-summary map, so a file has that parent). *)
-Lemma sole_package_present : forall p dir,
-  selected_package_keys p = [dir] -> package_present_b p dir = true.
-Proof.
-  intros p dir Hk.
-  assert (Hin : In dir (selected_package_keys p)) by (rewrite Hk; left; reflexivity).
-  unfold selected_package_keys in Hin. apply in_map_iff in Hin.
-  destruct Hin as [[k s] [Hfst Hinel]]. cbn in Hfst. subst k.
-  assert (Hmt : PM.MapsTo dir s (selected_packages p))
-    by (apply PMF.elements_mapsto_iff, InA_alt; exists (dir, s); split; [split; reflexivity | exact Hinel]).
-  unfold package_present_b. unfold selected_packages in Hmt.
-  apply PMF.find_mapsto_iff in Hmt. rewrite package_summaries_find in Hmt.
-  destruct (list_dir_mem dir (GoAST.file_bindings (prog_files p))); [ reflexivity | discriminate Hmt ].
-Qed.
-
-Definition build_output_diags (p : GoProgram) : list (DiagnosticReason p) :=
-  match fresh_build_plan p with
-  | FBDWriteSingleMain dir _ output_name (Some FREDirectory) =>
-      match sole_package_ref p dir with
-      | Some pk => [DRBuildOutputIsDirectory pk output_name]
-      | None    => []
-      end
-  | _ => []
-  end.
-
-Lemma build_output_diags_nil_iff : forall p,
-  build_output_diags p = [] <-> fresh_build_preflight_ok p.
-Proof.
-  intros p. unfold build_output_diags, fresh_build_preflight_ok, fresh_build_disposition_ok, fresh_build_plan.
-  destruct (selected_package_keys p) as [|dir [|d2 rest]] eqn:Ek; cbn.
-  - split; reflexivity.
-  - destruct (PM.find (default_exec_name (package_import_path (prog_module p) dir)) (root_layout p)) as [k|] eqn:Ef.
-    + destruct k; cbn.
-      * split; reflexivity.
-      * split; reflexivity.
-      * destruct (sole_package_ref p dir) as [pk|] eqn:Es.
-        -- split; [ discriminate | discriminate ].
-        -- exfalso. destruct (sole_package_ref_some p dir (sole_package_present p dir Ek)) as [pk Hpk].
-           rewrite Hpk in Es. discriminate Es.
-    + split; reflexivity.
-  - split; reflexivity.
-Qed.
