@@ -799,8 +799,8 @@ Print Assumptions GoIndex.nodekeymap_elements_Equal.
    [prog_expr_facts_source]) so [vm_compute] delivers the exact list — exact COUNT, exact NodeKey/package
    ANCHORS, exact target PAYLOADS, exact fact VALUES.  §22.15 reordered-construction determinism; §22.13 empty
    program; §22.8 nested [float64(int8(128))] -> ONE DCInvalidConversion, primary=int8, related=[float64],
-   target=int8; §22.9/§22.11 three mains -> EXACTLY TWO DCDuplicateMain both related to the first main; §22.12
-   no-main package -> ONE DCMissingMain at the package anchor. *)
+   target=int8; §22.9/§22.11 three mains -> EXACTLY TWO DCMainRedeclared both related to the first main; §22.12
+   no-main package -> ONE DCMissingMainEntry at the package anchor. *)
 Print Assumptions GoCompile.reorder_construction_deterministic.
 Print Assumptions GoCompile.empty_program_report.
 Print Assumptions GoCompile.nested_conv_erased_report.

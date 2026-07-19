@@ -374,9 +374,9 @@ Inductive DiagnosticReason (p : GoProgram) : Type :=
     (target : GoType) (operand_status : ConstInfo)
 | DRDefaultNotRepresentable
     (primary : GoIndex.ExprRef p) (exact_constant : GoConst) (default_target : GoType)
-| DRDuplicateMain
+| DRMainRedeclared
     (later_primary : GoIndex.DeclRef p) (earlier_related : GoIndex.DeclRef p)
-| DRMissingMain
+| DRMissingMainEntry
     (package_primary : PackageRef p)
 (* §15 (C3-fresh) — the fresh-build cmd/go COMMAND-level failure: a sole selected main package whose default
    executable name is an existing root DIRECTORY.  Anchored at the sole [PackageRef]; carries the exact default
@@ -384,17 +384,17 @@ Inductive DiagnosticReason (p : GoProgram) : Type :=
 | DRBuildOutputIsDirectory
     (package_primary : PackageRef p) (output_name : string).
 Arguments DRInvalidConversion {p} _ _ _ _.  Arguments DRDefaultNotRepresentable {p} _ _ _.
-Arguments DRDuplicateMain {p} _ _.  Arguments DRMissingMain {p} _.  Arguments DRBuildOutputIsDirectory {p} _ _.
+Arguments DRMainRedeclared {p} _ _.  Arguments DRMissingMainEntry {p} _.  Arguments DRBuildOutputIsDirectory {p} _ _.
 
 Inductive DiagnosticCode : Type :=
-| DCInvalidConversion | DCDefaultNotRepresentable | DCDuplicateMain | DCMissingMain | DCBuildOutputIsDirectory.
+| DCInvalidConversion | DCDefaultNotRepresentable | DCMainRedeclared | DCMissingMainEntry | DCBuildOutputIsDirectory.
 
 Definition diagnostic_code {p} (d : DiagnosticReason p) : DiagnosticCode :=
   match d with
   | DRInvalidConversion _ _ _ _   => DCInvalidConversion
   | DRDefaultNotRepresentable _ _ _ => DCDefaultNotRepresentable
-  | DRDuplicateMain _ _           => DCDuplicateMain
-  | DRMissingMain _               => DCMissingMain
+  | DRMainRedeclared _ _           => DCMainRedeclared
+  | DRMissingMainEntry _               => DCMissingMainEntry
   | DRBuildOutputIsDirectory _ _  => DCBuildOutputIsDirectory
   end.
 
@@ -402,8 +402,8 @@ Definition diagnostic_primary {p} (d : DiagnosticReason p) : DiagnosticAnchor p 
   match d with
   | DRInvalidConversion pr _ _ _      => AtNode (GoIndex.erase_ref pr)
   | DRDefaultNotRepresentable pr _ _  => AtNode (GoIndex.erase_ref pr)
-  | DRDuplicateMain later _           => AtNode (GoIndex.erase_ref later)
-  | DRMissingMain pk                  => AtPackage pk
+  | DRMainRedeclared later _           => AtNode (GoIndex.erase_ref later)
+  | DRMissingMainEntry pk                  => AtPackage pk
   | DRBuildOutputIsDirectory pk _     => AtPackage pk
   end.
 
@@ -411,16 +411,16 @@ Definition diagnostic_related {p} (d : DiagnosticReason p) : list (DiagnosticAnc
   match d with
   | DRInvalidConversion _ outer _ _   => map (fun r => AtNode (GoIndex.erase_ref r)) outer
   | DRDefaultNotRepresentable _ _ _   => []
-  | DRDuplicateMain _ earlier         => [AtNode (GoIndex.erase_ref earlier)]
-  | DRMissingMain _                   => []
+  | DRMainRedeclared _ earlier         => [AtNode (GoIndex.erase_ref earlier)]
+  | DRMissingMainEntry _                   => []
   | DRBuildOutputIsDirectory _ _      => []
   end.
 
 (** the primary anchor is always an exact-snapshot handle whose CODE matches the reason. *)
 Lemma diagnostic_code_primary_consistent : forall p (d : DiagnosticReason p),
   match diagnostic_code d, diagnostic_primary d with
-  | DCMissingMain, AtPackage _ | DCBuildOutputIsDirectory, AtPackage _ => True
-  | DCInvalidConversion, AtNode _ | DCDefaultNotRepresentable, AtNode _ | DCDuplicateMain, AtNode _ => True
+  | DCMissingMainEntry, AtPackage _ | DCBuildOutputIsDirectory, AtPackage _ => True
+  | DCInvalidConversion, AtNode _ | DCDefaultNotRepresentable, AtNode _ | DCMainRedeclared, AtNode _ => True
   | _, _ => False
   end.
 Proof. intros p [pr o t s|pr c dt|l e|pk|pk nm]; cbn; exact I. Qed.
@@ -461,8 +461,8 @@ Definition erased_target {p} (d : DiagnosticReason p) : option GoType :=
   match d with
   | DRInvalidConversion _ _ t _      => Some t
   | DRDefaultNotRepresentable _ _ dt => Some dt
-  | DRDuplicateMain _ _              => None
-  | DRMissingMain _                  => None
+  | DRMainRedeclared _ _              => None
+  | DRMissingMainEntry _                  => None
   | DRBuildOutputIsDirectory _ _     => None
   end.
 
@@ -2863,20 +2863,20 @@ Qed.
    §8 (C3) — the PACKAGE diagnostics.  Every package with a main count other than one is a failure; the anchor
    is a validated [PackageRef] (each package in [package_summaries] is represented, so the reference is real).
    Emptiness is tied DIRECTLY to [pkg_all_ok] (the package half of the decision).
-   (ROOT emits [DRMissingMain] for every non-conforming package; a later refinement distinguishes the duplicate
-   case with [DRDuplicateMain] over the collected main [DeclRef]s.)
+   (ROOT emits [DRMissingMainEntry] for every non-conforming package; a later refinement distinguishes the duplicate
+   case with [DRMainRedeclared] over the collected main [DeclRef]s.)
    ============================================================================================================ *)
 
 (* A non-conforming package is diagnosed with STRUCTURED reasons anchored in the exact snapshot:
-   - n >= 2 mains -> n-1 [DRDuplicateMain], one per TAIL main [d2, d3, ...] each related to the FIRST canonical
+   - n >= 2 mains -> n-1 [DRMainRedeclared], one per TAIL main [d2, d3, ...] each related to the FIRST canonical
      main [d1] ([later_primary] = the redundant tail main; [earlier_related] = the first main);
-   - zero mains -> [DRMissingMain] anchored at the validated [PackageRef].
+   - zero mains -> [DRMissingMainEntry] anchored at the validated [PackageRef].
    The canonical bucket order (FileMap-path then local NodeKey) makes the anchors deterministic; evidence is
    never overwritten (the bucket preserves every main, and every redundant main after the first is reported). *)
 (** the RETAINED-bucket package classifier: decides a package PURELY from its bucket in the retained
-    [prog_package_refs] map — a bucket [d1 :: rest] emits [map (DRDuplicateMain _ d1) rest] (n-1 diagnostics,
+    [prog_package_refs] map — a bucket [d1 :: rest] emits [map (DRMainRedeclared _ d1) rest] (n-1 diagnostics,
     each redundant tail main related to the first; empty for the conforming length-1 bucket); a length-0 bucket
-    emits [DRMissingMain] with the [PackageRef] built from the bucket's OWN domain membership
+    emits [DRMissingMainEntry] with the [PackageRef] built from the bucket's OWN domain membership
     ([bucket_key_present], NO [package_summaries] / [package_present_b] rescan).  [package_summaries] (the legacy
     FM.fold counter) is used ONLY to bridge the bucket lengths to [AllPackagesOneMain] ([pkg_diags_empty_iff]),
     NEVER in the decision. *)
@@ -2906,8 +2906,8 @@ Definition pkg_diag_of_bucket {p} (m : PM.t (list (GoIndex.DeclRef p)))
     (dir : string) (l : list (GoIndex.DeclRef p)) (Hmt : PM.MapsTo dir l m)
     : list (DiagnosticReason p) :=
   match l with
-  | nil        => [ DRMissingMain (mkPackageRef p dir (Hpres dir l Hmt)) ]
-  | d1 :: rest => map (fun dk => DRDuplicateMain dk d1) rest
+  | nil        => [ DRMissingMainEntry (mkPackageRef p dir (Hpres dir l Hmt)) ]
+  | d1 :: rest => map (fun dk => DRMainRedeclared dk d1) rest
   end.
 
 Lemma pkg_diag_of_bucket_nil_iff {p} (m : PM.t (list (GoIndex.DeclRef p))) Hpres dir l Hmt :
@@ -3356,13 +3356,13 @@ Definition bucket_dup_keys {p} (l : list (GoIndex.DeclRef p)) : list GoIndex.Nod
   match l with nil => nil | _ :: rest => map (fun dk => GoIndex.Snap.node_ref_key (GoIndex.erase_ref dk)) rest end.
 
 Lemma node_keys_map_dup {p} (d1 : GoIndex.DeclRef p) (rest : list (GoIndex.DeclRef p)) :
-  node_keys (map (fun dk => DRDuplicateMain dk d1) rest)
+  node_keys (map (fun dk => DRMainRedeclared dk d1) rest)
   = map (fun dk => GoIndex.Snap.node_ref_key (GoIndex.erase_ref dk)) rest.
 Proof.
   induction rest as [|dk rest IH]; [reflexivity|].
-  replace (node_keys (map (fun dk => DRDuplicateMain dk d1) (dk :: rest)))
-    with ((match diag_node_key (DRDuplicateMain dk d1) with Some k => [k] | None => nil end)
-          ++ node_keys (map (fun dk => DRDuplicateMain dk d1) rest)) by reflexivity.
+  replace (node_keys (map (fun dk => DRMainRedeclared dk d1) (dk :: rest)))
+    with ((match diag_node_key (DRMainRedeclared dk d1) with Some k => [k] | None => nil end)
+          ++ node_keys (map (fun dk => DRMainRedeclared dk d1) rest)) by reflexivity.
   cbn [diag_node_key diagnostic_primary]. rewrite IH. reflexivity.
 Qed.
 
@@ -3772,8 +3772,8 @@ Qed.
 (* the ERASED package diagnostics of one bucket, over its erased (NodeKey) keys — a pure source function. *)
 Definition erase_bucket_diag (kv : string * list GoIndex.NodeKey) : list ErasedDiagnostic :=
   match snd kv with
-  | nil        => [ mkErasedDiagnostic DCMissingMain (EAPackage (fst kv)) [] None ]
-  | e1 :: erest => map (fun ek => mkErasedDiagnostic DCDuplicateMain (EANode ek) [EANode e1] None) erest
+  | nil        => [ mkErasedDiagnostic DCMissingMainEntry (EAPackage (fst kv)) [] None ]
+  | e1 :: erest => map (fun ek => mkErasedDiagnostic DCMainRedeclared (EANode ek) [EANode e1] None) erest
   end.
 
 Lemma pkg_diag_of_bucket_erased {p} (m : PM.t (list (GoIndex.DeclRef p))) Hpres dir l Hmt :
@@ -3962,7 +3962,7 @@ Proof. intro Heq. rewrite (prog_expr_facts_FilesEqual p1 p2 Heq). reflexivity. Q
 Definition diag_is_typing {p} (d : DiagnosticReason p) : bool :=
   match diagnostic_code d with DCInvalidConversion | DCDefaultNotRepresentable => true | _ => false end.
 Definition diag_is_package {p} (d : DiagnosticReason p) : bool :=
-  match diagnostic_code d with DCDuplicateMain | DCMissingMain => true | _ => false end.
+  match diagnostic_code d with DCMainRedeclared | DCMissingMainEntry => true | _ => false end.
 Definition diag_is_build_output {p} (d : DiagnosticReason p) : bool :=
   match diagnostic_code d with DCBuildOutputIsDirectory => true | _ => false end.
 Lemma diag_typing_not_build {p} (d : DiagnosticReason p) : diag_is_typing d = true -> diag_is_build_output d = false.
@@ -4027,12 +4027,12 @@ Proof.
   intros d Hin. unfold pkg_diags in Hin. exact (bucket_diags_elems_family _ _ _ _ d Hin).
 Qed.
 
-(** §9 (C3 FINAL) — code-specific PACKAGE-diagnostic soundness.  A [DRMissingMain] comes from an EMPTY bucket
+(** §9 (C3 FINAL) — code-specific PACKAGE-diagnostic soundness.  A [DRMissingMainEntry] comes from an EMPTY bucket
     and anchors at THAT package key (the [PackageRef] carries its own presence proof — [package_ref_ok] — so
     the package is represented in [p]); an empty bucket length is the package's zero [main] count
     ([prog_package_refs_bucket_len]), i.e. there is genuinely no [DMain]. *)
 Lemma pkg_diag_of_bucket_missing_sound {p} (m : PM.t (list (GoIndex.DeclRef p))) Hpres dir l Hmt pk :
-  In (DRMissingMain pk) (@pkg_diag_of_bucket p m Hpres dir l Hmt) ->
+  In (DRMissingMainEntry pk) (@pkg_diag_of_bucket p m Hpres dir l Hmt) ->
   l = nil /\ package_ref_key pk = dir.
 Proof.
   intro Hin. unfold pkg_diag_of_bucket in Hin. destruct l as [|d1 rest].
@@ -4040,11 +4040,11 @@ Proof.
   - apply in_map_iff in Hin. destruct Hin as [dk [Heq _]]. discriminate Heq.
 Qed.
 
-(** A [DRDuplicateMain later earlier] comes from a bucket [earlier :: rest] with [later] in the TAIL: the
+(** A [DRMainRedeclared later earlier] comes from a bucket [earlier :: rest] with [later] in the TAIL: the
     related [earlier] is the FIRST canonical main and the primary [later] is a strictly-later main in the same
     bucket (hence same package — [prog_package_refs_belongs] — and in canonical bucket order). *)
 Lemma pkg_diag_of_bucket_dup_sound {p} (m : PM.t (list (GoIndex.DeclRef p))) Hpres dir l Hmt later earlier :
-  In (DRDuplicateMain later earlier) (@pkg_diag_of_bucket p m Hpres dir l Hmt) ->
+  In (DRMainRedeclared later earlier) (@pkg_diag_of_bucket p m Hpres dir l Hmt) ->
   exists rest, l = earlier :: rest /\ In later rest.
 Proof.
   intro Hin. unfold pkg_diag_of_bucket in Hin. destruct l as [|d1 rest].
@@ -4066,12 +4066,12 @@ Proof.
       exists dir, l, Hmt. exact Hd.
 Qed.
 
-(** §9 (C3 FINAL) — the WHOLE-program [DRDuplicateMain] soundness DENOTES its code: the primary [later] and the
+(** §9 (C3 FINAL) — the WHOLE-program [DRMainRedeclared] soundness DENOTES its code: the primary [later] and the
     related [earlier] both anchor genuine TOP-LEVEL declarations (the only [GoDecl] is [DMain] — `func main`),
     they lie in the SAME package (equal parent directory — [prog_package_refs_belongs]), and [earlier] is the
     FIRST canonical main of that package's bucket with [later] a strictly-later one. *)
 Lemma pkg_diags_dup_sound {p} (idx : GoIndex.Snap.SyntaxIndex p) later earlier :
-  In (DRDuplicateMain later earlier) (pkg_diags idx) ->
+  In (DRMainRedeclared later earlier) (pkg_diags idx) ->
   fp_parent (GoIndex.Snap.file_ref_path (GoIndex.Snap.node_ref_file (GoIndex.erase_ref later)))
     = fp_parent (GoIndex.Snap.file_ref_path (GoIndex.Snap.node_ref_file (GoIndex.erase_ref earlier)))
   /\ GoIndex.occurrence_kind (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref later)) = GoIndex.KTopLevelDecl
@@ -4090,11 +4090,11 @@ Proof.
   - exact (GoIndex.noderefof_kind earlier).
 Qed.
 
-(** §9 (C3 FINAL) — the WHOLE-program [DRMissingMain] soundness: a missing-main diagnostic anchors a package
+(** §9 (C3 FINAL) — the WHOLE-program [DRMissingMainEntry] soundness: a missing-main diagnostic anchors a package
     that IS represented in the program ([package_ref_ok]) and genuinely contains ZERO [DMain] declarations (its
     exact [pkg_main_count] is 0 — the empty bucket's length). *)
 Lemma pkg_diags_missing_sound {p} (idx : GoIndex.Snap.SyntaxIndex p) pk :
-  In (DRMissingMain pk) (pkg_diags idx) ->
+  In (DRMissingMainEntry pk) (pkg_diags idx) ->
   package_present_b p (package_ref_key pk) = true
   /\ pkg_main_count (package_ref_key pk) (prog_files p) = 0%nat.
 Proof.
@@ -4237,13 +4237,13 @@ Proof.
       * intros a Ha. destruct (IHref a Ha) as [ro' [Hro' Hae]]. exists ro'. split; [right; exact Hro' | exact Hae].
       * intros a Ha. destruct (IHref a Ha) as [ro' [Hro' Hae]]. exists ro'. split; [right; exact Hro' | exact Hae].
 Qed.
-(** §9 (C3 FINAL) — the WHOLE-program [DRDuplicateMain] PRECEDENCE + DISTINCTNESS: because every package bucket
+(** §9 (C3 FINAL) — the WHOLE-program [DRMainRedeclared] PRECEDENCE + DISTINCTNESS: because every package bucket
     is the strictly-NodeKey-ascending subselection of the sorted visit stream ([ppkg_dir_sorted] over
     [prog_visit_key_sorted]), the related [earlier] main is strictly BEFORE the primary [later] in canonical
     occurrence order, and the two are DISTINCT.  So the canonical main a package keeps is unambiguous — the
     unique smallest-key one — and every duplicate diagnostic names a genuinely different, strictly-later main. *)
 Lemma pkg_diags_dup_precedence {p} (idx : GoIndex.Snap.SyntaxIndex p) later earlier :
-  In (DRDuplicateMain later earlier) (pkg_diags idx) ->
+  In (DRMainRedeclared later earlier) (pkg_diags idx) ->
   GoIndex.NodeKey_OT.lt (GoIndex.Snap.node_ref_key (GoIndex.erase_ref earlier))
                         (GoIndex.Snap.node_ref_key (GoIndex.erase_ref later))
   /\ earlier <> later.
@@ -6360,15 +6360,15 @@ Definition three_main_program : GoProgram :=
   singleton_program c3_ms (mkFP "main.go" eq_refl)
     [ DMain [ SPrintln [ EInt 1 ] ]; DMain [ SPrintln [ EInt 2 ] ]; DMain [ SPrintln [ EInt 3 ] ] ].
 
-(* the EXACT whole erased report: EXACTLY TWO DCDuplicateMain diagnostics — the SECOND main (local 6) and the
+(* the EXACT whole erased report: EXACTLY TWO DCMainRedeclared diagnostics — the SECOND main (local 6) and the
    THIRD main (local 9) each PRIMARY, both RELATED to the FIRST canonical main (local 3, the smallest key).  No
    third diagnostic, no self-relation, no missing-main. *)
 Theorem three_main_erased_report :
   erased_report three_main_program (GoIndex.Snap.index_program three_main_program)
-  = [ mkErasedDiagnostic DCDuplicateMain
+  = [ mkErasedDiagnostic DCMainRedeclared
         (EANode (GoIndex.mkKey (mkFP "main.go" eq_refl) 6%positive))
         [ EANode (GoIndex.mkKey (mkFP "main.go" eq_refl) 3%positive) ] None
-    ; mkErasedDiagnostic DCDuplicateMain
+    ; mkErasedDiagnostic DCMainRedeclared
         (EANode (GoIndex.mkKey (mkFP "main.go" eq_refl) 9%positive))
         [ EANode (GoIndex.mkKey (mkFP "main.go" eq_refl) 3%positive) ] None ].
 Proof. rewrite erased_report_src_eq. vm_compute. reflexivity. Qed.
@@ -6379,11 +6379,11 @@ Proof. rewrite erased_report_src_eq. vm_compute. reflexivity. Qed.
 Definition missing_main_program : GoProgram :=
   singleton_program c3_ms (mkFP "main.go" eq_refl) [ ].
 
-(* the EXACT whole erased report: EXACTLY ONE DCMissingMain, anchored at the represented package (root "") —
+(* the EXACT whole erased report: EXACTLY ONE DCMissingMainEntry, anchored at the represented package (root "") —
    a PACKAGE anchor, never a fake file/node primary — with no related anchor and no target payload. *)
 Theorem missing_main_erased_report :
   erased_report missing_main_program (GoIndex.Snap.index_program missing_main_program)
-  = [ mkErasedDiagnostic DCMissingMain (EAPackage "") [] None ].
+  = [ mkErasedDiagnostic DCMissingMainEntry (EAPackage "") [] None ].
 Proof. rewrite erased_report_src_eq. vm_compute. reflexivity. Qed.
 
 (** ---- §23 — the EXACT expression-fact query: on ANY valid [ElaborationFacts], EVERY expression reference's
@@ -6559,7 +6559,7 @@ Theorem dup_across_files_erased :
   option_map (fun p => erased_report_src (prog_files p))
              (build_program c3_ms [ main_file_node (mkFP "a.go" eq_refl) [ DMain [ SPrintln [ EInt 1 ] ] ]
                                   ; main_file_node (mkFP "b.go" eq_refl) [ DMain [ SPrintln [ EInt 2 ] ] ] ])
-  = Some [ mkErasedDiagnostic DCDuplicateMain (EANode (GoIndex.mkKey (mkFP "b.go" eq_refl) 3%positive))
+  = Some [ mkErasedDiagnostic DCMainRedeclared (EANode (GoIndex.mkKey (mkFP "b.go" eq_refl) 3%positive))
              [ EANode (GoIndex.mkKey (mkFP "a.go" eq_refl) 3%positive) ] None ].
 Proof. vm_compute. reflexivity. Qed.
 
@@ -6578,9 +6578,9 @@ Theorem simultaneous_failures_erased :
         ; main_file_node (mkFP "d/z.go" eq_refl) [ ] ])
   = Some [ mkErasedDiagnostic DCInvalidConversion (EANode (GoIndex.mkKey (mkFP "a/x.go" eq_refl) 5%positive)) [] (Some (TInteger IInt8))
          ; mkErasedDiagnostic DCInvalidConversion (EANode (GoIndex.mkKey (mkFP "b/y.go" eq_refl) 5%positive)) [] (Some (TInteger IInt))
-         ; mkErasedDiagnostic DCDuplicateMain (EANode (GoIndex.mkKey (mkFP "c/q.go" eq_refl) 3%positive))
+         ; mkErasedDiagnostic DCMainRedeclared (EANode (GoIndex.mkKey (mkFP "c/q.go" eq_refl) 3%positive))
              [ EANode (GoIndex.mkKey (mkFP "c/p.go" eq_refl) 3%positive) ] None
-         ; mkErasedDiagnostic DCMissingMain (EAPackage "d") [] None ].
+         ; mkErasedDiagnostic DCMissingMainEntry (EAPackage "d") [] None ].
 Proof. vm_compute. reflexivity. Qed.
 
 (** ---- §16 — MIXED NODE-PRIMARY ORDER: a duplicate-main in package [a] (a later-discovered node diagnostic)
@@ -6594,7 +6594,7 @@ Theorem mixed_order_erased :
         [ main_file_node (mkFP "a/p.go" eq_refl) [ DMain [ SPrintln [ EInt 1 ] ] ]
         ; main_file_node (mkFP "a/q.go" eq_refl) [ DMain [ SPrintln [ EInt 2 ] ] ]
         ; main_file_node (mkFP "z/main.go" eq_refl) [ DMain [ SPrintln [ EIntConvert IInt8 (EInt 128) ] ] ] ])
-  = Some [ mkErasedDiagnostic DCDuplicateMain (EANode (GoIndex.mkKey (mkFP "a/q.go" eq_refl) 3%positive))
+  = Some [ mkErasedDiagnostic DCMainRedeclared (EANode (GoIndex.mkKey (mkFP "a/q.go" eq_refl) 3%positive))
              [ EANode (GoIndex.mkKey (mkFP "a/p.go" eq_refl) 3%positive) ] None
          ; mkErasedDiagnostic DCInvalidConversion (EANode (GoIndex.mkKey (mkFP "z/main.go" eq_refl) 5%positive))
              [] (Some (TInteger IInt8)) ].

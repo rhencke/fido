@@ -673,7 +673,7 @@ fido_go_build_all_fresh() {  # <authoritative-pristine-tree> <out-var-for-fresh-
   ( cd "$_fresh" && go build ./... ) > "$_log" 2>&1
   _rc=$?
   [ "$_rc" = 0 ] || { echo "runner: go build ./... exit $_rc in $_fresh:"; sed 's/^/  | /' "$_log"; }
-  rm -f "$_log"
+  _FRESH_BUILD_LOG=$_log   # exposed to the caller (a differential can grep the EXACT go stderr); /tmp is disposable
   eval "$_out=\$_fresh"
   return $_rc
 }
@@ -909,6 +909,14 @@ expect_accept_exe /tmp/Q "Q: absent output name -> executable created"
 # S. existing directory output -> reject (== J, covered above by dc-sub; restate distinctly)
 mk_gomod /tmp/S example.com/m; put /tmp/S out/main.go 'package main\n\nfunc main() {}\n'
 expect_reject /tmp/S "S: sole out/main.go, output out = existing root directory"
+# K. sole sub/main.go with an INVALID source: the directory-collision preflight takes PRECEDENCE over the
+#    compile error (cmd/go checks the sole-main output BEFORE compiling), so the failure is the DIRECTORY
+#    collision, NOT the type error — asserted through the fresh runner on the exact go stderr.
+mk_gomod /tmp/K example.com/m; put /tmp/K sub/main.go 'package main\n\nfunc main() { _ = int8(300) }\n'
+if fido_go_build_all_fresh /tmp/K FR; then rm -rf "$FR"; echo "fido e2e diff: K accepted a colliding invalid sub/main.go (MODEL BUG)"; exit 1; fi
+if grep -qiE 'overflow|constant.*int8|cannot use|truncated' "$_FRESH_BUILD_LOG"; then echo "fido e2e diff: K failed with the COMPILE error, not the directory collision (precedence violated):"; cat "$_FRESH_BUILD_LOG"; rm -rf "$FR"; exit 1; fi
+grep -qiE 'directory|write output|cannot create' "$_FRESH_BUILD_LOG" || { echo "fido e2e diff: K failed but not with a recognizable directory-collision class:"; cat "$_FRESH_BUILD_LOG"; rm -rf "$FR"; exit 1; }
+echo "fido e2e diff: K sub/main.go+invalid-source -> DIRECTORY-COLLISION failure (precedence over the type error, matches GoCompile)"; rm -rf "$FR"
 
 # --- FUTURE ORACLES (Fido cannot yet emit these constructs; pin the pinned-go behaviour). ---
 # T. two init functions plus valid main -> success
