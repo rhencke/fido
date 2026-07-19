@@ -757,22 +757,25 @@ Print Assumptions GoIndex.nodekey_compare_eq.
 Print Assumptions GoIndex.nodekeymap_add_eq.
 Print Assumptions GoIndex.nodekeymap_add_neq.
 Print Assumptions GoIndex.nodekeymap_elements_Equal.
-(* C3 §22/§23 — CONCRETE STRUCTURED-DIAGNOSTIC FIXTURES over the REAL opaque index: reordered-construction
-   determinism (§22.15); empty-program empty report + empty facts (§22.13); the nested-conversion scar with a
-   provably NON-EMPTY report (§22.8); three-mains duplicate precedence/distinctness/same-package with a
-   NON-EMPTY report (§22.9/§22.11); and no-main package missing diagnostic with a NON-EMPTY report (§22.12).
-   Non-vacuity flows from the computable type checker; the structured claims through the gated bridges. *)
+(* C3 §22/§23 — CONCRETE STRUCTURED-DIAGNOSTIC FIXTURES: EXACT erased reports / fact enumerations of concrete
+   programs, computed through the SOURCE characterization of the report + fact table ([erased_report_src_eq] /
+   [prog_expr_facts_source]) so [vm_compute] delivers the exact list — exact COUNT, exact NodeKey/package
+   ANCHORS, exact target PAYLOADS, exact fact VALUES.  §22.15 reordered-construction determinism; §22.13 empty
+   program; §22.8 nested [float64(int8(128))] -> ONE DCInvalidConversion, primary=int8, related=[float64],
+   target=int8; §22.9/§22.11 three mains -> EXACTLY TWO DCDuplicateMain both related to the first main; §22.12
+   no-main package -> ONE DCMissingMain at the package anchor. *)
 Print Assumptions GoCompile.reorder_construction_deterministic.
 Print Assumptions GoCompile.empty_program_report.
-Print Assumptions GoCompile.nested_conv_report_nonempty.
-Print Assumptions GoCompile.nested_conv_scar_fixture.
-Print Assumptions GoCompile.three_main_report_nonempty.
-Print Assumptions GoCompile.three_main_dup_fixture.
-Print Assumptions GoCompile.missing_main_report_nonempty.
-Print Assumptions GoCompile.missing_main_fixture.
-(* C3 §23 — the EXACT expression-fact query: every reference's fact IS its occurrence's source-derived fact
-   (const-status = const_info, resolved = use-resolution, rounded once), and resolved_type/constant project it;
-   §22.16 — repeated equal literals are occurrence-keyed, not deduplicated by syntax value. *)
+Print Assumptions GoCompile.nested_conv_erased_report.
+Print Assumptions GoCompile.three_main_erased_report.
+Print Assumptions GoCompile.missing_main_erased_report.
+(* C3 §23 — EXACT per-occurrence facts of the valid nested-conversion program (inner literal untyped/unresolved,
+   inner conversion typed/unresolved-operand, outer arg typed + resolved to its GoTypes type), plus the general
+   bridge that every query PROJECTS its occurrence's exact fact; §22.16 — repeated equal literals give TWO
+   entries at distinct keys with equal values (occurrence-keyed, not deduplicated by syntax value). *)
 Print Assumptions GoCompile.expr_fact_at_exact.
-Print Assumptions GoCompile.fact_query_fixture.
-Print Assumptions GoCompile.dup_lit_no_dedup.
+Print Assumptions GoCompile.fact_program_facts_exact.
+Print Assumptions GoCompile.fact_program_inner_literal.
+Print Assumptions GoCompile.fact_program_inner_conversion.
+Print Assumptions GoCompile.fact_program_outer_arg.
+Print Assumptions GoCompile.dup_lit_facts_exact.

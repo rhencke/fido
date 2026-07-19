@@ -3300,6 +3300,22 @@ Proof.
   intro Heq. rewrite !erased_pkg_diags_source, (keyed_visit_FilesEqual p1 p2 Heq). reflexivity.
 Qed.
 
+(** the WHOLE erased report as a PURE SOURCE function of the file map — expression diagnostics via
+    [annotate_source] (occurrence keys + open-conversion context) then package diagnostics via the keyed source
+    buckets.  Since it mentions no [Snap] projection it [vm_compute]s to the exact [ErasedDiagnostic] list (code
+    + NodeKey/package anchors + target payload) for any concrete program — the basis of the EXACT §22 fixtures. *)
+Definition erased_report_src (fm : GoAST.GoFileMap) : list ErasedDiagnostic :=
+  flat_map erase_occ_diags (annotate_source fm)
+  ++ flat_map erase_bucket_diag (PM.elements (keyed_buckets (source_keyed_visit fm))).
+
+Lemma erased_report_src_eq {p} (idx : GoIndex.Snap.SyntaxIndex p) :
+  erased_report p idx = erased_report_src (prog_files p).
+Proof.
+  unfold erased_report, collect_diagnostics, erased_report_src. rewrite map_app. f_equal.
+  - exact (erased_expr_diags_source idx).
+  - rewrite erased_pkg_diags_source, keyed_visit_source. reflexivity.
+Qed.
+
 (** §17 (C3 FINAL) — THE cross-snapshot determinism theorem: two programs with the SAME file map (their
     diagnostics live in DIFFERENT dependent snapshot types) produce the IDENTICAL erased report.  The report
     depends ONLY on the file map — never on the snapshot index or the backing AVL balancing history.  Both
@@ -4465,30 +4481,17 @@ Definition nested_conv_program : GoProgram :=
 Example nested_conv_untyped : program_typedb nested_conv_program = false.
 Proof. vm_compute. reflexivity. Qed.
 
-Theorem nested_conv_report_nonempty :
-  expr_diags (GoIndex.Snap.index_program nested_conv_program) <> nil.
-Proof.
-  intro H. pose proof (proj1 (expr_diags_empty_iff (GoIndex.Snap.index_program nested_conv_program)) H) as Ht.
-  rewrite nested_conv_untyped in Ht. discriminate.
-Qed.
-
-Theorem nested_conv_scar_fixture :
-  forall er outer t ci,
-    In (DRInvalidConversion er outer t ci) (expr_diags (GoIndex.Snap.index_program nested_conv_program)) ->
-    (forall a, In a outer ->
-       is_conversion_occ (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref a)) = true
-       /\ Pos.lt (GoIndex.Snap.node_ref_local (GoIndex.erase_ref a)) (GoIndex.Snap.node_ref_local (GoIndex.erase_ref er))
-       /\ Pos.le (GoIndex.Snap.node_ref_local (GoIndex.erase_ref er))
-                 (GoIndex.Snap.node_subtree_end (GoIndex.Snap.index_program nested_conv_program) (GoIndex.erase_ref a)))
-    /\ Forall (fun a => GoIndex.Snap.node_ref_file (GoIndex.erase_ref a) = GoIndex.Snap.node_ref_file (GoIndex.erase_ref er)) outer
-    /\ StronglySorted (fun a b => Pos.lt (GoIndex.Snap.node_ref_local (GoIndex.erase_ref b))
-                                         (GoIndex.Snap.node_ref_local (GoIndex.erase_ref a))) outer
-    /\ NoDup outer.
-Proof.
-  intros er outer t ci Hin.
-  split; [ intros a Ha; exact (expr_diags_conv_scar_sound _ er outer t ci Hin a Ha) |].
-  exact (expr_diags_conv_scar_wf _ er outer t ci Hin).
-Qed.
+(* the EXACT whole erased report: EXACTLY ONE diagnostic, code DCInvalidConversion, PRIMARY anchored at the
+   inner [int8] conversion (local 6), the outer [float64] conversion (local 5) in the RELATED context, and the
+   target payload [TInteger IInt8].  Computed through the source characterization of the report — non-vacuous,
+   exact count, exact anchors, exact payload. *)
+Theorem nested_conv_erased_report :
+  erased_report nested_conv_program (GoIndex.Snap.index_program nested_conv_program)
+  = [ mkErasedDiagnostic DCInvalidConversion
+        (EANode (GoIndex.mkKey (mkFP "main.go" eq_refl) 6%positive))
+        [ EANode (GoIndex.mkKey (mkFP "main.go" eq_refl) 5%positive) ]
+        (Some (TInteger IInt8)) ].
+Proof. rewrite erased_report_src_eq. vm_compute. reflexivity. Qed.
 
 (** ---- §22.9/§22.11 — THREE MAINS IN ONE PACKAGE: the program is REJECTED (a package with != 1 main), so its
     package report is genuinely NON-EMPTY, and EVERY duplicate-main diagnostic names a strictly-later,
@@ -4497,30 +4500,18 @@ Definition three_main_program : GoProgram :=
   singleton_program c3_ms (mkFP "main.go" eq_refl)
     [ DMain [ SPrintln [ EInt 1 ] ]; DMain [ SPrintln [ EInt 2 ] ]; DMain [ SPrintln [ EInt 3 ] ] ].
 
-Example three_main_pkg_bad : pkg_all_ok three_main_program = false.
-Proof. vm_compute. reflexivity. Qed.
-
-Theorem three_main_report_nonempty :
-  pkg_diags (GoIndex.Snap.index_program three_main_program) <> nil.
-Proof.
-  intro H. pose proof (proj1 (pkg_diags_empty_iff (GoIndex.Snap.index_program three_main_program)) H) as Hp.
-  rewrite three_main_pkg_bad in Hp. discriminate.
-Qed.
-
-Theorem three_main_dup_fixture :
-  forall later earlier,
-    In (DRDuplicateMain later earlier) (pkg_diags (GoIndex.Snap.index_program three_main_program)) ->
-    GoIndex.NodeKey_OT.lt (GoIndex.Snap.node_ref_key (GoIndex.erase_ref earlier))
-                          (GoIndex.Snap.node_ref_key (GoIndex.erase_ref later))
-    /\ earlier <> later
-    /\ fp_parent (GoIndex.Snap.file_ref_path (GoIndex.Snap.node_ref_file (GoIndex.erase_ref later)))
-       = fp_parent (GoIndex.Snap.file_ref_path (GoIndex.Snap.node_ref_file (GoIndex.erase_ref earlier))).
-Proof.
-  intros later earlier Hin.
-  destruct (pkg_diags_dup_precedence (GoIndex.Snap.index_program three_main_program) later earlier Hin) as [Hlt Hne].
-  destruct (pkg_diags_dup_sound (GoIndex.Snap.index_program three_main_program) later earlier Hin) as [Hpar _].
-  split; [ exact Hlt | split; [ exact Hne | exact Hpar ] ].
-Qed.
+(* the EXACT whole erased report: EXACTLY TWO DCDuplicateMain diagnostics — the SECOND main (local 6) and the
+   THIRD main (local 9) each PRIMARY, both RELATED to the FIRST canonical main (local 3, the smallest key).  No
+   third diagnostic, no self-relation, no missing-main. *)
+Theorem three_main_erased_report :
+  erased_report three_main_program (GoIndex.Snap.index_program three_main_program)
+  = [ mkErasedDiagnostic DCDuplicateMain
+        (EANode (GoIndex.mkKey (mkFP "main.go" eq_refl) 6%positive))
+        [ EANode (GoIndex.mkKey (mkFP "main.go" eq_refl) 3%positive) ] None
+    ; mkErasedDiagnostic DCDuplicateMain
+        (EANode (GoIndex.mkKey (mkFP "main.go" eq_refl) 9%positive))
+        [ EANode (GoIndex.mkKey (mkFP "main.go" eq_refl) 3%positive) ] None ].
+Proof. rewrite erased_report_src_eq. vm_compute. reflexivity. Qed.
 
 (** ---- §22.12 — PACKAGE WITH NO MAIN: a represented package whose only file declares NO `main` is REJECTED, so
     its package report is genuinely NON-EMPTY, and EVERY missing-main diagnostic anchors a genuinely represented
@@ -4528,24 +4519,12 @@ Qed.
 Definition missing_main_program : GoProgram :=
   singleton_program c3_ms (mkFP "main.go" eq_refl) [ ].
 
-Example missing_main_pkg_bad : pkg_all_ok missing_main_program = false.
-Proof. vm_compute. reflexivity. Qed.
-
-Theorem missing_main_report_nonempty :
-  pkg_diags (GoIndex.Snap.index_program missing_main_program) <> nil.
-Proof.
-  intro H. pose proof (proj1 (pkg_diags_empty_iff (GoIndex.Snap.index_program missing_main_program)) H) as Hp.
-  rewrite missing_main_pkg_bad in Hp. discriminate.
-Qed.
-
-Theorem missing_main_fixture :
-  forall pk,
-    In (DRMissingMain pk) (pkg_diags (GoIndex.Snap.index_program missing_main_program)) ->
-    package_present_b missing_main_program (package_ref_key pk) = true
-    /\ pkg_main_count (package_ref_key pk) (prog_files missing_main_program) = 0%nat.
-Proof.
-  intros pk Hin. exact (pkg_diags_missing_sound (GoIndex.Snap.index_program missing_main_program) pk Hin).
-Qed.
+(* the EXACT whole erased report: EXACTLY ONE DCMissingMain, anchored at the represented package (root "") —
+   a PACKAGE anchor, never a fake file/node primary — with no related anchor and no target payload. *)
+Theorem missing_main_erased_report :
+  erased_report missing_main_program (GoIndex.Snap.index_program missing_main_program)
+  = [ mkErasedDiagnostic DCMissingMain (EAPackage "") [] None ].
+Proof. rewrite erased_report_src_eq. vm_compute. reflexivity. Qed.
 
 (** ---- §23 — the EXACT expression-fact query: on ANY valid [CompilationFacts], EVERY expression reference's
     queried fact is its occurrence's EXACT source-derived fact — the [ef_const_status] IS the occurrence's
@@ -4576,25 +4555,40 @@ Definition fact_program : GoProgram :=
     [ DMain [ SPrintln [ EFloatConvert F64 (EIntConvert IInt (EInt 5)) ] ] ].
 Example fact_program_ok : prog_ok fact_program = true. Proof. vm_compute. reflexivity. Qed.
 
-(** §23 — the fact query on the concrete VALID nested-conversion program [float64(int(5))]: every reference's
-    fact is exact, and [resolved_type_at] / [resolved_constant_at] report EXACTLY the occurrence's GoTypes
-    use-resolution (its resolved type / exact constant) — no separate recomputation, no rerounding. *)
-Theorem fact_query_fixture {ip} (facts : CompilationFacts fact_program ip) (er : GoIndex.ExprRef fact_program) :
-  exists e ci,
-    GoIndex.view_expr (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref er)) = Some e
-    /\ const_info e = Some ci
-    /\ ef_const_status (expr_fact_at facts er) = ci
-    /\ ef_use_resolved (expr_fact_at facts er) = occ_use_resolved (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref er))
-    /\ resolved_type_at (expr_fact_at facts er)
-       = option_map resolved_const_type (occ_use_resolved (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref er)))
-    /\ resolved_constant_at (expr_fact_at facts er)
-       = option_map resolved_const_exact (occ_use_resolved (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref er))).
-Proof.
-  destruct (expr_fact_at_exact facts er) as [e [ci [Hv [Hci Hq]]]].
-  exists e, ci. split; [exact Hv | split; [exact Hci |]].
-  unfold resolved_type_at, resolved_constant_at. rewrite Hq. cbn [ef_const_status ef_use_resolved].
-  repeat split; reflexivity.
-Qed.
+(** §23 — the EXACT per-occurrence facts of the VALID nested-conversion program [float64(int(5))].  The whole
+    fact enumeration (three expression occurrences), projected to (local id, typed-target-if-any,
+    [resolved_type_at]): the inner literal [5] (local 7) is UNTYPED and unresolved; the inner conversion
+    [int(5)] (local 6) is TYPED at [TInteger IInt] and unresolved (a conversion operand); the outer println
+    argument [float64(...)] (local 5) is TYPED at [TFloat F64] and RESOLVES to [TFloat F64] — exactly the GoTypes
+    use-resolution, no rerounding. *)
+Theorem fact_program_facts_exact :
+  map (fun kv => (GoIndex.nk_local (fst kv),
+                  match ef_const_status (snd kv) with CIUntyped _ => None | CITyped t _ => Some t end,
+                  resolved_type_at (snd kv)))
+      (GoIndex.NodeKeyMapBase.elements (prog_expr_facts fact_program))
+  = [ (5%positive, Some (TFloat F64), Some (TFloat F64))
+    ; (6%positive, Some (TInteger IInt), None)
+    ; (7%positive, None, None) ].
+Proof. rewrite prog_expr_facts_source, keyed_visit_source. vm_compute. reflexivity. Qed.
+
+(* the two scalar occurrences carry their EXACT constants: the inner literal is the UNTYPED [CInt 5] (unresolved
+   operand), the inner conversion is the TYPED [int(5)] (unresolved operand). *)
+Theorem fact_program_inner_literal :
+  GoIndex.NodeKeyMapBase.find (GoIndex.mkKey (mkFP "main.go" eq_refl) 7%positive) (prog_expr_facts fact_program)
+  = Some (mkExprFact (CIUntyped (CInt 5)) None).
+Proof. rewrite prog_expr_facts_source, keyed_visit_source. vm_compute. reflexivity. Qed.
+
+Theorem fact_program_inner_conversion :
+  GoIndex.NodeKeyMapBase.find (GoIndex.mkKey (mkFP "main.go" eq_refl) 6%positive) (prog_expr_facts fact_program)
+  = Some (mkExprFact (CITyped (TInteger IInt) (TCInteger IInt 5 eq_refl)) None).
+Proof. rewrite prog_expr_facts_source, keyed_visit_source. vm_compute. reflexivity. Qed.
+
+(* the OUTER println argument resolves: its use-resolution is present and its resolved type is [TFloat F64]. *)
+Theorem fact_program_outer_arg :
+  option_map (fun f => (resolved_type_at f, match ef_use_resolved f with Some _ => true | None => false end))
+             (GoIndex.NodeKeyMapBase.find (GoIndex.mkKey (mkFP "main.go" eq_refl) 5%positive) (prog_expr_facts fact_program))
+  = Some (Some (TFloat F64), true).
+Proof. rewrite prog_expr_facts_source, keyed_visit_source. vm_compute. reflexivity. Qed.
 
 (** ---- §22.16 — REPEATED EQUAL LITERALS [println(1, 1)] are NOT deduplicated: the fact table is keyed by
     OCCURRENCE identity (NodeKey), so two references with DISTINCT keys carry independent facts — each query
@@ -4604,17 +4598,13 @@ Definition dup_lit_program : GoProgram :=
     [ DMain [ SPrintln [ EInt 1; EInt 1 ] ] ].
 Example dup_lit_ok : prog_ok dup_lit_program = true. Proof. vm_compute. reflexivity. Qed.
 
-Theorem dup_lit_no_dedup {ip} (facts : CompilationFacts dup_lit_program ip)
-    (er1 er2 : GoIndex.ExprRef dup_lit_program) :
-  GoIndex.Snap.node_ref_key (GoIndex.erase_ref er1) <> GoIndex.Snap.node_ref_key (GoIndex.erase_ref er2) ->
-  (exists e1 ci1,
-     GoIndex.view_expr (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref er1)) = Some e1
-     /\ const_info e1 = Some ci1
-     /\ expr_fact_at facts er1 = mkExprFact ci1 (occ_use_resolved (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref er1))))
-  /\ (exists e2 ci2,
-     GoIndex.view_expr (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref er2)) = Some e2
-     /\ const_info e2 = Some ci2
-     /\ expr_fact_at facts er2 = mkExprFact ci2 (occ_use_resolved (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref er2)))).
-Proof.
-  intro _Hne. split; [ exact (expr_fact_at_exact facts er1) | exact (expr_fact_at_exact facts er2) ].
-Qed.
+(* the EXACT fact enumeration: TWO entries at DISTINCT keys (local 5 and local 6) with EQUAL fact values (both
+   the untyped [1] resolving to [int(1)]).  Same syntax, two occurrences, two entries — the table is keyed by
+   occurrence identity, so equal literals are NOT deduplicated by value. *)
+Theorem dup_lit_facts_exact :
+  GoIndex.NodeKeyMapBase.elements (prog_expr_facts dup_lit_program)
+  = [ (GoIndex.mkKey (mkFP "main.go" eq_refl) 5%positive,
+        mkExprFact (CIUntyped (CInt 1)) (Some (pack_resolved (TInteger IInt) (TCInteger IInt 1 eq_refl))))
+    ; (GoIndex.mkKey (mkFP "main.go" eq_refl) 6%positive,
+        mkExprFact (CIUntyped (CInt 1)) (Some (pack_resolved (TInteger IInt) (TCInteger IInt 1 eq_refl)))) ].
+Proof. rewrite prog_expr_facts_source, keyed_visit_source. vm_compute. reflexivity. Qed.
