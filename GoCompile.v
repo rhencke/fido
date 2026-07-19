@@ -1504,6 +1504,36 @@ Proof.
   destruct (GoIndex.as_expr idx a) as [er'|]; [ destruct Her as [<-|[]]; reflexivity | destruct Her ].
 Qed.
 
+(** §17 (C3 FINAL) — the navigation predicates factor through the SOURCE occurrence: a node is a conversion
+    iff its occurrence's syntax is a conversion, and it is a strict ancestor iff the source-determined preorder
+    interval (over [node_ref_key] components + the occurrence's [occurrence_subtree_end]) holds.  So both
+    predicates depend only on the (key, occurrence, subtree-end) data carried by the keyed visit stream. *)
+Definition is_conversion_occ (occ : GoIndex.SourceOccurrence) : bool :=
+  match GoIndex.view_expr occ with
+  | Some (EIntConvert _ _) | Some (EFloatConvert _ _) | Some (EComplexConvert _ _) => true
+  | _ => false
+  end.
+
+Lemma is_conversion_node_source {p} (idx : GoIndex.Snap.SyntaxIndex p) (a : GoIndex.Snap.NodeRef p) :
+  is_conversion_node idx a = is_conversion_occ (GoIndex.Snap.source_occurrence_of_ref a).
+Proof.
+  unfold is_conversion_node, is_conversion_occ.
+  rewrite (GoIndex.Snap.node_at_matches_source_view a). reflexivity.
+Qed.
+
+Lemma is_ancestor_of_source {p} (idx : GoIndex.Snap.SyntaxIndex p) (a r : GoIndex.Snap.NodeRef p) :
+  is_ancestor_of idx a r =
+  (FilePath.fp_eqb (GoIndex.nk_file (GoIndex.Snap.node_ref_key a)) (GoIndex.nk_file (GoIndex.Snap.node_ref_key r))
+   && Pos.ltb (GoIndex.nk_local (GoIndex.Snap.node_ref_key a)) (GoIndex.nk_local (GoIndex.Snap.node_ref_key r))
+   && Pos.leb (GoIndex.nk_local (GoIndex.Snap.node_ref_key r))
+              (GoIndex.occurrence_subtree_end (GoIndex.Snap.source_occurrence_of_ref a)))%bool.
+Proof.
+  unfold is_ancestor_of.
+  rewrite (GoIndex.Snap.node_ref_key_eq a), (GoIndex.Snap.node_ref_key_eq r),
+          (GoIndex.Snap.node_subtree_end_matches_source p idx a).
+  cbn [GoIndex.nk_file GoIndex.nk_local]. reflexivity.
+Qed.
+
 (** the diagnostic(s) an occurrence emits (a singleton or nothing), anchored at its OWN validated ExprRef. *)
 Definition occ_expr_diags {p} (idx : GoIndex.Snap.SyntaxIndex p)
     (ro : GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence) : list (DiagnosticReason p) :=
