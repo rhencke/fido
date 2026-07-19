@@ -4934,10 +4934,35 @@ Definition root_entry_of_file (b : FilePath * GoSourceFile) : string * FreshRoot
   then (fp_string (fst b), FRESourceFile (fst b))
   else (first_component (fp_string (fst b)), FREDirectory).
 
+(** the KEY-ONLY root entry: [root_entry_of_file] depends ONLY on the binding's FilePath (never its source
+    value), so it factors through this.  Used by the §8 DirectoryImage bridge — the rendered image keeps the
+    same FilePath keys but different (rendered-bytes) values, and the root layout is the SAME. *)
+Definition root_entry_of_path (fp : FilePath) : string * FreshRootEntryKind :=
+  if String.eqb (fp_parent fp) ""
+  then (fp_string fp, FRESourceFile fp)
+  else (first_component (fp_string fp), FREDirectory).
+
+Lemma root_entry_of_file_eq_path : forall b, root_entry_of_file b = root_entry_of_path (fst b).
+Proof. intro b. reflexivity. Qed.
+
 Definition root_layout (p : GoProgram) : PM.t FreshRootEntryKind :=
   fold_right (fun b acc => PM.add (fst (root_entry_of_file b)) (snd (root_entry_of_file b)) acc)
              (PM.add "go.mod" FREGoMod (PM.empty _))
              (GoAST.file_bindings (prog_files p)).
+
+(** the fresh root layout over a bare FilePath KEY list — [root_layout] factored through the keys (the source
+    values are irrelevant to the layout).  The §8 image bridge recomputes this from the image's own keys. *)
+Definition root_layout_of_keys (ks : list FilePath) : PM.t FreshRootEntryKind :=
+  fold_right (fun fp acc => PM.add (fst (root_entry_of_path fp)) (snd (root_entry_of_path fp)) acc)
+             (PM.add "go.mod" FREGoMod (PM.empty _)) ks.
+
+Lemma root_layout_eq_of_keys : forall p,
+  root_layout p = root_layout_of_keys (map fst (GoAST.file_bindings (prog_files p))).
+Proof.
+  intro p. unfold root_layout, root_layout_of_keys.
+  induction (GoAST.file_bindings (prog_files p)) as [|b bs IH]; [reflexivity|].
+  cbn [map fold_right]. rewrite IH, root_entry_of_file_eq_path. reflexivity.
+Qed.
 
 (* GENERIC fold-of-adds find: an absent key falls through to [init]; a present key gets its (unique) value. *)
 Lemma fold_add_find_notin {A} (kv : (FilePath * GoSourceFile) -> string * A) (init : PM.t A)

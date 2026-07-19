@@ -148,3 +148,43 @@ Proof.
     apply PackageMapFacts.elements_mapsto_iff. rewrite InA_alt. exists (k, a).
     split; [ split; reflexivity | exact Hin ].
 Qed.
+
+(** ---- the same [map]-commutes-with-[elements] facts for the FILE map (FilePath key): [FMapAVL.map] preserves
+    the key domain AND their canonical sorted order, so the elements of a mapped file map are exactly the source
+    elements with the value function applied.  Consumed by the §8 DirectoryImage layout bridge (the rendered
+    image's `.go` file KEYS are exactly the source FilePaths, in the same order). ---- *)
+Lemma sorted_map_fst_file {A B} (f : A -> B) : forall l,
+  Sorted (@FileMapBase.lt_key A) l ->
+  Sorted (@FileMapBase.lt_key B) (map (fun kv => (fst kv, f (snd kv))) l).
+Proof.
+  induction l as [|a l IH]; intro Hs; cbn [map]; [constructor|].
+  apply Sorted_inv in Hs. destruct Hs as [Hs Hhd]. constructor; [apply IH; exact Hs|].
+  destruct l as [|b l']; cbn [map]; [constructor|]. apply HdRel_inv in Hhd. constructor. exact Hhd.
+Qed.
+
+Lemma filemap_map_elements {A B} (f : A -> B) : forall (m : FileMapBase.t A),
+  FileMapBase.elements (FileMapBase.map f m)
+  = map (fun kv => (fst kv, f (snd kv))) (FileMapBase.elements m).
+Proof.
+  intro m. apply eqlistA_eqke_eq.
+  apply FileMapOrd.sort_equivlistA_eqlistA;
+    [ apply FileMapBase.elements_3
+    | apply sorted_map_fst_file, FileMapBase.elements_3 | ].
+  intros [k e].
+  rewrite <- FileMapFacts.elements_mapsto_iff, FileMapFacts.map_mapsto_iff, InA_alt.
+  split.
+  - intros [a [He Hmt]]. subst e.
+    apply FileMapFacts.elements_mapsto_iff in Hmt. rewrite InA_alt in Hmt.
+    destruct Hmt as [[k' a'] [[Hk Ha] Hin]]. cbn in Hk, Ha. subst k' a'.
+    exists (k, f a). split; [ split; reflexivity | ].
+    apply in_map_iff. exists (k, a). split; [reflexivity | exact Hin].
+  - intros [[k' e'] [[Hk He] Hin]]. cbn in Hk, He. subst k' e'.
+    apply in_map_iff in Hin. destruct Hin as [[k'' a] [Heq Hin]]. injection Heq as Hk2 He2. subst k'' e.
+    exists a. split; [reflexivity | ].
+    apply FileMapFacts.elements_mapsto_iff. rewrite InA_alt. exists (k, a).
+    split; [ split; reflexivity | exact Hin ].
+Qed.
+
+Lemma filemap_map_fst_elements {A B} (f : A -> B) (m : FileMapBase.t A) :
+  map fst (FileMapBase.elements (FileMapBase.map f m)) = map fst (FileMapBase.elements m).
+Proof. rewrite filemap_map_elements, map_map. reflexivity. Qed.

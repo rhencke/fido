@@ -167,6 +167,34 @@ Lemma render_map_Equal : forall fm1 fm2,
   GoAST.FilesEqual fm1 fm2 -> FM.Equal (FM.map render_file fm1) (FM.map render_file fm2).
 Proof. intros fm1 fm2 Heq p. rewrite !FMF.map_o. rewrite (Heq p). reflexivity. Qed.
 
+(** ============================================================================================================
+    §8 — DIRECTORYIMAGE BRIDGE.  [GoCompile] computes the fresh build PLAN over the [GoProgram]
+    ([GoCompile.root_layout] / [fresh_build_plan]); this bridge proves the later rendered [DirectoryImage]
+    REALIZES that same fresh root layout, closing the gap between the plan-over-program and the real emitted
+    tree.  It lives HERE (GoEmit sits above GoCompile) — [GoCompile] imports neither GoRender nor GoEmit. ====== *)
+
+(** the fresh ROOT LAYOUT recomputed from the rendered image's OWN `.go` file keys (its FilePaths). *)
+Definition image_source_layout (img : DirectoryImage) :=
+  root_layout_of_keys (map fst (FM.elements (di_go_files img))).
+
+(** §8 — the rendered image REALIZES the retained fresh root layout: recomputing the layout from the image's own
+    keys equals [root_layout] over the source program (the render map preserves the FilePath key domain AND its
+    canonical order — [Collections.filemap_map_fst_elements]). *)
+Theorem directory_image_realizes_fresh_layout : forall sp,
+  image_source_layout (render_program sp) = root_layout (sp_program sp).
+Proof.
+  intro sp. unfold image_source_layout, render_program; cbn [di_go_files].
+  unfold render_map, GoAST.map_file_values.
+  rewrite Collections.filemap_map_fst_elements.
+  symmetry. apply root_layout_eq_of_keys.
+Qed.
+
+(** §8 — the image's `.go` file KEYS are EXACTLY the source program FilePaths (no missing key, NO extra entry);
+    the go.mod bytes are a distinguished root FIELD ([di_go_mod]), never a `.go` map entry. *)
+Theorem image_go_files_are_source_paths : forall sp p,
+  FM.In p (di_go_files (render_program sp)) <-> FM.In p (prog_files (sp_program sp)).
+Proof. intros sp p. unfold render_program; cbn [di_go_files]. apply render_map_domain. Qed.
+
 (** the CANONICAL derived transport list of two extensionally-equal rendered maps is EQUAL (the standard AVL
     [elements] is sorted, so it is a function of the map's meaning — [Collections.filemap_elements_Equal]). *)
 Lemma di_go_file_entries_Equal : forall img1 img2,
