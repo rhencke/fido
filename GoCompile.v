@@ -1445,6 +1445,29 @@ Definition local_conv_failure (e : GoExpr) : option (GoType * ConstInfo) :=
   | _ => None
   end.
 
+(** the explicit-conversion SYNTAX projection: an expression is a conversion to type [t] of operand [x]. *)
+Definition conv_targets (e : GoExpr) : option (GoType * GoExpr) :=
+  match e with
+  | EIntConvert t x     => Some (TInteger t, x)
+  | EFloatConvert t x   => Some (TFloat t, x)
+  | EComplexConvert t x => Some (TComplex t, x)
+  | _                   => None
+  end.
+
+(** §9 (C3 FINAL) — a local conversion failure denotes EXACTLY: the expression is the explicit conversion to
+    the reported target [t] of some operand [x] ([conv_targets]), [x]'s exact successful status is the reported
+    [ci] ([const_info x = Some ci]), and the shared [convert_const] rejects it.  So the DRInvalidConversion
+    primary/target/operand-status faithfully denote the reported explicit conversion. *)
+Lemma local_conv_failure_char (e : GoExpr) (t : GoType) (ci : ConstInfo) :
+  local_conv_failure e = Some (t, ci) ->
+  exists x, conv_targets e = Some (t, x) /\ const_info x = Some ci /\ convert_const t ci = None.
+Proof.
+  intro H. destruct e as [ b|n1|n2|s| it x | df | ft x | dcx | ct x ]; try discriminate H; cbn [local_conv_failure] in H;
+    (destruct (const_info x) as [ci'|] eqn:Ex; [| discriminate H];
+     destruct (convert_const _ ci') as [c'|] eqn:Ec; [ discriminate H | injection H as Ht Hc; subst ];
+     exists x; cbn [conv_targets]; rewrite Ex; split; [reflexivity | split; [reflexivity | exact Ec]]).
+Qed.
+
 (** a println-argument occurrence whose exact untyped constant does not default — returns (constant, default). *)
 Definition arg_default_failure (occ : GoIndex.SourceOccurrence) (e : GoExpr) : option (GoConst * GoType) :=
   match GoIndex.occurrence_role occ with
@@ -1656,44 +1679,60 @@ Proof.
      destruct (convert_const _ ci') eqn:Ec; [ discriminate H | injection H as <- <-; exact Ec ]).
 Qed.
 
-(** an [DRInvalidConversion] diagnostic is SOUND for its code: the reported conversion genuinely FAILS the
-    shared [convert_const] on its target/operand-status, and its [outer_context] is EXACTLY the enclosing
-    conversions ([enclosing_conv_refs] — whose refs are sound strict ancestor conversions by
-    [enclosing_conv_refs_sound]). *)
+(** §9 (C3 FINAL) — a [DRInvalidConversion] diagnostic DENOTES its reported code end-to-end: the [outer_context]
+    is EXACTLY the delivered enclosing context; the primary [er] is the occurrence's OWN [ExprRef]; the
+    occurrence's syntax IS the explicit conversion to the reported target [t] of operand [x] ([conv_targets]);
+    the reported operand status [ci] is [x]'s exact successful [const_info]; and the shared [convert_const]
+    genuinely REJECTS it.  So target/operand-status/primary faithfully denote the reported conversion. *)
 Lemma occ_expr_diags_conv_sound {p} (idx : GoIndex.Snap.SyntaxIndex p) ro outer er outer' t ci :
   In (DRInvalidConversion er outer' t ci) (occ_expr_diags idx outer ro) ->
-  convert_const t ci = None /\ outer' = outer.
+  outer' = outer
+  /\ GoIndex.as_expr idx (fst ro) = Some er
+  /\ convert_const t ci = None
+  /\ exists e x, GoIndex.view_expr (snd ro) = Some e /\ conv_targets e = Some (t, x) /\ const_info x = Some ci.
 Proof.
   intro Hin. unfold occ_expr_diags in Hin.
-  destruct (GoIndex.as_expr idx (fst ro)) as [er'|]; [| destruct Hin].
-  destruct (GoIndex.view_expr (snd ro)) as [e|]; [| destruct Hin].
+  destruct (GoIndex.as_expr idx (fst ro)) as [er2|] eqn:Ea; [| destruct Hin].
+  destruct (GoIndex.view_expr (snd ro)) as [e|] eqn:Ev; [| destruct Hin].
   destruct (local_conv_failure e) as [[t' ci']|] eqn:Elc.
-  - destruct Hin as [Heq|[]]. injection Heq as He Ho Ht Hc.
-    rewrite <- Ht, <- Hc. split; [ exact (local_conv_failure_sound e t' ci' Elc) | symmetry; exact Ho ].
+  - destruct Hin as [Heq|[]]. injection Heq as He Ho Ht Hc. subst er2 t' ci'.
+    destruct (local_conv_failure_char e t ci Elc) as [x [Hct [Hci Hcv]]].
+    split; [ symmetry; exact Ho
+           | split; [ reflexivity
+                    | split; [ exact Hcv
+                             | exists e, x; split; [reflexivity | split; [exact Hct | exact Hci]]]]].
   - destruct (arg_default_failure (snd ro) e) as [[c dt]|];
       [ destruct Hin as [Heq|[]]; discriminate Heq | destruct Hin ].
 Qed.
 
-(** a [DRDefaultNotRepresentable] diagnostic is SOUND for its code: the reported untyped constant [c] does NOT
-    default ([default_const c = None]), and the reported default target is EXACTLY the Go default of [c]
-    ([default_target_of] — bool->bool, integer->int, float->float64, complex->complex128, string->string). *)
+(** §9 (C3 FINAL) — a [DRDefaultNotRepresentable] diagnostic DENOTES its reported code end-to-end: the primary
+    [er] is the occurrence's OWN [ExprRef]; the occurrence is genuinely a PRINTLN ARGUMENT ([RPrintlnArg]) —
+    the only use context that can default-fail; its syntax's exact status is the reported untyped constant
+    [CIUntyped c]; that [c] does NOT default ([default_const c = None]); and the reported default target is
+    EXACTLY [c]'s Go default ([default_target_of] — integer->int, float->float64, complex->complex128). *)
 Lemma occ_expr_diags_default_sound {p} (idx : GoIndex.Snap.SyntaxIndex p) ro outer er c dt :
   In (DRDefaultNotRepresentable er c dt) (occ_expr_diags idx outer ro) ->
-  default_const c = None /\ dt = default_target_of c.
+  GoIndex.as_expr idx (fst ro) = Some er
+  /\ (exists aidx, GoIndex.occurrence_role (snd ro) = GoIndex.RPrintlnArg aidx)
+  /\ (exists e, GoIndex.view_expr (snd ro) = Some e /\ const_info e = Some (CIUntyped c))
+  /\ default_const c = None
+  /\ dt = default_target_of c.
 Proof.
   intro Hin. unfold occ_expr_diags in Hin.
-  destruct (GoIndex.as_expr idx (fst ro)) as [er'|]; [| destruct Hin].
-  destruct (GoIndex.view_expr (snd ro)) as [e|]; [| destruct Hin].
+  destruct (GoIndex.as_expr idx (fst ro)) as [er'|] eqn:Ea; [| destruct Hin].
+  destruct (GoIndex.view_expr (snd ro)) as [e|] eqn:Ev; [| destruct Hin].
   destruct (local_conv_failure e) as [[t' ci']|] eqn:Elc; [ destruct Hin as [Heq|[]]; discriminate Heq |].
   destruct (arg_default_failure (snd ro) e) as [[c' dt']|] eqn:Ead; [| destruct Hin].
-  destruct Hin as [Heq|[]]. injection Heq as He Hc Hd.
+  destruct Hin as [Heq|[]]. injection Heq as He Hc Hd. subst er' c' dt'.
   unfold arg_default_failure in Ead.
-  destruct (GoIndex.occurrence_role (snd ro)) as [ | | ai | si | ain | ]; try discriminate Ead.
-  destruct (const_info e) as [cinf|]; try discriminate Ead.
+  destruct (GoIndex.occurrence_role (snd ro)) as [ | | ai | si | ain | ] eqn:Erole; try discriminate Ead.
+  destruct (const_info e) as [cinf|] eqn:Eci; try discriminate Ead.
   destruct cinf as [cc | ct tc]; [| discriminate Ead].
-  destruct (default_const cc) eqn:Edc; [ discriminate Ead | injection Ead as Hcc Hdtc ].
-  assert (Hcek : c = cc) by (transitivity c'; [ symmetry; exact Hc | symmetry; exact Hcc ]).
-  split; [ rewrite Hcek; exact Edc | rewrite Hcek, <- Hd, <- Hdtc; reflexivity ].
+  destruct (default_const cc) eqn:Edc; [ discriminate Ead | injection Ead as Hcc Hdtc ]. subst c dt.
+  split; [ reflexivity
+         | split; [ exists ain; reflexivity
+                  | split; [ exists e; split; [reflexivity | exact Eci]
+                           | split; [ exact Edc | reflexivity ]]]].
 Qed.
 
 (* ---- the SINGLE-PASS diagnostic step: reads each occurrence's own status and (for a conversion) its
