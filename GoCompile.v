@@ -377,12 +377,17 @@ Inductive DiagnosticReason (p : GoProgram) : Type :=
 | DRDuplicateMain
     (later_primary : GoIndex.DeclRef p) (earlier_related : GoIndex.DeclRef p)
 | DRMissingMain
-    (package_primary : PackageRef p).
+    (package_primary : PackageRef p)
+(* §15 (C3-fresh) — the fresh-build cmd/go COMMAND-level failure: a sole selected main package whose default
+   executable name is an existing root DIRECTORY.  Anchored at the sole [PackageRef]; carries the exact default
+   output name.  This is NOT a source/typing/package-count reason — it is a build-OUTPUT-planning reason. *)
+| DRBuildOutputIsDirectory
+    (package_primary : PackageRef p) (output_name : string).
 Arguments DRInvalidConversion {p} _ _ _ _.  Arguments DRDefaultNotRepresentable {p} _ _ _.
-Arguments DRDuplicateMain {p} _ _.  Arguments DRMissingMain {p} _.
+Arguments DRDuplicateMain {p} _ _.  Arguments DRMissingMain {p} _.  Arguments DRBuildOutputIsDirectory {p} _ _.
 
 Inductive DiagnosticCode : Type :=
-| DCInvalidConversion | DCDefaultNotRepresentable | DCDuplicateMain | DCMissingMain.
+| DCInvalidConversion | DCDefaultNotRepresentable | DCDuplicateMain | DCMissingMain | DCBuildOutputIsDirectory.
 
 Definition diagnostic_code {p} (d : DiagnosticReason p) : DiagnosticCode :=
   match d with
@@ -390,6 +395,7 @@ Definition diagnostic_code {p} (d : DiagnosticReason p) : DiagnosticCode :=
   | DRDefaultNotRepresentable _ _ _ => DCDefaultNotRepresentable
   | DRDuplicateMain _ _           => DCDuplicateMain
   | DRMissingMain _               => DCMissingMain
+  | DRBuildOutputIsDirectory _ _  => DCBuildOutputIsDirectory
   end.
 
 Definition diagnostic_primary {p} (d : DiagnosticReason p) : DiagnosticAnchor p :=
@@ -398,6 +404,7 @@ Definition diagnostic_primary {p} (d : DiagnosticReason p) : DiagnosticAnchor p 
   | DRDefaultNotRepresentable pr _ _  => AtNode (GoIndex.erase_ref pr)
   | DRDuplicateMain later _           => AtNode (GoIndex.erase_ref later)
   | DRMissingMain pk                  => AtPackage pk
+  | DRBuildOutputIsDirectory pk _     => AtPackage pk
   end.
 
 Definition diagnostic_related {p} (d : DiagnosticReason p) : list (DiagnosticAnchor p) :=
@@ -406,16 +413,17 @@ Definition diagnostic_related {p} (d : DiagnosticReason p) : list (DiagnosticAnc
   | DRDefaultNotRepresentable _ _ _   => []
   | DRDuplicateMain _ earlier         => [AtNode (GoIndex.erase_ref earlier)]
   | DRMissingMain _                   => []
+  | DRBuildOutputIsDirectory _ _      => []
   end.
 
 (** the primary anchor is always an exact-snapshot handle whose CODE matches the reason. *)
 Lemma diagnostic_code_primary_consistent : forall p (d : DiagnosticReason p),
   match diagnostic_code d, diagnostic_primary d with
-  | DCMissingMain, AtPackage _ => True
+  | DCMissingMain, AtPackage _ | DCBuildOutputIsDirectory, AtPackage _ => True
   | DCInvalidConversion, AtNode _ | DCDefaultNotRepresentable, AtNode _ | DCDuplicateMain, AtNode _ => True
   | _, _ => False
   end.
-Proof. intros p [pr o t s|pr c dt|l e|pk]; cbn; exact I. Qed.
+Proof. intros p [pr o t s|pr c dt|l e|pk|pk nm]; cbn; exact I. Qed.
 
 (* ============================================================================================================
    §17 (C3 FINAL) — ERASED cross-snapshot reports.  A [DiagnosticReason p] is indexed by the snapshot [p], so
@@ -455,6 +463,7 @@ Definition erased_target {p} (d : DiagnosticReason p) : option GoType :=
   | DRDefaultNotRepresentable _ _ dt => Some dt
   | DRDuplicateMain _ _              => None
   | DRMissingMain _                  => None
+  | DRBuildOutputIsDirectory _ _     => None
   end.
 
 Definition erase_diagnostic {p} (d : DiagnosticReason p) : ErasedDiagnostic :=
