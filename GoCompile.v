@@ -1468,19 +1468,31 @@ Definition is_conversion_node {p} (idx : GoIndex.Snap.SyntaxIndex p) (a : GoInde
   | _ => false
   end.
 
+(** the strict-ancestor test as an EXPLICIT preorder interval on the SOURCE-DETERMINED subtree end: [a] is a
+    strict ancestor of [r] iff they share a file and [r] lies strictly inside [a]'s subtree
+    ([node_ref_local a < node_ref_local r <= node_subtree_end a]).  Unlike the opaque [is_ancestor_ref], this
+    reads only [node_ref_key] components and [node_subtree_end] (= [occurrence_subtree_end] of the source, by
+    [node_subtree_end_matches_source]), so it is snapshot-independent — the basis for cross-snapshot
+    determinism of the [outer_context]. *)
+Definition is_ancestor_of {p} (idx : GoIndex.Snap.SyntaxIndex p) (a r : GoIndex.Snap.NodeRef p) : bool :=
+  FilePath.fp_eqb (GoIndex.Snap.file_ref_path (GoIndex.Snap.node_ref_file a))
+                  (GoIndex.Snap.file_ref_path (GoIndex.Snap.node_ref_file r))
+  && Pos.ltb (GoIndex.Snap.node_ref_local a) (GoIndex.Snap.node_ref_local r)
+  && Pos.leb (GoIndex.Snap.node_ref_local r) (GoIndex.Snap.node_subtree_end idx a).
+
 Definition enclosing_conv_refs {p} (idx : GoIndex.Snap.SyntaxIndex p) (r : GoIndex.Snap.NodeRef p)
   : list (GoIndex.ExprRef p) :=
   flat_map (fun a => match GoIndex.as_expr idx a with Some er => [er] | None => [] end)
-    (rev (filter (fun a => GoIndex.Snap.is_ancestor_ref idx a r && is_conversion_node idx a)
+    (rev (filter (fun a => is_ancestor_of idx a r && is_conversion_node idx a)
                  (map fst (GoIndex.Snap.visit_file (GoIndex.Snap.node_ref_file r))))).
 
 (** §9 (C3 FINAL) — the NESTED SCAR soundness: every enclosing-conversion ref of the [outer_context] is an
-    ACTUAL strict ancestor of [r] (via the O(1) interval test [is_ancestor_ref]) that IS a conversion node
-    ([is_conversion_node]), and it is exactly that node's [ExprRef].  So a nested invalid conversion's related
-    refs are real enclosing conversions in the same file, never fabricated or copied syntax. *)
+    ACTUAL strict ancestor of [r] (its subtree strictly contains [r] — [is_ancestor_of]) that IS a conversion
+    node ([is_conversion_node]), and it is exactly that node's [ExprRef].  So a nested invalid conversion's
+    related refs are real enclosing conversions in the same file, never fabricated or copied syntax. *)
 Lemma enclosing_conv_refs_sound {p} (idx : GoIndex.Snap.SyntaxIndex p) (r : GoIndex.Snap.NodeRef p) : forall er,
   In er (enclosing_conv_refs idx r) ->
-  exists a, GoIndex.Snap.is_ancestor_ref idx a r = true
+  exists a, is_ancestor_of idx a r = true
          /\ is_conversion_node idx a = true
          /\ GoIndex.as_expr idx a = Some er.
 Proof.
