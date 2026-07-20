@@ -1,27 +1,37 @@
 # Review Request
 
-state: closed
+state: requested
 review: Implementation Review
 confirmation: yes
+confirmation_used: yes
+human_override: C3-weedwhacker-human-decision
 
 contract: .review/NEXT_STEPS.md
 contract_sha: 83c3989
 review_basis: .review/REVIEW_BASIS.md
 
-# CLOSED — bounded confirmation #3 (over b48b542..42c536e) returned BLOCKING.
-# F3 + F4 CLOSED; F1, F2, F5 open. The residual F1/F2 asks require an ARCHITECTURE /
-# THREAT-MODEL decision that is Rob's, not mine — the autonomous repair loop is STOPPED
-# and ESCALATED. See .review/C3_ARCH_CONFLICT.md for the two decisions and options.
-# Reopen (state: requested, confirmation: yes) only after Rob picks a direction and the
-# repair is implemented + re-verified.
+# The ONE bounded Implementation Review confirmation authorized by Rob's C3 weedwhacker human decision
+# (.review/C3_WEEDWHACKER_DIRECTIVE.md, human_override token C3-weedwhacker-human-decision).  That decision
+# resolved the escalated F1/F2 architectural conflict (delete BOTH manifest systems, no checksum/signed-file
+# replacement; Docker the ONE fresh-build runner; cooperating-developer threat model; keep the index-free
+# vm-computable source SPECIFICATION for fixtures + a separate retained-bucket production decision) and thereby
+# supersedes the confirmation-#3 BLOCKING finding.  This confirmation reviews the whole weedwhacker batch as
+# implemented.
 
-# Last confirmation range: b48b542228e6164b04c1496809b780a186eb9485..42c536e33a70f6e3a6973190eca3086a23f3dc91
-prior_findings: .review/C3_IMPL_REVIEW_FINDINGS.md
+# Frozen candidate range: 95258b02e54918651d0ac3b100ab8b053c254c40..2ba541e
+#   (weedwhacker 1/2 = 9caa929, weedwhacker 2/2 = 2ba541e)
+# Prior finding record: the confirmation-#3 findings F1/F2/F5 — resolved by the human decision above.  The
+#   superseded .review/C3_ARCH_CONFLICT.md + C3_IMPL_REVIEW_FINDINGS.md were deleted in the batch (§10) and
+#   remain in git history at 95258b0.
 
 ## Rules
 
 - Set `state: requested` only at an intentional review barrier.
 - Use only `Contract Review` or `Implementation Review` in `review`.
 - A confirmation keeps the same review type and sets `confirmation: yes`.
+- `confirmation_used: yes` records that the single bounded confirmation has been requested; a further
+  confirmation runs ONLY under a new explicit `human_override` token.
+- A BLOCKING confirmation (or ARCHITECTURAL CONFLICT) ENDS autonomous work: close the request, record, notify
+  Rob, STOP — no repair or re-request without a later explicit human override.
 - Close the request after recording the review result.
 - Ordinary Claude turns leave this file closed, so the stop hook returns immediately.
