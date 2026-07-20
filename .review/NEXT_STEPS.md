@@ -14,6 +14,14 @@
   modeling memory limits or disk space limits.  It's not your domain to care about this.  Let the underlying
   platform let you know."
 
+★ REVIEW-PROCESS AMENDMENT (Rob, C3 manual closeout, 2026-07-20):
+  Contract Review and Implementation Review are governed by .review/CODEX_REVIEW_POLICY.md, gated by
+  .review/REVIEW_REQUEST.md, with the accepted C3 basis in .review/REVIEW_BASIS.md.  The older
+  checkpoint-specific Codex cadence and attack-list wording below is HISTORICAL steering for review procedure
+  and does NOT override the permanent review policy or .review/REVIEW_BASIS.md.  The functional requirements
+  below remain binding; only the review CADENCE/OUTPUT is superseded.  Active closeout directive:
+  .review/C3_MANUAL_CLOSEOUT_DIRECTIVE.md.
+
 ===============================================================================
 
 Claude Code directive: C3 final repair — exact fresh-image parity with literal pinned `go build ./...`
