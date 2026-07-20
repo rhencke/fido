@@ -317,14 +317,17 @@ AST->output->AST round-trip authority, no copied compiled AST, no handwritten OC
   bytes into a fresh EMPTY disposable validation root, no control state) + the generic dirty-directory
   PUBLICATION synchronizer, its driver, and the `make regenerate` apply CLI (enumerate the pristine
   `/generated` layer — copied from the pre-build MATERIALIZATION, never a post-sink dir — and hand it to the
-  sink).  STRUCTURAL publication gate: the apply CLI REFUSES to sink any source lacking the fresh-build
-  validation marker `.fido-build-validated`, which the `sync` image obtains ONLY from the go-e2e stage (written
-  after the pinned `go build ./...` over the same content-addressed layer SUCCEEDS) through a Docker-DAG
-  dependency — so the sink is un-runnable on unvalidated bytes even when the binary is invoked directly, not
-  merely make-ordered.  It is IMAGE-AGNOSTIC (publishes whatever validated pristine it is given) and never
-  publishes the marker.  Filesystem ONLY: they walk no Rocq terms.  VALIDATION-BEFORE-PUBLICATION: `go build
-  ./...` validates the materialized image first (assurance: accidental-publication protection for a cooperating
-  developer, matching the pre-commit hook — not resistance to deliberate local marker forgery).
+  sink).  BYTE-INTEGRITY publication gate: the apply CLI REFUSES to sink any source lacking a byte-bound
+  validation MANIFEST `.fido-build-validated` (a `<md5> <path>` list); it recomputes each digest and requires a
+  byte-exact bijection (no missing/extra/altered file), and never publishes the manifest.  In the CANONICAL
+  workflow the `sync` image obtains the manifest ONLY from the go-e2e stage (written after the pinned `go build
+  ./...` over the same content-addressed layer SUCCEEDS) through a Docker-DAG dependency — so `--target sync` is
+  unbuildable, and the CLI refuses, on a failed/absent build.  Filesystem ONLY: they walk no Rocq terms and run
+  no programs.  ⚠ HONEST SCOPE (`.review/C3_ARCH_CONFLICT.md`, awaiting Rob): the manifest is byte-INTEGRITY (it
+  stops publishing a DIFFERENT/arbitrary tree against a copied/stale manifest), NOT validation PROVENANCE — a
+  caller could compute a matching manifest for any tree — so on its own this protects against ACCIDENTAL
+  publication of unvalidated output for a cooperating developer (the pre-commit hook's assurance level), NOT a
+  deliberate local bypass; a validation-EMBEDDED inaccessible sink is a pending threat-model/architecture decision.
 
 `tools/ocaml-origin-gate.sh` enforces exactly these four files (inspecting every source at every depth — a
 repository-content gate, not the runtime sink, so it prunes only `.git`), filesystem-only for the

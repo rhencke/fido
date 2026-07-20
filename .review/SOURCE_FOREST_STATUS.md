@@ -107,11 +107,22 @@ Updated only at checkpoint boundaries._
   judgment; `pkg_all_ok_one_main` DELETED.  **F2** — the marker is now BYTE-BOUND: go-e2e writes a manifest
   (`<md5> <path>` for the exact go.mod + every .go); `fido_apply` recomputes each digest and requires a
   byte-exact bijection (refuses a missing / mismatched / extra / stale-or-arbitrary manifest), so publication is
-  bound to the validated BYTES, not marker presence — the threat-model caveat is dropped; `Fido Materialize` is
-  documented as the §5 low-level fresh-empty-root EXPORT primitive (not the publication path).  **F3** — added
+  bound to the validated BYTES (a byte-INTEGRITY binding — NOT a validation-provenance oracle); `Fido Materialize`
+  is documented as the §5 low-level fresh-empty-root EXPORT primitive (not the publication path).  **F3** — added
   the contract-required EXTRA-fresh-file regression (an install stub drops an unexpected sibling; the path-set
-  diff catches it).  **F5** — fixed the missed `GoEmit.v` `Fido Emit` header/claim + the docs.  **Bounded
-  confirmation #3 (same review type, `confirmation: yes`) REQUESTED.**  **C4 remains FORBIDDEN.**
+  diff catches it).  **F5** — fixed the missed `GoEmit.v` `Fido Emit` header/claim + the docs.  (Repaired
+  @`42c536e`; confirmation #3 requested @`7d2685e`.)
+- **Bounded confirmation #3 (Codex, over `b48b542..42c536e`) returned BLOCKING: F3 + F4 CLOSED; F1, F2, F5 OPEN.**
+  The residuals are no longer a proof tweak: **F1** wants ONE bucket-based executable package decision deciding
+  the two factored rules separately AND consumed by fixtures (changing the deliberate index-free vm-computable
+  fixture path — a design-direction decision); **F2** rejects the checksum/manifest approach entirely (a
+  self-attested checksum cannot prove validation provenance — a caller can compute a matching manifest for any
+  tree) and requires a validation-EMBEDDED, INACCESSIBLE sink, which conflicts with `fido_apply`'s filesystem-only
+  charter + the two-stage OCaml-sink / Go-validation design and rests on a THREAT-MODEL decision (resist a
+  deliberate local bypass vs the cooperating-developer level the Docker-DAG + hook give).  **→ ESCALATED to Rob as
+  an ARCHITECTURAL CONFLICT (`.review/C3_ARCH_CONFLICT.md`); the autonomous repair loop is STOPPED, `REVIEW_REQUEST`
+  CLOSED, awaiting direction.**  Honest doc corrections made (F2 is byte-integrity, not validation provenance;
+  `SM = Map.Make(String)` added to the collection audit).  **C4 remains FORBIDDEN.**
 - **Material defects the closeout fixed** (all RESOLVED — see CLOSEOUT COMPLETE above; over the retained-correct C3 architecture): (1) the production
   elaborator still traverses each file twice — `elaborate_indexed` uses `prog_package_refs idx` (which recomputes
   `prog_visit p`) instead of the RETAINED `visit`; (2) the fresh-build runner is fail-OPEN (find|while pipelines +

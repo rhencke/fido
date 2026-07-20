@@ -6,18 +6,20 @@
    renders nothing, alters no bytes, and chooses no semantic path — it only enumerates the already-final module
    tree and hands (go.mod bytes, (relative .go path, bytes) list) to the sink.
 
-   STRUCTURAL, BYTE-BOUND publication gate (§5): this CLI REFUSES to publish unless the source carries a
-   fresh-build VALIDATION MANIFEST [.fido-build-validated] — a REGULAR (non-symlink) file listing `<md5> <path>`
-   for EXACTLY the go.mod + every .go of the validated tree.  fido-apply recomputes the md5 of each file it is
-   about to publish and requires a byte-exact bijection with the manifest (every published file attested with a
-   matching digest, and the manifest attesting no more and no fewer files).  The manifest is produced ONLY by the
-   go-e2e stage, AFTER the pinned one-shot `go build ./...` over the exact content-addressed pristine layer
-   SUCCEEDS, and reaches the `sync` image over a Docker-DAG dependency.  So the sink is un-runnable on bytes that
-   were not build-validated — an arbitrary tree plus a copied/stale manifest fails the digest bijection, and a
-   failed/absent validation leaves the manifest absent.  Publication is thus NOT merely make-ordered, and the
-   binding is to the BYTES, not to mere marker presence.  (This binds publication to the validated content; it is
-   integrity binding, not a keyed signature — deliberate local forgery of BOTH the tree and its manifest is a
-   separate concern.)  The manifest is never itself published (only [go.mod] + [.go] are transported).
+   BYTE-INTEGRITY publication gate (§5): this CLI REFUSES to publish unless the source carries a fresh-build
+   VALIDATION MANIFEST [.fido-build-validated] — a REGULAR (non-symlink) file listing `<md5> <path>` for EXACTLY
+   the go.mod + every .go — and it recomputes each digest and requires a byte-exact BIJECTION (no missing, extra,
+   or altered file).  In the CANONICAL workflow (`make regenerate` / the `sync` stage) that manifest is written by
+   the go-e2e stage ONLY AFTER the pinned `go build ./...` over the exact content-addressed pristine layer
+   SUCCEEDS, and reaches `sync` over a Docker-DAG dependency — so `--target sync` is unbuildable, and this CLI
+   refuses, on a failed/absent build.
+   ⚠ HONEST SCOPE (see .review/C3_ARCH_CONFLICT.md): the manifest is a byte-INTEGRITY binding (it stops
+   publishing a DIFFERENT/arbitrary tree against a copied or stale manifest), NOT a validation-PROVENANCE oracle —
+   a caller could compute a matching manifest for an arbitrary tree.  So on its own this binary protects against
+   ACCIDENTAL publication of unvalidated output for a cooperating developer (the assurance level the pre-commit
+   hook documents), NOT against a deliberate local bypass.  A validation-embedded, inaccessible sink (resisting a
+   deliberate bypass) is a threat-model/architecture decision pending Rob's direction.  The manifest is never
+   itself published (only [go.mod] + [.go] are transported).
 
    Usage: fido-apply <src-generated-dir> <dest-root>. *)
 

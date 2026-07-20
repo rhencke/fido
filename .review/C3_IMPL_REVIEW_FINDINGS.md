@@ -137,3 +137,46 @@ historical active labels unmistakably historical.
 - ARCHITECTURE:320 + README:126 assert an enforceable single validate-before-publish workflow the public
   materializer + marker-only apply do not yet provide.
 - **Required:** reconcile after F1/F2 reflect enforceable reality; fix GoEmit.v now.
+
+# ============================================================================================
+# Bounded confirmation #3 (Codex task-mrsyqc1k, over repair range b48b542..42c536e) — BLOCKING
+# F3 + F4 CLOSED.  F1/F2 OPEN (architectural/threat-model direction) + F5.
+# → ESCALATED to Rob as an architectural conflict (see .review/C3_ARCH_CONFLICT.md).
+# ============================================================================================
+
+## F1 — OPEN: package execution still has TWO executable authorities (not one shared bucket decision)
+- Fixtures/helpers execute `pkg_all_ok` (package_summaries, GoCompile.v:97); production executes
+  `bucket_diags_elems` (bucket lengths, :2988) and `elaborate_indexed` decides via `list_is_nil diags` (:6146).
+- `pkg_diags_empty_iff_rules` proves the COMBINED classifier ≡ the two factored Props AFTER execution; it does
+  NOT make the separate uniqueness/entry decisions the shared EXECUTABLE root (:3036).  Fixture ctors still use
+  `source_valid_b` (:6492).  → two executable views joined by proof bridges; grammar masks it (both ⇒ =1).
+- **Required:** ONE executable decision over the retained buckets deciding the two factored rules SEPARATELY,
+  consumed by elaboration + diagnostics + fixtures.  [DIRECTION: changes the index-free vm-computable fixture
+  decision path — a design-direction decision.]
+
+## F2 — OPEN: the manifest is SELF-ATTESTED, not validation provenance (threat-model decision)
+- `fido_apply` never runs the pinned build nor verifies the manifest ORIGINATED from one; it accepts any
+  regular manifest whose md5s match the current files, then sinks (fido_apply.ml:59).  The emit-stage test
+  computes a manifest locally + publishes BEFORE go-e2e validation (Dockerfile:616/631).  → any Go-rejected
+  tree + its freshly-computed manifest can be published; the fido_apply.ml:18 comment leaves forging both tree
+  and manifest out of scope — the threat-model weakening the PRIOR confirmation rejected.
+- No arbitrary-image public orchestrator does `exact export → fresh Go validation → sink original bytes`
+  (contract C3_MANUAL_CLOSEOUT_DIRECTIVE:277); `Fido Materialize` + the directly-callable apply CLI remain
+  independently usable.
+- **Required:** ONE enforceable arbitrary-image workflow that itself fresh-validates the exact bytes then
+  invokes an INACCESSIBLE sink; a checksum file cannot stand in for validation provenance.  [CONFLICT: an
+  inaccessible validation-embedded sink conflicts with fido_apply's filesystem-only charter (it runs no
+  programs) + the two-stage OCaml-sink / Go-validation design; and whether the validation-before-publication
+  invariant must resist a DELIBERATE local bypass (vs the cooperating-developer level the Docker-DAG + hook
+  provide) is the THREAT-MODEL decision the reviewer says needs human authorization.]
+
+## F5 — OPEN (after F1/F2) + repair-induced collection-audit omission
+- ARCHITECTURE:316 still describes a presence-only marker + "cannot publish unvalidated" + the forgery caveat;
+  PROGRESS:183 declares the workflow GREEN; CLAUDE:112 says validation necessarily precedes the sink;
+  SOURCE_FOREST_STATUS:99 claims F1/F2 repaired + caveat dropped (contradicts fido_apply.ml, which kept a
+  reworded caveat).
+- **repair-induced:** COLLECTION_AUDIT omits the new `SM = Map.Make(String)` in fido_apply.ml (:24).
+- **Required:** reconcile after F1/F2 are structurally true; add the SM row now.
+
+## F3 — CLOSED (extra-fresh-file regression rejects before Go).  ## F4 — CLOSED (gate 386, only the universal
+## pkg_diags_empty_iff_rules added; no fixture surfaces reintroduced).

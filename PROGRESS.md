@@ -188,9 +188,13 @@ is rejected IN Rocq before any bytes — **zero expected Go build failures, ever
   `closure_assums` the audit uses), (3) decode only the final `(go.mod bytes, (path, bytes) list)` transport
   (exact constructors, fail-loud), (4) hand to the writer. `Fido Materialize` writes the authoritative pristine
   image DIRECTLY into a fresh disposable root, and the pinned `go build ./...` VALIDATES it. There is NO public
-  `Fido Emit`: the publication SINK (`Fido_sink.sync`) is INTERNAL — reached only from `e2e/sink_test.ml` and
-  the `make regenerate` apply CLI, which sinks the SAME validated bytes only AFTER the fresh build succeeds
-  (`make regenerate` enforces this via its `e2e` prerequisite; the deployed path IS the tested path). `Fido
+  `Fido Emit`: the publication SINK (`Fido_sink.sync`) is a PRIVATE module — reached only from `e2e/sink_test.ml`
+  and the `make regenerate` apply CLI, which sinks the SAME validated bytes only AFTER the fresh build succeeds
+  (`make regenerate` enforces this via its `e2e` prerequisite + the Docker-DAG; the deployed path IS the tested
+  path). ⚠ The apply CLI's own gate is a byte-INTEGRITY manifest bijection (cooperating-developer assurance,
+  matching the pre-commit hook — NOT a validation-provenance oracle or deliberate-bypass resistance); a
+  validation-embedded inaccessible sink is a pending threat-model/architecture decision
+  (`.review/C3_ARCH_CONFLICT.md`, F2). `Fido
   Materialize` runs EXPLICITLY (`rocq c` on the witnesses) after the cached theory+plugin build — not a `.vo`
   side effect; no per-witness recompile. `e2e/Witness.v` (witness), `e2e/WitnessMulti.v` (two-package + empty-file tree),
   and `e2e/WitnessEmpty.v` (empty module — go.mod + zero `.go`) each emit their tree; `e2e/WitnessNeg.v`

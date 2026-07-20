@@ -1,6 +1,6 @@
 # Review Request
 
-state: requested
+state: closed
 review: Implementation Review
 confirmation: yes
 
@@ -8,15 +8,15 @@ contract: .review/NEXT_STEPS.md
 contract_sha: 83c3989
 review_basis: .review/REVIEW_BASIS.md
 
-# Implementation Review only:
-base_sha: fea649389ee52d442373c43ea2bdb3be2eca47db
-head_sha: 42c536e33a70f6e3a6973190eca3086a23f3dc91
+# CLOSED — bounded confirmation #3 (over b48b542..42c536e) returned BLOCKING.
+# F3 + F4 CLOSED; F1, F2, F5 open. The residual F1/F2 asks require an ARCHITECTURE /
+# THREAT-MODEL decision that is Rob's, not mine — the autonomous repair loop is STOPPED
+# and ESCALATED. See .review/C3_ARCH_CONFLICT.md for the two decisions and options.
+# Reopen (state: requested, confirmation: yes) only after Rob picks a direction and the
+# repair is implemented + re-verified.
 
-# Bounded confirmation only:
-confirmation_of: bounded confirmation #2 (BLOCKING — F4 closed, F1/F2/F3 residual + F5) over 29872f5..b48b542
+# Last confirmation range: b48b542228e6164b04c1496809b780a186eb9485..42c536e33a70f6e3a6973190eca3086a23f3dc91
 prior_findings: .review/C3_IMPL_REVIEW_FINDINGS.md
-repair_base_sha: b48b542228e6164b04c1496809b780a186eb9485
-repair_head_sha: 42c536e33a70f6e3a6973190eca3086a23f3dc91
 
 ## Rules
 
