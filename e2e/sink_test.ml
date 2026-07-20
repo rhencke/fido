@@ -8,7 +8,7 @@
      "empty"    — an EMPTY source map (go.mod only): the module-only program;
      "multi"    — files in two parents (root main.go + sub/main.go): two sibling temps;
      "reserved"/"p-nestedfido"/"p-vendor"/"p-testdata"/"p-upper"/"p-underscore"/"p-dotdot"/"p-nongo"
-                — desired paths OUTSIDE the intrinsic FilePath `.go` domain (nested/first `.fido`, a
+                desired paths OUTSIDE the intrinsic FilePath `.go` domain (nested/first `.fido`, a
                   `go build`-ignored dir, upper-case/underscore/`..`/non-`.go`): each must be
                   rejected before any effect, materializing nothing;
      "p-long"   — a very long (205-byte) canonical `.go` path: ARBITRARY LENGTH is IN the domain (no cap),
@@ -26,7 +26,7 @@
                   before its bytes are written): cleanup must remove EVERY created temp and leave prior FINAL
                   files untouched;
      "crash-after-create" / "crash-after-first-payload" / "crash-after-staging" / "crash-after-first-install"
-                — [checkpoint] TERMINATES the process (Unix._exit) at that exact point: a true crash, no
+                [checkpoint] TERMINATES the process (Unix._exit) at that exact point: a true crash, no
                   finalizer, the lock stays held, and sibling-temp residue is left for the next run
                   (crash-after-create leaves a created-but-empty PARTIAL temp). *)
 let header = "// fido generated.  do not edit."
@@ -45,7 +45,7 @@ let () =
   (* argv.(2) = the image selector; argv.(3) (if present) = the fault selector, else the same token does
      both — so `sink_test dir multi crash-after-staging` freezes a multi image at a fault point. *)
   let image = if Array.length Sys.argv > 2 then Sys.argv.(2) else "" in
-  (* §11.6 PERMUTATION DIFFERENTIAL: two multi-file images whose entries are handed to the sink in DIFFERENT
+  (* PERMUTATION DIFFERENTIAL: two multi-file images whose entries are handed to the sink in DIFFERENT
      orders must produce byte-IDENTICAL trees — the sink keys desired outputs by path in a standard map, so
      output never depends on transport order.  (`a/x.go` sorts before `go.mod`, so this also exercises the
      case where the module file is NOT the first staged/installed file.) *)
@@ -63,7 +63,7 @@ let () =
     exit 0
   end;
   (* argv.(3) is a '+'-separated SET of faults (e.g. "fail-after-staging+unlink-fail") applied together —
-     order and multiplicity are irrelevant, so this is a membership-only SET (C1B §7), reusing the sink's
+     order and multiplicity are irrelevant, so this is a membership-only SET, reusing the sink's
      already-shared standard [Set.Make(String)] rather than a raw [List.mem]. *)
   let faults =
     List.fold_left (fun s t -> Fido_sink.SSet.add t s) Fido_sink.SSet.empty
@@ -72,7 +72,7 @@ let () =
   let entries = match image with
     | "empty"        -> []
     | "multi"        -> [ ("main.go", mk "ROOT"); ("sub/main.go", mk "SUB") ]
-    | "dup"          -> [ ("main.go", mk "A"); ("main.go", mk "B") ]  (* §11.6: duplicate rel path -> reject *)
+    | "dup"          -> [ ("main.go", mk "A"); ("main.go", mk "B") ]  (*: duplicate rel path -> reject *)
     | "reserved"     -> [ (".fido/x.go", mk "X") ]         (* .fido as first component *)
     | "p-nestedfido" -> [ ("sub/.fido/x.go", mk "X") ]     (* .fido as a NESTED component *)
     | "p-vendor"     -> [ ("vendor/main.go", mk "V") ]     (* a `go build`-ignored dir *)

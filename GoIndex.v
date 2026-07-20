@@ -1,4 +1,4 @@
-(** * GoIndex — the production occurrence index over the ONE raw [GoProgram] (Source Forest campaign, C2).
+(** * GoIndex — the production occurrence index over the ONE raw [GoProgram] (Source Forest campaign).
 
     [GoIndex] derives, from one exact immutable [GoProgram] snapshot, a canonical file-local occurrence
     identity for every currently-represented semantic source occurrence, a certified structural index over
@@ -7,13 +7,13 @@
     STRUCTURAL and SOURCE-derived: it imports only [GoAST] (the one source AST), [Collections] (the standard
     map foundation), and [FilePath]; it does NOT know semantic types, compiler acceptance, rendering, or
     diagnostics (it must not import [GoTypes]/[GoCompile]/[GoSafe]/[GoRender]/[GoEmit]).  It preserves and
-    GENERALIZES the accepted C0/C0A/C0B occurrence-index spike ([OccurrenceSpike]) to the real grammar.
+    GENERALIZES the accepted// occurrence-index spike ([OccurrenceSpike]) to the real grammar.
 
     COLLECTION LAW (CLAUDE.md rule 10 / ARCHITECTURE.md): the per-file local-node table is the STANDARD
     pinned-stdlib positive-key map [FMapPositive.PositiveMap] (aliased [Collections.NodeMapBase]); the outer
     program index is the STANDARD [FMapAVL] file map ([Collections.FileMapBase]) keyed by [FilePath].  Fido
     authors NO collection storage or generic collection algorithm; the thin sealed [NodeTable] wrapper stores
-    a [Collections.NodeMapBase] and proves its three laws directly from the standard map facts.  C2 RETAINS
+    a [Collections.NodeMapBase] and proves its three laws directly from the standard map facts.  RETAINS
     these selected standard maps (the sealing hides the map CONSTRUCTORS and RAW operations, NOT the choice of
     collection).
 
@@ -25,14 +25,14 @@
     (root-canonical / unique parent / interval-jump children / preorder-interval ancestry / canonical
     enumeration + reachability); the snapshot-indexed SEALED reference layer over [GoProgram]
     ([SyntaxIndex] / [FileRef] / [NodeRef] / [NodeKey] + kind-refined [NodeRefOf], validated minting, a total
-    query API, and the source-occurrence correspondence lifted through the sealed API); and the §19 indexed
+    query API, and the source-occurrence correspondence lifted through the sealed API); and the indexed
     traversal ([visit_file] running the single-pass [walk_file]) pairing each ORIGINAL syntax fragment with its
     validated [NodeRef] in one pass — CONSUMED by [GoCompile]'s production elaboration ([elaborate]) as the ONE
     indexed whole-program pass. *)
 
 From Stdlib Require Import PArith NArith List Bool Lia Sorted Recdef Wf_nat Arith Eqdep_dec String.
 From Stdlib Require Import Structures.OrderedType FSets.FMapAVL FSets.FMapFacts SetoidList.
-(* The binding import boundary (directive §3): GoIndex imports ONLY [GoAST] / [Collections] / [FilePath] +
+(* The binding import boundary: GoIndex imports ONLY [GoAST] / [Collections] / [FilePath] +
    axiom-free stdlib.  The raw-syntax payload types ([Ints.IntegerType] / [Floats.DecimalFloat] / … / the
    [ModulePath] / [GoVersion] used only in the regression fixtures) are reached by QUALIFIED name through the
    modules [GoAST] already loads — NEVER a direct import of a semantic module. *)
@@ -42,9 +42,9 @@ Local Open Scope positive_scope.
 
 (* ================================================================================================= *)
 (** ** The SELECTED node table: an ABSTRACT interface, implemented internally by the STANDARD pinned-stdlib *)
-(*    positive-key map [Collections.NodeMapBase] ([FMapPositive]).  Callers see ONLY                       *)
-(*    [NodeTable.table]/[empty]/[get]/[set] and the three laws; the sealing hides the standard map's        *)
-(*    CONSTRUCTORS and RAW operations, NOT the choice of collection. *)
+(* positive-key map [Collections.NodeMapBase] ([FMapPositive]).  Callers see ONLY                       *)
+(* [NodeTable.table]/[empty]/[get]/[set] and the three laws; the sealing hides the standard map's        *)
+(* CONSTRUCTORS and RAW operations, NOT the choice of collection. *)
 (* ================================================================================================= *)
 
 Module Type NODE_TABLE.
@@ -73,14 +73,14 @@ Module NodeTable : NODE_TABLE.
 End NodeTable.
 
 (* ================================================================================================= *)
-(** ** Occurrence kinds, roles, and metadata (directive §4/§5).                                       *)
+(** ** Occurrence kinds, roles, and metadata.                                       *)
 (* ================================================================================================= *)
 
 (* The current occurrence universe: file root, package clause, top-level declaration, statement, expression.
    No kind for unsupported future syntax (no import/name/type kind ahead of its syntax). *)
 Inductive SyntaxKind := KFile | KPackageClause | KTopLevelDecl | KStatement | KExpression.
 
-(* How an occurrence participates in its parent (directive §5).  One role suffices for every conversion
+(* How an occurrence participates in its parent.  One role suffices for every conversion
    operand — integer/float/complex conversions share the SAME structural child relationship. *)
 Inductive NodeRole :=
 | RFileRoot                  (* the file root itself *)
@@ -90,7 +90,7 @@ Inductive NodeRole :=
 | RPrintlnArg (n : nat)      (* the n-th argument of a println statement *)
 | RConversionOperand.        (* the single operand of an explicit conversion expression *)
 
-(* Small structural metadata; NO copy of the recursive subtree (directive §5 / §23.12). *)
+(* Small structural metadata; NO copy of the recursive subtree (directive /). *)
 Record NodeMeta := mkMeta {
   nm_kind        : SyntaxKind;
   nm_parent      : option positive;   (* file-local parent id; None only for a file root *)
@@ -98,7 +98,7 @@ Record NodeMeta := mkMeta {
   nm_subtree_end : positive           (* last preorder id in this occurrence's subtree *)
 }.
 
-Definition root_id : positive := 1.       (* every file root's canonical local id (directive §4.1) *)
+Definition root_id : positive := 1.       (* every file root's canonical local id *)
 Definition pkg_id  : positive := 2.       (* the package clause is the file root's first child = Pos.succ root_id *)
 
 (* total extraction from a provably-present option — the key to a total validated-reference API (used by the
@@ -111,19 +111,19 @@ Lemma option_get_some {A} (o : option A) : forall (H : o <> None), o = Some (opt
 Proof. destruct o as [a|]; intro H; [reflexivity | exfalso; exact (H eq_refl)]. Qed.
 
 (* [ImportSpecSyntax] is EMPTY, so any [list ImportSpecSyntax] is intrinsically [nil]; the builder and the
-   source spec STRUCTURALLY consume [source_imports] (directive §4.3) so a future import constructor forces
+   source spec STRUCTURALLY consume [source_imports] so a future import constructor forces
    this definition and its proofs to change rather than being silently ignored. *)
 Lemma import_list_nil : forall (l : list ImportSpecSyntax), l = [].
 Proof. intros [|i rest]; [ reflexivity | destruct i ]. Qed.
 
 (* ================================================================================================= *)
-(** ** The one-pass per-file index builder (directive §7).                                             *)
-(*    Each builder threads a fresh-id counter and inserts each occurrence's metadata EXACTLY ONCE via  *)
-(*    one standard-map [NodeTable.set]; it never searches, compares, or copies syntax subtrees.  A      *)
-(*    subtree builder returns the subtree's last id ([se], its [subtree_end]); a sibling-sequence       *)
-(*    builder returns the next free id.  Meta for an internal node is inserted AFTER its children so     *)
-(*    [subtree_end] is known.  Expression leaves have no child; an explicit conversion has exactly one   *)
-(*    operand child (role [RConversionOperand]). *)
+(** ** The one-pass per-file index builder.                                             *)
+(* Each builder threads a fresh-id counter and inserts each occurrence's metadata EXACTLY ONCE via  *)
+(* one standard-map [NodeTable.set]; it never searches, compares, or copies syntax subtrees.  A      *)
+(* subtree builder returns the subtree's last id ([se], its [subtree_end]); a sibling-sequence       *)
+(* builder returns the next free id.  Meta for an internal node is inserted AFTER its children so     *)
+(* [subtree_end] is known.  Expression leaves have no child; an explicit conversion has exactly one   *)
+(* operand child (role [RConversionOperand]). *)
 (* ================================================================================================= *)
 
 Fixpoint build_expr (parent : positive) (role : NodeRole) (me : positive) (e : GoExpr)
@@ -184,7 +184,7 @@ Record FileIndex := mkFI {
 }.
 
 (* The file root's children in canonical preorder are the package clause (id [pkg_id] = 2) then the
-   declarations (from id 3).  [source_imports] is STRUCTURALLY consumed (directive §4.3): it is intrinsically
+   declarations (from id 3).  [source_imports] is STRUCTURALLY consumed: it is intrinsically
    [nil] today, so no import occurrence exists; a future import constructor makes the [i :: _] branch
    constructible and forces this definition and its proofs to change. *)
 Definition build_file (f : GoSourceFile) : FileIndex :=
@@ -199,8 +199,8 @@ Definition build_file (f : GoSourceFile) : FileIndex :=
 
 (* ================================================================================================= *)
 (** ** Boundary functions: the last preorder id of a subtree / the next free id after a sibling run.   *)
-(*    These are TABLE-FREE — derived purely from source structure — and shared by the builder-agnostic  *)
-(*    source-occurrence specification below.                                                            *)
+(* These are TABLE-FREE — derived purely from source structure — and shared by the builder-agnostic  *)
+(* source-occurrence specification below.                                                            *)
 (* ================================================================================================= *)
 
 Fixpoint end_expr (me : positive) (e : GoExpr) : positive :=
@@ -286,11 +286,11 @@ Proof.
 Qed.
 
 (* ================================================================================================= *)
-(** ** An INDEPENDENT source-occurrence specification (table-free, builder-independent) — directive §8.  *)
-(*    For a source file and a local preorder id, this states — purely from the source syntax and the    *)
-(*    boundary functions above — the EXACT occurrence that id designates and the metadata it SHOULD      *)
-(*    carry.  It never consults [NodeTable], [build_*], or [FileIndex]; it is the semantic yardstick      *)
-(*    against which [build_file] is proved correct in [build_file_source_exact].                         *)
+(** ** An INDEPENDENT source-occurrence specification (table-free, builder-independent) — directive  *)
+(* For a source file and a local preorder id, this states — purely from the source syntax and the    *)
+(* boundary functions above — the EXACT occurrence that id designates and the metadata it SHOULD      *)
+(* carry.  It never consults [NodeTable], [build_*], or [FileIndex]; it is the semantic yardstick      *)
+(* against which [build_file] is proved correct in [build_file_source_exact].                         *)
 (* ================================================================================================= *)
 
 (* a kind-indexed view onto the ORIGINAL syntax fragment (no copied/parallel grammar). *)
@@ -668,7 +668,7 @@ Proof.
     + rewrite (occ_decl'_above d parent didx me target ltac:(lia)). reflexivity.
 Qed.
 
-(* ============ the load-bearing UNIVERSAL exactness theorem (directive §9). ============ *)
+(* ============ the load-bearing UNIVERSAL exactness theorem. ============ *)
 
 (* the metadata the builder stores at EVERY local id is EXACTLY the metadata of the source occurrence that
    id designates — both presence (a real occurrence -> its meta) and absence (no occurrence -> no entry).
@@ -707,7 +707,7 @@ Proof.
         cbn [option_map]; reflexivity.
 Qed.
 
-(* --- the directive §9 consequences (A..H), all derived from the one universal theorem. --- *)
+(* --- the directive consequences (A..H), all derived from the one universal theorem. --- *)
 
 (* A: a real source occurrence -> its metadata is stored. *)
 Theorem source_occurrence_meta : forall f local o,
@@ -761,11 +761,11 @@ Theorem source_subtree_end_exact : forall f local o,
 Proof. intros f local o H. exists (occurrence_meta o). split; [apply source_occurrence_meta; exact H | reflexivity]. Qed.
 
 (* ================================================================================================= *)
-(** ** PILLAR 2 — structural navigation invariants (directive §15-§18): preorder-interval ancestry,     *)
-(*    exact parent lookup, interval-jump direct children, and canonical enumeration.  The [SubtreeWF] /  *)
-(*    [ForestWF] machinery below is GRAMMAR-AGNOSTIC (it speaks only of the node table + preorder         *)
-(*    intervals); it is reused unchanged from the accepted spike.  Only [build_*_spec] / [build_file_wf]  *)
-(*    (which relate the real builders to that machinery) and [thm1_root_id_canonical] are grammar-aware.  *)
+(** ** PILLAR 2 — structural navigation invariants (directive): preorder-interval ancestry,     *)
+(* exact parent lookup, interval-jump direct children, and canonical enumeration.  The [SubtreeWF] /  *)
+(* [ForestWF] machinery below is GRAMMAR-AGNOSTIC (it speaks only of the node table + preorder         *)
+(* intervals); it is reused unchanged from the accepted spike.  Only [build_*_spec] / [build_file_wf]  *)
+(* (which relate the real builders to that machinery) and [thm1_root_id_canonical] are grammar-aware.  *)
 (* ================================================================================================= *)
 
 (* preorder-interval ancestry: O(1) arithmetic on [subtree_end] after one map lookup. *)
@@ -785,7 +785,7 @@ Definition is_ancestor_local (t : NodeTable.table NodeMeta) (a d : positive) : b
 Fixpoint pos_seq (start : positive) (len : nat) : list positive :=
   match len with O => [] | S n => start :: pos_seq (Pos.succ start) n end.
 
-(* direct children by INTERVAL JUMP (directive §16): the cursor walks DIRECTLY from the first child to the
+(* direct children by INTERVAL JUMP: the cursor walks DIRECTLY from the first child to the
    parent's interval end, looking up ONLY the id at the cursor and, after each node, jumping the cursor PAST
    its whole subtree to [subtree_end+1] — it never constructs or traverses the skipped descendant ids.  So
    both the lookup count AND the number of recursive steps are O(#direct children), not O(#descendants). *)
@@ -1169,7 +1169,7 @@ Proof.
   - constructor; [| apply IH]. intro H. apply pos_seq_In in H. rewrite Pos2Nat.inj_succ in H. lia.
 Qed.
 
-(* --- the navigation theorem set (directive §15-§18); grammar-agnostic given [build_file_wf]. --- *)
+(* --- the navigation theorem set (directive); grammar-agnostic given [build_file_wf]. --- *)
 
 Lemma in_domain (f : GoSourceFile) k m :
   NodeTable.get k (fi_table (build_file f)) = Some m ->
@@ -1184,7 +1184,7 @@ Proof.
     rewrite NodeTable.get_empty in H; discriminate.
 Qed.
 
-(* §23.1 — the root id is canonical: every file root occupies the SAME fixed local id [root_id]. *)
+(* the root id is canonical: every file root occupies the SAME fixed local id [root_id]. *)
 Theorem thm1_root_id_canonical (f : GoSourceFile) :
   exists m, NodeTable.get root_id (fi_table (build_file f)) = Some m /\ nm_kind m = KFile /\ nm_role m = RFileRoot.
 Proof.
@@ -1196,7 +1196,7 @@ Proof.
   cbn [fi_table]. rewrite NodeTable.get_set_same. split; [reflexivity | split; reflexivity].
 Qed.
 
-(* §23.29/§23.30 — the root has no parent, and ONLY the root has no parent. *)
+(* the root has no parent, and ONLY the root has no parent. *)
 Theorem thm2_root_no_parent (f : GoSourceFile) m :
   NodeTable.get root_id (fi_table (build_file f)) = Some m -> nm_parent m = None.
 Proof.
@@ -1217,7 +1217,7 @@ Theorem thm3b_parent_unique (f : GoSourceFile) k m p1 p2 :
   NodeTable.get k (fi_table (build_file f)) = Some m -> nm_parent m = Some p1 -> nm_parent m = Some p2 -> p1 = p2.
 Proof. intros _ H1 H2. rewrite H1 in H2. injection H2 as <-. reflexivity. Qed.
 
-(* §23.42 (completeness half) — ancestry implies nested preorder intervals. *)
+(* (completeness half) — ancestry implies nested preorder intervals. *)
 Lemma anc_complete (f : GoSourceFile) a d :
   Ancestor (fi_table (build_file f)) a d ->
   exists ma md, NodeTable.get a (fi_table (build_file f)) = Some ma /\
@@ -1430,7 +1430,7 @@ Proof.
     | exact Hpid | exact Enc | exact Hnext | exact Hc | exact Hpc | lia | exact Hcend | reflexivity ].
 Qed.
 
-(* §23.41/§23.43 — the O(1) preorder-interval ancestor test is sound AND complete. *)
+(* the O(1) preorder-interval ancestor test is sound AND complete. *)
 Theorem thm13_interval_ancestry (f : GoSourceFile) a d :
   NodeTable.get a (fi_table (build_file f)) <> None ->
   (is_ancestor_local (fi_table (build_file f)) a d = true <-> Ancestor (fi_table (build_file f)) a d).
@@ -1448,7 +1448,7 @@ Proof.
     apply andb_true_iff; split; [apply Pos.ltb_lt; lia | apply Pos.leb_le; lia].
 Qed.
 
-(* §23.36 (children source order). *)
+(* (children source order). *)
 Theorem thm11_children_sorted (f : GoSourceFile) p :
   StronglySorted Pos.lt (child_ids (fi_table (build_file f)) p).
 Proof.
@@ -1456,7 +1456,7 @@ Proof.
   apply child_enum_SS.
 Qed.
 
-(* §23.34/§23.35/§23.38 — parent/child are inverse (interval-jump enumeration is sound + complete). *)
+(* parent/child are inverse (interval-jump enumeration is sound + complete). *)
 Theorem thm4_child_has_parent (f : GoSourceFile) p c :
   In c (child_ids (fi_table (build_file f)) p) -> parent_id (fi_table (build_file f)) c = Some p.
 Proof.
@@ -1484,7 +1484,7 @@ Proof.
     [ exact Hgp | exact E1 | exact Hfc | exact Hc | exact Hpar | lia | exact Hcbound | reflexivity ].
 Qed.
 
-(* §18/§23.40 — every occurrence appears EXACTLY ONCE in canonical preorder enumeration. *)
+(* every occurrence appears EXACTLY ONCE in canonical preorder enumeration. *)
 Definition all_ids (fi : FileIndex) : list positive := pos_seq root_id (Pos.to_nat (fi_count fi)).
 
 Theorem thm7_enum_nodup (f : GoSourceFile) : NoDup (all_ids (build_file f)).
@@ -1509,7 +1509,7 @@ Proof.
   - apply Pos2Nat.inj_le. lia.
 Qed.
 
-(* §23.11/§23.12 — the builder branches only on tree SHAPE, and metadata is not a subtree copy. *)
+(* the builder branches only on tree SHAPE, and metadata is not a subtree copy. *)
 Fixpoint same_shape (e1 e2 : GoExpr) : Prop :=
   match e1, e2 with
   | EIntConvert _ x1, EIntConvert _ x2 => same_shape x1 x2
@@ -1543,11 +1543,11 @@ Theorem thm14_meta_stores_no_subtree :
 Proof. intros [k op r e]. exists k, op, r, e. split; [reflexivity|]. intros e' H; injection H as <-; reflexivity. Qed.
 
 (* ================================================================================================= *)
-(** ** PILLAR 3 — snapshot-indexed references over the exact [GoProgram] (directive §10-§17).           *)
-(*    A reference belongs to the EXACT immutable program snapshot [p] (it is indexed by [p]), never to  *)
-(*    free-standing index data — so two programs sharing a file map but differing in [ModuleSpec], or    *)
-(*    sharing a shape but differing in payload, have NON-INTERCHANGEABLE reference types.  Structurally  *)
-(*    guaranteed queries are TOTAL; only [parent_of] is optional (a file root has no parent).            *)
+(** ** PILLAR 3 — snapshot-indexed references over the exact [GoProgram] (directive).           *)
+(* A reference belongs to the EXACT immutable program snapshot [p] (it is indexed by [p]), never to  *)
+(* free-standing index data — so two programs sharing a file map but differing in [ModuleSpec], or    *)
+(* sharing a shape but differing in payload, have NON-INTERCHANGEABLE reference types.  Structurally  *)
+(* guaranteed queries are TOTAL; only [parent_of] is optional (a file root has no parent).            *)
 (* ================================================================================================= *)
 
 (* decidable equality for the raw syntax (for UIP over the reference proof fields). *)
@@ -1665,13 +1665,13 @@ Proof.
 Qed.
 
 (* ================================================================================================= *)
-(** ** §19 — the canonical INDEXED TRAVERSAL foundation: a structural, one-pass occurrence-emitting fold. *)
-(*    [occs_file] walks the ORIGINAL source forest in canonical preorder and emits, for every occurrence, *)
-(*    its local id paired with its exact [SourceOccurrence] (which carries the original syntax VIEW) — the *)
-(*    fragment is produced by the ONE structural pass, never recovered per node.  It is proved EXACT       *)
-(*    against the independent [source_occurrence_at] spec (a listed pair IS that spec's occurrence, and    *)
-(*    every occurrence is listed), and its ids are strictly increasing (canonical source order).  The      *)
-(*    reference-level traversal (which mints the validated [NodeRef] at each position) is in [Snap] below. *)
+(** ** the canonical INDEXED TRAVERSAL foundation: a structural, one-pass occurrence-emitting fold. *)
+(* [occs_file] walks the ORIGINAL source forest in canonical preorder and emits, for every occurrence, *)
+(* its local id paired with its exact [SourceOccurrence] (which carries the original syntax VIEW) — the *)
+(* fragment is produced by the ONE structural pass, never recovered per node.  It is proved EXACT       *)
+(* against the independent [source_occurrence_at] spec (a listed pair IS that spec's occurrence, and    *)
+(* every occurrence is listed), and its ids are strictly increasing (canonical source order).  The      *)
+(* reference-level traversal (which mints the validated [NodeRef] at each position) is in [Snap] below. *)
 (* ================================================================================================= *)
 
 Fixpoint occs_expr (parent : positive) (role : NodeRole) (me : positive) (e : GoExpr)
@@ -2501,7 +2501,7 @@ Module Type SNAP_SIG.
     node_ref_local r <> root_id -> RefAncestor p idx (file_root_ref (node_ref_file r)) r.
   Parameter thm_refs_reachable : forall p (idx : SyntaxIndex p) (fr : FileRef p) (r : NodeRef p),
     In r (file_refs idx fr) -> r = file_root_ref fr \/ RefAncestor p idx (file_root_ref fr) r.
-  (* §19 the canonical INDEXED TRAVERSAL: ONE structural pass over the file's source yields each occurrence's
+  (* the canonical INDEXED TRAVERSAL: ONE structural pass over the file's source yields each occurrence's
      validated NodeRef paired with its ORIGINAL syntax (its SourceOccurrence, which carries the syntax VIEW) —
      the fragment comes from the pass, never a per-node search.  It is EXACT (the paired occurrence IS the
      reference's [source_occurrence_of_ref]) and same-file, COMPLETE over the file, in canonical source
@@ -3268,7 +3268,7 @@ Proof.
   - right. rewrite <- Hf. apply thm_reachable_from_root. exact Hnroot.
 Qed.
 
-(* --- §19 the canonical indexed traversal: mint a validated NodeRef at each structural position. --- *)
+(* --- the canonical indexed traversal: mint a validated NodeRef at each structural position. --- *)
 
 Lemma occs_file_valid {p} (fr : FileRef p) :
   forall id occ, In (id, occ) (occs_file (file_ref_source fr)) -> valid_localb (file_ref_source fr) id = true.
@@ -3396,10 +3396,10 @@ Fail Check Snap.ref_fi.
 Fail Check Snap.fr_fi.
 
 (* ================================================================================================= *)
-(** ** §13 — typed / kind-refined references.  A [NodeRefOf p k] is a [NodeRef p] whose EXACT source        *)
-(*    occurrence has kind [k] — the kind proof is tied to [source_occurrence_of_ref] (via                   *)
-(*    [node_kind_matches_source]), NOT an author-supplied boolean.  Erasure recovers the underlying ref;    *)
-(*    the erased NodeKey determines the typed-ref identity (no second identity system).                     *)
+(** ** typed / kind-refined references.  A [NodeRefOf p k] is a [NodeRef p] whose EXACT source        *)
+(* occurrence has kind [k] — the kind proof is tied to [source_occurrence_of_ref] (via                   *)
+(* [node_kind_matches_source]), NOT an author-supplied boolean.  Erasure recovers the underlying ref;    *)
+(* the erased NodeKey determines the typed-ref identity (no second identity system).                     *)
 (* ================================================================================================= *)
 
 Definition NodeRefOf (p : GoProgram) (k : SyntaxKind) : Type :=
@@ -3461,7 +3461,7 @@ Proof.
 Qed.
 
 (* ================================================================================================= *)
-(** ** §21/§22 — snapshot-locality + mutation-sensitive regressions over the REAL grammar.               *)
+(** ** snapshot-locality + mutation-sensitive regressions over the REAL grammar.               *)
 (* ================================================================================================= *)
 
 Definition fp_main : FilePath := mkFP "main.go"%string eq_refl.
@@ -3478,7 +3478,7 @@ Proof.
   rewrite Hf, Hl, Hs in He. injection He as <-. reflexivity.
 Qed.
 
-(* ---------- §21.3 REQUIRED: println(1, 1) — two structurally EQUAL args are DISTINCT occurrences. ---------- *)
+(* ---------- REQUIRED: println(1, 1) — two structurally EQUAL args are DISTINCT occurrences. ---------- *)
 (* preorder ids: 1 file / 2 package / 3 decl / 4 stmt / 5 arg0 (EInt 1) / 6 arg1 (EInt 1). *)
 Definition sf11 : GoSourceFile := main_source [ DMain [ SPrintln [ EInt 1%N ; EInt 1%N ] ] ].
 Definition prog11 : GoProgram := singleton_program ms_gen fp_main [ DMain [ SPrintln [ EInt 1%N ; EInt 1%N ] ] ].
@@ -3528,7 +3528,7 @@ Proof.
   - rewrite (Snap.node_role_matches_source prog11 (Snap.index_program prog11) r6), Ho6. reflexivity.
 Qed.
 
-(* ---------- §21.1 — same path + shape, DIFFERENT payload => non-interchangeable ref TYPES + per-snapshot
+(* ---------- same path + shape, DIFFERENT payload => non-interchangeable ref TYPES + per-snapshot
    payload recovery; erased index DATA is extensionally equal (metadata discards the payload). ---------- *)
 Definition prog_a : GoProgram := singleton_program ms_gen fp_main [ DMain [ SPrintln [ EInt 5%N ] ] ].
 Definition prog_b : GoProgram := singleton_program ms_gen fp_main [ DMain [ SPrintln [ EInt 6%N ] ] ].
@@ -3566,7 +3566,7 @@ Proof.
   rewrite (Snap.node_at_matches_source_view r), (soor_compute r sf_b 5%positive _ Hf Hl src_b5). reflexivity.
 Qed.
 
-(* §21.1 non-interchangeability at the TYPE level: a reference of [prog_a] is NOT a reference of [prog_b]. *)
+(* non-interchangeability at the TYPE level: a reference of [prog_a] is NOT a reference of [prog_b]. *)
 Fail Definition reg_cross_snapshot (r : Snap.NodeRef prog_a) : Snap.NodeRef prog_b := r.
 
 (* the ERASED index data is extensionally equal — the metadata builder discards the leaf payload (5 vs 6),
@@ -3580,7 +3580,7 @@ Proof.
   - rewrite !OFMF.empty_o. reflexivity.
 Qed.
 
-(* ---------- §21.2 — same FILE MAP, DIFFERENT ModuleSpec => non-interchangeable ref TYPES even though the
+(* ---------- same FILE MAP, DIFFERENT ModuleSpec => non-interchangeable ref TYPES even though the
    erased index data is IDENTICAL: references are indexed by the exact [GoProgram], not by index data. ---------- *)
 Definition prog_gen : GoProgram := singleton_program ms_gen fp_main [ DMain [ SPrintln [ EInt 5%N ] ] ].
 Definition prog_com : GoProgram := singleton_program ms_com fp_main [ DMain [ SPrintln [ EInt 5%N ] ] ].
@@ -3590,7 +3590,7 @@ Proof. intro k. reflexivity. Qed.
 (* ...yet a reference of one is NOT a reference of the other (distinct GoProgram snapshots). *)
 Fail Definition reg_cross_module (r : Snap.NodeRef prog_gen) : Snap.NodeRef prog_com := r.
 
-(* ---------- §22 — a compact, structurally rich mutation-sensitive fixture.  Preorder ids 1..13:
+(* ---------- a compact, structurally rich mutation-sensitive fixture.  Preorder ids 1..13:
    1 file / 2 package / 3 decl0 / 4 stmt0 / 5 arg0 (EInt 1) / 6 arg1 (EInt 1) / 7 stmt1 / 8 arg (EBool true)
    / 9 decl1 / 10 stmt0 / 11 arg0 = outer conversion / 12 inner conversion operand / 13 leaf (EInt 5).
    Each stored metadatum is derived from the UNIVERSAL exactness theorem (rewrite by build_file_source_exact,
@@ -3631,7 +3631,7 @@ Example wf_view_leaf : source_occurrence_at wf 13%positive
 Proof. vm_compute. reflexivity. Qed.
 
 (* ============================================================================================================
-   §4 (C3) — the retained IndexedProgram phase boundary.
+   the retained IndexedProgram phase boundary.
 
    ONE immutable [GoProgram] elaborates EXACTLY ONCE into one retained structural index.  The exact program is
    the TYPE PARAMETER (no second source copy, no equality transport); the one retained [Snap.SyntaxIndex p] is
@@ -3656,7 +3656,7 @@ Lemma indexed_syntax_proj : forall p (ip : IndexedProgram p), indexed_syntax ip 
 Proof. reflexivity. Qed.
 
 (* ============================================================================================================
-   §5 (C3) — the canonical occurrence-identity ordered key + its standard AVL map.
+   the canonical occurrence-identity ordered key + its standard AVL map.
 
    [NodeKey] = FilePath + local positive id.  Its total order is LEXICOGRAPHIC: the [FilePath] order first, the
    local positive id second — the permanent source-occurrence order used by fact enumeration, node-diagnostic

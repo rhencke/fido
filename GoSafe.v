@@ -75,12 +75,12 @@ Proof.
 Qed.
 
 (** ============================================================================
-    §20-24 the intrinsic typed constant PROJECTS to a runtime value.  There is NO total runtime->constant
+    the intrinsic typed constant PROJECTS to a runtime value.  There is NO total runtime->constant
     fallback: NaN / infinity / negative-zero runtime values are not constants (an honest RELATION describes
     when a value denotes a constant).
     ============================================================================ *)
 
-(** §20 the ONE total typed-constant-to-runtime map: bool/int/string are direct; a FLOAT PROJECTS its stored
+(** the ONE total typed-constant-to-runtime map: bool/int/string are direct; a FLOAT PROJECTS its stored
     [tfc_runtime] — it does NOT round again (no [round_float_sf]/[round_float_const]/[round_typed_float]).  A
     typed integer's carried range proof makes the value well-formed by construction. *)
 Definition typed_const_to_value {t : GoType} (tc : TypedConst t) : GoValue :=
@@ -92,7 +92,7 @@ Definition typed_const_to_value {t : GoType} (tc : TypedConst t) : GoValue :=
   | TCString s       => VString s
   end.
 
-(** §24 the projection has the intrinsic type and is well-formed by construction (short projections). *)
+(** the projection has the intrinsic type and is well-formed by construction (short projections). *)
 Lemma typed_const_to_value_type : forall t (tc : TypedConst t), value_type (typed_const_to_value tc) = t.
 Proof. intros t tc; destruct tc; reflexivity. Qed.
 
@@ -106,7 +106,7 @@ Proof.
   - exact I.
 Qed.
 
-(** §37 no second rounding: evaluating a typed float / complex constant PROJECTS its stored runtime,
+(** no second rounding: evaluating a typed float / complex constant PROJECTS its stored runtime,
     reflexively (a complex projects its pair of stored component runtimes). *)
 Lemma typed_const_to_value_float : forall ft (tfc : TypedFloatConst ft),
   typed_const_to_value (TCFloat ft tfc) = VFloat ft (tfc_runtime tfc).
@@ -115,7 +115,7 @@ Lemma typed_const_to_value_complex : forall ct (tcc : TypedComplexConst ct),
   typed_const_to_value (TCComplex ct tcc) = VComplex ct (typed_complex_runtime tcc).
 Proof. reflexivity. Qed.
 
-(** §23 an HONEST value/constant denotation relation.  The float case is phrased through [TypedFloatConst]
+(** an HONEST value/constant denotation relation.  The float case is phrased through [TypedFloatConst]
     coherence: a typed-float-constant runtime denotes its exact [tfc_exact].  A standalone NaN / infinity /
     negative-zero runtime value has NO constructor here, so it denotes NO constant. *)
 Inductive ValueDenotesConst : GoValue -> GoConst -> Prop :=
@@ -127,7 +127,7 @@ Inductive ValueDenotesConst : GoValue -> GoConst -> Prop :=
     ValueDenotesConst (VComplex ct (typed_complex_runtime tcc)) (CComplex (typed_complex_exact tcc))
 | VDString  : forall s, ValueDenotesConst (VString s) (CString s).
 
-(** §24 the projected runtime value denotes the typed constant's exact value, by construction. *)
+(** the projected runtime value denotes the typed constant's exact value, by construction. *)
 Lemma typed_const_to_value_denotes : forall t (tc : TypedConst t),
   ValueDenotesConst (typed_const_to_value tc) (typed_const_exact tc).
 Proof.
@@ -140,7 +140,7 @@ Proof.
   - constructor.
 Qed.
 
-(** §23/§30-32 a denoting float value's runtime is +0-or-finite: the ONLY float denotation is through
+(** a denoting float value's runtime is +0-or-finite: the ONLY float denotation is through
     [TypedFloatConst] coherence. *)
 Lemma value_denotes_constant_runtime : forall v c,
   ValueDenotesConst v c ->
@@ -149,7 +149,7 @@ Proof.
   intros v c H; destruct H as [ b | it z Hr | ft tfc | ct tcc | s ]; try exact I; apply (tfc_shape tfc).
 Qed.
 
-(** §30-32 a NaN / infinity / negative-zero runtime value has NO typed-constant denotation (there is no total
+(** a NaN / infinity / negative-zero runtime value has NO typed-constant denotation (there is no total
     runtime->constant fallback). *)
 Lemma float_nonconstant_no_denotes : forall ft (fv : FloatValue ft) c,
   float_constant_runtimeb (fv_sf fv) = false -> ~ ValueDenotesConst (VFloat ft fv) c.
@@ -168,7 +168,7 @@ Proof. intro c; apply float_nonconstant_no_denotes; reflexivity. Qed.
 Example neg_zero_f64_no_denotes : forall c, ~ ValueDenotesConst (VFloat F64 fv_neg_zero_F64) c.
 Proof. intro c; apply float_nonconstant_no_denotes; reflexivity. Qed.
 
-(** §33/§48 a runtime complex value whose real OR imaginary component is not +0/finite (NaN, infinity, or
+(** a runtime complex value whose real OR imaginary component is not +0/finite (NaN, infinity, or
     negative zero) denotes NO constant — the ONLY complex denotation is through [TypedComplexConst] component
     coherence (both components +0/finite by [tfc_shape]). *)
 Lemma value_denotes_complex_runtime : forall v c,
@@ -206,7 +206,7 @@ Example complex_neg_zero_no_denotes : forall c,
   ~ ValueDenotesConst (VComplex C128 (@mkCV C128 fv_neg_zero_F64 (fv_nan F64))) c.
 Proof. intro c; apply complex_nonconstant_no_denotes; left; reflexivity. Qed.
 
-(** §21 Evaluation IS the one constant-status analysis RESOLVED to a validated typed constant and PROJECTED —
+(** Evaluation IS the one constant-status analysis RESOLVED to a validated typed constant and PROJECTED —
     no second case analysis over the raw syntax, no second conversion/representability decision, no second
     float rounding.  Partial: an invalid (nested) conversion or an out-of-range/overflowing default constant
     has NO value. *)
@@ -253,7 +253,7 @@ Proof.
     exists v; split; assumption.
 Qed.
 
-(** §29.5 evaluation returns EXACTLY [typed_const_to_value] of the SAME resolved typed constant that proves
+(** evaluation returns EXACTLY [typed_const_to_value] of the SAME resolved typed constant that proves
     typing: [eval_expr] and [resolve_expr_const] walk the one [const_info]->[resolve_const_info] path, so a
     resolved value is precisely the [resolved_const_value] of the resolved constant — a resolved float projects
     its packaged [tfc_runtime], never a re-rounded value. *)
@@ -265,7 +265,7 @@ Proof.
   destruct rc as [ t tc ]; unfold eval_expr; rewrite Hci, Hri; reflexivity.
 Qed.
 
-(** §29 (float) evaluation projects the SAME STORED RUNTIME: a resolved typed FLOAT constant evaluates to
+(** (float) evaluation projects the SAME STORED RUNTIME: a resolved typed FLOAT constant evaluates to
     exactly its packaged [tfc_runtime] — the value built at the single construction rounding, never rounded
     again. *)
 Corollary eval_projects_stored_float_runtime : forall u e ft (tfc : TypedFloatConst ft),
@@ -276,7 +276,7 @@ Proof.
   rewrite (eval_expr_resolved_value u e _ H), resolved_const_value_float; reflexivity.
 Qed.
 
-(** §34 (complex) evaluation projects the SAME STORED RUNTIME: a resolved typed COMPLEX constant evaluates to
+(** (complex) evaluation projects the SAME STORED RUNTIME: a resolved typed COMPLEX constant evaluates to
     exactly its packaged pair of component [tfc_runtime]s ([typed_complex_runtime]) — no component is
     reconstructed or re-rounded. *)
 Corollary eval_projects_stored_complex_runtime : forall u e ct (tcc : TypedComplexConst ct),
@@ -287,7 +287,7 @@ Proof.
   rewrite (eval_expr_resolved_value u e _ H), resolved_const_value_complex; reflexivity.
 Qed.
 
-(** §24/§29 the resolved runtime value IS [resolved_const_value] of the resolved constant (point 5) AND DENOTES
+(** the resolved runtime value IS [resolved_const_value] of the resolved constant (point 5) AND DENOTES
     the resolved exact constant — the runtime/constant tie, phrased through the honest relation (never a total
     fallback). *)
 Lemma eval_expr_denotes : forall u e t,
@@ -339,13 +339,13 @@ Example eval_bare_default : eval_expr (EInt 42) = Some (VInteger IInt 42). Proof
 Example eval_2p63_none : eval_expr (EInt 9223372036854775808) = None. Proof. reflexivity. Qed.
 Example wf_int8_127 : ValueWF (VInteger IInt8 127). Proof. simpl; apply integer_representableb_spec; reflexivity. Qed.
 
-(* ---- float evaluation (§25/§34/§38) ---- *)
+(* ---- float evaluation ---- *)
 (* a bare float evaluates to a float64 runtime value; an exact float->int constant to that integer *)
 Example eval_float_type : option_map value_type (eval_expr (EFloat d_15em1)) = Some (TFloat F64).
 Proof. reflexivity. Qed.
 Example eval_int_of_3_0 : eval_expr (EIntConvert IInt (EFloat d_3)) = Some (VInteger IInt 3).
 Proof. reflexivity. Qed.
-(* ★§38 the direct-vs-nested double-round scar as an EXACT integer observation (no float printing): both
+(* ★the direct-vs-nested double-round scar as an EXACT integer observation (no float printing): both
    rounded float32 constants are integer-valued, so uint64(...) yields exact decimal evidence. *)
 Example eval_scar_direct :
   eval_expr (EIntConvert IUint64 (EFloatConvert F32 (EFloat d_scar))) = Some (VInteger IUint64 2305843284091600896).
@@ -358,7 +358,7 @@ Example eval_scar_differ :
   eval_expr (EIntConvert IUint64 (EFloatConvert F32 (EFloat d_scar)))
     <> eval_expr (EIntConvert IUint64 (EFloatConvert F32 (EFloatConvert F64 (EFloat d_scar)))).
 Proof. rewrite eval_scar_direct, eval_scar_nested; discriminate. Qed.
-(* §47 the complex COMPONENT scar THROUGH EVALUATION: observing the stored real component of a zero-imaginary
+(* the complex COMPONENT scar THROUGH EVALUATION: observing the stored real component of a zero-imaginary
    complex64 as uint64, the DIRECT F32 rounding differs from the NESTED complex128-then-complex64 double round.
    Evaluation PROJECTS the stored runtime component — no hidden reround — so the two stored runtimes differ. *)
 Example eval_cplx_scar_direct :
@@ -373,13 +373,13 @@ Example eval_cplx_scar_differ :
   eval_expr (EIntConvert IUint64 (EComplexConvert C64 (EComplex (mkDC d_scar d_0_0))))
     <> eval_expr (EIntConvert IUint64 (EComplexConvert C64 (EComplexConvert C128 (EComplex (mkDC d_scar d_0_0))))).
 Proof. rewrite eval_cplx_scar_direct, eval_cplx_scar_nested; discriminate. Qed.
-(* §25 constant underflow produces POSITIVE zero at runtime (never -0) *)
+(* constant underflow produces POSITIVE zero at runtime (never -0) *)
 Example eval_underflow_pos_zero :
   option_map (fun v => match v with VFloat _ fv => fv_sf fv | _ => S754_nan end)
              (eval_expr (EFloatConvert F64 (EFloat (mkDecimal 1 (-330) eq_refl))))
     = Some (S754_zero false).
 Proof. vm_compute. reflexivity. Qed.
-(* ★ a bare NEGATIVE underflow also produces +0 (never -0) — the constant zero has no sign (§33). *)
+(* ★a bare NEGATIVE underflow also produces +0 (never -0) — the constant zero has no sign. *)
 Example eval_neg_underflow_pos_zero :
   option_map (fun v => match v with VFloat _ fv => fv_sf fv | _ => S754_nan end)
              (eval_expr (EFloat (mkDecimal (-1) (-330) eq_refl)))

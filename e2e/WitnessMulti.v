@@ -48,5 +48,5 @@ Definition multi_safe : SafeProgram := certify multi_compiled.
 
 Declare ML Module "fido.emit".
 Fido Materialize (render_program multi_safe) To "/workspace/generated-multi".
-(* F2 — witness ONLY materializes the pristine (validated by the go-e2e fresh `go build`); no public
+(* witness ONLY materializes the pristine (validated by the go-e2e fresh `go build`); no public
    sink/publish — the sink is exercised by e2e/sink_test.ml + the validated `make regenerate` workflow. *)

@@ -1,4 +1,4 @@
-(** The empty-program witness (contract §24): a valid [ModuleSpec] with an EMPTY source-file map is a
+(** The empty-program witness (contract): a valid [ModuleSpec] with an EMPTY source-file map is a
     valid program — a generated Go module containing only `go.mod` and no packages.  Kernel facts: the
     empty program builds, is admissible ([GoCompile] — the fresh-build preflight passes vacuously with no
     package, and the source is valid), compiles ([go_compile] accepts), certifies to a [SafeProgram],
@@ -29,5 +29,5 @@ Proof. reflexivity. Qed.
 
 Declare ML Module "fido.emit".
 Fido Materialize (render_program empty_safe) To "/workspace/generated-empty".
-(* F2 — witness ONLY materializes the pristine (validated by the go-e2e fresh `go build`); no public
+(* witness ONLY materializes the pristine (validated by the go-e2e fresh `go build`); no public
    sink/publish — the sink is exercised by e2e/sink_test.ml + the validated `make regenerate` workflow. *)

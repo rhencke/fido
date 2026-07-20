@@ -1,5 +1,5 @@
 (** Negative fixtures for the TYPE guard (step 1 of the ONE provenance-guarded transport `decode_guarded`).
-    `Fido Materialize` (the sole Rocq transport vernac after F2 removed the public `Fido Emit`) applies the
+    `Fido Materialize` (the sole Rocq transport vernac after removed the public `Fido Emit`) applies the
     exact GoEmit.di_transport projection to its argument and typechecks the result, so a forged transport (a
     raw list/pair that never came from render_program of a SafeProgram) has the wrong type and is rejected
     BEFORE any filesystem effect.  Each `Fail` below asserts the command errors.  The COMPLEMENTARY guard —

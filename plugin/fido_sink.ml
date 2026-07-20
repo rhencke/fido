@@ -49,7 +49,7 @@
    Fallible/nondeterministic ops are PARAMETERS (checkpoint/unlink/rename/before_install/before_write/
    before_delete) so the driver injects faults through the REAL algorithm; the plugin always uses defaults. *)
 
-(* C1A §11: identity-keyed / membership-only collections use the OCaml runtime's mature [Map]/[Set] — the
+(*: identity-keyed / membership-only collections use the OCaml runtime's mature [Map]/[Set] — the
    sink authors no hash/tree.  [SMap] keys the desired outputs by their relative path (rejecting a duplicate
    before any effect; [bindings] gives a canonical path-sorted iteration independent of transport order);
    [SSet] holds the unordered-unique desired-target set (stale-file membership) and abandoned-temp set.
@@ -378,7 +378,7 @@ let sync ?(checkpoint = fun _ -> ()) ?(unlink = Unix.unlink) ?(rename = Unix.ren
   (* immediately validate the transport entries into a desired-output MAP keyed by relative path — REJECTING
      a duplicate relative path BEFORE any filesystem effect (a standard map's [add] would silently overwrite),
      and deriving a CANONICAL path-sorted iteration ([SMap.bindings]) that does NOT depend on transport order:
-     permuted entries produce the same map and hence the same final directory (C1A §11.1).  The transport list
+     permuted entries produce the same map and hence the same final directory.  The transport list
      itself stays a list — it is a certified enumeration, not the identity/membership authority. *)
   let desired_map =
     let add m rel v =
@@ -454,14 +454,14 @@ let sync ?(checkpoint = fun _ -> ()) ?(unlink = Unix.unlink) ?(rename = Unix.ren
     (* J. remove stale Fido-owned .go not in the desired target SET (empty program removes them all) *)
     remove_stale_go unlink before_delete dir header desired_targets "";
     List.length desired in
-  (* handled-failure cleanup (§14): remove every sibling temp this invocation created that is STILL a regular
+  (* handled-failure cleanup: remove every sibling temp this invocation created that is STILL a regular
      reserved-suffix file (an already-installed one is Missing at its temp path — skip); then remove
      newly-created empty parents.  Aggregate every error; never hide the initiating one. *)
   let cleanup_errors = ref [] in
   let cleanup_on_failure () =
     List.iter (fun tp ->
       (* observe each temp under its OWN error guard so an lstat failure on one collects an error and does
-         NOT abort cleanup of the remaining temps/dirs (§14 attempts every temp). *)
+         NOT abort cleanup of the remaining temps/dirs ( attempts every temp). *)
       match (try `Obs (lstat_obs tp) with Fail m -> `Err m) with
       | `Err m -> cleanup_errors := Printf.sprintf "cannot observe temp %s: %s" tp m :: !cleanup_errors
       | `Obs Missing -> ()

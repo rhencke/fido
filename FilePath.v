@@ -110,6 +110,137 @@ Definition parent_of (s : string) : string :=
 (** The parent directory of a file — files with the SAME parent form one package. *)
 Definition fp_parent (p : FilePath) : string := parent_of (fp_str p).
 
+(** ============================================================================================
+    The canonical DIRECTORY-COMPONENT AUTHORITY over a parent path.  [split_slash] is the split view and
+    its "/"-join is its inverse ([split_slash_concat]); a valid [dir_component_ok] directory component
+    contains no separator, so it is a SINGLE component ([dir_component_ok_single]) and nonempty.  For a
+    package key that is some file's [fp_parent], every directory component is nonempty
+    ([parent_dir_components_nonempty]).  This is the lower-layer authority [GoCompile] composes for
+    package import-path and executable-name reasoning — no character-level scan in the consumer.
+    ============================================================================================ *)
+
+Lemma split_slash_nonempty : forall s, split_slash s <> [].
+Proof.
+  destruct s as [|c s']; cbn [split_slash].
+  - discriminate.
+  - destruct (Ascii.eqb c "/"%char); [ discriminate | destruct (split_slash s'); discriminate ].
+Qed.
+
+Lemma split_slash_app : forall a b,
+  split_slash (a ++ String "/"%char b) = split_slash a ++ split_slash b.
+Proof.
+  induction a as [|c a' IH]; intro b.
+  - reflexivity.
+  - cbn [append split_slash]. destruct (Ascii.eqb c "/"%char) eqn:Ec.
+    + rewrite IH. reflexivity.
+    + rewrite IH. destruct (split_slash a') as [|ha ta] eqn:Ea.
+      * exfalso. exact (split_slash_nonempty a' Ea).
+      * reflexivity.
+Qed.
+
+Lemma concat_cons_empty : forall sep h t,
+  String.concat sep (""%string :: h :: t) = (sep ++ String.concat sep (h :: t))%string.
+Proof. reflexivity. Qed.
+
+Lemma concat_map_head : forall sep c h t,
+  String.concat sep (String c h :: t) = String c (String.concat sep (h :: t)).
+Proof. intros sep c h t. destruct t as [|z t']; reflexivity. Qed.
+
+Lemma split_slash_concat : forall s, String.concat "/" (split_slash s) = s.
+Proof.
+  induction s as [|c s IH]; [ reflexivity |].
+  cbn [split_slash]. destruct (Ascii.eqb c "/"%char) eqn:E.
+  - apply Ascii.eqb_eq in E; subst c.
+    destruct (split_slash s) as [|h t] eqn:Esp; [ exfalso; exact (split_slash_nonempty s Esp) |].
+    rewrite (concat_cons_empty "/"%string h t), IH. reflexivity.
+  - destruct (split_slash s) as [|h t] eqn:Esp; [ exfalso; exact (split_slash_nonempty s Esp) |].
+    rewrite (concat_map_head "/"%string c h t), IH. reflexivity.
+Qed.
+
+Lemma split_concat_singles : forall comps,
+  (forall x, In x comps -> split_slash x = [x]) -> comps <> [] ->
+  split_slash (String.concat "/" comps) = comps.
+Proof.
+  induction comps as [|x [|y rest] IH]; intros Hs Hne; [ contradiction | |].
+  - cbn [String.concat]. apply Hs; left; reflexivity.
+  - change (String.concat "/" (x :: y :: rest))
+      with (x ++ String "/"%char (String.concat "/" (y :: rest)))%string.
+    rewrite split_slash_app, (Hs x (or_introl eq_refl)).
+    rewrite (IH (fun z Hz => Hs z (or_intror Hz)) ltac:(discriminate)). reflexivity.
+Qed.
+
+Lemma is_lower_not_slash : forall c, is_lower c = true -> Ascii.eqb c "/"%char = false.
+Proof.
+  intros c H. destruct (Ascii.eqb c "/"%char) eqn:E; [| reflexivity].
+  apply Ascii.eqb_eq in E; subst c. cbn in H. discriminate H.
+Qed.
+
+Lemma is_lower_digit_not_slash : forall c, is_lower_digit c = true -> Ascii.eqb c "/"%char = false.
+Proof.
+  intros c H. destruct (Ascii.eqb c "/"%char) eqn:E; [| reflexivity].
+  apply Ascii.eqb_eq in E; subst c. cbn in H. discriminate H.
+Qed.
+
+Lemma tail_ok_single : forall s, tail_ok s = true -> split_slash s = [s].
+Proof.
+  induction s as [|c s IH]; intro H; [ reflexivity |].
+  cbn [tail_ok] in H. apply Bool.andb_true_iff in H as [Hc Hs].
+  cbn [split_slash]. rewrite (is_lower_digit_not_slash c Hc), (IH Hs). reflexivity.
+Qed.
+
+Lemma component_ok_single : forall s, component_ok s = true -> split_slash s = [s].
+Proof.
+  intros s H. destruct s as [|c s']; [ discriminate H |].
+  cbn [component_ok] in H. apply Bool.andb_true_iff in H as [Hc Ht].
+  cbn [split_slash]. rewrite (is_lower_not_slash c Hc), (tail_ok_single s' Ht). reflexivity.
+Qed.
+
+Lemma component_ok_nonempty : forall s, component_ok s = true -> s <> ""%string.
+Proof. intros s H; destruct s; [ discriminate H | discriminate ]. Qed.
+
+Lemma dir_component_ok_single : forall s, dir_component_ok s = true -> split_slash s = [s].
+Proof.
+  intros s H. unfold dir_component_ok in H. apply Bool.andb_true_iff in H as [Hc _].
+  apply component_ok_single; exact Hc.
+Qed.
+
+Lemma dir_component_ok_nonempty : forall s, dir_component_ok s = true -> s <> ""%string.
+Proof.
+  intros s H. unfold dir_component_ok in H. apply Bool.andb_true_iff in H as [Hc _].
+  apply component_ok_nonempty; exact Hc.
+Qed.
+
+(* the package DIRECTORY COMPONENTS of a key: the root key "" has none; else the split components. *)
+Definition dir_components (dir : string) : list string :=
+  if String.eqb dir ""%string then [] else split_slash dir.
+
+Lemma dir_components_concat : forall dir, String.concat "/" (dir_components dir) = dir.
+Proof.
+  intro dir. unfold dir_components. destruct (String.eqb dir ""%string) eqn:E.
+  - apply String.eqb_eq in E; subst dir; reflexivity.
+  - apply split_slash_concat.
+Qed.
+
+Lemma parent_dir_components_nonempty : forall fp s,
+  In s (dir_components (fp_parent fp)) -> s <> ""%string.
+Proof.
+  intros fp s Hin. unfold dir_components in Hin.
+  destruct (String.eqb (fp_parent fp) ""%string) eqn:E; [ destruct Hin |].
+  pose proof (fp_ok fp) as Hok. unfold path_ok in Hok.
+  destruct (rev (split_slash (fp_str fp))) as [|lastc rdirs] eqn:Erev; [ discriminate Hok |].
+  apply Bool.andb_true_iff in Hok as [Hdirs _].
+  assert (Hpar : fp_parent fp = String.concat "/" (rev rdirs))
+    by (unfold fp_parent, parent_of; rewrite Erev; reflexivity).
+  assert (Hpne : fp_parent fp <> ""%string) by (intro Hc; rewrite Hc in E; cbn in E; discriminate E).
+  assert (Hsingle : forall x, In x (rev rdirs) -> split_slash x = [x]).
+  { intros x Hx. apply dir_component_ok_single. rewrite forallb_forall in Hdirs.
+    apply Hdirs. apply in_rev in Hx. exact Hx. }
+  assert (Hrne : rev rdirs <> []) by (intro Hc; apply Hpne; rewrite Hpar, Hc; reflexivity).
+  rewrite Hpar in Hin. rewrite (split_concat_singles (rev rdirs) Hsingle Hrne) in Hin.
+  apply dir_component_ok_nonempty. rewrite forallb_forall in Hdirs.
+  apply Hdirs. apply in_rev in Hin. exact Hin.
+Qed.
+
 (** ---- positive / negative fixtures (the grammar, kernel-checked) ---- *)
 
 Example ok_main    : path_ok "main.go" = true.        Proof. reflexivity. Qed.

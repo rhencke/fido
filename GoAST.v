@@ -79,7 +79,7 @@ Inductive GoDecl : Type :=
 | DMain : list GoStmt -> GoDecl.
 
 (** ============================================================================
-    C1/C1A — the SPECIFICATION-SHAPED source file root (Master Plan 3.1–3.4).  A source file is no longer a
+    C1/ — the SPECIFICATION-SHAPED source file root (Master Plan 3.1–3.4).  A source file is no longer a
     bare declaration list: it follows the Go specification's abstract source-file structure — a package clause,
     a (currently empty) import section, and top-level declarations ([GoSourceFile]).  The whole program stores
     these in a STANDARD `FilePath`-keyed finite map [GoFileMap] ([FMapAVL]): the FILE PATH is the MAP KEY (not a
@@ -119,7 +119,7 @@ Record GoFileNode : Type := mkFileNode {
   file_source : GoSourceFile
 }.
 
-(** ---- C1A: the path-keyed source forest is a STANDARD finite map (FilePath -> GoSourceFile).  The path is
+(** ----: the path-keyed source forest is a STANDARD finite map (FilePath -> GoSourceFile).  The path is
     the map KEY (the ONE path authority), NOT stored in the mapped value; [GoFileNode] is a construction/view
     value only.  Backed by [Collections.FileMapBase] (the pinned-stdlib AVL map) — Fido authors no map. ---- *)
 
@@ -182,7 +182,7 @@ Proof. intros fm1 fm2 H p. symmetry. apply H. Qed.
 Lemma FilesEqual_trans : forall fm1 fm2 fm3, FilesEqual fm1 fm2 -> FilesEqual fm2 fm3 -> FilesEqual fm1 fm3.
 Proof. intros fm1 fm2 fm3 H12 H23 p. rewrite H12. apply H23. Qed.
 
-(** ---- §6 the duplicate-rejecting map builder: standard [mem]/[add], reject a duplicate path before add. ---- *)
+(** ---- the duplicate-rejecting map builder: standard [mem]/[add], reject a duplicate path before add. ---- *)
 
 Fixpoint filemap_of_nodes (nodes : list GoFileNode) : option GoFileMap :=
   match nodes with
@@ -245,7 +245,7 @@ Proof.
     exfalso. apply Hnd. apply (filemap_of_nodes_success_iff_unique nodes). eexists; exact E.
 Qed.
 
-(** POSITIVE EXACTNESS (§6): on success, EVERY input node's path maps to ITS OWN source — the builder
+(** POSITIVE EXACTNESS: on success, EVERY input node's path maps to ITS OWN source — the builder
     actually populates each binding; because it rejects a duplicate before adding, no source is ever silently
     overwritten (a later same-path node makes the build FAIL, it does not clobber the earlier binding). *)
 Lemma filemap_of_nodes_maps_to : forall nodes fm,
@@ -265,7 +265,7 @@ Proof.
     apply FM.add_2; [ exact Hne | apply (IH fm' eq_refl n Hin) ].
 Qed.
 
-(** REVERSE EXACTNESS (§6): every binding of the built map comes from an input node — the map invents no
+(** REVERSE EXACTNESS: every binding of the built map comes from an input node — the map invents no
     binding.  Together with [filemap_of_nodes_maps_to] this pins the built map EXACTLY to the input forest. *)
 Lemma filemap_of_nodes_mapsto_source : forall nodes fm,
   filemap_of_nodes nodes = Some fm ->
@@ -311,7 +311,7 @@ Proof.
   intro Hnd. inversion Hnd as [ | x l Hni _ ]; subst. apply Hni. left. reflexivity.
 Qed.
 
-(** ORDER-INDEPENDENCE (§6): permuting the input nodes yields a SEMANTICALLY EQUAL map ([FilesEqual], not
+(** ORDER-INDEPENDENCE: permuting the input nodes yields a SEMANTICALLY EQUAL map ([FilesEqual], not
     record [=]) — construction order never leaks into the source forest. *)
 Lemma filemap_of_nodes_permutation : forall nodes1 nodes2 fm1 fm2,
   Permutation nodes1 nodes2 ->

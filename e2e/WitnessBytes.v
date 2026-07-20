@@ -1,4 +1,4 @@
-(** The boundary-byte string witness (contract §22): a single `println` of a string whose bytes are the
+(** The boundary-byte string witness (contract): a single `println` of a string whose bytes are the
     control/high boundaries 0x00, 0x1f, 0x7f, 0x80, 0xff.  The renderer emits each as its canonical `\xhh`
     escape (the .go source stays ASCII + gofmt-clean), Go compiles it under the pinned toolchain, and the
     program prints the EXACT five bytes followed by a newline to stderr — the go-e2e byte-exact oracle
@@ -34,5 +34,5 @@ Definition bytes_safe : SafeProgram := certify bytes_compiled.
 
 Declare ML Module "fido.emit".
 Fido Materialize (render_program bytes_safe) To "/workspace/generated-bytes".
-(* F2 — witness ONLY materializes the pristine (validated by the go-e2e fresh `go build`); no public
+(* witness ONLY materializes the pristine (validated by the go-e2e fresh `go build`); no public
    sink/publish — the sink is exercised by e2e/sink_test.ml + the validated `make regenerate` workflow. *)

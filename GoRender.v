@@ -9,7 +9,7 @@
     PUBLIC capability is [GoEmit.render_program : SafeProgram -> DirectoryImage].  Proved here: all
     output ASCII; the ONE constant-status root [render_const_info_denotes] — rendering an expression denotes
     EXACTLY the [GoTypes.ConstInfo] it computes (a bare integer/float/complex is an UNTYPED constant, not a typed
-    [int]/[float64]/[complex128] — the §1 repair; an explicit conversion is a TYPED constant through [convert_const]), in
+    [int]/[float64]/[complex128] — the repair; an explicit conversion is a TYPED constant through [convert_const]), in
     the ONE [ConstInfo] vocabulary, under an INDEPENDENT decimal reader / float decoder / string decoder
     (parser-free; the milestone forbids a lexer/parser/round-trip in the certified path).  That denotation is
     FUNCTIONAL ([render_const_info_denotes_functional]): a rendered spelling denotes AT MOST ONE [ConstInfo], as
@@ -19,7 +19,7 @@
     a dotted float, a quoted string, nor a keyword-led conversion, and `complex(` is disjoint from
     `complex64(`/`complex128(` at index 7 — so no spelling admits two conflicting
     constant statuses.  A bare float
-    renders through ONE canonical decimal spelling with the §27 decode/render semantic round trip; a float
+    renders through ONE canonical decimal spelling with the decode/render semantic round trip; a float
     conversion renders `float32`/`float64(...)`; a complex literal renders the canonical `complex(<real>, <imag>)`
     form (both components via that decimal spelling) with an INDEPENDENT complex decoder + semantic round trip,
     and a complex conversion renders `complex64`/`complex128(...)`.  And [render_resolved_expr_denotes] ties the three
@@ -59,7 +59,7 @@ Definition render_hex_escape (c : ascii) : string :=
   String bslash_c (String "x"%char
     (String (hex_digit (Nat.div n 16)) (String (hex_digit (Nat.modulo n 16)) EmptyString))).
 
-(** the canonical source spelling of ONE semantic byte (§17): 0x22 (double quote) and 0x5c (backslash) each
+(** the canonical source spelling of ONE semantic byte: 0x22 (double quote) and 0x5c (backslash) each
     become a two-character backslash escape; 0x0a / 0x09 / 0x0d (LF / TAB / CR) become the short escapes for
     n / t / r; a byte in 0x20..0x7e other than those two is emitted directly; every other byte becomes a
     fixed-width hex escape (backslash, x, two lowercase hex digits). *)
@@ -93,7 +93,7 @@ Definition render_signed_Z (z : Z) : string :=
 Definition render_signed_exp (e : Z) : string :=
   if Z.ltb e 0 then String "-"%char (print_Z (Z.opp e)) else String "+"%char (print_Z e).
 
-(** the ONE canonical decimal float spelling (§26): zero is `0.0`; a nonzero value
+(** the ONE canonical decimal float spelling: zero is `0.0`; a nonzero value
     [dm_coeff * 10 ^ dm_exp10] renders as `<signed-coefficient>.0e<explicit-signed-exponent>`
     (e.g. 15*10^-1 -> `15.0e-1`, 1*10^6 -> `1.0e+6`).  One spelling per intrinsic literal value, all ASCII,
     no host float formatting. *)
@@ -101,7 +101,7 @@ Definition render_decimal (d : DecimalFloat) : string :=
   if Z.eqb (dm_coeff d) 0 then "0.0"
   else render_signed_Z (dm_coeff d) ++ ".0e" ++ render_signed_exp (dm_exp10 d).
 
-(** the ONE canonical complex-literal spelling (§36): Go's predeclared `complex(<real>, <imag>)` applied to the
+(** the ONE canonical complex-literal spelling: Go's predeclared `complex(<real>, <imag>)` applied to the
     two canonical component decimals, one comma + one space.  It is a dedicated complex-literal spelling — NOT
     a general call renderer — and does NOT preserve human source spelling. *)
 Definition render_complex_literal (dc : DecimalComplex) : string :=
@@ -145,7 +145,7 @@ Fixpoint render_decls (ds : list GoDecl) : string :=
 Definition render_package_clause (pc : PackageClauseSyntax) : string :=
   match pc with PkgMain => "main" end.
 
-(** The import section rendered from SOURCE (§9): [render_file] STRUCTURALLY consumes [source_imports], so a
+(** The import section rendered from SOURCE: [render_file] STRUCTURALLY consumes [source_imports], so a
     future import constructor forces a renderer update rather than being silently dropped.  [ImportSpecSyntax]
     is EMPTY today, so [render_imports] is always the empty string (proved [render_imports_nil_bytes]) and the
     emitted bytes are definitionally unchanged. *)
@@ -563,7 +563,7 @@ Qed.
 
 Opaque hex_digit decode_hex_digit.
 
-(** the decoder consumes a rendered `\xhh` escape and yields exactly the encoded byte (§19-D hex exactness). *)
+(** the decoder consumes a rendered `\xhh` escape and yields exactly the encoded byte ( hex exactness). *)
 Lemma decode_hex_prefix : forall hi lo tail,
   (hi < 16)%nat -> (lo < 16)%nat ->
   decode_string_body
@@ -617,7 +617,7 @@ Qed.
 
 Transparent hex_digit decode_hex_digit.
 
-(** ROUND TRIP (§19-A): the decoder inverts the encoder on the body, then on the whole literal. *)
+(** ROUND TRIP: the decoder inverts the encoder on the body, then on the whole literal. *)
 Lemma decode_body_render : forall s,
   decode_string_body (render_string_body s ++ String dquote_c EmptyString) = Some s.
 Proof.
@@ -632,7 +632,7 @@ Proof.
   rewrite Ascii.eqb_refl. apply decode_body_render.
 Qed.
 
-(** ---- quoting shape (§19-C): the literal begins and ends with a double quote and contains no raw newline
+(** ---- quoting shape: the literal begins and ends with a double quote and contains no raw newline
     or carriage-return byte (LF/CR only ever appear as the two-char escapes `\n`/`\r`). ---- *)
 Definition byte_not_nl_cr (c : ascii) : bool :=
   andb (negb (Nat.eqb (nat_of_ascii c) 10)) (negb (Nat.eqb (nat_of_ascii c) 13)).
@@ -694,7 +694,7 @@ Lemma render_string_literal_quotes : forall s,
   render_string_literal s = String dquote_c (render_string_body s ++ String dquote_c EmptyString).
 Proof. reflexivity. Qed.
 
-(** ---- canonical-spelling fixtures (§19-E), pinned at the per-byte encoder and the whole literal ---- *)
+(** ---- canonical-spelling fixtures, pinned at the per-byte encoder and the whole literal ---- *)
 Example rb_quote  : render_string_byte (ascii_of_nat 34)  = String bslash_c (String dquote_c EmptyString).
 Proof. reflexivity. Qed.
 Example rb_bslash : render_string_byte (ascii_of_nat 92)  = String bslash_c (String bslash_c EmptyString).
@@ -723,15 +723,15 @@ Example rl_ascii : render_string_literal "hi"
   = String dquote_c (String "h"%char (String "i"%char (String dquote_c EmptyString))).
 Proof. reflexivity. Qed.
 
-(** ---- the ONE render-time constant-status authority (§2): a rendered spelling denotes an exact [ConstInfo]
-    — the SAME untyped/typed vocabulary [GoTypes] owns, never a per-family status relation that can drift.  A
+(** ---- the ONE render-time constant-status authority: a rendered spelling denotes an exact [ConstInfo]
+    the SAME untyped/typed vocabulary [GoTypes] owns, never a per-family status relation that can drift.  A
     bare literal denotes an UNTYPED constant (a bare integer stays UNTYPED — it is NOT labelled [int]; that
-    false premise was the §1 defect, which wrongly rejected a valid inner like the `2^63` of
+    false premise was the defect, which wrongly rejected a valid inner like the `2^63` of
     `uint64(2^63)`).  An explicit integer conversion denotes a TYPED constant of the destination type after
     the representability check, over a recursively-denoting inner spelling.  It reuses the exact GoTypes
     values and [integer_representableb], reimplementing no representability; it is a DENOTATION tool, NOT a
     general Go parser (real-Go acceptance is external adequacy).  Float cases are added in Part B. ---- *)
-(** ---- an INDEPENDENT decoder for the canonical Fido decimal-float subset (§27): it recovers the EXACT
+(** ---- an INDEPENDENT decoder for the canonical Fido decimal-float subset: it recovers the EXACT
     untyped rational value of a canonical spelling.  It is NOT a general Go float parser; the proved property
     is the SEMANTIC round trip [decode_decimal (render_decimal d) = Some (decimal_value d)] (NOT a
     source-spelling inverse) — it reads an optional signed coefficient, the exact ".0e" body, and a signed
@@ -910,7 +910,7 @@ Qed.
 Lemma head_not_digit_dot0e : forall s, head_not_digit (".0e" ++ s)%string.
 Proof. reflexivity. Qed.
 
-(** ---- §30 CANONICAL BARE-INTEGER RECOGNISER: a spelling is a bare Go integer literal iff it is an optional
+(** ---- CANONICAL BARE-INTEGER RECOGNISER: a spelling is a bare Go integer literal iff it is an optional
     leading `-` over a NONEMPTY run of decimal digits (no `.`, no letters, no quote).  This is the shape guard
     that makes the [RCDInt] denotation constructor DISJOINT from the bool / float / string / conversion
     constructors — without it, [read_go_int] (a total prefix reader) would let a dotted float spelling or the
@@ -959,7 +959,7 @@ Proof.
     | apply print_Z_nonempty; apply N2Z.is_nonneg ].
 Qed.
 
-(** ★§27 SEMANTIC ROUND TRIP: decoding the canonical spelling recovers the EXACT untyped rational value. *)
+(** ★SEMANTIC ROUND TRIP: decoding the canonical spelling recovers the EXACT untyped rational value. *)
 Theorem decode_render_decimal : forall d, decode_decimal (render_decimal d) = Some (decimal_value d).
 Proof.
   intro d. unfold render_decimal. destruct (Z.eqb (dm_coeff d) 0) eqn:Hc0.
@@ -975,7 +975,7 @@ Proof.
     reflexivity.
 Qed.
 
-(** ---- §38 an INDEPENDENT decoder for the canonical Fido complex-literal subset: it recovers the EXACT pair
+(** ---- an INDEPENDENT decoder for the canonical Fido complex-literal subset: it recovers the EXACT pair
     of untyped rational components of a canonical `complex(<real>, <imag>)` spelling, reusing the SAME
     [read_decimal] machinery for each component (no reimplemented rounding, no call to the renderer).  It is
     NOT a general Go parser; the proved property is the SEMANTIC round trip
@@ -1063,7 +1063,7 @@ Qed.
 Definition dec_suffix_ok (suf : string) : Prop :=
   head_not_digit suf /\ match suf with String c _ => Ascii.eqb c "e"%char = false | EmptyString => True end.
 
-(** ★ read_decimal_prefix inverts a rendered decimal up to a well-behaved suffix (the component round trip). *)
+(** ★read_decimal_prefix inverts a rendered decimal up to a well-behaved suffix (the component round trip). *)
 Lemma read_decimal_prefix_render : forall d suf,
   dec_suffix_ok suf ->
   read_decimal_prefix (render_decimal d ++ suf) = Some (decimal_value d, suf).
@@ -1095,7 +1095,7 @@ Proof. intro s; split; reflexivity. Qed.
 Lemma dec_suffix_ok_rparen : forall s, dec_suffix_ok (String ")"%char s).
 Proof. intro s; split; reflexivity. Qed.
 
-(** ★§38 SEMANTIC ROUND TRIP: decoding the canonical complex spelling recovers the EXACT pair of untyped
+(** ★SEMANTIC ROUND TRIP: decoding the canonical complex spelling recovers the EXACT pair of untyped
     rational components. *)
 Theorem decode_render_complex_literal : forall dc,
   decode_complex_literal (render_complex_literal dc) = Some (decimal_complex_value dc).
@@ -1224,9 +1224,9 @@ Proof.
   exists ci', tc. split; [ reflexivity | split; [ exact Hconv | reflexivity ] ].
 Qed.
 
-(** ★§2-3/§29 ROOT: rendering an expression denotes EXACTLY the [const_info] GoTypes computes for it — the
+(** ★ROOT: rendering an expression denotes EXACTLY the [const_info] GoTypes computes for it — the
     source-spelling / constant-status correspondence, in the ONE ConstInfo vocabulary.  A bare integer/float
-    denotes an UNTYPED constant (the §1 repair: NO false [int] label; a bare float its exact rational); an
+    denotes an UNTYPED constant (the repair: NO false [int] label; a bare float its exact rational); an
     explicit conversion denotes a TYPED constant of the destination type, through the ONE [convert_const]
     authority.  It reuses the exact GoTypes/[Floats] values, reimplementing no representability/rounding. *)
 Theorem render_const_info_denotes : forall e ci,
@@ -1247,7 +1247,7 @@ Proof.
     cbn [render_expr]. apply RCDComplexConvert with (ci := ci'); [ apply IHe'; exact Hce' | exact Hconv ].
 Qed.
 
-(** ---- §30 DETERMINISM foundation: the leaf recognisers of [RenderedConstInfoDenotes] are pairwise disjoint,
+(** ---- DETERMINISM foundation: the leaf recognisers of [RenderedConstInfoDenotes] are pairwise disjoint,
     so a given rendered spelling denotes AT MOST ONE [ConstInfo].  These small head/shape lemmas isolate each
     constructor's spelling class; [render_const_info_denotes_functional] below assembles them. ---- *)
 
@@ -1362,7 +1362,7 @@ Lemma int_float_kw_paren_disjoint : forall t1 t2 r1 r2,
   (integer_keyword t1 ++ String "("%char r1)%string <> (float_keyword t2 ++ String "("%char r2)%string.
 Proof. intros t1 t2 r1 r2 H; destruct t1, t2; cbn in H; discriminate H. Qed.
 
-(** ---- §39 COMPLEX-SPELLING DISJOINTNESS: the complex-literal spelling `complex(...)` and the
+(** ---- COMPLEX-SPELLING DISJOINTNESS: the complex-literal spelling `complex(...)` and the
     complex-conversion spelling `complex64(...)`/`complex128(...)` are pairwise disjoint from each other and
     from every other constructor's spelling class — the determinism foundation for the two complex RCD
     constructors. ---- *)
@@ -1423,7 +1423,7 @@ Proof. reflexivity. Qed.
 Lemma head_c_decode_decimal_none : forall rest, decode_decimal (String "c"%char rest) = None.
 Proof. intro rest; apply decode_decimal_nonnumeric_head; reflexivity. Qed.
 
-(** ★§30 DETERMINISM: a rendered spelling denotes AT MOST ONE [ConstInfo] — the rendered-constant denotation
+(** ★DETERMINISM: a rendered spelling denotes AT MOST ONE [ConstInfo] — the rendered-constant denotation
     is FUNCTIONAL, so it never assigns a spelling two conflicting constant statuses.  This is NOT a bijection:
     distinct spellings may denote the same exact value (e.g. `0` and `-0`).  The proved facts are exactly (a)
     every Fido-rendered expression HAS a denotation ([render_const_info_denotes]) and (b) for a fixed source
@@ -1566,7 +1566,7 @@ Qed.
 
 (** The one root theorem connecting the three authorities (GoTypes constant-status, GoSafe value, GoRender
     spelling): a resolved [println] argument ANALYZES to a [ConstInfo] whose rendered spelling denotes it (the
-    §3 render/ConstInfo root), its resolved type IS that ConstInfo's type, and it EVALUATES to a well-formed
+    render/ConstInfo root), its resolved type IS that ConstInfo's type, and it EVALUATES to a well-formed
     value of that type carrying the SAME exact constant.  NOT a claim about the real Go parser — real-Go
     acceptance is external adequacy, exercised differentially by the e2e. *)
 Theorem render_resolved_expr_denotes : forall e t,
@@ -1612,7 +1612,7 @@ Lemma render_boundary_min :
   /\ ResolveExpr UsePrintlnArg (ENeg (Z.to_N (- int_min))) (TInteger IInt).
 Proof. split; [ reflexivity | apply resolve_expr_sound; reflexivity ]. Qed.
 
-(** ---- explicit-conversion rendering fixtures (§15): the exact keyword spelling of each of the ten integer
+(** ---- explicit-conversion rendering fixtures: the exact keyword spelling of each of the ten integer
     types, and the exact rendered spelling of a (possibly nested) conversion. ---- *)
 Example kw_int    : integer_keyword IInt    = "int".    Proof. reflexivity. Qed.
 Example kw_int8   : integer_keyword IInt8   = "int8".   Proof. reflexivity. Qed.
@@ -1644,7 +1644,7 @@ Lemma render_resolved_string_denotes : forall s t,
             /\ ValueDenotesConst v (resolved_const_exact rc).
 Proof. intros s t H; apply render_resolved_expr_denotes; exact H. Qed.
 
-(** ---- §4 integer-repair regressions: a bare integer stays UNTYPED (NO false [int] label) even far above
+(** ---- integer-repair regressions: a bare integer stays UNTYPED (NO false [int] label) even far above
     [int_max]; only an explicit conversion assigns a type, DIRECTLY, after the representability check.  This
     is exactly why `uint64(2^63)` is valid though the bare `2^63` does not fit [int]. ---- *)
 Example repair_bare_render : render_expr (EInt 9223372036854775808) = "9223372036854775808".
@@ -1689,7 +1689,7 @@ Example repair_uint64_max_typed :
                            (CITyped (TInteger IUint64) (TCInteger IUint64 18446744073709551615 eq_refl)).
 Proof. apply render_const_info_denotes; reflexivity. Qed.
 
-(** ---- §26/§28/§29 float rendering: the ONE canonical decimal spelling, direct conversion spellings, and
+(** ---- float rendering: the ONE canonical decimal spelling, direct conversion spellings, and
     denotation surfaces (a bare float denotes its exact rational; the decoder round-trips it). ---- *)
 Example render_float_1p5   : render_expr (EFloat d_15em1) = "15.0e-1". Proof. reflexivity. Qed.
 Example render_float_zero  : render_expr (EFloat (mkDecimal 0 0 eq_refl)) = "0.0". Proof. reflexivity. Qed.
@@ -1698,7 +1698,7 @@ Example render_float_neg   : render_expr (EFloat (mkDecimal (-15) (-1) eq_refl))
 Example render_conv_f32    : render_expr (EFloatConvert F32 (EFloat d_15em1)) = "float32(15.0e-1)". Proof. reflexivity. Qed.
 Example render_conv_f64    : render_expr (EFloatConvert F64 (EFloat d_3)) = "float64(3.0e+0)". Proof. reflexivity. Qed.
 
-(* §36/§37 complex rendering: the canonical complex(real, imag) literal and the complex64/complex128
+(* complex rendering: the canonical complex(real, imag) literal and the complex64/complex128
    conversion spellings; a bare complex literal denotes its exact ComplexConst. *)
 Example render_cplx_lit  : render_expr (EComplex (mkDC d_15em1 (mkDecimal (-25) (-1) eq_refl)))
   = "complex(15.0e-1, -25.0e-1)". Proof. reflexivity. Qed.
@@ -1726,7 +1726,7 @@ Example render_conv_f32_typed_denotes :
     = Some (CFloat (fc_of_Z 2305843284091600896)).
 Proof. vm_compute. reflexivity. Qed.
 
-(* §29 required examples: bare 1.0e-1 denotes the UNTYPED exact rational 1/10; a float64 conversion of a tiny
+(* required examples: bare 1.0e-1 denotes the UNTYPED exact rational 1/10; a float64 conversion of a tiny
    negative value denotes a TYPED float64 exact (unsigned) zero — no intermediate status, exact via the ONE
    round_float_const authority. *)
 Example render_float_untyped_tenth :

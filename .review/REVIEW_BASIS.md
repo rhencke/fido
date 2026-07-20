@@ -3,7 +3,7 @@
 checkpoint: C3 Fresh-Image Literal-Build Final Repair
 contract: .review/C3_FRESH_IMAGE_LITERAL_BUILD_PLAN.md
 contract_alias: .review/NEXT_STEPS.md
-contract_sha256: da37621226707ecb52da3003c488f154ee7a1496561dcad0b4efeb452ab6fe46
+contract_sha256: a13779c2e55c679e461e857d019eeae6adef27b0666876ed0cac92833814f212
 checkpoint_baseline: fea649389ee52d442373c43ea2bdb3be2eca47db
 snapshot_audited: de6bd759d8fe1977bc196b5aaed04aa60b9560b1
 basis_authority: Rob's requested manual audit, recorded before C3 closeout

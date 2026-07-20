@@ -37,7 +37,7 @@ Definition s_tab : string := String "a"%char (String (ascii_of_nat 9)  (String "
 Definition s_cr  : string := String "a"%char (String (ascii_of_nat 13) (String "b"%char EmptyString)).
 Definition s_nl  : string := String "a"%char (String (ascii_of_nat 10) (String "b"%char EmptyString)).
 
-(* the readable float literals (§40) — DecimalFloat carries exact Z coefficient/exponent, so build under
+(* the readable float literals — DecimalFloat carries exact Z coefficient/exponent, so build under
    Z_scope; the rest of the witness uses N integer literals. *)
 Definition dm_1p5  : DecimalFloat := mkDecimal 15 (-1) eq_refl.                    (* 1.5  -> 15.0e-1  *)
 Definition dm_0p5  : DecimalFloat := mkDecimal 5 (-1) eq_refl.                     (* 0.5  -> 5.0e-1   *)
@@ -47,7 +47,7 @@ Definition dm_tiny : DecimalFloat := mkDecimal 1 (-330) eq_refl.                
 Definition dm_m2p5 : DecimalFloat := mkDecimal (-25) (-1) eq_refl.                 (* -2.5 -> -25.0e-1 *)
 Definition dm_0    : DecimalFloat := mkDecimal 0 0 eq_refl.                        (* 0.0              *)
 
-(* the readable complex literals (§51/§52): exact PAIRS of DecimalFloat components. *)
+(* the readable complex literals: exact PAIRS of DecimalFloat components. *)
 Definition dc_1p5_m2p5 : DecimalComplex := mkDC dm_1p5 dm_m2p5.   (* complex(1.5, -2.5) *)
 Definition dc_1p5_0    : DecimalComplex := mkDC dm_1p5 dm_0.      (* complex(1.5, 0.0)  *)
 Definition dc_3_0      : DecimalComplex := mkDC dm_3 dm_0.        (* complex(3.0, 0.0)  *)
@@ -65,7 +65,7 @@ Definition demo_file (*decls*) : list GoDecl :=
           ; SPrintln [ EString s_tab ]
           ; SPrintln [ EString s_cr ]
           ; SPrintln [ EString s_nl ]
-          (* accepted integer conversions across all ten integer types (§18): signed narrow + 64-bit
+          (* accepted integer conversions across all ten integer types: signed narrow + 64-bit
              minima/maxima, unsigned maxima, platform int/uint, uint64(2^63), and a nested conversion. *)
           ; SPrintln [ EIntConvert IInt8  (ENeg 128); EIntConvert IInt8  (EInt 127) ]
           ; SPrintln [ EIntConvert IInt16 (ENeg 32768); EIntConvert IInt16 (EInt 32767) ]
@@ -77,7 +77,7 @@ Definition demo_file (*decls*) : list GoDecl :=
           ; SPrintln [ EIntConvert IUint64 (EInt ((2 ^ 63)%N)); EIntConvert IUint64 (EInt 18446744073709551615) ]
           ; SPrintln [ EIntConvert IUint (EInt 18446744073709551615) ]
           ; SPrintln [ EIntConvert IInt8 (EIntConvert IInt16 (EInt 127)) ]
-          (* floats (§40): a bare default-float64 constant + its float32 conversion; explicit float64; an
+          (* floats: a bare default-float64 constant + its float32 conversion; explicit float64; an
              exact float->int constant; an int->float constant; ★the direct-vs-nested double-round scar as an
              EXACT uint64 integer observation (2^61+2^38 vs 2^61); and an underflow to +0. *)
           ; SPrintln [ EFloat dm_1p5; EFloatConvert F32 (EFloat dm_1p5) ]
@@ -87,7 +87,7 @@ Definition demo_file (*decls*) : list GoDecl :=
           ; SPrintln [ EIntConvert IUint64 (EFloatConvert F32 (EFloat dm_scar)) ]
           ; SPrintln [ EIntConvert IUint64 (EFloatConvert F32 (EFloatConvert F64 (EFloat dm_scar))) ]
           ; SPrintln [ EFloatConvert F64 (EFloat dm_tiny) ]
-          (* complex (§51/§52): a bare complex128-default literal; its complex64/complex128 conversions; a
+          (* complex: a bare complex128-default literal; its complex64/complex128 conversions; a
              zero-imaginary complex->int; a zero-imaginary complex->float32; and ★the component double-round
              scar via a zero-imaginary complex->uint64 (direct F32 vs nested F64-then-F32, decimals differ). *)
           ; SPrintln [ EComplex dc_1p5_m2p5 ]
@@ -97,7 +97,7 @@ Definition demo_file (*decls*) : list GoDecl :=
           ; SPrintln [ EFloatConvert F32 (EComplex dc_1p5_0) ]
           ; SPrintln [ EIntConvert IUint64 (EComplexConvert C64 (EComplex dc_scar_0)) ]
           ; SPrintln [ EIntConvert IUint64 (EComplexConvert C64 (EComplexConvert C128 (EComplex dc_scar_0))) ]
-          (* §53 remaining acceptance cases: integer -> complex64/complex128, float -> complex64/complex128,
+          (* remaining acceptance cases: integer -> complex64/complex128, float -> complex64/complex128,
              and a same-type nested complex conversion (all accepted by pinned Go). *)
           ; SPrintln [ EComplexConvert C64 (EInt 1); EComplexConvert C128 (EInt 1) ]
           ; SPrintln [ EComplexConvert C64 (EFloat dm_1p5); EComplexConvert C128 (EFloat dm_1p5) ]
@@ -123,7 +123,7 @@ Declare ML Module "fido.emit".
    committed canonical artifact is copied from) — written DIRECTLY from the decoded image, never from a sink
    directory. *)
 Fido Materialize (render_program demo_safe) To "/workspace/generated".
-(* F2 — the witness ONLY materializes the authoritative pristine image (which the go-e2e stage then validates
+(* the witness ONLY materializes the authoritative pristine image (which the go-e2e stage then validates
    with a fresh `go build ./...`).  It does NOT sink/publish: there is no public `Fido Emit` command, and the
    sink is exercised separately (e2e/sink_test.ml) and reached in production only through the validated
    `make regenerate` workflow, which sinks the SAME validated pristine bytes. *)

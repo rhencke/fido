@@ -150,7 +150,7 @@ Proof.
   apply NoDupA_eqk_map_fst, FM.elements_3w.
 Qed.
 
-(** ---- §9 rendering EXACTNESS + ORDER-INDEPENDENCE over the standard file map ---- *)
+(** ---- rendering EXACTNESS + ORDER-INDEPENDENCE over the standard file map ---- *)
 
 (** the rendered map has the SAME key domain as the source file map (the standard [map] preserves keys). *)
 Lemma render_map_domain : forall sp p,
@@ -169,7 +169,7 @@ Lemma render_map_Equal : forall fm1 fm2,
 Proof. intros fm1 fm2 Heq p. rewrite !FMF.map_o. rewrite (Heq p). reflexivity. Qed.
 
 (** ============================================================================================================
-    §8 — DIRECTORYIMAGE BRIDGE.  [GoCompile] computes the fresh build PLAN over the [GoProgram]
+    DIRECTORYIMAGE BRIDGE.  [GoCompile] computes the fresh build PLAN over the [GoProgram]
     ([GoCompile.root_layout] / [fresh_build_plan]); this bridge proves the later rendered [DirectoryImage]
     REALIZES that same fresh root layout, closing the gap between the plan-over-program and the real emitted
     tree.  It lives HERE (GoEmit sits above GoCompile) — [GoCompile] imports neither GoRender nor GoEmit. ====== *)
@@ -178,7 +178,7 @@ Proof. intros fm1 fm2 Heq p. rewrite !FMF.map_o. rewrite (Heq p). reflexivity. Q
 Definition image_source_layout (img : DirectoryImage) :=
   root_layout_of_keys (map fst (FM.elements (di_go_files img))).
 
-(** §8 — the rendered image REALIZES the retained fresh root layout: recomputing the layout from the image's own
+(** the rendered image REALIZES the retained fresh root layout: recomputing the layout from the image's own
     keys equals [root_layout] over the source program (the render map preserves the FilePath key domain AND its
     canonical order — [Collections.filemap_map_fst_elements]). *)
 Theorem directory_image_realizes_fresh_layout : forall sp,
@@ -190,14 +190,14 @@ Proof.
   symmetry. apply root_layout_eq_of_keys.
 Qed.
 
-(** §8 — the image's `.go` file KEYS are EXACTLY the source program FilePaths (no missing key, NO extra entry);
+(** the image's `.go` file KEYS are EXACTLY the source program FilePaths (no missing key, NO extra entry);
     the go.mod bytes are a distinguished root FIELD ([di_go_mod]), never a `.go` map entry. *)
 Theorem image_go_files_are_source_paths : forall sp p,
   FM.In p (di_go_files (render_program sp)) <-> FM.In p (prog_files (sp_program sp)).
 Proof. intros sp p. unfold render_program; cbn [di_go_files]. apply render_map_domain. Qed.
 
 (** ============================================================================================================
-    §18J (CR2-D5) — the RETAINED-PLAN / IMAGE bridge.  A rendered image of a [SafeProgram] whose program is the
+    the RETAINED-PLAN / IMAGE bridge.  A rendered image of a [SafeProgram] whose program is the
     one a [CompilableProgram] retained REALIZES that CompilableProgram's RETAINED root layout AND the retained
     build plan's output-target classification — not merely a freshly-recomputed [root_layout].  So the actual
     emitted tree is the exact object the compile decision reasoned about. ========================================= *)

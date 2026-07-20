@@ -9,7 +9,8 @@
 ; the library, so it is not independently usable as publication by any external OCaml consumer.  Inside the
 ; library only g_fido reaches [Fido_sink.materialize] (the safe export).  The standalone publication path
 ; (sink_test / the make-regenerate apply CLI) compiles its OWN copy of fido_sink.ml — it never links this
-; library — and the apply CLI is itself structurally gated on the fresh-build validation marker (§5).
+; library.  The apply CLI checks no marker itself; the validate-before-publish ordering is the Docker build
+; graph — the `sync` stage depends on go-e2e, so it cannot build until the pinned `go build ./...` succeeded.
 (library
  (name fido_emit)
  (public_name fido.emit)

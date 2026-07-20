@@ -220,6 +220,96 @@ Proof.
   - intro H; subst b; apply String.eqb_refl.
 Qed.
 
+(** ============================================================================================
+    The canonical COMPONENT AUTHORITY over a module path.  [split_slash] is the split view and its
+    "/"-join is its inverse ([split_slash_concat]); a valid [segment_ok] segment contains no separator, so
+    it is a SINGLE component ([segment_ok_single]) and is nonempty ([segment_ok_nonempty]).  A [ModulePath]'s
+    [mp_segments] are its validated segments: the module string IS their join ([mp_string_concat]), and each
+    is a single nonempty component.  This is the lower-layer authority [GoCompile] composes for package
+    import-path and executable-name reasoning — no character-level scan in the consumer.
+    ============================================================================================ *)
+
+Lemma concat_cons_empty : forall sep h t,
+  String.concat sep (""%string :: h :: t) = (sep ++ String.concat sep (h :: t))%string.
+Proof. reflexivity. Qed.
+
+Lemma concat_map_head : forall sep c h t,
+  String.concat sep (String c h :: t) = String c (String.concat sep (h :: t)).
+Proof. intros sep c h t. destruct t as [|z t']; reflexivity. Qed.
+
+(* split/join inverse: the "/"-join of a string's [split_slash] components IS the string. *)
+Lemma split_slash_concat : forall s, String.concat "/" (split_slash s) = s.
+Proof.
+  induction s as [|c s IH]; [ reflexivity |].
+  cbn [split_slash]. destruct (Ascii.eqb c "/"%char) eqn:E.
+  - apply Ascii.eqb_eq in E; subst c.
+    destruct (split_slash s) as [|h t] eqn:Esp; [ exfalso; exact (split_slash_nonempty s Esp) |].
+    rewrite (concat_cons_empty "/"%string h t), IH. reflexivity.
+  - destruct (split_slash s) as [|h t] eqn:Esp; [ exfalso; exact (split_slash_nonempty s Esp) |].
+    rewrite (concat_map_head "/"%string c h t), IH. reflexivity.
+Qed.
+
+(* a "/"-join of SINGLE components ([split_slash x = [x]]) reparses to exactly those components. *)
+Lemma split_concat_singles : forall comps,
+  (forall x, In x comps -> split_slash x = [x]) -> comps <> [] ->
+  split_slash (String.concat "/" comps) = comps.
+Proof.
+  induction comps as [|x [|y rest] IH]; intros Hs Hne; [ contradiction | |].
+  - cbn [String.concat]. apply Hs; left; reflexivity.
+  - change (String.concat "/" (x :: y :: rest))
+      with (x ++ String "/"%char (String.concat "/" (y :: rest)))%string.
+    rewrite split_slash_app, (Hs x (or_introl eq_refl)).
+    rewrite (IH (fun z Hz => Hs z (or_intror Hz)) ltac:(discriminate)). reflexivity.
+Qed.
+
+Lemma seg_char_not_slash : forall c, seg_char c = true -> Ascii.eqb c "/"%char = false.
+Proof.
+  intros c H. destruct (Ascii.eqb c "/"%char) eqn:E; [| reflexivity].
+  apply Ascii.eqb_eq in E; subst c. cbn in H. discriminate H.
+Qed.
+
+Lemma all_seg_chars_single : forall s, all_seg_chars s = true -> split_slash s = [s].
+Proof.
+  induction s as [|c s IH]; intro H; [ reflexivity |].
+  cbn [all_seg_chars] in H. apply Bool.andb_true_iff in H as [Hc Hs].
+  cbn [split_slash]. rewrite (seg_char_not_slash c Hc), (IH Hs). reflexivity.
+Qed.
+
+Lemma segment_ok_single : forall s, segment_ok s = true -> split_slash s = [s].
+Proof.
+  intros s H. apply all_seg_chars_single.
+  destruct s as [|c s']; [ discriminate H |].
+  unfold segment_ok in H.
+  apply Bool.andb_true_iff in H as [H _].
+  apply Bool.andb_true_iff in H as [H _].
+  apply Bool.andb_true_iff in H as [H _].
+  apply Bool.andb_true_iff in H as [_ H]. exact H.
+Qed.
+
+Lemma segment_ok_nonempty : forall s, segment_ok s = true -> s <> ""%string.
+Proof. intros s H; destruct s; [ discriminate H | discriminate ]. Qed.
+
+Definition mp_segments (p : ModulePath) : list string := split_slash (mp_str p).
+
+Lemma mp_segments_nonempty : forall p, mp_segments p <> [].
+Proof. intro p. apply split_slash_nonempty. Qed.
+
+Lemma mp_string_concat : forall p, String.concat "/" (mp_segments p) = mp_str p.
+Proof. intro p. apply split_slash_concat. Qed.
+
+Lemma mp_segments_segment_ok : forall p s, In s (mp_segments p) -> segment_ok s = true.
+Proof.
+  intros p s Hin. pose proof (mp_ok p) as Hok. unfold modpath_ok in Hok.
+  apply Bool.andb_true_iff in Hok as [_ Hseg].
+  rewrite forallb_forall in Hseg. exact (Hseg s Hin).
+Qed.
+
+Lemma mp_segments_single : forall p s, In s (mp_segments p) -> split_slash s = [s].
+Proof. intros p s Hin. apply segment_ok_single. exact (mp_segments_segment_ok p s Hin). Qed.
+
+Lemma mp_segments_nonempty_elt : forall p s, In s (mp_segments p) -> s <> ""%string.
+Proof. intros p s Hin. apply segment_ok_nonempty. exact (mp_segments_segment_ok p s Hin). Qed.
+
 (** ---- positive / negative fixtures (the grammar, kernel-checked) ---- *)
 
 (* every representable path has a dotted FIRST element (a safe, non-stdlib prefix) *)

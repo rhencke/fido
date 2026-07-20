@@ -7,7 +7,7 @@
 # tracked `.go` from Buildx, so only this host gate can catch them).  Only VCS metadata (`.git`) is pruned.
 #
 # Fido has NO handwritten OCaml language semantics, compilation, safety reasoning, lowering, or rendering —
-# all of that lives in proved Rocq.  The ONLY handwritten OCaml is the Fido Emit transport/apply boundary:
+# all of that lives in proved Rocq.  The ONLY handwritten OCaml is the Fido transport / apply boundary:
 #   - plugin/fido_sink.ml  — the generic dirty-directory filesystem sink (filesystem ONLY);
 #   - e2e/sink_test.ml      — a standalone driver that exercises the sink (filesystem ONLY);
 #   - e2e/fido_apply.ml     — the `make regenerate` apply CLI (filesystem ONLY — no Rocq term, no AST);

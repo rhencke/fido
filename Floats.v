@@ -85,7 +85,7 @@ Definition sf_to_Z (v : spec_float) : option Z :=
   | _ => None
   end.
 
-(** ---- ★§30 double-rounding scar: direct binary32 rounding differs from binary64-then-binary32 ----
+(** ---- ★double-rounding scar: direct binary32 rounding differs from binary64-then-binary32 ----
     input x = 2305843146652647425 = 2^61 + 2^37 + 1.  Direct binary32 rounds UP (strictly above the midpoint)
     to 2^61 + 2^38 = 2305843284091600896; rounding to binary64 first drops the +1 to the exact midpoint
     2^61 + 2^37, which binary32 then rounds to even DOWN to 2^61 = 2305843009213693952.  Both pinned. *)
@@ -103,7 +103,7 @@ Example scar_direct_differs_double :
   round_float_sf F32 scar_x <> SFdiv 24 128 (round_float_sf F64 scar_x) (sf_of_Z 1).
 Proof. discriminate. Qed.
 
-(** ---- §31 precision boundaries: 2^24+1 rounds to 2^24 at binary32; 2^53+1 rounds to 2^53 at binary64 ---- *)
+(** ---- precision boundaries: 2^24+1 rounds to 2^24 at binary32; 2^53+1 rounds to 2^53 at binary64 ---- *)
 Example round_f32_2p24_plus1 :
   sf_to_Z (round_float_sf F32 (fc_of_Z 16777217)) = Some 16777216.
 Proof. reflexivity. Qed.
@@ -335,7 +335,7 @@ Proof.
   apply dm_eqb_eq. unfold dm_eqb, decimal_zero; cbn. rewrite Hc, Hcan; reflexivity.
 Qed.
 
-(** ---- §12 boundary + §11 value fixtures (kernel-checked) ---- *)
+(** ---- boundary + value fixtures (kernel-checked) ---- *)
 Example decimal_wfb_max_ok :
   decimal_wfb (decimal_max_coeff - 1) decimal_max_exp = true.
 Proof. reflexivity. Qed.
@@ -361,7 +361,7 @@ Example decimal_value_neg :                                       (* -15 * 10^-1
   fc_num (decimal_value (mkDecimal (-15) (-1) eq_refl)) = -3
   /\ fc_den (decimal_value (mkDecimal (-15) (-1) eq_refl)) = 2%positive.
 Proof. split; reflexivity. Qed.
-Example decimal_value_tenth :                                     (* 1 * 10^-1 = 1/10 (the §29 example) *)
+Example decimal_value_tenth :                                     (* 1 * 10^-1 = 1/10 (the example) *)
   fc_num (decimal_value (mkDecimal 1 (-1) eq_refl)) = 1
   /\ fc_den (decimal_value (mkDecimal 1 (-1) eq_refl)) = 10%positive.
 Proof. split; reflexivity. Qed.
@@ -392,7 +392,7 @@ Lemma round_float_sf_zero : forall ft, round_float_sf ft fc_zero = S754_zero fal
 Proof. intro ft; destruct ft; reflexivity. Qed.
 
 (** normalize a ZERO result to +0 (a negative underflow rounds to -0, but a CONSTANT has no signed zero — see
-    §33; the FloatValue TYPE still admits -0 for future runtime ops). *)
+   ; the FloatValue TYPE still admits -0 for future runtime ops). *)
 Definition strip_neg_zero (v : spec_float) : spec_float :=
   match v with S754_zero _ => S754_zero false | x => x end.
 
@@ -411,7 +411,7 @@ Proof.
 Qed.
 
 (** ============================================================================
-    §5-8 INTRINSIC TYPED FLOAT CONSTANTS — one package that carries BOTH the exact
+    INTRINSIC TYPED FLOAT CONSTANTS — one package that carries BOTH the exact
     rounded rational AND its canonical runtime IEEE value, plus a proof they denote
     the same value.  Constructed by the ONE authority [round_typed_float], which
     rounds ONCE at the destination format (F32 directly at binary32); the exact and
@@ -419,7 +419,7 @@ Qed.
     rounds a typed float constant again.
     ============================================================================ *)
 
-(** the constant-origin runtime shape (contract §5.D): a typed float constant's runtime is exactly +0 or a
+(** the constant-origin runtime shape (contract): a typed float constant's runtime is exactly +0 or a
     finite value — never -0, infinity, or NaN.  (Those inhabit the general [FloatValue] domain, but are not
     constants.) *)
 Definition float_constant_runtimeb (v : spec_float) : bool :=
@@ -482,7 +482,7 @@ Definition tfc_from_canonical (ft : FloatType) (v : spec_float)
   | inright _             => None
   end.
 
-(** the ONE typed-float-constant construction authority (contract §6): round the exact rational ONCE at [ft]
+(** the ONE typed-float-constant construction authority (contract): round the exact rational ONCE at [ft]
     (the SINGLE [round_float_sf] call, sign-normalized to +0), bind that result, and derive BOTH the exact
     rounded rational and the canonical runtime value from that one bound value via [tfc_from_canonical] —
     overflow (infinity) and NaN read back as [None] and are rejected. *)
@@ -500,13 +500,13 @@ Proof.
 Qed.
 
 (** ============================================================================
-    §7 [round_typed_float] is the ONE structural root of float-constant construction: it evaluates
+    [round_typed_float] is the ONE structural root of float-constant construction: it evaluates
     [round_float_sf] at exactly ONE site, BINDS that result, and derives both the exact rational and the
     runtime value from it (via [tfc_from_canonical]); the exact-rational rounding, the representability
     authority, and the constant-conversion fixtures below are all PROJECTIONS of it.
     ============================================================================ *)
 
-(** §7 the exact-rational rounding is the [tfc_exact] projection of the typed result — NOT a second
+(** the exact-rational rounding is the [tfc_exact] projection of the typed result — NOT a second
     [round_float_sf] caller. *)
 Definition round_float_const (ft : FloatType) (a : FloatConst) : option FloatConst :=
   option_map tfc_exact (round_typed_float ft a).
@@ -533,7 +533,7 @@ Proof.
   - intros [r H]; discriminate.
 Qed.
 
-(** §8: representability is EXACTLY existence of a typed result (reflected through [round_typed_float]). *)
+(**: representability is EXACTLY existence of a typed result (reflected through [round_typed_float]). *)
 Lemma round_typed_float_representable : forall ft q,
   float_representableb ft q = true <-> exists tc, round_typed_float ft q = Some tc.
 Proof.
@@ -545,7 +545,7 @@ Proof.
   - intros [tc' HH]; discriminate.
 Qed.
 
-(** ---- constant-conversion fixtures (contract §30/§32/§33), over the projected [round_float_const] ----
+(** ---- constant-conversion fixtures (contract), over the projected [round_float_const] ----
     the direct-F32 double-round scar as an EXACT integer-valued constant; overflow rejects; underflow rounds
     to canonical +0; a source zero rounds to canonical +0 (no negative-zero constant). *)
 Example round_const_scar_direct_f32 :
@@ -569,7 +569,7 @@ Proof. vm_compute. reflexivity. Qed.
 Example float_representableb_overflow_f32 : float_representableb F32 (fc_of_Z (10 ^ 40)) = false.
 Proof. vm_compute. reflexivity. Qed.
 
-(** §30-32 the runtime of a typed float constant is +0 or finite — NEVER negative zero, infinity, or NaN
+(** the runtime of a typed float constant is +0 or finite — NEVER negative zero, infinity, or NaN
     (those inhabit the general [FloatValue] domain but are not constants).  Directly from the [tfc_shape]
     field, which no forged runtime can satisfy. *)
 Lemma tfc_runtime_not_neg_zero : forall ft (tc : TypedFloatConst ft),
@@ -582,7 +582,7 @@ Lemma tfc_runtime_not_inf : forall ft (tc : TypedFloatConst ft) s,
   fv_sf (tfc_runtime tc) <> S754_infinity s.
 Proof. intros ft tc s H; pose proof (tfc_shape tc) as Hs; rewrite H in Hs; discriminate. Qed.
 
-(** §30-32 canonical general-domain runtime values that are NOT constants: NaN, infinity, and negative zero
+(** canonical general-domain runtime values that are NOT constants: NaN, infinity, and negative zero
     inhabit [FloatValue] (the domain future runtime ops need) but no [TypedFloatConst] runtime equals them. *)
 Definition fv_nan (ft : FloatType) : FloatValue ft :=
   mkFV S754_nan (or_intror (or_introl eq_refl)).
@@ -594,13 +594,13 @@ Lemma neg_zero_F64_canonical : FloatCanonical F64 (S754_zero true).
 Proof. left; exists (reduce_fc (-1) (10 ^ 330)%positive); vm_compute; reflexivity. Qed.
 Definition fv_neg_zero_F64 : FloatValue F64 := mkFV (S754_zero true) neg_zero_F64_canonical.
 
-(** §36 a typed float constant whose runtime is NaN / negative zero is UNREPRESENTABLE — the [tfc_coh] and
+(** a typed float constant whose runtime is NaN / negative zero is UNREPRESENTABLE — the [tfc_coh] and
     [tfc_shape] fields cannot be satisfied (NaN reads back as [None], -0 fails the +0-or-finite shape).  [Fail]
     confirms the term does not typecheck (no tracked axiom, nothing added to the environment). *)
 Fail Definition tfc_nan_unrepresentable : TypedFloatConst F64 := mkTFC fc_zero (fv_nan F64) eq_refl eq_refl.
 Fail Definition tfc_neg_zero_unrepresentable : TypedFloatConst F64 := mkTFC fc_zero fv_neg_zero_F64 eq_refl eq_refl.
 
-(** §33 a negative tiny constant underflows to canonical +0: [round_typed_float] SUCCEEDS, the exact value is
+(** a negative tiny constant underflows to canonical +0: [round_typed_float] SUCCEEDS, the exact value is
     [fc_zero], and the stored runtime is +0 (never -0) — evaluation returns that +0 with no second round. *)
 Example round_typed_neg_underflow_f64 :
   match round_typed_float F64 (reduce_fc (-1) (10 ^ 330)%positive) with

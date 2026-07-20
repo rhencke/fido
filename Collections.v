@@ -1,9 +1,9 @@
 (** ============================================================================
-    Collections — the ONE standard-collection foundation (C1A).  Fido authors NO general-purpose map/set
+    Collections — the ONE standard-collection foundation.  Fido authors NO general-purpose map/set
     implementation: every identity-keyed collection is backed by a mature pinned-Rocq-stdlib map, and every
     membership-only collection by a mature standard set, behind a thin domain wrapper.  This module only
     instantiates standard functors and re-exports the facts Fido needs — it defines no tree/list-backed
-    map/set.  (§2 pinned-stdlib research + §4 wrapper module.)
+    map/set.  ( pinned-stdlib research + wrapper module.)
 
     Selected implementations (pinned rocq-stdlib 9.1.0):
     - general string/ordered-key finite map: [FMapAVL] (Rocq's mature standard ordered map; the standard
@@ -31,7 +31,7 @@ Module PackageMapBase := FMapAVL.Make String_as_OT.
 Module PackageMapFacts := FMapFacts.WFacts_fun String_as_OT PackageMapBase.
 Module PackageMapProps := FMapFacts.WProperties_fun String_as_OT PackageMapBase.
 
-(** ---- §4.1 the [FilePath] ordered key: a total lexicographic order via [fp_string], reusing the pinned
+(** ---- the [FilePath] ordered key: a total lexicographic order via [fp_string], reusing the pinned
     standard [String_as_OT].  The exposed equality is Leibniz [FilePath] equality (paths are proof-irrelevant
     on their well-formedness field), so map keys behave as identities. ---- *)
 
@@ -68,13 +68,13 @@ Module FilePath_OT <: OrderedType.OrderedType.
   Defined.
 End FilePath_OT.
 
-(** ---- §4.2 the standard AVL file map keyed by [FilePath], plus its standard facts. ---- *)
+(** ---- the standard AVL file map keyed by [FilePath], plus its standard facts. ---- *)
 Module FileMapBase := FMapAVL.Make FilePath_OT.
 Module FileMapFacts := FMapFacts.WFacts_fun FilePath_OT FileMapBase.
 Module FileMapProps := FMapFacts.WProperties_fun FilePath_OT FileMapBase.
 Module FileMapOrd := FMapFacts.OrdProperties FileMapBase.
 
-(** ---- §4.6 wrapper theorem: because the standard AVL map's [elements] is SORTED by key, two SEMANTICALLY
+(** ---- wrapper theorem: because the standard AVL map's [elements] is SORTED by key, two SEMANTICALLY
     equal ([Equal]) file maps have the very SAME canonical [elements] list — the derived enumeration is a true
     function of the map's meaning, not of its balancing history.  (The FilePath key equality is Leibniz, so
     [eqlistA eq_key_elt] collapses to list equality.) ---- *)
@@ -97,7 +97,7 @@ Qed.
 
 (** ---- the same canonical-elements facts for the PACKAGE map (String key, Leibniz eq): [Equal] maps have the
     SAME [elements], and [map]ping a value function commutes with [elements] (keys preserved, sorted order
-    preserved).  Used by the §17 cross-snapshot determinism to compare erased package buckets. ---- *)
+    preserved).  Used by the cross-snapshot determinism to compare erased package buckets. ---- *)
 Module PackageMapOrd := FMapFacts.OrdProperties PackageMapBase.
 
 Lemma eqlistA_eqke_eq_str {A} : forall (l1 l2 : list (string * A)),
@@ -151,7 +151,7 @@ Qed.
 
 (** ---- the same [map]-commutes-with-[elements] facts for the FILE map (FilePath key): [FMapAVL.map] preserves
     the key domain AND their canonical sorted order, so the elements of a mapped file map are exactly the source
-    elements with the value function applied.  Consumed by the §8 DirectoryImage layout bridge (the rendered
+    elements with the value function applied.  Consumed by the DirectoryImage layout bridge (the rendered
     image's `.go` file KEYS are exactly the source FilePaths, in the same order). ---- *)
 Lemma sorted_map_fst_file {A B} (f : A -> B) : forall l,
   Sorted (@FileMapBase.lt_key A) l ->
@@ -195,7 +195,7 @@ Proof. rewrite packagemap_map_elements, map_map. reflexivity. Qed.
 
 (** ---- two package maps with the SAME key DOMAIN (possibly different value types) have the SAME canonical key
     list.  (Map each to a common unit value; equal domains give [PM.Equal] unit maps, so
-    [packagemap_elements_Equal] gives equal elements, hence equal keys.)  Used by the §18-I retention: the
+    [packagemap_elements_Equal] gives equal elements, hence equal keys.)  Used by the retention: the
     fresh-build plan derived from the RETAINED package buckets equals the one over [package_summaries]. ---- *)
 Lemma packagemap_same_domain_keys {A B} (m1 : PackageMapBase.t A) (m2 : PackageMapBase.t B) :
   (forall k, PackageMapBase.In k m1 <-> PackageMapBase.In k m2) ->

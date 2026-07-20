@@ -125,7 +125,7 @@ let modpath_is_fido mp =
 let do_audit () =
   let env = Global.env () in
   let sigma = Evd.from_env env in
-  (* Collect the audit ROOTS into a [Names.GlobRef.Set] (C1A §11.4) — an identity-keyed standard set, so a
+  (* Collect the audit ROOTS into a [Names.GlobRef.Set] — an identity-keyed standard set, so a
      reference seeded through more than one path is not duplicated and the seed is order-independent.  Convert
      to a list ONLY at the [Assumptions.assumptions] API boundary. *)
   (* (1) every certified Fido constant *)
@@ -163,7 +163,7 @@ let do_audit () =
 (* The transport boundary is exactly four ordered steps, and NOTHING else touches the term.  Steps 1-2 are
    provenance guards (kernel queries — a typecheck and an assumption-closure check, NOT program/AST/
    semantic inspection); step 3 decodes the final transport.  No effect happens before both guards pass.
-   [decode_guarded] is the SHARED guard for step 4.  After F2 there is exactly ONE Rocq consumer,
+   [decode_guarded] is the SHARED guard for step 4.  After there is exactly ONE Rocq consumer,
    [Fido Materialize] (the authoritative pristine write for build validation); the publication SINK is
    internal (handwritten OCaml: sink_test + the validated `make regenerate` apply CLI), never a Rocq vernac —
    so the same provenance-guarded, identically-decoded bytes drive validation, and an image cannot be sunk
@@ -206,20 +206,20 @@ let decode_guarded t =
   let nf = Reductionops.nf_all env sigma app in
   decode_transport sigma nf
 
-(* STEP 4a — MATERIALIZE: the §5 low-level EXPORT primitive (Option A) — write the provenance-guarded, decoded
-   authoritative image bytes DIRECTLY into a FRESH EMPTY root (O_EXCL; it REFUSES a non-empty/occupied
-   destination, so it cannot merge into or overwrite an existing tree).  It is NOT the publication path: it
-   produces the pre-build pristine that the pinned `go build ./...` VALIDATES, and the SOLE publication is the
-   byte-gated sink reached only through the validated `make regenerate` workflow (below).  Materializing an
-   image to a disposable root yields UNVALIDATED rendered bytes — the validate-then-publish workflow, not this
-   primitive, is what publishes a trusted artifact. *)
+(* STEP 4a — MATERIALIZE: the low-level EXPORT primitive — write the provenance-guarded, decoded authoritative
+   image bytes DIRECTLY into a FRESH EMPTY root (O_EXCL; it REFUSES a non-empty/occupied destination, so it
+   cannot merge into or overwrite an existing tree).  It is NOT the publication path: it produces the pre-build
+   pristine that the pinned `go build ./...` VALIDATES, and the SOLE publication is the internal sink reached
+   only through the validated `make regenerate` workflow (below).  Materializing an image to a disposable root
+   yields UNVALIDATED rendered bytes — the validate-then-publish workflow, not this primitive, is what publishes
+   a trusted artifact. *)
 let do_materialize t dir =
   let (go_mod, entries) = decode_guarded t in
   let n = (try Fido_sink.materialize dir go_mod entries
            with Fido_sink.Fail m -> CErrors.user_err (str ("fido materialize: " ^ m))) in
   Feedback.msg_notice (str (Printf.sprintf "fido materialize: wrote %d authoritative file(s) into %s" n dir))
 
-(* F2 — there is NO public `Fido Emit` sink vernac.  The low-level publication SINK ([Fido_sink.sync], the
+(* There is NO public `Fido Emit` sink vernac.  The low-level publication SINK ([Fido_sink.sync], the
    foreign-Go-rejecting sibling-temp synchronizer that writes into a possibly-dirty real destination) is
    INTERNAL: it is reached ONLY from handwritten OCaml — `e2e/sink_test.ml` (the sink's own byte-exact test
    driver) and `e2e/fido_apply.ml` (the `make regenerate` apply CLI, which the validated publication workflow
