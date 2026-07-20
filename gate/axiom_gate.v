@@ -509,15 +509,15 @@ Print Assumptions GoCompile.root_layout_gomod_iff.
 Print Assumptions GoCompile.root_layout_source_iff.
 Print Assumptions GoCompile.root_layout_domain.
 (* CR2-D5 §10-13 — the UNIVERSAL package-selection / import-path / executable-name / plan exactness (not just
-   computed fixtures): visibility (a selected key IS a represented file's parent); canonical import-path shape;
-   the NEVER-EMPTY default executable name (canonical import path); the exact zero/single/multiple plan
-   classification and the sole-main plan's stored output target. *)
+   computed fixtures): visibility (a selected key IS a represented file's parent); the two package-import-path
+   forms (root / nested); the NEVER-EMPTY default executable name, proved over the import path's COMPONENT LIST
+   (CL-7 — the module segments then the package directory components, each nonempty); the exact
+   zero/single/multiple plan classification and the sole-main plan's stored output target. *)
 Print Assumptions GoCompile.selected_iff_file.
 Print Assumptions GoCompile.selected_key_is_parent.
 Print Assumptions GoCompile.package_import_path_root.
 Print Assumptions GoCompile.package_import_path_nested.
-Print Assumptions GoCompile.package_import_path_canonical.
-Print Assumptions GoCompile.default_exec_name_nonempty_core.
+Print Assumptions GoCompile.default_exec_name_nonempty.
 Print Assumptions GoCompile.fresh_build_plan_exec_nonempty.
 Print Assumptions GoCompile.fresh_build_plan_zero.
 Print Assumptions GoCompile.fresh_build_plan_multiple.
