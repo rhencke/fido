@@ -1,4 +1,6 @@
-(** The e2e witness, emitted by the GENERAL Fido Emit transport command (no witness-specific
+(** The e2e witness, published through the ONE validate-before-publish workflow — [Fido Materialize] writes
+    the authoritative pristine image, the pinned `go build ./...` validates it, and ONLY THEN [Fido Emit]
+    (the sink step, not a standalone publish) transports the SAME bytes (no witness-specific
     executable, no extraction).  A proved [SafeProgram] is rendered to a [DirectoryImage] via
     [render_program], so its provenance proof is CLOSED (assumption-free); the command typechecks the
     image and finds its assumption closure empty (even though it descends the Qed lemma [demo_valid]),

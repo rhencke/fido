@@ -59,9 +59,12 @@ prove: builder
 prover-log: builder
 	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --progress=plain --target prover .
 
-# The emit stage alone (intermediate): Dune-cached theory + plugin build, then the general `Fido Emit`
-# command (explicit rocq c on the witness, not a .vo side effect) synchronizes the whole tree; the sink
-# is exercised against dirty + adversarial trees.  Wired into `check` via `e2e`.
+# The emit stage alone (intermediate): Dune-cached theory + plugin build, then each witness runs the
+# validate-before-publish workflow (§5) — `Fido Materialize` writes the authoritative pristine image, and
+# `Fido Emit` (the internal transport/sink step, explicit rocq c on the witness — not a .vo side effect)
+# synchronizes it — with the sink exercised against dirty + adversarial trees.  The FRESH-BUILD VALIDATION
+# that gates real publication runs in `e2e` (`go build ./...`); this intermediate stage is wired into `check`
+# via `e2e`.  `Fido Emit` is NOT a standalone public publication command — it is the sink step of the workflow.
 emit: builder
 	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --progress=plain --target emit .
 
@@ -70,16 +73,20 @@ emit: builder
 e2e: builder
 	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --progress=plain --target go-e2e .
 
-# Regenerate the tracked canonical Go module: build (and load) the `sync` image — the pristine
-# `generated-module` layer built from the CURRENT working-tree proof inputs, plus the filesystem-only apply
-# CLI — then run it with the repository root bind-mounted so the SAME Fido_sink synchronizes /generated into
-# the repo (preserving foreign non-Go files, rejecting foreign Go/module + nested .fido, updating tracked
-# go.mod + recursive .go, removing stale Fido-owned .go).  It never invokes an independent renderer.  After
-# it runs, stage go.mod + recursive *.go and commit; the pre-commit staged-index check verifies byte-exactness.
-regenerate: builder
+# Regenerate the tracked canonical Go module through the SAME validate-before-publish workflow the tested path
+# uses (§5): the `e2e` prerequisite runs the pinned `go build ./...` FRESH-BUILD VALIDATION over the pristine
+# `generated-module` layer (built from the CURRENT working-tree proof inputs) FIRST — so a failed fresh build
+# aborts make and NO sink effect occurs — and only THEN does the recipe build (and load) the `sync` image (the
+# SAME pristine layer, cached, plus the filesystem-only apply CLI) and run it with the repository root
+# bind-mounted so the SAME Fido_sink synchronizes /generated into the repo (preserving foreign non-Go files,
+# rejecting foreign Go/module + nested .fido, updating tracked go.mod + recursive .go, removing stale Fido-owned
+# .go).  It never invokes an independent renderer and never sinks post-build bytes — the SAME validated pristine
+# image is what is published.  After it runs, stage go.mod + recursive *.go and commit; the pre-commit
+# staged-index check verifies byte-exactness against a pristine rebuilt from the staged inputs.
+regenerate: builder e2e
 	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --target sync --load -t fido-sync .
 	docker run --rm -u $$(id -u):$$(id -g) -v "$(CURDIR)":/dest fido-sync
-	@echo "fido: regenerate OK — the pristine canonical module was synced into the repo root via Fido_sink."
+	@echo "fido: regenerate OK — fresh go build ./... VALIDATED the pristine canonical module (via e2e), then the SAME pristine bytes were synced into the repo root via Fido_sink."
 	@echo "      Stage + commit:  git add -A -- go.mod ':(top,glob)**/*.go' && git commit"
 
 # Zero project axioms are enforced inside the pinned `prove` stage: gate/axiom_gate.v (Print Assumptions on

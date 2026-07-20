@@ -1,8 +1,12 @@
-(* fido_apply — a tiny FILESYSTEM-ONLY production CLI.  It reads a PRISTINE generated module directory (a
-   root [go.mod] plus recursive [.go] files, e.g. the `generated-module` Buildx layer) and synchronizes it
-   into a destination through the SAME [Fido_sink] the plugin uses.  It inspects no Rocq term and no AST; it
-   compiles nothing, renders nothing, alters no bytes, and chooses no semantic path — it only enumerates the
-   already-final module tree and hands (go.mod bytes, (relative .go path, bytes) list) to the sink.
+(* fido_apply — a tiny FILESYSTEM-ONLY production CLI, the SINK STEP of the validate-before-publish workflow
+   (§5).  It reads a PRISTINE generated module directory (a root [go.mod] plus recursive [.go] files, e.g. the
+   `generated-module` Buildx layer) and synchronizes it into a destination through the SAME [Fido_sink] the
+   plugin uses.  It is NOT a standalone publisher: `make regenerate` runs the fresh `go build ./...`
+   VALIDATION (via the `e2e` prerequisite) over that same pristine layer FIRST — a failed build aborts make
+   before this CLI runs — so this only ever transports an already-validated pristine image.  It inspects no
+   Rocq term and no AST; it compiles nothing, renders nothing, alters no bytes, and chooses no semantic path —
+   it only enumerates the already-final module tree and hands (go.mod bytes, (relative .go path, bytes) list)
+   to the sink.
 
    Usage: fido-apply <src-generated-dir> <dest-root>. *)
 

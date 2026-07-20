@@ -22,9 +22,11 @@ GoProgram (ModuleSpec + a possibly-empty GoFileMap standard source-file map) -> 
       -> `Fido Materialize` writes the AUTHORITATIVE pristine image DIRECTLY (never from a sink dir) into one
          `generated-module` Buildx layer (tracked go.mod + recursive .go) -> pinned Go `GOWORK=off
          GOTOOLCHAIN=local go build ./...` VALIDATES that pristine (fresh materialization, whole tree)
-      -> ONLY THEN the general `Fido Emit` transport command publishes the SAME decoded bytes through the
-         foreign-Go-rejecting sibling-temp dirty-directory sink (validation-before-publication; byte-exact vs
-         the pristine, verified by the staged-index pre-commit)   [integration only]
+      -> ONLY THEN the `Fido Emit` transport/sink STEP of this ONE validated publication workflow (NOT a
+         standalone public publication command) sinks the SAME decoded pristine bytes (never a post-build
+         byte) through the foreign-Go-rejecting sibling-temp dirty-directory sink (validation-before-
+         publication — a failed fresh build prevents publication; byte-exact vs the pristine, verified by the
+         staged-index pre-commit)   [integration only]
 ```
 
 The admitted fragment: files grouped by directory into `package main` packages; each `GoSourceFile` is a
