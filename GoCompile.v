@@ -5237,8 +5237,10 @@ Proof.
   destruct (list_dir_mem dir (GoAST.file_bindings (prog_files p))); [ reflexivity | discriminate Hmt ].
 Qed.
 
-Definition fresh_build_diagnostics (p : GoProgram) : list (DiagnosticReason p) :=
-  match fresh_build_plan p with
+(* the fresh-build command diagnostics as a function of a GIVEN plan — so the elaboration threads the ONE
+   retained bucket-derived plan through the failure branch, never recomputing [fresh_build_plan p]. *)
+Definition fresh_build_diagnostics_of (p : GoProgram) (plan : FreshBuildDisposition) : list (DiagnosticReason p) :=
+  match plan with
   | FBDWriteSingleMain dir _ output_name (Some FREDirectory) =>
       match sole_package_ref p dir with
       | Some pk => [DRBuildOutputIsDirectory pk output_name]
@@ -5247,10 +5249,13 @@ Definition fresh_build_diagnostics (p : GoProgram) : list (DiagnosticReason p) :
   | _ => []
   end.
 
+Definition fresh_build_diagnostics (p : GoProgram) : list (DiagnosticReason p) :=
+  fresh_build_diagnostics_of p (fresh_build_plan p).
+
 Lemma fresh_build_diagnostics_nil_iff : forall p,
   fresh_build_diagnostics p = [] <-> fresh_build_preflight_ok p.
 Proof.
-  intros p. unfold fresh_build_diagnostics, fresh_build_preflight_ok, fresh_build_disposition_ok, fresh_build_plan.
+  intros p. unfold fresh_build_diagnostics, fresh_build_diagnostics_of, fresh_build_preflight_ok, fresh_build_disposition_ok, fresh_build_plan.
   destruct (selected_package_keys p) as [|dir [|d2 rest]] eqn:Ek; cbn.
   - split; reflexivity.
   - destruct (PM.find (default_exec_name (package_import_path (prog_module p) dir)) (root_layout p)) as [k|] eqn:Ef.
@@ -5269,7 +5274,7 @@ Qed.
    build-output class fires. *)
 Lemma fresh_build_diagnostics_is_build : forall p d, In d (fresh_build_diagnostics p) -> diag_is_build_output d = true.
 Proof.
-  intros p d Hin. unfold fresh_build_diagnostics in Hin.
+  intros p d Hin. unfold fresh_build_diagnostics, fresh_build_diagnostics_of in Hin.
   destruct (fresh_build_plan p) as [|count|dir ip name [ [ | | ] |]]; try destruct Hin.
   destruct (sole_package_ref p dir) as [pk|]; [| destruct Hin].
   cbn [In] in Hin. destruct Hin as [<-|[]]. reflexivity.
@@ -5372,6 +5377,26 @@ Proof.
   - intros [Hpf Hsv]. unfold elaboration_diagnostics. unfold fresh_build_preflight_ok in Hpf. rewrite Hpf.
     apply (proj2 (semantic_diagnostics_empty_iff p idx)), (proj2 (semantic_ok_b_ProgValid p)),
           (proj1 (source_program_valid_iff p)). exact Hsv.
+Qed.
+
+(** §18-I/§C3-CR2-D4 — the command-ordered report computed on the RETAINED bucket-derived plan (the ONE plan
+    [elaborate_indexed] threads through the disposition test AND the failure branch) IS the canonical
+    [elaboration_diagnostics] (which is phrased over [fresh_build_plan p]).  The only gap is the plan
+    presentation — [fresh_build_plan_of_buckets] closes it — so the elaboration's decision and its retained
+    plan are literally the same object.  ([elaborate_indexed]'s local diagnostic term is definitionally this
+    LHS: its `then` branch is the one-pass raw fold, convertible to [semantic_diagnostics p idx].) *)
+Lemma command_plan_diags_eq (p : GoProgram) (ip : GoIndex.IndexedProgram p) :
+  (if fresh_build_disposition_ok
+        (fresh_build_plan_of (prog_module p)
+           (map fst (PM.elements (prog_package_refs (GoIndex.indexed_syntax ip)))) (root_layout p))
+   then semantic_diagnostics p (GoIndex.indexed_syntax ip)
+   else fresh_build_diagnostics_of p
+          (fresh_build_plan_of (prog_module p)
+             (map fst (PM.elements (prog_package_refs (GoIndex.indexed_syntax ip)))) (root_layout p)))
+  = elaboration_diagnostics p (GoIndex.indexed_syntax ip).
+Proof.
+  rewrite (fresh_build_plan_of_buckets p (GoIndex.indexed_syntax ip)).
+  unfold elaboration_diagnostics, fresh_build_diagnostics. reflexivity.
 Qed.
 
 (** §12 (C3) — the SUCCESSFUL elaboration facts, retained over the SAME [IndexedProgram] the elaboration ran on:
@@ -5536,30 +5561,39 @@ Definition elaborate_indexed (p : GoProgram) (ip : GoIndex.IndexedProgram p) : E
   let blocks  := prog_blocks p in                (* the per-file visit blocks, retained ONCE *)
   let visit   := concat blocks in                (* = prog_visit p — the flattened elaboration stream *)
   let status  := fold_right psm_step (GoIndex.NodeKeyMapBase.empty (option ConstInfo)) visit in
-  let buckets := fold_right (ppkg_step idx) (PM.empty (list (GoIndex.DeclRef p))) visit in
+  let buckets := prog_package_refs idx in         (* = fold_right (ppkg_step idx) … visit — the retained package buckets *)
   let facts   := fold_right (add_occ_fact_sm status) (GoIndex.NodeKeyMapBase.empty ExprFact) visit in
+  (* §18-I/§C3-CR2-D4 — the ONE retained fresh ROOT LAYOUT and BUILD PLAN, derived from the retained buckets +
+     the file layout, computed ONCE and threaded through the disposition test, the failure diagnostics, AND the
+     stored facts — never a second [fresh_build_plan p] recompute. *)
+  let rl      := root_layout p in
+  let plan    := fresh_build_plan_of (prog_module p) (map fst (PM.elements buckets)) rl in
   let raw     := flat_map (fun roc => occ_expr_diags_sm status idx (snd roc) (fst roc))
                           (flat_map (annotate_encl idx []) blocks)   (* = annotate_program idx *)
                    ++ bucket_diags_elems buckets (bucket_key_present idx)
                         (PM.elements buckets) (elements_all_mapsto buckets) in
   (* §16 canonical order: node-primary diagnostics bucketed by NodeKey + flattened, then package-primary.
-     §14/§17 COMMAND order: if the fresh-build preflight FAILS the report is EXACTLY the build-output-directory
-     diagnostic (precedence), else the semantic diagnostics.  This [diags] is definitionally [elaboration_diagnostics p idx]. *)
-  let diags   := if fresh_build_disposition_ok (fresh_build_plan p)
+     §14/§17 COMMAND order: if the fresh-build output preflight (on the RETAINED [plan]) FAILS the report is
+     EXACTLY the build-output-directory diagnostic (precedence), else the semantic diagnostics.  This [diags] is
+     [command_plan_diags_eq]-equal to [elaboration_diagnostics p idx]. *)
+  let diags   := if fresh_build_disposition_ok plan
                  then bucket_flatten (node_keyed raw) ++ pkg_primary raw
-                 else fresh_build_diagnostics p in
+                 else fresh_build_diagnostics_of p plan in
   match list_is_nil diags with
-  | left He  => ElaborationOK (mkElaborationFacts
+  | left He  =>
+      let He' : elaboration_diagnostics p idx = nil :=
+        eq_trans (eq_sym (command_plan_diags_eq p ip)) He in
+      ElaborationOK (mkElaborationFacts
                   (mkExprFactTable facts (prog_expr_facts_domain p) (prog_expr_facts_find p))
                   buckets
                   (prog_package_refs_present idx)
                   (prog_package_refs_bucket_len idx)
                   (prog_package_refs_belongs idx)
-                  (elaboration_no_diags_source_valid p idx He)
-                  (elaboration_no_diags_preflight p idx He)
-                  (root_layout p)
+                  (elaboration_no_diags_source_valid p idx He')
+                  (elaboration_no_diags_preflight p idx He')
+                  rl
                   eq_refl
-                  (fresh_build_plan_of (prog_module p) (map fst (PM.elements buckets)) (root_layout p))
+                  plan
                   (fresh_build_plan_of_buckets p idx))
   | right Hne => ElaborationFailed diags Hne
   end.
@@ -5570,20 +5604,24 @@ Definition elaborate (p : GoProgram) : ProgramElaboration p :=
 
 (** ANALYSIS EXACTNESS (§18.D/E): elaboration succeeds (exposes facts) IFF the program is admissible ([GoCompile] =
     fresh-build preflight passes AND the source is valid); it fails (exposes nonempty command-ordered
-    diagnostics) IFF it is inadmissible.  Success and failure are exclusive.  ([elaboration_diagnostics] is definitionally the
-    [diags] computed inside [elaborate_indexed], so both reduce through [elaboration_diagnostics_nil_iff_GoCompile].) *)
+    diagnostics) IFF it is inadmissible.  Success and failure are exclusive.  (The [diags] computed inside
+    [elaborate_indexed] runs on the RETAINED bucket-derived [plan]; [command_plan_diags_eq] bridges it to the
+    canonical [elaboration_diagnostics] — the only difference is the plan presentation — so both reduce through
+    [elaboration_diagnostics_nil_iff_GoCompile].) *)
 Theorem elaborate_ok_iff_GoCompile (p : GoProgram) :
   (exists facts, pe_result (elaborate p) = ElaborationOK facts) <-> GoCompile p.
 Proof.
   unfold elaborate, elaborate_indexed; cbn [pe_result]; cbv zeta.
   match goal with |- context[list_is_nil ?d] => destruct (list_is_nil d) as [He|Hne] end.
   - split; intro Hx;
-      [ exact (proj1 (elaboration_diagnostics_nil_iff_GoCompile p (GoIndex.indexed_syntax (GoIndex.index_program p))) He)
+      [ exact (proj1 (elaboration_diagnostics_nil_iff_GoCompile p (GoIndex.indexed_syntax (GoIndex.index_program p)))
+                 (eq_trans (eq_sym (command_plan_diags_eq p (GoIndex.index_program p))) He))
       | eexists; reflexivity ].
   - split; intro Hx.
     + destruct Hx as [facts Hf]; discriminate Hf.
     + exfalso. apply Hne.
-      exact (proj2 (elaboration_diagnostics_nil_iff_GoCompile p (GoIndex.indexed_syntax (GoIndex.index_program p))) Hx).
+      exact (eq_trans (command_plan_diags_eq p (GoIndex.index_program p))
+               (proj2 (elaboration_diagnostics_nil_iff_GoCompile p (GoIndex.indexed_syntax (GoIndex.index_program p))) Hx)).
 Qed.
 
 Theorem elaborate_failed_iff_not_GoCompile (p : GoProgram) :
@@ -5594,10 +5632,12 @@ Proof.
   - split; intro Hx.
     + destruct Hx as [ds [Hne Hf]]; discriminate Hf.
     + exfalso. apply Hx.
-      exact (proj1 (elaboration_diagnostics_nil_iff_GoCompile p (GoIndex.indexed_syntax (GoIndex.index_program p))) He).
+      exact (proj1 (elaboration_diagnostics_nil_iff_GoCompile p (GoIndex.indexed_syntax (GoIndex.index_program p)))
+               (eq_trans (eq_sym (command_plan_diags_eq p (GoIndex.index_program p))) He)).
   - split; intro Hx.
     + intro Hv. apply Hne.
-      exact (proj2 (elaboration_diagnostics_nil_iff_GoCompile p (GoIndex.indexed_syntax (GoIndex.index_program p))) Hv).
+      exact (eq_trans (command_plan_diags_eq p (GoIndex.index_program p))
+               (proj2 (elaboration_diagnostics_nil_iff_GoCompile p (GoIndex.indexed_syntax (GoIndex.index_program p))) Hv)).
     + eexists; eexists; reflexivity.
 Qed.
 
@@ -5609,7 +5649,7 @@ Proof.
   unfold elaborate, elaborate_indexed; cbn [pe_result]; cbv zeta.
   match goal with |- context[list_is_nil ?d] => destruct (list_is_nil d) as [He|Hn] end.
   - intro H; discriminate H.
-  - intro H. inversion H. reflexivity.
+  - intro H. inversion H. exact (command_plan_diags_eq p (GoIndex.index_program p)).
 Qed.
 
 (** A failed elaboration result is incompatible with validity (used to discharge the impossible branch when
@@ -5935,7 +5975,7 @@ Proof.
   intros p Hpf. destruct (proj1 (preflight_fails_iff p) Hpf) as [dir [Hk Hfind]].
   destruct (sole_package_ref_some p dir (sole_package_present p dir Hk)) as [pk Hpk].
   exists pk. exists (default_exec_name (package_import_path (prog_module p) dir)).
-  unfold fresh_build_diagnostics. rewrite (fresh_build_plan_of_sole p dir Hk), Hfind, Hpk. reflexivity.
+  unfold fresh_build_diagnostics, fresh_build_diagnostics_of. rewrite (fresh_build_plan_of_sole p dir Hk), Hfind, Hpk. reflexivity.
 Qed.
 
 (** §18.F — the COMMAND-FACING report inherits it: a failed preflight hides ALL semantic diagnostics, exposing
@@ -6127,7 +6167,7 @@ Proof.
   intros p dir Hk Hpf.
   destruct (proj1 (preflight_fails_iff p) Hpf) as [dir' [Hk' Hfind]].
   assert (dir' = dir) as -> by (rewrite Hk in Hk'; congruence).
-  unfold fresh_build_diagnostics. rewrite (fresh_build_plan_of_sole p dir Hk), Hfind.
+  unfold fresh_build_diagnostics, fresh_build_diagnostics_of. rewrite (fresh_build_plan_of_sole p dir Hk), Hfind.
   unfold sole_package_ref. destruct (Bool.bool_dec (package_present_b p dir) true) as [Ht|Hcon].
   - reflexivity.
   - exfalso. apply Hcon. exact (sole_package_present p dir Hk).
