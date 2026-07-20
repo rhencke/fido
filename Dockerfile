@@ -3,7 +3,8 @@
 # Fido — GoProgram (ModuleSpec + a possibly-empty finite map of intrinsic FilePath keys to raw file ASTs)
 # -> GoTypes (the one type authority: each raw literal is an exact untyped GoConst resolved through the one
 # GoType {TBool, the integer family TInteger over the ten-member IntegerType, the float family TFloat over
-# FloatType, TString}; an EIntConvert/EFloatConvert is a typed constant via the one convert_const authority)
+# FloatType, the complex family TComplex over ComplexType, TString}; an EIntConvert/EFloatConvert/
+# EComplexConvert is a typed constant via the one convert_const authority)
 # to ProgramTyped evidence over the SAME AST) -> GoCompile (whole-program admissibility = the pinned one-shot
 # `go build ./...` acceptance = the fresh-build output PREFLIGHT + SourceProgramValid = ProgramTyped + the
 # FACTORED package rules PackageDeclsUnique + MainPackagesHaveEntry) -> GoSafe (values carry the SAME GoType) ->

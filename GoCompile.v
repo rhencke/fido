@@ -1,8 +1,12 @@
 (** ============================================================================
-    GoCompile — EXACT whole-PROGRAM static/compiler admissibility as EVIDENCE over the ONE raw program
-    (the [GoProgram]: a [ModuleSpec] + a possibly-EMPTY standard [FilePath] map of files [GoFileMap]), plus the
-    derived admissibility evidence ([ProgValid]) over that same program.  The empty program is accepted (no
-    packages, one go.mod).
+    GoCompile — the EXACT acceptance model for the pinned one-shot `go build ./...`, as EVIDENCE over the ONE
+    raw program (the [GoProgram]: a [ModuleSpec] + a possibly-EMPTY standard [FilePath] map of files
+    [GoFileMap]): [GoCompile p := fresh_build_preflight_ok p /\ SourceProgramValid p] — the cmd/go default-
+    OUTPUT fresh-build preflight AND the LIVE factored source judgment [SourceProgramValid]
+    (= [ProgramTyped] /\ the factored package rules [PackageDeclsUnique] + [MainPackagesHaveEntry], §9) over
+    that same program.  It is built by the ONE elaboration root [elaborate] — the single indexed whole-program
+    pass over [GoIndex]'s [visit_file] traversal — and [go_compile] PROJECTS that elaboration (no second
+    checker).  The empty program is accepted (no packages, one go.mod).
 
     Whole-program package policy (a deliberate exact GENERATOR-language subset).  The package CLAUSE / NAME is
     SOURCE syntax (each file's [source_package], [PkgMain] -> `main`, rendered by GoRender) — NOT a compiler-
@@ -21,7 +25,8 @@
 
     HONESTY — two distinct claims:
     A. KERNEL-internal exactness (PROVED here): [go_compile] succeeds exactly for the declarative
-       [GoCompile] judgment ([prog_ok_iff]; sound + complete).
+       [GoCompile] judgment ([go_compile_ok_valid] + [go_compile_complete]; the ONE elaboration root satisfies
+       [elaborate_ok_iff_GoCompile]) — sound + complete.
     B. EXTERNAL adequacy (the GOAL, attacked by differential `go build ./...` experiments, NOT a kernel
        theorem): the declarative judgment matches `go build ./...` for every representable rendered
        program.  We do NOT invoke cmd/go from Rocq and claim no kernel theorem about it.

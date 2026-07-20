@@ -17,15 +17,18 @@
     these selected standard maps (the sealing hides the map CONSTRUCTORS and RAW operations, NOT the choice of
     collection).
 
-    ---- MILESTONE STATE (C2 in progress) ---------------------------------------------------------------
-    This module is being grown bottom-up in fully-proven, always-green steps.  Present now: the sealed node
-    table, the current occurrence universe (kinds/roles/metadata), the one-pass per-file index builder over
-    the real [GoAST] grammar (file root, package clause, declarations, statements, println arguments, and
-    unary conversion operands), the INDEPENDENT table-free source-occurrence specification, and the
-    load-bearing UNIVERSAL per-file source/index exactness theorem.  Still to land before the C2 ROOT
-    barrier: the structural navigation invariants (parent / interval-jump children / ancestry), the
-    snapshot-indexed sealed reference layer over [GoProgram], the total query API, the canonical enumeration,
-    and the mutation-sensitive / snapshot-locality fixtures. *)
+    ---- MODULE CONTENTS (all landed, axiom-free) -------------------------------------------------------
+    The sealed node table; the occurrence universe (kinds / roles / metadata); the ONE-pass per-file index
+    builder over the real [GoAST] grammar (file root, package clause, declarations, statements, println
+    arguments, unary conversion operands); the INDEPENDENT table-free source-occurrence specification with the
+    load-bearing UNIVERSAL per-file source/index exactness theorem; the structural navigation invariants
+    (root-canonical / unique parent / interval-jump children / preorder-interval ancestry / canonical
+    enumeration + reachability); the snapshot-indexed SEALED reference layer over [GoProgram]
+    ([SyntaxIndex] / [FileRef] / [NodeRef] / [NodeKey] + kind-refined [NodeRefOf], validated minting, a total
+    query API, and the source-occurrence correspondence lifted through the sealed API); and the §19 indexed
+    traversal ([visit_file] running the single-pass [walk_file]) pairing each ORIGINAL syntax fragment with its
+    validated [NodeRef] in one pass — CONSUMED by [GoCompile]'s production elaboration ([elaborate]) as the ONE
+    indexed whole-program pass. *)
 
 From Stdlib Require Import PArith NArith List Bool Lia Sorted Recdef Wf_nat Arith Eqdep_dec String.
 From Stdlib Require Import Structures.OrderedType FSets.FMapAVL FSets.FMapFacts SetoidList.
