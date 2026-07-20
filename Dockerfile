@@ -656,28 +656,83 @@ umask 022
 # go env / flag / sumdb state — export the COMPLETE pinned environment (§29-E) so no case inherits host config.
 export GOWORK=off GOTOOLCHAIN=local GOPROXY=off GOENV=off GOFLAGS= GOSUMDB=off GO111MODULE=on GOOS=linux GOARCH=amd64
 
-# ── §5/§6/§22 — the ONE reusable FRESH-BUILD RUNNER.  Materialize an AUTHORITATIVE pristine tree (go.mod +
-#    `.go` files only) into a NEW empty root with FIXED modes, byte-verify the materialization, run the literal
-#    `go build ./...` exactly ONCE, capture its exit status, and hand back the disposable root.  It NEVER builds
-#    in place and NEVER copies a post-build byte back.  The fail-closed manifest (§6) requires: exactly one
-#    REGULAR (non-symlink) root go.mod; every other entry a directory or a regular `.go` file; NO symlink / FIFO
-#    / device / socket; NO empty directory (so a `.fido` control dir — empty or with a marker — a nested go.mod,
-#    a stray file, or a special file all refuse before Go runs).  The build LOG stays OUTSIDE the root (the root
-#    is EXACTLY the image).  Returns: 0/non-0 = `go build ./...` status; 2 = bad manifest; 3 = byte mismatch.
+# ── §5/§6/§22 (CL-4) — the ONE reusable FRESH-BUILD RUNNER, fail-CLOSED via a checked MANIFEST FLOW.
+#    The caller supplies an AUTHORITATIVE pristine DirectoryImage export (root go.mod + `.go` files only).
+#    The runner (a) enumerates the source into a MANIFEST FILE, FAILING LOUD if enumeration itself fails —
+#    an error is NEVER an empty result (find status checked AND its stderr inspected; nothing 2>/dev/null-
+#    suppressed); (b) validates every manifest entry against the honest input contract (exactly one REGULAR
+#    root go.mod; every other entry a NON-EMPTY directory or a REGULAR `.go` file; NO symlink / FIFO / device
+#    / socket / nested go.mod / empty dir / foreign file); (c) materializes into a FRESH empty root with
+#    CHECKED mkdir/install (ANY failure aborts loud); (d) re-enumerates the fresh root into a second manifest
+#    (failing loud); (e) compares the exact relative-path SETS and every file BYTE-for-byte; and only THEN
+#    (f) runs the literal pinned `go build ./...` exactly ONCE.  Manifests are read from FILES (never
+#    `find | while`, whose producer status disappears and whose piped-`while` subshell body cannot abort the
+#    function).  It NEVER copies a post-build byte back.  Accepted-input claim is narrow and true: ONLY a
+#    certified pristine export (root go.mod + `.go`); it does NOT reimplement the full Fido FilePath grammar.
+#    Returns: 0/non-0 = `go build ./...` status; 2 = bad input / manifest / materialization failure (all such
+#    failures occur strictly BEFORE Go runs).
 fido_go_build_all_fresh() {  # <authoritative-pristine-tree> <out-var-for-fresh-root>
   _src=$1; _out=${2:-_frv}
-  { [ -f "$_src/go.mod" ] && [ ! -L "$_src/go.mod" ]; } || { echo "runner: missing/irregular root go.mod in $_src"; return 2; }
-  _foreign=$(find "$_src" -mindepth 1 -not \( -type d -o \( -type f \( -name '*.go' -o -path "$_src/go.mod" \) \) \) -print 2>/dev/null)
-  [ -z "$_foreign" ] || { echo "runner: foreign entry (non-dir / non-.go / symlink / special) in $_src:"; echo "$_foreign"; return 2; }
-  _empty=$(find "$_src" -mindepth 1 -type d -empty -print 2>/dev/null)
-  [ -z "$_empty" ] || { echo "runner: empty directory in authoritative tree $_src:"; echo "$_empty"; return 2; }
+  _sman=$(mktemp /tmp/fido-srcman.XXXXXX); _fman=$(mktemp /tmp/fido-frshman.XXXXXX)
+  _err=$(mktemp /tmp/fido-runnererr.XXXXXX)
+  # honest input contract: exactly one REGULAR (non-symlink) root go.mod
+  { [ -f "$_src/go.mod" ] && [ ! -L "$_src/go.mod" ]; } \
+    || { echo "runner: missing/irregular root go.mod in $_src"; rm -f "$_sman" "$_fman" "$_err"; return 2; }
+  # (2/3) SOURCE manifest -> FILE; FAIL LOUD if enumeration errors (status AND stderr checked; not suppressed)
+  if ! ( cd "$_src" && find . -mindepth 1 -print ) > "$_sman" 2> "$_err"; then
+    echo "runner: source enumeration FAILED in $_src:"; cat "$_err"; rm -f "$_sman" "$_fman" "$_err"; return 2; fi
+  [ ! -s "$_err" ] \
+    || { echo "runner: source enumeration emitted errors in $_src:"; cat "$_err"; rm -f "$_sman" "$_fman" "$_err"; return 2; }
+  # (4) validate EVERY manifest entry against the honest input contract (read from a FILE -> current shell)
+  while IFS= read -r rel; do
+    p="$_src/$rel"
+    if [ -L "$p" ]; then echo "runner: symlink in $_src: $rel"; rm -f "$_sman" "$_fman" "$_err"; return 2; fi
+    if [ -d "$p" ]; then
+      [ -n "$(ls -A "$p" 2>/dev/null)" ] \
+        || { echo "runner: empty directory in $_src: $rel"; rm -f "$_sman" "$_fman" "$_err"; return 2; }
+      continue; fi
+    if [ -f "$p" ]; then
+      case "$rel" in
+        ./go.mod) : ;;
+        *.go)     : ;;
+        *) echo "runner: foreign non-.go regular file in $_src: $rel"; rm -f "$_sman" "$_fman" "$_err"; return 2 ;;
+      esac
+      continue; fi
+    echo "runner: special (non-dir/non-regular) entry in $_src: $rel"; rm -f "$_sman" "$_fman" "$_err"; return 2
+  done < "$_sman"
+  # (5) a FRESH empty root
   _fresh=$(mktemp -d /tmp/fido-fresh.XXXXXX); chmod 0755 "$_fresh"
-  install -m 0644 "$_src/go.mod" "$_fresh/go.mod"
-  ( cd "$_src" && find . -name '*.go' -type f | while IFS= read -r f; do
-      d=$(dirname "$f"); [ "$d" = . ] || mkdir -m 0755 -p "$_fresh/$d"; install -m 0644 "$f" "$_fresh/$f"; done )
-  _vf=$( cd "$_src" && find . \( -name '*.go' -o -name go.mod \) -type f | while IFS= read -r f; do
-           cmp -s "$_src/$f" "$_fresh/$f" || echo "$f"; done )
-  [ -z "$_vf" ] || { echo "runner: fresh materialization byte mismatch: $_vf"; rm -rf "$_fresh"; return 3; }
+  # (6) materialize with CHECKED mkdir/install (read manifest from FILE; ANY failure aborts the function loud)
+  while IFS= read -r rel; do
+    p="$_src/$rel"; q="$_fresh/$rel"
+    if [ -d "$p" ]; then
+      mkdir -m 0755 -p "$q" \
+        || { echo "runner: mkdir FAILED for dir $rel"; rm -rf "$_fresh"; rm -f "$_sman" "$_fman" "$_err"; return 2; }
+    else
+      mkdir -m 0755 -p "$(dirname "$q")" \
+        || { echo "runner: mkdir FAILED for parent of $rel"; rm -rf "$_fresh"; rm -f "$_sman" "$_fman" "$_err"; return 2; }
+      install -m 0644 "$p" "$q" \
+        || { echo "runner: install FAILED for $rel"; rm -rf "$_fresh"; rm -f "$_sman" "$_fman" "$_err"; return 2; }
+    fi
+  done < "$_sman"
+  # (7) FRESH-root manifest -> FILE; FAIL LOUD if enumeration errors
+  if ! ( cd "$_fresh" && find . -mindepth 1 -print ) > "$_fman" 2> "$_err"; then
+    echo "runner: fresh enumeration FAILED in $_fresh:"; cat "$_err"; rm -rf "$_fresh"; rm -f "$_sman" "$_fman" "$_err"; return 2; fi
+  [ ! -s "$_err" ] \
+    || { echo "runner: fresh enumeration emitted errors:"; cat "$_err"; rm -rf "$_fresh"; rm -f "$_sman" "$_fman" "$_err"; return 2; }
+  # (8) exact relative-path SET comparison (sorted, temp files — no bashism); missing OR extra path fails loud
+  sort "$_sman" > "$_sman.s"; sort "$_fman" > "$_fman.s"
+  if ! _pd=$(diff "$_sman.s" "$_fman.s"); then
+    echo "runner: fresh path-set differs from source manifest:"; echo "$_pd"
+    rm -rf "$_fresh"; rm -f "$_sman" "$_sman.s" "$_fman" "$_fman.s" "$_err"; return 2; fi
+  # (9) every FILE byte-for-byte (directories skipped)
+  while IFS= read -r rel; do
+    p="$_src/$rel"; [ -f "$p" ] || continue
+    cmp -s "$p" "$_fresh/$rel" \
+      || { echo "runner: byte mismatch: $rel"; rm -rf "$_fresh"; rm -f "$_sman" "$_sman.s" "$_fman" "$_fman.s" "$_err"; return 2; }
+  done < "$_sman"
+  rm -f "$_sman" "$_sman.s" "$_fman" "$_fman.s" "$_err"
+  # (10/11) the literal pinned build, exactly ONCE; capture status + log; expose the disposable root + log.
   _log=$(mktemp /tmp/fido-buildlog.XXXXXX)
   ( cd "$_fresh" && go build ./... ) > "$_log" 2>&1
   _rc=$?
@@ -686,6 +741,48 @@ fido_go_build_all_fresh() {  # <authoritative-pristine-tree> <out-var-for-fresh-
   eval "$_out=\$_fresh"
   return $_rc
 }
+
+# ── §4 (CL-4) FRESH-BUILD-RUNNER REGRESSIONS — the runner FAILS CLOSED (a loud rc=2, strictly BEFORE Go) on
+#    every bad input / manifest / materialization fault, and returns the LITERAL Go class on a valid pristine
+#    image.  Bad inputs are crafted disposable /tmp trees; the internal find/install/mkdir faults are induced
+#    by PATH-shadowing that command with a failing/misbehaving stub (so the runner's CHECKED operations and
+#    its path-set / byte comparisons are each exercised on the REAL runner path).  These pin the honest input
+#    contract and the "an error is NOT an empty result" guarantee.
+_mkbase() { mkdir -p "$1"; printf 'module ex\n\ngo 1.23\n' > "$1/go.mod"; printf 'package main\n\nfunc main() {}\n' > "$1/main.go"; }
+_rok() { # <tree> <label>: the runner MUST reject with rc=2 (bad input), never 0/1, never reaching go build
+  _rc=0; fido_go_build_all_fresh "$1" _RJ >/tmp/fido-rok.log 2>&1 || _rc=$?
+  [ "$_rc" = 2 ] || { echo "fido e2e runner: $2 — expected fail-closed rc=2, got rc=$_rc (fail-OPEN!):"; cat /tmp/fido-rok.log; exit 1; }
+  echo "fido e2e runner: $2 — rejected fail-closed (rc=2, before Go)"; }
+_stub() { # <cmd> <body...>: write an executable stub for <cmd> into a fresh /tmp/fido-stub on PATH
+  rm -rf /tmp/fido-stub; mkdir -p /tmp/fido-stub; printf '%s\n' "#!/bin/sh" "$2" > "/tmp/fido-stub/$1"; chmod +x "/tmp/fido-stub/$1"; }
+_rok_stubbed() { # <cmd> <stub-body> <valid-tree> <label>: run the runner with <cmd> shadowed; expect rc=2
+  _stub "$1" "$2"; _rc=0
+  ( export PATH=/tmp/fido-stub:$PATH; fido_go_build_all_fresh "$3" _SX >/tmp/fido-stub.log 2>&1 ) || _rc=$?
+  rm -rf /tmp/fido-stub
+  [ "$_rc" = 2 ] || { echo "fido e2e runner: $4 — expected fail-closed rc=2, got rc=$_rc (fail-OPEN!):"; cat /tmp/fido-stub.log; exit 1; }
+  echo "fido e2e runner: $4 — rejected fail-closed (rc=2, before Go)"; }
+
+rm -rf /tmp/rn
+# input-contract rejections (crafted bad pristine trees)
+_mkbase /tmp/rn/sym;     ln -s main.go /tmp/rn/sym/link.go;                                                   _rok /tmp/rn/sym     "symlink .go entry"
+_mkbase /tmp/rn/fifo;    mkfifo /tmp/rn/fifo/pipe;                                                            _rok /tmp/rn/fifo    "FIFO special file"
+_mkbase /tmp/rn/foreign; printf 'x' > /tmp/rn/foreign/README.txt;                                            _rok /tmp/rn/foreign "foreign non-.go regular file"
+_mkbase /tmp/rn/nested;  mkdir -p /tmp/rn/nested/sub; printf 'module ex/sub\n\ngo 1.23\n' > /tmp/rn/nested/sub/go.mod; printf 'package main\nfunc main(){}\n' > /tmp/rn/nested/sub/main.go; _rok /tmp/rn/nested "nested go.mod"
+_mkbase /tmp/rn/empt;    mkdir -p /tmp/rn/empt/hollow;                                                        _rok /tmp/rn/empt    "empty directory"
+mkdir -p /tmp/rn/nomod;  printf 'package main\nfunc main(){}\n' > /tmp/rn/nomod/main.go;                      _rok /tmp/rn/nomod   "missing root go.mod"
+# induced faults on the REAL runner path (an error is NOT an empty result; every checked op fails closed)
+_mkbase /tmp/rn/ok
+_rok_stubbed find    'echo "simulated find failure" >&2; exit 3'                       /tmp/rn/ok "enumeration failure (find errors, not empty)"
+_rok_stubbed mkdir   'echo "simulated mkdir failure" >&2; exit 1'                      /tmp/rn/ok "mkdir failure during materialization"
+_rok_stubbed install 'echo "simulated install failure" >&2; exit 1'                   /tmp/rn/ok "install (copy) failure during materialization"
+_rok_stubbed install 'while [ $# -gt 1 ]; do shift; done; exit 0'                      /tmp/rn/ok "omitted materialized file (path-set diff)"
+_rok_stubbed install 'while [ $# -gt 1 ]; do shift; done; printf CORRUPT > "$1"'       /tmp/rn/ok "byte mismatch (materialization content differs)"
+# POSITIVE — an exact valid pristine image builds and returns the LITERAL Go class (0)
+_rc=0; fido_go_build_all_fresh /tmp/rn/ok _OKR >/tmp/fido-ok.log 2>&1 || _rc=$?
+[ "$_rc" = 0 ] || { echo "fido e2e runner: valid minimal image REJECTED (expected build rc=0, got rc=$_rc):"; cat /tmp/fido-ok.log; exit 1; }
+rm -rf "${_OKR:-/nonexistent}"; echo "fido e2e runner: valid minimal pristine image — built (rc=0, literal Go class)"
+rm -rf /tmp/rn
+echo "fido e2e runner: all CL-4 fail-closed regressions passed (input contract + enumeration/copy/mkdir/omission/byte + positive)"
 
 cd tree
 # the generated-module layer is the PRISTINE canonical module: it must carry NO .fido / lock / temp residue
