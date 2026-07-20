@@ -51,13 +51,27 @@ generated module byte-exact.
   this ledger; pure banner decoration and duplicated charter restatements in the Makefile / Dockerfile /
   `GoCompile` + `GoIndex` headers (the layer charter stays ARCHITECTURE.md, not restated per module).  No
   invariant, theorem, or rationale was deleted to meet a byte number.
-- **Candidate `a95f9be` (frozen).**  Verification, all from that tree: `make prove` (readable gate **386/386**,
-  whole-theory assumption audit, self-tests A-E), `make e2e` (incl. the four new fresh-runner fault tests),
-  `make check`, `make regenerate`, `make regen-guard`, staged pre-commit — all GREEN; generated `go.mod` +
-  recursive `.go` byte-IDENTICAL; `git diff --check` clean; zero trailing whitespace; zero stale/scar hits.
-  Whole repository **1,564,197** bytes, below the 1,565,977 snapshot baseline (GoCompile.v −2,260; all root
-  Rocq source −10,951).  The ONE authorized bounded confirmation is requested; a BLOCKING result ENDS
-  autonomous work.  C4 remains FORBIDDEN.
+- **Candidate `a95f9be` (frozen).**  Build/proof verification, all from that tree: `make prove` (readable gate
+  **386/386**, whole-theory assumption audit, self-tests A-E), `make e2e` (incl. the four new fresh-runner fault
+  tests), `make check`, `make regenerate`, `make regen-guard`, staged pre-commit — all GREEN; generated `go.mod`
+  + recursive `.go` byte-IDENTICAL; `git diff --check` clean; no trailing whitespace.  Whole repository
+  **1,564,197** bytes, below the 1,565,977 snapshot baseline (GoCompile.v −2,260; all root Rocq source −10,951).
+- 🔴🛑 **The ONE authorized confirmation returned BLOCKING** (Codex `task-mrtsfkcj`, range `38561c6..b093d84`);
+  per the directive §8 the request is CLOSED, recorded here, Rob notified, and autonomous work STOPPED — no
+  repair and no further review round without a NEW explicit human override.  **Closed by the reviewer:**
+  fail-closed fresh-runner classification; the component-based `package_import_path_inj` / `_deterministic` and
+  their gating; gate exactly 386 with no weakened trust surface; architecture and forbidden scope (no C4, no
+  competing authority, generated output unchanged); size; the two authorized deletions.  **STILL OPEN — the
+  tracked-tree prose sweep (directive §3-§4):** two repair-INDUCED scars `(* / —` (GoCompile.v:3599) and
+  `(** / —` (GoCompile.v:6743); previously-observable residues `(**:` (Floats.v:524), the damaged sentence
+  `disposable copy — )` (Dockerfile:835), empty parentheses after "index elaboration" (GoCompile.v:6419),
+  "analysis" for the whole-program phase (GoIndex.v:2492), CLAUDE.md:81 pointing permanent trust prose at the
+  superseded weedwhacker directive + checkpoint chronology at CLAUDE.md:228, and `COLLECTION_AUDIT.md`
+  checkpoint archaeology plus its citation of a NONEXISTENT theorem at line 40
+  (`collect_diagnostics_node_strict`; the real name is `semantic_diagnostics_node_strict`).  **A prior revision
+  of this ledger claimed "zero stale/scar hits" — that claim was FALSE** (it rested on a fixed-token scan that
+  never matched the spaced `/ —` variant) and is corrected here.  The required outcome remains ONE genuine
+  semantic read-through of current prose, not another token-deletion pass.  C4 remains FORBIDDEN.
 
 ## Standing decisions
 - **Platform limits OUT of scope** (Rob, 2026-07-19): Fido models no NAME_MAX/PATH_MAX/disk/memory limit; a path

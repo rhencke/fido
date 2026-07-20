@@ -7,9 +7,10 @@
   (one repair batch + one final bounded Implementation Review confirmation; does NOT reopen C3 architecture or
   authorize C4).
 - **Accepted review basis:** `.review/REVIEW_BASIS.md`.
-- **Current state:** the C3-final-cleanup-1 batch is COMPLETE and FROZEN at candidate `a95f9be` (runner state
-  machine + four fault tests, restored package-import injectivity/determinism over the component root, corrected
-  semantic/workflow claims, tracked-tree prose sweep); all required checks GREEN.  The ONE authorized bounded
-  confirmation is requested (`.review/REVIEW_REQUEST.md`).  Live status: `.review/SOURCE_FOREST_STATUS.md`.
-  Do NOT describe any candidate as accepted until a non-stale Codex GREEN.
+- **Current state: STOPPED, awaiting Rob.**  The C3-final-cleanup-1 batch landed at candidate `a95f9be` and its
+  ONE authorized bounded confirmation returned **BLOCKING** (the runner, proof-boundary, gate, architecture and
+  size findings were CLOSED; the tracked-tree prose sweep is still OPEN).  Per the directive §8 the request is
+  closed and autonomous work has ENDED: no repair and no further review round without a NEW explicit human
+  override.  Complete result: `.review/SOURCE_FOREST_STATUS.md`.  Do NOT describe any candidate as accepted
+  until a non-stale Codex GREEN.
 - **C4 is FORBIDDEN** until explicit Rob authorization.
