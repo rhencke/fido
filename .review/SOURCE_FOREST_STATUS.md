@@ -30,7 +30,37 @@ Updated only at checkpoint boundaries._
   `.review/C3_MANUAL_CLOSEOUT_DIRECTIVE.md`; supporting evidence `.review/C3_MANUAL_CLOSEOUT_AUDIT.md` (not a
   second contract).  **C4 remains FORBIDDEN.**  The next substantive Codex barrier is ONE holistic
   **Implementation Review** after the entire closeout directive is complete (with at most one bounded confirmation).
-- **Material defects the closeout must fix** (over the retained-correct C3 architecture): (1) the production
+- **CLOSEOUT COMPLETE — all 8 material defects RESOLVED (2026-07-20); candidate frozen at `1180b49`, `make check` GREEN.**
+  Directive → work mapping: **CL-3** §3 second traversal — `elaborate` folds the RETAINED `visit` via the shared
+  `prog_package_refs_from_visit` (no second `prog_visit`) (`5560019`); **CL-6** §6 old authority —
+  `SourceProgramValid` is the ONLY live source root, `AllPackagesOneMain`/`ProgValid`/`prog_ok` CONFINED (grammar
+  consequence + internal convenience, none gated), dead helpers `elaborate_valid_of_no_diags`/`result`/
+  `bool_sumbool` DELETED (`5560019`); **CL-7** §7 exec-name — replaced the 571-line character-level canonicality
+  system with ONE component-level root over the `ModulePath`/`FilePath` components (`default_exec_name_nonempty`
+  via `ip_basename_concat`/`ip_dirname_concat`/`default_exec_name_in_components`), DELETED the
+  `str_starts_slash`/`str_ends_slash`/`str_no_double_slash` ecosystem (GoCompile −73 net: 303 deleted / 230 added)
+  (`addfe81`); **CL-4** §4 fresh runner — checked MANIFEST flow (no `find|while`, no suppressed errors, path-set +
+  byte compare), 11 fail-closed regressions before Go (`3c58b5c`); **CL-5** §5 validate-before-publish —
+  `make regenerate` now depends on `e2e` so a failed fresh `go build ./...` aborts before any sink; deployed path
+  == tested path (`e5184c4`); **CL-8** §8 gate 574 → 410 (164 `Example` fixtures removed from the readable surface
+  but still COMPILED; no scaffolding/old-authority remains) + **CL-9** §9 shared builders verified already factored
+  (`prog_package_refs_from_visit` / `fresh_build_plan_of` / `fresh_build_diagnostics_of` with proven canonical↔
+  retained bridges `fresh_build_plan_of_buckets` / `command_plan_diags_eq` / `ef_build_plan_ok`) (`5f66952`);
+  **CL-10** §10 permanent headers/docs/status reconciled — GoIndex "C2 in progress" removed, GoCompile header around
+  `SourceProgramValid` + fresh preflight + `elaborate`, Dockerfile pipeline (complex family), dune synopsis, and
+  7 historical `(ACTIVE)` status headings → `COMPLETE` (`1180b49`).
+  **Verification (`make check` GREEN):** dune theory build; readable gate **410/410** axiom-free (exact count);
+  whole-theory closure audit + adversarial self-tests A-E; module coverage exact; plugin/transport build; fresh
+  runner operational negatives; full pinned-Go fresh-image matrix + command-precedence cases; all publication paths
+  fresh-validate first; sink tests; witness + runtime goldens; **generated go.mod + recursive .go byte-IDENTICAL to
+  the authoritative pristine (generated-compare OK); no post-build byte enters publication;** no untracked
+  generated/control/temp residue; **no C4 work.**  Every audited call-site (`analyze`/`AnalysisOK`/`AnalysisFailed`/
+  `CompilationFacts` all absent from code; `AllPackagesOneMain`/`ProgValid`/`prog_ok` confined + ungated;
+  `prog_package_refs`/`prog_visit`/`Snap.visit_file`/`Fido Emit`/`Fido_sink.sync`/`go build ./...`/`Print Assumptions`
+  each one current justified role; `ACTIVE` = the single current-C3 status heading) verified.
+  **The ONE holistic Implementation Review is REQUESTED** — `.review/REVIEW_REQUEST.md` (base `fea6493`,
+  head `1180b49`, contract `83c3989`).  **C4 remains FORBIDDEN.**
+- **Material defects the closeout fixed** (all RESOLVED — see CLOSEOUT COMPLETE above; over the retained-correct C3 architecture): (1) the production
   elaborator still traverses each file twice — `elaborate_indexed` uses `prog_package_refs idx` (which recomputes
   `prog_visit p`) instead of the RETAINED `visit`; (2) the fresh-build runner is fail-OPEN (find|while pipelines +
   suppressed find errors → can omit source files and return success) — replace with a checked manifest flow;

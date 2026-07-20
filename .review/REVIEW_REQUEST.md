@@ -1,16 +1,16 @@
 # Review Request
 
-state: closed
-review: Contract Review
+state: requested
+review: Implementation Review
 confirmation: no
 
 contract: .review/NEXT_STEPS.md
-contract_sha: REPLACE_WITH_COMMIT_SHA
+contract_sha: 83c3989
 review_basis: .review/REVIEW_BASIS.md
 
 # Implementation Review only:
-base_sha: N/A
-head_sha: N/A
+base_sha: fea649389ee52d442373c43ea2bdb3be2eca47db
+head_sha: 1180b49ea0aef4ca0f17af257d5008763391ca7c
 
 # Bounded confirmation only:
 confirmation_of: N/A
