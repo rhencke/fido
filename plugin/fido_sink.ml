@@ -49,7 +49,7 @@
    Fallible/nondeterministic ops are PARAMETERS (checkpoint/unlink/rename/before_install/before_write/
    before_delete) so the driver injects faults through the REAL algorithm; the plugin always uses defaults. *)
 
-(*: identity-keyed / membership-only collections use the OCaml runtime's mature [Map]/[Set] — the
+(* identity-keyed / membership-only collections use the OCaml runtime's mature [Map]/[Set] — the
    sink authors no hash/tree.  [SMap] keys the desired outputs by their relative path (rejecting a duplicate
    before any effect; [bindings] gives a canonical path-sorted iteration independent of transport order);
    [SSet] holds the unordered-unique desired-target set (stale-file membership) and abandoned-temp set.

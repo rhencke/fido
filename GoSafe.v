@@ -1,5 +1,4 @@
-(** ============================================================================
-    GoSafe — the exact ABSTRACT println-trace semantics of the admitted fragment, and [SafeProgram], the
+(** GoSafe — the exact ABSTRACT println-trace semantics of the admitted fragment, and [SafeProgram], the
     permanent safety capability boundary over a [CompilableProgram].
 
     This is NOT a full Go operational semantics — it is a deterministic abstract-trace mapping for the
@@ -27,8 +26,7 @@
     user- or LLM-added refinements).  [GoSafe cp := True] is honest TODAY only because every
     [CompilableProgram] representable in this fragment satisfies the current safety floor — NOT by circular
     reference to compilation.  Stronger proofs REFINE it over the same [CompilableProgram]; they never fork
-    the compiler, AST, renderer, or semantics.
-    ============================================================================ *)
+    the compiler, AST, renderer, or semantics. *)
 From Stdlib Require Import ZArith List Bool String.
 From Stdlib Require Import Floats.SpecFloat.
 From Fido Require Import Ints Floats Complexes GoAST GoTypes GoCompile.
@@ -74,11 +72,9 @@ Proof.
   - split; [ intros _; exact I | intros _; reflexivity ].
 Qed.
 
-(** ============================================================================
-    the intrinsic typed constant PROJECTS to a runtime value.  There is NO total runtime->constant
+(** the intrinsic typed constant PROJECTS to a runtime value.  There is NO total runtime->constant
     fallback: NaN / infinity / negative-zero runtime values are not constants (an honest RELATION describes
-    when a value denotes a constant).
-    ============================================================================ *)
+    when a value denotes a constant). *)
 
 (** the ONE total typed-constant-to-runtime map: bool/int/string are direct; a FLOAT PROJECTS its stored
     [tfc_runtime] — it does NOT round again (no [round_float_sf]/[round_float_const]/[round_typed_float]).  A

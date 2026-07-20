@@ -311,7 +311,7 @@ Print Assumptions GoCompile.ef_package_singleton.
    the sealed table (returns exactly the stored fact — a defect-shipping option result is impossible). *)
 Print Assumptions GoCompile.expr_ref_fact_some.
 Print Assumptions GoCompile.expr_fact_at_find.
-(* the legacy compile class projects the analysis diagnostics (matches the decision), not a rerun. *)
+(* the legacy compile class projects the elaboration diagnostics (matches the decision), not a rerun. *)
 Print Assumptions GoCompile.go_compile_class_spec.
 (* decision (expression half): every println argument resolves IFF program_typedb / ProgramTyped. *)
 Print Assumptions GoCompile.expr_all_ok_program_typedb.
@@ -364,7 +364,6 @@ Print Assumptions GoCompile.go_compile_projects_elaborate.
    default exec name is a ModulePath function), so their determinism needs the FULL ProgramInputEqual, NOT
    FilesEqual alone (the counterexample: equal files, different module -> different plan). *)
 Print Assumptions GoCompile.root_layout_InputEqual.
-Print Assumptions GoCompile.package_import_path_InputEqual.
 Print Assumptions GoCompile.fresh_build_plan_InputEqual.
 Print Assumptions GoCompile.erased_elaboration_report_InputEqual.
 (* the fresh BUILD PLAN and ROOT LAYOUT are RETAINED in ElaborationFacts (derived ONCE from
@@ -386,14 +385,16 @@ Print Assumptions GoCompile.root_layout_gomod_iff.
 Print Assumptions GoCompile.root_layout_source_iff.
 Print Assumptions GoCompile.root_layout_domain.
 (* the UNIVERSAL package-selection / import-path / executable-name / plan exactness (not just
-   computed fixtures): visibility (a selected key IS a represented file's parent); the two package-import-path
-   forms (root / nested); the NEVER-EMPTY default executable name, proved over the import path's COMPONENT LIST
-  ; the exact
-   zero/single/multiple plan classification and the sole-main plan's stored output target. *)
+   computed fixtures): visibility (a selected key IS a represented file's parent); the import-path INJECTIVITY
+   in the package directory and its determinism (the directory key is recovered EXACTLY through the component
+   authority) plus the nested string form; the NEVER-EMPTY default executable name, proved over the import
+   path's COMPONENT LIST; the exact zero/single/multiple plan classification and the sole-main plan's stored
+   output target. *)
 Print Assumptions GoCompile.selected_iff_file.
 Print Assumptions GoCompile.selected_key_is_parent.
-Print Assumptions GoCompile.package_import_path_root.
 Print Assumptions GoCompile.package_import_path_nested.
+Print Assumptions GoCompile.package_import_path_inj.
+Print Assumptions GoCompile.package_import_path_deterministic.
 Print Assumptions GoCompile.default_exec_name_nonempty.
 Print Assumptions GoCompile.fresh_build_plan_exec_nonempty.
 Print Assumptions GoCompile.fresh_build_plan_zero.
@@ -437,7 +438,7 @@ Print Assumptions GoSafe.eval_projects_stored_complex_runtime.
    EXACT first line of a .go file; go.mod is rendered from the ModuleSpec — exact bytes, header first line,
    all ASCII. *)
 Print Assumptions GoRender.render_file_ascii.
-(*: the import domain is INTRINSICALLY empty and the renderer STRUCTURALLY consumes [source_imports], so a
+(* the import domain is INTRINSICALLY empty and the renderer STRUCTURALLY consumes [source_imports], so a
    future import constructor forces a renderer update rather than being silently dropped. *)
 Print Assumptions GoRender.source_imports_nil.
 Print Assumptions GoRender.render_imports_nil_bytes.
@@ -654,7 +655,7 @@ Print Assumptions GoIndex.nodekeymap_add_eq.
 Print Assumptions GoIndex.nodekeymap_add_neq.
 Print Assumptions GoIndex.nodekeymap_elements_Equal.
 (* the UNIVERSAL query-projection bridge: every typed expression query PROJECTS its occurrence's
-   EXACT analyzed fact (the const-status the fact table stores).  (: the concrete per-program erased-report /
+   EXACT analyzed fact (the const-status the fact table stores).  (The concrete per-program erased-report /
    fact-enumeration / single-failure-scar fixtures stay COMPILED as tests + covered by the whole-theory audit,
    but are NOT gated surfaces — they are fixed-program witnesses, not universal claims.) *)
 Print Assumptions GoCompile.expr_fact_at_exact.

@@ -1,5 +1,4 @@
-(** ============================================================================
-    GoAST — the ONE raw program representation.  The permanent root pairs an intrinsic module spec with a
+(** GoAST — the ONE raw program representation.  The permanent root pairs an intrinsic module spec with a
     STANDARD `FilePath`-keyed finite map of specification-shaped source-file roots (a [GoFileMap] =
     [Collections.FileMapBase.t GoSourceFile], the pinned-stdlib [FMapAVL] over the [FilePath] ordered key; it
     MAY be empty):
@@ -31,8 +30,7 @@
     the EMPTY source forest is representable (a valid module with a `go.mod` and no packages).
 
     No identifiers, calls, parameters, results, non-empty imports, arbitrary expressions/statements, user
-    types, concurrency, or non-`main` package clauses.  Anything else is UNREPRESENTABLE.
-    ============================================================================ *)
+    types, concurrency, or non-`main` package clauses.  Anything else is UNREPRESENTABLE. *)
 From Stdlib Require Import NArith List String.
 From Stdlib Require Import Permutation SetoidList.
 From Fido Require Import FilePath Collections ModulePath GoVersion Ints Floats Complexes.
@@ -78,8 +76,7 @@ Inductive GoStmt : Type :=
 Inductive GoDecl : Type :=
 | DMain : list GoStmt -> GoDecl.
 
-(** ============================================================================
-    C1/ — the SPECIFICATION-SHAPED source file root (Master Plan 3.1–3.4).  A source file is no longer a
+(** the SPECIFICATION-SHAPED source file root.  A source file is no longer a
     bare declaration list: it follows the Go specification's abstract source-file structure — a package clause,
     a (currently empty) import section, and top-level declarations ([GoSourceFile]).  The whole program stores
     these in a STANDARD `FilePath`-keyed finite map [GoFileMap] ([FMapAVL]): the FILE PATH is the MAP KEY (not a
@@ -92,7 +89,7 @@ Inductive GoDecl : Type :=
     package clause is only the canonical `package main` ([PkgMain]); imports are INTRINSICALLY empty
     ([ImportSpecSyntax] has no constructors, so [list ImportSpecSyntax] can only be [nil]); top-level
     declarations are the current [GoDecl] form.  This avoids the subset-filter mistake (representing arbitrary
-    packages/imports and then rejecting them). ============================================================ *)
+    packages/imports and then rejecting them). *)
 
 (** The package clause as source syntax — only the canonical `package main` is representable today. *)
 Inductive PackageClauseSyntax : Type := PkgMain.

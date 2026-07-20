@@ -13,7 +13,9 @@
 #   - e2e/fido_apply.ml     — the `make regenerate` apply CLI (filesystem ONLY — no Rocq term, no AST);
 #   - plugin/g_fido.mlg     — the transport bridge (four ordered steps: typecheck the image type; reject a
 #                             non-empty assumption closure; decode ONLY the final (go.mod, entries) transport;
-#                             call the sink).  It does no program/AST/type/safety inspection.
+#                             materialize a pristine export via `Fido Materialize`).  It does NOT call the
+#                             dirty-directory sink (that is reached only from sink_test + the apply CLI), and
+#                             does no program/AST/type/safety inspection.
 # Fail-closed: (1) the tracked *.ml/*.mli/*.mlg set is AT MOST those four; (2) the three filesystem-only
 # files walk no Rocq terms; (3) the bridge names no program/AST/type/safety structure.  There is deliberately
 # NO source-line-count ceiling — a numeric cap is not a correctness invariant; the behavioral emit fixtures

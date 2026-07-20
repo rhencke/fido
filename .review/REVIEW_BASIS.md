@@ -50,7 +50,8 @@ basis_authority: Rob's requested manual audit, recorded before C3 closeout
 - a second executable index, traversal, package decision, semantic decision, or capability path;
 - a source/package rule that is only accidentally correct for the current grammar;
 - a literal-build plan that omits a real input or diverges from the pinned command;
-- fail-open manifest observation, copying, proof, or publication;
+- a fail-open fresh runner (an infrastructure failure taken as a Go outcome), or fail-open copying, proof, or
+  publication;
 - a public publication path that bypasses fresh validation;
 - facts or diagnostics that copy syntax, lose identity, deduplicate evidence, misorder results, or prove only a
   weaker/vacuous claim;
@@ -68,7 +69,8 @@ basis_authority: Rob's requested manual audit, recorded before C3 closeout
 - retained-fact and capability-provenance theorems;
 - universal diagnostic soundness, completeness, multiplicity, ordering, precedence, and determinism surfaces;
 - exact DirectoryImage/fresh-layout bridge;
-- fail-closed fresh runner with exact manifest and byte checks;
+- a fail-closed fresh disposable-copy runner that classifies infrastructure failure apart from a Go build
+  outcome, plus the exact DirectoryImage/generated-layer byte bridge (no checksum or manifest substitute);
 - proof that every supported publication path validates first and sinks the original image;
 - standard-collection audit;
 - readable load-bearing assumption gate plus whole-theory closure audit;

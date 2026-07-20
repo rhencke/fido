@@ -9,45 +9,14 @@ integration check against `go build ./...`.
 ## What actually works today
 
 One complete vertical slice, proved **and** executed end to end. A witness exercising every admitted
-primitive — bool, int (incl. the `-(2^63)` boundary), exact float32/float64 constants, exact
-complex64/complex128 constants, and byte-sequence
-strings (empty, ASCII, quote, backslash, tab, CR, NL):
+primitive — bool, the ten integer types (incl. the `-(2^63)` boundary), exact float32/float64 constants,
+exact complex64/complex128 constants, and byte-sequence strings (empty, ASCII, quote, backslash, tab, CR,
+NL) — is the tracked canonical artifact **`main.go`** (not copied into this README, so it cannot drift;
+`make check` and the pre-commit hook verify it byte-exact against the pristine `generated-module` layer, and
+its reviewed stdout/stderr/exit are `e2e/golden.*`).
 
-```go
-// fido generated.  do not edit.
-
-package main
-
-func main() {
-	println(true, 42, -1, -9223372036854775808)
-	println()
-	println(false)
-	println("hello, world")
-	println("")
-	println(true, 7, "mix")
-	println("\"")
-	println("\\")
-	println("a\tb")
-	println("a\rb")
-	println("a\nb")
-	println(15.0e-1, float32(15.0e-1))
-	println(float64(5.0e-1))
-	println(int(3.0e+0))
-	println(float64(7))
-	println(uint64(float32(2305843146652647425.0e+0)))
-	println(uint64(float32(float64(2305843146652647425.0e+0))))
-	println(float64(1.0e-330))
-	println(complex(15.0e-1, -25.0e-1))
-	println(complex64(complex(15.0e-1, -25.0e-1)))
-	println(complex128(complex(15.0e-1, -25.0e-1)))
-	println(int(complex(3.0e+0, 0.0)))
-	println(float32(complex(15.0e-1, 0.0)))
-	println(uint64(complex64(complex(2305843146652647425.0e+0, 0.0))))
-	println(uint64(complex64(complex128(complex(2305843146652647425.0e+0, 0.0)))))
-}
-```
-
-is produced from proved bytes, synchronized into a directory tree, built by `go build ./...`, and run with
+That program is produced from proved bytes, synchronized into a directory tree, built by `go build ./...`,
+and run with
 its stdout/stderr/exit compared byte-for-byte to reviewed goldens — alongside a boundary-byte string witness
 (bytes `0x00`/`0x1f`/`0x7f`/`0x80`/`0xff`, checked byte-exact via an `od` hex oracle) and representative
 differential fixtures (a multi-package tree accepted; no-main and duplicate-main trees rejected; `go list

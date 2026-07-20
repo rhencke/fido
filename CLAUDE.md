@@ -75,7 +75,8 @@ algorithm, report an architectural conflict and stop. Do not implement an altern
    **VALIDATE-BEFORE-PUBLISH** (the `make regenerate` workflow) is the Docker DAG: building the `sync` image
    COPYs go-e2e's `/fresh-build-ok` edge, so a failed pinned `go build ./...` makes `sync` unbuildable and
    prevents publication; the sink then publishes the ORIGINAL generated-module bytes. **No checksum/manifest
-   stands in for validation provenance** — provenance is the supported Docker workflow graph. ⚠ This is
+   system exists** — a checksum cannot prove a build succeeded; the supported publication ordering IS the Docker
+   workflow graph. ⚠ This is
    accidental-publication protection for a COOPERATING developer (the pre-commit hook's level); the project does
    NOT attempt to resist a deliberate local bypass (`.review/C3_WEEDWHACKER_DIRECTIVE.md` §0.3).
    The OCaml uses mature runtime collections for identity/membership: the sink keys desired outputs by path in

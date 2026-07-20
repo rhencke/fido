@@ -1,5 +1,4 @@
-(** ============================================================================
-    GoVersion — the module-declared Go LANGUAGE version, an intrinsic SEMANTIC program fact (the `go`
+(** GoVersion — the module-declared Go LANGUAGE version, an intrinsic SEMANTIC program fact (the `go`
     directive of the generated `go.mod`), NOT environment configuration and NOT a raw string.  It is
     deliberately a SINGLETON today: exactly [Go1_23], rendered `1.23`.
 
@@ -7,8 +6,7 @@
     formal treatment of every relevant language/compiler difference for the represented AST, rendering
     support, and differential fixtures under the matching pinned toolchain — never silent reuse of the
     Go1_23 semantics if behaviour changed.  The exact compiler binary / toolchain pin is operational and
-    lives OUTSIDE this type (Dockerfile/Makefile), not threaded through the theorems.
-    ============================================================================ *)
+    lives OUTSIDE this type (Dockerfile/Makefile), not threaded through the theorems. *)
 From Stdlib Require Import String.
 Open Scope string_scope.
 

@@ -1,5 +1,4 @@
-(** ============================================================================
-    GoTypes — the ONE Go type-system authority for the current bool/integer/float/complex/string fragment.  It
+(** GoTypes — the ONE Go type-system authority for the current bool/integer/float/complex/string fragment.  It
     is EVIDENCE over the ONE raw [GoAST], never a second (typed) AST: raw [GoExpr] stays untyped syntax, and
     typing is a judgment over that same syntax.
 
@@ -23,8 +22,7 @@
     representability and conversion never disagree), while a TYPED constant RETAINS its type and value (it is
     NOT defaulted again; its validity is INTRINSIC — carried by the dependently-typed [TypedConst]
     constructor's own proof — so there is nothing to re-check).  This is the single authority every later
-    feature (assignments, variables, arguments, arithmetic, more numeric types) builds on.
-    ============================================================================ *)
+    feature (assignments, variables, arguments, arithmetic, more numeric types) builds on. *)
 From Stdlib Require Import NArith ZArith List Bool String Ascii Lia.
 From Stdlib Require Import SetoidList Permutation.
 From Fido Require Import Ints Floats Complexes GoAST.
@@ -90,13 +88,11 @@ Proof. decide equality. Defined.
 Definition complex_type_eq_dec (a b : ComplexType) : {a = b} + {a <> b}.
 Proof. decide equality. Defined.
 
-(** ============================================================================
-    INTRINSIC TYPED CONSTANTS — a genuinely [GoType]-indexed family.  A typed constant cannot exist
+(** INTRINSIC TYPED CONSTANTS — a genuinely [GoType]-indexed family.  A typed constant cannot exist
     without the structural evidence its type requires: an integer carries a proof it is representable at its
     type, a float carries a [TypedFloatConst] (exact rounded rational + canonical runtime value + coherence).
     The loose [(GoType, GoConst)] pair is GONE — a mismatched or out-of-range typed constant is
-    UNREPRESENTABLE, not merely rejected, and no [ci_ok := True] convention is needed.
-    ============================================================================ *)
+    UNREPRESENTABLE, not merely rejected, and no [ci_ok := True] convention is needed. *)
 Inductive TypedConst : GoType -> Type :=
 | TCBool    : bool -> TypedConst TBool
 | TCInteger : forall (it : IntegerType) (z : Z), integer_representableb it z = true -> TypedConst (TInteger it)
@@ -170,13 +166,11 @@ Definition numeric_const_to_complex (c : GoConst) : option ComplexConst :=
 (** The exact value of an expression is [const_info_exact] applied to [const_info] — there is NO separate
     [const_value] construction path (which would re-do conversion/rounding and be a second authority). *)
 
-(** ============================================================================
-    one constant-status analysis over the same raw AST (Go's own lattice): a raw literal is an UNTYPED
+(** one constant-status analysis over the same raw AST (Go's own lattice): a raw literal is an UNTYPED
     constant ([CIUntyped]); an explicit conversion is a TYPED constant ([CITyped] carrying the INTRINSIC
     [TypedConst] — its validity is in its type, so no [ci_ok] convention).  A conversion of a bool/string
     constant is unrepresentable; an invalid inner conversion returns [None] and cannot be revived (the value
-    is checked at EVERY layer).
-    ============================================================================ *)
+    is checked at EVERY layer). *)
 Inductive ConstInfo : Type :=
 | CIUntyped : GoConst -> ConstInfo
 | CITyped   : forall (t : GoType), TypedConst t -> ConstInfo.
@@ -447,7 +441,7 @@ Definition resolve_const_info (ci : ConstInfo) : option ResolvedConst :=
   | CITyped t tc => Some (pack_resolved t tc)
   end.
 
-(** successful analysis is deterministic (a function of the syntax). *)
+(** a successful constant-status resolution is deterministic (a function of the syntax). *)
 Lemma const_info_deterministic : forall e ci1 ci2,
   const_info e = Some ci1 -> const_info e = Some ci2 -> ci1 = ci2.
 Proof. intros e ci1 ci2 H1 H2; rewrite H1 in H2; injection H2 as <-; reflexivity. Qed.
@@ -1166,15 +1160,13 @@ Example int_of_cplx64_tiny_imag_is_3 :      (* (5) ... and its exact value is 3 
   end = true.
 Proof. vm_compute. reflexivity. Qed.
 
-(* =============================================================================================================
-   GENERIC [forallb] HELPERS for the whole-program typing folds.
+(* GENERIC [forallb] HELPERS for the whole-program typing folds.
 
    GoTypes owns the type/constant relation ONLY — never any occurrence/index traversal.  The per-occurrence
    typing predicate ([occ_arg_typedb]) and its occurrence-stream aggregation chain ([occs_*_typedb_eq]) live in
    GoCompile — the SOLE meeting point of GoIndex identity and GoTypes semantics — so GoTypes needs no GoIndex
    import.  These two lemmas are index-free [forallb] plumbing reused by that chain (in GoCompile) and by the
-   whole-program folds here.
-   ============================================================================================================= *)
+   whole-program folds here. *)
 
 Lemma forallb_ext_in {A} (f g : A -> bool) (l : list A) :
   (forall x, In x l -> f x = g x) -> forallb f l = forallb g l.

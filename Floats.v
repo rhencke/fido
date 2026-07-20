@@ -1,13 +1,11 @@
-(** ============================================================================
-    Floats — the ONE float-family descriptor + exact-constant authority.  Two live Go float types, F32 =
+(** Floats — the ONE float-family descriptor + exact-constant authority.  Two live Go float types, F32 =
     binary32 and F64 = binary64; precision and exponent bound are SINGLE-SOURCED from the one [FloatType]
     descriptor.  The exact untyped floating constant is an exact RATIONAL [FloatConst] (numerator [Z] over a
     [positive] denominator — never a [float], a [spec_float], a decimal source string, or a rounded value).
     Target-directed rounding is a SINGLE direct round of that exact rational at the destination format, over
     [SpecFloat.spec_float] and computable [Z] arithmetic — F32 rounds DIRECTLY at binary32, never through F64
     (the historical double-rounding scar).  Everything here is axiom-free: no [PrimFloat]/[Prim2SF]/[SF2Prim],
-    no primitive integers.  No float ARITHMETIC (deferred).
-    ============================================================================ *)
+    no primitive integers.  No float ARITHMETIC (deferred). *)
 From Stdlib Require Import ZArith String.
 From Stdlib Require Import Lia Znumtheory Eqdep_dec.
 From Stdlib Require Import Floats.SpecFloat.
@@ -116,14 +114,12 @@ Proof. reflexivity. Qed.
 Example round_f32_exact_small : sf_to_Z (round_float_sf F32 (fc_of_Z 3)) = Some 3. Proof. reflexivity. Qed.
 Example round_f64_exact_small : sf_to_Z (round_float_sf F64 (fc_of_Z 42)) = Some 42. Proof. reflexivity. Qed.
 
-(** ============================================================================
-    Canonical exact-rational equality + reduction, and the ONE target-directed constant-conversion /
+(** Canonical exact-rational equality + reduction, and the ONE target-directed constant-conversion /
     representability authority.  A [FloatConst] value is CANONICAL when its stored numerator and (positive)
     denominator are coprime; [fc_eqb] decides RATIONAL equality by cross-multiplication (independent of the
     stored form); [reduce_fc] normalizes any (num, den) to its coprime canonical form preserving the exact
     value; and on canonical values rational equality coincides with Leibniz equality
-    ([fc_canonical_unique]).  Canonical zero is [fc_zero = mkFC 0 1].
-    ============================================================================ *)
+    ([fc_canonical_unique]).  Canonical zero is [fc_zero = mkFC 0 1]. *)
 
 Definition fc_canonical (a : FloatConst) : Prop :=
   Z.gcd (fc_num a) (Zpos (fc_den a)) = 1.
@@ -256,8 +252,7 @@ Definition sf_to_FloatConst (v : spec_float) : option FloatConst :=
     defined BELOW as PROJECTIONS of the ONE [round_typed_float] authority — so [round_float_sf] has a single
     construction call site (the typed-float authority is structurally single-rooted). *)
 
-(** ============================================================================
-    The intrinsic finite-decimal raw literal domain — [DecimalFloat], the exact SEMANTIC value a raw float
+(** The intrinsic finite-decimal raw literal domain — [DecimalFloat], the exact SEMANTIC value a raw float
     source token carries (never source spelling: no underscores / hex / capitalization / leading zeros /
     negative-zero spelling).  Its value is [dm_coeff * 10 ^ dm_exp10].  It is INTRINSICALLY CANONICAL and
     INTRINSICALLY BOUNDED: a value is representable ONLY in one normal form (zero is exactly (0,0); a nonzero
@@ -267,8 +262,7 @@ Definition sf_to_FloatConst (v : spec_float) : option FloatConst :=
     F64 overflow (~e39/e309) and underflow (~e-330) fixture with margin).  Out-of-box / non-canonical pairs
     are UNREPRESENTABLE (no [DecimalFloat] value), not rejected — so every [DecimalFloat] renders to a literal
     the pinned toolchain accepts.  The internal [FloatConst] mathematics is deliberately WIDER than this raw
-    literal box.
-    ============================================================================ *)
+    literal box. *)
 
 Definition decimal_max_coeff : Z := 10 ^ 40.   (* |coeff| < 10^40  (<= 40 significant digits) *)
 Definition decimal_max_exp   : Z := 4096.      (* -4096 <= exp10 <= 4096 *)
@@ -366,13 +360,11 @@ Example decimal_value_tenth :                                     (* 1 * 10^-1 =
   /\ fc_den (decimal_value (mkDecimal 1 (-1) eq_refl)) = 10%positive.
 Proof. split; reflexivity. Qed.
 
-(** ============================================================================
-    The runtime float value — a FORMAT-CANONICAL [spec_float] tied to one [FloatType], with a PROOF-CARRYING
+(** The runtime float value — a FORMAT-CANONICAL [spec_float] tied to one [FloatType], with a PROOF-CARRYING
     canonical invariant.  A value is canonical for [ft] when it is in the IMAGE of the format normalizer
     [round_float_sf ft] (finite / +/-inf on overflow / +/-0 on underflow — the only source today), OR is NaN
     or an infinity (future runtime ops).  This is future-compatible with every IEEE case (finite, +/-0, inf,
-    NaN) and is NOT a "values-from-constants-only" invariant.  Construction from a constant is [eq_refl].
-    ============================================================================ *)
+    NaN) and is NOT a "values-from-constants-only" invariant.  Construction from a constant is [eq_refl]. *)
 
 Definition sf_is_finite_or_zero (v : spec_float) : bool :=
   match v with S754_finite _ _ _ | S754_zero _ => true | _ => false end.
@@ -410,14 +402,12 @@ Proof.
   - left; exists q; rewrite E; reflexivity.
 Qed.
 
-(** ============================================================================
-    INTRINSIC TYPED FLOAT CONSTANTS — one package that carries BOTH the exact
+(** INTRINSIC TYPED FLOAT CONSTANTS — one package that carries BOTH the exact
     rounded rational AND its canonical runtime IEEE value, plus a proof they denote
     the same value.  Constructed by the ONE authority [round_typed_float], which
     rounds ONCE at the destination format (F32 directly at binary32); the exact and
     runtime representations come from that single rounding event, so evaluation never
-    rounds a typed float constant again.
-    ============================================================================ *)
+    rounds a typed float constant again. *)
 
 (** the constant-origin runtime shape (contract): a typed float constant's runtime is exactly +0 or a
     finite value — never -0, infinity, or NaN.  (Those inhabit the general [FloatValue] domain, but are not
@@ -499,12 +489,10 @@ Proof.
     [ injection H as <-; reflexivity | discriminate ].
 Qed.
 
-(** ============================================================================
-    [round_typed_float] is the ONE structural root of float-constant construction: it evaluates
+(** [round_typed_float] is the ONE structural root of float-constant construction: it evaluates
     [round_float_sf] at exactly ONE site, BINDS that result, and derives both the exact rational and the
     runtime value from it (via [tfc_from_canonical]); the exact-rational rounding, the representability
-    authority, and the constant-conversion fixtures below are all PROJECTIONS of it.
-    ============================================================================ *)
+    authority, and the constant-conversion fixtures below are all PROJECTIONS of it. *)
 
 (** the exact-rational rounding is the [tfc_exact] projection of the typed result — NOT a second
     [round_float_sf] caller. *)

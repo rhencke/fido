@@ -22,7 +22,7 @@ let ind_of name =
   match Rocqlib.lib_ref name with
   | Names.GlobRef.IndRef ind -> ind
   | Names.GlobRef.ConstructRef (ind, _) -> ind
-  | _ -> CErrors.user_err (str ("fido emit: " ^ name ^ " is not an inductive"))
+  | _ -> CErrors.user_err (str ("fido materialize: " ^ name ^ " is not an inductive"))
 
 let ind_bool  = lazy (ind_of "core.bool.type")
 let ind_list  = lazy (ind_of "core.list.type")
@@ -34,13 +34,13 @@ let check_ctor sigma c expected_ind expected_idx what =
   match EConstr.kind sigma c with
   | Constr.Construct ((ind, idx), _)
     when Names.Ind.CanOrd.equal ind (Lazy.force expected_ind) && idx = expected_idx -> ()
-  | _ -> CErrors.user_err (str ("fido emit: expected " ^ what))
+  | _ -> CErrors.user_err (str ("fido materialize: expected " ^ what))
 
 (* a Rocq [bool]: constructor 1 = true, 2 = false (of the bool inductive). *)
 let decode_bit sigma b =
   match EConstr.kind sigma b with
   | Constr.Construct ((ind, idx), _) when Names.Ind.CanOrd.equal ind (Lazy.force ind_bool) -> idx = 1
-  | _ -> CErrors.user_err (str "fido emit: expected a bool bit")
+  | _ -> CErrors.user_err (str "fido materialize: expected a bool bit")
 
 (* [Ascii b0 .. b7] with b0 the low bit (8 bool bits of the ascii inductive). *)
 let decode_ascii sigma a =
@@ -50,7 +50,7 @@ let decode_ascii sigma a =
      let v = ref 0 in
      for i = 0 to 7 do if decode_bit sigma bits.(i) then v := !v lor (1 lsl i) done;
      Char.chr !v
-  | _ -> CErrors.user_err (str "fido emit: expected an ascii")
+  | _ -> CErrors.user_err (str "fido materialize: expected an ascii")
 
 (* a Rocq [string]: [String ascii rest] | [EmptyString]. *)
 let decode_string sigma c =
@@ -61,7 +61,7 @@ let decode_string sigma c =
        check_ctor sigma h ind_str 2 "a string";       (* String is constructor 2 *)
        Buffer.add_char buf (decode_ascii sigma args.(0)); go args.(1)
     | Constr.Construct _ -> check_ctor sigma c ind_str 1 "a string" (* EmptyString is constructor 1 *)
-    | _ -> CErrors.user_err (str "fido emit: expected a string")
+    | _ -> CErrors.user_err (str "fido materialize: expected a string")
   in go c; Buffer.contents buf
 
 (* a [string * string] = [prod]: [pair _ _ path bytes] (2 type args + 2 values). *)
@@ -70,7 +70,7 @@ let decode_pair sigma f =
   | Constr.App (h, a) when Array.length a = 4 ->
      check_ctor sigma h ind_prod 1 "a (path, bytes) pair";
      (decode_string sigma a.(2), decode_string sigma a.(3))
-  | _ -> CErrors.user_err (str "fido emit: expected a (path, bytes) pair")
+  | _ -> CErrors.user_err (str "fido materialize: expected a (path, bytes) pair")
 
 (* a [list (string * string)]: [cons _ h t] | [nil _]. *)
 let decode_entries sigma l =
@@ -81,7 +81,7 @@ let decode_entries sigma l =
        go a.(2) (decode_pair sigma a.(1) :: acc)
     | Constr.App (h, a) when Array.length a = 1 ->
        check_ctor sigma h ind_list 1 "a directory-entries list"; List.rev acc  (* nil is constructor 1 *)
-    | _ -> CErrors.user_err (str "fido emit: expected a directory-entries list")
+    | _ -> CErrors.user_err (str "fido materialize: expected a directory-entries list")
   in go l []
 
 (* the transport [string * list (string * string)] = [pair _ _ go_mod entries]: the exact go.mod bytes and
@@ -91,7 +91,7 @@ let decode_transport sigma f =
   | Constr.App (h, a) when Array.length a = 4 ->
      check_ctor sigma h ind_prod 1 "the (go.mod, entries) transport";
      (decode_string sigma a.(2), decode_entries sigma a.(3))
-  | _ -> CErrors.user_err (str "fido emit: expected the (go.mod, entries) transport")
+  | _ -> CErrors.user_err (str "fido materialize: expected the (go.mod, entries) transport")
 
 (* The ONE root assumption-closure mechanism, shared by the whole-theory audit and the emit-time provenance
    guard: the assumption closure of a set of global references, DESCENDING opaque (Qed) proof bodies via the
@@ -163,11 +163,12 @@ let do_audit () =
 (* The transport boundary is exactly four ordered steps, and NOTHING else touches the term.  Steps 1-2 are
    provenance guards (kernel queries — a typecheck and an assumption-closure check, NOT program/AST/
    semantic inspection); step 3 decodes the final transport.  No effect happens before both guards pass.
-   [decode_guarded] is the SHARED guard for step 4.  After there is exactly ONE Rocq consumer,
-   [Fido Materialize] (the authoritative pristine write for build validation); the publication SINK is
-   internal (handwritten OCaml: sink_test + the validated `make regenerate` apply CLI), never a Rocq vernac —
-   so the same provenance-guarded, identically-decoded bytes drive validation, and an image cannot be sunk
-   before it is validated. *)
+   [decode_guarded] is the SHARED guard for step 4.  There is exactly ONE Rocq consumer, [Fido Materialize],
+   which writes the certified pristine image DIRECTLY into a fresh disposable build-validation root; there is NO
+   public Rocq sink command.  The low-level publication SINK is internal handwritten OCaml (sink_test + the
+   `make regenerate` apply CLI); the supported `make regenerate` Docker workflow runs a fresh `go build ./...`
+   BEFORE its internal apply.  A local user can invoke or reconstruct the internal sink directly — that is
+   outside the cooperating-developer threat model. *)
 let decode_guarded t =
   let env = Global.env () in
   let sigma = Evd.from_env env in
@@ -224,8 +225,9 @@ let do_materialize t dir =
    INTERNAL: it is reached ONLY from handwritten OCaml — `e2e/sink_test.ml` (the sink's own byte-exact test
    driver) and `e2e/fido_apply.ml` (the `make regenerate` apply CLI, which the validated publication workflow
    invokes only AFTER a fresh `go build ./...` succeeds).  The Rocq boundary exposes ONLY [Fido Materialize]
-   (the authoritative pristine export for build validation, above) and [Fido Audit Assumptions]; there is no
-   standalone Rocq command that publishes an image, so an image cannot be sunk before it is validated. *)
+   (the authoritative pristine export for build validation, above) and [Fido Audit Assumptions]; no Rocq
+   command publishes into a real destination.  A deliberate local invocation of the internal sink is outside
+   the cooperating-developer threat model. *)
 }
 
 VERNAC COMMAND EXTEND FidoMaterialize CLASSIFIED AS SIDEFF

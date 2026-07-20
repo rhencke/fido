@@ -3,9 +3,9 @@
 
 (using rocq 0.11)
 
-; The findlib package for the Fido Emit transport plugin (must match the project name).  The prover
+; The findlib package for the certified materialization plugin (must match the project name).  The prover
 ; stage builds the theory WITHOUT the plugin dir, so the package may be empty there.
 (package
  (name fido)
  (allow_empty)
- (synopsis "Fido — a proved Go generator; the Fido Emit transport plugin"))
+ (synopsis "Fido — a proved Go generator; the certified materialization plugin"))

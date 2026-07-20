@@ -1,5 +1,4 @@
-(** ============================================================================
-    Complexes — the ONE authority for Go's two complex types (complex64, complex128) as EXACT complex
+(** Complexes — the ONE authority for Go's two complex types (complex64, complex128) as EXACT complex
     constants and intrinsically-coherent typed/runtime complex values, COMPOSED from the [Floats] component
     authority.  It imports [Floats] and NOTHING above it (no [GoTypes]) — the dependency direction is
     [Floats] -> [Complexes] -> [GoAST]/[GoTypes]/[GoSafe]/[GoRender].
@@ -13,8 +12,7 @@
     A [ComplexType] fixes its component [FloatType] via the ONE mapping [complex_component_type] (C64->F32,
     C128->F64); ALL precision / exponent / keyword / rounding behaviour DERIVES from that mapping and the
     component [Floats] authority.  There is NO complex-specific float format, NO duplicated float coherence,
-    and NO complex arithmetic — a compound typed constant is built from already-coherent typed components.
-    ============================================================================ *)
+    and NO complex arithmetic — a compound typed constant is built from already-coherent typed components. *)
 
 From Stdlib Require Import ZArith List String Bool.
 From Stdlib Require Import Floats.SpecFloat.
@@ -22,9 +20,7 @@ From Fido Require Import Floats.
 
 Local Open Scope Z_scope.
 
-(** ============================================================================
-    PART C — one complex type authority
-    ============================================================================ *)
+(** PART C — one complex type authority *)
 
 (** exactly the two Go complex types.  No placeholder future constructors. *)
 Inductive ComplexType := C64 | C128.
@@ -49,9 +45,7 @@ Definition complex_keyword (ct : ComplexType) : string :=
 Lemma complex_keyword_C64 : complex_keyword C64 = "complex64"%string. Proof. reflexivity. Qed.
 Lemma complex_keyword_C128 : complex_keyword C128 = "complex128"%string. Proof. reflexivity. Qed.
 
-(** ============================================================================
-    PART D — exact untyped complex constants
-    ============================================================================ *)
+(** PART D — exact untyped complex constants *)
 
 (** an EXACT complex constant: two exact canonical rational [FloatConst] components — real and imaginary.  It
     carries NO signed zero, infinity, NaN, runtime [spec_float], or source spelling; each component's
@@ -106,9 +100,7 @@ Proof. reflexivity. Qed.
 Lemma decimal_complex_imag : forall d, cc_imag (decimal_complex_value d) = decimal_value (dc_imag d).
 Proof. reflexivity. Qed.
 
-(** ============================================================================
-    PART F — general runtime complex values and intrinsic typed complex constants
-    ============================================================================ *)
+(** PART F — general runtime complex values and intrinsic typed complex constants *)
 
 (** the GENERAL runtime complex domain: two general [FloatValue] components at the type's component format.
     Because each component is a general [FloatValue], a runtime complex value MAY contain finite, +/-0,
@@ -188,10 +180,8 @@ Lemma typed_complex_runtime_imag_not_inf : forall ct (tc : TypedComplexConst ct)
   fv_sf (cv_imag (typed_complex_runtime tc)) <> S754_infinity s.
 Proof. intros ct tc s; apply tfc_runtime_not_inf. Qed.
 
-(** ============================================================================
-    the ONE complex-constant construction authority — round each component ONCE at the destination component
-    format (via [round_typed_float]); fail if either component overflows; package the two typed floats.
-    ============================================================================ *)
+(** the ONE complex-constant construction authority — round each component ONCE at the destination component
+    format (via [round_typed_float]); fail if either component overflows; package the two typed floats. *)
 Definition round_typed_complex (ct : ComplexType) (c : ComplexConst)
     : option (TypedComplexConst ct) :=
   match round_typed_float (complex_component_type ct) (cc_real c),
@@ -228,10 +218,8 @@ Proof.
   destruct (round_typed_float (complex_component_type ct) (cc_real c)); reflexivity.
 Qed.
 
-(** ============================================================================
-    representability is DERIVED from the existence of a typed result (reflected boolean).  If a rational-only
-    helper is ever wanted it must PROJECT this, never compete with it.
-    ============================================================================ *)
+(** representability is DERIVED from the existence of a typed result (reflected boolean).  If a rational-only
+    helper is ever wanted it must PROJECT this, never compete with it. *)
 Definition ComplexConstRepresentable (ct : ComplexType) (c : ComplexConst) : Prop :=
   exists tc, round_typed_complex ct c = Some tc.
 

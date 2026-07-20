@@ -1,5 +1,4 @@
-(** ============================================================================
-    ModulePath — the intrinsic canonical module-path domain (the `module` directive of the generated
+(** ModulePath — the intrinsic canonical module-path domain (the `module` directive of the generated
     `go.mod`).  A raw [string] is NOT a module path: the path is a SEMANTIC program fact (it is the prefix
     of every future closed-world package import path), so only a deliberately NARROW canonical grammar is
     representable — this is not an ambitious model of every path any Go release accepts.
@@ -20,8 +19,7 @@
 
     Validity is intrinsic: [ModulePath] carries [modpath_ok mp_str = true], so no value exists for a bad
     path; equality is decidable and reduces to string equality (bool UIP).  Invalid module paths are
-    UNREPRESENTABLE — never preserved-then-rejected.
-    ============================================================================ *)
+    UNREPRESENTABLE — never preserved-then-rejected. *)
 From Stdlib Require Import String Ascii List Bool Eqdep_dec Arith Lia.
 Import ListNotations.
 
@@ -220,14 +218,12 @@ Proof.
   - intro H; subst b; apply String.eqb_refl.
 Qed.
 
-(** ============================================================================================
-    The canonical COMPONENT AUTHORITY over a module path.  [split_slash] is the split view and its
+(** The canonical COMPONENT AUTHORITY over a module path.  [split_slash] is the split view and its
     "/"-join is its inverse ([split_slash_concat]); a valid [segment_ok] segment contains no separator, so
     it is a SINGLE component ([segment_ok_single]) and is nonempty ([segment_ok_nonempty]).  A [ModulePath]'s
     [mp_segments] are its validated segments: the module string IS their join ([mp_string_concat]), and each
     is a single nonempty component.  This is the lower-layer authority [GoCompile] composes for package
-    import-path and executable-name reasoning — no character-level scan in the consumer.
-    ============================================================================================ *)
+    import-path and executable-name reasoning — no character-level scan in the consumer. *)
 
 Lemma concat_cons_empty : forall sep h t,
   String.concat sep (""%string :: h :: t) = (sep ++ String.concat sep (h :: t))%string.

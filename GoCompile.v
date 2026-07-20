@@ -1,5 +1,4 @@
-(** ============================================================================
-    GoCompile — the EXACT acceptance model for the pinned one-shot `go build ./...`, as EVIDENCE over the ONE
+(** GoCompile — the EXACT acceptance model for the pinned one-shot `go build ./...`, as EVIDENCE over the ONE
     raw program (the [GoProgram]: a [ModuleSpec] + a possibly-EMPTY standard [FilePath] map of files
     [GoFileMap]): [GoCompile p := fresh_build_preflight_ok p /\ SourceProgramValid p] — the cmd/go default-
     OUTPUT fresh-build preflight AND the LIVE factored source judgment [SourceProgramValid]
@@ -8,29 +7,14 @@
     pass over [GoIndex]'s [visit_file] traversal — and [go_compile] PROJECTS that elaboration (no second
     checker).  The empty program is accepted (no packages, one go.mod).
 
-    Whole-program package policy (a deliberate exact GENERATOR-language subset).  The package CLAUSE / NAME is
-    SOURCE syntax (each file's [source_package], [PkgMain] -> `main`, rendered by GoRender) — NOT a compiler-
-    derived name; imports are INTRINSICALLY absent today ([source_imports] is `nil` by construction).  Package
-    GROUPING and main/entry validity are COMPILATION RESULTS over the whole program:
-      - files are grouped by parent directory ([fp_parent]) — via a one-pass standard [PackageMap]; each
-        directory is one package;
-      - every package must contain EXACTLY ONE admissible `main` declaration across all its files
-        (zero rejects the whole program; more than one rejects the whole program);
-      - the whole program is TYPED through [GoTypes] ([ProgramTyped] — every `println` argument resolves to a
-        [GoType]: a constant fits its resolved integer/float/complex type and every explicit integer/float/
-        complex conversion is valid — the one [convert_const] authority);
-      - one invalid package rejects the WHOLE program (all-or-nothing; no per-file partial acceptance);
-      - multiple valid main packages in different directories are accepted, matching `go build ./...`;
-      - an empty file is accepted when its package's single `main` is elsewhere.
+    The package CLAUSE is SOURCE syntax (rendered by GoRender); package GROUPING (by [fp_parent], one
+    directory = one package, via the one-pass [PackageMap]) and main/entry validity are whole-program
+    COMPILATION RESULTS, all-or-nothing.  The layer charter is ARCHITECTURE.md; it is not restated here.
 
-    HONESTY — two distinct claims:
-    A. KERNEL-internal exactness (PROVED here): [go_compile] succeeds exactly for the declarative
-       [GoCompile] judgment ([go_compile_ok_valid] + [go_compile_complete]; the ONE elaboration root satisfies
-       [elaborate_ok_iff_GoCompile]) — sound + complete.
-    B. EXTERNAL adequacy (the GOAL, attacked by differential `go build ./...` experiments, NOT a kernel
-       theorem): the declarative judgment matches `go build ./...` for every representable rendered
-       program.  We do NOT invoke cmd/go from Rocq and claim no kernel theorem about it.
-    ============================================================================ *)
+    HONESTY — two distinct claims.  (A) KERNEL-internal exactness, PROVED here: [go_compile] succeeds exactly
+    for the declarative judgment ([go_compile_ok_valid] + [go_compile_complete]; [elaborate_ok_iff_GoCompile])
+    — sound + complete.  (B) EXTERNAL adequacy, the GOAL attacked by differential `go build ./...` experiments
+    and NEVER a kernel theorem: the judgment matches real cmd/go on every representable rendered program. *)
 From Stdlib Require Import NArith ZArith List Bool String Ascii Arith Lia.
 From Stdlib Require Import SetoidList Permutation.
 From Fido Require Import Ints Floats Complexes FilePath ModulePath Collections GoAST GoIndex GoTypes.
@@ -108,7 +92,7 @@ Definition source_spec_valid_b (p : GoProgram) : bool := program_typedb p && sou
     [source_spec_package_rules_b]) so BOTH the [package_summaries] view (fixtures) AND the retained-bucket production decision
     root DIRECTLY in them (see [pkg_diags_empty_iff_rules] below).  [PackageDeclsUnique] = at most one `main` per
     package (block uniqueness); [MainPackagesHaveEntry] = at least one (entry); [PackageRulesValid] is their
-    conjunction (the SOURCE half of GoCompile, packaged with [ProgramTyped] into [SourceProgramValid] at ).
+    conjunction (the SOURCE half of GoCompile, packaged with [ProgramTyped] into [SourceProgramValid]).
     The exactly-one "every package has one main" is ONLY a downstream CONSEQUENCE
     ([current_package_rules_exactly_one]), NEVER the executable decision or a peer authority. *)
 Definition PackageDeclsUnique (p : GoProgram) : Prop :=
@@ -335,13 +319,11 @@ Qed.
 
 (** ---- whole-program admissibility over the SAME program ---- *)
 
-(* ============================================================================================================
-   PackageRef: a VALIDATED absence anchor for package-level diagnostics.  A package spans files and is
+(* PackageRef: a VALIDATED absence anchor for package-level diagnostics.  A package spans files and is
    not one AST node, so a missing-main diagnostic anchors at a proof-backed package handle, never a fake source
    node.  Identity is the package KEY (parent-directory string); the proof field is a BOOLEAN membership
    equation (UIP over bool), so key equality determines the ref AND a PackageRef cannot name a package with no
-   represented file.
-   ============================================================================================================ *)
+   represented file. *)
 
 Definition package_present_b (p : GoProgram) (key : string) : bool :=
   list_dir_mem key (GoAST.file_bindings (prog_files p)).
@@ -408,13 +390,11 @@ Lemma package_ref_of_fileref_key : forall p (fr : GoIndex.Snap.FileRef p),
   package_ref_key (package_ref_of_fileref fr) = fp_parent (GoIndex.Snap.file_ref_path fr).
 Proof. reflexivity. Qed.
 
-(* ============================================================================================================
-   the structured diagnostic core.  Every anchor is an EXACT-SNAPSHOT handle (a NodeRef / FileRef /
+(* the structured diagnostic core.  Every anchor is an EXACT-SNAPSHOT handle (a NodeRef / FileRef /
    PackageRef of [p], or the whole program); the four current diagnostic reasons carry TYPED references
    (ExprRef / DeclRef) and structured values, so an invalid anchor/category combination is unrepresentable.
    The core carries codes + valid anchors + structured values — NO authoritative English prose (a pure report
-   projection produces readable text later).
-   ============================================================================================================ *)
+   projection produces readable text later). *)
 
 Inductive DiagnosticAnchor (p : GoProgram) : Type :=
 | AtNode    : GoIndex.Snap.NodeRef p -> DiagnosticAnchor p
@@ -483,14 +463,12 @@ Lemma diagnostic_code_primary_consistent : forall p (d : DiagnosticReason p),
   end.
 Proof. intros p [pr o t s|pr c dt|l e|pk|pk nm]; cbn; exact I. Qed.
 
-(* ============================================================================================================
-   ERASED cross-snapshot reports.  A [DiagnosticReason p] is indexed by the snapshot [p], so
+(* ERASED cross-snapshot reports.  A [DiagnosticReason p] is indexed by the snapshot [p], so
    two snapshots' diagnostics have DIFFERENT dependent types.  [erase_diagnostic] projects a reason to a
    snapshot-INDEPENDENT [ErasedDiagnostic] (code + erased anchors carrying only NodeKey / FilePath /
    package-string identity + a STABLE payload — the conversion/default-target [GoType], NO source syntax), so
    reports from two snapshots are compared by plain [=] on erased values, never an unsafe dependent transport.
-   The exact source expression stays reachable through the original typed anchor WHILE inside one [p].
-   ============================================================================================================ *)
+   The exact source expression stays reachable through the original typed anchor WHILE inside one [p]. *)
 
 Inductive ErasedAnchor : Type :=
 | EANode    : GoIndex.NodeKey -> ErasedAnchor
@@ -575,13 +553,11 @@ Lemma erased_output_iff_build_output {p} (d : DiagnosticReason p) :
   (exists nm, ed_output (erase_diagnostic d) = Some nm) <-> diagnostic_code d = DCBuildOutputIsDirectory.
 Proof. destruct d; cbn; split; try (intros [nm H]; discriminate); try discriminate; eauto. Qed.
 
-(* ============================================================================================================
-   occurrence-keyed expression facts.  ONE fact value per expression occurrence: its exact constant
+(* occurrence-keyed expression facts.  ONE fact value per expression occurrence: its exact constant
    status ([const_info]) plus, ONLY for a use-context (println-argument) occurrence, its resolved constant
    ([resolve_expr_const UsePrintlnArg]).  Type and resolved exact value are PROJECTIONS from the one
    [ResolvedConst] — no parallel type map that could disagree.  Facts store semantic values only (never a
-   GoExpr / SourceOccurrence / rewritten syntax).
-   ============================================================================================================ *)
+   GoExpr / SourceOccurrence / rewritten syntax). *)
 
 Record ExprFact : Type := mkExprFact {
   ef_const_status : ConstInfo ;
@@ -904,14 +880,12 @@ Proof.
     exists occ'. split; [right; right; exact Hin' | exact Hv'].
 Qed.
 
-(* ============================================================================================================
-   EXPRESSION-FACT TOTALITY GROUNDWORK.  On a TYPED program every visited expression occurrence has a
+(* EXPRESSION-FACT TOTALITY GROUNDWORK.  On a TYPED program every visited expression occurrence has a
    successful [const_info] (hence an exact fact).  Three facts compose it: a typed println argument's
    [const_info] SUCCEEDS ([expr_typedb_const_info]); [const_info]'s recursion propagates success DOWNWARD to
    every conversion operand ([const_info_child_some], lifted structurally through the occurrence enumeration);
    and the whole-file / whole-program traversal visits exactly those subexpressions.  So on [ProgramTyped]
-   every visited expression occurrence's [const_info] is [Some] — the fact query is TOTAL.
-   ============================================================================================================ *)
+   every visited expression occurrence's [const_info] is [Some] — the fact query is TOTAL. *)
 
 (* a typed argument's constant status succeeds (its whole conversion chain is representable). *)
 Lemma expr_typedb_const_info : forall u e, GoTypes.expr_typedb u e = true -> exists ci, const_info e = Some ci.
@@ -1093,13 +1067,11 @@ Proof.
   rewrite Hcomp. apply GoIndex.Snap.visit_file_complete. reflexivity.
 Qed.
 
-(* ============================================================================================================
-   the OCCURRENCE STATUS MAP as a fold over the DELIVERED visit stream (no separate source recursion).
+(* the OCCURRENCE STATUS MAP as a fold over the DELIVERED visit stream (no separate source recursion).
    [operand_key r] is the canonical child (operand) key of a conversion at [r] (same file, [Pos.succ local]).  The one
    bottom-up pass ([status_step], folded right-to-left over the preorder [prog_visit]) stores each expression
    occurrence's [const_info] via ONE [const_info_step], reading its operand's status at [operand_key] from the
-   ALREADY-FOLDED tail (the operand is a LATER preorder node, so it was folded first).
-   ============================================================================================================ *)
+   ALREADY-FOLDED tail (the operand is a LATER preorder node, so it was folded first). *)
 
 Definition operand_key {p} (r : GoIndex.Snap.NodeRef p) : GoIndex.NodeKey :=
   GoIndex.mkKey (GoIndex.nk_file (GoIndex.Snap.node_ref_key r)) (Pos.succ (GoIndex.Snap.node_ref_local r)).
@@ -1439,16 +1411,14 @@ Lemma forallb_flat_map {A B} (f : B -> bool) (g : A -> list B) (l : list A) :
   forallb f (flat_map g l) = forallb (fun x => forallb f (g x)) l.
 Proof. induction l as [|a l IH]; simpl; [reflexivity | rewrite forallb_app, IH; reflexivity]. Qed.
 
-(* =============================================================================================================
-   (moved from GoTypes) — THE PER-OCCURRENCE TYPING PREDICATE.  GoCompile is the SOLE meeting point of
+(* (moved from GoTypes) — THE PER-OCCURRENCE TYPING PREDICATE.  GoCompile is the SOLE meeting point of
    GoIndex identity and GoTypes semantics, so this occurrence/traversal bridge (which needs BOTH [SourceOccurrence]
    / [occs_file] from GoIndex and [expr_typedb] / [source_file_typedb] from GoTypes) lives HERE — GoTypes owns
    the type/constant relation only and imports no GoIndex.  [occ_arg_typedb] is the leaf typing decision over ONE
    source occurrence: a println-argument occurrence is typed iff its expression resolves (through the SAME
    [GoTypes.expr_typedb] resolver — no semantic judgment duplicated); every other occurrence is vacuously typed.
    [occs_file_typedb_eq] proves that folding it over the canonical occurrence stream ([occs_file]) equals the
-   existing [source_file_typedb].  [elaborate] CONSUMES this over its retained visit stream.
-   ============================================================================================================= *)
+   existing [source_file_typedb].  [elaborate] CONSUMES this over its retained visit stream. *)
 
 (* the per-occurrence typing decision on the ORIGINAL syntax the traversal delivers: only a println-argument
    expression occurrence carries a semantic obligation (delegated to [expr_typedb UsePrintlnArg]); every other
@@ -1576,8 +1546,10 @@ Proof. rewrite expr_all_ok_program_typedb. apply GoTypes.program_typedb_iff. Qed
    production decision ([pkg_diags_empty_iff_rules]) can root DIRECTLY in the two factored roots.  The exactly-one
    property is only the downstream CONSEQUENCE [current_package_rules_exactly_one]. ---- *)
 
-(* ---- the COMBINED DECIDABLE decision [semantic_ok_b] (proved EXACTLY = [GoCompile]); production elaboration
-   decides equivalently from its RETAINED diagnostics, and [source_spec_valid_b] is the readable-spec reflection ---- *)
+(* ---- the COMBINED DECIDABLE decision [semantic_ok_b]: the readable SOURCE-specification decision, proved
+   EXACTLY = [SourceProgramValid] (the SOURCE-semantic half of [GoCompile]; [GoCompile] additionally requires
+   the separate fresh-build preflight).  Production elaboration decides the SAME source semantics from its
+   RETAINED diagnostics; [source_spec_valid_b] is the readable-spec reflection. ---- *)
 
 Definition semantic_ok_b (p : GoProgram) : bool := expr_all_ok p && source_spec_package_rules_b p.
 
@@ -1591,16 +1563,14 @@ Lemma semantic_ok_b_split (p : GoProgram) :
   semantic_ok_b p = true <-> expr_all_ok p = true /\ source_spec_package_rules_b p = true.
 Proof. unfold semantic_ok_b. rewrite Bool.andb_true_iff. reflexivity. Qed.
 
-(* ============================================================================================================
-   /— the EXPRESSION diagnostic construction, per occurrence, with anchors.
+(* the EXPRESSION diagnostic construction, per occurrence, with anchors.
 
    The key move (no descent, no ref minting): the primary is the OCCURRENCE'S OWN reference.
    - a LOCALLY-failing conversion (its operand's [const_info] succeeds but its own [convert_const] fails) IS the
      innermost failing conversion — anchor [DRInvalidConversion] at its own ExprRef;
    - a println-argument occurrence whose [const_info] is an UNTYPED constant that does not default — anchor
      [DRDefaultNotRepresentable] at its own ExprRef.
-   ([outer_context] is [] here — sound (vacuously) for ; FINAL enriches it with the enclosing conversions.)
-   ============================================================================================================ *)
+   ([outer_context] is [] here — sound vacuously; the annotation pass supplies the enclosing conversions.) *)
 
 Definition default_target_of (c : GoConst) : GoType :=
   match c with
@@ -1969,7 +1939,7 @@ Proof.
 Qed.
 
 (** the diagnostic(s) an occurrence emits (a singleton or nothing), anchored at its OWN validated ExprRef.
-    The [outer] enclosing-conversion context is DELIVERED by the one-pass [annotate_program] annotation (/),
+    The [outer] enclosing-conversion context is DELIVERED by the one-pass [annotate_program] annotation,
     never recomputed here — so no [visit_file]/[node_at] per diagnostic. *)
 Definition occ_expr_diags {p} (idx : GoIndex.Snap.SyntaxIndex p) (outer : list (GoIndex.ExprRef p))
     (ro : GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence) : list (DiagnosticReason p) :=
@@ -2511,16 +2481,14 @@ Proof.
   rewrite sum_main_decls, file_main_count_length. reflexivity.
 Qed.
 
-(* ============================================================================================================
-   PACKAGE MAIN-REF BUCKETS.  The per-file/per-package collection of the top-level-decl (main)
+(* PACKAGE MAIN-REF BUCKETS.  The per-file/per-package collection of the top-level-decl (main)
    occurrences as validated [DeclRef]s, in canonical order.  Its length is the declarative [file_main_count]
    (hence, aggregated, [ps_main_count]) — so the reference collection AGREES with the package count judgment,
    without a second production package decision.
 
    [decl_kind_count] counts an occurrence by its KIND (KTopLevelDecl); [occ_main_count] counts by its ROLE
    (RFileDecl).  Over a real occurrence stream ([occs_file]) the two coincide (a decl head is the ONLY
-   KTopLevelDecl and the ONLY RFileDecl), so a DeclRef minted on kind counts exactly the main declarations.
-   ============================================================================================================ *)
+   KTopLevelDecl and the ONLY RFileDecl), so a DeclRef minted on kind counts exactly the main declarations. *)
 
 Definition decl_kind_count (o : GoIndex.SourceOccurrence) : nat :=
   match GoIndex.occurrence_kind o with GoIndex.KTopLevelDecl => 1%nat | _ => 0%nat end.
@@ -2627,14 +2595,12 @@ Lemma olen_match {A} (o : option (list A)) :
   length (match o with Some l => l | None => [] end) = olen o.
 Proof. destruct o; reflexivity. Qed.
 
-(* ============================================================================================================
-   /— the PACKAGE main-ref buckets built as ONE fold over the DELIVERED visit stream (NOT a second
+(* the PACKAGE main-ref buckets built as ONE fold over the DELIVERED visit stream (NOT a second
    per-file [Snap.visit_file]).  Each occurrence contributes to its file's package ([occ_pkg] = the file's
    parent directory): a [DMain] declaration prepends its [DeclRef]; a FILE ROOT ([KFile]) INITIALIZES the
    package entry (so a package with zero mains is still represented) without disturbing existing mains.  Since
    [prog_visit] visits each file's root then its decls in preorder, and [fold_right] processes the stream
-   right-to-left, a package's bucket ends up its files' mains in canonical stream order.
-   ============================================================================================================ *)
+   right-to-left, a package's bucket ends up its files' mains in canonical stream order. *)
 
 Definition occ_pkg {p} (ro : GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence) : string :=
   fp_parent (GoIndex.Snap.file_ref_path (GoIndex.Snap.node_ref_file (fst ro))).
@@ -2937,13 +2903,11 @@ Proof.
   rewrite Hone in Hlen. destruct l as [|d [|d2 rest]]; cbn [length] in Hlen; try discriminate. exists d; reflexivity.
 Qed.
 
-(* ============================================================================================================
-   the PACKAGE diagnostics.  Every package with a main count other than one is a failure; the anchor
+(* the PACKAGE diagnostics.  Every package with a main count other than one is a failure; the anchor
    is a validated [PackageRef] (each package in [package_summaries] is represented, so the reference is real).
    Emptiness is tied DIRECTLY to [source_spec_package_rules_b] (the package half of the decision).
    (ROOT emits [DRMissingMainEntry] for every non-conforming package; a later refinement distinguishes the duplicate
-   case with [DRMainRedeclared] over the collected main [DeclRef]s.)
-   ============================================================================================================ *)
+   case with [DRMainRedeclared] over the collected main [DeclRef]s.) *)
 
 (* A non-conforming package is diagnosed with STRUCTURED reasons anchored in the exact snapshot:
    - n >= 2 mains -> n-1 [DRMainRedeclared], one per TAIL main [d2, d3, ...] each related to the FIRST canonical
@@ -3182,26 +3146,23 @@ Proof.
     rewrite (prog_package_refs_bucket_len idx (fst kv) (snd kv) (PM.find_1 Hbmt)). lia.
 Qed.
 
-(* ============================================================================================================
-   //— the ONE retained indexed-elaboration root.  [elaborate] builds ONE [IndexedProgram] and returns
+(* the ONE retained indexed-elaboration root.  [elaborate] builds ONE [IndexedProgram] and returns
    either exact facts (on success) or a NONEMPTY structured diagnostic list (on failure).  Production
    elaboration DECIDES from those RETAINED diagnostics; their emptiness coincides (proved) with the decidable
-   SPECIFICATION predicate [semantic_ok_b] (= SourceProgramValid = GoCompile's semantic acceptance).
-   [semantic_diagnostics] gives the structured failure payload, nonempty exactly when the decision fails.
-   ============================================================================================================ *)
+   SPECIFICATION predicate [semantic_ok_b] (= [SourceProgramValid], the SOURCE-semantic half of GoCompile
+   acceptance; the fresh-build preflight is a separate condition [GoCompile] adds on top).
+   [semantic_diagnostics] gives the structured failure payload, nonempty exactly when the decision fails. *)
 
 Lemma app_nil_iff {A} (l1 l2 : list A) : l1 ++ l2 = nil <-> l1 = nil /\ l2 = nil.
 Proof. split; [ apply app_eq_nil | intros [-> ->]; reflexivity ]. Qed.
 
-(* ============================================================================================================
-   DIAGNOSTIC STORAGE AND CANONICAL ORDER.  Node-primary diagnostics (invalid-conversion, defaulting,
+(* DIAGNOSTIC STORAGE AND CANONICAL ORDER.  Node-primary diagnostics (invalid-conversion, defaulting,
    duplicate-main — each anchored at an occurrence NodeKey) are accumulated into a STANDARD [NodeKeyMapBase]
    whose bucket value is a code-ordered list (normally a singleton, but a bucket prevents a future map overwrite
    from erasing multiple diagnostics at one occurrence).  The final report flattens the map's CANONICAL elements
    (path then local id) with code-ordered bucket values, THEN appends the package-primary (missing-main)
    diagnostics in PackageMap key order.  So a duplicate-main at `a/q.go:3` correctly precedes an
-   invalid-conversion at `z/main.go:5` even though the latter is discovered first.
-   ============================================================================================================ *)
+   invalid-conversion at `z/main.go:5` even though the latter is discovered first. *)
 
 (* NO project-authored sorting algorithm: a node-primary diagnostic is prepended to its occurrence's
    bucket.  Every occurrence emits AT MOST ONE node-primary diagnostic, so the bucket is a singleton and no
@@ -3290,7 +3251,7 @@ Proof.
   intros H Hc. apply (semantic_diagnostics_empty_iff p idx) in Hc. rewrite Hc in H. discriminate H.
 Qed.
 
-(* ---- /— the node-bucketing COMMUTES WITH a value transform, so the ERASED report is the erased source
+(* ---- the node-bucketing COMMUTES WITH a value transform, so the ERASED report is the erased source
    diagnostics run through the SAME bucketing.  This makes the erased report a source function (deterministic,
    vm-computable), and it is the bridge for the exact fixtures. ---- *)
 
@@ -3620,9 +3581,11 @@ Lemma nkmap_lt_key_trans {A} : forall (a b c : GoIndex.NodeKey * A),
   GoIndex.NodeKeyMapBase.lt_key a b -> GoIndex.NodeKeyMapBase.lt_key b c -> GoIndex.NodeKeyMapBase.lt_key a c.
 Proof. intros [k1 ?] [k2 ?] [k3 ?]; unfold GoIndex.NodeKeyMapBase.lt_key; cbn; apply GoIndex.NodeKey_OT.lt_trans. Qed.
 
-(** the ERASED elaboration report: the canonical diagnostic list projected through
-    [erase_diagnostic], so it is a snapshot-INDEPENDENT [list ErasedDiagnostic] comparable by [=].  It is empty
-    exactly when the elaboration accepts (same decision as [semantic_diagnostics]). *)
+(** the ERASED SOURCE-SEMANTIC report: the canonical SOURCE diagnostic list ([semantic_diagnostics]) projected
+    through [erase_diagnostic], so it is a snapshot-INDEPENDENT [list ErasedDiagnostic] comparable by [=].  It is
+    empty exactly when the SOURCE semantics accept ([semantic_ok_b]).  This is NOT the whole command-facing
+    result: [erased_elaboration_report] (below) is the full elaboration report, which additionally carries the
+    separate fresh-build-preflight diagnostics. *)
 Definition erased_report (p : GoProgram) (idx : GoIndex.Snap.SyntaxIndex p) : list ErasedDiagnostic :=
   map erase_diagnostic (semantic_diagnostics p idx).
 
@@ -3633,12 +3596,10 @@ Proof.
   split; [ apply map_eq_nil | intro H; rewrite H; reflexivity ].
 Qed.
 
-(* ============================================================================================================
-   / — the KEYED visit stream is SOURCE-DETERMINED.  Erasing a visited reference to its
+(* / — the KEYED visit stream is SOURCE-DETERMINED.  Erasing a visited reference to its
    NodeKey (path + local id) and pairing it with its source occurrence yields a stream that depends ONLY on the
    file map's canonical [file_bindings] and each file's [occs_file] — NO snapshot [p] survives.  This is the
-   foundation for cross-snapshot report/fact determinism: [FilesEqual] programs have IDENTICAL keyed streams.
-   ============================================================================================================ *)
+   foundation for cross-snapshot report/fact determinism: [FilesEqual] programs have IDENTICAL keyed streams. *)
 Lemma keyed_visit_file {p} (fr : GoIndex.Snap.FileRef p) :
   map (fun rc => (GoIndex.Snap.node_ref_key (fst rc), snd rc)) (GoIndex.Snap.visit_file fr)
   = map (fun idocc => (GoIndex.mkKey (GoIndex.Snap.file_ref_path fr) (fst idocc), snd idocc))
@@ -4129,7 +4090,7 @@ Proof.
   exact (filemap_of_nodes_permutation nodes1 nodes2 fm1 fm2 Hperm F1 F2).
 Qed.
 
-(* ---- //— SUCCESSFUL-fact enumeration determinism.  The expression fact table's keys are SOURCE
+(* ---- SUCCESSFUL-fact enumeration determinism.  The expression fact table's keys are SOURCE
    NodeKeys and its values source-derived, so it is a fold-map fusion over the keyed stream — a pure source
    function of the file map, needing no erasure. ---- *)
 Definition keyed_add (ke : GoIndex.NodeKey * GoIndex.SourceOccurrence)
@@ -4149,7 +4110,7 @@ Proof.
   cbn [map fold_right]. rewrite IH. unfold add_occ_fact, keyed_add. cbn [fst snd]. reflexivity.
 Qed.
 
-(** // — SUCCESSFUL-fact enumeration determinism: the expression fact table (each visited
+(** SUCCESSFUL-fact enumeration determinism: the expression fact table (each visited
     occurrence's key -> its exact ConstInfo + println-use fact) depends ONLY on the file map — its keys are
     source NodeKeys and its values source-derived (a fold-map fusion over the keyed stream) — so FilesEqual
     programs have the IDENTICAL fact table, hence the IDENTICAL canonical fact enumeration. *)
@@ -4750,13 +4711,11 @@ Proof.
   reflexivity.
 Qed.
 
-(** ============================================================================================
-    the pinned cmd/go DEFAULT-OUTPUT-NAME string layer.  Faithful to pinned Go 1.23.12
+(** the pinned cmd/go DEFAULT-OUTPUT-NAME string layer.  Faithful to pinned Go 1.23.12
     ([go env GOVERSION] = go1.23.12) [cmd/go/internal/load/pkg.go]: [isVersionElement] (1288-1298) and
     [exeFromImportPath] (1675-1685) — the [DefaultExecName] path taken by a `go build ./...` (non-CmdlineFiles)
     build.  Pure functions over the import-path STRING; NO filesystem path cleaning (inputs are canonical
-    import paths, per the contract).  Empirically confirmed against the pinned image (see SOURCE_FOREST_STATUS).
-    ============================================================================================ *)
+    import paths, per the contract).  Empirically confirmed against the pinned image (see SOURCE_FOREST_STATUS). *)
 
 Local Open Scope string_scope.
 
@@ -4851,15 +4810,13 @@ Example den_maingo  : default_exec_name_c ["example.com"; "main.go"]         = "
 Example den_gomod   : default_exec_name_c ["example.com"; "go.mod"]          = "go.mod".  Proof. reflexivity. Qed.
 Example den_sub_v10 : default_exec_name_c ["example.com"; "m"; "sub"; "v10"] = "sub".     Proof. reflexivity. Qed.
 
-(** ============================================================================================
-    the exact cmd/go IMPORT PATH and default EXECUTABLE NAME of a selected package, built
+(** the exact cmd/go IMPORT PATH and default EXECUTABLE NAME of a selected package, built
     COMPOSITIONALLY from the lower-layer component authorities: the [ModulePath] segments
     ([ModulePath.mp_segments]) then the package directory components ([FilePath.dir_components]).  The exec
     name is cmd/go's component rule applied DIRECTLY to those components (NO string reparse); the import-path
     STRING is their "/"-join (the ONE string bridge/view).  Each component is nonempty, so the exec name is a
     nonempty component ([default_exec_name_nonempty]).  This replaces the deleted character-level slash/scan
-    forest — the nonempty/slash-free facts now live in [ModulePath]/[FilePath] and are merely composed here.
-    ============================================================================================ *)
+    forest — the nonempty/slash-free facts now live in [ModulePath]/[FilePath] and are merely composed here. *)
 
 (* the import-path COMPONENTS: the module segments then the package directory components. *)
 Definition package_import_components (ms : ModuleSpec) (dir : string) : list string :=
@@ -4964,12 +4921,59 @@ Proof.
   apply Hall. apply default_exec_name_c_in. apply package_import_components_nonempty.
 Qed.
 
-(** ============================================================================================
-    the package set the literal `./...` pattern SELECTS: exactly the domain of the
+(* split the joined import-path string at the module boundary: it recovers the package DIRECTORY components as
+   the suffix after the (fixed) module-string components — the reusable exactness lemma the injectivity proof
+   below rests on.  The module prefix is left as the opaque [FilePath.split_slash] of the module string, so the
+   cancellation needs no cross-module segment identity. *)
+Lemma split_import_path_dir_components : forall ms dir,
+  FilePath.split_slash (package_import_path ms dir)
+    = (FilePath.split_slash (mp_string (module_path ms)) ++ FilePath.dir_components dir)%list.
+Proof.
+  intros ms dir. destruct (String.eqb dir ""%string) eqn:E.
+  - apply String.eqb_eq in E; subst dir.
+    rewrite package_import_path_root. unfold FilePath.dir_components.
+    cbn [String.eqb]. rewrite app_nil_r. reflexivity.
+  - assert (Hne : dir <> ""%string) by (apply String.eqb_neq; exact E).
+    rewrite (package_import_path_nested ms dir Hne). unfold FilePath.dir_components. rewrite E.
+    change ((mp_string (module_path ms) ++ "/" ++ dir)%string)
+      with ((mp_string (module_path ms) ++ String "/"%char dir)%string).
+    apply FilePath.split_slash_app.
+Qed.
+
+(* a short list-app left cancellation over string components (a leaf fact; not a collection algorithm). *)
+Lemma slist_app_inv_head : forall (l l1 l2 : list string), (l ++ l1)%list = (l ++ l2)%list -> l1 = l2.
+Proof.
+  induction l as [|x l IH]; intros l1 l2 H; [ exact H |].
+  cbn [app] in H. injection H as H. apply IH. exact H.
+Qed.
+
+(** the cmd/go import PATH is INJECTIVE in the package directory under a fixed module: two directory keys that
+    produce the same import-path string are equal.  Proved THROUGH the component authority — split the joined
+    string, cancel the common module-string prefix to obtain equal [FilePath.dir_components], then recover the
+    directory key with [FilePath.dir_components_concat].  No basename/dirname reparse re-enters here. *)
+Theorem package_import_path_inj : forall ms dir1 dir2,
+  package_import_path ms dir1 = package_import_path ms dir2 -> dir1 = dir2.
+Proof.
+  intros ms dir1 dir2 H.
+  assert (Hd : FilePath.dir_components dir1 = FilePath.dir_components dir2).
+  { pose proof (split_import_path_dir_components ms dir1) as S1.
+    pose proof (split_import_path_dir_components ms dir2) as S2.
+    rewrite H in S1. rewrite S1 in S2. apply slist_app_inv_head in S2. exact S2. }
+  pose proof (FilePath.dir_components_concat dir1) as C1.
+  rewrite Hd, (FilePath.dir_components_concat dir2) in C1. exact (eq_sym C1).
+Qed.
+
+(** import-path DETERMINISM: an equal module spec and equal package directory key give the SAME import path —
+    the direct API companion to [package_import_path_inj].  The whole-program [package_import_path_InputEqual]
+    below is a CONSEQUENCE of this (equal program inputs give an equal module path), not a substitute for it. *)
+Theorem package_import_path_deterministic : forall ms1 ms2 dir1 dir2,
+  ms1 = ms2 -> dir1 = dir2 -> package_import_path ms1 dir1 = package_import_path ms2 dir2.
+Proof. intros ms1 ms2 dir1 dir2 Hm Hd; subst; reflexivity. Qed.
+
+(** the package set the literal `./...` pattern SELECTS: exactly the domain of the
     one-pass [package_summaries] PackageMap (= the distinct parent directories of the represented FilePaths).
     The canonical enumeration is the standard map's [elements] (a DERIVED list, not a second authority); NO
-    list-backed set.
-    ============================================================================================ *)
+    list-backed set. *)
 
 Definition selected_packages (p : GoProgram) : PM.t PackageSummary := package_summaries (prog_files p).
 Definition selected_package_keys (p : GoProgram) : list string := map fst (PM.elements (selected_packages p)).
@@ -5009,8 +5013,7 @@ Proof.
   intros p b1 b2 Hin1 _ _. apply selected_iff_file. exists b1. split; [ exact Hin1 | reflexivity ].
 Qed.
 
-(** ============================================================================================
-    the FRESH ROOT LAYOUT foundation + the conflict AUDIT.  A fresh materialization of the
+(** the FRESH ROOT LAYOUT foundation + the conflict AUDIT.  A fresh materialization of the
     DirectoryImage has, at its ROOT: the one [go.mod], each root-level source file, and one directory per
     distinct first path-component of a nested source file.  [FreshRootEntryKind] tags a root entry.
 
@@ -5018,8 +5021,7 @@ Qed.
     grammar.  A directory component is [component_ok] = [a-z][a-z0-9]* (DOT-FREE); a root source basename is
     [filename_ok] (ends ".go", DOTTED) and the module file is "go.mod" (DOTTED).  So a directory key can never
     equal a source-file key or "go.mod": the layout is conflict-free by construction — no rejecting validation
-    is needed (the impossibility is PROVED below, [dir_component_neq_gomod] and the dot lemmas).
-    ============================================================================================ *)
+    is needed (the impossibility is PROVED below, [dir_component_neq_gomod] and the dot lemmas). *)
 
 Inductive FreshRootEntryKind : Type :=
 | FREGoMod
@@ -5430,15 +5432,13 @@ Proof.
          | intros [He|Hin]; [ right; exact He | left; exact Hin ] ].
 Qed.
 
-(** ============================================================================================
-    (/) — the retained FRESH BUILD PLAN + its preflight.  After loading packages, cmd/go
+(** the retained FRESH BUILD PLAN + its preflight.  After loading packages, cmd/go
     picks a default output ONLY for a sole selected MAIN package, then stats that name and FAILS (before
     compiling) if it is an existing DIRECTORY.  0 or >=2 selected packages write no default output (no
     preflight).  The current grammar makes every package `package main`, so a sole selected package is always
     a main package.  (A future single NON-main package would take an FBDDiscardSingleLibrary branch — omitted
     until that syntax exists.)  Derived purely from the retained PackageMap + ModuleSpec + root layout: no
-    syntax revisit, no index rebuild, no rendering, no cmd/go call, no filesystem scan.
-    ============================================================================================ *)
+    syntax revisit, no index rebuild, no rendering, no cmd/go call, no filesystem scan. *)
 
 Inductive FreshBuildDisposition : Type :=
 | FBDNoPackages
@@ -5579,14 +5579,13 @@ Proof.
     apply (proj2 (root_layout_dir_iff p _)). exists b. repeat split; assumption.
 Qed.
 
-(** ============================================================================================
-    SOURCE-program validity, factored into the two INDEPENDENT Go rules the old combined
+(** SOURCE-program validity, factored into the two INDEPENDENT Go rules the old combined
     "every package has exactly one DMain" conflated: package-block name UNIQUENESS (at most one `main`
     declaration per package) and main-package ENTRY validity (at least one).  For the current grammar (every
     package is `package main`; every DMain is intrinsically `func main()` with no params/results/type params)
     the two together are EQUIVALENT to the old rule — proved below — but this is the correct factoring for
-    future non-main packages / methods / init.  SourceProgramValid is the SOURCE/compiler admission; GoCompile adds the fresh-build preflight on top.
-    ============================================================================================ *)
+    future non-main packages / methods / init.  SourceProgramValid is the SOURCE admission; GoCompile adds
+    the fresh-build preflight on top. *)
 
 (** [PackageDeclsUnique] / [MainPackagesHaveEntry] / [PackageRulesValid] and their executable reflections
     ([pkg_decls_unique_b_iff] / [main_pkgs_have_entry_b_iff] / [source_spec_package_rules_b_PackageRulesValid]) are defined at
@@ -5603,7 +5602,7 @@ Proof.
   - intros H. split; intros dir s Hmt; pose proof (H dir s Hmt); lia.
 Qed.
 
-(**/— the decidable [source_spec_valid_b] reflects the LIVE factored root [SourceProgramValid] DIRECTLY:
+(** the decidable [source_spec_valid_b] reflects the LIVE factored root [SourceProgramValid] DIRECTLY:
     program typing ([program_typedb_iff]) AND the two factored package reflections ([source_spec_package_rules_b_PackageRulesValid]).
     No fragment/consequence bridge, no [ProgValid], no [prog_ok], no exactly-one intermediary. *)
 Lemma source_spec_valid_b_iff : forall p, source_spec_valid_b p = true <-> SourceProgramValid p.
@@ -5964,7 +5963,7 @@ Proof. destruct l; [left; reflexivity | right; discriminate]. Defined.
     the successful [ElaborationFacts]: the expression facts and the diagnostics are two linear passes over the
     SAME [visit]/[status], and the [buckets] serve BOTH the package diagnostics ([bucket_diags_elems] — the
     package acceptance is the bucket LENGTHS, never [package_summaries]) and the retained facts.
-    There is no separate [analysis_facts] recomputation.  The DECISION is exactly "the diagnostic pass produced
+    There is no separate facts recomputation.  The DECISION is exactly "the diagnostic pass produced
     nothing"; on success the retained facts are exposed with the derived validity, on failure the EXACT
     diagnostic list.  ([diags] is definitionally [semantic_diagnostics p idx], so the decision theorems below are
     unchanged.) *)
@@ -5985,7 +5984,7 @@ Definition elaborate_indexed (p : GoProgram) (ip : GoIndex.IndexedProgram p) : E
                    ++ bucket_diags_elems buckets (bucket_key_present idx)
                         (PM.elements buckets) (elements_all_mapsto buckets) in
   (* canonical order: node-primary diagnostics bucketed by NodeKey + flattened, then package-primary.
-     /COMMAND order: if the fresh-build output preflight (on the RETAINED [plan]) FAILS the report is
+     COMMAND order: if the fresh-build output preflight (on the RETAINED [plan]) FAILS the report is
      EXACTLY the build-output-directory diagnostic (precedence), else the semantic diagnostics.  This [diags] is
      [command_plan_diags_eq]-equal to [elaboration_diagnostics p idx]. *)
   let diags   := command_diagnostics_of p plan
@@ -6013,7 +6012,7 @@ Definition elaborate (p : GoProgram) : ProgramElaboration p :=
   let ip := GoIndex.index_program p in
   mkProgramElaboration ip (elaborate_indexed p ip).
 
-(** ANALYSIS EXACTNESS: elaboration succeeds (exposes facts) IFF the program is admissible ([GoCompile] =
+(** ELABORATION EXACTNESS: elaboration succeeds (exposes facts) IFF the program is admissible ([GoCompile] =
     fresh-build preflight passes AND the source is valid); it fails (exposes nonempty command-ordered
     diagnostics) IFF it is inadmissible.  Success and failure are exclusive.  (The [diags] computed inside
     [elaborate_indexed] runs on the RETAINED bucket-derived [plan]; [command_plan_diags_eq] bridges it to the
@@ -6263,7 +6262,7 @@ Lemma outcome_of_elaboration_failed_eq : forall p ip ds Hne (Ha : elaborate p = 
   outcome_of_elaboration p (mkProgramElaboration ip (ElaborationFailed ds Hne)) Ha = CompileFailed (mkCompileFailure ds Hne).
 Proof. intros p ip ds Hne Ha. reflexivity. Qed.
 
-(** the shape facts over a genuine ANALYSIS VARIABLE [a] equal to a constructor: [subst] collapses the nested
+(** the shape facts over a genuine VARIABLE [a] equal to a constructor: [subst] collapses the nested
     matches by iota — no dependent [rewrite] against [elaborate] under a binder. *)
 Lemma outcome_of_elaboration_eq_ok : forall p (a : ProgramElaboration p) (Ha : elaborate p = a) ip facts,
   a = mkProgramElaboration ip (ElaborationOK facts) ->
@@ -6334,8 +6333,7 @@ Proof.
   - apply (proj1 (source_spec_valid_b_iff p)); exact H.
 Qed.
 
-(** ============================================================================================================
-    DECLARATIVE AND EXECUTABLE EXACTNESS.  The three diagnostic layers each have an emptiness/equivalence
+(** DECLARATIVE AND EXECUTABLE EXACTNESS.  The three diagnostic layers each have an emptiness/equivalence
     characterization, and the two-branch command structure is pinned:
 
       A. [semantic_diagnostics_empty_iff_source_valid] : semantic report empty  <-> SourceProgramValid
@@ -6541,22 +6539,24 @@ Proof.
   exact (filemap_of_nodes_permutation n1 n2 fm1 fm2 Hperm F1 F2).
 Qed.
 
-(** ============================================================================================================
-    DETERMINISM, split correctly.  Source facts + the SEMANTIC report depend only on the file map (the
+(** DETERMINISM, split correctly.  Source facts + the SEMANTIC report depend only on the file map (the
     [*_FilesEqual] theorems above).  The FreshBuildPlan, the FINAL command report, and the acceptance CLASS also
     depend on the ModuleSpec (the preflight's default exec name is a ModulePath function), so those need the FULL
     [ProgramInputEqual].  Do NOT claim full-report equality from FilesEqual alone — see the counterexample
-    (equal files, different module -> different plan). ============================================================ *)
+    (equal files, different module -> different plan). *)
 
 (** equal inputs -> equal root layout / package import path (the file-map and module halves). *)
 Theorem root_layout_InputEqual : forall p1 p2,
   ProgramInputEqual p1 p2 -> root_layout p1 = root_layout p2.
 Proof. intros p1 p2 H. exact (root_layout_Equal _ _ (proj2 H)). Qed.
 
+(* the whole-program COROLLARY of [package_import_path_deterministic]: equal program inputs give an equal
+   module path, hence an equal import path for any package directory.  Retained for full-program determinism;
+   the direct API claim above is the load-bearing one (this is a consequence, not a substitute). *)
 Theorem package_import_path_InputEqual : forall p1 p2 dir,
   ProgramInputEqual p1 p2 ->
   package_import_path (prog_module p1) dir = package_import_path (prog_module p2) dir.
-Proof. intros p1 p2 dir H. rewrite (proj1 H). reflexivity. Qed.
+Proof. intros p1 p2 dir H. apply package_import_path_deterministic; [ exact (proj1 H) | reflexivity ]. Qed.
 
 (** the ERASED final (command-facing) report: snapshot-free, comparable across programs by [=]. *)
 Definition erased_elaboration_report (p : GoProgram) (idx : GoIndex.Snap.SyntaxIndex p) : list ErasedDiagnostic :=
@@ -6609,7 +6609,7 @@ Qed.
 Lemma source_spec_valid_b_empty : forall ms, source_spec_valid_b (empty_program ms) = true.
 Proof. intro ms. vm_compute. reflexivity. Qed.
 
-(**/— the LIVE factored-root empty surface (public gate).  [SourceProgramValid_Equal] is proved once,
+(** the LIVE factored-root empty surface (public gate).  [SourceProgramValid_Equal] is proved once,
     above (the sole map-equality proof); [source_spec_valid_b_Equal]/[source_spec_valid_b_empty] are its decidable
     companions. *)
 Theorem SourceProgramValid_empty : forall ms, SourceProgramValid (empty_program ms).
@@ -6637,7 +6637,7 @@ Example over_program_rejected  : legacy_compile_class (go_compile over_program) 
 Example over_program_no_compile : ~ GoCompile over_program.
 Proof. exact (reject_no_compile over_program over_program_not_valid). Qed.
 
-(** ---- integer-family programs (/): a concrete accepted integer program compiles; an invalid nested
+(** ---- integer-family programs: a concrete accepted integer program compiles; an invalid nested
     conversion rejects the WHOLE program with the same honest typing error, before any bytes. ---- *)
 Definition int_program : GoProgram :=
   singleton_program
@@ -6740,15 +6740,13 @@ Example complex_nonzero_imag_rejected   : legacy_compile_class (go_compile compl
 Example complex_nonzero_imag_no_compile : ~ GoCompile complex_nonzero_imag_program.
 Proof. apply (reject_no_compile complex_nonzero_imag_program); vm_compute; reflexivity. Qed.
 
-(** ============================================================================================================
-    / — CONCRETE STRUCTURED-DIAGNOSTIC FIXTURES.  Because the occurrence index is an OPAQUE
+(** / — CONCRETE STRUCTURED-DIAGNOSTIC FIXTURES.  Because the occurrence index is an OPAQUE
     sealed module ([Snap : SNAP_SIG]), the elaboration ([elaborate]/[expr_diags]/[pkg_diags]/[erased_report]) does
     NOT reduce — a fixture cannot [vm_compute] a concrete report.  So each fixture pins the REAL index
     ([Snap.index_program] of the concrete program) and states its structured claim THROUGH the proven
     soundness/determinism/emptiness bridges.  Non-vacuity comes from the COMPUTABLE type checker
     ([program_typedb]/[source_spec_package_rules_b], which DO reduce): a rejected program has a provably NON-EMPTY report
-    ([*_empty_iff] contrapositive), and every diagnostic in it is pinned by the family soundness theorem.
-    ============================================================================================================ *)
+    ([*_empty_iff] contrapositive), and every diagnostic in it is pinned by the family soundness theorem. *)
 
 Definition c3_ms : ModuleSpec := mkModuleSpec (ModulePath.mkMP "fido.local/generated" eq_refl) GoVersion.Go1_23.
 
@@ -6818,7 +6816,7 @@ Theorem nested_conv_erased_report :
         (Some (TInteger IInt8)) None ].
 Proof. rewrite erased_report_src_eq. vm_compute. reflexivity. Qed.
 
-(** ---- /— THREE MAINS IN ONE PACKAGE: the program is REJECTED (a package with != 1 main), so its
+(** ---- THREE MAINS IN ONE PACKAGE: the program is REJECTED (a package with != 1 main), so its
     package report is genuinely NON-EMPTY, and EVERY duplicate-main diagnostic names a strictly-later,
     genuinely-DISTINCT main in the SAME package, with the related [earlier] the unique smallest-NodeKey main. ---- *)
 Definition three_main_program : GoProgram :=
@@ -7069,12 +7067,11 @@ Proof. vm_compute. reflexivity. Qed.
    number literals are unaffected). *)
 Local Open Scope string_scope.
 
-(** ============================================================================================================
-    CURRENT REQUIRED ROCQ FIXTURES (20.1-20.16).  The fresh-build plan, preflight disposition, [source_spec_valid_b],
+(** CURRENT REQUIRED ROCQ FIXTURES (20.1-20.16).  The fresh-build plan, preflight disposition, [source_spec_valid_b],
     and [program_typedb] are ALL index-free, so a fixture [vm_compute]s them directly; the command-facing report
     (which anchors into the OPAQUE sealed index) is pinned THROUGH the proven bridges ([go_compile_class_spec],
     [elaboration_diagnostics_fresh_failure]).  Module paths are valid current [ModulePath]s; the pinned Go
-    1.23.12 default-executable / directory-collision behaviour is what these encode. ============================ *)
+    1.23.12 default-executable / directory-collision behaviour is what these encode. *)
 
 Definition ex_ms : ModuleSpec := mkModuleSpec (ModulePath.mkMP "example.com/m" eq_refl) GoVersion.Go1_23.
 Definition ex_main : list GoDecl := [ DMain [ SPrintln [ EInt 1 ] ] ].

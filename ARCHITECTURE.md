@@ -302,9 +302,9 @@ AST->output->AST round-trip authority, no copied compiled AST, no handwritten OC
   Rocq terms and run no programs.  VALIDATE-BEFORE-PUBLISH ordering (supported / cooperating-developer threat
   model): building the `sync` image COPYs go-e2e's `/fresh-build-ok` Docker-DAG edge, so `make regenerate`
   cannot publish unless the pinned `go build ./...` succeeded first, and it publishes the ORIGINAL
-  generated-module bytes, never a post-build byte.  No checksum/manifest stands in for validation provenance;
-  the project does not attempt to resist a deliberate local bypass (extracting a binary, hand-editing the
-  Dockerfile/hooks) — the pre-commit hook's assurance level.
+  generated-module bytes, never a post-build byte.  No checksum/manifest system exists (a checksum cannot prove
+  a build succeeded); the project does not attempt to resist a deliberate local bypass (extracting a binary,
+  hand-editing the Dockerfile/hooks) — the pre-commit hook's assurance level.
 
 `tools/ocaml-origin-gate.sh` enforces exactly these four files (inspecting every source at every depth — a
 repository-content gate, not the runtime sink, so it prunes only `.git`), filesystem-only for the
@@ -487,8 +487,8 @@ program/image; a handwritten `go.mod` or a `go.mod` smuggled into the FilePath m
 `<root>/.fido/staging/`, a central cross-device rejection, or the deleted stage-record / nonce /
 local-stage-directory / record-driven-recovery subsystem; device/inode/mount-identity ownership records; a
 foreign `.go`/`go.mod` preserved-and-merged into the built tree, or a nested `.fido` skipped instead of
-rejected; handled-failure residue left deliberately for the next run; a checksum/manifest standing in for
-validation provenance; a constant-only audit that skips certified inductives or surviving named assumptions;
+rejected; handled-failure residue left deliberately for the next run; a checksum/manifest posing as proof that
+the build succeeded; a constant-only audit that skips certified inductives or surviving named assumptions;
 a `Undef`-body-only axiom check posing as a whole-theory audit; tracked axiom-bearing fixtures; `go vet` as a
 blocking acceptance gate; single-file compiler semantics or a subset filter posing as compiler admissibility;
 a witness-specific extracted emit executable or a hard-coded `main.go` Docker copy; a fail-open regex axiom

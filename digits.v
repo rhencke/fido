@@ -1,8 +1,6 @@
-(** ============================================================================
-    digits.v — the ONE decimal-digit authority (Stdlib-only leaf; consumed by GoRender's
+(** digits.v — the ONE decimal-digit authority (Stdlib-only leaf; consumed by GoRender's
     printer and its all-ASCII proof).  Structural double-and-add over the positive's bits:
-    total by the number's own structure, no step budget.
-    ============================================================================ *)
+    total by the number's own structure, no step budget. *)
 From Stdlib Require Import String List Ascii ZArith Lia Bool.
 Import ListNotations.
 Local Open Scope string_scope.

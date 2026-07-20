@@ -27,7 +27,7 @@ Proof. apply GoCompile_of_source_spec_valid_b; vm_compute; reflexivity. Qed.
 Definition bytes_compiled : CompilableProgram :=
   compilable_of_valid bytes_program bytes_valid.
 
-(* the compilation artifact IS obtained from the successful analysis (ElaborationOK via go_compile). *)
+(* the compilation artifact IS obtained from the successful elaboration (ElaborationOK via go_compile). *)
 Example bytes_compiles : exists cp Hcp, go_compile bytes_program = CompiledOk cp Hcp.
 Proof. exact (go_compile_complete bytes_program bytes_valid). Qed.
 Definition bytes_safe : SafeProgram := certify bytes_compiled.

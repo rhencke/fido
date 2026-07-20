@@ -1,5 +1,4 @@
-(** ============================================================================
-    Collections — the ONE standard-collection foundation.  Fido authors NO general-purpose map/set
+(** Collections — the ONE standard-collection foundation.  Fido authors NO general-purpose map/set
     implementation: every identity-keyed collection is backed by a mature pinned-Rocq-stdlib map, and every
     membership-only collection by a mature standard set, behind a thin domain wrapper.  This module only
     instantiates standard functors and re-exports the facts Fido needs — it defines no tree/list-backed
@@ -14,8 +13,7 @@
     Fido does NOT claim a project kernel theorem for the AVL balance invariant or a machine-level O(log n)
     complexity.  [FMapFullAVL] is the standard layer that additionally packages/proves the balance invariant —
     NOT redundant; it is the appropriate candidate if formally-packaged balance ever becomes a required Fido
-    theorem (do not switch merely for wording).
-    ============================================================================ *)
+    theorem (do not switch merely for wording). *)
 From Stdlib Require Import String.
 From Stdlib Require Import Structures.OrderedType Structures.OrderedTypeEx.
 From Stdlib Require Import FSets.FMapInterface FSets.FMapAVL FSets.FMapFacts.

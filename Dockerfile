@@ -1,9 +1,7 @@
 # syntax=docker/dockerfile:1
 
-# Fido build stages — ONE program: GoProgram -> GoTypes -> GoCompile (= the pinned one-shot `go build ./...`
-# acceptance) -> GoSafe -> GoRender -> DirectoryImage -> `Fido Materialize` (the SOLE Rocq transport vernac) ->
-# pinned Go.  There is NO public `Fido Emit`; the publication SINK is internal (sink_test + the validated
-# `make regenerate` apply CLI).
+# Fido build stages (the certified pipeline itself is the charter, ARCHITECTURE.md).  `Fido Materialize` is
+# the SOLE Rocq transport vernac; the publication SINK is internal (sink_test + the `make regenerate` CLI).
 #   prover:  dune-compiles the theory; the always-run gate confirms every declared surface axiom-free.
 #   emit:    compiles theory+plugin (shared cache), MATERIALIZES each witness image DIRECTLY into a pristine
 #            root, and exercises the sink SEPARATELY on dirty/adversarial trees (sink_test).
@@ -280,13 +278,13 @@ printf 'keep\n' > adv-1/notes.txt
 [ -f adv-1/go.mod ] || fail "empty program removed the owned go.mod"
 [ -f adv-1/notes.txt ] || fail "empty program removed a foreign file"
 [ -z "$(residue adv-1)" ] || fail "residue after empty re-sync"
-#a DUPLICATE desired path is REJECTED before any filesystem effect (the standard-map builder
+# a DUPLICATE desired path is REJECTED before any filesystem effect (the standard-map builder
 # refuses rather than letting `add` silently overwrite); nothing is materialized.
 mkdir -p adv-dup
 if ./sink_test adv-dup dup 2>/tmp/dup.log; then fail "a duplicate desired path was NOT rejected"; fi
 grep -q 'duplicate output path' /tmp/dup.log || { cat /tmp/dup.log; fail "dup rejected for the wrong reason"; }
 { [ ! -e adv-dup/go.mod ] && [ ! -e adv-dup/.fido ] && [ ! -e adv-dup/main.go ]; } || fail "a rejected duplicate still materialized files"
-#PERMUTED transport entries produce a byte-IDENTICAL tree (output is keyed by path, not order).
+# PERMUTED transport entries produce a byte-IDENTICAL tree (output is keyed by path, not order).
 mkdir -p adv-perm
 ./sink_test adv-perm perm || fail "permuted transport entries produced a different tree"
 # byte-distinct OWNED replacement: an owned go.mod/.go with DIFFERENT bytes is replaced (ownership = header)
@@ -612,49 +610,45 @@ umask 022
 # go env / flag / sumdb state — export the COMPLETE pinned environment so no case inherits host config.
 export GOWORK=off GOTOOLCHAIN=local GOPROXY=off GOENV=off GOFLAGS= GOSUMDB=off GO111MODULE=on GOOS=linux GOARCH=amd64
 
-# ── The ONE fresh-build runner: runs the pinned `go build ./...` ONCE in a FRESH disposable copy.  FAIL-CLOSED,
-#    distinguishing a real Go run from a setup/runner/filesystem/infra failure: it RESETS its outputs on entry
-#    (no prior run's log/flag leaks); a setup failure BEFORE `go build` returns sentinel 125 with _FRESH_GO_RAN=0
-#    + EMPTY _FRESH_BUILD_LOG; only after `go build` runs does it set _FRESH_GO_RAN=1 + _FRESH_BUILD_LOG=<this
-#    run's log> and return Go's status.  Callers MUST [require_go_ran] before judging acceptance/rejection.
+# ── The ONE fresh-build runner (an explicit fail-closed state machine): runs the pinned fixed `go build ./...`
+#    at most ONCE in a FRESH disposable copy, and DISTINGUISHES an actual pinned-Go invocation from every
+#    setup / runner / filesystem / launch failure.  On ENTRY it clears EVERY published output — the run flag, the
+#    log, and the caller's output variable — so no prior run can leak.  An INFRASTRUCTURE failure (mktemp, source
+#    copy, log creation, fresh root missing after copy, `cd` into it, `go` unavailable, or a shell launch failure
+#    126/127) returns the reserved status 125 with _FRESH_GO_RAN=0, EMPTY _FRESH_BUILD_LOG, an EMPTY output
+#    variable, and the temporaries cleaned.  Only after the fresh root exists, `cd` succeeds, `go` is available,
+#    and the fixed command LAUNCHES does it set _FRESH_GO_RAN=1 + _FRESH_BUILD_LOG=<this run's log> +
+#    <output var>=<this root> and return Go's actual status.  Callers MUST [require_go_ran] before reading the
+#    status or log.  (The self-tests set _FRESH_FAULT to inject a post-copy/pre-Go root loss or an unlaunchable go.)
 fresh_go_build() {  # <src-tree> <out-var-for-fresh-root>
   _src=$1; _out=${2:-_frv}
-  _FRESH_GO_RAN=0; _FRESH_BUILD_LOG=          # reset — a stale log/flag can NEVER satisfy the next caller
-  _fresh=$(mktemp -d /tmp/fido-fresh.XXXXXX)          || { echo "fresh_go_build: mktemp -d FAILED"; return 125; }
-  cp -a -- "$_src/." "$_fresh/"                       || { echo "fresh_go_build: cp FAILED"; rm -rf "$_fresh"; return 125; }
-  _log=$(mktemp /tmp/fido-buildlog.XXXXXX)            || { echo "fresh_go_build: mktemp log FAILED"; rm -rf "$_fresh"; return 125; }
-  ( cd "$_fresh" && go build ./... ) > "$_log" 2>&1
-  _rc=$?
-  _FRESH_GO_RAN=1; _FRESH_BUILD_LOG=$_log     # the go build actually RAN — THIS run's log is authoritative
+  _FRESH_GO_RAN=0; _FRESH_BUILD_LOG=; eval "$_out=\"\""     # entry: clear EVERY published output first
+  _fresh=$(mktemp -d /tmp/fido-fresh.XXXXXX)  || { echo "fresh_go_build: mktemp -d FAILED (infra)"; return 125; }
+  cp -a -- "$_src/." "$_fresh/"               || { echo "fresh_go_build: cp FAILED (infra)"; rm -rf "$_fresh"; return 125; }
+  [ "${_FRESH_FAULT:-}" = rootloss ] && rm -rf "$_fresh"    # self-test hook: lose the fresh root after copy
+  [ -d "$_fresh" ]                            || { echo "fresh_go_build: fresh root missing after copy (infra)"; return 125; }
+  command -v go >/dev/null 2>&1               || { echo "fresh_go_build: go unavailable (infra)"; rm -rf "$_fresh"; return 125; }
+  _log=$(mktemp /tmp/fido-buildlog.XXXXXX)    || { echo "fresh_go_build: mktemp log FAILED (infra)"; rm -rf "$_fresh"; return 125; }
+  # the pinned fixed invocation, run ONCE.  A `cd` failure -> exit 125 (infra, NOT a Go outcome); an exec launch
+  # failure surfaces as 126/127 (also infra).  The `nogo` self-test hook forces an unlaunchable command.
+  if [ "${_FRESH_FAULT:-}" = nogo ]; then
+    ( cd "$_fresh" 2>/dev/null || exit 125; exec ./__fido_no_such_go__ ) > "$_log" 2>&1; _rc=$?
+  else
+    ( cd "$_fresh" 2>/dev/null || exit 125; exec go build ./... ) > "$_log" 2>&1; _rc=$?
+  fi
+  case "$_rc" in
+    125|126|127) echo "fresh_go_build: pre-Go / launch failure (exit $_rc, infra) in $_fresh:"; sed 's/^/  | /' "$_log"; rm -rf "$_fresh" "$_log"; return 125 ;;
+  esac
+  _FRESH_GO_RAN=1; _FRESH_BUILD_LOG=$_log; eval "$_out=\$_fresh"   # the pinned go build actually RAN
   [ "$_rc" = 0 ] || { echo "fresh_go_build: go build ./... exit $_rc in $_fresh:"; sed 's/^/  | /' "$_log"; }
-  eval "$_out=\$_fresh"
   return $_rc
 }
 
-# a judge may accept a Go OUTCOME only if the go build actually RAN.  A setup/runner/filesystem/infra failure
-# (mktemp/cp; sentinel 125, _FRESH_GO_RAN=0) is NOT a Go rejection — it aborts the e2e fail-closed.
+# a judge may read the Go status/log only if the pinned build actually RAN; a setup/runner/filesystem/launch
+# failure (status 125, _FRESH_GO_RAN=0) is NOT a Go rejection — it aborts the e2e fail-closed.
 require_go_ran() {  # <label>
-  [ "$_FRESH_GO_RAN" = 1 ] || { echo "fido e2e: $1 — the fresh go build ./... did NOT run (setup/runner/filesystem/infra failure); cannot judge Go acceptance/rejection"; exit 1; }
+  [ "$_FRESH_GO_RAN" = 1 ] || { echo "fido e2e: $1 — the fresh go build ./... did NOT run (setup/runner/filesystem/launch failure); cannot judge Go acceptance/rejection"; exit 1; }
 }
-
-# ---- fail-closed FAULT SELF-TESTS for the fresh-build runner (fault injection, before any real fixture) ----
-# (1) SETUP / COMMAND-NOT-RUN failure: a nonexistent source makes cp fail, so go build never runs.
-_fault_rc=0; fresh_go_build /nonexistent-fault-src _FF || _fault_rc=$?
-[ "$_FRESH_GO_RAN" = 0 ]   || { echo "fido e2e fault: a setup failure reported the go command as RUN"; exit 1; }
-[ -z "$_FRESH_BUILD_LOG" ] || { echo "fido e2e fault: a setup failure left a build log (stale-log risk)"; exit 1; }
-[ "$_fault_rc" = 125 ]     || { echo "fido e2e fault: a setup failure did not return the infra sentinel (got $_fault_rc)"; exit 1; }
-# (2) STALE-OUTPUT contamination: a REAL go run leaves a non-empty log; a following setup failure MUST clear it,
-#     so a later negative judge can NEVER grep the previous run's diagnostic.
-_sd=/tmp/fresh-fault-ok; rm -rf "$_sd"; mkdir -p "$_sd"
-printf 'module ff\n\ngo 1.23\n' > "$_sd/go.mod"
-printf 'package main\nfunc main() { println(int8(128)) }\n' > "$_sd/x.go"   # a real rejection -> non-empty log
-fresh_go_build "$_sd" _FF || true
-{ [ "$_FRESH_GO_RAN" = 1 ] && [ -n "$_FRESH_BUILD_LOG" ] && [ -s "$_FRESH_BUILD_LOG" ]; } || { echo "fido e2e fault: a real go run left no current-run log"; exit 1; }
-_stale_log=$_FRESH_BUILD_LOG; rm -rf "${_FF:-/nonexistent}"
-fresh_go_build /nonexistent-fault-src _FF2 || true
-{ [ "$_FRESH_BUILD_LOG" != "$_stale_log" ] && [ -z "$_FRESH_BUILD_LOG" ] && [ "$_FRESH_GO_RAN" = 0 ]; } || { echo "fido e2e fault: a setup failure did NOT clear the prior run's log/flag (stale-output risk)"; exit 1; }
-rm -rf "$_sd"
-echo "fido e2e fault: fresh-build runner fail-closed — setup/command-not-run distinguished (sentinel 125, no run), no stale log/flag leaks"
 
 cd tree
 # the generated-module layer is the PRISTINE canonical module: it must carry NO .fido / lock / temp residue
@@ -674,7 +668,7 @@ if [ -n "$(gofmt -l .)" ]; then echo "fido e2e: emitted Go is not gofmt-clean:";
 # go vet is DIAGNOSTIC ONLY (nonblocking); go build acceptance is the contract
 if ! go vet ./...; then echo "fido e2e: go vet reported diagnostics (nonblocking)"; fi
 # the WHOLE tree must compile — routed through the FRESH-BUILD RUNNER (a disposable materialization of the
-# PRISTINE tree; /— never build in the authoritative tree, never copy a post-build byte back)
+# PRISTINE tree; never build in the authoritative tree, never copy a post-build byte back)
 fresh_go_build /e2e/tree WFRESH || { require_go_ran fresh-go-build; cat "${WFRESH:-/dev/null}/.build.err" 2>/dev/null; echo "fido e2e: go build ./... FAILED in a fresh root (a certified tree must always compile)"; exit 1; }
 echo "fido e2e: witness go build ./... OK in a fresh materialized root ($WFRESH)"
 # the sole-main `go build ./...` ALREADY wrote the default executable to the fresh root — RUN THAT and compare to
@@ -773,7 +767,7 @@ rej_conv int-of-cimag   'println(int(complex(3, 1)))'
 rej_conv f32-of-cimag   'println(float32(complex(1.5, 1)))'
 rej_conv c64-bool       'println(complex64(true))'
 rej_conv c128-str       'println(complex128("x"))'
-# §C0 complex-underflow scalar-conversion scar: 1e-50 is a nonzero exact rational that UNDERFLOWS binary32
+# complex-underflow scalar-conversion scar: 1e-50 is a nonzero exact rational that UNDERFLOWS binary32
 # to +0.  The UNTYPED complex(3, 1e-50) has a nonzero imaginary, so int(...) is rejected; but the explicit
 # complex64 boundary rounds that imaginary to exact zero, after which int(complex64(...)) is accepted as 3.
 # Pinned Go 1.23 must agree with GoTypes on BOTH sides — the reject is a rej_conv, the accept-and-value-3 is
@@ -867,6 +861,35 @@ expect_accept_noexe() { # <dir> <label>: accept AND NO default executable (0 or 
   [ -z "$_e" ] || { echo "fido e2e diff: $2 wrote an UNEXPECTED default executable [$_e]"; rm -rf "$FR"; exit 1; }
   echo "fido e2e diff: go build ./... accepted $2 with NO default executable"; rm -rf "$FR"
 }
+
+# ---- fail-closed FAULT SELF-TESTS for the fresh-build runner (the ACTUAL helper + judges, before the matrix) ----
+# assert the last fresh_go_build was classified as an INFRA failure: no run, status 125, empty log, empty out var.
+_assert_infra() { # <label> <rc> <out-value>
+  { [ "$_FRESH_GO_RAN" = 0 ] && [ "$2" = 125 ] && [ -z "$_FRESH_BUILD_LOG" ] && [ -z "$3" ]; } \
+    || { echo "fido e2e fault: $1 NOT classified as infra (ran=$_FRESH_GO_RAN rc=$2 log=[$_FRESH_BUILD_LOG] out=[$3])"; exit 1; }; }
+# (1) SETUP/COPY failure: a nonexistent source makes cp fail -> go never runs.
+_frc=0; fresh_go_build /nonexistent-fault-src _FF || _frc=$?; _assert_infra "setup/copy failure" "$_frc" "${_FF:-}"
+echo "fido e2e fault(1): setup/copy failure -> infra 125, go NOT run, no log, no output root"
+# (2) STALE-RESULT clearing: a REAL rejected run leaves a log + root; the NEXT infra failure clears log/flag/root.
+_sd=/tmp/fresh-fault-ok; rm -rf "$_sd"; mkdir -p "$_sd"
+printf 'module ff\n\ngo 1.23\n' > "$_sd/go.mod"; printf 'package main\nfunc main() { println(int8(128)) }\n' > "$_sd/x.go"
+fresh_go_build "$_sd" _FF || true
+{ [ "$_FRESH_GO_RAN" = 1 ] && [ -s "$_FRESH_BUILD_LOG" ] && [ -n "${_FF:-}" ]; } || { echo "fido e2e fault(2): a real rejected run left no log/root"; exit 1; }
+_prev_log=$_FRESH_BUILD_LOG; rm -rf "$_FF"
+_frc=0; fresh_go_build /nonexistent-fault-src _FF || _frc=$?; _assert_infra "post-run infra failure" "$_frc" "${_FF:-}"
+[ "$_FRESH_BUILD_LOG" != "$_prev_log" ] || { echo "fido e2e fault(2): the prior run's log was not cleared"; exit 1; }
+rm -rf "$_sd"; echo "fido e2e fault(2): stale-result cleared — a following infra failure zeroes log, flag, and output root"
+# (3) POST-COPY/PRE-Go root loss: the fresh root vanishes after copy -> infra 125, go NOT run; a DIRECTORY-
+#     collision judge must REFUSE the shell "cd ... directory" error as a Go rejection.
+mk_tree /tmp/fault3 example.com/m sub/main.go
+_FRESH_FAULT=rootloss; _frc=0; fresh_go_build /tmp/fault3 _FF || _frc=$?; _assert_infra "post-copy/pre-Go root loss" "$_frc" "${_FF:-}"
+if ( expect_reject /tmp/fault3 "fault3 rootloss" 'directory' ) >/dev/null 2>&1; then unset _FRESH_FAULT; echo "fido e2e fault(3): a directory-collision judge ACCEPTED an infra failure (fail-open)"; exit 1; fi
+unset _FRESH_FAULT; echo "fido e2e fault(3): post-copy/pre-Go root loss -> infra 125, go NOT run; the directory-collision judge refuses it"
+# (4) COMMAND unavailable / launch failure: `go` cannot launch -> infra 125, go NOT run; no judge accepts it.
+_FRESH_FAULT=nogo; _frc=0; fresh_go_build /tmp/fault3 _FF || _frc=$?; _assert_infra "go launch failure" "$_frc" "${_FF:-}"
+if ( expect_reject /tmp/fault3 "fault3 nogo" 'directory|overflow|cannot' ) >/dev/null 2>&1; then unset _FRESH_FAULT; echo "fido e2e fault(4): a judge ACCEPTED a launch failure (fail-open)"; exit 1; fi
+unset _FRESH_FAULT; rm -rf /tmp/fault3; echo "fido e2e fault(4): go launch failure -> infra 125, go NOT run; no judge accepts it"
+
 # A. go.mod only -> success, no packages, no executable
 mk_gomod /tmp/A example.com/m;                                        expect_accept_noexe /tmp/A "A: go.mod only (no packages)"
 # B. valid root main, absent output -> success, executable created

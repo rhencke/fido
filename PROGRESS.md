@@ -9,7 +9,8 @@ in the git log.
 One authority per layer, over the ONE `GoProgram`; every layer axiom-free in the pinned container.
 
 - **`FilePath`** — intrinsic canonical relative paths (lowercase components + `.go` basename); decidable eq;
-  `fp_parent` package key; strange paths UNREPRESENTABLE. `split_slash` component view.
+  `fp_parent` package key; strange paths UNREPRESENTABLE. Public component authority: `dir_components`
+  (+ `dir_components_concat`), over the internal `split_slash` helper.
 - **`Collections`** — the ONE standard-collection foundation: thin wrappers over pinned-stdlib `FMapAVL`
   (`FileMapBase` over the `FilePath` key, `PackageMapBase` over `String`) and `FMapPositive` (`NodeMapBase`);
   Fido authors no map/set. `fp_str_inj`, `filemap_elements_Equal` axiom-free.
@@ -21,8 +22,8 @@ One authority per layer, over the ONE `GoProgram`; every layer axiom-free in the
 - **`Complexes`** — the ONE complex authority over `Floats`: C64/C128 via the `complex_component_type` mapping;
   exact `ComplexConst`; intrinsic `TypedComplexConst`; general runtime `ComplexValue` (pairs of `FloatValue`,
   may be -0/inf/NaN); `DecimalComplex`; `round_typed_complex` (each component once).
-- **`ModulePath`** — intrinsic narrow canonical module path; decidable eq; `split_slash` / `split_slash_app`
-  component view; invalid paths UNREPRESENTABLE. **`GoVersion`** — singleton `Go1_23`, renders "1.23".
+- **`ModulePath`** — intrinsic narrow canonical module path; decidable eq; public component authority
+  `mp_segments` (+ `mp_string_concat`); invalid paths UNREPRESENTABLE. **`GoVersion`** — singleton `Go1_23`, renders "1.23".
 - **`GoAST`** — `ModuleSpec` + `GoProgram := { prog_module ; prog_files : GoFileMap }` (may be empty); the map
   KEY is the path; a construction/view `GoFileNode` = `FilePath` + source-owned `PkgMain` clause + empty imports
   + `source_decls`; the sound/complete/exact duplicate-rejecting `filemap_of_nodes`; `DMain`, `SPrintln`,
@@ -42,8 +43,10 @@ One authority per layer, over the ONE `GoProgram`; every layer axiom-free in the
   factored roots directly; the PRODUCTION decision is the retained-bucket diagnostic pass, whose redeclaration /
   missing-entry / all-package diagnostics are empty IFF `PackageDeclsUnique` / `MainPackagesHaveEntry` /
   `PackageRulesValid`. The ONE `elaborate` builds one `IndexedProgram` + `ProgramElaboration`; `go_compile`
-  projects it (sound/complete, class-invariant under file order). Default executable name is component-based
-  (`default_exec_name_c` over `ModulePath.split_slash`). Structured `DiagnosticReason` in the exact snapshot;
+  projects it (sound/complete, class-invariant under file order). Default executable name is component-based:
+  cmd/go's rule (`default_exec_name_c`) applied DIRECTLY to `package_import_components`
+  (`ModulePath.mp_segments` ++ `FilePath.dir_components`, no string reparse); the import-path string is their
+  `/`-join, injective in the package directory (`package_import_path_inj`). Structured `DiagnosticReason` in the exact snapshot;
   the three diagnostic layers each have an emptiness characterization; a failed preflight takes precedence.
 - **`GoSafe`** — real `GoValue`; `value_type`; `ValueWF`; PARTIAL `eval_expr` (projects the stored canonical
   runtime value, rounded once at conversion); resolved-eval well-formedness + type preservation; `SafeProgram`.
@@ -61,8 +64,8 @@ One authority per layer, over the ONE `GoProgram`; every layer axiom-free in the
   module, reached only from `sink_test` + the tiny internal `make regenerate` apply adapter (fixed source
   `/generated`, no arbitrary root, no Go, no hashing). Validate-before-publish is the Docker DAG: building the
   `sync` image COPYs go-e2e's `/fresh-build-ok`, so a failed pinned `go build ./...` makes `sync` unbuildable;
-  it publishes the ORIGINAL generated-module bytes. No checksum stands in for validation provenance;
-  cooperating-developer threat model (the pre-commit hook's level), no deliberate-bypass resistance.
+  it publishes the ORIGINAL generated-module bytes. No checksum system exists (a checksum cannot prove a build
+  succeeded); cooperating-developer threat model (the pre-commit hook's level), no deliberate-bypass resistance.
 - **The sink** (`plugin/fido_sink.ml`) — the foreign-Go-rejecting sibling-temp dirty-directory synchronizer:
   rejects foreign Go/module + nested `.fido`, stages into reserved `<final>.fido-tmp-v1` temps, installs by
   atomic rename, two-phase-recovers abandoned temps fail-closed. Exercised on dirty/adversarial trees.
@@ -71,8 +74,10 @@ One authority per layer, over the ONE `GoProgram`; every layer axiom-free in the
   check` (working tree) and the pre-commit hook (staged). The digest-pinned `golang:1.23-alpine` runs
   `GOWORK=off GOTOOLCHAIN=local GOPROXY=off go build ./...` over the whole tree, the witness vs reviewed
   goldens, the multi-package differential, no-main/dup-main + out-of-range/non-integer/wrong-type conversion
-  rejection fixtures, and the directory-collision matrix — each through the tiny `fresh_go_build` helper (a
-  fresh disposable copy, `go build ./...` once).
+  rejection fixtures, and the directory-collision matrix — each through the tiny `fresh_go_build` helper: a
+  fail-closed state machine that runs `go build ./...` once in a fresh disposable copy and returns the reserved
+  status 125 (with no run flag, no log, no output root) for every setup / `cd` / launch failure, so an
+  infrastructure failure can never be read as a Go rejection (four fault self-tests).
 - **Zero project axioms**, enforced two ways in `make prove`: the count-checked `gate/axiom_gate.v` (Print
   Assumptions on public surfaces) AND the Rocq-native `Fido Audit Assumptions` whole-certified-theory closure
   audit (constants + inductives + named assumptions), with a module-coverage gate and adversarial self-tests A-E.
@@ -80,7 +85,7 @@ One authority per layer, over the ONE `GoProgram`; every layer axiom-free in the
 ## Source Forest campaign (ACTIVE)
 
 Multi-checkpoint C0..C6; C0..C2 complete + human-approved; C3 (fresh-image literal-build closeout) in progress
-under `.review/C3_WEEDWHACKER_DIRECTIVE.md`. Live status + the authority chain: `.review/SOURCE_FOREST_STATUS.md`.
+under `.review/C3_FINAL_CLEANUP_DIRECTIVE.md`. Live status + the authority chain: `.review/SOURCE_FOREST_STATUS.md`.
 Each checkpoint is activated ONLY by explicit Rob authorization; C4 and later remain FORBIDDEN.
 
 ## NEXT — the frontier (pour roots before floors; do NOT add breadth for its own sake)

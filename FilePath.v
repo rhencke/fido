@@ -1,5 +1,4 @@
-(** ============================================================================
-    FilePath — the intrinsic canonical relative source-path domain.  A raw [string] is NOT a file path:
+(** FilePath — the intrinsic canonical relative source-path domain.  A raw [string] is NOT a file path:
     Go package discovery for `go build ./...` depends on the path, so the path is a SEMANTIC compiler
     input, and only a deliberately NARROW canonical grammar is representable.
 
@@ -17,8 +16,7 @@
 
     Validity is intrinsic: [FilePath] carries the proof [path_ok fp_str = true], so a value cannot exist
     for a bad path.  Equality is decidable and reduces to string equality (the proof is unique by bool
-    UIP).  [fp_parent] is the parent-directory identity used to group files into packages.
-    ============================================================================ *)
+    UIP).  [fp_parent] is the parent-directory identity used to group files into packages. *)
 From Stdlib Require Import String Ascii List Bool Eqdep_dec Arith.
 Import ListNotations.
 
@@ -110,14 +108,12 @@ Definition parent_of (s : string) : string :=
 (** The parent directory of a file — files with the SAME parent form one package. *)
 Definition fp_parent (p : FilePath) : string := parent_of (fp_str p).
 
-(** ============================================================================================
-    The canonical DIRECTORY-COMPONENT AUTHORITY over a parent path.  [split_slash] is the split view and
+(** The canonical DIRECTORY-COMPONENT AUTHORITY over a parent path.  [split_slash] is the split view and
     its "/"-join is its inverse ([split_slash_concat]); a valid [dir_component_ok] directory component
     contains no separator, so it is a SINGLE component ([dir_component_ok_single]) and nonempty.  For a
     package key that is some file's [fp_parent], every directory component is nonempty
     ([parent_dir_components_nonempty]).  This is the lower-layer authority [GoCompile] composes for
-    package import-path and executable-name reasoning — no character-level scan in the consumer.
-    ============================================================================================ *)
+    package import-path and executable-name reasoning — no character-level scan in the consumer. *)
 
 Lemma split_slash_nonempty : forall s, split_slash s <> [].
 Proof.

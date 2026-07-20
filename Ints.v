@@ -1,5 +1,4 @@
-(** ============================================================================
-    Ints — the ONE integer-family descriptor and range authority.  Project scope is the Go 1 language
+(** Ints — the ONE integer-family descriptor and range authority.  Project scope is the Go 1 language
     surface on modern 64-bit targets: signed [int] and unsigned [uint] are 64-bit.  There is NO
     TargetConfig and no parameterization by Go point release, GOOS, GOARCH, or word size — that abstraction
     tax is not paid until 32-bit support is deliberately chosen in a future reviewed milestone.  The external
@@ -12,8 +11,7 @@
     support only in a later milestone if syntax needs them).  Width, sign, bounds, and keyword are all
     DERIVED from this one descriptor — never a second numeric-range module, never a per-type record, never a
     duplicated numeric literal that becomes a second authority.  The base is pure [Z]/[ZArith]; no
-    [PrimInt63]/[Sint63] primitive-integer axiom is ever imported (this file must stay axiom-free).
-    ============================================================================ *)
+    [PrimInt63]/[Sint63] primitive-integer axiom is ever imported (this file must stay axiom-free). *)
 From Stdlib Require Import ZArith String Bool.
 Open Scope Z_scope.
 

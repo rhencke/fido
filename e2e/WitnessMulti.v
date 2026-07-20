@@ -41,7 +41,7 @@ Proof. apply GoCompile_of_source_spec_valid_b; vm_compute; reflexivity. Qed.
 Definition multi_compiled : CompilableProgram :=
   compilable_of_valid multi_program multi_valid.
 
-(* the compilation artifact IS obtained from the successful analysis (ElaborationOK via go_compile). *)
+(* the compilation artifact IS obtained from the successful elaboration (ElaborationOK via go_compile). *)
 Example multi_compiles : exists cp Hcp, go_compile multi_program = CompiledOk cp Hcp.
 Proof. exact (go_compile_complete multi_program multi_valid). Qed.
 Definition multi_safe : SafeProgram := certify multi_compiled.

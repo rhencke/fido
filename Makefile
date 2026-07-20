@@ -7,18 +7,8 @@ override PLATFORM := linux/amd64
 .PHONY: check prove emit e2e regenerate regen-guard builder install-hooks prover-log
 .DEFAULT_GOAL := check
 
-# Fido (ARCHITECTURE.md): an LLM proposes a GoProgram (a ModuleSpec + a possibly-empty finite map of
-# intrinsic FilePath keys to raw file ASTs); emission is available only after Rocq proves GoCompile — the EXACT
-# acceptance model for the pinned one-shot `go build ./...` (the fresh-build output preflight over the factored
-# source rules: whole-program typing via GoTypes + PackageDeclsUnique + MainPackagesHaveEntry) — and GoSafe.  Chain:
-#   GoProgram (GoFileMap source forest) -> GoTypes (untyped GoConst -> context-resolved GoType, ProgramTyped)
-#     -> GoCompile (fresh-build preflight + SourceProgramValid = the one-shot `go build ./...` acceptance)
-#     -> GoSafe -> direct GoRender (source-owned package clause + go.mod) -> complete
-#     DirectoryImage -> `Fido Materialize` writes the authoritative pristine image DIRECTLY -> pinned
-#     `go build ./...` VALIDATES it -> only then the validated `make regenerate` publishes the SAME bytes via
-#     the INTERNAL foreign-Go-rejecting sibling-temp sink (there is NO public `Fido Emit`; validation-before-
-#     publication — a failed build blocks publish).
-# ALL Rocq/Go work runs in the PINNED container via buildx — host Rocq is NOT supported.
+# The certified pipeline and the transport boundary are the charter (ARCHITECTURE.md); they are not restated
+# here.  ALL Rocq/Go work runs in the PINNED container via buildx — host Rocq is NOT supported.
 
 # `make check` verifies the WORKING TREE, coherently and in ONE place.  It materializes the working-tree
 # content of every relevant file — `git ls-files --cached --others --exclude-standard` enumerates candidate
@@ -93,15 +83,6 @@ regenerate: builder
 # So `make regenerate` cannot publish unless the pinned `go build ./...` validated the pristine first.
 regen-guard: builder
 	BUILDER=$(BUILDER) PLATFORM=$(PLATFORM) sh tools/regen-guard-test.sh
-
-# Zero project axioms are enforced inside the pinned `prove` stage: gate/axiom_gate.v (Print Assumptions on
-# the public surfaces) + the Rocq-native `Fido Audit Assumptions` WHOLE-certified-theory audit over
-# constants + inductives + surviving named assumptions (module set DERIVED from dune's (modules ...) list so
-# nothing escapes) + adversarial self-tests A-E.  No source-text scanner.
-#
-# The generated-output POLICY GATE (tools/generated-output-gate.sh, run over the working tree by `check` and
-# over the exported index by the hook): tracked Go IS the reviewed canonical generated module — every tracked
-# .go / root go.mod is Fido-headed, no nested go.mod, no tracked .fido/temp.
 
 # The INDEX-authoritative Git-mode gate (tools/generated-mode-gate.sh — every tracked generated go.mod + .go
 # has EXACT stage-0 index mode 100644, read from `git ls-files -s`, catching a mode-120000/100755 entry a

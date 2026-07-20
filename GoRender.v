@@ -1,5 +1,4 @@
-(** ============================================================================
-    GoRender — the DIRECT renderer of one source file to Go source bytes.  No tokenizer/lexer/parser/
+(** GoRender — the DIRECT renderer of one source file to Go source bytes.  No tokenizer/lexer/parser/
     round-trip/second tree.  The package CLAUSE is rendered from the file's OWN source-owned
     [source_package] ([render_package_clause]; `PkgMain` -> `main`) — not a compiler-derived fact; each
     [DMain] renders as a `func main()` declaration; the builtin [println] is the fixed spelling of [SPrintln].
@@ -27,8 +26,7 @@
     evaluates to a well-formed value of its resolved [GoType] (the runtime value being that constant's
     resolved-type interpretation — floats round) — plus decimal faithfulness / no-leading-zero and the int
     boundary facts.  Whether the REAL Go compiler parses these bytes to that value is claim (B) — external
-    adequacy — exercised by the differential e2e, not a kernel theorem here.
-    ============================================================================ *)
+    adequacy — exercised by the differential e2e, not a kernel theorem here. *)
 From Stdlib Require Import String Ascii NArith ZArith List Bool Lia.
 From Fido Require Import digits Ints Floats Complexes ModulePath GoVersion GoAST GoTypes GoCompile GoSafe.
 Import ListNotations.

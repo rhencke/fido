@@ -1,5 +1,4 @@
-(** ============================================================================
-    GoEmit — the FINAL directory image and the public program emitter.
+(** GoEmit — the FINAL directory image and the public program emitter.
 
     [DirectoryImage] is the COMPLETE generated module: the exact root `go.mod` bytes ([di_go_mod]) PLUS a
     STANDARD `FilePath` finite map from paths to exact final `.go` bytes ([di_go_files :
@@ -22,8 +21,7 @@
     contents) — a derived transport list, NOT a second identity authority.  EVERY
     image's go.mod AND every `.go` file begin with the header as their exact first line, are ASCII, and the
     on-disk `.go` paths are unique — proved for the whole type via the provenance.  The file map MAY be
-    empty (a module-only program): there is NO nonemptiness claim.
-    ============================================================================ *)
+    empty (a module-only program): there is NO nonemptiness claim. *)
 From Stdlib Require Import String List.
 From Stdlib Require Import SetoidList.
 From Fido Require Import FilePath Collections ModulePath GoVersion GoAST GoCompile GoSafe GoRender.
@@ -168,8 +166,7 @@ Lemma render_map_Equal : forall fm1 fm2,
   GoAST.FilesEqual fm1 fm2 -> FM.Equal (FM.map render_file fm1) (FM.map render_file fm2).
 Proof. intros fm1 fm2 Heq p. rewrite !FMF.map_o. rewrite (Heq p). reflexivity. Qed.
 
-(** ============================================================================================================
-    DIRECTORYIMAGE BRIDGE.  [GoCompile] computes the fresh build PLAN over the [GoProgram]
+(** DIRECTORYIMAGE BRIDGE.  [GoCompile] computes the fresh build PLAN over the [GoProgram]
     ([GoCompile.root_layout] / [fresh_build_plan]); this bridge proves the later rendered [DirectoryImage]
     REALIZES that same fresh root layout, closing the gap between the plan-over-program and the real emitted
     tree.  It lives HERE (GoEmit sits above GoCompile) — [GoCompile] imports neither GoRender nor GoEmit. ====== *)
@@ -196,11 +193,10 @@ Theorem image_go_files_are_source_paths : forall sp p,
   FM.In p (di_go_files (render_program sp)) <-> FM.In p (prog_files (sp_program sp)).
 Proof. intros sp p. unfold render_program; cbn [di_go_files]. apply render_map_domain. Qed.
 
-(** ============================================================================================================
-    the RETAINED-PLAN / IMAGE bridge.  A rendered image of a [SafeProgram] whose program is the
+(** the RETAINED-PLAN / IMAGE bridge.  A rendered image of a [SafeProgram] whose program is the
     one a [CompilableProgram] retained REALIZES that CompilableProgram's RETAINED root layout AND the retained
     build plan's output-target classification — not merely a freshly-recomputed [root_layout].  So the actual
-    emitted tree is the exact object the compile decision reasoned about. ========================================= *)
+    emitted tree is the exact object the compile decision reasoned about. *)
 
 (** the rendered image realizes the CompilableProgram's RETAINED root layout ([ef_root_layout]). *)
 Theorem directory_image_realizes_retained_layout : forall cp sp,

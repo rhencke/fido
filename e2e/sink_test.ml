@@ -72,7 +72,7 @@ let () =
   let entries = match image with
     | "empty"        -> []
     | "multi"        -> [ ("main.go", mk "ROOT"); ("sub/main.go", mk "SUB") ]
-    | "dup"          -> [ ("main.go", mk "A"); ("main.go", mk "B") ]  (*: duplicate rel path -> reject *)
+    | "dup"          -> [ ("main.go", mk "A"); ("main.go", mk "B") ]  (* duplicate rel path -> reject *)
     | "reserved"     -> [ (".fido/x.go", mk "X") ]         (* .fido as first component *)
     | "p-nestedfido" -> [ ("sub/.fido/x.go", mk "X") ]     (* .fido as a NESTED component *)
     | "p-vendor"     -> [ ("vendor/main.go", mk "V") ]     (* a `go build`-ignored dir *)
