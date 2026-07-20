@@ -206,9 +206,13 @@ let decode_guarded t =
   let nf = Reductionops.nf_all env sigma app in
   decode_transport sigma nf
 
-(* STEP 4a — MATERIALIZE: write the provenance-guarded, decoded authoritative image bytes DIRECTLY into a
-   fresh disposable build-VALIDATION root (no sink control state, no publication).  This is the pre-build
-   pristine the pinned `go build ./...` validates and the committed artifact is copied from. *)
+(* STEP 4a — MATERIALIZE: the §5 low-level EXPORT primitive (Option A) — write the provenance-guarded, decoded
+   authoritative image bytes DIRECTLY into a FRESH EMPTY root (O_EXCL; it REFUSES a non-empty/occupied
+   destination, so it cannot merge into or overwrite an existing tree).  It is NOT the publication path: it
+   produces the pre-build pristine that the pinned `go build ./...` VALIDATES, and the SOLE publication is the
+   byte-gated sink reached only through the validated `make regenerate` workflow (below).  Materializing an
+   image to a disposable root yields UNVALIDATED rendered bytes — the validate-then-publish workflow, not this
+   primitive, is what publishes a trusted artifact. *)
 let do_materialize t dir =
   let (go_mod, entries) = decode_guarded t in
   let n = (try Fido_sink.materialize dir go_mod entries

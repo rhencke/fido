@@ -95,7 +95,23 @@ Updated only at checkpoint boundaries._
   (error ≠ empty); `rej_conv` + `expect_reject` assert the CLASS-SPECIFIC diagnostic from the fresh per-run Go
   log (conversion/type vs directory-collision vs missing/dup-main).  **F5** — permanent docs sharpened to the
   structural boundary (private sink + marker gate) and the repair-induced g_fido header fixed.
-  **Bounded confirmation #2 (same review type, `confirmation: yes`) REQUESTED.**  **C4 remains FORBIDDEN.**
+  (Repaired @`b48b542`; a bounded confirmation was requested @`15a5c14`.)
+- **Bounded confirmation #2 (Codex, over `29872f5..b48b542`) returned BLOCKING: F4 stays CLOSED; F1/F2/F3 each a
+  RESIDUAL + F5** (record appended to `.review/C3_IMPL_REVIEW_FINDINGS.md`).  **All repaired (`make check` +
+  `make regenerate` GREEN, gate 385→386, bytes byte-IDENTICAL):** **F1** — the PRODUCTION (retained-bucket)
+  package decision now roots DIRECTLY in the two factored roots: new `pkg_diags_empty_iff_rules`
+  (`pkg_diags = nil <-> PackageRulesValid`, via the bucket lengths reflecting `PackageDeclsUnique` /
+  `MainPackagesHaveEntry`), and `pkg_diags_empty_iff` is DERIVED from it + `pkg_all_ok_PackageRulesValid` — the
+  exactly-one consequence is out of the production proof path; the factored Props + reflections MOVED early (§9)
+  so both the `package_summaries` view (fixtures) and the bucket view (production) root in the SAME factored
+  judgment; `pkg_all_ok_one_main` DELETED.  **F2** — the marker is now BYTE-BOUND: go-e2e writes a manifest
+  (`<md5> <path>` for the exact go.mod + every .go); `fido_apply` recomputes each digest and requires a
+  byte-exact bijection (refuses a missing / mismatched / extra / stale-or-arbitrary manifest), so publication is
+  bound to the validated BYTES, not marker presence — the threat-model caveat is dropped; `Fido Materialize` is
+  documented as the §5 low-level fresh-empty-root EXPORT primitive (not the publication path).  **F3** — added
+  the contract-required EXTRA-fresh-file regression (an install stub drops an unexpected sibling; the path-set
+  diff catches it).  **F5** — fixed the missed `GoEmit.v` `Fido Emit` header/claim + the docs.  **Bounded
+  confirmation #3 (same review type, `confirmation: yes`) REQUESTED.**  **C4 remains FORBIDDEN.**
 - **Material defects the closeout fixed** (all RESOLVED — see CLOSEOUT COMPLETE above; over the retained-correct C3 architecture): (1) the production
   elaborator still traverses each file twice — `elaborate_indexed` uses `prog_package_refs idx` (which recomputes
   `prog_visit p`) instead of the RETAINED `visit`; (2) the fresh-build runner is fail-OPEN (find|while pipelines +

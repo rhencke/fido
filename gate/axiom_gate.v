@@ -325,6 +325,9 @@ Print Assumptions GoCompile.expr_diags_empty_iff.
    the factored rules; no diagnostic at all IFF the elaboration decision holds; and elaboration succeeds/fails
    IFF GoCompile/not. *)
 Print Assumptions GoCompile.sum_main_file.
+(* the PRODUCTION (retained-bucket) package decision rooted DIRECTLY in the two factored roots
+   [PackageDeclsUnique] / [MainPackagesHaveEntry] — NOT via the exactly-one consequence. *)
+Print Assumptions GoCompile.pkg_diags_empty_iff_rules.
 Print Assumptions GoCompile.pkg_diags_empty_iff.
 Print Assumptions GoCompile.semantic_diagnostics_empty_iff.
 Print Assumptions GoCompile.elaborate_ok_iff_GoCompile.

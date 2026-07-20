@@ -605,25 +605,42 @@ echo "$out" | grep -q 'Permission denied' || { echo "$out"; fail "umask: the INI
 [ ! -e adv-umask/.fido ] || fail "umask: the partial mode-000 .fido was not rolled back"
 ./sink_test adv-umask || fail "umask: a normal rerun did not converge after rollback"
 
-# ==================== fido-apply STRUCTURAL publication gate (§5, F2) ====================
-# The publish CLI REFUSES any source lacking the fresh-build validation marker — so the sink is un-runnable on
-# unvalidated bytes even when the binary is invoked directly (not merely make-ordered) — and it NEVER publishes
-# the marker itself.  (In production the marker is COPYd into the source by the `sync` stage from go-e2e's
-# /validated, which exists only if the pinned `go build ./...` SUCCEEDED.)
+# ==================== fido-apply STRUCTURAL, BYTE-BOUND publication gate (§5, F2) ====================
+# The publish CLI REFUSES unless the source carries a byte-bound validation MANIFEST (`<md5> <path>` for the
+# EXACT go.mod + every .go); it recomputes each digest and requires a byte-exact bijection — so an arbitrary
+# tree, a mismatched/stale manifest, or an extra unattested file all fail, and the sink is un-runnable on
+# unvalidated bytes even when the binary is invoked directly (not merely make-ordered).  It never publishes the
+# manifest.  (In production the manifest is COPYd into the source by the `sync` stage from go-e2e's /validated,
+# written only after the pinned `go build ./...` SUCCEEDED over those exact bytes.)  This is a UNIT TEST of the
+# gate over throwaway dirs — no real tree is published.
+_mkmanifest() { ( cd "$1" && find . -type f \( -name '*.go' -o -name 'go.mod' \) | LC_ALL=C sort \
+    | while IFS= read -r f; do printf '%s %s\n' "$(md5sum "$f" | cut -d' ' -f1)" "${f#./}"; done ); }
 cp plugin/fido_sink.ml e2e/fido_apply.ml /tmp/
 if ! ( cd /tmp && ocamlfind ocamlopt -package unix -linkpkg fido_sink.ml fido_apply.ml -o /workspace/fido-apply ) > /tmp/apply.log 2>&1; then cat /tmp/apply.log; fail "fido-apply compile FAILED"; fi
-rm -rf /workspace/apply-src /workspace/apply-dst; cp -a /workspace/generated /workspace/apply-src
-[ ! -e /workspace/apply-src/.fido-build-validated ] || fail "apply: the pristine already carries the validation marker"
-if ./fido-apply /workspace/apply-src /workspace/apply-dst 2>/tmp/apply-refuse.log; then fail "apply: an UNVALIDATED source (no marker) was PUBLISHED (fail-OPEN!)"; fi
-grep -q 'no fresh-build validation marker' /tmp/apply-refuse.log || { cat /tmp/apply-refuse.log; fail "apply: refusal reason was not the missing marker"; }
-[ ! -e /workspace/apply-dst ] || fail "apply: a REFUSED publish still created the destination"
-printf 'fido-e2e-validated\n' > /workspace/apply-src/.fido-build-validated   # attest, as the go-e2e stage does
+rm -rf /workspace/apply-src /workspace/apply-dst /workspace/apply-dst2; cp -a /workspace/generated /workspace/apply-src
+[ ! -e /workspace/apply-src/.fido-build-validated ] || fail "apply: the pristine already carries a validation manifest"
+# (A) no manifest -> refuse, destination untouched
+if ./fido-apply /workspace/apply-src /workspace/apply-dst 2>/tmp/apply-a.log; then fail "apply: (A) an UNVALIDATED source (no manifest) was PUBLISHED (fail-OPEN!)"; fi
+grep -q 'no fresh-build validation manifest' /tmp/apply-a.log || { cat /tmp/apply-a.log; fail "apply: (A) refusal reason was not the missing manifest"; }
+[ ! -e /workspace/apply-dst ] || fail "apply: (A) a REFUSED publish still created the destination"
+# (B) a manifest that does NOT match the bytes (wrong md5) -> refuse (byte-binding), no publish
+{ printf '%s %s\n' 00000000000000000000000000000000 go.mod; printf '%s %s\n' 00000000000000000000000000000000 main.go; } > /workspace/apply-src/.fido-build-validated
+if ./fido-apply /workspace/apply-src /workspace/apply-dst 2>/tmp/apply-b.log; then fail "apply: (B) a source with a MISMATCHED manifest was PUBLISHED (byte-binding fail-OPEN!)"; fi
+grep -q 'md5 mismatch' /tmp/apply-b.log || { cat /tmp/apply-b.log; fail "apply: (B) refusal was not a byte (md5) mismatch"; }
+[ ! -e /workspace/apply-dst ] || fail "apply: (B) a REFUSED publish still created the destination"
+# (C) a VALID byte-bound manifest (as go-e2e writes) -> publish; the manifest is never itself published
+_mkmanifest /workspace/apply-src > /workspace/apply-src/.fido-build-validated
 mkdir -p /workspace/apply-dst
-./fido-apply /workspace/apply-src /workspace/apply-dst || fail "apply: a VALIDATED source was refused"
-[ -f /workspace/apply-dst/go.mod ] && [ -f /workspace/apply-dst/main.go ] || fail "apply: the validated module was not published"
-[ ! -e /workspace/apply-dst/.fido-build-validated ] || fail "apply: the validation marker was itself published (must NEVER be)"
-rm -rf /workspace/apply-src /workspace/apply-dst
-echo "fido: fido-apply gate OK — publish REFUSED without the fresh-build validation marker; with it, published the module and never the marker"
+./fido-apply /workspace/apply-src /workspace/apply-dst || fail "apply: (C) a VALIDATED source was refused"
+{ [ -f /workspace/apply-dst/go.mod ] && [ -f /workspace/apply-dst/main.go ]; } || fail "apply: (C) the validated module was not published"
+[ ! -e /workspace/apply-dst/.fido-build-validated ] || fail "apply: (C) the validation manifest was itself published (must NEVER be)"
+# (D) an EXTRA unattested source file -> refuse (bijection), even with an otherwise valid manifest
+printf 'package main\n' > /workspace/apply-src/extra.go
+if ./fido-apply /workspace/apply-src /workspace/apply-dst2 2>/tmp/apply-d.log; then fail "apply: (D) an EXTRA unattested file was PUBLISHED (fail-OPEN!)"; fi
+grep -qE 'not attested|not the validated byte-set' /tmp/apply-d.log || { cat /tmp/apply-d.log; fail "apply: (D) refusal was not the attestation/bijection failure"; }
+[ ! -e /workspace/apply-dst2 ] || fail "apply: (D) a REFUSED publish still created the destination"
+rm -rf /workspace/apply-src /workspace/apply-dst /workspace/apply-dst2
+echo "fido: fido-apply gate OK — publish REFUSED without a manifest / with a MISMATCHED (byte) manifest / with an EXTRA unattested file; ACCEPTED only the byte-exact validated set, never publishing the manifest"
 
 echo "fido: emit OK — Fido Materialize wrote the witness / multi-package / EMPTY pristine trees (rendered go.mod); forged/raw images rejected before any effect; the INTERNAL sink (sink_test) passed foreign-Go/module + nested-.fido rejection, sibling-temp two-phase recovery (abandoned/forged/symlink/dir/special temps), complete-image staging, crash points (writing/staged/installing), handled-failure + cleanup-failure aggregation, EXDEV no-copy, overwrite + delete-time ownership rechecks, first-time rollback, and REAL cross-mount nested staging; the fido-apply publish CLI is structurally gated on the fresh-build validation marker"
 SH
@@ -815,6 +832,9 @@ _rok_stubbed mkdir   'echo "simulated mkdir failure" >&2; exit 1'               
 _rok_stubbed install 'echo "simulated install failure" >&2; exit 1'                   /tmp/rn/ok "install (copy) failure during materialization"
 _rok_stubbed install 'while [ $# -gt 1 ]; do shift; done; exit 0'                      /tmp/rn/ok "omitted materialized file (path-set diff)"
 _rok_stubbed install 'while [ $# -gt 1 ]; do shift; done; printf CORRUPT > "$1"'       /tmp/rn/ok "byte mismatch (materialization content differs)"
+# §4 contract regression — an EXTRA entry in the fresh root (materialization created a file the source lacks):
+# the runner copies the real bytes AND drops an unexpected sibling; the exact path-set comparison must catch it.
+_rok_stubbed install 'cp "$3" "$4"; : > "$(dirname "$4")/fido-extra-unexpected.go"'   /tmp/rn/ok "extra fresh file (materialization added an unexpected entry — path-set diff)"
 # F3 — the newly CHECKED resource ops (an unchecked mktemp/chmod/sort failure would leave targets under / or
 # violate the fixed-mode/exact-manifest claim); each now fails closed BEFORE Go.
 _rok_stubbed mktemp 'echo "simulated mktemp failure" >&2; exit 1'                       /tmp/rn/ok "mktemp failure (temp-file / fresh-root creation)"
@@ -1149,9 +1169,14 @@ echo "fido e2e diff: §21 A-AD differential matrix COMPLETE (representable cases
 cd /e2e/tree
 
 echo "fido e2e OK — pinned Go built the whole tree via the FRESH-BUILD RUNNER (a disposable materialization; go build ./...) using the RENDERED go.mod, accepted the empty module, ran the witness vs goldens (incl. the ten integer-type conversions, the float section, AND the complex section: bare complex128-default literal, complex64/complex128 conversions, zero-imaginary complex<->scalar, the direct-vs-nested component double-round scar as uint64 evidence), checked the multi-package differential + go list discovery, rejected the no-main/dup-main + out-of-range/non-integer/float-overflow/fractional/wrong-type/complex-component-overflow/nonzero-imaginary conversion fixtures exactly as GoCompile does, confirmed the complex-underflow scalar-conversion scar on both sides (int(complex(3,1e-50)) rejected; int(complex64(complex(3,1e-50)))=3 accepted, imaginary underflowed to zero), AND confirmed the fresh-image DIRECTORY-COLLISION differential matrix (sub/main.go + a/v2/main.go rejected as GoCompile rejects; root main.go + a/b/main.go + v2/main.go + two-main accepted with no default executable, as GoCompile accepts) (go vet nonblocking)"
-# §22/§23 — the FRESH-BUILD VALIDATION MARKER: written ONLY after every check above passed.  The publication
-# stages (`sync` / `make regenerate`) COPY this from go-e2e, so a FAILING fresh build PREVENTS publication.
-printf 'fido-e2e-validated\n' > /validated
+# §22/§23 — the FRESH-BUILD VALIDATION MANIFEST: written ONLY after every check above passed, listing
+# `<md5> <relpath>` for the go.mod + every .go of the EXACT validated tree.  The publication stages
+# (`sync` / `make regenerate`) COPY this from go-e2e; fido-apply recomputes each file's md5 and requires a
+# byte-exact bijection with the manifest, so a FAILING fresh build PREVENTS publication AND an arbitrary tree
+# (or a copied/stale manifest) cannot be published — the binding is to the validated BYTES, not marker presence.
+( cd /e2e/tree && find . -type f \( -name '*.go' -o -name 'go.mod' \) | LC_ALL=C sort \
+    | while IFS= read -r f; do printf '%s %s\n' "$(md5sum "$f" | cut -d' ' -f1)" "${f#./}"; done ) > /validated
+[ -s /validated ] || { echo "fido e2e: the validation manifest is empty (no go.mod/.go found)"; exit 1; }
 SH
 
 # ── Stage 4d (defined last, after go-e2e): sync — the `make regenerate` image.  It compiles the filesystem-only
@@ -1166,10 +1191,12 @@ RUN cp /workspace/plugin/fido_sink.ml /workspace/e2e/fido_apply.ml /tmp/ \
     && ( cd /tmp && ocamlfind ocamlopt -package unix -linkpkg fido_sink.ml fido_apply.ml -o /workspace/fido-apply ) \
     && chmod 0755 /workspace/fido-apply
 COPY --from=generated-module /generated/ /generated/
-# STRUCTURAL publication gate: fido-apply REFUSES to sink a source that lacks this marker.  It is COPYd from the
-# go-e2e stage's /validated, which exists ONLY if the pinned one-shot `go build ./...` over the SAME
+# STRUCTURAL, BYTE-BOUND publication gate: fido-apply REFUSES to sink a source unless this byte-binding MANIFEST
+# (`<md5> <path>` for the exact go.mod + every .go) attests every published file with a matching digest.  It is
+# COPYd from go-e2e's /validated, written ONLY if the pinned one-shot `go build ./...` over the SAME
 # content-addressed generated-module layer SUCCEEDED — so `--target sync` is unbuildable, AND fido-apply refuses,
-# on a failed/absent fresh build.  The marker is a sibling of the module bytes; fido-apply verifies its presence
-# and never publishes it (only go.mod + .go are transported).  Publication is thus not merely make-ordered.
+# on a failed/absent fresh build.  Because /generated here is that SAME content-addressed layer, the digests
+# match; an arbitrary tree or a copied/stale manifest would not.  The manifest is a sibling of the module bytes;
+# fido-apply verifies it and never publishes it (only go.mod + .go are transported).
 COPY --from=go-e2e /validated /generated/.fido-build-validated
 ENTRYPOINT ["/workspace/fido-apply", "/generated", "/dest"]

@@ -8,7 +8,8 @@
     one [SafeProgram] — the go.mod from its [ModuleSpec], the files from its raw program.  A CLOSED
     (assumption-free) proof does witness "these bytes are a certified rendered module"; but a proof can also
     be POSTULATED ([di_prov] discharged by an [Axiom]/[Admitted] or a section [Variable]) — so the TYPE
-    alone is NOT sufficient.  The real gate is the LIVE Fido Emit boundary, which before any effect (i)
+    alone is NOT sufficient.  The real gate is the LIVE `Fido Materialize` transport boundary (there is no
+    public `Fido Emit`), which before any effect (i)
     typechecks its argument's [di_transport] projection (rejecting a wrong-typed raw transport) and (ii)
     rejects any argument whose assumption closure is non-empty (rejecting an axiom/variable-backed proof).
     [mkImage] is a public constructor demanding the provenance; [render_program] is the canonical closed
@@ -49,7 +50,7 @@ Record DirectoryImage : Type := mkImage {
 }.
 
 (** The canonical construction (SafeProgram-gated by provenance).  [mkImage] is also public but demands
-    the provenance proof; the Fido Emit command additionally rejects any image whose proof is axiomatic. *)
+    the provenance proof; the `Fido Materialize` command additionally rejects any image whose proof is axiomatic. *)
 Definition render_program (sp : SafeProgram) : DirectoryImage :=
   mkImage (render_go_mod_of sp) (render_map sp) (ex_intro _ sp (conj eq_refl eq_refl)).
 

@@ -96,3 +96,44 @@ historical active labels unmistakably historical.
 - **repair-induced (classified):** plugin/g_fido.mlg:3 header still says decoded bytes are handed to the
   dirty-directory sink, though the command now calls the pristine materializer.
 - **Required:** reconcile docs ONLY after F1-F3 reflect enforceable reality; fix the g_fido.mlg header now.
+
+# ============================================================================================
+# Bounded confirmation #2 (Codex task-mrsx8y3d, over repair range 29872f5..b48b542) — BLOCKING
+# F4 CLOSED (385 surfaces). F1/F2/F3 each a residual; F5 open (+ GoEmit.v missed).
+# ============================================================================================
+
+## F1 — OPEN: PRODUCTION (elaborator) does not consume the shared factored decision
+- The factored `pkg_decls_unique_b`/`main_pkgs_have_entry_b` + reflections are correct (GoCompile.v:97/5733),
+  BUT the real elaborator decides package validity from `bucket_diags_elems` + diagnostic-list emptiness
+  (GoCompile.v:6140); its proof bridge still passes through `pkg_all_ok_one_main` + `current_grammar_one_main`
+  (GoCompile.v:2997).  So FIXTURES use the `package_summaries`-based `pkg_all_ok`; PRODUCTION uses the
+  retained-bucket diagnostic authority — the factored reflection does NOT root the production decision.
+- **Required:** ONE retained-bucket executable package decision, directly reflecting BOTH factored roots,
+  shared by elaboration + diagnostics + fixtures.  Exactly-one stays a consequence, not the production bridge.
+
+## F2 — OPEN: publication-before-validation capability remains + repair-induced trust defect
+- `Fido Materialize <image> To "<dir>"` is still a public side-effecting writer (g_fido.mlg:227) that writes
+  the image to any empty caller dir BEFORE Go validation (fido_sink.ml:348) — standalone publication.
+- No general arbitrary-image entry point fresh-validates then publishes.
+- repair-induced trust defect: `fido-apply` checks only `Sys.file_exists` (fido_apply.ml:44) — not a regular
+  non-symlink marker with exact contents BOUND to the published bytes; the emit-stage regression manually
+  creates the marker + publishes before go-e2e (Dockerfile:620).  So an arbitrary tree + any marker-shaped path
+  reaches `Fido_sink.sync`.  Declaring deliberate forgery out of scope WEAKENS the binding invariant without an
+  authorizing human decision.
+- **Required:** ONE enforceable arbitrary-image workflow that fresh-validates the EXACT pristine bytes and
+  invokes an INACCESSIBLE publication sink only after success.  A public low-level writer OR a marker-only
+  attestation cannot remain a publication bypass (marker must be BYTE-BOUND).
+
+## F3 — recorded items CLOSED, one new: missing "extra fresh file" regression
+- The runner detects an EXTRA path (path-set diff) but the tests cover only omitted materialization + byte
+  corruption (Dockerfile:816); NO regression injects an EXTRA entry into the fresh root.  The contract requires
+  it (C3_MANUAL_CLOSEOUT_DIRECTIVE:266).  (Previously observable, missed by review #1 + confirmation #1.)
+- **Required:** add an extra-fresh-file regression.
+
+## F5 — OPEN: docs (+ GoEmit.v missed) still certify unresolved behavior
+- **GoEmit.v:11/:52** still name a LIVE `Fido Emit` boundary / claim a `Fido Emit` command exists (missed in
+  the F5 sweep; present in the initial candidate).
+- SOURCE_FOREST_STATUS:82 declares all repairs complete + "sink un-runnable on unvalidated bytes" (premature).
+- ARCHITECTURE:320 + README:126 assert an enforceable single validate-before-publish workflow the public
+  materializer + marker-only apply do not yet provide.
+- **Required:** reconcile after F1/F2 reflect enforceable reality; fix GoEmit.v now.
