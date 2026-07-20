@@ -83,27 +83,29 @@ Definition package_summaries (fm : GoFileMap) : PM.t PackageSummary :=
     [current_package_rules_exactly_one] and the LENGTH-based diagnostic bridge — it is NEVER the executable
     decision (which reflects the two factored roots below), NEVER a peer source authority.  The SOLE live
     source-validity judgment is [SourceProgramValid] (= [ProgramTyped] /\ [PackageRulesValid]); the decidable
-    [source_valid_b] reflects it DIRECTLY via the two factored reflections ([source_valid_b_iff], §6 below).
+    [source_spec_valid_b] reflects it DIRECTLY via the two factored reflections ([source_spec_valid_b_iff], §6 below).
     There is NO [ProgValid] Prop and NO [prog_ok] bool. *)
 Definition current_grammar_one_main (p : GoProgram) : Prop :=
   forall dir s, PM.MapsTo dir s (package_summaries (prog_files p)) -> ps_main_count s = 1%nat.
 
-(** the executable source decision is program typing AND the TWO factored package rules as SEPARATE decidable
-    roots (§9): [pkg_decls_unique_b] = at most one `main` per package (block uniqueness → [PackageDeclsUnique]);
-    [main_pkgs_have_entry_b] = at least one `main` per package (entry → [MainPackagesHaveEntry]).  Neither the
-    combined "=1" nor [current_grammar_one_main] is EXECUTED here — that property is only a downstream
-    CONSEQUENCE ([current_package_rules_exactly_one]).  [pkg_all_ok] is the shared package half; [source_valid_b] and the
-    elaboration-native [semantic_ok_b] both consume it. *)
+(** [source_spec_package_rules_b] is the readable, index-free SPECIFICATION package decision (for fixtures and
+    proof convenience — vm-computable, no [GoIndex]): the conjunction of the TWO factored package rules as
+    SEPARATE decidable roots (§9): [pkg_decls_unique_b] = at most one `main` per package (block uniqueness →
+    [PackageDeclsUnique]); [main_pkgs_have_entry_b] = at least one `main` per package (entry →
+    [MainPackagesHaveEntry]).  It is NOT the production decision — production elaboration decides from the
+    retained-bucket diagnostic pass ([pkg_diags], §8); the two are proved to reflect the SAME factored Props,
+    never one through the other.  Neither the combined "=1" nor [current_grammar_one_main] is executed — that is
+    only a downstream CONSEQUENCE ([current_package_rules_exactly_one]). *)
 Definition pkg_decls_unique_b (p : GoProgram) : bool :=
   forallb (fun b => Nat.leb (ps_main_count (snd b)) 1) (PM.elements (package_summaries (prog_files p))).
 Definition main_pkgs_have_entry_b (p : GoProgram) : bool :=
   forallb (fun b => Nat.leb 1 (ps_main_count (snd b))) (PM.elements (package_summaries (prog_files p))).
-Definition pkg_all_ok (p : GoProgram) : bool := pkg_decls_unique_b p && main_pkgs_have_entry_b p.
+Definition source_spec_package_rules_b (p : GoProgram) : bool := pkg_decls_unique_b p && main_pkgs_have_entry_b p.
 
-Definition source_valid_b (p : GoProgram) : bool := program_typedb p && pkg_all_ok p.
+Definition source_spec_valid_b (p : GoProgram) : bool := program_typedb p && source_spec_package_rules_b p.
 
 (** F1 (§9) — the TWO FACTORED PACKAGE ROOTS and their reflections, defined HERE (early, beside the executable
-    [pkg_all_ok]) so BOTH the [package_summaries] view (fixtures) AND the retained-bucket production decision
+    [source_spec_package_rules_b]) so BOTH the [package_summaries] view (fixtures) AND the retained-bucket production decision
     root DIRECTLY in them (see [pkg_diags_empty_iff_rules] below).  [PackageDeclsUnique] = at most one `main` per
     package (block uniqueness); [MainPackagesHaveEntry] = at least one (entry); [PackageRulesValid] is their
     conjunction (the SOURCE half of GoCompile, packaged with [ProgramTyped] into [SourceProgramValid] at §17).
@@ -116,7 +118,7 @@ Definition MainPackagesHaveEntry (p : GoProgram) : Prop :=
 Definition PackageRulesValid (p : GoProgram) : Prop := PackageDeclsUnique p /\ MainPackagesHaveEntry p.
 
 (** the two factored roots reflect their Props DIRECTLY: [pkg_decls_unique_b] ↔ [PackageDeclsUnique],
-    [main_pkgs_have_entry_b] ↔ [MainPackagesHaveEntry] — the SOLE executable package reflections. *)
+    [main_pkgs_have_entry_b] ↔ [MainPackagesHaveEntry] — the SPECIFICATION's factored package reflections. *)
 Lemma pkg_decls_unique_b_iff : forall p, pkg_decls_unique_b p = true <-> PackageDeclsUnique p.
 Proof.
   intro p. unfold pkg_decls_unique_b, PackageDeclsUnique.
@@ -147,11 +149,12 @@ Proof.
     exists (dir, s). split; [ split; reflexivity | exact Hin ].
 Qed.
 
-(** the shared package half [pkg_all_ok] reflects the factored [PackageRulesValid] DIRECTLY — the conjunction
-    of the two factored reflections, no combined "=1" and no [current_grammar_one_main] intermediary. *)
-Lemma pkg_all_ok_PackageRulesValid : forall p, pkg_all_ok p = true <-> PackageRulesValid p.
+(** the SPECIFICATION package decision [source_spec_package_rules_b] reflects the factored [PackageRulesValid]
+    DIRECTLY — the conjunction of the two factored reflections, no combined "=1" and no [current_grammar_one_main]
+    intermediary. *)
+Lemma source_spec_package_rules_b_PackageRulesValid : forall p, source_spec_package_rules_b p = true <-> PackageRulesValid p.
 Proof.
-  intro p. unfold pkg_all_ok, PackageRulesValid.
+  intro p. unfold source_spec_package_rules_b, PackageRulesValid.
   rewrite Bool.andb_true_iff, pkg_decls_unique_b_iff, main_pkgs_have_entry_b_iff. reflexivity.
 Qed.
 
@@ -1566,25 +1569,25 @@ Qed.
 Lemma expr_all_ok_ProgramTyped (p : GoProgram) : expr_all_ok p = true <-> GoTypes.ProgramTyped p.
 Proof. rewrite expr_all_ok_program_typedb. apply GoTypes.program_typedb_iff. Qed.
 
-(* ---- the PACKAGE DECISION: [pkg_decls_unique_b] + [main_pkgs_have_entry_b] + [pkg_all_ok], the factored
+(* ---- the PACKAGE DECISION: [pkg_decls_unique_b] + [main_pkgs_have_entry_b] + [source_spec_package_rules_b], the factored
    roots [PackageDeclsUnique] / [MainPackagesHaveEntry] / [PackageRulesValid], and their DIRECT reflections
-   ([pkg_decls_unique_b_iff] / [main_pkgs_have_entry_b_iff] / [pkg_all_ok_PackageRulesValid]) are all defined at
-   §9 (early, above [source_valid_b] which reuses [pkg_all_ok] as its package half), so the retained-bucket
+   ([pkg_decls_unique_b_iff] / [main_pkgs_have_entry_b_iff] / [source_spec_package_rules_b_PackageRulesValid]) are all defined at
+   §9 (early, above [source_spec_valid_b] which reuses [source_spec_package_rules_b] as its package half), so the retained-bucket
    production decision ([pkg_diags_empty_iff_rules]) can root DIRECTLY in the two factored roots.  The exactly-one
    property is only the downstream CONSEQUENCE [current_package_rules_exactly_one] (§17). ---- *)
 
-(* ---- the COMBINED elaboration DECISION: an elaboration-native boolean (NOT [source_valid_b]) proved EXACTLY [GoCompile] ---- *)
+(* ---- the COMBINED elaboration DECISION: an elaboration-native boolean (NOT [source_spec_valid_b]) proved EXACTLY [GoCompile] ---- *)
 
-Definition semantic_ok_b (p : GoProgram) : bool := expr_all_ok p && pkg_all_ok p.
+Definition semantic_ok_b (p : GoProgram) : bool := expr_all_ok p && source_spec_package_rules_b p.
 
-Lemma semantic_ok_b_source_valid_b (p : GoProgram) : semantic_ok_b p = source_valid_b p.
-Proof. unfold semantic_ok_b, source_valid_b. rewrite expr_all_ok_program_typedb. reflexivity. Qed.
+Lemma semantic_ok_b_source_spec_valid_b (p : GoProgram) : semantic_ok_b p = source_spec_valid_b p.
+Proof. unfold semantic_ok_b, source_spec_valid_b. rewrite expr_all_ok_program_typedb. reflexivity. Qed.
 
 (* [GoCompile p] is defined below as the fresh-build preflight on top of [SourceProgramValid] (the factored
    package rules); this elaboration decision is exactly the SOURCE half, reflected DIRECTLY against
    [SourceProgramValid] by [semantic_ok_b_SourceProgramValid] below (no [prog_ok]/[ProgValid] intermediary). *)
 Lemma semantic_ok_b_split (p : GoProgram) :
-  semantic_ok_b p = true <-> expr_all_ok p = true /\ pkg_all_ok p = true.
+  semantic_ok_b p = true <-> expr_all_ok p = true /\ source_spec_package_rules_b p = true.
 Proof. unfold semantic_ok_b. rewrite Bool.andb_true_iff. reflexivity. Qed.
 
 (* ============================================================================================================
@@ -2936,7 +2939,7 @@ Qed.
 (* ============================================================================================================
    §8 (C3) — the PACKAGE diagnostics.  Every package with a main count other than one is a failure; the anchor
    is a validated [PackageRef] (each package in [package_summaries] is represented, so the reference is real).
-   Emptiness is tied DIRECTLY to [pkg_all_ok] (the package half of the decision).
+   Emptiness is tied DIRECTLY to [source_spec_package_rules_b] (the package half of the decision).
    (ROOT emits [DRMissingMainEntry] for every non-conforming package; a later refinement distinguishes the duplicate
    case with [DRMainRedeclared] over the collected main [DeclRef]s.)
    ============================================================================================================ *)
@@ -3056,12 +3059,127 @@ Proof.
     rewrite (prog_package_refs_bucket_len idx (fst kv) (snd kv) (PM.find_1 Hbmt)). lia.
 Qed.
 
-(** the same production decision, expressed against the SHARED package half [pkg_all_ok] — the two are ONE
+(** the same production decision, expressed against the SHARED package half [source_spec_package_rules_b] — the two are ONE
     judgment ([PackageRulesValid]), one retained-bucket view (production) and one [package_summaries] view
     (fixtures), each rooted DIRECTLY in the factored roots ([pkg_diags_empty_iff_rules] /
-    [pkg_all_ok_PackageRulesValid]); neither routes through the exactly-one consequence. *)
-Lemma pkg_diags_empty_iff {p} (idx : GoIndex.Snap.SyntaxIndex p) : pkg_diags idx = nil <-> pkg_all_ok p = true.
-Proof. rewrite pkg_diags_empty_iff_rules, pkg_all_ok_PackageRulesValid. reflexivity. Qed.
+    [source_spec_package_rules_b_PackageRulesValid]); neither routes through the exactly-one consequence. *)
+Lemma pkg_diags_empty_iff {p} (idx : GoIndex.Snap.SyntaxIndex p) : pkg_diags idx = nil <-> source_spec_package_rules_b p = true.
+Proof. rewrite pkg_diags_empty_iff_rules, source_spec_package_rules_b_PackageRulesValid. reflexivity. Qed.
+
+(** §6 — the PRODUCTION diagnostics capture EACH factored rule EXACTLY.  The retained bucket pass emits a
+    [DRMainRedeclared] per redundant main (a bucket of length ≥ 2) and a [DRMissingMainEntry] per empty package
+    (length 0).  So the REDECLARATION diagnostics are empty IFF [PackageDeclsUnique] and the MISSING-ENTRY
+    diagnostics are empty IFF [MainPackagesHaveEntry] — each factored root reflected DIRECTLY by production. *)
+Definition diag_is_redeclared {p} (d : DiagnosticReason p) : bool :=
+  match d with DRMainRedeclared _ _ => true | _ => false end.
+Definition diag_is_missing_entry {p} (d : DiagnosticReason p) : bool :=
+  match d with DRMissingMainEntry _ => true | _ => false end.
+
+Lemma filter_redecl_map {p} (d1 : GoIndex.DeclRef p) rest :
+  filter diag_is_redeclared (map (fun dk => DRMainRedeclared dk d1) rest) = map (fun dk => DRMainRedeclared dk d1) rest.
+Proof. induction rest as [|d2 rest' IH]; cbn [map filter diag_is_redeclared]; [ reflexivity | rewrite IH; reflexivity ]. Qed.
+
+Lemma filter_missing_map {p} (d1 : GoIndex.DeclRef p) rest :
+  filter diag_is_missing_entry (map (fun dk => DRMainRedeclared dk d1) rest) = nil.
+Proof. induction rest as [|d2 rest' IH]; cbn [map filter diag_is_missing_entry]; [ reflexivity | exact IH ]. Qed.
+
+Lemma redecl_of_bucket_nil_iff {p} m Hpres dir l Hmt :
+  filter diag_is_redeclared (@pkg_diag_of_bucket p m Hpres dir l Hmt) = nil <-> (length l <= 1)%nat.
+Proof.
+  unfold pkg_diag_of_bucket. destruct l as [|d1 rest].
+  - cbn [length filter diag_is_redeclared]. split; intros _; [ lia | reflexivity ].
+  - rewrite filter_redecl_map. cbn [length]. destruct rest as [|d2 rest'].
+    + cbn [map length]. split; intros _; [ lia | reflexivity ].
+    + cbn [map length]. split; intro H; [ discriminate H | exfalso; lia ].
+Qed.
+
+Lemma missing_of_bucket_nil_iff {p} m Hpres dir l Hmt :
+  filter diag_is_missing_entry (@pkg_diag_of_bucket p m Hpres dir l Hmt) = nil <-> (1 <= length l)%nat.
+Proof.
+  unfold pkg_diag_of_bucket. destruct l as [|d1 rest].
+  - cbn [length filter diag_is_missing_entry]. split; intro H; [ discriminate H | exfalso; lia ].
+  - rewrite filter_missing_map. cbn [length]. split; intros _; [ lia | reflexivity ].
+Qed.
+
+Lemma redecl_diags_elems_nil_iff {p} m Hpres es Hall :
+  filter diag_is_redeclared (@bucket_diags_elems p m Hpres es Hall) = nil
+    <-> (forall kv, In kv es -> (length (snd kv) <= 1)%nat).
+Proof.
+  revert Hall. induction es as [|kv rest IH]; intro Hall; cbn [bucket_diags_elems].
+  - split; [ intros _ kv0 [] | reflexivity ].
+  - rewrite filter_app. split.
+    + intro Hn. apply app_eq_nil in Hn. destruct Hn as [H1 H2]. intros kv0 [Heq | Hin].
+      * subst kv0. exact (proj1 (redecl_of_bucket_nil_iff m Hpres (fst kv) (snd kv) (Hall kv (or_introl eq_refl))) H1).
+      * exact (proj1 (IH (fun kv' Hin' => Hall kv' (or_intror Hin'))) H2 kv0 Hin).
+    + intro Hlen.
+      assert (H1 : filter diag_is_redeclared (pkg_diag_of_bucket m Hpres (fst kv) (snd kv) (Hall kv (or_introl eq_refl))) = nil)
+        by exact (proj2 (redecl_of_bucket_nil_iff m Hpres (fst kv) (snd kv) (Hall kv (or_introl eq_refl))) (Hlen kv (or_introl eq_refl))).
+      assert (H2 : filter diag_is_redeclared (bucket_diags_elems m Hpres rest (fun kv' Hin' => Hall kv' (or_intror Hin'))) = nil)
+        by exact (proj2 (IH (fun kv' Hin' => Hall kv' (or_intror Hin'))) (fun kv0 Hin0 => Hlen kv0 (or_intror Hin0))).
+      rewrite H1, H2. reflexivity.
+Qed.
+
+Lemma missing_diags_elems_nil_iff {p} m Hpres es Hall :
+  filter diag_is_missing_entry (@bucket_diags_elems p m Hpres es Hall) = nil
+    <-> (forall kv, In kv es -> (1 <= length (snd kv))%nat).
+Proof.
+  revert Hall. induction es as [|kv rest IH]; intro Hall; cbn [bucket_diags_elems].
+  - split; [ intros _ kv0 [] | reflexivity ].
+  - rewrite filter_app. split.
+    + intro Hn. apply app_eq_nil in Hn. destruct Hn as [H1 H2]. intros kv0 [Heq | Hin].
+      * subst kv0. exact (proj1 (missing_of_bucket_nil_iff m Hpres (fst kv) (snd kv) (Hall kv (or_introl eq_refl))) H1).
+      * exact (proj1 (IH (fun kv' Hin' => Hall kv' (or_intror Hin'))) H2 kv0 Hin).
+    + intro Hlen.
+      assert (H1 : filter diag_is_missing_entry (pkg_diag_of_bucket m Hpres (fst kv) (snd kv) (Hall kv (or_introl eq_refl))) = nil)
+        by exact (proj2 (missing_of_bucket_nil_iff m Hpres (fst kv) (snd kv) (Hall kv (or_introl eq_refl))) (Hlen kv (or_introl eq_refl))).
+      assert (H2 : filter diag_is_missing_entry (bucket_diags_elems m Hpres rest (fun kv' Hin' => Hall kv' (or_intror Hin'))) = nil)
+        by exact (proj2 (IH (fun kv' Hin' => Hall kv' (or_intror Hin'))) (fun kv0 Hin0 => Hlen kv0 (or_intror Hin0))).
+      rewrite H1, H2. reflexivity.
+Qed.
+
+(** redeclaration diagnostics empty IFF [PackageDeclsUnique] (every package has AT MOST one main). *)
+Lemma redecl_diags_empty_iff_rules {p} (idx : GoIndex.Snap.SyntaxIndex p) :
+  filter diag_is_redeclared (pkg_diags idx) = nil <-> PackageDeclsUnique p.
+Proof.
+  unfold pkg_diags. rewrite redecl_diags_elems_nil_iff. unfold PackageDeclsUnique. split.
+  - intros Hbuck dir s Hmt.
+    assert (Hpres : list_dir_mem dir (GoAST.file_bindings (prog_files p)) = true) by
+      (pose proof (PM.find_1 Hmt) as Hf; rewrite package_summaries_find in Hf;
+       destruct (list_dir_mem dir (GoAST.file_bindings (prog_files p))) eqn:E; [ reflexivity | discriminate Hf ]).
+    destruct (proj2 (prog_package_refs_present idx dir) Hpres) as [l Hbmt].
+    assert (Hlen : (length l <= 1)%nat) by (apply (Hbuck (dir, l)); apply mapsto_in_elements; exact Hbmt).
+    rewrite (package_summary_main_count (prog_files p) dir s Hmt).
+    rewrite <- (prog_package_refs_bucket_len idx dir l (PM.find_1 Hbmt)); lia.
+  - intros Hle kv Hin.
+    pose proof (elements_all_mapsto (prog_package_refs idx) kv Hin) as Hbmt.
+    pose proof (bucket_key_present idx (fst kv) (snd kv) Hbmt) as Hpres.
+    assert (Hms : PM.MapsTo (fst kv) (mkPkgSummary (pkg_main_count (fst kv) (prog_files p))) (package_summaries (prog_files p))).
+    { apply PM.find_2. rewrite package_summaries_find. unfold package_present_b in Hpres. rewrite Hpres. reflexivity. }
+    pose proof (Hle (fst kv) _ Hms) as Hle1. cbn [ps_main_count] in Hle1.
+    rewrite (prog_package_refs_bucket_len idx (fst kv) (snd kv) (PM.find_1 Hbmt)). lia.
+Qed.
+
+(** missing-entry diagnostics empty IFF [MainPackagesHaveEntry] (every package has AT LEAST one main). *)
+Lemma missing_diags_empty_iff_rules {p} (idx : GoIndex.Snap.SyntaxIndex p) :
+  filter diag_is_missing_entry (pkg_diags idx) = nil <-> MainPackagesHaveEntry p.
+Proof.
+  unfold pkg_diags. rewrite missing_diags_elems_nil_iff. unfold MainPackagesHaveEntry. split.
+  - intros Hbuck dir s Hmt.
+    assert (Hpres : list_dir_mem dir (GoAST.file_bindings (prog_files p)) = true) by
+      (pose proof (PM.find_1 Hmt) as Hf; rewrite package_summaries_find in Hf;
+       destruct (list_dir_mem dir (GoAST.file_bindings (prog_files p))) eqn:E; [ reflexivity | discriminate Hf ]).
+    destruct (proj2 (prog_package_refs_present idx dir) Hpres) as [l Hbmt].
+    assert (Hlen : (1 <= length l)%nat) by (apply (Hbuck (dir, l)); apply mapsto_in_elements; exact Hbmt).
+    rewrite (package_summary_main_count (prog_files p) dir s Hmt).
+    rewrite <- (prog_package_refs_bucket_len idx dir l (PM.find_1 Hbmt)); lia.
+  - intros Hge kv Hin.
+    pose proof (elements_all_mapsto (prog_package_refs idx) kv Hin) as Hbmt.
+    pose proof (bucket_key_present idx (fst kv) (snd kv) Hbmt) as Hpres.
+    assert (Hms : PM.MapsTo (fst kv) (mkPkgSummary (pkg_main_count (fst kv) (prog_files p))) (package_summaries (prog_files p))).
+    { apply PM.find_2. rewrite package_summaries_find. unfold package_present_b in Hpres. rewrite Hpres. reflexivity. }
+    pose proof (Hge (fst kv) _ Hms) as Hge1. cbn [ps_main_count] in Hge1.
+    rewrite (prog_package_refs_bucket_len idx (fst kv) (snd kv) (PM.find_1 Hbmt)). lia.
+Qed.
 
 (* ============================================================================================================
    §12/§13/§14 (C3) — the ONE retained indexed-elaboration root.  [elaborate] builds ONE [IndexedProgram] and returns
@@ -4607,14 +4725,14 @@ Proof.
     exfalso. pose proof (proj2 (expr_diags_empty_iff idx) Ht) as Hc. rewrite Hc in E; discriminate E.
 Qed.
 Lemma existsb_package_semantic (p : GoProgram) (idx : GoIndex.Snap.SyntaxIndex p) :
-  existsb diag_is_package (semantic_diagnostics p idx) = negb (pkg_all_ok p).
+  existsb diag_is_package (semantic_diagnostics p idx) = negb (source_spec_package_rules_b p).
 Proof.
   rewrite (existsb_In_eq _ _ _ (collect_diagnostics_In idx)), existsb_app.
   rewrite (existsb_all_false diag_is_package (expr_diags idx) (expr_diags_not_package idx)), Bool.orb_false_l.
   rewrite (existsb_all_true diag_is_package (pkg_diags idx) (pkg_diags_package idx)).
   destruct (pkg_diags idx) as [|d ds] eqn:E.
   - rewrite (proj1 (pkg_diags_empty_iff idx) E). reflexivity.
-  - destruct (pkg_all_ok p) eqn:Ht; [ | reflexivity ].
+  - destruct (source_spec_package_rules_b p) eqn:Ht; [ | reflexivity ].
     exfalso. pose proof (proj2 (pkg_diags_empty_iff idx) Ht) as Hc. rewrite Hc in E; discriminate E.
 Qed.
 (* the SEMANTIC report never contains a build-output diagnostic (only expression / package reasons) — so the
@@ -5623,25 +5741,10 @@ Definition fresh_build_plan_of (ms : ModuleSpec) (keys : list string)
   | _ :: _ :: _ => FBDDiscardMultiple (length keys)
   end.
 
+(** [fresh_build_plan] IS [fresh_build_plan_of] over the program's selected keys + root layout — ONE plan
+    builder, so the retained buckets reproduce it once their keys are shown equal to [selected_package_keys]. *)
 Definition fresh_build_plan (p : GoProgram) : FreshBuildDisposition :=
-  match selected_package_keys p with
-  | [] => FBDNoPackages
-  | dir :: nil =>
-      let ip := package_import_path (prog_module p) dir in
-      let ex := default_exec_name ip in
-      FBDWriteSingleMain dir ip ex (PM.find ex (root_layout p))
-  | _ :: _ :: _ => FBDDiscardMultiple (selected_package_count p)
-  end.
-
-(** [fresh_build_plan] IS the general plan over the program's selected keys + root layout (so the retained
-    buckets can reproduce it once their keys are shown equal to [selected_package_keys]). *)
-Lemma fresh_build_plan_eq_of : forall p,
-  fresh_build_plan p = fresh_build_plan_of (prog_module p) (selected_package_keys p) (root_layout p).
-Proof.
-  intro p. unfold fresh_build_plan, fresh_build_plan_of.
-  destruct (selected_package_keys p) as [|dir [|d2 rest]] eqn:Ek; try reflexivity.
-  unfold selected_package_count. rewrite Ek. reflexivity.
-Qed.
+  fresh_build_plan_of (prog_module p) (selected_package_keys p) (root_layout p).
 
 (* every selected package key is "" or the parent directory of a represented file. *)
 Lemma selected_key_is_parent : forall p dir,
@@ -5662,7 +5765,7 @@ Theorem fresh_build_plan_exec_nonempty : forall p dir ip ex t,
   fresh_build_plan p = FBDWriteSingleMain dir ip ex t -> ex <> ""%string.
 Proof.
   intros p dir ip ex t Hplan.
-  unfold fresh_build_plan in Hplan.
+  unfold fresh_build_plan, fresh_build_plan_of in Hplan.
   destruct (selected_package_keys p) as [|d0 [|d1 r]] eqn:Ek; try discriminate Hplan.
   injection Hplan as _ _ Hex _.
   assert (Hdir : d0 = ""%string \/ exists fp, fp_parent fp = d0)
@@ -5673,19 +5776,19 @@ Qed.
 (** §C3-FRESH.6 (CR2-D5) — the EXACT zero / single / multiple plan CLASSIFICATION by selected-package count. *)
 Lemma fresh_build_plan_zero : forall p,
   selected_package_keys p = [] -> fresh_build_plan p = FBDNoPackages.
-Proof. intros p H. unfold fresh_build_plan. rewrite H. reflexivity. Qed.
+Proof. intros p H. unfold fresh_build_plan, fresh_build_plan_of. rewrite H. reflexivity. Qed.
 
 Lemma fresh_build_plan_multiple : forall p d1 d2 rest,
   selected_package_keys p = d1 :: d2 :: rest ->
   fresh_build_plan p = FBDDiscardMultiple (selected_package_count p).
-Proof. intros p d1 d2 rest H. unfold fresh_build_plan. rewrite H. reflexivity. Qed.
+Proof. intros p d1 d2 rest H. unfold fresh_build_plan, fresh_build_plan_of, selected_package_count. rewrite H. reflexivity. Qed.
 
 (** the sole-main plan's stored output TARGET is exactly the fresh root layout's classification at the default
     output name (feeds the §18J image-side output-target bridge). *)
 Lemma fresh_build_plan_single_target : forall p dir ip ex t,
   fresh_build_plan p = FBDWriteSingleMain dir ip ex t -> t = PM.find ex (root_layout p).
 Proof.
-  intros p dir ip ex t Hplan. unfold fresh_build_plan in Hplan.
+  intros p dir ip ex t Hplan. unfold fresh_build_plan, fresh_build_plan_of in Hplan.
   destruct (selected_package_keys p) as [|d0 [|d1 r]] eqn:Ek; try discriminate Hplan.
   injection Hplan as _ _ Hex Ht. rewrite <- Hex. symmetry. exact Ht.
 Qed.
@@ -5710,7 +5813,7 @@ Lemma fresh_build_plan_of_buckets : forall p (idx : GoIndex.Snap.SyntaxIndex p),
   fresh_build_plan_of (prog_module p) (map fst (PM.elements (prog_package_refs idx))) (root_layout p)
   = fresh_build_plan p.
 Proof.
-  intros p idx. rewrite (bucket_keys_eq_selected p idx). symmetry. apply fresh_build_plan_eq_of.
+  intros p idx. rewrite (bucket_keys_eq_selected p idx). unfold fresh_build_plan. reflexivity.
 Qed.
 
 (* the preflight decision: reject ONLY a sole-main default output name that is an existing root directory. *)
@@ -5729,7 +5832,7 @@ Lemma preflight_fails_iff : forall p,
   (exists dir, selected_package_keys p = [dir]
      /\ PM.find (default_exec_name (package_import_path (prog_module p) dir)) (root_layout p) = Some FREDirectory).
 Proof.
-  intros p. unfold fresh_build_plan, fresh_build_disposition_ok.
+  intros p. unfold fresh_build_plan, fresh_build_plan_of, fresh_build_disposition_ok.
   destruct (selected_package_keys p) as [|dir [|d2 rest]] eqn:Ek.
   - split; [ discriminate | intros [d [Hd _]]; discriminate Hd ].
   - cbn.
@@ -5769,8 +5872,8 @@ Qed.
     ============================================================================================ *)
 
 (** [PackageDeclsUnique] / [MainPackagesHaveEntry] / [PackageRulesValid] and their executable reflections
-    ([pkg_decls_unique_b_iff] / [main_pkgs_have_entry_b_iff] / [pkg_all_ok_PackageRulesValid]) are defined at §9
-    (early, beside [pkg_all_ok]), so BOTH the [package_summaries] view and the retained-bucket production decision
+    ([pkg_decls_unique_b_iff] / [main_pkgs_have_entry_b_iff] / [source_spec_package_rules_b_PackageRulesValid]) are defined at §9
+    (early, beside [source_spec_package_rules_b]), so BOTH the [package_summaries] view and the retained-bucket production decision
     root DIRECTLY in the two factored roots.  Here we package the SOURCE admission on top. *)
 Definition SourceProgramValid (p : GoProgram) : Prop := ProgramTyped p /\ PackageRulesValid p.
 
@@ -5783,20 +5886,20 @@ Proof.
   - intros H. split; intros dir s Hmt; pose proof (H dir s Hmt); lia.
 Qed.
 
-(** F1/§6 — the decidable [source_valid_b] reflects the LIVE factored root [SourceProgramValid] DIRECTLY:
-    program typing ([program_typedb_iff]) AND the two factored package reflections ([pkg_all_ok_PackageRulesValid]).
+(** F1/§6 — the decidable [source_spec_valid_b] reflects the LIVE factored root [SourceProgramValid] DIRECTLY:
+    program typing ([program_typedb_iff]) AND the two factored package reflections ([source_spec_package_rules_b_PackageRulesValid]).
     No fragment/consequence bridge, no [ProgValid], no [prog_ok], no exactly-one intermediary. *)
-Lemma source_valid_b_iff : forall p, source_valid_b p = true <-> SourceProgramValid p.
+Lemma source_spec_valid_b_iff : forall p, source_spec_valid_b p = true <-> SourceProgramValid p.
 Proof.
-  intro p. unfold source_valid_b, SourceProgramValid.
-  rewrite Bool.andb_true_iff, program_typedb_iff, pkg_all_ok_PackageRulesValid. reflexivity.
+  intro p. unfold source_spec_valid_b, SourceProgramValid.
+  rewrite Bool.andb_true_iff, program_typedb_iff, source_spec_package_rules_b_PackageRulesValid. reflexivity.
 Qed.
 
 (** F1/§6 — the elaboration-native decision [semantic_ok_b] reflects the LIVE factored root
-    [SourceProgramValid] DIRECTLY (via [semantic_ok_b_source_valid_b] + [source_valid_b_iff]; no [prog_ok] /
+    [SourceProgramValid] DIRECTLY (via [semantic_ok_b_source_spec_valid_b] + [source_spec_valid_b_iff]; no [prog_ok] /
     [ProgValid]).  This is the public source-validity reflection. *)
 Lemma semantic_ok_b_SourceProgramValid (p : GoProgram) : semantic_ok_b p = true <-> SourceProgramValid p.
-Proof. rewrite semantic_ok_b_source_valid_b. apply source_valid_b_iff. Qed.
+Proof. rewrite semantic_ok_b_source_spec_valid_b. apply source_spec_valid_b_iff. Qed.
 
 (** §C3-FRESH.8 (§15b) — the fresh-build COMMAND-level diagnostic list: when the preflight fails (a sole main
     package whose default exec name is an existing root directory), the ONE [DRBuildOutputIsDirectory] anchored
@@ -5844,6 +5947,14 @@ Definition fresh_build_diagnostics_of (p : GoProgram) (plan : FreshBuildDisposit
 
 Definition fresh_build_diagnostics (p : GoProgram) : list (DiagnosticReason p) :=
   fresh_build_diagnostics_of p (fresh_build_plan p).
+
+(** §7 — the ONE command-facing report builder over a plan + the semantic diagnostics: a FAILED fresh-build
+    output preflight takes PRECEDENCE (the build-output-directory diagnostic), else the semantic diagnostics.
+    Used by BOTH the readable [elaboration_diagnostics] and the production [elaborate_indexed] (over its retained
+    plan), so their reports are the SAME builder on equal inputs — no second handwritten branch. *)
+Definition command_diagnostics_of (p : GoProgram) (plan : FreshBuildDisposition)
+    (semantic_ds : list (DiagnosticReason p)) : list (DiagnosticReason p) :=
+  if fresh_build_disposition_ok plan then semantic_ds else fresh_build_diagnostics_of p plan.
 
 Lemma fresh_build_diagnostics_nil_iff : forall p,
   fresh_build_diagnostics p = [] <-> fresh_build_preflight_ok p.
@@ -5910,8 +6021,7 @@ Lemma fresh_build_plan_InputEqual : forall p1 p2,
   ProgramInputEqual p1 p2 -> fresh_build_plan p1 = fresh_build_plan p2.
 Proof.
   intros p1 p2 [Hm Hf]. unfold fresh_build_plan.
-  rewrite (selected_package_keys_Equal _ _ Hf), Hm, (root_layout_Equal _ _ Hf).
-  unfold selected_package_count. rewrite (selected_package_keys_Equal _ _ Hf). reflexivity.
+  rewrite (selected_package_keys_Equal _ _ Hf), Hm, (root_layout_Equal _ _ Hf). reflexivity.
 Qed.
 
 Lemma fresh_build_disposition_InputEqual : forall p1 p2,
@@ -5923,7 +6033,7 @@ Proof. intros p1 p2 H. rewrite (fresh_build_plan_InputEqual _ _ H). reflexivity.
     is EXACTLY the build-output-directory diagnostic (it takes PRECEDENCE, hiding the semantic diagnostics of
     the sole package); otherwise it is the semantic [semantic_diagnostics].  Emptiness is exactly GoCompile. *)
 Definition elaboration_diagnostics (p : GoProgram) (idx : GoIndex.Snap.SyntaxIndex p) : list (DiagnosticReason p) :=
-  if fresh_build_disposition_ok (fresh_build_plan p) then semantic_diagnostics p idx else fresh_build_diagnostics p.
+  command_diagnostics_of p (fresh_build_plan p) (semantic_diagnostics p idx).
 
 (** §9/§29-B (C3-fresh) — the RETAINED source validity is [SourceProgramValid] (the FACTORED rules
     [PackageDeclsUnique] + [MainPackagesHaveEntry], of which the old exactly-one-main rule is a proved
@@ -5931,7 +6041,7 @@ Definition elaboration_diagnostics (p : GoProgram) (idx : GoIndex.Snap.SyntaxInd
 Lemma elaboration_no_diags_source_valid : forall p idx, elaboration_diagnostics p idx = nil -> SourceProgramValid p.
 Proof.
   intros p idx He.
-  unfold elaboration_diagnostics in He. destruct (fresh_build_disposition_ok (fresh_build_plan p)) eqn:Ep.
+  unfold elaboration_diagnostics, command_diagnostics_of in He. destruct (fresh_build_disposition_ok (fresh_build_plan p)) eqn:Ep.
   - exact (proj1 (semantic_ok_b_SourceProgramValid p) (proj1 (semantic_diagnostics_empty_iff p idx) He)).
   - apply (proj1 (fresh_build_diagnostics_nil_iff p)) in He. unfold fresh_build_preflight_ok in He.
     rewrite He in Ep. discriminate Ep.
@@ -5939,18 +6049,18 @@ Qed.
 
 Lemma elaboration_no_diags_preflight : forall p idx, elaboration_diagnostics p idx = nil -> fresh_build_preflight_ok p.
 Proof.
-  intros p idx He. unfold elaboration_diagnostics in He. destruct (fresh_build_disposition_ok (fresh_build_plan p)) eqn:Ep.
+  intros p idx He. unfold elaboration_diagnostics, command_diagnostics_of in He. destruct (fresh_build_disposition_ok (fresh_build_plan p)) eqn:Ep.
   - unfold fresh_build_preflight_ok. exact Ep.
   - exact (proj1 (fresh_build_diagnostics_nil_iff p) He).
 Qed.
 
 Lemma elaboration_diagnostics_eq_semantic : forall p idx,
   fresh_build_disposition_ok (fresh_build_plan p) = true -> elaboration_diagnostics p idx = semantic_diagnostics p idx.
-Proof. intros p idx H. unfold elaboration_diagnostics. rewrite H. reflexivity. Qed.
+Proof. intros p idx H. unfold elaboration_diagnostics, command_diagnostics_of. rewrite H. reflexivity. Qed.
 
 Lemma elaboration_diagnostics_eq_fresh : forall p idx,
   fresh_build_disposition_ok (fresh_build_plan p) = false -> elaboration_diagnostics p idx = fresh_build_diagnostics p.
-Proof. intros p idx H. unfold elaboration_diagnostics. rewrite H. reflexivity. Qed.
+Proof. intros p idx H. unfold elaboration_diagnostics, command_diagnostics_of. rewrite H. reflexivity. Qed.
 
 (* end of the §C3-FRESH block — restore the default scope so the elaboration machinery's list [++] is list append. *)
 Close Scope string_scope.
@@ -5967,7 +6077,7 @@ Proof.
   intros p idx. unfold GoCompile. split.
   - intro He. split; [ exact (elaboration_no_diags_preflight p idx He)
                      | exact (elaboration_no_diags_source_valid p idx He) ].
-  - intros [Hpf Hsv]. unfold elaboration_diagnostics. unfold fresh_build_preflight_ok in Hpf. rewrite Hpf.
+  - intros [Hpf Hsv]. unfold elaboration_diagnostics, command_diagnostics_of. unfold fresh_build_preflight_ok in Hpf. rewrite Hpf.
     apply (proj2 (semantic_diagnostics_empty_iff p idx)), (proj2 (semantic_ok_b_SourceProgramValid p)). exact Hsv.
 Qed.
 
@@ -5978,17 +6088,14 @@ Qed.
     plan are literally the same object.  ([elaborate_indexed]'s local diagnostic term is definitionally this
     LHS: its `then` branch is the one-pass raw fold, convertible to [semantic_diagnostics p idx].) *)
 Lemma command_plan_diags_eq (p : GoProgram) (ip : GoIndex.IndexedProgram p) :
-  (if fresh_build_disposition_ok
-        (fresh_build_plan_of (prog_module p)
-           (map fst (PM.elements (prog_package_refs (GoIndex.indexed_syntax ip)))) (root_layout p))
-   then semantic_diagnostics p (GoIndex.indexed_syntax ip)
-   else fresh_build_diagnostics_of p
-          (fresh_build_plan_of (prog_module p)
-             (map fst (PM.elements (prog_package_refs (GoIndex.indexed_syntax ip)))) (root_layout p)))
+  command_diagnostics_of p
+    (fresh_build_plan_of (prog_module p)
+       (map fst (PM.elements (prog_package_refs (GoIndex.indexed_syntax ip)))) (root_layout p))
+    (semantic_diagnostics p (GoIndex.indexed_syntax ip))
   = elaboration_diagnostics p (GoIndex.indexed_syntax ip).
 Proof.
   rewrite (fresh_build_plan_of_buckets p (GoIndex.indexed_syntax ip)).
-  unfold elaboration_diagnostics, fresh_build_diagnostics. reflexivity.
+  unfold elaboration_diagnostics. reflexivity.
 Qed.
 
 (** §12 (C3) — the SUCCESSFUL elaboration facts, retained over the SAME [IndexedProgram] the elaboration ran on:
@@ -6163,9 +6270,8 @@ Definition elaborate_indexed (p : GoProgram) (ip : GoIndex.IndexedProgram p) : E
      §14/§17 COMMAND order: if the fresh-build output preflight (on the RETAINED [plan]) FAILS the report is
      EXACTLY the build-output-directory diagnostic (precedence), else the semantic diagnostics.  This [diags] is
      [command_plan_diags_eq]-equal to [elaboration_diagnostics p idx]. *)
-  let diags   := if fresh_build_disposition_ok plan
-                 then bucket_flatten (node_keyed raw) ++ pkg_primary raw
-                 else fresh_build_diagnostics_of p plan in
+  let diags   := command_diagnostics_of p plan
+                   (bucket_flatten (node_keyed raw) ++ pkg_primary raw) in
   match list_is_nil diags with
   | left He  =>
       let He' : elaboration_diagnostics p idx = nil :=
@@ -6489,25 +6595,25 @@ Proof.
   exact (go_compile_ok_shape p (pe_indexed (elaborate p)) facts (elaborate_ok_whole p facts Heq)).
 Qed.
 
-(** fixture helper: acceptance through the theorems — the source decision ([source_valid_b]) AND the fresh-build
+(** fixture helper: acceptance through the theorems — the source decision ([source_spec_valid_b]) AND the fresh-build
     preflight decision together are exactly [GoCompile]. *)
-Lemma go_compile_ok_of_source_valid_b : forall p,
-  source_valid_b p = true -> fresh_build_disposition_ok (fresh_build_plan p) = true ->
+Lemma go_compile_ok_of_source_spec_valid_b : forall p,
+  source_spec_valid_b p = true -> fresh_build_disposition_ok (fresh_build_plan p) = true ->
   exists cp Hcp, go_compile p = CompiledOk cp Hcp.
 Proof.
   intros p H Hpf. apply go_compile_complete. split.
   - unfold fresh_build_preflight_ok. exact Hpf.
-  - apply (proj1 (source_valid_b_iff p)); exact H.
+  - apply (proj1 (source_spec_valid_b_iff p)); exact H.
 Qed.
 
-(** §17 witness ergonomics: [GoCompile] from the two DECIDABLE checks — the source [source_valid_b] AND the
+(** §17 witness ergonomics: [GoCompile] from the two DECIDABLE checks — the source [source_spec_valid_b] AND the
     fresh-build output preflight (both discharge by [vm_compute]).  This is the intro the emit witnesses use. *)
-Lemma GoCompile_of_source_valid_b : forall p,
-  source_valid_b p = true -> fresh_build_disposition_ok (fresh_build_plan p) = true -> GoCompile p.
+Lemma GoCompile_of_source_spec_valid_b : forall p,
+  source_spec_valid_b p = true -> fresh_build_disposition_ok (fresh_build_plan p) = true -> GoCompile p.
 Proof.
   intros p H Hpf. split.
   - unfold fresh_build_preflight_ok. exact Hpf.
-  - apply (proj1 (source_valid_b_iff p)); exact H.
+  - apply (proj1 (source_spec_valid_b_iff p)); exact H.
 Qed.
 
 (** ============================================================================================================
@@ -6569,7 +6675,7 @@ Proof.
 Qed.
 
 (** §18.H — the production compiler is a PROJECTION of the ONE elaboration: [go_compile] IS DEFINITIONALLY the
-    outcome of the retained [elaborate p].  It runs no [source_valid_b] and no second checker. *)
+    outcome of the retained [elaborate p].  It runs no [source_spec_valid_b] and no second checker. *)
 Lemma go_compile_projects_elaborate : forall p,
   go_compile p = outcome_of_elaboration p (elaborate p) eq_refl.
 Proof. intro p. reflexivity. Qed.
@@ -6618,10 +6724,10 @@ Proof.
 Qed.
 
 (** A rejected program yields no CompilableProgram (and hence no SafeProgram, no image). *)
-Lemma reject_no_compile : forall p, source_valid_b p = false -> ~ GoCompile p.
+Lemma reject_no_compile : forall p, source_spec_valid_b p = false -> ~ GoCompile p.
 Proof.
   intros p E [_ Hsv].
-  pose proof (proj2 (source_valid_b_iff p) Hsv) as Hok.
+  pose proof (proj2 (source_spec_valid_b_iff p) Hsv) as Hok.
   rewrite Hok in E; discriminate.
 Qed.
 
@@ -6644,19 +6750,19 @@ Proof.
   split; intros dir s Hmt; [ apply (Hdu dir s) | apply (Hme dir s) ]; apply Hconv; exact Hmt.
 Qed.
 
-Theorem source_valid_b_Equal : forall p1 p2,
-  GoAST.FilesEqual (prog_files p1) (prog_files p2) -> source_valid_b p1 = source_valid_b p2.
+Theorem source_spec_valid_b_Equal : forall p1 p2,
+  GoAST.FilesEqual (prog_files p1) (prog_files p2) -> source_spec_valid_b p1 = source_spec_valid_b p2.
 Proof.
   intros p1 p2 Heq.
-  destruct (source_valid_b p1) eqn:E1; destruct (source_valid_b p2) eqn:E2; try reflexivity.
-  - apply (proj1 (source_valid_b_iff p1)) in E1. apply (SourceProgramValid_Equal p1 p2 Heq) in E1.
-    apply (proj2 (source_valid_b_iff p2)) in E1. rewrite E1 in E2; discriminate.
-  - apply (proj1 (source_valid_b_iff p2)) in E2. apply (SourceProgramValid_Equal p2 p1 (GoAST.FilesEqual_sym _ _ Heq)) in E2.
-    apply (proj2 (source_valid_b_iff p1)) in E2. rewrite E2 in E1; discriminate.
+  destruct (source_spec_valid_b p1) eqn:E1; destruct (source_spec_valid_b p2) eqn:E2; try reflexivity.
+  - apply (proj1 (source_spec_valid_b_iff p1)) in E1. apply (SourceProgramValid_Equal p1 p2 Heq) in E1.
+    apply (proj2 (source_spec_valid_b_iff p2)) in E1. rewrite E1 in E2; discriminate.
+  - apply (proj1 (source_spec_valid_b_iff p2)) in E2. apply (SourceProgramValid_Equal p2 p1 (GoAST.FilesEqual_sym _ _ Heq)) in E2.
+    apply (proj2 (source_spec_valid_b_iff p1)) in E2. rewrite E2 in E1; discriminate.
 Qed.
 
-(* [source_valid_b] is exactly the conjunction of the two decision halves. *)
-Lemma source_valid_b_eq : forall p, source_valid_b p = program_typedb p && pkg_all_ok p.
+(* [source_spec_valid_b] is exactly the conjunction of the two decision halves. *)
+Lemma source_spec_valid_b_eq : forall p, source_spec_valid_b p = program_typedb p && source_spec_package_rules_b p.
 Proof. reflexivity. Qed.
 
 (** the [go_compile] LEGACY CLASS (a projection of the carried diagnostics) — invariant under file insertion
@@ -6666,7 +6772,7 @@ Definition go_compile_class (p : GoProgram) : LegacyCompileClass := legacy_compi
 Lemma go_compile_class_spec : forall p,
   go_compile_class p
   = (if fresh_build_disposition_ok (fresh_build_plan p)
-     then (if source_valid_b p then LCOk else if program_typedb p then LCPackageMainCount else LCTyping)
+     then (if source_spec_valid_b p then LCOk else if program_typedb p then LCPackageMainCount else LCTyping)
      else LCBuildOutput).
 Proof.
   intro p. unfold go_compile_class.
@@ -6674,7 +6780,7 @@ Proof.
   - assert (Hgc : GoCompile p) by (apply (elaborate_ok_iff_GoCompile p); exists facts; exact Hok).
     destruct Hgc as [Hpf Hsv]. unfold fresh_build_preflight_ok in Hpf. rewrite Hpf.
     destruct (go_compile_ok_shape p (pe_indexed (elaborate p)) facts (elaborate_ok_whole p facts Hok)) as [cp [Hcp Hgo]]. rewrite Hgo.
-    cbn [legacy_compile_class]. rewrite (proj2 (source_valid_b_iff p) Hsv). reflexivity.
+    cbn [legacy_compile_class]. rewrite (proj2 (source_spec_valid_b_iff p) Hsv). reflexivity.
   - rewrite (go_compile_failed_shape p (pe_indexed (elaborate p)) ds Hne (elaborate_failed_whole p ds Hne Hfail)).
     cbn [legacy_compile_class cfail_diags]. unfold legacy_class_of_diags.
     rewrite (elaborate_failed_ds p ds Hne Hfail).
@@ -6682,12 +6788,12 @@ Proof.
     + rewrite (elaboration_diagnostics_eq_semantic p _ Ep), existsb_build_output_semantic,
               existsb_typing_semantic, existsb_package_semantic.
       assert (Hnv : ~ GoCompile p) by (apply (elaborate_failed_iff_not_GoCompile p); exists ds; exists Hne; exact Hfail).
-      assert (Hpok : source_valid_b p = false).
-      { destruct (source_valid_b p) eqn:Epk; [ | reflexivity ]. exfalso. apply Hnv. split.
+      assert (Hpok : source_spec_valid_b p = false).
+      { destruct (source_spec_valid_b p) eqn:Epk; [ | reflexivity ]. exfalso. apply Hnv. split.
         - unfold fresh_build_preflight_ok. exact Ep.
-        - apply (proj1 (source_valid_b_iff p)); exact Epk. }
+        - apply (proj1 (source_spec_valid_b_iff p)); exact Epk. }
       rewrite Hpok. destruct (program_typedb p) eqn:Ht; cbn [negb].
-      * assert (Hpk : pkg_all_ok p = false) by (rewrite source_valid_b_eq, Ht, Bool.andb_true_l in Hpok; exact Hpok).
+      * assert (Hpk : source_spec_package_rules_b p = false) by (rewrite source_spec_valid_b_eq, Ht, Bool.andb_true_l in Hpok; exact Hpok).
         rewrite Hpk. reflexivity.
       * reflexivity.
     + rewrite (elaboration_diagnostics_eq_fresh p _ Ep), (existsb_build_output_fresh p Ep). reflexivity.
@@ -6699,7 +6805,7 @@ Theorem go_compile_class_Equal : forall p1 p2,
   ProgramInputEqual p1 p2 -> go_compile_class p1 = go_compile_class p2.
 Proof.
   intros p1 p2 H. pose proof (proj2 H) as Hf. rewrite !go_compile_class_spec.
-  rewrite (fresh_build_disposition_InputEqual _ _ H), (source_valid_b_Equal _ _ Hf), (program_typedb_Equal _ _ Hf).
+  rewrite (fresh_build_disposition_InputEqual _ _ H), (source_spec_valid_b_Equal _ _ Hf), (program_typedb_Equal _ _ Hf).
   reflexivity.
 Qed.
 
@@ -6764,7 +6870,7 @@ Theorem erased_elaboration_report_InputEqual : forall p1 p2 idx1 idx2,
   erased_elaboration_report p1 idx1 = erased_elaboration_report p2 idx2.
 Proof.
   intros p1 p2 idx1 idx2 H. pose proof (proj2 H) as Hf.
-  unfold erased_elaboration_report, elaboration_diagnostics.
+  unfold erased_elaboration_report, elaboration_diagnostics, command_diagnostics_of.
   rewrite (fresh_build_disposition_InputEqual _ _ H).
   destruct (fresh_build_disposition_ok (fresh_build_plan p2)) eqn:Ed.
   - exact (erased_report_FilesEqual p1 p2 idx1 idx2 Hf).
@@ -6773,22 +6879,23 @@ Proof.
     destruct (proj1 (preflight_fails_iff p1) Ed1) as [dir [Hk1 _]].
     assert (Hk2 : selected_package_keys p2 = [dir])
       by (rewrite <- (selected_package_keys_Equal _ _ Hf); exact Hk1).
+    fold (fresh_build_diagnostics p1) (fresh_build_diagnostics p2).
     rewrite (erased_fresh_report_of_sole p1 dir Hk1 Ed1),
             (erased_fresh_report_of_sole p2 dir Hk2 Ed).
     rewrite (package_import_path_InputEqual p1 p2 dir H). reflexivity.
 Qed.
 
-(** The empty program (empty file MAP) is accepted: no package to type and no `main` to count, so [source_valid_b]
+(** The empty program (empty file MAP) is accepted: no package to type and no `main` to count, so [source_spec_valid_b]
     holds vacuously (the file map's elements and the package map are both empty). *)
-Lemma source_valid_b_empty : forall ms, source_valid_b (empty_program ms) = true.
+Lemma source_spec_valid_b_empty : forall ms, source_spec_valid_b (empty_program ms) = true.
 Proof. intro ms. vm_compute. reflexivity. Qed.
 
 (** F1/§6 — the LIVE factored-root empty surface (public gate).  [SourceProgramValid_Equal] is proved once,
-    above (the sole map-equality proof); [source_valid_b_Equal]/[source_valid_b_empty] are its decidable
+    above (the sole map-equality proof); [source_spec_valid_b_Equal]/[source_spec_valid_b_empty] are its decidable
     companions. *)
 Theorem SourceProgramValid_empty : forall ms, SourceProgramValid (empty_program ms).
 Proof.
-  intro ms. apply (proj1 (source_valid_b_iff (empty_program ms))). apply source_valid_b_empty.
+  intro ms. apply (proj1 (source_spec_valid_b_iff (empty_program ms))). apply source_spec_valid_b_empty.
 Qed.
 
 (** ---- boundary fixture: an out-of-range argument rejects the WHOLE program BEFORE any emission ---- *)
@@ -6802,11 +6909,11 @@ Definition over_program : GoProgram :=
     (mkFP "main.go" eq_refl)
     [ DMain [ SPrintln [ EInt (Z.to_N (int_max + 1)) ] ] ].
 
-(* the whole program fails typing, so [source_valid_b] rejects it and [go_compile] returns the honest typing
+(* the whole program fails typing, so [source_spec_valid_b] rejects it and [go_compile] returns the honest typing
    error — and there is NO [CompilableProgram] for it (hence no [SafeProgram], no [DirectoryImage], no
    rendering/emission): rejection happens strictly in Rocq, before any bytes. *)
 Example over_program_untyped   : program_typedb over_program = false.        Proof. vm_compute; reflexivity. Qed.
-Example over_program_not_valid    : source_valid_b over_program = false.               Proof. vm_compute; reflexivity. Qed.
+Example over_program_not_valid    : source_spec_valid_b over_program = false.               Proof. vm_compute; reflexivity. Qed.
 Example over_program_rejected  : legacy_compile_class (go_compile over_program) = LCTyping.    Proof. exact (go_compile_untyped _ over_program_untyped ltac:(vm_compute; reflexivity)). Qed.
 Example over_program_no_compile : ~ GoCompile over_program.
 Proof. exact (reject_no_compile over_program over_program_not_valid). Qed.
@@ -6821,9 +6928,9 @@ Definition int_program : GoProgram :=
                        ; EIntConvert IUint64 (EInt 18446744073709551615)
                        ; EIntConvert IInt8 (EIntConvert IInt16 (EInt 127)) ] ] ].
 Example int_program_typed    : program_typedb int_program = true. Proof. vm_compute; reflexivity. Qed.
-Example int_program_ok       : source_valid_b int_program = true.        Proof. vm_compute; reflexivity. Qed.
+Example int_program_ok       : source_spec_valid_b int_program = true.        Proof. vm_compute; reflexivity. Qed.
 Example int_program_compiles : exists cp Hcp, go_compile int_program = CompiledOk cp Hcp.
-Proof. exact (go_compile_ok_of_source_valid_b _ int_program_ok ltac:(vm_compute; reflexivity)). Qed.
+Proof. exact (go_compile_ok_of_source_spec_valid_b _ int_program_ok ltac:(vm_compute; reflexivity)). Qed.
 
 (** A program whose only argument is [uint8(int(300))] — a valid inner [int(300)] whose value does NOT fit
     the outer [uint8]; the invalid nested conversion cannot be revived, so the whole program is rejected. *)
@@ -6845,9 +6952,9 @@ Definition str_program : GoProgram :=
     (mkFP "main.go" eq_refl)
     [ DMain [ SPrintln [ EString "hello"; EBool true; EInt 7 ] ] ].
 Example str_program_typed    : program_typedb str_program = true. Proof. vm_compute; reflexivity. Qed.
-Example str_program_ok       : source_valid_b str_program = true.        Proof. vm_compute; reflexivity. Qed.
+Example str_program_ok       : source_spec_valid_b str_program = true.        Proof. vm_compute; reflexivity. Qed.
 Example str_program_compiles : exists cp Hcp, go_compile str_program = CompiledOk cp Hcp.
-Proof. exact (go_compile_ok_of_source_valid_b _ str_program_ok ltac:(vm_compute; reflexivity)). Qed.
+Proof. exact (go_compile_ok_of_source_spec_valid_b _ str_program_ok ltac:(vm_compute; reflexivity)). Qed.
 
 (** ---- float programs (§38): a concrete accepted float program (a bare float64, an explicit float32
     conversion, and an exact float->int conversion) compiles to a [CompilableProgram]; a fractional
@@ -6861,9 +6968,9 @@ Definition float_program : GoProgram :=
                        ; EFloatConvert F32 (EFloat (mkDecimal 15 (-1) eq_refl))
                        ; EIntConvert IInt (EFloat (mkDecimal 3 0 eq_refl)) ] ] ].
 Example float_program_typed    : program_typedb float_program = true. Proof. vm_compute. reflexivity. Qed.
-Example float_program_ok       : source_valid_b float_program = true.        Proof. vm_compute. reflexivity. Qed.
+Example float_program_ok       : source_spec_valid_b float_program = true.        Proof. vm_compute. reflexivity. Qed.
 Example float_program_compiles : exists cp Hcp, go_compile float_program = CompiledOk cp Hcp.
-Proof. exact (go_compile_ok_of_source_valid_b _ float_program_ok ltac:(vm_compute; reflexivity)). Qed.
+Proof. exact (go_compile_ok_of_source_spec_valid_b _ float_program_ok ltac:(vm_compute; reflexivity)). Qed.
 
 Definition float_reject_program : GoProgram :=
   singleton_program
@@ -6890,9 +6997,9 @@ Definition complex_program : GoProgram :=
                        ; EComplexConvert C64  (EInt 1)
                        ; EIntConvert IInt (EComplex (mkDC (mkDecimal 3 0 eq_refl) (mkDecimal 0 0 eq_refl))) ] ] ].
 Example complex_program_typed    : program_typedb complex_program = true. Proof. vm_compute. reflexivity. Qed.
-Example complex_program_ok       : source_valid_b complex_program = true.        Proof. vm_compute. reflexivity. Qed.
+Example complex_program_ok       : source_spec_valid_b complex_program = true.        Proof. vm_compute. reflexivity. Qed.
 Example complex_program_compiles : exists cp Hcp, go_compile complex_program = CompiledOk cp Hcp.
-Proof. exact (go_compile_ok_of_source_valid_b _ complex_program_ok ltac:(vm_compute; reflexivity)). Qed.
+Proof. exact (go_compile_ok_of_source_spec_valid_b _ complex_program_ok ltac:(vm_compute; reflexivity)). Qed.
 
 Definition complex_overflow_program : GoProgram :=
   singleton_program
@@ -6920,7 +7027,7 @@ Proof. apply (reject_no_compile complex_nonzero_imag_program); vm_compute; refle
     NOT reduce — a fixture cannot [vm_compute] a concrete report.  So each fixture pins the REAL index
     ([Snap.index_program] of the concrete program) and states its structured claim THROUGH the proven
     soundness/determinism/emptiness bridges.  Non-vacuity comes from the COMPUTABLE type checker
-    ([program_typedb]/[pkg_all_ok], which DO reduce): a rejected program has a provably NON-EMPTY report
+    ([program_typedb]/[source_spec_package_rules_b], which DO reduce): a rejected program has a provably NON-EMPTY report
     ([*_empty_iff] contrapositive), and every diagnostic in it is pinned by the family soundness theorem.
     ============================================================================================================ *)
 
@@ -6965,7 +7072,7 @@ Theorem empty_program_report :
 Proof.
   split.
   - apply (proj2 (erased_report_empty_iff (empty_program c3_ms) _)).
-    rewrite semantic_ok_b_source_valid_b. apply source_valid_b_empty.
+    rewrite semantic_ok_b_source_spec_valid_b. apply source_spec_valid_b_empty.
   - vm_compute. reflexivity.
 Qed.
 
@@ -7052,7 +7159,7 @@ Qed.
 Definition fact_program : GoProgram :=
   singleton_program c3_ms (mkFP "main.go" eq_refl)
     [ DMain [ SPrintln [ EFloatConvert F64 (EIntConvert IInt (EInt 5)) ] ] ].
-Example fact_program_ok : source_valid_b fact_program = true. Proof. vm_compute. reflexivity. Qed.
+Example fact_program_ok : source_spec_valid_b fact_program = true. Proof. vm_compute. reflexivity. Qed.
 
 (** §23 — the EXACT per-occurrence facts of the VALID nested-conversion program [float64(int(5))].  The whole
     fact enumeration (three expression occurrences), projected to (local id, typed-target-if-any,
@@ -7126,7 +7233,7 @@ Proof. rewrite prog_expr_facts_source, keyed_visit_source. vm_compute. reflexivi
 Definition dup_lit_program : GoProgram :=
   singleton_program c3_ms (mkFP "main.go" eq_refl)
     [ DMain [ SPrintln [ EInt 1; EInt 1 ] ] ].
-Example dup_lit_ok : source_valid_b dup_lit_program = true. Proof. vm_compute. reflexivity. Qed.
+Example dup_lit_ok : source_spec_valid_b dup_lit_program = true. Proof. vm_compute. reflexivity. Qed.
 
 (* the EXACT fact enumeration: TWO entries at DISTINCT keys (local 5 and local 6) with EQUAL fact values (both
    the untyped [1] resolving to [int(1)]).  Same syntax, two occurrences, two entries — the table is keyed by
@@ -7244,7 +7351,7 @@ Proof. vm_compute. reflexivity. Qed.
 Local Open Scope string_scope.
 
 (** ============================================================================================================
-    §20 — CURRENT REQUIRED ROCQ FIXTURES (20.1-20.16).  The fresh-build plan, preflight disposition, [source_valid_b],
+    §20 — CURRENT REQUIRED ROCQ FIXTURES (20.1-20.16).  The fresh-build plan, preflight disposition, [source_spec_valid_b],
     and [program_typedb] are ALL index-free, so a fixture [vm_compute]s them directly; the command-facing report
     (which anchors into the OPAQUE sealed index) is pinned THROUGH the proven bridges ([go_compile_class_spec],
     [elaboration_diagnostics_fresh_failure]).  Module paths are valid current [ModulePath]s; the pinned Go
@@ -7258,7 +7365,7 @@ Definition ex_bad  : list GoDecl := [ DMain [ SPrintln [ EIntConvert IUint8 (EIn
 (* 20.1 — EMPTY IMAGE: no packages -> FBDNoPackages, preflight succeeds vacuously, GoCompile, no diagnostics. *)
 Example fx_2001_plan      : fresh_build_plan (empty_program ex_ms) = FBDNoPackages.                    Proof. vm_compute. reflexivity. Qed.
 Example fx_2001_preflight : fresh_build_disposition_ok (fresh_build_plan (empty_program ex_ms)) = true. Proof. vm_compute. reflexivity. Qed.
-Example fx_2001_gocompile : GoCompile (empty_program ex_ms).                Proof. apply GoCompile_of_source_valid_b; vm_compute; reflexivity. Qed.
+Example fx_2001_gocompile : GoCompile (empty_program ex_ms).                Proof. apply GoCompile_of_source_spec_valid_b; vm_compute; reflexivity. Qed.
 Example fx_2001_report    : forall idx, elaboration_diagnostics (empty_program ex_ms) idx = nil.
 Proof. intro idx. apply (proj2 (elaboration_diagnostics_nil_iff_GoCompile _ idx)). exact fx_2001_gocompile. Qed.
 
@@ -7267,7 +7374,7 @@ Proof. intro idx. apply (proj2 (elaboration_diagnostics_nil_iff_GoCompile _ idx)
 Definition fx_root : GoProgram := singleton_program ex_ms (mkFP "main.go" eq_refl) ex_main.
 Example fx_2002_plan      : fresh_build_plan fx_root = FBDWriteSingleMain "" "example.com/m" "m" None.   Proof. vm_compute. reflexivity. Qed.
 Example fx_2002_preflight : fresh_build_disposition_ok (fresh_build_plan fx_root) = true.               Proof. vm_compute. reflexivity. Qed.
-Example fx_2002_gocompile : GoCompile fx_root.                              Proof. apply GoCompile_of_source_valid_b; vm_compute; reflexivity. Qed.
+Example fx_2002_gocompile : GoCompile fx_root.                              Proof. apply GoCompile_of_source_spec_valid_b; vm_compute; reflexivity. Qed.
 
 (* 20.3 — SOLE IMMEDIATE CHILD sub/main.go: import path example.com/m/sub, output name "sub", the fresh root
    HAS a directory "sub" -> preflight FAILS; final report is EXACTLY one build-output-directory diagnostic; not
@@ -7295,7 +7402,7 @@ Proof. rewrite go_compile_class_spec. vm_compute. reflexivity. Qed.
    the output target is absent; preflight succeeds; GoCompile. *)
 Definition fx_ab : GoProgram := singleton_program ex_ms (mkFP "a/b/main.go" eq_refl) ex_main.
 Example fx_2005_preflight : fresh_build_disposition_ok (fresh_build_plan fx_ab) = true. Proof. vm_compute. reflexivity. Qed.
-Example fx_2005_gocompile : GoCompile fx_ab.                Proof. apply GoCompile_of_source_valid_b; vm_compute; reflexivity. Qed.
+Example fx_2005_gocompile : GoCompile fx_ab.                Proof. apply GoCompile_of_source_spec_valid_b; vm_compute; reflexivity. Qed.
 
 (* 20.6 — FINAL v2 PACKAGE PATH a/v2/main.go: import example.com/m/a/v2, the /v2 major-version element is
    stripped so the output name is "a"; the fresh root directory "a" EXISTS -> preflight FAILS. *)
@@ -7316,7 +7423,7 @@ Proof. vm_compute. reflexivity. Qed.
 Definition fx_v2 : GoProgram := singleton_program ex_ms (mkFP "v2/main.go" eq_refl) ex_main.
 Example fx_2007_output_m   : fresh_build_plan fx_v2 = FBDWriteSingleMain "v2" "example.com/m/v2" "m" None. Proof. vm_compute. reflexivity. Qed.
 Example fx_2007_preflight  : fresh_build_disposition_ok (fresh_build_plan fx_v2) = true. Proof. vm_compute. reflexivity. Qed.
-Example fx_2007_gocompile  : GoCompile fx_v2.               Proof. apply GoCompile_of_source_valid_b; vm_compute; reflexivity. Qed.
+Example fx_2007_gocompile  : GoCompile fx_v2.               Proof. apply GoCompile_of_source_spec_valid_b; vm_compute; reflexivity. Qed.
 
 (* 20.8 — MULTIPLE MAIN PACKAGES a/main.go + b/main.go: FBDDiscardMultiple, NO default-output preflight failure,
    a source-valid program succeeds. *)
@@ -7328,7 +7435,7 @@ Example fx_2008 : forall p,
   /\ GoCompile p.
 Proof.
   intros p H. vm_compute in H. injection H as <-.
-  split; [ vm_compute; reflexivity | split; [ vm_compute; reflexivity | apply GoCompile_of_source_valid_b; vm_compute; reflexivity ] ].
+  split; [ vm_compute; reflexivity | split; [ vm_compute; reflexivity | apply GoCompile_of_source_spec_valid_b; vm_compute; reflexivity ] ].
 Qed.
 
 (* 20.9 — MULTIPLE PACKAGES WITH A SEMANTIC FAILURE: no default-output collision branch, so the semantic
@@ -7348,14 +7455,14 @@ Definition ex_ms_gomod : ModuleSpec := mkModuleSpec (ModulePath.mkMP "example.co
 Definition fx_gomod : GoProgram := singleton_program ex_ms_gomod (mkFP "main.go" eq_refl) ex_main.
 Example fx_2010_plan      : fresh_build_plan fx_gomod = FBDWriteSingleMain "" "example.com/go.mod" "go.mod" (Some FREGoMod). Proof. vm_compute. reflexivity. Qed.
 Example fx_2010_preflight : fresh_build_disposition_ok (fresh_build_plan fx_gomod) = true. Proof. vm_compute. reflexivity. Qed.
-Example fx_2010_gocompile : GoCompile fx_gomod.             Proof. apply GoCompile_of_source_valid_b; vm_compute; reflexivity. Qed.
+Example fx_2010_gocompile : GoCompile fx_gomod.             Proof. apply GoCompile_of_source_spec_valid_b; vm_compute; reflexivity. Qed.
 
 (* 20.11 — SOURCE OVERWRITE: module final component "main.go" -> output name "main.go", whose root target is a
    REGULAR source file (FRESourceFile, not a directory) -> preflight succeeds; GoCompile. *)
 Definition ex_ms_srcname : ModuleSpec := mkModuleSpec (ModulePath.mkMP "example.com/main.go" eq_refl) GoVersion.Go1_23.
 Definition fx_srcov : GoProgram := singleton_program ex_ms_srcname (mkFP "main.go" eq_refl) ex_main.
 Example fx_2011_preflight : fresh_build_disposition_ok (fresh_build_plan fx_srcov) = true. Proof. vm_compute. reflexivity. Qed.
-Example fx_2011_gocompile : GoCompile fx_srcov.             Proof. apply GoCompile_of_source_valid_b; vm_compute; reflexivity. Qed.
+Example fx_2011_gocompile : GoCompile fx_srcov.             Proof. apply GoCompile_of_source_spec_valid_b; vm_compute; reflexivity. Qed.
 
 (* 20.12 — ROOT SOURCE NAME COLLISION WITHOUT EXACT MODULE MATCH: the output target lookup is EXACT string
    identity — output name "m" does NOT match the root source file "main.go" (no prefix/substring match). *)

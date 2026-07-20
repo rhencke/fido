@@ -325,8 +325,12 @@ Print Assumptions GoCompile.expr_diags_empty_iff.
    the factored rules; no diagnostic at all IFF the elaboration decision holds; and elaboration succeeds/fails
    IFF GoCompile/not. *)
 Print Assumptions GoCompile.sum_main_file.
-(* the PRODUCTION (retained-bucket) package decision rooted DIRECTLY in the two factored roots
-   [PackageDeclsUnique] / [MainPackagesHaveEntry] — NOT via the exactly-one consequence. *)
+(* the PRODUCTION (retained-bucket) package decision captures EACH factored rule EXACTLY: the redeclaration
+   diagnostics are empty IFF [PackageDeclsUnique], the missing-entry diagnostics IFF [MainPackagesHaveEntry], and
+   all package diagnostics together IFF [PackageRulesValid] — rooted DIRECTLY in the factored roots, NOT the
+   exactly-one consequence. *)
+Print Assumptions GoCompile.redecl_diags_empty_iff_rules.
+Print Assumptions GoCompile.missing_diags_empty_iff_rules.
 Print Assumptions GoCompile.pkg_diags_empty_iff_rules.
 Print Assumptions GoCompile.pkg_diags_empty_iff.
 Print Assumptions GoCompile.semantic_diagnostics_empty_iff.
@@ -336,13 +340,14 @@ Print Assumptions GoCompile.elaborate_failed_iff_not_GoCompile.
 (* F1/§9 — the LIVE source root is the FACTORED [SourceProgramValid] (= ProgramTyped /\ PackageRulesValid,
    i.e. package-block uniqueness AND main-package entry as separate roots).  The retained universal theorem
    [current_package_rules_exactly_one] states the CURRENT-grammar consequence (the factored rules coincide with
-   "every package has one main").  The DECIDABLE reflection is [source_valid_b_iff] (and the elaboration-native
+   "every package has one main").  The DECIDABLE reflection is [source_spec_valid_b_iff] (and the elaboration-native
    [semantic_ok_b_SourceProgramValid], gated above) — DIRECT, with no [prog_ok]/[ProgValid]. *)
 Print Assumptions GoCompile.current_package_rules_exactly_one.
-(* the SOLE executable package reflection: [pkg_all_ok] decides the two factored roots DIRECTLY
-   (block uniqueness ↔ [PackageDeclsUnique], entry ↔ [MainPackagesHaveEntry]) — no combined "=1". *)
-Print Assumptions GoCompile.pkg_all_ok_PackageRulesValid.
-Print Assumptions GoCompile.source_valid_b_iff.
+(* the readable SPECIFICATION package reflection (for fixtures / proof convenience — NOT the production decision):
+   [source_spec_package_rules_b] decides the two factored roots DIRECTLY (block uniqueness ↔ [PackageDeclsUnique],
+   entry ↔ [MainPackagesHaveEntry]) — no combined "=1". *)
+Print Assumptions GoCompile.source_spec_package_rules_b_PackageRulesValid.
+Print Assumptions GoCompile.source_spec_valid_b_iff.
 (* C3-FRESH §14/§17/§18 — GoCompile INCLUDES the pinned one-shot `go build ./...` output PREFLIGHT.  The three
    diagnostic layers each have an emptiness/equivalence characterization (source, fresh, final); a failed
    preflight takes PRECEDENCE (exactly one build-output-directory diagnostic, hiding the sole package's semantic

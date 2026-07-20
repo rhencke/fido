@@ -108,7 +108,7 @@ Definition main_go : FilePath := mkFP "main.go" eq_refl.
 Definition demo_program : GoProgram := singleton_program demo_module main_go demo_file.
 
 Lemma demo_valid : GoCompile demo_program.
-Proof. apply GoCompile_of_source_valid_b; vm_compute; reflexivity. Qed.
+Proof. apply GoCompile_of_source_spec_valid_b; vm_compute; reflexivity. Qed.
 
 Definition demo_compiled : CompilableProgram :=
   compilable_of_valid demo_program demo_valid.

@@ -74,20 +74,18 @@ emit: builder
 e2e: builder
 	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --progress=plain --target go-e2e .
 
-# Regenerate the tracked canonical Go module through the SAME validate-before-publish workflow the tested path
-# uses (§5): the `e2e` prerequisite runs the pinned `go build ./...` FRESH-BUILD VALIDATION over the pristine
-# `generated-module` layer (built from the CURRENT working-tree proof inputs) FIRST — so a failed fresh build
-# aborts make and NO sink effect occurs — and only THEN does the recipe build (and load) the `sync` image (the
-# SAME pristine layer, cached, plus the filesystem-only apply CLI) and run it with the repository root
-# bind-mounted so the SAME Fido_sink synchronizes /generated into the repo (preserving foreign non-Go files,
-# rejecting foreign Go/module + nested .fido, updating tracked go.mod + recursive .go, removing stale Fido-owned
-# .go).  It never invokes an independent renderer and never sinks post-build bytes — the SAME validated pristine
-# image is what is published.  After it runs, stage go.mod + recursive *.go and commit; the pre-commit
-# staged-index check verifies byte-exactness against a pristine rebuilt from the staged inputs.
-regenerate: builder e2e
+# Regenerate the tracked canonical Go module through the ONE supported validate-before-publish workflow.  Building
+# the `sync` target FORCES the go-e2e stage (the pinned `go build ./...`) via the Docker DAG (`sync` COPYs
+# go-e2e's /fresh-build-ok) — so a failed fresh build makes `sync` unbuildable and no sink effect occurs.  The
+# sync image bakes in the pristine `generated-module` layer + the tiny internal apply adapter; run with the
+# repository root bind-mounted at /dest, Fido_sink synchronizes /generated into the repo (preserving foreign
+# non-Go files, rejecting foreign Go/module + nested .fido, updating tracked go.mod + recursive .go, removing
+# stale Fido-owned .go).  It publishes the ORIGINAL generated-module bytes, never a post-build byte.  After it
+# runs, stage go.mod + recursive *.go and commit; the pre-commit staged-index check verifies byte-exactness.
+regenerate: builder
 	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --target sync --load -t fido-sync .
 	docker run --rm -u $$(id -u):$$(id -g) -v "$(CURDIR)":/dest fido-sync
-	@echo "fido: regenerate OK — fresh go build ./... VALIDATED the pristine canonical module (via e2e), then the SAME pristine bytes were synced into the repo root via Fido_sink."
+	@echo "fido: regenerate OK — building 'sync' forced the pinned go build ./... (Docker DAG), then the SAME pristine bytes were synced into the repo root via Fido_sink."
 	@echo "      Stage + commit:  git add -A -- go.mod ':(top,glob)**/*.go' && git commit"
 
 # Zero project axioms are enforced inside the pinned `prove` stage: gate/axiom_gate.v (Print Assumptions on

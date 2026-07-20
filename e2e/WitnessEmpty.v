@@ -13,7 +13,7 @@ Definition empty_module : ModuleSpec := mkModuleSpec (mkMP "fido.local/generated
 Definition empty_prog : GoProgram := empty_program empty_module.
 
 Lemma empty_valid : GoCompile empty_prog.
-Proof. apply GoCompile_of_source_valid_b; vm_compute; reflexivity. Qed.
+Proof. apply GoCompile_of_source_spec_valid_b; vm_compute; reflexivity. Qed.
 
 Definition empty_compiled : CompilableProgram :=
   compilable_of_valid empty_prog empty_valid.

@@ -314,20 +314,17 @@ AST->output->AST round-trip authority, no copied compiled AST, no handwritten OC
   images) execute forged inputs and, if either guard were removed, the corresponding command would succeed
   and create a target — failing the e2e (a spoofable source grep would not).
 - `plugin/fido_sink.ml` + `e2e/sink_test.ml` + `e2e/fido_apply.ml` — the pristine `materialize` (exact image
-  bytes into a fresh EMPTY disposable validation root, no control state) + the generic dirty-directory
-  PUBLICATION synchronizer, its driver, and the `make regenerate` apply CLI (enumerate the pristine
-  `/generated` layer — copied from the pre-build MATERIALIZATION, never a post-sink dir — and hand it to the
-  sink).  BYTE-INTEGRITY publication gate: the apply CLI REFUSES to sink any source lacking a byte-bound
-  validation MANIFEST `.fido-build-validated` (a `<md5> <path>` list); it recomputes each digest and requires a
-  byte-exact bijection (no missing/extra/altered file), and never publishes the manifest.  In the CANONICAL
-  workflow the `sync` image obtains the manifest ONLY from the go-e2e stage (written after the pinned `go build
-  ./...` over the same content-addressed layer SUCCEEDS) through a Docker-DAG dependency — so `--target sync` is
-  unbuildable, and the CLI refuses, on a failed/absent build.  Filesystem ONLY: they walk no Rocq terms and run
-  no programs.  ⚠ HONEST SCOPE (`.review/C3_ARCH_CONFLICT.md`, awaiting Rob): the manifest is byte-INTEGRITY (it
-  stops publishing a DIFFERENT/arbitrary tree against a copied/stale manifest), NOT validation PROVENANCE — a
-  caller could compute a matching manifest for any tree — so on its own this protects against ACCIDENTAL
-  publication of unvalidated output for a cooperating developer (the pre-commit hook's assurance level), NOT a
-  deliberate local bypass; a validation-EMBEDDED inaccessible sink is a pending threat-model/architecture decision.
+  bytes into a fresh EMPTY disposable validation root, no control state; a low-level EXPORT primitive, never
+  publication) + the generic dirty-directory PUBLICATION synchronizer (`Fido_sink.sync`, a private plugin
+  module), its test driver, and the tiny INTERNAL `make regenerate` apply adapter.  The adapter has a FIXED
+  source (`/generated`) and destination; it enumerates the pristine layer and hands `(go.mod, .go)` to the
+  sink; it runs no Go, hashes nothing, and accepts no arbitrary source root.  Filesystem ONLY: they walk no
+  Rocq terms and run no programs.  VALIDATE-BEFORE-PUBLISH ordering (supported / cooperating-developer threat
+  model): building the `sync` image COPYs go-e2e's `/fresh-build-ok` Docker-DAG edge, so `make regenerate`
+  cannot publish unless the pinned `go build ./...` succeeded first, and it publishes the ORIGINAL
+  generated-module bytes, never a post-build byte.  No checksum/manifest stands in for validation provenance;
+  the project does not attempt to resist a deliberate local bypass (extracting a binary, hand-editing the
+  Dockerfile/hooks) — the pre-commit hook's assurance level.
 
 `tools/ocaml-origin-gate.sh` enforces exactly these four files (inspecting every source at every depth — a
 repository-content gate, not the runtime sink, so it prunes only `.git`), filesystem-only for the
@@ -502,7 +499,7 @@ representable/unrepresentable path fixtures; the Collections standard-map founda
 resolution exactness, representability reflection, expression resolution sound + complete + deterministic, statement +
 program typing reflection, int max/min accepted, overflow/underflow rejected; GoCompile claim (A) —
 `go_compile_ok_valid` + `go_compile_complete` (sound + complete), the direct source reflection
-`source_valid_b_iff`/`semantic_ok_b_SourceProgramValid`, rejection ⇒ no CompilableProgram, the compiled
+`source_spec_valid_b_iff`/`semantic_ok_b_SourceProgramValid`, rejection ⇒ no CompilableProgram, the compiled
 evidence exposes `ProgramTyped`, the empty program accepted; GoSafe's zero-sign-agnostic fact + resolved-type
 preservation (`eval_expr_resolved_type`); GoRender's `render_const_info_denotes` + `render_resolved_expr_denotes`
 + all-ASCII + decimal-faithful + no-leading-zero + the canonical float decimal round trip + header-first-line + boundaries + the exact go.mod render

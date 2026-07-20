@@ -38,10 +38,15 @@ A substantive review runs only when `.review/REVIEW_REQUEST.md` exists and conta
 state: requested
 ```
 
-The request identifies:
+The request identifies (required fields: `state`, `review`, `confirmation`, `confirmation_used`,
+`human_override`):
 
 - `review: Contract Review` or `review: Implementation Review`;
-- whether this is an initial review or a bounded confirmation;
+- `confirmation:` — `yes` for a bounded confirmation, else `no`;
+- `confirmation_used:` — `yes` once the single bounded confirmation for this review has been requested (a second
+  confirmation is refused unless a later `human_override` authorizes it);
+- `human_override:` — the token of the explicit later human decision authorizing this review/confirmation, if any
+  (else empty);
 - the binding contract path and commit SHA;
 - the frozen candidate range, for an Implementation Review;
 - the accepted review-basis path, for an Implementation Review;
@@ -272,11 +277,13 @@ Use this structure:
 Do not require the “smallest patch.” Require the smallest **foundationally correct outcome** within the accepted
 contract. A local patch is wrong when it preserves the missing root that caused the defect.
 
-## Implementation confirmation
+## Implementation confirmation (HARD CAP)
 
-When Implementation Review blocks, Claude repairs the complete finding set as one batch and records it.
+Each review type has ONE initial review and AT MOST ONE bounded confirmation after ONE complete repair batch.
 
-The bounded confirmation checks:
+When the initial Implementation Review blocks, Claude repairs the complete finding set as ONE batch, records it,
+reruns the required verification, and requests the ONE bounded confirmation (`confirmation: yes`,
+`confirmation_used: yes`, with the prior finding record). The bounded confirmation checks ONLY:
 
 - closure of every recorded finding;
 - all code and claims directly affected by those repairs;
@@ -284,19 +291,16 @@ The bounded confirmation checks:
 - no directly repair-induced correctness, authority, trust, or scope defect;
 - all required verification remains green.
 
-It does not restart an unrestricted whole-checkpoint exploration.
+It does not restart an unrestricted whole-checkpoint exploration. A new finding during confirmation is classified
+as exactly one of: **Repair-induced**, **Previously observable and missed** (the initial review was incomplete),
+**Contract ambiguity exposed by repair**, **New scope introduced by repair**, or **Outside the accepted
+checkpoint**.
 
-A new finding during confirmation must be classified as exactly one of:
-
-- **Repair-induced**: the new defect did not exist until the repair.
-- **Previously observable and missed**: the defect existed in the original frozen candidate; the initial review
-  was incomplete.
-- **Contract ambiguity exposed by repair**.
-- **New scope introduced by repair**.
-- **Outside the accepted checkpoint**.
-
-A previously observable missed finding is still repaired when blocking, but it must be recorded as review-process
-failure rather than treated as a normal serial discovery round.
+**A BLOCKING confirmation (or ARCHITECTURAL CONFLICT) ENDS autonomous work.** Claude then closes
+`REVIEW_REQUEST`, records the result, notifies Rob, and STOPS. It does NOT repair, and does NOT request another
+review, without a later EXPLICIT human override. A previously observable missed finding proves the initial review
+was incomplete — it does NOT authorize another autonomous repair/confirm round. A second bounded confirmation
+runs ONLY under an explicit human override (`human_override: <token>`).
 
 ## Finding classifications
 

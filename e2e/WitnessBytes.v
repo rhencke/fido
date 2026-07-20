@@ -22,7 +22,7 @@ Definition bytes_module : ModuleSpec := mkModuleSpec (mkMP "fido.local/generated
 Definition bytes_program : GoProgram := singleton_program bytes_module (mkFP "main.go" eq_refl) bytes_file.
 
 Lemma bytes_valid : GoCompile bytes_program.
-Proof. apply GoCompile_of_source_valid_b; vm_compute; reflexivity. Qed.
+Proof. apply GoCompile_of_source_spec_valid_b; vm_compute; reflexivity. Qed.
 
 Definition bytes_compiled : CompilableProgram :=
   compilable_of_valid bytes_program bytes_valid.

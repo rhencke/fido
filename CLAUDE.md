@@ -120,12 +120,12 @@ algorithm, report an architectural conflict and stop. Do not implement an altern
    with NO control state (never a user dir); the sink REJECTS
    foreign Go/module inputs and nested `.fido`, stages the complete image into RESERVED sibling temps
    `<final>.fido-tmp-v1`, installs by atomic rename, and two-phase-recovers abandoned temps fail-closed.
-   VALIDATION-BEFORE-PUBLICATION (canonical `make regenerate` workflow): the pinned `go build ./...` validates
-   the materialized pristine and only then does the sink publish the SAME bytes — a failed build prevents
-   publication (the Docker-DAG ordering; the apply CLI additionally requires a byte-INTEGRITY manifest bijection).
-   ⚠ This is accidental-publication protection for a cooperating developer (the pre-commit hook's level), NOT
-   resistance to a DELIBERATE local bypass — a validation-embedded inaccessible sink is a pending threat-model
-   decision (`.review/C3_ARCH_CONFLICT.md`)).
+   VALIDATE-BEFORE-PUBLISH (canonical `make regenerate` workflow): building the `sync` image COPYs go-e2e's
+   `/fresh-build-ok` Docker-DAG edge, so a failed pinned `go build ./...` makes `sync` unbuildable and prevents
+   publication; the sink then publishes the ORIGINAL generated-module bytes.  No checksum/manifest stands in for
+   validation provenance — provenance is the supported Docker workflow graph.  ⚠ This is accidental-publication
+   protection for a COOPERATING developer (the pre-commit hook's level); the project does NOT attempt to resist a
+   deliberate local bypass (`.review/C3_WEEDWHACKER_DIRECTIVE.md` §0.3).
    The OCaml uses mature runtime collections for identity/membership (C1A §11): the sink keys desired outputs
    by path in a `Map.Make(String)` (rejecting a duplicate path before any effect; canonical path-sorted
    iteration independent of transport order) and holds stale-target / abandoned-temp membership in a
