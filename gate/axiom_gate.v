@@ -38,11 +38,6 @@ Print Assumptions Floats.float_prec_F32.
 Print Assumptions Floats.float_prec_F64.
 Print Assumptions Floats.float_emax_F32.
 Print Assumptions Floats.float_emax_F64.
-Print Assumptions Floats.scar_direct_f32.
-Print Assumptions Floats.scar_double_f32_via_f64.
-Print Assumptions Floats.scar_direct_differs_double.
-Print Assumptions Floats.round_f32_2p24_plus1.
-Print Assumptions Floats.round_f64_2p53_plus1.
 (* exact-rational canonicality + equality: every FloatConst is INTRINSICALLY canonical (coprime by the record's
    own well-formedness field), so it is fixed by its numerator/denominator (fc_num_den_eq) and reflected equality
    IS Leibniz equality (fc_eqb_eq); cross-multiplication decides value equality; reduction yields a coprime form
@@ -58,10 +53,6 @@ Print Assumptions Floats.fc_canonical_unique.
 (* the ONE constant-conversion/representability authority: reflected decision; the double-round scar back as
    an exact integer constant; overflow rejects; underflow rounds to canonical +0; a source zero -> +0. *)
 Print Assumptions Floats.float_representableb_spec.
-Print Assumptions Floats.round_const_scar_direct_f32.
-Print Assumptions Floats.round_const_overflow_f32.
-Print Assumptions Floats.round_const_underflow_f64.
-Print Assumptions Floats.round_const_source_zero_f64.
 (* the intrinsic finite-decimal raw literal domain: equality by canonical representation (proof-irrelevant
    well-formedness); the exact rational value is canonical; the unique (0,0) zero -> unsigned zero; a bound /
    non-canonical fixture rejects. *)
@@ -69,9 +60,6 @@ Print Assumptions Floats.dm_eqb_eq.
 Print Assumptions Floats.decimal_value_canonical.
 Print Assumptions Floats.decimal_value_zero.
 Print Assumptions Floats.decimal_zero_unique.
-Print Assumptions Floats.decimal_wfb_max_ok.
-Print Assumptions Floats.decimal_wfb_coeff_over.
-Print Assumptions Floats.decimal_value_1p5.
 (* the runtime float value's format-canonical invariant: an unsigned-zero constant rounds to +0, never -0
    (representability reflection [float_representableb_spec] is gated once, above). *)
 Print Assumptions Floats.round_float_sf_zero.
@@ -84,7 +72,6 @@ Print Assumptions Floats.tfc_runtime_not_nan.
 Print Assumptions Floats.tfc_runtime_not_inf.
 Print Assumptions Floats.round_typed_float_representable.
 Print Assumptions Floats.round_float_const_typed.
-Print Assumptions Floats.round_typed_neg_underflow_f64.
 Print Assumptions GoTypes.convert_const_same_float.
 Print Assumptions GoTypes.typed_const_exact.
 Print Assumptions GoSafe.typed_const_to_value_type.
@@ -93,9 +80,6 @@ Print Assumptions GoSafe.typed_const_to_value_float.
 Print Assumptions GoSafe.eval_expr_denotes.
 Print Assumptions GoSafe.value_denotes_constant_runtime.
 Print Assumptions GoSafe.float_nonconstant_no_denotes.
-Print Assumptions GoSafe.nan_f64_no_denotes.
-Print Assumptions GoSafe.inf_f64_no_denotes.
-Print Assumptions GoSafe.neg_zero_f64_no_denotes.
 
 (* Complexes — the ONE complex-type authority, COMPOSED from the Floats component authority: decidable
    ComplexType equality; the exact keywords; the ONE component mapping (C64->F32, C128->F64) sourcing all
@@ -125,23 +109,10 @@ Print Assumptions Complexes.typed_complex_runtime_real_not_inf.
 (* intrinsic FilePath: decidable equality; a representable canonical path; a rejected (unrepresentable)
    path.  Non-canonical paths have no FilePath value at all — this is unrepresentability, not rejection. *)
 Print Assumptions FilePath.fp_eqb_eq.
-Print Assumptions FilePath.ok_main.
-Print Assumptions FilePath.no_dotdot.
-Print Assumptions FilePath.no_test.
-Print Assumptions FilePath.no_testdata.
-Print Assumptions FilePath.no_vendor.
 
 (* intrinsic ModulePath: decidable equality; a representable canonical module path; rejected
    (unrepresentable) module paths.  Invalid module paths have no ModulePath value at all. *)
 Print Assumptions ModulePath.mp_eqb_eq.
-Print Assumptions ModulePath.ok_generated.
-Print Assumptions ModulePath.no_dotdot.
-Print Assumptions ModulePath.no_leading_slash.
-Print Assumptions ModulePath.no_at.
-Print Assumptions ModulePath.no_reserved_con.
-Print Assumptions ModulePath.no_dotless_go.
-Print Assumptions ModulePath.no_ver_v1.
-Print Assumptions ModulePath.no_gopkg_bare.
 
 (* intrinsic GoVersion: the singleton Go1_23 renders EXACTLY "1.23"; decidable equality *)
 Print Assumptions GoVersion.render_goversion_go1_23.
@@ -160,17 +131,13 @@ Print Assumptions Collections.filemap_elements_Equal.
    [TypedConst]/[ResolvedConst] + a representable typed integer value; resolution sound + complete +
    deterministic; statement + program typing reflection. *)
 Print Assumptions GoTypes.const_info_zero_sign.
-Print Assumptions GoTypes.float_default_resolved.
 Print Assumptions GoTypes.str_representable.
 Print Assumptions GoTypes.const_representableb_iff.
-Print Assumptions GoTypes.const_scar_direct.
-Print Assumptions GoTypes.const_int8_int16_127.
 Print Assumptions GoTypes.resolve_expr_sound.
 Print Assumptions GoTypes.resolve_expr_complete.
 Print Assumptions GoTypes.resolve_expr_deterministic.
 Print Assumptions GoTypes.stmt_typedb_iff.
 Print Assumptions GoTypes.program_typedb_iff.
-Print Assumptions GoTypes.empty_program_typed.
 (* §7 map-based typing is ORDER-INDEPENDENT: it respects semantic map equality (as a Prop and reflected as a
    bool) and is therefore invariant under reordered [build_program] construction. *)
 Print Assumptions GoTypes.ProgramTyped_Equal.
@@ -183,104 +150,21 @@ Print Assumptions GoCompile.occs_file_typedb_eq.
 (* C3 §6 — the one-node semantic step: [const_info] reflects [const_info_step] applied to its child's status
    (the reusable one-pass leaf authority; convert_const stays the sole conversion authority). *)
 Print Assumptions GoTypes.const_info_step_reflect.
-(* type-at-use: a bare literal defaults to int; the int boundaries resolve, one past does not; a huge
-   (>2^64) constant is exact but resolves to no integer type; explicit uint64/int64 type-at-use behaviour *)
-Print Assumptions GoTypes.res_int_default.
-Print Assumptions GoTypes.res_int_max.
-Print Assumptions GoTypes.res_int_min.
-Print Assumptions GoTypes.res_over.
-Print Assumptions GoTypes.res_under.
-Print Assumptions GoTypes.res_huge_no_resolve.
-Print Assumptions GoTypes.res_uint64_2p63.
-Print Assumptions GoTypes.res_int64_2p63_reject.
-(* per-type conversion boundaries (int8/uint8/uint64 min/max +/-1) and transitive nested-conversion cases *)
-Print Assumptions GoTypes.res_int8_min.
-Print Assumptions GoTypes.res_int8_max.
-Print Assumptions GoTypes.res_int8_under.
-Print Assumptions GoTypes.res_int8_over.
-Print Assumptions GoTypes.res_uint8_0.
-Print Assumptions GoTypes.res_uint8_255.
-Print Assumptions GoTypes.res_uint8_m1.
-Print Assumptions GoTypes.res_uint8_256.
-Print Assumptions GoTypes.res_uint64_max.
-Print Assumptions GoTypes.res_uint64_over.
-Print Assumptions GoTypes.const_int8_int16_127.
-Print Assumptions GoTypes.const_int8_int16_128_reject.
-Print Assumptions GoTypes.const_uint8_int_300_reject.
-Print Assumptions GoTypes.conv_bool_reject.
-Print Assumptions GoTypes.conv_str_reject.
-(* type identity: int<>int64 and uint<>uint64 as distinct STATIC types *)
-Print Assumptions GoTypes.tint_neq_tint64.
-Print Assumptions GoTypes.tuint_neq_tuint64.
-(* cross-kind non-resolution: a bool does not resolve as an integer, an integer not as bool, a string not as
-   an integer; no string const is representable as an integer; an arbitrary-byte string resolves as TString;
-   a mixed bool/int/string println statement is typed *)
-Print Assumptions GoTypes.bool_not_resolve_int.
-Print Assumptions GoTypes.int_not_resolve_bool.
-Print Assumptions GoTypes.str_not_resolve_int.
-Print Assumptions GoTypes.cstr_not_int.
-Print Assumptions GoTypes.res_str_bytes.
+(* the string-representability reflections (cross-kind non-resolution): EVERY string constant is representable
+   as TString, and no string constant is representable as an integer. *)
 Print Assumptions GoTypes.str_representable.
 Print Assumptions GoTypes.str_representableb.
-Print Assumptions GoTypes.stmt_mixed_str_typed.
-(* floats: a bare float defaults to float64; explicit F32/F64 conversions type at use; float->integer
-   constant conversions (integral+in-range accept, fraction/overflow reject); wrong-type reject; TFloat F32
-   and F64 are distinct; ★the direct-vs-nested double-round scar analyzes to DIFFERENT typed constants;
-   a default-overflowing bare float does not type. *)
-Print Assumptions GoTypes.res_float_default.
-Print Assumptions GoTypes.res_float32_conv.
-Print Assumptions GoTypes.res_float64_conv.
-Print Assumptions GoTypes.res_int_of_3_0.
-Print Assumptions GoTypes.res_int_of_3_5_rej.
-Print Assumptions GoTypes.res_int8_128_0_rej.
-Print Assumptions GoTypes.res_uint8_m1_0_rej.
-Print Assumptions GoTypes.res_float32_true_rej.
-Print Assumptions GoTypes.res_float64_str_rej.
-Print Assumptions GoTypes.tfloat32_neq_tfloat64.
-Print Assumptions GoTypes.const_scar_direct.
-Print Assumptions GoTypes.const_scar_nested.
-Print Assumptions GoTypes.const_scar_direct_differs_nested.
-Print Assumptions GoTypes.stmt_float_mixed.
-Print Assumptions GoTypes.stmt_float_overflow_untyped.
-(* complex: TCComplex exact-value erasure (§14 UNIVERSAL same-type complex identity convert_const_same_complex);
-   bare complex DEFAULTS to complex128; explicit complex64/complex128 resolve; C64<>C128 distinct; a matching-
-   format typed float REUSES the real component; a matching-format typed complex PROJECTS to the scalar;
-   integer/float -> complex; zero-imaginary complex -> integer/float; nonzero-imaginary / component-overflow /
-   wrong-type reject; ★the direct-vs-nested COMPONENT double-round scar analyzes to DIFFERENT typed constants. *)
+(* the constant-conversion reflections AT USE (convert_const the sole conversion authority): an untyped
+   int / float / complex constant types through convert_const (type_untyped_*_convert); a same-type complex
+   conversion is the identity (convert_const_same_complex, the §14 universal exact-value erasure); a
+   matching-format typed float REUSES the complex real component and a typed complex PROJECTS to that scalar
+   float (convert_*_reuses_*_component). *)
 Print Assumptions GoTypes.convert_const_same_complex.
 Print Assumptions GoTypes.convert_complex_reuses_float_component.
 Print Assumptions GoTypes.convert_float_reuses_complex_component.
 Print Assumptions GoTypes.type_untyped_int_convert.
 Print Assumptions GoTypes.type_untyped_float_convert.
 Print Assumptions GoTypes.type_untyped_complex_convert.
-Print Assumptions GoTypes.res_cplx_default.
-Print Assumptions GoTypes.res_cplx64.
-Print Assumptions GoTypes.res_cplx128.
-Print Assumptions GoTypes.cplx_types_distinct.
-Print Assumptions GoTypes.cplx64_from_f32_real.
-Print Assumptions GoTypes.f32_of_cplx64_real.
-Print Assumptions GoTypes.res_cplx64_int.
-Print Assumptions GoTypes.res_cplx64_float.
-Print Assumptions GoTypes.res_int_of_cplx3.
-Print Assumptions GoTypes.res_f32_of_cplx1p5.
-Print Assumptions GoTypes.res_int_of_cplx_nonzero_imag_rej.
-Print Assumptions GoTypes.res_f32_of_cplx_nonzero_imag_rej.
-Print Assumptions GoTypes.res_cplx64_real_over.
-Print Assumptions GoTypes.res_cplx64_bool_rej.
-Print Assumptions GoTypes.res_int_of_cplx3p5_rej.
-Print Assumptions GoTypes.conv_c64_c64.
-Print Assumptions GoTypes.cplx_real_3_2.
-Print Assumptions GoTypes.cplx_imag_m5_2.
-Print Assumptions GoTypes.cplx_scar_direct_vs_nested.
-Print Assumptions GoTypes.cplx_scar_direct_real.
-Print Assumptions GoTypes.cplx_scar_nested_real.
-Print Assumptions GoTypes.cplx_scar_imag_direct_vs_nested.
-Print Assumptions GoTypes.cplx_underflow_pos_zero.
-Print Assumptions GoTypes.cplx_tiny_imag_untyped_nonzero.
-Print Assumptions GoTypes.int_of_cplx_tiny_imag_rej.
-Print Assumptions GoTypes.cplx64_tiny_imag_rounds_zero.
-Print Assumptions GoTypes.int_of_cplx64_tiny_imag_ok.
-Print Assumptions GoTypes.int_of_cplx64_tiny_imag_is_3.
 
 (* C1A: the map-backed SOURCE FOREST — [GoProgram]'s files are a STANDARD FilePath map ([GoFileMap]).  The
    duplicate-rejecting builder [filemap_of_nodes] is SOUND and COMPLETE (success iff the node paths are
@@ -334,24 +218,6 @@ Print Assumptions GoCompile.go_compile_class_build_permutation.
 Print Assumptions GoCompile.reject_no_compile.
 Print Assumptions GoCompile.compilable_program_typed.
 Print Assumptions GoCompile.SourceProgramValid_empty.
-Print Assumptions GoCompile.int_program_ok.
-Print Assumptions GoCompile.int_program_compiles.
-Print Assumptions GoCompile.over_program_rejected.
-Print Assumptions GoCompile.bad_convert_rejected.
-Print Assumptions GoCompile.bad_convert_no_compile.
-Print Assumptions GoCompile.str_program_ok.
-Print Assumptions GoCompile.str_program_compiles.
-Print Assumptions GoCompile.float_program_compiles.
-Print Assumptions GoCompile.float_reject_rejected.
-Print Assumptions GoCompile.float_reject_no_compile.
-(* §50 a whole COMPLEX program (bare default + complex64/complex128 conversions + scalar->complex +
-   zero-imaginary complex->scalar) is typed and compiles; a component-overflow and a nonzero-imaginary
-   complex->int program are honest typing rejections with no CompilableProgram. *)
-Print Assumptions GoCompile.complex_program_typed.
-Print Assumptions GoCompile.complex_program_compiles.
-Print Assumptions GoCompile.complex_overflow_rejected.
-Print Assumptions GoCompile.complex_overflow_no_compile.
-Print Assumptions GoCompile.complex_nonzero_imag_no_compile.
 (* C3 §7 — PackageRef: a validated package-key absence anchor.  Key identity determines the ref (UIP over the
    boolean membership proof), the key names a represented package, and construction from a binding / file
    reference yields the right key. *)
@@ -405,7 +271,6 @@ Print Assumptions GoCompile.erased_report_FilesEqual.
 Print Assumptions GoCompile.erase_diagnostic_output.
 Print Assumptions GoCompile.erased_output_iff_build_output.
 Print Assumptions GoCompile.erased_fresh_report_of_sole.
-Print Assumptions GoCompile.fx_2006_erased_output.
 (* C3 §17 — construction-permutation corollary: building the same module from a PERMUTED file-node list
    yields the IDENTICAL erased report (the report is invariant to the proposer's file order). *)
 Print Assumptions GoCompile.erased_report_build_permutation.
@@ -540,27 +405,12 @@ Print Assumptions GoSafe.value_wfb_iff.
 Print Assumptions GoSafe.typed_const_to_value_denotes.
 Print Assumptions GoSafe.eval_string_value.
 Print Assumptions GoSafe.eval_string_resolved_type.
-(* float runtime values: a bare float evaluates to a float64 value; an exact float->int constant to that
-   integer; ★the direct-vs-nested scar as an EXACT uint64 integer observation; constant underflow -> +0. *)
-Print Assumptions GoSafe.eval_float_type.
-Print Assumptions GoSafe.eval_int_of_3_0.
-Print Assumptions GoSafe.eval_scar_direct.
-Print Assumptions GoSafe.eval_scar_nested.
-Print Assumptions GoSafe.eval_scar_differ.
-Print Assumptions GoSafe.eval_underflow_pos_zero.
-Print Assumptions GoSafe.eval_neg_underflow_pos_zero.
 (* complex runtime: the typed-complex projection preserves type; a typed-complex runtime denotes its exact
    typed complex constant; a NaN / infinity / negative-zero component runtime value denotes NO constant;
    evaluation returns EXACTLY the stored typed_complex_runtime (§34). *)
 Print Assumptions GoSafe.typed_const_to_value_complex.
 Print Assumptions GoSafe.value_denotes_complex_runtime.
-Print Assumptions GoSafe.complex_nan_real_no_denotes.
-Print Assumptions GoSafe.complex_inf_imag_no_denotes.
-Print Assumptions GoSafe.complex_neg_zero_no_denotes.
 Print Assumptions GoSafe.eval_projects_stored_complex_runtime.
-Print Assumptions GoSafe.eval_cplx_scar_direct.
-Print Assumptions GoSafe.eval_cplx_scar_nested.
-Print Assumptions GoSafe.eval_cplx_scar_differ.
 
 (* GoRender: all output ASCII (including conversions); the ONE ConstInfo render-status root
    (render_const_info_denotes: rendering denotes exactly the const_info GoTypes computes) which is FUNCTIONAL
@@ -583,25 +433,12 @@ Print Assumptions GoRender.render_expr_ascii.
 Print Assumptions GoRender.render_const_info_denotes.
 Print Assumptions GoRender.render_const_info_denotes_functional.
 Print Assumptions GoRender.render_resolved_expr_denotes.
-Print Assumptions GoRender.repair_bare_untyped.
-Print Assumptions GoRender.repair_bare_not_typed.
-Print Assumptions GoRender.repair_uint64_typed.
-Print Assumptions GoRender.repair_uint64_max_typed.
 (* float rendering: the canonical decimal spelling + conversion spellings; ASCII; the §27 decoder/renderer
    semantic round trip; a bare float denotes its exact rational, a conversion the rounded typed constant. *)
-Print Assumptions GoRender.render_float_1p5.
-Print Assumptions GoRender.render_float_zero.
-Print Assumptions GoRender.render_conv_f32.
 Print Assumptions GoRender.render_decimal_ascii.
 Print Assumptions GoRender.decode_render_decimal.
 Print Assumptions GoRender.render_float_denotes.
-Print Assumptions GoRender.render_float_untyped_denotes.
-Print Assumptions GoRender.render_conv_f32_typed_denotes.
-Print Assumptions GoRender.render_float_untyped_tenth.
-Print Assumptions GoRender.render_conv_f64_underflow_zero.
 Print Assumptions GoRender.integer_keyword_ascii.
-Print Assumptions GoRender.render_int8_127.
-Print Assumptions GoRender.render_nested.
 Print Assumptions GoRender.print_Z_dec_faithful.
 Print Assumptions GoRender.print_Z_pos_no_leading_zero.
 Print Assumptions GoRender.render_boundary_max.
@@ -617,9 +454,6 @@ Print Assumptions GoRender.render_string_roundtrip.
 Print Assumptions GoRender.render_string_literal_ascii.
 Print Assumptions GoRender.render_string_literal_no_nl_cr.
 Print Assumptions GoRender.render_hex_escape_exact.
-Print Assumptions GoRender.rb_ff.
-Print Assumptions GoRender.rb_nul.
-Print Assumptions GoRender.rb_quote.
 Print Assumptions GoRender.render_string_denotes.
 Print Assumptions GoRender.render_resolved_string_denotes.
 (* complex rendering: the exact complex64/complex128 keywords are ASCII; the canonical complex(real, imag)
@@ -628,10 +462,6 @@ Print Assumptions GoRender.render_resolved_string_denotes.
    denotation + final resolved root, gated generically above, now cover complex too). *)
 Print Assumptions GoRender.complex_keyword_ascii.
 Print Assumptions GoRender.render_complex_literal_ascii.
-Print Assumptions GoRender.render_cplx_lit.
-Print Assumptions GoRender.render_cplx_zero.
-Print Assumptions GoRender.render_conv_c64.
-Print Assumptions GoRender.render_conv_c128.
 Print Assumptions GoRender.decode_render_complex_literal.
 Print Assumptions GoRender.render_cplx_denotes.
 
@@ -779,14 +609,6 @@ Print Assumptions GoIndex.reg_payload_a.
 Print Assumptions GoIndex.reg_payload_b.
 Print Assumptions GoIndex.reg_index_data_equal.
 Print Assumptions GoIndex.reg_module_index_equal.
-Print Assumptions GoIndex.wf_meta_pkg.
-Print Assumptions GoIndex.wf_meta_arg0.
-Print Assumptions GoIndex.wf_meta_arg1.
-Print Assumptions GoIndex.wf_meta_conv1.
-Print Assumptions GoIndex.wf_meta_leaf.
-Print Assumptions GoIndex.wf_meta_absent.
-Print Assumptions GoIndex.wf_view_pkg.
-Print Assumptions GoIndex.wf_view_leaf.
 (* GoIndex ROOT-completeness surfaces (§11/§12/§18/§23): FileRef minting soundness + the invalid-path /
    invalid-local rejection cases; decidable NodeRef equality; and the CANONICAL preorder enumeration of ALL a
    file's references (same-file / complete / NoDup / source-ordered) with reachability of every occurrence from
