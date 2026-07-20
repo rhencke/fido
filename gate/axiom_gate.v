@@ -399,6 +399,13 @@ Print Assumptions GoCompile.ppkg_erased_find.
 Print Assumptions GoCompile.erased_expr_diags_source.
 Print Assumptions GoCompile.erased_pkg_diags_FilesEqual.
 Print Assumptions GoCompile.erased_report_FilesEqual.
+(* C3 CR2-D3b — the erased build-OUTPUT NAME payload: [ed_output] is the reason's exact planned output name
+   for a build-output-directory reason and none elsewhere; the erased fresh report of a sole colliding package
+   CARRIES that name (so cross-snapshot comparison distinguishes different collision names); concrete "a". *)
+Print Assumptions GoCompile.erase_diagnostic_output.
+Print Assumptions GoCompile.erased_output_iff_build_output.
+Print Assumptions GoCompile.erased_fresh_report_of_sole.
+Print Assumptions GoCompile.fx_2006_erased_output.
 (* C3 §17 — construction-permutation corollary: building the same module from a PERMUTED file-node list
    yields the IDENTICAL erased report (the report is invariant to the proposer's file order). *)
 Print Assumptions GoCompile.erased_report_build_permutation.

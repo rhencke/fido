@@ -452,7 +452,12 @@ Record ErasedDiagnostic : Type := mkErasedDiagnostic {
   ed_code    : DiagnosticCode ;
   ed_primary : ErasedAnchor ;
   ed_related : list ErasedAnchor ;
-  ed_target  : option GoType
+  ed_target  : option GoType ;
+  (* the STABLE build-OUTPUT payload: the exact planned default executable NAME for a
+     [DRBuildOutputIsDirectory] reason (the directory the fresh-image `go build` output would collide with),
+     [None] for every other reason.  Carried across snapshots so two erased build-output reports for DIFFERENT
+     collision names compare UNEQUAL. *)
+  ed_output  : option string
 }.
 
 (* the STABLE erased payload: the conversion TARGET / default target [GoType] where the reason carries one —
@@ -466,9 +471,20 @@ Definition erased_target {p} (d : DiagnosticReason p) : option GoType :=
   | DRBuildOutputIsDirectory _ _     => None
   end.
 
+(* the erased build-output NAME payload: the sole [DRBuildOutputIsDirectory] reason carries the exact planned
+   default executable name; every other reason carries none. *)
+Definition erased_output {p} (d : DiagnosticReason p) : option string :=
+  match d with
+  | DRInvalidConversion _ _ _ _      => None
+  | DRDefaultNotRepresentable _ _ _  => None
+  | DRMainRedeclared _ _              => None
+  | DRMissingMainEntry _                  => None
+  | DRBuildOutputIsDirectory _ nm    => Some nm
+  end.
+
 Definition erase_diagnostic {p} (d : DiagnosticReason p) : ErasedDiagnostic :=
   mkErasedDiagnostic (diagnostic_code d) (erase_anchor (diagnostic_primary d))
-    (map erase_anchor (diagnostic_related d)) (erased_target d).
+    (map erase_anchor (diagnostic_related d)) (erased_target d) (erased_output d).
 
 (* intra-snapshot preservation: erasing keeps the CODE, the primary anchor's KEY identity, and the related
    anchors AS A MAP (so their canonical order is preserved). *)
@@ -489,6 +505,17 @@ Proof.
   cbn [ed_related erase_diagnostic].
   induction (diagnostic_related d) as [|x xs IH]; cbn [map length]; [ reflexivity | rewrite IH; reflexivity ].
 Qed.
+
+Lemma erase_diagnostic_output {p} (d : DiagnosticReason p) :
+  ed_output (erase_diagnostic d) = erased_output d.
+Proof. reflexivity. Qed.
+
+(* the erased build-output NAME is present EXACTLY for a build-output-directory reason (and then it is the
+   reason's exact planned output name) — so the erased report retains the collision name it must, and drops it
+   everywhere else. *)
+Lemma erased_output_iff_build_output {p} (d : DiagnosticReason p) :
+  (exists nm, ed_output (erase_diagnostic d) = Some nm) <-> diagnostic_code d = DCBuildOutputIsDirectory.
+Proof. destruct d; cbn; split; try (intros [nm H]; discriminate); try discriminate; eauto. Qed.
 
 (* ============================================================================================================
    §10 (C3) — occurrence-keyed expression facts.  ONE fact value per expression occurrence: its exact constant
@@ -3601,10 +3628,10 @@ Definition erase_occ_diags (kroc : (GoIndex.NodeKey * GoIndex.SourceOccurrence) 
   | Some e =>
       match local_conv_failure e with
       | Some (t, _) => [ mkErasedDiagnostic DCInvalidConversion (EANode (fst (fst kroc)))
-                                            (map EANode (snd kroc)) (Some t) ]
+                                            (map EANode (snd kroc)) (Some t) None ]
       | None =>
           match arg_default_failure (snd (fst kroc)) e with
-          | Some (_, dt) => [ mkErasedDiagnostic DCDefaultNotRepresentable (EANode (fst (fst kroc))) [] (Some dt) ]
+          | Some (_, dt) => [ mkErasedDiagnostic DCDefaultNotRepresentable (EANode (fst (fst kroc))) [] (Some dt) None ]
           | None => []
           end
       end
@@ -3614,16 +3641,16 @@ Definition erase_occ_diags (kroc : (GoIndex.NodeKey * GoIndex.SourceOccurrence) 
 Lemma erase_diagnostic_invalid {p} (er : GoIndex.ExprRef p) outer t ci :
   erase_diagnostic (DRInvalidConversion er outer t ci)
   = mkErasedDiagnostic DCInvalidConversion (EANode (GoIndex.Snap.node_ref_key (GoIndex.erase_ref er)))
-      (map (fun r => EANode (GoIndex.Snap.node_ref_key (GoIndex.erase_ref r))) outer) (Some t).
+      (map (fun r => EANode (GoIndex.Snap.node_ref_key (GoIndex.erase_ref r))) outer) (Some t) None.
 Proof.
   unfold erase_diagnostic.
-  cbn [diagnostic_code diagnostic_primary diagnostic_related erased_target erase_anchor].
+  cbn [diagnostic_code diagnostic_primary diagnostic_related erased_target erased_output erase_anchor].
   rewrite map_map. reflexivity.
 Qed.
 
 Lemma erase_diagnostic_default {p} (er : GoIndex.ExprRef p) c dt :
   erase_diagnostic (DRDefaultNotRepresentable er c dt)
-  = mkErasedDiagnostic DCDefaultNotRepresentable (EANode (GoIndex.Snap.node_ref_key (GoIndex.erase_ref er))) [] (Some dt).
+  = mkErasedDiagnostic DCDefaultNotRepresentable (EANode (GoIndex.Snap.node_ref_key (GoIndex.erase_ref er))) [] (Some dt) None.
 Proof. reflexivity. Qed.
 
 (* per VALID occurrence: erasing the ref-emitted diagnostics equals the keyed emitter on the erased annotation. *)
@@ -3774,8 +3801,8 @@ Qed.
 (* the ERASED package diagnostics of one bucket, over its erased (NodeKey) keys — a pure source function. *)
 Definition erase_bucket_diag (kv : string * list GoIndex.NodeKey) : list ErasedDiagnostic :=
   match snd kv with
-  | nil        => [ mkErasedDiagnostic DCMissingMainEntry (EAPackage (fst kv)) [] None ]
-  | e1 :: erest => map (fun ek => mkErasedDiagnostic DCMainRedeclared (EANode ek) [EANode e1] None) erest
+  | nil        => [ mkErasedDiagnostic DCMissingMainEntry (EAPackage (fst kv)) [] None None ]
+  | e1 :: erest => map (fun ek => mkErasedDiagnostic DCMainRedeclared (EANode ek) [EANode e1] None None) erest
   end.
 
 Lemma pkg_diag_of_bucket_erased {p} (m : PM.t (list (GoIndex.DeclRef p))) Hpres dir l Hmt :
@@ -3783,10 +3810,10 @@ Lemma pkg_diag_of_bucket_erased {p} (m : PM.t (list (GoIndex.DeclRef p))) Hpres 
   = erase_bucket_diag (dir, map erase_dkey l).
 Proof.
   unfold pkg_diag_of_bucket, erase_bucket_diag. cbn [snd]. destruct l as [|d1 rest]; cbn [map].
-  - unfold erase_diagnostic. cbn [diagnostic_code diagnostic_primary diagnostic_related erased_target erase_anchor].
+  - unfold erase_diagnostic. cbn [diagnostic_code diagnostic_primary diagnostic_related erased_target erased_output erase_anchor].
     reflexivity.
   - rewrite !map_map. unfold erase_diagnostic, erase_dkey.
-    cbn [diagnostic_code diagnostic_primary diagnostic_related erased_target erase_anchor map]. reflexivity.
+    cbn [diagnostic_code diagnostic_primary diagnostic_related erased_target erased_output erase_anchor map]. reflexivity.
 Qed.
 
 Lemma bucket_diags_elems_erased {p} (m : PM.t (list (GoIndex.DeclRef p))) Hpres es Hall :
@@ -6157,12 +6184,14 @@ Definition erased_elaboration_report (p : GoProgram) (idx : GoIndex.Snap.SyntaxI
   map erase_diagnostic (elaboration_diagnostics p idx).
 
 (** on a failed preflight the erased fresh report is EXACTLY the one build-output-directory diagnostic keyed by
-    the sole package DIR (the output NAME is not part of the erased payload). *)
+    the sole package DIR, CARRYING the exact planned default-output NAME (the colliding directory) as its
+    erased [ed_output] payload — so two erased build-output reports for different collision names differ. *)
 Lemma erased_fresh_report_of_sole : forall p dir,
   selected_package_keys p = [dir] ->
   fresh_build_disposition_ok (fresh_build_plan p) = false ->
   map erase_diagnostic (fresh_build_diagnostics p)
-    = [mkErasedDiagnostic DCBuildOutputIsDirectory (EAPackage dir) [] None].
+    = [mkErasedDiagnostic DCBuildOutputIsDirectory (EAPackage dir) [] None
+         (Some (default_exec_name (package_import_path (prog_module p) dir)))].
 Proof.
   intros p dir Hk Hpf.
   destruct (proj1 (preflight_fails_iff p) Hpf) as [dir' [Hk' Hfind]].
@@ -6190,7 +6219,8 @@ Proof.
     assert (Hk2 : selected_package_keys p2 = [dir])
       by (rewrite <- (selected_package_keys_Equal _ _ Hf); exact Hk1).
     rewrite (erased_fresh_report_of_sole p1 dir Hk1 Ed1),
-            (erased_fresh_report_of_sole p2 dir Hk2 Ed). reflexivity.
+            (erased_fresh_report_of_sole p2 dir Hk2 Ed).
+    rewrite (package_import_path_InputEqual p1 p2 dir H). reflexivity.
 Qed.
 
 (** The empty program (empty file MAP) is accepted: no package to type and no `main` to count, so [prog_ok]
@@ -6396,7 +6426,7 @@ Theorem nested_conv_erased_report :
   = [ mkErasedDiagnostic DCInvalidConversion
         (EANode (GoIndex.mkKey (mkFP "main.go" eq_refl) 6%positive))
         [ EANode (GoIndex.mkKey (mkFP "main.go" eq_refl) 5%positive) ]
-        (Some (TInteger IInt8)) ].
+        (Some (TInteger IInt8)) None ].
 Proof. rewrite erased_report_src_eq. vm_compute. reflexivity. Qed.
 
 (** ---- §22.9/§22.11 — THREE MAINS IN ONE PACKAGE: the program is REJECTED (a package with != 1 main), so its
@@ -6413,10 +6443,10 @@ Theorem three_main_erased_report :
   erased_report three_main_program (GoIndex.Snap.index_program three_main_program)
   = [ mkErasedDiagnostic DCMainRedeclared
         (EANode (GoIndex.mkKey (mkFP "main.go" eq_refl) 6%positive))
-        [ EANode (GoIndex.mkKey (mkFP "main.go" eq_refl) 3%positive) ] None
+        [ EANode (GoIndex.mkKey (mkFP "main.go" eq_refl) 3%positive) ] None None
     ; mkErasedDiagnostic DCMainRedeclared
         (EANode (GoIndex.mkKey (mkFP "main.go" eq_refl) 9%positive))
-        [ EANode (GoIndex.mkKey (mkFP "main.go" eq_refl) 3%positive) ] None ].
+        [ EANode (GoIndex.mkKey (mkFP "main.go" eq_refl) 3%positive) ] None None ].
 Proof. rewrite erased_report_src_eq. vm_compute. reflexivity. Qed.
 
 (** ---- §22.12 — PACKAGE WITH NO MAIN: a represented package whose only file declares NO `main` is REJECTED, so
@@ -6429,7 +6459,7 @@ Definition missing_main_program : GoProgram :=
    a PACKAGE anchor, never a fake file/node primary — with no related anchor and no target payload. *)
 Theorem missing_main_erased_report :
   erased_report missing_main_program (GoIndex.Snap.index_program missing_main_program)
-  = [ mkErasedDiagnostic DCMissingMainEntry (EAPackage "") [] None ].
+  = [ mkErasedDiagnostic DCMissingMainEntry (EAPackage "") [] None None ].
 Proof. rewrite erased_report_src_eq. vm_compute. reflexivity. Qed.
 
 (** ---- §23 — the EXACT expression-fact query: on ANY valid [ElaborationFacts], EVERY expression reference's
@@ -6553,49 +6583,49 @@ Proof. rewrite prog_expr_facts_source, keyed_visit_source. vm_compute. reflexivi
 Definition over_default_int_program := singleton_program c3_ms (mkFP "main.go" eq_refl) [ DMain [ SPrintln [ EInt 9223372036854775808 ] ] ].
 Theorem over_default_int_erased :
   erased_report over_default_int_program (GoIndex.Snap.index_program over_default_int_program)
-  = [ mkErasedDiagnostic DCDefaultNotRepresentable (EANode (GoIndex.mkKey (mkFP "main.go" eq_refl) 5%positive)) [] (Some (TInteger IInt)) ].
+  = [ mkErasedDiagnostic DCDefaultNotRepresentable (EANode (GoIndex.mkKey (mkFP "main.go" eq_refl) 5%positive)) [] (Some (TInteger IInt)) None ].
 Proof. rewrite erased_report_src_eq. vm_compute. reflexivity. Qed.
 
 (* §22.2 default float overflow: a bare finite decimal outside finite [float64]. *)
 Definition over_default_float_program := singleton_program c3_ms (mkFP "main.go" eq_refl) [ DMain [ SPrintln [ EFloat (mkDecimal 1 400 eq_refl) ] ] ].
 Theorem over_default_float_erased :
   erased_report over_default_float_program (GoIndex.Snap.index_program over_default_float_program)
-  = [ mkErasedDiagnostic DCDefaultNotRepresentable (EANode (GoIndex.mkKey (mkFP "main.go" eq_refl) 5%positive)) [] (Some (TFloat F64)) ].
+  = [ mkErasedDiagnostic DCDefaultNotRepresentable (EANode (GoIndex.mkKey (mkFP "main.go" eq_refl) 5%positive)) [] (Some (TFloat F64)) None ].
 Proof. rewrite erased_report_src_eq. vm_compute. reflexivity. Qed.
 
 (* §22.3 default complex overflow: a bare complex whose component cannot default to [complex128]. *)
 Definition over_default_complex_program := singleton_program c3_ms (mkFP "main.go" eq_refl) [ DMain [ SPrintln [ EComplex (mkDC (mkDecimal 1 400 eq_refl) (mkDecimal 0 0 eq_refl)) ] ] ].
 Theorem over_default_complex_erased :
   erased_report over_default_complex_program (GoIndex.Snap.index_program over_default_complex_program)
-  = [ mkErasedDiagnostic DCDefaultNotRepresentable (EANode (GoIndex.mkKey (mkFP "main.go" eq_refl) 5%positive)) [] (Some (TComplex C128)) ].
+  = [ mkErasedDiagnostic DCDefaultNotRepresentable (EANode (GoIndex.mkKey (mkFP "main.go" eq_refl) 5%positive)) [] (Some (TComplex C128)) None ].
 Proof. rewrite erased_report_src_eq. vm_compute. reflexivity. Qed.
 
 (* §22.4 invalid explicit integer conversion [int8(128)]: anchored at the conversion, target [TInteger IInt8]. *)
 Definition bad_int8_program := singleton_program c3_ms (mkFP "main.go" eq_refl) [ DMain [ SPrintln [ EIntConvert IInt8 (EInt 128) ] ] ].
 Theorem bad_int8_erased :
   erased_report bad_int8_program (GoIndex.Snap.index_program bad_int8_program)
-  = [ mkErasedDiagnostic DCInvalidConversion (EANode (GoIndex.mkKey (mkFP "main.go" eq_refl) 5%positive)) [] (Some (TInteger IInt8)) ].
+  = [ mkErasedDiagnostic DCInvalidConversion (EANode (GoIndex.mkKey (mkFP "main.go" eq_refl) 5%positive)) [] (Some (TInteger IInt8)) None ].
 Proof. rewrite erased_report_src_eq. vm_compute. reflexivity. Qed.
 
 (* §22.5 fractional float -> integer [int(3.5)]: anchored at the conversion. *)
 Definition frac_f2i_program := singleton_program c3_ms (mkFP "main.go" eq_refl) [ DMain [ SPrintln [ EIntConvert IInt (EFloat (mkDecimal 35 (-1) eq_refl)) ] ] ].
 Theorem frac_f2i_erased :
   erased_report frac_f2i_program (GoIndex.Snap.index_program frac_f2i_program)
-  = [ mkErasedDiagnostic DCInvalidConversion (EANode (GoIndex.mkKey (mkFP "main.go" eq_refl) 5%positive)) [] (Some (TInteger IInt)) ].
+  = [ mkErasedDiagnostic DCInvalidConversion (EANode (GoIndex.mkKey (mkFP "main.go" eq_refl) 5%positive)) [] (Some (TInteger IInt)) None ].
 Proof. rewrite erased_report_src_eq. vm_compute. reflexivity. Qed.
 
 (* §22.6 nonzero-imaginary complex -> scalar [int(complex(3,1))]: anchored at the conversion. *)
 Definition nz_c2s_program := singleton_program c3_ms (mkFP "main.go" eq_refl) [ DMain [ SPrintln [ EIntConvert IInt (EComplex (mkDC (mkDecimal 3 0 eq_refl) (mkDecimal 1 0 eq_refl))) ] ] ].
 Theorem nz_c2s_erased :
   erased_report nz_c2s_program (GoIndex.Snap.index_program nz_c2s_program)
-  = [ mkErasedDiagnostic DCInvalidConversion (EANode (GoIndex.mkKey (mkFP "main.go" eq_refl) 5%positive)) [] (Some (TInteger IInt)) ].
+  = [ mkErasedDiagnostic DCInvalidConversion (EANode (GoIndex.mkKey (mkFP "main.go" eq_refl) 5%positive)) [] (Some (TInteger IInt)) None ].
 Proof. rewrite erased_report_src_eq. vm_compute. reflexivity. Qed.
 
 (* §22.7 wrong-kind conversion [int(true)]: anchored at the conversion, no generic unlocated typing error. *)
 Definition wrongkind_program := singleton_program c3_ms (mkFP "main.go" eq_refl) [ DMain [ SPrintln [ EIntConvert IInt (EBool true) ] ] ].
 Theorem wrongkind_erased :
   erased_report wrongkind_program (GoIndex.Snap.index_program wrongkind_program)
-  = [ mkErasedDiagnostic DCInvalidConversion (EANode (GoIndex.mkKey (mkFP "main.go" eq_refl) 5%positive)) [] (Some (TInteger IInt)) ].
+  = [ mkErasedDiagnostic DCInvalidConversion (EANode (GoIndex.mkKey (mkFP "main.go" eq_refl) 5%positive)) [] (Some (TInteger IInt)) None ].
 Proof. rewrite erased_report_src_eq. vm_compute. reflexivity. Qed.
 
 (** ---- §22.10 — DUPLICATE MAINS ACROSS FILES: two root-package files each declaring `main`.  The report names
@@ -6606,7 +6636,7 @@ Theorem dup_across_files_erased :
              (build_program c3_ms [ main_file_node (mkFP "a.go" eq_refl) [ DMain [ SPrintln [ EInt 1 ] ] ]
                                   ; main_file_node (mkFP "b.go" eq_refl) [ DMain [ SPrintln [ EInt 2 ] ] ] ])
   = Some [ mkErasedDiagnostic DCMainRedeclared (EANode (GoIndex.mkKey (mkFP "b.go" eq_refl) 3%positive))
-             [ EANode (GoIndex.mkKey (mkFP "a.go" eq_refl) 3%positive) ] None ].
+             [ EANode (GoIndex.mkKey (mkFP "a.go" eq_refl) 3%positive) ] None None ].
 Proof. vm_compute. reflexivity. Qed.
 
 (** ---- §22.14 — MULTIPLE SIMULTANEOUS FAILURES: two invalid expressions in DIFFERENT files ([a/x.go]'s
@@ -6622,11 +6652,11 @@ Theorem simultaneous_failures_erased :
         ; main_file_node (mkFP "c/p.go" eq_refl) [ DMain [ SPrintln [ EInt 1 ] ] ]
         ; main_file_node (mkFP "c/q.go" eq_refl) [ DMain [ SPrintln [ EInt 2 ] ] ]
         ; main_file_node (mkFP "d/z.go" eq_refl) [ ] ])
-  = Some [ mkErasedDiagnostic DCInvalidConversion (EANode (GoIndex.mkKey (mkFP "a/x.go" eq_refl) 5%positive)) [] (Some (TInteger IInt8))
-         ; mkErasedDiagnostic DCInvalidConversion (EANode (GoIndex.mkKey (mkFP "b/y.go" eq_refl) 5%positive)) [] (Some (TInteger IInt))
+  = Some [ mkErasedDiagnostic DCInvalidConversion (EANode (GoIndex.mkKey (mkFP "a/x.go" eq_refl) 5%positive)) [] (Some (TInteger IInt8)) None
+         ; mkErasedDiagnostic DCInvalidConversion (EANode (GoIndex.mkKey (mkFP "b/y.go" eq_refl) 5%positive)) [] (Some (TInteger IInt)) None
          ; mkErasedDiagnostic DCMainRedeclared (EANode (GoIndex.mkKey (mkFP "c/q.go" eq_refl) 3%positive))
-             [ EANode (GoIndex.mkKey (mkFP "c/p.go" eq_refl) 3%positive) ] None
-         ; mkErasedDiagnostic DCMissingMainEntry (EAPackage "d") [] None ].
+             [ EANode (GoIndex.mkKey (mkFP "c/p.go" eq_refl) 3%positive) ] None None
+         ; mkErasedDiagnostic DCMissingMainEntry (EAPackage "d") [] None None ].
 Proof. vm_compute. reflexivity. Qed.
 
 (** ---- §16 — MIXED NODE-PRIMARY ORDER: a duplicate-main in package [a] (a later-discovered node diagnostic)
@@ -6641,9 +6671,9 @@ Theorem mixed_order_erased :
         ; main_file_node (mkFP "a/q.go" eq_refl) [ DMain [ SPrintln [ EInt 2 ] ] ]
         ; main_file_node (mkFP "z/main.go" eq_refl) [ DMain [ SPrintln [ EIntConvert IInt8 (EInt 128) ] ] ] ])
   = Some [ mkErasedDiagnostic DCMainRedeclared (EANode (GoIndex.mkKey (mkFP "a/q.go" eq_refl) 3%positive))
-             [ EANode (GoIndex.mkKey (mkFP "a/p.go" eq_refl) 3%positive) ] None
+             [ EANode (GoIndex.mkKey (mkFP "a/p.go" eq_refl) 3%positive) ] None None
          ; mkErasedDiagnostic DCInvalidConversion (EANode (GoIndex.mkKey (mkFP "z/main.go" eq_refl) 5%positive))
-             [] (Some (TInteger IInt8)) ].
+             [] (Some (TInteger IInt8)) None ].
 Proof. vm_compute. reflexivity. Qed.
 
 (* the §20 fixtures spell string keys/paths/output-names directly, so reopen the string scope (list [;] and
@@ -6711,6 +6741,12 @@ Example fx_2006_output_a       : fresh_build_plan fx_av2 = FBDWriteSingleMain "a
 Example fx_2006_preflight_fails : fresh_build_disposition_ok (fresh_build_plan fx_av2) = false. Proof. vm_compute. reflexivity. Qed.
 Example fx_2006_not_gocompile   : ~ GoCompile fx_av2.
 Proof. intros [Hpf _]. unfold fresh_build_preflight_ok in Hpf. vm_compute in Hpf. discriminate. Qed.
+(* §C3-CR2-D3b — the ERASED build-output report carries the exact colliding output NAME "a" as [ed_output]
+   (the erased payload distinguishes this collision from one at a different output name). *)
+Example fx_2006_erased_output :
+  map erase_diagnostic (fresh_build_diagnostics fx_av2)
+  = [ mkErasedDiagnostic DCBuildOutputIsDirectory (EAPackage "a/v2") [] None (Some "a") ].
+Proof. vm_compute. reflexivity. Qed.
 
 (* 20.7 — IMMEDIATE v2 PACKAGE v2/main.go: import example.com/m/v2 -> output name "m" (the module basename,
    after the /v2 strip); the fresh root directory "v2" does not collide with "m" -> preflight succeeds. *)
