@@ -115,4 +115,9 @@ Proof. exact (go_compile_complete demo_program demo_valid). Qed.
 Definition demo_safe : SafeProgram := certify demo_compiled.
 
 Declare ML Module "fido.emit".
+(* AUTHORITATIVE pristine materialization (the pre-build image the pinned `go build ./...` validates and the
+   committed canonical artifact is copied from) — written DIRECTLY from the decoded image, never from a sink
+   directory. *)
+Fido Materialize (render_program demo_safe) To "/workspace/generated".
+(* the sink PUBLICATION e2e (the foreign-Go-rejecting sibling-temp synchronizer) — the SAME decoded bytes. *)
 Fido Emit (render_program demo_safe) To "/workspace/e2e-out".

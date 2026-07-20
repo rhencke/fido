@@ -33,4 +33,5 @@ Proof. exact (go_compile_complete bytes_program bytes_valid). Qed.
 Definition bytes_safe : SafeProgram := certify bytes_compiled.
 
 Declare ML Module "fido.emit".
+Fido Materialize (render_program bytes_safe) To "/workspace/generated-bytes".
 Fido Emit (render_program bytes_safe) To "/workspace/e2e-bytes".

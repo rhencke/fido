@@ -335,6 +335,34 @@ let ensure_root_and_control root control_abs =
       then fail "%s contains an unexpected entry %s — refusing to touch it" control_abs n)
       names
 
+(* ============================================================================================================
+   PRISTINE MATERIALIZE — the AUTHORITATIVE pre-publication image write.  It writes the EXACT decoded
+   DirectoryImage (go.mod bytes + (relative .go path, bytes) entries) into a FRESH, EMPTY target directory,
+   with NO `.fido` control state, NO foreign-input rejection, and NO sibling-temp staging: the target is a
+   DISPOSABLE build-VALIDATION root created fresh for exactly this one image, NEVER a user directory.  The
+   pinned `go build ./...` validates THESE bytes, and the canonical committed artifact is copied from THIS
+   materialization — never from a sink/published directory.  [sync] publishes the SAME image bytes to a real
+   destination only AFTER this has build-validated (validation-before-publication).  Fresh + empty + O_EXCL is
+   fail-closed: a duplicate transport path, an occupied name, or a pre-existing non-empty root all FAIL rather
+   than overwrite. *)
+let materialize dir go_mod entries =
+  validate_root_chain dir;
+  (match lstat_obs dir with
+   | Missing ->
+       (try Unix.mkdir dir 0o755
+        with Unix.Unix_error (e,_,_) -> fail "cannot create materialization root %s: %s" dir (Unix.error_message e))
+   | Present st when st.Unix.st_kind = Unix.S_DIR ->
+       (match (try Sys.readdir dir with Sys_error m -> fail "cannot read %s: %s" dir m) with
+        | [||] -> ()
+        | _ -> fail "materialization root %s is not empty — refusing (a FRESH disposable build-validation root is required)" dir)
+   | Present _ -> fail "materialization root %s exists and is not a directory" dir);
+  write_new (Filename.concat dir gomod_name) go_mod;
+  List.iter (fun (rel, bytes) ->
+    let (parent_rel, _base) = split_parent (String.split_on_char '/' rel) in
+    ensure_dir_chain dir parent_rel (ref []);
+    write_new (Filename.concat dir rel) bytes) entries;
+  1 + List.length entries
+
 let sync ?(checkpoint = fun _ -> ()) ?(unlink = Unix.unlink) ?(rename = Unix.rename)
          ?(before_install = fun _ -> ()) ?(before_write = fun _ -> ()) ?(before_delete = fun _ -> ())
          dir go_mod entries =

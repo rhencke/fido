@@ -19,10 +19,12 @@ GoProgram (ModuleSpec + a possibly-empty GoFileMap standard source-file map) -> 
       `go build ./...` acceptance = fresh-build output preflight + SourceProgramValid (ProgramTyped + the
       factored package rules) over the SAME program) -> GoSafe (SafeProgram) -> direct GoRender
       (source-owned package clause + the go.mod) -> complete DirectoryImage (exact go.mod bytes + the .go map)
-      -> the general `Fido Emit` transport command -> foreign-Go-rejecting sibling-temp dirty-directory sink
-      -> one pristine `generated-module` Buildx layer (tracked go.mod + recursive .go, verified byte-exact by
-         the staged-index pre-commit) -> pinned Go `GOWORK=off GOTOOLCHAIN=local go build ./...` over the
-         whole tree   [integration only]
+      -> `Fido Materialize` writes the AUTHORITATIVE pristine image DIRECTLY (never from a sink dir) into one
+         `generated-module` Buildx layer (tracked go.mod + recursive .go) -> pinned Go `GOWORK=off
+         GOTOOLCHAIN=local go build ./...` VALIDATES that pristine (fresh materialization, whole tree)
+      -> ONLY THEN the general `Fido Emit` transport command publishes the SAME decoded bytes through the
+         foreign-Go-rejecting sibling-temp dirty-directory sink (validation-before-publication; byte-exact vs
+         the pristine, verified by the staged-index pre-commit)   [integration only]
 ```
 
 The admitted fragment: files grouped by directory into `package main` packages; each `GoSourceFile` is a
@@ -103,14 +105,19 @@ algorithm, report an architectural conflict and stop. Do not implement an altern
 
 1. **Handwritten OCaml is the transport boundary, and understands filesystems/transport — not programs.**
    All semantic work — paths, compile, safety, rendering (incl. the go.mod), and the final image — is proved
-   Rocq. The ONLY handwritten OCaml is the Fido Emit transport: `plugin/g_fido.mlg` (the bridge — guards
-   provenance by two kernel queries, typechecking the image type and rejecting an axiomatic assumption
+   Rocq. The ONLY handwritten OCaml is the Fido transport: `plugin/g_fido.mlg` (the bridge — guards
+   provenance ONCE by two kernel queries, typechecking the image type and rejecting an axiomatic assumption
    closure, then decodes ONLY the final `(go.mod bytes, (path, bytes) list)` transport via exact
-   constructors, fail-loud; it understands no program/AST/semantics) and
-   `plugin/fido_sink.ml` + `e2e/sink_test.ml` + `e2e/fido_apply.ml` (the generic dirty-directory sink, its
-   test driver, and the `make regenerate` apply CLI — filesystem ONLY, walk no Rocq terms — the sink REJECTS
+   constructors, fail-loud, and routes it to either `Fido Materialize` — the AUTHORITATIVE pristine write for
+   build validation — or `Fido Emit` — the sink publication; it understands no program/AST/semantics) and
+   `plugin/fido_sink.ml` + `e2e/sink_test.ml` + `e2e/fido_apply.ml` (the pristine materializer + the generic
+   dirty-directory sink, its test driver, and the `make regenerate` apply CLI — filesystem ONLY, walk no Rocq
+   terms — `materialize` writes the exact decoded image into a FRESH empty disposable build-validation root
+   with NO control state (never a user dir); the sink REJECTS
    foreign Go/module inputs and nested `.fido`, stages the complete image into RESERVED sibling temps
-   `<final>.fido-tmp-v1`, installs by atomic rename, and two-phase-recovers abandoned temps fail-closed).
+   `<final>.fido-tmp-v1`, installs by atomic rename, and two-phase-recovers abandoned temps fail-closed.
+   VALIDATION-BEFORE-PUBLICATION: the pinned `go build ./...` validates the materialized pristine; only then
+   does the sink publish the SAME bytes — a failed build prevents publication).
    The OCaml uses mature runtime collections for identity/membership (C1A §11): the sink keys desired outputs
    by path in a `Map.Make(String)` (rejecting a duplicate path before any effect; canonical path-sorted
    iteration independent of transport order) and holds stale-target / abandoned-temp membership in a

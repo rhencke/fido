@@ -4,16 +4,20 @@
 # -> GoTypes (the one type authority: each raw literal is an exact untyped GoConst resolved through the one
 # GoType {TBool, the integer family TInteger over the ten-member IntegerType, the float family TFloat over
 # FloatType, TString}; an EIntConvert/EFloatConvert is a typed constant via the one convert_const authority)
-# to ProgramTyped evidence over the SAME AST) -> GoCompile (whole-program admissibility =
-# ProgValid = ProgramTyped + one-main-per-package) -> GoSafe (values carry the SAME GoType) ->
+# to ProgramTyped evidence over the SAME AST) -> GoCompile (whole-program admissibility = the pinned one-shot
+# `go build ./...` acceptance = the fresh-build output PREFLIGHT + SourceProgramValid = ProgramTyped + the
+# FACTORED package rules PackageDeclsUnique + MainPackagesHaveEntry) -> GoSafe (values carry the SAME GoType) ->
 # GoRender (source-owned package clause + the go.mod) -> the complete
-# DirectoryImage (exact go.mod bytes + the .go map), then the general `Fido Emit` transport command + a
-# dirty-directory filesystem sink + the pinned Go toolchain.  Stages: (prover) dune-compiles the theory and
-# the always-run assumptions gate confirms every declared surface axiom-free; (emit) dune compiles
-# theory+plugin (shared cache), then explicitly runs `Fido Emit` (rocq c on the witnesses) to synchronize
-# each tree, and exercises the sink on dirty/adversarial trees (sibling `.fido-tmp-v1` staging, foreign-Go +
-# nested-.fido rejection, two-phase abandoned-temp recovery); (go-e2e) the pinned Go toolchain runs
-# `go build ./...` over the pristine generated-module — using the RENDERED go.mod — and runs the witness vs goldens.
+# DirectoryImage (exact go.mod bytes + the .go map), then `Fido Materialize` (the authoritative pristine image
+# written DIRECTLY from the decoded transport for build validation) + the `Fido Emit` sink transport command +
+# the pinned Go toolchain.  Stages: (prover) dune-compiles the theory and the always-run assumptions gate
+# confirms every declared surface axiom-free; (emit) dune compiles theory+plugin (shared cache), then
+# MATERIALIZES each witness image DIRECTLY into a pristine build root (`Fido Materialize`) AND publishes the
+# SAME decoded bytes through the sink (`Fido Emit`), byte-comparing the two, and exercises the sink on
+# dirty/adversarial trees (sibling `.fido-tmp-v1` staging, foreign-Go + nested-.fido rejection, two-phase
+# abandoned-temp recovery); (go-e2e) the pinned Go toolchain VALIDATES the pristine materialization with
+# `go build ./...` — using the RENDERED go.mod — and runs the witness vs goldens; only after that validation
+# marker does the (sync) stage let `make regenerate` publish through the sink.
 
 # ── Stage 1: Rocq/OCaml toolchain ─────────────────────────────────────────────
 FROM ocaml/opam:debian-12-ocaml-5.3@sha256:bbaac53e502f6602013d8967c3a54cfcb898b556f453ab72e8e23966c3c681df AS rocq-builder
@@ -159,7 +163,7 @@ RUN mkdir -p /workspace/adv-mount
 RUN --mount=type=cache,id=fido-dune-rocq-9.2.0-${TARGETARCH},uid=1000,gid=1000,target=/workspace/_build,sharing=locked --mount=type=cache,id=fido-crossmnt-${TARGETARCH},uid=1000,gid=1000,sharing=private,target=/workspace/adv-mount/sub <<'SH'
 set -eu
 fail() { echo "fido: emit FAILED — $*"; exit 1; }
-rm -rf /workspace/e2e-out /workspace/e2e-multi /workspace/e2e-empty /workspace/e2e-bytes /workspace/e2e-forge* /workspace/e2e-neg /workspace/adv-* /workspace/sreal /workspace/slink /workspace/sink_test 2>/dev/null || true
+rm -rf /workspace/e2e-out /workspace/e2e-multi /workspace/e2e-empty /workspace/e2e-bytes /workspace/e2e-forge* /workspace/e2e-neg /workspace/adv-* /workspace/sreal /workspace/slink /workspace/sink_test /workspace/generated /workspace/generated-multi /workspace/generated-empty /workspace/generated-bytes 2>/dev/null || true
 O=/workspace/e2e-out
 # cached: Dune compiles the proved theory + the transport plugin (shared cache id)
 if ! dune build @install @all > /tmp/emit-build.log 2>&1; then cat /tmp/emit-build.log; fail "theory/plugin build FAILED"; fi
@@ -177,18 +181,22 @@ head -1 "$O/go.mod" | grep -q '^// fido generated' || fail "rendered go.mod is n
 grep -qx 'module fido.local/generated' "$O/go.mod" || { cat "$O/go.mod"; fail "rendered go.mod module directive unexpected"; }
 grep -qx 'go 1.23' "$O/go.mod" || { cat "$O/go.mod"; fail "rendered go.mod go directive unexpected"; }
 
-# --- assemble the PRISTINE canonical generated module (contract §17): exactly the witness go.mod + its
-#     recursive .go files, with NO .fido / lock / temp / proof / fixture bytes.  The `generated-module`
-#     scratch stage copies THIS directory into an ordinary content-addressed layer (never a cache mount);
-#     go-e2e, staged verification, and `make regenerate` all consume that single layer. ---
-G=/workspace/generated; rm -rf "$G"; mkdir -p "$G"
-cp "$O/go.mod" "$G/go.mod"
+# --- the PRISTINE canonical generated module (contract §17/§22): the AUTHORITATIVE image the witness
+#     MATERIALIZED DIRECTLY (Fido Materialize -> /workspace/generated), NOT a copy of any sink/published tree.
+#     It is exactly the rendered go.mod + recursive .go, with NO .fido / lock / temp control state (the
+#     materializer writes none).  The `generated-module` scratch stage copies THIS directory into an ordinary
+#     content-addressed layer; go-e2e VALIDATES it (fresh `go build ./...`) and only AFTER that does
+#     `make regenerate` publish through the sink. ---
+G=/workspace/generated
+[ -f "$G/go.mod" ] || fail "generated: the materialized pristine module has no go.mod"
+[ -z "$(find "$G" -name '.fido*' -o -name '*.fido-tmp-v1')" ] || fail "generated: control/temp residue in the materialized pristine module"
+[ "$(find "$G" -name '*.go' | wc -l)" -ge 1 ] || fail "generated: the materialized pristine canonical module has no .go file"
+# the materialized authoritative bytes MUST equal the sink's published bytes for the same image (the sink is
+# the untrusted publisher; a divergence between the certified materialization and the sink is a sink bug).
+cmp -s "$G/go.mod" "$O/go.mod" || { fail "generated: materialized go.mod differs from the sink-published go.mod (sink bug)"; }
 ( cd "$O" && find . -name '*.go' -not -path './.fido/*' | while read -r f; do
-    d=$(dirname "$f"); [ "$d" = "." ] || mkdir -p "$G/$d"; cp "$f" "$G/$f"; done )
-[ -f "$G/go.mod" ] || fail "generated: the pristine module has no go.mod"
-[ -z "$(find "$G" -name '.fido*' -o -name '*.fido-tmp-v1')" ] || fail "generated: control/temp residue leaked into the pristine module"
-[ "$(find "$G" -name '*.go' | wc -l)" -ge 1 ] || fail "generated: the pristine canonical module has no .go file"
-echo "fido: pristine generated-module tree:"; ( cd "$G" && find . -type f | sort )
+    cmp -s "$O/$f" "$G/$f" || { echo "materialized/sink .go byte divergence: $f"; exit 1; }; done ) || fail "generated: a materialized .go differs from the sink-published .go (sink bug)"
+echo "fido: pristine generated-module tree (materialized directly from the certified image):"; ( cd "$G" && find . -type f | sort )
 
 # differential witness: TWO main packages (root + sub/) + an empty file + the rendered go.mod
 if ! rocq c -Q _build/default/. Fido e2e/WitnessMulti.v > /tmp/emit-multi.log 2>&1; then cat /tmp/emit-multi.log; fail "Fido Emit (multi-package) FAILED"; fi
@@ -207,19 +215,20 @@ if ! rocq c -Q _build/default/. Fido e2e/WitnessBytes.v > /tmp/emit-bytes.log 2>
 [ -f /workspace/e2e-bytes/main.go ] || fail "boundary-byte witness emitted no main.go"
 echo "fido: boundary-byte tree:"; ( cd /workspace/e2e-bytes && find . -type f | sort ); cat /workspace/e2e-bytes/main.go
 
-# --- PRISTINE exports for the multi / empty / bytes witnesses (§23): exactly the rendered go.mod + recursive
-#     .go, NO .fido/lock/temp — so the go-e2e fresh-build validation consumes an authoritative PRE-BUILD pristine
-#     tree, NEVER a post-sink directory.  (The main canonical module already has its pristine export in $G.) ---
-mk_pristine() {  # <sink-tree> <pristine-out>
-  rm -rf "$2"; mkdir -p "$2"
-  [ -f "$1/go.mod" ] && cp "$1/go.mod" "$2/go.mod"
-  ( cd "$1" && find . -name '*.go' -not -path './.fido/*' | while read -r f; do
-      _d=$(dirname "$f"); [ "$_d" = "." ] || mkdir -p "$2/$_d"; cp "$f" "$2/$f"; done )
-  [ -z "$(find "$2" -name '.fido*' -o -name '*.fido-tmp-v1')" ] || fail "pristine $2: control/temp residue leaked"
+# --- PRISTINE exports for the multi / empty / bytes witnesses (§22/§23): the go-e2e fresh-build validation
+#     consumes the AUTHORITATIVE PRE-BUILD image the witness MATERIALIZED DIRECTLY (Fido Materialize ->
+#     /workspace/generated-*), NEVER a copy of a post-sink directory.  Each has NO .fido/lock/temp (the
+#     materializer writes none); its bytes MUST match the sink-published tree for the same image. ---
+check_pristine() {  # <materialized-pristine> <sink-tree>
+  [ -d "$1" ] || fail "pristine $1: the witness did not materialize it"
+  [ -z "$(find "$1" -name '.fido*' -o -name '*.fido-tmp-v1')" ] || fail "pristine $1: control/temp residue in the materialized tree"
+  if [ -f "$1/go.mod" ]; then cmp -s "$1/go.mod" "$2/go.mod" || fail "pristine $1: materialized go.mod differs from the sink (sink bug)"; fi
+  ( cd "$1" && find . -name '*.go' | while read -r f; do
+      cmp -s "$1/$f" "$2/$f" || { echo "materialized/sink divergence in $1: $f"; exit 1; }; done ) || fail "pristine $1: a materialized .go differs from the sink (sink bug)"
 }
-mk_pristine /workspace/e2e-multi /workspace/generated-multi
-mk_pristine /workspace/e2e-empty /workspace/generated-empty
-mk_pristine /workspace/e2e-bytes /workspace/generated-bytes
+check_pristine /workspace/generated-multi /workspace/e2e-multi
+check_pristine /workspace/generated-empty /workspace/e2e-empty
+check_pristine /workspace/generated-bytes /workspace/e2e-bytes
 echo "fido: pristine multi/empty/bytes exports assembled (no .fido)"
 
 # provenance (1): a forged raw transport (not a DirectoryImage) is rejected BEFORE any effect (Fail fixtures)

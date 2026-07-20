@@ -47,4 +47,5 @@ Proof. exact (go_compile_complete multi_program multi_valid). Qed.
 Definition multi_safe : SafeProgram := certify multi_compiled.
 
 Declare ML Module "fido.emit".
+Fido Materialize (render_program multi_safe) To "/workspace/generated-multi".
 Fido Emit (render_program multi_safe) To "/workspace/e2e-multi".

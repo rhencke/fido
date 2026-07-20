@@ -14,8 +14,9 @@ override PLATFORM := linux/amd64
 #   GoProgram (GoFileMap source forest) -> GoTypes (untyped GoConst -> context-resolved GoType, ProgramTyped)
 #     -> GoCompile (fresh-build preflight + SourceProgramValid = the one-shot `go build ./...` acceptance)
 #     -> GoSafe -> direct GoRender (source-owned package clause + go.mod) -> complete
-#     DirectoryImage -> the general `Fido Emit` transport command -> foreign-Go-rejecting sibling-temp
-#     sink -> go build ./...
+#     DirectoryImage -> `Fido Materialize` writes the authoritative pristine image DIRECTLY -> pinned
+#     `go build ./...` VALIDATES it -> only then `Fido Emit` publishes the SAME bytes via the
+#     foreign-Go-rejecting sibling-temp sink (validation-before-publication; a failed build blocks publish).
 # ALL Rocq/Go work runs in the PINNED container via buildx — host Rocq is NOT supported.
 
 # `make check` verifies the WORKING TREE, coherently and in ONE place.  It materializes the working-tree

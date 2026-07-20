@@ -28,4 +28,5 @@ Example empty_no_go_files : di_go_file_entries (render_program empty_safe) = [].
 Proof. reflexivity. Qed.
 
 Declare ML Module "fido.emit".
+Fido Materialize (render_program empty_safe) To "/workspace/generated-empty".
 Fido Emit (render_program empty_safe) To "/workspace/e2e-empty".

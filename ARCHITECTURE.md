@@ -233,16 +233,24 @@ law backed by explicit audit and code inspection, NOT a brittle source-scanning 
                  render_program is the canonical closed construction.  di_transport projects it to the
                  (exact go.mod bytes, (on-disk path, bytes) list) transport.
 
-  Fido Emit      the ONE general transport command (a Rocq vernac): `Fido Emit <image-term> To "<root>"`.
-                 Before ANY effect it guards provenance two ways: it typechecks its argument's di_transport
-                 as a DirectoryImage projection (rejecting a raw transport), and it rejects any argument
-                 whose assumption closure contains an axiom (rejecting a same-typed image built from a forged
-                 proof).  Only then does it decode ONLY the final (go.mod bytes, (path, bytes) list)
-                 transport (exact constructors of prod/list/string/ascii/bool, fail-loud otherwise) and hand
-                 it to the sink.  Not witness-specific; no recompile for a different SafeProgram.
+  Fido            two general transport commands (Rocq vernacs) sharing ONE provenance-guarded decode
+  Materialize /   (`decode_guarded`): before ANY effect it typechecks its argument's di_transport as a
+  Fido Emit       DirectoryImage projection (rejecting a raw transport) AND rejects any argument whose
+                 assumption closure contains an axiom (rejecting a same-typed image built from a forged
+                 proof); only then does it decode ONLY the final (go.mod bytes, (path, bytes) list) transport
+                 (exact constructors of prod/list/string/ascii/bool, fail-loud otherwise).  `Fido Materialize
+                 <image> To "<root>"` writes those authoritative bytes DIRECTLY into a fresh disposable
+                 build-VALIDATION root (no sink control state, never a user dir); `Fido Emit <image> To
+                 "<root>"` hands the SAME bytes to the sink for PUBLICATION.  VALIDATION-BEFORE-PUBLICATION:
+                 the pinned `go build ./...` validates the materialized image, and the committed canonical
+                 artifact is copied from THAT materialization; the sink publishes only after — a failed build
+                 prevents publication.  Not witness-specific; no recompile for a different SafeProgram.
 
-  sink           the generic ownership-aware dirty-directory synchronizer: it REJECTS foreign Go/module
-                 inputs + nested .fido, then stages the complete image into reserved sibling temps
+  materialize    the authoritative pristine writer (in the sink file): exact decoded image bytes into a fresh
+                 EMPTY disposable root, O_EXCL/fail-closed, NO `.fido`/staging/foreign-rejection.  Filesystem ONLY.
+
+  sink           the generic ownership-aware dirty-directory synchronizer (PUBLICATION): it REJECTS foreign
+                 Go/module inputs + nested .fido, then stages the complete image into reserved sibling temps
                  `<final>.fido-tmp-v1` and installs by atomic rename (two-phase recovery).  Filesystem ONLY.
 
   pinned Go      `go build ./...` over the WHOLE canonical `generated-module` tree + witness run.
@@ -279,7 +287,7 @@ AST->output->AST round-trip authority, no copied compiled AST, no handwritten OC
 | **GoSafe** | real `GoValue` (`VBool`/`VInteger IntegerType Z`/`VFloat ft (FloatValue ft)`/`VComplex ct (ComplexValue ct)`/`VString`; a `FloatValue` is a PROOF-CARRYING canonical Stdlib `SpecFloat.spec_float`, Flocq unused; a `ComplexValue` a PAIR of them that MAY be -0/inf/NaN, unlike a constant); `value_type` over the SAME `GoType`; `ValueWF` range invariant (`ValueWF (VFloat …) := ValueWF (VComplex …) := True` — canonicality in the type; constant eval only finite/+0); PARTIAL `eval_expr` derived from `const_info`; resolved-eval well-formedness + type preservation; abstract `eval_file`; `SafeProgram` (0 = -0); honest `GoSafe := True` | observe spelling as value; a separate runtime type universe; a per-width runtime record family / `GoTypeTag`; keep an unused panic placeholder; circularly reference compilation |
 | **GoRender** | render decls + the SOURCE-owned package clause (from the file's OWN `source_package` via `render_package_clause`, `PkgMain` → `main` — NOT a derived/deduced name); render go.mod from the ModuleSpec; an integer conversion as `<integer_keyword it>(<inner>)` (the ten exact Go keywords), a float conversion as `float32(…)`/`float64(…)`, and a complex conversion as `complex64(…)`/`complex128(…)`; ONE canonical float decimal spelling (`0.0`; else `<signed-coeff>.0e<±exp>`) with an INDEPENDENT decoder proving `decode(render d) = Some d`, and ONE canonical complex spelling `complex(<real>, <imag>)` (both components via that decimal spelling) with an INDEPENDENT complex decoder + semantic round trip; header exact first line (go.mod and .go); `render_const_info_denotes` / `render_resolved_expr_denotes` (spelling ↔ ConstInfo ↔ value/resolved type; integer-conversion case via `convert_const`, with float and complex cases; all via the ONE `RenderedConstInfoDenotes`) | tokenize/lex/parse/round-trip; deduce packages/entry; invoke a formatter; add require/replace/toolchain to go.mod |
 | **DirectoryImage** | the complete module (exact go.mod bytes + a possibly-empty .go map), provenance-gated (`di_prov` proves BOTH came from `render_program`; `mkImage` demands that proof); `Fido Emit` typechecks its argument's `di_transport` AND rejects any argument with an axiomatic assumption closure | be an arbitrary-map escape that bypasses SafeProgram; invent go.mod in the sink; make a nonemptiness claim; accept a raw transport, or a same-typed image built from a forged (axiomatic) proof, at the emit boundary |
-| **Fido Emit + sink** | a four-step boundary — typecheck the image, reject a non-empty assumption closure (kernel provenance queries), decode ONLY the final (go.mod, entries) transport with exact constructors, then a foreign-Go-rejecting sibling-temp dirty-directory sync | inspect the program/AST/behaviour/semantics; emit without both provenance guards; merge/preserve a foreign `.go`/`go.mod`; delete/overwrite/follow foreign state; keep a stage-record/nonce/central-staging design |
+| **Fido Materialize / Fido Emit + sink** | ONE provenance-guarded decode (typecheck the image, reject a non-empty assumption closure, decode ONLY the final (go.mod, entries) transport with exact constructors) feeding two writers: `Fido Materialize` writes the authoritative bytes DIRECTLY into a fresh disposable build-validation root (no sink state), and `Fido Emit` PUBLISHES the SAME bytes via the foreign-Go-rejecting sibling-temp sync — validation-before-publication, a failed build prevents publication | inspect the program/AST/behaviour/semantics; emit/materialize without both provenance guards; build after sinking into a user dir; copy the committed artifact from a post-sink dir; merge/preserve a foreign `.go`/`go.mod`; delete/overwrite/follow foreign state; keep a stage-record/nonce/central-staging design |
 
 ## The handwritten-OCaml boundary (hard)
 
@@ -289,14 +297,18 @@ AST->output->AST round-trip authority, no copied compiled AST, no handwritten OC
   provenance query that descends Qed proof bodies — the SAME `closure_assums`/`assums_disallowed` mechanism
   the whole-theory audit uses); (3) reduce and STRUCTURALLY decode ONLY the final `string * list
   (string*string)` transport — the exact go.mod bytes and the (path, bytes) list (exact constructors,
-  fail-loud); (4) call the sink. It does no semantic program/AST/behaviour inspection. That both provenance
-  guards stay live is a mutation-sensitive REGRESSION gate, not a proof: the emit stage's negative fixtures
-  (a raw transport + TRANSIENTLY-generated axiom/variable-backed images) execute forged inputs and, if
-  either guard were removed, the corresponding `Fido Emit` would succeed and create a target — failing the
-  e2e (a spoofable source grep would not).
-- `plugin/fido_sink.ml` + `e2e/sink_test.ml` + `e2e/fido_apply.ml` — the generic dirty-directory
-  synchronizer, its driver, and the `make regenerate` apply CLI (enumerate a pristine `/generated` tree and
-  hand it to the sink). Filesystem ONLY: they walk no Rocq terms.
+  fail-loud); (4) route to `Fido Materialize` (the authoritative pristine write for build validation) OR
+  `Fido Emit` (the sink publication) — both over the SAME decoded bytes. It does no semantic program/AST/
+  behaviour inspection. That both provenance guards stay live is a mutation-sensitive REGRESSION gate, not a
+  proof: the emit stage's negative fixtures (a raw transport + TRANSIENTLY-generated axiom/variable-backed
+  images) execute forged inputs and, if either guard were removed, the corresponding command would succeed
+  and create a target — failing the e2e (a spoofable source grep would not).
+- `plugin/fido_sink.ml` + `e2e/sink_test.ml` + `e2e/fido_apply.ml` — the pristine `materialize` (exact image
+  bytes into a fresh EMPTY disposable validation root, no control state) + the generic dirty-directory
+  PUBLICATION synchronizer, its driver, and the `make regenerate` apply CLI (enumerate the pristine
+  `/generated` layer — copied from the pre-build MATERIALIZATION, never a post-sink dir — and hand it to the
+  sink; `make regenerate` publishes only after the go-e2e build-validation marker). Filesystem ONLY: they walk
+  no Rocq terms. VALIDATION-BEFORE-PUBLICATION: `go build ./...` validates the materialized image first.
 
 `tools/ocaml-origin-gate.sh` enforces exactly these four files (inspecting every source at every depth — a
 repository-content gate, not the runtime sink, so it prunes only `.git`), filesystem-only for the
