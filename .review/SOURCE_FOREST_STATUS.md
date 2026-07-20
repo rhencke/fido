@@ -51,9 +51,13 @@ generated module byte-exact.
   this ledger; pure banner decoration and duplicated charter restatements in the Makefile / Dockerfile /
   `GoCompile` + `GoIndex` headers (the layer charter stays ARCHITECTURE.md, not restated per module).  No
   invariant, theorem, or rationale was deleted to meet a byte number.
-- **State during repair:** `.review/REVIEW_REQUEST.md` stays `closed`; the ONE authorized final confirmation is
-  requested only after the candidate is frozen and every required check is GREEN (candidate SHA recorded then).
-  A BLOCKING result ENDS autonomous work.  C4 remains FORBIDDEN.
+- **Candidate `a95f9be` (frozen).**  Verification, all from that tree: `make prove` (readable gate **386/386**,
+  whole-theory assumption audit, self-tests A-E), `make e2e` (incl. the four new fresh-runner fault tests),
+  `make check`, `make regenerate`, `make regen-guard`, staged pre-commit — all GREEN; generated `go.mod` +
+  recursive `.go` byte-IDENTICAL; `git diff --check` clean; zero trailing whitespace; zero stale/scar hits.
+  Whole repository **1,564,197** bytes, below the 1,565,977 snapshot baseline (GoCompile.v −2,260; all root
+  Rocq source −10,951).  The ONE authorized bounded confirmation is requested; a BLOCKING result ENDS
+  autonomous work.  C4 remains FORBIDDEN.
 
 ## Standing decisions
 - **Platform limits OUT of scope** (Rob, 2026-07-19): Fido models no NAME_MAX/PATH_MAX/disk/memory limit; a path

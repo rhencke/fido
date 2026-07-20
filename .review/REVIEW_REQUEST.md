@@ -1,21 +1,24 @@
 # Review Request
 
-state: closed
+state: requested
 review: Implementation Review
 confirmation: yes
-confirmation_used: no
+confirmation_used: yes
 human_override: C3-final-cleanup-1
 
-contract: .review/NEXT_STEPS.md
-contract_sha: 83c3989
+contract: .review/C3_FRESH_IMAGE_LITERAL_BUILD_PLAN.md
+contract_sha256: a13779c2e55c679e461e857d019eeae6adef27b0666876ed0cac92833814f212
+repair_directive: .review/C3_FINAL_CLEANUP_DIRECTIVE.md
 review_basis: .review/REVIEW_BASIS.md
+candidate: a95f9be
+range: 38561c6..HEAD
 
-# Prior result: the weedwhacker repair-1 bounded confirmation (Codex, range 714f930..627caf3) returned BLOCKING
-# with 4 findings (runner can class a pre-Go failure as a Go run; two contract-required package-import proofs
-# missing; false current semantic/workflow comments; mechanical chronology deletion left malformed prose).  Rob's
-# `.review/C3_FINAL_CLEANUP_DIRECTIVE.md` (human_override C3-final-cleanup-1) authorizes ONE repair batch + ONE
-# final bounded confirmation.  This file stays `state: closed` during the repair; it is set to `requested`
-# (confirmation_used: yes) only once the candidate is complete + frozen + all checks GREEN.
+# The ONE bounded confirmation authorized by `C3-final-cleanup-1`, over the single repair batch closing the
+# four findings of the blocked weedwhacker repair-1 confirmation: (1) fail-closed fresh-runner state machine
+# + four fault tests; (2) `package_import_path_inj` / `_deterministic` restored over the component root, both
+# gated, gate exactly 386; (3) corrected `semantic_ok_b` / `erased_report` / publication-boundary /
+# path-authority / naming / elaboration claims; (4) tracked-tree prose sweep + true authority state.
+# Confirmation scope and exclusions: `.review/C3_FINAL_CLEANUP_DIRECTIVE.md` §8.
 
 ## Rules
 
