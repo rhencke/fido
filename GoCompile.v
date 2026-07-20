@@ -1512,7 +1512,9 @@ Definition semantic_ok_b (p : GoProgram) : bool := expr_all_ok p && pkg_all_ok p
 Lemma semantic_ok_b_prog_ok (p : GoProgram) : semantic_ok_b p = prog_ok p.
 Proof. unfold semantic_ok_b, prog_ok. rewrite expr_all_ok_program_typedb. reflexivity. Qed.
 
-(* [GoCompile p] is defined below as exactly [ProgValid p]; the elaboration decision equals it. *)
+(* [GoCompile p] is defined below as the fresh-build preflight on top of [SourceProgramValid] (the factored
+   package rules); this elaboration decision is exactly the SOURCE half, equal to the old combined [ProgValid]
+   (which survives only as a proved equivalence — [source_program_valid_iff]). *)
 Lemma semantic_ok_b_ProgValid (p : GoProgram) : semantic_ok_b p = true <-> ProgValid p.
 Proof. rewrite semantic_ok_b_prog_ok. apply prog_ok_iff. Qed.
 
@@ -5325,9 +5327,13 @@ Proof. intros p1 p2 H. rewrite (fresh_build_plan_InputEqual _ _ H). reflexivity.
 Definition elaboration_diagnostics (p : GoProgram) (idx : GoIndex.Snap.SyntaxIndex p) : list (DiagnosticReason p) :=
   if fresh_build_disposition_ok (fresh_build_plan p) then semantic_diagnostics p idx else fresh_build_diagnostics p.
 
-Lemma elaboration_no_diags_source_valid : forall p idx, elaboration_diagnostics p idx = nil -> ProgValid p.
+(** §9/§29-B (C3-fresh) — the RETAINED source validity is [SourceProgramValid] (the FACTORED rules
+    [PackageDeclsUnique] + [MainPackagesHaveEntry], of which the old exactly-one-main rule is a proved
+    consequence), NOT the old combined [ProgValid]. *)
+Lemma elaboration_no_diags_source_valid : forall p idx, elaboration_diagnostics p idx = nil -> SourceProgramValid p.
 Proof.
-  intros p idx He. unfold elaboration_diagnostics in He. destruct (fresh_build_disposition_ok (fresh_build_plan p)) eqn:Ep.
+  intros p idx He. apply (proj2 (source_program_valid_iff p)).
+  unfold elaboration_diagnostics in He. destruct (fresh_build_disposition_ok (fresh_build_plan p)) eqn:Ep.
   - exact (proj1 (semantic_ok_b_ProgValid p) (proj1 (semantic_diagnostics_empty_iff p idx) He)).
   - apply (proj1 (fresh_build_diagnostics_nil_iff p)) in He. unfold fresh_build_preflight_ok in He.
     rewrite He in Ep. discriminate Ep.
@@ -5362,7 +5368,7 @@ Lemma elaboration_diagnostics_nil_iff_GoCompile : forall p idx, elaboration_diag
 Proof.
   intros p idx. unfold GoCompile. split.
   - intro He. split; [ exact (elaboration_no_diags_preflight p idx He)
-                     | apply (proj2 (source_program_valid_iff p)); exact (elaboration_no_diags_source_valid p idx He) ].
+                     | exact (elaboration_no_diags_source_valid p idx He) ].
   - intros [Hpf Hsv]. unfold elaboration_diagnostics. unfold fresh_build_preflight_ok in Hpf. rewrite Hpf.
     apply (proj2 (semantic_diagnostics_empty_iff p idx)), (proj2 (semantic_ok_b_ProgValid p)),
           (proj1 (source_program_valid_iff p)). exact Hsv.
@@ -5384,7 +5390,7 @@ Record ElaborationFacts (p : GoProgram) (ip : GoIndex.IndexedProgram p) : Type :
   ef_package_belongs : forall dir l, PM.find dir ef_package_refs = Some l ->
                          forall d, In d l ->
                          fp_parent (GoIndex.Snap.file_ref_path (GoIndex.Snap.node_ref_file (GoIndex.erase_ref d))) = dir ;
-  ef_source_valid           : ProgValid p ;
+  ef_source_valid           : SourceProgramValid p ;
   (* §17 (C3-fresh) — the retained fresh-build PREFLIGHT evidence: the pinned one-shot `go build ./...` output
      preflight passes for this program.  Together with [ef_source_valid] it witnesses [GoCompile] (see [cp_ok]). *)
   ef_preflight       : fresh_build_preflight_ok p ;
@@ -5475,7 +5481,7 @@ Proof.
   { apply (ef_package_present facts dir). apply PMF.in_find_iff. rewrite E. discriminate. }
   assert (Hmt : PM.MapsTo dir (mkPkgSummary (pkg_main_count dir (prog_files p))) (package_summaries (prog_files p))).
   { apply PMF.find_mapsto_iff. rewrite package_summaries_find, Hmem. reflexivity. }
-  pose proof (proj2 (ef_source_valid facts) dir _ Hmt) as Hone. cbn [ps_main_count] in Hone.
+  pose proof (proj1 (current_package_rules_exactly_one p) (proj2 (ef_source_valid facts)) dir _ Hmt) as Hone. cbn [ps_main_count] in Hone.
   rewrite Hone in Hlen. destruct l as [|d [|d2 rest]]; cbn [length] in Hlen; try discriminate. exists d; reflexivity.
 Qed.
 
@@ -5726,7 +5732,7 @@ Record CompilableProgram : Type := mkCompilable {
 
 Definition cp_ok (cp : CompilableProgram) : GoCompile (cp_program cp) :=
   conj (ef_preflight (cp_facts cp))
-       (proj2 (source_program_valid_iff (cp_program cp)) (ef_source_valid (cp_facts cp))).
+       (ef_source_valid (cp_facts cp)).
 
 (** the PROVENANCE surfaces: every [CompilableProgram]'s WHOLE retained elaboration IS this record — index +
     facts + success together ([elaborate cp_program = mkProgramElaboration cp_index (ElaborationOK cp_facts)]); the
