@@ -195,6 +195,34 @@ Theorem image_go_files_are_source_paths : forall sp p,
   FM.In p (di_go_files (render_program sp)) <-> FM.In p (prog_files (sp_program sp)).
 Proof. intros sp p. unfold render_program; cbn [di_go_files]. apply render_map_domain. Qed.
 
+(** ============================================================================================================
+    §18J (CR2-D5) — the RETAINED-PLAN / IMAGE bridge.  A rendered image of a [SafeProgram] whose program is the
+    one a [CompilableProgram] retained REALIZES that CompilableProgram's RETAINED root layout AND the retained
+    build plan's output-target classification — not merely a freshly-recomputed [root_layout].  So the actual
+    emitted tree is the exact object the compile decision reasoned about. ========================================= *)
+
+(** the rendered image realizes the CompilableProgram's RETAINED root layout ([ef_root_layout]). *)
+Theorem directory_image_realizes_retained_layout : forall cp sp,
+  sp_program sp = cp_program cp ->
+  image_source_layout (render_program sp) = ef_root_layout (cp_facts cp).
+Proof.
+  intros cp sp Hsp. rewrite directory_image_realizes_fresh_layout, Hsp.
+  symmetry. apply ef_root_layout_ok.
+Qed.
+
+(** the IMAGE's output-target classification at the retained plan's default output name IS the retained plan's
+    stored target — the fresh-image directory-collision check the plan performed is against the ACTUAL tree. *)
+Theorem image_output_target_of_retained_plan : forall cp sp dir ip ex t,
+  sp_program sp = cp_program cp ->
+  ef_build_plan (cp_facts cp) = FBDWriteSingleMain dir ip ex t ->
+  PM.find ex (image_source_layout (render_program sp)) = t.
+Proof.
+  intros cp sp dir ip ex t Hsp Hplan.
+  rewrite directory_image_realizes_fresh_layout, Hsp.
+  rewrite (ef_build_plan_ok (cp_facts cp)) in Hplan.
+  symmetry. exact (fresh_build_plan_single_target (cp_program cp) dir ip ex t Hplan).
+Qed.
+
 (** the CANONICAL derived transport list of two extensionally-equal rendered maps is EQUAL (the standard AVL
     [elements] is sorted, so it is a function of the map's meaning — [Collections.filemap_elements_Equal]). *)
 Lemma di_go_file_entries_Equal : forall img1 img2,

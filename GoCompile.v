@@ -4694,6 +4694,134 @@ Example den_gomod   : default_exec_name "example.com/go.mod"    = "go.mod".  Pro
 Example den_sub_v10 : default_exec_name "example.com/m/sub/v10" = "sub".     Proof. reflexivity. Qed.
 
 (** ============================================================================================
+    §C3-FRESH.1 (CR2-D5) — the DEFAULT EXECUTABLE NAME is NEVER empty for a CANONICAL import path (nonempty,
+    no leading/trailing/double slash — exactly the shape a [package_import_path] has).  cmd/go's
+    [exeFromImportPath] returns the last path element, or the previous element when the last is a major-version
+    element; for a canonical path that element is a nonempty segment.  Proved structurally over the character
+    string, then discharged for [package_import_path] from the [ModulePath] / [FilePath] segment grammar.
+    ============================================================================================ *)
+
+(* the three char-level canonicality predicates: does the string start / end with '/', and does it contain a
+   "//"?  A canonical import path answers false / false / true(no double). *)
+Definition str_starts_slash (s : string) : bool :=
+  match s with String c _ => Ascii.eqb c "/"%char | EmptyString => false end.
+Fixpoint str_ends_slash (s : string) : bool :=
+  match s with
+  | EmptyString => false
+  | String c EmptyString => Ascii.eqb c "/"%char
+  | String _ s' => str_ends_slash s'
+  end.
+Fixpoint str_no_double_slash (s : string) : bool :=
+  match s with
+  | String a s0 =>
+      match s0 with
+      | String b _ => negb (Ascii.eqb a "/"%char && Ascii.eqb b "/"%char) && str_no_double_slash s0
+      | EmptyString => true
+      end
+  | EmptyString => true
+  end.
+
+Lemma str_ends_slash_tail : forall c s, s <> ""%string -> str_ends_slash (String c s) = str_ends_slash s.
+Proof. intros c s Hs. destruct s; [ contradiction | reflexivity ]. Qed.
+
+Lemma str_no_double_slash_tail : forall c s, str_no_double_slash (String c s) = true -> str_no_double_slash s = true.
+Proof.
+  intros c s H. destruct s as [|d s0]; [ reflexivity |].
+  cbn [str_no_double_slash] in H. apply Bool.andb_true_iff in H. exact (proj2 H).
+Qed.
+
+(* a slash-free string is its own basename; contrapositive: a basename that differs has a slash. *)
+Lemma ip_basename_no_slash : forall s, string_contains_slash s = false -> ip_basename s = s.
+Proof.
+  destruct s as [|c s']; [ reflexivity |].
+  cbn [string_contains_slash]. intro H. apply Bool.orb_false_iff in H. destruct H as [Hc Hs'].
+  cbn [ip_basename]. rewrite Hc, Hs'. reflexivity.
+Qed.
+
+Lemma ip_basename_neq_has_slash : forall s, ip_basename s <> s -> string_contains_slash s = true.
+Proof.
+  intros s H. destruct (string_contains_slash s) eqn:E; [ reflexivity |].
+  exfalso. apply H. apply ip_basename_no_slash. exact E.
+Qed.
+
+(* a string ending in a non-slash char has a nonempty basename. *)
+Lemma ip_basename_nonempty : forall s,
+  str_ends_slash s = false -> s <> ""%string -> ip_basename s <> ""%string.
+Proof.
+  induction s as [|c s' IH]; intros Hend Hne; [ contradiction |].
+  destruct s' as [|d s''] eqn:Es'.
+  - cbn [str_ends_slash] in Hend. cbn [ip_basename string_contains_slash].
+    destruct (Ascii.eqb c "/"%char) eqn:E; [ discriminate Hend | discriminate ].
+  - rewrite str_ends_slash_tail in Hend by discriminate.
+    cbn [ip_basename].
+    destruct (Ascii.eqb c "/"%char) eqn:E; [ apply IH; [ exact Hend | discriminate ] |].
+    destruct (string_contains_slash (String d s'')) eqn:Ecs;
+      [ apply IH; [ exact Hend | discriminate ] | discriminate ].
+Qed.
+
+(* if a string with a slash has an empty dirname, it must START with '/'. *)
+Lemma ip_dirname_empty_starts_slash : forall s,
+  string_contains_slash s = true -> ip_dirname s = ""%string -> exists s'', s = String "/"%char s''.
+Proof.
+  destruct s as [|c s']; [ discriminate |].
+  cbn [ip_dirname]. destruct (string_contains_slash s') eqn:Es'; [ discriminate |].
+  cbn [string_contains_slash]. rewrite Es', Bool.orb_false_r.
+  intro Hc. intros _. apply Ascii.eqb_eq in Hc. subst c. exists s'. reflexivity.
+Qed.
+
+(* a non-slash-led string with a slash has a nonempty dirname. *)
+Lemma ip_dirname_nonempty : forall s,
+  str_starts_slash s = false -> string_contains_slash s = true -> ip_dirname s <> ""%string.
+Proof.
+  intros s Hstart Hslash. destruct s as [|c s']; [ discriminate Hslash |].
+  cbn [str_starts_slash] in Hstart. cbn [string_contains_slash] in Hslash.
+  rewrite Hstart, Bool.orb_false_l in Hslash.
+  cbn [ip_dirname]. rewrite Hslash. discriminate.
+Qed.
+
+(* a canonical string's dirname does not end with '/' (the char before the last '/' is a segment char). *)
+Lemma ip_dirname_ends_slash_false : forall s,
+  str_no_double_slash s = true -> str_ends_slash s = false -> str_ends_slash (ip_dirname s) = false.
+Proof.
+  induction s as [|c s' IH]; intros Hnd Hend; [ reflexivity |].
+  cbn [ip_dirname]. destruct (string_contains_slash s') eqn:Es'; [| reflexivity ].
+  destruct (ip_dirname s') as [|x xs] eqn:Ed.
+  - (* dirname s' = "": then s' starts with '/', and no-double-slash forces c <> '/' *)
+    destruct (ip_dirname_empty_starts_slash s' Es' Ed) as [s'' Hs'].
+    cbn [str_ends_slash].                              (* goal: Ascii.eqb c "/" = false *)
+    rewrite Hs' in Hnd. cbn [str_no_double_slash] in Hnd.
+    apply Bool.andb_true_iff in Hnd. destruct Hnd as [Hne _].
+    apply Bool.negb_true_iff, Bool.andb_false_iff in Hne. destruct Hne as [Hc|Hc].
+    + exact Hc.
+    + exfalso. cbn in Hc. discriminate Hc.
+  - (* dirname s' = String x xs (nonempty): recurse *)
+    assert (Hs'ne : s' <> ""%string) by (intro H; rewrite H in Es'; discriminate Es').
+    rewrite str_ends_slash_tail by discriminate.       (* goal: str_ends_slash (String x xs) = false *)
+    apply IH.
+    + exact (str_no_double_slash_tail c s' Hnd).
+    + rewrite str_ends_slash_tail in Hend by exact Hs'ne. exact Hend.
+Qed.
+
+(** the DEFAULT EXECUTABLE NAME of a CANONICAL import path (nonempty, no leading/trailing/double slash) is
+    NEVER empty — the reusable universal core. *)
+Lemma default_exec_name_nonempty_core : forall ip,
+  ip <> ""%string -> str_starts_slash ip = false -> str_ends_slash ip = false ->
+  str_no_double_slash ip = true -> default_exec_name ip <> ""%string.
+Proof.
+  intros ip Hne Hstart Hend Hnd. unfold default_exec_name.
+  destruct (andb (negb (String.eqb (ip_basename ip) ip)) (is_version_element (ip_basename ip))) eqn:Eb.
+  - (* version-strip branch: ip_basename (ip_dirname ip) *)
+    apply Bool.andb_true_iff in Eb. destruct Eb as [Hneq _].
+    apply Bool.negb_true_iff, String.eqb_neq in Hneq.
+    assert (Hslash : string_contains_slash ip = true) by (apply ip_basename_neq_has_slash; exact Hneq).
+    apply ip_basename_nonempty.
+    + apply ip_dirname_ends_slash_false; assumption.
+    + apply ip_dirname_nonempty; assumption.
+  - (* plain branch: ip_basename ip *)
+    apply ip_basename_nonempty; assumption.
+Qed.
+
+(** ============================================================================================
     §C3-FRESH.2 (§11) — the exact cmd/go IMPORT PATH of a selected package in the main module.  The root
     package (dir key "") imports as the [ModulePath]; a nested package dir key imports as
     [ModulePath ++ "/" ++ dir].  Canonical source strings only; feeds [default_exec_name].
@@ -4737,6 +4865,279 @@ Proof.
   - exfalso. apply String.eqb_eq in E2.
     rewrite <- (string_app_empty_r mp) in H at 2. apply string_app_cancel_l in H. discriminate H.
   - apply string_app_cancel_l in H. injection H as H. exact H.
+Qed.
+
+(** ---- CR2-D5 — executable-name nonemptiness DISCHARGE: [package_import_path] is a canonical slash-joined
+    sequence of nonempty slash-free segments, so [default_exec_name_nonempty_core] applies. ---- *)
+
+Lemma contains_slash_app : forall a b,
+  string_contains_slash (a ++ b)%string = orb (string_contains_slash a) (string_contains_slash b).
+Proof.
+  induction a as [|c a IH]; intro b; [ reflexivity |].
+  cbn [append string_contains_slash]. rewrite IH, Bool.orb_assoc. reflexivity.
+Qed.
+
+Lemma slash_free_starts : forall s, string_contains_slash s = false -> str_starts_slash s = false.
+Proof.
+  destruct s as [|c s]; [ reflexivity |]. cbn [string_contains_slash str_starts_slash].
+  intro H. apply Bool.orb_false_iff in H. exact (proj1 H).
+Qed.
+
+Lemma slash_free_ends : forall s, string_contains_slash s = false -> str_ends_slash s = false.
+Proof.
+  induction s as [|c s IH]; intro H; [ reflexivity |].
+  cbn [string_contains_slash] in H. apply Bool.orb_false_iff in H. destruct H as [Hc Hs].
+  destruct s as [|d s']; [ cbn [str_ends_slash]; exact Hc |].
+  rewrite str_ends_slash_tail by discriminate. apply IH. exact Hs.
+Qed.
+
+Lemma slash_free_no_double : forall s, string_contains_slash s = false -> str_no_double_slash s = true.
+Proof.
+  induction s as [|c s IH]; intro H; [ reflexivity |].
+  cbn [string_contains_slash] in H. apply Bool.orb_false_iff in H. destruct H as [Hc Hs].
+  destruct s as [|d s']; [ reflexivity |].
+  cbn [str_no_double_slash]. apply Bool.andb_true_iff. split.
+  - apply Bool.negb_true_iff, Bool.andb_false_iff. left. exact Hc.
+  - apply IH. exact Hs.
+Qed.
+
+Lemma str_starts_slash_app : forall a b, a <> ""%string -> str_starts_slash (a ++ b)%string = str_starts_slash a.
+Proof. destruct a as [|c a]; [ contradiction | reflexivity ]. Qed.
+
+Lemma str_ends_slash_app : forall a b, b <> ""%string -> str_ends_slash (a ++ b)%string = str_ends_slash b.
+Proof.
+  induction a as [|c a IH]; intros b Hb; [ reflexivity |].
+  cbn [append]. rewrite str_ends_slash_tail.
+  - apply IH; exact Hb.
+  - destruct a as [|d a']; cbn [append]; [ exact Hb | discriminate ].
+Qed.
+
+Lemma str_no_double_slash_app : forall a b,
+  str_no_double_slash a = true -> str_no_double_slash b = true ->
+  (str_ends_slash a = true -> str_starts_slash b = true -> False) ->
+  str_no_double_slash (a ++ b)%string = true.
+Proof.
+  induction a as [|c a IH]; intros b Ha Hb Hbnd; [ exact Hb |].
+  destruct a as [|e a'].
+  - cbn [append]. destruct b as [|d b']; [ reflexivity |].
+    cbn [str_no_double_slash]. apply Bool.andb_true_iff. split; [| exact Hb ].
+    apply Bool.negb_true_iff, Bool.andb_false_iff.
+    destruct (Ascii.eqb c "/"%char) eqn:Ec; [| left; reflexivity ].
+    right. destruct (Ascii.eqb d "/"%char) eqn:Ed; [| reflexivity ].
+    exfalso. apply Hbnd; [ cbn [str_ends_slash]; exact Ec | cbn [str_starts_slash]; exact Ed ].
+  - cbn [append]. cbn [str_no_double_slash] in Ha |- *.
+    apply Bool.andb_true_iff in Ha. destruct Ha as [Ha1 Ha2].
+    apply Bool.andb_true_iff. split; [ exact Ha1 |].
+    apply IH; [ exact Ha2 | exact Hb |].
+    intros He Hs. apply Hbnd; [| exact Hs ].
+    rewrite str_ends_slash_tail by discriminate. exact He.
+Qed.
+
+Lemma concat_cons2 : forall sep x y rest,
+  String.concat sep (x :: y :: rest) = (x ++ sep ++ String.concat sep (y :: rest))%string.
+Proof. intros sep x y rest. reflexivity. Qed.
+
+(* char-props of a slash-joined sequence of NONEMPTY, SLASH-FREE components. *)
+Lemma concat_slash_props : forall comps,
+  (forall x, In x comps -> x <> ""%string /\ string_contains_slash x = false) ->
+  str_ends_slash (String.concat "/" comps) = false /\
+  str_no_double_slash (String.concat "/" comps) = true /\
+  (comps <> [] -> str_starts_slash (String.concat "/" comps) = false).
+Proof.
+  induction comps as [|x rest IH]; intro Hall.
+  - cbn [String.concat]. split; [ reflexivity | split; [ reflexivity | intro Hc; exfalso; apply Hc; reflexivity ] ].
+  - assert (Hx : x <> ""%string /\ string_contains_slash x = false) by (apply Hall; left; reflexivity).
+    destruct Hx as [Hxne Hxsf].
+    destruct rest as [|y rest'].
+    + cbn [String.concat]. repeat split.
+      * apply slash_free_ends; exact Hxsf.
+      * apply slash_free_no_double; exact Hxsf.
+      * intro. apply slash_free_starts; exact Hxsf.
+    + assert (Hrest : forall z, In z (y :: rest') -> z <> ""%string /\ string_contains_slash z = false)
+        by (intros z Hz; apply Hall; right; exact Hz).
+      destruct (IH Hrest) as [He [Hnd Hst]].
+      assert (Hstart : str_starts_slash (String.concat "/" (y :: rest')) = false)
+        by (apply Hst; discriminate).
+      assert (Hne : String.concat "/" (y :: rest') <> ""%string).
+      { assert (Hy : y <> ""%string /\ _) by (apply Hrest; left; reflexivity).
+        destruct Hy as [Hyne _]. destruct y as [|cy y']; [ contradiction |].
+        cbn [String.concat]. destruct rest' as [|z rest'']; discriminate. }
+      rewrite (concat_cons2 "/"%string x y rest'). repeat split.
+      * rewrite str_ends_slash_app by discriminate. cbn [append].
+        rewrite str_ends_slash_tail by exact Hne. exact He.
+      * apply str_no_double_slash_app.
+        -- apply slash_free_no_double; exact Hxsf.
+        -- cbn [append]. destruct (String.concat "/" (y :: rest')) as [|w cc] eqn:Ecc.
+           ++ exfalso. apply Hne. reflexivity.
+           ++ cbn [str_no_double_slash]. apply Bool.andb_true_iff. split.
+              ** apply Bool.negb_true_iff, Bool.andb_false_iff. right.
+                 cbn [str_starts_slash] in Hstart. exact Hstart.
+              ** exact Hnd.
+        -- intros Hea Hsb. apply slash_free_ends in Hxsf. rewrite Hxsf in Hea. discriminate Hea.
+      * intro. rewrite str_starts_slash_app by exact Hxne. apply slash_free_starts; exact Hxsf.
+Qed.
+
+Lemma seg_char_no_slash : forall c, ModulePath.seg_char c = true -> Ascii.eqb c "/"%char = false.
+Proof.
+  intros c H. destruct (Ascii.eqb c "/"%char) eqn:E; [| reflexivity].
+  apply Ascii.eqb_eq in E; subst c. cbn in H. discriminate H.
+Qed.
+
+Lemma all_seg_chars_no_slash : forall s, ModulePath.all_seg_chars s = true -> string_contains_slash s = false.
+Proof.
+  induction s as [|c s IH]; intro H; [ reflexivity |].
+  cbn [ModulePath.all_seg_chars] in H. apply Bool.andb_true_iff in H. destruct H as [Hc Hs].
+  cbn [string_contains_slash]. rewrite seg_char_no_slash by exact Hc. cbn [orb]. apply IH; exact Hs.
+Qed.
+
+Lemma segment_ok_slash_free : forall s,
+  ModulePath.segment_ok s = true -> s <> ""%string /\ string_contains_slash s = false.
+Proof.
+  intros s H. destruct s as [|c s']; [ discriminate H |].
+  split; [ discriminate |]. apply all_seg_chars_no_slash.
+  unfold ModulePath.segment_ok in H.
+  apply Bool.andb_true_iff in H. destruct H as [H _].
+  apply Bool.andb_true_iff in H. destruct H as [H _].
+  apply Bool.andb_true_iff in H. destruct H as [H _].
+  apply Bool.andb_true_iff in H. destruct H as [_ H]. exact H.
+Qed.
+
+Lemma is_lower_no_slash : forall c, FilePath.is_lower c = true -> Ascii.eqb c "/"%char = false.
+Proof.
+  intros c H. destruct (Ascii.eqb c "/"%char) eqn:E; [| reflexivity].
+  apply Ascii.eqb_eq in E; subst c. cbn in H. discriminate H.
+Qed.
+
+Lemma is_lower_digit_no_slash : forall c, FilePath.is_lower_digit c = true -> Ascii.eqb c "/"%char = false.
+Proof.
+  intros c H. destruct (Ascii.eqb c "/"%char) eqn:E; [| reflexivity].
+  apply Ascii.eqb_eq in E; subst c. cbn in H. discriminate H.
+Qed.
+
+Lemma tail_ok_no_slash : forall s, FilePath.tail_ok s = true -> string_contains_slash s = false.
+Proof.
+  induction s as [|c s IH]; intro H; [ reflexivity |].
+  cbn [FilePath.tail_ok] in H. apply Bool.andb_true_iff in H. destruct H as [Hc Hs].
+  cbn [string_contains_slash]. rewrite is_lower_digit_no_slash by exact Hc. cbn [orb]. apply IH; exact Hs.
+Qed.
+
+Lemma component_ok_slash_free : forall s,
+  FilePath.component_ok s = true -> s <> ""%string /\ string_contains_slash s = false.
+Proof.
+  intros s H. destruct s as [|c s']; [ discriminate H |].
+  cbn [FilePath.component_ok] in H. apply Bool.andb_true_iff in H. destruct H as [Hc Ht].
+  split; [ discriminate |]. cbn [string_contains_slash].
+  rewrite is_lower_no_slash by exact Hc. cbn [orb]. apply tail_ok_no_slash; exact Ht.
+Qed.
+
+Lemma dir_component_ok_slash_free : forall s,
+  FilePath.dir_component_ok s = true -> s <> ""%string /\ string_contains_slash s = false.
+Proof.
+  intros s H. unfold FilePath.dir_component_ok in H. apply Bool.andb_true_iff in H.
+  apply component_ok_slash_free; exact (proj1 H).
+Qed.
+
+(* ModulePath split/join inverse (so the module string IS the join of its segments). *)
+Lemma mp_split_nonempty : forall s, ModulePath.split_slash s <> [].
+Proof.
+  induction s as [|c s IH]; [ discriminate |].
+  cbn [ModulePath.split_slash]. destruct (Ascii.eqb c "/"%char); [ discriminate |].
+  destruct (ModulePath.split_slash s); [ contradiction | discriminate ].
+Qed.
+
+Lemma concat_cons_empty : forall sep h t,
+  String.concat sep (""%string :: h :: t) = (sep ++ String.concat sep (h :: t))%string.
+Proof. intros sep h t. reflexivity. Qed.
+
+Lemma concat_map_head : forall sep c h t,
+  String.concat sep (String c h :: t) = String c (String.concat sep (h :: t)).
+Proof. intros sep c h t. destruct t as [|z t']; reflexivity. Qed.
+
+Lemma mp_concat_split : forall s, String.concat "/" (ModulePath.split_slash s) = s.
+Proof.
+  induction s as [|c s IH]; [ reflexivity |].
+  cbn [ModulePath.split_slash]. destruct (Ascii.eqb c "/"%char) eqn:E.
+  - apply Ascii.eqb_eq in E; subst c.
+    destruct (ModulePath.split_slash s) as [|h t] eqn:Esp; [ exfalso; exact (mp_split_nonempty s Esp) |].
+    rewrite (concat_cons_empty "/"%string h t), IH. reflexivity.
+  - destruct (ModulePath.split_slash s) as [|h t] eqn:Esp; [ exfalso; exact (mp_split_nonempty s Esp) |].
+    rewrite (concat_map_head "/"%string c h t), IH. reflexivity.
+Qed.
+
+Lemma modpath_string_props : forall mp,
+  ModulePath.modpath_ok (ModulePath.mp_str mp) = true ->
+  ModulePath.mp_str mp <> ""%string /\
+  str_starts_slash (ModulePath.mp_str mp) = false /\
+  str_ends_slash (ModulePath.mp_str mp) = false /\
+  str_no_double_slash (ModulePath.mp_str mp) = true.
+Proof.
+  intros mp Hok.
+  set (s := ModulePath.mp_str mp) in *.
+  assert (Hseg : forallb ModulePath.segment_ok (ModulePath.split_slash s) = true).
+  { unfold ModulePath.modpath_ok in Hok. apply Bool.andb_true_iff in Hok. exact (proj2 Hok). }
+  assert (Hall : forall x, In x (ModulePath.split_slash s) ->
+                   x <> ""%string /\ string_contains_slash x = false).
+  { intros x Hin. apply segment_ok_slash_free. rewrite forallb_forall in Hseg. apply Hseg; exact Hin. }
+  pose proof (mp_split_nonempty s) as Hsn.
+  destruct (concat_slash_props (ModulePath.split_slash s) Hall) as [He [Hnd Hst]].
+  rewrite mp_concat_split in He, Hnd, Hst.
+  assert (Hne : s <> ""%string) by (intro Hc; rewrite Hc in Hok; vm_compute in Hok; discriminate Hok).
+  split; [ exact Hne | split; [ exact (Hst Hsn) | split; [ exact He | exact Hnd ] ] ].
+Qed.
+
+Lemma parent_of_props : forall fp,
+  fp_parent fp <> ""%string ->
+  str_starts_slash (fp_parent fp) = false /\
+  str_ends_slash (fp_parent fp) = false /\
+  str_no_double_slash (fp_parent fp) = true.
+Proof.
+  intro fp. unfold fp_parent, FilePath.parent_of.
+  pose proof (fp_ok fp) as Hok. unfold FilePath.path_ok in Hok.
+  destruct (rev (FilePath.split_slash (fp_str fp))) as [|last rdirs] eqn:Erev; [ discriminate Hok |].
+  apply Bool.andb_true_iff in Hok. destruct Hok as [Hdirs _].
+  intro Hne.
+  assert (Hall : forall x, In x (rev rdirs) -> x <> ""%string /\ string_contains_slash x = false).
+  { intros x Hin. apply dir_component_ok_slash_free.
+    rewrite forallb_forall in Hdirs. apply Hdirs. apply in_rev in Hin. exact Hin. }
+  destruct (concat_slash_props _ Hall) as [He [Hnd Hst]].
+  repeat split; [ apply Hst | exact He | exact Hnd ].
+  destruct (rev rdirs) as [|h t] eqn:Er; [ exfalso; apply Hne; reflexivity | discriminate ].
+Qed.
+
+Lemma package_import_path_canonical : forall ms dir,
+  (dir = ""%string \/ exists fp, fp_parent fp = dir) ->
+  package_import_path ms dir <> ""%string /\
+  str_starts_slash (package_import_path ms dir) = false /\
+  str_ends_slash (package_import_path ms dir) = false /\
+  str_no_double_slash (package_import_path ms dir) = true.
+Proof.
+  intros ms dir Hdir.
+  destruct (modpath_string_props (module_path ms) (ModulePath.mp_ok (module_path ms)))
+    as [Hmne [Hmst [Hmen Hmnd]]].
+  change (ModulePath.mp_str (module_path ms)) with (mp_string (module_path ms)) in *.
+  destruct (String.eqb dir ""%string) eqn:Edir.
+  - apply String.eqb_eq in Edir. subst dir. rewrite package_import_path_root.
+    repeat split; assumption.
+  - apply String.eqb_neq in Edir. rewrite package_import_path_nested by exact Edir.
+    assert (Hdne : dir <> ""%string) by exact Edir.
+    assert (Hpp : str_starts_slash dir = false /\ str_ends_slash dir = false /\ str_no_double_slash dir = true).
+    { destruct Hdir as [Heq | [fp Hfp]]; [ contradiction |].
+      rewrite <- Hfp. rewrite <- Hfp in Hdne. exact (parent_of_props fp Hdne). }
+    destruct Hpp as [Hdst [Hden Hdnd]].
+    set (mp := mp_string (module_path ms)) in *.
+    repeat split.
+    + (* nonempty *) intro Hc. apply Hmne. destruct mp; [ reflexivity | cbn [append] in Hc; discriminate Hc ].
+    + rewrite str_starts_slash_app by exact Hmne. exact Hmst.
+    + rewrite str_ends_slash_app by discriminate. cbn [append].
+      rewrite str_ends_slash_tail by exact Hdne. exact Hden.
+    + apply str_no_double_slash_app.
+      * exact Hmnd.
+      * destruct dir as [|cd dir']; [ contradiction |]. cbn [append str_no_double_slash].
+        apply Bool.andb_true_iff. split.
+        -- apply Bool.negb_true_iff, Bool.andb_false_iff. right.
+           cbn [str_starts_slash] in Hdst. exact Hdst.
+        -- exact Hdnd.
+      * intros Hea Hsb. rewrite Hmen in Hea. discriminate Hea.
 Qed.
 
 (** ============================================================================================
@@ -5083,6 +5484,128 @@ Proof.
     rewrite Hkv. reflexivity.
 Qed.
 
+(** §C3-FRESH.5 (§7 exactness, CR2-D5) — a root-entry key is NEVER "go.mod": a root source key is the WHOLE
+    [path_ok] file string, and [path_ok "go.mod" = false] (it ends ".mod", not ".go"); a nested directory key
+    is [dir_component_ok] (dot-free), and "go.mod" has a dot.  So the base [FREGoMod] binding is never
+    overwritten. *)
+Lemma root_entry_key_neq_gomod : forall b, fst (root_entry_of_file b) <> "go.mod".
+Proof.
+  intro b. unfold root_entry_of_file.
+  destruct (String.eqb (fp_parent (fst b)) "") eqn:E; cbn [fst]; intro Hc.
+  - pose proof (fp_ok (fst b)) as Hok. unfold FilePath.fp_string in Hc. rewrite Hc in Hok.
+    vm_compute in Hok. discriminate Hok.
+  - apply String.eqb_neq in E.
+    pose proof (first_component_dir_ok (fp_string (fst b)) (fp_ok (fst b)) E) as Hdc.
+    rewrite Hc in Hdc. vm_compute in Hdc. discriminate Hdc.
+Qed.
+
+(** the GENERIC fold-of-adds MEMBERSHIP: a key is in the fold iff it is an added key OR is in [init]. *)
+Lemma fold_add_in_iff {A} (kv : (FilePath * GoSourceFile) -> string * A) (init : PM.t A)
+    (l : list (FilePath * GoSourceFile)) (e : string) :
+  PM.In e (fold_right (fun b acc => PM.add (fst (kv b)) (snd (kv b)) acc) init l)
+  <-> In e (map (fun b => fst (kv b)) l) \/ PM.In e init.
+Proof.
+  induction l as [|b bs IH]; cbn [fold_right map].
+  - split; [ intro H; right; exact H | intros [[]|H]; exact H ].
+  - rewrite PMF.add_in_iff, IH. split.
+    + intros [He|[Hin|Hi]]; [ left; left; exact He | left; right; exact Hin | right; exact Hi ].
+    + intros [[He|Hin]|Hi]; [ left; exact He | right; left; exact Hin | right; right; exact Hi ].
+Qed.
+
+(** §C3-FRESH.5 (§7 exactness, CR2-D5) — the FREGoMod entry: "go.mod" ALWAYS maps to [FREGoMod], and it is the
+    ONLY key that does (no file produces an [FREGoMod] value, and no file key equals "go.mod"). *)
+Lemma root_layout_gomod : forall p, PM.find "go.mod" (root_layout p) = Some FREGoMod.
+Proof.
+  intro p. unfold root_layout.
+  rewrite (fold_add_find_notin root_entry_of_file (PM.add "go.mod" FREGoMod (PM.empty _))
+             (GoAST.file_bindings (prog_files p)) "go.mod" (fun b _ => root_entry_key_neq_gomod b)).
+  apply PMF.add_eq_o. reflexivity.
+Qed.
+
+Lemma root_layout_gomod_iff : forall p e,
+  PM.find e (root_layout p) = Some FREGoMod <-> e = "go.mod".
+Proof.
+  intros p e. split; [| intros ->; apply root_layout_gomod ].
+  intro Hf. unfold root_layout in Hf.
+  destruct (existsb (fun b => String.eqb (fst (root_entry_of_file b)) e)
+              (GoAST.file_bindings (prog_files p))) eqn:Eex.
+  - apply existsb_exists in Eex. destruct Eex as [b [Hin Hkey]]. apply String.eqb_eq in Hkey.
+    rewrite (fold_add_find_in root_entry_of_file (PM.add "go.mod" FREGoMod (PM.empty _))
+               (GoAST.file_bindings (prog_files p)) e b Hin Hkey
+               (fun b1 b2 _ _ => root_entry_hval b1 b2)) in Hf.
+    exfalso. injection Hf as Hval. unfold root_entry_of_file in Hval.
+    destruct (String.eqb (fp_parent (fst b)) ""); cbn [snd] in Hval; discriminate Hval.
+  - assert (Hni : forall b, In b (GoAST.file_bindings (prog_files p)) -> fst (root_entry_of_file b) <> e).
+    { intros b Hin Hc. apply Bool.not_true_iff_false in Eex. apply Eex, existsb_exists.
+      exists b. split; [ exact Hin | apply String.eqb_eq; exact Hc ]. }
+    rewrite (fold_add_find_notin root_entry_of_file (PM.add "go.mod" FREGoMod (PM.empty _))
+               (GoAST.file_bindings (prog_files p)) e Hni) in Hf.
+    destruct (String.eqb "go.mod" e) eqn:Eg.
+    + apply String.eqb_eq in Eg; symmetry; exact Eg.
+    + apply String.eqb_neq in Eg. rewrite PMF.add_neq_o, PMF.empty_o in Hf by exact Eg. discriminate Hf.
+Qed.
+
+(** §C3-FRESH.5 (§7 exactness, CR2-D5) — the FRESOURCEFILE entries: a key maps to [FRESourceFile fp] IFF some
+    ROOT-level represented file (empty parent) has that key as its own path and IS [fp]. *)
+Lemma root_layout_source_iff : forall p e fp,
+  PM.find e (root_layout p) = Some (FRESourceFile fp) <->
+  (exists b, In b (GoAST.file_bindings (prog_files p))
+             /\ fp_parent (fst b) = "" /\ fp_string (fst b) = e /\ fst b = fp).
+Proof.
+  intros p e fp. unfold root_layout. split.
+  - intro Hf.
+    destruct (existsb (fun b => String.eqb (fst (root_entry_of_file b)) e)
+                (GoAST.file_bindings (prog_files p))) eqn:Eex.
+    + apply existsb_exists in Eex. destruct Eex as [b [Hin Hkey]]. apply String.eqb_eq in Hkey.
+      rewrite (fold_add_find_in root_entry_of_file (PM.add "go.mod" FREGoMod (PM.empty _))
+                 (GoAST.file_bindings (prog_files p)) e b Hin Hkey
+                 (fun b1 b2 _ _ => root_entry_hval b1 b2)) in Hf.
+      injection Hf as Hval. exists b.
+      unfold root_entry_of_file in Hkey, Hval.
+      destruct (String.eqb (fp_parent (fst b)) "") eqn:E; cbn [fst snd] in Hkey, Hval.
+      * apply String.eqb_eq in E. injection Hval as Hfp.
+        split; [ exact Hin | split; [ exact E | split; [ exact Hkey | exact Hfp ] ] ].
+      * discriminate Hval.
+    + exfalso.
+      assert (Hni : forall b, In b (GoAST.file_bindings (prog_files p)) -> fst (root_entry_of_file b) <> e).
+      { intros b Hin Hc. apply Bool.not_true_iff_false in Eex. apply Eex, existsb_exists.
+        exists b. split; [ exact Hin | apply String.eqb_eq; exact Hc ]. }
+      rewrite (fold_add_find_notin root_entry_of_file (PM.add "go.mod" FREGoMod (PM.empty _))
+                 (GoAST.file_bindings (prog_files p)) e Hni) in Hf.
+      destruct (String.eqb "go.mod" e) eqn:Eg.
+      * apply String.eqb_eq in Eg. rewrite <- Eg, PMF.add_eq_o in Hf by reflexivity. discriminate Hf.
+      * apply String.eqb_neq in Eg. rewrite PMF.add_neq_o, PMF.empty_o in Hf by exact Eg. discriminate Hf.
+  - intros [b [Hin [Hpar [Hkey Hfp]]]].
+    assert (Hkv : root_entry_of_file b = (e, FRESourceFile fp)).
+    { unfold root_entry_of_file. destruct (String.eqb (fp_parent (fst b)) "") eqn:E.
+      - rewrite Hkey, Hfp. reflexivity.
+      - apply String.eqb_neq in E. exfalso. exact (E Hpar). }
+    rewrite (fold_add_find_in root_entry_of_file (PM.add "go.mod" FREGoMod (PM.empty _))
+               (GoAST.file_bindings (prog_files p)) e b Hin (f_equal fst Hkv)
+               (fun b1 b2 _ _ => root_entry_hval b1 b2)).
+    rewrite Hkv. reflexivity.
+Qed.
+
+(** §C3-FRESH.5 (§7 exactness, CR2-D5) — the DOMAIN (no-extra-entry): the layout's keys are EXACTLY "go.mod"
+    plus the root-entry key of every represented file — nothing else. *)
+(* the base layout ([go.mod] only) membership, stated via find (robust to the empty-map facts spelling). *)
+Lemma root_base_in_iff : forall e,
+  PM.In e (PM.add "go.mod" FREGoMod (PM.empty FreshRootEntryKind)) <-> e = "go.mod".
+Proof.
+  intro e. rewrite PMF.add_in_iff, PMF.empty_in_iff. split.
+  - intros [He|[]]; symmetry; exact He.
+  - intros ->. left; reflexivity.
+Qed.
+
+Lemma root_layout_domain : forall p e,
+  PM.In e (root_layout p) <->
+  e = "go.mod" \/ In e (map (fun b => fst (root_entry_of_file b)) (GoAST.file_bindings (prog_files p))).
+Proof.
+  intros p e. unfold root_layout. rewrite fold_add_in_iff, root_base_in_iff.
+  split; [ intros [Hin|He]; [ right; exact Hin | left; exact He ]
+         | intros [He|Hin]; [ right; exact He | left; exact Hin ] ].
+Qed.
+
 (** ============================================================================================
     §C3-FRESH.6 (§13/§14) — the retained FRESH BUILD PLAN + its preflight.  After loading packages, cmd/go
     picks a default output ONLY for a sole selected MAIN package, then stats that name and FAILS (before
@@ -5130,6 +5653,54 @@ Proof.
   intro p. unfold fresh_build_plan, fresh_build_plan_of.
   destruct (selected_package_keys p) as [|dir [|d2 rest]] eqn:Ek; try reflexivity.
   unfold selected_package_count. rewrite Ek. reflexivity.
+Qed.
+
+(* every selected package key is "" or the parent directory of a represented file. *)
+Lemma selected_key_is_parent : forall p dir,
+  In dir (selected_package_keys p) -> dir = ""%string \/ exists fp, fp_parent fp = dir.
+Proof.
+  intros p dir Hin. unfold selected_package_keys in Hin. apply in_map_iff in Hin.
+  destruct Hin as [[k s] [Hfst Hinel]]. cbn in Hfst. subst k.
+  assert (Hmt : PM.MapsTo dir s (selected_packages p))
+    by (apply PMF.elements_mapsto_iff, InA_alt; exists (dir, s); split; [ split; reflexivity | exact Hinel ]).
+  assert (Hex : exists b, In b (GoAST.file_bindings (prog_files p)) /\ fp_parent (fst b) = dir).
+  { apply selected_iff_file. exists s. exact Hmt. }
+  destruct Hex as [b [_ Hpar]]. right. exists (fst b). exact Hpar.
+Qed.
+
+(** §C3-FRESH.2 (CR2-D5) — the DEFAULT EXECUTABLE NAME of a sole selected package is NEVER empty: cmd/go
+    always writes a nonempty default output name.  (Universal over every representable program's plan.) *)
+Theorem fresh_build_plan_exec_nonempty : forall p dir ip ex t,
+  fresh_build_plan p = FBDWriteSingleMain dir ip ex t -> ex <> ""%string.
+Proof.
+  intros p dir ip ex t Hplan.
+  unfold fresh_build_plan in Hplan.
+  destruct (selected_package_keys p) as [|d0 [|d1 r]] eqn:Ek; try discriminate Hplan.
+  injection Hplan as _ _ Hex _.
+  assert (Hdir : d0 = ""%string \/ exists fp, fp_parent fp = d0)
+    by (apply (selected_key_is_parent p); rewrite Ek; left; reflexivity).
+  destruct (package_import_path_canonical (prog_module p) d0 Hdir) as [Hne [Hst [Hen Hnd]]].
+  rewrite <- Hex. apply default_exec_name_nonempty_core; assumption.
+Qed.
+
+(** §C3-FRESH.6 (CR2-D5) — the EXACT zero / single / multiple plan CLASSIFICATION by selected-package count. *)
+Lemma fresh_build_plan_zero : forall p,
+  selected_package_keys p = [] -> fresh_build_plan p = FBDNoPackages.
+Proof. intros p H. unfold fresh_build_plan. rewrite H. reflexivity. Qed.
+
+Lemma fresh_build_plan_multiple : forall p d1 d2 rest,
+  selected_package_keys p = d1 :: d2 :: rest ->
+  fresh_build_plan p = FBDDiscardMultiple (selected_package_count p).
+Proof. intros p d1 d2 rest H. unfold fresh_build_plan. rewrite H. reflexivity. Qed.
+
+(** the sole-main plan's stored output TARGET is exactly the fresh root layout's classification at the default
+    output name (feeds the §18J image-side output-target bridge). *)
+Lemma fresh_build_plan_single_target : forall p dir ip ex t,
+  fresh_build_plan p = FBDWriteSingleMain dir ip ex t -> t = PM.find ex (root_layout p).
+Proof.
+  intros p dir ip ex t Hplan. unfold fresh_build_plan in Hplan.
+  destruct (selected_package_keys p) as [|d0 [|d1 r]] eqn:Ek; try discriminate Hplan.
+  injection Hplan as _ _ Hex Ht. rewrite <- Hex. symmetry. exact Ht.
 Qed.
 
 (** the RETAINED package buckets' keys ARE [selected_package_keys] (same DIR domain — both are exactly the

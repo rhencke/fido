@@ -499,6 +499,31 @@ Print Assumptions GoCompile.bucket_keys_eq_selected.
 Print Assumptions GoCompile.fresh_build_plan_of_buckets.
 Print Assumptions GoCompile.cp_build_plan_retained.
 Print Assumptions GoCompile.cp_root_layout_retained.
+(* CR2-D5 §7 — the COMPLETE fresh-root-layout EXACTNESS: the "go.mod"->FREGoMod entry (and it is the ONLY
+   FREGoMod key); a key maps to FRESourceFile IFF a root-level file has it; the DIRECTORY characterization
+   (existing [root_layout_dir_iff]); and the whole no-extra-entry DOMAIN — plus the disjointness underpinning
+   ([root_entry_hval] / [root_entry_key_neq_gomod]). *)
+Print Assumptions GoCompile.root_entry_key_neq_gomod.
+Print Assumptions GoCompile.root_entry_hval.
+Print Assumptions GoCompile.root_layout_dir_iff.
+Print Assumptions GoCompile.root_layout_gomod.
+Print Assumptions GoCompile.root_layout_gomod_iff.
+Print Assumptions GoCompile.root_layout_source_iff.
+Print Assumptions GoCompile.root_layout_domain.
+(* CR2-D5 §10-13 — the UNIVERSAL package-selection / import-path / executable-name / plan exactness (not just
+   computed fixtures): visibility (a selected key IS a represented file's parent); canonical import-path shape;
+   the NEVER-EMPTY default executable name (canonical import path); the exact zero/single/multiple plan
+   classification and the sole-main plan's stored output target. *)
+Print Assumptions GoCompile.selected_iff_file.
+Print Assumptions GoCompile.selected_key_is_parent.
+Print Assumptions GoCompile.package_import_path_root.
+Print Assumptions GoCompile.package_import_path_nested.
+Print Assumptions GoCompile.package_import_path_canonical.
+Print Assumptions GoCompile.default_exec_name_nonempty_core.
+Print Assumptions GoCompile.fresh_build_plan_exec_nonempty.
+Print Assumptions GoCompile.fresh_build_plan_zero.
+Print Assumptions GoCompile.fresh_build_plan_multiple.
+Print Assumptions GoCompile.fresh_build_plan_single_target.
 
 (* GoSafe: exact VALUE semantics — a zero literal and a negated zero agree; a resolved expression evaluates
    to a well-formed value of the resolved GoType (one type authority across compiler and runtime); value
@@ -633,6 +658,11 @@ Print Assumptions GoEmit.di_transport_order_independent.
    its `.go` file keys are EXACTLY the source FilePaths (no extra entry; go.mod is a distinguished field). *)
 Print Assumptions GoEmit.directory_image_realizes_fresh_layout.
 Print Assumptions GoEmit.image_go_files_are_source_paths.
+(* CR2-D5 §18J — the RETAINED-PLAN / IMAGE bridge: a rendered image realizes the CompilableProgram's RETAINED
+   root layout ([ef_root_layout]) AND the retained build plan's output-target classification is the ACTUAL
+   image's classification at that output name — the collision check is against the real emitted tree. *)
+Print Assumptions GoEmit.directory_image_realizes_retained_layout.
+Print Assumptions GoEmit.image_output_target_of_retained_plan.
 
 (* GoIndex (Source Forest C2): the PRODUCTION occurrence index over the ONE raw GoProgram grammar — Pillar 1
    (source/index exactness).  The sealed standard positive-key node-table laws; the per-file occurrence-count
