@@ -1,3 +1,8 @@
+> ⚠ SUPERSEDED — the unresolved findings recorded here are superseded by the human cleanup directive
+> `.review/C3_FINAL_CLEANUP_DIRECTIVE.md` (`human_override: C3-final-cleanup-1`).  This diary is scheduled for
+> deletion once the directive + the compact `SOURCE_FOREST_STATUS.md` ledger fully capture the result; git
+> history is the review archive.
+
 # C3 weedwhacker — bounded Implementation Review confirmation: BLOCKING
 
 Codex task `task-mrtdwfu9-bs4li9`, frozen range `95258b0..2ba541e`, over the weedwhacker batch

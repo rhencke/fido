@@ -1,20 +1,13 @@
 # NEXT_STEPS — active authority pointer
 
-- **Active checkpoint:** C3 (Source Forest) — closeout under review.
-- **Active contract:** `.review/C3_FRESH_IMAGE_LITERAL_BUILD_PLAN.md`, activation commit `83c3989`,
-  content sha256 `a13779c2e55c…`.
-- **Review basis:** `.review/REVIEW_BASIS.md`, sha256 `890b0d9ffc18…`.
-- **Human amendment (SUPERSEDES every contrary option in the contract and prior addenda):**
-  `.review/C3_WEEDWHACKER_DIRECTIVE.md`, committed `9caa929`, sha256 `62c9dbbe707a…`, human_override token
-  `C3-weedwhacker-human-decision`.  See that file for the binding decisions; do NOT restate them here.
-- **Repair authorization:** `human_override: C3-weedwhacker-repair-1` — repair the five bounded-confirmation
-  findings (`.review/C3_WEEDWHACKER_CONFIRMATION_FINDINGS.md`) as ONE batch, then request ONE final bounded
-  confirmation; a BLOCKING result ENDS autonomous work.
-- **Standing amendment (Rob, 2026-07-19) — PLATFORM LIMITS OUT OF SCOPE:** Fido does NOT model platform-specific
-  filesystem/materialization limits (NAME_MAX, PATH_MAX, disk, memory); a path is UNLIMITED length for modeling.
-  `GoCompile == go build ./...` is exact for the SEMANTIC + cmd/go package/output logic (types, one-main,
-  directory collision), EXCLUDING platform fs limits (over-long paths fail loud at OS materialization,
-  ENAMETOOLONG — not in the model/grammar/sink).
-- **Current state:** the weedwhacker repair-1 batch is under implementation; live status in
-  `SOURCE_FOREST_STATUS.md`.  Do NOT describe any candidate as accepted until a non-stale Codex GREEN.
+- **Active checkpoint:** C3 (Source Forest) — final bounded cleanup.
+- **Active functional contract:** `.review/C3_FRESH_IMAGE_LITERAL_BUILD_PLAN.md`, activation `83c3989`,
+  content sha256 `a13779c2e55c679e461e857d019eeae6adef27b0666876ed0cac92833814f212`.
+- **Current repair authority:** `.review/C3_FINAL_CLEANUP_DIRECTIVE.md`, human_override `C3-final-cleanup-1`
+  (one repair batch + one final bounded Implementation Review confirmation; does NOT reopen C3 architecture or
+  authorize C4).
+- **Accepted review basis:** `.review/REVIEW_BASIS.md`.
+- **Current state:** implementing the C3-final-cleanup-1 batch (runner state machine, restored package-import
+  injectivity/determinism proofs, semantic/workflow prose corrections, tracked-tree prose sweep); live status in
+  `.review/SOURCE_FOREST_STATUS.md`.  Do NOT describe any candidate as accepted until a non-stale Codex GREEN.
 - **C4 is FORBIDDEN** until explicit Rob authorization.
