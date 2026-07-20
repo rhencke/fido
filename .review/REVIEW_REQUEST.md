@@ -1,6 +1,6 @@
 # Review Request
 
-state: requested
+state: closed
 review: Implementation Review
 confirmation: yes
 confirmation_used: yes
@@ -10,6 +10,13 @@ contract: .review/NEXT_STEPS.md
 contract_sha: 83c3989
 review_basis: .review/REVIEW_BASIS.md
 
+# CLOSED — the ONE bounded confirmation (Codex task-mrtdwfu9, range 95258b0..2ba541e) returned BLOCKING with
+# 5 valid findings (record: .review/C3_WEEDWHACKER_CONFIRMATION_FINDINGS.md).  Per the §14 HARD CAP a BLOCKING
+# confirmation ENDS autonomous work: recorded + Rob notified + STOPPED.  Findings 1-4 are repair-induced
+# (§8 component root under-implemented; fresh negative-runner fail-open; gate 387>386; §9/§11/F5 chronology +
+# authority-prose incomplete + trailing whitespace + stale NEXT_STEPS), finding 5 previously-observable (basis
+# records the wrong contract hash).  Do NOT repair or re-request without a NEW explicit human_override token.
+#
 # The ONE bounded Implementation Review confirmation authorized by Rob's C3 weedwhacker human decision
 # (.review/C3_WEEDWHACKER_DIRECTIVE.md, human_override token C3-weedwhacker-human-decision).  That decision
 # resolved the escalated F1/F2 architectural conflict (delete BOTH manifest systems, no checksum/signed-file
