@@ -22,7 +22,7 @@ Definition bytes_module : ModuleSpec := mkModuleSpec (mkMP "fido.local/generated
 Definition bytes_program : GoProgram := singleton_program bytes_module (mkFP "main.go" eq_refl) bytes_file.
 
 Lemma bytes_valid : GoCompile bytes_program.
-Proof. apply GoCompile_of_prog_ok; vm_compute; reflexivity. Qed.
+Proof. apply GoCompile_of_source_valid_b; vm_compute; reflexivity. Qed.
 
 Definition bytes_compiled : CompilableProgram :=
   compilable_of_valid bytes_program bytes_valid.
@@ -34,4 +34,5 @@ Definition bytes_safe : SafeProgram := certify bytes_compiled.
 
 Declare ML Module "fido.emit".
 Fido Materialize (render_program bytes_safe) To "/workspace/generated-bytes".
-Fido Emit (render_program bytes_safe) To "/workspace/e2e-bytes".
+(* F2 — witness ONLY materializes the pristine (validated by the go-e2e fresh `go build`); no public
+   sink/publish — the sink is exercised by e2e/sink_test.ml + the validated `make regenerate` workflow. *)

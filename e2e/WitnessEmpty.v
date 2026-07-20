@@ -2,8 +2,8 @@
     valid program — a generated Go module containing only `go.mod` and no packages.  Kernel facts: the
     empty program builds, is admissible ([GoCompile] — the fresh-build preflight passes vacuously with no
     package, and the source is valid), compiles ([go_compile] accepts), certifies to a [SafeProgram],
-    and renders to an image whose go.mod is present and whose `.go` file map is EMPTY.  Emitted by the
-    GENERAL Fido Emit transport; the e2e then runs `go build ./...` over the module (zero packages is
+    and renders to an image whose go.mod is present and whose `.go` file map is EMPTY.  Materialized by
+    `Fido Materialize`; the go-e2e stage then runs `go build ./...` over the module (zero packages is
     accepted). *)
 From Stdlib Require Import List NArith String.
 From Fido Require Import FilePath ModulePath GoVersion GoAST GoCompile GoSafe GoRender GoEmit.
@@ -13,7 +13,7 @@ Definition empty_module : ModuleSpec := mkModuleSpec (mkMP "fido.local/generated
 Definition empty_prog : GoProgram := empty_program empty_module.
 
 Lemma empty_valid : GoCompile empty_prog.
-Proof. apply GoCompile_of_prog_ok; vm_compute; reflexivity. Qed.
+Proof. apply GoCompile_of_source_valid_b; vm_compute; reflexivity. Qed.
 
 Definition empty_compiled : CompilableProgram :=
   compilable_of_valid empty_prog empty_valid.
@@ -29,4 +29,5 @@ Proof. reflexivity. Qed.
 
 Declare ML Module "fido.emit".
 Fido Materialize (render_program empty_safe) To "/workspace/generated-empty".
-Fido Emit (render_program empty_safe) To "/workspace/e2e-empty".
+(* F2 — witness ONLY materializes the pristine (validated by the go-e2e fresh `go build`); no public
+   sink/publish — the sink is exercised by e2e/sink_test.ml + the validated `make regenerate` workflow. *)

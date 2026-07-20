@@ -1,9 +1,10 @@
-; The ONE handwritten OCaml boundary: the Fido Emit transport plugin.  The library bundles the generic
-; dirty-directory filesystem sink (fido_sink.ml) and the transport bridge + vernac (g_fido.mlg).  The
-; bridge's boundary is four steps — typecheck the image, reject a non-empty assumption closure (a kernel
-; provenance query), decode only the final (go.mod, entries) transport, call the sink; it walks no program/AST
-; and does no semantic inspection.  The Fido Emit command is run EXPLICITLY (rocq c on the witness), never
-; as a cached dune .vo side effect.
+; The ONE handwritten OCaml boundary: the Fido transport plugin.  The library bundles the generic
+; dirty-directory filesystem sink (fido_sink.ml — INTERNAL, reached only from sink_test / the make-regenerate
+; apply CLI) and the transport bridge + vernac (g_fido.mlg).  The bridge's boundary is four steps — typecheck
+; the image, reject a non-empty assumption closure (a kernel provenance query), decode only the final
+; (go.mod, entries) transport, hand it to the writer; it walks no program/AST and does no semantic inspection.
+; The sole Rocq transport command is `Fido Materialize` (there is no public `Fido Emit`); it is run EXPLICITLY
+; (rocq c on the witness), never as a cached dune .vo side effect.
 (library
  (name fido_emit)
  (public_name fido.emit)

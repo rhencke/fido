@@ -30,7 +30,7 @@ Updated only at checkpoint boundaries._
   `.review/C3_MANUAL_CLOSEOUT_DIRECTIVE.md`; supporting evidence `.review/C3_MANUAL_CLOSEOUT_AUDIT.md` (not a
   second contract).  **C4 remains FORBIDDEN.**  The next substantive Codex barrier is ONE holistic
   **Implementation Review** after the entire closeout directive is complete (with at most one bounded confirmation).
-- **CLOSEOUT COMPLETE — all 8 material defects RESOLVED (2026-07-20); candidate frozen at `1180b49`, `make check` GREEN.**
+- **CLOSEOUT — the 8 directive defects addressed (2026-07-20, candidate `1180b49`, `make check` GREEN), THEN the holistic Implementation Review found 5 deeper findings F1–F5 (below), now also repaired.**
   Directive → work mapping: **CL-3** §3 second traversal — `elaborate` folds the RETAINED `visit` via the shared
   `prog_package_refs_from_visit` (no second `prog_visit`) (`5560019`); **CL-6** §6 old authority —
   `SourceProgramValid` is the ONLY live source root, `AllPackagesOneMain`/`ProgValid`/`prog_ok` CONFINED (grammar
@@ -58,8 +58,25 @@ Updated only at checkpoint boundaries._
   `CompilationFacts` all absent from code; `AllPackagesOneMain`/`ProgValid`/`prog_ok` confined + ungated;
   `prog_package_refs`/`prog_visit`/`Snap.visit_file`/`Fido Emit`/`Fido_sink.sync`/`go build ./...`/`Print Assumptions`
   each one current justified role; `ACTIVE` = the single current-C3 status heading) verified.
-  **The ONE holistic Implementation Review is REQUESTED** — `.review/REVIEW_REQUEST.md` (base `fea6493`,
-  head `1180b49`, contract `83c3989`).  **C4 remains FORBIDDEN.**
+- **Implementation Review #1 (Codex, over `fea6493..1180b49`) returned BLOCKING with 5 findings F1–F5**
+  (complete finding set recorded in `.review/C3_IMPL_REVIEW_FINDINGS.md`); the CL-6/CL-8/CL-4/CL-5 fixes were
+  INSUFFICIENT.  **All 5 REPAIRED as ONE batch (`make prove` + `make e2e` GREEN):**
+  **F1** — a `CONFINED` comment is not a boundary: DELETED `ProgValid`/`prog_ok`/`prog_ok_iff` and the bridge
+  lemmas, RENAMED the decidable reflection to `source_valid_b` tied DIRECTLY to `SourceProgramValid`
+  (`source_valid_b_iff` / `semantic_ok_b_SourceProgramValid`, no `prog_ok`/`ProgValid`), kept `AllPackagesOneMain`
+  only as `current_package_rules_exactly_one`'s consequence, migrated all callers/witnesses/gate.
+  **F2** — REMOVED the standalone public `Fido Emit` vernac: the publication SINK (`Fido_sink.sync`) is now
+  INTERNAL (reached only from `sink_test` + the validated `make regenerate` apply CLI); `Fido Materialize` is
+  the SOLE Rocq transport vernac; witnesses ONLY materialize; the provenance/forge negatives use
+  `Fido Materialize`.  **F3** — the fresh runner now CHECKS every mktemp/chmod/sort/build-log op (fail-loud
+  rc=2) and exposes a `_FRESH_GO_RAN` discriminator; `rej_conv`/`expect_reject`/case-K require Go to have
+  actually RUN (not merely a nonzero runner rc); +mktemp/chmod/sort/Go-ran regressions.  **F4** — the readable
+  gate falls 410→384 (removed the 26 concrete fixed-program fixtures — GoIndex reg / erased-report /
+  fact-table / single-failure-scar / mixed-order — still compiled, covered by the whole-theory audit; kept the
+  universal bridges).  **F5** — reconciled ARCHITECTURE/CLAUDE/README/PROGRESS/COLLECTION_AUDIT (prog_ok_iff →
+  the live reflections; no public Fido Emit; the platform-path fail-loud amendment) and the historical
+  `FINAL barrier ACTIVE` label.  **A bounded confirmation (same review type, `confirmation: yes`) is REQUESTED.**
+  **C4 remains FORBIDDEN.**
 - **Material defects the closeout fixed** (all RESOLVED — see CLOSEOUT COMPLETE above; over the retained-correct C3 architecture): (1) the production
   elaborator still traverses each file twice — `elaborate_indexed` uses `prog_package_refs idx` (which recomputes
   `prog_visit p`) instead of the RETAINED `visit`; (2) the fresh-build runner is fail-OPEN (find|while pipelines +
@@ -297,7 +314,7 @@ Updated only at checkpoint boundaries._
 - ROOT Codex RE-review #5 of round #5 (`5d9bd5b`): **ALLOW / GREEN** (task-mrr9nut0, non-stale 2026-07-19
   T03:59:09Z > HEAD `5d9bd5b` T03:58:30Z) — "no blocking implementation defects or architectural conflicts
   within the C3 ROOT scope and declared threat model."  **The C3 ROOT barrier is Codex-GREEN.**
-- FINAL barrier ACTIVE (ROOT-GREEN @`5d9bd5b`; no human stop between ROOT-GREEN and FINAL).  Progress:
+- FINAL barrier (HISTORICAL — this older structural C3 is COMPLETE; ROOT-GREEN @`5d9bd5b`; no human stop between ROOT-GREEN and FINAL).  Progress:
   - **FINAL 1** (`b299263`): §17 erased-diagnostic reports FOUNDATION — snapshot-independent `ErasedAnchor` /
     `ErasedDiagnostic` + `erase_diagnostic` (code + key-only anchors + stable target-type payload, no source
     syntax) + `erased_report` (empty iff analysis accepts) + intra-snapshot preservation lemmas.

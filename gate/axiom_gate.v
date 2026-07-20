@@ -330,12 +330,13 @@ Print Assumptions GoCompile.semantic_diagnostics_empty_iff.
 Print Assumptions GoCompile.elaborate_ok_iff_GoCompile.
 Print Assumptions GoCompile.elaborate_failed_iff_not_GoCompile.
 
-(* C3-FRESH §9 (CL-6) — the LIVE source root is FACTORED: package-block uniqueness AND main-package entry are
-   separate roots ([SourceProgramValid]); [current_package_rules_exactly_one] states the CURRENT-grammar
-   consequence (they coincide with "every package has one main"), and [source_program_valid_iff] bridges to
-   the confined combined form.  The executable reflection is [semantic_ok_b_SourceProgramValid] (gated above). *)
+(* F1/§9 — the LIVE source root is the FACTORED [SourceProgramValid] (= ProgramTyped /\ PackageRulesValid,
+   i.e. package-block uniqueness AND main-package entry as separate roots).  The retained universal theorem
+   [current_package_rules_exactly_one] states the CURRENT-grammar consequence (the factored rules coincide with
+   "every package has one main").  The DECIDABLE reflection is [source_valid_b_iff] (and the elaboration-native
+   [semantic_ok_b_SourceProgramValid], gated above) — DIRECT, with no [prog_ok]/[ProgValid]. *)
 Print Assumptions GoCompile.current_package_rules_exactly_one.
-Print Assumptions GoCompile.source_program_valid_iff.
+Print Assumptions GoCompile.source_valid_b_iff.
 (* C3-FRESH §14/§17/§18 — GoCompile INCLUDES the pinned one-shot `go build ./...` output PREFLIGHT.  The three
    diagnostic layers each have an emptiness/equivalence characterization (source, fresh, final); a failed
    preflight takes PRECEDENCE (exactly one build-output-directory diagnostic, hiding the sole package's semantic
@@ -599,16 +600,6 @@ Print Assumptions GoIndex.as_kind_complete.
 Print Assumptions GoIndex.as_kind_mismatch.
 Print Assumptions GoIndex.noderefof_kind.
 Print Assumptions GoIndex.noderefof_key_inj.
-(* GoIndex §21/§22 regressions over the real grammar: println(1,1) — two EQUAL args are DISTINCT occurrences
-   (distinct keys/local ids, correct per-arg roles, both recover EInt 1, no dedup); same-shape different-payload
-   snapshots have per-snapshot payload recovery yet EQUAL erased index data and NON-interchangeable ref types;
-   same-file different-ModuleSpec snapshots have IDENTICAL index data yet NON-interchangeable ref types; and the
-   mutation-sensitive fixture pins exact per-occurrence metadata + source views through the UNIVERSAL theorem. *)
-Print Assumptions GoIndex.reg_println_1_1.
-Print Assumptions GoIndex.reg_payload_a.
-Print Assumptions GoIndex.reg_payload_b.
-Print Assumptions GoIndex.reg_index_data_equal.
-Print Assumptions GoIndex.reg_module_index_equal.
 (* GoIndex ROOT-completeness surfaces (§11/§12/§18/§23): FileRef minting soundness + the invalid-path /
    invalid-local rejection cases; decidable NodeRef equality; and the CANONICAL preorder enumeration of ALL a
    file's references (same-file / complete / NoDup / source-ordered) with reachability of every occurrence from
@@ -651,54 +642,21 @@ Print Assumptions GoIndex.nodekey_compare_eq.
 Print Assumptions GoIndex.nodekeymap_add_eq.
 Print Assumptions GoIndex.nodekeymap_add_neq.
 Print Assumptions GoIndex.nodekeymap_elements_Equal.
-(* C3 §22/§23 — CONCRETE STRUCTURED-DIAGNOSTIC FIXTURES: EXACT erased reports / fact enumerations of concrete
-   programs, computed through the SOURCE characterization of the report + fact table ([erased_report_src_eq] /
-   [prog_expr_facts_source]) so [vm_compute] delivers the exact list — exact COUNT, exact NodeKey/package
-   ANCHORS, exact target PAYLOADS, exact fact VALUES.  §22.15 reordered-construction determinism; §22.13 empty
-   program; §22.8 nested [float64(int8(128))] -> ONE DCInvalidConversion, primary=int8, related=[float64],
-   target=int8; §22.9/§22.11 three mains -> EXACTLY TWO DCMainRedeclared both related to the first main; §22.12
-   no-main package -> ONE DCMissingMainEntry at the package anchor. *)
-Print Assumptions GoCompile.reorder_construction_deterministic.
-Print Assumptions GoCompile.empty_program_report.
-Print Assumptions GoCompile.nested_conv_erased_report.
-Print Assumptions GoCompile.three_main_erased_report.
-Print Assumptions GoCompile.missing_main_erased_report.
-(* C3 §23 — EXACT per-occurrence facts of the valid nested-conversion program (inner literal untyped/unresolved,
-   inner conversion typed/unresolved-operand, outer arg typed + resolved to its GoTypes type), plus the general
-   bridge that every query PROJECTS its occurrence's exact fact; §22.16 — repeated equal literals give TWO
-   entries at distinct keys with equal values (occurrence-keyed, not deduplicated by syntax value). *)
+(* C3 §23 — the UNIVERSAL query-projection bridge: every typed expression query PROJECTS its occurrence's
+   EXACT analyzed fact (the const-status the fact table stores).  (F4: the concrete per-program erased-report /
+   fact-enumeration / single-failure-scar fixtures stay COMPILED as tests + covered by the whole-theory audit,
+   but are NOT gated surfaces — they are fixed-program witnesses, not universal claims.) *)
 Print Assumptions GoCompile.expr_fact_at_exact.
-Print Assumptions GoCompile.fact_program_facts_exact.
-Print Assumptions GoCompile.fact_program_inner_literal.
-Print Assumptions GoCompile.fact_program_inner_conversion.
-Print Assumptions GoCompile.fact_program_outer_arg.
-Print Assumptions GoCompile.fact_program_outer_fact.
-Print Assumptions GoCompile.dup_lit_facts_exact.
-(* C3 §22.1-22.7 — single-failure scars: each concrete rejected program's EXACT one-diagnostic report (code +
-   anchor + target): default int/float/complex overflow, invalid int8/fractional/nonzero-imaginary/wrong-kind
-   conversion.  §22.10 — duplicate mains across files (canonical path order, not insertion order).  §22.14 —
-   multiple simultaneous failures (two invalid expressions + one duplicate + one missing package) in canonical
-   order. *)
-Print Assumptions GoCompile.over_default_int_erased.
-Print Assumptions GoCompile.over_default_float_erased.
-Print Assumptions GoCompile.over_default_complex_erased.
-Print Assumptions GoCompile.bad_int8_erased.
-Print Assumptions GoCompile.frac_f2i_erased.
-Print Assumptions GoCompile.nz_c2s_erased.
-Print Assumptions GoCompile.wrongkind_erased.
-Print Assumptions GoCompile.dup_across_files_erased.
-Print Assumptions GoCompile.simultaneous_failures_erased.
 (* §16b — the UNIVERSAL STRICT canonical-order theorem: the report's node-primary diagnostics appear in
    STRICTLY ascending NodeKey order (path then local id) via the standard NodeKeyMap's key-sorted elements —
    NO project-authored sort.  Backed by the two supporting claims the order rests on: the node-keyed INPUT has
    UNIQUE keys (expr keys NoDup + pkg keys NoDup + their disjointness), so every bucket is a SINGLETON — hence
-   there are NO within-bucket ties to reorder.  The mixed-order fixture is the concrete witness (a duplicate-main
-   in package `a` STRICTLY precedes an invalid-conversion in package `z`); the bucketing is a REORDERING — the
-   report has exactly the diagnostics of `expr_diags ++ pkg_diags`. *)
+   there are NO within-bucket ties to reorder; the bucketing is a REORDERING and the report has exactly the
+   diagnostics of `expr_diags ++ pkg_diags`. *)
 Print Assumptions GoCompile.collect_node_input_nodup.
 Print Assumptions GoCompile.collect_node_buckets_singleton.
 Print Assumptions GoCompile.semantic_diagnostics_node_strict.
-Print Assumptions GoCompile.mixed_order_erased.
 Print Assumptions GoCompile.collect_diagnostics_In.
-(* the SOURCE characterization that makes the exact fixtures faithful to the real report. *)
+(* the SOURCE characterization of the erased report (ties the report to its source form; the universal
+   diagnostic-exactness claims above rest on it). *)
 Print Assumptions GoCompile.erased_report_src_eq.

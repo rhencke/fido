@@ -162,9 +162,11 @@ let do_audit () =
 (* The transport boundary is exactly four ordered steps, and NOTHING else touches the term.  Steps 1-2 are
    provenance guards (kernel queries — a typecheck and an assumption-closure check, NOT program/AST/
    semantic inspection); step 3 decodes the final transport.  No effect happens before both guards pass.
-   [decode_guarded] is SHARED by both consumers of step 4: [Fido Materialize] (the authoritative pristine
-   write for build validation) and [Fido Emit] (the sink publication) — so the SAME provenance-guarded,
-   identically-decoded bytes drive validation and publication. *)
+   [decode_guarded] is the SHARED guard for step 4.  After F2 there is exactly ONE Rocq consumer,
+   [Fido Materialize] (the authoritative pristine write for build validation); the publication SINK is
+   internal (handwritten OCaml: sink_test + the validated `make regenerate` apply CLI), never a Rocq vernac —
+   so the same provenance-guarded, identically-decoded bytes drive validation, and an image cannot be sunk
+   before it is validated. *)
 let decode_guarded t =
   let env = Global.env () in
   let sigma = Evd.from_env env in
@@ -212,19 +214,14 @@ let do_materialize t dir =
            with Fido_sink.Fail m -> CErrors.user_err (str ("fido materialize: " ^ m))) in
   Feedback.msg_notice (str (Printf.sprintf "fido materialize: wrote %d authoritative file(s) into %s" n dir))
 
-(* STEP 4b — SINK: hand the SAME provenance-guarded decoded transport to the foreign-Go-rejecting sibling-temp
-   synchronizer that PUBLISHES it to a (possibly dirty, real) destination.  In the validate-before-publish
-   flow this runs only after the materialized image has build-validated. *)
-let do_emit t dir =
-  let (go_mod, entries) = decode_guarded t in
-  let n = (try Fido_sink.sync dir go_mod entries
-           with Fido_sink.Fail m -> CErrors.user_err (str ("fido emit: " ^ m))) in
-  Feedback.msg_notice (str (Printf.sprintf "fido emit: synced %d file(s) into %s" n dir))
+(* F2 — there is NO public `Fido Emit` sink vernac.  The low-level publication SINK ([Fido_sink.sync], the
+   foreign-Go-rejecting sibling-temp synchronizer that writes into a possibly-dirty real destination) is
+   INTERNAL: it is reached ONLY from handwritten OCaml — `e2e/sink_test.ml` (the sink's own byte-exact test
+   driver) and `e2e/fido_apply.ml` (the `make regenerate` apply CLI, which the validated publication workflow
+   invokes only AFTER a fresh `go build ./...` succeeds).  The Rocq boundary exposes ONLY [Fido Materialize]
+   (the authoritative pristine export for build validation, above) and [Fido Audit Assumptions]; there is no
+   standalone Rocq command that publishes an image, so an image cannot be sunk before it is validated. *)
 }
-
-VERNAC COMMAND EXTEND FidoEmit CLASSIFIED AS SIDEFF
-| [ "Fido" "Emit" constr(t) "To" string(dir) ] -> { do_emit t dir }
-END
 
 VERNAC COMMAND EXTEND FidoMaterialize CLASSIFIED AS SIDEFF
 | [ "Fido" "Materialize" constr(t) "To" string(dir) ] -> { do_materialize t dir }

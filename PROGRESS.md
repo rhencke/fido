@@ -182,16 +182,17 @@ is rejected IN Rocq before any bytes — **zero expected Go build failures, ever
 
 ## GREEN — executed (integration evidence, never proof)
 
-- **The validate-before-publish transport workflow** (`plugin/g_fido.mlg`): `Fido Materialize` and `Fido Emit`
-  share ONE four-step provenance-guarded decode — (1) typecheck the image's `di_transport`, (2) reject a
-  non-empty assumption closure (a kernel provenance query descending Qed bodies — the SAME `closure_assums`
-  the audit uses), (3) decode only the final `(go.mod bytes, (path, bytes) list)` transport (exact
-  constructors, fail-loud), (4) hand to the writer. `Fido Materialize` writes the authoritative pristine image
-  DIRECTLY into a fresh disposable root, the pinned `go build ./...` VALIDATES it, and ONLY THEN `Fido Emit`
-  (the sink STEP, not a standalone public publish) transports the SAME bytes — a failed fresh build prevents
-  publication (`make regenerate` enforces this via its `e2e` prerequisite; the deployed path IS the tested
-  path). Run EXPLICITLY (`rocq c` on the witnesses) after the cached theory+plugin build — not a `.vo` side
-  effect; no per-witness recompile. `e2e/Witness.v` (witness), `e2e/WitnessMulti.v` (two-package + empty-file tree),
+- **The validate-before-publish transport workflow** (`plugin/g_fido.mlg`, F2): `Fido Materialize` (the SOLE
+  Rocq transport vernac) guards provenance via ONE four-step decode — (1) typecheck the image's `di_transport`,
+  (2) reject a non-empty assumption closure (a kernel provenance query descending Qed bodies — the SAME
+  `closure_assums` the audit uses), (3) decode only the final `(go.mod bytes, (path, bytes) list)` transport
+  (exact constructors, fail-loud), (4) hand to the writer. `Fido Materialize` writes the authoritative pristine
+  image DIRECTLY into a fresh disposable root, and the pinned `go build ./...` VALIDATES it. There is NO public
+  `Fido Emit`: the publication SINK (`Fido_sink.sync`) is INTERNAL — reached only from `e2e/sink_test.ml` and
+  the `make regenerate` apply CLI, which sinks the SAME validated bytes only AFTER the fresh build succeeds
+  (`make regenerate` enforces this via its `e2e` prerequisite; the deployed path IS the tested path). `Fido
+  Materialize` runs EXPLICITLY (`rocq c` on the witnesses) after the cached theory+plugin build — not a `.vo`
+  side effect; no per-witness recompile. `e2e/Witness.v` (witness), `e2e/WitnessMulti.v` (two-package + empty-file tree),
   and `e2e/WitnessEmpty.v` (empty module — go.mod + zero `.go`) each emit their tree; `e2e/WitnessNeg.v`
   rejects a raw transport; the direct-axiom / opaque-Qed / direct- and transitive-section-variable forged
   images are GENERATED TRANSIENTLY in the emit stage (no tracked axioms) and each rejected (reason-checked)

@@ -1,7 +1,7 @@
 (** A differential witness: a WHOLE-PROGRAM with TWO main packages in different directories (root
     `main.go` and `sub/main.go`, each with exactly one `main`) plus a THIRD file in the root package that
     has no declarations (an empty file, valid because the root package's single `main` is elsewhere).
-    GoCompile accepts it (prog_ok = true, checked below); the emitted tree must be accepted by
+    GoCompile accepts it (source_valid_b = true, checked below); the emitted tree must be accepted by
     `go build ./...` — the differential alarm that the whole-program directory/package rules match Go. *)
 From Stdlib Require Import List NArith String.
 From Fido Require Import FilePath ModulePath GoVersion GoAST GoCompile GoSafe GoRender GoEmit.
@@ -36,7 +36,7 @@ Lemma multi_program_built : build_program multi_module multi_nodes = Some multi_
 Proof. vm_compute. reflexivity. Qed.
 
 Lemma multi_valid : GoCompile multi_program.
-Proof. apply GoCompile_of_prog_ok; vm_compute; reflexivity. Qed.
+Proof. apply GoCompile_of_source_valid_b; vm_compute; reflexivity. Qed.
 
 Definition multi_compiled : CompilableProgram :=
   compilable_of_valid multi_program multi_valid.
@@ -48,4 +48,5 @@ Definition multi_safe : SafeProgram := certify multi_compiled.
 
 Declare ML Module "fido.emit".
 Fido Materialize (render_program multi_safe) To "/workspace/generated-multi".
-Fido Emit (render_program multi_safe) To "/workspace/e2e-multi".
+(* F2 — witness ONLY materializes the pristine (validated by the go-e2e fresh `go build`); no public
+   sink/publish — the sink is exercised by e2e/sink_test.ml + the validated `make regenerate` workflow. *)

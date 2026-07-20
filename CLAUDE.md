@@ -22,10 +22,11 @@ GoProgram (ModuleSpec + a possibly-empty GoFileMap standard source-file map) -> 
       -> `Fido Materialize` writes the AUTHORITATIVE pristine image DIRECTLY (never from a sink dir) into one
          `generated-module` Buildx layer (tracked go.mod + recursive .go) -> pinned Go `GOWORK=off
          GOTOOLCHAIN=local go build ./...` VALIDATES that pristine (fresh materialization, whole tree)
-      -> ONLY THEN the `Fido Emit` transport/sink STEP of this ONE validated publication workflow (NOT a
-         standalone public publication command) sinks the SAME decoded pristine bytes (never a post-build
-         byte) through the foreign-Go-rejecting sibling-temp dirty-directory sink (validation-before-
-         publication — a failed fresh build prevents publication; byte-exact vs the pristine, verified by the
+      -> ONLY THEN the INTERNAL sink STEP of the ONE validated `make regenerate` workflow (there is NO public
+         `Fido Emit` command — the sink `Fido_sink.sync` is reached only from `fido_apply`/`sink_test`) sinks
+         the SAME validated pristine bytes (never a post-build byte) through the foreign-Go-rejecting
+         sibling-temp dirty-directory sink (validation-before-publication — a failed fresh build prevents
+         publication; byte-exact vs the pristine, verified by the
          staged-index pre-commit)   [integration only]
 ```
 
@@ -96,7 +97,7 @@ algorithm, report an architectural conflict and stop. Do not implement an altern
 - **`GoCompile` is EXACT whole-PROGRAM compiler admissibility, not a subset filter.** It consumes the whole
   finite map; it aims to accept exactly what `go build ./...` accepts for every representable rendered
   program. Keep two claims distinct: (A) the checker matches the formal judgment is PROVED
-  (`prog_ok_iff`, sound + complete); (B) accepted programs are accepted by real Go is the GOAL, attacked by
+  (`go_compile_ok_valid` + `go_compile_complete`, sound + complete; `elaborate_ok_iff_GoCompile`); (B) accepted programs are accepted by real Go is the GOAL, attacked by
   DIFFERENTIAL experiments and the e2e, never a kernel theorem about `cmd/go`. A representable program Go
   accepts but GoCompile rejects is a MODEL BUG, never a documented limitation.
 - **No second authority / no second tree:** paths, syntax, admissibility, safety, rendering, and emission
@@ -110,8 +111,9 @@ algorithm, report an architectural conflict and stop. Do not implement an altern
    Rocq. The ONLY handwritten OCaml is the Fido transport: `plugin/g_fido.mlg` (the bridge — guards
    provenance ONCE by two kernel queries, typechecking the image type and rejecting an axiomatic assumption
    closure, then decodes ONLY the final `(go.mod bytes, (path, bytes) list)` transport via exact
-   constructors, fail-loud, and routes it to either `Fido Materialize` — the AUTHORITATIVE pristine write for
-   build validation — or `Fido Emit` — the sink publication; it understands no program/AST/semantics) and
+   constructors, fail-loud, and hands it to `Fido Materialize` — the AUTHORITATIVE pristine write for build
+   validation, the SOLE Rocq transport command (there is NO public `Fido Emit`; the sink publication
+   `Fido_sink.sync` is INTERNAL — reached only from `fido_apply`/`sink_test`); it understands no program/AST/semantics) and
    `plugin/fido_sink.ml` + `e2e/sink_test.ml` + `e2e/fido_apply.ml` (the pristine materializer + the generic
    dirty-directory sink, its test driver, and the `make regenerate` apply CLI — filesystem ONLY, walk no Rocq
    terms — `materialize` writes the exact decoded image into a FRESH empty disposable build-validation root
@@ -136,7 +138,7 @@ algorithm, report an architectural conflict and stop. Do not implement an altern
    `generated-module` Buildx layer by `make check` on the WORKING TREE (vs a pristine built from the same
    working-tree inputs) AND the pre-commit hook on the STAGED snapshot (vs a pristine built from the staged
    inputs — the SAME shared compare); `make regenerate` rewrites them
-   through the SAME `Fido_sink`. The `Fido Emit` command is an EXPLICIT always-run step (`rocq c` on the
+   through the SAME `Fido_sink`. The emit step (`Fido Materialize` on the witnesses) is an EXPLICIT always-run step (`rocq c` on the
    witness) after the cached theory/plugin build, never a `.vo` side effect. The header is Rocq's bytes
    (`GoRender.header`), proved the exact first line; the sink recognizes it as an ownership marker but
    adds/alters no bytes. (There is NO no-tracked-Go seal; nested `go.mod`, tracked `.fido`/temp, and
@@ -326,7 +328,7 @@ one spelling, at most one ConstInfo) / `render_resolved_expr_denotes`; `render_f
 provenance-gated `DirectoryImage` (go.mod + `di_go_files : FileMapBase.t string`, the standard `FM.map
 render_file` of the source map; `di_go_file_entries` a CANONICAL `FileMap.elements` transport list); rendered
 map has the same key domain + exact bytes as the source, respects `FilesEqual`, and `di_transport` is
-independent of input-node order; `render_program`; `di_transport`. · `plugin/g_fido.mlg` — the `Fido Emit` transport command +
+independent of input-node order; `render_program`; `di_transport`. · `plugin/g_fido.mlg` — the `Fido Materialize` transport command +
 whole-theory audit. · `plugin/fido_sink.ml` — the foreign-Go-rejecting sibling-temp sink. · `digits` —
 leaf authority.
 
@@ -339,7 +341,7 @@ the pinned-container
 **proof** (`make prove`, the COMPLETE gate: `dune build` + `gate/axiom_gate.v` axiom-free count-checked +
 certified-module coverage + the whole-certified-theory `Fido Audit Assumptions` over constants + inductives +
 named assumptions + adversarial self-tests A-E) + the **e2e** (Dune-cached theory+plugin; then EXPLICIT
-`Fido Emit` synchronizes each tree — witness, multi-package, and the EMPTY module (rendered go.mod + zero
+`Fido Materialize` writes each pristine tree — witness, multi-package, and the EMPTY module (rendered go.mod + zero
 .go); the provenance boundary is exercised (a forged raw transport AND transiently-generated
 axiom/variable-backed images are all rejected before any effect); the sink is exercised on dirty/adversarial
 trees (foreign-Go/module + nested-.fido rejection, sibling-temp two-phase recovery, complete-image staging,
@@ -360,7 +362,7 @@ Rocq is NOT supported** — all compilation goes through the pinned toolchain vi
 ```
 make check       # gates + pinned-Rocq proof + pinned-Go whole-tree e2e + working-tree generated byte-compare (all buildx)
 make prove       # the COMPLETE proof gate (dune build + readable gate + coverage + whole-theory audit + self-tests A-E)
-make emit        # theory+plugin build + Fido Emit witness/multi/empty sync + provenance + sink tests
+make emit        # theory+plugin build + Fido Materialize witness/multi/empty pristine + provenance + sink tests
 make e2e         # emit + pristine generated-module + go build ./... + empty + differential + witness vs goldens
 make regenerate  # rebuild + apply the pristine canonical module into the repo via Fido_sink (then git add + commit)
 make prover-log  # stream the plain Rocq log
@@ -400,7 +402,7 @@ kill stale `docker buildx build` processes first; run long builds detached and p
   removed, §19/§26).
   The isolated C0 spike `OccurrenceSpike.v` it generalized is DELETED (no parallel spike authority remains).
   Current Go behavior and every generated byte are UNCHANGED by `GoIndex`.
-- `plugin/g_fido.mlg` — the Fido Emit transport bridge + the whole-theory audit; `plugin/fido_sink.ml` —
+- `plugin/g_fido.mlg` — the Fido transport bridge (`Fido Materialize`) + the whole-theory audit; `plugin/fido_sink.ml` —
   the foreign-Go-rejecting sibling-temp sink; `plugin/dune` — the plugin library. `e2e/Witness.v` — the
   witness (emitted explicitly, and the canonical tracked module); `e2e/WitnessMulti.v` — the multi-package
   differential; `e2e/WitnessEmpty.v` — the empty-program witness; `e2e/WitnessNeg.v` — the raw-transport

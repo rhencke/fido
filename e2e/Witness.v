@@ -1,7 +1,9 @@
-(** The e2e witness, published through the ONE validate-before-publish workflow — [Fido Materialize] writes
-    the authoritative pristine image, the pinned `go build ./...` validates it, and ONLY THEN [Fido Emit]
-    (the sink step, not a standalone publish) transports the SAME bytes (no witness-specific
-    executable, no extraction).  A proved [SafeProgram] is rendered to a [DirectoryImage] via
+(** The e2e witness of the ONE validate-before-publish workflow — [Fido Materialize] (the sole Rocq transport
+    vernac) writes the authoritative pristine image, which the go-e2e stage then validates with a fresh
+    `go build ./...`.  The witness does NOT publish: there is no public [Fido Emit]; the sink is internal
+    (exercised by sink_test, reached in production only through the validated `make regenerate`, which sinks
+    the SAME validated pristine bytes).  No witness-specific executable, no extraction.  A proved [SafeProgram]
+    is rendered to a [DirectoryImage] via
     [render_program], so its provenance proof is CLOSED (assumption-free); the command typechecks the
     image and finds its assumption closure empty (even though it descends the Qed lemma [demo_valid]),
     then decodes only the final (go.mod bytes, entries) transport and synchronizes the tree.  A candidate that is not
@@ -106,7 +108,7 @@ Definition main_go : FilePath := mkFP "main.go" eq_refl.
 Definition demo_program : GoProgram := singleton_program demo_module main_go demo_file.
 
 Lemma demo_valid : GoCompile demo_program.
-Proof. apply GoCompile_of_prog_ok; vm_compute; reflexivity. Qed.
+Proof. apply GoCompile_of_source_valid_b; vm_compute; reflexivity. Qed.
 
 Definition demo_compiled : CompilableProgram :=
   compilable_of_valid demo_program demo_valid.
@@ -121,5 +123,7 @@ Declare ML Module "fido.emit".
    committed canonical artifact is copied from) — written DIRECTLY from the decoded image, never from a sink
    directory. *)
 Fido Materialize (render_program demo_safe) To "/workspace/generated".
-(* the sink PUBLICATION e2e (the foreign-Go-rejecting sibling-temp synchronizer) — the SAME decoded bytes. *)
-Fido Emit (render_program demo_safe) To "/workspace/e2e-out".
+(* F2 — the witness ONLY materializes the authoritative pristine image (which the go-e2e stage then validates
+   with a fresh `go build ./...`).  It does NOT sink/publish: there is no public `Fido Emit` command, and the
+   sink is exercised separately (e2e/sink_test.ml) and reached in production only through the validated
+   `make regenerate` workflow, which sinks the SAME validated pristine bytes. *)

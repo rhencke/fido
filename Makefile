@@ -15,8 +15,9 @@ override PLATFORM := linux/amd64
 #     -> GoCompile (fresh-build preflight + SourceProgramValid = the one-shot `go build ./...` acceptance)
 #     -> GoSafe -> direct GoRender (source-owned package clause + go.mod) -> complete
 #     DirectoryImage -> `Fido Materialize` writes the authoritative pristine image DIRECTLY -> pinned
-#     `go build ./...` VALIDATES it -> only then `Fido Emit` publishes the SAME bytes via the
-#     foreign-Go-rejecting sibling-temp sink (validation-before-publication; a failed build blocks publish).
+#     `go build ./...` VALIDATES it -> only then the validated `make regenerate` publishes the SAME bytes via
+#     the INTERNAL foreign-Go-rejecting sibling-temp sink (there is NO public `Fido Emit`; validation-before-
+#     publication — a failed build blocks publish).
 # ALL Rocq/Go work runs in the PINNED container via buildx — host Rocq is NOT supported.
 
 # `make check` verifies the WORKING TREE, coherently and in ONE place.  It materializes the working-tree
@@ -49,7 +50,7 @@ check: prove e2e builder
 	    --output "type=local,dest=$$tmp/pristine" . && \
 	  sh tools/staged-generated-compare.sh "$$tree" "$$tmp/pristine"; \
 	  rc=$$?; rm -rf "$$tmp"; \
-	  if [ $$rc -eq 0 ]; then echo "fido: check OK (working tree) — proved the core axiom-free (whole-theory audit run in prove) AND emitted the pristine generated-module via the Fido Emit transport + sibling-temp sink through go build ./... vs goldens; the working-tree generated go.mod + recursive .go byte-match the pristine artifact (exact path set + bytes); transport-only OCaml, tracked Go is Fido-headed generated output ✓"; fi; \
+	  if [ $$rc -eq 0 ]; then echo "fido: check OK (working tree) — proved the core axiom-free (whole-theory audit run in prove) AND materialized the pristine generated-module (Fido Materialize) + validated it through go build ./... vs goldens (the internal sibling-temp sink exercised separately); the working-tree generated go.mod + recursive .go byte-match the pristine artifact (exact path set + bytes); transport-only OCaml, tracked Go is Fido-headed generated output ✓"; fi; \
 	  exit $$rc
 
 # The reproducible container proof: dune compiles the modules + the always-run assumptions gate.
@@ -59,12 +60,12 @@ prove: builder
 prover-log: builder
 	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --progress=plain --target prover .
 
-# The emit stage alone (intermediate): Dune-cached theory + plugin build, then each witness runs the
-# validate-before-publish workflow (§5) — `Fido Materialize` writes the authoritative pristine image, and
-# `Fido Emit` (the internal transport/sink step, explicit rocq c on the witness — not a .vo side effect)
-# synchronizes it — with the sink exercised against dirty + adversarial trees.  The FRESH-BUILD VALIDATION
-# that gates real publication runs in `e2e` (`go build ./...`); this intermediate stage is wired into `check`
-# via `e2e`.  `Fido Emit` is NOT a standalone public publication command — it is the sink step of the workflow.
+# The emit stage alone (intermediate): Dune-cached theory + plugin build, then each witness MATERIALIZES its
+# authoritative pristine image (`Fido Materialize`, explicit rocq c on the witness — not a .vo side effect);
+# the INTERNAL publication sink is exercised SEPARATELY against dirty + adversarial trees (sink_test).  There
+# is NO public `Fido Emit` command — the sink is reached in production only through the validated `make
+# regenerate` workflow.  The FRESH-BUILD VALIDATION that gates real publication runs in `e2e` (`go build
+# ./...`); this intermediate stage is wired into `check` via `e2e`.
 emit: builder
 	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --progress=plain --target emit .
 

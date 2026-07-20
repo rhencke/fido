@@ -123,14 +123,16 @@ no complex arithmetic, no `real`/`imag`, no imports.
   whole-certified-theory assumption-closure audit, not just per-surface `Print Assumptions`.
 - **A transport boundary, not a backend.** The image is an abstract `DirectoryImage` — the exact `go.mod`
   bytes plus a (possibly-empty) map of `.go` bytes — carrying a proof both came from rendering one
-  `SafeProgram`. Publication is ONE validate-before-publish workflow, never a standalone publish command: two
-  provenance-guarded Rocq vernacs share one decode step — `Fido Materialize <image> To "<dir>"` writes the
-  authoritative pristine bytes into a fresh disposable root, the pinned `go build ./...` **validates** that
-  pristine tree, and ONLY THEN `Fido Emit <image> To "<dir>"` (the sink step) publishes the SAME pristine
-  bytes (never a post-build byte; a failed fresh build prevents publication). Both guards run before any
-  effect — they typecheck the image type and reject a non-empty assumption closure (kernel queries, so a
-  postulated axiom/variable proof cannot cross), then decode only the final `(go.mod, entries)` transport
-  and hand it to a generic **ownership-aware dirty-directory synchronizer**. The sink **rejects foreign
+  `SafeProgram`. Publication is ONE validate-before-publish workflow, never a standalone publish command: the
+  SOLE Rocq transport vernac `Fido Materialize <image> To "<dir>"` writes the authoritative pristine bytes
+  into a fresh disposable root, and the pinned `go build ./...` **validates** that pristine tree. There is NO
+  public `Fido Emit` — the publication **sink** is internal (its own test driver + the `make regenerate` apply
+  CLI), which the validated workflow invokes ONLY after the fresh build succeeds, publishing the SAME
+  validated pristine bytes (never a post-build byte; a failed fresh build prevents publication).
+  `Fido Materialize`'s guards run before any effect — they typecheck the image type and reject a non-empty
+  assumption closure (kernel queries, so a postulated axiom/variable proof cannot cross), then decode only the
+  final `(go.mod, entries)` transport. The sink is a generic **ownership-aware dirty-directory synchronizer**
+  that **rejects foreign
   Go/module inputs** (a foreign `.go` in the Go-discovered namespace, a foreign/nested `go.mod`, a nested
   `.fido`) rather than merge them — skipping the opaque dot/underscore/`testdata`/`vendor` trees `go build
   ./...` itself ignores — then stages the complete image into RESERVED sibling temps `<final>.fido-tmp-v1`

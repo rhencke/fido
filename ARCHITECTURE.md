@@ -6,7 +6,7 @@ representation — an intrinsic `ModuleSpec` (module path + Go version) paired w
 `GoSourceFile` roots (the PATH is the map KEY; a construction/view `GoFileNode` = a `FilePath` +
 a `GoSourceFile`: a source-owned package clause + empty imports + top-level declarations). `GoCompile`/`GoSafe`
 are EVIDENCE and facts over that same program (never copies), the generated module file (`go.mod`) is
-RENDERED in Rocq, and the only handwritten OCaml is the Fido Emit transport boundary (a term-decoding
+RENDERED in Rocq, and the only handwritten OCaml is the Fido transport boundary (a term-decoding
 bridge + a filesystem sink), which understands filesystems, not programs.
 
 ## The law of this repository
@@ -72,10 +72,14 @@ law backed by explicit audit and code inspection, NOT a brittle source-scanning 
   FilePath       an INTRINSIC canonical relative source path (not a raw string): slash-separated
                  lowercase-ASCII directory components + an ordinary lowercase-ASCII `.go` basename, with
                  no empty/`.`/`..` component, no absolute/leading/trailing/repeated slash, no leading dot
-                 or underscore (so no hidden/`_test`/`_GOOS` file, no control-name collision).  Every
-                 representable path is safe to materialize (Linux/amd64 operational scope) AND discovered
-                 by `go build ./...`.  Validity is a carried proof; equality is decidable.  (`go.mod` is
-                 NOT a FilePath — a distinct root field carries it.)
+                 or underscore (so no hidden/`_test`/`_GOOS` file, no control-name collision).  Path length
+                 is UNBOUNDED in the model/grammar/sink (platform host limits like `NAME_MAX`/`PATH_MAX` are
+                 NOT a Fido domain concern — see PAINFUL_LESSONS): every representable path is well-formed for
+                 `go build ./...` package DISCOVERY, and materialization is the ONE place an over-long path
+                 fails LOUD at the OS (`ENAMETOOLONG`), never silently.  `GoCompile == go build` is exact for
+                 the SEMANTIC + cmd/go package/output logic, EXCLUDING such platform filesystem limits.
+                 Validity is a carried proof; equality is decidable.  (`go.mod` is NOT a FilePath — a distinct
+                 root field carries it.)
 
   GoIndex        the ONE structural occurrence-identity + navigation authority, DERIVED from one immutable
                  GoProgram snapshot (imports only GoAST/Collections/FilePath — NOT GoTypes/GoCompile/GoSafe/
@@ -227,24 +231,26 @@ law backed by explicit audit and code inspection, NOT a brittle source-scanning 
   DirectoryImage the COMPLETE module: exact root go.mod bytes (di_go_mod) + a finite map from FilePath to
                  exact final .go bytes (di_go_files), PROVENANCE-GATED: a value carries a proof BOTH came
                  from rendering ONE SafeProgram (di_prov).  A CLOSED proof witnesses that; but a proof can be
-                 POSTULATED (axiom/variable), so the type alone is not sufficient — the live Fido Emit
-                 boundary is the real gate (it rejects an assumption-dependent proof).  The .go map MAY be
+                 POSTULATED (axiom/variable), so the type alone is not sufficient — the live transport
+                 boundary (`Fido Materialize`) is the real gate (it rejects an assumption-dependent proof).  The .go map MAY be
                  empty; there is NO nonemptiness claim.  mkImage is public but demands the proof;
                  render_program is the canonical closed construction.  di_transport projects it to the
                  (exact go.mod bytes, (on-disk path, bytes) list) transport.
 
-  Fido            two general transport commands (Rocq vernacs) sharing ONE provenance-guarded decode
-  Materialize /   (`decode_guarded`): before ANY effect it typechecks its argument's di_transport as a
-  Fido Emit       DirectoryImage projection (rejecting a raw transport) AND rejects any argument whose
+  Fido            the ONE Rocq transport command (a vernac), `Fido Materialize`, guards provenance via ONE
+  Materialize     shared decode (`decode_guarded`): before ANY effect it typechecks its argument's di_transport
+                 as a DirectoryImage projection (rejecting a raw transport) AND rejects any argument whose
                  assumption closure contains an axiom (rejecting a same-typed image built from a forged
                  proof); only then does it decode ONLY the final (go.mod bytes, (path, bytes) list) transport
                  (exact constructors of prod/list/string/ascii/bool, fail-loud otherwise).  `Fido Materialize
                  <image> To "<root>"` writes those authoritative bytes DIRECTLY into a fresh disposable
-                 build-VALIDATION root (no sink control state, never a user dir); `Fido Emit <image> To
-                 "<root>"` hands the SAME bytes to the sink for PUBLICATION.  VALIDATION-BEFORE-PUBLICATION:
-                 the pinned `go build ./...` validates the materialized image, and the committed canonical
-                 artifact is copied from THAT materialization; the sink publishes only after — a failed build
-                 prevents publication.  Not witness-specific; no recompile for a different SafeProgram.
+                 build-VALIDATION root (no sink control state, never a user dir).  There is NO public `Fido
+                 Emit` (F2): the publication SINK (`Fido_sink.sync`) is INTERNAL — reached only from the sink's
+                 own test driver and the `make regenerate` apply CLI, which the validated workflow invokes ONLY
+                 after the pinned `go build ./...` validates the materialized image.  VALIDATION-BEFORE-
+                 PUBLICATION: the committed canonical artifact is copied from THAT materialization; the sink
+                 publishes only the SAME validated bytes — a failed build prevents publication.  Not
+                 witness-specific; no recompile for a different SafeProgram.
 
   materialize    the authoritative pristine writer (in the sink file): exact decoded image bytes into a fresh
                  EMPTY disposable root, O_EXCL/fail-closed, NO `.fido`/staging/foreign-rejection.  Filesystem ONLY.
@@ -264,8 +270,9 @@ AST->output->AST round-trip authority, no copied compiled AST, no handwritten OC
 ## Two honest claims (never conflate)
 
 - **(A) KERNEL-internal exactness — PROVED.** The executable `go_compile` succeeds exactly for the
-  declarative `GoCompile` judgment (`prog_ok_iff`; sound + complete), and the renderer/semantics facts
-  hold. Asserted axiom-free every build by `gate/axiom_gate.v`.
+  declarative `GoCompile` judgment (`go_compile_ok_valid` + `go_compile_complete`; sound + complete; the one
+  elaboration root satisfies `elaborate_ok_iff_GoCompile`), and the renderer/semantics facts hold. Asserted
+  axiom-free every build by `gate/axiom_gate.v`.
 - **(B) EXTERNAL adequacy target — the GOAL, not a kernel theorem.** The declarative `GoCompile` judgment
   matches `go build ./...` acceptance for every representable rendered program. We model the acceptance
   semantics independently; `cmd/go` is used for DIFFERENTIAL experiments and the e2e, never as the formal
@@ -286,19 +293,20 @@ AST->output->AST round-trip authority, no copied compiled AST, no handwritten OC
 | **GoCompile** | the SOLE meeting point of GoIndex identity + GoTypes semantics (owns the per-occurrence `occ_arg_typedb` + its `occs_*_typedb_eq` traversal bridge, moved off GoTypes); whole-program map-based typing + one-pass `PackageMap` grouping (a single `FM.fold` into `PackageSummary`, characterized EXACTLY: count = sum over the package's files, no empty package) + the fresh-build output preflight over the factored source rules (`GoCompile p := fresh_build_preflight_ok p /\ SourceProgramValid p`, via GoTypes); `go_compile` sound/complete, its accept/error class invariant under file insertion order; the retained `elaborate` produces ONE `ElaborationFacts` (indexed BY the retained `IndexedProgram`) carrying the occurrence-keyed expression facts + package `main`-ref buckets + the fresh-build preflight witness, exposed by canonical projection; `CompilableProgram` RETAINS index + facts (`cp_prov`); NO `cf_pkg_name` (package clause is source-owned) | be a boolean; accept per-file partially; re-scan the file list per package (O(files²)); hide package grouping / entry status in a raw node; store a typed copy of the program; reconstruct the index rather than retain it |
 | **GoSafe** | real `GoValue` (`VBool`/`VInteger IntegerType Z`/`VFloat ft (FloatValue ft)`/`VComplex ct (ComplexValue ct)`/`VString`; a `FloatValue` is a PROOF-CARRYING canonical Stdlib `SpecFloat.spec_float`, Flocq unused; a `ComplexValue` a PAIR of them that MAY be -0/inf/NaN, unlike a constant); `value_type` over the SAME `GoType`; `ValueWF` range invariant (`ValueWF (VFloat …) := ValueWF (VComplex …) := True` — canonicality in the type; constant eval only finite/+0); PARTIAL `eval_expr` derived from `const_info`; resolved-eval well-formedness + type preservation; abstract `eval_file`; `SafeProgram` (0 = -0); honest `GoSafe := True` | observe spelling as value; a separate runtime type universe; a per-width runtime record family / `GoTypeTag`; keep an unused panic placeholder; circularly reference compilation |
 | **GoRender** | render decls + the SOURCE-owned package clause (from the file's OWN `source_package` via `render_package_clause`, `PkgMain` → `main` — NOT a derived/deduced name); render go.mod from the ModuleSpec; an integer conversion as `<integer_keyword it>(<inner>)` (the ten exact Go keywords), a float conversion as `float32(…)`/`float64(…)`, and a complex conversion as `complex64(…)`/`complex128(…)`; ONE canonical float decimal spelling (`0.0`; else `<signed-coeff>.0e<±exp>`) with an INDEPENDENT decoder proving `decode(render d) = Some d`, and ONE canonical complex spelling `complex(<real>, <imag>)` (both components via that decimal spelling) with an INDEPENDENT complex decoder + semantic round trip; header exact first line (go.mod and .go); `render_const_info_denotes` / `render_resolved_expr_denotes` (spelling ↔ ConstInfo ↔ value/resolved type; integer-conversion case via `convert_const`, with float and complex cases; all via the ONE `RenderedConstInfoDenotes`) | tokenize/lex/parse/round-trip; deduce packages/entry; invoke a formatter; add require/replace/toolchain to go.mod |
-| **DirectoryImage** | the complete module (exact go.mod bytes + a possibly-empty .go map), provenance-gated (`di_prov` proves BOTH came from `render_program`; `mkImage` demands that proof); `Fido Emit` typechecks its argument's `di_transport` AND rejects any argument with an axiomatic assumption closure | be an arbitrary-map escape that bypasses SafeProgram; invent go.mod in the sink; make a nonemptiness claim; accept a raw transport, or a same-typed image built from a forged (axiomatic) proof, at the emit boundary |
-| **Fido Materialize / Fido Emit + sink** | ONE provenance-guarded decode (typecheck the image, reject a non-empty assumption closure, decode ONLY the final (go.mod, entries) transport with exact constructors) feeding two writers: `Fido Materialize` writes the authoritative bytes DIRECTLY into a fresh disposable build-validation root (no sink state), and `Fido Emit` PUBLISHES the SAME bytes via the foreign-Go-rejecting sibling-temp sync — validation-before-publication, a failed build prevents publication | inspect the program/AST/behaviour/semantics; emit/materialize without both provenance guards; build after sinking into a user dir; copy the committed artifact from a post-sink dir; merge/preserve a foreign `.go`/`go.mod`; delete/overwrite/follow foreign state; keep a stage-record/nonce/central-staging design |
+| **DirectoryImage** | the complete module (exact go.mod bytes + a possibly-empty .go map), provenance-gated (`di_prov` proves BOTH came from `render_program`; `mkImage` demands that proof); `Fido Materialize` typechecks its argument's `di_transport` AND rejects any argument with an axiomatic assumption closure | be an arbitrary-map escape that bypasses SafeProgram; invent go.mod in the sink; make a nonemptiness claim; accept a raw transport, or a same-typed image built from a forged (axiomatic) proof, at the transport boundary |
+| **Fido Materialize + internal sink** | ONE provenance-guarded decode (typecheck the image, reject a non-empty assumption closure, decode ONLY the final (go.mod, entries) transport with exact constructors) feeding the SOLE Rocq writer, `Fido Materialize`, which writes the authoritative bytes DIRECTLY into a fresh disposable build-validation root (no sink state).  There is NO public `Fido Emit`: the publication SINK (`Fido_sink.sync`, the foreign-Go-rejecting sibling-temp sync) is INTERNAL OCaml (sink_test + the `make regenerate` apply CLI), which the validated workflow invokes only AFTER a fresh `go build ./...` succeeds — a failed build prevents publication | inspect the program/AST/behaviour/semantics; materialize without both provenance guards; expose a standalone public sink command; build after sinking into a user dir; copy the committed artifact from a post-sink dir; merge/preserve a foreign `.go`/`go.mod`; delete/overwrite/follow foreign state; keep a stage-record/nonce/central-staging design |
 
 ## The handwritten-OCaml boundary (hard)
 
-**All semantic work is proved Rocq.** The ONLY handwritten OCaml is the Fido Emit TRANSPORT boundary:
+**All semantic work is proved Rocq.** The ONLY handwritten OCaml is the Fido TRANSPORT boundary:
 - `plugin/g_fido.mlg` — the transport bridge, a four-step boundary: (1) typecheck the argument's
   `di_transport` projection as the certified image type; (2) reject a non-empty assumption closure (a kernel
   provenance query that descends Qed proof bodies — the SAME `closure_assums`/`assums_disallowed` mechanism
   the whole-theory audit uses); (3) reduce and STRUCTURALLY decode ONLY the final `string * list
   (string*string)` transport — the exact go.mod bytes and the (path, bytes) list (exact constructors,
-  fail-loud); (4) route to `Fido Materialize` (the authoritative pristine write for build validation) OR
-  `Fido Emit` (the sink publication) — both over the SAME decoded bytes. It does no semantic program/AST/
+  fail-loud); (4) hand to `Fido Materialize` (the SOLE Rocq transport vernac — the authoritative pristine
+  write for build validation).  There is no public `Fido Emit`: the publication SINK is INTERNAL OCaml
+  (`e2e/sink_test.ml` + the `make regenerate` apply CLI), over the SAME decoded bytes. It does no semantic program/AST/
   behaviour inspection. That both provenance guards stay live is a mutation-sensitive REGRESSION gate, not a
   proof: the emit stage's negative fixtures (a raw transport + TRANSIENTLY-generated axiom/variable-backed
   images) execute forged inputs and, if either guard were removed, the corresponding command would succeed
@@ -468,7 +476,7 @@ constraint-only interface semantics, instantiation/inference, or imports. The ev
 ## Trust base (say it exactly)
 
 Trusted: Rocq and its kernel; the digest-pinned Docker/Go images plus the opam-repo state and apt packages;
-the Fido Emit **transport boundary** (the bridge typechecks the image type and rejects an axiomatic
+the Fido **transport boundary** (the bridge typechecks the image type and rejects an axiomatic
 assumption closure — both via Rocq's own kernel/assumptions machinery — then decodes only the final
 transport constructors; the sink is filesystem-only — all trusted-not-proved); and the Go toolchain
 (claim (B), the `go build ./...` adequacy, is exercised differentially by the e2e, not proved). Proved (axiom-free, asserted every build in the **prove** stage by
@@ -482,8 +490,9 @@ unrepresentable module-path fixtures; GoVersion's exact "1.23" rendering; FilePa
 representable/unrepresentable path fixtures; the Collections standard-map foundation (FilePath ordered-key law + extensionally-equal maps enumerate identically) and the GoAST duplicate-rejecting `filemap_of_nodes` (sound + complete + exact + permutation-stable) + `build_program`; GoIndex — the universal source/index exactness (`index_file_source_exact`, presence + absence), canonical root id + no metadata at a nonexistent id, sealed `FileRef`/`NodeRef` soundness + completeness + decidable key/ref identity + cross-snapshot non-interchangeability + the repeated-`println(1,1)` distinct-ref regression, total-query source-exactness, interval-jump child soundness/completeness/order + parent/child inverse + reachability + ancestry, and the §19 indexed traversal (source-view exactness / order / NoDup), consumed by GoCompile's `elaborate` as the ONE indexed whole-program pass (no peer indexed checker in GoTypes); GoTypes — the one type authority: zero-sign constant equality, `default_const`
 resolution exactness, representability reflection, expression resolution sound + complete + deterministic, statement +
 program typing reflection, int max/min accepted, overflow/underflow rejected; GoCompile claim (A) —
-`prog_ok_iff`, `go_compile` sound + complete, rejection ⇒ no CompilableProgram, the compiled evidence
-exposes `ProgramTyped`, the empty program accepted; GoSafe's zero-sign-agnostic fact + resolved-type
+`go_compile_ok_valid` + `go_compile_complete` (sound + complete), the direct source reflection
+`source_valid_b_iff`/`semantic_ok_b_SourceProgramValid`, rejection ⇒ no CompilableProgram, the compiled
+evidence exposes `ProgramTyped`, the empty program accepted; GoSafe's zero-sign-agnostic fact + resolved-type
 preservation (`eval_expr_resolved_type`); GoRender's `render_const_info_denotes` + `render_resolved_expr_denotes`
 + all-ASCII + decimal-faithful + no-leading-zero + the canonical float decimal round trip + header-first-line + boundaries + the exact go.mod render
 (bytes / header first line / ASCII); DirectoryImage's go.mod-and-.go header-first-line / ASCII / unique-paths over
