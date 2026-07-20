@@ -1,8 +1,8 @@
 # Review Request
 
-state: closed
+state: requested
 review: Implementation Review
-confirmation: no
+confirmation: yes
 
 contract: .review/NEXT_STEPS.md
 contract_sha: 83c3989
@@ -10,16 +10,13 @@ review_basis: .review/REVIEW_BASIS.md
 
 # Implementation Review only:
 base_sha: fea649389ee52d442373c43ea2bdb3be2eca47db
-head_sha: 1180b49ea0aef4ca0f17af257d5008763391ca7c
-# Implementation Review #1 verdict: BLOCKING (5 findings F1-F5, recorded in
-# .review/C3_IMPL_REVIEW_FINDINGS.md). Closed while repairing all as ONE batch; a
-# bounded confirmation (confirmation: yes) will be requested after full re-verification.
+head_sha: 29872f5f17555da378f7744905c74482b782540f
 
 # Bounded confirmation only:
-confirmation_of: N/A
-prior_findings: N/A
-repair_base_sha: N/A
-repair_head_sha: N/A
+confirmation_of: Implementation Review #1 (BLOCKING, findings F1-F5) over fea6493..1180b49
+prior_findings: .review/C3_IMPL_REVIEW_FINDINGS.md
+repair_base_sha: 1180b49ea0aef4ca0f17af257d5008763391ca7c
+repair_head_sha: 29872f5f17555da378f7744905c74482b782540f
 
 ## Rules
 
