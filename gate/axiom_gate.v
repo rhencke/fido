@@ -303,12 +303,13 @@ Print Assumptions GoAST.FilesEqual_refl.
 Print Assumptions GoAST.FilesEqual_sym.
 Print Assumptions GoAST.FilesEqual_trans.
 
-(* GoCompile (A) internal exactness: whole-program prog_ok reflects the declarative judgment; go_compile
-   sound + complete against it; a rejected program yields no CompilableProgram; the compiled evidence exposes
-   that the same program is typed; the empty program is accepted; a concrete integer-family program compiles;
-   an out-of-range and an invalid-nested-conversion program are rejected with the honest typing error (and
-   have no CompilableProgram); a concrete string program compiles. *)
-Print Assumptions GoCompile.prog_ok_iff.
+(* GoCompile (A) internal exactness: the executable source decision reflects the LIVE factored source root
+   [SourceProgramValid] (CL-6); go_compile sound + complete against it; a rejected program yields no
+   CompilableProgram; the compiled evidence exposes that the same program is typed; the empty program is
+   accepted; a concrete integer-family program compiles; an out-of-range and an invalid-nested-conversion
+   program are rejected with the honest typing error (and have no CompilableProgram); a concrete string
+   program compiles. *)
+Print Assumptions GoCompile.semantic_ok_b_SourceProgramValid.
 Print Assumptions GoCompile.go_compile_ok_valid.
 Print Assumptions GoCompile.go_compile_complete.
 (* C3 §18/§21 — PROVENANCE + RETENTION: every CompilableProgram's facts ARE elaborate's exact ElaborationOK output
@@ -327,13 +328,12 @@ Print Assumptions GoCompile.package_summary_main_count.
 Print Assumptions GoCompile.package_summaries_empty.
 Print Assumptions GoCompile.package_summaries_Equal.
 Print Assumptions GoCompile.package_summaries_build_permutation.
-Print Assumptions GoCompile.ProgValid_Equal.
-Print Assumptions GoCompile.prog_ok_Equal.
+Print Assumptions GoCompile.SourceProgramValid_Equal.
 Print Assumptions GoCompile.go_compile_class_Equal.
 Print Assumptions GoCompile.go_compile_class_build_permutation.
 Print Assumptions GoCompile.reject_no_compile.
 Print Assumptions GoCompile.compilable_program_typed.
-Print Assumptions GoCompile.prog_ok_empty.
+Print Assumptions GoCompile.SourceProgramValid_empty.
 Print Assumptions GoCompile.int_program_ok.
 Print Assumptions GoCompile.int_program_compiles.
 Print Assumptions GoCompile.over_program_rejected.
@@ -456,21 +456,19 @@ Print Assumptions GoCompile.expr_all_ok_ProgramTyped.
    equivalence for the expression half). *)
 Print Assumptions GoCompile.emits_none_program_typedb.
 Print Assumptions GoCompile.expr_diags_empty_iff.
-(* C3 PACKAGE COMPLETENESS + the retained ANALYSIS ROOT: no package diagnostic IFF every package has one main;
-   no diagnostic at all IFF the analysis decision holds; and analysis succeeds/fails IFF ProgValid/not. *)
+(* C3 PACKAGE COMPLETENESS + the retained ELABORATION ROOT: no package diagnostic IFF every package satisfies
+   the factored rules; no diagnostic at all IFF the elaboration decision holds; and elaboration succeeds/fails
+   IFF GoCompile/not. *)
 Print Assumptions GoCompile.sum_main_file.
 Print Assumptions GoCompile.pkg_diags_empty_iff.
 Print Assumptions GoCompile.semantic_diagnostics_empty_iff.
 Print Assumptions GoCompile.elaborate_ok_iff_GoCompile.
 Print Assumptions GoCompile.elaborate_failed_iff_not_GoCompile.
-(* C3 decision (package half + combined): every package has one main IFF AllPackagesOneMain; the combined
-   analysis decision equals ProgValid (= GoCompile) — the ElaborationOK<->GoCompile decision core. *)
-Print Assumptions GoCompile.pkg_all_ok_AllPackagesOneMain.
-Print Assumptions GoCompile.semantic_ok_b_ProgValid.
 
-(* C3-FRESH §9 — the source/package rule is FACTORED: package-block uniqueness AND main-package entry are
-   separate, and together they are EXACTLY the old "every package has one main"; SourceProgramValid is the old
-   source-only ProgValid (the equivalence is universal, not a narrow-grammar coincidence). *)
+(* C3-FRESH §9 (CL-6) — the LIVE source root is FACTORED: package-block uniqueness AND main-package entry are
+   separate roots ([SourceProgramValid]); [current_package_rules_exactly_one] states the CURRENT-grammar
+   consequence (they coincide with "every package has one main"), and [source_program_valid_iff] bridges to
+   the confined combined form.  The executable reflection is [semantic_ok_b_SourceProgramValid] (gated above). *)
 Print Assumptions GoCompile.current_package_rules_exactly_one.
 Print Assumptions GoCompile.source_program_valid_iff.
 (* C3-FRESH §14/§17/§18 — GoCompile INCLUDES the pinned one-shot `go build ./...` output PREFLIGHT.  The three

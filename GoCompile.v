@@ -71,13 +71,19 @@ Definition package_summaries (fm : GoFileMap) : PM.t PackageSummary :=
 
 (** ---- the declarative validity of the whole program ---- *)
 
-(** Every package (directory) has exactly one `main` declaration — quantified over the PACKAGE-MAP bindings. *)
+(** CONFINED grammar-consequence helper (NOT the source-validity root).  The LIVE source-validity judgment is
+    [SourceProgramValid] (= [ProgramTyped] /\ the FACTORED package rules [PackageDeclsUnique] +
+    [MainPackagesHaveEntry], §9), which [GoCompile] uses.  For the CURRENT grammar (every package is
+    `package main`, every `DMain` is `func main()`) the factored rules coincide with "every package has exactly
+    one `main`", stated here as [AllPackagesOneMain] and proved equal to the factored rules by
+    [current_package_rules_exactly_one]; [source_program_valid_iff] bridges [SourceProgramValid] to the
+    combined [ProgValid] below.  [AllPackagesOneMain]/[ProgValid]/[prog_ok] survive ONLY as this
+    grammar-consequence bridge + an internal executable convenience — never a peer public source root. *)
 Definition AllPackagesOneMain (p : GoProgram) : Prop :=
   forall dir s, PM.MapsTo dir s (package_summaries (prog_files p)) -> ps_main_count s = 1%nat.
 
-(** A program is valid iff it is TYPED (every argument resolves through [GoTypes]) AND every package has
-    exactly one `main`.  [ProgramTyped] is the one static-typing foundation; there is no parallel
-    admissibility family. *)
+(** the combined grammar-consequence form (bridged to the live [SourceProgramValid] root by
+    [source_program_valid_iff]); [ProgramTyped] is the one static-typing foundation. *)
 Definition ProgValid (p : GoProgram) : Prop := ProgramTyped p /\ AllPackagesOneMain p.
 
 Definition prog_ok (p : GoProgram) : bool :=
@@ -2609,8 +2615,15 @@ Definition ppkg_step {p} (idx : GoIndex.Snap.SyntaxIndex p)
       end
   end.
 
+(* the package buckets over an EXPLICIT visit stream — the ONE shared builder (CL-3/§3): production elaboration
+   folds it over its RETAINED [visit] value (no second [prog_visit]/[prog_blocks]/[visit_file]); the canonical
+   convenience form below applies it to [prog_visit p]. *)
+Definition prog_package_refs_from_visit {p} (idx : GoIndex.Snap.SyntaxIndex p)
+    (visit : list (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence)) : PM.t (list (GoIndex.DeclRef p)) :=
+  fold_right (ppkg_step idx) (PM.empty (list (GoIndex.DeclRef p))) visit.
+
 Definition prog_package_refs {p} (idx : GoIndex.Snap.SyntaxIndex p) : PM.t (list (GoIndex.DeclRef p)) :=
-  fold_right (ppkg_step idx) (PM.empty (list (GoIndex.DeclRef p))) (prog_visit p).
+  prog_package_refs_from_visit idx (prog_visit p).
 
 (* the per-package DMain count over an occurrence list (an occurrence contributes 1 exactly when its file's
    package is [dir] AND it mints a DeclRef). *)
@@ -2733,7 +2746,7 @@ Lemma prog_package_refs_bucket_len {p} (idx : GoIndex.Snap.SyntaxIndex p) : fora
 Proof.
   intros dir l Hfind.
   assert (Holen : olen (PM.find dir (prog_package_refs idx)) = pkg_main_count dir (prog_files p)).
-  { unfold prog_package_refs. rewrite (ppkg_olen_char idx (prog_visit p) (PM.empty _) dir).
+  { unfold prog_package_refs, prog_package_refs_from_visit. rewrite (ppkg_olen_char idx (prog_visit p) (PM.empty _) dir).
     rewrite PMF.empty_o. cbn [olen]. rewrite Nat.add_0_r. exact (pkg_declcount_prog_visit idx dir). }
   rewrite Hfind in Holen. cbn [olen] in Holen. exact Holen.
 Qed.
@@ -2813,7 +2826,7 @@ Qed.
 Lemma prog_package_refs_present {p} (idx : GoIndex.Snap.SyntaxIndex p) : forall dir,
   PM.In dir (prog_package_refs idx) <-> list_dir_mem dir (GoAST.file_bindings (prog_files p)) = true.
 Proof.
-  intro dir. rewrite PMF.in_find_iff. unfold prog_package_refs.
+  intro dir. rewrite PMF.in_find_iff. unfold prog_package_refs, prog_package_refs_from_visit.
   rewrite (ppkg_find_some_iff idx (prog_visit p) (PM.empty _) dir). rewrite PMF.empty_o. split.
   - intros [[[r occ] [Hin [Hpkg _]]]|Hne]; [| exfalso; apply Hne; reflexivity].
     (* the occurrence's file is in prog_files with parent dir *)
@@ -2868,7 +2881,7 @@ Proof.
   intros dir l Hfind d Hin.
   assert (Hb : In d (match PM.find dir (prog_package_refs idx) with Some x => x | None => [] end))
     by (rewrite Hfind; exact Hin).
-  unfold prog_package_refs in Hb.
+  unfold prog_package_refs, prog_package_refs_from_visit in Hb.
   destruct (ppkg_mem idx (prog_visit p) (PM.empty _) dir d Hb) as [[ro [_ [Hp Hd]]]|Hempty];
     [ | rewrite PMF.empty_o in Hempty; destruct Hempty ].
   rewrite (GoIndex.erase_as_kind idx (fst ro) GoIndex.KTopLevelDecl d Hd). exact Hp.
@@ -3793,7 +3806,7 @@ Qed.
 Lemma prog_package_refs_erased {p} (idx : GoIndex.Snap.SyntaxIndex p) :
   PM.Equal (PM.map (map erase_dkey) (prog_package_refs idx)) (keyed_buckets (keyed_visit p)).
 Proof.
-  intro k. unfold prog_package_refs, keyed_visit.
+  intro k. unfold prog_package_refs, prog_package_refs_from_visit, keyed_visit.
   apply (ppkg_erased_find idx (prog_visit p)).
   intros [r occ] Hin. exact (prog_visit_view p r occ Hin).
 Qed.
@@ -4282,7 +4295,7 @@ Proof.
   destruct (pkg_diag_of_bucket_dup_sound _ _ dir l Hmt later earlier Hd) as [rest [Hl Hlater]].
   assert (Hfind : PM.find dir (prog_package_refs idx) = Some l) by (apply PM.find_1; exact Hmt).
   assert (Hbeq : bucket_of idx (prog_visit p) dir = l).
-  { unfold bucket_of. unfold prog_package_refs in Hfind. rewrite Hfind. reflexivity. }
+  { unfold bucket_of. unfold prog_package_refs, prog_package_refs_from_visit in Hfind. rewrite Hfind. reflexivity. }
   destruct (ppkg_dir_sorted idx (prog_visit p) (prog_visit_key_sorted p) dir) as [Hsort _].
   rewrite Hbeq, Hl in Hsort. apply StronglySorted_inv in Hsort. destruct Hsort as [_ Hhd].
   rewrite Forall_forall in Hhd. pose proof (Hhd later Hlater) as Hlt.
@@ -4417,7 +4430,7 @@ Proof.
   intro Hfind.
   destruct (ppkg_dir_sorted idx (prog_visit p) (prog_visit_key_sorted p) (fst kv)) as [Hsort _].
   assert (Hb : bucket_of idx (prog_visit p) (fst kv) = snd kv)
-    by (unfold bucket_of; unfold prog_package_refs in Hfind; rewrite Hfind; reflexivity).
+    by (unfold bucket_of; unfold prog_package_refs, prog_package_refs_from_visit in Hfind; rewrite Hfind; reflexivity).
   rewrite Hb in Hsort. destruct (snd kv) as [|d1 rest]; cbn [bucket_dup_keys]; [constructor|].
   apply StronglySorted_inv in Hsort. destruct Hsort as [Hsort _].
   apply (StronglySorted_NoDup GoIndex.NodeKey_OT.lt); [ exact nodekey_lt_irrefl |].
@@ -5803,6 +5816,11 @@ Proof.
   rewrite current_package_rules_exactly_one. reflexivity.
 Qed.
 
+(** CL-6/§6 — the executable source decision [semantic_ok_b] reflects DIRECTLY against the LIVE factored root
+    [SourceProgramValid] (not the confined [ProgValid]).  This is the public source-validity reflection. *)
+Lemma semantic_ok_b_SourceProgramValid (p : GoProgram) : semantic_ok_b p = true <-> SourceProgramValid p.
+Proof. rewrite semantic_ok_b_ProgValid. symmetry. apply source_program_valid_iff. Qed.
+
 (** §C3-FRESH.8 (§15b) — the fresh-build COMMAND-level diagnostic list: when the preflight fails (a sole main
     package whose default exec name is an existing root directory), the ONE [DRBuildOutputIsDirectory] anchored
     at that sole package; otherwise empty.  Emptiness is exactly "the preflight passes". *)
@@ -6140,11 +6158,6 @@ Arguments pe_result {p} _.
 Definition list_is_nil {A} (l : list A) : {l = nil} + {l <> nil}.
 Proof. destruct l; [left; reflexivity | right; discriminate]. Defined.
 
-(** validity is DERIVED from an empty diagnostic list (the decision IS the diagnostic pass) — not a peer check. *)
-Definition elaborate_valid_of_no_diags (p : GoProgram) (ip : GoIndex.IndexedProgram p) :
-  semantic_diagnostics p (GoIndex.indexed_syntax ip) = nil -> ProgValid p :=
-  fun He => proj1 (semantic_ok_b_ProgValid p) (proj1 (semantic_diagnostics_empty_iff p (GoIndex.indexed_syntax ip)) He).
-
 (** §14 — the ONE elaboration pass.  The shared collections — the index, the visit stream, the occurrence status
     map, and the package buckets — are computed ONCE (let-bound) and feed BOTH the accept/reject decision AND
     the successful [ElaborationFacts]: the expression facts and the diagnostics are two linear passes over the
@@ -6159,7 +6172,7 @@ Definition elaborate_indexed (p : GoProgram) (ip : GoIndex.IndexedProgram p) : E
   let blocks  := prog_blocks p in                (* the per-file visit blocks, retained ONCE *)
   let visit   := concat blocks in                (* = prog_visit p — the flattened elaboration stream *)
   let status  := fold_right psm_step (GoIndex.NodeKeyMapBase.empty (option ConstInfo)) visit in
-  let buckets := prog_package_refs idx in         (* = fold_right (ppkg_step idx) … visit — the retained package buckets *)
+  let buckets := prog_package_refs_from_visit idx visit in  (* the shared builder over the RETAINED visit (= prog_package_refs idx; NO second prog_visit/prog_blocks/visit_file) *)
   let facts   := fold_right (add_occ_fact_sm status) (GoIndex.NodeKeyMapBase.empty ExprFact) visit in
   (* §18-I/§C3-CR2-D4 — the ONE retained fresh ROOT LAYOUT and BUILD PLAN, derived from the retained buckets +
      the file layout, computed ONCE and threaded through the disposition test, the failure diagnostics, AND the
@@ -6392,12 +6405,6 @@ Theorem compilable_program_typed : forall cp : CompilableProgram, ProgramTyped (
 Proof. intro cp; exact (compile_program_typed _ (cp_ok cp)). Qed.
 
 (** ---- the proof-producing executable compiler ---- *)
-
-Inductive result (E A : Type) : Type := Ok : A -> result E A | Err : E -> result E A.
-Arguments Ok {E A}. Arguments Err {E A}.
-
-Definition bool_sumbool (b : bool) : {b = true} + {b = false} :=
-  match b with true => left eq_refl | false => right eq_refl end.
 
 (** §18 — a structured failure bundle: the EXACT elaboration diagnostics + their nonempty proof. *)
 Record CompileFailure (p : GoProgram) : Type := mkCompileFailure {
@@ -6798,6 +6805,22 @@ Qed.
     holds vacuously (the file map's elements and the package map are both empty). *)
 Lemma prog_ok_empty : forall ms, prog_ok (empty_program ms) = true.
 Proof. intro ms. vm_compute. reflexivity. Qed.
+
+(** CL-6/§6 — the LIVE factored-root determinism + empty surfaces (public gate; the confined [ProgValid_Equal]/
+    [prog_ok_Equal]/[prog_ok_empty] survive only as the bridge these reuse). *)
+Theorem SourceProgramValid_Equal : forall p1 p2,
+  GoAST.FilesEqual (prog_files p1) (prog_files p2) -> SourceProgramValid p1 -> SourceProgramValid p2.
+Proof.
+  intros p1 p2 Heq H.
+  apply (proj2 (source_program_valid_iff p2)), (ProgValid_Equal p1 p2 Heq).
+  apply (proj1 (source_program_valid_iff p1)); exact H.
+Qed.
+
+Theorem SourceProgramValid_empty : forall ms, SourceProgramValid (empty_program ms).
+Proof.
+  intro ms. apply (proj2 (source_program_valid_iff (empty_program ms))),
+    (proj1 (prog_ok_iff (empty_program ms))). apply prog_ok_empty.
+Qed.
 
 (** ---- boundary fixture: an out-of-range argument rejects the WHOLE program BEFORE any emission ---- *)
 
