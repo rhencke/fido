@@ -1,25 +1,14 @@
 # syntax=docker/dockerfile:1
 
-# Fido — GoProgram (ModuleSpec + a possibly-empty finite map of intrinsic FilePath keys to raw file ASTs)
-# -> GoTypes (the one type authority: each raw literal is an exact untyped GoConst resolved through the one
-# GoType {TBool, the integer family TInteger over the ten-member IntegerType, the float family TFloat over
-# FloatType, the complex family TComplex over ComplexType, TString}; an EIntConvert/EFloatConvert/
-# EComplexConvert is a typed constant via the one convert_const authority)
-# to ProgramTyped evidence over the SAME AST) -> GoCompile (whole-program admissibility = the pinned one-shot
-# `go build ./...` acceptance = the fresh-build output PREFLIGHT + SourceProgramValid = ProgramTyped + the
-# FACTORED package rules PackageDeclsUnique + MainPackagesHaveEntry) -> GoSafe (values carry the SAME GoType) ->
-# GoRender (source-owned package clause + the go.mod) -> the complete
-# DirectoryImage (exact go.mod bytes + the .go map), then `Fido Materialize` (the SOLE Rocq transport vernac:
-# it writes the authoritative pristine image DIRECTLY from the decoded transport into a fresh root for build
-# validation) + the pinned Go toolchain.  There is NO public `Fido Emit` sink command — the publication SINK is
-# internal (reached only via sink_test's driver and the validated `make regenerate` apply CLI).  Stages:
-# (prover) dune-compiles the theory and the always-run assumptions gate confirms every declared surface
-# axiom-free; (emit) dune compiles theory+plugin (shared cache), then MATERIALIZES each witness image DIRECTLY
-# into a pristine build root (`Fido Materialize`) and exercises the sink SEPARATELY on dirty/adversarial trees
-# (sink_test: sibling `.fido-tmp-v1` staging, foreign-Go + nested-.fido rejection, two-phase abandoned-temp
-# recovery); (go-e2e) the pinned Go toolchain VALIDATES the pristine materialization with `go build ./...` —
-# using the RENDERED go.mod — and runs the witness vs goldens; only after that validation marker does the
-# (sync) stage let `make regenerate` publish the SAME validated pristine bytes through the sink.
+# Fido build stages — ONE program: GoProgram -> GoTypes -> GoCompile (= the pinned one-shot `go build ./...`
+# acceptance) -> GoSafe -> GoRender -> DirectoryImage -> `Fido Materialize` (the SOLE Rocq transport vernac) ->
+# pinned Go.  There is NO public `Fido Emit`; the publication SINK is internal (sink_test + the validated
+# `make regenerate` apply CLI).
+#   prover:  dune-compiles the theory; the always-run gate confirms every declared surface axiom-free.
+#   emit:    compiles theory+plugin (shared cache), MATERIALIZES each witness image DIRECTLY into a pristine
+#            root, and exercises the sink SEPARATELY on dirty/adversarial trees (sink_test).
+#   go-e2e:  the pinned Go toolchain VALIDATES the pristine with `go build ./...` (rendered go.mod) + goldens.
+#   sync:    only after that validation marker does `make regenerate` publish the SAME validated bytes via the sink.
 
 # ── Stage 1: Rocq/OCaml toolchain ─────────────────────────────────────────────
 FROM ocaml/opam:debian-12-ocaml-5.3@sha256:bbaac53e502f6602013d8967c3a54cfcb898b556f453ab72e8e23966c3c681df AS rocq-builder
@@ -66,12 +55,11 @@ COPY --chown=opam:opam dune-project dune ./
 COPY --chown=opam:opam *.v ./
 COPY --chown=opam:opam gate/ gate/
 COPY --chown=opam:opam plugin/ plugin/
-# `make prove` is the COMPLETE proof gate (contract §2): Dune builds the theory AND the audit/transport
-# plugin; then the readable Print-Assumptions surfaces, the certified-module coverage check, the WHOLE-
-# certified-theory assumption-closure audit (over constants + mutual INDUCTIVES + surviving named
-# assumptions, descending opaque Qed bodies, rejecting every Printer.Axiom category AND Printer.Variable),
-# and the adversarial audit self-tests A-E all run HERE — so a retained internal declaration that depends on
-# an assumption fails `make prove` even when it is not a selected public theorem and emission never runs.
+# `make prove` is the COMPLETE proof gate: Dune builds the theory AND the audit/transport plugin; then the
+# readable Print-Assumptions surfaces, the certified-module coverage check, the WHOLE-certified-theory
+# assumption-closure audit (constants + mutual INDUCTIVES + surviving named assumptions, descending opaque Qed
+# bodies, rejecting every Printer.Axiom category AND Printer.Variable), and the adversarial self-tests A-E run
+# HERE — so a retained internal declaration depending on an assumption fails even when it is not a public theorem.
 RUN --mount=type=cache,id=fido-dune-rocq-9.2.0-${TARGETARCH},uid=1000,gid=1000,target=/workspace/_build,sharing=locked <<'SH'
 set -eu
 fail() { echo "fido: prove FAILED — $*"; exit 1; }
@@ -138,22 +126,11 @@ echo "fido: audit self-test E — closed Section theorem accepted (as required)"
 echo "fido: prove OK — dune build; readable gate $got/$want; module coverage; whole-theory audit (constants+inductives+named); self-tests A-E"
 SH
 
-# ── Stage 4: emit — Dune compiles the theory AND the Fido transport plugin (one shared cache id with
-#    the prover stage).  Then, in EXPLICIT always-run steps (never Dune .vo side effects): the
-#    `Fido Materialize` command (rocq c on the witnesses) decodes a proved DirectoryImage — the exact go.mod
-#    bytes plus the .go map — and writes each tree's authoritative pristine image DIRECTLY (witness,
-#    multi-package, and the EMPTY module); the publication SINK is exercised SEPARATELY by sink_test (there is
-#    no public Fido Emit command);
-#    the emit-time assumption-closure guard rejects TRANSIENTLY-generated forged images (never tracked);
-#    and a standalone driver exercises the dirty-directory sink: clean/dirty sync, foreign-Go/module and
-#    nested-.fido REJECTION (§8) over the Go-discovered namespace (opaque dot/underscore/testdata/vendor
-#    trees skipped), sibling `.fido-tmp-v1` staging with two-phase (inspect-then-delete) abandoned-temp
-#    recovery (regular/forged temps whose suffix-stripped path MAPS to a Fido final path are removed;
-#    non-mappable, symlink/dir/special temps fail-closed and preserved), complete-image staging before
-#    install, crash points (writing / staged / installing) that
-#    leave the lock + temps for a rerun, handled-failure + cleanup-failure aggregation, EXDEV no-copy, and
-#    overwrite + delete-time ownership rechecks.  The plugin guards provenance (typecheck +
-#    assumption-closure) then decodes only the final (go.mod, entries) transport; it walks no program.
+# ── Stage 4: emit — Dune compiles the theory AND the Fido transport plugin (shared cache id with prover).
+#    Then, in EXPLICIT always-run steps (never .vo side effects): `Fido Materialize` writes each witness's
+#    authoritative pristine image DIRECTLY (witness, multi, EMPTY), and the emit-time assumption-closure guard
+#    rejects TRANSIENTLY-generated forged images.  A standalone driver (sink_test) exercises the dirty-directory
+#    sink separately (foreign/nested-.fido rejection, sibling-temp two-phase recovery, crash/cleanup/EXDEV/ownership).
 FROM rocq-base AS emit
 ARG TARGETARCH
 COPY --chown=opam:opam dune-project dune ./
@@ -162,7 +139,7 @@ COPY --chown=opam:opam gate/ gate/
 COPY --chown=opam:opam plugin/ plugin/
 COPY --chown=opam:opam e2e/ e2e/
 # pre-create the cross-mount test root as the emit (opam) user, so it stays opam-owned when the RUN below
-# mounts a distinct-device (opam-owned) cache at its nested `sub/` parent — the real cross-mount §26 gate.
+# mounts a distinct-device (opam-owned) cache at its nested `sub/` parent — the real cross-mount gate.
 RUN mkdir -p /workspace/adv-mount
 RUN --mount=type=cache,id=fido-dune-rocq-9.2.0-${TARGETARCH},uid=1000,gid=1000,target=/workspace/_build,sharing=locked --mount=type=cache,id=fido-crossmnt-${TARGETARCH},uid=1000,gid=1000,sharing=private,target=/workspace/adv-mount/sub <<'SH'
 set -eu
@@ -171,12 +148,9 @@ rm -rf /workspace/e2e-out /workspace/e2e-multi /workspace/e2e-empty /workspace/e
 # cached: Dune compiles the proved theory + the transport plugin (shared cache id)
 if ! dune build @install @all > /tmp/emit-build.log 2>&1; then cat /tmp/emit-build.log; fail "theory/plugin build FAILED"; fi
 export OCAMLPATH=/workspace/_build/install/default/lib:${OCAMLPATH:-}
-# --- F2 — each witness ONLY MATERIALIZES its authoritative pristine image (`Fido Materialize`); there is NO
-#     public `Fido Emit` sink command.  The materialized pristine (/workspace/generated + /generated-multi/
-#     -empty/-bytes) is EXACTLY the rendered go.mod + recursive .go with NO .fido/lock/temp control state, and
-#     is what the `generated-module` layer + go-e2e stage VALIDATE with a fresh `go build ./...`.  The SINK is
-#     exercised separately (sink_test, below) and reached in production only through the validated
-#     `make regenerate` workflow — an image cannot be sunk before it is build-validated. ---
+# --- each witness ONLY MATERIALIZES its authoritative pristine image (`Fido Materialize`): EXACTLY the rendered
+#     go.mod + recursive .go, NO .fido/lock/temp — what the `generated-module` layer + go-e2e VALIDATE with a
+#     fresh `go build ./...`.  The sink is exercised separately (sink_test), reached in production only via `make regenerate`. ---
 G=/workspace/generated
 if ! rocq c -Q _build/default/. Fido e2e/Witness.v > /tmp/emit.log 2>&1; then cat /tmp/emit.log; fail "Fido Materialize (witness) FAILED"; fi
 cat /tmp/emit.log
@@ -201,7 +175,7 @@ if ! rocq c -Q _build/default/. Fido e2e/WitnessEmpty.v > /tmp/emit-empty.log 2>
 [ -z "$(find /workspace/generated-empty -name '*.go')" ] || fail "empty program materialized a .go file"
 echo "fido: empty-program pristine tree:"; ( cd /workspace/generated-empty && find . -type f | sort )
 
-# boundary-byte string witness (§22): a println of a string with bytes 0x00/0x1f/0x7f/0x80/0xff -> a separate
+# boundary-byte string witness: a println of a string with bytes 0x00/0x1f/0x7f/0x80/0xff -> a separate
 # tree the go-e2e byte-exact oracle builds, runs, and compares (od hex) against the reviewed golden.
 if ! rocq c -Q _build/default/. Fido e2e/WitnessBytes.v > /tmp/emit-bytes.log 2>&1; then cat /tmp/emit-bytes.log; fail "Fido Materialize (boundary bytes) FAILED"; fi
 [ -f /workspace/generated-bytes/main.go ] || fail "boundary-byte witness materialized no main.go"
@@ -223,11 +197,9 @@ if ! rocq c -Q _build/default/. Fido e2e/WitnessNeg.v > /tmp/emit-neg.log 2>&1; 
 [ ! -e /workspace/e2e-neg ] || fail "a rejected Fido Materialize still created its target directory"
 
 # provenance (2): a FORGED image — the right TYPE but a non-empty assumption closure — is rejected by the
-# transport-time closure check (the shared `decode_guarded`, via `Fido Materialize`) BEFORE any effect.  The
-# axiom/variable-bearing fixtures are GENERATED TRANSIENTLY
-# here (never tracked — the repo policy is zero project axioms): a DIRECT axiom, an axiom behind an opaque
-# Qed proof, a DIRECT section variable, and a TRANSITIVE section variable.  Each runs WITHOUT `Fail` (which
-# absorbs the message in batch mode), so `rocq c` errors and we assert the rejection REASON + no target.
+# transport-time closure check (the shared `decode_guarded`) BEFORE any effect.  The axiom/variable fixtures
+# are GENERATED TRANSIENTLY (never tracked): a DIRECT axiom, an axiom behind an opaque Qed, a DIRECT section
+# variable, and a TRANSITIVE section variable — each errors `rocq c` (no `Fail`) and we assert the reason + no target.
 mkdir -p /tmp/forge
 cat > /tmp/forge/preamble <<'EOF'
 From Stdlib Require Import List String.
@@ -278,9 +250,8 @@ forge_reject /tmp/forge/Opaque.v      /workspace/e2e-forge-op  "axiom behind an 
 forge_reject /tmp/forge/Var.v         /workspace/e2e-forge-var "direct section variable"
 forge_reject /tmp/forge/VarIndirect.v /workspace/e2e-forge-vi  "transitive section variable"
 
-# The complete whole-certified-theory assumption audit + coverage + adversarial self-tests A-E now run in
-# the `prover` stage (contract §2: `make prove` is the complete proof gate) — they are NOT duplicated here.
-# This stage keeps only the emit-time provenance guard above and the dirty-directory sink exercise below.
+# The whole-certified-theory assumption audit + coverage + self-tests A-E run in the `prover` stage (NOT
+# duplicated here); this stage keeps only the emit-time provenance guard above and the sink exercise below.
 
 # --- exercise the dirty-directory sink directly (sibling `.fido-tmp-v1` staging + two-phase recovery + foreign rejection) ---
 cp plugin/fido_sink.ml e2e/sink_test.ml /tmp/
@@ -291,8 +262,7 @@ temps() { find "$1" -name '*.fido-tmp-v1' 2>/dev/null; }   # any reserved siblin
 residue() { temps "$1"; }
 
 # ============================ Clean / dirty sync ============================
-# clean sync → rendered go.mod + main.go + control marker (marker + optional lock only); no temp residue.
-# (sink_test itself byte-verifies each installed file against its own staged bytes on every successful sync.)
+# clean sync → rendered go.mod + main.go + control marker; no temp residue (sink_test byte-verifies each installed file).
 mkdir -p adv-1; ./sink_test adv-1 || fail "clean sync failed"
 { [ -f adv-1/go.mod ] && [ -f adv-1/main.go ] && [ -f adv-1/.fido/marker ]; } || fail "missing go.mod/main.go/marker"
 [ "$(ls adv-1/.fido)" = "marker" ] || fail "control dir holds more than the marker after a released run"
@@ -310,13 +280,13 @@ printf 'keep\n' > adv-1/notes.txt
 [ -f adv-1/go.mod ] || fail "empty program removed the owned go.mod"
 [ -f adv-1/notes.txt ] || fail "empty program removed a foreign file"
 [ -z "$(residue adv-1)" ] || fail "residue after empty re-sync"
-# C1A §11.6: a DUPLICATE desired path is REJECTED before any filesystem effect (the standard-map builder
+#a DUPLICATE desired path is REJECTED before any filesystem effect (the standard-map builder
 # refuses rather than letting `add` silently overwrite); nothing is materialized.
 mkdir -p adv-dup
 if ./sink_test adv-dup dup 2>/tmp/dup.log; then fail "a duplicate desired path was NOT rejected"; fi
 grep -q 'duplicate output path' /tmp/dup.log || { cat /tmp/dup.log; fail "dup rejected for the wrong reason"; }
 { [ ! -e adv-dup/go.mod ] && [ ! -e adv-dup/.fido ] && [ ! -e adv-dup/main.go ]; } || fail "a rejected duplicate still materialized files"
-# C1A §11.6: PERMUTED transport entries produce a byte-IDENTICAL tree (output is keyed by path, not order).
+#PERMUTED transport entries produce a byte-IDENTICAL tree (output is keyed by path, not order).
 mkdir -p adv-perm
 ./sink_test adv-perm perm || fail "permuted transport entries produced a different tree"
 # byte-distinct OWNED replacement: an owned go.mod/.go with DIFFERENT bytes is replaced (ownership = header)
@@ -412,8 +382,7 @@ mkdir -p adv-tsp; ./sink_test adv-tsp || fail "tsp: init"; mkfifo adv-tsp/main.g
 if ./sink_test adv-tsp; then fail "tsp: a reserved-suffix special (fifo) was not rejected"; fi
 [ -p adv-tsp/main.go.fido-tmp-v1 ] || fail "tsp: the reserved-suffix fifo was removed"
 # a REGULAR reserved-suffix file whose suffix-stripped path MAPS to a Fido final path (root go.mod or a
-# filepath_ok .go) is Fido-owned (forgeable public convention) and removed; a NON-MAPPABLE one is NOT owned
-# and is PRESERVED while the run refuses clearly (never silently adopted or deleted).
+# filepath_ok .go) is Fido-owned (forgeable convention) and removed; a NON-MAPPABLE one is PRESERVED, refused clearly.
 mkdir -p adv-town; ./sink_test adv-town || fail "town: init"
 printf 'x\n' > adv-town/notused.go.fido-tmp-v1                 # notused.go is filepath_ok → mappable → owned
 mkdir -p adv-town/sub; printf 'x\n' > adv-town/sub/leftover.go.fido-tmp-v1
@@ -427,7 +396,7 @@ for bad in notes.fido-tmp-v1 hand-written.fido-tmp-v1 UPPER.go.fido-tmp-v1 a_b.g
 done
 # DOT/UNDERSCORE-prefixed non-mappable reserved-suffix FILES at the traversed root are NOT beneath a skipped
 # directory TREE (only ignored dir TREES are opaque), so they must still REFUSE fail-closed + stay byte-exact
-# — the reserved-suffix classification runs before the dot/underscore-name skip.
+# the reserved-suffix classification runs before the dot/underscore-name skip.
 for bad in .notes.fido-tmp-v1 _draft.fido-tmp-v1; do
   d=/workspace/adv-osf-$(echo "$bad" | tr './' '__'); mkdir -p "$d"; ./sink_test "$d" || fail "osf: init $bad"
   printf 'keep me\n' > "$d/$bad"
@@ -440,7 +409,7 @@ printf 'bin\n' > adv-tngv/visible-dir/arbitrary.bin.fido-tmp-v1
 if ./sink_test adv-tngv; then fail "tngv: a non-mappable suffix entry under a visible dir was NOT refused"; fi
 printf 'bin\n' | cmp -s - adv-tngv/visible-dir/arbitrary.bin.fido-tmp-v1 || fail "tngv: the visible-dir suffix entry was altered/removed"
 
-# ============================ Go-discovered namespace scoping (VCS / hidden / underscore / testdata / vendor) ============================
+# ============ Go-discovered namespace scoping (hidden / underscore / testdata / vendor) ============
 # hidden/underscore/testdata/vendor trees are OPAQUE: never inspected, classified, cleaned, or rejected —
 # so a repo's .git metadata (incl. .go and .fido-tmp-v1 NAMES) is untouched and never blocks a clean sync.
 mkdir -p adv-git/.git/refs/heads adv-git/.git/logs/refs/heads
@@ -556,7 +525,7 @@ crash_recover() {  # <mode> <label>
 crash_recover crash-after-create        writing
 crash_recover crash-after-staging       staged
 crash_recover crash-after-first-install installing
-# the write-crash specifically leaves a created-but-EMPTY partial temp (§27), then recovers it.
+# the write-crash specifically leaves a created-but-EMPTY partial temp, then recovers it.
 mkdir -p adv-partial; ./sink_test adv-partial || fail "partial: init"
 if ./sink_test adv-partial crash-after-create; then fail "partial: the crash did not terminate"; fi
 pt=$(temps adv-partial | head -1); [ -n "$pt" ] || fail "partial: no temp left by the write crash"
@@ -605,14 +574,14 @@ echo "$out" | grep -q 'Permission denied' || { echo "$out"; fail "umask: the INI
 [ ! -e adv-umask/.fido ] || fail "umask: the partial mode-000 .fido was not rolled back"
 ./sink_test adv-umask || fail "umask: a normal rerun did not converge after rollback"
 
-echo "fido: emit OK — Fido Materialize wrote the witness / multi-package / EMPTY / boundary-byte pristine trees (rendered go.mod); forged/raw images rejected before any effect; the INTERNAL sink (sink_test) passed foreign-Go/module + nested-.fido rejection, sibling-temp two-phase recovery (abandoned/forged/symlink/dir/special temps), complete-image staging, crash points (writing/staged/installing), handled-failure + cleanup-failure aggregation, EXDEV no-copy, overwrite + delete-time ownership rechecks, first-time rollback, and REAL cross-mount nested staging"
+echo "fido: emit OK — Fido Materialize wrote the witness / multi / EMPTY / boundary-byte pristine trees (rendered go.mod); forged/raw images rejected before any effect; the INTERNAL sink (sink_test) passed foreign-Go/module + nested-.fido rejection, sibling-temp two-phase recovery, complete-image staging, crash points, handled/cleanup-failure aggregation, EXDEV no-copy, ownership rechecks, first-time rollback, and REAL cross-mount staging"
 SH
 
-# ── Stage 4b: generated-module — ONE ordinary content-addressed layer holding EXACTLY the pristine canonical
-#    generated module (contract §17): /generated/go.mod + /generated/**/*.go, no .fido/lock/temp/proof/
-#    fixture bytes.  Its cache key derives from the emit stage's authoritative generation inputs (certified
-#    .v, dune, plugin, pinned toolchain, canonical witness) — NEVER from the committed generated bytes.  Every
-#    canonical-output workflow (go-e2e, staged-index verification, `make regenerate`) consumes THIS layer.
+# ── Stage 4b: generated-module — ONE content-addressed layer holding EXACTLY the pristine canonical generated
+#    module (/generated/go.mod + /generated/**/*.go, no .fido/lock/temp/proof/fixture bytes).  Its cache key
+#    derives from the emit stage's authoritative generation inputs (certified .v, dune, plugin, toolchain,
+#    witness) — NEVER the committed generated bytes.  Every canonical-output workflow (go-e2e, staged-index
+#    verification, `make regenerate`) consumes THIS layer.
 FROM scratch AS generated-module
 COPY --from=emit /workspace/generated/ /generated/
 
@@ -624,10 +593,9 @@ COPY --from=generated-module /generated/ /
 #    fresh-build validation marker (a stage may only COPY --from an EARLIER stage).
 
 # ── Stage 5: go-e2e — the LAST-MILE integration check (never a proof).  The pinned Go toolchain builds the
-#    canonical generated module (consumed from the `generated-module` layer, NOT re-generated here) with
-#    `go build ./...` using the Rocq-RENDERED go.mod, and runs the witness package; stdout/stderr/exit must
-#    match the reviewed goldens.  `go build ./...` is the blocking compiler-acceptance alarm; `go vet` is
-#    DIAGNOSTIC ONLY (nonblocking).  A build/run failure here is a hard red — GoCompile/rendering/transport
+#    canonical generated module (from the `generated-module` layer, NOT re-generated) with `go build ./...`
+#    using the RENDERED go.mod and runs the witness vs reviewed goldens.  `go build ./...` is the blocking
+#    acceptance alarm; `go vet` is DIAGNOSTIC ONLY.  A failure here is a hard red — GoCompile/rendering/transport
 #    is wrong, never a known issue.
 FROM golang:1.23-alpine@sha256:383395b794dffa5b53012a212365d40c8e37109a626ca30d6151c8348d380b5f AS go-e2e
 WORKDIR /e2e
@@ -638,17 +606,16 @@ COPY --from=emit /workspace/generated-bytes/ ./bytes/
 COPY e2e/golden.stdout e2e/golden.stderr e2e/golden.exit e2e/golden.bytes.hex ./
 RUN <<'SH'
 set -u
-# fixed process modes (§5.2): a deterministic umask so every materialized file/dir gets fixed 0644/0755 modes.
+# fixed process modes: a deterministic umask so every materialized file/dir gets fixed 0644/0755 modes.
 umask 022
 # closed-world integration: force the local pinned toolchain, no workspace, no network proxy, and NO ambient
-# go env / flag / sumdb state — export the COMPLETE pinned environment (§29-E) so no case inherits host config.
+# go env / flag / sumdb state — export the COMPLETE pinned environment so no case inherits host config.
 export GOWORK=off GOTOOLCHAIN=local GOPROXY=off GOENV=off GOFLAGS= GOSUMDB=off GO111MODULE=on GOOS=linux GOARCH=amd64
 
-# ── The ONE production fresh-build runner is the pinned disposable Docker stage (the go-e2e COPY of the
-#    certified generated-module layer, below).  This tiny helper only runs the pinned literal `go build ./...`
-#    ONCE in a FRESH disposable copy of a certified/handwritten tree and returns Go's status; the source is a
-#    certified export or a hand-written fixture, NOT a hostile filesystem — dirty-tree behaviour is Fido_sink's
-#    concern (sink_test).  It sets _FRESH_BUILD_LOG to the exact go stderr for class-specific differential checks.
+# ── The ONE fresh-build runner: this tiny helper runs the pinned literal `go build ./...` ONCE in a FRESH
+#    disposable copy of a certified/handwritten tree and returns Go's status (the source is never a hostile
+#    filesystem — dirty-tree behaviour is Fido_sink's concern, sink_test).  It sets _FRESH_BUILD_LOG to the exact
+#    go stderr for class-specific differential checks.
 fresh_go_build() {  # <src-tree> <out-var-for-fresh-root>
   _src=$1; _out=${2:-_frv}
   _fresh=$(mktemp -d /tmp/fido-fresh.XXXXXX)          || { echo "fresh_go_build: mktemp -d FAILED"; return 2; }
@@ -679,7 +646,7 @@ if [ -n "$(gofmt -l .)" ]; then echo "fido e2e: emitted Go is not gofmt-clean:";
 # go vet is DIAGNOSTIC ONLY (nonblocking); go build acceptance is the contract
 if ! go vet ./...; then echo "fido e2e: go vet reported diagnostics (nonblocking)"; fi
 # the WHOLE tree must compile — routed through the FRESH-BUILD RUNNER (a disposable materialization of the
-# PRISTINE tree; §22/§24 — never build in the authoritative tree, never copy a post-build byte back)
+# PRISTINE tree; /— never build in the authoritative tree, never copy a post-build byte back)
 if ! fresh_go_build /e2e/tree WFRESH; then cat "${WFRESH:-/dev/null}/.build.err" 2>/dev/null; echo "fido e2e: go build ./... FAILED in a fresh root (a certified tree must always compile)"; exit 1; fi
 echo "fido e2e: witness go build ./... OK in a fresh materialized root ($WFRESH)"
 # the sole-main `go build ./...` ALREADY wrote the default executable to the fresh root — RUN THAT and compare to
@@ -695,9 +662,8 @@ diff ../golden.stdout out.stdout || { echo "fido e2e: STDOUT mismatch"; exit 1; 
 diff ../golden.stderr out.stderr || { echo "fido e2e: STDERR mismatch"; exit 1; }
 rm -rf "$WFRESH"
 
-# --- BYTE-EXACT boundary-byte oracle (§22): a `println` of a string with bytes 0x00/0x1f/0x7f/0x80/0xff must
-#     emit those exact five bytes (+ the println newline) to stderr.  Compared as HEX (od, non-hex stripped)
-#     against the reviewed golden `golden.bytes.hex` — a byte-safe oracle, never binary through shell $(...). ---
+# --- BYTE-EXACT boundary-byte oracle: a `println` of bytes 0x00/0x1f/0x7f/0x80/0xff must emit exactly those
+#     five (+ newline) to stderr, compared as HEX (od) against the reviewed golden `golden.bytes.hex`. ---
 # the bytes tree is the PRISTINE export (generated-bytes; no .fido) — route acceptance through the fresh runner.
 [ -f /e2e/bytes/main.go ] || { echo "fido e2e bytes: no boundary-byte main.go"; exit 1; }
 if [ -n "$( cd /e2e/bytes && gofmt -l . )" ]; then echo "fido e2e bytes: boundary-byte Go is not gofmt-clean"; ( cd /e2e/bytes && gofmt -l . ); exit 1; fi
@@ -713,8 +679,7 @@ echo "fido e2e bytes: actual stderr hex=[$b_actual] golden=[$b_want]"
 [ "$b_actual" = "$b_want" ] || { echo "fido e2e bytes: BYTE MISMATCH — the boundary-byte string did not round-trip through Go"; rm -rf "$BFRESH"; exit 1; }
 echo "fido e2e bytes: boundary-byte string round-trips EXACTLY through pinned Go via the fresh runner (0x00/0x1f/0x7f/0x80/0xff + newline)"; rm -rf "$BFRESH"
 
-# --- EMPTY program: a rendered go.mod and ZERO .go files → `go build ./...` accepts (zero packages), via the
-#     fresh-build runner (a disposable materialization of the pristine tree). ---
+# --- EMPTY program: a rendered go.mod + ZERO .go files → `go build ./...` accepts (zero packages), via the runner. ---
 [ -f /e2e/empty/go.mod ] || { echo "fido e2e empty: no rendered go.mod"; exit 1; }
 [ -z "$(find /e2e/empty -name '*.go')" ] || { echo "fido e2e empty: unexpected .go file"; exit 1; }
 if ! fresh_go_build /e2e/empty EFRESH; then cat "${EFRESH:-/dev/null}/.build.err" 2>/dev/null; echo "fido e2e empty: go build ./... REJECTED a module with zero packages"; exit 1; fi
@@ -732,11 +697,9 @@ listed_dirs=$( cd "$MFRESH" && go list -f '{{.Dir}}' ./... | sed "s#^$MFRESH#.#;
 echo "fido e2e diff: emitted dirs=[$(echo $emitted_dirs)] go-list dirs=[$(echo $listed_dirs)]"
 [ "$emitted_dirs" = "$listed_dirs" ] || { echo "fido e2e diff: emitted package dirs != go list ./... selection"; rm -rf "$MFRESH"; exit 1; }
 rm -rf "$MFRESH"
-# (the no-main / duplicate-main rejections are the §21 A-AD cases C/D/E/F below, routed through the fresh runner.)
-# hand-written REJECTED integer-conversion fixtures (§18), routed through the ONE fresh runner: a constant
-#   conversion that overflows its
-# destination, or converts a non-integer constant, is rejected by `go build` EXACTLY as GoTypes/GoCompile
-# make impossible (const_info returns None -> no CompilableProgram -> no bytes).  A disagreement is a MODEL BUG.
+# (the no-main / duplicate-main rejections are the A-AD cases C/D/E/F below, routed through the fresh runner.)
+# hand-written REJECTED integer-conversion fixtures (via the fresh runner): a constant conversion that overflows
+# or converts a non-integer is rejected by `go build` EXACTLY as GoTypes makes impossible (a disagreement is a MODEL BUG).
 rej_conv() { # <label> <main-body>
   d="/tmp/rej-conv-$1"; rm -rf "$d"; mkdir -p "$d"
   printf 'module rej\n\ngo 1.23\n' > "$d/go.mod"
@@ -745,8 +708,7 @@ rej_conv() { # <label> <main-body>
   rm -rf "${FR:-/nonexistent}" 2>/dev/null || true
   [ "$_rc" != 0 ] || { echo "fido e2e diff: go build ./... ACCEPTED an invalid conversion [$1: $2] that GoTypes rejects (MODEL BUG)"; exit 1; }
   # CLASS-SPECIFIC evidence: the failure must be a CONVERSION / TYPE-CHECK diagnostic (overflow / truncation /
-  # cannot-convert / cannot-use / mismatched) from the fresh Go log — not a collision, a missing/dup main, or an
-  # infrastructure failure that merely happens to be nonzero.
+  # cannot-convert / cannot-use / mismatched), not a collision, missing/dup main, or infra failure.
   grep -qiE 'overflow|truncated|cannot convert|cannot use|mismatched' "$_FRESH_BUILD_LOG" \
     || { echo "fido e2e diff: [$1: $2] rejected but NOT with a conversion/type-check class:"; cat "$_FRESH_BUILD_LOG"; exit 1; }
   echo "fido e2e diff: go build ./... (exit $_rc) rejects [$1] $2 with a conversion/type-check diagnostic — matches GoTypes"; }
@@ -759,9 +721,8 @@ rej_conv uint64-over 'println(uint64(18446744073709551616))'
 rej_conv nested-over 'println(uint8(int(300)))'
 rej_conv conv-bool   'println(int8(true))'
 rej_conv conv-str    'println(uint64("x"))'
-# hand-written REJECTED float-conversion fixtures (§37): F32/F64 overflow, a fractional or out-of-range
-# float->integer constant, and wrong-type conversions — all rejected by `go build` EXACTLY as GoTypes/
-# GoCompile make impossible (round_float_const overflow / fc_to_int fraction / cross-family reject).
+# hand-written REJECTED float-conversion fixtures: F32/F64 overflow, a fractional/out-of-range float->int
+# constant, and wrong-type conversions — all rejected by `go build` EXACTLY as GoTypes makes impossible.
 rej_conv f32-over    'println(float32(1e39))'
 rej_conv f64-over    'println(float64(1e309))'
 rej_conv int-frac    'println(int(3.5))'
@@ -769,9 +730,9 @@ rej_conv int8-fl-over 'println(int8(128.0))'
 rej_conv uint8-fl-neg 'println(uint8(-1.0))'
 rej_conv f32-bool    'println(float32(true))'
 rej_conv f64-str     'println(float64("x"))'
-# hand-written REJECTED complex-conversion fixtures (§54): a real / imaginary component overflow, a
+# hand-written REJECTED complex-conversion fixtures: a real / imaginary component overflow, a
 # nonzero-imaginary or fractional/out-of-range complex->scalar conversion, and wrong-type complex conversions
-# — all rejected by `go build` EXACTLY as GoTypes/GoCompile make impossible (round_typed_complex component
+# all rejected by `go build` EXACTLY as GoTypes/GoCompile make impossible (round_typed_complex component
 # overflow / complex_real_if_imag_zero None / cross-kind reject).  A disagreement is a MODEL BUG.
 rej_conv c64-real-over  'println(complex64(complex(1e39, 0)))'
 rej_conv c64-imag-over  'println(complex64(complex(0, 1e39)))'
@@ -799,12 +760,10 @@ acc_conv() { # <label> <main-body> <expected-stderr>
   rm -rf "$FR"; echo "fido e2e diff: go build ./... accepts + runs [$1] $2 -> $3 — matches GoTypes"; }
 acc_conv int-of-c64-tinyimag 'println(int(complex64(complex(3, 1e-50))))' '3'
 
-# ── §21 — FRESH-IMAGE DIRECTORY-COLLISION DIFFERENTIAL MATRIX.  The defining fresh-image behaviour: `go build
-#    ./...` computes a SOLE main package's default executable name and, if that name is an EXISTING root
-#    DIRECTORY, FAILS before compiling (0 or >=2 main packages write no default output, so no collision).
-#    GoCompile models exactly this (the fresh-build output preflight); pinned go1.23.12 must AGREE.  Every build
-#    runs through the ONE reusable fresh-build runner above.  Hand-written trees (a valid module each) — a
-#    disagreement is a MODEL BUG, never a documented limitation.
+# ── FRESH-IMAGE DIRECTORY-COLLISION DIFFERENTIAL MATRIX.  `go build ./...` computes a SOLE main package's
+#    default executable name and, if it is an EXISTING root DIRECTORY, FAILS before compiling (0 or >=2 main
+#    packages write no default output).  GoCompile models exactly this (the fresh-build output preflight);
+#    pinned go1.23 must AGREE — a disagreement is a MODEL BUG.  Every build runs through the ONE fresh-build runner.
 cd /e2e
 mk_tree() {  # <dir> <module-path> <rel-main.go>...
   _d=$1; _mp=$2; shift 2; rm -rf "$_d"; mkdir -p "$_d"
@@ -846,18 +805,18 @@ echo "fido e2e diff: go build ./... accepted the two-main tree and wrote NO defa
 # 20.10 / 20.11 — REGULAR-FILE OVERWRITE: a sole-main output name that is an existing REGULAR file (the root
 #   go.mod, or the root source file) is NOT a directory collision -> ACCEPT; the sole-main build OVERWRITES that
 #   fresh file with the executable, and the AUTHORITATIVE tree stays byte-identical (the runner builds in a
-#   disposable copy — §24).  A build-in-place design would corrupt the module/source.
+#   disposable copy — ).  A build-in-place design would corrupt the module/source.
 overwrite_accept() {  # <dir> <module-path> <output-name-that-is-a-regular-file> <label>
   cp "$1/$3" /tmp/ov-auth
   if ! fresh_go_build "$1" FR; then cat "${FR:-/dev/null}/.build.err" 2>/dev/null; rm -rf "$FR"; echo "fido e2e diff: go build ./... REJECTED $4 (GoCompile ACCEPTS — MODEL BUG)"; exit 1; fi
   if cmp -s "$FR/$3" "$1/$3"; then echo "fido e2e diff: the fresh $3 was NOT overwritten by the sole-main build ($4)"; rm -rf "$FR"; exit 1; fi
   cmp -s /tmp/ov-auth "$1/$3" || { echo "fido e2e diff: the AUTHORITATIVE $3 was mutated by a fresh build ($4) — isolation broken"; rm -rf "$FR"; exit 1; }
-  echo "fido e2e diff: go build ./... accepted $4, overwrote the FRESH $3, left the authoritative bytes intact (matches GoCompile + §24)"; rm -rf "$FR"
+  echo "fido e2e diff: go build ./... accepted $4, overwrote the FRESH $3, left the authoritative bytes intact (matches GoCompile + )"; rm -rf "$FR"
 }
 mk_tree /tmp/ov-gomod example.com/go.mod  main.go; overwrite_accept /tmp/ov-gomod example.com/go.mod  go.mod  "the go.mod-overwrite tree (output go.mod = regular go.mod)"
 mk_tree /tmp/ov-src   example.com/main.go main.go; overwrite_accept /tmp/ov-src   example.com/main.go main.go "the source-overwrite tree (output main.go = regular main.go)"
 
-# ── §21 A-AD — the COMPLETE required external differential matrix, every case through the ONE fresh runner.
+# ── A-AD — the COMPLETE required external differential matrix, every case through the ONE fresh runner.
 #    Helpers for custom source + default-output-presence assertions.  A disagreement on a REPRESENTABLE case is
 #    a MODEL BUG; the FUTURE-ORACLE cases (constructs Fido cannot yet emit — init/methods/generics/wrong sig/
 #    var-main/mixed clauses/_test/_ignored/doc-only) pin the real pinned-go behaviour for when Fido supports them.
@@ -957,24 +916,22 @@ if ! fresh_go_build /tmp/AD2 FR2; then rm -rf "$FR1" "$FR2"; echo "fido e2e diff
 _n1=$(basename "$(find "$FR1" -maxdepth 1 -type f -perm -u+x)"); _n2=$(basename "$(find "$FR2" -maxdepth 1 -type f -perm -u+x)")
 [ "$_n1" = aa ] && [ "$_n2" = bb ] && [ "$_n1" != "$_n2" ] || { echo "fido e2e diff: AD default exe names [$_n1] [$_n2] not the distinct module basenames aa/bb"; rm -rf "$FR1" "$FR2"; exit 1; }
 echo "fido e2e diff: AD equal-layout different-module -> distinct default output names ($_n1 vs $_n2) — matches the ModuleSpec-dependent plan"; rm -rf "$FR1" "$FR2"
-echo "fido e2e diff: §21 A-AD differential matrix COMPLETE (representable cases match GoCompile; future oracles pinned)"
+echo "fido e2e diff: A-AD differential matrix COMPLETE (representable cases match GoCompile; future oracles pinned)"
 cd /e2e/tree
 
-echo "fido e2e OK — pinned Go built the whole tree in a fresh disposable copy (go build ./...) using the RENDERED go.mod, accepted the empty module, ran the witness vs goldens (incl. the ten integer-type conversions, the float section, AND the complex section: bare complex128-default literal, complex64/complex128 conversions, zero-imaginary complex<->scalar, the direct-vs-nested component double-round scar as uint64 evidence), checked the multi-package differential + go list discovery, rejected the no-main/dup-main + out-of-range/non-integer/float-overflow/fractional/wrong-type/complex-component-overflow/nonzero-imaginary conversion fixtures exactly as GoCompile does, confirmed the complex-underflow scalar-conversion scar on both sides (int(complex(3,1e-50)) rejected; int(complex64(complex(3,1e-50)))=3 accepted, imaginary underflowed to zero), AND confirmed the fresh-image DIRECTORY-COLLISION differential matrix (sub/main.go + a/v2/main.go rejected as GoCompile rejects; root main.go + a/b/main.go + v2/main.go + two-main accepted with no default executable, as GoCompile accepts) (go vet nonblocking)"
+echo "fido e2e OK — pinned Go built the whole tree in a fresh copy (go build ./...) with the RENDERED go.mod, accepted the empty module, ran the witness vs goldens (ten integer conversions + the float + complex sections incl. the double-round scars), checked the multi-package + go-list differential, rejected the no-main/dup-main + out-of-range/non-integer/float-overflow/fractional/wrong-type/complex-overflow/nonzero-imaginary fixtures exactly as GoCompile does, and confirmed the fresh-image directory-collision differential matrix (go vet nonblocking)"
 # The FRESH-BUILD-OK Docker DAG edge — a tiny artifact written ONLY after every check above passed.  It is NOT a
 # manifest, attestation, checksum, or capability: it exists only so the `sync` image (below) cannot build unless
 # this go-e2e stage completed successfully (validate-before-publish for the supported workflow).
 : > /fresh-build-ok
 SH
 
-# ── Stage 4d (defined last, after go-e2e): sync — the `make regenerate` image.  It compiles the tiny internal
-#    filesystem adapter (linking Fido_sink) and bakes in the pristine `generated-module` layer; run with the
-#    repository root bind-mounted at /dest, its ENTRYPOINT synchronizes /generated into /dest through the sink
-#    (preserving foreign non-Go files, rejecting foreign Go/module + nested .fido, updating tracked go.mod + .go,
-#    removing stale Fido-owned .go).  It never re-generates and never renders.  VALIDATE-BEFORE-PUBLISH ORDERING:
-#    it COPYs the go-e2e /fresh-build-ok Docker DAG edge, so building `sync` FORCES go-e2e (the pinned `go build
-#    ./...`) to succeed first — a failing fresh build makes this stage unbuildable.  It publishes the ORIGINAL
-#    generated-module layer, never any go-e2e build directory.
+# ── Stage 4d (defined last): sync — the `make regenerate` image.  It compiles the tiny internal filesystem
+#    adapter (linking Fido_sink) and bakes in the pristine `generated-module` layer; run with the repo root
+#    bind-mounted at /dest, its ENTRYPOINT synchronizes /generated into /dest through the sink.  It never
+#    re-generates or renders.  VALIDATE-BEFORE-PUBLISH: it COPYs the go-e2e /fresh-build-ok DAG edge, so building
+#    `sync` FORCES go-e2e (the pinned `go build ./...`) to succeed first — a failing fresh build makes this stage
+#    unbuildable — and it publishes the ORIGINAL generated-module layer, never a go-e2e build directory.
 FROM emit AS sync
 COPY --from=go-e2e /fresh-build-ok /fresh-build-ok
 RUN cp /workspace/plugin/fido_sink.ml /workspace/e2e/fido_apply.ml /tmp/ \

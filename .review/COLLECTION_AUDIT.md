@@ -26,7 +26,7 @@ Columns: **file / symbol** · **contents** · **identity key** · **order matter
 | `GoAST.file_bindings` / `prog_bindings` | (path, source) pairs | — | canonical (key sort) | n/a | enumerate | `FileMap.elements` (derived) | retained | DERIVED canonical enumeration of the map; not an identity authority |
 | `GoAST.file_paths` / `prog_keys` | paths | — | canonical | n/a | enumerate | `map fst file_bindings` (derived) | retained | derived key enumeration |
 | `GoCompile.package_summaries` | directory → PackageSummary | `string` (`fp_parent`) | no | summed once each | by directory | **`FMapAVL`** (`Collections.PackageMapBase`) | retained | identity-keyed package aggregation; one `FM.fold`, no O(files²) scan |
-| `GoCompile.list_dir_count` / `PM.elements` in `source_valid_b` | package proof enumerations | — | canonical | n/a | proof fold / forallb | derived `elements` / spec `list` | retained | proof/spec views over the canonical package-map enumeration, not storage |
+| `GoCompile.list_dir_count` / `PM.elements` in `source_spec_valid_b` | package proof enumerations | — | canonical | n/a | proof fold / forallb | derived `elements` / spec `list` | retained | proof/spec views over the canonical package-map enumeration, not storage |
 | `GoEmit.DirectoryImage.di_go_files` | path → rendered bytes | `FilePath` | no | n/a | by path | **`FMapAVL`** (`FM.map render_file`) | retained | identity-keyed rendered `.go` map (the standard `map` of the source map) |
 | `GoEmit.di_go_file_entries` | (path-string, bytes) transport | — | canonical | n/a | enumerate | `FileMap.elements` (derived) | retained | DERIVED canonical transport list; identity authority is `di_go_files` |
 | `GoIndex.NodeTable` (`Collections.NodeMapBase`) | local id → NodeMeta | `positive` | no | n/a | by id | **`FMapPositive`** | retained | per-file local-node index; a thin SEALED API (`Module NodeTable : NODE_TABLE`) delegating storage + the three laws to the standard positive map — no Fido-authored storage; C2 RETAINS `FMapPositive` |
@@ -57,7 +57,6 @@ Columns: **file / symbol** · **contents** · **identity key** · **order matter
 | `Sys.readdir` results (`inspect` / `remove_stale_go`) | directory names | — | OS order | n/a | iterate | `array` (OS) | retained | filesystem enumeration returned by the OS; iterated once, no identity/membership storage |
 | `fido_apply.ml` `Sys.readdir` (`go_files`) | directory names | — | OS order | n/a | iterate | `array` (OS) | retained | filesystem enumeration; iterated once during the source-tree walk |
 | `fido_apply.ml` `go_files` accumulator / `entries` | (rel `.go` path, bytes) | — | walk order → `List.rev` | n/a (source tree has distinct paths; sink re-validates) | accumulate → validated into sink map | `list` | retained | a transport-ENUMERATION accumulator built by the recursive tree walk, `List.rev`-ed and handed to `Fido_sink.sync` (which validates it into its `Map.Make(String)`); the identity authority is the sink map, not this list |
-| `fido_apply.ml` `want` (validation manifest) | path → md5 hex | `string` | no | rejects dup path (last wins; count-checked) | parse → per-file lookup | **`SM` (`Map.Make(String)`)** | **added (conf-#2, F2 byte-binding)** | identity-keyed path→digest map parsed from the byte-integrity manifest; a mature OCaml finite map (not `List.assoc`); its bijection with the published set is count-checked. ⚠ pending the F2 threat-model decision (`.review/C3_ARCH_CONFLICT.md`) — may be removed if the boundary is redesigned |
 
 ## Notable false positives (searched, NOT collection defects)
 
@@ -66,7 +65,7 @@ Columns: **file / symbol** · **contents** · **identity key** · **order matter
 - `NoDup` occurrences: all are theorems ABOUT a derived `elements`/children/path list (e.g.
   `render_image_keys_nodup`, `thm_children_of_nodup`), never a carried uniqueness field standing in for a map.
 - `existsb` / `forallb` / `fold_left` / `fold_right`: proof/spec structure over canonical enumerations
-  (`program_typedb`, `source_valid_b`, `list_dir_count`, `pkg_foldl`) — not collection storage or repeated-scan lookup.
+  (`program_typedb`, `source_spec_valid_b`, `list_dir_count`, `pkg_foldl`) — not collection storage or repeated-scan lookup.
 - `digits` list, `FilePath` path components, runtime `SPrintln` argument order: ordered source/leaf sequences.
 - `Record`/`Inductive` names containing Map/Set/Table/Index (`GoFileMap`, `PackageSummary`, `SyntaxIndex_T`,
   `FileIndex`, `NodeTable`): all are aliases / thin wrappers / domain records over standard maps — none defines

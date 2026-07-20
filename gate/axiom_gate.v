@@ -131,7 +131,6 @@ Print Assumptions Collections.filemap_elements_Equal.
    [TypedConst]/[ResolvedConst] + a representable typed integer value; resolution sound + complete +
    deterministic; statement + program typing reflection. *)
 Print Assumptions GoTypes.const_info_zero_sign.
-Print Assumptions GoTypes.str_representable.
 Print Assumptions GoTypes.const_representableb_iff.
 Print Assumptions GoTypes.resolve_expr_sound.
 Print Assumptions GoTypes.resolve_expr_complete.

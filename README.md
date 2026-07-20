@@ -75,80 +75,51 @@ no complex arithmetic, no `real`/`imag`, no imports.
 - **One program representation.** A `GoProgram` is an intrinsic `ModuleSpec` (a narrow canonical module
   path + a singleton Go version — the facts of the generated module, **not** a target config) paired with a
   **possibly-empty** verified finite map from intrinsic `FilePath` keys to one raw file AST per file (a raw
-  string is **not** a path — Go package discovery depends on it, so only a narrow canonical grammar is
-  representable). The empty file map is a valid module-only program. A raw file is a source-shaped
-  `GoSourceFile` — a **source-owned package clause** (`PkgMain` → `package main`), an intrinsically-empty
-  import section, and its top-level declarations; the package clause (and future import declarations) is
-  **source syntax**, while package **grouping**, entry-point status, and import **resolution** are
-  compilation results. There is no second tree and no separate IR.
-- **One type authority.** Each raw literal denotes an exact **untyped** constant (`GoConst`); `GoTypes` —
-  the single type authority, evidence over the same AST, universe `TBool` / the integer family `TInteger`
-  (ten `IntegerType` members) / the float family `TFloat` (`F32`/`F64` = `float32`/`float64`) / the complex
-  family `TComplex` (`C64`/`C128` = `complex64`/`complex128`, components `float32`/`float64`) / `TString` —
-  resolves
-  it in a use context (an untyped int defaults to `int` and its per-type inclusive range is checked; a bare
-  float defaults to `float64`; a bare complex defaults to `complex128`; a string
-  literal carries its exact bytes and is always representable as `TString`). An explicit integer conversion
-  (`EIntConvert`) is a **typed** constant of the destination type, value-preserving and range-checked at every
-  nesting layer (`int`/`uint` are pinned 64-bit and distinct from `int64`/`uint64`); explicit float32/float64
-  and complex64/complex128 conversions and float↔integer / scalar↔complex constant conversions go through one
-  target-directed `convert_const` authority
-  (rounding once — each complex component once, range/integrality/zero-imaginary checked). `GoConst` includes
-  an exact canonical-rational float constant `CFloat` and an exact-pair complex constant `CComplex`, and
-  runtime values gain a proof-carrying canonical float value `VFloat` and a complex value `VComplex` (a pair
-  of canonical float components that may be signed-zero/inf/NaN, though a typed complex constant cannot be). A
-  literal is not a typed
-  value, and there is no typed AST or second IR: `ResolveExpr` is a judgment over the raw syntax, reflected
-  by a decision proved sound, complete, and deterministic.
+  string is **not** a path). A raw file is a source-shaped `GoSourceFile` — a **source-owned package clause**,
+  an intrinsically-empty import section, and its declarations; package **grouping**, entry-point status, and
+  import **resolution** are compilation results. There is no second tree and no separate IR.
+- **One type authority.** Each raw literal denotes an exact **untyped** constant (`GoConst`); `GoTypes` — the
+  single type authority, evidence over the same AST (universe `TBool` / the integer family `TInteger` (ten
+  members) / `TFloat` (`float32`/`float64`) / `TComplex` (`complex64`/`complex128`) / `TString`) — resolves it
+  in a use context (an untyped int defaults to `int` and its range is checked; a bare float to `float64`; a
+  bare complex to `complex128`; every string representable as `TString`). An explicit conversion is a **typed**
+  constant of the destination type, routed through one target-directed `convert_const` authority (integer
+  conversions value-preserving + range-checked at every nesting layer; float/complex conversions round once —
+  each complex component once; scalar↔complex by Go's zero-imaginary rule). A literal is not a typed value,
+  and there is no typed AST or second IR.
 - **Exact, whole-program compilation = the pinned one-shot `go build ./...` acceptance.** `GoCompile p :=
   fresh_build_preflight_ok p /\ SourceProgramValid p`: it groups files by directory into `package main`
-  packages, requires the source valid (typed through `GoTypes`, plus the two FACTORED package rules —
-  package-block name uniqueness and main-package entry, proved equal to the old one-main rule), AND models
-  cmd/go's default-OUTPUT behaviour — a sole main package whose default executable name (import-path basename,
-  a trailing `/vN` stripped) is an existing root DIRECTORY is REJECTED before compiling (a "strange side
-  effect" of the literal command, part of acceptance). It is a declarative judgment with a proof-producing
-  sound + complete decision, aimed at matching `go build ./...` for every representable program. Two claims
-  stay distinct: (A) the checker matches the formal judgment — PROVED; (B) it matches `go build ./...` — the
-  GOAL, exercised by a differential matrix (incl. the directory-collision cases), never a kernel theorem about
-  `cmd/go`.
-- **Real semantics + faithful rendering.** `GoSafe` evaluates to real Go values (`VInteger : IntegerType -> Z`, so `0` and
-  `-0` agree; `VString` exact bytes) that carry the **same** `GoType` and are range-well-formed; evaluation is
-  derived from the one constant-status analysis and is partial (a compiler-invalid conversion has no value) —
-  a resolved expression provably evaluates to a well-formed value of its resolved type. `GoRender` proves
-  `render_const_info_denotes` — rendering denotes exactly the ConstInfo GoTypes computes (a bare integer stays
-  UNTYPED, a conversion is typed) — and `render_resolved_expr_denotes` (that also evaluates to a well-formed
-  value of the resolved type), plus all-ASCII, no illegal leading zero, and the header as the
-  exact first line, and renders the `go.mod` directly from the `ModuleSpec` (exact bytes, header first line,
-  ASCII). Every layer is proved **axiom-free** in a pinned Rocq 9.2.0 container — asserted by a
-  whole-certified-theory assumption-closure audit, not just per-surface `Print Assumptions`.
-- **A transport boundary, not a backend.** The image is an abstract `DirectoryImage` — the exact `go.mod`
-  bytes plus a (possibly-empty) map of `.go` bytes — carrying a proof both came from rendering one
-  `SafeProgram`. Publication is ONE validate-before-publish workflow, never a standalone publish command: the
-  SOLE Rocq transport vernac `Fido Materialize <image> To "<dir>"` writes the authoritative pristine bytes
-  into a fresh disposable root, and the pinned `go build ./...` **validates** that pristine tree. There is NO
-  public `Fido Emit` — the publication **sink** is internal (its own test driver + the `make regenerate` apply
-  CLI), which the validated workflow invokes ONLY after the fresh build succeeds, publishing the SAME
-  validated pristine bytes (never a post-build byte; a failed fresh build prevents publication).
-  `Fido Materialize`'s guards run before any effect — they typecheck the image type and reject a non-empty
-  assumption closure (kernel queries, so a postulated axiom/variable proof cannot cross), then decode only the
-  final `(go.mod, entries)` transport. The sink is a generic **ownership-aware dirty-directory synchronizer**
-  that **rejects foreign
-  Go/module inputs** (a foreign `.go` in the Go-discovered namespace, a foreign/nested `go.mod`, a nested
-  `.fido`) rather than merge them — skipping the opaque dot/underscore/`testdata`/`vendor` trees `go build
-  ./...` itself ignores — then stages the complete image into RESERVED sibling temps `<final>.fido-tmp-v1`
-  and installs by atomic rename (nested mounts supported; EXDEV fails loud). It validates the root against
-  prefix symlinks, reserves `.fido/` (marker + a git-style lock only — no records, no nonce), owns installed
-  `.go`/`go.mod` by their header first line, never follows symlinks, and two-phase-recovers abandoned temps
-  (whose suffix-stripped path maps to a Fido final path) fail-closed. No handwritten OCaml walks a program.
+  packages, requires the source valid (typed through `GoTypes`, plus the two factored package rules —
+  name uniqueness and main-package entry), AND models cmd/go's default-OUTPUT behaviour (a sole main package
+  whose default executable name collides with an existing root directory is rejected). Two claims stay
+  distinct: (A) the checker matches the formal judgment — PROVED; (B) it matches `go build ./...` — the GOAL,
+  exercised by a differential matrix, never a kernel theorem about `cmd/go`.
+- **Real semantics + faithful rendering.** `GoSafe` evaluates to real Go values that carry the **same**
+  `GoType` and are range-well-formed; evaluation is partial (a compiler-invalid conversion has no value), so a
+  resolved expression provably evaluates to a well-formed value of its resolved type. `GoRender` proves
+  `render_const_info_denotes` (a spelling denotes exactly the ConstInfo GoTypes computes) and
+  `render_resolved_expr_denotes`, plus all-ASCII and the header as the exact first line, and renders the
+  `go.mod` directly from the `ModuleSpec`. Every layer is proved **axiom-free** in a pinned Rocq 9.2.0
+  container — asserted by a whole-certified-theory assumption-closure audit, not just per-surface `Print
+  Assumptions`.
+- **A transport boundary, not a backend.** The image is an abstract `DirectoryImage` (the exact `go.mod` bytes
+  plus a possibly-empty map of `.go` bytes) carrying a proof both came from rendering one `SafeProgram`.
+  Publication is ONE validate-before-publish workflow, never a standalone publish command: the SOLE Rocq
+  transport vernac `Fido Materialize` writes the authoritative pristine bytes into a fresh disposable root, the
+  pinned `go build ./...` **validates** that tree, and only THEN does the internal sink (its own test driver +
+  the `make regenerate` apply CLI) publish the SAME validated bytes — a failed build prevents publication.
+  There is NO public `Fido Emit`. `Fido Materialize`'s guards run before any effect (typecheck the image type
+  + reject a non-empty assumption closure, so a postulated proof cannot cross). The sink is a generic
+  **ownership-aware dirty-directory synchronizer** that **rejects foreign Go/module inputs** rather than merge
+  them, stages the complete image into reserved sibling temps, installs by atomic rename, and
+  two-phase-recovers abandoned temps fail-closed. No handwritten OCaml walks a program.
 - **The generated module is a tracked, reviewed artifact.** One pristine content-addressed Buildx
   `generated-module` layer is the output authority; the canonical `go.mod` + `main.go` are committed
   (Fido-headed) so the example builds/runs without Rocq or Docker, while the `.v`/proof sources stay
-  authoritative. `make regenerate` rewrites them through the SAME validate-before-publish workflow (a fresh
-  `go build ./...` over the pristine gates the sink — the deployed path IS the tested path); `make check`
-  verifies the WORKING TREE byte-exact against the pristine layer, and a pre-commit hook verifies the proposed
-  STAGED commit the same way
-  (a prototype boundary offering reasonable assurance for a cooperating developer, not tamper resistance;
-  `--no-verify` bypasses it).
+  authoritative. `make regenerate` rewrites them through the SAME validate-before-publish workflow (the
+  deployed path IS the tested path); `make check` verifies the WORKING TREE byte-exact against the pristine
+  layer, and a pre-commit hook verifies the proposed STAGED commit the same way (a prototype boundary offering
+  reasonable assurance for a cooperating developer, not tamper resistance; `--no-verify` bypasses it).
 
 The admitted fragment is deliberately tiny; anything else is **unrepresentable**, not stubbed. Imports are
 absent and unrepresentable — a permanent closed-world contract governs their eventual introduction.

@@ -4,7 +4,7 @@ BUILDER := fido-builder
 # toolchain's GOOS/GOARCH/word size).  This is an operational pin, not a certified TargetConfig.
 override PLATFORM := linux/amd64
 
-.PHONY: check prove emit e2e regenerate builder install-hooks prover-log
+.PHONY: check prove emit e2e regenerate regen-guard builder install-hooks prover-log
 .DEFAULT_GOAL := check
 
 # Fido (ARCHITECTURE.md): an LLM proposes a GoProgram (a ModuleSpec + a possibly-empty finite map of
@@ -87,6 +87,12 @@ regenerate: builder
 	docker run --rm -u $$(id -u):$$(id -g) -v "$(CURDIR)":/dest fido-sync
 	@echo "fido: regenerate OK — building 'sync' forced the pinned go build ./... (Docker DAG), then the SAME pristine bytes were synced into the repo root via Fido_sink."
 	@echo "      Stage + commit:  git add -A -- go.mod ':(top,glob)**/*.go' && git commit"
+
+# Structural regression proving the validate-before-publish DAG edge is load-bearing: with go-e2e forced to
+# FAIL (on a temp Dockerfile copy), `--target sync` must be UNBUILDABLE; on the unmodified tree it must build.
+# So `make regenerate` cannot publish unless the pinned `go build ./...` validated the pristine first.
+regen-guard: builder
+	BUILDER=$(BUILDER) PLATFORM=$(PLATFORM) sh tools/regen-guard-test.sh
 
 # Zero project axioms are enforced inside the pinned `prove` stage: gate/axiom_gate.v (Print Assumptions on
 # the public surfaces) + the Rocq-native `Fido Audit Assumptions` WHOLE-certified-theory audit over

@@ -97,6 +97,27 @@ Fixpoint split_slash (s : string) : list string :=
            end
   end.
 
+(** [split_slash] never returns the empty list, and it distributes over an explicit `/` join — the two
+    lower-layer facts an import-path component view needs (a `/`-joined path splits into its two parts). *)
+Lemma split_slash_nonempty : forall s, split_slash s <> [].
+Proof.
+  destruct s as [|c s']; cbn [split_slash].
+  - discriminate.
+  - destruct (Ascii.eqb c "/"%char); [ discriminate | destruct (split_slash s'); discriminate ].
+Qed.
+
+Lemma split_slash_app : forall a b,
+  split_slash (a ++ String "/"%char b) = split_slash a ++ split_slash b.
+Proof.
+  induction a as [|c a' IH]; intro b.
+  - reflexivity.
+  - cbn [append split_slash]. destruct (Ascii.eqb c "/"%char) eqn:Ec.
+    + rewrite IH. reflexivity.
+    + rewrite IH. destruct (split_slash a') as [|ha ta] eqn:Ea.
+      * exfalso. exact (split_slash_nonempty a' Ea).
+      * reflexivity.
+Qed.
+
 (** every character of a module path is a segment char or the separator `/` — all ASCII (< 128). *)
 Definition modpath_char (c : ascii) : bool := seg_char c || Ascii.eqb c "/"%char.
 

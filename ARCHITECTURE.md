@@ -82,41 +82,24 @@ law backed by explicit audit and code inspection, NOT a brittle source-scanning 
                  root field carries it.)
 
   GoIndex        the ONE structural occurrence-identity + navigation authority, DERIVED from one immutable
-                 GoProgram snapshot (imports only GoAST/Collections/FilePath — NOT GoTypes/GoCompile/GoSafe/
-                 GoRender/GoEmit; it knows no semantic types, admissibility, rendering, or diagnostics).  Each
-                 currently-represented source occurrence (file root, package clause, top-level decl, statement,
-                 println argument, conversion operand) gets ONE canonical file-local `positive` id by a
-                 deterministic preorder (file root = 1); its NodeMeta ({ kind ; option parent ; role ;
-                 subtree_end }) is stored in a per-file SEALED NodeTable (a thin API over the pinned-stdlib
-                 FMapPositive — no Fido-authored storage), aggregated by the outer program index
-                 SyntaxIndex p (FileMapBase.map index_file (prog_files p)).  An INDEPENDENT, table-free
-                 source_occurrence_at re-derives each occurrence's exact kind/view/parent/role/subtree_end
-                 directly from the syntax; the universal `index_file_source_exact` pins stored metadata =
-                 source-occurrence metadata at every id in PRESENCE and ABSENCE (a mislabeled table is
-                 unprovable).  References are indexed by the EXACT GoProgram: FileRef p (path + exact source +
-                 map membership, no hidden slot), NodeRef p (FileRef + local id + validity), NodeKey
-                 (FilePath + positive), and kind-refined NodeRefOf p k (DeclRef/StmtRef/ExprRef/…) — all
-                 constructors SEALED, minted only through validated `file_of_path`/`ref_of_key`; identity is
-                 NodeKey identity (proved), and same-shape/different-payload OR different-ModuleSpec snapshots
-                 yield non-interchangeable reference types even when the erased index data is equal.  A TOTAL
-                 query API (ref_meta / node_kind / node_role / node_subtree_end / containing_file / children_of /
-                 source_occurrence_of_ref; only parent_of is optional — a file root has no parent) is total by
-                 carried validity, never a semantic fallback.  Navigation is exact: parent via metadata,
-                 direct children by preorder interval-jumps (work ∝ direct-child count, never a descendant
-                 scan), ancestry by preorder intervals, a canonical preorder reference enumeration, and a §19
-                 INDEXED TRAVERSAL (visit_file runs the SINGLE-PASS walk_file — a next-free-id cursor, no
-                 per-node boundary rescan; occs_file is its readable spec, walk_file = occs_file) that supplies
-                 each ORIGINAL syntax fragment together with its validated NodeRef in one structural pass — no
-                 per-node search, no copied/located AST, no second tree.
-                 GoCompile's production elaboration (`elaborate`) consumes it as the ONE indexed whole-program
-                 pass: it let-binds ONE index_program p and folds visit_file's (NodeRef, syntax) pairs, taking
-                 each occurrence's ROLE from the index THROUGH the reference (node_role idx — an outer-FileMap
-                 + inner-PositiveMap lookup in the PRECOMPUTED si_outer, no rebuild) and its SYNTAX from the
-                 DELIVERED fragment (view_expr — no node_at/source_occurrence_of_ref recovery), delegating to
-                 the SAME expr_typedb/const_info resolver.  GoTypes owns only the type/constant relation and
-                 imports NO GoIndex; the per-occurrence predicate occ_arg_typedb + its occs_*_typedb_eq chain
-                 live in GoCompile (the sole GoIndex+GoTypes meeting point).  GoTypes runs NO peer indexed
-                 whole-program checker (the C2 indexed_program_typedb demonstration is removed, §19/§26).
+                 GoProgram snapshot (imports only GoAST/Collections/FilePath; it knows no semantic types,
+                 admissibility, rendering, or diagnostics).  Each represented source occurrence gets ONE
+                 canonical file-local `positive` id by a deterministic preorder (file root = 1); its NodeMeta
+                 lives in a per-file SEALED NodeTable (a thin API over pinned-stdlib FMapPositive — no
+                 Fido-authored storage), aggregated by the program index SyntaxIndex p.  An INDEPENDENT,
+                 table-free source_occurrence_at re-derives each occurrence's metadata directly from the syntax;
+                 the universal `index_file_source_exact` pins stored metadata = source-occurrence metadata at
+                 every id in PRESENCE and ABSENCE (a mislabeled table is unprovable).  References
+                 (FileRef/NodeRef/NodeKey + kind-refined NodeRefOf) are SEALED, indexed by the EXACT GoProgram
+                 and minted only through validated `file_of_path`/`ref_of_key`; identity is NodeKey identity,
+                 and a different-payload OR different-ModuleSpec snapshot yields non-interchangeable reference
+                 types even when the erased index data is equal.  A TOTAL query API (only parent_of optional) is
+                 total by carried validity, never a semantic fallback; navigation is exact (parent via metadata,
+                 direct children by preorder interval-jumps, ancestry by intervals, a canonical enumeration, and
+                 the SINGLE-PASS `visit_file` traversal supplying each ORIGINAL syntax fragment with its
+                 validated NodeRef in one structural pass — no per-node search, no copied/located AST, no second
+                 tree).  GoCompile's `elaborate` consumes it as the ONE indexed whole-program pass (see the
+                 GoCompile entry); GoTypes imports NO GoIndex and runs NO peer indexed whole-program checker.
 
   GoTypes        the ONE Go type-system authority — EVIDENCE over the raw GoAST, never a typed AST.  The
                  permanent type universe is EXACTLY { TBool, the integer family TInteger over the ten-member IntegerType, TFloat FloatType, the complex family TComplex over ComplexType, TString }.  A raw literal denotes an EXACT
@@ -182,8 +165,8 @@ law backed by explicit audit and code inspection, NOT a brittle source-scanning 
                  snapshot-independent [erased_report]/[erased_elaboration_report] enables cross-snapshot comparison
                  without a dependent transport.  The coarse
                  [legacy_compile_class] (with LCBuildOutput) remains ONLY as a projection of the structured
-                 diagnostics.  §19 determinism is split (FilesEqual source facts vs the full ProgramInputEqual for
-                 the plan/report/class), and the §8 DirectoryImage bridge proves the rendered image REALIZES the
+                 diagnostics.  Determinism is split (FilesEqual source facts vs the full ProgramInputEqual for
+                 the plan/report/class), and the DirectoryImage bridge proves the rendered image REALIZES the
                  fresh root layout ([directory_image_realizes_fresh_layout]).  The package
                  clause is SOURCE-owned (source_package), NOT a compiler-derived fact — there is NO [cf_pkg_name];
                  the compiled evidence EXPOSES that the same p is typed via a canonical projection
@@ -191,20 +174,18 @@ law backed by explicit audit and code inspection, NOT a brittle source-scanning 
 
   GoSafe         the safety capability SafeProgram over CompilableProgram, plus a PER-FILE abstract
                  println-trace with REAL values (VBool/VInteger IntegerType Z/VFloat ft (FloatValue ft)/
-                 VComplex ct (ComplexValue ct)/VString exact bytes; evaluation is PARTIAL, derived from const_info).  Runtime values use the SAME GoType
-                 authority (value_type — VFloat ft carries TFloat ft, VComplex ct carries TComplex ct) and are range-well-formed (ValueWF; a
-                 FloatValue is a PROOF-CARRYING canonical Stdlib SpecFloat.spec_float — the image of the format
-                 normalizer, future-compatible with finite/±0/inf/NaN, Flocq NOT used — so ValueWF(VFloat) :=
-                 ValueWF(VComplex) := True
-                 with canonicality in the type; a general runtime ComplexValue is a PAIR of FloatValue components
-                 that MAY be -0/inf/NaN, while constant eval produces only finite/+0); evaluation is DERIVED from the one
-                 constant-status analysis (const_info) and is PARTIAL (a compiler-invalid conversion has no
-                 value — never a wrap), so a resolved expression evaluates to a well-formed value of its
-                 resolved GoType (eval_expr_resolved).  GoSafe := True TODAY (the fragment has
-                 no unsafe op), documented honestly; the PERMANENT extension point for guarantees beyond
-                 compiler acceptance.  There is no whole-PROGRAM execution semantics yet (multi-package is
-                 a compile-time concept — go build ./... — and only the witness package is executed vs
-                 goldens); a per-package program semantics arrives when a construct needs it.
+                 VComplex ct (ComplexValue ct)/VString exact bytes).  Runtime values use the SAME GoType
+                 authority (value_type) and are range-well-formed (ValueWF; a FloatValue is a PROOF-CARRYING
+                 canonical Stdlib SpecFloat.spec_float — the image of the format normalizer, Flocq NOT used — so
+                 ValueWF(VFloat) := ValueWF(VComplex) := True with canonicality in the type; a general runtime
+                 ComplexValue is a PAIR of FloatValue components that MAY be -0/inf/NaN, while constant eval
+                 produces only finite/+0).  Evaluation is DERIVED from const_info and is PARTIAL (a
+                 compiler-invalid conversion has no value — never a wrap), so a resolved expression evaluates to
+                 a well-formed value of its resolved GoType (eval_expr_resolved).  GoSafe := True TODAY (the
+                 fragment has no unsafe op), documented honestly — the PERMANENT extension point for guarantees
+                 beyond compiler acceptance.  There is no whole-PROGRAM execution semantics yet (only the witness
+                 package is executed vs goldens); a per-package program semantics arrives when a construct needs
+                 it.
 
   GoRender       the direct renderer.  It renders each GoSourceFile to bytes (the package clause from the
                  file's OWN source_package via render_package_clause — PkgMain -> `main`, each DMain as a
@@ -245,7 +226,7 @@ law backed by explicit audit and code inspection, NOT a brittle source-scanning 
                  (exact constructors of prod/list/string/ascii/bool, fail-loud otherwise).  `Fido Materialize
                  <image> To "<root>"` writes those authoritative bytes DIRECTLY into a fresh disposable
                  build-VALIDATION root (no sink control state, never a user dir).  There is NO public `Fido
-                 Emit` (F2): the publication SINK (`Fido_sink.sync`) is INTERNAL — reached only from the sink's
+                 Emit`: the publication SINK (`Fido_sink.sync`) is INTERNAL — reached only from the sink's
                  own test driver and the `make regenerate` apply CLI, which the validated workflow invokes ONLY
                  after the pinned `go build ./...` validates the materialized image.  VALIDATION-BEFORE-
                  PUBLICATION: the committed canonical artifact is copied from THAT materialization; the sink
@@ -270,15 +251,14 @@ AST->output->AST round-trip authority, no copied compiled AST, no handwritten OC
 ## Two honest claims (never conflate)
 
 - **(A) KERNEL-internal exactness — PROVED.** The executable `go_compile` succeeds exactly for the
-  declarative `GoCompile` judgment (`go_compile_ok_valid` + `go_compile_complete`; sound + complete; the one
-  elaboration root satisfies `elaborate_ok_iff_GoCompile`), and the renderer/semantics facts hold. Asserted
-  axiom-free every build by `gate/axiom_gate.v`.
-- **(B) EXTERNAL adequacy target — the GOAL, not a kernel theorem.** The declarative `GoCompile` judgment
-  matches `go build ./...` acceptance for every representable rendered program. We model the acceptance
-  semantics independently; `cmd/go` is used for DIFFERENTIAL experiments and the e2e, never as the formal
-  decision procedure. A representable program `go build ./...` accepts but GoCompile rejects is a MODEL
-  BUG (fix the model or narrow the representation), never a "permanent limitation"; a program GoCompile
-  accepts but `go build ./...` rejects means no emission should have been possible — a correctness failure.
+  declarative `GoCompile` judgment (`go_compile_ok_valid` + `go_compile_complete`, sound + complete; the one
+  elaboration root satisfies `elaborate_ok_iff_GoCompile`), and the renderer/semantics facts hold — asserted
+  axiom-free every build.
+- **(B) EXTERNAL adequacy target — the GOAL, not a kernel theorem.** The declarative judgment matches `go
+  build ./...` acceptance for every representable rendered program. We model the acceptance semantics
+  independently; `cmd/go` is used only for DIFFERENTIAL experiments and the e2e. A representable program `go
+  build ./...` accepts but GoCompile rejects is a MODEL BUG (fix the model or narrow the representation), never
+  a "permanent limitation"; a program GoCompile accepts but `go build ./...` rejects is a correctness failure.
 
 ## Responsibility table (does / does NOT)
 
@@ -288,7 +268,7 @@ AST->output->AST round-trip authority, no copied compiled AST, no handwritten OC
 | **Collections** | the ONE standard-collection foundation: thin wrappers over pinned-stdlib `FMapAVL` (`FileMapBase` over a `FilePath` ordered key, `PackageMapBase` over `String`) + `FMapPositive` (`NodeMapBase`); axiom-free wrapper facts (`fp_str_inj`; `filemap_elements_Equal` — extensionally-equal maps have the SAME canonical `elements`) | author a map/set implementation (no tree/list-backed collection); expose the backing tree; use a list + `NoDup` as a map |
 | **ModuleSpec** | intrinsic module facts: narrow `ModulePath` (decidable eq, canonical render) + singleton `GoVersion` (Go1_23 → "1.23") | be a `TargetConfig`; carry GOOS/GOARCH/ABI/scheduler/point-release; admit an invalid module path (unrepresentable) |
 | **GoAST** | `ModuleSpec` + a possibly-EMPTY program map + raw `GoDecl` (a `func main` form) over `EBool`/`EInt`/`ENeg`/`EString`/`EIntConvert` (explicit integer conversion to an intrinsic `IntegerType`)/`EFloat` (a bare float literal carrying an INTRINSIC bounded-canonical finite decimal `coeff·10^exp`, `\|coeff\|<10^40`, `\|exp\|≤4096`)/`EFloatConvert` (explicit conversion to a `FloatType`)/`EComplex` (a semantic complex literal, a PAIR of `DecimalFloat` components spelled `complex(re, im)`)/`EComplexConvert` (explicit conversion to a `ComplexType`); a SOURCE-owned package clause (`source_package`, `PkgMain`) + an intrinsically-empty import section (`source_imports`); key-uniqueness intrinsic (the map key) | carry an entry-point flag / a compiler-derived package name / package GROUPING / a raw path stored in the mapped value; an ARBITRARY (non-`main`) package clause or non-empty imports; a nonemptiness restriction; a second tree; a type on a raw literal; a raw type-name string in a conversion; arithmetic / imaginary-literal / `real`/`imag` / NaN / Inf syntax |
-| **GoIndex** | the ONE structural occurrence-identity + navigation authority DERIVED from one immutable `GoProgram` (imports only GoAST/Collections/FilePath): canonical file-local `positive` preorder ids (file root = 1); `NodeMeta` {kind, option parent, role, subtree_end} in a SEALED per-file `NodeTable` (thin API over pinned `FMapPositive`) aggregated by `SyntaxIndex p` (`FileMapBase.map index_file (prog_files p)`); an INDEPENDENT table-free `source_occurrence_at` + the universal `index_file_source_exact` (stored metadata = source-occurrence metadata at every id, PRESENCE + ABSENCE); snapshot-indexed SEALED `FileRef p`/`NodeRef p`/`NodeKey`/kind-refined `NodeRefOf p k`, identity = NodeKey identity, minted only via validated `file_of_path`/`ref_of_key`; a TOTAL query API (`ref_meta`/`node_kind`/`node_role`/`node_subtree_end`/`containing_file`/`children_of`/`source_occurrence_of_ref`; only `parent_of` optional); exact parent / interval-jump direct children / interval ancestry / canonical preorder enumeration; the §19 `visit_file` indexed traversal (original syntax + validated ref together, one pass) | import GoTypes/GoCompile/GoSafe/GoRender/GoEmit; know semantic types / admissibility / rendering / diagnostics; author collection storage or a node trie; add a hidden file slot / a parallel path map / an author id / root id 0; copy the source tree or build a second/located/typed AST; deduplicate structurally-equal occurrences; index EComplex components or ENeg as child nodes; rebuild the index per query; a fail-soft query fallback |
+| **GoIndex** | the ONE structural occurrence-identity + navigation authority DERIVED from one immutable `GoProgram` (imports only GoAST/Collections/FilePath): canonical file-local `positive` preorder ids (file root = 1); `NodeMeta` {kind, option parent, role, subtree_end} in a SEALED per-file `NodeTable` (thin API over pinned `FMapPositive`) aggregated by `SyntaxIndex p` (`FileMapBase.map index_file (prog_files p)`); an INDEPENDENT table-free `source_occurrence_at` + the universal `index_file_source_exact` (stored metadata = source-occurrence metadata at every id, PRESENCE + ABSENCE); snapshot-indexed SEALED `FileRef p`/`NodeRef p`/`NodeKey`/kind-refined `NodeRefOf p k`, identity = NodeKey identity, minted only via validated `file_of_path`/`ref_of_key`; a TOTAL query API (`ref_meta`/`node_kind`/`node_role`/`node_subtree_end`/`containing_file`/`children_of`/`source_occurrence_of_ref`; only `parent_of` optional); exact parent / interval-jump direct children / interval ancestry / canonical preorder enumeration; the `visit_file` indexed traversal (original syntax + validated ref together, one pass) | import GoTypes/GoCompile/GoSafe/GoRender/GoEmit; know semantic types / admissibility / rendering / diagnostics; author collection storage or a node trie; add a hidden file slot / a parallel path map / an author id / root id 0; copy the source tree or build a second/located/typed AST; deduplicate structurally-equal occurrences; index EComplex components or ENeg as child nodes; rebuild the index per query; a fail-soft query fallback |
 | **GoTypes** | the ONE type authority — EVIDENCE over the raw AST: `GoType` = `TBool` \| `TInteger IntegerType` \| `TFloat FloatType` \| `TComplex ComplexType` \| `TString`; exact untyped `GoConst` (bool / int / float / complex / byte-string; a `CFloat` is an exact CANONICAL rational — numerator `Z` / positive coprime denominator, canonical zero, decidable eq, NOT a float/spec_float/decimal-string/rounded value; a `CComplex` a PAIR of such rationals); the intrinsic dependently-typed `TypedConst : GoType -> Type` (a mismatched/out-of-range typed constant UNREPRESENTABLE; `TCComplex ct` a PAIR of coherent `TypedFloatConst` components — no duplicated float coherence); the ONE conversion authority `convert_const : forall target, ConstInfo -> option (TypedConst target)` (int conversions value-preserving, float conversions ROUND ONCE at the destination — F32 direct at binary32, a same-format float unchanged; complex conversions ROUND each component once, scalar↔complex by Go's zero-imaginary rule); the `ConstInfo` analyzer (`CIUntyped`/`CITyped`, repr-checked at every nesting layer) with `const_info_exact` the exact value (no separate `const_value`); `resolve_const_info` (untyped DEFAULTS via `default_const` int → `TInteger IInt`, float → `TFloat F64`, complex → `TComplex C128`; typed PACKS unchanged, validity INTRINSIC); `ConstRepresentable` DERIVED from successful typing (`type_untyped_const_at`, no second range/overflow checker); reflected `ResolveExpr` with its `ResolvedConst` witness (`resolve_expr_const`); `Stmt/Decl/File/ProgramTyped` | a typed AST / `TypedIR` / copied "resolved expression"; a placeholder/unknown/raw/opaque type ahead of its syntax; a second numeric-width or conversion authority; a `GoTypeTag`; a float stored as a rounded/spec_float/decimal-string constant; a complex-specific float format or duplicated component coherence; typing a literal outside a use context |
 | **GoCompile** | the SOLE meeting point of GoIndex identity + GoTypes semantics (owns the per-occurrence `occ_arg_typedb` + its `occs_*_typedb_eq` traversal bridge, moved off GoTypes); whole-program map-based typing + one-pass `PackageMap` grouping (a single `FM.fold` into `PackageSummary`, characterized EXACTLY: count = sum over the package's files, no empty package) + the fresh-build output preflight over the factored source rules (`GoCompile p := fresh_build_preflight_ok p /\ SourceProgramValid p`, via GoTypes); `go_compile` sound/complete, its accept/error class invariant under file insertion order; the retained `elaborate` produces ONE `ElaborationFacts` (indexed BY the retained `IndexedProgram`) carrying the occurrence-keyed expression facts + package `main`-ref buckets + the fresh-build preflight witness, exposed by canonical projection; `CompilableProgram` RETAINS index + facts (`cp_prov`); NO `cf_pkg_name` (package clause is source-owned) | be a boolean; accept per-file partially; re-scan the file list per package (O(files²)); hide package grouping / entry status in a raw node; store a typed copy of the program; reconstruct the index rather than retain it |
 | **GoSafe** | real `GoValue` (`VBool`/`VInteger IntegerType Z`/`VFloat ft (FloatValue ft)`/`VComplex ct (ComplexValue ct)`/`VString`; a `FloatValue` is a PROOF-CARRYING canonical Stdlib `SpecFloat.spec_float`, Flocq unused; a `ComplexValue` a PAIR of them that MAY be -0/inf/NaN, unlike a constant); `value_type` over the SAME `GoType`; `ValueWF` range invariant (`ValueWF (VFloat …) := ValueWF (VComplex …) := True` — canonicality in the type; constant eval only finite/+0); PARTIAL `eval_expr` derived from `const_info`; resolved-eval well-formedness + type preservation; abstract `eval_file`; `SafeProgram` (0 = -0); honest `GoSafe := True` | observe spelling as value; a separate runtime type universe; a per-width runtime record family / `GoTypeTag`; keep an unused panic placeholder; circularly reference compilation |
@@ -347,46 +327,39 @@ inside the RESERVED `<root>/.fido/` namespace.
 **Foreign Go/module inputs REJECT the whole emission** (fail-closed scan, before any generated-file
 mutation): any foreign `.go` anywhere in the Go-DISCOVERED namespace (a regular file whose first line is not
 the header, or a `.go` symlink/nonregular entry), a foreign root `go.mod`, a `go.mod` symlink, or any nested
-`go.mod`. The traversal SKIPS the opaque dot/underscore/`testdata`/`vendor` directory trees `go build ./...`
-itself ignores — it neither inspects nor rejects because of anything beneath them (so a foreign `.go` there
-cannot corrupt the build, and `.git` stays untouched); everything under those trees is preserved. A dirty
-foreign Go input in the discovered namespace would silently change what `go build ./...` compiles, so it is
-not preserved-and-merged — it aborts. Foreign NON-Go files/dirs are preserved. Installed `.go` files and the root `go.mod`
-are Fido-owned iff their first line is the exact header AND they are regular non-symlink files (rechecked
-by lstat immediately before every overwrite/delete; a symlink is S_LNK, never S_REG, so never followed); a
-foreign `.go`/`go.mod` forging the header is the accepted limit (a header is public).
+`go.mod`. The traversal SKIPS the opaque dot/underscore/`testdata`/`vendor` trees `go build ./...` itself
+ignores (so `.git` stays untouched); everything under them is preserved, as are foreign NON-Go files/dirs.
+Installed `.go` files and the root `go.mod` are Fido-owned iff their first line is the exact header AND they
+are regular non-symlink files (rechecked by lstat immediately before every overwrite/delete, so a symlink is
+never followed); a foreign `.go`/`go.mod` forging the header is the accepted limit (a header is public).
 
 **Sibling-temp staging (no records, no nonce, no stage directory, no parser).** `<root>/.fido/` holds
-EXACTLY the marker and, during an active run or after a crash, the git-style `index.lock` — nothing else;
-any other root-control entry rejects without modification. Each final output stages into its RESERVED
-sibling temporary `<final>.fido-tmp-v1`; because the lock serializes cooperating emitters, the name needs no
-nonce and recovery needs no record — the final path is already known to the live sync. The sink stages the
-COMPLETE image (go.mod + every .go) before any install, then installs each file by rename from its sibling
-temp — same filesystem, so nested mount points inside root are supported; EXDEV fails loud with no copy
-fallback. Only then are stale Fido-owned `.go` files (owned, not desired) removed (the empty program removes
-them all, keeping/updating the owned go.mod). A **regular non-symlink** file ending in `.fido-tmp-v1` is, by
-PUBLIC (and forgeable) CONVENTION, an abandoned Fido temp ONLY IF its suffix-stripped path maps to a Fido
-FINAL path (the root `go.mod` or an intrinsic FilePath `.go`); a non-mappable suffixed entry, or a
+EXACTLY the marker and, during an active run or after a crash, the git-style `index.lock` — any other
+root-control entry rejects without modification. Each final output stages into its RESERVED sibling temporary
+`<final>.fido-tmp-v1` (the lock serializes cooperating emitters, so the name needs no nonce and recovery no
+record). The sink stages the COMPLETE image (go.mod + every .go) before any install, then installs each file
+by rename from its sibling temp — same filesystem, so nested mount points inside root are supported; EXDEV
+fails loud with no copy fallback. Only then are stale Fido-owned `.go` files removed (the empty program
+removes them all, keeping/updating the owned go.mod). A **regular non-symlink** `.fido-tmp-v1` file is, by
+PUBLIC (forgeable) CONVENTION, an abandoned Fido temp ONLY IF its suffix-stripped path maps to a Fido FINAL
+path (the root `go.mod` or an intrinsic FilePath `.go`); a non-mappable suffixed entry, or a
 symlink/directory/special with that suffix, is NOT owned (refuse + preserve). A nested `.fido` (any type) in
-the traversed Go-discovered namespace is an emission error and aborts. Forgeability of the mapped-suffix
-convention is an accepted tradeoff under the single-owner threat model — no transaction log is built to avoid
-it.
+the traversed namespace is an emission error and aborts.
 
 **Fail-closed, two-phase.** Only a confirmed `ENOENT` means "missing"; every other filesystem error aborts.
-After the lock: PHASE 1 inspects the whole Go-discovered namespace once (validating foreign-Go/module/control rules and
-COLLECTING every VALID abandoned temp — a regular reserved-suffix file whose suffix-stripped path maps to a
-Fido final path), deleting nothing; if any path is invalid or uninspectable the run rejects before any
-mutation, preserving every collected temp. PHASE 2 (only after the complete scan succeeds) re-`lstat`s each
-collected temp, requires it is still a regular reserved-suffix file mapping to a final path, and deletes it
-(fail-loud on any mismatch). A handled failure removes this run's created temps + newly-empty parents,
-aggregates body + cleanup + lock-release errors, and releases the lock. It is **NOT** a transactional
-whole-tree commit — install is a sequential rename loop, so a mid-install failure may leave earlier files
-installed (nontransactional, stated honestly); residue remains only after an uncatchable CRASH or a
-cleanup/lock-release failure — a rerun, after the stale lock is cleared, removes the temps and converges. It
-is **NOT** hardened against a concurrent non-cooperating process (this OCaml `Unix` exposes no
-`openat`/`O_NOFOLLOW`); the honest model is COOPERATING emitters serialized by the lock, in the Linux/amd64
-operational scope. Ownership is by header + regular-file + desired-key-set (or the reserved suffix MAPPING to
-a Fido final path, for temps), never timestamps, a manifest, records, or device/inode identity.
+After the lock: PHASE 1 inspects the whole namespace once (validating the foreign-Go/module/control rules and
+COLLECTING every VALID abandoned temp), deleting nothing; if any path is invalid or uninspectable the run
+rejects before any mutation, preserving every collected temp. PHASE 2 (only after the scan succeeds)
+re-`lstat`s each collected temp, requires it is still a regular reserved-suffix file mapping to a final path,
+and deletes it (fail-loud on any mismatch). A handled failure removes this run's created temps + newly-empty
+parents, aggregates body + cleanup + lock-release errors, and releases the lock. Install is a sequential
+rename loop — a mid-install failure may leave earlier files installed (nontransactional, stated honestly);
+residue remains only after an uncatchable CRASH or a cleanup/lock-release failure, and a rerun (after the
+stale lock clears) removes the temps and converges. It is **NOT** hardened against a concurrent
+non-cooperating process (this OCaml `Unix` exposes no `openat`/`O_NOFOLLOW`); the honest model is COOPERATING
+emitters serialized by the lock, in the Linux/amd64 scope. Ownership is by header + regular-file +
+desired-key-set (or the reserved suffix mapping to a final path, for temps), never timestamps, a manifest,
+records, or device/inode identity.
 
 **The exact guarantee.** *GoProgram acceptance, SafeProgram certification, and DirectoryImage creation are
 semantically all-or-nothing. Dirty-directory installation is locked for cooperating emitters, rejects
@@ -426,39 +399,32 @@ comparison server-side as a stronger boundary).
 
 ## Closed world
 
-Imports are absent now, so the derived import set is empty for every file, and import syntax is
-UNREPRESENTABLE. **Permanent contract:** when import declarations are added, `GoCompile` must resolve every
-import to an owned package derived from the SAME `GoProgram`; any unresolved or external import rejects the
-whole program. No package may come from the standard library, module cache, network, vendor tree,
-workspace, or ambient filesystem unless a later reviewed foundation explicitly and completely models that
-source.
+Imports are absent and UNREPRESENTABLE. **Permanent contract:** when import declarations are added,
+`GoCompile` must resolve every import to an owned package derived from the SAME `GoProgram`; any unresolved or
+external import (stdlib, module cache, network, vendor, workspace, or ambient filesystem) rejects the whole
+program unless a later reviewed foundation explicitly and completely models that source.
 
 ## Growing the language
 
-Every new AST constructor enters only when it has, COMPLETE at that time: exact whole-program `GoCompile`
-rules matching `go build ./...` (constructor absent otherwise), exact operational meaning in `GoSafe`,
-renderer support with its value/syntax proofs, and — where observable — a differential fixture + e2e
-witness. Shrink the representable language before weakening `GoCompile`. The package clause — and future import
-declarations — are SOURCE syntax owned by the file (`source_package` / `source_imports`); package GROUPING,
-entry status, and import RESOLUTION are compilation results, never raw metadata. Integer width has one authority (`Ints`, 64-bit),
-float precision + single-round conversion has one authority (`Floats` — the `F32`/`F64` leaf module next to
-`Ints`), complex has one authority (`Complexes` — the `C64`/`C128` module over `Floats`, all
-precision/keyword/rounding sourced from the ONE `complex_component_type` mapping, no complex-specific
-format), and the type universe has one authority (`GoTypes` — `TBool`, the integer family `TInteger` over the
-ten-member `IntegerType`, `TFloat` over the two-member `FloatType`, `TComplex` over the two-member
-`ComplexType`, and `TString`); `int`/`uint` are pinned
-64-bit and DISTINCT from `int64`/`uint64`; there is no `TargetConfig`. **A COMPOUND typed constant is
+Every new AST constructor enters only when COMPLETE: exact whole-program `GoCompile` rules matching `go build
+./...` (constructor absent otherwise), operational meaning in `GoSafe`, renderer support with its value/syntax
+proofs, and — where observable — a differential fixture + e2e witness. Shrink the representable language before
+weakening `GoCompile`. The package clause and future import declarations are SOURCE syntax owned by the file
+(`source_package` / `source_imports`); package GROUPING, entry status, and import RESOLUTION are compilation
+results, never raw metadata. Integer width, float
+precision + single-round conversion, complex format, and the type universe each have ONE authority (`Ints`
+64-bit / `Floats` F32/F64 / `Complexes` C64/C128 over `Floats` via the ONE `complex_component_type` mapping,
+no complex-specific format / `GoTypes` = {`TBool`, `TInteger`, `TFloat`, `TComplex`, `TString`}); `int`/`uint`
+are pinned 64-bit and DISTINCT from `int64`/`uint64`; there is no `TargetConfig`. **A COMPOUND typed constant is
 COMPOSED from already-coherent typed COMPONENT constants** (a `TypedComplexConst` is a pair of
 `TypedFloatConst` components; a runtime `ComplexValue` a pair of `FloatValue`s) — the component authority's
-coherence and runtime-denotation proofs are REUSED, never duplicated at the aggregate layer; and the
-UNTYPED-constant / TYPED-constant / RUNTIME-value distinction holds at every level (a runtime complex MAY
-carry -0/inf/NaN; a typed complex constant CANNOT).
-A new type constructor arrives ONLY with the syntax and complete semantic obligations that need it (as
-`TString` did — together with `EString` + its value + canonical rendering + an independent decoder proving
-the byte round trip `decode(render s) = Some s`, which may also accept semantically equivalent noncanonical
-spellings and claims no source-spelling inverse), never a
-speculative `unknown`/`opaque`/`raw` type, and never a typed AST. Raw literals stay UNTYPED
-syntax: they denote exact untyped constants, and defaulting/representability happen in a use context.
+coherence + runtime-denotation proofs are REUSED, never duplicated at the aggregate layer; and the UNTYPED /
+TYPED / RUNTIME distinction holds at every level (a runtime complex MAY carry -0/inf/NaN; a typed complex
+constant CANNOT). A new type constructor arrives ONLY with the syntax and complete semantic obligations that
+need it (as `TString` did — value + canonical rendering + an independent decoder proving the byte round trip,
+claiming no source-spelling inverse), never a speculative `unknown`/`opaque`/`raw` type, and never a typed
+AST. Raw literals stay UNTYPED syntax: they denote exact untyped constants, and defaulting/representability
+happen in a use context.
 
 ## Static Type Universe Arc
 
@@ -470,16 +436,15 @@ signatures and method sets as type-level facts; (8) non-generic value interfaces
 operations that consume those roots. **Integers, floats, and complex are DONE; `uintptr` + the predeclared
 aliases are next (pending review sign-off).**
 
-**Types before operations.** Each root adds only STATIC facts — identity, underlying type, canonical
-rendering, zero-value classification, nilability, comparability, map-key admissibility, recursive validity,
-assignability, constant representability, function signatures, method signatures/sets. It does NOT yet build
-runtime models (slice backing arrays, map heaps, channel queues, pointer heaps, function closures, interface
-dynamic values), and it must NEVER resurrect a fake operational value merely to assert that a static type
-exists (faithful-or-absent — a static-only type carries no runtime placeholder).
+**Types before operations.** Each root adds only STATIC facts (identity, underlying type, canonical rendering,
+zero-value/nilability/comparability/map-key classification, recursive validity, assignability, constant
+representability, function/method signatures + method sets). It builds NO runtime models yet
+(slice/map/channel/pointer/closure/interface-dynamic), and must NEVER resurrect a fake operational value to
+assert a static type exists (faithful-or-absent — a static-only type carries no runtime placeholder).
 
-**Non-generic boundary.** This arc admits NO type parameters, generic types, generic aliases,
-constraint-only interface semantics, instantiation/inference, or imports. The eventual
-`any`/`error`/ordinary-interface story belongs to the non-generic value-interface phase (8), never earlier.
+**Non-generic boundary.** This arc admits NO type parameters, generic types/aliases, constraint-only interface
+semantics, instantiation/inference, or imports; the eventual `any`/`error`/ordinary-interface story belongs to
+the non-generic value-interface phase, never earlier.
 
 ## Trust base (say it exactly)
 
@@ -495,7 +460,7 @@ guardedness / type-in-type / UIP) and `Printer.Variable` — catching an externa
 through any internal/opaque lemma, an unused Fido axiom, and an unreferenced assumption-bearing inductive,
 with a module-coverage gate and adversarial self-tests A-E): the Ints boundary values; the Floats single-round `convert_const` boundary (F32 direct at binary32); the Complexes component mapping + scalar↔complex zero-imaginary rule + the component double-round scar; ModulePath decidable eq + representable/
 unrepresentable module-path fixtures; GoVersion's exact "1.23" rendering; FilePath decidable eq +
-representable/unrepresentable path fixtures; the Collections standard-map foundation (FilePath ordered-key law + extensionally-equal maps enumerate identically) and the GoAST duplicate-rejecting `filemap_of_nodes` (sound + complete + exact + permutation-stable) + `build_program`; GoIndex — the universal source/index exactness (`index_file_source_exact`, presence + absence), canonical root id + no metadata at a nonexistent id, sealed `FileRef`/`NodeRef` soundness + completeness + decidable key/ref identity + cross-snapshot non-interchangeability + the repeated-`println(1,1)` distinct-ref regression, total-query source-exactness, interval-jump child soundness/completeness/order + parent/child inverse + reachability + ancestry, and the §19 indexed traversal (source-view exactness / order / NoDup), consumed by GoCompile's `elaborate` as the ONE indexed whole-program pass (no peer indexed checker in GoTypes); GoTypes — the one type authority: zero-sign constant equality, `default_const`
+representable/unrepresentable path fixtures; the Collections standard-map foundation (FilePath ordered-key law + extensionally-equal maps enumerate identically) and the GoAST duplicate-rejecting `filemap_of_nodes` (sound + complete + exact + permutation-stable) + `build_program`; GoIndex — the universal source/index exactness (`index_file_source_exact`, presence + absence), canonical root id + no metadata at a nonexistent id, sealed `FileRef`/`NodeRef` soundness + completeness + decidable key/ref identity + cross-snapshot non-interchangeability + the repeated-`println(1,1)` distinct-ref regression, total-query source-exactness, interval-jump child soundness/completeness/order + parent/child inverse + reachability + ancestry, and the indexed traversal (source-view exactness / order / NoDup), consumed by GoCompile's `elaborate` as the ONE indexed whole-program pass (no peer indexed checker in GoTypes); GoTypes — the one type authority: zero-sign constant equality, `default_const`
 resolution exactness, representability reflection, expression resolution sound + complete + deterministic, statement +
 program typing reflection, int max/min accepted, overflow/underflow rejected; GoCompile claim (A) —
 `go_compile_ok_valid` + `go_compile_complete` (sound + complete), the direct source reflection
@@ -514,24 +479,21 @@ final transport type; a SECOND program-AST hierarchy, a raw `GoPackage` tree, a 
 typed AST / `TypedIR` / copied "resolved-expression" tree beside the one raw `GoAST`; a type attached to a
 raw literal, or a placeholder/unknown/opaque/raw/`TString` type constructor added ahead of the syntax that
 needs it; a second numeric-width, float-precision, complex, conversion, or type authority beside
-`Ints`/`Floats`/`Complexes`/`convert_const`/`GoTypes`; F32 rounded through F64 (the double-round scar); a
-complex-specific float format or float coherence/runtime-denotation duplicated at the aggregate complex layer;
-a float stored as
-a rounded/spec_float/decimal-string constant;
-package/import metadata in raw file values; `MainFile` (package/main/entry collapsed into one raw node);
-raw `string` map keys; a nonemptiness restriction on the program/image; a handwritten `go.mod` (it is
-RENDERED in Rocq) or `go.mod` smuggled into the FilePath map; central `<root>/.fido/staging/`, a central
-cross-device rejection, or the deleted stage-record / nonce / local-stage-directory / record-driven-recovery
-subsystem (staging is a RESERVED sibling temp `<final>.fido-tmp-v1`, the lock serializes so no nonce/record
-is needed); device/inode/mount-identity ownership records; a foreign `.go`/`go.mod` preserved-and-merged
-into the built tree, or a nested `.fido` skipped instead of rejected; handled-failure residue left
-deliberately for the next run; a constant-only audit that skips certified inductives or surviving named
-assumptions; a `Undef`-body-only axiom check posing as a whole-theory audit; tracked axiom-bearing fixtures;
-`go vet` as a blocking acceptance gate; single-file compiler semantics or a subset filter posing as compiler
-admissibility; a witness-specific extracted emit executable or a hard-coded `main.go` Docker copy; a
-fail-open regex axiom scanner; a no-tracked-Go seal (the canonical generated module IS tracked and verified
-byte-exact against the pristine Buildx layer); a `dist/` directory; handwritten Go in the canonical module;
-a pre-commit that reads the unstaged working tree or auto-stages; timestamps/manifests as ownership
-authority; a claimed transactional whole-directory guarantee; a `TargetConfig`; a
-lexer/parser/tokenizer/round-trip/text-IR/target-IR in the certified path; fuel. Git carries the history; re-admit a feature only when the roots make its proof
-obligations natural.
+`Ints`/`Floats`/`Complexes`/`convert_const`/`GoTypes`; F32 rounded through F64; a complex-specific float
+format or float coherence/runtime-denotation duplicated at the aggregate complex layer; a float stored as a
+rounded/spec_float/decimal-string constant; package/import metadata in raw file values; `MainFile`
+(package/main/entry collapsed into one raw node); raw `string` map keys; a nonemptiness restriction on the
+program/image; a handwritten `go.mod` or a `go.mod` smuggled into the FilePath map; central
+`<root>/.fido/staging/`, a central cross-device rejection, or the deleted stage-record / nonce /
+local-stage-directory / record-driven-recovery subsystem; device/inode/mount-identity ownership records; a
+foreign `.go`/`go.mod` preserved-and-merged into the built tree, or a nested `.fido` skipped instead of
+rejected; handled-failure residue left deliberately for the next run; a checksum/manifest standing in for
+validation provenance; a constant-only audit that skips certified inductives or surviving named assumptions;
+a `Undef`-body-only axiom check posing as a whole-theory audit; tracked axiom-bearing fixtures; `go vet` as a
+blocking acceptance gate; single-file compiler semantics or a subset filter posing as compiler admissibility;
+a witness-specific extracted emit executable or a hard-coded `main.go` Docker copy; a fail-open regex axiom
+scanner; a no-tracked-Go seal; a `dist/` directory; handwritten Go in the canonical module; a pre-commit that
+reads the unstaged working tree or auto-stages; timestamps/manifests as ownership authority; a claimed
+transactional whole-directory guarantee; a `TargetConfig`; a lexer/parser/tokenizer/round-trip/text-IR/
+target-IR in the certified path; fuel. Git carries the history; re-admit a feature only when the roots make
+its proof obligations natural.
