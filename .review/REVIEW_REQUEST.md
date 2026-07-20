@@ -10,13 +10,13 @@ review_basis: .review/REVIEW_BASIS.md
 
 # Implementation Review only:
 base_sha: fea649389ee52d442373c43ea2bdb3be2eca47db
-head_sha: b48b542228e6164b04c1496809b780a186eb9485
+head_sha: 42c536e33a70f6e3a6973190eca3086a23f3dc91
 
 # Bounded confirmation only:
-confirmation_of: bounded confirmation #1 (BLOCKING — F4 closed, F1/F2/F3 open deeper + F5) over 1180b49..29872f5
+confirmation_of: bounded confirmation #2 (BLOCKING — F4 closed, F1/F2/F3 residual + F5) over 29872f5..b48b542
 prior_findings: .review/C3_IMPL_REVIEW_FINDINGS.md
-repair_base_sha: 29872f5f17555da378f7744905c74482b782540f
-repair_head_sha: b48b542228e6164b04c1496809b780a186eb9485
+repair_base_sha: b48b542228e6164b04c1496809b780a186eb9485
+repair_head_sha: 42c536e33a70f6e3a6973190eca3086a23f3dc91
 
 ## Rules
 
