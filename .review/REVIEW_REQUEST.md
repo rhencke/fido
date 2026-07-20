@@ -1,6 +1,6 @@
 # Review Request
 
-state: requested
+state: closed
 review: Implementation Review
 confirmation: yes
 confirmation_used: yes
@@ -10,6 +10,18 @@ contract: .review/NEXT_STEPS.md
 contract_sha: 83c3989
 review_basis: .review/REVIEW_BASIS.md
 
+# CLOSED — the ONE final bounded confirmation (Codex task-mrths3jz, range 714f930..627caf3) returned BLOCKING
+# with 4 valid findings (record: .review/C3_WEEDWHACKER_CONFIRMATION_FINDINGS.md).  Codex closed findings #3
+# (gate 386) + #5 (basis hash); #1/#2/#4 blocking: (1) the fresh runner STILL fails open — it sets
+# _FRESH_GO_RAN=1 unconditionally after the (cd && go build) subshell, so a failed cd/pre-Go failure counts as a
+# Go run (dangerous for the `directory` collision class); (2) the repair DELETED contract-required
+# package_import_path injectivity + determinism proof surfaces; (3+4) chronology/prose still incomplete
+# (NEXT_STEPS "under implementation", semantic_ok_b mis-claimed = GoCompile [it proves only the source half],
+# PROGRESS stale default_exec_name, ~20 malformed/scarred comments, prohibited "validation provenance" language
+# still in ARCHITECTURE/CLAUDE/PROGRESS, §C0 in Dockerfile, "fido emit:"/"Fido Emit transport plugin" residue).
+# Per the §14 HARD CAP this BLOCKING confirmation ENDS autonomous work: closed + recorded + Rob notified +
+# STOPPED @627caf3/b704025.  Do NOT repair or re-request without a NEW explicit human_override token.
+#
 # The ONE final bounded Implementation Review confirmation authorized by Rob's explicit repair override
 # `C3-weedwhacker-repair-1` (repair the five bounded-confirmation findings as ONE batch, re-verify, request one
 # final confirmation).  The prior BLOCKING confirmation (Codex task-mrtdwfu9, over the weedwhacker candidate
