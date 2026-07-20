@@ -42,8 +42,15 @@ generated module byte-exact.
   a lower path-component root replacing the GoCompile string forest; source / .review / root-doc weedwhacking
   with a ≥300 KB net-deletion target; and a review-round HARD CAP (one repair batch + at most ONE bounded
   Implementation Review confirmation; a blocking confirmation ENDS autonomous work).
-- **Current state:** implementing the weedwhacker directive as ONE batch, then requesting the ONE authorized
-  bounded confirmation.  C4 remains FORBIDDEN.
+- **Current state:** the weedwhacker batch (`9caa929`+`2ba541e`) went to the ONE bounded confirmation
+  (Codex `task-mrtdwfu9`, `95258b0..2ba541e`) which returned BLOCKING with 5 valid findings; per the §14 hard
+  cap the request was closed + recorded + Rob notified.  Rob then issued `human_override: C3-weedwhacker-repair-1`
+  → all 5 findings repaired as ONE batch @`627caf3` (real lower path-component authority in ModulePath/FilePath;
+  fail-closed negative Go differentials; gate 386; repo-wide chronology/prose cleanup + basis-hash fix).
+  `make prove`+`e2e`+`check`+`regenerate`+`regen-guard` GREEN, bytes byte-identical, gate 386 axiom-free,
+  GoCompile.v −7,223 below the directive baseline, whole repo −450,325 below the pre-weedwhacker baseline.  The
+  ONE FINAL bounded confirmation is REQUESTED (`.review/REVIEW_REQUEST.md`, range `714f930..627caf3`); a BLOCKING
+  result ENDS autonomous work.  C4 remains FORBIDDEN.
 
 ## Standing decisions
 - **Platform limits OUT of scope** (Rob, 2026-07-19): Fido models no NAME_MAX/PATH_MAX/disk/memory limit; a path
