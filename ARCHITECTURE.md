@@ -305,8 +305,10 @@ AST->output->AST round-trip authority, no copied compiled AST, no handwritten OC
   the whole-theory audit uses); (3) reduce and STRUCTURALLY decode ONLY the final `string * list
   (string*string)` transport — the exact go.mod bytes and the (path, bytes) list (exact constructors,
   fail-loud); (4) hand to `Fido Materialize` (the SOLE Rocq transport vernac — the authoritative pristine
-  write for build validation).  There is no public `Fido Emit`: the publication SINK is INTERNAL OCaml
-  (`e2e/sink_test.ml` + the `make regenerate` apply CLI), over the SAME decoded bytes. It does no semantic program/AST/
+  write for build validation).  There is no public `Fido Emit`: the publication SINK (`Fido_sink.sync`) is a
+  PRIVATE plugin module (NOT exported from `fido.emit`, so not independently usable as publication by any OCaml
+  consumer), reached only from INTERNAL OCaml (`e2e/sink_test.ml` + the `make regenerate` apply CLI), over the
+  SAME decoded bytes. It does no semantic program/AST/
   behaviour inspection. That both provenance guards stay live is a mutation-sensitive REGRESSION gate, not a
   proof: the emit stage's negative fixtures (a raw transport + TRANSIENTLY-generated axiom/variable-backed
   images) execute forged inputs and, if either guard were removed, the corresponding command would succeed
@@ -315,8 +317,14 @@ AST->output->AST round-trip authority, no copied compiled AST, no handwritten OC
   bytes into a fresh EMPTY disposable validation root, no control state) + the generic dirty-directory
   PUBLICATION synchronizer, its driver, and the `make regenerate` apply CLI (enumerate the pristine
   `/generated` layer — copied from the pre-build MATERIALIZATION, never a post-sink dir — and hand it to the
-  sink; `make regenerate` publishes only after the go-e2e build-validation marker). Filesystem ONLY: they walk
-  no Rocq terms. VALIDATION-BEFORE-PUBLICATION: `go build ./...` validates the materialized image first.
+  sink).  STRUCTURAL publication gate: the apply CLI REFUSES to sink any source lacking the fresh-build
+  validation marker `.fido-build-validated`, which the `sync` image obtains ONLY from the go-e2e stage (written
+  after the pinned `go build ./...` over the same content-addressed layer SUCCEEDS) through a Docker-DAG
+  dependency — so the sink is un-runnable on unvalidated bytes even when the binary is invoked directly, not
+  merely make-ordered.  It is IMAGE-AGNOSTIC (publishes whatever validated pristine it is given) and never
+  publishes the marker.  Filesystem ONLY: they walk no Rocq terms.  VALIDATION-BEFORE-PUBLICATION: `go build
+  ./...` validates the materialized image first (assurance: accidental-publication protection for a cooperating
+  developer, matching the pre-commit hook — not resistance to deliberate local marker forgery).
 
 `tools/ocaml-origin-gate.sh` enforces exactly these four files (inspecting every source at every depth — a
 repository-content gate, not the runtime sink, so it prunes only `.git`), filesystem-only for the

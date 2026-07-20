@@ -5,12 +5,13 @@ DECLARE PLUGIN "fido.emit"
    projection and typechecks it, so the argument must have the proved directory-image type (a raw
    (go.mod, entries) transport is rejected); and (2) since that type is proof-carrying and a proof can be an
    axiom, the bridge rejects any argument whose assumption closure contains an axiom/assumption — a forged
-   image built with an [Axiom]/[Admitted] provenance proof cannot emit.  Only then does it reduce the term
-   and STRUCTURALLY decode the final (go.mod bytes, (path, bytes) list) transport — exact expected
-   constructors of prod / list / string / ascii / bool, failing LOUD on any other shape — and hand it to
-   the generic dirty-directory filesystem sink.  It inspects no program, no syntax tree, no compilation
-   certificate, no safety certificate, no derived facts, no semantics — only the certified image's type,
-   its assumption closure, and the final transport. *)
+   image built with an [Axiom]/[Admitted] provenance proof cannot materialize.  Only then does it reduce the
+   term and STRUCTURALLY decode the final (go.mod bytes, (path, bytes) list) transport — exact expected
+   constructors of prod / list / string / ascii / bool, failing LOUD on any other shape — and hand it to the
+   pristine WRITER [Fido_sink.materialize], which writes the exact decoded bytes into a FRESH EMPTY root (a
+   build-validation export, NEVER the dirty-directory publication sink [Fido_sink.sync]).  It inspects no
+   program, no syntax tree, no compilation certificate, no safety certificate, no derived facts, no semantics —
+   only the certified image's type, its assumption closure, and the final transport. *)
 
 {
 open Pp

@@ -55,7 +55,8 @@ Updated only at checkpoint boundaries._
   fresh-validate first; sink tests; witness + runtime goldens; **generated go.mod + recursive .go byte-IDENTICAL to
   the authoritative pristine (generated-compare OK); no post-build byte enters publication;** no untracked
   generated/control/temp residue; **no C4 work.**  Every audited call-site (`analyze`/`AnalysisOK`/`AnalysisFailed`/
-  `CompilationFacts` all absent from code; `AllPackagesOneMain`/`ProgValid`/`prog_ok` confined + ungated;
+  `CompilationFacts` all absent from code; `ProgValid`/`prog_ok` since DELETED and `AllPackagesOneMain` RENAMED
+  → `current_grammar_one_main` by the F1 confirmation repair (a length-diagnostic grammar consequence only);
   `prog_package_refs`/`prog_visit`/`Snap.visit_file`/`Fido Emit`/`Fido_sink.sync`/`go build ./...`/`Print Assumptions`
   each one current justified role; `ACTIVE` = the single current-C3 status heading) verified.
 - **Implementation Review #1 (Codex, over `fea6493..1180b49`) returned BLOCKING with 5 findings F1–F5**
@@ -75,8 +76,26 @@ Updated only at checkpoint boundaries._
   fact-table / single-failure-scar / mixed-order — still compiled, covered by the whole-theory audit; kept the
   universal bridges).  **F5** — reconciled ARCHITECTURE/CLAUDE/README/PROGRESS/COLLECTION_AUDIT (prog_ok_iff →
   the live reflections; no public Fido Emit; the platform-path fail-loud amendment) and the historical
-  `FINAL barrier ACTIVE` label.  **A bounded confirmation (same review type, `confirmation: yes`) is REQUESTED.**
-  **C4 remains FORBIDDEN.**
+  `FINAL barrier ACTIVE` label.  (Repaired @`29872f5`; a bounded confirmation was requested @`0cd70f5`.)
+- **Bounded confirmation #1 (Codex, over `1180b49..29872f5`) returned BLOCKING: F4 CLOSED; F1/F2/F3 open DEEPER
+  + F5** (record appended to `.review/C3_IMPL_REVIEW_FINDINGS.md`) — the round-1 fixes were on the right track
+  but not STRUCTURAL enough.  **All repaired (`make check` + `make regenerate` GREEN, gate 384→385, bytes
+  byte-IDENTICAL):** **F1** — the EXECUTABLE now decides the TWO FACTORED ROOTS DIRECTLY: `pkg_all_ok :=
+  pkg_decls_unique_b && main_pkgs_have_entry_b` (each reflecting `PackageDeclsUnique`/`MainPackagesHaveEntry` via
+  `pkg_decls_unique_b_iff`/`main_pkgs_have_entry_b_iff`/`pkg_all_ok_PackageRulesValid`), `source_valid_b_iff`
+  proved DIRECTLY (no fragment/exactly-one bridge); `AllPackagesOneMain` RENAMED → `current_grammar_one_main`, a
+  LENGTH-diagnostic grammar CONSEQUENCE only (`current_package_rules_exactly_one`), never the executable/authority.
+  **F2** — `fido_sink` is a PRIVATE plugin module (`Fido_sink.sync` not exported); `fido_apply` STRUCTURALLY
+  REFUSES to publish any source lacking the fresh-build marker `.fido-build-validated` (produced only by go-e2e
+  after `go build ./...` succeeds, delivered to the `sync` stage over a Docker DAG) — the sink is un-runnable on
+  unvalidated bytes even when invoked directly, and is image-AGNOSTIC; `Fido Materialize` is a fresh-empty-root
+  export (cannot publish); +an emit-stage fido-apply refusal regression, and `make regenerate` validated the
+  whole sync path byte-identical.  **F3** — per-phase INJECTION via COUNTING stubs (2nd `find` = fresh enum,
+  4th/5th `mktemp` = fresh-root/build-log, 2nd `sort` = fresh manifest); `ls -A` enumeration status CHECKED
+  (error ≠ empty); `rej_conv` + `expect_reject` assert the CLASS-SPECIFIC diagnostic from the fresh per-run Go
+  log (conversion/type vs directory-collision vs missing/dup-main).  **F5** — permanent docs sharpened to the
+  structural boundary (private sink + marker gate) and the repair-induced g_fido header fixed.
+  **Bounded confirmation #2 (same review type, `confirmation: yes`) REQUESTED.**  **C4 remains FORBIDDEN.**
 - **Material defects the closeout fixed** (all RESOLVED — see CLOSEOUT COMPLETE above; over the retained-correct C3 architecture): (1) the production
   elaborator still traverses each file twice — `elaborate_indexed` uses `prog_package_refs idx` (which recomputes
   `prog_visit p`) instead of the RETAINED `visit`; (2) the fresh-build runner is fail-OPEN (find|while pipelines +

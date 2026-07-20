@@ -336,6 +336,9 @@ Print Assumptions GoCompile.elaborate_failed_iff_not_GoCompile.
    "every package has one main").  The DECIDABLE reflection is [source_valid_b_iff] (and the elaboration-native
    [semantic_ok_b_SourceProgramValid], gated above) — DIRECT, with no [prog_ok]/[ProgValid]. *)
 Print Assumptions GoCompile.current_package_rules_exactly_one.
+(* the SOLE executable package reflection: [pkg_all_ok] decides the two factored roots DIRECTLY
+   (block uniqueness ↔ [PackageDeclsUnique], entry ↔ [MainPackagesHaveEntry]) — no combined "=1". *)
+Print Assumptions GoCompile.pkg_all_ok_PackageRulesValid.
 Print Assumptions GoCompile.source_valid_b_iff.
 (* C3-FRESH §14/§17/§18 — GoCompile INCLUDES the pinned one-shot `go build ./...` output PREFLIGHT.  The three
    diagnostic layers each have an emptiness/equivalence characterization (source, fresh, final); a failed

@@ -605,7 +605,27 @@ echo "$out" | grep -q 'Permission denied' || { echo "$out"; fail "umask: the INI
 [ ! -e adv-umask/.fido ] || fail "umask: the partial mode-000 .fido was not rolled back"
 ./sink_test adv-umask || fail "umask: a normal rerun did not converge after rollback"
 
-echo "fido: emit OK — Fido Materialize wrote the witness / multi-package / EMPTY pristine trees (rendered go.mod); forged/raw images rejected before any effect; the INTERNAL sink (sink_test) passed foreign-Go/module + nested-.fido rejection, sibling-temp two-phase recovery (abandoned/forged/symlink/dir/special temps), complete-image staging, crash points (writing/staged/installing), handled-failure + cleanup-failure aggregation, EXDEV no-copy, overwrite + delete-time ownership rechecks, first-time rollback, and REAL cross-mount nested staging"
+# ==================== fido-apply STRUCTURAL publication gate (§5, F2) ====================
+# The publish CLI REFUSES any source lacking the fresh-build validation marker — so the sink is un-runnable on
+# unvalidated bytes even when the binary is invoked directly (not merely make-ordered) — and it NEVER publishes
+# the marker itself.  (In production the marker is COPYd into the source by the `sync` stage from go-e2e's
+# /validated, which exists only if the pinned `go build ./...` SUCCEEDED.)
+cp plugin/fido_sink.ml e2e/fido_apply.ml /tmp/
+if ! ( cd /tmp && ocamlfind ocamlopt -package unix -linkpkg fido_sink.ml fido_apply.ml -o /workspace/fido-apply ) > /tmp/apply.log 2>&1; then cat /tmp/apply.log; fail "fido-apply compile FAILED"; fi
+rm -rf /workspace/apply-src /workspace/apply-dst; cp -a /workspace/generated /workspace/apply-src
+[ ! -e /workspace/apply-src/.fido-build-validated ] || fail "apply: the pristine already carries the validation marker"
+if ./fido-apply /workspace/apply-src /workspace/apply-dst 2>/tmp/apply-refuse.log; then fail "apply: an UNVALIDATED source (no marker) was PUBLISHED (fail-OPEN!)"; fi
+grep -q 'no fresh-build validation marker' /tmp/apply-refuse.log || { cat /tmp/apply-refuse.log; fail "apply: refusal reason was not the missing marker"; }
+[ ! -e /workspace/apply-dst ] || fail "apply: a REFUSED publish still created the destination"
+printf 'fido-e2e-validated\n' > /workspace/apply-src/.fido-build-validated   # attest, as the go-e2e stage does
+mkdir -p /workspace/apply-dst
+./fido-apply /workspace/apply-src /workspace/apply-dst || fail "apply: a VALIDATED source was refused"
+[ -f /workspace/apply-dst/go.mod ] && [ -f /workspace/apply-dst/main.go ] || fail "apply: the validated module was not published"
+[ ! -e /workspace/apply-dst/.fido-build-validated ] || fail "apply: the validation marker was itself published (must NEVER be)"
+rm -rf /workspace/apply-src /workspace/apply-dst
+echo "fido: fido-apply gate OK — publish REFUSED without the fresh-build validation marker; with it, published the module and never the marker"
+
+echo "fido: emit OK — Fido Materialize wrote the witness / multi-package / EMPTY pristine trees (rendered go.mod); forged/raw images rejected before any effect; the INTERNAL sink (sink_test) passed foreign-Go/module + nested-.fido rejection, sibling-temp two-phase recovery (abandoned/forged/symlink/dir/special temps), complete-image staging, crash points (writing/staged/installing), handled-failure + cleanup-failure aggregation, EXDEV no-copy, overwrite + delete-time ownership rechecks, first-time rollback, and REAL cross-mount nested staging; the fido-apply publish CLI is structurally gated on the fresh-build validation marker"
 SH
 
 # ── Stage 4b: generated-module — ONE ordinary content-addressed layer holding EXACTLY the pristine canonical
@@ -684,7 +704,10 @@ fido_go_build_all_fresh() {  # <authoritative-pristine-tree> <out-var-for-fresh-
     p="$_src/$rel"
     if [ -L "$p" ]; then echo "runner: symlink in $_src: $rel"; _rf; return 2; fi
     if [ -d "$p" ]; then
-      [ -n "$(ls -A "$p" 2>/dev/null)" ] || { echo "runner: empty directory in $_src: $rel"; _rf; return 2; }
+      # CHECKED directory enumeration: an ls ERROR (e.g. unreadable dir) is NOT the empty-directory class.
+      _lsout=$(ls -A "$p" 2>"$_err"); _lsrc=$?
+      { [ "$_lsrc" = 0 ] && [ ! -s "$_err" ]; } || { echo "runner: directory enumeration FAILED in $_src: $rel"; cat "$_err"; _rf; return 2; }
+      [ -n "$_lsout" ] || { echo "runner: empty directory in $_src: $rel"; _rf; return 2; }
       continue; fi
     if [ -f "$p" ]; then
       case "$rel" in
@@ -757,6 +780,25 @@ _rok_stubbed() { # <cmd> <stub-body> <valid-tree> <label>: run the runner with <
   rm -rf /tmp/fido-stub
   [ "$_rc" = 2 ] || { echo "fido e2e runner: $4 — expected fail-closed rc=2, got rc=$_rc (fail-OPEN!):"; cat /tmp/fido-stub.log; exit 1; }
   echo "fido e2e runner: $4 — rejected fail-closed (rc=2, before Go)"; }
+# F3 — a COUNTING stub: shadow <cmd> so it FAILS only on its Nth invocation and execs the REAL command otherwise.
+# This exercises a LATER call of a multiply-invoked op (the 2nd find = fresh-root enumeration; the 4th/5th mktemp
+# = fresh-root / build-log allocation; the 2nd sort = fresh manifest) — an always-failing stub only ever hits
+# the FIRST call, leaving those later phases unexercised.
+_stub_nth() { # <cmd> <N>
+  rm -rf /tmp/fido-stub; mkdir -p /tmp/fido-stub; : > /tmp/fido-stub-count
+  _real=$(command -v "$1") || { echo "fido e2e runner: no real $1 on PATH to wrap"; exit 1; }
+  printf '%s\n' \
+    '#!/bin/sh' \
+    "c=\$(wc -l < /tmp/fido-stub-count); c=\$((c+1)); echo x >> /tmp/fido-stub-count" \
+    "if [ \"\$c\" = \"$2\" ]; then echo \"simulated $1 failure (call #$2)\" >&2; exit 1; fi" \
+    "exec $_real \"\$@\"" > "/tmp/fido-stub/$1"
+  chmod +x "/tmp/fido-stub/$1"; }
+_rok_stubbed_nth() { # <cmd> <N> <valid-tree> <label>: fail the Nth <cmd> call; expect a fail-closed rc=2 before Go
+  _stub_nth "$1" "$2"; _rc=0
+  ( export PATH=/tmp/fido-stub:$PATH; fido_go_build_all_fresh "$3" _SXN >/tmp/fido-stubn.log 2>&1 ) || _rc=$?
+  rm -rf /tmp/fido-stub /tmp/fido-stub-count
+  [ "$_rc" = 2 ] || { echo "fido e2e runner: $4 — expected fail-closed rc=2, got rc=$_rc (fail-OPEN!):"; cat /tmp/fido-stubn.log; exit 1; }
+  echo "fido e2e runner: $4 — rejected fail-closed (rc=2, before Go)"; }
 
 rm -rf /tmp/rn
 # input-contract rejections (crafted bad pristine trees)
@@ -778,6 +820,20 @@ _rok_stubbed install 'while [ $# -gt 1 ]; do shift; done; printf CORRUPT > "$1"'
 _rok_stubbed mktemp 'echo "simulated mktemp failure" >&2; exit 1'                       /tmp/rn/ok "mktemp failure (temp-file / fresh-root creation)"
 _rok_stubbed chmod  'echo "simulated chmod failure" >&2; exit 1'                        /tmp/rn/ok "chmod failure on the fresh root"
 _rok_stubbed sort   'echo "simulated sort failure" >&2; exit 1'                         /tmp/rn/ok "sort failure (manifest comparison)"
+# F3 — the LATER invocations of multiply-called ops (an always-failing stub only hits the FIRST call): the 2nd
+# find (FRESH-root enumeration), the 4th/5th mktemp (fresh-root mkdir -d / build-log alloc), the 2nd sort (fresh
+# manifest) each now fail closed BEFORE Go.
+_rok_stubbed_nth find   2 /tmp/rn/ok "fresh-root enumeration failure (2nd find)"
+_rok_stubbed_nth mktemp 4 /tmp/rn/ok "fresh-root mktemp -d failure (4th mktemp)"
+_rok_stubbed_nth mktemp 5 /tmp/rn/ok "build-log mktemp failure (5th mktemp)"
+_rok_stubbed_nth sort   2 /tmp/rn/ok "fresh-manifest sort failure (2nd sort)"
+# F3 — an ls ERROR on a directory entry is the enumeration-FAILED class, NOT collapsed into "empty directory".
+_stub ls 'echo "simulated ls failure" >&2; exit 2'; _rc=0
+( export PATH=/tmp/fido-stub:$PATH; fido_go_build_all_fresh /tmp/rn/empt _SL >/tmp/fido-ls.log 2>&1 ) || _rc=$?
+rm -rf /tmp/fido-stub
+[ "$_rc" = 2 ] || { echo "fido e2e runner: ls enumeration error — expected rc=2, got $_rc:"; cat /tmp/fido-ls.log; exit 1; }
+grep -q 'directory enumeration FAILED' /tmp/fido-ls.log || { echo "fido e2e runner: an ls error was collapsed into the empty-directory class (not distinguished):"; cat /tmp/fido-ls.log; exit 1; }
+echo "fido e2e runner: ls enumeration error — distinguished from the empty-directory class (rc=2)"
 # POSITIVE — an exact valid pristine image builds and returns the LITERAL Go class (0), with Go actually RUN.
 _rc=0; fido_go_build_all_fresh /tmp/rn/ok _OKR >/tmp/fido-ok.log 2>&1 || _rc=$?
 [ "$_rc" = 0 ] || { echo "fido e2e runner: valid minimal image REJECTED (expected build rc=0, got rc=$_rc):"; cat /tmp/fido-ok.log; exit 1; }
@@ -872,7 +928,12 @@ rej_conv() { # <label> <main-body>
   # a bare "nonzero" would also accept a runner refusal (rc=2, Go never ran).
   [ "$_FRESH_GO_RAN" = 1 ] || { echo "fido e2e diff: [$1: $2] the fresh RUNNER refused (rc=$_rc); Go never ran — NOT a Go rejection (fail-OPEN)"; exit 1; }
   [ "$_rc" != 0 ] || { echo "fido e2e diff: go build ./... ACCEPTED an invalid conversion [$1: $2] that GoTypes rejects (MODEL BUG)"; exit 1; }
-  echo "fido e2e diff: go build ./... (ran, exit $_rc) rejects [$1] $2 — matches GoTypes"; }
+  # F3 — CLASS-SPECIFIC evidence: the failure must be a CONVERSION / TYPE-CHECK diagnostic (overflow / truncation /
+  # cannot-convert / cannot-use / mismatched), proven from the fresh per-run Go log — NOT a directory collision,
+  # a missing/dup main, or a build-infrastructure failure that merely happens to be nonzero.
+  grep -qiE 'overflow|truncated|cannot convert|cannot use|mismatched' "$_FRESH_BUILD_LOG" \
+    || { echo "fido e2e diff: [$1: $2] rejected but NOT with a conversion/type-check class (unexpected Go failure):"; cat "$_FRESH_BUILD_LOG"; exit 1; }
+  echo "fido e2e diff: go build ./... (ran, exit $_rc) rejects [$1] $2 with a conversion/type-check diagnostic — matches GoTypes"; }
 rej_conv int8-over   'println(int8(128))'
 rej_conv int8-under  'println(int8(-129))'
 rej_conv uint8-neg   'println(uint8(-1))'
@@ -934,22 +995,28 @@ mk_tree() {  # <dir> <module-path> <rel-main.go>...
   printf 'module %s\n\ngo 1.23\n' "$_mp" > "$_d/go.mod"
   for _f in "$@"; do mkdir -p "$_d/$(dirname "$_f")"; printf 'package main\n\nfunc main() {}\n' > "$_d/$_f"; done
 }
-expect_reject() {  # <dir> <label>
+expect_reject() {  # <dir> <label> <expected-class-regex>
   _rc=0; fido_go_build_all_fresh "$1" FR || _rc=$?
+  _flog=$_FRESH_BUILD_LOG   # capture before the fresh root is removed (the log lives in disposable /tmp)
   rm -rf "${FR:-/nonexistent}" 2>/dev/null || true
   # F3 — a Go rejection requires Go to have RUN (_FRESH_GO_RAN=1) and returned nonzero, not a runner refusal.
   [ "$_FRESH_GO_RAN" = 1 ] || { echo "fido e2e diff: $2 — the fresh RUNNER refused (rc=$_rc); Go never ran — NOT a Go rejection (fail-OPEN)"; exit 1; }
   [ "$_rc" != 0 ] || { echo "fido e2e diff: go build ./... ACCEPTED $2 (GoCompile REJECTS — MODEL BUG)"; exit 1; }
-  echo "fido e2e diff: go build ./... (ran, exit $_rc) rejected $2 (matches GoCompile fresh-build preflight)"
+  # F3 — CLASS-SPECIFIC evidence: the failure must be exactly the expected class (directory collision vs missing/dup
+  # main vs typing), proven from the fresh per-run Go log — not merely "Go returned nonzero" (which a collision, a
+  # package-rule violation, and a type error all share).
+  [ -n "$3" ] || { echo "fido e2e diff: $2 — expect_reject called with no expected class regex (internal test error)"; exit 1; }
+  grep -qiE "$3" "$_flog" || { echo "fido e2e diff: $2 — rejected but NOT with the expected class /$3/:"; cat "$_flog"; exit 1; }
+  echo "fido e2e diff: go build ./... (ran, exit $_rc) rejected $2 with the expected class /$3/ (matches GoCompile)"
 }
 expect_accept() {  # <dir> <label>
   if ! fido_go_build_all_fresh "$1" FR; then cat "${FR:-/dev/null}/.build.err" 2>/dev/null; rm -rf "$FR"; echo "fido e2e diff: go build ./... REJECTED $2 (GoCompile ACCEPTS — MODEL BUG)"; exit 1; fi
   echo "fido e2e diff: go build ./... accepted $2 (matches GoCompile)"; rm -rf "$FR"
 }
 # 20.3 sole child sub/main.go: output "sub" collides with the root directory "sub" -> REJECT
-mk_tree /tmp/dc-sub example.com/m sub/main.go;   expect_reject /tmp/dc-sub "sub/main.go (sole-main output sub = root dir sub)"
+mk_tree /tmp/dc-sub example.com/m sub/main.go;   expect_reject /tmp/dc-sub "sub/main.go (sole-main output sub = root dir sub)" 'directory|write output|cannot create'
 # 20.6 a/v2/main.go: /v2 major-version element stripped -> output "a", root dir "a" exists -> REJECT
-mk_tree /tmp/dc-av2 example.com/m a/v2/main.go;  expect_reject /tmp/dc-av2 "a/v2/main.go (output a after /v2 strip = root dir a)"
+mk_tree /tmp/dc-av2 example.com/m a/v2/main.go;  expect_reject /tmp/dc-av2 "a/v2/main.go (output a after /v2 strip = root dir a)" 'directory|write output|cannot create'
 # 20.2 root main.go: output "m" (module basename), no root dir "m" -> ACCEPT
 mk_tree /tmp/dc-root example.com/m main.go;      expect_accept /tmp/dc-root "root main.go (output m, no collision)"
 # 20.5 a/b/main.go: output "b", the root directory is "a" not "b" -> ACCEPT
@@ -1001,22 +1068,22 @@ mk_gomod /tmp/B example.com/m; put /tmp/B main.go 'package main\n\nfunc main() {
 expect_accept_exe /tmp/B "B: valid root main (output m absent)"
 # C. package main with no func main -> failure (output target not a directory: compile misses main)
 mk_gomod /tmp/C example.com/m; put /tmp/C main.go 'package main\n\nvar _ = 0\n'
-expect_reject /tmp/C "C: package main with no func main"
+expect_reject /tmp/C "C: package main with no func main" 'undeclared|function main'
 # D. duplicate main in one file -> failure
 mk_gomod /tmp/D example.com/m; put /tmp/D main.go 'package main\n\nfunc main() {}\nfunc main() {}\n'
-expect_reject /tmp/D "D: duplicate main in one file"
+expect_reject /tmp/D "D: duplicate main in one file" 'redeclared'
 # E. duplicate main across files -> failure
 mk_gomod /tmp/E example.com/m; put /tmp/E main.go 'package main\n\nfunc main() {}\n'; put /tmp/E other.go 'package main\n\nfunc main() {}\n'
-expect_reject /tmp/E "E: duplicate main across files"
+expect_reject /tmp/E "E: duplicate main across files" 'redeclared'
 # F. three main declarations -> failure
 mk_gomod /tmp/F example.com/m; put /tmp/F main.go 'package main\n\nfunc main() {}\nfunc main() {}\nfunc main() {}\n'
-expect_reject /tmp/F "F: three main declarations"
+expect_reject /tmp/F "F: three main declarations" 'redeclared'
 # G. two valid command packages -> success, default outputs discarded (no exe)
 mk_gomod /tmp/G example.com/m; put /tmp/G a/main.go 'package main\n\nfunc main() {}\n'; put /tmp/G b/main.go 'package main\n\nfunc main() {}\n'
 expect_accept_noexe /tmp/G "G: two valid command packages"
 # H. valid and invalid package together -> failure (the invalid package fails to compile)
 mk_gomod /tmp/H example.com/m; put /tmp/H a/main.go 'package main\n\nfunc main() {}\n'; put /tmp/H b/main.go 'package main\n\nfunc main() { var x int = "s"; _ = x }\n'
-expect_reject /tmp/H "H: valid + invalid package together"
+expect_reject /tmp/H "H: valid + invalid package together" 'cannot use|cannot convert|mismatched'
 # I. empty file plus main elsewhere -> success (one main package: main.go + an extra source file)
 mk_gomod /tmp/I example.com/m; put /tmp/I main.go 'package main\n\nfunc main() {}\n'; put /tmp/I extra.go 'package main\n'
 expect_accept_exe /tmp/I "I: empty extra file + root main"
@@ -1025,7 +1092,7 @@ mk_gomod /tmp/Q example.com/mtool; put /tmp/Q main.go 'package main\n\nfunc main
 expect_accept_exe /tmp/Q "Q: absent output name -> executable created"
 # S. existing directory output -> reject (== J, covered above by dc-sub; restate distinctly)
 mk_gomod /tmp/S example.com/m; put /tmp/S out/main.go 'package main\n\nfunc main() {}\n'
-expect_reject /tmp/S "S: sole out/main.go, output out = existing root directory"
+expect_reject /tmp/S "S: sole out/main.go, output out = existing root directory" 'directory|write output|cannot create'
 # K. sole sub/main.go with an INVALID source: the directory-collision preflight takes PRECEDENCE over the
 #    compile error (cmd/go checks the sole-main output BEFORE compiling), so the failure is the DIRECTORY
 #    collision, NOT the type error — asserted through the fresh runner on the exact go stderr.
@@ -1045,22 +1112,22 @@ mk_gomod /tmp/T example.com/m; put /tmp/T main.go 'package main\n\nfunc init() {
 expect_accept_exe /tmp/T "T (future): two init + main"
 # U. method named main without package-level main -> missing-entry failure
 mk_gomod /tmp/U example.com/m; put /tmp/U main.go 'package main\n\ntype T struct{}\nfunc (T) main() {}\n'
-expect_reject /tmp/U "U (future): method main, no package-level main"
+expect_reject /tmp/U "U (future): method main, no package-level main" 'undeclared|no main|function main'
 # V. method named main plus package-level main -> success
 mk_gomod /tmp/V example.com/m; put /tmp/V main.go 'package main\n\ntype T struct{}\nfunc (T) main() {}\nfunc main() {}\n'
 expect_accept_exe /tmp/V "V (future): method main + package main"
 # W. wrong-signature main -> failure
 mk_gomod /tmp/W example.com/m; put /tmp/W main.go 'package main\n\nfunc main(x int) {}\n'
-expect_reject /tmp/W "W (future): wrong-signature main"
+expect_reject /tmp/W "W (future): wrong-signature main" 'must have no arguments|no return values'
 # X. generic main -> failure
 mk_gomod /tmp/X example.com/m; put /tmp/X main.go 'package main\n\nfunc main[T any]() {}\n'
-expect_reject /tmp/X "X (future): generic main"
+expect_reject /tmp/X "X (future): generic main" 'type parameter'
 # Y. var named main (no func main) -> failure
 mk_gomod /tmp/Y example.com/m; put /tmp/Y main.go 'package main\n\nvar main = 0\n'
-expect_reject /tmp/Y "Y (future): var named main, no func main"
+expect_reject /tmp/Y "Y (future): var named main, no func main" 'cannot declare main|must be func'
 # Z. mixed package clauses in one directory -> package-load failure (before output preflight)
 mk_gomod /tmp/Z example.com/m; put /tmp/Z a.go 'package main\n\nfunc main() {}\n'; put /tmp/Z b.go 'package other\n'
-expect_reject /tmp/Z "Z (future): mixed package clauses in one dir"
+expect_reject /tmp/Z "Z (future): mixed package clauses in one dir" 'found packages|expected package'
 # AA. _test.go duplicate main only -> ignored by build (the _test.go is not a build input) -> success
 mk_gomod /tmp/AA example.com/m; put /tmp/AA main.go 'package main\n\nfunc main() {}\n'; put /tmp/AA main_test.go 'package main\n\nfunc main() {}\n'
 expect_accept_exe /tmp/AA "AA (future): _test.go duplicate main ignored"
@@ -1099,6 +1166,10 @@ RUN cp /workspace/plugin/fido_sink.ml /workspace/e2e/fido_apply.ml /tmp/ \
     && ( cd /tmp && ocamlfind ocamlopt -package unix -linkpkg fido_sink.ml fido_apply.ml -o /workspace/fido-apply ) \
     && chmod 0755 /workspace/fido-apply
 COPY --from=generated-module /generated/ /generated/
-# publication gate: the fresh-build validation must have PASSED (this file exists only if go-e2e reached its end).
-COPY --from=go-e2e /validated /workspace/.fresh-build-validated
+# STRUCTURAL publication gate: fido-apply REFUSES to sink a source that lacks this marker.  It is COPYd from the
+# go-e2e stage's /validated, which exists ONLY if the pinned one-shot `go build ./...` over the SAME
+# content-addressed generated-module layer SUCCEEDED — so `--target sync` is unbuildable, AND fido-apply refuses,
+# on a failed/absent fresh build.  The marker is a sibling of the module bytes; fido-apply verifies its presence
+# and never publishes it (only go.mod + .go are transported).  Publication is thus not merely make-ordered.
+COPY --from=go-e2e /validated /generated/.fido-build-validated
 ENTRYPOINT ["/workspace/fido-apply", "/generated", "/dest"]

@@ -76,38 +76,51 @@ Definition package_summaries (fm : GoFileMap) : PM.t PackageSummary :=
 
 (** ---- the declarative validity of the whole program ---- *)
 
-(** [AllPackagesOneMain] is the grammar CONSEQUENCE (NOT a source root): for the CURRENT grammar (every
+(** [current_grammar_one_main] is the grammar CONSEQUENCE (NOT a source root): for the CURRENT grammar (every
     package is `package main`, every `DMain` is `func main()`) the LIVE factored package rules
     [PackageRulesValid] (= [PackageDeclsUnique] + [MainPackagesHaveEntry], §9) coincide with "every package has
-    exactly one `main`".  The SOLE live source-validity judgment is [SourceProgramValid] (= [ProgramTyped] /\
-    [PackageRulesValid]); [AllPackagesOneMain] survives ONLY as the RHS of the retained universal theorem
-    [current_package_rules_exactly_one] ([PackageRulesValid] <-> [AllPackagesOneMain]).  There is NO [ProgValid]
-    Prop and NO [prog_ok] bool — both deleted; the decidable reflection [source_valid_b] is tied DIRECTLY to
-    [SourceProgramValid] by [source_valid_b_iff] below. *)
-Definition AllPackagesOneMain (p : GoProgram) : Prop :=
+    exactly one `main`".  It survives ONLY as the RHS of the retained universal CONSEQUENCE theorem
+    [current_package_rules_exactly_one] and the LENGTH-based diagnostic bridge — it is NEVER the executable
+    decision (which reflects the two factored roots below), NEVER a peer source authority.  The SOLE live
+    source-validity judgment is [SourceProgramValid] (= [ProgramTyped] /\ [PackageRulesValid]); the decidable
+    [source_valid_b] reflects it DIRECTLY via the two factored reflections ([source_valid_b_iff], §6 below).
+    There is NO [ProgValid] Prop and NO [prog_ok] bool. *)
+Definition current_grammar_one_main (p : GoProgram) : Prop :=
   forall dir s, PM.MapsTo dir s (package_summaries (prog_files p)) -> ps_main_count s = 1%nat.
 
-Definition source_valid_b (p : GoProgram) : bool :=
-  program_typedb p
-  && forallb (fun b => Nat.eqb (ps_main_count (snd b)) 1) (PM.elements (package_summaries (prog_files p))).
+(** the executable source decision is program typing AND the TWO factored package rules as SEPARATE decidable
+    roots (§9): [pkg_decls_unique_b] = at most one `main` per package (block uniqueness → [PackageDeclsUnique]);
+    [main_pkgs_have_entry_b] = at least one `main` per package (entry → [MainPackagesHaveEntry]).  Neither the
+    combined "=1" nor [current_grammar_one_main] is EXECUTED here — that property is only a downstream
+    CONSEQUENCE ([pkg_all_ok_one_main]).  [pkg_all_ok] is the shared package half; [source_valid_b] and the
+    elaboration-native [semantic_ok_b] both consume it. *)
+Definition pkg_decls_unique_b (p : GoProgram) : bool :=
+  forallb (fun b => Nat.leb (ps_main_count (snd b)) 1) (PM.elements (package_summaries (prog_files p))).
+Definition main_pkgs_have_entry_b (p : GoProgram) : bool :=
+  forallb (fun b => Nat.leb 1 (ps_main_count (snd b))) (PM.elements (package_summaries (prog_files p))).
+Definition pkg_all_ok (p : GoProgram) : bool := pkg_decls_unique_b p && main_pkgs_have_entry_b p.
 
-(** the FRAGMENT reflection: [source_valid_b] decides [ProgramTyped] AND the grammar consequence
-    [AllPackagesOneMain].  The public ROOT reflection to [SourceProgramValid] is [source_valid_b_iff], stated
-    below (after [current_package_rules_exactly_one]). *)
-Lemma source_valid_b_frag : forall p, source_valid_b p = true <-> ProgramTyped p /\ AllPackagesOneMain p.
+Definition source_valid_b (p : GoProgram) : bool := program_typedb p && pkg_all_ok p.
+
+(** the exactly-one CONSEQUENCE reflection (used ONLY by the LENGTH-based package diagnostics): the two factored
+    booleans together decide "every package has exactly one main" (at-most-one AND at-least-one ↔ exactly one). *)
+Lemma pkg_all_ok_one_main : forall p, pkg_all_ok p = true <-> current_grammar_one_main p.
 Proof.
-  intro p. unfold source_valid_b, AllPackagesOneMain.
-  rewrite Bool.andb_true_iff, program_typedb_iff.
-  rewrite (forallb_Forall (fun b => Nat.eqb (ps_main_count (snd b)) 1%nat) (fun b => ps_main_count (snd b) = 1%nat)
-             (PM.elements (package_summaries (prog_files p))) (fun b => Nat.eqb_eq (ps_main_count (snd b)) 1%nat)).
+  intro p. unfold pkg_all_ok, pkg_decls_unique_b, main_pkgs_have_entry_b, current_grammar_one_main.
+  rewrite Bool.andb_true_iff.
+  rewrite (forallb_Forall (fun b => Nat.leb (ps_main_count (snd b)) 1%nat) (fun b => (ps_main_count (snd b) <= 1)%nat)
+             (PM.elements (package_summaries (prog_files p))) (fun b => Nat.leb_le (ps_main_count (snd b)) 1%nat)).
+  rewrite (forallb_Forall (fun b => Nat.leb 1%nat (ps_main_count (snd b))) (fun b => (1 <= ps_main_count (snd b))%nat)
+             (PM.elements (package_summaries (prog_files p))) (fun b => Nat.leb_le 1%nat (ps_main_count (snd b)))).
   split.
-  - intros [Ht Hf]. split; [ exact Ht | ]. intros dir s Hmt.
+  - intros [Hle Hge] dir s Hmt.
     apply PMF.elements_mapsto_iff, InA_alt in Hmt. destruct Hmt as [[k' s'] [Heq Hin]].
-    destruct Heq as [_ Hs]. cbn in *. rewrite Forall_forall in Hf. specialize (Hf (k', s') Hin).
-    cbn in Hf. rewrite Hs. exact Hf.
-  - intros [Ht Hall]. split; [ exact Ht | ]. apply Forall_forall. intros [dir s] Hin. cbn.
-    apply (Hall dir s), PMF.elements_mapsto_iff, InA_alt.
-    exists (dir, s). split; [ split; reflexivity | exact Hin ].
+    destruct Heq as [_ Hs]. cbn in *. rewrite Forall_forall in Hle, Hge.
+    specialize (Hle (k', s') Hin); specialize (Hge (k', s') Hin). cbn in *. rewrite Hs. lia.
+  - intros Hall. split; apply Forall_forall; intros [dir s] Hin; cbn;
+      assert (Hmt : PM.MapsTo dir s (package_summaries (prog_files p)))
+        by (apply PMF.elements_mapsto_iff, InA_alt; exists (dir, s); split; [ split; reflexivity | exact Hin ]);
+      pose proof (Hall dir s Hmt); lia.
 Qed.
 
 (** ---- §8 PACKAGE-SUMMARY EXACTNESS: the single [FM.fold] is characterized EXACTLY, so package grouping is
@@ -1521,26 +1534,11 @@ Qed.
 Lemma expr_all_ok_ProgramTyped (p : GoProgram) : expr_all_ok p = true <-> GoTypes.ProgramTyped p.
 Proof. rewrite expr_all_ok_program_typedb. apply GoTypes.program_typedb_iff. Qed.
 
-(* ---- the PACKAGE DECISION: every package has exactly one main IFF [AllPackagesOneMain] ---- *)
-
-(** the per-package "exactly one main" check over the canonical package enumeration. *)
-Definition pkg_all_ok (p : GoProgram) : bool :=
-  forallb (fun b => Nat.eqb (ps_main_count (snd b)) 1) (PM.elements (package_summaries (prog_files p))).
-
-Lemma pkg_all_ok_AllPackagesOneMain (p : GoProgram) : pkg_all_ok p = true <-> AllPackagesOneMain p.
-Proof.
-  unfold pkg_all_ok, AllPackagesOneMain.
-  rewrite (forallb_Forall (fun b => Nat.eqb (ps_main_count (snd b)) 1%nat) (fun b => ps_main_count (snd b) = 1%nat)
-             (PM.elements (package_summaries (prog_files p))) (fun b => Nat.eqb_eq (ps_main_count (snd b)) 1%nat)).
-  split.
-  - intros Hf dir s Hmt.
-    apply PMF.elements_mapsto_iff, InA_alt in Hmt. destruct Hmt as [[k' s'] [Heq Hin]].
-    destruct Heq as [_ Hs]. cbn in *. rewrite Forall_forall in Hf. specialize (Hf (k', s') Hin).
-    cbn in Hf. rewrite Hs. exact Hf.
-  - intros Hall. apply Forall_forall. intros [dir s] Hin. cbn.
-    apply (Hall dir s), PMF.elements_mapsto_iff, InA_alt.
-    exists (dir, s). split; [ split; reflexivity | exact Hin ].
-Qed.
+(* ---- the PACKAGE DECISION: [pkg_decls_unique_b] + [main_pkgs_have_entry_b] + [pkg_all_ok] and the
+   exactly-one CONSEQUENCE reflection [pkg_all_ok_one_main] are defined at §6 (early), above [source_valid_b]
+   which reuses [pkg_all_ok] as its package half.  The DIRECT reflections of the two factored roots to
+   [PackageDeclsUnique] / [MainPackagesHaveEntry] (and thence [pkg_all_ok_PackageRulesValid]) are proved at §6
+   below, next to the [PackageRulesValid] definition. ---- *)
 
 (* ---- the COMBINED elaboration DECISION: an elaboration-native boolean (NOT [source_valid_b]) proved EXACTLY [GoCompile] ---- *)
 
@@ -2889,7 +2887,7 @@ Proof.
 Qed.
 
 Lemma prog_package_refs_singleton_on_success {p} (idx : GoIndex.Snap.SyntaxIndex p) :
-  AllPackagesOneMain p -> forall dir l,
+  current_grammar_one_main p -> forall dir l,
   PM.find dir (prog_package_refs idx) = Some l -> exists d, l = [d].
 Proof.
   intros Hall dir l Hfind.
@@ -2921,8 +2919,8 @@ Qed.
     each redundant tail main related to the first; empty for the conforming length-1 bucket); a length-0 bucket
     emits [DRMissingMainEntry] with the [PackageRef] built from the bucket's OWN domain membership
     ([bucket_key_present], NO [package_summaries] / [package_present_b] rescan).  [package_summaries] (the legacy
-    FM.fold counter) is used ONLY to bridge the bucket lengths to [AllPackagesOneMain] ([pkg_diags_empty_iff]),
-    NEVER in the decision. *)
+    FM.fold counter) is used ONLY to bridge the bucket lengths to [current_grammar_one_main]
+    ([pkg_diags_empty_iff]), NEVER in the decision. *)
 Lemma elements_all_mapsto {p} (m : PM.t (list (GoIndex.DeclRef p))) : forall kv,
   In kv (PM.elements m) -> PM.MapsTo (fst kv) (snd kv) m.
 Proof.
@@ -2995,11 +2993,11 @@ Definition pkg_diags {p} (idx : GoIndex.Snap.SyntaxIndex p) : list (DiagnosticRe
 
 (** THE PACKAGE COMPLETENESS: no package diagnostic IFF every package has exactly one main.  The DECISION
     reads only the retained buckets (each bucket's LENGTH); [package_summaries] appears ONLY here, bridging
-    the bucket lengths to [AllPackagesOneMain] / [pkg_all_ok]. *)
+    the bucket lengths to [current_grammar_one_main] / [pkg_all_ok]. *)
 Lemma pkg_diags_empty_iff {p} (idx : GoIndex.Snap.SyntaxIndex p) : pkg_diags idx = nil <-> pkg_all_ok p = true.
 Proof.
-  unfold pkg_diags. rewrite bucket_diags_elems_nil_iff, pkg_all_ok_AllPackagesOneMain.
-  unfold AllPackagesOneMain. split.
+  unfold pkg_diags. rewrite bucket_diags_elems_nil_iff, pkg_all_ok_one_main.
+  unfold current_grammar_one_main. split.
   - intros Hbuck dir s Hmt.
     assert (Hpres : list_dir_mem dir (GoAST.file_bindings (prog_files p)) = true).
     { pose proof (PM.find_1 Hmt) as Hf. rewrite package_summaries_find in Hf.
@@ -5729,21 +5727,63 @@ Definition MainPackagesHaveEntry (p : GoProgram) : Prop :=
 Definition PackageRulesValid (p : GoProgram) : Prop := PackageDeclsUnique p /\ MainPackagesHaveEntry p.
 Definition SourceProgramValid (p : GoProgram) : Prop := ProgramTyped p /\ PackageRulesValid p.
 
-(** the two factored rules together are exactly the old "every package has exactly one main". *)
-Lemma current_package_rules_exactly_one : forall p, PackageRulesValid p <-> AllPackagesOneMain p.
+(** the two factored roots reflect their Props DIRECTLY (§9): at-most-one-main ↔ [PackageDeclsUnique],
+    at-least-one-main ↔ [MainPackagesHaveEntry].  These are the SOLE executable package reflections; the
+    exactly-one property is a downstream CONSEQUENCE. *)
+Lemma pkg_decls_unique_b_iff : forall p, pkg_decls_unique_b p = true <-> PackageDeclsUnique p.
 Proof.
-  intro p. unfold PackageRulesValid, PackageDeclsUnique, MainPackagesHaveEntry, AllPackagesOneMain. split.
+  intro p. unfold pkg_decls_unique_b, PackageDeclsUnique.
+  rewrite (forallb_Forall (fun b => Nat.leb (ps_main_count (snd b)) 1%nat) (fun b => (ps_main_count (snd b) <= 1)%nat)
+             (PM.elements (package_summaries (prog_files p))) (fun b => Nat.leb_le (ps_main_count (snd b)) 1%nat)).
+  split.
+  - intros Hf dir s Hmt.
+    apply PMF.elements_mapsto_iff, InA_alt in Hmt. destruct Hmt as [[k' s'] [Heq Hin]].
+    destruct Heq as [_ Hs]. cbn in *. rewrite Forall_forall in Hf. specialize (Hf (k', s') Hin).
+    cbn in Hf. rewrite Hs. exact Hf.
+  - intros Hall. apply Forall_forall. intros [dir s] Hin. cbn.
+    apply (Hall dir s), PMF.elements_mapsto_iff, InA_alt.
+    exists (dir, s). split; [ split; reflexivity | exact Hin ].
+Qed.
+
+Lemma main_pkgs_have_entry_b_iff : forall p, main_pkgs_have_entry_b p = true <-> MainPackagesHaveEntry p.
+Proof.
+  intro p. unfold main_pkgs_have_entry_b, MainPackagesHaveEntry.
+  rewrite (forallb_Forall (fun b => Nat.leb 1%nat (ps_main_count (snd b))) (fun b => (1 <= ps_main_count (snd b))%nat)
+             (PM.elements (package_summaries (prog_files p))) (fun b => Nat.leb_le 1%nat (ps_main_count (snd b)))).
+  split.
+  - intros Hf dir s Hmt.
+    apply PMF.elements_mapsto_iff, InA_alt in Hmt. destruct Hmt as [[k' s'] [Heq Hin]].
+    destruct Heq as [_ Hs]. cbn in *. rewrite Forall_forall in Hf. specialize (Hf (k', s') Hin).
+    cbn in Hf. rewrite Hs. exact Hf.
+  - intros Hall. apply Forall_forall. intros [dir s] Hin. cbn.
+    apply (Hall dir s), PMF.elements_mapsto_iff, InA_alt.
+    exists (dir, s). split; [ split; reflexivity | exact Hin ].
+Qed.
+
+(** the shared package half [pkg_all_ok] reflects the factored [PackageRulesValid] DIRECTLY — the conjunction
+    of the two factored reflections, no combined "=1" and no [current_grammar_one_main] intermediary. *)
+Lemma pkg_all_ok_PackageRulesValid : forall p, pkg_all_ok p = true <-> PackageRulesValid p.
+Proof.
+  intro p. unfold pkg_all_ok, PackageRulesValid.
+  rewrite Bool.andb_true_iff, pkg_decls_unique_b_iff, main_pkgs_have_entry_b_iff. reflexivity.
+Qed.
+
+(** the exactly-one property is retained ONLY as the universal CONSEQUENCE of today's two factored rules — a
+    grammar coincidence, never the source authority. *)
+Lemma current_package_rules_exactly_one : forall p, PackageRulesValid p <-> current_grammar_one_main p.
+Proof.
+  intro p. unfold PackageRulesValid, PackageDeclsUnique, MainPackagesHaveEntry, current_grammar_one_main. split.
   - intros [Hle Hge] dir s Hmt. pose proof (Hle dir s Hmt); pose proof (Hge dir s Hmt); lia.
   - intros H. split; intros dir s Hmt; pose proof (H dir s Hmt); lia.
 Qed.
 
-(** F1/§6 — the decidable [source_valid_b] reflects the LIVE factored root [SourceProgramValid] DIRECTLY: the
-    fragment reflection ([source_valid_b_frag]) composed with the retained universal theorem
-    [current_package_rules_exactly_one].  No [ProgValid] intermediary. *)
+(** F1/§6 — the decidable [source_valid_b] reflects the LIVE factored root [SourceProgramValid] DIRECTLY:
+    program typing ([program_typedb_iff]) AND the two factored package reflections ([pkg_all_ok_PackageRulesValid]).
+    No fragment/consequence bridge, no [ProgValid], no [prog_ok], no exactly-one intermediary. *)
 Lemma source_valid_b_iff : forall p, source_valid_b p = true <-> SourceProgramValid p.
 Proof.
-  intro p. rewrite source_valid_b_frag. unfold SourceProgramValid.
-  rewrite current_package_rules_exactly_one. reflexivity.
+  intro p. unfold source_valid_b, SourceProgramValid.
+  rewrite Bool.andb_true_iff, program_typedb_iff, pkg_all_ok_PackageRulesValid. reflexivity.
 Qed.
 
 (** F1/§6 — the elaboration-native decision [semantic_ok_b] reflects the LIVE factored root

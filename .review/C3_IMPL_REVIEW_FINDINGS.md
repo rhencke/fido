@@ -52,3 +52,47 @@ SOURCE_FOREST_STATUS.md:33 declares all closeout defects resolved (incl. the 4 f
 "FINAL barrier ACTIVE" label (:297).
 **Required:** reconcile all permanent prose/gates/audit rows/status to the ACTUAL authority + public workflow;
 historical active labels unmistakably historical.
+
+# ============================================================================================
+# Bounded confirmation #1 (Codex task-mrsvhs1y, over repair range 1180b49..29872f5) — BLOCKING
+# F4 CLOSED. F1/F2/F3 remain OPEN (deeper). F5 OPEN (depends on F1-F3 + one repair-induced item).
+# ============================================================================================
+
+## F1 — OPEN (deeper): the exactly-one decision is still the COMBINED rule, not the two factored roots
+- `AllPackagesOneMain` remains globally exported under the old authoritative name (GoCompile.v:87/90).
+- `source_valid_b`/`pkg_all_ok` still EXECUTE the combined exactly-one rule (`ps_main_count = 1`), not the two
+  factored judgments as SEPARATE roots (GoCompile.v:1527).
+- `source_valid_b_iff` reaches `SourceProgramValid` THROUGH `source_valid_b_frag` + `current_package_rules_exactly_one`
+  (GoCompile.v:5740) — still a bridge from the old current-fragment computation, NOT a direct executable
+  reflection of the two factored judgments.  Fixtures/witnesses still use this second executable decision (6446).
+- **Required:** ONE shared executable decision reflecting `PackageDeclsUnique` AND `MainPackagesHaveEntry` as
+  SEPARATE roots (each its own decidable half + direct reflection), consumed by elaboration AND fixtures.  The
+  exactly-one property may remain ONLY as an unmistakably-named current-fragment CONSEQUENCE theorem — not the
+  executable decision, not a peer public authority.  Rename `AllPackagesOneMain`.
+
+## F2 — OPEN (deeper): no enforceable general validate-then-publish; sink not structurally internal
+- `Fido Materialize` remains a public side-effecting command accepting an arbitrary destination (g_fido.mlg:211).
+- The public Dune library still EXPORTS the module containing `Fido_sink.sync` (plugin/dune:8).
+- `fido-apply` is a directly-callable CLI invoking `Fido_sink.sync` (e2e/fido_apply.ml:30) — comments + Make
+  prerequisite ordering are NOT an internal capability boundary (Makefile:77).
+- `make regenerate` handles only the fixed canonical artifact; there is NO public orchestration for an arbitrary
+  approved `DirectoryImage` that exports -> fresh-validates -> publishes its original bytes.
+- **Required:** ONE enforceable arbitrary-image validate-then-publish ENTRY POINT, and STRUCTURALLY hide/restrict
+  the materializer + sink so neither is independently usable as publication.
+
+## F3 — OPEN (deeper): negative matrix lacks class-specific evidence; injection incomplete
+- `rej_conv`/`expect_reject` assert only "Go ran + nonzero" — they do NOT distinguish compiler/package rejection
+  from directory collision or another Go failure (except case K) (Dockerfile:865/937).
+- The injected `find`/`mktemp`/`sort` regressions always fail their FIRST invocation; they do NOT exercise
+  FRESH-root enumeration, fresh-root/build-log allocation, or the SECOND sort (Dockerfile:687/754/771).
+- Directory enumeration still uses unchecked `ls -A ... 2>/dev/null` — errors collapse into the "empty directory"
+  class (Dockerfile:687).
+- **Required:** inject + verify EACH fallible phase independently (counting stubs), check EVERY enumeration
+  status, make negative helpers assert CLASS-SPECIFIC evidence from the fresh per-run log.
+
+## F5 — OPEN: docs still certify unresolved behavior (reconcile AFTER F1-F3) + one repair-induced item
+- SOURCE_FOREST_STATUS:33/63, README:124, ARCHITECTURE:240 repeat "only live root"/"internal sink"/"general
+  enforceable workflow"/complete-runner-regression claims the implementation does not yet provide.
+- **repair-induced (classified):** plugin/g_fido.mlg:3 header still says decoded bytes are handed to the
+  dirty-directory sink, though the command now calls the pristine materializer.
+- **Required:** reconcile docs ONLY after F1-F3 reflect enforceable reality; fix the g_fido.mlg header now.
