@@ -1,9 +1,12 @@
 # NEXT_STEPS — active authority pointer
 
-- **Active checkpoint:** C3 manual prose closeout candidate.
-- **Functional contract:** `.review/C3_FRESH_IMAGE_LITERAL_BUILD_PLAN.md`.
-- **Contract SHA-256:** `a13779c2e55c679e461e857d019eeae6adef27b0666876ed0cac92833814f212`.
+- **Active checkpoint:** C4 — source type names, compiler resolution, and unified numeric conversions.
+- **Functional contract:** `.review/C4_SOURCE_TYPE_NAME_CONVERSION_PLAN.md`.
+- **Contract SHA-256:** `9ec55b38444e3a32eaf6cb024f72285527992ba1612dabfdc99ce6f89c8517b4`.
 - **Accepted review basis:** `.review/REVIEW_BASIS.md`.
-- **State:** substantive implementation is complete; a human-owned prose-only patch is pending final inspection.
-  No further Codex review or autonomous repair is authorized by this file.
-- **C4 is forbidden** until explicit Rob authorization.
+- **Baseline commit:** `8c9212a8c814c7a99a5e3ef1970a0ae32425a918` (C3 accepted here).
+- **Human authorization:** `C4-source-type-resolution-1`.
+- **State:** C4 implementation authorized.
+- **Automatic Codex review:** DISABLED (the directive is the accepted human Contract Review; freeze the
+  candidate and stop for Rob's human Implementation Review — do NOT request or run a Codex review).
+- **C5 is FORBIDDEN** until explicit Rob authorization.

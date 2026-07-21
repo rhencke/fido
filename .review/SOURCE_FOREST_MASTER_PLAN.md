@@ -1474,19 +1474,28 @@ Purpose:
 
 - make source type spelling a syntax occurrence;
 - establish source name -> semantic type resolution;
-- remove resolved semantic type tags from permanent raw conversion syntax only when exact current semantics permit it.
+- remove resolved semantic type tags from permanent raw conversion syntax.
 
-This checkpoint may be split into C4a/C4b after C3 human review.
+C4 is activated as ONE vertical checkpoint (the optional C4a/C4b split is not used — for the current language,
+the only live source positions that denote type names are explicit conversion targets, so a syntax-only C4a
+would add dead syntax or a second conversion path).  `byte` and `rune` source alias resolution is C4 work
+(`byte` resolves to `uint8` and renders `byte`; `rune` resolves to `int32` and renders `rune`); no new semantic
+type is added.  Arbitrary and qualified type names remain later work, and unresolved-name diagnostics are not a
+C4 requirement because unsupported names are intrinsically unrepresentable in this checkpoint.  The binding C4
+contract is `.review/C4_SOURCE_TYPE_NAME_CONVERSION_PLAN.md`.
 
 C5 — Complete predeclared numeric identity and rune constants
 
 Purpose:
 
 - `uintptr`;
-- `byte`/`rune` alias resolution;
+- exact untyped rune constants;
 - exact rune constant kind and defaulting;
-- canonical rune rendering;
+- canonical rune rendering, defaulting, and conversion integration;
 - complete current predeclared numeric universe.
+
+(The `byte`/`rune` source alias resolution originally listed here is C4 work per the C4 contract; C5 retains
+`uintptr` and the rune-constant/literal work.)
 
 No arithmetic.
 
@@ -2080,24 +2089,15 @@ Before `EConvert TypeSyntax Expr` becomes live:
 
 This is a vertical feature, not a cosmetic node rename.
 
-C4.5 Possible checkpoint split
+C4.5 One vertical checkpoint
 
-C4 may be split after human review into:
-
-C4a:
-- identifier/type-name syntax;
-- universe-scope resolution;
-- occurrence-indexed resolved type facts;
-- unresolved-name diagnostics;
-- no conversion migration yet.
-
-C4b:
-- unified source conversion syntax;
-- migration from semantic target tags;
-- exact conversion coverage;
-- deletion of old conversion nodes.
-
-Do not combine them merely to reduce checkpoint count if the semantic root becomes muddy.
+C4 is one vertical checkpoint; the optional C4a/C4b split is not used.  The only live source positions that
+denote type names today are explicit conversion targets, so a syntax-only first half would add dead type-name
+syntax, keep a second family-tag conversion path beside the new source-name path, or invent unresolved-name
+behavior for syntax no valid program can contain.  Instead C4 lands identifier/type-name syntax, compiler
+name resolution, occurrence-indexed resolved type facts, the unified source conversion syntax, exact
+conversion coverage, and deletion of the old conversion nodes together.  There are no unresolved-name
+diagnostics because unsupported names are intrinsically unrepresentable.
 
 C4.6 Source/semantic spelling proof
 
@@ -2116,9 +2116,9 @@ Parameter and result names remain source occurrences and do not enter semantic s
 
 C4.7 Review process
 
-C4a and C4b are foundational. Each activated subcheckpoint must complete the current Contract Review and
-Implementation Review process. If C4 is split, complete, push, and obtain human approval for C4a before activating
-C4b.
+C4 is one vertical checkpoint.  Its Contract Review is the human directive
+`.review/C4_SOURCE_TYPE_NAME_CONVERSION_PLAN.md` (the automatic Codex review path is disabled); after
+implementation the candidate is frozen, pushed, and reported for Rob's human Implementation Review.
 
 ===============================================================================
 PART 17 — CHECKPOINT C5
@@ -2142,26 +2142,12 @@ It must be:
 
 Do not add pointer or unsafe semantics.
 
-C5.2 Aliases
+C5.2 Aliases (landed in C4)
 
-Source names:
-
-  byte
-  rune
-
-resolve through the compiler's predeclared universe as aliases:
-
-  byte -> uint8
-  rune -> int32
-
-Do not add:
-
-  TByte
-  TRune
-  IByte
-  IRune
-
-The renderer preserves the selected source name.
+The `byte` and `rune` source aliases resolve through the compiler's predeclared universe (`byte -> uint8`,
+`rune -> int32`) with the renderer preserving the selected source name.  This was landed in C4 under
+`.review/C4_SOURCE_TYPE_NAME_CONVERSION_PLAN.md`; no new semantic type is added (no `TByte`/`TRune`/`IByte`/
+`IRune`).  C5 does not repeat this work.
 
 C5.3 Rune constant kind
 
