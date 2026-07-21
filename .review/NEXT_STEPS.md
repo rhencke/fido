@@ -8,7 +8,10 @@
 - **Current repair authority:** `.review/C3_SEMANTIC_PROSE_CLOSEOUT.md`, human_override
   `C3-semantic-prose-closeout-1` (one prose-and-authority repair batch + one final bounded Implementation
   Review confirmation; prose-only — no executable/proof/gate/generated-byte change; does NOT authorize C4).
-- **State:** prose-only repair COMPLETE and FROZEN at candidate `f119dc2`; all required checks GREEN; the one
-  authorized bounded confirmation is requested (`.review/REVIEW_REQUEST.md`).  Live status in
+- **State: STOPPED, awaiting Rob.**  The prose batch (candidate `f119dc2`) went to its one authorized bounded
+  confirmation, which returned **BLOCKING** on two prose findings (a repair-induced review-process contradiction
+  vs the accepted basis, and previously-observable malformed-comment/obsolete-machinery residue the initial
+  review missed).  Per the directive §11 the request is closed and autonomous work has ENDED: no repair and no
+  further review round without a NEW explicit human override.  Complete result + the open findings:
   `.review/SOURCE_FOREST_STATUS.md`.  Do NOT describe C3 as accepted until a non-stale Codex GREEN.
 - **C4 is FORBIDDEN** until explicit Rob authorization.

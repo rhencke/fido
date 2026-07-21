@@ -52,8 +52,27 @@ disposable Docker build; keep the tracked generated module byte-exact.
   (−29,316); the hard requirement (smaller than snapshot) is met, ~700 bytes short of the 30 KB stretch target
   because the mandated 29,389-byte directive offsets most of the 54,861 bytes of the two deleted directives, and
   no useful explanation was cut to chase the number.
-- **Final confirmation:** the one bounded Implementation Review confirmation authorized by this override is
-  requested (`.review/REVIEW_REQUEST.md`).  No zero-residue claim is made until it returns GREEN.
+- 🔴🛑 **Final confirmation returned BLOCKING** (Codex `task-mrtxedzm`, range `d32b1a6..8a9b739`); per the
+  directive §11 the request is CLOSED, recorded here, Rob notified, and autonomous work STOPPED — no repair and
+  no further review round without a NEW explicit human override.  **Closed by the reviewer:** the prose-only
+  boundary (every changed source file differs in comments only; no theorem/proof/branch/gate/collection/
+  generated-byte change); contract hash unchanged; gate exactly 386; size below the snapshot; the Floats /
+  Dockerfile / GoIndex / CLAUDE / dead-pointer / nonexistent-theorem defects; both superseded directives
+  deleted; no C4 or forbidden scope.  **STILL OPEN (two prose findings):**
+  1. **Repair-INDUCED contradiction** — the master plan's updated review-process wording
+     (`SOURCE_FOREST_MASTER_PLAN.md:154` and ~1984) states every checkpoint runs a Contract Review before
+     implementation, which contradicts the accepted basis (`REVIEW_BASIS.md:111`): C3 implementation already
+     existed when Contract Review was introduced, so the manual basis substitutes for a retroactive Contract
+     Review.  Fix: state the permanent two-review rule while preserving C3's explicit manual-basis exception.
+  2. **Previously-observable prose residue the initial review missed** — (a) eleven malformed `(** ---- —`
+     section openers in `GoCompile.v` (4438, 6753, 6784, 6796, 6839, 6852, 6947, 6966, 7018, 7029, 7049) and the
+     broken phrase `fold (/ ).` at 5516; (b) `COLLECTION_AUDIT.md` still carries `C2 RETAINS` chronology (~32)
+     and the `§19` / `§8` section archaeology (~35, ~39); (c) `SOURCE_FOREST_MASTER_PLAN.md` still has obsolete
+     review/activation machinery — completed C0 labelled `ACTIVE` (~1507), C4 root/final review (~2114-2123),
+     C5 root/final reviews (~2271-2275), root/final reporting fields (~2370-2393), and the historical C0 block
+     claiming "THIS IS THE ONLY ACTIVE CHECKPOINT" plus one final Codex stop (~2421-2485).  The recurring cause
+     is a fixed-token scan variant gap (`---- —`, `(/ )`) and structural residue (`ACTIVE` labels, C4/C5 review
+     machinery) not caught by a text search; the fix is a genuine module-by-module and section-by-section read.
 - **Human approval:** pending.  **C4:** forbidden.
 
 ## Standing decisions

@@ -1,10 +1,11 @@
 # Review Request
 
-state: requested
+state: closed
 review: Implementation Review
 confirmation: yes
 confirmation_used: yes
 human_override: C3-semantic-prose-closeout-1
+result: BLOCKING (Codex task-mrtxedzm, range d32b1a6..8a9b739)
 
 contract: .review/C3_FRESH_IMAGE_LITERAL_BUILD_PLAN.md
 contract_sha256: a13779c2e55c679e461e857d019eeae6adef27b0666876ed0cac92833814f212
