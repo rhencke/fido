@@ -67,41 +67,41 @@ Definition demo_file (*decls*) : list GoDecl :=
           ; SPrintln [ EString s_nl ]
           (* accepted integer conversions across all ten integer types: signed narrow + 64-bit
              minima/maxima, unsigned maxima, platform int/uint, uint64(2^63), and a nested conversion. *)
-          ; SPrintln [ EIntConvert IInt8  (ENeg 128); EIntConvert IInt8  (EInt 127) ]
-          ; SPrintln [ EIntConvert IInt16 (ENeg 32768); EIntConvert IInt16 (EInt 32767) ]
-          ; SPrintln [ EIntConvert IInt32 (ENeg 2147483648); EIntConvert IInt32 (EInt 2147483647) ]
-          ; SPrintln [ EIntConvert IInt64 (ENeg ((2 ^ 63)%N)); EIntConvert IInt64 (EInt ((2 ^ 63 - 1)%N)) ]
-          ; SPrintln [ EIntConvert IInt   (ENeg ((2 ^ 63)%N)); EIntConvert IInt   (EInt ((2 ^ 63 - 1)%N)) ]
-          ; SPrintln [ EIntConvert IUint8 (EInt 255); EIntConvert IUint16 (EInt 65535)
-                     ; EIntConvert IUint32 (EInt 4294967295) ]
-          ; SPrintln [ EIntConvert IUint64 (EInt ((2 ^ 63)%N)); EIntConvert IUint64 (EInt 18446744073709551615) ]
-          ; SPrintln [ EIntConvert IUint (EInt 18446744073709551615) ]
-          ; SPrintln [ EIntConvert IInt8 (EIntConvert IInt16 (EInt 127)) ]
+          ; SPrintln [ EConvert (GoAST.tsyn GoNames.TNint8)  (ENeg 128); EConvert (GoAST.tsyn GoNames.TNint8)  (EInt 127) ]
+          ; SPrintln [ EConvert (GoAST.tsyn GoNames.TNint16) (ENeg 32768); EConvert (GoAST.tsyn GoNames.TNint16) (EInt 32767) ]
+          ; SPrintln [ EConvert (GoAST.tsyn GoNames.TNint32) (ENeg 2147483648); EConvert (GoAST.tsyn GoNames.TNint32) (EInt 2147483647) ]
+          ; SPrintln [ EConvert (GoAST.tsyn GoNames.TNint64) (ENeg ((2 ^ 63)%N)); EConvert (GoAST.tsyn GoNames.TNint64) (EInt ((2 ^ 63 - 1)%N)) ]
+          ; SPrintln [ EConvert (GoAST.tsyn GoNames.TNint)   (ENeg ((2 ^ 63)%N)); EConvert (GoAST.tsyn GoNames.TNint)   (EInt ((2 ^ 63 - 1)%N)) ]
+          ; SPrintln [ EConvert (GoAST.tsyn GoNames.TNuint8) (EInt 255); EConvert (GoAST.tsyn GoNames.TNuint16) (EInt 65535)
+                     ; EConvert (GoAST.tsyn GoNames.TNuint32) (EInt 4294967295) ]
+          ; SPrintln [ EConvert (GoAST.tsyn GoNames.TNuint64) (EInt ((2 ^ 63)%N)); EConvert (GoAST.tsyn GoNames.TNuint64) (EInt 18446744073709551615) ]
+          ; SPrintln [ EConvert (GoAST.tsyn GoNames.TNuint) (EInt 18446744073709551615) ]
+          ; SPrintln [ EConvert (GoAST.tsyn GoNames.TNint8) (EConvert (GoAST.tsyn GoNames.TNint16) (EInt 127)) ]
           (* floats: a bare default-float64 constant + its float32 conversion; explicit float64; an
              exact float->int constant; an int->float constant; ★the direct-vs-nested double-round scar as an
              EXACT uint64 integer observation (2^61+2^38 vs 2^61); and an underflow to +0. *)
-          ; SPrintln [ EFloat dm_1p5; EFloatConvert F32 (EFloat dm_1p5) ]
-          ; SPrintln [ EFloatConvert F64 (EFloat dm_0p5) ]
-          ; SPrintln [ EIntConvert IInt (EFloat dm_3) ]
-          ; SPrintln [ EFloatConvert F64 (EInt 7) ]
-          ; SPrintln [ EIntConvert IUint64 (EFloatConvert F32 (EFloat dm_scar)) ]
-          ; SPrintln [ EIntConvert IUint64 (EFloatConvert F32 (EFloatConvert F64 (EFloat dm_scar))) ]
-          ; SPrintln [ EFloatConvert F64 (EFloat dm_tiny) ]
+          ; SPrintln [ EFloat dm_1p5; EConvert (GoAST.tsyn GoNames.TNfloat32) (EFloat dm_1p5) ]
+          ; SPrintln [ EConvert (GoAST.tsyn GoNames.TNfloat64) (EFloat dm_0p5) ]
+          ; SPrintln [ EConvert (GoAST.tsyn GoNames.TNint) (EFloat dm_3) ]
+          ; SPrintln [ EConvert (GoAST.tsyn GoNames.TNfloat64) (EInt 7) ]
+          ; SPrintln [ EConvert (GoAST.tsyn GoNames.TNuint64) (EConvert (GoAST.tsyn GoNames.TNfloat32) (EFloat dm_scar)) ]
+          ; SPrintln [ EConvert (GoAST.tsyn GoNames.TNuint64) (EConvert (GoAST.tsyn GoNames.TNfloat32) (EConvert (GoAST.tsyn GoNames.TNfloat64) (EFloat dm_scar))) ]
+          ; SPrintln [ EConvert (GoAST.tsyn GoNames.TNfloat64) (EFloat dm_tiny) ]
           (* complex: a bare complex128-default literal; its complex64/complex128 conversions; a
              zero-imaginary complex->int; a zero-imaginary complex->float32; and ★the component double-round
              scar via a zero-imaginary complex->uint64 (direct F32 vs nested F64-then-F32, decimals differ). *)
           ; SPrintln [ EComplex dc_1p5_m2p5 ]
-          ; SPrintln [ EComplexConvert C64  (EComplex dc_1p5_m2p5) ]
-          ; SPrintln [ EComplexConvert C128 (EComplex dc_1p5_m2p5) ]
-          ; SPrintln [ EIntConvert IInt (EComplex dc_3_0) ]
-          ; SPrintln [ EFloatConvert F32 (EComplex dc_1p5_0) ]
-          ; SPrintln [ EIntConvert IUint64 (EComplexConvert C64 (EComplex dc_scar_0)) ]
-          ; SPrintln [ EIntConvert IUint64 (EComplexConvert C64 (EComplexConvert C128 (EComplex dc_scar_0))) ]
+          ; SPrintln [ EConvert (GoAST.tsyn GoNames.TNcomplex64)  (EComplex dc_1p5_m2p5) ]
+          ; SPrintln [ EConvert (GoAST.tsyn GoNames.TNcomplex128) (EComplex dc_1p5_m2p5) ]
+          ; SPrintln [ EConvert (GoAST.tsyn GoNames.TNint) (EComplex dc_3_0) ]
+          ; SPrintln [ EConvert (GoAST.tsyn GoNames.TNfloat32) (EComplex dc_1p5_0) ]
+          ; SPrintln [ EConvert (GoAST.tsyn GoNames.TNuint64) (EConvert (GoAST.tsyn GoNames.TNcomplex64) (EComplex dc_scar_0)) ]
+          ; SPrintln [ EConvert (GoAST.tsyn GoNames.TNuint64) (EConvert (GoAST.tsyn GoNames.TNcomplex64) (EConvert (GoAST.tsyn GoNames.TNcomplex128) (EComplex dc_scar_0))) ]
           (* remaining acceptance cases: integer -> complex64/complex128, float -> complex64/complex128,
              and a same-type nested complex conversion (all accepted by pinned Go). *)
-          ; SPrintln [ EComplexConvert C64 (EInt 1); EComplexConvert C128 (EInt 1) ]
-          ; SPrintln [ EComplexConvert C64 (EFloat dm_1p5); EComplexConvert C128 (EFloat dm_1p5) ]
-          ; SPrintln [ EComplexConvert C64 (EComplexConvert C64 (EComplex dc_1p5_m2p5)) ] ] ].
+          ; SPrintln [ EConvert (GoAST.tsyn GoNames.TNcomplex64) (EInt 1); EConvert (GoAST.tsyn GoNames.TNcomplex128) (EInt 1) ]
+          ; SPrintln [ EConvert (GoAST.tsyn GoNames.TNcomplex64) (EFloat dm_1p5); EConvert (GoAST.tsyn GoNames.TNcomplex128) (EFloat dm_1p5) ]
+          ; SPrintln [ EConvert (GoAST.tsyn GoNames.TNcomplex64) (EConvert (GoAST.tsyn GoNames.TNcomplex64) (EComplex dc_1p5_m2p5)) ] ] ].
 
 Definition demo_module : ModuleSpec := mkModuleSpec (mkMP "fido.local/generated" eq_refl) Go1_23.
 Definition main_go : FilePath := mkFP "main.go" eq_refl.

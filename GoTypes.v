@@ -13,10 +13,12 @@
     The foundational distinction (Go's own): a raw literal denotes an EXACT UNTYPED CONSTANT value
     ([GoConst] — ints arbitrary-precision [Z], floats an exact rational [FloatConst], a complex an exact PAIR
     of rational components [ComplexConst], strings exact byte sequences), independent of any width.  An
-    explicit conversion routes through the ONE [convert_const] authority: an integer conversion [EIntConvert
-    it e] does NOT change the value (range-checked at [it]); a float conversion [EFloatConvert ft e] ROUNDS the
-    value ONCE at the destination format [ft]; a complex conversion [EComplexConvert ct e] rounds EACH
-    component ONCE at [ct]'s component format.  In a USE CONTEXT that requires a typed value, an UNTYPED
+    explicit conversion [EConvert ts e] names a SOURCE type ([ts]); the semantic target [GoType] is the
+    compiler-owned resolution [rt ts] (§7 — the resolver lives in [GoCompile], never here), and the value
+    routes through the ONE [convert_const] authority at that target: an integer target does NOT change the
+    value (range-checked at the integer type); a float target ROUNDS the value ONCE at the destination format;
+    a complex target rounds EACH component ONCE at the format's component precision.  In a USE CONTEXT that
+    requires a typed value, an UNTYPED
     constant is given a DEFAULT TYPE (int constants default to [TInteger IInt], floats to [TFloat F64], complex
     to [TComplex C128]) and REPRESENTABILITY is checked (for a numeric target BY the SAME [convert_const], so
     representability and conversion never disagree), while a TYPED constant RETAINS its type and value (it is
@@ -361,6 +363,18 @@ Lemma type_untyped_complex_convert : forall ct c,
   type_untyped_const_at (TComplex ct) c = convert_const (TComplex ct) (CIUntyped c).
 Proof. reflexivity. Qed.
 
+(** ---- the index-free typing specification, parameterized by ONE source-name resolver ----
+
+    A conversion node carries a SOURCE type name ([GoAST.TypeSyntax]); the semantic target [GoType] is obtained
+    by resolving that name in the current predeclared context.  That resolution is compiler-owned (§7): its ONE
+    authority — the source-name-to-[GoType] table — lives in [GoCompile], NEVER here.  So the whole index-free
+    typing spec ([const_info] … [ProgramTyped]) is parameterized by a total resolver [rt : TypeSyntax -> GoType]
+    that [GoCompile] supplies and against which the production occurrence pass is proved exact.  The single
+    target-directed conversion authority [convert_const] is unchanged: it still receives a semantic [GoType]
+    ([rt ts]) and never inspects a source name or a rendered string. *)
+Section TypingResolver.
+Variable rt : GoAST.TypeSyntax -> GoType.
+
 Fixpoint const_info (e : GoExpr) : option ConstInfo :=
   match e with
   | EBool b   => Some (CIUntyped (CBool b))
@@ -368,20 +382,10 @@ Fixpoint const_info (e : GoExpr) : option ConstInfo :=
   | ENeg n    => Some (CIUntyped (CInt (- Z.of_N n)))
   | EString s => Some (CIUntyped (CString s))
   | EFloat d  => Some (CIUntyped (CFloat (decimal_value d)))
-  | EIntConvert target e' =>
-      match const_info e' with
-      | Some ci => option_map (CITyped (TInteger target)) (convert_const (TInteger target) ci)
-      | None => None
-      end
-  | EFloatConvert target e' =>
-      match const_info e' with
-      | Some ci => option_map (CITyped (TFloat target)) (convert_const (TFloat target) ci)
-      | None => None
-      end
   | EComplex dc => Some (CIUntyped (CComplex (decimal_complex_value dc)))
-  | EComplexConvert target e' =>
-      match const_info e' with
-      | Some ci => option_map (CITyped (TComplex target)) (convert_const (TComplex target) ci)
+  | EConvert ts x =>
+      match const_info x with
+      | Some ci => option_map (CITyped (rt ts)) (convert_const (rt ts) ci)
       | None => None
       end
   end.
@@ -400,18 +404,14 @@ Definition const_info_step (e : GoExpr) (child : option ConstInfo) : option Cons
   | EString s   => Some (CIUntyped (CString s))
   | EFloat d    => Some (CIUntyped (CFloat (decimal_value d)))
   | EComplex dc => Some (CIUntyped (CComplex (decimal_complex_value dc)))
-  | EIntConvert target _ =>
-      match child with Some ci => option_map (CITyped (TInteger target)) (convert_const (TInteger target) ci) | None => None end
-  | EFloatConvert target _ =>
-      match child with Some ci => option_map (CITyped (TFloat target)) (convert_const (TFloat target) ci) | None => None end
-  | EComplexConvert target _ =>
-      match child with Some ci => option_map (CITyped (TComplex target)) (convert_const (TComplex target) ci) | None => None end
+  | EConvert ts _ =>
+      match child with Some ci => option_map (CITyped (rt ts)) (convert_const (rt ts) ci) | None => None end
   end.
 
 (** the one current expression child of a node (the conversion operand); [None] for leaves. *)
 Definition expr_child (e : GoExpr) : option GoExpr :=
   match e with
-  | EIntConvert _ e' | EFloatConvert _ e' | EComplexConvert _ e' => Some e'
+  | EConvert _ e' => Some e'
   | _ => None
   end.
 
@@ -529,13 +529,10 @@ Proof.
   - congruence.
 Qed.
 
-(** an invalid inner conversion propagates: it cannot be revived by an outer conversion (either kind). *)
-Lemma const_info_int_none : forall target e,
-  const_info e = None -> const_info (EIntConvert target e) = None.
-Proof. intros target e H; simpl; rewrite H; reflexivity. Qed.
-Lemma const_info_float_none : forall target e,
-  const_info e = None -> const_info (EFloatConvert target e) = None.
-Proof. intros target e H; simpl; rewrite H; reflexivity. Qed.
+(** an invalid inner conversion propagates: it cannot be revived by an outer conversion (any target name). *)
+Lemma const_info_conv_none : forall ts e,
+  const_info e = None -> const_info (EConvert ts e) = None.
+Proof. intros ts e H; simpl; rewrite H; reflexivity. Qed.
 
 (** ---- use-context resolution: one expression-use context and its per-type policy ---- *)
 Inductive ExprUse : Type :=
@@ -760,405 +757,45 @@ Qed.
 Lemma empty_file_typed : FileTyped [].
 Proof. constructor. Qed.
 
-(** ---- a canonical integer literal for a (possibly negative) [Z], used by the generic boundary theorems ---- *)
+End TypingResolver.
+
+(** ---- rt-free shared constant fixtures ----
+
+    The canonical integer literal and the decimal / decimal-complex constants below are referenced by
+    [GoSafe] / [GoRender] / the e2e witnesses and by the concrete typing witnesses re-established, with the
+    predeclared resolver, in [GoCompile].  They carry no source type name and so need no resolver.  The
+    concrete source-name conversion witnesses (every [resolve_expr] / [const_info] over an [EConvert], the
+    per-type boundary theorems, and the double-round scars) live in [GoCompile], the SOLE owner of the
+    source-name-to-[GoType] resolver (§7, §9) — never here. *)
 Definition int_lit (z : Z) : GoExpr :=
   if Z.leb 0 z then EInt (Z.to_N z) else ENeg (Z.to_N (- z)).
 
-Lemma const_info_int_lit : forall z, const_info (int_lit z) = Some (CIUntyped (CInt z)).
-Proof.
-  intro z; unfold int_lit; destruct (Z.leb 0 z) eqn:E; cbn [const_info].
-  - apply Z.leb_le in E; rewrite Z2N.id by exact E; reflexivity.
-  - apply Z.leb_gt in E; rewrite Z2N.id by lia; do 3 f_equal; lia.
-Qed.
-
-(** ---- generic boundary theorems: for EVERY integer type, its min/max convert-resolve and one past either
-    endpoint does not (the exact-boundary coverage of, over all ten members at once) ---- *)
-Lemma resolve_convert_representable : forall it z,
-  IntRepresentable it z ->
-  resolve_expr UsePrintlnArg (EIntConvert it (int_lit z)) = Some (TInteger it).
-Proof.
-  intros it z Hz. apply integer_representableb_spec in Hz.
-  unfold resolve_expr, resolve_expr_const.
-  cbn [const_info]. rewrite const_info_int_lit.
-  cbn [option_map convert_const const_info_exact].
-  unfold typed_integer_of_Z.
-  destruct (bool_true_dec (integer_representableb it z)) as [H'|H'].
-  - reflexivity.
-  - congruence.
-Qed.
-
-Lemma resolve_convert_unrepresentable : forall it z,
-  integer_representableb it z = false ->
-  resolve_expr UsePrintlnArg (EIntConvert it (int_lit z)) = None.
-Proof.
-  intros it z Hz.
-  unfold resolve_expr, resolve_expr_const.
-  cbn [const_info]. rewrite const_info_int_lit.
-  cbn [option_map convert_const const_info_exact].
-  unfold typed_integer_of_Z.
-  destruct (bool_true_dec (integer_representableb it z)) as [H'|H'].
-  - congruence.
-  - reflexivity.
-Qed.
-
-Theorem resolve_convert_min : forall it,
-  resolve_expr UsePrintlnArg (EIntConvert it (int_lit (integer_min it))) = Some (TInteger it).
-Proof. intro it; apply resolve_convert_representable, integer_min_representable. Qed.
-
-Theorem resolve_convert_max : forall it,
-  resolve_expr UsePrintlnArg (EIntConvert it (int_lit (integer_max it))) = Some (TInteger it).
-Proof. intro it; apply resolve_convert_representable, integer_max_representable. Qed.
-
-Theorem resolve_convert_below : forall it,
-  resolve_expr UsePrintlnArg (EIntConvert it (int_lit (integer_min it - 1))) = None.
-Proof. intro it; apply resolve_convert_unrepresentable, integer_min_pred_not_representable. Qed.
-
-Theorem resolve_convert_above : forall it,
-  resolve_expr UsePrintlnArg (EIntConvert it (int_lit (integer_max it + 1))) = None.
-Proof. intro it; apply resolve_convert_unrepresentable, integer_max_succ_not_representable. Qed.
-
-(** ---- concrete boundary / conversion / type-at-use fixtures (the grammar of typing, kernel-checked) ---- *)
-Example res_bool_true  : resolve_expr UsePrintlnArg (EBool true)  = Some TBool. Proof. reflexivity. Qed.
-Example res_bool_false : resolve_expr UsePrintlnArg (EBool false) = Some TBool. Proof. reflexivity. Qed.
-Example res_int_zero   : resolve_expr UsePrintlnArg (EInt 0) = Some (TInteger IInt). Proof. reflexivity. Qed.
-Example res_neg_zero   : resolve_expr UsePrintlnArg (ENeg 0) = Some (TInteger IInt). Proof. reflexivity. Qed.
-Example const_zero_eq  : const_info (EInt 0) = const_info (ENeg 0). Proof. reflexivity. Qed.
-
-(* a BARE integer literal defaults to [int]; the [int] boundaries resolve, one past does not. *)
-Example res_int_default : resolve_expr UsePrintlnArg (EInt 42) = Some (TInteger IInt). Proof. reflexivity. Qed.
-Example res_int_max : resolve_expr UsePrintlnArg (EInt (Z.to_N int_max))     = Some (TInteger IInt). Proof. reflexivity. Qed.
-Example res_int_min : resolve_expr UsePrintlnArg (ENeg (Z.to_N (- int_min))) = Some (TInteger IInt). Proof. reflexivity. Qed.
-Example res_over  : resolve_expr UsePrintlnArg (EInt (Z.to_N (int_max + 1)))   = None. Proof. reflexivity. Qed.
-Example res_under : resolve_expr UsePrintlnArg (ENeg (Z.to_N (- int_min + 1))) = None. Proof. reflexivity. Qed.
-(* bare 2^63 does NOT resolve (it does not fit the default [int]); as an arbitrary-precision constant it is
-   still exact, and even above 2^64 the constant value is retained though it fits no integer type. *)
-Example res_2p63_no_resolve : resolve_expr UsePrintlnArg (EInt 9223372036854775808) = None. Proof. reflexivity. Qed.
-Example const_huge_exact : option_map const_info_exact (const_info (EInt 18446744073709551617)) = Some (CInt 18446744073709551617). Proof. reflexivity. Qed.
-Example res_huge_no_resolve : resolve_expr UsePrintlnArg (EInt 18446744073709551617) = None. Proof. reflexivity. Qed.
-
-(* explicit conversions — type at use, with a representability recheck at the destination. *)
-Example res_uint64_2p63 : resolve_expr UsePrintlnArg (EIntConvert IUint64 (EInt 9223372036854775808)) = Some (TInteger IUint64).
-Proof. reflexivity. Qed.
-Example res_int64_2p63_reject : resolve_expr UsePrintlnArg (EIntConvert IInt64 (EInt 9223372036854775808)) = None.
-Proof. reflexivity. Qed.
-Example res_uint8_0   : resolve_expr UsePrintlnArg (EIntConvert IUint8 (EInt 0))   = Some (TInteger IUint8). Proof. reflexivity. Qed.
-Example res_uint8_255 : resolve_expr UsePrintlnArg (EIntConvert IUint8 (EInt 255)) = Some (TInteger IUint8). Proof. reflexivity. Qed.
-Example res_uint8_m1  : resolve_expr UsePrintlnArg (EIntConvert IUint8 (ENeg 1))   = None. Proof. reflexivity. Qed.
-Example res_uint8_256 : resolve_expr UsePrintlnArg (EIntConvert IUint8 (EInt 256)) = None. Proof. reflexivity. Qed.
-Example res_int8_min  : resolve_expr UsePrintlnArg (EIntConvert IInt8 (ENeg 128)) = Some (TInteger IInt8). Proof. reflexivity. Qed.
-Example res_int8_max  : resolve_expr UsePrintlnArg (EIntConvert IInt8 (EInt 127)) = Some (TInteger IInt8). Proof. reflexivity. Qed.
-Example res_int8_under : resolve_expr UsePrintlnArg (EIntConvert IInt8 (ENeg 129)) = None. Proof. reflexivity. Qed.
-Example res_int8_over  : resolve_expr UsePrintlnArg (EIntConvert IInt8 (EInt 128)) = None. Proof. reflexivity. Qed.
-Example res_uint64_max  : resolve_expr UsePrintlnArg (EIntConvert IUint64 (EInt 18446744073709551615)) = Some (TInteger IUint64). Proof. reflexivity. Qed.
-Example res_uint64_over : resolve_expr UsePrintlnArg (EIntConvert IUint64 (EInt 18446744073709551616)) = None. Proof. reflexivity. Qed.
-
-(* nested (transitive) conversions recheck the carried value at EACH layer. *)
-Example const_int8_int16_127 :
-  const_info (EIntConvert IInt8 (EIntConvert IInt16 (EInt 127)))
-    = Some (CITyped (TInteger IInt8) (TCInteger IInt8 127 eq_refl)).
-Proof. reflexivity. Qed.
-Example const_int8_int16_128_reject :
-  const_info (EIntConvert IInt8 (EIntConvert IInt16 (EInt 128))) = None. Proof. reflexivity. Qed.
-Example const_uint8_int_300_reject :
-  const_info (EIntConvert IUint8 (EIntConvert IInt (EInt 300))) = None. Proof. reflexivity. Qed.
-Example const_uint8_int_255_accept :
-  const_info (EIntConvert IUint8 (EIntConvert IInt (EInt 255)))
-    = Some (CITyped (TInteger IUint8) (TCInteger IUint8 255 eq_refl)).
-Proof. reflexivity. Qed.
-
-(* a conversion of a bool/string constant is rejected. *)
-Example conv_bool_reject : const_info (EIntConvert IInt8 (EBool true)) = None. Proof. reflexivity. Qed.
-Example conv_str_reject  : const_info (EIntConvert IUint64 (EString "x")) = None. Proof. reflexivity. Qed.
-Example res_conv_bool_reject : resolve_expr UsePrintlnArg (EIntConvert IInt8 (EBool true)) = None. Proof. reflexivity. Qed.
-Example res_conv_str_reject  : resolve_expr UsePrintlnArg (EIntConvert IUint64 (EString "x")) = None. Proof. reflexivity. Qed.
-
-(* type identity: [int]/[int64] and [uint]/[uint64] are DISTINCT static types. *)
-Example tint_neq_tint64  : TInteger IInt  <> TInteger IInt64.
-Proof. intro H; injection H as H; exact (IInt_neq_IInt64 H). Qed.
-Example tuint_neq_tuint64 : TInteger IUint <> TInteger IUint64.
-Proof. intro H; injection H as H; exact (IUint_neq_IUint64 H). Qed.
-
-(* a mixed statement, empty println, empty file, and the empty PROGRAM are all typed. *)
-Example stmt_mixed_typed : stmt_typedb (SPrintln [EBool true; EInt 42; ENeg 1]) = true. Proof. reflexivity. Qed.
-Example stmt_conv_typed  : stmt_typedb (SPrintln [EIntConvert IInt8 (EInt 127); EIntConvert IUint64 (EInt 18446744073709551615)]) = true. Proof. reflexivity. Qed.
-Example stmt_empty_typed : stmt_typedb (SPrintln []) = true. Proof. reflexivity. Qed.
-Example file_empty_typed : file_typedb [] = true. Proof. reflexivity. Qed.
-Example empty_program_typed : forall ms, program_typedb (empty_program ms) = true. Proof. intro ms; reflexivity. Qed.
-
-(* an out-of-range argument (bare or via conversion) fails typing at statement AND file level. *)
-Example over_stmt_untyped : stmt_typedb (SPrintln [EInt (Z.to_N (int_max + 1))]) = false. Proof. reflexivity. Qed.
-Example conv_over_file_untyped : file_typedb [ DMain [ SPrintln [EIntConvert IInt8 (EInt 128)] ] ] = false. Proof. reflexivity. Qed.
-
-(* wrong-type representability is false ... *)
-Example bool_not_int : const_representableb (TInteger IInt) (CBool true) = false. Proof. reflexivity. Qed.
-Example int_not_bool : const_representableb TBool (CInt 3) = false. Proof. reflexivity. Qed.
-(* ... and at the RESOLUTION level a boolean does NOT resolve as an integer, nor an integer as bool. *)
-Example bool_not_resolve_int : ~ ResolveExpr UsePrintlnArg (EBool true) (TInteger IInt).
-Proof. intro H; apply resolve_expr_complete in H; cbn in H; discriminate H. Qed.
-Example int_not_resolve_bool : ~ ResolveExpr UsePrintlnArg (EInt 3) TBool.
-Proof. intro H; apply resolve_expr_complete in H; cbn in H; discriminate H. Qed.
-
-(* ---- strings: every string literal resolves to [TString], for ARBITRARY finite byte sequences. *)
-Example res_str_empty : resolve_expr UsePrintlnArg (EString "") = Some TString. Proof. reflexivity. Qed.
-Example res_str_ascii : resolve_expr UsePrintlnArg (EString "hello") = Some TString. Proof. reflexivity. Qed.
-Example res_str_bytes :
-  resolve_expr UsePrintlnArg
-    (EString (String (ascii_of_nat 0) (String (ascii_of_nat 127)
-             (String (ascii_of_nat 128) (String (ascii_of_nat 255) EmptyString)))))
-  = Some TString. Proof. reflexivity. Qed.
-Lemma str_representable : forall s, ConstRepresentable TString (CString s).
-Proof. intro s; exists (TCString s); reflexivity. Qed.
-Lemma str_representableb : forall s, const_representableb TString (CString s) = true.
-Proof. reflexivity. Qed.
-Example stmt_mixed_str_typed : stmt_typedb (SPrintln [EBool true; EInt 42; EString "hello"]) = true. Proof. reflexivity. Qed.
-Example cstr_not_int  : const_representableb (TInteger IInt) (CString "x") = false. Proof. reflexivity. Qed.
-Example bool_not_str  : const_representableb TString (CBool true)  = false. Proof. reflexivity. Qed.
-Example int_not_str   : const_representableb TString (CInt 3)      = false. Proof. reflexivity. Qed.
-Example str_not_resolve_int : ~ ResolveExpr UsePrintlnArg (EString "x") (TInteger IInt).
-Proof. intro H; apply resolve_expr_complete in H; cbn in H; discriminate H. Qed.
-
-(* ---- floats: bare literal defaults to float64; explicit conversions type at use; cross-family and
-   float->integer constant conversions match Go's constant rules. ---- *)
+(** decimal / decimal-complex constant fixtures shared with GoSafe / GoRender / the e2e witnesses. *)
 Definition d_15em1 : DecimalFloat := mkDecimal 15 (-1) eq_refl.   (* 1.5 *)
 Definition d_3    : DecimalFloat := mkDecimal 3 0 eq_refl.        (* 3.0 *)
 Definition d_35em1 : DecimalFloat := mkDecimal 35 (-1) eq_refl.   (* 3.5 *)
 Definition d_128  : DecimalFloat := mkDecimal 128 0 eq_refl.      (* 128.0 *)
 Definition d_m1   : DecimalFloat := mkDecimal (-1) 0 eq_refl.     (* -1.0 *)
 Definition d_scar : DecimalFloat := mkDecimal 2305843146652647425 0 eq_refl.
-
-Example res_float_default : resolve_expr UsePrintlnArg (EFloat d_15em1) = Some (TFloat F64). Proof. reflexivity. Qed.
-Example res_float32_conv  : resolve_expr UsePrintlnArg (EFloatConvert F32 (EFloat d_15em1)) = Some (TFloat F32). Proof. reflexivity. Qed.
-Example res_float64_conv  : resolve_expr UsePrintlnArg (EFloatConvert F64 (EFloat d_15em1)) = Some (TFloat F64). Proof. reflexivity. Qed.
-(* the platform default of a bare float is float64 — via [default_const], not a "type of an untyped constant". *)
-Example float_default_resolved :
-  option_map resolved_const_type (default_const (CFloat fc_zero)) = Some (TFloat F64). Proof. reflexivity. Qed.
-
-(* float->integer CONSTANT conversions: integral value + range required; a fraction / overflow rejects. *)
-Example res_int_of_3_0     : resolve_expr UsePrintlnArg (EIntConvert IInt  (EFloat d_3))    = Some (TInteger IInt).  Proof. reflexivity. Qed.
-Example res_int_of_3_5_rej : resolve_expr UsePrintlnArg (EIntConvert IInt  (EFloat d_35em1)) = None.                Proof. reflexivity. Qed.
-Example res_int8_127_0     : resolve_expr UsePrintlnArg (EIntConvert IInt8 (EFloat (mkDecimal 127 0 eq_refl))) = Some (TInteger IInt8). Proof. reflexivity. Qed.
-Example res_int8_128_0_rej : resolve_expr UsePrintlnArg (EIntConvert IInt8 (EFloat d_128))  = None.                Proof. reflexivity. Qed.
-Example res_uint8_m1_0_rej : resolve_expr UsePrintlnArg (EIntConvert IUint8 (EFloat d_m1))  = None.                Proof. reflexivity. Qed.
-
-(* wrong-type conversions reject; a float typed constant and float64 are DISTINCT static types. *)
-Example res_float32_true_rej : resolve_expr UsePrintlnArg (EFloatConvert F32 (EBool true))   = None. Proof. reflexivity. Qed.
-Example res_float64_str_rej  : resolve_expr UsePrintlnArg (EFloatConvert F64 (EString "x"))  = None. Proof. reflexivity. Qed.
-Example res_int_of_true_rej  : resolve_expr UsePrintlnArg (EIntConvert IInt (EBool true))    = None. Proof. reflexivity. Qed.
-Example tfloat32_neq_tfloat64 : TFloat F32 <> TFloat F64.
-Proof. intro H; injection H as H; discriminate. Qed.
-
-(* ★the DOUBLE-ROUNDING SCAR at the conversion-syntax level: direct float32(big) and nested
-   float32(float64(big)) analyze to typed float32 constants with DIFFERENT exact rounded values. *)
-Example const_scar_direct :
-  option_map const_info_exact (const_info (EFloatConvert F32 (EFloat d_scar)))
-    = Some (CFloat (fc_of_Z 2305843284091600896)).
-Proof. vm_compute. reflexivity. Qed.
-Example const_scar_nested :
-  option_map const_info_exact (const_info (EFloatConvert F32 (EFloatConvert F64 (EFloat d_scar))))
-    = Some (CFloat (fc_of_Z 2305843009213693952)).
-Proof. vm_compute. reflexivity. Qed.
-Example const_scar_direct_differs_nested :
-  option_map const_info_exact (const_info (EFloatConvert F32 (EFloat d_scar)))
-    <> option_map const_info_exact (const_info (EFloatConvert F32 (EFloatConvert F64 (EFloat d_scar)))).
-Proof. rewrite const_scar_direct, const_scar_nested; discriminate. Qed.
-
-(** SAME-TYPE conversions are identities (no reround): a nested same-format float/integer conversion
-    analyzes to the SAME exact value as the single one. *)
-Example conv_f32_f32_scar :
-  option_map const_info_exact (const_info (EFloatConvert F32 (EFloatConvert F32 (EFloat d_scar))))
-    = option_map const_info_exact (const_info (EFloatConvert F32 (EFloat d_scar))).
-Proof. vm_compute. reflexivity. Qed.
-Example conv_f64_f64_1p5 :
-  option_map const_info_exact (const_info (EFloatConvert F64 (EFloatConvert F64 (EFloat d_15em1))))
-    = option_map const_info_exact (const_info (EFloatConvert F64 (EFloat d_15em1))).
-Proof. vm_compute. reflexivity. Qed.
-Example conv_int8_int8_127 :
-  const_info (EIntConvert IInt8 (EIntConvert IInt8 (EInt 127)))
-    = Some (CITyped (TInteger IInt8) (TCInteger IInt8 127 eq_refl)).
-Proof. reflexivity. Qed.
-
-(** typed MISMATCH is UNREPRESENTABLE (not merely rejected): the dependent type index and the carried
-    range proof make an ill-typed / out-of-range typed constant impossible to CONSTRUCT — [Fail] confirms the
-    term does not typecheck (no tracked axiom, nothing added to the environment). *)
-Fail Definition mismatch_string_carrying_int : TypedConst TString := TCInteger IInt 3 eq_refl.
-Fail Definition mismatch_int_out_of_range : TypedConst (TInteger IInt8) := TCInteger IInt8 128 eq_refl.
-Fail Definition mismatch_float_carrying_bool : TypedConst (TFloat F64) := TCBool true.
-
-(* a mixed float statement types; a default-overflowing bare float does NOT type. *)
-Example stmt_float_mixed : stmt_typedb (SPrintln [EBool true; EFloat d_15em1; EFloatConvert F32 (EFloat d_3)]) = true. Proof. reflexivity. Qed.
-Example stmt_float_overflow_untyped :
-  stmt_typedb (SPrintln [EFloat (mkDecimal 1 4096 eq_refl)]) = false.   (* 1e4096 overflows default float64 *)
-Proof. vm_compute. reflexivity. Qed.
-
-(** ---- COMPLEX CONSTANT KERNEL CHECKS: analysis, defaulting, representability boundaries, scalar<->
-    complex conversions, same-type identity, and the different-type component double-round scar. ---- *)
 Definition d_m25em1 : DecimalFloat := mkDecimal (-25) (-1) eq_refl.  (* -2.5 *)
 Definition d_127_0  : DecimalFloat := mkDecimal 127 0 eq_refl.
 Definition d_1_0    : DecimalFloat := mkDecimal 1 0 eq_refl.
 Definition d_m1_0   : DecimalFloat := mkDecimal (-1) 0 eq_refl.
 Definition d_0_0    : DecimalFloat := mkDecimal 0 0 eq_refl.
 Definition dc_1p5_m2p5 : DecimalComplex := mkDC d_15em1 d_m25em1.
-
-(* a bare complex literal analyzes to an UNTYPED exact ComplexConst; exact real = 3/2, imag = -5/2. *)
-Example cplx_untyped :
-  const_info (EComplex dc_1p5_m2p5) = Some (CIUntyped (CComplex (decimal_complex_value dc_1p5_m2p5))).
-Proof. reflexivity. Qed.
-(* the exact real component is the CANONICAL rational 3/2 and the exact imaginary is -5/2 (pinned as the
-   concrete lowest-terms num/den, not merely re-derived from the source decimal). *)
-Example cplx_real_3_2 : fc_num (cc_real (decimal_complex_value dc_1p5_m2p5)) = 3
-                     /\ fc_den (cc_real (decimal_complex_value dc_1p5_m2p5)) = 2%positive.
-Proof. split; reflexivity. Qed.
-Example cplx_imag_m5_2 : fc_num (cc_imag (decimal_complex_value dc_1p5_m2p5)) = -5
-                      /\ fc_den (cc_imag (decimal_complex_value dc_1p5_m2p5)) = 2%positive.
-Proof. split; reflexivity. Qed.
-
-(* a bare complex DEFAULTS to complex128 in println; explicit complex64/complex128 resolve to their type;
-   the two complex static types are DISTINCT. *)
-Example res_cplx_default : resolve_expr UsePrintlnArg (EComplex dc_1p5_m2p5) = Some (TComplex C128).
-Proof. vm_compute. reflexivity. Qed.
-Example res_cplx64  : resolve_expr UsePrintlnArg (EComplexConvert C64  (EComplex dc_1p5_m2p5)) = Some (TComplex C64).
-Proof. vm_compute. reflexivity. Qed.
-Example res_cplx128 : resolve_expr UsePrintlnArg (EComplexConvert C128 (EComplex dc_1p5_m2p5)) = Some (TComplex C128).
-Proof. vm_compute. reflexivity. Qed.
-Example cplx_types_distinct : TComplex C64 <> TComplex C128. Proof. discriminate. Qed.
-
-(* component representability boundaries: a real / imaginary F32 overflow rejects complex64; F64 overflow
-   rejects complex128. *)
-Example res_cplx64_real_over :
-  resolve_expr UsePrintlnArg (EComplexConvert C64 (EComplex (mkDC (mkDecimal 1 39 eq_refl) d_0_0))) = None.
-Proof. vm_compute. reflexivity. Qed.
-Example res_cplx64_imag_over :
-  resolve_expr UsePrintlnArg (EComplexConvert C64 (EComplex (mkDC d_0_0 (mkDecimal 1 39 eq_refl)))) = None.
-Proof. vm_compute. reflexivity. Qed.
-Example res_cplx128_over :
-  resolve_expr UsePrintlnArg (EComplexConvert C128 (EComplex (mkDC (mkDecimal 1 309 eq_refl) d_0_0))) = None.
-Proof. vm_compute. reflexivity. Qed.
-
-(* scalar -> complex conversions (integer / float); bool / string reject; a matching-format typed float
-   REUSES its value as the real component with a stored positive-zero imaginary. *)
-Example res_cplx64_int   : resolve_expr UsePrintlnArg (EComplexConvert C64  (EInt 1)) = Some (TComplex C64).  Proof. vm_compute. reflexivity. Qed.
-Example res_cplx128_int  : resolve_expr UsePrintlnArg (EComplexConvert C128 (EInt 1)) = Some (TComplex C128). Proof. vm_compute. reflexivity. Qed.
-Example res_cplx64_float : resolve_expr UsePrintlnArg (EComplexConvert C64  (EFloat d_15em1)) = Some (TComplex C64).  Proof. vm_compute. reflexivity. Qed.
-Example res_cplx128_flt  : resolve_expr UsePrintlnArg (EComplexConvert C128 (EFloat d_15em1)) = Some (TComplex C128). Proof. vm_compute. reflexivity. Qed.
-Example res_cplx64_bool_rej : resolve_expr UsePrintlnArg (EComplexConvert C64  (EBool true)) = None. Proof. reflexivity. Qed.
-Example res_cplx128_str_rej : resolve_expr UsePrintlnArg (EComplexConvert C128 (EString "x")) = None. Proof. reflexivity. Qed.
-Example cplx64_from_f32_real :
-  match option_map const_info_exact (const_info (EComplexConvert C64 (EFloatConvert F32 (EFloat d_15em1)))) with
-  | Some (CComplex cc) => fc_eqb (cc_real cc) (reduce_fc 3 2) && cc_imag_is_zero cc   (* exact real 3/2, imag 0 *)
-  | _ => false
-  end = true.
-Proof. vm_compute. reflexivity. Qed.
-
-(* zero-imaginary complex -> scalar conversions; nonzero-imaginary / fractional / out-of-range reject; a
-   matching-format typed complex PROJECTS its real component to the scalar. *)
-Example res_int_of_cplx3 :
-  resolve_expr UsePrintlnArg (EIntConvert IInt (EComplex (mkDC d_3 d_0_0))) = Some (TInteger IInt). Proof. vm_compute. reflexivity. Qed.
-Example res_int8_of_cplx127 :
-  resolve_expr UsePrintlnArg (EIntConvert IInt8 (EComplex (mkDC d_127_0 d_0_0))) = Some (TInteger IInt8). Proof. vm_compute. reflexivity. Qed.
-Example res_f32_of_cplx1p5 :
-  resolve_expr UsePrintlnArg (EFloatConvert F32 (EComplex (mkDC d_15em1 d_0_0))) = Some (TFloat F32). Proof. vm_compute. reflexivity. Qed.
-Example res_f64_of_cplx1p5 :
-  resolve_expr UsePrintlnArg (EFloatConvert F64 (EComplex (mkDC d_15em1 d_0_0))) = Some (TFloat F64). Proof. vm_compute. reflexivity. Qed.
-Example res_int_of_cplx3p5_rej :
-  resolve_expr UsePrintlnArg (EIntConvert IInt (EComplex (mkDC d_35em1 d_0_0))) = None. Proof. vm_compute. reflexivity. Qed.
-Example res_int_of_cplx_nonzero_imag_rej :
-  resolve_expr UsePrintlnArg (EIntConvert IInt (EComplex (mkDC d_3 d_1_0))) = None. Proof. vm_compute. reflexivity. Qed.
-Example res_int8_of_cplx128_rej :
-  resolve_expr UsePrintlnArg (EIntConvert IInt8 (EComplex (mkDC d_128 d_0_0))) = None. Proof. vm_compute. reflexivity. Qed.
-Example res_f32_of_cplx_nonzero_imag_rej :
-  resolve_expr UsePrintlnArg (EFloatConvert F32 (EComplex (mkDC d_15em1 d_1_0))) = None. Proof. vm_compute. reflexivity. Qed.
-Example res_f64_of_cplx_neg_imag_rej :
-  resolve_expr UsePrintlnArg (EFloatConvert F64 (EComplex (mkDC d_15em1 d_m1_0))) = None. Proof. vm_compute. reflexivity. Qed.
-Example f32_of_cplx64_real :
-  match option_map const_info_exact (const_info (EFloatConvert F32 (EComplexConvert C64 (EComplex (mkDC d_15em1 d_0_0))))) with
-  | Some (CFloat q) => fc_eqb q (reduce_fc 3 2)   (* the projected real component is exactly 3/2 *)
-  | _ => false
-  end = true.
-Proof. vm_compute. reflexivity. Qed.
-
-(* SAME-TYPE complex conversion is the IDENTITY (no reround): a nested same-format conversion equals the
-   single conversion (the concrete witness of the universal [convert_const_same_complex]). *)
-Example conv_c64_c64 :
-  const_info (EComplexConvert C64 (EComplexConvert C64 (EComplex dc_1p5_m2p5)))
-    = const_info (EComplexConvert C64 (EComplex dc_1p5_m2p5)).
-Proof. vm_compute. reflexivity. Qed.
-Example conv_c128_c128 :
-  const_info (EComplexConvert C128 (EComplexConvert C128 (EComplex dc_1p5_m2p5)))
-    = const_info (EComplexConvert C128 (EComplex dc_1p5_m2p5)).
-Proof. vm_compute. reflexivity. Qed.
-
-(* DIFFERENT-TYPE conversion rounds each component ONCE at the explicit boundary: the direct complex64
-   real component (rounded at F32) DIFFERS from the nested complex64(complex128(...)) (rounded F64 then F32)
-   the component analogue of the scalar double-round scar. *)
-Example cplx_scar_direct_vs_nested :
-  const_info (EComplexConvert C64 (EComplex (mkDC d_scar d_0_0)))
-    <> const_info (EComplexConvert C64 (EComplexConvert C128 (EComplex (mkDC d_scar d_0_0)))).
-Proof. vm_compute. discriminate. Qed.
-(* the EXACT direct/nested real-component values are pinned: direct complex64 rounds the scar at F32 to
-   2305843284091600896; nested complex64(complex128(...)) rounds F64-then-F32 to 2305843009213693952. *)
-Example cplx_scar_direct_real :
-  match option_map const_info_exact (const_info (EComplexConvert C64 (EComplex (mkDC d_scar d_0_0)))) with
-  | Some (CComplex cc) => fc_eqb (cc_real cc) (fc_of_Z 2305843284091600896) && cc_imag_is_zero cc
-  | _ => false
-  end = true.
-Proof. vm_compute. reflexivity. Qed.
-Example cplx_scar_nested_real :
-  match option_map const_info_exact
-          (const_info (EComplexConvert C64 (EComplexConvert C128 (EComplex (mkDC d_scar d_0_0))))) with
-  | Some (CComplex cc) => fc_eqb (cc_real cc) (fc_of_Z 2305843009213693952) && cc_imag_is_zero cc
-  | _ => false
-  end = true.
-Proof. vm_compute. reflexivity. Qed.
-(* the same scar in the IMAGINARY component rounds INDEPENDENTLY (component independence): direct-vs-nested
-   differ in the imaginary part too. *)
-Example cplx_scar_imag_direct_vs_nested :
-  const_info (EComplexConvert C64 (EComplex (mkDC d_0_0 d_scar)))
-    <> const_info (EComplexConvert C64 (EComplexConvert C128 (EComplex (mkDC d_0_0 d_scar)))).
-Proof. vm_compute. discriminate. Qed.
-
-(* negative underflow in EITHER component -> exact zero (the stored runtime is +0 by the TypedFloatConst
-   shape invariant): both a tiny positive and a tiny negative component underflow to exact zero at complex128. *)
-Example cplx_underflow_pos_zero :
-  match option_map const_info_exact
-          (const_info (EComplexConvert C128
-             (EComplex (mkDC (mkDecimal 1 (-330) eq_refl) (mkDecimal (-1) (-330) eq_refl))))) with
-  | Some (CComplex cc) => fc_eqb (cc_real cc) fc_zero && fc_eqb (cc_imag cc) fc_zero
-  | _ => false
-  end = true.
-Proof. vm_compute. reflexivity. Qed.
-
-(* complex-underflow scalar-conversion scar.  1e-50 is a nonzero exact rational that UNDERFLOWS binary32
-   to +0.  So the UNTYPED [complex(3, 1e-50)] carries a nonzero exact imaginary and [int(...)] REJECTS; but the
-   explicit [complex64(...)] boundary rounds that imaginary to exact zero, after which [int(complex64(...))]
-   ACCEPTS as 3.  The model observes (1) the exact untyped imaginary BEFORE conversion is nonzero, (2) the
-   raw int-conversion rejects, (3) the rounded typed-complex64 imaginary AFTER conversion is exact zero,
-   (4) the int conversion of the rounded value accepts, and (5) the scalar rule reads the CURRENT typed value
-   (3), never the original nonzero imaginary.  Pinned Go 1.23 agrees (differential in the Dockerfile). *)
 Definition d_tiny_imag : DecimalFloat := mkDecimal 1 (-50) eq_refl.   (* 1e-50: nonzero, underflows binary32 -> +0 *)
-Example cplx_tiny_imag_untyped_nonzero :   (* (1) exact untyped imaginary before conversion is nonzero *)
-  match option_map const_info_exact (const_info (EComplex (mkDC d_3 d_tiny_imag))) with
-  | Some (CComplex cc) => negb (cc_imag_is_zero cc)
-  | _ => false
-  end = true.
-Proof. vm_compute. reflexivity. Qed.
-Example int_of_cplx_tiny_imag_rej :        (* (2) int(complex(3, 1e-50)) rejects: nonzero imaginary *)
-  resolve_expr UsePrintlnArg (EIntConvert IInt (EComplex (mkDC d_3 d_tiny_imag))) = None.
-Proof. vm_compute. reflexivity. Qed.
-Example cplx64_tiny_imag_rounds_zero :     (* (3) rounded typed complex64 imaginary after conversion is exact zero *)
-  match option_map const_info_exact (const_info (EComplexConvert C64 (EComplex (mkDC d_3 d_tiny_imag)))) with
-  | Some (CComplex cc) => cc_imag_is_zero cc
-  | _ => false
-  end = true.
-Proof. vm_compute. reflexivity. Qed.
-Example int_of_cplx64_tiny_imag_ok :       (* (4) int(complex64(complex(3, 1e-50))) accepts: imaginary underflowed to zero *)
-  resolve_expr UsePrintlnArg (EIntConvert IInt (EComplexConvert C64 (EComplex (mkDC d_3 d_tiny_imag)))) = Some (TInteger IInt).
-Proof. vm_compute. reflexivity. Qed.
-Example int_of_cplx64_tiny_imag_is_3 :      (* (5) ... and its exact value is 3 — the scalar rule reads the CURRENT typed value *)
-  match option_map const_info_exact (const_info (EIntConvert IInt (EComplexConvert C64 (EComplex (mkDC d_3 d_tiny_imag))))) with
-  | Some (CInt z) => Z.eqb z 3
-  | _ => false
-  end = true.
-Proof. vm_compute. reflexivity. Qed.
+
+(** typed-constant MISMATCH is UNREPRESENTABLE — the dependent index + carried range proof make an
+    ill-typed / out-of-range typed constant impossible to CONSTRUCT ([Fail] adds nothing to the env). *)
+Fail Definition mismatch_string_carrying_int : TypedConst TString := TCInteger IInt 3 eq_refl.
+Fail Definition mismatch_int_out_of_range : TypedConst (TInteger IInt8) := TCInteger IInt8 128 eq_refl.
+Fail Definition mismatch_float_carrying_bool : TypedConst (TFloat F64) := TCBool true.
+
+(** every string literal is representable at [TString], for ARBITRARY finite byte sequences. *)
+Lemma str_representable : forall s, ConstRepresentable TString (CString s).
+Proof. intro s; exists (TCString s); reflexivity. Qed.
+Lemma str_representableb : forall s, const_representableb TString (CString s) = true.
+Proof. reflexivity. Qed.
 
 (* GENERIC [forallb] HELPERS for the whole-program typing folds.
 

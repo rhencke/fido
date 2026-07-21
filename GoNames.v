@@ -186,6 +186,68 @@ Lemma tn_rune_neq_int32 : TNrune <> TNint32.        Proof. discriminate. Qed.
 Lemma render_rune_neq_int32 : render_type_name TNrune <> render_type_name TNint32.
 Proof. discriminate. Qed.
 
+(** ---- the raw type-name VALUE: a retained source identifier + its classified lexical symbol ---- *)
+
+(** the raw conversion-target value RETAINS a source [IdentifierSyntax] together with the closed lexical
+    [TypeName] it classifies to and a proof they match.  So the raw AST carries a valid bounded SOURCE
+    identifier (not a bare enum): the renderer reads [stn_identifier], the compiler binds via [stn_symbol], and
+    [classify] constrains the symbol so ONLY the sixteen names inhabit this type — no arbitrary-string bypass,
+    and no semantic ([GoType]/[IntegerType]/…) tag lives here. *)
+Record SupportedTypeName : Type := mkSTN {
+  stn_identifier : IdentifierSyntax ;
+  stn_symbol     : TypeName ;
+  stn_exact      : classify (render_identifier stn_identifier) = Some stn_symbol
+}.
+
+Lemma classify_tn_identifier : forall t, classify (render_identifier (tn_identifier t)) = Some t.
+Proof. intro t. apply classify_spelling. Qed.
+
+(** the smart constructor: derive the retained identifier from the ONE spelling authority. *)
+Definition stn_of (t : TypeName) : SupportedTypeName := mkSTN (tn_identifier t) t (classify_tn_identifier t).
+Lemma stn_of_symbol : forall t, stn_symbol (stn_of t) = t.
+Proof. intro t; reflexivity. Qed.
+
+(** the retained identifier's text IS the symbol's spelling (the one source-spelling authority). *)
+Lemma stn_render : forall s, render_identifier (stn_identifier s) = tn_spelling (stn_symbol s).
+Proof. intros [id sym Hx]; cbn in *; apply classify_sound in Hx; exact Hx. Qed.
+Definition render_stn (s : SupportedTypeName) : string := render_identifier (stn_identifier s).
+Lemma render_stn_of : forall t, render_stn (stn_of t) = tn_spelling t.
+Proof. intro t; reflexivity. Qed.
+Lemma render_stn_ascii : forall s, str_ascii (render_stn s) = true.
+Proof. intro s; apply identifier_ascii. Qed.
+
+(** only the sixteen names inhabit [SupportedTypeName]; the symbol is determined by the identifier. *)
+Lemma stn_symbol_in : forall s, In (stn_symbol s) all_type_names.
+Proof. intro s; apply all_type_names_complete. Qed.
+
+Definition option_tn_eq_dec (x y : option TypeName) : {x = y} + {x <> y}.
+Proof. decide equality. apply tn_eq_dec. Defined.
+
+Lemma stn_eq : forall a b, stn_identifier a = stn_identifier b -> a = b.
+Proof.
+  intros [ida syma Hxa] [idb symb Hxb] H; cbn in *; subst idb.
+  assert (syma = symb) as -> by (rewrite Hxa in Hxb; injection Hxb as ->; reflexivity).
+  f_equal. apply (UIP_dec option_tn_eq_dec).
+Qed.
+Definition stn_eqb (a b : SupportedTypeName) : bool := id_eqb (stn_identifier a) (stn_identifier b).
+Lemma stn_eqb_eq : forall a b, stn_eqb a b = true <-> a = b.
+Proof.
+  intros a b; unfold stn_eqb; split.
+  - intro H; apply id_eqb_eq in H; apply stn_eq; exact H.
+  - intro H; subst b; apply String.eqb_refl.
+Qed.
+
+(** alias source-distinctness at the raw-value level: [byte]/[uint8] and [rune]/[int32] are distinct raw
+    supported names and render to distinct text. *)
+Lemma stn_byte_neq_uint8 : stn_of TNbyte <> stn_of TNuint8.
+Proof. intro H; assert (Hs := f_equal stn_symbol H); cbn in Hs; discriminate Hs. Qed.
+Lemma render_stn_byte_neq_uint8 : render_stn (stn_of TNbyte) <> render_stn (stn_of TNuint8).
+Proof. discriminate. Qed.
+Lemma stn_rune_neq_int32 : stn_of TNrune <> stn_of TNint32.
+Proof. intro H; assert (Hs := f_equal stn_symbol H); cbn in Hs; discriminate Hs. Qed.
+Lemma render_stn_rune_neq_int32 : render_stn (stn_of TNrune) <> render_stn (stn_of TNint32).
+Proof. discriminate. Qed.
+
 (** an ordinary identifier that is not one of the sixteen names is a valid [IdentifierSyntax] but NOT a type
     name; a keyword is not even a valid identifier — so the type-name class cannot be bypassed by a raw string. *)
 Example ident_foo_ok : identifier_ok "foo" = true.                Proof. reflexivity. Qed.

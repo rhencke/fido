@@ -11,8 +11,9 @@ Compilation.** The full design is `.review/SOURCE_FOREST_MASTER_PLAN.md`; Git hi
 - Accepted review basis: `.review/REVIEW_BASIS.md`.
 - Baseline: `8c9212a8c814c7a99a5e3ef1970a0ae32425a918`.
 - Human authorization: `C4-source-type-resolution-1`.
-- Automatic Codex review: DISABLED. The directive is the accepted human Contract Review; the candidate is
-  frozen and reported for Rob's human Implementation Review — no Codex review is requested or run.
+- Automatic Codex review: DISABLED. The directive is the accepted human Contract Review; once implementation
+  is complete the candidate will be frozen and reported for Rob's human Implementation Review — no Codex review
+  is requested or run.
 - C5 and every later checkpoint remain forbidden.
 
 ## Completed checkpoints

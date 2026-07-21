@@ -32,6 +32,14 @@ From Stdlib Require Import Floats.SpecFloat.
 From Fido Require Import Ints Floats Complexes GoAST GoTypes GoCompile.
 Import ListNotations.
 
+(** Evaluation reads the one constant-status analysis at the compiler-owned predeclared resolver
+    ([GoCompile.predeclared_type], §7); these parsing notations specialize the [GoTypes] index-free spec at
+    that ONE resolver so evaluation stays derived from — never a second authority over — the same analysis. *)
+Local Notation const_info        := (GoTypes.const_info GoCompile.predeclared_type) (only parsing).
+Local Notation resolve_expr_const := (GoTypes.resolve_expr_const GoCompile.predeclared_type) (only parsing).
+Local Notation resolve_expr      := (GoTypes.resolve_expr GoCompile.predeclared_type) (only parsing).
+Local Notation ResolveExpr       := (GoTypes.ResolveExpr GoCompile.predeclared_type) (only parsing).
+
 Inductive GoValue : Type :=
 | VBool    : bool -> GoValue
 | VInteger : IntegerType -> Z -> GoValue
@@ -257,7 +265,7 @@ Lemma eval_expr_resolved_value : forall u e rc,
   resolve_expr_const u e = Some rc -> eval_expr e = Some (resolved_const_value rc).
 Proof.
   intros u e rc H.
-  destruct (resolve_expr_const_sound u e rc H) as [ ci [ Hci [ Hri _ ] ] ].
+  destruct (resolve_expr_const_sound GoCompile.predeclared_type u e rc H) as [ ci [ Hci [ Hri _ ] ] ].
   destruct rc as [ t tc ]; unfold eval_expr; rewrite Hci, Hri; reflexivity.
 Qed.
 
@@ -298,7 +306,7 @@ Proof.
   destruct rc as [ t' tc ]; cbn [resolved_const_type resolved_const_exact] in *.
   exists (pack_resolved t' tc), (typed_const_to_value tc).
   assert (Hrec : resolve_expr_const u0 e0 = Some (pack_resolved t' tc)).
-  { unfold resolve_expr_const; rewrite Hci, Hrc; cbn [resolved_const_type]; rewrite Hua; reflexivity. }
+  { unfold GoTypes.resolve_expr_const; rewrite Hci, Hrc; cbn [resolved_const_type]; rewrite Hua; reflexivity. }
   unfold eval_expr; rewrite Hci, Hrc.
   split; [ exact Hrec | split; [ reflexivity |
     split; [ reflexivity |
@@ -327,10 +335,10 @@ Definition eval_decl (d : GoDecl) : list (list (option GoValue)) :=
 Definition eval_file (decls : list GoDecl) : list (list (option GoValue)) := flat_map eval_decl decls.
 
 (** ---- concrete evaluation fixtures ---- *)
-Example eval_int8_127  : eval_expr (EIntConvert IInt8 (EInt 127)) = Some (VInteger IInt8 127). Proof. reflexivity. Qed.
-Example eval_uint64_2p63 : eval_expr (EIntConvert IUint64 (EInt 9223372036854775808)) = Some (VInteger IUint64 9223372036854775808). Proof. reflexivity. Qed.
-Example eval_int8_int16_127 : eval_expr (EIntConvert IInt8 (EIntConvert IInt16 (EInt 127))) = Some (VInteger IInt8 127). Proof. reflexivity. Qed.
-Example eval_int8_over_none : eval_expr (EIntConvert IInt8 (EInt 128)) = None. Proof. reflexivity. Qed.
+Example eval_int8_127  : eval_expr (EConvert (GoAST.tsyn GoNames.TNint8) (EInt 127)) = Some (VInteger IInt8 127). Proof. reflexivity. Qed.
+Example eval_uint64_2p63 : eval_expr (EConvert (GoAST.tsyn GoNames.TNuint64) (EInt 9223372036854775808)) = Some (VInteger IUint64 9223372036854775808). Proof. reflexivity. Qed.
+Example eval_int8_int16_127 : eval_expr (EConvert (GoAST.tsyn GoNames.TNint8) (EConvert (GoAST.tsyn GoNames.TNint16) (EInt 127))) = Some (VInteger IInt8 127). Proof. reflexivity. Qed.
+Example eval_int8_over_none : eval_expr (EConvert (GoAST.tsyn GoNames.TNint8) (EInt 128)) = None. Proof. reflexivity. Qed.
 Example eval_bare_default : eval_expr (EInt 42) = Some (VInteger IInt 42). Proof. reflexivity. Qed.
 Example eval_2p63_none : eval_expr (EInt 9223372036854775808) = None. Proof. reflexivity. Qed.
 Example wf_int8_127 : ValueWF (VInteger IInt8 127). Proof. simpl; apply integer_representableb_spec; reflexivity. Qed.
@@ -339,40 +347,40 @@ Example wf_int8_127 : ValueWF (VInteger IInt8 127). Proof. simpl; apply integer_
 (* a bare float evaluates to a float64 runtime value; an exact float->int constant to that integer *)
 Example eval_float_type : option_map value_type (eval_expr (EFloat d_15em1)) = Some (TFloat F64).
 Proof. reflexivity. Qed.
-Example eval_int_of_3_0 : eval_expr (EIntConvert IInt (EFloat d_3)) = Some (VInteger IInt 3).
+Example eval_int_of_3_0 : eval_expr (EConvert (GoAST.tsyn GoNames.TNint) (EFloat d_3)) = Some (VInteger IInt 3).
 Proof. reflexivity. Qed.
 (* ★the direct-vs-nested double-round scar as an EXACT integer observation (no float printing): both
    rounded float32 constants are integer-valued, so uint64(...) yields exact decimal evidence. *)
 Example eval_scar_direct :
-  eval_expr (EIntConvert IUint64 (EFloatConvert F32 (EFloat d_scar))) = Some (VInteger IUint64 2305843284091600896).
+  eval_expr (EConvert (GoAST.tsyn GoNames.TNuint64) (EConvert (GoAST.tsyn GoNames.TNfloat32) (EFloat d_scar))) = Some (VInteger IUint64 2305843284091600896).
 Proof. reflexivity. Qed.
 Example eval_scar_nested :
-  eval_expr (EIntConvert IUint64 (EFloatConvert F32 (EFloatConvert F64 (EFloat d_scar))))
+  eval_expr (EConvert (GoAST.tsyn GoNames.TNuint64) (EConvert (GoAST.tsyn GoNames.TNfloat32) (EConvert (GoAST.tsyn GoNames.TNfloat64) (EFloat d_scar))))
     = Some (VInteger IUint64 2305843009213693952).
 Proof. reflexivity. Qed.
 Example eval_scar_differ :
-  eval_expr (EIntConvert IUint64 (EFloatConvert F32 (EFloat d_scar)))
-    <> eval_expr (EIntConvert IUint64 (EFloatConvert F32 (EFloatConvert F64 (EFloat d_scar)))).
+  eval_expr (EConvert (GoAST.tsyn GoNames.TNuint64) (EConvert (GoAST.tsyn GoNames.TNfloat32) (EFloat d_scar)))
+    <> eval_expr (EConvert (GoAST.tsyn GoNames.TNuint64) (EConvert (GoAST.tsyn GoNames.TNfloat32) (EConvert (GoAST.tsyn GoNames.TNfloat64) (EFloat d_scar)))).
 Proof. rewrite eval_scar_direct, eval_scar_nested; discriminate. Qed.
 (* the complex COMPONENT scar THROUGH EVALUATION: observing the stored real component of a zero-imaginary
    complex64 as uint64, the DIRECT F32 rounding differs from the NESTED complex128-then-complex64 double round.
    Evaluation PROJECTS the stored runtime component — no hidden reround — so the two stored runtimes differ. *)
 Example eval_cplx_scar_direct :
-  eval_expr (EIntConvert IUint64 (EComplexConvert C64 (EComplex (mkDC d_scar d_0_0))))
+  eval_expr (EConvert (GoAST.tsyn GoNames.TNuint64) (EConvert (GoAST.tsyn GoNames.TNcomplex64) (EComplex (mkDC d_scar d_0_0))))
     = Some (VInteger IUint64 2305843284091600896).
 Proof. vm_compute. reflexivity. Qed.
 Example eval_cplx_scar_nested :
-  eval_expr (EIntConvert IUint64 (EComplexConvert C64 (EComplexConvert C128 (EComplex (mkDC d_scar d_0_0)))))
+  eval_expr (EConvert (GoAST.tsyn GoNames.TNuint64) (EConvert (GoAST.tsyn GoNames.TNcomplex64) (EConvert (GoAST.tsyn GoNames.TNcomplex128) (EComplex (mkDC d_scar d_0_0)))))
     = Some (VInteger IUint64 2305843009213693952).
 Proof. vm_compute. reflexivity. Qed.
 Example eval_cplx_scar_differ :
-  eval_expr (EIntConvert IUint64 (EComplexConvert C64 (EComplex (mkDC d_scar d_0_0))))
-    <> eval_expr (EIntConvert IUint64 (EComplexConvert C64 (EComplexConvert C128 (EComplex (mkDC d_scar d_0_0))))).
+  eval_expr (EConvert (GoAST.tsyn GoNames.TNuint64) (EConvert (GoAST.tsyn GoNames.TNcomplex64) (EComplex (mkDC d_scar d_0_0))))
+    <> eval_expr (EConvert (GoAST.tsyn GoNames.TNuint64) (EConvert (GoAST.tsyn GoNames.TNcomplex64) (EConvert (GoAST.tsyn GoNames.TNcomplex128) (EComplex (mkDC d_scar d_0_0))))).
 Proof. rewrite eval_cplx_scar_direct, eval_cplx_scar_nested; discriminate. Qed.
 (* constant underflow produces POSITIVE zero at runtime (never -0) *)
 Example eval_underflow_pos_zero :
   option_map (fun v => match v with VFloat _ fv => fv_sf fv | _ => S754_nan end)
-             (eval_expr (EFloatConvert F64 (EFloat (mkDecimal 1 (-330) eq_refl))))
+             (eval_expr (EConvert (GoAST.tsyn GoNames.TNfloat64) (EFloat (mkDecimal 1 (-330) eq_refl))))
     = Some (S754_zero false).
 Proof. vm_compute. reflexivity. Qed.
 (* ★a bare NEGATIVE underflow also produces +0 (never -0) — the constant zero has no sign. *)

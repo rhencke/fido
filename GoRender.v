@@ -32,6 +32,15 @@ From Fido Require Import digits Ints Floats Complexes ModulePath GoVersion GoAST
 Import ListNotations.
 Open Scope string_scope.
 
+(** The render/constant-status denotation is stated at the ONE compiler-owned resolver
+    ([GoCompile.predeclared_type], §7); these parsing notations specialize the [GoTypes] index-free spec at
+    that resolver.  Rendering itself reads the SOURCE spelling and needs no resolver (§11); only the
+    denotation lemmas relate the rendered bytes to the analyzed [const_info]. *)
+Local Notation const_info        := (GoTypes.const_info GoCompile.predeclared_type) (only parsing).
+Local Notation resolve_expr_const := (GoTypes.resolve_expr_const GoCompile.predeclared_type) (only parsing).
+Local Notation resolve_expr      := (GoTypes.resolve_expr GoCompile.predeclared_type) (only parsing).
+Local Notation ResolveExpr       := (GoTypes.ResolveExpr GoCompile.predeclared_type) (only parsing).
+
 Definition nl_c : ascii := ascii_of_nat 10.
 Definition tab_c : ascii := ascii_of_nat 9.
 Definition nl : string := String nl_c EmptyString.
@@ -105,6 +114,28 @@ Definition render_decimal (d : DecimalFloat) : string :=
 Definition render_complex_literal (dc : DecimalComplex) : string :=
   "complex(" ++ render_decimal (dc_real dc) ++ ", " ++ render_decimal (dc_imag dc) ++ ")".
 
+(** the SOURCE spelling of a conversion's type name: the retained source identifier (§11 — read the source
+    identifier, NOT the resolved [GoType]).  [byte] and [rune] render their own names, distinct from
+    [uint8]/[int32]. *)
+Definition render_type_syntax (ts : GoAST.TypeSyntax) : string :=
+  GoNames.render_stn (GoAST.ts_stn ts).
+
+(** the source spelling of a conversion type name IS the closed-class spelling of its resolved symbol — the
+    retained source identifier's text equals [tn_spelling (ts_name ts)] (the one spelling authority). *)
+Lemma render_type_syntax_spelling : forall ts,
+  render_type_syntax ts = GoNames.tn_spelling (GoAST.ts_name ts).
+Proof. intro ts; unfold render_type_syntax, GoNames.render_stn, GoAST.ts_name; apply GoNames.stn_render. Qed.
+
+(** the source spelling determines the source type syntax: distinct conversion type names render distinct
+    identifiers (so [byte(x)] and [uint8(x)] are distinct renderings even though they resolve equally). *)
+Lemma render_type_syntax_inj : forall ts1 ts2,
+  render_type_syntax ts1 = render_type_syntax ts2 -> ts1 = ts2.
+Proof.
+  intros [[s1]] [[s2]] H.
+  unfold render_type_syntax, GoAST.ts_stn, GoNames.render_stn, GoNames.render_identifier in H; cbn in H.
+  f_equal; f_equal; apply GoNames.stn_eq, GoNames.ident_eq; exact H.
+Qed.
+
 Fixpoint render_expr (e : GoExpr) : string :=
   match e with
   | EBool true  => "true"
@@ -112,11 +143,9 @@ Fixpoint render_expr (e : GoExpr) : string :=
   | EInt n => print_Z (Z.of_N n)
   | ENeg n => String "-"%char (print_Z (Z.of_N n))
   | EString s => render_string_literal s
-  | EIntConvert it e' => integer_keyword it ++ "(" ++ render_expr e' ++ ")"
   | EFloat d => render_decimal d
-  | EFloatConvert ft e' => float_keyword ft ++ "(" ++ render_expr e' ++ ")"
   | EComplex dc => render_complex_literal dc
-  | EComplexConvert ct e' => complex_keyword ct ++ "(" ++ render_expr e' ++ ")"
+  | EConvert ts e' => render_type_syntax ts ++ "(" ++ render_expr e' ++ ")"
   end.
 
 Fixpoint render_args (es : list GoExpr) : string :=
@@ -207,6 +236,11 @@ Lemma str_ascii_app : forall a b, str_ascii (a ++ b) = str_ascii a && str_ascii 
 Proof.
   induction a as [ | c a' IH ]; intro b; simpl; [ reflexivity | rewrite IH, andb_assoc; reflexivity ].
 Qed.
+
+(** the rendered source type name is ASCII: each of the sixteen closed-class spellings is a concrete ASCII
+    identifier (read from the retained source identifier). *)
+Lemma render_type_syntax_ascii : forall ts, str_ascii (render_type_syntax ts) = true.
+Proof. intro ts; rewrite render_type_syntax_spelling; destruct (GoAST.ts_name ts); reflexivity. Qed.
 
 Lemma str_ascii_cons : forall c s, str_ascii (String c s) = is_ascii c && str_ascii s.
 Proof. reflexivity. Qed.
@@ -327,17 +361,15 @@ Qed.
 
 Lemma render_expr_ascii : forall e, str_ascii (render_expr e) = true.
 Proof.
-  induction e as [ [] | n | n | s | it e' IHe' | d | ft e' IHe' | dc | ct e' IHe' ]; cbn [render_expr].
+  induction e as [ [] | n | n | s | d | dc | ts e' IHe' ]; cbn [render_expr].
   - reflexivity.
   - reflexivity.
   - apply print_Z_ascii.
   - cbn [str_ascii]. rewrite print_Z_ascii. reflexivity.
   - apply render_string_literal_ascii.
-  - rewrite !str_ascii_app, integer_keyword_ascii, IHe'; reflexivity.
   - apply render_decimal_ascii.
-  - rewrite !str_ascii_app, float_keyword_ascii, IHe'; reflexivity.
   - apply render_complex_literal_ascii.
-  - rewrite !str_ascii_app, complex_keyword_ascii, IHe'; reflexivity.
+  - rewrite !str_ascii_app, render_type_syntax_ascii, IHe'; reflexivity.
 Qed.
 
 Lemma render_args_ascii : forall es, str_ascii (render_args es) = true.
@@ -1118,27 +1150,20 @@ Inductive RenderedConstInfoDenotes : string -> ConstInfo -> Prop :=
 | RCDString : forall s bytes,
     decode_string_literal s = Some bytes ->
     RenderedConstInfoDenotes s (CIUntyped (CString bytes))
-| RCDIntConvert : forall target inner ci (tc : TypedConst (TInteger target)),
-    RenderedConstInfoDenotes inner ci ->
-    convert_const (TInteger target) ci = Some tc ->
-    RenderedConstInfoDenotes (integer_keyword target ++ "(" ++ inner ++ ")")
-                             (CITyped (TInteger target) tc)
 | RCDFloat : forall s q,
     decode_decimal s = Some q ->
     RenderedConstInfoDenotes s (CIUntyped (CFloat q))
-| RCDFloatConvert : forall target inner ci (tc : TypedConst (TFloat target)),
-    RenderedConstInfoDenotes inner ci ->
-    convert_const (TFloat target) ci = Some tc ->
-    RenderedConstInfoDenotes (float_keyword target ++ "(" ++ inner ++ ")")
-                             (CITyped (TFloat target) tc)
 | RCDComplex : forall s c,
     decode_complex_literal s = Some c ->
     RenderedConstInfoDenotes s (CIUntyped (CComplex c))
-| RCDComplexConvert : forall target inner ci (tc : TypedConst (TComplex target)),
+(** ONE conversion constructor over the SOURCE type name: its rendered spelling is the source identifier
+    [render_type_syntax ts] and its semantic target is the compiler-owned resolution [predeclared_type ts]
+    (§7).  [byte]/[uint8] and [rune]/[int32] render distinct spellings but resolve to equal semantic types. *)
+| RCDConvert : forall ts inner ci (tc : TypedConst (GoCompile.predeclared_type ts)),
     RenderedConstInfoDenotes inner ci ->
-    convert_const (TComplex target) ci = Some tc ->
-    RenderedConstInfoDenotes (complex_keyword target ++ "(" ++ inner ++ ")")
-                             (CITyped (TComplex target) tc).
+    convert_const (GoCompile.predeclared_type ts) ci = Some tc ->
+    RenderedConstInfoDenotes (render_type_syntax ts ++ "(" ++ inner ++ ")")
+                             (CITyped (GoCompile.predeclared_type ts) tc).
 
 (** print_Z of a nonnegative is nonempty and its first character is a decimal digit, not '-'. *)
 Lemma print_Z_pos_head_not_minus : forall p,
@@ -1184,41 +1209,16 @@ Qed.
 (** [const_info] of a conversion, when it succeeds, extracts the inner constant-status [ci'], its exact
     integer value [z], the destination representability, and the outer TYPED shape — without touching the
     caller's induction hypothesis (a separate lemma so [const_info e'] is not abstracted in the IH). *)
-Lemma const_info_convert_inner : forall it e ci,
-  const_info (EIntConvert it e) = Some ci ->
-  exists ci' (tc : TypedConst (TInteger it)), const_info e = Some ci'
-             /\ convert_const (TInteger it) ci' = Some tc
-             /\ ci = CITyped (TInteger it) tc.
+Lemma const_info_convert_inner : forall ts e ci,
+  const_info (EConvert ts e) = Some ci ->
+  exists ci' (tc : TypedConst (GoCompile.predeclared_type ts)), const_info e = Some ci'
+             /\ convert_const (GoCompile.predeclared_type ts) ci' = Some tc
+             /\ ci = CITyped (GoCompile.predeclared_type ts) tc.
 Proof.
-  intros it e ci H; cbn [const_info] in H.
+  intros ts e ci H; cbn [GoTypes.const_info] in H.
   destruct (const_info e) as [ci'|] eqn:Hce'; [| discriminate].
-  destruct (convert_const (TInteger it) ci') as [tc|] eqn:Hconv; cbn [option_map] in H; [| discriminate].
-  injection H as <-.
-  exists ci', tc. split; [ reflexivity | split; [ exact Hconv | reflexivity ] ].
-Qed.
-
-Lemma const_info_float_convert_inner : forall ft e ci,
-  const_info (EFloatConvert ft e) = Some ci ->
-  exists ci' (tc : TypedConst (TFloat ft)), const_info e = Some ci'
-             /\ convert_const (TFloat ft) ci' = Some tc
-             /\ ci = CITyped (TFloat ft) tc.
-Proof.
-  intros ft e ci H; cbn [const_info] in H.
-  destruct (const_info e) as [ci'|] eqn:Hce'; [| discriminate].
-  destruct (convert_const (TFloat ft) ci') as [tc|] eqn:Hconv; cbn [option_map] in H; [| discriminate].
-  injection H as <-.
-  exists ci', tc. split; [ reflexivity | split; [ exact Hconv | reflexivity ] ].
-Qed.
-
-Lemma const_info_complex_convert_inner : forall ct e ci,
-  const_info (EComplexConvert ct e) = Some ci ->
-  exists ci' (tc : TypedConst (TComplex ct)), const_info e = Some ci'
-             /\ convert_const (TComplex ct) ci' = Some tc
-             /\ ci = CITyped (TComplex ct) tc.
-Proof.
-  intros ct e ci H; cbn [const_info] in H.
-  destruct (const_info e) as [ci'|] eqn:Hce'; [| discriminate].
-  destruct (convert_const (TComplex ct) ci') as [tc|] eqn:Hconv; cbn [option_map] in H; [| discriminate].
+  destruct (convert_const (GoCompile.predeclared_type ts) ci') as [tc|] eqn:Hconv;
+    cbn [option_map] in H; [| discriminate].
   injection H as <-.
   exists ci', tc. split; [ reflexivity | split; [ exact Hconv | reflexivity ] ].
 Qed.
@@ -1231,19 +1231,15 @@ Qed.
 Theorem render_const_info_denotes : forall e ci,
   const_info e = Some ci -> RenderedConstInfoDenotes (render_expr e) ci.
 Proof.
-  induction e as [ b | n | n | s | it' e' IHe' | d | ft e' IHe' | dc | ct e' IHe' ]; intros ci H.
+  induction e as [ b | n | n | s | d | dc | ts e' IHe' ]; intros ci H.
   - simpl in H; injection H as <-; cbn [render_expr]; destruct b; [ exact (RCDBool true) | exact (RCDBool false) ].
   - simpl in H; injection H as <-; cbn [render_expr]; apply RCDInt; [ apply go_int_lit_EInt | apply read_go_int_EInt ].
   - simpl in H; injection H as <-; cbn [render_expr]; apply RCDInt; [ apply go_int_lit_ENeg | apply read_go_int_ENeg ].
   - simpl in H; injection H as <-; cbn [render_expr]; apply RCDString, render_string_roundtrip.
-  - destruct (const_info_convert_inner it' e' ci H) as [ ci' [ tc [ Hce' [ Hconv -> ] ] ] ].
-    cbn [render_expr]. apply RCDIntConvert with (ci := ci'); [ apply IHe'; exact Hce' | exact Hconv ].
-  - cbn [const_info] in H; injection H as <-; cbn [render_expr]. apply RCDFloat, decode_render_decimal.
-  - destruct (const_info_float_convert_inner ft e' ci H) as [ ci' [ tc [ Hce' [ Hconv -> ] ] ] ].
-    cbn [render_expr]. apply RCDFloatConvert with (ci := ci'); [ apply IHe'; exact Hce' | exact Hconv ].
-  - cbn [const_info] in H; injection H as <-; cbn [render_expr]. apply RCDComplex, decode_render_complex_literal.
-  - destruct (const_info_complex_convert_inner ct e' ci H) as [ ci' [ tc [ Hce' [ Hconv -> ] ] ] ].
-    cbn [render_expr]. apply RCDComplexConvert with (ci := ci'); [ apply IHe'; exact Hce' | exact Hconv ].
+  - cbn [GoTypes.const_info] in H; injection H as <-; cbn [render_expr]. apply RCDFloat, decode_render_decimal.
+  - cbn [GoTypes.const_info] in H; injection H as <-; cbn [render_expr]. apply RCDComplex, decode_render_complex_literal.
+  - destruct (const_info_convert_inner ts e' ci H) as [ ci' [ tc [ Hce' [ Hconv -> ] ] ] ].
+    cbn [render_expr]. apply RCDConvert with (ci := ci'); [ apply IHe'; exact Hce' | exact Hconv ].
 Qed.
 
 (** ---- DETERMINISM foundation: the leaf recognisers of [RenderedConstInfoDenotes] are pairwise disjoint,
@@ -1422,12 +1418,50 @@ Proof. reflexivity. Qed.
 Lemma head_c_decode_decimal_none : forall rest, decode_decimal (String "c"%char rest) = None.
 Proof. intro rest; apply decode_decimal_nonnumeric_head; reflexivity. Qed.
 
+(** ---- SOURCE-NAME conversion-spelling disjointness (§11): the ONE conversion spelling
+    [render_type_syntax ts ++ "(" ...] — a closed-class type name followed by `(` — determines its resolved
+    target and body uniquely, and is disjoint from every bare-literal recogniser (its lead byte is a letter,
+    never a digit/sign/quote, and a `complex64(`/`complex128(` diverges from the `complex(` literal). ---- *)
+
+(** the conversion spelling determines its RESOLVED target and body: the type name is `(`-free, so the
+    leading `(` splits it uniquely, and equal spellings resolve to equal semantic targets (the sixteen source
+    spellings are pairwise distinct, so [byte]/[uint8] never coincide). *)
+Lemma conv_spelling_paren_inj : forall ts1 ts2 r1 r2,
+  (render_type_syntax ts1 ++ String "("%char r1)%string = (render_type_syntax ts2 ++ String "("%char r2)%string ->
+  ts1 = ts2 /\ r1 = r2.
+Proof.
+  intros ts1 ts2 r1 r2 H. rewrite !render_type_syntax_spelling in H.
+  destruct (GoAST.ts_name ts1) eqn:E1, (GoAST.ts_name ts2) eqn:E2; cbn in H;
+    solve [ discriminate H
+          | injection H; intros; subst;
+            split; [ apply render_type_syntax_inj; rewrite !render_type_syntax_spelling, E1, E2; reflexivity
+                   | reflexivity ] ].
+Qed.
+
+(** a conversion spelling is not a bare integer / decimal / string / complex literal (lead byte is a letter). *)
+Lemma conv_spelling_go_int_lit_false : forall ts X,
+  go_int_lit (render_type_syntax ts ++ "(" ++ X) = false.
+Proof. intros ts X; rewrite render_type_syntax_spelling; destruct (GoAST.ts_name ts); reflexivity. Qed.
+Lemma conv_spelling_decode_string_none : forall ts X,
+  decode_string_literal (render_type_syntax ts ++ "(" ++ X) = None.
+Proof. intros ts X; rewrite render_type_syntax_spelling; destruct (GoAST.ts_name ts); reflexivity. Qed.
+Lemma conv_spelling_decode_complex_none : forall ts X,
+  decode_complex_literal (render_type_syntax ts ++ "(" ++ X) = None.
+Proof. intros ts X; rewrite render_type_syntax_spelling; destruct (GoAST.ts_name ts); reflexivity. Qed.
+Lemma conv_spelling_decode_decimal_none : forall ts X,
+  decode_decimal (render_type_syntax ts ++ "(" ++ X) = None.
+Proof.
+  intros ts X; rewrite render_type_syntax_spelling; destruct (GoAST.ts_name ts);
+    cbn [GoNames.tn_spelling append]; apply decode_decimal_nonnumeric_head; reflexivity.
+Qed.
+
 (** ★DETERMINISM: a rendered spelling denotes AT MOST ONE [ConstInfo] — the rendered-constant denotation
     is FUNCTIONAL, so it never assigns a spelling two conflicting constant statuses.  This is NOT a bijection:
-    distinct spellings may denote the same exact value (e.g. `0` and `-0`).  The proved facts are exactly (a)
-    every Fido-rendered expression HAS a denotation ([render_const_info_denotes]) and (b) for a fixed source
-    spelling the denotation relation yields AT MOST ONE [ConstInfo] (this lemma) — the recognisers for bool,
-    bare integer, string, integer conversion, bare float, and float conversion being pairwise disjoint. *)
+    distinct spellings may denote the same exact value (e.g. `0` and `-0`; or `byte(x)` and `uint8(x)`,
+    distinct spellings resolving to the same semantic target).  The proved facts are exactly (a) every
+    Fido-rendered expression HAS a denotation ([render_const_info_denotes]) and (b) for a fixed source spelling
+    the denotation relation yields AT MOST ONE [ConstInfo] (this lemma) — the recognisers for bool, bare
+    integer, string, bare float, complex literal, and source-named conversion being pairwise disjoint. *)
 Theorem render_const_info_denotes_functional : forall s ci1 ci2,
   RenderedConstInfoDenotes s ci1 -> RenderedConstInfoDenotes s ci2 -> ci1 = ci2.
 Proof.
@@ -1435,42 +1469,38 @@ Proof.
     [ b
     | s z Hint Hread
     | s bytes Hstr
-    | ti inner ci tc Hinner IH Hconv
     | s q Hdec
-    | tf inner ci tc Hinner IH Hconv
     | s c Hdc
-    | tcc inner ci tc Hinner IH Hconv ]; intros ci2 H2.
+    | ts inner ci tc Hinner IH Hconv ]; intros ci2 H2.
   - (* H1 = RCDBool : the spelling is the concrete "true"/"false" *)
     destruct b; inversion H2 as
       [ b0 Hs0 | s0 z0 Hint0 Hread0 Hs0 | s0 by0 Hstr0 Hs0
-      | t0 in0 cc0 tc0 Hin0 Hcv0 Hs0 | s0 q0 Hdec0 Hs0 | t0 in0 cc0 tc0 Hin0 Hcv0 Hs0
-      | s0 c0 Hdc0 Hs0 | t0 in0 cc0 tc0 Hin0 Hcv0 Hs0 ]; subst;
+      | s0 q0 Hdec0 Hs0 | s0 c0 Hdc0 Hs0 | ts0 in0 cc0 tc0 Hin0 Hcv0 Hs0 ]; subst;
       solve
         [ destruct b0; cbn in *; congruence
         | vm_compute in Hint0; discriminate Hint0
         | vm_compute in Hstr0; discriminate Hstr0
         | vm_compute in Hdec0; discriminate Hdec0
         | vm_compute in Hdc0; discriminate Hdc0
-        | destruct t0; cbn in Hs0; discriminate Hs0 ].
+        | rewrite render_type_syntax_spelling in Hs0; destruct (GoAST.ts_name ts0);
+            cbn in Hs0; discriminate Hs0 ].
   - (* H1 = RCDInt : subst eliminates the string var into the outer [Hint] *)
     inversion H2 as
       [ b0 Hs0 | s0 z0 Hint0 Hread0 Hs0 | s0 by0 Hstr0 Hs0
-      | t0 in0 cc0 tc0 Hin0 Hcv0 Hs0 | s0 q0 Hdec0 Hs0 | t0 in0 cc0 tc0 Hin0 Hcv0 Hs0
-      | s0 c0 Hdc0 Hs0 | t0 in0 cc0 tc0 Hin0 Hcv0 Hs0 ]; subst;
+      | s0 q0 Hdec0 Hs0 | s0 c0 Hdc0 Hs0 | ts0 in0 cc0 tc0 Hin0 Hcv0 Hs0 ]; subst;
       solve
         [ destruct b0; vm_compute in Hint; discriminate Hint
         | congruence
         | destruct (decode_string_literal_head _ _ Hstr0) as [rest Hrs];
             rewrite Hrs in Hint; vm_compute in Hint; discriminate Hint
-        | destruct t0; vm_compute in Hint; discriminate Hint
         | rewrite (go_int_lit_decode_decimal_None _ Hint) in Hdec0; discriminate Hdec0
         | destruct (decode_complex_literal_head_c _ _ Hdc0) as [rest Hrs];
-            rewrite Hrs in Hint; rewrite head_c_go_int_lit_false in Hint; discriminate Hint ].
+            rewrite Hrs in Hint; rewrite head_c_go_int_lit_false in Hint; discriminate Hint
+        | rewrite conv_spelling_go_int_lit_false in Hint; discriminate Hint ].
   - (* H1 = RCDString *)
     inversion H2 as
       [ b0 Hs0 | s0 z0 Hint0 Hread0 Hs0 | s0 by0 Hstr0 Hs0
-      | t0 in0 cc0 tc0 Hin0 Hcv0 Hs0 | s0 q0 Hdec0 Hs0 | t0 in0 cc0 tc0 Hin0 Hcv0 Hs0
-      | s0 c0 Hdc0 Hs0 | t0 in0 cc0 tc0 Hin0 Hcv0 Hs0 ]; subst;
+      | s0 q0 Hdec0 Hs0 | s0 c0 Hdc0 Hs0 | ts0 in0 cc0 tc0 Hin0 Hcv0 Hs0 ]; subst;
       solve
         [ destruct b0; vm_compute in Hstr; discriminate Hstr
         | congruence
@@ -1478,62 +1508,27 @@ Proof.
             rewrite Hrs in Hint0; vm_compute in Hint0; discriminate Hint0
         | destruct (decode_string_literal_head _ _ Hstr) as [rest Hrs];
             rewrite Hrs in Hdec0; rewrite decode_decimal_dquote in Hdec0; discriminate Hdec0
-        | destruct t0; vm_compute in Hstr; discriminate Hstr
         | destruct (decode_string_literal_head _ _ Hstr) as [rest Hrs];
             rewrite Hrs in Hdc0; rewrite (decode_complex_literal_not_c dquote_c rest ltac:(reflexivity)) in Hdc0;
-            discriminate Hdc0 ].
-  - (* H1 = RCDIntConvert : the compound spelling survives subst as [Hs0]; the diagonal proves tc = tc0 by
-       [convert_const] being a function *)
-    inversion H2 as
-      [ b0 Hs0 | s0 z0 Hint0 Hread0 Hs0 | s0 by0 Hstr0 Hs0
-      | t0 in0 cc0 tc0 Hin0 Hcv0 Hs0 | s0 q0 Hdec0 Hs0 | t0 in0 cc0 tc0 Hin0 Hcv0 Hs0
-      | s0 c0 Hdc0 Hs0 | t0 in0 cc0 tc0 Hin0 Hcv0 Hs0 ]; subst.
-    + destruct b0; destruct ti; cbn in Hs0; discriminate Hs0.
-    + destruct ti; vm_compute in Hint0; discriminate Hint0.
-    + destruct ti; vm_compute in Hstr0; discriminate Hstr0.
-    + destruct (int_kw_paren_inj t0 ti (in0 ++ ")") (inner ++ ")") Hs0) as [-> Htl];
-        apply str_snoc_inj in Htl; subst in0;
-        specialize (IH cc0 Hin0); subst cc0;
-        assert (Heq : tc = tc0) by congruence; rewrite Heq; reflexivity.
-    + destruct ti; vm_compute in Hdec0; discriminate Hdec0.
-    + exfalso; apply (int_float_kw_paren_disjoint ti t0 (inner ++ ")") (in0 ++ ")")); symmetry; exact Hs0.
-    + destruct ti; vm_compute in Hdc0; discriminate Hdc0.
-    + exfalso; apply (int_complex_kw_paren_disjoint ti t0 (inner ++ ")") (in0 ++ ")")); symmetry; exact Hs0.
+            discriminate Hdc0
+        | rewrite conv_spelling_decode_string_none in Hstr; discriminate Hstr ].
   - (* H1 = RCDFloat *)
     inversion H2 as
       [ b0 Hs0 | s0 z0 Hint0 Hread0 Hs0 | s0 by0 Hstr0 Hs0
-      | t0 in0 cc0 tc0 Hin0 Hcv0 Hs0 | s0 q0 Hdec0 Hs0 | t0 in0 cc0 tc0 Hin0 Hcv0 Hs0
-      | s0 c0 Hdc0 Hs0 | t0 in0 cc0 tc0 Hin0 Hcv0 Hs0 ]; subst;
+      | s0 q0 Hdec0 Hs0 | s0 c0 Hdc0 Hs0 | ts0 in0 cc0 tc0 Hin0 Hcv0 Hs0 ]; subst;
       solve
         [ destruct b0; vm_compute in Hdec; discriminate Hdec
         | rewrite (go_int_lit_decode_decimal_None _ Hint0) in Hdec; discriminate Hdec
         | destruct (decode_string_literal_head _ _ Hstr0) as [rest Hrs];
             rewrite Hrs in Hdec; rewrite decode_decimal_dquote in Hdec; discriminate Hdec
-        | destruct t0; vm_compute in Hdec; discriminate Hdec
         | congruence
         | destruct (decode_complex_literal_head_c _ _ Hdc0) as [rest Hrs];
-            rewrite Hrs in Hdec; rewrite head_c_decode_decimal_none in Hdec; discriminate Hdec ].
-  - (* H1 = RCDFloatConvert *)
-    inversion H2 as
-      [ b0 Hs0 | s0 z0 Hint0 Hread0 Hs0 | s0 by0 Hstr0 Hs0
-      | t0 in0 cc0 tc0 Hin0 Hcv0 Hs0 | s0 q0 Hdec0 Hs0 | t0 in0 cc0 tc0 Hin0 Hcv0 Hs0
-      | s0 c0 Hdc0 Hs0 | t0 in0 cc0 tc0 Hin0 Hcv0 Hs0 ]; subst.
-    + destruct b0; destruct tf; cbn in Hs0; discriminate Hs0.
-    + destruct tf; vm_compute in Hint0; discriminate Hint0.
-    + destruct tf; vm_compute in Hstr0; discriminate Hstr0.
-    + exfalso; apply (int_float_kw_paren_disjoint t0 tf (in0 ++ ")") (inner ++ ")")); exact Hs0.
-    + destruct tf; vm_compute in Hdec0; discriminate Hdec0.
-    + destruct (float_kw_paren_inj t0 tf (in0 ++ ")") (inner ++ ")") Hs0) as [-> Htl];
-        apply str_snoc_inj in Htl; subst in0;
-        specialize (IH cc0 Hin0); subst cc0;
-        assert (Heq : tc = tc0) by congruence; rewrite Heq; reflexivity.
-    + destruct tf; vm_compute in Hdc0; discriminate Hdc0.
-    + exfalso; apply (float_complex_kw_paren_disjoint tf t0 (inner ++ ")") (in0 ++ ")")); symmetry; exact Hs0.
+            rewrite Hrs in Hdec; rewrite head_c_decode_decimal_none in Hdec; discriminate Hdec
+        | rewrite conv_spelling_decode_decimal_none in Hdec; discriminate Hdec ].
   - (* H1 = RCDComplex : the leaf complex-literal spelling *)
     inversion H2 as
       [ b0 Hs0 | s0 z0 Hint0 Hread0 Hs0 | s0 by0 Hstr0 Hs0
-      | t0 in0 cc0 tc0 Hin0 Hcv0 Hs0 | s0 q0 Hdec0 Hs0 | t0 in0 cc0 tc0 Hin0 Hcv0 Hs0
-      | s0 c0 Hdc0 Hs0 | t0 in0 cc0 tc0 Hin0 Hcv0 Hs0 ]; subst;
+      | s0 q0 Hdec0 Hs0 | s0 c0 Hdc0 Hs0 | ts0 in0 cc0 tc0 Hin0 Hcv0 Hs0 ]; subst;
       solve
         [ destruct b0; vm_compute in Hdc; discriminate Hdc
         | destruct (decode_complex_literal_head_c _ _ Hdc) as [rest Hrs];
@@ -1541,24 +1536,23 @@ Proof.
         | destruct (decode_string_literal_head _ _ Hstr0) as [rest Hrs];
             rewrite Hrs in Hdc; rewrite (decode_complex_literal_not_c dquote_c rest ltac:(reflexivity)) in Hdc;
             discriminate Hdc
-        | destruct t0; vm_compute in Hdc; discriminate Hdc
         | destruct (decode_complex_literal_head_c _ _ Hdc) as [rest Hrs];
             rewrite Hrs in Hdec0; rewrite head_c_decode_decimal_none in Hdec0; discriminate Hdec0
-        | congruence ].
-  - (* H1 = RCDComplexConvert : the compound complex-conversion spelling; the diagonal proves tc = tc0 *)
+        | congruence
+        | rewrite conv_spelling_decode_complex_none in Hdc; discriminate Hdc ].
+  - (* H1 = RCDConvert : the ONE source-named conversion spelling; the diagonal proves [ts]/[inner] equal
+       ([conv_spelling_paren_inj]) then [tc = tc0] by [convert_const] being a function *)
     inversion H2 as
       [ b0 Hs0 | s0 z0 Hint0 Hread0 Hs0 | s0 by0 Hstr0 Hs0
-      | t0 in0 cc0 tc0 Hin0 Hcv0 Hs0 | s0 q0 Hdec0 Hs0 | t0 in0 cc0 tc0 Hin0 Hcv0 Hs0
-      | s0 c0 Hdc0 Hs0 | t0 in0 cc0 tc0 Hin0 Hcv0 Hs0 ]; subst.
-    + destruct b0; destruct tcc; cbn in Hs0; discriminate Hs0.
-    + destruct tcc; vm_compute in Hint0; discriminate Hint0.
-    + destruct tcc; vm_compute in Hstr0; discriminate Hstr0.
-    + exfalso; apply (int_complex_kw_paren_disjoint t0 tcc (in0 ++ ")") (inner ++ ")")); exact Hs0.
-    + destruct tcc; vm_compute in Hdec0; discriminate Hdec0.
-    + exfalso; apply (float_complex_kw_paren_disjoint t0 tcc (in0 ++ ")") (inner ++ ")")); exact Hs0.
-    + destruct tcc; cbn in Hdc0; discriminate Hdc0.
-    + destruct (complex_kw_paren_inj t0 tcc (in0 ++ ")") (inner ++ ")") Hs0) as [-> Htl];
-        apply str_snoc_inj in Htl; subst in0;
+      | s0 q0 Hdec0 Hs0 | s0 c0 Hdc0 Hs0 | ts0 in0 cc0 tc0 Hin0 Hcv0 Hs0 ]; subst.
+    + destruct b0; rewrite render_type_syntax_spelling in Hs0; destruct (GoAST.ts_name ts);
+        cbn in Hs0; discriminate Hs0.
+    + rewrite conv_spelling_go_int_lit_false in Hint0; discriminate Hint0.
+    + rewrite conv_spelling_decode_string_none in Hstr0; discriminate Hstr0.
+    + rewrite conv_spelling_decode_decimal_none in Hdec0; discriminate Hdec0.
+    + rewrite conv_spelling_decode_complex_none in Hdc0; discriminate Hdc0.
+    + destruct (conv_spelling_paren_inj ts0 ts (in0 ++ ")") (inner ++ ")") Hs0) as [Hts Htl];
+        subst ts0; apply str_snoc_inj in Htl; subst in0;
         specialize (IH cc0 Hin0); subst cc0;
         assert (Heq : tc = tc0) by congruence; rewrite Heq; reflexivity.
 Qed.
@@ -1584,9 +1578,9 @@ Proof.
   intros e t H.
   destruct (eval_expr_denotes UsePrintlnArg e t H)
     as [ rc [ v [ Hrec [ Hev [ Hveq [ Hvt [ Hwf Hden ] ] ] ] ] ] ].
-  destruct (resolve_expr_const_sound UsePrintlnArg e rc Hrec) as [ ci [ Hci [ Hri Hua ] ] ].
+  destruct (resolve_expr_const_sound GoCompile.predeclared_type UsePrintlnArg e rc Hrec) as [ ci [ Hci [ Hri Hua ] ] ].
   assert (Hteq : resolved_const_type rc = t).
-  { apply resolve_expr_complete in H; unfold resolve_expr in H; rewrite Hrec in H;
+  { apply resolve_expr_complete in H; unfold GoTypes.resolve_expr in H; rewrite Hrec in H;
     cbn [option_map] in H; injection H as H'; exact H'. }
   exists ci, rc, v; subst t.
   split; [ exact Hci | ].
@@ -1623,9 +1617,9 @@ Example kw_uint8  : integer_keyword IUint8  = "uint8".  Proof. reflexivity. Qed.
 Example kw_uint16 : integer_keyword IUint16 = "uint16". Proof. reflexivity. Qed.
 Example kw_uint32 : integer_keyword IUint32 = "uint32". Proof. reflexivity. Qed.
 Example kw_uint64 : integer_keyword IUint64 = "uint64". Proof. reflexivity. Qed.
-Example render_int8_127 : render_expr (EIntConvert IInt8 (EInt 127)) = "int8(127)". Proof. reflexivity. Qed.
-Example render_uint64_big : render_expr (EIntConvert IUint64 (EInt 18446744073709551615)) = "uint64(18446744073709551615)". Proof. reflexivity. Qed.
-Example render_nested : render_expr (EIntConvert IInt8 (EIntConvert IInt16 (EInt 127))) = "int8(int16(127))". Proof. reflexivity. Qed.
+Example render_int8_127 : render_expr (EConvert (GoAST.tsyn GoNames.TNint8) (EInt 127)) = "int8(127)". Proof. reflexivity. Qed.
+Example render_uint64_big : render_expr (EConvert (GoAST.tsyn GoNames.TNuint64) (EInt 18446744073709551615)) = "uint64(18446744073709551615)". Proof. reflexivity. Qed.
+Example render_nested : render_expr (EConvert (GoAST.tsyn GoNames.TNint8) (EConvert (GoAST.tsyn GoNames.TNint16) (EInt 127))) = "int8(int16(127))". Proof. reflexivity. Qed.
 
 (** ---- string denotation surfaces: a rendered string literal denotes its exact untyped byte-constant; a
     RESOLVED string argument is the string instance of the two roots. ---- *)
@@ -1660,31 +1654,32 @@ Proof. apply render_const_info_denotes; reflexivity. Qed.
 Lemma rcd_typed_starts_letter : forall s t (tc : TypedConst t),
   RenderedConstInfoDenotes s (CITyped t tc) ->
   exists rest, s = String "i"%char rest \/ s = String "u"%char rest
-            \/ s = String "f"%char rest \/ s = String "c"%char rest.
+            \/ s = String "f"%char rest \/ s = String "c"%char rest
+            \/ s = String "b"%char rest \/ s = String "r"%char rest.
 Proof.
   intros s t tc H;
-    inversion H as [ | | | target inner ci tc0 Hinner Hconv Hs Hci
-                    | | target inner ci tc0 Hinner Hconv Hs Hci
-                    | | target inner ci tc0 Hinner Hconv Hs Hci ]; subst.
-  - destruct target; cbn; eexists; ((left; reflexivity) || (right; left; reflexivity)).
-  - destruct target; cbn; eexists; right; right; left; reflexivity.
-  - destruct target; cbn; eexists; right; right; right; reflexivity.
+    inversion H as [ b Hb | s0 z0 Hi0 Hr0 Hs0 | s0 by0 Hst0 Hs0
+                   | s0 q0 Hd0 Hs0 | s0 c0 Hdc0 Hs0 | ts0 inner0 ci0 tc0 Hin0 Hcv0 Hs0 ]; subst.
+  rewrite render_type_syntax_spelling; destruct (GoAST.ts_name ts0); cbn; eexists;
+    first [ left; reflexivity | right; left; reflexivity | right; right; left; reflexivity
+          | right; right; right; left; reflexivity | right; right; right; right; left; reflexivity
+          | right; right; right; right; right; reflexivity ].
 Qed.
 
 Example repair_bare_not_typed : forall t (tc : TypedConst t),
   ~ RenderedConstInfoDenotes (render_expr (EInt 9223372036854775808)) (CITyped t tc).
 Proof.
   intros t tc H; apply rcd_typed_starts_letter in H; rewrite repair_bare_render in H.
-  destruct H as [ rest [ Hi | [ Hu | [ Hf | Hc ] ] ] ]; discriminate.
+  destruct H as [ rest [ Hi | [ Hu | [ Hf | [ Hc | [ Hb | Hr ] ] ] ] ] ]; discriminate.
 Qed.
 
 Example repair_uint64_typed :
-  RenderedConstInfoDenotes (render_expr (EIntConvert IUint64 (EInt 9223372036854775808)))
+  RenderedConstInfoDenotes (render_expr (EConvert (GoAST.tsyn GoNames.TNuint64) (EInt 9223372036854775808)))
                            (CITyped (TInteger IUint64) (TCInteger IUint64 9223372036854775808 eq_refl)).
 Proof. apply render_const_info_denotes; reflexivity. Qed.
 
 Example repair_uint64_max_typed :
-  RenderedConstInfoDenotes (render_expr (EIntConvert IUint64 (EInt 18446744073709551615)))
+  RenderedConstInfoDenotes (render_expr (EConvert (GoAST.tsyn GoNames.TNuint64) (EInt 18446744073709551615)))
                            (CITyped (TInteger IUint64) (TCInteger IUint64 18446744073709551615 eq_refl)).
 Proof. apply render_const_info_denotes; reflexivity. Qed.
 
@@ -1694,8 +1689,8 @@ Example render_float_1p5   : render_expr (EFloat d_15em1) = "15.0e-1". Proof. re
 Example render_float_zero  : render_expr (EFloat (mkDecimal 0 0 eq_refl)) = "0.0". Proof. reflexivity. Qed.
 Example render_float_1e6   : render_expr (EFloat (mkDecimal 1 6 eq_refl)) = "1.0e+6". Proof. reflexivity. Qed.
 Example render_float_neg   : render_expr (EFloat (mkDecimal (-15) (-1) eq_refl)) = "-15.0e-1". Proof. reflexivity. Qed.
-Example render_conv_f32    : render_expr (EFloatConvert F32 (EFloat d_15em1)) = "float32(15.0e-1)". Proof. reflexivity. Qed.
-Example render_conv_f64    : render_expr (EFloatConvert F64 (EFloat d_3)) = "float64(3.0e+0)". Proof. reflexivity. Qed.
+Example render_conv_f32    : render_expr (EConvert (GoAST.tsyn GoNames.TNfloat32) (EFloat d_15em1)) = "float32(15.0e-1)". Proof. reflexivity. Qed.
+Example render_conv_f64    : render_expr (EConvert (GoAST.tsyn GoNames.TNfloat64) (EFloat d_3)) = "float64(3.0e+0)". Proof. reflexivity. Qed.
 
 (* complex rendering: the canonical complex(real, imag) literal and the complex64/complex128
    conversion spellings; a bare complex literal denotes its exact ComplexConst. *)
@@ -1703,9 +1698,9 @@ Example render_cplx_lit  : render_expr (EComplex (mkDC d_15em1 (mkDecimal (-25) 
   = "complex(15.0e-1, -25.0e-1)". Proof. reflexivity. Qed.
 Example render_cplx_zero : render_expr (EComplex (mkDC (mkDecimal 0 0 eq_refl) (mkDecimal 0 0 eq_refl)))
   = "complex(0.0, 0.0)". Proof. reflexivity. Qed.
-Example render_conv_c64  : render_expr (EComplexConvert C64 (EComplex (mkDC d_15em1 (mkDecimal 0 0 eq_refl))))
+Example render_conv_c64  : render_expr (EConvert (GoAST.tsyn GoNames.TNcomplex64) (EComplex (mkDC d_15em1 (mkDecimal 0 0 eq_refl))))
   = "complex64(complex(15.0e-1, 0.0))". Proof. reflexivity. Qed.
-Example render_conv_c128 : render_expr (EComplexConvert C128 (EComplex (mkDC d_15em1 (mkDecimal 0 0 eq_refl))))
+Example render_conv_c128 : render_expr (EConvert (GoAST.tsyn GoNames.TNcomplex128) (EComplex (mkDC d_15em1 (mkDecimal 0 0 eq_refl))))
   = "complex128(complex(15.0e-1, 0.0))". Proof. reflexivity. Qed.
 Lemma render_cplx_denotes : forall dc,
   RenderedConstInfoDenotes (render_expr (EComplex dc)) (CIUntyped (CComplex (decimal_complex_value dc))).
@@ -1721,7 +1716,7 @@ Example render_float_untyped_denotes :
   RenderedConstInfoDenotes (render_expr (EFloat d_15em1)) (CIUntyped (CFloat (decimal_value d_15em1))).
 Proof. apply render_const_info_denotes; reflexivity. Qed.
 Example render_conv_f32_typed_denotes :
-  option_map const_info_exact (const_info (EFloatConvert F32 (EFloat d_scar)))
+  option_map const_info_exact (const_info (EConvert (GoAST.tsyn GoNames.TNfloat32) (EFloat d_scar)))
     = Some (CFloat (fc_of_Z 2305843284091600896)).
 Proof. vm_compute. reflexivity. Qed.
 
@@ -1733,7 +1728,7 @@ Example render_float_untyped_tenth :
                            (CIUntyped (CFloat (decimal_value (mkDecimal 1 (-1) eq_refl)))).
 Proof. apply render_const_info_denotes; reflexivity. Qed.
 Example render_conv_f64_underflow_zero :
-  option_map const_info_exact (const_info (EFloatConvert F64 (EFloat (mkDecimal (-1) (-330) eq_refl))))
+  option_map const_info_exact (const_info (EConvert (GoAST.tsyn GoNames.TNfloat64) (EFloat (mkDecimal (-1) (-330) eq_refl))))
     = Some (CFloat fc_zero).
 Proof. vm_compute. reflexivity. Qed.
 

@@ -33,41 +33,58 @@
     types, concurrency, or non-`main` package clauses.  Anything else is UNREPRESENTABLE. *)
 From Stdlib Require Import NArith List String.
 From Stdlib Require Import Permutation SetoidList.
-From Fido Require Import FilePath Collections ModulePath GoVersion Ints Floats Complexes.
+From Fido Require Import FilePath Collections ModulePath GoVersion Ints Floats Complexes GoNames.
 Import ListNotations.
 
 (** A raw expression is UNTYPED syntax: a boolean literal, an integer literal as an unsigned magnitude
     ([EInt]) optionally negated ([ENeg]), a STRING literal whose argument is the EXACT SEMANTIC BYTE
     SEQUENCE ([EString], a Rocq [string] = a list of [ascii] bytes — NOT source spelling, NOT an
-    already-escaped literal, NOT Unicode scalars/code points), or an EXPLICIT integer conversion
-    ([EIntConvert it e], the source spelling `<keyword it>(e)`, e.g. `int8(42)` / `uint64(...)` /
-    `uint8(int(300))`), a FLOATING literal carrying an INTRINSIC finite-decimal semantic value ([EFloat d],
-    a bounded canonical [DecimalFloat] — NOT source spelling / underscores / hex / capitalization / a rounded
-    value), or an EXPLICIT float conversion ([EFloatConvert ft e], the source spelling `float32(e)` /
-    `float64(e)`).  [EIntConvert]'s target is the INTRINSIC [IntegerType] and [EFloatConvert]'s the intrinsic
-    [FloatType] — never a raw type-name string.  A COMPLEX literal ([EComplex dc], carrying two
+    already-escaped literal, NOT Unicode scalars/code points), a FLOATING literal carrying an INTRINSIC
+    finite-decimal semantic value ([EFloat d], a bounded canonical [DecimalFloat] — NOT source spelling /
+    underscores / hex / capitalization / a rounded value), a COMPLEX literal ([EComplex dc], carrying two
     [DecimalFloat] components — its canonical spelling is Go's predeclared `complex(re, im)` form, NOT
-    imaginary-literal syntax and NOT a general call), or an EXPLICIT complex conversion ([EComplexConvert ct
-    e], the source spelling `complex64(e)` / `complex128(e)`).  [EComplexConvert]'s target is the intrinsic
-    [ComplexType].  Nesting is representable syntax that may be compiler-invalid
+    imaginary-literal syntax and NOT a general call), or an EXPLICIT conversion ([EConvert ts e], the source
+    spelling `<render ts>(e)`, e.g. `int8(42)` / `uint64(...)` / `float32(e)` / `complex64(e)` / `byte(0)` /
+    `rune(...)`).  The conversion TARGET is a SOURCE type-name syntax ([TypeSyntax] — one of the sixteen
+    supported names from [GoNames], carrying its retained source [IdentifierSyntax], NEVER a semantic
+    [IntegerType] / [FloatType] / [ComplexType] / [GoType] tag).  Binding that name to a semantic type is
+    COMPILER work in [GoCompile]; the AST does not decide that `byte` means `uint8` or `rune` means `int32`.
+    Nesting is representable syntax that may be compiler-invalid
     (`uint8(int(300))`, `int8(int16(128))`, `int(3.5)`, `float32(true)`, `int(complex(3.5, 0.0))`) — such a
     program is REJECTED by GoTypes/GoCompile, not unrepresentable.  No type is attached here — the exact
     untyped-constant meaning (a bare float denotes its EXACT rational value; a conversion rounds ONCE at the
     destination format) and the context-directed typing/representability of these literals are the concern of
     [GoTypes]; the canonical source spelling is a separate proved encoding in [GoRender].  [EInt]/[ENeg]
     remain exact untyped integer-literal syntax.  No arithmetic, comparison, bitwise, shift, division,
-    general named conversion, imaginary-literal syntax, `real`/`imag`, NaN/Inf constructors, parenthesis
-    node, variables, calls, or string operations are representable. *)
+    arbitrary/qualified/user type names, imaginary-literal syntax, `real`/`imag`, NaN/Inf constructors,
+    parenthesis node, variables, calls, or string operations are representable. *)
+
+(** the SOURCE type-name syntax of an explicit conversion target.  Only an UNQUALIFIED predeclared name is
+    live today ([TNUnqualified] wraps a [GoNames.SupportedTypeName] — a retained source identifier + its
+    classified sixteen-name symbol); a qualified name would need imports and package binding and is future
+    work (deliberately no dead qualified constructor). *)
+Inductive TypeNameSyntax : Type := TNUnqualified : GoNames.SupportedTypeName -> TypeNameSyntax.
+Inductive TypeSyntax : Type := TSName : TypeNameSyntax -> TypeSyntax.
+
+(** the retained supported source name, its classified predeclared symbol (source identity only — no semantic
+    type), and its source identifier. *)
+Definition ts_stn  (ts : TypeSyntax) : GoNames.SupportedTypeName :=
+  match ts with TSName (TNUnqualified stn) => stn end.
+Definition ts_name (ts : TypeSyntax) : GoNames.TypeName := GoNames.stn_symbol (ts_stn ts).
+Definition ts_ident (ts : TypeSyntax) : GoNames.IdentifierSyntax := GoNames.stn_identifier (ts_stn ts).
+(** the smart constructor: the source conversion-target syntax for one of the sixteen supported names. *)
+Definition tsyn (t : GoNames.TypeName) : TypeSyntax := TSName (TNUnqualified (GoNames.stn_of t)).
+Lemma ts_stn_tsyn  : forall t, ts_stn  (tsyn t) = GoNames.stn_of t.  Proof. reflexivity. Qed.
+Lemma ts_name_tsyn : forall t, ts_name (tsyn t) = t.                 Proof. reflexivity. Qed.
+
 Inductive GoExpr : Type :=
 | EBool           : bool -> GoExpr
 | EInt            : N -> GoExpr
 | ENeg            : N -> GoExpr
 | EString         : string -> GoExpr
-| EIntConvert     : IntegerType -> GoExpr -> GoExpr
 | EFloat          : DecimalFloat -> GoExpr
-| EFloatConvert   : FloatType -> GoExpr -> GoExpr
 | EComplex        : DecimalComplex -> GoExpr
-| EComplexConvert : ComplexType -> GoExpr -> GoExpr.
+| EConvert        : TypeSyntax -> GoExpr -> GoExpr.
 
 Inductive GoStmt : Type :=
 | SPrintln : list GoExpr -> GoStmt.

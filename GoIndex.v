@@ -62,18 +62,20 @@ End NodeTable.
 
 (** ** Occurrence kinds, roles, and metadata.                                       *)
 
-(* The current occurrence universe: file root, package clause, top-level declaration, statement, expression.
-   No kind for unsupported future syntax (no import/name/type kind ahead of its syntax). *)
-Inductive SyntaxKind := KFile | KPackageClause | KTopLevelDecl | KStatement | KExpression.
+(* The current occurrence universe: file root, package clause, top-level declaration, statement, expression,
+   and the source TYPE NAME of an explicit conversion target.  No kind for unsupported future syntax (no
+   import kind, no arbitrary/qualified type-syntax kind ahead of its syntax). *)
+Inductive SyntaxKind := KFile | KPackageClause | KTopLevelDecl | KStatement | KExpression | KTypeName.
 
-(* How an occurrence participates in its parent.  One role suffices for every conversion
-   operand — integer/float/complex conversions share the SAME structural child relationship. *)
+(* How an occurrence participates in its parent.  An explicit conversion has TWO children in source order:
+   its source type-name TARGET, then its OPERAND expression. *)
 Inductive NodeRole :=
 | RFileRoot                  (* the file root itself *)
 | RFilePackage               (* the file's package clause *)
 | RFileDecl (n : nat)        (* the n-th top-level declaration of a file *)
 | RDeclStmt (n : nat)        (* the n-th statement in a declaration body *)
 | RPrintlnArg (n : nat)      (* the n-th argument of a println statement *)
+| RConversionTarget          (* the source type-name target of an explicit conversion expression *)
 | RConversionOperand.        (* the single operand of an explicit conversion expression *)
 
 (* Small structural metadata; NO copy of the recursive subtree. *)
@@ -114,14 +116,11 @@ Fixpoint build_expr (parent : positive) (role : NodeRole) (me : positive) (e : G
   match e with
   | EBool _ | EInt _ | ENeg _ | EString _ | EFloat _ | EComplex _ =>
       (NodeTable.set me (mkMeta KExpression (Some parent) role me) t, me)
-  | EIntConvert _ x =>
-      let '(t1, e1) := build_expr me RConversionOperand (Pos.succ me) x t in
-      (NodeTable.set me (mkMeta KExpression (Some parent) role e1) t1, e1)
-  | EFloatConvert _ x =>
-      let '(t1, e1) := build_expr me RConversionOperand (Pos.succ me) x t in
-      (NodeTable.set me (mkMeta KExpression (Some parent) role e1) t1, e1)
-  | EComplexConvert _ x =>
-      let '(t1, e1) := build_expr me RConversionOperand (Pos.succ me) x t in
+  | EConvert _ x =>
+      (* two children in source order: the type-name TARGET (a leaf at [me+1]), then the OPERAND subtree. *)
+      let tn := Pos.succ me in
+      let t_tn := NodeTable.set tn (mkMeta KTypeName (Some me) RConversionTarget tn) t in
+      let '(t1, e1) := build_expr me RConversionOperand (Pos.succ tn) x t_tn in
       (NodeTable.set me (mkMeta KExpression (Some parent) role e1) t1, e1)
   end.
 
@@ -187,9 +186,7 @@ Definition build_file (f : GoSourceFile) : FileIndex :=
 Fixpoint end_expr (me : positive) (e : GoExpr) : positive :=
   match e with
   | EBool _ | EInt _ | ENeg _ | EString _ | EFloat _ | EComplex _ => me
-  | EIntConvert _ x => end_expr (Pos.succ me) x
-  | EFloatConvert _ x => end_expr (Pos.succ me) x
-  | EComplexConvert _ x => end_expr (Pos.succ me) x
+  | EConvert _ x => end_expr (Pos.succ (Pos.succ me)) x   (* [me]=conv, [me+1]=type name, operand from [me+2] *)
   end.
 Fixpoint next_exprs (me : positive) (es : list GoExpr) : positive :=
   match es with [] => me | e :: rest => next_exprs (Pos.succ (end_expr me e)) rest end.
@@ -207,11 +204,14 @@ Definition count_file (f : GoSourceFile) : positive := Pos.pred (next_decls (Pos
 
 Lemma build_expr_end : forall e parent role me t, snd (build_expr parent role me e t) = end_expr me e.
 Proof.
-  induction e as [ b | n1 | n2 | s | it x IHx | df | ft x IHx | dcx | ct x IHx ];
-    intros parent role me t; try reflexivity;
-    (cbn [build_expr end_expr]; specialize (IHx me RConversionOperand (Pos.succ me) t);
-     destruct (build_expr me RConversionOperand (Pos.succ me) x t) as [t1 e1]; cbn [snd] in IHx |- *;
-     rewrite IHx; reflexivity).
+  induction e as [ b | n1 | n2 | s | df | dcx | ts x IHx ];
+    intros parent role me t; try reflexivity.
+  cbn [build_expr end_expr].
+  specialize (IHx me RConversionOperand (Pos.succ (Pos.succ me))
+    (NodeTable.set (Pos.succ me) (mkMeta KTypeName (Some me) RConversionTarget (Pos.succ me)) t)).
+  destruct (build_expr me RConversionOperand (Pos.succ (Pos.succ me)) x
+    (NodeTable.set (Pos.succ me) (mkMeta KTypeName (Some me) RConversionTarget (Pos.succ me)) t)) as [t1 e1].
+  cbn [snd] in IHx |- *. exact IHx.
 Qed.
 
 Lemma build_arg_end : forall e parent aidx me t, snd (build_arg parent aidx me e t) = end_expr me e.
@@ -278,7 +278,8 @@ Inductive SyntaxView : SyntaxKind -> Type :=
 | ViewPackageClause : PackageClauseSyntax -> SyntaxView KPackageClause
 | ViewTopLevelDecl  : GoDecl -> SyntaxView KTopLevelDecl
 | ViewStatement     : GoStmt -> SyntaxView KStatement
-| ViewExpression    : GoExpr -> SyntaxView KExpression.
+| ViewExpression    : GoExpr -> SyntaxView KExpression
+| ViewTypeName      : TypeSyntax -> SyntaxView KTypeName.
 
 Record SourceOccurrence := mkOcc {
   occurrence_kind        : SyntaxKind;
@@ -313,6 +314,30 @@ Proof.
           with
           | ViewExpression e => ex_intro _ e eq_refl
           | ViewFile _ => I | ViewPackageClause _ => I | ViewTopLevelDecl _ => I | ViewStatement _ => I
+          | ViewTypeName _ => I
+          end).
+Qed.
+
+(* the original type-name syntax an occurrence's view carries (Some only for type-name occurrences). *)
+Definition view_typename (o : SourceOccurrence) : option TypeSyntax :=
+  match occurrence_view o with ViewTypeName ts => Some ts | _ => None end.
+Lemma view_typename_kind : forall o ts, view_typename o = Some ts -> occurrence_kind o = KTypeName.
+Proof.
+  intros [k v par role sub] ts H. cbn [view_typename occurrence_view occurrence_kind] in *.
+  destruct v; try discriminate H. reflexivity.
+Qed.
+Lemma kind_view_typename : forall o, occurrence_kind o = KTypeName -> exists ts, view_typename o = Some ts.
+Proof.
+  intros [k v par role sub] H. cbn [occurrence_kind] in H. subst k.
+  cbn [view_typename occurrence_view].
+  refine (match v as v0 in SyntaxView k0
+          return (match k0 return Prop with
+                  | KTypeName => exists tx, (match v0 with ViewTypeName ts => Some ts | _ => None end) = Some tx
+                  | _ => True end)
+          with
+          | ViewTypeName ts => ex_intro _ ts eq_refl
+          | ViewFile _ => I | ViewPackageClause _ => I | ViewTopLevelDecl _ => I | ViewStatement _ => I
+          | ViewExpression _ => I
           end).
 Qed.
 
@@ -322,18 +347,12 @@ Fixpoint occ_expr' (parent : positive) (role : NodeRole) (me : positive) (e : Go
   match e with
   | EBool _ | EInt _ | ENeg _ | EString _ | EFloat _ | EComplex _ =>
       if Pos.eqb target me then Some (mkOcc KExpression (ViewExpression e) (Some parent) role me) else None
-  | EIntConvert _ x =>
+  | EConvert ts x =>
       if Pos.eqb target me
       then Some (mkOcc KExpression (ViewExpression e) (Some parent) role (end_expr me e))
-      else occ_expr' me RConversionOperand (Pos.succ me) x target
-  | EFloatConvert _ x =>
-      if Pos.eqb target me
-      then Some (mkOcc KExpression (ViewExpression e) (Some parent) role (end_expr me e))
-      else occ_expr' me RConversionOperand (Pos.succ me) x target
-  | EComplexConvert _ x =>
-      if Pos.eqb target me
-      then Some (mkOcc KExpression (ViewExpression e) (Some parent) role (end_expr me e))
-      else occ_expr' me RConversionOperand (Pos.succ me) x target
+      else if Pos.eqb target (Pos.succ me)
+      then Some (mkOcc KTypeName (ViewTypeName ts) (Some me) RConversionTarget (Pos.succ me))
+      else occ_expr' me RConversionOperand (Pos.succ (Pos.succ me)) x target
   end.
 Fixpoint occ_exprs' (parent : positive) (aidx : nat) (me : positive) (es : list GoExpr) (target : positive)
   : option SourceOccurrence :=
@@ -393,28 +412,30 @@ Definition source_occurrence_at (f : GoSourceFile) (target : positive) : option 
 
 Lemma end_expr_ge : forall e me, (me <= end_expr me e)%positive.
 Proof.
-  induction e as [ b | n1 | n2 | s | it x IHx | df | ft x IHx | dcx | ct x IHx ];
+  induction e as [ b | n1 | n2 | s | df | dcx | ts x IHx ];
     intros me; try (cbn [end_expr]; lia);
-    (cbn [end_expr]; specialize (IHx (Pos.succ me)); lia).
+    (cbn [end_expr]; specialize (IHx (Pos.succ (Pos.succ me))); lia).
 Qed.
 
 Lemma occ_expr'_below : forall e parent role me target,
   (target < me)%positive -> occ_expr' parent role me e target = None.
 Proof.
-  induction e as [ b | n1 | n2 | s | it x IHx | df | ft x IHx | dcx | ct x IHx ];
+  induction e as [ b | n1 | n2 | s | df | dcx | ts x IHx ];
     intros parent role me target Hlt; cbn [occ_expr'];
     try (destruct (Pos.eqb_spec target me); [lia|reflexivity]);
-    (destruct (Pos.eqb_spec target me); [lia|]; apply IHx; lia).
+    (destruct (Pos.eqb_spec target me); [lia|];
+     destruct (Pos.eqb_spec target (Pos.succ me)); [lia|]; apply IHx; lia).
 Qed.
 
 Lemma occ_expr'_above : forall e parent role me target,
   (end_expr me e < target)%positive -> occ_expr' parent role me e target = None.
 Proof.
-  induction e as [ b | n1 | n2 | s | it x IHx | df | ft x IHx | dcx | ct x IHx ];
+  induction e as [ b | n1 | n2 | s | df | dcx | ts x IHx ];
     intros parent role me target Hgt; cbn [occ_expr' end_expr] in *;
     try (destruct (Pos.eqb_spec target me); [lia|reflexivity]);
-    (pose proof (end_expr_ge x (Pos.succ me)) as Hx;
-     destruct (Pos.eqb_spec target me); [lia|]; apply IHx; exact Hgt).
+    (pose proof (end_expr_ge x (Pos.succ (Pos.succ me))) as Hx;
+     destruct (Pos.eqb_spec target me); [lia|];
+     destruct (Pos.eqb_spec target (Pos.succ me)); [lia|]; apply IHx; exact Hgt).
 Qed.
 
 Lemma next_exprs_ge : forall es me, (me <= next_exprs me es)%positive.
@@ -529,21 +550,30 @@ Lemma build_expr_get : forall e parent role me t target,
     | None   => NodeTable.get target t
     end.
 Proof.
-  induction e as [ b | n1 | n2 | s | it x IHx | df | ft x IHx | dcx | ct x IHx ];
+  induction e as [ b | n1 | n2 | s | df | dcx | ts x IHx ];
     intros parent role me t target; cbn [build_expr occ_expr'];
     (* leaves *)
     try (cbn [fst]; destruct (Pos.eqb_spec target me);
          [ subst; rewrite NodeTable.get_set_same; reflexivity
-         | rewrite NodeTable.get_set_other by congruence; reflexivity ]);
-    (* conversions: one operand child *)
-    (pose proof (build_expr_end x me RConversionOperand (Pos.succ me) t) as He1;
-     destruct (build_expr me RConversionOperand (Pos.succ me) x t) as [t1 e1] eqn:E1;
-     cbn [snd] in He1; subst e1; cbn [fst];
-     destruct (Pos.eqb_spec target me);
-     [ subst; rewrite NodeTable.get_set_same; reflexivity
-     | rewrite NodeTable.get_set_other by congruence;
-       specialize (IHx me RConversionOperand (Pos.succ me) t target);
-       rewrite E1 in IHx; cbn [fst] in IHx; exact IHx ]).
+         | rewrite NodeTable.get_set_other by congruence; reflexivity ]).
+  (* conversion: a type-name child at [me+1], then the operand subtree from [me+2] *)
+  set (t_tn := NodeTable.set (Pos.succ me) (mkMeta KTypeName (Some me) RConversionTarget (Pos.succ me)) t).
+  pose proof (build_expr_end x me RConversionOperand (Pos.succ (Pos.succ me)) t_tn) as He1.
+  destruct (build_expr me RConversionOperand (Pos.succ (Pos.succ me)) x t_tn) as [t1 e1] eqn:E1.
+  cbn [snd] in He1; subst e1; cbn [fst].
+  specialize (IHx me RConversionOperand (Pos.succ (Pos.succ me)) t_tn target).
+  rewrite E1 in IHx; cbn [fst] in IHx.
+  destruct (Pos.eqb_spec target me) as [->|Hne_me].
+  { rewrite NodeTable.get_set_same; reflexivity. }
+  rewrite NodeTable.get_set_other by congruence.
+  destruct (Pos.eqb_spec target (Pos.succ me)) as [->|Hne_tn].
+  { rewrite IHx.
+    rewrite (occ_expr'_below x me RConversionOperand (Pos.succ (Pos.succ me)) (Pos.succ me)) by lia.
+    subst t_tn; rewrite NodeTable.get_set_same; reflexivity. }
+  rewrite IHx.
+  destruct (occ_expr' me RConversionOperand (Pos.succ (Pos.succ me)) x target) as [o|] eqn:Eo.
+  - reflexivity.
+  - subst t_tn; rewrite NodeTable.get_set_other by congruence; reflexivity.
 Qed.
 
 Lemma build_arg_get : forall e parent aidx me t target,
@@ -1008,20 +1038,31 @@ Lemma build_expr_spec : forall e parent role me t0 t se,
   build_expr parent role me e t0 = (t, se) ->
   Fresh t (Pos.succ se) /\ SubtreeWF t0 t (Some parent) me se.
 Proof.
-  induction e as [ b | n1 | n2 | s | it x IHx | df | ft x IHx | dcx | ct x IHx ];
+  induction e as [ b | n1 | n2 | s | df | dcx | ts x IHx ];
     intros parent role me t0 t se Hf0 Hbuild; cbn [build_expr] in Hbuild;
     (* leaves: an empty children forest wrapped at [me] *)
     try (injection Hbuild as Ht Hse; subst t; subst se;
          eapply subtree_from_forest;
            [ reflexivity | exact Hf0 | apply forest_nil
            | (eapply Fresh_weaken; [|exact Hf0]; lia) | reflexivity | reflexivity ]);
-    (* conversions: one operand child subtree wrapped at [me] *)
-    (destruct (build_expr me RConversionOperand (Pos.succ me) x t0) as [t1 e1] eqn:E1;
+    (* conversion: a type-name leaf child at [me+1], then the operand subtree from [me+2] *)
+    (destruct (build_expr me RConversionOperand (Pos.succ (Pos.succ me)) x
+                (NodeTable.set (Pos.succ me) (mkMeta KTypeName (Some me) RConversionTarget (Pos.succ me)) t0))
+       as [t1 e1] eqn:E1;
      injection Hbuild as Ht Hse; subst t; subst se;
      assert (Hf0' : Fresh t0 (Pos.succ me)) by (eapply Fresh_weaken; [|exact Hf0]; lia);
-     destruct (IHx me RConversionOperand (Pos.succ me) t0 t1 e1 Hf0' E1) as [Hfr1 HS1];
+     assert (Htn : Fresh (NodeTable.set (Pos.succ me) (mkMeta KTypeName (Some me) RConversionTarget (Pos.succ me)) t0) (Pos.succ (Pos.succ me))
+                /\ SubtreeWF t0 (NodeTable.set (Pos.succ me) (mkMeta KTypeName (Some me) RConversionTarget (Pos.succ me)) t0) (Some me) (Pos.succ me) (Pos.succ me))
+       by (eapply subtree_from_forest;
+            [ reflexivity | exact Hf0' | apply forest_nil
+            | (eapply Fresh_weaken; [|exact Hf0]; lia) | reflexivity | reflexivity ]);
+     destruct Htn as [Hfrtn HStn];
+     destruct (IHx me RConversionOperand (Pos.succ (Pos.succ me))
+                (NodeTable.set (Pos.succ me) (mkMeta KTypeName (Some me) RConversionTarget (Pos.succ me)) t0)
+                t1 e1 Hfrtn E1) as [Hfr1 HS1];
      assert (HF : ForestWF t0 t1 me (Pos.succ me) (Pos.succ e1))
-       by (eapply forest_cons; [exact HS1 | exact Hfr1 | apply forest_nil]);
+       by (eapply forest_cons; [ exact HStn | exact Hfrtn |
+             eapply forest_cons; [ exact HS1 | exact Hfr1 | apply forest_nil ] ]);
      eapply subtree_from_forest;
        [ reflexivity | exact Hf0 | exact HF | exact Hfr1 | reflexivity | reflexivity ]).
 Qed.
@@ -1489,9 +1530,7 @@ Qed.
 (* the builder branches only on tree SHAPE, and metadata is not a subtree copy. *)
 Fixpoint same_shape (e1 e2 : GoExpr) : Prop :=
   match e1, e2 with
-  | EIntConvert _ x1, EIntConvert _ x2 => same_shape x1 x2
-  | EFloatConvert _ x1, EFloatConvert _ x2 => same_shape x1 x2
-  | EComplexConvert _ x1, EComplexConvert _ x2 => same_shape x1 x2
+  | EConvert _ x1, EConvert _ x2 => same_shape x1 x2
   | EBool _, EBool _ => True
   | EInt _, EInt _ => True
   | ENeg _, ENeg _ => True
@@ -1507,11 +1546,15 @@ Theorem thm_builder_no_structural_search :
   forall e1 e2 parent role me t,
     same_shape e1 e2 -> build_expr parent role me e1 t = build_expr parent role me e2 t.
 Proof.
-  induction e1 as [ b | n1 | n2 | s | it x IHx | df | ft x IHx | dcx | ct x IHx ];
-    intros [ b2 | n1' | n2' | s2 | it2 x2 | df2 | ft2 x2 | dcx2 | ct2 x2 ] parent role me t Hsh;
+  induction e1 as [ b | n1 | n2 | s | df | dcx | ts x IHx ];
+    intros [ b2 | n1' | n2' | s2 | df2 | dcx2 | ts2 x2 ] parent role me t Hsh;
     cbn [same_shape] in Hsh; try contradiction; try reflexivity;
-    (cbn [build_expr]; rewrite (IHx x2 me RConversionOperand (Pos.succ me) t Hsh);
-     destruct (build_expr me RConversionOperand (Pos.succ me) x2 t) as [t1 e1]; reflexivity).
+    (cbn [build_expr];
+     rewrite (IHx x2 me RConversionOperand (Pos.succ (Pos.succ me))
+                (NodeTable.set (Pos.succ me) (mkMeta KTypeName (Some me) RConversionTarget (Pos.succ me)) t) Hsh);
+     destruct (build_expr me RConversionOperand (Pos.succ (Pos.succ me)) x2
+                (NodeTable.set (Pos.succ me) (mkMeta KTypeName (Some me) RConversionTarget (Pos.succ me)) t))
+       as [t1 e1]; reflexivity).
 Qed.
 
 Theorem thm14_meta_stores_no_subtree :
@@ -1533,17 +1576,22 @@ Proof.
 Defined.
 Definition decimalcomplex_eq_dec (a b : Complexes.DecimalComplex) : {a = b} + {a <> b}.
 Proof. decide equality; apply decimalfloat_eq_dec. Defined.
-Definition integertype_eq_dec (a b : Ints.IntegerType) : {a = b} + {a <> b}.
-Proof. decide equality. Defined.
-Definition floattype_eq_dec (a b : Floats.FloatType) : {a = b} + {a <> b}.
-Proof. decide equality. Defined.
-Definition complextype_eq_dec (a b : Complexes.ComplexType) : {a = b} + {a <> b}.
-Proof. decide equality. Defined.
+Definition supportedtypename_eq_dec (a b : GoNames.SupportedTypeName) : {a = b} + {a <> b}.
+Proof.
+  destruct (GoNames.stn_eqb a b) eqn:E; [left; apply GoNames.stn_eqb_eq; exact E|right].
+  intro H; subst; rewrite (proj2 (GoNames.stn_eqb_eq b b) eq_refl) in E; discriminate.
+Defined.
+Definition typesyntax_eq_dec (a b : TypeSyntax) : {a = b} + {a <> b}.
+Proof.
+  destruct a as [[sa]]; destruct b as [[sb]];
+    destruct (supportedtypename_eq_dec sa sb) as [->|Hne];
+    [ left; reflexivity | right; intro H; injection H as ->; apply Hne; reflexivity ].
+Defined.
 Definition goexpr_eq_dec (a b : GoExpr) : {a = b} + {a <> b}.
 Proof.
   decide equality;
     first [ apply Bool.bool_dec | apply N.eq_dec | apply string_dec
-          | apply integertype_eq_dec | apply floattype_eq_dec | apply complextype_eq_dec
+          | apply typesyntax_eq_dec
           | apply decimalfloat_eq_dec | apply decimalcomplex_eq_dec ].
 Defined.
 Definition gostmt_eq_dec (a b : GoStmt) : {a = b} + {a <> b}.
@@ -1652,15 +1700,10 @@ Fixpoint occs_expr (parent : positive) (role : NodeRole) (me : positive) (e : Go
   match e with
   | EBool _ | EInt _ | ENeg _ | EString _ | EFloat _ | EComplex _ =>
       [(me, mkOcc KExpression (ViewExpression e) (Some parent) role me)]
-  | EIntConvert _ x =>
+  | EConvert ts x =>
       (me, mkOcc KExpression (ViewExpression e) (Some parent) role (end_expr me e))
-        :: occs_expr me RConversionOperand (Pos.succ me) x
-  | EFloatConvert _ x =>
-      (me, mkOcc KExpression (ViewExpression e) (Some parent) role (end_expr me e))
-        :: occs_expr me RConversionOperand (Pos.succ me) x
-  | EComplexConvert _ x =>
-      (me, mkOcc KExpression (ViewExpression e) (Some parent) role (end_expr me e))
-        :: occs_expr me RConversionOperand (Pos.succ me) x
+        :: (Pos.succ me, mkOcc KTypeName (ViewTypeName ts) (Some me) RConversionTarget (Pos.succ me))
+        :: occs_expr me RConversionOperand (Pos.succ (Pos.succ me)) x
   end.
 Definition occs_arg (parent : positive) (aidx : nat) (me : positive) (e : GoExpr) : list (positive * SourceOccurrence) :=
   occs_expr parent (RPrintlnArg aidx) me e.
@@ -1705,22 +1748,24 @@ Definition occs_file (f : GoSourceFile) : list (positive * SourceOccurrence) :=
 Lemma occs_expr_ge : forall e parent role me id occ,
   In (id, occ) (occs_expr parent role me e) -> (me <= id)%positive.
 Proof.
-  induction e as [ b | n1 | n2 | s | it x IHx | df | ft x IHx | dcx | ct x IHx ];
+  induction e as [ b | n1 | n2 | s | df | dcx | ts x IHx ];
     intros parent role me id occ Hin; cbn [occs_expr] in Hin;
     try (destruct Hin as [Heq|[]]; injection Heq as <- <-; lia);
     (destruct Hin as [Heq|Hin]; [injection Heq as <- <-; lia|];
-     specialize (IHx me RConversionOperand (Pos.succ me) id occ Hin); lia).
+     destruct Hin as [Heq|Hin]; [injection Heq as <- <-; lia|];
+     specialize (IHx me RConversionOperand (Pos.succ (Pos.succ me)) id occ Hin); lia).
 Qed.
 
 Lemma occs_expr_le : forall e parent role me id occ,
   In (id, occ) (occs_expr parent role me e) -> (id <= end_expr me e)%positive.
 Proof.
-  induction e as [ b | n1 | n2 | s | it x IHx | df | ft x IHx | dcx | ct x IHx ];
+  induction e as [ b | n1 | n2 | s | df | dcx | ts x IHx ];
     intros parent role me id occ Hin; cbn [occs_expr end_expr] in *;
     try (destruct Hin as [Heq|[]]; injection Heq as <- <-; lia);
-    (pose proof (end_expr_ge x (Pos.succ me)) as Hx;
+    (pose proof (end_expr_ge x (Pos.succ (Pos.succ me))) as Hx;
      destruct Hin as [Heq|Hin]; [injection Heq as <- <-; lia|];
-     apply (IHx me RConversionOperand (Pos.succ me) id occ Hin)).
+     destruct Hin as [Heq|Hin]; [injection Heq as <- <-; lia|];
+     apply (IHx me RConversionOperand (Pos.succ (Pos.succ me)) id occ Hin)).
 Qed.
 
 Lemma occs_args_ge : forall es parent aidx me id occ,
@@ -1822,13 +1867,18 @@ Qed.
 Lemma occs_expr_sound : forall e parent role me id occ,
   In (id, occ) (occs_expr parent role me e) -> occ_expr' parent role me e id = Some occ.
 Proof.
-  induction e as [ b | n1 | n2 | s | it x IHx | df | ft x IHx | dcx | ct x IHx ];
+  induction e as [ b | n1 | n2 | s | df | dcx | ts x IHx ];
     intros parent role me id occ Hin; cbn [occs_expr occ_expr'] in *;
     try (destruct Hin as [Heq|[]]; injection Heq as <- <-; rewrite Pos.eqb_refl; reflexivity);
     (destruct Hin as [Heq|Hin];
-     [ injection Heq as <- <-; rewrite Pos.eqb_refl; reflexivity
-     | pose proof (occs_expr_ge x me RConversionOperand (Pos.succ me) id occ Hin) as Hge;
-       destruct (Pos.eqb_spec id me); [lia|]; apply (IHx me RConversionOperand (Pos.succ me) id occ Hin) ]).
+     [ injection Heq as <- <-; rewrite Pos.eqb_refl; reflexivity |];
+     destruct Hin as [Heq|Hin];
+     [ injection Heq as <- <-;
+       destruct (Pos.eqb_spec (Pos.succ me) me); [lia|]; rewrite Pos.eqb_refl; reflexivity |];
+     pose proof (occs_expr_ge x me RConversionOperand (Pos.succ (Pos.succ me)) id occ Hin) as Hge;
+     destruct (Pos.eqb_spec id me); [lia|];
+     destruct (Pos.eqb_spec id (Pos.succ me)); [lia|];
+     apply (IHx me RConversionOperand (Pos.succ (Pos.succ me)) id occ Hin)).
 Qed.
 
 Lemma occs_args_sound : forall es parent aidx me id occ,
@@ -1912,12 +1962,14 @@ Qed.
 Lemma occs_expr_complete : forall e parent role me id occ,
   occ_expr' parent role me e id = Some occ -> In (id, occ) (occs_expr parent role me e).
 Proof.
-  induction e as [ b | n1 | n2 | s | it x IHx | df | ft x IHx | dcx | ct x IHx ];
+  induction e as [ b | n1 | n2 | s | df | dcx | ts x IHx ];
     intros parent role me id occ H; cbn [occs_expr occ_expr'] in *;
     try (destruct (Pos.eqb_spec id me); [injection H as <-; subst id; left; reflexivity | discriminate]);
     (destruct (Pos.eqb_spec id me);
-     [ injection H as <-; subst id; left; reflexivity
-     | right; apply (IHx me RConversionOperand (Pos.succ me) id occ H) ]).
+     [ injection H as <-; subst id; left; reflexivity |];
+     destruct (Pos.eqb_spec id (Pos.succ me));
+     [ injection H as <-; subst id; right; left; reflexivity |];
+     right; right; apply (IHx me RConversionOperand (Pos.succ (Pos.succ me)) id occ H)).
 Qed.
 
 Lemma occs_args_complete : forall es parent aidx me id occ,
@@ -2037,13 +2089,17 @@ Qed.
 
 Lemma occs_expr_sorted : forall e parent role me, StronglySorted Pos.lt (map fst (occs_expr parent role me e)).
 Proof.
-  induction e as [ b | n1 | n2 | s | it x IHx | df | ft x IHx | dcx | ct x IHx ];
+  induction e as [ b | n1 | n2 | s | df | dcx | ts x IHx ];
     intros parent role me; cbn [occs_expr map fst];
-    try (constructor; [constructor | constructor]);
-    (constructor;
-     [ apply IHx
-     | apply Forall_forall; intros y Hy;
-       pose proof (occs_expr_fst x me RConversionOperand (Pos.succ me) y Hy) as [Hge _]; lia ]).
+    try (solve [ repeat constructor ]).
+  constructor.
+  - constructor.
+    + apply IHx.
+    + apply Forall_forall; intros y Hy;
+      pose proof (occs_expr_fst x me RConversionOperand (Pos.succ (Pos.succ me)) y Hy) as [Hge _]; lia.
+  - apply Forall_forall; intros y Hy; cbn [In] in Hy; destruct Hy as [Hy|Hy];
+    [ subst y; lia
+    | pose proof (occs_expr_fst x me RConversionOperand (Pos.succ (Pos.succ me)) y Hy) as [Hge _]; lia ].
 Qed.
 
 Lemma occs_args_sorted : forall es parent aidx me, StronglySorted Pos.lt (map fst (occs_args parent aidx me es)).
@@ -2135,33 +2191,30 @@ Fixpoint walk_expr (parent : positive) (role : NodeRole) (me : positive) (e : Go
   match e with
   | EBool _ | EInt _ | ENeg _ | EString _ | EFloat _ | EComplex _ =>
       ([(me, mkOcc KExpression (ViewExpression e) (Some parent) role me)], Pos.succ me)
-  | EIntConvert _ x =>
-      let '(sub, nxt) := walk_expr me RConversionOperand (Pos.succ me) x in
-      ((me, mkOcc KExpression (ViewExpression e) (Some parent) role (Pos.pred nxt)) :: sub, nxt)
-  | EFloatConvert _ x =>
-      let '(sub, nxt) := walk_expr me RConversionOperand (Pos.succ me) x in
-      ((me, mkOcc KExpression (ViewExpression e) (Some parent) role (Pos.pred nxt)) :: sub, nxt)
-  | EComplexConvert _ x =>
-      let '(sub, nxt) := walk_expr me RConversionOperand (Pos.succ me) x in
-      ((me, mkOcc KExpression (ViewExpression e) (Some parent) role (Pos.pred nxt)) :: sub, nxt)
+  | EConvert ts x =>
+      let tn := Pos.succ me in
+      let '(sub, nxt) := walk_expr me RConversionOperand (Pos.succ tn) x in
+      ((me, mkOcc KExpression (ViewExpression e) (Some parent) role (Pos.pred nxt))
+         :: (tn, mkOcc KTypeName (ViewTypeName ts) (Some me) RConversionTarget tn)
+         :: sub, nxt)
   end.
 
 Lemma walk_expr_snd : forall e parent role me, snd (walk_expr parent role me e) = Pos.succ (end_expr me e).
 Proof.
-  induction e as [ b|n1|n2|s| it x IHx | df | ft x IHx | dcx | ct x IHx ];
+  induction e as [ b|n1|n2|s| df | dcx | ts x IHx ];
     intros parent role me; try reflexivity;
-    cbn [walk_expr end_expr]; specialize (IHx me RConversionOperand (Pos.succ me));
-    destruct (walk_expr me RConversionOperand (Pos.succ me) x) as [sub nxt]; cbn [snd] in *; exact IHx.
+    cbn [walk_expr end_expr]; specialize (IHx me RConversionOperand (Pos.succ (Pos.succ me)));
+    destruct (walk_expr me RConversionOperand (Pos.succ (Pos.succ me)) x) as [sub nxt]; cbn [snd] in *; exact IHx.
 Qed.
 
 Lemma walk_expr_eq : forall e parent role me, fst (walk_expr parent role me e) = occs_expr parent role me e.
 Proof.
-  induction e as [ b|n1|n2|s| it x IHx | df | ft x IHx | dcx | ct x IHx ];
+  induction e as [ b|n1|n2|s| df | dcx | ts x IHx ];
     intros parent role me; try reflexivity;
     cbn [walk_expr occs_expr end_expr];
-    pose proof (walk_expr_snd x me RConversionOperand (Pos.succ me)) as Hs;
-    specialize (IHx me RConversionOperand (Pos.succ me));
-    destruct (walk_expr me RConversionOperand (Pos.succ me) x) as [sub nxt]; cbn [fst snd] in Hs, IHx |- *;
+    pose proof (walk_expr_snd x me RConversionOperand (Pos.succ (Pos.succ me))) as Hs;
+    specialize (IHx me RConversionOperand (Pos.succ (Pos.succ me)));
+    destruct (walk_expr me RConversionOperand (Pos.succ (Pos.succ me)) x) as [sub nxt]; cbn [fst snd] in Hs, IHx |- *;
     subst nxt; rewrite Pos.pred_succ, IHx; reflexivity.
 Qed.
 
@@ -3564,14 +3617,14 @@ Fail Definition reg_cross_module (r : Snap.NodeRef prog_gen) : Snap.NodeRef prog
    Each stored metadatum is derived from the UNIVERSAL exactness theorem (rewrite by build_file_source_exact,
    then compute the INDEPENDENT source spec) — NEVER by unfolding the builder.  A wrong builder kind / role /
    parent / index / subtree makes [build_file_source_exact] unprovable, so these pin exact per-occurrence
-   labels; the repeated EInt 1 args (ids 5,6) are NOT collapsed, and the nested conversion chain (11->12->13)
-   pins the RConversionOperand relationship. ---------- *)
+   labels; the repeated EInt 1 args (ids 5,6) are NOT collapsed, and the nested conversion chain (ids 11..15)
+   pins the RConversionTarget / RConversionOperand two-child relationship. ---------- *)
 Definition wf : GoSourceFile := main_source
   [ DMain [ SPrintln [ EInt 1%N ; EInt 1%N ] ; SPrintln [ EBool true ] ]
-  ; DMain [ SPrintln [ EIntConvert Ints.IInt (EIntConvert Ints.IInt8 (EInt 5%N)) ] ] ].
+  ; DMain [ SPrintln [ EConvert (tsyn GoNames.TNint) (EConvert (tsyn GoNames.TNint8) (EInt 5%N)) ] ] ].
 
 Ltac wf_meta := rewrite build_file_source_exact; vm_compute; reflexivity.
-Example wf_meta_file  : NodeTable.get 1%positive  (fi_table (build_file wf)) = Some (mkMeta KFile         None      RFileRoot        13). Proof. wf_meta. Qed.
+Example wf_meta_file  : NodeTable.get 1%positive  (fi_table (build_file wf)) = Some (mkMeta KFile         None      RFileRoot        15). Proof. wf_meta. Qed.
 Example wf_meta_pkg   : NodeTable.get 2%positive  (fi_table (build_file wf)) = Some (mkMeta KPackageClause (Some 1)  RFilePackage      2). Proof. wf_meta. Qed.
 Example wf_meta_decl0 : NodeTable.get 3%positive  (fi_table (build_file wf)) = Some (mkMeta KTopLevelDecl  (Some 1)  (RFileDecl 0)     8). Proof. wf_meta. Qed.
 Example wf_meta_stmt0 : NodeTable.get 4%positive  (fi_table (build_file wf)) = Some (mkMeta KStatement     (Some 3)  (RDeclStmt 0)     6). Proof. wf_meta. Qed.
@@ -3579,12 +3632,14 @@ Example wf_meta_arg0  : NodeTable.get 5%positive  (fi_table (build_file wf)) = S
 Example wf_meta_arg1  : NodeTable.get 6%positive  (fi_table (build_file wf)) = Some (mkMeta KExpression    (Some 4)  (RPrintlnArg 1)   6). Proof. wf_meta. Qed.
 Example wf_meta_stmt1 : NodeTable.get 7%positive  (fi_table (build_file wf)) = Some (mkMeta KStatement     (Some 3)  (RDeclStmt 1)     8). Proof. wf_meta. Qed.
 Example wf_meta_bool  : NodeTable.get 8%positive  (fi_table (build_file wf)) = Some (mkMeta KExpression    (Some 7)  (RPrintlnArg 0)   8). Proof. wf_meta. Qed.
-Example wf_meta_decl1 : NodeTable.get 9%positive  (fi_table (build_file wf)) = Some (mkMeta KTopLevelDecl  (Some 1)  (RFileDecl 1)    13). Proof. wf_meta. Qed.
-Example wf_meta_stmt2 : NodeTable.get 10%positive (fi_table (build_file wf)) = Some (mkMeta KStatement     (Some 9)  (RDeclStmt 0)    13). Proof. wf_meta. Qed.
-Example wf_meta_conv0 : NodeTable.get 11%positive (fi_table (build_file wf)) = Some (mkMeta KExpression    (Some 10) (RPrintlnArg 0)  13). Proof. wf_meta. Qed.
-Example wf_meta_conv1 : NodeTable.get 12%positive (fi_table (build_file wf)) = Some (mkMeta KExpression    (Some 11) RConversionOperand 13). Proof. wf_meta. Qed.
-Example wf_meta_leaf  : NodeTable.get 13%positive (fi_table (build_file wf)) = Some (mkMeta KExpression    (Some 12) RConversionOperand 13). Proof. wf_meta. Qed.
-Example wf_meta_absent : NodeTable.get 14%positive (fi_table (build_file wf)) = None. Proof. wf_meta. Qed.
+Example wf_meta_decl1 : NodeTable.get 9%positive  (fi_table (build_file wf)) = Some (mkMeta KTopLevelDecl  (Some 1)  (RFileDecl 1)    15). Proof. wf_meta. Qed.
+Example wf_meta_stmt2 : NodeTable.get 10%positive (fi_table (build_file wf)) = Some (mkMeta KStatement     (Some 9)  (RDeclStmt 0)    15). Proof. wf_meta. Qed.
+Example wf_meta_conv0  : NodeTable.get 11%positive (fi_table (build_file wf)) = Some (mkMeta KExpression    (Some 10) (RPrintlnArg 0)     15). Proof. wf_meta. Qed.
+Example wf_meta_tname0 : NodeTable.get 12%positive (fi_table (build_file wf)) = Some (mkMeta KTypeName      (Some 11) RConversionTarget  12). Proof. wf_meta. Qed.
+Example wf_meta_conv1  : NodeTable.get 13%positive (fi_table (build_file wf)) = Some (mkMeta KExpression    (Some 11) RConversionOperand 15). Proof. wf_meta. Qed.
+Example wf_meta_tname1 : NodeTable.get 14%positive (fi_table (build_file wf)) = Some (mkMeta KTypeName      (Some 13) RConversionTarget  14). Proof. wf_meta. Qed.
+Example wf_meta_leaf   : NodeTable.get 15%positive (fi_table (build_file wf)) = Some (mkMeta KExpression    (Some 13) RConversionOperand 15). Proof. wf_meta. Qed.
+Example wf_meta_absent : NodeTable.get 16%positive (fi_table (build_file wf)) = None. Proof. wf_meta. Qed.
 
 (* source-VIEW recovery: the INDEPENDENT spec recovers the exact original fragment (the [occurrence_view] that
    [occurrence_meta] erases) for each occurrence kind — package clause / an argument / the innermost leaf. *)
@@ -3594,8 +3649,11 @@ Proof. vm_compute. reflexivity. Qed.
 Example wf_view_arg0 : source_occurrence_at wf 5%positive
   = Some (mkOcc KExpression (ViewExpression (EInt 1%N)) (Some 4%positive) (RPrintlnArg 0) 5%positive).
 Proof. vm_compute. reflexivity. Qed.
-Example wf_view_leaf : source_occurrence_at wf 13%positive
-  = Some (mkOcc KExpression (ViewExpression (EInt 5%N)) (Some 12%positive) RConversionOperand 13%positive).
+Example wf_view_leaf : source_occurrence_at wf 15%positive
+  = Some (mkOcc KExpression (ViewExpression (EInt 5%N)) (Some 13%positive) RConversionOperand 15%positive).
+Proof. vm_compute. reflexivity. Qed.
+Example wf_view_tname0 : source_occurrence_at wf 12%positive
+  = Some (mkOcc KTypeName (ViewTypeName (tsyn GoNames.TNint)) (Some 11%positive) RConversionTarget 12%positive).
 Proof. vm_compute. reflexivity. Qed.
 
 (* the retained IndexedProgram phase boundary.
