@@ -1,17 +1,9 @@
 # NEXT_STEPS — active authority pointer
 
-- **Active checkpoint:** C3 (Source Forest) — semantic-prose closeout.
-- **Functional contract:** `.review/C3_FRESH_IMAGE_LITERAL_BUILD_PLAN.md`, sha256
-  `a13779c2e55c679e461e857d019eeae6adef27b0666876ed0cac92833814f212` (frozen; current authority is resolved
-  through this file and the directive below, not the contract's stale internal vocabulary).
+- **Active checkpoint:** C3 manual prose closeout candidate.
+- **Functional contract:** `.review/C3_FRESH_IMAGE_LITERAL_BUILD_PLAN.md`.
+- **Contract SHA-256:** `a13779c2e55c679e461e857d019eeae6adef27b0666876ed0cac92833814f212`.
 - **Accepted review basis:** `.review/REVIEW_BASIS.md`.
-- **Current repair authority:** `.review/C3_SEMANTIC_PROSE_CLOSEOUT.md`, human_override
-  `C3-semantic-prose-closeout-1` (one prose-and-authority repair batch + one final bounded Implementation
-  Review confirmation; prose-only — no executable/proof/gate/generated-byte change; does NOT authorize C4).
-- **State: STOPPED, awaiting Rob.**  The prose batch (candidate `f119dc2`) went to its one authorized bounded
-  confirmation, which returned **BLOCKING** on two prose findings (a repair-induced review-process contradiction
-  vs the accepted basis, and previously-observable malformed-comment/obsolete-machinery residue the initial
-  review missed).  Per the directive §11 the request is closed and autonomous work has ENDED: no repair and no
-  further review round without a NEW explicit human override.  Complete result + the open findings:
-  `.review/SOURCE_FOREST_STATUS.md`.  Do NOT describe C3 as accepted until a non-stale Codex GREEN.
-- **C4 is FORBIDDEN** until explicit Rob authorization.
+- **State:** substantive implementation is complete; a human-owned prose-only patch is pending final inspection.
+  No further Codex review or autonomous repair is authorized by this file.
+- **C4 is forbidden** until explicit Rob authorization.

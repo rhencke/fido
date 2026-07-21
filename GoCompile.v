@@ -3416,10 +3416,10 @@ Proof.
   unfold semantic_diagnostics. rewrite in_app_iff, bucket_flatten_In. apply node_pkg_In.
 Qed.
 
-(* ---- — the UNIVERSAL STRICT CANONICAL-ORDER theorem (below, [semantic_diagnostics_node_strict]): the
+(** the UNIVERSAL STRICT CANONICAL-ORDER theorem (below, [semantic_diagnostics_node_strict]): the
    node-primary diagnostics appear in STRICTLY ascending NodeKey order (path then local id).  The input keys
    are UNIQUE ([collect_node_input_nodup]) so every bucket is a SINGLETON ([collect_node_buckets_singleton]);
-   there are no within-bucket ties, and the order is entirely the NodeKeyMap's key-sorted [elements]. ---- *)
+   there are no within-bucket ties, and the order is entirely the NodeKeyMap's key-sorted [elements]. *)
 Lemma node_keyed_self {p} (l : list (DiagnosticReason p)) :
   forall kd, In kd (node_keyed l) -> diag_node_key (snd kd) = Some (fst kd).
 Proof.
@@ -3646,9 +3646,9 @@ Proof.
   rewrite Hb. reflexivity.
 Qed.
 
-(* ---- — the ONE-PASS enclosing context erases to a SOURCE function of the keyed stream.  [annotate_keyed]
+(** the ONE-PASS enclosing context erases to a SOURCE function of the keyed stream.  [annotate_keyed]
    runs the SAME stack discipline over keyed entries (NodeKeys + occurrences), and the erased ref-annotation
-   [annotate_encl] equals it.  So the erased [outer_context] depends only on the file map. ---- *)
+   [annotate_encl] equals it.  So the erased [outer_context] depends only on the file map. *)
 
 (* the erasure of one annotated occurrence: its NodeKey, its occurrence, and its enclosing-context KEYS. *)
 Definition erase_annot {p}
@@ -3841,9 +3841,9 @@ Proof.
   rewrite erased_expr_diags_annot, <- (annotate_program_erased idx), flat_map_map. reflexivity.
 Qed.
 
-(* ---- — the PACKAGE buckets erase to a SOURCE function of the keyed stream.  [keyed_ppkg_step] runs the
+(** the PACKAGE buckets erase to a SOURCE function of the keyed stream.  [keyed_ppkg_step] runs the
    SAME package-grouping over keyed entries (NodeKeys), and the erased ([node_ref_key . erase_ref]) buckets
-   equal it (find-wise, hence PM.Equal).  So the erased package diagnostics depend only on the file map. ---- *)
+   equal it (find-wise, hence PM.Equal).  So the erased package diagnostics depend only on the file map. *)
 
 Definition erase_dkey {p} (dr : GoIndex.DeclRef p) : GoIndex.NodeKey := GoIndex.Snap.node_ref_key (GoIndex.erase_ref dr).
 Definition occ_pkg_key (ke : GoIndex.NodeKey * GoIndex.SourceOccurrence) : string :=
@@ -4276,8 +4276,8 @@ Proof.
   - rewrite Hkey. symmetry. exact (prog_package_refs_bucket_len idx dir nil (PM.find_1 Hmt)).
 Qed.
 
-(* ---- — the package buckets are NodeKey-SORTED and DUPLICATE-FREE, hence duplicate-main diagnostics carry
-   strict canonical precedence + distinctness.  Foundation: the whole visit stream is NodeKey-sorted. ---- *)
+(** the package buckets are NodeKey-SORTED and DUPLICATE-FREE, hence duplicate-main diagnostics carry
+   strict canonical precedence + distinctness.  Foundation: the whole visit stream is NodeKey-sorted. *)
 
 (* one file's block is NodeKey-sorted: same file (path constant), local strictly ascending. *)
 Lemma visit_file_key_sorted {p} (fr : GoIndex.Snap.FileRef p) :
@@ -4435,12 +4435,12 @@ Proof.
   apply Hne. apply (proj2 (GoIndex.nodekey_compare_eq _ _)). reflexivity.
 Qed.
 
-(** ---- — the node-primary diagnostic report is in STRICTLY ascending NodeKey order.
+(** the node-primary diagnostic report is in STRICTLY ascending NodeKey order.
     The chain: (1) the node-keyed INPUT keys are UNIQUE ([collect_node_input_nodup]) — proved from the expr
     keys' NoDup, the pkg keys' NoDup, and their DISJOINTNESS (an occurrence is an expression OR a decl, never
     both, by [node_ref_key_inj] + the kind refinement); (2) so every resulting bucket is a SINGLETON
     ([collect_node_buckets_singleton]); (3) hence the NodeKeyMap flattening is strictly key-ascending with no
-    within-bucket ties ([semantic_diagnostics_node_strict]).  No project-authored sort. ---- *)
+    within-bucket ties ([semantic_diagnostics_node_strict]).  No project-authored sort. *)
 
 (* nodekey strict-order lift over [option]: both anchored, strictly ascending (no ties). *)
 Definition nk_lt_opt (oa ob : option GoIndex.NodeKey) : Prop :=
@@ -5512,8 +5512,8 @@ Proof.
 Qed.
 
 (** the RETAINED package buckets' keys ARE [selected_package_keys] (same DIR domain — both are exactly the
-    directories with a file), so the plan derives from the retained buckets, never a second [package_summaries]
-    fold (/ ). *)
+    directories with a file), so the plan derives from the retained buckets rather than recomputing
+    [package_summaries]. *)
 Lemma bucket_keys_eq_selected : forall p (idx : GoIndex.Snap.SyntaxIndex p),
   map fst (PM.elements (prog_package_refs idx)) = selected_package_keys p.
 Proof.
@@ -6750,9 +6750,9 @@ Proof. apply (reject_no_compile complex_nonzero_imag_program); vm_compute; refle
 
 Definition c3_ms : ModuleSpec := mkModuleSpec (ModulePath.mkMP "fido.local/generated" eq_refl) GoVersion.Go1_23.
 
-(** ---- — REORDERED CONSTRUCTION: the SAME semantic file map built from PERMUTED [GoFileNode] input has
+(** REORDERED CONSTRUCTION: the SAME semantic file map built from PERMUTED [GoFileNode] input has
     a byte-identical erased diagnostic report, the identical success/failure class, and the identical canonical
-    fact enumeration — construction order is not observable. ---- *)
+    fact enumeration — construction order is not observable. *)
 Definition rnode_a : GoFileNode := main_file_node (mkFP "a.go" eq_refl) [ DMain [ SPrintln [ EInt 1 ] ] ].
 Definition rnode_b : GoFileNode := main_file_node (mkFP "b.go" eq_refl) [ DMain [ SPrintln [ EInt 2 ] ] ].
 
@@ -6781,8 +6781,8 @@ Proof.
   split; [ exact (go_compile_class_Equal p1 p2 HIE) | exact (prog_expr_facts_enum_FilesEqual p1 p2 HFE) ].
 Qed.
 
-(** ---- — EMPTY PROGRAM: the module-only program is ACCEPTED with an EMPTY erased report and an EMPTY
-    fact enumeration (no package to type, no `main` required). ---- *)
+(** EMPTY PROGRAM: the module-only program is ACCEPTED with an EMPTY erased report and an EMPTY
+    fact enumeration (no package to type, no `main` required). *)
 Theorem empty_program_report :
   erased_report (empty_program c3_ms) (GoIndex.Snap.index_program (empty_program c3_ms)) = nil
   /\ GoIndex.NodeKeyMapBase.elements (prog_expr_facts (empty_program c3_ms)) = nil.
@@ -6793,10 +6793,10 @@ Proof.
   - vm_compute. reflexivity.
 Qed.
 
-(** ---- — NESTED INVALID CONVERSION [float64(int8(128))]: the program is REJECTED, so its expression
+(** NESTED INVALID CONVERSION [float64(int8(128))]: the program is REJECTED, so its expression
     report is genuinely NON-EMPTY, and EVERY invalid-conversion diagnostic in it carries a same-file,
     nearest-first, duplicate-free STRICT-ANCESTOR conversion context (the outer [float64] strictly encloses the
-    primary [int8] — never fabricated syntax). ---- *)
+    primary [int8] — never fabricated syntax). *)
 Definition nested_conv_program : GoProgram :=
   singleton_program c3_ms (mkFP "main.go" eq_refl)
     [ DMain [ SPrintln [ EFloatConvert F64 (EIntConvert IInt8 (EInt 128)) ] ] ].
@@ -6836,9 +6836,9 @@ Theorem three_main_erased_report :
         [ EANode (GoIndex.mkKey (mkFP "main.go" eq_refl) 3%positive) ] None None ].
 Proof. rewrite erased_report_src_eq. vm_compute. reflexivity. Qed.
 
-(** ---- — PACKAGE WITH NO MAIN: a represented package whose only file declares NO `main` is REJECTED, so
+(** PACKAGE WITH NO MAIN: a represented package whose only file declares NO `main` is REJECTED, so
     its package report is genuinely NON-EMPTY, and EVERY missing-main diagnostic anchors a genuinely represented
-    package that contains EXACTLY ZERO `main` declarations (no fake file/node primary). ---- *)
+    package that contains EXACTLY ZERO `main` declarations (no fake file/node primary). *)
 Definition missing_main_program : GoProgram :=
   singleton_program c3_ms (mkFP "main.go" eq_refl) [ ].
 
@@ -6849,10 +6849,10 @@ Theorem missing_main_erased_report :
   = [ mkErasedDiagnostic DCMissingMainEntry (EAPackage "") [] None None ].
 Proof. rewrite erased_report_src_eq. vm_compute. reflexivity. Qed.
 
-(** ---- — the EXACT expression-fact query: on ANY valid [ElaborationFacts], EVERY expression reference's
+(** the EXACT expression-fact query: on ANY valid [ElaborationFacts], EVERY expression reference's
     queried fact is its occurrence's EXACT source-derived fact — the [ef_const_status] IS the occurrence's
     [const_info] and the [ef_use_resolved] IS its use-context resolution ([resolve_expr_const], rounded ONCE at
-    conversion — no rerounding).  So the query PROJECTS the occurrence, never a recomputed value. ---- *)
+    conversion — no rerounding).  So the query PROJECTS the occurrence, never a recomputed value. *)
 Lemma expr_fact_at_exact {p ip} (facts : ElaborationFacts p ip) (er : GoIndex.ExprRef p) :
   exists e ci,
     GoIndex.view_expr (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref er)) = Some e
@@ -6944,9 +6944,9 @@ Theorem fact_program_outer_fact :
                                            {| fc_num := 5; fc_den := 1; fc_wf := reduce_fc_wf 5629499534213120 1125899906842624 |} eq_refl |})) |}.
 Proof. rewrite prog_expr_facts_source, keyed_visit_source. vm_compute. reflexivity. Qed.
 
-(** ---- — REPEATED EQUAL LITERALS [println(1, 1)] are NOT deduplicated: the fact table is keyed by
+(** REPEATED EQUAL LITERALS [println(1, 1)] are NOT deduplicated: the fact table is keyed by
     OCCURRENCE identity (NodeKey), so two references with DISTINCT keys carry independent facts — each query
-    projects its OWN occurrence's exact fact, even when the two expressions are syntactically equal. ---- *)
+    projects its OWN occurrence's exact fact, even when the two expressions are syntactically equal. *)
 Definition dup_lit_program : GoProgram :=
   singleton_program c3_ms (mkFP "main.go" eq_refl)
     [ DMain [ SPrintln [ EInt 1; EInt 1 ] ] ].
@@ -6963,8 +6963,8 @@ Theorem dup_lit_facts_exact :
         mkExprFact (CIUntyped (CInt 1)) (Some (pack_resolved (TInteger IInt) (TCInteger IInt 1 eq_refl)))) ].
 Proof. rewrite prog_expr_facts_source, keyed_visit_source. vm_compute. reflexivity. Qed.
 
-(** ---- — SINGLE-FAILURE SCARS: each concrete rejected program yields EXACTLY ONE diagnostic with
-    the required code, primary anchor (the failing literal/conversion at local 5), and target payload. ---- *)
+(** SINGLE-FAILURE SCARS: each concrete rejected program yields EXACTLY ONE diagnostic with
+    the required code, primary anchor (the failing literal/conversion at local 5), and target payload. *)
 
 (* default integer overflow: a bare [int_max+1] literal cannot default to [TInteger IInt]. *)
 Definition over_default_int_program := singleton_program c3_ms (mkFP "main.go" eq_refl) [ DMain [ SPrintln [ EInt 9223372036854775808 ] ] ].
@@ -7015,9 +7015,9 @@ Theorem wrongkind_erased :
   = [ mkErasedDiagnostic DCInvalidConversion (EANode (GoIndex.mkKey (mkFP "main.go" eq_refl) 5%positive)) [] (Some (TInteger IInt)) None ].
 Proof. rewrite erased_report_src_eq. vm_compute. reflexivity. Qed.
 
-(** ---- — DUPLICATE MAINS ACROSS FILES: two root-package files each declaring `main`.  The report names
+(** DUPLICATE MAINS ACROSS FILES: two root-package files each declaring `main`.  The report names
     the CANONICAL later main (path order: [b.go] after [a.go]) as primary, related to the FIRST canonical main
-    ([a.go]); construction/insertion order does not change this (both files' mains are at local 3). ---- *)
+    ([a.go]); construction/insertion order does not change this (both files' mains are at local 3). *)
 Theorem dup_across_files_erased :
   option_map (fun p => erased_report_src (prog_files p))
              (build_program c3_ms [ main_file_node (mkFP "a.go" eq_refl) [ DMain [ SPrintln [ EInt 1 ] ] ]
@@ -7026,11 +7026,11 @@ Theorem dup_across_files_erased :
              [ EANode (GoIndex.mkKey (mkFP "a.go" eq_refl) 3%positive) ] None None ].
 Proof. vm_compute. reflexivity. Qed.
 
-(** ---- — MULTIPLE SIMULTANEOUS FAILURES: two invalid expressions in DIFFERENT files ([a/x.go]'s
+(** MULTIPLE SIMULTANEOUS FAILURES: two invalid expressions in DIFFERENT files ([a/x.go]'s
     [int8(128)] and [b/y.go]'s [int(3.5)]), one duplicate-main package ([c]), and one missing-main package
     ([d]).  The whole erased report is EXACTLY these four diagnostics in CANONICAL order — expression scars by
     file path first ([a/x.go], [b/y.go]), then package diagnostics by package key ([c] duplicate, [d] missing).
-    Construction order does not affect the result. ---- *)
+    Construction order does not affect the result. *)
 Theorem simultaneous_failures_erased :
   option_map (fun p => erased_report_src (prog_files p))
      (build_program c3_ms
@@ -7046,11 +7046,11 @@ Theorem simultaneous_failures_erased :
          ; mkErasedDiagnostic DCMissingMainEntry (EAPackage "d") [] None None ].
 Proof. vm_compute. reflexivity. Qed.
 
-(** ---- — MIXED NODE-PRIMARY ORDER: a duplicate-main in package [a] (a later-discovered node diagnostic)
+(** MIXED NODE-PRIMARY ORDER: a duplicate-main in package [a] (a later-discovered node diagnostic)
     and an invalid-conversion in package [z] (an earlier-discovered expression diagnostic).  The canonical
     report orders BOTH node-primary diagnostics by NodeKey — the duplicate-main at [a/q.go:3] precedes the
     invalid-conversion at [z/main.go:5] (path [a] < [z]) — NOT by discovery phase (which would put the
-    expression scar first).  This is the NodeKeyMap-canonical order the naive `expr ++ pkg` violated. ---- *)
+    expression scar first).  This is the NodeKeyMap-canonical order the naive `expr ++ pkg` violated. *)
 Theorem mixed_order_erased :
   option_map (fun p => erased_report_src (prog_files p))
      (build_program c3_ms

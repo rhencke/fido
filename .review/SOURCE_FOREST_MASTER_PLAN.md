@@ -151,17 +151,19 @@ Do not intentionally stop for:
 - documentation updates;
 - questions already answered by the active contract.
 
-Each checkpoint runs the current two-review process defined in `.review/CODEX_REVIEW_POLICY.md`: a Contract
-Review before implementation and an Implementation Review after, each gated by `.review/REVIEW_REQUEST.md` and
-each allowing at most one bounded confirmation after one complete repair batch.  (Earlier checkpoints — C0
-through C2 — were reviewed under an earlier root/final two-barrier convention; their per-checkpoint subsections
-below are preserved as historical roadmap, not the current process.)
+Every checkpoint activated after adoption of the current review policy runs the two-review process defined in
+`.review/CODEX_REVIEW_POLICY.md`: a Contract Review before implementation and an Implementation Review after,
+each gated by `.review/REVIEW_REQUEST.md` and each allowing at most one bounded confirmation after one complete
+repair batch. C3 is the explicit transition exception: its implementation predated Contract Review, so the
+accepted manual basis in `.review/REVIEW_BASIS.md` replaces a retroactive Contract Review. C4 and every later
+checkpoint must run Contract Review before implementation. C0 through C2 retain their historical dispositions in
+Git history; this plan states only the current process.
 
 Review-driven commits begin `review(...)`; implementation candidates begin `milestone(...)`.  The checkpoint
 identifier appears immediately after the prefix or in the first line, for example:
 
   milestone: C3 — occurrence-anchored elaboration and diagnostics
-  review(final): C3 — close the elaboration facts and diagnostics findings
+  review(implementation): C3 — close the elaboration facts and diagnostics findings
 
 Do not squash implementation commits and review-driven repairs together.
 
@@ -903,9 +905,8 @@ and a project-authored radix trie is rejected (Fido authors no collection).  A p
 likewise forbidden (an O(n) list-scan node-table lookup).
 
 The sealed `NodeTable` API hides the standard map's CONSTRUCTORS and RAW operations behind the abstract
-`table`/`empty`/`get`/`set` + the three laws — NOT the choice of collection.  C2 RETAINS this selected standard
-`FMapPositive.PositiveMap` (it does not swap it for another representation); the sealing only keeps callers
-from depending on the raw map internals.
+`table`/`empty`/`get`/`set` plus the three laws, not the choice of collection. The selected backing is
+`FMapPositive.PositiveMap`; sealing keeps callers from depending on raw map internals.
 
 4.10 Children from preorder intervals
 
@@ -1504,9 +1505,10 @@ Do not activate C6 automatically if C5 already leaves no residue.
 PART 12 — CHECKPOINT C0
 ===============================================================================
 
-C0 ACTIVE SCOPE
+C0 HISTORICAL SCOPE
 
-C0 is the first checkpoint to copy into `.review/NEXT_STEPS.md`.
+C0 was the first checkpoint activated from this master plan. Its completed disposition is recorded in Git history
+and `.review/SOURCE_FOREST_STATUS.md`.
 
 C0.1 Preflight residue
 
@@ -1981,8 +1983,9 @@ Delete any such residue.
 
 C3.8 Review
 
-C3 is reviewed under the current two-review process (`.review/CODEX_REVIEW_POLICY.md`): a Contract Review
-before implementation and an Implementation Review after.  The implementation is complete when:
+C3 uses the accepted manual review basis in `.review/REVIEW_BASIS.md` because its implementation predates the
+permanent Contract Review process. Its Implementation Review follows `.review/CODEX_REVIEW_POLICY.md`. The
+implementation is complete when:
 
 - the diagnostic types exist and every current compiler error has a valid occurrence anchor;
 - one elaboration root exists (`go_compile` is a projection of `elaborate`);
@@ -2111,16 +2114,11 @@ Likewise:
 
 Parameter and result names remain source occurrences and do not enter semantic signature identity.
 
-C4.7 Review cadence
+C4.7 Review process
 
-C4a/C4b are foundational.
-
-Each activated subcheckpoint may use:
-
-- one root review;
-- one final review.
-
-Stop and push between them if split.
+C4a and C4b are foundational. Each activated subcheckpoint must complete the current Contract Review and
+Implementation Review process. If C4 is split, complete, push, and obtain human approval for C4a before activating
+C4b.
 
 ===============================================================================
 PART 17 — CHECKPOINT C5
@@ -2268,13 +2266,13 @@ C5 is the first feature checkpoint that deliberately stresses:
 
 If C5 requires foundational changes to C0-C3 rather than local extensions, report an architectural conflict.
 
-C5.9 Review cadence
+C5.9 Review process
 
-Use root and final reviews.
+Use the current Contract Review and Implementation Review process.
 
-After final green:
+After Implementation Review is green:
 
-- run a holistic source -> index -> compile -> type -> render -> Go differential audit;
+- run a holistic source -> index -> elaborate -> type -> render -> Go differential audit;
 - push;
 - notify;
 - stop.
@@ -2370,7 +2368,7 @@ Proof/trust
 Workflow
 
 - all checkpoint commit ranges recorded;
-- root/final Codex findings and repair cost visible;
+- Contract Review and Implementation Review findings, confirmations, and repair cost visible;
 - every checkpoint pushed;
 - no force push;
 - final human approval recorded.
@@ -2384,12 +2382,9 @@ For every checkpoint, report:
 - master-plan commit SHA;
 - active NEXT_STEPS contract SHA;
 - checkpoint base SHA;
-- root candidate SHA, if used;
-- root Codex findings;
-- root repair SHAs;
-- final candidate SHA;
-- final Codex findings;
-- final repair SHAs;
+- Contract Review candidate, result, and repair SHAs;
+- Implementation Review candidate, result, and repair SHAs;
+- bounded confirmation result, if used;
 - final checkpoint SHA;
 - pushed ref and push result;
 - complete commit range;
@@ -2407,83 +2402,14 @@ For every checkpoint, report:
 - pinned-Go differential result;
 - known architecture conflicts, which must be zero to claim completion;
 - notification result;
-- confirmation loop stopped.
+- review request closed.
 
 ===============================================================================
-PART 21 — C0 NEXT_STEPS ACTIVATION BLOCK
+PART 21 — HISTORICAL ACTIVATION NOTE
 ===============================================================================
 
-When installing this master plan, copy the following block into
-`.review/NEXT_STEPS.md` as the first active contract:
-
----
-
-Claude Code checkpoint C0: preflight cleanup and occurrence-index proof spike
-
-THIS IS THE ONLY ACTIVE CHECKPOINT.
-
-The complete persistent architecture is stored at:
-
-  .review/SOURCE_FOREST_MASTER_PLAN.md
-
-Only this activated checkpoint is currently binding. Later checkpoints in the
-master plan are preserved architectural context, not current completion criteria.
-
-Before implementation:
-
-1. Stop any current loop.
-2. Read:
-   - `.review/SOURCE_FOREST_MASTER_PLAN.md`;
-   - `.review/CODEX_REVIEW_POLICY.md`;
-   - `.review/SOURCE_FOREST_STATUS.md`.
-3. Commit this active checkpoint contract before implementation.
-4. Record the contract SHA in the status file.
-5. Run:
-
-   /loop 5m completing NEXT_STEPS until codex review is green and then notify me and stop the loop.
-
-Implement only Master Plan Checkpoint C0.
-
-Required work:
-
-- fix the three stale complex-era comments described in C0.1;
-- add the exact complex-underflow scalar-conversion scar described in C0.1;
-- build the isolated occurrence-index proof spike over the SELECTED standard positive-key map
-  (`FMapPositive.PositiveMap` behind the sealed `NodeTable`; `LocalNodeId := positive`, `root_id = 1`);
-- prove the C0 structural theorem set;
-- record the decision in `.review/SOURCE_FOREST_STATUS.md`;
-- preserve current generated bytes and all existing behavior.
-
-Forbidden:
-
-- production AST migration;
-- production `GoFileMap` file-storage migration;
-- production GoIndex integration;
-- diagnostic redesign;
-- source type syntax;
-- new numeric types;
-- structural types;
-- arithmetic;
-- parent pointers;
-- author-supplied IDs;
-- list-backed final node lookup;
-- typed AST.
-
-Review cadence:
-
-- one intentional final Codex stop only;
-- no progress stops.
-
-Completion:
-
-- Codex green;
-- full verification green;
-- commit;
-- fast-forward push;
-- notify;
-- stop loop;
-- do not begin C1.
-
----
+The original C0 activation block is preserved in Git history. New checkpoints are activated through a concise
+`.review/NEXT_STEPS.md` authority pointer, an explicit human authorization, and the current Contract Review and
+Implementation Review process.
 
 END OF MASTER PLAN
