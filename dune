@@ -2,4 +2,4 @@
  (name Fido)
  (synopsis "Fido — GoProgram (ModuleSpec + a possibly-empty STANDARD FilePath map GoFileMap of source-file roots) -> GoTypes (one type authority, ProgramTyped over the raw AST) -> GoCompile (the pinned one-shot go build ./... acceptance = fresh-build output preflight + SourceProgramValid [ProgramTyped + factored PackageDeclsUnique/MainPackagesHaveEntry], built by the one elaborate indexed pass) -> GoSafe -> direct GoRender (incl. go.mod) -> complete DirectoryImage (go.mod + a FileMap of .go bytes) -> validate-before-publish foreign-Go-rejecting sibling-temp sink; Collections wraps pinned-stdlib FMapAVL/FMapPositive — no Fido-authored map/set")
  (theories Stdlib)
- (modules digits Ints Floats Complexes FilePath ModulePath GoVersion Collections GoAST GoIndex GoTypes GoCompile GoSafe GoRender GoEmit))
+ (modules digits Ints Floats Complexes FilePath ModulePath GoVersion Collections GoNames GoAST GoIndex GoTypes GoCompile GoSafe GoRender GoEmit))
