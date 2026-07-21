@@ -10,12 +10,15 @@ Compilation.** The full design is `.review/SOURCE_FOREST_MASTER_PLAN.md`; Git hi
 - Contract SHA-256: `9ec55b38444e3a32eaf6cb024f72285527992ba1612dabfdc99ce6f89c8517b4`.
 - Accepted review basis: `.review/REVIEW_BASIS.md`.
 - Original C4 baseline: `8c9212a8c814c7a99a5e3ef1970a0ae32425a918`.
-- Blocked candidate baseline: `89b8e54634e7012612a51990756ad29a579c1b0f` (C4 Implementation Review BLOCKING).
-- Human authorization: `C4-source-type-resolution-1`; repair `C4-retained-facts-and-diagnostics-repair-1`.
-- Repair authority: `.review/C4_IMPLEMENTATION_REPAIR_1.md`.
+- First blocked candidate: `89b8e54634e7012612a51990756ad29a579c1b0f` (C4 Implementation Review BLOCKING).
+- Second blocked candidate / repair-2 baseline: `1c4a7de8e9e265b929a3ba9ce1c8fb1317ca98ca` (second BLOCKING).
+- Human authorization: `C4-source-type-resolution-1`; repair 1 `C4-retained-facts-and-diagnostics-repair-1`;
+  repair 2 `C4-typed-reference-single-path-repair-2` (ACTIVE).
+- Repair authority (active): `.review/C4_IMPLEMENTATION_REPAIR_2.md` (repair 1 `.review/C4_IMPLEMENTATION_REPAIR_1.md`
+  superseded — deleted in the first repair-2 implementation commit; git history is its archive).
 - Automatic Codex review: DISABLED. The directive is the accepted human Contract Review; on repair completion
-  the candidate is frozen (`review(final): C4`) and reported for Rob's human Implementation Review — no Codex
-  review is requested or run.
+  the candidate is frozen (`review(final): C4 — freeze single-path typed-reference candidate`) and reported for
+  Rob's human Implementation Review — no Codex review is requested or run.
 - C5 and every later checkpoint remain forbidden.
 
 ## Completed checkpoints
@@ -36,25 +39,31 @@ facts; render from the source spelling; and delete the old path in the same chec
 names (the fourteen existing numeric names plus the `byte`→`uint8` and `rune`→`int32` source aliases); no new
 semantic types.  No C5 work (no `uintptr`, no rune literals/constants).
 
-- **Candidate `89b8e54` was C4 Implementation Review BLOCKING; the authorized repair
-  `C4-retained-facts-and-diagnostics-repair-1` (authority `.review/C4_IMPLEMENTATION_REPAIR_1.md`) is COMPLETE —
-  candidate REFROZEN as the `review(final): C4` head. Human C4 Implementation Review pending.** Each blocking
-  class closed:
-  - **2.1 CLOSED** — the once-built type-name fact map is ON the production semantic path: `elaborate_indexed`
-    binds `tnfacts := prog_type_name_facts p` ONCE and uses it for BOTH the production outcome fold and the
-    sealed `ef_type_name_facts` (no `prog_type_name_fact_table p ip` rebuild); `elaborate_ok_seals_tnfacts` proves
-    the sealed map IS the consumed map. `predeclared_type` is no longer called inline on the production path.
-  - **2.2 CLOSED** — ONE expression-outcome authority `prog_conv_outcomes` (fold `outcome_step`): a conversion
-    reads its target `TypeNameFact` + operand outcome, `convert_const` ONCE (`ExprOutcome` = EOOk/EOConvFail/
-    EOChildFail); `prog_expr_facts` is a PROJECTION of it (EOOk), the diagnostics a projection (EOConvFail/EOOk).
-    The `option ConstInfo` status map + the copy are DELETED.
-  - **2.3 CLOSED** — `DRInvalidConversion` retains the target `TypeNameRef`; `ErasedDiagnostic` gains
-    `ed_source_target` derived THROUGH `type_name_ref_syntax` (not the resolved GoType); invalid `byte(256)` vs
-    `uint8(256)` (and `rune` vs `int32`) erase DISTINGUISHABLY (`byte_uint8_erased_differ`/`rune_int32_erased_differ`).
-  - **2.4 CLOSED** — the pinned-Go alias matrix now covers ACCEPTED `byte(0)`/`byte(255)`/`uint8(255)`/
-    `rune(±2^31 endpoints)`/`int32(...)` (Fido-emitted witness, compiled+run) AND REJECTED `byte(-1)`/`byte(256)`/
-    `rune(±)`/matching `uint8`/`int32` (`rej_conv`, conversion/type-check diagnostics); the "not tested" claim removed.
-  - **2.5 CLOSED** — ARCHITECTURE.md GoAST/GoCompile/GoRender rows + master-plan C4.4 updated to the live
+- **`1c4a7de` (repair-1 candidate) was a SECOND C4 Implementation Review BLOCKING; production-root repair 2
+  `C4-typed-reference-single-path-repair-2` (authority `.review/C4_IMPLEMENTATION_REPAIR_2.md`) is ACTIVE.** The
+  green tree is not the true contract: the live production expression pass still runs on raw NodeKey arithmetic +
+  a hidden second semantic route (typed refs/retained facts proved BESIDE the path). Blocking classes:
+  - **2.1** production `outcome_step` fills `ef_use_resolved` via `occ_use_resolved` → `resolve_expr_const` →
+    recursive `const_info` → a SECOND `convert_const` per nested conversion — "one convert_const per conversion"
+    is false. Use-context resolution must come from the just-computed ConstInfo.
+  - **2.2** typed refs (`conversion_target_ref`) are NOT on the live path — the conversion branch reads raw
+    `find (type_name_key …)` / `find (operand_key …)`, no index arg, no ExprRef/TypeNameRef/operand-ExprRef value.
+  - **2.3** `tnfacts := prog_type_name_facts p` re-folds `prog_visit p` = `concat (prog_blocks p)` — a SECOND
+    visit after the retained one; build from the let-bound `visit`.
+  - **2.4** impossible structural failures become semantic values (missing fact → EOChildFail; ref-None → [];
+    `leaf_ci` fake `CBool false` for EConvert) — eliminate via a total proof-backed function / `False_rect`.
+  - **2.5** `EOConvFail` stores only GoType+ConstInfo; the diagnostic re-mints the target ref — the outcome must
+    CARRY the exact conversion/target/operand refs + facts; diagnostics PROJECT them.
+  - **2.6** the gated theorems (`prog_conv_outcome_consumes`/`elaborate_ok_seals_tnfacts`/`occ_expr_diags_conv_sound`)
+    prove the raw-key path, not the typed-ref path — replace them.
+  - **2.7** `repeated_name_distinct_refs` is CONDITIONAL (assumes the two occurrences) — need a CONCRETE compiled
+    two-`uint8` snapshot minting+querying both real refs.
+  - **2.8** false current prose/comments (one-visit/one-convert claims, "NO source syntax", NEXT_STEPS placeholders).
+
+  Kept from repair 1 (do not reopen without need): `DiagnosticReason` retains a `TypeNameRef`; erased reports
+  retain source-target syntax; byte/uint8 & rune/int32 erased differ; the pinned-Go accept+reject alias matrix;
+  the deleted family-specific renderer helpers; the improved architecture prose. Superseded landed inventory:
+  - **(repair-1) 2.5** — ARCHITECTURE.md GoAST/GoCompile/GoRender rows + master-plan C4.4 updated to the live
     `EConvert`/consumed-facts/source-spelling reality; the dead `integer_keyword`/`float_keyword`/`complex_keyword`
     helpers + their GoRender ASCII lemmas/examples + gate entries DELETED.
   - **2.6 CLOSED** — this candidate is the `review(final): C4 — freeze retained-fact repair candidate` freeze.
