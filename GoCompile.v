@@ -335,7 +335,7 @@ Record PackageRef (p : GoProgram) : Type := mkPackageRef {
 Arguments package_ref_key {p} _.
 Arguments package_ref_ok {p} _.
 
-(** represented-package witness: a PackageRef's key names a real file in [p] (the directive's exists form). *)
+(** represented-package witness: a PackageRef's key names a real file in [p]. *)
 Lemma package_ref_present : forall p (r : PackageRef p),
   exists path sf, GoAST.maps_to_file path sf (prog_files p) /\ fp_parent path = package_ref_key r.
 Proof.
@@ -1541,10 +1541,10 @@ Proof. rewrite expr_all_ok_program_typedb. apply GoTypes.program_typedb_iff. Qed
 
 (* ---- the PACKAGE DECISION: [pkg_decls_unique_b] + [main_pkgs_have_entry_b] + [source_spec_package_rules_b], the factored
    roots [PackageDeclsUnique] / [MainPackagesHaveEntry] / [PackageRulesValid], and their DIRECT reflections
-   ([pkg_decls_unique_b_iff] / [main_pkgs_have_entry_b_iff] / [source_spec_package_rules_b_PackageRulesValid]) are all defined at
-   (early, above [source_spec_valid_b] which reuses [source_spec_package_rules_b] as its package half), so the retained-bucket
-   production decision ([pkg_diags_empty_iff_rules]) can root DIRECTLY in the two factored roots.  The exactly-one
-   property is only the downstream CONSEQUENCE [current_package_rules_exactly_one]. ---- *)
+   ([pkg_decls_unique_b_iff] / [main_pkgs_have_entry_b_iff] / [source_spec_package_rules_b_PackageRulesValid]) are all
+   defined early, above [source_spec_valid_b] (which reuses [source_spec_package_rules_b] as its package half), so the
+   retained-bucket production decision ([pkg_diags_empty_iff_rules]) can root DIRECTLY in the two factored roots.  The
+   exactly-one property is only the downstream CONSEQUENCE [current_package_rules_exactly_one]. ---- *)
 
 (* ---- the COMBINED DECIDABLE decision [semantic_ok_b]: the readable SOURCE-specification decision, proved
    EXACTLY = [SourceProgramValid] (the SOURCE-semantic half of [GoCompile]; [GoCompile] additionally requires
@@ -2906,8 +2906,8 @@ Qed.
 (* the PACKAGE diagnostics.  Every package with a main count other than one is a failure; the anchor
    is a validated [PackageRef] (each package in [package_summaries] is represented, so the reference is real).
    Emptiness is tied DIRECTLY to [source_spec_package_rules_b] (the package half of the decision).
-   (ROOT emits [DRMissingMainEntry] for every non-conforming package; a later refinement distinguishes the duplicate
-   case with [DRMainRedeclared] over the collected main [DeclRef]s.) *)
+   A package with zero mains is diagnosed [DRMissingMainEntry]; a package with more than one is diagnosed
+   [DRMainRedeclared] over the collected main [DeclRef]s. *)
 
 (* A non-conforming package is diagnosed with STRUCTURED reasons anchored in the exact snapshot:
    - n >= 2 mains -> n-1 [DRMainRedeclared], one per TAIL main [d2, d3, ...] each related to the FIRST canonical
@@ -3596,7 +3596,7 @@ Proof.
   split; [ apply map_eq_nil | intro H; rewrite H; reflexivity ].
 Qed.
 
-(* / — the KEYED visit stream is SOURCE-DETERMINED.  Erasing a visited reference to its
+(* the KEYED visit stream is SOURCE-DETERMINED.  Erasing a visited reference to its
    NodeKey (path + local id) and pairing it with its source occurrence yields a stream that depends ONLY on the
    file map's canonical [file_bindings] and each file's [occs_file] — NO snapshot [p] survives.  This is the
    foundation for cross-snapshot report/fact determinism: [FilesEqual] programs have IDENTICAL keyed streams. *)
@@ -5371,8 +5371,8 @@ Proof.
     + apply String.eqb_neq in Eg. rewrite PMF.add_neq_o, PMF.empty_o in Hf by exact Eg. discriminate Hf.
 Qed.
 
-(** the FRESOURCEFILE entries: a key maps to [FRESourceFile fp] IFF some
-    ROOT-level represented file (empty parent) has that key as its own path and IS [fp]. *)
+(** the [FRESourceFile] entries: a key maps to [FRESourceFile fp] IFF some
+    root-level represented file (empty parent) has that key as its own path and IS [fp]. *)
 Lemma root_layout_source_iff : forall p e fp,
   PM.find e (root_layout p) = Some (FRESourceFile fp) <->
   (exists b, In b (GoAST.file_bindings (prog_files p))
@@ -5588,9 +5588,9 @@ Qed.
     the fresh-build preflight on top. *)
 
 (** [PackageDeclsUnique] / [MainPackagesHaveEntry] / [PackageRulesValid] and their executable reflections
-    ([pkg_decls_unique_b_iff] / [main_pkgs_have_entry_b_iff] / [source_spec_package_rules_b_PackageRulesValid]) are defined at
-    (early, beside [source_spec_package_rules_b]), so BOTH the [package_summaries] view and the retained-bucket production decision
-    root DIRECTLY in the two factored roots.  Here we package the SOURCE admission on top. *)
+    ([pkg_decls_unique_b_iff] / [main_pkgs_have_entry_b_iff] / [source_spec_package_rules_b_PackageRulesValid]) are defined
+    early, beside [source_spec_package_rules_b], so BOTH the [package_summaries] view and the retained-bucket production
+    decision root DIRECTLY in the two factored roots.  Here we package the SOURCE admission on top. *)
 Definition SourceProgramValid (p : GoProgram) : Prop := ProgramTyped p /\ PackageRulesValid p.
 
 (** the exactly-one property is retained ONLY as the universal CONSEQUENCE of today's two factored rules — a
@@ -6416,7 +6416,7 @@ Proof. intro cp. exact (ef_root_layout_ok (cp_facts cp)). Qed.
     retained index [ip], its [ElaborationFacts], and the whole-elaboration provenance.  That single execution is
     let-bound and all three constructor arguments PROJECT it — [cp_index], [cp_facts], and [cp_prov] come from
     ONE elaboration, never three reruns.  [cp_program] is a direct first-field projection ([= p]) so
-    rendering/emission never reduce the (opaque, vm-compute-unfriendly) index elaboration ().  This is the SAME
+    rendering/emission never reduce the opaque, vm-compute-unfriendly index elaboration.  This is the SAME
     single-destructuring provenance [go_compile]'s success value carries — the two artifacts are built ONE way. *)
 Definition compilable_of_valid (p : GoProgram) (H : GoCompile p) : CompilableProgram :=
   let s  := elaboration_ok_full p H in
@@ -6740,7 +6740,7 @@ Example complex_nonzero_imag_rejected   : legacy_compile_class (go_compile compl
 Example complex_nonzero_imag_no_compile : ~ GoCompile complex_nonzero_imag_program.
 Proof. apply (reject_no_compile complex_nonzero_imag_program); vm_compute; reflexivity. Qed.
 
-(** / — CONCRETE STRUCTURED-DIAGNOSTIC FIXTURES.  Because the occurrence index is an OPAQUE
+(** CONCRETE STRUCTURED-DIAGNOSTIC FIXTURES.  Because the occurrence index is an OPAQUE
     sealed module ([Snap : SNAP_SIG]), the elaboration ([elaborate]/[expr_diags]/[pkg_diags]/[erased_report]) does
     NOT reduce — a fixture cannot [vm_compute] a concrete report.  So each fixture pins the REAL index
     ([Snap.index_program] of the concrete program) and states its structured claim THROUGH the proven

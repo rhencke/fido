@@ -20,7 +20,7 @@ From Fido Require Import Floats.
 
 Local Open Scope Z_scope.
 
-(** PART C — one complex type authority *)
+(** the one complex type authority *)
 
 (** exactly the two Go complex types.  No placeholder future constructors. *)
 Inductive ComplexType := C64 | C128.
@@ -45,7 +45,7 @@ Definition complex_keyword (ct : ComplexType) : string :=
 Lemma complex_keyword_C64 : complex_keyword C64 = "complex64"%string. Proof. reflexivity. Qed.
 Lemma complex_keyword_C128 : complex_keyword C128 = "complex128"%string. Proof. reflexivity. Qed.
 
-(** PART D — exact untyped complex constants *)
+(** exact untyped complex constants *)
 
 (** an EXACT complex constant: two exact canonical rational [FloatConst] components — real and imaginary.  It
     carries NO signed zero, infinity, NaN, runtime [spec_float], or source spelling; each component's
@@ -100,7 +100,7 @@ Proof. reflexivity. Qed.
 Lemma decimal_complex_imag : forall d, cc_imag (decimal_complex_value d) = decimal_value (dc_imag d).
 Proof. reflexivity. Qed.
 
-(** PART F — general runtime complex values and intrinsic typed complex constants *)
+(** general runtime complex values and intrinsic typed complex constants *)
 
 (** the GENERAL runtime complex domain: two general [FloatValue] components at the type's component format.
     Because each component is a general [FloatValue], a runtime complex value MAY contain finite, +/-0,

@@ -94,7 +94,7 @@ basis_authority: Rob's requested manual audit, recorded before C3 closeout
 
 ## Accepted manual closeout findings
 
-The implementation must close the findings in `MANUAL_C3_AUDIT.md` before requesting Implementation Review:
+The manual whole-snapshot audit recorded these findings, all since closed (git history has the detail):
 
 1. repeated package traversal;
 2. fail-open fresh runner;

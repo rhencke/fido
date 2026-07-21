@@ -151,34 +151,17 @@ Do not intentionally stop for:
 - documentation updates;
 - questions already answered by the active contract.
 
-For a foundational checkpoint, use at most:
+Each checkpoint runs the current two-review process defined in `.review/CODEX_REVIEW_POLICY.md`: a Contract
+Review before implementation and an Implementation Review after, each gated by `.review/REVIEW_REQUEST.md` and
+each allowing at most one bounded confirmation after one complete repair batch.  (Earlier checkpoints — C0
+through C2 — were reviewed under an earlier root/final two-barrier convention; their per-checkpoint subsections
+below are preserved as historical roadmap, not the current process.)
 
-1. one semantic-root review;
-2. one final exhaustive review.
+Review-driven commits begin `review(...)`; implementation candidates begin `milestone(...)`.  The checkpoint
+identifier appears immediately after the prefix or in the first line, for example:
 
-For a small proof-spike or cleanup checkpoint, use only the final review.
-
-Review-driven commits must begin:
-
-  review(root):
-
-or:
-
-  review(final):
-
-Implementation candidates must begin:
-
-  milestone(root):
-
-or:
-
-  milestone(final):
-
-The checkpoint identifier must appear immediately after the prefix or in the first line, for example:
-
-  milestone(root): C2 — canonical occurrence index and parent navigation
-  review(root): C2 — make parent lookup use the certified node table
-  milestone(final): C2 — integrate NodeRef through the full proof gate
+  milestone: C3 — occurrence-anchored elaboration and diagnostics
+  review(final): C3 — close the elaboration facts and diagnostics findings
 
 Do not squash implementation commits and review-driven repairs together.
 
@@ -576,7 +559,7 @@ After the source-file migration:
 
 - `GoRender` renders the package clause from `GoSourceFile`;
 - `GoCompile` proves package-clause and package-grouping validity;
-- `CompilationFacts` no longer invents package spelling for the renderer.
+- `ElaborationFacts` no longer invents package spelling for the renderer.
 
 A convenience builder may construct a canonical main-package file.
 
@@ -1177,20 +1160,23 @@ Canonical diagnostic order:
 
 Package/program-only errors receive a documented deterministic position.
 
-Diagnostics depend only on the `GoFileMap` up to standard map equality (`FilesEqual`): `FilesEqual` file maps
-produce equal diagnostics, and the backing-tree structure / construction order is never observable.
+Source-only facts and the semantic diagnostics depend only on the `GoFileMap` up to standard map equality
+(`FilesEqual`): `FilesEqual` file maps produce equal semantic diagnostics, and the backing-tree structure /
+construction order is never observable.  The full fresh-build plan and the command-facing elaboration report
+ALSO depend on the `ModuleSpec` (the preflight's default output name is a `ModulePath` function), so their
+determinism requires `ProgramInputEqual` (the file map AND the module), not `FilesEqual` alone.
 
-6.4 Analysis result
+6.4 Elaboration result
 
 The permanent direction is:
 
-  AnalysisResult p :=
-    AnalysisOK (CompilationFacts p)
-    AnalysisFailed (NonEmpty (Diagnostic p))
+  ElaborationResult p :=
+    ElaborationOK (ElaborationFacts p)
+    ElaborationFailed (NonEmpty (Diagnostic p))
 
 The proof-producing compiler remains exact against one declarative whole-program judgment.
 
-If `go_compile` remains as a convenience API, it must be a projection of the one analysis root.
+If `go_compile` remains as a convenience API, it must be a projection of the one elaboration root.
 
 It may not independently recompute validity.
 
@@ -1200,10 +1186,10 @@ Prove:
 
 - every node anchor belongs to the diagnosed program;
 - every file anchor belongs to the program;
-- successful analysis yields no diagnostics;
-- failed analysis yields at least one diagnostic;
-- analysis success iff declarative compilation holds;
-- analysis failure iff no valid compilation facts exist, under the selected exact theorem;
+- successful elaboration yields no diagnostics;
+- failed elaboration yields at least one diagnostic;
+- elaboration success iff declarative compilation holds;
+- elaboration failure iff no valid elaboration facts exist, under the selected exact theorem;
 - diagnostic order is deterministic;
 - no diagnostic stores a copied AST node as its identity;
 - no semantic type carries source location.
@@ -1477,7 +1463,7 @@ Purpose:
 
 - make compiler failures say where and why;
 - make successful facts occurrence-indexed;
-- retain one analysis root and no typed AST.
+- retain one elaboration root and no typed AST.
 
 No new Go language feature.
 
@@ -1631,23 +1617,10 @@ If a minor internal choice remains undecided, name it.
 
 Do not leave the ownership or identity architecture undecided.
 
-C0.7 Review cadence
+C0.7 Review and completion
 
-C0 is small and isolated.
-
-Use only one intentional Codex stop:
-
-- final exhaustive review.
-
-After green:
-
-- run full existing repository verification;
-- commit C0 complete;
-- fast-forward push;
-- notify Rob;
-- stop.
-
-Do not begin C1.
+C0 is small and isolated.  After it passes review and full repository verification, commit, push, notify, and
+stop; do not begin C1.
 
 C0.8 C0 acceptance
 
@@ -1723,7 +1696,7 @@ backing AVL tree.
 
 C1.5 Package clause responsibility
 
-Move package spelling from `CompilationFacts` to `GoSourceFile`.
+Move package spelling from `ElaborationFacts` to `GoSourceFile`.
 
 Delete `cf_pkg_name` or any replacement whose only purpose is to tell the renderer what the source file says.
 
@@ -1761,50 +1734,12 @@ The current source forest renders the same `package main` files.
 
 The sink behavior and recursive path set remain unchanged.
 
-C1.8 Root review
+C1.8 Review and completion
 
-Use one semantic-root stop after:
-
-- GoSourceFile / GoFileNode (construction/view) / GoFileMap (standard map) exist;
-- path uniqueness (the map key) and the standard lookup/builder laws are proved;
-- package clause is source-owned;
-- old map[path, AST] / project-authored fmap authority is deleted;
-- local core compiles;
-- generated pipeline integration may still be incomplete.
-
-Commit:
-
-  milestone(root): C1 — specification-shaped file roots and keyed file set
-
-Repair under:
-
-  review(root):
-
-Do not proceed to final integration until root green.
-
-C1.9 Final review
-
-After root green:
-
-- complete full pipeline migration;
-- remove adapters;
-- update docs/gates;
-- prove behavior preservation;
-- verify byte identity;
-- commit:
-
-  milestone(final): C1 — integrate the source forest through emission
-
-Repair under:
-
-  review(final):
-
-After final green:
-
-- verify;
-- push;
-- notify;
-- stop.
+C1 is complete when: `GoSourceFile` / `GoFileNode` (construction/view) / `GoFileMap` (standard map) exist with
+path uniqueness and the standard lookup/builder laws proved; the package clause is source-owned; the old
+`map[path, AST]` / project-authored fmap authority is deleted; the full pipeline migration is done with adapters
+removed, docs/gates updated, behavior preservation proved, and byte identity verified.
 
 C1.10 C1 acceptance
 
@@ -1875,7 +1810,7 @@ Provide one deterministic:
   index_file
   index_program
 
-The compiler must let-bind/build the index once per analysis snapshot.
+The compiler must let-bind/build the index once per elaboration snapshot.
 
 Do not call `index_program` independently from every query.
 
@@ -1930,45 +1865,12 @@ Existing compiler/type logic may continue computing the same semantic judgments 
 
 This checkpoint establishes occurrence identity, not new language meaning.
 
-C2.8 Root review
+C2.8 Review and completion
 
-Stop after:
-
-- production index exists;
-- efficient parent lookup exists;
-- NodeRef/typed refs exist;
-- full structural theorem family is green;
-- repeated-equal-occurrence identity is proven;
-- no production compiler integration beyond traversal is required yet.
-
-Commit:
-
-  milestone(root): C2 — canonical occurrence index and parent navigation
-
-Repair under:
-
-  review(root):
-
-C2.9 Final review
-
-After root green:
-
-- integrate indexed traversal through current compiler/render proof infrastructure where appropriate;
-- ensure the index is built once;
-- delete spike/adapter residue;
-- update docs and gate;
-- keep generated bytes unchanged.
-
-Commit:
-
-  milestone(final): C2 — integrate snapshot-local NodeRef through the source forest
-
-After green:
-
-- verify;
-- push;
-- notify;
-- stop.
+C2 is complete when: the production index and efficient parent lookup exist; NodeRef / typed refs exist; the
+full structural theorem family is green; repeated-equal-occurrence identity is proven; the indexed traversal is
+integrated through the compiler/render proof infrastructure, built once, with spike/adapter residue deleted,
+docs and gate updated, and generated bytes unchanged.
 
 C2.10 C2 acceptance
 
@@ -2021,13 +1923,13 @@ Current failures should gain precise anchors:
 
 Keep diagnostic codes small and exact.
 
-C3.3 One analysis root
+C3.3 One elaboration root
 
-Introduce the permanent analysis direction:
+Introduce the permanent elaboration direction:
 
-  AnalysisResult p
+  ElaborationResult p
 
-If old `go_compile` remains, make it a projection of `analyze`.
+If old `go_compile` remains, make it a projection of `elaborate`.
 
 Delete independent duplicated checks.
 
@@ -2059,11 +1961,11 @@ C3.6 Exactness theorems
 
 Prove:
 
-- `AnalysisOK facts` iff declarative compile judgment;
-- `AnalysisFailed ds` yields nonempty valid diagnostics;
+- `ElaborationOK facts` iff declarative compile judgment;
+- `ElaborationFailed ds` yields nonempty valid diagnostics;
 - no valid facts exist on failure, under the selected theorem;
 - success has no diagnostics;
-- current `CompilableProgram` is produced only from `AnalysisOK`;
+- current `CompilableProgram` is produced only from `ElaborationOK`;
 - renderer/emitter still require compiled/safe evidence.
 
 C3.7 No typed AST
@@ -2077,47 +1979,26 @@ Audit the repository for:
 
 Delete any such residue.
 
-C3.8 Root review
+C3.8 Review
 
-Stop after:
+C3 is reviewed under the current two-review process (`.review/CODEX_REVIEW_POLICY.md`): a Contract Review
+before implementation and an Implementation Review after.  The implementation is complete when:
 
-- diagnostic types exist;
-- current compiler errors have valid anchors;
-- one analysis root exists;
-- exact success/failure theorem core is green;
-- downstream report formatting and broad fixtures may remain.
+- the diagnostic types exist and every current compiler error has a valid occurrence anchor;
+- one elaboration root exists (`go_compile` is a projection of `elaborate`);
+- the exact success/failure theorem core is green;
+- diagnostics are complete and in deterministic order;
+- reports, tests, docs, and the compiler/e2e integration are done;
+- there is no behavior drift except improved structured error evidence.
 
-Commit:
-
-  milestone(root): C3 — occurrence-anchored analysis and diagnostics
-
-C3.9 Final review
-
-After root green:
-
-- complete all diagnostics;
-- deterministic order;
-- reports/tests/docs;
-- compiler/e2e integration;
-- no behavior drift except improved structured error evidence.
-
-Commit:
-
-  milestone(final): C3 — complete occurrence-indexed compilation facts and diagnostics
-
-After green:
-
-- verify;
-- push;
-- notify;
-- stop.
+After an Implementation Review returns GREEN: verify, push, notify, stop.
 
 C3.10 C3 acceptance
 
 - every current compiler failure says where and why structurally;
 - every node anchor is valid;
-- one analysis root;
-- occurrence-indexed facts;
+- one elaboration root (`go_compile` is a projection of `elaborate`);
+- occurrence-keyed `ElaborationFacts`;
 - deterministic diagnostics;
 - no typed AST;
 - no generated-byte drift unless explicitly reviewed;

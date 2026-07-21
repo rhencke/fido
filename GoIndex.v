@@ -87,8 +87,7 @@ Record NodeMeta := mkMeta {
 Definition root_id : positive := 1.       (* every file root's canonical local id *)
 Definition pkg_id  : positive := 2.       (* the package clause is the file root's first child = Pos.succ root_id *)
 
-(* total extraction from a provably-present option — the key to a total validated-reference API (used by the
-   reference layer that follows this milestone). *)
+(* total extraction from a provably-present option — the basis for the total validated-reference API. *)
 Definition option_get {A} (o : option A) : o <> None -> A :=
   match o with Some a => fun _ => a | None => fun H => False_rect A (H eq_refl) end.
 Lemma option_get_eq {A} (o : option A) (H : o <> None) (a : A) : o = Some a -> option_get o H = a.
@@ -267,7 +266,7 @@ Proof.
   reflexivity.
 Qed.
 
-(** ** An INDEPENDENT source-occurrence specification (table-free, builder-independent) — directive  *)
+(** ** An INDEPENDENT source-occurrence specification (table-free, builder-independent).          *)
 (* For a source file and a local preorder id, this states — purely from the source syntax and the    *)
 (* boundary functions above — the EXACT occurrence that id designates and the metadata it SHOULD      *)
 (* carry.  It never consults [NodeTable], [build_*], or [FileIndex]; it is the semantic yardstick      *)
@@ -687,7 +686,7 @@ Proof.
         cbn [option_map]; reflexivity.
 Qed.
 
-(* --- the directive consequences (A..H), all derived from the one universal theorem. --- *)
+(* --- the consequences (A..H), all derived from the one universal source/index exactness theorem. --- *)
 
 (* A: a real source occurrence -> its metadata is stored. *)
 Theorem source_occurrence_meta : forall f local o,
@@ -740,7 +739,7 @@ Theorem source_subtree_end_exact : forall f local o,
   exists m, NodeTable.get local (fi_table (build_file f)) = Some m /\ nm_subtree_end m = occurrence_subtree_end o.
 Proof. intros f local o H. exists (occurrence_meta o). split; [apply source_occurrence_meta; exact H | reflexivity]. Qed.
 
-(** ** PILLAR 2 — structural navigation invariants (directive): preorder-interval ancestry,     *)
+(** ** PILLAR 2 — structural navigation invariants: preorder-interval ancestry,                 *)
 (* exact parent lookup, interval-jump direct children, and canonical enumeration.  The [SubtreeWF] /  *)
 (* [ForestWF] machinery below is GRAMMAR-AGNOSTIC (it speaks only of the node table + preorder         *)
 (* intervals); it is reused unchanged from the accepted spike.  Only [build_*_spec] / [build_file_wf]  *)
@@ -1147,7 +1146,7 @@ Proof.
   - constructor; [| apply IH]. intro H. apply pos_seq_In in H. rewrite Pos2Nat.inj_succ in H. lia.
 Qed.
 
-(* --- the navigation theorem set (directive); grammar-agnostic given [build_file_wf]. --- *)
+(* --- the navigation theorem set; grammar-agnostic given [build_file_wf]. --- *)
 
 Lemma in_domain (f : GoSourceFile) k m :
   NodeTable.get k (fi_table (build_file f)) = Some m ->
@@ -1520,7 +1519,7 @@ Theorem thm14_meta_stores_no_subtree :
     m = mkMeta k op r e /\ (forall e', mkMeta k op r e = mkMeta k op r e' -> e = e').
 Proof. intros [k op r e]. exists k, op, r, e. split; [reflexivity|]. intros e' H; injection H as <-; reflexivity. Qed.
 
-(** ** PILLAR 3 — snapshot-indexed references over the exact [GoProgram] (directive).           *)
+(** ** PILLAR 3 — snapshot-indexed references over the exact [GoProgram].                        *)
 (* A reference belongs to the EXACT immutable program snapshot [p] (it is indexed by [p]), never to  *)
 (* free-standing index data — so two programs sharing a file map but differing in [ModuleSpec], or    *)
 (* sharing a shape but differing in payload, have NON-INTERCHANGEABLE reference types.  Structurally  *)
@@ -2489,7 +2488,7 @@ Module Type SNAP_SIG.
   Parameter visit_file_nodup : forall p (fr : FileRef p),
     NoDup (map (fun rc => node_ref_local (fst rc)) (visit_file fr)).
   (* the visited syntax fragments ARE the file's canonical source occurrences, in canonical order — the
-     traversal projects exactly [occs_file] on the second component (a downstream indexed analysis folds the
+     traversal projects exactly [occs_file] on the second component (downstream semantic elaboration folds the
      paired syntax without a per-node search). *)
   Parameter visit_file_snd : forall p (fr : FileRef p),
     map snd (visit_file fr) = map snd (occs_file (file_ref_source fr)).

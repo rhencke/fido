@@ -521,7 +521,7 @@ Proof.
   - intros [r H]; discriminate.
 Qed.
 
-(**: representability is EXACTLY existence of a typed result (reflected through [round_typed_float]). *)
+(** representability is EXACTLY existence of a typed result (reflected through [round_typed_float]). *)
 Lemma round_typed_float_representable : forall ft q,
   float_representableb ft q = true <-> exists tc, round_typed_float ft q = Some tc.
 Proof.

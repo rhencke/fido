@@ -831,8 +831,8 @@ fresh_go_build /tmp/dc-multi FR || { require_go_ran fresh-go-build; cat "${FR:-/
 echo "fido e2e diff: go build ./... accepted the two-main tree and wrote NO default executable (matches FBDDiscardMultiple)"; rm -rf "$FR"
 # 20.10 / 20.11 — REGULAR-FILE OVERWRITE: a sole-main output name that is an existing REGULAR file (the root
 #   go.mod, or the root source file) is NOT a directory collision -> ACCEPT; the sole-main build OVERWRITES that
-#   fresh file with the executable, and the AUTHORITATIVE tree stays byte-identical (the runner builds in a
-#   disposable copy — ).  A build-in-place design would corrupt the module/source.
+#   fresh file with the executable, and the AUTHORITATIVE tree stays byte-identical because the runner builds in
+#   a disposable copy.  A build-in-place design would corrupt the module/source.
 overwrite_accept() {  # <dir> <module-path> <output-name-that-is-a-regular-file> <label>
   cp "$1/$3" /tmp/ov-auth
   fresh_go_build "$1" FR || { require_go_ran fresh-go-build; cat "${FR:-/dev/null}/.build.err" 2>/dev/null; rm -rf "$FR"; echo "fido e2e diff: go build ./... REJECTED $4 (GoCompile ACCEPTS — MODEL BUG)"; exit 1; }

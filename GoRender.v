@@ -8,9 +8,9 @@
     PUBLIC capability is [GoEmit.render_program : SafeProgram -> DirectoryImage].  Proved here: all
     output ASCII; the ONE constant-status root [render_const_info_denotes] — rendering an expression denotes
     EXACTLY the [GoTypes.ConstInfo] it computes (a bare integer/float/complex is an UNTYPED constant, not a typed
-    [int]/[float64]/[complex128] — the repair; an explicit conversion is a TYPED constant through [convert_const]), in
+    [int]/[float64]/[complex128]; an explicit conversion is a TYPED constant through [convert_const]), in
     the ONE [ConstInfo] vocabulary, under an INDEPENDENT decimal reader / float decoder / string decoder
-    (parser-free; the milestone forbids a lexer/parser/round-trip in the certified path).  That denotation is
+    (parser-free — there is no lexer/parser/round-trip in the certified path).  That denotation is
     FUNCTIONAL ([render_const_info_denotes_functional]): a rendered spelling denotes AT MOST ONE [ConstInfo], as
     the recognisers (bool / bare integer / string / integer conversion / bare float / float conversion /
     complex literal / complex conversion) are
@@ -464,7 +464,8 @@ Proof.
   lia.
 Qed.
 
-(** ---- ROOT correspondence: rendered spelling denotes EXACTLY the semantic value (parser-free) ---- *)
+(** ---- source-spelling / semantic-value correspondence: a rendered spelling denotes EXACTLY the
+    semantic value it was rendered from, established parser-free ---- *)
 
 (** Read a rendered Go integer literal: an optional leading unary minus over the decimal magnitude. *)
 Definition read_go_int (s : string) : Z :=
@@ -723,12 +724,12 @@ Proof. reflexivity. Qed.
 
 (** ---- the ONE render-time constant-status authority: a rendered spelling denotes an exact [ConstInfo]
     the SAME untyped/typed vocabulary [GoTypes] owns, never a per-family status relation that can drift.  A
-    bare literal denotes an UNTYPED constant (a bare integer stays UNTYPED — it is NOT labelled [int]; that
-    false premise was the defect, which wrongly rejected a valid inner like the `2^63` of
-    `uint64(2^63)`).  An explicit integer conversion denotes a TYPED constant of the destination type after
-    the representability check, over a recursively-denoting inner spelling.  It reuses the exact GoTypes
-    values and [integer_representableb], reimplementing no representability; it is a DENOTATION tool, NOT a
-    general Go parser (real-Go acceptance is external adequacy).  Float cases are added in Part B. ---- *)
+    bare literal denotes an UNTYPED constant (a bare integer stays UNTYPED — it is NOT labelled [int], so a
+    valid inner like the `2^63` of `uint64(2^63)` denotes at its exact value).  An explicit integer conversion
+    denotes a TYPED constant of the destination type after the representability check, over a
+    recursively-denoting inner spelling.  It reuses the exact GoTypes values and [integer_representableb],
+    reimplementing no representability; it is a DENOTATION tool, NOT a general Go parser (real-Go acceptance is
+    external adequacy). ---- *)
 (** ---- an INDEPENDENT decoder for the canonical Fido decimal-float subset: it recovers the EXACT
     untyped rational value of a canonical spelling.  It is NOT a general Go float parser; the proved property
     is the SEMANTIC round trip [decode_decimal (render_decimal d) = Some (decimal_value d)] (NOT a
@@ -1222,11 +1223,11 @@ Proof.
   exists ci', tc. split; [ reflexivity | split; [ exact Hconv | reflexivity ] ].
 Qed.
 
-(** ★ROOT: rendering an expression denotes EXACTLY the [const_info] GoTypes computes for it — the
+(** rendering an expression denotes EXACTLY the [const_info] GoTypes computes for it — the
     source-spelling / constant-status correspondence, in the ONE ConstInfo vocabulary.  A bare integer/float
-    denotes an UNTYPED constant (the repair: NO false [int] label; a bare float its exact rational); an
-    explicit conversion denotes a TYPED constant of the destination type, through the ONE [convert_const]
-    authority.  It reuses the exact GoTypes/[Floats] values, reimplementing no representability/rounding. *)
+    denotes an UNTYPED constant (no false [int] label; a bare float its exact rational); an explicit
+    conversion denotes a TYPED constant of the destination type, through the ONE [convert_const] authority.
+    It reuses the exact GoTypes/[Floats] values, reimplementing no representability/rounding. *)
 Theorem render_const_info_denotes : forall e ci,
   const_info e = Some ci -> RenderedConstInfoDenotes (render_expr e) ci.
 Proof.
@@ -1642,7 +1643,7 @@ Lemma render_resolved_string_denotes : forall s t,
             /\ ValueDenotesConst v (resolved_const_exact rc).
 Proof. intros s t H; apply render_resolved_expr_denotes; exact H. Qed.
 
-(** ---- integer-repair regressions: a bare integer stays UNTYPED (NO false [int] label) even far above
+(** ---- bare-integer regressions: a bare integer stays UNTYPED (NO false [int] label) even far above
     [int_max]; only an explicit conversion assigns a type, DIRECTLY, after the representability check.  This
     is exactly why `uint64(2^63)` is valid though the bare `2^63` does not fit [int]. ---- *)
 Example repair_bare_render : render_expr (EInt 9223372036854775808) = "9223372036854775808".

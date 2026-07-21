@@ -461,7 +461,7 @@ let sync ?(checkpoint = fun _ -> ()) ?(unlink = Unix.unlink) ?(rename = Unix.ren
   let cleanup_on_failure () =
     List.iter (fun tp ->
       (* observe each temp under its OWN error guard so an lstat failure on one collects an error and does
-         NOT abort cleanup of the remaining temps/dirs ( attempts every temp). *)
+         NOT abort cleanup of the remaining temps/dirs. *)
       match (try `Obs (lstat_obs tp) with Fail m -> `Err m) with
       | `Err m -> cleanup_errors := Printf.sprintf "cannot observe temp %s: %s" tp m :: !cleanup_errors
       | `Obs Missing -> ()

@@ -2,7 +2,7 @@
     implementation: every identity-keyed collection is backed by a mature pinned-Rocq-stdlib map, and every
     membership-only collection by a mature standard set, behind a thin domain wrapper.  This module only
     instantiates standard functors and re-exports the facts Fido needs — it defines no tree/list-backed
-    map/set.  ( pinned-stdlib research + wrapper module.)
+    map/set.
 
     Selected implementations (pinned rocq-stdlib 9.1.0):
     - general string/ordered-key finite map: [FMapAVL] (Rocq's mature standard ordered map; the standard
